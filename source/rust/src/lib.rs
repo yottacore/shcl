@@ -2397,14 +2397,9 @@ impl Parser {
 		// Skipped, but it still owns its indent: whatever is written deeper is
 		// skipped with it, and a sibling at the same bad indent is refused the
 		// same way instead of binding one level up.
-		while self.stack.len() > 1 {
-			let top = &self.stack[self.stack.len() - 1].0;
-			if indent.len() > top.len() && indent.starts_with(top.as_str()) {
-				break;
-			}
-			self.stack.pop();
+		if !matches!(self.stack.last(), Some((i, n)) if i == indent && *n == UNOPENED) {
+			self.stack.push((indent.to_string(), UNOPENED));
 		}
-		self.stack.push((indent.to_string(), UNOPENED));
 		None
 	}
 
