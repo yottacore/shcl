@@ -103,7 +103,7 @@ Going forward, new issues in the new template above will go in the '### New form
 - An unknown escape in double quotes loads silently, with the known escapes around it decoded
 	- ID: 2026092616330237
 	- Type: Bug
-	- Status: Testing
+	- Status: Waiting on signoff
 	- Severity: Avg
 	- Opened: 20260926-163302
 	- Opened by: gitsby feedback, side note
@@ -125,6 +125,7 @@ Going forward, new issues in the new template above will go in the '### New form
 		- `"C:\temp"` still loads with a tab, since `\t` is a real escape. A hint for a drive letter followed by a tab or newline was left out.
 	- Actual fix: `bad_escape` in the field and element line arms of the parser, in `scan_lookup` and in `literal_value`, plus `migrate` edits for names, selectors and values. Rust `bad_escape`, Go `badEscape`, Python `_bad_escape`, C `bad_escape`. Explain entry in all four CLIs, grammar `escape` rule, spec, man page, changelog.
 	- Branch: `escerr`
+	- Commit: `ea4b719`
 	- Test case: corpus `170-unknown-escape`, cli-regress `escape-unknown-*` and `escape-doubled-path` rows, check-abnf `field-line` samples. Each fails on the old code.
 
 ### Bugs
