@@ -1381,7 +1381,9 @@ fn schema_text(s: &str) -> String {
 	s.replace('\n', "\\n")
 }
 
-/// Escape processing (string reads): \t \n \\ \" \'; unknown escapes stay literal.
+/// Escape processing (string reads): \t \n \\ \" \'. An unknown pair stays
+/// literal, which only 2.x text still reaches: the current rules refuse one
+/// (`E023`) before anything is read.
 fn apply_escapes(s: &str) -> String {
 	let mut out = String::with_capacity(s.len());
 	let mut it = s.chars();
@@ -1872,6 +1874,7 @@ fn reads_same(spelling: &str, quoted: bool, logical: &str) -> bool {
 		&& tok.value == (0, spelling.len())
 		&& matches!(tok.elements[0].quote, Quote::Single | Quote::Double) == quoted
 		&& tok.elements[0].quote != Quote::Open
+		&& bad_escape(&tok, spelling, true).is_none()
 		&& piece_text(&tok.elements[0], spelling) == logical
 }
 
@@ -1924,8 +1927,9 @@ fn value_edits(text: &str, tok: &Tokens, edits: &mut Vec<Edit>, st: &mut Migrati
 		}
 		// A resolved escape is the one edit that turns on which rule set wrote
 		// the file: these bytes say one thing under 2.x and another here. An
-		// open quote or an empty slot reads alike either way, so it still goes.
-		if logical != raw && !st.from_v2 {
+		// open quote or an empty slot reads alike either way, so it still goes,
+		// and so does an unknown pair in double quotes, which both kept.
+		if logical != raw && p.quote != Quote::Double && !st.from_v2 {
 			st.ambiguous += 1;
 			continue;
 		}
@@ -1964,6 +1968,15 @@ fn migrate_line(
 		let last = tok.segments.len() - 1;
 		for (i, seg) in tok.segments.iter().enumerate() {
 			let name = &rest[seg.name.start..seg.name.end];
+			// An unknown pair in double quotes read the same in 2.x, and is
+			// E023 now, so its backslash is doubled whichever wrote the file.
+			if seg.name.quote == Quote::Double && unknown_escape(name).is_some() {
+				edits.push((
+					seg.name.start - 1,
+					seg.name.end + 1,
+					escape_name(&apply_escapes(name)).into_owned(),
+				));
+			}
 			if seg.name.quote == Quote::Single && apply_escapes(name) != name {
 				if st.from_v2 {
 					edits.push((
@@ -1999,6 +2012,7 @@ fn migrate_line(
 			}
 			let body = &rest[sel.start..sel.end];
 			let logical = apply_escapes(body);
+			let unknown = sel.quote == Quote::Double && unknown_escape(body).is_some();
 			if i == last && tok.sep.is_none() {
 				if let Some(c) = colon {
 					// `name:[disc]` with nothing after it: 2.x read it as
@@ -2025,7 +2039,7 @@ fn migrate_line(
 					}
 					let spelling = if logical != body {
 						migrate_spelling(&logical, false)
-					} else if quoted {
+					} else if quoted && !unknown {
 						rest[open + 1..close].trim_matches(is_wsp).to_string()
 					} else {
 						migrate_spelling(&logical, true)
@@ -2041,7 +2055,13 @@ fn migrate_line(
 			}
 			// Double quotes already read alike on both sides, so only the other
 			// spellings turn on which rule set wrote the file.
-			if logical != body && sel.quote != Quote::Double {
+			if unknown {
+				edits.push((
+					sel.start - 1,
+					sel.end + 1,
+					migrate_spelling(&logical, false),
+				));
+			} else if logical != body && sel.quote != Quote::Double {
 				if st.from_v2 {
 					let (a, b) = if quoted {
 						(sel.start - 1, sel.end + 1)
@@ -2149,6 +2169,57 @@ fn selector_open_quote(tok: &Tokens) -> bool {
 		.any(|s| s.selector.is_some_and(|p| p.quote == Quote::Open))
 }
 
+/// The character after the first backslash in `raw` that starts none of the
+/// five escapes. Only meaningful for a double-quoted piece.
+fn unknown_escape(raw: &str) -> Option<char> {
+	if !raw.contains('\\') {
+		return None;
+	}
+	let mut it = raw.chars();
+	while let Some(c) = it.next() {
+		if c == '\\' {
+			match it.next() {
+				Some('t' | 'n' | '\\' | '"' | '\'') => {}
+				// A double-quoted piece cannot end on a lone backslash: it
+				// would have escaped the closing quote.
+				other => return other,
+			}
+		}
+	}
+	None
+}
+
+/// The first unknown escape in a double-quoted name, selector body or, when
+/// `values` is set, value element (`E023`). `"C:\work\new"` is the usual
+/// way to get one, and by then its `\n` is already a newline, so the line is
+/// refused rather than read with the pair kept. A raw block's info string is
+/// not escape text, so a fence line passes `values` false.
+fn bad_escape(tok: &Tokens, text: &str, values: bool) -> Option<char> {
+	let dq = |p: &Piece| {
+		if p.quote == Quote::Double {
+			unknown_escape(&text[p.start..p.end])
+		} else {
+			None
+		}
+	};
+	for seg in &tok.segments {
+		if let Some(c) = dq(&seg.name).or_else(|| seg.selector.as_ref().and_then(dq)) {
+			return Some(c);
+		}
+	}
+	if values {
+		return tok.elements.iter().find_map(dq);
+	}
+	None
+}
+
+fn escape_msg(c: char) -> String {
+	format!(
+		"unknown escape '\\{}' in double quotes; write a backslash as '\\\\' or use single quotes",
+		one_line(&c.to_string())
+	)
+}
+
 /// Bracket text (`E019`): a `[` first after the colon. Read off the first
 /// piece rather than the value span, since a capped scan empties the span
 /// and keeps the pieces it built.
@@ -2207,6 +2278,9 @@ fn path_of(tok: &Tokens, text: &str) -> Result<PathScan, String> {
 fn scan_lookup(input: &str) -> Result<PathScan, String> {
 	let mut tok = Tokens::default();
 	tokenize(input, b':', true, Rules::Current, &mut tok);
+	if bad_escape(&tok, input, false).is_some() {
+		return Err("unknown escape in double quotes".to_string());
+	}
 	path_of(&tok, input)
 }
 
@@ -3510,6 +3584,20 @@ impl<'a> Parser<'a> {
 						continue;
 					}
 					tokenize_value(rest, 1, Rules::Current, &mut tok);
+					if let Some(c) = bad_escape(&tok, rest, true) {
+						self.refuse(
+							lineno,
+							"E023",
+							escape_msg(c),
+							Outcome::Retained {
+								text: trim_wsp_end(rest).to_string(),
+								blank_before: had_blank,
+							},
+							indent,
+						);
+						i += 1;
+						continue;
+					}
 					let comment = tok.comment.map(|c| &rest[c..]);
 					// Elements have no node of their own; trivia rides the field.
 					// At the root there is no field (E007), so the comment rides
@@ -3629,6 +3717,22 @@ impl<'a> Parser<'a> {
 					lineno,
 					"E019",
 					"bracket array syntax; an array is comma-separated, without brackets",
+					Outcome::Retained {
+						text: trim_wsp_end(rest).to_string(),
+						blank_before: had_blank,
+					},
+					indent,
+				);
+				i = next;
+				continue;
+			}
+			// Same outcome as bracket text, and judged at the same point: the
+			// pair cannot be read as written or as an escape without guessing.
+			if let Some(c) = bad_escape(&tok, rest, line_fence(&tok, rest).is_none()) {
+				self.refuse(
+					lineno,
+					"E023",
+					escape_msg(c),
 					Outcome::Retained {
 						text: trim_wsp_end(rest).to_string(),
 						blank_before: had_blank,
@@ -6604,15 +6708,19 @@ impl Document {
 /// ends the value exactly as they would in a file. What is refused is what
 /// a file reports as an error, since a setter has no diagnostic to report it
 /// with: a line break, which no file line can hold, an unterminated quote
-/// (E017), and bracket text (E019, the line kept verbatim - writing it as a
-/// two-element array holding `[1` and `2]` would be a different wrong answer).
+/// (E017), bracket text (E019, the line kept verbatim - writing it as a
+/// two-element array holding `[1` and `2]` would be a different wrong answer),
+/// and an unknown escape in double quotes (E023).
 fn literal_value(text: &str) -> Option<Value> {
 	if text.contains('\n') {
 		return None;
 	}
 	let mut tok = Tokens::default();
 	let line = value_half(text, &mut tok);
-	if tok.elements.iter().any(|p| p.quote == Quote::Open) || line[tok.value.0..].starts_with('[') {
+	if tok.elements.iter().any(|p| p.quote == Quote::Open)
+		|| line[tok.value.0..].starts_with('[')
+		|| bad_escape(&tok, &line, true).is_some()
+	{
 		return None;
 	}
 	Some(cell_of_tokens(&tok, &line))

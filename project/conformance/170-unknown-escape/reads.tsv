@@ -1,0 +1,17 @@
+query	type	expected	status
+-	load	ok	-
+-	load	fail	-	strict
+-	lost	0	-
+win	string	-	NotFound
+ok-single	string	C:\work\new	Good
+ok-bare	string	C:\work\new	Good
+ok-doubled	string	C:\work\new	Good
+regex	string	-	NotFound
+"n\ame"	int	-	NotFound
+"n\\ame"	int	-	NotFound
+srv.port	int	-	NotFound
+list	string[]	one|three	Good
+fence	rawinfo	"C:\x"	Good
+fence	raw	body	Good
+last	int	1	Good
+-	paths	ok-single|ok-bare|ok-doubled|list|fence|last	-

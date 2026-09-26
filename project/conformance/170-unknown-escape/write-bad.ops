@@ -1,0 +1,3 @@
+literal	bad	"C:\work"
+literal	bad2	a, "b\q"
+int	"x\w"	1

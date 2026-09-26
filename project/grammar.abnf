@@ -141,10 +141,10 @@ fmt-bare-char   = %x00-08 / %x0B-0C / %x0E-1F / %x21 / %x24-26 / %x28-2B
                 ; (0x20 0x09 0x0D 0x0A 0x2C 0x3A 0x23 0x22 0x27 0x5B 0x5D).
                 ; "\" (0x5C) is in: the formatter leaves a backslash bare.
 
-escape          = "\" non-newline
-                ; inside double quotes only: \t \n \\ \" \' decode on read, and
-                ; any other pair stays as written (\q reads back as \q). Single
-                ; quotes and bare text never process a backslash.
+escape          = "\" ( %s"t" / %s"n" / "\" / DQUOTE / "'" )
+                ; inside double quotes only, and decoded on read. Any other
+                ; pair is E023: the line is kept as written and binds nothing.
+                ; Single quotes and bare text never process a backslash.
 
 ;-----------------------------------------------------------------------------
 ; Block arrays (stacked list form)

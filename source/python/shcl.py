@@ -481,14 +481,16 @@ def _literal_value(text):
 	# ends the value exactly as they would in a file. What is refused is what a
 	# file reports as an error, since a setter has no diagnostic to
 	# report it with: a line break, which no file line can hold, an unterminated
-	# quote (E017), and bracket text (E019, the line kept verbatim - writing it
-	# as a two-element array holding `[1` and `2]` would be a different wrong
-	# answer).
+	# quote (E017), bracket text (E019, the line kept verbatim - writing it as
+	# a two-element array holding `[1` and `2]` would be a different wrong
+	# answer), and an unknown escape in double quotes (E023).
 	if "\n" in text:
 		return None
 	tok = Tokens()
 	s = _value_half(text, tok)
 	if any(p.quote is Quote.OPEN for p in tok.elements) or s[tok.value[0]:tok.value[0] + 1] == b"[":
+		return None
+	if _bad_escape(tok, True) is not None:
 		return None
 	return _cell_of_tokens(tok, s)
 
@@ -1417,7 +1419,9 @@ def _first_where(xs, pred):
 
 
 def _apply_escapes(s):
-	"""Escape processing (string reads): \\t \\n \\\\ \\" \\'; unknown escapes stay literal."""
+	"""Escape processing (string reads): \\t \\n \\\\ \\" \\'. An unknown pair
+	stays literal, which only 2.x text still reaches: the current rules refuse
+	one (E023) before anything is read."""
 	# Fast path: every non-backslash char passes through verbatim, so with no
 	# backslash the output is s itself. Hot at parse time too (_disp_key runs
 	# per node insert), and backslash-free text dominates.
@@ -1740,6 +1744,7 @@ def _reads_same(spelling, quoted, logical):
 	return (
 		(p.quote is Quote.SINGLE or p.quote is Quote.DOUBLE) == quoted
 		and p.quote is not Quote.OPEN
+		and _bad_escape(tok, True) is None
 		and _piece_text(p, tok.src) == logical
 	)
 
@@ -1784,8 +1789,9 @@ def _value_edits(s, tok, edits, st):
 			continue
 		# A resolved escape is the one edit that turns on which rule set wrote
 		# the file: these bytes say one thing under 2.x and another here. An
-		# open quote or an empty slot reads alike either way, so it still goes.
-		if logical != raw and not st.from_v2:
+		# open quote or an empty slot reads alike either way, so it still goes,
+		# and so does an unknown pair in double quotes, which both kept.
+		if logical != raw and p.quote is not Quote.DOUBLE and not st.from_v2:
 			st.ambiguous += 1
 			continue
 		spelling = _migrate_spelling(logical, not (quoted or p.quote is Quote.OPEN))
@@ -1815,6 +1821,10 @@ def _migrate_line(rest, tok, fence, st):
 		last = len(tok.segments) - 1
 		for i, seg in enumerate(tok.segments):
 			name = s[seg.name.start:seg.name.end].decode("utf-8", "surrogatepass")
+			# An unknown pair in double quotes read the same in 2.x, and is
+			# E023 now, so its backslash is doubled whichever wrote the file.
+			if seg.name.quote is Quote.DOUBLE and _unknown_escape(s[seg.name.start:seg.name.end]) is not None:
+				edits.append((seg.name.start - 1, seg.name.end + 1, _escape_name(_apply_escapes(name)).encode("utf-8", "surrogatepass")))
 			if seg.name.quote is Quote.SINGLE and _apply_escapes(name) != name:
 				if st.from_v2:
 					edits.append((seg.name.start - 1, seg.name.end + 1, _escape_name(_apply_escapes(name)).encode("utf-8", "surrogatepass")))
@@ -1840,6 +1850,7 @@ def _migrate_line(rest, tok, fence, st):
 				colon = k - 1
 			body = s[sel.start:sel.end].decode("utf-8", "surrogatepass")
 			logical = _apply_escapes(body)
+			unknown = sel.quote is Quote.DOUBLE and _unknown_escape(s[sel.start:sel.end]) is not None
 			if i == last and tok.sep is None:
 				if colon is not None:
 					# `name:[disc]` with nothing after it: 2.x read it as
@@ -1863,7 +1874,7 @@ def _migrate_line(rest, tok, fence, st):
 						continue
 					if logical != body:
 						spelling = _migrate_spelling(logical, False)
-					elif quoted:
+					elif quoted and not unknown:
 						spelling = _trim_wsp(s[open_at + 1:close].decode("utf-8", "surrogatepass"))
 					else:
 						spelling = _migrate_spelling(logical, True)
@@ -1876,7 +1887,9 @@ def _migrate_line(rest, tok, fence, st):
 				edits.append((colon, colon + 1 + int(spaced), b""))
 			# Double quotes already read alike on both sides, so only the other
 			# spellings turn on which rule set wrote the file.
-			if logical != body and sel.quote is not Quote.DOUBLE:
+			if unknown:
+				edits.append((sel.start - 1, sel.end + 1, _migrate_spelling(logical, False).encode("utf-8", "surrogatepass")))
+			elif logical != body and sel.quote is not Quote.DOUBLE:
 				if st.from_v2:
 					if quoted:
 						a, b = sel.start - 1, sel.end + 1
@@ -1977,6 +1990,46 @@ def _selector_open_quote(tok):
 	return any(seg.selector is not None and seg.selector.quote is Quote.OPEN for seg in tok.segments)
 
 
+def _unknown_escape(raw):
+	"""The character after the first backslash in raw (bytes) that starts
+	none of the five escapes. Only meaningful for a double-quoted piece."""
+	i = raw.find(b"\\")
+	while i >= 0:
+		# A double-quoted piece cannot end on a lone backslash: it would have
+		# escaped the closing quote.
+		if i + 1 >= len(raw):
+			return None
+		if raw[i + 1] not in b"tn\\\"'":
+			return raw[i + 1:].decode("utf-8", "surrogatepass")[0]
+		i = raw.find(b"\\", i + 2)
+	return None
+
+
+def _bad_escape(tok, values):
+	"""The first unknown escape in a double-quoted name, selector body or,
+	when values is set, value element (E023). `"C:\\work\\new"` is the usual
+	way to get one, and by then its `\\n` is already a newline, so the line is
+	refused rather than read with the pair kept. A raw block's info string is
+	not escape text, so a fence line passes values False."""
+	pieces = []
+	for seg in tok.segments:
+		pieces.append(seg.name)
+		if seg.selector is not None:
+			pieces.append(seg.selector)
+	if values:
+		pieces.extend(tok.elements)
+	for p in pieces:
+		if p.quote is Quote.DOUBLE:
+			c = _unknown_escape(tok.src[p.start:p.end])
+			if c is not None:
+				return c
+	return None
+
+
+def _escape_msg(c):
+	return "unknown escape '\\" + _one_line(c) + "' in double quotes; write a backslash as '\\\\' or use single quotes"
+
+
 def _bracket_text(tok):
 	"""Bracket text (E019): a `[` first after the colon. Read off the first
 	piece rather than the value span, since a capped scan empties the span
@@ -2023,6 +2076,8 @@ def _scan_lookup(inp):
 	do. Whitespace around dots, colons and brackets is insignificant."""
 	tok = Tokens()
 	tokenize(inp, ":", True, Rules.CURRENT, tok)
+	if _bad_escape(tok, False) is not None:
+		raise _PathError("unknown escape in double quotes")
 	return _path_of(tok, tok.src)
 
 
@@ -2835,6 +2890,11 @@ class _Parser:
 						i += 1
 						continue
 					tokenize_value(rest, 1, Rules.CURRENT, tok)
+					c = _bad_escape(tok, True)
+					if c is not None:
+						self._refuse(lineno, "E023", _escape_msg(c), _out_retained(_trim_wsp_end(rest), had_blank), indent)
+						i += 1
+						continue
 					comment = tok.src[tok.comment:].decode("utf-8", "surrogatepass") if tok.comment is not None else ""
 					# Elements have no node of their own; trivia rides the field. At the
 					# root there is no field (E007), so the comment rides the document
@@ -2910,6 +2970,13 @@ class _Parser:
 			# which the cap keeps: a cap refuses only a line that would bind.
 			if _bracket_text(tok):
 				self._refuse(lineno, "E019", "bracket array syntax; an array is comma-separated, without brackets", _out_retained(_trim_wsp_end(rest), had_blank), indent)
+				i = nxt
+				continue
+			# Same outcome as bracket text, and judged at the same point: the
+			# pair cannot be read as written or as an escape without guessing.
+			c = _bad_escape(tok, _line_fence(tok) is None)
+			if c is not None:
+				self._refuse(lineno, "E023", _escape_msg(c), _out_retained(_trim_wsp_end(rest), had_blank), indent)
 				i = nxt
 				continue
 			# Element cap: the whole line is refused, so a capped load never

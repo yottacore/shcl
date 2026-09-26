@@ -515,9 +515,15 @@ fi
 
 ##	The stamps terminate an item: an outcome bullet below them makes them stop
 ##	being a reliable end marker, and puts the result furthest from the finding.
+##	Legacy items only. The new issue template, and the section that uses it,
+##	put Opened near the top.
 while IFS= read -r hit; do
 	fBad "backlog.md: sub-bullet below the stamps: ${hit}"
 done < <(awk '
+	/^<!--/                { tmpl = 1 }
+	/-->/                  { tmpl = 0; next }
+	/^### /                { newfmt = ($0 ~ /^### New format/) }
+	tmpl || newfmt         { next }
 	match($0, /^\t+- (Opened|Closed): /) { stamp = NR; indent = length($0) - length(substr($0, RSTART + RLENGTH)); next }
 	stamp == NR - 1 && /^\t+- / { print NR ": " substr($0, 1, 60) }
 	{ stamp = 0 }' "${backlog}" || true)

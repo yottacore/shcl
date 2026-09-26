@@ -3,7 +3,7 @@
 .\"
 .\" Carries no version string on purpose: the release bump touches eight files
 .\" and this is not one of them. Keep it in step with HELP in the four CLIs.
-.TH SHCL 1 2026-09-25 shcl "User Commands"
+.TH SHCL 1 2026-09-26 shcl "User Commands"
 .SH NAME
 shcl \- read, edit, validate and format Simple Hierarchical Config Language files
 .SH SYNOPSIS
@@ -622,6 +622,8 @@ Most of the change is loud: a quote that never closes is
 .BR E017 ,
 bracket text after a colon is
 .BR E019 ,
+an unknown escape in double quotes is
+.BR E023 ,
 and a line the current rules cannot read at all is a malformed line. A file
 carrying one of those says so the first time it loads.
 .PP
