@@ -1,0 +1,16 @@
+# A path typed in double quotes
+win: "C:\work\new"
+ok-single: 'C:\work\new'
+ok-bare: C:\work\new
+ok-doubled: "C:\\work\\new"
+regex: "\d+"
+"n\ame": 1
+srv["a\b"].port: 80
+list:
+	* one
+	* "tw\o"
+	* three
+fence: ```"C:\x"
+body
+```
+last: 1

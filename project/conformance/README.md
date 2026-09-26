@@ -364,6 +364,8 @@ Case `168` pins validation of a schema path whose `[#N]` index is past every int
 
 Case `169` pins the writer's fold two levels down: emptying a block value makes it equal to a later block, and the children the two now share fold at each level, as a reload would.
 
+Case `170` pins an unknown escape in double quotes: `E023` in a value, a quoted name, a selector body and a stacked element. Each line is kept as written and binds nothing, while single quotes, bare text, a doubled backslash and a raw block's info string read clean. Its `write-bad.ops` refuses the pair from `literal` and in a setter path, and its migrate golden doubles each backslash.
+
 Beyond the fixed corpus, the differential harness (`cicd/utility/crosscheck.bash`) also derives accessor coverage over the fuzz set: the reference's fuzz dump writes a `<name>.reads.tsv` beside each dumped input (paths it knows exist, cycling type and strictness), which the `--extra` replay runs through the same row machinery. Every scalar read row - corpus and fuzz-derived - is additionally replayed under `--on-bad=error` (an exit-code differential) and `--default=<x>` (a stdout differential), so the on-bad/default policy surface is pinned cross-binding too. It also runs three `set` edits (a changed value, a new child, a removal) on the first paths of every input, corpus and fuzz alike, so the save that keeps lines is compared well past the goldens.
 
 Not yet modeled natively (as golden files): the on-bad/default outputs (covered cross-binding via the harness above, not by per-row `expected`). Diagnostic expectations are modeled natively via `expected-diags.txt` (above) and cross-binding via the `load` rows.

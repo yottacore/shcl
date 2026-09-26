@@ -1615,9 +1615,11 @@ static ShclValue cell_of_tokens(ShclArena *a, ShclArena *tmp, const ShclTokens *
 // Reads text as the value half of a line - see shcl_set_literal.
 static int literal_value(ShclArena *a, ShclArena *tmp, ShclStr text, ShclValue *out);
 
-// Escape processing (a double-quoted piece): \t \n \\ \" \'; unknown escapes
-// stay literal. Text with no backslash comes back as the slice it came in as -
-// nearly every piece, and a copy per piece would be most of a parse's memory.
+// Escape processing (a double-quoted piece): \t \n \\ \" \'. An unknown pair
+// stays literal, which only 2.x text still reaches: the current rules refuse
+// one (E023) before anything is read. Text with no backslash comes back as the
+// slice it came in as - nearly every piece, and a copy per piece would be most
+// of a parse's memory.
 static ShclStr apply_escapes(ShclArena *a, ShclStr s) {
 	if (!s.n || !memchr(s.p, '\\', s.n)) return s;
 	ShclSB out = {0};
@@ -1637,6 +1639,51 @@ static ShclStr apply_escapes(ShclArena *a, ShclStr s) {
 		}
 	}
 	return sb_S(&out);
+}
+
+/* The character after the first backslash in raw that starts none of the
+   five escapes. Only meaningful for a double-quoted piece. */
+static int unknown_escape(ShclStr raw, uint32_t *c) {
+	if (!raw.n || !memchr(raw.p, '\\', raw.n)) return 0;
+	for (size_t i = 0; i < raw.n; i++) {
+		if (raw.p[i] != '\\') continue;
+		/* A double-quoted piece cannot end on a lone backslash: it would have
+		   escaped the closing quote. */
+		if (i + 1 >= raw.n) return 0;
+		i++;
+		switch (raw.p[i]) {
+		case 't': case 'n': case '\\': case '"': case '\'': break;
+		default: utf8_decode(raw.p, raw.n, i, c); return 1;
+		}
+	}
+	return 0;
+}
+
+/* The first unknown escape in a double-quoted name, selector body or, when
+   values is set, value element (E023). "C:\work\new" is the usual way to get
+   one, and by then its \n is already a newline, so the line is refused rather
+   than read with the pair kept. A raw block's info string is not escape text,
+   so a fence line passes values 0. */
+static int bad_escape(const ShclTokens *tok, ShclStr text, int values, uint32_t *c) {
+	for (size_t i = 0; i < tok->nseg; i++) {
+		const ShclSegTok *seg = &tok->segments[i];
+		if (seg->name.quote == SHCL_QUOTE_DOUBLE && unknown_escape(s_slice(text, seg->name.start, seg->name.end), c)) return 1;
+		if (seg->has_selector && seg->selector.quote == SHCL_QUOTE_DOUBLE && unknown_escape(s_slice(text, seg->selector.start, seg->selector.end), c)) return 1;
+	}
+	if (values)
+		for (size_t i = 0; i < tok->nelem; i++)
+			if (tok->elements[i].quote == SHCL_QUOTE_DOUBLE && unknown_escape(s_slice(text, tok->elements[i].start, tok->elements[i].end), c)) return 1;
+	return 0;
+}
+
+static ShclStr escape_msg(ShclArena *a, uint32_t c) {
+	ShclSB m = {0}; sb_puts(a, &m, "unknown escape '\\");
+	if (c == '\n') sb_puts(a, &m, "\\n");
+	else if (c == '\r') sb_puts(a, &m, "\\r");
+	else if (c == '\t') sb_puts(a, &m, "\\t");
+	else sb_put_cp(a, &m, c);
+	sb_puts(a, &m, "' in double quotes; write a backslash as '\\\\' or use single quotes");
+	return sb_S(&m);
 }
 
 /* The restriction a QUOTED [value] selector adds on top of the display
@@ -1833,10 +1880,12 @@ static ShclStr s_splice(ShclArena *a, ShclStr text, ShclVecEdit *edits) {
 static int reads_same(ShclArena *a, ShclStr spelling, int quoted, ShclStr logical) {
 	ShclTokens tok; memset(&tok, 0, sizeof tok);
 	tokenize_value(a, spelling, 0, SHCL_RULES_CURRENT, &tok);
+	uint32_t c;
 	return tok.nelem == 1
 		&& tok.value_start == 0 && tok.value_end == spelling.n
 		&& piece_quoted(tok.elements[0].quote) == quoted
 		&& tok.elements[0].quote != SHCL_QUOTE_OPEN
+		&& !bad_escape(&tok, spelling, 1, &c)
 		&& s_eq(piece_text(a, &tok.elements[0], spelling), logical);
 }
 
@@ -1877,8 +1926,9 @@ static void value_edits(ShclArena *a, ShclStr text, const ShclTokens *tok, ShclV
 		if (reads_same(a, s_slice(text, ea, eb), quoted, logical)) continue;
 		/* A resolved escape is the one edit that turns on which rule set wrote
 		   the file: these bytes say one thing under 2.x and another here. An
-		   open quote or an empty slot reads alike either way, so it still goes. */
-		if (!s_eq(logical, raw) && !st->from_v2) { st->ambiguous++; continue; }
+		   open quote or an empty slot reads alike either way, so it still goes,
+		   and so does an unknown pair in double quotes, which both kept. */
+		if (!s_eq(logical, raw) && p->quote != SHCL_QUOTE_DOUBLE && !st->from_v2) { st->ambiguous++; continue; }
 		edit_push(a, edits, ea, eb, migrate_spelling(a, logical, !(quoted || p->quote == SHCL_QUOTE_OPEN)));
 	}
 }
@@ -1902,6 +1952,10 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 		for (size_t i = 0; i < tok->nseg; i++) {
 			const ShclSegTok *seg = &tok->segments[i];
 			ShclStr name = s_slice(rest, seg->name.start, seg->name.end);
+			uint32_t uc;
+			/* An unknown pair in double quotes read the same in 2.x, and is
+			   E023 now, so its backslash is doubled whichever wrote the file. */
+			if (seg->name.quote == SHCL_QUOTE_DOUBLE && unknown_escape(name, &uc)) edit_push(a, &edits, seg->name.start - 1, seg->name.end + 1, escape_name(a, apply_escapes(a, name)));
 			if (seg->name.quote == SHCL_QUOTE_SINGLE && !s_eq(apply_escapes(a, name), name)) {
 				if (st->from_v2) edit_push(a, &edits, seg->name.start - 1, seg->name.end + 1, escape_name(a, apply_escapes(a, name)));
 				else st->ambiguous++;
@@ -1921,6 +1975,7 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 			if (k > 0 && rest.p[k - 1] == ':') { has_colon = 1; colon = k - 1; }
 			ShclStr body = s_slice(rest, sel->start, sel->end);
 			ShclStr logical = apply_escapes(a, body);
+			int unknown = sel->quote == SHCL_QUOTE_DOUBLE && unknown_escape(body, &uc);
 			if (i == last && !tok->has_sep) {
 				if (has_colon) {
 					/* name:[disc] with nothing after it: 2.x read it as
@@ -1939,7 +1994,7 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 					if (!s_eq(logical, body) && !st->from_v2) { st->ambiguous++; continue; }
 					ShclStr spelling;
 					if (!s_eq(logical, body)) spelling = migrate_spelling(a, logical, 0);
-					else if (quoted) spelling = s_trim_wsp(s_slice(rest, open + 1, close));
+					else if (quoted && !unknown) spelling = s_trim_wsp(s_slice(rest, open + 1, close));
 					else spelling = migrate_spelling(a, logical, 1);
 					ShclSB sb = {0}; sb_puts(a, &sb, ": "); sb_putS(a, &sb, spelling);
 					edit_push(a, &edits, colon, close + 1, sb_S(&sb));
@@ -1953,7 +2008,8 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 			}
 			/* Double quotes already read alike on both sides, so only the other
 			   spellings turn on which rule set wrote the file. */
-			if (!s_eq(logical, body) && sel->quote != SHCL_QUOTE_DOUBLE) {
+			if (unknown) edit_push(a, &edits, sel->start - 1, sel->end + 1, migrate_spelling(a, logical, 0));
+			else if (!s_eq(logical, body) && sel->quote != SHCL_QUOTE_DOUBLE) {
 				if (st->from_v2) {
 					size_t ea = quoted ? sel->start - 1 : sel->start, eb = quoted ? sel->end + 1 : sel->end;
 					edit_push(a, &edits, ea, eb, migrate_spelling(a, logical, 0));
@@ -2271,6 +2327,11 @@ static ShclPathScan path_of(ShclArena *a, const ShclTokens *tok, ShclStr text) {
 static ShclPathScan scan_lookup(ShclArena *a, ShclStr input) {
 	ShclTokens tok; memset(&tok, 0, sizeof tok);
 	tokenize(a, input, ':', 1, SHCL_RULES_CURRENT, &tok);
+	uint32_t c;
+	if (bad_escape(&tok, input, 0, &c)) {
+		ShclPathScan ps; ps.ok = 0; memset(&ps.segs, 0, sizeof ps.segs); ps.has_value = 0; ps.value_text = s_empty(); ps.err = s_lit("unknown escape in double quotes");
+		return ps;
+	}
 	return path_of(a, &tok, input);
 }
 
@@ -3888,6 +3949,11 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 				if (!resolve_parent(&P, indent, found, &parent)) { misplaced(&P, lineno, "E012", indent, rest, had_blank, 0); i++; continue; }
 				if (parent == DEAD) { misplaced(&P, lineno, "E018", indent, rest, had_blank, 0); i++; continue; }
 				tokenize_value(P.tmp, rest, 1, SHCL_RULES_CURRENT, &tok);
+				uint32_t esc;
+				if (bad_escape(&tok, rest, 1, &esc)) {
+					p_refuse(&P, lineno, "E023", escape_msg(P.line, esc), out_retained(trim_wsp_end(rest), had_blank), indent);
+					i++; continue;
+				}
 				ShclStr ecomment = tok.has_comment ? s_slice(rest, tok.comment, rest.n) : s_empty();
 				/* Elements have no node of their own; trivia rides the field. At the
 				   root there is no field (E007), so the comment rides the document
@@ -3946,6 +4012,13 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 		   cap keeps: a cap refuses only a line that would bind. */
 		if (bracket_text(&tok, rest)) {
 			p_refuse(&P, lineno, "E019", s_lit("bracket array syntax; an array is comma-separated, without brackets"), out_retained(trim_wsp_end(rest), had_blank), indent);
+			i = next; continue;
+		}
+		/* Same outcome as bracket text, and judged at the same point: the pair
+		   cannot be read as written or as an escape without guessing. */
+		uint32_t esc;
+		if (bad_escape(&tok, rest, !line_fence(&tok, rest).ok, &esc)) {
+			p_refuse(&P, lineno, "E023", escape_msg(P.line, esc), out_retained(trim_wsp_end(rest), had_blank), indent);
 			i = next; continue;
 		}
 		/* Element cap: the whole line is refused, so a capped load never holds
@@ -5081,8 +5154,9 @@ int shcl_set_string(shcl_doc *d, const char *path, size_t plen, const char *s, s
    the value exactly as they would in a file. What is refused is what a
    file reports as an error, since a setter has no diagnostic to report it
    with: a line break, which no file line can hold, an unterminated quote
-   (E017), and bracket text (E019, the line kept verbatim - writing it as a
-   two-element array holding `[1` and `2]` would be a different wrong answer). */
+   (E017), bracket text (E019, the line kept verbatim - writing it as a
+   two-element array holding `[1` and `2]` would be a different wrong answer),
+   and an unknown escape in double quotes (E023). */
 static int literal_value(ShclArena *a, ShclArena *tmp, ShclStr text, ShclValue *out) {
 	for (size_t i = 0; i < text.n; i++) { if (text.p[i] == '\n') return 0; }
 	/* One copy of the value text up front: the elements slice it, and the
@@ -5091,6 +5165,8 @@ static int literal_value(ShclArena *a, ShclArena *tmp, ShclStr text, ShclValue *
 	ShclStr line = value_half(a, tmp, text, &tok);
 	for (size_t i = 0; i < tok.nelem; i++) if (tok.elements[i].quote == SHCL_QUOTE_OPEN) return 0;
 	if (tok.value_start < line.n && line.p[tok.value_start] == '[') return 0;
+	uint32_t c;
+	if (bad_escape(&tok, line, 1, &c)) return 0;
 	*out = cell_of_tokens(a, tmp, &tok, line);
 	return 1;
 }

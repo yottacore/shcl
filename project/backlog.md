@@ -28,9 +28,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Conventions
 
-In each section, items are listed approximately from newest to oldest. Inside Done and Canceled, loose items come first and code-review rounds after, each run newest first.
-
-Statii:
+Legacy statuses:
 
 - 🔘 Not started
 
@@ -44,57 +42,90 @@ Statii:
 
 - 🚫 Canceled
 
-To make using these icons easier if desired, add them to a clipboard or key macro manager. (This format is "temporary" anyway [albeit for a while now], until we switch over to nano-git-db for the minor stuff, and GitHub Issues for the bigger stuff.)
+<!-- New issue template
 
-Sub-bullets under an item lead with what they are, so an item can be read by skimming the prefixes.
+Only use rows that you actually need or expect will be filled in. Always fill in the title, ID, Type, Status, Opened and Created by.
 
-- `Reproduced:` what was actually seen
+The ID is the local time to the hundredth of a second. Opened is when it was written down, which may differ. (Use a keyboard macro and possibly something like project 'zuid' to generate.)
 
-- `Cause:` why
+Status values, in sort order: Started, Testing, Waiting on signoff, Stalled, Queued, Deferred, Done, Moot, Canceled. Testing means the fix is in and checks are running or still to run. Waiting on signoff means testing passed. Moot means something else changed and made it irrelevant. Canceled means it still applies but was decided against.
 
-- `Decided:` a call that had to be made before code
+Rows marked [Bug] are for bugs only, and rows marked [Feature] for features and enhancements. Children are not nested. They sit at the top level and point back with Parent ID.
 
-- `Fixed:` what changed
+- Title
+	- ID: YYYYmmDDHHMMSSNN
+	- Type: [Bug|Feature|Enhancement|Task]
+	- Status: [Queued|Started|Stalled|Testing|Waiting on signoff|Moot|Canceled|Deferred|Done]
+	- Priority|Severity [Bug]: [Critical|High|Avg|Low]
+	- Opened: YYYYmmDD-HHMMSS
+	- Opened by:
+	- Assigned to:
+	- Parent ID: YYYYmmDDHHMMSSNN
+	- Prereq IDs:
+		- YYYYmmDDHHMMSSNN
+	- Related IDs:
+		- YYYYmmDDHHMMSSNN
+	- Target OS:
+	- Test environment:
+	- Version and build:
+	- Requirements  [Feature]:
+		- Hierarchical bulleted list.
+	- Steps to reproduce [Bug]:
+		- ...
+	- Incorrect behavior [Bug]:
+	- Expected behavior [Bug]:
+	- Reproduced [Bug]: [No, or when, where and how]
+	- Possible cause [Bug]:
+	- Actual cause [Bug]:
+		- ...
+	- Estimated effort: [High|Avg|Low]
+	- Actual effort: [High|Avg|Low]
+	- Progress log:
+		- YYYYmmDD-HHMMSS: Notable effort.
+	- Decisions:
+		- ...
+	- Actual fix [Bug]:
+	- Branch:
+	- Commit:
+	- Test case: [Reason not applicable, or CI test case #]
+	- Acceptance signoff:
+	- Superseded by ID: YYYYmmDDHHMMSSNN
+	- Closed: YYYYmmDD-HHMMSS
 
-- `Pinned by:` what now fails if it comes back
-
-- `Left alone:` what was looked at and deliberately not touched
-
-- `Measured:` a number
-
-- `Note:` anything else.
-
-- `Probable fix:` the likely fix, before one is made.
-
-- `Done:` what was built, for a feature.
-
-- `Verified:` how a fix was checked after it went in.
-
-- `Origin:` the commit or round that brought the defect in, and whether it was reproduced (Confirmed) or read only (Plausible).
-
-- `Rests on:` the rule or document the item is judged against.
-
-- `Decided against:` an observation closed with the reason, instead of left unfiled.
-
-- `Keep:` a recorded decision the item sits on, so the fix does not move it.
-
-- `Against:` a recorded decision the fix touches. A fix never reverses one on its own. A reversal is filed as an enhancement that names the decision, and only a `Decided:` line settles it.
-
-- `Sweep:` the sibling sites a class fix has to cover. An item with one does not close until a `Swept:` line names each site, or the grep that shows there are no others.
-
-A fix that depends on an order or a reason the code does not show says so in a comment at the site, and its test fails when the reason is broken, not only when the symptom comes back.
-
-A class that has come back twice gets a table in `design.md` marked as the rule, as Load outcomes and Lexical edges are. Each later item in the class names its row.
-
-A trap written into memory that describes a hole in a gate becomes a gate change or an open item the same day. A pin runs the path a user runs: the documented command line, the downloaded bytes. A grep of the source for the fix is not a pin.
-
-A fix said to be in all four bindings has to name the function for each. "In all four" on its own can't be checked by anyone reading later.
-
-Each item should include the date it was opened and closed. If the open date is unknown, it says "n/a". A deferred item keeps only its opened date.
-
-Issues opened by automated code reviews should be grouped under a main bullet with YYYYmmDD, and each one should get programmer review for validity and accuracy.
+-->
 
 ## Backlog
+
+Going forward, new issues in the new template above will go in the '### New format' section only. No more status emojis, but will be sorted (top-down) by status, then severity|priority. Issues in the old format (with status emojis) won't be refactored, but will continue to be worked until moved to closed, canceled, or deferred sections, and emojis updated. (Eventually this will all be moved to nano-git-db anyway. This new template is an intermediate effort to make issues going forward more structured and importable.)
+
+### New format
+
+- An unknown escape in double quotes loads silently, with the known escapes around it decoded
+	- ID: 2026092616330237
+	- Type: Bug
+	- Status: Testing
+	- Severity: Avg
+	- Opened: 20260926-163302
+	- Opened by: gitsby feedback, side note
+	- Version and build: dev at `efb626f`, format 3 before `v3.0.0-beta1`
+	- Steps to reproduce:
+		- A file holding `a: "C:\work\new"`.
+		- `shcl check FILE`, then `shcl get FILE a`.
+	- Incorrect behavior: `check` says ok, and `get` prints `C:\work`, a newline, then `ew`. The `\w` stays as written and the `\n` turns into a newline.
+	- Expected behavior: an error, since `\w` is not an escape and the line was plainly a path.
+	- Reproduced: 20260926, on the Rust CLI.
+	- Actual cause:
+		- The escape rule kept any pair it did not know, which is 2.x's and older Python's rule. TOML, YAML, JSON, Rust and Go all refuse one.
+	- Estimated effort: Avg
+	- Decisions:
+		- 20260926: refuse the pair as a new error, `E023`, rather than add a hint. 3.0 is the last point a stricter rule goes in without another major.
+		- The line is retained like `E019`: it binds nothing, a read is `NotFound`, and a save keeps it. A lookup path or `SetLiteral` text holding one is refused.
+		- A raw block's info string is not escape text, so it is not checked.
+		- `migrate` doubles the backslash, which 2.x and 3.0 read alike.
+		- `"C:\temp"` still loads with a tab, since `\t` is a real escape. A hint for a drive letter followed by a tab or newline was left out.
+	- Actual fix: `bad_escape` in the field and element line arms of the parser, in `scan_lookup` and in `literal_value`, plus `migrate` edits for names, selectors and values. Rust `bad_escape`, Go `badEscape`, Python `_bad_escape`, C `bad_escape`. Explain entry in all four CLIs, grammar `escape` rule, spec, man page, changelog.
+	- Branch: `escerr`
+	- Test case: corpus `170-unknown-escape`, cli-regress `escape-unknown-*` and `escape-doubled-path` rows, check-abnf `field-line` samples. Each fails on the old code.
 
 ### Bugs
 
@@ -186,10 +217,6 @@ Issues opened by automated code reviews should be grouped under a main bullet wi
 
 **Stop here for a release cut**.
 
-- 🔘 Cut `v3.0.0-beta1`, after everything above.
-	- Note: short release notes that just say issues were fixed, and a short changelog that names the fixes. This release only.
-	- Opened: 20260925-115006
-
 - Code review 20260924d:
 
 	- 🔘 Idea 1: stage 7's fallback destination `~/.local/bin` is now also the dogfood runner's link and the installer's user link.
@@ -216,6 +243,10 @@ Issues opened by automated code reviews should be grouped under a main bullet wi
 		- Note: packages are the same bytes on one box, but a different tool version on another box changes them with no warning. `ci.yml` must install the pinned versions in the same commit.
 		- Note: `nfpm` pinned 2026-09-26, so hosted CI can run the stub-package rows. `makensis` is left.
 		- Opened: 20260924-133723
+
+- 🔘 Cut `v3.0.0-beta1`, after everything above.
+	- Note: short release notes that just say issues were fixed, and a short changelog that names the fixes. This release only.
+	- Opened: 20260925-115006
 
 ### Done
 

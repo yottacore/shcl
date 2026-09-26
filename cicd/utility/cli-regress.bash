@@ -501,6 +501,14 @@ rows=(
 	'sugar-write-refused|fmt --write %W%|-|7|-|dropped 1 line'
 	'sugar-migrate|migrate %W%|-|0|base: Boston\n\tlat: 42\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	'sugar-migrate-write|migrate --write %W%|-|0||-'
+	## An unknown escape in double quotes is refused and kept as written, not
+	## read with the pair kept after its `\n` already turned into a newline.
+	'escape-unknown-check|check -|a: "C:\\work\\new"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 unknown escape .\\w. in double quotes; write a backslash as .\\\\. or use single quotes$'
+	'escape-unknown-read|get - a|a: "C:\\work"\n|3|\n|no value at that path'
+	'escape-unknown-literal|set %F2%|literal\tx\t"C:\\work"\n|1||^op line 1: cannot write x'
+	'escape-unknown-path|get - "a\w"|"a\\\\w": 1\n|3|\n|no value at that path'
+	'escape-doubled-path|get - "a\\w"|"a\\\\w": 1\n|0|1\n|-'
+	'escape-unknown-migrate|migrate -|q: "C:\\work"\n|0|q: "C:\\\\work"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	## 20260909 item 4: a 3.0 file spells a backslash value the same way a 2.x
 	## one does, so migrating on a guess changed a correct file at exit 0. The
 	## file has to say which rules wrote it, or the caller has to.

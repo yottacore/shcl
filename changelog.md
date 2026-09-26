@@ -16,6 +16,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Bracket text after a colon, such as `ports: [80, 443]`, is `E019`. The line is kept as written and binds nothing.
 
+- An escape in double quotes other than `\t`, `\n`, `\\`, `\"` and `\'` is `E023`, so `"C:\work\new"` no longer loads with a newline in it. The line is kept as written and binds nothing. `migrate` doubles the backslash.
+
 - A quote opens a quoted piece only as its first character. One that never closes is read as text and reported as `E017`.
 
 - `shcl migrate FILE --from-2x` rewrites a 2.x file for these rules and leaves comments and layout alone.

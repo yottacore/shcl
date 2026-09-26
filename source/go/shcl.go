@@ -1465,7 +1465,9 @@ func schemaText(s string) string {
 	return strings.ReplaceAll(s, "\n", "\\n")
 }
 
-// applyEscapes handles string reads: \t \n \\ \" \'; unknown escapes stay literal.
+// applyEscapes handles string reads: \t \n \\ \" \'. An unknown pair stays
+// literal, which only 2.x text still reaches: the current rules refuse one
+// (E023) before anything is read.
 func applyEscapes(s string) string {
 	// Bytes: every escape this recognizes is ASCII, and any other byte - a
 	// continuation byte included - is copied through untouched, so the result
@@ -2026,6 +2028,9 @@ func readsSame(spelling string, quoted bool, logical string) bool {
 	if len(tok.Elements) != 1 || tok.Value != [2]int{0, len(spelling)} {
 		return false
 	}
+	if _, bad := badEscape(&tok, spelling, true); bad {
+		return false
+	}
 	p := &tok.Elements[0]
 	return (p.Quote == QuoteSingle || p.Quote == QuoteDouble) == quoted &&
 		p.Quote != QuoteOpen && pieceText(p, spelling) == logical
@@ -2076,8 +2081,9 @@ func valueEdits(text string, tok *Tokens, edits *[]edit, st *migrating) {
 		}
 		// A resolved escape is the one edit that turns on which rule set wrote
 		// the file: these bytes say one thing under 2.x and another here. An
-		// open quote or an empty slot reads alike either way, so it still goes.
-		if logical != raw && !st.fromV2 {
+		// open quote or an empty slot reads alike either way, so it still goes,
+		// and so does an unknown pair in double quotes, which both kept.
+		if logical != raw && p.Quote != QuoteDouble && !st.fromV2 {
 			st.ambiguous++
 			continue
 		}
@@ -2112,6 +2118,11 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 		for i := range tok.Segments {
 			seg := &tok.Segments[i]
 			name := rest[seg.Name.Start:seg.Name.End]
+			// An unknown pair in double quotes read the same in 2.x, and is
+			// E023 now, so its backslash is doubled whichever wrote the file.
+			if _, bad := unknownEscape(name); bad && seg.Name.Quote == QuoteDouble {
+				edits = append(edits, edit{start: seg.Name.Start - 1, end: seg.Name.End + 1, with: escapeName(applyEscapes(name))})
+			}
 			if seg.Name.Quote == QuoteSingle && applyEscapes(name) != name {
 				if st.fromV2 {
 					edits = append(edits, edit{start: seg.Name.Start - 1, end: seg.Name.End + 1, with: escapeName(applyEscapes(name))})
@@ -2150,6 +2161,8 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 			}
 			body := rest[sel.Start:sel.End]
 			logical := applyEscapes(body)
+			_, unknown := unknownEscape(body)
+			unknown = unknown && sel.Quote == QuoteDouble
 			if i == last && tok.Sep < 0 {
 				if colon >= 0 {
 					// `name:[disc]` with nothing after it: 2.x read it as
@@ -2177,7 +2190,7 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 					var spelling string
 					if logical != body {
 						spelling = migrateSpelling(logical, false)
-					} else if quoted {
+					} else if quoted && !unknown {
 						spelling = trimWsp(rest[open+1 : close])
 					} else {
 						spelling = migrateSpelling(logical, true)
@@ -2196,7 +2209,9 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 			}
 			// Double quotes already read alike on both sides, so only the other
 			// spellings turn on which rule set wrote the file.
-			if logical != body && sel.Quote != QuoteDouble {
+			if unknown {
+				edits = append(edits, edit{start: sel.Start - 1, end: sel.End + 1, with: migrateSpelling(logical, false)})
+			} else if logical != body && sel.Quote != QuoteDouble {
 				if st.fromV2 {
 					a, b := sel.Start, sel.End
 					if quoted {
@@ -2310,6 +2325,66 @@ func selectorOpenQuote(tok *Tokens) bool {
 	return false
 }
 
+// unknownEscape is the character after the first backslash in raw that starts
+// none of the five escapes. Only meaningful for a double-quoted piece.
+func unknownEscape(raw string) (rune, bool) {
+	if !strings.Contains(raw, "\\") {
+		return 0, false
+	}
+	for i := 0; i < len(raw); i++ {
+		if raw[i] != '\\' {
+			continue
+		}
+		// A double-quoted piece cannot end on a lone backslash: it would have
+		// escaped the closing quote.
+		if i+1 >= len(raw) {
+			return 0, false
+		}
+		i++
+		switch raw[i] {
+		case 't', 'n', '\\', '"', '\'':
+		default:
+			r, _ := utf8.DecodeRuneInString(raw[i:])
+			return r, true
+		}
+	}
+	return 0, false
+}
+
+// badEscape finds the first unknown escape in a double-quoted name, selector
+// body or, when values is set, value element (E023). `"C:\work\new"` is the
+// usual way to get one, and by then its `\n` is already a newline, so the line
+// is refused rather than read with the pair kept. A raw block's info string is
+// not escape text, so a fence line passes values false.
+func badEscape(tok *Tokens, text string, values bool) (rune, bool) {
+	dq := func(p *Piece) (rune, bool) {
+		if p == nil || p.Quote != QuoteDouble {
+			return 0, false
+		}
+		return unknownEscape(text[p.Start:p.End])
+	}
+	for i := range tok.Segments {
+		if r, ok := dq(&tok.Segments[i].Name); ok {
+			return r, true
+		}
+		if r, ok := dq(tok.Segments[i].Selector); ok {
+			return r, true
+		}
+	}
+	if values {
+		for i := range tok.Elements {
+			if r, ok := dq(&tok.Elements[i]); ok {
+				return r, true
+			}
+		}
+	}
+	return 0, false
+}
+
+func escapeMsg(r rune) string {
+	return "unknown escape '\\" + oneLine(string(r)) + "' in double quotes; write a backslash as '\\\\' or use single quotes"
+}
+
 // bracketText reports bracket text (E019): a `[` first after the colon. Read
 // off the first piece rather than the value span, since a capped scan
 // empties the span and keeps the pieces it built.
@@ -2374,6 +2449,9 @@ func pathOf(tok *Tokens, text string) (pathScan, error) {
 func scanLookup(input string) (pathScan, error) {
 	var tok Tokens
 	Tokenize(input, ':', true, RulesCurrent, &tok)
+	if _, bad := badEscape(&tok, input, false); bad {
+		return pathScan{}, errors.New("unknown escape in double quotes")
+	}
 	return pathOf(&tok, input)
 }
 
@@ -3513,6 +3591,11 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 					continue
 				}
 				TokenizeValue(rest, 1, RulesCurrent, &tok)
+				if r, bad := badEscape(&tok, rest, true); bad {
+					p.refuse(lineno, "E023", escapeMsg(r), outRetained(trimEndWS(rest), hadBlank), indent)
+					i++
+					continue
+				}
 				comment := ""
 				if tok.Comment >= 0 {
 					comment = rest[tok.Comment:]
@@ -3607,6 +3690,14 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 		// the cap keeps: a cap refuses only a line that would bind.
 		if bracketText(&tok, rest) {
 			p.refuse(lineno, "E019", "bracket array syntax; an array is comma-separated, without brackets", outRetained(trimEndWS(rest), hadBlank), indent)
+			i = next
+			continue
+		}
+		// Same outcome as bracket text, and judged at the same point: the
+		// pair cannot be read as written or as an escape without guessing.
+		_, _, _, fenced := lineFence(&tok, rest)
+		if r, bad := badEscape(&tok, rest, !fenced); bad {
+			p.refuse(lineno, "E023", escapeMsg(r), outRetained(trimEndWS(rest), hadBlank), indent)
 			i = next
 			continue
 		}
@@ -6528,8 +6619,9 @@ func boolText(v bool) string {
 // quotes ends the value exactly as they would in a file. What is refused is
 // what a file reports as an error, since a setter has no diagnostic to report
 // it with: a line break, which no file line can hold, an unterminated quote
-// (E017), and bracket text (E019, the line kept verbatim - writing it as a
-// two-element array holding `[1` and `2]` would be a different wrong answer).
+// (E017), bracket text (E019, the line kept verbatim - writing it as a
+// two-element array holding `[1` and `2]` would be a different wrong answer),
+// and an unknown escape in double quotes (E023).
 func literalValue(text string) (value, bool) {
 	if strings.Contains(text, "\n") {
 		return value{}, false
@@ -6542,6 +6634,9 @@ func literalValue(text string) (value, bool) {
 		}
 	}
 	if strings.HasPrefix(line[tok.Value[0]:], "[") {
+		return value{}, false
+	}
+	if _, bad := badEscape(&tok, line, true); bad {
 		return value{}, false
 	}
 	return cellOfTokens(&tok, line), true
