@@ -131,17 +131,33 @@ fOneLine2x(){ awk '
 	{ v = v "\n" $0 }
 	END { put() }'; }
 
+##	A quoted name as the current CLI spells it: an invisible character is a
+##	\u escape now, and 2.x wrote it as it is. The name is the same either way,
+##	so only the 2.x side's paths are respelled. The list is `invisible` in the
+##	bindings.
+fSpellNames2x(){ python3 -c '
+import sys
+hide = set(range(0x00, 0x09)) | set(range(0x0B, 0x20)) | set(range(0x7F, 0xA0)) \
+	| {0x061C, 0x200B, 0x200E, 0x200F, 0xFEFF} | set(range(0x2028, 0x202F)) \
+	| set(range(0x2060, 0x2065)) | set(range(0x2066, 0x206A))
+text = sys.stdin.buffer.read().decode("utf-8", "surrogateescape")
+sys.stdout.buffer.write("".join("\\u%04X" % ord(c) if ord(c) in hide and c != "\n" else c for c in text).encode("utf-8", "surrogateescape"))
+'; }
+
 ##	Everything a tree is, read through one CLI: the paths, the count at each,
 ##	and per instance the string array, the raw body and the info string, with
 ##	the exit codes, one line per read. A path holding a tab cannot ride the
 ##	loop; those are left to the native runners.
 fReadTree(){
-	local cli="$1" doc="$2" p n i q rc
-	"${cli}" paths "${doc}" 2>/dev/null || echo "paths exit $?"
+	local cli="$1" doc="$2" p n i q rc spell=cat
+	if [[ "${cli}" == "${oldCli}" ]]; then spell=fSpellNames2x; fi
+	rc=0; "${cli}" paths "${doc}" > "${tmpDir}/paths" 2>/dev/null || rc=$?
+	"${spell}" < "${tmpDir}/paths"
+	((rc == 0)) || echo "paths exit ${rc}"
 	while IFS= read -r p; do
 		[[ -n "${p}" && "${p}" != *$'\t'* ]] || continue
 		n="$("${cli}" count "${doc}" "${p}" 2>/dev/null || true)"
-		echo "count ${p} = ${n}"
+		echo "count $("${spell}" <<<"${p}") = ${n}"
 		[[ "${n}" =~ ^[0-9]+$ ]] || continue
 		for ((i = 0; i < n; i++)); do
 			q="${p}[#${i}]"

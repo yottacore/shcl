@@ -214,7 +214,7 @@ Case `092` pins that a default form refuses a wildcard path whether or not its s
 
 Case `093` pins `allowed` on a datetime with an offset: the same instant written at another offset matches, across a day boundary too, and the same clock at another offset does not.
 
-Case `094` pins what trimming takes off a bare piece: a space, a tab and a carriage return. A no-break space, a line separator, a vertical tab or a form feed at an edge is content, kept and quoted on output.
+Case `094` pins what trimming takes off a bare piece: a space, a tab and a carriage return. A no-break space, a line separator, a vertical tab or a form feed at an edge is content, kept and quoted on output, and the last three come back as `\u` escapes.
 
 Case `095` pins that a dropped element holds its level: what is written under an `E008`, `E009` or `E011` element is `E018` and lost with it.
 
@@ -254,7 +254,7 @@ Case `113` pins `init` spelling a line break in a by-value selector and in a nam
 
 Case `114` pins raw reads: an empty binding is `Empty` for `raw` and `rawinfo`, a value that is not a block is `BadType`, and a block reads its body and label.
 
-Case `115` pins a carriage return as a blank outside a raw body: trimmed at the edge of a name, a selector, a value, an element and a comment, and content in the middle of one.
+Case `115` pins a carriage return as a blank outside a raw body: trimmed at the edge of a name, a selector, a value, an element and a comment, and content in the middle of one. Canonical output spells that middle one `\u000D`.
 
 Case `116` pins a selector body that opens a quote it never closes: `E017`, kept as bare text quotes and all, so `srv["prod]` is its own instance and not `srv[prod]`, and a line whose selector and value both open one reports each.
 
@@ -371,6 +371,8 @@ Case `171` pins the Windows path hint `H004`: a drive or share path in double qu
 Case `172` pins a quoted number with a leading zero: it keeps its quotes through canonical output, element by element, while a bare one stays bare and a quoted `0.5`, `0` or hex value comes back bare. Int and float reads drop the zeros, and a string read keeps them.
 
 Case `173` pins the `0x`, `0o` and `0b` integer prefixes in either case and with a sign, a bare leading zero read as decimal, bad digits and an empty prefix as `BadType`, the int range at both ends, and a float read past it.
+
+Case `174` pins `\u` and `\U` escapes in double quotes: in values, a quoted name, a selector body and a lookup path. A short run, a surrogate, a value past U+10FFFF and non-hex digits are `E023`, and single quotes keep the pair as written. Canonical output writes a zero-width space, an override and a NUL as escapes and leaves the zero-width joiner and an accented letter as they are. Its `write-bad.ops` refuses the bad escapes from `literal` and in a setter path, and its migrate golden doubles every `\u` backslash, since 2.x kept the pair as written.
 
 Beyond the fixed corpus, the differential harness (`cicd/utility/crosscheck.bash`) also derives accessor coverage over the fuzz set: the reference's fuzz dump writes a `<name>.reads.tsv` beside each dumped input (paths it knows exist, cycling type and strictness), which the `--extra` replay runs through the same row machinery. Every scalar read row - corpus and fuzz-derived - is additionally replayed under `--on-bad=error` (an exit-code differential) and `--default=<x>` (a stdout differential), so the on-bad/default policy surface is pinned cross-binding too. It also runs three `set` edits (a changed value, a new child, a removal) on the first paths of every input, corpus and fuzz alike, so the save that keeps lines is compared well past the goldens.
 

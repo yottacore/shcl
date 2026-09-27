@@ -135,16 +135,24 @@ fmt-bareword    = 1*fmt-bare-char
                 ; shapes keep getting confused: this class WAS the parse-side
                 ; rule until 2026-09-20, which left the grammar unable to
                 ; derive "q: needs no quotes" - the most ordinary line there is.
-fmt-bare-char   = %x00-08 / %x0B-0C / %x0E-1F / %x21 / %x24-26 / %x28-2B
-                / %x2D-39 / %x3B-5A / %x5C / %x5E-10FFFF
+fmt-bare-char   = %x21 / %x24-26 / %x28-2B / %x2D-39 / %x3B-5A / %x5C
+                / %x5E-7E / %xA0-61B / %x61D-200A / %x200C-200D
+                / %x2010-2027 / %x202F-205F / %x2065 / %x206A-FEFE
+                / %xFF00-10FFFF
                 ; excludes a blank, LF, "," ":" "#" DQUOTE "'" "[" "]"
-                ; (0x20 0x09 0x0D 0x0A 0x2C 0x3A 0x23 0x22 0x27 0x5B 0x5D).
-                ; "\" (0x5C) is in: the formatter leaves a backslash bare.
+                ; (0x20 0x09 0x0D 0x0A 0x2C 0x3A 0x23 0x22 0x27 0x5B 0x5D),
+                ; and each character the formatter writes as a \u escape:
+                ; controls, 061C, 200B, 200E-200F, 2028-202E, 2060-2064,
+                ; 2066-2069 and FEFF. "\" (0x5C) is in: the formatter leaves
+                ; a backslash bare.
 
-escape          = "\" ( %s"t" / %s"n" / "\" / DQUOTE / "'" )
+escape          = "\" ( %s"t" / %s"n" / "\" / DQUOTE / "'"
+                / %s"u" 4HEXDIG / %s"U" 8HEXDIG )
                 ; inside double quotes only, and decoded on read. Any other
                 ; pair is E023: the line is kept as written and binds nothing.
-                ; Single quotes and bare text never process a backslash.
+                ; So is a \u or \U naming a surrogate (D800-DFFF) or a value
+                ; past 10FFFF. Single quotes and bare text never process a
+                ; backslash.
 
 ;-----------------------------------------------------------------------------
 ; Block arrays (stacked list form)

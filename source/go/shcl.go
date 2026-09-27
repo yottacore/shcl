@@ -1455,10 +1455,20 @@ func schemaText(s string) string {
 	return strings.ReplaceAll(s, "\n", "\\n")
 }
 
-// applyEscapes handles string reads: \t \n \\ \" \'. An unknown pair stays
-// literal, which only 2.x text still reaches: the current rules refuse one
-// (E023) before anything is read.
+// applyEscapes handles string reads: \t \n \\ \" \' \uXXXX \UXXXXXXXX. An
+// unknown pair stays literal, which only 2.x text still reaches: the current
+// rules refuse one (E023) before anything is read.
 func applyEscapes(s string) string {
+	return resolveEscapes(s, RulesCurrent)
+}
+
+// applyEscapesV2 is the 2.x reading, for migrate: no \u, so 2.x kept
+// \u0041 as written.
+func applyEscapesV2(s string) string {
+	return resolveEscapes(s, RulesV2)
+}
+
+func resolveEscapes(s string, rules Rules) string {
 	// Bytes: every escape this recognizes is ASCII, and any other byte - a
 	// continuation byte included - is copied through untouched, so the result
 	// is the same string the rune walk built without decoding and re-encoding
@@ -1489,11 +1499,78 @@ func applyEscapes(s string) string {
 			out = append(out, '"')
 		case '\'':
 			out = append(out, '\'')
+		case 'u', 'U':
+			if r, n, ok := unicodeEscape(s[i], s[i+1:]); ok && rules == RulesCurrent {
+				out = utf8.AppendRune(out, r)
+				i += n
+			} else {
+				out = append(out, '\\', s[i])
+			}
 		default:
 			out = append(out, '\\', s[i])
 		}
 	}
 	return string(out)
+}
+
+// unicodeEscape is the character a \u or \U escape names, and how many hex
+// digits spell it: four after u, eight after U, as in TOML. Not ok for a
+// short run, a surrogate or a value past U+10FFFF.
+func unicodeEscape(kind byte, after string) (rune, int, bool) {
+	n := 4
+	if kind == 'U' {
+		n = 8
+	}
+	if len(after) < n {
+		return 0, 0, false
+	}
+	var v uint32
+	for i := 0; i < n; i++ {
+		d := hexDigit(after[i])
+		if d < 0 {
+			return 0, 0, false
+		}
+		v = v<<4 | uint32(d)
+	}
+	if v > unicode.MaxRune || (v >= 0xD800 && v <= 0xDFFF) {
+		return 0, 0, false
+	}
+	return rune(v), n, true
+}
+
+// invisible reports a character canonical output writes as a \u escape, so a
+// reader of the file sees every character that is there: controls with no
+// short escape, the direction marks, embeddings, overrides and isolates,
+// zero-width spaces, the byte order mark, and the line and paragraph
+// separators. The zero-width joiner and non-joiner stay as written, since
+// emoji and several scripts need them.
+func invisible(r rune) bool {
+	switch {
+	case r <= 0x08, r >= 0x0B && r <= 0x1F, r >= 0x7F && r <= 0x9F:
+		return true
+	case r == 0x061C, r == 0x200B, r == 0x200E, r == 0x200F, r == 0xFEFF:
+		return true
+	case r >= 0x2028 && r <= 0x202E, r >= 0x2060 && r <= 0x2064, r >= 0x2066 && r <= 0x2069:
+		return true
+	}
+	return false
+}
+
+// invisibleAt decodes the character at t[i] when it is one invisible names,
+// with its width in bytes. Bytes that are not UTF-8 are never one.
+func invisibleAt(t string, i int) (rune, int, bool) {
+	r, n := rune(t[i]), 1
+	if r >= utf8.RuneSelf {
+		r, n = utf8.DecodeRuneInString(t[i:])
+		if r == utf8.RuneError {
+			return 0, 1, false
+		}
+	}
+	return r, n, invisible(r)
+}
+
+func writeUnicodeEscape(out *strings.Builder, r rune) {
+	fmt.Fprintf(out, "\\u%04X", r)
 }
 
 // singleScalar is the restriction a QUOTED [value] selector adds on top of
@@ -2028,16 +2105,17 @@ func readsSame(spelling string, quoted bool, logical string) bool {
 
 // migrateSpelling is how a re-spelled piece is written. 2.x read a backslash
 // in bare and single-quoted text as an escape too, and double quotes are
-// where both rule sets read one alike. So the migrated file reads the same
-// under 2.x, and a second run changes nothing.
+// where both rule sets read one alike. No \u goes in, since 2.x would keep it
+// as written. So the migrated file reads the same under 2.x, and a second run
+// changes nothing.
 func migrateSpelling(logical string, bare bool) string {
 	if strings.Contains(logical, "\\") {
-		return quoteDouble(logical)
+		return quoteDoubleAs(logical, RulesV2)
 	}
-	if bare {
-		return emitElement(&element{text: logical})
+	if bare && !needsQuotes(logical) {
+		return logical
 	}
-	return quoteText(logical)
+	return quoteTextAs(logical, RulesV2)
 }
 
 // v2BracketArray is true when 2.x read this bare `[...]` body as the JSON-habit
@@ -2065,15 +2143,20 @@ func valueEdits(text string, tok *Tokens, edits *[]edit, st *migrating) {
 		if p.Quote == QuoteNone && !strings.Contains(raw, "\\") && raw != "" {
 			continue
 		}
-		logical := applyEscapes(raw)
+		logical := applyEscapesV2(raw)
 		if readsSame(text[a:b], quoted, logical) {
 			continue
 		}
 		// A resolved escape is the one edit that turns on which rule set wrote
 		// the file: these bytes say one thing under 2.x and another here. An
 		// open quote or an empty slot reads alike either way, so it still goes,
-		// and so does an unknown pair in double quotes, which both kept.
-		if logical != raw && p.Quote != QuoteDouble && !st.fromV2 {
+		// and so does an unknown pair in double quotes, which both kept. A \u
+		// in double quotes is a character now and was text in 2.x.
+		differs := logical != raw
+		if p.Quote == QuoteDouble {
+			differs = unicodePairDiffers(raw)
+		}
+		if differs && !st.fromV2 {
 			st.ambiguous++
 			continue
 		}
@@ -2110,12 +2193,17 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 			name := rest[seg.Name.Start:seg.Name.End]
 			// An unknown pair in double quotes read the same in 2.x, and is
 			// E023 now, so its backslash is doubled whichever wrote the file.
-			if _, bad := unknownEscape(name); bad && seg.Name.Quote == QuoteDouble {
-				edits = append(edits, edit{start: seg.Name.Start - 1, end: seg.Name.End + 1, with: escapeName(applyEscapes(name))})
+			// A \u pair is a character now, so that one needs --from-2x.
+			if seg.Name.Quote == QuoteDouble && v2KeptEscape(name) {
+				if unicodePairDiffers(name) && !st.fromV2 {
+					st.ambiguous++
+				} else {
+					edits = append(edits, edit{start: seg.Name.Start - 1, end: seg.Name.End + 1, with: escapeNameAs(applyEscapesV2(name), RulesV2)})
+				}
 			}
-			if seg.Name.Quote == QuoteSingle && applyEscapes(name) != name {
+			if seg.Name.Quote == QuoteSingle && applyEscapesV2(name) != name {
 				if st.fromV2 {
-					edits = append(edits, edit{start: seg.Name.Start - 1, end: seg.Name.End + 1, with: escapeName(applyEscapes(name))})
+					edits = append(edits, edit{start: seg.Name.Start - 1, end: seg.Name.End + 1, with: escapeNameAs(applyEscapesV2(name), RulesV2)})
 				} else {
 					st.ambiguous++
 				}
@@ -2150,9 +2238,8 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 				colon = k - 1
 			}
 			body := rest[sel.Start:sel.End]
-			logical := applyEscapes(body)
-			_, unknown := unknownEscape(body)
-			unknown = unknown && sel.Quote == QuoteDouble
+			logical := applyEscapesV2(body)
+			unknown := sel.Quote == QuoteDouble && v2KeptEscape(body)
 			if i == last && tok.Sep < 0 {
 				if colon >= 0 {
 					// `name:[disc]` with nothing after it: 2.x read it as
@@ -2199,7 +2286,9 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 			}
 			// Double quotes already read alike on both sides, so only the other
 			// spellings turn on which rule set wrote the file.
-			if unknown {
+			if unknown && unicodePairDiffers(body) && !st.fromV2 {
+				st.ambiguous++
+			} else if unknown {
 				edits = append(edits, edit{start: sel.Start - 1, end: sel.End + 1, with: migrateSpelling(logical, false)})
 			} else if logical != body && sel.Quote != QuoteDouble {
 				if st.fromV2 {
@@ -2316,7 +2405,8 @@ func selectorOpenQuote(tok *Tokens) bool {
 }
 
 // unknownEscape is the character after the first backslash in raw that starts
-// none of the five escapes. Only meaningful for a double-quoted piece.
+// no escape, or the u or U of one that names no character. Only meaningful for
+// a double-quoted piece.
 func unknownEscape(raw string) (rune, bool) {
 	if !strings.Contains(raw, "\\") {
 		return 0, false
@@ -2333,12 +2423,44 @@ func unknownEscape(raw string) (rune, bool) {
 		i++
 		switch raw[i] {
 		case 't', 'n', '\\', '"', '\'':
+		case 'u', 'U':
+			if _, _, ok := unicodeEscape(raw[i], raw[i+1:]); !ok {
+				return rune(raw[i]), true
+			}
 		default:
 			r, _ := utf8.DecodeRuneInString(raw[i:])
 			return r, true
 		}
 	}
 	return 0, false
+}
+
+// v2KeptEscape is unknownEscape by the 2.x rules, which had no \u: a pair 2.x
+// kept as written, so migrate doubles its backslash.
+func v2KeptEscape(raw string) bool {
+	for i := 0; i < len(raw); i++ {
+		if raw[i] != '\\' {
+			continue
+		}
+		if i+1 >= len(raw) {
+			return false
+		}
+		i++
+		switch raw[i] {
+		case 't', 'n', '\\', '"', '\'':
+		default:
+			return true
+		}
+	}
+	return false
+}
+
+// unicodePairDiffers reports a 2.x pair that is a real \u escape now: 2.x read
+// the text as written and the current rules read a character, so only
+// --from-2x can say which.
+func unicodePairDiffers(raw string) bool {
+	_, bad := unknownEscape(raw)
+	return v2KeptEscape(raw) && !bad
 }
 
 // badEscape finds the first unknown escape in a double-quoted name, selector
@@ -2400,6 +2522,9 @@ func pathLike(p *Piece, text string) bool {
 const pathHint = "value looks like a Windows path, and its \\t or \\n reads as a tab or newline; single quotes keep a backslash as written"
 
 func escapeMsg(r rune) string {
+	if r == 'u' || r == 'U' {
+		return "bad escape '\\" + string(r) + "' in double quotes; \\u takes 4 hex digits and \\U takes 8, naming a Unicode character; write a backslash as '\\\\' or use single quotes"
+	}
 	return "unknown escape '\\" + oneLine(string(r)) + "' in double quotes; write a backslash as '\\\\' or use single quotes"
 }
 
@@ -5265,6 +5390,12 @@ func (d *Document) emitLine(idx, pos, depth int, wouldMerge bool, e *emit) {
 // backslash, which is right for a value (stored in its escaped spelling) and
 // wrong for a name (stored resolved).
 func escapeName(name string) string {
+	return escapeNameAs(name, RulesCurrent)
+}
+
+// escapeNameAs is escapeName for a reader of rules: under 2.x an invisible
+// character is written as it is, since 2.x kept a \u as written.
+func escapeNameAs(name string, rules Rules) string {
 	if name != "" {
 		bare := true
 		for _, c := range name {
@@ -5290,7 +5421,12 @@ func escapeName(name string) string {
 		case '\n':
 			out.WriteString(`\n`)
 		default:
-			out.WriteByte(name[i])
+			if r, n, ok := invisibleAt(name, i); ok && rules == RulesCurrent {
+				writeUnicodeEscape(&out, r)
+				i += n - 1
+			} else {
+				out.WriteByte(name[i])
+			}
 		}
 	}
 	out.WriteByte('"')
@@ -5313,23 +5449,16 @@ func QuoteSegment(name string) string {
 // diagName is a field name for a diagnostic message: spelled the way the
 // emitter would write it, so a name carrying a line break, a dot or a quote
 // cannot pose as something it is not - a raw `a.b` reads exactly like `a`
-// nesting `b`, and a raw line break splits one diagnostic across two. CR is
-// escaped here and not in escapeName, because the name parse has no `\r`
-// escape to read back.
+// nesting `b`, and a raw line break splits one diagnostic across two.
 func diagName(name string) string {
-	return strings.ReplaceAll(emitName(name), "\r", `\r`)
+	return emitName(name)
 }
 
 // diagElement is one element of a value, spelled for a diagnostic message:
 // the emitter's inline spelling, so a value carrying a line break cannot split
-// one diagnostic across two. A mid-piece CR is content and the emitter leaves
-// it bare, so it forces quotes here and is escaped, same reason as diagName.
+// one diagnostic across two.
 func diagElement(e *element) string {
-	s := emitElement(e)
-	if strings.Contains(s, "\r") {
-		return strings.ReplaceAll(quoteDouble(e.text), "\r", `\r`)
-	}
-	return s
+	return emitElement(e)
 }
 
 // diagValue is a value for a diagnostic message. Only a cell reaches this
@@ -5933,6 +6062,8 @@ func needsQuotes(t string) bool {
 			switch c {
 			case ' ', '\t', '\n', ',', ':', '#', '"', '\'', '[', ']':
 				needs = true
+			default:
+				needs = invisible(c)
 			}
 			if needs {
 				break
@@ -6035,21 +6166,28 @@ func leadingZero(t string) bool {
 // quoteText quotes a logical string so the tokenizer reads it back as the
 // same string. Single quotes are literal, so they are the spelling for text
 // holding a double quote or a backslash; double quotes carry the escapes, so
-// they are the spelling for a line break, a tab, or text holding both quote
-// kinds.
+// they are the spelling for a line break, a tab, an invisible character, or
+// text holding both quote kinds.
 func quoteText(t string) string {
-	control := strings.ContainsAny(t, "\n\t")
+	return quoteTextAs(t, RulesCurrent)
+}
+
+// quoteTextAs is quoteText for a reader of rules, as in quoteDoubleAs.
+func quoteTextAs(t string, rules Rules) string {
+	control := strings.ContainsAny(t, "\n\t") || (rules == RulesCurrent && strings.ContainsFunc(t, invisible))
 	if !control && !strings.Contains(t, "'") && strings.ContainsAny(t, "\"\\") {
 		return "'" + t + "'"
 	}
-	return quoteDouble(t)
+	return quoteDoubleAs(t, rules)
 }
 
-// quoteDouble is the double-quoted spelling, which the 2.x and current rules
-// read alike.
-func quoteDouble(t string) string {
+// quoteDoubleAs is the double-quoted spelling for a reader of rules. The two
+// read it alike, except a \u escape, which 2.x kept as written, so for 2.x an
+// invisible character goes in as it is.
+func quoteDoubleAs(t string, rules Rules) string {
 	// Bytes: every escape written here is ASCII, and a continuation byte is
-	// none of them, so the rest of the text copies through untouched.
+	// none of them, so the rest of the text copies through untouched. A
+	// character invisible names is decoded first.
 	var out strings.Builder
 	out.Grow(len(t) + 2)
 	out.WriteByte('"')
@@ -6064,7 +6202,12 @@ func quoteDouble(t string) string {
 		case '\t':
 			out.WriteString("\\t")
 		default:
-			out.WriteByte(t[i])
+			if r, n, ok := invisibleAt(t, i); ok && rules == RulesCurrent {
+				writeUnicodeEscape(&out, r)
+				i += n - 1
+			} else {
+				out.WriteByte(t[i])
+			}
 		}
 	}
 	out.WriteByte('"')

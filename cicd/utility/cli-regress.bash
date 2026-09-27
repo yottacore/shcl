@@ -318,7 +318,7 @@ rows=(
 	'ops-line-cr|set %F%|int\tx\t1\r|0|a: 1\n\nx: 1\n|-'
 	'ops-lone-cr|set %F%|int\tx\t1\n\r|0|a: 1\n\nx: 1\n|-'
 	## 20260908: one CR comes off an ops line, not two - the second is the value's.
-	'ops-double-cr|set %F%|string\tx\tv\r\r\n|0|a: 1\n\nx: "v\r"\n|-'
+	'ops-double-cr|set %F%|string\tx\tv\r\r\n|0|a: 1\n\nx: "v\\u000D"\n|-'
 	## 20260830 item 14: Python raised a traceback, C exited nonzero. POSIX-only:
 	## the row closes fd 0, and windows has no equivalent a shell can set up.
 	'closed-stdin|fmt -|@closedin|0||^$'
@@ -511,6 +511,15 @@ rows=(
 	'escape-unknown-literal|set %F2%|literal\tx\t"C:\\work"\n|1||^op line 1: cannot write x'
 	'escape-unknown-path|get - "a\w"|"a\\\\w": 1\n|3|\n|no value at that path'
 	'escape-doubled-path|get - "a\\w"|"a\\\\w": 1\n|0|1\n|-'
+	## \u and \U name a character by its code point, and one that names none is
+	## E023. Canonical output spells an invisible character as one. 2.x kept the
+	## pair as written, so migrate needs to be told which rules wrote the file.
+	'escape-unicode-read|get - a|a: "caf\\u00E9 \\U0001F600"\n|0|caf\u00E9 \U0001F600\n|-'
+	'escape-unicode-bad|check -|a: "\\uD800"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 bad escape .\\u. in double quotes'
+	'escape-unicode-fmt|fmt -|a: x\u200By\n|0|a: "x\\u200By"\n|-'
+	'escape-unicode-name|paths -|"a\\u202Eb": 1\n|0|"a\\u202Eb"\n|-'
+	'escape-unicode-migrate-refused|migrate -|q: "\\u0041"\n|7|q: "\\u0041"\n|does not say which it was written for'
+	'escape-unicode-migrate-2x|migrate --from-2x -|q: "\\u0041"\n|0|q: "\\\\u0041"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	## A path in double quotes whose escapes are all real still reads and saves
 	## as written. The hint says so and changes nothing else.
 	'path-hint-read|get - a|a: "C:\\temp"\n|0|C:\temp\n|H004 value looks like a Windows path'

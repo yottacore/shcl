@@ -1345,6 +1345,7 @@ static ShclStr value_display(ShclArena *a, const ShclValue *v) {
 typedef shcl_quote ShclQuote; typedef shcl_piece ShclPiece; typedef shcl_seg_tok ShclSegTok;
 typedef shcl_tokens ShclTokens; typedef shcl_rules ShclRules;
 static ShclStr apply_escapes(ShclArena *a, ShclStr s);
+static ShclStr apply_escapes_v2(ShclArena *a, ShclStr s);
 
 static void tok_clear(ShclTokens *t) {
 	t->nseg = 0; t->has_sep = 0; t->sep = 0; t->value_start = 0; t->value_end = 0; t->nelem = 0;
@@ -1613,12 +1614,54 @@ static ShclValue cell_of_tokens(ShclArena *a, ShclArena *tmp, const ShclTokens *
 // Reads text as the value half of a line - see shcl_set_literal.
 static int literal_value(ShclArena *a, ShclArena *tmp, ShclStr text, ShclValue *out);
 
-// Escape processing (a double-quoted piece): \t \n \\ \" \'. An unknown pair
-// stays literal, which only 2.x text still reaches: the current rules refuse
-// one (E023) before anything is read. Text with no backslash comes back as the
-// slice it came in as - nearly every piece, and a copy per piece would be most
-// of a parse's memory.
-static ShclStr apply_escapes(ShclArena *a, ShclStr s) {
+/* The character a \u or \U escape names, from the hex digits in after: four
+   after u, eight after U, as in TOML. Returns how many digits spell it, or 0
+   for a short run, a surrogate or a value past U+10FFFF. */
+static size_t unicode_escape(unsigned char kind, ShclStr after, uint32_t *cp) {
+	size_t n = kind == 'u' ? 4 : 8;
+	if (after.n < n) return 0;
+	uint32_t v = 0;
+	for (size_t i = 0; i < n; i++) {
+		unsigned char h = (unsigned char)after.p[i]; uint32_t d;
+		if (h >= '0' && h <= '9') d = (uint32_t)(h - '0');
+		else if (h >= 'a' && h <= 'f') d = (uint32_t)(h - 'a' + 10);
+		else if (h >= 'A' && h <= 'F') d = (uint32_t)(h - 'A' + 10);
+		else return 0;
+		v = v << 4 | d;
+	}
+	if (v > 0x10FFFF || (v >= 0xD800 && v <= 0xDFFF)) return 0;
+	*cp = v; return n;
+}
+/* Characters canonical output writes as a \u escape, so a reader of the file
+   sees every character that is there: controls with no short escape, the
+   direction marks, embeddings, overrides and isolates, zero-width spaces, the
+   byte order mark, and the line and paragraph separators. The zero-width
+   joiner and non-joiner stay as written, since emoji and several scripts need
+   them. */
+static int invisible(uint32_t c) {
+	return c <= 0x08 || (c >= 0x0B && c <= 0x1F) || (c >= 0x7F && c <= 0x9F)
+		|| c == 0x061C || c == 0x200B || c == 0x200E || c == 0x200F || c == 0xFEFF
+		|| (c >= 0x2028 && c <= 0x202E) || (c >= 0x2060 && c <= 0x2064) || (c >= 0x2066 && c <= 0x2069);
+}
+/* The width of the character at t[i] when invisible names it, else 0. A byte
+   that is not UTF-8 is never one. */
+static size_t invisible_at(ShclStr t, size_t i, uint32_t *cp) {
+	size_t l = utf8_decode(t.p, t.n, i, cp);
+	if (l == 1 && *cp >= 0x80) return 0;
+	return invisible(*cp) ? l : 0;
+}
+static void sb_put_unicode_escape(ShclArena *a, ShclSB *s, uint32_t cp) {
+	static const char hex[] = "0123456789ABCDEF";
+	char b[6] = {'\\', 'u', hex[(cp >> 12) & 0xF], hex[(cp >> 8) & 0xF], hex[(cp >> 4) & 0xF], hex[cp & 0xF]};
+	sb_put(a, s, b, sizeof b);
+}
+
+// Escape processing (a double-quoted piece): \t \n \\ \" \' \uXXXX
+// \UXXXXXXXX. An unknown pair stays literal, which only 2.x text still
+// reaches: the current rules refuse one (E023) before anything is read. Text
+// with no backslash comes back as the slice it came in as - nearly every
+// piece, and a copy per piece would be most of a parse's memory.
+static ShclStr resolve_escapes(ShclArena *a, ShclStr s, shcl_rules rules) {
 	if (!s.n || !memchr(s.p, '\\', s.n)) return s;
 	ShclSB out = {0};
 	size_t i = 0;
@@ -1633,14 +1676,24 @@ static ShclStr apply_escapes(ShclArena *a, ShclStr s) {
 		case '\\': sb_putc(a, &out, '\\'); break;
 		case '"': sb_putc(a, &out, '"'); break;
 		case '\'': sb_putc(a, &out, '\''); break;
+		case 'u': case 'U': {
+			uint32_t cp; size_t n = rules == SHCL_RULES_CURRENT ? unicode_escape((unsigned char)d, s_slice(s, i, s.n), &cp) : 0;
+			if (n) { sb_put_cp(a, &out, cp); i += n; }
+			else { sb_putc(a, &out, '\\'); sb_put_cp(a, &out, d); }
+			break;
+		}
 		default: sb_putc(a, &out, '\\'); sb_put_cp(a, &out, d); break;
 		}
 	}
 	return sb_S(&out);
 }
+static ShclStr apply_escapes(ShclArena *a, ShclStr s) { return resolve_escapes(a, s, SHCL_RULES_CURRENT); }
+/* The 2.x reading, for migrate: no \u, so 2.x kept \u0041 as written. */
+static ShclStr apply_escapes_v2(ShclArena *a, ShclStr s) { return resolve_escapes(a, s, SHCL_RULES_V2); }
 
-/* The character after the first backslash in raw that starts none of the
-   five escapes. Only meaningful for a double-quoted piece. */
+/* The character after the first backslash in raw that starts no escape, or
+   the u or U of one that names no character. Only meaningful for a
+   double-quoted piece. */
 static int unknown_escape(ShclStr raw, uint32_t *c) {
 	if (!raw.n || !memchr(raw.p, '\\', raw.n)) return 0;
 	for (size_t i = 0; i < raw.n; i++) {
@@ -1651,10 +1704,35 @@ static int unknown_escape(ShclStr raw, uint32_t *c) {
 		i++;
 		switch (raw.p[i]) {
 		case 't': case 'n': case '\\': case '"': case '\'': break;
+		case 'u': case 'U': {
+			uint32_t cp;
+			if (!unicode_escape((unsigned char)raw.p[i], s_slice(raw, i + 1, raw.n), &cp)) { *c = (unsigned char)raw.p[i]; return 1; }
+			break;
+		}
 		default: utf8_decode(raw.p, raw.n, i, c); return 1;
 		}
 	}
 	return 0;
+}
+/* unknown_escape by the 2.x rules, which had no \u: a pair 2.x kept as
+   written, so migrate doubles its backslash. */
+static int v2_kept_escape(ShclStr raw) {
+	for (size_t i = 0; i < raw.n; i++) {
+		if (raw.p[i] != '\\') continue;
+		if (i + 1 >= raw.n) return 0;
+		i++;
+		switch (raw.p[i]) {
+		case 't': case 'n': case '\\': case '"': case '\'': break;
+		default: return 1;
+		}
+	}
+	return 0;
+}
+/* A 2.x pair that is a real \u escape now: 2.x read the text as written and
+   the current rules read a character, so only --from-2x can say which. */
+static int unicode_pair_differs(ShclStr raw) {
+	uint32_t uc;
+	return v2_kept_escape(raw) && !unknown_escape(raw, &uc);
 }
 
 /* The first unknown escape in a double-quoted name, selector body or, when
@@ -1694,7 +1772,13 @@ static int path_like(const ShclPiece *p, ShclStr text) {
 static const char path_hint[] = "value looks like a Windows path, and its \\t or \\n reads as a tab or newline; single quotes keep a backslash as written";
 
 static ShclStr escape_msg(ShclArena *a, uint32_t c) {
-	ShclSB m = {0}; sb_puts(a, &m, "unknown escape '\\");
+	ShclSB m = {0};
+	if (c == 'u' || c == 'U') {
+		sb_puts(a, &m, "bad escape '\\"); sb_putc(a, &m, (char)c);
+		sb_puts(a, &m, "' in double quotes; \\u takes 4 hex digits and \\U takes 8, naming a Unicode character; write a backslash as '\\\\' or use single quotes");
+		return sb_S(&m);
+	}
+	sb_puts(a, &m, "unknown escape '\\");
 	if (c == '\n') sb_puts(a, &m, "\\n");
 	else if (c == '\r') sb_puts(a, &m, "\\r");
 	else if (c == '\t') sb_puts(a, &m, "\\t");
@@ -1857,11 +1941,13 @@ static ShclStr strip_common(ShclStr line, ShclStr common) {
 
 // --- Migration: a 2.x document rewritten for the current lexical rules -------
 
-static ShclStr quote_text(ShclArena *a, ShclStr t);
-static ShclStr quote_double(ShclArena *a, ShclStr t);
+static ShclStr quote_text_as(ShclArena *a, ShclStr t, shcl_rules rules);
+static ShclStr quote_double_as(ShclArena *a, ShclStr t, shcl_rules rules);
+static int needs_quotes(ShclStr t);
 static ShclStr emit_element(ShclArena *a, const ShclElement *e);
 static ShclElement new_element(ShclStr text);
 static ShclStr escape_name(ShclArena *a, ShclStr name);
+static ShclStr escape_name_as(ShclArena *a, ShclStr name, shcl_rules rules);
 static ShclStr diag_name(ShclArena *a, ShclStr name);
 static ShclStr diag_value(ShclArena *a, const ShclValue *v);
 static int index_shape(ShclStr body);
@@ -1908,12 +1994,13 @@ static int reads_same(ShclArena *a, ShclStr spelling, int quoted, ShclStr logica
 
 /* How a re-spelled piece is written. 2.x read a backslash in bare and
    single-quoted text as an escape too, and double quotes are where both rule
-   sets read one alike. So the migrated file reads the same under 2.x, and a
-   second run changes nothing. */
+   sets read one alike. No \u goes in, since 2.x would keep it as written.
+   So the migrated file reads the same under 2.x, and a second run changes
+   nothing. */
 static ShclStr migrate_spelling(ShclArena *a, ShclStr logical, int bare) {
-	if (memchr(logical.p, '\\', logical.n)) return quote_double(a, logical);
-	if (bare) { ShclElement e; e.text = logical; e.quoted = 0; return emit_element(a, &e); }
-	return quote_text(a, logical);
+	if (memchr(logical.p, '\\', logical.n)) return quote_double_as(a, logical, SHCL_RULES_V2);
+	if (bare && !needs_quotes(logical)) return logical;
+	return quote_text_as(a, logical, SHCL_RULES_V2);
 }
 
 /* True when 2.x read this bare `[...]` body as the JSON-habit array rather
@@ -1939,13 +2026,15 @@ static void value_edits(ShclArena *a, ShclStr text, const ShclTokens *tok, ShclV
 		int quoted = piece_quoted(p->quote);
 		size_t ea = quoted ? p->start - 1 : p->start, eb = quoted ? p->end + 1 : p->end;
 		if (p->quote == SHCL_QUOTE_NONE && !memchr(raw.p, '\\', raw.n) && raw.n) continue;
-		ShclStr logical = apply_escapes(a, raw);
+		ShclStr logical = apply_escapes_v2(a, raw);
 		if (reads_same(a, s_slice(text, ea, eb), quoted, logical)) continue;
 		/* A resolved escape is the one edit that turns on which rule set wrote
 		   the file: these bytes say one thing under 2.x and another here. An
 		   open quote or an empty slot reads alike either way, so it still goes,
-		   and so does an unknown pair in double quotes, which both kept. */
-		if (!s_eq(logical, raw) && p->quote != SHCL_QUOTE_DOUBLE && !st->from_v2) { st->ambiguous++; continue; }
+		   and so does an unknown pair in double quotes, which both kept. A \u
+		   in double quotes is a character now and was text in 2.x. */
+		int differs = p->quote == SHCL_QUOTE_DOUBLE ? unicode_pair_differs(raw) : !s_eq(logical, raw);
+		if (differs && !st->from_v2) { st->ambiguous++; continue; }
 		edit_push(a, edits, ea, eb, migrate_spelling(a, logical, !(quoted || p->quote == SHCL_QUOTE_OPEN)));
 	}
 }
@@ -1969,12 +2058,15 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 		for (size_t i = 0; i < tok->nseg; i++) {
 			const ShclSegTok *seg = &tok->segments[i];
 			ShclStr name = s_slice(rest, seg->name.start, seg->name.end);
-			uint32_t uc;
 			/* An unknown pair in double quotes read the same in 2.x, and is
-			   E023 now, so its backslash is doubled whichever wrote the file. */
-			if (seg->name.quote == SHCL_QUOTE_DOUBLE && unknown_escape(name, &uc)) edit_push(a, &edits, seg->name.start - 1, seg->name.end + 1, escape_name(a, apply_escapes(a, name)));
-			if (seg->name.quote == SHCL_QUOTE_SINGLE && !s_eq(apply_escapes(a, name), name)) {
-				if (st->from_v2) edit_push(a, &edits, seg->name.start - 1, seg->name.end + 1, escape_name(a, apply_escapes(a, name)));
+			   E023 now, so its backslash is doubled whichever wrote the file.
+			   A \u pair is a character now, so that one needs --from-2x. */
+			if (seg->name.quote == SHCL_QUOTE_DOUBLE && v2_kept_escape(name)) {
+				if (unicode_pair_differs(name) && !st->from_v2) st->ambiguous++;
+				else edit_push(a, &edits, seg->name.start - 1, seg->name.end + 1, escape_name_as(a, apply_escapes_v2(a, name), SHCL_RULES_V2));
+			}
+			if (seg->name.quote == SHCL_QUOTE_SINGLE && !s_eq(apply_escapes_v2(a, name), name)) {
+				if (st->from_v2) edit_push(a, &edits, seg->name.start - 1, seg->name.end + 1, escape_name_as(a, apply_escapes_v2(a, name), SHCL_RULES_V2));
 				else st->ambiguous++;
 			}
 			if (!seg->has_selector) continue;
@@ -1991,8 +2083,8 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 			while (k > 0 && is_wsp((unsigned char)rest.p[k - 1])) k--;
 			if (k > 0 && rest.p[k - 1] == ':') { has_colon = 1; colon = k - 1; }
 			ShclStr body = s_slice(rest, sel->start, sel->end);
-			ShclStr logical = apply_escapes(a, body);
-			int unknown = sel->quote == SHCL_QUOTE_DOUBLE && unknown_escape(body, &uc);
+			ShclStr logical = apply_escapes_v2(a, body);
+			int unknown = sel->quote == SHCL_QUOTE_DOUBLE && v2_kept_escape(body);
 			if (i == last && !tok->has_sep) {
 				if (has_colon) {
 					/* name:[disc] with nothing after it: 2.x read it as
@@ -2025,7 +2117,8 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 			}
 			/* Double quotes already read alike on both sides, so only the other
 			   spellings turn on which rule set wrote the file. */
-			if (unknown) edit_push(a, &edits, sel->start - 1, sel->end + 1, migrate_spelling(a, logical, 0));
+			if (unknown && unicode_pair_differs(body) && !st->from_v2) st->ambiguous++;
+			else if (unknown) edit_push(a, &edits, sel->start - 1, sel->end + 1, migrate_spelling(a, logical, 0));
 			else if (!s_eq(logical, body) && sel->quote != SHCL_QUOTE_DOUBLE) {
 				if (st->from_v2) {
 					size_t ea = quoted ? sel->start - 1 : sel->start, eb = quoted ? sel->end + 1 : sel->end;
@@ -5811,28 +5904,35 @@ shcl_status shcl_read_string_array_to(shcl_doc *d, const char *path, size_t plen
 /* Quote a logical string so the tokenizer reads it back as the same string.
    Single quotes are literal, so they are the spelling for text holding a
    double quote or a backslash; double quotes carry the escapes, so they are
-   the spelling for a line break, a tab, or text holding both quote kinds. */
-static ShclStr quote_text(ShclArena *a, ShclStr t) {
+   the spelling for a line break, a tab, an invisible character, or text
+   holding both quote kinds. */
+static ShclStr quote_text(ShclArena *a, ShclStr t) { return quote_text_as(a, t, SHCL_RULES_CURRENT); }
+/* quote_text for a reader of rules, as in quote_double_as. */
+static ShclStr quote_text_as(ShclArena *a, ShclStr t, shcl_rules rules) {
 	int control = memchr(t.p, '\n', t.n) || memchr(t.p, '\t', t.n);
+	for (size_t i = 0; !control && rules == SHCL_RULES_CURRENT && i < t.n; i++) { uint32_t cp; control = invisible_at(t, i, &cp) != 0; }
 	ShclSB s = {0};
 	if (!control && !memchr(t.p, '\'', t.n) && (memchr(t.p, '"', t.n) || memchr(t.p, '\\', t.n))) {
 		sb_putc(a, &s, '\''); sb_putS(a, &s, t); sb_putc(a, &s, '\'');
 		return sb_S(&s);
 	}
-	return quote_double(a, t);
+	return quote_double_as(a, t, rules);
 }
 
-/* The double-quoted spelling, which the 2.x and current rules read alike. */
-static ShclStr quote_double(ShclArena *a, ShclStr t) {
+/* The double-quoted spelling for a reader of rules. The two read it alike,
+   except a \u escape, which 2.x kept as written, so for 2.x an invisible
+   character goes in as it is. */
+static ShclStr quote_double_as(ShclArena *a, ShclStr t, shcl_rules rules) {
 	ShclSB s = {0};
 	sb_reserve(a, &s, t.n + 2);
 	sb_putc(a, &s, '"');
 	for (size_t i = 0; i < t.n; i++) {
-		char c = t.p[i];
+		char c = t.p[i]; uint32_t cp; size_t l;
 		if (c == '\\') sb_puts(a, &s, "\\\\");
 		else if (c == '"') sb_puts(a, &s, "\\\"");
 		else if (c == '\n') sb_puts(a, &s, "\\n");
 		else if (c == '\t') sb_puts(a, &s, "\\t");
+		else if (rules == SHCL_RULES_CURRENT && (l = invisible_at(t, i, &cp)) != 0) { sb_put_unicode_escape(a, &s, cp); i += l - 1; }
 		else sb_putc(a, &s, c);
 	}
 	sb_putc(a, &s, '"');
@@ -5875,7 +5975,8 @@ static int needs_quotes(ShclStr t) {
 	if (!needs) {
 		size_t i = 0;
 		while (i < t.n) { uint32_t c; size_t l = utf8_decode(t.p, t.n, i, &c); i += l;
-			if (c == ' ' || c == '\t' || c == '\n' || c == ',' || c == ':' || c == '#' || c == '"' || c == '\'' || c == '[' || c == ']') { needs = 1; break; } }
+			if (c == ' ' || c == '\t' || c == '\n' || c == ',' || c == ':' || c == '#' || c == '"' || c == '\'' || c == '[' || c == ']') { needs = 1; break; }
+			if ((l > 1 || c < 0x80) && invisible(c)) { needs = 1; break; } }
 	}
 	/* Edge whitespace still has to force quotes, for the carriage return: it is
 	   a blank, so a piece ending in one loses it to the reload. Space and tab
@@ -5909,7 +6010,10 @@ static ShclElement new_element(ShclStr text) {
 /* Emit a stored (escape-resolved) name in a spelling that reads back as the
    same name: bare when it can be, else double-quoted with the escapes
    apply_escapes undoes. */
-static ShclStr escape_name(ShclArena *a, ShclStr name) {
+static ShclStr escape_name(ShclArena *a, ShclStr name) { return escape_name_as(a, name, SHCL_RULES_CURRENT); }
+/* escape_name for a reader of rules: under 2.x an invisible character is
+   written as it is, since 2.x kept a \u as written. */
+static ShclStr escape_name_as(ShclArena *a, ShclStr name, shcl_rules rules) {
 	if (name.n > 0) {
 		int allbare = 1; size_t i = 0;
 		while (i < name.n) { uint32_t c; size_t l = utf8_decode(name.p, name.n, i, &c); i += l; if (!is_bare_name_char(c)) { allbare = 0; break; } }
@@ -5918,11 +6022,12 @@ static ShclStr escape_name(ShclArena *a, ShclStr name) {
 	ShclSB b = {0};
 	sb_putc(a, &b, '"');
 	for (size_t i = 0; i < name.n; i++) {
-		char c = name.p[i];
+		char c = name.p[i]; uint32_t cp; size_t l;
 		if (c == '\\') sb_puts(a, &b, "\\\\");
 		else if (c == '"') sb_puts(a, &b, "\\\"");
 		else if (c == '\t') sb_puts(a, &b, "\\t");
 		else if (c == '\n') sb_puts(a, &b, "\\n");
+		else if (rules == SHCL_RULES_CURRENT && (l = invisible_at(name, i, &cp)) != 0) { sb_put_unicode_escape(a, &b, cp); i += l - 1; }
 		else sb_putc(a, &b, c);
 	}
 	sb_putc(a, &b, '"');
@@ -5932,37 +6037,12 @@ static ShclStr emit_name(ShclArena *a, ShclStr name) { return escape_name(a, nam
 /* A field name for a diagnostic message: spelled the way the emitter would
    write it, so a name carrying a line break, a dot or a quote cannot pose as
    something it is not - a raw `a.b` reads exactly like `a` nesting `b`, and a
-   raw line break splits one diagnostic across two. CR is escaped here and not
-   in escape_name, because the name parse has no `\r` escape to read back. */
-static ShclStr diag_name(ShclArena *a, ShclStr name) {
-	ShclStr q = escape_name(a, name);
-	size_t i = 0;
-	while (i < q.n && q.p[i] != '\r') i++;
-	if (i == q.n) return q;
-	ShclSB b = {0};
-	for (i = 0; i < q.n; i++) {
-		if (q.p[i] == '\r') sb_puts(a, &b, "\\r");
-		else sb_putc(a, &b, q.p[i]);
-	}
-	return sb_S(&b);
-}
+   raw line break splits one diagnostic across two. */
+static ShclStr diag_name(ShclArena *a, ShclStr name) { return escape_name(a, name); }
 /* One element of a value, spelled for a diagnostic message: the emitter's
    inline spelling, so a value carrying a line break cannot split one
-   diagnostic across two. A mid-piece CR is content and the emitter leaves it
-   bare, so it forces quotes here and is escaped, same reason as diag_name. */
-static ShclStr diag_element(ShclArena *a, const ShclElement *e) {
-	ShclStr s = emit_element(a, e);
-	size_t i = 0;
-	while (i < s.n && s.p[i] != '\r') i++;
-	if (i == s.n) return s;
-	ShclStr q = quote_double(a, e->text);
-	ShclSB b = {0};
-	for (i = 0; i < q.n; i++) {
-		if (q.p[i] == '\r') sb_puts(a, &b, "\\r");
-		else sb_putc(a, &b, q.p[i]);
-	}
-	return sb_S(&b);
-}
+   diagnostic across two. */
+static ShclStr diag_element(ShclArena *a, const ShclElement *e) { return emit_element(a, e); }
 /* A value for a diagnostic message. Only a cell reaches this today, from the
    H001 hint; a raw block has no one-line form worth suggesting. */
 static ShclStr diag_value(ShclArena *a, const ShclValue *v) {
@@ -8540,6 +8620,13 @@ static void v_unknown(ShclArena *a, ShclArena *tmp, shcl_doc *d, const ShclVSche
 	arena_free(tmp);
 }
 
+/* The recovery path reads only the two volatile carriers, so -Wclobbered's
+   guess about a helper inlined below is wrong here the way it is for
+   do_parse. */
+#if defined(__GNUC__) && !defined(__clang__)
+	#pragma GCC diagnostic push
+	#pragma GCC diagnostic ignored "-Wclobbered"
+#endif
 shcl_validation *shcl_validate(shcl_doc *d, shcl_doc *schema) {
 	/* Same shape as do_parse: the two the unwind path has to reach are
 	   volatile, the working copies below are not. */
@@ -8598,6 +8685,9 @@ shcl_validation *shcl_validate(shcl_doc *d, shcl_doc *schema) {
 	arena_guard(&d->index_arena, NULL); arena_guard(&d->scratch, NULL); arena_guard(&d->reads, NULL);
 	return v;
 }
+#if defined(__GNUC__) && !defined(__clang__)
+	#pragma GCC diagnostic pop
+#endif
 size_t shcl_validation_count(const shcl_validation *v) { return v->diags.len; }
 size_t shcl_validation_line(const shcl_validation *v, size_t i) { return v->diags.data[i].line; }
 shcl_severity shcl_validation_severity(const shcl_validation *v, size_t i) { return v->diags.data[i].sev; }

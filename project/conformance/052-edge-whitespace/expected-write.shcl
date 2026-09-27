@@ -6,13 +6,13 @@ nbsp_end: "x "
 
 nbsp_start: " x"
 
-vtab: "y"
+vtab: "y\u000B"
 
-formfeed: "y"
+formfeed: "y\u000C"
 
 ideographic: "z　"
 
-nel: "w"
+nel: "w\u0085"
 
 enquad: "v "
 

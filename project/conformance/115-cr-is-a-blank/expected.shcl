@@ -4,7 +4,7 @@ name: 1
 srv: web
 	port: 2
 list: a, b, c
-mid: ab
+mid: "a\u000Db"
 note: v  #c
 # a whole-line comment behind a carriage return
 stack: one, two

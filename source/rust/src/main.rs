@@ -337,11 +337,12 @@ E022|error/hint|the diagnostics list was cut at the caller-supplied cap
   This entry ends the list and counts what was not listed. An error when
   any unlisted one was, so a scan for errors still finds one; a hint
   otherwise.
-E023|error|an escape in double quotes that is none of the five
-  Only \\t, \\n, \\\\, \\\" and \\' are escapes there. A Windows path typed in
-  double quotes is the usual cause, and its \\n would already be a newline,
-  so the line is kept verbatim: it binds nothing and a read on it is
-  NotFound. Use single quotes or no quotes, or double each backslash.
+E023|error|a bad escape in double quotes
+  Only \\t, \\n, \\\\, \\\", \\', \\uXXXX and \\UXXXXXXXX are escapes there, and a
+  \\u or \\U escape must name a character. A Windows path typed in double
+  quotes is the usual cause, and its \\n would already be a newline, so the
+  line is kept verbatim: it binds nothing and a read on it is NotFound. Use
+  single quotes or no quotes, or double each backslash.
 H001|hint|repeated bare leaf (an array spelled as repeated lines)
   Repeated leaves are legal - that is how instances are written - but
   'tags: red' twice and 'tags: red, blue' look alike, so the parser says

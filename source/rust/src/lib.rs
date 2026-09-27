@@ -1394,10 +1394,19 @@ fn schema_text(s: &str) -> String {
 	s.replace('\n', "\\n")
 }
 
-/// Escape processing (string reads): \t \n \\ \" \'. An unknown pair stays
-/// literal, which only 2.x text still reaches: the current rules refuse one
-/// (`E023`) before anything is read.
+/// Escape processing (string reads): \t \n \\ \" \' \uXXXX \UXXXXXXXX. An
+/// unknown pair stays literal, which only 2.x text still reaches: the current
+/// rules refuse one (`E023`) before anything is read.
 fn apply_escapes(s: &str) -> String {
+	resolve_escapes(s, Rules::Current)
+}
+
+/// The 2.x reading, for `migrate`: no `\u`, so 2.x kept `\u0041` as written.
+fn apply_escapes_v2(s: &str) -> String {
+	resolve_escapes(s, Rules::V2)
+}
+
+fn resolve_escapes(s: &str, rules: Rules) -> String {
 	let mut out = String::with_capacity(s.len());
 	let mut it = s.chars();
 	while let Some(c) = it.next() {
@@ -1411,6 +1420,13 @@ fn apply_escapes(s: &str) -> String {
 			Some('\\') => out.push('\\'),
 			Some('"') => out.push('"'),
 			Some('\'') => out.push('\''),
+			Some(k @ ('u' | 'U'))
+				if rules == Rules::Current && unicode_escape(k, it.as_str()).is_some() =>
+			{
+				let (ch, len) = unicode_escape(k, it.as_str()).unwrap_or_default();
+				out.push(ch);
+				it = it.as_str()[len..].chars();
+			}
 			Some(other) => {
 				out.push('\\');
 				out.push(other);
@@ -1419,6 +1435,45 @@ fn apply_escapes(s: &str) -> String {
 		}
 	}
 	out
+}
+
+/// The character a `\u` or `\U` escape names, and how many hex digits spell
+/// it: four after `u`, eight after `U`, as in TOML. None for a short run, a
+/// surrogate or a value past U+10FFFF.
+fn unicode_escape(kind: char, after: &str) -> Option<(char, usize)> {
+	let len = if kind == 'u' { 4 } else { 8 };
+	let digits = after.get(..len)?;
+	if !digits.bytes().all(|b| b.is_ascii_hexdigit()) {
+		return None;
+	}
+	let ch = char::from_u32(u32::from_str_radix(digits, 16).ok()?)?;
+	Some((ch, len))
+}
+
+/// Characters canonical output writes as a `\u` escape, so a reader of the
+/// file sees every character that is there: controls with no short escape,
+/// the direction marks, embeddings, overrides and isolates, zero-width
+/// spaces, the byte order mark, and the line and paragraph separators. The
+/// zero-width joiner and non-joiner stay as written, since emoji and several
+/// scripts need them.
+fn invisible(c: char) -> bool {
+	matches!(
+		c as u32,
+		0x00..=0x08
+			| 0x0B..=0x1F
+			| 0x7F..=0x9F
+			| 0x061C | 0x200B
+			| 0x200E | 0x200F
+			| 0x2028..=0x202E
+			| 0x2060..=0x2064
+			| 0x2066..=0x2069
+			| 0xFEFF
+	)
+}
+
+fn push_unicode_escape(out: &mut String, c: char) {
+	use std::fmt::Write;
+	let _ = write!(out, "\\u{:04X}", c as u32);
 }
 
 /// The predicate a `[value]` selector matches with: the display form, which
@@ -1893,19 +1948,16 @@ fn reads_same(spelling: &str, quoted: bool, logical: &str) -> bool {
 
 /// How a re-spelled piece is written. 2.x read a backslash in bare and
 /// single-quoted text as an escape too, and double quotes are where both rule
-/// sets read one alike. So the migrated file reads the same under 2.x, and a
-/// second run changes nothing.
+/// sets read one alike. No `\u` goes in, since 2.x would keep it as written.
+/// So the migrated file reads the same under 2.x, and a second run changes
+/// nothing.
 fn migrate_spelling(logical: &str, bare: bool) -> String {
 	if logical.contains('\\') {
-		quote_double(logical)
-	} else if bare {
-		emit_element(&Element {
-			text: logical.to_string(),
-			quoted: false,
-		})
-		.into_owned()
+		quote_double_as(logical, Rules::V2)
+	} else if bare && !needs_quotes(logical) {
+		logical.to_string()
 	} else {
-		quote_text(logical)
+		quote_text_as(logical, Rules::V2)
 	}
 }
 
@@ -1934,15 +1986,21 @@ fn value_edits(text: &str, tok: &Tokens, edits: &mut Vec<Edit>, st: &mut Migrati
 		if p.quote == Quote::None && !raw.contains('\\') && !raw.is_empty() {
 			continue;
 		}
-		let logical = apply_escapes(raw);
+		let logical = apply_escapes_v2(raw);
 		if reads_same(&text[a..b], quoted, &logical) {
 			continue;
 		}
 		// A resolved escape is the one edit that turns on which rule set wrote
 		// the file: these bytes say one thing under 2.x and another here. An
 		// open quote or an empty slot reads alike either way, so it still goes,
-		// and so does an unknown pair in double quotes, which both kept.
-		if logical != raw && p.quote != Quote::Double && !st.from_v2 {
+		// and so does an unknown pair in double quotes, which both kept. A `\u`
+		// in double quotes is a character now and was text in 2.x.
+		let differs = if p.quote == Quote::Double {
+			unicode_pair_differs(raw)
+		} else {
+			logical != raw
+		};
+		if differs && !st.from_v2 {
 			st.ambiguous += 1;
 			continue;
 		}
@@ -1983,19 +2041,24 @@ fn migrate_line(
 			let name = &rest[seg.name.start..seg.name.end];
 			// An unknown pair in double quotes read the same in 2.x, and is
 			// E023 now, so its backslash is doubled whichever wrote the file.
-			if seg.name.quote == Quote::Double && unknown_escape(name).is_some() {
-				edits.push((
-					seg.name.start - 1,
-					seg.name.end + 1,
-					escape_name(&apply_escapes(name)).into_owned(),
-				));
+			// A `\u` pair is a character now, so that one needs `--from-2x`.
+			if seg.name.quote == Quote::Double && v2_kept_escape(name) {
+				if unicode_pair_differs(name) && !st.from_v2 {
+					st.ambiguous += 1;
+				} else {
+					edits.push((
+						seg.name.start - 1,
+						seg.name.end + 1,
+						escape_name_as(&apply_escapes_v2(name), Rules::V2).into_owned(),
+					));
+				}
 			}
-			if seg.name.quote == Quote::Single && apply_escapes(name) != name {
+			if seg.name.quote == Quote::Single && apply_escapes_v2(name) != name {
 				if st.from_v2 {
 					edits.push((
 						seg.name.start - 1,
 						seg.name.end + 1,
-						escape_name(&apply_escapes(name)).into_owned(),
+						escape_name_as(&apply_escapes_v2(name), Rules::V2).into_owned(),
 					));
 				} else {
 					st.ambiguous += 1;
@@ -2024,8 +2087,8 @@ fn migrate_line(
 				colon = Some(k - 1);
 			}
 			let body = &rest[sel.start..sel.end];
-			let logical = apply_escapes(body);
-			let unknown = sel.quote == Quote::Double && unknown_escape(body).is_some();
+			let logical = apply_escapes_v2(body);
+			let unknown = sel.quote == Quote::Double && v2_kept_escape(body);
 			if i == last && tok.sep.is_none() {
 				if let Some(c) = colon {
 					// `name:[disc]` with nothing after it: 2.x read it as
@@ -2068,7 +2131,9 @@ fn migrate_line(
 			}
 			// Double quotes already read alike on both sides, so only the other
 			// spellings turn on which rule set wrote the file.
-			if unknown {
+			if unknown && unicode_pair_differs(body) && !st.from_v2 {
+				st.ambiguous += 1;
+			} else if unknown {
 				edits.push((
 					sel.start - 1,
 					sel.end + 1,
@@ -2182,8 +2247,9 @@ fn selector_open_quote(tok: &Tokens) -> bool {
 		.any(|s| s.selector.is_some_and(|p| p.quote == Quote::Open))
 }
 
-/// The character after the first backslash in `raw` that starts none of the
-/// five escapes. Only meaningful for a double-quoted piece.
+/// The character after the first backslash in `raw` that starts no escape,
+/// or the `u` or `U` of one that names no character. Only meaningful for a
+/// double-quoted piece.
 fn unknown_escape(raw: &str) -> Option<char> {
 	if !raw.contains('\\') {
 		return None;
@@ -2193,6 +2259,7 @@ fn unknown_escape(raw: &str) -> Option<char> {
 		if c == '\\' {
 			match it.next() {
 				Some('t' | 'n' | '\\' | '"' | '\'') => {}
+				Some(k @ ('u' | 'U')) if unicode_escape(k, it.as_str()).is_some() => {}
 				// A double-quoted piece cannot end on a lone backslash: it
 				// would have escaped the closing quote.
 				other => return other,
@@ -2200,6 +2267,24 @@ fn unknown_escape(raw: &str) -> Option<char> {
 		}
 	}
 	None
+}
+
+/// `unknown_escape` by the 2.x rules, which had no `\u`: a pair 2.x kept as
+/// written, so `migrate` doubles its backslash.
+fn v2_kept_escape(raw: &str) -> bool {
+	let mut it = raw.chars();
+	while let Some(c) = it.next() {
+		if c == '\\' && !matches!(it.next(), Some('t' | 'n' | '\\' | '"' | '\'')) {
+			return true;
+		}
+	}
+	false
+}
+
+/// A 2.x pair that is a real `\u` escape now: 2.x read the text as written
+/// and the current rules read a character, so only `--from-2x` can say which.
+fn unicode_pair_differs(raw: &str) -> bool {
+	v2_kept_escape(raw) && unknown_escape(raw).is_none()
 }
 
 /// The first unknown escape in a double-quoted name, selector body or, when
@@ -2256,6 +2341,12 @@ fn path_like(p: &Piece, text: &str) -> bool {
 const PATH_HINT: &str = "value looks like a Windows path, and its \\t or \\n reads as a tab or newline; single quotes keep a backslash as written";
 
 fn escape_msg(c: char) -> String {
+	if c == 'u' || c == 'U' {
+		return format!(
+			"bad escape '\\{}' in double quotes; \\u takes 4 hex digits and \\U takes 8, naming a Unicode character; write a backslash as '\\\\' or use single quotes",
+			c
+		);
+	}
 	format!(
 		"unknown escape '\\{}' in double quotes; write a backslash as '\\\\' or use single quotes",
 		one_line(&c.to_string())
@@ -5371,6 +5462,12 @@ fn push_trailing(out: &mut String, trailing: &str) {
 /// backslash, which is right for a value (stored in its escaped spelling) and
 /// wrong for a name (stored resolved).
 fn escape_name(name: &str) -> std::borrow::Cow<'_, str> {
+	escape_name_as(name, Rules::Current)
+}
+
+/// `escape_name` for a reader of `rules`: under 2.x an invisible character is
+/// written as it is, since 2.x kept a `\u` as written.
+fn escape_name_as(name: &str, rules: Rules) -> std::borrow::Cow<'_, str> {
 	if !name.is_empty() && name.bytes().all(is_bare_name_byte) {
 		return std::borrow::Cow::Borrowed(name);
 	}
@@ -5382,6 +5479,7 @@ fn escape_name(name: &str) -> std::borrow::Cow<'_, str> {
 			'"' => out.push_str("\\\""),
 			'\t' => out.push_str("\\t"),
 			'\n' => out.push_str("\\n"),
+			c if rules == Rules::Current && invisible(c) => push_unicode_escape(&mut out, c),
 			_ => out.push(c),
 		}
 	}
@@ -5396,22 +5494,16 @@ fn emit_name(name: &str) -> std::borrow::Cow<'_, str> {
 /// A field name for a diagnostic message: spelled the way the emitter would
 /// write it, so a name carrying a line break, a dot or a quote cannot pose as
 /// something it is not - a raw `a.b` reads exactly like `a` nesting `b`, and a
-/// raw line break splits one diagnostic across two. CR is escaped here and not
-/// in `escape_name`, because the name parse has no `\r` escape to read back.
+/// raw line break splits one diagnostic across two.
 fn diag_name(name: &str) -> String {
-	emit_name(name).replace('\r', "\\r")
+	emit_name(name).into_owned()
 }
 
 /// One element of a value, spelled for a diagnostic message: the emitter's
 /// inline spelling, so a value carrying a line break cannot split one
-/// diagnostic across two. A mid-piece CR is content and the emitter leaves it
-/// bare, so it forces quotes here and is escaped, same reason as `diag_name`.
+/// diagnostic across two.
 fn diag_element(e: &Element) -> String {
-	let s = emit_element(e);
-	if s.contains('\r') {
-		return quote_double(&e.text).replace('\r', "\\r");
-	}
-	s.into_owned()
+	emit_element(e).into_owned()
 }
 
 /// A value for a diagnostic message. Only a cell reaches this today, from the
@@ -6217,7 +6309,7 @@ fn needs_quotes(t: &str) -> bool {
 			matches!(
 				c,
 				' ' | '\t' | '\n' | ',' | ':' | '#' | '"' | '\'' | '[' | ']'
-			)
+			) || invisible(c)
 		}) || t.starts_with(char::is_whitespace)
 		|| t.ends_with(char::is_whitespace)
 		|| fence_open(t).is_some()
@@ -6277,17 +6369,25 @@ fn leading_zero(t: &str) -> bool {
 /// Quote a logical string so the tokenizer reads it back as the same string.
 /// Single quotes are literal, so they are the spelling for text holding a
 /// double quote or a backslash; double quotes carry the escapes, so they are
-/// the spelling for a line break, a tab, or text holding both quote kinds.
+/// the spelling for a line break, a tab, an invisible character, or text
+/// holding both quote kinds.
 fn quote_text(t: &str) -> String {
-	let control = t.contains(['\n', '\t']);
+	quote_text_as(t, Rules::Current)
+}
+
+/// `quote_text` for a reader of `rules`, as in `quote_double_as`.
+fn quote_text_as(t: &str, rules: Rules) -> String {
+	let control = t.contains(['\n', '\t']) || (rules == Rules::Current && t.chars().any(invisible));
 	if !control && !t.contains('\'') && (t.contains('"') || t.contains('\\')) {
 		return format!("'{}'", t);
 	}
-	quote_double(t)
+	quote_double_as(t, rules)
 }
 
-/// The double-quoted spelling, which the 2.x and current rules read alike.
-fn quote_double(t: &str) -> String {
+/// The double-quoted spelling for a reader of `rules`. The two read it alike,
+/// except a `\u` escape, which 2.x kept as written, so for 2.x an invisible
+/// character goes in as it is.
+fn quote_double_as(t: &str, rules: Rules) -> String {
 	let mut out = String::with_capacity(t.len() + 2);
 	out.push('"');
 	for c in t.chars() {
@@ -6296,6 +6396,7 @@ fn quote_double(t: &str) -> String {
 			'"' => out.push_str("\\\""),
 			'\n' => out.push_str("\\n"),
 			'\t' => out.push_str("\\t"),
+			c if rules == Rules::Current && invisible(c) => push_unicode_escape(&mut out, c),
 			_ => out.push(c),
 		}
 	}

@@ -1418,21 +1418,40 @@ def _first_where(xs, pred):
 
 
 def _apply_escapes(s):
-	"""Escape processing (string reads): \\t \\n \\\\ \\" \\'. An unknown pair
-	stays literal, which only 2.x text still reaches: the current rules refuse
-	one (E023) before anything is read."""
+	"""Escape processing (string reads): \\t \\n \\\\ \\" \\' \\uXXXX
+	\\UXXXXXXXX. An unknown pair stays literal, which only 2.x text still
+	reaches: the current rules refuse one (E023) before anything is read."""
+	return _resolve_escapes(s, Rules.CURRENT)
+
+
+def _apply_escapes_v2(s):
+	"""The 2.x reading, for migrate: no \\u, so 2.x kept \\u0041 as written."""
+	return _resolve_escapes(s, Rules.V2)
+
+
+def _resolve_escapes(s, rules):
 	# Fast path: every non-backslash char passes through verbatim, so with no
 	# backslash the output is s itself. Hot at parse time too (_disp_key runs
 	# per node insert), and backslash-free text dominates.
 	if "\\" not in s:
 		return s
 	out = []
-	it = iter(s)
-	for c in it:
+	i = 0
+	n = len(s)
+	while i < n:
+		c = s[i]
+		i += 1
 		if c != "\\":
 			out.append(c)
 			continue
-		nxt = next(it, None)
+		nxt = s[i] if i < n else None
+		i += 1
+		if nxt in ("u", "U") and rules is Rules.CURRENT:
+			ue = _unicode_escape(nxt, s[i:i + 8])
+			if ue is not None:
+				out.append(ue[0])
+				i += ue[1]
+				continue
 		if nxt == "t":
 			out.append("\t")
 		elif nxt == "n":
@@ -1449,6 +1468,51 @@ def _apply_escapes(s):
 			out.append("\\")
 			out.append(nxt)
 	return "".join(out)
+
+
+_HEX_CHARS = frozenset("0123456789abcdefABCDEF")
+
+
+def _unicode_escape(kind, after):
+	"""The character a \\u or \\U escape names, and how many hex digits spell
+	it: four after u, eight after U, as in TOML. None for a short run, a
+	surrogate or a value past U+10FFFF."""
+	n = 4 if kind == "u" else 8
+	digits = after[:n]
+	if len(digits) < n or not _HEX_CHARS.issuperset(digits):
+		return None
+	v = int(digits, 16)
+	if v > 0x10FFFF or 0xD800 <= v <= 0xDFFF:
+		return None
+	return chr(v), n
+
+
+# Characters canonical output writes as a \u escape, so a reader of the file
+# sees every character that is there: controls with no short escape, the
+# direction marks, embeddings, overrides and isolates, zero-width spaces, the
+# byte order mark, and the line and paragraph separators. The zero-width
+# joiner and non-joiner stay as written, since emoji and several scripts need
+# them.
+_INVISIBLE = frozenset(
+	chr(c)
+	for lo, hi in (
+		(0x00, 0x08),
+		(0x0B, 0x1F),
+		(0x7F, 0x9F),
+		(0x061C, 0x061C),
+		(0x200B, 0x200B),
+		(0x200E, 0x200F),
+		(0x2028, 0x202E),
+		(0x2060, 0x2064),
+		(0x2066, 0x2069),
+		(0xFEFF, 0xFEFF),
+	)
+	for c in range(lo, hi + 1)
+)
+
+
+def _unicode_escape_text(c):
+	return f"\\u{ord(c):04X}"
 
 
 def _single_scalar(v):
@@ -1751,13 +1815,14 @@ def _reads_same(spelling, quoted, logical):
 def _migrate_spelling(logical, bare):
 	"""How a re-spelled piece is written. 2.x read a backslash in bare and
 	single-quoted text as an escape too, and double quotes are where both rule
-	sets read one alike. So the migrated file reads the same under 2.x, and a
-	second run changes nothing."""
+	sets read one alike. No \\u goes in, since 2.x would keep it as written.
+	So the migrated file reads the same under 2.x, and a second run changes
+	nothing."""
 	if "\\" in logical:
-		return _quote_double(logical)
-	if bare:
-		return _emit_element(_Element(logical, False))
-	return _quote_text(logical)
+		return _quote_double_as(logical, Rules.V2)
+	if bare and not _needs_quotes(logical):
+		return logical
+	return _quote_text_as(logical, Rules.V2)
 
 
 def _v2_bracket_array(body):
@@ -1783,14 +1848,19 @@ def _value_edits(s, tok, edits, st):
 			a, b = p.start, p.end
 		if p.quote is Quote.NONE and "\\" not in raw and raw:
 			continue
-		logical = _apply_escapes(raw)
+		logical = _apply_escapes_v2(raw)
 		if _reads_same(s[a:b].decode("utf-8", "surrogatepass"), quoted, logical):
 			continue
 		# A resolved escape is the one edit that turns on which rule set wrote
 		# the file: these bytes say one thing under 2.x and another here. An
 		# open quote or an empty slot reads alike either way, so it still goes,
-		# and so does an unknown pair in double quotes, which both kept.
-		if logical != raw and p.quote is not Quote.DOUBLE and not st.from_v2:
+		# and so does an unknown pair in double quotes, which both kept. A \u
+		# in double quotes is a character now and was text in 2.x.
+		if p.quote is Quote.DOUBLE:
+			differs = _unicode_pair_differs(s[p.start:p.end])
+		else:
+			differs = logical != raw
+		if differs and not st.from_v2:
 			st.ambiguous += 1
 			continue
 		spelling = _migrate_spelling(logical, not (quoted or p.quote is Quote.OPEN))
@@ -1822,11 +1892,16 @@ def _migrate_line(rest, tok, fence, st):
 			name = s[seg.name.start:seg.name.end].decode("utf-8", "surrogatepass")
 			# An unknown pair in double quotes read the same in 2.x, and is
 			# E023 now, so its backslash is doubled whichever wrote the file.
-			if seg.name.quote is Quote.DOUBLE and _unknown_escape(s[seg.name.start:seg.name.end]) is not None:
-				edits.append((seg.name.start - 1, seg.name.end + 1, _escape_name(_apply_escapes(name)).encode("utf-8", "surrogatepass")))
-			if seg.name.quote is Quote.SINGLE and _apply_escapes(name) != name:
+			# A \u pair is a character now, so that one needs --from-2x.
+			name_raw = s[seg.name.start:seg.name.end]
+			if seg.name.quote is Quote.DOUBLE and _v2_kept_escape(name_raw):
+				if _unicode_pair_differs(name_raw) and not st.from_v2:
+					st.ambiguous += 1
+				else:
+					edits.append((seg.name.start - 1, seg.name.end + 1, _escape_name_as(_apply_escapes_v2(name), Rules.V2).encode("utf-8", "surrogatepass")))
+			if seg.name.quote is Quote.SINGLE and _apply_escapes_v2(name) != name:
 				if st.from_v2:
-					edits.append((seg.name.start - 1, seg.name.end + 1, _escape_name(_apply_escapes(name)).encode("utf-8", "surrogatepass")))
+					edits.append((seg.name.start - 1, seg.name.end + 1, _escape_name_as(_apply_escapes_v2(name), Rules.V2).encode("utf-8", "surrogatepass")))
 				else:
 					st.ambiguous += 1
 			sel = seg.selector
@@ -1848,8 +1923,8 @@ def _migrate_line(rest, tok, fence, st):
 			if k > 0 and s[k - 1] == 0x3A:
 				colon = k - 1
 			body = s[sel.start:sel.end].decode("utf-8", "surrogatepass")
-			logical = _apply_escapes(body)
-			unknown = sel.quote is Quote.DOUBLE and _unknown_escape(s[sel.start:sel.end]) is not None
+			logical = _apply_escapes_v2(body)
+			unknown = sel.quote is Quote.DOUBLE and _v2_kept_escape(s[sel.start:sel.end])
 			if i == last and tok.sep is None:
 				if colon is not None:
 					# `name:[disc]` with nothing after it: 2.x read it as
@@ -1886,7 +1961,9 @@ def _migrate_line(rest, tok, fence, st):
 				edits.append((colon, colon + 1 + int(spaced), b""))
 			# Double quotes already read alike on both sides, so only the other
 			# spellings turn on which rule set wrote the file.
-			if unknown:
+			if unknown and _unicode_pair_differs(s[sel.start:sel.end]) and not st.from_v2:
+				st.ambiguous += 1
+			elif unknown:
 				edits.append((sel.start - 1, sel.end + 1, _migrate_spelling(logical, False).encode("utf-8", "surrogatepass")))
 			elif logical != body and sel.quote is not Quote.DOUBLE:
 				if st.from_v2:
@@ -1990,18 +2067,43 @@ def _selector_open_quote(tok):
 
 
 def _unknown_escape(raw):
-	"""The character after the first backslash in raw (bytes) that starts
-	none of the five escapes. Only meaningful for a double-quoted piece."""
+	"""The character after the first backslash in raw (bytes) that starts no
+	escape, or the u or U of one that names no character. Only meaningful for
+	a double-quoted piece."""
 	i = raw.find(b"\\")
 	while i >= 0:
 		# A double-quoted piece cannot end on a lone backslash: it would have
 		# escaped the closing quote.
 		if i + 1 >= len(raw):
 			return None
-		if raw[i + 1] not in b"tn\\\"'":
+		k = raw[i + 1]
+		if k in b"uU":
+			if _unicode_escape(chr(k), raw[i + 2:i + 10].decode("latin-1")) is None:
+				return chr(k)
+		elif k not in b"tn\\\"'":
 			return raw[i + 1:].decode("utf-8", "surrogatepass")[0]
 		i = raw.find(b"\\", i + 2)
 	return None
+
+
+def _v2_kept_escape(raw):
+	"""_unknown_escape by the 2.x rules, which had no \\u: a pair 2.x kept as
+	written, so migrate doubles its backslash. Takes bytes."""
+	i = raw.find(b"\\")
+	while i >= 0:
+		if i + 1 >= len(raw):
+			return False
+		if raw[i + 1] not in b"tn\\\"'":
+			return True
+		i = raw.find(b"\\", i + 2)
+	return False
+
+
+def _unicode_pair_differs(raw):
+	"""A 2.x pair that is a real \\u escape now: 2.x read the text as written
+	and the current rules read a character, so only --from-2x can say which.
+	Takes bytes."""
+	return _v2_kept_escape(raw) and _unknown_escape(raw) is None
 
 
 def _bad_escape(tok, values):
@@ -2051,6 +2153,8 @@ _PATH_HINT = "value looks like a Windows path, and its \\t or \\n reads as a tab
 
 
 def _escape_msg(c):
+	if c in ("u", "U"):
+		return "bad escape '\\" + c + "' in double quotes; \\u takes 4 hex digits and \\U takes 8, naming a Unicode character; write a backslash as '\\\\' or use single quotes"
 	return "unknown escape '\\" + _one_line(c) + "' in double quotes; write a backslash as '\\\\' or use single quotes"
 
 
@@ -6013,6 +6117,12 @@ def _escape_name(name: str) -> str:
 	that one picks a quote style to AVOID escaping and never escapes a
 	backslash, which is right for a value (stored in its escaped spelling) and
 	wrong for a name (stored resolved)."""
+	return _escape_name_as(name, Rules.CURRENT)
+
+
+def _escape_name_as(name, rules):
+	"""_escape_name for a reader of rules: under 2.x an invisible character is
+	written as it is, since 2.x kept a \\u as written."""
 	# issuperset iterates the name in C; the generator this replaced made one
 	# Python call per character of every name emitted.
 	if name and _BARE_NAME_CHARS.issuperset(name):
@@ -6027,6 +6137,8 @@ def _escape_name(name: str) -> str:
 			out.append("\\t")
 		elif c == "\n":
 			out.append("\\n")
+		elif c in _INVISIBLE and rules is Rules.CURRENT:
+			out.append(_unicode_escape_text(c))
 		else:
 			out.append(c)
 	out.append('"')
@@ -6041,20 +6153,15 @@ def _diag_name(name):
 	# A field name for a diagnostic message: spelled the way the emitter would
 	# write it, so a name carrying a line break, a dot or a quote cannot pose as
 	# something it is not - a raw `a.b` reads exactly like `a` nesting `b`, and a
-	# raw line break splits one diagnostic across two. CR is escaped here and not
-	# in _escape_name, because the name parse has no `\r` escape to read back.
-	return _emit_name(name).replace("\r", "\\r")
+	# raw line break splits one diagnostic across two.
+	return _emit_name(name)
 
 
 def _diag_element(e):
 	# One element of a value, spelled for a diagnostic message: the emitter's
 	# inline spelling, so a value carrying a line break cannot split one
-	# diagnostic across two. A mid-piece CR is content and the emitter leaves it
-	# bare, so it forces quotes here and is escaped, same reason as _diag_name.
-	s = _emit_element(e)
-	if "\r" in s:
-		return _quote_double(e.text).replace("\r", "\\r")
-	return s
+	# diagnostic across two.
+	return _emit_element(e)
 
 
 def _diag_value(v):
@@ -6613,7 +6720,7 @@ def _needs_quotes(t):
 	"""Minimal quoting: bare unless a reserved character (or lookalike hazard) forces it."""
 	# isdisjoint iterates the text in C and stops at the first hit; the generator
 	# it replaced made one Python call per character of every element emitted.
-	needs = (not t) or not _RESERVED.isdisjoint(t) or (_fence_open(t) is not None)
+	needs = (not t) or not _RESERVED.isdisjoint(t) or not _INVISIBLE.isdisjoint(t) or (_fence_open(t) is not None)
 	# Edge whitespace still has to force quotes, for the carriage return: it is
 	# a blank, so a piece ending in one loses it to the reload. Space and tab
 	# are already in the list above. The test is the whole Unicode whitespace
@@ -6679,16 +6786,23 @@ def _quote_text(t):
 	"""Quote a logical string so the tokenizer reads it back as the same
 	string. Single quotes are literal, so they are the spelling for text
 	holding a double quote or a backslash; double quotes carry the escapes, so
-	they are the spelling for a line break, a tab, or text holding both quote
-	kinds."""
-	control = "\n" in t or "\t" in t
+	they are the spelling for a line break, a tab, an invisible character, or
+	text holding both quote kinds."""
+	return _quote_text_as(t, Rules.CURRENT)
+
+
+def _quote_text_as(t, rules):
+	"""_quote_text for a reader of rules, as in _quote_double_as."""
+	control = "\n" in t or "\t" in t or (rules is Rules.CURRENT and not _INVISIBLE.isdisjoint(t))
 	if not control and "'" not in t and ('"' in t or "\\" in t):
 		return "'" + t + "'"
-	return _quote_double(t)
+	return _quote_double_as(t, rules)
 
 
-def _quote_double(t):
-	"""The double-quoted spelling, which the 2.x and current rules read alike."""
+def _quote_double_as(t, rules):
+	"""The double-quoted spelling for a reader of rules. The two read it alike,
+	except a \\u escape, which 2.x kept as written, so for 2.x an invisible
+	character goes in as it is."""
 	out = ['"']
 	for c in t:
 		if c == "\\":
@@ -6699,6 +6813,8 @@ def _quote_double(t):
 			out.append("\\n")
 		elif c == "\t":
 			out.append("\\t")
+		elif c in _INVISIBLE and rules is Rules.CURRENT:
+			out.append(_unicode_escape_text(c))
 		else:
 			out.append(c)
 	out.append('"')

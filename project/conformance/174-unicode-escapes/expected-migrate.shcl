@@ -1,0 +1,22 @@
+# \u and \U escapes in double quotes
+accent: "caf\\u00E9"
+smile: "\\U0001F600"
+lower: "\\u00e9"
+zwsp: "a\\u200Bb"
+override: "x\\u202Ey"
+joiner: "a\\u200Db"
+nul: "a\\u0000b"
+tab: "a\\u0009b"
+"key\\u00E9": 1
+bare: a​b
+single: 'raw\u0041'
+path: C:\users
+short: "\\u12"
+surrogate: "\\uD800"
+past: "\\U00110000"
+nothex: "\\uZZZZ"
+list: "\\u0041", b
+tier: A
+tier["\\u0041"].port: 80
+##    Format   3
+##    Migrated from SHCL 2.x.
