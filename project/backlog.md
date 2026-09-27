@@ -120,6 +120,290 @@ Going forward, new issues in the new template above will go in the '### New form
 	- Branch: `cxxveneer`
 	- Test case: `veneer_smoke.cpp` covers the new surface. `check-veneer.bash` fails when the public half names C, when a consumer file can reach `shcl_parse`, or when a consumer and the implementation built apart do not link and run. Each was watched to fail. `check-readme.bash` builds the new C++ README example the same way and compares the file it saves.
 
+- A line-keeping save deletes lines the load dropped, at exit 0
+	- ID: 2026092620255201
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 item 1
+	- Version and build: dev at `3a3985a`
+	- Steps to reproduce:
+		- A file holding `val: 1`, then `\t* e`, then `z: 2`.
+		- `shcl set -w --set=val=9 FILE`.
+	- Incorrect behavior: exit 0, and the file is `val: 9` and `z: 2`. The `* e` line is gone. An unrelated edit does it too: a `comment` op on `sizes.color` in a list mixed with fields deletes an `E008` element. So does `set_value` on an `E019` line with an `E018` line under it.
+	- Expected behavior: the dropped line comes back as written, or the save falls back to canonical and refuses at 7. Before `f1362fb` it refused at 7.
+	- Reproduced: 20260926, all four CLIs. Corpus cases 010, 060, 095 and 128 show it under per-path edits.
+	- Origin: `f1362fb` (keeplost, 2026-09-25) changed the reload test from `lost == 0` to `lost <= loaded lost`. A rewritten group takes in dropped lines two ways: a stacked list's range runs over refused elements, and a group whose runs come from lines that are not next to each other claims the lines between. No round had read `f1362fb`. Confirmed.
+	- Possible cause: the reload drops fewer lines than the source did, and `<=` accepts that. The `left` check covers only lines outside every rewritten group.
+	- Note: the third defect in the line-keeping save's lost-line accounting in two days, after 20260925b item 1 and 20260925c item 1. A property in the Rust fuzz and the shared seq fixture would stop the next one: every line the load dropped is written back verbatim, or the save is canonical.
+	- Estimated effort: Avg
+
+- `clear-comments` deletes a misplaced line kept as written
+	- ID: 2026092620255202
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 item 2
+	- Version and build: dev at `3a3985a`
+	- Steps to reproduce:
+		- A file holding `a: "\q"`, then `    b: 1`, `        c: 1`, `      d: 2`, `e: 1`.
+		- `printf 'clear-comments\te\n' | shcl set -w FILE`.
+	- Incorrect behavior: exit 0, and `      d: 2` is gone. `comments("e")` reports `# d: 2`, which nobody wrote.
+	- Expected behavior: the line stays. The spec says a line kept for being malformed survives `ClearComments`.
+	- Reproduced: 20260926, all four CLIs.
+	- Origin: `acadbc4` (`clear_comments`) on top of `51197bc` (kept settle), which turns a kept line that would bind into a comment at load. Not seen before. Confirmed.
+	- Estimated effort: Avg
+
+- C `shcl_compact` reaches the out-of-memory hook on a document with a kept misplaced line
+	- ID: 2026092620255203
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 item 3
+	- Steps to reproduce: `shcl_parse` of `a:\n\tb: 1\n c: 2\n\td: 3\n`, then `shcl_compact` with one allocation failing at each position.
+	- Incorrect behavior: at the 8th and 9th allocation the hook is reached, which exits 70 by default.
+	- Expected behavior: the header says an allocation failure leaves the document as it was.
+	- Reproduced: 20260926, a scratch harness with a failing allocator.
+	- Origin: `51197bc` (2026-09-24) runs `settle_kept` after the swap, outside the recovery point. `oom_hook.c`'s documents hold no kept line. Regresses 20260918b item 22's contract. Confirmed.
+	- Estimated effort: Low
+
+- A merge result depends on whether the lower layer spells a list stacked or inline
+	- ID: 2026092620255204
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 item 4
+	- Steps to reproduce:
+		- `L1` holds `x:` then `\t* 2`. `L2` holds `x: 2`. `F` holds `x:`, `  x: 0`, `x: 2`, ` no colon 4`.
+		- `shcl fmt --layer=L1 F`, then `shcl fmt --layer=L2 F`.
+	- Incorrect behavior: the first writes `x` as a stacked list, the second inline. Values are the same.
+	- Expected behavior: the same text both ways, as before `d0b200c`. The fuzz property "a step on a document and on a reload of its saved text give the same text" says so.
+	- Reproduced: 20260926, all four CLIs. The base build gives the inline form both ways.
+	- Origin: `d0b200c` (2026-09-24), `stacks()` reads a stacked flag a reload clears. 20260924d read the hunk and did not see it. Confirmed.
+	- Estimated effort: Low
+
+- `banner on` adds a second info block when the old one sits under the first field
+	- ID: 2026092620255205
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 item 5
+	- Steps to reproduce: a file holding `a:`, then the block's `##` lines indented one tab, then `\tb: 1`. `printf 'banner\ton\n' | shcl set FILE`.
+	- Incorrect behavior: the indented block stays and a second block is written at the end.
+	- Expected behavior: the doc says the block is looked for above every field but the first. This one is above `b`.
+	- Reproduced: 20260926, all four CLIs.
+	- Origin: `f1362fb` (2026-09-25). The skip list takes the whole first-child chain, not only the nodes on the first line. Confirmed.
+	- Estimated effort: Low
+
+- C `shcl_compact` turns earlier generation faults into ordinary diagnostics
+	- ID: 2026092620255206
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 item 6
+	- Steps to reproduce: `shcl_generate` twice, `shcl_compact`, then `shcl_generate` again.
+	- Incorrect behavior: the third call lists two `V097` faults.
+	- Expected behavior: one. The header says faults from an earlier call are dropped first. The base build gives one.
+	- Reproduced: 20260926, a scratch harness. C++ is not affected, since its `generate` strips the faults itself.
+	- Origin: `5dfcecd` (2026-09-19). `push_diag` in compact clears the `generated` flag. Confirmed.
+	- Estimated effort: Low
+
+- C++ `const` reads on one document race each other
+	- ID: 2026092620255207
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 item 7
+	- Steps to reproduce: two threads calling `read_string` and `read_int_array` on one `const shcl::Document`, built with `-fsanitize=thread`.
+	- Incorrect behavior: ThreadSanitizer reports a data race in `arena_reset`, reached through `shcl_reads_release` from every `const` read.
+	- Expected behavior: the Rust `Document` is `Sync`, and a `const` member in C++ is safe to call at once from two threads. Either the reads stop being `const`, or the header says a document is not shared across threads.
+	- Reproduced: 20260926.
+	- Origin: the older veneer had the same pattern. `74a2e5d` (2026-09-26) kept it. Confirmed.
+	- Estimated effort: Low
+
+- On Windows, creating a file through a `\\.\C:\` path is refused as not a regular file
+	- ID: 2026092620255208
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 item 8
+	- Target OS: Windows
+	- Steps to reproduce: `shcl set -w '\\.\C:\dir\new.shcl' --set a=2`, where `new.shcl` does not exist.
+	- Incorrect behavior: "not a regular file", exit 8. The same path to an existing file works, and so does `\\?\` for a new one.
+	- Expected behavior: the file is created. The code's own comment keeps a volume-prefixed path out of the device case.
+	- Reproduced: 20260926, the C CLI under wine. Not yet on a real Windows box; Rust, Go and Python have the same test by reading.
+	- Origin: `64ca57b` (2026-09-20). Plausible for the other three.
+	- Estimated effort: Low
+
+- `FormatVersion` in Go, Python and C reads Format numbers past 2^32 that Rust reads as the current major
+	- ID: 2026092620255209
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 item 9
+	- Steps to reproduce: `format_version` of `##    Format   4294967296` then `a: 1`.
+	- Incorrect behavior: Rust gives 3, Go and Python give 4294967296. C returns `int64_t`.
+	- Expected behavior: one answer. Every doc comment says digits that do not fit read as the current major, but "fit" means `u32` in Rust.
+	- Reproduced: 20260926, library drivers for Rust and Go.
+	- Note: `migrate` is unaffected, since any value of 3 or more is current. Rust is the odd one out, so widening its type may be the smaller fix.
+	- Origin: `c62b3a5` (2026-09-24) made it public. Confirmed.
+	- Estimated effort: Low
+
+- Man page and README lag three changes
+	- ID: 2026092620255210
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 item 10
+	- Incorrect behavior:
+		- The man page's `children` entry says a path that resolves to several instances prints nothing. All four print every instance's children, as the spec and changelog say. From `d0b200c`.
+		- The man page's MIGRATING section says two edges read differently. The spec and design.md say three, adding the misplaced indent, and that `migrate --write` refuses at 7 while one is left. The EXIT STATUS entry for 7 leaves it out too. From `ff55910`.
+		- The README's `migrate` sentence lists what it rewrites and leaves out doubling the backslash of an unknown escape. From `ea4b719`.
+	- Reproduced: 20260926, the first against all four CLIs, the rest by reading.
+	- Origin: as listed. Confirmed.
+	- Estimated effort: Low
+
+- The dogfood runner stamps builds in local time and the current culture
+	- ID: 2026092620255211
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 item 11
+	- Steps to reproduce: a scratch HOME, then `LC_ALL=th_TH.UTF-8 pwsh -NoProfile -File utility/dogfood_shcl.ps1 version` three times.
+	- Incorrect behavior: the held name jumps 543 years on each run, and a newer build is never copied in. Across a fall DST change a later build can sort as older and is skipped the same way.
+	- Expected behavior: a stable name, and the newest build runs. The stamp is written in the current culture and read back as invariant, which the tree's PowerShell traps warn about.
+	- Reproduced: 20260926, pwsh on Linux.
+	- Origin: `eefd1db` (2026-09-24). Confirmed.
+	- Estimated effort: Low
+
+- The drop-ins tarball's file modes follow the checkout's umask
+	- ID: 2026092620255212
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 item 12
+	- Steps to reproduce: build the tarball from a checkout made under umask 077, and again under 022.
+	- Incorrect behavior: `-rw-------` against `-rw-r--r--`, and the sums differ.
+	- Expected behavior: the comment above it says two builds of one commit on any box give the same bytes. `--mode=go-w` only takes write away.
+	- Reproduced: 20260926, a scratch copy of the payload.
+	- Origin: `a722ff1` (2026-08-29). The new "two checkouts" row copies on one box, so it cannot see it. Confirmed.
+	- Estimated effort: Low
+
+- The pre-push green-tree skip passes over the main-push installer check
+	- ID: 2026092620255213
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 item 13
+	- Steps to reproduce: record a tree green in a dev-context `--ci` run while its `install.bash` differs from `origin/dev`, then push that tree to main.
+	- Incorrect behavior: the hook skips the gate as already passed. `SHCL_GATE_REF=main check-docs.bash` on the same tree fails with "installer differs between this push to main and dev".
+	- Expected behavior: `green-tree.bash` says a push to main judges the tree it pushes, not the refs.
+	- Reproduced: no, read only.
+	- Origin: `999fff9` (2026-09-18). Plausible.
+	- Estimated effort: Low
+
+- `conformance.c` does not build at `-Os` with the gate's warnings
+	- ID: 2026092620255214
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 item 14
+	- Steps to reproduce: `gcc -std=c11 -Os -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror -Isource/c source/c/tests/conformance.c`.
+	- Incorrect behavior: `-Werror=format-truncation` on `char v[8]` at line 619, on gcc 14 as well as gcc-15.
+	- Expected behavior: the test sources build at every `-O` level the header is checked at.
+	- Reproduced: 20260926, gcc 14.
+	- Origin: `186b201` (2026-09-23). Seen during the line-keeping work and put down to gcc-15 only. Confirmed.
+	- Estimated effort: Low
+
+- Comment style in new code
+	- ID: 2026092620255215
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 item 15
+	- Incorrect behavior:
+		- "lands" and "land" in comments, one added in `lib.rs` in the range and many older ones in `shcl.h` and `main.c`.
+		- `dogfood_shcl.ps1` has no comment-based help, while the other scripts gained it in the range.
+	- Expected behavior: the code style directives.
+	- Reproduced: 20260926, `git grep -w -E 'lands|land' -- source`.
+	- Origin: various. Confirmed.
+	- Estimated effort: Low
+
+- Every closed backlog item gets a Test line
+	- ID: 2026092620255216
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 idea 1, directives of 20260926
+	- Requirements:
+		- 98 closed items have neither a `Test case:` or `Test:` line nor a `Pinned by` line. 89 of them name a test in their prose. Nine name none, at the items opening near lines 726, 4064, 4398, 4409, 5460, 5518, 5555, 5587 and 8608 of the backlog as of `3a3985a`.
+		- Give each a Test line, or one saying why there is none.
+	- Estimated effort: Low
+
+- `set` says when it wrote the canonical form instead of keeping lines
+	- ID: 2026092620255217
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 idea 2
+	- Requirements:
+		- The library reports which save it wrote, and the CLI drops it. A `set -w` on a hand-formatted file can rewrite the whole file with nothing said, for example after adding a child under a dotted line.
+		- One line on stderr when the save fell back, in all four CLIs.
+	- Estimated effort: Low
+
+- `set --write` builds the kept text twice
+	- ID: 2026092620255218
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 idea 3
+	- Requirements:
+		- `write_back` calls `to_text_keep_lines` to compare with the file, then `save_file_keep_lines` builds it again. On a 216k-line file `set -w` takes 1.25 s against 0.71 s printing.
+		- Build it once and save that text.
+	- Estimated effort: Low
+
+- `perf-gate`'s Python `keeps` row runs close to its budget
+	- ID: 2026092620255219
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 idea 4
+	- Requirements:
+		- Three local runs took 68 to 85 percent of the budget. A slow hosted runner could flake it, as `badlines` did.
+		- A count in place of the clock, or a wider floor.
+	- Estimated effort: Low
+
+- `cli-regress` rows have no timeout
+	- ID: 2026092620255220
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 idea 5
+	- Requirements:
+		- A CLI that starts reading stdin under a row that feeds nothing hangs the gate rather than failing the row.
+		- A per-row timeout that fails with the row's name.
+	- Estimated effort: Low
+
 - Hint when a double-quoted Windows path has a `\t` or `\n` escape
 	- ID: 2026092617133293
 	- Type: Enhancement
@@ -269,6 +553,7 @@ Going forward, new issues in the new template above will go in the '### New form
 
 	- 🔘 Idea 1: stage 7's fallback destination `~/.local/bin` is now also the dogfood runner's link and the installer's user link.
 		- Note: `fInstallAtomic` there would replace the runner's link with a regular file, which the runner and `install.bash` then both refuse. Dropping `~/.local/bin` from `DOGFOOD_FIXED_DESTS` avoids it. Not run.
+		- Reproduced: 20260926, stage 7 lifted into a scratch HOME with no synced dir. It printed `OK: installed`, and the runner's link was a regular file after. Code review 20260926.
 		- Opened: 20260924-190225
 
 	- 🔘 Idea 2: `install.bash --uninstall` says it removed shcl when nothing was there.
