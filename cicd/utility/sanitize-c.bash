@@ -254,8 +254,8 @@ fJob oom_hook env "ASAN_OPTIONS=${ASAN_OPTIONS}:detect_leaks=0" "${work}/oom_hoo
 fJob oom_recover "${work}/oom_recover"
 ## The allocation bounds, under the same instrumentation.
 fJob mem_bounds "${work}/mem_bounds"
-## The C++ veneer owns the C handle by hand (rule of five over a raw pointer),
-## which is exactly the kind of code a leak or double free hides in.
+## C++ owns the C handle, converts every value both ways, and frees a scratch
+## document per tokenize, which is the kind of code a leak or double free hides in.
 fJob veneer_smoke "${work}/veneer_smoke"
 for ((k = 0; k < cap; k++)); do fJob "CLI pass ${k}" fCliWorker "${k}"; done
 fJobsWait "${firstRun}"

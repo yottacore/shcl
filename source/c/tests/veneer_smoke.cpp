@@ -57,8 +57,8 @@ int main() {
 	// Two same-name leaves are instances, not one scalar.
 	CHECK(doc.count("city") == 2);
 
-	CHECK(doc.quote_segment("port") == "port");
-	CHECK(doc.quote_segment("q n") == "\"q n\"");
+	CHECK(shcl::quote_segment("port") == "port");
+	CHECK(shcl::quote_segment("q n") == "\"q n\"");
 	auto cities = doc.instances("city");
 	CHECK(cities.size() == 2 && cities[0] == "Chicago" && cities[1] == "Boston");
 
@@ -110,6 +110,27 @@ int main() {
 	CHECK(!shcl::strictness_from_arg("4") && !shcl::strictness_from_arg(""));
 	CHECK(shcl::format_float(0.1) == "0.1" && shcl::format_float(-2.5) == "-2.5");
 	CHECK(shcl::parse_datetime("2026-07-12T09:30Z")->str() == "2026-07-12T09:30Z");
+	// The fields are the reference's: what was written, and nothing else.
+	{
+		auto dt = *shcl::parse_datetime("2026-07-12T09:30:05.250-05:30");
+		const shcl::Date day{2026, 7, 12};
+		const shcl::Time at{9, 30, 5u};
+		CHECK(dt.date == day && dt.time == at && dt.frac == std::string("250"));
+		CHECK(dt.zone && dt.zone->kind == shcl::ZoneKind::Offset && dt.zone->offset_minutes == -330);
+		auto clock = *shcl::parse_datetime("09:30");
+		CHECK(!clock.date && clock.time && !clock.time->second && !clock.frac && !clock.zone);
+		const shcl::Zone utc{shcl::ZoneKind::Utc, 0};
+		CHECK(shcl::parse_datetime("2026-07-12T09:30Z")->zone == utc);
+		shcl::DateTime built;
+		built.date = shcl::Date{2026, 1, 2};
+		built.time = shcl::Time{3, 4, std::nullopt};
+		CHECK(built.str() == "2026-01-02T03:04" && built == *shcl::parse_datetime("2026-01-02T03:04"));
+		CHECK(built != *shcl::parse_datetime("2026-01-02T03:04Z"));
+	}
+	// The format constants are the C macros, so there is one copy of each.
+	CHECK(shcl::MAX_DEPTH == 512 && shcl::FORMAT_MAJOR == 3 && shcl::FORMAT_LINE == "##    Format   3");
+	CHECK(shcl::FORMAT_LINE.substr(0, shcl::FORMAT_LINE_HEAD.size()) == shcl::FORMAT_LINE_HEAD);
+	CHECK(shcl::GEN_BANNER.find(shcl::FORMAT_LINE) != std::string_view::npos && shcl::MIGRATED_LINE == "##    Migrated from SHCL 2.x.");
 	CHECK(!shcl::parse_datetime("notadate") && !shcl::parse_datetime(""));
 
 	// The rest of the surface, item by item: strictness, strict_failed, paths,
@@ -157,9 +178,9 @@ int main() {
 	CHECK(doc.get_or<std::vector<bool>>("nope", {true}) == std::vector<bool>({true}));
 	auto oneDay = shcl::Document::parse("d: 2026-08-02\nds: 2026-08-02, 2026-08-03\n");
 	auto fallbackDay = oneDay.read_datetime("d").value;
-	CHECK(oneDay.get_or<shcl::Datetime>("d", shcl::Datetime()).str() == "2026-08-02");
-	CHECK(oneDay.get_or<shcl::Datetime>("nope", fallbackDay).str() == "2026-08-02");
-	auto days = oneDay.get_or<std::vector<shcl::Datetime>>("ds", {});
+	CHECK(oneDay.get_or<shcl::DateTime>("d", shcl::DateTime()).str() == "2026-08-02");
+	CHECK(oneDay.get_or<shcl::DateTime>("nope", fallbackDay).str() == "2026-08-02");
+	auto days = oneDay.get_or<std::vector<shcl::DateTime>>("ds", {});
 	CHECK(days.size() == 2 && days[1].str() == "2026-08-03");
 	CHECK(rawDoc.get_raw_or("blk", "") == "select 1" && rawDoc.get_raw_info_or("blk", "") == "sql");
 	CHECK(rawDoc.get_raw_or("missing", "fb") == "fb" && rawDoc.get_raw_info_or("missing", "fb") == "fb");
@@ -203,36 +224,36 @@ int main() {
 	// its colon and a bare backslash escape is double-quoted.
 	// Told the file is 2.x, the backslash value is re-spelled and the result is
 	// stamped with the format line, which is what makes a second run a no-op.
-	auto mig = shcl::Document::migrate("base:[Boston]\n\tlat: 42\nnote: a\\tb\n", true);
+	auto mig = shcl::migrate("base:[Boston]\n\tlat: 42\nnote: a\\tb\n", true);
 	CHECK(mig.text == "base: Boston\n\tlat: 42\nnote: \"a\\tb\"\n##    Format   3\n##    Migrated from SHCL 2.x.\n");
 	CHECK(!mig.current && mig.ambiguous == 0 && mig.lost == 0);
-	CHECK(shcl::Document::migrate(mig.text, true).current);
+	CHECK(shcl::migrate(mig.text, true).current);
 	// Not told, and the file does not say: the value reads one way under each
 	// rule set, so it is left as written and counted rather than guessed at.
-	auto amb = shcl::Document::migrate("note: a\\tb\n", false);
+	auto amb = shcl::migrate("note: a\\tb\n", false);
 	CHECK(amb.ambiguous == 1 && amb.text == "note: a\\tb\n");
 	// Without the stamp, for a program that writes the info block itself; the
 	// Format line is what format_version reads.
-	auto unst = shcl::Document::migrate_unstamped("base:[Boston]\n\tlat: 42\nnote: a\\tb\n", true);
+	auto unst = shcl::migrate_unstamped("base:[Boston]\n\tlat: 42\nnote: a\\tb\n", true);
 	CHECK(unst.text == "base: Boston\n\tlat: 42\nnote: \"a\\tb\"\n" && !unst.current);
-	CHECK(shcl::Document::format_version(mig.text) == 3u && !shcl::Document::format_version(unst.text));
-	auto [bare, bareOk] = gschema.generate(true);
-	CHECK(bareOk && bare == "## int, required\nport: 8080\n");
-	auto [starter, starterOk] = gschema.generate();
-	CHECK(starterOk && starter.rfind(bare, 0) == 0);
+	CHECK(shcl::format_version(mig.text) == 3u && !shcl::format_version(unst.text));
+	auto [bare, bareFaults] = shcl::generate(gschema, true);
+	CHECK(bareFaults.empty() && bare == "## int, required\nport: 8080\n");
+	auto [starter, starterFaults] = shcl::generate(gschema);
+	CHECK(starterFaults.empty() && starter.rfind(bare, 0) == 0);
 	CHECK(starter.find("This config file format is SHCL.", bare.size()) != std::string::npos);
-	auto faulty = shcl::Document::parse("field: port\n\tfrobnicate: 1\n").generate();
-	CHECK(!faulty.second && faulty.first.empty());
-	// The fault list is on the schema itself. The header used to send a reader
-	// to validate() against an empty document, which cannot reproduce a
-	// generation-only code - it reports that document's own V002/V007 instead.
-	auto genfault = shcl::Document::parse("field: p\n\ttype: int\n\trequired: yes\n\tmin: 1\n\tmax: 10\n\tdefault: 99\n");
-	CHECK(!genfault.generate(true).second);
-	bool sawV097 = false;
-	for (const auto &g : genfault.diagnostics()) if (g.code == "V097") sawV097 = true;
-	CHECK(sawV097);
-	shcl::Document empty;
-	for (const auto &g : empty.validate(genfault)) CHECK(g.code != "V097");
+	auto faulty = shcl::generate(shcl::Document::parse("field: port\n\tfrobnicate: 1\n"));
+	CHECK(faulty.first.empty() && !faulty.second.empty() && faulty.second[0].code == "V090");
+	// Generation-only codes come back from the call, the way the reference
+	// returns them, and each call's list is its own. The schema keeps only its
+	// own diagnostics, E014 here.
+	auto genfault = shcl::Document::parse("field: p\n\ttype: int\n\trequired: yes\n\tmin: 1\n\tmax: 10\n\tdefault: 99\nbad line\n");
+	for (int i = 0; i < 3; i++) {
+		auto [gtext, gfaults] = shcl::generate(genfault, true);
+		CHECK(gtext.empty() && gfaults.size() == 1 && gfaults[0].code == "V097" && gfaults[0].severity == shcl::Severity::Error);
+	}
+	auto ownDiags = genfault.diagnostics();
+	CHECK(ownDiags.size() == 1 && ownDiags[0].code == "E014");
 	// A default-constructed Document is an empty one, not a null handle.
 	shcl::Document blank;
 	CHECK(blank.to_canonical().empty() && blank.count("x") == 0 && blank.diagnostics().empty());
@@ -241,6 +262,9 @@ int main() {
 	auto combined = shcl::Document::load_and_validate(": nope\nport: x\n", "field: port\n\ttype: int\n", shcl::Strictness::Standard);
 	auto cdiags = combined.diagnostics();
 	CHECK(cdiags.size() == 2 && cdiags[0].code == "E014" && cdiags[1].code == "V003");
+	CHECK(cdiags[0].severity == shcl::Severity::Error && cdiags[0].line == 1);
+	auto hinted = shcl::Document::parse("a: 1\na: 2\n").diagnostics();
+	CHECK(hinted.size() == 1 && hinted[0].code == "H001" && hinted[0].severity == shcl::Severity::Hint);
 	CHECK(combined.error_count() == 2);
 	CHECK(combined.get_or<std::string>("port", std::string()) == "x"); // doc still usable
 	auto clean = shcl::Document::load_and_validate("a: 1\n", "", shcl::Strictness::Standard);
@@ -248,7 +272,7 @@ int main() {
 
 	// A read must stay usable after the document it came from is gone; the
 	// datetime one used to hand back a pointer into the freed arena.
-	shcl::Read<shcl::Datetime> outlives;
+	shcl::Read<shcl::DateTime> outlives;
 	{
 		auto tmp = shcl::Document::parse("t: 2026-08-02T10:20:30.123456789Z\n");
 		outlives = tmp.read_datetime("t");
@@ -261,15 +285,7 @@ int main() {
 	auto copied = outlives;
 	CHECK(copied.value.str() == outlives.value.str());
 	auto moved = std::move(copied);
-	CHECK(moved.value.str() == outlives.value.str());
-	// The moved-from half is the half that used to be wrong: it kept a view into
-	// the digits it had just handed away, so it formatted a fraction it no longer
-	// held. Reading it is legal - unspecified value, not undefined behavior.
-	CHECK(copied.value.str() == "2026-08-02T10:20:30Z");
-	shcl::Datetime target;
-	target = std::move(moved.value);
-	CHECK(target.str() == outlives.value.str());
-	CHECK(moved.value.str() == "2026-08-02T10:20:30Z");
+	CHECK(moved.value == outlives.value && moved.value.frac == std::string("123456789"));
 
 	// Writes, each read back through the veneer. A document from a parse could
 	// not be written at all before the veneer had setters.
@@ -292,7 +308,7 @@ int main() {
 		CHECK(stamps.ok() && stamps.value.size() == 2);
 		CHECK(w.set_datetime("when", stamps.value[0]) && w.read_datetime_str("when").value == "2026-08-02T10:20:30.5Z");
 		CHECK(w.set_datetime_array("whens", stamps.value) && w.read_datetime_array_str("whens").value == std::vector<std::string>({"2026-08-02T10:20:30.5Z", "2026-09-01"}));
-		CHECK(!w.set_datetime("never", shcl::Datetime()) && !w.set_datetime_array("nevers", {stamps.value[1], shcl::Datetime()}));
+		CHECK(!w.set_datetime("never", shcl::DateTime()) && !w.set_datetime_array("nevers", {stamps.value[1], shcl::DateTime()}));
 		CHECK(w.set_empty("blank") && w.read_string("blank").status == shcl::Status::Empty);
 		CHECK(w.set_comment("port", "the port") && w.to_canonical().find("# the port\nport: 9090\n") != std::string::npos);
 		CHECK(!w.set_comment("port", "two\nlines"));
@@ -330,10 +346,9 @@ int main() {
 
 	// The tokenizer, as `shcl tokens` shows a line.
 	{
-		shcl::Document t;
 		shcl::Tokens tok;
 		const std::string line = "srv[\"a b\"].port: 80, '', , x # note";
-		t.tokenize(line, ':', false, shcl::Rules::Current, tok);
+		shcl::tokenize(line, ':', false, shcl::Rules::Current, tok);
 		CHECK(tok.segments.size() == 2 && !tok.fault_at && !tok.capped);
 		CHECK(tok.segments[0].selector && tok.segments[0].selector->quote == shcl::Quote::Double);
 		CHECK(line.substr(tok.segments[0].selector->start, tok.segments[0].selector->end - tok.segments[0].selector->start) == "a b");
@@ -343,14 +358,14 @@ int main() {
 		CHECK(line.substr(tok.value_start, tok.value_end - tok.value_start) == "80, '', , x");
 		// Four pieces, and the empty bare one is not an element.
 		CHECK(tok.elements.size() == 4 && tok.elements[1].quote == shcl::Quote::Single && tok.element_count() == 3);
-		t.tokenize_value(line, *tok.sep + 1, shcl::Rules::Current, tok);
+		shcl::tokenize_value(line, *tok.sep + 1, shcl::Rules::Current, tok);
 		CHECK(tok.segments.empty() && tok.elements.size() == 4 && tok.comment && line[*tok.comment] == '#');
-		t.tokenize("*.port", '=', true, shcl::Rules::Current, tok);
+		shcl::tokenize("*.port", '=', true, shcl::Rules::Current, tok);
 		CHECK(tok.segments.size() == 2 && tok.segments[0].star && !tok.sep);
-		t.tokenize("a[b: 1", ':', false, shcl::Rules::Current, tok);
+		shcl::tokenize("a[b: 1", ':', false, shcl::Rules::Current, tok);
 		CHECK(tok.fault_at && std::string(tok.fault_why) == "unterminated selector");
 		tok.cap = 1;
-		t.tokenize("a: 1, 2, 3", ':', false, shcl::Rules::Current, tok);
+		shcl::tokenize("a: 1, 2, 3", ':', false, shcl::Rules::Current, tok);
 		CHECK(tok.capped && tok.cap == 1 && !tok.fault_at && tok.fault_why == nullptr);
 	}
 
@@ -359,21 +374,19 @@ int main() {
 		auto reps = shcl::Document::parse("host: a\nhost: b\n");
 		auto count = [](const shcl::Document &d, const char *code) { std::size_t n = 0; for (const auto &g : d.diagnostics()) if (g.code == code) n++; return n; };
 		CHECK(count(reps, "H001") == 1);
-		shcl::Document::suppress_declared_repeats(shcl::Document::parse("field: host\n\trepeat: 0, 5\n"), reps);
+		shcl::suppress_declared_repeats(shcl::Document::parse("field: host\n\trepeat: 0, 5\n"), reps);
 		CHECK(count(reps, "H001") == 0);
 		auto parts = shcl::Document::parse("s: a\n\tx: 1\nt: 1\ns: a\n\ty: 2\n");
 		CHECK(count(parts, "H002") == 1);
-		shcl::Document::suppress_declared_reopens(shcl::Document::parse("field: s\n\treopen: true\nfield: s.x\nfield: s.y\nfield: t\n"), parts);
+		shcl::suppress_declared_reopens(shcl::Document::parse("field: s\n\treopen: true\nfield: s.x\nfield: s.y\nfield: t\n"), parts);
 		CHECK(count(parts, "H002") == 0);
 	}
 
-	// The C handle, for a call the veneer leaves out, on a document the veneer
-	// loaded. A moved-from Document holds none.
+	// A moved-from Document holds nothing, and says so.
 	{
-		auto viaC = shcl::Document::parse("port: 1\n");
-		CHECK(shcl_set_int(viaC.c(), "port", 4, 2) == 1 && viaC.get_or<int64_t>("port", 0) == 2);
-		auto taken = std::move(viaC);
-		CHECK(!viaC && viaC.c() == nullptr && taken.c() != nullptr);
+		auto given = shcl::Document::parse("port: 1\n");
+		auto taken = std::move(given);
+		CHECK(!given && taken && taken.get_or<int64_t>("port", 0) == 1);
 	}
 
 #ifndef SHCL_NO_FILE_IO
@@ -392,34 +405,32 @@ int main() {
 		CHECK(mkdir(dir.c_str(), 0700) == 0);
 #endif
 		std::string f = dir + "/t.shcl";
-		auto st = shcl::Document::FileStatus::Clean;
-		auto absent = shcl::Document::load_file(f, &st);
-		CHECK(st == shcl::Document::FileStatus::NotFound);
-		CHECK(std::string(shcl::Document::to_string(st)) == "NotFound");
+		auto [absent, absentSt] = shcl::Document::load_file(f);
+		CHECK(absent && absentSt == shcl::FileStatus::NotFound && absent.to_canonical().empty());
+		CHECK(std::string(shcl::to_string(absentSt)) == "NotFound");
 		{ FILE *fh = std::fopen(f.c_str(), "wb"); CHECK(fh && std::fputs("pct: 50%\n", fh) != EOF && std::fclose(fh) == 0); }
-		auto strict = shcl::Document::load_file_with(f, shcl::Strictness::Loose, &st);
-		CHECK(st == shcl::Document::FileStatus::Clean && strict.read_float("pct").value == 0.5);
-		CHECK(shcl::Document::read_file(f, 0, &st) == std::string("pct: 50%\n") && st == shcl::Document::FileStatus::Clean);
-		CHECK(!shcl::Document::read_file(f, 8, &st) && st == shcl::Document::FileStatus::Unreadable);
+		auto [strict, strictSt] = shcl::Document::load_file_with(f, shcl::Strictness::Loose);
+		CHECK(strictSt == shcl::FileStatus::Clean && strict.read_float("pct").value == 0.5);
+		CHECK(shcl::read_file(f) == std::make_pair(std::string("pct: 50%\n"), shcl::FileStatus::Clean));
+		CHECK(shcl::read_file(f, 8) == std::make_pair(std::string(), shcl::FileStatus::Unreadable));
 		CHECK(strict.lost_count() == 0);
-		CHECK(strict.save_file(f) == shcl::Document::SaveResult::Ok);
+		CHECK(strict.save_file(f) == shcl::SaveResult::Ok);
 		{ FILE *fh = std::fopen(f.c_str(), "wb"); CHECK(fh && std::fputs("a:   1\n", fh) != EOF && std::fclose(fh) == 0); }
-		auto keeping = shcl::Document::load_file_keep_lines(f, shcl::Strictness::Standard, &st);
-		bool keptLines = false;
-		CHECK(st == shcl::Document::FileStatus::Clean && keeping.set_int("b", 2));
-		CHECK(keeping.save_file_keep_lines(f, &keptLines) == shcl::Document::SaveResult::Ok && keptLines);
-		CHECK(shcl::Document::read_file(f) == std::string("a:   1\n\nb: 2\n"));
+		auto [keeping, keepingSt] = shcl::Document::load_file_keep_lines(f, shcl::Strictness::Standard);
+		CHECK(keepingSt == shcl::FileStatus::Clean && keeping.set_int("b", 2));
+		CHECK(keeping.save_file_keep_lines(f) == std::make_pair(shcl::SaveResult::Ok, true));
+		CHECK(shcl::read_file(f).first == "a:   1\n\nb: 2\n");
 		// An indent matching no level is lost when it is tabs; one holding a
 		// space is kept as written.
 		CHECK(shcl::Document::parse("a:\n\tb: 1\n  c: 2\n").lost_count() == 0);
 		auto lost = shcl::Document::parse("a:\n\t\tb: 1\n\tc: 2\n");
 		CHECK(lost.lost_count() == 1);
-		CHECK(lost.save_file(f) == shcl::Document::SaveResult::Refused);
-		CHECK(lost.save_file_lossy(f) == shcl::Document::SaveResult::Ok);
-		CHECK(strict.save_file(dir + "/nope/t.shcl") == shcl::Document::SaveResult::Failed);
-		CHECK(shcl::Document::write_file_atomic(f, "not: a save\n") && shcl::Document::read_file(f) == std::string("not: a save\n"));
-		CHECK(shcl::Document::write_file_atomic(f, "") && shcl::Document::read_file(f) == std::string());
-		CHECK(!shcl::Document::write_file_atomic(dir + "/nope/t.shcl", "x"));
+		CHECK(lost.save_file(f) == shcl::SaveResult::Refused);
+		CHECK(lost.save_file_lossy(f) == shcl::SaveResult::Ok);
+		CHECK(strict.save_file(dir + "/nope/t.shcl") == shcl::SaveResult::Failed);
+		CHECK(shcl::write_file_atomic(f, "not: a save\n") && shcl::read_file(f).first == "not: a save\n");
+		CHECK(shcl::write_file_atomic(f, "") && shcl::read_file(f) == std::make_pair(std::string(), shcl::FileStatus::Clean));
+		CHECK(!shcl::write_file_atomic(dir + "/nope/t.shcl", "x"));
 		std::remove(f.c_str());
 		rmdir(dir.c_str());
 	}
@@ -436,7 +447,7 @@ int main() {
 			if (r.status != shcl::Status::Good) break;
 		}
 		std::size_t held_bytes = 0;
-		for (const ShclBlock *b = held.c()->reads.head; b; b = b->next) held_bytes += b->used;
+		for (const ShclBlock *b = shcl::detail::Access::doc(held)->reads.head; b; b = b->next) held_bytes += b->used;
 		CHECK(held_bytes <= 4096);
 		// The canonical text is a read result too. 200 copies of a 30 KB
 		// document held at once would be 6 MB; released per call it is one.
@@ -445,14 +456,8 @@ int main() {
 		auto heldBig = shcl::Document::parse(big);
 		for (int i = 0; i < 200; i++) CHECK(heldBig.to_canonical().size() == big.size());
 		held_bytes = 0;
-		for (const ShclBlock *b = heldBig.c()->reads.head; b; b = b->next) held_bytes += b->used;
+		for (const ShclBlock *b = shcl::detail::Access::doc(heldBig)->reads.head; b; b = b->next) held_bytes += b->used;
 		CHECK(held_bytes <= 2 * big.size());
-		// The tokenizer's spans are read memory as well.
-		shcl::Tokens tok;
-		for (int i = 0; i < 20000; i++) held.tokenize("ports: 80, 443, 8080", ':', false, shcl::Rules::Current, tok);
-		held_bytes = 0;
-		for (const ShclBlock *b = held.c()->reads.head; b; b = b->next) held_bytes += b->used;
-		CHECK(held_bytes <= 4096 && tok.elements.size() == 3);
 	}
 
 	if (fails) { std::fprintf(stderr, "veneer: %d failure(s)\n", fails); return 1; }

@@ -375,7 +375,7 @@ The consumer-facing surface has two halves: the **Accessor** reads values (by lo
 
 Two of these are not separate implementations but a base core plus a thin **companion typed surface** - one parser, two call surfaces:
 
-- **C++ over the C core**: the C source, its public header wrapped in `extern "C"`, plus a header-only C++ template veneer (`Get<T>()` over the typed C functions). C is not a strict subset of C++, so the shared header is kept C++-clean; only the `.c` need compile as C.
+- **C++ over the C core**: the C source, its public header wrapped in `extern "C"`, plus a C++ interface (`Get<T>()` and the rest of the API over the typed C functions) that keeps the C one out of a caller's sight. C is not a strict subset of C++, so the shared header is kept C++-clean; only the `.c` need compile as C.
 
 - **Kotlin over the Java core**: Kotlin calls the Java classes directly via JVM interop with no runtime work; the companion is a small extensions file giving `reified`-generic `get<T>()` instead of Java's `Class<T>` token form.
 

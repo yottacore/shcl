@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
 ##	Purpose:
-##		Build the README's five code examples the way a reader would: each block
+##		Build the README's six code examples the way a reader would: each block
 ##		verbatim, wrapped in whatever a reader has to add around it, and built
-##		with the line the README itself gives. The four that end in a save are
+##		with the line the README itself gives. The five that end in a save are
 ##		then run against the config file the README shows, and the file they
 ##		leave is compared with the block that says what the save does.
 ##
@@ -88,6 +88,28 @@ if ! cc -std=c11 -O2 -Wall -Wextra -Werror -I"${tmpDir}" "${tmpDir}/example.c" -
 	exit 1
 fi
 fRunExample C "${tmpDir}" ./example
+
+##	C++. Two blocks: the implementation file verbatim, then the example, whose
+##	statements go in a main() from its first comment on. The two files build
+##	apart with the line the README gives, which is the point: the example's
+##	file sees no C.
+mkdir -p "${tmpDir}/cppex"
+cp "${header}" "${repoDir}/source/c/shcl.hpp" "${tmpDir}/cppex/"
+awk '/^~~~+cpp$/ { n++; inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock { print > (dir "/block" n ".cpp") }' dir="${tmpDir}/cppex" "${readme}"
+[[ -s "${tmpDir}/cppex/block1.cpp" && -s "${tmpDir}/cppex/block2.cpp" ]] || { echo "check-readme: the two cpp blocks are gone from ${readme}" >&2; exit 2 ;}
+mv "${tmpDir}/cppex/block1.cpp" "${tmpDir}/cppex/impl.cpp"
+awk 'BEGIN { pre = 1 }
+     pre && /^\/\/ One call reads and parses/ { pre = 0; print "int main() {"; print; next }
+     { print }
+     END { print "}" }' "${tmpDir}/cppex/block2.cpp" > "${tmpDir}/cppex/main.cpp"
+grep -q '^int main' "${tmpDir}/cppex/main.cpp" \
+	|| { echo "check-readme: the cpp example no longer carries the line the main() split is taken at" >&2; exit 1 ;}
+if ! ( cd "${tmpDir}/cppex" && c++ -std=c++17 -O2 -Wall -Wextra -Werror main.cpp impl.cpp -o ex -lm ) 2> "${tmpDir}/cpp.err"; then
+	echo "check-readme: the README's C++ example does not build:" >&2
+	head -n 20 "${tmpDir}/cpp.err" >&2
+	exit 1
+fi
+fRunExample C++ "${tmpDir}/cppex" ./ex
 
 ##	Go. The fragment is statements plus the import line it already shows, so a
 ##	reader adds a package clause, a main() and the two standard imports the
@@ -269,3 +291,4 @@ echo "check-readme: OK"
 ##		            line of output reached none of them for the second time.
 ##		2026-09-20  The Rust and Python examples build too, and all four that
 ##		            save are run and their file compared with the README's.
+##		2026-09-26  The C++ example, built apart from its implementation file.

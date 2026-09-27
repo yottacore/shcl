@@ -50,11 +50,11 @@ Design, requirements, and direction. The task list is in `backlog.md`. The full 
 
 	- Tier 1: the Rust reference and the `shcl` CLI built from it. Rust wins on the stated priorities: small binary, instant CLI startup, a clean shared-library build, and compile-time strictness that forces spec precision.
 
-	- Tier 2: Go, C (with a C++ veneer), Python.
+	- Tier 2: Go, C (with C++ over it), Python.
 
 	- Tier 3: the rest (C#, Java with Kotlin, JavaScript), deferred for now, corpus-gated, designed for from the start.
 
-	- Bash and PowerShell are thin wrappers around the CLI, not independent parsers. They inherit conformance for free. The companion typed surfaces (C++, Kotlin) are one core plus a veneer, not separate parsers.
+	- Bash and PowerShell are thin wrappers around the CLI, not independent parsers. They inherit conformance for free. The companion typed surfaces (C++, Kotlin) are one core plus an interface of their own, not separate parsers.
 
 ## Guiding principles and decisions
 
@@ -742,7 +742,7 @@ The responsibility is split rather than duplicate the pipeline:
 
 - Sources at `source/c/`: a single-header drop-in library (`shcl.h`, C11, zero dependencies) plus the CLI under `cmd/shcl/` - same flags, output, and exit codes as the reference. The single-header story is the C analog of the other bindings' single-file libraries: copy `shcl.h` into a tree and, in one translation unit, `#define SHCL_IMPLEMENTATION` before including it.
 
-- The C++ typed surface (`shcl.hpp`) is a veneer, not a second parser: a header of `Read<T>` / `get<T>()` templates over the same C functions, so it inherits the core's conformance and only needs a compile-plus-behavior smoke to keep it correct.
+- The C++ interface (`shcl.hpp`) is not a second parser. It is the reference's API in std types, `get<T>()` included, with every call going to the same C functions, so it inherits the core's conformance and needs only a compile-plus-behavior smoke to stay correct. A C++ caller sees none of the C interface: the calls into C are compiled in one file, the way `shcl.h` compiles its implementation.
 
 - Conformance runs natively (a C port of the runner over the same corpus), so the C binding is corpus-green on its own, and the cicd crosscheck holds it byte-for-byte to the reference besides.
 

@@ -344,7 +344,7 @@ pip install shcl
 
 #### C and C++
 
-No registry to target, and none needed: `shcl.h` is a single dependency-free header you vendor. See [C, C++](#c-c) for where to get it and how to build against it.
+No registry to target, and none needed: `shcl.h` is a single dependency-free header you vendor, and C++ adds `shcl.hpp` beside it. See [C, C++](#c-c) for where to get it and how to build against it.
 
 For version pinning and the dependency line per ecosystem, see [Example use-cases in your code](#example-use-cases-in-your-code).
 
@@ -757,7 +757,7 @@ Alongside it goes an `impl.c` of two lines (`#define SHCL_IMPLEMENTATION`, then 
 
 ### C, C++
 
-C and C++ have no registry worth targeting. `shcl.h` is a single dependency-free header: copy it into your tree from a release tag and pin that tag, or take it from an installed package under `/usr/share/shcl/code/`. Define `SHCL_IMPLEMENTATION` in exactly one translation unit, put the header above your own system includes, and link `-lm`. C++ callers can add `shcl.hpp` alongside it for the typed veneer.
+C and C++ have no registry worth targeting. `shcl.h` is a single dependency-free header: copy it into your tree from a release tag and pin that tag, or take it from an installed package under `/usr/share/shcl/code/`. Define `SHCL_IMPLEMENTATION` in exactly one translation unit, put the header above your own system includes, and link `-lm`. C++ has its own interface in `shcl.hpp`, shown after the C example.
 
 - Install: vendor `shcl.h`
 
@@ -806,6 +806,48 @@ shcl_free(doc);   // frees the document and everything handed out from it
 ~~~
 
 The C binding uses `round()`, so link the math library - `cc -std=c11 -O2 ex.c -o ex -lm`. There are no per-object frees: reads hand back pointers into the document's arena, and the single `shcl_free` releases all of it, so anything you need afterwards must be copied out first. A long-running process has two optional calls for a document it keeps: `shcl_reads_release` gives back what the reads have handed out, and `shcl_compact` gives back what repeated writes left behind. The `_to` read forms, such as `shcl_read_string_array_to`, copy into a buffer you pass and leave nothing behind. The file calls are an optional companion: `-DSHCL_NO_FILE_IO` compiles them out for an embedded target, leaving `shcl_parse` and `shcl_to_canonical` to work on text you hold yourself.
+
+C++ adds `shcl.hpp` beside `shcl.h`. It has the same calls as the other bindings, in std types, and runs the C core inside without showing any of it. The implementation goes in a file of its own, with nothing else in it:
+
+~~~cpp
+// impl.cpp: the one file that builds the library.
+#define SHCL_IMPLEMENTATION
+#include "shcl.hpp"
+~~~
+
+Everywhere else, include `shcl.hpp` wherever you like:
+
+~~~cpp
+#include "shcl.hpp"
+#include <cstdio>
+
+// One call reads and parses, and never fails (see the Rust example).
+auto [doc, st] = shcl::Document::load_file("server.shcl");
+if (st == shcl::FileStatus::NotFound)
+	std::puts("no config yet - starting from defaults");
+
+auto workers = doc.get_or<std::int64_t>("workers", 4);
+
+// Strings keep the status tier, so missing and empty stay distinguishable
+auto root = doc.read_string("site[example.com].root");
+if (root.status == shcl::Status::Good)
+	std::printf("%s\n", root.value.c_str());
+
+// A setter reports whether the write applied, and write_reason() says why not
+if (!doc.set_int("workers", workers * 2))
+	std::printf("workers: %d\n", static_cast<int>(doc.write_reason("workers")));
+if (!doc.set_bool("site[example.com].tls.hsts", true))
+	std::printf("hsts: %d\n", static_cast<int>(doc.write_reason("site[example.com].tls.hsts")));
+if (!doc.set_string("site[blog.example.com].root", "/srv/www/blog"))
+	std::fprintf(stderr, "blog root: reason %d\n", static_cast<int>(doc.write_reason("site[blog.example.com].root")));
+
+// Refused means the load dropped a line this write would delete; see "What
+// saving does" below (save_file_lossy is the override).
+if (doc.save_file("server.shcl") != shcl::SaveResult::Ok)
+	std::fprintf(stderr, "could not save\n");
+~~~
+
+Build with `c++ -std=c++17 -O2 main.cpp impl.cpp -o ex -lm`. The `Document` frees itself, and every read comes back as a copy, so nothing handed out depends on the document living on.
 
 ### Bash
 
