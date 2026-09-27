@@ -49,6 +49,7 @@ func parseLevel(t *testing.T, s string) Strictness {
 
 type corpusCase struct {
 	name        string
+	id          string // the case's test ID, from its test-id file
 	input       string
 	expectedFmt string
 	reads       string
@@ -115,8 +116,13 @@ func loadCases(t *testing.T) []corpusCase {
 		if err != nil {
 			t.Fatalf("%s: %v", entry.Name(), err)
 		}
+		id := "-------"
+		if b, err := os.ReadFile(filepath.Join(caseDir, "test-id")); err == nil {
+			id = strings.TrimSpace(string(b))
+		}
 		cc := corpusCase{
 			name:          entry.Name(),
+			id:            id,
 			input:         string(input),
 			expectedFmt:   string(expected),
 			reads:         string(reads),
@@ -191,6 +197,64 @@ func loadCases(t *testing.T) []corpusCase {
 	return cases
 }
 
+// testID prints the test's status line with its test ID. Every test defers it
+// first thing, so it runs last and sees a failure, a skip or a panic.
+func testID(t *testing.T, id string) {
+	r := recover()
+	status := "ok"
+	if r != nil || t.Failed() {
+		status = "FAIL"
+	} else if t.Skipped() {
+		status = "skip"
+	}
+	statusLine(status, id, t.Name())
+	if r != nil {
+		panic(r)
+	}
+}
+
+func statusLine(status, id, name string) {
+	fmt.Printf("%-4s %s go %s\n", status, id, name)
+}
+
+// Every corpus case some test ran, in order, and the ones any test failed.
+// TestMain prints a line for each after the run.
+var (
+	corpusRan    []corpusCase
+	corpusFailed = map[string]bool{}
+)
+
+// eachCase runs check on every case as its own subtest, so one failing case
+// leaves the rest checked.
+func eachCase(t *testing.T, check func(t *testing.T, c corpusCase)) {
+	cases := loadCases(t)
+	if corpusRan == nil {
+		corpusRan = cases
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			defer func() {
+				if t.Failed() {
+					corpusFailed[c.name] = true
+				}
+			}()
+			check(t, c)
+		})
+	}
+}
+
+func TestMain(m *testing.M) {
+	code := m.Run()
+	for _, c := range corpusRan {
+		status := "ok"
+		if corpusFailed[c.name] {
+			status = "FAIL"
+		}
+		statusLine(status, c.id, "corpus/"+c.name)
+	}
+	os.Exit(code)
+}
+
 // unitType splits a `duration[@UNIT]` or `size[@UNIT][+decimal]` row type:
 // the read, the unit a bare number takes, and whether KB to TB are powers of
 // 1000.
@@ -209,17 +273,18 @@ func docFor(t *testing.T, c *corpusCase, level Strictness) *Document {
 }
 
 func TestCanonicalFormatMatchesExpected(t *testing.T) {
-	for _, c := range loadCases(t) {
+	defer testID(t, "EjsS8bA")
+	eachCase(t, func(t *testing.T, c corpusCase) {
 		got := Parse(c.input).ToCanonical()
 		if got != c.expectedFmt {
 			t.Errorf("%s: canonical output differs from expected.shcl\ngot:\n%s\nwant:\n%s", c.name, got, c.expectedFmt)
-			continue
+			return
 		}
 		// The formatter must be a fixpoint: canonicalizing its own output changes nothing.
 		if again := Parse(got).ToCanonical(); again != got {
 			t.Errorf("%s: formatter is not idempotent", c.name)
 		}
-	}
+	})
 }
 
 // unescapeOpsTest decodes an ops value: \n \t \\ only (mirrors the CLI).
@@ -584,25 +649,27 @@ func diagText(text string) string {
 }
 
 func TestDiagnosticsMatchExpected(t *testing.T) {
+	defer testID(t, "EkoN15t")
 	// Pins count, line, severity, and stable code per case - the same shape
 	// `check` prints to stdout at Standard (its cross-binding contract).
-	for _, c := range loadCases(t) {
+	eachCase(t, func(t *testing.T, c corpusCase) {
 		got := diagText(c.input)
 		if got != c.expectedDiags {
 			t.Errorf("%s: diagnostics differ from expected-diags.txt\ngot:\n%s\nwant:\n%s", c.name, got, c.expectedDiags)
 		}
-	}
+	})
 }
 
 func TestMigrateMatchesExpected(t *testing.T) {
+	defer testID(t, "Ept4WPi")
 	// Migration dimension: Migrate on the input must reproduce the golden byte
 	// for byte, and the golden's load diagnostics are pinned beside it, so a
 	// rewrite that no longer loads cannot pass. A fmt fixpoint is not required,
 	// since migrate keeps the author's layout; the migrate fixpoint is checked
 	// next.
-	for _, c := range loadCases(t) {
+	eachCase(t, func(t *testing.T, c corpusCase) {
 		if !c.hasMigrate {
-			continue
+			return
 		}
 		got := Migrate(c.input, true).Text
 		if got != c.expectedMigrate {
@@ -611,22 +678,24 @@ func TestMigrateMatchesExpected(t *testing.T) {
 		if d := diagText(got); d != c.expectedMigrateDiags {
 			t.Errorf("%s: migrated text's diagnostics differ from expected-migrate-diags.txt\ngot:\n%s\nwant:\n%s", c.name, d, c.expectedMigrateDiags)
 		}
-	}
+	})
 }
 
 func TestMigrateIsAFixpoint(t *testing.T) {
-	for _, c := range loadCases(t) {
+	defer testID(t, "EpyXoJX")
+	eachCase(t, func(t *testing.T, c corpusCase) {
 		once := Migrate(c.input, true).Text
 		if again := Migrate(once, true).Text; again != once {
 			t.Errorf("%s: migrate changes its own output\ngot:\n%s\nwant:\n%s", c.name, again, once)
 		}
-	}
+	})
 }
 
 func TestMigrateUnstampedIsMigrateWithoutTheStamp(t *testing.T) {
+	defer testID(t, "Eqpzw7U")
 	// Over every input, not only the migrate cases: the stamp is the one
 	// difference, and a file is current exactly when its Format line says so.
-	for _, c := range loadCases(t) {
+	eachCase(t, func(t *testing.T, c corpusCase) {
 		for _, fromV2 := range []bool{true, false} {
 			full := Migrate(c.input, fromV2)
 			bare := MigrateUnstamped(c.input, fromV2)
@@ -654,16 +723,17 @@ func TestMigrateUnstampedIsMigrateWithoutTheStamp(t *testing.T) {
 				t.Errorf("%s: current disagrees with FormatVersion", c.name)
 			}
 		}
-	}
+	})
 }
 
 func TestValidationMatchesExpected(t *testing.T) {
+	defer testID(t, "Eksumuu")
 	// Schema dimension: golden = the exact `check --schema` stdout at Standard
 	// (doc parse diags, then validation diags, then the summary). A schema that
 	// does not load cleanly is a single V099, mirroring the CLI.
-	for _, c := range loadCases(t) {
+	eachCase(t, func(t *testing.T, c corpusCase) {
 		if !c.hasSchema {
-			continue
+			return
 		}
 		doc := Parse(c.input)
 		diags := append([]Diagnostic{}, doc.Diagnostics()...)
@@ -697,13 +767,14 @@ func TestValidationMatchesExpected(t *testing.T) {
 		if got.String() != c.expectedValidate {
 			t.Errorf("%s: validation output differs from expected-validate.txt\ngot:\n%s\nwant:\n%s", c.name, got.String(), c.expectedValidate)
 		}
-	}
+	})
 }
 
 func TestWriteOpsMatchExpected(t *testing.T) {
-	for _, c := range loadCases(t) {
+	defer testID(t, "Ekfzh7h")
+	eachCase(t, func(t *testing.T, c corpusCase) {
 		if !c.hasWrite {
-			continue
+			return
 		}
 		// The one that keeps lines is the same document.
 		doc := Parse(c.input)
@@ -733,26 +804,28 @@ func TestWriteOpsMatchExpected(t *testing.T) {
 		}
 		if got != c.expectedWrite {
 			t.Errorf("%s: writer output differs from expected-write.shcl\ngot:\n%s\nwant:\n%s", c.name, got, c.expectedWrite)
-			continue
+			return
 		}
 		if again := Parse(got).ToCanonical(); again != got {
 			t.Errorf("%s: written output is not a fmt fixpoint", c.name)
 		}
-	}
+	})
 }
 
 // TestKeepingLinesWithoutEditsWritesTheInput: loaded to keep its lines and
 // saved with no edits, every input is its own text again, byte for byte.
 func TestKeepingLinesWithoutEditsWritesTheInput(t *testing.T) {
-	for _, c := range loadCases(t) {
+	defer testID(t, "EqvA7Zo")
+	eachCase(t, func(t *testing.T, c corpusCase) {
 		doc, _ := ParseKeepLines(c.input, Standard)
 		if text, kept := doc.ToTextKeepLines(); text != c.input || !kept {
 			t.Errorf("%s: an unedited save changed the text", c.name)
 		}
-	}
+	})
 }
 
 func TestWriteBadOpsAreRejected(t *testing.T) {
+	defer testID(t, "El5Gcy7")
 	// Bad-op dimension: each write-bad.ops line, applied alone to the case
 	// input, must be rejected (bad value, bad datetime, or unusable path) and
 	// leave the document unchanged.
@@ -765,9 +838,9 @@ func TestWriteBadOpsAreRejected(t *testing.T) {
 	if err := tryApplyOpTest(probe, "int\ta\tx"); err == nil || errors.Is(err, errUnknownOp) {
 		t.Errorf("a refusal read as a misspelled op: %v", err)
 	}
-	for _, c := range loadCases(t) {
+	eachCase(t, func(t *testing.T, c corpusCase) {
 		if !c.hasWriteBad {
-			continue
+			return
 		}
 		for n, line := range strings.Split(c.writeBadOps, "\n") {
 			line = strings.TrimSuffix(line, "\r")
@@ -788,10 +861,11 @@ func TestWriteBadOpsAreRejected(t *testing.T) {
 				t.Errorf("%s: write-bad.ops line %d changed the document: %s", c.name, n+1, line)
 			}
 		}
-	}
+	})
 }
 
 func TestOneShotLoadAndValidate(t *testing.T) {
+	defer testID(t, "Elp3cOh")
 	// One combined diagnostics list (parse first, then validation) and an
 	// error predicate, so recover-and-continue can't read as success by
 	// accident. Same fixture in every runner.
@@ -824,6 +898,7 @@ func TestOneShotLoadAndValidate(t *testing.T) {
 }
 
 func TestOneShotLoadReportsABrokenSchema(t *testing.T) {
+	defer testID(t, "Eqzz38W")
 	// A schema that does not load would otherwise drop the constraints on its
 	// broken lines, or report every field as unknown - blaming the document.
 	// Same fixture in every runner.
@@ -850,6 +925,7 @@ func TestOneShotLoadReportsABrokenSchema(t *testing.T) {
 }
 
 func TestNulNameDoesNotSatisfyADottedSchemaPath(t *testing.T) {
+	defer testID(t, "Eqzz38X")
 	// The unknown-field chain key is length-prefixed, not NUL-joined: a single
 	// field whose name literally contains a NUL must not impersonate the
 	// two-segment path x.y. Same fixture in every runner.
@@ -872,6 +948,7 @@ func TestNulNameDoesNotSatisfyADottedSchemaPath(t *testing.T) {
 }
 
 func TestWriteReasonNamesTheFailure(t *testing.T) {
+	defer testID(t, "ElouJ8L")
 	// The reason behind a setter's bare false. Same fixture in every runner.
 	doc := Parse("a:\n\tb: 1\n")
 	if got := doc.WriteReason("a.b"); got != Writable {
@@ -927,6 +1004,7 @@ func TestWriteReasonNamesTheFailure(t *testing.T) {
 }
 
 func TestSettersRefuseAValueTheReaderRefuses(t *testing.T) {
+	defer testID(t, "Eof29pZ")
 	// Each setter is the inverse of its read, so a value with no spelling the
 	// reader accepts fails the write and leaves the document alone. Same
 	// fixture in every runner.
@@ -985,6 +1063,7 @@ func TestSettersRefuseAValueTheReaderRefuses(t *testing.T) {
 }
 
 func TestRawBlockLineEndingsNormalizeAndRoundTrip(t *testing.T) {
+	defer testID(t, "EnLyQsV")
 	// A raw body is the only content kept untrimmed, so it is the only place a
 	// trailing CR survives the load - and one written back becomes CRLF, which
 	// reads as neither. The whole trailing run comes off instead; a CR inside a
@@ -1001,6 +1080,7 @@ func TestRawBlockLineEndingsNormalizeAndRoundTrip(t *testing.T) {
 }
 
 func TestChildrenAndInstancePathsWalkARepeatedKey(t *testing.T) {
+	defer testID(t, "Eqpzw7V")
 	// gitsby's report: Children() on a repeated key answered nothing, and a
 	// walk had to know to index each instance.
 	doc := Parse("account: w\n\temail: e@x\n\t\tsshkey: k1\n\temail: f@x\n\t\tsshkey: k2\n")
@@ -1020,6 +1100,7 @@ func TestChildrenAndInstancePathsWalkARepeatedKey(t *testing.T) {
 }
 
 func TestReadSurfaceLineQuotedChildren(t *testing.T) {
+	defer testID(t, "ElorUZl")
 	// Line/Quoted on the read result, Line(path), Children(path). Same
 	// fixture in every runner (C pins the same answers on shcl_quoted and
 	// shcl_line; its read structs stay value+status).
@@ -1132,6 +1213,7 @@ func TestReadSurfaceLineQuotedChildren(t *testing.T) {
 }
 
 func TestFileTierLoadSave(t *testing.T) {
+	defer testID(t, "EnEYHTt")
 	// LoadFile/SaveFile: the status separates absent / unreadable / parsed
 	// with errors / clean, and a save round-trips through the atomic write.
 	// Same fixture in every runner.
@@ -1285,6 +1367,7 @@ func TestFileTierLoadSave(t *testing.T) {
 }
 
 func TestSaveFileErrorWrapsTheCause(t *testing.T) {
+	defer testID(t, "Eqzz38Y")
 	// A caller tells a missing directory from a full disk with errors.Is, not
 	// by matching the message, so the save wraps the i/o error.
 	err := Parse("a: 1\n").SaveFile(filepath.Join(t.TempDir(), "missing", "t.shcl"))
@@ -1297,6 +1380,7 @@ func TestSaveFileErrorWrapsTheCause(t *testing.T) {
 }
 
 func TestReadFileAtTheLargestCap(t *testing.T) {
+	defer testID(t, "EoLznCy")
 	// A cap spelled as the type maximum used to overflow the over-cap probe and
 	// read nothing. Same fixture in every runner.
 	f := filepath.Join(t.TempDir(), "t.shcl")
@@ -1309,6 +1393,7 @@ func TestReadFileAtTheLargestCap(t *testing.T) {
 }
 
 func TestSetRawKeepsASharedIndentAndTrimsTheInfo(t *testing.T) {
+	defer testID(t, "EoLznCz")
 	// The body's shared indent survives a reload (the closing fence's indent is
 	// what comes off), the info-string is stored as a fence line reads it
 	// back, and an info with a line break or a `#` has no spelling and fails
@@ -1371,6 +1456,7 @@ func TestSetRawKeepsASharedIndentAndTrimsTheInfo(t *testing.T) {
 }
 
 func TestSaveCreatesTheFileBehindADanglingSymlink(t *testing.T) {
+	defer testID(t, "EoLznD0")
 	// A link to a file that is not there yet is written through like any other
 	// link: the file appears where the link points and the link stays a link.
 	// Same fixture in every POSIX runner.
@@ -1397,6 +1483,7 @@ func TestSaveCreatesTheFileBehindADanglingSymlink(t *testing.T) {
 }
 
 func TestSaveReportsASymlinkCycleInsteadOfReplacingIt(t *testing.T) {
+	defer testID(t, "EoUxXlR")
 	// Two links pointing at each other resolve to nothing, so the save fails
 	// and says why. It must not "fix" the cycle by dropping a regular file over
 	// one of the links. Same fixture in every POSIX runner.
@@ -1422,6 +1509,7 @@ func TestSaveReportsASymlinkCycleInsteadOfReplacingIt(t *testing.T) {
 }
 
 func TestTokenizeValueTakesANegativeOffsetAsZero(t *testing.T) {
+	defer testID(t, "EqLxvWy")
 	// The reference's offset is unsigned, so a negative one has nothing else
 	// it can mean. Go panicked inside skipWsp and Python read it as an offset
 	// from the end (20260918b item 31). Same fixture in the Python runner.
@@ -1434,6 +1522,7 @@ func TestTokenizeValueTakesANegativeOffsetAsZero(t *testing.T) {
 }
 
 func TestMergeOntoItselfLeavesItAlone(t *testing.T) {
+	defer testID(t, "EqLqxgm")
 	// A document merged onto itself is left as it is (20260918b item 19). The
 	// walk read over while it wrote d, so Go doubled a retained line, Python
 	// grew without end and C ran out of memory. Every corpus input, and the
@@ -1453,6 +1542,7 @@ func TestMergeOntoItselfLeavesItAlone(t *testing.T) {
 }
 
 func TestSaveReplacesOnlyARegularFile(t *testing.T) {
+	defer testID(t, "EqLbKe9")
 	// Save outcomes in design.md, the rows the CLI's own check hides. A FIFO
 	// was swapped for a regular file at exit 0, a link whose text names a
 	// directory made a file of that name, and Go cleaned `lnk/..` as text where
@@ -1505,6 +1595,7 @@ func TestSaveReplacesOnlyARegularFile(t *testing.T) {
 }
 
 func TestSaveRewritesAReadOnlyFile(t *testing.T) {
+	defer testID(t, "EoLznD1")
 	// A read-only target is rewritten, as it is on POSIX, and comes back
 	// read-only; no temp file is left behind. Same fixture in every runner.
 	if runtime.GOOS != "windows" {
@@ -1540,6 +1631,7 @@ func TestSaveRewritesAReadOnlyFile(t *testing.T) {
 // separator first, so a save through `f/.` used to rewrite `f`. Same fixture in
 // every runner.
 func TestSaveRefusesADirectoryShapedPath(t *testing.T) {
+	defer testID(t, "EomvfCr")
 	dir := t.TempDir()
 	f := filepath.Join(dir, "f.shcl")
 	if err := os.WriteFile(f, []byte("a: 1\n"), 0o644); err != nil {
@@ -1568,6 +1660,7 @@ func TestSaveRefusesADirectoryShapedPath(t *testing.T) {
 // was refused while elements were stored in their source spelling and the
 // emitter had nothing to escape with. Same fixture in every runner.
 func TestALineBreakInAPathWritesAndReadsBack(t *testing.T) {
+	defer testID(t, "EpGigIL")
 	doc := Parse("z: 0\n")
 	if !doc.SetInt("x[\"p\nq\"].c", 1) || !doc.SetInt("\"a\nb\".c", 1) {
 		t.Fatal("a line break in a path was refused")
@@ -1588,6 +1681,7 @@ func TestALineBreakInAPathWritesAndReadsBack(t *testing.T) {
 }
 
 func TestSetStringRefusesInvalidUTF8(t *testing.T) {
+	defer testID(t, "EomvfCs")
 	d := Parse("a: 1\n")
 	bad := string([]byte{0x61, 0xff, 0x62})
 	if d.SetString("k", bad) {
@@ -1628,6 +1722,7 @@ func TestSetStringRefusesInvalidUTF8(t *testing.T) {
 // emitter escapes the double quotes; the writer used to keep them bare. Same
 // fixture in every runner.
 func TestWrittenSpellingMatchesItsReload(t *testing.T) {
+	defer testID(t, "EommtF3")
 	d := Parse("x: 1\n")
 	if !d.SetString("k", "q\"q'") {
 		t.Fatal("set_string refused")
@@ -1647,6 +1742,7 @@ func TestWrittenSpellingMatchesItsReload(t *testing.T) {
 // document with no dead nodes; the ratio is what matters, since an absolute
 // figure would be a machine constant. Same fixture in every runner.
 func TestIndexRebuildIgnoresRemovedNodes(t *testing.T) {
+	defer testID(t, "EomjcaX")
 	var ms [2]float64
 	for churned := 0; churned < 2; churned++ {
 		d := Parse("g:\n\tk: 1\n")
@@ -1702,6 +1798,7 @@ func TestIndexRebuildIgnoresRemovedNodes(t *testing.T) {
 // folding many layers onto a big one paid it every time. Timed against the same
 // merges with the big block left out. Same fixture in every runner.
 func TestMergeSettlesOnlyWhatItTouched(t *testing.T) {
+	defer testID(t, "EqoaM6D")
 	var ms [2]float64
 	for big := 0; big < 2; big++ {
 		var text strings.Builder
@@ -1738,6 +1835,7 @@ func TestMergeSettlesOnlyWhatItTouched(t *testing.T) {
 // document to settle it, even one far from the line. Timed against the same
 // steps on the same document without the line. Same fixture in every runner.
 func TestAFarKeptLineCostsAnEditNothing(t *testing.T) {
+	defer testID(t, "EqqmFxR")
 	var ms [2]float64
 	for kept := 0; kept < 2; kept++ {
 		var text strings.Builder
@@ -1779,6 +1877,7 @@ func TestAFarKeptLineCostsAnEditNothing(t *testing.T) {
 }
 
 func TestLostAndSaveGate(t *testing.T) {
+	defer testID(t, "EnEclpy")
 	// Content-malformed lines are retained as trivia (LostCount 0, the line
 	// survives a save); position-dependent drops count as lost and make
 	// SaveFile refuse until the caller opts into SaveFileLossy. Same fixture
@@ -1853,6 +1952,7 @@ func TestLostAndSaveGate(t *testing.T) {
 }
 
 func TestStrictFailureCarriesDocument(t *testing.T) {
+	defer testID(t, "Elop5Fh")
 	// A failed strict load hands back the document (non-nil, and on the
 	// error too) and names the first failures in the message.
 	doc, err := ParseWith("ok: 1\n: nope\n", Strict)
@@ -1872,6 +1972,7 @@ func TestStrictFailureCarriesDocument(t *testing.T) {
 }
 
 func TestParseLimitedCaps(t *testing.T) {
+	defer testID(t, "Eoe5NRx")
 	// The caps exist because a document amplifies to many times its byte size
 	// in memory, so ReadFile's byte cap alone cannot bound a load. Same
 	// fixture in every runner.
@@ -2093,6 +2194,7 @@ func TestParseLimitedCaps(t *testing.T) {
 }
 
 func TestRawIsSourceText(t *testing.T) {
+	defer testID(t, "ElonRnO")
 	// Raw: the verbatim value span from the source line - not the display
 	// join, which rewrites `{2,3}` to `{2, 3}`. Same fixture in every runner
 	// whose read result exposes raw (the C read structs deliberately do not).
@@ -2122,12 +2224,13 @@ func TestRawIsSourceText(t *testing.T) {
 }
 
 func TestLayeredMergeMatchesExpected(t *testing.T) {
+	defer testID(t, "EkyV759")
 	// Layered-load dimension: fold the layer files (lowest first) and input.shcl
 	// (highest file layer) via the library Merge, apply the path=value overrides
 	// as the top layer, and match the golden merged canonical.
-	for _, c := range loadCases(t) {
+	eachCase(t, func(t *testing.T, c corpusCase) {
 		if !c.hasMerge {
-			continue
+			return
 		}
 		texts := append(append([]string(nil), c.layers...), c.input)
 		doc := Parse(texts[0])
@@ -2174,20 +2277,21 @@ func TestLayeredMergeMatchesExpected(t *testing.T) {
 		}
 		if got != c.expectedMerged {
 			t.Errorf("%s: merged output differs from expected-merged.shcl\ngot:\n%s\nwant:\n%s", c.name, got, c.expectedMerged)
-			continue
+			return
 		}
 		if again := Parse(got).ToCanonical(); again != got {
 			t.Errorf("%s: merged output is not a fmt fixpoint", c.name)
 		}
-	}
+	})
 }
 
 func TestInitGenerationMatchesExpected(t *testing.T) {
+	defer testID(t, "EkyZiCY")
 	// Generation dimension: Generate on the schema must reproduce the golden
 	// starter config, and that output must itself load cleanly.
-	for _, c := range loadCases(t) {
+	eachCase(t, func(t *testing.T, c corpusCase) {
 		if !c.hasInit {
-			continue
+			return
 		}
 		got, faults := Generate(Parse(c.initSchema), false)
 		if faults != nil {
@@ -2195,14 +2299,14 @@ func TestInitGenerationMatchesExpected(t *testing.T) {
 		}
 		if got != c.expectedInit {
 			t.Errorf("%s: init output differs from expected-init.shcl\ngot:\n%s\nwant:\n%s", c.name, got, c.expectedInit)
-			continue
+			return
 		}
 		// The footer is the only difference the flag makes: everything before
 		// it is byte-for-byte what the default run produced.
 		bare, _ := Generate(Parse(c.initSchema), true)
 		if bare == "" || !strings.HasPrefix(got, bare) {
 			t.Errorf("%s: --no-banner output is not a prefix of the default", c.name)
-			continue
+			return
 		}
 		if !strings.Contains(got[len(bare):], "This config file format is SHCL.") {
 			t.Errorf("%s: default init output is missing the format footer", c.name)
@@ -2224,7 +2328,7 @@ func TestInitGenerationMatchesExpected(t *testing.T) {
 				break
 			}
 		}
-	}
+	})
 }
 
 // Go-only: nearly every name is already folded, and the helper used to copy the
@@ -2232,6 +2336,7 @@ func TestInitGenerationMatchesExpected(t *testing.T) {
 // Asserted as an allocation count rather than a time, since a constant-factor
 // win has no wall-clock threshold that both fires and does not flake.
 func TestAsciiLowerDoesNotCopyAFoldedName(t *testing.T) {
+	defer testID(t, "EoXMm6a")
 	var sink string
 	folded := strings.Repeat("server-config-name-", 40)
 	if n := testing.AllocsPerRun(200, func() { sink = asciiLower(folded) }); n != 0 {
@@ -2247,6 +2352,7 @@ func TestAsciiLowerDoesNotCopyAFoldedName(t *testing.T) {
 }
 
 func TestSuppressLeavesTheCallersDiagnosticsAlone(t *testing.T) {
+	defer testID(t, "EoaIuFU")
 	// It returns a new list, which reads as a copy, so filtering the caller's
 	// slice in place left the document's own diagnostics shuffled and
 	// duplicated. The reference takes its list by reference, so the mutation is
@@ -2298,6 +2404,7 @@ func TestSuppressLeavesTheCallersDiagnosticsAlone(t *testing.T) {
 }
 
 func TestConvenienceTierFallsBackOnlyOnGood(t *testing.T) {
+	defer testID(t, "EkgmpQf")
 	// Mirror of the reference: the *Or value survives only on Good; Empty,
 	// BadType, and NotFound all yield the call-site fallback.
 	d := Parse("a: 42\nb: not-a-number\ne:\narr: 1, 2, 3\nblk:\n\t```html\n\thi\n\t```\n")
@@ -2346,7 +2453,8 @@ func TestConvenienceTierFallsBackOnlyOnGood(t *testing.T) {
 }
 
 func TestReadsMatchExpected(t *testing.T) {
-	for _, c := range loadCases(t) {
+	defer testID(t, "EjsS8bB")
+	eachCase(t, func(t *testing.T, c corpusCase) {
 		for n, line := range strings.Split(c.reads, "\n") {
 			if n == 0 || strings.TrimSpace(line) == "" {
 				continue // header
@@ -2545,10 +2653,11 @@ func TestReadsMatchExpected(t *testing.T) {
 				}
 			}
 		}
-	}
+	})
 }
 
 func TestPathsEnumerationShape(t *testing.T) {
+	defer testID(t, "El5WdwX")
 	// Paths(): file order, deduplicated, non-bare segments quoted so every
 	// path resolves. Same fixture is pinned in every runner.
 	doc := Parse("a: 1\na.b: 2\n\"q n\": 3\nx:\n\tb: 4\nx.b: 5\n")
@@ -2607,6 +2716,7 @@ func soupInputs() []string {
 // took bytes the save wrote and the next load refused. Same fixture in every
 // runner.
 func TestSettersWriteOnlyWhatReadsBack(t *testing.T) {
+	defer testID(t, "EpGigIM")
 	all := Parse("")
 	slot := 0
 	for _, s := range soupInputs() {
@@ -2838,6 +2948,7 @@ func keepsEveryLine(base string) bool {
 // in three days, and the text fixpoint cannot see it, since both placements
 // are fixpoints. Same fixture in every runner.
 func TestEditsAndMergesMatchAReload(t *testing.T) {
+	defer testID(t, "Eqk24na")
 	g := seqGen{s: 0x5EED0923C0DE0003}
 	for i := 0; i < 3000; i++ {
 		base := g.doc()

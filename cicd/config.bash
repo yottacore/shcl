@@ -175,6 +175,7 @@ SHELLCHECK_TARGETS=(
 	cicd/utility/comparison/compare.bash
 	cicd/utility/crosscheck.bash
 	cicd/utility/largedoc.bash
+	cicd/utility/libtest-quiet.bash
 	cicd/utility/lint-report.bash
 	cicd/utility/perf-gate.bash
 	cicd/utility/shell-regress.bash
@@ -206,14 +207,19 @@ SHELLCHECK_TARGETS=(
 ##         --test fuzz_smoke
 ## RUST_TEST_THREADS caps the harness the way -j caps the compile; the fuzz
 ## tests are the heavy ones and would otherwise take every core.
-TEST_CMD=(env SHCL_FUZZ_ITERS=200000 RUST_TEST_THREADS="${CPU_CAP}" cargo test -j "${CPU_CAP}" --manifest-path "${MANIFEST}")
+## libtest-quiet.bash drops libtest's per-test lines, since each test prints
+## its own with its test ID.
+TEST_CMD=(cicd/utility/libtest-quiet.bash env SHCL_FUZZ_ITERS=200000 RUST_TEST_THREADS="${CPU_CAP}" cargo test -j "${CPU_CAP}" --manifest-path "${MANIFEST}")
 ## --quick swaps in this test command: same suites, fuzz at the old 20k gate
 ## depth - the minute-scale 200k soak is what the fast loop sheds.
-TEST_QUICK_CMD=(env SHCL_FUZZ_ITERS=20000 RUST_TEST_THREADS="${CPU_CAP}" cargo test -j "${CPU_CAP}" --manifest-path "${MANIFEST}")
+TEST_QUICK_CMD=(cicd/utility/libtest-quiet.bash env SHCL_FUZZ_ITERS=20000 RUST_TEST_THREADS="${CPU_CAP}" cargo test -j "${CPU_CAP}" --manifest-path "${MANIFEST}")
 ## -count=1: the corpus sits outside the Go module, so go's test cache cannot
-## see a changed case and answers `ok (cached)` over a broken golden.
+## see a changed case and answers `ok (cached)` over a broken golden. The
+## library is one package, named by directory rather than ./..., since a
+## package list hides a passing package's output and with it the per-test
+## status lines.
 TEST_EXTRA=(
-	'GOMAXPROCS="${CPU_CAP}" go -C source/go test -count=1 ./...'
+	'GOMAXPROCS="${CPU_CAP}" go -C source/go test -count=1'
 	'GOMAXPROCS="${CPU_CAP}" go -C source/go/cmd test -count=1 ./...'
 	'python3 source/python/tests/conformance.py'
 	'cbin="$(mktemp)"; cc -std=c11 -O2 -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror -Isource/c source/c/tests/conformance.c -o "${cbin}" -lm -lpthread && "${cbin}" project/conformance; crc=$?; rm -f "${cbin}"; ((crc==0))'

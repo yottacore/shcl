@@ -12,11 +12,15 @@
 //! which is not what the other three bindings do (20260716 item 25). The
 //! macros' handling of that error is pinned by the windows job alone.
 
+mod common;
+
+use common::test_id;
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
 
 #[test]
 fn early_closed_stdout_is_quiet() {
+	let _id = test_id("EojoRUu");
 	let dir = std::env::temp_dir().join(format!("shcl-pipe-{}", std::process::id()));
 	std::fs::create_dir_all(&dir).unwrap();
 	let file = dir.join("big.shcl");

@@ -321,7 +321,7 @@ fDevicesPython() {
 }
 
 fRun "rust"        "cargo"          cargo test --manifest-path source/rust/Cargo.toml
-fRun "go library"  "go"             go -C source/go test -count=1 ./...
+fRun "go library"  "go"             go -C source/go test -count=1
 fRun "go cli"      "go"             go -C source/go/cmd test -count=1 ./...
 fRun "python"      "${py}"          "${py}" source/python/tests/conformance.py
 fRun "c"           "${cc}"          fRunC

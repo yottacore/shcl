@@ -5,6 +5,9 @@
 // it is about to refuse. Its own test binary because the counting allocator
 // is global to the process, and the other test files run in parallel.
 
+mod common;
+
+use common::test_id;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -61,6 +64,7 @@ fn allocs_during(mut f: impl FnMut()) -> usize {
 
 #[test]
 fn a_plain_name_costs_the_scan_nothing() {
+	let _id = test_id("EoneEzg");
 	use shcl::{Document, Strictness};
 	// Same document twice over, once with one segment a line and once with
 	// four. The extra segments carry no extra text, so anything the count
@@ -104,6 +108,7 @@ fn peak_during(f: impl FnOnce()) -> usize {
 
 #[test]
 fn element_cap_bounds_the_parse() {
+	let _id = test_id("EoezJiC");
 	use shcl::{Document, Strictness};
 	let text = format!("arr: {}\nok: 5\n", "1, ".repeat(200_000));
 	let capped = peak_during(|| {
@@ -122,6 +127,7 @@ fn element_cap_bounds_the_parse() {
 
 #[test]
 fn diagnostic_cap_bounds_the_parse() {
+	let _id = test_id("EofAXrU");
 	use shcl::{Document, Strictness};
 	// The stacked spelling refuses each element line past the cap on its own,
 	// and every refusal is a diagnostic: with the element cap alone, 200k

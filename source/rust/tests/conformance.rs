@@ -5,12 +5,17 @@
 //! the Rust reference runs it natively here. Case layout and reads.tsv column
 //! meanings are documented in project/conformance/README.md.
 
+mod common;
+
+use common::test_id;
 use shcl::{
 	Document, DurationUnit, FORMAT_LINE, FORMAT_LINE_HEAD, FORMAT_MAJOR, MIGRATED_LINE, SizeUnit,
 	Strictness, format_version, generate, migrate, migrate_unstamped, parse_datetime,
 	quote_segment, schema_ref,
 };
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 fn corpus_dir() -> PathBuf {
 	Path::new(env!("CARGO_MANIFEST_DIR")).join("../../project/conformance")
@@ -32,6 +37,8 @@ fn parse_level(s: Option<&str>) -> Strictness {
 
 struct Case {
 	name: String,
+	// The case's test ID, from its test-id file.
+	id: String,
 	input: String,
 	expected_fmt: String,
 	reads: String,
@@ -208,6 +215,7 @@ fn load_cases() -> Vec<Case> {
 			.collect();
 		cases.push(Case {
 			name: path.file_name().unwrap().to_string_lossy().into_owned(),
+			id: read_opt("test-id").map_or_else(|| "-------".to_string(), |s| s.trim().to_string()),
 			input: std::fs::read_to_string(&input).unwrap(),
 			expected_fmt: std::fs::read_to_string(path.join("expected.shcl")).unwrap(),
 			reads: std::fs::read_to_string(path.join("reads.tsv")).unwrap(),
@@ -236,6 +244,55 @@ fn load_cases() -> Vec<Case> {
 	cases
 }
 
+/// Cases failed so far, and how many of the corpus tests have finished.
+struct Tally {
+	done: usize,
+	failed: BTreeSet<String>,
+}
+
+static TALLY: Mutex<Tally> = Mutex::new(Tally {
+	done: 0,
+	failed: BTreeSet::new(),
+});
+
+/// Runs `check` on every case, going on past one that fails, then fails the
+/// test with the names of those that did. The corpus test to finish last
+/// prints one status line per case, failed if any corpus test failed it.
+fn each_case(check: impl Fn(&Case)) {
+	let cases = load_cases();
+	let mut failed = Vec::new();
+	for case in &cases {
+		if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| check(case))).is_err() {
+			failed.push(case.name.clone());
+		}
+	}
+	// Counted off this file, so a new corpus test cannot be left out.
+	let tests = include_str!("conformance.rs")
+		.matches("\teach_case(|case| {")
+		.count();
+	let mut tally = TALLY.lock().unwrap_or_else(|e| e.into_inner());
+	tally.done += 1;
+	tally.failed.extend(failed.iter().cloned());
+	if tally.done == tests {
+		let _hold = std::io::stderr().lock();
+		for case in &cases {
+			let status = if tally.failed.contains(&case.name) {
+				"FAIL"
+			} else {
+				"ok"
+			};
+			common::status_line(status, &case.id, &format!("corpus/{}", case.name));
+		}
+	}
+	drop(tally);
+	assert!(
+		failed.is_empty(),
+		"{} case(s) failed: {}",
+		failed.len(),
+		failed.join(", ")
+	);
+}
+
 /// A `duration[@UNIT]` or `size[@UNIT][+decimal]` row type, split: the read,
 /// the unit a bare number takes, and whether KB to TB are powers of 1000.
 fn unit_type(kind: &str) -> (&str, Option<&str>, bool) {
@@ -260,7 +317,8 @@ fn doc_for(case: &Case, level: Strictness) -> Document {
 
 #[test]
 fn canonical_format_matches_expected() {
-	for case in load_cases() {
+	let _id = test_id("Ejri0IT");
+	each_case(|case| {
 		let got = Document::parse(&case.input).to_canonical();
 		assert_eq!(
 			got, case.expected_fmt,
@@ -270,7 +328,7 @@ fn canonical_format_matches_expected() {
 		// The formatter must be a fixpoint: canonicalizing its own output changes nothing.
 		let again = Document::parse(&got).to_canonical();
 		assert_eq!(again, got, "{}: formatter is not idempotent", case.name);
-	}
+	});
 }
 
 /// The load diagnostics of `text` at Standard, spelled the way `check` prints
@@ -300,27 +358,29 @@ fn diag_text(text: &str) -> String {
 
 #[test]
 fn diagnostics_match_expected() {
+	let _id = test_id("EkoN15s");
 	// Pins count, line, severity, and stable code per case - the same shape
 	// `check` prints to stdout at Standard (its cross-binding contract).
-	for case in load_cases() {
+	each_case(|case| {
 		let got = diag_text(&case.input);
 		assert_eq!(
 			got, case.expected_diags,
 			"{}: diagnostics differ from expected-diags.txt",
 			case.name
 		);
-	}
+	});
 }
 
 #[test]
 fn validation_matches_expected() {
+	let _id = test_id("EkstvaW");
 	// Schema dimension: golden = the exact `check --schema` stdout at Standard
 	// (doc parse diags, then validation diags, then the summary). A schema that
 	// does not load cleanly is a single V099, mirroring the CLI.
-	for case in load_cases() {
+	each_case(|case| {
 		let (schema_text, want) = match (&case.schema, &case.expected_validate) {
 			(Some(s), Some(w)) => (s, w),
-			(None, None) => continue,
+			(None, None) => return,
 			_ => panic!(
 				"{}: schema.shcl and expected-validate.txt must come as a pair",
 				case.name
@@ -367,11 +427,12 @@ fn validation_matches_expected() {
 			"{}: validation output differs from expected-validate.txt",
 			case.name
 		);
-	}
+	});
 }
 
 #[test]
 fn convenience_tier_falls_back_only_on_good() {
+	let _id = test_id("EkgmpQe");
 	// The get-tier value survives only on Good; Empty/BadType/NotFound all fall
 	// back to the call-site default, so a real zero can't be faked. This pins the
 	// semantic every port's *Or/get_*(default=) mirrors.
@@ -407,7 +468,8 @@ fn convenience_tier_falls_back_only_on_good() {
 
 #[test]
 fn reads_match_expected() {
-	for case in load_cases() {
+	let _id = test_id("Ejri0IU");
+	each_case(|case| {
 		for (n, line) in case.reads.lines().enumerate() {
 			if n == 0 || line.trim().is_empty() {
 				continue; // header
@@ -605,15 +667,16 @@ fn reads_match_expected() {
 				assert_eq!(&got, want_slots, "{}: slots", at);
 			}
 		}
-	}
+	});
 }
 
 #[test]
 fn write_ops_match_expected() {
-	for case in load_cases() {
+	let _id = test_id("EkfphiV");
+	each_case(|case| {
 		let (ops, want, keep) = match (&case.write_ops, &case.expected_write, &case.expected_keep) {
 			(Some(o), Some(w), Some(k)) => (o, w, k),
-			(None, None, None) => continue,
+			(None, None, None) => return,
 			_ => panic!(
 				"{}: write.ops, expected-write.shcl and expected-keep.shcl come together",
 				case.name
@@ -661,14 +724,15 @@ fn write_ops_match_expected() {
 			"{}: written output is not a fmt fixpoint",
 			case.name
 		);
-	}
+	});
 }
 
 /// Loaded to keep its lines and saved with no edits, every input is its own
 /// text again, byte for byte.
 #[test]
 fn keeping_lines_without_edits_writes_the_input() {
-	for case in load_cases() {
+	let _id = test_id("EqutO7H");
+	each_case(|case| {
 		let doc = Document::parse_keep_lines(&case.input, Strictness::Standard)
 			.unwrap_or_else(|e| e.document);
 		assert!(
@@ -676,17 +740,18 @@ fn keeping_lines_without_edits_writes_the_input() {
 			"{}: an unedited save changed the text",
 			case.name
 		);
-	}
+	});
 }
 
 #[test]
 fn layered_merge_matches_expected() {
+	let _id = test_id("EkyV757");
 	// Layered-load dimension: fold the layer files (lowest first) and input.shcl
 	// (highest file layer) via the library `merge`, apply the `path=value`
 	// overrides as the top layer, and match the golden merged canonical.
-	for case in load_cases() {
+	each_case(|case| {
 		let Some(want) = &case.expected_merged else {
-			continue;
+			return;
 		};
 		// Ordered lowest -> highest: the layer*.shcl files, then input.shcl.
 		let mut texts: Vec<&str> = case.layers.iter().map(|s| s.as_str()).collect();
@@ -763,20 +828,21 @@ fn layered_merge_matches_expected() {
 			"{}: merged output is not a fmt fixpoint",
 			case.name
 		);
-	}
+	});
 }
 
 #[test]
 fn migrate_matches_expected() {
+	let _id = test_id("Ept4WPh");
 	// Migration dimension: `migrate` on the input must reproduce the golden
 	// byte for byte, and the golden's load diagnostics are pinned beside it,
 	// so a rewrite that no longer loads cannot pass. A fmt fixpoint is not
 	// required, since migrate keeps the author's layout; the migrate fixpoint
 	// is checked next.
-	for case in load_cases() {
+	each_case(|case| {
 		let (want, want_diags) = match (&case.expected_migrate, &case.expected_migrate_diags) {
 			(Some(w), Some(d)) => (w, d),
-			(None, None) => continue,
+			(None, None) => return,
 			_ => panic!(
 				"{}: expected-migrate.shcl and expected-migrate-diags.txt must come as a pair",
 				case.name
@@ -794,12 +860,13 @@ fn migrate_matches_expected() {
 			"{}: migrated text's diagnostics differ from expected-migrate-diags.txt",
 			case.name
 		);
-	}
+	});
 }
 
 #[test]
 fn migrate_is_a_fixpoint() {
-	for case in load_cases() {
+	let _id = test_id("EpyXoJW");
+	each_case(|case| {
 		let once = migrate(&case.input, true).text;
 		assert_eq!(
 			migrate(&once, true).text,
@@ -807,14 +874,15 @@ fn migrate_is_a_fixpoint() {
 			"{}: migrate changes its own output",
 			case.name
 		);
-	}
+	});
 }
 
 #[test]
 fn migrate_unstamped_is_migrate_without_the_stamp() {
+	let _id = test_id("Eqps7zO");
 	// Over every input, not only the migrate cases: the stamp is the one
 	// difference, and a file is current exactly when its Format line says so.
-	for case in load_cases() {
+	each_case(|case| {
 		for from_v2 in [true, false] {
 			let full = migrate(&case.input, from_v2);
 			let bare = migrate_unstamped(&case.input, from_v2);
@@ -853,17 +921,18 @@ fn migrate_unstamped_is_migrate_without_the_stamp() {
 				case.name
 			);
 		}
-	}
+	});
 }
 
 #[test]
 fn init_generation_matches_expected() {
+	let _id = test_id("EkyZiCX");
 	// Generation dimension: `generate` on the schema must reproduce the golden
 	// starter config, and that output must itself load cleanly.
-	for case in load_cases() {
+	each_case(|case| {
 		let (schema, want) = match (&case.init_schema, &case.expected_init) {
 			(Some(s), Some(w)) => (s, w),
-			(None, None) => continue,
+			(None, None) => return,
 			_ => panic!(
 				"{}: init-schema.shcl and expected-init.shcl must come as a pair",
 				case.name
@@ -911,11 +980,12 @@ fn init_generation_matches_expected() {
 			case.name,
 			vs
 		);
-	}
+	});
 }
 
 #[test]
 fn depth_cap_boundary_and_writer() {
+	let _id = test_id("El5Aber");
 	// Exactly at the cap: loads clean, formats, and round-trips.
 	let segs: Vec<String> = (0..shcl::MAX_DEPTH).map(|i| format!("a{}", i)).collect();
 	let at_cap = format!("{}: 1", segs.join("."));
@@ -943,6 +1013,7 @@ fn depth_cap_boundary_and_writer() {
 
 #[test]
 fn parse_limited_caps() {
+	let _id = test_id("Eoe5NRw");
 	// The caps exist because a document amplifies to many times its byte size
 	// in memory, so read_file's byte cap alone cannot bound a load. Same
 	// fixture in every runner.
@@ -1129,6 +1200,7 @@ fn parse_limited_caps() {
 
 #[test]
 fn write_bad_ops_are_rejected() {
+	let _id = test_id("El5Gcy6");
 	// Bad-op dimension: each write-bad.ops line, applied alone to the case
 	// input, must be rejected (bad value, bad datetime, or unusable path) and
 	// leave the document unchanged.
@@ -1147,9 +1219,9 @@ fn write_bad_ops_are_rejected() {
 		"a refusal read as a misspelled op: {}",
 		e
 	);
-	for case in load_cases() {
+	each_case(|case| {
 		let Some(bad) = &case.write_bad_ops else {
-			continue;
+			return;
 		};
 		for (n, line) in bad.lines().enumerate() {
 			if line.is_empty() || line.starts_with('#') {
@@ -1181,11 +1253,12 @@ fn write_bad_ops_are_rejected() {
 				line
 			);
 		}
-	}
+	});
 }
 
 #[test]
 fn one_shot_load_and_validate() {
+	let _id = test_id("Elp3cOg");
 	// One combined diagnostics list (parse first, then validation) and an
 	// error predicate, so recover-and-continue can't read as success by
 	// accident. Same fixture in every runner.
@@ -1206,6 +1279,7 @@ fn one_shot_load_and_validate() {
 
 #[test]
 fn write_reason_names_the_failure() {
+	let _id = test_id("ElouJ8K");
 	// The reason behind a setter's bare false. Same fixture in every runner.
 	let doc = Document::parse("a:\n\tb: 1\n");
 	use shcl::WriteReason::*;
@@ -1235,6 +1309,7 @@ fn write_reason_names_the_failure() {
 
 #[test]
 fn setters_refuse_a_value_the_reader_refuses() {
+	let _id = test_id("Eof29pY");
 	// Each setter is the inverse of its read, so a value with no spelling the
 	// reader accepts fails the write and leaves the document alone. Same
 	// fixture in every runner.
@@ -1306,6 +1381,7 @@ fn setters_refuse_a_value_the_reader_refuses() {
 
 #[test]
 fn a_line_break_in_a_path_writes_and_reads_back() {
+	let _id = test_id("EpGigIK");
 	// Both halves of a path can carry one and spell it `\n`: a name through the
 	// name escaper, a selector value through the value emitter. The selector
 	// was refused while elements were stored in their source spelling and the
@@ -1324,6 +1400,7 @@ fn a_line_break_in_a_path_writes_and_reads_back() {
 
 #[test]
 fn raw_block_line_endings_normalize_and_round_trip() {
+	let _id = test_id("EnLyQsU");
 	// A raw body is the only content kept untrimmed, so it is the only place a
 	// trailing CR survives the load - and one written back becomes CRLF, which
 	// reads as neither. The whole trailing run comes off instead; a CR inside a
@@ -1337,6 +1414,7 @@ fn raw_block_line_endings_normalize_and_round_trip() {
 
 #[test]
 fn children_and_instance_paths_walk_a_repeated_key() {
+	let _id = test_id("Eqps7zP");
 	// gitsby's report: children() on a repeated key answered nothing, and a
 	// walk had to know to index each instance.
 	let doc =
@@ -1361,6 +1439,7 @@ fn children_and_instance_paths_walk_a_repeated_key() {
 
 #[test]
 fn read_surface_line_quoted_children() {
+	let _id = test_id("ElorUZk");
 	// line/quoted on the read result, line(path), children(path). Same
 	// fixture in every runner (C pins the same answers on shcl_quoted and
 	// shcl_line; its read structs stay value+status).
@@ -1420,6 +1499,7 @@ fn read_surface_line_quoted_children() {
 
 #[test]
 fn file_tier_load_save() {
+	let _id = test_id("EnEYHTs");
 	// load_file/save_file: the status separates absent / unreadable / parsed
 	// with errors / clean, and a save round-trips through the atomic write.
 	// Same fixture in every runner.
@@ -1528,6 +1608,7 @@ fn file_tier_load_save() {
 
 #[test]
 fn read_file_at_the_largest_cap() {
+	let _id = test_id("EoLwIlh");
 	// A cap spelled as the type maximum used to overflow the over-cap probe and
 	// read nothing. Same fixture in every runner.
 	let dir = std::env::temp_dir().join(format!("shcl-readcap-{}", std::process::id()));
@@ -1544,6 +1625,7 @@ fn read_file_at_the_largest_cap() {
 
 #[test]
 fn set_raw_keeps_a_shared_indent_and_trims_the_info() {
+	let _id = test_id("EoLwIli");
 	// The body's shared indent survives a reload (the closing fence's indent is
 	// what comes off), the info-string is stored as a fence line reads it
 	// back, and an info with a line break or a `#` has no spelling and fails
@@ -1588,6 +1670,7 @@ fn set_raw_keeps_a_shared_indent_and_trims_the_info() {
 #[cfg(unix)]
 #[test]
 fn save_creates_the_file_behind_a_dangling_symlink() {
+	let _id = test_id("EoLwIlj");
 	// A link to a file that is not there yet is written through like any other
 	// link: the file appears where the link points and the link stays a link.
 	// Same fixture in every POSIX runner.
@@ -1616,6 +1699,7 @@ fn save_creates_the_file_behind_a_dangling_symlink() {
 #[cfg(unix)]
 #[test]
 fn save_reports_a_symlink_cycle_instead_of_replacing_it() {
+	let _id = test_id("EoUxXlQ");
 	// Two links pointing at each other resolve to nothing, so the save fails
 	// and says why. It must not "fix" the cycle by dropping a regular file over
 	// one of the links. Same fixture in every POSIX runner.
@@ -1643,6 +1727,7 @@ fn save_reports_a_symlink_cycle_instead_of_replacing_it() {
 #[cfg(unix)]
 #[test]
 fn save_replaces_only_a_regular_file() {
+	let _id = test_id("EqLbKe8");
 	// Save outcomes in design.md, the rows the CLI's own check hides. A FIFO
 	// was swapped for a regular file at exit 0, a link whose text names a
 	// directory made a file of that name, and Go cleaned `lnk/..` as text where
@@ -1689,6 +1774,7 @@ fn save_replaces_only_a_regular_file() {
 #[cfg(windows)]
 #[test]
 fn save_rewrites_a_read_only_file() {
+	let _id = test_id("EoLwIlk");
 	// A read-only target is rewritten, as it is on POSIX, and comes back
 	// read-only; no temp file is left behind. Same fixture in every runner.
 	let dir = std::env::temp_dir().join(format!("shcl-readonly-{}", std::process::id()));
@@ -1748,6 +1834,7 @@ fn set_attrs(path: &std::path::Path, attrs: u32) {
 /// fixture in every runner.
 #[test]
 fn save_refuses_a_directory_shaped_path() {
+	let _id = test_id("EomvfCq");
 	let dir = std::env::temp_dir().join(format!("shcl-dirpath-{}", std::process::id()));
 	std::fs::create_dir_all(&dir).unwrap();
 	let f = dir.join("f.shcl");
@@ -1774,6 +1861,7 @@ fn save_refuses_a_directory_shaped_path() {
 /// fixture in every runner.
 #[test]
 fn written_spelling_matches_its_reload() {
+	let _id = test_id("EommtF2");
 	let mut d = Document::parse("x: 1\n");
 	assert!(d.set_string("k", "q\"q'"));
 	let back = Document::parse(&d.to_canonical());
@@ -1788,6 +1876,7 @@ fn written_spelling_matches_its_reload() {
 /// absolute figure would be a machine constant. Same fixture in every runner.
 #[test]
 fn index_rebuild_ignores_removed_nodes() {
+	let _id = test_id("EomjcaW");
 	let mut ms = [0.0f64; 2];
 	for (churned, slot) in ms.iter_mut().enumerate() {
 		let mut d = Document::parse("g:\n\tk: 1\n");
@@ -1840,6 +1929,7 @@ fn index_rebuild_ignores_removed_nodes() {
 /// the same merges with the big block left out. Same fixture in every runner.
 #[test]
 fn merge_settles_only_what_it_touched() {
+	let _id = test_id("EqoaM6C");
 	let mut ms = [0.0f64; 2];
 	for (big, slot) in ms.iter_mut().enumerate() {
 		let mut text = String::from("g:\n\tk: 1\n");
@@ -1880,6 +1970,7 @@ fn merge_settles_only_what_it_touched() {
 /// every runner.
 #[test]
 fn a_far_kept_line_costs_an_edit_nothing() {
+	let _id = test_id("EqqmFxQ");
 	let mut ms = [0.0f64; 2];
 	for (kept, slot) in ms.iter_mut().enumerate() {
 		let mut text = String::from("g:\n\tk: 1\nbig:\n");
@@ -1920,6 +2011,7 @@ fn a_far_kept_line_costs_an_edit_nothing() {
 
 #[test]
 fn standard_trait_surface() {
+	let _id = test_id("EnLJ3Jw");
 	// Rust-only: the traits a rust user reaches for before reading any docs.
 	// Nothing here is new behavior, so there is no cross-binding fixture - the
 	// other three already export the same capabilities under their own names.
@@ -1945,6 +2037,7 @@ fn standard_trait_surface() {
 
 #[test]
 fn lost_and_save_gate() {
+	let _id = test_id("EnEclpx");
 	// Content-malformed lines are retained as trivia (lost_count 0, the line
 	// survives a save); position-dependent drops count as lost and make
 	// save_file refuse until the caller opts into save_file_lossy. Same
@@ -2000,6 +2093,7 @@ fn lost_and_save_gate() {
 
 #[test]
 fn strict_failure_carries_document() {
+	let _id = test_id("Elop5Fg");
 	// A failed strict load hands back the document and names the first
 	// failures in the message - the diagnostics are the point.
 	let e = Document::parse_with("ok: 1\n: nope\n", Strictness::Strict).unwrap_err();
@@ -2011,6 +2105,7 @@ fn strict_failure_carries_document() {
 
 #[test]
 fn raw_is_source_text() {
+	let _id = test_id("ElonRnN");
 	// raw: the verbatim value span from the source line - not the display
 	// join, which rewrites `{2,3}` to `{2, 3}`. Same fixture in every runner
 	// whose read result exposes raw (the C read structs deliberately do not).
@@ -2032,6 +2127,7 @@ fn raw_is_source_text() {
 
 #[test]
 fn paths_enumeration_shape() {
+	let _id = test_id("El5WdwW");
 	// paths(): file order, deduplicated, non-bare segments quoted so every
 	// path resolves. Same fixture is pinned in every runner.
 	let doc = Document::parse("a: 1\na.b: 2\n\"q n\": 3\nx:\n\tb: 4\nx.b: 5\n");
@@ -2049,6 +2145,7 @@ fn paths_enumeration_shape() {
 
 #[test]
 fn generation_bounds_a_multiplying_schema() {
+	let _id = test_id("ElupzhR");
 	// A chain longer than the nesting cap would outrun the stack if it were
 	// followed all the way down; it is noted like a re-entering mount instead.
 	// Too big for a golden, so it is pinned here (like the depth-cap case).
@@ -2089,6 +2186,7 @@ fn generation_bounds_a_multiplying_schema() {
 
 #[test]
 fn one_shot_load_reports_a_broken_schema() {
+	let _id = test_id("Eluygyu");
 	// A schema that does not load would otherwise drop the constraints on its
 	// broken lines, or report every field as unknown - blaming the document.
 	// Same fixture in every runner.
@@ -2108,6 +2206,7 @@ fn one_shot_load_reports_a_broken_schema() {
 
 #[test]
 fn quote_segment_backslash_round_trips() {
+	let _id = test_id("Elv59bc");
 	// A name ending in a backslash: the quoted spelling must not let the
 	// closing quote be read as an escape pair.
 	let mut doc = Document::new();
@@ -2139,6 +2238,7 @@ fn quote_segment_backslash_round_trips() {
 
 #[test]
 fn repeat_suppression_uses_parsed_leaf() {
+	let _id = test_id("Elv59bd");
 	// A quoted last segment with a dot must not disavow an unrelated field
 	// that happens to carry the split-off text.
 	let schema = Document::parse("field: a.\"b.c\"\n\trepeat: 0, 5\nfield: c\n");
@@ -2161,6 +2261,7 @@ fn repeat_suppression_uses_parsed_leaf() {
 
 #[test]
 fn huge_selector_index_is_not_found() {
+	let _id = test_id("Elv59be");
 	// An index at or past 2^32 must report not-found on every target width,
 	// never wrap into a live element (pins the contract; 64-bit passes either way).
 	let doc = Document::parse("a: 1\na: 2\n");
@@ -2185,6 +2286,7 @@ fn huge_selector_index_is_not_found() {
 
 #[test]
 fn nul_name_does_not_satisfy_a_dotted_schema_path() {
+	let _id = test_id("ElvEcEa");
 	// The unknown-field chain key is length-prefixed, not NUL-joined: a single
 	// field whose name literally contains a NUL must not impersonate the
 	// two-segment path x.y. Same fixture in every runner.
@@ -2230,6 +2332,7 @@ fn soup_inputs() -> Vec<String> {
 /// save wrote and the next load refused. Same fixture in every runner.
 #[test]
 fn setters_write_only_what_reads_back() {
+	let _id = test_id("EpGRxM0");
 	let mut all = Document::parse("");
 	let mut slot = 0;
 	for s in soup_inputs() {
