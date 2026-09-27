@@ -103,7 +103,7 @@ Going forward, new issues in the new template above will go in the '### New form
 - Hint when a double-quoted Windows path has a `\t` or `\n` escape
 	- ID: 2026092617133293
 	- Type: Enhancement
-	- Status: Testing
+	- Status: Waiting on signoff
 	- Priority: Avg
 	- Opened: 20260926-171332
 	- Opened by: follow-up to 2026092616330237
@@ -120,6 +120,7 @@ Going forward, new issues in the new template above will go in the '### New form
 		- A 2.x file `migrate` rewrites can now carry the hint, since the rewrite keeps the tab or newline 2.x read. That is the point of it.
 	- Actual fix: Rust `path_like`, Go `pathLike`, Python `_path_like`, C `path_like`, called after a field line binds and beside `H003` for a stacked element. Explain entry in all four CLIs, spec, design table, changelog.
 	- Branch: `pathhint`
+	- Commit: `1a12c02`
 	- Test case: corpus `171-windows-path-hint`, cli-regress `path-hint-*` rows. The read and strict rows and case 171 fail with the hint off, and `path-hint-set` shows a write is unaffected. The migrate goldens of cases 118, 122 and 170 now list the hint.
 
 - An unknown escape in double quotes loads silently, with the known escapes around it decoded
