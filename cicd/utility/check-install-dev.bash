@@ -119,7 +119,7 @@ if ( cd "${work}" && bash "${script}" --yes --dir stuff >"${work}/out" 2>&1 </de
 fi
 grep -qF "is not an shcl clone" "${work}/out" || fail "the default path did not refuse a non-empty directory up front"
 
-fTest EqRTWFc the plan is built off the pins in the config
+fTest EqRTWFd the plan is built off the pins in the config
 ## 20260920 idea 6: everything between the option parse and the hook setup ran
 ## in no gate - reading the pins, deciding what is already at its pin, and
 ## building the plan. Run the default path inside the throwaway clone against a
@@ -213,7 +213,7 @@ chmod +x "${net}/git" "${net}/curl"
 [[ "$(git -C "${work}/empty/fresh" config --local core.hooksPath || true)" == "cicd/hooks" ]] \
 	|| fail "a fresh clone by a relative --dir did not get the hooks: $(tail -n 3 "${work}/fresh.out")"
 
-fTest EqRTWFd a config with no CPPCHECK_WHEEL is refused
+fTest EqRTWFe a config with no CPPCHECK_WHEEL is refused
 ## The wheel version is read out of the config, not carried in the script: with
 ## the line gone the run refuses rather than installing whatever pipx has.
 grep -v '^CPPCHECK_WHEEL=' "${work}/clone/cicd/config.bash" > "${work}/cfg.nowheel"

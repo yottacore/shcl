@@ -254,13 +254,13 @@ chmod +x "${tmpDir}/bait-rc" "${tmpDir}/bait-quiet"
 fTest EpHGoa1 self-test-exit-code
 got="$(fTimeMs "${tmpDir}/bait-rc" "${tmpDir}/base.ops" set 1 2>/dev/null)"
 [[ "${got}" == "-1" ]] || { echo "perf-gate: self-test: a CLI exiting 1 was timed as ${got} ms, not refused" >&2; nBad+=1; }
-fTest EpHGoa2 self-test-quiet
+fTest EqMEejQ self-test-quiet
 got="$(fTimeMs "${tmpDir}/bait-quiet" "${tmpDir}/base.ops" set 1 2>/dev/null)"
 [[ "${got}" == "-1" ]] || { echo "perf-gate: self-test: a CLI printing nothing was timed as ${got} ms, not refused" >&2; nBad+=1; }
 ## The cap comes down for the hang, since nobody is waiting out the real one.
 ## It prints its line and exits 0 eventually, so the other two guards have
 ## nothing to say about it and only the cap can refuse it.
-fTest EqMEejQ self-test-hang
+fTest EqMEejR self-test-hang
 printf '#!/bin/sh\nsleep 30\necho x\n' > "${tmpDir}/bait-hang"
 chmod +x "${tmpDir}/bait-hang"
 declare -i capWas="${runSecs}"
@@ -274,7 +274,7 @@ if ((nBad)); then fTestEnd; exit 1; fi
 ##	Every `set` run prints the whole document, so the line count is the key
 ##	count; `check` prints one line per diagnostic plus a summary. A binding
 ##	whose baseline would not run has no budget, and sits out the workloads.
-fTest EoTIbbs baseline
+fTest Er6H1r6 baseline
 declare -A baseOf=() budgetOf=()
 for b in "${bindings[@]}"; do
 	name="${b%%|*}"; cli="${b#*|}"

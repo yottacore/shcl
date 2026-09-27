@@ -52,7 +52,7 @@ notInCi=(cargo-zigbuild)
 ## nothing digit-like after.
 fNamesAt(){ grep -qE -- "(^|[^A-Za-z0-9_-])${1}(==|@|-|/|-version: \"| -RequiredVersion )v?${2//./\\.}([^0-9]|$)" "${ciFile}"; }
 
-fTest EoLqLse tool-pins-match-ci
+fTest EoSE8Nk tool-pins-match-ci
 for pin in "${TOOL_PINS[@]}"; do
 	name="${pin%%|*}"; rest="${pin#*|}"; ver="${rest%%|*}"
 	skip=0
@@ -80,7 +80,7 @@ done
 ## Only one spelling can be followed to its check: `curl ... -o /absolute/path`.
 ## Any other fetch fails here rather than passing unseen, and so does a check
 ## that is commented out.
-fTest EoaI9wW downloads-are-hashed
+fTest Eq5jgxE downloads-are-hashed
 liveLines="$(grep -vE -- '^[[:space:]]*#' "${ciFile}" || true)"
 while IFS= read -r fetchLine; do
 	[[ -n "${fetchLine}" ]] || continue
@@ -107,7 +107,7 @@ done < <(grep -oE -- '-o[[:space:]]+/[^[:space:]]+' <<<"${liveLines}" | sed 's/^
 ## errexit and pipefail, so the first that matched nothing ended the group and
 ## the rest were never read; a process substitution's status is never seen, so
 ## nothing said so.
-fTest EomaBGC installs-are-pinned
+fTest EqL4rto installs-are-pinned
 ## pip and npm: name==version, name@version.
 pipNames="$(grep -oE -- 'pip install[^|;]*' "${ciFile}" \
 	| grep -oE -- '[A-Za-z][A-Za-z0-9_.-]*(==|@)[0-9]' | sed -E 's/(==|@)[0-9]$//' || true)"

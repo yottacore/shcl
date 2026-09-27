@@ -91,7 +91,7 @@ static int test_id_end(int failed) {
 }
 
 int main(void) {
-	test_id("EoezJiE", "mem_bounds");
+	test_id("EoezJiG", "mem_bounds");
 	// Element cap: 200k elements on one line, refused at a cap of 8. The
 	// refused line used to be built in full first, so the cap saved nothing.
 	size_t reps = 200000, tlen = 5 + reps * 3 + 7;

@@ -1213,7 +1213,7 @@ int main(int argc, char **argv) {
 	free(names);
 	// paths(): file order, deduplicated, non-bare segments quoted so every
 	// path resolves. Same fixture is pinned in every runner.
-	test_id("El5WdwY", "paths_enumeration_shape");
+	test_id("EloioKm", "paths_enumeration_shape");
 	{
 		const char *pt = "a: 1\na.b: 2\n\"q n\": 3\nx:\n\tb: 4\nx.b: 5\n";
 		shcl_doc *pd = shcl_parse(pt, strlen(pt));
@@ -1234,7 +1234,7 @@ int main(int argc, char **argv) {
 	// reads as neither. The whole trailing run comes off instead; a CR inside a
 	// line is content and stays. Same fixture in every runner: a golden would be
 	// rewritten by any platform's line-ending translation.
-	test_id("EnLD4c4", "raw_block_line_endings_normalize_and_round_trip");
+	test_id("EnLyQsW", "raw_block_line_endings_normalize_and_round_trip");
 	{
 		const char *rt = "r:\n\t~~~\n\tone\r\r\n\ta\rb\n\t~~~\n";
 		shcl_doc *rd = shcl_parse(rt, strlen(rt));
@@ -1288,7 +1288,7 @@ int main(int argc, char **argv) {
 	}
 	// gitsby's report: children on a repeated key answered nothing, and a walk
 	// had to know to index each instance. Same fixture in every runner.
-	test_id("EnEUPt2", "children_and_instance_paths_walk_a_repeated_key");
+	test_id("Eqpzw7W", "children_and_instance_paths_walk_a_repeated_key");
 	{
 		const char *gt = "account: w\n\temail: e@x\n\t\tsshkey: k1\n\temail: f@x\n\t\tsshkey: k2\n";
 		shcl_doc *gd = shcl_parse(gt, strlen(gt));
@@ -1307,7 +1307,7 @@ int main(int argc, char **argv) {
 	// authored_name: the author's spelling, unfolded; merged instances keep the
 	// first binding's; unresolved or Multiple is empty; writer-built keeps the
 	// setter path's spelling. Same fixture in every runner.
-	test_id("EnEUPt3", "authored_name");
+	test_id("EnLH7OS", "authored_name");
 	{
 		const char *nt = "SYMBOLS: 3\nCode:\n\tx: 1\ncode:\n\ty: 2\n";
 		shcl_doc *nd = shcl_parse(nt, strlen(nt));
@@ -1343,7 +1343,7 @@ int main(int argc, char **argv) {
 	// cross-binding spelling for it, so a routine ported between two bindings
 	// cannot keep the call name while changing which tier it lands on. Same
 	// fixture in every runner (C's convenience tier is the value types only).
-	test_id("EnLD4c5", "convenience_tier_falls_back_only_on_good");
+	test_id("EnLD4c4", "convenience_tier_falls_back_only_on_good");
 	{
 		const char *ct = "a: 42\nb: not-a-number\ne:\nblk:\n\t```html\n\thi\n\t```\n";
 		shcl_doc *cd = shcl_parse(ct, strlen(ct));
@@ -1368,7 +1368,7 @@ int main(int argc, char **argv) {
 	// parse_limited: the caps exist because a document amplifies to many times
 	// its byte size in memory, so shcl_read_file's byte cap alone cannot bound
 	// a load. Same fixture in every runner.
-	test_id("EnEYHTu", "parse_limited_caps");
+	test_id("Eoe5NRy", "parse_limited_caps");
 	{
 		const char *lt = "a: 1\nb: 2\nc: 3\nd: 4\n";
 		shcl_doc *ld = shcl_parse_limited(lt, strlen(lt), SHCL_STANDARD, 2, 0, 0);
@@ -1528,7 +1528,7 @@ int main(int argc, char **argv) {
 	// load_file/save_file: the status separates absent / unreadable / parsed
 	// with errors / clean, and a save round-trips through the atomic write.
 	// Same fixture in every runner.
-	test_id("EnEYHTv", "file_tier_load_save");
+	test_id("Er207Yf", "file_tier_load_save");
 	{
 		char tdir[256], tfile[288];
 		snprintf(tdir, sizeof tdir, "%s/shcl-filetier-%ld", tmp_root(), (long)getpid());
@@ -1849,7 +1849,7 @@ int main(int argc, char **argv) {
 	// was swapped for a regular file at exit 0, a link whose text names a
 	// directory made a file of that name, and Go cleaned `lnk/..` as text where
 	// the kernel follows lnk first. Same fixture in every POSIX runner.
-	test_id("EoM5gSA", "save_replaces_only_a_regular_file");
+	test_id("EqLbKeM", "save_replaces_only_a_regular_file");
 	{
 		char tdir[256], tp[320], tq[320], tr[320];
 		snprintf(tdir, sizeof tdir, "%s/shcl-targets-%ld", tmp_root(), (long)getpid());
@@ -1890,7 +1890,7 @@ int main(int argc, char **argv) {
 	// A read-only target is rewritten, as it is on POSIX, and comes back
 	// read-only; no temp file is left behind. Same fixture in every runner.
 #ifdef _WIN32
-	test_id("EoM5gSB", "save_rewrites_a_read_only_file");
+	test_id("EoM5gSA", "save_rewrites_a_read_only_file");
 	{
 		char rdir[256], rfile[288];
 		snprintf(rdir, sizeof rdir, "%s/shcl-readonly-%ld", tmp_root(), (long)getpid());
@@ -1962,14 +1962,14 @@ int main(int argc, char **argv) {
 		if (hdd) closedir(hdd);
 		rmdir(hdir);
 	}
-	test_id("EoM5gSC", "publish_failures");
+	test_id("EoM5gSB", "publish_failures");
 	publish_failures();
 #endif
 	// Reads and saves must not retain: a read of a plain field hands back a
 	// slice of the retained input (a million reads once grew a document by
 	// 32 MB), and a save emits into scratch (200 saves of 79 KB once grew it by
 	// 17 MB). The bound is one arena block, well under either regression.
-	test_id("EoM5gSD", "reads_and_saves_do_not_retain");
+	test_id("EoM5gSC", "reads_and_saves_do_not_retain");
 	{
 		char gdir[256], gfile[288];
 		snprintf(gdir, sizeof gdir, "%s/shcl-retain-%ld", tmp_root(), (long)getpid());
@@ -2020,7 +2020,7 @@ int main(int argc, char **argv) {
 	// The copy-out reads leave the read arena as they found it, so a caller
 	// that never releases still stays flat. Short buffers get what fits and
 	// the whole count. C-only, for the same reason as above.
-	test_id("EoaHtYO", "copy_out_reads_leave_the_arena");
+	test_id("Equbm1d", "copy_out_reads_leave_the_arena");
 	{
 		const char *at = "ports: 80, 443, 8080\nnames: a, \"b c\"\nwhen: 2026-01-02T03:04:05.25Z, 2027-01-01\nflags: true, false\nf: 1.5, 2\n";
 		shcl_doc *ad = shcl_parse(at, strlen(at));
@@ -2046,7 +2046,7 @@ int main(int argc, char **argv) {
 	// values the parser never produces - a negative year, epoch seconds in sec,
 	// a frac of any length. The buffer it documents is fixed, so the render has
 	// to clamp. C-only: nothing to mirror where the caller cannot supply them.
-	test_id("ElouJ8M", "datetime_render_clamps");
+	test_id("EoaHtYO", "datetime_render_clamps");
 	{
 		shcl_datetime worst;
 		memset(&worst, 0, sizeof worst);
@@ -2072,7 +2072,7 @@ int main(int argc, char **argv) {
 	}
 	// write_reason: the reason behind a setter's bare 0. Same fixture in every
 	// runner.
-	test_id("ElouJ8N", "write_reason_names_the_failure");
+	test_id("ElouJ8M", "write_reason_names_the_failure");
 	{
 		const char *wt = "a:\n\tb: 1\n";
 		shcl_doc *wd = shcl_parse(wt, strlen(wt));
@@ -2106,7 +2106,7 @@ int main(int argc, char **argv) {
 	// through the name escaper, a selector value through the value emitter. The
 	// selector was refused while elements were stored in their source spelling
 	// and the emitter had nothing to escape with. Same fixture in every runner.
-	test_id("Eof29pa", "a_line_break_in_a_path_writes_and_reads_back");
+	test_id("EpGigIO", "a_line_break_in_a_path_writes_and_reads_back");
 	{
 		shcl_doc *nd = shcl_parse("z: 0\n", 5);
 		if (!shcl_set_int(nd, "x[\"p\nq\"].c", sizeof "x[\"p\nq\"].c" - 1, 1)
@@ -2133,7 +2133,7 @@ int main(int argc, char **argv) {
 	// Each setter is the inverse of its read, so a value with no spelling the
 	// reader accepts fails the write and leaves the document alone. Same
 	// fixture in every runner.
-	test_id("Elp3cOi", "setters_refuse_a_value_the_reader_refuses");
+	test_id("Eof29pa", "setters_refuse_a_value_the_reader_refuses");
 	{
 		shcl_doc *sd = shcl_parse("z: 0\n", 5);
 		double nonfinite[3]; nonfinite[0] = INFINITY; nonfinite[1] = -INFINITY; nonfinite[2] = NAN;
@@ -2180,7 +2180,7 @@ int main(int argc, char **argv) {
 	// One combined diagnostics list (parse first, then validation) and an
 	// error predicate, so recover-and-continue can't read as success by
 	// accident. Same fixture in every runner.
-	test_id("Elp3cOj", "one_shot_load_and_validate");
+	test_id("Elp3cOi", "one_shot_load_and_validate");
 	{
 		const char *ot = ": nope\nport: x\n";
 		const char *os = "field: port\n\ttype: int\n";
@@ -2203,7 +2203,7 @@ int main(int argc, char **argv) {
 	// A schema that does not load would otherwise drop the constraints on its
 	// broken lines, or report every field as unknown - blaming the document.
 	// Same fixture in every runner.
-	test_id("Eqzz38Z", "one_shot_load_reports_a_broken_schema");
+	test_id("Eqzz38a", "one_shot_load_reports_a_broken_schema");
 	{
 		const char *bt = "host: example\n";
 		const char *bs = "field: apikey\n\ttype: string\n  required: true\n";
@@ -2224,7 +2224,7 @@ int main(int argc, char **argv) {
 	// The unknown-field chain key is length-prefixed, not NUL-joined: a single
 	// field whose name literally contains a NUL must not impersonate the
 	// two-segment path x.y. Same fixture in every runner.
-	test_id("Eqzz38a", "nul_name_does_not_satisfy_a_dotted_schema_path");
+	test_id("Eqzz38b", "nul_name_does_not_satisfy_a_dotted_schema_path");
 	{
 		static const char nt[] = "\"x\0y\": 1\n";
 		shcl_doc *ns = shcl_parse("field: x.y\n", 11);
@@ -2309,7 +2309,7 @@ int main(int argc, char **argv) {
 	   component is `.` or `..` - is not a document. A path cleanup drops the
 	   trailing separator first, so a save through `f/.` used to rewrite `f` in
 	   some bindings. Same fixture in every runner. */
-	test_id("EommtF4", "save_refuses_a_directory_shaped_path");
+	test_id("EomvfCt", "save_refuses_a_directory_shaped_path");
 	{
 		char ddir[256], dfile[320], dpath[336];
 		snprintf(ddir, sizeof ddir, "%s/shcl-dirpath-%ld", tmp_root(), (long)getpid());
@@ -2339,7 +2339,7 @@ int main(int argc, char **argv) {
 	   reload stores it, so shcl_instances and a read's raw text agree across a
 	   save. The emitter escapes the double quotes; the writer used to keep them
 	   bare. Same fixture in every runner. */
-	test_id("EommtF5", "written_spelling_matches_its_reload");
+	test_id("EommtF4", "written_spelling_matches_its_reload");
 	{
 		shcl_doc *wd = shcl_parse("x: 1\n", 5);
 		if (!shcl_set_string(wd, "k", 1, "q\"q'", 4)) fail("written_spelling", "set_string refused");
@@ -2370,7 +2370,7 @@ int main(int argc, char **argv) {
 	   at the end, since the file tier checks what an in-memory reload does
 	   not: a setter once took bytes the save wrote and the next load refused.
 	   Same fixture in every runner. */
-	test_id("EpGigIN", "setters_write_only_what_reads_back");
+	test_id("EpGigIP", "setters_write_only_what_reads_back");
 	{
 		shcl_doc *every = shcl_parse("", 0);
 		size_t slot = 0;
@@ -2567,7 +2567,7 @@ int main(int argc, char **argv) {
 		free(wl); free(wr);
 		remove(real); _rmdir(sdir);
 	}
-	test_id("EqnwIkT", "windangle");
+	test_id("EqnwIkY", "windangle");
 	{
 		/* 20260923 item 8: a read through a dangling link created a file where
 		   the link pointed and deleted it again, the save side's probe. If the
@@ -2609,7 +2609,7 @@ int main(int argc, char **argv) {
 		free(wl); free(wd);
 		_rmdir(sdir);
 	}
-	test_id("Eqzz38b", "windsave");
+	test_id("Eqzz38c", "windsave");
 	{
 		/* A save through a dangling link creates the file it points at and
 		   keeps the link, as on POSIX. The windows resolve could not open the

@@ -81,7 +81,7 @@ for name in "${!covered[@]}"; do
 	fi
 done
 
-fTest Eqzz38f get-refuses-an-unsupported-type
+fTest Eqzz38Z get-refuses-an-unsupported-type
 ## get<T> with a T it has no read for has to stop at compile time with the
 ## static_assert's text. Without the assert it was a bare undefined-symbol link
 ## error. The same snippet must compile with a supported T, or a broken snippet
@@ -101,7 +101,7 @@ elif ! grep -qF 'T must be exactly int64_t' "${work}/bad.err"; then
 	echo "check-veneer: get<int> fails without the static_assert's message:" >&2; head -5 "${work}/bad.err" >&2; nBad=$((nBad + 1))
 fi
 
-fTest Er1ohBI public-half-names-no-c
+fTest Er1ohBJ public-half-names-no-c
 ## A C++ caller sees none of the C interface. Above the implementation section
 ## the header names only its own guard and the two knobs, and the C include
 ## sits inside an SHCL_IMPLEMENTATION block of its own.
@@ -114,13 +114,13 @@ done < <(sed -E 's#//.*$##' "${veneer}" | awk '
 
 ## The same thing, as a compiler sees it: a consumer file has no C header, and
 ## the consumer and implementation files, compiled apart, link and run.
-fTest Er1ohBJ consumer-cannot-call-c
+fTest Er1ohBK consumer-cannot-call-c
 fFlags=(-std=c++17 -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror -I"${srcDir}")
 printf '#include "shcl.hpp"\nint main() { return shcl_parse("", 0) != 0; }\n' >"${work}/sees.cpp"
 if "${cxx}" "${fFlags[@]}" -fsyntax-only "${work}/sees.cpp" 2>/dev/null; then
 	echo "check-veneer: a file including only shcl.hpp can call shcl_parse" >&2; nBad=$((nBad + 1))
 fi
-fTest Er1ohBK split-build-links-and-runs
+fTest Er1ohBL split-build-links-and-runs
 printf '#define SHCL_IMPLEMENTATION\n#include "shcl.hpp"\n' >"${work}/impl.cpp"
 cat >"${work}/user.cpp" <<'EOF'
 #include "shcl.hpp"

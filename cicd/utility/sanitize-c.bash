@@ -288,17 +288,17 @@ declare -i nJobBad=0 cliBad=0
 for ((k = 0; k < cap; k++)); do
 	if [[ -n "${jobFailed[CLI pass ${k}]:-}" ]]; then cliBad+=1; fi
 done
-fTest EoLqLsf the corpus runner under ASan and UBSan
+fTest EoLqLse the corpus runner under ASan and UBSan
 if [[ -n "${jobFailed[conformance runner]:-}" ]]; then nJobBad+=1; fi
-fTest EoLqLsg oom_hook under ASan and UBSan
+fTest EoLqLsf oom_hook under ASan and UBSan
 if [[ -n "${jobFailed[oom_hook]:-}" ]]; then nJobBad+=1; fi
-fTest EoaFuVP oom_recover under ASan and UBSan
+fTest EoaFuVO oom_recover under ASan and UBSan
 if [[ -n "${jobFailed[oom_recover]:-}" ]]; then nJobBad+=1; fi
-fTest EoezJiG mem_bounds under ASan and UBSan
+fTest EoezJiF mem_bounds under ASan and UBSan
 if [[ -n "${jobFailed[mem_bounds]:-}" ]]; then nJobBad+=1; fi
-fTest EoSE8Nk veneer_smoke under ASan and UBSan
+fTest EoSE8Nl veneer_smoke under ASan and UBSan
 if [[ -n "${jobFailed[veneer_smoke]:-}" ]]; then nJobBad+=1; fi
-fTest EoSE8Nl every corpus CLI run under ASan and UBSan
+fTest EoSE8Nm every corpus CLI run under ASan and UBSan
 nJobBad=$((nJobBad + cliBad + nBad))
 fTestEnd
 if ((nBad)); then

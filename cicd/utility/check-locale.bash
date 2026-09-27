@@ -109,7 +109,7 @@ printf 'ratio: 3.5\ntiny: 0.125\nbig: 1.5e300\nneg: -0.5\n' > "${work}/floats.sh
 LC_ALL=C "${work}/shcl" fmt "${work}/floats.shcl" > "${work}/plain.out" 2>&1 || true
 for cli in shcl shcl-env; do
 	if [[ "${cli}" == shcl ]]; then fTest Eq5kgrw the C CLI with its locale pinned under a comma-decimal locale
-	else fTest EoaHRyj the C CLI adopting a comma-decimal locale; fi
+	else fTest Eq5kgrx the C CLI adopting a comma-decimal locale; fi
 	LC_ALL=commadec.UTF-8 "${work}/${cli}" fmt "${work}/floats.shcl" > "${work}/comma.out" 2>&1 || true
 	if ! cmp -s "${work}/plain.out" "${work}/comma.out"; then
 		fBad "${cli} formats floats differently under a comma-decimal locale:"

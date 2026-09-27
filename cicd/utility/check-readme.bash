@@ -103,7 +103,7 @@ fRunExample C "${tmpDir}" ./example
 ##	statements go in a main() from its first comment on. The two files build
 ##	apart with the line the README gives, which is the point: the example's
 ##	file sees no C.
-fTest EpHHs8X cpp-example
+fTest Er1ohBI cpp-example
 mkdir -p "${tmpDir}/cppex"
 cp "${header}" "${repoDir}/source/c/shcl.hpp" "${tmpDir}/cppex/"
 awk '/^~~~+cpp$/ { n++; inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock { print > (dir "/block" n ".cpp") }' dir="${tmpDir}/cppex" "${readme}"
@@ -126,7 +126,7 @@ fRunExample C++ "${tmpDir}/cppex" ./ex
 ##	reader adds a package clause, a main() and the two standard imports the
 ##	body calls. The module resolves the library from the tree rather than the
 ##	proxy, so this needs no network.
-fTest EpHHs8Y go-example
+fTest EpHHs8X go-example
 awk '/^~~~+go$/ { inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock' "${readme}" > "${tmpDir}/block.go"
 [[ -s "${tmpDir}/block.go" ]] || { echo "check-readme: no go example found in ${readme}" >&2; exit 2 ;}
 mkdir -p "${tmpDir}/goex"
@@ -162,7 +162,7 @@ fRunExample Go "${tmpDir}/goex" ./goex
 ##	Python. The block is a whole script already, so the only thing a reader adds
 ##	is the module on the import path - which for the published package is what
 ##	pip put there, and here is the tree's own copy.
-fTest EqRTWFe python-example
+fTest EqRTWFf python-example
 mkdir -p "${tmpDir}/pyex"
 awk '/^~~~+python$/ { inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock' "${readme}" > "${tmpDir}/pyex/example.py"
 [[ -s "${tmpDir}/pyex/example.py" ]] || { echo "check-readme: no python example found in ${readme}" >&2; exit 2 ;}
@@ -174,7 +174,7 @@ fRunExample Python "${tmpDir}/pyex" python3 example.py
 ##	The dependency is a path rather than the README's `shcl = "2"`, since the
 ##	gate must not need crates.io - what is being checked is the code, and the
 ##	crate it resolves to is this tree's.
-fTest EpHHs8Z rust-example
+fTest EqRTWFg rust-example
 mkdir -p "${tmpDir}/rsex/src"
 awk '/^~~~+rust$/ { inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock' "${readme}" > "${tmpDir}/block.rs"
 [[ -s "${tmpDir}/block.rs" ]] || { echo "check-readme: no rust example found in ${readme}" >&2; exit 2 ;}
@@ -210,7 +210,7 @@ fRunExample Rust "${tmpDir}/rsex" "${tmpDir}/rstarget/debug/readme-example"
 ##	go in a main(); everything else is verbatim, including the two-line impl.c
 ##	and the build line the README prints beside it. Skipped out loud where
 ##	there is no zig - it is not a build dependency of anything shipped.
-fTest EpHHs8a zig-example
+fTest EpHHs8Y zig-example
 if command -v zig >/dev/null 2>&1; then
 	awk '/^~~~+zig$/ { inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock' "${readme}" > "${tmpDir}/block.zig"
 	[[ -s "${tmpDir}/block.zig" ]] || { echo "check-readme: no zig example found in ${readme}" >&2; exit 2 ;}

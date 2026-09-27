@@ -89,7 +89,7 @@ static int test_id_end(int failed) {
 }
 
 int main(void) {
-	test_id("EoaFuVM", "oom_recover");
+	test_id("EoaFuVP", "oom_recover");
 	size_t len; char *text = sample(&len);
 
 	// Every budget short of the whole parse must come back NULL, and the ones

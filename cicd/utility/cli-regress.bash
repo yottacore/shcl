@@ -1318,7 +1318,7 @@ done
 ## The copy fits under a 1 KiB file-size cap and the migrated text, two stamp
 ## lines longer, does not, so the temp file's write fails with EFBIG. SIGXFSZ
 ## is ignored so it is an error and not a kill. POSIX only.
-fTest Eoa1Bui migrate-failed-save
+fTest Er5qICw migrate-failed-save
 if [[ "${onWindows}" == 1 ]]; then
 	echo "cli-regress: skipping migrate-failed-save (POSIX file-size limit)"
 	fTestSkip
@@ -1348,7 +1348,7 @@ fi
 ## donate carry the copyright symbol and the author ID by design, so a byte
 ## count is not a column count there, and neither is aligned anyway.
 maxCols=80
-fTest Eoa1Buj help-width
+fTest Eq9yPCQ help-width
 for b in "${bindings[@]}"; do
 	name="${b%%|*}"; cli="${b#*|}"
 	## The narrowed helps and the code table are cut from the same text and make
@@ -1387,7 +1387,7 @@ done
 ## is asked of the CLI itself, since an option it does not use is refused as
 ## "not valid for CMD", and the parentheses have to name exactly that set.
 ## "(same)", or no parentheses at all, carries the entry above.
-fTest EqGfz45 option-entries
+fTest EqM10js option-entries
 for b in "${bindings[@]}"; do
 	name="${b%%|*}"; cli="${b#*|}"
 	helpText="$("${cli}" help 2>/dev/null </dev/null)"
@@ -1405,7 +1405,7 @@ for b in "${bindings[@]}"; do
 		}
 	done
 done
-fTest EpHH7ZQ option-scopes
+fTest EqGfz45 option-scopes
 for b in "${bindings[@]}"; do
 	name="${b%%|*}"; cli="${b#*|}"
 	helpText="$("${cli}" help 2>/dev/null </dev/null)"
@@ -1475,7 +1475,7 @@ done
 ## line lengths are not the page's. The overstrike sequences nroff writes for
 ## bold come off first, or every emphasized line reads as double its width.
 manPage="${repoDir}/source/man/shcl.1"
-fTest EpHH7ZR man-width
+fTest EpHH7ZQ man-width
 if [[ -f "${manPage}" ]] && command -v man >/dev/null 2>&1; then
 	rendered="$(MANWIDTH=80 MAN_KEEP_FORMATTING='' man --nh --nj -l "${manPage}" 2>/dev/null | sed 's/.\x08//g' || true)"
 	nRun+=1

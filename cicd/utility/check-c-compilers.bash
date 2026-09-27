@@ -181,7 +181,7 @@ fTest EoXhawq main.c builds on every compiler
 nKindBad+=${kindBad[main.c]:-0}
 fTest EoXhawr conformance.c builds on every compiler
 nKindBad+=${kindBad[conformance.c]:-0}
-fTest EoezJiF mem_bounds.c builds on every compiler
+fTest EoezJiE mem_bounds.c builds on every compiler
 nKindBad+=${kindBad[mem_bounds.c]:-0}
 fTest Eptzmsi main.c builds with _GNU_SOURCE
 nKindBad+=${kindBad[gnu]:-0}
@@ -189,9 +189,9 @@ fTest EqNHTSi main.c builds with _FORTIFY_SOURCE
 nKindBad+=${kindBad[fortify]:-0}
 fTest EqAMPEG the header after a system header is refused by name
 nKindBad+=${kindBad[order]:-0}
-fTest EoaFuVN oom_hook.c builds at every optimization level
+fTest EoaFuVM oom_hook.c builds at every optimization level
 nKindBad+=${kindBad[oom_hook.c]:-0}
-fTest EoaFuVO oom_recover.c builds at every optimization level
+fTest EoaFuVN oom_recover.c builds at every optimization level
 nKindBad+=${kindBad[oom_recover.c]:-0}
 fTestEnd
 

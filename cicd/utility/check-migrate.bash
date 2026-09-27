@@ -232,7 +232,7 @@ fTrim(){
 }
 
 declare -i nCompared=0 nCorpus=0 nTrimmed=0 nSkipped=0 nBad=0 nLostChecked=0
-fTest EpFkZy6 corpus and fuzz documents migrate to the tree 2.x read
+fTest Eq5YPgP corpus and fuzz documents migrate to the tree 2.x read
 for f in "${corpus}"/*/input.shcl "${dump}"/*.shcl; do
 	[[ -f "${f}" ]] || continue
 	name="${f%/input.shcl}"; name="${name##*/}"

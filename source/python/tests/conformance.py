@@ -871,7 +871,7 @@ def main():
 	# Bad-op dimension: each write-bad.ops line, applied alone to the case
 	# input, must be rejected (bad value, bad datetime, or unusable path) and
 	# leave the document unchanged.
-	test_id("Er207Yf", "a_misspelled_op_is_told_apart_from_a_refusal")
+	test_id("Er207Yh", "a_misspelled_op_is_told_apart_from_a_refusal")
 	# The names-no-op guard below is only worth something while a misspelled
 	# op still comes back told apart from an ordinary refusal.
 	opdoc = shcl.Document.parse("a: 1\n")
@@ -1144,7 +1144,7 @@ def main():
 			sys.stderr.write("FAIL " + f + "\n")
 		sys.stderr.write(f"conformance: {len(fails)} failure(s)\n")
 		return 1
-	test_id("El5WdwZ", "paths_enumeration_shape")
+	test_id("EloioKn", "paths_enumeration_shape")
 	# paths(): file order, deduplicated, non-bare segments quoted so every
 	# path resolves. Same fixture is pinned in every runner.
 	pdoc = shcl.Document.parse('a: 1\na.b: 2\n"q n": 3\nx:\n\tb: 4\nx.b: 5\n')
@@ -1159,7 +1159,7 @@ def main():
 	qr = pdoc.read_int(shcl.quote_segment("q n"))
 	if (qr.value, qr.status) != (3, shcl.Status.Good):
 		raise SystemExit("quoted segment read failed")
-	test_id("Elp3cOk", "one_shot_load_and_validate")
+	test_id("Elp3cOj", "one_shot_load_and_validate")
 	# One combined diagnostics list (parse first, then validation) and an
 	# error predicate, so recover-and-continue can't read as success by
 	# accident. Same fixture in every runner.
@@ -1181,7 +1181,7 @@ def main():
 	oplain = shcl.Document.load_and_validate("a: 1\n", "", shcl.Strictness.Standard)
 	if (oplain.error_count(), len(oplain.diagnostics())) != (0, 0):
 		raise SystemExit("empty-schema load_and_validate not clean")
-	test_id("Eqzz38c", "one_shot_load_reports_a_broken_schema")
+	test_id("Eqzz38d", "one_shot_load_reports_a_broken_schema")
 	# A schema that does not load would otherwise drop the constraints on its
 	# broken lines, or report every field as unknown - blaming the document.
 	# Same fixture in every runner.
@@ -1198,7 +1198,7 @@ def main():
 	# An empty schema still means "skip validation", not "everything unknown".
 	if shcl.Document.load_and_validate("host: example\n", "", shcl.Strictness.Standard).error_count() != 0:
 		raise SystemExit("empty schema: load_and_validate not clean")
-	test_id("Eqzz38d", "nul_name_does_not_satisfy_a_dotted_schema_path")
+	test_id("Eqzz38e", "nul_name_does_not_satisfy_a_dotted_schema_path")
 	# The unknown-field chain key is length-prefixed, not NUL-joined: a single
 	# field whose name literally contains a NUL must not impersonate the
 	# two-segment path x.y. Same fixture in every runner.
@@ -1211,7 +1211,7 @@ def main():
 	# The genuinely two-segment spelling still validates clean.
 	if shcl.Document.parse("x:\n\ty: 1\n").validate(nschema) != []:
 		raise SystemExit("x.y did not validate clean")
-	test_id("Eqzz38e", "docstrings_come_first")
+	test_id("Eqzz38f", "docstrings_come_first")
 	# A docstring below the first statement is an inert expression, and the
 	# method has no documentation. merge lost its own that way, and no linter
 	# says so.
@@ -1224,7 +1224,7 @@ def main():
 			for sst in snode.body[1:]:
 				if isinstance(sst, ast.Expr) and isinstance(sst.value, ast.Constant) and isinstance(sst.value.value, str):
 					raise SystemExit(f"shcl.py:{sst.lineno}: a string statement below the first one documents nothing")
-	test_id("ElouJ8O", "write_reason_names_the_failure")
+	test_id("ElouJ8N", "write_reason_names_the_failure")
 	# write_reason: the reason behind a setter's bare False. Same fixture in
 	# every runner.
 	wdoc = shcl.Document.parse("a:\n\tb: 1\n")
@@ -1295,7 +1295,7 @@ def main():
 		raise SystemExit("a valid datetime was refused or read back differently")
 	if sdoc.to_canonical() != 'z: 0\n\nf: 2.5\n\nd: "2026-01-02T03:04:05.60-01:30"\n':
 		raise SystemExit(f"document after the refusals: {sdoc.to_canonical()!r}")
-	test_id("EnLyQsW", "raw_block_line_endings_normalize_and_round_trip")
+	test_id("EnLyQsX", "raw_block_line_endings_normalize_and_round_trip")
 	# A raw body is the only content kept untrimmed, so it is the only place a
 	# trailing CR survives the load - and one written back becomes CRLF, which
 	# reads as neither. The whole trailing run comes off instead; a CR inside a
@@ -1307,7 +1307,7 @@ def main():
 	rcanon = rdoc.to_canonical()
 	if shcl.Document.parse(rcanon).to_canonical() != rcanon:
 		raise SystemExit("raw block with CR is not a formatter fixpoint")
-	test_id("Eqpzw7W", "children_and_instance_paths_walk_a_repeated_key")
+	test_id("Eqpzw7X", "children_and_instance_paths_walk_a_repeated_key")
 	# gitsby's report: children() on a repeated key answered nothing, and a
 	# walk had to know to index each instance.
 	gdoc = shcl.Document.parse("account: w\n\temail: e@x\n\t\tsshkey: k1\n\temail: f@x\n\t\tsshkey: k2\n")
@@ -1326,7 +1326,7 @@ def main():
 		raise SystemExit(f"instance_paths() got {gdoc.instance_paths()}")
 	if gdoc.get_string("account.email[#1].sshkey") != "k2":
 		raise SystemExit("an instance path did not read its node")
-	test_id("ElorUZn", "read_surface_line_quoted_children")
+	test_id("EoM2uEi", "read_surface_line_quoted_children")
 	# line/quoted on the read result, line(path), children(path). Same
 	# fixture in every runner (C pins the same answers on shcl_quoted and
 	# shcl_line; its read structs stay value+status).
@@ -1409,7 +1409,7 @@ def main():
 		raise SystemExit("a one-element bare cell reads quoted as an array")
 	if shcl.Document.parse('m: "x", "y"\n').read_string_array("m").quoted:
 		raise SystemExit("a two-element cell reported a single element's quoting")
-	test_id("EomvfCt", "save_refuses_a_directory_shaped_path")
+	test_id("EomvfCu", "save_refuses_a_directory_shaped_path")
 	# A path that names a directory - it ends in a separator, or its last
 	# component is `.` or `..` - is not a document. A path cleanup drops the
 	# trailing separator first, so a save through `f/.` used to rewrite `f` in
@@ -1453,7 +1453,7 @@ def main():
 	gen = (x for x in [1, 2, 3])   # not a list on purpose: that is the fixture
 	if not gdoc.set_int_array("k", gen) or gdoc.to_canonical() != "k: 1, 2, 3\n":  # type: ignore[arg-type]
 		raise SystemExit(f"a generator wrote {gdoc.to_canonical()!r}")
-	test_id("EommtF6", "written_spelling_matches_its_reload")
+	test_id("EommtF5", "written_spelling_matches_its_reload")
 	# A written value carrying both quote kinds is stored the way its own reload
 	# stores it, so instances() and a read's raw text agree across a save. The
 	# emitter escapes the double quotes; the writer used to keep them bare. Same
@@ -1571,7 +1571,7 @@ def main():
 		e.diagnostics.clear()
 		if e.document is not None and not e.document.diagnostics():
 			raise SystemExit("LoadError shares the document's diagnostics list") from None
-	test_id("Eoe5NRy", "parse_limited_caps")
+	test_id("EofAXrW", "parse_limited_caps")
 	# parse_limited: the caps exist because a document amplifies to many times
 	# its byte size in memory, so read_file's byte cap alone cannot bound a
 	# load. Same fixture in every runner.
@@ -1766,7 +1766,7 @@ def main():
 	gtext, gfaults = _at_depth(600, lambda: shcl.generate(gschema))
 	if gfaults or gtext != shcl.generate(gschema)[0] or gtext.count("\n#") < 512:
 		raise SystemExit("deep generate through mounts from a deep caller")
-	test_id("EnEYHTw", "file_tier_load_save")
+	test_id("Er6DIqW", "file_tier_load_save")
 	# load_file/save_file: the status separates absent / unreadable / parsed
 	# with errors / clean, and a save round-trips through the atomic write.
 	# Same fixture in every runner.
@@ -1849,7 +1849,7 @@ def main():
 		if bst != shcl.FileStatus.Clean or back.to_canonical() != "a: 1\n":
 			raise SystemExit("overwritten file did not round-trip")
 
-		test_id("EnW4fse", "save_keeps_the_file_mode")
+		test_id("EnWwo1I", "save_keeps_the_file_mode")
 		# A new file lands where an ordinary create lands - 0666 narrowed by the
 		# umask - and an existing one keeps the mode it had. Neither is visible
 		# on stdout, so no corpus case can see either, and neither is a windows
@@ -1883,7 +1883,7 @@ def main():
 				got = os.stat(born).st_mode & 0o7777
 				print(f"conformance: skipping the set-id fixture (mode came back {got:o}, want 6750)")
 				test_skip()
-			test_id("EoM2uEi", "save_creates_the_file_behind_a_dangling_symlink")
+			test_id("EoM2uEj", "save_creates_the_file_behind_a_dangling_symlink")
 			# A link to a file that is not there yet is written through like any
 			# other link: the file appears where the link points and the link
 			# stays a link. Same fixture in every POSIX runner.
@@ -1895,7 +1895,7 @@ def main():
 				raise SystemExit("save replaced the dangling link")
 			if _read(os.path.join(td, "real", "c.shcl")) != "a: 1\n":
 				raise SystemExit("save did not create the file behind the link")
-			test_id("EoUxXlT", "save_takes_a_name_with_no_early_character_start")
+			test_id("EqGYvEu", "save_takes_a_name_with_no_early_character_start")
 			# A name whose first 64 bytes hold no character start: the cut backs
 			# off to nothing, and the temp name used to fall back to the whole
 			# path, directory and all, so the save failed. Python-only: the
@@ -1920,7 +1920,7 @@ def main():
 				if _read(odd) != "a: 1\n":
 					raise SystemExit("save of a name with no early character start wrote the wrong text")
 		if os.name != "nt":
-			test_id("EoUxXlU", "save_reports_a_symlink_cycle_instead_of_replacing_it")
+			test_id("EoUxXlT", "save_reports_a_symlink_cycle_instead_of_replacing_it")
 			# Two links pointing at each other resolve to nothing, so the save
 			# fails and says why. It must not "fix" the cycle by dropping a
 			# regular file over one of the links. Same fixture in every POSIX
@@ -1937,7 +1937,7 @@ def main():
 			for link in (cyc_a, cyc_b):
 				if not os.path.islink(link):
 					raise SystemExit("a symlink cycle was replaced by a regular file")
-			test_id("EoM2uEj", "save_replaces_only_a_regular_file")
+			test_id("EqLbKeN", "save_replaces_only_a_regular_file")
 			# Save outcomes in design.md, the rows the CLI's own check hides. A
 			# FIFO was swapped for a regular file at exit 0, a link whose text
 			# names a directory made a file of that name, and Go cleaned `lnk/..`
@@ -2033,7 +2033,7 @@ def main():
 			except TypeError:
 				pass
 		os.fstat(0)  # raises if the read closed stdin
-		test_id("EnEclpz", "lost_and_save_gate")
+		test_id("EnKwdMW", "lost_and_save_gate")
 		# Content-malformed lines are retained as trivia (lost_count 0, the
 		# line survives a save); position-dependent drops count as lost and
 		# make save_file refuse until the caller opts into save_file_lossy.
@@ -2132,7 +2132,7 @@ def main():
 		raise SystemExit("escaped selector read failed")
 	if rr.raw != "5":
 		raise SystemExit(f"written raw mismatch: {rr.raw!r}")
-	test_id("EnLD4c6", "convenience_tier_falls_back_only_on_good")
+	test_id("EnLD4c5", "convenience_tier_falls_back_only_on_good")
 	# The get-tier value survives only on Good; Empty/BadType/NotFound all fall
 	# back to the call-site default, so a real zero can't be faked. `_or` is the
 	# cross-binding spelling for it, so a routine ported between two bindings
@@ -2269,7 +2269,7 @@ def main():
 	if tdoc.set_float_array("i", [10 ** 400, -(10 ** 400)]) or tdoc.exists("i"):
 		raise SystemExit("set_float_array past the float range bound a value")
 
-	test_id("EpGigIO", "setters_write_only_what_reads_back")
+	test_id("EpGigIQ", "setters_write_only_what_reads_back")
 	setters_write_only_what_reads_back()
 	test_id("Eqk24nb", "edits_and_merges_match_a_reload")
 	edits_and_merges_match_a_reload()
@@ -2303,7 +2303,7 @@ def main():
 	if "2026" not in dtxt or "zone=" not in dtxt or "0x" in dtxt:
 		raise SystemExit(f"ShclDateTime repr is not readable: {dtxt}")
 
-	test_id("EpGigIP", "a_line_break_in_a_path_writes_and_reads_back")
+	test_id("EpGigIS", "a_line_break_in_a_path_writes_and_reads_back")
 	# Both halves of a path can carry a line break and spell it \n: a name
 	# through the name escaper, a selector value through the value emitter. The
 	# selector was refused while elements were stored in their source spelling
@@ -2373,7 +2373,7 @@ def main():
 	if nbspans != [(1, 3)]:
 		raise SystemExit(f"tokenize_value from a mid-character offset gave {nbspans}, want [(1, 3)]")
 
-	test_id("EoXKdQn", "tokenizer_helpers_are_module_level")
+	test_id("EpFxQH3", "tokenizer_helpers_are_module_level")
 	# The tokenizer's helpers are module level. Defined inside it they would
 	# be rebuilt, with a fresh cell each, once per document line.
 	for fn in (shcl.tokenize, shcl.tokenize_value, shcl._scan_piece):
