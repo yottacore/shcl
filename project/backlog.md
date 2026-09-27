@@ -122,7 +122,7 @@ Going forward, new issues in the new template above will go in the '### New form
 		- The copy takes the original's permission bits, so a private config does not get a readable backup.
 	- Actual fix: `old_copy_name` and `keep_original` in all four CLIs, called from the migrate write arm. Help, man page, spec, design.md, README and changelog.
 	- Branch: `keepold`
-	- Test case: cli-regress save cases `migrate`, `migrate-taken`, `migrate-dotname` and `migrate-dotdir` fail on the old code. `migrate-stamp` pins the no-copy case, which did not change.
+	- Test case: cli-regress save cases `migrate`, `migrate-taken`, `migrate-dotname`, `migrate-dotdir` and `migrate-link`, and row `migrate-write-keeps`, which windows runs too. Each fails on the old code. `migrate-stamp` pins the no-copy case, which did not change. The `migrate-failed-save` block caps the file size so the save fails after the copy, and fails when the copy is left behind.
 
 - The C++ interface is a full binding of its own, with the C interface kept out of sight
 	- ID: 2026092617331100

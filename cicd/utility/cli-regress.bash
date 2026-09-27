@@ -604,6 +604,9 @@ rows=(
 	'migrate-check-from-2x|migrate --check --from-2x %BS%|-|6||bs\.shcl:1: migrate would rewrite'
 	'migrate-check-write|migrate --check --write %W%|-|1|-|--check cannot be combined with --write'
 	'migrate-write-says|migrate --write %W%|-|0||migrated, 1 line\(s\) rewritten'
+	## The kept original, named. The save cases below check the file itself,
+	## but they are POSIX fixtures, so this is the one windows runs.
+	'migrate-write-keeps|migrate --write %W%|-|0||migrated, 1 line\(s\) rewritten; the original is .*w_old_v2\.shcl$'
 	## 20260918 item 18: the usage line said [--write|-w] where the help line
 	## says [options].
 	'migrate-usage-line|migrate|-|1||^usage: shcl migrate \[options\] FILE \(see --help\)$'
@@ -1215,6 +1218,7 @@ fSaveSetup() {
 		migrate-stamp) printf 'a: 1\n' > f.shcl ;;
 		migrate-dotname) printf 'base:[Boston]\n' > .f ;;
 		migrate-dotdir) mkdir d.x; printf 'base:[Boston]\n' > d.x/f ;;
+		migrate-link) mkdir real; printf 'base:[Boston]\n' > real/c.shcl; ln -s real/c.shcl f.shcl ;;
 	esac
 }
 ## id | argv | exit | what must hold afterwards, as a bash test run in the directory
@@ -1251,6 +1255,9 @@ saveCases=(
 	'migrate-stamp|migrate --write f.shcl|0|[[ "$(ls -A)" == f.shcl ]]'
 	'migrate-dotname|migrate --write .f|0|[[ -f .f_old_v2 ]]'
 	'migrate-dotdir|migrate --write d.x/f|0|[[ -f d.x/f_old_v2 ]]'
+	## Through a link: the target gets the new text, and the copy sits beside
+	## the link as a plain file.
+	'migrate-link|migrate --write f.shcl|0|[[ -L f.shcl && -f f_old_v2.shcl && ! -L f_old_v2.shcl && ! -e real/c_old_v2.shcl ]] && grep -qx "base: Boston" real/c.shcl && grep -qx "base:\[Boston\]" f_old_v2.shcl'
 )
 if [[ -z "${altGroup}" ]]; then
 	echo "cli-regress: skipping the save-group case (the caller is in one group only)"
@@ -1278,6 +1285,33 @@ else
 				echo "cli-regress: save-${id} [${name}]: afterwards, not true: ${holds}" >&2; nBad+=1
 			fi
 		done
+	done
+fi
+
+## migrate --write makes its copy, then the save fails. The file still holds
+## the original, so the copy goes too, or it would refuse the next run at 8.
+## The copy fits under a 1 KiB file-size cap and the migrated text, two stamp
+## lines longer, does not, so the temp file's write fails with EFBIG. SIGXFSZ
+## is ignored so it is an error and not a kill. POSIX only.
+if [[ "${onWindows}" == 1 ]]; then
+	echo "cli-regress: skipping migrate-failed-save (POSIX file-size limit)"
+else
+	failDir="${tmpDir}/migfail"
+	pad="$(printf '#%.0s' {1..980})"
+	printf 'base:[Boston]\n%s\n' "${pad}" > "${tmpDir}/migfail.src"
+	for b in "${bindings[@]}"; do
+		name="${b%%|*}"; cli="${b#*|}"
+		rm -rf "${failDir}"; mkdir -p "${failDir}"
+		cp "${tmpDir}/migfail.src" "${failDir}/f.shcl"
+		rc=0
+		(trap '' XFSZ; ulimit -f 1; exec "${cli}" migrate --write "${failDir}/f.shcl" >/dev/null 2>"${tmpDir}/err" </dev/null) || rc=$?
+		nRun+=1
+		## An error naming the copy means the cap broke the copy, not the save.
+		if [[ "${rc}" != 8 ]] || grep -q _old_v2 "${tmpDir}/err"; then
+			echo "cli-regress: migrate-failed-save [${name}]: exit ${rc}, expected 8 from the save: $(head -c 200 "${tmpDir}/err")" >&2; nBad+=1
+		elif ! cmp -s "${failDir}/f.shcl" "${tmpDir}/migfail.src" || [[ -e "${failDir}/f_old_v2.shcl" ]]; then
+			echo "cli-regress: migrate-failed-save [${name}]: afterwards: $(find "${failDir}" -mindepth 1 -printf '%f ')" >&2; nBad+=1
+		fi
 	done
 fi
 
