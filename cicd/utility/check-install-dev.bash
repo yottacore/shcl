@@ -56,6 +56,16 @@ git -C "${work}/clone" config --unset core.hooksPath || true
 ( cd "${work}/clone" && bash "${script}" --hooks-only >/dev/null )
 [[ "$(git -C "${work}/clone" config core.hooksPath)" == "cicd/hooks" ]] || fail "in-clone run did not set hooksPath"
 
+## 20260830 item 43: in a worktree .git is a file, and the hooks were skipped
+## there. The key is shared with the main checkout, so it comes off first.
+git -C "${work}/clone" worktree add -q --detach "${work}/wt"
+git -C "${work}/clone" config --unset core.hooksPath || true
+if ( cd "${work}" && bash "${script}" --hooks-only --dir wt >/dev/null 2>&1 ); then
+	[[ "$(git -C "${work}/wt" config core.hooksPath || true)" == "cicd/hooks" ]] || fail "a worktree did not get the hooks"
+else
+	fail "--hooks-only refused a worktree"
+fi
+
 ## Not a clone: refused, and nothing written. The fixture is a repository that
 ## is not an shcl clone, since that is what the guard is for - a bare directory
 ## fails inside git config whether the guard is there or not, and the config
@@ -150,6 +160,13 @@ grep -qF 'STUB pipx install --force cppcheck==7.7.7' "${work}/stub.log" \
 	|| fail "the cppcheck install did not ask for the wheel version"
 grep -qF 'STUB pipx install --force ruff' "${work}/stub.log" && fail "a tool already at its pin was installed anyway"
 
+## The default path ends on the same hooks setup, behind its own .git test.
+cp "${work}/pins.bash" "${work}/wt/cicd/config.bash"
+git -C "${work}/clone" config --unset core.hooksPath || true
+( cd "${work}/wt" && HOME="${work}/home" PATH="${stub}:${PATH}" bash "${script}" --yes >"${work}/wt.out" 2>&1 </dev/null ) \
+	|| fail "the default path failed in a worktree: $(tail -n 3 "${work}/wt.out")"
+[[ "$(git -C "${work}/wt" config core.hooksPath || true)" == "cicd/hooks" ]] || fail "the default path in a worktree did not set the hooks"
+
 ## 20260829 item 20: with no terminal, the prompt's own open of /dev/tty
 ## failed out loud before the message saying so. setsid leaves no terminal.
 ttyRc=0
@@ -188,7 +205,7 @@ if ( cd "${work}/clone" && HOME="${work}/home" PATH="${stub}:${PATH}" bash "${sc
 fi
 grep -qF "no CPPCHECK_WHEEL" "${work}/plan2" || fail "a missing CPPCHECK_WHEEL is not named: $(tail -n 2 "${work}/plan2")"
 
-(( rc == 0 )) && echo "check-install-dev: OK: --hooks-only sets the hooks path and keepalive, idempotently, and refuses a non-clone; the default path refuses one too, builds its plan off the config's pins, says first that it has no terminal, and hooks up a fresh clone"
+(( rc == 0 )) && echo "check-install-dev: OK: --hooks-only sets the hooks path and keepalive, idempotently, and refuses a non-clone; the default path refuses one too, builds its plan off the config's pins, says first that it has no terminal, and hooks up a fresh clone and a worktree"
 exit "${rc}"
 
 
@@ -199,3 +216,4 @@ exit "${rc}"
 ##		                 fixture config with stubbed tools.
 ##		- 2026-09-26 JC: A prompt with no terminal, and a fresh clone by a
 ##		                 relative --dir, with git and curl stubbed.
+##		- 2026-09-26 JC: A worktree, where .git is a file, on both paths.

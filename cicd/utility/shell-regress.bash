@@ -1137,6 +1137,25 @@ if fHave openssl; then
 	signOut="$(bash "${tmpDir}/signtree/cicd/utility/sign-release.bash" --key "${tmpDir}/wrong.pem" --dir "${tmpDir}/sign4" --no-tag-check 2>&1 || true)"
 	[[ "${signOut}" == *"cannot read shcl-signing.pub"* ]] || fBad "sign-release.bash signed with no key copy to check against: ${signOut@Q}"
 	[[ ! -e "${tmpDir}/sign4/shcl-${sver}-sha256sums.txt.sig" ]] || fBad "sign-release.bash left a .sig behind with no key copy to check against"
+	##	20260829 item 34: nothing held the tag against the crate version, so a
+	##	mistyped tag signed assets no download URL names. The same tree as a
+	##	repository: untagged and wrongly tagged are refused on the tag, and the
+	##	right tag beside the Go module's gets past it to the key copies.
+	git -C "${tmpDir}/signtree" init -q
+	git -C "${tmpDir}/signtree" add -A
+	git -C "${tmpDir}/signtree" -c user.name=t -c user.email=t@t commit -q -m t
+	fSignTag(){   ## fSignTag: run the signer in that tree with the tag check on; stderr in signOut
+		signOut="$(bash "${tmpDir}/signtree/cicd/utility/sign-release.bash" --key "${tmpDir}/wrong.pem" --dir "${tmpDir}/sign4" 2>&1 || true)"
+	}
+	fSignTag
+	[[ "${signOut}" == *"HEAD is not tagged v${sver} "* ]] || fBad "sign-release.bash signed off an untagged HEAD: ${signOut@Q}"
+	git -C "${tmpDir}/signtree" tag "v${sver}.1"
+	fSignTag
+	[[ "${signOut}" == *"HEAD is not tagged v${sver} "* ]] || fBad "sign-release.bash took v${sver}.1 for v${sver}: ${signOut@Q}"
+	git -C "${tmpDir}/signtree" tag "source/go/v${sver}"; git -C "${tmpDir}/signtree" tag "v${sver}"
+	fSignTag
+	[[ "${signOut}" == *"cannot read shcl-signing.pub"* ]] || fBad "sign-release.bash refused HEAD at its v${sver} tag: ${signOut@Q}"
+	[[ ! -e "${tmpDir}/sign4/shcl-${sver}-sha256sums.txt.sig" ]] || fBad "sign-release.bash left a .sig behind after a tag refusal"
 	##	20260829 item 24: the modulus check piped through xxd, and a box
 	##	without it ended the run with nothing said. Every key copy in this tree
 	##	holds the throwaway key, so the run gets past them to the signature, on
@@ -1272,6 +1291,14 @@ if fHave cc; then
 	rm -f "${tmpDir}/corpus-noreads/001-messy-cities/reads.tsv"
 	if cc -std=c11 -O2 -I"${repoDir}/source/c" "${repoDir}/source/c/tests/conformance.c" -o "${tmpDir}/cconf" -lm -lpthread; then
 		"${tmpDir}/cconf" "${tmpDir}/corpus-noreads" >/dev/null 2>&1 && fBad "the C corpus runner passed a case with no reads.tsv"
+		##	20260920 idea 4: a directory with no input.shcl was not a case at all,
+		##	so it asserted nothing while looking present. One good case beside it,
+		##	so the only thing wrong is the missing file.
+		mkdir -p "${tmpDir}/corpus-noinput/002-b"
+		cp -r "${repoDir}/project/conformance/001-messy-cities" "${tmpDir}/corpus-noinput/"
+		printf 'query\ttype\texpected\tstatus\n' > "${tmpDir}/corpus-noinput/002-b/reads.tsv"
+		noInput="$("${tmpDir}/cconf" "${tmpDir}/corpus-noinput" 2>&1 >/dev/null || true)"
+		[[ "${noInput}" == *"002-b: missing input.shcl"* ]] || fBad "the C corpus runner skipped a case directory with no input.shcl"
 	else
 		fBad "the C corpus runner did not build"
 	fi
@@ -1294,6 +1321,15 @@ fPinsRun(){   ## fPinsRun SED-EXPR: run check-pins on ci.yml edited by SED-EXPR;
 	bash "${tmpDir}/pins/cicd/utility/check-pins.bash" >/dev/null 2>&1
 }
 fPinsRun 's/^//' || fBad "check-pins.bash failed on an unchanged copy of ci.yml"
+##	20260830 item 43: pins matched by substring, so `build` found itself inside
+##	other names and a version inside a longer one. And the cppcheck wheel was
+##	spelled in three places with only two compared.
+fPinsRun 's#staticcheck@2026\.1$#staticcheck@2026.10#' && fBad "check-pins.bash took 2026.10 for a pin of 2026.1"
+fPinsRun 's# build==# pybuild==#' || true
+pinsOut="$(bash "${tmpDir}/pins/cicd/utility/check-pins.bash" 2>&1 || true)"
+[[ "${pinsOut}" == *"build is pinned at "*" and no line of ci.yml names build"* ]] \
+	|| fBad "check-pins.bash took pybuild for the build pin: $(tail -n 3 <<<"${pinsOut}")"
+fPinsRun 's#cppcheck==#cppcheck==9#' && fBad "check-pins.bash passed a cppcheck wheel off CPPCHECK_WHEEL"
 fPinsRun 's#-o /tmp/shellcheck\.tar\.xz#-o shellcheck.tar.xz#' && fBad "check-pins.bash passed a relative curl -o"
 fPinsRun 's#^([[:space:]]*)(echo "8c3be12b)#\1\# \2#' && fBad "check-pins.bash passed a commented-out sha256 check"
 fPinsRun 's#^([[:space:]]*)(echo "8c3be12b.*)$#\1\2\n\1curl -fsSL https://example.com/x.tgz | tar xz#' && fBad "check-pins.bash passed curl piped to tar"
@@ -1348,6 +1384,12 @@ lintDone=$'\n[ shcl CI/CD: done. ]\n'
 printf 'Lint ...........: cargo clippy --all-targets -- -D warnings\nLint ...........: cppcheck --enable=warning,portability src.c\nOK: lint\n%s' "${lintDone}" > "${tmpDir}/run_20260101-000000.log"
 lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --file "${tmpDir}/run_20260101-000000.log" 2>&1 || true)"
 [[ "${lintOut}" == "CLEAN "* ]] || fBad "lint-report.bash counted an echoed command line as a warning: ${lintOut@Q}"
+##	20260829 item 30: govulncheck's note about vulnerabilities in code this
+##	project does not call is informational, and it flagged every run.
+printf 'OK: lint\nYour code is affected by 0 vulnerabilities.\nThis scan also found 1 vulnerability in packages you import and 2 vulnerabilities in modules you\nrequire, but your code doesn'"'"'t appear to call these vulnerabilities.\n%s' "${lintDone}" > "${tmpDir}/run_20260101-000000.log"
+lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --file "${tmpDir}/run_20260101-000000.log" 2>&1 || true)"
+[[ "${lintOut}" == "CLEAN "* ]] || fBad "lint-report.bash counted govulncheck's informational block as a warning: ${lintOut@Q}"
+printf 'Lint ...........: cargo clippy --all-targets -- -D warnings\nLint ...........: cppcheck --enable=warning,portability src.c\nOK: lint\n%s' "${lintDone}" > "${tmpDir}/run_20260101-000000.log"
 printf 'warning: unused variable: x\n --> src/main.rs:1:1\nsrc.c:12:3: warning: uninitialized variable [uninitvar]\n%s' "${lintDone}" >> "${tmpDir}/run_20260101-000000.log"
 lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --file "${tmpDir}/run_20260101-000000.log" 2>&1 || true)"
 [[ "${lintOut}" == "FLAG "*"(2 warning line(s), "* ]] || fBad "lint-report.bash missed a real warning: ${lintOut@Q}"
@@ -1639,6 +1681,68 @@ if fHave nfpm && fHave dpkg-deb && fHave rpm; then
 	else
 		fBad "nfpm could not build a package from cicd/packaging/nfpm.yaml"
 	fi
+	##	20260829 item 26: two builds seconds apart gave different packages, from
+	##	the staged payload's mtimes and the rpm's build stamp. The shipped script,
+	##	twice, a second apart, on a small stand-in binary.
+	for r in r1 r2; do
+		mkdir -p "${pDir}/${r}"; cp /bin/true "${pDir}/${r}/shcl-9.9.9-linux-x86_64"
+		"${repoDir}/cicd/utility/package.bash" "${repoDir}" "${pDir}/${r}" 9.9.9 > "${pDir}/${r}.log" 2>&1 \
+			|| fBad "package.bash failed on a stand-in binary: $(tail -n 3 "${pDir}/${r}.log")"
+		[[ "${r}" == r1 ]] && sleep 1
+	done
+	for f in deb rpm; do
+		[[ -f "${pDir}/r1/shcl-9.9.9-linux-x86_64.${f}" ]] || { fBad "package.bash built no .${f}"; continue; }
+		cmp -s "${pDir}/r1/shcl-9.9.9-linux-x86_64.${f}" "${pDir}/r2/shcl-9.9.9-linux-x86_64.${f}" \
+			|| fBad "two builds of the same .${f} a second apart differ"
+	done
+fi
+
+##	The same item's other half: the drop-ins tarball recorded the checkout's
+##	mtimes and the local owner, so a fresh clone gave another sum. The tar line
+##	comes out of cicd.bash, run once on this tree and once on a copy with new
+##	mtimes; the two have to match and name no owner but 0.
+tarLine="$(sed -n '/tar --sort=name/,/dropins\.tar\.gz/p' "${repoDir}/cicd/cicd.bash")"
+if [[ "${tarLine}" == *"dropins.tar.gz"* ]]; then
+	dropFiles="$(sed -n 's/^[[:space:]]*\(source\/[^|]*\)\\$/\1/p' <<<"${tarLine}")"
+	mkdir -p "${tmpDir}/dropins/copy" "${tmpDir}/dropins/a" "${tmpDir}/dropins/b"
+	# shellcheck disable=SC2086  ## the file list splits on purpose
+	(cd "${repoDir}" && cp --parents ${dropFiles} "${tmpDir}/dropins/copy/")
+	fDropins(){   ## fDropins ROOT OUTDIR: the lifted tar line, in a subshell
+		# shellcheck disable=SC2034  ## read by the lifted line
+		( EXE_NAME=shcl; ver=9.9.9; root="$1"; art_dir="$2"
+		  SOURCE_DATE_EPOCH="$(git -C "${repoDir}" log -1 --format=%ct)"; eval "${tarLine}" )
+	}
+	fDropins "${repoDir}" "${tmpDir}/dropins/a"
+	fDropins "${tmpDir}/dropins/copy" "${tmpDir}/dropins/b"
+	cmp -s "${tmpDir}/dropins/a/shcl-9.9.9-dropins.tar.gz" "${tmpDir}/dropins/b/shcl-9.9.9-dropins.tar.gz" \
+		|| fBad "the drop-ins tarball differs between two checkouts of the same files"
+	tarOwners="$(tar -tvzf "${tmpDir}/dropins/a/shcl-9.9.9-dropins.tar.gz" | awk '{print $2}' | sort -u)"
+	[[ "${tarOwners}" == "0/0" ]] || fBad "the drop-ins tarball records an owner: ${tarOwners}"
+else
+	fBad "cicd.bash no longer builds the drop-ins tarball with a tar --sort=name line"
+fi
+
+##	20260904 item 40: the profiler never shipping rested on the release command
+##	not carrying the feature flag. package.bash checks the files now, and it
+##	runs only at release, so its check runs here on a stub artifact with one of
+##	the crate names in it, and on a clean one.
+eval "$(sed -n '/^fCheckNoProfiler()/,/^}/p' "${repoDir}/cicd/utility/package.bash")"
+if declare -F fCheckNoProfiler >/dev/null; then
+	mkdir -p "${tmpDir}/noprof/art" "${tmpDir}/noprof/payload/code"
+	printf 'x\n' > "${tmpDir}/noprof/payload/code/lib.rs"
+	printf 'ELF\0clean\0' > "${tmpDir}/noprof/art/shcl-1.0.0-linux-x86_64"
+	# shellcheck disable=SC2034,SC2329  ## read by, and called from, the lifted fCheckNoProfiler
+	( artDir="${tmpDir}/noprof/art"; payload="${tmpDir}/noprof/payload"
+	  fDie(){ echo "$*"; exit 1; }; fCheckNoProfiler ) >/dev/null \
+		|| fBad "package.bash's profiler check refused a clean artifact"
+	printf 'ELF\0%s::ProfilerGuard\0' "ppr""of" > "${tmpDir}/noprof/art/shcl-1.0.0-linux-x86_64"
+	# shellcheck disable=SC2034,SC2329
+	profOut="$( artDir="${tmpDir}/noprof/art"; payload="${tmpDir}/noprof/payload"
+	  fDie(){ echo "$*"; exit 1; }; fCheckNoProfiler )" || true
+	[[ "${profOut}" == "shcl-1.0.0-linux-x86_64: carries the profiler dependency, which must never ship" ]] \
+		|| fBad "package.bash packaged a binary carrying the profiler: ${profOut@Q}"
+else
+	fBad "package.bash no longer carries fCheckNoProfiler"
 fi
 
 ##	20260830b item 8: a prerelease version reached NSIS's four-integer version
@@ -1752,6 +1856,23 @@ print("|".join(mod["fRunStep"](step, "shcl", "/bin/true")))
 PYEOF
 )"
 	[[ "${merged}" == "one|TWO|three" ]] || fBad "gen-demo-gif.py does not render a step's output in emission order: ${merged}"
+
+	##	20260718 item 17: a step that failed rendered its error text into the gif,
+	##	and the pipeline published it. An unexpected exit has to stop the render,
+	##	and one the step asks for with expect_exit has to go through.
+	stepExit="$(python3 - "${gif}" 2>&1 <<'PYEOF'
+import runpy, sys
+mod = runpy.run_path(sys.argv[1])
+try:
+	mod["fRunStep"]({"show": "x", "run": "echo oops; exit 3"}, "shcl", "/bin/true")
+	print("rendered")
+except SystemExit as e:
+	print(f"exit {e.code}")
+print("|".join(mod["fRunStep"]({"show": "x", "run": "echo oops; exit 3", "expect_exit": 3}, "shcl", "/bin/true")))
+PYEOF
+)" || true
+	[[ "${stepExit}" == *"step exited 3, expected 0"*$'\n'"exit 2"$'\n'"oops" ]] \
+		|| fBad "gen-demo-gif.py did not stop on an unexpected step exit, or refused an expected one: ${stepExit@Q}"
 
 	##	20260918b item 62: the committed gif showed output the CLI no longer
 	##	printed - an E014 wording two rounds old, and a `check` missing its
@@ -2097,6 +2218,50 @@ if command -v git >/dev/null 2>&1; then
 	[[ "${pullRc}" == 1 ]] || fBad "n8git_backup-and-publish exited ${pullRc} after a failed pull"
 	[[ "${pullStashed}" == 0 && "${pullDirty}" == 1 ]] || fBad "n8git_backup-and-publish left the work in a stash after a failed pull (stashes ${pullStashed}, tree dirty ${pullDirty})"
 	[[ "${leftRc}" == 1 ]] || fBad "n8git_backup-and-publish published over an earlier run's auto-stash"
+fi
+
+##	20260819 item 1: the only pull was in the publish stage, after the tests,
+##	so upstream work went out never built here. Stage 0 comes out of cicd.bash
+##	by text and runs on clones of a scratch remote: diverged stops, behind
+##	fast-forwards around a stashed edit, and a stash that will not go back
+##	stops with the work kept.
+syncBlock="$(sed -n '/^if ((sync_enable)); then$/,/^fi$/p' "${repoDir}/cicd/cicd.bash")"
+if [[ "${syncBlock}" == *"Remote sync"* && "${syncBlock}" == *"merge --ff-only"* ]]; then
+	out="$(
+		## The lifted block calls git too, so the user's own config is kept out here.
+		git(){ GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 command git "$@" ;}
+		sb="${tmpDir}/sync"; mkdir -p "${sb}"
+		fClone(){ git clone -q "${sb}/remote.git" "$1" 2>/dev/null; git -C "$1" config user.name t; git -C "$1" config user.email t@t.invalid ;}
+		fCommit(){ echo "$3" > "$1/$2"; git -C "$1" add "$2"; git -C "$1" commit -qm "$2" ;}
+		fSync(){   ## fSync CLONE: the lifted stage on CLONE; prints its last line
+			# shellcheck disable=SC2034,SC2329  ## read by, and called from, the lifted block
+			( root="$1"; sync_enable=1; stamp=t
+			  fSection(){ :; }; fEcho(){ echo "$*"; }; fDie(){ echo "DIE: $*"; exit 1; }
+			  eval "${syncBlock}" ) 2>&1 | tail -n 1 || true
+		}
+		git init -q --bare -b main "${sb}/remote.git"
+		fClone "${sb}/up"; fCommit "${sb}/up" f 1; fCommit "${sb}/up" g 1; git -C "${sb}/up" push -q -u origin HEAD 2>/dev/null
+		for c in div conflict other untracked; do fClone "${sb}/${c}"; done
+		fCommit "${sb}/up" f 2; git -C "${sb}/up" push -q 2>/dev/null
+		fCommit "${sb}/div" g 3
+		echo 9 > "${sb}/conflict/f"
+		echo 9 > "${sb}/other/g"
+		echo 9 > "${sb}/untracked/new"
+		fSync "${sb}/div"
+		fSync "${sb}/conflict"; git -C "${sb}/conflict" stash list | wc -l
+		fSync "${sb}/other"; cat "${sb}/other/f" "${sb}/other/g"
+		fSync "${sb}/untracked"
+	)" || true
+	syncWant="DIE: main and origin/main have diverged (1 local, 1 remote); reconcile by hand
+DIE: the local changes conflict with origin/main; they are safe in the stash - resolve, then 'git stash drop'
+1
+OK: fast-forwarded 1 commit(s) from origin/main
+2
+9
+OK: fast-forwarded 1 commit(s) from origin/main"
+	[[ "${out}" == "${syncWant}" ]] || fBad "cicd.bash's remote sync did not stop, fast-forward and keep the work as it should: ${out@Q}"
+else
+	fBad "cicd.bash no longer carries its remote sync stage as one if-block"
 fi
 
 ##	20260909 item 39: git-auto-msg.bash judged "empty" by `#` alone and wrote
@@ -2717,6 +2882,13 @@ fCrosscheck --corpus "${xcDir}/corpus" "ref|${xcDir}/ref" "nonl|${xcDir}/nonl"
 [[ "${xcRc}" == 1 && "${xcOut}" == *"DIVERGE usage version:"* ]] || fBad "crosscheck missed a dropped final newline (exit ${xcRc})"
 fCrosscheck --corpus "${xcDir}/corpus" "ref|${xcDir}/ref" "tsv|${xcDir}/tsv"
 [[ "${xcRc}" == 1 && "${xcOut}" == *"DIVERGE count zz:"* ]] || fBad "crosscheck skipped a last reads.tsv row with no final newline (exit ${xcRc})"
+##	20260920 idea 4: a case directory with no input.shcl was skipped without a
+##	word, so it looked present and asserted nothing.
+mkdir -p "${xcDir}/noinput/002-b"
+cp -r "${xcDir}/corpus/001-a" "${xcDir}/noinput/"
+cp "${xcDir}/corpus/001-a/reads.tsv" "${xcDir}/noinput/002-b/"
+fCrosscheck --corpus "${xcDir}/noinput" "ref|${xcDir}/ref" "other|${xcDir}/ref"
+[[ "${xcRc}" == 2 && "${xcOut}" == *"002-b/ has no input.shcl"* ]] || fBad "crosscheck skipped a case directory with no input.shcl (exit ${xcRc}): ${xcOut@Q}"
 fCrosscheck --corpus "${xcDir}/empty" "ref|${xcDir}/ref" "other|${xcDir}/ref"
 [[ "${xcRc}" == 2 && "${xcOut}" == *"no case directories"* ]] || fBad "crosscheck took an empty corpus (exit ${xcRc})"
 fCrosscheck --corpus "${xcDir}/corpus" --extra "${xcDir}/nodump" "ref|${xcDir}/ref" "other|${xcDir}/ref"
