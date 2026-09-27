@@ -698,6 +698,16 @@ int main(int argc, char **argv) {
 	if (nn == 0) { fprintf(stderr, "no corpus cases under %s\n", corpus); return 2; }
 	qsort(names, nn, sizeof *names, cmp_str);
 
+	// The bad-ops loop's names-no-op check is only worth something while a
+	// misspelled op still comes back told apart from an ordinary refusal.
+	{
+		shcl_doc *pd = shcl_parse("a: 1\n", 5);
+		char misspelled[] = "itn\ta\t1", refused[] = "int\ta\tx";
+		if (try_apply_op_c(pd, misspelled) != 2) fail("write_bad_ops", "a misspelled op read as a refusal");
+		if (try_apply_op_c(pd, refused) != 1) fail("write_bad_ops", "a refusal read as a misspelled op");
+		shcl_free(pd);
+	}
+
 	for (size_t ci = 0; ci < nn; ci++) {
 		char path[4096];
 		snprintf(path, sizeof path, "%s/%s/input.shcl", corpus, names[ci]); size_t ilen; char *input = read_file(path, &ilen);
@@ -1614,6 +1624,15 @@ int main(int argc, char **argv) {
 				}
 			}
 #endif
+			// (NULL, 0) through the public atomic write: fwrite with a null
+			// buffer is undefined even at length zero, and only the sanitized
+			// build of this runner would see it.
+			if (!shcl_write_file_atomic(fresh, NULL, 0)) fail("file_tier", "atomic write of (NULL, 0) failed");
+			{
+				FILE *ef = fopen(fresh, "rb");
+				if (!ef || fgetc(ef) != EOF) fail("file_tier", "atomic write of (NULL, 0) left bytes");
+				if (ef) fclose(ef);
+			}
 			shcl_free(nd);
 			remove(fresh);
 		}

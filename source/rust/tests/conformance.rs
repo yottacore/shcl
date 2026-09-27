@@ -1100,6 +1100,21 @@ fn write_bad_ops_are_rejected() {
 	// Bad-op dimension: each write-bad.ops line, applied alone to the case
 	// input, must be rejected (bad value, bad datetime, or unusable path) and
 	// leave the document unchanged.
+	// The names-no-op guard below is only worth something while a misspelled
+	// op still comes back told apart from an ordinary refusal.
+	let mut probe = Document::parse("a: 1\n");
+	let e = try_apply_op(&mut probe, "itn\ta\t1").unwrap_err();
+	assert!(
+		e.starts_with(UNKNOWN_OP),
+		"a misspelled op read as a refusal: {}",
+		e
+	);
+	let e = try_apply_op(&mut probe, "int\ta\tx").unwrap_err();
+	assert!(
+		!e.starts_with(UNKNOWN_OP),
+		"a refusal read as a misspelled op: {}",
+		e
+	);
 	for case in load_cases() {
 		let Some(bad) = &case.write_bad_ops else {
 			continue;
@@ -1892,6 +1907,8 @@ fn standard_trait_surface() {
 	assert_eq!(shcl::format_float(1.5), "1.5");
 	assert_eq!(shcl::format_float(f64::INFINITY), "inf");
 	assert_eq!(shcl::format_float(f64::NAN), "NaN");
+	// Go's name for the datetime type, kept as an alias here and in Python.
+	let _: shcl::DateTime = shcl::ShclDateTime::default();
 }
 
 #[test]

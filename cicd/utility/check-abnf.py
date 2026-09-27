@@ -96,6 +96,11 @@ SAMPLES: list[tuple[str, str, bool]] = [
 	("bareword", "C:\\dir\\file", True),
 	("bareword", "it's fine", True),
 	("array-elem-line", "* Bond James", True),
+	## 20260803 item 32: the parser takes a leading plus on an index, and "-"
+	## is no sign, so [-1] is a value selector.
+	("index-sel", "+1", True),
+	("index-sel", "#+1", True),
+	("index-sel", "-1", False),
 	## The formatter's own shape, which nothing on the parse side reaches.
 	("fmt-bareword", "plain", True),
 	("fmt-bareword", "C:\\dir", False),
@@ -426,6 +431,11 @@ def fTie(cli: Path, work: Path, rule: str, text: str) -> bool:
 		fWrite(work, f"a: 1{text}")
 		r = subprocess.run([str(cli), "get", "s.shcl", "a"], cwd=work, capture_output=True, check=False)
 		return fClean(cli, work) and r.returncode == 0 and r.stdout == b"1\n"
+	if rule == "index-sel":
+		## Index 1 is the second instance; a value selector finds neither.
+		fWrite(work, "srv: a\n\tport: 1\nsrv: b\n\tport: 2\n")
+		rc, out = fRun(cli, ["get", "s.shcl", f"srv[{text}].port"], work)
+		return rc == 0 and out == ["2"]
 	if rule == "fmt-bareword":
 		## The formatter's class, so the formatter is what answers: the value
 		## goes in as data and the emitter picks the spelling.
