@@ -12,8 +12,8 @@
 // there ports here by mechanical diff (parity over idiom - see
 // project/style-guide_code.md).
 //
-// A companion C++ typed veneer (get<int64_t>() etc.) sits in shcl.hpp; it wraps
-// this core, it is not a second parser.
+// The C++ interface in shcl.hpp runs on this core and is not a second parser.
+// A C++ caller includes only that one, and sees none of this file.
 //
 // Compile-time knobs, each defined before the implementation include:
 //   SHCL_NO_FILE_IO  leave the file tier out (no file I/O in the library)

@@ -36,6 +36,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The C++ veneer's `read_datetime_array` returns structured values. The text form is `read_datetime_array_str`.
 
+- C++ no longer shows the C interface: a file including `shcl.hpp` gets no `shcl.h`, only the implementation file does. The calls the other bindings have as free functions are free here too (`migrate`, `format_version`, `generate`, `tokenize`, `quote_segment`, `read_file`, `write_file_atomic`, `suppress_declared_*`). `load_file` returns the document with its status, `generate` returns the faults, `Datetime` is `DateTime` with the reference's fields, and `Diagnostic.is_error` is `severity`.
+
 - Python's typed setters raise `TypeError` on a value of the wrong type, and the array setters take a list.
 
 - `shcl version` prints `shcl v3.0.0`, plus a build number on a release binary.
@@ -92,7 +94,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - C: `shcl_parse_datetime`, `shcl_compact`, `shcl_reads_release` and the `SHCL_OOM()` hook. A parse or validate that runs out of memory returns NULL instead of ending the process.
 
-- The C++ veneer can write. It has the setters, `remove`, the tokenizer and the rest of the C API, and `c()` returns the C handle.
+- C++ can write. It has the setters, `remove`, the tokenizer and the rest of the API, plus the format constants and `MAX_DEPTH`.
 
 - The installers take `--version`.
 

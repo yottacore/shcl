@@ -100,6 +100,26 @@ Going forward, new issues in the new template above will go in the '### New form
 
 ### New format
 
+- The C++ interface is a full binding of its own, with the C interface kept out of sight
+	- ID: 2026092617331100
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Priority: Avg
+	- Opened: 20260926-173311
+	- Opened by: Jim Collier
+	- Requirements:
+		- A full parity interface, not a second implementation. It calls the C core inside.
+		- A C++ consumer never sees the C interface: no `shcl_*` names, no C handle, no C structs.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- `shcl.hpp` includes `shcl.h` only in the implementation file. The wrappers moved out of line into its `SHCL_IMPLEMENTATION` section, so a consumer file has std types and nothing else. The one file that defines it now carries the include-order rule, and every other file is free of it.
+		- The API follows the Rust reference. Free functions where Rust has them, `DateTime` with Rust's fields, `Severity` on a diagnostic, and the format constants. Where a `Result` has no C++ form it follows Go: a pair, or `strict_failed()`.
+		- `c()`, the `shcl_doc *` constructor and the C datetime view are gone. The enum values and format strings are checked against the C ones at compile time, so they cannot drift.
+		- `generate` returns this call's faults and leaves the schema as it was, as in Rust.
+	- Branch: `cxxveneer`
+	- Test case: `veneer_smoke.cpp` covers the new surface. `check-veneer.bash` fails when the public half names C, when a consumer file can reach `shcl_parse`, or when a consumer and the implementation built apart do not link and run. Each was watched to fail. `check-readme.bash` builds the new C++ README example the same way and compares the file it saves.
+
 - Hint when a double-quoted Windows path has a `\t` or `\n` escape
 	- ID: 2026092617133293
 	- Type: Enhancement
