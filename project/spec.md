@@ -215,11 +215,11 @@ Any value can be read as a string. On read: trim surrounding whitespace, strip t
 
 Recognized (case-insensitive) when a value is read as an integer:
 
-- Optional sign `+`/`-`, then digits.
+- Optional sign `+`/`-`, then digits. A leading zero is still decimal (`0644` -> 644), and a float read drops it too. Quote the value to keep the zeros for a string read through `fmt` (see Whitespace, quoting, and reserved characters).
 
 - Thousands separators are accepted only inside quotes, since `,` is reserved bare (`"1,000"` -> 1000).
 
-- Hexadecimal integers `0x...` (`0xFF` -> 255).
+- Hexadecimal `0x...`, octal `0o...` and binary `0b...`, signed the same way (`0xFF` -> 255, `0o644` -> 420, `0b101` -> 5, `-0x10` -> -16).
 
 - No digit-group underscores.
 

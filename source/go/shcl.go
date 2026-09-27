@@ -1408,16 +1408,6 @@ func allDigits(s string) bool {
 	return true
 }
 
-func allHexDigits(s string) bool {
-	for i := 0; i < len(s); i++ {
-		b := s[i]
-		if !isASCIIDigit(b) && !(b >= 'a' && b <= 'f') && !(b >= 'A' && b <= 'F') {
-			return false
-		}
-	}
-	return true
-}
-
 // stripSign removes one leading '+' or '-'.
 func stripSign(s string) string {
 	if s != "" && (s[0] == '+' || s[0] == '-') {
@@ -7848,39 +7838,36 @@ func parseIntText(e *element, level Strictness) (int64, bool) {
 		v, err := strconv.ParseInt(t, 10, 64)
 		return v, err == nil
 	}
-	// Hex.
+	// Hex, octal and binary.
 	neg := false
-	hex := t
+	prefixed := t
 	if strings.HasPrefix(t, "-") {
 		neg = true
-		hex = t[1:]
+		prefixed = t[1:]
 	} else {
-		hex = strings.TrimPrefix(t, "+")
+		prefixed = strings.TrimPrefix(t, "+")
 	}
-	if strings.HasPrefix(hex, "0x") || strings.HasPrefix(hex, "0X") {
-		h := hex[2:]
-		if h != "" && allHexDigits(h) {
-			// Parse the magnitude as u64, then range-check against the sign, so the
-			// negative math.MinInt64 magnitude (0x8000000000000000) reads like its
-			// decimal spelling instead of overflowing a signed parse.
-			m, err := strconv.ParseUint(h, 16, 64)
-			if err != nil {
-				return 0, false
-			}
-			if neg {
-				if m == uint64(math.MaxInt64)+1 {
-					return math.MinInt64, true
-				}
-				if m <= uint64(math.MaxInt64) {
-					return -int64(m), true
-				}
-				return 0, false
+	if radix, digits, ok := radixBody(prefixed); ok {
+		// Parse the magnitude as u64, then range-check against the sign, so the
+		// negative math.MinInt64 magnitude (0x8000000000000000) reads like its
+		// decimal spelling instead of overflowing a signed parse.
+		m, err := strconv.ParseUint(digits, radix, 64)
+		if err != nil {
+			return 0, false
+		}
+		if neg {
+			if m == uint64(math.MaxInt64)+1 {
+				return math.MinInt64, true
 			}
 			if m <= uint64(math.MaxInt64) {
-				return int64(m), true
+				return -int64(m), true
 			}
 			return 0, false
 		}
+		if m <= uint64(math.MaxInt64) {
+			return int64(m), true
+		}
+		return 0, false
 	}
 	// Thousands separators, only inside quotes (bare commas are reserved).
 	if e.quoted && strings.Contains(t, ",") {
@@ -7961,7 +7948,7 @@ func parseFloatText(e *element, level Strictness) (float64, bool) {
 		}
 		v = f
 	} else {
-		// An integer is a valid float on read (incl. hex and quoted thousands).
+		// An integer is a valid float on read (incl. hex, octal, binary and quoted thousands).
 		el := element{text: t, quoted: e.quoted}
 		if n, ok := parseIntTextNoLoose(&el); ok {
 			v = float64(n)
@@ -7983,11 +7970,38 @@ func parseIntTextNoLoose(e *element) (int64, bool) {
 	return parseIntText(e, Standard)
 }
 
-// parseIntTextWide reads the two integer spellings the plain float parse does
-// not - hex, and quoted thousands - past the int64 range, as a double: a float
-// read is bounded by the double, not by the integer type. Hex goes in digit by
-// digit in the double, so every binding rounds the same way; the spellings
-// mirror parseIntText.
+// radixBody returns the digits after a `0x`, `0o` or `0b` prefix, either
+// case, with their radix. A bare leading zero is decimal, so `0o` is the one
+// way to write an octal mode.
+func radixBody(t string) (int, string, bool) {
+	if len(t) < 3 || t[0] != '0' {
+		return 0, "", false
+	}
+	var radix int
+	switch t[1] {
+	case 'x', 'X':
+		radix = 16
+	case 'o', 'O':
+		radix = 8
+	case 'b', 'B':
+		radix = 2
+	default:
+		return 0, "", false
+	}
+	digits := t[2:]
+	for i := 0; i < len(digits); i++ {
+		if d := hexDigit(digits[i]); d < 0 || d >= radix {
+			return 0, "", false
+		}
+	}
+	return radix, digits, true
+}
+
+// parseIntTextWide reads the integer spellings the plain float parse does not -
+// hex, octal, binary and quoted thousands - past the int64 range, as a double:
+// a float read is bounded by the double, not by the integer type. A prefixed
+// number goes in digit by digit in the double, so every binding rounds the
+// same way; the spellings mirror parseIntText.
 func parseIntTextWide(e *element) (float64, bool) {
 	t := strings.TrimSpace(e.text)
 	neg := false
@@ -7999,19 +8013,9 @@ func parseIntTextWide(e *element) (float64, bool) {
 		body = t[1:]
 	}
 	var v float64
-	if h, ok := strings.CutPrefix(body, "0x"); ok || strings.HasPrefix(body, "0X") {
-		if !ok {
-			h = body[2:]
-		}
-		if h == "" {
-			return 0, false
-		}
-		for i := 0; i < len(h); i++ {
-			d := hexDigit(h[i])
-			if d < 0 {
-				return 0, false
-			}
-			v = v*16 + float64(d)
+	if radix, digits, ok := radixBody(body); ok {
+		for i := 0; i < len(digits); i++ {
+			v = v*float64(radix) + float64(hexDigit(digits[i]))
 		}
 	} else if e.quoted && strings.Contains(body, ",") {
 		groups := strings.Split(body, ",")

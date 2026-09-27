@@ -62,6 +62,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - C: `shcl_read_string_to` and a `_to` form of each array read copy into the caller's buffer, so the read arena stays flat without `shcl_reads_release`.
 
+- Integers can be written in octal and binary, `0o644` and `0b101`, beside hex.
+
 - `shcl explain [CODE]` gives the rule behind a diagnostic code, or lists every code.
 
 - `shcl help CMD` and `CMD --help` show one subcommand's help.

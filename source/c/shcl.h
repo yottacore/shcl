@@ -1007,7 +1007,6 @@ static ShclStr s_trim_sp_tab(ShclStr s) {
 }
 
 static int is_adigit(uint32_t c) { return c >= '0' && c <= '9'; }
-static int is_ahex(uint32_t c) { return is_adigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'); }
 static int is_aalnum(uint32_t c) {
 	return is_adigit(c) || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
 }
@@ -1015,7 +1014,6 @@ static int is_bare_name_char(uint32_t c) {
 	return (c < 128 && is_aalnum(c)) || c == '-' || c == '_';
 }
 static int all_adigit0(ShclStr s) { for (size_t i = 0; i < s.n; i++) if (!is_adigit((unsigned char)s.p[i])) return 0; return 1; }
-static int all_ahex(ShclStr s) { for (size_t i = 0; i < s.n; i++) if (!is_ahex((unsigned char)s.p[i])) return 0; return s.n > 0; }
 static ShclStr ascii_lower(ShclArena *a, ShclStr s) {
 	char *m = (char *)arena_alloc(a, s.n ? s.n : 1);
 	for (size_t i = 0; i < s.n; i++) { unsigned char c = (unsigned char)s.p[i]; m[i] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : (char)c; }
@@ -2404,19 +2402,39 @@ static int parse_i64_s(ShclStr t, int64_t *out) {
 	else *out = (int64_t)v;
 	return 1;
 }
-// magnitude hex in [0, INT64_MAX]; overflow -> fail.
+// radix_digit: the value of an ASCII hex digit, or -1.
+static int radix_digit(unsigned char c) {
+	if (c >= '0' && c <= '9') return c - '0';
+	if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+	if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+	return -1;
+}
+// radix_body: the digits after a `0x`, `0o` or `0b` prefix, either case, with
+// their radix. A bare leading zero is decimal, so `0o` is the one way to write
+// an octal mode.
+static int radix_body(ShclStr t, unsigned *radix, ShclStr *digits) {
+	if (t.n < 3 || t.p[0] != '0') return 0;
+	switch (t.p[1]) {
+	case 'x': case 'X': *radix = 16; break;
+	case 'o': case 'O': *radix = 8; break;
+	case 'b': case 'B': *radix = 2; break;
+	default: return 0;
+	}
+	*digits = s_slice(t, 2, t.n);
+	for (size_t i = 0; i < digits->n; i++) {
+		int d = radix_digit((unsigned char)digits->p[i]);
+		if (d < 0 || (unsigned)d >= *radix) return 0;
+	}
+	return 1;
+}
 // The magnitude, as u64 (guarded against u64 overflow). The sign range-check is
 // the caller's, so the negative i64_min magnitude (0x8000000000000000) reads.
-static int parse_hex_u64(ShclStr h, uint64_t *out) {
+static int parse_radix_u64(ShclStr h, unsigned radix, uint64_t *out) {
 	uint64_t v = 0;
 	for (size_t i = 0; i < h.n; i++) {
-		unsigned char c = (unsigned char)h.p[i]; int d;
-		if (c >= '0' && c <= '9') d = c - '0';
-		else if (c >= 'a' && c <= 'f') d = c - 'a' + 10;
-		else if (c >= 'A' && c <= 'F') d = c - 'A' + 10;
-		else return 0;
-		if (v > (UINT64_MAX - (uint64_t)d) / 16) return 0;
-		v = v * 16 + (uint64_t)d;
+		uint64_t d = (uint64_t)radix_digit((unsigned char)h.p[i]);
+		if (v > (UINT64_MAX - d) / radix) return 0;
+		v = v * radix + d;
 	}
 	*out = v; return 1;
 }
@@ -2483,25 +2501,21 @@ static int parse_float_text(ShclArena *a, const ShclElement *e, shcl_strictness 
 	}
 	*out = percent ? v / 100.0 : v; return 1;
 }
-/* The two integer spellings the plain float parse does not read - hex, and
-   quoted thousands - past the i64 range, as a double: a float read is bounded
-   by the double, not by the integer type. Hex goes in digit by digit in the
-   double, so every binding rounds the same way; the spellings mirror
-   parse_int_text. */
+/* The integer spellings the plain float parse does not read - hex, octal,
+   binary and quoted thousands - past the i64 range, as a double: a float read
+   is bounded by the double, not by the integer type. A prefixed number goes in
+   digit by digit in the double, so every binding rounds the same way; the
+   spellings mirror parse_int_text. */
 static int parse_int_text_wide(ShclArena *a, const ShclElement *e, double *out) {
 	ShclStr t = s_trim(e->text);
 	int neg = 0; ShclStr body = t;
 	if (t.n > 0 && t.p[0] == '-') { neg = 1; body = s_slice(t, 1, t.n); }
 	else if (t.n > 0 && t.p[0] == '+') body = s_slice(t, 1, t.n);
 	double v = 0.0;
-	if (s_starts(body, "0x") || s_starts(body, "0X")) {
-		ShclStr h = s_slice(body, 2, body.n);
-		if (h.n == 0 || !all_ahex(h)) return 0;
-		for (size_t i = 0; i < h.n; i++) {
-			unsigned char c = (unsigned char)h.p[i];
-			int d = c <= '9' ? c - '0' : (c | 0x20) - 'a' + 10;
-			v = v * 16.0 + (double)d;
-		}
+	unsigned radix; ShclStr digits;
+	if (radix_body(body, &radix, &digits)) {
+		for (size_t i = 0; i < digits.n; i++)
+			v = v * (double)radix + (double)radix_digit((unsigned char)digits.p[i]);
 	} else if (e->quoted && s_contains_char(body, ',')) {
 		ShclVecS groups = {0}; split_byte(a, body, ',', &groups);
 		int wf = groups.len > 1 && groups.data[0].n > 0 && groups.data[0].n <= 3 && all_adigit0(groups.data[0]);
@@ -2521,23 +2535,22 @@ static int parse_int_text(ShclArena *a, const ShclElement *e, shcl_strictness le
 	ShclStr body = t;
 	if (body.n > 0 && (body.p[0] == '+' || body.p[0] == '-')) body = s_slice(body, 1, body.n);
 	if (body.n > 0 && all_adigit0(body)) return parse_i64_s(t, out);
-	int neg = 0; ShclStr hex = t;
-	if (t.n > 0 && t.p[0] == '-') { neg = 1; hex = s_slice(t, 1, t.n); }
-	else if (t.n > 0 && t.p[0] == '+') { hex = s_slice(t, 1, t.n); }
-	if (s_starts(hex, "0x") || s_starts(hex, "0X")) {
-		ShclStr h = s_slice(hex, 2, hex.n);
-		if (all_ahex(h)) {
-			uint64_t m; if (!parse_hex_u64(h, &m)) return 0;
-			if (neg) {
-				if (m == (uint64_t)INT64_MAX + 1) *out = INT64_MIN;
-				else if (m <= (uint64_t)INT64_MAX) *out = -(int64_t)m;
-				else return 0;
-			} else {
-				if (m <= (uint64_t)INT64_MAX) *out = (int64_t)m;
-				else return 0;
-			}
-			return 1;
+	/* Hex, octal and binary. */
+	int neg = 0; ShclStr prefixed = t;
+	if (t.n > 0 && t.p[0] == '-') { neg = 1; prefixed = s_slice(t, 1, t.n); }
+	else if (t.n > 0 && t.p[0] == '+') { prefixed = s_slice(t, 1, t.n); }
+	unsigned radix; ShclStr digits;
+	if (radix_body(prefixed, &radix, &digits)) {
+		uint64_t m; if (!parse_radix_u64(digits, radix, &m)) return 0;
+		if (neg) {
+			if (m == (uint64_t)INT64_MAX + 1) *out = INT64_MIN;
+			else if (m <= (uint64_t)INT64_MAX) *out = -(int64_t)m;
+			else return 0;
+		} else {
+			if (m <= (uint64_t)INT64_MAX) *out = (int64_t)m;
+			else return 0;
 		}
+		return 1;
 	}
 	if (e->quoted && s_contains_char(t, ',')) {
 		ShclStr sign_body = t;

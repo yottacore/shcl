@@ -921,7 +921,6 @@ def _all_ascii_digits(s):
 
 
 _ASCII_DIGITS = frozenset("0123456789")
-_HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
 
 
 def _fold_name(s):
@@ -6886,22 +6885,21 @@ def _parse_int_text(e, level):
 	body = t[1:] if t[:1] in ("+", "-") else t
 	if body and _all_ascii_digits(body):
 		return _parse_i64(t)
-	# Hex.
+	# Hex, octal and binary.
 	if t[:1] == "-":
 		neg = True
-		hexs = t[1:]
+		prefixed = t[1:]
 	else:
 		neg = False
-		hexs = t[1:] if t[:1] == "+" else t
-	if hexs[:2] in ("0x", "0X"):
-		h = hexs[2:]
-		if h and _HEX_DIGITS.issuperset(h):
-			# Range-check the magnitude against the sign, so the negative i64-min
-			# magnitude (0x8000000000000000) reads like its decimal spelling.
-			mag = int(h, 16)
-			if mag > (_I64_MAX + 1 if neg else _I64_MAX):
-				return None
-			return -mag if neg else mag
+		prefixed = t[1:] if t[:1] == "+" else t
+	rb = _radix_body(prefixed)
+	if rb is not None:
+		# Range-check the magnitude against the sign, so the negative i64-min
+		# magnitude (0x8000000000000000) reads like its decimal spelling.
+		mag = int(rb[1], rb[0])
+		if mag > (_I64_MAX + 1 if neg else _I64_MAX):
+			return None
+		return -mag if neg else mag
 	# Thousands separators, only inside quotes (bare commas are reserved).
 	if e.quoted and "," in t:
 		sign_body = t[1:] if t[:1] in ("+", "-") else t
@@ -6977,7 +6975,7 @@ def _parse_float_text(e, level):
 		if not math.isfinite(v):
 			return None
 	else:
-		# An integer is a valid float on read (incl. hex and quoted thousands).
+		# An integer is a valid float on read (incl. hex, octal, binary and quoted thousands).
 		iv = _parse_int_text_no_loose(_Element(t, e.quoted))
 		if iv is not None:
 			v = float(iv)
@@ -6989,22 +6987,38 @@ def _parse_float_text(e, level):
 	return v / 100.0 if percent else v
 
 
+_RADIXES = {"x": 16, "X": 16, "o": 8, "O": 8, "b": 2, "B": 2}
+
+
+def _radix_body(t):
+	"""The digits after a `0x`, `0o` or `0b` prefix, either case, with their
+	radix, or None. A bare leading zero is decimal, so `0o` is the one way to
+	write an octal mode."""
+	if len(t) < 3 or t[0] != "0" or t[1] not in _RADIXES:
+		return None
+	radix = _RADIXES[t[1]]
+	digits = t[2:]
+	allowed = "0123456789abcdefABCDEF"[: radix if radix <= 10 else 22]
+	if not all(c in allowed for c in digits):
+		return None
+	return radix, digits
+
+
 def _parse_int_text_wide(e):
-	# The two integer spellings the plain float parse does not read - hex, and
-	# quoted thousands - past the i64 range, as a double: a float read is
-	# bounded by the double, not by the integer type. Hex goes in digit by digit
-	# in the double, so every binding rounds the same way; the spellings mirror
-	# _parse_int_text.
+	# The integer spellings the plain float parse does not read - hex, octal,
+	# binary and quoted thousands - past the i64 range, as a double: a float
+	# read is bounded by the double, not by the integer type. A prefixed number
+	# goes in digit by digit in the double, so every binding rounds the same
+	# way; the spellings mirror _parse_int_text.
 	t = _trim(e.text)
 	neg = t.startswith("-")
 	body = t[1:] if t[:1] in ("-", "+") else t
-	if body[:2] in ("0x", "0X"):
-		h = body[2:]
-		if not h or not all(c in "0123456789abcdefABCDEF" for c in h):
-			return None
+	rb = _radix_body(body)
+	if rb is not None:
+		radix, digits = rb
 		v = 0.0
-		for c in h:
-			v = v * 16.0 + float(int(c, 16))
+		for c in digits:
+			v = v * float(radix) + float(int(c, 16))
 	elif e.quoted and "," in body:
 		groups = body.split(",")
 		well_formed = (

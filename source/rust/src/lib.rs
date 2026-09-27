@@ -7875,19 +7875,16 @@ fn parse_int_text(e: &Element, level: Strictness) -> Option<i64> {
 	if !body.is_empty() && body.bytes().all(|b| b.is_ascii_digit()) {
 		return t.parse::<i64>().ok();
 	}
-	// Hex.
-	let (neg, hex) = match t.strip_prefix('-') {
+	// Hex, octal and binary.
+	let (neg, prefixed) = match t.strip_prefix('-') {
 		Some(r) => (true, r),
 		None => (false, t.strip_prefix('+').unwrap_or(t)),
 	};
-	if let Some(h) = hex.strip_prefix("0x").or_else(|| hex.strip_prefix("0X"))
-		&& !h.is_empty()
-		&& h.bytes().all(|b| b.is_ascii_hexdigit())
-	{
+	if let Some((radix, digits)) = radix_body(prefixed) {
 		// Parse the magnitude as u64, then range-check against the sign, so the
 		// negative i64::MIN magnitude (0x8000000000000000) reads like its decimal
 		// spelling instead of overflowing an i64 parse.
-		let m = u64::from_str_radix(h, 16).ok()?;
+		let m = u64::from_str_radix(digits, radix).ok()?;
 		return if neg {
 			if m == (i64::MAX as u64) + 1 {
 				Some(i64::MIN)
@@ -7933,6 +7930,27 @@ fn parse_int_text(e: &Element, level: Strictness) -> Option<i64> {
 	None
 }
 
+/// The digits after a `0x`, `0o` or `0b` prefix, either case, with their
+/// radix. A bare leading zero is decimal, so `0o` is the one way to write an
+/// octal mode.
+fn radix_body(t: &str) -> Option<(u32, &str)> {
+	let b = t.as_bytes();
+	if b.len() < 3 || b[0] != b'0' {
+		return None;
+	}
+	let radix = match b[1] {
+		b'x' | b'X' => 16,
+		b'o' | b'O' => 8,
+		b'b' | b'B' => 2,
+		_ => return None,
+	};
+	let digits = &t[2..];
+	digits
+		.bytes()
+		.all(|c| char::from(c).is_digit(radix))
+		.then_some((radix, digits))
+}
+
 fn float_shape_ok(t: &str) -> bool {
 	let body = t.strip_prefix(['+', '-']).unwrap_or(t);
 	if body.is_empty() {
@@ -7974,7 +7992,7 @@ fn parse_float_text(e: &Element, level: Strictness) -> Option<f64> {
 		// that is not a number at all.
 		t.parse::<f64>().ok().filter(|v| v.is_finite())?
 	} else {
-		// An integer is a valid float on read (incl. hex and quoted thousands).
+		// An integer is a valid float on read (incl. hex, octal, binary and quoted thousands).
 		let el = Element {
 			text: t.to_string(),
 			quoted: e.quoted,
@@ -7993,23 +8011,20 @@ fn parse_int_text_no_loose(e: &Element) -> Option<i64> {
 	parse_int_text(e, Strictness::Standard)
 }
 
-/// The two integer spellings the plain float parse does not read - hex, and
-/// quoted thousands - past the i64 range, as a double: a float read is bounded
-/// by the double, not by the integer type. Hex goes in digit by digit in the
-/// double, so every binding rounds the same way; the spellings mirror
-/// parse_int_text.
+/// The integer spellings the plain float parse does not read - hex, octal,
+/// binary and quoted thousands - past the i64 range, as a double: a float read
+/// is bounded by the double, not by the integer type. A prefixed number goes
+/// in digit by digit in the double, so every binding rounds the same way; the
+/// spellings mirror parse_int_text.
 fn parse_int_text_wide(e: &Element) -> Option<f64> {
 	let t = e.text.trim();
 	let (neg, body) = match t.strip_prefix('-') {
 		Some(r) => (true, r),
 		None => (false, t.strip_prefix('+').unwrap_or(t)),
 	};
-	let v = if let Some(h) = body.strip_prefix("0x").or_else(|| body.strip_prefix("0X"))
-		&& !h.is_empty()
-		&& h.bytes().all(|b| b.is_ascii_hexdigit())
-	{
-		h.bytes().fold(0.0f64, |v, b| {
-			v * 16.0 + f64::from((b as char).to_digit(16).unwrap_or(0))
+	let v = if let Some((radix, digits)) = radix_body(body) {
+		digits.bytes().fold(0.0f64, |v, b| {
+			v * f64::from(radix) + f64::from(char::from(b).to_digit(radix).unwrap_or(0))
 		})
 	} else if e.quoted && body.contains(',') {
 		let groups: Vec<&str> = body.split(',').collect();
