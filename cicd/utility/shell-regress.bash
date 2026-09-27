@@ -462,6 +462,30 @@ if fHave pwsh; then
 	[[ "${out}" == *"fn=False"* ]]     || fBad "install.ps1 left its functions in the caller: ${out@Q}"
 	[[ "${out}" == *"strict=off"* ]]   || fBad "install.ps1 left strict mode on in the caller: ${out@Q}"
 
+	##	20260819 item 21 and 20260924c ideas 1 and 2: -Help prints the options
+	##	itself, since the one-liner leaves no file for Get-Help to read; -Version
+	##	names the installer; each run opens and ends on a blank line, a refusal
+	##	included. The refusal is the not-Windows gate, which comes before any
+	##	download.
+	iver="$(sed -n "s/^\t\$installerVersion = '\(.*\)'$/\1/p" "${repoDir}/install.ps1")"
+	fPs1(){ env -u DISPLAY LOCALAPPDATA="${tmpDir}/lad" pwsh -NoProfile -NonInteractive -File "${repoDir}/install.ps1" "$@" >"${tmpDir}/ps.out" 2>"${tmpDir}/ps.err" </dev/null ;}
+	rc=0; fPs1 -Version || rc=$?
+	if ! { [[ "${rc}" == 0 && -n "${iver}" ]] && cmp -s "${tmpDir}/ps.out" <(printf '\ninstall.ps1 %s\n\n' "${iver}"); }; then
+		fBad "install.ps1 -Version (exit ${rc}): $(od -c "${tmpDir}/ps.out" | head -n 3)"
+	fi
+	rc=0; fPs1 -Help || rc=$?
+	[[ "${rc}" == 0 && "$(head -c 60 "${tmpDir}/ps.out")" == $'\n'"install.ps1 ${iver} - shcl installer for Windows"* ]] \
+		|| fBad "install.ps1 -Help does not open with its name and a blank line above (exit ${rc}): $(head -n 3 "${tmpDir}/ps.out")"
+	for o in Release Target Uninstall Yes Version Help; do
+		grep -qE "^    -${o} " "${tmpDir}/ps.out" || fBad "install.ps1 -Help does not list -${o}"
+	done
+	[[ "$(tail -c 2 "${tmpDir}/ps.out" | od -An -c | tr -d ' ')" == '\n\n' ]] || fBad "install.ps1 -Help does not end on a blank line"
+	rc=0; fPs1 -Target user -Yes || rc=$?
+	if ! { [[ "${rc}" == 1 ]] && cmp -s "${tmpDir}/ps.out" <(printf '\n') \
+		&& cmp -s "${tmpDir}/ps.err" <(printf 'install.ps1: this installer is for Windows - on Linux use install.bash, elsewhere build from source (see README.md)\n\n'); }; then
+		fBad "install.ps1 does not open and end a refusal on a blank line (exit ${rc}): $(od -c "${tmpDir}/ps.out" "${tmpDir}/ps.err" | head -n 5)"
+	fi
+
 	##	20260909 item 38: a smoke test binary that never started left
 	##	$LASTEXITCODE at the 0 the last native command set, and the install went
 	##	ahead. The stand-in cannot start because its interpreter is missing. It
@@ -604,6 +628,9 @@ SRVEOF
 		out="$(env -u DISPLAY PROCESSOR_ARCHITECTURE=AMD64 LOCALAPPDATA="${tmpDir}/lad" pwsh -NoProfile -NonInteractive -File "${tmpDir}/fakeapi.ps1" -Release "${release}" < /dev/null 2>&1 || true)"
 		want="shcl 2.0.0 (stable, windows-x86_64)"; [[ "${release}" == dev ]] && want="shcl 3.0.0-beta1 (dev, windows-x86_64)"
 		[[ "${out}" == *"${want}"* ]] || fBad "install.ps1 -Release ${release} planned the wrong install: ${out@Q}"
+		##	20260924c idea 4: the plan names the release page it installs from.
+		want="  from     https://github.com/yottacore/shcl/releases/tag/v2.0.0"; [[ "${release}" == dev ]] && want="${want%/*}/v3.0.0-beta1"
+		[[ "${out}" == *"${want}"* ]] || fBad "install.ps1 -Release ${release} plan does not name its release page: ${out@Q}"
 	done
 
 	##	20260921 idea 6: a file the uninstall could not remove, which a running
@@ -849,15 +876,21 @@ fi
 # shellcheck disable=SC2016  ## install.bash's own text, matched literally
 smokeCode="$(sed -n '/^fDie() /p;/^case "\${arch}" in$/,/^esac$/p;/^smoke_status=0$/,/^fi$/p' "${repoDir}/install.bash")"
 mkdir -p "${tmpDir}/smoke"
-fSmoke(){   ## fSmoke EXIT: the lifted step on a stand-in that exits EXIT
+fSmoke(){   ## fSmoke EXIT [ARCH]: the lifted step on a stand-in that exits EXIT
 	printf '#!/bin/sh\necho "shcl: version GLIBC_2.34 not found" >&2\nexit %s\n' "$1" > "${tmpDir}/smoke/shcl"
 	chmod 755 "${tmpDir}/smoke/shcl"
 	# shellcheck disable=SC2034  ## the lifted step's own globals
-	( tmp="${tmpDir}/smoke" arch=x86_64; eval "${smokeCode}"; echo "smoke passed" ) 2>&1 || true
+	( tmp="${tmpDir}/smoke" arch="${2:-x86_64}"; eval "${smokeCode}"; echo "smoke passed" ) 2>&1 || true
 }
 out="$(fSmoke 127)"
 [[ "${out}" == *"needs glibc 2.34 or newer"*"cargo install shcl"* && "${out}" != *"smoke passed"* ]] \
 	|| fBad "install.bash does not stop on a binary below its glibc floor, naming the floor and cargo install: ${out@Q}"
+##	20260830 item 42: the arm64 binary is built against an older glibc, and the
+##	message named the x86_64 floor for both.
+out="$(fSmoke 127 arm64)"
+line="$(grep -F 'does not run here' <<<"${out}" || true)"
+[[ "${line}" == *"needs glibc 2.30 or newer"* && "${line}" != *"2.34"* && "${out}" != *"smoke passed"* ]] \
+	|| fBad "install.bash names the wrong glibc floor for arm64: ${out@Q}"
 out="$(fSmoke 126)"
 [[ "${out}" == *"noexec"* && "${out}" != *"smoke passed"* ]] || fBad "install.bash does not name a temp dir it cannot execute from: ${out@Q}"
 out="$(fSmoke 0)"
@@ -1131,6 +1164,45 @@ if fHave openssl; then
 	printf '$signingModulus = '"'%s'"'\n' "x${smod}" > "${skey}/install.ps1"
 	fSignNoXxd
 	[[ "${signOut}" == *"install.ps1 carries a different key"* ]] || fBad "sign-release.bash with xxd off the PATH did not refuse a wrong modulus: ${signOut@Q}"
+	##	20260725 item 37: nothing in the sums file is trusted until its signature
+	##	checks out against the key the installer carries. Each installer's check,
+	##	lifted by text and given the throwaway key: the file it signed passes, and
+	##	the same file with one byte changed is refused.
+	mkdir -p "${tmpDir}/sigchk"
+	printf 'abc  shcl-9.9.9-linux-x86_64\n' > "${tmpDir}/sigchk/sums"
+	openssl dgst -sha256 -sign "${tmpDir}/wrong.pem" -out "${tmpDir}/sigchk/sums.sig" "${tmpDir}/sigchk/sums"
+	printf 'abd  shcl-9.9.9-linux-x86_64\n' > "${tmpDir}/sigchk/forged"
+	# shellcheck disable=SC2016  ## install.bash's own text, matched literally
+	sigCode="$(sed -n '/^fDie() /p;/^printf .%s\\n. "\${SIGNING_KEY}" > /,/refusing to install"$/p' "${repoDir}/install.bash")"
+	fSigBash(){   ## fSigBash SUMS: the lifted check on SUMS against the throwaway signature
+		cp "$1" "${tmpDir}/sigchk/sums.in"
+		# shellcheck disable=SC2034  ## the lifted step's own globals
+		( SIGNING_KEY="$(openssl pkey -in "${tmpDir}/wrong.pem" -pubout)" tmp="${tmpDir}/sigchk/run"; mkdir -p "${tmp}"
+			cp "${tmpDir}/sigchk/sums.in" "${tmp}/sums"; cp "${tmpDir}/sigchk/sums.sig" "${tmp}/sums.sig"
+			eval "${sigCode}"; echo "verified" ) 2>&1 || true
+	}
+	if [[ "$(grep -c . <<<"${sigCode}")" != 4 ]]; then
+		fBad "install.bash's signature check is not the lines this row lifts: ${sigCode@Q}"
+	else
+		out="$(fSigBash "${tmpDir}/sigchk/sums")"
+		[[ "${out}" == "verified" ]] || fBad "install.bash refused a sums file its key signed: ${out@Q}"
+		out="$(fSigBash "${tmpDir}/sigchk/forged")"
+		[[ "${out}" == *"signature check failed on sha256sums - refusing to install"* && "${out}" != *verified* ]] \
+			|| fBad "install.bash took a sums file its signature does not cover: ${out@Q}"
+	fi
+	if fHave pwsh; then
+		#  shellcheck disable=2016  ## PowerShell's own $variables, quoted so bash leaves them alone.
+		{
+			echo "\$signingModulus = '${smod}'"
+			echo "\$signingExponent = 'AQAB'"
+			sed -n '/^\tfunction Test-ReleaseSignature/,/^\t}/p' "${repoDir}/install.ps1"
+			echo "Write-Output ('good=' + (Test-ReleaseSignature -Path '${tmpDir}/sigchk/sums' -SignaturePath '${tmpDir}/sigchk/sums.sig'))"
+			echo "Write-Output ('forged=' + (Test-ReleaseSignature -Path '${tmpDir}/sigchk/forged' -SignaturePath '${tmpDir}/sigchk/sums.sig'))"
+		} > "${tmpDir}/sigchk/check.ps1"
+		out="$(pwsh -NoProfile -File "${tmpDir}/sigchk/check.ps1" 2>&1 || true)"
+		[[ "${out}" == *"good=True"* ]]    || fBad "install.ps1 refused a sums file its key signed: ${out@Q}"
+		[[ "${out}" == *"forged=False"* ]] || fBad "install.ps1 took a sums file its signature does not cover: ${out@Q}"
+	fi
 else
 	echo "shell-regress: openssl not installed - signing rows skipped"
 fi
@@ -1387,6 +1459,44 @@ out="$(fPickTag stable "${tmpDir}/rel-compact.json")"
 [[ "${out}" == "v2.0.0" ]] || fBad "install.bash stable channel on compact json picked ${out@Q}, want v2.0.0"
 out="$(fPickTag dev "${tmpDir}/rel-compact.json")"
 [[ "${out}" == "v2.1.0-alpha.10" ]] || fBad "install.bash dev channel on compact json picked ${out@Q}, want v2.1.0-alpha.10"
+
+##	20260924c idea 4: the plan names the release page it installs from. The
+##	whole script runs, with a curl on PATH that answers the release list and
+##	nothing else. setsid leaves no terminal, so the run stops at the prompt,
+##	after the plan and before any download.
+if fHave setsid && fHave openssl; then
+	mkdir -p "${tmpDir}/apibin" "${tmpDir}/planhome"
+	printf '[{"tag_name":"v2.0.0","prerelease":false,"draft":false},{"tag_name":"v3.0.0-beta1","prerelease":true,"draft":false}]\n' > "${tmpDir}/planrel.json"
+	cat > "${tmpDir}/apibin/curl" <<-STUB
+		#!/bin/sh
+		out=""; url=""
+		while [ \$# -gt 0 ]; do case "\$1" in -o) out="\$2"; shift 2 ;; -*) shift ;; *) url="\$1"; shift ;; esac; done
+		case "\${url}" in https://api.github.com/repos/yottacore/shcl/releases*) cp '${tmpDir}/planrel.json' "\${out}" ;; *) exit 22 ;; esac
+	STUB
+	chmod 755 "${tmpDir}/apibin/curl"
+	for release in stable dev; do
+		tag=v2.0.0; [[ "${release}" == dev ]] && tag=v3.0.0-beta1
+		# shellcheck disable=SC2031  ## the gate's own PATH, which no subshell above changed for this one
+		out="$(HOME="${tmpDir}/planhome" PATH="${tmpDir}/apibin:${PATH}" setsid -w bash "${repoDir}/install.bash" --release "${release}" </dev/null 2>&1 || true)"
+		[[ "${out}" == *"shcl ${tag#v} (${release}, linux-"*"  from     https://github.com/yottacore/shcl/releases/tag/${tag}"$'\n'* ]] \
+			|| fBad "install.bash --release ${release} plan does not name its release page: ${out@Q}"
+	done
+fi
+
+##	20260830 item 7: a lookup in the sums file that matched nothing failed its
+##	substitution under pipefail, and the script ended with no message before
+##	the check that says what is missing. A release with no drop-ins has to get
+##	as far as its binary-only note. The two lookups are lifted by text. The
+##	unguarded-grep scan further down holds every other one.
+lookups="$(grep -E '^want(_src)?="\$\(grep ' "${repoDir}/install.bash" || true)"
+if [[ "$(grep -c . <<<"${lookups}")" != 2 ]]; then
+	fBad "install.bash's sums lookups are not the two lines this row lifts: ${lookups@Q}"
+else
+	mkdir -p "${tmpDir}/lookup"; printf 'abc  shcl-9.9.9-other\n' > "${tmpDir}/lookup/sums"
+	# shellcheck disable=SC2016  ## the inner shell's own variables
+	out="$(tmp="${tmpDir}/lookup" asset=shcl-9.9.9-linux-x86_64 dropins=shcl-9.9.9-dropins.tar.gz bash -c 'set -euo pipefail; eval "$1"; echo "reached [${want}] [${want_src}]"' _ "${lookups}" 2>&1 || true)"
+	[[ "${out}" == "reached [] []" ]] || fBad "install.bash ends with no message on a sums file missing an entry: ${out@Q}"
+fi
 
 if fHave pwsh; then
 	#  shellcheck disable=2016  ## PowerShell's own $variables, quoted so bash leaves them alone.
@@ -2155,6 +2265,21 @@ for inst in install.bash install-dev.bash; do
 	opt=--dir; [[ "${inst}" == install.bash ]] && opt=--target
 	rc=0; out="$(bash "${repoDir}/${inst}" "${opt}" 2>&1 </dev/null)" || rc=$?
 	[[ "${rc}" != 0 && "${out}" == *"missing value for ${opt}"* ]] || fBad "${inst} ${opt} with no value (exit ${rc}): ${out@Q}"
+	##	20260924c ideas 1 and 2: the installer names its own version, and every
+	##	run opens and ends on a blank line, a refusal included. Byte for byte,
+	##	since a substitution would eat the blank lines this is about.
+	ver="$(sed -n 's/^installer_version="\(.*\)"$/\1/p' "${repoDir}/${inst}")"
+	rc=0; bash "${repoDir}/${inst}" --version >"${tmpDir}/iv.out" 2>"${tmpDir}/iv.err" </dev/null || rc=$?
+	if ! { [[ "${rc}" == 0 && -n "${ver}" && ! -s "${tmpDir}/iv.err" ]] && cmp -s "${tmpDir}/iv.out" <(printf '\n%s %s\n\n' "${inst}" "${ver}"); }; then
+		fBad "${inst} --version (exit ${rc}): $(od -c "${tmpDir}/iv.out" | head -n 3)"
+	fi
+	rc=0; bash "${repoDir}/${inst}" --bogus >"${tmpDir}/iv.out" 2>"${tmpDir}/iv.err" </dev/null || rc=$?
+	if ! { [[ "${rc}" == 1 ]] && cmp -s "${tmpDir}/iv.out" <(printf '\n') && cmp -s "${tmpDir}/iv.err" <(printf '%s: unknown option: --bogus\n\n' "${inst}"); }; then
+		fBad "${inst} does not open and end a refusal on a blank line (exit ${rc}): $(od -c "${tmpDir}/iv.out" "${tmpDir}/iv.err" | head -n 5)"
+	fi
+	[[ "${help}" == $'\n'* ]] || fBad "${inst} --help does not open on a blank line"
+	[[ "$(tail -c 2 < <(bash "${repoDir}/${inst}" --help 2>&1 </dev/null) | od -An -c | tr -d ' ')" == '\n\n' ]] \
+		|| fBad "${inst} --help does not end on a blank line"
 done
 
 ##	The bash uninstall reported "removed" while leaving a directory full of files
