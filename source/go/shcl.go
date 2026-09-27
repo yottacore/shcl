@@ -2381,6 +2381,34 @@ func badEscape(tok *Tokens, text string, values bool) (rune, bool) {
 	return 0, false
 }
 
+// pathLike reports a double-quoted value that starts like a Windows path, a
+// drive (`C:\`) or a share (`\\`), and holds a `\t` or `\n` escape (H004).
+// `"C:\temp"` reads as `C:`, a tab and `emp`: legal, and almost never meant.
+// Any other pair made the line E023 before this is asked.
+func pathLike(p *Piece, text string) bool {
+	if p.Quote != QuoteDouble {
+		return false
+	}
+	raw := text[p.Start:p.End]
+	drive := len(raw) >= 3 && (raw[0]|0x20 >= 'a' && raw[0]|0x20 <= 'z') && raw[1] == ':' && raw[2] == '\\'
+	if !drive && !strings.HasPrefix(raw, "\\\\") {
+		return false
+	}
+	for i := 0; i+1 < len(raw); {
+		if raw[i] != '\\' {
+			i++
+			continue
+		}
+		if raw[i+1] == 't' || raw[i+1] == 'n' {
+			return true
+		}
+		i += 2
+	}
+	return false
+}
+
+const pathHint = "value looks like a Windows path, and its \\t or \\n reads as a tab or newline; single quotes keep a backslash as written"
+
 func escapeMsg(r rune) string {
 	return "unknown escape '\\" + oneLine(string(r)) + "' in double quotes; write a backslash as '\\\\' or use single quotes"
 }
@@ -3268,6 +3296,7 @@ func (p *parser) addStarElement(parent int, tok *Tokens, text string, line int, 
 		p.err(line, "E017", "unterminated quote in value")
 	}
 	bindingLike := !el.quoted && looksLikeBinding(el.text)
+	path := pathLike(&piece, text)
 	// Element cap: each element line past it is refused on its own, the way
 	// any other bad element line is. Only a line that would join the list:
 	// under a field that already has a value it is E011, cap or not.
@@ -3310,6 +3339,9 @@ func (p *parser) addStarElement(parent int, tok *Tokens, text string, line int, 
 			Message:  "list element looks like a field binding; it is read as a string (quote it to say so)",
 			Code:     "H003",
 		})
+	}
+	if path {
+		p.diag(Diagnostic{Line: line, Severity: SeverityHint, Message: pathHint, Code: "H004"})
 	}
 	// A kept element holds its column as a dropped one does, with the field as
 	// that level's node: a line written deeper binds where it always did, and a
@@ -3746,6 +3778,14 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 			vkey = valueHash(&v)
 		}
 		if node, ok := p.attachPath(parent, scan.segments, v, lineno, indent); ok {
+			if haveSrc {
+				for i := range tok.Elements {
+					if pathLike(&tok.Elements[i], rest) {
+						p.diag(Diagnostic{Line: lineno, Severity: SeverityHint, Message: pathHint, Code: "H004"})
+						break
+					}
+				}
+			}
 			if haveSrc && !p.arena[node].srcSet && valueHash(&p.arena[node].value) == vkey {
 				p.arena[node].srcSet = true
 				if !srcMatchesDisplay(&p.arena[node].value, srcText) {

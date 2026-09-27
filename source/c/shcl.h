@@ -1676,6 +1676,25 @@ static int bad_escape(const ShclTokens *tok, ShclStr text, int values, uint32_t 
 	return 0;
 }
 
+/* A double-quoted value that starts like a Windows path, a drive (C:\) or a
+   share (\\), and holds a \t or \n escape (H004). "C:\temp" reads as C:, a tab
+   and emp: legal, and almost never meant. Any other pair made the line E023
+   before this is asked. */
+static int path_like(const ShclPiece *p, ShclStr text) {
+	if (p->quote != SHCL_QUOTE_DOUBLE) return 0;
+	ShclStr raw = s_slice(text, p->start, p->end);
+	int drive = raw.n >= 3 && ((raw.p[0] | 0x20) >= 'a' && (raw.p[0] | 0x20) <= 'z') && raw.p[1] == ':' && raw.p[2] == '\\';
+	if (!drive && !(raw.n >= 2 && raw.p[0] == '\\' && raw.p[1] == '\\')) return 0;
+	for (size_t i = 0; i + 1 < raw.n;) {
+		if (raw.p[i] != '\\') { i++; continue; }
+		if (raw.p[i + 1] == 't' || raw.p[i + 1] == 'n') return 1;
+		i += 2;
+	}
+	return 0;
+}
+
+static const char path_hint[] = "value looks like a Windows path, and its \\t or \\n reads as a tab or newline; single quotes keep a backslash as written";
+
 static ShclStr escape_msg(ShclArena *a, uint32_t c) {
 	ShclSB m = {0}; sb_puts(a, &m, "unknown escape '\\");
 	if (c == '\n') sb_puts(a, &m, "\\n");
@@ -3667,6 +3686,7 @@ static int add_star_element(ShclParser *P, size_t parent, const ShclTokens *tok,
 	if (!element_of(a, &piece, text, &el)) { p_refuse(P, line, "E009", s_lit("empty list element"), out_kind(OUT_DROPPED), indent); return 0; }
 	if (piece.quote == SHCL_QUOTE_OPEN) p_err(P, line, "E017", s_lit("unterminated quote in value"));
 	int binding_like = !el.quoted && looks_like_binding(el.text);
+	int path = path_like(&piece, text);
 	/* Element cap: each element line past it is refused on its own, the way
 	   any other bad element line is. Only a line that would join the list:
 	   under a field that already has a value it is E011, cap or not. */
@@ -3706,6 +3726,7 @@ static int add_star_element(ShclParser *P, size_t parent, const ShclTokens *tok,
 		return 0;
 	}
 	if (binding_like) p_diag(P, line, SHCL_SEV_HINT, "H003", s_lit("list element looks like a field binding; it is read as a string (quote it to say so)"));
+	if (path) p_diag(P, line, SHCL_SEV_HINT, "H004", s_lit(path_hint));
 	/* A kept element holds its column as a dropped one does, with the field as
 	   that level's node: a line written deeper binds where it always did, and a
 	   line back at the element's column is its sibling, where no level had been
@@ -4032,6 +4053,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 			i = skip_field_line(&P, lines.data, lines.len, i, indent, &tok, rest); continue;
 		}
 		ShclValue value;
+		int celled = 0;
 		if (!scan.has_value) {
 			/* A clean path with no colon is the one defined repair: the obvious
 			   intent is that path with an empty value. */
@@ -4047,10 +4069,13 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 				for (size_t k = 0; k < tok.nelem; k++) if (tok.elements[k].quote == SHCL_QUOTE_OPEN) open = 1;
 				if (open) p_err(&P, lineno, "E017", s_lit("unterminated quote in value"));
 				value = cell_of_tokens(a, &own->line, &tok, rest);
+				celled = 1;
 			}
 		}
 		size_t node = 0; /* attach_path fills it; the init quiets gcc's inlining-dependent maybe-uninitialized */
 		if (attach_path(&P, parent, scan.segs.data, scan.segs.len, value, lineno, indent, &node)) {
+			for (size_t k = 0; celled && k < tok.nelem; k++)
+				if (path_like(&tok.elements[k], rest)) { p_diag(&P, lineno, SHCL_SEV_HINT, "H004", s_lit(path_hint)); break; }
 			if (had_blank) NODE(d, node).blank_before = 1;
 			if (next > i + 1) { ShclVecSize_push(a, &d->ends, lineno); ShclVecSize_push(a, &d->ends, next); }
 			attach_trivia(&P, node, indent, comment);

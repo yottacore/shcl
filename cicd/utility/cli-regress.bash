@@ -508,6 +508,11 @@ rows=(
 	'escape-unknown-literal|set %F2%|literal\tx\t"C:\\work"\n|1||^op line 1: cannot write x'
 	'escape-unknown-path|get - "a\w"|"a\\\\w": 1\n|3|\n|no value at that path'
 	'escape-doubled-path|get - "a\\w"|"a\\\\w": 1\n|0|1\n|-'
+	## A path in double quotes whose escapes are all real still reads and saves
+	## as written. The hint says so and changes nothing else.
+	'path-hint-read|get - a|a: "C:\\temp"\n|0|C:\temp\n|H004 value looks like a Windows path'
+	'path-hint-strict|check --strictness=strict -|a: "C:\\temp"\n|0|line 1: Hint: H004\nok (1 diagnostic(s))\n|-'
+	'path-hint-set|set - --set b=1|a: "C:\\temp"\n|0|a: "C:\\temp"\n\nb: 1\n|-'
 	'escape-unknown-migrate|migrate -|q: "C:\\work"\n|0|q: "C:\\\\work"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	## 20260909 item 4: a 3.0 file spells a backslash value the same way a 2.x
 	## one does, so migrating on a guess changed a correct file at exit 0. The

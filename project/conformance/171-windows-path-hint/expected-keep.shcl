@@ -1,0 +1,14 @@
+# Drive and share paths in double quotes
+temp: "C:\temp"
+mixed: "C:\\work\new"
+share: "\\srv\new"
+doubled: "C:\\ok\\fine"
+message: "Done\nNext"
+single: 'C:\temp'
+pair: x, "D:\tools"
+list:
+	* one
+	* "E:\new"
+last: 2
+
+added: 'C:\x'

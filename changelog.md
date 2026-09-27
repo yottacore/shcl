@@ -18,6 +18,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - An escape in double quotes other than `\t`, `\n`, `\\`, `\"` and `\'` is `E023`, so `"C:\work\new"` no longer loads with a newline in it. The line is kept as written and binds nothing. `migrate` doubles the backslash.
 
+- A double-quoted value that starts like a Windows path and holds a `\t` or `\n` escape, such as `"C:\temp"`, gets the hint `H004`. It still loads and saves as written.
+
 - A quote opens a quoted piece only as its first character. One that never closes is read as text and reported as `E017`.
 
 - `shcl migrate FILE --from-2x` rewrites a 2.x file for these rules and leaves comments and layout alone.

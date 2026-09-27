@@ -344,6 +344,10 @@ H003|hint|a stacked '*' element spelled like a field binding
   '* name: value' is the YAML habit for a list of objects. Here it is one
   string element, the text 'name: value'. Quote it to keep the string; a
   list of objects is written as instances of a field.
+H004|hint|a Windows path in double quotes with a \\t or \\n escape
+  "C:\\temp" reads as C:, a tab, then emp. The line loads and saves as
+  usual, since that is legal, but a path almost never means it. Single
+  quotes or no quotes keep each backslash as written; so does doubling it.
 V001|error|unknown field
   No schema path covers it. Only the topmost unknown node is reported; its
   subtree is skipped. The prose carries the did-you-mean suggestion.
