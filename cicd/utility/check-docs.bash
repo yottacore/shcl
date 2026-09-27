@@ -386,7 +386,7 @@ if [[ -f "${cHeader}" ]]; then
 	done < <(grep -nE '^// -{3}' "${cHeader}" | { grep -vE '^[0-9]+:// --- .*[^ -].* -+$' || true ;})
 fi
 
-fTest EqjsQiu no-old-owner-path
+fTest EqjsQiu no-old-org-path
 ##	The repo moved to the yottacore org, and a sweep for the old owner path
 ##	missed the man page's troff spelling. The old path redirects, so nothing
 ##	breaks when one comes back; it just goes stale. Past changelog entries and
