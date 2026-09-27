@@ -747,6 +747,15 @@ func TestWriteBadOpsAreRejected(t *testing.T) {
 	// Bad-op dimension: each write-bad.ops line, applied alone to the case
 	// input, must be rejected (bad value, bad datetime, or unusable path) and
 	// leave the document unchanged.
+	// The names-no-op guard below is only worth something while a misspelled
+	// op still comes back told apart from an ordinary refusal.
+	probe := Parse("a: 1\n")
+	if err := tryApplyOpTest(probe, "itn\ta\t1"); !errors.Is(err, errUnknownOp) {
+		t.Errorf("a misspelled op read as a refusal: %v", err)
+	}
+	if err := tryApplyOpTest(probe, "int\ta\tx"); err == nil || errors.Is(err, errUnknownOp) {
+		t.Errorf("a refusal read as a misspelled op: %v", err)
+	}
 	for _, c := range loadCases(t) {
 		if !c.hasWriteBad {
 			continue

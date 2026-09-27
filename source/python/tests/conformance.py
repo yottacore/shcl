@@ -802,6 +802,15 @@ def main():
 	# Bad-op dimension: each write-bad.ops line, applied alone to the case
 	# input, must be rejected (bad value, bad datetime, or unusable path) and
 	# leave the document unchanged.
+	# The names-no-op guard below is only worth something while a misspelled
+	# op still comes back told apart from an ordinary refusal.
+	opdoc = shcl.Document.parse("a: 1\n")
+	err = try_apply_op(opdoc, "itn\ta\t1")
+	if err is None or not err.startswith(_UNKNOWN_OP):
+		fails.append(f"a misspelled op read as a refusal: {err}")
+	err = try_apply_op(opdoc, "int\ta\tx")
+	if err is None or err.startswith(_UNKNOWN_OP):
+		fails.append(f"a refusal read as a misspelled op: {err}")
 	for case in cases:
 		if case["write_bad_ops"] is None:
 			continue
@@ -2027,6 +2036,13 @@ def main():
 		raise SystemExit("get_int_array_or missing did not fall back")
 	if cdoc.get_string_or("missing", "fb") != "fb":
 		raise SystemExit("get_string_or missing did not fall back")
+	# The must-exist form raises a class a caller can catch by its public name.
+	try:
+		cdoc.get_int("missing")
+		raise SystemExit("get_int on a missing field did not raise")
+	except shcl.StatusError as e:
+		if e.status != shcl.Status.NotFound:
+			raise SystemExit(f"get_int missing raised {e.status}") from None
 	# The raw block's info-string was the one typed read with no convenience
 	# tier, so it alone forced a caller down to the status tier.
 	if cdoc.get_raw_info("blk") != "html":

@@ -449,6 +449,9 @@ rows=(
 	## nothing said about it.
 	'fmt-diags-without-write|fmt %B%|-|0|-|E015 missing colon'
 	'set-diags-without-write|set --set=a=2 %B%|-|0|-|E015 missing colon'
+	## 20260804: given a --set, set takes its edits from the options and leaves
+	## stdin alone, or a set run from a terminal would sit waiting on it.
+	'set-option-skips-stdin|set --set=a=2 %F%|int\tx\t7\n|0|a: 2\n|-'
 	## 20260829 item 6: --set split PATH from VALUE at the first '=' anywhere, so
 	## a selector holding one could not be addressed at all.
 	'set-eq-in-selector|set --set=x[a=b].c=1 %X%|-|0|x[a=b]:\n\tc: 1\n|-'
@@ -574,6 +577,10 @@ rows=(
 	## "Also refused" list now names.
 	'write-stdin-fmt|fmt --write -|-|1|-|cannot rewrite stdin'
 	'write-stdin-set|set --write -|-|1|-|cannot rewrite stdin'
+	## 20260802 item 11: --write with a lower layer wrote the merge into FILE, so
+	## the layer's lines stayed there for good. The file is left as it was.
+	'write-layer-fmt|fmt --write --layer=%F% %K%|-|1||^--write cannot be combined with --layer \(see --help\)$|# note\nName:   "x"   # c\nblock:\n    a: 1\n'
+	'write-layer-set|set --write --layer=%F% --set=b=2 %K%|-|1||^--write cannot be combined with --layer \(see --help\)$|# note\nName:   "x"   # c\nblock:\n    a: 1\n'
 	'tokens-line|tokens %F%|-|0|1:0 name=0-1 sep=1 value=3-4 elem=3-4\n|-'
 	'tokens-fault|tokens %B%|-|0|1:0 name=0-1 sep=1 value=3-4 elem=3-4\n2:2 name=0-3\n3:0 name=0-1 fault=2:unexpected character after the path\n|-'
 	## 20260923 item 20: the help and man page say each line is read on its own,
@@ -694,6 +701,11 @@ rows=(
 	'strictness-same-level-ok|get --int --strictness=1 --strictness=loose %F% a|-|0|1\n|-'
 	'onbad-clash|get --int --on-bad=error --on-bad=flag %F% nope|-|1|-|^--on-bad=error cannot be combined with --on-bad=flag \(see --help\)$'
 	'onbad-same-mode-ok|get --int --on-bad=ERROR --on-bad=error %F% nope|-|3|-|no value at that path'
+	## 20260716 item 22: the error mode printed a bare BadType, with no value, type
+	## or file. 20260830 item 34: C printed a raw body as it stood, so the one
+	## line ran over three, and the four CLIs each quoted the value their own way.
+	'onbad-error-names-value|get --int --on-bad=error - a|a: 12 cats\n|4||^cannot read a as int: value "12 cats" is not a valid int \(in -\)$'
+	'bad-int-raw-one-line|get --int %R% b|-|4|0\n|^cannot read b as int: value "line one\\nline two" is not a valid int \(in [^)]*rawval\.shcl\)$'
 	'default-clash|get --int --default=7 --default=8 %F% nope|-|1|-|^--default=7 cannot be combined with --default=8 \(see --help\)$'
 	'default-repeat-ok|get --int --default=7 --default=7 %F% nope|-|0|7\n|-'
 	'schema-clash|check --schema=%S% --schema=%S2% %F%|-|1|-|^--schema=.* cannot be combined with --schema=.* \(see --help\)$'
@@ -1030,6 +1042,29 @@ for row in "${rows[@]}"; do
 	done
 done
 
+## 20260817 item 28: a bare run printed the help and exited 1, -v was refused
+## while -V worked, and set sat on stdin saying nothing. Checked against help
+## and -V rather than a spelling, since the version moves every release. The
+## row loop drops the stdin notice from stderr, so it is checked here.
+for b in "${bindings[@]}"; do
+	name="${b%%|*}"; cli="${b#*|}"
+	for pair in "|help" "-v|-V"; do
+		IFS='|' read -r mine ref <<<"${pair}"
+		rc=0; "${cli}" ${mine:+"${mine}"} >"${tmpDir}/out" 2>"${tmpDir}/err" </dev/null || rc=$?
+		"${cli}" "${ref}" >"${tmpDir}/ref" 2>/dev/null </dev/null || true
+		nRun+=1
+		if [[ "${rc}" != 0 || -s "${tmpDir}/err" ]] || ! cmp -s "${tmpDir}/out" "${tmpDir}/ref"; then
+			echo "cli-regress: bare-and-short-v [${name}]: 'shcl ${mine}' exit ${rc}, expected 0 and the stdout of 'shcl ${ref}'" >&2; nBad+=1
+		fi
+	done
+	rc=0; "${cli}" set "${tmpDir}/ok.shcl" >/dev/null 2>"${tmpDir}/err" </dev/null || rc=$?
+	nRun+=1
+	gotErr=""; IFS= read -r -d '' gotErr <"${tmpDir}/err" || true
+	if [[ "${rc}" != 0 || "${gotErr}" != $'shcl: reading write-ops from stdin (one op per line, tab-separated; end with EOF)\n' ]]; then
+		echo "cli-regress: set-stdin-notice [${name}]: exit ${rc}, stderr ${gotErr@Q}" >&2; nBad+=1
+	fi
+done
+
 ## 20260716 item 25: a reader that leaves early got three exit codes, 134 from
 ## the reference's abort, 141 from Go and 0 from Python. Settled as dying of
 ## SIGPIPE the way cat and head do, with nothing on stderr. The document has to
@@ -1119,7 +1154,7 @@ fSaveSetup() {
 		same)     printf 'a: 1\n' > f.shcl; stat -c %i f.shcl > ino ;;
 		differs)  printf 'a:   1\n' > f.shcl; stat -c %i f.shcl > ino ;;
 		group)    printf 'a:   1\n' > f.shcl; chgrp "${altGroup}" f.shcl; chmod 0640 f.shcl ;;
-		nothing)  : ;;
+		nothing|missdir) : ;;
 		link)     printf 'a: 1\n' > real.shcl; ln -s real.shcl f.shcl ;;
 		dangling) mkdir sub; ln -s sub/x.shcl f.shcl ;;
 		dotdot)   mkdir -p real/sub top; ln -s ../real/sub top/lnkdir; ln -s ../x.shcl real/sub/f.shcl ;;
@@ -1140,6 +1175,9 @@ saveCases=(
 	'link|set --write --set b=2 f.shcl|0|[[ -L f.shcl ]] && grep -qx "b: 2" real.shcl'
 	'dangling|set --write --set b=2 f.shcl|0|[[ -L f.shcl ]] && grep -qx "b: 2" sub/x.shcl'
 	'dotdot|set --write --set b=2 top/lnkdir/f.shcl|0|[[ -L real/sub/f.shcl && ! -e top/x.shcl ]] && grep -qx "b: 2" real/x.shcl'
+	## 20260830 item 32: Python cleaned the `..` against a directory that is not
+	## there and created f.shcl here at exit 0. The kernel refuses the path.
+	'missdir|set --write --set b=2 nodir/../f.shcl|8|[[ -z "$(ls -A)" ]]'
 	'linkdir|set --write --set b=2 f.shcl|8|[[ -L f.shcl && ! -e d ]]'
 	'cycle|set --write --set b=2 f.shcl|8|[[ -L f.shcl && -L g.shcl ]]'
 	'slash|set --write --set b=2 f.shcl/|8|[[ -f f.shcl ]] && ! grep -q b f.shcl'

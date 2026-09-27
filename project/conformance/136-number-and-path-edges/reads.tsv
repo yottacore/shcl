@@ -12,6 +12,8 @@ glued	int	-	BadType
 sq	string	'x'y	Good
 srv[]	string	-	NotFound
 srv[].port	int	-	NotFound
+srv[+0].port	int	80	Good
+srv[#+0].port	int	80	Good
 .pad	int	-	NotFound
 pad.	int	-	NotFound
 a..b	int	-	NotFound

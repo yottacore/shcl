@@ -136,6 +136,67 @@ while IFS= read -r problem; do fBad "${problem}"; done < <(
 		{ prev = $0 }' "${repoDir}/source/c/shcl.hpp"
 )
 
+##	Two rounds filled in public declarations that had no comment at all: about
+##	sixty Go functions, the whole writer API among them, and sixty items in the
+##	reference. An exported Go name needs a comment right above it; a method on an
+##	unexported type is not exported. A Rust pub item needs a `///` above it, past
+##	its attributes and any plain comment. Struct fields and enum variants are
+##	left out, which is what keeps this from being rustc's missing_docs.
+mapfile -t goSrcs < <(find "${repoDir}/source/go" -name '*.go' ! -name '*_test.go' | LC_ALL=C sort)
+((${#goSrcs[@]})) || fBad "found no Go sources for the doc comment check"
+while IFS= read -r problem; do fBad "${problem}"; done < <(
+	LC_ALL=C awk -v root="${repoDir}/" '
+		FNR == 1 { prev = "" }
+		match($0, /^(func (\([^)]*\) )?|type )[A-Z][A-Za-z0-9_]*/) {
+			decl = substr($0, RSTART, RLENGTH)
+			recv = decl; sub(/\) .*/, "", recv); sub(/.*[ *]/, "", recv); sub(/\[.*/, "", recv)
+			if (decl !~ /^func \(/ || recv ~ /^[A-Z]/) if (prev !~ /^\/\//) {
+				f = FILENAME; sub(root, "", f); nm = decl; sub(/.* /, "", nm)
+				print f ":" FNR ": exported " nm " has no doc comment"
+			}
+		}
+		{ prev = $0 }' "${goSrcs[@]}"
+	LC_ALL=C awk -v f="source/rust/src/lib.rs" '
+		{ line[NR] = $0 }
+		END {
+			for (i = 2; i <= NR; i++) {
+				if (line[i] !~ /^[ \t]*pub (const |unsafe |async )*(fn|struct|enum|type|const|trait|static|mod|union) /) continue
+				j = i - 1
+				while (j > 1 && (line[j] ~ /^[ \t]*#\[/ || line[j] ~ /^[ \t]*\/\/([^\/!]|$)/)) j--
+				if (line[j] !~ /^[ \t]*\/\/\//) { nm = line[i]; sub(/^[ \t]*/, "", nm); sub(/[({<:=].*/, "", nm); print f ":" i ": " nm " has no doc comment" }
+			}
+		}' "${repoDir}/source/rust/src/lib.rs"
+)
+
+##	The C rules: never sprintf, strcpy or strcat, nor their wide forms, and no
+##	goto but the cleanup unwind. Seven old sites were each bounded by
+##	construction, which is the reasoning the rule is there to stop. The tests
+##	stay out, since they build fixtures and never ship.
+for src in shcl.h shcl.hpp cmd/shcl/main.c; do
+	while IFS= read -r hit; do fBad "source/c/${src}:${hit}"; done < <(
+		LC_ALL=C awk '
+			{ s = $0; sub(/\/\/.*/, "", s) }
+			s ~ /(^|[^A-Za-z0-9_])(v?sprintf|strcpy|strcat|wcscpy|wcscat|gets)[ \t]*\(/ { print FNR ": calls a string function the C rules forbid; use snprintf or the builder" }
+			s ~ /(^|[^A-Za-z0-9_])goto[ \t]/ && s !~ /goto[ \t]+cleanup/ { print FNR ": a goto that is not the cleanup unwind" }' "${repoDir}/source/c/${src}")
+done
+
+##	`explain` is where a user looks a code up, and the spec is where the rule
+##	behind it lives. E001 to E015 and H001 were once in neither. Every code the
+##	reference lists has a row in a spec table, and every row names a live code.
+explainCodes="$(sed -n '/^const CODES: &str = "/,/^";$/p' "${mainRs}" | grep -oE '^[EHV][0-9]{3}' | LC_ALL=C sort -u || true)"
+# shellcheck disable=SC2016  ## the backticks are markdown, not command substitution
+specCodes="$(grep -E '^\| `[EHV][0-9]{3}`' "${repoDir}/project/spec.md" | cut -d'|' -f2 | grep -oE '[EHV][0-9]{3}' | LC_ALL=C sort -u || true)"
+if [[ -z "${explainCodes}" || -z "${specCodes}" ]]; then
+	fBad "the explain-against-spec code check read an empty side"
+else
+	while IFS= read -r code; do
+		if [[ -n "${code}" ]]; then fBad "explain lists ${code}, and no spec.md table row names it"; fi
+	done < <(LC_ALL=C comm -23 <(printf '%s\n' "${explainCodes}") <(printf '%s\n' "${specCodes}"))
+	while IFS= read -r code; do
+		if [[ -n "${code}" ]]; then fBad "spec.md has a row for ${code}, which explain does not list"; fi
+	done < <(LC_ALL=C comm -13 <(printf '%s\n' "${explainCodes}") <(printf '%s\n' "${specCodes}"))
+fi
+
 ##	The documents list five integration modes, two of which are a shared library.
 ##	Nothing in the tree builds one - no crate-type, no export macro in the C
 ##	header, and the release stage produces binaries, packages and the drop-in
@@ -979,3 +1040,6 @@ echo "check-docs: OK"
 ##		            edit options against the help, four more comparison
 ##		            sentences against results.shcl, plain contact addresses,
 ##		            and the C header's section rules.
+##		2026-09-26  Every exported Go name and Rust pub item has a doc comment,
+##		            the C sources call no forbidden string function or bare
+##		            goto, and explain's codes match the spec's tables.

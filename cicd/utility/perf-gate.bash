@@ -142,6 +142,15 @@ awk -v n="$((keys + keys / 2))" 'BEGIN{ print "grp:"; for (i = 0; i < n; i++) pr
 	print "keep:"; for (j = 0; j < 4; j++) printf "\tz%d: 1\n", j }' > "${rmDoc}"
 printf 'remove\tgrp.*\n' > "${tmpDir}/removes.ops"
 
+## Raw blocks side by side under one parent. Each raw node rescanned the whole
+## run to learn whether an empty sibling of its name sat above it, the one case
+## where its fence has to leave the binding line, so formatting was quadratic
+## in raw siblings (20260725 item 27). No other shape here puts more than one
+## raw block under a parent. Half the key count keeps the lines at twice the
+## baseline's, which the linear walk formats well under the parse.
+rawDoc="${tmpDir}/raws.shcl"
+awk -v n="$((keys / 2))" 'BEGIN{ print "p:"; for (i = 0; i < n; i++) printf "\tr%d:\n\t\t~~~\n\t\tline %d\n\t\t~~~\n", i, i }' > "${rawDoc}"
+
 ## Two flat documents of the same names, so every name in the higher layer
 ## overrides a leaf below. Collecting the replaced leaf's comments scanned every
 ## base child once per overridden name, which is quadratic when the two files
@@ -191,6 +200,8 @@ fTimeMs(){
 			fRun "${cli}" check --schema "${unkSchema}" "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
 		elif [[ "${mode}" == merge ]]; then
 			fRun "${cli}" fmt --layer "${mergeBase}" "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
+		elif [[ "${mode}" == raws ]]; then
+			fRun "${cli}" fmt "${input}" > "${tmpDir}/out" 2>/dev/null || rc=$?
 		elif [[ "${mode}" == removes ]]; then
 			fRun "${cli}" set "${input}" < "${tmpDir}/removes.ops" > "${tmpDir}/out" 2>/dev/null || rc=$?
 		elif [[ "${mode}" == keeps ]]; then
@@ -263,7 +274,7 @@ for b in "${bindings[@]}"; do
 	budget=$(( baseMs * factor ))
 	floor=$(( baseMs + 250 ))
 	if ((budget < floor)); then budget="${floor}"; fi
-	for w in writes keeps defaults reads badlines suggest recurse frags stars mounts selectors unknowns merge removes; do
+	for w in writes keeps defaults reads badlines suggest recurse frags stars mounts selectors unknowns merge removes raws; do
 		if [[ "${w}" == keeps ]]; then
 			ms="$(fTimeMs "${cli}" "${keepDoc}" keeps "$((keys / 2))")"
 		elif [[ "${w}" == badlines ]]; then
@@ -286,6 +297,8 @@ for b in "${bindings[@]}"; do
 			ms="$(fTimeMs "${cli}" "${mergeOver}" merge "$((keys / 2))")"
 		elif [[ "${w}" == removes ]]; then
 			ms="$(fTimeMs "${cli}" "${rmDoc}" removes 6)"
+		elif [[ "${w}" == raws ]]; then
+			ms="$(fTimeMs "${cli}" "${rawDoc}" raws "$((keys * 2))")"
 		else
 			ms="$(fTimeMs "${cli}" "${tmpDir}/${w}.ops" set "${keys}")"
 		fi
@@ -361,3 +374,5 @@ echo "perf-gate: OK: ${keys} keys, ${#bindings[@]} binding(s) within ${factor}x 
 ##		            path, which rebuilt that child list once per target.
 ##		2026-09-24  Write calls counted for badlines, since Rust's unbuffered
 ##		            stderr made the clock flaky on the hosted runner.
+##		2026-09-26  raws workload: raw blocks side by side, each of which
+##		            rescanned its whole sibling run in the emitter.
