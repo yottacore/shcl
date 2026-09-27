@@ -32,7 +32,7 @@ static int test_id_end(int failed) {
 #define CHECK(cond) do { if (!(cond)) { std::fprintf(stderr, "veneer FAIL: %s (line %d)\n", #cond, __LINE__); fails++; } } while (0)
 
 int main() {
-	test_id("Er35Y6Q", "veneer_smoke");
+	test_id("EjtkR0S", "veneer_smoke");
 	const std::string src =
 		"name: demo\n"
 		"port: 8080\n"
