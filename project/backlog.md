@@ -368,6 +368,140 @@ Going forward, new issues in the new template above will go in the '### New form
 		- One line on stderr when the save fell back, in all four CLIs.
 	- Estimated effort: Low
 
+- `fmt` keeps the quotes on a number with a leading zero
+	- ID: 2026092621211801
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Priority: Avg
+	- Opened: 20260926-212118
+	- Opened by: Jim Collier
+	- Requirements:
+		- `zip: "02134"` stays quoted through `fmt` and every canonical save. Today the quotes come off, since the text reads as an int.
+		- Bare `zip: 02134` stays bare.
+		- Reads do not change. Int and float reads drop the leading zeros, and float reads drop trailing ones. A string read gives the text as written, quoted or not.
+	- Estimated effort: Low
+	- Decisions:
+		- 20260926: quotes are how a file says the zeros matter, so canonical output keeps them.
+		- Before the cut, since it changes canonical output.
+	- Actual effort: Low
+	- Actual fix: `is_data_format` in all four no longer counts a number with a leading zero, so its quotes stay.
+	- Branch: `conv`
+	- Test case: corpus `172-leading-zero-quotes`. It fails on the old code.
+
+- `0o` and `0b` integer spellings
+	- ID: 2026092621211802
+	- Type: Feature
+	- Status: Waiting on signoff
+	- Priority: Avg
+	- Opened: 20260926-212118
+	- Opened by: Jim Collier
+	- Requirements:
+		- `0o644` reads as 420 and `0b101` as 5. Either letter case, and signed the same way as hex.
+		- Bare `0644` still reads as 644.
+	- Estimated effort: Low
+	- Decisions:
+		- 20260926: a file has no other way to write an octal mode, since a leading zero is decimal.
+	- Actual effort: Low
+	- Actual fix: `radix_body` in the int parser and the wide float read, in all four.
+	- Branch: `conv`
+	- Test case: corpus `173-octal-binary`. It fails on the old code.
+
+- Duration read
+	- ID: 2026092621211803
+	- Type: Feature
+	- Status: Waiting on signoff
+	- Priority: Avg
+	- Opened: 20260926-212118
+	- Opened by: Jim Collier
+	- Requirements:
+		- A duration read in all four bindings and the veneer, `get --duration`, and a schema type.
+		- Go and systemd spellings: `500ms`, `30s`, `5m`, `1h30m`, `2d`. Spaces between parts are allowed.
+		- A bare number takes its unit from the field name, when the name ends in a unit from a fixed list: `ms`, `sec`, `seconds`, `minutes`, `hours`, `days`, after a `-` or a `_`.
+		- Otherwise from a default unit the program passes to the read. With neither, a bare number is `BadType`.
+		- A unit in the value wins over the name. A hint when the two disagree, as in `timeout-ms: 5s`.
+	- Estimated effort: Avg
+	- Decisions:
+		- 20260926: the parser does the work, so a program never parses `30s` itself.
+		- `min`, `m` and `s` are not name suffixes. `retries-min` means a minimum, and a trailing `s` is usually a plural.
+		- ISO 8601's `PT30S` is left out, since nobody writes it by hand.
+		- Only a `-` or `_` marks a unit ending. `timeoutMs` is not read, since names fold to lower case and `fmt` would change what the line reads.
+		- Whole milliseconds, capped at Go's `time.Duration` range, so every binding holds every value. A fraction has to come out whole.
+		- The hint is `H005` at load. A read cannot carry a diagnostic, and validation reports only errors.
+		- Scalar reads only, and no typed setter. A schema `duration` takes `unit`, `min` and `max`, not `allowed`.
+	- Actual effort: High
+	- Actual fix: `read_duration` and `get_duration_or` in all four and the veneer, `get_duration` in Rust, Go and Python, `H005` in the parser, schema type `duration` with `unit`, `min` and `max`, and `get --duration` with `--unit`. Spec, design, man page, completions, changelog.
+	- Branch: `conv`
+	- Test case: corpus `176-durations-sizes` and `177-schema-durations-sizes`, a `duration` row type in all four runners, crosscheck and sanitize-c, cli-regress `duration-*` and `unit-*` rows, veneer smoke checks. Each fails on the old code.
+
+- Byte size read
+	- ID: 2026092621211804
+	- Type: Feature
+	- Status: Waiting on signoff
+	- Priority: Avg
+	- Opened: 20260926-212118
+	- Opened by: Jim Collier
+	- Requirements:
+		- A size read in all four bindings and the veneer, `get --size`, and a schema type.
+		- `KiB`, `MiB`, `GiB` and `TiB` are always base 2.
+		- `KB`, `MB`, `GB` and `TB` are base 2 by default, and base 10 when the program asks for it on the read.
+		- A bare number takes its unit from the field name, the same way as a duration, then from the program's default unit. With neither, it is `BadType`.
+	- Estimated effort: Avg
+	- Decisions:
+		- 20260926: the base comes from the program, not from words like "disk" or "network" in the name. Names such as `cache-size` or `chunk` fit either, and a guess would give two programs different answers for one line with no error.
+		- Units are read with their letter case, so `Mb` is refused rather than read as megabytes. `kB` is also taken.
+		- Whole bytes as a signed 64-bit number. A fraction has to come out whole, so `1.1KiB` is refused.
+		- A schema `size` takes `unit`, `decimal`, `min` and `max`.
+	- Actual effort: Avg
+	- Actual fix: `read_size` and `get_size_or` in all four and the veneer, `get_size` in Rust, Go and Python, schema type `size`, and `get --size` with `--unit` and `--decimal`. Shares the duration work.
+	- Branch: `conv`
+	- Test case: corpus `176-durations-sizes` and `177-schema-durations-sizes`, a `size` row type in all four runners, cli-regress `size-*` rows. Each fails on the old code.
+
+- `\u` escapes, with invisible characters escaped on output
+	- ID: 2026092621211805
+	- Type: Feature
+	- Status: Waiting on signoff
+	- Priority: Avg
+	- Opened: 20260926-212118
+	- Opened by: Jim Collier
+	- Requirements:
+		- `\uXXXX` and `\UXXXXXXXX` in double quotes, as in TOML. A surrogate or a value past U+10FFFF is `E023`.
+		- Canonical output writes control characters with no short escape, zero-width characters and the right-to-left overrides as `\u` escapes, in names and values. Raw bodies stay as written.
+		- `migrate` still doubles the backslash in a 2.x `\u`, since 2.x kept it as written.
+	- Estimated effort: Avg
+	- Decisions:
+		- 20260926: a reader of the file sees every character that is there.
+		- Before the cut, so no 3.0 reader refuses a `\u` as `E023`.
+		- The zero-width joiner and non-joiner are not escaped on output, since emoji and several scripts need them.
+		- On a file with no version line, `migrate` counts a `\u` pair as ambiguous and asks for `--from-2x`, since a 3.0 file means a character by it.
+		- `migrate` writes no `\u` of its own, so 2.x still reads a migrated file the same.
+		- A carriage return inside a value comes out as `\u000D`. It still reads as content.
+	- Actual effort: Avg
+	- Actual fix: `\u` and `\U` in the escape reader, `E023` for one that names no character, and `invisible` in the value and name emitters, in all four. `migrate` keeps the 2.x reading. Grammar, explain text, spec, changelog.
+	- Branch: `conv`
+	- Test case: corpus `174-unicode-escapes` and five regenerated goldens in four cases, cli-regress `escape-unicode-*` rows, check-abnf samples, and check-migrate, which now reads a 2.x name the way the current CLI spells it. Each fails on the old code, except the `--from-2x` migrate row, which pins behavior that did not change.
+
+- A schema pointer in the config file
+	- ID: 2026092621211806
+	- Type: Feature
+	- Status: Waiting on signoff
+	- Priority: Avg
+	- Opened: 20260926-212118
+	- Opened by: Jim Collier
+	- Requirements:
+		- A comment line naming the file's schema, a path or a URL, spelled like the info block's `Format` line.
+		- `check` and editor tooling use it when no `--schema` is given. A relative path resolves from the config file's directory.
+		- A `--schema` given on the command line wins.
+	- Estimated effort: Avg
+	- Decisions:
+		- 20260926: plan for editor tooling from now on. The model is JSON's `$schema` and the YAML language server's schema comment.
+		- `check` only. `get` takes no schema today.
+		- A URL is not fetched. `check` says so on stderr and validates nothing.
+		- `set_banner` keeps a Schema line that sits inside the info block.
+	- Actual effort: Avg
+	- Actual fix: `schema_ref` and `SCHEMA_LINE_HEAD` in all four and the veneer, and `schema_for` in the four CLIs. Help, man page, spec, design, README.
+	- Branch: `conv`
+	- Test case: corpus `175-schema-line` with a new `schema` read in all four runners, cli-regress `schema-line-*` rows. Each fails on the old code, except the `--schema` override row.
+
 - `set --write` builds the kept text twice
 	- ID: 2026092620255218
 	- Type: Enhancement
