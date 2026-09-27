@@ -142,9 +142,11 @@ selector may hold one. Ops:
 string/raw values decode \n \t \\; a line starting with # is a script comment.
 
 Types (get only; default --string):
-  --int --float --bool --datetime --string --raw --rawinfo
+  --int --float --bool --datetime --string --raw --rawinfo --duration --size
   --array                                read the value as an array of the type
   --rawinfo reads a raw block's info-string (the fence tag), not its content
+  --duration prints milliseconds and --size bytes; a bare number takes its
+  unit from the field name (timeout-ms, cache_mb), else from --unit
 
 Options (the subcommands each belongs to are in parentheses):
   --default=VALUE                        (get) value to print when the read is
@@ -157,6 +159,12 @@ Options (the subcommands each belongs to are in parentheses):
   --slots                                (get) prefix each line with its slot
                                          status and a tab (per element, or per
                                          wildcard slot)
+  --unit=UNIT                            (get) the unit a bare number is in,
+                                         for --duration (ms s m h d) or --size
+                                         (B KB MB GB TB KiB MiB GiB TiB), when
+                                         the field name gives none
+  --decimal                              (get) --size reads KB to TB as powers
+                                         of 1000, not 1024
   --no-banner                            (init, and set --write when it creates
                                          FILE) leave out the info block naming
                                          the format and pointing at its spec
@@ -363,6 +371,9 @@ H004|hint|a Windows path in double quotes with a \t or \n escape
   "C:\temp" reads as C:, a tab, then emp. The line loads and saves as
   usual, since that is legal, but a path almost never means it. Single
   quotes or no quotes keep each backslash as written; so does doubling it.
+H005|hint|a value in another unit than its field name ends in
+  timeout-ms: 5s reads as 5000 milliseconds, since a unit in the value
+  wins over the one the name gives a bare number. Legal, and often a slip.
 V001|error|unknown field
   No schema path covers it. Only the topmost unknown node is reported; its
   subtree is skipped. The prose carries the did-you-mean suggestion.
@@ -486,12 +497,14 @@ const (
 	kindString
 	kindRaw
 	kindRawInfo
+	kindDuration
+	kindSize
 )
 
 // The type options, as one list. kindFromOpt is still the reader; this is for
 // the places that need the spellings themselves - the did-you-mean on a typo,
 // and the per-subcommand help.
-var typeOpts = [...]string{"--int", "--float", "--bool", "--datetime", "--string", "--raw", "--rawinfo"}
+var typeOpts = [...]string{"--int", "--float", "--bool", "--datetime", "--string", "--raw", "--rawinfo", "--duration", "--size"}
 
 func kindFromOpt(opt string) (kind, bool) {
 	switch opt {
@@ -509,6 +522,10 @@ func kindFromOpt(opt string) (kind, bool) {
 		return kindRaw, true
 	case "--rawinfo":
 		return kindRawInfo, true
+	case "--duration":
+		return kindDuration, true
+	case "--size":
+		return kindSize, true
 	}
 	return kindString, false
 }
@@ -527,6 +544,10 @@ func (k kind) name() string {
 		return "raw"
 	case kindRawInfo:
 		return "rawinfo"
+	case kindDuration:
+		return "duration"
+	case kindSize:
+		return "size"
 	}
 	return "string"
 }
@@ -599,6 +620,9 @@ type opts struct {
 	// item 33, the class of 20260918 item 9).
 	schema    string
 	schemaSet bool
+	unit      string // --unit, read against the type at check time
+	unitSet   bool
+	decimal   bool
 	layers    []string // lower-priority layers, in listed order
 	sets      []setOpt // final override layer, in the order given
 	args      []string // positional: FILE [PATH]
@@ -629,7 +653,7 @@ func askedFor(argv []string) string {
 		case a == "--":
 			return ""
 		case a == "--default" || a == "--on-bad" || a == "--strictness" || a == "--schema" ||
-			a == "--layer" || a == "--set" || a == "--set-literal" ||
+			a == "--unit" || a == "--layer" || a == "--set" || a == "--set-literal" ||
 			a == "--set-default" || a == "--set-literal-default" || a == "--remove":
 			i++
 		}
@@ -746,6 +770,13 @@ func setValueOpt(o *opts, name, v string) error {
 		o.schema = v
 		o.schemaSet = true
 		o.seen = append(o.seen, "--schema")
+	case "--unit":
+		if o.unitSet && o.unit != v {
+			o.noteClash("--unit", o.unit, v)
+		}
+		o.unit = v
+		o.unitSet = true
+		o.seen = append(o.seen, "--unit")
 	case "--layer":
 		o.layers = append(o.layers, v)
 		o.seen = append(o.seen, "--layer")
@@ -938,8 +969,11 @@ func parseOpts(argv []string) (*opts, error) {
 		case a == "--no-banner":
 			o.noBanner = true
 			o.seen = append(o.seen, "--no-banner")
+		case a == "--decimal":
+			o.decimal = true
+			o.seen = append(o.seen, "--decimal")
 		case a == "--default" || a == "--on-bad" || a == "--strictness" || a == "--schema" ||
-			a == "--layer" || a == "--set" || a == "--set-literal" ||
+			a == "--unit" || a == "--layer" || a == "--set" || a == "--set-literal" ||
 			a == "--set-default" || a == "--set-literal-default" || a == "--remove":
 			i++
 			if i >= len(argv) {
@@ -987,6 +1021,10 @@ func parseOpts(argv []string) (*opts, error) {
 			if err := setValueOpt(o, "--schema", a[len("--schema="):]); err != nil {
 				return nil, err
 			}
+		case strings.HasPrefix(a, "--unit="):
+			if err := setValueOpt(o, "--unit", a[len("--unit="):]); err != nil {
+				return nil, err
+			}
 		case strings.HasPrefix(a, "--strictness="):
 			if err := setValueOpt(o, "--strictness", a[len("--strictness="):]); err != nil {
 				return nil, err
@@ -1016,7 +1054,7 @@ func allowedOpts(cmd string) []string {
 	var allowed []string
 	switch cmd {
 	case "get":
-		allowed = []string{"--<type>", "--array", "--slots", "--default", "--on-bad", "--strictness",
+		allowed = []string{"--<type>", "--array", "--slots", "--unit", "--decimal", "--default", "--on-bad", "--strictness",
 			"--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove"}
 	case "set":
 		allowed = []string{"--strictness", "--layer", "--set", "--set-literal", "--set-default",
@@ -1184,6 +1222,28 @@ func checkOpts(cmd string, o *opts) int {
 			fmt.Fprintf(os.Stderr, "%s cannot be combined with %s (see --help)\n", o.clashA, o.clashB)
 		}
 		return 1
+	}
+	// --unit and --decimal say how to read a bare number, which only the
+	// duration and size reads have.
+	if o.unitSet && o.kind != kindDuration && o.kind != kindSize {
+		fmt.Fprintln(os.Stderr, "--unit needs --duration or --size (see --help)")
+		return 1
+	}
+	if o.decimal && o.kind != kindSize {
+		fmt.Fprintln(os.Stderr, "--decimal needs --size (see --help)")
+		return 1
+	}
+	if o.unitSet {
+		known := false
+		if o.kind == kindDuration {
+			_, known = shcl.DurationUnitFromSpelling(o.unit)
+		} else {
+			_, known = shcl.SizeUnitFromSpelling(o.unit)
+		}
+		if !known {
+			fmt.Fprintf(os.Stderr, "bad --unit value for --%s: %s (see --help)\n", o.kind.name(), o.unit)
+			return 1
+		}
 	}
 	// Writing back the merged document would fold the lower layers permanently
 	// into the top file, which is the opposite of what layering is for. On 'set'
@@ -1595,7 +1655,7 @@ func doGet(o *opts) int {
 			}
 			status = r.Status
 			slots = r.Slots
-		case kindRaw, kindRawInfo:
+		case kindRaw, kindRawInfo, kindDuration, kindSize:
 			fmt.Fprintf(os.Stderr, "--%s has no --array form (see --help)\n", o.kind.name())
 			return 1
 		default:
@@ -1629,6 +1689,16 @@ func doGet(o *opts) int {
 		case kindRawInfo:
 			r := doc.ReadRawInfo(path)
 			lines = []string{r.Value}
+			status = r.Status
+		case kindDuration:
+			unit, _ := shcl.DurationUnitFromSpelling(o.unit)
+			r := doc.ReadDuration(path, unit)
+			lines = []string{fmt.Sprintf("%d", r.Value.Milliseconds())}
+			status = r.Status
+		case kindSize:
+			unit, _ := shcl.SizeUnitFromSpelling(o.unit)
+			r := doc.ReadSize(path, unit, o.decimal)
+			lines = []string{fmt.Sprintf("%d", r.Value)}
 			status = r.Status
 		default:
 			r := doc.ReadString(path)

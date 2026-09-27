@@ -66,6 +66,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - C: `shcl_read_string_to` and a `_to` form of each array read copy into the caller's buffer, so the read arena stays flat without `shcl_reads_release`.
 
+- Duration and size reads in every binding (`read_duration`, `read_size`), `shcl get --duration` and `--size` with `--unit` and `--decimal`, and schema types `duration` and `size` with `unit`, `decimal`, `min` and `max`. `500ms`, `1h 30m` and `1.5 GiB` read as whole milliseconds or bytes, and a bare number takes its unit from a name such as `timeout-ms`.
+
+- Hint `H005` for a value in another unit than its field name ends in, as `timeout-ms: 5s`.
+
 - Integers can be written in octal and binary, `0o644` and `0b101`, beside hex.
 
 - A config file can name its schema on a `##    Schema   PATH` line. `shcl check` uses it when `--schema` is not given, reading the path from the file's directory, and leaves a URL to editors. `schema_ref()` in every binding reads it.

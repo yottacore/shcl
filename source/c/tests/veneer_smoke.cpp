@@ -237,6 +237,20 @@ int main() {
 	auto unst = shcl::migrate_unstamped("base:[Boston]\n\tlat: 42\nnote: a\\tb\n", true);
 	CHECK(unst.text == "base: Boston\n\tlat: 42\nnote: \"a\\tb\"\n" && !unst.current);
 	CHECK(shcl::format_version(mig.text) == 3u && !shcl::format_version(unst.text));
+	// Durations and sizes: the name's unit, the caller's, and base 10.
+	{
+		shcl::Document ds = shcl::Document::parse("timeout-ms: 1.5s\nwait: 90\ncache-mb: 2\nraw: 64\n");
+		CHECK(ds.read_duration("timeout-ms").value == std::chrono::milliseconds(1500));
+		CHECK(ds.read_duration("wait").status == shcl::Status::BadType);
+		CHECK(ds.read_duration("wait", shcl::DurationUnit::Seconds).value == std::chrono::milliseconds(90000));
+		CHECK(ds.get_duration_or("nope", std::nullopt, std::chrono::milliseconds(7)) == std::chrono::milliseconds(7));
+		CHECK(ds.read_size("cache-mb").value == 2 * 1024 * 1024);
+		CHECK(ds.read_size("cache-mb", std::nullopt, true).value == 2000000);
+		CHECK(ds.get_size_or("raw", shcl::SizeUnit::Kibi, false, 0) == 65536);
+		CHECK(shcl::duration_unit_from_spelling("h") == shcl::DurationUnit::Hours && !shcl::duration_unit_from_spelling("H"));
+		CHECK(shcl::size_unit_from_spelling("kB") == shcl::SizeUnit::Kilo && !shcl::size_unit_from_spelling("Mb"));
+		CHECK(shcl::spelling(shcl::SizeUnit::Gibi) == "GiB" && shcl::spelling(shcl::DurationUnit::Millis) == "ms");
+	}
 	// The Schema line, first one wins; one in a raw body is content.
 	CHECK(shcl::schema_ref("x: 1\n##    Schema   ./a.shcl  \n##    Schema   b\n") == std::optional<std::string>("./a.shcl"));
 	CHECK(!shcl::schema_ref("r:\n\t```\n##    Schema   a\n\t```\n"));

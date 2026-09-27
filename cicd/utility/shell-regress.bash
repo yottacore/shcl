@@ -2094,10 +2094,22 @@ grep -q 'record_green=0' "${repoDir}/cicd/cicd.bash" || fBad "cicd.bash no longe
 ##	type the arms forgot would only show once the sanitizer run hit it. Every
 ##	type the corpus uses has to have an arm.
 # shellcheck disable=SC2016  ## the \$ is for sed, not the shell
-arms="$(sed -n '/^	case "\$type" in/,/^	esac/p' "${repoDir}/cicd/utility/sanitize-c.bash" | grep -oE "^[[:space:]]*[][a-z_'|]+\)" | tr -d " \t')" | tr '|' '\n' | sort -u || true)"
+arms="$(sed -n '/^	case "\$type" in/,/^	esac/p' "${repoDir}/cicd/utility/sanitize-c.bash" | grep -oE "^[[:space:]]*[][a-z_'|*]+\)" | tr -d " \t')" | tr '|' '\n' | sort -u || true)"
+## An arm with a `*` is a pattern, as `duration*` for `duration@s`; the rest
+## are exact, since `int[]` read as a pattern is a bracket expression. The
+## bare `*` is the arm that refuses an unknown type, so it counts for none.
+fHasArm(){
+	local arm
+	grep -qxF -- "$1" <<<"${arms}" && return 0
+	while IFS= read -r arm; do
+		# shellcheck disable=SC2053  ## the arm is meant as a pattern
+		if [[ "${arm}" != '*' && "${arm}" == *'*'* && "$1" == ${arm} ]]; then return 0; fi
+	done <<<"${arms}"
+	return 1
+}
 while IFS= read -r t; do
 	[[ -n "${t}" && "${t}" != "type" ]] || continue
-	grep -qxF -- "${t}" <<<"${arms}" || fBad "sanitize-c.bash has no arm for reads.tsv type ${t}"
+	fHasArm "${t}" || fBad "sanitize-c.bash has no arm for reads.tsv type ${t}"
 done < <(cut -f2 "${repoDir}"/project/conformance/*/reads.tsv | sort -u)
 
 ##	20260904 item 32: `cmd | grep -q` under pipefail reads a SIGPIPE'd writer as

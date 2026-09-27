@@ -538,6 +538,21 @@ rows=(
 	## 20260909 item 4: a 3.0 file spells a backslash value the same way a 2.x
 	## one does, so migrating on a guess changed a correct file at exit 0. The
 	## file has to say which rules wrote it, or the caller has to.
+	## Durations and sizes print whole milliseconds and bytes. --unit gives a bare
+	## number its unit, --decimal makes KB to TB powers of 1000, and each is
+	## refused where it cannot mean anything.
+	'duration-read|get --duration - t|t: 1h 30m\n|0|5400000\n|-'
+	'duration-name-unit|get --duration - wait-ms|wait-ms: 250\n|0|250\n|-'
+	'duration-bare|get --duration - t|t: 90\n|4|0\n|not a valid duration'
+	'duration-unit|get --duration --unit=s - t|t: 90\n|0|90000\n|-'
+	'size-decimal|get --size --decimal - c|c: 2MB\n|0|2000000\n|-'
+	'size-unit-space|get --size --unit KiB - c|c: 64\n|0|65536\n|-'
+	'unit-needs-type|get --unit=s - t|t: 1\n|1||^--unit needs --duration or --size'
+	'decimal-needs-size|get --duration --decimal - t|t: 1s\n|1||^--decimal needs --size'
+	'unit-bad|get --size --unit=Mb - c|c: 1\n|1||^bad --unit value for --size: Mb'
+	'unit-clash|get --duration --unit=s --unit=m - t|t: 1\n|1||^--unit=s cannot be combined with --unit=m'
+	'duration-no-array|get --duration --array - t|t: 1s\n|1||^--duration has no --array form'
+	'unit-hint|check -|t-ms: 5s\n|0|line 1: Hint: H005\nok (1 diagnostic(s))\n|H005 value is in s and the name says ms'
 	## A Schema line names the schema check uses when --schema is not given,
 	## read from the config file's directory. A URL is left to editors.
 	'schema-line-check|check %SP%|-|6|line 2: Error: V003\nfailed: 1 diagnostic(s), 1 error(s)\n|-'

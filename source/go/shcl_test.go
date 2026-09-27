@@ -191,6 +191,15 @@ func loadCases(t *testing.T) []corpusCase {
 	return cases
 }
 
+// unitType splits a `duration[@UNIT]` or `size[@UNIT][+decimal]` row type:
+// the read, the unit a bare number takes, and whether KB to TB are powers of
+// 1000.
+func unitType(kind string) (string, string, bool) {
+	rest, decimal := strings.CutSuffix(kind, "+decimal")
+	base, unit, _ := strings.Cut(rest, "@")
+	return base, unit, decimal
+}
+
 func docFor(t *testing.T, c *corpusCase, level Strictness) *Document {
 	doc, err := ParseWith(c.input, level)
 	if err != nil {
@@ -2499,7 +2508,25 @@ func TestReadsMatchExpected(t *testing.T) {
 				}
 				gotValue, gotStatus = strings.Join(parts, "|"), r.Status
 			default:
-				t.Fatalf("%s: unknown type '%s'", at, kind)
+				if !strings.HasPrefix(kind, "duration") && !strings.HasPrefix(kind, "size") {
+					t.Fatalf("%s: unknown type '%s'", at, kind)
+				}
+				base, unit, decimal := unitType(kind)
+				if base == "duration" {
+					u, ok := DurationUnitFromSpelling(unit)
+					if unit != "" && !ok {
+						t.Fatalf("%s: bad duration unit %q", at, unit)
+					}
+					r := doc.ReadDuration(query, u)
+					gotValue, gotStatus = strconv.FormatInt(r.Value.Milliseconds(), 10), r.Status
+				} else {
+					u, ok := SizeUnitFromSpelling(unit)
+					if unit != "" && !ok {
+						t.Fatalf("%s: bad size unit %q", at, unit)
+					}
+					r := doc.ReadSize(query, u, decimal)
+					gotValue, gotStatus = strconv.FormatInt(r.Value, 10), r.Status
+				}
 			}
 			if gotStatus.String() != status {
 				t.Errorf("%s: status: got %s want %s", at, gotStatus, status)

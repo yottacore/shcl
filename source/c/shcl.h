@@ -409,6 +409,25 @@ shcl_read_str  shcl_read_string(shcl_doc *d, const char *path, size_t plen);
 shcl_read_str  shcl_read_raw(shcl_doc *d, const char *path, size_t plen);
 shcl_read_str  shcl_read_raw_info(shcl_doc *d, const char *path, size_t plen);
 
+// The unit a duration or size read gives a bare number, when the field name
+// gives none; the NONE value asks for none. SHCL_SIZE_KB to SHCL_SIZE_TB are
+// powers of 1024 unless the read asks for decimal; KIB to TIB always are.
+typedef enum { SHCL_DURATION_NONE, SHCL_DURATION_MS, SHCL_DURATION_S, SHCL_DURATION_M, SHCL_DURATION_H, SHCL_DURATION_D } shcl_duration_unit;
+typedef enum { SHCL_SIZE_NONE, SHCL_SIZE_B, SHCL_SIZE_KB, SHCL_SIZE_MB, SHCL_SIZE_GB, SHCL_SIZE_TB, SHCL_SIZE_KIB, SHCL_SIZE_MIB, SHCL_SIZE_GIB, SHCL_SIZE_TIB } shcl_size_unit;
+// The unit a value spelling names (ms s m h d; B KB kB MB GB TB KiB MiB GiB
+// TiB, letter case read), or the NONE value; and the spelling back, "" for
+// NONE. Static strings.
+shcl_duration_unit shcl_duration_unit_of(const char *s, size_t n);
+shcl_size_unit shcl_size_unit_of(const char *s, size_t n);
+const char *shcl_duration_unit_spelling(shcl_duration_unit u);
+const char *shcl_size_unit_spelling(shcl_size_unit u);
+// A duration in whole milliseconds: `500ms`, `30s`, `1h 30m`, `2d`. A bare
+// number takes its unit from the field name when the name ends in one
+// (`timeout-ms`, `delay_seconds`), else from unit, and is BAD_TYPE with
+// neither. A size in whole bytes the same way: `512MB`, `1.5 GiB`.
+shcl_read_i64  shcl_read_duration(shcl_doc *d, const char *path, size_t plen, shcl_duration_unit unit);
+shcl_read_i64  shcl_read_size(shcl_doc *d, const char *path, size_t plen, shcl_size_unit unit, int decimal);
+
 shcl_read_i64_arr  shcl_read_int_array(shcl_doc *d, const char *path, size_t plen);
 shcl_read_f64_arr  shcl_read_float_array(shcl_doc *d, const char *path, size_t plen);
 shcl_read_bool_arr shcl_read_bool_array(shcl_doc *d, const char *path, size_t plen);
@@ -471,6 +490,8 @@ int     shcl_get_bool(shcl_doc *d, const char *path, size_t plen, int def);
 // fallback" in every binding, so a routine ported between two of them cannot
 // keep the call name while changing which tier it lands on.
 int64_t shcl_get_int_or(shcl_doc *d, const char *path, size_t plen, int64_t def);
+int64_t shcl_get_duration_or(shcl_doc *d, const char *path, size_t plen, shcl_duration_unit unit, int64_t def);
+int64_t shcl_get_size_or(shcl_doc *d, const char *path, size_t plen, shcl_size_unit unit, int decimal, int64_t def);
 double  shcl_get_float_or(shcl_doc *d, const char *path, size_t plen, double def);
 int     shcl_get_bool_or(shcl_doc *d, const char *path, size_t plen, int def);
 
@@ -1778,6 +1799,202 @@ static int path_like(const ShclPiece *p, ShclStr text) {
 	return 0;
 }
 
+// --- Durations and sizes ---------------------------------------------------
+// A number with a unit, or a bare number whose unit the field name or the
+// caller gives.
+
+static uint64_t duration_millis(shcl_duration_unit u) {
+	switch (u) {
+	case SHCL_DURATION_MS: return 1;
+	case SHCL_DURATION_S: return 1000;
+	case SHCL_DURATION_M: return 60000;
+	case SHCL_DURATION_H: return 3600000;
+	case SHCL_DURATION_D: return 86400000;
+	default: return 0;
+	}
+}
+static uint64_t size_bytes(shcl_size_unit u, int decimal) {
+	uint64_t k = decimal ? 1000 : 1024;
+	switch (u) {
+	case SHCL_SIZE_B: return 1;
+	case SHCL_SIZE_KB: return k;
+	case SHCL_SIZE_MB: return k * k;
+	case SHCL_SIZE_GB: return k * k * k;
+	case SHCL_SIZE_TB: return k * k * k * k;
+	case SHCL_SIZE_KIB: return (uint64_t)1 << 10;
+	case SHCL_SIZE_MIB: return (uint64_t)1 << 20;
+	case SHCL_SIZE_GIB: return (uint64_t)1 << 30;
+	case SHCL_SIZE_TIB: return (uint64_t)1 << 40;
+	default: return 0;
+	}
+}
+static const char *const duration_spellings[] = {"", "ms", "s", "m", "h", "d"};
+static const char *const size_spellings[] = {"", "B", "KB", "MB", "GB", "TB", "KiB", "MiB", "GiB", "TiB"};
+const char *shcl_duration_unit_spelling(shcl_duration_unit u) {
+	return (unsigned)u < sizeof duration_spellings / sizeof *duration_spellings ? duration_spellings[u] : "";
+}
+const char *shcl_size_unit_spelling(shcl_size_unit u) {
+	return (unsigned)u < sizeof size_spellings / sizeof *size_spellings ? size_spellings[u] : "";
+}
+shcl_duration_unit shcl_duration_unit_of(const char *s, size_t n) {
+	for (size_t u = 1; u < sizeof duration_spellings / sizeof *duration_spellings; u++)
+		if (strlen(duration_spellings[u]) == n && memcmp(duration_spellings[u], s, n) == 0) return (shcl_duration_unit)u;
+	return SHCL_DURATION_NONE;
+}
+/* Letter case is read, since Mb is megabits to most readers; kB is the one
+   other spelling taken. */
+shcl_size_unit shcl_size_unit_of(const char *s, size_t n) {
+	if (n == 2 && memcmp(s, "kB", 2) == 0) return SHCL_SIZE_KB;
+	for (size_t u = 1; u < sizeof size_spellings / sizeof *size_spellings; u++)
+		if (strlen(size_spellings[u]) == n && memcmp(size_spellings[u], s, n) == 0) return (shcl_size_unit)u;
+	return SHCL_SIZE_NONE;
+}
+/* The longest duration a read gives, in milliseconds: Go's time.Duration
+   range, so every binding holds every duration another one reads. */
+#define SHCL_DURATION_MAX_MS 9223372036854ULL
+
+/* Field name endings that give a bare number its unit, after a `-` or `_`.
+   min, m and s are left out: `retries-min` is a minimum, and a trailing s is
+   usually a plural. A capitalized word (`timeoutMs`) is not a boundary,
+   since names fold to lower case and fmt writes them folded. */
+static const struct { const char *end; shcl_duration_unit unit; } duration_names[] = {
+	{"ms", SHCL_DURATION_MS}, {"sec", SHCL_DURATION_S}, {"seconds", SHCL_DURATION_S},
+	{"minutes", SHCL_DURATION_M}, {"hours", SHCL_DURATION_H}, {"days", SHCL_DURATION_D},
+};
+static const struct { const char *end; shcl_size_unit unit; } size_names[] = {
+	{"bytes", SHCL_SIZE_B}, {"kb", SHCL_SIZE_KB}, {"mb", SHCL_SIZE_MB}, {"gb", SHCL_SIZE_GB}, {"tb", SHCL_SIZE_TB},
+	{"kib", SHCL_SIZE_KIB}, {"mib", SHCL_SIZE_MIB}, {"gib", SHCL_SIZE_GIB}, {"tib", SHCL_SIZE_TIB},
+};
+/* name ends in end, in any letter case, after a `-` or `_`. */
+static int name_ends(ShclStr name, const char *end) {
+	size_t n = strlen(end);
+	if (name.n <= n) return 0;
+	size_t at = name.n - n;
+	for (size_t i = 0; i < n; i++) if ((name.p[at + i] | 0x20) != end[i]) return 0;
+	return name.p[at - 1] == '-' || name.p[at - 1] == '_';
+}
+static shcl_duration_unit name_duration_unit(ShclStr name) {
+	for (size_t i = 0; i < sizeof duration_names / sizeof *duration_names; i++)
+		if (name_ends(name, duration_names[i].end)) return duration_names[i].unit;
+	return SHCL_DURATION_NONE;
+}
+static shcl_size_unit name_size_unit(ShclStr name) {
+	for (size_t i = 0; i < sizeof size_names / sizeof *size_names; i++)
+		if (name_ends(name, size_names[i].end)) return size_names[i].unit;
+	return SHCL_SIZE_NONE;
+}
+/* A decimal number at the start of s: digits, then a point and more digits
+   if there is a point. The two digit runs and where it ended. */
+static int decimal_at(ShclStr s, ShclStr *ip, ShclStr *fp, size_t *end) {
+	size_t i = 0;
+	while (i < s.n && is_adigit((unsigned char)s.p[i])) i++;
+	if (i == 0) return 0;
+	*ip = s_slice(s, 0, i);
+	if (i >= s.n || s.p[i] != '.') { *fp = s_slice(s, i, i); *end = i; return 1; }
+	size_t j = i + 1;
+	while (j < s.n && is_adigit((unsigned char)s.p[j])) j++;
+	if (j == i + 1) return 0;
+	*fp = s_slice(s, i + 1, j); *end = j; return 1;
+}
+/* int.frac times scale, exactly: 0 when that is not a whole number or does
+   not fit, so 1.5s is 1500 ms and 0.0001s is refused. At most 18 digits
+   after the point count, which keeps the sum in 64 bits: the fraction's
+   share is below scale, and dividing out their common factor first gets it
+   without a wider product. */
+static int scaled(ShclStr ip, ShclStr fp, uint64_t scale, uint64_t *out) {
+	while (ip.n && ip.p[0] == '0') { ip.p++; ip.n--; }
+	while (fp.n && fp.p[fp.n - 1] == '0') fp.n--;
+	if (ip.n > 19 || fp.n > 18) return 0;
+	uint64_t whole = 0;
+	for (size_t i = 0; i < ip.n; i++) {
+		uint64_t dg = (uint64_t)(ip.p[i] - '0');
+		if (whole > (UINT64_MAX - dg) / 10) return 0;
+		whole = whole * 10 + dg;
+	}
+	if (whole && scale > UINT64_MAX / whole) return 0;
+	uint64_t total = whole * scale;
+	if (fp.n) {
+		uint64_t part = 0, den = 1;
+		for (size_t i = 0; i < fp.n; i++) { part = part * 10 + (uint64_t)(fp.p[i] - '0'); den *= 10; }
+		uint64_t a = scale, b = den;
+		while (b) { uint64_t t = a % b; a = b; b = t; }
+		uint64_t step = den / a;
+		if (part % step) return 0;
+		uint64_t add = part / step * (scale / a);
+		if (total > UINT64_MAX - add) return 0;
+		total += add;
+	}
+	*out = total; return 1;
+}
+/* A duration in whole milliseconds, and the units the text spelled as a bit
+   set (bit u for unit u): parts such as `1h 30m`, largest unit first and each
+   once, with blanks allowed between a number and its unit and between parts.
+   A bare number takes bare, and fails without one. No sign. */
+static int parse_duration_text(ShclStr t, shcl_duration_unit bare, int64_t *ms, unsigned *units, shcl_duration_unit *first) {
+	t = s_trim_wsp(t);
+	ShclStr ip, fp; size_t end;
+	*units = 0; *first = SHCL_DURATION_NONE;
+	if (decimal_at(t, &ip, &fp, &end) && end == t.n) {
+		uint64_t v;
+		if (bare == SHCL_DURATION_NONE || !scaled(ip, fp, duration_millis(bare), &v) || v > SHCL_DURATION_MAX_MS) return 0;
+		*ms = (int64_t)v; return 1;
+	}
+	ShclStr rest = t;
+	uint64_t total = 0;
+	shcl_duration_unit last = SHCL_DURATION_NONE;
+	while (rest.n) {
+		if (!decimal_at(rest, &ip, &fp, &end)) return 0;
+		rest = trim_wsp_start(s_slice(rest, end, rest.n));
+		size_t n = 0;
+		while (n < rest.n && ((unsigned char)rest.p[n] | 0x20) >= 'a' && ((unsigned char)rest.p[n] | 0x20) <= 'z') n++;
+		shcl_duration_unit u = shcl_duration_unit_of(rest.p, n);
+		if (u == SHCL_DURATION_NONE || (last != SHCL_DURATION_NONE && last <= u)) return 0;
+		uint64_t v;
+		if (!scaled(ip, fp, duration_millis(u), &v) || total > UINT64_MAX - v) return 0;
+		total += v;
+		if (last == SHCL_DURATION_NONE) *first = u;
+		last = u;
+		*units |= 1u << u;
+		rest = trim_wsp_start(s_slice(rest, n, rest.n));
+	}
+	if (last == SHCL_DURATION_NONE || total > SHCL_DURATION_MAX_MS) return 0;
+	*ms = (int64_t)total; return 1;
+}
+/* A size in whole bytes, and the unit the text spelled (NONE for a bare
+   number): a number, blanks allowed, then a unit. A bare number takes bare,
+   and fails without one. No sign. */
+static int parse_size_text(ShclStr t, shcl_size_unit bare, int decimal, int64_t *bytes, shcl_size_unit *unit) {
+	t = s_trim_wsp(t);
+	ShclStr ip, fp; size_t end;
+	if (!decimal_at(t, &ip, &fp, &end)) return 0;
+	ShclStr rest = trim_wsp_start(s_slice(t, end, t.n));
+	*unit = SHCL_SIZE_NONE;
+	if (rest.n && (*unit = shcl_size_unit_of(rest.p, rest.n)) == SHCL_SIZE_NONE) return 0;
+	shcl_size_unit use = *unit != SHCL_SIZE_NONE ? *unit : bare;
+	uint64_t v;
+	if (use == SHCL_SIZE_NONE || !scaled(ip, fp, size_bytes(use, decimal), &v) || v > (uint64_t)INT64_MAX) return 0;
+	*bytes = (int64_t)v; return 1;
+}
+/* A value in another unit than the one its field name ends in (H005), as
+   `timeout-ms: 5s`. The value's unit is the one read, so this is a hint. */
+static int unit_clash(ShclArena *a, ShclStr name, ShclStr text, ShclStr *msg) {
+	const char *v = NULL, *nm = NULL;
+	shcl_duration_unit nu = name_duration_unit(name);
+	int64_t x; unsigned units; shcl_duration_unit first;
+	if (nu != SHCL_DURATION_NONE && parse_duration_text(text, SHCL_DURATION_NONE, &x, &units, &first) && !(units & (1u << nu))) {
+		v = shcl_duration_unit_spelling(first); nm = shcl_duration_unit_spelling(nu);
+	}
+	shcl_size_unit su = name_size_unit(name), vu;
+	if (!v && su != SHCL_SIZE_NONE && parse_size_text(text, SHCL_SIZE_NONE, 0, &x, &vu) && vu != SHCL_SIZE_NONE && vu != su) {
+		v = shcl_size_unit_spelling(vu); nm = shcl_size_unit_spelling(su);
+	}
+	if (!v) return 0;
+	ShclSB m = {0};
+	sb_puts(a, &m, "value is in "); sb_puts(a, &m, v); sb_puts(a, &m, " and the name says "); sb_puts(a, &m, nm);
+	sb_puts(a, &m, "; the value's unit is the one read");
+	*msg = sb_S(&m); return 1;
+}
+
 static const char path_hint[] = "value looks like a Windows path, and its \\t or \\n reads as a tab or newline; single quotes keep a backslash as written";
 
 static ShclStr escape_msg(ShclArena *a, uint32_t c) {
@@ -2364,6 +2581,12 @@ static int schema_line_ref(ShclArena *ta, ShclArena *sc, ShclStr text, ShclToken
 	return 0;
 }
 
+/* The recovery path reads only the volatile carrier, so -Wclobbered's guess
+   about the walk inlined below is wrong here the way it is for do_parse. */
+#if defined(__GNUC__) && !defined(__clang__)
+	#pragma GCC diagnostic push
+	#pragma GCC diagnostic ignored "-Wclobbered"
+#endif
 const char *shcl_schema_ref(const char *text, size_t len, size_t *ref_len) {
 	ShclMigrateOwn *volatile own = (ShclMigrateOwn *)calloc(1, sizeof *own);
 	if (!own) { SHCL_OOM(); abort(); }
@@ -2385,6 +2608,9 @@ const char *shcl_schema_ref(const char *text, size_t len, size_t *ref_len) {
 	if (ref_len) *ref_len = found ? r.n : 0;
 	return found ? r.p : NULL;
 }
+#if defined(__GNUC__) && !defined(__clang__)
+	#pragma GCC diagnostic pop
+#endif
 
 // --- Path scanner (shared by file lines and accessor queries) ----------------
 
@@ -3852,6 +4078,8 @@ static int add_star_element(ShclParser *P, size_t parent, const ShclTokens *tok,
 	if (piece.quote == SHCL_QUOTE_OPEN) p_err(P, line, "E017", s_lit("unterminated quote in value"));
 	int binding_like = !el.quoted && looks_like_binding(el.text);
 	int path = path_like(&piece, text);
+	ShclStr clash;
+	int clashed = unit_clash(P->tmp, NODE(P->d, parent).name, el.text, &clash);
 	/* Element cap: each element line past it is refused on its own, the way
 	   any other bad element line is. Only a line that would join the list:
 	   under a field that already has a value it is E011, cap or not. */
@@ -3892,6 +4120,7 @@ static int add_star_element(ShclParser *P, size_t parent, const ShclTokens *tok,
 	}
 	if (binding_like) p_diag(P, line, SHCL_SEV_HINT, "H003", s_lit("list element looks like a field binding; it is read as a string (quote it to say so)"));
 	if (path) p_diag(P, line, SHCL_SEV_HINT, "H004", s_lit(path_hint));
+	if (clashed) p_diag(P, line, SHCL_SEV_HINT, "H005", clash);
 	/* A kept element holds its column as a dropped one does, with the field as
 	   that level's node: a line written deeper binds where it always did, and a
 	   line back at the element's column is its sibling, where no level had been
@@ -4241,6 +4470,10 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 		if (attach_path(&P, parent, scan.segs.data, scan.segs.len, value, lineno, indent, &node)) {
 			for (size_t k = 0; celled && k < tok.nelem; k++)
 				if (path_like(&tok.elements[k], rest)) { p_diag(&P, lineno, SHCL_SEV_HINT, "H004", s_lit(path_hint)); break; }
+			for (size_t k = 0; celled && k < tok.nelem; k++) {
+				ShclStr clash;
+				if (unit_clash(P.tmp, NODE(d, node).name, piece_text(P.tmp, &tok.elements[k], rest), &clash)) { p_diag(&P, lineno, SHCL_SEV_HINT, "H005", clash); break; }
+			}
 			if (had_blank) NODE(d, node).blank_before = 1;
 			if (next > i + 1) { ShclVecSize_push(a, &d->ends, lineno); ShclVecSize_push(a, &d->ends, next); }
 			attach_trivia(&P, node, indent, comment);
@@ -5833,6 +6066,48 @@ shcl_read_dt shcl_read_datetime(shcl_doc *d, const char *path, size_t plen) {
 	if (parse_datetime(&d->scratch, el->text, &R.value)) R.status = SHCL_GOOD;
 	else { memset(&R.value, 0, sizeof R.value); R.value.zone = SHCL_ZONE_NONE; R.status = SHCL_BAD_TYPE; }
 	return R;
+}
+/* scalar_at with the node's name, for the reads whose bare number takes its
+   unit from the name. */
+static shcl_status scalar_named_at(shcl_doc *d, ShclStr path, ShclElement **el, ShclStr *name) {
+	ShclResolved r;
+	*el = NULL;
+	if (!resolve(d, path, &r) || r.kind == R_NONE) return SHCL_NOT_FOUND;
+	if (r.kind == R_MANY || r.kind == R_SLOTS) return SHCL_MULTIPLE;
+	ShclValue *v = &NODE(d, r.one).value;
+	*name = NODE(d, r.one).name;
+	if (v->kind == V_EMPTY) return SHCL_EMPTY;
+	if (v->kind == V_RAW || v->nels != 1) return SHCL_BAD_TYPE;
+	*el = &v->els[0]; return SHCL_GOOD;
+}
+shcl_read_i64 shcl_read_duration(shcl_doc *d, const char *path, size_t plen, shcl_duration_unit unit) {
+	shcl_read_i64 R; ShclStr p; p.p = path; p.n = plen; ShclElement *el; ShclStr name = s_empty();
+	shcl_status st = scalar_named_at(d, p, &el, &name);
+	R.value = 0;
+	if (st != SHCL_GOOD) { R.status = st; return R; }
+	shcl_duration_unit bare = name_duration_unit(name);
+	if (bare == SHCL_DURATION_NONE) bare = unit;
+	unsigned units; shcl_duration_unit first;
+	R.status = parse_duration_text(el->text, bare, &R.value, &units, &first) ? SHCL_GOOD : SHCL_BAD_TYPE;
+	if (R.status != SHCL_GOOD) R.value = 0;
+	return R;
+}
+shcl_read_i64 shcl_read_size(shcl_doc *d, const char *path, size_t plen, shcl_size_unit unit, int decimal) {
+	shcl_read_i64 R; ShclStr p; p.p = path; p.n = plen; ShclElement *el; ShclStr name = s_empty();
+	shcl_status st = scalar_named_at(d, p, &el, &name);
+	R.value = 0;
+	if (st != SHCL_GOOD) { R.status = st; return R; }
+	shcl_size_unit bare = name_size_unit(name), vu;
+	if (bare == SHCL_SIZE_NONE) bare = unit;
+	R.status = parse_size_text(el->text, bare, decimal, &R.value, &vu) ? SHCL_GOOD : SHCL_BAD_TYPE;
+	if (R.status != SHCL_GOOD) R.value = 0;
+	return R;
+}
+int64_t shcl_get_duration_or(shcl_doc *d, const char *path, size_t plen, shcl_duration_unit unit, int64_t def) {
+	shcl_read_i64 r = shcl_read_duration(d, path, plen, unit); return r.status == SHCL_GOOD ? r.value : def;
+}
+int64_t shcl_get_size_or(shcl_doc *d, const char *path, size_t plen, shcl_size_unit unit, int decimal, int64_t def) {
+	shcl_read_i64 r = shcl_read_size(d, path, plen, unit, decimal); return r.status == SHCL_GOOD ? r.value : def;
 }
 static ShclStr emit_element(ShclArena *a, const ShclElement *e);
 
@@ -7578,7 +7853,7 @@ const char *shcl_diag_code(const shcl_doc *d, size_t i) { return d->diags.data[i
 struct shcl_validation { ShclArena arena, scratch; ShclVecDiag diags; };
 
 static const char *v_schema_types[] = {
-	"int", "float", "bool", "string", "datetime", "raw",
+	"int", "float", "bool", "string", "datetime", "raw", "duration", "size",
 	"int-array", "float-array", "bool-array", "string-array", "datetime-array",
 };
 
@@ -7593,6 +7868,11 @@ typedef struct {
 	int64_t *a_ints; double *a_floats; int *a_bools; shcl_datetime *a_dates; ShclStr *a_strs;
 	int has_min_i, has_max_i, has_min_f, has_max_f;
 	int64_t min_i, max_i; double min_f, max_f;
+	/* duration and size: the unit a bare number takes when the field name
+	   gives none, base 10 for KB to TB, and the bounds as the schema spelled
+	   them, since min_i and max_i hold them in milliseconds or bytes. */
+	shcl_duration_unit unit_d; shcl_size_unit unit_s; int decimal;
+	ShclStr min_text, max_text;
 	int has_repeat; uint64_t rep_lo, rep_hi;
 	int reopen;                 // H002 suppressor only; validation ignores it
 	ShclStr inherits;           // fragment mounted at this path (subtree shape); .n == 0 = none
@@ -7734,6 +8014,7 @@ static int v_parse_field(ShclArena *a, shcl_doc *schema, size_t f, ShclVecDiag *
 	int required = -1;
 	int reopen_seen = 0;
 	size_t allowed_at = (size_t)-1, min_at = (size_t)-1, max_at = (size_t)-1, default_at = (size_t)-1;
+	size_t unit_at = (size_t)-1, decimal_key_at = (size_t)-1;
 	ShclVecSize kids = NODE(schema, f).children;
 	for (size_t ki = 0; ki < kids.len; ki++) {
 		ShclNode *kid = &NODE(schema, kids.data[ki]);
@@ -7777,6 +8058,14 @@ static int v_parse_field(ShclArena *a, shcl_doc *schema, size_t f, ShclVecDiag *
 		} else if (s_eq(kid->name, s_lit("max"))) {
 			if (kid->value.kind == V_CELL && kid->value.nels == 1 && max_at == (size_t)-1) max_at = kids.data[ki];
 			else v_diag(a, faults, kid->line, "V092", v_msg_key(a, "max"));
+		} else if (s_eq(kid->name, s_lit("unit"))) {
+			if (kid->value.kind == V_CELL && kid->value.nels == 1 && unit_at == (size_t)-1) unit_at = kids.data[ki];
+			else v_diag(a, faults, kid->line, "V092", v_msg_key(a, "unit"));
+		} else if (s_eq(kid->name, s_lit("decimal"))) {
+			ShclStr t; int b = 0;
+			int ok = v_single_text(&kid->value, &t) && parse_bool_text(a, t, SHCL_STANDARD, &b);
+			if (ok && decimal_key_at == (size_t)-1) { decimal_key_at = kids.data[ki]; c.decimal = b; }
+			else v_diag(a, faults, kid->line, "V092", v_msg_key(a, "decimal"));
 		} else if (s_eq(kid->name, s_lit("repeat"))) {
 			if (kid->value.kind == V_CELL && !c.has_repeat && (kid->value.nels == 1 || kid->value.nels == 2)) {
 				uint64_t lo, hi;
@@ -7833,6 +8122,20 @@ static int v_parse_field(ShclArena *a, shcl_doc *schema, size_t f, ShclVecDiag *
 		for (size_t x = 0; x < sizeof v_schema_types / sizeof v_schema_types[0]; x++)
 			if (strlen(v_schema_types[x]) == blen - 6 && memcmp(v_schema_types[x], base, blen - 6) == 0) { base = v_schema_types[x]; break; }
 	}
+	int is_duration = strcmp(base, "duration") == 0, is_size = strcmp(base, "size") == 0;
+	/* `unit` and `decimal` belong to the types that read a bare number in
+	   one, and a unit has to be one that type spells. */
+	if (unit_at != (size_t)-1) {
+		ShclNode *kid = &NODE(schema, unit_at);
+		ShclStr t = kid->value.els[0].text;
+		if (is_duration) c.unit_d = shcl_duration_unit_of(t.p, t.n);
+		if (is_size) c.unit_s = shcl_size_unit_of(t.p, t.n);
+		if (c.unit_d == SHCL_DURATION_NONE && c.unit_s == SHCL_SIZE_NONE) v_diag(a, faults, kid->line, "V092", v_msg_key(a, "unit"));
+	}
+	if (decimal_key_at != (size_t)-1 && !is_size) {
+		v_diag(a, faults, NODE(schema, decimal_key_at).line, "V092", v_msg_key(a, "decimal"));
+		c.decimal = 0;
+	}
 	if (allowed_at != (size_t)-1) {
 		ShclNode *kid = &NODE(schema, allowed_at);
 		ShclElement *els = kid->value.els; size_t n = kid->value.nels;
@@ -7856,8 +8159,10 @@ static int v_parse_field(ShclArena *a, shcl_doc *schema, size_t f, ShclVecDiag *
 			c.akind = ALLOW_DATES;
 			c.a_dates = (shcl_datetime *)arena_alloc(a, (n ? n : 1) * sizeof(shcl_datetime));
 			for (size_t x = 0; x < n && ok; x++) ok = parse_datetime(a, els[x].text, &c.a_dates[x]);
-		} else if (strcmp(base, "raw") == 0) {
-			ok = 0; // a raw body has no element space to enumerate
+		} else if (strcmp(base, "raw") == 0 || is_duration || is_size) {
+			/* A raw body has no element space to enumerate, and a duration or
+			   size is bounded with min and max rather than listed. */
+			ok = 0;
 		} else {
 			c.akind = ALLOW_STRINGS;
 			c.a_strs = (ShclStr *)arena_alloc(a, (n ? n : 1) * sizeof(ShclStr));
@@ -7885,6 +8190,16 @@ static int v_parse_field(ShclArena *a, shcl_doc *schema, size_t f, ShclVecDiag *
 				if (is_min) { c.has_min_f = 1; c.min_f = v; }
 				else { c.has_max_f = 1; c.max_f = v; }
 			} else v_diag(a, faults, kid->line, "V092", v_msg_key(a, key));
+		} else if (is_duration || is_size) {
+			/* Read the way the document's value is, less the field name: the
+			   schema says its unit. */
+			int64_t v; unsigned units; shcl_duration_unit first; shcl_size_unit vu;
+			int ok = is_duration ? parse_duration_text(el->text, c.unit_d, &v, &units, &first)
+				: parse_size_text(el->text, c.unit_s, c.decimal, &v, &vu);
+			if (ok) {
+				if (is_min) { c.has_min_i = 1; c.min_i = v; c.min_text = el->text; }
+				else { c.has_max_i = 1; c.max_i = v; c.max_text = el->text; }
+			} else v_diag(a, faults, kid->line, "V092", v_msg_key(a, key));
 		} else {
 			v_diag(a, faults, kid->line, "V092", v_msg_key(a, key));
 		}
@@ -7900,6 +8215,7 @@ static int v_parse_field(ShclArena *a, shcl_doc *schema, size_t f, ShclVecDiag *
 		size_t line = max_at != (size_t)-1 ? NODE(schema, max_at).line : node->line;
 		v_diag(a, faults, line, "V092", v_msg_key(a, "max"));
 		c.has_min_i = c.has_max_i = c.has_min_f = c.has_max_f = 0;
+		c.min_text = c.max_text = s_empty();
 	}
 	*out = c;
 	return 1;
@@ -8341,6 +8657,32 @@ static void v_node(ShclArena *a, ShclArena *lv, shcl_doc *d, const ShclVCons *c,
 				if (!found) { v_not_allowed(a, out, line, c, els[x].text); break; }
 			}
 		}
+	} else if (V_BASE_IS("duration") || V_BASE_IS("size")) {
+		// A bare number takes its unit from the field name first, as the read
+		// does, then the schema's `unit`.
+		int is_duration = V_BASE_IS("duration");
+		int64_t *vals = (int64_t *)arena_alloc(lv, (nels ? nels : 1) * sizeof(int64_t));
+		for (size_t x = 0; x < nels; x++) {
+			int ok;
+			if (is_duration) {
+				shcl_duration_unit bare = name_duration_unit(node->name);
+				unsigned units; shcl_duration_unit first;
+				ok = parse_duration_text(els[x].text, bare != SHCL_DURATION_NONE ? bare : c->unit_d, &vals[x], &units, &first);
+			} else {
+				shcl_size_unit bare = name_size_unit(node->name), vu;
+				ok = parse_size_text(els[x].text, bare != SHCL_SIZE_NONE ? bare : c->unit_s, c->decimal, &vals[x], &vu);
+			}
+			if (!ok) { v_wrong_type(a, out, line, c); return; }
+		}
+		if (c->has_allowed && c->akind == ALLOW_INTS) {
+			for (size_t x = 0; x < nels; x++) {
+				int found = 0;
+				for (size_t y = 0; y < c->a_n; y++) if (c->a_ints[y] == vals[x]) { found = 1; break; }
+				if (!found) { v_not_allowed(a, out, line, c, els[x].text); break; }
+			}
+		}
+		if (c->has_min_i && c->min_text.n) { for (size_t x = 0; x < nels; x++) if (vals[x] < c->min_i) { v_out_of_range(a, out, line, c, "V005", "below min ", v_one_line(a, c->min_text), els[x].text); break; } }
+		if (c->has_max_i && c->max_text.n) { for (size_t x = 0; x < nels; x++) if (vals[x] > c->max_i) { v_out_of_range(a, out, line, c, "V006", "above max ", v_one_line(a, c->max_text), els[x].text); break; } }
 	} else {
 		// string kind or untyped: every element coerces; only the allowed set
 		// can fail, in logical-string space.
@@ -9706,12 +10048,21 @@ static ShclStr v_gen_annotation(ShclArena *a, const ShclVCons *c, ShclStr tyname
 	ShclSB s = {0, 0, 0};
 	char nb[80];
 	sb_putS(a, &s, tyname);
+	if (c->unit_d != SHCL_DURATION_NONE) { sb_puts(a, &s, " in "); sb_puts(a, &s, shcl_duration_unit_spelling(c->unit_d)); }
+	else if (c->unit_s != SHCL_SIZE_NONE) { sb_puts(a, &s, " in "); sb_puts(a, &s, shcl_size_unit_spelling(c->unit_s)); }
+	if (c->decimal) sb_puts(a, &s, ", KB to TB in powers of 1000");
 	if (c->has_allowed) {
 		sb_puts(a, &s, ", one of: "); sb_putS(a, &s, v_allowed_join(a, c));
 	}
 	// The bounds are their own part of the annotation line, not an alternative
-	// to `allowed`. A field can carry both, and the validator enforces both.
-	if (c->has_min_i || c->has_max_i) {
+	// to `allowed`. A field can carry both, and the validator enforces both. A
+	// duration or size bound reads the way the schema spelled it.
+	if (c->min_text.n || c->max_text.n) {
+		sb_puts(a, &s, ", ");
+		if (c->min_text.n && c->max_text.n) { sb_putS(a, &s, c->min_text); sb_putc(a, &s, '-'); sb_putS(a, &s, c->max_text); }
+		else if (c->min_text.n) { sb_puts(a, &s, ">= "); sb_putS(a, &s, c->min_text); }
+		else { sb_puts(a, &s, "<= "); sb_putS(a, &s, c->max_text); }
+	} else if (c->has_min_i || c->has_max_i) {
 		if (c->has_min_i && c->has_max_i) snprintf(nb, sizeof nb, ", %" PRId64 "-%" PRId64, c->min_i, c->max_i);
 		else if (c->has_min_i) snprintf(nb, sizeof nb, ", >= %" PRId64, c->min_i);
 		else snprintf(nb, sizeof nb, ", <= %" PRId64, c->max_i);

@@ -20,17 +20,17 @@ _shcl_subcommands='get set fmt check init count instances children paths migrate
 
 ## Type options, valid on `get` only. The table below carries them as the single
 ## token --<type>, exactly as the CLI's own table does.
-_shcl_types='--int --float --bool --datetime --string --raw --rawinfo'
+_shcl_types='--int --float --bool --datetime --string --raw --rawinfo --duration --size'
 
 ## Options that take a value, in either spelling. Mirrors the list asked_for()
 ## steps over in the CLI; check-completions.bash diffs the two.
-_shcl_valopts='--default --on-bad --strictness --schema --layer --set --set-literal --set-default --set-literal-default --remove'
+_shcl_valopts='--default --on-bad --strictness --schema --unit --layer --set --set-literal --set-default --set-literal-default --remove'
 
 ## Options each subcommand accepts. Anything else is a usage error to the CLI,
 ## so offering it here would be a lie.
 _shcl_opts() {
 	case "$1" in
-		get)             echo '--<type> --array --slots --default --on-bad --strictness --layer --set --set-literal --set-default --set-literal-default --remove' ;;
+		get)             echo '--<type> --array --slots --unit --decimal --default --on-bad --strictness --layer --set --set-literal --set-default --set-literal-default --remove' ;;
 		set)             echo '--strictness --layer --set --set-literal --set-default --set-literal-default --remove --write --lossy --no-banner' ;;
 		fmt)             echo '--write --lossy --check --strictness --layer --set --set-literal --set-default --set-literal-default --remove' ;;
 		check)           echo '--strictness --schema' ;;
@@ -79,6 +79,7 @@ _shcl() {
 	case "${prev}" in
 		--strictness)     mapfile -t COMPREPLY < <(compgen -W 'loose standard strict 1 2 3' -- "${cur}"); return ;;
 		--on-bad)         mapfile -t COMPREPLY < <(compgen -W 'error default flag' -- "${cur}"); return ;;
+		--unit)           mapfile -t COMPREPLY < <(compgen -W 'ms s m h d B KB MB GB TB KiB MiB GiB TiB' -- "${cur}"); return ;;
 		--schema|--layer) _shcl_files "${cur}"; return ;;
 	esac
 	## The rest take a PATH, or a value nothing here can enumerate.

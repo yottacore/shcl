@@ -45,6 +45,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/bits"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -54,6 +55,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unicode"
 	"unicode/utf8"
 )
@@ -1393,6 +1395,8 @@ func asciiLower(s string) string {
 func isBareNameChar(c rune) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_'
 }
+
+func isASCIIAlpha(b byte) bool { return (b|0x20) >= 'a' && (b|0x20) <= 'z' }
 
 func isASCIIDigit(b byte) bool {
 	return b >= '0' && b <= '9'
@@ -3446,6 +3450,7 @@ func (p *parser) addStarElement(parent int, tok *Tokens, text string, line int, 
 	}
 	bindingLike := !el.quoted && looksLikeBinding(el.text)
 	path := pathLike(&piece, text)
+	clash, clashed := unitClash(p.arena[parent].name, el.text)
 	// Element cap: each element line past it is refused on its own, the way
 	// any other bad element line is. Only a line that would join the list:
 	// under a field that already has a value it is E011, cap or not.
@@ -3491,6 +3496,9 @@ func (p *parser) addStarElement(parent int, tok *Tokens, text string, line int, 
 	}
 	if path {
 		p.diag(Diagnostic{Line: line, Severity: SeverityHint, Message: pathHint, Code: "H004"})
+	}
+	if clashed {
+		p.diag(Diagnostic{Line: line, Severity: SeverityHint, Message: clash, Code: "H005"})
 	}
 	// A kept element holds its column as a dropped one does, with the field as
 	// that level's node: a line written deeper binds where it always did, and a
@@ -3931,6 +3939,12 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 				for i := range tok.Elements {
 					if pathLike(&tok.Elements[i], rest) {
 						p.diag(Diagnostic{Line: lineno, Severity: SeverityHint, Message: pathHint, Code: "H004"})
+						break
+					}
+				}
+				for i := range tok.Elements {
+					if m, ok := unitClash(p.arena[node].name, pieceText(&tok.Elements[i], rest)); ok {
+						p.diag(Diagnostic{Line: lineno, Severity: SeverityHint, Message: m, Code: "H005"})
 						break
 					}
 				}
@@ -8278,6 +8292,406 @@ func parseBoolText(t string, level Strictness) (bool, bool) {
 }
 
 // ---------------------------------------------------------------------------
+// Durations and sizes: a number with a unit, or a bare number whose unit the
+// field name or the caller gives
+// ---------------------------------------------------------------------------
+
+// DurationUnit is the unit a duration read gives a bare number, when the
+// field name gives none. DurationNone asks for none. Smallest first.
+type DurationUnit int
+
+const (
+	DurationNone DurationUnit = iota
+	DurationMillis
+	DurationSeconds
+	DurationMinutes
+	DurationHours
+	DurationDays
+)
+
+func (u DurationUnit) millis() uint64 {
+	switch u {
+	case DurationMillis:
+		return 1
+	case DurationSeconds:
+		return 1_000
+	case DurationMinutes:
+		return 60_000
+	case DurationHours:
+		return 3_600_000
+	case DurationDays:
+		return 86_400_000
+	}
+	return 0
+}
+
+// Spelling is the unit as a value spells it: ms, s, m, h or d.
+func (u DurationUnit) Spelling() string {
+	switch u {
+	case DurationMillis:
+		return "ms"
+	case DurationSeconds:
+		return "s"
+	case DurationMinutes:
+		return "m"
+	case DurationHours:
+		return "h"
+	case DurationDays:
+		return "d"
+	}
+	return ""
+}
+
+// DurationUnitFromSpelling is the unit a value spelling names, lower case
+// only; ok is false for anything else.
+func DurationUnitFromSpelling(s string) (DurationUnit, bool) {
+	switch s {
+	case "ms":
+		return DurationMillis, true
+	case "s":
+		return DurationSeconds, true
+	case "m":
+		return DurationMinutes, true
+	case "h":
+		return DurationHours, true
+	case "d":
+		return DurationDays, true
+	}
+	return DurationNone, false
+}
+
+// SizeUnit is the unit a size read gives a bare number, when the field name
+// gives none. SizeNone asks for none. SizeKilo to SizeTera are powers of 1024
+// unless the read asks for decimal; SizeKibi to SizeTebi always are.
+type SizeUnit int
+
+const (
+	SizeNone SizeUnit = iota
+	SizeBytes
+	SizeKilo
+	SizeMega
+	SizeGiga
+	SizeTera
+	SizeKibi
+	SizeMebi
+	SizeGibi
+	SizeTebi
+)
+
+func (u SizeUnit) bytes(decimal bool) uint64 {
+	k := uint64(1024)
+	if decimal {
+		k = 1000
+	}
+	switch u {
+	case SizeBytes:
+		return 1
+	case SizeKilo:
+		return k
+	case SizeMega:
+		return k * k
+	case SizeGiga:
+		return k * k * k
+	case SizeTera:
+		return k * k * k * k
+	case SizeKibi:
+		return 1 << 10
+	case SizeMebi:
+		return 1 << 20
+	case SizeGibi:
+		return 1 << 30
+	case SizeTebi:
+		return 1 << 40
+	}
+	return 0
+}
+
+// Spelling is the unit as a value spells it: B, KB, MB, GB, TB, KiB, MiB, GiB
+// or TiB.
+func (u SizeUnit) Spelling() string {
+	switch u {
+	case SizeBytes:
+		return "B"
+	case SizeKilo:
+		return "KB"
+	case SizeMega:
+		return "MB"
+	case SizeGiga:
+		return "GB"
+	case SizeTera:
+		return "TB"
+	case SizeKibi:
+		return "KiB"
+	case SizeMebi:
+		return "MiB"
+	case SizeGibi:
+		return "GiB"
+	case SizeTebi:
+		return "TiB"
+	}
+	return ""
+}
+
+// SizeUnitFromSpelling is the unit a value spelling names. Letter case is
+// read, since Mb is megabits to most readers; kB is the one other spelling
+// taken.
+func SizeUnitFromSpelling(s string) (SizeUnit, bool) {
+	switch s {
+	case "B":
+		return SizeBytes, true
+	case "KB", "kB":
+		return SizeKilo, true
+	case "MB":
+		return SizeMega, true
+	case "GB":
+		return SizeGiga, true
+	case "TB":
+		return SizeTera, true
+	case "KiB":
+		return SizeKibi, true
+	case "MiB":
+		return SizeMebi, true
+	case "GiB":
+		return SizeGibi, true
+	case "TiB":
+		return SizeTebi, true
+	}
+	return SizeNone, false
+}
+
+// durationMaxMs is the longest duration a read gives, in milliseconds: Go's
+// time.Duration range, so every binding holds every duration another reads.
+const durationMaxMs = 9_223_372_036_854
+
+// durationNames are the field name endings that give a bare number its
+// unit, after a `-` or `_`. min, m and s are left out: `retries-min` is a
+// minimum, and a trailing s is usually a plural. A capitalized word
+// (`timeoutMs`) is not a boundary, since names fold to lower case and fmt
+// writes them folded.
+var durationNames = []struct {
+	end  string
+	unit DurationUnit
+}{
+	{"ms", DurationMillis}, {"sec", DurationSeconds}, {"seconds", DurationSeconds},
+	{"minutes", DurationMinutes}, {"hours", DurationHours}, {"days", DurationDays},
+}
+
+var sizeNames = []struct {
+	end  string
+	unit SizeUnit
+}{
+	{"bytes", SizeBytes}, {"kb", SizeKilo}, {"mb", SizeMega}, {"gb", SizeGiga}, {"tb", SizeTera},
+	{"kib", SizeKibi}, {"mib", SizeMebi}, {"gib", SizeGibi}, {"tib", SizeTebi},
+}
+
+// nameEnds reports whether name ends in end, in any letter case, after a `-`
+// or `_`.
+func nameEnds(name, end string) bool {
+	at := len(name) - len(end)
+	return at > 0 && strings.EqualFold(name[at:], end) && (name[at-1] == '-' || name[at-1] == '_')
+}
+
+func nameDurationUnit(name string) DurationUnit {
+	for _, e := range durationNames {
+		if nameEnds(name, e.end) {
+			return e.unit
+		}
+	}
+	return DurationNone
+}
+
+func nameSizeUnit(name string) SizeUnit {
+	for _, e := range sizeNames {
+		if nameEnds(name, e.end) {
+			return e.unit
+		}
+	}
+	return SizeNone
+}
+
+// decimalAt reads a decimal number at the start of s: digits, then a point
+// and more digits if there is a point. It returns the two digit runs and
+// where the number ended.
+func decimalAt(s string) (string, string, int, bool) {
+	i := 0
+	for i < len(s) && isASCIIDigit(s[i]) {
+		i++
+	}
+	if i == 0 {
+		return "", "", 0, false
+	}
+	if i >= len(s) || s[i] != '.' {
+		return s[:i], "", i, true
+	}
+	j := i + 1
+	for j < len(s) && isASCIIDigit(s[j]) {
+		j++
+	}
+	if j == i+1 {
+		return "", "", 0, false
+	}
+	return s[:i], s[i+1 : j], j, true
+}
+
+// scaled is int.frac times scale, exactly. ok is false when that is not a
+// whole number or does not fit, so 1.5s is 1500 ms and 0.0001s is refused.
+// At most 18 digits after the point count, which keeps the sum in 64 bits:
+// the fraction's share is below scale, and dividing out their common factor
+// first gets it without a wider product.
+func scaled(intDigits, fracDigits string, scale uint64) (uint64, bool) {
+	intDigits = strings.TrimLeft(intDigits, "0")
+	fracDigits = strings.TrimRight(fracDigits, "0")
+	if len(intDigits) > 19 || len(fracDigits) > 18 {
+		return 0, false
+	}
+	var whole uint64
+	if intDigits != "" {
+		w, err := strconv.ParseUint(intDigits, 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		whole = w
+	}
+	hi, total := bits.Mul64(whole, scale)
+	if hi != 0 {
+		return 0, false
+	}
+	if fracDigits != "" {
+		part, err := strconv.ParseUint(fracDigits, 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		den := uint64(1)
+		for range fracDigits {
+			den *= 10
+		}
+		a, b := scale, den
+		for b != 0 {
+			a, b = b, a%b
+		}
+		step := den / a
+		if part%step != 0 {
+			return 0, false
+		}
+		sum, carry := bits.Add64(total, part/step*(scale/a), 0)
+		if carry != 0 {
+			return 0, false
+		}
+		total = sum
+	}
+	return total, true
+}
+
+// parseDurationText is a duration in whole milliseconds, and the units the
+// text spelled: parts such as `1h 30m`, largest unit first and each once,
+// with blanks allowed between a number and its unit and between parts. A
+// bare number takes bare, and is not ok without one. No sign.
+func parseDurationText(t string, bare DurationUnit) (int64, []DurationUnit, bool) {
+	t = trimWsp(t)
+	if i, f, end, ok := decimalAt(t); ok && end == len(t) {
+		if bare == DurationNone {
+			return 0, nil, false
+		}
+		ms, ok := scaled(i, f, bare.millis())
+		if !ok || ms > durationMaxMs {
+			return 0, nil, false
+		}
+		return int64(ms), nil, true
+	}
+	rest := t
+	var total uint64
+	var units []DurationUnit
+	for rest != "" {
+		i, f, end, ok := decimalAt(rest)
+		if !ok {
+			return 0, nil, false
+		}
+		rest = strings.TrimLeftFunc(rest[end:], isWsp)
+		n := 0
+		for n < len(rest) && isASCIIAlpha(rest[n]) {
+			n++
+		}
+		unit, ok := DurationUnitFromSpelling(rest[:n])
+		if !ok || (len(units) > 0 && units[len(units)-1] <= unit) {
+			return 0, nil, false
+		}
+		v, ok := scaled(i, f, unit.millis())
+		if !ok {
+			return 0, nil, false
+		}
+		sum, carry := bits.Add64(total, v, 0)
+		if carry != 0 {
+			return 0, nil, false
+		}
+		total = sum
+		units = append(units, unit)
+		rest = strings.TrimLeftFunc(rest[n:], isWsp)
+	}
+	if len(units) == 0 || total > durationMaxMs {
+		return 0, nil, false
+	}
+	return int64(total), units, true
+}
+
+// parseSizeText is a size in whole bytes, and the unit the text spelled: a
+// number, blanks allowed, then a unit. A bare number takes bare, and is not
+// ok without one. No sign.
+func parseSizeText(t string, bare SizeUnit, decimal bool) (int64, SizeUnit, bool) {
+	t = trimWsp(t)
+	i, f, end, ok := decimalAt(t)
+	if !ok {
+		return 0, SizeNone, false
+	}
+	rest := strings.TrimLeftFunc(t[end:], isWsp)
+	unit := SizeNone
+	if rest != "" {
+		if unit, ok = SizeUnitFromSpelling(rest); !ok {
+			return 0, SizeNone, false
+		}
+	}
+	use := unit
+	if use == SizeNone {
+		use = bare
+	}
+	if use == SizeNone {
+		return 0, SizeNone, false
+	}
+	n, ok := scaled(i, f, use.bytes(decimal))
+	if !ok || n > math.MaxInt64 {
+		return 0, SizeNone, false
+	}
+	return int64(n), unit, true
+}
+
+// unitClash is a value in another unit than the one its field name ends in
+// (H005), as `timeout-ms: 5s`. The value's unit is the one read, so this is a
+// hint.
+func unitClash(name, text string) (string, bool) {
+	said := func(v, n string) string {
+		return "value is in " + v + " and the name says " + n + "; the value's unit is the one read"
+	}
+	if nu := nameDurationUnit(name); nu != DurationNone {
+		if _, units, ok := parseDurationText(text, DurationNone); ok {
+			has := false
+			for _, u := range units {
+				if u == nu {
+					has = true
+				}
+			}
+			if !has {
+				return said(units[0].Spelling(), nu.Spelling()), true
+			}
+		}
+	}
+	if nu := nameSizeUnit(name); nu != SizeNone {
+		if _, vu, ok := parseSizeText(text, SizeNone, false); ok && vu != SizeNone && vu != nu {
+			return said(vu.Spelling(), nu.Spelling()), true
+		}
+	}
+	return "", false
+}
+
+// ---------------------------------------------------------------------------
 // Date/time (closed whitelist; shape match, then calendar validation)
 // ---------------------------------------------------------------------------
 
@@ -8675,6 +9089,47 @@ func (d *Document) ReadDateTime(path string) Read[DateTime] {
 	return readScalar(d, path, func(e *element) (DateTime, bool) { return ParseDateTime(e.text) })
 }
 
+// readNamed is readScalar with the node's name, for the reads whose bare
+// number takes its unit from the name.
+func readNamed[T any](d *Document, path string, coerce func(*element, string) (T, bool)) Read[T] {
+	n, st := d.nodeAt(path)
+	if n < 0 {
+		var zero T
+		return Read[T]{Value: zero, Status: st}
+	}
+	name := d.arena[n].name
+	return readScalar(d, path, func(e *element) (T, bool) { return coerce(e, name) })
+}
+
+// ReadDuration is the full-tier duration read at path, in whole milliseconds:
+// `500ms`, `30s`, `1h 30m`, `2d`. A bare number takes its unit from the field
+// name when the name ends in one (`timeout-ms`, `delay_seconds`), else from
+// unit, and is BadType with neither.
+func (d *Document) ReadDuration(path string, unit DurationUnit) Read[time.Duration] {
+	return readNamed(d, path, func(e *element, name string) (time.Duration, bool) {
+		bare := nameDurationUnit(name)
+		if bare == DurationNone {
+			bare = unit
+		}
+		ms, _, ok := parseDurationText(e.text, bare)
+		return time.Duration(ms) * time.Millisecond, ok
+	})
+}
+
+// ReadSize is the full-tier size read at path, in whole bytes: `512MB`,
+// `1.5 GiB`. A bare number takes its unit the way a duration does. KB to TB
+// are powers of 1024 unless decimal is set.
+func (d *Document) ReadSize(path string, unit SizeUnit, decimal bool) Read[int64] {
+	return readNamed(d, path, func(e *element, name string) (int64, bool) {
+		bare := nameSizeUnit(name)
+		if bare == SizeNone {
+			bare = unit
+		}
+		n, _, ok := parseSizeText(e.text, bare, decimal)
+		return n, ok
+	})
+}
+
 // ReadString reads any value as a string: a raw block yields its content, an
 // array its canonical inline text. Escapes are applied.
 func (d *Document) ReadString(path string) Read[string] {
@@ -8889,6 +9344,18 @@ func (d *Document) GetDateTime(path string) (DateTime, Status) {
 	return r.Value, r.Status
 }
 
+// GetDuration is ReadDuration reduced to (value, status).
+func (d *Document) GetDuration(path string, unit DurationUnit) (time.Duration, Status) {
+	r := d.ReadDuration(path, unit)
+	return r.Value, r.Status
+}
+
+// GetSize is ReadSize reduced to (value, status).
+func (d *Document) GetSize(path string, unit SizeUnit, decimal bool) (int64, Status) {
+	r := d.ReadSize(path, unit, decimal)
+	return r.Value, r.Status
+}
+
 // The array forms of the same reduction. The status is the whole read's, so a
 // partially-resolved array reports non-Good with the resolved slots still in
 // the value; the per-slot statuses are the Read*Array tier's Slots.
@@ -8986,6 +9453,22 @@ func (d *Document) GetDateTimeOr(path string, def DateTime) DateTime {
 	return def
 }
 
+// GetDurationOr is the duration at path, or def when the read is not Good.
+func (d *Document) GetDurationOr(path string, unit DurationUnit, def time.Duration) time.Duration {
+	if r := d.ReadDuration(path, unit); r.Status == Good {
+		return r.Value
+	}
+	return def
+}
+
+// GetSizeOr is the size at path, or def when the read is not Good.
+func (d *Document) GetSizeOr(path string, unit SizeUnit, decimal bool, def int64) int64 {
+	if r := d.ReadSize(path, unit, decimal); r.Status == Good {
+		return r.Value
+	}
+	return def
+}
+
 // GetIntArrayOr is the integer array at path, or def when the read is not Good.
 func (d *Document) GetIntArrayOr(path string, def []int64) []int64 {
 	if r := d.ReadIntArray(path); r.Status == Good {
@@ -9044,6 +9527,8 @@ var schemaTypes = []string{
 	"string",
 	"datetime",
 	"raw",
+	"duration",
+	"size",
 	"int-array",
 	"float-array",
 	"bool-array",
@@ -9073,15 +9558,23 @@ type allowedSet struct {
 }
 
 type constraint struct {
-	path         string // as written in the schema; message text only
-	segs         []segment
-	ty           string // member of schemaTypes; "" = untyped
-	required     bool
-	allowed      *allowedSet
-	minI         *int64
-	maxI         *int64
-	minF         *float64
-	maxF         *float64
+	path     string // as written in the schema; message text only
+	segs     []segment
+	ty       string // member of schemaTypes; "" = untyped
+	required bool
+	allowed  *allowedSet
+	minI     *int64
+	maxI     *int64
+	minF     *float64
+	maxF     *float64
+	// duration and size: the unit a bare number takes when the field name
+	// gives none, base 10 for KB to TB, and the bounds as the schema spelled
+	// them, since minI and maxI hold them in milliseconds or bytes.
+	unitD        DurationUnit
+	unitS        SizeUnit
+	decimal      bool
+	minText      *string
+	maxText      *string
 	repeat       *[2]uint64
 	reopen       bool   // H002 suppressor only; validation ignores it
 	inherits     string // fragment mounted at this path (subtree shape); "" = none
@@ -9282,6 +9775,8 @@ func parseField(schema *Document, f int, faults *[]Diagnostic) (constraint, bool
 	defaultAt := -1
 	minAt := -1
 	maxAt := -1
+	unitAt := -1
+	decimalKeyAt := -1
 	for _, k := range schema.arena[f].children {
 		kid := &schema.arena[k]
 		if kid.value.isEmpty() {
@@ -9348,6 +9843,24 @@ func parseField(schema *Document, f int, faults *[]Diagnostic) (constraint, bool
 			} else {
 				vdiag(faults, kid.line, "V092", "bad schema constraint 'max'")
 			}
+		case "unit":
+			if kid.value.kind == vCell && len(kid.value.els) == 1 && unitAt < 0 {
+				unitAt = k
+			} else {
+				vdiag(faults, kid.line, "V092", "bad schema constraint 'unit'")
+			}
+		case "decimal":
+			t, ok := singleText(&kid.value)
+			var b bool
+			if ok {
+				b, ok = parseBoolText(t, Standard)
+			}
+			if ok && decimalKeyAt < 0 {
+				decimalKeyAt = k
+				c.decimal = b
+			} else {
+				vdiag(faults, kid.line, "V092", "bad schema constraint 'decimal'")
+			}
 		case "repeat":
 			if kid.value.kind == vCell && c.repeat == nil && (len(kid.value.els) == 1 || len(kid.value.els) == 2) {
 				lo, okLo := parseIndex(kid.value.els[0].text)
@@ -9410,6 +9923,38 @@ func parseField(schema *Document, f int, faults *[]Diagnostic) (constraint, bool
 	if base == "" {
 		base = "string"
 	}
+	// `unit` and `decimal` belong to the types that read a bare number in one,
+	// and a unit has to be one that type spells.
+	if unitAt >= 0 {
+		kid := &schema.arena[unitAt]
+		t, _ := singleText(&kid.value)
+		switch base {
+		case "duration":
+			c.unitD, _ = DurationUnitFromSpelling(t)
+		case "size":
+			c.unitS, _ = SizeUnitFromSpelling(t)
+		}
+		if c.unitD == DurationNone && c.unitS == SizeNone {
+			vdiag(faults, kid.line, "V092", "bad schema constraint 'unit'")
+		}
+	}
+	if decimalKeyAt >= 0 && base != "size" {
+		vdiag(faults, schema.arena[decimalKeyAt].line, "V092", "bad schema constraint 'decimal'")
+		c.decimal = false
+	}
+	// A duration or size bound is read the way the document's value is, less
+	// the field name: the schema says its unit.
+	quantity := func(e *element) (int64, bool) {
+		switch base {
+		case "duration":
+			v, _, ok := parseDurationText(e.text, c.unitD)
+			return v, ok
+		case "size":
+			v, _, ok := parseSizeText(e.text, c.unitS, c.decimal)
+			return v, ok
+		}
+		return 0, false
+	}
 	if allowedAt >= 0 {
 		kid := &schema.arena[allowedAt]
 		els := kid.value.els
@@ -9458,8 +10003,10 @@ func parseField(schema *Document, f int, faults *[]Diagnostic) (constraint, bool
 				}
 				set.dates = append(set.dates, v)
 			}
-		case "raw":
-			ok = false // a raw body has no element space to enumerate
+		// A raw body has no element space to enumerate, and a duration or
+		// size is bounded with min and max rather than listed.
+		case "raw", "duration", "size":
+			ok = false
 		default:
 			set.kind = allowStrings
 			for i := range els {
@@ -9506,6 +10053,17 @@ func parseField(schema *Document, f int, faults *[]Diagnostic) (constraint, bool
 			} else {
 				vdiag(faults, kid.line, "V092", fmt.Sprintf("bad schema constraint '%s'", key))
 			}
+		case "duration", "size":
+			if v, ok := quantity(el); ok {
+				t := el.text
+				if mm.isMin {
+					c.minI, c.minText = &v, &t
+				} else {
+					c.maxI, c.maxText = &v, &t
+				}
+			} else {
+				vdiag(faults, kid.line, "V092", fmt.Sprintf("bad schema constraint '%s'", key))
+			}
 		default:
 			vdiag(faults, kid.line, "V092", fmt.Sprintf("bad schema constraint '%s'", key))
 		}
@@ -9525,6 +10083,7 @@ func parseField(schema *Document, f int, faults *[]Diagnostic) (constraint, bool
 		}
 		vdiag(faults, line, "V092", "bad schema constraint 'max'")
 		c.minI, c.maxI, c.minF, c.maxF = nil, nil, nil, nil
+		c.minText, c.maxText = nil, nil
 	}
 	return c, true
 }
@@ -9584,12 +10143,30 @@ func allowedJoin(a *allowedSet) string {
 // genAnnotation is the `# type, ...` line summarizing a constraint, ASCII only.
 func genAnnotation(c *constraint, tyname string) string {
 	parts := []string{tyname}
+	if c.unitD != DurationNone {
+		parts[0] = tyname + " in " + c.unitD.Spelling()
+	} else if c.unitS != SizeNone {
+		parts[0] = tyname + " in " + c.unitS.Spelling()
+	}
+	if c.decimal {
+		parts = append(parts, "KB to TB in powers of 1000")
+	}
 	if c.allowed != nil {
 		parts = append(parts, "one of: "+allowedJoin(c.allowed))
 	}
 	// The bounds are their own part of the annotation line, not an alternative
-	// to `allowed`. A field can carry both, and the validator enforces both.
+	// to `allowed`. A field can carry both, and the validator enforces both. A
+	// duration or size bound reads the way the schema spelled it.
 	switch {
+	case c.minText != nil || c.maxText != nil:
+		switch {
+		case c.minText != nil && c.maxText != nil:
+			parts = append(parts, *c.minText+"-"+*c.maxText)
+		case c.minText != nil:
+			parts = append(parts, ">= "+*c.minText)
+		default:
+			parts = append(parts, "<= "+*c.maxText)
+		}
 	case c.minI != nil || c.maxI != nil:
 		switch {
 		case c.minI != nil && c.maxI != nil:
@@ -10717,6 +11294,56 @@ func (d *Document) vNode(c *constraint, n int, out *[]Diagnostic) {
 				for i, v := range vals {
 					if !containsDate(c.allowed.dates, v) {
 						vdiag(out, line, "V004", fmt.Sprintf("value not allowed at '%s': %s", schemaText(c.path), oneLine(els[i].text)))
+						break
+					}
+				}
+			}
+		// A bare number takes its unit from the field name first, as the read
+		// does, then the schema's `unit`.
+		case "duration", "size":
+			vals := make([]int64, 0, len(els))
+			for i := range els {
+				var v int64
+				var ok bool
+				if base == "duration" {
+					bare := nameDurationUnit(node.name)
+					if bare == DurationNone {
+						bare = c.unitD
+					}
+					v, _, ok = parseDurationText(els[i].text, bare)
+				} else {
+					bare := nameSizeUnit(node.name)
+					if bare == SizeNone {
+						bare = c.unitS
+					}
+					v, _, ok = parseSizeText(els[i].text, bare, c.decimal)
+				}
+				if !ok {
+					wrong()
+					return
+				}
+				vals = append(vals, v)
+			}
+			if c.allowed != nil && c.allowed.kind == allowInts {
+				for i, v := range vals {
+					if !containsInt(c.allowed.ints, v) {
+						vdiag(out, line, "V004", fmt.Sprintf("value not allowed at '%s': %s", schemaText(c.path), oneLine(els[i].text)))
+						break
+					}
+				}
+			}
+			if c.minI != nil && c.minText != nil {
+				for i, v := range vals {
+					if v < *c.minI {
+						vdiag(out, line, "V005", fmt.Sprintf("value below min %s at '%s': %s", oneLine(*c.minText), schemaText(c.path), oneLine(els[i].text)))
+						break
+					}
+				}
+			}
+			if c.maxI != nil && c.maxText != nil {
+				for i, v := range vals {
+					if v > *c.maxI {
+						vdiag(out, line, "V006", fmt.Sprintf("value above max %s at '%s': %s", oneLine(*c.maxText), schemaText(c.path), oneLine(els[i].text)))
 						break
 					}
 				}

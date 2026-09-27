@@ -181,6 +181,20 @@ static char *scalar_read(shcl_doc *d, const char *kind, const char *q, size_t qn
 	else if (!strcmp(kind, "bool[]")) { shcl_read_bool_arr r = shcl_read_bool_array(d, q, qn); *st = r.status; *slots = r.statuses; *nslots = r.n; for (size_t i = 0; i < r.n; i++) { if (i) tsv_escape("|", 1, &out, &olen, &ocap); const char *b = r.values[i] ? "true" : "false"; tsv_escape(b, strlen(b), &out, &olen, &ocap); } }
 	else if (!strcmp(kind, "datetime[]")) { shcl_read_dt_arr r = shcl_read_datetime_array(d, q, qn); *st = r.status; *slots = r.statuses; *nslots = r.n; for (size_t i = 0; i < r.n; i++) { if (i) tsv_escape("|", 1, &out, &olen, &ocap); size_t k = shcl_datetime_str(&r.values[i], nb); tsv_escape(nb, k, &out, &olen, &ocap); } }
 	else if (!strcmp(kind, "string[]")) { shcl_read_str_arr r = shcl_read_string_array(d, q, qn); *st = r.status; *slots = r.statuses; *nslots = r.n; for (size_t i = 0; i < r.n; i++) { if (i) tsv_escape("|", 1, &out, &olen, &ocap); tsv_escape(r.values[i].p, r.values[i].n, &out, &olen, &ocap); } }
+	else if (!strncmp(kind, "duration", 8) || !strncmp(kind, "size", 4)) {
+		/* duration[@UNIT] or size[@UNIT][+decimal]: the unit a bare number
+		   takes, and KB to TB in powers of 1000. */
+		size_t kn = strlen(kind);
+		int decimal = kn > 8 && !strcmp(kind + kn - 8, "+decimal");
+		if (decimal) kn -= 8;
+		const char *at = memchr(kind, '@', kn);
+		const char *unit = at ? at + 1 : "";
+		size_t un = at ? (size_t)(kind + kn - unit) : 0;
+		int64_t v;
+		if (kind[0] == 'd') { shcl_read_i64 r = shcl_read_duration(d, q, qn, un ? shcl_duration_unit_of(unit, un) : SHCL_DURATION_NONE); *st = r.status; v = r.value; }
+		else { shcl_read_i64 r = shcl_read_size(d, q, qn, un ? shcl_size_unit_of(unit, un) : SHCL_SIZE_NONE, decimal); *st = r.status; v = r.value; }
+		int k = snprintf(nb, sizeof nb, "%" PRId64, v); tsv_escape(nb, (size_t)k, &out, &olen, &ocap);
+	}
 	else { fprintf(stderr, "unknown type '%s'\n", kind); exit(2); }
 	#undef AS_STR
 	return out;

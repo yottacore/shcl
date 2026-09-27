@@ -352,6 +352,18 @@ Both open points are settled:
 
 - `set_banner` keeps the line when it sits inside the info block, since the author wrote it there and the block is rewritten whole.
 
+**Durations and sizes are read-time types, like dates** (2026-09-26). `timeout: 30s` and `cache: 512MB` read as whole milliseconds and whole bytes, so a program never parses a unit itself.
+
+- A bare number takes its unit from the field name (`timeout-ms`, `cache_mb`), else from the program. The parser does the work, and a name that already says the unit is enough.
+
+- Only a `-` or `_` marks where the unit starts. A camelCase boundary was tried and dropped: names fold to lower case, so `fmt` turned `ttlHours: 1.5` into `ttlhours: 1.5`, and the same line read 1.5 hours before and 1.5 seconds after.
+
+- `KB` to `TB` are powers of 1024 unless the program asks for 1000. Guessing the base from words such as `disk` or `network` in the name was turned down: `cache-size` or `chunk` fit either, and two programs would read one line two ways with no error.
+
+- A value with its own unit wins over the name, with the hint `H005` when they differ. A read cannot carry a diagnostic and validation reports only errors, so the hint comes from the load.
+
+- A fraction has to come out whole, and at most 18 digits after the point count, so the arithmetic is exact in 64 bits in every binding with no wider type.
+
 ### Formatter
 
 Structure-only canonicalizer: block form, tabs, insertion order, minimal quoting, redundancy collapsed, value text untouched (it cannot know types).

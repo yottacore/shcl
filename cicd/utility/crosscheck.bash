@@ -278,6 +278,16 @@ fReadRow(){
 		              # policy surface, where hand-written ports diverge most easily.
 		              fCompare "get ${query} ${type} on-bad=error" get "--${type}" --on-bad=error "${strictArg[@]}" "$input" "$query"
 		              fCompare "get ${query} ${type} default" get "--${type}" "--default=<x>" "${strictArg[@]}" "$input" "$query" ;;
+		## duration[@UNIT] and size[@UNIT][+decimal]: the unit a bare number
+		## takes when its name gives none, and KB to TB in powers of 1000.
+		duration*|size*)
+		              local -a unitArg=()
+		              local base="${type%%[@+]*}" rest="${type#"${type%%[@+]*}"}"
+		              if [[ "$rest" == *+decimal ]]; then unitArg+=(--decimal); rest="${rest%+decimal}"; fi
+		              if [[ "$rest" == @* ]]; then unitArg+=("--unit=${rest#@}"); fi
+		              fCompare "get ${query} ${type}" get "--${base}" "${unitArg[@]}" "${strictArg[@]}" "$input" "$query"
+		              fCompare "get ${query} ${type} on-bad=error" get "--${base}" "${unitArg[@]}" --on-bad=error "${strictArg[@]}" "$input" "$query"
+		              fCompare "get ${query} ${type} default" get "--${base}" "${unitArg[@]}" "--default=<x>" "${strictArg[@]}" "$input" "$query" ;;
 		## A row type with no arm used to fall through to `get --<type>`, which
 		## every binding refuses the same way - so the row compared nothing.
 		*)            echo "crosscheck: unknown reads.tsv type: ${type}" >&2; exit 2 ;;

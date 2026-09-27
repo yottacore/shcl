@@ -6,9 +6,9 @@
 //! meanings are documented in project/conformance/README.md.
 
 use shcl::{
-	Document, FORMAT_LINE, FORMAT_LINE_HEAD, FORMAT_MAJOR, MIGRATED_LINE, Strictness,
-	format_version, generate, migrate, migrate_unstamped, parse_datetime, quote_segment,
-	schema_ref,
+	Document, DurationUnit, FORMAT_LINE, FORMAT_LINE_HEAD, FORMAT_MAJOR, MIGRATED_LINE, SizeUnit,
+	Strictness, format_version, generate, migrate, migrate_unstamped, parse_datetime,
+	quote_segment, schema_ref,
 };
 use std::path::{Path, PathBuf};
 
@@ -234,6 +234,19 @@ fn load_cases() -> Vec<Case> {
 		dir.display()
 	);
 	cases
+}
+
+/// A `duration[@UNIT]` or `size[@UNIT][+decimal]` row type, split: the read,
+/// the unit a bare number takes, and whether KB to TB are powers of 1000.
+fn unit_type(kind: &str) -> (&str, Option<&str>, bool) {
+	let (rest, decimal) = match kind.strip_suffix("+decimal") {
+		Some(r) => (r, true),
+		None => (kind, false),
+	};
+	match rest.split_once('@') {
+		Some((base, unit)) => (base, Some(unit), decimal),
+		None => (rest, None, decimal),
+	}
 }
 
 fn doc_for(case: &Case, level: Strictness) -> Document {
@@ -502,6 +515,19 @@ fn reads_match_expected() {
 					"rawinfo" => {
 						let r = doc.read_raw_info(query);
 						(tsv_escape(&r.value), r.status, r.slots)
+					}
+					k if k.starts_with("duration") || k.starts_with("size") => {
+						let (base, unit, decimal) = unit_type(k);
+						if base == "duration" {
+							let u = unit
+								.map(|u| DurationUnit::from_spelling(u).expect("duration unit"));
+							let r = doc.read_duration(query, u);
+							(r.value.as_millis().to_string(), r.status, r.slots)
+						} else {
+							let u = unit.map(|u| SizeUnit::from_spelling(u).expect("size unit"));
+							let r = doc.read_size(query, u, decimal);
+							(r.value.to_string(), r.status, r.slots)
+						}
 					}
 					"int[]" => {
 						let r = doc.read_int_array(query);

@@ -29,6 +29,7 @@ Simple Hierarchical Config Language. This is the canonical language spec: termin
 	- [Floats](#floats)
 	- [Booleans](#booleans)
 	- [Dates and times](#dates-and-times)
+	- [Durations and sizes](#durations-and-sizes)
 	- [Arrays](#arrays)
 	- [Coercion rules ("intelligent but safe")](#coercion-rules-intelligent-but-safe)
 - [Raw blocks](#raw-blocks)
@@ -283,6 +284,22 @@ Month names are the fixed English set only - 3-letter abbreviation or full name,
 
 **Rejected by decision, not omission:** `MM/DD/YYYY` and `DD/MM/YYYY` (the motivating ambiguity) and every other all-numeric date that is not year-first; 2-digit years; Unix epoch numbers (a consumer wanting epoch reads the integer and converts); fully-written-out prose dates ("July twelfth"). Because typing is accessor-driven, a bare 8-digit number is tried as `YYYYMMDD` only when a date is requested; otherwise `20260712` is the ordinary integer 20260712.
 
+### Durations and sizes
+
+A duration read gives whole milliseconds and a size read gives whole bytes, from spellings a person writes: `500ms`, `30s`, `1h 30m`, `2d`, `512MB`, `1.5 GiB`.
+
+- Duration units are `ms`, `s`, `m`, `h` and `d`, lower case. Parts run largest unit first, each once, and blanks are allowed between a number and its unit and between parts, so `1h30m` and `1h 30m` read alike and `30m1h` is `BadType`.
+
+- Size units are `B`, `KB`, `MB`, `GB`, `TB`, `KiB`, `MiB`, `GiB` and `TiB`, plus `kB`. Letter case is read, since `Mb` is megabits to most readers. `KiB` to `TiB` are powers of 1024. `KB` to `TB` are too, unless the read asks for decimal, which makes them powers of 1000.
+
+- A number may carry a fraction, and the result has to be whole: `1.5s` is 1500 ms, `0.5KiB` is 512 bytes, and `0.0001s` or `1.1KiB` is `BadType`. At most 18 digits after the point count. No sign, no exponent.
+
+- A bare number takes its unit from the field name when the name ends in one after a `-` or `_`: `ms`, `sec`, `seconds`, `minutes`, `hours` or `days` for a duration, and `bytes`, `kb`, `mb`, `gb`, `tb`, `kib`, `mib`, `gib` or `tib` for a size, in any letter case. `timeout-ms: 250` and `cache_mb: 512` need nothing else. `min`, `m` and `s` are not name endings, since `retries-min` is a minimum and a trailing `s` is usually a plural, and a capitalized word (`timeoutMs`) is not a boundary, since names fold to lower case.
+
+- Otherwise a bare number takes the unit the read passes, and with neither it is `BadType`. A unit in the value wins over the name's, and the load says so with the hint `H005`, as in `timeout-ms: 5s`.
+
+- A duration is at most 9223372036854 ms, the range of Go's `time.Duration`, and a size fits a signed 64-bit integer, so every binding holds what another reads.
+
 ### Arrays
 
 An array is multiple values in a **single cell**. It has two interchangeable spellings that produce the identical array; the canonical formatter emits the inline form.
@@ -383,7 +400,7 @@ Two of these are not separate implementations but a base core plus a thin **comp
 
 The conceptual operation is **"get the value at `path`, coerced to a target type, with a default and an on-bad policy."** The critical portability rule: **the target type is expressed by the entry point (a typed variant or a compile-time generic), never by a runtime field in an options object.** This is the only shape that assigns straight into a strongly-typed variable with no consumer-side cast in *every* target language. A runtime `type` value cannot drive a static language's return type (Go, Rust, C, C++, C# all forbid it; Java can only via a `Class<T>` token), so we do not rely on it.
 
-- **type**: chosen by which method/generic you call - `GetInt` / `GetFloat` / `GetBool` / `GetDateTime` / `GetString` / `GetRaw` and their array forms, or a generic `Get<T>` where idiomatic (Rust always; Go/C++/C# optional). Realizations: Go typed methods or generics; Rust trait + turbofish/inference; C typed functions with out-param + status; C++ templates (`Get<T>`) over those C functions; C# explicit generics; Java `get(path, Integer.class, ...)`; Kotlin `reified`-generic `get<T>()` extensions over the Java methods; Python `get_int(...)` (or `get(..., type=int)` since it is dynamic); JS typed methods; PowerShell typed variable coercion on assign; POSIX sh a single command returning text (type flag only *validates*).
+- **type**: chosen by which method/generic you call - `GetInt` / `GetFloat` / `GetBool` / `GetDateTime` / `GetString` / `GetRaw` and their array forms, `GetDuration` and `GetSize` with the unit a bare number takes (scalar only, and outside `Get<T>`), or a generic `Get<T>` where idiomatic (Rust always; Go/C++/C# optional). Realizations: Go typed methods or generics; Rust trait + turbofish/inference; C typed functions with out-param + status; C++ templates (`Get<T>`) over those C functions; C# explicit generics; Java `get(path, Integer.class, ...)`; Kotlin `reified`-generic `get<T>()` extensions over the Java methods; Python `get_int(...)` (or `get(..., type=int)` since it is dynamic); JS typed methods; PowerShell typed variable coercion on assign; POSIX sh a single command returning text (type flag only *validates*).
 
 - **on-bad**: how to react to a bad/empty/missing/ambiguous value - `Error` (surface it), `Default` (substitute the default), or `Flag` (return the zero/empty value plus a soft indicator, never erroring).
 
@@ -500,6 +517,7 @@ Materialization is idempotent and order-stable, so two traversals of the same do
 | `H002` | a binding merged with a non-adjacent earlier one (same name and value combine); legal, but only the parser can see it happened, so it says so - the prose names the earlier line. Every merged level under a hinted re-open reports, each naming its own earlier line, so a consumer filtering the hints sees the whole combination, not just its outermost frame; a schema can disavow it per section with `reopen:` (see Schema validation)
 | `H003` | a bare stacked `*` element spelled like a field binding (`* name: value` or `* name:`); legal, and read as the one string it spells, but it is how YAML writes a list of objects, so the parser says so. Quoting the element says the string was meant
 | `H004` | a double-quoted value that starts like a Windows path, a drive letter and `:\` or a leading `\\`, and holds a `\t` or `\n` escape, as in `"C:\temp"`. Legal, and the line reads and saves as written, but a path almost never means a tab or a newline. Single quotes or bare text keep each backslash, and so does doubling it
+| `H005` | a value in another unit than the one its field name ends in, as `timeout-ms: 5s` or `cache-mb: 2GB`. Legal, and a unit in the value wins over the one the name gives a bare number, but the two disagreeing is usually a slip. Only a name ending in a duration or size unit after a `-` or `_` is looked at, and only a value that reads as that kind
 
 - **Limits**: nesting depth is capped at 512 levels below the document root. A line that would bind a node deeper than the cap is an `error` (`E016`) and is skipped; the Writer likewise refuses to create a deeper path. The cap is what makes any loadable document safe to format, merge, and copy in every binding - depth-linear recursion can never outrun a thread stack - and 512 is far beyond any hand-authored nesting.
 	- The other two limits are the caller's, through `ParseLimited` (each binding's spelling), for input the consumer does not control. A document amplifies to many times its byte size in memory, so bounding the bytes read cannot bound what a load allocates; only counting what the parse builds can. A node cap stops the parse once a line takes the count past it - one `E020`, and the unparsed remainder counts as lost, so a later save refuses rather than writing a silently truncated file. An element cap refuses any line whose array would hold more elements (`E021`); the line is skipped whole, never truncated. A fence line's info string is split on commas the same way, so a fence past the cap is refused too, and its block is skipped with it rather than read as live lines. A diagnostic cap bounds the list itself, since a document of nothing but bad lines costs a diagnostic per line: the first that many are listed, and one `E022` ends the list with a count of the rest. 0 disables a cap, which makes the call the plain strictness parse. All three are parse-time caps: what a program writes into a document is its own arithmetic.
@@ -584,10 +602,12 @@ The constraint vocabulary is closed - nothing joins it without a spec change:
 
 | Key | Value | Meaning
 | :-- | :-- | :--
-| `type` | `int` `float` `bool` `string` `datetime` `raw`, or `<scalar>-array` (no `raw-array`) | every value at the path must coerce to this type, at the *document's* strictness
+| `type` | `int` `float` `bool` `string` `datetime` `raw` `duration` `size`, or `<scalar>-array` (no `raw-array`, `duration-array` or `size-array`) | every value at the path must coerce to this type, at the *document's* strictness
+| `unit` | a unit spelling | `duration` and `size` only: the unit a bare number takes when the field name gives none
+| `decimal` | boolean | `size` only: `KB` to `TB` are powers of 1000
 | `required` | boolean | the path must resolve (see wildcard rule below)
-| `allowed` | inline array | closed set of permitted **element** values, compared in the coerced space of `type`. Every element of a multi-element value has to be in the set, so `allowed: "x, y, z"` is one element and admits none of the three in `c: x, y, z` even though `GetString` returns the joined form. For `datetime` the coerced space is the moment: `12:00:00Z`, `12:00:00+00:00` and `12:00:00-00:00` are one value, and so are `12:00:00` and `12:00:00.0`, while a value with no zone is local and matches no zoned one
-| `min` / `max` | number | inclusive bounds, `int`/`float` kinds only, checked per element on arrays. A `min` above its `max` admits nothing, so it is a schema fault and the range is dropped (the field keeps its other constraints) rather than every value being told off twice
+| `allowed` | inline array | closed set of permitted **element** values, compared in the coerced space of `type`. Every element of a multi-element value has to be in the set, so `allowed: "x, y, z"` is one element and admits none of the three in `c: x, y, z` even though `GetString` returns the joined form. For `datetime` the coerced space is the moment: `12:00:00Z`, `12:00:00+00:00` and `12:00:00-00:00` are one value, and so are `12:00:00` and `12:00:00.0`, while a value with no zone is local and matches no zoned one. `raw`, `duration` and `size` take no `allowed`; bound a duration or size with `min` and `max`
+| `min` / `max` | number, or a duration or size | inclusive bounds, `int`/`float`/`duration`/`size` kinds only, a duration or size read the way the schema's `unit` says, checked per element on arrays. A `min` above its `max` admits nothing, so it is a schema fault and the range is dropped (the field keeps its other constraints) rather than every value being told off twice
 | `repeat` | one integer (exact) or two (min, max) | bounds the instance count at the path, per resolution context
 | `inherits` | fragment name | the subtree at this path has the named fragment's shape (see Fragments below)
 | `reopen` | boolean | the section at this path is meant to be written in parts; `true` disavows `H002` for its leaf name (validation itself ignores it)
@@ -645,12 +665,14 @@ Diagnostic codes ride the existing structure (line, severity, stable code, prose
 
 A schema fault (`V090`+) does not silence the rest of the result: the constraints that parsed cleanly still check the document (a broken key drops that key, a broken `field:` drops that field), so a typo in one constraint cannot hide a real violation of another. The unknown-field sweep needs the complete declared vocabulary of *names*, and a key-level fault keeps its entry's path - so the sweep still runs; it turns off only when a fault cost a path spelling outright (an unreadable `field:` path, or a mount naming no declared fragment). Generation (`shcl init`) still requires a fault-free schema - a partial starter config would be worse than an error. `check --schema` folds validation diagnostics into `check`'s existing output: same `line N: severity: CODE` stdout lines, the same line plus its prose on stderr, same summary line and exit-6-on-any-error rule. Both streams carry the code; only stdout is the contract. A `V090`-`V093` line number is a schema-file line (the table above says which); the stderr prose spells those `schema line N` so the two number spaces cannot be confused, while the compared stdout keeps the uniform `line N` shape - the code already names the space.
 
-A config file can name its own schema on a comment line spelled like the info block's `Format` line, so `check` and an editor find it without being told:
+A config file can name its own schema on a comment line spelled like the info block's `Format` line, so `check` and an editor find it without being told.
 
-~~~shcl
-##    Schema   ./app.schema.shcl
-port: 8080
-~~~
+- For example:
+
+	~~~shcl
+	##    Schema   ./app.schema.shcl
+	port: 8080
+	~~~
 
 - The line is `##    Schema   ` then a path or a URL, at the start of a line, anywhere in the file. The first such line wins, and one inside a raw body is that block's content. `SchemaRef` returns what it names, and `SCHEMA_LINE_HEAD` is its spelling, for a program writing one.
 

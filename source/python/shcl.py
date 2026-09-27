@@ -30,6 +30,7 @@ import re
 import stat
 import sys
 from collections.abc import Callable
+from datetime import timedelta
 from decimal import Decimal
 from enum import Enum
 from typing import Any, Generic, TypeVar
@@ -42,8 +43,8 @@ __all__ = [
 	"Diagnostic",
 	"Document",
 	"FORMAT_LINE",
+	"DurationUnit",
 	"FORMAT_LINE_HEAD",
-	"SCHEMA_LINE_HEAD",
 	"FORMAT_MAJOR",
 	"FileStatus",
 	"GEN_BANNER",
@@ -57,12 +58,14 @@ __all__ = [
 	"RULES_V2",
 	"Read",
 	"Rules",
+	"SCHEMA_LINE_HEAD",
 	"SaveError",
 	"SaveFailed",
 	"SaveRefused",
 	"SegTok",
 	"Severity",
 	"ShclDateTime",
+	"SizeUnit",
 	"Status",
 	"StatusError",
 	"Strictness",
@@ -70,13 +73,13 @@ __all__ = [
 	"WriteReason",
 	"format_float",
 	"format_version",
-	"schema_ref",
 	"generate",
 	"migrate",
 	"migrate_unstamped",
 	"parse_datetime",
 	"quote_segment",
 	"read_file",
+	"schema_ref",
 	"suppress_declared_reopens",
 	"suppress_declared_repeats",
 	"tokenize",
@@ -2825,6 +2828,7 @@ class _Parser:
 			self._err(line, "E017", "unterminated quote in value")
 		binding_like = not el.quoted and _looks_like_binding(el.text)
 		path = _path_like(piece, s)
+		clash = _unit_clash(self.arena[parent].name, el.text)
 		# Element cap: each element line past it is refused on its own, the way
 		# any other bad element line is. Only a line that would join the list:
 		# under a field that already has a value it is E011, cap or not.
@@ -2864,6 +2868,8 @@ class _Parser:
 			self._diag(Diagnostic(line, Severity.Hint, "list element looks like a field binding; it is read as a string (quote it to say so)", "H003"))
 		if path:
 			self._diag(Diagnostic(line, Severity.Hint, _PATH_HINT, "H004"))
+		if clash is not None:
+			self._diag(Diagnostic(line, Severity.Hint, clash, "H005"))
 		# A kept element holds its column as a dropped one does, with the field
 		# as that level's node: a line written deeper binds where it always did,
 		# and a line back at the element's column is its sibling, where no level
@@ -3174,6 +3180,12 @@ class _Parser:
 			if node is not None:
 				if src_text is not None and any(_path_like(p, tok.src) for p in tok.elements):
 					self._diag(Diagnostic(lineno, Severity.Hint, _PATH_HINT, "H004"))
+				if src_text is not None:
+					for p in tok.elements:
+						clash = _unit_clash(self.arena[node].name, _piece_text(p, tok.src))
+						if clash is not None:
+							self._diag(Diagnostic(lineno, Severity.Hint, clash, "H005"))
+							break
 				# The bound node usually holds the very object just parsed, so
 				# identity settles it and neither key gets built. The key
 				# compare is only needed when a merge landed on an equal-valued
@@ -5650,6 +5662,40 @@ class Document:
 	def read_datetime(self, path: str) -> Read[ShclDateTime]:
 		return self._read_scalar(path, lambda e: parse_datetime(e.text), ShclDateTime())
 
+	def _read_named(self, path: str, coerce: Callable[[Any, str], T | None], default: T) -> Read[T]:
+		"""_read_scalar with the node's name, for the reads whose bare number
+		takes its unit from the name."""
+		na = self._node_at(path)
+		if na[0] == "err":
+			return Read(default, na[1], None)
+		name = self.arena[na[1]].name
+		return self._read_scalar(path, lambda e: coerce(e, name), default)
+
+	def read_duration(self, path: str, unit: DurationUnit | None = None) -> Read[timedelta]:
+		"""Duration read at a path, in whole milliseconds: `500ms`, `30s`, `1h
+		30m`, `2d`. A bare number takes its unit from the field name when the
+		name ends in one (`timeout-ms`, `delay_seconds`), else from unit, and is
+		BadType with neither."""
+
+		def coerce(e, name):
+			bare = _name_unit(name, _DURATION_NAMES) or unit
+			d = _parse_duration_text(e.text, bare)
+			return None if d is None else timedelta(milliseconds=d[0])
+
+		return self._read_named(path, coerce, timedelta(0))
+
+	def read_size(self, path: str, unit: SizeUnit | None = None, decimal: bool = False) -> Read[int]:
+		"""Size read at a path, in whole bytes: `512MB`, `1.5 GiB`. A bare number
+		takes its unit the way a duration does. KB to TB are powers of 1024
+		unless decimal is set."""
+
+		def coerce(e, name):
+			bare = _name_unit(name, _SIZE_NAMES) or unit
+			z = _parse_size_text(e.text, bare, decimal)
+			return None if z is None else z[0]
+
+		return self._read_named(path, coerce, 0)
+
 	def read_string(self, path: str) -> Read[str]:
 		"""Any value reads as a string: a raw block yields its content, an array its
 		canonical inline text. Escapes are applied."""
@@ -5803,6 +5849,12 @@ class Document:
 	def get_datetime(self, path: str, default: Any = _NO_DEFAULT) -> ShclDateTime:
 		return self._get(self.read_datetime(path), default)
 
+	def get_duration(self, path: str, unit: DurationUnit | None = None, default: Any = _NO_DEFAULT) -> timedelta:
+		return self._get(self.read_duration(path, unit), default)
+
+	def get_size(self, path: str, unit: SizeUnit | None = None, decimal: bool = False, default: Any = _NO_DEFAULT) -> int:
+		return self._get(self.read_size(path, unit, decimal), default)
+
 	def get_int_array(self, path: str, default: Any = _NO_DEFAULT) -> list[int]:
 		return self._get(self.read_int_array(path), default)
 
@@ -5844,6 +5896,12 @@ class Document:
 
 	def get_datetime_or(self, path: str, default: ShclDateTime) -> ShclDateTime:
 		return self._get(self.read_datetime(path), default)
+
+	def get_duration_or(self, path: str, unit: DurationUnit | None, default: timedelta) -> timedelta:
+		return self._get(self.read_duration(path, unit), default)
+
+	def get_size_or(self, path: str, unit: SizeUnit | None, decimal: bool, default: int) -> int:
+		return self._get(self.read_size(path, unit, decimal), default)
 
 	def get_int_array_or(self, path: str, default: list[int]) -> list[int]:
 		return self._get(self.read_int_array(path), default)
@@ -6068,6 +6126,36 @@ class Document:
 				for i, v in enumerate(vals):
 					if not any(_same_moment(v, a) for a in c.allowed[1]):
 						_vdiag(out, line, "V004", f"value not allowed at '{_schema_text(c.path)}': {_one_line(els[i].text)}")
+						break
+		elif base in ("duration", "size"):
+			# A bare number takes its unit from the field name first, as the
+			# read does, then the schema's `unit`.
+			vals = []
+			for e in els:
+				if base == "duration":
+					d = _parse_duration_text(e.text, _name_unit(node.name, _DURATION_NAMES) or c.unit_d)
+					v = None if d is None else d[0]
+				else:
+					z = _parse_size_text(e.text, _name_unit(node.name, _SIZE_NAMES) or c.unit_s, c.decimal)
+					v = None if z is None else z[0]
+				if v is None:
+					wrong()
+					return
+				vals.append(v)
+			if c.allowed is not None and c.allowed[0] == "ints":
+				for i, v in enumerate(vals):
+					if v not in c.allowed[1]:
+						_vdiag(out, line, "V004", f"value not allowed at '{_schema_text(c.path)}': {_one_line(els[i].text)}")
+						break
+			if c.min_i is not None and c.min_text is not None:
+				for i, v in enumerate(vals):
+					if v < c.min_i:
+						_vdiag(out, line, "V005", f"value below min {_one_line(c.min_text)} at '{_schema_text(c.path)}': {_one_line(els[i].text)}")
+						break
+			if c.max_i is not None and c.max_text is not None:
+				for i, v in enumerate(vals):
+					if v > c.max_i:
+						_vdiag(out, line, "V006", f"value above max {_one_line(c.max_text)} at '{_schema_text(c.path)}': {_one_line(els[i].text)}")
 						break
 		else:
 			# string kind or untyped: every element coerces; only the allowed
@@ -7217,6 +7305,258 @@ def _parse_bool_text(t, level):
 
 
 # ---------------------------------------------------------------------------
+# Durations and sizes: a number with a unit, or a bare number whose unit the
+# field name or the caller gives
+# ---------------------------------------------------------------------------
+
+
+class DurationUnit(Enum):
+	"""The unit a duration read gives a bare number, when the field name gives
+	none. Smallest first; the value is the spelling."""
+
+	Millis = "ms"
+	Seconds = "s"
+	Minutes = "m"
+	Hours = "h"
+	Days = "d"
+
+	def spelling(self) -> str:
+		return self.value
+
+	@staticmethod
+	def from_spelling(s: str) -> DurationUnit | None:
+		"""The unit a value spelling names, lower case only."""
+		for u in DurationUnit:
+			if u.value == s:
+				return u
+		return None
+
+
+_DURATION_MILLIS = {
+	DurationUnit.Millis: 1,
+	DurationUnit.Seconds: 1_000,
+	DurationUnit.Minutes: 60_000,
+	DurationUnit.Hours: 3_600_000,
+	DurationUnit.Days: 86_400_000,
+}
+
+
+class SizeUnit(Enum):
+	"""The unit a size read gives a bare number, when the field name gives none.
+	Kilo to Tera are powers of 1024 unless the read asks for decimal; Kibi to
+	Tebi always are. The value is the spelling."""
+
+	Bytes = "B"
+	Kilo = "KB"
+	Mega = "MB"
+	Giga = "GB"
+	Tera = "TB"
+	Kibi = "KiB"
+	Mebi = "MiB"
+	Gibi = "GiB"
+	Tebi = "TiB"
+
+	def spelling(self) -> str:
+		return self.value
+
+	@staticmethod
+	def from_spelling(s: str) -> SizeUnit | None:
+		"""The unit a value spelling names. Letter case is read, since Mb is
+		megabits to most readers; kB is the one other spelling taken."""
+		if s == "kB":
+			return SizeUnit.Kilo
+		for u in SizeUnit:
+			if u.value == s:
+				return u
+		return None
+
+
+def _size_bytes(u, decimal):
+	k = 1000 if decimal else 1024
+	return {
+		SizeUnit.Bytes: 1,
+		SizeUnit.Kilo: k,
+		SizeUnit.Mega: k**2,
+		SizeUnit.Giga: k**3,
+		SizeUnit.Tera: k**4,
+		SizeUnit.Kibi: 1 << 10,
+		SizeUnit.Mebi: 1 << 20,
+		SizeUnit.Gibi: 1 << 30,
+		SizeUnit.Tebi: 1 << 40,
+	}[u]
+
+
+# The longest duration a read gives, in milliseconds: Go's time.Duration range,
+# so every binding holds every duration another one reads.
+_DURATION_MAX_MS = 9_223_372_036_854
+_U64_MAX = (1 << 64) - 1
+_I64_MAX_U = (1 << 63) - 1
+
+# Field name endings that give a bare number its unit, after a `-` or `_`.
+# min, m and s are left out: `retries-min` is a minimum, and a trailing s is
+# usually a plural. A capitalized word (`timeoutMs`) is not a boundary, since
+# names fold to lower case and fmt writes them folded.
+_DURATION_NAMES = (
+	("ms", DurationUnit.Millis),
+	("sec", DurationUnit.Seconds),
+	("seconds", DurationUnit.Seconds),
+	("minutes", DurationUnit.Minutes),
+	("hours", DurationUnit.Hours),
+	("days", DurationUnit.Days),
+)
+
+_SIZE_NAMES = (
+	("bytes", SizeUnit.Bytes),
+	("kb", SizeUnit.Kilo),
+	("mb", SizeUnit.Mega),
+	("gb", SizeUnit.Giga),
+	("tb", SizeUnit.Tera),
+	("kib", SizeUnit.Kibi),
+	("mib", SizeUnit.Mebi),
+	("gib", SizeUnit.Gibi),
+	("tib", SizeUnit.Tebi),
+)
+
+_DURATION_RANK = {u: i for i, u in enumerate(DurationUnit)}
+
+
+def _name_unit(name, table):
+	"""The unit a field name ends in, from table: the ending, in any letter case,
+	after a `-` or `_`."""
+	for end, unit in table:
+		at = len(name) - len(end)
+		if at > 0 and _ascii_lower(name[at:]) == end and name[at - 1] in "-_":
+			return unit
+	return None
+
+
+def _decimal_at(s):
+	"""A decimal number at the start of s: digits, then a point and more digits
+	if there is a point. The two digit runs and where it ended, or None."""
+	i = 0
+	while i < len(s) and s[i] in _ASCII_DIGITS:
+		i += 1
+	if i == 0:
+		return None
+	if i >= len(s) or s[i] != ".":
+		return s[:i], "", i
+	j = i + 1
+	while j < len(s) and s[j] in _ASCII_DIGITS:
+		j += 1
+	if j == i + 1:
+		return None
+	return s[:i], s[i + 1:j], j
+
+
+def _scaled(int_digits, frac_digits, scale):
+	"""int.frac times scale, exactly, or None when that is not a whole number or
+	does not fit, so 1.5s is 1500 ms and 0.0001s is refused. At most 18 digits
+	after the point count, and the sum stays in 64 bits, as in the reference."""
+	int_digits = int_digits.lstrip("0")
+	frac_digits = frac_digits.rstrip("0")
+	if len(int_digits) > 19 or len(frac_digits) > 18:
+		return None
+	total = (int(int_digits) if int_digits else 0) * scale
+	if total > _U64_MAX:
+		return None
+	if frac_digits:
+		part = int(frac_digits)
+		den = 10 ** len(frac_digits)
+		g = math.gcd(scale, den)
+		step = den // g
+		if part % step:
+			return None
+		total += part // step * (scale // g)
+		if total > _U64_MAX:
+			return None
+	return total
+
+
+def _parse_duration_text(t, bare):
+	"""A duration in whole milliseconds and the units the text spelled, or None:
+	parts such as `1h 30m`, largest unit first and each once, with blanks
+	allowed between a number and its unit and between parts. A bare number
+	takes bare, and is None without one. No sign."""
+	t = _trim_wsp(t)
+	d = _decimal_at(t)
+	if d is not None and d[2] == len(t):
+		if bare is None:
+			return None
+		ms = _scaled(d[0], d[1], _DURATION_MILLIS[bare])
+		if ms is None or ms > _DURATION_MAX_MS:
+			return None
+		return ms, []
+	rest = t
+	total = 0
+	units: list[DurationUnit] = []
+	while rest:
+		d = _decimal_at(rest)
+		if d is None:
+			return None
+		rest = rest[d[2]:].lstrip(_WSP)
+		n = 0
+		while n < len(rest) and rest[n].isascii() and rest[n].isalpha():
+			n += 1
+		unit = DurationUnit.from_spelling(rest[:n])
+		if unit is None or (units and _DURATION_RANK[units[-1]] <= _DURATION_RANK[unit]):
+			return None
+		v = _scaled(d[0], d[1], _DURATION_MILLIS[unit])
+		if v is None:
+			return None
+		total += v
+		if total > _U64_MAX:
+			return None
+		units.append(unit)
+		rest = rest[n:].lstrip(_WSP)
+	if not units or total > _DURATION_MAX_MS:
+		return None
+	return total, units
+
+
+def _parse_size_text(t, bare, decimal):
+	"""A size in whole bytes and the unit the text spelled, or None: a number,
+	blanks allowed, then a unit. A bare number takes bare, and is None without
+	one. No sign."""
+	t = _trim_wsp(t)
+	d = _decimal_at(t)
+	if d is None:
+		return None
+	rest = t[d[2]:].lstrip(_WSP)
+	unit = None
+	if rest:
+		unit = SizeUnit.from_spelling(rest)
+		if unit is None:
+			return None
+	use = unit if unit is not None else bare
+	if use is None:
+		return None
+	n = _scaled(d[0], d[1], _size_bytes(use, decimal))
+	if n is None or n > _I64_MAX_U:
+		return None
+	return n, unit
+
+
+def _unit_clash(name, text):
+	"""A value in another unit than the one its field name ends in (H005), as
+	`timeout-ms: 5s`. The value's unit is the one read, so this is a hint."""
+
+	def said(v, n):
+		return "value is in " + v + " and the name says " + n + "; the value's unit is the one read"
+
+	nu = _name_unit(name, _DURATION_NAMES)
+	if nu is not None:
+		d = _parse_duration_text(text, None)
+		if d is not None and nu not in d[1]:
+			return said(d[1][0].value, nu.value)
+	su = _name_unit(name, _SIZE_NAMES)
+	if su is not None:
+		z = _parse_size_text(text, None, False)
+		if z is not None and z[1] is not None and z[1] != su:
+			return said(z[1].value, su.value)
+	return None
+
+
+# ---------------------------------------------------------------------------
 # Date/time (closed whitelist; shape match, then calendar validation)
 # ---------------------------------------------------------------------------
 
@@ -7464,7 +7804,7 @@ def parse_datetime(text: str) -> ShclDateTime | None:
 # ---------------------------------------------------------------------------
 
 _SCHEMA_TYPES = (
-	"int", "float", "bool", "string", "datetime", "raw",
+	"int", "float", "bool", "string", "datetime", "raw", "duration", "size",
 	"int-array", "float-array", "bool-array", "string-array", "datetime-array",
 )
 
@@ -7472,7 +7812,9 @@ _SCHEMA_TYPES = (
 class _Constraint:
 	__slots__ = (
 		"path", "segs", "ty", "required", "allowed",
-		"min_i", "max_i", "min_f", "max_f", "repeat", "reopen",
+		"min_i", "max_i", "min_f", "max_f",
+		"unit_d", "unit_s", "decimal", "min_text", "max_text",
+		"repeat", "reopen",
 		"inherits", "inherits_line",
 		"desc", "default_text",
 	)
@@ -7487,6 +7829,14 @@ class _Constraint:
 		self.max_i = None
 		self.min_f = None
 		self.max_f = None
+		# duration and size: the unit a bare number takes when the field name
+		# gives none, base 10 for KB to TB, and the bounds as the schema
+		# spelled them, since min_i and max_i hold them in ms or bytes.
+		self.unit_d = None
+		self.unit_s = None
+		self.decimal = False
+		self.min_text = None
+		self.max_text = None
 		self.repeat = None        # (lo, hi)
 		self.reopen = False       # H002 suppressor only; validation ignores it
 		self.inherits = None      # fragment mounted at this path (subtree shape)
@@ -7504,6 +7854,11 @@ class _Constraint:
 		cc.max_i = self.max_i
 		cc.min_f = self.min_f
 		cc.max_f = self.max_f
+		cc.unit_d = self.unit_d
+		cc.unit_s = self.unit_s
+		cc.decimal = self.decimal
+		cc.min_text = self.min_text
+		cc.max_text = self.max_text
 		cc.repeat = self.repeat
 		cc.reopen = self.reopen
 		cc.inherits = self.inherits
@@ -7670,6 +8025,8 @@ def _parse_field(schema, f, faults):
 	default_at = None
 	min_at = None
 	max_at = None
+	unit_at = None
+	decimal_key_at = None
 	for k in schema.arena[f].children:
 		kid = schema.arena[k]
 		if kid.value.is_empty():
@@ -7720,6 +8077,19 @@ def _parse_field(schema, f, faults):
 				max_at = k
 			else:
 				_vdiag(faults, kid.line, "V092", "bad schema constraint 'max'")
+		elif kid.name == "unit":
+			if kid.value.kind == "cell" and len(kid.value.els) == 1 and unit_at is None:
+				unit_at = k
+			else:
+				_vdiag(faults, kid.line, "V092", "bad schema constraint 'unit'")
+		elif kid.name == "decimal":
+			t = _single_text(kid.value)
+			b = _parse_bool_text(t, Strictness.Standard) if t is not None else None
+			if b is not None and decimal_key_at is None:
+				decimal_key_at = k
+				c.decimal = b
+			else:
+				_vdiag(faults, kid.line, "V092", "bad schema constraint 'decimal'")
 		elif kid.name == "repeat":
 			if kid.value.kind == "cell" and c.repeat is None and len(kid.value.els) in (1, 2):
 				lo = _parse_uint(kid.value.els[0].text)
@@ -7762,6 +8132,32 @@ def _parse_field(schema, f, faults):
 	base = c.ty[:-6] if c.ty is not None and c.ty.endswith("-array") else c.ty
 	if base is None:
 		base = "string"
+	# `unit` and `decimal` belong to the types that read a bare number in one,
+	# and a unit has to be one that type spells.
+	if unit_at is not None:
+		ukid = schema.arena[unit_at]
+		t = _single_text(ukid.value) or ""
+		if base == "duration":
+			c.unit_d = DurationUnit.from_spelling(t)
+		elif base == "size":
+			c.unit_s = SizeUnit.from_spelling(t)
+		if c.unit_d is None and c.unit_s is None:
+			_vdiag(faults, ukid.line, "V092", "bad schema constraint 'unit'")
+	if decimal_key_at is not None and base != "size":
+		_vdiag(faults, schema.arena[decimal_key_at].line, "V092", "bad schema constraint 'decimal'")
+		c.decimal = False
+
+	# A duration or size bound is read the way the document's value is, less
+	# the field name: the schema says its unit.
+	def quantity(e):
+		if base == "duration":
+			d = _parse_duration_text(e.text, c.unit_d)
+			return None if d is None else d[0]
+		if base == "size":
+			z = _parse_size_text(e.text, c.unit_s, c.decimal)
+			return None if z is None else z[0]
+		return None
+
 	if allowed_at is not None:
 		kid = schema.arena[allowed_at]
 		els = kid.value.els
@@ -7784,8 +8180,10 @@ def _parse_field(schema, f, faults):
 			vals = [parse_datetime(e.text) for e in els]
 			ok = all(v is not None for v in vals)
 			setv = ("dates", vals)
-		elif base == "raw":
-			ok = False  # a raw body has no element space to enumerate
+		elif base in ("raw", "duration", "size"):
+			# A raw body has no element space to enumerate, and a duration or
+			# size is bounded with min and max rather than listed.
+			ok = False
 			setv = None
 		else:
 			setv = ("strings", [e.text for e in els])
@@ -7815,6 +8213,14 @@ def _parse_field(schema, f, faults):
 				c.min_f = v
 			else:
 				c.max_f = v
+		elif base in ("duration", "size"):
+			v = quantity(el)
+			if v is None:
+				_vdiag(faults, kid.line, "V092", f"bad schema constraint '{key}'")
+			elif is_min:
+				c.min_i, c.min_text = v, el.text
+			else:
+				c.max_i, c.max_text = v, el.text
 		else:
 			_vdiag(faults, kid.line, "V092", f"bad schema constraint '{key}'")
 	# A lower bound above the upper one admits nothing, so every value fails
@@ -7830,6 +8236,7 @@ def _parse_field(schema, f, faults):
 		line = schema.arena[max_at].line if max_at is not None else schema.arena[f].line
 		_vdiag(faults, line, "V092", "bad schema constraint 'max'")
 		c.min_i = c.max_i = c.min_f = c.max_f = None
+		c.min_text = c.max_text = None
 	return c
 
 
@@ -7858,11 +8265,25 @@ def _allowed_join(a):
 def _gen_annotation(c, tyname):
 	# The `# type, ...` line summarizing a constraint, ASCII only.
 	parts = [tyname]
+	if c.unit_d is not None:
+		parts[0] = tyname + " in " + c.unit_d.value
+	elif c.unit_s is not None:
+		parts[0] = tyname + " in " + c.unit_s.value
+	if c.decimal:
+		parts.append("KB to TB in powers of 1000")
 	if c.allowed is not None:
 		parts.append("one of: " + _allowed_join(c.allowed))
 	# The bounds are their own part of the annotation line, not an alternative
-	# to `allowed`. A field can carry both, and the validator enforces both.
-	if c.min_i is not None or c.max_i is not None:
+	# to `allowed`. A field can carry both, and the validator enforces both. A
+	# duration or size bound reads the way the schema spelled it.
+	if c.min_text is not None or c.max_text is not None:
+		if c.min_text is not None and c.max_text is not None:
+			parts.append(c.min_text + "-" + c.max_text)
+		elif c.min_text is not None:
+			parts.append(">= " + c.min_text)
+		else:
+			parts.append("<= " + c.max_text)
+	elif c.min_i is not None or c.max_i is not None:
 		if c.min_i is not None and c.max_i is not None:
 			parts.append(f"{c.min_i}-{c.max_i}")
 		elif c.min_i is not None:

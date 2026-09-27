@@ -3428,6 +3428,7 @@ impl<'a> Parser<'a> {
 		}
 		let binding_like = !el.quoted && looks_like_binding(&el.text);
 		let path = path_like(&piece, text);
+		let clash = unit_clash(&self.arena[parent].name, &el.text);
 		// Element cap: each element line past it is refused on its own, the way
 		// any other bad element line is. Only a line that would join the list:
 		// under a field that already has a value it is E011, cap or not.
@@ -3497,6 +3498,14 @@ impl<'a> Parser<'a> {
 				severity: Severity::Hint,
 				message: PATH_HINT.to_string(),
 				code: "H004",
+			});
+		}
+		if let Some(m) = clash {
+			self.diag(Diagnostic {
+				line,
+				severity: Severity::Hint,
+				message: m,
+				code: "H005",
 			});
 		}
 		// A kept element holds its column as a dropped one does, with the field
@@ -3977,6 +3986,19 @@ impl<'a> Parser<'a> {
 						severity: Severity::Hint,
 						message: PATH_HINT.to_string(),
 						code: "H004",
+					});
+				}
+				if src_text.is_some()
+					&& let Some(m) = tok
+						.elements
+						.iter()
+						.find_map(|p| unit_clash(&self.arena[node].name, &piece_text(p, rest)))
+				{
+					self.diag(Diagnostic {
+						line: lineno,
+						severity: Severity::Hint,
+						message: m,
+						code: "H005",
 					});
 				}
 				if let (Some(s), Some(k)) = (src_text, vkey)
@@ -8218,6 +8240,294 @@ fn parse_bool_text(t: &str, level: Strictness) -> Option<bool> {
 }
 
 // ---------------------------------------------------------------------------
+// Durations and sizes: a number with a unit, or a bare number whose unit the
+// field name or the caller gives
+// ---------------------------------------------------------------------------
+
+/// The unit a duration read gives a bare number, when the field name gives
+/// none. Smallest first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum DurationUnit {
+	Millis,
+	Seconds,
+	Minutes,
+	Hours,
+	Days,
+}
+
+impl DurationUnit {
+	fn millis(self) -> u64 {
+		match self {
+			DurationUnit::Millis => 1,
+			DurationUnit::Seconds => 1_000,
+			DurationUnit::Minutes => 60_000,
+			DurationUnit::Hours => 3_600_000,
+			DurationUnit::Days => 86_400_000,
+		}
+	}
+
+	/// The spelling a value uses: `ms`, `s`, `m`, `h` or `d`.
+	#[must_use]
+	pub fn spelling(self) -> &'static str {
+		match self {
+			DurationUnit::Millis => "ms",
+			DurationUnit::Seconds => "s",
+			DurationUnit::Minutes => "m",
+			DurationUnit::Hours => "h",
+			DurationUnit::Days => "d",
+		}
+	}
+
+	/// The unit a value spelling names, lower case only.
+	#[must_use]
+	pub fn from_spelling(s: &str) -> Option<DurationUnit> {
+		match s {
+			"ms" => Some(DurationUnit::Millis),
+			"s" => Some(DurationUnit::Seconds),
+			"m" => Some(DurationUnit::Minutes),
+			"h" => Some(DurationUnit::Hours),
+			"d" => Some(DurationUnit::Days),
+			_ => None,
+		}
+	}
+}
+
+/// The unit a size read gives a bare number, when the field name gives none.
+/// `Kilo` to `Tera` are powers of 1024 unless the read asks for decimal;
+/// `Kibi` to `Tebi` always are.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SizeUnit {
+	Bytes,
+	Kilo,
+	Mega,
+	Giga,
+	Tera,
+	Kibi,
+	Mebi,
+	Gibi,
+	Tebi,
+}
+
+impl SizeUnit {
+	fn bytes(self, decimal: bool) -> u64 {
+		let k: u64 = if decimal { 1000 } else { 1024 };
+		match self {
+			SizeUnit::Bytes => 1,
+			SizeUnit::Kilo => k,
+			SizeUnit::Mega => k * k,
+			SizeUnit::Giga => k * k * k,
+			SizeUnit::Tera => k * k * k * k,
+			SizeUnit::Kibi => 1 << 10,
+			SizeUnit::Mebi => 1 << 20,
+			SizeUnit::Gibi => 1 << 30,
+			SizeUnit::Tebi => 1 << 40,
+		}
+	}
+
+	/// The spelling a value uses: `B`, `KB`, `MB`, `GB`, `TB`, `KiB`, `MiB`,
+	/// `GiB` or `TiB`.
+	#[must_use]
+	pub fn spelling(self) -> &'static str {
+		match self {
+			SizeUnit::Bytes => "B",
+			SizeUnit::Kilo => "KB",
+			SizeUnit::Mega => "MB",
+			SizeUnit::Giga => "GB",
+			SizeUnit::Tera => "TB",
+			SizeUnit::Kibi => "KiB",
+			SizeUnit::Mebi => "MiB",
+			SizeUnit::Gibi => "GiB",
+			SizeUnit::Tebi => "TiB",
+		}
+	}
+
+	/// The unit a value spelling names. Letter case is read, since `Mb` is
+	/// megabits to most readers; `kB` is the one other spelling taken.
+	#[must_use]
+	pub fn from_spelling(s: &str) -> Option<SizeUnit> {
+		match s {
+			"B" => Some(SizeUnit::Bytes),
+			"KB" | "kB" => Some(SizeUnit::Kilo),
+			"MB" => Some(SizeUnit::Mega),
+			"GB" => Some(SizeUnit::Giga),
+			"TB" => Some(SizeUnit::Tera),
+			"KiB" => Some(SizeUnit::Kibi),
+			"MiB" => Some(SizeUnit::Mebi),
+			"GiB" => Some(SizeUnit::Gibi),
+			"TiB" => Some(SizeUnit::Tebi),
+			_ => None,
+		}
+	}
+}
+
+/// The longest duration a read gives, in milliseconds: Go's `time.Duration`
+/// range, so every binding holds every duration another one reads.
+const DURATION_MAX_MS: u64 = 9_223_372_036_854;
+
+/// Field name endings that give a bare number its unit, after a `-` or `_`.
+/// `min`, `m` and `s` are left out: `retries-min` is a minimum, and a
+/// trailing `s` is usually a plural. A capitalized word (`timeoutMs`) is not
+/// a boundary, since names fold to lower case and `fmt` writes them folded.
+const DURATION_NAMES: [(&str, DurationUnit); 6] = [
+	("ms", DurationUnit::Millis),
+	("sec", DurationUnit::Seconds),
+	("seconds", DurationUnit::Seconds),
+	("minutes", DurationUnit::Minutes),
+	("hours", DurationUnit::Hours),
+	("days", DurationUnit::Days),
+];
+
+const SIZE_NAMES: [(&str, SizeUnit); 9] = [
+	("bytes", SizeUnit::Bytes),
+	("kb", SizeUnit::Kilo),
+	("mb", SizeUnit::Mega),
+	("gb", SizeUnit::Giga),
+	("tb", SizeUnit::Tera),
+	("kib", SizeUnit::Kibi),
+	("mib", SizeUnit::Mebi),
+	("gib", SizeUnit::Gibi),
+	("tib", SizeUnit::Tebi),
+];
+
+/// The unit a field name ends in, from `table`: the ending, in any letter
+/// case, after a `-` or `_`.
+fn name_unit<U: Copy>(name: &str, table: &[(&str, U)]) -> Option<U> {
+	let b = name.as_bytes();
+	table.iter().find_map(|&(end, unit)| {
+		let at = b.len().checked_sub(end.len()).filter(|&at| at > 0)?;
+		(b[at..].eq_ignore_ascii_case(end.as_bytes()) && matches!(b[at - 1], b'-' | b'_'))
+			.then_some(unit)
+	})
+}
+
+/// A decimal number at the start of `s`: digits, then a point and more
+/// digits if there is a point. The two digit runs, and where it ended.
+fn decimal_at(s: &str) -> Option<(&str, &str, usize)> {
+	let b = s.as_bytes();
+	let int = b.iter().take_while(|c| c.is_ascii_digit()).count();
+	if int == 0 {
+		return None;
+	}
+	if b.get(int) != Some(&b'.') {
+		return Some((&s[..int], "", int));
+	}
+	let frac = b[int + 1..]
+		.iter()
+		.take_while(|c| c.is_ascii_digit())
+		.count();
+	if frac == 0 {
+		return None;
+	}
+	Some((&s[..int], &s[int + 1..int + 1 + frac], int + 1 + frac))
+}
+
+/// `int.frac` times `scale`, exactly. None when that is not a whole number
+/// or does not fit, so `1.5s` is 1500 ms and `0.0001s` is refused. At most
+/// 18 digits after the point count, which keeps the sum in 64 bits: the
+/// fraction's share is below `scale`, and dividing out their common factor
+/// first gets it without a wider product.
+fn scaled(int: &str, frac: &str, scale: u64) -> Option<u64> {
+	let int = int.trim_start_matches('0');
+	let frac = frac.trim_end_matches('0');
+	if int.len() > 19 || frac.len() > 18 {
+		return None;
+	}
+	let whole: u64 = if int.is_empty() { 0 } else { int.parse().ok()? };
+	let mut total = whole.checked_mul(scale)?;
+	if !frac.is_empty() {
+		let part: u64 = frac.parse().ok()?;
+		let den = 10u64.pow(frac.len() as u32);
+		let (mut a, mut b) = (scale, den);
+		while b != 0 {
+			(a, b) = (b, a % b);
+		}
+		let step = den / a;
+		if !part.is_multiple_of(step) {
+			return None;
+		}
+		total = total.checked_add(part / step * (scale / a))?;
+	}
+	Some(total)
+}
+
+/// A duration in whole milliseconds, and the units the text spelled: parts
+/// such as `1h 30m`, largest unit first and each once, with blanks allowed
+/// between a number and its unit and between parts. A bare number takes
+/// `bare`, and is None without one. No sign.
+fn parse_duration_text(t: &str, bare: Option<DurationUnit>) -> Option<(i64, Vec<DurationUnit>)> {
+	let t = trim_wsp(t);
+	if let Some((int, frac, end)) = decimal_at(t)
+		&& end == t.len()
+	{
+		let ms = scaled(int, frac, bare?.millis())?;
+		return (ms <= DURATION_MAX_MS).then(|| (ms as i64, Vec::new()));
+	}
+	let mut rest = t;
+	let mut total: u64 = 0;
+	let mut units: Vec<DurationUnit> = Vec::new();
+	while !rest.is_empty() {
+		let (int, frac, end) = decimal_at(rest)?;
+		rest = rest[end..].trim_start_matches(is_wsp);
+		let n = rest.bytes().take_while(u8::is_ascii_alphabetic).count();
+		let unit = DurationUnit::from_spelling(&rest[..n])?;
+		if units.last().is_some_and(|&u| u <= unit) {
+			return None;
+		}
+		total = total.checked_add(scaled(int, frac, unit.millis())?)?;
+		units.push(unit);
+		rest = rest[n..].trim_start_matches(is_wsp);
+	}
+	if units.is_empty() || total > DURATION_MAX_MS {
+		return None;
+	}
+	Some((total as i64, units))
+}
+
+/// A size in whole bytes, and the unit the text spelled: a number, blanks
+/// allowed, then a unit. A bare number takes `bare`, and is None without
+/// one. No sign.
+fn parse_size_text(
+	t: &str,
+	bare: Option<SizeUnit>,
+	decimal: bool,
+) -> Option<(i64, Option<SizeUnit>)> {
+	let t = trim_wsp(t);
+	let (int, frac, end) = decimal_at(t)?;
+	let rest = t[end..].trim_start_matches(is_wsp);
+	let unit = if rest.is_empty() {
+		None
+	} else {
+		Some(SizeUnit::from_spelling(rest)?)
+	};
+	let n = scaled(int, frac, unit.or(bare)?.bytes(decimal))?;
+	(n <= i64::MAX as u64).then_some((n as i64, unit))
+}
+
+/// A value in another unit than the one its field name ends in (`H005`), as
+/// `timeout-ms: 5s`. The value's unit is the one read, so this is a hint.
+fn unit_clash(name: &str, text: &str) -> Option<String> {
+	let said = |v: &str, n: &str| {
+		format!(
+			"value is in {} and the name says {}; the value's unit is the one read",
+			v, n
+		)
+	};
+	if let Some(nu) = name_unit(name, &DURATION_NAMES)
+		&& let Some((_, units)) = parse_duration_text(text, None)
+		&& !units.contains(&nu)
+	{
+		return Some(said(units[0].spelling(), nu.spelling()));
+	}
+	if let Some(nu) = name_unit(name, &SIZE_NAMES)
+		&& let Some((_, Some(vu))) = parse_size_text(text, None, false)
+		&& vu != nu
+	{
+		return Some(said(vu.spelling(), nu.spelling()));
+	}
+	None
+}
+
+// ---------------------------------------------------------------------------
 // Date/time (closed whitelist; shape match, then calendar validation)
 // ---------------------------------------------------------------------------
 
@@ -8573,6 +8883,48 @@ impl Document {
 		self.read_scalar(path, |e| parse_datetime(&e.text))
 	}
 
+	/// read_scalar with the node's name, for the reads whose bare number
+	/// takes its unit from the name.
+	fn read_named<T: Default>(
+		&self,
+		path: &str,
+		coerce: impl Fn(&Element, &str) -> Option<T>,
+	) -> Read<T> {
+		match self.node_at(path) {
+			Ok(n) => {
+				let name = self.arena[n].name.as_str();
+				self.read_scalar(path, |e| coerce(e, name))
+			}
+			Err(st) => Read::new(T::default(), st, None),
+		}
+	}
+
+	/// Full-tier duration read at a path, in whole milliseconds: `500ms`,
+	/// `30s`, `1h 30m`, `2d`. A bare number takes its unit from the field
+	/// name when the name ends in one (`timeout-ms`, `delay_seconds`), else
+	/// from `unit`, and is BadType with neither.
+	pub fn read_duration(
+		&self,
+		path: &str,
+		unit: Option<DurationUnit>,
+	) -> Read<std::time::Duration> {
+		self.read_named(path, |e, name| {
+			let bare = name_unit(name, &DURATION_NAMES).or(unit);
+			parse_duration_text(&e.text, bare)
+				.map(|(ms, _)| std::time::Duration::from_millis(ms as u64))
+		})
+	}
+
+	/// Full-tier size read at a path, in whole bytes: `512MB`, `1.5 GiB`. A
+	/// bare number takes its unit the way a duration does. `KB` to `TB` are
+	/// powers of 1024 unless `decimal` is set.
+	pub fn read_size(&self, path: &str, unit: Option<SizeUnit>, decimal: bool) -> Read<i64> {
+		self.read_named(path, |e, name| {
+			let bare = name_unit(name, &SIZE_NAMES).or(unit);
+			parse_size_text(&e.text, bare, decimal).map(|(n, _)| n)
+		})
+	}
+
 	/// Any value reads as a string: a raw block yields its content, an array its
 	/// canonical inline text. Escapes are applied.
 	pub fn read_string(&self, path: &str) -> Read<String> {
@@ -8800,6 +9152,35 @@ impl Document {
 		}
 	}
 
+	/// `read_duration` reduced to a `Result`.
+	pub fn get_duration(
+		&self,
+		path: &str,
+		unit: Option<DurationUnit>,
+	) -> Result<std::time::Duration, Status> {
+		let r = self.read_duration(path, unit);
+		if r.status == Status::Good {
+			Ok(r.value)
+		} else {
+			Err(r.status)
+		}
+	}
+
+	/// `read_size` reduced to a `Result`.
+	pub fn get_size(
+		&self,
+		path: &str,
+		unit: Option<SizeUnit>,
+		decimal: bool,
+	) -> Result<i64, Status> {
+		let r = self.read_size(path, unit, decimal);
+		if r.status == Status::Good {
+			Ok(r.value)
+		} else {
+			Err(r.status)
+		}
+	}
+
 	// Array get-tier: Ok only when the whole read is Good, so `.unwrap_or(def)`
 	// gives the convenience "the array, or this fallback array" - the array
 	// analogue of the scalar get_*. Per-slot substitution is the full read_*
@@ -8895,6 +9276,21 @@ impl Document {
 		self.get_datetime(path).unwrap_or(def)
 	}
 
+	/// The duration at a path, or `def` when the read is not Good.
+	pub fn get_duration_or(
+		&self,
+		path: &str,
+		unit: Option<DurationUnit>,
+		def: std::time::Duration,
+	) -> std::time::Duration {
+		self.get_duration(path, unit).unwrap_or(def)
+	}
+
+	/// The size at a path, or `def` when the read is not Good.
+	pub fn get_size_or(&self, path: &str, unit: Option<SizeUnit>, decimal: bool, def: i64) -> i64 {
+		self.get_size(path, unit, decimal).unwrap_or(def)
+	}
+
 	/// The integer array at a path, or `def` when the read is not Good.
 	pub fn get_int_array_or(&self, path: &str, def: Vec<i64>) -> Vec<i64> {
 		self.get_int_array(path).unwrap_or(def)
@@ -8932,13 +9328,15 @@ impl Document {
 // the unknown-field sweep skips only when a fault cost a path spelling. One
 // line-number space per result.
 
-const SCHEMA_TYPES: [&str; 11] = [
+const SCHEMA_TYPES: [&str; 13] = [
 	"int",
 	"float",
 	"bool",
 	"string",
 	"datetime",
 	"raw",
+	"duration",
+	"size",
 	"int-array",
 	"float-array",
 	"bool-array",
@@ -8968,6 +9366,13 @@ struct Constraint {
 	max_i: Option<i64>,
 	min_f: Option<f64>,
 	max_f: Option<f64>,
+	// duration and size: the unit a bare number takes when the field name
+	// gives none, base 10 for KB to TB, and the bounds as the schema spelled
+	// them, since min_i and max_i hold them in milliseconds or bytes.
+	unit_d: Option<DurationUnit>,
+	unit_s: Option<SizeUnit>,
+	decimal: bool,
+	bound_text: (Option<String>, Option<String>),
 	repeat: Option<(u64, u64)>,
 	reopen: bool,             // H002 suppressor only; validation ignores it
 	inherits: Option<String>, // fragment mounted at this path (subtree shape)
@@ -9149,6 +9554,10 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 		max_i: None,
 		min_f: None,
 		max_f: None,
+		unit_d: None,
+		unit_s: None,
+		decimal: false,
+		bound_text: (None, None),
 		repeat: None,
 		reopen: false,
 		inherits: None,
@@ -9163,6 +9572,8 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 	let mut default_at: Option<usize> = None;
 	let mut min_at: Option<usize> = None;
 	let mut max_at: Option<usize> = None;
+	let mut unit_at: Option<usize> = None;
+	let mut decimal_at_key: Option<usize> = None;
 	for &k in &schema.arena[f].children {
 		let kid = &schema.arena[k];
 		if kid.value.is_empty() {
@@ -9256,6 +9667,31 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 					"bad schema constraint 'max'".to_string(),
 				),
 			},
+			"unit" => match &kid.value {
+				Value::Cell(els) if els.len() == 1 && unit_at.is_none() => unit_at = Some(k),
+				_ => vdiag(
+					faults,
+					kid.line,
+					"V092",
+					"bad schema constraint 'unit'".to_string(),
+				),
+			},
+			"decimal" => {
+				let v =
+					single_text(&kid.value).and_then(|t| parse_bool_text(&t, Strictness::Standard));
+				match v {
+					Some(b) if decimal_at_key.is_none() => {
+						decimal_at_key = Some(k);
+						c.decimal = b;
+					}
+					_ => vdiag(
+						faults,
+						kid.line,
+						"V092",
+						"bad schema constraint 'decimal'".to_string(),
+					),
+				}
+			}
 			"repeat" => match &kid.value {
 				Value::Cell(els) if c.repeat.is_none() && matches!(els.len(), 1 | 2) => {
 					let lo = els[0].text.parse::<u64>().ok();
@@ -9342,6 +9778,45 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 		c.ty.as_deref()
 			.map(|t| t.strip_suffix("-array").unwrap_or(t))
 			.unwrap_or("string");
+	// `unit` and `decimal` belong to the types that read a bare number in
+	// one, and a unit has to be one that type spells.
+	if let Some(u) = unit_at {
+		let kid = &schema.arena[u];
+		let text = single_text(&kid.value).unwrap_or_default();
+		match base {
+			"duration" => c.unit_d = DurationUnit::from_spelling(&text),
+			"size" => c.unit_s = SizeUnit::from_spelling(&text),
+			_ => {}
+		}
+		if c.unit_d.is_none() && c.unit_s.is_none() {
+			vdiag(
+				faults,
+				kid.line,
+				"V092",
+				"bad schema constraint 'unit'".to_string(),
+			);
+		}
+	}
+	if let Some(d) = decimal_at_key
+		&& base != "size"
+	{
+		vdiag(
+			faults,
+			schema.arena[d].line,
+			"V092",
+			"bad schema constraint 'decimal'".to_string(),
+		);
+		c.decimal = false;
+	}
+	// A duration or size bound, or allowed value, is read the way the
+	// document's value is, less the field name: the schema says its unit.
+	let quantity = |e: &Element| -> Option<i64> {
+		match base {
+			"duration" => parse_duration_text(&e.text, c.unit_d).map(|(v, _)| v),
+			"size" => parse_size_text(&e.text, c.unit_s, c.decimal).map(|(v, _)| v),
+			_ => None,
+		}
+	};
 	if let Some(a) = allowed_at {
 		let kid = &schema.arena[a];
 		// allowed_at is only ever set for a Cell; if that invariant slips,
@@ -9372,7 +9847,9 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 				.map(|e| parse_datetime(&e.text))
 				.collect::<Option<Vec<_>>>()
 				.map(AllowedSet::Dates),
-			"raw" => None, // a raw body has no element space to enumerate
+			// A raw body has no element space to enumerate, and a duration
+			// or size is bounded with min and max rather than listed.
+			"raw" | "duration" | "size" => None,
 			_ => Some(AllowedSet::Strings(
 				els.iter().map(|e| e.text.clone()).collect(),
 			)),
@@ -9418,6 +9895,22 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 					format!("bad schema constraint '{}'", key),
 				),
 			},
+			"duration" | "size" => match quantity(el) {
+				Some(v) if is_min => {
+					c.min_i = Some(v);
+					c.bound_text.0 = Some(el.text.clone());
+				}
+				Some(v) => {
+					c.max_i = Some(v);
+					c.bound_text.1 = Some(el.text.clone());
+				}
+				None => vdiag(
+					faults,
+					kid.line,
+					"V092",
+					format!("bad schema constraint '{}'", key),
+				),
+			},
 			_ => vdiag(
 				faults,
 				kid.line,
@@ -9446,6 +9939,7 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 		c.max_i = None;
 		c.min_f = None;
 		c.max_f = None;
+		c.bound_text = (None, None);
 	}
 	Some(c)
 }
@@ -9493,12 +9987,28 @@ fn allowed_join(a: &AllowedSet) -> String {
 /// The `# type, ...` annotation line summarizing a constraint, ASCII only.
 fn gen_annotation(c: &Constraint, tyname: &str) -> String {
 	let mut parts: Vec<String> = vec![tyname.to_string()];
+	if let Some(u) = c.unit_d {
+		parts[0] = format!("{} in {}", tyname, u.spelling());
+	} else if let Some(u) = c.unit_s {
+		parts[0] = format!("{} in {}", tyname, u.spelling());
+	}
+	if c.decimal {
+		parts.push("KB to TB in powers of 1000".to_string());
+	}
 	if let Some(a) = &c.allowed {
 		parts.push(format!("one of: {}", allowed_join(a)));
 	}
 	// The bounds are their own part of the annotation line, not an alternative
 	// to `allowed`. A field can carry both, and the validator enforces both.
-	if c.min_i.is_some() || c.max_i.is_some() {
+	// A duration or size bound reads the way the schema spelled it.
+	if c.bound_text.0.is_some() || c.bound_text.1.is_some() {
+		parts.push(match &c.bound_text {
+			(Some(lo), Some(hi)) => format!("{}-{}", lo, hi),
+			(Some(lo), None) => format!(">= {}", lo),
+			(None, Some(hi)) => format!("<= {}", hi),
+			(None, None) => String::new(), // guarded above; keep the map total
+		});
+	} else if c.min_i.is_some() || c.max_i.is_some() {
 		parts.push(match (c.min_i, c.max_i) {
 			(Some(lo), Some(hi)) => format!("{}-{}", lo, hi),
 			(Some(lo), None) => format!(">= {}", lo),
@@ -10635,6 +11145,72 @@ impl Document {
 								"V004",
 								format!(
 									"value not allowed at '{}': {}",
+									schema_text(&c.path),
+									one_line(&els[i].text)
+								),
+							);
+						}
+					}
+					// A bare number takes its unit from the field name first,
+					// as the read does, then the schema's `unit`.
+					"duration" | "size" => {
+						let name = node.name.as_str();
+						let parsed: Option<Vec<i64>> = els
+							.iter()
+							.map(|e| match base {
+								"duration" => {
+									let bare = name_unit(name, &DURATION_NAMES).or(c.unit_d);
+									parse_duration_text(&e.text, bare).map(|(v, _)| v)
+								}
+								_ => {
+									let bare = name_unit(name, &SIZE_NAMES).or(c.unit_s);
+									parse_size_text(&e.text, bare, c.decimal).map(|(v, _)| v)
+								}
+							})
+							.collect();
+						let Some(vals) = parsed else {
+							wrong(out);
+							return;
+						};
+						if let Some(AllowedSet::Ints(set)) = &c.allowed
+							&& let Some(i) = vals.iter().position(|v| !set.contains(v))
+						{
+							vdiag(
+								out,
+								line,
+								"V004",
+								format!(
+									"value not allowed at '{}': {}",
+									schema_text(&c.path),
+									one_line(&els[i].text)
+								),
+							);
+						}
+						if let (Some(lo), Some(t)) = (c.min_i, &c.bound_text.0)
+							&& let Some(i) = vals.iter().position(|v| *v < lo)
+						{
+							vdiag(
+								out,
+								line,
+								"V005",
+								format!(
+									"value below min {} at '{}': {}",
+									one_line(t),
+									schema_text(&c.path),
+									one_line(&els[i].text)
+								),
+							);
+						}
+						if let (Some(hi), Some(t)) = (c.max_i, &c.bound_text.1)
+							&& let Some(i) = vals.iter().position(|v| *v > hi)
+						{
+							vdiag(
+								out,
+								line,
+								"V006",
+								format!(
+									"value above max {} at '{}': {}",
+									one_line(t),
 									schema_text(&c.path),
 									one_line(&els[i].text)
 								),

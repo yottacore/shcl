@@ -1,0 +1,23 @@
+field: timeout
+	type: duration
+	unit: s
+	min: 1s
+	max: 5m
+	required: yes
+	default: 30
+	desc: How long to wait
+field: hold-ms
+	type: duration
+	max: 2s
+	required: yes
+	default: 250
+field: cache
+	type: size
+	unit: MB
+	decimal: yes
+	max: 2GB
+	default: 512MB
+field: chunk
+	type: size
+	required: yes
+	default: 64KiB

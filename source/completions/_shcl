@@ -20,17 +20,17 @@
 
 ## Type options, valid on `get` only. The table below carries them as the single
 ## token --<type>, exactly as the CLI's own table does.
-_shcl_types='--int --float --bool --datetime --string --raw --rawinfo'
+_shcl_types='--int --float --bool --datetime --string --raw --rawinfo --duration --size'
 
 ## Options that take a value, in either spelling. Mirrors the list asked_for()
 ## steps over in the CLI; check-completions.bash diffs the two.
-_shcl_valopts='--default --on-bad --strictness --schema --layer --set --set-literal --set-default --set-literal-default --remove'
+_shcl_valopts='--default --on-bad --strictness --schema --unit --layer --set --set-literal --set-default --set-literal-default --remove'
 
 ## Options each subcommand accepts. Anything else is a usage error to the CLI,
 ## so offering it here would be a lie.
 _shcl_opts() {
 	case "$1" in
-		get)             echo '--<type> --array --slots --default --on-bad --strictness --layer --set --set-literal --set-default --set-literal-default --remove' ;;
+		get)             echo '--<type> --array --slots --unit --decimal --default --on-bad --strictness --layer --set --set-literal --set-default --set-literal-default --remove' ;;
 		set)             echo '--strictness --layer --set --set-literal --set-default --set-literal-default --remove --write --lossy --no-banner' ;;
 		fmt)             echo '--write --lossy --check --strictness --layer --set --set-literal --set-default --set-literal-default --remove' ;;
 		check)           echo '--strictness --schema' ;;
@@ -91,6 +91,7 @@ _shcl() {
 	case "${prev}" in
 		--strictness)     _values 'strictness' loose standard strict 1 2 3; return ;;
 		--on-bad)         _values 'on-bad' error default flag; return ;;
+		--unit)           _values 'unit' ms s m h d B KB MB GB TB KiB MiB GiB TiB; return ;;
 		--schema|--layer) _files; return ;;
 	esac
 	## The rest take a PATH, or a value nothing here can enumerate.
@@ -98,6 +99,7 @@ _shcl() {
 	## Same options in the =VALUE form.
 	if compset -P '--strictness='; then _values 'strictness' loose standard strict 1 2 3; return; fi
 	if compset -P '--on-bad='; then _values 'on-bad' error default flag; return; fi
+	if compset -P '--unit='; then _values 'unit' ms s m h d B KB MB GB TB KiB MiB GiB TiB; return; fi
 	if compset -P '--schema=' || compset -P '--layer='; then _files; return; fi
 	for word in ${=_shcl_valopts}; do
 		compset -P "${word}=" && return

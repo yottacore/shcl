@@ -115,9 +115,11 @@ static const char *HELP =
 	"string/raw values decode \\n \\t \\\\; a line starting with # is a script comment.\n"
 	"\n"
 	"Types (get only; default --string):\n"
-	"  --int --float --bool --datetime --string --raw --rawinfo\n"
+	"  --int --float --bool --datetime --string --raw --rawinfo --duration --size\n"
 	"  --array                                read the value as an array of the type\n"
 	"  --rawinfo reads a raw block's info-string (the fence tag), not its content\n"
+	"  --duration prints milliseconds and --size bytes; a bare number takes its\n"
+	"  unit from the field name (timeout-ms, cache_mb), else from --unit\n"
 	"\n"
 	"Options (the subcommands each belongs to are in parentheses):\n"
 	"  --default=VALUE                        (get) value to print when the read is\n"
@@ -130,6 +132,12 @@ static const char *HELP =
 	"  --slots                                (get) prefix each line with its slot\n"
 	"                                         status and a tab (per element, or per\n"
 	"                                         wildcard slot)\n"
+	"  --unit=UNIT                            (get) the unit a bare number is in,\n"
+	"                                         for --duration (ms s m h d) or --size\n"
+	"                                         (B KB MB GB TB KiB MiB GiB TiB), when\n"
+	"                                         the field name gives none\n"
+	"  --decimal                              (get) --size reads KB to TB as powers\n"
+	"                                         of 1000, not 1024\n"
 	"  --no-banner                            (init, and set --write when it creates\n"
 	"                                         FILE) leave out the info block naming\n"
 	"                                         the format and pointing at its spec\n"
@@ -277,6 +285,8 @@ typedef struct {
 	int check;
 	int no_banner;
 	const char *schema;       // NULL if unset
+	const char *unit;         // --unit, read against the type at check time; NULL if unset
+	int decimal;
 	const char **layers; int nlayers; // lower-priority layers, in listed order (unbounded)
 	SetOpt *sets; int nsets;          // final override layer, in the order given (unbounded)
 	const char **args; int nargs;     // positional: FILE [PATH]
@@ -386,6 +396,9 @@ static const char *CODES =
 	"  \"C:\\temp\" reads as C:, a tab, then emp. The line loads and saves as\n"
 	"  usual, since that is legal, but a path almost never means it. Single\n"
 	"  quotes or no quotes keep each backslash as written; so does doubling it.\n"
+	"H005|hint|a value in another unit than its field name ends in\n"
+	"  timeout-ms: 5s reads as 5000 milliseconds, since a unit in the value\n"
+	"  wins over the one the name gives a bare number. Legal, and often a slip.\n"
 	"V001|error|unknown field\n"
 	"  No schema path covers it. Only the topmost unknown node is reported; its\n"
 	"  subtree is skipped. The prose carries the did-you-mean suggestion.\n"
@@ -808,7 +821,7 @@ static int do_get(Opts *o) {
 		else if (!strcmp(o->kind, "float")) { shcl_read_f64_arr r = shcl_read_float_array(d, path, plen); status = r.status; slotSts = r.statuses; nSlots = r.n; for (size_t i = 0; i < r.n; i++) { size_t k = shcl_format_float(r.values[i], fbuf); PUSHLINE_BUF(fbuf, k); } }
 		else if (!strcmp(o->kind, "bool")) { shcl_read_bool_arr r = shcl_read_bool_array(d, path, plen); status = r.status; slotSts = r.statuses; nSlots = r.n; for (size_t i = 0; i < r.n; i++) PUSHLINE_BYTES(r.values[i] ? "true" : "false", r.values[i] ? 4 : 5); }
 		else if (!strcmp(o->kind, "datetime")) { shcl_read_dt_arr r = shcl_read_datetime_array(d, path, plen); status = r.status; slotSts = r.statuses; nSlots = r.n; for (size_t i = 0; i < r.n; i++) { size_t k = shcl_datetime_str(&r.values[i], fbuf); PUSHLINE_BUF(fbuf, k); } }
-		else if (!strcmp(o->kind, "raw") || !strcmp(o->kind, "rawinfo")) { fprintf(stderr, "--%s has no --array form (see --help)\n", o->kind); free(lines); layered_free(&L); return 1; }
+		else if (!strcmp(o->kind, "raw") || !strcmp(o->kind, "rawinfo") || !strcmp(o->kind, "duration") || !strcmp(o->kind, "size")) { fprintf(stderr, "--%s has no --array form (see --help)\n", o->kind); free(lines); layered_free(&L); return 1; }
 		else { shcl_read_str_arr r = shcl_read_string_array(d, path, plen); status = r.status; slotSts = r.statuses; nSlots = r.n; for (size_t i = 0; i < r.n; i++) PUSHLINE_BYTES(r.values[i].p, r.values[i].n); }
 	} else {
 		if (!strcmp(o->kind, "int")) { shcl_read_i64 r = shcl_read_int(d, path, plen); status = r.status; PUSHLINE_FMT("%" PRId64, r.value); }
@@ -817,6 +830,14 @@ static int do_get(Opts *o) {
 		else if (!strcmp(o->kind, "datetime")) { shcl_read_dt r = shcl_read_datetime(d, path, plen); status = r.status; size_t k = shcl_datetime_str(&r.value, fbuf); PUSHLINE_BUF(fbuf, k); }
 		else if (!strcmp(o->kind, "raw")) { shcl_read_str r = shcl_read_raw(d, path, plen); status = r.status; PUSHLINE_BYTES(r.value.p, r.value.n); }
 		else if (!strcmp(o->kind, "rawinfo")) { shcl_read_str r = shcl_read_raw_info(d, path, plen); status = r.status; PUSHLINE_BYTES(r.value.p, r.value.n); }
+		else if (!strcmp(o->kind, "duration")) {
+			shcl_duration_unit u = o->unit ? shcl_duration_unit_of(o->unit, strlen(o->unit)) : SHCL_DURATION_NONE;
+			shcl_read_i64 r = shcl_read_duration(d, path, plen, u); status = r.status; PUSHLINE_FMT("%" PRId64, r.value);
+		}
+		else if (!strcmp(o->kind, "size")) {
+			shcl_size_unit u = o->unit ? shcl_size_unit_of(o->unit, strlen(o->unit)) : SHCL_SIZE_NONE;
+			shcl_read_i64 r = shcl_read_size(d, path, plen, u, o->decimal); status = r.status; PUSHLINE_FMT("%" PRId64, r.value);
+		}
 		else { shcl_read_str r = shcl_read_string(d, path, plen); status = r.status; PUSHLINE_BYTES(r.value.p, r.value.n); }
 	}
 
@@ -1682,10 +1703,10 @@ static int do_enum(Opts *o, int want_count) {
 // The type options, as one list. kind_from_opt is still the reader; this is
 // for the places that need the spellings themselves - the did-you-mean on a
 // typo, and the per-subcommand help.
-static const char *const TYPE_OPTS[] = { "--int", "--float", "--bool", "--datetime", "--string", "--raw", "--rawinfo", NULL };
+static const char *const TYPE_OPTS[] = { "--int", "--float", "--bool", "--datetime", "--string", "--raw", "--rawinfo", "--duration", "--size", NULL };
 
 static const char *kind_from_opt(const char *a) {
-	static const char *const kinds[] = { "int", "float", "bool", "datetime", "string", "raw", "rawinfo" };
+	static const char *const kinds[] = { "int", "float", "bool", "datetime", "string", "raw", "rawinfo", "duration", "size" };
 	if (a[0] != '-' || a[1] != '-') return NULL;
 	for (size_t i = 0; i < sizeof kinds / sizeof kinds[0]; i++)
 		if (!strcmp(a + 2, kinds[i])) return kinds[i];
@@ -1747,6 +1768,9 @@ static int set_value_opt(Opts *o, const char *name, const char *v) {
 	} else if (!strcmp(name, "--schema")) {
 		if (o->schema && strcmp(o->schema, v)) note_clash(o, "--schema", o->schema, v);
 		o->schema = v; opt_seen(o, "--schema");
+	} else if (!strcmp(name, "--unit")) {
+		if (o->unit && strcmp(o->unit, v)) note_clash(o, "--unit", o->unit, v);
+		o->unit = v; opt_seen(o, "--unit");
 	} else if (!strcmp(name, "--layer")) {
 		opt_push(&o->layers, &o->nlayers, v); opt_seen(o, "--layer");
 	} else if (!strcmp(name, "--remove")) {
@@ -1782,7 +1806,7 @@ static int known_option(const char *name) {
 static int parse_opts(int argc, char **argv, int from, Opts *o) {
 	o->kind = "string"; o->kind_opt = o->kind_text = NULL; o->clash_opt = NULL; o->clash[0] = o->clash[1] = NULL;
 	o->array = 0; o->slots = 0; o->deflt = NULL; o->on_bad = "flag"; o->on_bad_arg = NULL; o->on_bad_text = NULL;
-	o->strictness = SHCL_STANDARD; o->strictness_text = NULL; o->write = 0; o->lossy = 0; o->from_2x = 0; o->check = 0; o->no_banner = 0; o->schema = NULL;
+	o->strictness = SHCL_STANDARD; o->strictness_text = NULL; o->write = 0; o->lossy = 0; o->from_2x = 0; o->check = 0; o->no_banner = 0; o->schema = NULL; o->unit = NULL; o->decimal = 0;
 	o->layers = o->args = NULL; o->sets = NULL; o->nlayers = o->nsets = o->nargs = 0; o->nseen = 0;
 	o->swallowed_opt = o->swallowed_value = NULL;
 	// Value-taking options accept both --opt=VALUE and the space form --opt VALUE.
@@ -1807,7 +1831,8 @@ static int parse_opts(int argc, char **argv, int from, Opts *o) {
 		else if (!strcmp(a, "--from-2x")) { o->from_2x = 1; opt_seen(o, "--from-2x"); }
 		else if (!strcmp(a, "--check")) { o->check = 1; opt_seen(o, "--check"); }
 		else if (!strcmp(a, "--no-banner")) { o->no_banner = 1; opt_seen(o, "--no-banner"); }
-		else if (!strcmp(a, "--default") || !strcmp(a, "--on-bad") || !strcmp(a, "--strictness") || !strcmp(a, "--schema") || !strcmp(a, "--layer") || !strcmp(a, "--set") || !strcmp(a, "--set-literal") || !strcmp(a, "--set-default") || !strcmp(a, "--set-literal-default") || !strcmp(a, "--remove")) {
+		else if (!strcmp(a, "--decimal")) { o->decimal = 1; opt_seen(o, "--decimal"); }
+		else if (!strcmp(a, "--default") || !strcmp(a, "--on-bad") || !strcmp(a, "--strictness") || !strcmp(a, "--schema") || !strcmp(a, "--unit") || !strcmp(a, "--layer") || !strcmp(a, "--set") || !strcmp(a, "--set-literal") || !strcmp(a, "--set-default") || !strcmp(a, "--set-literal-default") || !strcmp(a, "--remove")) {
 			if (i + 1 >= argc) { fprintf(stderr, "missing value for %s (try %s=VALUE)\n", a, a); return 1; }
 			if (set_value_opt(o, a, argv[++i])) return 1;
 			if (i + 1 == argc) { o->swallowed_opt = a; o->swallowed_value = argv[i]; }
@@ -1816,6 +1841,7 @@ static int parse_opts(int argc, char **argv, int from, Opts *o) {
 		else if (!strncmp(a, "--on-bad=", 9)) { if (set_value_opt(o, "--on-bad", a + 9)) return 1; }
 		else if (!strncmp(a, "--strictness=", 13)) { if (set_value_opt(o, "--strictness", a + 13)) return 1; }
 		else if (!strncmp(a, "--schema=", 9)) { if (set_value_opt(o, "--schema", a + 9)) return 1; }
+		else if (!strncmp(a, "--unit=", 7)) { if (set_value_opt(o, "--unit", a + 7)) return 1; }
 		else if (!strncmp(a, "--layer=", 8)) { if (set_value_opt(o, "--layer", a + 8)) return 1; }
 		else if (!strncmp(a, "--set-literal=", 14)) { if (set_value_opt(o, "--set-literal", a + 14)) return 1; }
 		else if (!strncmp(a, "--set-literal-default=", 22)) { if (set_value_opt(o, "--set-literal-default", a + 22)) return 1; }
@@ -1883,7 +1909,7 @@ static int do_paths(Opts *o) {
 // per-subcommand help is cut from the full help with it, and the shell
 // completions carry the same table (check-completions.bash diffs the two).
 static const char *const *allowed_opts(const char *cmd) {
-	static const char *get_ok[] = { "--<type>", "--array", "--slots", "--default", "--on-bad", "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove", NULL };
+	static const char *get_ok[] = { "--<type>", "--array", "--slots", "--unit", "--decimal", "--default", "--on-bad", "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove", NULL };
 	static const char *set_ok[] = { "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove", "--write", "--lossy", "--no-banner", NULL };
 	static const char *fmt_ok[] = { "--write", "--lossy", "--check", "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove", NULL };
 	static const char *check_ok[] = { "--strictness", "--schema", NULL };
@@ -1939,6 +1965,16 @@ static int check_opts(const char *cmd, const Opts *o) {
 		else
 			fprintf(stderr, "%s cannot be combined with %s (see --help)\n", o->clash[0], o->clash[1]);
 		return 1;
+	}
+	// --unit and --decimal say how to read a bare number, which only the
+	// duration and size reads have.
+	int unit_kind = !strcmp(o->kind, "duration") || !strcmp(o->kind, "size");
+	if (o->unit && !unit_kind) { fprintf(stderr, "--unit needs --duration or --size (see --help)\n"); return 1; }
+	if (o->decimal && strcmp(o->kind, "size") != 0) { fprintf(stderr, "--decimal needs --size (see --help)\n"); return 1; }
+	if (o->unit) {
+		size_t n = strlen(o->unit);
+		int known = !strcmp(o->kind, "duration") ? shcl_duration_unit_of(o->unit, n) != SHCL_DURATION_NONE : shcl_size_unit_of(o->unit, n) != SHCL_SIZE_NONE;
+		if (!known) { fprintf(stderr, "bad --unit value for --%s: %s (see --help)\n", o->kind, o->unit); return 1; }
 	}
 	// Writing back the merged document would fold the lower layers permanently
 	// into the top file, which is the opposite of what layering is for. On 'set'
@@ -2010,7 +2046,7 @@ static const char *asked_for(int argc, char **argv) {
 		if (!strcmp(a, "--about")) return "about";
 		if (!strcmp(a, "--donate")) return "donate";
 		if (!strcmp(a, "--")) return NULL;
-		if (!strcmp(a, "--default") || !strcmp(a, "--on-bad") || !strcmp(a, "--strictness") || !strcmp(a, "--schema") || !strcmp(a, "--layer") || !strcmp(a, "--set") || !strcmp(a, "--set-literal") || !strcmp(a, "--set-default") || !strcmp(a, "--set-literal-default") || !strcmp(a, "--remove")) i++;
+		if (!strcmp(a, "--default") || !strcmp(a, "--on-bad") || !strcmp(a, "--strictness") || !strcmp(a, "--schema") || !strcmp(a, "--unit") || !strcmp(a, "--layer") || !strcmp(a, "--set") || !strcmp(a, "--set-literal") || !strcmp(a, "--set-default") || !strcmp(a, "--set-literal-default") || !strcmp(a, "--remove")) i++;
 	}
 	return NULL;
 }
