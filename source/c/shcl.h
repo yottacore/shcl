@@ -5825,9 +5825,16 @@ static ShclStr quote_double(ShclArena *a, ShclStr t) {
 	sb_putc(a, &s, '"');
 	return sb_S(&s);
 }
+// leading_zero: a zero followed by another digit, after any sign: `007`,
+// `-012`, `00.5`.
+static int leading_zero(ShclStr t) {
+	if (t.n && (t.p[0] == '+' || t.p[0] == '-')) { t.p++; t.n--; }
+	return t.n > 1 && t.p[0] == '0' && t.p[1] >= '0' && t.p[1] <= '9';
+}
 // is_data_format: true when the text reads as an int, float, bool, or datetime
 // at standard strictness - fixed there deliberately, so canonical form cannot
-// vary with the load strictness.
+// vary with the load strictness. A number with a leading zero does not count:
+// quotes are how a file says the zeros matter, as in a zip code.
 // One pass over the bytes before any coercion. At Standard the int, float and
 // datetime forms all require at least one ASCII digit; the only formats that do
 // not are the boolean words, and the longest of those is "false". An ordinary
@@ -5841,8 +5848,10 @@ static int is_data_format(ShclArena *a, const ShclElement *e) {
 		ShclStr t = s_trim(e->text);
 		return t.n <= 5 && parse_bool_text(a, t, SHCL_STANDARD, &bv);
 	}
-	if (parse_int_text(a, e, SHCL_STANDARD, &iv)) return 1;
-	if (parse_float_text(a, e, SHCL_STANDARD, &fv)) return 1;
+	if (!leading_zero(s_trim(e->text))) {
+		if (parse_int_text(a, e, SHCL_STANDARD, &iv)) return 1;
+		if (parse_float_text(a, e, SHCL_STANDARD, &fv)) return 1;
+	}
 	if (parse_bool_text(a, e->text, SHCL_STANDARD, &bv)) return 1;
 	if (parse_datetime(a, e->text, &dv)) return 1;
 	return 0;

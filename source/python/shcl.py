@@ -6648,7 +6648,8 @@ def _new_element(text):
 def _is_data_format(e):
 	"""True when the text reads as an int, float, bool, or datetime at standard
 	strictness - fixed there deliberately, so canonical form cannot vary with
-	the load strictness.
+	the load strictness. A number with a leading zero does not count: quotes
+	are how a file says the zeros matter, as in a zip code.
 
 	One pass over the text before any coercion: at Standard the int, float and
 	datetime forms all require at least one ASCII digit, and the only formats
@@ -6658,13 +6659,21 @@ def _is_data_format(e):
 	if _ASCII_DIGITS.isdisjoint(e.text):
 		t = _trim(e.text)
 		return len(t) <= 5 and _parse_bool_text(t, Strictness.Standard) is not None
-	if _parse_int_text(e, Strictness.Standard) is not None:
-		return True
-	if _parse_float_text(e, Strictness.Standard) is not None:
-		return True
+	if not _leading_zero(_trim(e.text)):
+		if _parse_int_text(e, Strictness.Standard) is not None:
+			return True
+		if _parse_float_text(e, Strictness.Standard) is not None:
+			return True
 	if _parse_bool_text(e.text, Strictness.Standard) is not None:
 		return True
 	return parse_datetime(e.text) is not None
+
+
+def _leading_zero(t):
+	"""A zero followed by another digit, after any sign: `007`, `-012`, `00.5`."""
+	if t[:1] in ("+", "-"):
+		t = t[1:]
+	return len(t) > 1 and t[0] == "0" and t[1] in _ASCII_DIGITS
 
 
 def _quote_text(t):

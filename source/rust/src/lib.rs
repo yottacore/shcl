@@ -6249,7 +6249,8 @@ fn new_element(text: String) -> Element {
 
 /// True when the text reads as an int, float, bool, or datetime at standard
 /// strictness - fixed there deliberately, so canonical form cannot vary with
-/// the load strictness.
+/// the load strictness. A number with a leading zero does not count: quotes
+/// are how a file says the zeros matter, as in a zip code.
 fn is_data_format(e: &Element) -> bool {
 	// One pass over the bytes before any coercion. At Standard the int, float
 	// and datetime forms all require at least one ASCII digit; the only formats
@@ -6258,12 +6259,19 @@ fn is_data_format(e: &Element) -> bool {
 	// full coercions on every quoted element it writes.
 	let t = e.text.trim();
 	if t.bytes().any(|b| b.is_ascii_digit()) {
-		return parse_int_text(e, Strictness::Standard).is_some()
-			|| parse_float_text(e, Strictness::Standard).is_some()
+		let number = parse_int_text(e, Strictness::Standard).is_some()
+			|| parse_float_text(e, Strictness::Standard).is_some();
+		return (number && !leading_zero(t))
 			|| parse_datetime(&e.text).is_some()
 			|| parse_bool_text(t, Strictness::Standard).is_some();
 	}
 	t.len() <= 5 && parse_bool_text(t, Strictness::Standard).is_some()
+}
+
+/// A zero followed by another digit, after any sign: `007`, `-012`, `00.5`.
+fn leading_zero(t: &str) -> bool {
+	let b = t.strip_prefix(['+', '-']).unwrap_or(t).as_bytes();
+	b.len() > 1 && b[0] == b'0' && b[1].is_ascii_digit()
 }
 
 /// Quote a logical string so the tokenizer reads it back as the same string.

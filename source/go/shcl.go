@@ -5993,7 +5993,8 @@ func newElement(text string) element {
 
 // isDataFormat reports whether the text reads as an int, float, bool, or
 // datetime at standard strictness - fixed there deliberately, so canonical
-// form cannot vary with the load strictness.
+// form cannot vary with the load strictness. A number with a leading zero does
+// not count: quotes are how a file says the zeros matter, as in a zip code.
 func isDataFormat(e *element) bool {
 	// One pass over the bytes before any coercion. At Standard the int, float
 	// and datetime forms all require at least one ASCII digit; the only formats
@@ -6015,11 +6016,13 @@ func isDataFormat(e *element) bool {
 		_, ok := parseBoolText(t, Standard)
 		return ok
 	}
-	if _, ok := parseIntText(e, Standard); ok {
-		return true
-	}
-	if _, ok := parseFloatText(e, Standard); ok {
-		return true
+	if !leadingZero(strings.TrimSpace(e.text)) {
+		if _, ok := parseIntText(e, Standard); ok {
+			return true
+		}
+		if _, ok := parseFloatText(e, Standard); ok {
+			return true
+		}
 	}
 	if _, ok := parseBoolText(e.text, Standard); ok {
 		return true
@@ -6028,6 +6031,15 @@ func isDataFormat(e *element) bool {
 		return true
 	}
 	return false
+}
+
+// leadingZero reports a zero followed by another digit, after any sign: `007`,
+// `-012`, `00.5`.
+func leadingZero(t string) bool {
+	if t != "" && (t[0] == '+' || t[0] == '-') {
+		t = t[1:]
+	}
+	return len(t) > 1 && t[0] == '0' && t[1] >= '0' && t[1] <= '9'
 }
 
 // quoteText quotes a logical string so the tokenizer reads it back as the
