@@ -123,7 +123,7 @@ Going forward, new issues in the new template above will go in the '### New form
 - Hint when a double-quoted Windows path has a `\t` or `\n` escape
 	- ID: 2026092617133293
 	- Type: Enhancement
-	- Status: Waiting on signoff
+	- Status: Done
 	- Priority: Avg
 	- Opened: 20260926-171332
 	- Opened by: follow-up to 2026092616330237
@@ -8862,3 +8862,73 @@ Going forward, new issues in the new template above will go in the '### New form
 		- Recorded in `design.md` -> Consumer API, so it reads as a choice rather than an omission. Reversible; the reasoning is what would have to change, not the code.
 		- Opened: 20260817-204524
 		- Closed: 20260818-155051
+
+<!-- New issue template
+
+Legacy statuses:
+
+- 🔘 Not started
+
+- 🛠️ Started, and/or partially complete
+
+- 🔬 Testing not started or finished
+
+- ✋ Defer
+
+- ✅ Complete
+
+- 🚫 Canceled
+
+New issue format:
+
+- Only use rows that you actually need or expect will be filled in. Always fill in the title, ID, Type, Status, Opened and Created by.
+
+- The ID is the local time to the hundredth of a second. Opened is when it was written down, which may differ. (Use a keyboard macro and possibly something like project 'zuid' to generate.)
+
+- Status values, in sort order: Started, Testing, Waiting on signoff, Stalled, Queued, Deferred, Done, Moot, Canceled. Testing means the fix is in and checks are running or still to run. Waiting on signoff means testing passed. Moot means something else changed and made it irrelevant. Canceled means it still applies but was decided against.
+
+- Rows marked [Bug] are for bugs only, and rows marked [Feature] for features and enhancements. Children are not nested. They sit at the top level and point back with Parent ID.
+
+Template:
+
+- Title
+	- ID: YYYYmmDDHHMMSSNN
+	- Type: [Bug|Feature|Enhancement|Task]
+	- Status: [Queued|Started|Stalled|Testing|Waiting on signoff|Moot|Canceled|Deferred|Done]
+	- Priority|Severity [Bug]: [Critical|High|Avg|Low]
+	- Opened: YYYYmmDD-HHMMSS
+	- Opened by:
+	- Assigned to:
+	- Parent ID: YYYYmmDDHHMMSSNN
+	- Prereq IDs:
+		- YYYYmmDDHHMMSSNN
+	- Related IDs:
+		- YYYYmmDDHHMMSSNN
+	- Target OS:
+	- Test environment:
+	- Version and build:
+	- Requirements  [Feature]:
+		- Hierarchical bulleted list.
+	- Steps to reproduce [Bug]:
+		- ...
+	- Incorrect behavior [Bug]:
+	- Expected behavior [Bug]:
+	- Reproduced [Bug]: [No, or when, where and how]
+	- Possible cause [Bug]:
+	- Actual cause [Bug]:
+		- ...
+	- Estimated effort: [High|Avg|Low]
+	- Actual effort: [High|Avg|Low]
+	- Progress log:
+		- YYYYmmDD-HHMMSS: Notable effort.
+	- Decisions:
+		- ...
+	- Actual fix [Bug]:
+	- Branch:
+	- Commit:
+	- Test case: [Reason not applicable, or CI test case #]
+	- Acceptance signoff:
+	- Superseded by ID: YYYYmmDDHHMMSSNN
+	- Closed: YYYYmmDD-HHMMSS
+
+-->
