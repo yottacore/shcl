@@ -19,6 +19,10 @@
 
 set -Eeuo pipefail
 
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
+testWhere=check-install-dev; testCounter=nFail
+
 ## With GIT_DIR set, the clone and `git init` below act on the real repository.
 for gitVar in $(git rev-parse --local-env-vars 2>/dev/null || true); do unset "${gitVar}"; done
 
@@ -31,24 +35,28 @@ trap 'rm -rf "${work}"' EXIT
 ## --no-hardlinks: /tmp is routinely a different filesystem from the repo.
 git clone -q --no-hardlinks --local "${root}" "${work}/clone" || { echo "check-install-dev: local clone failed" >&2; exit 2; }
 
-rc=0
-fail() { echo "check-install-dev: FAIL: $*" >&2; rc=1; }
+rc=0; declare -i nFail=0
+fail() { echo "check-install-dev: FAIL: $*" >&2; rc=1; nFail+=1; }
 
+fTest EoeB8tE --hooks-only by --dir sets the hooks path and keepalive
 ## From a neutral cwd, pointed at the clone by --dir: sets both configs.
 ( cd "${work}" && bash "${script}" --hooks-only --dir clone >/dev/null )
 [[ "$(git -C "${work}/clone" config core.hooksPath)" == "cicd/hooks" ]] || fail "hooksPath not set"
 [[ "$(git -C "${work}/clone" config core.sshCommand)" == *ServerAliveInterval* ]] || fail "ssh keepalive not set"
 
+fTest EoeB8tF a second --hooks-only run changes nothing
 ## Idempotent: a second run changes nothing and still exits 0.
 before="$(git -C "${work}/clone" config --list --local)"
 ( cd "${work}" && bash "${script}" --hooks-only --dir clone >/dev/null ) || fail "second run failed"
 [[ "$(git -C "${work}/clone" config --list --local)" == "${before}" ]] || fail "second run changed the config"
 
+fTest EoeB8tG a configured sshCommand survives
 ## A chosen sshCommand survives: the keepalive is only for the unconfigured.
 git -C "${work}/clone" config core.sshCommand "ssh -i /keep/this"
 ( cd "${work}/clone" && bash "${script}" --hooks-only >/dev/null )
 [[ "$(git -C "${work}/clone" config core.sshCommand)" == "ssh -i /keep/this" ]] || fail "a configured sshCommand was overwritten"
 
+fTest EoeB8tH a run inside the clone finds it with no --dir
 ## Run inside the clone with no --dir: the in-clone detection finds it.
 ## `--unset` exits 5 when the key is not there, which under errexit would end
 ## the run here and take every check below it with it.
@@ -56,6 +64,7 @@ git -C "${work}/clone" config --unset core.hooksPath || true
 ( cd "${work}/clone" && bash "${script}" --hooks-only >/dev/null )
 [[ "$(git -C "${work}/clone" config core.hooksPath)" == "cicd/hooks" ]] || fail "in-clone run did not set hooksPath"
 
+fTest Er20EK0 --hooks-only sets the hooks in a worktree
 ## 20260830 item 43: in a worktree .git is a file, and the hooks were skipped
 ## there. The key is shared with the main checkout, so it comes off first.
 git -C "${work}/clone" worktree add -q --detach "${work}/wt"
@@ -66,6 +75,7 @@ else
 	fail "--hooks-only refused a worktree"
 fi
 
+fTest Ep10fNQ --hooks-only refuses a repository that is not a clone
 ## Not a clone: refused, and nothing written. The fixture is a repository that
 ## is not an shcl clone, since that is what the guard is for - a bare directory
 ## fails inside git config whether the guard is there or not, and the config
@@ -77,6 +87,7 @@ fi
 [[ -z "$(git -C "${work}/other" config --local core.hooksPath || true)" ]] || fail "a refused run set hooksPath on a foreign repository"
 [[ -z "$(git -C "${work}/other" config --local core.sshCommand || true)" ]] || fail "a refused run set sshCommand on a foreign repository"
 
+fTest Ep10fNR --hooks-only refuses a tree that is not a repository
 ## An shcl-shaped tree that is not a repository: refused too.
 mkdir -p "${work}/tree/cicd"
 cp "${root}/cicd/cicd.bash" "${work}/tree/cicd/"
@@ -84,6 +95,7 @@ if ( cd "${work}" && bash "${script}" --hooks-only --dir tree >/dev/null 2>&1 );
 	fail "--hooks-only accepted a tree that is not a repository"
 fi
 
+fTest Eq5i0NM the default path refuses a foreign repository up front
 ## The default path, not --hooks-only, pointed at a repository that is not
 ## shcl: refused before anything is fetched, with its branch and config as
 ## they were. The refusal comes ahead of the network, so this runs offline.
@@ -99,6 +111,7 @@ grep -qF "is not an shcl clone" "${work}/out" || fail "the default path did not 
 [[ "$(git -C "${work}/other" branch --show-current)" == "${other_branch}" ]] || fail "a refused run switched a foreign repository's branch"
 [[ -z "$(git -C "${work}/other" config --local core.hooksPath || true)" ]] || fail "the default path set hooksPath on a foreign repository"
 
+fTest Eq5i0NN the default path refuses a non-empty directory
 ## A non-empty directory that is no repository at all is refused the same way.
 mkdir -p "${work}/stuff" && : >"${work}/stuff/keep"
 if ( cd "${work}" && bash "${script}" --yes --dir stuff >"${work}/out" 2>&1 </dev/null ); then
@@ -106,6 +119,7 @@ if ( cd "${work}" && bash "${script}" --yes --dir stuff >"${work}/out" 2>&1 </de
 fi
 grep -qF "is not an shcl clone" "${work}/out" || fail "the default path did not refuse a non-empty directory up front"
 
+fTest EqRTWFc the plan is built off the pins in the config
 ## 20260920 idea 6: everything between the option parse and the hook setup ran
 ## in no gate - reading the pins, deciding what is already at its pin, and
 ## building the plan. Run the default path inside the throwaway clone against a
@@ -160,6 +174,7 @@ grep -qF 'STUB pipx install --force cppcheck==7.7.7' "${work}/stub.log" \
 	|| fail "the cppcheck install did not ask for the wheel version"
 grep -qF 'STUB pipx install --force ruff' "${work}/stub.log" && fail "a tool already at its pin was installed anyway"
 
+fTest Er20EK1 the default path sets the hooks in a worktree
 ## The default path ends on the same hooks setup, behind its own .git test.
 cp "${work}/pins.bash" "${work}/wt/cicd/config.bash"
 git -C "${work}/clone" config --unset core.hooksPath || true
@@ -167,6 +182,7 @@ git -C "${work}/clone" config --unset core.hooksPath || true
 	|| fail "the default path failed in a worktree: $(tail -n 3 "${work}/wt.out")"
 [[ "$(git -C "${work}/wt" config core.hooksPath || true)" == "cicd/hooks" ]] || fail "the default path in a worktree did not set the hooks"
 
+fTest EqzwPFA with no terminal the refusal comes first
 ## 20260829 item 20: with no terminal, the prompt's own open of /dev/tty
 ## failed out loud before the message saying so. setsid leaves no terminal.
 ttyRc=0
@@ -174,6 +190,7 @@ ttyRc=0
 [[ "${ttyRc}" != 0 && "$(head -n1 "${work}/tty.err")" == "install-dev.bash: no terminal to confirm on - pass --yes" ]] \
 	|| fail "with no terminal the refusal is not the first thing said (exit ${ttyRc}): $(head -n1 "${work}/tty.err")"
 
+fTest EqzwPFB a fresh clone by a relative --dir gets the hooks
 ## 20260822 item 1: the script changed into a fresh clone and then looked for
 ## it by the relative --dir it was given, so the hooks were skipped at exit 0.
 ## The default path from an empty directory, with git's clone taken from this
@@ -196,6 +213,7 @@ chmod +x "${net}/git" "${net}/curl"
 [[ "$(git -C "${work}/empty/fresh" config --local core.hooksPath || true)" == "cicd/hooks" ]] \
 	|| fail "a fresh clone by a relative --dir did not get the hooks: $(tail -n 3 "${work}/fresh.out")"
 
+fTest EqRTWFd a config with no CPPCHECK_WHEEL is refused
 ## The wheel version is read out of the config, not carried in the script: with
 ## the line gone the run refuses rather than installing whatever pipx has.
 grep -v '^CPPCHECK_WHEEL=' "${work}/clone/cicd/config.bash" > "${work}/cfg.nowheel"
@@ -205,6 +223,7 @@ if ( cd "${work}/clone" && HOME="${work}/home" PATH="${stub}:${PATH}" bash "${sc
 fi
 grep -qF "no CPPCHECK_WHEEL" "${work}/plan2" || fail "a missing CPPCHECK_WHEEL is not named: $(tail -n 2 "${work}/plan2")"
 
+fTestEnd
 (( rc == 0 )) && echo "check-install-dev: OK: --hooks-only sets the hooks path and keepalive, idempotently, and refuses a non-clone; the default path refuses one too, builds its plan off the config's pins, says first that it has no terminal, and hooks up a fresh clone and a worktree"
 exit "${rc}"
 

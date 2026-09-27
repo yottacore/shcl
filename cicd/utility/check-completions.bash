@@ -23,6 +23,9 @@ set -Eeuo pipefail
 
 meDir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 root="${1:-$(cd -- "${meDir}/../.." && pwd)}"
+testWhere="check-completions"; testCounter="nBad"; nBad=0
+# shellcheck source-path=SCRIPTDIR
+source "${meDir}/include/test-id.bash"
 
 mainRs="${root}/source/rust/src/main.rs"
 compFiles=("${root}/source/completions/shcl.bash" "${root}/source/completions/_shcl")
@@ -114,7 +117,7 @@ fZshTop() {
 	tr ' ' '\n' <<<"${subs} ${extra}" | sed '/^$/d' | sort -u | paste -sd' '
 }
 
-rc=0
+fTest EnPQRbk option-tables-agree
 rustTable="$(fRustTable)"
 [[ -n "${rustTable}" ]] || { echo "check-completions: no option table found in ${mainRs}" >&2; exit 1; }
 
@@ -123,10 +126,11 @@ for cf in "${compFiles[@]}"; do
 	if ! diff <(printf '%s\n' "${rustTable}") <(printf '%s\n' "${compTable}") >/dev/null; then
 		echo "check-completions: $(basename "${cf}") disagrees with the CLI (< CLI, > completion):" >&2
 		diff <(printf '%s\n' "${rustTable}") <(printf '%s\n' "${compTable}") >&2 || true
-		rc=1
+		nBad=$((nBad + 1))
 	fi
 done
 
+fTest EoShutc top-level-offers-agree
 rustTop="$(fRustTop)"
 [[ -n "${rustTop}" ]] || { echo "check-completions: no top-level offer found in ${mainRs}" >&2; exit 1; }
 
@@ -139,10 +143,11 @@ for cf in "${compFiles[@]}"; do
 		echo "check-completions: $(basename "${cf}") top-level offer disagrees with the CLI:" >&2
 		echo "  CLI:        ${rustTop}" >&2
 		echo "  completion: ${compTop}" >&2
-		rc=1
+		nBad=$((nBad + 1))
 	fi
 done
 
+fTest Ep11mJc value-options-agree
 ## The value-option lists: an option that takes a value and is missing here
 ## has its value counted as a positional, which eats the FILE slot.
 rustVal="$(fRustValOpts)"
@@ -153,10 +158,11 @@ for cf in "${compFiles[@]}"; do
 		echo "check-completions: $(basename "${cf}") value-option list disagrees with the CLI:" >&2
 		echo "  CLI:        ${rustVal}" >&2
 		echo "  completion: ${compVal}" >&2
-		rc=1
+		nBad=$((nBad + 1))
 	fi
 done
 
+fTest EoXNcum every-command-dispatches
 ## Every command the CLI accepts must have a dispatch arm of its own. One
 ## without used to fall through to whichever command the catch-all named - no
 ## compile error, no message.
@@ -166,9 +172,12 @@ if [[ "${rustCmds}" != "${rustArms}" ]]; then
 	echo "check-completions: COMMANDS and the dispatch disagree:" >&2
 	echo "  COMMANDS: $(paste -sd' ' <<<"${rustCmds}")" >&2
 	echo "  dispatch: $(paste -sd' ' <<<"${rustArms}")" >&2
-	rc=1
+	nBad=$((nBad + 1))
 fi
 
+fTestEnd
+rc=0
+if [[ "${nBad}" != 0 ]]; then rc=1; fi
 ((rc)) || echo "check-completions: OK ($(wc -l <<<"${rustTable}") subcommands + top-level offer + value options + dispatch, ${#compFiles[@]} completion files)"
 exit "${rc}"
 

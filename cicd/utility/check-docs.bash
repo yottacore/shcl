@@ -21,7 +21,11 @@ repoDir="${1:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)}"
 [[ -d "${repoDir}" ]] || { echo "check-docs: no such directory: ${repoDir}" >&2; exit 2 ;}
 declare -i nBad=0
 fBad(){ echo "check-docs: $1" >&2; nBad+=1 ;}
+testWhere="check-docs"; testCounter="nBad"
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
 
+fTest Ep19Ax7 default-ops-in-help-table
 ##	Every write op the CLI dispatches with a -default form has to be spelled in
 ##	the help's op table, either by its own `name[-default]` entry or by the
 ##	`<type>[-array]-default` line that covers the typed scalars and arrays.
@@ -38,6 +42,7 @@ while IFS= read -r op; do
 	grep -qF -- "  ${base}[-default]<TAB>" "${mainRs}" || fBad "write op ${op} is dispatched but the help's op table never spells ${base}[-default]"
 done <<<"${defaultOps}"
 
+fTest Eqp7thg python-version-matches-cargo
 ##	Cargo.toml is the version source, and the crosscheck holds the four CLIs to
 ##	it. The Python package's own version is read by nothing but pip, so a bump
 ##	that misses it goes out to PyPI under the old number.
@@ -46,12 +51,14 @@ pyVer="$(sed -n '/^version = "/{s/^version = "\(.*\)"$/\1/p;q;}' "${repoDir}/sou
 [[ -n "${cargoVer}" && "${cargoVer}" == "${pyVer}" ]] \
 	|| fBad "source/python/pyproject.toml is version '${pyVer}', but Cargo.toml says '${cargoVer}'"
 
+fTest EpPR0oa migrate-section-in-spec-and-man
 ##	`migrate` is the one path across the 3.0 lexical change, and it needs a
 ##	place in the spec and the man page that says what it rewrites and what it
 ##	leaves alone. A doc pass once tidied the section away.
 grep -q '^## Migrating from 2.x$' "${repoDir}/project/spec.md" || fBad "spec.md has no 'Migrating from 2.x' section"
 grep -q '^\.SH MIGRATING FROM 2\.X$' "${repoDir}/source/man/shcl.1" || fBad "the man page has no MIGRATING FROM 2.X section"
 
+fTest EoUst0C legal-disclaimer-not-reversed
 ##	A disclaimer that says the opposite of what it means is worse than none, and
 ##	these documents invite verbatim reuse, so the error travels. One negation in
 ##	the sentence is the disclaimer; two is "None of this is not legal advice".
@@ -75,6 +82,7 @@ done < <(grep -rn "legal advice" --include='*.md' "${repoDir}" \
 		}
 	}' || true)
 
+fTest EoUw6nI backlog-done-sections-in-order
 ##	The backlog states an order for its finished sections and then drifted out of
 ##	it twice: rounds, loose items, rounds again. Loose items first, rounds after,
 ##	each run newest first.
@@ -102,6 +110,7 @@ if [[ -f "${backlog}" ]]; then
 	' "${backlog}")
 fi
 
+fTest EqjdNqC doc-comments-on-the-right-declaration
 ##	A doc comment stranded on the wrong declaration came back four rounds running,
 ##	each time from code inserted between a comment and its function. Two places
 ##	can be read mechanically. A Go comment opens with the name it documents, so
@@ -136,6 +145,7 @@ while IFS= read -r problem; do fBad "${problem}"; done < <(
 		{ prev = $0 }' "${repoDir}/source/c/shcl.hpp"
 )
 
+fTest Er1z2hU public-items-documented
 ##	Two rounds filled in public declarations that had no comment at all: about
 ##	sixty Go functions, the whole writer API among them, and sixty items in the
 ##	reference. An exported Go name needs a comment right above it; a method on an
@@ -168,6 +178,7 @@ while IFS= read -r problem; do fBad "${problem}"; done < <(
 		}' "${repoDir}/source/rust/src/lib.rs"
 )
 
+fTest Er1z2hV c-banned-string-calls-and-goto
 ##	The C rules: never sprintf, strcpy or strcat, nor their wide forms, and no
 ##	goto but the cleanup unwind. Seven old sites were each bounded by
 ##	construction, which is the reasoning the rule is there to stop. The tests
@@ -180,6 +191,7 @@ for src in shcl.h shcl.hpp cmd/shcl/main.c; do
 			s ~ /(^|[^A-Za-z0-9_])goto[ \t]/ && s !~ /goto[ \t]+cleanup/ { print FNR ": a goto that is not the cleanup unwind" }' "${repoDir}/source/c/${src}")
 done
 
+fTest Er1z2hW explain-codes-match-spec
 ##	`explain` is where a user looks a code up, and the spec is where the rule
 ##	behind it lives. E001 to E015 and H001 were once in neither. Every code the
 ##	reference lists has a row in a spec table, and every row names a live code.
@@ -197,6 +209,7 @@ else
 	done < <(LC_ALL=C comm -13 <(printf '%s\n' "${explainCodes}") <(printf '%s\n' "${specCodes}"))
 fi
 
+fTest EoXE67k no-shared-library-claim
 ##	The documents list five integration modes, two of which are a shared library.
 ##	Nothing in the tree builds one - no crate-type, no export macro in the C
 ##	header, and the release stage produces binaries, packages and the drop-in
@@ -214,6 +227,7 @@ if ((! buildsSharedLib)); then
 		--include='*.md' "${repoDir}" | grep -v '/backlog\.md:' || true)
 fi
 
+fTest EoXVY4O installer-tar-prerequisite
 ##	The Windows installer refuses outright without `tar`, and the README's
 ##	prerequisites used to cover only the Linux side, so the requirement was
 ##	reachable only by running it and failing.
@@ -224,6 +238,7 @@ if [[ -f "${ps1}" && -f "${readme}" ]] && grep -q "needs tar to unpack" "${ps1}"
 		|| fBad "install.ps1 requires tar and README.md never says so on the Windows side"
 fi
 
+fTest EqKhPQP install-ps1-ascii-no-bom
 ##	The README runs install.ps1 through `irm | iex`, and irm keeps a byte-order
 ##	mark as the first character, which puts `param` second and fails the parse.
 ##	Every test ran the file with -File, which strips the mark. So the file stays
@@ -254,6 +269,7 @@ if [[ -f "${ps1}" ]]; then
 	fi
 fi
 
+fTest EqKhPQQ go-test-count-1
 ##	The corpus sits outside the Go module, so go's test cache cannot see a
 ##	changed case and answers `ok (cached)` over a broken golden. Every go test
 ##	a gate runs passes -count=1.
@@ -262,6 +278,7 @@ while IFS= read -r hit; do
 done < <(grep -nE '(^|[^a-z])go (-C [^ ]+ )?test' "${repoDir}/cicd/config.bash" "${repoDir}/cicd/utility/win-runners.bash" \
 	| grep -v -e '-count=1' -e ':[0-9]*:[[:space:]]*#' || true)
 
+fTest EqL4fPc withdrawn-lexical-wording-gone
 ##	Two lexical rules were withdrawn and their wording outlived them, one site
 ##	per round: a `#` ending a value only behind a blank (2026-09-06, replaced
 ##	on 2026-09-10 by a `#` outside quotes always opening a comment), and an open
@@ -275,6 +292,7 @@ done < <(grep -nHiE 'behind a blank|a `#` anywhere else|swallowing the trailing 
 	"${repoDir}/README.md" "${repoDir}/project/style-guide_code.md" "${repoDir}/project/spec.md" "${repoDir}/project/design.md" \
 	"${repoDir}/project/conformance/README.md" "${repoDir}/source/man/shcl.1" 2>/dev/null | sed "s|^${repoDir}/||" || true)
 
+fTest EqL4fPd corpus-readme-notes-every-case
 ##	contributing.md says the corpus README carries a note per case, and 58
 ##	cases went without one. Every case directory has to be named in a note,
 ##	alone (`044`) or as the edge of a range (`014`-`016`).
@@ -295,6 +313,7 @@ if [[ -f "${corpusDir}/README.md" ]]; then
 	done
 fi
 
+fTest EqL3TGq spdx-and-copyright-headers
 ##	The style guide says every source file starts with the SPDX line and the
 ##	copyright, and files added later kept arriving without them. "Starts with"
 ##	means the header block, which in a script comes after the purpose text, so
@@ -319,6 +338,7 @@ if git -C "${repoDir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 		END { if (name != "") report() }' "${hdrFiles[@]}")
 fi
 
+fTest EqSvlSq copyright-marker-bytes
 ##	The marker in a copyright line is a fixed run of bytes to be copied, never
 ##	retyped. One arrived with a Georgian letter one code point off the right
 ##	one and read the same on screen, and the check above only asks for the word
@@ -342,6 +362,7 @@ if git -C "${repoDir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 		/Copyright.*ID:/ { print FILENAME "\t" $0; nextfile }' "${mkFiles[@]}")
 fi
 
+fTest EqzuifI contact-address-spelling
 ##	20260920b item 21: a contact address people read is spelled with the
 ##	circled A, not as a plain address, and three had sat on an old domain. The
 ##	code of conduct is the Contributor Covenant's own text, nfpm.yaml is read
@@ -352,6 +373,7 @@ if git -C "${repoDir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 	done < <(git -C "${repoDir}" grep -nIE -o 'shcl@[A-Za-z0-9-]+\.[A-Za-z]' -- . ':!*code_of_conduct.md' ':!cicd/packaging/nfpm.yaml' ':!project/backlog.md' | cut -d: -f1,2 || true)
 fi
 
+fTest EqzuifJ c-section-rules
 ##	20260920b item 22: the C file's section rules are `// --- <title> ---`, and
 ##	`// ====` is kept for the one header and implementation split. The Rust and
 ##	Go three-line form and a second `// ====` both turned up there once.
@@ -364,6 +386,7 @@ if [[ -f "${cHeader}" ]]; then
 	done < <(grep -nE '^// -{3}' "${cHeader}" | { grep -vE '^[0-9]+:// --- .*[^ -].* -+$' || true ;})
 fi
 
+fTest EqjsQiu no-old-owner-path
 ##	The repo moved to the yottacore org, and a sweep for the old owner path
 ##	missed the man page's troff spelling. The old path redirects, so nothing
 ##	breaks when one comes back; it just goes stale. Past changelog entries and
@@ -374,6 +397,7 @@ if git -C "${repoDir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 	done < <(git -C "${repoDir}" grep -nIE -o 'jim.{0,4}collier/shcl' -- . ':!changelog.md' ':!project/backlog.md' | cut -d: -f1,2 || true)
 fi
 
+fTest EqL32ji us-spelling
 ##	US spelling. "model" and "label" with a doubled l came back two rounds
 ##	running, each closed by a sweep that left nothing behind. The -ise forms go by stem, so
 ##	promise, premise, treatise and arise pass. The code of conduct is the
@@ -390,10 +414,13 @@ if git -C "${repoDir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 
 ##	The grammar is the oracle harnesses are written against. It has to read as
-##	ABNF and derive what the parser reads; the samples live in check-abnf.py.
-python3 "${repoDir}/cicd/utility/check-abnf.py" "${repoDir}/project/grammar.abnf" >/dev/null \
+##	ABNF and derive what the parser reads; the samples live in check-abnf.py,
+##	which prints its own tests.
+fTestEnd
+python3 "${repoDir}/cicd/utility/check-abnf.py" "${repoDir}/project/grammar.abnf" \
 	|| fBad "project/grammar.abnf failed check-abnf.py (run it for the detail)"
 
+fTest EqL29qS man-page-date-current
 ##	The man page carries a revision date and no version, and the date went
 ##	stale on the next edit twice. The rule: the .TH date is no earlier than the
 ##	last commit that touched the page. A commit that edits the page and bumps
@@ -415,6 +442,7 @@ if [[ -f "${man}" ]] && git -C "${repoDir}" rev-parse --is-inside-work-tree >/de
 	fi
 fi
 
+fTest EqM7oh6 performance-numbers-match-results
 ##	The README's performance numbers and design.md's table come out of
 ##	cicd/utility/comparison/, which is not a gate and runs only when asked. They
 ##	sat at 1.2.0 figures for two majors, and the only thing saying how old they
@@ -533,6 +561,7 @@ if [[ -f "${cmpResults}" && -f "${designDoc}" ]]; then
 	fi
 fi
 
+fTest EoXWC8G blank-line-between-bullets
 ##	Two top-level bullets with no blank line between them. Auto-generated TOC
 ##	blocks are the exception - the tool strips blank lines out of them, so a
 ##	`<!-- TOC -->` region is skipped, as is any list of bare anchor links, which
@@ -552,6 +581,7 @@ while IFS= read -r f; do
 		}' "${f}" || true)
 done < <(find "${repoDir}" -name '*.md' -not -path '*/target/*' -not -path '*/.git/*' -not -path '*/node_modules/*' | sort)
 
+fTest EoXWh5c prose-to-stderr-claim
 ##	The claim that the code goes to stdout and the prose to stderr. The stderr
 ##	line carries the code too, and has since the round that changed the CLI's
 ##	voice - so a document saying otherwise describes a split that is not there.
@@ -559,6 +589,7 @@ while IFS= read -r hit; do
 	fBad "says the prose alone goes to stderr, but the stderr line carries the code: ${hit}"
 done < <(grep -rn "prose to stderr" --include='*.md' "${repoDir}" | grep -v '/backlog\.md:' || true)
 
+fTest EoXX3yy setter-examples-check-the-result
 ##	Each language example says a setter reports whether the write applied, then
 ##	three of the four called the first two bare. The Rust one checks all three,
 ##	because the type system makes it, so it is the comparison a reader has.
@@ -574,6 +605,7 @@ if [[ -f "${readme}" ]]; then
 	done
 fi
 
+fTest EoXYMt6 backlog-stamps-end-items
 ##	The stamps terminate an item: an outcome bullet below them makes them stop
 ##	being a reliable end marker, and puts the result furthest from the finding.
 ##	Legacy items only. The new issue template, and the section that uses it,
@@ -589,12 +621,14 @@ done < <(awk '
 	stamp == NR - 1 && /^\t+- / { print NR ": " substr($0, 1, 60) }
 	{ stamp = 0 }' "${backlog}" || true)
 
+fTest EoXYMt7 no-found-by-bullets
 ##	How a defect was found is not what changed. The gate that caught it belongs
 ##	in the cause line where it is the point, not in a bullet of its own.
 while IFS= read -r hit; do
 	fBad "backlog.md: says how it was found rather than what changed: ${hit}"
 done < <(grep -nE '^[[:space:]]*- Found (by|while) ' "${backlog}" || true)
 
+fTest Eolyg4u v096-v097-generation-only
 ##	V096 and V097 come only from generation, so validating anything against the
 ##	schema cannot reproduce them - the veneer header used to send a reader that
 ##	way for the fault list, which returns the validated document's own V002 and
@@ -603,12 +637,14 @@ while IFS= read -r hit; do
 	fBad "shcl.hpp: sends a reader to validate() for generation faults: ${hit}"
 done < <(grep -nE 'for the fault list, validate\(\)' "${repoDir}/source/c/shcl.hpp" || true)
 
+fTest EolzoJk mon-dd-yyyy-needs-quotes
 ##	A bare `Mon DD, YYYY` is two array elements, not a date: the comma splits
 ##	first. The bullet listing that spelling has to say so, or a reader copies it
 ##	unquoted out of the spec and gets a BadType.
 grep -q 'in the space form a comma may follow the day .*only inside quotes' "${repoDir}/project/spec.md" \
 	|| fBad "spec.md: the Mon DD, YYYY bullet does not say the comma spelling needs quotes"
 
+fTest Eom0qpk edit-options-named-in-docs
 ##	Prose that names the CLI's edit options, or the subcommands that take a
 ##	layer, goes stale the moment one is added. Each claim is checked against the
 ##	shipped help text rather than against a copy of the list.
@@ -621,6 +657,7 @@ if [[ -z "${help}" ]]; then
 	else
 		echo "check-docs: SKIPPED the help checks - no debug binary (cargo build first)"
 		echo check-docs >> "${SHCL_GATE_SKIPS:-/dev/null}"
+		fTestSkip
 	fi
 fi
 if [[ -n "${help}" ]]; then
@@ -640,6 +677,7 @@ if [[ -n "${help}" ]]; then
 	done
 fi
 
+fTest Eom0qpl layer-subcommands-in-spec
 ##	Every subcommand that takes a layer has to be in the spec's list of them.
 ##	Driven off the CLI rather than off a copy: the list went stale twice.
 if [[ -n "${help}" ]]; then
@@ -654,8 +692,11 @@ if [[ -n "${help}" ]]; then
 			|| fBad "spec.md: ${cmd} takes --layer and is not in the list of subcommands that do"
 	done
 	rm -f "${tmpErr}"
+else
+	fTestSkip
 fi
 
+fTest EqQSqyW exit-codes-match-help
 ##	The CLI style guide carries its own copy of the exit codes, and nothing held
 ##	it to the CLI: its row for 6 named migrate --check for two days after fmt
 ##	got one, so the guide called the fmt arm a bug. Two things are checked. The
@@ -815,8 +856,11 @@ if [[ -n "${help}" ]]; then
 			grep -qF -- '`--slots`' <<<"${editSpec}" || fBad "spec.md: the edit options paragraph does not name --slots"
 		fi
 	fi
+else
+	fTestSkip
 fi
 
+fTest Eom0qpm readme-get-transcript-shows-diagnostic
 ##	Every subcommand that loads a document prints the load's diagnostics, so a
 ##	README transcript reading a damaged file has to show them - the get example
 ##	sat under a check example that showed the same file's diagnostic and said
@@ -837,6 +881,7 @@ if [[ -n "${help}" ]]; then
 	rm -rf "${tmpDoc}"
 fi
 
+fTest EometfE merge-facts-in-spec
 ##	Three merge facts a consumer folding layers itself has to know, and that
 ##	nothing in the code or the corpus can tell them: the fold is not
 ##	associative, the merged document keeps the base's strictness, and a
@@ -855,6 +900,7 @@ for phrase in "keeps the base's strictness" "merge is not free" \
 	"strict failure in a lower layer" "Tolerances the whitelist allows"; do
 	grep -qF -- "${phrase}" "${repoDir}/project/spec.md" || fBad "spec.md no longer says: ${phrase}"
 done
+fTest EqB32JE migrate-section-promises
 ##	20260909 item 55: migrate is the only path across the breaking change and had
 ##	no normative description of what it promises. Same reason as the loop above -
 ##	prose alone can be deleted with every gate green.
@@ -863,16 +909,19 @@ for phrase in "The output is its own fixpoint" "It is not a formatter" \
 	"Exit codes: 0 when the file needed nothing or was rewritten"; do
 	grep -qF -- "${phrase}" "${repoDir}/project/spec.md" || fBad "spec.md's Migrating section no longer says: ${phrase}"
 done
+fTest Ep1EGVe python-iterative-walks
 ##	20260901b item 45: the Python section owns the iterative-walk deviation and
 ##	its reason; it sat under the C heading once.
 pySection="$(sed -n '/^### Python/,/^### C/p' "${repoDir}/project/style-guide_code.md")"
 grep -qF 'emit, overlay and clone walks are iterative' <<<"${pySection}" || fBad "style-guide_code.md: the Python section does not list the iterative walks"
 grep -qF 'recursion limit' <<<"${pySection}" || fBad "style-guide_code.md: the Python section does not say why the walks are iterative"
+fTest EometfF merge-doc-comments-say-not-associative
 for src in source/rust/src/lib.rs source/go/shcl.go source/python/shcl.py source/c/shcl.h; do
 	grep -q 'fold is not associative' "${repoDir}/${src}" \
 		|| fBad "${src}: the merge doc comment does not say the fold is not associative"
 done
 
+fTest Eon0GaO tie-rounding-and-status-order
 ##	Two rules every port has to implement identically and that lived only in the
 ##	code: which way a float-to-int tie rounds at Loose, and the order the
 ##	aggregate status of an array read takes its worst slot in.
@@ -883,6 +932,7 @@ grep -q 'rounds half away from zero' "${repoDir}/project/spec.md" \
 grep -qF -- '`Good` < `Empty` < `NotFound` < `BadType` < `Multiple`' "${repoDir}/project/spec.md" \
 	|| fBad "spec.md: the aggregate status rule does not give the ordering"
 
+fTest Eon78xs authored-name-lifetime
 ##	shcl_authored_name hands back the stored spelling, which lives in the
 ##	document's arena and survives shcl_reads_release. The header used to promise
 ##	the shorter read-arena lifetime, which no caller was hurt by and every
@@ -891,6 +941,7 @@ grep -B 3 -F 'shcl_str shcl_authored_name(shcl_doc *d' "${repoDir}/source/c/shcl
 	| grep -q "document's own arena" \
 	|| fBad "shcl.h: shcl_authored_name does not say its result lives in the document's arena"
 
+fTest EqQW89I contents-blocks-match-headings
 ##	A contents block is generated by an editor extension, so nothing in the
 ##	pipeline had ever compared one with the headings under it. The spec went
 ##	without one entirely for 758 lines. Each document that carries a block gets
@@ -929,6 +980,7 @@ for doc in README.md contributing.md project/design.md project/spec.md ai_policy
 	[[ -z "${dupe}" ]] || fBad "${doc}: two headings share the anchor #${dupe}, so one of the contents links goes to the wrong place"
 done
 
+fTest EqQW89J flame-report-keys-exist
 ##	The hot-spot report buckets a sample by the names in its ancestor frames, so
 ##	a renamed function moves its whole bucket into "other" and the report reads
 ##	as though that subsystem costs nothing. `scan_path` sat there for weeks after
@@ -943,12 +995,14 @@ while IFS= read -r key; do
 		|| fBad "flame-report.py buckets on '${key}', which the reference has no function for"
 done <<<"${flameKeys}"
 
+fTest EonNaTZ e003-reachable
 ##	E003 was listed as unreachable from a file. The `[#N]` spelling is - the `#`
 ##	opens a comment first - but the bare index spelling is documented and does
 ##	reach it, so the row must not tell a reader to ignore the code.
 grep -q 'E003.*Unreachable in practice' "${repoDir}/project/spec.md" \
 	&& fBad "spec.md: the E003 row still calls the code unreachable from a file"
 
+fTest Ep3TJTc crossed-range-drops-range
 ##	A crossed `min`/`max` range drops the range and keeps the field's other
 ##	constraints (the spec's schema table). The changelog once said both that
 ##	and that the field is dropped, in two entries under one Unreleased heading,
@@ -958,6 +1012,7 @@ grep -qF 'the range is dropped (the field keeps its other constraints)' "${repoD
 grep -q 'The field is dropped' "${repoDir}/changelog.md" \
 	&& fBad "changelog.md: a crossed min/max range drops the range, not the field"
 
+fTest EpFkZy5 tokenizer-sentence
 ##	The style guide names the tokenizer as the one place the lexical rules
 ##	live, and the reference's section header says the same. Both sentences
 ##	are what a reader is told to rely on, so neither may drift or go.
@@ -966,6 +1021,7 @@ grep -qF 'The tokenizer is the one place the lexical rules live.' "${repoDir}/pr
 grep -qF '// Tokenizer - the one place the lexical rules live' "${repoDir}/source/rust/src/lib.rs" \
 	|| fBad "lib.rs: the tokenizer section header is gone"
 
+fTest EpGigIQ setter-read-back-sentence
 ##	Same for the write side: the setters' one rule is a sentence a reader is
 ##	told to rely on, and the reference's section header repeats it.
 grep -qF 'A setter writes only what reads back.' "${repoDir}/project/style-guide_code.md" \
@@ -973,6 +1029,7 @@ grep -qF 'A setter writes only what reads back.' "${repoDir}/project/style-guide
 grep -qF '// The write side'"'"'s one rule: what is written has to read back' "${repoDir}/source/rust/src/lib.rs" \
 	|| fBad "lib.rs: the write-side section header is gone"
 
+fTest EpHGoa0 installers-match-main
 ##	Nothing ships the installers and the README one-liners fetch them from main
 ##	as they run, so a fix that stops at dev reaches nobody. That is the one
 ##	drift in the tree that reaches users the moment it happens, and until now it
@@ -999,7 +1056,9 @@ elif git -C "${repoDir}" rev-parse --verify -q origin/main >/dev/null && git -C 
 	fi
 else
 	echo "check-docs: skipping the installer drift check (origin/main or origin/dev not present)"
+	fTestSkip
 fi
+fTestEnd
 
 if ((nBad)); then
 	echo "check-docs: ${nBad} check(s) failed" >&2

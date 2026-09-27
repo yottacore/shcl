@@ -127,7 +127,7 @@ LINT_EXTRA=(
 	## python utilities: ruff never imports what it checks, so this costs nothing
 	## and the files are covered. cicd/utility/ruff.toml extends the project rule
 	## set for them.
-	'RAYON_NUM_THREADS="${CPU_CAP}" ruff check ${QUIET_FLAG} cicd/utility/flame-report.py cicd/utility/gen-demo-gif.py cicd/utility/check-abnf.py cicd/utility/comparison/pyworker.py'
+	'RAYON_NUM_THREADS="${CPU_CAP}" ruff check ${QUIET_FLAG} cicd/utility/flame-report.py cicd/utility/gen-demo-gif.py cicd/utility/check-abnf.py cicd/utility/comparison/pyworker.py cicd/utility/test-ids.py'
 	## Exhaustive over every #ifdef mix of the header is about ten minutes, and
 	## most runs change no C. The build dir keeps each file's result, keyed on its
 	## code, its comments and these options, so an unchanged file replays in well
@@ -153,6 +153,9 @@ LINT_EXTRA=(
 	## The C++ veneer has to keep up with the C calls it wraps, or list why not.
 	## It fell a whole writer behind before anything checked.
 	'cicd/utility/check-veneer.bash'
+	## Every test prints its status line with a test ID; a test with none, or
+	## two tests sharing one, fails here rather than on the console.
+	'python3 cicd/utility/test-ids.py check'
 	'GOMAXPROCS="${CPU_CAP}" govulncheck -C source/go ./...'
 	'GOMAXPROCS="${CPU_CAP}" govulncheck -C source/go/cmd ./...'
 	'RAYON_NUM_THREADS="${CPU_CAP}" cargo deny --manifest-path source/rust/Cargo.toml --all-features check'
@@ -189,6 +192,7 @@ SHELLCHECK_TARGETS=(
 	cicd/hooks/pre-push
 	cicd/utility/include/gfs-rotate.bash
 	cicd/utility/include/largedoc-gen.bash
+	cicd/utility/include/test-id.bash
 	source/bash/shcl.bash
 	source/completions/shcl.bash
 	install.bash

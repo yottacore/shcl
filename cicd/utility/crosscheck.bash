@@ -32,6 +32,10 @@
 
 set -Eeuo pipefail
 
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
+testWhere=crosscheck; testCounter=nKindBad
+
 corpus=""; extra=""; bindings=(); declare -i minCompared=1
 while (($#)); do case "$1" in
 	--corpus)  corpus="${2:-}"; shift 2 ;;
@@ -560,20 +564,25 @@ if [[ -n "$extra" && -d "$extra" ]]; then
 	fi
 fi
 
+##	Divergences are counted per kind of unit too, since each kind is a test.
 fWorker(){
-	local k="$1" i=0 u
+	local k="$1" i=0 u before
+	local -A kindBad=([usage]=0 [case]=0 [extra]=0)
 	tmpDir="${tmpDir}/w${k}"
 	mkdir "$tmpDir"
 	for u in "${units[@]}"; do
 		if ((i % nWorkers == k)); then
+			before="${nBad}"
 			case "$u" in
 				usage)    fUsage ;;
 				case\|*)  fCase "${u#*|}" ;;
 				extra\|*) fExtraFile "${u#*|}" ;;
 			esac
+			kindBad[${u%%|*}]=$((kindBad[${u%%|*}] + nBad - before))
 		fi
 		i=$((i + 1))
 	done
+	echo "${kindBad[usage]} ${kindBad[case]} ${kindBad[extra]}" >"${tmpDir}/kinds"
 	echo "${nCompared} ${nBad}" >"${tmpDir}/counts"
 }
 
@@ -588,18 +597,30 @@ for ((k = 0; k < nWorkers; k++)); do
 	pids+=("$!")
 done
 ## Logs in worker order, so a run reads the same whichever worker ends first.
-declare -i nFailed=0 wCompared wBad
+## A worker that did not finish fails every kind, since any of them was its.
+declare -i nFailed=0 wCompared wBad wUsage wCase wExtra badUsage=0 badCase=0 badExtra=0 nKindBad=0
 for k in "${!pids[@]}"; do
 	wrc=0; wait "${pids[k]}" || wrc=$?
 	cat "${tmpDir}/w${k}.log"
-	if [[ -f "${tmpDir}/w${k}/counts" ]]; then
+	if [[ -f "${tmpDir}/w${k}/counts" && -f "${tmpDir}/w${k}/kinds" ]]; then
 		read -r wCompared wBad <"${tmpDir}/w${k}/counts"
 		nCompared=$((nCompared + wCompared)); nBad=$((nBad + wBad))
+		read -r wUsage wCase wExtra <"${tmpDir}/w${k}/kinds"
+		badUsage=$((badUsage + wUsage)); badCase=$((badCase + wCase)); badExtra=$((badExtra + wExtra))
 	else
 		nFailed+=1
+		badUsage+=1; badCase+=1; badExtra+=1
 		echo "crosscheck: worker ${k} ended at exit ${wrc} without finishing" >&2
 	fi
 done
+fTest EjsGuy8 usage and option behavior
+nKindBad+=badUsage
+fTest EjsGuy9 corpus cases agree
+nKindBad+=badCase
+fTest EjsGuyA fuzz inputs agree
+nKindBad+=badExtra
+[[ -n "$extra" ]] || fTestSkip
+fTestEnd
 if ((nFailed)); then exit 2; fi
 
 if ((nBad)); then

@@ -30,6 +30,10 @@
 
 set -Eeuo pipefail
 
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
+testWhere=sanitize-c; testCounter=nJobBad
+
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${root}"
 corpus="${1:-project/conformance}"
@@ -66,18 +70,21 @@ fJob(){  ## fJob NAME COMMAND ARGS...
 	nLive=$((nLive + 1))
 }
 ## Waits for all of them, then prints each log from job $1 on, in the order
-## they started, and names the ones that failed in `failed`.
+## they started, and names the ones that failed in `failed` and `jobFailed`.
+## The C runners print a status line per test of their own, which the runner
+## stages already showed; here only this gate's lines are the tests.
+declare -A jobFailed=()
 fJobsWait(){
 	local i jrc
 	wait
 	nLive=0
 	failed=()
 	for ((i = $1; i <= nJobs; i++)); do
-		cat "${work}/${i}.log"
+		grep -vE '^(ok|FAIL|skip) +[0-9A-Za-z-]{7} c(\+\+)? ' "${work}/${i}.log" || true
 		jrc=""
 		if [[ -f "${work}/${i}.rc" ]]; then read -r jrc <"${work}/${i}.rc"; fi
-		if [[ -z "${jrc}" ]]; then failed+=("${jobNames[i]}: ended without a result")
-		elif [[ "${jrc}" != 0 ]]; then failed+=("${jobNames[i]}: exit ${jrc}"); fi
+		if [[ -z "${jrc}" ]]; then failed+=("${jobNames[i]}: ended without a result"); jobFailed[${jobNames[i]}]=1
+		elif [[ "${jrc}" != 0 ]]; then failed+=("${jobNames[i]}: exit ${jrc}"); jobFailed[${jobNames[i]}]=1; fi
 	done
 }
 
@@ -277,6 +284,23 @@ for ((k = 0; k < cap; k++)); do
 		nRuns=$((nRuns + wRuns)); nBad=$((nBad + wBad))
 	fi
 done
+declare -i nJobBad=0 cliBad=0
+for ((k = 0; k < cap; k++)); do
+	if [[ -n "${jobFailed[CLI pass ${k}]:-}" ]]; then cliBad+=1; fi
+done
+fTest EoLqLsf the corpus runner under ASan and UBSan
+if [[ -n "${jobFailed[conformance runner]:-}" ]]; then nJobBad+=1; fi
+fTest EoLqLsg oom_hook under ASan and UBSan
+if [[ -n "${jobFailed[oom_hook]:-}" ]]; then nJobBad+=1; fi
+fTest EoaFuVP oom_recover under ASan and UBSan
+if [[ -n "${jobFailed[oom_recover]:-}" ]]; then nJobBad+=1; fi
+fTest EoezJiG mem_bounds under ASan and UBSan
+if [[ -n "${jobFailed[mem_bounds]:-}" ]]; then nJobBad+=1; fi
+fTest EoSE8Nk veneer_smoke under ASan and UBSan
+if [[ -n "${jobFailed[veneer_smoke]:-}" ]]; then nJobBad+=1; fi
+fTest EoSE8Nl every corpus CLI run under ASan and UBSan
+nJobBad=$((nJobBad + cliBad + nBad))
+fTestEnd
 if ((nBad)); then
 	echo "sanitize-c: ${nBad}/${nRuns} CLI run(s) stopped by a sanitizer" >&2; rc=1
 elif ((rc == 0)); then

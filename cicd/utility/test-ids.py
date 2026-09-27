@@ -74,6 +74,7 @@ COLLECT: list[tuple[str, str]] = [
 ROWS: list[tuple[str, str]] = [
 	("cicd/utility/cli-regress.bash", "rows"),
 	("cicd/utility/cli-regress.bash", "saveCases"),
+	("cicd/utility/perf-gate.bash", "workloads"),
 ]
 
 
@@ -138,9 +139,9 @@ def fScan() -> tuple[list[tuple[str, str, int]], list[str]]:
 			line = lines[n]
 			if line == ")":
 				break
-			if not line.lstrip().startswith("'"):
+			if not line.lstrip().startswith(("'", '"')):
 				continue
-			hit = re.match(rf"^\s*'({ID})\|", line)
+			hit = re.match(rf"""^\s*['"]({ID})\|""", line)
 			if hit is None:
 				bad.append(f"{file}:{n + 1}: a {name} row with no ID first")
 				continue

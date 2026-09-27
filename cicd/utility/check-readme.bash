@@ -34,7 +34,17 @@ header="${2:-${repoDir}/source/c/shcl.h}"
 [[ -f "${readme}" ]] || { echo "check-readme: no README at ${readme}" >&2; exit 2 ;}
 [[ -f "${header}" ]] || { echo "check-readme: no header at ${header}" >&2; exit 2 ;}
 
-tmpDir="$(mktemp -d)"; trap 'rm -rf "${tmpDir}"' EXIT
+testWhere="check-readme"; testCounter="nBad"; nBad=0
+# shellcheck source-path=SCRIPTDIR
+source "${repoDir}/cicd/utility/include/test-id.bash"
+##	Every failure here ends the run, so the open test is failed on the way out.
+fOnExit(){
+	local rc=$?
+	if [[ "${rc}" != 0 ]]; then nBad=$((nBad + 1)); fi
+	fTestEnd
+	rm -rf "${tmpDir}"
+}
+tmpDir="$(mktemp -d)"; trap fOnExit EXIT
 cp "${header}" "${tmpDir}/"
 
 ##	The config the examples read, and the file the README says the save leaves.
@@ -60,9 +70,9 @@ fRunExample(){   ## fRunExample NAME DIR CMD...
 		head -n 20 "${dir}/run.diff" >&2
 		exit 1
 	fi
-	echo "check-readme: the ${name} example builds, runs, and saves the file the README shows"
 }
 
+fTest EpHHs8W c-example
 ##	The C example is the fenced ~~~c block; the file has exactly one.
 awk '/^~~~+c$/ { inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock' "${readme}" > "${tmpDir}/block.c"
 [[ -s "${tmpDir}/block.c" ]] || { echo "check-readme: no c example found in ${readme}" >&2; exit 2 ;}
@@ -93,6 +103,7 @@ fRunExample C "${tmpDir}" ./example
 ##	statements go in a main() from its first comment on. The two files build
 ##	apart with the line the README gives, which is the point: the example's
 ##	file sees no C.
+fTest EpHHs8X cpp-example
 mkdir -p "${tmpDir}/cppex"
 cp "${header}" "${repoDir}/source/c/shcl.hpp" "${tmpDir}/cppex/"
 awk '/^~~~+cpp$/ { n++; inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock { print > (dir "/block" n ".cpp") }' dir="${tmpDir}/cppex" "${readme}"
@@ -115,6 +126,7 @@ fRunExample C++ "${tmpDir}/cppex" ./ex
 ##	reader adds a package clause, a main() and the two standard imports the
 ##	body calls. The module resolves the library from the tree rather than the
 ##	proxy, so this needs no network.
+fTest EpHHs8Y go-example
 awk '/^~~~+go$/ { inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock' "${readme}" > "${tmpDir}/block.go"
 [[ -s "${tmpDir}/block.go" ]] || { echo "check-readme: no go example found in ${readme}" >&2; exit 2 ;}
 mkdir -p "${tmpDir}/goex"
@@ -150,6 +162,7 @@ fRunExample Go "${tmpDir}/goex" ./goex
 ##	Python. The block is a whole script already, so the only thing a reader adds
 ##	is the module on the import path - which for the published package is what
 ##	pip put there, and here is the tree's own copy.
+fTest EqRTWFe python-example
 mkdir -p "${tmpDir}/pyex"
 awk '/^~~~+python$/ { inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock' "${readme}" > "${tmpDir}/pyex/example.py"
 [[ -s "${tmpDir}/pyex/example.py" ]] || { echo "check-readme: no python example found in ${readme}" >&2; exit 2 ;}
@@ -161,6 +174,7 @@ fRunExample Python "${tmpDir}/pyex" python3 example.py
 ##	The dependency is a path rather than the README's `shcl = "2"`, since the
 ##	gate must not need crates.io - what is being checked is the code, and the
 ##	crate it resolves to is this tree's.
+fTest EpHHs8Z rust-example
 mkdir -p "${tmpDir}/rsex/src"
 awk '/^~~~+rust$/ { inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock' "${readme}" > "${tmpDir}/block.rs"
 [[ -s "${tmpDir}/block.rs" ]] || { echo "check-readme: no rust example found in ${readme}" >&2; exit 2 ;}
@@ -196,6 +210,7 @@ fRunExample Rust "${tmpDir}/rsex" "${tmpDir}/rstarget/debug/readme-example"
 ##	go in a main(); everything else is verbatim, including the two-line impl.c
 ##	and the build line the README prints beside it. Skipped out loud where
 ##	there is no zig - it is not a build dependency of anything shipped.
+fTest EpHHs8a zig-example
 if command -v zig >/dev/null 2>&1; then
 	awk '/^~~~+zig$/ { inBlock = 1; next } /^~~~+$/ { inBlock = 0 } inBlock' "${readme}" > "${tmpDir}/block.zig"
 	[[ -s "${tmpDir}/block.zig" ]] || { echo "check-readme: no zig example found in ${readme}" >&2; exit 2 ;}
@@ -213,13 +228,13 @@ if command -v zig >/dev/null 2>&1; then
 		head -n 20 "${tmpDir}/zig.err" >&2
 		exit 1
 	fi
-	echo "check-readme: the Zig example builds as written"
 elif [[ -n "${SHCL_GATE_STRICT:-}" ]]; then
 	echo "check-readme: no zig here, and the gate requires it" >&2
 	exit 1
 else
 	echo "check-readme: skipping the Zig example (no zig here)"
 	echo check-readme >> "${SHCL_GATE_SKIPS:-/dev/null}"
+	fTestSkip
 fi
 ##	The transcripts. A ~~~console block reads as real output, so every `$ shcl`
 ##	line in one is run against the README's own server.shcl and schema, and has
@@ -229,6 +244,7 @@ fi
 ##	server.shcl with the colon knocked off line 3, for the block that starts
 ##	with `shcl check server.shcl`, and an app.shcl whose line 2 carries the
 ##	misspelled key its schema block reports.
+fTest EqGg9jM console-transcripts
 cli="${SHCL_CLI:-${repoDir}/source/rust/target/debug/shcl}"
 [[ -x "${cli}" ]] || { echo "check-readme: no built CLI at ${cli} to run the transcripts with" >&2; exit 2 ;}
 tx="${tmpDir}/tx"
@@ -276,6 +292,7 @@ if ((nCases < 10)); then
 	exit 1
 fi
 ((nTxBad == 0)) || exit 1
+fTestEnd
 echo "check-readme: the ${nCases} transcript command(s) print what the README shows"
 echo "check-readme: OK"
 
