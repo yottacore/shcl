@@ -14,95 +14,27 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 <!-- TOC -->
 
-- [Conventions](#conventions)
-- [Backlog](#backlog)
-	- [Bugs](#bugs)
-	- [Features and enhancements](#features-and-enhancements)
-	- [Done](#done)
-		- [Done - Bugs](#done---bugs)
-		- [Done - Features and enhancements](#done---features-and-enhancements)
-	- [Future and/or deferred](#future-andor-deferred)
-	- [Canceled](#canceled)
+- [Introduction](#introduction)
+- [New format](#new-format)
+- [Bugs](#bugs)
+- [Features and enhancements](#features-and-enhancements)
+- [Done](#done)
+	- [Done - Bugs](#done---bugs)
+	- [Done - Features and enhancements](#done---features-and-enhancements)
+- [Deferred](#deferred)
+- [Canceled](#canceled)
 
 <!-- /TOC -->
 
-## Conventions
+## Introduction
 
-Legacy statuses:
+Going forward, new issues in the new template at the bottom of this file, will go in the '## New format' section only. No more status emojis, but will be sorted (top-down) by status, then severity|priority. Issues in the old format (with status emojis) won't be refactored, but will continue to be worked until moved to closed, canceled, or deferred sections, and emojis updated. (Eventually this will all be moved to nano-git-db anyway. This new template is an intermediate effort to make issues going forward more structured and importable.)
 
-- 🔘 Not started
-
-- 🛠️ Started, and/or partially complete
-
-- 🔬 Testing not started or finished
-
-- ✋ Defer
-
-- ✅ Complete
-
-- 🚫 Canceled
-
-<!-- New issue template
-
-Only use rows that you actually need or expect will be filled in. Always fill in the title, ID, Type, Status, Opened and Created by.
-
-The ID is the local time to the hundredth of a second. Opened is when it was written down, which may differ. (Use a keyboard macro and possibly something like project 'zuid' to generate.)
-
-Status values, in sort order: Started, Testing, Waiting on signoff, Stalled, Queued, Deferred, Done, Moot, Canceled. Testing means the fix is in and checks are running or still to run. Waiting on signoff means testing passed. Moot means something else changed and made it irrelevant. Canceled means it still applies but was decided against.
-
-Rows marked [Bug] are for bugs only, and rows marked [Feature] for features and enhancements. Children are not nested. They sit at the top level and point back with Parent ID.
-
-- Title
-	- ID: YYYYmmDDHHMMSSNN
-	- Type: [Bug|Feature|Enhancement|Task]
-	- Status: [Queued|Started|Stalled|Testing|Waiting on signoff|Moot|Canceled|Deferred|Done]
-	- Priority|Severity [Bug]: [Critical|High|Avg|Low]
-	- Opened: YYYYmmDD-HHMMSS
-	- Opened by:
-	- Assigned to:
-	- Parent ID: YYYYmmDDHHMMSSNN
-	- Prereq IDs:
-		- YYYYmmDDHHMMSSNN
-	- Related IDs:
-		- YYYYmmDDHHMMSSNN
-	- Target OS:
-	- Test environment:
-	- Version and build:
-	- Requirements  [Feature]:
-		- Hierarchical bulleted list.
-	- Steps to reproduce [Bug]:
-		- ...
-	- Incorrect behavior [Bug]:
-	- Expected behavior [Bug]:
-	- Reproduced [Bug]: [No, or when, where and how]
-	- Possible cause [Bug]:
-	- Actual cause [Bug]:
-		- ...
-	- Estimated effort: [High|Avg|Low]
-	- Actual effort: [High|Avg|Low]
-	- Progress log:
-		- YYYYmmDD-HHMMSS: Notable effort.
-	- Decisions:
-		- ...
-	- Actual fix [Bug]:
-	- Branch:
-	- Commit:
-	- Test case: [Reason not applicable, or CI test case #]
-	- Acceptance signoff:
-	- Superseded by ID: YYYYmmDDHHMMSSNN
-	- Closed: YYYYmmDD-HHMMSS
-
--->
-
-## Backlog
-
-Going forward, new issues in the new template above will go in the '### New format' section only. No more status emojis, but will be sorted (top-down) by status, then severity|priority. Issues in the old format (with status emojis) won't be refactored, but will continue to be worked until moved to closed, canceled, or deferred sections, and emojis updated. (Eventually this will all be moved to nano-git-db anyway. This new template is an intermediate effort to make issues going forward more structured and importable.)
-
-### New format
+## New format
 
 - The C++ interface is a full binding of its own, with the C interface kept out of sight
 	- ID: 2026092617331100
-	- Type: Enhancement
+	- Type: Done
 	- Status: Waiting on signoff
 	- Priority: Avg
 	- Opened: 20260926-173311
@@ -620,7 +552,7 @@ Going forward, new issues in the new template above will go in the '### New form
 	- Acceptance signoff: 20260926
 	- Closed: 20260926-171332
 
-### Bugs
+## Bugs
 
 - From the test-gap audit:
 
@@ -706,7 +638,7 @@ Going forward, new issues in the new template above will go in the '### New form
 		- Origin: 2026-08-03. Confirmed.
 		- Opened: 20260923-145138
 
-### Features and enhancements
+## Features and enhancements
 
 **Stop here for a release cut**.
 
@@ -742,9 +674,9 @@ Going forward, new issues in the new template above will go in the '### New form
 	- Note: short release notes that just say issues were fixed, and a short changelog that names the fixes. This release only.
 	- Opened: 20260925-115006
 
-### Done
+## Done
 
-#### Done - Bugs
+### Done - Bugs
 
 - From the test-gap audit:
 
@@ -5502,7 +5434,7 @@ Going forward, new issues in the new template above will go in the '### New form
 		- Opened: 20260718-165550
 		- Closed: 20260721-104508
 
-#### Done - Features and enhancements
+### Done - Features and enhancements
 
 - From nemo-anywhere:
 
@@ -9576,7 +9508,7 @@ Going forward, new issues in the new template above will go in the '### New form
 		- Opened: 20260718-165550
 		- Closed: 20260721-122219
 
-### Future and/or deferred
+## Deferred
 
 - ✋ Code review 20260924c idea 17: `install.ps1` runs on Windows only.
 	- Note: `install.bash` covers Linux, and there are no macOS binaries. Porting the Linux layout would also mean changing the `shell-regress.bash` row that removes the Windows check by its text.
@@ -9653,7 +9585,7 @@ Going forward, new issues in the new template above will go in the '### New form
 	- Listed among the packaging targets and never built. README.md is accurate.
 	- Opened: 20260819-111243
 
-### Canceled
+## Canceled
 
 - 🚫 Default configuration hard-coded.
 	- 🚫 Overridden by a per-user config file, created the first time a default is changed.
@@ -9738,6 +9670,8 @@ Going forward, new issues in the new template above will go in the '### New form
 		- Opened: 20260817-204524
 		- Closed: 20260818-155051
 
+## Reference
+
 <!-- New issue template
 
 Legacy statuses:
@@ -9807,3 +9741,5 @@ Template:
 	- Closed: YYYYmmDD-HHMMSS
 
 -->
+
+Old and new formats.
