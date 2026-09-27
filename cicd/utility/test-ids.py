@@ -69,6 +69,9 @@ COLLECT: list[tuple[str, str]] = [
 	("source/c/tests/*.cpp", rf'\btest_id\("({ID})", "[^"]+"\)'),
 	("cicd/utility/*.bash", rf"\bfTest ({ID}) \S"),
 	("cicd/utility/*.py", rf'\btest_id\("({ID})", "[^"]+"\)'),
+	("cicd/utility/win-runners.bash", rf"\bfRun --id ({ID}) "),
+	("cicd/utility/*.ps1", rf"\bTest-Check -Id '({ID})' "),
+	("cicd/config.bash", rf"^PROFILE_CHECK_ID=({ID})$"),
 ]
 ##	Arrays whose every row is a test, with the ID as its first field.
 ROWS: list[tuple[str, str]] = [
