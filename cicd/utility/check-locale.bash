@@ -24,6 +24,10 @@
 
 set -Eeuo pipefail
 
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
+testWhere=check-locale; testCounter=nBad
+
 repoDir="${1:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)}"
 [[ -d "${repoDir}" ]] || { echo "check-locale: no such directory: ${repoDir}" >&2; exit 2 ;}
 
@@ -70,11 +74,15 @@ fBad(){ echo "check-locale: $1" >&2; nBad+=1 ;}
 
 ##	The library, through the corpus runner. SHCL_TEST_LC_NUMERIC is what tells
 ##	it to take the numeric category from the environment instead of pinning C.
+##	Its own per-test lines stay in its log; the tail on a failure leaves them
+##	out, so what shows is the failure.
+fTest EoaHRyi the C corpus under a comma-decimal locale
 cc -std=c11 -O2 -Wall -Wextra -Werror -I"${repoDir}/source/c" \
 	"${repoDir}/source/c/tests/conformance.c" -o "${work}/conformance" -lm -lpthread \
 	|| { echo "check-locale: the corpus runner did not build" >&2; exit 2 ;}
 LC_ALL=commadec.UTF-8 SHCL_TEST_LC_NUMERIC=1 "${work}/conformance" "${repoDir}/project/conformance" \
-	> "${work}/corpus.out" 2>&1 || { fBad "the corpus fails under a comma-decimal locale:"; tail -n 5 "${work}/corpus.out" >&2 ;}
+	> "${work}/corpus.out" 2>&1 || { fBad "the corpus fails under a comma-decimal locale:"
+		{ grep -vE '^(ok|skip) +[0-9A-Za-z-]{7} c ' "${work}/corpus.out" || true; } | tail -n 5 >&2 ;}
 
 ##	A C program built here has to take the comma from the environment, or every
 ##	check below passes whether or not the library handles it.
@@ -100,6 +108,8 @@ cc -std=c11 -O2 -Wall -Wextra -Werror -I"${repoDir}/source/c" -I"${repoDir}/sour
 printf 'ratio: 3.5\ntiny: 0.125\nbig: 1.5e300\nneg: -0.5\n' > "${work}/floats.shcl"
 LC_ALL=C "${work}/shcl" fmt "${work}/floats.shcl" > "${work}/plain.out" 2>&1 || true
 for cli in shcl shcl-env; do
+	if [[ "${cli}" == shcl ]]; then fTest Eq5kgrw the C CLI with its locale pinned under a comma-decimal locale
+	else fTest Eq5kgrx the C CLI adopting a comma-decimal locale; fi
 	LC_ALL=commadec.UTF-8 "${work}/${cli}" fmt "${work}/floats.shcl" > "${work}/comma.out" 2>&1 || true
 	if ! cmp -s "${work}/plain.out" "${work}/comma.out"; then
 		fBad "${cli} formats floats differently under a comma-decimal locale:"
@@ -110,6 +120,7 @@ for cli in shcl shcl-env; do
 	got="$(LC_ALL=commadec.UTF-8 "${work}/${cli}" get --float "${work}/floats.shcl" ratio 2>&1 || true)"
 	[[ "${got}" == "3.5" ]] || fBad "${cli} read ratio as '${got}' under a comma-decimal locale, not 3.5"
 done
+fTestEnd
 
 if ((nBad)); then
 	echo "check-locale: ${nBad} check(s) failed" >&2

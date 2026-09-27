@@ -50,6 +50,10 @@
 
 set -Eeuo pipefail
 
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
+testWhere=check-migrate; testCounter=nBad
+
 meDir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd -- "${meDir}/../.." && pwd)"
 corpus="${root}/project/conformance"; declare -i iters=2000 minCompared=100 minCorpus=80 minFuzz=200
@@ -228,6 +232,7 @@ fTrim(){
 }
 
 declare -i nCompared=0 nCorpus=0 nTrimmed=0 nSkipped=0 nBad=0 nLostChecked=0
+fTest Eq5YPgP corpus and fuzz documents migrate to the tree 2.x read
 for f in "${corpus}"/*/input.shcl "${dump}"/*.shcl; do
 	[[ -f "${f}" ]] || continue
 	name="${f%/input.shcl}"; name="${name##*/}"
@@ -276,8 +281,10 @@ for f in "${corpus}"/*/input.shcl "${dump}"/*.shcl; do
 done
 
 ##	Each named case has to keep carrying its shape, or the exception is stale.
+fTest EpUIoZd 068 still carries a fence label holding a hash
 fInfoHashLabel "${corpus}/068-info-hash-spellings/input.shcl" 2>/dev/null \
 	|| { echo "check-migrate: 068-info-hash-spellings no longer carries a fence label holding a #" >&2; nBad+=1; }
+fTest EpUIoZe 094 still carries a mid-line carriage return
 fCrMidLine "${corpus}/094-unicode-space/input.shcl" 2>/dev/null \
 	|| { echo "check-migrate: 094-unicode-space no longer carries a mid-line carriage return" >&2; nBad+=1; }
 ##	The third has no corpus case - a new one shifts the fuzz seed set, which
@@ -285,14 +292,18 @@ fCrMidLine "${corpus}/094-unicode-space/input.shcl" 2>/dev/null \
 ##	reads both elements, the current parser places only the first, and the write
 ##	half refuses rather than dropping the second quietly.
 printf 'list:\n\t* one\n \t* two\n' > "${tmpDir}/indent.shcl"
+fTest EqRiIDw the loose-indent exception fires on a space before a tab
 [[ "$(fUnplaced "${tmpDir}/indent.shcl")" == 3 ]] \
 	|| { echo "check-migrate: the loose-indent exception no longer fires on a space before a tab" >&2; nBad+=1; }
+fTest EqRiIDx 2.x reads both elements of the loose-indent document
 [[ "$("${oldCli}" get --string --array "${tmpDir}/indent.shcl" list 2>/dev/null | wc -l)" == 2 ]] \
 	|| { echo "check-migrate: 2.x no longer reads both elements of the loose-indent document" >&2; nBad+=1; }
+fTest EqRiIDy a rewrite of the loose-indent document is refused at 7
 indentRc=0
 "${newCli}" migrate --from-2x --write "${tmpDir}/indent.shcl" >/dev/null 2>&1 || indentRc=$?
 ((indentRc == 7)) \
 	|| { echo "check-migrate: a rewrite of the loose-indent document exited ${indentRc}, not the refusal 7" >&2; nBad+=1; }
+fTestEnd
 if ((nCompared < minCompared || nCorpus < minCorpus || nCompared - nCorpus < minFuzz)); then
 	echo "check-migrate: only ${nCompared} document(s) compared, ${nCorpus} of them corpus cases and $((nCompared - nCorpus)) fuzz-dumped; need ${minCompared}, ${minCorpus} and ${minFuzz} (${nSkipped} skipped)" >&2
 	exit 2

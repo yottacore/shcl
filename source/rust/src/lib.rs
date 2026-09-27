@@ -6116,6 +6116,33 @@ mod windows_publish {
 		std::fs::read_to_string(p).ok()
 	}
 
+	// The status line tests/common prints, since that module is out of reach.
+	struct TestId(&'static str);
+
+	fn test_id(id: &'static str) -> TestId {
+		TestId(id)
+	}
+
+	impl Drop for TestId {
+		fn drop(&mut self) {
+			use std::io::Write;
+			let status = if std::thread::panicking() {
+				"FAIL"
+			} else {
+				"ok"
+			};
+			let thread = std::thread::current();
+			let name = thread.name().unwrap_or("?");
+			let _ = writeln!(
+				std::io::stderr().lock(),
+				"{:<4} {} rust {}",
+				status,
+				self.0,
+				name
+			);
+		}
+	}
+
 	fn icacls(args: &[&str]) {
 		let ok = std::process::Command::new("icacls")
 			.args(args)
@@ -6130,6 +6157,7 @@ mod windows_publish {
 	// Neither the rename nor putting the old file back can get in either.
 	#[test]
 	fn a_failed_publish_loses_neither_file() {
+		let _id = test_id("EqYTuc4");
 		let root = scratch("kept");
 		let (x, y) = (root.join("x"), root.join("y"));
 		std::fs::create_dir_all(&x).unwrap();
@@ -6172,6 +6200,7 @@ mod windows_publish {
 	// does. A hold that ends in a few milliseconds must not fail the save.
 	#[test]
 	fn a_brief_hold_is_waited_out() {
+		let _id = test_id("EqYTuc5");
 		use std::os::windows::fs::OpenOptionsExt;
 		let root = scratch("hold");
 		let (target, tmp) = (root.join("t.shcl"), root.join(".t.shcl.tmp1.0"));

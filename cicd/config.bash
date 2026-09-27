@@ -127,7 +127,7 @@ LINT_EXTRA=(
 	## python utilities: ruff never imports what it checks, so this costs nothing
 	## and the files are covered. cicd/utility/ruff.toml extends the project rule
 	## set for them.
-	'RAYON_NUM_THREADS="${CPU_CAP}" ruff check ${QUIET_FLAG} cicd/utility/flame-report.py cicd/utility/gen-demo-gif.py cicd/utility/check-abnf.py cicd/utility/comparison/pyworker.py'
+	'RAYON_NUM_THREADS="${CPU_CAP}" ruff check ${QUIET_FLAG} cicd/utility/flame-report.py cicd/utility/gen-demo-gif.py cicd/utility/check-abnf.py cicd/utility/comparison/pyworker.py cicd/utility/test-ids.py'
 	## Exhaustive over every #ifdef mix of the header is about ten minutes, and
 	## most runs change no C. The build dir keeps each file's result, keyed on its
 	## code, its comments and these options, so an unchanged file replays in well
@@ -153,6 +153,9 @@ LINT_EXTRA=(
 	## The C++ veneer has to keep up with the C calls it wraps, or list why not.
 	## It fell a whole writer behind before anything checked.
 	'cicd/utility/check-veneer.bash'
+	## Every test prints its status line with a test ID; a test with none, or
+	## two tests sharing one, fails here rather than on the console.
+	'python3 cicd/utility/test-ids.py check'
 	'GOMAXPROCS="${CPU_CAP}" govulncheck -C source/go ./...'
 	'GOMAXPROCS="${CPU_CAP}" govulncheck -C source/go/cmd ./...'
 	'RAYON_NUM_THREADS="${CPU_CAP}" cargo deny --manifest-path source/rust/Cargo.toml --all-features check'
@@ -175,6 +178,7 @@ SHELLCHECK_TARGETS=(
 	cicd/utility/comparison/compare.bash
 	cicd/utility/crosscheck.bash
 	cicd/utility/largedoc.bash
+	cicd/utility/libtest-quiet.bash
 	cicd/utility/lint-report.bash
 	cicd/utility/perf-gate.bash
 	cicd/utility/shell-regress.bash
@@ -188,6 +192,7 @@ SHELLCHECK_TARGETS=(
 	cicd/hooks/pre-push
 	cicd/utility/include/gfs-rotate.bash
 	cicd/utility/include/largedoc-gen.bash
+	cicd/utility/include/test-id.bash
 	source/bash/shcl.bash
 	source/completions/shcl.bash
 	install.bash
@@ -206,14 +211,19 @@ SHELLCHECK_TARGETS=(
 ##         --test fuzz_smoke
 ## RUST_TEST_THREADS caps the harness the way -j caps the compile; the fuzz
 ## tests are the heavy ones and would otherwise take every core.
-TEST_CMD=(env SHCL_FUZZ_ITERS=200000 RUST_TEST_THREADS="${CPU_CAP}" cargo test -j "${CPU_CAP}" --manifest-path "${MANIFEST}")
+## libtest-quiet.bash drops libtest's per-test lines, since each test prints
+## its own with its test ID.
+TEST_CMD=(cicd/utility/libtest-quiet.bash env SHCL_FUZZ_ITERS=200000 RUST_TEST_THREADS="${CPU_CAP}" cargo test -j "${CPU_CAP}" --manifest-path "${MANIFEST}")
 ## --quick swaps in this test command: same suites, fuzz at the old 20k gate
 ## depth - the minute-scale 200k soak is what the fast loop sheds.
-TEST_QUICK_CMD=(env SHCL_FUZZ_ITERS=20000 RUST_TEST_THREADS="${CPU_CAP}" cargo test -j "${CPU_CAP}" --manifest-path "${MANIFEST}")
+TEST_QUICK_CMD=(cicd/utility/libtest-quiet.bash env SHCL_FUZZ_ITERS=20000 RUST_TEST_THREADS="${CPU_CAP}" cargo test -j "${CPU_CAP}" --manifest-path "${MANIFEST}")
 ## -count=1: the corpus sits outside the Go module, so go's test cache cannot
-## see a changed case and answers `ok (cached)` over a broken golden.
+## see a changed case and answers `ok (cached)` over a broken golden. The
+## library is one package, named by directory rather than ./..., since a
+## package list hides a passing package's output and with it the per-test
+## status lines.
 TEST_EXTRA=(
-	'GOMAXPROCS="${CPU_CAP}" go -C source/go test -count=1 ./...'
+	'GOMAXPROCS="${CPU_CAP}" go -C source/go test -count=1'
 	'GOMAXPROCS="${CPU_CAP}" go -C source/go/cmd test -count=1 ./...'
 	'python3 source/python/tests/conformance.py'
 	'cbin="$(mktemp)"; cc -std=c11 -O2 -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror -Isource/c source/c/tests/conformance.c -o "${cbin}" -lm -lpthread && "${cbin}" project/conformance; crc=$?; rm -f "${cbin}"; ((crc==0))'
@@ -259,13 +269,15 @@ TEST_EXTRA=(
 ## Every cicd run requires all bindings to agree byte for byte on the corpus
 ## plus a fuzz-dumped input set. XCHECK_GEN (eval'd, ${XCHECK_DUMP_DIR} exported
 ## by the engine) produces that input set; it only runs with two or more bindings.
+## It reruns the fuzz tests to dump them, so their passes, already shown by the
+## tests stage, are left off the console.
 BINDING_CLIS=(
 	"rust|source/rust/target/debug/shcl"
 	"go|source/go/shcl"
 	"python|source/python/cmd/shcl/main.py"
 	"c|source/c/shcl"
 )
-XCHECK_GEN='env SHCL_FUZZ_DUMP="${XCHECK_DUMP_DIR}" SHCL_FUZZ_ITERS=2000 SHCL_FUZZ_DUMP_MAX=500 RUST_TEST_THREADS="${CPU_CAP}" cargo test -j "${CPU_CAP}" --manifest-path '"${MANIFEST}"' --test fuzz_smoke --quiet'
+XCHECK_GEN='env SHCL_FUZZ_DUMP="${XCHECK_DUMP_DIR}" SHCL_FUZZ_ITERS=2000 SHCL_FUZZ_DUMP_MAX=500 RUST_TEST_THREADS="${CPU_CAP}" cargo test -j "${CPU_CAP}" --manifest-path '"${MANIFEST}"' --test fuzz_smoke --quiet 2> >(sed -E "/^ok   [0-9A-Za-z]{7} rust /d" >&2)'
 
 
 ## Stage 4c: large document. The corpus cases are a few hundred bytes each and
@@ -306,8 +318,9 @@ PROFILE_BIN="source/rust/target/profiling/${EXE_NAME}"
 PROFILE_OUT_DIR="cicd/artifacts/profiling"   ## relative to repo root; gitignored
 PROFILE_WORKLOAD_GEN='source cicd/utility/include/largedoc-gen.bash; largedoc_gen 4 > "${PROFILE_WORKLOAD}"'
 ## Two inlined loops of known cost ratio, sampled the same way; exit 1 when
-## the graph would split them wrong.
-PROFILE_CHECK='SHCL_PROFILE_CHECK=1 "${PROFILE_BIN}"'
+## the graph would split them wrong. It prints a status line like every test.
+PROFILE_CHECK_ID=EqeDCi1
+PROFILE_CHECK='s=ok; SHCL_PROFILE_CHECK=1 "${PROFILE_BIN}" || s=FAIL; printf "%-4s %s profiler attribution-calibration\n" "${s}" "${PROFILE_CHECK_ID}"; [[ "${s}" == ok ]]'
 ## The calibration is the one pin on the sampler's attribution fix, and --ci
 ## turns the profiler off, so --ci builds for it alone. No LTO: the loops are
 ## inlined into one function without it, and the check still fails with the

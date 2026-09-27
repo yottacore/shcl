@@ -29,7 +29,13 @@
 
 set -Eeuo pipefail
 
-declare -i keys=40000 factor=3
+## Read by the include: one status line per test, with its test ID.
+# shellcheck disable=SC2034
+testWhere="perf-gate" testCounter="nBad"
+# shellcheck disable=SC1091
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/include/test-id.bash"
+
+declare -i keys=40000 factor=3 nBad=0
 bindings=()
 while (($#)); do case "$1" in
 	--keys)    keys="${2:-40000}"; shift 2 ;;
@@ -241,32 +247,37 @@ fTimeMs(){
 ##	reported OK. Three bait CLIs keep them honest, so the next tidy-up cannot
 ##	delete a check without this saying so.
 ##	stderr is dropped: the message they print is the point, not the noise.
-{
-	## It prints its line too, so this bait fails on the exit code alone.
-	printf '#!/bin/sh\necho x\nexit 1\n' > "${tmpDir}/bait-rc"
-	printf '#!/bin/sh\nexit 0\n' > "${tmpDir}/bait-quiet"
-	chmod +x "${tmpDir}/bait-rc" "${tmpDir}/bait-quiet"
-	got="$(fTimeMs "${tmpDir}/bait-rc" "${tmpDir}/base.ops" set 1 2>/dev/null)"
-	[[ "${got}" == "-1" ]] || { echo "perf-gate: self-test: a CLI exiting 1 was timed as ${got} ms, not refused" >&2; exit 1; }
-	got="$(fTimeMs "${tmpDir}/bait-quiet" "${tmpDir}/base.ops" set 1 2>/dev/null)"
-	[[ "${got}" == "-1" ]] || { echo "perf-gate: self-test: a CLI printing nothing was timed as ${got} ms, not refused" >&2; exit 1; }
-	## The cap comes down for the hang, since nobody is waiting out the real one.
-	## It prints its line and exits 0 eventually, so the other two guards have
-	## nothing to say about it and only the cap can refuse it.
-	printf '#!/bin/sh\nsleep 30\necho x\n' > "${tmpDir}/bait-hang"
-	chmod +x "${tmpDir}/bait-hang"
-	declare -i capWas="${runSecs}"
-	runSecs=1
-	got="$(fTimeMs "${tmpDir}/bait-hang" "${tmpDir}/base.ops" set 1 2>/dev/null)"
-	runSecs="${capWas}"
-	[[ "${got}" == "-1" ]] || { echo "perf-gate: self-test: a CLI that never returned was timed as ${got} ms, not refused" >&2; exit 1; }
-}
+## It prints its line too, so this bait fails on the exit code alone.
+printf '#!/bin/sh\necho x\nexit 1\n' > "${tmpDir}/bait-rc"
+printf '#!/bin/sh\nexit 0\n' > "${tmpDir}/bait-quiet"
+chmod +x "${tmpDir}/bait-rc" "${tmpDir}/bait-quiet"
+fTest EpHGoa1 self-test-exit-code
+got="$(fTimeMs "${tmpDir}/bait-rc" "${tmpDir}/base.ops" set 1 2>/dev/null)"
+[[ "${got}" == "-1" ]] || { echo "perf-gate: self-test: a CLI exiting 1 was timed as ${got} ms, not refused" >&2; nBad+=1; }
+fTest EqMEejQ self-test-quiet
+got="$(fTimeMs "${tmpDir}/bait-quiet" "${tmpDir}/base.ops" set 1 2>/dev/null)"
+[[ "${got}" == "-1" ]] || { echo "perf-gate: self-test: a CLI printing nothing was timed as ${got} ms, not refused" >&2; nBad+=1; }
+## The cap comes down for the hang, since nobody is waiting out the real one.
+## It prints its line and exits 0 eventually, so the other two guards have
+## nothing to say about it and only the cap can refuse it.
+fTest EqMEejR self-test-hang
+printf '#!/bin/sh\nsleep 30\necho x\n' > "${tmpDir}/bait-hang"
+chmod +x "${tmpDir}/bait-hang"
+declare -i capWas="${runSecs}"
+runSecs=1
+got="$(fTimeMs "${tmpDir}/bait-hang" "${tmpDir}/base.ops" set 1 2>/dev/null)"
+runSecs="${capWas}"
+[[ "${got}" == "-1" ]] || { echo "perf-gate: self-test: a CLI that never returned was timed as ${got} ms, not refused" >&2; nBad+=1; }
+## A gate whose own guards are down judges nothing after them.
+if ((nBad)); then fTestEnd; exit 1; fi
 
-declare -i nBad=0
+##	Every `set` run prints the whole document, so the line count is the key
+##	count; `check` prints one line per diagnostic plus a summary. A binding
+##	whose baseline would not run has no budget, and sits out the workloads.
+fTest Er6H1r6 baseline
+declare -A baseOf=() budgetOf=()
 for b in "${bindings[@]}"; do
 	name="${b%%|*}"; cli="${b#*|}"
-	##	Every `set` run prints the whole document, so the line count is the key
-	##	count; `check` prints one line per diagnostic plus a summary.
 	baseMs="$(fTimeMs "${cli}" "${tmpDir}/base.ops" set "${keys}")"
 	if ((baseMs < 0)); then nBad+=1; continue; fi
 	## A floor, so a binding fast enough to land near the clock's resolution is
@@ -274,7 +285,35 @@ for b in "${bindings[@]}"; do
 	budget=$(( baseMs * factor ))
 	floor=$(( baseMs + 250 ))
 	if ((budget < floor)); then budget="${floor}"; fi
-	for w in writes keeps defaults reads badlines suggest recurse frags stars mounts selectors unknowns merge removes raws; do
+	baseOf["${name}"]="${baseMs}"; budgetOf["${name}"]="${budget}"
+done
+
+## One test per workload, run by every binding before its line goes out.
+workloads=(
+	'EoTIbbt|writes'
+	'EqvA7Zp|keeps'
+	'EoTIbbu|defaults'
+	'EoUsQuG|reads'
+	'EoewZ3Y|badlines'
+	'EojmbYO|suggest'
+	'Ep3Shkv|recurse'
+	'EpHDKev|frags'
+	'EqAMPEH|stars'
+	'EqAMPEI|mounts'
+	'EqLlDoG|selectors'
+	'EqLprWy|unknowns'
+	'EqMO8fB|merge'
+	'EqR8jEH|removes'
+	'Er207Yg|raws'
+)
+for row in "${workloads[@]}"; do
+	IFS='|' read -r tid w <<<"${row}"
+	fTest "${tid}" "${w}"
+	times=""
+	for b in "${bindings[@]}"; do
+		name="${b%%|*}"; cli="${b#*|}"
+		[[ -n "${budgetOf[${name}]:-}" ]] || continue
+		budget="${budgetOf[${name}]}"; baseMs="${baseOf[${name}]}"
 		if [[ "${w}" == keeps ]]; then
 			ms="$(fTimeMs "${cli}" "${keepDoc}" keeps "$((keys / 2))")"
 		elif [[ "${w}" == badlines ]]; then
@@ -308,9 +347,12 @@ for b in "${bindings[@]}"; do
 			echo "perf-gate: ${name}: ${w} took ${ms} ms against a ${budget} ms budget (parse-only baseline ${baseMs} ms)" >&2
 			nBad+=1
 		else
-			echo "perf-gate: ${name}: ${w} ${ms} ms, budget ${budget} ms (baseline ${baseMs} ms)"
+			times+="${times:+, }${name} ${ms}/${budget} ms"
 		fi
 	done
+	## The timings ride on the status line, as time against budget.
+	# shellcheck disable=SC2034
+	testName="${w}${times:+: ${times}}"
 done
 
 ##	A count where the clock only drifts: the write calls for the refused-lines
@@ -318,7 +360,9 @@ done
 ##	straight to it made eleven per diagnostic, which put badlines at up to seven
 ##	times its baseline on the hosted runner and failed the gate there now and
 ##	then.
+fTest EqomByC write-counts
 if command -v strace >/dev/null 2>&1; then
+	counts=""
 	for b in "${bindings[@]}"; do
 		name="${b%%|*}"; cli="${b#*|}"
 		fRun strace -f -c -e trace=write,writev -o "${tmpDir}/strace" "${cli}" check "${badDoc}" >/dev/null 2>&1 || true
@@ -330,16 +374,20 @@ if command -v strace >/dev/null 2>&1; then
 			echo "perf-gate: ${name}: badlines made ${calls} write calls for ${keys} refused lines, more than four a line" >&2
 			nBad+=1
 		else
-			echo "perf-gate: ${name}: badlines ${calls} write calls for ${keys} lines"
+			counts+="${counts:+, }${name} ${calls}"
 		fi
 	done
+	# shellcheck disable=SC2034
+	testName="write-counts${counts:+: badlines, ${keys} lines: ${counts}}"
 elif [[ -n "${SHCL_GATE_STRICT:-}" ]]; then
 	echo "perf-gate: strace is missing, and the gate requires it" >&2
 	nBad+=1
 else
 	echo "perf-gate: write counts SKIPPED - no strace"
 	echo perf-gate-strace >> "${SHCL_GATE_SKIPS:-/dev/null}"
+	fTestSkip
 fi
+fTestEnd
 
 if ((nBad)); then
 	echo "perf-gate: ${nBad} workload(s) over budget" >&2

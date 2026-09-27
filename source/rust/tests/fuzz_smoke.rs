@@ -6,6 +6,9 @@
 //! no panic at any strictness, and the canonical formatter is a fixpoint.
 //! Iteration count scales via SHCL_FUZZ_ITERS (cicd raises it; default is quick).
 
+mod common;
+
+use common::test_id;
 use shcl::{
 	Document, Piece, Quote, Rules, SegTok, Severity, Strictness, Tokens, migrate, tokenize,
 	tokenize_value,
@@ -72,6 +75,7 @@ fn iter_count(floor: usize) -> usize {
 
 #[test]
 fn the_iteration_count_refuses_a_value_that_is_not_one() {
+	let _id = test_id("EqMEflw");
 	assert_eq!(iter_count_from(None, 1), 300);
 	assert_eq!(iter_count_from(Some("20000"), 1), 20000);
 	assert_eq!(
@@ -243,6 +247,7 @@ fn seed_texts() -> Vec<String> {
 
 #[test]
 fn mutated_inputs_never_panic_and_format_is_fixpoint() {
+	let _id = test_id("Ejri0IV");
 	let iters = iter_count(1);
 	let seeds = seed_texts();
 	let mut rng = Rng(0x5EED_CAFE_F00D_0001);
@@ -345,6 +350,7 @@ fn mutated_inputs_never_panic_and_format_is_fixpoint() {
 /// value-level check because reads did not change.
 #[test]
 fn writes_on_structural_soup_stay_fixpoint() {
+	let _id = test_id("Eof6zmK");
 	let iters = iter_count(1);
 	let mut rng = Rng(0x5EED_57A7_1C00_0002);
 	for i in 0..iters {
@@ -407,6 +413,7 @@ fn writes_on_structural_soup_stay_fixpoint() {
 /// holding it has to end with it.
 #[test]
 fn comments_behind_selectors_stay_comments() {
+	let _id = test_id("Ep3OILJ");
 	// The four selector shapes on their own first. In the soup a line can be
 	// dropped by what sits above it, and a dropped line never reaches the loop
 	// below - so the floor there was met by the two shapes that always bind,
@@ -522,6 +529,7 @@ fn kept_misplaced(
 
 #[test]
 fn lost_count_follows_the_outcome_table() {
+	let _id = test_id("EpFAzfk");
 	let iters = iter_count(1);
 	let mut rng = Rng(0x5EED_57A7_1C00_0004);
 	let (mut lost_seen, mut kept_seen) = (0usize, 0usize);
@@ -608,6 +616,7 @@ fn lost_count_follows_the_outcome_table() {
 /// capped line above holds its level, so the lines under it move.
 #[test]
 fn a_cap_refuses_only_a_line_that_would_bind() {
+	let _id = test_id("EqKhPQO");
 	let iters = iter_count(1);
 	const REFUSING: &[&str] = &[
 		"E003", "E004", "E006", "E007", "E008", "E009", "E010", "E011", "E013", "E014", "E016",
@@ -738,6 +747,7 @@ fn raw_spans(text: &str) -> Vec<(usize, usize)> {
 /// no field above it to bind to (E006).
 #[test]
 fn raw_bodies_stay_content() {
+	let _id = test_id("EqGWdij");
 	let iters = iter_count(1);
 	let mut rng = Rng(0x5EED_57A7_1C00_0008);
 	let (mut seen, mut skipped, mut read_back) = (0usize, 0usize, 0usize);
@@ -819,6 +829,7 @@ fn raw_bodies_stay_content() {
 /// guarantee `fmt` gives, now for the composed document.
 #[test]
 fn merge_never_panics_and_stays_fixpoint() {
+	let _id = test_id("EkyV758");
 	let iters = iter_count(1);
 	let seeds = seed_texts();
 	let mut rng = Rng(0x5EED_CAFE_F00D_0007);
@@ -909,6 +920,7 @@ fn merge_never_panics_and_stays_fixpoint() {
 /// document a formatter fixpoint - even for the reserved/escape/fence hazards.
 #[test]
 fn writer_roundtrips_and_stays_fixpoint() {
+	let _id = test_id("Ekfzh7g");
 	let iters = iter_count(1);
 	let mut rng = Rng(0x5EED_0000_1234_ABCD);
 	for i in 0..iters {
@@ -960,6 +972,7 @@ fn writer_roundtrips_and_stays_fixpoint() {
 /// text fixpoint cannot see it, since both placements are fixpoints.
 #[test]
 fn edits_and_merges_match_a_reload() {
+	let _id = test_id("Eqk24nZ");
 	let iters = iter_count(1);
 	let seeds = seed_texts();
 	let mut rng = Rng(0x5EED_0923_C0DE_0003);
@@ -1068,6 +1081,7 @@ fn tidy(rng: &mut Rng) -> String {
 /// save keeps lines at all.
 #[test]
 fn keeping_lines_reloads_as_the_document() {
+	let _id = test_id("EqutO7I");
 	let iters = iter_count(300);
 	let seeds = seed_texts();
 	let mut rng = Rng(0x5EED_0925_4B33_0001);
@@ -1187,6 +1201,7 @@ fn keeping_lines_reloads_as_the_document() {
 /// return among them), a comment glued or spaced, non-ASCII text.
 #[test]
 fn tokens_follow_the_grammar() {
+	let _id = test_id("EpFkZy4");
 	let iters = iter_count(2000);
 	let mut rng = Rng(0x5EED_70CE_0000_0005);
 	let mut tok = Tokens::default();
@@ -1480,6 +1495,7 @@ fn generate_checked(schema_text: &str) -> Option<String> {
 /// passing by refusing.
 #[test]
 fn generated_starters_load_and_validate_clean() {
+	let _id = test_id("EptVfIO");
 	let iters = iter_count(1);
 	const PATHS: &[&str] = &[
 		"a",

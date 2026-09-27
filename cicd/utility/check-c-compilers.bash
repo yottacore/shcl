@@ -19,6 +19,10 @@
 
 set -Eeuo pipefail
 
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
+testWhere=check-c-compilers; testCounter=nKindBad
+
 repoDir="${1:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)}"
 [[ -d "${repoDir}" ]] || { echo "check-c-compilers: no such directory: ${repoDir}" >&2; exit 2 ;}
 
@@ -102,13 +106,17 @@ fRefuse(){  ## fRefuse CC SRC WANT - a build that must fail, and fail saying WAN
 cap="${CPU_CAP:-}"
 [[ "${cap}" =~ ^[1-9][0-9]*$ ]] || cap=$(( $(nproc 2>/dev/null || echo 2) / 2 ))
 ((cap > 0)) || cap=1
+## Each job belongs to a kind, which is one test: the same build on every
+## compiler, and at every level where it is swept.
 declare -i nLive=0
+kind=""; jobKind=()
 fJob(){  ## fJob FUNC ARGS... - run one check in the background, cap at a time
 	if ((nLive >= cap)); then
 		wait -n || true
 		nLive=$((nLive - 1))
 	fi
 	nRun+=1
+	jobKind[nRun]="${kind}"
 	printf '%s ' "${@:2}" > "${tmpDir}/${nRun}.what"
 	{ "$@" 2> "${tmpDir}/${nRun}.err" && : > "${tmpDir}/${nRun}.ok"; } &
 	nLive=$((nLive + 1))
@@ -130,23 +138,25 @@ EOF
 ## disagreement there.
 for cc in "${compilers[@]}"; do
 	for src in source/c/cmd/shcl/main.c source/c/tests/conformance.c source/c/tests/mem_bounds.c; do
+		kind="${src##*/}"
 		fJob fBuild "${cc}" -O2 "${src}"
 	done
 	## Most Linux consumers define _GNU_SOURCE, and glibc declares more under it,
 	## so a static name in the header can collide with one of those functions.
-	fJob fBuild "${cc}" -O2 source/c/cmd/shcl/main.c -D_GNU_SOURCE
+	kind=gnu; fJob fBuild "${cc}" -O2 source/c/cmd/shcl/main.c -D_GNU_SOURCE
 	## Distributions build with _FORTIFY_SOURCE on, and glibc then marks calls
 	## such as fchown warn_unused_result, which a (void) cast does not silence.
 	## That reached dev once and only the hosted runner said so, where the flag
 	## is on by default and here it is not.
-	fJob fBuild "${cc}" -O2 source/c/cmd/shcl/main.c -D_FORTIFY_SOURCE=2
-	fJob fRefuse "${cc}" "${tmpDir}/order-bad.c" "included before any system header"
+	kind=fortify; fJob fBuild "${cc}" -O2 source/c/cmd/shcl/main.c -D_FORTIFY_SOURCE=2
+	kind=order; fJob fRefuse "${cc}" "${tmpDir}/order-bad.c" "included before any system header"
 	## The two OOM tests get every level. Their shape is the one this gate was
 	## written for - which locals a compiler thinks a setjmp's unwind can
 	## clobber, and whether it gives the frame a pointer and saved xmm registers
 	## at all - and gcc decides both per level, so -O2 alone proves one of five.
 	## win-runners.bash sweeps the same five on windows for the same reason.
 	for src in source/c/tests/oom_hook.c source/c/tests/oom_recover.c; do
+		kind="${src##*/}"
 		for opt in -O0 -O1 -O2 -Os -O3; do
 			fJob fBuild "${cc}" "${opt}" "${src}"
 		done
@@ -154,8 +164,10 @@ for cc in "${compilers[@]}"; do
 done
 
 wait
+declare -A kindBad=()
 for ((i = 1; i <= nRun; i++)); do
 	if [[ ! -e "${tmpDir}/${i}.ok" ]]; then
+		kindBad[${jobKind[i]}]=$(( ${kindBad[${jobKind[i]}]:-0} + 1 ))
 		if [[ -s "${tmpDir}/${i}.err" ]]; then
 			cat "${tmpDir}/${i}.err" >&2
 		else
@@ -164,6 +176,24 @@ for ((i = 1; i <= nRun; i++)); do
 		nBad+=1
 	fi
 done
+declare -i nKindBad=0
+fTest EoXhawq main.c builds on every compiler
+nKindBad+=${kindBad[main.c]:-0}
+fTest EoXhawr conformance.c builds on every compiler
+nKindBad+=${kindBad[conformance.c]:-0}
+fTest EoezJiE mem_bounds.c builds on every compiler
+nKindBad+=${kindBad[mem_bounds.c]:-0}
+fTest Eptzmsi main.c builds with _GNU_SOURCE
+nKindBad+=${kindBad[gnu]:-0}
+fTest EqNHTSi main.c builds with _FORTIFY_SOURCE
+nKindBad+=${kindBad[fortify]:-0}
+fTest EqAMPEG the header after a system header is refused by name
+nKindBad+=${kindBad[order]:-0}
+fTest EoaFuVM oom_hook.c builds at every optimization level
+nKindBad+=${kindBad[oom_hook.c]:-0}
+fTest EoaFuVN oom_recover.c builds at every optimization level
+nKindBad+=${kindBad[oom_recover.c]:-0}
+fTestEnd
 
 if ((nBad)); then
 	echo "check-c-compilers: ${nBad} of ${nRun} build(s) failed" >&2

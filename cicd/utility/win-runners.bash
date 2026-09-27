@@ -75,16 +75,24 @@ echo "win-runners: $(uname -s 2>/dev/null || echo unknown), cc=${cc} cxx=${cxx} 
 
 failed=()
 skipped=()
-fRun() {   ## fRun NAME TOOLS COMMAND [ARG ...]   TOOLS is space-separated
+##	A step that is a test itself, rather than a runner printing its own, takes
+##	--id with its test ID and gets a status line in place of the OK line.
+fRun() {   ## fRun [--id ID] NAME TOOLS COMMAND [ARG ...]   TOOLS is space-separated
+	local id=""
+	if [[ "$1" == --id ]]; then id="$2"; shift 2; fi
 	local name="$1" tools="$2"; shift 2
 	echo
 	echo "[ ${name} ]"
 	# shellcheck disable=2086  ## the tool list is meant to split
 	if ! fHave ${tools}; then
-		echo "win-runners: ${name}: SKIPPED"; skipped+=("${name}"); return 0
+		fStepLine skip "${id}" "${name}" SKIPPED; skipped+=("${name}"); return 0
 	fi
-	if "$@"; then echo "win-runners: ${name}: OK"
-	else echo "win-runners: ${name}: FAILED" >&2; failed+=("${name}"); fi
+	if "$@"; then fStepLine ok "${id}" "${name}" OK
+	else fStepLine FAIL "${id}" "${name}" FAILED >&2; failed+=("${name}"); fi
+}
+fStepLine() {   ## fStepLine STATUS ID NAME WORD
+	if [[ -n "$2" ]]; then printf '%-4s %s win-runners %s\n' "$1" "$2" "$3"
+	else echo "win-runners: $3: $4"; fi
 }
 
 ## The C pair build into the temp dir rather than the tree, so a run leaves
@@ -321,7 +329,7 @@ fDevicesPython() {
 }
 
 fRun "rust"        "cargo"          cargo test --manifest-path source/rust/Cargo.toml
-fRun "go library"  "go"             go -C source/go test -count=1 ./...
+fRun "go library"  "go"             go -C source/go test -count=1
 fRun "go cli"      "go"             go -C source/go/cmd test -count=1 ./...
 fRun "python"      "${py}"          "${py}" source/python/tests/conformance.py
 fRun "c"           "${cc}"          fRunC
@@ -329,21 +337,21 @@ fRun "c++ veneer"  "${cxx}"         fRunCxx
 fRun "c oom hook"  "${cc}"          fRunOomSweep oom_hook
 fRun "c oom recover" "${cc}"        fRunOomSweep oom_recover
 fRun "c mem bounds" "${cc}"         fRunMemBounds
-fRun "c cli argv"  "${cc}"          fRunCcli
-fRun "closed stdin" "${cc}"         fRunClosedStdin
-fRun "c long path" "${cc}"          fRunLongPath
+fRun --id EojrwSX "c cli argv"  "${cc}"          fRunCcli
+fRun --id EonWXt5 "closed stdin" "${cc}"         fRunClosedStdin
+fRun --id EqMiKTw "c long path" "${cc}"          fRunLongPath
 fRun "cli regress"  "${cc}"         fRunCliRegress
-fRun "devices c"   "${cc}"          fDevicesC
-fRun "devices rust" "cargo"         fDevicesRust
-fRun "devices go"  "go"             fDevicesGo
-fRun "devices python" "${py}"       fDevicesPython
+fRun --id EqS4fJw "devices c"   "${cc}"          fDevicesC
+fRun --id EqS4fJx "devices rust" "cargo"         fDevicesRust
+fRun --id EqS4fJy "devices go"  "go"             fDevicesGo
+fRun --id EqS4fJz "devices python" "${py}"       fDevicesPython
 ## The installers' PATH handling needs a real registry, which only exists here.
 ## It overwrites the machine PATH for the length of the run - fine on a throwaway
 ## runner, not on a workstation, so a developer box gets the same test inside a
 ## sandbox, whose registry is thrown away with it.
 case "$(uname -s 2>/dev/null || true)" in
 	MINGW*|MSYS*|CYGWIN*)
-		fRun "uninstall lock" "" fRunUninstallLock
+		fRun --id EqbvAmG "uninstall lock" "" fRunUninstallLock
 		if [[ -n "${WINRUN_PARTIAL:-}" ]]; then fRunWinpathSandbox
 		else fRun "windows path" "" powershell -NoProfile -ExecutionPolicy Bypass -File cicd/utility/winpath-regress.ps1
 		fi

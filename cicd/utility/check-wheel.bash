@@ -25,6 +25,9 @@ set -Eeuo pipefail
 meDir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 root="${1:-$(cd -- "${meDir}/../.." && pwd)}"
 pyDir="${root}/source/python"
+testWhere="check-wheel"; testCounter="nBad"; nBad=0
+# shellcheck source-path=SCRIPTDIR
+source "${meDir}/include/test-id.bash"
 
 command -v pyproject-build >/dev/null 2>&1 \
 	|| { echo "check-wheel: pyproject-build not installed (pipx install build)" >&2; exit 1; }
@@ -74,8 +77,7 @@ done
 ## than a sed pipe: one less fork, and shellcheck prefers it.
 fIndent(){ printf '  %s\n' "${1//$'\n'/$'\n'  }"; }
 
-rc=0
-
+fTest EqM6SvY backend-is-the-pinned-one
 ## What actually built the wheel. setuptools writes itself into the metadata as
 ## `Generator: setuptools (X)`, so this reads the pin off the artifact rather
 ## than off the command line that asked for it.
@@ -89,9 +91,10 @@ PY
 )"
 if [[ "${gotBackend}" != "${wantBackend}" ]]; then
 	echo "check-wheel: the constraints file pins setuptools ${wantBackend}, and the wheel was built by ${gotBackend:-an unknown backend}" >&2
-	rc=1
+	nBad=$((nBad + 1))
 fi
 
+fTest EnUSdUG wheel-is-the-library-alone
 ## The wheel's payload is everything outside the .dist-info metadata directory.
 ## Exactly one file belongs there.
 wheelPayload="$(python3 - "${outDir}" <<'PY'
@@ -103,9 +106,10 @@ PY
 if [[ "${wheelPayload}" != "shcl.py" ]]; then
 	echo "check-wheel: the wheel should carry shcl.py and nothing else; it carries:" >&2
 	fIndent "${wheelPayload:-(nothing)}" >&2
-	rc=1
+	nBad=$((nBad + 1))
 fi
 
+fTest EnUSdUH wheel-installs-no-command
 ## An entry point would put a `shcl` command on PATH from a pip install, which
 ## is the thing this whole arrangement exists to prevent.
 if python3 - "${outDir}" <<'PY'
@@ -115,18 +119,22 @@ sys.exit(0 if any(n.endswith("entry_points.txt") for n in z.namelist()) else 1)
 PY
 then
 	echo "check-wheel: the wheel declares entry points; a pip install would install a command" >&2
-	rc=1
+	nBad=$((nBad + 1))
 fi
 
+fTest EnUSdUI sdist-has-no-cli-or-tests
 ## The sdist is looser by nature - it carries the project files - but the CLI
 ## and the tests still have no business in it.
 strays="$(tar tzf "${outDir}"/*.tar.gz | grep -E '/(cmd|tests)/' || true)"
 if [[ -n "${strays}" ]]; then
 	echo "check-wheel: the sdist carries the CLI or the tests:" >&2
 	fIndent "${strays}" >&2
-	rc=1
+	nBad=$((nBad + 1))
 fi
 
+fTestEnd
+rc=0
+if [[ "${nBad}" != 0 ]]; then rc=1; fi
 ((rc == 0)) && echo "check-wheel: the python distribution is the library alone"
 exit "${rc}"
 

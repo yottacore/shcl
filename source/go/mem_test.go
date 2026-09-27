@@ -47,6 +47,7 @@ func allocatedBy(f func() any) uint64 {
 }
 
 func TestElementCapBoundsTheParse(t *testing.T) {
+	defer testID(t, "EoezJiD")
 	text := "arr: " + strings.Repeat("1, ", 200000) + "\nok: 5\n"
 	capped := allocatedBy(func() any {
 		doc, _ := ParseLimited(text, Standard, 0, 8, 0) // only Strict returns an error
@@ -63,6 +64,7 @@ func TestElementCapBoundsTheParse(t *testing.T) {
 }
 
 func TestDiagnosticCapBoundsTheParse(t *testing.T) {
+	defer testID(t, "EofAXrV")
 	// The stacked spelling refuses each element line past the cap on its own,
 	// and every refusal is a diagnostic: with the element cap alone, 200k
 	// refused lines cost more than the elements they refused. The diagnostic
@@ -81,6 +83,7 @@ func TestDiagnosticCapBoundsTheParse(t *testing.T) {
 }
 
 func TestRangeFaultsCostTheirMessage(t *testing.T) {
+	defer testID(t, "EqYsOIq")
 	// Each V004 to V006 message escapes its value, and the escape built a 6 KB
 	// replacer table per message until the replacer was shared. The same
 	// document with every value in range is the baseline, so what is left is
@@ -112,6 +115,7 @@ func TestRangeFaultsCostTheirMessage(t *testing.T) {
 }
 
 func TestArenaSizedToTheDocument(t *testing.T) {
+	defer testID(t, "Eqew0Xo")
 	// Grown by append, the arena cost about an eighth of fmt and a sixth of
 	// peak memory on a large file. Sized from the line count it has no slack,
 	// and lines that make no node must not reserve room the document keeps.

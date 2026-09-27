@@ -43,6 +43,9 @@ tmpDir="$(mktemp -d)"; trap 'rm -rf "${tmpDir}"' EXIT
 printf 'a: 1\n' > "${tmpDir}/t.shcl"
 declare -i nBad=0
 fBad(){ echo "shell-regress: $1" >&2; nBad+=1 ;}
+testWhere=shell-regress; testCounter=nBad
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
 
 ##	Is tool $1 here? Under the gate a missing one is a failure rather than a
 ##	skipped block: a runner that loses a tool would otherwise report OK forever.
@@ -65,6 +68,7 @@ fHaveFile(){
 	return 1
 }
 
+fTest EoTJb0K 20260830-21-bash-wrapper-refuses-a-bad-shcl-bin
 ##	20260830 item 21: -x is true for a directory, so a directory passed as
 ##	SHCL_BIN got as far as being run.
 out="$(SHCL_BIN="${tmpDir}" bash -c "source '${repoDir}/source/bash/shcl.bash'; shcl_get '${tmpDir}/t.shcl' a" 2>&1 || true)"
@@ -74,11 +78,13 @@ out="$(SHCL_BIN="${tmpDir}/nope" bash -c "source '${repoDir}/source/bash/shcl.ba
 out="$(SHCL_BIN="${cli}" bash -c "source '${repoDir}/source/bash/shcl.bash'; shcl_get '${tmpDir}/t.shcl' a" 2>&1 || true)"
 [[ "${out}" == "1" ]] || fBad "bash wrapper did not read through a pinned SHCL_BIN: ${out@Q}"
 
+fTest EoTJb0L bash-wrapper-ignores-an-inherited-cache
 ##	The private cache is not an interface: an inherited value would beat every
 ##	documented lookup step.
 out="$(_SHCL_BIN=/nonexistent SHCL_BIN="${cli}" bash -c "source '${repoDir}/source/bash/shcl.bash'; shcl_get '${tmpDir}/t.shcl' a" 2>&1 || true)"
 [[ "${out}" == "1" ]] || fBad "bash wrapper honored an inherited _SHCL_BIN: ${out@Q}"
 
+fTest EqzwPFE 20260716-32-bash-wrapper-through-a-link
 ##	20260716 item 32: reached through a link, the wrapper looked for its
 ##	sibling binary beside the link. One link relative and one absolute, run and
 ##	sourced, with no SHCL_BIN: the stub beside the real file has to answer.
@@ -95,6 +101,7 @@ for via in lnk/rel.bash abs.bash; do
 	[[ "${out}" == "sibling y" ]] || fBad "bash wrapper sourced through ${via} missed its sibling binary: ${out@Q}"
 done
 
+fTest Ep11mJd 20260904-10-11-bash-completion-value-options
 ##	20260904 items 10 and 11: bash cuts `--opt=value` at the `=` before a
 ##	completion function runs, and the three value options added in 20260830b
 ##	were missing from the lists that skip a value, so the FILE slot went to
@@ -176,6 +183,7 @@ for mode in "${compModes[@]}"; do
 	[[ "${out}" == "alpha.shcl" ]] || fBad "bash completion (${mode}) lost the FILE slot after --: ${out@Q}"
 done
 
+fTest EpHNNhw 20260904-39-wrappers-match-the-binary
 ##	20260904 item 39: nothing had ever compared what the two wrappers hand back
 ##	against what the binary hands back. They are pass-through front ends, so
 ##	every row here is the same assertion - same stdout, same stderr, same exit
@@ -247,6 +255,7 @@ done
 		done
 	done
 
+	fTest EqM3Y7s 20260918b-32-piped-helpers-match-the-binary
 	##	20260918b item 32: the matrix above pipes into the script, where the
 	##	binary inherits the process's stdin and a wrapper that drops $input
 	##	looks fine. A typed helper is only reached from a PowerShell pipeline,
@@ -282,6 +291,7 @@ done
 				|| fBad "piped helper ${hid} differs from the binary: ${hout@Q} rc=${hrc} against ${bout@Q} rc=${brc}"
 		done
 
+		fTest EqnwIkT 20260923-9-10-ps1-encoding-and-script-stdin
 		##	20260923 items 9 and 10. Windows PowerShell 5.1 pipes text in as
 		##	us-ascii and decodes what comes back with the console's code page, so
 		##	`'a: café' | shcl fmt -` gave `caf?` at exit 0. pwsh here defaults to
@@ -322,6 +332,7 @@ done
 	unset SHCL_BIN
 }
 
+fTest EpHMbJw 20260904-35-zsh-completion
 ##	20260904 item 35: the zsh completion had never been run by anything - only
 ##	its option table was diffed - and it did not parse at all. An apostrophe
 ##	inside a single-quoted description left a quote open for the rest of the
@@ -384,8 +395,10 @@ ZEOF
 	fi
 else
 	echo "shell-regress: zsh not installed - zsh completion rows skipped"
+	fTestSkip
 fi
 
+fTest Ep19Ax8 20260904-16-pwsh-bare-double-dash
 if fHave pwsh; then
 	##	20260904 item 16: PowerShell reads a bare `--` as its own token and drops
 	##	it before a dot-sourced function sees its arguments; the quoted spelling
@@ -397,6 +410,7 @@ if fHave pwsh; then
 	out="$(pwsh -NoProfile -Command ". '${repoDir}/source/powershell/shcl.ps1'; \$env:SHCL_BIN = '${cli}'; shcl get '--' '${tmpDir}/dash.shcl' '-dash'" 2>&1 || true)"
 	[[ "${out}" == "5" ]] || fBad "pwsh dot-sourced shcl did not take a quoted --: ${out@Q}"
 
+	fTest EqM3Y7t 20260918b-35-pwsh-comma-split
 	##	20260918b item 35: the second difference, documented the same way.
 	##	PowerShell splits an unquoted `a,b` into an array for a function and
 	##	not for a native command, so the comma spelling of an inline array is a
@@ -407,6 +421,7 @@ if fHave pwsh; then
 	out="$(pwsh -NoProfile -Command ". '${repoDir}/source/powershell/shcl.ps1'; \$env:SHCL_BIN = '${cli}'; shcl set '--set-literal=ports=80,443' '${tmpDir}/w.shcl'" 2>&1 || true)"
 	[[ "${out}" == *"ports: 80, 443"* ]] || fBad "pwsh dot-sourced shcl did not take a quoted comma value: ${out@Q}"
 
+	fTest EqzwPFF 20260716-14-ps1-wrapper-refuses-a-bad-shcl-bin
 	out="$(pwsh -NoProfile -Command ". '${repoDir}/source/powershell/shcl.ps1'; \$env:SHCL_BIN = '${tmpDir}'; shcl_get '${tmpDir}/t.shcl' a" 2>&1 || true)"
 	[[ "${out}" == *"not executable"* ]] || fBad "PowerShell wrapper took a directory as SHCL_BIN: ${out@Q}"
 	##	20260716 item 14: a file with no execute bit passed as the binary. pwsh
@@ -423,6 +438,7 @@ if fHave pwsh; then
 	out="$(env -u DISPLAY -u WAYLAND_DISPLAY PATH="${tmpDir}/pwbin/opener:${PATH}" pwsh -NoProfile -Command ". '${repoDir}/source/powershell/shcl.ps1'; \$env:SHCL_BIN = '${tmpDir}/pwbin/exe/x'; shcl a b" 2>&1 </dev/null || true)"
 	[[ "${out}" == "exe a b" ]] || fBad "PowerShell wrapper did not take x.exe for SHCL_BIN=x: ${out@Q}"
 
+	fTest EoUqEKW 20260830b-10-ps1-link-resolver
 	##	20260830b item 10: the symlink resolver called a .NET 6 method that
 	##	Windows PowerShell 5.1 does not have, unguarded and at load, so every
 	##	dot-source on 5.1 hit it. An Env: item stands in for 5.1's method-less
@@ -443,6 +459,7 @@ if fHave pwsh; then
 	out="$(pwsh -NoProfile -Command ". '${tmpDir}/lnk/shcl.ps1'; Write-Output \"root=\$script:_SHCL_ROOT\"" 2>&1 || true)"
 	[[ "${out}" == "root=${tmpDir}/real" ]] || fBad "PowerShell wrapper did not resolve its own symlink: ${out@Q}"
 
+	fTest EoTJb0M 20260829-16-install-ps1-help-leaves-the-caller-alone
 	##	20260829 item 16 and 20260830 item 8: the script used to end the caller's
 	##	shell, and then to leave strict mode and its functions behind in it.
 	##	Through a file rather than -Command, so the PowerShell keeps its own
@@ -462,6 +479,7 @@ if fHave pwsh; then
 	[[ "${out}" == *"fn=False"* ]]     || fBad "install.ps1 left its functions in the caller: ${out@Q}"
 	[[ "${out}" == *"strict=off"* ]]   || fBad "install.ps1 left strict mode on in the caller: ${out@Q}"
 
+	fTest Er1zTEe 20260819-21-install-ps1-help-version-refusal
 	##	20260819 item 21 and 20260924c ideas 1 and 2: -Help prints the options
 	##	itself, since the one-liner leaves no file for Get-Help to read; -Version
 	##	names the installer; each run opens and ends on a blank line, a refusal
@@ -486,6 +504,7 @@ if fHave pwsh; then
 		fBad "install.ps1 does not open and end a refusal on a blank line (exit ${rc}): $(od -c "${tmpDir}/ps.out" "${tmpDir}/ps.err" | head -n 5)"
 	fi
 
+	fTest Eq8WEvQ 20260909-38-install-ps1-smoke-test-exit
 	##	20260909 item 38: a smoke test binary that never started left
 	##	$LASTEXITCODE at the 0 the last native command set, and the install went
 	##	ahead. The stand-in cannot start because its interpreter is missing. It
@@ -511,6 +530,7 @@ if fHave pwsh; then
 	[[ "${out}" == *"three=3"* ]]    || fBad "install.ps1 smoke test lost a nonzero exit: ${out@Q}"
 	[[ "${out}" == *"good=0"* ]]     || fBad "install.ps1 smoke test failed a working binary: ${out@Q}"
 
+	fTest EqL2dVA 20260918b-5-install-ps1-shadow-check
 	##	20260918b item 5: on a first install nothing named shcl is on the
 	##	session's PATH yet, and reading .Source off that nothing threw under
 	##	strict mode after a good install, at exit 1. The three answers the
@@ -534,6 +554,7 @@ if fHave pwsh; then
 	[[ "${out}" == *"ours=[]"* ]] || fBad "install.ps1 called its own copy a shadow: ${out@Q}"
 	[[ "${out}" == *"theirs:ours=[${tmpDir}/pshadow/theirs/shcl]"* ]] || fBad "install.ps1 did not see the copy shadowing it: ${out@Q}"
 
+	fTest EqL2cyu 20260918b-36-install-ps1-no-response-status
 	##	20260918b item 36: a request with no response at all (DNS, a refused
 	##	port, a proxy) has no status, and reading one threw under strict mode,
 	##	so the network-down message was never printed. A 403 still has to read
@@ -565,6 +586,7 @@ SRVEOF
 	[[ "${out}" == *"status=0"* ]]   || fBad "install.ps1 cannot read a request that got no response: ${out@Q}"
 	[[ "${out}" == *"status=403"* ]] || fBad "install.ps1 lost the status of a refused request: ${out@Q}"
 
+	fTest EqL2bgG 20260918b-11-36-install-ps1-network-down
 	##	20260918b items 11 and 36, end to end: the real script with only its
 	##	Windows refusal cut out, every request sent to a proxy that is not
 	##	there. An uninstall needs no release and must not wait on the API, and
@@ -589,6 +611,7 @@ SRVEOF
 	out="$(fNoNet -Target user -Yes || true)"
 	[[ "${out}" == *"cannot fetch the stable release (none published yet, or network down)"* ]] \
 		|| fBad "install.ps1 does not say the network is down: ${out@Q}"
+	fTest EqzwPFG 20260830-8-install-ps1-under-iex
 	##	20260830 item 8 and 20260829 item 16 under the documented `irm | iex`.
 	##	The scriptblock row above is a child scope, which passed without the
 	##	body's own scope, and it runs only -Help. Here the install fails on the
@@ -615,6 +638,7 @@ SRVEOF
 	[[ "${out}" == *"fn=False"* ]]     || fBad "install.ps1 under iex left its functions in the caller: ${out@Q}"
 	[[ "${out}" == *"strict=off"* ]]   || fBad "install.ps1 under iex left strict mode on in the caller: ${out@Q}"
 
+	fTest EqqXKMK 20260924d-1-3-install-ps1-plan-line
 	##	20260924d items 1 and 3: the plan line, from a fixed release list in
 	##	place of the API. An inner [bool]$Version once took the release's
 	##	$version, since names ignore case, and every install asked for
@@ -633,6 +657,7 @@ SRVEOF
 		[[ "${out}" == *"${want}"* ]] || fBad "install.ps1 -Release ${release} plan does not name its release page: ${out@Q}"
 	done
 
+	fTest Eqbtld2 20260921-idea6-install-ps1-uninstall-held-file
 	##	20260921 idea 6: a file the uninstall could not remove, which a running
 	##	shcl.exe causes on Windows, went unsaid, and the dir it kept was blamed
 	##	on files the installer never wrote. A read-only dir stands in for the
@@ -676,6 +701,7 @@ SRVEOF
 	[[ "${out}" == *"other: stuck=[] foreign=True"* && -e "${tmpDir}/rmfile/other/scripts/mine.txt" && ! -e "${tmpDir}/rmfile/other/shcl.exe" ]] \
 		|| fBad "install.ps1 -Uninstall mishandled a file it did not install: ${out@Q}"
 
+	fTest Eq8WEvR 20260909-38-shclpath-fails-without-registry
 	##	20260909 item 38: the setup's PATH script exited 0 when it could not
 	##	write, so the setup's fallback message never showed. There is no
 	##	registry here at all, which is a failure it must report.
@@ -683,8 +709,10 @@ SRVEOF
 		&& fBad "shclpath.ps1 exited 0 with no registry to write"
 else
 	echo "shell-regress: pwsh not installed - PowerShell rows skipped"
+	fTestSkip
 fi
 
+fTest Eojt4B6 20260830b-12-system-install-modes
 ##	20260830b item 12: nothing set the modes on a system install, and sudo keeps
 ##	the caller's umask, so under 077 the tree and the launcher came out 0700 and
 ##	only root could run what had just been installed for everyone. 20260901b
@@ -716,6 +744,7 @@ while IFS= read -r row; do
 done < <(find "${tmpDir}/sys/opt" "${tmpDir}/sys/usr/local/bin" "${tmpDir}/sys/usr/local/share/man" -printf '%m %y %p\n' | sort)
 [[ -L "${tmpDir}/sys/usr/local/share/man/man1/shcl.1" ]] || fBad "install.bash did not link the man page"
 
+fTest EqL4FOi 20260918b-41-man-link-not-ours
 ##	20260918b item 41: the man link kept the older test, a symlink or nothing,
 ##	so a man1/shcl.1 linking to a stow or hand-built copy was repointed at ours
 ##	and the uninstall then deleted it as ours. A user install into a scratch
@@ -740,6 +769,7 @@ nBadBefore="${nBad}"
 	exit $((nBad - nBadBefore))
 ) || nBad=$((nBad + 1))
 
+fTest EonXwm8 20260901b-34-uninstall-globs-as-root
 ##	20260901b item 34: the uninstall's payload globs used to expand in the
 ##	unprivileged shell that called sudo, so a system tree only root could list
 ##	left them unexpanded - nothing was removed and the run then reported the
@@ -776,6 +806,7 @@ nBadBefore="${nBad}"
 	exit $((nBad - nBadBefore))
 ) || nBad=$((nBad + 1))
 
+fTest Eq8WEvS 20260909-38-uninstall-removes-only-its-files
 ##	20260909 item 38: the uninstall emptied code/ and scripts/ by glob, taking
 ##	files the installer never wrote, and left the staging file an interrupted
 ##	install drops.
@@ -799,6 +830,7 @@ nBadBefore="${nBad}"
 	exit $((nBad - nBadBefore))
 ) || nBad=$((nBad + 1))
 
+fTest EonYwwy 20260901b-36-bin-link-owner
 ##	20260901b item 36: only a real file at the bin path was refused, so a
 ##	symlink to a cargo-built or hand-built copy was replaced with nothing said.
 eval "$(sed -n '/^fLinkOwner()/,/^}/p' "${repoDir}/install.bash")"
@@ -820,6 +852,7 @@ nBadBefore="${nBad}"
 	exit $((nBad - nBadBefore))
 ) || nBad=$((nBad + 1))
 
+fTest EonZGyu 20260901b-37-shadowing-copy-seen
 ##	20260901b item 37: the receipt ran the link the installer had just written,
 ##	so another shcl earlier on PATH was invisible and the next one the user
 ##	typed was someone else's.
@@ -844,6 +877,7 @@ nBadBefore="${nBad}"
 # grep -q 'Get-Command shcl -ErrorAction SilentlyContinue' "${repoDir}/install.ps1" \
 # 	|| fBad "install.ps1 never asks what shcl resolves to on PATH"
 
+fTest EonZtk8 20260901b-39-read-only-home-probed-first
 ##	20260901b item 39: a read-only HOME got through both downloads and then
 ##	failed on a raw mkdir error. The destinations are probed first, and the
 ##	probe has to walk up to whatever exists.
@@ -868,6 +902,7 @@ if [[ -z "${downloadLine}" || -z "${probeLine}" ]] || ((probeLine >= downloadLin
 	fBad "install.bash downloads before it knows the destination can be written"
 fi
 
+fTest EqzwPFH 20260829-17-smoke-test-and-glibc-floors
 ##	20260829 item 17: the binary first ran after it was installed, so a box
 ##	below its glibc floor got a raw loader error over a broken install. The
 ##	lifted smoke step, on a stand-in failing the way the loader does, one the
@@ -901,6 +936,7 @@ if [[ -z "${smokeLine}" || -z "${layLine}" ]] || ((smokeLine >= layLine)); then
 	fBad "install.bash does not run the binary before laying it down"
 fi
 
+fTest EqzwPFI 20260829-19-uninstall-hint-under-one-liner
 ##	20260829 item 19: the uninstall hint printed $0, which under the one-liner
 ##	is a descriptor or `bash`. The three lifted lines, run each way a script
 ##	reaches bash: the pipe form and the stdin form get the documented one-liner,
@@ -920,12 +956,14 @@ else
 	[[ "${out}" == "to remove it again: ${tmpDir}/rerun.bash --uninstall --target=user" ]] || fBad "install.bash's uninstall hint from a file: ${out@Q}"
 fi
 
+fTest EqzwPFJ 20260803-21-system-link-in-a-bin-dir
 ##	20260803 item 21: a system install linked into an administrator's sbin,
 ##	which the user who ran the installer does not have on PATH.
 # shellcheck disable=SC2016  ## install.bash's own text, matched literally
 sysLink="$(sed -n '/^if \[\[ "\${target}" == "system" \]\]; then$/,/^else$/{s/^[[:space:]]*link="\(.*\)"$/\1/p}' "${repoDir}/install.bash")"
 [[ "${sysLink}" == /*/bin/shcl ]] || fBad "install.bash links a system install at ${sysLink@Q}, not in a bin dir"
 
+fTest Eonalqy 20260901b-40-fresh-clone-starts-on-dev
 ##	20260901b item 40: a fresh clone was left on main while contributing.md says
 ##	to branch from dev. The lifted function decides; an existing checkout or an
 ##	edited tree is left where it is.
@@ -957,6 +995,7 @@ nBadBefore="${nBad}"
 	exit $((nBad - nBadBefore))
 ) || nBad=$((nBad + 1))
 
+fTest Eonalqz 20260901b-41-rate-limit-named
 ##	20260901b item 41: an unauthenticated 403 is the API's rate limit and both
 ##	installers called it "none published yet, or network down". The status
 ##	itself comes from curl; what is checked here is what each status is called.
@@ -971,6 +1010,7 @@ grep -q 'rate limit' "${repoDir}/install.ps1"  || fBad "install.ps1 does not nam
 grep -q 'GITHUB_TOKEN' "${repoDir}/install.bash" || fBad "install.bash ignores GITHUB_TOKEN"
 grep -q 'GITHUB_TOKEN' "${repoDir}/install.ps1"  || fBad "install.ps1 ignores GITHUB_TOKEN"
 
+fTest EqL3dg0 20260918b-37-token-not-sent-on-downloads
 ##	20260918b item 37: the token rode on every download, and each release
 ##	download redirects to another host. curl drops the header there and wget
 ##	1.x sends it on. Two local https listeners, the first redirecting to the
@@ -1026,8 +1066,11 @@ SRVEOF
 			|| fBad "install.bash's ${tool} API calls did not both carry GITHUB_TOKEN"
 	done
 	kill "${tokenPid}" 2>/dev/null || true
+else
+	fTestSkip
 fi
 
+fTest EqRQpEm 20260920-idea8-install-ps1-sums-line-anchored
 ##	20260920 idea 8: install.ps1 matched the asset name anywhere in a sums line
 ##	and took the first hit, where install.bash anchors it at the end. No name a
 ##	cut produces today contains another, but a per-asset sidecar would, and the
@@ -1050,8 +1093,11 @@ ${sumLines}
 Write-Output \"\$want \$wantSrc\"" 2>&1 || true)"
 	[[ "${out}" == "$(printf '%064d %064d' 2 4)" ]] \
 		|| fBad "install.ps1 takes a checksum off a sums line that merely contains the asset name: ${out@Q}"
+else
+	fTestSkip
 fi
 
+fTest EqL6XhI 20260918b-42-publish-flags-not-read-in-message
 ##	20260918b item 42: the publish script matched -h and -v anywhere in its
 ##	joined arguments, so `--message "pass -v through to rar"` printed the
 ##	banner and exited 0 having published nothing. Run from a directory that is
@@ -1073,6 +1119,7 @@ nBadBefore="${nBad}"
 	exit $((nBad - nBadBefore))
 ) || nBad=$((nBad + 1))
 
+fTest Eonfke8 20260901b-46-wrapper-header-width
 ##	20260901b item 46: the PowerShell wrapper's header ran one line out to 126
 ##	columns where its bash twin wraps. Comment lines only - the code in both
 ##	carries a couple of long ones on purpose.
@@ -1081,6 +1128,7 @@ for wrapper in source/bash/shcl.bash source/powershell/shcl.ps1; do
 	[[ -z "${long}" ]] || fBad "${wrapper}: header comment runs past 100 columns at ${long//$'\n'/, }"
 done
 
+fTest EqzwPFK 20260901b-18-on-path-trailing-slash
 ##	20260901b item 18: the "not on your PATH" note compared strings against
 ##	`:dir:`, so a PATH element written with a trailing slash was not seen. Both
 ##	installers carry the helper; install-dev.bash's reads the PATH as it was
@@ -1099,6 +1147,7 @@ for inst in install.bash install-dev.bash; do
 	) || nBad=$((nBad + 1))
 done
 
+fTest EojtStM 20260901b-17-sign-release-refusals
 ##	20260901b item 17: sign-release.bash wrote the signature first and checked
 ##	the key after, so a run with the wrong key failed and left a .sig behind
 ##	that looked finished; and nothing checked the sums file's name against the
@@ -1137,6 +1186,7 @@ if fHave openssl; then
 	signOut="$(bash "${tmpDir}/signtree/cicd/utility/sign-release.bash" --key "${tmpDir}/wrong.pem" --dir "${tmpDir}/sign4" --no-tag-check 2>&1 || true)"
 	[[ "${signOut}" == *"cannot read shcl-signing.pub"* ]] || fBad "sign-release.bash signed with no key copy to check against: ${signOut@Q}"
 	[[ ! -e "${tmpDir}/sign4/shcl-${sver}-sha256sums.txt.sig" ]] || fBad "sign-release.bash left a .sig behind with no key copy to check against"
+	fTest Er20EK2 20260829-34-sign-release-tag-check
 	##	20260829 item 34: nothing held the tag against the crate version, so a
 	##	mistyped tag signed assets no download URL names. The same tree as a
 	##	repository: untagged and wrongly tagged are refused on the tag, and the
@@ -1156,6 +1206,7 @@ if fHave openssl; then
 	fSignTag
 	[[ "${signOut}" == *"cannot read shcl-signing.pub"* ]] || fBad "sign-release.bash refused HEAD at its v${sver} tag: ${signOut@Q}"
 	[[ ! -e "${tmpDir}/sign4/shcl-${sver}-sha256sums.txt.sig" ]] || fBad "sign-release.bash left a .sig behind after a tag refusal"
+	fTest EqzwPFL 20260829-24-sign-release-without-xxd
 	##	20260829 item 24: the modulus check piped through xxd, and a box
 	##	without it ended the run with nothing said. Every key copy in this tree
 	##	holds the throwaway key, so the run gets past them to the signature, on
@@ -1183,6 +1234,7 @@ if fHave openssl; then
 	printf '$signingModulus = '"'%s'"'\n' "x${smod}" > "${skey}/install.ps1"
 	fSignNoXxd
 	[[ "${signOut}" == *"install.ps1 carries a different key"* ]] || fBad "sign-release.bash with xxd off the PATH did not refuse a wrong modulus: ${signOut@Q}"
+	fTest Er1zTEf 20260725-37-installers-check-the-signature
 	##	20260725 item 37: nothing in the sums file is trusted until its signature
 	##	checks out against the key the installer carries. Each installer's check,
 	##	lifted by text and given the throwaway key: the file it signed passes, and
@@ -1224,8 +1276,10 @@ if fHave openssl; then
 	fi
 else
 	echo "shell-regress: openssl not installed - signing rows skipped"
+	fTestSkip
 fi
 
+fTest EojuRVQ 20260901b-20-flame-report-partial-graphs
 ##	20260901b item 20: flame-report.py took any file with a sample count and one
 ##	frame for a whole flamegraph, so a profile cut off mid-write reported a
 ##	fraction of itself at exit 0 and recorded the marker; a row height other
@@ -1261,6 +1315,7 @@ for bad in gap cut junk; do
 	[[ "${flameRc}" == 2 ]] || fBad "flame-report.py accepted a ${bad} graph (rc ${flameRc}): ${flameOut@Q}"
 	[[ "${flameOut}" != *Traceback* ]] || fBad "flame-report.py tracebacked on a ${bad} graph"
 done
+fTest Eonbg2q 20260901b-43-flame-report-dropped-samples
 ##	20260901b item 43: the sampler drops a sample whose leaf is inside libc
 ##	rather than truncating it, so a third to half the profiled time never
 ##	reaches the graph and every percentage in the report is a share of what
@@ -1276,6 +1331,7 @@ fFlameRun "${tmpDir}/flame/flame_20260101-000000_whole.svg"
 	|| fBad "flame-report.py invented a sample count for a graph that carries none"
 grep -q '{}.samples' "${repoDir}/source/rust/src/main.rs" \
 	|| fBad "the profiler does not record how many samples reached the graph"
+fTest EqeDCi0 20260922-1-flame-report-recursion
 ##	20260922 item 1: a name inside itself on one stack, a recursive call or one
 ##	helper inlined at two depths, was counted once per depth, so recursive
 ##	emit_node read twice the whole emit share. 60 samples of it, 40 nested.
@@ -1283,6 +1339,7 @@ fFlame "${tmpDir}/flame/flame_20260101-000000_nest.svg" 16 'shcl::Document::emit
 fFlameRun "${tmpDir}/flame/flame_20260101-000000_nest.svg"
 [[ "${flameRc}" == 0 && "${flameOut}" == *" 60.0%   60  shcl::Document::emit_node"* ]] \
 	|| fBad "flame-report.py counted a recursive call more than once (rc ${flameRc}): ${flameOut@Q}"
+fTest Eq5mJo0 c-runner-needs-reads-tsv
 ##	The C corpus runner counted a case with no reads.tsv as passing, where the
 ##	other three runners stop on it. One real case, minus that file.
 if fHave cc; then
@@ -1291,6 +1348,7 @@ if fHave cc; then
 	rm -f "${tmpDir}/corpus-noreads/001-messy-cities/reads.tsv"
 	if cc -std=c11 -O2 -I"${repoDir}/source/c" "${repoDir}/source/c/tests/conformance.c" -o "${tmpDir}/cconf" -lm -lpthread; then
 		"${tmpDir}/cconf" "${tmpDir}/corpus-noreads" >/dev/null 2>&1 && fBad "the C corpus runner passed a case with no reads.tsv"
+		fTest Er20EK3 20260920-idea4-c-runner-needs-input
 		##	20260920 idea 4: a directory with no input.shcl was not a case at all,
 		##	so it asserted nothing while looking present. One good case beside it,
 		##	so the only thing wrong is the missing file.
@@ -1303,17 +1361,20 @@ if fHave cc; then
 		fBad "the C corpus runner did not build"
 	fi
 fi
+fTest Eq5kgry 20260909-28-largedoc-empty-reference
 ##	20260909 item 28: largedoc.bash skipped its invariants when the reference
 ##	wrote nothing, and empty output agrees with empty output, so it said OK.
 printf '#!/bin/sh\nexit 0\n' > "${tmpDir}/emptycli"; chmod +x "${tmpDir}/emptycli"
 bash "${repoDir}/cicd/utility/largedoc.bash" --mib 1 "a|${tmpDir}/emptycli" "b|${tmpDir}/emptycli" >/dev/null 2>&1 \
 	&& fBad "largedoc.bash passed a reference that wrote nothing"
+fTest Eq5jgxF 20260909-27-check-pins-fetch-forms
 ##	20260909 item 27: check-pins.bash saw only `curl -o /absolute/path`, so any
 ##	other fetch passed with no hash, and so did a commented-out check. Each
 ##	variant is a copy of the real workflow with one change; the unchanged copy
 ##	has to pass first, or the refusals prove nothing.
-mkdir -p "${tmpDir}/pins/cicd/utility" "${tmpDir}/pins/.github/workflows"
+mkdir -p "${tmpDir}/pins/cicd/utility/include" "${tmpDir}/pins/.github/workflows"
 cp "${repoDir}/cicd/utility/check-pins.bash" "${tmpDir}/pins/cicd/utility/"
+cp "${repoDir}/cicd/utility/include/test-id.bash" "${tmpDir}/pins/cicd/utility/include/"
 cp "${repoDir}/cicd/config.bash" "${tmpDir}/pins/cicd/"
 pinsYml="${tmpDir}/pins/.github/workflows/ci.yml"
 fPinsRun(){   ## fPinsRun SED-EXPR: run check-pins on ci.yml edited by SED-EXPR; 0 if it passed
@@ -1321,6 +1382,7 @@ fPinsRun(){   ## fPinsRun SED-EXPR: run check-pins on ci.yml edited by SED-EXPR;
 	bash "${tmpDir}/pins/cicd/utility/check-pins.bash" >/dev/null 2>&1
 }
 fPinsRun 's/^//' || fBad "check-pins.bash failed on an unchanged copy of ci.yml"
+fTest Eq5jgxG 20260830-43-check-pins-exact-names
 ##	20260830 item 43: pins matched by substring, so `build` found itself inside
 ##	other names and a version inside a longer one. And the cppcheck wheel was
 ##	spelled in three places with only two compared.
@@ -1335,6 +1397,7 @@ fPinsRun 's#^([[:space:]]*)(echo "8c3be12b)#\1\# \2#' && fBad "check-pins.bash p
 fPinsRun 's#^([[:space:]]*)(echo "8c3be12b.*)$#\1\2\n\1curl -fsSL https://example.com/x.tgz | tar xz#' && fBad "check-pins.bash passed curl piped to tar"
 fPinsRun 's#^([[:space:]]*)(echo "8c3be12b.*)$#\1\2\n\1wget -O x.tgz https://example.com/x.tgz#' && fBad "check-pins.bash passed wget -O"
 fPinsRun 's#^([[:space:]]*)(echo "8c3be12b.*)$#\1\2\n\1gh release download v1 -R a/b#' && fBad "check-pins.bash passed gh release download"
+fTest EqL4rtp 20260918b-45-check-pins-install-families
 ##	20260918b item 45: the reverse check read its three install families in one
 ##	group under errexit, so with no pip or npm line the go and PowerShell ones
 ##	were never read and an unpinned `go install` passed. The run fails anyway
@@ -1350,6 +1413,7 @@ fPinsRun 's#pip install ruff==.*$#pip install -r requirements.txt#' || true
 pinsOut="$(bash "${tmpDir}/pins/cicd/utility/check-pins.bash" 2>&1 || true)"
 [[ "${pinsOut}" == *"has a pip install line and no pinned name was read"* ]] \
 	|| fBad "check-pins.bash read no pip pins from a pip line and said nothing: $(tail -n 3 <<<"${pinsOut}")"
+fTest Epu2f56 20260909-24-flame-report-marker
 ##	20260909 item 24: rotation retagged a graph and left its sidecar under the
 ##	old role, so the caveat vanished. And --check --file wrote the named graph's
 ##	stamp into the shared marker, so one dated ahead left the gate at SEEN for
@@ -1369,6 +1433,7 @@ flameOut="$(python3 "${repoDir}/cicd/utility/flame-report.py" --check --dir "${t
 	|| fBad "flame-report.py stayed SEEN past a marker a --file run moved: ${flameOut@Q}"
 flameOut="$(python3 "${repoDir}/cicd/utility/flame-report.py" --check --dir "${tmpDir}/flameseen" 2>&1 || true)"
 [[ "${flameOut}" == "SEEN "* ]] || fBad "flame-report.py reported a graph it had already seen: ${flameOut@Q}"
+fTest EqMEejS 20260918b-63-flame-report-age
 ##	20260918b item 63: the line named the graph and said nothing about when it
 ##	was profiled, so a startup look standing on a fortnight-old artifact read
 ##	exactly like one standing on this morning's. Both gates say the age now.
@@ -1376,6 +1441,7 @@ touch -d '16 days ago' "${tmpDir}/flameseen/flame_20260104-000000_frequent.svg"
 flameOut="$(python3 "${repoDir}/cicd/utility/flame-report.py" --check --dir "${tmpDir}/flameseen" 2>&1 || true)"
 [[ "${flameOut}" == *"16d old"* ]] || fBad "flame-report.py does not say how old the graph behind its report is: ${flameOut@Q}"
 
+fTest EojucQq 20260901b-21-lint-report-echoed-commands
 ##	20260901b item 21: lint-report.bash counted the `-D warnings` in the clippy
 ##	command line the pre-push gate's nested run echoes as a warning, so every
 ##	run that pushed to dev read as one finding. A real clippy warning and a
@@ -1384,6 +1450,7 @@ lintDone=$'\n[ shcl CI/CD: done. ]\n'
 printf 'Lint ...........: cargo clippy --all-targets -- -D warnings\nLint ...........: cppcheck --enable=warning,portability src.c\nOK: lint\n%s' "${lintDone}" > "${tmpDir}/run_20260101-000000.log"
 lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --file "${tmpDir}/run_20260101-000000.log" 2>&1 || true)"
 [[ "${lintOut}" == "CLEAN "* ]] || fBad "lint-report.bash counted an echoed command line as a warning: ${lintOut@Q}"
+fTest Er20EK4 20260829-30-lint-report-govulncheck-note
 ##	20260829 item 30: govulncheck's note about vulnerabilities in code this
 ##	project does not call is informational, and it flagged every run.
 printf 'OK: lint\nYour code is affected by 0 vulnerabilities.\nThis scan also found 1 vulnerability in packages you import and 2 vulnerabilities in modules you\nrequire, but your code doesn'"'"'t appear to call these vulnerabilities.\n%s' "${lintDone}" > "${tmpDir}/run_20260101-000000.log"
@@ -1393,6 +1460,7 @@ printf 'Lint ...........: cargo clippy --all-targets -- -D warnings\nLint ......
 printf 'warning: unused variable: x\n --> src/main.rs:1:1\nsrc.c:12:3: warning: uninitialized variable [uninitvar]\n%s' "${lintDone}" >> "${tmpDir}/run_20260101-000000.log"
 lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --file "${tmpDir}/run_20260101-000000.log" 2>&1 || true)"
 [[ "${lintOut}" == "FLAG "*"(2 warning line(s), "* ]] || fBad "lint-report.bash missed a real warning: ${lintOut@Q}"
+fTest Epu2f57 20260909-23-lint-report-failed-runs
 ##	20260909 item 23: a failed run printed CLEAN, since only rustc's `error[`
 ##	counted as a failure. Each spelling on its own must report FAILED.
 for failLine in 'src.c:3:5: error: conflicting types for x' 'SC2086 (info): Double quote to prevent globbing.' \
@@ -1402,6 +1470,7 @@ for failLine in 'src.c:3:5: error: conflicting types for x' 'SC2086 (info): Doub
 	lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --file "${tmpDir}/run_20260102-000000.log" 2>&1 || true)"
 	[[ "${lintOut}" == "FAILED "* ]] || fBad "lint-report.bash called a failed run clean (${failLine}): ${lintOut@Q}"
 done
+fTest Epu2f58 20260909-24-lint-report-marker
 ##	20260909 item 24: --check --file wrote the named log's stamp into the shared
 ##	marker, so a name that sorts high left the gate at SEEN for good.
 mkdir -p "${tmpDir}/lintseen"
@@ -1414,6 +1483,7 @@ lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --check --dir "${tmpD
 [[ "${lintOut}" == "CLEAN run_20260102-000000.log"* ]] || fBad "lint-report.bash stayed SEEN past a marker a --file run moved: ${lintOut@Q}"
 lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --check --dir "${tmpDir}/lintseen" 2>&1 || true)"
 [[ "${lintOut}" == "SEEN "* ]] || fBad "lint-report.bash reported a log it had already seen: ${lintOut@Q}"
+fTest EqL2HuS 20260918b-13-lint-report-incomplete-run
 ##	20260918b item 13: a log read while its run was still going, or after the run
 ##	was killed, said CLEAN and took the marker, so the warnings and the abort that
 ##	came after were never shown. A nested run's done line, echoed by a publish
@@ -1432,11 +1502,13 @@ lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --check --dir "${tmpD
 [[ "${lintOut}" == "FAILED run_20260103-000000.log"* ]] || fBad "lint-report.bash did not report the run once it failed: ${lintOut@Q}"
 lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --check --dir "${tmpDir}/lintseen" 2>&1 || true)"
 [[ "${lintOut}" == "SEEN "* ]] || fBad "lint-report.bash did not mark a finished failed run seen: ${lintOut@Q}"
+fTest EqMEejT 20260918b-63-lint-report-age
 ##	20260918b item 63, the other half: same silence about the log's age.
 touch -d '16 days ago' "${tmpDir}/lintseen/run_20260103-000000.log"
 lintOut="$(bash "${repoDir}/cicd/utility/lint-report.bash" --check --dir "${tmpDir}/lintseen" 2>&1 || true)"
 [[ "${lintOut}" == "SEEN "*"16d old)"* ]] || fBad "lint-report.bash does not say how old the log behind its report is: ${lintOut@Q}"
 
+fTest EoUpKv2 20260830b-9-stable-channel-pick
 ##	20260830b item 9: the stable channel took GitHub's date-ordered "latest
 ##	release" verbatim, so a patch back-ported to an older line after a newer one
 ##	shipped was handed out as stable. The fixture is in publish order, newest
@@ -1492,6 +1564,7 @@ out="$(fPickTag stable "${tmpDir}/rel.json")"
 out="$(fPickTag dev "${tmpDir}/rel.json")"
 [[ "${out}" == "v2.1.0-alpha.10" ]] || fBad "install.bash dev channel picked ${out@Q}, want v2.1.0-alpha.10"
 
+fTest EonXwm9 20260901b-34-compact-release-json
 ##	20260901b item 34: the same list with no whitespace. The API is documented
 ##	as pretty-printing, and a proxy that does not left the picker reading one
 ##	field per release, so it answered nothing and the run said no release was
@@ -1502,6 +1575,7 @@ out="$(fPickTag stable "${tmpDir}/rel-compact.json")"
 out="$(fPickTag dev "${tmpDir}/rel-compact.json")"
 [[ "${out}" == "v2.1.0-alpha.10" ]] || fBad "install.bash dev channel on compact json picked ${out@Q}, want v2.1.0-alpha.10"
 
+fTest Er1zTEg 20260924c-idea4-install-bash-plan-page
 ##	20260924c idea 4: the plan names the release page it installs from. The
 ##	whole script runs, with a curl on PATH that answers the release list and
 ##	nothing else. setsid leaves no terminal, so the run stops at the prompt,
@@ -1523,8 +1597,11 @@ if fHave setsid && fHave openssl; then
 		[[ "${out}" == *"shcl ${tag#v} (${release}, linux-"*"  from     https://github.com/yottacore/shcl/releases/tag/${tag}"$'\n'* ]] \
 			|| fBad "install.bash --release ${release} plan does not name its release page: ${out@Q}"
 	done
+else
+	fTestSkip
 fi
 
+fTest Er1zTEh 20260830-7-sums-lookup-missing-entry
 ##	20260830 item 7: a lookup in the sums file that matched nothing failed its
 ##	substitution under pipefail, and the script ended with no message before
 ##	the check that says what is missing. A release with no drop-ins has to get
@@ -1540,6 +1617,7 @@ else
 	[[ "${out}" == "reached [] []" ]] || fBad "install.bash ends with no message on a sums file missing an entry: ${out@Q}"
 fi
 
+fTest EoUpKv3 install-ps1-channel-pick
 if fHave pwsh; then
 	#  shellcheck disable=2016  ## PowerShell's own $variables, quoted so bash leaves them alone.
 	{
@@ -1551,8 +1629,11 @@ if fHave pwsh; then
 	out="$(pwsh -NoProfile -File "${tmpDir}/pick.ps1" 2>&1 || true)"
 	[[ "${out}" == *"stable=v2.0.0"* ]]        || fBad "install.ps1 stable channel: ${out@Q}"
 	[[ "${out}" == *"dev=v2.1.0-alpha.10"* ]]  || fBad "install.ps1 dev channel: ${out@Q}"
+else
+	fTestSkip
 fi
 
+fTest EqpJ3x2 20260924c-idea7-stable-falls-back-to-prerelease
 ##	20260924c idea 7: stable is the default channel, so with no full release at
 ##	all it takes the newest pre-release rather than finding nothing.
 cat > "${tmpDir}/rel-pre.json" <<'JSON'
@@ -1574,6 +1655,7 @@ if fHave pwsh; then
 	out="$(pwsh -NoProfile -File "${tmpDir}/pickpre.ps1" 2>&1 || true)"
 	[[ "${out}" == *"stable=v3.0.0-beta1"* ]] || fBad "install.ps1 stable channel with no full release: ${out@Q}"
 
+	fTest EqpJ3x3 20260924c-idea5-install-ps1-target-probe
 	##	20260924c idea 5: a read-only target, or a shcl.exe held open, failed
 	##	after the download with raw exception text. Both are asked first now.
 	mkdir -p "${tmpDir}/itarget/ro" "${tmpDir}/itarget/rw"
@@ -1597,6 +1679,7 @@ if fHave pwsh; then
 	[[ "${out}" == *"held=[cannot replace"*"in use"* ]] || fBad "install.ps1 did not see a shcl.exe held open: ${out@Q}"
 fi
 
+fTest EonXwmA 20260901b-34-install-ps1-windows-only-paths
 ##	20260901b item 34, both windows-only and neither reachable from a linux
 ##	pwsh: a 32-bit host reads Program Files (x86) out of ProgramFiles, and
 ##	Windows PowerShell 5.1 turns a native command's stderr into error records
@@ -1624,6 +1707,7 @@ elif fHave pwsh; then
 	[[ "${out}" == *'plain=C:\Program Files (x86)'* ]] \
 		|| fBad "install.ps1 ignores ProgramFiles where there is no 64-bit one: ${out@Q}"
 fi
+fTest EonZZBw 20260901b-38-setup-uninstaller-first
 ##	20260901b item 38: the setup .exe writes the same directory and registers
 ##	itself with Add/Remove Programs, so deleting its files from here left that
 ##	entry pointing at nothing. Windows-only, so the check is source order.
@@ -1635,6 +1719,7 @@ fi
 grep -q 'Add/Remove Programs entry still shows the version it installed' "${repoDir}/install.ps1" \
 	|| fBad "install.ps1 does not say a setup install's Add/Remove entry goes stale when it writes over one"
 
+fTest EonXwmB install-ps1-smoke-runs-under-continue
 ## The preference is set inside Invoke-ShclSmoke, so the function's own scope
 ## puts it back.
 smokeFn="$(sed -n '/^\tfunction Invoke-ShclSmoke/,/^\t}/p' "${repoDir}/install.ps1")"
@@ -1644,6 +1729,7 @@ if [[ -z "${eapLine}" || -z "${smokeRun}" ]] || ((eapLine >= smokeRun)); then
 	fBad "install.ps1 runs the smoke test under its own Stop preference, which 5.1 throws on"
 fi
 
+fTest EonYeTo 20260901b-35-rpm-owns-its-directories
 ##	20260901b item 35: the rpm listed the payload's subdirectories and not their
 ##	parent, so removing the package left /usr/share/shcl behind. The package
 ##	read-back lives in package.bash, which only runs at release time; building a
@@ -1681,6 +1767,7 @@ if fHave nfpm && fHave dpkg-deb && fHave rpm; then
 	else
 		fBad "nfpm could not build a package from cicd/packaging/nfpm.yaml"
 	fi
+	fTest Er20EK5 20260829-26-packages-reproducible
 	##	20260829 item 26: two builds seconds apart gave different packages, from
 	##	the staged payload's mtimes and the rpm's build stamp. The shipped script,
 	##	twice, a second apart, on a small stand-in binary.
@@ -1695,8 +1782,11 @@ if fHave nfpm && fHave dpkg-deb && fHave rpm; then
 		cmp -s "${pDir}/r1/shcl-9.9.9-linux-x86_64.${f}" "${pDir}/r2/shcl-9.9.9-linux-x86_64.${f}" \
 			|| fBad "two builds of the same .${f} a second apart differ"
 	done
+else
+	fTestSkip
 fi
 
+fTest Er20EK6 20260829-26-dropins-tarball-reproducible
 ##	The same item's other half: the drop-ins tarball recorded the checkout's
 ##	mtimes and the local owner, so a fresh clone gave another sum. The tar line
 ##	comes out of cicd.bash, run once on this tree and once on a copy with new
@@ -1722,6 +1812,7 @@ else
 	fBad "cicd.bash no longer builds the drop-ins tarball with a tar --sort=name line"
 fi
 
+fTest Er20EK7 20260904-40-no-profiler-in-artifacts
 ##	20260904 item 40: the profiler never shipping rested on the release command
 ##	not carrying the feature flag. package.bash checks the files now, and it
 ##	runs only at release, so its check runs here on a stub artifact with one of
@@ -1745,6 +1836,7 @@ else
 	fBad "package.bash no longer carries fCheckNoProfiler"
 fi
 
+fTest EoUoQT2 20260830b-8-prerelease-nsis-version
 ##	20260830b item 8: a prerelease version reached NSIS's four-integer version
 ##	field verbatim, and makensis rejected it under errexit, so the release stage
 ##	died on the first prerelease cut. A fake .exe is enough - the setup never
@@ -1758,6 +1850,7 @@ if fHave makensis; then
 	else
 		fBad "packaging a prerelease failed: $(cat "${tmpDir}/pkg.log")"
 	fi
+	fTest EqGk8rw 20260918-13-nsis-uninstall-names-files
 	##	20260918 item 13: the uninstaller deleted code\*.* and scripts\*.*, so a
 	##	file someone else kept there went too. What makensis compiles into it
 	##	has to name each payload file, through the list package.bash writes,
@@ -1781,8 +1874,10 @@ if fHave makensis; then
 	fi
 else
 	echo "shell-regress: makensis not installed - packaging row skipped"
+	fTestSkip
 fi
 
+fTest EoUqEKX 20260830b-11-guarded-iswindows
 ##	20260830b item 11: $IsWindows does not exist on Windows PowerShell 5.1, and
 ##	reading it there throws under a caller's strict mode. Every read has to sit
 ##	behind a version test that short-circuits first, which cannot be exercised
@@ -1792,6 +1887,7 @@ while IFS= read -r h; do
 done < <(grep -n 'IsWindows' "${repoDir}/source/powershell/shcl.ps1" \
 	| grep -vE '^[0-9]+:##' | grep -vE 'PSVersion\.Major -lt 6 -or' || true)
 
+fTest EoXLk6q comparison-worker-arguments
 ##	The comparison worker: a bad ITERS used to be a traceback, and a zero one
 ##	raised while formatting a time that was never taken. The listing must also
 ##	survive a loader failing some way other than a missing import, and must not
@@ -1843,6 +1939,7 @@ PYEOF
 	[[ "${rc}" == 0 && "${out}" == "failed=1 diagnostics, 0 lines lost" ]] || fBad "pyworker.py timed a partial parse (exit ${rc}): ${out@Q}"
 fi
 
+fTest EqBCxoW 20260909-61-demo-output-order
 ##	20260909 item 61: the demo captured stdout and stderr separately and stuck
 ##	one after the other, so every stderr line landed under every stdout line -
 ##	an order no terminal produces. The two share a pipe now.
@@ -1857,6 +1954,7 @@ PYEOF
 )"
 	[[ "${merged}" == "one|TWO|three" ]] || fBad "gen-demo-gif.py does not render a step's output in emission order: ${merged}"
 
+	fTest Er20EK8 20260718-17-demo-stops-on-step-exit
 	##	20260718 item 17: a step that failed rendered its error text into the gif,
 	##	and the pipeline published it. An unexpected exit has to stop the render,
 	##	and one the step asks for with expect_exit has to go through.
@@ -1874,6 +1972,7 @@ PYEOF
 	[[ "${stepExit}" == *"step exited 3, expected 0"*$'\n'"exit 2"$'\n'"oops" ]] \
 		|| fBad "gen-demo-gif.py did not stop on an unexpected step exit, or refused an expected one: ${stepExit@Q}"
 
+	fTest EqM7a7s 20260918b-62-demo-matches-the-gif
 	##	20260918b item 62: the committed gif showed output the CLI no longer
 	##	printed - an E014 wording two rounds old, and a `check` missing its
 	##	explain line - because the gif stage is the one the release gate skips
@@ -1901,14 +2000,10 @@ elif [[ -n "${SHCL_GATE_STRICT:-}" ]]; then
 else
 	echo "shell-regress: skipping the demo output order (no Pillow here)"
 	echo shell-regress >> "${SHCL_GATE_SKIPS:-/dev/null}"
+	fTestSkip
 fi
 
-##	The completions check against a subcommand that takes no options. One side
-##	emitted a row for it and the other dropped any row with an empty option
-##	list, so the two could never agree however the completions spelled it - a
-##	lint failure blaming the completions on the day such a subcommand is added.
-##	The fixture is the real files with one added, so the check runs against the
-##	extractors as shipped rather than a hand-written stand-in.
+fTest Ep1EGVf 20260904-26-perf-gate-stub-clis
 ##	20260904 item 26: perf-gate's exit-code and line-count checks had never been
 ##	fed a CLI that does no work, so deleting them changed nothing. Two stubs:
 ##	one that prints nothing and one that exits wrong.
@@ -1921,6 +2016,7 @@ out="$(bash "${repoDir}/cicd/utility/perf-gate.bash" --keys 500 "quiet|${tmpDir}
 out="$(bash "${repoDir}/cicd/utility/perf-gate.bash" --keys 500 "wrong|${tmpDir}/stubs/wrong" 2>&1 || true)"
 [[ "${out}" == *"did not do the work"* ]] || fBad "perf-gate accepted a CLI that exited wrong: $(tail -n 2 <<<"${out}")"
 
+fTest EqQUj04 20260920-2-ci-runs-the-cross-checks
 ##	20260920 item 2: the cross checks sat inside the release-build branch, and
 ##	--ci empties the release command, so the one run that decides whether a
 ##	commit reaches main compiled none of them for a month. Driven rather than
@@ -1970,10 +2066,12 @@ rm -f "${SHCL_STUB_MARKER}"
 if [[ -f "${SHCL_STUB_MARKER}" ]]; then fBad "--no-cross ran a cross check anyway"; fi
 unset SHCL_STUB_MARKER
 
+fTest Ep1EGVg 20260904-26-installers-compared-after-publish
 ##	20260904 item 26: the installers ship from main, so cicd.bash compares them
 ##	against origin/main after a dev publish. The line has to be there.
 grep -qF -- 'git diff --stat origin/main -- install.bash install.ps1 install-dev.bash' "${repoDir}/cicd/cicd.bash" || fBad "cicd.bash no longer compares the installers against origin/main after a publish"
 
+fTest EqzwPFM pin-drift-quoted-commands
 ##	The pin drift warning ran each pin's command from an unquoted expansion, so
 ##	a quoted argument arrived with its quotes as text and the PSScriptAnalyzer
 ##	pin reported drift on every run. The lifted loop, on a pin whose tool
@@ -2000,6 +2098,7 @@ else
 	[[ -z "${out}" ]] || fBad "cicd.bash's pin drift check misreads a pin whose command is quoted: ${out@Q}"
 fi
 
+fTest EqpNNtw 20260924c-idea13-build-number
 ##	20260924c idea 13: the release binaries print a build number, minutes from
 ##	2000 to the commit in Crockford base32. The rows pin the encoding and that
 ##	the release build is the one handed it.
@@ -2026,6 +2125,7 @@ if [[ -z "${buildLine}" || -z "${releaseLine}" ]] || ((buildLine > releaseLine))
 	fBad "cicd.bash does not hand SHCL_BUILD to the native release build"
 fi
 
+fTest Ep1EGVh 20260904-28-gates-read-the-strict-flag
 ##	20260904 item 28: SHCL_GATE_STRICT is armed by one line in cicd.bash and read
 ##	by the gates; deleting the line disarmed every skip-as-failure silently.
 grep -qE '^\s*export SHCL_GATE_STRICT=1' "${repoDir}/cicd/cicd.bash" || fBad "cicd.bash no longer exports SHCL_GATE_STRICT under --ci"
@@ -2036,6 +2136,7 @@ grep -qE '^\s*export SHCL_GATE_STRICT=1' "${repoDir}/cicd/cicd.bash" || fBad "ci
 for g in check-c-compilers.bash check-locale.bash check-docs.bash check-readme.bash package.bash shell-regress.bash cli-regress.bash; do
 	grep -qF '${SHCL_GATE_STRICT' "${repoDir}/cicd/utility/${g}" || fBad "${g} no longer reads SHCL_GATE_STRICT"
 done
+fTest Epsjpda 20260909-53-every-tool-skip-reads-the-strict-flag
 ##	20260909 item 53: the list above was five gates of fourteen, and every skip
 ##	the round found was outside it. A hand list drifts, so the rule is derived:
 ##	a gate that says it is skipping because a tool is not here has to be able to
@@ -2053,6 +2154,7 @@ done
 for g in check-c-compilers.bash check-locale.bash check-docs.bash cli-regress.bash; do
 	grep -qF 'SHCL_GATE_SKIPS:-/dev/null' "${repoDir}/cicd/utility/${g}" || fBad "${g} no longer notes a local skip in SHCL_GATE_SKIPS"
 done
+fTest EqGhNQu 20260918-11-each-skip-reads-and-notes
 ##	20260918 item 11: both rules above are per file, so a second skip in a file
 ##	that guards its first went out bare, and cli-regress's man page check did.
 ##	Each skip over a missing tool has to read the strict flag in the lines just
@@ -2067,6 +2169,7 @@ for g in "${repoDir}"/cicd/utility/*.bash; do
 			|| fBad "${g##*/}:${n} skips over a missing tool without noting it in SHCL_GATE_SKIPS"
 	done < <(grep -nE '^[[:space:]]*echo ".*skipping .*\(no ' "${g}" || true)
 done
+fTest EqL3ERU 20260918b-43-bare-list-growth
 ##	20260918b item 43: the rules above key on a skip message, so a skip that
 ##	prints none passes them. This one keys on the defect instead: a list of rows
 ##	or modes grown only when a tool or a system file is here. Each one has to
@@ -2089,6 +2192,7 @@ printf '%s\n' "[[ -r /usr/share/x/y ]] ${amp} modes+=(lib)" "command -v zz >/dev
 [[ "$(fBareGrowth "${tmpDir}/growth-bait" | paste -sd' ')" == "1 2 3" ]] || fBad "the bare list-growth scan missed its bait: $(fBareGrowth "${tmpDir}/growth-bait" | paste -sd' ')"
 grep -q 'record_green=0' "${repoDir}/cicd/cicd.bash" || fBad "cicd.bash no longer holds back a partial run from recording its tree"
 
+fTest Ep1EGVi 20260904-29-sanitize-c-arms-every-type
 ##	20260904 item 29: sanitize-c.bash replays every reads.tsv row type through
 ##	its own case arms; a type with no arm is an error there now, but a corpus
 ##	type the arms forgot would only show once the sanitizer run hit it. Every
@@ -2112,11 +2216,13 @@ while IFS= read -r t; do
 	fHasArm "${t}" || fBad "sanitize-c.bash has no arm for reads.tsv type ${t}"
 done < <(cut -f2 "${repoDir}"/project/conformance/*/reads.tsv | sort -u)
 
+fTest Ep1EGVj 20260904-32-no-readelf-into-grep-q
 ##	20260904 item 32: `cmd | grep -q` under pipefail reads a SIGPIPE'd writer as
 ##	"no match"; package.bash states the rule at its deb listing and broke it at
 ##	the libgcc probe. No readelf may feed grep -q directly.
 grep -nE 'readelf[^|]*\|\s*grep -q' "${repoDir}/cicd/utility/package.bash" && fBad "package.bash pipes readelf into grep -q"
 
+fTest Ep1BXPl 20260904-23-check-c-compilers-needs-three
 ##	20260904 item 23: check-c-compilers.bash reported OK with one compiler and
 ##	never read the gate flag, so a runner that lost its compilers would have
 ##	kept passing. Under the flag a thin sweep has to fail before it builds.
@@ -2129,6 +2235,7 @@ rm -f "${tmpDir}"/onecc/gcc-* "${tmpDir}/onecc/clang" "${tmpDir}/onecc/cc" "${tm
 ln -sf "$(command -v gcc || command -v cc)" "${tmpDir}/onecc/gcc"
 out="$(PATH="${tmpDir}/onecc" SHCL_GATE_STRICT=1 "${BASH}" "${repoDir}/cicd/utility/check-c-compilers.bash" "${repoDir}" 2>&1 || true)"
 [[ "${out}" == *"needs two versioned gccs and clang"* ]] || fBad "check-c-compilers passed the gate with one compiler: ${out@Q}"
+fTest EqzwPFN 20260909-39-check-c-compilers-long-cascade
 ##	20260909 item 39: a failed build's output reached `head` through a pipe,
 ##	and on a long cascade the writer's SIGPIPE under pipefail ended the sweep
 ##	at 141 instead of counting the build and going on. Both lifted steps, each
@@ -2149,6 +2256,7 @@ else
 	fBad "check-c-compilers.bash no longer carries fBuild and fRefuse"
 fi
 
+fTest EqGiYnI 20260918-12-check-migrate-empty-dump
 ##	20260918 item 12: check-migrate reported OK on the corpus alone when its fuzz
 ##	dump wrote nothing, which is what a test filter matching no test does. The
 ##	cargo here passes a build through and writes nothing for a test.
@@ -2163,8 +2271,10 @@ if realCargo="$(command -v cargo)"; then
 		|| fBad "check-migrate passed with an empty fuzz dump (exit ${rc}): $(tail -c 200 <<<"${out}")"
 else
 	fHave cargo || true
+	fTestSkip
 fi
 
+fTest Ep1BXPm 20260904-24-publish-identity-fallbacks
 ##	20260904 item 24: the publish script ran `git config user.name` as a bare
 ##	statement under set -e, so a repository with no identity died in the trap
 ##	before doing anything; and its ssh-host probe assigned from a pipeline
@@ -2174,6 +2284,7 @@ pub="${repoDir}/cicd/utility/n8git_backup-and-publish"
 [[ "$(grep -cE 'git config user\.(name|email)[^|]*\|\|' "${pub}" || true)" == 2 ]] || fBad "n8git_backup-and-publish reads the git identity without a fallback"
 grep -qE 'sshHost="\$\(git remote get-url origin[^)]*\|\| true\)"' "${pub}" || fBad "n8git_backup-and-publish assigns sshHost without a fallback"
 
+fTest EpxyX0a 20260909-29-gfs-keep-values-not-run
 ##	20260909 item 29: a GFS_KEEP_* value reached arithmetic, where bash runs a
 ##	command substitution hidden in an array subscript. The payload has no space,
 ##	since the period counts are word-split before they reach arithmetic, and the
@@ -2188,6 +2299,7 @@ for v in GFS_KEEP_FREQUENT GFS_KEEP_HOURLY GFS_KEEP_DAILY GFS_KEEP_WEEKLY GFS_KE
 	[[ ! -e "${tmpDir}/gfs-ran-${v}" ]] || fBad "gfs-rotate ran a command held in ${v}"
 done
 
+fTest EpxyX0b 20260909-21-publish-keeps-work-after-failed-pull
 ##	20260909 item 21: a failed pull left the uncommitted work in a stash, and the
 ##	next run found a clean tree and published without it at exit 0. Runs in a
 ##	scratch remote with a stub rar; the gate's own git environment is cleared
@@ -2232,6 +2344,7 @@ if command -v git >/dev/null 2>&1; then
 	[[ "${leftRc}" == 1 ]] || fBad "n8git_backup-and-publish published over an earlier run's auto-stash"
 fi
 
+fTest Er20EK9 20260819-1-remote-sync-stage
 ##	20260819 item 1: the only pull was in the publish stage, after the tests,
 ##	so upstream work went out never built here. Stage 0 comes out of cicd.bash
 ##	by text and runs on clones of a scratch remote: diverged stops, behind
@@ -2276,6 +2389,7 @@ else
 	fBad "cicd.bash no longer carries its remote sync stage as one if-block"
 fi
 
+fTest Eq92jkm 20260909-39-git-auto-msg-empty-messages
 ##	20260909 item 39: git-auto-msg.bash judged "empty" by `#` alone and wrote
 ##	the message as given, so git threw the commit away as empty under another
 ##	comment char, commit.verbose, an unedited template, or a message whose line
@@ -2306,6 +2420,7 @@ if command -v git >/dev/null 2>&1; then
 	[[ "${out}" == "${want}" ]] || fBad "git-auto-msg.bash: commits came out as ${out@Q}"
 fi
 
+fTest EqpV5Gi 20260924c-idea11-dogfood-runner
 ##	20260924c idea 11: dogfood_shcl.ps1 replaced n8runshcl.ps1 and carries its
 ##	lessons: a file with some other name in the pool is not a version, the build
 ##	about to run is never pruned, and a failed removal says so. Plus its own: the
@@ -2348,8 +2463,11 @@ if fHave pwsh; then
 	rm -f "${dh}/.local/bin/shcl"; echo mine > "${dh}/.local/bin/shcl"
 	out="$(fDogfood w)" || true
 	[[ "$(cat "${dh}/.local/bin/shcl")" == mine && "${out}" == "one: w" ]] || fBad "dogfood_shcl.ps1 replaced a regular file at the fixed name, or did not run the newest: ${out@Q}"
+else
+	fTestSkip
 fi
 
+fTest EqpV5Gj 20260924c-idea9-dogfood-binary-in-use
 ##	20260924c idea 9: the dogfood stage copied over a binary that was running.
 ##	It asks /proc first now.
 eval "$(sed -n '/^fInUse()/,/^}/p' "${repoDir}/cicd/cicd.bash")"
@@ -2366,6 +2484,7 @@ elif [[ -d /proc/self ]]; then
 	grep -qF 'fInUse "${dogfood_dest}/${EXE_NAME}"' "${repoDir}/cicd/cicd.bash" || fBad "cicd.bash no longer asks whether the dogfood binary is running"
 fi
 
+fTest Ep1BXPn 20260904-25-largedoc-small-size
 ##	20260904 item 25: largedoc's memory ceilings were strictly per input MiB, so
 ##	at one MiB the runtime's own footprint failed a healthy tree. Run the gate
 ##	small, which is exactly the size a developer shrinks it to.
@@ -2374,6 +2493,13 @@ if [[ -x "${cli}" && -x "${repoDir}/source/go/shcl" && -x "${repoDir}/source/c/s
 	[[ "${out}" == *"OK"* && "${out}" != *"TOO BIG"* ]] || fBad "largedoc --mib 1 fails on a healthy tree: $(tail -n 3 <<<"${out}")"
 fi
 
+fTest EoXPkY4 check-completions-option-less-subcommand
+##	The completions check against a subcommand that takes no options. One side
+##	emitted a row for it and the other dropped any row with an empty option
+##	list, so the two could never agree however the completions spelled it - a
+##	lint failure blaming the completions on the day such a subcommand is added.
+##	The fixture is the real files with one added, so the check runs against the
+##	extractors as shipped rather than a hand-written stand-in.
 gate="${repoDir}/cicd/utility/check-completions.bash"
 if [[ -x "${gate}" ]]; then
 	fix="${tmpDir}/optless"
@@ -2420,6 +2546,7 @@ PYEOF
 	fi
 fi
 
+fTest EoXV3tQ installers-help-version-refusals
 ##	Both bash installers used to heredoc their own source header, so the help
 ##	opened with the file name as a comment and every wrapped line carried a `##`
 ##	and a hard tab. The PowerShell installer printed clean prose, so the two
@@ -2459,6 +2586,7 @@ for inst in install.bash install-dev.bash; do
 		|| fBad "${inst} --help does not end on a blank line"
 done
 
+fTest EoXVLaC install-bash-uninstall-names-leftovers
 ##	The bash uninstall reported "removed" while leaving a directory full of files
 ##	it had not installed. The PowerShell installer already said so; this is the
 ##	same wording on the bash side.
@@ -2474,6 +2602,7 @@ if [[ -f "${repoDir}/install.bash" ]]; then
 	[[ -f "${fake}/.local/share/shcl/not-ours.txt" ]] || fBad "install.bash --uninstall removed a file it did not install"
 fi
 
+fTest EqzwPFO 20260829-20-no-terminal-prompt
 ##	20260829 item 20: with no terminal, the prompt's open of /dev/tty failed
 ##	out loud ahead of the message saying so. setsid leaves no terminal, and the
 ##	uninstall asks before it touches anything. install-dev.bash's prompt is run
@@ -2492,6 +2621,7 @@ while IFS= read -r h; do
 	[[ -z "${h}" || "${h}" == *'2>/dev/null </dev/tty'* ]] || fBad "a terminal prompt opens /dev/tty before its errors are silenced: ${h}"
 done <<<"${ttyReads}"
 
+fTest EoXVsMS install-ps1-smoke-before-publish
 ##	install.ps1 used to run the binary only after writing it into place, where
 ##	the Linux installer runs it from the temp dir first so one that will not
 ##	start never becomes an install. Order in the source is the whole assertion;
@@ -2512,6 +2642,7 @@ if [[ -f "${ps1}" ]]; then
 	grep -q 'smoke.Code -ne 0' <<<"$(sed -n "${smokeLine:-1},+4p" "${ps1}")" \
 		|| fBad "install.ps1 does not test the smoke run's exit status"
 
+	fTest EqzwPFP 20260829-22-install-ps1-basic-parsing-and-tar
 	##	20260829 item 22: Windows PowerShell 5.1 needs -UseBasicParsing on a
 	##	web call wherever the IE engine is missing, Server Core among them. And
 	##	a Windows older than 10 1803 has no tar, which has to be found out before
@@ -2528,6 +2659,7 @@ if [[ -f "${ps1}" ]]; then
 		fBad "install.ps1 does not look for tar before its first download"
 	fi
 
+	fTest EqzwPFQ 20260829-19-install-ps1-uninstall-hint
 	##	20260829 item 19: the uninstall hint named a script file the one-liner
 	##	user never had. The lifted line, both ways the script can be run.
 	# shellcheck disable=SC2016  ## PowerShell's own $variable, matched literally
@@ -2552,6 +2684,7 @@ if [[ -f "${ps1}" ]]; then
 	fi
 fi
 
+fTest EomZie0 flame-report-names-a-missing-dir
 ##	The profiler stage's hot-spot report. Its only diagnostics go to stderr, and
 ##	the stage used to discard them, so the log recorded the failure with no cause.
 report="${repoDir}/cicd/utility/flame-report.py"
@@ -2610,6 +2743,7 @@ fScanUnguardedGrep(){
 		| grep -vE '\|\|[[:space:]]*(true|:)' || true
 }
 
+fTest EqL3ERV fhave-strict-and-skip
 ##	The self-test: one file carrying every spelling, so a scan that stops seeing
 ##	one of them fails here rather than going quiet over the repo.
 ##	The strict switch itself: under the gate a missing tool has to be a failure,
@@ -2643,6 +2777,7 @@ fScanUnguardedGrep(){
 	grep -qx made-up-package "${tmpDir}/skips" || fBad "fHaveFile skipped a missing file without noting it in SHCL_GATE_SKIPS"
 }
 
+fTest EomZie1 static-scan-self-test
 ##	The escape is assembled rather than written, so the bait for the second scan
 ##	does not trip that scan when it sweeps this file.
 bs=$'\\'
@@ -2659,6 +2794,7 @@ n="$(fScanUnguardedGrep "${tmpDir}/scanbait.bash" | wc -l)"
 n="$(fScanTabEre "${tmpDir}/scanbait.bash" | wc -l)"
 ((n == 2)) || fBad "the backslash-t scan found ${n} of 2 spellings"
 
+fTest EpFAzfl funnel-scan
 ##	The parser's lost count and its dead-level push have one home, the funnel
 ##	(`refuse` in each binding). An arm that counted or pushed by hand is the
 ##	shape nine review items took, one arm at a time, so no arm may. The scan
@@ -2699,6 +2835,7 @@ fCheckFunnel c      "${repoDir}/source/c/shcl.h"         '^static void p_refuse\
 counts="$(fScanFunnel "${tmpDir}/funnelbait.h" '^static void p_refuse\(' '^static |^}' 'lost\+\+|lost \+=|node = DEAD' 2>/dev/null)"
 [[ "$counts" == "2 1" ]] || fBad "the funnel scan counted '${counts}' on the bait, wanted '2 1'"
 
+fTest EpFkZy6 tokenizer-scan
 ##	The tokenizer is the one place the lexical rules live, so no binding may
 ##	carry a second quote state machine. The scan lifts each binding's
 ##	tokenizer section by its header and refuses a quote-state variable or the
@@ -2733,6 +2870,7 @@ fCheckTokenizer c      "${repoDir}/source/c/shcl.h"        'Tokenizer - the one 
 counts="$(fScanTokenizer "${tmpDir}/tokbait.rs" 'Tokenizer - the one place the lexical rules live' '^// Path scanner' "${tokState}" 2>/dev/null)"
 [[ "$counts" == "2 1" ]] || fBad "the tokenizer scan counted '${counts}' on the bait, wanted '2 1'"
 
+fTest EoXOPYu no-failed-test-loop-bodies
 ##	A one-line loop body that is a `[[ ... ]] && ...` list. When the test fails
 ##	on the last iteration the loop returns 1, which is harmless at statement
 ##	level on this bash but kills the caller the moment the loop becomes the last
@@ -2746,6 +2884,7 @@ while IFS= read -r f; do
 	fi
 done < <(printf '%s\n' "${shellFileList[@]}")
 
+fTest EoXYMt8 no-tab-escape-in-ere
 ##	`\t` in a grep -E pattern. POSIX ERE has no such escape, so the pattern
 ##	matches nothing under the grep a script gets, while matching fine under the
 ##	interactive one on this box - a check that looks like it works and asserts
@@ -2757,6 +2896,7 @@ while IFS= read -r f; do
 	fi
 done < <(printf '%s\n' "${shellFileList[@]}")
 
+fTest EoTJb0N no-unguarded-grep
 ##	The static half. Line continuations are joined first, so a substitution that
 ##	ends in `|| true` several lines down is read as guarded.
 while IFS= read -r f; do
@@ -2767,6 +2907,7 @@ while IFS= read -r f; do
 	fi
 done < <(printf '%s\n' "${shellFileList[@]}")
 
+fTest EqL3sFE 20260918b-44-shellcheck-list-complete
 ##	20260918b item 44: green-tree.bash went in with no line in the shellcheck
 ##	list, and nothing noticed. The list is compared with the shell files the
 ##	scans above walk, both ways, so a new script cannot miss the lint stage and
@@ -2782,6 +2923,7 @@ while IFS= read -r f; do
 done < <(LC_ALL=C comm -13 <(printf '%s\n' "${shFiles}") <(printf '%s\n' "${scTargets}"))
 ((${#shFiles} > 0 && ${#scTargets} > 0)) || fBad "the shellcheck list comparison read an empty side"
 
+fTest EqRQpEn 20260920-idea5-powershell-lint-list
 ##	20260920 idea 5: the list above is derived and its two siblings were not, so
 ##	a new `.ps1` or `.py` would be linted by nothing and no gate would say so.
 ##	The same comparison, once per kind.
@@ -2799,6 +2941,7 @@ while IFS= read -r f; do
 done < <(LC_ALL=C comm -13 <(printf '%s\n' "${psFiles}") <(printf '%s\n' "${psTargets}"))
 ((${#psFiles} > 0 && ${#psTargets} > 0)) || fBad "the PowerShell list comparison read an empty side"
 
+fTest EqRQpEo 20260920-idea5-python-lint-lists
 ##	Python has two lists. The binding's own files are named in its project file,
 ##	which is what mypy reads; ruff there is pointed at the whole directory, so it
 ##	needs no list. Everything else is on the pipeline's own ruff line.
@@ -2816,6 +2959,7 @@ while IFS= read -r f; do
 done < <(LC_ALL=C comm -13 <(printf '%s\n' "${pyFiles}") <(printf '%s\n' "${pyTargets}"))
 ((${#pyMypy} > 0 && ${#pyRuff} > 0)) || fBad "the Python list comparison read an empty side"
 
+fTest Eoltu24 20260902-18-split-tabs-keeps-empty-fields
 ##	20260902 item 18: the two corpus replays split a reads.tsv row with
 ##	`IFS=$'\t' read`, which drops a leading or doubled tab because tab is IFS
 ##	whitespace whatever IFS is set to - so the top-level `children` row arrived
@@ -2832,6 +2976,7 @@ fSplitTabs "$(printf 'nope\tchildren\t\t-')"
 fSplitTabs "one"
 [[ "${#cols[@]}" == 1 && "${cols[0]}" == "one" ]] || fBad "fSplitTabs mangled a single field: ${cols[*]@Q}"
 
+fTest Eols8ls 20260902-17-float-generator
 ##	20260902 item 17: the crosscheck's float-spelling dimension built its powers
 ##	of two as `2 ^ e`, which gawk computes as 1/(2^1074) for a subnormal - so 52
 ##	of its rows were the value zero and tested nothing - and drew its "fixed"
@@ -2855,6 +3000,7 @@ for a in gawk mawk "busybox awk" awk; do
 done
 [[ -n "${first}" ]] || fBad "no awk found to run the float generator"
 
+fTest EqzuifK crosscheck-failure-paths
 ##	The crosscheck's own failure paths, which a real run reaches only on the day
 ##	two bindings disagree. Stub CLIs answer every call with its words, paths cut
 ##	to the base name since each binding writes under its own root, and the
@@ -2894,6 +3040,7 @@ fCrosscheck --corpus "${xcDir}/corpus" "ref|${xcDir}/ref" "nonl|${xcDir}/nonl"
 [[ "${xcRc}" == 1 && "${xcOut}" == *"DIVERGE usage version:"* ]] || fBad "crosscheck missed a dropped final newline (exit ${xcRc})"
 fCrosscheck --corpus "${xcDir}/corpus" "ref|${xcDir}/ref" "tsv|${xcDir}/tsv"
 [[ "${xcRc}" == 1 && "${xcOut}" == *"DIVERGE count zz:"* ]] || fBad "crosscheck skipped a last reads.tsv row with no final newline (exit ${xcRc})"
+fTest EqzuifL 20260920-idea4-crosscheck-needs-input
 ##	20260920 idea 4: a case directory with no input.shcl was skipped without a
 ##	word, so it looked present and asserted nothing.
 mkdir -p "${xcDir}/noinput/002-b"
@@ -2907,6 +3054,8 @@ fCrosscheck --corpus "${xcDir}/corpus" --extra "${xcDir}/nodump" "ref|${xcDir}/r
 [[ "${xcRc}" == 2 ]] || fBad "crosscheck took an --extra directory with no *.shcl (exit ${xcRc})"
 fCrosscheck --corpus "${xcDir}/corpus" --min 1000000 "ref|${xcDir}/ref" "other|${xcDir}/ref"
 [[ "${xcRc}" == 2 && "${xcOut}" == *"need at least 1000000"* ]] || fBad "crosscheck passed below its --min floor (exit ${xcRc})"
+
+fTestEnd
 
 if ((nBad)); then
 	echo "shell-regress: ${nBad} check(s) failed" >&2

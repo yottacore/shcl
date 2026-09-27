@@ -30,6 +30,9 @@ set -Eeuo pipefail
 
 # shellcheck source-path=SCRIPTDIR
 source "$(dirname -- "${BASH_SOURCE[0]}")/include/largedoc-gen.bash"   ## largedoc_gen()
+# shellcheck source-path=SCRIPTDIR
+source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
+testWhere=largedoc; testCounter=nBad
 
 mib=100
 keep=0
@@ -232,12 +235,15 @@ while ((${#queue[@]} || nLive)); do
 	if [[ "${jobOf[${donePid}]}" == "fmt|${refName}" && -s "${refOut}" ]]; then queue+=(fixpoint wide); fi
 done
 
+## The table's two kinds of failure are two tests, agreement and the limits,
+## and each invariant below is one more.
 rc=0
+declare -i nBad=0 agreeBad=0 limitBad=0
 printf '\n%-8s %8s %10s   %s\n' "binding" "secs" "peak MiB" "result"
 
 for entry in "${bindings[@]}"; do
 	name="${entry%%|*}"; cli="${entry#*|}"
-	[[ -r "${cli}" ]] || { printf '%-8s %8s %10s   MISSING: %s\n' "${name}" - - "${cli}"; rc=1; continue; }
+	[[ -r "${cli}" ]] || { printf '%-8s %8s %10s   MISSING: %s\n' "${name}" - - "${cli}"; rc=1; agreeBad+=1; continue; }
 
 	out="${work}/out-${name}.shcl"
 	runSecs=- runRssMib=- runRc=""
@@ -245,10 +251,10 @@ for entry in "${bindings[@]}"; do
 	note=""
 	if [[ -z "${runRc}" ]]; then
 		note="FAILED: the run left no result"
-		rc=1
+		rc=1; agreeBad+=1
 	elif [[ "${runRc}" != 0 ]]; then
 		note="FAILED (exit ${runRc}): $(head -c 200 "${out}.err" | tr '\n' ' ')"
-		rc=1
+		rc=1; agreeBad+=1
 	else
 		ownMib="${mibOf[${name}]}"
 		against="${refOutOf[${name}]}"
@@ -257,54 +263,56 @@ for entry in "${bindings[@]}"; do
 		((ownMib == actualMib)) || sizeNote=" at ${ownMib} MiB"
 		if [[ "${name}" == "${refName}" ]]; then note="reference"
 		## Empty agrees with empty, the same hole the invariants below guard.
-		elif ! [[ -s "${against}" ]]; then note="FAILED: ${refName} wrote nothing${sizeNote}"; rc=1
+		elif ! [[ -s "${against}" ]]; then note="FAILED: ${refName} wrote nothing${sizeNote}"; rc=1; agreeBad+=1
 		elif [[ "${sum}" == "$(sha256sum "${against}" | cut -d' ' -f1)" ]]; then note="agrees${sizeNote}"
-		else note="DIFFERS from ${refName}${sizeNote}"; rc=1
+		else note="DIFFERS from ${refName}${sizeNote}"; rc=1; agreeBad+=1
 		fi
 
 		maxSecs="$(fLimit "${name}" 2)"
 		if [[ -n "${maxSecs}" ]]; then
 			maxRss="$(fLimit "${name}" 3)"; rssFloor="$(fLimit "${name}" 4)"
 			if awk -v s="${runSecs}" -v m="${maxSecs}" -v n="${ownMib}" 'BEGIN{exit !(s > m*n)}'; then
-				note="${note}; TOO SLOW (over $(awk -v m="${maxSecs}" -v n="${ownMib}" 'BEGIN{printf "%.0f", m*n}')s)"; rc=1
+				note="${note}; TOO SLOW (over $(awk -v m="${maxSecs}" -v n="${ownMib}" 'BEGIN{printf "%.0f", m*n}')s)"; rc=1; limitBad+=1
 			fi
 			if ((runRssMib > maxRss * ownMib + rssFloor)); then
-				note="${note}; TOO BIG (over $((maxRss * ownMib + rssFloor)) MiB)"; rc=1
+				note="${note}; TOO BIG (over $((maxRss * ownMib + rssFloor)) MiB)"; rc=1; limitBad+=1
 			fi
 		fi
 	fi
 	printf '%-8s %8s %10s   %s\n' "${name}" "${runSecs}" "${runRssMib}" "${note}"
 done
+echo
+fTest EnPl0qG bindings agree on the large document
+nBad+=agreeBad
+fTest Eqbhfd2 bindings within their time and memory limits
+nBad+=limitBad
 
 ## Reference-only invariants at this scale, from the reads above. Formatting has
 ## to be a fixpoint, and a long array has to read back whole - a stale buffer
 ## pointer after growth is a defect this project has actually shipped, and no
 ## small case can see it.
+fixpoint=""; summary=""; wideCount=0
 if [[ -s "${refOut}" ]]; then
-	echo
-	fixpoint=""; summary=""; wideCount=0
 	if [[ -f "${work}/res-fixpoint" ]]; then read -r fixpoint < "${work}/res-fixpoint"; fi
 	if [[ -f "${work}/res-check" ]]; then IFS= read -r summary < "${work}/res-check" || true; fi
 	if [[ -f "${work}/res-wide" ]]; then read -r wideCount < "${work}/res-wide"; fi
-	if [[ "${fixpoint}" == yes ]]; then
-		echo "largedoc: fmt is a fixpoint at ${actualMib} MiB"
-	else
-		echo "largedoc: FAILED: fmt is not a fixpoint at ${actualMib} MiB" >&2; rc=1
-	fi
-	if [[ "${summary}" == "ok (0 diagnostic(s))" ]]; then
-		echo "largedoc: the generated document loads with no diagnostics"
-	else
-		echo "largedoc: FAILED: the generated document does not load clean: ${summary}" >&2; rc=1
-	fi
-	if [[ "${wideCount}" == 20000 ]]; then
-		echo "largedoc: long array read back whole (${wideCount} elements)"
-	else
-		echo "largedoc: FAILED: long array read back ${wideCount} of 20000 elements" >&2; rc=1
-	fi
 else
 	## Empty output agrees with empty output, so every binding would pass above.
 	echo "largedoc: FAILED: the reference wrote nothing, so no invariant could be checked" >&2; rc=1
 fi
+fTest EnPl0qH fmt is a fixpoint on the large document
+if [[ "${fixpoint}" != yes ]]; then
+	echo "largedoc: FAILED: fmt is not a fixpoint at ${actualMib} MiB" >&2; rc=1; nBad+=1
+fi
+fTest Eojtm8u the generated document loads with no diagnostics
+if [[ "${summary}" != "ok (0 diagnostic(s))" ]]; then
+	echo "largedoc: FAILED: the generated document does not load clean: ${summary}" >&2; rc=1; nBad+=1
+fi
+fTest EnPl0qI a long array reads back whole
+if [[ "${wideCount}" != 20000 ]]; then
+	echo "largedoc: FAILED: long array read back ${wideCount} of 20000 elements" >&2; rc=1; nBad+=1
+fi
+fTestEnd
 
 echo
 if ((rc == 0)); then echo "largedoc: OK (${#bindings[@]} binding(s) agree at ${actualMib} MiB)"

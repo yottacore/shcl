@@ -458,19 +458,47 @@ def fTie(cli: Path, work: Path, rule: str, text: str) -> bool:
 	return fRun(cli, ["get", "s.shcl", "p"], work)[0] == 0 and fRun(cli, ["children", "s.shcl", "p"], work)[1] == []
 
 
+## One status line per test, with its test ID. A marker opens a test and
+## closes the one before; a test fails when FAILS grew while it was open.
+FAILS = [0]
+_open: dict[str, Any] = {}
+
+
+def test_line(status: str, tid: str, name: str) -> None:
+	print(f"{status:<4} {tid} check-abnf {name}", flush=True)
+
+
+def test_id_end(status: str | None = None) -> None:
+	if not _open:
+		return
+	if status is None:
+		status = "FAIL" if FAILS[0] > _open["fails"] else _open["status"]
+	test_line(status, _open["tid"], _open["name"])
+	_open.clear()
+
+
+def test_id(tid: str, name: str) -> None:
+	test_id_end()
+	_open.update(tid=tid, name=name, status="ok", fails=FAILS[0])
+
+
+def test_skip() -> None:
+	if _open:
+		_open["status"] = "skip"
+
+
 def main() -> int:
 	here = Path(__file__).resolve().parent
 	path = Path(sys.argv[1]) if len(sys.argv) > 1 else here.parent.parent / "project" / "grammar.abnf"
 	if not path.is_file():
 		print(f"check-abnf: no such file: {path}", file=sys.stderr)
 		return 2
-	bad = 0
 
 	def fBad(msg: str) -> None:
-		nonlocal bad
 		print(f"check-abnf: {msg}", file=sys.stderr)
-		bad += 1
+		FAILS[0] += 1
 
+	test_id("EqL32jg", "grammar-is-abnf")
 	rules: dict[str, Node] = {}
 	lines: dict[str, int] = {}
 	try:
@@ -503,9 +531,11 @@ def main() -> int:
 		fRefs(node, refs)
 		for r in sorted(refs - rules.keys()):
 			fBad(f"{path.name}:{lines.get(name, 0)}: {name} names {r}, which is not defined")
-	if bad:
-		print(f"check-abnf: {bad} problem(s)", file=sys.stderr)
+	if FAILS[0]:
+		test_id_end()
+		print(f"check-abnf: {FAILS[0]} problem(s)", file=sys.stderr)
 		return 1
+	test_id("EqL32jh", "samples-derive")
 	for rule, text, want in SAMPLES:
 		if rule not in rules:
 			fBad(f"no rule {rule} to check {text!r} against")
@@ -513,20 +543,25 @@ def main() -> int:
 		got = len(text) in Matcher(rules, text).fMatch(rules[rule], 0)
 		if got != want:
 			fBad(f"{rule} {'does not derive' if want else 'derives'} {text!r}")
-	if bad:
-		print(f"check-abnf: {bad} problem(s)", file=sys.stderr)
+	if FAILS[0]:
+		test_id_end()
+		print(f"check-abnf: {FAILS[0]} problem(s)", file=sys.stderr)
 		return 1
 
+	test_id("EqWax3I", "samples-read-alike-by-the-cli")
 	cli = fCli()
 	if cli is None:
 		if os.environ.get("SHCL_GATE_STRICT"):
 			fBad("no debug binary to read the samples with, and the gate requires it")
-			print(f"check-abnf: {bad} problem(s)", file=sys.stderr)
+			test_id_end()
+			print(f"check-abnf: {FAILS[0]} problem(s)", file=sys.stderr)
 			return 1
-		## On stderr, since check-docs.bash drops this script's stdout.
+		## On stderr, where a skip reads as the warning it is.
+		test_skip()
 		print("check-abnf: SKIPPED the tokenizer tie - no debug binary (cargo build first)", file=sys.stderr)
 		with open(os.environ.get("SHCL_GATE_SKIPS") or os.devnull, "a", encoding="utf-8") as fh:
 			fh.write("check-abnf\n")
+		test_id_end()
 		print(f"check-abnf: OK ({len(rules) - len(CORE)} rules, {len(SAMPLES)} samples, tie skipped)")
 		return 0
 
@@ -536,15 +571,19 @@ def main() -> int:
 			if fTie(cli, work, rule, text) == want:
 				continue
 			fBad(f"{rule} {text!r}: the grammar {'derives' if want else 'refuses'} it and the CLI does the opposite")
-	if bad:
-		print(f"check-abnf: {bad} problem(s)", file=sys.stderr)
+	if FAILS[0]:
+		test_id_end()
+		print(f"check-abnf: {FAILS[0]} problem(s)", file=sys.stderr)
 		return 1
+	test_id_end()
 	print(f"check-abnf: OK ({len(rules) - len(CORE)} rules, {len(SAMPLES)} samples, {len(SAMPLES)} ties)")
 	return 0
 
 
 if __name__ == "__main__":
-	sys.exit(main())
+	rc = main()
+	test_id_end("FAIL" if rc else None)
+	sys.exit(rc)
 
 
 ##	History:
