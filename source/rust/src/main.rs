@@ -88,9 +88,11 @@ Usage:
   shcl paths [options] FILE              every field path in the document, one
                                          per line
   shcl migrate [options] FILE            rewrite a 2.x file for the current
-                                         rules (print it, rewrite FILE in place
-                                         with --write or -w, or name the lines
-                                         it would change with --check)
+                                         rules (print it, rewrite FILE with
+                                         --write or -w, keeping the original
+                                         as NAME_old_v2.EXT beside it, or name
+                                         the lines it would change with
+                                         --check)
   shcl tokens FILE                       each line's lexical spans, for seeing
                                          why the parser read a line as it did
                                          (every line on its own, raw bodies
@@ -1913,6 +1915,62 @@ fn rewritten_lines(before: &str, after: &str) -> Vec<usize> {
 		.collect()
 }
 
+/// Where `migrate --write` keeps the file it replaces: `_old_v2` before the
+/// last dot of the file name, or on the end when it has none. A leading dot
+/// is part of the name, not an extension.
+fn old_copy_name(file: &str) -> String {
+	let seps: &[char] = if cfg!(windows) { &['/', '\\'] } else { &['/'] };
+	let start = file.rfind(seps).map_or(0, |i| i + 1);
+	match file[start..].rfind('.') {
+		Some(dot) if dot > 0 => {
+			let at = start + dot;
+			format!("{}_old_v2{}", &file[..at], &file[at..])
+		}
+		_ => format!("{}_old_v2", file),
+	}
+}
+
+/// Writes the original bytes to the old-copy name before the migrated text
+/// replaces them. The create is exclusive, so an earlier copy is never
+/// replaced, and the copy is synced before the save starts.
+fn keep_original(file: &str, text: &str) -> Result<String, String> {
+	use std::io::Write;
+	let old = old_copy_name(file);
+	let mut opts = std::fs::OpenOptions::new();
+	opts.write(true).create_new(true);
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::OpenOptionsExt;
+		opts.mode(0o600);
+	}
+	let mut f = opts.open(&old).map_err(|e| {
+		if e.kind() == std::io::ErrorKind::AlreadyExists {
+			format!(
+				"{}: already exists; migrate keeps the original file there, so nothing was written",
+				old
+			)
+		} else {
+			format!("{}: {}", old, e)
+		}
+	})?;
+	let res = (|| -> std::io::Result<()> {
+		f.write_all(text.as_bytes())?;
+		// Born private, then given the original's bits, so a 600 config never
+		// has a readable copy. Best effort, the way the save carries the mode.
+		#[cfg(unix)]
+		if let Ok(m) = std::fs::metadata(file) {
+			let _ = f.set_permissions(m.permissions());
+		}
+		f.sync_all()
+	})();
+	if let Err(e) = res {
+		drop(f);
+		let _ = std::fs::remove_file(&old);
+		return Err(format!("{}: {}", old, e));
+	}
+	Ok(old)
+}
+
 /// A 2.x file rewritten for the current rules. The rewrite is text to text;
 /// the load after it is for the diagnostics and the save gate, the same gate
 /// `fmt --write` goes through.
@@ -2032,13 +2090,46 @@ fn do_migrate(o: &Opts) -> u8 {
 		if !unchanged_since_read(file, &text) {
 			return EXIT_IO;
 		}
+		// Only a rewrite leaves a 2.x original to keep. A file that just
+		// gains the Format line reads the same either way, and may be a 3.0
+		// file with no stamp.
+		let old = if rewritten.is_empty() {
+			None
+		} else {
+			match keep_original(file, &text) {
+				Ok(old) => Some(old),
+				Err(e) => {
+					errln!("{}", e);
+					return EXIT_IO;
+				}
+			}
+		};
 		return match write_file_atomic(file, &m.text) {
 			Ok(()) => {
-				errln!("{}: migrated, {} line(s) rewritten", file, rewritten.len());
+				match &old {
+					Some(old) => errln!(
+						"{}: migrated, {} line(s) rewritten; the original is {}",
+						file,
+						rewritten.len(),
+						old
+					),
+					None => errln!("{}: migrated, {} line(s) rewritten", file, rewritten.len()),
+				}
 				0
 			}
 			Err(e) => {
 				errln!("{}", e);
+				// With the original still in place the copy would only stand
+				// in the way of the next run. A replace that fails part way on
+				// windows can leave nothing at FILE, and then the copy is all
+				// there is.
+				if let Some(old) = &old {
+					if std::fs::read(file).is_ok_and(|now| now == text.as_bytes()) {
+						let _ = std::fs::remove_file(old);
+					} else {
+						errln!("{}: the original is {}", file, old);
+					}
+				}
 				EXIT_IO
 			}
 		};

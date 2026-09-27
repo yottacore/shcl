@@ -1008,6 +1008,9 @@ for row in "${rows[@]}"; do
 	done
 	for b in "${bindings[@]}"; do
 		name="${b%%|*}"; cli="${b#*|}"
+		## migrate --write keeps the original beside the file, and refuses when a
+		## copy from the last binding's run is still there.
+		rm -f "${tmpDir}/w_old_v2.shcl" "${tmpDir}/bs_old_v2.shcl" "${tmpDir}/bw_old_v2.shcl"
 		((freshCopy)) && cp "${tmpDir}/sugar.shcl" "${tmpDir}/w.shcl"
 		((freshBs)) && cp "${tmpDir}/bsrc.shcl" "${tmpDir}/bs.shcl"
 		((freshBw)) && cp "${tmpDir}/brsrc.shcl" "${tmpDir}/bw.shcl"
@@ -1207,6 +1210,11 @@ fSaveSetup() {
 		dir)      mkdir f.shcl ;;
 		fifo*)    mkfifo f.shcl ;;
 		device)   ln -s /dev/null f.shcl ;;
+		migrate)  printf 'base:[Boston]\n\tlat: 42\n' > f.shcl; chmod 0640 f.shcl ;;
+		migrate-taken) printf 'base:[Boston]\n' > f.shcl; printf 'x\n' > f_old_v2.shcl ;;
+		migrate-stamp) printf 'a: 1\n' > f.shcl ;;
+		migrate-dotname) printf 'base:[Boston]\n' > .f ;;
+		migrate-dotdir) mkdir d.x; printf 'base:[Boston]\n' > d.x/f ;;
 	esac
 }
 ## id | argv | exit | what must hold afterwards, as a bash test run in the directory
@@ -1235,6 +1243,14 @@ saveCases=(
 	## 20260918b item 57: the group comes over with the mode, so a config a
 	## service reads by group keeps that read.
 	'group|fmt --write f.shcl|0|[[ "$(stat -c %G f.shcl)" == "${altGroup}" && "$(stat -c %a f.shcl)" == 640 ]]'
+	## migrate --write ends with the new file and the original beside it, at the
+	## original's mode. An earlier copy is never written over, and a file that
+	## only gains the Format line gets no copy.
+	'migrate|migrate --write f.shcl|0|grep -qx "base: Boston" f.shcl && cmp -s f_old_v2.shcl <(printf "base:[Boston]\n\tlat: 42\n") && [[ "$(stat -c %a f_old_v2.shcl)" == 640 ]]'
+	'migrate-taken|migrate --write f.shcl|8|grep -qx "base:\[Boston\]" f.shcl && [[ "$(cat f_old_v2.shcl)" == x && "$(ls -A | wc -l)" == 2 ]]'
+	'migrate-stamp|migrate --write f.shcl|0|[[ "$(ls -A)" == f.shcl ]]'
+	'migrate-dotname|migrate --write .f|0|[[ -f .f_old_v2 ]]'
+	'migrate-dotdir|migrate --write d.x/f|0|[[ -f d.x/f_old_v2 ]]'
 )
 if [[ -z "${altGroup}" ]]; then
 	echo "cli-regress: skipping the save-group case (the caller is in one group only)"

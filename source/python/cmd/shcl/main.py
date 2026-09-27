@@ -91,9 +91,11 @@ Usage:
   shcl paths [options] FILE              every field path in the document, one
                                          per line
   shcl migrate [options] FILE            rewrite a 2.x file for the current
-                                         rules (print it, rewrite FILE in place
-                                         with --write or -w, or name the lines
-                                         it would change with --check)
+                                         rules (print it, rewrite FILE with
+                                         --write or -w, keeping the original
+                                         as NAME_old_v2.EXT beside it, or name
+                                         the lines it would change with
+                                         --check)
   shcl tokens FILE                       each line's lexical spans, for seeing
                                          why the parser read a line as it did
                                          (every line on its own, raw bodies
@@ -1382,6 +1384,52 @@ def rewritten_lines(before, after):
 	return [i + 1 for i, (x, y) in enumerate(zip(b.split("\n"), after.split("\n"))) if x != y]
 
 
+def old_copy_name(file):
+	# Where migrate --write keeps the file it replaces: _old_v2 before the last
+	# dot of the file name, or on the end when it has none. A leading dot is
+	# part of the name, not an extension.
+	start = file.rfind("/") + 1
+	if os.name == "nt":
+		start = max(start, file.rfind("\\") + 1)
+	dot = file.rfind(".", start)
+	if dot > start:
+		return file[:dot] + "_old_v2" + file[dot:]
+	return file + "_old_v2"
+
+
+def keep_original(file, text):
+	# The original bytes, at the old-copy name, before the migrated text
+	# replaces them. The create is exclusive, so an earlier copy is never
+	# replaced, and the copy is synced before the save starts.
+	old = old_copy_name(file)
+	try:
+		fd = os.open(old, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
+	except FileExistsError:
+		return None, f"{old}: already exists; migrate keeps the original file there, so nothing was written"
+	except (OSError, ValueError) as e:
+		return None, f"{old}: {getattr(e, 'strerror', None) or e}"
+	try:
+		with os.fdopen(fd, "wb") as fh:
+			fh.write(text.encode("utf-8"))
+			# Born private, then given the original's bits, so a 600 config
+			# never has a readable copy. Best effort, the way the save carries
+			# the mode.
+			if hasattr(os, "fchmod"):
+				try:
+					os.fchmod(fh.fileno(), stat.S_IMODE(os.stat(file).st_mode))
+				except OSError:
+					pass
+			fh.flush()
+			os.fsync(fh.fileno())
+	except OSError as e:
+		try:
+			os.remove(old)
+		except OSError:
+			pass
+		return None, f"{old}: {e.strerror or e}"
+	return old, None
+
+
 def do_migrate(o):
 	# A 2.x file rewritten for the current rules. The rewrite is text to text;
 	# the load after it is for the diagnostics and the save gate, the same
@@ -1452,11 +1500,39 @@ def do_migrate(o):
 			return 7
 		if not unchanged_since_read(file, text):
 			return EXIT_IO
+		# Only a rewrite leaves a 2.x original to keep. A file that just gains
+		# the Format line reads the same either way, and may be a 3.0 file
+		# with no stamp.
+		old = None
+		if rewritten:
+			old, err = keep_original(file, text)
+			if err is not None:
+				sys.stderr.write(err + "\n")
+				return EXIT_IO
 		err = shcl.write_file_atomic(file, m.text)
 		if err is not None:
 			sys.stderr.write(err + "\n")
+			# With the original still in place the copy would only stand in
+			# the way of the next run. A replace that fails part way on windows
+			# can leave nothing at FILE, and then the copy is all there is.
+			if old is not None:
+				try:
+					with open(file, "rb") as fh:
+						same = fh.read() == text.encode("utf-8")
+				except (OSError, ValueError):
+					same = False
+				if same:
+					try:
+						os.remove(old)
+					except OSError:
+						pass
+				else:
+					sys.stderr.write(f"{file}: the original is {old}\n")
 			return EXIT_IO
-		sys.stderr.write(f"{file}: migrated, {len(rewritten)} line(s) rewritten\n")
+		if old is not None:
+			sys.stderr.write(f"{file}: migrated, {len(rewritten)} line(s) rewritten; the original is {old}\n")
+		else:
+			sys.stderr.write(f"{file}: migrated, {len(rewritten)} line(s) rewritten\n")
 		return 0
 	sys.stdout.write(m.text)
 	return rc

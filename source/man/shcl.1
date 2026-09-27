@@ -3,7 +3,7 @@
 .\"
 .\" Carries no version string on purpose: the release bump touches eight files
 .\" and this is not one of them. Keep it in step with HELP in the four CLIs.
-.TH SHCL 1 2026-09-26 shcl "User Commands"
+.TH SHCL 1 2026-09-27 shcl "User Commands"
 .SH NAME
 shcl \- read, edit, validate and format Simple Hierarchical Config Language files
 .SH SYNOPSIS
@@ -202,7 +202,7 @@ deduplicated \- the whole-document counterpart of
 Rewrite a file written for shcl 2.x so the current parser reads the same
 tree, and print it (or rewrite
 .I FILE
-in place with
+with
 .BR \-\-write ,
 through the same gate as
 .BR fmt ).
@@ -220,6 +220,16 @@ spellings the two rule sets read differently and exits 7 unless
 says it really is 2.x. A rewritten file is stamped with that line, and
 .B \-\-write
 says how many lines it rewrote.
+Before it saves a file with a rewritten line,
+.B \-\-write
+copies the original beside it, with
+.B _old_v2
+before the extension:
+.B config.shcl
+keeps its old bytes in
+.BR config_old_v2.shcl .
+It refuses at exit 8 and writes nothing when that name is taken. A file that
+only gains the Format line gets no copy.
 .B \-\-check
 prints nothing and names each line a rewrite would change.
 .TP
@@ -370,6 +380,8 @@ that does not exist yet is created;
 and
 .B migrate
 have nothing to read and report it missing.
+.B migrate
+also keeps the original file; see above.
 .TP
 .B \-\-lossy
 .RB ( fmt ", " set ", " migrate )

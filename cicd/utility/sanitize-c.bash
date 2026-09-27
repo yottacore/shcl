@@ -221,6 +221,7 @@ fCase(){
 	cp -- "${input}" "${work}/w.shcl"
 	fCli fmt --write "${work}/w.shcl"
 	cp -- "${input}" "${work}/w.shcl"
+	rm -f "${work}/w_old_v2.shcl"
 	fCli migrate --write --from-2x "${work}/w.shcl"
 	if [[ -f "${caseDir}write.ops" ]]; then
 		cp -- "${input}" "${work}/w.shcl"

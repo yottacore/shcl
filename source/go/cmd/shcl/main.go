@@ -104,9 +104,11 @@ Usage:
   shcl paths [options] FILE              every field path in the document, one
                                          per line
   shcl migrate [options] FILE            rewrite a 2.x file for the current
-                                         rules (print it, rewrite FILE in place
-                                         with --write or -w, or name the lines
-                                         it would change with --check)
+                                         rules (print it, rewrite FILE with
+                                         --write or -w, keeping the original
+                                         as NAME_old_v2.EXT beside it, or name
+                                         the lines it would change with
+                                         --check)
   shcl tokens FILE                       each line's lexical spans, for seeing
                                          why the parser read a line as it did
                                          (every line on its own, raw bodies
@@ -1878,6 +1880,52 @@ func rewrittenLines(before, after string) []int {
 	return lines
 }
 
+// oldCopyName is where `migrate --write` keeps the file it replaces:
+// `_old_v2` before the last dot of the file name, or on the end when it has
+// none. A leading dot is part of the name, not an extension.
+func oldCopyName(file string) string {
+	start := strings.LastIndex(file, "/") + 1
+	if bs := strings.LastIndex(file, "\\") + 1; runtime.GOOS == "windows" && bs > start {
+		start = bs
+	}
+	if dot := strings.LastIndex(file[start:], "."); dot > 0 {
+		at := start + dot
+		return file[:at] + "_old_v2" + file[at:]
+	}
+	return file + "_old_v2"
+}
+
+// keepOriginal writes the original bytes to the old-copy name before the
+// migrated text replaces them. The create is exclusive, so an earlier copy is
+// never replaced, and the copy is synced before the save starts.
+func keepOriginal(file, text string) (string, error) {
+	old := oldCopyName(file)
+	f, err := os.OpenFile(old, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return "", fmt.Errorf("%s: already exists; migrate keeps the original file there, so nothing was written", old)
+		}
+		return "", fmt.Errorf("%s: %w", old, err)
+	}
+	_, err = f.WriteString(text)
+	// Born private, then given the original's bits, so a 600 config never has
+	// a readable copy. Best effort, the way the save carries the mode.
+	if fi, serr := os.Stat(file); err == nil && serr == nil && runtime.GOOS != "windows" {
+		_ = f.Chmod(fi.Mode().Perm())
+	}
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(old)
+		return "", fmt.Errorf("%s: %w", old, err)
+	}
+	return old, nil
+}
+
 // doMigrate: a 2.x file rewritten for the current rules. The rewrite is text
 // to text; the load after it is for the diagnostics and the save gate, the
 // same gate `fmt --write` goes through.
@@ -1976,11 +2024,37 @@ func doMigrate(o *opts) int {
 		if !unchangedSinceRead(file, text) {
 			return exitIO
 		}
+		// Only a rewrite leaves a 2.x original to keep. A file that just gains
+		// the Format line reads the same either way, and may be a 3.0 file
+		// with no stamp.
+		old := ""
+		if len(rewritten) != 0 {
+			var err error
+			if old, err = keepOriginal(file, text); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				return exitIO
+			}
+		}
 		if err := shcl.WriteFileAtomic(file, m.Text); err != nil {
 			fmt.Fprintln(os.Stderr, err)
+			// With the original still in place the copy would only stand in
+			// the way of the next run. A replace that fails part way on
+			// windows can leave nothing at FILE, and then the copy is all
+			// there is.
+			if old != "" {
+				if now, rerr := os.ReadFile(file); rerr == nil && string(now) == text {
+					_ = os.Remove(old)
+				} else {
+					fmt.Fprintf(os.Stderr, "%s: the original is %s\n", file, old)
+				}
+			}
 			return exitIO
 		}
-		fmt.Fprintf(os.Stderr, "%s: migrated, %d line(s) rewritten\n", file, len(rewritten))
+		if old != "" {
+			fmt.Fprintf(os.Stderr, "%s: migrated, %d line(s) rewritten; the original is %s\n", file, len(rewritten), old)
+		} else {
+			fmt.Fprintf(os.Stderr, "%s: migrated, %d line(s) rewritten\n", file, len(rewritten))
+		}
 		return 0
 	}
 	outs(m.Text)

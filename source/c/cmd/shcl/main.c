@@ -77,9 +77,11 @@ static const char *HELP =
 	"  shcl paths [options] FILE              every field path in the document, one\n"
 	"                                         per line\n"
 	"  shcl migrate [options] FILE            rewrite a 2.x file for the current\n"
-	"                                         rules (print it, rewrite FILE in place\n"
-	"                                         with --write or -w, or name the lines\n"
-	"                                         it would change with --check)\n"
+	"                                         rules (print it, rewrite FILE with\n"
+	"                                         --write or -w, keeping the original\n"
+	"                                         as NAME_old_v2.EXT beside it, or name\n"
+	"                                         the lines it would change with\n"
+	"                                         --check)\n"
 	"  shcl tokens FILE                       each line's lexical spans, for seeing\n"
 	"                                         why the parser read a line as it did\n"
 	"                                         (every line on its own, raw bodies\n"
@@ -947,7 +949,7 @@ static int dir_takes_a_temp(const char *file) {
 // FILE still holds the bytes the load read. `set` waits on stdin between the
 // load and the save, and an edit made in that wait was reverted at exit 0. A
 // gap is left between this read and the publish, the width of one save.
-static int unchanged_since_read(const char *file, const char *before, size_t n) {
+static int holds_bytes(const char *file, const char *before, size_t n) {
 	FILE *f = open_rb(file);
 	int same = f != NULL;
 	if (f) {
@@ -959,6 +961,11 @@ static int unchanged_since_read(const char *file, const char *before, size_t n) 
 		same = same && !ferror(f) && at == n;
 		fclose(f);
 	}
+	return same;
+}
+
+static int unchanged_since_read(const char *file, const char *before, size_t n) {
+	int same = holds_bytes(file, before, n);
 	if (!same) fprintf(stderr, "%s: changed since it was read; nothing written\n", file);
 	return same;
 }
@@ -1067,6 +1074,78 @@ static size_t rewritten_lines(const char *file, const char *before, size_t blen,
 	return count;
 }
 
+// Where migrate --write keeps the file it replaces: _old_v2 before the last
+// dot of the file name, or on the end when it has none. A leading dot is part
+// of the name, not an extension.
+static char *old_copy_name(const char *file) {
+	const char *name = strrchr(file, '/');
+#ifdef _WIN32
+	const char *bs = strrchr(file, '\\');
+	if (bs && (!name || bs > name)) name = bs;
+#endif
+	name = name ? name + 1 : file;
+	const char *dot = strrchr(name, '.');
+	size_t n = strlen(file);
+	size_t at = dot && dot > name ? (size_t)(dot - file) : n;
+	char *old = xrealloc(NULL, n + sizeof "_old_v2");
+	memcpy(old, file, at);
+	memcpy(old + at, "_old_v2", 7);
+	memcpy(old + at + 7, file + at, n - at + 1);
+	return old;
+}
+
+// The original bytes, at the old-copy name, before the migrated text replaces
+// them. The create is exclusive, so an earlier copy is never replaced, and the
+// copy is synced before the save starts. NULL, with the reason printed, when
+// it could not be made.
+static char *keep_original(const char *file, const char *text, size_t len) {
+	char *old = old_copy_name(file);
+#ifdef _WIN32
+	wchar_t *w = shcl_widen(old);
+	int fd = w ? _wopen(w, _O_WRONLY | _O_CREAT | _O_EXCL | _O_BINARY, _S_IREAD | _S_IWRITE) : -1;
+#else
+	int fd = open(old, O_WRONLY | O_CREAT | O_EXCL, 0600);
+#endif
+	if (fd < 0) {
+		if (errno == EEXIST) fprintf(stderr, "%s: already exists; migrate keeps the original file there, so nothing was written\n", old);
+		else fprintf(stderr, "%s: %s\n", old, strerror(errno));
+#ifdef _WIN32
+		free(w);
+#endif
+		free(old);
+		return NULL;
+	}
+	FILE *f = fdopen(fd, "wb");
+	int ok = f != NULL;
+	if (!f) close(fd);
+	ok = ok && (len == 0 || fwrite(text, 1, len, f) == len) && fflush(f) == 0;
+#ifdef _WIN32
+	ok = ok && _commit(_fileno(f)) == 0;
+#else
+	// Born private, then given the original's bits, so a 600 config never has
+	// a readable copy. Best effort, the way the save carries the mode.
+	struct stat st;
+	if (ok && stat(file, &st) == 0) (void)fchmod(fileno(f), st.st_mode & 07777);
+	ok = ok && fsync(fileno(f)) == 0;
+#endif
+	int e = errno;
+	if (f) ok = (fclose(f) == 0) && ok;
+	if (!ok) {
+		fprintf(stderr, "%s: %s\n", old, strerror(e));
+#ifdef _WIN32
+		_wunlink(w);
+#else
+		unlink(old);
+#endif
+		free(old);
+		old = NULL;
+	}
+#ifdef _WIN32
+	free(w);
+#endif
+	return old;
+}
+
 // A 2.x file rewritten for the current rules. The rewrite is text to text;
 // the load after it is for the diagnostics and the save gate, the same gate
 // `fmt --write` goes through.
@@ -1133,13 +1212,39 @@ static int do_migrate(const Opts *o) {
 			rc = 7;
 		} else if (!unchanged_since_read(file, text, len)) {
 			rc = EXIT_IO;
-		} else if (!shcl_write_file_atomic(file, m.text, m.len)) {
-			int e = errno;
-			if (!dir_takes_a_temp(file)) fprintf(stderr, "%s: cannot create temporary file: %s\n", file, strerror(e));
-			else fprintf(stderr, "%s: %s\n", file, strerror(e));
-			rc = EXIT_IO;
 		} else {
-			fprintf(stderr, "%s: migrated, %zu line(s) rewritten\n", file, rewritten);
+			// Only a rewrite leaves a 2.x original to keep. A file that just
+			// gains the Format line reads the same either way, and may be a
+			// 3.0 file with no stamp.
+			char *old = rewritten ? keep_original(file, text, len) : NULL;
+			if (rewritten && !old) {
+				rc = EXIT_IO;
+			} else if (!shcl_write_file_atomic(file, m.text, m.len)) {
+				int e = errno;
+				if (!dir_takes_a_temp(file)) fprintf(stderr, "%s: cannot create temporary file: %s\n", file, strerror(e));
+				else fprintf(stderr, "%s: %s\n", file, strerror(e));
+				// With the original still in place the copy would only stand
+				// in the way of the next run. A replace that fails part way on
+				// windows can leave nothing at FILE, and then the copy is all
+				// there is.
+				if (old && holds_bytes(file, text, len)) {
+#ifdef _WIN32
+					wchar_t *w = shcl_widen(old);
+					if (w) _wunlink(w);
+					free(w);
+#else
+					unlink(old);
+#endif
+				} else if (old) {
+					fprintf(stderr, "%s: the original is %s\n", file, old);
+				}
+				rc = EXIT_IO;
+			} else if (old) {
+				fprintf(stderr, "%s: migrated, %zu line(s) rewritten; the original is %s\n", file, rewritten, old);
+			} else {
+				fprintf(stderr, "%s: migrated, %zu line(s) rewritten\n", file, rewritten);
+			}
+			free(old);
 		}
 	} else fwrite(m.text, 1, m.len, stdout);
 	shcl_free(d); free(m.text); free(text);
