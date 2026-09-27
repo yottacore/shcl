@@ -2026,6 +2026,31 @@ def _bad_escape(tok, values):
 	return None
 
 
+def _path_like(p, src):
+	"""A double-quoted value that starts like a Windows path, a drive (`C:\\`)
+	or a share (`\\\\`), and holds a `\\t` or `\\n` escape (H004).
+	`"C:\\temp"` reads as `C:`, a tab and `emp`: legal, and almost never
+	meant. Any other pair made the line E023 before this is asked."""
+	if p.quote is not Quote.DOUBLE:
+		return False
+	raw = src[p.start:p.end]
+	drive = len(raw) >= 3 and raw[:1].isalpha() and raw[1:3] == b":\\"
+	if not drive and not raw.startswith(b"\\\\"):
+		return False
+	i = 0
+	while i + 1 < len(raw):
+		if raw[i] != 0x5C:
+			i += 1
+			continue
+		if raw[i + 1] in b"tn":
+			return True
+		i += 2
+	return False
+
+
+_PATH_HINT = "value looks like a Windows path, and its \\t or \\n reads as a tab or newline; single quotes keep a backslash as written"
+
+
 def _escape_msg(c):
 	return "unknown escape '\\" + _one_line(c) + "' in double quotes; write a backslash as '\\\\' or use single quotes"
 
@@ -2668,6 +2693,7 @@ class _Parser:
 		if piece.quote is Quote.OPEN:
 			self._err(line, "E017", "unterminated quote in value")
 		binding_like = not el.quoted and _looks_like_binding(el.text)
+		path = _path_like(piece, s)
 		# Element cap: each element line past it is refused on its own, the way
 		# any other bad element line is. Only a line that would join the list:
 		# under a field that already has a value it is E011, cap or not.
@@ -2705,6 +2731,8 @@ class _Parser:
 			return False
 		if binding_like:
 			self._diag(Diagnostic(line, Severity.Hint, "list element looks like a field binding; it is read as a string (quote it to say so)", "H003"))
+		if path:
+			self._diag(Diagnostic(line, Severity.Hint, _PATH_HINT, "H004"))
 		# A kept element holds its column as a dropped one does, with the field
 		# as that level's node: a line written deeper binds where it always did,
 		# and a line back at the element's column is its sibling, where no level
@@ -3013,6 +3041,8 @@ class _Parser:
 			# a value dropped after a last-segment selector records nothing).
 			node = self._attach_path(parent, segments, value, lineno, indent)
 			if node is not None:
+				if src_text is not None and any(_path_like(p, tok.src) for p in tok.elements):
+					self._diag(Diagnostic(lineno, Severity.Hint, _PATH_HINT, "H004"))
 				# The bound node usually holds the very object just parsed, so
 				# identity settles it and neither key gets built. The key
 				# compare is only needed when a merge landed on an equal-valued

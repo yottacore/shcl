@@ -1,1 +1,4 @@
-ok (0 diagnostic(s))
+line 2: Hint: H004
+line 3: Hint: H004
+line 4: Hint: H004
+ok (3 diagnostic(s))

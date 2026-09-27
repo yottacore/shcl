@@ -100,13 +100,38 @@ Going forward, new issues in the new template above will go in the '### New form
 
 ### New format
 
+- Hint when a double-quoted Windows path has a `\t` or `\n` escape
+	- ID: 2026092617133293
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Priority: Avg
+	- Opened: 20260926-171332
+	- Opened by: follow-up to 2026092616330237
+	- Related IDs:
+		- 2026092616330237
+	- Requirements:
+		- `"C:\temp"` and the like get a hint, since the `\t` or `\n` is legal but almost never meant in a path.
+		- The hint must not stop a clean read or write. The line loads, reads and saves as written, and a Strict load still passes.
+	- Estimated effort: Low
+	- Decisions:
+		- `H004`, bound. It fires on a double-quoted value element, inline or stacked, that starts with a drive (`C:\`) or a share (`\\`) and holds a `\t` or `\n` escape, once per line and only when the line binds.
+		- Any other pair made the line `E023` before this is asked, so the two never both fire.
+		- Names and selector bodies are left out, and so are paths with no drive or share, such as `".\logs\new"`. Catching those means guessing at paths in general, which would flag real messages such as `"Done\nNext"`.
+		- A 2.x file `migrate` rewrites can now carry the hint, since the rewrite keeps the tab or newline 2.x read. That is the point of it.
+	- Actual fix: Rust `path_like`, Go `pathLike`, Python `_path_like`, C `path_like`, called after a field line binds and beside `H003` for a stacked element. Explain entry in all four CLIs, spec, design table, changelog.
+	- Branch: `pathhint`
+	- Commit: `1a12c02`
+	- Test case: corpus `171-windows-path-hint`, cli-regress `path-hint-*` rows. The read and strict rows and case 171 fail with the hint off, and `path-hint-set` shows a write is unaffected. The migrate goldens of cases 118, 122 and 170 now list the hint.
+
 - An unknown escape in double quotes loads silently, with the known escapes around it decoded
 	- ID: 2026092616330237
 	- Type: Bug
-	- Status: Waiting on signoff
+	- Status: Done
 	- Severity: Avg
 	- Opened: 20260926-163302
 	- Opened by: gitsby feedback, side note
+	- Related IDs:
+		- 2026092617133293
 	- Version and build: dev at `efb626f`, format 3 before `v3.0.0-beta1`
 	- Steps to reproduce:
 		- A file holding `a: "C:\work\new"`.
@@ -122,11 +147,13 @@ Going forward, new issues in the new template above will go in the '### New form
 		- The line is retained like `E019`: it binds nothing, a read is `NotFound`, and a save keeps it. A lookup path or `SetLiteral` text holding one is refused.
 		- A raw block's info string is not escape text, so it is not checked.
 		- `migrate` doubles the backslash, which 2.x and 3.0 read alike.
-		- `"C:\temp"` still loads with a tab, since `\t` is a real escape. A hint for a drive letter followed by a tab or newline was left out.
+		- `"C:\temp"` still loads with a tab, since `\t` is a real escape. The hint for it is 2026092617133293.
 	- Actual fix: `bad_escape` in the field and element line arms of the parser, in `scan_lookup` and in `literal_value`, plus `migrate` edits for names, selectors and values. Rust `bad_escape`, Go `badEscape`, Python `_bad_escape`, C `bad_escape`. Explain entry in all four CLIs, grammar `escape` rule, spec, man page, changelog.
 	- Branch: `escerr`
 	- Commit: `ea4b719`
 	- Test case: corpus `170-unknown-escape`, cli-regress `escape-unknown-*` and `escape-doubled-path` rows, check-abnf `field-line` samples. Each fails on the old code.
+	- Acceptance signoff: 20260926
+	- Closed: 20260926-171332
 
 ### Bugs
 

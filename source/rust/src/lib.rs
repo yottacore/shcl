@@ -2213,6 +2213,35 @@ fn bad_escape(tok: &Tokens, text: &str, values: bool) -> Option<char> {
 	None
 }
 
+/// A double-quoted value that starts like a Windows path, a drive (`C:\`) or
+/// a share (`\\`), and holds a `\t` or `\n` escape (`H004`). `"C:\temp"`
+/// reads as `C:`, a tab and `emp`: legal, and almost never meant. Any other
+/// pair made the line `E023` before this is asked.
+fn path_like(p: &Piece, text: &str) -> bool {
+	if p.quote != Quote::Double {
+		return false;
+	}
+	let raw = &text.as_bytes()[p.start..p.end];
+	let drive = raw.len() >= 3 && raw[0].is_ascii_alphabetic() && raw[1] == b':' && raw[2] == b'\\';
+	if !drive && !raw.starts_with(b"\\\\") {
+		return false;
+	}
+	let mut i = 0;
+	while i + 1 < raw.len() {
+		if raw[i] != b'\\' {
+			i += 1;
+			continue;
+		}
+		if raw[i + 1] == b't' || raw[i + 1] == b'n' {
+			return true;
+		}
+		i += 2;
+	}
+	false
+}
+
+const PATH_HINT: &str = "value looks like a Windows path, and its \\t or \\n reads as a tab or newline; single quotes keep a backslash as written";
+
 fn escape_msg(c: char) -> String {
 	format!(
 		"unknown escape '\\{}' in double quotes; write a backslash as '\\\\' or use single quotes",
@@ -3258,6 +3287,7 @@ impl<'a> Parser<'a> {
 			self.err(line, "E017", "unterminated quote in value");
 		}
 		let binding_like = !el.quoted && looks_like_binding(&el.text);
+		let path = path_like(&piece, text);
 		// Element cap: each element line past it is refused on its own, the way
 		// any other bad element line is. Only a line that would join the list:
 		// under a field that already has a value it is E011, cap or not.
@@ -3319,6 +3349,14 @@ impl<'a> Parser<'a> {
 				message: "list element looks like a field binding; it is read as a string (quote it to say so)"
 					.to_string(),
 				code: "H003",
+			});
+		}
+		if path {
+			self.diag(Diagnostic {
+				line,
+				severity: Severity::Hint,
+				message: PATH_HINT.to_string(),
+				code: "H004",
 			});
 		}
 		// A kept element holds its column as a dropped one does, with the field
@@ -3793,6 +3831,14 @@ impl<'a> Parser<'a> {
 			// a value dropped after a last-segment selector records nothing).
 			let vkey = src_text.as_ref().map(|_| value_hash(&value));
 			if let Some(node) = self.attach_path(parent, scan.segments, value, lineno, indent) {
+				if src_text.is_some() && tok.elements.iter().any(|p| path_like(p, rest)) {
+					self.diag(Diagnostic {
+						line: lineno,
+						severity: Severity::Hint,
+						message: PATH_HINT.to_string(),
+						code: "H004",
+					});
+				}
 				if let (Some(s), Some(k)) = (src_text, vkey)
 					&& !self.arena[node].src_set
 					&& value_hash(&self.arena[node].value) == k
