@@ -9,6 +9,19 @@
 //! idiom - see project/style-guide_code.md), so restructuring here means
 //! restructuring all.
 
+// The library never gives up on a whole file, so a panic macro outside a test
+// is an invariant waiting to take a caller down. Every public type is Debug.
+#![cfg_attr(
+	not(test),
+	warn(
+		clippy::unwrap_used,
+		clippy::expect_used,
+		clippy::panic,
+		clippy::unreachable
+	)
+)]
+#![warn(missing_debug_implementations)]
+
 use std::collections::{HashMap, HashSet};
 use std::hash::{BuildHasherDefault, Hasher};
 
