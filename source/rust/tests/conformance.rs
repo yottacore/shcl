@@ -502,7 +502,7 @@ fn reads_match_expected() {
 				continue;
 			}
 
-			let doc = doc_for(&case, level);
+			let doc = doc_for(case, level);
 			if kind == "schema" {
 				let got = schema_ref(&case.input).unwrap_or_else(|| "-".to_string());
 				assert_eq!(got, expected, "{}: schema", at);
