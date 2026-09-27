@@ -1,0 +1,15 @@
+# Hex, octal and binary integers
+mode: 0o644
+upper: 0O755
+flags: 0b101
+neg: -0B11
+plus: +0x1F
+decimal: 0644
+quoted: "0o10"
+bad-octal: 0o8
+bad-binary: 0b12
+empty: 0o
+wide: 0b10000000000000000000000000000000000000000000000000000000000000000
+min: -0o1000000000000000000000
+over: 0o1000000000000000000000
+list: 0o7, 0b11, 0x10

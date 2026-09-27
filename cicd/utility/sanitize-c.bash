@@ -145,7 +145,7 @@ fReadRow(){
 		children)     fCli children "${strictArg[@]}" "$input" "$query" ;;
 		paths)        fCli paths "${strictArg[@]}" "$input" ;;
 		lost)         : ;;   ## no CLI surface, like crosscheck.bash's own arm
-		instance_paths|comments) : ;; ## library only, the same
+		instance_paths|comments|schema) : ;; ## library only, the same
 		int'[]'|float'[]'|bool'[]'|datetime'[]'|string'[]')
 		              fCli get "--${type%[]}" --array "${strictArg[@]}" "$input" "$query"
 		              fCli get "--${type%[]}" --array --slots "${strictArg[@]}" "$input" "$query" ;;
@@ -153,6 +153,15 @@ fReadRow(){
 		              fCli get "--${type}" "${strictArg[@]}" "$input" "$query"
 		              fCli get "--${type}" --on-bad=error "${strictArg[@]}" "$input" "$query"
 		              fCli get "--${type}" "--default=<x>" "${strictArg[@]}" "$input" "$query" ;;
+		## duration[@UNIT] and size[@UNIT][+decimal], as crosscheck.bash reads them.
+		duration*|size*)
+		              local -a unitArg=()
+		              local base="${type%%[@+]*}" rest="${type#"${type%%[@+]*}"}"
+		              if [[ "$rest" == *+decimal ]]; then unitArg+=(--decimal); rest="${rest%+decimal}"; fi
+		              if [[ "$rest" == @* ]]; then unitArg+=("--unit=${rest#@}"); fi
+		              fCli get "--${base}" "${unitArg[@]}" "${strictArg[@]}" "$input" "$query"
+		              fCli get "--${base}" "${unitArg[@]}" --on-bad=error "${strictArg[@]}" "$input" "$query"
+		              fCli get "--${base}" "${unitArg[@]}" "--default=<x>" "${strictArg[@]}" "$input" "$query" ;;
 		## A row type with no arm used to fall through to `get --<type>`, which
 		## the CLI refuses at exit 1 - so the row ran nothing and the case still
 		## counted as clean.

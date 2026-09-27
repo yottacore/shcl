@@ -1,0 +1,4 @@
+literal	bad	"\u12"
+literal	bad	"\uD800"
+literal	bad	"\U00110000"
+int	"x\uZZZZ"	1

@@ -1,0 +1,28 @@
+field: timeout
+	type: duration
+	unit: s
+	min: 1s
+	max: 5m
+field: hold-ms
+	type: duration
+	max: 2s
+field: cache
+	type: size
+	unit: MB
+	decimal: yes
+	min: 1MB
+	max: 2GB
+field: chunk
+	type: size
+field: label
+	type: string
+	unit: s
+field: pick
+	type: duration
+	allowed: 1s, 2s
+field: base10
+	type: int
+	decimal: yes
+field: weird
+	type: size
+	unit: mb

@@ -1,0 +1,11 @@
+# A leading zero keeps its quotes
+zip: "02134"
+bare: 02134
+count: 42
+negative: "-007"
+fraction: "00.5"
+small: 0.5
+zero: 0
+hex: 0x1F
+mode: 0644
+list: "007", 7, 008

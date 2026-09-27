@@ -76,12 +76,16 @@ SAMPLES: list[tuple[str, str, bool]] = [
 	("field-line", "k: a]b", True),
 	("field-line", "k: one, two", True),
 	("field-line", "\tk: trailing  ", True),
-	## Only five escapes exist in double quotes, and any other pair is E023.
+	## Only seven escapes exist in double quotes, and any other pair is E023.
 	## An info string is not escape text, so the same pair passes there.
 	("field-line", 'p: "C:\\work"', False),
 	("field-line", 'p: "C:\\\\work"', True),
 	("field-line", "p: 'C:\\work'", True),
 	("info-string", '"C:\\x"', True),
+	("field-line", 'p: "\\u00E9"', True),
+	("field-line", 'p: "\\U0001F600"', True),
+	("field-line", 'p: "\\u12"', False),
+	("field-line", 'p: "\\uZZZZ"', False),
 	## A leading quote opens a quoted piece and a leading "[" is the refused
 	## bracket-array spelling, so neither is a bare value.
 	("bareword", '"q"', False),

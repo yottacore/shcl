@@ -1,0 +1,21 @@
+## How long to wait
+## duration in s, 1s-5m, required
+timeout: 30
+
+## duration, <= 2s, required
+hold-ms: 250
+
+## size in MB, KB to TB in powers of 1000, <= 2GB
+# cache: 512MB
+
+## size, required
+chunk: 64KiB
+
+##
+## This config file format is SHCL.
+## "Simple Hierarchical Config Language"
+##    Format   3
+##    Home     https://github.com/yottacore/shcl
+##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md
+##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.
+##

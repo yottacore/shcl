@@ -153,7 +153,11 @@ and print its diagnostics. With
 .BI \-\-schema= SCHEMA
 it also validates the file against a schema, which is itself an ordinary
 .B .shcl
-file. Each diagnostic is one stdout line that starts with the word
+file. Without it, a file that names its schema on a
+.RB \(dq ##\ \ \ \ Schema\ \ \ PATH \(dq
+comment line is validated against that, with a relative path read from the
+file's own directory. A URL there is left to editors and not fetched.
+Each diagnostic is one stdout line that starts with the word
 .B line
 and a number, with its prose on stderr. The last stdout line is a summary.
 Exits 6 when
@@ -266,11 +270,29 @@ Valid on
 only. The default is
 .BR \-\-string .
 .TP
-.BR \-\-int ", " \-\-float ", " \-\-bool ", " \-\-datetime ", " \-\-string ", " \-\-raw ", " \-\-rawinfo
+.BR \-\-int ", " \-\-float ", " \-\-bool ", " \-\-datetime ", " \-\-string ", " \-\-raw ", " \-\-rawinfo ", " \-\-duration ", " \-\-size
 Read the value as that type.
 .B \-\-rawinfo
 reads a raw block's info-string \- the tag on its fence line \- rather than its
 content.
+.B \-\-duration
+prints whole milliseconds and
+.B \-\-size
+whole bytes, from spellings such as
+.BR 1h\ 30m ,
+.B 500ms
+and
+.BR 1.5GiB .
+A bare number takes its unit from a field name ending in one after a
+.B \-
+or
+.BR _ ,
+such as
+.B timeout\-ms
+or
+.BR cache_mb ,
+else from
+.BR \-\-unit .
 .TP
 .B \-\-array
 Read the value as an array of the chosen type, one element per line. As in
@@ -312,6 +334,23 @@ default.
 Prefix each output line with its slot status and a tab \- per element for an
 array, per matched instance for a wildcard. A value holding a line break is
 then printed in its quoted escaped spelling, so each slot stays one line.
+.TP
+.BI \-\-unit= UNIT
+.RB ( get )
+The unit a bare number is in when the field name gives none:
+.BR ms ", " s ", " m ", " h " or " d
+for
+.BR \-\-duration ,
+or
+.BR B ", " KB ", " MB ", " GB ", " TB ", " KiB ", " MiB ", " GiB " or " TiB
+for
+.BR \-\-size .
+.TP
+.B \-\-decimal
+.RB ( get )
+With
+.BR \-\-size ,
+read KB to TB as powers of 1000 rather than 1024. KiB to TiB are always 1024.
 .TP
 .B \-\-no\-banner
 .RB ( init ", " "set \-\-write" " creating " FILE )
@@ -389,7 +428,7 @@ The schema file. On
 .B check
 it adds
 .BR V ###
-diagnostics; on
+diagnostics, and wins over the file's own Schema line; on
 .B init
 it is what the starter config is generated from.
 .TP
@@ -525,9 +564,11 @@ gives a value that neither mode would print.
 is not valid on
 .BR set ,
 where stdin already carries the ops script or the document.
-.B \-\-raw
+.BR \-\-raw ,
+.BR \-\-rawinfo ,
+.B \-\-duration
 and
-.B \-\-rawinfo
+.B \-\-size
 have no
 .B \-\-array
 form. Two options that ask for different answers are refused whichever order

@@ -409,6 +409,25 @@ shcl_read_str  shcl_read_string(shcl_doc *d, const char *path, size_t plen);
 shcl_read_str  shcl_read_raw(shcl_doc *d, const char *path, size_t plen);
 shcl_read_str  shcl_read_raw_info(shcl_doc *d, const char *path, size_t plen);
 
+// The unit a duration or size read gives a bare number, when the field name
+// gives none; the NONE value asks for none. SHCL_SIZE_KB to SHCL_SIZE_TB are
+// powers of 1024 unless the read asks for decimal; KIB to TIB always are.
+typedef enum { SHCL_DURATION_NONE, SHCL_DURATION_MS, SHCL_DURATION_S, SHCL_DURATION_M, SHCL_DURATION_H, SHCL_DURATION_D } shcl_duration_unit;
+typedef enum { SHCL_SIZE_NONE, SHCL_SIZE_B, SHCL_SIZE_KB, SHCL_SIZE_MB, SHCL_SIZE_GB, SHCL_SIZE_TB, SHCL_SIZE_KIB, SHCL_SIZE_MIB, SHCL_SIZE_GIB, SHCL_SIZE_TIB } shcl_size_unit;
+// The unit a value spelling names (ms s m h d; B KB kB MB GB TB KiB MiB GiB
+// TiB, letter case read), or the NONE value; and the spelling back, "" for
+// NONE. Static strings.
+shcl_duration_unit shcl_duration_unit_of(const char *s, size_t n);
+shcl_size_unit shcl_size_unit_of(const char *s, size_t n);
+const char *shcl_duration_unit_spelling(shcl_duration_unit u);
+const char *shcl_size_unit_spelling(shcl_size_unit u);
+// A duration in whole milliseconds: `500ms`, `30s`, `1h 30m`, `2d`. A bare
+// number takes its unit from the field name when the name ends in one
+// (`timeout-ms`, `delay_seconds`), else from unit, and is BAD_TYPE with
+// neither. A size in whole bytes the same way: `512MB`, `1.5 GiB`.
+shcl_read_i64  shcl_read_duration(shcl_doc *d, const char *path, size_t plen, shcl_duration_unit unit);
+shcl_read_i64  shcl_read_size(shcl_doc *d, const char *path, size_t plen, shcl_size_unit unit, int decimal);
+
 shcl_read_i64_arr  shcl_read_int_array(shcl_doc *d, const char *path, size_t plen);
 shcl_read_f64_arr  shcl_read_float_array(shcl_doc *d, const char *path, size_t plen);
 shcl_read_bool_arr shcl_read_bool_array(shcl_doc *d, const char *path, size_t plen);
@@ -471,6 +490,8 @@ int     shcl_get_bool(shcl_doc *d, const char *path, size_t plen, int def);
 // fallback" in every binding, so a routine ported between two of them cannot
 // keep the call name while changing which tier it lands on.
 int64_t shcl_get_int_or(shcl_doc *d, const char *path, size_t plen, int64_t def);
+int64_t shcl_get_duration_or(shcl_doc *d, const char *path, size_t plen, shcl_duration_unit unit, int64_t def);
+int64_t shcl_get_size_or(shcl_doc *d, const char *path, size_t plen, shcl_size_unit unit, int decimal, int64_t def);
 double  shcl_get_float_or(shcl_doc *d, const char *path, size_t plen, double def);
 int     shcl_get_bool_or(shcl_doc *d, const char *path, size_t plen, int def);
 
@@ -529,6 +550,9 @@ size_t shcl_tokens_element_count(const shcl_tokens *t);
 #define SHCL_FORMAT_LINE_HEAD "##    Format   "
 #define SHCL_FORMAT_LINE "##    Format   3"
 #define SHCL_MIGRATED_LINE "##    Migrated from SHCL 2.x."
+// The start of a line naming the file's schema, spelled like the Format line,
+// for check and for editors: `##    Schema   ./app.schema.shcl`.
+#define SHCL_SCHEMA_LINE_HEAD "##    Schema   "
 
 // What shcl_migrate produced, and what it could not carry across. text is
 // malloc'd and NUL-terminated, the caller frees it, len is its length, and it
@@ -557,6 +581,12 @@ shcl_migration shcl_migrate_unstamped(const char *text, size_t len, int from_v2)
 // can ask before it rewrites anything. Digits past 32 bits read as
 // SHCL_FORMAT_MAJOR, since whatever wrote them was not 2.x.
 int64_t shcl_format_version(const char *text, size_t len);
+// The schema a document's `##    Schema   REF` line names: a path, or a URL
+// for an editor to fetch, as a pointer into text with its length in *ref_len.
+// NULL when no line names one. The first such line wins, and one inside a raw
+// body is that block's content, as with the Format line. A relative path is
+// the caller's to resolve, from the config file's directory.
+const char *shcl_schema_ref(const char *text, size_t len, size_t *ref_len);
 
 // --- Writer: typed emit, defaults, comments, structural edits ---------------
 // The reverse of the reads. Each setter builds the canonical stored text for a
@@ -1007,7 +1037,6 @@ static ShclStr s_trim_sp_tab(ShclStr s) {
 }
 
 static int is_adigit(uint32_t c) { return c >= '0' && c <= '9'; }
-static int is_ahex(uint32_t c) { return is_adigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'); }
 static int is_aalnum(uint32_t c) {
 	return is_adigit(c) || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
 }
@@ -1015,7 +1044,6 @@ static int is_bare_name_char(uint32_t c) {
 	return (c < 128 && is_aalnum(c)) || c == '-' || c == '_';
 }
 static int all_adigit0(ShclStr s) { for (size_t i = 0; i < s.n; i++) if (!is_adigit((unsigned char)s.p[i])) return 0; return 1; }
-static int all_ahex(ShclStr s) { for (size_t i = 0; i < s.n; i++) if (!is_ahex((unsigned char)s.p[i])) return 0; return s.n > 0; }
 static ShclStr ascii_lower(ShclArena *a, ShclStr s) {
 	char *m = (char *)arena_alloc(a, s.n ? s.n : 1);
 	for (size_t i = 0; i < s.n; i++) { unsigned char c = (unsigned char)s.p[i]; m[i] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : (char)c; }
@@ -1347,6 +1375,7 @@ static ShclStr value_display(ShclArena *a, const ShclValue *v) {
 typedef shcl_quote ShclQuote; typedef shcl_piece ShclPiece; typedef shcl_seg_tok ShclSegTok;
 typedef shcl_tokens ShclTokens; typedef shcl_rules ShclRules;
 static ShclStr apply_escapes(ShclArena *a, ShclStr s);
+static ShclStr apply_escapes_v2(ShclArena *a, ShclStr s);
 
 static void tok_clear(ShclTokens *t) {
 	t->nseg = 0; t->has_sep = 0; t->sep = 0; t->value_start = 0; t->value_end = 0; t->nelem = 0;
@@ -1615,12 +1644,54 @@ static ShclValue cell_of_tokens(ShclArena *a, ShclArena *tmp, const ShclTokens *
 // Reads text as the value half of a line - see shcl_set_literal.
 static int literal_value(ShclArena *a, ShclArena *tmp, ShclStr text, ShclValue *out);
 
-// Escape processing (a double-quoted piece): \t \n \\ \" \'. An unknown pair
-// stays literal, which only 2.x text still reaches: the current rules refuse
-// one (E023) before anything is read. Text with no backslash comes back as the
-// slice it came in as - nearly every piece, and a copy per piece would be most
-// of a parse's memory.
-static ShclStr apply_escapes(ShclArena *a, ShclStr s) {
+/* The character a \u or \U escape names, from the hex digits in after: four
+   after u, eight after U, as in TOML. Returns how many digits spell it, or 0
+   for a short run, a surrogate or a value past U+10FFFF. */
+static size_t unicode_escape(unsigned char kind, ShclStr after, uint32_t *cp) {
+	size_t n = kind == 'u' ? 4 : 8;
+	if (after.n < n) return 0;
+	uint32_t v = 0;
+	for (size_t i = 0; i < n; i++) {
+		unsigned char h = (unsigned char)after.p[i]; uint32_t d;
+		if (h >= '0' && h <= '9') d = (uint32_t)(h - '0');
+		else if (h >= 'a' && h <= 'f') d = (uint32_t)(h - 'a' + 10);
+		else if (h >= 'A' && h <= 'F') d = (uint32_t)(h - 'A' + 10);
+		else return 0;
+		v = v << 4 | d;
+	}
+	if (v > 0x10FFFF || (v >= 0xD800 && v <= 0xDFFF)) return 0;
+	*cp = v; return n;
+}
+/* Characters canonical output writes as a \u escape, so a reader of the file
+   sees every character that is there: controls with no short escape, the
+   direction marks, embeddings, overrides and isolates, zero-width spaces, the
+   byte order mark, and the line and paragraph separators. The zero-width
+   joiner and non-joiner stay as written, since emoji and several scripts need
+   them. */
+static int invisible(uint32_t c) {
+	return c <= 0x08 || (c >= 0x0B && c <= 0x1F) || (c >= 0x7F && c <= 0x9F)
+		|| c == 0x061C || c == 0x200B || c == 0x200E || c == 0x200F || c == 0xFEFF
+		|| (c >= 0x2028 && c <= 0x202E) || (c >= 0x2060 && c <= 0x2064) || (c >= 0x2066 && c <= 0x2069);
+}
+/* The width of the character at t[i] when invisible names it, else 0. A byte
+   that is not UTF-8 is never one. */
+static size_t invisible_at(ShclStr t, size_t i, uint32_t *cp) {
+	size_t l = utf8_decode(t.p, t.n, i, cp);
+	if (l == 1 && *cp >= 0x80) return 0;
+	return invisible(*cp) ? l : 0;
+}
+static void sb_put_unicode_escape(ShclArena *a, ShclSB *s, uint32_t cp) {
+	static const char hex[] = "0123456789ABCDEF";
+	char b[6] = {'\\', 'u', hex[(cp >> 12) & 0xF], hex[(cp >> 8) & 0xF], hex[(cp >> 4) & 0xF], hex[cp & 0xF]};
+	sb_put(a, s, b, sizeof b);
+}
+
+// Escape processing (a double-quoted piece): \t \n \\ \" \' \uXXXX
+// \UXXXXXXXX. An unknown pair stays literal, which only 2.x text still
+// reaches: the current rules refuse one (E023) before anything is read. Text
+// with no backslash comes back as the slice it came in as - nearly every
+// piece, and a copy per piece would be most of a parse's memory.
+static ShclStr resolve_escapes(ShclArena *a, ShclStr s, shcl_rules rules) {
 	if (!s.n || !memchr(s.p, '\\', s.n)) return s;
 	ShclSB out = {0};
 	size_t i = 0;
@@ -1635,14 +1706,24 @@ static ShclStr apply_escapes(ShclArena *a, ShclStr s) {
 		case '\\': sb_putc(a, &out, '\\'); break;
 		case '"': sb_putc(a, &out, '"'); break;
 		case '\'': sb_putc(a, &out, '\''); break;
+		case 'u': case 'U': {
+			uint32_t cp; size_t n = rules == SHCL_RULES_CURRENT ? unicode_escape((unsigned char)d, s_slice(s, i, s.n), &cp) : 0;
+			if (n) { sb_put_cp(a, &out, cp); i += n; }
+			else { sb_putc(a, &out, '\\'); sb_put_cp(a, &out, d); }
+			break;
+		}
 		default: sb_putc(a, &out, '\\'); sb_put_cp(a, &out, d); break;
 		}
 	}
 	return sb_S(&out);
 }
+static ShclStr apply_escapes(ShclArena *a, ShclStr s) { return resolve_escapes(a, s, SHCL_RULES_CURRENT); }
+/* The 2.x reading, for migrate: no \u, so 2.x kept \u0041 as written. */
+static ShclStr apply_escapes_v2(ShclArena *a, ShclStr s) { return resolve_escapes(a, s, SHCL_RULES_V2); }
 
-/* The character after the first backslash in raw that starts none of the
-   five escapes. Only meaningful for a double-quoted piece. */
+/* The character after the first backslash in raw that starts no escape, or
+   the u or U of one that names no character. Only meaningful for a
+   double-quoted piece. */
 static int unknown_escape(ShclStr raw, uint32_t *c) {
 	if (!raw.n || !memchr(raw.p, '\\', raw.n)) return 0;
 	for (size_t i = 0; i < raw.n; i++) {
@@ -1653,10 +1734,35 @@ static int unknown_escape(ShclStr raw, uint32_t *c) {
 		i++;
 		switch (raw.p[i]) {
 		case 't': case 'n': case '\\': case '"': case '\'': break;
+		case 'u': case 'U': {
+			uint32_t cp;
+			if (!unicode_escape((unsigned char)raw.p[i], s_slice(raw, i + 1, raw.n), &cp)) { *c = (unsigned char)raw.p[i]; return 1; }
+			break;
+		}
 		default: utf8_decode(raw.p, raw.n, i, c); return 1;
 		}
 	}
 	return 0;
+}
+/* unknown_escape by the 2.x rules, which had no \u: a pair 2.x kept as
+   written, so migrate doubles its backslash. */
+static int v2_kept_escape(ShclStr raw) {
+	for (size_t i = 0; i < raw.n; i++) {
+		if (raw.p[i] != '\\') continue;
+		if (i + 1 >= raw.n) return 0;
+		i++;
+		switch (raw.p[i]) {
+		case 't': case 'n': case '\\': case '"': case '\'': break;
+		default: return 1;
+		}
+	}
+	return 0;
+}
+/* A 2.x pair that is a real \u escape now: 2.x read the text as written and
+   the current rules read a character, so only --from-2x can say which. */
+static int unicode_pair_differs(ShclStr raw) {
+	uint32_t uc;
+	return v2_kept_escape(raw) && !unknown_escape(raw, &uc);
 }
 
 /* The first unknown escape in a double-quoted name, selector body or, when
@@ -1693,10 +1799,212 @@ static int path_like(const ShclPiece *p, ShclStr text) {
 	return 0;
 }
 
+// --- Durations and sizes ---------------------------------------------------
+// A number with a unit, or a bare number whose unit the field name or the
+// caller gives.
+
+static uint64_t duration_millis(shcl_duration_unit u) {
+	switch (u) {
+	case SHCL_DURATION_MS: return 1;
+	case SHCL_DURATION_S: return 1000;
+	case SHCL_DURATION_M: return 60000;
+	case SHCL_DURATION_H: return 3600000;
+	case SHCL_DURATION_D: return 86400000;
+	default: return 0;
+	}
+}
+static uint64_t size_bytes(shcl_size_unit u, int decimal) {
+	uint64_t k = decimal ? 1000 : 1024;
+	switch (u) {
+	case SHCL_SIZE_B: return 1;
+	case SHCL_SIZE_KB: return k;
+	case SHCL_SIZE_MB: return k * k;
+	case SHCL_SIZE_GB: return k * k * k;
+	case SHCL_SIZE_TB: return k * k * k * k;
+	case SHCL_SIZE_KIB: return (uint64_t)1 << 10;
+	case SHCL_SIZE_MIB: return (uint64_t)1 << 20;
+	case SHCL_SIZE_GIB: return (uint64_t)1 << 30;
+	case SHCL_SIZE_TIB: return (uint64_t)1 << 40;
+	default: return 0;
+	}
+}
+static const char *const duration_spellings[] = {"", "ms", "s", "m", "h", "d"};
+static const char *const size_spellings[] = {"", "B", "KB", "MB", "GB", "TB", "KiB", "MiB", "GiB", "TiB"};
+const char *shcl_duration_unit_spelling(shcl_duration_unit u) {
+	return (unsigned)u < sizeof duration_spellings / sizeof *duration_spellings ? duration_spellings[u] : "";
+}
+const char *shcl_size_unit_spelling(shcl_size_unit u) {
+	return (unsigned)u < sizeof size_spellings / sizeof *size_spellings ? size_spellings[u] : "";
+}
+shcl_duration_unit shcl_duration_unit_of(const char *s, size_t n) {
+	for (size_t u = 1; u < sizeof duration_spellings / sizeof *duration_spellings; u++)
+		if (strlen(duration_spellings[u]) == n && memcmp(duration_spellings[u], s, n) == 0) return (shcl_duration_unit)u;
+	return SHCL_DURATION_NONE;
+}
+/* Letter case is read, since Mb is megabits to most readers; kB is the one
+   other spelling taken. */
+shcl_size_unit shcl_size_unit_of(const char *s, size_t n) {
+	if (n == 2 && memcmp(s, "kB", 2) == 0) return SHCL_SIZE_KB;
+	for (size_t u = 1; u < sizeof size_spellings / sizeof *size_spellings; u++)
+		if (strlen(size_spellings[u]) == n && memcmp(size_spellings[u], s, n) == 0) return (shcl_size_unit)u;
+	return SHCL_SIZE_NONE;
+}
+/* The longest duration a read gives, in milliseconds: Go's time.Duration
+   range, so every binding holds every duration another one reads. */
+#define SHCL_DURATION_MAX_MS 9223372036854ULL
+
+/* Field name endings that give a bare number its unit, after a `-` or `_`.
+   min, m and s are left out: `retries-min` is a minimum, and a trailing s is
+   usually a plural. A capitalized word (`timeoutMs`) is not a boundary,
+   since names fold to lower case and fmt writes them folded. */
+static const struct { const char *end; shcl_duration_unit unit; } duration_names[] = {
+	{"ms", SHCL_DURATION_MS}, {"sec", SHCL_DURATION_S}, {"seconds", SHCL_DURATION_S},
+	{"minutes", SHCL_DURATION_M}, {"hours", SHCL_DURATION_H}, {"days", SHCL_DURATION_D},
+};
+static const struct { const char *end; shcl_size_unit unit; } size_names[] = {
+	{"bytes", SHCL_SIZE_B}, {"kb", SHCL_SIZE_KB}, {"mb", SHCL_SIZE_MB}, {"gb", SHCL_SIZE_GB}, {"tb", SHCL_SIZE_TB},
+	{"kib", SHCL_SIZE_KIB}, {"mib", SHCL_SIZE_MIB}, {"gib", SHCL_SIZE_GIB}, {"tib", SHCL_SIZE_TIB},
+};
+/* name ends in end, in any letter case, after a `-` or `_`. */
+static int name_ends(ShclStr name, const char *end) {
+	size_t n = strlen(end);
+	if (name.n <= n) return 0;
+	size_t at = name.n - n;
+	for (size_t i = 0; i < n; i++) if ((name.p[at + i] | 0x20) != end[i]) return 0;
+	return name.p[at - 1] == '-' || name.p[at - 1] == '_';
+}
+static shcl_duration_unit name_duration_unit(ShclStr name) {
+	for (size_t i = 0; i < sizeof duration_names / sizeof *duration_names; i++)
+		if (name_ends(name, duration_names[i].end)) return duration_names[i].unit;
+	return SHCL_DURATION_NONE;
+}
+static shcl_size_unit name_size_unit(ShclStr name) {
+	for (size_t i = 0; i < sizeof size_names / sizeof *size_names; i++)
+		if (name_ends(name, size_names[i].end)) return size_names[i].unit;
+	return SHCL_SIZE_NONE;
+}
+/* A decimal number at the start of s: digits, then a point and more digits
+   if there is a point. The two digit runs and where it ended. */
+static int decimal_at(ShclStr s, ShclStr *ip, ShclStr *fp, size_t *end) {
+	size_t i = 0;
+	while (i < s.n && is_adigit((unsigned char)s.p[i])) i++;
+	if (i == 0) return 0;
+	*ip = s_slice(s, 0, i);
+	if (i >= s.n || s.p[i] != '.') { *fp = s_slice(s, i, i); *end = i; return 1; }
+	size_t j = i + 1;
+	while (j < s.n && is_adigit((unsigned char)s.p[j])) j++;
+	if (j == i + 1) return 0;
+	*fp = s_slice(s, i + 1, j); *end = j; return 1;
+}
+/* int.frac times scale, exactly: 0 when that is not a whole number or does
+   not fit, so 1.5s is 1500 ms and 0.0001s is refused. At most 18 digits
+   after the point count, which keeps the sum in 64 bits: the fraction's
+   share is below scale, and dividing out their common factor first gets it
+   without a wider product. */
+static int scaled(ShclStr ip, ShclStr fp, uint64_t scale, uint64_t *out) {
+	while (ip.n && ip.p[0] == '0') { ip.p++; ip.n--; }
+	while (fp.n && fp.p[fp.n - 1] == '0') fp.n--;
+	if (ip.n > 19 || fp.n > 18) return 0;
+	uint64_t whole = 0;
+	for (size_t i = 0; i < ip.n; i++) {
+		uint64_t dg = (uint64_t)(ip.p[i] - '0');
+		if (whole > (UINT64_MAX - dg) / 10) return 0;
+		whole = whole * 10 + dg;
+	}
+	if (whole && scale > UINT64_MAX / whole) return 0;
+	uint64_t total = whole * scale;
+	if (fp.n) {
+		uint64_t part = 0, den = 1;
+		for (size_t i = 0; i < fp.n; i++) { part = part * 10 + (uint64_t)(fp.p[i] - '0'); den *= 10; }
+		uint64_t a = scale, b = den;
+		while (b) { uint64_t t = a % b; a = b; b = t; }
+		uint64_t step = den / a;
+		if (part % step) return 0;
+		uint64_t add = part / step * (scale / a);
+		if (total > UINT64_MAX - add) return 0;
+		total += add;
+	}
+	*out = total; return 1;
+}
+/* A duration in whole milliseconds, and the units the text spelled as a bit
+   set (bit u for unit u): parts such as `1h 30m`, largest unit first and each
+   once, with blanks allowed between a number and its unit and between parts.
+   A bare number takes bare, and fails without one. No sign. */
+static int parse_duration_text(ShclStr t, shcl_duration_unit bare, int64_t *ms, unsigned *units, shcl_duration_unit *first) {
+	t = s_trim_wsp(t);
+	ShclStr ip, fp; size_t end;
+	*units = 0; *first = SHCL_DURATION_NONE;
+	if (decimal_at(t, &ip, &fp, &end) && end == t.n) {
+		uint64_t v;
+		if (bare == SHCL_DURATION_NONE || !scaled(ip, fp, duration_millis(bare), &v) || v > SHCL_DURATION_MAX_MS) return 0;
+		*ms = (int64_t)v; return 1;
+	}
+	ShclStr rest = t;
+	uint64_t total = 0;
+	shcl_duration_unit last = SHCL_DURATION_NONE;
+	while (rest.n) {
+		if (!decimal_at(rest, &ip, &fp, &end)) return 0;
+		rest = trim_wsp_start(s_slice(rest, end, rest.n));
+		size_t n = 0;
+		while (n < rest.n && ((unsigned char)rest.p[n] | 0x20) >= 'a' && ((unsigned char)rest.p[n] | 0x20) <= 'z') n++;
+		shcl_duration_unit u = shcl_duration_unit_of(rest.p, n);
+		if (u == SHCL_DURATION_NONE || (last != SHCL_DURATION_NONE && last <= u)) return 0;
+		uint64_t v;
+		if (!scaled(ip, fp, duration_millis(u), &v) || total > UINT64_MAX - v) return 0;
+		total += v;
+		if (last == SHCL_DURATION_NONE) *first = u;
+		last = u;
+		*units |= 1u << u;
+		rest = trim_wsp_start(s_slice(rest, n, rest.n));
+	}
+	if (last == SHCL_DURATION_NONE || total > SHCL_DURATION_MAX_MS) return 0;
+	*ms = (int64_t)total; return 1;
+}
+/* A size in whole bytes, and the unit the text spelled (NONE for a bare
+   number): a number, blanks allowed, then a unit. A bare number takes bare,
+   and fails without one. No sign. */
+static int parse_size_text(ShclStr t, shcl_size_unit bare, int decimal, int64_t *bytes, shcl_size_unit *unit) {
+	t = s_trim_wsp(t);
+	ShclStr ip, fp; size_t end;
+	if (!decimal_at(t, &ip, &fp, &end)) return 0;
+	ShclStr rest = trim_wsp_start(s_slice(t, end, t.n));
+	*unit = SHCL_SIZE_NONE;
+	if (rest.n && (*unit = shcl_size_unit_of(rest.p, rest.n)) == SHCL_SIZE_NONE) return 0;
+	shcl_size_unit use = *unit != SHCL_SIZE_NONE ? *unit : bare;
+	uint64_t v;
+	if (use == SHCL_SIZE_NONE || !scaled(ip, fp, size_bytes(use, decimal), &v) || v > (uint64_t)INT64_MAX) return 0;
+	*bytes = (int64_t)v; return 1;
+}
+/* A value in another unit than the one its field name ends in (H005), as
+   `timeout-ms: 5s`. The value's unit is the one read, so this is a hint. */
+static int unit_clash(ShclArena *a, ShclStr name, ShclStr text, ShclStr *msg) {
+	const char *v = NULL, *nm = NULL;
+	shcl_duration_unit nu = name_duration_unit(name);
+	int64_t x; unsigned units; shcl_duration_unit first;
+	if (nu != SHCL_DURATION_NONE && parse_duration_text(text, SHCL_DURATION_NONE, &x, &units, &first) && !(units & (1u << nu))) {
+		v = shcl_duration_unit_spelling(first); nm = shcl_duration_unit_spelling(nu);
+	}
+	shcl_size_unit su = name_size_unit(name), vu;
+	if (!v && su != SHCL_SIZE_NONE && parse_size_text(text, SHCL_SIZE_NONE, 0, &x, &vu) && vu != SHCL_SIZE_NONE && vu != su) {
+		v = shcl_size_unit_spelling(vu); nm = shcl_size_unit_spelling(su);
+	}
+	if (!v) return 0;
+	ShclSB m = {0};
+	sb_puts(a, &m, "value is in "); sb_puts(a, &m, v); sb_puts(a, &m, " and the name says "); sb_puts(a, &m, nm);
+	sb_puts(a, &m, "; the value's unit is the one read");
+	*msg = sb_S(&m); return 1;
+}
+
 static const char path_hint[] = "value looks like a Windows path, and its \\t or \\n reads as a tab or newline; single quotes keep a backslash as written";
 
 static ShclStr escape_msg(ShclArena *a, uint32_t c) {
-	ShclSB m = {0}; sb_puts(a, &m, "unknown escape '\\");
+	ShclSB m = {0};
+	if (c == 'u' || c == 'U') {
+		sb_puts(a, &m, "bad escape '\\"); sb_putc(a, &m, (char)c);
+		sb_puts(a, &m, "' in double quotes; \\u takes 4 hex digits and \\U takes 8, naming a Unicode character; write a backslash as '\\\\' or use single quotes");
+		return sb_S(&m);
+	}
+	sb_puts(a, &m, "unknown escape '\\");
 	if (c == '\n') sb_puts(a, &m, "\\n");
 	else if (c == '\r') sb_puts(a, &m, "\\r");
 	else if (c == '\t') sb_puts(a, &m, "\\t");
@@ -1859,11 +2167,13 @@ static ShclStr strip_common(ShclStr line, ShclStr common) {
 
 // --- Migration: a 2.x document rewritten for the current lexical rules -------
 
-static ShclStr quote_text(ShclArena *a, ShclStr t);
-static ShclStr quote_double(ShclArena *a, ShclStr t);
+static ShclStr quote_text_as(ShclArena *a, ShclStr t, shcl_rules rules);
+static ShclStr quote_double_as(ShclArena *a, ShclStr t, shcl_rules rules);
+static int needs_quotes(ShclStr t);
 static ShclStr emit_element(ShclArena *a, const ShclElement *e);
 static ShclElement new_element(ShclStr text);
 static ShclStr escape_name(ShclArena *a, ShclStr name);
+static ShclStr escape_name_as(ShclArena *a, ShclStr name, shcl_rules rules);
 static ShclStr diag_name(ShclArena *a, ShclStr name);
 static ShclStr diag_value(ShclArena *a, const ShclValue *v);
 static int index_shape(ShclStr body);
@@ -1910,12 +2220,13 @@ static int reads_same(ShclArena *a, ShclStr spelling, int quoted, ShclStr logica
 
 /* How a re-spelled piece is written. 2.x read a backslash in bare and
    single-quoted text as an escape too, and double quotes are where both rule
-   sets read one alike. So the migrated file reads the same under 2.x, and a
-   second run changes nothing. */
+   sets read one alike. No \u goes in, since 2.x would keep it as written.
+   So the migrated file reads the same under 2.x, and a second run changes
+   nothing. */
 static ShclStr migrate_spelling(ShclArena *a, ShclStr logical, int bare) {
-	if (memchr(logical.p, '\\', logical.n)) return quote_double(a, logical);
-	if (bare) { ShclElement e; e.text = logical; e.quoted = 0; return emit_element(a, &e); }
-	return quote_text(a, logical);
+	if (memchr(logical.p, '\\', logical.n)) return quote_double_as(a, logical, SHCL_RULES_V2);
+	if (bare && !needs_quotes(logical)) return logical;
+	return quote_text_as(a, logical, SHCL_RULES_V2);
 }
 
 /* True when 2.x read this bare `[...]` body as the JSON-habit array rather
@@ -1941,13 +2252,15 @@ static void value_edits(ShclArena *a, ShclStr text, const ShclTokens *tok, ShclV
 		int quoted = piece_quoted(p->quote);
 		size_t ea = quoted ? p->start - 1 : p->start, eb = quoted ? p->end + 1 : p->end;
 		if (p->quote == SHCL_QUOTE_NONE && !memchr(raw.p, '\\', raw.n) && raw.n) continue;
-		ShclStr logical = apply_escapes(a, raw);
+		ShclStr logical = apply_escapes_v2(a, raw);
 		if (reads_same(a, s_slice(text, ea, eb), quoted, logical)) continue;
 		/* A resolved escape is the one edit that turns on which rule set wrote
 		   the file: these bytes say one thing under 2.x and another here. An
 		   open quote or an empty slot reads alike either way, so it still goes,
-		   and so does an unknown pair in double quotes, which both kept. */
-		if (!s_eq(logical, raw) && p->quote != SHCL_QUOTE_DOUBLE && !st->from_v2) { st->ambiguous++; continue; }
+		   and so does an unknown pair in double quotes, which both kept. A \u
+		   in double quotes is a character now and was text in 2.x. */
+		int differs = p->quote == SHCL_QUOTE_DOUBLE ? unicode_pair_differs(raw) : !s_eq(logical, raw);
+		if (differs && !st->from_v2) { st->ambiguous++; continue; }
 		edit_push(a, edits, ea, eb, migrate_spelling(a, logical, !(quoted || p->quote == SHCL_QUOTE_OPEN)));
 	}
 }
@@ -1971,12 +2284,15 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 		for (size_t i = 0; i < tok->nseg; i++) {
 			const ShclSegTok *seg = &tok->segments[i];
 			ShclStr name = s_slice(rest, seg->name.start, seg->name.end);
-			uint32_t uc;
 			/* An unknown pair in double quotes read the same in 2.x, and is
-			   E023 now, so its backslash is doubled whichever wrote the file. */
-			if (seg->name.quote == SHCL_QUOTE_DOUBLE && unknown_escape(name, &uc)) edit_push(a, &edits, seg->name.start - 1, seg->name.end + 1, escape_name(a, apply_escapes(a, name)));
-			if (seg->name.quote == SHCL_QUOTE_SINGLE && !s_eq(apply_escapes(a, name), name)) {
-				if (st->from_v2) edit_push(a, &edits, seg->name.start - 1, seg->name.end + 1, escape_name(a, apply_escapes(a, name)));
+			   E023 now, so its backslash is doubled whichever wrote the file.
+			   A \u pair is a character now, so that one needs --from-2x. */
+			if (seg->name.quote == SHCL_QUOTE_DOUBLE && v2_kept_escape(name)) {
+				if (unicode_pair_differs(name) && !st->from_v2) st->ambiguous++;
+				else edit_push(a, &edits, seg->name.start - 1, seg->name.end + 1, escape_name_as(a, apply_escapes_v2(a, name), SHCL_RULES_V2));
+			}
+			if (seg->name.quote == SHCL_QUOTE_SINGLE && !s_eq(apply_escapes_v2(a, name), name)) {
+				if (st->from_v2) edit_push(a, &edits, seg->name.start - 1, seg->name.end + 1, escape_name_as(a, apply_escapes_v2(a, name), SHCL_RULES_V2));
 				else st->ambiguous++;
 			}
 			if (!seg->has_selector) continue;
@@ -1993,8 +2309,8 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 			while (k > 0 && is_wsp((unsigned char)rest.p[k - 1])) k--;
 			if (k > 0 && rest.p[k - 1] == ':') { has_colon = 1; colon = k - 1; }
 			ShclStr body = s_slice(rest, sel->start, sel->end);
-			ShclStr logical = apply_escapes(a, body);
-			int unknown = sel->quote == SHCL_QUOTE_DOUBLE && unknown_escape(body, &uc);
+			ShclStr logical = apply_escapes_v2(a, body);
+			int unknown = sel->quote == SHCL_QUOTE_DOUBLE && v2_kept_escape(body);
 			if (i == last && !tok->has_sep) {
 				if (has_colon) {
 					/* name:[disc] with nothing after it: 2.x read it as
@@ -2027,7 +2343,8 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 			}
 			/* Double quotes already read alike on both sides, so only the other
 			   spellings turn on which rule set wrote the file. */
-			if (unknown) edit_push(a, &edits, sel->start - 1, sel->end + 1, migrate_spelling(a, logical, 0));
+			if (unknown && unicode_pair_differs(body) && !st->from_v2) st->ambiguous++;
+			else if (unknown) edit_push(a, &edits, sel->start - 1, sel->end + 1, migrate_spelling(a, logical, 0));
 			else if (!s_eq(logical, body) && sel->quote != SHCL_QUOTE_DOUBLE) {
 				if (st->from_v2) {
 					size_t ea = quoted ? sel->start - 1 : sel->start, eb = quoted ? sel->end + 1 : sel->end;
@@ -2236,6 +2553,65 @@ int64_t shcl_format_version(const char *text, size_t len) {
 	return v;
 }
 
+/* The Schema line's reference, walked the way format_line_version walks. */
+static int schema_line_ref(ShclArena *ta, ShclArena *sc, ShclStr text, ShclTokens *tok, ShclStr *out) {
+	size_t headn = sizeof(SHCL_SCHEMA_LINE_HEAD) - 1, start = 0;
+	int fence_on = 0; unsigned char fence_ch = 0; size_t fence_len = 0;
+	ShclMigrating dry; dry.from_v2 = 1; dry.ambiguous = 0; dry.lost = 0;
+	for (size_t i = 0; i <= text.n; i++) {
+		if (i < text.n && text.p[i] != '\n') continue;
+		ShclStr raw = s_slice(text, start, i);
+		start = i + 1;
+		size_t bn = raw.n;
+		while (bn > 0 && raw.p[bn - 1] == '\r') bn--;
+		ShclStr body = s_slice(raw, 0, bn);
+		if (fence_on) {
+			if (is_fence_close(body, fence_ch, fence_len)) fence_on = 0;
+			continue;
+		}
+		if (body.n >= headn && memcmp(body.p, SHCL_SCHEMA_LINE_HEAD, headn) == 0) {
+			ShclStr r = s_trim_wsp(s_slice(body, headn, body.n));
+			if (r.n) { *out = r; return 1; }
+			continue;
+		}
+		arena_reset(sc);
+		ShclStr indent = leading_ws(body);
+		migrate_line(ta, sc, trim_wsp_end(s_slice(body, indent.n, body.n)), tok, &fence_on, &fence_ch, &fence_len, &dry);
+	}
+	return 0;
+}
+
+/* The recovery path reads only the volatile carrier, so -Wclobbered's guess
+   about the walk inlined below is wrong here the way it is for do_parse. */
+#if defined(__GNUC__) && !defined(__clang__)
+	#pragma GCC diagnostic push
+	#pragma GCC diagnostic ignored "-Wclobbered"
+#endif
+const char *shcl_schema_ref(const char *text, size_t len, size_t *ref_len) {
+	ShclMigrateOwn *volatile own = (ShclMigrateOwn *)calloc(1, sizeof *own);
+	if (!own) { SHCL_OOM(); abort(); }
+	jmp_buf panic;
+	if (SHCL_SETJMP(panic)) {
+		ShclMigrateOwn *bad = own;
+		arena_free(&bad->a); arena_free(&bad->sc); free(bad);
+		SHCL_OOM();
+		abort();
+	}
+	arena_guard(&own->a, &panic); arena_guard(&own->sc, &panic);
+	ShclStr in; in.p = text ? text : ""; in.n = len;
+	if (in.n >= 3 && (unsigned char)in.p[0] == 0xEF && (unsigned char)in.p[1] == 0xBB && (unsigned char)in.p[2] == 0xBF) in = s_slice(in, 3, in.n);
+	ShclTokens tok; memset(&tok, 0, sizeof tok);
+	ShclStr r = s_empty();
+	int found = schema_line_ref(&own->a, &own->sc, in, &tok, &r);
+	ShclMigrateOwn *done = own;
+	arena_free(&done->a); arena_free(&done->sc); free(done);
+	if (ref_len) *ref_len = found ? r.n : 0;
+	return found ? r.p : NULL;
+}
+#if defined(__GNUC__) && !defined(__clang__)
+	#pragma GCC diagnostic pop
+#endif
+
 // --- Path scanner (shared by file lines and accessor queries) ----------------
 
 typedef enum { SEL_NONE, SEL_VALUE, SEL_INDEX, SEL_WILDCARD } ShclSelTag;
@@ -2404,19 +2780,39 @@ static int parse_i64_s(ShclStr t, int64_t *out) {
 	else *out = (int64_t)v;
 	return 1;
 }
-// magnitude hex in [0, INT64_MAX]; overflow -> fail.
+// radix_digit: the value of an ASCII hex digit, or -1.
+static int radix_digit(unsigned char c) {
+	if (c >= '0' && c <= '9') return c - '0';
+	if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+	if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+	return -1;
+}
+// radix_body: the digits after a `0x`, `0o` or `0b` prefix, either case, with
+// their radix. A bare leading zero is decimal, so `0o` is the one way to write
+// an octal mode.
+static int radix_body(ShclStr t, unsigned *radix, ShclStr *digits) {
+	if (t.n < 3 || t.p[0] != '0') return 0;
+	switch (t.p[1]) {
+	case 'x': case 'X': *radix = 16; break;
+	case 'o': case 'O': *radix = 8; break;
+	case 'b': case 'B': *radix = 2; break;
+	default: return 0;
+	}
+	*digits = s_slice(t, 2, t.n);
+	for (size_t i = 0; i < digits->n; i++) {
+		int d = radix_digit((unsigned char)digits->p[i]);
+		if (d < 0 || (unsigned)d >= *radix) return 0;
+	}
+	return 1;
+}
 // The magnitude, as u64 (guarded against u64 overflow). The sign range-check is
 // the caller's, so the negative i64_min magnitude (0x8000000000000000) reads.
-static int parse_hex_u64(ShclStr h, uint64_t *out) {
+static int parse_radix_u64(ShclStr h, unsigned radix, uint64_t *out) {
 	uint64_t v = 0;
 	for (size_t i = 0; i < h.n; i++) {
-		unsigned char c = (unsigned char)h.p[i]; int d;
-		if (c >= '0' && c <= '9') d = c - '0';
-		else if (c >= 'a' && c <= 'f') d = c - 'a' + 10;
-		else if (c >= 'A' && c <= 'F') d = c - 'A' + 10;
-		else return 0;
-		if (v > (UINT64_MAX - (uint64_t)d) / 16) return 0;
-		v = v * 16 + (uint64_t)d;
+		uint64_t d = (uint64_t)radix_digit((unsigned char)h.p[i]);
+		if (v > (UINT64_MAX - d) / radix) return 0;
+		v = v * radix + d;
 	}
 	*out = v; return 1;
 }
@@ -2483,25 +2879,21 @@ static int parse_float_text(ShclArena *a, const ShclElement *e, shcl_strictness 
 	}
 	*out = percent ? v / 100.0 : v; return 1;
 }
-/* The two integer spellings the plain float parse does not read - hex, and
-   quoted thousands - past the i64 range, as a double: a float read is bounded
-   by the double, not by the integer type. Hex goes in digit by digit in the
-   double, so every binding rounds the same way; the spellings mirror
-   parse_int_text. */
+/* The integer spellings the plain float parse does not read - hex, octal,
+   binary and quoted thousands - past the i64 range, as a double: a float read
+   is bounded by the double, not by the integer type. A prefixed number goes in
+   digit by digit in the double, so every binding rounds the same way; the
+   spellings mirror parse_int_text. */
 static int parse_int_text_wide(ShclArena *a, const ShclElement *e, double *out) {
 	ShclStr t = s_trim(e->text);
 	int neg = 0; ShclStr body = t;
 	if (t.n > 0 && t.p[0] == '-') { neg = 1; body = s_slice(t, 1, t.n); }
 	else if (t.n > 0 && t.p[0] == '+') body = s_slice(t, 1, t.n);
 	double v = 0.0;
-	if (s_starts(body, "0x") || s_starts(body, "0X")) {
-		ShclStr h = s_slice(body, 2, body.n);
-		if (h.n == 0 || !all_ahex(h)) return 0;
-		for (size_t i = 0; i < h.n; i++) {
-			unsigned char c = (unsigned char)h.p[i];
-			int d = c <= '9' ? c - '0' : (c | 0x20) - 'a' + 10;
-			v = v * 16.0 + (double)d;
-		}
+	unsigned radix; ShclStr digits;
+	if (radix_body(body, &radix, &digits)) {
+		for (size_t i = 0; i < digits.n; i++)
+			v = v * (double)radix + (double)radix_digit((unsigned char)digits.p[i]);
 	} else if (e->quoted && s_contains_char(body, ',')) {
 		ShclVecS groups = {0}; split_byte(a, body, ',', &groups);
 		int wf = groups.len > 1 && groups.data[0].n > 0 && groups.data[0].n <= 3 && all_adigit0(groups.data[0]);
@@ -2521,23 +2913,22 @@ static int parse_int_text(ShclArena *a, const ShclElement *e, shcl_strictness le
 	ShclStr body = t;
 	if (body.n > 0 && (body.p[0] == '+' || body.p[0] == '-')) body = s_slice(body, 1, body.n);
 	if (body.n > 0 && all_adigit0(body)) return parse_i64_s(t, out);
-	int neg = 0; ShclStr hex = t;
-	if (t.n > 0 && t.p[0] == '-') { neg = 1; hex = s_slice(t, 1, t.n); }
-	else if (t.n > 0 && t.p[0] == '+') { hex = s_slice(t, 1, t.n); }
-	if (s_starts(hex, "0x") || s_starts(hex, "0X")) {
-		ShclStr h = s_slice(hex, 2, hex.n);
-		if (all_ahex(h)) {
-			uint64_t m; if (!parse_hex_u64(h, &m)) return 0;
-			if (neg) {
-				if (m == (uint64_t)INT64_MAX + 1) *out = INT64_MIN;
-				else if (m <= (uint64_t)INT64_MAX) *out = -(int64_t)m;
-				else return 0;
-			} else {
-				if (m <= (uint64_t)INT64_MAX) *out = (int64_t)m;
-				else return 0;
-			}
-			return 1;
+	/* Hex, octal and binary. */
+	int neg = 0; ShclStr prefixed = t;
+	if (t.n > 0 && t.p[0] == '-') { neg = 1; prefixed = s_slice(t, 1, t.n); }
+	else if (t.n > 0 && t.p[0] == '+') { prefixed = s_slice(t, 1, t.n); }
+	unsigned radix; ShclStr digits;
+	if (radix_body(prefixed, &radix, &digits)) {
+		uint64_t m; if (!parse_radix_u64(digits, radix, &m)) return 0;
+		if (neg) {
+			if (m == (uint64_t)INT64_MAX + 1) *out = INT64_MIN;
+			else if (m <= (uint64_t)INT64_MAX) *out = -(int64_t)m;
+			else return 0;
+		} else {
+			if (m <= (uint64_t)INT64_MAX) *out = (int64_t)m;
+			else return 0;
 		}
+		return 1;
 	}
 	if (e->quoted && s_contains_char(t, ',')) {
 		ShclStr sign_body = t;
@@ -3687,6 +4078,8 @@ static int add_star_element(ShclParser *P, size_t parent, const ShclTokens *tok,
 	if (piece.quote == SHCL_QUOTE_OPEN) p_err(P, line, "E017", s_lit("unterminated quote in value"));
 	int binding_like = !el.quoted && looks_like_binding(el.text);
 	int path = path_like(&piece, text);
+	ShclStr clash;
+	int clashed = unit_clash(P->tmp, NODE(P->d, parent).name, el.text, &clash);
 	/* Element cap: each element line past it is refused on its own, the way
 	   any other bad element line is. Only a line that would join the list:
 	   under a field that already has a value it is E011, cap or not. */
@@ -3727,6 +4120,7 @@ static int add_star_element(ShclParser *P, size_t parent, const ShclTokens *tok,
 	}
 	if (binding_like) p_diag(P, line, SHCL_SEV_HINT, "H003", s_lit("list element looks like a field binding; it is read as a string (quote it to say so)"));
 	if (path) p_diag(P, line, SHCL_SEV_HINT, "H004", s_lit(path_hint));
+	if (clashed) p_diag(P, line, SHCL_SEV_HINT, "H005", clash);
 	/* A kept element holds its column as a dropped one does, with the field as
 	   that level's node: a line written deeper binds where it always did, and a
 	   line back at the element's column is its sibling, where no level had been
@@ -4076,6 +4470,10 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 		if (attach_path(&P, parent, scan.segs.data, scan.segs.len, value, lineno, indent, &node)) {
 			for (size_t k = 0; celled && k < tok.nelem; k++)
 				if (path_like(&tok.elements[k], rest)) { p_diag(&P, lineno, SHCL_SEV_HINT, "H004", s_lit(path_hint)); break; }
+			for (size_t k = 0; celled && k < tok.nelem; k++) {
+				ShclStr clash;
+				if (unit_clash(P.tmp, NODE(d, node).name, piece_text(P.tmp, &tok.elements[k], rest), &clash)) { p_diag(&P, lineno, SHCL_SEV_HINT, "H005", clash); break; }
+			}
 			if (had_blank) NODE(d, node).blank_before = 1;
 			if (next > i + 1) { ShclVecSize_push(a, &d->ends, lineno); ShclVecSize_push(a, &d->ends, next); }
 			attach_trivia(&P, node, indent, comment);
@@ -5084,7 +5482,7 @@ static int banner_line(ShclStr t) {
 }
 
 /* Take each run of "##" lines holding the info block's SHCL line or a version
-   line out of v. Returns how many came off; *owed says whether the last one
+   line out of v, all but a Schema line. Returns how many came off; *owed says whether the last one
    had a blank above it with no line after it to take that blank. */
 static size_t drop_banners(ShclVecLead *v, int *owed) {
 	size_t w = 0, removed = 0, i = 0;
@@ -5097,9 +5495,15 @@ static size_t drop_banners(ShclVecLead *v, int *owed) {
 			for (size_t k = i; k < end && !hit; k++) hit = banner_line(v->data[k].text);
 			if (hit) {
 				/* The blank that set the block off moves to whatever followed
-				   it, so the lines around it stay apart. */
-				if (end < v->len) v->data[end].blank_before |= v->data[i].blank_before;
-				else *owed = v->data[i].blank_before;
+				   it, so the lines around it stay apart. A Schema line in the
+				   block is the author's and stays, with the blank. */
+				int blank = v->data[i].blank_before;
+				size_t at = w;
+				for (size_t k = i; k < end; k++)
+					if (s_starts(v->data[k].text, SHCL_SCHEMA_LINE_HEAD)) v->data[w++] = v->data[k];
+				if (at < w) v->data[at].blank_before = blank;
+				else if (end < v->len) v->data[end].blank_before |= blank;
+				else *owed = blank;
 				removed++; i = end; continue;
 			}
 		}
@@ -5663,6 +6067,48 @@ shcl_read_dt shcl_read_datetime(shcl_doc *d, const char *path, size_t plen) {
 	else { memset(&R.value, 0, sizeof R.value); R.value.zone = SHCL_ZONE_NONE; R.status = SHCL_BAD_TYPE; }
 	return R;
 }
+/* scalar_at with the node's name, for the reads whose bare number takes its
+   unit from the name. */
+static shcl_status scalar_named_at(shcl_doc *d, ShclStr path, ShclElement **el, ShclStr *name) {
+	ShclResolved r;
+	*el = NULL;
+	if (!resolve(d, path, &r) || r.kind == R_NONE) return SHCL_NOT_FOUND;
+	if (r.kind == R_MANY || r.kind == R_SLOTS) return SHCL_MULTIPLE;
+	ShclValue *v = &NODE(d, r.one).value;
+	*name = NODE(d, r.one).name;
+	if (v->kind == V_EMPTY) return SHCL_EMPTY;
+	if (v->kind == V_RAW || v->nels != 1) return SHCL_BAD_TYPE;
+	*el = &v->els[0]; return SHCL_GOOD;
+}
+shcl_read_i64 shcl_read_duration(shcl_doc *d, const char *path, size_t plen, shcl_duration_unit unit) {
+	shcl_read_i64 R; ShclStr p; p.p = path; p.n = plen; ShclElement *el; ShclStr name = s_empty();
+	shcl_status st = scalar_named_at(d, p, &el, &name);
+	R.value = 0;
+	if (st != SHCL_GOOD) { R.status = st; return R; }
+	shcl_duration_unit bare = name_duration_unit(name);
+	if (bare == SHCL_DURATION_NONE) bare = unit;
+	unsigned units; shcl_duration_unit first;
+	R.status = parse_duration_text(el->text, bare, &R.value, &units, &first) ? SHCL_GOOD : SHCL_BAD_TYPE;
+	if (R.status != SHCL_GOOD) R.value = 0;
+	return R;
+}
+shcl_read_i64 shcl_read_size(shcl_doc *d, const char *path, size_t plen, shcl_size_unit unit, int decimal) {
+	shcl_read_i64 R; ShclStr p; p.p = path; p.n = plen; ShclElement *el; ShclStr name = s_empty();
+	shcl_status st = scalar_named_at(d, p, &el, &name);
+	R.value = 0;
+	if (st != SHCL_GOOD) { R.status = st; return R; }
+	shcl_size_unit bare = name_size_unit(name), vu;
+	if (bare == SHCL_SIZE_NONE) bare = unit;
+	R.status = parse_size_text(el->text, bare, decimal, &R.value, &vu) ? SHCL_GOOD : SHCL_BAD_TYPE;
+	if (R.status != SHCL_GOOD) R.value = 0;
+	return R;
+}
+int64_t shcl_get_duration_or(shcl_doc *d, const char *path, size_t plen, shcl_duration_unit unit, int64_t def) {
+	shcl_read_i64 r = shcl_read_duration(d, path, plen, unit); return r.status == SHCL_GOOD ? r.value : def;
+}
+int64_t shcl_get_size_or(shcl_doc *d, const char *path, size_t plen, shcl_size_unit unit, int decimal, int64_t def) {
+	shcl_read_i64 r = shcl_read_size(d, path, plen, unit, decimal); return r.status == SHCL_GOOD ? r.value : def;
+}
 static ShclStr emit_element(ShclArena *a, const ShclElement *e);
 
 shcl_read_str shcl_read_string(shcl_doc *d, const char *path, size_t plen) {
@@ -5798,36 +6244,50 @@ shcl_status shcl_read_string_array_to(shcl_doc *d, const char *path, size_t plen
 /* Quote a logical string so the tokenizer reads it back as the same string.
    Single quotes are literal, so they are the spelling for text holding a
    double quote or a backslash; double quotes carry the escapes, so they are
-   the spelling for a line break, a tab, or text holding both quote kinds. */
-static ShclStr quote_text(ShclArena *a, ShclStr t) {
+   the spelling for a line break, a tab, an invisible character, or text
+   holding both quote kinds. */
+static ShclStr quote_text(ShclArena *a, ShclStr t) { return quote_text_as(a, t, SHCL_RULES_CURRENT); }
+/* quote_text for a reader of rules, as in quote_double_as. */
+static ShclStr quote_text_as(ShclArena *a, ShclStr t, shcl_rules rules) {
 	int control = memchr(t.p, '\n', t.n) || memchr(t.p, '\t', t.n);
+	for (size_t i = 0; !control && rules == SHCL_RULES_CURRENT && i < t.n; i++) { uint32_t cp; control = invisible_at(t, i, &cp) != 0; }
 	ShclSB s = {0};
 	if (!control && !memchr(t.p, '\'', t.n) && (memchr(t.p, '"', t.n) || memchr(t.p, '\\', t.n))) {
 		sb_putc(a, &s, '\''); sb_putS(a, &s, t); sb_putc(a, &s, '\'');
 		return sb_S(&s);
 	}
-	return quote_double(a, t);
+	return quote_double_as(a, t, rules);
 }
 
-/* The double-quoted spelling, which the 2.x and current rules read alike. */
-static ShclStr quote_double(ShclArena *a, ShclStr t) {
+/* The double-quoted spelling for a reader of rules. The two read it alike,
+   except a \u escape, which 2.x kept as written, so for 2.x an invisible
+   character goes in as it is. */
+static ShclStr quote_double_as(ShclArena *a, ShclStr t, shcl_rules rules) {
 	ShclSB s = {0};
 	sb_reserve(a, &s, t.n + 2);
 	sb_putc(a, &s, '"');
 	for (size_t i = 0; i < t.n; i++) {
-		char c = t.p[i];
+		char c = t.p[i]; uint32_t cp; size_t l;
 		if (c == '\\') sb_puts(a, &s, "\\\\");
 		else if (c == '"') sb_puts(a, &s, "\\\"");
 		else if (c == '\n') sb_puts(a, &s, "\\n");
 		else if (c == '\t') sb_puts(a, &s, "\\t");
+		else if (rules == SHCL_RULES_CURRENT && (l = invisible_at(t, i, &cp)) != 0) { sb_put_unicode_escape(a, &s, cp); i += l - 1; }
 		else sb_putc(a, &s, c);
 	}
 	sb_putc(a, &s, '"');
 	return sb_S(&s);
 }
+// leading_zero: a zero followed by another digit, after any sign: `007`,
+// `-012`, `00.5`.
+static int leading_zero(ShclStr t) {
+	if (t.n && (t.p[0] == '+' || t.p[0] == '-')) { t.p++; t.n--; }
+	return t.n > 1 && t.p[0] == '0' && t.p[1] >= '0' && t.p[1] <= '9';
+}
 // is_data_format: true when the text reads as an int, float, bool, or datetime
 // at standard strictness - fixed there deliberately, so canonical form cannot
-// vary with the load strictness.
+// vary with the load strictness. A number with a leading zero does not count:
+// quotes are how a file says the zeros matter, as in a zip code.
 // One pass over the bytes before any coercion. At Standard the int, float and
 // datetime forms all require at least one ASCII digit; the only formats that do
 // not are the boolean words, and the longest of those is "false". An ordinary
@@ -5841,8 +6301,10 @@ static int is_data_format(ShclArena *a, const ShclElement *e) {
 		ShclStr t = s_trim(e->text);
 		return t.n <= 5 && parse_bool_text(a, t, SHCL_STANDARD, &bv);
 	}
-	if (parse_int_text(a, e, SHCL_STANDARD, &iv)) return 1;
-	if (parse_float_text(a, e, SHCL_STANDARD, &fv)) return 1;
+	if (!leading_zero(s_trim(e->text))) {
+		if (parse_int_text(a, e, SHCL_STANDARD, &iv)) return 1;
+		if (parse_float_text(a, e, SHCL_STANDARD, &fv)) return 1;
+	}
 	if (parse_bool_text(a, e->text, SHCL_STANDARD, &bv)) return 1;
 	if (parse_datetime(a, e->text, &dv)) return 1;
 	return 0;
@@ -5853,7 +6315,8 @@ static int needs_quotes(ShclStr t) {
 	if (!needs) {
 		size_t i = 0;
 		while (i < t.n) { uint32_t c; size_t l = utf8_decode(t.p, t.n, i, &c); i += l;
-			if (c == ' ' || c == '\t' || c == '\n' || c == ',' || c == ':' || c == '#' || c == '"' || c == '\'' || c == '[' || c == ']') { needs = 1; break; } }
+			if (c == ' ' || c == '\t' || c == '\n' || c == ',' || c == ':' || c == '#' || c == '"' || c == '\'' || c == '[' || c == ']') { needs = 1; break; }
+			if ((l > 1 || c < 0x80) && invisible(c)) { needs = 1; break; } }
 	}
 	/* Edge whitespace still has to force quotes, for the carriage return: it is
 	   a blank, so a piece ending in one loses it to the reload. Space and tab
@@ -5887,7 +6350,10 @@ static ShclElement new_element(ShclStr text) {
 /* Emit a stored (escape-resolved) name in a spelling that reads back as the
    same name: bare when it can be, else double-quoted with the escapes
    apply_escapes undoes. */
-static ShclStr escape_name(ShclArena *a, ShclStr name) {
+static ShclStr escape_name(ShclArena *a, ShclStr name) { return escape_name_as(a, name, SHCL_RULES_CURRENT); }
+/* escape_name for a reader of rules: under 2.x an invisible character is
+   written as it is, since 2.x kept a \u as written. */
+static ShclStr escape_name_as(ShclArena *a, ShclStr name, shcl_rules rules) {
 	if (name.n > 0) {
 		int allbare = 1; size_t i = 0;
 		while (i < name.n) { uint32_t c; size_t l = utf8_decode(name.p, name.n, i, &c); i += l; if (!is_bare_name_char(c)) { allbare = 0; break; } }
@@ -5896,11 +6362,12 @@ static ShclStr escape_name(ShclArena *a, ShclStr name) {
 	ShclSB b = {0};
 	sb_putc(a, &b, '"');
 	for (size_t i = 0; i < name.n; i++) {
-		char c = name.p[i];
+		char c = name.p[i]; uint32_t cp; size_t l;
 		if (c == '\\') sb_puts(a, &b, "\\\\");
 		else if (c == '"') sb_puts(a, &b, "\\\"");
 		else if (c == '\t') sb_puts(a, &b, "\\t");
 		else if (c == '\n') sb_puts(a, &b, "\\n");
+		else if (rules == SHCL_RULES_CURRENT && (l = invisible_at(name, i, &cp)) != 0) { sb_put_unicode_escape(a, &b, cp); i += l - 1; }
 		else sb_putc(a, &b, c);
 	}
 	sb_putc(a, &b, '"');
@@ -5910,37 +6377,12 @@ static ShclStr emit_name(ShclArena *a, ShclStr name) { return escape_name(a, nam
 /* A field name for a diagnostic message: spelled the way the emitter would
    write it, so a name carrying a line break, a dot or a quote cannot pose as
    something it is not - a raw `a.b` reads exactly like `a` nesting `b`, and a
-   raw line break splits one diagnostic across two. CR is escaped here and not
-   in escape_name, because the name parse has no `\r` escape to read back. */
-static ShclStr diag_name(ShclArena *a, ShclStr name) {
-	ShclStr q = escape_name(a, name);
-	size_t i = 0;
-	while (i < q.n && q.p[i] != '\r') i++;
-	if (i == q.n) return q;
-	ShclSB b = {0};
-	for (i = 0; i < q.n; i++) {
-		if (q.p[i] == '\r') sb_puts(a, &b, "\\r");
-		else sb_putc(a, &b, q.p[i]);
-	}
-	return sb_S(&b);
-}
+   raw line break splits one diagnostic across two. */
+static ShclStr diag_name(ShclArena *a, ShclStr name) { return escape_name(a, name); }
 /* One element of a value, spelled for a diagnostic message: the emitter's
    inline spelling, so a value carrying a line break cannot split one
-   diagnostic across two. A mid-piece CR is content and the emitter leaves it
-   bare, so it forces quotes here and is escaped, same reason as diag_name. */
-static ShclStr diag_element(ShclArena *a, const ShclElement *e) {
-	ShclStr s = emit_element(a, e);
-	size_t i = 0;
-	while (i < s.n && s.p[i] != '\r') i++;
-	if (i == s.n) return s;
-	ShclStr q = quote_double(a, e->text);
-	ShclSB b = {0};
-	for (i = 0; i < q.n; i++) {
-		if (q.p[i] == '\r') sb_puts(a, &b, "\\r");
-		else sb_putc(a, &b, q.p[i]);
-	}
-	return sb_S(&b);
-}
+   diagnostic across two. */
+static ShclStr diag_element(ShclArena *a, const ShclElement *e) { return emit_element(a, e); }
 /* A value for a diagnostic message. Only a cell reaches this today, from the
    H001 hint; a raw block has no one-line form worth suggesting. */
 static ShclStr diag_value(ShclArena *a, const ShclValue *v) {
@@ -7411,7 +7853,7 @@ const char *shcl_diag_code(const shcl_doc *d, size_t i) { return d->diags.data[i
 struct shcl_validation { ShclArena arena, scratch; ShclVecDiag diags; };
 
 static const char *v_schema_types[] = {
-	"int", "float", "bool", "string", "datetime", "raw",
+	"int", "float", "bool", "string", "datetime", "raw", "duration", "size",
 	"int-array", "float-array", "bool-array", "string-array", "datetime-array",
 };
 
@@ -7426,6 +7868,11 @@ typedef struct {
 	int64_t *a_ints; double *a_floats; int *a_bools; shcl_datetime *a_dates; ShclStr *a_strs;
 	int has_min_i, has_max_i, has_min_f, has_max_f;
 	int64_t min_i, max_i; double min_f, max_f;
+	/* duration and size: the unit a bare number takes when the field name
+	   gives none, base 10 for KB to TB, and the bounds as the schema spelled
+	   them, since min_i and max_i hold them in milliseconds or bytes. */
+	shcl_duration_unit unit_d; shcl_size_unit unit_s; int decimal;
+	ShclStr min_text, max_text;
 	int has_repeat; uint64_t rep_lo, rep_hi;
 	int reopen;                 // H002 suppressor only; validation ignores it
 	ShclStr inherits;           // fragment mounted at this path (subtree shape); .n == 0 = none
@@ -7567,6 +8014,7 @@ static int v_parse_field(ShclArena *a, shcl_doc *schema, size_t f, ShclVecDiag *
 	int required = -1;
 	int reopen_seen = 0;
 	size_t allowed_at = (size_t)-1, min_at = (size_t)-1, max_at = (size_t)-1, default_at = (size_t)-1;
+	size_t unit_at = (size_t)-1, decimal_key_at = (size_t)-1;
 	ShclVecSize kids = NODE(schema, f).children;
 	for (size_t ki = 0; ki < kids.len; ki++) {
 		ShclNode *kid = &NODE(schema, kids.data[ki]);
@@ -7610,6 +8058,14 @@ static int v_parse_field(ShclArena *a, shcl_doc *schema, size_t f, ShclVecDiag *
 		} else if (s_eq(kid->name, s_lit("max"))) {
 			if (kid->value.kind == V_CELL && kid->value.nels == 1 && max_at == (size_t)-1) max_at = kids.data[ki];
 			else v_diag(a, faults, kid->line, "V092", v_msg_key(a, "max"));
+		} else if (s_eq(kid->name, s_lit("unit"))) {
+			if (kid->value.kind == V_CELL && kid->value.nels == 1 && unit_at == (size_t)-1) unit_at = kids.data[ki];
+			else v_diag(a, faults, kid->line, "V092", v_msg_key(a, "unit"));
+		} else if (s_eq(kid->name, s_lit("decimal"))) {
+			ShclStr t; int b = 0;
+			int ok = v_single_text(&kid->value, &t) && parse_bool_text(a, t, SHCL_STANDARD, &b);
+			if (ok && decimal_key_at == (size_t)-1) { decimal_key_at = kids.data[ki]; c.decimal = b; }
+			else v_diag(a, faults, kid->line, "V092", v_msg_key(a, "decimal"));
 		} else if (s_eq(kid->name, s_lit("repeat"))) {
 			if (kid->value.kind == V_CELL && !c.has_repeat && (kid->value.nels == 1 || kid->value.nels == 2)) {
 				uint64_t lo, hi;
@@ -7666,6 +8122,20 @@ static int v_parse_field(ShclArena *a, shcl_doc *schema, size_t f, ShclVecDiag *
 		for (size_t x = 0; x < sizeof v_schema_types / sizeof v_schema_types[0]; x++)
 			if (strlen(v_schema_types[x]) == blen - 6 && memcmp(v_schema_types[x], base, blen - 6) == 0) { base = v_schema_types[x]; break; }
 	}
+	int is_duration = strcmp(base, "duration") == 0, is_size = strcmp(base, "size") == 0;
+	/* `unit` and `decimal` belong to the types that read a bare number in
+	   one, and a unit has to be one that type spells. */
+	if (unit_at != (size_t)-1) {
+		ShclNode *kid = &NODE(schema, unit_at);
+		ShclStr t = kid->value.els[0].text;
+		if (is_duration) c.unit_d = shcl_duration_unit_of(t.p, t.n);
+		if (is_size) c.unit_s = shcl_size_unit_of(t.p, t.n);
+		if (c.unit_d == SHCL_DURATION_NONE && c.unit_s == SHCL_SIZE_NONE) v_diag(a, faults, kid->line, "V092", v_msg_key(a, "unit"));
+	}
+	if (decimal_key_at != (size_t)-1 && !is_size) {
+		v_diag(a, faults, NODE(schema, decimal_key_at).line, "V092", v_msg_key(a, "decimal"));
+		c.decimal = 0;
+	}
 	if (allowed_at != (size_t)-1) {
 		ShclNode *kid = &NODE(schema, allowed_at);
 		ShclElement *els = kid->value.els; size_t n = kid->value.nels;
@@ -7689,8 +8159,10 @@ static int v_parse_field(ShclArena *a, shcl_doc *schema, size_t f, ShclVecDiag *
 			c.akind = ALLOW_DATES;
 			c.a_dates = (shcl_datetime *)arena_alloc(a, (n ? n : 1) * sizeof(shcl_datetime));
 			for (size_t x = 0; x < n && ok; x++) ok = parse_datetime(a, els[x].text, &c.a_dates[x]);
-		} else if (strcmp(base, "raw") == 0) {
-			ok = 0; // a raw body has no element space to enumerate
+		} else if (strcmp(base, "raw") == 0 || is_duration || is_size) {
+			/* A raw body has no element space to enumerate, and a duration or
+			   size is bounded with min and max rather than listed. */
+			ok = 0;
 		} else {
 			c.akind = ALLOW_STRINGS;
 			c.a_strs = (ShclStr *)arena_alloc(a, (n ? n : 1) * sizeof(ShclStr));
@@ -7718,6 +8190,16 @@ static int v_parse_field(ShclArena *a, shcl_doc *schema, size_t f, ShclVecDiag *
 				if (is_min) { c.has_min_f = 1; c.min_f = v; }
 				else { c.has_max_f = 1; c.max_f = v; }
 			} else v_diag(a, faults, kid->line, "V092", v_msg_key(a, key));
+		} else if (is_duration || is_size) {
+			/* Read the way the document's value is, less the field name: the
+			   schema says its unit. */
+			int64_t v; unsigned units; shcl_duration_unit first; shcl_size_unit vu;
+			int ok = is_duration ? parse_duration_text(el->text, c.unit_d, &v, &units, &first)
+				: parse_size_text(el->text, c.unit_s, c.decimal, &v, &vu);
+			if (ok) {
+				if (is_min) { c.has_min_i = 1; c.min_i = v; c.min_text = el->text; }
+				else { c.has_max_i = 1; c.max_i = v; c.max_text = el->text; }
+			} else v_diag(a, faults, kid->line, "V092", v_msg_key(a, key));
 		} else {
 			v_diag(a, faults, kid->line, "V092", v_msg_key(a, key));
 		}
@@ -7733,6 +8215,7 @@ static int v_parse_field(ShclArena *a, shcl_doc *schema, size_t f, ShclVecDiag *
 		size_t line = max_at != (size_t)-1 ? NODE(schema, max_at).line : node->line;
 		v_diag(a, faults, line, "V092", v_msg_key(a, "max"));
 		c.has_min_i = c.has_max_i = c.has_min_f = c.has_max_f = 0;
+		c.min_text = c.max_text = s_empty();
 	}
 	*out = c;
 	return 1;
@@ -8174,6 +8657,32 @@ static void v_node(ShclArena *a, ShclArena *lv, shcl_doc *d, const ShclVCons *c,
 				if (!found) { v_not_allowed(a, out, line, c, els[x].text); break; }
 			}
 		}
+	} else if (V_BASE_IS("duration") || V_BASE_IS("size")) {
+		// A bare number takes its unit from the field name first, as the read
+		// does, then the schema's `unit`.
+		int is_duration = V_BASE_IS("duration");
+		int64_t *vals = (int64_t *)arena_alloc(lv, (nels ? nels : 1) * sizeof(int64_t));
+		for (size_t x = 0; x < nels; x++) {
+			int ok;
+			if (is_duration) {
+				shcl_duration_unit bare = name_duration_unit(node->name);
+				unsigned units; shcl_duration_unit first;
+				ok = parse_duration_text(els[x].text, bare != SHCL_DURATION_NONE ? bare : c->unit_d, &vals[x], &units, &first);
+			} else {
+				shcl_size_unit bare = name_size_unit(node->name), vu;
+				ok = parse_size_text(els[x].text, bare != SHCL_SIZE_NONE ? bare : c->unit_s, c->decimal, &vals[x], &vu);
+			}
+			if (!ok) { v_wrong_type(a, out, line, c); return; }
+		}
+		if (c->has_allowed && c->akind == ALLOW_INTS) {
+			for (size_t x = 0; x < nels; x++) {
+				int found = 0;
+				for (size_t y = 0; y < c->a_n; y++) if (c->a_ints[y] == vals[x]) { found = 1; break; }
+				if (!found) { v_not_allowed(a, out, line, c, els[x].text); break; }
+			}
+		}
+		if (c->has_min_i && c->min_text.n) { for (size_t x = 0; x < nels; x++) if (vals[x] < c->min_i) { v_out_of_range(a, out, line, c, "V005", "below min ", v_one_line(a, c->min_text), els[x].text); break; } }
+		if (c->has_max_i && c->max_text.n) { for (size_t x = 0; x < nels; x++) if (vals[x] > c->max_i) { v_out_of_range(a, out, line, c, "V006", "above max ", v_one_line(a, c->max_text), els[x].text); break; } }
 	} else {
 		// string kind or untyped: every element coerces; only the allowed set
 		// can fail, in logical-string space.
@@ -8518,6 +9027,13 @@ static void v_unknown(ShclArena *a, ShclArena *tmp, shcl_doc *d, const ShclVSche
 	arena_free(tmp);
 }
 
+/* The recovery path reads only the two volatile carriers, so -Wclobbered's
+   guess about a helper inlined below is wrong here the way it is for
+   do_parse. */
+#if defined(__GNUC__) && !defined(__clang__)
+	#pragma GCC diagnostic push
+	#pragma GCC diagnostic ignored "-Wclobbered"
+#endif
 shcl_validation *shcl_validate(shcl_doc *d, shcl_doc *schema) {
 	/* Same shape as do_parse: the two the unwind path has to reach are
 	   volatile, the working copies below are not. */
@@ -8576,6 +9092,9 @@ shcl_validation *shcl_validate(shcl_doc *d, shcl_doc *schema) {
 	arena_guard(&d->index_arena, NULL); arena_guard(&d->scratch, NULL); arena_guard(&d->reads, NULL);
 	return v;
 }
+#if defined(__GNUC__) && !defined(__clang__)
+	#pragma GCC diagnostic pop
+#endif
 size_t shcl_validation_count(const shcl_validation *v) { return v->diags.len; }
 size_t shcl_validation_line(const shcl_validation *v, size_t i) { return v->diags.data[i].line; }
 shcl_severity shcl_validation_severity(const shcl_validation *v, size_t i) { return v->diags.data[i].sev; }
@@ -9529,12 +10048,21 @@ static ShclStr v_gen_annotation(ShclArena *a, const ShclVCons *c, ShclStr tyname
 	ShclSB s = {0, 0, 0};
 	char nb[80];
 	sb_putS(a, &s, tyname);
+	if (c->unit_d != SHCL_DURATION_NONE) { sb_puts(a, &s, " in "); sb_puts(a, &s, shcl_duration_unit_spelling(c->unit_d)); }
+	else if (c->unit_s != SHCL_SIZE_NONE) { sb_puts(a, &s, " in "); sb_puts(a, &s, shcl_size_unit_spelling(c->unit_s)); }
+	if (c->decimal) sb_puts(a, &s, ", KB to TB in powers of 1000");
 	if (c->has_allowed) {
 		sb_puts(a, &s, ", one of: "); sb_putS(a, &s, v_allowed_join(a, c));
 	}
 	// The bounds are their own part of the annotation line, not an alternative
-	// to `allowed`. A field can carry both, and the validator enforces both.
-	if (c->has_min_i || c->has_max_i) {
+	// to `allowed`. A field can carry both, and the validator enforces both. A
+	// duration or size bound reads the way the schema spelled it.
+	if (c->min_text.n || c->max_text.n) {
+		sb_puts(a, &s, ", ");
+		if (c->min_text.n && c->max_text.n) { sb_putS(a, &s, c->min_text); sb_putc(a, &s, '-'); sb_putS(a, &s, c->max_text); }
+		else if (c->min_text.n) { sb_puts(a, &s, ">= "); sb_putS(a, &s, c->min_text); }
+		else { sb_puts(a, &s, "<= "); sb_putS(a, &s, c->max_text); }
+	} else if (c->has_min_i || c->has_max_i) {
 		if (c->has_min_i && c->has_max_i) snprintf(nb, sizeof nb, ", %" PRId64 "-%" PRId64, c->min_i, c->max_i);
 		else if (c->has_min_i) snprintf(nb, sizeof nb, ", >= %" PRId64, c->min_i);
 		else snprintf(nb, sizeof nb, ", <= %" PRId64, c->max_i);

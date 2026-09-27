@@ -1,0 +1,20 @@
+# \u and \U escapes in double quotes
+accent: "café"
+smile: "😀"
+lower: "é"
+zwsp: "a\u200Bb"
+override: "x\u202Ey"
+joiner: "a‍b"
+nul: "a\u0000b"
+tab: "a\tb"
+"keyé": 1
+bare: "a\u200Bb"
+single: 'raw\u0041'
+path: 'C:\users'
+short: "\u12"
+surrogate: "\uD800"
+past: "\U00110000"
+nothex: "\uZZZZ"
+list: "A", b
+tier: A
+	port: 80

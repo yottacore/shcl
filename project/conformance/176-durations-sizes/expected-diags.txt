@@ -1,0 +1,5 @@
+line 2: Hint: H005
+line 19: Hint: H005
+line 21: Hint: H005
+line 22: Hint: H005
+ok (4 diagnostic(s))

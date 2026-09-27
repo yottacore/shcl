@@ -1,0 +1,14 @@
+query	type	expected	status
+-	load	ok	-
+-	load	ok	-	strict
+-	lost	0	-
+zip	string	02134	Good
+zip	int	2134	Good
+bare	string	02134	Good
+bare	int	2134	Good
+negative	int	-7	Good
+fraction	float	0.5	Good
+small	float	0.5	Good
+mode	int	644	Good
+list	string[]	007|7|008	Good
+list	int[]	7|7|8	Good

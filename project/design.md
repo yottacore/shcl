@@ -109,6 +109,7 @@ Other points
 	- Why: the same lexical rule lived in seven scanners per binding, and every scanner defect since July was two of them disagreeing. A fix reached the copies that were reproduced. One tokenizer per binding replaces them, and fewer rules leave it less to get wrong.
 	- What changed at 3.0, and what `migrate` rewrites a 2.x file for: escapes are processed inside double quotes only, single quotes are literal, and bare text never processes a backslash, which is TOML's and YAML's rule. A quoted piece opens with a quote as its first character and closes at the next matching quote, which has to be the last thing in the piece; anywhere else a quote is a character. The `field:[disc]` sugar is gone, so a `[` right after a name is a selector and a `[` first after the colon is bracket text.
 	- An escape in double quotes that is none of the five is `E023`. Among these options, it was decided that refusing the line fits best: keep the pair as written (2.x's rule), keep it and add a hint, or refuse it the way TOML, YAML, JSON, Rust and Go do. `"C:\work\new"` is the case that decided it. The `\w` stayed, the `\n` turned into a newline, and nothing said so. A hint reaches only a caller that reads diagnostics, and 3.0 was the last point a stricter rule could go in without another major. The line is retained like bracket text, so a save keeps it, and `migrate` doubles the backslash, which both rule sets read alike. A path that uses only real escapes, such as `"C:\temp"`, still loads with a tab in it, and gets the hint `H004` instead, since nothing about the text is wrong.
+	- `\uXXXX` and `\UXXXXXXXX` are escapes too (2026-09-26), so a file can spell any character, and canonical output uses them for a character nobody could see in an editor, such as a zero-width space or a right-to-left override. The zero-width joiner and non-joiner were left out of that list, since emoji and several scripts need them and an escape would make that text unreadable. 2.x kept `\u0041` as written, so `migrate` doubles its backslash on a 2.x file and counts it as ambiguous on a file with no version line.
 	- The cost, said once: a bare `\n` or `\t` and a single-quoted escape change meaning, and a bracket array 2.x folded into one string binds nothing. `migrate` rewrites a file in one pass, and a 2.x reader is unaffected by the migrated file. There is no 2.1.0; everything since 2.0.0 goes out in 3.0.0.
 	- What did not change: the comment rule is 2.x's, so a 2.x file's comments and values read the same before and after. Three edges do read differently, and `migrate` leaves all three: a fence label holding a `#`, which 2.x ran to the end of the line and which has no quoting; a carriage return at a piece's edge in the middle of a line, which 2.x kept and which is a blank now; and an indent landing on no open level's column, which 2.x placed by a looser comparison and which is `E012` now, since `migrate` rewrites spellings and not layout.
 	- Which rules wrote a file is not in the text, so the info block carries a `Format` line naming the format's major and `migrate` is the only command that reads it. `format_version` hands a program the same answer, so it can ask before it rewrites anything. A file carrying the current major has nothing to migrate; one carrying an older major, or a caller passing `--from-2x`, gets the backslash re-spellings; anything else gets every other rewrite and leaves those pieces as written, at exit 7. A rewritten file is stamped with the line and a migrated-from note, which is what makes a second run a no-op rather than a second rewrite of the first one's output. The library never adds the whole block, since that would write bytes the document does not hold, and it does not stamp a file that never closes a raw block, since the line would end up inside the block as content. `migrate_unstamped` leaves the stamp off for a program that writes the whole block itself as its footer, which then carries the line.
@@ -341,13 +342,35 @@ Both open points are settled:
 
 - The fix it points at is to quote the element, which `fmt` already does, since a colon is reserved in canonical output.
 
+**A config file names its own schema on a `##    Schema   REF` comment line** (2026-09-26). The model is JSON's `$schema` and the YAML language server's schema comment, so an editor can find the schema with nothing else to go on.
+
+- It is spelled like the `Format` line so it reads as part of the same family, and a comment changes nothing about the document.
+
+- `check` reads a path from the config file's directory, the way an editor does, and a `--schema` on the command line wins.
+
+- A URL is left to editors. A check that goes to the network because of a line in a file is not one to run unattended, so `check` says it skipped it and validates nothing.
+
+- `set_banner` keeps the line when it sits inside the info block, since the author wrote it there and the block is rewritten whole.
+
+**Durations and sizes are read-time types, like dates** (2026-09-26). `timeout: 30s` and `cache: 512MB` read as whole milliseconds and whole bytes, so a program never parses a unit itself.
+
+- A bare number takes its unit from the field name (`timeout-ms`, `cache_mb`), else from the program. The parser does the work, and a name that already says the unit is enough.
+
+- Only a `-` or `_` marks where the unit starts. A camelCase boundary was tried and dropped: names fold to lower case, so `fmt` turned `ttlHours: 1.5` into `ttlhours: 1.5`, and the same line read 1.5 hours before and 1.5 seconds after.
+
+- `KB` to `TB` are powers of 1024 unless the program asks for 1000. Guessing the base from words such as `disk` or `network` in the name was turned down: `cache-size` or `chunk` fit either, and two programs would read one line two ways with no error.
+
+- A value with its own unit wins over the name, with the hint `H005` when they differ. A read cannot carry a diagnostic and validation reports only errors, so the hint comes from the load.
+
+- A fraction has to come out whole, and at most 18 digits after the point count, so the arithmetic is exact in 64 bits in every binding with no wider type.
+
 ### Formatter
 
 Structure-only canonicalizer: block form, tabs, insertion order, minimal quoting, redundancy collapsed, value text untouched (it cannot know types).
 
 **Author quoting on plain strings survives canonical output; quoted data-format values still normalize to bare.** Quoting had been pure spelling, normalized away entirely - which silently un-escaped values a downstream language treats as special (`"@null"`, a quoted function ref), the very case the `quoted` read flag was added for.
 
-- We decided the rule splits by what the text reads as: int, float, bool, and datetime spellings normalize (`ver: "8"` -> `ver: 8` - readers type the value either way, so the quotes say nothing), while a quoted plain string keeps its quotes through `fmt` and `init`.
+- We decided the rule splits by what the text reads as: int, float, bool, and datetime spellings normalize (`ver: "8"` -> `ver: 8` - readers type the value either way, so the quotes say nothing), while a quoted plain string keeps its quotes through `fmt` and `init`. A number with a leading zero is the exception on the data side: `zip: "02134"` keeps its quotes, since that is the one way a file can say the zeros matter (2026-09-26).
 
 - The gate uses standard strictness, fixed, so canonical form cannot vary with load strictness, and the rule only ever adds quoting over the reserved-character minimum, so no bare emit can become unsafe.
 

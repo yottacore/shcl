@@ -530,6 +530,14 @@ line 2: Error: V001 unknown field 'log-levle'; did you mean 'log-level'?
 failed: 1 diagnostic(s), 1 error(s)
 ~~~
 
+A config file can also name its own schema, so `shcl check app.shcl` needs no option and an editor can find it too:
+
+- A line such as this one, at the start of the line, names it. The path is read from the file's own directory.
+
+	~~~shcl
+	##    Schema   app-schema.shcl
+	~~~
+
 A broken schema cannot mask a broken config: a fault in the schema itself is reported as its own error (`V090`+), and the constraints that did parse still check the file. The unknown-field sweep keeps running through a broken constraint, since the field is still declared by name. It turns off only when a fault costs a path spelling outright: an unreadable `field:` path, or a mount naming no declared fragment. Only those can turn a declared field into a false unknown.
 
 The same schema, pointed the other way, writes a starting file for your own users - commented, correctly typed, required fields live and optional ones left commented out:

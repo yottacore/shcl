@@ -175,6 +175,20 @@ def scalar_read(doc, kind, query):
 	if kind == "string[]":
 		r = doc.read_string_array(query)
 		return "|".join(tsv_escape(v) for v in r.value), r.status, r.slots
+	if kind.startswith(("duration", "size")):
+		# duration[@UNIT] or size[@UNIT][+decimal]: the unit a bare number
+		# takes, and KB to TB in powers of 1000.
+		rest = kind.removesuffix("+decimal")
+		decimal = rest != kind
+		base, _, unit = rest.partition("@")
+		if base == "duration":
+			du = shcl.DurationUnit.from_spelling(unit) if unit else None
+			r = doc.read_duration(query, du)
+			ms = r.value.days * 86_400_000 + r.value.seconds * 1000 + r.value.microseconds // 1000
+			return str(ms), r.status, r.slots
+		su = shcl.SizeUnit.from_spelling(unit) if unit else None
+		r = doc.read_size(query, su, decimal)
+		return str(r.value), r.status, r.slots
 	raise SystemExit(f"unknown type '{kind}'")
 
 
@@ -1017,6 +1031,11 @@ def main():
 				fails.append(f"{at}: load failed but reads.tsv has reads there: {e}")
 				continue
 
+			if kind == "schema":
+				got = shcl.schema_ref(case["input"]) or "-"
+				if got != expected:
+					fails.append(f"{at}: schema got {got!r} want {expected!r}")
+				continue
 			if kind == "lost":
 				if str(doc.lost_count()) != expected:
 					fails.append(f"{at}: lost got {doc.lost_count()} want {expected}")

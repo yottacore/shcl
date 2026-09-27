@@ -5,9 +5,9 @@
 //! so the exit codes and flags below are a stable surface, not conveniences.
 
 use shcl::{
-	Diagnostic, Document, GEN_BANNER, Piece, Quote, Rules, SaveError, Severity, Status, Strictness,
-	Tokens, format_float, generate, migrate, parse_datetime, suppress_declared_reopens,
-	suppress_declared_repeats, tokenize, write_file_atomic,
+	Diagnostic, Document, DurationUnit, GEN_BANNER, Piece, Quote, Rules, SaveError, Severity,
+	SizeUnit, Status, Strictness, Tokens, format_float, generate, migrate, parse_datetime,
+	schema_ref, suppress_declared_reopens, suppress_declared_repeats, tokenize, write_file_atomic,
 };
 use std::fmt::Write as _;
 use std::process::ExitCode;
@@ -74,8 +74,9 @@ Usage:
   shcl fmt [--write|-w] [options] FILE   print the canonical form (or rewrite
                                          FILE in place with --write)
   shcl check [options] FILE              load and print diagnostics
-                                         (--schema=SCHEMA also validates FILE
-                                         against a schema, itself a .shcl file)
+                                         (--schema=SCHEMA, or the file's own
+                                         '##    Schema   PATH' line, also
+                                         validates FILE against a schema)
   shcl init [--no-banner] --schema=S     print a commented starter config
                                          from a schema (required fields live,
                                          optional commented, wildcards noted)
@@ -125,9 +126,11 @@ selector may hold one. Ops:
 string/raw values decode \\n \\t \\\\; a line starting with # is a script comment.
 
 Types (get only; default --string):
-  --int --float --bool --datetime --string --raw --rawinfo
+  --int --float --bool --datetime --string --raw --rawinfo --duration --size
   --array                                read the value as an array of the type
   --rawinfo reads a raw block's info-string (the fence tag), not its content
+  --duration prints milliseconds and --size bytes; a bare number takes its
+  unit from the field name (timeout-ms, cache_mb), else from --unit
 
 Options (the subcommands each belongs to are in parentheses):
   --default=VALUE                        (get) value to print when the read is
@@ -140,6 +143,12 @@ Options (the subcommands each belongs to are in parentheses):
   --slots                                (get) prefix each line with its slot
                                          status and a tab (per element, or per
                                          wildcard slot)
+  --unit=UNIT                            (get) the unit a bare number is in,
+                                         for --duration (ms s m h d) or --size
+                                         (B KB MB GB TB KiB MiB GiB TiB), when
+                                         the field name gives none
+  --decimal                              (get) --size reads KB to TB as powers
+                                         of 1000, not 1024
   --no-banner                            (init, and set --write when it creates
                                          FILE) leave out the info block naming
                                          the format and pointing at its spec
@@ -165,7 +174,8 @@ Options (the subcommands each belongs to are in parentheses):
                                          children/paths) or 1|2|3 (default
                                          standard)
   --schema=SCHEMA                        (check/init) validate FILE against a
-                                         schema; adds V### diagnostics
+                                         schema; adds V### diagnostics. check
+                                         without it uses FILE's Schema line
   --layer=FILE                           (get/set/fmt/count/instances/children/
                                          paths) merge a lower-priority layer
                                          under FILE; repeatable, earlier =
@@ -337,11 +347,12 @@ E022|error/hint|the diagnostics list was cut at the caller-supplied cap
   This entry ends the list and counts what was not listed. An error when
   any unlisted one was, so a scan for errors still finds one; a hint
   otherwise.
-E023|error|an escape in double quotes that is none of the five
-  Only \\t, \\n, \\\\, \\\" and \\' are escapes there. A Windows path typed in
-  double quotes is the usual cause, and its \\n would already be a newline,
-  so the line is kept verbatim: it binds nothing and a read on it is
-  NotFound. Use single quotes or no quotes, or double each backslash.
+E023|error|a bad escape in double quotes
+  Only \\t, \\n, \\\\, \\\", \\', \\uXXXX and \\UXXXXXXXX are escapes there, and a
+  \\u or \\U escape must name a character. A Windows path typed in double
+  quotes is the usual cause, and its \\n would already be a newline, so the
+  line is kept verbatim: it binds nothing and a read on it is NotFound. Use
+  single quotes or no quotes, or double each backslash.
 H001|hint|repeated bare leaf (an array spelled as repeated lines)
   Repeated leaves are legal - that is how instances are written - but
   'tags: red' twice and 'tags: red, blue' look alike, so the parser says
@@ -358,6 +369,9 @@ H004|hint|a Windows path in double quotes with a \\t or \\n escape
   \"C:\\temp\" reads as C:, a tab, then emp. The line loads and saves as
   usual, since that is legal, but a path almost never means it. Single
   quotes or no quotes keep each backslash as written; so does doubling it.
+H005|hint|a value in another unit than its field name ends in
+  timeout-ms: 5s reads as 5000 milliseconds, since a unit in the value
+  wins over the one the name gives a bare number. Legal, and often a slip.
 V001|error|unknown field
   No schema path covers it. Only the topmost unknown node is reported; its
   subtree is skipped. The prose carries the did-you-mean suggestion.
@@ -462,7 +476,7 @@ impl Set {
 /// The type options, as one list. `Kind::from_opt` is still the reader; this
 /// is for the places that need the spellings themselves - the did-you-mean on
 /// a typo, and the per-subcommand help.
-const TYPE_OPTS: [&str; 7] = [
+const TYPE_OPTS: [&str; 9] = [
 	"--int",
 	"--float",
 	"--bool",
@@ -470,6 +484,8 @@ const TYPE_OPTS: [&str; 7] = [
 	"--string",
 	"--raw",
 	"--rawinfo",
+	"--duration",
+	"--size",
 ];
 
 #[derive(Clone, Copy, PartialEq)]
@@ -481,6 +497,8 @@ enum Kind {
 	String,
 	Raw,
 	RawInfo,
+	Duration,
+	Size,
 }
 
 impl Kind {
@@ -493,6 +511,8 @@ impl Kind {
 			"--string" => Kind::String,
 			"--raw" => Kind::Raw,
 			"--rawinfo" => Kind::RawInfo,
+			"--duration" => Kind::Duration,
+			"--size" => Kind::Size,
 			_ => return None,
 		})
 	}
@@ -505,6 +525,8 @@ impl Kind {
 			Kind::String => "string",
 			Kind::Raw => "raw",
 			Kind::RawInfo => "rawinfo",
+			Kind::Duration => "duration",
+			Kind::Size => "size",
 		}
 	}
 }
@@ -557,6 +579,8 @@ struct Opts {
 	check: bool,
 	no_banner: bool,
 	schema: Option<String>,
+	unit: Option<String>, // --unit, read against the type at check time
+	decimal: bool,
 	layers: Vec<String>,     // lower-priority layers, in listed order
 	sets: Vec<Set>,          // final override layer, in the order given
 	args: Vec<String>,       // positional: FILE [PATH]
@@ -585,6 +609,7 @@ fn asked_for(argv: &[String]) -> Option<&'static str> {
 			| "--on-bad"
 			| "--strictness"
 			| "--schema"
+			| "--unit"
 			| "--layer"
 			| "--set"
 			| "--set-literal"
@@ -724,6 +749,8 @@ fn parse_opts(argv: &[String]) -> Result<Opts, String> {
 		check: false,
 		no_banner: false,
 		schema: None,
+		unit: None,
+		decimal: false,
 		layers: Vec::new(),
 		sets: Vec::new(),
 		args: Vec::new(),
@@ -782,10 +809,15 @@ fn parse_opts(argv: &[String]) -> Result<Opts, String> {
 				o.no_banner = true;
 				o.seen.push("--no-banner");
 			}
+			"--decimal" => {
+				o.decimal = true;
+				o.seen.push("--decimal");
+			}
 			"--default"
 			| "--on-bad"
 			| "--strictness"
 			| "--schema"
+			| "--unit"
 			| "--layer"
 			| "--set"
 			| "--set-literal"
@@ -805,6 +837,7 @@ fn parse_opts(argv: &[String]) -> Result<Opts, String> {
 			_ if a.starts_with("--on-bad=") => set_value_opt(&mut o, "--on-bad", &a[9..])?,
 			_ if a.starts_with("--strictness=") => set_value_opt(&mut o, "--strictness", &a[13..])?,
 			_ if a.starts_with("--schema=") => set_value_opt(&mut o, "--schema", &a[9..])?,
+			_ if a.starts_with("--unit=") => set_value_opt(&mut o, "--unit", &a[7..])?,
 			_ if a.starts_with("--layer=") => set_value_opt(&mut o, "--layer", &a[8..])?,
 			_ if a.starts_with("--set=") => set_value_opt(&mut o, "--set", &a[6..])?,
 			_ if a.starts_with("--set-literal-default=") => {
@@ -898,6 +931,15 @@ fn set_value_opt(o: &mut Opts, name: &str, v: &str) -> Result<(), String> {
 			o.schema = Some(v.to_string());
 			o.seen.push("--schema");
 		}
+		"--unit" => {
+			if let Some(prev) = o.unit.take()
+				&& prev != v
+			{
+				note_clash(o, Some("--unit"), &prev, v);
+			}
+			o.unit = Some(v.to_string());
+			o.seen.push("--unit");
+		}
 		"--layer" => {
 			o.layers.push(v.to_string());
 			o.seen.push("--layer");
@@ -953,6 +995,8 @@ fn allowed_opts(cmd: &str) -> &'static [&'static str] {
 			"--<type>",
 			"--array",
 			"--slots",
+			"--unit",
+			"--decimal",
 			"--default",
 			"--on-bad",
 			"--strictness",
@@ -1143,6 +1187,30 @@ fn check_opts(cmd: &str, o: &Opts) -> Result<(), u8> {
 			None => errln!("{} cannot be combined with {} (see --help)", a, b),
 		}
 		return Err(1);
+	}
+	// --unit and --decimal say how to read a bare number, which only the
+	// duration and size reads have.
+	if o.unit.is_some() && !matches!(o.kind, Kind::Duration | Kind::Size) {
+		errln!("--unit needs --duration or --size (see --help)");
+		return Err(1);
+	}
+	if o.decimal && o.kind != Kind::Size {
+		errln!("--decimal needs --size (see --help)");
+		return Err(1);
+	}
+	if let Some(u) = &o.unit {
+		let known = match o.kind {
+			Kind::Duration => DurationUnit::from_spelling(u).is_some(),
+			_ => SizeUnit::from_spelling(u).is_some(),
+		};
+		if !known {
+			errln!(
+				"bad --unit value for --{}: {} (see --help)",
+				o.kind.name(),
+				u
+			);
+			return Err(1);
+		}
 	}
 	// Writing back the merged document would fold the lower layers permanently
 	// into the top file, which is the opposite of what layering is for. On 'set'
@@ -1618,7 +1686,7 @@ fn do_get(o: &Opts) -> u8 {
 					r.slots,
 				)
 			}
-			Kind::Raw | Kind::RawInfo => {
+			Kind::Raw | Kind::RawInfo | Kind::Duration | Kind::Size => {
 				errln!("--{} has no --array form (see --help)", o.kind.name());
 				return 1;
 			}
@@ -1652,6 +1720,16 @@ fn do_get(o: &Opts) -> u8 {
 			Kind::RawInfo => {
 				let r = doc.read_raw_info(path);
 				(vec![r.value], r.status, Vec::new())
+			}
+			Kind::Duration => {
+				let unit = o.unit.as_deref().and_then(DurationUnit::from_spelling);
+				let r = doc.read_duration(path, unit);
+				(vec![r.value.as_millis().to_string()], r.status, Vec::new())
+			}
+			Kind::Size => {
+				let unit = o.unit.as_deref().and_then(SizeUnit::from_spelling);
+				let r = doc.read_size(path, unit, o.decimal);
+				(vec![r.value.to_string()], r.status, Vec::new())
 			}
 			Kind::String => {
 				let r = doc.read_string(path);
@@ -2420,6 +2498,37 @@ fn do_set(o: &Opts) -> u8 {
 	0
 }
 
+/// The schema `check` validates against: `--schema`, else the one the file
+/// names on its Schema line. A relative path there is read from the config
+/// file's directory, the way an editor reads it. A URL is left to editors,
+/// since a check that reads the network because of a line in a file is not
+/// one to run unattended.
+fn schema_for(o: &Opts, file: &str, text: &str) -> Option<String> {
+	if o.schema.is_some() {
+		return o.schema.clone();
+	}
+	let named = schema_ref(text)?;
+	if named.contains("://") {
+		errln!(
+			"the file names its schema by URL ({}), which check does not fetch; pass --schema=SCHEMA to validate against it",
+			named
+		);
+		return None;
+	}
+	let b = named.as_bytes();
+	let absolute = b[0] == b'/'
+		|| b[0] == b'\\'
+		|| (b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':');
+	if absolute {
+		return Some(named);
+	}
+	let dir = match file.rfind(['/', '\\']) {
+		Some(k) if file != "-" => &file[..k],
+		_ => ".",
+	};
+	Some(format!("{}/{}", dir, named))
+}
+
 fn do_check(o: &Opts) -> u8 {
 	let [file] = o.args.as_slice() else {
 		errln!("usage: shcl check [options] FILE (see --help)");
@@ -2446,7 +2555,7 @@ fn do_check(o: &Opts) -> u8 {
 		// --schema: append validation diagnostics under the same contract.
 		// The schema itself always loads at Standard (a program artifact);
 		// one that does not load cleanly is a single V099 schema fault.
-		if let Some(schema_file) = &o.schema {
+		if let Some(schema_file) = &schema_for(o, file, &text) {
 			let stext = match read_input(schema_file) {
 				Ok(t) => t,
 				Err(e) => {

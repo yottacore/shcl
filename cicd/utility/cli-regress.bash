@@ -190,6 +190,13 @@ printf 'p: %s\nnote:\n\t```\n##    Format   2\n\t```\n' "'C:\temp'" > "${tmpDir}
 printf 'p: %s\nnote:\n\t```\n##    Format   3\n\t```\n' "'C:\temp'" > "${tmpDir}/rawfmt3.shcl"
 ## A stamped file behind a BOM, whose value 2.x would have read another way.
 printf '\357\273\277##    Format   3\np: %s\n' 'C:\temp' > "${tmpDir}/bomstamped.shcl"
+## A file naming its schema on a Schema line, beside a schema it fails, and
+## files naming a URL and a schema that is not there.
+mkdir -p "${tmpDir}/sp"
+printf 'field: port\n\ttype: int\n' > "${tmpDir}/sp/app.schema.shcl"
+printf '##    Schema   app.schema.shcl\nport: abc\n' > "${tmpDir}/sp/cfg.shcl"
+printf '##    Schema   https://example.com/app.schema.shcl\nport: abc\n' > "${tmpDir}/spurl.shcl"
+printf '##    Schema   gone.schema.shcl\nport: abc\n' > "${tmpDir}/spgone.shcl"
 ## A Format line of five thousand digits: no format will carry that number, and
 ## CPython refuses an int() past 4300 digits, so Python raised where the other
 ## three read it as this major and said there was nothing to migrate.
@@ -270,6 +277,8 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	an apostrophe, %T% a document with a name that needs quoting in a path,
 ##	%F2% a two-key file for the edit options, %M% a path with no file at it,
 ##	%BA% a bracket array, %SQ% a selector whose discriminator needs quotes,
+##	%SP% a file naming its schema on a Schema line, %SPS% that schema, %SPU%
+##	a file naming a URL there, %SPG% one naming a schema that is not there,
 ##	%SV% a schema naming a path the two-error file does not have,
 ##	%NV% two instance values holding a line break beside one plain value,
 ##	%K% a fresh copy of a file kept by hand, at the path %C% names, %KL% the
@@ -318,7 +327,7 @@ rows=(
 	'ops-line-cr|set %F%|int\tx\t1\r|0|a: 1\n\nx: 1\n|-'
 	'ops-lone-cr|set %F%|int\tx\t1\n\r|0|a: 1\n\nx: 1\n|-'
 	## 20260908: one CR comes off an ops line, not two - the second is the value's.
-	'ops-double-cr|set %F%|string\tx\tv\r\r\n|0|a: 1\n\nx: "v\r"\n|-'
+	'ops-double-cr|set %F%|string\tx\tv\r\r\n|0|a: 1\n\nx: "v\\u000D"\n|-'
 	## 20260830 item 14: Python raised a traceback, C exited nonzero. POSIX-only:
 	## the row closes fd 0, and windows has no equivalent a shell can set up.
 	'closed-stdin|fmt -|@closedin|0||^$'
@@ -511,6 +520,15 @@ rows=(
 	'escape-unknown-literal|set %F2%|literal\tx\t"C:\\work"\n|1||^op line 1: cannot write x'
 	'escape-unknown-path|get - "a\w"|"a\\\\w": 1\n|3|\n|no value at that path'
 	'escape-doubled-path|get - "a\\w"|"a\\\\w": 1\n|0|1\n|-'
+	## \u and \U name a character by its code point, and one that names none is
+	## E023. Canonical output spells an invisible character as one. 2.x kept the
+	## pair as written, so migrate needs to be told which rules wrote the file.
+	'escape-unicode-read|get - a|a: "caf\\u00E9 \\U0001F600"\n|0|caf\u00E9 \U0001F600\n|-'
+	'escape-unicode-bad|check -|a: "\\uD800"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 bad escape .\\u. in double quotes'
+	'escape-unicode-fmt|fmt -|a: x\u200By\n|0|a: "x\\u200By"\n|-'
+	'escape-unicode-name|paths -|"a\\u202Eb": 1\n|0|"a\\u202Eb"\n|-'
+	'escape-unicode-migrate-refused|migrate -|q: "\\u0041"\n|7|q: "\\u0041"\n|does not say which it was written for'
+	'escape-unicode-migrate-2x|migrate --from-2x -|q: "\\u0041"\n|0|q: "\\\\u0041"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	## A path in double quotes whose escapes are all real still reads and saves
 	## as written. The hint says so and changes nothing else.
 	'path-hint-read|get - a|a: "C:\\temp"\n|0|C:\temp\n|H004 value looks like a Windows path'
@@ -520,6 +538,27 @@ rows=(
 	## 20260909 item 4: a 3.0 file spells a backslash value the same way a 2.x
 	## one does, so migrating on a guess changed a correct file at exit 0. The
 	## file has to say which rules wrote it, or the caller has to.
+	## Durations and sizes print whole milliseconds and bytes. --unit gives a bare
+	## number its unit, --decimal makes KB to TB powers of 1000, and each is
+	## refused where it cannot mean anything.
+	'duration-read|get --duration - t|t: 1h 30m\n|0|5400000\n|-'
+	'duration-name-unit|get --duration - wait-ms|wait-ms: 250\n|0|250\n|-'
+	'duration-bare|get --duration - t|t: 90\n|4|0\n|not a valid duration'
+	'duration-unit|get --duration --unit=s - t|t: 90\n|0|90000\n|-'
+	'size-decimal|get --size --decimal - c|c: 2MB\n|0|2000000\n|-'
+	'size-unit-space|get --size --unit KiB - c|c: 64\n|0|65536\n|-'
+	'unit-needs-type|get --unit=s - t|t: 1\n|1||^--unit needs --duration or --size'
+	'decimal-needs-size|get --duration --decimal - t|t: 1s\n|1||^--decimal needs --size'
+	'unit-bad|get --size --unit=Mb - c|c: 1\n|1||^bad --unit value for --size: Mb'
+	'unit-clash|get --duration --unit=s --unit=m - t|t: 1\n|1||^--unit=s cannot be combined with --unit=m'
+	'duration-no-array|get --duration --array - t|t: 1s\n|1||^--duration has no --array form'
+	'unit-hint|check -|t-ms: 5s\n|0|line 1: Hint: H005\nok (1 diagnostic(s))\n|H005 value is in s and the name says ms'
+	## A Schema line names the schema check uses when --schema is not given,
+	## read from the config file's directory. A URL is left to editors.
+	'schema-line-check|check %SP%|-|6|line 2: Error: V003\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
+	'schema-line-url|check %SPU%|-|0|ok (0 diagnostic(s))\n|does not fetch'
+	'schema-line-gone|check %SPG%|-|8||gone\.schema\.shcl'
+	'schema-line-overridden|check --schema=%SPS% %SPU%|-|6|line 2: Error: V003\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
 	'migrate-ambiguous-refused|migrate %BS%|-|7|-|does not say which it was written for'
 	"migrate-ambiguous-kept|migrate %BS%|-|7|p: 'C:\\\\temp'\n|-"
 	'migrate-ambiguous-write-refused|migrate --write %BS%|-|7|-|refusing to rewrite'
@@ -852,6 +891,10 @@ for row in "${rows[@]}"; do
 	argv="${argv//%Q%/${tmpDir}/quote.shcl}"
 	argv="${argv//%BA%/${tmpDir}/brarray.shcl}"
 	argv="${argv//%SQ%/${tmpDir}/selcomma.shcl}"
+	argv="${argv//%SPS%/${tmpDir}/sp/app.schema.shcl}"
+	argv="${argv//%SPU%/${tmpDir}/spurl.shcl}"
+	argv="${argv//%SPG%/${tmpDir}/spgone.shcl}"
+	argv="${argv//%SP%/${tmpDir}/sp/cfg.shcl}"
 	argv="${argv//%SV%/${tmpDir}/missreq.shcl}"
 	argv="${argv//%NV%/${tmpDir}/nlvalue.shcl}"
 	argv="${argv//%NB%/${tmpDir}/nbname.shcl}"

@@ -30,6 +30,7 @@ import re
 import stat
 import sys
 from collections.abc import Callable
+from datetime import timedelta
 from decimal import Decimal
 from enum import Enum
 from typing import Any, Generic, TypeVar
@@ -42,6 +43,7 @@ __all__ = [
 	"Diagnostic",
 	"Document",
 	"FORMAT_LINE",
+	"DurationUnit",
 	"FORMAT_LINE_HEAD",
 	"FORMAT_MAJOR",
 	"FileStatus",
@@ -56,12 +58,14 @@ __all__ = [
 	"RULES_V2",
 	"Read",
 	"Rules",
+	"SCHEMA_LINE_HEAD",
 	"SaveError",
 	"SaveFailed",
 	"SaveRefused",
 	"SegTok",
 	"Severity",
 	"ShclDateTime",
+	"SizeUnit",
 	"Status",
 	"StatusError",
 	"Strictness",
@@ -75,6 +79,7 @@ __all__ = [
 	"parse_datetime",
 	"quote_segment",
 	"read_file",
+	"schema_ref",
 	"suppress_declared_reopens",
 	"suppress_declared_repeats",
 	"tokenize",
@@ -921,7 +926,6 @@ def _all_ascii_digits(s):
 
 
 _ASCII_DIGITS = frozenset("0123456789")
-_HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
 
 
 def _fold_name(s):
@@ -1419,21 +1423,40 @@ def _first_where(xs, pred):
 
 
 def _apply_escapes(s):
-	"""Escape processing (string reads): \\t \\n \\\\ \\" \\'. An unknown pair
-	stays literal, which only 2.x text still reaches: the current rules refuse
-	one (E023) before anything is read."""
+	"""Escape processing (string reads): \\t \\n \\\\ \\" \\' \\uXXXX
+	\\UXXXXXXXX. An unknown pair stays literal, which only 2.x text still
+	reaches: the current rules refuse one (E023) before anything is read."""
+	return _resolve_escapes(s, Rules.CURRENT)
+
+
+def _apply_escapes_v2(s):
+	"""The 2.x reading, for migrate: no \\u, so 2.x kept \\u0041 as written."""
+	return _resolve_escapes(s, Rules.V2)
+
+
+def _resolve_escapes(s, rules):
 	# Fast path: every non-backslash char passes through verbatim, so with no
 	# backslash the output is s itself. Hot at parse time too (_disp_key runs
 	# per node insert), and backslash-free text dominates.
 	if "\\" not in s:
 		return s
 	out = []
-	it = iter(s)
-	for c in it:
+	i = 0
+	n = len(s)
+	while i < n:
+		c = s[i]
+		i += 1
 		if c != "\\":
 			out.append(c)
 			continue
-		nxt = next(it, None)
+		nxt = s[i] if i < n else None
+		i += 1
+		if nxt in ("u", "U") and rules is Rules.CURRENT:
+			ue = _unicode_escape(nxt, s[i:i + 8])
+			if ue is not None:
+				out.append(ue[0])
+				i += ue[1]
+				continue
 		if nxt == "t":
 			out.append("\t")
 		elif nxt == "n":
@@ -1450,6 +1473,51 @@ def _apply_escapes(s):
 			out.append("\\")
 			out.append(nxt)
 	return "".join(out)
+
+
+_HEX_CHARS = frozenset("0123456789abcdefABCDEF")
+
+
+def _unicode_escape(kind, after):
+	"""The character a \\u or \\U escape names, and how many hex digits spell
+	it: four after u, eight after U, as in TOML. None for a short run, a
+	surrogate or a value past U+10FFFF."""
+	n = 4 if kind == "u" else 8
+	digits = after[:n]
+	if len(digits) < n or not _HEX_CHARS.issuperset(digits):
+		return None
+	v = int(digits, 16)
+	if v > 0x10FFFF or 0xD800 <= v <= 0xDFFF:
+		return None
+	return chr(v), n
+
+
+# Characters canonical output writes as a \u escape, so a reader of the file
+# sees every character that is there: controls with no short escape, the
+# direction marks, embeddings, overrides and isolates, zero-width spaces, the
+# byte order mark, and the line and paragraph separators. The zero-width
+# joiner and non-joiner stay as written, since emoji and several scripts need
+# them.
+_INVISIBLE = frozenset(
+	chr(c)
+	for lo, hi in (
+		(0x00, 0x08),
+		(0x0B, 0x1F),
+		(0x7F, 0x9F),
+		(0x061C, 0x061C),
+		(0x200B, 0x200B),
+		(0x200E, 0x200F),
+		(0x2028, 0x202E),
+		(0x2060, 0x2064),
+		(0x2066, 0x2069),
+		(0xFEFF, 0xFEFF),
+	)
+	for c in range(lo, hi + 1)
+)
+
+
+def _unicode_escape_text(c):
+	return f"\\u{ord(c):04X}"
 
 
 def _single_scalar(v):
@@ -1637,6 +1705,32 @@ def _format_line_version(text):
 	return found
 
 
+def schema_ref(text: str) -> str | None:
+	"""The schema a document's `##    Schema   REF` line names: a path, or a
+	URL for an editor to fetch. None when no line names one. The first such
+	line wins, and one inside a raw body is that block's content, as with the
+	Format line. A relative path is the caller's to resolve, from the config
+	file's directory."""
+	if text.startswith("\ufeff"):
+		text = text[1:]
+	tok = Tokens()
+	fence = None
+	dry = _Migrating(True)
+	for line in text.split("\n"):
+		body = line.rstrip("\r")
+		if fence is not None:
+			if _is_fence_close(body, fence[0], fence[1]):
+				fence = None
+			continue
+		if body.startswith(SCHEMA_LINE_HEAD):
+			r = _trim_wsp(body[len(SCHEMA_LINE_HEAD):])
+			if r:
+				return r
+			continue
+		_, fence = _migrate_line(_trim_wsp_end(body[len(_leading_ws(body)):]), tok, fence, dry)
+	return None
+
+
 def migrate(text: str, from_v2: bool) -> Migration:
 	"""Rewrite a document written under the 2.x rules so this parser reads the
 	same tree. Each line is read with the 2.x tokenizer and re-spelled only
@@ -1752,13 +1846,14 @@ def _reads_same(spelling, quoted, logical):
 def _migrate_spelling(logical, bare):
 	"""How a re-spelled piece is written. 2.x read a backslash in bare and
 	single-quoted text as an escape too, and double quotes are where both rule
-	sets read one alike. So the migrated file reads the same under 2.x, and a
-	second run changes nothing."""
+	sets read one alike. No \\u goes in, since 2.x would keep it as written.
+	So the migrated file reads the same under 2.x, and a second run changes
+	nothing."""
 	if "\\" in logical:
-		return _quote_double(logical)
-	if bare:
-		return _emit_element(_Element(logical, False))
-	return _quote_text(logical)
+		return _quote_double_as(logical, Rules.V2)
+	if bare and not _needs_quotes(logical):
+		return logical
+	return _quote_text_as(logical, Rules.V2)
 
 
 def _v2_bracket_array(body):
@@ -1784,14 +1879,19 @@ def _value_edits(s, tok, edits, st):
 			a, b = p.start, p.end
 		if p.quote is Quote.NONE and "\\" not in raw and raw:
 			continue
-		logical = _apply_escapes(raw)
+		logical = _apply_escapes_v2(raw)
 		if _reads_same(s[a:b].decode("utf-8", "surrogatepass"), quoted, logical):
 			continue
 		# A resolved escape is the one edit that turns on which rule set wrote
 		# the file: these bytes say one thing under 2.x and another here. An
 		# open quote or an empty slot reads alike either way, so it still goes,
-		# and so does an unknown pair in double quotes, which both kept.
-		if logical != raw and p.quote is not Quote.DOUBLE and not st.from_v2:
+		# and so does an unknown pair in double quotes, which both kept. A \u
+		# in double quotes is a character now and was text in 2.x.
+		if p.quote is Quote.DOUBLE:
+			differs = _unicode_pair_differs(s[p.start:p.end])
+		else:
+			differs = logical != raw
+		if differs and not st.from_v2:
 			st.ambiguous += 1
 			continue
 		spelling = _migrate_spelling(logical, not (quoted or p.quote is Quote.OPEN))
@@ -1823,11 +1923,16 @@ def _migrate_line(rest, tok, fence, st):
 			name = s[seg.name.start:seg.name.end].decode("utf-8", "surrogatepass")
 			# An unknown pair in double quotes read the same in 2.x, and is
 			# E023 now, so its backslash is doubled whichever wrote the file.
-			if seg.name.quote is Quote.DOUBLE and _unknown_escape(s[seg.name.start:seg.name.end]) is not None:
-				edits.append((seg.name.start - 1, seg.name.end + 1, _escape_name(_apply_escapes(name)).encode("utf-8", "surrogatepass")))
-			if seg.name.quote is Quote.SINGLE and _apply_escapes(name) != name:
+			# A \u pair is a character now, so that one needs --from-2x.
+			name_raw = s[seg.name.start:seg.name.end]
+			if seg.name.quote is Quote.DOUBLE and _v2_kept_escape(name_raw):
+				if _unicode_pair_differs(name_raw) and not st.from_v2:
+					st.ambiguous += 1
+				else:
+					edits.append((seg.name.start - 1, seg.name.end + 1, _escape_name_as(_apply_escapes_v2(name), Rules.V2).encode("utf-8", "surrogatepass")))
+			if seg.name.quote is Quote.SINGLE and _apply_escapes_v2(name) != name:
 				if st.from_v2:
-					edits.append((seg.name.start - 1, seg.name.end + 1, _escape_name(_apply_escapes(name)).encode("utf-8", "surrogatepass")))
+					edits.append((seg.name.start - 1, seg.name.end + 1, _escape_name_as(_apply_escapes_v2(name), Rules.V2).encode("utf-8", "surrogatepass")))
 				else:
 					st.ambiguous += 1
 			sel = seg.selector
@@ -1849,8 +1954,8 @@ def _migrate_line(rest, tok, fence, st):
 			if k > 0 and s[k - 1] == 0x3A:
 				colon = k - 1
 			body = s[sel.start:sel.end].decode("utf-8", "surrogatepass")
-			logical = _apply_escapes(body)
-			unknown = sel.quote is Quote.DOUBLE and _unknown_escape(s[sel.start:sel.end]) is not None
+			logical = _apply_escapes_v2(body)
+			unknown = sel.quote is Quote.DOUBLE and _v2_kept_escape(s[sel.start:sel.end])
 			if i == last and tok.sep is None:
 				if colon is not None:
 					# `name:[disc]` with nothing after it: 2.x read it as
@@ -1887,7 +1992,9 @@ def _migrate_line(rest, tok, fence, st):
 				edits.append((colon, colon + 1 + int(spaced), b""))
 			# Double quotes already read alike on both sides, so only the other
 			# spellings turn on which rule set wrote the file.
-			if unknown:
+			if unknown and _unicode_pair_differs(s[sel.start:sel.end]) and not st.from_v2:
+				st.ambiguous += 1
+			elif unknown:
 				edits.append((sel.start - 1, sel.end + 1, _migrate_spelling(logical, False).encode("utf-8", "surrogatepass")))
 			elif logical != body and sel.quote is not Quote.DOUBLE:
 				if st.from_v2:
@@ -1991,18 +2098,43 @@ def _selector_open_quote(tok):
 
 
 def _unknown_escape(raw):
-	"""The character after the first backslash in raw (bytes) that starts
-	none of the five escapes. Only meaningful for a double-quoted piece."""
+	"""The character after the first backslash in raw (bytes) that starts no
+	escape, or the u or U of one that names no character. Only meaningful for
+	a double-quoted piece."""
 	i = raw.find(b"\\")
 	while i >= 0:
 		# A double-quoted piece cannot end on a lone backslash: it would have
 		# escaped the closing quote.
 		if i + 1 >= len(raw):
 			return None
-		if raw[i + 1] not in b"tn\\\"'":
+		k = raw[i + 1]
+		if k in b"uU":
+			if _unicode_escape(chr(k), raw[i + 2:i + 10].decode("latin-1")) is None:
+				return chr(k)
+		elif k not in b"tn\\\"'":
 			return raw[i + 1:].decode("utf-8", "surrogatepass")[0]
 		i = raw.find(b"\\", i + 2)
 	return None
+
+
+def _v2_kept_escape(raw):
+	"""_unknown_escape by the 2.x rules, which had no \\u: a pair 2.x kept as
+	written, so migrate doubles its backslash. Takes bytes."""
+	i = raw.find(b"\\")
+	while i >= 0:
+		if i + 1 >= len(raw):
+			return False
+		if raw[i + 1] not in b"tn\\\"'":
+			return True
+		i = raw.find(b"\\", i + 2)
+	return False
+
+
+def _unicode_pair_differs(raw):
+	"""A 2.x pair that is a real \\u escape now: 2.x read the text as written
+	and the current rules read a character, so only --from-2x can say which.
+	Takes bytes."""
+	return _v2_kept_escape(raw) and _unknown_escape(raw) is None
 
 
 def _bad_escape(tok, values):
@@ -2052,6 +2184,8 @@ _PATH_HINT = "value looks like a Windows path, and its \\t or \\n reads as a tab
 
 
 def _escape_msg(c):
+	if c in ("u", "U"):
+		return "bad escape '\\" + c + "' in double quotes; \\u takes 4 hex digits and \\U takes 8, naming a Unicode character; write a backslash as '\\\\' or use single quotes"
 	return "unknown escape '\\" + _one_line(c) + "' in double quotes; write a backslash as '\\\\' or use single quotes"
 
 
@@ -2694,6 +2828,7 @@ class _Parser:
 			self._err(line, "E017", "unterminated quote in value")
 		binding_like = not el.quoted and _looks_like_binding(el.text)
 		path = _path_like(piece, s)
+		clash = _unit_clash(self.arena[parent].name, el.text)
 		# Element cap: each element line past it is refused on its own, the way
 		# any other bad element line is. Only a line that would join the list:
 		# under a field that already has a value it is E011, cap or not.
@@ -2733,6 +2868,8 @@ class _Parser:
 			self._diag(Diagnostic(line, Severity.Hint, "list element looks like a field binding; it is read as a string (quote it to say so)", "H003"))
 		if path:
 			self._diag(Diagnostic(line, Severity.Hint, _PATH_HINT, "H004"))
+		if clash is not None:
+			self._diag(Diagnostic(line, Severity.Hint, clash, "H005"))
 		# A kept element holds its column as a dropped one does, with the field
 		# as that level's node: a line written deeper binds where it always did,
 		# and a line back at the element's column is its sibling, where no level
@@ -3043,6 +3180,12 @@ class _Parser:
 			if node is not None:
 				if src_text is not None and any(_path_like(p, tok.src) for p in tok.elements):
 					self._diag(Diagnostic(lineno, Severity.Hint, _PATH_HINT, "H004"))
+				if src_text is not None:
+					for p in tok.elements:
+						clash = _unit_clash(self.arena[node].name, _piece_text(p, tok.src))
+						if clash is not None:
+							self._diag(Diagnostic(lineno, Severity.Hint, clash, "H005"))
+							break
 				# The bound node usually holds the very object just parsed, so
 				# identity settles it and neither key gets built. The key
 				# compare is only needed when a merge landed on an equal-valued
@@ -3786,7 +3929,8 @@ def _keep_lines(src, doc):
 
 def _drop_banners(leads):
 	"""Take each run of "##" lines holding the info block's SHCL line or a
-	version line out of `leads`. Returns how many came off, whether the last
+	version line out of `leads`, all but a Schema line. Returns how many came
+	off, whether the last
 	one had a blank above it with no line after it to take that blank, and
 	the lines left."""
 	def is_block_line(t):
@@ -3802,9 +3946,14 @@ def _drop_banners(leads):
 				end += 1
 			if any(is_block_line(c.text) for c in leads[i:end]):
 				# The blank that set the block off moves to whatever followed
-				# it, so the lines around it stay apart.
+				# it, so the lines around it stay apart. A Schema line in the
+				# block is the author's and stays, with the blank.
 				blank = leads[i].blank_before
-				if end < len(leads):
+				at = len(keep)
+				keep.extend(c for c in leads[i:end] if c.text.startswith(SCHEMA_LINE_HEAD))
+				if at < len(keep):
+					keep[at].blank_before = blank
+				elif end < len(leads):
 					leads[end].blank_before = leads[end].blank_before or blank
 				else:
 					owed = blank
@@ -5513,6 +5662,40 @@ class Document:
 	def read_datetime(self, path: str) -> Read[ShclDateTime]:
 		return self._read_scalar(path, lambda e: parse_datetime(e.text), ShclDateTime())
 
+	def _read_named(self, path: str, coerce: Callable[[Any, str], T | None], default: T) -> Read[T]:
+		"""_read_scalar with the node's name, for the reads whose bare number
+		takes its unit from the name."""
+		na = self._node_at(path)
+		if na[0] == "err":
+			return Read(default, na[1], None)
+		name = self.arena[na[1]].name
+		return self._read_scalar(path, lambda e: coerce(e, name), default)
+
+	def read_duration(self, path: str, unit: DurationUnit | None = None) -> Read[timedelta]:
+		"""Duration read at a path, in whole milliseconds: `500ms`, `30s`, `1h
+		30m`, `2d`. A bare number takes its unit from the field name when the
+		name ends in one (`timeout-ms`, `delay_seconds`), else from unit, and is
+		BadType with neither."""
+
+		def coerce(e, name):
+			bare = _name_unit(name, _DURATION_NAMES) or unit
+			d = _parse_duration_text(e.text, bare)
+			return None if d is None else timedelta(milliseconds=d[0])
+
+		return self._read_named(path, coerce, timedelta(0))
+
+	def read_size(self, path: str, unit: SizeUnit | None = None, decimal: bool = False) -> Read[int]:
+		"""Size read at a path, in whole bytes: `512MB`, `1.5 GiB`. A bare number
+		takes its unit the way a duration does. KB to TB are powers of 1024
+		unless decimal is set."""
+
+		def coerce(e, name):
+			bare = _name_unit(name, _SIZE_NAMES) or unit
+			z = _parse_size_text(e.text, bare, decimal)
+			return None if z is None else z[0]
+
+		return self._read_named(path, coerce, 0)
+
 	def read_string(self, path: str) -> Read[str]:
 		"""Any value reads as a string: a raw block yields its content, an array its
 		canonical inline text. Escapes are applied."""
@@ -5666,6 +5849,12 @@ class Document:
 	def get_datetime(self, path: str, default: Any = _NO_DEFAULT) -> ShclDateTime:
 		return self._get(self.read_datetime(path), default)
 
+	def get_duration(self, path: str, unit: DurationUnit | None = None, default: Any = _NO_DEFAULT) -> timedelta:
+		return self._get(self.read_duration(path, unit), default)
+
+	def get_size(self, path: str, unit: SizeUnit | None = None, decimal: bool = False, default: Any = _NO_DEFAULT) -> int:
+		return self._get(self.read_size(path, unit, decimal), default)
+
 	def get_int_array(self, path: str, default: Any = _NO_DEFAULT) -> list[int]:
 		return self._get(self.read_int_array(path), default)
 
@@ -5707,6 +5896,12 @@ class Document:
 
 	def get_datetime_or(self, path: str, default: ShclDateTime) -> ShclDateTime:
 		return self._get(self.read_datetime(path), default)
+
+	def get_duration_or(self, path: str, unit: DurationUnit | None, default: timedelta) -> timedelta:
+		return self._get(self.read_duration(path, unit), default)
+
+	def get_size_or(self, path: str, unit: SizeUnit | None, decimal: bool, default: int) -> int:
+		return self._get(self.read_size(path, unit, decimal), default)
 
 	def get_int_array_or(self, path: str, default: list[int]) -> list[int]:
 		return self._get(self.read_int_array(path), default)
@@ -5932,6 +6127,36 @@ class Document:
 					if not any(_same_moment(v, a) for a in c.allowed[1]):
 						_vdiag(out, line, "V004", f"value not allowed at '{_schema_text(c.path)}': {_one_line(els[i].text)}")
 						break
+		elif base in ("duration", "size"):
+			# A bare number takes its unit from the field name first, as the
+			# read does, then the schema's `unit`.
+			vals = []
+			for e in els:
+				if base == "duration":
+					d = _parse_duration_text(e.text, _name_unit(node.name, _DURATION_NAMES) or c.unit_d)
+					v = None if d is None else d[0]
+				else:
+					z = _parse_size_text(e.text, _name_unit(node.name, _SIZE_NAMES) or c.unit_s, c.decimal)
+					v = None if z is None else z[0]
+				if v is None:
+					wrong()
+					return
+				vals.append(v)
+			if c.allowed is not None and c.allowed[0] == "ints":
+				for i, v in enumerate(vals):
+					if v not in c.allowed[1]:
+						_vdiag(out, line, "V004", f"value not allowed at '{_schema_text(c.path)}': {_one_line(els[i].text)}")
+						break
+			if c.min_i is not None and c.min_text is not None:
+				for i, v in enumerate(vals):
+					if v < c.min_i:
+						_vdiag(out, line, "V005", f"value below min {_one_line(c.min_text)} at '{_schema_text(c.path)}': {_one_line(els[i].text)}")
+						break
+			if c.max_i is not None and c.max_text is not None:
+				for i, v in enumerate(vals):
+					if v > c.max_i:
+						_vdiag(out, line, "V006", f"value above max {_one_line(c.max_text)} at '{_schema_text(c.path)}': {_one_line(els[i].text)}")
+						break
 		else:
 			# string kind or untyped: every element coerces; only the allowed
 			# set can fail, in logical-string space.
@@ -6014,6 +6239,12 @@ def _escape_name(name: str) -> str:
 	that one picks a quote style to AVOID escaping and never escapes a
 	backslash, which is right for a value (stored in its escaped spelling) and
 	wrong for a name (stored resolved)."""
+	return _escape_name_as(name, Rules.CURRENT)
+
+
+def _escape_name_as(name, rules):
+	"""_escape_name for a reader of rules: under 2.x an invisible character is
+	written as it is, since 2.x kept a \\u as written."""
 	# issuperset iterates the name in C; the generator this replaced made one
 	# Python call per character of every name emitted.
 	if name and _BARE_NAME_CHARS.issuperset(name):
@@ -6028,6 +6259,8 @@ def _escape_name(name: str) -> str:
 			out.append("\\t")
 		elif c == "\n":
 			out.append("\\n")
+		elif c in _INVISIBLE and rules is Rules.CURRENT:
+			out.append(_unicode_escape_text(c))
 		else:
 			out.append(c)
 	out.append('"')
@@ -6042,20 +6275,15 @@ def _diag_name(name):
 	# A field name for a diagnostic message: spelled the way the emitter would
 	# write it, so a name carrying a line break, a dot or a quote cannot pose as
 	# something it is not - a raw `a.b` reads exactly like `a` nesting `b`, and a
-	# raw line break splits one diagnostic across two. CR is escaped here and not
-	# in _escape_name, because the name parse has no `\r` escape to read back.
-	return _emit_name(name).replace("\r", "\\r")
+	# raw line break splits one diagnostic across two.
+	return _emit_name(name)
 
 
 def _diag_element(e):
 	# One element of a value, spelled for a diagnostic message: the emitter's
 	# inline spelling, so a value carrying a line break cannot split one
-	# diagnostic across two. A mid-piece CR is content and the emitter leaves it
-	# bare, so it forces quotes here and is escaped, same reason as _diag_name.
-	s = _emit_element(e)
-	if "\r" in s:
-		return _quote_double(e.text).replace("\r", "\\r")
-	return s
+	# diagnostic across two.
+	return _emit_element(e)
 
 
 def _diag_value(v):
@@ -6614,7 +6842,7 @@ def _needs_quotes(t):
 	"""Minimal quoting: bare unless a reserved character (or lookalike hazard) forces it."""
 	# isdisjoint iterates the text in C and stops at the first hit; the generator
 	# it replaced made one Python call per character of every element emitted.
-	needs = (not t) or not _RESERVED.isdisjoint(t) or (_fence_open(t) is not None)
+	needs = (not t) or not _RESERVED.isdisjoint(t) or not _INVISIBLE.isdisjoint(t) or (_fence_open(t) is not None)
 	# Edge whitespace still has to force quotes, for the carriage return: it is
 	# a blank, so a piece ending in one loses it to the reload. Space and tab
 	# are already in the list above. The test is the whole Unicode whitespace
@@ -6648,7 +6876,8 @@ def _new_element(text):
 def _is_data_format(e):
 	"""True when the text reads as an int, float, bool, or datetime at standard
 	strictness - fixed there deliberately, so canonical form cannot vary with
-	the load strictness.
+	the load strictness. A number with a leading zero does not count: quotes
+	are how a file says the zeros matter, as in a zip code.
 
 	One pass over the text before any coercion: at Standard the int, float and
 	datetime forms all require at least one ASCII digit, and the only formats
@@ -6658,29 +6887,44 @@ def _is_data_format(e):
 	if _ASCII_DIGITS.isdisjoint(e.text):
 		t = _trim(e.text)
 		return len(t) <= 5 and _parse_bool_text(t, Strictness.Standard) is not None
-	if _parse_int_text(e, Strictness.Standard) is not None:
-		return True
-	if _parse_float_text(e, Strictness.Standard) is not None:
-		return True
+	if not _leading_zero(_trim(e.text)):
+		if _parse_int_text(e, Strictness.Standard) is not None:
+			return True
+		if _parse_float_text(e, Strictness.Standard) is not None:
+			return True
 	if _parse_bool_text(e.text, Strictness.Standard) is not None:
 		return True
 	return parse_datetime(e.text) is not None
+
+
+def _leading_zero(t):
+	"""A zero followed by another digit, after any sign: `007`, `-012`, `00.5`."""
+	if t[:1] in ("+", "-"):
+		t = t[1:]
+	return len(t) > 1 and t[0] == "0" and t[1] in _ASCII_DIGITS
 
 
 def _quote_text(t):
 	"""Quote a logical string so the tokenizer reads it back as the same
 	string. Single quotes are literal, so they are the spelling for text
 	holding a double quote or a backslash; double quotes carry the escapes, so
-	they are the spelling for a line break, a tab, or text holding both quote
-	kinds."""
-	control = "\n" in t or "\t" in t
+	they are the spelling for a line break, a tab, an invisible character, or
+	text holding both quote kinds."""
+	return _quote_text_as(t, Rules.CURRENT)
+
+
+def _quote_text_as(t, rules):
+	"""_quote_text for a reader of rules, as in _quote_double_as."""
+	control = "\n" in t or "\t" in t or (rules is Rules.CURRENT and not _INVISIBLE.isdisjoint(t))
 	if not control and "'" not in t and ('"' in t or "\\" in t):
 		return "'" + t + "'"
-	return _quote_double(t)
+	return _quote_double_as(t, rules)
 
 
-def _quote_double(t):
-	"""The double-quoted spelling, which the 2.x and current rules read alike."""
+def _quote_double_as(t, rules):
+	"""The double-quoted spelling for a reader of rules. The two read it alike,
+	except a \\u escape, which 2.x kept as written, so for 2.x an invisible
+	character goes in as it is."""
 	out = ['"']
 	for c in t:
 		if c == "\\":
@@ -6691,6 +6935,8 @@ def _quote_double(t):
 			out.append("\\n")
 		elif c == "\t":
 			out.append("\\t")
+		elif c in _INVISIBLE and rules is Rules.CURRENT:
+			out.append(_unicode_escape_text(c))
 		else:
 			out.append(c)
 	out.append('"')
@@ -6877,22 +7123,21 @@ def _parse_int_text(e, level):
 	body = t[1:] if t[:1] in ("+", "-") else t
 	if body and _all_ascii_digits(body):
 		return _parse_i64(t)
-	# Hex.
+	# Hex, octal and binary.
 	if t[:1] == "-":
 		neg = True
-		hexs = t[1:]
+		prefixed = t[1:]
 	else:
 		neg = False
-		hexs = t[1:] if t[:1] == "+" else t
-	if hexs[:2] in ("0x", "0X"):
-		h = hexs[2:]
-		if h and _HEX_DIGITS.issuperset(h):
-			# Range-check the magnitude against the sign, so the negative i64-min
-			# magnitude (0x8000000000000000) reads like its decimal spelling.
-			mag = int(h, 16)
-			if mag > (_I64_MAX + 1 if neg else _I64_MAX):
-				return None
-			return -mag if neg else mag
+		prefixed = t[1:] if t[:1] == "+" else t
+	rb = _radix_body(prefixed)
+	if rb is not None:
+		# Range-check the magnitude against the sign, so the negative i64-min
+		# magnitude (0x8000000000000000) reads like its decimal spelling.
+		mag = int(rb[1], rb[0])
+		if mag > (_I64_MAX + 1 if neg else _I64_MAX):
+			return None
+		return -mag if neg else mag
 	# Thousands separators, only inside quotes (bare commas are reserved).
 	if e.quoted and "," in t:
 		sign_body = t[1:] if t[:1] in ("+", "-") else t
@@ -6968,7 +7213,7 @@ def _parse_float_text(e, level):
 		if not math.isfinite(v):
 			return None
 	else:
-		# An integer is a valid float on read (incl. hex and quoted thousands).
+		# An integer is a valid float on read (incl. hex, octal, binary and quoted thousands).
 		iv = _parse_int_text_no_loose(_Element(t, e.quoted))
 		if iv is not None:
 			v = float(iv)
@@ -6980,22 +7225,38 @@ def _parse_float_text(e, level):
 	return v / 100.0 if percent else v
 
 
+_RADIXES = {"x": 16, "X": 16, "o": 8, "O": 8, "b": 2, "B": 2}
+
+
+def _radix_body(t):
+	"""The digits after a `0x`, `0o` or `0b` prefix, either case, with their
+	radix, or None. A bare leading zero is decimal, so `0o` is the one way to
+	write an octal mode."""
+	if len(t) < 3 or t[0] != "0" or t[1] not in _RADIXES:
+		return None
+	radix = _RADIXES[t[1]]
+	digits = t[2:]
+	allowed = "0123456789abcdefABCDEF"[: radix if radix <= 10 else 22]
+	if not all(c in allowed for c in digits):
+		return None
+	return radix, digits
+
+
 def _parse_int_text_wide(e):
-	# The two integer spellings the plain float parse does not read - hex, and
-	# quoted thousands - past the i64 range, as a double: a float read is
-	# bounded by the double, not by the integer type. Hex goes in digit by digit
-	# in the double, so every binding rounds the same way; the spellings mirror
-	# _parse_int_text.
+	# The integer spellings the plain float parse does not read - hex, octal,
+	# binary and quoted thousands - past the i64 range, as a double: a float
+	# read is bounded by the double, not by the integer type. A prefixed number
+	# goes in digit by digit in the double, so every binding rounds the same
+	# way; the spellings mirror _parse_int_text.
 	t = _trim(e.text)
 	neg = t.startswith("-")
 	body = t[1:] if t[:1] in ("-", "+") else t
-	if body[:2] in ("0x", "0X"):
-		h = body[2:]
-		if not h or not all(c in "0123456789abcdefABCDEF" for c in h):
-			return None
+	rb = _radix_body(body)
+	if rb is not None:
+		radix, digits = rb
 		v = 0.0
-		for c in h:
-			v = v * 16.0 + float(int(c, 16))
+		for c in digits:
+			v = v * float(radix) + float(int(c, 16))
 	elif e.quoted and "," in body:
 		groups = body.split(",")
 		well_formed = (
@@ -7040,6 +7301,258 @@ def _parse_bool_text(t, level):
 			return True
 		if s in ("f", "n", "disable", "disabled"):
 			return False
+	return None
+
+
+# ---------------------------------------------------------------------------
+# Durations and sizes: a number with a unit, or a bare number whose unit the
+# field name or the caller gives
+# ---------------------------------------------------------------------------
+
+
+class DurationUnit(Enum):
+	"""The unit a duration read gives a bare number, when the field name gives
+	none. Smallest first; the value is the spelling."""
+
+	Millis = "ms"
+	Seconds = "s"
+	Minutes = "m"
+	Hours = "h"
+	Days = "d"
+
+	def spelling(self) -> str:
+		return self.value
+
+	@staticmethod
+	def from_spelling(s: str) -> DurationUnit | None:
+		"""The unit a value spelling names, lower case only."""
+		for u in DurationUnit:
+			if u.value == s:
+				return u
+		return None
+
+
+_DURATION_MILLIS = {
+	DurationUnit.Millis: 1,
+	DurationUnit.Seconds: 1_000,
+	DurationUnit.Minutes: 60_000,
+	DurationUnit.Hours: 3_600_000,
+	DurationUnit.Days: 86_400_000,
+}
+
+
+class SizeUnit(Enum):
+	"""The unit a size read gives a bare number, when the field name gives none.
+	Kilo to Tera are powers of 1024 unless the read asks for decimal; Kibi to
+	Tebi always are. The value is the spelling."""
+
+	Bytes = "B"
+	Kilo = "KB"
+	Mega = "MB"
+	Giga = "GB"
+	Tera = "TB"
+	Kibi = "KiB"
+	Mebi = "MiB"
+	Gibi = "GiB"
+	Tebi = "TiB"
+
+	def spelling(self) -> str:
+		return self.value
+
+	@staticmethod
+	def from_spelling(s: str) -> SizeUnit | None:
+		"""The unit a value spelling names. Letter case is read, since Mb is
+		megabits to most readers; kB is the one other spelling taken."""
+		if s == "kB":
+			return SizeUnit.Kilo
+		for u in SizeUnit:
+			if u.value == s:
+				return u
+		return None
+
+
+def _size_bytes(u, decimal):
+	k = 1000 if decimal else 1024
+	return {
+		SizeUnit.Bytes: 1,
+		SizeUnit.Kilo: k,
+		SizeUnit.Mega: k**2,
+		SizeUnit.Giga: k**3,
+		SizeUnit.Tera: k**4,
+		SizeUnit.Kibi: 1 << 10,
+		SizeUnit.Mebi: 1 << 20,
+		SizeUnit.Gibi: 1 << 30,
+		SizeUnit.Tebi: 1 << 40,
+	}[u]
+
+
+# The longest duration a read gives, in milliseconds: Go's time.Duration range,
+# so every binding holds every duration another one reads.
+_DURATION_MAX_MS = 9_223_372_036_854
+_U64_MAX = (1 << 64) - 1
+_I64_MAX_U = (1 << 63) - 1
+
+# Field name endings that give a bare number its unit, after a `-` or `_`.
+# min, m and s are left out: `retries-min` is a minimum, and a trailing s is
+# usually a plural. A capitalized word (`timeoutMs`) is not a boundary, since
+# names fold to lower case and fmt writes them folded.
+_DURATION_NAMES = (
+	("ms", DurationUnit.Millis),
+	("sec", DurationUnit.Seconds),
+	("seconds", DurationUnit.Seconds),
+	("minutes", DurationUnit.Minutes),
+	("hours", DurationUnit.Hours),
+	("days", DurationUnit.Days),
+)
+
+_SIZE_NAMES = (
+	("bytes", SizeUnit.Bytes),
+	("kb", SizeUnit.Kilo),
+	("mb", SizeUnit.Mega),
+	("gb", SizeUnit.Giga),
+	("tb", SizeUnit.Tera),
+	("kib", SizeUnit.Kibi),
+	("mib", SizeUnit.Mebi),
+	("gib", SizeUnit.Gibi),
+	("tib", SizeUnit.Tebi),
+)
+
+_DURATION_RANK = {u: i for i, u in enumerate(DurationUnit)}
+
+
+def _name_unit(name, table):
+	"""The unit a field name ends in, from table: the ending, in any letter case,
+	after a `-` or `_`."""
+	for end, unit in table:
+		at = len(name) - len(end)
+		if at > 0 and _ascii_lower(name[at:]) == end and name[at - 1] in "-_":
+			return unit
+	return None
+
+
+def _decimal_at(s):
+	"""A decimal number at the start of s: digits, then a point and more digits
+	if there is a point. The two digit runs and where it ended, or None."""
+	i = 0
+	while i < len(s) and s[i] in _ASCII_DIGITS:
+		i += 1
+	if i == 0:
+		return None
+	if i >= len(s) or s[i] != ".":
+		return s[:i], "", i
+	j = i + 1
+	while j < len(s) and s[j] in _ASCII_DIGITS:
+		j += 1
+	if j == i + 1:
+		return None
+	return s[:i], s[i + 1:j], j
+
+
+def _scaled(int_digits, frac_digits, scale):
+	"""int.frac times scale, exactly, or None when that is not a whole number or
+	does not fit, so 1.5s is 1500 ms and 0.0001s is refused. At most 18 digits
+	after the point count, and the sum stays in 64 bits, as in the reference."""
+	int_digits = int_digits.lstrip("0")
+	frac_digits = frac_digits.rstrip("0")
+	if len(int_digits) > 19 or len(frac_digits) > 18:
+		return None
+	total = (int(int_digits) if int_digits else 0) * scale
+	if total > _U64_MAX:
+		return None
+	if frac_digits:
+		part = int(frac_digits)
+		den = 10 ** len(frac_digits)
+		g = math.gcd(scale, den)
+		step = den // g
+		if part % step:
+			return None
+		total += part // step * (scale // g)
+		if total > _U64_MAX:
+			return None
+	return total
+
+
+def _parse_duration_text(t, bare):
+	"""A duration in whole milliseconds and the units the text spelled, or None:
+	parts such as `1h 30m`, largest unit first and each once, with blanks
+	allowed between a number and its unit and between parts. A bare number
+	takes bare, and is None without one. No sign."""
+	t = _trim_wsp(t)
+	d = _decimal_at(t)
+	if d is not None and d[2] == len(t):
+		if bare is None:
+			return None
+		ms = _scaled(d[0], d[1], _DURATION_MILLIS[bare])
+		if ms is None or ms > _DURATION_MAX_MS:
+			return None
+		return ms, []
+	rest = t
+	total = 0
+	units: list[DurationUnit] = []
+	while rest:
+		d = _decimal_at(rest)
+		if d is None:
+			return None
+		rest = rest[d[2]:].lstrip(_WSP)
+		n = 0
+		while n < len(rest) and rest[n].isascii() and rest[n].isalpha():
+			n += 1
+		unit = DurationUnit.from_spelling(rest[:n])
+		if unit is None or (units and _DURATION_RANK[units[-1]] <= _DURATION_RANK[unit]):
+			return None
+		v = _scaled(d[0], d[1], _DURATION_MILLIS[unit])
+		if v is None:
+			return None
+		total += v
+		if total > _U64_MAX:
+			return None
+		units.append(unit)
+		rest = rest[n:].lstrip(_WSP)
+	if not units or total > _DURATION_MAX_MS:
+		return None
+	return total, units
+
+
+def _parse_size_text(t, bare, decimal):
+	"""A size in whole bytes and the unit the text spelled, or None: a number,
+	blanks allowed, then a unit. A bare number takes bare, and is None without
+	one. No sign."""
+	t = _trim_wsp(t)
+	d = _decimal_at(t)
+	if d is None:
+		return None
+	rest = t[d[2]:].lstrip(_WSP)
+	unit = None
+	if rest:
+		unit = SizeUnit.from_spelling(rest)
+		if unit is None:
+			return None
+	use = unit if unit is not None else bare
+	if use is None:
+		return None
+	n = _scaled(d[0], d[1], _size_bytes(use, decimal))
+	if n is None or n > _I64_MAX_U:
+		return None
+	return n, unit
+
+
+def _unit_clash(name, text):
+	"""A value in another unit than the one its field name ends in (H005), as
+	`timeout-ms: 5s`. The value's unit is the one read, so this is a hint."""
+
+	def said(v, n):
+		return "value is in " + v + " and the name says " + n + "; the value's unit is the one read"
+
+	nu = _name_unit(name, _DURATION_NAMES)
+	if nu is not None:
+		d = _parse_duration_text(text, None)
+		if d is not None and nu not in d[1]:
+			return said(d[1][0].value, nu.value)
+	su = _name_unit(name, _SIZE_NAMES)
+	if su is not None:
+		z = _parse_size_text(text, None, False)
+		if z is not None and z[1] is not None and z[1] != su:
+			return said(z[1].value, su.value)
 	return None
 
 
@@ -7291,7 +7804,7 @@ def parse_datetime(text: str) -> ShclDateTime | None:
 # ---------------------------------------------------------------------------
 
 _SCHEMA_TYPES = (
-	"int", "float", "bool", "string", "datetime", "raw",
+	"int", "float", "bool", "string", "datetime", "raw", "duration", "size",
 	"int-array", "float-array", "bool-array", "string-array", "datetime-array",
 )
 
@@ -7299,7 +7812,9 @@ _SCHEMA_TYPES = (
 class _Constraint:
 	__slots__ = (
 		"path", "segs", "ty", "required", "allowed",
-		"min_i", "max_i", "min_f", "max_f", "repeat", "reopen",
+		"min_i", "max_i", "min_f", "max_f",
+		"unit_d", "unit_s", "decimal", "min_text", "max_text",
+		"repeat", "reopen",
 		"inherits", "inherits_line",
 		"desc", "default_text",
 	)
@@ -7314,6 +7829,14 @@ class _Constraint:
 		self.max_i = None
 		self.min_f = None
 		self.max_f = None
+		# duration and size: the unit a bare number takes when the field name
+		# gives none, base 10 for KB to TB, and the bounds as the schema
+		# spelled them, since min_i and max_i hold them in ms or bytes.
+		self.unit_d = None
+		self.unit_s = None
+		self.decimal = False
+		self.min_text = None
+		self.max_text = None
 		self.repeat = None        # (lo, hi)
 		self.reopen = False       # H002 suppressor only; validation ignores it
 		self.inherits = None      # fragment mounted at this path (subtree shape)
@@ -7331,6 +7854,11 @@ class _Constraint:
 		cc.max_i = self.max_i
 		cc.min_f = self.min_f
 		cc.max_f = self.max_f
+		cc.unit_d = self.unit_d
+		cc.unit_s = self.unit_s
+		cc.decimal = self.decimal
+		cc.min_text = self.min_text
+		cc.max_text = self.max_text
 		cc.repeat = self.repeat
 		cc.reopen = self.reopen
 		cc.inherits = self.inherits
@@ -7497,6 +8025,8 @@ def _parse_field(schema, f, faults):
 	default_at = None
 	min_at = None
 	max_at = None
+	unit_at = None
+	decimal_key_at = None
 	for k in schema.arena[f].children:
 		kid = schema.arena[k]
 		if kid.value.is_empty():
@@ -7547,6 +8077,19 @@ def _parse_field(schema, f, faults):
 				max_at = k
 			else:
 				_vdiag(faults, kid.line, "V092", "bad schema constraint 'max'")
+		elif kid.name == "unit":
+			if kid.value.kind == "cell" and len(kid.value.els) == 1 and unit_at is None:
+				unit_at = k
+			else:
+				_vdiag(faults, kid.line, "V092", "bad schema constraint 'unit'")
+		elif kid.name == "decimal":
+			t = _single_text(kid.value)
+			b = _parse_bool_text(t, Strictness.Standard) if t is not None else None
+			if b is not None and decimal_key_at is None:
+				decimal_key_at = k
+				c.decimal = b
+			else:
+				_vdiag(faults, kid.line, "V092", "bad schema constraint 'decimal'")
 		elif kid.name == "repeat":
 			if kid.value.kind == "cell" and c.repeat is None and len(kid.value.els) in (1, 2):
 				lo = _parse_uint(kid.value.els[0].text)
@@ -7589,6 +8132,32 @@ def _parse_field(schema, f, faults):
 	base = c.ty[:-6] if c.ty is not None and c.ty.endswith("-array") else c.ty
 	if base is None:
 		base = "string"
+	# `unit` and `decimal` belong to the types that read a bare number in one,
+	# and a unit has to be one that type spells.
+	if unit_at is not None:
+		ukid = schema.arena[unit_at]
+		t = _single_text(ukid.value) or ""
+		if base == "duration":
+			c.unit_d = DurationUnit.from_spelling(t)
+		elif base == "size":
+			c.unit_s = SizeUnit.from_spelling(t)
+		if c.unit_d is None and c.unit_s is None:
+			_vdiag(faults, ukid.line, "V092", "bad schema constraint 'unit'")
+	if decimal_key_at is not None and base != "size":
+		_vdiag(faults, schema.arena[decimal_key_at].line, "V092", "bad schema constraint 'decimal'")
+		c.decimal = False
+
+	# A duration or size bound is read the way the document's value is, less
+	# the field name: the schema says its unit.
+	def quantity(e):
+		if base == "duration":
+			d = _parse_duration_text(e.text, c.unit_d)
+			return None if d is None else d[0]
+		if base == "size":
+			z = _parse_size_text(e.text, c.unit_s, c.decimal)
+			return None if z is None else z[0]
+		return None
+
 	if allowed_at is not None:
 		kid = schema.arena[allowed_at]
 		els = kid.value.els
@@ -7611,8 +8180,10 @@ def _parse_field(schema, f, faults):
 			vals = [parse_datetime(e.text) for e in els]
 			ok = all(v is not None for v in vals)
 			setv = ("dates", vals)
-		elif base == "raw":
-			ok = False  # a raw body has no element space to enumerate
+		elif base in ("raw", "duration", "size"):
+			# A raw body has no element space to enumerate, and a duration or
+			# size is bounded with min and max rather than listed.
+			ok = False
 			setv = None
 		else:
 			setv = ("strings", [e.text for e in els])
@@ -7642,6 +8213,14 @@ def _parse_field(schema, f, faults):
 				c.min_f = v
 			else:
 				c.max_f = v
+		elif base in ("duration", "size"):
+			v = quantity(el)
+			if v is None:
+				_vdiag(faults, kid.line, "V092", f"bad schema constraint '{key}'")
+			elif is_min:
+				c.min_i, c.min_text = v, el.text
+			else:
+				c.max_i, c.max_text = v, el.text
 		else:
 			_vdiag(faults, kid.line, "V092", f"bad schema constraint '{key}'")
 	# A lower bound above the upper one admits nothing, so every value fails
@@ -7657,6 +8236,7 @@ def _parse_field(schema, f, faults):
 		line = schema.arena[max_at].line if max_at is not None else schema.arena[f].line
 		_vdiag(faults, line, "V092", "bad schema constraint 'max'")
 		c.min_i = c.max_i = c.min_f = c.max_f = None
+		c.min_text = c.max_text = None
 	return c
 
 
@@ -7685,11 +8265,25 @@ def _allowed_join(a):
 def _gen_annotation(c, tyname):
 	# The `# type, ...` line summarizing a constraint, ASCII only.
 	parts = [tyname]
+	if c.unit_d is not None:
+		parts[0] = tyname + " in " + c.unit_d.value
+	elif c.unit_s is not None:
+		parts[0] = tyname + " in " + c.unit_s.value
+	if c.decimal:
+		parts.append("KB to TB in powers of 1000")
 	if c.allowed is not None:
 		parts.append("one of: " + _allowed_join(c.allowed))
 	# The bounds are their own part of the annotation line, not an alternative
-	# to `allowed`. A field can carry both, and the validator enforces both.
-	if c.min_i is not None or c.max_i is not None:
+	# to `allowed`. A field can carry both, and the validator enforces both. A
+	# duration or size bound reads the way the schema spelled it.
+	if c.min_text is not None or c.max_text is not None:
+		if c.min_text is not None and c.max_text is not None:
+			parts.append(c.min_text + "-" + c.max_text)
+		elif c.min_text is not None:
+			parts.append(">= " + c.min_text)
+		else:
+			parts.append("<= " + c.max_text)
+	elif c.min_i is not None or c.max_i is not None:
 		if c.min_i is not None and c.max_i is not None:
 			parts.append(f"{c.min_i}-{c.max_i}")
 		elif c.min_i is not None:
@@ -8070,6 +8664,10 @@ FORMAT_LINE_HEAD = "##    Format   "
 # own to a file it rewrote, since that file has no block to add it to and
 # inventing one would write bytes the document does not hold.
 FORMAT_LINE = "##    Format   3"
+
+# The start of a line naming the file's schema, spelled like the Format line,
+# for check and for editors: `##    Schema   ./app.schema.shcl`.
+SCHEMA_LINE_HEAD = "##    Schema   "
 
 # Written under FORMAT_LINE on a file migrate actually changed. It is a note for
 # whoever opens the file; nothing reads it back.

@@ -1,0 +1,8 @@
+timeout: 400
+hold-ms: 2500
+cache: 3000
+chunk: 64
+label: x
+pick: 1s
+base10: 3
+weird: 1

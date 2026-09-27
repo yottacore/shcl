@@ -22,6 +22,7 @@
 #include "shcl.h"
 #endif
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -41,6 +42,11 @@ enum class Severity { Error, Hint };
 enum class Status { Good, Empty, NotFound, BadType, Multiple };
 // Why a write would fail: the distinctions behind a setter's bare false.
 enum class WriteReason { Writable, BadPath, ValueInPath, Wildcard, NoSuchIndex, TooDeep };
+// The unit a duration or size read gives a bare number, when the field name
+// gives none. Kilo to Tera are powers of 1024 unless the read asks for
+// decimal; Kibi to Tebi always are.
+enum class DurationUnit { Millis, Seconds, Minutes, Hours, Days };
+enum class SizeUnit { Bytes, Kilo, Mega, Giga, Tera, Kibi, Mebi, Gibi, Tebi };
 
 // Nesting cap below the document root, enforced at load and by every setter.
 inline constexpr std::size_t MAX_DEPTH = 512;
@@ -54,6 +60,8 @@ extern const std::string_view GEN_BANNER;
 extern const std::string_view FORMAT_LINE_HEAD;
 extern const std::string_view FORMAT_LINE;
 extern const std::string_view MIGRATED_LINE;
+// The start of a line naming the file's schema, spelled like the Format line.
+extern const std::string_view SCHEMA_LINE_HEAD;
 
 class Document;
 namespace detail {
@@ -187,6 +195,16 @@ Migration migrate_unstamped(std::string_view text, bool from_v2);
 // it; none when no line names one. migrate hands a file back untouched exactly
 // when this is FORMAT_MAJOR or more.
 std::optional<std::uint32_t> format_version(std::string_view text);
+// The schema a document's Schema line names, a path or a URL; none when no
+// line names one. The first such line wins, and a relative path is the
+// caller's to resolve, from the config file's directory.
+std::optional<std::string> schema_ref(std::string_view text);
+// The unit a value spelling names (ms s m h d; B KB kB MB GB TB KiB MiB GiB
+// TiB, letter case read), and the spelling back.
+std::optional<DurationUnit> duration_unit_from_spelling(std::string_view s);
+std::optional<SizeUnit> size_unit_from_spelling(std::string_view s);
+std::string_view spelling(DurationUnit u);
+std::string_view spelling(SizeUnit u);
 
 #ifndef SHCL_NO_FILE_IO
 // Why a load came back the way it did. A load never fails on the file's
@@ -407,6 +425,13 @@ public:
 	Read<std::string> read_raw_info(std::string_view path) const;
 	// The datetime as the reference's textual form.
 	Read<std::string> read_datetime_str(std::string_view path) const;
+	// A duration in whole milliseconds and a size in whole bytes. A bare
+	// number takes its unit from the field name when the name ends in one
+	// (`timeout-ms`, `cache_mb`), else from unit, and is BadType with neither.
+	Read<std::chrono::milliseconds> read_duration(std::string_view path, std::optional<DurationUnit> unit = std::nullopt) const;
+	Read<std::int64_t> read_size(std::string_view path, std::optional<SizeUnit> unit = std::nullopt, bool decimal = false) const;
+	std::chrono::milliseconds get_duration_or(std::string_view path, std::optional<DurationUnit> unit, std::chrono::milliseconds def) const;
+	std::int64_t get_size_or(std::string_view path, std::optional<SizeUnit> unit, bool decimal, std::int64_t def) const;
 
 	// Array reads carry the per-slot statuses in .slots, so a partly-resolved
 	// array says which slots failed rather than only that the read did.
@@ -484,6 +509,10 @@ static_assert(static_cast<int>(WriteReason::Writable) == SHCL_W_WRITABLE && stat
 static_assert(static_cast<int>(Quote::None) == SHCL_QUOTE_NONE && static_cast<int>(Quote::Single) == SHCL_QUOTE_SINGLE
 	&& static_cast<int>(Quote::Double) == SHCL_QUOTE_DOUBLE && static_cast<int>(Quote::Open) == SHCL_QUOTE_OPEN, "Quote drifted from shcl_quote");
 static_assert(static_cast<int>(Rules::Current) == SHCL_RULES_CURRENT && static_cast<int>(Rules::V2) == SHCL_RULES_V2, "Rules drifted from shcl_rules");
+// The C enums put NONE first, so each unit sits one past its C value.
+static_assert(static_cast<int>(DurationUnit::Millis) + 1 == SHCL_DURATION_MS && static_cast<int>(DurationUnit::Days) + 1 == SHCL_DURATION_D, "DurationUnit drifted from shcl_duration_unit");
+static_assert(static_cast<int>(SizeUnit::Bytes) + 1 == SHCL_SIZE_B && static_cast<int>(SizeUnit::Tera) + 1 == SHCL_SIZE_TB
+	&& static_cast<int>(SizeUnit::Kibi) + 1 == SHCL_SIZE_KIB && static_cast<int>(SizeUnit::Tebi) + 1 == SHCL_SIZE_TIB, "SizeUnit drifted from shcl_size_unit");
 #ifndef SHCL_NO_FILE_IO
 static_assert(static_cast<int>(FileStatus::Clean) == SHCL_FILE_CLEAN && static_cast<int>(FileStatus::HadErrors) == SHCL_FILE_HAD_ERRORS
 	&& static_cast<int>(FileStatus::NotFound) == SHCL_FILE_NOT_FOUND && static_cast<int>(FileStatus::Unreadable) == SHCL_FILE_UNREADABLE, "FileStatus drifted from shcl_file_status");
@@ -497,6 +526,7 @@ const std::string_view GEN_BANNER = SHCL_GEN_BANNER;
 const std::string_view FORMAT_LINE_HEAD = SHCL_FORMAT_LINE_HEAD;
 const std::string_view FORMAT_LINE = SHCL_FORMAT_LINE;
 const std::string_view MIGRATED_LINE = SHCL_MIGRATED_LINE;
+const std::string_view SCHEMA_LINE_HEAD = SHCL_SCHEMA_LINE_HEAD;
 
 namespace detail {
 
@@ -661,6 +691,26 @@ std::optional<std::uint32_t> format_version(std::string_view text) {
 	return static_cast<std::uint32_t>(v);
 }
 
+std::optional<DurationUnit> duration_unit_from_spelling(std::string_view s) {
+	shcl_duration_unit u = shcl_duration_unit_of(s.data(), s.size());
+	if (u == SHCL_DURATION_NONE) return std::nullopt;
+	return static_cast<DurationUnit>(static_cast<int>(u) - 1);
+}
+std::optional<SizeUnit> size_unit_from_spelling(std::string_view s) {
+	shcl_size_unit u = shcl_size_unit_of(s.data(), s.size());
+	if (u == SHCL_SIZE_NONE) return std::nullopt;
+	return static_cast<SizeUnit>(static_cast<int>(u) - 1);
+}
+std::string_view spelling(DurationUnit u) { return shcl_duration_unit_spelling(static_cast<shcl_duration_unit>(static_cast<int>(u) + 1)); }
+std::string_view spelling(SizeUnit u) { return shcl_size_unit_spelling(static_cast<shcl_size_unit>(static_cast<int>(u) + 1)); }
+
+std::optional<std::string> schema_ref(std::string_view text) {
+	std::size_t n = 0;
+	const char *r = shcl_schema_ref(text.data(), text.size(), &n);
+	if (!r) return std::nullopt;
+	return std::string(r, n);
+}
+
 #ifndef SHCL_NO_FILE_IO
 const char *to_string(FileStatus s) { return shcl_file_status_name(static_cast<shcl_file_status>(s)); }
 
@@ -804,6 +854,24 @@ Read<std::int64_t> Document::read_int(std::string_view path) const { auto r = sh
 Read<double> Document::read_float(std::string_view path) const { auto r = shcl_read_float(detail::doc(*this), path.data(), path.size()); return {r.value, detail::st(r.status)}; }
 Read<bool> Document::read_bool(std::string_view path) const { auto r = shcl_read_bool_(detail::doc(*this), path.data(), path.size()); return {r.value != 0, detail::st(r.status)}; }
 Read<DateTime> Document::read_datetime(std::string_view path) const { auto r = shcl_read_datetime(detail::doc(*this), path.data(), path.size()); return {detail::from_c(r.value), detail::st(r.status)}; }
+namespace detail {
+inline shcl_duration_unit c_unit(std::optional<DurationUnit> u) { return u ? static_cast<shcl_duration_unit>(static_cast<int>(*u) + 1) : SHCL_DURATION_NONE; }
+inline shcl_size_unit c_unit(std::optional<SizeUnit> u) { return u ? static_cast<shcl_size_unit>(static_cast<int>(*u) + 1) : SHCL_SIZE_NONE; }
+}
+Read<std::chrono::milliseconds> Document::read_duration(std::string_view path, std::optional<DurationUnit> unit) const {
+	auto r = shcl_read_duration(detail::doc(*this), path.data(), path.size(), detail::c_unit(unit));
+	return {std::chrono::milliseconds(r.value), detail::st(r.status)};
+}
+Read<std::int64_t> Document::read_size(std::string_view path, std::optional<SizeUnit> unit, bool decimal) const {
+	auto r = shcl_read_size(detail::doc(*this), path.data(), path.size(), detail::c_unit(unit), decimal ? 1 : 0);
+	return {r.value, detail::st(r.status)};
+}
+std::chrono::milliseconds Document::get_duration_or(std::string_view path, std::optional<DurationUnit> unit, std::chrono::milliseconds def) const {
+	return std::chrono::milliseconds(shcl_get_duration_or(detail::doc(*this), path.data(), path.size(), detail::c_unit(unit), static_cast<std::int64_t>(def.count())));
+}
+std::int64_t Document::get_size_or(std::string_view path, std::optional<SizeUnit> unit, bool decimal, std::int64_t def) const {
+	return shcl_get_size_or(detail::doc(*this), path.data(), path.size(), detail::c_unit(unit), decimal ? 1 : 0, def);
+}
 Read<std::string> Document::read_string(std::string_view path) const { auto r = shcl_read_string(detail::fresh(*this), path.data(), path.size()); return {detail::str(r.value), detail::st(r.status)}; }
 Read<std::string> Document::read_raw(std::string_view path) const { auto r = shcl_read_raw(detail::fresh(*this), path.data(), path.size()); return {detail::str(r.value), detail::st(r.status)}; }
 Read<std::string> Document::read_raw_info(std::string_view path) const { auto r = shcl_read_raw_info(detail::fresh(*this), path.data(), path.size()); return {detail::str(r.value), detail::st(r.status)}; }

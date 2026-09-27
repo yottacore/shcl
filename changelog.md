@@ -18,7 +18,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - An escape in double quotes other than `\t`, `\n`, `\\`, `\"` and `\'` is `E023`, so `"C:\work\new"` no longer loads with a newline in it. The line is kept as written and binds nothing. `migrate` doubles the backslash.
 
+- `\uXXXX` and `\UXXXXXXXX` in double quotes name a character, as in TOML. 2.x kept them as written, so `migrate --from-2x` doubles the backslash. One that names no character is `E023`.
+
+- `fmt` and every save write an invisible character in a name or value as a `\u` escape: a control, a zero-width space, a direction mark or override, the byte order mark, a line or paragraph separator. A carriage return inside a value comes out as `\u000D`.
+
 - A double-quoted value that starts like a Windows path and holds a `\t` or `\n` escape, such as `"C:\temp"`, gets the hint `H004`. It still loads and saves as written.
+
+- `fmt` and every canonical save keep the quotes on a number with a leading zero, such as `zip: "02134"`, where they took them off.
 
 - A quote opens a quoted piece only as its first character. One that never closes is read as text and reported as `E017`.
 
@@ -59,6 +65,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `clear_comments()` in every binding, and the `clear-comments` op, take off the comment lines above a node, so a comment can be replaced. `comments()` reads them.
 
 - C: `shcl_read_string_to` and a `_to` form of each array read copy into the caller's buffer, so the read arena stays flat without `shcl_reads_release`.
+
+- Duration and size reads in every binding (`read_duration`, `read_size`), `shcl get --duration` and `--size` with `--unit` and `--decimal`, and schema types `duration` and `size` with `unit`, `decimal`, `min` and `max`. `500ms`, `1h 30m` and `1.5 GiB` read as whole milliseconds or bytes, and a bare number takes its unit from a name such as `timeout-ms`.
+
+- Hint `H005` for a value in another unit than its field name ends in, as `timeout-ms: 5s`.
+
+- Integers can be written in octal and binary, `0o644` and `0b101`, beside hex.
+
+- A config file can name its schema on a `##    Schema   PATH` line. `shcl check` uses it when `--schema` is not given, reading the path from the file's directory, and leaves a URL to editors. `schema_ref()` in every binding reads it.
 
 - `shcl explain [CODE]` gives the rule behind a diagnostic code, or lists every code.
 

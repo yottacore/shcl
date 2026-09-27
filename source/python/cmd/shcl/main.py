@@ -77,8 +77,9 @@ Usage:
   shcl fmt [--write|-w] [options] FILE   print the canonical form (or rewrite
                                          FILE in place with --write)
   shcl check [options] FILE              load and print diagnostics
-                                         (--schema=SCHEMA also validates FILE
-                                         against a schema, itself a .shcl file)
+                                         (--schema=SCHEMA, or the file's own
+                                         '##    Schema   PATH' line, also
+                                         validates FILE against a schema)
   shcl init [--no-banner] --schema=S     print a commented starter config
                                          from a schema (required fields live,
                                          optional commented, wildcards noted)
@@ -128,9 +129,11 @@ selector may hold one. Ops:
 string/raw values decode \\n \\t \\\\; a line starting with # is a script comment.
 
 Types (get only; default --string):
-  --int --float --bool --datetime --string --raw --rawinfo
+  --int --float --bool --datetime --string --raw --rawinfo --duration --size
   --array                                read the value as an array of the type
   --rawinfo reads a raw block's info-string (the fence tag), not its content
+  --duration prints milliseconds and --size bytes; a bare number takes its
+  unit from the field name (timeout-ms, cache_mb), else from --unit
 
 Options (the subcommands each belongs to are in parentheses):
   --default=VALUE                        (get) value to print when the read is
@@ -143,6 +146,12 @@ Options (the subcommands each belongs to are in parentheses):
   --slots                                (get) prefix each line with its slot
                                          status and a tab (per element, or per
                                          wildcard slot)
+  --unit=UNIT                            (get) the unit a bare number is in,
+                                         for --duration (ms s m h d) or --size
+                                         (B KB MB GB TB KiB MiB GiB TiB), when
+                                         the field name gives none
+  --decimal                              (get) --size reads KB to TB as powers
+                                         of 1000, not 1024
   --no-banner                            (init, and set --write when it creates
                                          FILE) leave out the info block naming
                                          the format and pointing at its spec
@@ -168,7 +177,8 @@ Options (the subcommands each belongs to are in parentheses):
                                          children/paths) or 1|2|3 (default
                                          standard)
   --schema=SCHEMA                        (check/init) validate FILE against a
-                                         schema; adds V### diagnostics
+                                         schema; adds V### diagnostics. check
+                                         without it uses FILE's Schema line
   --layer=FILE                           (get/set/fmt/count/instances/children/
                                          paths) merge a lower-priority layer
                                          under FILE; repeatable, earlier =
@@ -327,11 +337,12 @@ E022|error/hint|the diagnostics list was cut at the caller-supplied cap
   This entry ends the list and counts what was not listed. An error when
   any unlisted one was, so a scan for errors still finds one; a hint
   otherwise.
-E023|error|an escape in double quotes that is none of the five
-  Only \\t, \\n, \\\\, \\" and \\' are escapes there. A Windows path typed in
-  double quotes is the usual cause, and its \\n would already be a newline,
-  so the line is kept verbatim: it binds nothing and a read on it is
-  NotFound. Use single quotes or no quotes, or double each backslash.
+E023|error|a bad escape in double quotes
+  Only \\t, \\n, \\\\, \\", \\', \\uXXXX and \\UXXXXXXXX are escapes there, and a
+  \\u or \\U escape must name a character. A Windows path typed in double
+  quotes is the usual cause, and its \\n would already be a newline, so the
+  line is kept verbatim: it binds nothing and a read on it is NotFound. Use
+  single quotes or no quotes, or double each backslash.
 H001|hint|repeated bare leaf (an array spelled as repeated lines)
   Repeated leaves are legal - that is how instances are written - but
   'tags: red' twice and 'tags: red, blue' look alike, so the parser says
@@ -348,6 +359,9 @@ H004|hint|a Windows path in double quotes with a \\t or \\n escape
   "C:\\temp" reads as C:, a tab, then emp. The line loads and saves as
   usual, since that is legal, but a path almost never means it. Single
   quotes or no quotes keep each backslash as written; so does doubling it.
+H005|hint|a value in another unit than its field name ends in
+  timeout-ms: 5s reads as 5000 milliseconds, since a unit in the value
+  wins over the one the name gives a bare number. Legal, and often a slip.
 V001|error|unknown field
   No schema path covers it. Only the topmost unknown node is reported; its
   subtree is skipped. The prose carries the did-you-mean suggestion.
@@ -428,7 +442,7 @@ class _SetOpt:
 
 
 class _Opts:
-	__slots__ = ("kind", "kind_opt", "kind_text", "clash_opt", "clash", "array", "slots", "default", "on_bad", "on_bad_arg", "on_bad_text", "strictness", "strictness_text", "write", "lossy", "from_2x", "check", "no_banner", "schema", "layers", "sets", "args", "seen", "swallowed")
+	__slots__ = ("kind", "kind_opt", "kind_text", "clash_opt", "clash", "array", "slots", "default", "on_bad", "on_bad_arg", "on_bad_text", "strictness", "strictness_text", "write", "lossy", "from_2x", "check", "no_banner", "schema", "unit", "decimal", "layers", "sets", "args", "seen", "swallowed")
 
 	def __init__(self):
 		self.kind = "string"     # int|float|bool|datetime|string|raw
@@ -457,6 +471,8 @@ class _Opts:
 		self.strictness = shcl.Strictness.Standard
 		self.strictness_text = None
 		self.schema = None
+		self.unit = None         # --unit, read against the type at check time
+		self.decimal = False
 		self.write = False
 		self.lossy = False
 		self.from_2x = False
@@ -528,6 +544,11 @@ def _set_value_opt(o, name, v):
 			note_clash(o, "--schema", o.schema, v)
 		o.schema = v
 		o.seen.append("--schema")
+	elif name == "--unit":
+		if o.unit is not None and o.unit != v:
+			note_clash(o, "--unit", o.unit, v)
+		o.unit = v
+		o.seen.append("--unit")
 	elif name == "--layer":
 		o.layers.append(v)
 		o.seen.append("--layer")
@@ -586,7 +607,7 @@ def asked_for(argv):
 			return "donate"
 		if a == "--":
 			return None
-		if a in ("--default", "--on-bad", "--strictness", "--schema", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove"):
+		if a in ("--default", "--on-bad", "--strictness", "--schema", "--unit", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove"):
 			i += 1
 		i += 1
 	return None
@@ -595,12 +616,12 @@ def asked_for(argv):
 # The type options, as one list. kind_from_opt is still the reader; this is for
 # the places that need the spellings themselves - the did-you-mean on a typo,
 # and the per-subcommand help.
-TYPE_OPTS = ("--int", "--float", "--bool", "--datetime", "--string", "--raw", "--rawinfo")
+TYPE_OPTS = ("--int", "--float", "--bool", "--datetime", "--string", "--raw", "--rawinfo", "--duration", "--size")
 
 
 def kind_from_opt(opt):
 	# The type option's kind, or None when the token is not one.
-	if opt in ("--int", "--float", "--bool", "--datetime", "--string", "--raw", "--rawinfo"):
+	if opt in TYPE_OPTS:
 		return opt[2:]
 	return None
 
@@ -691,6 +712,9 @@ def parse_opts(argv):
 		elif a == "--no-banner":
 			o.no_banner = True
 			o.seen.append("--no-banner")
+		elif a == "--decimal":
+			o.decimal = True
+			o.seen.append("--decimal")
 		elif a in ("--write", "-w"):
 			o.write = True
 			o.seen.append("--write")
@@ -703,7 +727,7 @@ def parse_opts(argv):
 		elif a == "--check":
 			o.check = True
 			o.seen.append("--check")
-		elif a in ("--default", "--on-bad", "--strictness", "--schema", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove"):
+		elif a in ("--default", "--on-bad", "--strictness", "--schema", "--unit", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove"):
 			i += 1
 			if i >= len(argv):
 				raise ValueError(f"missing value for {a} (try {a}=VALUE)")
@@ -718,6 +742,8 @@ def parse_opts(argv):
 			_set_value_opt(o, "--strictness", a[len("--strictness="):])
 		elif a.startswith("--schema="):
 			_set_value_opt(o, "--schema", a[len("--schema="):])
+		elif a.startswith("--unit="):
+			_set_value_opt(o, "--unit", a[len("--unit="):])
 		elif a.startswith("--layer="):
 			_set_value_opt(o, "--layer", a[len("--layer="):])
 		elif a.startswith("--set-literal-default="):
@@ -928,7 +954,7 @@ def allowed_opts(cmd):
 	# per-subcommand help is cut from the full help with it, and the shell
 	# completions carry the same table (check-completions.bash diffs the two).
 	if cmd == "get":
-		allowed = ("--<type>", "--array", "--slots", "--default", "--on-bad", "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove")
+		allowed = ("--<type>", "--array", "--slots", "--unit", "--decimal", "--default", "--on-bad", "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove")
 	elif cmd == "set":
 		allowed = ("--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove", "--write", "--lossy", "--no-banner")
 	elif cmd == "fmt":
@@ -1054,6 +1080,19 @@ def check_opts(cmd, o):
 		else:
 			sys.stderr.write(f"{a} cannot be combined with {b} (see --help)\n")
 		return 1
+	# --unit and --decimal say how to read a bare number, which only the
+	# duration and size reads have.
+	if o.unit is not None and o.kind not in ("duration", "size"):
+		sys.stderr.write("--unit needs --duration or --size (see --help)\n")
+		return 1
+	if o.decimal and o.kind != "size":
+		sys.stderr.write("--decimal needs --size (see --help)\n")
+		return 1
+	if o.unit is not None:
+		unit_of = shcl.DurationUnit.from_spelling if o.kind == "duration" else shcl.SizeUnit.from_spelling
+		if unit_of(o.unit) is None:
+			sys.stderr.write(f"bad --unit value for --{o.kind}: {o.unit} (see --help)\n")
+			return 1
 	# Writing back the merged document would fold the lower layers permanently
 	# into the top file, which is the opposite of what layering is for. On 'set'
 	# the --set values are edits to the document rather than a layer over it, so
@@ -1140,7 +1179,9 @@ def _fmt_scalar(kind, value):
 		return shcl.format_float(value)
 	if kind == "bool":
 		return "true" if value else "false"
-	# datetime / string / raw all stringify directly.
+	if kind == "duration":
+		return str(value.days * 86_400_000 + value.seconds * 1000 + value.microseconds // 1000)
+	# datetime / string / raw / size all stringify directly.
 	return str(value)
 
 
@@ -1169,7 +1210,7 @@ def do_get(o):
 		elif o.kind == "datetime":
 			r = doc.read_datetime_array(path)
 			lines = [str(v) for v in r.value]
-		elif o.kind in ("raw", "rawinfo"):
+		elif o.kind in ("raw", "rawinfo", "duration", "size"):
 			sys.stderr.write(f"--{o.kind} has no --array form (see --help)\n")
 			return 1
 		else:
@@ -1190,6 +1231,10 @@ def do_get(o):
 			r = doc.read_raw(path)
 		elif o.kind == "rawinfo":
 			r = doc.read_raw_info(path)
+		elif o.kind == "duration":
+			r = doc.read_duration(path, shcl.DurationUnit.from_spelling(o.unit) if o.unit else None)
+		elif o.kind == "size":
+			r = doc.read_size(path, shcl.SizeUnit.from_spelling(o.unit) if o.unit else None, o.decimal)
 		else:
 			r = doc.read_string(path)
 		if o.kind in ("string", "raw", "rawinfo"):
@@ -1846,6 +1891,28 @@ def do_set(o):
 	return 0
 
 
+def schema_for(o, file, text):
+	"""The schema check validates against: --schema, else the one the file
+	names on its Schema line. A relative path there is read from the config
+	file's directory, the way an editor reads it. A URL is left to editors,
+	since a check that reads the network because of a line in a file is not
+	one to run unattended."""
+	if o.schema is not None:
+		return o.schema
+	named = shcl.schema_ref(text)
+	if named is None:
+		return None
+	if "://" in named:
+		sys.stderr.write("the file names its schema by URL (" + named + "), which check does not fetch; pass --schema=SCHEMA to validate against it\n")
+		return None
+	c = named[0]
+	if c in "/\\" or (len(named) >= 2 and named[1] == ":" and c.isascii() and c.isalpha()):
+		return named
+	k = max(file.rfind("/"), file.rfind("\\"))
+	d = file[:k] if k >= 0 and file != "-" else "."
+	return d + "/" + named
+
+
 def do_check(o):
 	if len(o.args) != 1:
 		sys.stderr.write("usage: shcl check [options] FILE (see --help)\n")
@@ -1873,9 +1940,10 @@ def do_check(o):
 	# --schema: append validation diagnostics under the same contract. The
 	# schema itself always loads at Standard (a program artifact); one that
 	# does not load cleanly is a single V099 schema fault.
-	if o.schema is not None:
+	schema_file = schema_for(o, o.args[0], text)
+	if schema_file is not None:
 		try:
-			stext = read_input(o.schema)
+			stext = read_input(schema_file)
 		except (OSError, ValueError) as e:
 			sys.stderr.write(str(e) + "\n")
 			return EXIT_IO

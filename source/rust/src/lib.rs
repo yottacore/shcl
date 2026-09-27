@@ -1394,10 +1394,19 @@ fn schema_text(s: &str) -> String {
 	s.replace('\n', "\\n")
 }
 
-/// Escape processing (string reads): \t \n \\ \" \'. An unknown pair stays
-/// literal, which only 2.x text still reaches: the current rules refuse one
-/// (`E023`) before anything is read.
+/// Escape processing (string reads): \t \n \\ \" \' \uXXXX \UXXXXXXXX. An
+/// unknown pair stays literal, which only 2.x text still reaches: the current
+/// rules refuse one (`E023`) before anything is read.
 fn apply_escapes(s: &str) -> String {
+	resolve_escapes(s, Rules::Current)
+}
+
+/// The 2.x reading, for `migrate`: no `\u`, so 2.x kept `\u0041` as written.
+fn apply_escapes_v2(s: &str) -> String {
+	resolve_escapes(s, Rules::V2)
+}
+
+fn resolve_escapes(s: &str, rules: Rules) -> String {
 	let mut out = String::with_capacity(s.len());
 	let mut it = s.chars();
 	while let Some(c) = it.next() {
@@ -1411,6 +1420,13 @@ fn apply_escapes(s: &str) -> String {
 			Some('\\') => out.push('\\'),
 			Some('"') => out.push('"'),
 			Some('\'') => out.push('\''),
+			Some(k @ ('u' | 'U'))
+				if rules == Rules::Current && unicode_escape(k, it.as_str()).is_some() =>
+			{
+				let (ch, len) = unicode_escape(k, it.as_str()).unwrap_or_default();
+				out.push(ch);
+				it = it.as_str()[len..].chars();
+			}
 			Some(other) => {
 				out.push('\\');
 				out.push(other);
@@ -1419,6 +1435,45 @@ fn apply_escapes(s: &str) -> String {
 		}
 	}
 	out
+}
+
+/// The character a `\u` or `\U` escape names, and how many hex digits spell
+/// it: four after `u`, eight after `U`, as in TOML. None for a short run, a
+/// surrogate or a value past U+10FFFF.
+fn unicode_escape(kind: char, after: &str) -> Option<(char, usize)> {
+	let len = if kind == 'u' { 4 } else { 8 };
+	let digits = after.get(..len)?;
+	if !digits.bytes().all(|b| b.is_ascii_hexdigit()) {
+		return None;
+	}
+	let ch = char::from_u32(u32::from_str_radix(digits, 16).ok()?)?;
+	Some((ch, len))
+}
+
+/// Characters canonical output writes as a `\u` escape, so a reader of the
+/// file sees every character that is there: controls with no short escape,
+/// the direction marks, embeddings, overrides and isolates, zero-width
+/// spaces, the byte order mark, and the line and paragraph separators. The
+/// zero-width joiner and non-joiner stay as written, since emoji and several
+/// scripts need them.
+fn invisible(c: char) -> bool {
+	matches!(
+		c as u32,
+		0x00..=0x08
+			| 0x0B..=0x1F
+			| 0x7F..=0x9F
+			| 0x061C | 0x200B
+			| 0x200E | 0x200F
+			| 0x2028..=0x202E
+			| 0x2060..=0x2064
+			| 0x2066..=0x2069
+			| 0xFEFF
+	)
+}
+
+fn push_unicode_escape(out: &mut String, c: char) {
+	use std::fmt::Write;
+	let _ = write!(out, "\\u{:04X}", c as u32);
 }
 
 /// The predicate a `[value]` selector matches with: the display form, which
@@ -1759,6 +1814,42 @@ fn format_line_version(text: &str) -> Option<u32> {
 	found
 }
 
+/// The schema a document's `##    Schema   REF` line names: a path, or a URL
+/// for an editor to fetch. None when no line names one. The first such line
+/// wins, and one inside a raw body is that block's content, as with the
+/// Format line. A relative path is the caller's to resolve, from the config
+/// file's directory.
+#[must_use]
+pub fn schema_ref(text: &str) -> Option<String> {
+	let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+	let mut tok = Tokens::default();
+	let mut fence: Option<(u8, usize)> = None;
+	let mut dry = Migrating {
+		from_v2: true,
+		ambiguous: 0,
+		lost: 0,
+	};
+	for line in text.split('\n') {
+		let body = line.trim_end_matches('\r');
+		if let Some((ch, len)) = fence {
+			if is_fence_close(body, ch, len) {
+				fence = None;
+			}
+			continue;
+		}
+		if let Some(r) = body.strip_prefix(SCHEMA_LINE_HEAD) {
+			let r = trim_wsp(r);
+			if !r.is_empty() {
+				return Some(r.to_string());
+			}
+			continue;
+		}
+		let rest = trim_wsp_end(&body[leading_ws(body).len()..]);
+		migrate_line(rest, &mut tok, &mut fence, &mut dry);
+	}
+	None
+}
+
 /// Rewrite a document written under the 2.x rules so this parser reads the
 /// same tree. Each line is read with the 2.x tokenizer and re-spelled only
 /// where the two rule sets disagree: a bare or single-quoted piece whose
@@ -1893,19 +1984,16 @@ fn reads_same(spelling: &str, quoted: bool, logical: &str) -> bool {
 
 /// How a re-spelled piece is written. 2.x read a backslash in bare and
 /// single-quoted text as an escape too, and double quotes are where both rule
-/// sets read one alike. So the migrated file reads the same under 2.x, and a
-/// second run changes nothing.
+/// sets read one alike. No `\u` goes in, since 2.x would keep it as written.
+/// So the migrated file reads the same under 2.x, and a second run changes
+/// nothing.
 fn migrate_spelling(logical: &str, bare: bool) -> String {
 	if logical.contains('\\') {
-		quote_double(logical)
-	} else if bare {
-		emit_element(&Element {
-			text: logical.to_string(),
-			quoted: false,
-		})
-		.into_owned()
+		quote_double_as(logical, Rules::V2)
+	} else if bare && !needs_quotes(logical) {
+		logical.to_string()
 	} else {
-		quote_text(logical)
+		quote_text_as(logical, Rules::V2)
 	}
 }
 
@@ -1934,15 +2022,21 @@ fn value_edits(text: &str, tok: &Tokens, edits: &mut Vec<Edit>, st: &mut Migrati
 		if p.quote == Quote::None && !raw.contains('\\') && !raw.is_empty() {
 			continue;
 		}
-		let logical = apply_escapes(raw);
+		let logical = apply_escapes_v2(raw);
 		if reads_same(&text[a..b], quoted, &logical) {
 			continue;
 		}
 		// A resolved escape is the one edit that turns on which rule set wrote
 		// the file: these bytes say one thing under 2.x and another here. An
 		// open quote or an empty slot reads alike either way, so it still goes,
-		// and so does an unknown pair in double quotes, which both kept.
-		if logical != raw && p.quote != Quote::Double && !st.from_v2 {
+		// and so does an unknown pair in double quotes, which both kept. A `\u`
+		// in double quotes is a character now and was text in 2.x.
+		let differs = if p.quote == Quote::Double {
+			unicode_pair_differs(raw)
+		} else {
+			logical != raw
+		};
+		if differs && !st.from_v2 {
 			st.ambiguous += 1;
 			continue;
 		}
@@ -1983,19 +2077,24 @@ fn migrate_line(
 			let name = &rest[seg.name.start..seg.name.end];
 			// An unknown pair in double quotes read the same in 2.x, and is
 			// E023 now, so its backslash is doubled whichever wrote the file.
-			if seg.name.quote == Quote::Double && unknown_escape(name).is_some() {
-				edits.push((
-					seg.name.start - 1,
-					seg.name.end + 1,
-					escape_name(&apply_escapes(name)).into_owned(),
-				));
+			// A `\u` pair is a character now, so that one needs `--from-2x`.
+			if seg.name.quote == Quote::Double && v2_kept_escape(name) {
+				if unicode_pair_differs(name) && !st.from_v2 {
+					st.ambiguous += 1;
+				} else {
+					edits.push((
+						seg.name.start - 1,
+						seg.name.end + 1,
+						escape_name_as(&apply_escapes_v2(name), Rules::V2).into_owned(),
+					));
+				}
 			}
-			if seg.name.quote == Quote::Single && apply_escapes(name) != name {
+			if seg.name.quote == Quote::Single && apply_escapes_v2(name) != name {
 				if st.from_v2 {
 					edits.push((
 						seg.name.start - 1,
 						seg.name.end + 1,
-						escape_name(&apply_escapes(name)).into_owned(),
+						escape_name_as(&apply_escapes_v2(name), Rules::V2).into_owned(),
 					));
 				} else {
 					st.ambiguous += 1;
@@ -2024,8 +2123,8 @@ fn migrate_line(
 				colon = Some(k - 1);
 			}
 			let body = &rest[sel.start..sel.end];
-			let logical = apply_escapes(body);
-			let unknown = sel.quote == Quote::Double && unknown_escape(body).is_some();
+			let logical = apply_escapes_v2(body);
+			let unknown = sel.quote == Quote::Double && v2_kept_escape(body);
 			if i == last && tok.sep.is_none() {
 				if let Some(c) = colon {
 					// `name:[disc]` with nothing after it: 2.x read it as
@@ -2068,7 +2167,9 @@ fn migrate_line(
 			}
 			// Double quotes already read alike on both sides, so only the other
 			// spellings turn on which rule set wrote the file.
-			if unknown {
+			if unknown && unicode_pair_differs(body) && !st.from_v2 {
+				st.ambiguous += 1;
+			} else if unknown {
 				edits.push((
 					sel.start - 1,
 					sel.end + 1,
@@ -2182,8 +2283,9 @@ fn selector_open_quote(tok: &Tokens) -> bool {
 		.any(|s| s.selector.is_some_and(|p| p.quote == Quote::Open))
 }
 
-/// The character after the first backslash in `raw` that starts none of the
-/// five escapes. Only meaningful for a double-quoted piece.
+/// The character after the first backslash in `raw` that starts no escape,
+/// or the `u` or `U` of one that names no character. Only meaningful for a
+/// double-quoted piece.
 fn unknown_escape(raw: &str) -> Option<char> {
 	if !raw.contains('\\') {
 		return None;
@@ -2193,6 +2295,7 @@ fn unknown_escape(raw: &str) -> Option<char> {
 		if c == '\\' {
 			match it.next() {
 				Some('t' | 'n' | '\\' | '"' | '\'') => {}
+				Some(k @ ('u' | 'U')) if unicode_escape(k, it.as_str()).is_some() => {}
 				// A double-quoted piece cannot end on a lone backslash: it
 				// would have escaped the closing quote.
 				other => return other,
@@ -2200,6 +2303,24 @@ fn unknown_escape(raw: &str) -> Option<char> {
 		}
 	}
 	None
+}
+
+/// `unknown_escape` by the 2.x rules, which had no `\u`: a pair 2.x kept as
+/// written, so `migrate` doubles its backslash.
+fn v2_kept_escape(raw: &str) -> bool {
+	let mut it = raw.chars();
+	while let Some(c) = it.next() {
+		if c == '\\' && !matches!(it.next(), Some('t' | 'n' | '\\' | '"' | '\'')) {
+			return true;
+		}
+	}
+	false
+}
+
+/// A 2.x pair that is a real `\u` escape now: 2.x read the text as written
+/// and the current rules read a character, so only `--from-2x` can say which.
+fn unicode_pair_differs(raw: &str) -> bool {
+	v2_kept_escape(raw) && unknown_escape(raw).is_none()
 }
 
 /// The first unknown escape in a double-quoted name, selector body or, when
@@ -2256,6 +2377,12 @@ fn path_like(p: &Piece, text: &str) -> bool {
 const PATH_HINT: &str = "value looks like a Windows path, and its \\t or \\n reads as a tab or newline; single quotes keep a backslash as written";
 
 fn escape_msg(c: char) -> String {
+	if c == 'u' || c == 'U' {
+		return format!(
+			"bad escape '\\{}' in double quotes; \\u takes 4 hex digits and \\U takes 8, naming a Unicode character; write a backslash as '\\\\' or use single quotes",
+			c
+		);
+	}
 	format!(
 		"unknown escape '\\{}' in double quotes; write a backslash as '\\\\' or use single quotes",
 		one_line(&c.to_string())
@@ -3301,6 +3428,7 @@ impl<'a> Parser<'a> {
 		}
 		let binding_like = !el.quoted && looks_like_binding(&el.text);
 		let path = path_like(&piece, text);
+		let clash = unit_clash(&self.arena[parent].name, &el.text);
 		// Element cap: each element line past it is refused on its own, the way
 		// any other bad element line is. Only a line that would join the list:
 		// under a field that already has a value it is E011, cap or not.
@@ -3370,6 +3498,14 @@ impl<'a> Parser<'a> {
 				severity: Severity::Hint,
 				message: PATH_HINT.to_string(),
 				code: "H004",
+			});
+		}
+		if let Some(m) = clash {
+			self.diag(Diagnostic {
+				line,
+				severity: Severity::Hint,
+				message: m,
+				code: "H005",
 			});
 		}
 		// A kept element holds its column as a dropped one does, with the field
@@ -3850,6 +3986,19 @@ impl<'a> Parser<'a> {
 						severity: Severity::Hint,
 						message: PATH_HINT.to_string(),
 						code: "H004",
+					});
+				}
+				if src_text.is_some()
+					&& let Some(m) = tok
+						.elements
+						.iter()
+						.find_map(|p| unit_clash(&self.arena[node].name, &piece_text(p, rest)))
+				{
+					self.diag(Diagnostic {
+						line: lineno,
+						severity: Severity::Hint,
+						message: m,
+						code: "H005",
 					});
 				}
 				if let (Some(s), Some(k)) = (src_text, vkey)
@@ -5286,7 +5435,7 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 }
 
 /// Take each run of `##` lines holding the info block's SHCL line or a
-/// version line out of `leads`. Returns how many came off, and whether the
+/// version line out of `leads`, all but a Schema line. Returns how many came off, and whether the
 /// last one had a blank above it with no line after it to take that blank.
 fn drop_banners(leads: &mut Vec<Lead>) -> (usize, bool) {
 	let is_block_line =
@@ -5303,11 +5452,23 @@ fn drop_banners(leads: &mut Vec<Lead>) -> (usize, bool) {
 			}
 			if leads[i..end].iter().any(|l| is_block_line(&l.text)) {
 				// The blank that set the block off moves to whatever
-				// followed it, so the lines around it stay apart.
+				// followed it, so the lines around it stay apart. A Schema
+				// line in the block is the author's and stays, with the blank.
 				let blank = leads[i].blank_before;
-				match leads.get_mut(end) {
-					Some(next) => next.blank_before |= blank,
-					None => owed = blank,
+				let at = keep.len();
+				keep.extend(
+					leads[i..end]
+						.iter()
+						.filter(|l| l.text.starts_with(SCHEMA_LINE_HEAD))
+						.cloned(),
+				);
+				if let Some(first) = keep.get_mut(at) {
+					first.blank_before = blank;
+				} else {
+					match leads.get_mut(end) {
+						Some(next) => next.blank_before |= blank,
+						None => owed = blank,
+					}
 				}
 				removed += 1;
 				i = end;
@@ -5371,6 +5532,12 @@ fn push_trailing(out: &mut String, trailing: &str) {
 /// backslash, which is right for a value (stored in its escaped spelling) and
 /// wrong for a name (stored resolved).
 fn escape_name(name: &str) -> std::borrow::Cow<'_, str> {
+	escape_name_as(name, Rules::Current)
+}
+
+/// `escape_name` for a reader of `rules`: under 2.x an invisible character is
+/// written as it is, since 2.x kept a `\u` as written.
+fn escape_name_as(name: &str, rules: Rules) -> std::borrow::Cow<'_, str> {
 	if !name.is_empty() && name.bytes().all(is_bare_name_byte) {
 		return std::borrow::Cow::Borrowed(name);
 	}
@@ -5382,6 +5549,7 @@ fn escape_name(name: &str) -> std::borrow::Cow<'_, str> {
 			'"' => out.push_str("\\\""),
 			'\t' => out.push_str("\\t"),
 			'\n' => out.push_str("\\n"),
+			c if rules == Rules::Current && invisible(c) => push_unicode_escape(&mut out, c),
 			_ => out.push(c),
 		}
 	}
@@ -5396,22 +5564,16 @@ fn emit_name(name: &str) -> std::borrow::Cow<'_, str> {
 /// A field name for a diagnostic message: spelled the way the emitter would
 /// write it, so a name carrying a line break, a dot or a quote cannot pose as
 /// something it is not - a raw `a.b` reads exactly like `a` nesting `b`, and a
-/// raw line break splits one diagnostic across two. CR is escaped here and not
-/// in `escape_name`, because the name parse has no `\r` escape to read back.
+/// raw line break splits one diagnostic across two.
 fn diag_name(name: &str) -> String {
-	emit_name(name).replace('\r', "\\r")
+	emit_name(name).into_owned()
 }
 
 /// One element of a value, spelled for a diagnostic message: the emitter's
 /// inline spelling, so a value carrying a line break cannot split one
-/// diagnostic across two. A mid-piece CR is content and the emitter leaves it
-/// bare, so it forces quotes here and is escaped, same reason as `diag_name`.
+/// diagnostic across two.
 fn diag_element(e: &Element) -> String {
-	let s = emit_element(e);
-	if s.contains('\r') {
-		return quote_double(&e.text).replace('\r', "\\r");
-	}
-	s.into_owned()
+	emit_element(e).into_owned()
 }
 
 /// A value for a diagnostic message. Only a cell reaches this today, from the
@@ -6217,7 +6379,7 @@ fn needs_quotes(t: &str) -> bool {
 			matches!(
 				c,
 				' ' | '\t' | '\n' | ',' | ':' | '#' | '"' | '\'' | '[' | ']'
-			)
+			) || invisible(c)
 		}) || t.starts_with(char::is_whitespace)
 		|| t.ends_with(char::is_whitespace)
 		|| fence_open(t).is_some()
@@ -6249,7 +6411,8 @@ fn new_element(text: String) -> Element {
 
 /// True when the text reads as an int, float, bool, or datetime at standard
 /// strictness - fixed there deliberately, so canonical form cannot vary with
-/// the load strictness.
+/// the load strictness. A number with a leading zero does not count: quotes
+/// are how a file says the zeros matter, as in a zip code.
 fn is_data_format(e: &Element) -> bool {
 	// One pass over the bytes before any coercion. At Standard the int, float
 	// and datetime forms all require at least one ASCII digit; the only formats
@@ -6258,28 +6421,43 @@ fn is_data_format(e: &Element) -> bool {
 	// full coercions on every quoted element it writes.
 	let t = e.text.trim();
 	if t.bytes().any(|b| b.is_ascii_digit()) {
-		return parse_int_text(e, Strictness::Standard).is_some()
-			|| parse_float_text(e, Strictness::Standard).is_some()
+		let number = parse_int_text(e, Strictness::Standard).is_some()
+			|| parse_float_text(e, Strictness::Standard).is_some();
+		return (number && !leading_zero(t))
 			|| parse_datetime(&e.text).is_some()
 			|| parse_bool_text(t, Strictness::Standard).is_some();
 	}
 	t.len() <= 5 && parse_bool_text(t, Strictness::Standard).is_some()
 }
 
+/// A zero followed by another digit, after any sign: `007`, `-012`, `00.5`.
+fn leading_zero(t: &str) -> bool {
+	let b = t.strip_prefix(['+', '-']).unwrap_or(t).as_bytes();
+	b.len() > 1 && b[0] == b'0' && b[1].is_ascii_digit()
+}
+
 /// Quote a logical string so the tokenizer reads it back as the same string.
 /// Single quotes are literal, so they are the spelling for text holding a
 /// double quote or a backslash; double quotes carry the escapes, so they are
-/// the spelling for a line break, a tab, or text holding both quote kinds.
+/// the spelling for a line break, a tab, an invisible character, or text
+/// holding both quote kinds.
 fn quote_text(t: &str) -> String {
-	let control = t.contains(['\n', '\t']);
+	quote_text_as(t, Rules::Current)
+}
+
+/// `quote_text` for a reader of `rules`, as in `quote_double_as`.
+fn quote_text_as(t: &str, rules: Rules) -> String {
+	let control = t.contains(['\n', '\t']) || (rules == Rules::Current && t.chars().any(invisible));
 	if !control && !t.contains('\'') && (t.contains('"') || t.contains('\\')) {
 		return format!("'{}'", t);
 	}
-	quote_double(t)
+	quote_double_as(t, rules)
 }
 
-/// The double-quoted spelling, which the 2.x and current rules read alike.
-fn quote_double(t: &str) -> String {
+/// The double-quoted spelling for a reader of `rules`. The two read it alike,
+/// except a `\u` escape, which 2.x kept as written, so for 2.x an invisible
+/// character goes in as it is.
+fn quote_double_as(t: &str, rules: Rules) -> String {
 	let mut out = String::with_capacity(t.len() + 2);
 	out.push('"');
 	for c in t.chars() {
@@ -6288,6 +6466,7 @@ fn quote_double(t: &str) -> String {
 			'"' => out.push_str("\\\""),
 			'\n' => out.push_str("\\n"),
 			'\t' => out.push_str("\\t"),
+			c if rules == Rules::Current && invisible(c) => push_unicode_escape(&mut out, c),
 			_ => out.push(c),
 		}
 	}
@@ -7867,19 +8046,16 @@ fn parse_int_text(e: &Element, level: Strictness) -> Option<i64> {
 	if !body.is_empty() && body.bytes().all(|b| b.is_ascii_digit()) {
 		return t.parse::<i64>().ok();
 	}
-	// Hex.
-	let (neg, hex) = match t.strip_prefix('-') {
+	// Hex, octal and binary.
+	let (neg, prefixed) = match t.strip_prefix('-') {
 		Some(r) => (true, r),
 		None => (false, t.strip_prefix('+').unwrap_or(t)),
 	};
-	if let Some(h) = hex.strip_prefix("0x").or_else(|| hex.strip_prefix("0X"))
-		&& !h.is_empty()
-		&& h.bytes().all(|b| b.is_ascii_hexdigit())
-	{
+	if let Some((radix, digits)) = radix_body(prefixed) {
 		// Parse the magnitude as u64, then range-check against the sign, so the
 		// negative i64::MIN magnitude (0x8000000000000000) reads like its decimal
 		// spelling instead of overflowing an i64 parse.
-		let m = u64::from_str_radix(h, 16).ok()?;
+		let m = u64::from_str_radix(digits, radix).ok()?;
 		return if neg {
 			if m == (i64::MAX as u64) + 1 {
 				Some(i64::MIN)
@@ -7925,6 +8101,27 @@ fn parse_int_text(e: &Element, level: Strictness) -> Option<i64> {
 	None
 }
 
+/// The digits after a `0x`, `0o` or `0b` prefix, either case, with their
+/// radix. A bare leading zero is decimal, so `0o` is the one way to write an
+/// octal mode.
+fn radix_body(t: &str) -> Option<(u32, &str)> {
+	let b = t.as_bytes();
+	if b.len() < 3 || b[0] != b'0' {
+		return None;
+	}
+	let radix = match b[1] {
+		b'x' | b'X' => 16,
+		b'o' | b'O' => 8,
+		b'b' | b'B' => 2,
+		_ => return None,
+	};
+	let digits = &t[2..];
+	digits
+		.bytes()
+		.all(|c| char::from(c).is_digit(radix))
+		.then_some((radix, digits))
+}
+
 fn float_shape_ok(t: &str) -> bool {
 	let body = t.strip_prefix(['+', '-']).unwrap_or(t);
 	if body.is_empty() {
@@ -7966,7 +8163,7 @@ fn parse_float_text(e: &Element, level: Strictness) -> Option<f64> {
 		// that is not a number at all.
 		t.parse::<f64>().ok().filter(|v| v.is_finite())?
 	} else {
-		// An integer is a valid float on read (incl. hex and quoted thousands).
+		// An integer is a valid float on read (incl. hex, octal, binary and quoted thousands).
 		let el = Element {
 			text: t.to_string(),
 			quoted: e.quoted,
@@ -7985,23 +8182,20 @@ fn parse_int_text_no_loose(e: &Element) -> Option<i64> {
 	parse_int_text(e, Strictness::Standard)
 }
 
-/// The two integer spellings the plain float parse does not read - hex, and
-/// quoted thousands - past the i64 range, as a double: a float read is bounded
-/// by the double, not by the integer type. Hex goes in digit by digit in the
-/// double, so every binding rounds the same way; the spellings mirror
-/// parse_int_text.
+/// The integer spellings the plain float parse does not read - hex, octal,
+/// binary and quoted thousands - past the i64 range, as a double: a float read
+/// is bounded by the double, not by the integer type. A prefixed number goes
+/// in digit by digit in the double, so every binding rounds the same way; the
+/// spellings mirror parse_int_text.
 fn parse_int_text_wide(e: &Element) -> Option<f64> {
 	let t = e.text.trim();
 	let (neg, body) = match t.strip_prefix('-') {
 		Some(r) => (true, r),
 		None => (false, t.strip_prefix('+').unwrap_or(t)),
 	};
-	let v = if let Some(h) = body.strip_prefix("0x").or_else(|| body.strip_prefix("0X"))
-		&& !h.is_empty()
-		&& h.bytes().all(|b| b.is_ascii_hexdigit())
-	{
-		h.bytes().fold(0.0f64, |v, b| {
-			v * 16.0 + f64::from((b as char).to_digit(16).unwrap_or(0))
+	let v = if let Some((radix, digits)) = radix_body(body) {
+		digits.bytes().fold(0.0f64, |v, b| {
+			v * f64::from(radix) + f64::from(char::from(b).to_digit(radix).unwrap_or(0))
 		})
 	} else if e.quoted && body.contains(',') {
 		let groups: Vec<&str> = body.split(',').collect();
@@ -8043,6 +8237,294 @@ fn parse_bool_text(t: &str, level: Strictness) -> Option<bool> {
 		| (Strictness::Loose, "disabled") => Some(false),
 		_ => None,
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Durations and sizes: a number with a unit, or a bare number whose unit the
+// field name or the caller gives
+// ---------------------------------------------------------------------------
+
+/// The unit a duration read gives a bare number, when the field name gives
+/// none. Smallest first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum DurationUnit {
+	Millis,
+	Seconds,
+	Minutes,
+	Hours,
+	Days,
+}
+
+impl DurationUnit {
+	fn millis(self) -> u64 {
+		match self {
+			DurationUnit::Millis => 1,
+			DurationUnit::Seconds => 1_000,
+			DurationUnit::Minutes => 60_000,
+			DurationUnit::Hours => 3_600_000,
+			DurationUnit::Days => 86_400_000,
+		}
+	}
+
+	/// The spelling a value uses: `ms`, `s`, `m`, `h` or `d`.
+	#[must_use]
+	pub fn spelling(self) -> &'static str {
+		match self {
+			DurationUnit::Millis => "ms",
+			DurationUnit::Seconds => "s",
+			DurationUnit::Minutes => "m",
+			DurationUnit::Hours => "h",
+			DurationUnit::Days => "d",
+		}
+	}
+
+	/// The unit a value spelling names, lower case only.
+	#[must_use]
+	pub fn from_spelling(s: &str) -> Option<DurationUnit> {
+		match s {
+			"ms" => Some(DurationUnit::Millis),
+			"s" => Some(DurationUnit::Seconds),
+			"m" => Some(DurationUnit::Minutes),
+			"h" => Some(DurationUnit::Hours),
+			"d" => Some(DurationUnit::Days),
+			_ => None,
+		}
+	}
+}
+
+/// The unit a size read gives a bare number, when the field name gives none.
+/// `Kilo` to `Tera` are powers of 1024 unless the read asks for decimal;
+/// `Kibi` to `Tebi` always are.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SizeUnit {
+	Bytes,
+	Kilo,
+	Mega,
+	Giga,
+	Tera,
+	Kibi,
+	Mebi,
+	Gibi,
+	Tebi,
+}
+
+impl SizeUnit {
+	fn bytes(self, decimal: bool) -> u64 {
+		let k: u64 = if decimal { 1000 } else { 1024 };
+		match self {
+			SizeUnit::Bytes => 1,
+			SizeUnit::Kilo => k,
+			SizeUnit::Mega => k * k,
+			SizeUnit::Giga => k * k * k,
+			SizeUnit::Tera => k * k * k * k,
+			SizeUnit::Kibi => 1 << 10,
+			SizeUnit::Mebi => 1 << 20,
+			SizeUnit::Gibi => 1 << 30,
+			SizeUnit::Tebi => 1 << 40,
+		}
+	}
+
+	/// The spelling a value uses: `B`, `KB`, `MB`, `GB`, `TB`, `KiB`, `MiB`,
+	/// `GiB` or `TiB`.
+	#[must_use]
+	pub fn spelling(self) -> &'static str {
+		match self {
+			SizeUnit::Bytes => "B",
+			SizeUnit::Kilo => "KB",
+			SizeUnit::Mega => "MB",
+			SizeUnit::Giga => "GB",
+			SizeUnit::Tera => "TB",
+			SizeUnit::Kibi => "KiB",
+			SizeUnit::Mebi => "MiB",
+			SizeUnit::Gibi => "GiB",
+			SizeUnit::Tebi => "TiB",
+		}
+	}
+
+	/// The unit a value spelling names. Letter case is read, since `Mb` is
+	/// megabits to most readers; `kB` is the one other spelling taken.
+	#[must_use]
+	pub fn from_spelling(s: &str) -> Option<SizeUnit> {
+		match s {
+			"B" => Some(SizeUnit::Bytes),
+			"KB" | "kB" => Some(SizeUnit::Kilo),
+			"MB" => Some(SizeUnit::Mega),
+			"GB" => Some(SizeUnit::Giga),
+			"TB" => Some(SizeUnit::Tera),
+			"KiB" => Some(SizeUnit::Kibi),
+			"MiB" => Some(SizeUnit::Mebi),
+			"GiB" => Some(SizeUnit::Gibi),
+			"TiB" => Some(SizeUnit::Tebi),
+			_ => None,
+		}
+	}
+}
+
+/// The longest duration a read gives, in milliseconds: Go's `time.Duration`
+/// range, so every binding holds every duration another one reads.
+const DURATION_MAX_MS: u64 = 9_223_372_036_854;
+
+/// Field name endings that give a bare number its unit, after a `-` or `_`.
+/// `min`, `m` and `s` are left out: `retries-min` is a minimum, and a
+/// trailing `s` is usually a plural. A capitalized word (`timeoutMs`) is not
+/// a boundary, since names fold to lower case and `fmt` writes them folded.
+const DURATION_NAMES: [(&str, DurationUnit); 6] = [
+	("ms", DurationUnit::Millis),
+	("sec", DurationUnit::Seconds),
+	("seconds", DurationUnit::Seconds),
+	("minutes", DurationUnit::Minutes),
+	("hours", DurationUnit::Hours),
+	("days", DurationUnit::Days),
+];
+
+const SIZE_NAMES: [(&str, SizeUnit); 9] = [
+	("bytes", SizeUnit::Bytes),
+	("kb", SizeUnit::Kilo),
+	("mb", SizeUnit::Mega),
+	("gb", SizeUnit::Giga),
+	("tb", SizeUnit::Tera),
+	("kib", SizeUnit::Kibi),
+	("mib", SizeUnit::Mebi),
+	("gib", SizeUnit::Gibi),
+	("tib", SizeUnit::Tebi),
+];
+
+/// The unit a field name ends in, from `table`: the ending, in any letter
+/// case, after a `-` or `_`.
+fn name_unit<U: Copy>(name: &str, table: &[(&str, U)]) -> Option<U> {
+	let b = name.as_bytes();
+	table.iter().find_map(|&(end, unit)| {
+		let at = b.len().checked_sub(end.len()).filter(|&at| at > 0)?;
+		(b[at..].eq_ignore_ascii_case(end.as_bytes()) && matches!(b[at - 1], b'-' | b'_'))
+			.then_some(unit)
+	})
+}
+
+/// A decimal number at the start of `s`: digits, then a point and more
+/// digits if there is a point. The two digit runs, and where it ended.
+fn decimal_at(s: &str) -> Option<(&str, &str, usize)> {
+	let b = s.as_bytes();
+	let int = b.iter().take_while(|c| c.is_ascii_digit()).count();
+	if int == 0 {
+		return None;
+	}
+	if b.get(int) != Some(&b'.') {
+		return Some((&s[..int], "", int));
+	}
+	let frac = b[int + 1..]
+		.iter()
+		.take_while(|c| c.is_ascii_digit())
+		.count();
+	if frac == 0 {
+		return None;
+	}
+	Some((&s[..int], &s[int + 1..int + 1 + frac], int + 1 + frac))
+}
+
+/// `int.frac` times `scale`, exactly. None when that is not a whole number
+/// or does not fit, so `1.5s` is 1500 ms and `0.0001s` is refused. At most
+/// 18 digits after the point count, which keeps the sum in 64 bits: the
+/// fraction's share is below `scale`, and dividing out their common factor
+/// first gets it without a wider product.
+fn scaled(int: &str, frac: &str, scale: u64) -> Option<u64> {
+	let int = int.trim_start_matches('0');
+	let frac = frac.trim_end_matches('0');
+	if int.len() > 19 || frac.len() > 18 {
+		return None;
+	}
+	let whole: u64 = if int.is_empty() { 0 } else { int.parse().ok()? };
+	let mut total = whole.checked_mul(scale)?;
+	if !frac.is_empty() {
+		let part: u64 = frac.parse().ok()?;
+		let den = 10u64.pow(frac.len() as u32);
+		let (mut a, mut b) = (scale, den);
+		while b != 0 {
+			(a, b) = (b, a % b);
+		}
+		let step = den / a;
+		if !part.is_multiple_of(step) {
+			return None;
+		}
+		total = total.checked_add(part / step * (scale / a))?;
+	}
+	Some(total)
+}
+
+/// A duration in whole milliseconds, and the units the text spelled: parts
+/// such as `1h 30m`, largest unit first and each once, with blanks allowed
+/// between a number and its unit and between parts. A bare number takes
+/// `bare`, and is None without one. No sign.
+fn parse_duration_text(t: &str, bare: Option<DurationUnit>) -> Option<(i64, Vec<DurationUnit>)> {
+	let t = trim_wsp(t);
+	if let Some((int, frac, end)) = decimal_at(t)
+		&& end == t.len()
+	{
+		let ms = scaled(int, frac, bare?.millis())?;
+		return (ms <= DURATION_MAX_MS).then(|| (ms as i64, Vec::new()));
+	}
+	let mut rest = t;
+	let mut total: u64 = 0;
+	let mut units: Vec<DurationUnit> = Vec::new();
+	while !rest.is_empty() {
+		let (int, frac, end) = decimal_at(rest)?;
+		rest = rest[end..].trim_start_matches(is_wsp);
+		let n = rest.bytes().take_while(u8::is_ascii_alphabetic).count();
+		let unit = DurationUnit::from_spelling(&rest[..n])?;
+		if units.last().is_some_and(|&u| u <= unit) {
+			return None;
+		}
+		total = total.checked_add(scaled(int, frac, unit.millis())?)?;
+		units.push(unit);
+		rest = rest[n..].trim_start_matches(is_wsp);
+	}
+	if units.is_empty() || total > DURATION_MAX_MS {
+		return None;
+	}
+	Some((total as i64, units))
+}
+
+/// A size in whole bytes, and the unit the text spelled: a number, blanks
+/// allowed, then a unit. A bare number takes `bare`, and is None without
+/// one. No sign.
+fn parse_size_text(
+	t: &str,
+	bare: Option<SizeUnit>,
+	decimal: bool,
+) -> Option<(i64, Option<SizeUnit>)> {
+	let t = trim_wsp(t);
+	let (int, frac, end) = decimal_at(t)?;
+	let rest = t[end..].trim_start_matches(is_wsp);
+	let unit = if rest.is_empty() {
+		None
+	} else {
+		Some(SizeUnit::from_spelling(rest)?)
+	};
+	let n = scaled(int, frac, unit.or(bare)?.bytes(decimal))?;
+	(n <= i64::MAX as u64).then_some((n as i64, unit))
+}
+
+/// A value in another unit than the one its field name ends in (`H005`), as
+/// `timeout-ms: 5s`. The value's unit is the one read, so this is a hint.
+fn unit_clash(name: &str, text: &str) -> Option<String> {
+	let said = |v: &str, n: &str| {
+		format!(
+			"value is in {} and the name says {}; the value's unit is the one read",
+			v, n
+		)
+	};
+	if let Some(nu) = name_unit(name, &DURATION_NAMES)
+		&& let Some((_, units)) = parse_duration_text(text, None)
+		&& !units.contains(&nu)
+	{
+		return Some(said(units[0].spelling(), nu.spelling()));
+	}
+	if let Some(nu) = name_unit(name, &SIZE_NAMES)
+		&& let Some((_, Some(vu))) = parse_size_text(text, None, false)
+		&& vu != nu
+	{
+		return Some(said(vu.spelling(), nu.spelling()));
+	}
+	None
 }
 
 // ---------------------------------------------------------------------------
@@ -8401,6 +8883,48 @@ impl Document {
 		self.read_scalar(path, |e| parse_datetime(&e.text))
 	}
 
+	/// read_scalar with the node's name, for the reads whose bare number
+	/// takes its unit from the name.
+	fn read_named<T: Default>(
+		&self,
+		path: &str,
+		coerce: impl Fn(&Element, &str) -> Option<T>,
+	) -> Read<T> {
+		match self.node_at(path) {
+			Ok(n) => {
+				let name = self.arena[n].name.as_str();
+				self.read_scalar(path, |e| coerce(e, name))
+			}
+			Err(st) => Read::new(T::default(), st, None),
+		}
+	}
+
+	/// Full-tier duration read at a path, in whole milliseconds: `500ms`,
+	/// `30s`, `1h 30m`, `2d`. A bare number takes its unit from the field
+	/// name when the name ends in one (`timeout-ms`, `delay_seconds`), else
+	/// from `unit`, and is BadType with neither.
+	pub fn read_duration(
+		&self,
+		path: &str,
+		unit: Option<DurationUnit>,
+	) -> Read<std::time::Duration> {
+		self.read_named(path, |e, name| {
+			let bare = name_unit(name, &DURATION_NAMES).or(unit);
+			parse_duration_text(&e.text, bare)
+				.map(|(ms, _)| std::time::Duration::from_millis(ms as u64))
+		})
+	}
+
+	/// Full-tier size read at a path, in whole bytes: `512MB`, `1.5 GiB`. A
+	/// bare number takes its unit the way a duration does. `KB` to `TB` are
+	/// powers of 1024 unless `decimal` is set.
+	pub fn read_size(&self, path: &str, unit: Option<SizeUnit>, decimal: bool) -> Read<i64> {
+		self.read_named(path, |e, name| {
+			let bare = name_unit(name, &SIZE_NAMES).or(unit);
+			parse_size_text(&e.text, bare, decimal).map(|(n, _)| n)
+		})
+	}
+
 	/// Any value reads as a string: a raw block yields its content, an array its
 	/// canonical inline text. Escapes are applied.
 	pub fn read_string(&self, path: &str) -> Read<String> {
@@ -8628,6 +9152,35 @@ impl Document {
 		}
 	}
 
+	/// `read_duration` reduced to a `Result`.
+	pub fn get_duration(
+		&self,
+		path: &str,
+		unit: Option<DurationUnit>,
+	) -> Result<std::time::Duration, Status> {
+		let r = self.read_duration(path, unit);
+		if r.status == Status::Good {
+			Ok(r.value)
+		} else {
+			Err(r.status)
+		}
+	}
+
+	/// `read_size` reduced to a `Result`.
+	pub fn get_size(
+		&self,
+		path: &str,
+		unit: Option<SizeUnit>,
+		decimal: bool,
+	) -> Result<i64, Status> {
+		let r = self.read_size(path, unit, decimal);
+		if r.status == Status::Good {
+			Ok(r.value)
+		} else {
+			Err(r.status)
+		}
+	}
+
 	// Array get-tier: Ok only when the whole read is Good, so `.unwrap_or(def)`
 	// gives the convenience "the array, or this fallback array" - the array
 	// analogue of the scalar get_*. Per-slot substitution is the full read_*
@@ -8723,6 +9276,21 @@ impl Document {
 		self.get_datetime(path).unwrap_or(def)
 	}
 
+	/// The duration at a path, or `def` when the read is not Good.
+	pub fn get_duration_or(
+		&self,
+		path: &str,
+		unit: Option<DurationUnit>,
+		def: std::time::Duration,
+	) -> std::time::Duration {
+		self.get_duration(path, unit).unwrap_or(def)
+	}
+
+	/// The size at a path, or `def` when the read is not Good.
+	pub fn get_size_or(&self, path: &str, unit: Option<SizeUnit>, decimal: bool, def: i64) -> i64 {
+		self.get_size(path, unit, decimal).unwrap_or(def)
+	}
+
 	/// The integer array at a path, or `def` when the read is not Good.
 	pub fn get_int_array_or(&self, path: &str, def: Vec<i64>) -> Vec<i64> {
 		self.get_int_array(path).unwrap_or(def)
@@ -8760,13 +9328,15 @@ impl Document {
 // the unknown-field sweep skips only when a fault cost a path spelling. One
 // line-number space per result.
 
-const SCHEMA_TYPES: [&str; 11] = [
+const SCHEMA_TYPES: [&str; 13] = [
 	"int",
 	"float",
 	"bool",
 	"string",
 	"datetime",
 	"raw",
+	"duration",
+	"size",
 	"int-array",
 	"float-array",
 	"bool-array",
@@ -8796,6 +9366,13 @@ struct Constraint {
 	max_i: Option<i64>,
 	min_f: Option<f64>,
 	max_f: Option<f64>,
+	// duration and size: the unit a bare number takes when the field name
+	// gives none, base 10 for KB to TB, and the bounds as the schema spelled
+	// them, since min_i and max_i hold them in milliseconds or bytes.
+	unit_d: Option<DurationUnit>,
+	unit_s: Option<SizeUnit>,
+	decimal: bool,
+	bound_text: (Option<String>, Option<String>),
 	repeat: Option<(u64, u64)>,
 	reopen: bool,             // H002 suppressor only; validation ignores it
 	inherits: Option<String>, // fragment mounted at this path (subtree shape)
@@ -8977,6 +9554,10 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 		max_i: None,
 		min_f: None,
 		max_f: None,
+		unit_d: None,
+		unit_s: None,
+		decimal: false,
+		bound_text: (None, None),
 		repeat: None,
 		reopen: false,
 		inherits: None,
@@ -8991,6 +9572,8 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 	let mut default_at: Option<usize> = None;
 	let mut min_at: Option<usize> = None;
 	let mut max_at: Option<usize> = None;
+	let mut unit_at: Option<usize> = None;
+	let mut decimal_at_key: Option<usize> = None;
 	for &k in &schema.arena[f].children {
 		let kid = &schema.arena[k];
 		if kid.value.is_empty() {
@@ -9084,6 +9667,31 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 					"bad schema constraint 'max'".to_string(),
 				),
 			},
+			"unit" => match &kid.value {
+				Value::Cell(els) if els.len() == 1 && unit_at.is_none() => unit_at = Some(k),
+				_ => vdiag(
+					faults,
+					kid.line,
+					"V092",
+					"bad schema constraint 'unit'".to_string(),
+				),
+			},
+			"decimal" => {
+				let v =
+					single_text(&kid.value).and_then(|t| parse_bool_text(&t, Strictness::Standard));
+				match v {
+					Some(b) if decimal_at_key.is_none() => {
+						decimal_at_key = Some(k);
+						c.decimal = b;
+					}
+					_ => vdiag(
+						faults,
+						kid.line,
+						"V092",
+						"bad schema constraint 'decimal'".to_string(),
+					),
+				}
+			}
 			"repeat" => match &kid.value {
 				Value::Cell(els) if c.repeat.is_none() && matches!(els.len(), 1 | 2) => {
 					let lo = els[0].text.parse::<u64>().ok();
@@ -9170,6 +9778,45 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 		c.ty.as_deref()
 			.map(|t| t.strip_suffix("-array").unwrap_or(t))
 			.unwrap_or("string");
+	// `unit` and `decimal` belong to the types that read a bare number in
+	// one, and a unit has to be one that type spells.
+	if let Some(u) = unit_at {
+		let kid = &schema.arena[u];
+		let text = single_text(&kid.value).unwrap_or_default();
+		match base {
+			"duration" => c.unit_d = DurationUnit::from_spelling(&text),
+			"size" => c.unit_s = SizeUnit::from_spelling(&text),
+			_ => {}
+		}
+		if c.unit_d.is_none() && c.unit_s.is_none() {
+			vdiag(
+				faults,
+				kid.line,
+				"V092",
+				"bad schema constraint 'unit'".to_string(),
+			);
+		}
+	}
+	if let Some(d) = decimal_at_key
+		&& base != "size"
+	{
+		vdiag(
+			faults,
+			schema.arena[d].line,
+			"V092",
+			"bad schema constraint 'decimal'".to_string(),
+		);
+		c.decimal = false;
+	}
+	// A duration or size bound, or allowed value, is read the way the
+	// document's value is, less the field name: the schema says its unit.
+	let quantity = |e: &Element| -> Option<i64> {
+		match base {
+			"duration" => parse_duration_text(&e.text, c.unit_d).map(|(v, _)| v),
+			"size" => parse_size_text(&e.text, c.unit_s, c.decimal).map(|(v, _)| v),
+			_ => None,
+		}
+	};
 	if let Some(a) = allowed_at {
 		let kid = &schema.arena[a];
 		// allowed_at is only ever set for a Cell; if that invariant slips,
@@ -9200,7 +9847,9 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 				.map(|e| parse_datetime(&e.text))
 				.collect::<Option<Vec<_>>>()
 				.map(AllowedSet::Dates),
-			"raw" => None, // a raw body has no element space to enumerate
+			// A raw body has no element space to enumerate, and a duration
+			// or size is bounded with min and max rather than listed.
+			"raw" | "duration" | "size" => None,
 			_ => Some(AllowedSet::Strings(
 				els.iter().map(|e| e.text.clone()).collect(),
 			)),
@@ -9246,6 +9895,22 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 					format!("bad schema constraint '{}'", key),
 				),
 			},
+			"duration" | "size" => match quantity(el) {
+				Some(v) if is_min => {
+					c.min_i = Some(v);
+					c.bound_text.0 = Some(el.text.clone());
+				}
+				Some(v) => {
+					c.max_i = Some(v);
+					c.bound_text.1 = Some(el.text.clone());
+				}
+				None => vdiag(
+					faults,
+					kid.line,
+					"V092",
+					format!("bad schema constraint '{}'", key),
+				),
+			},
 			_ => vdiag(
 				faults,
 				kid.line,
@@ -9274,6 +9939,7 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 		c.max_i = None;
 		c.min_f = None;
 		c.max_f = None;
+		c.bound_text = (None, None);
 	}
 	Some(c)
 }
@@ -9321,12 +9987,28 @@ fn allowed_join(a: &AllowedSet) -> String {
 /// The `# type, ...` annotation line summarizing a constraint, ASCII only.
 fn gen_annotation(c: &Constraint, tyname: &str) -> String {
 	let mut parts: Vec<String> = vec![tyname.to_string()];
+	if let Some(u) = c.unit_d {
+		parts[0] = format!("{} in {}", tyname, u.spelling());
+	} else if let Some(u) = c.unit_s {
+		parts[0] = format!("{} in {}", tyname, u.spelling());
+	}
+	if c.decimal {
+		parts.push("KB to TB in powers of 1000".to_string());
+	}
 	if let Some(a) = &c.allowed {
 		parts.push(format!("one of: {}", allowed_join(a)));
 	}
 	// The bounds are their own part of the annotation line, not an alternative
 	// to `allowed`. A field can carry both, and the validator enforces both.
-	if c.min_i.is_some() || c.max_i.is_some() {
+	// A duration or size bound reads the way the schema spelled it.
+	if c.bound_text.0.is_some() || c.bound_text.1.is_some() {
+		parts.push(match &c.bound_text {
+			(Some(lo), Some(hi)) => format!("{}-{}", lo, hi),
+			(Some(lo), None) => format!(">= {}", lo),
+			(None, Some(hi)) => format!("<= {}", hi),
+			(None, None) => String::new(), // guarded above; keep the map total
+		});
+	} else if c.min_i.is_some() || c.max_i.is_some() {
 		parts.push(match (c.min_i, c.max_i) {
 			(Some(lo), Some(hi)) => format!("{}-{}", lo, hi),
 			(Some(lo), None) => format!(">= {}", lo),
@@ -9862,6 +10544,10 @@ pub const FORMAT_LINE_HEAD: &str = "##    Format   ";
 /// line on its own to a file it rewrote, since that file has no block to add
 /// it to and inventing one would write bytes the document does not hold.
 pub const FORMAT_LINE: &str = "##    Format   3";
+
+/// The start of a line naming the file's schema, spelled like the Format line,
+/// for `check` and for editors: `##    Schema   ./app.schema.shcl`.
+pub const SCHEMA_LINE_HEAD: &str = "##    Schema   ";
 
 /// Written under `FORMAT_LINE` on a file `migrate` actually changed. It is a
 /// note for whoever opens the file; nothing reads it back.
@@ -10459,6 +11145,72 @@ impl Document {
 								"V004",
 								format!(
 									"value not allowed at '{}': {}",
+									schema_text(&c.path),
+									one_line(&els[i].text)
+								),
+							);
+						}
+					}
+					// A bare number takes its unit from the field name first,
+					// as the read does, then the schema's `unit`.
+					"duration" | "size" => {
+						let name = node.name.as_str();
+						let parsed: Option<Vec<i64>> = els
+							.iter()
+							.map(|e| match base {
+								"duration" => {
+									let bare = name_unit(name, &DURATION_NAMES).or(c.unit_d);
+									parse_duration_text(&e.text, bare).map(|(v, _)| v)
+								}
+								_ => {
+									let bare = name_unit(name, &SIZE_NAMES).or(c.unit_s);
+									parse_size_text(&e.text, bare, c.decimal).map(|(v, _)| v)
+								}
+							})
+							.collect();
+						let Some(vals) = parsed else {
+							wrong(out);
+							return;
+						};
+						if let Some(AllowedSet::Ints(set)) = &c.allowed
+							&& let Some(i) = vals.iter().position(|v| !set.contains(v))
+						{
+							vdiag(
+								out,
+								line,
+								"V004",
+								format!(
+									"value not allowed at '{}': {}",
+									schema_text(&c.path),
+									one_line(&els[i].text)
+								),
+							);
+						}
+						if let (Some(lo), Some(t)) = (c.min_i, &c.bound_text.0)
+							&& let Some(i) = vals.iter().position(|v| *v < lo)
+						{
+							vdiag(
+								out,
+								line,
+								"V005",
+								format!(
+									"value below min {} at '{}': {}",
+									one_line(t),
+									schema_text(&c.path),
+									one_line(&els[i].text)
+								),
+							);
+						}
+						if let (Some(hi), Some(t)) = (c.max_i, &c.bound_text.1)
+							&& let Some(i) = vals.iter().position(|v| *v > hi)
+						{
+							vdiag(
+								out,
+								line,
+								"V006",
+								format!(
+									"value above max {} at '{}': {}",
+									one_line(t),
 									schema_text(&c.path),
 									one_line(&els[i].text)
 								),

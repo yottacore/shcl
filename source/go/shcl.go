@@ -45,6 +45,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/bits"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -54,6 +55,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unicode"
 	"unicode/utf8"
 )
@@ -1394,6 +1396,8 @@ func isBareNameChar(c rune) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_'
 }
 
+func isASCIIAlpha(b byte) bool { return (b|0x20) >= 'a' && (b|0x20) <= 'z' }
+
 func isASCIIDigit(b byte) bool {
 	return b >= '0' && b <= '9'
 }
@@ -1402,16 +1406,6 @@ func isASCIIDigit(b byte) bool {
 func allDigits(s string) bool {
 	for i := 0; i < len(s); i++ {
 		if !isASCIIDigit(s[i]) {
-			return false
-		}
-	}
-	return true
-}
-
-func allHexDigits(s string) bool {
-	for i := 0; i < len(s); i++ {
-		b := s[i]
-		if !isASCIIDigit(b) && !(b >= 'a' && b <= 'f') && !(b >= 'A' && b <= 'F') {
 			return false
 		}
 	}
@@ -1465,10 +1459,20 @@ func schemaText(s string) string {
 	return strings.ReplaceAll(s, "\n", "\\n")
 }
 
-// applyEscapes handles string reads: \t \n \\ \" \'. An unknown pair stays
-// literal, which only 2.x text still reaches: the current rules refuse one
-// (E023) before anything is read.
+// applyEscapes handles string reads: \t \n \\ \" \' \uXXXX \UXXXXXXXX. An
+// unknown pair stays literal, which only 2.x text still reaches: the current
+// rules refuse one (E023) before anything is read.
 func applyEscapes(s string) string {
+	return resolveEscapes(s, RulesCurrent)
+}
+
+// applyEscapesV2 is the 2.x reading, for migrate: no \u, so 2.x kept
+// \u0041 as written.
+func applyEscapesV2(s string) string {
+	return resolveEscapes(s, RulesV2)
+}
+
+func resolveEscapes(s string, rules Rules) string {
 	// Bytes: every escape this recognizes is ASCII, and any other byte - a
 	// continuation byte included - is copied through untouched, so the result
 	// is the same string the rune walk built without decoding and re-encoding
@@ -1499,11 +1503,78 @@ func applyEscapes(s string) string {
 			out = append(out, '"')
 		case '\'':
 			out = append(out, '\'')
+		case 'u', 'U':
+			if r, n, ok := unicodeEscape(s[i], s[i+1:]); ok && rules == RulesCurrent {
+				out = utf8.AppendRune(out, r)
+				i += n
+			} else {
+				out = append(out, '\\', s[i])
+			}
 		default:
 			out = append(out, '\\', s[i])
 		}
 	}
 	return string(out)
+}
+
+// unicodeEscape is the character a \u or \U escape names, and how many hex
+// digits spell it: four after u, eight after U, as in TOML. Not ok for a
+// short run, a surrogate or a value past U+10FFFF.
+func unicodeEscape(kind byte, after string) (rune, int, bool) {
+	n := 4
+	if kind == 'U' {
+		n = 8
+	}
+	if len(after) < n {
+		return 0, 0, false
+	}
+	var v uint32
+	for i := 0; i < n; i++ {
+		d := hexDigit(after[i])
+		if d < 0 {
+			return 0, 0, false
+		}
+		v = v<<4 | uint32(d)
+	}
+	if v > unicode.MaxRune || (v >= 0xD800 && v <= 0xDFFF) {
+		return 0, 0, false
+	}
+	return rune(v), n, true
+}
+
+// invisible reports a character canonical output writes as a \u escape, so a
+// reader of the file sees every character that is there: controls with no
+// short escape, the direction marks, embeddings, overrides and isolates,
+// zero-width spaces, the byte order mark, and the line and paragraph
+// separators. The zero-width joiner and non-joiner stay as written, since
+// emoji and several scripts need them.
+func invisible(r rune) bool {
+	switch {
+	case r <= 0x08, r >= 0x0B && r <= 0x1F, r >= 0x7F && r <= 0x9F:
+		return true
+	case r == 0x061C, r == 0x200B, r == 0x200E, r == 0x200F, r == 0xFEFF:
+		return true
+	case r >= 0x2028 && r <= 0x202E, r >= 0x2060 && r <= 0x2064, r >= 0x2066 && r <= 0x2069:
+		return true
+	}
+	return false
+}
+
+// invisibleAt decodes the character at t[i] when it is one invisible names,
+// with its width in bytes. Bytes that are not UTF-8 are never one.
+func invisibleAt(t string, i int) (rune, int, bool) {
+	r, n := rune(t[i]), 1
+	if r >= utf8.RuneSelf {
+		r, n = utf8.DecodeRuneInString(t[i:])
+		if r == utf8.RuneError {
+			return 0, 1, false
+		}
+	}
+	return r, n, invisible(r)
+}
+
+func writeUnicodeEscape(out *strings.Builder, r rune) {
+	fmt.Fprintf(out, "\\u%04X", r)
 }
 
 // singleScalar is the restriction a QUOTED [value] selector adds on top of
@@ -1818,6 +1889,11 @@ const FormatLineHead = "##    Format   "
 // not hold.
 const FormatLine = "##    Format   3"
 
+// SchemaLineHead is the start of a line naming the file's schema, spelled
+// like the Format line, for check and for editors:
+// `##    Schema   ./app.schema.shcl`.
+const SchemaLineHead = "##    Schema   "
+
 // MigratedLine is written under FormatLine on a file Migrate actually changed.
 // It is a note for whoever opens the file; nothing reads it back.
 const MigratedLine = "##    Migrated from SHCL 2.x."
@@ -1851,6 +1927,35 @@ type migrating struct {
 // more, so a program can ask before it rewrites anything.
 func FormatVersion(text string) (int, bool) {
 	return formatLineVersion(strings.TrimPrefix(text, "\ufeff"))
+}
+
+// SchemaRef is the schema a document's `##    Schema   REF` line names: a
+// path, or a URL for an editor to fetch. ok is false when no line names one.
+// The first such line wins, and one inside a raw body is that block's
+// content, as with the Format line. A relative path is the caller's to
+// resolve, from the config file's directory.
+func SchemaRef(text string) (string, bool) {
+	text = strings.TrimPrefix(text, "\ufeff")
+	var tok Tokens
+	var fence openFence
+	dry := migrating{fromV2: true}
+	for _, line := range strings.Split(text, "\n") {
+		body := strings.TrimRight(line, "\r")
+		if fence.open {
+			if isFenceClose(body, fence.ch, fence.length) {
+				fence.open = false
+			}
+			continue
+		}
+		if r, ok := strings.CutPrefix(body, SchemaLineHead); ok {
+			if r = trimWsp(r); r != "" {
+				return r, true
+			}
+			continue
+		}
+		migrateLine(trimEndWS(body[len(leadingWS(body)):]), &tok, &fence, &dry)
+	}
+	return "", false
 }
 
 // formatLineVersion is FormatVersion on text with the BOM already off. More
@@ -2038,16 +2143,17 @@ func readsSame(spelling string, quoted bool, logical string) bool {
 
 // migrateSpelling is how a re-spelled piece is written. 2.x read a backslash
 // in bare and single-quoted text as an escape too, and double quotes are
-// where both rule sets read one alike. So the migrated file reads the same
-// under 2.x, and a second run changes nothing.
+// where both rule sets read one alike. No \u goes in, since 2.x would keep it
+// as written. So the migrated file reads the same under 2.x, and a second run
+// changes nothing.
 func migrateSpelling(logical string, bare bool) string {
 	if strings.Contains(logical, "\\") {
-		return quoteDouble(logical)
+		return quoteDoubleAs(logical, RulesV2)
 	}
-	if bare {
-		return emitElement(&element{text: logical})
+	if bare && !needsQuotes(logical) {
+		return logical
 	}
-	return quoteText(logical)
+	return quoteTextAs(logical, RulesV2)
 }
 
 // v2BracketArray is true when 2.x read this bare `[...]` body as the JSON-habit
@@ -2075,15 +2181,20 @@ func valueEdits(text string, tok *Tokens, edits *[]edit, st *migrating) {
 		if p.Quote == QuoteNone && !strings.Contains(raw, "\\") && raw != "" {
 			continue
 		}
-		logical := applyEscapes(raw)
+		logical := applyEscapesV2(raw)
 		if readsSame(text[a:b], quoted, logical) {
 			continue
 		}
 		// A resolved escape is the one edit that turns on which rule set wrote
 		// the file: these bytes say one thing under 2.x and another here. An
 		// open quote or an empty slot reads alike either way, so it still goes,
-		// and so does an unknown pair in double quotes, which both kept.
-		if logical != raw && p.Quote != QuoteDouble && !st.fromV2 {
+		// and so does an unknown pair in double quotes, which both kept. A \u
+		// in double quotes is a character now and was text in 2.x.
+		differs := logical != raw
+		if p.Quote == QuoteDouble {
+			differs = unicodePairDiffers(raw)
+		}
+		if differs && !st.fromV2 {
 			st.ambiguous++
 			continue
 		}
@@ -2120,12 +2231,17 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 			name := rest[seg.Name.Start:seg.Name.End]
 			// An unknown pair in double quotes read the same in 2.x, and is
 			// E023 now, so its backslash is doubled whichever wrote the file.
-			if _, bad := unknownEscape(name); bad && seg.Name.Quote == QuoteDouble {
-				edits = append(edits, edit{start: seg.Name.Start - 1, end: seg.Name.End + 1, with: escapeName(applyEscapes(name))})
+			// A \u pair is a character now, so that one needs --from-2x.
+			if seg.Name.Quote == QuoteDouble && v2KeptEscape(name) {
+				if unicodePairDiffers(name) && !st.fromV2 {
+					st.ambiguous++
+				} else {
+					edits = append(edits, edit{start: seg.Name.Start - 1, end: seg.Name.End + 1, with: escapeNameAs(applyEscapesV2(name), RulesV2)})
+				}
 			}
-			if seg.Name.Quote == QuoteSingle && applyEscapes(name) != name {
+			if seg.Name.Quote == QuoteSingle && applyEscapesV2(name) != name {
 				if st.fromV2 {
-					edits = append(edits, edit{start: seg.Name.Start - 1, end: seg.Name.End + 1, with: escapeName(applyEscapes(name))})
+					edits = append(edits, edit{start: seg.Name.Start - 1, end: seg.Name.End + 1, with: escapeNameAs(applyEscapesV2(name), RulesV2)})
 				} else {
 					st.ambiguous++
 				}
@@ -2160,9 +2276,8 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 				colon = k - 1
 			}
 			body := rest[sel.Start:sel.End]
-			logical := applyEscapes(body)
-			_, unknown := unknownEscape(body)
-			unknown = unknown && sel.Quote == QuoteDouble
+			logical := applyEscapesV2(body)
+			unknown := sel.Quote == QuoteDouble && v2KeptEscape(body)
 			if i == last && tok.Sep < 0 {
 				if colon >= 0 {
 					// `name:[disc]` with nothing after it: 2.x read it as
@@ -2209,7 +2324,9 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 			}
 			// Double quotes already read alike on both sides, so only the other
 			// spellings turn on which rule set wrote the file.
-			if unknown {
+			if unknown && unicodePairDiffers(body) && !st.fromV2 {
+				st.ambiguous++
+			} else if unknown {
 				edits = append(edits, edit{start: sel.Start - 1, end: sel.End + 1, with: migrateSpelling(logical, false)})
 			} else if logical != body && sel.Quote != QuoteDouble {
 				if st.fromV2 {
@@ -2326,7 +2443,8 @@ func selectorOpenQuote(tok *Tokens) bool {
 }
 
 // unknownEscape is the character after the first backslash in raw that starts
-// none of the five escapes. Only meaningful for a double-quoted piece.
+// no escape, or the u or U of one that names no character. Only meaningful for
+// a double-quoted piece.
 func unknownEscape(raw string) (rune, bool) {
 	if !strings.Contains(raw, "\\") {
 		return 0, false
@@ -2343,12 +2461,44 @@ func unknownEscape(raw string) (rune, bool) {
 		i++
 		switch raw[i] {
 		case 't', 'n', '\\', '"', '\'':
+		case 'u', 'U':
+			if _, _, ok := unicodeEscape(raw[i], raw[i+1:]); !ok {
+				return rune(raw[i]), true
+			}
 		default:
 			r, _ := utf8.DecodeRuneInString(raw[i:])
 			return r, true
 		}
 	}
 	return 0, false
+}
+
+// v2KeptEscape is unknownEscape by the 2.x rules, which had no \u: a pair 2.x
+// kept as written, so migrate doubles its backslash.
+func v2KeptEscape(raw string) bool {
+	for i := 0; i < len(raw); i++ {
+		if raw[i] != '\\' {
+			continue
+		}
+		if i+1 >= len(raw) {
+			return false
+		}
+		i++
+		switch raw[i] {
+		case 't', 'n', '\\', '"', '\'':
+		default:
+			return true
+		}
+	}
+	return false
+}
+
+// unicodePairDiffers reports a 2.x pair that is a real \u escape now: 2.x read
+// the text as written and the current rules read a character, so only
+// --from-2x can say which.
+func unicodePairDiffers(raw string) bool {
+	_, bad := unknownEscape(raw)
+	return v2KeptEscape(raw) && !bad
 }
 
 // badEscape finds the first unknown escape in a double-quoted name, selector
@@ -2410,6 +2560,9 @@ func pathLike(p *Piece, text string) bool {
 const pathHint = "value looks like a Windows path, and its \\t or \\n reads as a tab or newline; single quotes keep a backslash as written"
 
 func escapeMsg(r rune) string {
+	if r == 'u' || r == 'U' {
+		return "bad escape '\\" + string(r) + "' in double quotes; \\u takes 4 hex digits and \\U takes 8, naming a Unicode character; write a backslash as '\\\\' or use single quotes"
+	}
 	return "unknown escape '\\" + oneLine(string(r)) + "' in double quotes; write a backslash as '\\\\' or use single quotes"
 }
 
@@ -3297,6 +3450,7 @@ func (p *parser) addStarElement(parent int, tok *Tokens, text string, line int, 
 	}
 	bindingLike := !el.quoted && looksLikeBinding(el.text)
 	path := pathLike(&piece, text)
+	clash, clashed := unitClash(p.arena[parent].name, el.text)
 	// Element cap: each element line past it is refused on its own, the way
 	// any other bad element line is. Only a line that would join the list:
 	// under a field that already has a value it is E011, cap or not.
@@ -3342,6 +3496,9 @@ func (p *parser) addStarElement(parent int, tok *Tokens, text string, line int, 
 	}
 	if path {
 		p.diag(Diagnostic{Line: line, Severity: SeverityHint, Message: pathHint, Code: "H004"})
+	}
+	if clashed {
+		p.diag(Diagnostic{Line: line, Severity: SeverityHint, Message: clash, Code: "H005"})
 	}
 	// A kept element holds its column as a dropped one does, with the field as
 	// that level's node: a line written deeper binds where it always did, and a
@@ -3782,6 +3939,12 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 				for i := range tok.Elements {
 					if pathLike(&tok.Elements[i], rest) {
 						p.diag(Diagnostic{Line: lineno, Severity: SeverityHint, Message: pathHint, Code: "H004"})
+						break
+					}
+				}
+				for i := range tok.Elements {
+					if m, ok := unitClash(p.arena[node].name, pieceText(&tok.Elements[i], rest)); ok {
+						p.diag(Diagnostic{Line: lineno, Severity: SeverityHint, Message: m, Code: "H005"})
 						break
 					}
 				}
@@ -5052,8 +5215,9 @@ func keepLines(src string, doc *Document) (string, bool) {
 }
 
 // dropBanners takes each run of "##" lines holding the info block's SHCL line
-// or a version line out of leads. It returns how many came off, and whether
-// the last one had a blank above it with no line after it to take that blank.
+// or a version line out of leads, all but a Schema line. It returns how many
+// came off, and whether the last one had a blank above it with no line after
+// it to take that blank.
 func dropBanners(leads *[]lead) (int, bool) {
 	isBlockLine := func(t string) bool {
 		return t == "## This config file format is SHCL." || strings.HasPrefix(t, FormatLineHead)
@@ -5076,10 +5240,20 @@ func dropBanners(leads *[]lead) (int, bool) {
 			}
 			if hit {
 				// The blank that set the block off moves to whatever followed
-				// it, so the lines around it stay apart.
-				if end < len(ls) {
+				// it, so the lines around it stay apart. A Schema line in the
+				// block is the author's and stays, with the blank.
+				at := len(keep)
+				for _, l := range ls[i:end] {
+					if strings.HasPrefix(l.text, SchemaLineHead) {
+						keep = append(keep, l)
+					}
+				}
+				switch {
+				case at < len(keep):
+					keep[at].blankBefore = ls[i].blankBefore
+				case end < len(ls):
 					ls[end].blankBefore = ls[end].blankBefore || ls[i].blankBefore
-				} else {
+				default:
 					owed = ls[i].blankBefore
 				}
 				removed++
@@ -5275,6 +5449,12 @@ func (d *Document) emitLine(idx, pos, depth int, wouldMerge bool, e *emit) {
 // backslash, which is right for a value (stored in its escaped spelling) and
 // wrong for a name (stored resolved).
 func escapeName(name string) string {
+	return escapeNameAs(name, RulesCurrent)
+}
+
+// escapeNameAs is escapeName for a reader of rules: under 2.x an invisible
+// character is written as it is, since 2.x kept a \u as written.
+func escapeNameAs(name string, rules Rules) string {
 	if name != "" {
 		bare := true
 		for _, c := range name {
@@ -5300,7 +5480,12 @@ func escapeName(name string) string {
 		case '\n':
 			out.WriteString(`\n`)
 		default:
-			out.WriteByte(name[i])
+			if r, n, ok := invisibleAt(name, i); ok && rules == RulesCurrent {
+				writeUnicodeEscape(&out, r)
+				i += n - 1
+			} else {
+				out.WriteByte(name[i])
+			}
 		}
 	}
 	out.WriteByte('"')
@@ -5323,23 +5508,16 @@ func QuoteSegment(name string) string {
 // diagName is a field name for a diagnostic message: spelled the way the
 // emitter would write it, so a name carrying a line break, a dot or a quote
 // cannot pose as something it is not - a raw `a.b` reads exactly like `a`
-// nesting `b`, and a raw line break splits one diagnostic across two. CR is
-// escaped here and not in escapeName, because the name parse has no `\r`
-// escape to read back.
+// nesting `b`, and a raw line break splits one diagnostic across two.
 func diagName(name string) string {
-	return strings.ReplaceAll(emitName(name), "\r", `\r`)
+	return emitName(name)
 }
 
 // diagElement is one element of a value, spelled for a diagnostic message:
 // the emitter's inline spelling, so a value carrying a line break cannot split
-// one diagnostic across two. A mid-piece CR is content and the emitter leaves
-// it bare, so it forces quotes here and is escaped, same reason as diagName.
+// one diagnostic across two.
 func diagElement(e *element) string {
-	s := emitElement(e)
-	if strings.Contains(s, "\r") {
-		return strings.ReplaceAll(quoteDouble(e.text), "\r", `\r`)
-	}
-	return s
+	return emitElement(e)
 }
 
 // diagValue is a value for a diagnostic message. Only a cell reaches this
@@ -5943,6 +6121,8 @@ func needsQuotes(t string) bool {
 			switch c {
 			case ' ', '\t', '\n', ',', ':', '#', '"', '\'', '[', ']':
 				needs = true
+			default:
+				needs = invisible(c)
 			}
 			if needs {
 				break
@@ -5993,7 +6173,8 @@ func newElement(text string) element {
 
 // isDataFormat reports whether the text reads as an int, float, bool, or
 // datetime at standard strictness - fixed there deliberately, so canonical
-// form cannot vary with the load strictness.
+// form cannot vary with the load strictness. A number with a leading zero does
+// not count: quotes are how a file says the zeros matter, as in a zip code.
 func isDataFormat(e *element) bool {
 	// One pass over the bytes before any coercion. At Standard the int, float
 	// and datetime forms all require at least one ASCII digit; the only formats
@@ -6015,11 +6196,13 @@ func isDataFormat(e *element) bool {
 		_, ok := parseBoolText(t, Standard)
 		return ok
 	}
-	if _, ok := parseIntText(e, Standard); ok {
-		return true
-	}
-	if _, ok := parseFloatText(e, Standard); ok {
-		return true
+	if !leadingZero(strings.TrimSpace(e.text)) {
+		if _, ok := parseIntText(e, Standard); ok {
+			return true
+		}
+		if _, ok := parseFloatText(e, Standard); ok {
+			return true
+		}
 	}
 	if _, ok := parseBoolText(e.text, Standard); ok {
 		return true
@@ -6030,24 +6213,40 @@ func isDataFormat(e *element) bool {
 	return false
 }
 
+// leadingZero reports a zero followed by another digit, after any sign: `007`,
+// `-012`, `00.5`.
+func leadingZero(t string) bool {
+	if t != "" && (t[0] == '+' || t[0] == '-') {
+		t = t[1:]
+	}
+	return len(t) > 1 && t[0] == '0' && t[1] >= '0' && t[1] <= '9'
+}
+
 // quoteText quotes a logical string so the tokenizer reads it back as the
 // same string. Single quotes are literal, so they are the spelling for text
 // holding a double quote or a backslash; double quotes carry the escapes, so
-// they are the spelling for a line break, a tab, or text holding both quote
-// kinds.
+// they are the spelling for a line break, a tab, an invisible character, or
+// text holding both quote kinds.
 func quoteText(t string) string {
-	control := strings.ContainsAny(t, "\n\t")
+	return quoteTextAs(t, RulesCurrent)
+}
+
+// quoteTextAs is quoteText for a reader of rules, as in quoteDoubleAs.
+func quoteTextAs(t string, rules Rules) string {
+	control := strings.ContainsAny(t, "\n\t") || (rules == RulesCurrent && strings.ContainsFunc(t, invisible))
 	if !control && !strings.Contains(t, "'") && strings.ContainsAny(t, "\"\\") {
 		return "'" + t + "'"
 	}
-	return quoteDouble(t)
+	return quoteDoubleAs(t, rules)
 }
 
-// quoteDouble is the double-quoted spelling, which the 2.x and current rules
-// read alike.
-func quoteDouble(t string) string {
+// quoteDoubleAs is the double-quoted spelling for a reader of rules. The two
+// read it alike, except a \u escape, which 2.x kept as written, so for 2.x an
+// invisible character goes in as it is.
+func quoteDoubleAs(t string, rules Rules) string {
 	// Bytes: every escape written here is ASCII, and a continuation byte is
-	// none of them, so the rest of the text copies through untouched.
+	// none of them, so the rest of the text copies through untouched. A
+	// character invisible names is decoded first.
 	var out strings.Builder
 	out.Grow(len(t) + 2)
 	out.WriteByte('"')
@@ -6062,7 +6261,12 @@ func quoteDouble(t string) string {
 		case '\t':
 			out.WriteString("\\t")
 		default:
-			out.WriteByte(t[i])
+			if r, n, ok := invisibleAt(t, i); ok && rules == RulesCurrent {
+				writeUnicodeEscape(&out, r)
+				i += n - 1
+			} else {
+				out.WriteByte(t[i])
+			}
 		}
 	}
 	out.WriteByte('"')
@@ -7836,39 +8040,36 @@ func parseIntText(e *element, level Strictness) (int64, bool) {
 		v, err := strconv.ParseInt(t, 10, 64)
 		return v, err == nil
 	}
-	// Hex.
+	// Hex, octal and binary.
 	neg := false
-	hex := t
+	prefixed := t
 	if strings.HasPrefix(t, "-") {
 		neg = true
-		hex = t[1:]
+		prefixed = t[1:]
 	} else {
-		hex = strings.TrimPrefix(t, "+")
+		prefixed = strings.TrimPrefix(t, "+")
 	}
-	if strings.HasPrefix(hex, "0x") || strings.HasPrefix(hex, "0X") {
-		h := hex[2:]
-		if h != "" && allHexDigits(h) {
-			// Parse the magnitude as u64, then range-check against the sign, so the
-			// negative math.MinInt64 magnitude (0x8000000000000000) reads like its
-			// decimal spelling instead of overflowing a signed parse.
-			m, err := strconv.ParseUint(h, 16, 64)
-			if err != nil {
-				return 0, false
-			}
-			if neg {
-				if m == uint64(math.MaxInt64)+1 {
-					return math.MinInt64, true
-				}
-				if m <= uint64(math.MaxInt64) {
-					return -int64(m), true
-				}
-				return 0, false
+	if radix, digits, ok := radixBody(prefixed); ok {
+		// Parse the magnitude as u64, then range-check against the sign, so the
+		// negative math.MinInt64 magnitude (0x8000000000000000) reads like its
+		// decimal spelling instead of overflowing a signed parse.
+		m, err := strconv.ParseUint(digits, radix, 64)
+		if err != nil {
+			return 0, false
+		}
+		if neg {
+			if m == uint64(math.MaxInt64)+1 {
+				return math.MinInt64, true
 			}
 			if m <= uint64(math.MaxInt64) {
-				return int64(m), true
+				return -int64(m), true
 			}
 			return 0, false
 		}
+		if m <= uint64(math.MaxInt64) {
+			return int64(m), true
+		}
+		return 0, false
 	}
 	// Thousands separators, only inside quotes (bare commas are reserved).
 	if e.quoted && strings.Contains(t, ",") {
@@ -7949,7 +8150,7 @@ func parseFloatText(e *element, level Strictness) (float64, bool) {
 		}
 		v = f
 	} else {
-		// An integer is a valid float on read (incl. hex and quoted thousands).
+		// An integer is a valid float on read (incl. hex, octal, binary and quoted thousands).
 		el := element{text: t, quoted: e.quoted}
 		if n, ok := parseIntTextNoLoose(&el); ok {
 			v = float64(n)
@@ -7971,11 +8172,38 @@ func parseIntTextNoLoose(e *element) (int64, bool) {
 	return parseIntText(e, Standard)
 }
 
-// parseIntTextWide reads the two integer spellings the plain float parse does
-// not - hex, and quoted thousands - past the int64 range, as a double: a float
-// read is bounded by the double, not by the integer type. Hex goes in digit by
-// digit in the double, so every binding rounds the same way; the spellings
-// mirror parseIntText.
+// radixBody returns the digits after a `0x`, `0o` or `0b` prefix, either
+// case, with their radix. A bare leading zero is decimal, so `0o` is the one
+// way to write an octal mode.
+func radixBody(t string) (int, string, bool) {
+	if len(t) < 3 || t[0] != '0' {
+		return 0, "", false
+	}
+	var radix int
+	switch t[1] {
+	case 'x', 'X':
+		radix = 16
+	case 'o', 'O':
+		radix = 8
+	case 'b', 'B':
+		radix = 2
+	default:
+		return 0, "", false
+	}
+	digits := t[2:]
+	for i := 0; i < len(digits); i++ {
+		if d := hexDigit(digits[i]); d < 0 || d >= radix {
+			return 0, "", false
+		}
+	}
+	return radix, digits, true
+}
+
+// parseIntTextWide reads the integer spellings the plain float parse does not -
+// hex, octal, binary and quoted thousands - past the int64 range, as a double:
+// a float read is bounded by the double, not by the integer type. A prefixed
+// number goes in digit by digit in the double, so every binding rounds the
+// same way; the spellings mirror parseIntText.
 func parseIntTextWide(e *element) (float64, bool) {
 	t := strings.TrimSpace(e.text)
 	neg := false
@@ -7987,19 +8215,9 @@ func parseIntTextWide(e *element) (float64, bool) {
 		body = t[1:]
 	}
 	var v float64
-	if h, ok := strings.CutPrefix(body, "0x"); ok || strings.HasPrefix(body, "0X") {
-		if !ok {
-			h = body[2:]
-		}
-		if h == "" {
-			return 0, false
-		}
-		for i := 0; i < len(h); i++ {
-			d := hexDigit(h[i])
-			if d < 0 {
-				return 0, false
-			}
-			v = v*16 + float64(d)
+	if radix, digits, ok := radixBody(body); ok {
+		for i := 0; i < len(digits); i++ {
+			v = v*float64(radix) + float64(hexDigit(digits[i]))
 		}
 	} else if e.quoted && strings.Contains(body, ",") {
 		groups := strings.Split(body, ",")
@@ -8071,6 +8289,406 @@ func parseBoolText(t string, level Strictness) (bool, bool) {
 		}
 	}
 	return false, false
+}
+
+// ---------------------------------------------------------------------------
+// Durations and sizes: a number with a unit, or a bare number whose unit the
+// field name or the caller gives
+// ---------------------------------------------------------------------------
+
+// DurationUnit is the unit a duration read gives a bare number, when the
+// field name gives none. DurationNone asks for none. Smallest first.
+type DurationUnit int
+
+const (
+	DurationNone DurationUnit = iota
+	DurationMillis
+	DurationSeconds
+	DurationMinutes
+	DurationHours
+	DurationDays
+)
+
+func (u DurationUnit) millis() uint64 {
+	switch u {
+	case DurationMillis:
+		return 1
+	case DurationSeconds:
+		return 1_000
+	case DurationMinutes:
+		return 60_000
+	case DurationHours:
+		return 3_600_000
+	case DurationDays:
+		return 86_400_000
+	}
+	return 0
+}
+
+// Spelling is the unit as a value spells it: ms, s, m, h or d.
+func (u DurationUnit) Spelling() string {
+	switch u {
+	case DurationMillis:
+		return "ms"
+	case DurationSeconds:
+		return "s"
+	case DurationMinutes:
+		return "m"
+	case DurationHours:
+		return "h"
+	case DurationDays:
+		return "d"
+	}
+	return ""
+}
+
+// DurationUnitFromSpelling is the unit a value spelling names, lower case
+// only; ok is false for anything else.
+func DurationUnitFromSpelling(s string) (DurationUnit, bool) {
+	switch s {
+	case "ms":
+		return DurationMillis, true
+	case "s":
+		return DurationSeconds, true
+	case "m":
+		return DurationMinutes, true
+	case "h":
+		return DurationHours, true
+	case "d":
+		return DurationDays, true
+	}
+	return DurationNone, false
+}
+
+// SizeUnit is the unit a size read gives a bare number, when the field name
+// gives none. SizeNone asks for none. SizeKilo to SizeTera are powers of 1024
+// unless the read asks for decimal; SizeKibi to SizeTebi always are.
+type SizeUnit int
+
+const (
+	SizeNone SizeUnit = iota
+	SizeBytes
+	SizeKilo
+	SizeMega
+	SizeGiga
+	SizeTera
+	SizeKibi
+	SizeMebi
+	SizeGibi
+	SizeTebi
+)
+
+func (u SizeUnit) bytes(decimal bool) uint64 {
+	k := uint64(1024)
+	if decimal {
+		k = 1000
+	}
+	switch u {
+	case SizeBytes:
+		return 1
+	case SizeKilo:
+		return k
+	case SizeMega:
+		return k * k
+	case SizeGiga:
+		return k * k * k
+	case SizeTera:
+		return k * k * k * k
+	case SizeKibi:
+		return 1 << 10
+	case SizeMebi:
+		return 1 << 20
+	case SizeGibi:
+		return 1 << 30
+	case SizeTebi:
+		return 1 << 40
+	}
+	return 0
+}
+
+// Spelling is the unit as a value spells it: B, KB, MB, GB, TB, KiB, MiB, GiB
+// or TiB.
+func (u SizeUnit) Spelling() string {
+	switch u {
+	case SizeBytes:
+		return "B"
+	case SizeKilo:
+		return "KB"
+	case SizeMega:
+		return "MB"
+	case SizeGiga:
+		return "GB"
+	case SizeTera:
+		return "TB"
+	case SizeKibi:
+		return "KiB"
+	case SizeMebi:
+		return "MiB"
+	case SizeGibi:
+		return "GiB"
+	case SizeTebi:
+		return "TiB"
+	}
+	return ""
+}
+
+// SizeUnitFromSpelling is the unit a value spelling names. Letter case is
+// read, since Mb is megabits to most readers; kB is the one other spelling
+// taken.
+func SizeUnitFromSpelling(s string) (SizeUnit, bool) {
+	switch s {
+	case "B":
+		return SizeBytes, true
+	case "KB", "kB":
+		return SizeKilo, true
+	case "MB":
+		return SizeMega, true
+	case "GB":
+		return SizeGiga, true
+	case "TB":
+		return SizeTera, true
+	case "KiB":
+		return SizeKibi, true
+	case "MiB":
+		return SizeMebi, true
+	case "GiB":
+		return SizeGibi, true
+	case "TiB":
+		return SizeTebi, true
+	}
+	return SizeNone, false
+}
+
+// durationMaxMs is the longest duration a read gives, in milliseconds: Go's
+// time.Duration range, so every binding holds every duration another reads.
+const durationMaxMs = 9_223_372_036_854
+
+// durationNames are the field name endings that give a bare number its
+// unit, after a `-` or `_`. min, m and s are left out: `retries-min` is a
+// minimum, and a trailing s is usually a plural. A capitalized word
+// (`timeoutMs`) is not a boundary, since names fold to lower case and fmt
+// writes them folded.
+var durationNames = []struct {
+	end  string
+	unit DurationUnit
+}{
+	{"ms", DurationMillis}, {"sec", DurationSeconds}, {"seconds", DurationSeconds},
+	{"minutes", DurationMinutes}, {"hours", DurationHours}, {"days", DurationDays},
+}
+
+var sizeNames = []struct {
+	end  string
+	unit SizeUnit
+}{
+	{"bytes", SizeBytes}, {"kb", SizeKilo}, {"mb", SizeMega}, {"gb", SizeGiga}, {"tb", SizeTera},
+	{"kib", SizeKibi}, {"mib", SizeMebi}, {"gib", SizeGibi}, {"tib", SizeTebi},
+}
+
+// nameEnds reports whether name ends in end, in any letter case, after a `-`
+// or `_`.
+func nameEnds(name, end string) bool {
+	at := len(name) - len(end)
+	return at > 0 && strings.EqualFold(name[at:], end) && (name[at-1] == '-' || name[at-1] == '_')
+}
+
+func nameDurationUnit(name string) DurationUnit {
+	for _, e := range durationNames {
+		if nameEnds(name, e.end) {
+			return e.unit
+		}
+	}
+	return DurationNone
+}
+
+func nameSizeUnit(name string) SizeUnit {
+	for _, e := range sizeNames {
+		if nameEnds(name, e.end) {
+			return e.unit
+		}
+	}
+	return SizeNone
+}
+
+// decimalAt reads a decimal number at the start of s: digits, then a point
+// and more digits if there is a point. It returns the two digit runs and
+// where the number ended.
+func decimalAt(s string) (string, string, int, bool) {
+	i := 0
+	for i < len(s) && isASCIIDigit(s[i]) {
+		i++
+	}
+	if i == 0 {
+		return "", "", 0, false
+	}
+	if i >= len(s) || s[i] != '.' {
+		return s[:i], "", i, true
+	}
+	j := i + 1
+	for j < len(s) && isASCIIDigit(s[j]) {
+		j++
+	}
+	if j == i+1 {
+		return "", "", 0, false
+	}
+	return s[:i], s[i+1 : j], j, true
+}
+
+// scaled is int.frac times scale, exactly. ok is false when that is not a
+// whole number or does not fit, so 1.5s is 1500 ms and 0.0001s is refused.
+// At most 18 digits after the point count, which keeps the sum in 64 bits:
+// the fraction's share is below scale, and dividing out their common factor
+// first gets it without a wider product.
+func scaled(intDigits, fracDigits string, scale uint64) (uint64, bool) {
+	intDigits = strings.TrimLeft(intDigits, "0")
+	fracDigits = strings.TrimRight(fracDigits, "0")
+	if len(intDigits) > 19 || len(fracDigits) > 18 {
+		return 0, false
+	}
+	var whole uint64
+	if intDigits != "" {
+		w, err := strconv.ParseUint(intDigits, 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		whole = w
+	}
+	hi, total := bits.Mul64(whole, scale)
+	if hi != 0 {
+		return 0, false
+	}
+	if fracDigits != "" {
+		part, err := strconv.ParseUint(fracDigits, 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		den := uint64(1)
+		for range fracDigits {
+			den *= 10
+		}
+		a, b := scale, den
+		for b != 0 {
+			a, b = b, a%b
+		}
+		step := den / a
+		if part%step != 0 {
+			return 0, false
+		}
+		sum, carry := bits.Add64(total, part/step*(scale/a), 0)
+		if carry != 0 {
+			return 0, false
+		}
+		total = sum
+	}
+	return total, true
+}
+
+// parseDurationText is a duration in whole milliseconds, and the units the
+// text spelled: parts such as `1h 30m`, largest unit first and each once,
+// with blanks allowed between a number and its unit and between parts. A
+// bare number takes bare, and is not ok without one. No sign.
+func parseDurationText(t string, bare DurationUnit) (int64, []DurationUnit, bool) {
+	t = trimWsp(t)
+	if i, f, end, ok := decimalAt(t); ok && end == len(t) {
+		if bare == DurationNone {
+			return 0, nil, false
+		}
+		ms, ok := scaled(i, f, bare.millis())
+		if !ok || ms > durationMaxMs {
+			return 0, nil, false
+		}
+		return int64(ms), nil, true
+	}
+	rest := t
+	var total uint64
+	var units []DurationUnit
+	for rest != "" {
+		i, f, end, ok := decimalAt(rest)
+		if !ok {
+			return 0, nil, false
+		}
+		rest = strings.TrimLeftFunc(rest[end:], isWsp)
+		n := 0
+		for n < len(rest) && isASCIIAlpha(rest[n]) {
+			n++
+		}
+		unit, ok := DurationUnitFromSpelling(rest[:n])
+		if !ok || (len(units) > 0 && units[len(units)-1] <= unit) {
+			return 0, nil, false
+		}
+		v, ok := scaled(i, f, unit.millis())
+		if !ok {
+			return 0, nil, false
+		}
+		sum, carry := bits.Add64(total, v, 0)
+		if carry != 0 {
+			return 0, nil, false
+		}
+		total = sum
+		units = append(units, unit)
+		rest = strings.TrimLeftFunc(rest[n:], isWsp)
+	}
+	if len(units) == 0 || total > durationMaxMs {
+		return 0, nil, false
+	}
+	return int64(total), units, true
+}
+
+// parseSizeText is a size in whole bytes, and the unit the text spelled: a
+// number, blanks allowed, then a unit. A bare number takes bare, and is not
+// ok without one. No sign.
+func parseSizeText(t string, bare SizeUnit, decimal bool) (int64, SizeUnit, bool) {
+	t = trimWsp(t)
+	i, f, end, ok := decimalAt(t)
+	if !ok {
+		return 0, SizeNone, false
+	}
+	rest := strings.TrimLeftFunc(t[end:], isWsp)
+	unit := SizeNone
+	if rest != "" {
+		if unit, ok = SizeUnitFromSpelling(rest); !ok {
+			return 0, SizeNone, false
+		}
+	}
+	use := unit
+	if use == SizeNone {
+		use = bare
+	}
+	if use == SizeNone {
+		return 0, SizeNone, false
+	}
+	n, ok := scaled(i, f, use.bytes(decimal))
+	if !ok || n > math.MaxInt64 {
+		return 0, SizeNone, false
+	}
+	return int64(n), unit, true
+}
+
+// unitClash is a value in another unit than the one its field name ends in
+// (H005), as `timeout-ms: 5s`. The value's unit is the one read, so this is a
+// hint.
+func unitClash(name, text string) (string, bool) {
+	said := func(v, n string) string {
+		return "value is in " + v + " and the name says " + n + "; the value's unit is the one read"
+	}
+	if nu := nameDurationUnit(name); nu != DurationNone {
+		if _, units, ok := parseDurationText(text, DurationNone); ok {
+			has := false
+			for _, u := range units {
+				if u == nu {
+					has = true
+				}
+			}
+			if !has {
+				return said(units[0].Spelling(), nu.Spelling()), true
+			}
+		}
+	}
+	if nu := nameSizeUnit(name); nu != SizeNone {
+		if _, vu, ok := parseSizeText(text, SizeNone, false); ok && vu != SizeNone && vu != nu {
+			return said(vu.Spelling(), nu.Spelling()), true
+		}
+	}
+	return "", false
 }
 
 // ---------------------------------------------------------------------------
@@ -8471,6 +9089,47 @@ func (d *Document) ReadDateTime(path string) Read[DateTime] {
 	return readScalar(d, path, func(e *element) (DateTime, bool) { return ParseDateTime(e.text) })
 }
 
+// readNamed is readScalar with the node's name, for the reads whose bare
+// number takes its unit from the name.
+func readNamed[T any](d *Document, path string, coerce func(*element, string) (T, bool)) Read[T] {
+	n, st := d.nodeAt(path)
+	if n < 0 {
+		var zero T
+		return Read[T]{Value: zero, Status: st}
+	}
+	name := d.arena[n].name
+	return readScalar(d, path, func(e *element) (T, bool) { return coerce(e, name) })
+}
+
+// ReadDuration is the full-tier duration read at path, in whole milliseconds:
+// `500ms`, `30s`, `1h 30m`, `2d`. A bare number takes its unit from the field
+// name when the name ends in one (`timeout-ms`, `delay_seconds`), else from
+// unit, and is BadType with neither.
+func (d *Document) ReadDuration(path string, unit DurationUnit) Read[time.Duration] {
+	return readNamed(d, path, func(e *element, name string) (time.Duration, bool) {
+		bare := nameDurationUnit(name)
+		if bare == DurationNone {
+			bare = unit
+		}
+		ms, _, ok := parseDurationText(e.text, bare)
+		return time.Duration(ms) * time.Millisecond, ok
+	})
+}
+
+// ReadSize is the full-tier size read at path, in whole bytes: `512MB`,
+// `1.5 GiB`. A bare number takes its unit the way a duration does. KB to TB
+// are powers of 1024 unless decimal is set.
+func (d *Document) ReadSize(path string, unit SizeUnit, decimal bool) Read[int64] {
+	return readNamed(d, path, func(e *element, name string) (int64, bool) {
+		bare := nameSizeUnit(name)
+		if bare == SizeNone {
+			bare = unit
+		}
+		n, _, ok := parseSizeText(e.text, bare, decimal)
+		return n, ok
+	})
+}
+
 // ReadString reads any value as a string: a raw block yields its content, an
 // array its canonical inline text. Escapes are applied.
 func (d *Document) ReadString(path string) Read[string] {
@@ -8685,6 +9344,18 @@ func (d *Document) GetDateTime(path string) (DateTime, Status) {
 	return r.Value, r.Status
 }
 
+// GetDuration is ReadDuration reduced to (value, status).
+func (d *Document) GetDuration(path string, unit DurationUnit) (time.Duration, Status) {
+	r := d.ReadDuration(path, unit)
+	return r.Value, r.Status
+}
+
+// GetSize is ReadSize reduced to (value, status).
+func (d *Document) GetSize(path string, unit SizeUnit, decimal bool) (int64, Status) {
+	r := d.ReadSize(path, unit, decimal)
+	return r.Value, r.Status
+}
+
 // The array forms of the same reduction. The status is the whole read's, so a
 // partially-resolved array reports non-Good with the resolved slots still in
 // the value; the per-slot statuses are the Read*Array tier's Slots.
@@ -8782,6 +9453,22 @@ func (d *Document) GetDateTimeOr(path string, def DateTime) DateTime {
 	return def
 }
 
+// GetDurationOr is the duration at path, or def when the read is not Good.
+func (d *Document) GetDurationOr(path string, unit DurationUnit, def time.Duration) time.Duration {
+	if r := d.ReadDuration(path, unit); r.Status == Good {
+		return r.Value
+	}
+	return def
+}
+
+// GetSizeOr is the size at path, or def when the read is not Good.
+func (d *Document) GetSizeOr(path string, unit SizeUnit, decimal bool, def int64) int64 {
+	if r := d.ReadSize(path, unit, decimal); r.Status == Good {
+		return r.Value
+	}
+	return def
+}
+
 // GetIntArrayOr is the integer array at path, or def when the read is not Good.
 func (d *Document) GetIntArrayOr(path string, def []int64) []int64 {
 	if r := d.ReadIntArray(path); r.Status == Good {
@@ -8840,6 +9527,8 @@ var schemaTypes = []string{
 	"string",
 	"datetime",
 	"raw",
+	"duration",
+	"size",
 	"int-array",
 	"float-array",
 	"bool-array",
@@ -8869,15 +9558,23 @@ type allowedSet struct {
 }
 
 type constraint struct {
-	path         string // as written in the schema; message text only
-	segs         []segment
-	ty           string // member of schemaTypes; "" = untyped
-	required     bool
-	allowed      *allowedSet
-	minI         *int64
-	maxI         *int64
-	minF         *float64
-	maxF         *float64
+	path     string // as written in the schema; message text only
+	segs     []segment
+	ty       string // member of schemaTypes; "" = untyped
+	required bool
+	allowed  *allowedSet
+	minI     *int64
+	maxI     *int64
+	minF     *float64
+	maxF     *float64
+	// duration and size: the unit a bare number takes when the field name
+	// gives none, base 10 for KB to TB, and the bounds as the schema spelled
+	// them, since minI and maxI hold them in milliseconds or bytes.
+	unitD        DurationUnit
+	unitS        SizeUnit
+	decimal      bool
+	minText      *string
+	maxText      *string
 	repeat       *[2]uint64
 	reopen       bool   // H002 suppressor only; validation ignores it
 	inherits     string // fragment mounted at this path (subtree shape); "" = none
@@ -9078,6 +9775,8 @@ func parseField(schema *Document, f int, faults *[]Diagnostic) (constraint, bool
 	defaultAt := -1
 	minAt := -1
 	maxAt := -1
+	unitAt := -1
+	decimalKeyAt := -1
 	for _, k := range schema.arena[f].children {
 		kid := &schema.arena[k]
 		if kid.value.isEmpty() {
@@ -9144,6 +9843,24 @@ func parseField(schema *Document, f int, faults *[]Diagnostic) (constraint, bool
 			} else {
 				vdiag(faults, kid.line, "V092", "bad schema constraint 'max'")
 			}
+		case "unit":
+			if kid.value.kind == vCell && len(kid.value.els) == 1 && unitAt < 0 {
+				unitAt = k
+			} else {
+				vdiag(faults, kid.line, "V092", "bad schema constraint 'unit'")
+			}
+		case "decimal":
+			t, ok := singleText(&kid.value)
+			var b bool
+			if ok {
+				b, ok = parseBoolText(t, Standard)
+			}
+			if ok && decimalKeyAt < 0 {
+				decimalKeyAt = k
+				c.decimal = b
+			} else {
+				vdiag(faults, kid.line, "V092", "bad schema constraint 'decimal'")
+			}
 		case "repeat":
 			if kid.value.kind == vCell && c.repeat == nil && (len(kid.value.els) == 1 || len(kid.value.els) == 2) {
 				lo, okLo := parseIndex(kid.value.els[0].text)
@@ -9206,6 +9923,38 @@ func parseField(schema *Document, f int, faults *[]Diagnostic) (constraint, bool
 	if base == "" {
 		base = "string"
 	}
+	// `unit` and `decimal` belong to the types that read a bare number in one,
+	// and a unit has to be one that type spells.
+	if unitAt >= 0 {
+		kid := &schema.arena[unitAt]
+		t, _ := singleText(&kid.value)
+		switch base {
+		case "duration":
+			c.unitD, _ = DurationUnitFromSpelling(t)
+		case "size":
+			c.unitS, _ = SizeUnitFromSpelling(t)
+		}
+		if c.unitD == DurationNone && c.unitS == SizeNone {
+			vdiag(faults, kid.line, "V092", "bad schema constraint 'unit'")
+		}
+	}
+	if decimalKeyAt >= 0 && base != "size" {
+		vdiag(faults, schema.arena[decimalKeyAt].line, "V092", "bad schema constraint 'decimal'")
+		c.decimal = false
+	}
+	// A duration or size bound is read the way the document's value is, less
+	// the field name: the schema says its unit.
+	quantity := func(e *element) (int64, bool) {
+		switch base {
+		case "duration":
+			v, _, ok := parseDurationText(e.text, c.unitD)
+			return v, ok
+		case "size":
+			v, _, ok := parseSizeText(e.text, c.unitS, c.decimal)
+			return v, ok
+		}
+		return 0, false
+	}
 	if allowedAt >= 0 {
 		kid := &schema.arena[allowedAt]
 		els := kid.value.els
@@ -9254,8 +10003,10 @@ func parseField(schema *Document, f int, faults *[]Diagnostic) (constraint, bool
 				}
 				set.dates = append(set.dates, v)
 			}
-		case "raw":
-			ok = false // a raw body has no element space to enumerate
+		// A raw body has no element space to enumerate, and a duration or
+		// size is bounded with min and max rather than listed.
+		case "raw", "duration", "size":
+			ok = false
 		default:
 			set.kind = allowStrings
 			for i := range els {
@@ -9302,6 +10053,17 @@ func parseField(schema *Document, f int, faults *[]Diagnostic) (constraint, bool
 			} else {
 				vdiag(faults, kid.line, "V092", fmt.Sprintf("bad schema constraint '%s'", key))
 			}
+		case "duration", "size":
+			if v, ok := quantity(el); ok {
+				t := el.text
+				if mm.isMin {
+					c.minI, c.minText = &v, &t
+				} else {
+					c.maxI, c.maxText = &v, &t
+				}
+			} else {
+				vdiag(faults, kid.line, "V092", fmt.Sprintf("bad schema constraint '%s'", key))
+			}
 		default:
 			vdiag(faults, kid.line, "V092", fmt.Sprintf("bad schema constraint '%s'", key))
 		}
@@ -9321,6 +10083,7 @@ func parseField(schema *Document, f int, faults *[]Diagnostic) (constraint, bool
 		}
 		vdiag(faults, line, "V092", "bad schema constraint 'max'")
 		c.minI, c.maxI, c.minF, c.maxF = nil, nil, nil, nil
+		c.minText, c.maxText = nil, nil
 	}
 	return c, true
 }
@@ -9380,12 +10143,30 @@ func allowedJoin(a *allowedSet) string {
 // genAnnotation is the `# type, ...` line summarizing a constraint, ASCII only.
 func genAnnotation(c *constraint, tyname string) string {
 	parts := []string{tyname}
+	if c.unitD != DurationNone {
+		parts[0] = tyname + " in " + c.unitD.Spelling()
+	} else if c.unitS != SizeNone {
+		parts[0] = tyname + " in " + c.unitS.Spelling()
+	}
+	if c.decimal {
+		parts = append(parts, "KB to TB in powers of 1000")
+	}
 	if c.allowed != nil {
 		parts = append(parts, "one of: "+allowedJoin(c.allowed))
 	}
 	// The bounds are their own part of the annotation line, not an alternative
-	// to `allowed`. A field can carry both, and the validator enforces both.
+	// to `allowed`. A field can carry both, and the validator enforces both. A
+	// duration or size bound reads the way the schema spelled it.
 	switch {
+	case c.minText != nil || c.maxText != nil:
+		switch {
+		case c.minText != nil && c.maxText != nil:
+			parts = append(parts, *c.minText+"-"+*c.maxText)
+		case c.minText != nil:
+			parts = append(parts, ">= "+*c.minText)
+		default:
+			parts = append(parts, "<= "+*c.maxText)
+		}
 	case c.minI != nil || c.maxI != nil:
 		switch {
 		case c.minI != nil && c.maxI != nil:
@@ -10513,6 +11294,56 @@ func (d *Document) vNode(c *constraint, n int, out *[]Diagnostic) {
 				for i, v := range vals {
 					if !containsDate(c.allowed.dates, v) {
 						vdiag(out, line, "V004", fmt.Sprintf("value not allowed at '%s': %s", schemaText(c.path), oneLine(els[i].text)))
+						break
+					}
+				}
+			}
+		// A bare number takes its unit from the field name first, as the read
+		// does, then the schema's `unit`.
+		case "duration", "size":
+			vals := make([]int64, 0, len(els))
+			for i := range els {
+				var v int64
+				var ok bool
+				if base == "duration" {
+					bare := nameDurationUnit(node.name)
+					if bare == DurationNone {
+						bare = c.unitD
+					}
+					v, _, ok = parseDurationText(els[i].text, bare)
+				} else {
+					bare := nameSizeUnit(node.name)
+					if bare == SizeNone {
+						bare = c.unitS
+					}
+					v, _, ok = parseSizeText(els[i].text, bare, c.decimal)
+				}
+				if !ok {
+					wrong()
+					return
+				}
+				vals = append(vals, v)
+			}
+			if c.allowed != nil && c.allowed.kind == allowInts {
+				for i, v := range vals {
+					if !containsInt(c.allowed.ints, v) {
+						vdiag(out, line, "V004", fmt.Sprintf("value not allowed at '%s': %s", schemaText(c.path), oneLine(els[i].text)))
+						break
+					}
+				}
+			}
+			if c.minI != nil && c.minText != nil {
+				for i, v := range vals {
+					if v < *c.minI {
+						vdiag(out, line, "V005", fmt.Sprintf("value below min %s at '%s': %s", oneLine(*c.minText), schemaText(c.path), oneLine(els[i].text)))
+						break
+					}
+				}
+			}
+			if c.maxI != nil && c.maxText != nil {
+				for i, v := range vals {
+					if v > *c.maxI {
+						vdiag(out, line, "V006", fmt.Sprintf("value above max %s at '%s': %s", oneLine(*c.maxText), schemaText(c.path), oneLine(els[i].text)))
 						break
 					}
 				}
