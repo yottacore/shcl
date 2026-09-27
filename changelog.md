@@ -28,7 +28,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A quote opens a quoted piece only as its first character. One that never closes is read as text and reported as `E017`.
 
-- `shcl migrate FILE --from-2x` rewrites a 2.x file for these rules and leaves comments and layout alone.
+- `shcl migrate FILE --from-2x` rewrites a 2.x file for these rules and leaves comments and layout alone. With `--write` the original is kept beside it, as `config_old_v2.shcl` for `config.shcl`.
 
 - Exit 1 is a usage error only. A save-gate refusal is 7, and a file or stream that cannot be read or written is 8.
 

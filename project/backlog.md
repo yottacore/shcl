@@ -100,6 +100,30 @@ Going forward, new issues in the new template above will go in the '### New form
 
 ### New format
 
+- `migrate --write` keeps the original file beside the migrated one
+	- ID: 2026092709243678
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Priority: Avg
+	- Opened: 20260927-092436
+	- Opened by: Jim Collier
+	- Requirements:
+		- Rather than converting in place, end up with both files. `config.shcl` holds the new format, and `config_old_v2.shcl` the original bytes.
+		- Pick the version by context.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- 20260927: the copy is made only when a line is rewritten. A file that only gains the Format line reads the same under both rule sets, and it may be a 3.0 file with no stamp, so naming a copy `_old_v2` would be wrong.
+		- `migrate` knows one older format, so the suffix is always `_old_v2`.
+		- The name goes before the last dot of the file name, or at the end when there is none. A leading dot is part of the name. It sits beside the path as given, not a symlink's target.
+		- The copy is written first, with an exclusive create, and synced. The migrated text then goes through the normal save.
+		- A failed save removes the copy only when the file still holds the original. A replace that fails part way on Windows can leave nothing at the path, and then the copy stays and the error names it.
+		- An existing `_old_v2` file is never replaced. `migrate --write` refuses at 8 and writes nothing.
+		- The copy takes the original's permission bits, so a private config does not get a readable backup.
+	- Actual fix: `old_copy_name` and `keep_original` in all four CLIs, called from the migrate write arm. Help, man page, spec, design.md, README and changelog.
+	- Branch: `keepold`
+	- Test case: cli-regress save cases `migrate`, `migrate-taken`, `migrate-dotname` and `migrate-dotdir` fail on the old code. `migrate-stamp` pins the no-copy case, which did not change.
+
 - The C++ interface is a full binding of its own, with the C interface kept out of sight
 	- ID: 2026092617331100
 	- Type: Enhancement
