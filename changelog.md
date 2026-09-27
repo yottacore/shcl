@@ -68,6 +68,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Integers can be written in octal and binary, `0o644` and `0b101`, beside hex.
 
+- A config file can name its schema on a `##    Schema   PATH` line. `shcl check` uses it when `--schema` is not given, reading the path from the file's directory, and leaves a URL to editors. `schema_ref()` in every binding reads it.
+
 - `shcl explain [CODE]` gives the rule behind a diagnostic code, or lists every code.
 
 - `shcl help CMD` and `CMD --help` show one subcommand's help.

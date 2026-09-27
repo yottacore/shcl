@@ -1885,6 +1885,11 @@ const FormatLineHead = "##    Format   "
 // not hold.
 const FormatLine = "##    Format   3"
 
+// SchemaLineHead is the start of a line naming the file's schema, spelled
+// like the Format line, for check and for editors:
+// `##    Schema   ./app.schema.shcl`.
+const SchemaLineHead = "##    Schema   "
+
 // MigratedLine is written under FormatLine on a file Migrate actually changed.
 // It is a note for whoever opens the file; nothing reads it back.
 const MigratedLine = "##    Migrated from SHCL 2.x."
@@ -1918,6 +1923,35 @@ type migrating struct {
 // more, so a program can ask before it rewrites anything.
 func FormatVersion(text string) (int, bool) {
 	return formatLineVersion(strings.TrimPrefix(text, "\ufeff"))
+}
+
+// SchemaRef is the schema a document's `##    Schema   REF` line names: a
+// path, or a URL for an editor to fetch. ok is false when no line names one.
+// The first such line wins, and one inside a raw body is that block's
+// content, as with the Format line. A relative path is the caller's to
+// resolve, from the config file's directory.
+func SchemaRef(text string) (string, bool) {
+	text = strings.TrimPrefix(text, "\ufeff")
+	var tok Tokens
+	var fence openFence
+	dry := migrating{fromV2: true}
+	for _, line := range strings.Split(text, "\n") {
+		body := strings.TrimRight(line, "\r")
+		if fence.open {
+			if isFenceClose(body, fence.ch, fence.length) {
+				fence.open = false
+			}
+			continue
+		}
+		if r, ok := strings.CutPrefix(body, SchemaLineHead); ok {
+			if r = trimWsp(r); r != "" {
+				return r, true
+			}
+			continue
+		}
+		migrateLine(trimEndWS(body[len(leadingWS(body)):]), &tok, &fence, &dry)
+	}
+	return "", false
 }
 
 // formatLineVersion is FormatVersion on text with the BOM already off. More
@@ -5167,8 +5201,9 @@ func keepLines(src string, doc *Document) (string, bool) {
 }
 
 // dropBanners takes each run of "##" lines holding the info block's SHCL line
-// or a version line out of leads. It returns how many came off, and whether
-// the last one had a blank above it with no line after it to take that blank.
+// or a version line out of leads, all but a Schema line. It returns how many
+// came off, and whether the last one had a blank above it with no line after
+// it to take that blank.
 func dropBanners(leads *[]lead) (int, bool) {
 	isBlockLine := func(t string) bool {
 		return t == "## This config file format is SHCL." || strings.HasPrefix(t, FormatLineHead)
@@ -5191,10 +5226,20 @@ func dropBanners(leads *[]lead) (int, bool) {
 			}
 			if hit {
 				// The blank that set the block off moves to whatever followed
-				// it, so the lines around it stay apart.
-				if end < len(ls) {
+				// it, so the lines around it stay apart. A Schema line in the
+				// block is the author's and stays, with the blank.
+				at := len(keep)
+				for _, l := range ls[i:end] {
+					if strings.HasPrefix(l.text, SchemaLineHead) {
+						keep = append(keep, l)
+					}
+				}
+				switch {
+				case at < len(keep):
+					keep[at].blankBefore = ls[i].blankBefore
+				case end < len(ls):
 					ls[end].blankBefore = ls[end].blankBefore || ls[i].blankBefore
-				} else {
+				default:
 					owed = ls[i].blankBefore
 				}
 				removed++

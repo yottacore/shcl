@@ -342,6 +342,16 @@ Both open points are settled:
 
 - The fix it points at is to quote the element, which `fmt` already does, since a colon is reserved in canonical output.
 
+**A config file names its own schema on a `##    Schema   REF` comment line** (2026-09-26). The model is JSON's `$schema` and the YAML language server's schema comment, so an editor can find the schema with nothing else to go on.
+
+- It is spelled like the `Format` line so it reads as part of the same family, and a comment changes nothing about the document.
+
+- `check` reads a path from the config file's directory, the way an editor does, and a `--schema` on the command line wins.
+
+- A URL is left to editors. A check that goes to the network because of a line in a file is not one to run unattended, so `check` says it skipped it and validates nothing.
+
+- `set_banner` keeps the line when it sits inside the info block, since the author wrote it there and the block is rewritten whole.
+
 ### Formatter
 
 Structure-only canonicalizer: block form, tabs, insertion order, minimal quoting, redundancy collapsed, value text untouched (it cannot know types).

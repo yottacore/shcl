@@ -2372,6 +2372,16 @@ func TestReadsMatchExpected(t *testing.T) {
 			}
 
 			doc := docFor(t, &c, level)
+			if kind == "schema" {
+				got, ok := SchemaRef(c.input)
+				if !ok {
+					got = "-"
+				}
+				if got != expected {
+					t.Errorf("%s: schema: got %q want %q", at, got, expected)
+				}
+				continue
+			}
 			if kind == "lost" {
 				want, err := strconv.Atoi(expected)
 				if err != nil {

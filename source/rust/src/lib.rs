@@ -1814,6 +1814,42 @@ fn format_line_version(text: &str) -> Option<u32> {
 	found
 }
 
+/// The schema a document's `##    Schema   REF` line names: a path, or a URL
+/// for an editor to fetch. None when no line names one. The first such line
+/// wins, and one inside a raw body is that block's content, as with the
+/// Format line. A relative path is the caller's to resolve, from the config
+/// file's directory.
+#[must_use]
+pub fn schema_ref(text: &str) -> Option<String> {
+	let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+	let mut tok = Tokens::default();
+	let mut fence: Option<(u8, usize)> = None;
+	let mut dry = Migrating {
+		from_v2: true,
+		ambiguous: 0,
+		lost: 0,
+	};
+	for line in text.split('\n') {
+		let body = line.trim_end_matches('\r');
+		if let Some((ch, len)) = fence {
+			if is_fence_close(body, ch, len) {
+				fence = None;
+			}
+			continue;
+		}
+		if let Some(r) = body.strip_prefix(SCHEMA_LINE_HEAD) {
+			let r = trim_wsp(r);
+			if !r.is_empty() {
+				return Some(r.to_string());
+			}
+			continue;
+		}
+		let rest = trim_wsp_end(&body[leading_ws(body).len()..]);
+		migrate_line(rest, &mut tok, &mut fence, &mut dry);
+	}
+	None
+}
+
 /// Rewrite a document written under the 2.x rules so this parser reads the
 /// same tree. Each line is read with the 2.x tokenizer and re-spelled only
 /// where the two rule sets disagree: a bare or single-quoted piece whose
@@ -5377,7 +5413,7 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 }
 
 /// Take each run of `##` lines holding the info block's SHCL line or a
-/// version line out of `leads`. Returns how many came off, and whether the
+/// version line out of `leads`, all but a Schema line. Returns how many came off, and whether the
 /// last one had a blank above it with no line after it to take that blank.
 fn drop_banners(leads: &mut Vec<Lead>) -> (usize, bool) {
 	let is_block_line =
@@ -5394,11 +5430,23 @@ fn drop_banners(leads: &mut Vec<Lead>) -> (usize, bool) {
 			}
 			if leads[i..end].iter().any(|l| is_block_line(&l.text)) {
 				// The blank that set the block off moves to whatever
-				// followed it, so the lines around it stay apart.
+				// followed it, so the lines around it stay apart. A Schema
+				// line in the block is the author's and stays, with the blank.
 				let blank = leads[i].blank_before;
-				match leads.get_mut(end) {
-					Some(next) => next.blank_before |= blank,
-					None => owed = blank,
+				let at = keep.len();
+				keep.extend(
+					leads[i..end]
+						.iter()
+						.filter(|l| l.text.starts_with(SCHEMA_LINE_HEAD))
+						.cloned(),
+				);
+				if let Some(first) = keep.get_mut(at) {
+					first.blank_before = blank;
+				} else {
+					match leads.get_mut(end) {
+						Some(next) => next.blank_before |= blank,
+						None => owed = blank,
+					}
 				}
 				removed += 1;
 				i = end;
@@ -9986,6 +10034,10 @@ pub const FORMAT_LINE_HEAD: &str = "##    Format   ";
 /// line on its own to a file it rewrote, since that file has no block to add
 /// it to and inventing one would write bytes the document does not hold.
 pub const FORMAT_LINE: &str = "##    Format   3";
+
+/// The start of a line naming the file's schema, spelled like the Format line,
+/// for `check` and for editors: `##    Schema   ./app.schema.shcl`.
+pub const SCHEMA_LINE_HEAD: &str = "##    Schema   ";
 
 /// Written under `FORMAT_LINE` on a file `migrate` actually changed. It is a
 /// note for whoever opens the file; nothing reads it back.

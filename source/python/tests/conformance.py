@@ -1017,6 +1017,11 @@ def main():
 				fails.append(f"{at}: load failed but reads.tsv has reads there: {e}")
 				continue
 
+			if kind == "schema":
+				got = shcl.schema_ref(case["input"]) or "-"
+				if got != expected:
+					fails.append(f"{at}: schema got {got!r} want {expected!r}")
+				continue
 			if kind == "lost":
 				if str(doc.lost_count()) != expected:
 					fails.append(f"{at}: lost got {doc.lost_count()} want {expected}")

@@ -153,7 +153,11 @@ and print its diagnostics. With
 .BI \-\-schema= SCHEMA
 it also validates the file against a schema, which is itself an ordinary
 .B .shcl
-file. Each diagnostic is one stdout line that starts with the word
+file. Without it, a file that names its schema on a
+.RB \(dq ##\ \ \ \ Schema\ \ \ PATH \(dq
+comment line is validated against that, with a relative path read from the
+file's own directory. A URL there is left to editors and not fetched.
+Each diagnostic is one stdout line that starts with the word
 .B line
 and a number, with its prose on stderr. The last stdout line is a summary.
 Exits 6 when
@@ -389,7 +393,7 @@ The schema file. On
 .B check
 it adds
 .BR V ###
-diagnostics; on
+diagnostics, and wins over the file's own Schema line; on
 .B init
 it is what the starter config is generated from.
 .TP

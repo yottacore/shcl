@@ -190,6 +190,13 @@ printf 'p: %s\nnote:\n\t```\n##    Format   2\n\t```\n' "'C:\temp'" > "${tmpDir}
 printf 'p: %s\nnote:\n\t```\n##    Format   3\n\t```\n' "'C:\temp'" > "${tmpDir}/rawfmt3.shcl"
 ## A stamped file behind a BOM, whose value 2.x would have read another way.
 printf '\357\273\277##    Format   3\np: %s\n' 'C:\temp' > "${tmpDir}/bomstamped.shcl"
+## A file naming its schema on a Schema line, beside a schema it fails, and
+## files naming a URL and a schema that is not there.
+mkdir -p "${tmpDir}/sp"
+printf 'field: port\n\ttype: int\n' > "${tmpDir}/sp/app.schema.shcl"
+printf '##    Schema   app.schema.shcl\nport: abc\n' > "${tmpDir}/sp/cfg.shcl"
+printf '##    Schema   https://example.com/app.schema.shcl\nport: abc\n' > "${tmpDir}/spurl.shcl"
+printf '##    Schema   gone.schema.shcl\nport: abc\n' > "${tmpDir}/spgone.shcl"
 ## A Format line of five thousand digits: no format will carry that number, and
 ## CPython refuses an int() past 4300 digits, so Python raised where the other
 ## three read it as this major and said there was nothing to migrate.
@@ -270,6 +277,8 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	an apostrophe, %T% a document with a name that needs quoting in a path,
 ##	%F2% a two-key file for the edit options, %M% a path with no file at it,
 ##	%BA% a bracket array, %SQ% a selector whose discriminator needs quotes,
+##	%SP% a file naming its schema on a Schema line, %SPS% that schema, %SPU%
+##	a file naming a URL there, %SPG% one naming a schema that is not there,
 ##	%SV% a schema naming a path the two-error file does not have,
 ##	%NV% two instance values holding a line break beside one plain value,
 ##	%K% a fresh copy of a file kept by hand, at the path %C% names, %KL% the
@@ -529,6 +538,12 @@ rows=(
 	## 20260909 item 4: a 3.0 file spells a backslash value the same way a 2.x
 	## one does, so migrating on a guess changed a correct file at exit 0. The
 	## file has to say which rules wrote it, or the caller has to.
+	## A Schema line names the schema check uses when --schema is not given,
+	## read from the config file's directory. A URL is left to editors.
+	'schema-line-check|check %SP%|-|6|line 2: Error: V003\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
+	'schema-line-url|check %SPU%|-|0|ok (0 diagnostic(s))\n|does not fetch'
+	'schema-line-gone|check %SPG%|-|8||gone\.schema\.shcl'
+	'schema-line-overridden|check --schema=%SPS% %SPU%|-|6|line 2: Error: V003\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
 	'migrate-ambiguous-refused|migrate %BS%|-|7|-|does not say which it was written for'
 	"migrate-ambiguous-kept|migrate %BS%|-|7|p: 'C:\\\\temp'\n|-"
 	'migrate-ambiguous-write-refused|migrate --write %BS%|-|7|-|refusing to rewrite'
@@ -861,6 +876,10 @@ for row in "${rows[@]}"; do
 	argv="${argv//%Q%/${tmpDir}/quote.shcl}"
 	argv="${argv//%BA%/${tmpDir}/brarray.shcl}"
 	argv="${argv//%SQ%/${tmpDir}/selcomma.shcl}"
+	argv="${argv//%SPS%/${tmpDir}/sp/app.schema.shcl}"
+	argv="${argv//%SPU%/${tmpDir}/spurl.shcl}"
+	argv="${argv//%SPG%/${tmpDir}/spgone.shcl}"
+	argv="${argv//%SP%/${tmpDir}/sp/cfg.shcl}"
 	argv="${argv//%SV%/${tmpDir}/missreq.shcl}"
 	argv="${argv//%NV%/${tmpDir}/nlvalue.shcl}"
 	argv="${argv//%NB%/${tmpDir}/nbname.shcl}"

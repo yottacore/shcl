@@ -237,6 +237,10 @@ int main() {
 	auto unst = shcl::migrate_unstamped("base:[Boston]\n\tlat: 42\nnote: a\\tb\n", true);
 	CHECK(unst.text == "base: Boston\n\tlat: 42\nnote: \"a\\tb\"\n" && !unst.current);
 	CHECK(shcl::format_version(mig.text) == 3u && !shcl::format_version(unst.text));
+	// The Schema line, first one wins; one in a raw body is content.
+	CHECK(shcl::schema_ref("x: 1\n##    Schema   ./a.shcl  \n##    Schema   b\n") == std::optional<std::string>("./a.shcl"));
+	CHECK(!shcl::schema_ref("r:\n\t```\n##    Schema   a\n\t```\n"));
+	CHECK(std::string(shcl::SCHEMA_LINE_HEAD) + "x" == "##    Schema   x");
 	auto [bare, bareFaults] = shcl::generate(gschema, true);
 	CHECK(bareFaults.empty() && bare == "## int, required\nport: 8080\n");
 	auto [starter, starterFaults] = shcl::generate(gschema);

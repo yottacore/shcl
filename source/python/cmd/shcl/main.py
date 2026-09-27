@@ -77,8 +77,9 @@ Usage:
   shcl fmt [--write|-w] [options] FILE   print the canonical form (or rewrite
                                          FILE in place with --write)
   shcl check [options] FILE              load and print diagnostics
-                                         (--schema=SCHEMA also validates FILE
-                                         against a schema, itself a .shcl file)
+                                         (--schema=SCHEMA, or the file's own
+                                         '##    Schema   PATH' line, also
+                                         validates FILE against a schema)
   shcl init [--no-banner] --schema=S     print a commented starter config
                                          from a schema (required fields live,
                                          optional commented, wildcards noted)
@@ -168,7 +169,8 @@ Options (the subcommands each belongs to are in parentheses):
                                          children/paths) or 1|2|3 (default
                                          standard)
   --schema=SCHEMA                        (check/init) validate FILE against a
-                                         schema; adds V### diagnostics
+                                         schema; adds V### diagnostics. check
+                                         without it uses FILE's Schema line
   --layer=FILE                           (get/set/fmt/count/instances/children/
                                          paths) merge a lower-priority layer
                                          under FILE; repeatable, earlier =
@@ -1847,6 +1849,28 @@ def do_set(o):
 	return 0
 
 
+def schema_for(o, file, text):
+	"""The schema check validates against: --schema, else the one the file
+	names on its Schema line. A relative path there is read from the config
+	file's directory, the way an editor reads it. A URL is left to editors,
+	since a check that reads the network because of a line in a file is not
+	one to run unattended."""
+	if o.schema is not None:
+		return o.schema
+	named = shcl.schema_ref(text)
+	if named is None:
+		return None
+	if "://" in named:
+		sys.stderr.write("the file names its schema by URL (" + named + "), which check does not fetch; pass --schema=SCHEMA to validate against it\n")
+		return None
+	c = named[0]
+	if c in "/\\" or (len(named) >= 2 and named[1] == ":" and c.isascii() and c.isalpha()):
+		return named
+	k = max(file.rfind("/"), file.rfind("\\"))
+	d = file[:k] if k >= 0 and file != "-" else "."
+	return d + "/" + named
+
+
 def do_check(o):
 	if len(o.args) != 1:
 		sys.stderr.write("usage: shcl check [options] FILE (see --help)\n")
@@ -1874,9 +1898,10 @@ def do_check(o):
 	# --schema: append validation diagnostics under the same contract. The
 	# schema itself always loads at Standard (a program artifact); one that
 	# does not load cleanly is a single V099 schema fault.
-	if o.schema is not None:
+	schema_file = schema_for(o, o.args[0], text)
+	if schema_file is not None:
 		try:
-			stext = read_input(o.schema)
+			stext = read_input(schema_file)
 		except (OSError, ValueError) as e:
 			sys.stderr.write(str(e) + "\n")
 			return EXIT_IO

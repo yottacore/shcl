@@ -645,6 +645,21 @@ Diagnostic codes ride the existing structure (line, severity, stable code, prose
 
 A schema fault (`V090`+) does not silence the rest of the result: the constraints that parsed cleanly still check the document (a broken key drops that key, a broken `field:` drops that field), so a typo in one constraint cannot hide a real violation of another. The unknown-field sweep needs the complete declared vocabulary of *names*, and a key-level fault keeps its entry's path - so the sweep still runs; it turns off only when a fault cost a path spelling outright (an unreadable `field:` path, or a mount naming no declared fragment). Generation (`shcl init`) still requires a fault-free schema - a partial starter config would be worse than an error. `check --schema` folds validation diagnostics into `check`'s existing output: same `line N: severity: CODE` stdout lines, the same line plus its prose on stderr, same summary line and exit-6-on-any-error rule. Both streams carry the code; only stdout is the contract. A `V090`-`V093` line number is a schema-file line (the table above says which); the stderr prose spells those `schema line N` so the two number spaces cannot be confused, while the compared stdout keeps the uniform `line N` shape - the code already names the space.
 
+A config file can name its own schema on a comment line spelled like the info block's `Format` line, so `check` and an editor find it without being told:
+
+~~~shcl
+##    Schema   ./app.schema.shcl
+port: 8080
+~~~
+
+- The line is `##    Schema   ` then a path or a URL, at the start of a line, anywhere in the file. The first such line wins, and one inside a raw body is that block's content. `SchemaRef` returns what it names, and `SCHEMA_LINE_HEAD` is its spelling, for a program writing one.
+
+- `check` without `--schema` validates against it, reading a relative path from the config file's directory, or from the working directory when the file is stdin. A `--schema` on the command line wins. A schema the line names that cannot be read fails the check the way a missing `--schema` file does, with exit 8.
+
+- A URL is for editors. `check` does not fetch one, and says so on stderr, since a check that reads the network because of a line in a file is not one to run unattended.
+
+- `SetBanner` rewrites the info block and keeps a Schema line that sits in it.
+
 ## Layered loading
 
 Composing a config from defaults, then a site file, then a user file, is `merge` applied as a left fold: `Load(defaults, site, user)` overlays each later document on the accumulation of the earlier ones, so the last file wins. `merge(base, over)` takes two already-parsed documents and overlays `over` (higher priority) onto `base`; it is a library operation, no grammar change.

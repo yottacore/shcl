@@ -90,8 +90,9 @@ Usage:
   shcl fmt [--write|-w] [options] FILE   print the canonical form (or rewrite
                                          FILE in place with --write)
   shcl check [options] FILE              load and print diagnostics
-                                         (--schema=SCHEMA also validates FILE
-                                         against a schema, itself a .shcl file)
+                                         (--schema=SCHEMA, or the file's own
+                                         '##    Schema   PATH' line, also
+                                         validates FILE against a schema)
   shcl init [--no-banner] --schema=S     print a commented starter config
                                          from a schema (required fields live,
                                          optional commented, wildcards noted)
@@ -181,7 +182,8 @@ Options (the subcommands each belongs to are in parentheses):
                                          children/paths) or 1|2|3 (default
                                          standard)
   --schema=SCHEMA                        (check/init) validate FILE against a
-                                         schema; adds V### diagnostics
+                                         schema; adds V### diagnostics. check
+                                         without it uses FILE's Schema line
   --layer=FILE                           (get/set/fmt/count/instances/children/
                                          paths) merge a lower-priority layer
                                          under FILE; repeatable, earlier =
@@ -2589,6 +2591,35 @@ func doSet(o *opts) int {
 	return 0
 }
 
+// schemaFor is the schema check validates against: --schema, else the one the
+// file names on its Schema line. A relative path there is read from the
+// config file's directory, the way an editor reads it. A URL is left to
+// editors, since a check that reads the network because of a line in a file
+// is not one to run unattended.
+func schemaFor(o *opts, file, text string) (string, bool) {
+	if o.schemaSet {
+		return o.schema, true
+	}
+	named, ok := shcl.SchemaRef(text)
+	if !ok {
+		return "", false
+	}
+	if strings.Contains(named, "://") {
+		fmt.Fprintf(os.Stderr, "the file names its schema by URL (%s), which check does not fetch; pass --schema=SCHEMA to validate against it\n", named)
+		return "", false
+	}
+	absolute := named[0] == '/' || named[0] == '\\' ||
+		(len(named) >= 2 && named[1] == ':' && (named[0]|0x20) >= 'a' && (named[0]|0x20) <= 'z')
+	if absolute {
+		return named, true
+	}
+	dir := "."
+	if k := strings.LastIndexAny(file, "/\\"); k >= 0 && file != "-" {
+		dir = file[:k]
+	}
+	return dir + "/" + named, true
+}
+
 func doCheck(o *opts) int {
 	if len(o.args) != 1 {
 		fmt.Fprintln(os.Stderr, "usage: shcl check [options] FILE (see --help)")
@@ -2610,8 +2641,8 @@ func doCheck(o *opts) int {
 	// --schema: append validation diagnostics under the same contract. The
 	// schema itself always loads at Standard (a program artifact); one that
 	// does not load cleanly is a single V099 schema fault.
-	if o.schemaSet {
-		stext, serr := readInput(o.schema)
+	if schemaFile, ok := schemaFor(o, o.args[0], text); ok {
+		stext, serr := readInput(schemaFile)
 		if serr != nil {
 			fmt.Fprintln(os.Stderr, serr)
 			return exitIO

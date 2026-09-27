@@ -54,6 +54,8 @@ extern const std::string_view GEN_BANNER;
 extern const std::string_view FORMAT_LINE_HEAD;
 extern const std::string_view FORMAT_LINE;
 extern const std::string_view MIGRATED_LINE;
+// The start of a line naming the file's schema, spelled like the Format line.
+extern const std::string_view SCHEMA_LINE_HEAD;
 
 class Document;
 namespace detail {
@@ -187,6 +189,10 @@ Migration migrate_unstamped(std::string_view text, bool from_v2);
 // it; none when no line names one. migrate hands a file back untouched exactly
 // when this is FORMAT_MAJOR or more.
 std::optional<std::uint32_t> format_version(std::string_view text);
+// The schema a document's Schema line names, a path or a URL; none when no
+// line names one. The first such line wins, and a relative path is the
+// caller's to resolve, from the config file's directory.
+std::optional<std::string> schema_ref(std::string_view text);
 
 #ifndef SHCL_NO_FILE_IO
 // Why a load came back the way it did. A load never fails on the file's
@@ -497,6 +503,7 @@ const std::string_view GEN_BANNER = SHCL_GEN_BANNER;
 const std::string_view FORMAT_LINE_HEAD = SHCL_FORMAT_LINE_HEAD;
 const std::string_view FORMAT_LINE = SHCL_FORMAT_LINE;
 const std::string_view MIGRATED_LINE = SHCL_MIGRATED_LINE;
+const std::string_view SCHEMA_LINE_HEAD = SHCL_SCHEMA_LINE_HEAD;
 
 namespace detail {
 
@@ -659,6 +666,13 @@ std::optional<std::uint32_t> format_version(std::string_view text) {
 	std::int64_t v = shcl_format_version(text.data(), text.size());
 	if (v < 0) return std::nullopt;
 	return static_cast<std::uint32_t>(v);
+}
+
+std::optional<std::string> schema_ref(std::string_view text) {
+	std::size_t n = 0;
+	const char *r = shcl_schema_ref(text.data(), text.size(), &n);
+	if (!r) return std::nullopt;
+	return std::string(r, n);
 }
 
 #ifndef SHCL_NO_FILE_IO

@@ -63,8 +63,9 @@ static const char *HELP =
 	"  shcl fmt [--write|-w] [options] FILE   print the canonical form (or rewrite\n"
 	"                                         FILE in place with --write)\n"
 	"  shcl check [options] FILE              load and print diagnostics\n"
-	"                                         (--schema=SCHEMA also validates FILE\n"
-	"                                         against a schema, itself a .shcl file)\n"
+	"                                         (--schema=SCHEMA, or the file's own\n"
+	"                                         '##    Schema   PATH' line, also\n"
+	"                                         validates FILE against a schema)\n"
 	"  shcl init [--no-banner] --schema=S     print a commented starter config\n"
 	"                                         from a schema (required fields live,\n"
 	"                                         optional commented, wildcards noted)\n"
@@ -154,7 +155,8 @@ static const char *HELP =
 	"                                         children/paths) or 1|2|3 (default\n"
 	"                                         standard)\n"
 	"  --schema=SCHEMA                        (check/init) validate FILE against a\n"
-	"                                         schema; adds V### diagnostics\n"
+	"                                         schema; adds V### diagnostics. check\n"
+	"                                         without it uses FILE's Schema line\n"
 	"  --layer=FILE                           (get/set/fmt/count/instances/children/\n"
 	"                                         paths) merge a lower-priority layer\n"
 	"                                         under FILE; repeatable, earlier =\n"
@@ -1502,6 +1504,35 @@ static int do_set(Opts *o) {
 	free(nt); free(ops); layered_free(&L); return rc;
 }
 
+/* The schema check validates against: --schema, else the one the file names
+   on its Schema line. A relative path there is read from the config file's
+   directory, the way an editor reads it. A URL is left to editors, since a
+   check that reads the network because of a line in a file is not one to run
+   unattended. The caller frees what comes back. */
+static char *schema_for(const Opts *o, const char *file, const char *text, size_t len) {
+	size_t n;
+	const char *named;
+	if (o->schema) { named = o->schema; n = strlen(named); }
+	else if (!(named = shcl_schema_ref(text, len, &n))) return NULL;
+	else {
+		for (size_t i = 0; i + 3 <= n; i++)
+			if (memcmp(named + i, "://", 3) == 0) {
+				fprintf(stderr, "the file names its schema by URL (%.*s), which check does not fetch; pass --schema=SCHEMA to validate against it\n", (int)n, named);
+				return NULL;
+			}
+	}
+	unsigned char c = (unsigned char)named[0];
+	int absolute = o->schema || c == '/' || c == '\\' || (n >= 2 && named[1] == ':' && (c | 0x20) >= 'a' && (c | 0x20) <= 'z');
+	const char *dir = "."; size_t dn = 1;
+	if (!absolute && strcmp(file, "-") != 0)
+		for (size_t k = strlen(file); k > 0; k--)
+			if (file[k - 1] == '/' || file[k - 1] == '\\') { dir = file; dn = k - 1; break; }
+	char *out = (char *)xrealloc(NULL, dn + 1 + n + 1), *w = out;
+	if (!absolute) { memcpy(w, dir, dn); w += dn; *w++ = '/'; }
+	memcpy(w, named, n); w[n] = '\0';
+	return out;
+}
+
 static int do_check(const Opts *o) {
 	if (o->nargs != 1) { fprintf(stderr, "usage: shcl check [options] FILE (see --help)\n"); return 1; }
 	size_t len; char *text = read_input(o->args[0], &len);
@@ -1519,8 +1550,10 @@ static int do_check(const Opts *o) {
 	   strict a user was getting less out of check than at standard on the same
 	   file, and check writes nothing, so fmt's refusal to rewrite a
 	   strict-failing document does not carry over. */
-	if (o->schema) {
-		size_t slen; stext = read_input(o->schema, &slen);
+	char *schema_file = schema_for(o, o->args[0], text, len);
+	if (schema_file) {
+		size_t slen; stext = read_input(schema_file, &slen);
+		free(schema_file);
 		if (!stext) { shcl_free(d); free(text); return EXIT_IO; }
 		sd = xdoc(shcl_parse(stext, slen));
 		size_t sn = shcl_diag_count(sd);

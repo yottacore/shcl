@@ -6,7 +6,7 @@
 
 use shcl::{
 	Diagnostic, Document, GEN_BANNER, Piece, Quote, Rules, SaveError, Severity, Status, Strictness,
-	Tokens, format_float, generate, migrate, parse_datetime, suppress_declared_reopens,
+	Tokens, format_float, generate, migrate, parse_datetime, schema_ref, suppress_declared_reopens,
 	suppress_declared_repeats, tokenize, write_file_atomic,
 };
 use std::fmt::Write as _;
@@ -74,8 +74,9 @@ Usage:
   shcl fmt [--write|-w] [options] FILE   print the canonical form (or rewrite
                                          FILE in place with --write)
   shcl check [options] FILE              load and print diagnostics
-                                         (--schema=SCHEMA also validates FILE
-                                         against a schema, itself a .shcl file)
+                                         (--schema=SCHEMA, or the file's own
+                                         '##    Schema   PATH' line, also
+                                         validates FILE against a schema)
   shcl init [--no-banner] --schema=S     print a commented starter config
                                          from a schema (required fields live,
                                          optional commented, wildcards noted)
@@ -165,7 +166,8 @@ Options (the subcommands each belongs to are in parentheses):
                                          children/paths) or 1|2|3 (default
                                          standard)
   --schema=SCHEMA                        (check/init) validate FILE against a
-                                         schema; adds V### diagnostics
+                                         schema; adds V### diagnostics. check
+                                         without it uses FILE's Schema line
   --layer=FILE                           (get/set/fmt/count/instances/children/
                                          paths) merge a lower-priority layer
                                          under FILE; repeatable, earlier =
@@ -2421,6 +2423,37 @@ fn do_set(o: &Opts) -> u8 {
 	0
 }
 
+/// The schema `check` validates against: `--schema`, else the one the file
+/// names on its Schema line. A relative path there is read from the config
+/// file's directory, the way an editor reads it. A URL is left to editors,
+/// since a check that reads the network because of a line in a file is not
+/// one to run unattended.
+fn schema_for(o: &Opts, file: &str, text: &str) -> Option<String> {
+	if o.schema.is_some() {
+		return o.schema.clone();
+	}
+	let named = schema_ref(text)?;
+	if named.contains("://") {
+		errln!(
+			"the file names its schema by URL ({}), which check does not fetch; pass --schema=SCHEMA to validate against it",
+			named
+		);
+		return None;
+	}
+	let b = named.as_bytes();
+	let absolute = b[0] == b'/'
+		|| b[0] == b'\\'
+		|| (b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':');
+	if absolute {
+		return Some(named);
+	}
+	let dir = match file.rfind(['/', '\\']) {
+		Some(k) if file != "-" => &file[..k],
+		_ => ".",
+	};
+	Some(format!("{}/{}", dir, named))
+}
+
 fn do_check(o: &Opts) -> u8 {
 	let [file] = o.args.as_slice() else {
 		errln!("usage: shcl check [options] FILE (see --help)");
@@ -2447,7 +2480,7 @@ fn do_check(o: &Opts) -> u8 {
 		// --schema: append validation diagnostics under the same contract.
 		// The schema itself always loads at Standard (a program artifact);
 		// one that does not load cleanly is a single V099 schema fault.
-		if let Some(schema_file) = &o.schema {
+		if let Some(schema_file) = &schema_for(o, file, &text) {
 			let stext = match read_input(schema_file) {
 				Ok(t) => t,
 				Err(e) => {

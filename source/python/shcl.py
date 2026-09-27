@@ -43,6 +43,7 @@ __all__ = [
 	"Document",
 	"FORMAT_LINE",
 	"FORMAT_LINE_HEAD",
+	"SCHEMA_LINE_HEAD",
 	"FORMAT_MAJOR",
 	"FileStatus",
 	"GEN_BANNER",
@@ -69,6 +70,7 @@ __all__ = [
 	"WriteReason",
 	"format_float",
 	"format_version",
+	"schema_ref",
 	"generate",
 	"migrate",
 	"migrate_unstamped",
@@ -1698,6 +1700,32 @@ def _format_line_version(text):
 				continue
 		_, fence = _migrate_line(_trim_wsp_end(body[len(_leading_ws(body)):]), tok, fence, dry)
 	return found
+
+
+def schema_ref(text: str) -> str | None:
+	"""The schema a document's `##    Schema   REF` line names: a path, or a
+	URL for an editor to fetch. None when no line names one. The first such
+	line wins, and one inside a raw body is that block's content, as with the
+	Format line. A relative path is the caller's to resolve, from the config
+	file's directory."""
+	if text.startswith("\ufeff"):
+		text = text[1:]
+	tok = Tokens()
+	fence = None
+	dry = _Migrating(True)
+	for line in text.split("\n"):
+		body = line.rstrip("\r")
+		if fence is not None:
+			if _is_fence_close(body, fence[0], fence[1]):
+				fence = None
+			continue
+		if body.startswith(SCHEMA_LINE_HEAD):
+			r = _trim_wsp(body[len(SCHEMA_LINE_HEAD):])
+			if r:
+				return r
+			continue
+		_, fence = _migrate_line(_trim_wsp_end(body[len(_leading_ws(body)):]), tok, fence, dry)
+	return None
 
 
 def migrate(text: str, from_v2: bool) -> Migration:
@@ -3889,7 +3917,8 @@ def _keep_lines(src, doc):
 
 def _drop_banners(leads):
 	"""Take each run of "##" lines holding the info block's SHCL line or a
-	version line out of `leads`. Returns how many came off, whether the last
+	version line out of `leads`, all but a Schema line. Returns how many came
+	off, whether the last
 	one had a blank above it with no line after it to take that blank, and
 	the lines left."""
 	def is_block_line(t):
@@ -3905,9 +3934,14 @@ def _drop_banners(leads):
 				end += 1
 			if any(is_block_line(c.text) for c in leads[i:end]):
 				# The blank that set the block off moves to whatever followed
-				# it, so the lines around it stay apart.
+				# it, so the lines around it stay apart. A Schema line in the
+				# block is the author's and stays, with the blank.
 				blank = leads[i].blank_before
-				if end < len(leads):
+				at = len(keep)
+				keep.extend(c for c in leads[i:end] if c.text.startswith(SCHEMA_LINE_HEAD))
+				if at < len(keep):
+					keep[at].blank_before = blank
+				elif end < len(leads):
 					leads[end].blank_before = leads[end].blank_before or blank
 				else:
 					owed = blank
@@ -8209,6 +8243,10 @@ FORMAT_LINE_HEAD = "##    Format   "
 # own to a file it rewrote, since that file has no block to add it to and
 # inventing one would write bytes the document does not hold.
 FORMAT_LINE = "##    Format   3"
+
+# The start of a line naming the file's schema, spelled like the Format line,
+# for check and for editors: `##    Schema   ./app.schema.shcl`.
+SCHEMA_LINE_HEAD = "##    Schema   "
 
 # Written under FORMAT_LINE on a file migrate actually changed. It is a note for
 # whoever opens the file; nothing reads it back.

@@ -8,6 +8,7 @@
 use shcl::{
 	Document, FORMAT_LINE, FORMAT_LINE_HEAD, FORMAT_MAJOR, MIGRATED_LINE, Strictness,
 	format_version, generate, migrate, migrate_unstamped, parse_datetime, quote_segment,
+	schema_ref,
 };
 use std::path::{Path, PathBuf};
 
@@ -427,6 +428,11 @@ fn reads_match_expected() {
 			}
 
 			let doc = doc_for(&case, level);
+			if kind == "schema" {
+				let got = schema_ref(&case.input).unwrap_or_else(|| "-".to_string());
+				assert_eq!(got, expected, "{}: schema", at);
+				continue;
+			}
 			if kind == "lost" {
 				let want: usize = expected
 					.parse()

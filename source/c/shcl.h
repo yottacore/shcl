@@ -529,6 +529,9 @@ size_t shcl_tokens_element_count(const shcl_tokens *t);
 #define SHCL_FORMAT_LINE_HEAD "##    Format   "
 #define SHCL_FORMAT_LINE "##    Format   3"
 #define SHCL_MIGRATED_LINE "##    Migrated from SHCL 2.x."
+// The start of a line naming the file's schema, spelled like the Format line,
+// for check and for editors: `##    Schema   ./app.schema.shcl`.
+#define SHCL_SCHEMA_LINE_HEAD "##    Schema   "
 
 // What shcl_migrate produced, and what it could not carry across. text is
 // malloc'd and NUL-terminated, the caller frees it, len is its length, and it
@@ -557,6 +560,12 @@ shcl_migration shcl_migrate_unstamped(const char *text, size_t len, int from_v2)
 // can ask before it rewrites anything. Digits past 32 bits read as
 // SHCL_FORMAT_MAJOR, since whatever wrote them was not 2.x.
 int64_t shcl_format_version(const char *text, size_t len);
+// The schema a document's `##    Schema   REF` line names: a path, or a URL
+// for an editor to fetch, as a pointer into text with its length in *ref_len.
+// NULL when no line names one. The first such line wins, and one inside a raw
+// body is that block's content, as with the Format line. A relative path is
+// the caller's to resolve, from the config file's directory.
+const char *shcl_schema_ref(const char *text, size_t len, size_t *ref_len);
 
 // --- Writer: typed emit, defaults, comments, structural edits ---------------
 // The reverse of the reads. Each setter builds the canonical stored text for a
@@ -2325,6 +2334,56 @@ int64_t shcl_format_version(const char *text, size_t len) {
 	ShclMigrateOwn *done = own;
 	arena_free(&done->a); arena_free(&done->sc); free(done);
 	return v;
+}
+
+/* The Schema line's reference, walked the way format_line_version walks. */
+static int schema_line_ref(ShclArena *ta, ShclArena *sc, ShclStr text, ShclTokens *tok, ShclStr *out) {
+	size_t headn = sizeof(SHCL_SCHEMA_LINE_HEAD) - 1, start = 0;
+	int fence_on = 0; unsigned char fence_ch = 0; size_t fence_len = 0;
+	ShclMigrating dry; dry.from_v2 = 1; dry.ambiguous = 0; dry.lost = 0;
+	for (size_t i = 0; i <= text.n; i++) {
+		if (i < text.n && text.p[i] != '\n') continue;
+		ShclStr raw = s_slice(text, start, i);
+		start = i + 1;
+		size_t bn = raw.n;
+		while (bn > 0 && raw.p[bn - 1] == '\r') bn--;
+		ShclStr body = s_slice(raw, 0, bn);
+		if (fence_on) {
+			if (is_fence_close(body, fence_ch, fence_len)) fence_on = 0;
+			continue;
+		}
+		if (body.n >= headn && memcmp(body.p, SHCL_SCHEMA_LINE_HEAD, headn) == 0) {
+			ShclStr r = s_trim_wsp(s_slice(body, headn, body.n));
+			if (r.n) { *out = r; return 1; }
+			continue;
+		}
+		arena_reset(sc);
+		ShclStr indent = leading_ws(body);
+		migrate_line(ta, sc, trim_wsp_end(s_slice(body, indent.n, body.n)), tok, &fence_on, &fence_ch, &fence_len, &dry);
+	}
+	return 0;
+}
+
+const char *shcl_schema_ref(const char *text, size_t len, size_t *ref_len) {
+	ShclMigrateOwn *volatile own = (ShclMigrateOwn *)calloc(1, sizeof *own);
+	if (!own) { SHCL_OOM(); abort(); }
+	jmp_buf panic;
+	if (SHCL_SETJMP(panic)) {
+		ShclMigrateOwn *bad = own;
+		arena_free(&bad->a); arena_free(&bad->sc); free(bad);
+		SHCL_OOM();
+		abort();
+	}
+	arena_guard(&own->a, &panic); arena_guard(&own->sc, &panic);
+	ShclStr in; in.p = text ? text : ""; in.n = len;
+	if (in.n >= 3 && (unsigned char)in.p[0] == 0xEF && (unsigned char)in.p[1] == 0xBB && (unsigned char)in.p[2] == 0xBF) in = s_slice(in, 3, in.n);
+	ShclTokens tok; memset(&tok, 0, sizeof tok);
+	ShclStr r = s_empty();
+	int found = schema_line_ref(&own->a, &own->sc, in, &tok, &r);
+	ShclMigrateOwn *done = own;
+	arena_free(&done->a); arena_free(&done->sc); free(done);
+	if (ref_len) *ref_len = found ? r.n : 0;
+	return found ? r.p : NULL;
 }
 
 // --- Path scanner (shared by file lines and accessor queries) ----------------
@@ -5190,7 +5249,7 @@ static int banner_line(ShclStr t) {
 }
 
 /* Take each run of "##" lines holding the info block's SHCL line or a version
-   line out of v. Returns how many came off; *owed says whether the last one
+   line out of v, all but a Schema line. Returns how many came off; *owed says whether the last one
    had a blank above it with no line after it to take that blank. */
 static size_t drop_banners(ShclVecLead *v, int *owed) {
 	size_t w = 0, removed = 0, i = 0;
@@ -5203,9 +5262,15 @@ static size_t drop_banners(ShclVecLead *v, int *owed) {
 			for (size_t k = i; k < end && !hit; k++) hit = banner_line(v->data[k].text);
 			if (hit) {
 				/* The blank that set the block off moves to whatever followed
-				   it, so the lines around it stay apart. */
-				if (end < v->len) v->data[end].blank_before |= v->data[i].blank_before;
-				else *owed = v->data[i].blank_before;
+				   it, so the lines around it stay apart. A Schema line in the
+				   block is the author's and stays, with the blank. */
+				int blank = v->data[i].blank_before;
+				size_t at = w;
+				for (size_t k = i; k < end; k++)
+					if (s_starts(v->data[k].text, SHCL_SCHEMA_LINE_HEAD)) v->data[w++] = v->data[k];
+				if (at < w) v->data[at].blank_before = blank;
+				else if (end < v->len) v->data[end].blank_before |= blank;
+				else *owed = blank;
 				removed++; i = end; continue;
 			}
 		}

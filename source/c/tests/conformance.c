@@ -807,6 +807,12 @@ int main(int argc, char **argv) {
 				}
 				shcl_doc *rd = shcl_parse_with(input, ilen, level);
 				if (shcl_strict_failed(rd)) { fail(at, "load failed but reads.tsv has reads there"); shcl_free(rd); continue; }
+				if (!strcmp(kind, "schema")) {
+					size_t rn = 0; const char *r = shcl_schema_ref(input, ilen, &rn);
+					if (!r) { r = "-"; rn = 1; }
+					if (rn != strlen(exp) || memcmp(r, exp, rn) != 0) fail(at, "schema mismatch");
+					shcl_free(rd); continue;
+				}
 				if (!strcmp(kind, "lost")) {
 					char nb[32]; snprintf(nb, sizeof nb, "%zu", shcl_lost_count(rd));
 					if (strcmp(nb, exp)) fail(at, "lost mismatch");
