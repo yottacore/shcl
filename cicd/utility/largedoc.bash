@@ -301,21 +301,15 @@ else
 	echo "largedoc: FAILED: the reference wrote nothing, so no invariant could be checked" >&2; rc=1
 fi
 fTest EnPl0qH fmt is a fixpoint on the large document
-if [[ "${fixpoint}" == yes ]]; then
-	echo "largedoc: fmt is a fixpoint at ${actualMib} MiB"
-else
+if [[ "${fixpoint}" != yes ]]; then
 	echo "largedoc: FAILED: fmt is not a fixpoint at ${actualMib} MiB" >&2; rc=1; nBad+=1
 fi
 fTest Eojtm8u the generated document loads with no diagnostics
-if [[ "${summary}" == "ok (0 diagnostic(s))" ]]; then
-	echo "largedoc: the generated document loads with no diagnostics"
-else
+if [[ "${summary}" != "ok (0 diagnostic(s))" ]]; then
 	echo "largedoc: FAILED: the generated document does not load clean: ${summary}" >&2; rc=1; nBad+=1
 fi
 fTest EnPl0qI a long array reads back whole
-if [[ "${wideCount}" == 20000 ]]; then
-	echo "largedoc: long array read back whole (${wideCount} elements)"
-else
+if [[ "${wideCount}" != 20000 ]]; then
 	echo "largedoc: FAILED: long array read back ${wideCount} of 20000 elements" >&2; rc=1; nBad+=1
 fi
 fTestEnd
