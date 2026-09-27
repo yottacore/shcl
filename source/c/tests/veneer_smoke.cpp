@@ -21,9 +21,18 @@
 #endif
 
 static int fails = 0;
+/* The pipeline's status line for this file's one test, with its test ID. */
+static const char *open_id, *open_name;
+static void test_id(const char *id, const char *name) { open_id = id; open_name = name; }
+static int test_id_end(int failed) {
+	std::printf("%-4s %s c++ %s\n", failed ? "FAIL" : "ok", open_id, open_name);
+	std::fflush(stdout);
+	return failed ? 1 : 0;
+}
 #define CHECK(cond) do { if (!(cond)) { std::fprintf(stderr, "veneer FAIL: %s (line %d)\n", #cond, __LINE__); fails++; } } while (0)
 
 int main() {
+	test_id("EjtkR0S", "veneer_smoke");
 	const std::string src =
 		"name: demo\n"
 		"port: 8080\n"
@@ -478,7 +487,7 @@ int main() {
 		CHECK(held_bytes <= 2 * big.size());
 	}
 
-	if (fails) { std::fprintf(stderr, "veneer: %d failure(s)\n", fails); return 1; }
+	if (fails) { std::fprintf(stderr, "veneer: %d failure(s)\n", fails); return test_id_end(fails); }
 	std::printf("veneer: ok\n");
-	return 0;
+	return test_id_end(fails);
 }

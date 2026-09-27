@@ -134,7 +134,17 @@ static shcl_doc *wide_doc(size_t n) {
 	return d;
 }
 
+/* The pipeline's status line for this file's one test, with its test ID. */
+static const char *open_id, *open_name;
+static void test_id(const char *id, const char *name) { open_id = id; open_name = name; }
+static int test_id_end(int failed) {
+	printf("%-4s %s c %s\n", failed ? "FAIL" : "ok", open_id, open_name);
+	fflush(stdout);
+	return failed ? 1 : 0;
+}
+
 int main(void) {
+	test_id("EoH8aeO", "oom_hook");
 	const char *text = "group:\n\tkey: value\n\tother: 12\n";
 	int wrote = 0, failures = 0;
 	for (long b = 0; b < 512 && !wrote; b++) {
@@ -254,5 +264,5 @@ int main(void) {
 
 	if (oom_hits == 0) { fprintf(stderr, "FAIL oom_hook: the hook never fired\n"); failures++; }
 	if (failures == 0) printf("oom_hook: ok (%d hook hits)\n", oom_hits);
-	return failures ? 1 : 0;
+	return test_id_end(failures);
 }

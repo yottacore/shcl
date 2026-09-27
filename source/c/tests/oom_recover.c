@@ -79,7 +79,17 @@ static char *schema(size_t *len) {
 	return t;
 }
 
+/* The pipeline's status line for this file's one test, with its test ID. */
+static const char *open_id, *open_name;
+static void test_id(const char *id, const char *name) { open_id = id; open_name = name; }
+static int test_id_end(int failed) {
+	printf("%-4s %s c %s\n", failed ? "FAIL" : "ok", open_id, open_name);
+	fflush(stdout);
+	return failed ? 1 : 0;
+}
+
 int main(void) {
+	test_id("EoaFuVM", "oom_recover");
 	size_t len; char *text = sample(&len);
 
 	// Every budget short of the whole parse must come back NULL, and the ones
@@ -203,5 +213,5 @@ int main(void) {
 
 	free(text);
 	if (failures == 0) printf("oom_recover: ok\n");
-	return failures ? 1 : 0;
+	return test_id_end(failures);
 }

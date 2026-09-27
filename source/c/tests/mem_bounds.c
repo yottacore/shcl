@@ -81,7 +81,17 @@ static double wall_ms(void) {
 
 static void fail(const char *what) { fprintf(stderr, "FAIL mem_bounds: %s\n", what); failures++; }
 
+/* The pipeline's status line for this file's one test, with its test ID. */
+static const char *open_id, *open_name;
+static void test_id(const char *id, const char *name) { open_id = id; open_name = name; }
+static int test_id_end(int failed) {
+	printf("%-4s %s c %s\n", failed ? "FAIL" : "ok", open_id, open_name);
+	fflush(stdout);
+	return failed ? 1 : 0;
+}
+
 int main(void) {
+	test_id("EoezJiE", "mem_bounds");
 	// Element cap: 200k elements on one line, refused at a cap of 8. The
 	// refused line used to be built in full first, so the cap saved nothing.
 	size_t reps = 200000, tlen = 5 + reps * 3 + 7;
@@ -145,7 +155,7 @@ int main(void) {
 	for (int i = 0; i < 60; i++) { char line[48]; snprintf(line, sizeof line, "group%d:\n\ta: 1\n\tb: x, y\n", i); sb_puts(&tmp, &sb, line); }
 	d = shcl_parse(sb.data, sb.len);
 	arena_free(&tmp);
-	if (!d) { fail("document for the read loop did not parse"); return 1; }
+	if (!d) { fail("document for the read loop did not parse"); return test_id_end(failures); }
 	// One call per loop: a path read anywhere in the same loop resets scratch
 	// on the next call's behalf and hides a call that does not reset it.
 	for (int which = 0; which < 4; which++) {
@@ -175,7 +185,7 @@ int main(void) {
 	{
 		const char *dtext = "t: 2026-01-02 03:04:05.123456 +01:30\nts: Jan 02 2026, 2026-01-03T04:05:06.5Z, 20260104\n";
 		d = shcl_parse(dtext, strlen(dtext));
-		if (!d) { fail("document for the datetime loop did not parse"); return 1; }
+		if (!d) { fail("document for the datetime loop did not parse"); return test_id_end(failures); }
 		for (int which = 0; which < 2; which++) {
 			size_t arena0 = 0;
 			for (int pass = 0; pass < 2; pass++) {
@@ -341,7 +351,7 @@ int main(void) {
 		double t[2];
 		size_t cap = 3000000, len = 0;
 		char *mtext = (char *)malloc(cap);
-		if (!mtext) { fail("merge fixture: no memory"); return 1; }
+		if (!mtext) { fail("merge fixture: no memory"); return test_id_end(failures); }
 		for (int withbig = 0; withbig < 2; withbig++) {
 			len = (size_t)snprintf(mtext, cap, "g:\n\tk: 1\n");
 			if (withbig) {
@@ -380,7 +390,7 @@ int main(void) {
 		double t[2];
 		size_t cap = 3000000, len = 0;
 		char *ktext = (char *)malloc(cap);
-		if (!ktext) { fail("kept-line fixture: no memory"); return 1; }
+		if (!ktext) { fail("kept-line fixture: no memory"); return test_id_end(failures); }
 		for (int kept = 0; kept < 2; kept++) {
 			len = (size_t)snprintf(ktext, cap, "g:\n\tk: 1\nbig:\n");
 			for (int i = 0; i < 100000; i++) len += (size_t)snprintf(ktext + len, cap - len, "\tc%d: %d\n", i, i);
@@ -539,7 +549,7 @@ int main(void) {
 		shcl_free(db);
 	}
 
-	if (failures) return 1;
+	if (failures) return test_id_end(failures);
 	printf("mem_bounds: OK\n");
-	return 0;
+	return test_id_end(failures);
 }
