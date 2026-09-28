@@ -140,7 +140,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - The dogfood runner stamps builds in local time and the current culture
 	- ID: 2026092620255211
 	- Type: Bug
-	- Status: Closed
+	- Status: Done
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 11
@@ -314,7 +314,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - The drop-ins tarball's file modes follow the checkout's umask
 	- ID: 2026092620255212
 	- Type: Bug
-	- Status: Closed
+	- Status: Done
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 12
@@ -333,7 +333,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - The pre-push green-tree skip passes over the main-push installer check
 	- ID: 2026092620255213
 	- Type: Bug
-	- Status: Closed
+	- Status: Done
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 13
@@ -352,7 +352,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - `conformance.c` does not build at `-Os` with the gate's warnings
 	- ID: 2026092620255214
 	- Type: Bug
-	- Status: Closed
+	- Status: Done
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 14
@@ -371,7 +371,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - The C++ interface is a full binding of its own, with the C interface kept out of sight
 	- ID: 2026092617331100
 	- Type: Done
-	- Status: Closed
+	- Status: Done
 	- Priority: Avg
 	- Opened: 20260926-173311
 	- Opened by: JC
@@ -391,7 +391,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - Every closed backlog item gets a Test line
 	- ID: 2026092620255216
 	- Type: Enhancement
-	- Status: Closed
+	- Status: Done
 	- Priority: Avg
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 idea 1, directives of 20260926
@@ -408,7 +408,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - `set` says when it wrote the canonical form instead of keeping lines
 	- ID: 2026092620255217
 	- Type: Enhancement
-	- Status: Closed
+	- Status: Done
 	- Priority: Avg
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 idea 2
@@ -426,7 +426,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - `fmt` keeps the quotes on a number with a leading zero
 	- ID: 2026092621211801
 	- Type: Enhancement
-	- Status: Closed
+	- Status: Done
 	- Priority: Avg
 	- Opened: 20260926-212118
 	- Opened by: JC
@@ -446,7 +446,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - `0o` and `0b` integer spellings
 	- ID: 2026092621211802
 	- Type: Feature
-	- Status: Closed
+	- Status: Done
 	- Priority: Avg
 	- Opened: 20260926-212118
 	- Opened by: JC
@@ -464,7 +464,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - Duration read
 	- ID: 2026092621211803
 	- Type: Feature
-	- Status: Closed
+	- Status: Done
 	- Priority: Avg
 	- Opened: 20260926-212118
 	- Opened by: JC
@@ -491,7 +491,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - Byte size read
 	- ID: 2026092621211804
 	- Type: Feature
-	- Status: Closed
+	- Status: Done
 	- Priority: Avg
 	- Opened: 20260926-212118
 	- Opened by: JC
@@ -514,7 +514,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - `\u` escapes, with invisible characters escaped on output
 	- ID: 2026092621211805
 	- Type: Feature
-	- Status: Closed
+	- Status: Done
 	- Priority: Avg
 	- Opened: 20260926-212118
 	- Opened by: JC
@@ -540,7 +540,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - A schema pointer in the config file
 	- ID: 2026092621211806
 	- Type: Feature
-	- Status: Closed
+	- Status: Done
 	- Priority: Avg
 	- Opened: 20260926-212118
 	- Opened by: JC
@@ -612,7 +612,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - `set --write` builds the kept text twice
 	- ID: 2026092620255218
 	- Type: Enhancement
-	- Status: Closed
+	- Status: Done
 	- Priority: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 idea 3
@@ -629,7 +629,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - `perf-gate`'s Python `keeps` row runs close to its budget
 	- ID: 2026092620255219
 	- Type: Enhancement
-	- Status: Closed
+	- Status: Done
 	- Priority: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 idea 4
@@ -646,7 +646,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - `cli-regress` rows have no timeout
 	- ID: 2026092620255220
 	- Type: Enhancement
-	- Status: Closed
+	- Status: Done
 	- Priority: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 idea 5
