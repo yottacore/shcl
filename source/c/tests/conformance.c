@@ -652,7 +652,7 @@ static void edits_and_merges_match_a_reload(void) {
 				shcl_str pick = paths[seq_below(np)];
 				seq_put(&path, pick.p, pick.n);
 			}
-			char v[8]; snprintf(v, sizeof v, "v%zu", seq_below(3));
+			char v[24]; snprintf(v, sizeof v, "v%zu", seq_below(3)); /* room for any size_t, or -Os warns */
 			size_t op = seq_below(11);
 			seq_doc(&layer);
 			/* A kept line the settle turned into a comment is still the user's
@@ -2498,6 +2498,22 @@ int main(int argc, char **argv) {
 	}
 	test_id("EonWXt2", "edits_and_merges_match_a_reload");
 	edits_and_merges_match_a_reload();
+	test_id("Er7o9rQ", "compact_keeps_generation_faults");
+	{
+		/* shcl_generate drops the faults of an earlier call first, and it tells
+		   them by a flag the compaction copy used to clear, so two calls and a
+		   compaction left the third listing two (20260926 item 6). */
+		const char *sch = "field: a.b\n\ttype: int\n\tmin: 1\n\tmax: 10\n\tdefault: 99\n";
+		shcl_doc *s = shcl_parse(sch, strlen(sch));
+		int ok = 0;
+		(void)shcl_generate(s, 1, &ok);
+		(void)shcl_generate(s, 1, &ok);
+		size_t before = shcl_diag_count(s);
+		shcl_compact(s);
+		(void)shcl_generate(s, 1, &ok);
+		if (before == 0 || shcl_diag_count(s) != before) fail("compact_keeps_generation_faults", "a generation fault outlived the next shcl_generate");
+		shcl_free(s);
+	}
 
 #ifdef _WIN32
 	/* Windows-only, and wine cannot show either one: it maps onto a filesystem

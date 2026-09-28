@@ -211,6 +211,29 @@ int main(void) {
 		free(sch);
 	}
 
+	// A compaction settles a kept misplaced line on the copy, and a failed
+	// allocation there leaves the document as it was (20260926 item 3). The
+	// settle used to run after the swap, out of reach of the recovery point.
+	{
+		const char *kt = "a:\n\tb: 1\n c: 2\n\td: 3\n";
+		int sawSame = 0, sawDone = 0;
+		for (long b = 0; b < 400; b++) {
+			shcl_doc *d = shcl_parse(kt, strlen(kt));
+			if (!d) { fail("the unbudgeted kept-line parse failed"); break; }
+			shcl_str c0 = shcl_to_canonical(d);
+			char was[256]; size_t wn = c0.n < sizeof was ? c0.n : sizeof was;
+			memcpy(was, c0.p, wn);
+			budget = b;
+			shcl_compact(d);
+			budget = 1L << 30;
+			shcl_str c1 = shcl_to_canonical(d);
+			if (c1.n != wn || memcmp(c1.p, was, wn) != 0) fail("a compaction changed a document with a kept line");
+			if (b == 0) sawSame = 1; else sawDone = 1;
+			shcl_free(d);
+		}
+		if (!sawSame || !sawDone) fail("the kept-line compaction sweep did not run");
+	}
+
 	free(text);
 	if (failures == 0) printf("oom_recover: ok\n");
 	return test_id_end(failures);

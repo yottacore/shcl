@@ -7839,7 +7839,13 @@ void shcl_compact(shcl_doc *d) {
 		size_t c = w_clone_subtree(n, d, root->children.data[i], ROOT);
 		ShclVecSize_push(a, &NODE(n, ROOT).children, c);
 	}
-	for (size_t i = 0; i < d->diags.len; i++) push_diag(n, d->diags.data[i].line, d->diags.data[i].sev, d->diags.data[i].code, s_dup(a, d->diags.data[i].message));
+	/* Whole, so a generation fault stays one and the next shcl_generate still
+	   drops it (20260926 item 6). */
+	for (size_t i = 0; i < d->diags.len; i++) {
+		ShclDiag dg = d->diags.data[i];
+		dg.message = s_dup(a, dg.message);
+		ShclVecDiag_push(a, &n->diags, dg);
+	}
 	for (size_t i = 0; i < d->orphans.len; i++) ShclVecLead_push(a, &n->orphans, lead_copy(a, &d->orphans.data[i]));
 	for (size_t i = 0; i < d->ends.len; i++) ShclVecSize_push(a, &n->ends, d->ends.data[i]);
 	n->has_source = d->has_source;
@@ -7848,6 +7854,10 @@ void shcl_compact(shcl_doc *d) {
 	n->lost = d->lost;
 	n->kept = d->kept;
 	n->probe_doc = d->probe_doc;
+	/* Every node has a new number, so what the last settle recorded names
+	   the wrong ones. The copy already cost the document. Before the swap,
+	   where a failed allocation still leaves d as it was (20260926 item 3). */
+	settle_kept(n);
 	doc_guard(n, NULL);
 	doc_guard(d, NULL);
 	// Swap the rebuilt document in and give the old storage back.
@@ -7855,9 +7865,6 @@ void shcl_compact(shcl_doc *d) {
 	*d = *n;
 	free(n);
 	free(old.nodes.data); free(old.kept_near); arena_free(&old.arena); arena_free(&old.scratch); arena_free(&old.reads); arena_free(&old.index_arena);
-	/* Every node has a new number, so what the last settle recorded names
-	   the wrong ones. The copy already cost the document. */
-	settle_kept(d);
 }
 int shcl_strict_failed(const shcl_doc *d) {
 	if (d->strictness != SHCL_STRICT) return 0;

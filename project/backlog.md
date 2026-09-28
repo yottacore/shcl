@@ -127,7 +127,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - C `shcl_compact` reaches the out-of-memory hook on a document with a kept misplaced line
 	- ID: 2026092620255203
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Avg
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 3
@@ -137,6 +137,11 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Reproduced: 20260926, a scratch harness with a failing allocator.
 	- Origin: `51197bc` (2026-09-24) runs `settle_kept` after the swap, outside the recovery point. `oom_hook.c`'s documents hold no kept line. Regresses 20260918b item 22's contract. Confirmed.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: `shcl_compact` settles the copy before the swap, while the recovery point still covers it.
+	- Swept: compaction is C only. The C++ `compact` calls it.
+	- Branch: `compact`
+	- Test case: `oom_recover.c` runs a compaction of a document with a kept line under every allocation budget and checks the canonical text is unchanged. It reached the hook on the old code.
 
 - A merge result depends on whether the lower layer spells a list stacked or inline
 	- ID: 2026092620255204
@@ -171,7 +176,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - C `shcl_compact` turns earlier generation faults into ordinary diagnostics
 	- ID: 2026092620255206
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 6
@@ -181,6 +186,11 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Reproduced: 20260926, a scratch harness. C++ is not affected, since its `generate` strips the faults itself.
 	- Origin: `5dfcecd` (2026-09-19). `push_diag` in compact clears the `generated` flag. Confirmed.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: the compaction copies each diagnostic whole, flag included.
+	- Swept: compaction is C only.
+	- Branch: `compact`
+	- Test case: C runner `compact_keeps_generation_faults`. It fails on the old code.
 
 - C++ `const` reads on one document race each other
 	- ID: 2026092620255207
@@ -286,7 +296,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - `conformance.c` does not build at `-Os` with the gate's warnings
 	- ID: 2026092620255214
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 14
@@ -296,6 +306,11 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Reproduced: 20260926, gcc 14.
 	- Origin: `186b201` (2026-09-23). Seen during the line-keeping work and put down to gcc-15 only. Confirmed.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: the buffer is wide enough for any `size_t`.
+	- Swept: every `char` buffer given to `snprintf` in the C tests builds at all five levels on gcc 12 to 15 and clang 19.
+	- Branch: `compact`
+	- Test case: `check-c-compilers.bash` now builds `conformance.c` and `mem_bounds.c` at every `-O` level. It fails with the old buffer.
 
 - Comment style in new code
 	- ID: 2026092620255215

@@ -137,9 +137,16 @@ EOF
 ## Same flags the build and test stages use, so a disagreement here is a
 ## disagreement there.
 for cc in "${compilers[@]}"; do
+	## The test sources get every level too: gcc's format-truncation warning
+	## fires at -Os only, which kept a runner from building there (20260926
+	## item 14).
 	for src in source/c/cmd/shcl/main.c source/c/tests/conformance.c source/c/tests/mem_bounds.c; do
 		kind="${src##*/}"
-		fJob fBuild "${cc}" -O2 "${src}"
+		opts=(-O2)
+		[[ "${src}" == */tests/* ]] && opts=(-O0 -O1 -O2 -Os -O3)
+		for opt in "${opts[@]}"; do
+			fJob fBuild "${cc}" "${opt}" "${src}"
+		done
 	done
 	## Most Linux consumers define _GNU_SOURCE, and glibc declares more under it,
 	## so a static name in the header can collide with one of those functions.
