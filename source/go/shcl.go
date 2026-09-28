@@ -1969,9 +1969,9 @@ func SchemaRef(text string) (string, bool) {
 	return "", false
 }
 
-// formatLineVersion is FormatVersion on text with the BOM already off. More
-// digits than fit is not a 2.x file either, so it reads as this major and
-// there is nothing to migrate.
+// formatLineVersion is FormatVersion on text with the BOM already off. Digits
+// that do not fit 32 bits are not a 2.x file either, so they read as this
+// major and there is nothing to migrate.
 //
 // Raw bodies are skipped exactly where the rewrite skips them, by walking the
 // lines through the same migrateLine. A Format line pasted into a block is
@@ -2003,7 +2003,7 @@ func formatLineVersion(text string) (int, bool) {
 			}
 			if digits {
 				v, err := strconv.Atoi(n)
-				if err != nil {
+				if err != nil || v > math.MaxUint32 {
 					return FormatMajor, true
 				}
 				if v >= FormatMajor {

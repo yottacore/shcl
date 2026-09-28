@@ -1783,7 +1783,7 @@ pub fn format_version(text: &str) -> Option<u32> {
 }
 
 /// format_version() on text with the BOM already off. Digits that do not fit
-/// read as "newer than this", since whatever wrote them was not 2.x.
+/// 32 bits read as "newer than this", since whatever wrote them was not 2.x.
 ///
 /// Raw bodies are skipped exactly where the rewrite skips them, by walking the
 /// lines through the same `migrate_line`. A Format line pasted into a block is

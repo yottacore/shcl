@@ -1673,7 +1673,9 @@ def format_version(text: str) -> int | None:
 
 
 def _format_line_version(text):
-	"""format_version() on text with the BOM already off.
+	"""format_version() on text with the BOM already off. Digits that do not
+	fit 32 bits read as "newer than this", since whatever wrote them was not
+	2.x.
 
 	Raw bodies are skipped exactly where the rewrite skips them, by walking the
 	lines through the same _migrate_line. A Format line pasted into a block is
@@ -1701,7 +1703,7 @@ def _format_line_version(text):
 				# parse fails on it too and reads the line as this major, so
 				# the file needs nothing (20260918b item 30).
 				digits = n.lstrip("0") or "0"
-				if len(digits) > 10:
+				if len(digits) > 10 or int(digits) > 0xFFFFFFFF:
 					return FORMAT_MAJOR
 				v = int(digits)
 				if v >= FORMAT_MAJOR:

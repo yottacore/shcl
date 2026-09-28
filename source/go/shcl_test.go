@@ -2705,6 +2705,18 @@ func soupInputs() []string {
 	return out
 }
 
+// Digits past 32 bits are not a 2.x file either, so they read as the current
+// major, in every binding (20260926 item 9).
+func TestFormatVersionCapsAt32Bits(t *testing.T) {
+	defer testID(t, "Er7vwJ6")
+	if v, ok := FormatVersion("##    Format   4294967295\na: 1\n"); !ok || v != 4294967295 {
+		t.Errorf("4294967295 read as %d", v)
+	}
+	if v, ok := FormatVersion("##    Format   4294967296\na: 1\n"); !ok || v != FormatMajor {
+		t.Errorf("4294967296 read as %d", v)
+	}
+}
+
 // TestSettersWriteOnlyWhatReadsBack: a setter writes only what reads back. Each
 // one builds its text through the emitter and hands it to the tokenizer before
 // the document is touched, so for every input either the call refuses and the
