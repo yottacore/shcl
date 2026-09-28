@@ -86,7 +86,7 @@ param(
 	Set-StrictMode -Version Latest
 	$ErrorActionPreference = 'Stop'
 
-	$installerVersion = '1.1.4'
+	$installerVersion = '1.1.5'
 
 	## Every run opens with a blank line and ends with one, errors included.
 	Write-Output ''
@@ -482,8 +482,14 @@ installed.
 	## sent people looking in the wrong place. GITHUB_TOKEN is used when set.
 	$apiHeaders = @{}
 	if ($env:GITHUB_TOKEN) { $apiHeaders['Authorization'] = "Bearer $($env:GITHUB_TOKEN)" }
+	## Windows PowerShell 5.1 follows a redirect from https to plain http, which
+	## 7 refuses, and the release list picks the tag. The API answers this URL
+	## with no redirect at all, so 5.1 follows none. The downloads may redirect,
+	## and each is checked against its signature.
+	$apiRedirects = @{}
+	if ($PSVersionTable.PSVersion.Major -lt 6) { $apiRedirects['MaximumRedirection'] = 0 }
 	try {
-		$rel = Invoke-RestMethod -Uri $api -UseBasicParsing -Headers $apiHeaders
+		$rel = Invoke-RestMethod -Uri $api -UseBasicParsing -Headers $apiHeaders @apiRedirects
 	} catch {
 		$status = Get-HttpStatus -ErrorRecord $_
 		if ($status -eq 403 -or $status -eq 429) {
