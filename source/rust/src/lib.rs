@@ -364,6 +364,10 @@ struct Lead {
 	// The source line it was read from, for the save that keeps lines; 0 for
 	// one a write made or moved.
 	line: usize,
+	// A misplaced line kept as written that the settle turned into a comment,
+	// since as written it would bind. It is still the user's line, not a
+	// comment, so clear_comments and comments leave it alone.
+	kept: bool,
 }
 
 impl Lead {
@@ -373,7 +377,12 @@ impl Lead {
 			blank_before: false,
 			depth: 0,
 			line: 0,
+			kept: false,
 		}
+	}
+
+	fn is_comment(&self) -> bool {
+		self.text.starts_with('#') && !self.kept
 	}
 }
 
@@ -823,6 +832,7 @@ fn trailing_to_leading(nd: &mut NodeData) {
 		text,
 		blank_before,
 		line: 0,
+		kept: false,
 	});
 }
 
@@ -2908,6 +2918,7 @@ impl<'a> Parser<'a> {
 					text: p.text,
 					blank_before: p.blank_before,
 					line: p.line,
+					kept: false,
 				});
 			}
 			self.pend_marks.clear();
@@ -3003,6 +3014,7 @@ impl<'a> Parser<'a> {
 						text: std::mem::take(&mut p.text),
 						blank_before: p.blank_before,
 						line: p.line,
+						kept: false,
 					};
 					if at.2 {
 						self.arena[at.1].triv_mut().after.push(lead);
@@ -3561,6 +3573,7 @@ impl<'a> Parser<'a> {
 						blank_before: p.blank_before,
 						depth: 0,
 						line: 0,
+						kept: false,
 					},
 				));
 			}
@@ -4073,6 +4086,7 @@ impl<'a> Parser<'a> {
 				text: p.text,
 				blank_before: p.blank_before,
 				line: p.line,
+				kept: false,
 			})
 			.collect();
 		settle_first_blank(&mut self.arena, &mut orphans);
@@ -4493,6 +4507,7 @@ impl Document {
 			let l = &mut list[i];
 			l.text = commented(&l.text);
 			l.depth = depth;
+			l.kept = true;
 		}
 		// Out of each list latest first, so a removal leaves the earlier
 		// indices alone, then onto the end of the leading lines in order.
@@ -4514,6 +4529,7 @@ impl Document {
 				l.text = commented(&l.text);
 				l.depth = depth;
 				l.line = 0;
+				l.kept = true;
 				t.leading.push(l);
 			}
 		}
@@ -5295,16 +5311,16 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 			out.push_str(eol);
 		}
 	};
+	// Which source lines went out as written. Every line the load dropped
+	// has to, or the save falls back: a rewritten group can span one, as a
+	// stacked list over a refused element (20260926 item 1).
+	let mut wrote = vec![false; n + 2];
 	// The lines no group stands for that sat right after a kept group, when
 	// the group that followed it then does not follow it now. They go out
 	// before the next source group, a new line not indented past them, or
 	// the end. A new line indented past them goes first, since one written
 	// under a dropped line would be dropped with it. A line the load dropped
 	// comes back this way.
-	// Which source lines went out as written. Every line the load dropped
-	// has to, or the save falls back: a rewritten group can span one, as a
-	// stacked list over a refused element (20260926 item 1).
-	let mut wrote = vec![false; n + 2];
 	let flush =
 		|out: &mut String, left: &mut [bool], wrote: &mut [bool], from: usize, to: usize| {
 			for (k, l) in left.iter_mut().enumerate().take(to).skip(from) {
@@ -5461,11 +5477,11 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 	// The reload has to be the document, and it may not load with an error
 	// the source did not have: a child the edits gave an element list that
 	// stayed stacked reads back the same and is E001 (20260925b item 1). A
-	// line the load dropped went out as written, so the reload drops it
-	// again, and may drop nothing more. It can drop less, where a dropped
-	// line now binds, and then the canonical text differs.
+	// line the load dropped went out as written, and the reload has to drop
+	// each one again: one that now binds, even to the same document, reads
+	// differently from how the file had it.
 	let back = Parser::new().parse(&out, doc.strictness);
-	(back.lost <= loaded_doc.lost
+	(back.lost == loaded_doc.lost
 		&& back.to_canonical() == now.out
 		&& errors_within(&back, &loaded_doc))
 	.then_some(out)
@@ -7465,7 +7481,7 @@ impl Document {
 			.iter()
 			.filter_map(|&t| self.arena[t].trivia.as_deref())
 			.flat_map(|tr| &tr.leading)
-			.filter(|l| l.text.starts_with('#'))
+			.filter(|l| l.is_comment())
 			.map(|l| l.text.clone())
 			.collect()
 	}
@@ -7495,12 +7511,19 @@ impl Document {
 			// The blank above the run is the one that separates it from what
 			// comes before, so it stays with whatever is now first.
 			let blank = tr.leading.first().is_some_and(|l| l.blank_before);
-			tr.leading.retain(|l| !l.text.starts_with('#'));
+			tr.leading.retain(|l| !l.is_comment());
 			let gone = before - tr.leading.len();
 			if gone == 0 {
 				continue;
 			}
 			cleared += gone;
+			// A kept line left in the run may have sat under a comment that
+			// went. A reload starts a run at 0 and steps one at a time.
+			let mut room = 0;
+			for l in tr.leading.iter_mut().filter(|l| l.text.starts_with('#')) {
+				l.depth = l.depth.min(room);
+				room = l.depth + 1;
+			}
 			if let Some(first) = tr.leading.first_mut() {
 				first.blank_before |= blank;
 			} else {

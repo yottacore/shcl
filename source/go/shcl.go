@@ -342,10 +342,18 @@ type lead struct {
 	// The source line it was read from, for the save that keeps lines; 0 for
 	// one a write made or moved.
 	line int
+	// A misplaced line kept as written that the settle turned into a comment,
+	// since as written it would bind. It is still the user's line, not a
+	// comment, so ClearComments and Comments leave it alone.
+	kept bool
 }
 
 func plainLead(text string) lead {
 	return lead{text: text}
+}
+
+func (l *lead) isComment() bool {
+	return strings.HasPrefix(l.text, "#") && !l.kept
 }
 
 // depthEnt is one comment on a commentDepth chain: its indent and depth.
@@ -4358,6 +4366,7 @@ func (d *Document) settleKeptOnce() bool {
 		}
 		list[f.i].text = commented(list[f.i].text)
 		list[f.i].depth = f.depth
+		list[f.i].kept = true
 	}
 	// Out of each list latest first, so a removal leaves the earlier indices
 	// alone, then onto the end of the leading lines in order.
@@ -4384,6 +4393,7 @@ func (d *Document) settleKeptOnce() bool {
 			l.text = commented(l.text)
 			l.depth = depth
 			l.line = 0
+			l.kept = true
 			t.leading = append(t.leading, l)
 		}
 		moved = moved[:0]
@@ -5043,16 +5053,16 @@ func keepLines(src string, doc *Document) (string, bool) {
 			out.WriteString(eol)
 		}
 	}
+	// Which source lines went out as written. Every line the load dropped
+	// has to, or the save falls back: a rewritten group can span one, as a
+	// stacked list over a refused element (20260926 item 1).
+	wrote := make([]bool, n+2)
 	// The lines no group stands for that sat right after a kept group, when
 	// the group that followed it then does not follow it now. They go out
 	// before the next source group, a new line not indented past them, or the
 	// end. A new line indented past them goes first, since one written under
 	// a dropped line would be dropped with it. A line the load dropped comes
 	// back this way.
-	// Which source lines went out as written. Every line the load dropped
-	// has to, or the save falls back: a rewritten group can span one, as a
-	// stacked list over a refused element (20260926 item 1).
-	wrote := make([]bool, n+2)
 	flush := func(from, to int) {
 		for k := from; k < to; k++ {
 			if left[k] {
@@ -5232,11 +5242,11 @@ func keepLines(src string, doc *Document) (string, bool) {
 	// The reload has to be the document, and it may not load with an error the
 	// source did not have: a child the edits gave an element list that stayed
 	// stacked reads back the same and is E001 (20260925b item 1). A line the
-	// load dropped went out as written, so the reload drops it again, and may
-	// drop nothing more. It can drop less, where a dropped line now binds, and
-	// then the canonical text differs.
+	// load dropped went out as written, and the reload has to drop each one
+	// again: one that now binds, even to the same document, reads differently
+	// from how the file had it.
 	back := newParser().parse(text, doc.strictness)
-	if back.lost <= loadedDoc.lost && back.ToCanonical() == nowText && errorsWithin(back, loadedDoc) {
+	if back.lost == loadedDoc.lost && back.ToCanonical() == nowText && errorsWithin(back, loadedDoc) {
 		return text, true
 	}
 	return "", false
@@ -7383,7 +7393,7 @@ func (d *Document) Comments(path string) []string {
 			continue
 		}
 		for _, l := range tr.leading {
-			if strings.HasPrefix(l.text, "#") {
+			if l.isComment() {
 				out = append(out, l.text)
 			}
 		}
@@ -7429,7 +7439,7 @@ func (d *Document) ClearComments(path string) int {
 		blank := before > 0 && tr.leading[0].blankBefore
 		kept := tr.leading[:0]
 		for _, l := range tr.leading {
-			if !strings.HasPrefix(l.text, "#") {
+			if !l.isComment() {
 				kept = append(kept, l)
 			}
 		}
@@ -7439,6 +7449,15 @@ func (d *Document) ClearComments(path string) int {
 			continue
 		}
 		cleared += gone
+		// A kept line left in the run may have sat under a comment that went.
+		// A reload starts a run at 0 and steps one at a time.
+		room := 0
+		for k := range kept {
+			if strings.HasPrefix(kept[k].text, "#") {
+				kept[k].depth = minInt(kept[k].depth, room)
+				room = kept[k].depth + 1
+			}
+		}
 		if len(kept) > 0 {
 			kept[0].blankBefore = kept[0].blankBefore || blank
 		} else {

@@ -380,6 +380,8 @@ Case `176` pins duration and size reads: units from the value, from a field name
 
 Case `177` pins the `duration` and `size` schema types: `unit`, `decimal`, and `min` and `max` in the type's units, a bare number read by the field name first, the faults for `unit` or `decimal` on another type and for `allowed` on these, and `init` writing their annotations and defaults.
 
+Case `178` pins a misplaced line kept as written that turned into a comment, once from the load, since as written it would bind, and once from a setter that unstacks the list it sat in. `clear-comments` takes the real comment above it and leaves it, and `comments` does not list it.
+
 Beyond the fixed corpus, the differential harness (`cicd/utility/crosscheck.bash`) also derives accessor coverage over the fuzz set: the reference's fuzz dump writes a `<name>.reads.tsv` beside each dumped input (paths it knows exist, cycling type and strictness), which the `--extra` replay runs through the same row machinery. Every scalar read row - corpus and fuzz-derived - is additionally replayed under `--on-bad=error` (an exit-code differential) and `--default=<x>` (a stdout differential), so the on-bad/default policy surface is pinned cross-binding too. It also runs three `set` edits (a changed value, a new child, a removal) on the first paths of every input, corpus and fuzz alike, so the save that keeps lines is compared well past the goldens.
 
 Not yet modeled natively (as golden files): the on-bad/default outputs (covered cross-binding via the harness above, not by per-row `expected`). Diagnostic expectations are modeled natively via `expected-diags.txt` (above) and cross-binding via the `load` rows.

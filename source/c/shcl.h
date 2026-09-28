@@ -1087,14 +1087,20 @@ DEFINE_VEC(ShclVecS, ShclStr)
    the one before it keeps that nesting, so a commented-out block comes back in
    its shape.
    line: the source line it was read from, for the save that keeps lines; 0 for
-   one a write made or moved. */
-typedef struct { ShclStr text; int blank_before; size_t depth; size_t line; } ShclLead;
+   one a write made or moved.
+   kept: a misplaced line kept as written that the settle turned into a
+   comment, since as written it would bind. It is still the user's line, not a
+   comment, so shcl_clear_comments and shcl_comments leave it alone. */
+typedef struct { ShclStr text; int blank_before; size_t depth; size_t line; int kept; } ShclLead;
 DEFINE_VEC(ShclVecLead, ShclLead)
-static ShclLead lead_at(ShclStr text, int blank_before, size_t depth, size_t line) { ShclLead l; l.text = text; l.blank_before = blank_before; l.depth = depth; l.line = line; return l; }
+static ShclLead lead_at(ShclStr text, int blank_before, size_t depth, size_t line) { ShclLead l; l.text = text; l.blank_before = blank_before; l.depth = depth; l.line = line; l.kept = 0; return l; }
 static ShclLead lead_make(ShclStr text, int blank_before, size_t depth) { return lead_at(text, blank_before, depth, 0); }
 static ShclLead lead_plain(ShclStr text) { return lead_make(text, 0, 0); }
 /* A copy into another arena, source line and all. */
-static ShclLead lead_copy(ShclArena *a, const ShclLead *l) { return lead_at(s_dup(a, l->text), l->blank_before, l->depth, l->line); }
+static ShclLead lead_copy(ShclArena *a, const ShclLead *l) { ShclLead c = lead_at(s_dup(a, l->text), l->blank_before, l->depth, l->line); c.kept = l->kept; return c; }
+/* A copy that no longer stands for a source line, as a merge moves it. */
+static ShclLead lead_moved(ShclArena *a, const ShclLead *l) { ShclLead c = lead_make(s_dup(a, l->text), l->blank_before, l->depth); c.kept = l->kept; return c; }
+static int lead_is_comment(const ShclLead *l) { return l->text.n && l->text.p[0] == '#' && !l->kept; }
 /* A kept line among a stacked list's elements, with how many elements come
    before it. */
 typedef struct { size_t before; ShclLead lead; } ShclAmong;
@@ -5446,8 +5452,8 @@ size_t shcl_comments(shcl_doc *d, const char *path, size_t plen, shcl_str **out)
 		const ShclTrivia *tr = NODE(d, targets.data[i]).trivia;
 		if (!tr) continue;
 		for (size_t k = 0; k < tr->leading.len; k++) {
+			if (!lead_is_comment(&tr->leading.data[k])) continue;
 			ShclStr l = tr->leading.data[k].text;
-			if (!(l.n && l.p[0] == '#')) continue;
 			if (n == cap) { size_t nc = cap ? cap * 2 : 8; arr = (shcl_str *)arena_grow(a, arr, cap, nc, sizeof(shcl_str)); cap = nc; }
 			arr[n].p = l.p; arr[n].n = l.n; n++;
 		}
@@ -5473,11 +5479,19 @@ size_t shcl_clear_comments(shcl_doc *d, const char *path, size_t plen) {
 		   comes before, so it stays with whatever is now first. */
 		int blank = ld->len && ld->data[0].blank_before;
 		size_t w = 0;
-		for (size_t k = 0; k < ld->len; k++) if (!(ld->data[k].text.n && ld->data[k].text.p[0] == '#')) ld->data[w++] = ld->data[k];
+		for (size_t k = 0; k < ld->len; k++) if (!lead_is_comment(&ld->data[k])) ld->data[w++] = ld->data[k];
 		size_t gone = ld->len - w;
 		ld->len = w;
 		if (!gone) continue;
 		cleared += gone;
+		/* A kept line left in the run may have sat under a comment that went.
+		   A reload starts a run at 0 and steps one at a time. */
+		size_t room = 0;
+		for (size_t k = 0; k < w; k++) {
+			if (!(ld->data[k].text.n && ld->data[k].text.p[0] == '#')) continue;
+			if (ld->data[k].depth > room) ld->data[k].depth = room;
+			room = ld->data[k].depth + 1;
+		}
 		if (w) ld->data[0].blank_before |= blank;
 		else nd->blank_before |= blank;
 	}
@@ -5762,18 +5776,18 @@ static void adopt_trivia(shcl_doc *d, size_t base, const shcl_doc *over, size_t 
 	if (!st) return;
 	ShclTrivia *bt = triv_mut(a, &NODE(d, base));
 	for (size_t i = 0; i < st->leading.len; i++)
-		ShclVecLead_push(a, &bt->leading, lead_make(s_dup(a, st->leading.data[i].text), st->leading.data[i].blank_before, st->leading.data[i].depth));
+		ShclVecLead_push(a, &bt->leading, lead_moved(a, &st->leading.data[i]));
 	if (st->trailing.n) {
 		if (bt->trailing.n == 0) bt->trailing = s_dup(a, st->trailing);
 		else ShclVecLead_push(a, &bt->leading, lead_plain(s_dup(a, st->trailing)));
 	}
 	for (size_t i = 0; i < st->after.len; i++)
-		ShclVecLead_push(a, &bt->after, lead_make(s_dup(a, st->after.data[i].text), st->after.data[i].blank_before, st->after.data[i].depth));
+		ShclVecLead_push(a, &bt->after, lead_moved(a, &st->after.data[i]));
 	for (size_t i = 0; i < st->inside.len; i++)
-		ShclVecLead_push(a, &bt->inside, lead_make(s_dup(a, st->inside.data[i].text), st->inside.data[i].blank_before, st->inside.data[i].depth));
+		ShclVecLead_push(a, &bt->inside, lead_moved(a, &st->inside.data[i]));
 	for (size_t i = 0; i < st->among.len; i++) {
 		ShclAmong am; am.before = st->among.data[i].before;
-		am.lead = lead_make(s_dup(a, st->among.data[i].lead.text), st->among.data[i].lead.blank_before, st->among.data[i].lead.depth);
+		am.lead = lead_moved(a, &st->among.data[i].lead);
 		ShclVecAmong_push(a, &bt->among, am);
 	}
 	among_sort(&bt->among);
@@ -6018,7 +6032,9 @@ void shcl_merge(shcl_doc *d, const shcl_doc *over) {
 		for (size_t k = 0; k < had; k++) if (s_eq(d->orphans.data[k].text, ot) && d->orphans.data[k].depth == depth) { dup = 1; break; }
 		if (dup) continue;
 		if (ot.n && ot.p[0] == '#') { if (depth > room) depth = room; room = depth + 1; }
-		ShclVecLead_push(a, &d->orphans, lead_make(s_dup(a, ot), over->orphans.data[i].blank_before, depth));
+		ShclLead o = lead_moved(a, &over->orphans.data[i]);
+		o.depth = depth;
+		ShclVecLead_push(a, &d->orphans, o);
 	}
 	settle_first_blank(d);
 	if (fresh) settle_kept(d);
@@ -6874,6 +6890,7 @@ static int settle_kept_once(shcl_doc *d) {
 		ShclLead *l = &list->data[f->i];
 		l->text = commented(a, l->text);
 		l->depth = f->depth;
+		l->kept = 1;
 	}
 	/* Out of each list latest first, so a removal leaves the earlier indices
 	   alone, then onto the end of the leading lines in order. */
@@ -6895,6 +6912,7 @@ static int settle_kept_once(shcl_doc *d) {
 			l.text = commented(a, l.text);
 			l.depth = depth;
 			l.line = 0;
+			l.kept = 1;
 			ShclVecLead_push(a, &t->leading, l);
 		}
 		moved.len = 0;
@@ -7511,13 +7529,13 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 	/* The reload has to be the document, and it may not load with an error
 	   the source did not have: a child the edits gave an element list that
 	   stayed stacked reads back the same and is E001 (20260925b item 1). A line
-	   the load dropped went out as written, so the reload drops it again, and
-	   may drop nothing more. It can drop less, where a dropped line now binds,
-	   and then the canonical text differs. */
+	   the load dropped went out as written, and the reload has to drop each one
+	   again: one that now binds, even to the same document, reads differently
+	   from how the file had it. */
 	shcl_doc *back = own->back = do_parse(text.p, text.n, d->strictness, 0, 0, 0, 0);
 	if (!back) arena_panic(panic);
 	doc_guard(back, panic);
-	if (back->lost > ld->lost || !s_eq(emit_canonical(back), nowS) || !errors_within(a, back, ld)) return 0;
+	if (back->lost != ld->lost || !s_eq(emit_canonical(back), nowS) || !errors_within(a, back, ld)) return 0;
 	*out = text;
 	return 1;
 }

@@ -349,9 +349,9 @@ class _Lead:
 	"""One whole-line comment held as trivia, plus whether a blank line preceded
 	it - so a blank between comment-only regions survives the round-trip
 	(blank runs collapse to one, same as nodes)."""
-	__slots__ = ("text", "blank_before", "depth", "line")
+	__slots__ = ("text", "blank_before", "depth", "line", "kept")
 
-	def __init__(self, text, blank_before, depth=0, line=0):
+	def __init__(self, text, blank_before, depth=0, line=0, kept=False):
 		self.text = text
 		self.blank_before = blank_before
 		# Levels deeper than the place it is emitted at. A comment written
@@ -361,6 +361,13 @@ class _Lead:
 		# The source line it was read from, for the save that keeps lines; 0
 		# for one a write made or moved.
 		self.line = line
+		# A misplaced line kept as written that the settle turned into a
+		# comment, since as written it would bind. It is still the user's line,
+		# not a comment, so clear_comments and comments leave it alone.
+		self.kept = kept
+
+	def is_comment(self):
+		return self.text.startswith("#") and not self.kept
 
 
 def _comment_depth(chain, base, text, indent):
@@ -3807,17 +3814,17 @@ def _keep_lines(src, doc):
 		if last_piece and not last_piece.endswith("\n"):
 			out.append(eol)
 
+	# Which source lines went out as written. Every line the load dropped has
+	# to, or the save falls back: a rewritten group can span one, as a stacked
+	# list over a refused element (20260926 item 1).
+	wrote = [False] * (n + 2)
+
 	# The lines no group stands for that sat right after a kept group, when the
 	# group that followed it then does not follow it now. They go out before
 	# the next source group, a new line not indented past them, or the end. A
 	# new line indented past them goes first, since one written under a
 	# dropped line would be dropped with it. A line the load dropped comes
 	# back this way.
-	# Which source lines went out as written. Every line the load dropped has
-	# to, or the save falls back: a rewritten group can span one, as a stacked
-	# list over a refused element (20260926 item 1).
-	wrote = [False] * (n + 2)
-
 	def flush(frm, to):
 		for g in range(frm, to):
 			if left[g]:
@@ -3939,11 +3946,11 @@ def _keep_lines(src, doc):
 	# The reload has to be the document, and it may not load with an error the
 	# source did not have: a child the edits gave an element list that stayed
 	# stacked reads back the same and is E001 (20260925b item 1). A line the
-	# load dropped went out as written, so the reload drops it again, and may
-	# drop nothing more. It can drop less, where a dropped line now binds, and
-	# then the canonical text differs.
+	# load dropped went out as written, and the reload has to drop each one
+	# again: one that now binds, even to the same document, reads differently
+	# from how the file had it.
 	back = _Parser().parse(text, doc._strictness)
-	if back._lost <= loaded_doc._lost and back.to_canonical() == now.text and _errors_within(back, loaded_doc):
+	if back._lost == loaded_doc._lost and back.to_canonical() == now.text and _errors_within(back, loaded_doc):
 		return text
 	return None
 
@@ -4372,6 +4379,7 @@ class Document:
 			lead = lst[i]
 			lead.text = _commented(lead.text)
 			lead.depth = depth
+			lead.kept = True
 		# Out of each list latest first, so a removal leaves the earlier
 		# indices alone, then onto the end of the leading lines in order.
 		moved_any = bool(among)
@@ -4387,6 +4395,7 @@ class Document:
 				lead.text = _commented(lead.text)
 				lead.depth = depth
 				lead.line = 0
+				lead.kept = True
 				t.leading.append(lead)
 			moved = []
 		return moved_any
@@ -5125,7 +5134,7 @@ class Document:
 			targets = [n for n in r[1] if isinstance(n, int)]
 		else:
 			targets = []
-		return [c.text for t in targets if (tr := self.arena[t].trivia) is not None for c in tr.leading if c.text.startswith("#")]
+		return [c.text for t in targets if (tr := self.arena[t].trivia) is not None for c in tr.leading if c.is_comment()]
 
 	def clear_comments(self, path: str) -> int:
 		"""Take off the comment lines above the node(s) at a path, the lines
@@ -5155,11 +5164,18 @@ class Document:
 			# The blank above the run is the one that separates it from what
 			# comes before, so it stays with whatever is now first.
 			blank = before > 0 and tr.leading[0].blank_before
-			tr.leading = [c for c in tr.leading if not c.text.startswith("#")]
+			tr.leading = [c for c in tr.leading if not c.is_comment()]
 			gone = before - len(tr.leading)
 			if gone == 0:
 				continue
 			cleared += gone
+			# A kept line left in the run may have sat under a comment that
+			# went. A reload starts a run at 0 and steps one at a time.
+			room = 0
+			for c in tr.leading:
+				if c.text.startswith("#"):
+					c.depth = min(c.depth, room)
+					room = c.depth + 1
 			if tr.leading:
 				tr.leading[0].blank_before = tr.leading[0].blank_before or blank
 			else:
@@ -5427,7 +5443,7 @@ class Document:
 				if o.text.startswith("#"):
 					depth = min(depth, room)
 					room = depth + 1
-				self.orphans.append(_Lead(o.text, o.blank_before, depth))
+				self.orphans.append(_Lead(o.text, o.blank_before, depth, kept=o.kept))
 		_settle_first_blank(self.arena, self.orphans)
 		if fresh:
 			self._settle_kept()
@@ -5448,15 +5464,15 @@ class Document:
 		if st is None:
 			return
 		bt = self.arena[base]._triv()
-		bt.leading.extend(_Lead(c.text, c.blank_before, c.depth) for c in st.leading)
+		bt.leading.extend(_Lead(c.text, c.blank_before, c.depth, kept=c.kept) for c in st.leading)
 		if st.trailing:
 			if not bt.trailing:
 				bt.trailing = st.trailing
 			else:
 				bt.leading.append(_Lead(st.trailing, False))
-		bt.after.extend(_Lead(c.text, c.blank_before, c.depth) for c in st.after)
-		bt.inside.extend(_Lead(c.text, c.blank_before, c.depth) for c in st.inside)
-		bt.among.extend((pos, _Lead(c.text, c.blank_before, c.depth)) for pos, c in st.among)
+		bt.after.extend(_Lead(c.text, c.blank_before, c.depth, kept=c.kept) for c in st.after)
+		bt.inside.extend(_Lead(c.text, c.blank_before, c.depth, kept=c.kept) for c in st.inside)
+		bt.among.extend((pos, _Lead(c.text, c.blank_before, c.depth, kept=c.kept)) for pos, c in st.among)
 		bt.among.sort(key=lambda a: a[0])
 
 	def _overlay(self, base_parent, over, over_parent):
@@ -5613,11 +5629,11 @@ class Document:
 		st = src.trivia
 		if st is not None:
 			t = node._triv()
-			t.leading = [_Lead(c.text, c.blank_before, c.depth) for c in st.leading]
+			t.leading = [_Lead(c.text, c.blank_before, c.depth, kept=c.kept) for c in st.leading]
 			t.trailing = st.trailing
-			t.after = [_Lead(c.text, c.blank_before, c.depth) for c in st.after]
-			t.inside = [_Lead(c.text, c.blank_before, c.depth) for c in st.inside]
-			t.among = [(pos, _Lead(c.text, c.blank_before, c.depth)) for pos, c in st.among]
+			t.after = [_Lead(c.text, c.blank_before, c.depth, kept=c.kept) for c in st.after]
+			t.inside = [_Lead(c.text, c.blank_before, c.depth, kept=c.kept) for c in st.inside]
+			t.among = [(pos, _Lead(c.text, c.blank_before, c.depth, kept=c.kept)) for pos, c in st.among]
 		node.blank_before = src.blank_before
 		node.src_set = src.src_set
 		node.src = src.src
