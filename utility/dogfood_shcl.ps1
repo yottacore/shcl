@@ -114,8 +114,9 @@ $KeepMonthly = 1
 $KeepYearly = 1
 
 $StampFormat = 'yyyyMMdd-HHmmss'
-## Stamps are written and read in one culture. A current culture with another
-## calendar wrote a year the invariant read took as a different one.
+## Stamps are local time, written and read in one culture. A current culture
+## with another calendar wrote a year the invariant read took as a different
+## one. A DST change or a new time zone can put a stamp out of order once.
 $Invariant = [Globalization.CultureInfo]::InvariantCulture
 
 #==============================================================================
@@ -190,7 +191,7 @@ function Copy-NewBuild {
 	param()
 	$src = Get-SourceBuild
 	if (-not $src) { return $false }
-	$stamp = $src.LastWriteTimeUtc.ToString($StampFormat, $Invariant)
+	$stamp = $src.LastWriteTime.ToString($StampFormat, $Invariant)
 	$held = Get-HeldVersion
 	if ($held.Count -gt 0 -and $held[-1].Stamp -ge (ConvertFrom-Stamp -Stamp $stamp)) { return $false }
 	if (Find-HeldTwin -Source $src) { return $false }
@@ -240,7 +241,7 @@ function Get-GfsRole {
 	[CmdletBinding()]
 	param([object[]]$Versions)
 	$periods = @('year', 'month', 'week', 'day', 'hour')
-	$current = Get-PeriodKey -When (Get-Date).ToUniversalTime()
+	$current = Get-PeriodKey -When (Get-Date)
 	$lastIn = @{}
 	foreach ($p in $periods) { $lastIn[$p] = @{} }
 	foreach ($v in $Versions) {
@@ -422,3 +423,4 @@ exit $LASTEXITCODE
 ##	History:
 ##		- 2026-09-24 JC: Created, in place of n8runshcl.ps1. Takes the build from the synced dogfood dir rather than the repo, and keeps a GFS-rotated pool with a fixed name on the newest.
 ##		- 2026-09-27 JC: Runs under Windows PowerShell 5.1. The Windows fixed name is in install.ps1's user folder. Stamps in UTC and the invariant culture. Runs the fixed name only when it names the newest pool version. Says why the fixed name was not updated only on a run that took a build. Help block.
+##		- 2026-09-28 JC: Stamps back in local time.

@@ -2489,7 +2489,7 @@ if fHave pwsh; then
 	mkdir -p "${dsrc}" "${dh}/.local/bin"
 	printf '#!/bin/sh\necho "one: $*"\nexit 3\n' > "${dsrc}/shcl"; chmod +x "${dsrc}/shcl"
 	touch -d '2026-09-20 10:00 UTC' "${dsrc}/shcl"
-	fDogfood(){ env -u DISPLAY -u WAYLAND_DISPLAY HOME="${dh}" pwsh -NoProfile -File "${repoDir}/utility/dogfood_shcl.ps1" "$@" 2>"${tmpDir}/df.err" ;}
+	fDogfood(){ env -u DISPLAY -u WAYLAND_DISPLAY HOME="${dh}" TZ=UTC pwsh -NoProfile -File "${repoDir}/utility/dogfood_shcl.ps1" "$@" 2>"${tmpDir}/df.err" ;}
 	rc=0; out="$(fDogfood -v a)" || rc=$?
 	[[ "${out}" == "one: -v a" && "${rc}" == 3 ]] || fBad "dogfood_shcl.ps1 did not run the build with its arguments and exit code: ${out@Q} rc ${rc}"
 	[[ "$(readlink "${dh}/.local/bin/shcl")" == "${dpool}/shcl_20260920-100000_newest" ]] || fBad "dogfood_shcl.ps1 did not point the fixed name at the new version"
@@ -2525,19 +2525,20 @@ fi
 
 fTest Er7xgGI 20260926-item11-dogfood-stamp-culture
 ##	20260926 item 11: the runner wrote a build's stamp in the current culture and
-##	local time, and read it back as invariant, so under th-TH the held name
-##	moved 543 years each run and a newer build was never taken.
+##	read it back as invariant, so under th-TH the held name moved 543 years each
+##	run and a newer build was never taken. Stamps are local time (reopened
+##	20260928), so the zone is pinned away from UTC.
 if fHave pwsh; then
 	dh="${tmpDir}/dfculture"
 	dsrc="${dh}/synced/0-0/common/exec/util/linux/bin"
 	mkdir -p "${dsrc}" "${dh}/.local/bin"
 	printf '#!/bin/sh\necho one\n' > "${dsrc}/shcl"; chmod +x "${dsrc}/shcl"
 	touch -d '2026-09-20 10:00 UTC' "${dsrc}/shcl"
-	fDogfoodTh(){ env -u DISPLAY -u WAYLAND_DISPLAY HOME="${dh}" LC_ALL=th_TH.UTF-8 LANG=th_TH.UTF-8 pwsh -NoProfile -File "${repoDir}/utility/dogfood_shcl.ps1" "$@" 2>"${tmpDir}/df.err" ;}
+	fDogfoodTh(){ env -u DISPLAY -u WAYLAND_DISPLAY HOME="${dh}" TZ=Asia/Bangkok LC_ALL=th_TH.UTF-8 LANG=th_TH.UTF-8 pwsh -NoProfile -File "${repoDir}/utility/dogfood_shcl.ps1" "$@" 2>"${tmpDir}/df.err" ;}
 	fDogfoodTh x >/dev/null || true
 	fDogfoodTh x >/dev/null || true
 	held="$(find "${dh}/.local/bin/shcl_versions" -mindepth 1 -printf '%f ')"
-	[[ "${held}" == "shcl_20260920-100000_newest " ]] || fBad "dogfood_shcl.ps1 under th-TH held ${held@Q}"
+	[[ "${held}" == "shcl_20260920-170000_newest " ]] || fBad "dogfood_shcl.ps1 under th-TH held ${held@Q}"
 	printf '#!/bin/sh\necho two\n' > "${dsrc}/shcl"
 	touch -d '2026-09-21 10:00 UTC' "${dsrc}/shcl"
 	out="$(fDogfoodTh x)" || true
