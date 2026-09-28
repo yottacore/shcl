@@ -558,6 +558,7 @@ if [[ -f "${cmpResults}" && -f "${designDoc}" ]]; then
 	else
 		echo "check-docs: SKIPPED the comparison ratios - no debug binary (cargo build first)"
 		echo check-docs >> "${SHCL_GATE_SKIPS:-/dev/null}"
+		fTestSkip
 	fi
 fi
 
@@ -666,11 +667,19 @@ def own_test(i, depth):
 			return True
 	return False
 has = {i: own_test(i, d) for i, d in items}
-for k, (i, d) in enumerate(items):
-	if has[i]:
-		continue
-	parent = next((p for p, pd in reversed(items[:k]) if pd < d), None)
-	if parent is not None and has[parent] and d > 0:
+# The bullets an item sits in, innermost first, whatever kind. A review
+# round's heading bullet is no closed item, so a Test line on an item above the
+# round covers nothing inside it.
+def ancestors(i, depth):
+	for j in range(i - 1, -1, -1):
+		if depth == 0 or lines[j].startswith("#"):
+			return
+		m = re.match(r"^(\t*)- ", lines[j])
+		if m and len(m.group(1)) < depth:
+			depth = len(m.group(1))
+			yield j
+for i, d in items:
+	if has[i] or any(has.get(a) for a in ancestors(i, d)):
 		continue
 	print(f"{i + 1}: {lines[i].strip()[:60]}")
 status = None

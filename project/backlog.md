@@ -7077,6 +7077,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Note: a scratch copy of the test over every budget up to a finished parse came back NULL each time, clean under ASan. The header says a parse never reaches `SHCL_OOM()`, and nothing checks that for these two.
 		- Done: `oom_recover.c` runs every budget through `shcl_parse_keep_lines` and `shcl_load_file_keep_lines` on a text that is not canonical, so the copy is made. Each call comes back NULL or finishes with its text kept.
 		- Verified: with the recovery point taken out of `keep_source`, the test fails at `SHCL_OOM()`.
+		- Test case: `oom_recover.c`, as in the line above.
 		- Opened: 20260925-144920
 		- Closed: 20260925-160837
 

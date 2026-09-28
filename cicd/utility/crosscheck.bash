@@ -617,6 +617,9 @@ fTest EjsGuy8 usage and option behavior
 nKindBad+=badUsage
 fTest EjsGuy9 corpus cases agree
 nKindBad+=badCase
+## The comparison floor is this test's too, or its line read ok on a run that
+## then refused for comparing too little.
+if ((nCompared < minCompared)); then nKindBad+=1; fi
 fTest EjsGuyA fuzz inputs agree
 nKindBad+=badExtra
 [[ -n "$extra" ]] || fTestSkip
