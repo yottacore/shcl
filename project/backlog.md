@@ -182,6 +182,10 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Reproduced: 20260928, all four CLIs.
 	- Origin: `39ad1f23` (cli fixes, 20260923 item 17). Regression. Confirmed.
 	- Keep: 20260923 item 17 says the words refuse anything after them but their own flags. That line and design.md disagree on this case, so it needs a call.
+	- Decisions:
+		- 20260928: the informational outputs are flags: `-h`/`--help`, `-v`/`-V`/`--version`, `--about` and `--donate`. The words `version`, `about` and `donate` go, and a leftover one gets the did-you-mean hint at exit 1. `help` stays as a word, since it takes a topic (`help CMD`). No scripts use v2, so nothing breaks.
+		- Several asked in one run print once each, in the order asked, with one blank line before, between and after. `--about` covers `--version`, since its first line is the version line. A lone `--version` stays unpadded. Today the first one asked wins silently: `--help --version` prints only the help.
+		- `help` still refuses anything after it but one topic and the informational flags. design.md's paragraph and 20260923 item 17's rule change to match.
 	- Estimated effort: Low
 
 - The Schema line's directory is split at a backslash on Linux and macOS
