@@ -1442,15 +1442,25 @@ def keep_original(file, text):
 	try:
 		with os.fdopen(fd, "wb") as fh:
 			fh.write(text.encode("utf-8"))
-			# Born private, then given the original's bits, so a 600 config
-			# never has a readable copy. Best effort, the way the save carries
-			# the mode.
-			if hasattr(os, "fchmod"):
+			# Out before the mode goes on, since a write clears setuid/setgid.
+			fh.flush()
+			# Born private, then given the original's group and bits, so a 600
+			# config never has a readable copy, and one in a setgid directory
+			# does not go to the directory's group. The group first, since a
+			# chown clears setuid/setgid. Best effort, the way the save carries
+			# both. The mode is POSIX only: a 3.13 fchmod on windows would set
+			# the read-only bit, and a failed save could not remove the copy.
+			if os.name != "nt" and hasattr(os, "fchmod"):
 				try:
-					os.fchmod(fh.fileno(), stat.S_IMODE(os.stat(file).st_mode))
+					st = os.stat(file)
+					if hasattr(os, "fchown"):
+						try:
+							os.fchown(fh.fileno(), -1, st.st_gid)
+						except OSError:
+							pass
+					os.fchmod(fh.fileno(), stat.S_IMODE(st.st_mode))
 				except OSError:
 					pass
-			fh.flush()
 			os.fsync(fh.fileno())
 	except OSError as e:
 		try:

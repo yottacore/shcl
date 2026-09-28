@@ -13,6 +13,7 @@ import (
 	"io/fs"
 	"math"
 	"os"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -1931,18 +1932,32 @@ func nameStart(file string) int {
 // never replaced, and the copy is synced before the save starts.
 func keepOriginal(file, text string) (string, error) {
 	old := oldCopyName(file)
+	// FILE: and the system's own message, as the UI guide has it. The path
+	// error would name the call and the path a second time.
+	bare := func(err error) error {
+		var pe *fs.PathError
+		if errors.As(err, &pe) {
+			return pe.Err
+		}
+		return err
+	}
 	f, err := os.OpenFile(old, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return "", fmt.Errorf("%s: already exists; migrate keeps the original file there, so nothing was written", old)
 		}
-		return "", fmt.Errorf("%s: %w", old, err)
+		return "", fmt.Errorf("%s: %w", old, bare(err))
 	}
 	_, err = f.WriteString(text)
-	// Born private, then given the original's bits, so a 600 config never has
-	// a readable copy. Best effort, the way the save carries the mode.
+	// Born private, then given the original's group and bits, so a 600 config
+	// never has a readable copy, and one in a setgid directory does not go to
+	// the directory's group. The group first, since a chown clears
+	// setuid/setgid. Best effort, the way the save carries both.
 	if fi, serr := os.Stat(file); err == nil && serr == nil && runtime.GOOS != "windows" {
-		_ = f.Chmod(fi.Mode().Perm())
+		if gid, ok := statGID(fi); ok {
+			_ = f.Chown(-1, gid)
+		}
+		_ = f.Chmod(fi.Mode())
 	}
 	if err == nil {
 		err = f.Sync()
@@ -1952,9 +1967,29 @@ func keepOriginal(file, text string) (string, error) {
 	}
 	if err != nil {
 		_ = os.Remove(old)
-		return "", fmt.Errorf("%s: %w", old, err)
+		return "", fmt.Errorf("%s: %w", old, bare(err))
 	}
 	return old, nil
+}
+
+// statGID reads the group off a stat result, the way the library does it.
+// syscall.Stat_t does not exist on windows, and this file compiles there too.
+func statGID(fi os.FileInfo) (int, bool) {
+	v := reflect.ValueOf(fi.Sys())
+	if v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return 0, false
+		}
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return 0, false
+	}
+	g := v.FieldByName("Gid")
+	if !g.IsValid() || !g.CanUint() {
+		return 0, false
+	}
+	return int(g.Uint()), true
 }
 
 // doMigrate: a 2.x file rewritten for the current rules. The rewrite is text

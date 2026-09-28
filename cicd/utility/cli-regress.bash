@@ -1355,6 +1355,9 @@ fSaveSetup() {
 		migrate-dotname) printf 'base:[Boston]\n' > .f ;;
 		migrate-dotdir) mkdir d.x; printf 'base:[Boston]\n' > d.x/f ;;
 		migrate-link) mkdir real; printf 'base:[Boston]\n' > real/c.shcl; ln -s real/c.shcl f.shcl ;;
+		migrate-setgid) mkdir sg; chgrp "${altGroup}" sg; chmod 2775 sg; printf 'base:[Boston]\n' > sg/f.shcl; chgrp "$(id -gn)" sg/f.shcl; chmod 0640 sg/f.shcl ;;
+		migrate-setid) printf 'base:[Boston]\n' > f.shcl; chmod 6755 f.shcl ;;
+		migrate-rodir) mkdir ro; printf 'base:[Boston]\n' > ro/g.shcl; chmod 0555 ro ;;
 	esac
 }
 ## id | argv | exit | what must hold afterwards, as a bash test run in the directory
@@ -1394,9 +1397,15 @@ saveCases=(
 	## Through a link: the target gets the new text, and the copy sits beside
 	## the link as a plain file.
 	'Er5qICv|migrate-link|migrate --write f.shcl|0|[[ -L f.shcl && -f f_old_v2.shcl && ! -L f_old_v2.shcl && ! -e real/c_old_v2.shcl ]] && grep -qx "base: Boston" real/c.shcl && grep -qx "base:\[Boston\]" f_old_v2.shcl'
+	## 20260928 items 3, 6 and 11: in a setgid directory the copy takes the
+	## original's group, not the directory's. Setuid, setgid and sticky come
+	## over too. A copy that cannot be made names its path once.
+	'ErCrqxU|migrate-setgid|migrate --write sg/f.shcl|0|[[ "$(stat -c %G sg/f_old_v2.shcl)" == "$(id -gn)" && "$(stat -c %a sg/f_old_v2.shcl)" == 640 ]]'
+	'ErCrqz4|migrate-setid|migrate --write f.shcl|0|[[ "$(stat -c %a f_old_v2.shcl)" == 6755 ]]'
+	'ErCrr0Y|migrate-rodir|migrate --write ro/g.shcl|8|grep -qx "base:\[Boston\]" ro/g.shcl && grep -qiE "^ro/g_old_v2\.shcl: permission denied" "${tmpDir}/err" && ! grep -q "open " "${tmpDir}/err"'
 )
 if [[ -z "${altGroup}" ]]; then
-	echo "cli-regress: skipping the save-group case (the caller is in one group only)"
+	echo "cli-regress: skipping the save-group cases (the caller is in one group only)"
 fi
 if [[ "${onWindows}" == 1 ]]; then
 	echo "cli-regress: skipping the save-target cases (POSIX fixtures; not judged on windows)"
@@ -1404,13 +1413,18 @@ fi
 for sc in "${saveCases[@]}"; do
 	IFS='|' read -r tid id argv wantRc holds <<<"${sc}"
 	fTest "${tid}" "save-${id}"
-	if [[ "${onWindows}" == 1 || ( "${id}" == group && -z "${altGroup}" ) ]]; then
+	if [[ "${onWindows}" == 1 || ( ( "${id}" == group || "${id}" == migrate-setgid ) && -z "${altGroup}" ) ]]; then
+		fTestSkip; continue
+	fi
+	## Root writes through a read-only directory.
+	if [[ "${id}" == migrate-rodir && "$(id -u)" == 0 ]]; then
 		fTestSkip; continue
 	fi
 	read -r -a args <<<"${argv}"
 	for b in "${bindings[@]}"; do
 		## Absolute, since the run is from inside the fixture directory.
 		name="${b%%|*}"; cli="$(realpath -- "${b#*|}")"
+		if [[ -d "${saveDir}" ]]; then chmod -R u+w "${saveDir}"; fi
 		rm -rf "${saveDir}"; mkdir -p "${saveDir}"
 		(cd "${saveDir}" && fSaveSetup "${id}")
 		rc=0

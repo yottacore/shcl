@@ -1145,10 +1145,17 @@ static char *keep_original(const char *file, const char *text, size_t len) {
 #ifdef _WIN32
 	ok = ok && _commit(_fileno(f)) == 0;
 #else
-	// Born private, then given the original's bits, so a 600 config never has
-	// a readable copy. Best effort, the way the save carries the mode.
+	// Born private, then given the original's group and bits, so a 600 config
+	// never has a readable copy, and one in a setgid directory does not go to
+	// the directory's group. The group first, since a chown clears
+	// setuid/setgid. Best effort, the way the save carries both; fchown is
+	// warn_unused_result, and a cast does not silence that everywhere.
 	struct stat st;
-	if (ok && stat(file, &st) == 0) (void)fchmod(fileno(f), st.st_mode & 07777);
+	if (ok && stat(file, &st) == 0) {
+		int chown_rc = fchown(fileno(f), (uid_t)-1, st.st_gid);
+		(void)chown_rc;
+		(void)fchmod(fileno(f), st.st_mode & 07777);
+	}
 	ok = ok && fsync(fileno(f)) == 0;
 #endif
 	int e = errno;
