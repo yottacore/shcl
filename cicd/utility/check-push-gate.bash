@@ -169,6 +169,24 @@ fPush main "${sha}"
 export SHCL_GATE_RERUN=1; fPush main "${sha}"; unset SHCL_GATE_RERUN
 ((hookRc == 0 && ran == 1)) || fail "SHCL_GATE_RERUN=1 on a recorded tree: exit ${hookRc}, gate ran ${ran} time(s)"
 
+fTest Er839pf a recorded tree whose installers differ from dev is gated on main
+## 20260926 item 13: a run that recorded the tree may have compared the
+## installers for another ref. Pushed to main, a tree that differs from dev's
+## installers runs the gate, recorded or not.
+printf 'dev copy\n' > "${repo}/install.bash"
+git -C "${repo}" add install.bash && git -C "${repo}" commit -q -m devinstall
+git -C "${repo}" update-ref refs/remotes/origin/dev "$(git -C "${repo}" rev-parse HEAD)"
+printf 'main copy\n' > "${repo}/install.bash"
+git -C "${repo}" commit -q -am mainonly
+drift="$(git -C "${repo}" rev-parse HEAD)"
+"${helper}" record "${repo}" "$(git -C "${repo}" rev-parse 'HEAD^{tree}')" || fail "record refused the drifted tree"
+fPush main "${drift}"
+((hookRc == 0 && ran == 1)) || fail "a recorded tree whose installer differs from dev, pushed to main: exit ${hookRc}, gate ran ${ran} time(s)"
+git -C "${repo}" reset -q --hard "${sha}"
+git -C "${repo}" update-ref -d refs/remotes/origin/dev
+fPush main "${sha}"
+((hookRc == 0 && ran == 0)) || fail "a recorded tree with no origin/dev, pushed to main: exit ${hookRc}, gate ran ${ran} time(s)"
+
 fTest EpsjpdX a missing helper reads as not passed
 ## A checkout from before the helper existed has none, which reads as not passed.
 mv "${helper}" "${helper}.off"

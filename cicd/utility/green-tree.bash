@@ -7,6 +7,7 @@
 ##		one cannot differ in anything the gate reads from the repo. The one thing
 ##		it reads from outside the tree is the installer drift check's pair of
 ##		remote refs, and a push to main judges the tree it pushes, not the refs.
+##		The pre-push hook makes that one comparison itself before it skips.
 ##	Syntax:
 ##		green-tree.bash tree DIR          the tree `git add --all` would commit in DIR
 ##		green-tree.bash record DIR TREE   remember TREE, if DIR still holds it
