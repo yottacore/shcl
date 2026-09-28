@@ -304,7 +304,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - The drop-ins tarball's file modes follow the checkout's umask
 	- ID: 2026092620255212
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 12
@@ -314,11 +314,16 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Reproduced: 20260926, a scratch copy of the payload.
 	- Origin: `a722ff1` (2026-08-29). The new "two checkouts" row copies on one box, so it cannot see it. Confirmed.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: `--mode=u=rwX,go=rX`, so every file is 644 and the one git marks executable 755, whatever the checkout's umask.
+	- Swept: `package.bash` already sets its payload's modes outright.
+	- Branch: `tarmode`
+	- Test case: `shell-regress.bash` row `20260829-26-dropins-tarball-reproducible` now takes the second copy's group and other bits away. It fails on the old tar line.
 
 - The pre-push green-tree skip passes over the main-push installer check
 	- ID: 2026092620255213
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 13
@@ -328,6 +333,11 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Reproduced: no, read only.
 	- Origin: `999fff9` (2026-09-18). Plausible.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: before it skips a push to main, the hook compares the pushed tree's installers with `origin/dev` and runs the gate when they differ.
+	- Swept: the installer check is the only one that reads refs; `green-tree.bash`'s header says the hook makes it.
+	- Branch: `tarmode`
+	- Test case: `check-push-gate.bash` row "a recorded tree whose installers differ from dev is gated on main". It fails on the old hook.
 
 - `conformance.c` does not build at `-Os` with the gate's warnings
 	- ID: 2026092620255214

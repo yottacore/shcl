@@ -574,8 +574,9 @@ if ((${#RELEASE_NATIVE_CMD[@]})); then
 		## lays down, as one asset in the same family - so they are covered by the
 		## signed sums like everything else. The installer used to take them from
 		## GitHub's generated source tarball, which carries no signature and no
-		## checksum.
-		( cd "${root}" && tar --sort=name --owner=0 --group=0 --numeric-owner --mode=go-w \
+		## checksum. The modes are set outright: a checkout under umask 077 has no
+		## group or other bits, and only the execute bit comes from git.
+		( cd "${root}" && tar --sort=name --owner=0 --group=0 --numeric-owner --mode=u=rwX,go=rX \
 			--mtime="@${SOURCE_DATE_EPOCH}" -cf - \
 			source/rust/src/lib.rs source/go/shcl.go source/python/shcl.py \
 			source/c/shcl.h source/c/shcl.hpp \

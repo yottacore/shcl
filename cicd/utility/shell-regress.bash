@@ -1790,13 +1790,15 @@ fTest Er20EK6 20260829-26-dropins-tarball-reproducible
 ##	The same item's other half: the drop-ins tarball recorded the checkout's
 ##	mtimes and the local owner, so a fresh clone gave another sum. The tar line
 ##	comes out of cicd.bash, run once on this tree and once on a copy with new
-##	mtimes; the two have to match and name no owner but 0.
+##	mtimes and the modes a checkout under umask 077 gets (20260926 item 12);
+##	the two have to match and name no owner but 0.
 tarLine="$(sed -n '/tar --sort=name/,/dropins\.tar\.gz/p' "${repoDir}/cicd/cicd.bash")"
 if [[ "${tarLine}" == *"dropins.tar.gz"* ]]; then
 	dropFiles="$(sed -n 's/^[[:space:]]*\(source\/[^|]*\)\\$/\1/p' <<<"${tarLine}")"
 	mkdir -p "${tmpDir}/dropins/copy" "${tmpDir}/dropins/a" "${tmpDir}/dropins/b"
 	# shellcheck disable=SC2086  ## the file list splits on purpose
 	(cd "${repoDir}" && cp --parents ${dropFiles} "${tmpDir}/dropins/copy/")
+	chmod -R go-rwx "${tmpDir}/dropins/copy"
 	fDropins(){   ## fDropins ROOT OUTDIR: the lifted tar line, in a subshell
 		# shellcheck disable=SC2034  ## read by the lifted line
 		( EXE_NAME=shcl; ver=9.9.9; root="$1"; art_dir="$2"

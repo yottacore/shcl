@@ -92,10 +92,22 @@ for i in "${!gatedShas[@]}"; do
 	## A failed lookup, or a checkout with no helper, reads as not passed.
 	tree="$(git -C "${root}" rev-parse -q --verify "${sha}^{tree}" || true)"
 	if [[ -n "${tree}" && -z "${SHCL_GATE_RERUN:-}" ]] && "${root}/cicd/utility/green-tree.bash" passed "${root}" "${tree}"; then
+		## The one thing the gate reads from outside the tree is dev's
+		## installers, which it compares against a push to main. The run that
+		## recorded the tree may have stood in for another ref, so that one
+		## comparison is made here, on the tree being pushed (20260926 item 13).
+		drifted=""
+		if [[ "${gatedRefs[i]}" == main ]] && git -C "${root}" rev-parse -q --verify origin/dev >/dev/null; then
+			drifted="$(git -C "${root}" diff --name-only origin/dev "${sha}" -- install.bash install.ps1 install-dev.bash || true)"
+		fi
+		if [[ -z "${drifted}" ]]; then
+			echo
+			echo "[ pre-push: ${sha:0:12} has the same files as a run that passed the gate; not running it again ]"
+			echo
+			continue
+		fi
 		echo
-		echo "[ pre-push: ${sha:0:12} has the same files as a run that passed the gate; not running it again ]"
-		echo
-		continue
+		echo "[ pre-push: ${sha:0:12} passed a gate, but its installers differ from dev's, which that run did not judge for main ]"
 	fi
 	echo
 	echo "[ pre-push: running the correctness gate on ${sha:0:12} before ${gatedRefs[i]} ]"
