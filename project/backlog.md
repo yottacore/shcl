@@ -245,6 +245,42 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: 74cc8fdd
 	- Test case: none new. cli-regress keeps the four helps identical and within 80 columns, and check-completions ties the completions to the CLI's tables.
 
+- The dogfood runner's header still says stamps are UTC
+	- ID: 2026092813365315
+	- Type: Bug
+	- Status: Waiting on signoff
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 15
+	- Version and build: dev at `f90708d8`
+	- Incorrect behavior: the header says the stamp is from the build's write time in UTC, and that names sort the same across a clock change. The settings comment below it says local time, and that a clock change can put a stamp out of order.
+	- Expected behavior: the header says local time.
+	- Reproduced: 20260928, by reading.
+	- Origin: `589926ba` wrote the sentence, and `ffb9ef9f` (stamps local) did not update it. Confirmed.
+	- Estimated effort: Low
+	- Actual fix: the header says local time and the invariant culture, and that a clock change can put one stamp out of order.
+	- Branch: psfix
+	- Commit: c63a6ace
+	- Test case: none, a comment.
+
+- One pool file with an impossible date stops the dogfood runner on every run
+	- ID: 2026092813365316
+	- Type: Bug
+	- Status: Waiting on signoff
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 16
+	- Steps to reproduce: with one held build, create an empty `shcl_20261399-000000` in the pool and run the runner.
+	- Incorrect behavior: exit 1, "The DateTime represented by the string '20261399-000000' is not supported", and shcl never runs, `--no-update` included.
+	- Expected behavior: the runner's comment says anything else put in the directory is left alone.
+	- Reproduced: 20260928, by the sweep under pwsh 7 on Linux with a scratch HOME.
+	- Origin: `eefd1dba` (dogfood runner, 2026-09-24). The stamp is parsed with a call that throws. Not seen before. Confirmed.
+	- Estimated effort: Low
+	- Actual fix: a stamp that names no real date reads as no stamp, so that file is not taken for a version and is left alone.
+	- Branch: psfix
+	- Commit: c63a6ace
+	- Test case: shell-regress `20260928-item16-dogfood-impossible-date`, which fails on dev.
+
 - A Schema line makes `check` open any path, devices and network shares included
 	- ID: 2026092813365302
 	- Type: Bug
@@ -269,6 +305,28 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Branch: schemaline
 	- Commit: 27d73efb
 	- Test case: cli-regress `schema-line-device` and `schema-line-fifo`, both failing on dev, and `schema-line-share`, which runs on Windows only. Python on Windows waits for the Windows batch.
+
+- Under Windows PowerShell 5.1 a quote inside an argument never reaches the binary
+	- ID: 2026092813365304
+	- Type: Bug
+	- Status: Testing
+	- Severity: Avg
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 4
+	- Target OS: Windows, PowerShell 5.1
+	- Steps to reproduce:
+		- Under `powershell.exe`, dot-source `shcl.ps1`.
+		- `shcl set -w f.shcl '--set-literal=zip="02134"'`, then `type f.shcl`.
+	- Incorrect behavior: expected, not yet seen. 5.1 passes native arguments the legacy way and drops embedded double quotes, so the binary gets `zip=02134` and writes a bare number at exit 0.
+	- Expected behavior: `shcl.ps1`'s header says every argument goes to the binary as is.
+	- Reproduced: No. Plausible, for the Windows batch. The dogfood `.cmd` now falls back to 5.1, so more runs go through it.
+	- Origin: older than the range, from `shcl.ps1`'s run path (`c52fa077` and before). Not seen before.
+	- Estimated effort: Avg
+	- Reproduced: 20260928 under pwsh 7 with `$PSNativeCommandArgumentPassing` set to Legacy, which builds the command line the way 5.1 does. `a"b` was a usage error, `x "y" z` came through as `x y z`, and an empty argument was left out.
+	- Actual fix: under 5.1, 7 before 7.3, or Legacy, `shcl.ps1` quotes each argument holding a blank or a quote the way the binary's parser reads it back, and passes an empty one as `""`.
+	- Branch: psfix
+	- Commit: c63a6ace
+	- Test case: shell-regress `20260928-item4-ps1-legacy-quotes`, which fails on dev. A run under 5.1 itself waits for the Windows batch.
 
 - On Windows, the `_old_v2` name for `C:.shclrc` puts the suffix in the wrong place
 	- ID: 2026092813365313
@@ -310,27 +368,10 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: 4dbe70af
 	- Test case: waits for the Windows batch. No hosted runner has Python 3.13 on Windows yet.
 
-- Under Windows PowerShell 5.1 a quote inside an argument never reaches the binary
-	- ID: 2026092813365304
-	- Type: Bug
-	- Status: Queued
-	- Severity: Avg
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 4
-	- Target OS: Windows, PowerShell 5.1
-	- Steps to reproduce:
-		- Under `powershell.exe`, dot-source `shcl.ps1`.
-		- `shcl set -w f.shcl '--set-literal=zip="02134"'`, then `type f.shcl`.
-	- Incorrect behavior: expected, not yet seen. 5.1 passes native arguments the legacy way and drops embedded double quotes, so the binary gets `zip=02134` and writes a bare number at exit 0.
-	- Expected behavior: `shcl.ps1`'s header says every argument goes to the binary as is.
-	- Reproduced: No. Plausible, for the Windows batch. The dogfood `.cmd` now falls back to 5.1, so more runs go through it.
-	- Origin: older than the range, from `shcl.ps1`'s run path (`c52fa077` and before). Not seen before.
-	- Estimated effort: Avg
-
 - Under Windows PowerShell 5.1, `install.ps1` may follow an https to http redirect for the release list
 	- ID: 2026092813365314
 	- Type: Bug
-	- Status: Queued
+	- Status: Testing
 	- Severity: Low
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 14
@@ -341,34 +382,10 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Reproduced: No. Plausible, for the Windows batch.
 	- Origin: the claim is in 20260923 item 15's Swept line (`f96a80e0`).
 	- Estimated effort: Low
-
-- The dogfood runner's header still says stamps are UTC
-	- ID: 2026092813365315
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 15
-	- Version and build: dev at `f90708d8`
-	- Incorrect behavior: the header says the stamp is from the build's write time in UTC, and that names sort the same across a clock change. The settings comment below it says local time, and that a clock change can put a stamp out of order.
-	- Expected behavior: the header says local time.
-	- Reproduced: 20260928, by reading.
-	- Origin: `589926ba` wrote the sentence, and `ffb9ef9f` (stamps local) did not update it. Confirmed.
-	- Estimated effort: Low
-
-- One pool file with an impossible date stops the dogfood runner on every run
-	- ID: 2026092813365316
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 16
-	- Steps to reproduce: with one held build, create an empty `shcl_20261399-000000` in the pool and run the runner.
-	- Incorrect behavior: exit 1, "The DateTime represented by the string '20261399-000000' is not supported", and shcl never runs, `--no-update` included.
-	- Expected behavior: the runner's comment says anything else put in the directory is left alone.
-	- Reproduced: 20260928, by the sweep under pwsh 7 on Linux with a scratch HOME.
-	- Origin: `eefd1dba` (dogfood runner, 2026-09-24). The stamp is parsed with a call that throws. Not seen before. Confirmed.
-	- Estimated effort: Low
+	- Actual fix: under 5.1 the release-list call follows no redirect. The API answers that URL without one. Installer 1.1.5.
+	- Branch: psfix
+	- Commit: c63a6ace
+	- Test case: waits for the Windows batch, since only 5.1 follows the downgrade.
 
 - The closed-items Test check borrows a Test line from an unrelated item
 	- ID: 2026092813365318
