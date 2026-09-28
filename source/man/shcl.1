@@ -3,7 +3,7 @@
 .\"
 .\" Carries no version string on purpose: the release bump touches eight files
 .\" and this is not one of them. Keep it in step with HELP in the four CLIs.
-.TH SHCL 1 2026-09-27 shcl "User Commands"
+.TH SHCL 1 2026-09-28 shcl "User Commands"
 .SH NAME
 shcl \- read, edit, validate and format Simple Hierarchical Config Language files
 .SH SYNOPSIS
@@ -71,7 +71,7 @@ shcl \- read, edit, validate and format Simple Hierarchical Config Language file
 .RI [ CMD ]
 .YS
 .SY shcl
-.BR version | about | donate
+.BR \-\-version | \-\-about | \-\-donate
 .YS
 .SH DESCRIPTION
 .B shcl
@@ -253,26 +253,32 @@ diagnostic \- the same problem carries the same code in every binding \- so
 this is where to look one up. The prose beside a code on screen is per-binding
 voice and says the same thing at less length.
 .TP
-.BR help ", " version ", " about ", " donate
+.BR help ", " \-\-version ", " \-\-about ", " \-\-donate
 Print this command's help, its version, what SHCL is, or where to support it.
 .B help
 with a subcommand name prints that subcommand's usage and options alone, and
 so does
 .B \-\-help
 after a subcommand.
-The first two are also
-.BR \-h / \-\-help
+.B help
+is also
+.BR \-h " or " \-\-help ,
 and
-.BR \-v / \-V / \-\-version ;
-the last two are also
-.B \-\-about
-and
-.BR \-\-donate .
-The flag spellings are recognized anywhere in option position, after
+.B \-\-version
+is also
+.BR \-v " or " \-V .
+The flags are recognized anywhere in option position, after
 .I FILE
 included; only the value of a value-taking option and anything after
 .B \-\-
-are data. A bare
+are data. Several in one run each print once, in the order given, set off by
+blank lines;
+.B \-\-about
+covers
+.BR \-\-version ,
+since it opens with the version line. A lone
+.B \-\-version
+prints its one line bare. A bare
 .B shcl
 with no arguments prints the help and exits 0.
 .SH TYPE OPTIONS
@@ -353,7 +359,7 @@ The unit a bare number is in when the field name gives none:
 for
 .BR \-\-duration ,
 or
-.BR B ", " KB ", " MB ", " GB ", " TB ", " KiB ", " MiB ", " GiB " or " TiB
+.BR B ", " kB ", " KB ", " MB ", " GB ", " TB ", " KiB ", " MiB ", " GiB " or " TiB
 for
 .BR \-\-size .
 .TP

@@ -89,11 +89,11 @@ static const char *HELP =
 	"  shcl explain [CODE]                    what a diagnostic code means (every\n"
 	"                                         code, one line each, when CODE is\n"
 	"                                         left out)\n"
-	"  shcl help [CMD] | version              this help (or one subcommand's, with\n"
-	"                                         CMD), or the version (also -h/--help,\n"
-	"                                         -v/-V/--version)\n"
-	"  shcl about | donate                    what shcl is, or how to support it\n"
-	"                                         (also --about, --donate)\n"
+	"  shcl help [CMD]                        this help (or one subcommand's, with\n"
+	"                                         CMD); also -h or --help, which after\n"
+	"                                         CMD give that one's\n"
+	"  shcl --version                         the version (also -v or -V)\n"
+	"  shcl --about | --donate                what shcl is, or how to support it\n"
 	"\n"
 	"set edits FILE, the base document. Edits go in as the repeatable --set,\n"
 	"--set-literal, --set-default, --set-literal-default and --remove options, which\n"
@@ -136,8 +136,8 @@ static const char *HELP =
 	"                                         wildcard slot)\n"
 	"  --unit=UNIT                            (get) the unit a bare number is in,\n"
 	"                                         for --duration (ms s m h d) or --size\n"
-	"                                         (B KB MB GB TB KiB MiB GiB TiB), when\n"
-	"                                         the field name gives none\n"
+	"                                         (B kB KB MB GB TB KiB MiB GiB TiB),\n"
+	"                                         when the field name gives none\n"
 	"  --decimal                              (get) --size reads KB to TB as powers\n"
 	"                                         of 1000, not 1024\n"
 	"  --no-banner                            (init, and set --write when it creates\n"
@@ -199,17 +199,19 @@ static const char *HELP =
 	"Value options accept either spelling: --default=VALUE or --default VALUE. In\n"
 	"the space form the next argument is taken as the value whatever it looks like,\n"
 	"so --default --int reads --int as the default. Use -- to end the options when a\n"
-	"FILE or PATH begins with a dash.\n"
+	"FILE or PATH begins with a dash. The flags -h, --help, -v, -V, --version,\n"
+	"--about and --donate count anywhere an option can go. Several in one run each\n"
+	"print once, in the order given.\n"
 	"An option a subcommand does not use is a usage error, not ignored. Also\n"
 	"refused: --write with --layer; --write with --set outside 'set'; --write with a\n"
 	"FILE of '-'; --lossy without --write; --no-banner on 'set' without --write;\n"
-	"--check with --write; --layer=- on 'set'; --array with --raw or --rawinfo;\n"
-	"--default with --on-bad=error or --on-bad=flag; '-' named more than once across\n"
-	"FILE, --layer and --schema. Two options that ask for different answers are a\n"
-	"usage error whichever order they came in, and both are named: two different type\n"
-	"options, or one value option given two different values. Repeating an option\n"
-	"with the same value is allowed, and --layer and --set are ordered lists, so they\n"
-	"repeat.\n"
+	"--check with --write; --layer=- on 'set'; --array with --raw, --rawinfo,\n"
+	"--duration or --size; --default with --on-bad=error or --on-bad=flag; '-' named\n"
+	"more than once across FILE, --layer and --schema. Two options that ask for\n"
+	"different answers are a usage error whichever order they came in, and both are\n"
+	"named: two different type options, or one value option given two different\n"
+	"values. Repeating an option with the same value is allowed, and --layer and\n"
+	"--set are ordered lists, so they repeat.\n"
 	"Every subcommand that loads a document prints the load's diagnostics to stderr,\n"
 	"once per run; 'shcl explain CODE' gives the rule behind one of their codes. An\n"
 	"in-place write also refuses when the load dropped content the rewrite would\n"
@@ -2229,22 +2231,41 @@ static int check_opts(const char *cmd, const Opts *o) {
 	return 0;
 }
 
-// Did the command line ask for one of the informational outputs? Only tokens
-// in option position count: the value of a value-taking option and anything
-// after `--` are data (a FILE or PATH spelled `-h` needs the `--` anyway,
-// since the option parser would refuse it). Scanning values too once let a
-// read of a missing path answer with the help text and exit 0.
-static const char *asked_for(int argc, char **argv) {
+// The informational outputs the command line asks for, each once, in the order
+// first asked, into asked[4]; the count comes back. Only tokens in option
+// position count: the value of a value-taking option and anything after `--`
+// are data (a FILE or PATH spelled `-h` needs the `--` anyway, since the
+// option parser would refuse it). Scanning values too once let a read of a
+// missing path answer with the help text and exit 0. --about opens with the
+// version line, so it covers --version.
+static size_t asked_for(int argc, char **argv, const char **asked) {
+	size_t n = 0;
 	for (int i = 1; i < argc; i++) {
-		const char *a = argv[i];
-		if (!strcmp(a, "-h") || !strcmp(a, "--help")) return "help";
-		if (!strcmp(a, "-v") || !strcmp(a, "-V") || !strcmp(a, "--version")) return "version";
-		if (!strcmp(a, "--about")) return "about";
-		if (!strcmp(a, "--donate")) return "donate";
-		if (!strcmp(a, "--")) return NULL;
-		if (!strcmp(a, "--default") || !strcmp(a, "--on-bad") || !strcmp(a, "--strictness") || !strcmp(a, "--schema") || !strcmp(a, "--unit") || !strcmp(a, "--layer") || !strcmp(a, "--set") || !strcmp(a, "--set-literal") || !strcmp(a, "--set-default") || !strcmp(a, "--set-literal-default") || !strcmp(a, "--remove")) i++;
+		const char *a = argv[i], *want = NULL;
+		if (!strcmp(a, "-h") || !strcmp(a, "--help")) want = "help";
+		else if (!strcmp(a, "-v") || !strcmp(a, "-V") || !strcmp(a, "--version")) want = "version";
+		else if (!strcmp(a, "--about")) want = "about";
+		else if (!strcmp(a, "--donate")) want = "donate";
+		else if (!strcmp(a, "--")) break;
+		else if (!strcmp(a, "--default") || !strcmp(a, "--on-bad") || !strcmp(a, "--strictness") || !strcmp(a, "--schema") || !strcmp(a, "--unit") || !strcmp(a, "--layer") || !strcmp(a, "--set") || !strcmp(a, "--set-literal") || !strcmp(a, "--set-default") || !strcmp(a, "--set-literal-default") || !strcmp(a, "--remove")) i++;
+		int seen = 0;
+		for (size_t k = 0; k < n; k++) seen = seen || !strcmp(asked[k], want ? want : "");
+		if (want && !seen) asked[n++] = want;
 	}
-	return NULL;
+	int about = 0;
+	for (size_t k = 0; k < n; k++) about = about || !strcmp(asked[k], "about");
+	if (about) {
+		size_t kept = 0;
+		for (size_t k = 0; k < n; k++) if (strcmp(asked[k], "version") != 0) asked[kept++] = asked[k];
+		n = kept;
+	}
+	return n;
+}
+
+// The flags that ask for an informational output.
+static int is_info_flag(const char *a) {
+	return !strcmp(a, "-h") || !strcmp(a, "--help") || !strcmp(a, "-v") || !strcmp(a, "-V")
+		|| !strcmp(a, "--version") || !strcmp(a, "--about") || !strcmp(a, "--donate");
 }
 
 static const char *const COMMANDS[] = { "get", "set", "fmt", "check", "init", "count", "instances", "children", "paths", "migrate", "tokens", "explain" };
@@ -2312,10 +2333,10 @@ static void suggest(char *out, size_t outsz, const char **cands, size_t ncands, 
 	if (best) snprintf(out, outsz, "; did you mean '%s'?", best);
 }
 
-// Every command word, for the same. The informational four are commands to a
-// user typing one, whatever the dispatch calls them.
+// Every command word, for the same. The informational flags are in the list
+// too, so a word left over from 2.x, such as `version`, points at its flag.
 static size_t command_names(const char **v, size_t cap) {
-	static const char *const extra[] = { "help", "version", "about", "donate" };
+	static const char *const extra[] = { "help", "--version", "--about", "--donate" };
 	size_t n = 0;
 	for (size_t i = 0; i < sizeof COMMANDS / sizeof COMMANDS[0] && n < cap; i++) v[n++] = COMMANDS[i];
 	for (size_t i = 0; i < sizeof extra / sizeof extra[0] && n < cap; i++) v[n++] = extra[i];
@@ -2411,7 +2432,7 @@ static void print_help_for(const char *cmd) {
 	char want[64], lead[64];
 	snprintf(want, sizeof want, "  shcl %s ", cmd);
 	snprintf(lead, sizeof lead, "%s ", cmd);
-	printf("\nUsage:\n");
+	printf("Usage:\n");
 	int taking = 0;
 	for (const char *p = HELP; *p;) {
 		const char *e = strchr(p, '\n');
@@ -2434,7 +2455,34 @@ static void print_help_for(const char *cmd) {
 	} else {
 		printf("\n%s takes no options.\n", cmd);
 	}
-	printf("\nSee 'shcl help' for the full text, and 'shcl explain CODE' for a code.\n\n");
+	printf("\nSee 'shcl help' for the full text, and 'shcl explain CODE' for a code.\n");
+}
+
+// The subcommand a help asks about, into *topic (NULL for none). `shcl help
+// CMD` names it after the word, which takes one topic at most and the
+// informational flags; `shcl CMD --help` names it first. A help flag after
+// `help` asks for the same thing twice, so it is no topic. An empty word is
+// still a topic, as it is in the reference: `help ''` names no command, which
+// is not the same as naming none. A usage error comes back as its exit code.
+static int help_topic(int argc, char **argv, const char **topic) {
+	*topic = NULL;
+	if (argc <= 1) return 0;
+	if (!strcmp(argv[1], "help")) {
+		int nwords = 0;
+		for (int k = 2; k < argc; k++) {
+			if (is_info_flag(argv[k])) continue;
+			if (nwords++ == 0) *topic = argv[k];
+		}
+		if (nwords > 1) { fprintf(stderr, "usage: shcl help [CMD] (see --help)\n"); return 1; }
+	} else if (argv[1][0] != '-') *topic = argv[1];
+	if (!*topic || !strcmp(*topic, "help")) { *topic = NULL; return 0; }
+	if (is_command(*topic)) return 0;
+	const char *cands[32];
+	size_t n = command_names(cands, sizeof cands / sizeof cands[0]);
+	char hint[96];
+	suggest(hint, sizeof hint, cands, n, *topic);
+	fprintf(stderr, "unknown command: %s%s (see --help)\n", *topic, hint);
+	return 1;
 }
 
 // `CODE  severity  summary` - the one line both explain forms lead with.
@@ -2569,58 +2617,35 @@ static int cli_main(int argc, char **argv) {
 			return 1;
 		}
 	}
-	const char *asked = asked_for(argc, argv);
-	// One convention: asking for the help - by name, by flag, or by asking for
-	// nothing at all - prints it and succeeds. The blank lines separate the
-	// block from the surrounding prompts. A bare run used to print the same
-	// text unpadded and exit 1, which read as neither a help nor an error.
-	if (argc <= 1) { printf("\n%s\n", HELP); return 0; }
-	if ((asked && !strcmp(asked, "help")) || !strcmp(argv[1], "help")) {
-		// `shcl help CMD` and `shcl CMD --help` narrow to one subcommand. In the
-		// flag form the command is the first word, which a bare `--help` is not.
-		// An empty word is still a topic, as it is in the reference: `help ''`
-		// names no command, which is not the same as naming none.
+	const char *asked[5];
+	size_t nasked = asked_for(argc, argv, asked);
+	// Asking for nothing at all asks for the help, and so does the `help` word,
+	// which comes first on the line when it is there.
+	if (argc <= 1 || !strcmp(argv[1], "help")) {
+		int has = 0;
+		for (size_t k = 0; k < nasked; k++) has = has || !strcmp(asked[k], "help");
+		if (!has) { memmove(asked + 1, asked, nasked * sizeof asked[0]); asked[0] = "help"; nasked++; }
+	}
+	/* One convention: each output asked for prints once, in the order asked,
+	   and the run succeeds. Blank lines go before, between and after, to set
+	   the text off from the prompts around it. A lone version line is one line
+	   a script reads, so it goes out bare. The topic is settled before anything
+	   prints, since a bad one is a usage error with nothing on stdout. */
+	if (nasked) {
 		const char *topic = NULL;
-		if (!strcmp(argv[1], "help")) {
-			// A help flag after `help` asks for the same thing twice, so it is no
-			// topic: `help --help` and `help get -h` print what they name.
-			int nwords = 0;
-			for (int k = 2; k < argc; k++) {
-				if (!strcmp(argv[k], "-h") || !strcmp(argv[k], "--help")) continue;
-				if (nwords++ == 0) topic = argv[k];
-			}
-			if (nwords > 1) { fprintf(stderr, "usage: shcl help [CMD] (see --help)\n"); return 1; }
-		} else if (argv[1][0] != '-') topic = argv[1];
-		// The informational words are the full help's own last two lines, so
-		// there is nothing narrower to show for them.
-		if (!topic || !strcmp(topic, "help") || !strcmp(topic, "version")
-		    || !strcmp(topic, "about") || !strcmp(topic, "donate")) { printf("\n%s\n", HELP); return 0; }
-		if (is_command(topic)) { print_help_for(topic); return 0; }
-		const char *cands[32];
-		size_t n = command_names(cands, sizeof cands / sizeof cands[0]);
-		char hint[96];
-		suggest(hint, sizeof hint, cands, n, topic);
-		fprintf(stderr, "unknown command: %s%s (see --help)\n", topic, hint);
-		return 1;
-	}
-	/* The word forms take nothing after them but their own flags, as `help`
-	   takes a command at most: an option a command does not use is a usage
-	   error (20260923 item 17). The flag spellings still work anywhere. */
-	{
-		static const char *const words[] = {"version", "about", "donate"};
-		static const char *const flags[][3] = {{"-v", "-V", "--version"}, {"--about", NULL, NULL}, {"--donate", NULL, NULL}};
-		for (size_t w = 0; w < 3; w++) {
-			if (strcmp(argv[1], words[w]) != 0) continue;
-			for (int k = 2; k < argc; k++) {
-				int own = 0;
-				for (size_t f = 0; f < 3 && flags[w][f]; f++) own = own || !strcmp(argv[k], flags[w][f]);
-				if (!own) { fprintf(stderr, "usage: shcl %s (see --help)\n", words[w]); return 1; }
-			}
+		for (size_t k = 0; k < nasked; k++)
+			if (!strcmp(asked[k], "help")) { int code = help_topic(argc, argv, &topic); if (code) return code; }
+		if (nasked == 1 && !strcmp(asked[0], "version")) { printf("%s\n", VERSION_LINE); return 0; }
+		for (size_t k = 0; k < nasked; k++) {
+			putchar('\n');
+			if (!strcmp(asked[k], "help")) { if (topic) print_help_for(topic); else fputs(HELP, stdout); }
+			else if (!strcmp(asked[k], "version")) printf("%s\n", VERSION_LINE);
+			else if (!strcmp(asked[k], "about")) fputs(ABOUT, stdout);
+			else fputs(DONATE, stdout);
 		}
+		putchar('\n');
+		return 0;
 	}
-	if ((asked && !strcmp(asked, "version")) || !strcmp(argv[1], "version")) { printf("%s\n", VERSION_LINE); return 0; }
-	if ((asked && !strcmp(asked, "about")) || !strcmp(argv[1], "about")) { printf("\n%s\n", ABOUT); return 0; }
-	if ((asked && !strcmp(asked, "donate")) || !strcmp(argv[1], "donate")) { printf("\n%s\n", DONATE); return 0; }
 	const char *cmd = argv[1];
 	if (!is_command(cmd)) {
 		// Before the options are judged, so a typo in the command is reported

@@ -433,7 +433,7 @@ if fHave pwsh; then
 	printf '#!/bin/sh\necho plain\n' > "${tmpDir}/pwbin/plain"
 	printf '#!/bin/sh\necho "exe $*"\n' > "${tmpDir}/pwbin/exe/x.exe"
 	chmod 755 "${tmpDir}/pwbin/opener/xdg-open" "${tmpDir}/pwbin/exe/x.exe"; chmod 644 "${tmpDir}/pwbin/plain"
-	out="$(env -u DISPLAY -u WAYLAND_DISPLAY PATH="${tmpDir}/pwbin/opener:${PATH}" pwsh -NoProfile -Command ". '${repoDir}/source/powershell/shcl.ps1'; \$env:SHCL_BIN = '${tmpDir}/pwbin/plain'; shcl version" 2>&1 </dev/null || true)"
+	out="$(env -u DISPLAY -u WAYLAND_DISPLAY PATH="${tmpDir}/pwbin/opener:${PATH}" pwsh -NoProfile -Command ". '${repoDir}/source/powershell/shcl.ps1'; \$env:SHCL_BIN = '${tmpDir}/pwbin/plain'; shcl --version" 2>&1 </dev/null || true)"
 	[[ "${out}" == *"not executable"* && ! -e "${tmpDir}/pwbin/opened" ]] || fBad "PowerShell wrapper took a file with no execute bit as SHCL_BIN: ${out@Q}"
 	out="$(env -u DISPLAY -u WAYLAND_DISPLAY PATH="${tmpDir}/pwbin/opener:${PATH}" pwsh -NoProfile -Command ". '${repoDir}/source/powershell/shcl.ps1'; \$env:SHCL_BIN = '${tmpDir}/pwbin/exe/x'; shcl a b" 2>&1 </dev/null || true)"
 	[[ "${out}" == "exe a b" ]] || fBad "PowerShell wrapper did not take x.exe for SHCL_BIN=x: ${out@Q}"

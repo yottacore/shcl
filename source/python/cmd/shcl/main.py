@@ -103,11 +103,11 @@ Usage:
   shcl explain [CODE]                    what a diagnostic code means (every
                                          code, one line each, when CODE is
                                          left out)
-  shcl help [CMD] | version              this help (or one subcommand's, with
-                                         CMD), or the version (also -h/--help,
-                                         -v/-V/--version)
-  shcl about | donate                    what shcl is, or how to support it
-                                         (also --about, --donate)
+  shcl help [CMD]                        this help (or one subcommand's, with
+                                         CMD); also -h or --help, which after
+                                         CMD give that one's
+  shcl --version                         the version (also -v or -V)
+  shcl --about | --donate                what shcl is, or how to support it
 
 set edits FILE, the base document. Edits go in as the repeatable --set,
 --set-literal, --set-default, --set-literal-default and --remove options, which
@@ -150,8 +150,8 @@ Options (the subcommands each belongs to are in parentheses):
                                          wildcard slot)
   --unit=UNIT                            (get) the unit a bare number is in,
                                          for --duration (ms s m h d) or --size
-                                         (B KB MB GB TB KiB MiB GiB TiB), when
-                                         the field name gives none
+                                         (B kB KB MB GB TB KiB MiB GiB TiB),
+                                         when the field name gives none
   --decimal                              (get) --size reads KB to TB as powers
                                          of 1000, not 1024
   --no-banner                            (init, and set --write when it creates
@@ -213,17 +213,19 @@ resolve in the order given. Raw blocks still go in through the ops script.
 Value options accept either spelling: --default=VALUE or --default VALUE. In
 the space form the next argument is taken as the value whatever it looks like,
 so --default --int reads --int as the default. Use -- to end the options when a
-FILE or PATH begins with a dash.
+FILE or PATH begins with a dash. The flags -h, --help, -v, -V, --version,
+--about and --donate count anywhere an option can go. Several in one run each
+print once, in the order given.
 An option a subcommand does not use is a usage error, not ignored. Also
 refused: --write with --layer; --write with --set outside 'set'; --write with a
 FILE of '-'; --lossy without --write; --no-banner on 'set' without --write;
---check with --write; --layer=- on 'set'; --array with --raw or --rawinfo;
---default with --on-bad=error or --on-bad=flag; '-' named more than once across
-FILE, --layer and --schema. Two options that ask for different answers are a
-usage error whichever order they came in, and both are named: two different type
-options, or one value option given two different values. Repeating an option
-with the same value is allowed, and --layer and --set are ordered lists, so they
-repeat.
+--check with --write; --layer=- on 'set'; --array with --raw, --rawinfo,
+--duration or --size; --default with --on-bad=error or --on-bad=flag; '-' named
+more than once across FILE, --layer and --schema. Two options that ask for
+different answers are a usage error whichever order they came in, and both are
+named: two different type options, or one value option given two different
+values. Repeating an option with the same value is allowed, and --layer and
+--set are ordered lists, so they repeat.
 Every subcommand that loads a document prints the load's diagnostics to stderr,
 once per run; 'shcl explain CODE' gives the rule behind one of their codes. An
 in-place write also refuses when the load dropped content the rewrite would
@@ -591,28 +593,40 @@ def split_set(arg):
 
 
 def asked_for(argv):
-	# Did the command line ask for one of the informational outputs? Only tokens
-	# in option position count: the value of a value-taking option and anything
-	# after `--` are data (a FILE or PATH spelled `-h` needs the `--` anyway,
-	# since the option parser would refuse it). Scanning values too once let a
-	# read of a missing path answer with the help text and exit 0.
+	# The informational outputs the command line asks for, each once, in the
+	# order first asked. Only tokens in option position count: the value of a
+	# value-taking option and anything after `--` are data (a FILE or PATH
+	# spelled `-h` needs the `--` anyway, since the option parser would refuse
+	# it). Scanning values too once let a read of a missing path answer with
+	# the help text and exit 0. --about opens with the version line, so it
+	# covers --version.
+	asked = []
 	i = 0
 	while i < len(argv):
 		a = argv[i]
+		want = None
 		if a in ("-h", "--help"):
-			return "help"
-		if a in ("-v", "-V", "--version"):
-			return "version"
-		if a == "--about":
-			return "about"
-		if a == "--donate":
-			return "donate"
-		if a == "--":
-			return None
-		if a in ("--default", "--on-bad", "--strictness", "--schema", "--unit", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove"):
+			want = "help"
+		elif a in ("-v", "-V", "--version"):
+			want = "version"
+		elif a == "--about":
+			want = "about"
+		elif a == "--donate":
+			want = "donate"
+		elif a == "--":
+			break
+		elif a in ("--default", "--on-bad", "--strictness", "--schema", "--unit", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove"):
 			i += 1
+		if want is not None and want not in asked:
+			asked.append(want)
 		i += 1
-	return None
+	if "about" in asked:
+		asked = [w for w in asked if w != "version"]
+	return asked
+
+
+# The flags that ask for an informational output.
+INFO_FLAGS = ("-h", "--help", "-v", "-V", "--version", "--about", "--donate")
 
 
 # The type options, as one list. kind_from_opt is still the reader; this is for
@@ -663,10 +677,35 @@ def suggest(cands, word):
 	return f"; did you mean '{best}'?" if best else ""
 
 
+def help_topic(argv):
+	# The subcommand a help asks about, or None. `shcl help CMD` names it after
+	# the word, which takes one topic at most and the informational flags;
+	# `shcl CMD --help` names it first. A help flag after `help` asks for the
+	# same thing twice, so it is no topic. An empty word is still a topic, as
+	# it is in the reference: `help ''` names no command, which is not the same
+	# as naming none. A usage error comes back as its exit code.
+	if not argv:
+		return None, 0
+	if argv[0] == "help":
+		words = [w for w in argv[1:] if w not in INFO_FLAGS]
+		if len(words) > 1:
+			sys.stderr.write("usage: shcl help [CMD] (see --help)\n")
+			return None, 1
+		topic = words[0] if words else None
+	else:
+		topic = None if argv[0].startswith("-") else argv[0]
+	if topic is None or topic == "help":
+		return None, 0
+	if topic in COMMANDS:
+		return topic, 0
+	sys.stderr.write(f"unknown command: {topic}{suggest(command_names(), topic)} (see --help)\n")
+	return None, 1
+
+
 def command_names():
-	# Every command word, for the same. The informational four are commands to a
-	# user typing one, whatever the dispatch calls them.
-	return COMMANDS + ("help", "version", "about", "donate")
+	# Every command word, for the same. The informational flags are in the list
+	# too, so a word left over from 2.x, such as `version`, points at its flag.
+	return COMMANDS + ("help", "--version", "--about", "--donate")
 
 
 def option_names():
@@ -2278,53 +2317,32 @@ def run(argv):
 			sys.stderr.write("invalid argument encoding (expected UTF-8)\n")
 			return 1
 	asked = asked_for(argv)
-	# One convention: asking for the help - by name, by flag, or by asking for
-	# nothing at all - prints it and succeeds. The blank lines separate the
-	# block from the surrounding prompts. A bare run used to print the same
-	# text unpadded and exit 1, which read as neither a help nor an error.
-	if not argv:
-		sys.stdout.write("\n" + HELP + "\n")
-		return 0
-	if asked == "help" or argv[0] == "help":
-		# `shcl help CMD` and `shcl CMD --help` narrow to one subcommand. In the
-		# flag form the command is the first word, which a bare `--help` is not.
-		# An empty word is still a topic, as it is in the reference: `help ''`
-		# names no command, which is not the same as naming none.
-		if argv[0] == "help":
-			# A help flag after `help` asks for the same thing twice, so it is no
-			# topic: `help --help` and `help get -h` print what they name.
-			words = [w for w in argv[1:] if w not in ("-h", "--help")]
-			if len(words) > 1:
-				sys.stderr.write("usage: shcl help [CMD] (see --help)\n")
-				return 1
-			topic = words[0] if words else None
+	# Asking for nothing at all asks for the help, and so does the `help` word,
+	# which comes first on the line when it is there.
+	if (not argv or argv[0] == "help") and "help" not in asked:
+		asked.insert(0, "help")
+	# One convention: each output asked for prints once, in the order asked,
+	# and the run succeeds. Blank lines go before, between and after, to set
+	# the text off from the prompts around it. A lone version line is one line
+	# a script reads, so it goes out bare.
+	if asked:
+		blocks = []
+		for want in asked:
+			if want == "help":
+				topic, code = help_topic(argv)
+				if code:
+					return code
+				blocks.append(HELP if topic is None else help_for(topic))
+			elif want == "version":
+				blocks.append(VERSION_LINE + "\n")
+			elif want == "about":
+				blocks.append(ABOUT)
+			else:
+				blocks.append(DONATE)
+		if asked == ["version"]:
+			print(VERSION_LINE)
 		else:
-			topic = None if argv[0].startswith("-") else argv[0]
-		# The informational words are the full help's own last two lines, so
-		# there is nothing narrower to show for them.
-		if topic is None or topic in ("help", "version", "about", "donate"):
-			sys.stdout.write("\n" + HELP + "\n")
-			return 0
-		if topic in COMMANDS:
-			sys.stdout.write("\n" + help_for(topic) + "\n")
-			return 0
-		sys.stderr.write(f"unknown command: {topic}{suggest(command_names(), topic)} (see --help)\n")
-		return 1
-	# The word forms take nothing after them but their own flags, as `help`
-	# takes a command at most: an option a command does not use is a usage
-	# error (20260923 item 17). The flag spellings still work anywhere.
-	for word, flags in (("version", ("-v", "-V", "--version")), ("about", ("--about",)), ("donate", ("--donate",))):
-		if argv[0] == word and any(a not in flags for a in argv[1:]):
-			sys.stderr.write(f"usage: shcl {word} (see --help)\n")
-			return 1
-	if asked == "version" or argv[0] == "version":
-		print(VERSION_LINE)
-		return 0
-	if asked == "about" or argv[0] == "about":
-		sys.stdout.write("\n" + ABOUT + "\n")
-		return 0
-	if asked == "donate" or argv[0] == "donate":
-		sys.stdout.write("\n" + DONATE + "\n")
+			sys.stdout.write("\n" + "\n".join(blocks) + "\n")
 		return 0
 	cmd = argv[0]
 	if cmd not in COMMANDS:

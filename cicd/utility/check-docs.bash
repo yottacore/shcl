@@ -896,7 +896,7 @@ if [[ -n "${help}" ]]; then
 				((found)) || fBad "shcl.1: the SYNOPSIS for ${w[0]} does not say '${word}', which the help's does"
 			done
 		done
-	done < <(printf '%s\n' "${help}" | sed -n 's/^  shcl \([a-z].*\)$/\1/p' | sed 's/  .*//')
+	done < <(printf '%s\n' "${help}" | sed -n 's/^  shcl \([a-z-].*\)$/\1/p' | sed 's/  .*//')
 	for c in "${!manSy[@]}"; do
 		[[ -v "helpSy[${c}]" ]] || fBad "shcl.1: SYNOPSIS names ${c}, which the help's synopsis lines do not"
 	done

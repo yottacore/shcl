@@ -897,10 +897,18 @@ rows=(
 	'EqzuLVp|version-flag-as-default|get --default --version %F% nope|-|0|--version\n|-'
 	## 20260923 item 17: the word forms ignored whatever came after them. An
 	## option a command does not use is a usage error; the flags still work
-	## anywhere.
-	'Er863PI|version-word-refuses-extra|version --int|-|1||^usage: shcl version '
-	'Er863Qj|about-word-refuses-extra|about extra|-|1||^usage: shcl about '
-	'Er863S3|donate-word-refuses-extra|donate --int|-|1||^usage: shcl donate '
+	## anywhere. The word forms went on 2026-09-28 (item 9 of that review, a
+	## decision), so these three no longer apply and the four rows below them
+	## take their place.
+	# 'Er863PI|version-word-refuses-extra|version --int|-|1||^usage: shcl version '
+	# 'Er863Qj|about-word-refuses-extra|about extra|-|1||^usage: shcl about '
+	# 'Er863S3|donate-word-refuses-extra|donate --int|-|1||^usage: shcl donate '
+	## 20260928 item 9: a word left over from 2.x is an unknown command, and the
+	## hint names its flag. help takes one topic and the informational flags.
+	"ErCvyWK|version-word-gone|version|-|1||^unknown command: version; did you mean '--version'\\? \\(see --help\\)$"
+	"ErCvyXy|about-word-gone|about extra|-|1||^unknown command: about; did you mean '--about'\\?"
+	"ErCvyZZ|donate-word-gone|donate --int|-|1||^unknown command: donate; did you mean '--donate'\\?"
+	"ErCvye5|help-topic-version-word|help version|-|1||^unknown command: version; did you mean '--version'\\?"
 	## 20260802 item 25: `--` ends the options, so a FILE and a PATH that start
 	## with a dash are data, and init refuses a FILE.
 	'EqzuLVq|double-dash-ends-options|get -- %DD% -h|-|0|7\n|-'
@@ -1206,6 +1214,44 @@ for b in "${bindings[@]}"; do
 		nRun+=1
 		if [[ "${rc}" != 0 || -s "${tmpDir}/err" ]] || ! cmp -s "${tmpDir}/out" "${tmpDir}/ref"; then
 			echo "cli-regress: bare-and-short-v [${name}]: 'shcl ${mine}' exit ${rc}, expected 0 and the stdout of 'shcl ${ref}'" >&2; nBad+=1
+		fi
+	done
+done
+## 20260928 item 9: several informational flags in one run each print once,
+## in the order asked, with one blank line before, between and after. The
+## first one used to win and the rest were dropped. --about opens with the
+## version line, so it covers --version, and a repeat prints once. Built from
+## each flag's own output, since the version moves every release.
+fTest ErCvyb6 info-flags-in-order
+for b in "${bindings[@]}"; do
+	name="${b%%|*}"; cli="${b#*|}"
+	"${cli}" --version >"${tmpDir}/v" 2>/dev/null </dev/null || true
+	"${cli}" --donate >"${tmpDir}/d" 2>/dev/null </dev/null || true
+	"${cli}" help get >"${tmpDir}/g" 2>/dev/null </dev/null || true
+	{ printf '\n'; cat "${tmpDir}/v" "${tmpDir}/d"; } >"${tmpDir}/want1"
+	{ head -c -1 "${tmpDir}/g"; cat "${tmpDir}/d"; } >"${tmpDir}/want2"
+	for pair in "--version --donate|want1" "help get --donate|want2" "get --help --donate|want2"; do
+		IFS='|' read -r argv want <<<"${pair}"
+		read -r -a args <<<"${argv}"
+		rc=0; "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" </dev/null || rc=$?
+		nRun+=1
+		if [[ "${rc}" != 0 || -s "${tmpDir}/err" ]] || ! cmp -s "${tmpDir}/out" "${tmpDir}/${want}"; then
+			echo "cli-regress: info-flags-in-order [${name}]: 'shcl ${argv}' exit ${rc}, or its stdout is not each output once, in order" >&2; nBad+=1
+		fi
+	done
+done
+fTest ErCvycb info-about-covers-version
+for b in "${bindings[@]}"; do
+	name="${b%%|*}"; cli="${b#*|}"
+	"${cli}" --about >"${tmpDir}/a" 2>/dev/null </dev/null || true
+	"${cli}" --donate >"${tmpDir}/d" 2>/dev/null </dev/null || true
+	for pair in "--about --version|a" "--version --about|a" "-V --about -v|a" "--donate --donate|d"; do
+		IFS='|' read -r argv want <<<"${pair}"
+		read -r -a args <<<"${argv}"
+		rc=0; "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" </dev/null || rc=$?
+		nRun+=1
+		if [[ "${rc}" != 0 || -s "${tmpDir}/err" ]] || ! cmp -s "${tmpDir}/out" "${tmpDir}/${want}"; then
+			echo "cli-regress: info-about-covers-version [${name}]: 'shcl ${argv}' exit ${rc}, expected the stdout of one '${want}' output" >&2; nBad+=1
 		fi
 	done
 done

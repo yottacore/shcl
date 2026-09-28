@@ -96,7 +96,9 @@ Other points
 
 - Positioning: the pitch is "forgiving to write, predictable to read", with a read API built junior-first - not "simplest possible", which overpromises and invites the takedown. Versus schema-bearing languages (Pkl, CUE): the file stays dumb, the library is powerful (see Power layer).
 
-- The CLI's informational commands (`help`, `version`, `about`, `donate`) each take both spellings - the bare word and the dashed flag. Among the options it was decided that one rule for the whole class beats deciding per command whether it reads better as a command or as a modifier. The flag spellings are recognized anywhere in option position, after FILE included, since where on the line a person types `-h` says nothing about what they want; only a value slot and anything after `--` are data.
+- The CLI's informational outputs are flags: `-h`/`--help`, `-v`/`-V`/`--version`, `--about` and `--donate` (2026-09-28). `help` also stays a word, since it takes a topic (`help CMD`). The words `version`, `about` and `donate` went, and a leftover one gets the did-you-mean hint. The flags are recognized anywhere in option position, after FILE included, since where on the line a person types `-h` says nothing about what they want; only a value slot and anything after `--` are data.
+	- Several asked in one run each print once, in the order asked, with one blank line before, between and after. `--about` covers `--version`, since it opens with the version line. A lone `--version` stays one bare line, for scripts.
+	- `help` refuses anything after it but one topic and the informational flags.
 
 - It was decided that `-` (stdin) may be named only once across FILE, `--layer` and `--schema`. There is one stream, so two names for it each read part of a document, and which name got the real content depended on read order; the second name is a usage error instead.
 

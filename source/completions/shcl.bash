@@ -16,7 +16,7 @@
 ##	SPDX-License-Identifier: MIT
 
 ## Subcommands. The CLI takes exactly one, and always as the first word.
-_shcl_subcommands='get set fmt check init count instances children paths migrate tokens explain help version about donate'
+_shcl_subcommands='get set fmt check init count instances children paths migrate tokens explain help'
 
 ## Type options, valid on `get` only. The table below carries them as the single
 ## token --<type>, exactly as the CLI's own table does.
@@ -79,7 +79,7 @@ _shcl() {
 	case "${prev}" in
 		--strictness)     mapfile -t COMPREPLY < <(compgen -W 'loose standard strict 1 2 3' -- "${cur}"); return ;;
 		--on-bad)         mapfile -t COMPREPLY < <(compgen -W 'error default flag' -- "${cur}"); return ;;
-		--unit)           mapfile -t COMPREPLY < <(compgen -W 'ms s m h d B KB MB GB TB KiB MiB GiB TiB' -- "${cur}"); return ;;
+		--unit)           mapfile -t COMPREPLY < <(compgen -W 'ms s m h d B kB KB MB GB TB KiB MiB GiB TiB' -- "${cur}"); return ;;
 		--schema|--layer) _shcl_files "${cur}"; return ;;
 	esac
 	## The rest take a PATH, or a value nothing here can enumerate.

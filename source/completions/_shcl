@@ -72,9 +72,6 @@ _shcl() {
 		'tokens:the lexical spans of each line'
 		'explain:what a diagnostic code means'
 		'help:the help text'
-		'version:the version'
-		'about:what shcl is'
-		'donate:how to support it'
 	)
 
 	## Word 2 is the subcommand, or an informational flag.
@@ -91,7 +88,7 @@ _shcl() {
 	case "${prev}" in
 		--strictness)     _values 'strictness' loose standard strict 1 2 3; return ;;
 		--on-bad)         _values 'on-bad' error default flag; return ;;
-		--unit)           _values 'unit' ms s m h d B KB MB GB TB KiB MiB GiB TiB; return ;;
+		--unit)           _values 'unit' ms s m h d B kB KB MB GB TB KiB MiB GiB TiB; return ;;
 		--schema|--layer) _files; return ;;
 	esac
 	## The rest take a PATH, or a value nothing here can enumerate.
@@ -99,7 +96,7 @@ _shcl() {
 	## Same options in the =VALUE form.
 	if compset -P '--strictness='; then _values 'strictness' loose standard strict 1 2 3; return; fi
 	if compset -P '--on-bad='; then _values 'on-bad' error default flag; return; fi
-	if compset -P '--unit='; then _values 'unit' ms s m h d B KB MB GB TB KiB MiB GiB TiB; return; fi
+	if compset -P '--unit='; then _values 'unit' ms s m h d B kB KB MB GB TB KiB MiB GiB TiB; return; fi
 	if compset -P '--schema=' || compset -P '--layer='; then _files; return; fi
 	for word in ${=_shcl_valopts}; do
 		compset -P "${word}=" && return
