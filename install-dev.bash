@@ -36,7 +36,7 @@
 
 set -euo pipefail
 
-installer_version="1.1.0"
+installer_version="1.1.1"
 REPO_URL="https://github.com/yottacore/shcl"
 clone_dir="./shcl"
 assume_yes=0
@@ -108,7 +108,11 @@ fHave git || fDie "git is required first"
 if fHave curl; then
 	fFetch() { curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 -o "$2" "$1"; }
 elif fHave wget; then
-	fFetch() { wget -q --https-only --secure-protocol=TLSv1_2 -O "$2" "$1"; }
+	## wget's --https-only covers recursive downloads only, so a redirect to
+	## plain http went through. Its own record of each response names every hop,
+	## and a plain-http Location refuses the file.
+	fWget() { local hops rc=0; { hops="$(wget -q --https-only --secure-protocol=TLSv1_2 --server-response "$@" 2>&1 >&3 3>&-)" || rc=$?; } 3>&1; if grep -qiE '^[[:space:]]*Location:[[:space:]]*http:' <<< "${hops}"; then echo "refused a redirect to plain http" >&2; return 1; fi; return "${rc}"; }
+	fFetch() { fWget -O "$2" "$1" || { rm -f -- "$2"; return 1; }; }
 fi
 
 ## Point git at the tracked hooks rather than copying them in, so an update to
@@ -296,7 +300,12 @@ fi
 echo
 if (( need_rustup )); then
 	echo "installing rustup..."
-	fFetch https://sh.rustup.rs - | sh -s -- -y --no-modify-path
+	## To a file first, so a download that fails or that a redirect took to
+	## plain http runs nothing.
+	rustup_sh="$(mktemp)"
+	fFetch https://sh.rustup.rs "${rustup_sh}" || { rm -f -- "${rustup_sh}"; fDie "cannot fetch the rustup installer"; }
+	sh "${rustup_sh}" -y --no-modify-path || { rm -f -- "${rustup_sh}"; fDie "the rustup installer failed"; }
+	rm -f -- "${rustup_sh}"
 	PATH="${HOME}/.cargo/bin:${PATH}"
 fi
 if fHave pipx; then
