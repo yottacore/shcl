@@ -2860,7 +2860,10 @@ impl<'a> Parser<'a> {
 	}
 
 	/// Depth-first below start, and only into survivors: a fold moves the
-	/// loser's children up to join the survivor's, where they can pair.
+	/// loser's children up to join the survivor's, where they can pair. A fold
+	/// hints the way a merge at parse time does (select_or_create): when the
+	/// two were not next to each other, or sit under a hinted re-open
+	/// (20260923 item 11).
 	fn fold_dups_from(&mut self, start: usize) {
 		let mut stack = vec![start];
 		while let Some(parent) = stack.pop() {
@@ -2884,6 +2887,9 @@ impl<'a> Parser<'a> {
 				});
 				match hit {
 					Some(i) => {
+						// Apart when a sibling kept since stands between them,
+						// as a merge at parse time asks of the newest child.
+						self.hint_fold(parent, keep[i], c, i + 1 != keep.len());
 						fold_node_into(&mut self.arena, keep[i], c);
 						grew[i] = true;
 					}
@@ -2903,6 +2909,25 @@ impl<'a> Parser<'a> {
 				}
 			}
 			self.arena[parent].children = keep;
+		}
+	}
+
+	fn hint_fold(&mut self, parent: usize, kept: usize, gone: usize, apart: bool) {
+		let (at, line) = (self.arena[kept].line, self.arena[gone].line);
+		let cross_region = self.reentered.get(&parent).is_some_and(|&rl| at < rl);
+		if at != line && (apart || cross_region) {
+			let message = format!(
+				"{}line {} (same name and value combine)",
+				h002_head(&self.arena[kept].name),
+				at
+			);
+			self.diag(Diagnostic {
+				line,
+				severity: Severity::Hint,
+				message,
+				code: "H002",
+			});
+			self.reentered.insert(kept, line);
 		}
 	}
 

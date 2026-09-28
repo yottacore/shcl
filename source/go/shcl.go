@@ -2870,7 +2870,9 @@ func (p *parser) foldLateDups() {
 }
 
 // foldDupsFrom: depth-first below start, and only into survivors: a fold moves
-// the loser's children up to join the survivor's, where they can pair.
+// the loser's children up to join the survivor's, where they can pair. A fold
+// hints the way a merge at parse time does (selectOrCreate): when the two were
+// not next to each other, or sit under a hinted re-open (20260923 item 11).
 func (p *parser) foldDupsFrom(start int) {
 	stack := []int{start}
 	for len(stack) > 0 {
@@ -2887,6 +2889,9 @@ func (p *parser) foldDupsFrom(start int) {
 			if i, ok := slotFirstMatch(first, h, func(x int) bool {
 				return mergeEq(p.arena[keep[x]].name, &p.arena[keep[x]].value, p.arena[c].name, &p.arena[c].value)
 			}); ok {
+				// Apart when a sibling kept since stands between them, as a
+				// merge at parse time asks of the newest child.
+				p.hintFold(parent, keep[i], c, i+1 != len(keep))
 				foldNodeInto(p.arena, keep[i], c)
 				grew[i] = true
 			} else {
@@ -2901,6 +2906,21 @@ func (p *parser) foldDupsFrom(start int) {
 			}
 		}
 		p.arena[parent].children = keep
+	}
+}
+
+func (p *parser) hintFold(parent, kept, gone int, apart bool) {
+	at, line := p.arena[kept].line, p.arena[gone].line
+	rl, ok := p.reentered[parent]
+	crossRegion := ok && at < rl
+	if at != line && (apart || crossRegion) {
+		p.diag(Diagnostic{
+			Line:     line,
+			Severity: SeverityHint,
+			Message:  fmt.Sprintf("%sline %d (same name and value combine)", h002Head(p.arena[kept].name), at),
+			Code:     "H002",
+		})
+		p.reentered[kept] = line
 	}
 }
 

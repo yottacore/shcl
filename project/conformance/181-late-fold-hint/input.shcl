@@ -1,0 +1,16 @@
+# A list that closes onto an earlier sibling's value folds into it after the
+# parse, and the fold hints the way a merge at parse time does: under a hinted
+# re-open, and when another field stands between the two.
+m:
+	a: 1, 2
+		k: 1
+c: 0
+m:
+	a:
+		* 1
+		* 2
+n:
+	a: 1
+	b: 2
+	a:
+		* 1
