@@ -321,6 +321,16 @@ fRunDogfood() {
 	done
 }
 
+## 20260924d idea 2's twin: install.ps1 -Uninstall said "removed" with nothing
+## installed. A scratch LOCALAPPDATA, under 5.1, where the one-liner runs.
+fRunUninstallNothing() {
+	local app="${work}/un-app" out
+	mkdir -p "${app}"
+	out="$(LOCALAPPDATA="$(cygpath -w "${app}")" powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w install.ps1)" -Uninstall -Target user -Yes 2>&1)" \
+		|| { echo "win-runners: uninstall nothing: ${out}" >&2; return 1; }
+	[[ "${out}" == *"nothing to remove"* && "${out}" != *"removed"* ]] || { echo "win-runners: uninstall nothing: ${out@Q}" >&2; return 1; }
+}
+
 ## Fuzz iterations stay at the in-test default: the long soak is the Linux gate's
 ## job, and nothing about it is platform-dependent.
 ##	A windows device name is not something a save may replace, and until
@@ -392,6 +402,7 @@ case "$(uname -s 2>/dev/null || true)" in
 	MINGW*|MSYS*|CYGWIN*)
 		fRun --id EqbvAmG "uninstall lock" "" fRunUninstallLock
 		fRun --id Er8Neza "dogfood runner" "cargo" fRunDogfood
+		fRun --id Er8O5Tf "uninstall nothing" "" fRunUninstallNothing
 		fRun --id Er8M8AX "ops bom 5.1" "cargo" fRunOpsBom51
 		if [[ -n "${WINRUN_PARTIAL:-}" ]]; then fRunWinpathSandbox
 		else fRun "windows path" "" powershell -NoProfile -ExecutionPolicy Bypass -File cicd/utility/winpath-regress.ps1

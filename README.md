@@ -915,6 +915,8 @@ $ops | shcl set --write server.shcl
 
 One PowerShell wrinkle: a bare `--` never reaches the dot-sourced `shcl` function, because PowerShell reads it as its own end-of-parameters token first. Quote it when a FILE or PATH begins with a dash: `shcl get '--' server.shcl -x`. The script form and the binary itself take a bare `--` the way the help describes.
 
+Windows PowerShell 5.1 has one more. Started with `-File` while its input is redirected, it refuses a lone `-` argument before the script's first line runs, so `type f.shcl | powershell -File shcl.ps1 get - a` fails. Dot-source the script, run it under PowerShell 7, or call the binary for that one.
+
 ### What saving does
 
 Three behaviors of the write half are easy to miss, and they are the same in every binding.
