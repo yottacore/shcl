@@ -36,5 +36,12 @@ func windowsNotADiskFile(path string) bool {
 		return kerr == nil && kind != syscall.FILE_TYPE_DISK
 	}
 	full, ferr := syscall.FullPath(path)
-	return ferr == nil && strings.HasPrefix(full, `\\.\`)
+	if ferr != nil || !strings.HasPrefix(full, `\\.\`) {
+		return false
+	}
+	// A drive after the prefix is a volume path to a file that is not there
+	// yet, which a create has to be let through (20260926 item 8).
+	rest := full[4:]
+	drive := len(rest) >= 2 && rest[1] == ':' && ((rest[0] >= 'A' && rest[0] <= 'Z') || (rest[0] >= 'a' && rest[0] <= 'z'))
+	return !drive
 }

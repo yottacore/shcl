@@ -1572,12 +1572,17 @@ fn not_a_disk_file(file: &str) -> bool {
 			full.as_mut_ptr(),
 			std::ptr::null_mut(),
 		) as usize;
+		// A drive after the prefix is a volume path to a file that is not
+		// there yet, which a create has to be let through (20260926 item 8).
+		let drive =
+			full[4] < 128 && (full[4] as u8).is_ascii_alphabetic() && full[5] == u16::from(b':');
 		n > 0
 			&& n < MAX_PATH
 			&& full[0] == u16::from(b'\\')
 			&& full[1] == u16::from(b'\\')
 			&& full[2] == u16::from(b'.')
 			&& full[3] == u16::from(b'\\')
+			&& !drive
 	}
 }
 
@@ -2561,10 +2566,10 @@ fn do_set(o: &Opts) -> u8 {
 			return EXIT_IO;
 		}
 	}
-	// One BOM off the front, as the parser takes one off a document: Windows
-	// PowerShell 5.1 puts one before text it pipes to a program (20260924 item
-	// 7), and the first op then read as unknown.
-	let ops = ops.strip_prefix('\u{feff}').unwrap_or(&ops);
+	// Byte order marks off the front: Windows PowerShell 5.1 puts one or more
+	// before text it pipes to a program (20260924 item
+	// 7), and the first op then read as unknown. No op starts with one.
+	let ops = ops.trim_start_matches('\u{feff}');
 	// Split on the newline and take one CR off each piece: that is the CR of a
 	// CRLF, or of a CRLF at EOF that lost its LF. A second one is the value's,
 	// and `lines()` plus a strip used to eat it.

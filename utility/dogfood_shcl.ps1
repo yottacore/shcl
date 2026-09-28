@@ -2,7 +2,7 @@
 ## dogfood_shcl.ps1
 ##
 ##	Runs the newest dogfood build of shcl. The same script on Linux, Windows
-##	and macOS, under PowerShell 7.
+##	and macOS, under PowerShell 7, and under Windows PowerShell 5.1.
 ##
 ##	The pipeline drops each release build into the synced dogfood dir. This
 ##	copies it into a local pool of dated versions, points a fixed name at the
@@ -17,9 +17,10 @@
 ##	Where things go:
 ##		Linux, macOS  ~/.local/bin/shcl_versions/, fixed name ~/.local/bin/shcl
 ##		Windows       %LOCALAPPDATA%\Programs\shcl_versions\, fixed name
-##		              %LOCALAPPDATA%\Programs\shcl.exe
+##		              %LOCALAPPDATA%\Programs\Shcl\shcl.exe
 ##	The fixed name is where a user install puts shcl too, and this takes it
-##	over. A regular file there on Linux or macOS is left alone.
+##	over; on Windows that folder is the one install.ps1 puts on PATH. A
+##	regular file there on Linux or macOS is left alone.
 ##
 ##	The pool keeps at most 10 versions and at least 5, and between those only
 ##	as many as fit in 1 GB. Which ones stay is a GFS rotation: the oldest, the
@@ -59,20 +60,26 @@ dogfood_shcl --no-update version
 # Configuration
 #==============================================================================
 
+## Windows PowerShell 5.1 has no $IsWindows and runs only on Windows, and
+## strict mode refuses a name that was never set, so the platform is asked once
+## here.
+$OnWindows = ($PSVersionTable.PSEdition -eq 'Desktop') -or $IsWindows
+$OnMac = (-not $OnWindows) -and $IsMacOS
+
 $ProgramName = 'shcl'
 $LauncherName = "dogfood_$ProgramName"
-$ExeExt = if ($IsWindows) { '.exe' } else { '' }
+$ExeExt = if ($OnWindows) { '.exe' } else { '' }
 $ExeName = "$ProgramName$ExeExt"
 
 ## Where the pipeline's dogfood stage puts a build. The first that holds one
 ## wins. On Windows the real Dropbox path comes first: Windows 11 can refuse
 ## the 'synced' junction into it as an untrusted mount point.
-$SourceDirs = if ($IsWindows) {
+$SourceDirs = if ($OnWindows) {
 	@(
 		(Join-Path -Path $HOME -ChildPath 'Dropbox\0-0\common\exec\util\mswin\cli\by-self\win64')
 		(Join-Path -Path $HOME -ChildPath 'synced\0-0\common\exec\util\mswin\cli\by-self\win64')
 	)
-} elseif ($IsMacOS) {
+} elseif ($OnMac) {
 	@(
 		(Join-Path -Path $HOME -ChildPath 'synced/0-0/common/exec/util/macos/bin')
 		(Join-Path -Path $HOME -ChildPath 'Dropbox/0-0/common/exec/util/macos/bin')
@@ -86,9 +93,12 @@ $SourceDirs = if ($IsWindows) {
 
 ## Local on purpose. Versions churn with every build and have no business in
 ## the sync tree.
-$InstallDir = if ($IsWindows) { Join-Path -Path $env:LOCALAPPDATA -ChildPath 'Programs' } else { Join-Path -Path $HOME -ChildPath '.local/bin' }
+$InstallDir = if ($OnWindows) { Join-Path -Path $env:LOCALAPPDATA -ChildPath 'Programs' } else { Join-Path -Path $HOME -ChildPath '.local/bin' }
 $PoolDir = Join-Path -Path $InstallDir -ChildPath "${ProgramName}_versions"
-$LinkPath = Join-Path -Path $InstallDir -ChildPath $ExeName
+## Where a user install puts shcl: install.ps1's folder on Windows, which it
+## adds to PATH (20260924d item 5).
+$LinkDir = if ($OnWindows) { Join-Path -Path $InstallDir -ChildPath 'Shcl' } else { $InstallDir }
+$LinkPath = Join-Path -Path $LinkDir -ChildPath $ExeName
 
 $MaxVersions = 10
 $MinVersions = 5
@@ -190,7 +200,7 @@ function Copy-NewBuild {
 	$partial = "$dest.partial"
 	try {
 		Copy-Item -LiteralPath $src.FullName -Destination $partial -Force
-		if (-not $IsWindows) { & chmod 755 $partial }
+		if (-not $OnWindows) { & chmod 755 $partial }
 		Move-Item -LiteralPath $partial -Destination $dest -Force
 		Write-Note "new build $stamp from $($src.DirectoryName)"
 		return $true
@@ -207,10 +217,21 @@ function Get-PeriodKey {
 	return @{
 		hour = $When.ToString('yyyyMMddHH', $Invariant)
 		day = $When.ToString('yyyyMMdd', $Invariant)
-		week = '{0:D4}{1:D2}' -f [Globalization.ISOWeek]::GetYear($When), [Globalization.ISOWeek]::GetWeekOfYear($When)
+		week = Get-IsoWeek -When $When
 		month = $When.ToString('yyyyMM', $Invariant)
 		year = $When.ToString('yyyy', $Invariant)
 	}
+}
+
+## The ISO week, as yyyyww: the Thursday of a week decides its year. By hand,
+## since .NET Framework under 5.1 has no ISOWeek.
+function Get-IsoWeek {
+	[CmdletBinding()]
+	param([datetime]$When)
+	$day = [int]$When.DayOfWeek
+	if ($day -eq 0) { $day = 7 }
+	$thursday = $When.Date.AddDays(4 - $day)
+	return '{0:D4}{1:D2}' -f $thursday.Year, [int]([Math]::Floor(($thursday.DayOfYear - 1) / 7) + 1)
 }
 
 ## Each version's role, by name. A version with none is one nothing keeps. The
@@ -316,13 +337,13 @@ function Update-FixedName {
 	$target = $versions[-1].File.FullName
 	$cur = Get-Item -LiteralPath $LinkPath -Force -ErrorAction SilentlyContinue
 	if ($cur -and $cur.LinkType -eq 'SymbolicLink' -and $cur.Target -eq $target) { return }
-	if ($cur -and -not $cur.LinkType -and -not $IsWindows) {
+	if ($cur -and -not $cur.LinkType -and -not $OnWindows) {
 		if ($Fresh) { Write-Note "$LinkPath is a regular file, so it was left alone, and a bare shcl there is not this build" }
 		return
 	}
 	## On Windows a hard link or a plain file here is this script's own fallback,
 	## and the same bytes as the newest need no rewrite.
-	if ($cur -and $IsWindows -and $cur.LinkType -ne 'SymbolicLink' -and $cur.Length -eq $versions[-1].File.Length) {
+	if ($cur -and $OnWindows -and $cur.LinkType -ne 'SymbolicLink' -and $cur.Length -eq $versions[-1].File.Length) {
 		if ((Get-FileHash -LiteralPath $LinkPath).Hash -eq (Get-FileHash -LiteralPath $target).Hash) { return }
 	}
 	try {
@@ -331,6 +352,7 @@ function Update-FixedName {
 		if ($Fresh) { Write-Note "$LinkPath is in use, so it still names the older build" }
 		return
 	}
+	$null = New-Item -ItemType Directory -Force -Path $LinkDir
 	$made = $false
 	foreach ($kind in @('SymbolicLink', 'HardLink')) {
 		try {
@@ -367,7 +389,7 @@ function Get-RunTarget {
 	}
 	## On Windows the fallback is a hard link or a copy, so it counts when it
 	## holds the newest version's bytes.
-	if ($IsWindows -and $cur.Length -eq $newest.Length -and (Get-FileHash -LiteralPath $LinkPath).Hash -eq (Get-FileHash -LiteralPath $newest.FullName).Hash) { return $LinkPath }
+	if ($OnWindows -and $cur.Length -eq $newest.Length -and (Get-FileHash -LiteralPath $LinkPath).Hash -eq (Get-FileHash -LiteralPath $newest.FullName).Hash) { return $LinkPath }
 	return $newest.FullName
 }
 
@@ -399,4 +421,4 @@ exit $LASTEXITCODE
 
 ##	History:
 ##		- 2026-09-24 JC: Created, in place of n8runshcl.ps1. Takes the build from the synced dogfood dir rather than the repo, and keeps a GFS-rotated pool with a fixed name on the newest.
-##		- 2026-09-27 JC: Stamps in UTC and the invariant culture. Runs the fixed name only when it names the newest pool version. Says why the fixed name was not updated only on a run that took a build. Help block.
+##		- 2026-09-27 JC: Runs under Windows PowerShell 5.1. The Windows fixed name is in install.ps1's user folder. Stamps in UTC and the invariant culture. Runs the fixed name only when it names the newest pool version. Says why the fixed name was not updated only on a run that took a build. Help block.
