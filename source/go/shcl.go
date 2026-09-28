@@ -7478,10 +7478,13 @@ func (d *Document) ClearComments(path string) int {
 // line Migrate stamped counts too. A block is a run of "##" lines with no
 // blank inside, so a "##" comment of the file's own, written right against
 // it, goes with it. It is looked for in the footer and above every field but
-// the first, since a field added below it by hand takes it as its comment; a
-// block at the top of the file is left alone. The library save never adds the
-// block by itself; this is for a program that wants it in a file it writes.
-// Returns how many old blocks came off.
+// the first one and its first child down, since a field added below it by hand
+// takes it as its comment. A block at the top of the file is left alone. A
+// dotted first line hangs it on its last name, which a saved file writes as the
+// first field's first child, so a block there is left alone too, however it
+// got there. The library save never adds the block by itself; this is for a
+// program that wants it in a file it writes. Returns how many old blocks came
+// off.
 func (d *Document) SetBanner(on bool) int {
 	removed := 0
 	// The first line's comments are the top of the file, on the first node

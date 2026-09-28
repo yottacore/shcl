@@ -623,11 +623,14 @@ size_t shcl_clear_comments(shcl_doc *d, const char *path, size_t plen);
 // line, which a later release may spell differently. A version line
 // shcl_migrate stamped counts too. A block is a run of "##" lines with no blank
 // inside, so a "##" comment of the file's own, written right against it, goes
-// with it. It is looked for in the footer and above every field but the first,
-// since a field added below it by hand takes it as its comment; a block at the
-// top of the file is left alone. The library save never adds the block by
-// itself; this is for a program that wants it in a file it writes. Returns how
-// many old blocks came off.
+// with it. It is looked for in the footer and above every field but the first
+// one and its first child down, since a field added below it by hand takes it
+// as its comment. A block at the top of the file is left alone. A dotted first
+// line hangs it on its last name, which a saved file writes as the first
+// field's first child, so a block there is left alone too, however it got
+// there. The library save never adds the block by itself; this is for a
+// program that wants it in a file it writes. Returns how many old blocks came
+// off.
 size_t shcl_set_banner(shcl_doc *d, int on);
 int shcl_set_empty(shcl_doc *d, const char *path, size_t plen);
 // Why a write at this path would fail - the reason behind a setter's bare 0,

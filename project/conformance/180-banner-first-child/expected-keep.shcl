@@ -1,0 +1,16 @@
+# An info block above the first field's first child stays where it is. A
+# dotted first line puts a block at the top of the file there, and a saved file
+# writes the two alike, so banner on leaves it and writes a new one at the end.
+a:
+	## This config file format is SHCL.
+	##    Format   3
+	b: 1
+
+##
+## This config file format is SHCL.
+## "Simple Hierarchical Config Language"
+##    Format   3
+##    Home     https://github.com/yottacore/shcl
+##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md
+##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.
+##
