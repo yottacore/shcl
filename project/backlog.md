@@ -281,6 +281,93 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: c63a6ace
 	- Test case: shell-regress `20260928-item16-dogfood-impossible-date`, which fails on dev.
 
+- The closed-items Test check borrows a Test line from an unrelated item
+	- ID: 2026092813365318
+	- Type: Bug
+	- Status: Waiting on signoff
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 18
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce: take both Test lines out of 20260924d idea 2 in a copy of the backlog, and run the check on it.
+	- Incorrect behavior: it passes. A closed item under a review round's heading bullet counts as covered when the last closed item above the round has a Test line. 20260925b idea 1 has none and passes that way today.
+	- Expected behavior: the check's comment says the Test line is the item's own or one under a closed item it sits in.
+	- Reproduced: 20260928, by the sweep on mutated copies.
+	- Origin: `8d15a2b4` (closed items check). The check takes the nearest shallower closed item as the parent, not the real one. Confirmed.
+	- Estimated effort: Low
+	- Actual fix: an item counts as covered by a Test line of its own or on any closed item among the bullets it sits in, found by walking up its real parents. A review round's heading bullet covers nothing.
+	- Note: 20260925b idea 1 got its Test line, the one item that had passed by borrowing.
+	- Branch: gatefix
+	- Commit: 530f8deb
+	- Test case: shell-regress `20260928-item18-closed-items-test-parent`, which lifts the check out of check-docs and runs it on a small backlog. It fails on dev.
+
+- Gate status lines can say `ok` for a test that failed or did not run
+	- ID: 2026092813365319
+	- Type: Bug
+	- Status: Waiting on signoff
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 19
+	- Version and build: dev at `f90708d8`
+	- Incorrect behavior:
+		- crosscheck prints `ok` for every test, then refuses at its `--min` floor and exits 2. check-migrate does the same with its floors.
+		- Where a tool is missing, only the first test before the tool check prints `skip`. The tests inside the block print nothing, about 15 of them under pwsh.
+		- A test with a quiet skip inside prints `ok`: shell-regress's largedoc row, check-docs' ratio row, perf-gate when every baseline failed.
+		- sanitize-c drops the runners' FAIL lines along with ok and skip, so an ASan-only failure shows no name.
+	- Expected behavior: one true status line per test that runs, as the test ID rule says.
+	- Reproduced: 20260928, crosscheck by running it. The rest by reading.
+	- Origin: `831dfd58` and `c972bafd` (test ids). Confirmed for crosscheck, Plausible for the rest.
+	- Estimated effort: Avg
+	- Actual fix: crosscheck and check-migrate count a missed floor against the test that owns it. `fTestSkipBlock` in the test-id include prints a skip line for every test inside a skipped block, read out of the calling script, and the tool-gated blocks in shell-regress use it. The largedoc row, the check-docs ratio row and a perf-gate workload with no baseline say skip. sanitize-c keeps a runner's FAIL lines.
+	- Verified: crosscheck `--min 999999` and check-migrate `--min 999999` print FAIL on the owning test; perf-gate on a CLI whose baseline fails prints skip for each workload.
+	- Branch: gatefix
+	- Commit: 530f8deb
+	- Test case: shell-regress `20260928-item19-skipped-block-names-its-tests` for the helper. The floors and skips were checked by hand, as above.
+
+- `config.bash` says the hosted gate does not install makensis, but it does, unpinned
+	- ID: 2026092813365320
+	- Type: Bug
+	- Status: Waiting on signoff
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 20
+	- Version and build: dev at `f90708d8`
+	- Incorrect behavior: `ci.yml` installs `nsis` through apt, and shell-regress's nsis rows run hosted on whatever version the image has. check-pins leaves makensis out, on the comment's word.
+	- Expected behavior: the comment matches `ci.yml`, and a tool the hosted gate runs is pinned or its exemption says why.
+	- Reproduced: 20260928, by reading.
+	- Origin: `f372d6a3` (pins). Confirmed.
+	- Estimated effort: Low
+	- Actual fix: the config.bash and check-pins comments say the hosted gate takes apt's nsis for the rows that compile the setup script, which build nothing published. The pin stays for release boxes.
+	- Branch: gatefix
+	- Commit: 530f8deb
+	- Test case: none, comments.
+
+- `test-ids.py` passes a test in a place its tables do not know
+	- ID: 2026092813365327
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 idea 6
+	- Requirements: a `#[test]` in a Rust source file other than `lib.rs`, a Go test whose parameter is not `t`, or a test under `source/go/cmd/` gets no ID and is not flagged. Find every `#[test]` and `func Test` in any file, and fail on any it cannot place.
+	- Estimated effort: Low
+	- Done: `test-ids.py check` finds every `#[test]` and `func Test` in any tracked file and fails on one its tables do not place. TestMain and the comparison tool's crate are left out.
+	- Branch: gatefix
+	- Commit: 530f8deb
+	- Test case: shell-regress `20260928-idea6-test-ids-strays`, a fake tree with three misplaced tests. It fails on dev.
+
+- The drop-ins tarball mode row passes on a checkout made under umask 077
+	- ID: 2026092813365328
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 idea 7
+	- Requirements: the row compares the tarball built under umask 077 with the checkout. When the checkout was itself made under 077, both match under the old tar line too. Check the modes themselves, 644 and 755.
+	- Estimated effort: Low
+	- Done: the row also checks each file's mode in the tarball, 644, or 755 where git records it executable.
+	- Branch: gatefix
+	- Commit: 530f8deb
+	- Test case: shell-regress `20260829-26-dropins-tarball-reproducible`. With `--mode` taken off the tar line it fails on the modes.
+
 - A Schema line makes `check` open any path, devices and network shares included
 	- ID: 2026092813365302
 	- Type: Bug
@@ -387,53 +474,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: c63a6ace
 	- Test case: waits for the Windows batch, since only 5.1 follows the downgrade.
 
-- The closed-items Test check borrows a Test line from an unrelated item
-	- ID: 2026092813365318
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 18
-	- Version and build: dev at `f90708d8`
-	- Steps to reproduce: take both Test lines out of 20260924d idea 2 in a copy of the backlog, and run the check on it.
-	- Incorrect behavior: it passes. A closed item under a review round's heading bullet counts as covered when the last closed item above the round has a Test line. 20260925b idea 1 has none and passes that way today.
-	- Expected behavior: the check's comment says the Test line is the item's own or one under a closed item it sits in.
-	- Reproduced: 20260928, by the sweep on mutated copies.
-	- Origin: `8d15a2b4` (closed items check). The check takes the nearest shallower closed item as the parent, not the real one. Confirmed.
-	- Estimated effort: Low
-
-- Gate status lines can say `ok` for a test that failed or did not run
-	- ID: 2026092813365319
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 19
-	- Version and build: dev at `f90708d8`
-	- Incorrect behavior:
-		- crosscheck prints `ok` for every test, then refuses at its `--min` floor and exits 2. check-migrate does the same with its floors.
-		- Where a tool is missing, only the first test before the tool check prints `skip`. The tests inside the block print nothing, about 15 of them under pwsh.
-		- A test with a quiet skip inside prints `ok`: shell-regress's largedoc row, check-docs' ratio row, perf-gate when every baseline failed.
-		- sanitize-c drops the runners' FAIL lines along with ok and skip, so an ASan-only failure shows no name.
-	- Expected behavior: one true status line per test that runs, as the test ID rule says.
-	- Reproduced: 20260928, crosscheck by running it. The rest by reading.
-	- Origin: `831dfd58` and `c972bafd` (test ids). Confirmed for crosscheck, Plausible for the rest.
-	- Estimated effort: Avg
-
-- `config.bash` says the hosted gate does not install makensis, but it does, unpinned
-	- ID: 2026092813365320
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 20
-	- Version and build: dev at `f90708d8`
-	- Incorrect behavior: `ci.yml` installs `nsis` through apt, and shell-regress's nsis rows run hosted on whatever version the image has. check-pins leaves makensis out, on the comment's word.
-	- Expected behavior: the comment matches `ci.yml`, and a tool the hosted gate runs is pinned or its exemption says why.
-	- Reproduced: 20260928, by reading.
-	- Origin: `f372d6a3` (pins). Confirmed.
-	- Estimated effort: Low
-
 - Style: three small leftovers in the range
 	- ID: 2026092813365321
 	- Type: Bug
@@ -514,24 +554,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 idea 5
 	- Requirements: the `Stopped` outcome in the `track_dropped` path never happens. Only the line-keeping save's reparse sets `track_dropped`, and it has no node cap. Remove it in all four, or say in a comment why it stays.
-	- Estimated effort: Low
-
-- `test-ids.py` passes a test in a place its tables do not know
-	- ID: 2026092813365327
-	- Type: Enhancement
-	- Status: Queued
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 idea 6
-	- Requirements: a `#[test]` in a Rust source file other than `lib.rs`, a Go test whose parameter is not `t`, or a test under `source/go/cmd/` gets no ID and is not flagged. Find every `#[test]` and `func Test` in any file, and fail on any it cannot place.
-	- Estimated effort: Low
-
-- The drop-ins tarball mode row passes on a checkout made under umask 077
-	- ID: 2026092813365328
-	- Type: Enhancement
-	- Status: Queued
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 idea 7
-	- Requirements: the row compares the tarball built under umask 077 with the checkout. When the checkout was itself made under 077, both match under the old tar line too. Check the modes themselves, 644 and 755.
 	- Estimated effort: Low
 
 - A line-keeping save deletes lines the load dropped, at exit 0
