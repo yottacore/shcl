@@ -1594,11 +1594,11 @@ static int do_set(Opts *o) {
 			free(ops); layered_free(&L); return EXIT_IO;
 		}
 	}
-	/* One BOM off the front, as the parser takes one off a document: Windows
-	   PowerShell 5.1 puts one before text it pipes to a program (20260924 item
-	   7), and the first op then read as unknown. */
+	/* Byte order marks off the front: Windows PowerShell 5.1 puts one or more
+	   before text it pipes to a program (20260924 item
+	   7), and the first op then read as unknown. No op starts with one. */
 	int rc = 0; size_t start = 0, lineno = 0;
-	if (opslen >= 3 && (unsigned char)ops[0] == 0xEF && (unsigned char)ops[1] == 0xBB && (unsigned char)ops[2] == 0xBF) start = 3;
+	while (opslen - start >= 3 && (unsigned char)ops[start] == 0xEF && (unsigned char)ops[start + 1] == 0xBB && (unsigned char)ops[start + 2] == 0xBF) start += 3;
 	for (size_t i = start; i <= opslen; i++) {
 		if (i == opslen || ops[i] == '\n') {
 			size_t end = i;

@@ -341,9 +341,9 @@ rows=(
 	'EoTHA7X|ops-lone-cr|set %F%|int\tx\t1\n\r|0|a: 1\n\nx: 1\n|-'
 	## 20260908: one CR comes off an ops line, not two - the second is the value's.
 	'EpGigIR|ops-double-cr|set %F%|string\tx\tv\r\r\n|0|a: 1\n\nx: "v\\u000D"\n|-'
-	## 20260924 item 7: Windows PowerShell 5.1 puts a BOM in front of text it
-	## pipes to a program, and the first op then read as unknown.
-	'Er83b6G|ops-leading-bom|set %F%|\xef\xbb\xbfint\tx\t1\n|0|a: 1\n\nx: 1\n|-'
+	## 20260924 item 7: Windows PowerShell 5.1 puts a BOM, or more than one, in
+	## front of text it pipes to a program, and the first op read as unknown.
+	'Er83b6G|ops-leading-bom|set %F%|\xef\xbb\xbf\xef\xbb\xbfint\tx\t1\n|0|a: 1\n\nx: 1\n|-'
 	## 20260830 item 14: Python raised a traceback, C exited nonzero. POSIX-only:
 	## the row closes fd 0, and windows has no equivalent a shell can set up.
 	'EoTHA7Y|closed-stdin|fmt -|@closedin|0||^$'
@@ -547,9 +547,11 @@ rows=(
 	## \u and \U name a character by its code point, and one that names none is
 	## E023. Canonical output spells an invisible character as one. 2.x kept the
 	## pair as written, so migrate needs to be told which rules wrote the file.
-	'Er2qNPd|escape-unicode-read|get - a|a: "caf\\u00E9 \\U0001F600"\n|0|caf\u00E9 \U0001F600\n|-'
+	## Raw UTF-8 bytes rather than \u in the printf text: msys bash leaves a \u
+	## as written under the windows runner's locale.
+	'Er2qNPd|escape-unicode-read|get - a|a: "caf\\u00E9 \\U0001F600"\n|0|caf\xc3\xa9 \xf0\x9f\x98\x80\n|-'
 	'Er2qNPe|escape-unicode-bad|check -|a: "\\uD800"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 bad escape .\\u. in double quotes'
-	'Er2qNPf|escape-unicode-fmt|fmt -|a: x\u200By\n|0|a: "x\\u200By"\n|-'
+	'Er2qNPf|escape-unicode-fmt|fmt -|a: x\xe2\x80\x8by\n|0|a: "x\\u200By"\n|-'
 	'Er2qNPg|escape-unicode-name|paths -|"a\\u202Eb": 1\n|0|"a\\u202Eb"\n|-'
 	'Er2qNPh|escape-unicode-migrate-refused|migrate -|q: "\\u0041"\n|7|q: "\\u0041"\n|does not say which it was written for'
 	'Er2qNPi|escape-unicode-migrate-2x|migrate --from-2x -|q: "\\u0041"\n|0|q: "\\\\u0041"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'

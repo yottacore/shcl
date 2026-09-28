@@ -6292,7 +6292,7 @@ func quoteText(t string) string {
 
 // quoteTextAs is quoteText for a reader of rules, as in quoteDoubleAs.
 func quoteTextAs(t string, rules Rules) string {
-	control := strings.ContainsAny(t, "\n\t") || (rules == RulesCurrent && strings.ContainsFunc(t, invisible))
+	control := strings.ContainsAny(t, "\n\t") || (rules == RulesCurrent && strings.IndexFunc(t, invisible) >= 0)
 	if !control && !strings.Contains(t, "'") && strings.ContainsAny(t, "\"\\") {
 		return "'" + t + "'"
 	}

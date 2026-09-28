@@ -2717,10 +2717,10 @@ func doSet(o *opts) int {
 			return exitIO
 		}
 	}
-	// One BOM off the front, as the parser takes one off a document: Windows
-	// PowerShell 5.1 puts one before text it pipes to a program (20260924 item
-	// 7), and the first op then read as unknown.
-	for n, line := range strings.Split(strings.TrimPrefix(string(ops), "\ufeff"), "\n") {
+	// Byte order marks off the front: Windows PowerShell 5.1 puts one or more
+	// before text it pipes to a program (20260924 item
+	// 7), and the first op then read as unknown. No op starts with one.
+	for n, line := range strings.Split(strings.TrimLeft(string(ops), "\ufeff"), "\n") {
 		line = strings.TrimSuffix(line, "\r") // match Rust lines() CRLF handling
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue

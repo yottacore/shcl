@@ -1956,11 +1956,10 @@ def do_set(o):
 		except UnicodeDecodeError:
 			sys.stderr.write("stdin: invalid UTF-8\n")
 			return EXIT_IO
-	# One BOM off the front, as the parser takes one off a document: Windows
-	# PowerShell 5.1 puts one before text it pipes to a program (20260924 item
-	# 7), and the first op then read as unknown.
-	if ops.startswith("\ufeff"):
-		ops = ops[1:]
+	# Byte order marks off the front: Windows PowerShell 5.1 puts one or more
+	# before text it pipes to a program (20260924 item
+	# 7), and the first op then read as unknown. No op starts with one.
+	ops = ops.lstrip("\ufeff")
 	pieces = ops.split("\n")
 	for n, line in enumerate(pieces):
 		# One CR off each piece: the CR of a CRLF, or of a CRLF at EOF that lost

@@ -175,6 +175,10 @@ installed.
 		try {
 			$current = [string]$envKey.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
 			if ($Remove) {
+				## Absent is no write: the rebuild below also drops empty
+				## segments, so a PATH ending in ';' read as changed and was
+				## rewritten with nothing of ours in it.
+				if (-not (($current -split ';') -contains $Dir)) { return $false }
 				$new = @($current -split ';' | Where-Object { $_ -and $_ -ne $Dir }) -join ';'
 				if ($new -eq $current) { return $false }
 				$envKey.SetValue('Path', $new, [Microsoft.Win32.RegistryValueKind]::ExpandString)

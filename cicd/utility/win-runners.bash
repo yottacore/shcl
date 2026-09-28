@@ -296,8 +296,18 @@ fRunOpsBom51() {
 		echo 'exit $LASTEXITCODE'
 	} > "${ps}"
 	out="$(powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "${ps}")" 2>&1)" \
-		|| { echo "win-runners: ops bom 5.1: ${out}" >&2; return 1; }
+		|| { echo "win-runners: ops bom 5.1: ${out}" >&2; fOpsBytes51; return 1; }
 	grep -q '^k: 5' "${f}" || { echo "win-runners: ops bom 5.1: the op did not apply: $(cat "${f}")" >&2; return 1; }
+}
+## What 5.1 sent, byte by byte, for a failure to name.
+fOpsBytes51() {
+	local ps="${work}/bom51od.ps1"
+	#  shellcheck disable=2016  ## PowerShell's own $variables, quoted so bash leaves them alone.
+	{
+		echo '$OutputEncoding = [System.Text.Encoding]::UTF8'
+		echo "\"int\`tk\`t5\" | & '$(cygpath -w "$(command -v od)")' -A x -t x1 | Select-Object -First 2"
+	} > "${ps}"
+	powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "${ps}")" >&2 2>&1 || true
 }
 
 ## 20260924d idea 4 and item 5: the dogfood runner stopped at once under
