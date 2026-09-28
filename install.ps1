@@ -76,7 +76,9 @@ param(
 ## whether a file was invoked, since inside the block $MyInvocation names the
 ## block: under either documented one-liner there is no script file, and `exit`
 ## there ends the shell that ran it. Only a file invocation may exit;
-## everything else returns or throws.
+## everything else returns or throws. Piped into iex from inside another
+## script, $MyInvocation names that script, but $PSCommandPath is empty, so
+## the two agree only when this file is what runs.
 & {
 	## ShowVersion, not Version: names ignore case, and $version below is the release's.
 	param([string]$Release, [string]$Target, [bool]$Yes, [bool]$Uninstall, [bool]$ShowVersion, [bool]$Help, [bool]$invokedAsFile, [string]$scriptPath)
@@ -84,7 +86,7 @@ param(
 	Set-StrictMode -Version Latest
 	$ErrorActionPreference = 'Stop'
 
-	$installerVersion = '1.1.1'
+	$installerVersion = '1.1.2'
 
 	## Every run opens with a blank line and ends with one, errors included.
 	Write-Output ''
@@ -623,4 +625,4 @@ installed.
 	} finally {
 		Remove-Item -Recurse -Force -LiteralPath $tmp -ErrorAction SilentlyContinue
 	}
-} $Release $Target $Yes $Uninstall $Version $Help ($MyInvocation.MyCommand -is [Management.Automation.ExternalScriptInfo]) $PSCommandPath
+} $Release $Target $Yes $Uninstall $Version $Help ($MyInvocation.MyCommand -is [Management.Automation.ExternalScriptInfo] -and $MyInvocation.MyCommand.Path -eq $PSCommandPath) $PSCommandPath
