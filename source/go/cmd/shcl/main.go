@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"math"
 	"os"
 	"runtime"
@@ -1440,6 +1441,12 @@ func readInput(file string) (string, error) {
 		}
 		b, err = os.ReadFile(file)
 		if err != nil {
+			// FILE: and the system's own message, as the UI guide has it. The
+			// path error would name the call and the path a second time.
+			var pe *fs.PathError
+			if errors.As(err, &pe) {
+				err = pe.Err
+			}
 			return "", fmt.Errorf("%s: %w", file, err)
 		}
 	}
@@ -2186,8 +2193,11 @@ func doTokens(o *opts) int {
 			out.WriteString(" comment\n")
 			continue
 		}
-		// A stacked element and a fence line are value halves on their own.
-		star := strings.HasPrefix(body, "*") && len(body) > 1 && (body[1] == ' ' || body[1] == '\t' || body[1] == '\r')
+		// A stacked element and a fence line are value halves on their own. A
+		// `*` is an element when a blank follows it, trailing or not, which only
+		// the untrimmed line still shows (20260923 item 12).
+		after := ilen + lead + 1
+		star := strings.HasPrefix(body, "*") && after < len(line) && (line[after] == ' ' || line[after] == '\t' || line[after] == '\r')
 		fence := strings.HasPrefix(body, "```") || strings.HasPrefix(body, "~~~")
 		if star || fence {
 			from := lead
@@ -2697,7 +2707,10 @@ func doSet(o *opts) int {
 			return exitIO
 		}
 	}
-	for n, line := range strings.Split(string(ops), "\n") {
+	// One BOM off the front, as the parser takes one off a document: Windows
+	// PowerShell 5.1 puts one before text it pipes to a program (20260924 item
+	// 7), and the first op then read as unknown.
+	for n, line := range strings.Split(strings.TrimPrefix(string(ops), "\ufeff"), "\n") {
 		line = strings.TrimSuffix(line, "\r") // match Rust lines() CRLF handling
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -3046,6 +3059,31 @@ func run() int {
 		}
 		fmt.Fprintf(os.Stderr, "unknown command: %s%s (see --help)\n", topic, suggest(commandNames(), topic))
 		return 1
+	}
+	// The word forms take nothing after them but their own flags, as `help`
+	// takes a command at most: an option a command does not use is a usage
+	// error (20260923 item 17). The flag spellings still work anywhere.
+	for _, w := range []struct {
+		word  string
+		flags []string
+	}{
+		{"version", []string{"-v", "-V", "--version"}},
+		{"about", []string{"--about"}},
+		{"donate", []string{"--donate"}},
+	} {
+		if argv[0] != w.word {
+			continue
+		}
+		for _, a := range argv[1:] {
+			own := false
+			for _, f := range w.flags {
+				own = own || a == f
+			}
+			if !own {
+				fmt.Fprintf(os.Stderr, "usage: shcl %s (see --help)\n", w.word)
+				return 1
+			}
+		}
 	}
 	if asked == "version" || argv[0] == "version" {
 		outf("%s\n", versionLine)

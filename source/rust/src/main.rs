@@ -2256,8 +2256,14 @@ fn do_tokens(o: &Opts) -> u8 {
 			Quote::Double => "\"",
 			Quote::Open => "?",
 		};
-		// A stacked element and a fence line are value halves on their own.
-		let star = body.starts_with('*') && body[1..].starts_with([' ', '\t', '\r']);
+		// A stacked element and a fence line are value halves on their own. A
+		// `*` is an element when a blank follows it, trailing or not, which only
+		// the untrimmed line still shows (20260923 item 12).
+		let star = body.starts_with('*')
+			&& line
+				.as_bytes()
+				.get(ilen + lead + 1)
+				.is_some_and(|&b| b == b' ' || b == b'\t' || b == b'\r');
 		let fence = body.starts_with("```") || body.starts_with("~~~");
 		if star || fence {
 			shcl::tokenize_value(rest, lead + usize::from(star), Rules::Current, &mut tok);
@@ -2540,6 +2546,10 @@ fn do_set(o: &Opts) -> u8 {
 			return EXIT_IO;
 		}
 	}
+	// One BOM off the front, as the parser takes one off a document: Windows
+	// PowerShell 5.1 puts one before text it pipes to a program (20260924 item
+	// 7), and the first op then read as unknown.
+	let ops = ops.strip_prefix('\u{feff}').unwrap_or(&ops);
 	// Split on the newline and take one CR off each piece: that is the CR of a
 	// CRLF, or of a CRLF at EOF that lost its LF. A second one is the value's,
 	// and `lines()` plus a strip used to eat it.
@@ -3150,6 +3160,19 @@ fn run_cli() -> u8 {
 			}
 		}
 		return 0;
+	}
+	// The word forms take nothing after them but their own flags, as `help`
+	// takes a command at most: an option a command does not use is a usage
+	// error (20260923 item 17). The flag spellings still work anywhere.
+	for (word, flags) in [
+		("version", &["-v", "-V", "--version"][..]),
+		("about", &["--about"][..]),
+		("donate", &["--donate"][..]),
+	] {
+		if first == Some(word) && argv[1..].iter().any(|w| !flags.contains(&w.as_str())) {
+			errln!("usage: shcl {} (see --help)", word);
+			return 1;
+		}
 	}
 	if asked == Some("version") || first == Some("version") {
 		outln!("{}", VERSION_LINE);

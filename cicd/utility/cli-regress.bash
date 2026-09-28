@@ -337,6 +337,9 @@ rows=(
 	'EoTHA7X|ops-lone-cr|set %F%|int\tx\t1\n\r|0|a: 1\n\nx: 1\n|-'
 	## 20260908: one CR comes off an ops line, not two - the second is the value's.
 	'EpGigIR|ops-double-cr|set %F%|string\tx\tv\r\r\n|0|a: 1\n\nx: "v\\u000D"\n|-'
+	## 20260924 item 7: Windows PowerShell 5.1 puts a BOM in front of text it
+	## pipes to a program, and the first op then read as unknown.
+	'Er83b6G|ops-leading-bom|set %F%|\xef\xbb\xbfint\tx\t1\n|0|a: 1\n\nx: 1\n|-'
 	## 20260830 item 14: Python raised a traceback, C exited nonzero. POSIX-only:
 	## the row closes fd 0, and windows has no equivalent a shell can set up.
 	'EoTHA7Y|closed-stdin|fmt -|@closedin|0||^$'
@@ -641,6 +644,9 @@ rows=(
 	'EpFkZyD|tokens-fault|tokens %B%|-|0|1:0 name=0-1 sep=1 value=3-4 elem=3-4\n2:2 name=0-3\n3:0 name=0-1 fault=2:unexpected character after the path\n|-'
 	## 20260923 item 20: the help and man page say each line is read on its own,
 	## so a raw body line comes out as a field line.
+	## 20260923 item 12: a `*` with only a blank after it is an empty element
+	## to the parser (E009), and tokens called it a name fault.
+	'Er84S7X|tokens-star-trailing-blank|tokens -|a:\n\t* \n\t*\t\n\t*\n|0|1:0 name=0-1 sep=1 value=2-2 elem=2-2\n2:1 star value=1-1 elem=1-1\n3:1 star value=1-1 elem=1-1\n4:1 fault=0:expected a field name\n|-'
 	'EqjsQiv|tokens-raw-body|tokens %R%|-|0|1:0 name=0-1 sep=1 value=2-2 elem=2-2\n2:1 fence value=0-3 elem=0-3\n3:1 name=0-4 fault=5:unexpected character after the path\n4:1 name=0-4 fault=5:unexpected character after the path\n5:1 fence value=0-3 elem=0-3\n|-'
 	## 20260830b item 18: a read below strict returned the value and said nothing
 	## about a line the load had dropped, so a damaged file read clean at exit 0.
@@ -664,6 +670,10 @@ rows=(
 	## 20260830b item 22: usage and I/O shared exit 1, so a script could not
 	## tell "the command line is wrong" from "that file is not there".
 	'EoXIc2a|io-missing-file|get %M% a|-|8|-|-'
+	## 20260923 item 16: the UI guide's form is FILE: and the system's own
+	## message, "No such file" here or "The system cannot find" on windows. Go
+	## named the call and the path again, Python printed [Errno 2].
+	'Er84wbv|io-missing-file-form|get %M% a|-|8|-|^[^ ]*not-there\.shcl: [NnT][a-z]'
 	'EoXIc2b|io-missing-layer|fmt --layer=%M% %F%|-|8|-|-'
 	'EoXIc2c|io-missing-check|check %M%|-|8|-|-'
 	'EoXIc2d|io-missing-schema|init --schema=%M%|-|8|-|-'
@@ -849,6 +859,12 @@ rows=(
 	## flags, so a value spelled like one printed the help at exit 0.
 	'EqzuLVo|help-flag-as-default|get --default -h %F% nope|-|0|-h\n|-'
 	'EqzuLVp|version-flag-as-default|get --default --version %F% nope|-|0|--version\n|-'
+	## 20260923 item 17: the word forms ignored whatever came after them. An
+	## option a command does not use is a usage error; the flags still work
+	## anywhere.
+	'Er863PI|version-word-refuses-extra|version --int|-|1||^usage: shcl version '
+	'Er863Qj|about-word-refuses-extra|about extra|-|1||^usage: shcl about '
+	'Er863S3|donate-word-refuses-extra|donate --int|-|1||^usage: shcl donate '
 	## 20260802 item 25: `--` ends the options, so a FILE and a PATH that start
 	## with a dash are data, and init refuses a FILE.
 	'EqzuLVq|double-dash-ends-options|get -- %DD% -h|-|0|7\n|-'
