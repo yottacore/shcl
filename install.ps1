@@ -86,7 +86,7 @@ param(
 	Set-StrictMode -Version Latest
 	$ErrorActionPreference = 'Stop'
 
-	$installerVersion = '1.1.2'
+	$installerVersion = '1.1.3'
 
 	## Every run opens with a blank line and ends with one, errors included.
 	Write-Output ''
@@ -175,6 +175,10 @@ installed.
 		try {
 			$current = [string]$envKey.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
 			if ($Remove) {
+				## Absent is no write: the rebuild below also drops empty
+				## segments, so a PATH ending in ';' read as changed and was
+				## rewritten with nothing of ours in it.
+				if (-not (($current -split ';') -contains $Dir)) { return $false }
 				$new = @($current -split ';' | Where-Object { $_ -and $_ -ne $Dir }) -join ';'
 				if ($new -eq $current) { return $false }
 				$envKey.SetValue('Path', $new, [Microsoft.Win32.RegistryValueKind]::ExpandString)
@@ -396,6 +400,22 @@ installed.
 	## It sits above the release lookup on purpose: removing needs no release to
 	## exist, and offline or rate-limited it used to refuse and remove nothing.
 	if ($Uninstall) {
+		## Nothing of an install here: say so rather than "removed". A system
+		## install from before user became the default is the usual case. A PATH
+		## entry left behind still goes.
+		if (-not (Test-Path -LiteralPath $dest)) {
+			if (Update-ShclPath -Scope $pathScope -Dir $pathDir -Remove) {
+				Write-Output "removed the $pathScope PATH entry; nothing else of shcl was in $dest"
+			} else {
+				Write-Output "nothing to remove: no shcl install in $dest"
+			}
+			$programFiles = if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }
+			if ($Target -eq 'user' -and (Test-Path -LiteralPath (Join-Path -Path $programFiles -ChildPath 'Shcl'))) {
+				Write-Output "a system install is in $programFiles\Shcl; -Target system removes that one, from an elevated shell"
+			}
+			Write-Output ''
+			return
+		}
 		## The setup .exe writes this same directory and registers itself with
 		## Add/Remove Programs. Deleting its files here would leave that entry
 		## pointing at nothing, so its own uninstaller has to run instead.
