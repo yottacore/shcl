@@ -201,6 +201,50 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: 4dbe70af
 	- Test case: cli-regress save case `migrate-rodir`, which fails on dev for Go.
 
+- `about --version` and `version --donate` are usage errors now
+	- ID: 2026092813365309
+	- Type: Bug
+	- Status: Waiting on signoff
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 9
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce: `shcl about --version`, `shcl version --donate`.
+	- Incorrect behavior: exit 1, `usage: shcl about (see --help)`. `shcl fmt --version` still exits 0. Before `39ad1f23` all of these exited 0.
+	- Expected behavior: design.md says the flag spellings are recognized anywhere in option position.
+	- Reproduced: 20260928, all four CLIs.
+	- Origin: `39ad1f23` (cli fixes, 20260923 item 17). Regression. Confirmed.
+	- Keep: 20260923 item 17 says the words refuse anything after them but their own flags. That line and design.md disagree on this case, so it needs a call.
+	- Decisions:
+		- 20260928: the informational outputs are flags: `-h`/`--help`, `-v`/`-V`/`--version`, `--about` and `--donate`. The words `version`, `about` and `donate` go, and a leftover one gets the did-you-mean hint at exit 1. `help` stays as a word, since it takes a topic (`help CMD`). No scripts use v2, so nothing breaks.
+		- Several asked in one run print once each, in the order asked, with one blank line before, between and after. `--about` covers `--version`, since its first line is the version line. A lone `--version` stays unpadded. Today the first one asked wins silently: `--help --version` prints only the help.
+		- `help` still refuses anything after it but one topic and the informational flags. design.md's paragraph and 20260923 item 17's rule change to match.
+	- Estimated effort: Low
+	- Actual fix: as decided, in all four CLIs. `help` still refuses more than one topic. The installers, the shcl.ps1 test and the dogfood runner's examples call `--version`, which 2.0.0 takes too.
+	- Swept: the help text, man page, both completion files, README, design.md, changelog, `install.bash`, `install.ps1`, shell-regress and check-completions, which reads the flag table out of `main.rs`.
+	- Note: 20260923 item 17's three rows are commented out with the reason, since the words they tested are gone. Installers are 1.1.2 and 1.1.4, and main owes them a sync.
+	- Branch: infoflags2
+	- Commit: 74cc8fdd
+	- Test case: cli-regress `version-word-gone`, `about-word-gone`, `donate-word-gone`, `help-topic-version-word`, `info-flags-in-order` and `info-about-covers-version`. Each fails on dev.
+
+- Help leaves out `kB` and the `--duration` and `--size` refusals with `--array`
+	- ID: 2026092813365317
+	- Type: Bug
+	- Status: Waiting on signoff
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 17
+	- Version and build: dev at `f90708d8`
+	- Incorrect behavior: `--unit` takes `kB`, and the spec lists it, but the help, man page and both completion lists leave it out. The help's refusal paragraph names `--array with --raw or --rawinfo` only. The man page and the CLIs also refuse it with `--duration` and `--size`.
+	- Expected behavior: the help and completions list what the CLI takes and refuses.
+	- Reproduced: 20260928, by reading and running the Rust CLI. Help is identical in all four.
+	- Origin: `95bec7c1`. Confirmed.
+	- Estimated effort: Low
+	- Actual fix: the help and man page list `kB`, both completion files offer it, and the help's refusal paragraph names `--duration` and `--size` with `--array`.
+	- Branch: infoflags2
+	- Commit: 74cc8fdd
+	- Test case: none new. cli-regress keeps the four helps identical and within 80 columns, and check-completions ties the completions to the CLI's tables.
+
 - A Schema line makes `check` open any path, devices and network shares included
 	- ID: 2026092813365302
 	- Type: Bug
@@ -283,26 +327,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Origin: older than the range, from `shcl.ps1`'s run path (`c52fa077` and before). Not seen before.
 	- Estimated effort: Avg
 
-- `about --version` and `version --donate` are usage errors now
-	- ID: 2026092813365309
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 9
-	- Version and build: dev at `f90708d8`
-	- Steps to reproduce: `shcl about --version`, `shcl version --donate`.
-	- Incorrect behavior: exit 1, `usage: shcl about (see --help)`. `shcl fmt --version` still exits 0. Before `39ad1f23` all of these exited 0.
-	- Expected behavior: design.md says the flag spellings are recognized anywhere in option position.
-	- Reproduced: 20260928, all four CLIs.
-	- Origin: `39ad1f23` (cli fixes, 20260923 item 17). Regression. Confirmed.
-	- Keep: 20260923 item 17 says the words refuse anything after them but their own flags. That line and design.md disagree on this case, so it needs a call.
-	- Decisions:
-		- 20260928: the informational outputs are flags: `-h`/`--help`, `-v`/`-V`/`--version`, `--about` and `--donate`. The words `version`, `about` and `donate` go, and a leftover one gets the did-you-mean hint at exit 1. `help` stays as a word, since it takes a topic (`help CMD`). No scripts use v2, so nothing breaks.
-		- Several asked in one run print once each, in the order asked, with one blank line before, between and after. `--about` covers `--version`, since its first line is the version line. A lone `--version` stays unpadded. Today the first one asked wins silently: `--help --version` prints only the help.
-		- `help` still refuses anything after it but one topic and the informational flags. design.md's paragraph and 20260923 item 17's rule change to match.
-	- Estimated effort: Low
-
 - Under Windows PowerShell 5.1, `install.ps1` may follow an https to http redirect for the release list
 	- ID: 2026092813365314
 	- Type: Bug
@@ -344,20 +368,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Expected behavior: the runner's comment says anything else put in the directory is left alone.
 	- Reproduced: 20260928, by the sweep under pwsh 7 on Linux with a scratch HOME.
 	- Origin: `eefd1dba` (dogfood runner, 2026-09-24). The stamp is parsed with a call that throws. Not seen before. Confirmed.
-	- Estimated effort: Low
-
-- Help leaves out `kB` and the `--duration` and `--size` refusals with `--array`
-	- ID: 2026092813365317
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 17
-	- Version and build: dev at `f90708d8`
-	- Incorrect behavior: `--unit` takes `kB`, and the spec lists it, but the help, man page and both completion lists leave it out. The help's refusal paragraph names `--array with --raw or --rawinfo` only. The man page and the CLIs also refuse it with `--duration` and `--size`.
-	- Expected behavior: the help and completions list what the CLI takes and refuses.
-	- Reproduced: 20260928, by reading and running the Rust CLI. Help is identical in all four.
-	- Origin: `95bec7c1`. Confirmed.
 	- Estimated effort: Low
 
 - The closed-items Test check borrows a Test line from an unrelated item
@@ -2015,6 +2025,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Origin: 2026-08-03. Confirmed.
 		- Fixed: the words refuse anything after them but their own flags, exit 1, in all four CLIs. The flag spellings still work anywhere.
 		- Test case: cli-regress `version-word-refuses-extra`, `about-word-refuses-extra` and `donate-word-refuses-extra`. Each fails on the old code.
+		- Note: superseded on 2026-09-28 by 2026092813365309. The words are gone, so those three rows are commented out.
 		- Opened: 20260923-145138
 		- Closed: 20260927-193609
 
