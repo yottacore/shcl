@@ -77,6 +77,10 @@ TOOL_PINS=(
 	## back, and the release packages. A go-installed nfpm says "dev" to
 	## --version, so the version comes off the module it was built from.
 	"nfpm|2.43.0|go version -m \"\$(command -v nfpm)\""
+	## Builds the Windows setup .exe at release. Another version on another box
+	## changes its bytes with no warning, as nfpm would. The hosted gate builds
+	## no release, so it installs neither this nor cargo-zigbuild.
+	"makensis|3.11|makensis -VERSION"
 	## Only check-readme needs zig (the Zig example), and only shell-regress
 	## needs Pillow (the demo gif's output order). Both fail a skip under --ci.
 	"zig|0.16.0|zig version"

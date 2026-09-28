@@ -43,8 +43,9 @@ testWhere="check-pins"; testCounter="nBad"; nBad=0
 # shellcheck source-path=SCRIPTDIR
 source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
 
-## Not installed by the hosted gate, which builds no cross targets.
-notInCi=(cargo-zigbuild)
+## Not installed by the hosted gate, which builds no cross targets and no
+## release packages.
+notInCi=(cargo-zigbuild makensis)
 
 ## Does ci.yml name tool $1 at version $2 as one token? The name is bounded on
 ## the left, then the joiner ci.yml uses (==, @, -, /, setup-go's `-version: "`,
