@@ -609,13 +609,18 @@ fTest EoXYMt6 backlog-stamps-end-items
 ##	The stamps terminate an item: an outcome bullet below them makes them stop
 ##	being a reliable end marker, and puts the result furthest from the finding.
 ##	Legacy items only. The new issue template, and the section that uses it,
-##	put Opened near the top.
+##	put Opened near the top. That section runs to the next heading at its own
+##	level or above, whichever level it sits at.
 while IFS= read -r hit; do
 	fBad "backlog.md: sub-bullet below the stamps: ${hit}"
 done < <(awk '
 	/^<!--/                { tmpl = 1 }
 	/-->/                  { tmpl = 0; next }
-	/^### /                { newfmt = ($0 ~ /^### New format/) }
+	/^#+ / {
+		level = index($0, " ") - 1
+		if ($0 ~ /^#+ New format/) newfmt = level
+		else if (newfmt && level <= newfmt) newfmt = 0
+	}
 	tmpl || newfmt         { next }
 	match($0, /^\t+- (Opened|Closed): /) { stamp = NR; indent = length($0) - length(substr($0, RSTART + RLENGTH)); next }
 	stamp == NR - 1 && /^\t+- / { print NR ": " substr($0, 1, 60) }
