@@ -395,7 +395,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Actual fix: 239 closed items got a `Test case:` line, counting sub-items whose parent has none. Most name the test their prose already did; the rest name one that covers the behavior, or say why there is none.
 	- Verified: every name in backticks on those lines exists in the repo.
 	- Branch: `windev`
-	- Test case: none. `check-docs.bash` does not yet refuse a closed item with no Test line.
+	- Test case: `check-docs.bash` `backlog-closed-items-name-a-test`, which refuses a closed item with no Test line, legacy or new format. It finds 78 on the old backlog.
 
 - `set` says when it wrote the canonical form instead of keeping lines
 	- ID: 2026092620255217

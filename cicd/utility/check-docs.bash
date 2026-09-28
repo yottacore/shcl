@@ -626,6 +626,69 @@ done < <(awk '
 	stamp == NR - 1 && /^\t+- / { print NR ": " substr($0, 1, 60) }
 	{ stamp = 0 }' "${backlog}" || true)
 
+fTest Er8RudX backlog-closed-items-name-a-test
+##	Every closed item says which test pins it, or why none does: a legacy
+##	checkmark item carries a Test case, Test or Pinned by line of its own or
+##	under a checked item it sits in, and a new-format item that is Done or
+##	waiting on signoff carries a Test case row. 98 closed items had none before
+##	anything checked (20260926 idea 1).
+while IFS= read -r hit; do
+	fBad "backlog.md: a closed item names no test: ${hit}"
+done < <(python3 - "${backlog}" <<'PYEOF'
+import re, sys
+lines = open(sys.argv[1], encoding="utf-8").read().split("\n")
+# The issue template's legend sits in a comment; it is no item.
+inside = False
+for i, line in enumerate(lines):
+	if line.startswith("<!--"):
+		inside = True
+	if inside:
+		lines[i] = ""
+	if "-->" in line:
+		inside = False
+test = re.compile(r"^(\t*)- (Test case|Test|Pinned by|Pinned)[: ]")
+items = []
+for i, line in enumerate(lines):
+	m = re.match(r"^(\t*)- \u2705 ", line)
+	if m:
+		items.append((i, len(m.group(1))))
+def own_test(i, depth):
+	for line in lines[i + 1:]:
+		if not line.strip():
+			if depth == 0:
+				return False
+			continue
+		m = re.match(r"^(\t*)- ", line)
+		if m and len(m.group(1)) <= depth:
+			return False
+		t = test.match(line)
+		if t and len(t.group(1)) == depth + 1:
+			return True
+	return False
+has = {i: own_test(i, d) for i, d in items}
+for k, (i, d) in enumerate(items):
+	if has[i]:
+		continue
+	parent = next((p for p, pd in reversed(items[:k]) if pd < d), None)
+	if parent is not None and has[parent] and d > 0:
+		continue
+	print(f"{i + 1}: {lines[i].strip()[:60]}")
+status = None
+for i, line in enumerate(lines):
+	if re.match(r"^- \S", line):
+		status, start, found = None, i, False
+	m = re.match(r"^\t- Status: (Done|Waiting on signoff)$", line)
+	if m:
+		status = start
+	if re.match(r"^\t- Test case: ", line):
+		found = True
+	end = i + 1 == len(lines) or re.match(r"^(- \S|#)", lines[i + 1])
+	if end and status is not None and not found:
+		print(f"{status + 1}: {lines[status].strip()[:60]}")
+		status = None
+PYEOF
+)
+
 fTest EoXYMt7 no-found-by-bullets
 ##	How a defect was found is not what changed. The gate that caught it belongs
 ##	in the cause line where it is the point, not in a bullet of its own.
