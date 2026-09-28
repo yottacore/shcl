@@ -883,6 +883,9 @@ def write_back(doc, file, o, read=None, keep=False):
 	text, kept = doc.to_text_keep_lines() if keep else (doc.to_canonical(), False)
 	if read is not None and (o.lossy or kept or doc.lost_count() == 0) and text == read:
 		return 0
+	# The text is already built, so the line-keeping save writes it rather than
+	# building it again, with the same refusal save_file_keep_lines makes
+	# (20260926 idea 3).
 	try:
 		if o.lossy and keep:
 			err = shcl.write_file_atomic(file, text)
@@ -890,8 +893,12 @@ def write_back(doc, file, o, read=None, keep=False):
 				raise shcl.SaveFailed(err)
 		elif o.lossy:
 			doc.save_file_lossy(file)
+		elif keep and not kept and doc.lost_count() > 0:
+			raise shcl.SaveRefused(file, doc.lost_count())
 		elif keep:
-			doc.save_file_keep_lines(file)
+			err = shcl.write_file_atomic(file, text)
+			if err is not None:
+				raise shcl.SaveFailed(err)
 		else:
 			doc.save_file(file)
 		# A created file is the one write with nothing to compare against
@@ -899,6 +906,10 @@ def write_back(doc, file, o, read=None, keep=False):
 		# empty stderr and a new file nobody asked for.
 		if read is None:
 			sys.stderr.write(f"{file}: created\n")
+		# A save meant to keep the lines rewrote the whole file, and that is
+		# worth a line (20260926 idea 2).
+		if keep and not kept:
+			sys.stderr.write(f"{file}: rewritten in the canonical form; the lines could not be kept as they were\n")
 		return 0
 	# The rule stays in the library; only the wording is the CLI's, because the
 	# override a user has here is a flag, not a function.

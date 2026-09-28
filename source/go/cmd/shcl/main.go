@@ -1513,14 +1513,19 @@ func writeBack(doc *shcl.Document, file string, o *opts, read *string, keep bool
 	if read != nil && (o.lossy || kept || doc.LostCount() == 0) && text == *read {
 		return 0
 	}
+	// The text is already built, so the line-keeping save writes it rather
+	// than building it again, with the same refusal SaveFileKeepLines makes
+	// (20260926 idea 3).
 	var werr error
 	switch {
 	case o.lossy && keep:
 		werr = shcl.WriteFileAtomic(file, text)
 	case o.lossy:
 		werr = doc.SaveFileLossy(file)
+	case keep && !kept && doc.LostCount() > 0:
+		werr = &shcl.SaveRefused{Path: file, Lost: doc.LostCount()}
 	case keep:
-		_, werr = doc.SaveFileKeepLines(file)
+		werr = shcl.WriteFileAtomic(file, text)
 	default:
 		werr = doc.SaveFile(file)
 	}
@@ -1530,6 +1535,11 @@ func writeBack(doc *shcl.Document, file string, o *opts, read *string, keep bool
 		// empty stderr and a new file nobody asked for.
 		if read == nil {
 			fmt.Fprintf(os.Stderr, "%s: created\n", file)
+		}
+		// A save meant to keep the lines rewrote the whole file, and that is
+		// worth a line (20260926 idea 2).
+		if keep && !kept {
+			fmt.Fprintf(os.Stderr, "%s: rewritten in the canonical form; the lines could not be kept as they were\n", file)
 		}
 		return 0
 	}

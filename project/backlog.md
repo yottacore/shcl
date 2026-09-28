@@ -395,7 +395,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - `set` says when it wrote the canonical form instead of keeping lines
 	- ID: 2026092620255217
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Priority: Avg
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 idea 2
@@ -403,6 +403,12 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- The library reports which save it wrote, and the CLI drops it. A `set -w` on a hand-formatted file can rewrite the whole file with nothing said, for example after adding a child under a dotted line.
 		- One line on stderr when the save fell back, in all four CLIs.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Decisions:
+		- 20260927: under `--write` only. Printed output shows the text itself.
+	- Actual fix: `write_back` in all four CLIs says "rewritten in the canonical form; the lines could not be kept as they were" after a save meant to keep lines that did not.
+	- Branch: `setkeep`
+	- Test case: cli-regress `set-write-says-canonical`. It fails on the old code.
 
 - `fmt` keeps the quotes on a number with a leading zero
 	- ID: 2026092621211801
@@ -541,7 +547,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - `set --write` builds the kept text twice
 	- ID: 2026092620255218
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Priority: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 idea 3
@@ -549,11 +555,16 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- `write_back` calls `to_text_keep_lines` to compare with the file, then `save_file_keep_lines` builds it again. On a 216k-line file `set -w` takes 1.25 s against 0.71 s printing.
 		- Build it once and save that text.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: `write_back` writes the text it built for the unchanged check, with the same refusal the library's line-keeping save makes, in all four CLIs.
+	- Verified: 216,000 lines, one edit, release build: 0.44 s before, 0.35 s after.
+	- Branch: `setkeep`
+	- Test case: none of its own. The cli-regress keep rows and the fallback refusal rows cover the write and the refusal, and perf-gate's `keeps` row the time.
 
 - `perf-gate`'s Python `keeps` row runs close to its budget
 	- ID: 2026092620255219
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Priority: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 idea 4
@@ -561,11 +572,16 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Three local runs took 68 to 85 percent of the budget. A slow hosted runner could flake it, as `badlines` did.
 		- A count in place of the clock, or a wider floor.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: the row's budget is half again the others', since the line-keeping save parses three times against a one-parse baseline. Python now sits near half of it.
+	- Verified: a quadratic loop injected into Python's keep save still fails the row.
+	- Branch: `setkeep`
+	- Test case: perf-gate `keeps` itself.
 
 - `cli-regress` rows have no timeout
 	- ID: 2026092620255220
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Priority: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 idea 5
@@ -573,6 +589,11 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- A CLI that starts reading stdin under a row that feeds nothing hangs the gate rather than failing the row.
 		- A per-row timeout that fails with the row's name.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: every row runs under `timeout` (60 s), and a timeout reports the row as "timed out". The save cases already had one.
+	- Verified: a stub CLI that sleeps, with the limit at 1 s, times out row by row by name.
+	- Branch: `setkeep`
+	- Test case: none standing, since a row that must hang costs the full limit on every run.
 
 - `migrate --write` keeps the original file beside the migrated one
 	- ID: 2026092709243678

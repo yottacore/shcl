@@ -257,6 +257,7 @@ printf '# note\nName:   "x"   # c\nblock:\n    a: 1\n' > "${tmpDir}/keepsrc.shcl
 printf 'font:\n\tsize: 12\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n' > "${tmpDir}/keeplost.shcl"
 printf 'val: 1\n\t* e\nz: 2\n' > "${tmpDir}/keepelem.shcl"
 printf 'x: [1, 2]\n x:\nx.a: 2\n' > "${tmpDir}/keepgap.shcl"
+printf 'a:\n\tx: 1\nb:   2\na:\n\ty: 1\n' > "${tmpDir}/keepfold.shcl"
 ## A schema key nothing knows, on schema line 2.
 printf 'field: a\n\tbogus: 1\n' > "${tmpDir}/unkey.shcl"
 ## A file and a name that both start with a dash, so only `--` makes them data.
@@ -291,7 +292,7 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	%K% a fresh copy of a file kept by hand, at the path %C% names, %KL% the
 ##	same for a file whose load drops a line, %KE% one that drops an element
 ##	under a field with a value, %KG% one that drops a line between two lines
-##	of one block,
+##	of one block, %KF% one whose save cannot keep its lines,
 ##	%W% a fresh copy of the selector-sugar file, %BS% a fresh copy of a file
 ##	whose value reads differently under the two rule sets, %BW% a fresh copy of
 ##	the bracket array, %V3% a file that already names its format,
@@ -328,6 +329,9 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	stdout and stderr: '-' means unchecked; an empty stdout field means exactly empty.
 ##	A stderr regex starting with '!' must match NO line.
 ##	Each row names the round and item it pins, and starts with its test ID.
+## A CLI that starts reading a stdin nothing feeds would hang the gate. Each
+## row runs under this limit and fails by name instead (20260926 idea 5).
+rowSecs=60
 rows=(
 	## 20260830 item 15: a second '-' read an empty document that looked like an answer.
 	'EoTHA7U|dup-stdin-schema|check --schema=- -|a: 1\n|1||named only once'
@@ -495,6 +499,9 @@ rows=(
 	## 0, an element under a field with a value or an E018 line between two
 	## lines of one block.
 	'Er7gigM|set-write-keeps-dropped-element|set --write %KE% --set=val=9|-|7|-|dropped 1 line|val: 1\n\t* e\nz: 2\n'
+	## 20260926 idea 2: a save meant to keep the lines that rewrote the whole
+	## file said nothing.
+	'Er8Ivln|set-write-says-canonical|set --write %KF% --set=b=3|-|0|-|rewritten in the canonical form|a:\n\tx: 1\n\ty: 1\nb: 3\n'
 	'Er7gihi|set-write-keeps-dropped-between|set --write %KG% --set=x=v|-|7|-|dropped 1 line|x: [1, 2]\n x:\nx.a: 2\n'
 	"Ep3OILN|set-open-quote-refused|set --set=a[\"open=1 %X%|-|1|-|bad --set value"
 	## 20260909 item 13: a value built by a setter or a selector read as
@@ -995,6 +1002,11 @@ for row in "${rows[@]}"; do
 		freshKeepGap=1
 		argv="${argv//%KG%/${tmpDir}/created.shcl}"
 	fi
+	freshKeepFold=0
+	if [[ "${argv}" == *%KF%* ]]; then
+		freshKeepFold=1
+		argv="${argv//%KF%/${tmpDir}/created.shcl}"
+	fi
 	freshCreate=0
 	if [[ "${argv}" == *%C%* ]]; then
 		freshCreate=1
@@ -1067,22 +1079,23 @@ for row in "${rows[@]}"; do
 		((freshKeepLost)) && cp "${tmpDir}/keeplost.shcl" "${tmpDir}/created.shcl"
 		((freshKeepElem)) && cp "${tmpDir}/keepelem.shcl" "${tmpDir}/created.shcl"
 		((freshKeepGap)) && cp "${tmpDir}/keepgap.shcl" "${tmpDir}/created.shcl"
+		((freshKeepFold)) && cp "${tmpDir}/keepfold.shcl" "${tmpDir}/created.shcl"
 		if [[ -n "${runIn}" ]]; then cli="$(realpath -- "${cli}")"; cd -- "${runIn}"; fi
 		rc=0
 		case "${stdinSpec}" in
-			@closedin)  "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" 0<&- || rc=$? ;;
-			@closedout) "${cli}" "${args[@]}" 2>"${tmpDir}/err" >&- || rc=$?; : >"${tmpDir}/out" ;;
-			@fullout)   "${cli}" "${args[@]}" 2>"${tmpDir}/err" >/dev/full || rc=$?; : >"${tmpDir}/out" ;;
-			@fullerr)   "${cli}" "${args[@]}" >"${tmpDir}/out" 2>/dev/full || rc=$?; : >"${tmpDir}/err" ;;
-			-)          "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" </dev/null || rc=$? ;;
-			@asciilocale) PYTHONIOENCODING=ascii LC_ALL=C "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" </dev/null || rc=$? ;;
+			@closedin)  timeout "${rowSecs}" "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" 0<&- || rc=$? ;;
+			@closedout) timeout "${rowSecs}" "${cli}" "${args[@]}" 2>"${tmpDir}/err" >&- || rc=$?; : >"${tmpDir}/out" ;;
+			@fullout)   timeout "${rowSecs}" "${cli}" "${args[@]}" 2>"${tmpDir}/err" >/dev/full || rc=$?; : >"${tmpDir}/out" ;;
+			@fullerr)   timeout "${rowSecs}" "${cli}" "${args[@]}" >"${tmpDir}/out" 2>/dev/full || rc=$?; : >"${tmpDir}/err" ;;
+			-)          timeout "${rowSecs}" "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" </dev/null || rc=$? ;;
+			@asciilocale) PYTHONIOENCODING=ascii LC_ALL=C timeout "${rowSecs}" "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" </dev/null || rc=$? ;;
 			## The file turns up while the command waits on stdin: after its
 			## notice and before the ops, so the create has already been decided.
 			## @change: the file is there first and changes during the wait.
 			@appear|@change)
 				[[ "${stdinSpec}" == @change ]] && printf 'a: 1\n' >"${tmpDir}/created.shcl"
 				rm -f "${tmpDir}/in.fifo"; mkfifo "${tmpDir}/in.fifo"
-				"${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" <"${tmpDir}/in.fifo" &
+				timeout "${rowSecs}" "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" <"${tmpDir}/in.fifo" &
 				appearPid=$!
 				exec {fifoFd}>"${tmpDir}/in.fifo"
 				for ((w = 0; w < 200; w++)); do
@@ -1098,10 +1111,13 @@ for row in "${rows[@]}"; do
 				exec {fifoFd}>&-
 				wait "${appearPid}" || rc=$?
 				;;
-			*)          printf '%b' "${stdinSpec}" | "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" || rc=$? ;;
+			*)          printf '%b' "${stdinSpec}" | timeout "${rowSecs}" "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" || rc=$? ;;
 		esac
 		cd -- "${startDir}"
 		nRun+=1
+		if ((rc == 124 && wantRc != 124)); then
+			echo "cli-regress: ${id} [${name}]: timed out after ${rowSecs} s" >&2; nBad+=1; continue
+		fi
 		if ((rc != wantRc)); then
 			echo "cli-regress: ${id} [${name}]: exit ${rc}, expected ${wantRc}" >&2; nBad+=1; continue
 		fi
