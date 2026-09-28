@@ -564,13 +564,20 @@ static int write_target_ok(const char *file) {
 	return 1;
 }
 
+static char *read_stream(FILE *f, const char *who, size_t *len);
 static char *read_input(const char *file, size_t *len) {
-	char *buf = NULL; size_t cap = 0, n = 0;
 	int is_stdin = strcmp(file, "-") == 0;
 	const char *who = is_stdin ? "stdin" : file;
 	if (!is_stdin && is_a_directory(file)) { fprintf(stderr, "%s: Is a directory\n", who); return NULL; }
 	FILE *f = is_stdin ? stdin : open_rb(file);
 	if (!f) { fprintf(stderr, "%s: %s\n", who, strerror(errno)); return NULL; }
+	return read_stream(f, who, len);
+}
+
+// The rest of read_input, once FILE is open. It closes f unless it is stdin.
+static char *read_stream(FILE *f, const char *who, size_t *len) {
+	char *buf = NULL; size_t cap = 0, n = 0;
+	int is_stdin = f == stdin;
 	char chunk[65536]; size_t r;
 	errno = 0;
 	while ((r = fread(chunk, 1, sizeof chunk, f)) > 0) {
@@ -1081,16 +1088,25 @@ static size_t rewritten_lines(const char *file, const char *before, size_t blen,
 	return count;
 }
 
+// Where the file name starts in a path: after the last separator, or on
+// windows after a drive with no separator (C:cfg.shcl). A backslash is a
+// separator only on windows.
+static size_t name_start(const char *file) {
+	const char *sep = strrchr(file, '/');
+#ifdef _WIN32
+	const char *bs = strrchr(file, '\\');
+	if (bs && (!sep || bs > sep)) sep = bs;
+	unsigned char c = (unsigned char)file[0];
+	if (!sep && (c | 0x20) >= 'a' && (c | 0x20) <= 'z' && file[1] == ':') return 2;
+#endif
+	return sep ? (size_t)(sep - file) + 1 : 0;
+}
+
 // Where migrate --write keeps the file it replaces: _old_v2 before the last
 // dot of the file name, or on the end when it has none. A leading dot is part
 // of the name, not an extension.
 static char *old_copy_name(const char *file) {
-	const char *name = strrchr(file, '/');
-#ifdef _WIN32
-	const char *bs = strrchr(file, '\\');
-	if (bs && (!name || bs > name)) name = bs;
-#endif
-	name = name ? name + 1 : file;
+	const char *name = file + name_start(file);
 	const char *dot = strrchr(name, '.');
 	size_t n = strlen(file);
 	size_t at = dot && dot > name ? (size_t)(dot - file) : n;
@@ -1649,9 +1665,10 @@ static int do_set(Opts *o) {
    directory, the way an editor reads it. A URL is left to editors, since a
    check that reads the network because of a line in a file is not one to run
    unattended. The caller frees what comes back. */
-static char *schema_for(const Opts *o, const char *file, const char *text, size_t len) {
+static char *schema_for(const Opts *o, const char *file, const char *text, size_t len, size_t *out_len, int *refused) {
 	size_t n;
 	const char *named;
+	*refused = 0;
 	if (o->schema) { named = o->schema; n = strlen(named); }
 	else if (!(named = shcl_schema_ref(text, len, &n))) return NULL;
 	else {
@@ -1660,17 +1677,66 @@ static char *schema_for(const Opts *o, const char *file, const char *text, size_
 				fprintf(stderr, "the file names its schema by URL (%.*s), which check does not fetch; pass --schema=SCHEMA to validate against it\n", (int)n, named);
 				return NULL;
 			}
+#ifdef _WIN32
+		/* Two separators, or the NT prefix, name a share or a device, and a
+		   line in a file someone else wrote must not reach another host. */
+		int two = n >= 2 && (named[0] == '/' || named[0] == '\\') && (named[1] == '/' || named[1] == '\\');
+		if (two || (n >= 4 && memcmp(named, "\\??\\", 4) == 0)) {
+			fwrite(named, 1, n, stderr);
+			fprintf(stderr, ": a Schema line cannot name a network or device path\n");
+			*refused = 1;
+			return NULL;
+		}
+#endif
 	}
 	unsigned char c = (unsigned char)named[0];
-	int absolute = o->schema || c == '/' || c == '\\' || (n >= 2 && named[1] == ':' && (c | 0x20) >= 'a' && (c | 0x20) <= 'z');
-	const char *dir = "."; size_t dn = 1;
-	if (!absolute && strcmp(file, "-") != 0)
-		for (size_t k = strlen(file); k > 0; k--)
-			if (file[k - 1] == '/' || file[k - 1] == '\\') { dir = file; dn = k - 1; break; }
-	char *out = (char *)xrealloc(NULL, dn + 1 + n + 1), *w = out;
-	if (!absolute) { memcpy(w, dir, dn); w += dn; *w++ = '/'; }
+	int absolute = o->schema || c == '/';
+#ifdef _WIN32
+	absolute = absolute || c == '\\' || (n >= 2 && named[1] == ':' && (c | 0x20) >= 'a' && (c | 0x20) <= 'z');
+#endif
+	const char *dir = "./"; size_t dn = 2;
+	size_t start = strcmp(file, "-") != 0 ? name_start(file) : 0;
+	if (start) { dir = file; dn = start; }
+	char *out = (char *)xrealloc(NULL, dn + n + 1), *w = out;
+	if (!absolute) { memcpy(w, dir, dn); w += dn; }
 	memcpy(w, named, n); w[n] = '\0';
+	*out_len = (size_t)(w - out) + n;
 	return out;
+}
+
+/* The schema a Schema line names. A line in a file someone else wrote must not
+   make an unattended check wait on a FIFO or read a device until memory runs
+   out, so only a regular file is read. The path comes from the file, so
+   unlike argv it can hold a NUL. */
+static char *read_named_schema(const char *path, size_t pn, size_t *len) {
+	if (memchr(path, 0, pn)) {
+		fwrite(path, 1, pn, stderr);
+		fprintf(stderr, ": %s\n", strerror(EINVAL));
+		return NULL;
+	}
+#ifdef _WIN32
+	if (!is_a_directory(path) && shcl_not_a_disk_file(path)) {
+		fprintf(stderr, "%s: not a regular file\n", path);
+		return NULL;
+	}
+	return read_input(path, len);
+#else
+	/* Asked before the open too, since opening a FIFO waits for a writer. */
+	struct stat st;
+	if (stat(path, &st) == 0 && !S_ISREG(st.st_mode) && !S_ISDIR(st.st_mode)) {
+		fprintf(stderr, "%s: not a regular file\n", path);
+		return NULL;
+	}
+	if (is_a_directory(path)) { fprintf(stderr, "%s: Is a directory\n", path); return NULL; }
+	FILE *f = open_rb(path);
+	if (!f) { fprintf(stderr, "%s: %s\n", path, strerror(errno)); return NULL; }
+	if (fstat(fileno(f), &st) == 0 && !S_ISREG(st.st_mode)) {
+		fprintf(stderr, "%s: not a regular file\n", path);
+		fclose(f);
+		return NULL;
+	}
+	return read_stream(f, path, len);
+#endif
 }
 
 static int do_check(const Opts *o) {
@@ -1690,9 +1756,13 @@ static int do_check(const Opts *o) {
 	   strict a user was getting less out of check than at standard on the same
 	   file, and check writes nothing, so fmt's refusal to rewrite a
 	   strict-failing document does not carry over. */
-	char *schema_file = schema_for(o, o->args[0], text, len);
+	size_t spn = 0;
+	int refused;
+	char *schema_file = schema_for(o, o->args[0], text, len, &spn, &refused);
+	if (refused) { shcl_free(d); free(text); return EXIT_IO; }
 	if (schema_file) {
-		size_t slen; stext = read_input(schema_file, &slen);
+		size_t slen;
+		stext = o->schema ? read_input(schema_file, &slen) : read_named_schema(schema_file, spn, &slen);
 		free(schema_file);
 		if (!stext) { shcl_free(d); free(text); return EXIT_IO; }
 		sd = xdoc(shcl_parse(stext, slen));

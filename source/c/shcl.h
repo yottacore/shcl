@@ -584,8 +584,9 @@ int64_t shcl_format_version(const char *text, size_t len);
 // The schema a document's `##    Schema   REF` line names: a path, or a URL
 // for an editor to fetch, as a pointer into text with its length in *ref_len.
 // NULL when no line names one. The first such line wins, and one inside a raw
-// body is that block's content, as with the Format line. A relative path is
-// the caller's to resolve, from the config file's directory.
+// body is that block's content, as with the Format line. Either line may be
+// indented, since the formatter indents a comment to the field below it. A
+// relative path is the caller's to resolve, from the config file's directory.
 const char *shcl_schema_ref(const char *text, size_t len, size_t *ref_len);
 
 // --- Writer: typed emit, defaults, comments, structural edits ---------------
@@ -1988,6 +1989,12 @@ static int parse_size_text(ShclStr t, shcl_size_unit bare, int decimal, int64_t 
 	if (use == SHCL_SIZE_NONE || !scaled(ip, fp, size_bytes(use, decimal), &v) || v > (uint64_t)INT64_MAX) return 0;
 	*bytes = (int64_t)v; return 1;
 }
+/* Whether a name ends in a duration or size unit. Asked before a value's text
+   is built for unit_clash, since most names do not, and that text goes in
+   scratch nothing frees until the parse ends. */
+static int unit_named(ShclStr name) {
+	return name_duration_unit(name) != SHCL_DURATION_NONE || name_size_unit(name) != SHCL_SIZE_NONE;
+}
 /* A value in another unit than the one its field name ends in (H005), as
    `timeout-ms: 5s`. The value's unit is the one read, so this is a hint. */
 static int unit_clash(ShclArena *a, ShclStr name, ShclStr text, ShclStr *msg) {
@@ -2385,6 +2392,20 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
    file, or leave an old one alone. A file naming this format on any line has
    nothing to migrate, so the highest line decides: the stamp migrate adds
    comes after an older one, and the next run has to see it. */
+/* Note the raw block a line opens, the way the rewrite does. Only a line with
+   a run of three backticks or tildes can open one, so the rest skip the
+   tokenizer. */
+static void track_fence(ShclArena *ta, ShclArena *sc, ShclStr rest, ShclTokens *tok, int *fence_on, unsigned char *fence_ch, size_t *fence_len, ShclMigrating *dry) {
+	for (size_t k = 0; k + 2 < rest.n; k++) {
+		char c = rest.p[k];
+		if ((c == '`' || c == '~') && rest.p[k + 1] == c && rest.p[k + 2] == c) {
+			arena_reset(sc);
+			migrate_line(ta, sc, rest, tok, fence_on, fence_ch, fence_len, dry);
+			return;
+		}
+	}
+}
+
 static int64_t format_line_version(ShclArena *ta, ShclArena *sc, ShclStr text, ShclTokens *tok) {
 	size_t headn = sizeof(SHCL_FORMAT_LINE_HEAD) - 1, start = 0;
 	int64_t found = -1;
@@ -2402,7 +2423,7 @@ static int64_t format_line_version(ShclArena *ta, ShclArena *sc, ShclStr text, S
 			if (is_fence_close(body, fence_ch, fence_len)) fence_on = 0;
 			continue;
 		}
-		ShclStr line = trim_wsp_end(raw);
+		ShclStr line = trim_wsp_end(s_slice(body, leading_ws(body).n, body.n));
 		if (line.n > headn && memcmp(line.p, SHCL_FORMAT_LINE_HEAD, headn) == 0) {
 			ShclStr n = s_slice(line, headn, line.n);
 			uint64_t u = 0; int ok = 1, big = 0;
@@ -2417,9 +2438,7 @@ static int64_t format_line_version(ShclArena *ta, ShclArena *sc, ShclStr text, S
 				continue;
 			}
 		}
-		arena_reset(sc);
-		ShclStr indent = leading_ws(body);
-		migrate_line(ta, sc, trim_wsp_end(s_slice(body, indent.n, body.n)), tok, &fence_on, &fence_ch, &fence_len, &dry);
+		track_fence(ta, sc, line, tok, &fence_on, &fence_ch, &fence_len, &dry);
 	}
 	return found;
 }
@@ -2582,14 +2601,13 @@ static int schema_line_ref(ShclArena *ta, ShclArena *sc, ShclStr text, ShclToken
 			if (is_fence_close(body, fence_ch, fence_len)) fence_on = 0;
 			continue;
 		}
-		if (body.n >= headn && memcmp(body.p, SHCL_SCHEMA_LINE_HEAD, headn) == 0) {
-			ShclStr r = s_trim_wsp(s_slice(body, headn, body.n));
+		ShclStr rest = trim_wsp_end(s_slice(body, leading_ws(body).n, body.n));
+		if (rest.n >= headn && memcmp(rest.p, SHCL_SCHEMA_LINE_HEAD, headn) == 0) {
+			ShclStr r = s_trim_wsp(s_slice(rest, headn, rest.n));
 			if (r.n) { *out = r; return 1; }
 			continue;
 		}
-		arena_reset(sc);
-		ShclStr indent = leading_ws(body);
-		migrate_line(ta, sc, trim_wsp_end(s_slice(body, indent.n, body.n)), tok, &fence_on, &fence_ch, &fence_len, &dry);
+		track_fence(ta, sc, rest, tok, &fence_on, &fence_ch, &fence_len, &dry);
 	}
 	return 0;
 }
@@ -4512,7 +4530,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 		if (attach_path(&P, parent, scan.segs.data, scan.segs.len, value, lineno, indent, &node)) {
 			for (size_t k = 0; celled && k < tok.nelem; k++)
 				if (path_like(&tok.elements[k], rest)) { p_diag(&P, lineno, SHCL_SEV_HINT, "H004", s_lit(path_hint)); break; }
-			for (size_t k = 0; celled && k < tok.nelem; k++) {
+			for (size_t k = 0; celled && unit_named(NODE(d, node).name) && k < tok.nelem; k++) {
 				ShclStr clash;
 				if (unit_clash(P.tmp, NODE(d, node).name, piece_text(P.tmp, &tok.elements[k], rest), &clash)) { p_diag(&P, lineno, SHCL_SEV_HINT, "H005", clash); break; }
 			}

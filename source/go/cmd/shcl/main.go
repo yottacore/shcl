@@ -1901,15 +1901,29 @@ func rewrittenLines(before, after string) []int {
 // `_old_v2` before the last dot of the file name, or on the end when it has
 // none. A leading dot is part of the name, not an extension.
 func oldCopyName(file string) string {
-	start := strings.LastIndex(file, "/") + 1
-	if bs := strings.LastIndex(file, "\\") + 1; runtime.GOOS == "windows" && bs > start {
-		start = bs
-	}
+	start := nameStart(file)
 	if dot := strings.LastIndex(file[start:], "."); dot > 0 {
 		at := start + dot
 		return file[:at] + "_old_v2" + file[at:]
 	}
 	return file + "_old_v2"
+}
+
+// nameStart says where the file name starts in a path: after the last
+// separator, or on windows after a drive with no separator (C:cfg.shcl). A
+// backslash is a separator only on windows.
+func nameStart(file string) int {
+	start := strings.LastIndex(file, "/") + 1
+	if runtime.GOOS != "windows" {
+		return start
+	}
+	if bs := strings.LastIndex(file, "\\") + 1; bs > start {
+		start = bs
+	}
+	if start == 0 && len(file) >= 2 && file[1] == ':' && (file[0]|0x20) >= 'a' && (file[0]|0x20) <= 'z' {
+		start = 2
+	}
+	return start
 }
 
 // keepOriginal writes the original bytes to the old-copy name before the
@@ -2763,28 +2777,80 @@ func doSet(o *opts) int {
 // config file's directory, the way an editor reads it. A URL is left to
 // editors, since a check that reads the network because of a line in a file
 // is not one to run unattended.
-func schemaFor(o *opts, file, text string) (string, bool) {
+func schemaFor(o *opts, file, text string) (string, bool, error) {
 	if o.schemaSet {
-		return o.schema, true
+		return o.schema, true, nil
 	}
 	named, ok := shcl.SchemaRef(text)
 	if !ok {
-		return "", false
+		return "", false, nil
 	}
 	if strings.Contains(named, "://") {
 		fmt.Fprintf(os.Stderr, "the file names its schema by URL (%s), which check does not fetch; pass --schema=SCHEMA to validate against it\n", named)
-		return "", false
+		return "", false, nil
 	}
-	absolute := named[0] == '/' || named[0] == '\\' ||
-		(len(named) >= 2 && named[1] == ':' && (named[0]|0x20) >= 'a' && (named[0]|0x20) <= 'z')
+	// Two separators, or the NT prefix, name a share or a device on windows,
+	// and a line in a file someone else wrote must not reach another host.
+	isSep := func(c byte) bool { return c == '/' || c == '\\' }
+	if runtime.GOOS == "windows" && len(named) >= 2 && ((isSep(named[0]) && isSep(named[1])) || strings.HasPrefix(named, `\??\`)) {
+		return "", false, fmt.Errorf("%s: a Schema line cannot name a network or device path", named)
+	}
+	absolute := named[0] == '/' || (runtime.GOOS == "windows" && (named[0] == '\\' ||
+		(len(named) >= 2 && named[1] == ':' && (named[0]|0x20) >= 'a' && (named[0]|0x20) <= 'z')))
 	if absolute {
-		return named, true
+		return named, true, nil
 	}
-	dir := "."
-	if k := strings.LastIndexAny(file, "/\\"); k >= 0 && file != "-" {
-		dir = file[:k]
+	start := 0
+	if file != "-" {
+		start = nameStart(file)
 	}
-	return dir + "/" + named, true
+	if start == 0 {
+		return "./" + named, true, nil
+	}
+	return file[:start] + named, true, nil
+}
+
+// readNamedSchema reads the schema a Schema line names. A line in a file
+// someone else wrote must not make an unattended check wait on a FIFO or read
+// a device until memory runs out, so only a regular file is read.
+func readNamedSchema(path string) (string, error) {
+	if notADiskFile(path) {
+		return "", fmt.Errorf("%s: not a regular file", path)
+	}
+	regular := func(fi fs.FileInfo, err error) error {
+		var pe *fs.PathError
+		switch {
+		case errors.As(err, &pe):
+			return fmt.Errorf("%s: %w", path, pe.Err)
+		case err != nil:
+			return fmt.Errorf("%s: %w", path, err)
+		case fi.IsDir():
+			return fmt.Errorf("%s: Is a directory", path)
+		case !fi.Mode().IsRegular():
+			return fmt.Errorf("%s: not a regular file", path)
+		}
+		return nil
+	}
+	// Asked before the open too, since opening a FIFO waits for a writer.
+	if err := regular(os.Stat(path)); err != nil {
+		return "", err
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return "", regular(nil, err)
+	}
+	defer f.Close()
+	if err := regular(f.Stat()); err != nil {
+		return "", err
+	}
+	b, err := io.ReadAll(f)
+	if err != nil {
+		return "", regular(nil, err)
+	}
+	if !utf8.Valid(b) {
+		return "", fmt.Errorf("%s: stream did not contain valid UTF-8", path)
+	}
+	return string(b), nil
 }
 
 func doCheck(o *opts) int {
@@ -2808,8 +2874,17 @@ func doCheck(o *opts) int {
 	// --schema: append validation diagnostics under the same contract. The
 	// schema itself always loads at Standard (a program artifact); one that
 	// does not load cleanly is a single V099 schema fault.
-	if schemaFile, ok := schemaFor(o, o.args[0], text); ok {
-		stext, serr := readInput(schemaFile)
+	schemaFile, ok, err := schemaFor(o, o.args[0], text)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return exitIO
+	}
+	if ok {
+		read := readNamedSchema
+		if o.schemaSet {
+			read = readInput
+		}
+		stext, serr := read(schemaFile)
 		if serr != nil {
 			fmt.Fprintln(os.Stderr, serr)
 			return exitIO

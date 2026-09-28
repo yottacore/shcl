@@ -349,6 +349,10 @@ Both open points are settled:
 
 - `check` reads a path from the config file's directory, the way an editor does, and a `--schema` on the command line wins.
 
+- The line counts at any indent (2026-09-28). The formatter indents a comment to the field below it, and a match at column 0 only meant `fmt` could turn a file's check off.
+
+- `check` reads only a regular file there, and on Windows refuses a path starting with two separators or `\??\` (2026-09-28). The file may come from someone else, and a device, a FIFO or a network share would make an unattended check run out of memory, hang, or connect to another host.
+
 - A URL is left to editors. A check that goes to the network because of a line in a file is not one to run unattended, so `check` says it skipped it and validates nothing.
 
 - `set_banner` keeps the line when it sits inside the info block, since the author wrote it there and the block is rewritten whole.

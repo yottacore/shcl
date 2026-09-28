@@ -1943,8 +1943,9 @@ func FormatVersion(text string) (int, bool) {
 // SchemaRef is the schema a document's `##    Schema   REF` line names: a
 // path, or a URL for an editor to fetch. ok is false when no line names one.
 // The first such line wins, and one inside a raw body is that block's
-// content, as with the Format line. A relative path is the caller's to
-// resolve, from the config file's directory.
+// content, as with the Format line. Either line may be indented, since the
+// formatter indents a comment to the field below it. A relative path is the
+// caller's to resolve, from the config file's directory.
 func SchemaRef(text string) (string, bool) {
 	text = strings.TrimPrefix(text, "\ufeff")
 	var tok Tokens
@@ -1958,15 +1959,25 @@ func SchemaRef(text string) (string, bool) {
 			}
 			continue
 		}
-		if r, ok := strings.CutPrefix(body, SchemaLineHead); ok {
+		rest := trimEndWS(body[len(leadingWS(body)):])
+		if r, ok := strings.CutPrefix(rest, SchemaLineHead); ok {
 			if r = trimWsp(r); r != "" {
 				return r, true
 			}
 			continue
 		}
-		migrateLine(trimEndWS(body[len(leadingWS(body)):]), &tok, &fence, &dry)
+		trackFence(rest, &tok, &fence, &dry)
 	}
 	return "", false
+}
+
+// trackFence notes the raw block a line opens, the way the rewrite does. Only
+// a line with a run of three backticks or tildes can open one, so the rest
+// skip the tokenizer.
+func trackFence(rest string, tok *Tokens, fence *openFence, dry *migrating) {
+	if strings.Contains(rest, "```") || strings.Contains(rest, "~~~") {
+		migrateLine(rest, tok, fence, dry)
+	}
 }
 
 // formatLineVersion is FormatVersion on text with the BOM already off. Digits
@@ -1993,7 +2004,8 @@ func formatLineVersion(text string) (int, bool) {
 			}
 			continue
 		}
-		if n, ok := strings.CutPrefix(trimEndWS(line), FormatLineHead); ok && n != "" {
+		rest := trimEndWS(body[len(leadingWS(body)):])
+		if n, ok := strings.CutPrefix(rest, FormatLineHead); ok && n != "" {
 			digits := true
 			for i := 0; i < len(n); i++ {
 				if n[i] < '0' || n[i] > '9' {
@@ -2015,7 +2027,7 @@ func formatLineVersion(text string) (int, bool) {
 				continue
 			}
 		}
-		migrateLine(trimEndWS(body[len(leadingWS(body)):]), &tok, &fence, &dry)
+		trackFence(rest, &tok, &fence, &dry)
 	}
 	return found, has
 }
@@ -3983,7 +3995,7 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 						break
 					}
 				}
-				for i := range tok.Elements {
+				for i := 0; unitNamed(p.arena[node].name) && i < len(tok.Elements); i++ {
 					if m, ok := unitClash(p.arena[node].name, pieceText(&tok.Elements[i], rest)); ok {
 						p.diag(Diagnostic{Line: lineno, Severity: SeverityHint, Message: m, Code: "H005"})
 						break
@@ -8737,6 +8749,12 @@ func parseSizeText(t string, bare SizeUnit, decimal bool) (int64, SizeUnit, bool
 		return 0, SizeNone, false
 	}
 	return int64(n), unit, true
+}
+
+// unitNamed says whether a name ends in a duration or size unit. Asked before
+// a value's text is built for unitClash, since most names do not.
+func unitNamed(name string) bool {
+	return nameDurationUnit(name) != DurationNone || nameSizeUnit(name) != SizeNone
 }
 
 // unitClash is a value in another unit than the one its field name ends in

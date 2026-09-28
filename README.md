@@ -532,7 +532,7 @@ failed: 1 diagnostic(s), 1 error(s)
 
 A config file can also name its own schema, so `shcl check app.shcl` needs no option and an editor can find it too:
 
-- A line such as this one, at the start of the line, names it. The path is read from the file's own directory.
+- A line such as this one names it, at the start of a line or indented under a field. The path is read from the file's own directory.
 
 	~~~shcl
 	##    Schema   app-schema.shcl
