@@ -255,6 +255,8 @@ printf 'a:   1\n' > "${tmpDir}/noncanon.shcl"
 printf '# note\nName:   "x"   # c\nblock:\n    a: 1\n' > "${tmpDir}/keepsrc.shcl"
 ## The load drops the tab-indented stray line. The keep save writes it back.
 printf 'font:\n\tsize: 12\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n' > "${tmpDir}/keeplost.shcl"
+printf 'val: 1\n\t* e\nz: 2\n' > "${tmpDir}/keepelem.shcl"
+printf 'x: [1, 2]\n x:\nx.a: 2\n' > "${tmpDir}/keepgap.shcl"
 ## A schema key nothing knows, on schema line 2.
 printf 'field: a\n\tbogus: 1\n' > "${tmpDir}/unkey.shcl"
 ## A file and a name that both start with a dash, so only `--` makes them data.
@@ -287,7 +289,9 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	%SV% a schema naming a path the two-error file does not have,
 ##	%NV% two instance values holding a line break beside one plain value,
 ##	%K% a fresh copy of a file kept by hand, at the path %C% names, %KL% the
-##	same for a file whose load drops a line,
+##	same for a file whose load drops a line, %KE% one that drops an element
+##	under a field with a value, %KG% one that drops a line between two lines
+##	of one block,
 ##	%W% a fresh copy of the selector-sugar file, %BS% a fresh copy of a file
 ##	whose value reads differently under the two rule sets, %BW% a fresh copy of
 ##	the bracket array, %V3% a file that already names its format,
@@ -484,6 +488,11 @@ rows=(
 	## canonical. Removing margin would put stray under window, so that one does.
 	'EqzUbG4|set-write-keeps-dropped|set --write %KL% --set=font.size=13|-|0|-|E012|font:\n\tsize: 13\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n'
 	'EqzUbG5|set-write-fallback-refused|set --write %KL% --remove=window.margin|-|7|-|dropped 1 line|font:\n\tsize: 12\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n'
+	## 20260926 item 1: a rewritten line took a dropped line with it at exit
+	## 0, an element under a field with a value or an E018 line between two
+	## lines of one block.
+	'Er7gigM|set-write-keeps-dropped-element|set --write %KE% --set=val=9|-|7|-|dropped 1 line|val: 1\n\t* e\nz: 2\n'
+	'Er7gihi|set-write-keeps-dropped-between|set --write %KG% --set=x=v|-|7|-|dropped 1 line|x: [1, 2]\n x:\nx.a: 2\n'
 	"Ep3OILN|set-open-quote-refused|set --set=a[\"open=1 %X%|-|1|-|bad --set value"
 	## 20260909 item 13: a value built by a setter or a selector read as
 	## unquoted, so quoted thousands were BadType until a save and reload.
@@ -960,6 +969,16 @@ for row in "${rows[@]}"; do
 		freshKeepLost=1
 		argv="${argv//%KL%/${tmpDir}/created.shcl}"
 	fi
+	freshKeepElem=0
+	if [[ "${argv}" == *%KE%* ]]; then
+		freshKeepElem=1
+		argv="${argv//%KE%/${tmpDir}/created.shcl}"
+	fi
+	freshKeepGap=0
+	if [[ "${argv}" == *%KG%* ]]; then
+		freshKeepGap=1
+		argv="${argv//%KG%/${tmpDir}/created.shcl}"
+	fi
 	freshCreate=0
 	if [[ "${argv}" == *%C%* ]]; then
 		freshCreate=1
@@ -1030,6 +1049,8 @@ for row in "${rows[@]}"; do
 		((freshCreate)) && rm -f "${tmpDir}/created.shcl"
 		((freshKeep)) && cp "${tmpDir}/keepsrc.shcl" "${tmpDir}/created.shcl"
 		((freshKeepLost)) && cp "${tmpDir}/keeplost.shcl" "${tmpDir}/created.shcl"
+		((freshKeepElem)) && cp "${tmpDir}/keepelem.shcl" "${tmpDir}/created.shcl"
+		((freshKeepGap)) && cp "${tmpDir}/keepgap.shcl" "${tmpDir}/created.shcl"
 		if [[ -n "${runIn}" ]]; then cli="$(realpath -- "${cli}")"; cd -- "${runIn}"; fi
 		rc=0
 		case "${stdinSpec}" in

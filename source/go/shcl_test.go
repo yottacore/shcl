@@ -2969,6 +2969,11 @@ func TestEditsAndMergesMatchAReload(t *testing.T) {
 			v := "v" + strconv.Itoa(g.below(3))
 			op := g.below(11)
 			layer := g.doc()
+			// A kept line the settle turned into a comment is still the user's
+			// line and survives ClearComments. The canonical text writes it as a
+			// comment, so on the reload it is one, and the two cannot agree
+			// (20260926 item 2).
+			settled := op == 9 && !reflect.DeepEqual(live.Comments(path), back.Comments(path))
 			for _, d := range []*Document{live, back} {
 				switch op {
 				case 0, 1:
@@ -2998,7 +3003,7 @@ func TestEditsAndMergesMatchAReload(t *testing.T) {
 			} else {
 				log += fmt.Sprintf("op %d at %q\n", op, path)
 			}
-			if a, b := live.ToCanonical(), back.ToCanonical(); a != b {
+			if a, b := live.ToCanonical(), back.ToCanonical(); a != b && !settled {
 				t.Fatalf("a step on the document and on its reload differ at iteration %d:\n%s--- live\n%s--- reload\n%s", i, log, a, b)
 			}
 			// The save that keeps lines reloads as the document with no error
@@ -3007,6 +3012,10 @@ func TestEditsAndMergesMatchAReload(t *testing.T) {
 				t.Fatalf("kept lines reload as another document at iteration %d:\n%s--- wrote\n%s", i, log, text)
 			} else if kept && !noNewErrors(text, base) {
 				t.Fatalf("kept lines load with a new error at iteration %d:\n%s--- wrote\n%s", i, log, text)
+			} else if kept && Parse(text).LostCount() != Parse(base).LostCount() {
+				// Every line the load dropped went out as written (20260926
+				// item 1).
+				t.Fatalf("kept lines lost a dropped line at iteration %d:\n%s--- wrote\n%s", i, log, text)
 			} else if !kept && text != live.ToCanonical() {
 				t.Fatalf("a save that kept no lines is not canonical at iteration %d:\n%s", i, log)
 			}

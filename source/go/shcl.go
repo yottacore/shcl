@@ -342,10 +342,18 @@ type lead struct {
 	// The source line it was read from, for the save that keeps lines; 0 for
 	// one a write made or moved.
 	line int
+	// A misplaced line kept as written that the settle turned into a comment,
+	// since as written it would bind. It is still the user's line, not a
+	// comment, so ClearComments and Comments leave it alone.
+	kept bool
 }
 
 func plainLead(text string) lead {
 	return lead{text: text}
+}
+
+func (l *lead) isComment() bool {
+	return strings.HasPrefix(l.text, "#") && !l.kept
 }
 
 // depthEnt is one comment on a commentDepth chain: its indent and depth.
@@ -625,6 +633,9 @@ type Document struct {
 	// The parse's multi-line bindings, from the binding line to the last line
 	// each took. Edits leave it alone; only a reparse reads it.
 	ends [][2]int
+	// Each line counted in lost, once per count, when the parse was asked for
+	// them. Only a reparse reads it.
+	dropped []int
 	// The text a load kept for ToTextKeepLines(), and empty when that text was
 	// already canonical, since the canonical form is then the one that keeps
 	// its lines. A merge drops it: the layer's lines are not this text's. Nil
@@ -2721,6 +2732,10 @@ type parser struct {
 	// A raw block's or a stacked list's binding line and the last line it
 	// took, for the save that keeps lines.
 	ends [][2]int
+	// Each line counted in lost, kept only for the save that keeps lines,
+	// since a capped parse of a huge bad file would hold one per line.
+	trackDropped bool
+	dropped      []int
 }
 
 func newParser() *parser {
@@ -3130,6 +3145,13 @@ func outRetained(text string, blankBefore bool) outcome {
 
 func outStopped(rest []string) outcome { return outcome{kind: outcomeStopped, rest: rest} }
 
+func (p *parser) dropLine(line int) {
+	p.lost++
+	if p.trackDropped {
+		p.dropped = append(p.dropped, line)
+	}
+}
+
 // refuse is the one exit for a line the parser does not bind whole. An arm
 // says what became of the line and nothing else: the lost count and the
 // level the line holds follow from the outcome here, so no arm can forget
@@ -3137,18 +3159,16 @@ func outStopped(rest []string) outcome { return outcome{kind: outcomeStopped, re
 func (p *parser) refuse(line int, code, msg string, out outcome, indent string) {
 	p.err(line, code, msg)
 	holds := out.kind == outcomeRetained || out.kind == outcomeDropped
-	n := 0
 	switch out.kind {
 	case outcomeValueDropped, outcomeDropped:
-		n = 1
+		p.dropLine(line)
 	case outcomeStopped:
-		for _, l := range out.rest {
+		for k, l := range out.rest {
 			if trimWsp(l) != "" {
-				n++
+				p.dropLine(line + k)
 			}
 		}
 	}
-	p.lost += n
 	if out.kind == outcomeRetained {
 		// A line kept as written never hangs on a block: its indent is not
 		// one the output's levels are spelled with, so the block it would
@@ -4010,7 +4030,7 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 	if 2*len(p.arena) < cap(p.arena) {
 		p.arena = append([]nodeData(nil), p.arena...)
 	}
-	doc := &Document{arena: p.arena, diags: p.diags, strictness: strictness, orphans: orphans, lost: p.lost, kept: p.keptAny, ends: p.ends}
+	doc := &Document{arena: p.arena, diags: p.diags, strictness: strictness, orphans: orphans, lost: p.lost, kept: p.keptAny, ends: p.ends, dropped: p.dropped}
 	doc.settleKept()
 	return doc
 }
@@ -4346,6 +4366,7 @@ func (d *Document) settleKeptOnce() bool {
 		}
 		list[f.i].text = commented(list[f.i].text)
 		list[f.i].depth = f.depth
+		list[f.i].kept = true
 	}
 	// Out of each list latest first, so a removal leaves the earlier indices
 	// alone, then onto the end of the leading lines in order.
@@ -4372,6 +4393,7 @@ func (d *Document) settleKeptOnce() bool {
 			l.text = commented(l.text)
 			l.depth = depth
 			l.line = 0
+			l.kept = true
 			t.leading = append(t.leading, l)
 		}
 		moved = moved[:0]
@@ -4908,7 +4930,9 @@ func keepLines(src string, doc *Document) (string, bool) {
 	}
 	now := doc.emitMarked()
 	nowText := now.out.String()
-	loadedDoc := newParser().parse(src, doc.strictness)
+	p := newParser()
+	p.trackDropped = true
+	loadedDoc := p.parse(src, doc.strictness)
 	loaded := loadedDoc.emitMarked()
 	loadedText := loaded.out.String()
 	if nowText == loadedText {
@@ -5029,6 +5053,10 @@ func keepLines(src string, doc *Document) (string, bool) {
 			out.WriteString(eol)
 		}
 	}
+	// Which source lines went out as written. Every line the load dropped
+	// has to, or the save falls back: a rewritten group can span one, as a
+	// stacked list over a refused element (20260926 item 1).
+	wrote := make([]bool, n+2)
 	// The lines no group stands for that sat right after a kept group, when
 	// the group that followed it then does not follow it now. They go out
 	// before the next source group, a new line not indented past them, or the
@@ -5039,6 +5067,7 @@ func keepLines(src string, doc *Document) (string, bool) {
 		for k := from; k < to; k++ {
 			if left[k] {
 				out.WriteString(line(k))
+				wrote[k] = true
 				left[k] = false
 			}
 		}
@@ -5108,6 +5137,7 @@ func keepLines(src string, doc *Document) (string, bool) {
 			if kept && len(claimed) > 0 && claimed[0] == l {
 				for k := 1; k < l; k++ {
 					out.WriteString(line(k))
+					wrote[k] = true
 					left[k] = false
 				}
 			}
@@ -5119,6 +5149,7 @@ func keepLines(src string, doc *Document) (string, bool) {
 			for k := end[prev] + 1; k < l; k++ {
 				if blanksStay || !blank(k) {
 					out.WriteString(line(k))
+					wrote[k] = true
 					left[k] = false
 				}
 			}
@@ -5149,6 +5180,7 @@ func keepLines(src string, doc *Document) (string, bool) {
 					k = own[k]
 				} else {
 					out.WriteString(line(k))
+					wrote[k] = true
 				}
 			}
 			// A line kept as written holds no level's indent.
@@ -5197,6 +5229,11 @@ func keepLines(src string, doc *Document) (string, bool) {
 			return "", false
 		}
 	}
+	for _, k := range loadedDoc.dropped {
+		if !wrote[k] {
+			return "", false
+		}
+	}
 	text := out.String()
 	// So does a last line with no newline.
 	if body != "" && !strings.HasSuffix(body, "\n") && strings.HasSuffix(text, eol) {
@@ -5205,10 +5242,11 @@ func keepLines(src string, doc *Document) (string, bool) {
 	// The reload has to be the document, and it may not load with an error the
 	// source did not have: a child the edits gave an element list that stayed
 	// stacked reads back the same and is E001 (20260925b item 1). A line the
-	// load dropped went out as written, so the reload drops it again, and may
-	// drop nothing more.
+	// load dropped went out as written, and the reload has to drop each one
+	// again: one that now binds, even to the same document, reads differently
+	// from how the file had it.
 	back := newParser().parse(text, doc.strictness)
-	if back.lost <= loadedDoc.lost && back.ToCanonical() == nowText && errorsWithin(back, loadedDoc) {
+	if back.lost == loadedDoc.lost && back.ToCanonical() == nowText && errorsWithin(back, loadedDoc) {
 		return text, true
 	}
 	return "", false
@@ -7355,7 +7393,7 @@ func (d *Document) Comments(path string) []string {
 			continue
 		}
 		for _, l := range tr.leading {
-			if strings.HasPrefix(l.text, "#") {
+			if l.isComment() {
 				out = append(out, l.text)
 			}
 		}
@@ -7401,7 +7439,7 @@ func (d *Document) ClearComments(path string) int {
 		blank := before > 0 && tr.leading[0].blankBefore
 		kept := tr.leading[:0]
 		for _, l := range tr.leading {
-			if !strings.HasPrefix(l.text, "#") {
+			if !l.isComment() {
 				kept = append(kept, l)
 			}
 		}
@@ -7411,6 +7449,15 @@ func (d *Document) ClearComments(path string) int {
 			continue
 		}
 		cleared += gone
+		// A kept line left in the run may have sat under a comment that went.
+		// A reload starts a run at 0 and steps one at a time.
+		room := 0
+		for k := range kept {
+			if strings.HasPrefix(kept[k].text, "#") {
+				kept[k].depth = minInt(kept[k].depth, room)
+				room = kept[k].depth + 1
+			}
+		}
 		if len(kept) > 0 {
 			kept[0].blankBefore = kept[0].blankBefore || blank
 		} else {

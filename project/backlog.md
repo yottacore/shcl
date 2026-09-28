@@ -55,7 +55,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - A line-keeping save deletes lines the load dropped, at exit 0
 	- ID: 2026092620255201
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: High
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 1
@@ -70,11 +70,20 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Possible cause: the reload drops fewer lines than the source did, and `<=` accepts that. The `left` check covers only lines outside every rewritten group.
 	- Note: the third defect in the line-keeping save's lost-line accounting in two days, after 20260925b item 1 and 20260925c item 1. A property in the Rust fuzz and the shared seq fixture would stop the next one: every line the load dropped is written back verbatim, or the save is canonical.
 	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- 20260927: the save's own reparse of the source notes which lines the load dropped, and the save falls back unless each one went out as written. A plain parse does not note them, since a capped parse of a huge bad file would hold one per line.
+		- The reload has to drop exactly as many lines as the source did. A dropped line that now binds, even to the same document, reads differently from how the file had it. The 2M fuzz found one binding as a repeat of the line above.
+		- Both repros now refuse at 7, as before `f1362fb`. Writing the dropped line back after a rewritten line is not attempted.
+	- Actual fix: `dropped` beside `ends`, `drop_line` in the parser's one refuse exit, and a `wrote` check in `keep_lines`, in all four.
+	- Swept: every place the keep save writes a source line, in all four. The C++ veneer only wraps the C call.
+	- Branch: `keepdrop`
+	- Test case: cli-regress `set-write-keeps-dropped-element` and `set-write-keeps-dropped-between`. The Rust fuzz `keeping_lines_reloads_as_the_document` and the shared fixture `edits_and_merges_match_a_reload` in Go, Python and C now check the reload loses as many lines as the source. Each fails on the old code.
 
 - `clear-comments` deletes a misplaced line kept as written
 	- ID: 2026092620255202
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: High
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 2
@@ -87,6 +96,33 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Reproduced: 20260926, all four CLIs.
 	- Origin: `acadbc4` (`clear_comments`) on top of `51197bc` (kept settle), which turns a kept line that would bind into a comment at load. Not seen before. Confirmed.
 	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- 20260927: a kept line the settle turns into a comment is flagged, and `clear_comments` and `comments` pass over it. That covers both ways it happens: at load, and when a setter unstacks a list and moves the line above it.
+		- The canonical save still writes it as a comment, so after a reload of that text it is one. The reload-parity fixture skips a clear only where the live document and its reload already disagree on the comments at that path.
+		- After a clear, the lines left in the run are clamped to start at level 0 and step one at a time, as after `set_banner`. The 2M fuzz found a kept line left one level deep with nothing above it.
+	- Actual fix: a `kept` flag on the comment line, set by `settle_kept_once` and copied by merges, and `is_comment` in `clear_comments` and `comments`, in all four.
+	- Swept: every test for a leading `#` on a comment line in all four. The merge's replaced-leaf rule is the one other site, filed as 2026092718195400.
+	- Branch: `keepdrop`
+	- Test case: corpus `178-clear-comments-kept-line`, both routes, with `comments` reads. It fails on the old code.
+
+- A merge that replaces a leaf drops a kept line the settle turned into a comment
+	- ID: 2026092718195400
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260927-181954
+	- Opened by: sweep for 2026092620255202
+	- Related IDs:
+		- 2026092620255202
+	- Steps to reproduce:
+		- `L` holds `a: "\q"`, `    b: 1`, `        c: 1`, `      d: 2`, `e: 1`. `F` holds `e: 5`.
+		- `shcl fmt --layer=L F`.
+	- Incorrect behavior: exit 0, and `# d: 2` is gone. A kept line the settle left as written moves onto the replacing leaf, as the merge's comment says a retained line does.
+	- Expected behavior: both kinds of kept line move onto the replacement.
+	- Reproduced: 20260927, Rust CLI.
+	- Note: the reload-parity fixture cannot see this one, since a reload of the canonical text holds a real comment there.
+	- Estimated effort: Low
 
 - C `shcl_compact` reaches the out-of-memory hook on a document with a kept misplaced line
 	- ID: 2026092620255203

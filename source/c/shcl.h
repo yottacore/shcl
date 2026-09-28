@@ -1087,14 +1087,20 @@ DEFINE_VEC(ShclVecS, ShclStr)
    the one before it keeps that nesting, so a commented-out block comes back in
    its shape.
    line: the source line it was read from, for the save that keeps lines; 0 for
-   one a write made or moved. */
-typedef struct { ShclStr text; int blank_before; size_t depth; size_t line; } ShclLead;
+   one a write made or moved.
+   kept: a misplaced line kept as written that the settle turned into a
+   comment, since as written it would bind. It is still the user's line, not a
+   comment, so shcl_clear_comments and shcl_comments leave it alone. */
+typedef struct { ShclStr text; int blank_before; size_t depth; size_t line; int kept; } ShclLead;
 DEFINE_VEC(ShclVecLead, ShclLead)
-static ShclLead lead_at(ShclStr text, int blank_before, size_t depth, size_t line) { ShclLead l; l.text = text; l.blank_before = blank_before; l.depth = depth; l.line = line; return l; }
+static ShclLead lead_at(ShclStr text, int blank_before, size_t depth, size_t line) { ShclLead l; l.text = text; l.blank_before = blank_before; l.depth = depth; l.line = line; l.kept = 0; return l; }
 static ShclLead lead_make(ShclStr text, int blank_before, size_t depth) { return lead_at(text, blank_before, depth, 0); }
 static ShclLead lead_plain(ShclStr text) { return lead_make(text, 0, 0); }
 /* A copy into another arena, source line and all. */
-static ShclLead lead_copy(ShclArena *a, const ShclLead *l) { return lead_at(s_dup(a, l->text), l->blank_before, l->depth, l->line); }
+static ShclLead lead_copy(ShclArena *a, const ShclLead *l) { ShclLead c = lead_at(s_dup(a, l->text), l->blank_before, l->depth, l->line); c.kept = l->kept; return c; }
+/* A copy that no longer stands for a source line, as a merge moves it. */
+static ShclLead lead_moved(ShclArena *a, const ShclLead *l) { ShclLead c = lead_make(s_dup(a, l->text), l->blank_before, l->depth); c.kept = l->kept; return c; }
+static int lead_is_comment(const ShclLead *l) { return l->text.n && l->text.p[0] == '#' && !l->kept; }
 /* A kept line among a stacked list's elements, with how many elements come
    before it. */
 typedef struct { size_t before; ShclLead lead; } ShclAmong;
@@ -1218,6 +1224,10 @@ struct shcl_doc {
 	   list's binding line and the last line it took. Edits leave it alone;
 	   only a reparse reads it. */
 	ShclVecSize ends;
+	/* Each line counted in lost, once per count, kept only when track_dropped
+	   is set, for the save that keeps lines: a capped parse of a huge bad file
+	   would hold one per line. Only a reparse reads it. */
+	int track_dropped; ShclVecSize dropped;
 	/* The text a load kept for shcl_to_text_keep_lines, BOM and all, and
 	   empty when that text was already canonical, since the canonical form is
 	   then the one that keeps its lines. A merge drops it: the layer's lines
@@ -3759,6 +3769,11 @@ static ShclOutcome out_kind(ShclOutcomeKind kind) { ShclOutcome o; memset(&o, 0,
 static ShclOutcome out_retained(ShclStr text, int blank_before) { ShclOutcome o = out_kind(OUT_RETAINED); o.text = text; o.blank_before = blank_before; return o; }
 static ShclOutcome out_stopped(const ShclStr *rest, size_t nrest) { ShclOutcome o = out_kind(OUT_STOPPED); o.rest = rest; o.nrest = nrest; return o; }
 
+static void p_drop_line(ShclParser *P, size_t line) {
+	P->d->lost++;
+	if (P->d->track_dropped) ShclVecSize_push(&P->d->arena, &P->d->dropped, line);
+}
+
 /* The one exit for a line the parser does not bind whole. An arm says what
    became of the line and nothing else: the lost count and the level the line
    holds follow from the outcome here, so no arm can forget either. design.md's
@@ -3766,13 +3781,11 @@ static ShclOutcome out_stopped(const ShclStr *rest, size_t nrest) { ShclOutcome 
 static void p_refuse(ShclParser *P, size_t line, const char *code, ShclStr msg, ShclOutcome out, ShclStr indent) {
 	p_err(P, line, code, msg);
 	int holds = out.kind == OUT_RETAINED || out.kind == OUT_DROPPED;
-	size_t n = 0;
 	switch (out.kind) {
-	case OUT_VALUE_DROPPED: case OUT_DROPPED: n = 1; break;
-	case OUT_STOPPED: for (size_t r = 0; r < out.nrest; r++) if (s_trim_wsp(out.rest[r]).n) n++; break;
+	case OUT_VALUE_DROPPED: case OUT_DROPPED: p_drop_line(P, line); break;
+	case OUT_STOPPED: for (size_t r = 0; r < out.nrest; r++) if (s_trim_wsp(out.rest[r]).n) p_drop_line(P, line + r); break;
 	case OUT_RETAINED: break;
 	}
-	P->d->lost += n;
 	if (out.kind == OUT_RETAINED) {
 		/* A line kept as written never hangs on a block: its indent is not one
 		   the output's levels are spelled with, so the block it would match
@@ -4522,7 +4535,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 	#pragma GCC diagnostic push
 	#pragma GCC diagnostic ignored "-Wclobbered"
 #endif
-static shcl_doc *do_parse(const char *text, size_t len, shcl_strictness strict, size_t max_nodes, size_t max_elements, size_t max_diags) {
+static shcl_doc *do_parse(const char *text, size_t len, shcl_strictness strict, size_t max_nodes, size_t max_elements, size_t max_diags, int track_dropped) {
 	/* The two the unwind path has to reach. volatile because that path arrives
 	   by longjmp, which leaves an ordinary local indeterminate. */
 	shcl_doc *volatile doc = (shcl_doc *)calloc(1, sizeof *doc);
@@ -4547,6 +4560,7 @@ static shcl_doc *do_parse(const char *text, size_t len, shcl_strictness strict, 
 	arena_guard(&doc->reads, &panic); arena_guard(&doc->index_arena, &panic);
 	arena_guard(&owned->line, &panic); arena_guard(&owned->hints, &panic);
 	doc->strictness = strict;
+	doc->track_dropped = track_dropped;
 	parse_body(doc, owned, text, len, max_nodes, max_elements, max_diags);
 	/* The recovery point is this frame's; leaving it armed would send a later
 	   read or write jumping into a frame that is gone. */
@@ -5438,8 +5452,8 @@ size_t shcl_comments(shcl_doc *d, const char *path, size_t plen, shcl_str **out)
 		const ShclTrivia *tr = NODE(d, targets.data[i]).trivia;
 		if (!tr) continue;
 		for (size_t k = 0; k < tr->leading.len; k++) {
+			if (!lead_is_comment(&tr->leading.data[k])) continue;
 			ShclStr l = tr->leading.data[k].text;
-			if (!(l.n && l.p[0] == '#')) continue;
 			if (n == cap) { size_t nc = cap ? cap * 2 : 8; arr = (shcl_str *)arena_grow(a, arr, cap, nc, sizeof(shcl_str)); cap = nc; }
 			arr[n].p = l.p; arr[n].n = l.n; n++;
 		}
@@ -5465,11 +5479,19 @@ size_t shcl_clear_comments(shcl_doc *d, const char *path, size_t plen) {
 		   comes before, so it stays with whatever is now first. */
 		int blank = ld->len && ld->data[0].blank_before;
 		size_t w = 0;
-		for (size_t k = 0; k < ld->len; k++) if (!(ld->data[k].text.n && ld->data[k].text.p[0] == '#')) ld->data[w++] = ld->data[k];
+		for (size_t k = 0; k < ld->len; k++) if (!lead_is_comment(&ld->data[k])) ld->data[w++] = ld->data[k];
 		size_t gone = ld->len - w;
 		ld->len = w;
 		if (!gone) continue;
 		cleared += gone;
+		/* A kept line left in the run may have sat under a comment that went.
+		   A reload starts a run at 0 and steps one at a time. */
+		size_t room = 0;
+		for (size_t k = 0; k < w; k++) {
+			if (!(ld->data[k].text.n && ld->data[k].text.p[0] == '#')) continue;
+			if (ld->data[k].depth > room) ld->data[k].depth = room;
+			room = ld->data[k].depth + 1;
+		}
 		if (w) ld->data[0].blank_before |= blank;
 		else nd->blank_before |= blank;
 	}
@@ -5754,18 +5776,18 @@ static void adopt_trivia(shcl_doc *d, size_t base, const shcl_doc *over, size_t 
 	if (!st) return;
 	ShclTrivia *bt = triv_mut(a, &NODE(d, base));
 	for (size_t i = 0; i < st->leading.len; i++)
-		ShclVecLead_push(a, &bt->leading, lead_make(s_dup(a, st->leading.data[i].text), st->leading.data[i].blank_before, st->leading.data[i].depth));
+		ShclVecLead_push(a, &bt->leading, lead_moved(a, &st->leading.data[i]));
 	if (st->trailing.n) {
 		if (bt->trailing.n == 0) bt->trailing = s_dup(a, st->trailing);
 		else ShclVecLead_push(a, &bt->leading, lead_plain(s_dup(a, st->trailing)));
 	}
 	for (size_t i = 0; i < st->after.len; i++)
-		ShclVecLead_push(a, &bt->after, lead_make(s_dup(a, st->after.data[i].text), st->after.data[i].blank_before, st->after.data[i].depth));
+		ShclVecLead_push(a, &bt->after, lead_moved(a, &st->after.data[i]));
 	for (size_t i = 0; i < st->inside.len; i++)
-		ShclVecLead_push(a, &bt->inside, lead_make(s_dup(a, st->inside.data[i].text), st->inside.data[i].blank_before, st->inside.data[i].depth));
+		ShclVecLead_push(a, &bt->inside, lead_moved(a, &st->inside.data[i]));
 	for (size_t i = 0; i < st->among.len; i++) {
 		ShclAmong am; am.before = st->among.data[i].before;
-		am.lead = lead_make(s_dup(a, st->among.data[i].lead.text), st->among.data[i].lead.blank_before, st->among.data[i].lead.depth);
+		am.lead = lead_moved(a, &st->among.data[i].lead);
 		ShclVecAmong_push(a, &bt->among, am);
 	}
 	among_sort(&bt->among);
@@ -6010,7 +6032,9 @@ void shcl_merge(shcl_doc *d, const shcl_doc *over) {
 		for (size_t k = 0; k < had; k++) if (s_eq(d->orphans.data[k].text, ot) && d->orphans.data[k].depth == depth) { dup = 1; break; }
 		if (dup) continue;
 		if (ot.n && ot.p[0] == '#') { if (depth > room) depth = room; room = depth + 1; }
-		ShclVecLead_push(a, &d->orphans, lead_make(s_dup(a, ot), over->orphans.data[i].blank_before, depth));
+		ShclLead o = lead_moved(a, &over->orphans.data[i]);
+		o.depth = depth;
+		ShclVecLead_push(a, &d->orphans, o);
 	}
 	settle_first_blank(d);
 	if (fresh) settle_kept(d);
@@ -6866,6 +6890,7 @@ static int settle_kept_once(shcl_doc *d) {
 		ShclLead *l = &list->data[f->i];
 		l->text = commented(a, l->text);
 		l->depth = f->depth;
+		l->kept = 1;
 	}
 	/* Out of each list latest first, so a removal leaves the earlier indices
 	   alone, then onto the end of the leading lines in order. */
@@ -6887,6 +6912,7 @@ static int settle_kept_once(shcl_doc *d) {
 			l.text = commented(a, l.text);
 			l.depth = depth;
 			l.line = 0;
+			l.kept = 1;
 			ShclVecLead_push(a, &t->leading, l);
 		}
 		moved.len = 0;
@@ -7269,9 +7295,9 @@ static int errors_within(ShclArena *a, const shcl_doc *d, const shcl_doc *of) {
    next source group, a new line not indented past them, or the end. A new line
    indented past them goes first, since one written under a dropped line would
    be dropped with it. A line the load dropped comes back this way. */
-static void kl_flush(ShclArena *a, ShclSB *ob, const ShclVecS *lines, unsigned char *left, size_t from, size_t to) {
+static void kl_flush(ShclArena *a, ShclSB *ob, const ShclVecS *lines, unsigned char *left, unsigned char *wrote, size_t from, size_t to) {
 	for (size_t k = from; k < to; k++)
-		if (left[k]) { sb_putS(a, ob, lines->data[k - 1]); left[k] = 0; }
+		if (left[k]) { sb_putS(a, ob, lines->data[k - 1]); wrote[k] = 1; left[k] = 0; }
 }
 
 static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *out) {
@@ -7279,7 +7305,7 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 	if (d->source.n == 0) { *out = emit_canonical(d); return 1; }
 	ShclArena *a = &d->scratch;
 	ShclEmit now; emit_marked(d, &now);
-	shcl_doc *ld = own->loaded = do_parse(d->source.p, d->source.n, d->strictness, 0, 0, 0);
+	shcl_doc *ld = own->loaded = do_parse(d->source.p, d->source.n, d->strictness, 0, 0, 0, 1);
 	if (!ld) arena_panic(panic);
 	doc_guard(ld, panic);
 	ShclEmit was; emit_marked(ld, &was);
@@ -7353,6 +7379,11 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 	for (size_t k = 1; k <= n; k++) left[k] = !kl_blank(KL_LINE(k));
 	for (size_t k = 0; k < claimed.len; k++)
 		for (size_t l = claimed.data[k]; l <= end[claimed.data[k]] && l <= n; l++) left[l] = 0;
+	/* Which source lines went out as written. Every line the load dropped has
+	   to, or the save falls back: a rewritten group can span one, as a stacked
+	   list over a refused element (20260926 item 1). */
+	unsigned char *wrote = (unsigned char *)arena_alloc(a, n + 2);
+	memset(wrote, 0, n + 2);
 	const char *eol = "\n";
 	if (n > 0) { ShclStr l1 = KL_LINE(1); if (l1.n >= 2 && l1.p[l1.n - 2] == '\r' && l1.p[l1.n - 1] == '\n') eol = "\r\n"; }
 	size_t eol_n = strlen(eol);
@@ -7424,7 +7455,7 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 				}
 			}
 			if (pay) {
-				kl_flush(a, &ob, &lines, left, end[owed] + 1, next[owed]);
+				kl_flush(a, &ob, &lines, left, wrote, end[owed] + 1, next[owed]);
 				if (ob.len > bom && ob.data[ob.len - 1] != '\n') sb_puts(a, &ob, eol);
 				owed = 0;
 			}
@@ -7432,12 +7463,12 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 		if (known) owed = 0;
 		if (i == 0) {
 			if (kept && claimed.len && claimed.data[0] == l)
-				for (size_t k = 1; k < l; k++) { sb_putS(a, &ob, KL_LINE(k)); left[k] = 0; }
+				for (size_t k = 1; k < l; k++) { sb_putS(a, &ob, KL_LINE(k)); wrote[k] = 1; left[k] = 0; }
 		} else if (kept && prev != 0 && next[prev] == l) {
 			int blanks = 0;
 			for (size_t k = end[prev] + 1; k < l; k++) if (kl_blank(KL_LINE(k))) blanks = 1;
 			for (size_t k = end[prev] + 1; k < l; k++)
-				if (blanks_stay || !kl_blank(KL_LINE(k))) { sb_putS(a, &ob, KL_LINE(k)); left[k] = 0; }
+				if (blanks_stay || !kl_blank(KL_LINE(k))) { sb_putS(a, &ob, KL_LINE(k)); wrote[k] = 1; left[k] = 0; }
 			if (!blanks) for (size_t k = 0; k < u->blanks; k++) sb_puts(a, &ob, eol);
 		} else if (known && blanks_stay && l > 1 && kl_blank(KL_LINE(l - 1))) {
 			size_t k = l - 1;
@@ -7451,7 +7482,7 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 			   list's elements. */
 			for (size_t k = l; k <= end[l]; k++) {
 				if (has_splice && k == splice_at) { sb_putS(a, &ob, spliced); k = owns[k]; }
-				else sb_putS(a, &ob, KL_LINE(k));
+				else { sb_putS(a, &ob, KL_LINE(k)); wrote[k] = 1; }
 			}
 			/* A line kept as written holds no level's indent. */
 			if (!(u->start + depth < nowS.n && nowS.p[u->start + depth] == ' '))
@@ -7477,7 +7508,7 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 	}
 	if (owed != 0) {
 		if (ob.len > bom && ob.data[ob.len - 1] != '\n') sb_puts(a, &ob, eol);
-		kl_flush(a, &ob, &lines, left, end[owed] + 1, n + 1);
+		kl_flush(a, &ob, &lines, left, wrote, end[owed] + 1, n + 1);
 	}
 	/* The blank lines the source ends with stay at the end. */
 	if (ob.len > bom && ob.data[ob.len - 1] != '\n') sb_puts(a, &ob, eol);
@@ -7490,6 +7521,7 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 	for (size_t k = tail; k <= n; k++) if (!kl_blank(KL_LINE(k))) all_blank = 0;
 	if (ob.len > bom && all_blank) for (size_t k = tail; k <= n; k++) sb_putS(a, &ob, KL_LINE(k));
 	for (size_t k = 1; k <= n; k++) if (left[k]) return 0;
+	for (size_t k = 0; k < ld->dropped.len; k++) if (!wrote[ld->dropped.data[k]]) return 0;
 	/* So does a last line with no newline. */
 	if (body.n && body.p[body.n - 1] != '\n' && ob.len >= eol_n && memcmp(ob.data + ob.len - eol_n, eol, eol_n) == 0) ob.len -= eol_n;
 	#undef KL_LINE
@@ -7497,12 +7529,13 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 	/* The reload has to be the document, and it may not load with an error
 	   the source did not have: a child the edits gave an element list that
 	   stayed stacked reads back the same and is E001 (20260925b item 1). A line
-	   the load dropped went out as written, so the reload drops it again, and
-	   may drop nothing more. */
-	shcl_doc *back = own->back = do_parse(text.p, text.n, d->strictness, 0, 0, 0);
+	   the load dropped went out as written, and the reload has to drop each one
+	   again: one that now binds, even to the same document, reads differently
+	   from how the file had it. */
+	shcl_doc *back = own->back = do_parse(text.p, text.n, d->strictness, 0, 0, 0, 0);
 	if (!back) arena_panic(panic);
 	doc_guard(back, panic);
-	if (back->lost > ld->lost || !s_eq(emit_canonical(back), nowS) || !errors_within(a, back, ld)) return 0;
+	if (back->lost != ld->lost || !s_eq(emit_canonical(back), nowS) || !errors_within(a, back, ld)) return 0;
 	*out = text;
 	return 1;
 }
@@ -7763,8 +7796,8 @@ int shcl_strictness_from_arg(const char *s, size_t n, shcl_strictness *out) {
 	return 0;
 }
 
-shcl_doc *shcl_parse(const char *text, size_t len) { return do_parse(text, len, SHCL_STANDARD, 0, 0, 0); }
-shcl_doc *shcl_parse_with(const char *text, size_t len, shcl_strictness s) { return do_parse(text, len, s, 0, 0, 0); }
+shcl_doc *shcl_parse(const char *text, size_t len) { return do_parse(text, len, SHCL_STANDARD, 0, 0, 0, 0); }
+shcl_doc *shcl_parse_with(const char *text, size_t len, shcl_strictness s) { return do_parse(text, len, s, 0, 0, 0, 0); }
 /* Parse with resource caps beside the strictness, for input the consumer does
    not control: a document amplifies to many times its byte size in memory, so
    a size cap alone cannot bound what a load allocates. max_nodes stops the
@@ -7775,7 +7808,7 @@ shcl_doc *shcl_parse_with(const char *text, size_t len, shcl_strictness s) { ret
    Both caps are parse-time only; the write API is the consumer's own
    arithmetic. A cap diagnostic is an error, so shcl_error_count answers
    whether a Strict load would have failed; the parsed part stays readable. */
-shcl_doc *shcl_parse_limited(const char *text, size_t len, shcl_strictness s, size_t max_nodes, size_t max_elements, size_t max_diags) { return do_parse(text, len, s, max_nodes, max_elements, max_diags); }
+shcl_doc *shcl_parse_limited(const char *text, size_t len, shcl_strictness s, size_t max_nodes, size_t max_elements, size_t max_diags) { return do_parse(text, len, s, max_nodes, max_elements, max_diags, 0); }
 void shcl_free(shcl_doc *d) { if (!d) return; shcl_free(d->probe_doc); free(d->nodes.data); free(d->kept_near); arena_free(&d->arena); arena_free(&d->scratch); arena_free(&d->reads); arena_free(&d->index_arena); free(d); }
 void shcl_reads_release(shcl_doc *d) { if (d) arena_reset(&d->reads); }
 void shcl_compact(shcl_doc *d) {

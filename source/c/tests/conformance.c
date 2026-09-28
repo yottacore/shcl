@@ -655,6 +655,17 @@ static void edits_and_merges_match_a_reload(void) {
 			char v[8]; snprintf(v, sizeof v, "v%zu", seq_below(3));
 			size_t op = seq_below(11);
 			seq_doc(&layer);
+			/* A kept line the settle turned into a comment is still the user's
+			   line and survives shcl_clear_comments. The canonical text writes
+			   it as a comment, so on the reload it is one, and the two cannot
+			   agree (20260926 item 2). */
+			int settled = 0;
+			if (op == 9) {
+				shcl_str *lc, *bc;
+				size_t nl = shcl_comments(live, path.p, path.n, &lc);
+				settled = nl != shcl_comments(back, path.p, path.n, &bc);
+				for (size_t k = 0; !settled && k < nl; k++) settled = lc[k].n != bc[k].n || memcmp(lc[k].p, bc[k].p, lc[k].n) != 0;
+			}
 			shcl_doc *docs[2] = {live, back};
 			int applied = 0;
 			for (int k = 0; k < 2; k++) {
@@ -677,7 +688,7 @@ static void edits_and_merges_match_a_reload(void) {
 			else { seq_puts(&log, "op "); seq_num(&log, op); seq_puts(&log, " at "); seq_put(&log, path.p, path.n); seq_puts(&log, "\n"); }
 			t = shcl_to_canonical(live); a.n = 0; seq_put(&a, t.p, t.n);
 			t = shcl_to_canonical(back); b.n = 0; seq_put(&b, t.p, t.n);
-			if (a.n != b.n || memcmp(a.p, b.p, a.n) != 0) {
+			if (!settled && (a.n != b.n || memcmp(a.p, b.p, a.n) != 0)) {
 				fprintf(stderr, "FAIL edits_and_merges: a step on the document and on its reload differ at iteration %d:\n%s--- live\n%s--- reload\n%s", i, log.p, a.p, b.p);
 				nfail++; bad = 1;
 			}
@@ -693,6 +704,12 @@ static void edits_and_merges_match_a_reload(void) {
 				shcl_doc *bd = shcl_parse(base.p, base.n);
 				if (!bad && !no_new_errors(kd, bd)) {
 					fprintf(stderr, "FAIL edits_and_merges: kept lines load with a new error at iteration %d:\n%s--- wrote\n%.*s", i, log.p, (int)kt.n, kt.p);
+					nfail++; bad = 1;
+				}
+				/* Every line the load dropped went out as written (20260926
+				   item 1). */
+				if (!bad && shcl_lost_count(kd) != shcl_lost_count(bd)) {
+					fprintf(stderr, "FAIL edits_and_merges: kept lines lost a dropped line at iteration %d:\n%s--- wrote\n%.*s", i, log.p, (int)kt.n, kt.p);
 					nfail++; bad = 1;
 				}
 				shcl_free(bd);

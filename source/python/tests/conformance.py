@@ -749,6 +749,11 @@ def edits_and_merges_match_a_reload():
 			v = f"v{g.below(3)}"
 			op = g.below(11)
 			layer = g.doc()
+			# A kept line the settle turned into a comment is still the user's
+			# line and survives clear_comments. The canonical text writes it as a
+			# comment, so on the reload it is one, and the two cannot agree
+			# (20260926 item 2).
+			settled = op == 9 and live.comments(path) != back.comments(path)
 			for d in (live, back):
 				if op <= 1:
 					d.merge(shcl.Document.parse(layer))
@@ -772,13 +777,16 @@ def edits_and_merges_match_a_reload():
 					d.set_banner(v != "v0")
 			log += f"merge:\n{layer}" if op <= 1 else f"op {op} at {path!r}\n"
 			a, b = live.to_canonical(), back.to_canonical()
-			if a != b:
+			if a != b and not settled:
 				raise SystemExit(f"a step on the document and on its reload differ at iteration {i}:\n{log}--- live\n{a}--- reload\n{b}")
 			t, kept = live.to_text_keep_lines()
 			if kept and shcl.Document.parse(t).to_canonical() != a:
 				raise SystemExit(f"kept lines reload as another document at iteration {i}:\n{log}--- wrote\n{t}")
 			if kept and not no_new_errors(t, base):
 				raise SystemExit(f"kept lines load with a new error at iteration {i}:\n{log}--- wrote\n{t}")
+			# Every line the load dropped went out as written (20260926 item 1).
+			if kept and shcl.Document.parse(t).lost_count() != shcl.Document.parse(base).lost_count():
+				raise SystemExit(f"kept lines lost a dropped line at iteration {i}:\n{log}--- wrote\n{t}")
 			if not kept and t != a:
 				raise SystemExit(f"a save that kept no lines is not canonical at iteration {i}:\n{log}")
 
