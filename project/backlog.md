@@ -707,18 +707,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Fix: Make it work under 5.1.
 		- Opened: 20260924-190225
 
-- Code review 20260924c:
-
-	- 🔘 Idea 8: the pipeline calls `git` and `gh` directly.
-		- Note: use `gitsby raw` when it is installed and plain `git` otherwise, so a fresh clone still builds. The publisher is a copied file, so only its changed block would be patched.
-		- Note: Don't fix.
-		- Opened: 20260924-133723
-
-	- 🔘 Idea 12: `nfpm` and `makensis` are not in `TOOL_PINS`.
-		- Note: packages are the same bytes on one box, but a different tool version on another box changes them with no warning. `ci.yml` must install the pinned versions in the same commit.
-		- Note: `nfpm` pinned 2026-09-26, so hosted CI can run the stub-package rows. `makensis` is left.
-		- Opened: 20260924-133723
-
 - 🔘 Cut `v3.0.0-beta1`, after everything above.
 	- Note: short release notes that just say issues were fixed, and a short changelog that names the fixes. This release only.
 	- Opened: 20260925-115006
@@ -6461,6 +6449,14 @@ Going forward, new issues in the new template at the bottom of this file, will g
 
 - Code review 20260924c:
 
+	- ✅ Idea 12: `nfpm` and `makensis` are not in `TOOL_PINS`.
+		- Note: packages are the same bytes on one box, but a different tool version on another box changes them with no warning. `ci.yml` must install the pinned versions in the same commit.
+		- Note: `nfpm` pinned 2026-09-26, so hosted CI can run the stub-package rows. `makensis` is left.
+		- Done: `makensis` pinned at 3.11 in `TOOL_PINS`. The hosted gate builds no release, so `check-pins.bash` leaves it out of what `ci.yml` has to install, as it does `cargo-zigbuild`.
+		- Test case: `check-pins.bash` passes with the new pin; the drift warning at the start of every run is the check.
+		- Opened: 20260924-133723
+		- Closed: 20260927-203331
+
 	- ✅ Idea 1: the installers take no `--version` (`-Version` in PowerShell).
 		- Note: all three scripts. silkterm's installers carry a version constant for it.
 		- Done: all three take `--version`, and `install.ps1` takes `-Version`. Each prints its own version, 1.1.0.
@@ -9766,6 +9762,13 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Closed: 20260723-134323
 
 - Code review 20260924c:
+
+	- 🚫 Idea 8: the pipeline calls `git` and `gh` directly.
+		- Note: use `gitsby raw` when it is installed and plain `git` otherwise, so a fresh clone still builds. The publisher is a copied file, so only its changed block would be patched.
+		- Note: Don't fix.
+		- Decided against: the pipeline keeps calling `git` and `gh` directly (the owner's note on the item).
+		- Opened: 20260924-133723
+		- Closed: 20260927-203331
 
 	- 🚫 Idea 10: the dogfood build goes to `util/linux/bin`, not `app/linux/`.
 		- Note: `util/linux/bin` is the folder of on-PATH CLI tools.
