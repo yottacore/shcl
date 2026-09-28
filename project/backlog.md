@@ -80,6 +80,30 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: 27d73efb
 	- Test case: none for the time. perf-gate's ratio catches worse than linear, not a constant factor like this. H005 itself stays pinned by corpus 176 and cli-regress `unit-hint`.
 
+- The `_old_v2` copy takes the directory's group, so a private config gets a backup that group can read
+	- ID: 2026092813365303
+	- Type: Bug
+	- Status: Waiting on signoff
+	- Severity: Avg
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 3
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce:
+		- A setgid directory owned by group `devs`, mode 2775.
+		- A 2.x file in it owned by the user's own group, mode 640, holding `a: "x\qy"`.
+		- `shcl migrate --write FILE`.
+	- Incorrect behavior: `c_old_v2.shcl` is mode 640 with group `devs`, so members of `devs` can read the old config. The migrated file keeps its group.
+	- Expected behavior: the copy is made private and gets the original's group before its mode, the way the save does it.
+	- Reproduced: 20260928, all four CLIs.
+	- Origin: `6c49d1b0` (keepold). Against the item's own decision that a private config does not get a readable backup. Confirmed.
+	- Note: on Windows the copy takes the directory's ACL, while `ReplaceFile` keeps the original's. Plausible, for the Windows batch.
+	- Estimated effort: Low
+	- Actual fix: the copy takes the original's group before its mode, as the save does, in all four CLIs.
+	- Note: the Windows ACL half is split out as 2026092815155546.
+	- Branch: oldcopy
+	- Commit: 4dbe70af
+	- Test case: cli-regress save case `migrate-setgid`, which fails on dev in all four.
+
 - The C CLI cuts a Schema path at a NUL and validates against another file
 	- ID: 2026092813365307
 	- Type: Bug
@@ -138,6 +162,45 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: 27d73efb
 	- Test case: cli-regress `schema-line-backslash-name`, which fails on dev.
 
+- Go and Python drop the setuid, setgid and sticky bits from the `_old_v2` copy
+	- ID: 2026092813365306
+	- Type: Bug
+	- Status: Waiting on signoff
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 6
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce: `chmod 2755` a 2.x file, then `shcl migrate --write FILE`, then `stat -c %a` on the copy.
+	- Incorrect behavior: Go writes 755 for 1644, 2755 and 4755. Python writes 755 for 2755 and 4755. Rust and C keep every bit.
+	- Expected behavior: the copy takes the original's mode, as Rust and C do.
+	- Reproduced: 20260928.
+	- Origin: `6c49d1b0`. Go keeps only the permission bits, and Python sets the mode before its buffered write goes out, which clears setuid and setgid. The library save already avoids the second. Confirmed.
+	- Estimated effort: Low
+	- Actual fix: Go carries the whole mode, and Python flushes before the mode goes on.
+	- Branch: oldcopy
+	- Commit: 4dbe70af
+	- Test case: cli-regress save case `migrate-setid` at 6755, which fails on dev for Go and Python.
+
+- Go's `_old_v2` copy errors name the path twice
+	- ID: 2026092813365311
+	- Type: Bug
+	- Status: Waiting on signoff
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 11
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce: `shcl migrate -w ro/g.shcl` with `ro` read-only.
+	- Incorrect behavior: `ro/g_old_v2.shcl: open ro/g_old_v2.shcl: permission denied`.
+	- Expected behavior: `FILE: ` and the system's message, as the UI guide says and the other three print.
+	- Reproduced: 20260928.
+	- Origin: `6c49d1b0`. The missed twin of 20260926 item 16, fixed for reads in the same range. Confirmed.
+	- Estimated effort: Low
+	- Actual fix: both copy errors print the system's message without the path error around it.
+	- Swept: the other Go CLI paths that wrap a path error already unwrap it.
+	- Branch: oldcopy
+	- Commit: 4dbe70af
+	- Test case: cli-regress save case `migrate-rodir`, which fails on dev for Go.
+
 - A Schema line makes `check` open any path, devices and network shares included
 	- ID: 2026092813365302
 	- Type: Bug
@@ -184,24 +247,24 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: 27d73efb
 	- Test case: none hosted yet, since a drive-relative path depends on the runner's drives. Python waits for the Windows batch.
 
-- The `_old_v2` copy takes the directory's group, so a private config gets a backup that group can read
-	- ID: 2026092813365303
+- On Windows, Python's `_old_v2` copy of a read-only file comes out read-only
+	- ID: 2026092813365312
 	- Type: Bug
-	- Status: Queued
-	- Severity: Avg
+	- Status: Testing
+	- Severity: Low
 	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 3
-	- Version and build: dev at `f90708d8`
-	- Steps to reproduce:
-		- A setgid directory owned by group `devs`, mode 2775.
-		- A 2.x file in it owned by the user's own group, mode 640, holding `a: "x\qy"`.
-		- `shcl migrate --write FILE`.
-	- Incorrect behavior: `c_old_v2.shcl` is mode 640 with group `devs`, so members of `devs` can read the old config. The migrated file keeps its group.
-	- Expected behavior: the copy is made private and gets the original's group before its mode, the way the save does it.
-	- Reproduced: 20260928, all four CLIs.
-	- Origin: `6c49d1b0` (keepold). Against the item's own decision that a private config does not get a readable backup. Confirmed.
-	- Note: on Windows the copy takes the directory's ACL, while `ReplaceFile` keeps the original's. Plausible, for the Windows batch.
+	- Opened by: Code review 20260928 item 12
+	- Target OS: Windows, Python 3.13 and later
+	- Steps to reproduce: `attrib +r` a 2.x file, then `python main.py migrate --write --from-2x f.shcl`, then `attrib f_old_v2.shcl`.
+	- Incorrect behavior: expected, not yet seen. The copy is read-only, so a failed save cannot remove it, and the next run exits 8 on the taken name.
+	- Expected behavior: as Rust and Go, which skip the mode on Windows.
+	- Reproduced: No. Plausible, for the Windows batch. The guard is `hasattr(os, "fchmod")`, and Python 3.13 added `fchmod` on Windows. The library save guards the same call by `os.name`.
+	- Origin: `6c49d1b0`.
 	- Estimated effort: Low
+	- Actual fix: the group and mode go on only when `os.name` is not `nt`, the library save's guard.
+	- Branch: oldcopy
+	- Commit: 4dbe70af
+	- Test case: waits for the Windows batch. No hosted runner has Python 3.13 on Windows yet.
 
 - Under Windows PowerShell 5.1 a quote inside an argument never reaches the binary
 	- ID: 2026092813365304
@@ -219,21 +282,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Reproduced: No. Plausible, for the Windows batch. The dogfood `.cmd` now falls back to 5.1, so more runs go through it.
 	- Origin: older than the range, from `shcl.ps1`'s run path (`c52fa077` and before). Not seen before.
 	- Estimated effort: Avg
-
-- Go and Python drop the setuid, setgid and sticky bits from the `_old_v2` copy
-	- ID: 2026092813365306
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 6
-	- Version and build: dev at `f90708d8`
-	- Steps to reproduce: `chmod 2755` a 2.x file, then `shcl migrate --write FILE`, then `stat -c %a` on the copy.
-	- Incorrect behavior: Go writes 755 for 1644, 2755 and 4755. Python writes 755 for 2755 and 4755. Rust and C keep every bit.
-	- Expected behavior: the copy takes the original's mode, as Rust and C do.
-	- Reproduced: 20260928.
-	- Origin: `6c49d1b0`. Go keeps only the permission bits, and Python sets the mode before its buffered write goes out, which clears setuid and setgid. The library save already avoids the second. Confirmed.
-	- Estimated effort: Low
 
 - `about --version` and `version --donate` are usage errors now
 	- ID: 2026092813365309
@@ -253,36 +301,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20260928: the informational outputs are flags: `-h`/`--help`, `-v`/`-V`/`--version`, `--about` and `--donate`. The words `version`, `about` and `donate` go, and a leftover one gets the did-you-mean hint at exit 1. `help` stays as a word, since it takes a topic (`help CMD`). No scripts use v2, so nothing breaks.
 		- Several asked in one run print once each, in the order asked, with one blank line before, between and after. `--about` covers `--version`, since its first line is the version line. A lone `--version` stays unpadded. Today the first one asked wins silently: `--help --version` prints only the help.
 		- `help` still refuses anything after it but one topic and the informational flags. design.md's paragraph and 20260923 item 17's rule change to match.
-	- Estimated effort: Low
-
-- Go's `_old_v2` copy errors name the path twice
-	- ID: 2026092813365311
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 11
-	- Version and build: dev at `f90708d8`
-	- Steps to reproduce: `shcl migrate -w ro/g.shcl` with `ro` read-only.
-	- Incorrect behavior: `ro/g_old_v2.shcl: open ro/g_old_v2.shcl: permission denied`.
-	- Expected behavior: `FILE: ` and the system's message, as the UI guide says and the other three print.
-	- Reproduced: 20260928.
-	- Origin: `6c49d1b0`. The missed twin of 20260926 item 16, fixed for reads in the same range. Confirmed.
-	- Estimated effort: Low
-
-- On Windows, Python's `_old_v2` copy of a read-only file comes out read-only
-	- ID: 2026092813365312
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 12
-	- Target OS: Windows, Python 3.13 and later
-	- Steps to reproduce: `attrib +r` a 2.x file, then `python main.py migrate --write --from-2x f.shcl`, then `attrib f_old_v2.shcl`.
-	- Incorrect behavior: expected, not yet seen. The copy is read-only, so a failed save cannot remove it, and the next run exits 8 on the taken name.
-	- Expected behavior: as Rust and Go, which skip the mode on Windows.
-	- Reproduced: No. Plausible, for the Windows batch. The guard is `hasattr(os, "fchmod")`, and Python 3.13 added `fchmod` on Windows. The library save guards the same call by `os.name`.
-	- Origin: `6c49d1b0`.
 	- Estimated effort: Low
 
 - Under Windows PowerShell 5.1, `install.ps1` may follow an https to http redirect for the release list
@@ -405,6 +423,21 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Reproduced: 20260928, by reading.
 	- Origin: `2c528a23`, `95bec7c1` and the setkeep merge. Confirmed.
 	- Estimated effort: Low
+
+- On Windows, the `_old_v2` copy may take the directory's ACL rather than the original's
+	- ID: 2026092815155546
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260928-151555
+	- Opened by: split from 2026092813365303
+	- Parent ID: 2026092813365303
+	- Target OS: Windows
+	- Steps to reproduce: a 2.x file whose ACL is narrower than its directory's, then `shcl migrate --write FILE`, then `icacls` on the copy.
+	- Incorrect behavior: expected, not yet seen. The copy is a new file, so it inherits the directory's ACL, while `ReplaceFile` keeps the original's on the migrated file.
+	- Expected behavior: a private config does not get a readable backup.
+	- Reproduced: No. Plausible, for the Windows batch.
+	- Estimated effort: Avg
 
 - Escape more invisible characters on output
 	- ID: 2026092813365322
