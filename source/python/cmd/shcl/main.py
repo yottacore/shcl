@@ -1404,13 +1404,24 @@ def rewritten_lines(before, after):
 	return [i + 1 for i, (x, y) in enumerate(zip(b.split("\n"), after.split("\n"))) if x != y]
 
 
+def name_start(file):
+	# Where the file name starts in a path: after the last separator, or on
+	# windows after a drive with no separator (C:cfg.shcl). A backslash is a
+	# separator only on windows.
+	start = file.rfind("/") + 1
+	if os.name != "nt":
+		return start
+	start = max(start, file.rfind("\\") + 1)
+	if start == 0 and len(file) >= 2 and file[1] == ":" and file[0].isascii() and file[0].isalpha():
+		start = 2
+	return start
+
+
 def old_copy_name(file):
 	# Where migrate --write keeps the file it replaces: _old_v2 before the last
 	# dot of the file name, or on the end when it has none. A leading dot is
 	# part of the name, not an extension.
-	start = file.rfind("/") + 1
-	if os.name == "nt":
-		start = max(start, file.rfind("\\") + 1)
+	start = name_start(file)
 	dot = file.rfind(".", start)
 	if dot > start:
 		return file[:dot] + "_old_v2" + file[dot:]
@@ -2008,12 +2019,46 @@ def schema_for(o, file, text):
 	if "://" in named:
 		sys.stderr.write("the file names its schema by URL (" + named + "), which check does not fetch; pass --schema=SCHEMA to validate against it\n")
 		return None
+	# Two separators, or the NT prefix, name a share or a device on windows,
+	# and a line in a file someone else wrote must not reach another host.
+	if os.name == "nt" and len(named) >= 2 and ((named[0] in "/\\" and named[1] in "/\\") or named.startswith("\\??\\")):
+		raise OSError(f"{named}: a Schema line cannot name a network or device path")
 	c = named[0]
-	if c in "/\\" or (len(named) >= 2 and named[1] == ":" and c.isascii() and c.isalpha()):
+	if c == "/" or (os.name == "nt" and (c == "\\" or (len(named) >= 2 and named[1] == ":" and c.isascii() and c.isalpha()))):
 		return named
-	k = max(file.rfind("/"), file.rfind("\\"))
-	d = file[:k] if k >= 0 and file != "-" else "."
-	return d + "/" + named
+	start = 0 if file == "-" else name_start(file)
+	if start == 0:
+		return "./" + named
+	return file[:start] + named
+
+
+def read_named_schema(path):
+	"""The schema a Schema line names. A line in a file someone else wrote must
+	not make an unattended check wait on a FIFO or read a device until memory
+	runs out, so only a regular file is read."""
+
+	def regular(st):
+		if stat.S_ISDIR(st.st_mode):
+			raise OSError(f"{path}: Is a directory")
+		if not stat.S_ISREG(st.st_mode):
+			raise OSError(f"{path}: not a regular file")
+
+	try:
+		# Asked before the open too, since opening a FIFO waits for a writer.
+		regular(os.stat(path))
+		with open(path, "rb") as f:
+			regular(os.fstat(f.fileno()))
+			data = f.read()
+	except ValueError as e:
+		raise OSError(f"{path}: {e}") from e
+	except OSError as e:
+		if e.strerror is None:
+			raise
+		raise OSError(f"{path}: {e.strerror}") from e
+	try:
+		return data.decode("utf-8")
+	except UnicodeDecodeError as e:
+		raise ValueError(f"{path}: stream did not contain valid UTF-8") from e
 
 
 def do_check(o):
@@ -2043,10 +2088,14 @@ def do_check(o):
 	# --schema: append validation diagnostics under the same contract. The
 	# schema itself always loads at Standard (a program artifact); one that
 	# does not load cleanly is a single V099 schema fault.
-	schema_file = schema_for(o, o.args[0], text)
+	try:
+		schema_file = schema_for(o, o.args[0], text)
+	except OSError as e:
+		sys.stderr.write(str(e) + "\n")
+		return EXIT_IO
 	if schema_file is not None:
 		try:
-			stext = read_input(schema_file)
+			stext = read_input(schema_file) if o.schema is not None else read_named_schema(schema_file)
 		except (OSError, ValueError) as e:
 			sys.stderr.write(str(e) + "\n")
 			return EXIT_IO

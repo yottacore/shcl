@@ -202,6 +202,20 @@ printf 'field: port\n\ttype: int\n' > "${tmpDir}/sp/app.schema.shcl"
 printf '##    Schema   app.schema.shcl\nport: abc\n' > "${tmpDir}/sp/cfg.shcl"
 printf '##    Schema   https://example.com/app.schema.shcl\nport: abc\n' > "${tmpDir}/spurl.shcl"
 printf '##    Schema   gone.schema.shcl\nport: abc\n' > "${tmpDir}/spgone.shcl"
+## A Schema line indented under a block, the way fmt writes it. Lines naming a
+## device, a FIFO, a path holding a NUL and a windows share, which check must
+## not read. A config whose name holds a backslash, which is no separator here.
+printf 'a:\n\t##    Schema   app.schema.shcl\n\tb: 1\nport: abc\n' > "${tmpDir}/sp/ind.shcl"
+printf '##    Schema   /dev/zero\nport: 1\n' > "${tmpDir}/sp/zero.shcl"
+printf '##    Schema   fifo\nport: 1\n' > "${tmpDir}/sp/fifo.shcl"
+printf '##    Schema   app.schema.shcl\000x\nport: 1\n' > "${tmpDir}/sp/nul.shcl"
+printf '##    Schema   //host/share/app.schema.shcl\nport: 1\n' > "${tmpDir}/sp/share.shcl"
+if [[ "${onWindows}" == 0 ]]; then
+	mkfifo "${tmpDir}/sp/fifo"
+	printf '##    Schema   ./app.schema.shcl\nport: abc\n' > "${tmpDir}/sp/back\\slash.shcl"
+fi
+## A Format line indented under a block, beside a value 2.x read another way.
+printf 'p: %s\nsrv:\n\t##    Format   3\n\tx: 1\n' "'C:\temp'" > "${tmpDir}/indstamped.shcl"
 ## A Format line of five thousand digits: no format will carry that number, and
 ## CPython refuses an int() past 4300 digits, so Python raised where the other
 ## three read it as this major and said there was nothing to migrate.
@@ -287,6 +301,10 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	%BA% a bracket array, %SQ% a selector whose discriminator needs quotes,
 ##	%SP% a file naming its schema on a Schema line, %SPS% that schema, %SPU%
 ##	a file naming a URL there, %SPG% one naming a schema that is not there,
+##	%SPI% one naming it on an indented line, %SPZ%/%SPF%/%SPN% ones naming a
+##	device, a FIFO and a path holding a NUL, %SPW% one naming a windows share
+##	(windows only), %SPB% one whose name holds a backslash, %V3I% a file whose
+##	Format line is indented,
 ##	%SV% a schema naming a path the two-error file does not have,
 ##	%NV% two instance values holding a line break beside one plain value,
 ##	%K% a fresh copy of a file kept by hand, at the path %C% names, %KL% the
@@ -585,6 +603,14 @@ rows=(
 	'Er2thhy|schema-line-url|check %SPU%|-|0|ok (0 diagnostic(s))\n|does not fetch'
 	'Er2thhz|schema-line-gone|check %SPG%|-|8||gone\.schema\.shcl'
 	'Er2thi0|schema-line-overridden|check --schema=%SPS% %SPU%|-|6|line 2: Error: V003\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
+	## An indented line counts, or fmt would turn the check off. Only a regular
+	## file is read, and a backslash in the file name is part of the name.
+	'ErCkXme|schema-line-indented|check %SPI%|-|6|line 4: Error: V003\nline 1: Error: V001\nfailed: 2 diagnostic(s), 2 error(s)\n|-'
+	'ErCkXo8|schema-line-device|check %SPZ%|-|8||not a regular file'
+	'ErCkXpb|schema-line-fifo|check %SPF%|-|8||not a regular file'
+	'ErCkXr4|schema-line-nul|check %SPN%|-|8||-'
+	'ErCkXsU|schema-line-backslash-name|check %SPB%|-|6|line 2: Error: V003\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
+	'ErCkoh2|schema-line-share|check %SPW%|-|8||network or device path'
 	'Eq4Rkv2|migrate-ambiguous-refused|migrate %BS%|-|7|-|does not say which it was written for'
 	"Eq4Rkv3|migrate-ambiguous-kept|migrate %BS%|-|7|p: 'C:\\\\temp'\n|-"
 	'Eq4Rkv4|migrate-ambiguous-write-refused|migrate --write %BS%|-|7|-|refusing to rewrite'
@@ -592,6 +618,7 @@ rows=(
 	## A file that names its format has nothing to migrate, which is what stops
 	## the second run from rewriting the first run's output.
 	'Eq4Rkv6|migrate-stamped-noop|migrate %V3%|-|0|p: 1\n##    Format   3\n|nothing to migrate'
+	"ErCkXtw|migrate-indented-stamp-noop|migrate %V3I%|-|0|p: 'C:\\\\temp'\nsrv:\n\t##    Format   3\n\tx: 1\n|nothing to migrate"
 	## 20260918 item 1: the version scan read raw bodies the rewrite skips.
 	'EqGUXeC|migrate-format-in-raw-old|migrate %RF2%|-|7|-|does not say which it was written for'
 	'EqGUXeD|migrate-format-in-raw-new|migrate %RF3%|-|7|-|does not say which it was written for'
@@ -937,6 +964,12 @@ for row in "${rows[@]}"; do
 	argv="${argv//%BA%/${tmpDir}/brarray.shcl}"
 	argv="${argv//%SQ%/${tmpDir}/selcomma.shcl}"
 	argv="${argv//%SPS%/${tmpDir}/sp/app.schema.shcl}"
+	argv="${argv//%SPI%/${tmpDir}/sp/ind.shcl}"
+	argv="${argv//%SPZ%/${tmpDir}/sp/zero.shcl}"
+	argv="${argv//%SPF%/${tmpDir}/sp/fifo.shcl}"
+	argv="${argv//%SPN%/${tmpDir}/sp/nul.shcl}"
+	argv="${argv//%SPB%/${tmpDir}/sp/back\\slash.shcl}"
+	argv="${argv//%SPW%/${tmpDir}/sp/share.shcl}"
 	argv="${argv//%SPU%/${tmpDir}/spurl.shcl}"
 	argv="${argv//%SPG%/${tmpDir}/spgone.shcl}"
 	argv="${argv//%SP%/${tmpDir}/sp/cfg.shcl}"
@@ -956,6 +989,7 @@ for row in "${rows[@]}"; do
 	## %W% and %L% are rewritten in place, so each binding gets its own fresh
 	## copy below.
 	argv="${argv//%V3%/${tmpDir}/stamped.shcl}"
+	argv="${argv//%V3I%/${tmpDir}/indstamped.shcl}"
 	argv="${argv//%V3B%/${tmpDir}/bomstamped.shcl}"
 	argv="${argv//%V03%/${tmpDir}/twostamps.shcl}"
 	argv="${argv//%FB%/${tmpDir}/bigfmt.shcl}"
@@ -1047,8 +1081,12 @@ for row in "${rows[@]}"; do
 		echo "cli-regress ${id}" >> "${SHCL_GATE_SKIPS:-/dev/null}"
 		fTestSkip; continue
 	fi
-	if [[ "${onWindows}" == 1 && ( "${stdinSpec}" == @full* || "${stdinSpec}" == @closedout || "${stdinSpec}" == @appear || "${stdinSpec}" == @change || "${argv}" == *%XF%* ) ]]; then
+	if [[ "${onWindows}" == 1 && ( "${stdinSpec}" == @full* || "${stdinSpec}" == @closedout || "${stdinSpec}" == @appear || "${stdinSpec}" == @change || "${argv}" == *%XF%* || "${argv}" == *"${tmpDir}/sp/zero"* || "${argv}" == *"${tmpDir}/sp/fifo"* || "${argv}" == *"${tmpDir}/sp/back"* ) ]]; then
 		echo "cli-regress: skipping ${id} (POSIX fixture; not judged on windows)"
+		fTestSkip; continue
+	fi
+	if [[ "${onWindows}" == 0 && "${argv}" == *"${tmpDir}/sp/share.shcl"* ]]; then
+		echo "cli-regress: skipping ${id} (windows fixture; not judged here)"
 		fTestSkip; continue
 	fi
 	##	A developer box may run as an account the deny does not bind; the hosted

@@ -1809,7 +1809,8 @@ fn format_line_version(text: &str) -> Option<u32> {
 			}
 			continue;
 		}
-		if let Some(n) = line.trim_end_matches(is_wsp).strip_prefix(FORMAT_LINE_HEAD) {
+		let rest = trim_wsp_end(&body[leading_ws(body).len()..]);
+		if let Some(n) = rest.strip_prefix(FORMAT_LINE_HEAD) {
 			// More digits than fit is not a 2.x file either, so it reads as
 			// this major and there is nothing to migrate.
 			if !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()) {
@@ -1821,8 +1822,7 @@ fn format_line_version(text: &str) -> Option<u32> {
 				continue;
 			}
 		}
-		let rest = trim_wsp_end(&body[leading_ws(body).len()..]);
-		migrate_line(rest, &mut tok, &mut fence, &mut dry);
+		track_fence(rest, &mut tok, &mut fence, &mut dry);
 	}
 	found
 }
@@ -1830,8 +1830,9 @@ fn format_line_version(text: &str) -> Option<u32> {
 /// The schema a document's `##    Schema   REF` line names: a path, or a URL
 /// for an editor to fetch. None when no line names one. The first such line
 /// wins, and one inside a raw body is that block's content, as with the
-/// Format line. A relative path is the caller's to resolve, from the config
-/// file's directory.
+/// Format line. Either line may be indented, since the formatter indents a
+/// comment to the field below it. A relative path is the caller's to resolve,
+/// from the config file's directory.
 #[must_use]
 pub fn schema_ref(text: &str) -> Option<String> {
 	let text = text.strip_prefix('\u{feff}').unwrap_or(text);
@@ -1850,17 +1851,26 @@ pub fn schema_ref(text: &str) -> Option<String> {
 			}
 			continue;
 		}
-		if let Some(r) = body.strip_prefix(SCHEMA_LINE_HEAD) {
+		let rest = trim_wsp_end(&body[leading_ws(body).len()..]);
+		if let Some(r) = rest.strip_prefix(SCHEMA_LINE_HEAD) {
 			let r = trim_wsp(r);
 			if !r.is_empty() {
 				return Some(r.to_string());
 			}
 			continue;
 		}
-		let rest = trim_wsp_end(&body[leading_ws(body).len()..]);
-		migrate_line(rest, &mut tok, &mut fence, &mut dry);
+		track_fence(rest, &mut tok, &mut fence, &mut dry);
 	}
 	None
+}
+
+/// Note the raw block a line opens, the way the rewrite does. Only a line
+/// with a run of three backticks or tildes can open one, so the rest skip the
+/// tokenizer.
+fn track_fence(rest: &str, tok: &mut Tokens, fence: &mut Option<(u8, usize)>, dry: &mut Migrating) {
+	if rest.contains("```") || rest.contains("~~~") {
+		migrate_line(rest, tok, fence, dry);
+	}
 }
 
 /// Rewrite a document written under the 2.x rules so this parser reads the
@@ -4049,6 +4059,7 @@ impl<'a> Parser<'a> {
 					});
 				}
 				if src_text.is_some()
+					&& unit_named(&self.arena[node].name)
 					&& let Some(m) = tok
 						.elements
 						.iter()
@@ -8628,6 +8639,12 @@ fn parse_size_text(
 	};
 	let n = scaled(int, frac, unit.or(bare)?.bytes(decimal))?;
 	(n <= i64::MAX as u64).then_some((n as i64, unit))
+}
+
+/// Whether a name ends in a duration or size unit. Asked before a value's
+/// text is built for `unit_clash`, since most names do not.
+fn unit_named(name: &str) -> bool {
+	name_unit(name, &DURATION_NAMES).is_some() || name_unit(name, &SIZE_NAMES).is_some()
 }
 
 /// A value in another unit than the one its field name ends in (`H005`), as

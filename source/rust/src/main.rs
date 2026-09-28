@@ -1935,12 +1935,25 @@ fn rewritten_lines(before: &str, after: &str) -> Vec<usize> {
 		.collect()
 }
 
+/// Where the file name starts in a path: after the last separator, or on
+/// windows after a drive with no separator (`C:cfg.shcl`). A backslash is a
+/// separator only on windows.
+fn name_start(file: &str) -> usize {
+	let seps: &[char] = if cfg!(windows) { &['/', '\\'] } else { &['/'] };
+	let b = file.as_bytes();
+	let drive = if cfg!(windows) && b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':' {
+		2
+	} else {
+		0
+	};
+	file.rfind(seps).map_or(drive, |i| (i + 1).max(drive))
+}
+
 /// Where `migrate --write` keeps the file it replaces: `_old_v2` before the
 /// last dot of the file name, or on the end when it has none. A leading dot
 /// is part of the name, not an extension.
 fn old_copy_name(file: &str) -> String {
-	let seps: &[char] = if cfg!(windows) { &['/', '\\'] } else { &['/'] };
-	let start = file.rfind(seps).map_or(0, |i| i + 1);
+	let start = name_start(file);
 	match file[start..].rfind('.') {
 		Some(dot) if dot > 0 => {
 			let at = start + dot;
@@ -2624,30 +2637,66 @@ fn do_set(o: &Opts) -> u8 {
 /// file's directory, the way an editor reads it. A URL is left to editors,
 /// since a check that reads the network because of a line in a file is not
 /// one to run unattended.
-fn schema_for(o: &Opts, file: &str, text: &str) -> Option<String> {
+fn schema_for(o: &Opts, file: &str, text: &str) -> Result<Option<String>, String> {
 	if o.schema.is_some() {
-		return o.schema.clone();
+		return Ok(o.schema.clone());
 	}
-	let named = schema_ref(text)?;
+	let Some(named) = schema_ref(text) else {
+		return Ok(None);
+	};
 	if named.contains("://") {
 		errln!(
 			"the file names its schema by URL ({}), which check does not fetch; pass --schema=SCHEMA to validate against it",
 			named
 		);
-		return None;
+		return Ok(None);
 	}
 	let b = named.as_bytes();
-	let absolute = b[0] == b'/'
-		|| b[0] == b'\\'
-		|| (b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':');
-	if absolute {
-		return Some(named);
+	// Two separators, or the NT prefix, name a share or a device on windows,
+	// and a line in a file someone else wrote must not reach another host.
+	let sep = |c: u8| c == b'/' || c == b'\\';
+	if cfg!(windows) && b.len() >= 2 && ((sep(b[0]) && sep(b[1])) || named.starts_with("\\??\\")) {
+		return Err(format!(
+			"{}: a Schema line cannot name a network or device path",
+			named
+		));
 	}
-	let dir = match file.rfind(['/', '\\']) {
-		Some(k) if file != "-" => &file[..k],
-		_ => ".",
+	let absolute = b[0] == b'/'
+		|| (cfg!(windows)
+			&& (b[0] == b'\\' || (b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':')));
+	if absolute {
+		return Ok(Some(named));
+	}
+	let start = if file == "-" { 0 } else { name_start(file) };
+	if start == 0 {
+		return Ok(Some(format!("./{}", named)));
+	}
+	Ok(Some(format!("{}{}", &file[..start], named)))
+}
+
+/// Reads the schema a Schema line names. A line in a file someone else wrote
+/// must not make an unattended check wait on a FIFO or read a device until
+/// memory runs out, so only a regular file is read.
+fn read_named_schema(path: &str) -> Result<String, String> {
+	use std::io::Read;
+	#[cfg(windows)]
+	if not_a_disk_file(path) {
+		return Err(format!("{}: not a regular file", path));
+	}
+	let regular = |m: std::io::Result<std::fs::Metadata>| match m {
+		Ok(m) if m.is_dir() => Err(format!("{}: Is a directory", path)),
+		Ok(m) if !m.is_file() => Err(format!("{}: not a regular file", path)),
+		Ok(_) => Ok(()),
+		Err(e) => Err(format!("{}: {}", path, e)),
 	};
-	Some(format!("{}/{}", dir, named))
+	// Asked before the open too, since opening a FIFO waits for a writer.
+	regular(std::fs::metadata(path))?;
+	let mut f = std::fs::File::open(path).map_err(|e| format!("{}: {}", path, e))?;
+	regular(f.metadata())?;
+	let mut s = String::new();
+	f.read_to_string(&mut s)
+		.map_err(|e| format!("{}: {}", path, e))?;
+	Ok(s)
 }
 
 fn do_check(o: &Opts) -> u8 {
@@ -2676,8 +2725,20 @@ fn do_check(o: &Opts) -> u8 {
 		// --schema: append validation diagnostics under the same contract.
 		// The schema itself always loads at Standard (a program artifact);
 		// one that does not load cleanly is a single V099 schema fault.
-		if let Some(schema_file) = &schema_for(o, file, &text) {
-			let stext = match read_input(schema_file) {
+		let schema_file = match schema_for(o, file, &text) {
+			Ok(s) => s,
+			Err(e) => {
+				errln!("{}", e);
+				return EXIT_IO;
+			}
+		};
+		if let Some(schema_file) = &schema_file {
+			let read = if o.schema.is_some() {
+				read_input(schema_file)
+			} else {
+				read_named_schema(schema_file)
+			};
+			let stext = match read {
 				Ok(t) => t,
 				Err(e) => {
 					errln!("{}", e);

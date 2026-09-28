@@ -1694,9 +1694,9 @@ def _format_line_version(text):
 			if _is_fence_close(body, fence[0], fence[1]):
 				fence = None
 			continue
-		head = _trim_wsp_end(line)
-		if head.startswith(FORMAT_LINE_HEAD):
-			n = head[len(FORMAT_LINE_HEAD):]
+		rest = _trim_wsp_end(body[len(_leading_ws(body)):])
+		if rest.startswith(FORMAT_LINE_HEAD):
+			n = rest[len(FORMAT_LINE_HEAD):]
 			if n and all("0" <= c <= "9" for c in n):
 				# A number too long for int() - CPython refuses past 4300
 				# digits - is one no format will ever carry. The reference's
@@ -1710,7 +1710,7 @@ def _format_line_version(text):
 					return v
 				found = v if found is None else max(found, v)
 				continue
-		_, fence = _migrate_line(_trim_wsp_end(body[len(_leading_ws(body)):]), tok, fence, dry)
+		fence = _track_fence(rest, tok, fence, dry)
 	return found
 
 
@@ -1718,8 +1718,9 @@ def schema_ref(text: str) -> str | None:
 	"""The schema a document's `##    Schema   REF` line names: a path, or a
 	URL for an editor to fetch. None when no line names one. The first such
 	line wins, and one inside a raw body is that block's content, as with the
-	Format line. A relative path is the caller's to resolve, from the config
-	file's directory."""
+	Format line. Either line may be indented, since the formatter indents a
+	comment to the field below it. A relative path is the caller's to resolve,
+	from the config file's directory."""
 	if text.startswith("\ufeff"):
 		text = text[1:]
 	tok = Tokens()
@@ -1731,13 +1732,23 @@ def schema_ref(text: str) -> str | None:
 			if _is_fence_close(body, fence[0], fence[1]):
 				fence = None
 			continue
-		if body.startswith(SCHEMA_LINE_HEAD):
-			r = _trim_wsp(body[len(SCHEMA_LINE_HEAD):])
+		rest = _trim_wsp_end(body[len(_leading_ws(body)):])
+		if rest.startswith(SCHEMA_LINE_HEAD):
+			r = _trim_wsp(rest[len(SCHEMA_LINE_HEAD):])
 			if r:
 				return r
 			continue
-		_, fence = _migrate_line(_trim_wsp_end(body[len(_leading_ws(body)):]), tok, fence, dry)
+		fence = _track_fence(rest, tok, fence, dry)
 	return None
+
+
+def _track_fence(rest: str, tok: Tokens, fence: tuple[str, int] | None, dry: _Migrating) -> tuple[str, int] | None:
+	"""Note the raw block a line opens, the way the rewrite does. Only a line
+	with a run of three backticks or tildes can open one, so the rest skip the
+	tokenizer."""
+	if "```" in rest or "~~~" in rest:
+		_, fence = _migrate_line(rest, tok, fence, dry)
+	return fence
 
 
 def migrate(text: str, from_v2: bool) -> Migration:
@@ -3213,7 +3224,7 @@ class _Parser:
 			if node is not None:
 				if src_text is not None and any(_path_like(p, tok.src) for p in tok.elements):
 					self._diag(Diagnostic(lineno, Severity.Hint, _PATH_HINT, "H004"))
-				if src_text is not None:
+				if src_text is not None and _unit_named(self.arena[node].name):
 					for p in tok.elements:
 						clash = _unit_clash(self.arena[node].name, _piece_text(p, tok.src))
 						if clash is not None:
@@ -7495,7 +7506,7 @@ def _name_unit(name, table):
 	after a `-` or `_`."""
 	for end, unit in table:
 		at = len(name) - len(end)
-		if at > 0 and _ascii_lower(name[at:]) == end and name[at - 1] in "-_":
+		if at > 0 and name[at - 1] in "-_" and _ascii_lower(name[at:]) == end:
 			return unit
 	return None
 
@@ -7604,6 +7615,14 @@ def _parse_size_text(t, bare, decimal):
 	if n is None or n > _I64_MAX_U:
 		return None
 	return n, unit
+
+
+def _unit_named(name):
+	"""Whether a name ends in a duration or size unit. Asked before a value's
+	text is built for _unit_clash, since most names do not."""
+	if "-" not in name and "_" not in name:
+		return False
+	return _name_unit(name, _DURATION_NAMES) is not None or _name_unit(name, _SIZE_NAMES) is not None
 
 
 def _unit_clash(name, text):

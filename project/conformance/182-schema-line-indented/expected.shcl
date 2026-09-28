@@ -1,0 +1,9 @@
+# An indented Schema line counts, since fmt indents a comment to its field
+note: "```"
+text:
+	```
+	##    Schema   inside.shcl
+	```
+server:
+	##    Schema   ./app.schema.shcl
+	port: 8080
