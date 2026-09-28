@@ -768,6 +768,8 @@ The responsibility is split rather than duplicate the pipeline:
 
 - The C++ interface (`shcl.hpp`) is not a second parser. It is the reference's API in std types, `get<T>()` included, with every call going to the same C functions, so it inherits the core's conformance and needs only a compile-plus-behavior smoke to stay correct. A C++ caller sees none of the C interface: the calls into C are compiled in one file, the way `shcl.h` compiles its implementation.
 
+- Among making every const member of the C++ `Document` hold a lock, saying a Document is not shared across threads, and taking `const` off the reads, it was decided that const members lock. Every call into the core writes to the document behind it, its read and scratch arenas and its index, so two threads reading one const Document raced. A C++ reader takes const to mean safe to call at once, and the Rust `Document` is `Sync`. The locks are a fixed set picked by the document's address and recursive, and a call that reads two documents takes both together. Writes stay the caller's to keep to one thread.
+
 - Conformance runs natively (a C port of the runner over the same corpus), so the C binding is corpus-green on its own, and the cicd crosscheck holds it byte-for-byte to the reference besides.
 
 - Memory is a per-document bump arena, so teardown is a single free with no per-object bookkeeping. A short-lived-tool trade that keeps the port readable.

@@ -225,6 +225,9 @@ std::pair<std::string, FileStatus> read_file(const std::string &path, std::size_
 bool write_file_atomic(const std::string &path, std::string_view data);
 #endif
 
+// A parsed document. Its const members may be called on one Document from
+// several threads at once. A member that changes it needs the caller to keep
+// every other call off that Document meanwhile, as with any std type.
 class Document {
 	// The C document. It is never defined on this side, and the Document owns
 	// it: moves hand it over, copies are deleted, and destruction frees it.
@@ -496,6 +499,7 @@ void suppress_declared_reopens(const Document &schema, Document &doc);
 #ifdef SHCL_IMPLEMENTATION
 
 #include <cstdlib>
+#include <mutex>
 
 namespace shcl {
 
@@ -620,11 +624,46 @@ static void copy_tokens(const shcl_tokens &t, Tokens &out) {
 }
 
 static shcl_doc *doc(const Document &d) noexcept { return Access::doc(d); }
+
+// Every call on the core writes to the document behind it, const or not: the
+// read arena, the scratch arena, the index it builds on first use. A const
+// member is safe from several threads at once, as a C++ reader expects of
+// const, because each holds its document's lock for the whole call (20260926
+// item 7). The locks are a fixed set picked by address, and recursive, since
+// a const member can call another and two documents can share one. A write is
+// not const and is the caller's to keep to one thread, as with any std type.
+static std::recursive_mutex &lock_for(const shcl_doc *p) noexcept {
+	static std::recursive_mutex locks[64];
+	return locks[(reinterpret_cast<std::uintptr_t>(p) >> 4) % 64];
+}
+struct Held {
+	std::unique_lock<std::recursive_mutex> lock;
+	shcl_doc *p;
+	operator shcl_doc *() const noexcept { return p; }
+};
+static Held held(const Document &d) {
+	shcl_doc *p = Access::doc(d);
+	return Held{std::unique_lock<std::recursive_mutex>(lock_for(p)), p};
+}
+// Two documents at once, locked together so two threads taking the same pair
+// the other way round cannot deadlock.
+struct HeldPair {
+	std::unique_lock<std::recursive_mutex> a, b;
+};
+static HeldPair held(const Document &x, const Document &y) {
+	HeldPair h{std::unique_lock<std::recursive_mutex>(lock_for(Access::doc(x)), std::defer_lock), std::unique_lock<std::recursive_mutex>(lock_for(Access::doc(y)), std::defer_lock)};
+	std::lock(h.a, h.b);
+	return h;
+}
 // Each read hands back the previous one's core memory first. Every result is
 // copied into std types, so the arena behind it is dead once the copy is made,
 // and a long-lived Document stays flat instead of holding every result until
-// it goes.
-static shcl_doc *fresh(const Document &d) noexcept { shcl_doc *p = Access::doc(d); shcl_reads_release(p); return p; }
+// it goes. The copy is made while the lock is held.
+static Held fresh(const Document &d) {
+	Held h = held(d);
+	shcl_reads_release(h.p);
+	return h;
+}
 
 static Migration migration(shcl_migration m) {
 	// Owned from the call on, so a throw below cannot leak the C buffer.
@@ -756,17 +795,17 @@ std::pair<Document, FileStatus> Document::load_file_keep_lines(const std::string
 	Document d = Access::wrap(shcl_load_file_keep_lines(path.c_str(), static_cast<shcl_strictness>(s), &cs));
 	return {std::move(d), static_cast<FileStatus>(cs)};
 }
-SaveResult Document::save_file(const std::string &path) const { return static_cast<SaveResult>(shcl_save_file(detail::doc(*this), path.c_str())); }
-SaveResult Document::save_file_lossy(const std::string &path) const { return static_cast<SaveResult>(shcl_save_file_lossy(detail::doc(*this), path.c_str())); }
+SaveResult Document::save_file(const std::string &path) const { return static_cast<SaveResult>(shcl_save_file(detail::held(*this), path.c_str())); }
+SaveResult Document::save_file_lossy(const std::string &path) const { return static_cast<SaveResult>(shcl_save_file_lossy(detail::held(*this), path.c_str())); }
 std::pair<SaveResult, bool> Document::save_file_keep_lines(const std::string &path) const {
 	int k = 0;
-	SaveResult r = static_cast<SaveResult>(shcl_save_file_keep_lines(detail::doc(*this), path.c_str(), &k));
+	SaveResult r = static_cast<SaveResult>(shcl_save_file_keep_lines(detail::held(*this), path.c_str(), &k));
 	return {r, k != 0};
 }
 #endif
 
-bool Document::strict_failed() const { return shcl_strict_failed(detail::doc(*this)) != 0; }
-Strictness Document::strictness() const { return static_cast<Strictness>(shcl_strictness_of(detail::doc(*this))); }
+bool Document::strict_failed() const { return shcl_strict_failed(detail::held(*this)) != 0; }
+Strictness Document::strictness() const { return static_cast<Strictness>(shcl_strictness_of(detail::held(*this))); }
 // The canonical text lives in the read arena like every other result, so a
 // save loop that did not release first would hold every copy.
 std::string Document::to_canonical() const { return detail::str(shcl_to_canonical(detail::fresh(*this))); }
@@ -777,19 +816,20 @@ std::pair<std::string, bool> Document::to_text_keep_lines() const {
 }
 
 std::vector<Diagnostic> Document::diagnostics() const {
-	shcl_doc *d = detail::doc(*this);
+	auto d = detail::held(*this);
 	std::vector<Diagnostic> v; std::size_t n = shcl_diag_count(d);
 	v.reserve(n);
 	for (std::size_t i = 0; i < n; i++)
 		v.push_back({shcl_diag_line(d, i), static_cast<Severity>(shcl_diag_severity(d, i)), detail::str(shcl_diag_message(d, i)), shcl_diag_code(d, i)});
 	return v;
 }
-std::size_t Document::error_count() const { return shcl_error_count(detail::doc(*this)); }
-std::size_t Document::lost_count() const { return shcl_lost_count(detail::doc(*this)); }
+std::size_t Document::error_count() const { return shcl_error_count(detail::held(*this)); }
+std::size_t Document::lost_count() const { return shcl_lost_count(detail::held(*this)); }
 
 std::vector<Diagnostic> Document::validate(const Document &schema) const {
 	std::vector<Diagnostic> v;
 	// Owned from the call on, so a throw while copying cannot leak it.
+	auto h = detail::held(*this, schema);
 	std::unique_ptr<shcl_validation, void (*)(shcl_validation *)> r(shcl_validate(detail::doc(*this), Access::doc(schema)), &shcl_validation_free);
 	if (!r) return v; // an allocation failed; the document is finished
 	std::size_t n = shcl_validation_count(r.get());
@@ -799,24 +839,25 @@ std::vector<Diagnostic> Document::validate(const Document &schema) const {
 	return v;
 }
 
-void Document::merge(const Document &over) { shcl_merge(detail::doc(*this), Access::doc(over)); }
+void Document::merge(const Document &over) { shcl_merge(detail::doc(*this), detail::held(over)); }
 void Document::compact() { shcl_compact(detail::doc(*this)); }
 
-std::size_t Document::count(std::string_view path) const { return shcl_count(detail::doc(*this), path.data(), path.size()); }
-std::vector<std::string> Document::paths() const { shcl_str *a; std::size_t n = shcl_paths(detail::fresh(*this), &a); return detail::strs(a, n); }
-std::vector<std::string> Document::instance_paths() const { shcl_str *a; std::size_t n = shcl_instance_paths(detail::fresh(*this), &a); return detail::strs(a, n); }
-std::vector<std::string> Document::comments(std::string_view path) const { shcl_str *a; std::size_t n = shcl_comments(detail::fresh(*this), path.data(), path.size(), &a); return detail::strs(a, n); }
-std::vector<std::string> Document::instances(std::string_view path) const { shcl_str *a; std::size_t n = shcl_instances(detail::fresh(*this), path.data(), path.size(), &a); return detail::strs(a, n); }
-std::vector<std::string> Document::children(std::string_view path) const { shcl_str *a; std::size_t n = shcl_children(detail::fresh(*this), path.data(), path.size(), &a); return detail::strs(a, n); }
-std::size_t Document::line(std::string_view path) const { return shcl_line(detail::doc(*this), path.data(), path.size()); }
+std::size_t Document::count(std::string_view path) const { return shcl_count(detail::held(*this), path.data(), path.size()); }
+std::vector<std::string> Document::paths() const { auto h = detail::fresh(*this); shcl_str *a; std::size_t n = shcl_paths(h, &a); return detail::strs(a, n); }
+std::vector<std::string> Document::instance_paths() const { auto h = detail::fresh(*this); shcl_str *a; std::size_t n = shcl_instance_paths(h, &a); return detail::strs(a, n); }
+std::vector<std::string> Document::comments(std::string_view path) const { auto h = detail::fresh(*this); shcl_str *a; std::size_t n = shcl_comments(h, path.data(), path.size(), &a); return detail::strs(a, n); }
+std::vector<std::string> Document::instances(std::string_view path) const { auto h = detail::fresh(*this); shcl_str *a; std::size_t n = shcl_instances(h, path.data(), path.size(), &a); return detail::strs(a, n); }
+std::vector<std::string> Document::children(std::string_view path) const { auto h = detail::fresh(*this); shcl_str *a; std::size_t n = shcl_children(h, path.data(), path.size(), &a); return detail::strs(a, n); }
+std::size_t Document::line(std::string_view path) const { return shcl_line(detail::held(*this), path.data(), path.size()); }
 std::vector<std::size_t> Document::lines(std::string_view path) const {
-	std::size_t *a; std::size_t n = shcl_lines(detail::fresh(*this), path.data(), path.size(), &a);
+	auto h = detail::fresh(*this);
+	std::size_t *a; std::size_t n = shcl_lines(h, path.data(), path.size(), &a);
 	return std::vector<std::size_t>(a, a + n);
 }
-bool Document::quoted(std::string_view path) const { return shcl_quoted(detail::doc(*this), path.data(), path.size()) != 0; }
-bool Document::exists(std::string_view path) const { return shcl_exists(detail::doc(*this), path.data(), path.size()) != 0; }
-std::string Document::authored_name(std::string_view path) const { return detail::str(shcl_authored_name(detail::doc(*this), path.data(), path.size())); }
-WriteReason Document::write_reason(std::string_view path) const { return static_cast<WriteReason>(shcl_write_reason_(detail::doc(*this), path.data(), path.size())); }
+bool Document::quoted(std::string_view path) const { return shcl_quoted(detail::held(*this), path.data(), path.size()) != 0; }
+bool Document::exists(std::string_view path) const { return shcl_exists(detail::held(*this), path.data(), path.size()) != 0; }
+std::string Document::authored_name(std::string_view path) const { return detail::str(shcl_authored_name(detail::held(*this), path.data(), path.size())); }
+WriteReason Document::write_reason(std::string_view path) const { return static_cast<WriteReason>(shcl_write_reason_(detail::held(*this), path.data(), path.size())); }
 
 bool Document::set_int(std::string_view path, std::int64_t v) { return shcl_set_int(detail::doc(*this), path.data(), path.size(), v) != 0; }
 bool Document::set_float(std::string_view path, double v) { return shcl_set_float(detail::doc(*this), path.data(), path.size(), v) != 0; }
@@ -850,58 +891,66 @@ bool Document::set_comment(std::string_view path, std::string_view text) { retur
 std::size_t Document::clear_comments(std::string_view path) { return shcl_clear_comments(detail::doc(*this), path.data(), path.size()); }
 std::size_t Document::set_banner(bool on) { return shcl_set_banner(detail::doc(*this), on ? 1 : 0); }
 
-Read<std::int64_t> Document::read_int(std::string_view path) const { auto r = shcl_read_int(detail::doc(*this), path.data(), path.size()); return {r.value, detail::st(r.status)}; }
-Read<double> Document::read_float(std::string_view path) const { auto r = shcl_read_float(detail::doc(*this), path.data(), path.size()); return {r.value, detail::st(r.status)}; }
-Read<bool> Document::read_bool(std::string_view path) const { auto r = shcl_read_bool_(detail::doc(*this), path.data(), path.size()); return {r.value != 0, detail::st(r.status)}; }
-Read<DateTime> Document::read_datetime(std::string_view path) const { auto r = shcl_read_datetime(detail::doc(*this), path.data(), path.size()); return {detail::from_c(r.value), detail::st(r.status)}; }
+Read<std::int64_t> Document::read_int(std::string_view path) const { auto h = detail::held(*this); auto r = shcl_read_int(h, path.data(), path.size()); return {r.value, detail::st(r.status)}; }
+Read<double> Document::read_float(std::string_view path) const { auto h = detail::held(*this); auto r = shcl_read_float(h, path.data(), path.size()); return {r.value, detail::st(r.status)}; }
+Read<bool> Document::read_bool(std::string_view path) const { auto h = detail::held(*this); auto r = shcl_read_bool_(h, path.data(), path.size()); return {r.value != 0, detail::st(r.status)}; }
+Read<DateTime> Document::read_datetime(std::string_view path) const { auto h = detail::held(*this); auto r = shcl_read_datetime(h, path.data(), path.size()); return {detail::from_c(r.value), detail::st(r.status)}; }
 namespace detail {
 inline shcl_duration_unit c_unit(std::optional<DurationUnit> u) { return u ? static_cast<shcl_duration_unit>(static_cast<int>(*u) + 1) : SHCL_DURATION_NONE; }
 inline shcl_size_unit c_unit(std::optional<SizeUnit> u) { return u ? static_cast<shcl_size_unit>(static_cast<int>(*u) + 1) : SHCL_SIZE_NONE; }
 }
 Read<std::chrono::milliseconds> Document::read_duration(std::string_view path, std::optional<DurationUnit> unit) const {
-	auto r = shcl_read_duration(detail::doc(*this), path.data(), path.size(), detail::c_unit(unit));
+	auto h = detail::held(*this);
+	auto r = shcl_read_duration(h, path.data(), path.size(), detail::c_unit(unit));
 	return {std::chrono::milliseconds(r.value), detail::st(r.status)};
 }
 Read<std::int64_t> Document::read_size(std::string_view path, std::optional<SizeUnit> unit, bool decimal) const {
-	auto r = shcl_read_size(detail::doc(*this), path.data(), path.size(), detail::c_unit(unit), decimal ? 1 : 0);
+	auto h = detail::held(*this);
+	auto r = shcl_read_size(h, path.data(), path.size(), detail::c_unit(unit), decimal ? 1 : 0);
 	return {r.value, detail::st(r.status)};
 }
 std::chrono::milliseconds Document::get_duration_or(std::string_view path, std::optional<DurationUnit> unit, std::chrono::milliseconds def) const {
-	return std::chrono::milliseconds(shcl_get_duration_or(detail::doc(*this), path.data(), path.size(), detail::c_unit(unit), static_cast<std::int64_t>(def.count())));
+	return std::chrono::milliseconds(shcl_get_duration_or(detail::held(*this), path.data(), path.size(), detail::c_unit(unit), static_cast<std::int64_t>(def.count())));
 }
 std::int64_t Document::get_size_or(std::string_view path, std::optional<SizeUnit> unit, bool decimal, std::int64_t def) const {
-	return shcl_get_size_or(detail::doc(*this), path.data(), path.size(), detail::c_unit(unit), decimal ? 1 : 0, def);
+	return shcl_get_size_or(detail::held(*this), path.data(), path.size(), detail::c_unit(unit), decimal ? 1 : 0, def);
 }
-Read<std::string> Document::read_string(std::string_view path) const { auto r = shcl_read_string(detail::fresh(*this), path.data(), path.size()); return {detail::str(r.value), detail::st(r.status)}; }
-Read<std::string> Document::read_raw(std::string_view path) const { auto r = shcl_read_raw(detail::fresh(*this), path.data(), path.size()); return {detail::str(r.value), detail::st(r.status)}; }
-Read<std::string> Document::read_raw_info(std::string_view path) const { auto r = shcl_read_raw_info(detail::fresh(*this), path.data(), path.size()); return {detail::str(r.value), detail::st(r.status)}; }
-Read<std::string> Document::read_datetime_str(std::string_view path) const { auto r = shcl_read_datetime(detail::doc(*this), path.data(), path.size()); return {detail::dt_str(r.value), detail::st(r.status)}; }
+Read<std::string> Document::read_string(std::string_view path) const { auto h = detail::fresh(*this); auto r = shcl_read_string(h, path.data(), path.size()); return {detail::str(r.value), detail::st(r.status)}; }
+Read<std::string> Document::read_raw(std::string_view path) const { auto h = detail::fresh(*this); auto r = shcl_read_raw(h, path.data(), path.size()); return {detail::str(r.value), detail::st(r.status)}; }
+Read<std::string> Document::read_raw_info(std::string_view path) const { auto h = detail::fresh(*this); auto r = shcl_read_raw_info(h, path.data(), path.size()); return {detail::str(r.value), detail::st(r.status)}; }
+Read<std::string> Document::read_datetime_str(std::string_view path) const { auto h = detail::held(*this); auto r = shcl_read_datetime(h, path.data(), path.size()); return {detail::dt_str(r.value), detail::st(r.status)}; }
 
 Read<std::vector<std::int64_t>> Document::read_int_array(std::string_view path) const {
-	auto r = shcl_read_int_array(detail::fresh(*this), path.data(), path.size());
+	auto h = detail::fresh(*this);
+	auto r = shcl_read_int_array(h, path.data(), path.size());
 	return {std::vector<std::int64_t>(r.values, r.values + r.n), detail::st(r.status), detail::slots(r.statuses, r.n)};
 }
 Read<std::vector<double>> Document::read_float_array(std::string_view path) const {
-	auto r = shcl_read_float_array(detail::fresh(*this), path.data(), path.size());
+	auto h = detail::fresh(*this);
+	auto r = shcl_read_float_array(h, path.data(), path.size());
 	return {std::vector<double>(r.values, r.values + r.n), detail::st(r.status), detail::slots(r.statuses, r.n)};
 }
 Read<std::vector<bool>> Document::read_bool_array(std::string_view path) const {
-	auto r = shcl_read_bool_array(detail::fresh(*this), path.data(), path.size());
+	auto h = detail::fresh(*this);
+	auto r = shcl_read_bool_array(h, path.data(), path.size());
 	std::vector<bool> v; v.reserve(r.n); for (std::size_t i = 0; i < r.n; i++) v.push_back(r.values[i] != 0);
 	return {std::move(v), detail::st(r.status), detail::slots(r.statuses, r.n)};
 }
 Read<std::vector<DateTime>> Document::read_datetime_array(std::string_view path) const {
-	auto r = shcl_read_datetime_array(detail::fresh(*this), path.data(), path.size());
+	auto h = detail::fresh(*this);
+	auto r = shcl_read_datetime_array(h, path.data(), path.size());
 	std::vector<DateTime> v; v.reserve(r.n);
 	for (std::size_t i = 0; i < r.n; i++) v.push_back(detail::from_c(r.values[i]));
 	return {std::move(v), detail::st(r.status), detail::slots(r.statuses, r.n)};
 }
 Read<std::vector<std::string>> Document::read_string_array(std::string_view path) const {
-	auto r = shcl_read_string_array(detail::fresh(*this), path.data(), path.size());
+	auto h = detail::fresh(*this);
+	auto r = shcl_read_string_array(h, path.data(), path.size());
 	return {detail::strs(r.values, r.n), detail::st(r.status), detail::slots(r.statuses, r.n)};
 }
 Read<std::vector<std::string>> Document::read_datetime_array_str(std::string_view path) const {
-	auto r = shcl_read_datetime_array(detail::fresh(*this), path.data(), path.size());
+	auto h = detail::fresh(*this);
+	auto r = shcl_read_datetime_array(h, path.data(), path.size());
 	std::vector<std::string> v; v.reserve(r.n);
 	for (std::size_t i = 0; i < r.n; i++) v.push_back(detail::dt_str(r.values[i]));
 	return {std::move(v), detail::st(r.status), detail::slots(r.statuses, r.n)};
@@ -930,7 +979,8 @@ template <> Read<std::vector<std::string>> Document::get<std::vector<std::string
 template <> Read<std::vector<DateTime>> Document::get<std::vector<DateTime>>(std::string_view path) const { return read_datetime_array(path); }
 
 std::pair<std::string, std::vector<Diagnostic>> generate(const Document &schema, bool no_banner) {
-	shcl_doc *d = Access::doc(schema);
+	auto h = detail::held(schema);
+	shcl_doc *d = h;
 	int ok = 0;
 	shcl_reads_release(d);
 	std::string text = detail::str(shcl_generate(d, no_banner ? 1 : 0, &ok));
@@ -948,8 +998,8 @@ std::pair<std::string, std::vector<Diagnostic>> generate(const Document &schema,
 	return {ok ? std::move(text) : std::string(), std::move(faults)};
 }
 
-void suppress_declared_repeats(const Document &schema, Document &doc) { shcl_suppress_declared_repeats(Access::doc(schema), Access::doc(doc)); }
-void suppress_declared_reopens(const Document &schema, Document &doc) { shcl_suppress_declared_reopens(Access::doc(schema), Access::doc(doc)); }
+void suppress_declared_repeats(const Document &schema, Document &doc) { shcl_suppress_declared_repeats(detail::held(schema), Access::doc(doc)); }
+void suppress_declared_reopens(const Document &schema, Document &doc) { shcl_suppress_declared_reopens(detail::held(schema), Access::doc(doc)); }
 
 } // namespace shcl
 

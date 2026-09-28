@@ -109,7 +109,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - A merge that replaces a leaf drops a kept line the settle turned into a comment
 	- ID: 2026092718195400
 	- Type: Bug
-	- Status: Queued
+	- Status: Canceled
 	- Severity: Low
 	- Opened: 20260927-181954
 	- Opened by: sweep for 2026092620255202
@@ -125,6 +125,11 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Estimated effort: Low
 	- Progress log:
 		- 20260927: tried `is_comment` in the replaced-leaf rule. The 2M fuzz's reload property failed at iteration 1076: the canonical text writes the line as a comment, so a merge onto the reload drops it with the leaf. Keeping it means an exemption for merges the fixtures cannot express through the public calls. Needs a call: keep the line through a merge and accept the reload difference, or leave it going with the leaf like the leaf's comments.
+	- Decisions:
+		- 20260928: left going with the leaf's comments, the way a merge onto the reload of the saved base behaves. The question went unanswered, so the recommended option went in; it is easy to reverse.
+	- Actual fix: a sentence in the spec's merge notes.
+	- Test case: none. The reload-parity fuzz and fixtures pin the behavior as it stands.
+	- Closed: 20260927-223316
 
 - C `shcl_compact` reaches the out-of-memory hook on a document with a kept misplaced line
 	- ID: 2026092620255203
@@ -214,7 +219,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - C++ `const` reads on one document race each other
 	- ID: 2026092620255207
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 7
@@ -224,6 +229,14 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Reproduced: 20260926.
 	- Origin: the older veneer had the same pattern. `74a2e5d` (2026-09-26) kept it. Confirmed.
 	- Estimated effort: Low
+	- Actual effort: Avg
+	- Decisions:
+		- 20260928: const members lock, rather than a header line saying a Document is not shared or taking const off. The question went unanswered, so the recommended option went in; design.md records why.
+		- Not only the reads: every call into the core writes to the document behind it, its read and scratch arenas and its index, so every const member holds the lock for the whole call, the copy into std types included. A call that reads a second document, as `validate` and `merge` do, takes both together.
+	- Actual fix: `detail::held` and `detail::fresh` in `shcl.hpp` return a guard holding one of 64 recursive locks, picked by the document's address. The header's comment on `Document` states the rule.
+	- Swept: every const member and every free function taking a `const Document &`.
+	- Branch: `cxxlock`
+	- Test case: `check-veneer.bash` `const-reads-share-across-threads`, two threads of mixed const reads under ThreadSanitizer. It fails on the old header.
 
 - On Windows, creating a file through a `\\.\C:\` path is refused as not a regular file
 	- ID: 2026092620255208
