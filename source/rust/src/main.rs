@@ -1988,10 +1988,14 @@ fn keep_original(file: &str, text: &str) -> Result<String, String> {
 	})?;
 	let res = (|| -> std::io::Result<()> {
 		f.write_all(text.as_bytes())?;
-		// Born private, then given the original's bits, so a 600 config never
-		// has a readable copy. Best effort, the way the save carries the mode.
+		// Born private, then given the original's group and bits, so a 600
+		// config never has a readable copy, and one in a setgid directory does
+		// not go to the directory's group. The group first, since a chown
+		// clears setuid/setgid. Best effort, the way the save carries both.
 		#[cfg(unix)]
 		if let Ok(m) = std::fs::metadata(file) {
+			use std::os::unix::fs::MetadataExt;
+			let _ = std::os::unix::fs::fchown(&f, None, Some(m.gid()));
 			let _ = f.set_permissions(m.permissions());
 		}
 		f.sync_all()
