@@ -16,5 +16,5 @@
 ## the gate rather than passing quietly.
 ##
 ## Spaces, not tabs, in anything pip parses here: a tab after a line
-## continuation lands inside the requirement and is a syntax error to it.
+## continuation ends up inside the requirement and is a syntax error to it.
 setuptools==78.1.1

@@ -295,7 +295,7 @@ shcl_save_result shcl_save_file_keep_lines(shcl_doc *d, const char *path, int *k
 // schema that produced it, both checked against the finished text, so a line
 // that does not load, or a schema whose own `default` breaks its field's
 // constraints, is a fault (V097) instead of a starter config that fails the
-// first time it is checked; the faults land on the schema document's
+// first time it is checked; the faults go onto the schema document's
 // diagnostics. A footer naming the format and pointing at the spec is
 // written last unless no_banner; the flag is negative so passing 0 writes the
 // footer. *ok is set to 1 on success, 0 if the schema has faults (V09x) - then
@@ -466,7 +466,7 @@ shcl_status shcl_read_string_array_to(shcl_doc *d, const char *path, size_t plen
 // process has ever taken - a shcl_to_canonical of a 100 MiB document leaves
 // about that much held until shcl_free.
 void shcl_reads_release(shcl_doc *d);
-// The write-side counterpart. A write lands in a bump arena and the value it
+// The write-side counterpart. A write goes into a bump arena and the value it
 // replaced stays there until shcl_free, so a process rewriting one field in a
 // loop grows by a few dozen bytes per write, and a removed node's storage goes
 // the same way. A merge is the case that makes this matter: folding a layer
@@ -488,7 +488,7 @@ double  shcl_get_float(shcl_doc *d, const char *path, size_t plen, double def);
 int     shcl_get_bool(shcl_doc *d, const char *path, size_t plen, int def);
 // The same three under the cross-binding spelling: `_or` means "with a
 // fallback" in every binding, so a routine ported between two of them cannot
-// keep the call name while changing which tier it lands on.
+// keep the call name while changing which tier it uses.
 int64_t shcl_get_int_or(shcl_doc *d, const char *path, size_t plen, int64_t def);
 int64_t shcl_get_duration_or(shcl_doc *d, const char *path, size_t plen, shcl_duration_unit unit, int64_t def);
 int64_t shcl_get_size_or(shcl_doc *d, const char *path, size_t plen, shcl_size_unit unit, int decimal, int64_t def);
@@ -1636,7 +1636,7 @@ static int element_of(ShclArena *a, const ShclPiece *p, ShclStr text, ShclElemen
 	return 1;
 }
 
-// The value the tokenized pieces spell. Element texts land in `a` (only when
+// The value the tokenized pieces spell. Element texts go into `a` (only when
 // built - see piece_text); the growing element vector is a per-call temporary
 // and goes to `tmp`, so only the exact-size final array reaches the document
 // arena.
@@ -2486,7 +2486,7 @@ static ShclStr migrate(ShclArena *a, ShclArena *sc, ShclStr text, ShclMigrating 
 
 /* The two arenas a migration builds in. They sit off the frame so the recovery
    point below can still reach them: a longjmping SHCL_OOM skips this frame, and
-   an ordinary local is indeterminate by the time the jump lands. */
+   an ordinary local is indeterminate by the time the jump arrives. */
 typedef struct { ShclArena a, sc; } ShclMigrateOwn;
 
 /* Rewrite a document written under the 2.x rules so this parser reads the
@@ -3303,7 +3303,7 @@ typedef struct { ShclArena line, hints; ShclVecMapPtr cmaps, dmaps; } ShclParseO
    mutation sites. */
 // reent_node/reent_line pair up node -> line of the re-open that H002-hinted
 // it (linear scan; re-opens are rare). A merge under a hinted container
-// combines the same two textual regions, so it hints too even when it lands on
+// combines the same two textual regions, so it hints too even when it ends up on
 // the newest child at its own scope - that is how every merged level reports,
 // not just the outermost. The stored line splits old children (hint) from ones
 // the re-opened region itself created (silent).
@@ -3315,7 +3315,7 @@ typedef struct { ShclArena line, hints; ShclVecMapPtr cmaps, dmaps; } ShclParseO
    into the document arena. Nothing resets scratch during a parse; the first
    read after it does. */
 typedef struct { shcl_doc *d; ShclArena *tmp; ShclArena *line; ShclArena *hints; ShclStr src; ShclVecStack stack; ShclVecMapPtr *cmaps; ShclVecMapPtr *dmaps; ShclVecPend pending; ShclVecPendMark pend_marks; ShclVecDepth depth_chain; int star_open; size_t star_node; uint64_t star_key; uint64_t star_disp; int saw_blank; ShclVecSize reent_node; ShclVecSize reent_line;
-	/* Parents where a remap landed on a key a sibling already held: the only
+	/* Parents where a remap ended up on a key a sibling already held: the only
 	   places a duplicate can survive the keyed lookup, so the fold starts here. */
 	ShclVecSize late_dups;
 	/* shcl_parse_limited's caps, 0 = uncapped: nodes counted against the
@@ -3467,7 +3467,7 @@ static void settle_fence_trailing(shcl_doc *d, size_t n) {
    own level sit right above the next sibling, so a reload files them as that
    sibling's leading ones, from the first one at that level on. The load runs
    this once the tree is final; a merge, a new child and the writer's fold run
-   it where they change a child list, or the next step lands differently
+   it where they change a child list, or the next step comes out differently
    depending on whether the file was saved in between. The text does not move.
    `from` is the first child whose leading list may gain, so a new last child
    costs one pair; it cannot put a fence after an empty binding either, so
@@ -3516,7 +3516,7 @@ static void settle_first_blank(shcl_doc *d) {
 }
 
 /* A value that mutates after its sibling group was keyed - an empty field
-   filled by a fence, a stacked list closed - can land on a key an earlier
+   filled by a fence, a stacked list closed - can end up on a key an earlier
    sibling already holds, which the keyed lookup can no longer catch. Fold
    those pairs so the tree matches a reparse of its own canonical text.
    Only the parents remap_child flagged can hold one. Shallowest first, since
@@ -3772,11 +3772,6 @@ static ShclOutcome out_kind(ShclOutcomeKind kind) { ShclOutcome o; memset(&o, 0,
 static ShclOutcome out_retained(ShclStr text, int blank_before) { ShclOutcome o = out_kind(OUT_RETAINED); o.text = text; o.blank_before = blank_before; return o; }
 static ShclOutcome out_stopped(const ShclStr *rest, size_t nrest) { ShclOutcome o = out_kind(OUT_STOPPED); o.rest = rest; o.nrest = nrest; return o; }
 
-static void p_drop_line(ShclParser *P, size_t line) {
-	P->d->lost++;
-	if (P->d->track_dropped) ShclVecSize_push(&P->d->arena, &P->d->dropped, line);
-}
-
 /* The one exit for a line the parser does not bind whole. An arm says what
    became of the line and nothing else: the lost count and the level the line
    holds follow from the outcome here, so no arm can forget either. design.md's
@@ -3784,11 +3779,22 @@ static void p_drop_line(ShclParser *P, size_t line) {
 static void p_refuse(ShclParser *P, size_t line, const char *code, ShclStr msg, ShclOutcome out, ShclStr indent) {
 	p_err(P, line, code, msg);
 	int holds = out.kind == OUT_RETAINED || out.kind == OUT_DROPPED;
+	size_t n = 0;
 	switch (out.kind) {
-	case OUT_VALUE_DROPPED: case OUT_DROPPED: p_drop_line(P, line); break;
-	case OUT_STOPPED: for (size_t r = 0; r < out.nrest; r++) if (s_trim_wsp(out.rest[r]).n) p_drop_line(P, line + r); break;
+	case OUT_VALUE_DROPPED: case OUT_DROPPED:
+		n = 1;
+		if (P->d->track_dropped) ShclVecSize_push(&P->d->arena, &P->d->dropped, line);
+		break;
+	case OUT_STOPPED:
+		for (size_t r = 0; r < out.nrest; r++) {
+			if (!s_trim_wsp(out.rest[r]).n) continue;
+			n++;
+			if (P->d->track_dropped) ShclVecSize_push(&P->d->arena, &P->d->dropped, line + r);
+		}
+		break;
 	case OUT_RETAINED: break;
 	}
+	P->d->lost += n;
 	if (out.kind == OUT_RETAINED) {
 		/* A line kept as written never hangs on a block: its indent is not one
 		   the output's levels are spelled with, so the block it would match
@@ -4053,7 +4059,7 @@ static size_t skip_field_line(ShclParser *P, const ShclStr *lines, size_t nlines
 	return next;
 }
 
-/* Returns the node the block landed on ((size_t)-1 = no parent, diagnosed). */
+/* Returns the node the block ended up on ((size_t)-1 = no parent, diagnosed). */
 static size_t bind_block(ShclParser *P, size_t parent, ShclValue value, size_t line, ShclStr indent) {
 	if (parent == ROOT) { p_refuse(P, line, "E006", s_lit("raw block with no parent field"), out_kind(OUT_DROPPED), indent); return (size_t)-1; }
 	if (v_is_empty(&NODE(P->d, parent).value)) {
@@ -4186,7 +4192,7 @@ static void emit_repeated_leaf_hints(ShclParser *P) {
 	/* Grouping bookkeeping (name buckets, member lists, joined displays) is
 	   dead on return, so it lives in its own arena, freed here - built in the
 	   document arena it cost several times the hints it found and could never
-	   be given back. Only the hint messages land in the document arena. The
+	   be given back. Only the hint messages go into the document arena. The
 	   parse owns it rather than this frame, so an allocation failure - which
 	   unwinds straight out of here - still has something to free it with. */
 	ShclArena *tmp = P->hints;
@@ -4678,7 +4684,7 @@ static void children_named(shcl_doc *d, ShclArena *a, size_t parent, ShclStr nam
 	}
 }
 
-// `group`: a sub-path landing on several nodes joins the slot list instead of
+// `group`: a sub-path reaching several nodes joins the slot list instead of
 // becoming one SHCL_MULTIPLE slot. Reads want the slot per instance, so they
 // leave it off; remove and exists want every node behind the wildcard.
 static ShclResolved resolve_from(shcl_doc *d, const size_t *start, size_t nstart, ShclSegment *segs, size_t nsegs, int group) {
@@ -4807,7 +4813,7 @@ static shcl_status scalar_at(shcl_doc *d, ShclStr path, ShclElement **el) {
 // ShclElement list for array reads plus a per-slot pre-status: NULL entry => the
 // slot has no coercible scalar and sts[i] already says why (a present element
 // can still turn BadType if coercion fails). Wildcard slots stay aligned - the
-// spec never drops one silently. The lists land in `a`: public reads pass the
+// spec never drops one silently. The lists go into `a`: public reads pass the
 // doc read arena (results live until shcl_free or shcl_reads_release); internal queries pass a private
 // arena so probing a caller-owned doc leaves nothing behind.
 static shcl_status array_elements(shcl_doc *d, ShclArena *a, ShclStr path, ShclElement ***els, shcl_status **sts, size_t *n) {
@@ -5131,7 +5137,7 @@ static size_t w_new_child(shcl_doc *d, size_t parent, ShclStr name, ShclStr name
 }
 
 /* The validation walk w_write_reason and w_place share. `trail`, when non-NULL,
-   receives where each segment landed - (size_t)-1 from the point the path falls
+   receives where each segment ended up - (size_t)-1 from the point the path falls
    off the existing tree - so w_place can create from exactly there instead of
    scanning the path and walking the tree a second time. `ps` is the caller's
    already-scanned path, so the scan happens once too. */
@@ -5967,7 +5973,7 @@ static void w_overlay(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, S
 		}
 	}
 	if (!any_rep && nappended == 0) return;
-	// Rebuild once: each replaced group lands at its name's first original
+	// Rebuild once: each replaced group goes to its name's first original
 	// position (dropped nodes stay in the arena, unreferenced - reads and
 	// emit walk children from the root), appends go at the end. One splice
 	// per group, flagged on the group itself.
@@ -10483,7 +10489,7 @@ static shcl_str generate_in(shcl_doc *schema, int no_banner, int *ok, ShclGenOwn
 	/* A live line with a value materializes an instance carrying that value,
 	   and a dotted child names the empty-valued instance instead - so `srv:
 	   web` followed by `srv.port:` is two `srv` nodes, and the child never
-	   lands where the schema looks. Any line under such a parent selects it
+	   ends up where the schema looks. Any line under such a parent selects it
 	   by its value: `srv[web].port:`. */
 	ShclParentValues pv; pv.len = 0;
 	pv.data = (ShclParentValue *)arena_alloc(a, (cons.len ? cons.len : 1) * sizeof *pv.data);

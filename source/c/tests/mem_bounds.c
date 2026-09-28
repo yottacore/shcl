@@ -487,7 +487,7 @@ int main(void) {
 		free(blob);
 	}
 
-	// A write lands in a bump arena and the value it replaced stays behind, so
+	// A write goes into a bump arena and the value it replaced stays behind, so
 	// a loop rewriting one field grows the document until shcl_free. Compaction
 	// is the way out: the rebuilt document holds what it now contains and no
 	// more, and reads the same.

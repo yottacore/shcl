@@ -1941,7 +1941,7 @@ fi
 
 fTest EqBCxoW 20260909-61-demo-output-order
 ##	20260909 item 61: the demo captured stdout and stderr separately and stuck
-##	one after the other, so every stderr line landed under every stdout line -
+##	one after the other, so every stderr line ended up under every stdout line -
 ##	an order no terminal produces. The two share a pipe now.
 gif="${repoDir}/cicd/utility/gen-demo-gif.py"
 if [[ -f "${gif}" ]] && python3 -c 'import PIL' 2>/dev/null; then
@@ -2432,7 +2432,7 @@ if fHave pwsh; then
 	dpool="${dh}/.local/bin/shcl_versions"
 	mkdir -p "${dsrc}" "${dh}/.local/bin"
 	printf '#!/bin/sh\necho "one: $*"\nexit 3\n' > "${dsrc}/shcl"; chmod +x "${dsrc}/shcl"
-	touch -d '2026-09-20 10:00' "${dsrc}/shcl"
+	touch -d '2026-09-20 10:00 UTC' "${dsrc}/shcl"
 	fDogfood(){ env -u DISPLAY -u WAYLAND_DISPLAY HOME="${dh}" pwsh -NoProfile -File "${repoDir}/utility/dogfood_shcl.ps1" "$@" 2>"${tmpDir}/df.err" ;}
 	rc=0; out="$(fDogfood -v a)" || rc=$?
 	[[ "${out}" == "one: -v a" && "${rc}" == 3 ]] || fBad "dogfood_shcl.ps1 did not run the build with its arguments and exit code: ${out@Q} rc ${rc}"
@@ -2466,6 +2466,73 @@ if fHave pwsh; then
 else
 	fTestSkip
 fi
+
+fTest Er7xgGI 20260926-item11-dogfood-stamp-culture
+##	20260926 item 11: the runner wrote a build's stamp in the current culture and
+##	local time, and read it back as invariant, so under th-TH the held name
+##	moved 543 years each run and a newer build was never taken.
+if fHave pwsh; then
+	dh="${tmpDir}/dfculture"
+	dsrc="${dh}/synced/0-0/common/exec/util/linux/bin"
+	mkdir -p "${dsrc}" "${dh}/.local/bin"
+	printf '#!/bin/sh\necho one\n' > "${dsrc}/shcl"; chmod +x "${dsrc}/shcl"
+	touch -d '2026-09-20 10:00 UTC' "${dsrc}/shcl"
+	fDogfoodTh(){ env -u DISPLAY -u WAYLAND_DISPLAY HOME="${dh}" LC_ALL=th_TH.UTF-8 LANG=th_TH.UTF-8 pwsh -NoProfile -File "${repoDir}/utility/dogfood_shcl.ps1" "$@" 2>"${tmpDir}/df.err" ;}
+	fDogfoodTh x >/dev/null || true
+	fDogfoodTh x >/dev/null || true
+	held="$(find "${dh}/.local/bin/shcl_versions" -mindepth 1 -printf '%f ')"
+	[[ "${held}" == "shcl_20260920-100000_newest " ]] || fBad "dogfood_shcl.ps1 under th-TH held ${held@Q}"
+	printf '#!/bin/sh\necho two\n' > "${dsrc}/shcl"
+	touch -d '2026-09-21 10:00 UTC' "${dsrc}/shcl"
+	out="$(fDogfoodTh x)" || true
+	[[ "${out}" == two ]] || fBad "dogfood_shcl.ps1 under th-TH did not take the newer build: ${out@Q}"
+else
+	fTestSkip
+fi
+
+fTest Er7xgHi 20260924d-item4-dogfood-no-update-target
+##	20260924d item 4: --no-update ran whatever the fixed name pointed at, an
+##	installed release included, not only the newest held build.
+if fHave pwsh; then
+	dh="${tmpDir}/dfnoupdate"
+	dsrc="${dh}/synced/0-0/common/exec/util/linux/bin"
+	mkdir -p "${dsrc}" "${dh}/.local/bin" "${dh}/other"
+	printf '#!/bin/sh\necho held\n' > "${dsrc}/shcl"; chmod +x "${dsrc}/shcl"
+	fDogfoodN(){ env -u DISPLAY -u WAYLAND_DISPLAY HOME="${dh}" pwsh -NoProfile -File "${repoDir}/utility/dogfood_shcl.ps1" "$@" 2>"${tmpDir}/df.err" ;}
+	fDogfoodN x >/dev/null || true
+	printf '#!/bin/sh\necho installed\n' > "${dh}/other/shcl"; chmod +x "${dh}/other/shcl"
+	ln -sfn "${dh}/other/shcl" "${dh}/.local/bin/shcl"
+	out="$(fDogfoodN --no-update)" || true
+	[[ "${out}" == held ]] || fBad "dogfood_shcl.ps1 --no-update ran what the fixed name pointed at: ${out@Q}"
+else
+	fTestSkip
+fi
+
+fTest Er7xgJ2 20260924d-item6-dogfood-quiet-notes
+##	20260924d item 6: the note that the fixed name was left alone came on every
+##	run. It comes with the build that could not be linked, and not again.
+if fHave pwsh; then
+	dh="${tmpDir}/dfquiet"
+	dsrc="${dh}/synced/0-0/common/exec/util/linux/bin"
+	mkdir -p "${dsrc}" "${dh}/.local/bin"
+	printf '#!/bin/sh\necho one\n' > "${dsrc}/shcl"; chmod +x "${dsrc}/shcl"
+	echo mine > "${dh}/.local/bin/shcl"
+	fDogfoodQ(){ env -u DISPLAY -u WAYLAND_DISPLAY HOME="${dh}" pwsh -NoProfile -File "${repoDir}/utility/dogfood_shcl.ps1" "$@" 2>"${tmpDir}/df.err" ;}
+	fDogfoodQ x >/dev/null || true
+	grep -q 'left alone' "${tmpDir}/df.err" || fBad "dogfood_shcl.ps1 did not say the fixed name was left alone when it took a build"
+	fDogfoodQ x >/dev/null || true
+	[[ ! -s "${tmpDir}/df.err" ]] || fBad "dogfood_shcl.ps1 repeated a note on a run that changed nothing: $(cat "${tmpDir}/df.err")"
+else
+	fTestSkip
+fi
+
+fTest Er7zdIP 20260924d-idea1-dogfood-dests
+##	20260924d idea 1: stage 7 fell back to ~/.local/bin, where shcl is the
+##	dogfood runner's link and the installer's, and a copy there replaced the
+##	link with a regular file both then refused.
+# shellcheck disable=SC2016  ## expands in the child shell
+dests="$(HOME=/h bash -c 'set +u; source "$1"; printf "%s\n" "${DOGFOOD_FIXED_DESTS[@]}"' _ "${repoDir}/cicd/config.bash")"
+if grep -qxF '/h/.local/bin' <<< "${dests}"; then fBad "stage 7 can drop the binary over the dogfood runner's link: ${dests//$'\n'/ }"; fi
 
 fTest EqpV5Gj 20260924c-idea9-dogfood-binary-in-use
 ##	20260924c idea 9: the dogfood stage copied over a binary that was running.

@@ -280,7 +280,7 @@ for b in "${bindings[@]}"; do
 	name="${b%%|*}"; cli="${b#*|}"
 	baseMs="$(fTimeMs "${cli}" "${tmpDir}/base.ops" set "${keys}")"
 	if ((baseMs < 0)); then nBad+=1; continue; fi
-	## A floor, so a binding fast enough to land near the clock's resolution is
+	## A floor, so a binding fast enough to come near the clock's resolution is
 	## not judged on noise.
 	budget=$(( baseMs * factor ))
 	floor=$(( baseMs + 250 ))

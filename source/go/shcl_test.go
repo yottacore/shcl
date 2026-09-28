@@ -1301,7 +1301,7 @@ func TestFileTierLoadSave(t *testing.T) {
 		}
 	}
 
-	// A new file lands where an ordinary create lands - 0666 narrowed by the
+	// A new file ends up where an ordinary create puts one - 0666 narrowed by the
 	// umask - and an existing one keeps the mode it had. Neither is visible on
 	// stdout, so no corpus case can see either, and neither is a windows
 	// concept, so the mode half is POSIX-only.
@@ -2206,7 +2206,7 @@ func TestRawIsSourceText(t *testing.T) {
 		t.Errorf("list raw: got %v", r.Raw)
 	}
 	// A written value has no source spelling; raw falls back to display. The
-	// selector's escaped spelling must land on the existing instance.
+	// selector's escaped spelling must reach the existing instance.
 	doc2 := Parse("who: 'q\"uote'\n")
 	if !doc2.SetInt("who[\"q\\\"uote\"].n", 5) {
 		t.Fatal("SetInt with escaped selector failed")
@@ -2376,7 +2376,7 @@ func TestSuppressLeavesTheCallersDiagnosticsAlone(t *testing.T) {
 	}
 	// The keep-everything path and Diagnostics() itself have to hand out
 	// their own backing array too: shared with the document's, a caller's
-	// append and the document's next append land in the same slot.
+	// append and the document's next append end up in the same slot.
 	none := Parse("field: other\n")
 	for name, kept := range map[string][]Diagnostic{
 		"SuppressDeclaredRepeats": SuppressDeclaredRepeats(none, diags),
@@ -2954,7 +2954,7 @@ func keepsEveryLine(base string) bool {
 }
 
 // TestEditsAndMergesMatchAReload: a merge or an edit leaves the document its own
-// saved text reloads as, comments included, so the next step lands the same
+// saved text reloads as, comments included, so the next step comes out the same
 // whether or not the file was saved in between. Comments were filed one way by
 // a load and another by a merge, a new child or the writer's fold three times
 // in three days, and the text fixpoint cannot see it, since both placements

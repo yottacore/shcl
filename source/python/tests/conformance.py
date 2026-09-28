@@ -725,7 +725,7 @@ def keeps_every_line(base):
 
 def edits_and_merges_match_a_reload():
 	# A merge or an edit leaves the document its own saved text reloads as,
-	# comments included, so the next step lands the same whether or not the file
+	# comments included, so the next step comes out the same whether or not the file
 	# was saved in between. Comments were filed one way by a load and another by
 	# a merge, a new child or the writer's fold three times in three days, and
 	# the text fixpoint cannot see it, since both placements are fixpoints. Same
@@ -1858,7 +1858,7 @@ def main():
 			raise SystemExit("overwritten file did not round-trip")
 
 		test_id("EnWwo1I", "save_keeps_the_file_mode")
-		# A new file lands where an ordinary create lands - 0666 narrowed by the
+		# A new file ends up where an ordinary create puts one - 0666 narrowed by the
 		# umask - and an existing one keeps the mode it had. Neither is visible
 		# on stdout, so no corpus case can see either, and neither is a windows
 		# concept, so the mode half is POSIX-only.
@@ -2129,7 +2129,7 @@ def main():
 	if rdoc.read_string_array("list").raw != 'a,  "b c"':
 		raise SystemExit(f"raw fixture mismatch: {rdoc.read_string_array('list').raw!r}")
 	# A written value has no source spelling; raw falls back to display. The
-	# selector's escaped spelling must land on the existing instance.
+	# selector's escaped spelling must reach the existing instance.
 	rdoc2 = shcl.Document.parse("who: 'q\"uote'\n")
 	if not rdoc2.set_int('who["q\\"uote"].n', 5):
 		raise SystemExit("escaped selector write failed")
@@ -2144,7 +2144,7 @@ def main():
 	# The get-tier value survives only on Good; Empty/BadType/NotFound all fall
 	# back to the call-site default, so a real zero can't be faked. `_or` is the
 	# cross-binding spelling for it, so a routine ported between two bindings
-	# cannot keep the call name while changing which tier it lands on. Same
+	# cannot keep the call name while changing which tier it uses. Same
 	# fixture in every runner.
 	cdoc = shcl.Document.parse("a: 42\nb: not-a-number\ne:\narr: 1, 2, 3\nblk:\n\t```html\n\thi\n\t```\n")
 	if cdoc.get_int_or("a", 9) != 42:

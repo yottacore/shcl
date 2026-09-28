@@ -9,7 +9,7 @@
 ##		glides between cells at sub-pixel resolution rather than teleporting,
 ##		blinks while the prompt sits idle, and a view that has to scroll moves
 ##		a constant number of pixels per frame. Output that fits on
-##		one screen lands at once, the way a real terminal dumps it; only an
+##		one screen shows at once, the way a real terminal dumps it; only an
 ##		overflowing view scrolls. The screen clears between steps, so each
 ##		command starts at the top of an empty terminal.
 ##		The loop boundary cuts to a black hold, then straight back to the first
@@ -452,7 +452,7 @@ class Screen:
 		##	The block at a fractional position: edge pixels take partial coverage
 		##	instead of snapping to the pixel grid, so a 2-3 px/frame glide reads
 		##	as continuous motion rather than a series of small jumps. The blends
-		##	land on the same bg->fg ramp the antialiased text already uses, so
+		##	fall on the same bg->fg ramp the antialiased text already uses, so
 		##	they quantize without dithering.
 		x0, y0 = cx + 1, cy + 1
 		x1, y1 = x0 + self.cw, y0 + self.lh - 3
@@ -661,7 +661,7 @@ def fMain() -> None:
 	def settle(rate, cursor=True):
 		##	Smooth-scroll the view to rest; the cursor rides along on its line.
 		##	The step is the asked-for rate rounded to an exact divisor of the line
-		##	height, so a line boundary never lands mid-step and every frame
+		##	height, so a line boundary never falls mid-step and every frame
 		##	advances the same distance - constant velocity is what reads as
 		##	smooth, more than raw rate does.
 		step = scr.lh / max(1, round(scr.lh / (rate * FRAME_MS / 1000.0)))
@@ -722,7 +722,7 @@ def fMain() -> None:
 			if scr.fRestScroll() > scr.scroll + 0.5:
 				settle(rate, cursor=False)
 			##	A screenful that fits arrives all at once - no frame per line, so
-			##	it lands the instant the command does, like a real terminal.
+			##	it shows the instant the command does, like a real terminal.
 			##	Lines past the bottom are what scroll, and only those.
 			outLines = stepOut[stepIdx]
 			for ln in outLines:
@@ -784,7 +784,7 @@ if __name__ == "__main__":
 ##		- 20260713: v1.3. Full-bleed window (thin black border, no shadow),
 ##			square corners.
 ##		- 20260711: v1.2. Antialiased text again (ramped 256 palette), color
-##			emoji tiles, prompt hidden until output lands, faster typing and
+##			emoji tiles, prompt hidden until output shows, faster typing and
 ##			scrolling, cell-width wrap.
 ##		- 20260711: v1.1. Pixel-smooth scrolling and cursor glide; scenario
 ##			knobs wpm_digits, scrollrate, linems.

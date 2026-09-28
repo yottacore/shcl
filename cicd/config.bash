@@ -389,9 +389,10 @@ PACKAGE_ENABLE=1
 ## always current (same fixed path the sister project uses). Only runs when a
 ## release binary got built - --ci builds none, so it no-ops there. Empty the list
 ## to skip. No sudo: a non-writable dest is passed over, not force-installed.
+## Not ~/.local/bin: shcl there is the dogfood runner's link and the installer's,
+## and a plain copy over it would stop both (20260924d idea 1).
 DOGFOOD_FIXED_DESTS=(
 	"${HOME}/synced/0-0/common/exec/util/linux/bin"
-	"${HOME}/.local/bin"
 )
 ## Shell wrappers ride along, each renamed to <EXE_NAME>.<ext>. A missing source is
 ## skipped silently. Each has its own preferred dest list (first existing+writable

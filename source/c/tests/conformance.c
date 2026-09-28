@@ -621,7 +621,7 @@ static int keeps_every_line(const char *base, size_t n) {
 }
 
 /* A merge or an edit leaves the document its own saved text reloads as,
-   comments included, so the next step lands the same whether or not the file
+   comments included, so the next step comes out the same whether or not the file
    was saved in between. Comments were filed one way by a load and another by a
    merge, a new child or the writer's fold three times in three days, and the
    text fixpoint cannot see it, since both placements are fixpoints. Same
@@ -1358,7 +1358,7 @@ int main(int argc, char **argv) {
 	// The get-tier value survives only on Good; Empty/BadType/NotFound all fall
 	// back to the call-site default, so a real zero can't be faked. `_or` is the
 	// cross-binding spelling for it, so a routine ported between two bindings
-	// cannot keep the call name while changing which tier it lands on. Same
+	// cannot keep the call name while changing which tier it uses. Same
 	// fixture in every runner (C's convenience tier is the value types only).
 	test_id("EnLD4c4", "convenience_tier_falls_back_only_on_good");
 	{
@@ -1632,7 +1632,7 @@ int main(int argc, char **argv) {
 				if (fst != SHCL_FILE_CLEAN || nc.n != 5 || memcmp(nc.p, "a: 1\n", 5) != 0) fail("file_tier", pass ? "overwritten file round-trip" : "new file round-trip");
 				shcl_free(nb);
 			}
-			// A new file lands where an ordinary create lands - 0666 narrowed
+			// A new file ends up where an ordinary create puts one - 0666 narrowed
 			// by the umask - and an existing one keeps the mode it had. Neither
 			// is visible on stdout, so no corpus case can see either, and
 			// neither is a windows concept, so the mode half is POSIX-only.
@@ -1694,7 +1694,7 @@ int main(int argc, char **argv) {
 				bb = shcl_load_file(u8file, &fst);
 				if (fst != SHCL_FILE_CLEAN) fail("file_tier", "utf-8 name load");
 				shcl_free(bb); _wremove(wname);
-				// `C:x` names x in C:'s current directory, so the save has to land
+				// `C:x` names x in C:'s current directory, so the save has to end up
 				// beside the fixture's other files once that directory is tdir.
 				if (tdir[1] == ':' && _getcwd(cwd, sizeof cwd) && _chdir(tdir) == 0) {
 					snprintf(drfile, sizeof drfile, "%c:dr.shcl", tdir[0]);
@@ -1702,7 +1702,7 @@ int main(int argc, char **argv) {
 					if (_chdir(cwd) != 0) fail("file_tier", "chdir back failed");
 					snprintf(drfile, sizeof drfile, "%s/dr.shcl", tdir);
 					bb = shcl_load_file(drfile, &fst);
-					if (fst != SHCL_FILE_CLEAN) fail("file_tier", "drive-relative save landed elsewhere");
+					if (fst != SHCL_FILE_CLEAN) fail("file_tier", "drive-relative save ended up elsewhere");
 					shcl_free(bb); remove(drfile);
 				}
 			}

@@ -537,7 +537,7 @@ struct Access {
 
 bool status_ok(Status s) { return shcl_status_ok(static_cast<shcl_status>(s)) != 0; }
 
-// A text result with no document behind it still needs a read arena to land in.
+// A text result with no document behind it still needs a read arena to live in.
 struct Scratch {
 	shcl_doc *d = shcl_new();
 	Scratch() = default;

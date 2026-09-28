@@ -743,7 +743,7 @@ fn fold_node_into(arena: &mut [NodeData], survivor: usize, loser: usize) {
 /// as that sibling's leading ones, from the first one at that level on. The
 /// load runs this once the tree is final; a merge, a new child and the
 /// writer's fold run it where they change a child list, or the next step
-/// lands differently depending on whether the file was saved in between. The
+/// comes out differently depending on whether the file was saved in between. The
 /// text does not move. `from` is the first child whose leading list may
 /// gain, so a new last child costs one pair; it cannot put a fence after an
 /// empty binding either, so only a full pass looks for one.
@@ -2503,12 +2503,12 @@ struct Parser<'a> {
 	// element is O(list^2) time); (node, key hash, display hash) at deferral
 	// start, flushed before any map lookup and at end of parse.
 	star_open: Option<(usize, u64, u64)>,
-	// Parents where a remap landed on a key a sibling already held: the only
+	// Parents where a remap ended up on a key a sibling already held: the only
 	// places a duplicate can survive the keyed lookup, so the fold starts here.
 	late_dups: Vec<usize>,
 	// Node -> line of the re-open that H002-hinted it. A merge under a hinted
 	// container combines the same two textual regions, so it hints too even
-	// when it lands on the newest child at its own scope - that is how every
+	// when it ends up on the newest child at its own scope - that is how every
 	// merged level reports, not just the outermost. The stored line splits old
 	// children (hint) from ones the re-opened region itself created (silent).
 	reentered: HashMap<usize, usize>,
@@ -2672,13 +2672,6 @@ impl<'a> Parser<'a> {
 		});
 	}
 
-	fn drop_line(&mut self, line: usize) {
-		self.lost += 1;
-		if self.track_dropped {
-			self.dropped.push(line);
-		}
-	}
-
 	/// The one exit for a line the parser does not bind whole. An arm says
 	/// what became of the line and nothing else: the lost count and the
 	/// level the line holds follow from the outcome here, so no arm can
@@ -2693,15 +2686,22 @@ impl<'a> Parser<'a> {
 	) {
 		self.err(line, code, msg);
 		let holds = matches!(outcome, Outcome::Retained { .. } | Outcome::Dropped);
-		match &outcome {
-			Outcome::ValueDropped | Outcome::Dropped => self.drop_line(line),
-			Outcome::Retained { .. } => {}
-			Outcome::Stopped(rest) => {
-				for (k, l) in (line..).zip(rest.iter()) {
-					if !trim_wsp(l).is_empty() {
-						self.drop_line(k);
-					}
-				}
+		self.lost += match &outcome {
+			Outcome::ValueDropped | Outcome::Dropped => 1,
+			Outcome::Retained { .. } => 0,
+			Outcome::Stopped(rest) => rest.iter().filter(|l| !trim_wsp(l).is_empty()).count(),
+		};
+		// Which lines those were, for the save that keeps lines.
+		if self.track_dropped {
+			match &outcome {
+				Outcome::ValueDropped | Outcome::Dropped => self.dropped.push(line),
+				Outcome::Retained { .. } => {}
+				Outcome::Stopped(rest) => self.dropped.extend(
+					(line..)
+						.zip(rest.iter())
+						.filter(|(_, l)| !trim_wsp(l).is_empty())
+						.map(|(k, _)| k),
+				),
 			}
 		}
 		if let Outcome::Retained { text, blank_before } = outcome {
@@ -2834,7 +2834,7 @@ impl<'a> Parser<'a> {
 	}
 
 	/// A value that mutates after its sibling group was keyed - an empty field
-	/// filled by a fence, a stacked list closed - can land on a key an earlier
+	/// filled by a fence, a stacked list closed - can end up on a key an earlier
 	/// sibling already holds, which the keyed lookup can no longer catch. Fold
 	/// those pairs so the tree matches a reparse of its own canonical text.
 	/// Only the parents remap_child flagged can hold one. Shallowest first,
@@ -3376,7 +3376,7 @@ impl<'a> Parser<'a> {
 
 	/// A bare fence line is a value line for its parent field: fills an empty
 	/// value, else creates a new instance of that field (the repeated-leaf rule).
-	/// Returns the node the block landed on (None = no parent, diagnosed).
+	/// Returns the node the block ended up on (None = no parent, diagnosed).
 	fn bind_block(
 		&mut self,
 		parent: usize,
@@ -6696,7 +6696,7 @@ enum Resolved {
 	One(usize),
 	Many(Vec<usize>),
 	// Wildcard: one slot per instance, in file order; Err = why the sub-path
-	// did not land on one node (NotFound missing, Multiple ambiguous).
+	// did not reach one node (NotFound missing, Multiple ambiguous).
 	Slots(Vec<Result<usize, Status>>),
 }
 
@@ -6743,7 +6743,7 @@ impl Document {
 		out
 	}
 
-	// `group`: a sub-path landing on several nodes joins the slot list instead
+	// `group`: a sub-path reaching several nodes joins the slot list instead
 	// of becoming one Multiple slot. Reads want the slot per instance, so they
 	// leave it off; remove and exists want every node behind the wildcard.
 	fn resolve_from(&self, start: &[usize], segs: &[Segment], group: bool) -> Resolved {
@@ -7121,7 +7121,7 @@ impl Document {
 	}
 
 	/// The validation walk `write_reason` and `place` share. `trail` collects
-	/// where each segment landed - `None` from the point the path falls off the
+	/// where each segment ended up - `None` from the point the path falls off the
 	/// existing tree - so `place` can create from exactly there instead of
 	/// scanning the path and walking the tree a second time.
 	fn probe_write(&self, scan: &PathScan, trail: &mut Vec<Option<usize>>) -> WriteReason {
@@ -8041,7 +8041,7 @@ impl Document {
 		if replace.is_empty() && appended.is_empty() {
 			return;
 		}
-		// Rebuild once: each replaced group lands at its name's first original
+		// Rebuild once: each replaced group goes to its name's first original
 		// position (dropped nodes stay in the arena, unreferenced - reads and
 		// emit walk children from the root), appends go at the end.
 		let mut newkids: Vec<usize> = Vec::with_capacity(base_kids.len() + appended.len());
@@ -8760,7 +8760,7 @@ fn parse_time_part(s: &str) -> Option<TimeParts> {
 		zone = Some(Zone::Utc);
 		t = rest.trim_end();
 	} else if t.len() >= 6 {
-		// Byte-wise on purpose: a str slice here can land mid-char and panic when
+		// Byte-wise on purpose: a str slice here can fall mid-char and panic when
 		// the tail holds multibyte text. All-ASCII match implies the cut is a
 		// char boundary, so the later &t[..len-6] is safe.
 		let tail = &t.as_bytes()[t.len() - 6..];
@@ -9336,7 +9336,7 @@ impl Document {
 	// Good. `get_int(p).unwrap_or(0)` says the same thing and still works; these
 	// exist so the spelling that means "with a fallback" is `_or` in every
 	// binding, and a routine ported between two of them cannot keep the call
-	// name while changing which tier it lands on.
+	// name while changing which tier it uses.
 
 	/// The integer at a path, or `def` when the read is not Good.
 	pub fn get_int_or(&self, path: &str, def: i64) -> i64 {
@@ -10275,7 +10275,7 @@ pub fn generate(schema: &Document, no_banner: bool) -> Result<String, Vec<Diagno
 	// A live line with a value materializes an instance carrying that value,
 	// and a dotted child names the empty-valued instance instead - so `srv:
 	// web` followed by `srv.port:` is two `srv` nodes, and the child never
-	// lands where the schema looks. Any line under such a parent selects it
+	// ends up where the schema looks. Any line under such a parent selects it
 	// by its value: `srv[web].port:`.
 	// A filled wildcard emits a valued line of its own, so it belongs here too.
 	// First wins, as the line it selects does: of two lines on one path the

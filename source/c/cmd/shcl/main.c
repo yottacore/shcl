@@ -1400,7 +1400,7 @@ static int g_f64(const char *p, size_t n, double *out) {
 		}
 		if (i != n) return 0;
 	}
-	// The language's own float reader takes inf and nan, and overflow lands on
+	// The language's own float reader takes inf and nan, and overflow ends up on
 	// them too; the document's reader does not, so they are bad values here,
 	// the way a bad datetime is.
 	char *b = (char *)xrealloc(NULL, n + 1); memcpy(b, p, n); b[n] = 0;
@@ -1544,7 +1544,7 @@ static int do_set(Opts *o) {
 	// stdin is the ops script does '-' mean an empty base. Reading neither threw
 	// a piped document away at exit 0.
 	// --write names the file this command produces, so a FILE that is not there
-	// yet is a create and the edits land in a new document. Only under --write,
+	// yet is a create and the edits go into a new document. Only under --write,
 	// and only when nothing is at the path at all: without --write there is
 	// nothing to create, and a file that exists but cannot be read is still an
 	// error rather than something to quietly write over. Checked before the
@@ -1552,7 +1552,7 @@ static int do_set(Opts *o) {
 	// nothing to report.
 	// A created file starts out as the info block, so a new config says what
 	// format it is. Comments in an otherwise empty document are the document's
-	// trailing trivia, so the edits land above it and the write still goes
+	// trailing trivia, so the edits go above it and the write still goes
 	// through the library's save gate.
 	// The --layer files sit under it and --set overrides sit on top, before
 	// ops, through the same fold every other subcommand uses.
@@ -2456,7 +2456,7 @@ static int cli_main(int argc, char **argv) {
 	// The Rust, Go and Python runtimes point a standard stream that was closed
 	// before the start at the null device; C's does not, so every write would
 	// fail with EBADF where the other three quietly drop it - and the next
-	// file opened would land on fd 1 and be written over.
+	// file opened would get fd 1 and be written over.
 	for (int fd = 0; fd <= 2; fd++)
 		if (fcntl(fd, F_GETFD) == -1 && errno == EBADF) {
 			int nfd = open("/dev/null", fd == 0 ? O_RDONLY : O_WRONLY);

@@ -5,7 +5,7 @@
 # path. pause= is the read time in seconds. Paths in run= are relative to the repo
 # root (where cicd runs). Whole loop runs about 33 seconds including the 3 s
 # black tail; the read-time pauses are what add up, and cutting them enough to
-# land under 30 s left the two screenfuls unreadable.
+# finish under 30 s left the two screenfuls unreadable.
 
 title = "shcl"
 prog  = "shcl"

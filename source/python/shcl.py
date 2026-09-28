@@ -552,7 +552,7 @@ def _want_all(setter, v, kind):
 
 def _as_float(v):
 	# An int is written as the f64 the other bindings would hold, so
-	# 9007199254740993 lands as 9007199254740992 and not its exact digits. One
+	# 9007199254740993 reads as 9007199254740992 and not its exact digits. One
 	# past the float range has no f64 but inf, which is what a caller of the
 	# reference would have been holding.
 	try:
@@ -721,7 +721,7 @@ def _settle_block(arena, n, start):
 	own level sit right above the next sibling, so a reload files them as that
 	sibling's leading ones, from the first one at that level on. The load runs
 	this once the tree is final; a merge, a new child and the writer's fold run
-	it where they change a child list, or the next step lands differently
+	it where they change a child list, or the next step comes out differently
 	depending on whether the file was saved in between. The text does not move.
 	start is the first child whose leading list may gain, so a new last child
 	costs one pair; it cannot put a fence after an empty binding either, so only
@@ -2349,12 +2349,12 @@ class _Parser:
 		# element is O(list^2) time); (node, map key, display key) at deferral
 		# start, flushed before any map lookup and at end of parse.
 		self.star_open = None
-		# Parents where a remap landed on a key a sibling already held: the only
+		# Parents where a remap ended up on a key a sibling already held: the only
 		# places a duplicate can survive the keyed lookup, so the fold starts here.
 		self.late_dups = []
 		# Node -> line of the re-open that H002-hinted it. A merge under a hinted
 		# container combines the same two textual regions, so it hints too even
-		# when it lands on the newest child at its own scope - that is how every
+		# when it ends up on the newest child at its own scope - that is how every
 		# merged level reports, not just the outermost. The stored line splits old
 		# children (hint) from ones the re-opened region itself created (silent).
 		self.reentered = {}
@@ -2448,7 +2448,7 @@ class _Parser:
 
 	def _fold_late_dups(self):
 		"""A value that mutates after its sibling group was keyed - an empty field
-		filled by a fence, a stacked list closed - can land on a key an earlier
+		filled by a fence, a stacked list closed - can end up on a key an earlier
 		sibling already holds, which the keyed lookup can no longer catch. Fold
 		those pairs so the tree matches a reparse of its own canonical text.
 		Only the parents _remap_child flagged can hold one. Shallowest first,
@@ -2591,11 +2591,6 @@ class _Parser:
 			self.stack.append((indent, UNOPENED))
 		return parent
 
-	def _drop_line(self, line):
-		self.lost += 1
-		if self.track_dropped:
-			self.dropped.append(line)
-
 	def _refuse(self, line, code, msg, outcome, indent):
 		"""The one exit for a line the parser does not bind whole. An arm says
 		what became of the line and nothing else: the lost count and the level
@@ -2604,11 +2599,15 @@ class _Parser:
 		self._err(line, code, msg)
 		holds = outcome.kind in ("retained", "dropped")
 		if outcome.kind in ("value_dropped", "dropped"):
-			self._drop_line(line)
+			gone = [line]
 		elif outcome.kind == "stopped":
-			for k, ln in enumerate(outcome.rest):
-				if _trim_wsp(ln):
-					self._drop_line(line + k)
+			gone = [line + k for k, ln in enumerate(outcome.rest) if _trim_wsp(ln)]
+		else:
+			gone = []
+		self.lost += len(gone)
+		# Which lines those were, for the save that keeps lines.
+		if self.track_dropped:
+			self.dropped.extend(gone)
 		if outcome.kind == "retained":
 			p = _Pend(outcome.text, indent, outcome.blank_before, line)
 			# A line kept as written never hangs on a block: its indent is not
@@ -2806,7 +2805,7 @@ class _Parser:
 	def _bind_block(self, parent, value, line, indent):
 		"""A bare fence line is a value line for its parent field: fills an empty
 		value, else creates a new instance of that field (the repeated-leaf rule).
-		Returns the node the block landed on (None = no parent, diagnosed)."""
+		Returns the node the block ended up on (None = no parent, diagnosed)."""
 		if parent == ROOT:
 			self._refuse(line, "E006", "raw block with no parent field", OUT_DROPPED, indent)
 			return None
@@ -3205,7 +3204,7 @@ class _Parser:
 							break
 				# The bound node usually holds the very object just parsed, so
 				# identity settles it and neither key gets built. The key
-				# compare is only needed when a merge landed on an equal-valued
+				# compare is only needed when a merge ended up on an equal-valued
 				# node that already existed.
 				if src_text is not None and not self.arena[node].src_set and (
 					self.arena[node].value is value
@@ -4552,13 +4551,13 @@ class Document:
 	def _resolve_from(self, start, segs, group=False):
 		# Returns ("none",) | ("one", idx) | ("many", [idx]) | ("slots", [entry]).
 		# A slots entry is a node idx, or the Status saying why the sub-path did
-		# not land on one node (NotFound missing, Multiple ambiguous).
+		# not reach one node (NotFound missing, Multiple ambiguous).
 		# The per-instance sub-resolution behind a wildcard is the same walk
 		# over the remaining segments, run flat (_resolve_slots) rather than one
 		# frame per wildcard: a path can carry a wildcard per document level,
 		# and the frame budget is small. A wildcard inside the sub-walk widens
 		# the run rather than ending it, so the two compose.
-		# group: a sub-path landing on several nodes joins the slot list instead
+		# group: a sub-path reaching several nodes joins the slot list instead
 		# of becoming one Multiple slot. Reads want the slot per instance, so
 		# they leave it off; remove and exists want every node behind the
 		# wildcard.
@@ -4607,7 +4606,7 @@ class Document:
 
 	def _resolve_slots(self, inst, rest, group=False):
 		# The slots one wildcard instance contributes: normally one - a node
-		# index, or the Status saying why the sub-path did not land on one node
+		# index, or the Status saying why the sub-path did not reach one node
 		# (NotFound missing, Multiple ambiguous) - but a further wildcard in
 		# `rest` contributes its own slots to the same flat run. Walked with an
 		# explicit stack rather than one frame per wildcard: a path can carry a
@@ -4844,7 +4843,7 @@ class Document:
 
 	def _probe_write(self, segments, value_text, trail=None) -> tuple[WriteReason, list | None]:
 		"""The validation walk write_reason and _place share. `trail`, when a
-		list is passed, collects where each segment landed - None from the point
+		list is passed, collects where each segment ended up - None from the point
 		the path falls off the existing tree - so _place can create from exactly
 		there instead of scanning the path and walking the tree a second time."""
 		if value_text is not None:
@@ -5589,7 +5588,7 @@ class Document:
 						appended.append((pos, self._clone_subtree(over, ok, base_parent)))
 		if not replace and not appended:
 			return pending
-		# Rebuild once: each replaced group lands at its name's first original
+		# Rebuild once: each replaced group goes to its name's first original
 		# position (dropped nodes stay in the arena, unreferenced - reads and
 		# emit walk children from the root), appends go at the end.
 		new_kids = []
@@ -5924,7 +5923,7 @@ class Document:
 	# get_*(path, default) says the same thing and still works; these exist so
 	# the spelling that means "with a fallback" is `_or` in every binding, and a
 	# routine ported between two of them cannot keep the call name while changing
-	# which tier it lands on.
+	# which tier it uses.
 
 	def get_int_or(self, path: str, default: int) -> int:
 		return self._get(self.read_int(path), default)
@@ -7207,7 +7206,7 @@ def _parse_int_text(e, level):
 		if f is not None and not math.isnan(f) and not math.isinf(f):
 			r = _rust_round(f)
 			# The top bound is 2^63 itself, exclusively: i64 max has no exact
-			# double, so a `.0` spelling of it lands above the range.
+			# double, so a `.0` spelling of it ends up above the range.
 			if -(2 ** 63) <= r < 2 ** 63:
 				return r
 	return None
@@ -8463,7 +8462,7 @@ def generate(schema: Document, no_banner: bool = False) -> tuple[str, list[Diagn
 	# A live line with a value materializes an instance carrying that value,
 	# and a dotted child names the empty-valued instance instead - so `srv:
 	# web` followed by `srv.port:` is two `srv` nodes, and the child never
-	# lands where the schema looks. Any line under such a parent selects it by
+	# ends up where the schema looks. Any line under such a parent selects it by
 	# its value: `srv[web].port:`.
 	# A filled wildcard emits a valued line of its own, so it belongs here too.
 	# First wins, as the line it selects does: of two lines on one path the

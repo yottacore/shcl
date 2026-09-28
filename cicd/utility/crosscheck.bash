@@ -48,7 +48,7 @@ esac; done
 [[ -d "$corpus" ]] || { echo "crosscheck: no corpus dir: $corpus" >&2; exit 2; }
 tmpDir="$(mktemp -d)"; trap 'rm -rf "$tmpDir"' EXIT
 if ((${#bindings[@]} < 2)); then
-	echo "crosscheck: ${#bindings[@]} binding(s) configured - differential comparison activates when a second binding lands"
+	echo "crosscheck: ${#bindings[@]} binding(s) configured - differential comparison activates when a second binding arrives"
 	exit 0
 fi
 for b in "${bindings[@]}"; do
@@ -515,7 +515,7 @@ fUsage(){
 	fCompareStdin "set - reads the piped document" project/conformance/044-write-literal/input.shcl set - --set b=2
 	fCompareStdin "set - is an empty base for ops" "${tmpDir}/emptybase.ops" set -
 
-	# --set-literal takes value syntax, so the same text lands as an array where
+	# --set-literal takes value syntax, so the same text reads as an array where
 	# --set stores one quoted string; the pair is compared to pin that difference.
 	# The rejections are the parser's own, so they have to agree with it.
 	fCompareWrite "set --write applies --set-literal" fFixMode set --write --set-literal 'a=80, 443'
