@@ -86,7 +86,7 @@ param(
 	Set-StrictMode -Version Latest
 	$ErrorActionPreference = 'Stop'
 
-	$installerVersion = '1.1.3'
+	$installerVersion = '1.1.4'
 
 	## Every run opens with a blank line and ends with one, errors included.
 	Write-Output ''
@@ -323,7 +323,7 @@ installed.
 		## The global is the one a native command sets; a local would shadow it.
 		$global:LASTEXITCODE = -1
 		try {
-			$out = & $Exe version 2>&1
+			$out = & $Exe --version 2>&1
 			return @{ Code = $global:LASTEXITCODE; Out = $out }
 		} catch {
 			return @{ Code = -1; Out = $_.Exception.Message }
