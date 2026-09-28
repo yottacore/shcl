@@ -224,7 +224,6 @@ fWriteSums(){
 	  if ((${#files[@]})); then sha256sum "${files[@]}" > "${sums}"; fi )
 }
 
-## First existing+writable dir from the list; empty output when there is none.
 ## True when a running process was started from this file. Linux answers
 ## through /proc; elsewhere nothing is known to be in use.
 fInUse(){   ## fInUse PATH
@@ -235,6 +234,7 @@ fInUse(){   ## fInUse PATH
 	done
 	return 1
 }
+## First existing+writable dir from the list; empty output when there is none.
 fFirstWritableDir(){ local d; for d in "$@"; do [[ -d "$d" && -w "$d" ]] && { echo "$d"; break; }; done; return 0; }
 
 ## Install to <dest_dir>/<name> through a temp file in the SAME dir plus a rename,
@@ -406,7 +406,7 @@ fi
 ## Stage 4: tests (conformance corpus + fuzz smoke + anything else config wires in),
 ## then the cross-binding differential check: every binding CLI must agree with
 ## every other, byte for byte, on the corpus AND on a freshly fuzz-dumped input set.
-## With one binding it is a no-op note; it gets teeth the day a second binding lands.
+## With one binding it is a no-op note; it gets teeth the day a second binding arrives.
 ## Last comes the large-document gate - the same agreement plus time and memory
 ## ceilings, at a size no corpus case can reach.
 fSection "4/9  Tests"

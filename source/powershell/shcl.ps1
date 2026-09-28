@@ -78,7 +78,7 @@ pwsh shcl.ps1 get --int app.shcl server.port
 #>
 
 ## No script-level param block on purpose: it would try to bind `get`/`--int` as
-## parameters. Without one, every argument lands in $args verbatim, exactly what
+## parameters. Without one, every argument ends up in $args verbatim, exactly what
 ## a passthrough front end wants.
 
 #==============================================================================

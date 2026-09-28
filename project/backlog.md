@@ -283,7 +283,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - The dogfood runner stamps builds in local time and the current culture
 	- ID: 2026092620255211
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 11
@@ -293,6 +293,13 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Reproduced: 20260926, pwsh on Linux.
 	- Origin: `eefd1db` (2026-09-24). Confirmed.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Decisions:
+		- 20260927: stamps are the build's write time in UTC, written and read in the invariant culture, and the period keys too. A pool from before keeps its local-time names, so its newest may look a few hours off once.
+	- Actual fix: `$Invariant` and `LastWriteTimeUtc` in `dogfood_shcl.ps1`.
+	- Swept: every `ToString` and `ParseExact` in the runner.
+	- Branch: `dogfood`
+	- Test case: `shell-regress.bash` row `20260926-item11-dogfood-stamp-culture`, under th-TH. It fails on the old runner.
 
 - The drop-ins tarball's file modes follow the checkout's umask
 	- ID: 2026092620255212
@@ -344,7 +351,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - Comment style in new code
 	- ID: 2026092620255215
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 15
@@ -355,6 +362,11 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Reproduced: 20260926, `git grep -w -E 'lands|land' -- source`.
 	- Origin: various. Confirmed.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: every "land" in comments and messages in `source`, `cicd` and `utility` is reworded, the same way in each binding. `dogfood_shcl.ps1` has a help block.
+	- Swept: `git grep -w -E 'lands|land|landed|landing'` over `source`, `cicd`, `utility` and the installers comes back empty, but for the copied publisher script, which is patched only where it changes.
+	- Branch: `dogfood`
+	- Test case: none. A checked-in word scan would itself be a tell. `Get-Help` on the runner shows the new block.
 
 - Every closed backlog item gets a Test line
 	- ID: 2026092620255216
@@ -645,25 +657,9 @@ Going forward, new issues in the new template at the bottom of this file, will g
 
 - Code review 20260924d:
 
-	- 🔘 Item 4: `dogfood_shcl --no-update` runs whatever the fixed-name link points at, not only a held dogfood build.
-		- Reproduced: scratch HOME with `~/.local/bin/shcl` linked to an installer copy. `dogfood_shcl --no-update version` ran the installed release.
-		- Rests on: `Get-RunTarget`'s comment says it uses the fixed name when it names a pool version.
-		- Origin: `eefd1db`. Not seen before. Confirmed.
-		- Opened: 20260924-190225
-
 	- 🔘 Item 5: on Windows the dogfood runner's fixed name is `%LOCALAPPDATA%\Programs\shcl.exe`, which is neither where a user install goes nor on PATH.
 		- Rests on: the runner's header says the fixed name is where a user install puts shcl, and idea 11 of 20260924c set the latest link at the user install location. `install.ps1` uses `Programs\Shcl\shcl.exe` and puts that folder on PATH.
 		- Origin: `eefd1db`. Not seen before. Plausible.
-		- Opened: 20260924-190225
-
-	- 🔘 Item 6: the dogfood runner repeats its "left alone" note, and on Windows its "in use" note, on every run.
-		- Reproduced: two runs in a row in a scratch HOME print the same note.
-		- Rests on: the header says it writes to stderr only when it changed something.
-		- Origin: `eefd1db`. Confirmed.
-		- Opened: 20260924-190225
-
-	- 🔘 Item 7: `fFirstWritableDir`'s comment in `cicd.bash` now sits above `fInUse`.
-		- Origin: `eefd1db` put the new function between them. Confirmed.
 		- Opened: 20260924-190225
 
 - Code review 20260924:
@@ -723,11 +719,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 **Stop here for a release cut**.
 
 - Code review 20260924d:
-
-	- 🔘 Idea 1: stage 7's fallback destination `~/.local/bin` is now also the dogfood runner's link and the installer's user link.
-		- Note: `fInstallAtomic` there would replace the runner's link with a regular file, which the runner and `install.bash` then both refuse. Dropping `~/.local/bin` from `DOGFOOD_FIXED_DESTS` avoids it. Not run.
-		- Reproduced: 20260926, stage 7 lifted into a scratch HOME with no synced dir. It printed `OK: installed`, and the runner's link was a regular file after. Code review 20260926.
-		- Opened: 20260924-190225
 
 	- 🔘 Idea 2: `install.bash --uninstall` says it removed shcl when nothing was there.
 		- Note: seen in an empty scratch HOME. With `user` now the default, a 1.0-era system install gets the same message and stays.
@@ -1349,6 +1340,33 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Note: the README sentence comes out at 3.0.0 final.
 		- Opened: 20260924-190225
 		- Closed: 20260924-202629
+
+	- ✅ Item 4: `dogfood_shcl --no-update` runs whatever the fixed-name link points at, not only a held dogfood build.
+		- Reproduced: scratch HOME with `~/.local/bin/shcl` linked to an installer copy. `dogfood_shcl --no-update version` ran the installed release.
+		- Rests on: `Get-RunTarget`'s comment says it uses the fixed name when it names a pool version.
+		- Origin: `eefd1db`. Not seen before. Confirmed.
+		- Fixed: the fixed name runs only when it is a link to the newest pool version, or on Windows holds its bytes. Anything else runs the newest version by its own path.
+		- Test case: `shell-regress.bash` row `20260924d-item4-dogfood-no-update-target`. It fails on the old runner.
+		- Swept: `Update-FixedName` already checked the target.
+		- Opened: 20260924-190225
+		- Closed: 20260927-191725
+
+	- ✅ Item 6: the dogfood runner repeats its "left alone" note, and on Windows its "in use" note, on every run.
+		- Reproduced: two runs in a row in a scratch HOME print the same note.
+		- Rests on: the header says it writes to stderr only when it changed something.
+		- Origin: `eefd1db`. Confirmed.
+		- Fixed: both notes come only on a run that took a new build, which is when the fixed name falls behind. The header says so.
+		- Test case: `shell-regress.bash` row `20260924d-item6-dogfood-quiet-notes`. It fails on the old runner.
+		- Swept: the runner's other notes each report something it just did.
+		- Opened: 20260924-190225
+		- Closed: 20260927-191725
+
+	- ✅ Item 7: `fFirstWritableDir`'s comment in `cicd.bash` now sits above `fInUse`.
+		- Origin: `eefd1db` put the new function between them. Confirmed.
+		- Fixed: moved back above `fFirstWritableDir`.
+		- Test case: none. A comment move.
+		- Opened: 20260924-190225
+		- Closed: 20260927-191725
 
 - Code review 20260924c:
 
@@ -6362,6 +6380,14 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Closed: 20260925-160837
 
 - Code review 20260924d:
+
+	- ✅ Idea 1: stage 7's fallback destination `~/.local/bin` is now also the dogfood runner's link and the installer's user link.
+		- Note: `fInstallAtomic` there would replace the runner's link with a regular file, which the runner and `install.bash` then both refuse. Dropping `~/.local/bin` from `DOGFOOD_FIXED_DESTS` avoids it. Not run.
+		- Reproduced: 20260926, stage 7 lifted into a scratch HOME with no synced dir. It printed `OK: installed`, and the runner's link was a regular file after. Code review 20260926.
+		- Done: `~/.local/bin` is out of `DOGFOOD_FIXED_DESTS`. With no synced dir, stage 7 now skips and says so.
+		- Test case: `shell-regress.bash` row `20260924d-idea1-dogfood-dests`. It fails with the old list.
+		- Opened: 20260924-190225
+		- Closed: 20260927-191725
 
 	- ✅ Idea 3: `fBuildNumber` accepts an empty or non-numeric date and returns a build that looks valid.
 		- Done: `fBuildNumber` in `cicd.bash` takes digits only, from 2000 on, and otherwise says so and returns 1, which stops the release stage. The digits test comes before any arithmetic reads the argument.

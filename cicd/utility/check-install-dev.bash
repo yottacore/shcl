@@ -127,7 +127,7 @@ fTest EqRTWFd the plan is built off the pins in the config
 ## is installed and nothing is fetched.
 ## A scratch HOME too: the script puts ~/.cargo/bin and the go bin dir in front
 ## of PATH, which would reach past the stubs to the real tools, and an install
-## that got through would land in the real home.
+## that got through would end up in the real home.
 mkdir -p "${work}/home"
 stub="${work}/stub"; mkdir -p "${stub}"
 # shellcheck disable=SC2016  ## the stub's own text, expanded when the stub runs

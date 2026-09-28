@@ -755,7 +755,7 @@ func foldNodeInto(arena []nodeData, survivor, loser int) {
 // comments at its own level sit right above the next sibling, so a reload
 // files them as that sibling's leading ones, from the first one at that level
 // on. The load runs this once the tree is final; a merge, a new child and the
-// writer's fold run it where they change a child list, or the next step lands
+// writer's fold run it where they change a child list, or the next step comes out
 // differently depending on whether the file was saved in between. The text
 // does not move. from is the first child whose leading list may gain, so a new
 // last child costs one pair; it cannot put a fence after an empty binding
@@ -2705,12 +2705,12 @@ type parser struct {
 	starNode int
 	starKey  uint64
 	starDisp uint64
-	// Parents where a remap landed on a key a sibling already held: the only
+	// Parents where a remap ended up on a key a sibling already held: the only
 	// places a duplicate can survive the keyed lookup, so the fold starts here.
 	lateDups []int
 	// Node -> line of the re-open that H002-hinted it. A merge under a hinted
 	// container combines the same two textual regions, so it hints too even
-	// when it lands on the newest child at its own scope - that is how every
+	// when it ends up on the newest child at its own scope - that is how every
 	// merged level reports, not just the outermost. The stored line splits old
 	// children (hint) from ones the re-opened region itself created (silent).
 	reentered map[int]int
@@ -2838,7 +2838,7 @@ func (p *parser) remapChild(node int, oldKey, oldDisp uint64) {
 }
 
 // foldLateDups: a value that mutates after its sibling group was keyed - an
-// empty field filled by a fence, a stacked list closed - can land on a key an
+// empty field filled by a fence, a stacked list closed - can end up on a key an
 // earlier sibling already holds, which the keyed lookup can no longer catch.
 // Fold those pairs so the tree matches a reparse of its own canonical text.
 // Only the parents remapChild flagged can hold one. Shallowest first, since a
@@ -3145,13 +3145,6 @@ func outRetained(text string, blankBefore bool) outcome {
 
 func outStopped(rest []string) outcome { return outcome{kind: outcomeStopped, rest: rest} }
 
-func (p *parser) dropLine(line int) {
-	p.lost++
-	if p.trackDropped {
-		p.dropped = append(p.dropped, line)
-	}
-}
-
 // refuse is the one exit for a line the parser does not bind whole. An arm
 // says what became of the line and nothing else: the lost count and the
 // level the line holds follow from the outcome here, so no arm can forget
@@ -3159,16 +3152,24 @@ func (p *parser) dropLine(line int) {
 func (p *parser) refuse(line int, code, msg string, out outcome, indent string) {
 	p.err(line, code, msg)
 	holds := out.kind == outcomeRetained || out.kind == outcomeDropped
+	n := 0
 	switch out.kind {
 	case outcomeValueDropped, outcomeDropped:
-		p.dropLine(line)
+		n = 1
+		if p.trackDropped {
+			p.dropped = append(p.dropped, line)
+		}
 	case outcomeStopped:
 		for k, l := range out.rest {
 			if trimWsp(l) != "" {
-				p.dropLine(line + k)
+				n++
+				if p.trackDropped {
+					p.dropped = append(p.dropped, line+k)
+				}
 			}
 		}
 	}
+	p.lost += n
 	if out.kind == outcomeRetained {
 		// A line kept as written never hangs on a block: its indent is not
 		// one the output's levels are spelled with, so the block it would
@@ -3425,7 +3426,7 @@ func (p *parser) consumeRaw(
 
 // bindBlock: a bare fence line is a value line for its parent field: fills an
 // empty value, else creates a new instance of that field (the repeated-leaf
-// rule). Returns the node the block landed on (-1 = no parent, diagnosed).
+// rule). Returns the node the block ended up on (-1 = no parent, diagnosed).
 func (p *parser) bindBlock(parent int, v value, line int, indent string) int {
 	if parent == root {
 		p.refuse(line, "E006", "raw block with no parent field", outDropped, indent)
@@ -6472,7 +6473,7 @@ const (
 	resOne
 	resMany
 	// resSlots (wildcard): one slot per instance, in file order; negative =
-	// the sub-path did not land on one node (-1 missing, -2 ambiguous).
+	// the sub-path did not reach one node (-1 missing, -2 ambiguous).
 	resSlots
 )
 
@@ -6533,7 +6534,7 @@ func (d *Document) childrenNamed(parent int, name string) []int {
 	return out
 }
 
-// group: a sub-path landing on several nodes joins the slot list instead of
+// group: a sub-path reaching several nodes joins the slot list instead of
 // becoming one ambiguous slot. Reads want the slot per instance, so they leave
 // it off; Remove and Exists want every node behind the wildcard.
 func (d *Document) resolveFrom(start []int, segs []segment, group bool) resolved {
@@ -6996,7 +6997,7 @@ func (d *Document) WriteReason(path string) WriteReason {
 }
 
 // probeWrite is the validation walk WriteReason and place share. The returned
-// trail records where each segment landed - -1 from the point the path falls
+// trail records where each segment ended up - -1 from the point the path falls
 // off the existing tree - so place can create from exactly there instead of
 // scanning the path and walking the tree a second time.
 func (d *Document) probeWrite(scan pathScan) (WriteReason, []int) {
@@ -7980,7 +7981,7 @@ func (d *Document) overlay(baseParent int, over *Document, overParent int, touch
 	if len(replace) == 0 && len(appended) == 0 {
 		return
 	}
-	// Rebuild once: each replaced group lands at its name's first original
+	// Rebuild once: each replaced group goes to its name's first original
 	// position (dropped nodes stay in the arena, unreferenced - reads and
 	// emit walk children from the root), appends go at the end.
 	newKids := make([]int, 0, len(baseKids)+len(appended))
@@ -10416,7 +10417,7 @@ func Generate(schema *Document, noBanner bool) (string, []Diagnostic) {
 	// A live line with a value materializes an instance carrying that value,
 	// and a dotted child names the empty-valued instance instead - so `srv:
 	// web` followed by `srv.port:` is two `srv` nodes, and the child never
-	// lands where the schema looks. Any line under such a parent selects it
+	// ends up where the schema looks. Any line under such a parent selects it
 	// by its value: `srv[web].port:`.
 	// A filled wildcard emits a valued line of its own, so it belongs here too.
 	// First wins, as the line it selects does: of two lines on one path the

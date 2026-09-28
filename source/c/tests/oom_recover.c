@@ -34,7 +34,7 @@ static int failures = 0;
 static void fail(const char *what) { fprintf(stderr, "FAIL oom_recover: %s\n", what); failures++; }
 
 // A document big enough that the parse takes many allocations, so the budgets
-// below land in the middle of one rather than only at its edges.
+// below fall in the middle of one rather than only at its edges.
 static char *sample(size_t *len) {
 	size_t cap = 64 * 1024;
 	char *t = (char *)malloc(cap);
@@ -116,7 +116,7 @@ int main(void) {
 	// A load is the same call plus a read, so it reports the same way.
 	{
 		// A mingw binary's fopen does not translate /tmp, and windows hosts do
-		// not all have a C:\tmp for it to land in.
+		// not all have a C:\tmp for it to go in.
 		const char *dir = getenv("TMPDIR");
 		if (!dir) dir = getenv("TMP");
 		if (!dir) dir = getenv("TEMP");

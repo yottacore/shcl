@@ -206,7 +206,7 @@ fCrMidLine(){ grep -q $'\r[^\r]' "$1"; }
 ##	design. Nothing is damaged quietly: a load that dropped the line makes
 ##	`migrate --write` and `fmt --write` refuse at exit 7. Asked of the current
 ##	parser rather than matched on the text, since what counts is the column the
-##	indent lands on and not which characters spell it.
+##	indent falls on and not which characters spell it.
 fUnplaced(){
 	{ "${newCli}" check "$1" 2>/dev/null || true; } | awk '$1 == "line" && $4 == "E012" { sub(/:$/, "", $2); print $2 }'
 }

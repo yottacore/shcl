@@ -2497,13 +2497,13 @@ fn do_set(o: &Opts) -> u8 {
 	// stdin is the ops script does '-' mean an empty base. Reading neither threw
 	// a piped document away at exit 0.
 	// --write names the file this command produces, so a FILE that is not there
-	// yet is a create and the edits land in a new document. Only under --write,
+	// yet is a create and the edits go into a new document. Only under --write,
 	// and only when nothing is at the path at all: without --write there is
 	// nothing to create, and a file that exists but cannot be read is still an
 	// error rather than something to quietly write over.
 	// A created file starts out as the info block, so a new config says what
 	// format it is. Comments in an otherwise empty document are the
-	// document's trailing trivia, so the edits land above it and the write
+	// document's trailing trivia, so the edits go above it and the write
 	// still goes through the library's save gate.
 	// The --layer files sit under it and --set overrides sit on top, before
 	// ops, through the same fold every other subcommand uses.

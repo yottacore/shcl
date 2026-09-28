@@ -24,11 +24,13 @@
 ##	The pool keeps at most 10 versions and at least 5, and between those only
 ##	as many as fit in 1 GB. Which ones stay is a GFS rotation: the oldest, the
 ##	newest, the last of each recent hour, day, week, month and year, and the
-##	few most recent. Each file is named shcl_<yyyyMMdd-HHmmss>_<role>.
+##	few most recent. Each file is named shcl_<yyyyMMdd-HHmmss>_<role>, from
+##	the build's write time in UTC, so the names sort the same in any culture
+##	and across a clock change.
 ##
 ##	Output: shcl's own stdout and stderr, and its exit code. What this script
-##	has to say goes to stderr, and only when it changed something, so a pipe
-##	sees what shcl printed and nothing else.
+##	has to say goes to stderr, and only on a run that took a new build or
+##	changed something, so a pipe sees what shcl printed and nothing else.
 ##
 ##	Windows runs it unelevated, in the same window, where shcl's output can be
 ##	read. The fixed name is a symlink where the account may make one, and a
@@ -41,6 +43,17 @@
 ##	Licensed under The MIT License (MIT). Full text at:
 ##		https://mit-license.org/
 ##	SPDX-License-Identifier: MIT
+
+<#
+.SYNOPSIS
+Runs the newest dogfood build of shcl, taking a new one from the synced dogfood dir first.
+.DESCRIPTION
+Every argument but --no-update goes to shcl as it came, and shcl's exit code comes back. --no-update runs the newest build already held and copies nothing.
+.EXAMPLE
+dogfood_shcl get --int app.shcl server.port
+.EXAMPLE
+dogfood_shcl --no-update version
+#>
 
 #==============================================================================
 # Configuration
@@ -91,6 +104,9 @@ $KeepMonthly = 1
 $KeepYearly = 1
 
 $StampFormat = 'yyyyMMdd-HHmmss'
+## Stamps are written and read in one culture. A current culture with another
+## calendar wrote a year the invariant read took as a different one.
+$Invariant = [Globalization.CultureInfo]::InvariantCulture
 
 #==============================================================================
 # Functions
@@ -112,7 +128,7 @@ function Exit-Launcher {
 function ConvertFrom-Stamp {
 	[CmdletBinding()]
 	param([string]$Stamp)
-	return [datetime]::ParseExact($Stamp, $StampFormat, [Globalization.CultureInfo]::InvariantCulture)
+	return [datetime]::ParseExact($Stamp, $StampFormat, $Invariant)
 }
 
 ## The newest build in the first source dir that has one, or nothing.
@@ -158,15 +174,16 @@ function Find-HeldTwin {
 
 ## Copy the source build in when nothing held matches it. Written to a temp
 ## name and renamed, so a copy that dies partway never passes for a version.
+## True when it took one.
 function Copy-NewBuild {
 	[CmdletBinding()]
 	param()
 	$src = Get-SourceBuild
-	if (-not $src) { return }
-	$stamp = $src.LastWriteTime.ToString($StampFormat)
+	if (-not $src) { return $false }
+	$stamp = $src.LastWriteTimeUtc.ToString($StampFormat, $Invariant)
 	$held = Get-HeldVersion
-	if ($held.Count -gt 0 -and $held[-1].Stamp -ge (ConvertFrom-Stamp -Stamp $stamp)) { return }
-	if (Find-HeldTwin -Source $src) { return }
+	if ($held.Count -gt 0 -and $held[-1].Stamp -ge (ConvertFrom-Stamp -Stamp $stamp)) { return $false }
+	if (Find-HeldTwin -Source $src) { return $false }
 
 	$null = New-Item -ItemType Directory -Force -Path $PoolDir
 	$dest = Join-Path -Path $PoolDir -ChildPath "${ProgramName}_$stamp$ExeExt"
@@ -176,9 +193,11 @@ function Copy-NewBuild {
 		if (-not $IsWindows) { & chmod 755 $partial }
 		Move-Item -LiteralPath $partial -Destination $dest -Force
 		Write-Note "new build $stamp from $($src.DirectoryName)"
+		return $true
 	} catch {
 		Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue
 		Write-Note "could not copy the new build: $($_.Exception.Message)"
+		return $false
 	}
 }
 
@@ -186,11 +205,11 @@ function Get-PeriodKey {
 	[CmdletBinding()]
 	param([datetime]$When)
 	return @{
-		hour = $When.ToString('yyyyMMddHH')
-		day = $When.ToString('yyyyMMdd')
+		hour = $When.ToString('yyyyMMddHH', $Invariant)
+		day = $When.ToString('yyyyMMdd', $Invariant)
 		week = '{0:D4}{1:D2}' -f [Globalization.ISOWeek]::GetYear($When), [Globalization.ISOWeek]::GetWeekOfYear($When)
-		month = $When.ToString('yyyyMM')
-		year = $When.ToString('yyyy')
+		month = $When.ToString('yyyyMM', $Invariant)
+		year = $When.ToString('yyyy', $Invariant)
 	}
 }
 
@@ -200,7 +219,7 @@ function Get-GfsRole {
 	[CmdletBinding()]
 	param([object[]]$Versions)
 	$periods = @('year', 'month', 'week', 'day', 'hour')
-	$current = Get-PeriodKey -When (Get-Date)
+	$current = Get-PeriodKey -When (Get-Date).ToUniversalTime()
 	$lastIn = @{}
 	foreach ($p in $periods) { $lastIn[$p] = @{} }
 	foreach ($v in $Versions) {
@@ -277,7 +296,7 @@ function Invoke-Rotation {
 	}
 	foreach ($v in $versions) {
 		if (-not $keep.Contains($v.Name)) { continue }
-		$want = "${ProgramName}_$($v.Stamp.ToString($StampFormat))_$($roles[$v.Name])$ExeExt"
+		$want = "${ProgramName}_$($v.Stamp.ToString($StampFormat, $Invariant))_$($roles[$v.Name])$ExeExt"
 		if ($v.Name -eq $want) { continue }
 		$wantPath = Join-Path -Path $PoolDir -ChildPath $want
 		if (Test-Path -LiteralPath $wantPath) { continue }
@@ -286,18 +305,19 @@ function Invoke-Rotation {
 	}
 }
 
-## Point the fixed name at the newest version.
+## Point the fixed name at the newest version. A reason it cannot is said
+## only on a run that took a new build, since it holds until someone acts.
 function Update-FixedName {
 	[CmdletBinding()]
 	[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
-	param()
+	param([switch]$Fresh)
 	$versions = Get-HeldVersion
 	if ($versions.Count -eq 0) { return }
 	$target = $versions[-1].File.FullName
 	$cur = Get-Item -LiteralPath $LinkPath -Force -ErrorAction SilentlyContinue
 	if ($cur -and $cur.LinkType -eq 'SymbolicLink' -and $cur.Target -eq $target) { return }
 	if ($cur -and -not $cur.LinkType -and -not $IsWindows) {
-		Write-Note "$LinkPath is a regular file, so it was left alone, and a bare shcl there is not this build"
+		if ($Fresh) { Write-Note "$LinkPath is a regular file, so it was left alone, and a bare shcl there is not this build" }
 		return
 	}
 	## On Windows a hard link or a plain file here is this script's own fallback,
@@ -308,7 +328,7 @@ function Update-FixedName {
 	try {
 		if ($cur) { Remove-Item -LiteralPath $LinkPath -Force -ErrorAction Stop }
 	} catch {
-		Write-Note "$LinkPath is in use, so it still names the older build"
+		if ($Fresh) { Write-Note "$LinkPath is in use, so it still names the older build" }
 		return
 	}
 	$made = $false
@@ -330,16 +350,25 @@ function Update-FixedName {
 	Write-Note "$LinkPath -> $($versions[-1].Name)"
 }
 
-## What to run: the fixed name when it names a pool version, else the newest
-## version itself. A regular file at the fixed name is someone else's.
+## What to run: the fixed name when it names the newest pool version, else that
+## version itself. Anything else at the fixed name is someone else's, as an
+## installed release a link points at, or a file there on Linux or macOS.
 function Get-RunTarget {
 	[CmdletBinding()]
 	param()
 	$versions = Get-HeldVersion
 	if ($versions.Count -eq 0) { return $null }
+	$newest = $versions[-1].File
 	$cur = Get-Item -LiteralPath $LinkPath -Force -ErrorAction SilentlyContinue
-	if ($cur -and ($cur.LinkType -or $IsWindows)) { return $LinkPath }
-	return $versions[-1].File.FullName
+	if (-not $cur) { return $newest.FullName }
+	if ($cur.LinkType -eq 'SymbolicLink') {
+		if ("$($cur.Target)" -eq $newest.FullName) { return $LinkPath }
+		return $newest.FullName
+	}
+	## On Windows the fallback is a hard link or a copy, so it counts when it
+	## holds the newest version's bytes.
+	if ($IsWindows -and $cur.Length -eq $newest.Length -and (Get-FileHash -LiteralPath $LinkPath).Hash -eq (Get-FileHash -LiteralPath $newest.FullName).Hash) { return $LinkPath }
+	return $newest.FullName
 }
 
 #==============================================================================
@@ -358,9 +387,9 @@ foreach ($arg in $args) {
 }
 
 if (-not $noUpdate) {
-	Copy-NewBuild
+	$fresh = Copy-NewBuild
 	Invoke-Rotation
-	Update-FixedName
+	Update-FixedName -Fresh:$fresh
 }
 
 $exe = Get-RunTarget
@@ -370,3 +399,4 @@ exit $LASTEXITCODE
 
 ##	History:
 ##		- 2026-09-24 JC: Created, in place of n8runshcl.ps1. Takes the build from the synced dogfood dir rather than the repo, and keeps a GFS-rotated pool with a fixed name on the newest.
+##		- 2026-09-27 JC: Stamps in UTC and the invariant culture. Runs the fixed name only when it names the newest pool version. Says why the fixed name was not updated only on a run that took a build. Help block.

@@ -34,7 +34,7 @@ impl Rng {
 // The characters the mutator splices in. The whitespace tail past space and tab
 // is why it is worth listing them out: the parser trims the whole Unicode
 // White_Space set while the emitter quotes from a much shorter list, and a value
-// whose edge lands in that gap used to be truncated on reload. With none of
+// whose edge falls in that gap used to be truncated on reload. With none of
 // these in the set, the fuzzer could not reach it - a corpus case had to.
 const INTERESTING: &[char] = &[
 	':', '[', ']', ',', '#', '"', '\'', '*', '~', '`', '\t', '\n', ' ', '.', '-', '\\', '%', '$',
@@ -741,7 +741,7 @@ fn raw_spans(text: &str) -> Vec<(usize, usize)> {
 /// A raw body is content, whatever becomes of the line that opened it. A
 /// skipped field line whose value opened a block left the body to be read as
 /// lines, and its closing fence then opened a block of its own; nine review
-/// items were some arm of that. So no diagnostic may land on a body line or a
+/// items were some arm of that. So no diagnostic may fall on a body line or a
 /// closing fence, unless the opening line has no value to read: a `*` name,
 /// which is no field at all, a path that did not parse (E014), or a fence with
 /// no field above it to bind to (E006).
@@ -966,7 +966,7 @@ fn writer_roundtrips_and_stays_fixpoint() {
 }
 
 /// A merge or an edit leaves the document its own saved text reloads as,
-/// comments included, so the next step lands the same whether or not the file
+/// comments included, so the next step comes out the same whether or not the file
 /// was saved in between. Comments were filed one way by a load and another by
 /// a merge, a new child or the writer's fold three times in three days; the
 /// text fixpoint cannot see it, since both placements are fixpoints.

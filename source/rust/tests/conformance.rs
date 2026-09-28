@@ -446,7 +446,7 @@ fn convenience_tier_falls_back_only_on_good() {
 	assert_eq!(doc.get_int_array("missing").unwrap_or(vec![7]), vec![7]);
 	// Same reads under the cross-binding spelling: `_or` means "with a
 	// fallback" everywhere, so a routine ported between two bindings cannot
-	// keep the call name while changing which tier it lands on.
+	// keep the call name while changing which tier it uses.
 	assert_eq!(doc.get_int_or("a", 9), 42);
 	assert_eq!(doc.get_int_or("b", 9), 9);
 	assert_eq!(doc.get_int_or("e", 9), 9);
@@ -1563,7 +1563,7 @@ fn file_tier_load_save() {
 	assert_eq!(st, FileStatus::Clean);
 	assert_eq!(back.to_canonical(), "a: 1\n");
 
-	// A new file lands where an ordinary create lands - 0666 narrowed by the
+	// A new file ends up where an ordinary create puts one - 0666 narrowed by the
 	// umask - and an existing one keeps the mode it had. Neither is visible on
 	// stdout, so no corpus case can see either, and neither is a windows
 	// concept, so the mode half is POSIX-only.
@@ -2116,7 +2116,7 @@ fn raw_is_source_text() {
 		Some("a,  \"b c\"")
 	);
 	// A written value has no source spelling; raw falls back to display. The
-	// selector's escaped spelling must land on the existing instance.
+	// selector's escaped spelling must reach the existing instance.
 	let mut doc2 = Document::parse("who: 'q\"uote'\n");
 	assert!(doc2.set_int("who[\"q\\\"uote\"].n", 5));
 	assert_eq!(doc2.count("who"), 1);

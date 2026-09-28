@@ -6,7 +6,7 @@
 ##		NSIS setup .exe per Windows binary. Payload mirrors install.bash: binary,
 ##		code/ drop-ins (lib.rs, shcl.go, shcl.py, shcl.h, shcl.hpp), scripts/
 ##		wrappers (shcl.bash, shcl.ps1), and for the Linux packages only the man/
-##		page and completions/ for bash and zsh. Packages land beside the raw
+##		page and completions/ for bash and zsh. Packages go beside the raw
 ##		binaries in the artifact dir, named into the same shcl-<version>-* family
 ##		so the engine's sha256sums rewrite picks them up. Two builds of one
 ##		commit give the same bytes (mtimes and build metadata are pinned to the

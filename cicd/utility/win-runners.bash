@@ -107,7 +107,7 @@ fRunCxx() {
 		source/c/tests/veneer_smoke.cpp -o "${work}/veneer${exe}" -lm \
 		&& "${work}/veneer${exe}"
 }
-## Both oom tests land on a setjmp recovery point, which unwinds through SEH on
+## Both oom tests end up at a setjmp recovery point, which unwinds through SEH on
 ## this host and through nothing much on linux or under wine, so windows is the
 ## only place the arrival can be judged. It also has to hold at every
 ## optimization level: the shape that broke it needs both a frame pointer and
@@ -259,7 +259,7 @@ fRunWinpathSandbox() {
 ## install.ps1's uninstall skipped a file it could not delete in silence, then
 ## blamed the dir it kept on files it never installed. A running shcl.exe is
 ## what holds one; a handle opened with no sharing stops a delete the same way
-## and needs no process to manage. Under 5.1, where the one-liner lands.
+## and needs no process to manage. Under 5.1, where the one-liner runs.
 fRunUninstallLock() {
 	local dir="${work}/lockdest" ps="${work}/lock.ps1" win out
 	mkdir -p "${dir}/code"

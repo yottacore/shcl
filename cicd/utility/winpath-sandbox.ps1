@@ -55,7 +55,7 @@ New-Item -ItemType Directory -Path $out -Force | Out-Null
 ## The batch file is what the sandbox runs at logon. It writes the marker last,
 ## so seeing the marker means the result file is already complete. The echo
 ## lines put the redirect FIRST: `echo EXIT=%ERRORLEVEL%>>f` ends in `0>>f`,
-## which cmd reads as a redirect of handle 0 and the exit code never lands.
+## which cmd reads as a redirect of handle 0 and the exit code never arrives.
 $runCmd = @'
 @echo off
 powershell -NoProfile -ExecutionPolicy Bypass -File C:\repo\cicd\utility\winpath-regress.ps1 > C:\out\result.txt 2>&1
