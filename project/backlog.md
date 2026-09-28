@@ -32,49 +32,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 
 ## New format
 
-- The dogfood runner stamps builds in local time and the current culture
-	- ID: 2026092620255211
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Opened: 20260926-202552
-	- Opened by: Code review 20260926 item 11
-	- Steps to reproduce: a scratch HOME, then `LC_ALL=th_TH.UTF-8 pwsh -NoProfile -File utility/dogfood_shcl.ps1 version` three times.
-	- Incorrect behavior: the held name jumps 543 years on each run, and a newer build is never copied in. Across a fall DST change a later build can sort as older and is skipped the same way.
-	- Expected behavior: a stable name, and the newest build runs. The stamp is written in the current culture and read back as invariant, which the tree's PowerShell traps warn about.
-	- Reproduced: 20260926, pwsh on Linux.
-	- Origin: `eefd1db` (2026-09-24). Confirmed.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Decisions:
-		- 20260927: stamps are the build's write time in UTC, written and read in the invariant culture, and the period keys too. A pool from before keeps its local-time names, so its newest may look a few hours off once.
-		- 20260928-094425: Correction: Times should be local, even if crossing timezones and DST changes results in times that are off. But the name shouldn't jump between runs (except for actual local time advancing), let alone 543 years.
-		- 20260928: back to local time, still written and read in the invariant culture. After a fall DST change or a move west, a build made in the repeated hours sorts older than the one before it, so it is skipped until the clock passes that stamp.
-	- Actual fix: `$Invariant` in `dogfood_shcl.ps1`. Reopened fix: `LastWriteTime` and `Get-Date` in place of their UTC forms.
-	- Swept: every `ToString` and `ParseExact` in the runner.
-	- Branch: `dogfood`, reopened on `stamplocal`
-	- Test case: `shell-regress.bash` row `20260926-item11-dogfood-stamp-culture`, under th-TH and `Asia/Bangkok`. It fails on the original runner, which drifts by 543 years a run, and on the UTC one. The other dogfood rows pin `TZ=UTC`.
-
-- The C++ interface is a full binding of its own, with the C interface kept out of sight
-	- ID: 2026092617331100
-	- Type: Done
-	- Status: Closed
-	- Priority: Avg
-	- Opened: 20260926-173311
-	- Opened by: JC
-	- Requirements:
-		- A full parity interface, not a second implementation. It calls the C core inside.
-		- A C++ consumer never sees the C interface: no `shcl_*` names, no C handle, no C structs.
-	- Estimated effort: Avg
-	- Actual effort: Avg
-	- Decisions:
-		- `shcl.hpp` includes `shcl.h` only in the implementation file. The wrappers moved out of line into its `SHCL_IMPLEMENTATION` section, so a consumer file has std types and nothing else. The one file that defines it now carries the include-order rule, and every other file is free of it.
-		- The API follows the Rust reference. Free functions where Rust has them, `DateTime` with Rust's fields, `Severity` on a diagnostic, and the format constants. Where a `Result` has no C++ form it follows Go: a pair, or `strict_failed()`.
-		- `c()`, the `shcl_doc *` constructor and the C datetime view are gone. The enum values and format strings are checked against the C ones at compile time, so they cannot drift.
-		- `generate` returns this call's faults and leaves the schema as it was, as in Rust.
-	- Branch: `cxxveneer`
-	- Test case: `veneer_smoke.cpp` covers the new surface. `check-veneer.bash` fails when the public half names C, when a consumer file can reach `shcl_parse`, or when a consumer and the implementation built apart do not link and run. Each was watched to fail. `check-readme.bash` builds the new C++ README example the same way and compares the file it saves.
-
 - A line-keeping save deletes lines the load dropped, at exit 0
 	- ID: 2026092620255201
 	- Type: Bug
@@ -129,31 +86,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Branch: `keepdrop`
 	- Test case: corpus `178-clear-comments-kept-line`, both routes, with `comments` reads. It fails on the old code.
 
-- A merge that replaces a leaf drops a kept line the settle turned into a comment
-	- ID: 2026092718195400
-	- Type: Bug
-	- Status: Canceled
-	- Severity: Low
-	- Opened: 20260927-181954
-	- Opened by: sweep for 2026092620255202
-	- Related IDs:
-		- 2026092620255202
-	- Steps to reproduce:
-		- `L` holds `a: "\q"`, `    b: 1`, `        c: 1`, `      d: 2`, `e: 1`. `F` holds `e: 5`.
-		- `shcl fmt --layer=L F`.
-	- Incorrect behavior: exit 0, and `# d: 2` is gone. A kept line the settle left as written moves onto the replacing leaf, as the merge's comment says a retained line does.
-	- Expected behavior: both kinds of kept line move onto the replacement.
-	- Reproduced: 20260927, Rust CLI.
-	- Note: the reload-parity fixture cannot see this one, since a reload of the canonical text holds a real comment there.
-	- Estimated effort: Low
-	- Progress log:
-		- 20260927: tried `is_comment` in the replaced-leaf rule. The 2M fuzz's reload property failed at iteration 1076: the canonical text writes the line as a comment, so a merge onto the reload drops it with the leaf. Keeping it means an exemption for merges the fixtures cannot express through the public calls. Needs a call: keep the line through a merge and accept the reload difference, or leave it going with the leaf like the leaf's comments.
-	- Decisions:
-		- 20260928: left going with the leaf's comments, the way a merge onto the reload of the saved base behaves.
-	- Actual fix: a sentence in the spec's merge notes.
-	- Test case: none. The reload-parity fuzz and fixtures pin the behavior as it stands.
-	- Closed: 20260927-223316
-
 - C `shcl_compact` reaches the out-of-memory hook on a document with a kept misplaced line
 	- ID: 2026092620255203
 	- Type: Bug
@@ -172,6 +104,61 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Swept: compaction is C only. The C++ `compact` calls it.
 	- Branch: `compact`
 	- Test case: `oom_recover.c` runs a compaction of a document with a kept line under every allocation budget and checks the canonical text is unchanged. It reached the hook on the old code.
+
+- An unknown escape in double quotes loads silently, with the known escapes around it decoded
+	- ID: 2026092616330237
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20260926-163302
+	- Opened by: gitsby feedback, side note
+	- Related IDs:
+		- 2026092617133293
+	- Version and build: dev at `efb626f`, format 3 before `v3.0.0-beta1`
+	- Steps to reproduce:
+		- A file holding `a: "C:\work\new"`.
+		- `shcl check FILE`, then `shcl get FILE a`.
+	- Incorrect behavior: `check` says ok, and `get` prints `C:\work`, a newline, then `ew`. The `\w` stays as written and the `\n` turns into a newline.
+	- Expected behavior: an error, since `\w` is not an escape and the line was plainly a path.
+	- Reproduced: 20260926, on the Rust CLI.
+	- Actual cause:
+		- The escape rule kept any pair it did not know, which is 2.x's and older Python's rule. TOML, YAML, JSON, Rust and Go all refuse one.
+	- Estimated effort: Avg
+	- Decisions:
+		- 20260926: refuse the pair as a new error, `E023`, rather than add a hint. 3.0 is the last point a stricter rule goes in without another major.
+		- The line is retained like `E019`: it binds nothing, a read is `NotFound`, and a save keeps it. A lookup path or `SetLiteral` text holding one is refused.
+		- A raw block's info string is not escape text, so it is not checked.
+		- `migrate` doubles the backslash, which 2.x and 3.0 read alike.
+		- `"C:\temp"` still loads with a tab, since `\t` is a real escape. The hint for it is 2026092617133293.
+	- Actual fix: `bad_escape` in the field and element line arms of the parser, in `scan_lookup` and in `literal_value`, plus `migrate` edits for names, selectors and values. Rust `bad_escape`, Go `badEscape`, Python `_bad_escape`, C `bad_escape`. Explain entry in all four CLIs, grammar `escape` rule, spec, man page, changelog.
+	- Branch: `escerr`
+	- Commit: `ea4b719`
+	- Test case: corpus `170-unknown-escape`, cli-regress `escape-unknown-*` and `escape-doubled-path` rows, check-abnf `field-line` samples. Each fails on the old code.
+	- Acceptance signoff: 20260926
+	- Closed: 20260926-171332
+
+- The dogfood runner stamps builds in local time and the current culture
+	- ID: 2026092620255211
+	- Type: Bug
+	- Status: Closed
+	- Severity: Low
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 item 11
+	- Steps to reproduce: a scratch HOME, then `LC_ALL=th_TH.UTF-8 pwsh -NoProfile -File utility/dogfood_shcl.ps1 version` three times.
+	- Incorrect behavior: the held name jumps 543 years on each run, and a newer build is never copied in. Across a fall DST change a later build can sort as older and is skipped the same way.
+	- Expected behavior: a stable name, and the newest build runs. The stamp is written in the current culture and read back as invariant, which the tree's PowerShell traps warn about.
+	- Reproduced: 20260926, pwsh on Linux.
+	- Origin: `eefd1db` (2026-09-24). Confirmed.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Decisions:
+		- 20260927: stamps are the build's write time in UTC, written and read in the invariant culture, and the period keys too. A pool from before keeps its local-time names, so its newest may look a few hours off once.
+		- 20260928-094425: Correction: Times should be local, even if crossing timezones and DST changes results in times that are off. But the name shouldn't jump between runs (except for actual local time advancing), let alone 543 years.
+		- 20260928: back to local time, still written and read in the invariant culture. After a fall DST change or a move west, a build made in the repeated hours sorts older than the one before it, so it is skipped until the clock passes that stamp.
+	- Actual fix: `$Invariant` in `dogfood_shcl.ps1`. Reopened fix: `LastWriteTime` and `Get-Date` in place of their UTC forms.
+	- Swept: every `ToString` and `ParseExact` in the runner.
+	- Branch: `dogfood`, reopened on `stamplocal`
+	- Test case: `shell-regress.bash` row `20260926-item11-dogfood-stamp-culture`, under th-TH and `Asia/Bangkok`. It fails on the original runner, which drifts by 543 years a run, and on the UTC one. The other dogfood rows pin `TZ=UTC`.
 
 - A merge result depends on whether the lower layer spells a list stacked or inline
 	- ID: 2026092620255204
@@ -381,6 +368,26 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Branch: `compact`
 	- Test case: `check-c-compilers.bash` now builds `conformance.c` and `mem_bounds.c` at every `-O` level. It fails with the old buffer.
 
+- The C++ interface is a full binding of its own, with the C interface kept out of sight
+	- ID: 2026092617331100
+	- Type: Done
+	- Status: Closed
+	- Priority: Avg
+	- Opened: 20260926-173311
+	- Opened by: JC
+	- Requirements:
+		- A full parity interface, not a second implementation. It calls the C core inside.
+		- A C++ consumer never sees the C interface: no `shcl_*` names, no C handle, no C structs.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- `shcl.hpp` includes `shcl.h` only in the implementation file. The wrappers moved out of line into its `SHCL_IMPLEMENTATION` section, so a consumer file has std types and nothing else. The one file that defines it now carries the include-order rule, and every other file is free of it.
+		- The API follows the Rust reference. Free functions where Rust has them, `DateTime` with Rust's fields, `Severity` on a diagnostic, and the format constants. Where a `Result` has no C++ form it follows Go: a pair, or `strict_failed()`.
+		- `c()`, the `shcl_doc *` constructor and the C datetime view are gone. The enum values and format strings are checked against the C ones at compile time, so they cannot drift.
+		- `generate` returns this call's faults and leaves the schema as it was, as in Rust.
+	- Branch: `cxxveneer`
+	- Test case: `veneer_smoke.cpp` covers the new surface. `check-veneer.bash` fails when the public half names C, when a consumer file can reach `shcl_parse`, or when a consumer and the implementation built apart do not link and run. Each was watched to fail. `check-readme.bash` builds the new C++ README example the same way and compares the file it saves.
+
 - Every closed backlog item gets a Test line
 	- ID: 2026092620255216
 	- Type: Enhancement
@@ -552,6 +559,56 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Branch: `conv`
 	- Test case: corpus `175-schema-line` with a new `schema` read in all four runners, cli-regress `schema-line-*` rows. Each fails on the old code, except the `--schema` override row.
 
+- `migrate --write` keeps the original file beside the migrated one
+	- ID: 2026092709243678
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20260927-092436
+	- Opened by: JC
+	- Requirements:
+		- Rather than converting in place, end up with both files. `config.shcl` holds the new format, and `config_old_v2.shcl` the original bytes.
+		- Pick the version by context.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Decisions:
+		- 20260927: the copy is made only when a line is rewritten. A file that only gains the Format line reads the same under both rule sets, and it may be a 3.0 file with no stamp, so naming a copy `_old_v2` would be wrong.
+		- `migrate` knows one older format, so the suffix is always `_old_v2`.
+		- The name goes before the last dot of the file name, or at the end when there is none. A leading dot is part of the name. It sits beside the path as given, not a symlink's target.
+		- The copy is written first, with an exclusive create, and synced. The migrated text then goes through the normal save.
+		- A failed save removes the copy only when the file still holds the original. A replace that fails part way on Windows can leave nothing at the path, and then the copy stays and the error names it.
+		- An existing `_old_v2` file is never replaced. `migrate --write` refuses at 8 and writes nothing.
+		- The copy takes the original's permission bits, so a private config does not get a readable backup.
+	- Actual fix: `old_copy_name` and `keep_original` in all four CLIs, called from the migrate write arm. Help, man page, spec, design.md, README and changelog.
+	- Branch: `keepold`, `keeptests`
+	- Commit: `6c49d1b`, `70a1b69`
+	- Test case: cli-regress save cases `migrate`, `migrate-taken`, `migrate-dotname`, `migrate-dotdir` and `migrate-link`, and row `migrate-write-keeps`, which windows runs too. Each fails on the old code. `migrate-stamp` pins the no-copy case, which did not change. The `migrate-failed-save` block caps the file size so the save fails after the copy, and fails when the copy is left behind.
+	- Acceptance signoff: Jim Collier, 20260927
+	- Closed: 20260927-110011
+
+- Hint when a double-quoted Windows path has a `\t` or `\n` escape
+	- ID: 2026092617133293
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20260926-171332
+	- Opened by: follow-up to 2026092616330237
+	- Related IDs:
+		- 2026092616330237
+	- Requirements:
+		- `"C:\temp"` and the like get a hint, since the `\t` or `\n` is legal but almost never meant in a path.
+		- The hint must not stop a clean read or write. The line loads, reads and saves as written, and a Strict load still passes.
+	- Estimated effort: Low
+	- Decisions:
+		- `H004`, bound. It fires on a double-quoted value element, inline or stacked, that starts with a drive (`C:\`) or a share (`\\`) and holds a `\t` or `\n` escape, once per line and only when the line binds.
+		- Any other pair made the line `E023` before this is asked, so the two never both fire.
+		- Names and selector bodies are left out, and so are paths with no drive or share, such as `".\logs\new"`. Catching those means guessing at paths in general, which would flag real messages such as `"Done\nNext"`.
+		- A 2.x file `migrate` rewrites can now carry the hint, since the rewrite keeps the tab or newline 2.x read. That is the point of it.
+	- Actual fix: Rust `path_like`, Go `pathLike`, Python `_path_like`, C `path_like`, called after a field line binds and beside `H003` for a stacked element. Explain entry in all four CLIs, spec, design table, changelog.
+	- Branch: `pathhint`
+	- Commit: `1a12c02`
+	- Test case: corpus `171-windows-path-hint`, cli-regress `path-hint-*` rows. The read and strict rows and case 171 fail with the hint off, and `path-hint-set` shows a write is unaffected. The migrate goldens of cases 118, 122 and 170 now list the hint.
+
 - `set --write` builds the kept text twice
 	- ID: 2026092620255218
 	- Type: Enhancement
@@ -603,87 +660,30 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Branch: `setkeep`
 	- Test case: none standing, since a row that must hang costs the full limit on every run.
 
-- `migrate --write` keeps the original file beside the migrated one
-	- ID: 2026092709243678
-	- Type: Enhancement
-	- Status: Done
-	- Priority: Avg
-	- Opened: 20260927-092436
-	- Opened by: JC
-	- Requirements:
-		- Rather than converting in place, end up with both files. `config.shcl` holds the new format, and `config_old_v2.shcl` the original bytes.
-		- Pick the version by context.
-	- Estimated effort: Avg
-	- Actual effort: Avg
-	- Decisions:
-		- 20260927: the copy is made only when a line is rewritten. A file that only gains the Format line reads the same under both rule sets, and it may be a 3.0 file with no stamp, so naming a copy `_old_v2` would be wrong.
-		- `migrate` knows one older format, so the suffix is always `_old_v2`.
-		- The name goes before the last dot of the file name, or at the end when there is none. A leading dot is part of the name. It sits beside the path as given, not a symlink's target.
-		- The copy is written first, with an exclusive create, and synced. The migrated text then goes through the normal save.
-		- A failed save removes the copy only when the file still holds the original. A replace that fails part way on Windows can leave nothing at the path, and then the copy stays and the error names it.
-		- An existing `_old_v2` file is never replaced. `migrate --write` refuses at 8 and writes nothing.
-		- The copy takes the original's permission bits, so a private config does not get a readable backup.
-	- Actual fix: `old_copy_name` and `keep_original` in all four CLIs, called from the migrate write arm. Help, man page, spec, design.md, README and changelog.
-	- Branch: `keepold`, `keeptests`
-	- Commit: `6c49d1b`, `70a1b69`
-	- Test case: cli-regress save cases `migrate`, `migrate-taken`, `migrate-dotname`, `migrate-dotdir` and `migrate-link`, and row `migrate-write-keeps`, which windows runs too. Each fails on the old code. `migrate-stamp` pins the no-copy case, which did not change. The `migrate-failed-save` block caps the file size so the save fails after the copy, and fails when the copy is left behind.
-	- Acceptance signoff: Jim Collier, 20260927
-	- Closed: 20260927-110011
-
-- Hint when a double-quoted Windows path has a `\t` or `\n` escape
-	- ID: 2026092617133293
-	- Type: Enhancement
-	- Status: Done
-	- Priority: Avg
-	- Opened: 20260926-171332
-	- Opened by: follow-up to 2026092616330237
-	- Related IDs:
-		- 2026092616330237
-	- Requirements:
-		- `"C:\temp"` and the like get a hint, since the `\t` or `\n` is legal but almost never meant in a path.
-		- The hint must not stop a clean read or write. The line loads, reads and saves as written, and a Strict load still passes.
-	- Estimated effort: Low
-	- Decisions:
-		- `H004`, bound. It fires on a double-quoted value element, inline or stacked, that starts with a drive (`C:\`) or a share (`\\`) and holds a `\t` or `\n` escape, once per line and only when the line binds.
-		- Any other pair made the line `E023` before this is asked, so the two never both fire.
-		- Names and selector bodies are left out, and so are paths with no drive or share, such as `".\logs\new"`. Catching those means guessing at paths in general, which would flag real messages such as `"Done\nNext"`.
-		- A 2.x file `migrate` rewrites can now carry the hint, since the rewrite keeps the tab or newline 2.x read. That is the point of it.
-	- Actual fix: Rust `path_like`, Go `pathLike`, Python `_path_like`, C `path_like`, called after a field line binds and beside `H003` for a stacked element. Explain entry in all four CLIs, spec, design table, changelog.
-	- Branch: `pathhint`
-	- Commit: `1a12c02`
-	- Test case: corpus `171-windows-path-hint`, cli-regress `path-hint-*` rows. The read and strict rows and case 171 fail with the hint off, and `path-hint-set` shows a write is unaffected. The migrate goldens of cases 118, 122 and 170 now list the hint.
-
-- An unknown escape in double quotes loads silently, with the known escapes around it decoded
-	- ID: 2026092616330237
+- A merge that replaces a leaf drops a kept line the settle turned into a comment
+	- ID: 2026092718195400
 	- Type: Bug
-	- Status: Done
-	- Severity: Avg
-	- Opened: 20260926-163302
-	- Opened by: gitsby feedback, side note
+	- Status: Canceled
+	- Severity: Low
+	- Opened: 20260927-181954
+	- Opened by: sweep for 2026092620255202
 	- Related IDs:
-		- 2026092617133293
-	- Version and build: dev at `efb626f`, format 3 before `v3.0.0-beta1`
+		- 2026092620255202
 	- Steps to reproduce:
-		- A file holding `a: "C:\work\new"`.
-		- `shcl check FILE`, then `shcl get FILE a`.
-	- Incorrect behavior: `check` says ok, and `get` prints `C:\work`, a newline, then `ew`. The `\w` stays as written and the `\n` turns into a newline.
-	- Expected behavior: an error, since `\w` is not an escape and the line was plainly a path.
-	- Reproduced: 20260926, on the Rust CLI.
-	- Actual cause:
-		- The escape rule kept any pair it did not know, which is 2.x's and older Python's rule. TOML, YAML, JSON, Rust and Go all refuse one.
-	- Estimated effort: Avg
+		- `L` holds `a: "\q"`, `    b: 1`, `        c: 1`, `      d: 2`, `e: 1`. `F` holds `e: 5`.
+		- `shcl fmt --layer=L F`.
+	- Incorrect behavior: exit 0, and `# d: 2` is gone. A kept line the settle left as written moves onto the replacing leaf, as the merge's comment says a retained line does.
+	- Expected behavior: both kinds of kept line move onto the replacement.
+	- Reproduced: 20260927, Rust CLI.
+	- Note: the reload-parity fixture cannot see this one, since a reload of the canonical text holds a real comment there.
+	- Estimated effort: Low
+	- Progress log:
+		- 20260927: tried `is_comment` in the replaced-leaf rule. The 2M fuzz's reload property failed at iteration 1076: the canonical text writes the line as a comment, so a merge onto the reload drops it with the leaf. Keeping it means an exemption for merges the fixtures cannot express through the public calls. Needs a call: keep the line through a merge and accept the reload difference, or leave it going with the leaf like the leaf's comments.
 	- Decisions:
-		- 20260926: refuse the pair as a new error, `E023`, rather than add a hint. 3.0 is the last point a stricter rule goes in without another major.
-		- The line is retained like `E019`: it binds nothing, a read is `NotFound`, and a save keeps it. A lookup path or `SetLiteral` text holding one is refused.
-		- A raw block's info string is not escape text, so it is not checked.
-		- `migrate` doubles the backslash, which 2.x and 3.0 read alike.
-		- `"C:\temp"` still loads with a tab, since `\t` is a real escape. The hint for it is 2026092617133293.
-	- Actual fix: `bad_escape` in the field and element line arms of the parser, in `scan_lookup` and in `literal_value`, plus `migrate` edits for names, selectors and values. Rust `bad_escape`, Go `badEscape`, Python `_bad_escape`, C `bad_escape`. Explain entry in all four CLIs, grammar `escape` rule, spec, man page, changelog.
-	- Branch: `escerr`
-	- Commit: `ea4b719`
-	- Test case: corpus `170-unknown-escape`, cli-regress `escape-unknown-*` and `escape-doubled-path` rows, check-abnf `field-line` samples. Each fails on the old code.
-	- Acceptance signoff: 20260926
-	- Closed: 20260926-171332
+		- 20260928: left going with the leaf's comments, the way a merge onto the reload of the saved base behaves.
+	- Actual fix: a sentence in the spec's merge notes.
+	- Test case: none. The reload-parity fuzz and fixtures pin the behavior as it stands.
+	- Closed: 20260927-223316
 
 ## Bugs
 
