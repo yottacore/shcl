@@ -1290,8 +1290,11 @@ static int do_tokens(const Opts *o) {
 		ShclStr body = trim_wsp_start(rest);
 		size_t lead = rest.n - body.n;
 		if (body.n && body.p[0] == '#') { printf(" comment\n"); continue; }
-		// A stacked element and a fence line are value halves on their own.
-		int star = body.n > 1 && body.p[0] == '*' && (body.p[1] == ' ' || body.p[1] == '\t' || body.p[1] == '\r');
+		// A stacked element and a fence line are value halves on their own. A
+		// `*` is an element when a blank follows it, trailing or not, which only
+		// the untrimmed line still shows (20260923 item 12).
+		size_t after = ilen + lead + 1;
+		int star = body.n && body.p[0] == '*' && after < line.n && (line.p[after] == ' ' || line.p[after] == '\t' || line.p[after] == '\r');
 		int fence = s_starts(body, "```") || s_starts(body, "~~~");
 		if (star || fence) {
 			tokenize_value(&a, rest, lead + (star ? 1 : 0), SHCL_RULES_CURRENT, &tok);
@@ -1584,8 +1587,12 @@ static int do_set(Opts *o) {
 			free(ops); layered_free(&L); return EXIT_IO;
 		}
 	}
+	/* One BOM off the front, as the parser takes one off a document: Windows
+	   PowerShell 5.1 puts one before text it pipes to a program (20260924 item
+	   7), and the first op then read as unknown. */
 	int rc = 0; size_t start = 0, lineno = 0;
-	for (size_t i = 0; i <= opslen; i++) {
+	if (opslen >= 3 && (unsigned char)ops[0] == 0xEF && (unsigned char)ops[1] == 0xBB && (unsigned char)ops[2] == 0xBF) start = 3;
+	for (size_t i = start; i <= opslen; i++) {
 		if (i == opslen || ops[i] == '\n') {
 			size_t end = i;
 			if (end > start && ops[end - 1] == '\r') end--; // match Rust lines() CRLF
@@ -2511,6 +2518,21 @@ static int cli_main(int argc, char **argv) {
 		suggest(hint, sizeof hint, cands, n, topic);
 		fprintf(stderr, "unknown command: %s%s (see --help)\n", topic, hint);
 		return 1;
+	}
+	/* The word forms take nothing after them but their own flags, as `help`
+	   takes a command at most: an option a command does not use is a usage
+	   error (20260923 item 17). The flag spellings still work anywhere. */
+	{
+		static const char *const words[] = {"version", "about", "donate"};
+		static const char *const flags[][3] = {{"-v", "-V", "--version"}, {"--about", NULL, NULL}, {"--donate", NULL, NULL}};
+		for (size_t w = 0; w < 3; w++) {
+			if (strcmp(argv[1], words[w]) != 0) continue;
+			for (int k = 2; k < argc; k++) {
+				int own = 0;
+				for (size_t f = 0; f < 3 && flags[w][f]; f++) own = own || !strcmp(argv[k], flags[w][f]);
+				if (!own) { fprintf(stderr, "usage: shcl %s (see --help)\n", words[w]); return 1; }
+			}
+		}
 	}
 	if ((asked && !strcmp(asked, "version")) || !strcmp(argv[1], "version")) { printf("%s\n", VERSION_LINE); return 0; }
 	if ((asked && !strcmp(asked, "about")) || !strcmp(argv[1], "about")) { printf("\n%s\n", ABOUT); return 0; }

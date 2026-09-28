@@ -674,12 +674,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 
 - Code review 20260924:
 
-	- 🔘 Item 7: Windows PowerShell 5.1 puts a BOM in front of text piped to the binary, and `set` refuses the ops.
-		- Reproduced on vm925w, ssh console on code page 65001: `"string`tk`tv" | shcl set --write f` gives `unknown op` on a first op starting with U+FEFF, exit 1. It does the same at 5.1's defaults, before the wrapper changes anything. pwsh 7 adds no BOM. A document piped to `fmt -` or `get -` loads, since the parser skips a leading BOM.
-		- Note: fails loudly. A likely fix is the ops reader skipping one leading U+FEFF in all four CLIs, the same as the document parser.
-		- Origin: older than 3.0 work; found during this round's fixes. Not seen before. Confirmed.
-		- Opened: 20260924-110225
-
 	- 🔘 Item 8: Windows PowerShell 5.1 refuses a lone `-` argument to a script started by `-File` when stdin is redirected.
 		- Reproduced on vm925w: `type f.shcl | powershell -File shcl.ps1 get - a` stops with "Cannot process argument because the value of argument "name" is not valid" before the script's first line runs. A word or `--x` argument works, and so does pwsh 7.
 		- Note: fails loudly, and it is 5.1's own argument parse, so the script cannot catch it. The ways around it are dot-sourcing, pwsh, or the binary itself. The README and man page do not mention it.
@@ -694,12 +688,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Origin: the late fold, 2026-08-03. Not seen before. Confirmed.
 		- Opened: 20260923-145138
 
-	- 🔘 Item 12: `tokens` reads `* ` with a trailing blank as a name fault.
-		- Reproduced, all four: `a:` then `\t* ` gives `fault=0:expected a field name`, while `check` gives `E009 empty list element`. `*\t` and `*\r` do the same.
-		- Cause: `tokens` decides on the star after trimming the trailing blanks, and the parser decides before.
-		- Origin: 2026-09-10. Not seen before. Confirmed.
-		- Opened: 20260923-145138
-
 	- 🔘 Item 14: the sync stage does not count untracked files when it decides to stash.
 		- Reproduced: an untracked file that upstream also adds. The stage sees a clean tree, and the fast-forward fails where a stash would have let it through. Nothing is lost.
 		- Note: the publisher got this fix on 2026-09-23 (`035dfb7`). The stash here is already `--include-untracked`.
@@ -710,18 +698,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Reproduced with a local TLS listener that redirects to http: wget with the installers' flags fetches it at exit 0, and curl refuses.
 		- Note: the release payload is still checked against the signed sums file. The API listing that picks the tag, the rustup script in `install-dev.bash` and the fetched pins file are not.
 		- Origin: 2026-07-25. Confirmed.
-		- Opened: 20260923-145138
-
-	- 🔘 Item 16: the Python and Go CLIs do not report a file that will not open as `FILE: ` and the system's message.
-		- Reproduced: Python prints `[Errno 2] No such file or directory: 'nope.shcl'`, and Go prints `nope.shcl: open nope.shcl: no such file or directory`. Rust and C follow the UI guide.
-		- Note: stderr wording is per binding, but the guide sets this form, and 20260901b item 32 already brought the directory case in line.
-		- Origin: the guide line is from 2026-09-17; the CLIs are older. Confirmed.
-		- Opened: 20260923-145138
-
-	- 🔘 Item 17: `version`, `about` and `donate` ignore options and extra words they do not use.
-		- Reproduced, all four: `shcl version --int` and `version extra` exit 0, while `help get extra` exits 1.
-		- Rests on: the UI guide says an option a subcommand does not use is a usage error and is never ignored. The flag spellings still work anywhere, as `design.md` says.
-		- Origin: 2026-08-03. Confirmed.
 		- Opened: 20260923-145138
 
 ## Features and enhancements
@@ -1398,6 +1374,16 @@ Going forward, new issues in the new template at the bottom of this file, will g
 
 - Code review 20260924:
 
+	- ✅ Item 7: Windows PowerShell 5.1 puts a BOM in front of text piped to the binary, and `set` refuses the ops.
+		- Reproduced on vm925w, ssh console on code page 65001: `"string`tk`tv" | shcl set --write f` gives `unknown op` on a first op starting with U+FEFF, exit 1. It does the same at 5.1's defaults, before the wrapper changes anything. pwsh 7 adds no BOM. A document piped to `fmt -` or `get -` loads, since the parser skips a leading BOM.
+		- Note: fails loudly. A likely fix is the ops reader skipping one leading U+FEFF in all four CLIs, the same as the document parser.
+		- Origin: older than 3.0 work; found during this round's fixes. Not seen before. Confirmed.
+		- Fixed: `set` takes one BOM off the front of the ops it reads, in all four CLIs, the same as the parser does for a document.
+		- Test case: cli-regress `ops-leading-bom`. It fails on the old code. Not yet run under 5.1 itself.
+		- Swept: the ops text is the only other input the CLIs read whole; every document goes through the parser.
+		- Opened: 20260924-110225
+		- Closed: 20260927-193609
+
 	- ✅ Item 1: `shcl.ps1` run as a script re-encodes stdin that comes from outside PowerShell, and `set --write` saves the result at exit 0.
 		- Reproduced: `printf 'string\tk\tx\xffy\n' | pwsh -File shcl.ps1 set --write f` saves `x`, U+FFFD, `y` at exit 0. The script before the fix and the bare binary both refuse it with exit 8. A mid-line CR in a raw body read through `get --raw -` comes back as a line break.
 		- Cause: under `-File`, PowerShell hands redirected stdin to the script as pipeline input. The run path now forwards any pipeline input, so the process's own stdin goes through a decode and an encode instead of reaching the binary as it was.
@@ -1495,6 +1481,34 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Closed: 20260923-160833
 
 - Code review 20260923:
+
+	- ✅ Item 12: `tokens` reads `* ` with a trailing blank as a name fault.
+		- Reproduced, all four: `a:` then `\t* ` gives `fault=0:expected a field name`, while `check` gives `E009 empty list element`. `*\t` and `*\r` do the same.
+		- Cause: `tokens` decides on the star after trimming the trailing blanks, and the parser decides before.
+		- Origin: 2026-09-10. Not seen before. Confirmed.
+		- Fixed: `tokens` looks for the blank after a `*` on the untrimmed line, as the parser does, in all four CLIs. A `*` with nothing after it stays a name fault, as it is `E013` to the parser.
+		- Test case: cli-regress `tokens-star-trailing-blank`. It fails on the old code.
+		- Opened: 20260923-145138
+		- Closed: 20260927-193609
+
+	- ✅ Item 16: the Python and Go CLIs do not report a file that will not open as `FILE: ` and the system's message.
+		- Reproduced: Python prints `[Errno 2] No such file or directory: 'nope.shcl'`, and Go prints `nope.shcl: open nope.shcl: no such file or directory`. Rust and C follow the UI guide.
+		- Note: stderr wording is per binding, but the guide sets this form, and 20260901b item 32 already brought the directory case in line.
+		- Origin: the guide line is from 2026-09-17; the CLIs are older. Confirmed.
+		- Fixed: Go unwraps the path error, and Python writes `FILE: ` and the error's own text.
+		- Test case: cli-regress `io-missing-file-form`. The old Go and Python CLIs fail it.
+		- Swept: every document, layer and schema read goes through the one read function in each CLI.
+		- Opened: 20260923-145138
+		- Closed: 20260927-193609
+
+	- ✅ Item 17: `version`, `about` and `donate` ignore options and extra words they do not use.
+		- Reproduced, all four: `shcl version --int` and `version extra` exit 0, while `help get extra` exits 1.
+		- Rests on: the UI guide says an option a subcommand does not use is a usage error and is never ignored. The flag spellings still work anywhere, as `design.md` says.
+		- Origin: 2026-08-03. Confirmed.
+		- Fixed: the words refuse anything after them but their own flags, exit 1, in all four CLIs. The flag spellings still work anywhere.
+		- Test case: cli-regress `version-word-refuses-extra`, `about-word-refuses-extra` and `donate-word-refuses-extra`. Each fails on the old code.
+		- Opened: 20260923-145138
+		- Closed: 20260927-193609
 
 	- ✅ Item 19: the C header's list of when to reset a `shcl_tokens` leaves out `shcl_compact`, and reuse after one writes into freed memory.
 		- Reproduced under ASan: tokenize, `shcl_compact`, tokenize again with the same struct, and the second call writes to the freed reads arena.

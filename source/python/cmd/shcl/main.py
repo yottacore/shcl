@@ -821,8 +821,13 @@ def read_input(file):
 		# spells it four different ways depending on the binding. Say it here.
 		if os.path.isdir(file):
 			raise OSError(f"{file}: Is a directory")
-		with open(file, "rb") as f:
-			data = f.read()
+		# FILE: and the system's own message, as the UI guide has it, not
+		# Python's "[Errno 2] ..." form.
+		try:
+			with open(file, "rb") as f:
+				data = f.read()
+		except OSError as e:
+			raise OSError(f"{file}: {e.strerror or e}") from e
 	# The reference reads as UTF-8 and fails on bad bytes; match its exit path.
 	try:
 		return data.decode("utf-8")
@@ -1623,8 +1628,11 @@ def do_tokens(o):
 		if body.startswith("#"):
 			out.append(" comment\n")
 			continue
-		# A stacked element and a fence line are value halves on their own.
-		star = body.startswith("*") and body[1:2] in (" ", "\t", "\r")
+		# A stacked element and a fence line are value halves on their own. A
+		# `*` is an element when a blank follows it, trailing or not, which only
+		# the untrimmed line still shows (20260923 item 12).
+		after = ilen + lead + 1
+		star = body.startswith("*") and line[after:after + 1] in (" ", "\t", "\r")
 		fence = body.startswith("```") or body.startswith("~~~")
 		if star or fence:
 			shcl.tokenize_value(rest, lead + int(star), shcl.RULES_CURRENT, tok)
@@ -1933,6 +1941,11 @@ def do_set(o):
 		except UnicodeDecodeError:
 			sys.stderr.write("stdin: invalid UTF-8\n")
 			return EXIT_IO
+	# One BOM off the front, as the parser takes one off a document: Windows
+	# PowerShell 5.1 puts one before text it pipes to a program (20260924 item
+	# 7), and the first op then read as unknown.
+	if ops.startswith("\ufeff"):
+		ops = ops[1:]
 	pieces = ops.split("\n")
 	for n, line in enumerate(pieces):
 		# One CR off each piece: the CR of a CRLF, or of a CRLF at EOF that lost
@@ -2224,6 +2237,13 @@ def run(argv):
 			return 0
 		sys.stderr.write(f"unknown command: {topic}{suggest(command_names(), topic)} (see --help)\n")
 		return 1
+	# The word forms take nothing after them but their own flags, as `help`
+	# takes a command at most: an option a command does not use is a usage
+	# error (20260923 item 17). The flag spellings still work anywhere.
+	for word, flags in (("version", ("-v", "-V", "--version")), ("about", ("--about",)), ("donate", ("--donate",))):
+		if argv[0] == word and any(a not in flags for a in argv[1:]):
+			sys.stderr.write(f"usage: shcl {word} (see --help)\n")
+			return 1
 	if asked == "version" or argv[0] == "version":
 		print(VERSION_LINE)
 		return 0
