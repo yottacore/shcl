@@ -1451,10 +1451,17 @@ fn write_back(doc: &Document, file: &str, o: &Opts, read: Option<&str>, keep: bo
 	{
 		return 0;
 	}
+	// The text is already built, so the line-keeping save writes it rather
+	// than building it again, with the same refusal save_file_keep_lines
+	// makes (20260926 idea 3).
 	let r = match (o.lossy, keep) {
 		(true, true) => write_file_atomic(file, &text).map_err(SaveError::Io),
 		(true, false) => doc.save_file_lossy(file),
-		(false, true) => doc.save_file_keep_lines(file).map(|_| ()),
+		(false, true) if !kept && doc.lost_count() > 0 => Err(SaveError::Refused {
+			path: file.to_string(),
+			lost: doc.lost_count(),
+		}),
+		(false, true) => write_file_atomic(file, &text).map_err(SaveError::Io),
 		(false, false) => doc.save_file(file),
 	};
 	match r {
@@ -1464,6 +1471,14 @@ fn write_back(doc: &Document, file: &str, o: &Opts, read: Option<&str>, keep: bo
 			// empty stderr and a new file nobody asked for.
 			if read.is_none() {
 				errln!("{}: created", file);
+			}
+			// A save meant to keep the lines rewrote the whole file, and that
+			// is worth a line (20260926 idea 2).
+			if keep && !kept {
+				errln!(
+					"{}: rewritten in the canonical form; the lines could not be kept as they were",
+					file
+				);
 			}
 			0
 		}

@@ -315,6 +315,12 @@ for row in "${workloads[@]}"; do
 		[[ -n "${budgetOf[${name}]:-}" ]] || continue
 		budget="${budgetOf[${name}]}"; baseMs="${baseOf[${name}]}"
 		if [[ "${w}" == keeps ]]; then
+			## Three parses by design, the source, the edited text and the
+			## reload check, against a one-parse baseline, so the row ran at up
+			## to 85 percent of its budget in Python. Half again more room;
+			## anything worse than linear still blows through it (20260926
+			## idea 4).
+			budget=$(( budget * 3 / 2 ))
 			ms="$(fTimeMs "${cli}" "${keepDoc}" keeps "$((keys / 2))")"
 		elif [[ "${w}" == badlines ]]; then
 			ms="$(fTimeMs "${cli}" "${badDoc}" check 2)"

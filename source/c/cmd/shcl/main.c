@@ -985,16 +985,23 @@ static int write_back(shcl_doc *d, const char *file, Opts *o, const char *read, 
 	shcl_str c = keep ? shcl_to_text_keep_lines(d, &kept) : shcl_to_canonical(d);
 	if (read && (o->lossy || kept || shcl_lost_count(d) == 0)
 		&& c.n == read_len && (c.n == 0 || memcmp(c.p, read, c.n) == 0)) return 0;
+	// The text is already built, so the line-keeping save writes it rather
+	// than building it again, with the same refusal shcl_save_file_keep_lines
+	// makes (20260926 idea 3).
 	shcl_save_result r;
 	if (o->lossy && keep) r = shcl_write_file_atomic(file, c.p, c.n) ? SHCL_SAVE_OK : SHCL_SAVE_FAILED;
 	else if (o->lossy) r = shcl_save_file_lossy(d, file);
-	else if (keep) r = shcl_save_file_keep_lines(d, file, NULL);
+	else if (keep && !kept && shcl_lost_count(d) > 0) r = SHCL_SAVE_REFUSED;
+	else if (keep) r = shcl_write_file_atomic(file, c.p, c.n) ? SHCL_SAVE_OK : SHCL_SAVE_FAILED;
 	else r = shcl_save_file(d, file);
 	if (r == SHCL_SAVE_OK) {
 		// A created file is the one write with nothing to compare against
 		// afterwards, and a typo in the name used to end at exit 0 with an
 		// empty stderr and a new file nobody asked for.
 		if (!read) fprintf(stderr, "%s: created\n", file);
+		// A save meant to keep the lines rewrote the whole file, and that is
+		// worth a line (20260926 idea 2).
+		if (keep && !kept) fprintf(stderr, "%s: rewritten in the canonical form; the lines could not be kept as they were\n", file);
 		return 0;
 	}
 	// The rule stays in the library; only the wording is the CLI's, because the
