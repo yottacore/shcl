@@ -146,6 +146,41 @@ else
 	if [[ "${splitRc}" != 0 ]]; then echo "check-veneer: the consumer built apart from the implementation gave the wrong answer (exit ${splitRc})" >&2; nBad=$((nBad + 1)); fi
 fi
 
+## 20260926 item 7: const members raced on the arenas behind the document, so
+## two threads reading one const Document were a data race. Const reads of
+## every kind from two threads at once, under ThreadSanitizer.
+fTest Er8oiHp const-reads-share-across-threads
+cat >"${work}/threads.cpp" <<'EOF'
+#define SHCL_IMPLEMENTATION
+#include "shcl.hpp"
+#include <thread>
+int main() {
+	const shcl::Document d = shcl::Document::parse("a: 1\nb: hello\nc: 1, 2, 3\n# note\nd:\n\te: 2\n");
+	const shcl::Document s = shcl::Document::parse("field: a\n\ttype: int\n");
+	auto work = [&] {
+		std::size_t n = 0;
+		for (int i = 0; i < 2000; i++) {
+			n += d.read_string("b").value.size() + d.read_int_array("c").value.size() + d.paths().size();
+			n += d.comments("d").size() + d.count("a") + d.to_canonical().size() + d.diagnostics().size();
+			n += d.validate(s).size() + static_cast<std::size_t>(d.get_or<std::int64_t>("d.e", 0));
+		}
+		return n;
+	};
+	std::size_t r1 = 0, r2 = 0;
+	std::thread x([&] { r1 = work(); }), y([&] { r2 = work(); });
+	x.join(); y.join();
+	return r1 == r2 ? 0 : 1;
+}
+EOF
+if ! "${cxx}" -std=c++17 -O1 -g -fsanitize=thread -pthread -I"${srcDir}" "${work}/threads.cpp" -o "${work}/threads" -lm 2>"${work}/threads.err"; then
+	echo "check-veneer: the thread test does not build:" >&2; head -10 "${work}/threads.err" >&2; nBad=$((nBad + 1))
+else
+	threadRc=0; TSAN_OPTIONS=halt_on_error=1 "${work}/threads" 2>"${work}/threads.err" || threadRc=$?
+	if [[ "${threadRc}" != 0 ]]; then
+		echo "check-veneer: const reads of one Document from two threads (exit ${threadRc}):" >&2; grep -m3 -E 'WARNING|SUMMARY' "${work}/threads.err" >&2 || true; nBad=$((nBad + 1))
+	fi
+fi
+
 fTestEnd
 rc=0
 if [[ "${nBad}" != 0 ]]; then rc=1; fi
