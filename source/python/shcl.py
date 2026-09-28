@@ -5571,7 +5571,12 @@ class Document:
 							by_key.setdefault(okey, hit)
 							b = hit
 					if b is not None:
+						# A stacked spelling no kept line holds is gone on a
+						# reload, so it may not decide how the lines the other
+						# layer brings are written (20260926 item 4).
+						stacked = _stacks(self.arena[b]) or _stacks(over.arena[ok])
 						self._adopt_trivia(b, over, ok)
+						self.arena[b].star_list = stacked
 						# A name that reaches here is never in `replace`, so `b`
 						# survives the rebuild below and can wait for it.
 						pending.append((b, ok))

@@ -7960,7 +7960,12 @@ func (d *Document) overlay(baseParent int, over *Document, overParent int, touch
 					}
 				}
 				if found {
+					// A stacked spelling no kept line holds is gone on a reload,
+					// so it may not decide how the lines the other layer brings
+					// are written (20260926 item 4).
+					stacked := stacks(&d.arena[target]) || stacks(&over.arena[ok])
 					d.adoptTrivia(target, over, ok)
+					d.arena[target].starList = stacked
 					d.overlay(target, over, ok, touched)
 				} else {
 					c := d.cloneSubtree(over, ok, baseParent)

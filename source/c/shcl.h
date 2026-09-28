@@ -5950,7 +5950,15 @@ static void w_overlay(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, S
 						b = emt;
 					}
 				}
-				if (b != (size_t)-1) { adopt_trivia(d, b, over, ok); w_overlay(d, b, over, ok, touched); }
+				if (b != (size_t)-1) {
+					/* A stacked spelling no kept line holds is gone on a
+					   reload, so it may not decide how the lines the other
+					   layer brings are written (20260926 item 4). */
+					int stacked = stacks(&NODE(d, b)) || stacks(&over->nodes.data[ok]);
+					adopt_trivia(d, b, over, ok);
+					NODE(d, b).star_list = stacked;
+					w_overlay(d, b, over, ok, touched);
+				}
 				else { app_at[pos] = w_clone_subtree(d, over, ok, bp); nappended++; }
 			}
 		}

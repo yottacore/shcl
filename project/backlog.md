@@ -146,7 +146,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - A merge result depends on whether the lower layer spells a list stacked or inline
 	- ID: 2026092620255204
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 4
@@ -158,6 +158,13 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Reproduced: 20260926, all four CLIs. The base build gives the inline form both ways.
 	- Origin: `d0b200c` (2026-09-24), `stacks()` reads a stacked flag a reload clears. 20260924d read the hunk and did not see it. Confirmed.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Decisions:
+		- 20260927: a merge onto a matched node writes it stacked only when either side is written stacked on its own. `stacks()` gives the same answer on a document and on its reload, and the flag alone does not.
+	- Actual fix: the overlay's matched branch sets the stacked flag from `stacks()` of both sides, in all four.
+	- Swept: the flag is read only by `stacks()` and the parser. The merge's clone of an unmatched node copies the higher layer's own flag, which that layer's reload keeps.
+	- Branch: `stackmerge`
+	- Test case: corpus `179-merge-stacked-spelling`. It fails on the old code.
 
 - `banner on` adds a second info block when the old one sits under the first field
 	- ID: 2026092620255205

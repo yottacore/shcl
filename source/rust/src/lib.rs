@@ -8019,7 +8019,12 @@ impl Document {
 					}
 					match target {
 						Some(b) => {
+							// A stacked spelling no kept line holds is gone on
+							// a reload, so it may not decide how the lines the
+							// other layer brings are written (20260926 item 4).
+							let stacked = stacks(&self.arena[b]) || stacks(&over.arena[ok]);
 							self.adopt_trivia(b, over, ok);
+							self.arena[b].star_list = stacked;
 							self.overlay(b, over, ok, touched);
 						}
 						None => {
