@@ -300,6 +300,27 @@ fRunOpsBom51() {
 	grep -q '^k: 5' "${f}" || { echo "win-runners: ops bom 5.1: the op did not apply: $(cat "${f}")" >&2; return 1; }
 }
 
+## 20260924d idea 4 and item 5: the dogfood runner stopped at once under
+## Windows PowerShell 5.1, and on Windows put its fixed name where no install
+## puts shcl and no PATH looks. A scratch profile under both shells: the build
+## comes in, runs, and the fixed name is install.ps1's user folder.
+fRunDogfood() {
+	local sh prof app src out
+	cargo build --quiet --manifest-path source/rust/Cargo.toml || return 1
+	for sh in powershell pwsh; do
+		command -v "${sh}" >/dev/null 2>&1 || continue
+		prof="${work}/df-${sh}/profile"; app="${work}/df-${sh}/app"
+		src="${prof}/Dropbox/0-0/common/exec/util/mswin/cli/by-self/win64"
+		mkdir -p "${src}" "${app}"
+		cp source/rust/target/debug/shcl.exe "${src}/shcl.exe"
+		out="$(USERPROFILE="$(cygpath -w "${prof}")" LOCALAPPDATA="$(cygpath -w "${app}")" \
+			"${sh}" -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w utility/dogfood_shcl.ps1)" version 2>&1)" \
+			|| { echo "win-runners: dogfood (${sh}): ${out}" >&2; return 1; }
+		[[ "${out}" == *"shcl v"* ]] || { echo "win-runners: dogfood (${sh}) did not run the build: ${out@Q}" >&2; return 1; }
+		[[ -e "${app}/Programs/Shcl/shcl.exe" ]] || { echo "win-runners: dogfood (${sh}) left no fixed name in Programs\\Shcl" >&2; return 1; }
+	done
+}
+
 ## Fuzz iterations stay at the in-test default: the long soak is the Linux gate's
 ## job, and nothing about it is platform-dependent.
 ##	A windows device name is not something a save may replace, and until
@@ -370,6 +391,7 @@ fRun --id EqS4fJz "devices python" "${py}"       fDevicesPython
 case "$(uname -s 2>/dev/null || true)" in
 	MINGW*|MSYS*|CYGWIN*)
 		fRun --id EqbvAmG "uninstall lock" "" fRunUninstallLock
+		fRun --id Er8Neza "dogfood runner" "cargo" fRunDogfood
 		fRun --id Er8M8AX "ops bom 5.1" "cargo" fRunOpsBom51
 		if [[ -n "${WINRUN_PARTIAL:-}" ]]; then fRunWinpathSandbox
 		else fRun "windows path" "" powershell -NoProfile -ExecutionPolicy Bypass -File cicd/utility/winpath-regress.ps1

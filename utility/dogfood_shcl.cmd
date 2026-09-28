@@ -31,14 +31,12 @@ SETLOCAL
 		goto :ERROR
 	:OK005
 
-	:: PowerShell 7 only. The script reads $IsWindows, which 5.1 does not have.
+	:: PowerShell 7 when it is there, else Windows PowerShell 5.1.
+	set PSEXE=pwsh.exe
 	where /q pwsh.exe
-	if not errorlevel 1 goto :OK010
-		echo dogfood_shcl: needs PowerShell 7 ^(pwsh.exe^) on PATH
-		goto :ERROR
-	:OK010
+	if errorlevel 1 set PSEXE=powershell.exe
 
-	pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "%PSFILE%" %*
+	%PSEXE% -NoProfile -ExecutionPolicy Bypass -File "%PSFILE%" %*
 	set RC=%ERRORLEVEL%
 
 ENDLOCAL & exit /b %RC%
@@ -49,3 +47,4 @@ ENDLOCAL & exit /b 1
 
 ::	History:
 ::		- 20260924 JC: Created.
+::		- 20260927 JC: Falls back to Windows PowerShell 5.1.
