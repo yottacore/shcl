@@ -124,6 +124,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A `#` on a raw block's fence line starts a comment in both fence spellings.
 
+- A stacked list that closes onto an earlier instance's value gets the same `H002` hint a merge written inline does.
+
 - A raw block's nesting is its closing fence's indent, so a body can keep an indent of its own.
 
 - An unterminated raw block at the end of a file no longer gains an empty last line.
@@ -280,6 +282,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The zsh completion parses again, and bash completes `--option=value`.
 
+- `version`, `about` and `donate` refuse words after them, exit 1. The flags still work anywhere.
+
+- `set` skips a byte order mark at the start of its ops, which Windows PowerShell 5.1 adds to piped text.
+
+- `set --write` says when it had to save the canonical form instead of keeping the lines.
+
+- `tokens` reads a `*` with only a blank after it as an empty element, as the parser does.
+
+- The Go and Python CLIs report a file that will not open as the file name and the system's message.
+
 ### C and C++
 
 - `shcl.h` compiles with `_GNU_SOURCE` defined.
@@ -353,6 +365,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The packages and the drop-ins tarball are reproducible.
 
 - `install-dev.bash` puts a fresh clone on `dev`.
+
+- With wget, a download redirected to plain http is refused. `install-dev.bash` runs the rustup installer from a file.
+
+- `install.ps1` piped into `iex` inside another script no longer ends that script on a failure.
+
+- `install.bash --uninstall` says when there is nothing to remove.
+
+- The drop-ins tarball's file modes no longer depend on the checkout's umask.
 
 ### Performance
 
