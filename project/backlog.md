@@ -228,7 +228,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - On Windows, creating a file through a `\\.\C:\` path is refused as not a regular file
 	- ID: 2026092620255208
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 8
@@ -239,6 +239,12 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Reproduced: 20260926, the C CLI under wine. Not yet on a real Windows box; Rust, Go and Python have the same test by reading.
 	- Origin: `64ca57b` (2026-09-20). Plausible for the other three.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: a full path of `\\.\` followed by a drive letter and a colon is a volume path, not a device, in each library's device check and each CLI's copy.
+	- Swept: the library and CLI copies in all four; C's CLI calls the library's.
+	- Verified: hosted windows job on `windev`, all four CLIs.
+	- Branch: `windev`
+	- Test case: cli-regress `windows-volume-path-create`, which runs on windows only.
 
 - `FormatVersion` in Go, Python and C reads Format numbers past 2^32 that Rust reads as the current major
 	- ID: 2026092620255209
@@ -526,6 +532,8 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Actual fix: `\u` and `\U` in the escape reader, `E023` for one that names no character, and `invisible` in the value and name emitters, in all four. `migrate` keeps the 2.x reading. Grammar, explain text, spec, changelog.
 	- Branch: `conv`
 	- Test case: corpus `174-unicode-escapes` and five regenerated goldens in four cases, cli-regress `escape-unicode-*` rows, check-abnf samples, and check-migrate, which now reads a 2.x name the way the current CLI spells it. Each fails on the old code, except the `--from-2x` migrate row, which pins behavior that did not change.
+	- Progress log:
+		- 20260928: the hosted run found two things this left red: `strings.ContainsFunc` is newer than the Go floor (1.20), and two `escape-unicode` rows spelled their text with `\u`, which msys printf leaves as written under the windows runner's locale. `strings.IndexFunc` and raw UTF-8 bytes in the rows, on `windev`.
 
 - A schema pointer in the config file
 	- ID: 2026092621211806
@@ -684,33 +692,9 @@ Going forward, new issues in the new template at the bottom of this file, will g
 
 ## Bugs
 
-- Code review 20260924d:
-
-	- 🔘 Item 5: on Windows the dogfood runner's fixed name is `%LOCALAPPDATA%\Programs\shcl.exe`, which is neither where a user install goes nor on PATH.
-		- Rests on: the runner's header says the fixed name is where a user install puts shcl, and idea 11 of 20260924c set the latest link at the user install location. `install.ps1` uses `Programs\Shcl\shcl.exe` and puts that folder on PATH.
-		- Origin: `eefd1db`. Not seen before. Plausible.
-		- Opened: 20260924-190225
-
-- Code review 20260924:
-
-	- 🔘 Item 8: Windows PowerShell 5.1 refuses a lone `-` argument to a script started by `-File` when stdin is redirected.
-		- Reproduced on vm925w: `type f.shcl | powershell -File shcl.ps1 get - a` stops with "Cannot process argument because the value of argument "name" is not valid" before the script's first line runs. A word or `--x` argument works, and so does pwsh 7.
-		- Note: fails loudly, and it is 5.1's own argument parse, so the script cannot catch it. The ways around it are dot-sourcing, pwsh, or the binary itself. The README and man page do not mention it.
-		- Origin: 5.1. Not seen before. Confirmed.
-		- Opened: 20260924-110225
-
-- Code review 20260923:
-
 ## Features and enhancements
 
 **Stop here for a release cut**.
-
-- Code review 20260924d:
-
-	- 🔘 Idea 4: `dogfood_shcl.ps1` has no `#Requires -Version 7.0`.
-		- Note: started directly under 5.1, `$IsWindows` is empty, so it searches the Linux dirs and says no build is held.
-		- Fix: Make it work under 5.1.
-		- Opened: 20260924-190225
 
 - 🔘 Cut `v3.0.0-beta1`, after everything above.
 	- Note: short release notes that just say issues were fixed, and a short changelog that names the fixes. This release only.
@@ -1294,6 +1278,14 @@ Going forward, new issues in the new template at the bottom of this file, will g
 
 - Code review 20260924d:
 
+	- ✅ Item 5: on Windows the dogfood runner's fixed name is `%LOCALAPPDATA%\Programs\shcl.exe`, which is neither where a user install goes nor on PATH.
+		- Rests on: the runner's header says the fixed name is where a user install puts shcl, and idea 11 of 20260924c set the latest link at the user install location. `install.ps1` uses `Programs\Shcl\shcl.exe` and puts that folder on PATH.
+		- Origin: `eefd1db`. Not seen before. Plausible.
+		- Fixed: the Windows fixed name is `%LOCALAPPDATA%\Programs\Shcl\shcl.exe`, the folder `install.ps1` puts on PATH, made when it is missing. The pool stays where it was.
+		- Test case: `win-runners.bash` step `dogfood runner`, in the hosted windows job.
+		- Opened: 20260924-190225
+		- Closed: 20260927-214242
+
 	- ✅ Item 1: every Windows install asks for `shcl-True-windows-x86_64.exe` and fails.
 		- Reproduced: `install.ps1` under pwsh 7 with only the `$IsWindows` guard patched out and a scratch profile. The plan line says `shcl True`, then the download 404s and it exits 1.
 		- Cause: the inner script block gained a `[bool]$Version` parameter, and `$version = $tag.TrimStart('v')` assigns into it, since PowerShell names ignore case.
@@ -1378,12 +1370,21 @@ Going forward, new issues in the new template at the bottom of this file, will g
 
 - Code review 20260924:
 
+	- ✅ Item 8: Windows PowerShell 5.1 refuses a lone `-` argument to a script started by `-File` when stdin is redirected.
+		- Reproduced on vm925w: `type f.shcl | powershell -File shcl.ps1 get - a` stops with "Cannot process argument because the value of argument "name" is not valid" before the script's first line runs. A word or `--x` argument works, and so does pwsh 7.
+		- Note: fails loudly, and it is 5.1's own argument parse, so the script cannot catch it. The ways around it are dot-sourcing, pwsh, or the binary itself. The README and man page do not mention it.
+		- Origin: 5.1. Not seen before. Confirmed.
+		- Fixed: the README's PowerShell section says so and names the three ways around it. The script cannot catch it.
+		- Test case: none. It is 5.1's own argument parse, before the script runs.
+		- Opened: 20260924-110225
+		- Closed: 20260927-214242
+
 	- ✅ Item 7: Windows PowerShell 5.1 puts a BOM in front of text piped to the binary, and `set` refuses the ops.
 		- Reproduced on vm925w, ssh console on code page 65001: `"string`tk`tv" | shcl set --write f` gives `unknown op` on a first op starting with U+FEFF, exit 1. It does the same at 5.1's defaults, before the wrapper changes anything. pwsh 7 adds no BOM. A document piped to `fmt -` or `get -` loads, since the parser skips a leading BOM.
 		- Note: fails loudly. A likely fix is the ops reader skipping one leading U+FEFF in all four CLIs, the same as the document parser.
 		- Origin: older than 3.0 work; found during this round's fixes. Not seen before. Confirmed.
-		- Fixed: `set` takes one BOM off the front of the ops it reads, in all four CLIs, the same as the parser does for a document.
-		- Test case: cli-regress `ops-leading-bom`. It fails on the old code. Not yet run under 5.1 itself.
+		- Fixed: `set` takes every BOM off the front of the ops it reads, in all four CLIs. The hosted run showed one strip was not enough under 5.1.
+		- Test case: cli-regress `ops-leading-bom`, with two marks, which fails on the old code, and `win-runners.bash` step `ops bom 5.1`, which pipes an op through Windows PowerShell 5.1 in the hosted windows job.
 		- Swept: the ops text is the only other input the CLIs read whole; every document goes through the parser.
 		- Opened: 20260924-110225
 		- Closed: 20260927-193609
@@ -6583,11 +6584,20 @@ Going forward, new issues in the new template at the bottom of this file, will g
 
 - Code review 20260924d:
 
+	- ✅ Idea 4: `dogfood_shcl.ps1` has no `#Requires -Version 7.0`.
+		- Note: started directly under 5.1, `$IsWindows` is empty, so it searches the Linux dirs and says no build is held.
+		- Fix: Make it work under 5.1.
+		- Done: it runs under 5.1. The platform is asked once, since 5.1 has no `$IsWindows` and strict mode refuses an unset name, and the ISO week is worked out by hand, since .NET Framework has no `ISOWeek`. The `.cmd` launcher falls back to `powershell.exe`.
+		- Test case: `win-runners.bash` step `dogfood runner`, under both shells in the hosted windows job. The hand ISO week matched .NET's for every day from 2020 to 2027.
+		- Opened: 20260924-190225
+		- Closed: 20260927-214242
+
 	- ✅ Idea 2: `install.bash --uninstall` says it removed shcl when nothing was there.
 		- Note: seen in an empty scratch HOME. With `user` now the default, a 1.0-era system install gets the same message and stays.
 		- Done: with nothing of an install at the target, it says so and exits 0, and names a system install in /opt/shcl when the target was user.
 		- Test case: `shell-regress.bash` row `20260924d-idea2-uninstall-nothing-there`. It fails on the old installer. The no-terminal row now gives its scratch home an install dir, so it still reaches the prompt.
-		- Note: `install.ps1` says "removed" the same way. Left for the next Windows visit, since only Windows runs that path.
+		- Done: `install.ps1` says so too, and `Update-ShclPath -Remove` reports no write when the folder is not on PATH; it used to rewrite a PATH ending in `;` and say it had. Installer 1.1.3.
+		- Test case: `win-runners.bash` step `uninstall nothing`, under 5.1 in the hosted windows job.
 		- Opened: 20260924-190225
 		- Closed: 20260927-195730
 
