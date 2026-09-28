@@ -695,6 +695,12 @@ static void edits_and_merges_match_a_reload(void) {
 					fprintf(stderr, "FAIL edits_and_merges: kept lines load with a new error at iteration %d:\n%s--- wrote\n%.*s", i, log.p, (int)kt.n, kt.p);
 					nfail++; bad = 1;
 				}
+				/* Every line the load dropped went out as written (20260926
+				   item 1). */
+				if (!bad && shcl_lost_count(kd) != shcl_lost_count(bd)) {
+					fprintf(stderr, "FAIL edits_and_merges: kept lines lost a dropped line at iteration %d:\n%s--- wrote\n%.*s", i, log.p, (int)kt.n, kt.p);
+					nfail++; bad = 1;
+				}
 				shcl_free(bd);
 				shcl_free(kd);
 			} else if (!bad && (kt.n != a.n || memcmp(kt.p, a.p, a.n) != 0)) {

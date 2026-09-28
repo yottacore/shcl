@@ -615,6 +615,9 @@ pub struct Document {
 	// The parse's multi-line bindings, from the binding line to the last
 	// line each took. Edits leave it alone; only a reparse reads it.
 	ends: Vec<(usize, usize)>,
+	// Each line counted in `lost`, once per count, when the parse was asked
+	// for them. Only a reparse reads it.
+	dropped: Vec<usize>,
 	// The text a load kept for to_text_keep_lines(), and empty when that text
 	// was already canonical, since the canonical form is then the one that
 	// keeps its lines. A merge drops it: the layer's lines are not this text's.
@@ -2515,6 +2518,10 @@ struct Parser<'a> {
 	// A raw block's or a stacked list's binding line and the last line it
 	// took, for the save that keeps lines.
 	ends: Vec<(usize, usize)>,
+	// Each line counted in `lost`, kept only for the save that keeps lines,
+	// since a capped parse of a huge bad file would hold one per line.
+	track_dropped: bool,
+	dropped: Vec<usize>,
 }
 
 /// resolve_parent() on a level stack, without moving anything: the parent it
@@ -2619,6 +2626,8 @@ impl<'a> Parser<'a> {
 			max_diags: 0,
 			unlisted: (0, 0),
 			ends: Vec::new(),
+			track_dropped: false,
+			dropped: Vec::new(),
 		}
 	}
 
@@ -2653,6 +2662,13 @@ impl<'a> Parser<'a> {
 		});
 	}
 
+	fn drop_line(&mut self, line: usize) {
+		self.lost += 1;
+		if self.track_dropped {
+			self.dropped.push(line);
+		}
+	}
+
 	/// The one exit for a line the parser does not bind whole. An arm says
 	/// what became of the line and nothing else: the lost count and the
 	/// level the line holds follow from the outcome here, so no arm can
@@ -2667,11 +2683,17 @@ impl<'a> Parser<'a> {
 	) {
 		self.err(line, code, msg);
 		let holds = matches!(outcome, Outcome::Retained { .. } | Outcome::Dropped);
-		self.lost += match &outcome {
-			Outcome::ValueDropped | Outcome::Dropped => 1,
-			Outcome::Retained { .. } => 0,
-			Outcome::Stopped(rest) => rest.iter().filter(|l| !trim_wsp(l).is_empty()).count(),
-		};
+		match &outcome {
+			Outcome::ValueDropped | Outcome::Dropped => self.drop_line(line),
+			Outcome::Retained { .. } => {}
+			Outcome::Stopped(rest) => {
+				for (k, l) in (line..).zip(rest.iter()) {
+					if !trim_wsp(l).is_empty() {
+						self.drop_line(k);
+					}
+				}
+			}
+		}
 		if let Outcome::Retained { text, blank_before } = outcome {
 			// A line kept as written never hangs on a block: its indent is not
 			// one the output's levels are spelled with, so the block it would
@@ -4088,6 +4110,7 @@ impl<'a> Parser<'a> {
 			kept_near: Vec::new(),
 			kept_sum: 0,
 			ends: self.ends,
+			dropped: self.dropped,
 			source: None,
 		};
 		doc.settle_kept();
@@ -5168,7 +5191,9 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 		return Some(doc.to_canonical());
 	}
 	let now = doc.emit_marked();
-	let loaded_doc = Parser::new().parse(src, doc.strictness);
+	let mut p = Parser::new();
+	p.track_dropped = true;
+	let loaded_doc = p.parse(src, doc.strictness);
 	let loaded = loaded_doc.emit_marked();
 	if now.out == loaded.out {
 		return Some(src.to_string());
@@ -5276,14 +5301,20 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 	// the end. A new line indented past them goes first, since one written
 	// under a dropped line would be dropped with it. A line the load dropped
 	// comes back this way.
-	let flush = |out: &mut String, left: &mut [bool], from: usize, to: usize| {
-		for (k, l) in left.iter_mut().enumerate().take(to).skip(from) {
-			if *l {
-				out.push_str(line(k));
-				*l = false;
+	// Which source lines went out as written. Every line the load dropped
+	// has to, or the save falls back: a rewritten group can span one, as a
+	// stacked list over a refused element (20260926 item 1).
+	let mut wrote = vec![false; n + 2];
+	let flush =
+		|out: &mut String, left: &mut [bool], wrote: &mut [bool], from: usize, to: usize| {
+			for (k, l) in left.iter_mut().enumerate().take(to).skip(from) {
+				if *l {
+					out.push_str(line(k));
+					wrote[k] = true;
+					*l = false;
+				}
 			}
-		}
-	};
+		};
 	let mut indents: Vec<Option<String>> = vec![Some(String::new())];
 	// The line of the group just written while it is a source one, and the
 	// end of the last source group met, kept or not.
@@ -5333,7 +5364,7 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 					.find(|&k| left[k])
 					.is_some_and(|k| ind.len() <= indent(k).len() || !ind.starts_with(indent(k)))
 			} {
-			flush(&mut out, &mut left, end[owed] + 1, next[owed]);
+			flush(&mut out, &mut left, &mut wrote, end[owed] + 1, next[owed]);
 			break_line(&mut out);
 			owed = 0;
 		}
@@ -5344,6 +5375,7 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 			if kept && claimed.first() == Some(&l) {
 				(1..l).for_each(|k| {
 					out.push_str(line(k));
+					wrote[k] = true;
 					left[k] = false;
 				});
 			}
@@ -5353,6 +5385,7 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 			for k in gap {
 				if blanks_stay || !blank(k) {
 					out.push_str(line(k));
+					wrote[k] = true;
 					left[k] = false;
 				}
 			}
@@ -5378,7 +5411,10 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 						out.push_str(t);
 						k = own[k];
 					}
-					_ => out.push_str(line(k)),
+					_ => {
+						out.push_str(line(k));
+						wrote[k] = true;
+					}
 				}
 				k += 1;
 			}
@@ -5407,7 +5443,7 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 	}
 	if owed != 0 {
 		break_line(&mut out);
-		flush(&mut out, &mut left, end[owed] + 1, n + 1);
+		flush(&mut out, &mut left, &mut wrote, end[owed] + 1, n + 1);
 	}
 	// The blank lines the source ends with stay at the end.
 	break_line(&mut out);
@@ -5415,7 +5451,7 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 	if out.len() > bom.len() && (tail..=n).all(blank) {
 		(tail..=n).for_each(|k| out.push_str(line(k)));
 	}
-	if left.contains(&true) {
+	if left.contains(&true) || loaded_doc.dropped.iter().any(|&k| !wrote[k]) {
 		return None;
 	}
 	// So does a last line with no newline.
@@ -5426,7 +5462,8 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 	// the source did not have: a child the edits gave an element list that
 	// stayed stacked reads back the same and is E001 (20260925b item 1). A
 	// line the load dropped went out as written, so the reload drops it
-	// again, and may drop nothing more.
+	// again, and may drop nothing more. It can drop less, where a dropped
+	// line now binds, and then the canonical text differs.
 	let back = Parser::new().parse(&out, doc.strictness);
 	(back.lost <= loaded_doc.lost
 		&& back.to_canonical() == now.out

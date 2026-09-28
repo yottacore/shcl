@@ -3007,6 +3007,10 @@ func TestEditsAndMergesMatchAReload(t *testing.T) {
 				t.Fatalf("kept lines reload as another document at iteration %d:\n%s--- wrote\n%s", i, log, text)
 			} else if kept && !noNewErrors(text, base) {
 				t.Fatalf("kept lines load with a new error at iteration %d:\n%s--- wrote\n%s", i, log, text)
+			} else if kept && Parse(text).LostCount() != Parse(base).LostCount() {
+				// Every line the load dropped went out as written (20260926
+				// item 1).
+				t.Fatalf("kept lines lost a dropped line at iteration %d:\n%s--- wrote\n%s", i, log, text)
 			} else if !kept && text != live.ToCanonical() {
 				t.Fatalf("a save that kept no lines is not canonical at iteration %d:\n%s", i, log)
 			}

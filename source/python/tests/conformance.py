@@ -779,6 +779,9 @@ def edits_and_merges_match_a_reload():
 				raise SystemExit(f"kept lines reload as another document at iteration {i}:\n{log}--- wrote\n{t}")
 			if kept and not no_new_errors(t, base):
 				raise SystemExit(f"kept lines load with a new error at iteration {i}:\n{log}--- wrote\n{t}")
+			# Every line the load dropped went out as written (20260926 item 1).
+			if kept and shcl.Document.parse(t).lost_count() != shcl.Document.parse(base).lost_count():
+				raise SystemExit(f"kept lines lost a dropped line at iteration {i}:\n{log}--- wrote\n{t}")
 			if not kept and t != a:
 				raise SystemExit(f"a save that kept no lines is not canonical at iteration {i}:\n{log}")
 

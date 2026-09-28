@@ -625,6 +625,9 @@ type Document struct {
 	// The parse's multi-line bindings, from the binding line to the last line
 	// each took. Edits leave it alone; only a reparse reads it.
 	ends [][2]int
+	// Each line counted in lost, once per count, when the parse was asked for
+	// them. Only a reparse reads it.
+	dropped []int
 	// The text a load kept for ToTextKeepLines(), and empty when that text was
 	// already canonical, since the canonical form is then the one that keeps
 	// its lines. A merge drops it: the layer's lines are not this text's. Nil
@@ -2721,6 +2724,10 @@ type parser struct {
 	// A raw block's or a stacked list's binding line and the last line it
 	// took, for the save that keeps lines.
 	ends [][2]int
+	// Each line counted in lost, kept only for the save that keeps lines,
+	// since a capped parse of a huge bad file would hold one per line.
+	trackDropped bool
+	dropped      []int
 }
 
 func newParser() *parser {
@@ -3130,6 +3137,13 @@ func outRetained(text string, blankBefore bool) outcome {
 
 func outStopped(rest []string) outcome { return outcome{kind: outcomeStopped, rest: rest} }
 
+func (p *parser) dropLine(line int) {
+	p.lost++
+	if p.trackDropped {
+		p.dropped = append(p.dropped, line)
+	}
+}
+
 // refuse is the one exit for a line the parser does not bind whole. An arm
 // says what became of the line and nothing else: the lost count and the
 // level the line holds follow from the outcome here, so no arm can forget
@@ -3137,18 +3151,16 @@ func outStopped(rest []string) outcome { return outcome{kind: outcomeStopped, re
 func (p *parser) refuse(line int, code, msg string, out outcome, indent string) {
 	p.err(line, code, msg)
 	holds := out.kind == outcomeRetained || out.kind == outcomeDropped
-	n := 0
 	switch out.kind {
 	case outcomeValueDropped, outcomeDropped:
-		n = 1
+		p.dropLine(line)
 	case outcomeStopped:
-		for _, l := range out.rest {
+		for k, l := range out.rest {
 			if trimWsp(l) != "" {
-				n++
+				p.dropLine(line + k)
 			}
 		}
 	}
-	p.lost += n
 	if out.kind == outcomeRetained {
 		// A line kept as written never hangs on a block: its indent is not
 		// one the output's levels are spelled with, so the block it would
@@ -4010,7 +4022,7 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 	if 2*len(p.arena) < cap(p.arena) {
 		p.arena = append([]nodeData(nil), p.arena...)
 	}
-	doc := &Document{arena: p.arena, diags: p.diags, strictness: strictness, orphans: orphans, lost: p.lost, kept: p.keptAny, ends: p.ends}
+	doc := &Document{arena: p.arena, diags: p.diags, strictness: strictness, orphans: orphans, lost: p.lost, kept: p.keptAny, ends: p.ends, dropped: p.dropped}
 	doc.settleKept()
 	return doc
 }
@@ -4908,7 +4920,9 @@ func keepLines(src string, doc *Document) (string, bool) {
 	}
 	now := doc.emitMarked()
 	nowText := now.out.String()
-	loadedDoc := newParser().parse(src, doc.strictness)
+	p := newParser()
+	p.trackDropped = true
+	loadedDoc := p.parse(src, doc.strictness)
 	loaded := loadedDoc.emitMarked()
 	loadedText := loaded.out.String()
 	if nowText == loadedText {
@@ -5035,10 +5049,15 @@ func keepLines(src string, doc *Document) (string, bool) {
 	// end. A new line indented past them goes first, since one written under
 	// a dropped line would be dropped with it. A line the load dropped comes
 	// back this way.
+	// Which source lines went out as written. Every line the load dropped
+	// has to, or the save falls back: a rewritten group can span one, as a
+	// stacked list over a refused element (20260926 item 1).
+	wrote := make([]bool, n+2)
 	flush := func(from, to int) {
 		for k := from; k < to; k++ {
 			if left[k] {
 				out.WriteString(line(k))
+				wrote[k] = true
 				left[k] = false
 			}
 		}
@@ -5108,6 +5127,7 @@ func keepLines(src string, doc *Document) (string, bool) {
 			if kept && len(claimed) > 0 && claimed[0] == l {
 				for k := 1; k < l; k++ {
 					out.WriteString(line(k))
+					wrote[k] = true
 					left[k] = false
 				}
 			}
@@ -5119,6 +5139,7 @@ func keepLines(src string, doc *Document) (string, bool) {
 			for k := end[prev] + 1; k < l; k++ {
 				if blanksStay || !blank(k) {
 					out.WriteString(line(k))
+					wrote[k] = true
 					left[k] = false
 				}
 			}
@@ -5149,6 +5170,7 @@ func keepLines(src string, doc *Document) (string, bool) {
 					k = own[k]
 				} else {
 					out.WriteString(line(k))
+					wrote[k] = true
 				}
 			}
 			// A line kept as written holds no level's indent.
@@ -5197,6 +5219,11 @@ func keepLines(src string, doc *Document) (string, bool) {
 			return "", false
 		}
 	}
+	for _, k := range loadedDoc.dropped {
+		if !wrote[k] {
+			return "", false
+		}
+	}
 	text := out.String()
 	// So does a last line with no newline.
 	if body != "" && !strings.HasSuffix(body, "\n") && strings.HasSuffix(text, eol) {
@@ -5206,7 +5233,8 @@ func keepLines(src string, doc *Document) (string, bool) {
 	// source did not have: a child the edits gave an element list that stayed
 	// stacked reads back the same and is E001 (20260925b item 1). A line the
 	// load dropped went out as written, so the reload drops it again, and may
-	// drop nothing more.
+	// drop nothing more. It can drop less, where a dropped line now binds, and
+	// then the canonical text differs.
 	back := newParser().parse(text, doc.strictness)
 	if back.lost <= loadedDoc.lost && back.ToCanonical() == nowText && errorsWithin(back, loadedDoc) {
 		return text, true

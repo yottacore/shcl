@@ -1175,6 +1175,13 @@ fn keeping_lines_reloads_as_the_document() {
 				errors(&back).iter().all(|c| had.any(|h| h == *c)),
 				"iteration {i}: kept lines load with a new error:\n{log}--- wrote\n{text}"
 			);
+			// Every line the load dropped went out as written, so the reload
+			// drops each one again (20260926 item 1).
+			assert_eq!(
+				back.lost_count(),
+				Document::parse(&base).lost_count(),
+				"iteration {i}: kept lines lost a dropped line:\n{log}--- wrote\n{text}"
+			);
 		} else {
 			assert_eq!(
 				text, want,
