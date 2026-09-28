@@ -3529,7 +3529,7 @@ static int late_dup_cmp(const void *pa, const void *pb) {
 	if (a->depth != b->depth) return a->depth < b->depth ? -1 : 1;
 	return a->node < b->node ? -1 : a->node > b->node;
 }
-static void fold_dups_from(shcl_doc *d, size_t start);
+static void fold_dups_from(ShclParser *P, size_t start);
 static void fold_late_dups(ShclParser *P) {
 	size_t n = P->late_dups.len;
 	if (!n) return;
@@ -3541,12 +3541,16 @@ static void fold_late_dups(ShclParser *P) {
 	}
 	qsort(parents, n, sizeof *parents, late_dup_cmp);
 	for (size_t i = 0; i < n; i++)
-		if (i == 0 || parents[i - 1].node != parents[i].node) fold_dups_from(P->d, parents[i].node);
+		if (i == 0 || parents[i - 1].node != parents[i].node) fold_dups_from(P, parents[i].node);
 }
 
+static void hint_fold(ShclParser *P, size_t parent, size_t kept, size_t gone, int apart);
 /* Depth-first below start, and only into survivors: a fold moves the loser's
-   children up to join the survivor's, where they can pair. */
-static void fold_dups_from(shcl_doc *d, size_t start) {
+   children up to join the survivor's, where they can pair. A fold hints the
+   way a merge at parse time does (select_or_create): when the two were not
+   next to each other, or sit under a hinted re-open (20260923 item 11). */
+static void fold_dups_from(ShclParser *P, size_t start) {
+	shcl_doc *d = P->d;
 	ShclArena *t = &d->scratch;
 	ShclVecSize stack = {0};
 	ShclVecSize_push(t, &stack, start);
@@ -3567,6 +3571,9 @@ static void fold_dups_from(shcl_doc *d, size_t start) {
 			for (ShclCMapEnt *e = cmap_first(&first, h); e; e = cmap_next(e, h))
 				if (merge_eq(NODE(d, ch->data[e->val]).name, &NODE(d, ch->data[e->val]).value, NODE(d, c).name, &NODE(d, c).value)) { hit = e->val; break; }
 			if (hit != (size_t)-1) {
+				/* Apart when a sibling kept since stands between them, as a
+				   merge at parse time asks of the newest child. */
+				hint_fold(P, parent, ch->data[hit], c, hit + 1 != w);
 				fold_node_into(d, ch->data[hit], c);
 				grew[hit] = 1;
 			} else {
@@ -3866,6 +3873,19 @@ static void reent_set(ShclParser *P, size_t node, size_t line) {
 	for (size_t i = 0; i < P->reent_node.len; i++)
 		if (P->reent_node.data[i] == node) { P->reent_line.data[i] = line; return; }
 	ShclVecSize_push(P->tmp, &P->reent_node, node); ShclVecSize_push(P->tmp, &P->reent_line, line);
+}
+static void hint_fold(ShclParser *P, size_t parent, size_t kept, size_t gone, int apart) {
+	size_t at = NODE(P->d, kept).line, line = NODE(P->d, gone).line;
+	size_t rl = reent_get(P, parent);
+	int cross_region = (rl != 0 && at < rl);
+	if (at != line && (apart || cross_region)) {
+		ShclSB m = {0};
+		sb_putS(P->line, &m, h002_head(P->line, NODE(P->d, kept).name));
+		sb_puts(P->line, &m, "line "); sb_put_u64(P->line, &m, at);
+		sb_puts(P->line, &m, " (same name and value combine)");
+		p_diag(P, line, SHCL_SEV_HINT, "H002", sb_S(&m));
+		reent_set(P, kept, line);
+	}
 }
 static int attach_path(ShclParser *P, size_t parent, ShclSegment *segs, size_t nsegs, ShclValue value, size_t line, ShclStr indent, size_t *out) {
 	ShclArena *a = &P->d->arena;

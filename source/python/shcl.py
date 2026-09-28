@@ -2467,7 +2467,10 @@ class _Parser:
 
 	def _fold_dups_from(self, start):
 		"""Depth-first below start, and only into survivors: a fold moves the
-		loser's children up to join the survivor's, where they can pair."""
+		loser's children up to join the survivor's, where they can pair. A fold
+		hints the way a merge at parse time does (_select_or_create): when the
+		two were not next to each other, or sit under a hinted re-open
+		(20260923 item 11)."""
 		# Explicit stack: parse-side walks stay iterative so depth can't blow
 		# Python's recursion limit.
 		stack = [start]
@@ -2482,6 +2485,9 @@ class _Parser:
 				key = _merge_key(self.arena[c].name, self.arena[c].value)
 				i = first.get(key)
 				if i is not None:
+					# Apart when a sibling kept since stands between them, as a
+					# merge at parse time asks of the newest child.
+					self._hint_fold(parent, keep[i], c, i + 1 != len(keep))
 					_fold_node_into(self.arena, keep[i], c)
 					grew[i] = True
 				else:
@@ -2490,6 +2496,17 @@ class _Parser:
 					grew.append(False)
 			stack.extend(k for k, g in zip(keep, grew) if g)
 			self.arena[parent].children = keep
+
+	def _hint_fold(self, parent, kept, gone, apart):
+		at, line = self.arena[kept].line, self.arena[gone].line
+		reopen_line = self.reentered.get(parent)
+		cross_region = reopen_line is not None and at < reopen_line
+		if at != line and (apart or cross_region):
+			self._diag(Diagnostic(
+				line, Severity.Hint,
+				f"{_h002_head(self.arena[kept].name)}line {at} (same name and value combine)",
+				"H002"))
+			self.reentered[kept] = line
 
 	def _attach_trivia(self, node, indent, trailing):
 		"""Hand pending leading comments (and this line's trailing one) to a node.

@@ -123,6 +123,8 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Reproduced: 20260927, Rust CLI.
 	- Note: the reload-parity fixture cannot see this one, since a reload of the canonical text holds a real comment there.
 	- Estimated effort: Low
+	- Progress log:
+		- 20260927: tried `is_comment` in the replaced-leaf rule. The 2M fuzz's reload property failed at iteration 1076: the canonical text writes the line as a comment, so a merge onto the reload drops it with the leaf. Keeping it means an exemption for merges the fixtures cannot express through the public calls. Needs a call: keep the line through a merge and accept the reload difference, or leave it going with the leaf like the leaf's comments.
 
 - C `shcl_compact` reaches the out-of-memory hook on a document with a kept misplaced line
 	- ID: 2026092620255203
@@ -672,12 +674,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Opened: 20260924-110225
 
 - Code review 20260923:
-
-	- 🔘 Item 11: a late fold merges two bindings that are not adjacent without an `H002` hint.
-		- Reproduced, all four: `m:` with `a: 1, 2` and a child, then `c: 0`, then `m:` again with `a:` as a stacked list of 1 and 2. It hints only for `m`. The same document with `a: 1, 2` inline hints for both.
-		- Rests on: the spec says every merged level under a hinted re-open reports.
-		- Origin: the late fold, 2026-08-03. Not seen before. Confirmed.
-		- Opened: 20260923-145138
 
 ## Features and enhancements
 
@@ -1467,6 +1463,16 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Closed: 20260923-160833
 
 - Code review 20260923:
+
+	- ✅ Item 11: a late fold merges two bindings that are not adjacent without an `H002` hint.
+		- Reproduced, all four: `m:` with `a: 1, 2` and a child, then `c: 0`, then `m:` again with `a:` as a stacked list of 1 and 2. It hints only for `m`. The same document with `a: 1, 2` inline hints for both.
+		- Rests on: the spec says every merged level under a hinted re-open reports.
+		- Origin: the late fold, 2026-08-03. Not seen before. Confirmed.
+		- Fixed: the late fold hints the way a merge at parse time does: when a sibling kept since stands between the two, or the parent is a hinted re-open. In all four parsers.
+		- Test case: corpus `181-late-fold-hint`, both routes. It fails on the old code.
+		- Note: the fold runs after the parse, so its hint comes after the load's other diagnostics.
+		- Opened: 20260923-145138
+		- Closed: 20260927-202231
 
 	- ✅ Item 14: the sync stage does not count untracked files when it decides to stash.
 		- Reproduced: an untracked file that upstream also adds. The stage sees a clean tree, and the fast-forward fails where a stash would have let it through. Nothing is lost.
