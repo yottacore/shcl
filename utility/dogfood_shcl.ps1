@@ -12,7 +12,7 @@
 ##
 ##	Usage:
 ##		dogfood_shcl get --int app.shcl server.port
-##		dogfood_shcl --no-update version     ## run what is held, copy nothing
+##		dogfood_shcl --no-update --version   ## run what is held, copy nothing
 ##
 ##	Where things go:
 ##		Linux, macOS  ~/.local/bin/shcl_versions/, fixed name ~/.local/bin/shcl
@@ -53,7 +53,7 @@ Every argument but --no-update goes to shcl as it came, and shcl's exit code com
 .EXAMPLE
 dogfood_shcl get --int app.shcl server.port
 .EXAMPLE
-dogfood_shcl --no-update version
+dogfood_shcl --no-update --version
 #>
 
 #==============================================================================

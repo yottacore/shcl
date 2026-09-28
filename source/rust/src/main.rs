@@ -100,11 +100,11 @@ Usage:
   shcl explain [CODE]                    what a diagnostic code means (every
                                          code, one line each, when CODE is
                                          left out)
-  shcl help [CMD] | version              this help (or one subcommand's, with
-                                         CMD), or the version (also -h/--help,
-                                         -v/-V/--version)
-  shcl about | donate                    what shcl is, or how to support it
-                                         (also --about, --donate)
+  shcl help [CMD]                        this help (or one subcommand's, with
+                                         CMD); also -h or --help, which after
+                                         CMD give that one's
+  shcl --version                         the version (also -v or -V)
+  shcl --about | --donate                what shcl is, or how to support it
 
 set edits FILE, the base document. Edits go in as the repeatable --set,
 --set-literal, --set-default, --set-literal-default and --remove options, which
@@ -147,8 +147,8 @@ Options (the subcommands each belongs to are in parentheses):
                                          wildcard slot)
   --unit=UNIT                            (get) the unit a bare number is in,
                                          for --duration (ms s m h d) or --size
-                                         (B KB MB GB TB KiB MiB GiB TiB), when
-                                         the field name gives none
+                                         (B kB KB MB GB TB KiB MiB GiB TiB),
+                                         when the field name gives none
   --decimal                              (get) --size reads KB to TB as powers
                                          of 1000, not 1024
   --no-banner                            (init, and set --write when it creates
@@ -210,17 +210,19 @@ resolve in the order given. Raw blocks still go in through the ops script.
 Value options accept either spelling: --default=VALUE or --default VALUE. In
 the space form the next argument is taken as the value whatever it looks like,
 so --default --int reads --int as the default. Use -- to end the options when a
-FILE or PATH begins with a dash.
+FILE or PATH begins with a dash. The flags -h, --help, -v, -V, --version,
+--about and --donate count anywhere an option can go. Several in one run each
+print once, in the order given.
 An option a subcommand does not use is a usage error, not ignored. Also
 refused: --write with --layer; --write with --set outside 'set'; --write with a
 FILE of '-'; --lossy without --write; --no-banner on 'set' without --write;
---check with --write; --layer=- on 'set'; --array with --raw or --rawinfo;
---default with --on-bad=error or --on-bad=flag; '-' named more than once across
-FILE, --layer and --schema. Two options that ask for different answers are a
-usage error whichever order they came in, and both are named: two different type
-options, or one value option given two different values. Repeating an option
-with the same value is allowed, and --layer and --set are ordered lists, so they
-repeat.
+--check with --write; --layer=- on 'set'; --array with --raw, --rawinfo,
+--duration or --size; --default with --on-bad=error or --on-bad=flag; '-' named
+more than once across FILE, --layer and --schema. Two options that ask for
+different answers are a usage error whichever order they came in, and both are
+named: two different type options, or one value option given two different
+values. Repeating an option with the same value is allowed, and --layer and
+--set are ordered lists, so they repeat.
 Every subcommand that loads a document prints the load's diagnostics to stderr,
 once per run; 'shcl explain CODE' gives the rule behind one of their codes. An
 in-place write also refuses when the load dropped content the rewrite would
@@ -592,21 +594,23 @@ struct Opts {
 	swallowed: Option<(String, String)>,
 }
 
-/// Did the command line ask for one of the informational outputs? Only tokens
-/// in option position count: the value of a value-taking option and anything
-/// after `--` are data (a FILE or PATH spelled `-h` needs the `--` anyway,
-/// since the option parser would refuse it). Scanning values too once let a
-/// read of a missing path answer with the help text and exit 0.
-fn asked_for(argv: &[String]) -> Option<&'static str> {
+/// The informational outputs the command line asks for, each once, in the
+/// order first asked. Only tokens in option position count: the value of a
+/// value-taking option and anything after `--` are data (a FILE or PATH
+/// spelled `-h` needs the `--` anyway, since the option parser would refuse
+/// it). Scanning values too once let a read of a missing path answer with the
+/// help text and exit 0. `--about` opens with the version line, so it covers
+/// `--version`.
+fn asked_for(argv: &[String]) -> Vec<&'static str> {
+	let mut asked: Vec<&'static str> = Vec::new();
 	let mut i = 0;
 	while i < argv.len() {
-		let a = argv[i].as_str();
-		match a {
-			"-h" | "--help" => return Some("help"),
-			"-v" | "-V" | "--version" => return Some("version"),
-			"--about" => return Some("about"),
-			"--donate" => return Some("donate"),
-			"--" => return None,
+		let want = match argv[i].as_str() {
+			"-h" | "--help" => "help",
+			"-v" | "-V" | "--version" => "version",
+			"--about" => "about",
+			"--donate" => "donate",
+			"--" => break,
 			"--default"
 			| "--on-bad"
 			| "--strictness"
@@ -617,13 +621,33 @@ fn asked_for(argv: &[String]) -> Option<&'static str> {
 			| "--set-literal"
 			| "--set-default"
 			| "--set-literal-default"
-			| "--remove" => i += 1,
-			_ => {}
+			| "--remove" => {
+				i += 1;
+				""
+			}
+			_ => "",
+		};
+		if !want.is_empty() && !asked.contains(&want) {
+			asked.push(want);
 		}
 		i += 1;
 	}
-	None
+	if asked.contains(&"about") {
+		asked.retain(|w| *w != "version");
+	}
+	asked
 }
+
+/// The flags that ask for an informational output.
+const INFO_FLAGS: [&str; 7] = [
+	"-h",
+	"--help",
+	"-v",
+	"-V",
+	"--version",
+	"--about",
+	"--donate",
+];
 
 /// PATH=VALUE at the first `=` outside quotes and brackets, so a selector
 /// holding one (`x[a=b].c=1`) still addresses its instance. The tokenizer
@@ -693,11 +717,11 @@ fn suggest(cands: &[&str], word: &str) -> String {
 	}
 }
 
-/// Every command word, for the same. The informational four are commands to a
-/// user typing one, whatever the dispatch calls them.
+/// Every command word, for the same. The informational flags are in the list
+/// too, so a word left over from 2.x, such as `version`, points at its flag.
 fn command_names() -> Vec<&'static str> {
 	let mut v: Vec<&'static str> = COMMANDS.to_vec();
-	v.extend(["help", "version", "about", "donate"]);
+	v.extend(["help", "--version", "--about", "--donate"]);
 	v
 }
 
@@ -1050,6 +1074,40 @@ fn allowed_opts(cmd: &str) -> &'static [&'static str] {
 		_ => &[],
 	};
 	allowed
+}
+
+/// The subcommand a help asks about, if any. `shcl help CMD` names it after the
+/// word, which takes one topic at most and the informational flags;
+/// `shcl CMD --help` names it first. A help flag after `help` asks for the same
+/// thing twice, so it is no topic. A usage error comes back as its exit code.
+fn help_topic(argv: &[String]) -> Result<Option<&str>, u8> {
+	let first = argv.first().map(|s| s.as_str());
+	let topic = if first == Some("help") {
+		let words: Vec<&str> = argv[1..]
+			.iter()
+			.map(|s| s.as_str())
+			.filter(|w| !INFO_FLAGS.contains(w))
+			.collect();
+		if words.len() > 1 {
+			errln!("usage: shcl help [CMD] (see --help)");
+			return Err(1);
+		}
+		words.first().copied()
+	} else {
+		first.filter(|f| !f.starts_with('-'))
+	};
+	match topic {
+		None | Some("help") => Ok(None),
+		Some(t) if COMMANDS.contains(&t) => Ok(Some(t)),
+		Some(t) => {
+			errln!(
+				"unknown command: {}{} (see --help)",
+				t,
+				suggest(&command_names(), t)
+			);
+			Err(1)
+		}
+	}
 }
 
 /// One subcommand's slice of the help: its usage entry, the type block when it
@@ -3204,71 +3262,35 @@ fn run_cli() -> u8 {
 		}
 	};
 	let first = argv.first().map(|s| s.as_str());
-	let asked = asked_for(&argv);
-	// One convention: asking for the help - by name, by flag, or by asking for
-	// nothing at all - prints it and succeeds. The blank lines separate the
-	// block from the surrounding prompts. A bare run used to print the same
-	// text unpadded and exit 1, which read as neither a help nor an error.
-	if asked == Some("help") || first == Some("help") || argv.is_empty() {
-		// `shcl help CMD` and `shcl CMD --help` narrow to one subcommand. In the
-		// flag form the command is the first word, which a bare `--help` is not.
-		let topic = if first == Some("help") {
-			// A help flag after `help` asks for the same thing twice, so it is
-			// no topic: `help --help` and `help get -h` print what they name.
-			let words: Vec<&str> = argv[1..]
-				.iter()
-				.map(|s| s.as_str())
-				.filter(|w| !matches!(*w, "-h" | "--help"))
-				.collect();
-			if words.len() > 1 {
-				errln!("usage: shcl help [CMD] (see --help)");
-				return 1;
+	let mut asked = asked_for(&argv);
+	// Asking for nothing at all asks for the help, and so does the `help` word,
+	// which comes first on the line when it is there.
+	if (first == Some("help") || argv.is_empty()) && !asked.contains(&"help") {
+		asked.insert(0, "help");
+	}
+	// One convention: each output asked for prints once, in the order asked,
+	// and the run succeeds. Blank lines go before, between and after, to set
+	// the text off from the prompts around it. A lone version line is one line
+	// a script reads, so it goes out bare.
+	if !asked.is_empty() {
+		let mut blocks: Vec<String> = Vec::new();
+		for want in &asked {
+			match *want {
+				"help" => match help_topic(&argv) {
+					Ok(Some(t)) => blocks.push(help_for(t)),
+					Ok(None) => blocks.push(HELP.to_string()),
+					Err(code) => return code,
+				},
+				"version" => blocks.push(format!("{}\n", VERSION_LINE)),
+				"about" => blocks.push(ABOUT.to_string()),
+				_ => blocks.push(DONATE.to_string()),
 			}
-			words.first().copied()
+		}
+		if asked == ["version"] {
+			outln!("{}", VERSION_LINE);
 		} else {
-			first.filter(|f| !f.starts_with('-'))
-		};
-		match topic {
-			// The informational words are the full help's own last two lines,
-			// so there is nothing narrower to show for them.
-			None | Some("help") | Some("version") | Some("about") | Some("donate") => {
-				out!("\n{}\n", HELP)
-			}
-			Some(t) if COMMANDS.contains(&t) => out!("\n{}\n", help_for(t)),
-			Some(t) => {
-				errln!(
-					"unknown command: {}{} (see --help)",
-					t,
-					suggest(&command_names(), t)
-				);
-				return 1;
-			}
+			out!("\n{}\n", blocks.join("\n"));
 		}
-		return 0;
-	}
-	// The word forms take nothing after them but their own flags, as `help`
-	// takes a command at most: an option a command does not use is a usage
-	// error (20260923 item 17). The flag spellings still work anywhere.
-	for (word, flags) in [
-		("version", &["-v", "-V", "--version"][..]),
-		("about", &["--about"][..]),
-		("donate", &["--donate"][..]),
-	] {
-		if first == Some(word) && argv[1..].iter().any(|w| !flags.contains(&w.as_str())) {
-			errln!("usage: shcl {} (see --help)", word);
-			return 1;
-		}
-	}
-	if asked == Some("version") || first == Some("version") {
-		outln!("{}", VERSION_LINE);
-		return 0;
-	}
-	if asked == Some("about") || first == Some("about") {
-		out!("\n{}\n", ABOUT);
-		return 0;
-	}
-	if asked == Some("donate") || first == Some("donate") {
-		out!("\n{}\n", DONATE);
 		return 0;
 	}
 	let cmd = argv[0].as_str();

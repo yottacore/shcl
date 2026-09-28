@@ -70,10 +70,12 @@ fRustTop() {
 		## Whole declaration, not one line: rustfmt wraps the array once it
 		## outgrows the line width, and a single-line grep then reads none of it.
 		sed -n '/const COMMANDS/,/];/p' "${mainRs}" | grep -o '"[a-z]*"' || true
-		sed -n '/fn asked_for/,/^}/p' "${mainRs}" | grep 'return Some(' \
+		## help is a word too, beside the commands; the other informational
+		## outputs are flags only.
+		sed -n '/^fn command_names/,/^}/p' "${mainRs}" | grep 'extend' | grep -o '"[a-z]*"' || true
+		sed -n '/fn asked_for/,/^}/p' "${mainRs}" | grep -E '=> "[a-z]+",' \
 		| while IFS= read -r arm; do
 			grep -o '"[^"]*"' <<<"${arm%%=>*}" || true
-			grep -o '"[a-z]*"' <<<"${arm#*=>}" || true
 		done
 	} | tr -d '"' | sort -u | paste -sd' '
 }
@@ -82,7 +84,7 @@ fRustTop() {
 ## first, since rustfmt puts one name per line.
 fRustValOpts() {
 	sed -n '/^fn asked_for/,/^}/p' "${mainRs}" | tr '\n\t' '  ' | tr -s ' ' \
-	| { grep -oE '("--[a-z0-9-]+" [|] )*"--[a-z0-9-]+" => i [+]= 1' || true ;} \
+	| { grep -oE '("--[a-z0-9-]+" [|] )*"--[a-z0-9-]+" => ([{] )?i [+]= 1' || true ;} \
 	| { grep -o '"--[a-z0-9-]*"' || true ;} | tr -d '"' | sort -u | paste -sd' '
 }
 

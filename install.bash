@@ -51,7 +51,7 @@
 
 set -euo pipefail
 
-installer_version="1.1.1"
+installer_version="1.1.2"
 REPO="yottacore/shcl"
 release="stable"
 target="user"
@@ -437,7 +437,7 @@ case "${arch}" in
 	*)      needs="glibc 2.30 or newer (Ubuntu 20.04, Debian 11, RHEL 9, or later)" ;;
 esac
 smoke_status=0
-"${tmp}/shcl" version >/dev/null 2>"${tmp}/smoke.err" || smoke_status=$?
+"${tmp}/shcl" --version >/dev/null 2>"${tmp}/smoke.err" || smoke_status=$?
 if [[ "${smoke_status}" != 0 ]]; then
 	if [[ "${smoke_status}" == 126 ]]; then
 		fDie "cannot execute from ${tmp} (noexec mount?) - set TMPDIR to a directory that allows execution and re-run"
@@ -589,5 +589,5 @@ fShadowedBy(){   ## fShadowedBy LINK
 if shadow="$(fShadowedBy "${link}")"; then
 	printf 'note: shcl on your PATH is %s, not the copy just installed - it comes first on PATH\n' "${shadow}"
 fi
-"${link}" version 2>/dev/null || "${dest}/shcl" version
+"${link}" --version 2>/dev/null || "${dest}/shcl" --version
 echo

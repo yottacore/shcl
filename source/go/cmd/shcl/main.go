@@ -118,11 +118,11 @@ Usage:
   shcl explain [CODE]                    what a diagnostic code means (every
                                          code, one line each, when CODE is
                                          left out)
-  shcl help [CMD] | version              this help (or one subcommand's, with
-                                         CMD), or the version (also -h/--help,
-                                         -v/-V/--version)
-  shcl about | donate                    what shcl is, or how to support it
-                                         (also --about, --donate)
+  shcl help [CMD]                        this help (or one subcommand's, with
+                                         CMD); also -h or --help, which after
+                                         CMD give that one's
+  shcl --version                         the version (also -v or -V)
+  shcl --about | --donate                what shcl is, or how to support it
 
 set edits FILE, the base document. Edits go in as the repeatable --set,
 --set-literal, --set-default, --set-literal-default and --remove options, which
@@ -165,8 +165,8 @@ Options (the subcommands each belongs to are in parentheses):
                                          wildcard slot)
   --unit=UNIT                            (get) the unit a bare number is in,
                                          for --duration (ms s m h d) or --size
-                                         (B KB MB GB TB KiB MiB GiB TiB), when
-                                         the field name gives none
+                                         (B kB KB MB GB TB KiB MiB GiB TiB),
+                                         when the field name gives none
   --decimal                              (get) --size reads KB to TB as powers
                                          of 1000, not 1024
   --no-banner                            (init, and set --write when it creates
@@ -228,17 +228,19 @@ resolve in the order given. Raw blocks still go in through the ops script.
 Value options accept either spelling: --default=VALUE or --default VALUE. In
 the space form the next argument is taken as the value whatever it looks like,
 so --default --int reads --int as the default. Use -- to end the options when a
-FILE or PATH begins with a dash.
+FILE or PATH begins with a dash. The flags -h, --help, -v, -V, --version,
+--about and --donate count anywhere an option can go. Several in one run each
+print once, in the order given.
 An option a subcommand does not use is a usage error, not ignored. Also
 refused: --write with --layer; --write with --set outside 'set'; --write with a
 FILE of '-'; --lossy without --write; --no-banner on 'set' without --write;
---check with --write; --layer=- on 'set'; --array with --raw or --rawinfo;
---default with --on-bad=error or --on-bad=flag; '-' named more than once across
-FILE, --layer and --schema. Two options that ask for different answers are a
-usage error whichever order they came in, and both are named: two different type
-options, or one value option given two different values. Repeating an option
-with the same value is allowed, and --layer and --set are ordered lists, so they
-repeat.
+--check with --write; --layer=- on 'set'; --array with --raw, --rawinfo,
+--duration or --size; --default with --on-bad=error or --on-bad=flag; '-' named
+more than once across FILE, --layer and --schema. Two options that ask for
+different answers are a usage error whichever order they came in, and both are
+named: two different type options, or one value option given two different
+values. Repeating an option with the same value is allowed, and --layer and
+--set are ordered lists, so they repeat.
 Every subcommand that loads a document prints the load's diagnostics to stderr,
 once per run; 'shcl explain CODE' gives the rule behind one of their codes. An
 in-place write also refuses when the load dropped content the rewrite would
@@ -637,33 +639,61 @@ type opts struct {
 	swallowedValue string
 }
 
-// askedFor: did the command line ask for one of the informational outputs? Only
-// tokens in option position count: the value of a value-taking option and
-// anything after `--` are data (a FILE or PATH spelled `-h` needs the `--`
-// anyway, since the option parser would refuse it). Scanning values too once
-// let a read of a missing path answer with the help text and exit 0.
-func askedFor(argv []string) string {
+// askedFor is the informational outputs the command line asks for, each once,
+// in the order first asked. Only tokens in option position count: the value of
+// a value-taking option and anything after `--` are data (a FILE or PATH
+// spelled `-h` needs the `--` anyway, since the option parser would refuse it).
+// Scanning values too once let a read of a missing path answer with the help
+// text and exit 0. `--about` opens with the version line, so it covers
+// `--version`.
+func askedFor(argv []string) []string {
+	var asked []string
+	add := func(w string) {
+		for _, a := range asked {
+			if a == w {
+				return
+			}
+		}
+		asked = append(asked, w)
+	}
+scan:
 	for i := 0; i < len(argv); i++ {
 		a := argv[i]
 		switch {
 		case a == "-h" || a == "--help":
-			return "help"
+			add("help")
 		case a == "-v" || a == "-V" || a == "--version":
-			return "version"
+			add("version")
 		case a == "--about":
-			return "about"
+			add("about")
 		case a == "--donate":
-			return "donate"
+			add("donate")
 		case a == "--":
-			return ""
+			break scan
 		case a == "--default" || a == "--on-bad" || a == "--strictness" || a == "--schema" ||
 			a == "--unit" || a == "--layer" || a == "--set" || a == "--set-literal" ||
 			a == "--set-default" || a == "--set-literal-default" || a == "--remove":
 			i++
 		}
 	}
-	return ""
+	hasAbout := false
+	for _, a := range asked {
+		hasAbout = hasAbout || a == "about"
+	}
+	if hasAbout {
+		kept := asked[:0]
+		for _, a := range asked {
+			if a != "version" {
+				kept = append(kept, a)
+			}
+		}
+		asked = kept
+	}
+	return asked
 }
+
+// infoFlags are the flags that ask for an informational output.
+var infoFlags = [...]string{"-h", "--help", "-v", "-V", "--version", "--about", "--donate"}
 
 // unusablePath: a path no document can hold, which a remove would take as a
 // miss and exit 0: one the scanner rejects, or one with a value part. A
@@ -880,10 +910,11 @@ func suggest(cands []string, word string) string {
 	return "; did you mean '" + best + "'?"
 }
 
-// commandNames is every command word, for the same. The informational four are
-// commands to a user typing one, whatever the dispatch calls them.
+// commandNames is every command word, for the same. The informational flags
+// are in the list too, so a word left over from 2.x, such as `version`, points
+// at its flag.
 func commandNames() []string {
-	return append(commands[:], "help", "version", "about", "donate")
+	return append(commands[:], "help", "--version", "--about", "--donate")
 }
 
 // optionNames is every option spelling some subcommand takes. Built from the
@@ -1079,6 +1110,50 @@ func allowedOpts(cmd string) []string {
 			"--set-literal-default", "--remove"}
 	}
 	return allowed
+}
+
+// helpTopic is the subcommand a help asks about, or "" for none. `shcl help
+// CMD` names it after the word, which takes one topic at most and the
+// informational flags; `shcl CMD --help` names it first. A help flag after
+// `help` asks for the same thing twice, so it is no topic. An empty word is
+// still a topic, as it is in the reference: it names no command, which is not
+// the same as naming none. A usage error comes back as its exit code.
+func helpTopic(argv []string) (string, int) {
+	topic, hasTopic := "", false
+	if len(argv) == 0 {
+		return "", 0
+	}
+	if argv[0] == "help" {
+		var words []string
+		for _, w := range argv[1:] {
+			flag := false
+			for _, f := range infoFlags {
+				flag = flag || w == f
+			}
+			if !flag {
+				words = append(words, w)
+			}
+		}
+		if len(words) > 1 {
+			fmt.Fprintln(os.Stderr, "usage: shcl help [CMD] (see --help)")
+			return "", 1
+		}
+		if len(words) == 1 {
+			topic, hasTopic = words[0], true
+		}
+	} else if !strings.HasPrefix(argv[0], "-") {
+		topic, hasTopic = argv[0], true
+	}
+	if !hasTopic || topic == "help" {
+		return "", 0
+	}
+	for _, c := range commands {
+		if c == topic {
+			return topic, 0
+		}
+	}
+	fmt.Fprintf(os.Stderr, "unknown command: %s%s (see --help)\n", topic, suggest(commandNames(), topic))
+	return "", 1
 }
 
 // helpFor is one subcommand's slice of the help: its usage entry, the type
@@ -3131,90 +3206,48 @@ func run() int {
 		}
 	}
 	asked := askedFor(argv)
-	// One convention: asking for the help - by name, by flag, or by asking for
-	// nothing at all - prints it and succeeds. The blank lines separate the
-	// block from the surrounding prompts. A bare run used to print the same
-	// text unpadded and exit 1, which read as neither a help nor an error.
-	if len(argv) == 0 {
-		outf("\n%s\n", help)
-		return 0
+	// Asking for nothing at all asks for the help, and so does the `help` word,
+	// which comes first on the line when it is there.
+	if len(argv) == 0 || argv[0] == "help" {
+		has := false
+		for _, a := range asked {
+			has = has || a == "help"
+		}
+		if !has {
+			asked = append([]string{"help"}, asked...)
+		}
 	}
-	if asked == "help" || argv[0] == "help" {
-		// `shcl help CMD` and `shcl CMD --help` narrow to one subcommand. In the
-		// flag form the command is the first word, which a bare `--help` is not.
-		// An empty word is still a topic, as it is in the reference: `help ''`
-		// names no command, which is not the same as naming none.
-		topic, hasTopic := "", false
-		if argv[0] == "help" {
-			// A help flag after `help` asks for the same thing twice, so it is
-			// no topic: `help --help` and `help get -h` print what they name.
-			var words []string
-			for _, w := range argv[1:] {
-				if w != "-h" && w != "--help" {
-					words = append(words, w)
+	// One convention: each output asked for prints once, in the order asked,
+	// and the run succeeds. Blank lines go before, between and after, to set
+	// the text off from the prompts around it. A lone version line is one line
+	// a script reads, so it goes out bare.
+	if len(asked) > 0 {
+		var blocks []string
+		for _, want := range asked {
+			switch want {
+			case "help":
+				topic, code := helpTopic(argv)
+				if code != 0 {
+					return code
 				}
-			}
-			if len(words) > 1 {
-				fmt.Fprintln(os.Stderr, "usage: shcl help [CMD] (see --help)")
-				return 1
-			}
-			if len(words) == 1 {
-				topic, hasTopic = words[0], true
-			}
-		} else if !strings.HasPrefix(argv[0], "-") {
-			topic, hasTopic = argv[0], true
-		}
-		// The informational words are the full help's own last two lines, so
-		// there is nothing narrower to show for them.
-		switch {
-		case !hasTopic, topic == "help", topic == "version", topic == "about", topic == "donate":
-			outf("\n%s\n", help)
-			return 0
-		}
-		for _, c := range commands {
-			if c == topic {
-				outf("\n%s\n", helpFor(topic))
-				return 0
+				if topic == "" {
+					blocks = append(blocks, help)
+				} else {
+					blocks = append(blocks, helpFor(topic))
+				}
+			case "version":
+				blocks = append(blocks, versionLine+"\n")
+			case "about":
+				blocks = append(blocks, about)
+			default:
+				blocks = append(blocks, donate)
 			}
 		}
-		fmt.Fprintf(os.Stderr, "unknown command: %s%s (see --help)\n", topic, suggest(commandNames(), topic))
-		return 1
-	}
-	// The word forms take nothing after them but their own flags, as `help`
-	// takes a command at most: an option a command does not use is a usage
-	// error (20260923 item 17). The flag spellings still work anywhere.
-	for _, w := range []struct {
-		word  string
-		flags []string
-	}{
-		{"version", []string{"-v", "-V", "--version"}},
-		{"about", []string{"--about"}},
-		{"donate", []string{"--donate"}},
-	} {
-		if argv[0] != w.word {
-			continue
+		if len(asked) == 1 && asked[0] == "version" {
+			outf("%s\n", versionLine)
+		} else {
+			outf("\n%s\n", strings.Join(blocks, "\n"))
 		}
-		for _, a := range argv[1:] {
-			own := false
-			for _, f := range w.flags {
-				own = own || a == f
-			}
-			if !own {
-				fmt.Fprintf(os.Stderr, "usage: shcl %s (see --help)\n", w.word)
-				return 1
-			}
-		}
-	}
-	if asked == "version" || argv[0] == "version" {
-		outf("%s\n", versionLine)
-		return 0
-	}
-	if asked == "about" || argv[0] == "about" {
-		outf("\n%s\n", about)
-		return 0
-	}
-	if asked == "donate" || argv[0] == "donate" {
-		outf("\n%s\n", donate)
 		return 0
 	}
 	cmd := argv[0]
