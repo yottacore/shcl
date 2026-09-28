@@ -1,0 +1,7 @@
+x: 2
+	no colon 4
+# A list the lower layer spells stacked merges the way the same list written
+# inline does: the spelling shows only while a kept line holds it stacked, and
+# a reload of the lower layer would not have it.
+x:
+	x: 0

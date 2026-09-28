@@ -146,7 +146,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - A merge result depends on whether the lower layer spells a list stacked or inline
 	- ID: 2026092620255204
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 4
@@ -158,11 +158,18 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Reproduced: 20260926, all four CLIs. The base build gives the inline form both ways.
 	- Origin: `d0b200c` (2026-09-24), `stacks()` reads a stacked flag a reload clears. 20260924d read the hunk and did not see it. Confirmed.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Decisions:
+		- 20260927: a merge onto a matched node writes it stacked only when either side is written stacked on its own. `stacks()` gives the same answer on a document and on its reload, and the flag alone does not.
+	- Actual fix: the overlay's matched branch sets the stacked flag from `stacks()` of both sides, in all four.
+	- Swept: the flag is read only by `stacks()` and the parser. The merge's clone of an unmatched node copies the higher layer's own flag, which that layer's reload keeps.
+	- Branch: `stackmerge`
+	- Test case: corpus `179-merge-stacked-spelling`. It fails on the old code.
 
 - `banner on` adds a second info block when the old one sits under the first field
 	- ID: 2026092620255205
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 5
@@ -172,6 +179,16 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Reproduced: 20260926, all four CLIs.
 	- Origin: `f1362fb` (2026-09-25). The skip list takes the whole first-child chain, not only the nodes on the first line. Confirmed.
 	- Estimated effort: Low
+	- Actual effort: Avg
+	- Actual cause:
+		- Not a code defect. A saved file never writes a dotted line, so `a.b: 1` with a block above it and `a:`, the block, `b: 1` save to the same text. A rule that tells them apart by source line gives a document and its reload different answers.
+		- Tried: stopping the chain at the first child on another line. The 2M fuzz's reload property failed at once, on a dotted first line that the saved text writes on two lines.
+	- Decisions:
+		- 20260927: keep the whole first-child chain and correct the doc to say so. This one needs signoff, since the item asked for the code to change.
+	- Actual fix: the `set_banner` doc comment in all four now names the first field's first child down and says why.
+	- Swept: the rule is stated only in the four doc comments. The spec, man page and README do not give it.
+	- Branch: `stackmerge`
+	- Test case: corpus `180-banner-first-child` pins that the block stays and a new one goes at the end.
 
 - C `shcl_compact` turns earlier generation faults into ordinary diagnostics
 	- ID: 2026092620255206
