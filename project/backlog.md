@@ -32,6 +32,408 @@ Going forward, new issues in the new template at the bottom of this file, will g
 
 ## New format
 
+- `fmt` indents a Schema line, and `check` then stops validating at exit 0
+	- ID: 2026092813365301
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 1
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce:
+		- A schema `s.shcl` holding `field: server.port` with `type: int` and `max: 100` under it.
+		- A config holding `server:`, then `##    Schema   s.shcl` at column 0, then `\tport: 8080`.
+		- `shcl check cfg.shcl` exits 6, then `shcl fmt --write cfg.shcl`, then `shcl check cfg.shcl` again.
+	- Incorrect behavior: after `fmt` the line sits one tab in, the schema is no longer found, and `check` exits 0. The reverse happens too: an indented Schema line is ignored until `fmt` moves it to column 0.
+	- Expected behavior: whether a file names a schema does not depend on `fmt`. The spec says a comment changes nothing about the document.
+	- Reproduced: 20260928, all four CLIs.
+	- Origin: `2c528a23` (schema line, 2026-09-26). The line is matched only at column 0, and the emitter indents a comment to its node's depth. Not seen before. Confirmed.
+	- Estimated effort: Avg
+
+- A Schema line makes `check` open any path, devices and network shares included
+	- ID: 2026092813365302
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 2
+	- Target OS: all, and Windows for the share
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce:
+		- A config holding `x: 1`, then `##    Schema   /dev/zero`.
+		- `shcl check cfg.shcl`.
+	- Incorrect behavior: each CLI reads until memory runs out. Under a 1.5 GB limit Rust exits 8, Go 2, C 70 and Python 1 with a traceback. A FIFO would hang. On Windows `\\host\share\s.shcl` goes to the file open as is, which makes an SMB connection with the user's credentials.
+	- Expected behavior: a line in a file someone else wrote cannot make an unattended `check` hang, run out of memory, or reach the network. The spec already refuses a URL for that reason.
+	- Reproduced: 20260928, devices on Linux in all four. The share is Plausible and goes in the Windows batch.
+	- Origin: `2c528a23`. New ground. Confirmed.
+	- Sweep: `schema_for` in all four CLIs, and anywhere else a path read from a file is opened.
+	- Estimated effort: Avg
+
+- The `_old_v2` copy takes the directory's group, so a private config gets a backup that group can read
+	- ID: 2026092813365303
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 3
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce:
+		- A setgid directory owned by group `devs`, mode 2775.
+		- A 2.x file in it owned by the user's own group, mode 640, holding `a: "x\qy"`.
+		- `shcl migrate --write FILE`.
+	- Incorrect behavior: `c_old_v2.shcl` is mode 640 with group `devs`, so members of `devs` can read the old config. The migrated file keeps its group.
+	- Expected behavior: the copy is made private and gets the original's group before its mode, the way the save does it.
+	- Reproduced: 20260928, all four CLIs.
+	- Origin: `6c49d1b0` (keepold). Against the item's own decision that a private config does not get a readable backup. Confirmed.
+	- Note: on Windows the copy takes the directory's ACL, while `ReplaceFile` keeps the original's. Plausible, for the Windows batch.
+	- Estimated effort: Low
+
+- Under Windows PowerShell 5.1 a quote inside an argument never reaches the binary
+	- ID: 2026092813365304
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 4
+	- Target OS: Windows, PowerShell 5.1
+	- Steps to reproduce:
+		- Under `powershell.exe`, dot-source `shcl.ps1`.
+		- `shcl set -w f.shcl '--set-literal=zip="02134"'`, then `type f.shcl`.
+	- Incorrect behavior: expected, not yet seen. 5.1 passes native arguments the legacy way and drops embedded double quotes, so the binary gets `zip=02134` and writes a bare number at exit 0.
+	- Expected behavior: `shcl.ps1`'s header says every argument goes to the binary as is.
+	- Reproduced: No. Plausible, for the Windows batch. The dogfood `.cmd` now falls back to 5.1, so more runs go through it.
+	- Origin: older than the range, from `shcl.ps1`'s run path (`c52fa077` and before). Not seen before.
+	- Estimated effort: Avg
+
+- The H005 check slows every parse, most in Python and on escaped values in C
+	- ID: 2026092813365305
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 5
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce:
+		- Python: `shcl fmt` on 60,000 lines of `nameN: value N`.
+		- C: `shcl count FILE k0` on 200,000 lines of two double-quoted elements holding `\t` and `\n`.
+	- Incorrect behavior: Python goes from 1.30 s to 1.82 s. C goes from 0.64 s to 1.0 s and from 240 MB to 290 MB. Rust and Go gain a little on the escaped file.
+	- Expected behavior: a hint that only fires on a unit-named field costs next to nothing elsewhere.
+	- Reproduced: 20260928, head against the previous round's builds.
+	- Origin: `95bec7c1` (durations and sizes). Every leaf and element runs the unit check before the cheap test on the name. Python lowers the name once per unit, and C copies each escaped element into scratch that nothing frees during the parse. Confirmed.
+	- Sweep: the H005 site in the field and element arms, in all four.
+	- Estimated effort: Low
+
+- Go and Python drop the setuid, setgid and sticky bits from the `_old_v2` copy
+	- ID: 2026092813365306
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 6
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce: `chmod 2755` a 2.x file, then `shcl migrate --write FILE`, then `stat -c %a` on the copy.
+	- Incorrect behavior: Go writes 755 for 1644, 2755 and 4755. Python writes 755 for 2755 and 4755. Rust and C keep every bit.
+	- Expected behavior: the copy takes the original's mode, as Rust and C do.
+	- Reproduced: 20260928.
+	- Origin: `6c49d1b0`. Go keeps only the permission bits, and Python sets the mode before its buffered write goes out, which clears setuid and setgid. The library save already avoids the second. Confirmed.
+	- Estimated effort: Low
+
+- The C CLI cuts a Schema path at a NUL and validates against another file
+	- ID: 2026092813365307
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 7
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce: a file `a` holding a schema, and a config holding `x: 1`, then `##    Schema   a`, a NUL byte and `b`. Run `shcl check` on it.
+	- Incorrect behavior: C validates against `a` and exits 6. Rust, Go and Python refuse the path and exit 8.
+	- Expected behavior: exit 8, as the other three.
+	- Reproduced: 20260928.
+	- Origin: `2c528a23`. A NUL could not reach a path before, since argv cannot hold one. Confirmed.
+	- Estimated effort: Low
+
+- `check` without `--schema` got about three times slower on large escaped files in C
+	- ID: 2026092813365308
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 8
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce: `shcl check` on the escaped file from item 5.
+	- Incorrect behavior: C goes from 0.57 s to 1.75 s. Rust gains about 0.13 s.
+	- Expected behavior: looking for one comment line costs next to nothing.
+	- Reproduced: 20260928, C. Rust by the sweep's timing.
+	- Origin: `2c528a23`. The Schema line search runs every line through the full 2.x rewrite only to track raw fences. Confirmed.
+	- Estimated effort: Low
+
+- `about --version` and `version --donate` are usage errors now
+	- ID: 2026092813365309
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 9
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce: `shcl about --version`, `shcl version --donate`.
+	- Incorrect behavior: exit 1, `usage: shcl about (see --help)`. `shcl fmt --version` still exits 0. Before `39ad1f23` all of these exited 0.
+	- Expected behavior: design.md says the flag spellings are recognized anywhere in option position.
+	- Reproduced: 20260928, all four CLIs.
+	- Origin: `39ad1f23` (cli fixes, 20260923 item 17). Regression. Confirmed.
+	- Keep: 20260923 item 17 says the words refuse anything after them but their own flags. That line and design.md disagree on this case, so it needs a call.
+	- Estimated effort: Low
+
+- The Schema line's directory is split at a backslash on Linux and macOS
+	- ID: 2026092813365310
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 10
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce: a config named `we\ird.shcl` holding `##    Schema   ./app.schema.shcl`, with the schema beside it. Run `shcl check` on it.
+	- Incorrect behavior: exit 8, `we/./app.schema.shcl: No such file or directory`. A path starting with `\` also counts as absolute there.
+	- Expected behavior: a backslash is a separator only on Windows, as `old_copy_name` already has it.
+	- Reproduced: 20260928, all four CLIs.
+	- Origin: `2c528a23`. Confirmed.
+	- Estimated effort: Low
+
+- Go's `_old_v2` copy errors name the path twice
+	- ID: 2026092813365311
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 11
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce: `shcl migrate -w ro/g.shcl` with `ro` read-only.
+	- Incorrect behavior: `ro/g_old_v2.shcl: open ro/g_old_v2.shcl: permission denied`.
+	- Expected behavior: `FILE: ` and the system's message, as the UI guide says and the other three print.
+	- Reproduced: 20260928.
+	- Origin: `6c49d1b0`. The missed twin of 20260926 item 16, fixed for reads in the same range. Confirmed.
+	- Estimated effort: Low
+
+- On Windows, Python's `_old_v2` copy of a read-only file comes out read-only
+	- ID: 2026092813365312
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 12
+	- Target OS: Windows, Python 3.13 and later
+	- Steps to reproduce: `attrib +r` a 2.x file, then `python main.py migrate --write --from-2x f.shcl`, then `attrib f_old_v2.shcl`.
+	- Incorrect behavior: expected, not yet seen. The copy is read-only, so a failed save cannot remove it, and the next run exits 8 on the taken name.
+	- Expected behavior: as Rust and Go, which skip the mode on Windows.
+	- Reproduced: No. Plausible, for the Windows batch. The guard is `hasattr(os, "fchmod")`, and Python 3.13 added `fchmod` on Windows. The library save guards the same call by `os.name`.
+	- Origin: `6c49d1b0`.
+	- Estimated effort: Low
+
+- On Windows, the `_old_v2` name for `C:.shclrc` puts the suffix in the wrong place
+	- ID: 2026092813365313
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 13
+	- Target OS: Windows
+	- Steps to reproduce: `shcl migrate -w C:.shclrc` on a 2.x file holding `a: "x\qy"`.
+	- Incorrect behavior: expected, not yet seen. The copy is named `C:_old_v2.shclrc`.
+	- Expected behavior: `C:.shclrc_old_v2`, since the function's own comment says a leading dot is part of the name.
+	- Reproduced: No. Plausible, read in the Rust CLI, for the Windows batch.
+	- Origin: `6c49d1b0`. The name starts after the last `/` or `\`, not after a drive.
+	- Sweep: `old_copy_name` in all four CLIs.
+	- Estimated effort: Low
+
+- Under Windows PowerShell 5.1, `install.ps1` may follow an https to http redirect for the release list
+	- ID: 2026092813365314
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 14
+	- Target OS: Windows, PowerShell 5.1
+	- Steps to reproduce: under `powershell.exe`, `Invoke-WebRequest -UseBasicParsing` on an https URL that redirects to plain http.
+	- Incorrect behavior: expected, not yet seen. .NET Framework follows it, so the release list that picks the tag could come over plain http. The download itself is still signature-checked.
+	- Expected behavior: 20260923 item 15 says `install.ps1` does not follow such a redirect. That is true for pwsh 7.
+	- Reproduced: No. Plausible, for the Windows batch.
+	- Origin: the claim is in 20260923 item 15's Swept line (`f96a80e0`).
+	- Estimated effort: Low
+
+- The dogfood runner's header still says stamps are UTC
+	- ID: 2026092813365315
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 15
+	- Version and build: dev at `f90708d8`
+	- Incorrect behavior: the header says the stamp is from the build's write time in UTC, and that names sort the same across a clock change. The settings comment below it says local time, and that a clock change can put a stamp out of order.
+	- Expected behavior: the header says local time.
+	- Reproduced: 20260928, by reading.
+	- Origin: `589926ba` wrote the sentence, and `ffb9ef9f` (stamps local) did not update it. Confirmed.
+	- Estimated effort: Low
+
+- One pool file with an impossible date stops the dogfood runner on every run
+	- ID: 2026092813365316
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 16
+	- Steps to reproduce: with one held build, create an empty `shcl_20261399-000000` in the pool and run the runner.
+	- Incorrect behavior: exit 1, "The DateTime represented by the string '20261399-000000' is not supported", and shcl never runs, `--no-update` included.
+	- Expected behavior: the runner's comment says anything else put in the directory is left alone.
+	- Reproduced: 20260928, by the sweep under pwsh 7 on Linux with a scratch HOME.
+	- Origin: `eefd1dba` (dogfood runner, 2026-09-24). The stamp is parsed with a call that throws. Not seen before. Confirmed.
+	- Estimated effort: Low
+
+- Help leaves out `kB` and the `--duration` and `--size` refusals with `--array`
+	- ID: 2026092813365317
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 17
+	- Version and build: dev at `f90708d8`
+	- Incorrect behavior: `--unit` takes `kB`, and the spec lists it, but the help, man page and both completion lists leave it out. The help's refusal paragraph names `--array with --raw or --rawinfo` only. The man page and the CLIs also refuse it with `--duration` and `--size`.
+	- Expected behavior: the help and completions list what the CLI takes and refuses.
+	- Reproduced: 20260928, by reading and running the Rust CLI. Help is identical in all four.
+	- Origin: `95bec7c1`. Confirmed.
+	- Estimated effort: Low
+
+- The closed-items Test check borrows a Test line from an unrelated item
+	- ID: 2026092813365318
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 18
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce: take both Test lines out of 20260924d idea 2 in a copy of the backlog, and run the check on it.
+	- Incorrect behavior: it passes. A closed item under a review round's heading bullet counts as covered when the last closed item above the round has a Test line. 20260925b idea 1 has none and passes that way today.
+	- Expected behavior: the check's comment says the Test line is the item's own or one under a closed item it sits in.
+	- Reproduced: 20260928, by the sweep on mutated copies.
+	- Origin: `8d15a2b4` (closed items check). The check takes the nearest shallower closed item as the parent, not the real one. Confirmed.
+	- Estimated effort: Low
+
+- Gate status lines can say `ok` for a test that failed or did not run
+	- ID: 2026092813365319
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 19
+	- Version and build: dev at `f90708d8`
+	- Incorrect behavior:
+		- crosscheck prints `ok` for every test, then refuses at its `--min` floor and exits 2. check-migrate does the same with its floors.
+		- Where a tool is missing, only the first test before the tool check prints `skip`. The tests inside the block print nothing, about 15 of them under pwsh.
+		- A test with a quiet skip inside prints `ok`: shell-regress's largedoc row, check-docs' ratio row, perf-gate when every baseline failed.
+		- sanitize-c drops the runners' FAIL lines along with ok and skip, so an ASan-only failure shows no name.
+	- Expected behavior: one true status line per test that runs, as the test ID rule says.
+	- Reproduced: 20260928, crosscheck by running it. The rest by reading.
+	- Origin: `831dfd58` and `c972bafd` (test ids). Confirmed for crosscheck, Plausible for the rest.
+	- Estimated effort: Avg
+
+- `config.bash` says the hosted gate does not install makensis, but it does, unpinned
+	- ID: 2026092813365320
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 20
+	- Version and build: dev at `f90708d8`
+	- Incorrect behavior: `ci.yml` installs `nsis` through apt, and shell-regress's nsis rows run hosted on whatever version the image has. check-pins leaves makensis out, on the comment's word.
+	- Expected behavior: the comment matches `ci.yml`, and a tool the hosted gate runs is pinned or its exemption says why.
+	- Reproduced: 20260928, by reading.
+	- Origin: `f372d6a3` (pins). Confirmed.
+	- Estimated effort: Low
+
+- Style: three small leftovers in the range
+	- ID: 2026092813365321
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 21
+	- Version and build: dev at `f90708d8`
+	- Incorrect behavior:
+		- The `drop_banners` doc comment in `lib.rs` has one line far longer than the rest.
+		- A comment in Rust's `do_set` breaks "20260924 item 7" across two lines.
+		- Go splits Rust's one `name_unit` into three functions. The style guide lists no such deviation.
+	- Expected behavior: the style guide and the Rust reference's structure.
+	- Reproduced: 20260928, by reading.
+	- Origin: `2c528a23`, `95bec7c1` and the setkeep merge. Confirmed.
+	- Estimated effort: Low
+
+- Escape more invisible characters on output
+	- ID: 2026092813365322
+	- Type: Enhancement
+	- Status: Queued
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 idea 1
+	- Requirements:
+		- The output escape list leaves out tag characters (U+E0000 to U+E007F, used to hide text in plain sight), U+00AD, U+180E, U+034F, U+206A to U+206F, U+FFF9 to U+FFFB and the Hangul fillers.
+		- Unicode's Default_Ignorable_Code_Point property is the usual list. Tags inside a flag sequence and variation selectors would need the same pass ZWJ gets.
+	- Note: the spec lists the escaped set, so this changes the format's output. It has to go in before `v3.0.0-beta1` or wait for another major.
+	- Estimated effort: Avg
+
+- A schema `min` and `max` could take the unit from the field name
+	- ID: 2026092813365323
+	- Type: Enhancement
+	- Status: Queued
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 idea 2
+	- Requirements:
+		- `hold-ms: 150` reads as 150 ms, but a schema `min: 100` on `hold-ms` is a V092 fault unless the schema also gives `unit`.
+		- Read a bare bound the way the document reads the value, from the field name's unit.
+	- Estimated effort: Low
+
+- Duration and size helpers in the bash and PowerShell bindings
+	- ID: 2026092813365324
+	- Type: Enhancement
+	- Status: Queued
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 idea 3
+	- Requirements: `shcl.bash` has a helper per `get` type (`shcl_int`, `shcl_datetime` and the rest), and no `shcl_duration` or `shcl_size`. `shcl.ps1` likewise.
+	- Estimated effort: Low
+
+- Late-fold H002 hints print after every other parse diagnostic
+	- ID: 2026092813365325
+	- Type: Enhancement
+	- Status: Queued
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 idea 4
+	- Requirements: `a: 1, 2`, `b: 0`, then `a:` with two stacked elements, then `c: [x]` prints line 6's E019 before line 3's H002. Nothing requires line order, but a sort by line at the end of the parse reads better. All four agree today.
+	- Estimated effort: Low
+
+- The dropped-line bookkeeping has an arm that cannot run
+	- ID: 2026092813365326
+	- Type: Enhancement
+	- Status: Queued
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 idea 5
+	- Requirements: the `Stopped` outcome in the `track_dropped` path never happens. Only the line-keeping save's reparse sets `track_dropped`, and it has no node cap. Remove it in all four, or say in a comment why it stays.
+	- Estimated effort: Low
+
+- `test-ids.py` passes a test in a place its tables do not know
+	- ID: 2026092813365327
+	- Type: Enhancement
+	- Status: Queued
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 idea 6
+	- Requirements: a `#[test]` in a Rust source file other than `lib.rs`, a Go test whose parameter is not `t`, or a test under `source/go/cmd/` gets no ID and is not flagged. Find every `#[test]` and `func Test` in any file, and fail on any it cannot place.
+	- Estimated effort: Low
+
+- The drop-ins tarball mode row passes on a checkout made under umask 077
+	- ID: 2026092813365328
+	- Type: Enhancement
+	- Status: Queued
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 idea 7
+	- Requirements: the row compares the tarball built under umask 077 with the checkout. When the checkout was itself made under 077, both match under the old tar line too. Check the modes themselves, 644 and 755.
+	- Estimated effort: Low
+
 - A line-keeping save deletes lines the load dropped, at exit 0
 	- ID: 2026092620255201
 	- Type: Bug
