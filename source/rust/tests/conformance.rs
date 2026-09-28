@@ -2321,6 +2321,21 @@ fn soup_inputs() -> Vec<String> {
 	out
 }
 
+/// Digits past 32 bits are not a 2.x file either, so they read as the current
+/// major, in every binding (20260926 item 9).
+#[test]
+fn format_version_caps_at_32_bits() {
+	let _id = test_id("Er7vwHi");
+	assert_eq!(
+		format_version("##    Format   4294967295\na: 1\n"),
+		Some(4294967295)
+	);
+	assert_eq!(
+		format_version("##    Format   4294967296\na: 1\n"),
+		Some(FORMAT_MAJOR)
+	);
+}
+
 /// A setter writes only what reads back. Each one builds its text through the
 /// emitter and hands it to the tokenizer before the document is touched, so
 /// for every input either the call refuses and the document is byte-identical,

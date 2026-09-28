@@ -241,7 +241,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - `FormatVersion` in Go, Python and C reads Format numbers past 2^32 that Rust reads as the current major
 	- ID: 2026092620255209
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 9
@@ -252,11 +252,18 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Note: `migrate` is unaffected, since any value of 3 or more is current. Rust is the odd one out, so widening its type may be the smaller fix.
 	- Origin: `c62b3a5` (2026-09-24) made it public. Confirmed.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Decisions:
+		- 20260927: C already capped at 32 bits the way Rust does, so Go and Python came in line with those two. No public type changed.
+	- Actual fix: Go and Python read digits past 32 bits as the current major, and the helper comments in three bindings say 32 bits.
+	- Swept: the version parse in all four; `migrate` goes through the same helper.
+	- Branch: `fmtver`
+	- Test case: `format_version_caps_at_32_bits` in all four runners. The Go and Python ones fail on the old code.
 
 - Man page and README lag three changes
 	- ID: 2026092620255210
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 10
@@ -267,6 +274,11 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Reproduced: 20260926, the first against all four CLIs, the rest by reading.
 	- Origin: as listed. Confirmed.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: the man page's `children`, MIGRATING and exit 7 entries, and the README's `migrate` list.
+	- Swept: help text, spec and design.md already said the same.
+	- Branch: `fmtver`
+	- Test case: none. Prose, checked against the spec by reading.
 
 - The dogfood runner stamps builds in local time and the current culture
 	- ID: 2026092620255211

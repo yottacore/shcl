@@ -2496,6 +2496,14 @@ int main(int argc, char **argv) {
 		}
 		shcl_free(every);
 	}
+	test_id("Er7vwLo", "format_version_caps_at_32_bits");
+	/* Digits past 32 bits are not a 2.x file either, so they read as the
+	   current major, in every binding (20260926 item 9). */
+	{
+		const char *a = "##    Format   4294967295\na: 1\n", *b = "##    Format   4294967296\na: 1\n";
+		if (shcl_format_version(a, strlen(a)) != 4294967295LL) fail("format_version_caps_at_32_bits", "4294967295 did not read as itself");
+		if (shcl_format_version(b, strlen(b)) != SHCL_FORMAT_MAJOR) fail("format_version_caps_at_32_bits", "4294967296 did not read as the current major");
+	}
 	test_id("EonWXt2", "edits_and_merges_match_a_reload");
 	edits_and_merges_match_a_reload();
 	test_id("Er7o9rQ", "compact_keeps_generation_faults");

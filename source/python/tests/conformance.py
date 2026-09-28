@@ -2381,6 +2381,14 @@ def main():
 	if nbspans != [(1, 3)]:
 		raise SystemExit(f"tokenize_value from a mid-character offset gave {nbspans}, want [(1, 3)]")
 
+	test_id("Er7vwKQ", "format_version_caps_at_32_bits")
+	# Digits past 32 bits are not a 2.x file either, so they read as the
+	# current major, in every binding (20260926 item 9).
+	if shcl.format_version("##    Format   4294967295\na: 1\n") != 4294967295:
+		raise SystemExit("format_version: 4294967295 did not read as itself")
+	if shcl.format_version("##    Format   4294967296\na: 1\n") != shcl.FORMAT_MAJOR:
+		raise SystemExit("format_version: 4294967296 did not read as the current major")
+
 	test_id("EpFxQH3", "tokenizer_helpers_are_module_level")
 	# The tokenizer's helpers are module level. Defined inside it they would
 	# be rebuilt, with a fresh cell each, once per document line.

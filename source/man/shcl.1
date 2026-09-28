@@ -188,8 +188,9 @@ one per line, in file order and with duplicates kept. With
 .I PATH
 left out, the top level. Each name is printed in the form a path accepts, so a
 name holding a dot or a quote can be spliced straight back into a lookup path.
-A path that does not resolve, one that resolves to several instances, and a node
-with no children all print nothing and exit 0; ask
+A path that resolves to several instances lists the children of each in turn.
+A path that does not resolve and a node with no children both print nothing
+and exit 0; ask
 .B count
 when the difference matters.
 .TP
@@ -705,15 +706,20 @@ leaves it and exits 7 rather than reporting success;
 .B \-\-lossy
 accepts the loss on a rewrite.
 .PP
-Two edges read differently, and
+Three edges read differently, and
 .B migrate
-leaves both as written. A fence label holding a
+leaves all three as written. A fence label holding a
 .B #
 ran to the end of the line in 2.x and ends at the
 .B #
 now, with the rest as the line's comment; a label has no quoting, so rename it.
-And a carriage return in the middle of a line, at the edge of a piece, was
-content in 2.x and is trimmed now.
+A carriage return in the middle of a line, at the edge of a piece, was content
+in 2.x and is trimmed now. And an indent that matches no open level's column,
+which 2.x placed by a looser comparison, is
+.B E012
+now; re-indent it by hand.
+.B migrate \-\-write
+exits 7 while the migrated text holds such a line.
 .SH EXIT STATUS
 .TP
 .B 0
@@ -750,7 +756,8 @@ overrides), or
 .B migrate
 left something behind: values it cannot decide between the two rule sets
 .RB ( \-\-from\-2x
-decides them), or a 2.x binding with no spelling here.
+decides them), a 2.x binding with no spelling here, or a line whose indent
+matches no open level.
 .TP
 .B 8
 A file or stream could not be read or written \- it is missing, unreadable,
