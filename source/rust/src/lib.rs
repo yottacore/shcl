@@ -6039,12 +6039,17 @@ fn not_a_disk_file(path: &std::path::Path) -> bool {
 			full.as_mut_ptr(),
 			std::ptr::null_mut(),
 		) as usize;
+		// A drive after the prefix is a volume path to a file that is not
+		// there yet, which a create has to be let through (20260926 item 8).
+		let drive =
+			full[4] < 128 && (full[4] as u8).is_ascii_alphabetic() && full[5] == u16::from(b':');
 		n > 0
 			&& n < MAX_PATH
 			&& full[0] == u16::from(b'\\')
 			&& full[1] == u16::from(b'\\')
 			&& full[2] == u16::from(b'.')
 			&& full[3] == u16::from(b'\\')
+			&& !drive
 	}
 }
 

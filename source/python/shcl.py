@@ -6646,9 +6646,13 @@ def _not_a_disk_file(path):
 		st = os.stat(path)
 	except (OSError, ValueError):
 		try:
-			return os.path.abspath(path).startswith("\\\\.\\")
+			full = os.path.abspath(path)
 		except (OSError, ValueError):
 			return False
+		# A drive after the prefix is a volume path to a file that is not
+		# there yet, which a create has to be let through (20260926 item 8).
+		drive = len(full) >= 6 and full[4].isascii() and full[4].isalpha() and full[5] == ":"
+		return full.startswith("\\\\.\\") and not drive
 	return not stat.S_ISREG(st.st_mode) and not stat.S_ISDIR(st.st_mode)
 
 

@@ -9574,8 +9574,11 @@ static int shcl_not_a_disk_file(const char *path) {
 	wchar_t full[MAX_PATH];
 	DWORD n = GetFullPathNameW(w, MAX_PATH, full, NULL);
 	free(w);
+	// A drive after the prefix is a volume path to a file that is not there
+	// yet, which a create has to be let through (20260926 item 8).
+	int drive = n >= 6 && ((full[4] >= L'A' && full[4] <= L'Z') || (full[4] >= L'a' && full[4] <= L'z')) && full[5] == L':';
 	return n > 0 && n < MAX_PATH
-	       && full[0] == L'\\' && full[1] == L'\\' && full[2] == L'.' && full[3] == L'\\';
+	       && full[0] == L'\\' && full[1] == L'\\' && full[2] == L'.' && full[3] == L'\\' && !drive;
 }
 // The path a save actually rewrites. A symlink or junction is followed, so a
 // save through a linked-in config replaces the file it points at rather than

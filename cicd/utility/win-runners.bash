@@ -282,6 +282,24 @@ fRunUninstallLock() {
 	[[ ! -e "${dir}/code" ]] || { echo "win-runners: uninstall lock: the emptied code dir was left" >&2; return 1; }
 }
 
+## 20260924 item 7: Windows PowerShell 5.1 puts a BOM in front of text it pipes
+## to a program when $OutputEncoding carries one, as it does on a UTF-8 console,
+## and `set` then read the first op as unknown. Piped the way a user types it.
+fRunOpsBom51() {
+	local f="${work}/bom51.shcl" ps="${work}/bom51.ps1" out
+	cargo build --quiet --manifest-path source/rust/Cargo.toml || return 1
+	printf 'a: 1\n' > "${f}"
+	#  shellcheck disable=2016  ## PowerShell's own $variables, quoted so bash leaves them alone.
+	{
+		echo '$OutputEncoding = [System.Text.Encoding]::UTF8'
+		echo "\"int\`tk\`t5\" | & '$(cygpath -w source/rust/target/debug/shcl.exe)' set --write '$(cygpath -w "${f}")'"
+		echo 'exit $LASTEXITCODE'
+	} > "${ps}"
+	out="$(powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "${ps}")" 2>&1)" \
+		|| { echo "win-runners: ops bom 5.1: ${out}" >&2; return 1; }
+	grep -q '^k: 5' "${f}" || { echo "win-runners: ops bom 5.1: the op did not apply: $(cat "${f}")" >&2; return 1; }
+}
+
 ## Fuzz iterations stay at the in-test default: the long soak is the Linux gate's
 ## job, and nothing about it is platform-dependent.
 ##	A windows device name is not something a save may replace, and until
@@ -352,6 +370,7 @@ fRun --id EqS4fJz "devices python" "${py}"       fDevicesPython
 case "$(uname -s 2>/dev/null || true)" in
 	MINGW*|MSYS*|CYGWIN*)
 		fRun --id EqbvAmG "uninstall lock" "" fRunUninstallLock
+		fRun --id Er8M8AX "ops bom 5.1" "cargo" fRunOpsBom51
 		if [[ -n "${WINRUN_PARTIAL:-}" ]]; then fRunWinpathSandbox
 		else fRun "windows path" "" powershell -NoProfile -ExecutionPolicy Bypass -File cicd/utility/winpath-regress.ps1
 		fi

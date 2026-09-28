@@ -793,11 +793,15 @@ def write_target_ok(file):
 		# full path shows.
 		if sys.platform == "win32":
 			try:
-				if os.path.abspath(file).startswith("\\\\.\\"):
-					sys.stderr.write(f"{file}: not a regular file\n")
-					return False
+				full = os.path.abspath(file)
 			except (OSError, ValueError):
-				pass
+				return True
+			# A drive after the prefix is a volume path to a file that is not
+			# there yet, which a create has to be let through (20260926 item 8).
+			drive = len(full) >= 6 and full[4].isascii() and full[4].isalpha() and full[5] == ":"
+			if full.startswith("\\\\.\\") and not drive:
+				sys.stderr.write(f"{file}: not a regular file\n")
+				return False
 		return True
 	if not stat.S_ISREG(st.st_mode) and not stat.S_ISDIR(st.st_mode):
 		sys.stderr.write(f"{file}: not a regular file\n")

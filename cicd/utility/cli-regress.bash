@@ -1206,6 +1206,25 @@ else
 	done
 fi
 
+## 20260926 item 8: a new file named through a volume path, \\.\C:\dir\new,
+## was refused as not a regular file: with nothing there to open, the check fell
+## to the full path, and any \\.\ there read as a device.
+fTest Er8M01L windows-volume-path-create
+if [[ "${onWindows}" == 1 ]]; then
+	winTmp="$(cygpath -w "${tmpDir}")"
+	for b in "${bindings[@]}"; do
+		name="${b%%|*}"; cli="${b#*|}"
+		rm -f "${tmpDir}/volnew.shcl"
+		rc=0; timeout "${rowSecs}" "${cli}" set --write "\\\\.\\${winTmp}\\volnew.shcl" --set=a=2 >/dev/null 2>"${tmpDir}/err" </dev/null || rc=$?
+		nRun+=1
+		if [[ "${rc}" != 0 || "$(cat "${tmpDir}/volnew.shcl" 2>/dev/null || true)" != *"a: 2"* ]]; then
+			echo "cli-regress: windows-volume-path-create [${name}]: exit ${rc}: $(head -c 200 "${tmpDir}/err")" >&2; nBad+=1
+		fi
+	done
+else
+	fTestSkip
+fi
+
 ## 20260716 item 26: the C CLI's own allocations went unchecked, so running out
 ## of memory was a segfault where the library's path exits 70. Two inputs under
 ## an address-space cap: one too big to read, which is the CLI's own buffer, and
