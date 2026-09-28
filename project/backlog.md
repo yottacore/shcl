@@ -32,6 +32,29 @@ Going forward, new issues in the new template at the bottom of this file, will g
 
 ## New format
 
+- The dogfood runner stamps builds in local time and the current culture
+	- ID: 2026092620255211
+	- Type: Bug
+	- Status: Waiting on signoff
+	- Severity: Low
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 item 11
+	- Steps to reproduce: a scratch HOME, then `LC_ALL=th_TH.UTF-8 pwsh -NoProfile -File utility/dogfood_shcl.ps1 version` three times.
+	- Incorrect behavior: the held name jumps 543 years on each run, and a newer build is never copied in. Across a fall DST change a later build can sort as older and is skipped the same way.
+	- Expected behavior: a stable name, and the newest build runs. The stamp is written in the current culture and read back as invariant, which the tree's PowerShell traps warn about.
+	- Reproduced: 20260926, pwsh on Linux.
+	- Origin: `eefd1db` (2026-09-24). Confirmed.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Decisions:
+		- 20260927: stamps are the build's write time in UTC, written and read in the invariant culture, and the period keys too. A pool from before keeps its local-time names, so its newest may look a few hours off once.
+		- 20260928-094425: Correction: Times should be local, even if crossing timezones and DST changes results in times that are off. But the name shouldn't jump between runs (except for actual local time advancing), let alone 543 years.
+		- 20260928: back to local time, still written and read in the invariant culture. After a fall DST change or a move west, a build made in the repeated hours sorts older than the one before it, so it is skipped until the clock passes that stamp.
+	- Actual fix: `$Invariant` in `dogfood_shcl.ps1`. Reopened fix: `LastWriteTime` and `Get-Date` in place of their UTC forms.
+	- Swept: every `ToString` and `ParseExact` in the runner.
+	- Branch: `dogfood`, reopened on `stamplocal`
+	- Test case: `shell-regress.bash` row `20260926-item11-dogfood-stamp-culture`, under th-TH and `Asia/Bangkok`. It fails on the original runner, which drifts by 543 years a run, and on the UTC one. The other dogfood rows pin `TZ=UTC`.
+
 - The C++ interface is a full binding of its own, with the C interface kept out of sight
 	- ID: 2026092617331100
 	- Type: Done
@@ -300,29 +323,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Swept: help text, spec and design.md already said the same.
 	- Branch: `fmtver`
 	- Test case: none. Prose, checked against the spec by reading.
-
-- The dogfood runner stamps builds in local time and the current culture
-	- ID: 2026092620255211
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Opened: 20260926-202552
-	- Opened by: Code review 20260926 item 11
-	- Steps to reproduce: a scratch HOME, then `LC_ALL=th_TH.UTF-8 pwsh -NoProfile -File utility/dogfood_shcl.ps1 version` three times.
-	- Incorrect behavior: the held name jumps 543 years on each run, and a newer build is never copied in. Across a fall DST change a later build can sort as older and is skipped the same way.
-	- Expected behavior: a stable name, and the newest build runs. The stamp is written in the current culture and read back as invariant, which the tree's PowerShell traps warn about.
-	- Reproduced: 20260926, pwsh on Linux.
-	- Origin: `eefd1db` (2026-09-24). Confirmed.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Decisions:
-		- 20260927: stamps are the build's write time in UTC, written and read in the invariant culture, and the period keys too. A pool from before keeps its local-time names, so its newest may look a few hours off once.
-		- 20260928-094425: Correction: Times should be local, even if crossing timezones and DST changes results in times that are off. But the name shouldn't jump between runs (except for actual local time advancing), let alone 543 years.
-		- 20260928: back to local time, still written and read in the invariant culture. After a fall DST change or a move west, a build made in the repeated hours sorts older than the one before it, so it is skipped until the clock passes that stamp.
-	- Actual fix: `$Invariant` in `dogfood_shcl.ps1`. Reopened fix: `LastWriteTime` and `Get-Date` in place of their UTC forms.
-	- Swept: every `ToString` and `ParseExact` in the runner.
-	- Branch: `dogfood`, reopened on `stamplocal`
-	- Test case: `shell-regress.bash` row `20260926-item11-dogfood-stamp-culture`, under th-TH and `Asia/Bangkok`. It fails on the original runner, which drifts by 543 years a run, and on the UTC one. The other dogfood rows pin `TZ=UTC`.
 
 - The drop-ins tarball's file modes follow the checkout's umask
 	- ID: 2026092620255212
@@ -10116,7 +10116,12 @@ New issue format:
 
 - The ID is the local time to the hundredth of a second. Opened is when it was written down, which may differ. (Use a keyboard macro and possibly something like project 'zuid' to generate.)
 
-- Status values, in sort order: Started, Testing, Waiting on signoff, Stalled, Queued, Deferred, Done, Moot, Canceled. Testing means the fix is in and checks are running or still to run. Waiting on signoff means testing passed. Moot means something else changed and made it irrelevant. Canceled means it still applies but was decided against.
+- Status values meaning: Testing means the fix is in and checks are running or still to run. Waiting on signoff means automated testing passed. Moot means something else changed that made it irrelevant. Canceled means it still applies but was decided against.
+
+- As issues are worked, and statuses change, place them in correct sorting order within the list:
+	- First by status: Waiting on signoff, Testing, Stalled, Started, Queued, Done, Deferred, Canceled, Moot
+	- Then by type: Bugs, [not bugs together]
+	- Then by severity|priority: Critical, High, Avg, Low
 
 - Rows marked [Bug] are for bugs only, and rows marked [Feature] for features and enhancements. Children are not nested. They sit at the top level and point back with Parent ID.
 
