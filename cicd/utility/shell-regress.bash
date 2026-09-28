@@ -769,6 +769,12 @@ nBadBefore="${nBad}"
 	exit $((nBad - nBadBefore))
 ) || nBad=$((nBad + 1))
 
+fTest Er8AaLE 20260924d-idea2-uninstall-nothing-there
+##	20260924d idea 2: --uninstall said "removed" in a home with no install.
+nh="${tmpDir}/nothinghome"; mkdir -p "${nh}"
+out="$(HOME="${nh}" bash "${repoDir}/install.bash" --uninstall --target=user --yes 2>&1 || true)"
+[[ "${out}" == *"nothing to remove"* && "${out}" != *removed* ]] || fBad "install.bash --uninstall with nothing installed said: ${out@Q}"
+
 fTest EonXwm8 20260901b-34-uninstall-globs-as-root
 ##	20260901b item 34: the uninstall's payload globs used to expand in the
 ##	unprivileged shell that called sudo, so a system tree only root could list
@@ -1031,13 +1037,20 @@ def serve(name, redirect_to):
 				self.send_response(302); self.send_header('Location', redirect_to() + self.path)
 				self.send_header('Content-Length', '0'); self.end_headers()
 				return
+			if redirect_to and self.path.startswith('/tohttp'):
+				self.send_response(302); self.send_header('Location', f'http://127.0.0.1:{plain.server_address[1]}' + self.path)
+				self.send_header('Content-Length', '0'); self.end_headers()
+				return
 			self.send_response(200); self.send_header('Content-Length', '2'); self.end_headers(); self.wfile.write(b'ok')
 		def log_message(self, *a):
 			pass
 	srv = http.server.HTTPServer(('127.0.0.1', 0), H)
-	ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); ctx.load_cert_chain(f'{d}/cert.pem', f'{d}/key.pem')
-	srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
+	if name != 'plain':
+		ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); ctx.load_cert_chain(f'{d}/cert.pem', f'{d}/key.pem')
+		srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
 	return srv
+plain = serve('plain', None)
+threading.Thread(target=plain.serve_forever, daemon=True).start()
 asset = serve('asset', None)
 origin = serve('origin', lambda: f'https://localhost:{asset.server_address[1]}')
 threading.Thread(target=asset.serve_forever, daemon=True).start()
@@ -1048,7 +1061,7 @@ SRVEOF
 	for _ in {1..50}; do [[ -s "${tdir}/port" ]] && break; sleep 0.1; done
 	printf 'ca_certificate = %s\n' "${tdir}/cert.pem" > "${tdir}/wgetrc"
 	for tool in curl wget; do
-		defs="$(sed -n "/^\tfFetch() { ${tool} /p;/^\tfFetchApi() { ${tool} /p;/^\tfApiStatus() { ${tool} /p" "${repoDir}/install.bash")"
+		defs="$(sed -n "/^\tfWget() { ${tool} /p;/^\tfWget() { local /p;/^\tfFetch() { /p;/^\tfFetchApi() { /p;/^\tfApiStatus() { ${tool} /p" "${repoDir}/install.bash" | { if [[ "${tool}" == curl ]]; then grep -v 'fWget\|() { wget '; else grep -v '() { curl '; fi; } || true)"
 		(
 			eval "${defs}"
 			export GITHUB_TOKEN=regress-token CURL_CA_BUNDLE="${tdir}/cert.pem" WGETRC="${tdir}/wgetrc"
@@ -1065,7 +1078,42 @@ SRVEOF
 		[[ "$(grep -c "^/api/${tool} auth=Bearer regress-token$" "${tdir}/origin.log" 2>/dev/null || true)" == "2" ]] \
 			|| fBad "install.bash's ${tool} API calls did not both carry GITHUB_TOKEN"
 	done
+else
+	fTestSkip
+fi
+
+fTest Er88Qfn 20260923-15-no-plain-http-redirect
+##	20260923 item 15: wget's --https-only covers recursive downloads only, so
+##	a download the server redirected to plain http went through at exit 0. The
+##	same listeners, with the https one redirecting to a plain one: every fetch
+##	line in both installers refuses it and leaves no file.
+if [[ -n "${tokenPid:-}" ]]; then
+	for inst in install.bash install-dev.bash; do
+		for tool in curl wget; do
+			defs="$(sed -n "/^\tfWget() { local /p;/^\tfFetch() { /p;/^\tfFetchApi() { /p" "${repoDir}/${inst}" | { if [[ "${tool}" == curl ]]; then grep -v 'fWget\|() { wget '; else grep -v '() { curl '; fi; } || true)"
+			rc=0
+			(
+				eval "${defs}"
+				CURL_CA_BUNDLE="${tdir}/cert.pem" WGETRC="${tdir}/wgetrc" fFetch "https://127.0.0.1:$(cat "${tdir}/port")/tohttp/${tool}" "${tdir}/http-${tool}"
+			) 2>/dev/null || rc=$?
+			((rc != 0)) || fBad "${inst}'s ${tool} fetch followed a redirect to plain http at exit 0"
+			[[ ! -e "${tdir}/http-${tool}" ]] || fBad "${inst}'s ${tool} fetch left the plain-http download behind"
+			rm -f "${tdir}/http-${tool}"
+		done
+	done
 	kill "${tokenPid}" 2>/dev/null || true
+else
+	fTestSkip
+fi
+
+fTest Er8APUs 20260926-install-ps1-iex-in-a-script
+##	Test-gap audit: install.ps1 piped into iex from inside a script took the
+##	caller for its own file, so a failure ran `exit` and ended the caller. On
+##	Linux it refuses at once, which is the failure used here.
+if fHave pwsh; then
+	printf '%s\n' "try { Get-Content '${repoDir}/install.ps1' -Raw | iex } catch { 'caught' }" "'after'" > "${tmpDir}/iexcaller.ps1"
+	out="$(env -u DISPLAY -u WAYLAND_DISPLAY pwsh -NoProfile -File "${tmpDir}/iexcaller.ps1" 2>/dev/null || true)"
+	[[ "${out}" == *caught*after* ]] || fBad "install.ps1 under iex in a script ended the caller: ${out@Q}"
 else
 	fTestSkip
 fi
@@ -2351,7 +2399,8 @@ fTest Er20EK9 20260819-1-remote-sync-stage
 ##	so upstream work went out never built here. Stage 0 comes out of cicd.bash
 ##	by text and runs on clones of a scratch remote: diverged stops, behind
 ##	fast-forwards around a stashed edit, and a stash that will not go back
-##	stops with the work kept.
+##	stops with the work kept. An untracked file upstream also adds is stashed
+##	too, so the fast-forward goes through (20260923 item 14).
 syncBlock="$(sed -n '/^if ((sync_enable)); then$/,/^fi$/p' "${repoDir}/cicd/cicd.bash")"
 if [[ "${syncBlock}" == *"Remote sync"* && "${syncBlock}" == *"merge --ff-only"* ]]; then
 	out="$(
@@ -2368,8 +2417,8 @@ if [[ "${syncBlock}" == *"Remote sync"* && "${syncBlock}" == *"merge --ff-only"*
 		}
 		git init -q --bare -b main "${sb}/remote.git"
 		fClone "${sb}/up"; fCommit "${sb}/up" f 1; fCommit "${sb}/up" g 1; git -C "${sb}/up" push -q -u origin HEAD 2>/dev/null
-		for c in div conflict other untracked; do fClone "${sb}/${c}"; done
-		fCommit "${sb}/up" f 2; git -C "${sb}/up" push -q 2>/dev/null
+		for c in div conflict other untracked clash; do fClone "${sb}/${c}"; done
+		fCommit "${sb}/up" f 2; fCommit "${sb}/up" h 2; git -C "${sb}/up" push -q 2>/dev/null
 		fCommit "${sb}/div" g 3
 		echo 9 > "${sb}/conflict/f"
 		echo 9 > "${sb}/other/g"
@@ -2378,14 +2427,19 @@ if [[ "${syncBlock}" == *"Remote sync"* && "${syncBlock}" == *"merge --ff-only"*
 		fSync "${sb}/conflict"; git -C "${sb}/conflict" stash list | wc -l
 		fSync "${sb}/other"; cat "${sb}/other/f" "${sb}/other/g"
 		fSync "${sb}/untracked"
+		echo 9 > "${sb}/clash/h"
+		fSync "${sb}/clash"; git -C "${sb}/clash" stash list | wc -l; cat "${sb}/clash/f"
 	)" || true
-	syncWant="DIE: main and origin/main have diverged (1 local, 1 remote); reconcile by hand
+	syncWant="DIE: main and origin/main have diverged (1 local, 2 remote); reconcile by hand
 DIE: the local changes conflict with origin/main; they are safe in the stash - resolve, then 'git stash drop'
 1
-OK: fast-forwarded 1 commit(s) from origin/main
+OK: fast-forwarded 2 commit(s) from origin/main
 2
 9
-OK: fast-forwarded 1 commit(s) from origin/main"
+OK: fast-forwarded 2 commit(s) from origin/main
+DIE: the local changes conflict with origin/main; they are safe in the stash - resolve, then 'git stash drop'
+1
+2"
 	[[ "${out}" == "${syncWant}" ]] || fBad "cicd.bash's remote sync did not stop, fast-forward and keep the work as it should: ${out@Q}"
 else
 	fBad "cicd.bash no longer carries its remote sync stage as one if-block"
@@ -2678,7 +2732,9 @@ fTest EqzwPFO 20260829-20-no-terminal-prompt
 ##	the same way in check-install-dev.bash; the install prompt waits on the
 ##	network, so every site is also held to the order.
 if fHave setsid; then
-	mkdir -p "${tmpDir}/ttyhome"
+	## An install dir to remove, or the uninstall says there is nothing to do
+	## before it asks.
+	mkdir -p "${tmpDir}/ttyhome/.local/share/shcl"
 	rc=0; HOME="${tmpDir}/ttyhome" setsid -w bash "${repoDir}/install.bash" --uninstall --target=user >/dev/null 2>"${tmpDir}/tty.err" </dev/null || rc=$?
 	[[ "${rc}" == 1 && "$(head -n1 "${tmpDir}/tty.err")" == "install.bash: no terminal to confirm on - pass --yes" ]] \
 		|| fBad "install.bash with no terminal does not say so first (exit ${rc}): $(head -n1 "${tmpDir}/tty.err")"

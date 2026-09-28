@@ -333,8 +333,11 @@ if ((sync_enable)); then
 		if   ((ahead && behind)); then fDie "${branch} and ${upstream} have diverged (${ahead} local, ${behind} remote); reconcile by hand"
 		elif ((behind)); then
 			## Stash-wrapped: the working tree is routinely dirty here, and a
-			## fast-forward can refuse rather than touch a modified file.
+			## fast-forward can refuse rather than touch a modified file. An
+			## untracked file counts, as in the publisher: one upstream also adds
+			## stops the fast-forward (20260923 item 14).
 			dirty=0; git -C "${root}" diff --quiet && git -C "${root}" diff --cached --quiet || dirty=1
+			[[ -n "$(git -C "${root}" ls-files --others --exclude-standard || true)" ]] && dirty=1
 			((dirty)) && git -C "${root}" stash push --quiet --include-untracked --message "cicd sync ${stamp}"
 			ff=0; git -C "${root}" merge --ff-only --quiet "${upstream}" && ff=1
 			## A pop that conflicts writes conflict markers into the tree, so it

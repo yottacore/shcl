@@ -51,7 +51,7 @@
 
 set -euo pipefail
 
-installer_version="1.1.0"
+installer_version="1.1.1"
 REPO="yottacore/shcl"
 release="stable"
 target="user"
@@ -166,8 +166,12 @@ if command -v curl >/dev/null; then
 	fFetchApi() { curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 ${GITHUB_TOKEN:+-H "Authorization: Bearer ${GITHUB_TOKEN}"} -o "$2" "$1"; }
 	fApiStatus() { curl -fsS -o /dev/null -w '%{http_code}' --proto '=https' --tlsv1.2 ${GITHUB_TOKEN:+-H "Authorization: Bearer ${GITHUB_TOKEN}"} "$1" 2>/dev/null || true; }
 elif command -v wget >/dev/null; then
-	fFetch() { wget -q --https-only --secure-protocol=TLSv1_2 -O "$2" "$1"; }
-	fFetchApi() { wget -q --https-only --secure-protocol=TLSv1_2 ${GITHUB_TOKEN:+--header="Authorization: Bearer ${GITHUB_TOKEN}"} -O "$2" "$1"; }
+	## wget's --https-only covers recursive downloads only, so a redirect to
+	## plain http went through. Its own record of each response names every hop,
+	## and a plain-http Location refuses the file.
+	fWget() { local hops rc=0; { hops="$(wget -q --https-only --secure-protocol=TLSv1_2 --server-response "$@" 2>&1 >&3 3>&-)" || rc=$?; } 3>&1; if grep -qiE '^[[:space:]]*Location:[[:space:]]*http:' <<< "${hops}"; then echo "refused a redirect to plain http" >&2; return 1; fi; return "${rc}"; }
+	fFetch() { fWget -O "$2" "$1" || { rm -f -- "$2"; return 1; }; }
+	fFetchApi() { fWget ${GITHUB_TOKEN:+--header="Authorization: Bearer ${GITHUB_TOKEN}"} -O "$2" "$1" || { rm -f -- "$2"; return 1; }; }
 	fApiStatus() { wget -q --https-only --secure-protocol=TLSv1_2 ${GITHUB_TOKEN:+--header="Authorization: Bearer ${GITHUB_TOKEN}"} --server-response -O /dev/null "$1" 2>&1 | awk '/^  HTTP/ { code = $2 } END { print code }'; }
 else
 	fDie "need curl or wget"
@@ -224,6 +228,20 @@ fRemoveLaidDown(){   ## fRemoveLaidDown DEST
 ## symlinks, the binary, and the payload files, then each directory if it is
 ## empty. Never a recursive delete of a path the user may have pointed elsewhere.
 if (( uninstall )); then
+	## Nothing of an install at this target: say so, rather than "removed". A
+	## system install from before user became the default is the usual case.
+	ours=0
+	[[ -e "${dest}" ]] && ours=1
+	[[ -L "${link}" && "$(readlink -- "${link}")" == "${dest}/"* ]] && ours=1
+	[[ -L "${manlink}" && "$(readlink -- "${manlink}")" == "${dest}/"* ]] && ours=1
+	if (( ! ours )); then
+		printf 'nothing to remove: no shcl install under %s\n' "${dest}"
+		if [[ "${target}" == user && -e /opt/shcl ]]; then
+			echo "a system install is in /opt/shcl; --target=system removes that one"
+		fi
+		echo
+		exit 0
+	fi
 	printf 'removing shcl: %s, %s and %s\n' "${dest}" "${link}" "${manlink}"
 	if (( ! assume_yes )); then
 		reply=""

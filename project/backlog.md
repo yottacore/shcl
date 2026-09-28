@@ -656,15 +656,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 
 ## Bugs
 
-- From the test-gap audit:
-
-	- 🔘 `install.ps1` run through `irm | iex` inside a script ends that script when the install fails.
-		- Reproduced: under `iex`, `$MyInvocation.MyCommand` is the caller's `.ps1`, so `$invokedAsFile` is true and a failure runs `exit 1`. The uninstall hint names the caller's script too. Typed at a prompt, it works.
-		- Rests on: 20260829 item 16, the installer never ends the caller's session.
-		- Note: fails loudly. The documented one-liner is typed at a prompt.
-		- Origin: 20260829 item 16's fix. Confirmed.
-		- Opened: 20260926-101656
-
 - Code review 20260924d:
 
 	- 🔘 Item 5: on Windows the dogfood runner's fixed name is `%LOCALAPPDATA%\Programs\shcl.exe`, which is neither where a user install goes nor on PATH.
@@ -688,27 +679,11 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Origin: the late fold, 2026-08-03. Not seen before. Confirmed.
 		- Opened: 20260923-145138
 
-	- 🔘 Item 14: the sync stage does not count untracked files when it decides to stash.
-		- Reproduced: an untracked file that upstream also adds. The stage sees a clean tree, and the fast-forward fails where a stash would have let it through. Nothing is lost.
-		- Note: the publisher got this fix on 2026-09-23 (`035dfb7`). The stash here is already `--include-untracked`.
-		- Origin: the sync stage, 2026-08-19. The sibling of the publisher fix. Confirmed.
-		- Opened: 20260923-145138
-
-	- 🔘 Item 15: the installers say https is pinned through redirects, but wget's `--https-only` does nothing for a single download.
-		- Reproduced with a local TLS listener that redirects to http: wget with the installers' flags fetches it at exit 0, and curl refuses.
-		- Note: the release payload is still checked against the signed sums file. The API listing that picks the tag, the rustup script in `install-dev.bash` and the fetched pins file are not.
-		- Origin: 2026-07-25. Confirmed.
-		- Opened: 20260923-145138
-
 ## Features and enhancements
 
 **Stop here for a release cut**.
 
 - Code review 20260924d:
-
-	- 🔘 Idea 2: `install.bash --uninstall` says it removed shcl when nothing was there.
-		- Note: seen in an empty scratch HOME. With `user` now the default, a 1.0-era system install gets the same message and stays.
-		- Opened: 20260924-190225
 
 	- 🔘 Idea 4: `dogfood_shcl.ps1` has no `#Requires -Version 7.0`.
 		- Note: started directly under 5.1, `$IsWindows` is empty, so it searches the Linux dirs and says no build is held.
@@ -736,6 +711,17 @@ Going forward, new issues in the new template at the bottom of this file, will g
 ### Done - Bugs
 
 - From the test-gap audit:
+
+	- ✅ `install.ps1` run through `irm | iex` inside a script ends that script when the install fails.
+		- Reproduced: under `iex`, `$MyInvocation.MyCommand` is the caller's `.ps1`, so `$invokedAsFile` is true and a failure runs `exit 1`. The uninstall hint names the caller's script too. Typed at a prompt, it works.
+		- Rests on: 20260829 item 16, the installer never ends the caller's session.
+		- Note: fails loudly. The documented one-liner is typed at a prompt.
+		- Origin: 20260829 item 16's fix. Confirmed.
+		- Fixed: a file run is one where `$MyInvocation` names a script and `$PSCommandPath` is that script. Under iex from a script, `$PSCommandPath` is empty. Installer 1.1.2.
+		- Test case: `shell-regress.bash` row `20260926-install-ps1-iex-in-a-script`, which pipes it into iex inside a script on Linux, where it refuses at once. It fails on the old installer.
+		- Note: not yet run under Windows PowerShell 5.1.
+		- Opened: 20260926-101656
+		- Closed: 20260927-195730
 
 	- ✅ 53 closed bugs had no regression test in CI where one could exist.
 		- Fixed: a test for each, watched to fail against the old behavior. Corpus 163 to 169, runner fixtures in the three ports, C memory bounds, a veneer compile-fail check, 14 `cli-regress` rows, installer and hook rows, a crosscheck self-test, and new `check-docs` checks.
@@ -1481,6 +1467,25 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Closed: 20260923-160833
 
 - Code review 20260923:
+
+	- ✅ Item 14: the sync stage does not count untracked files when it decides to stash.
+		- Reproduced: an untracked file that upstream also adds. The stage sees a clean tree, and the fast-forward fails where a stash would have let it through. Nothing is lost.
+		- Note: the publisher got this fix on 2026-09-23 (`035dfb7`). The stash here is already `--include-untracked`.
+		- Origin: the sync stage, 2026-08-19. The sibling of the publisher fix. Confirmed.
+		- Fixed: an untracked file makes the tree dirty, as in the publisher. A file upstream also adds is stashed, the fast-forward goes through, and the pop stops the run with the file kept in the stash.
+		- Test case: `shell-regress.bash` row `20260819-1-remote-sync-stage`, with a clone that holds such a file. It fails on the old stage.
+		- Opened: 20260923-145138
+		- Closed: 20260927-195730
+
+	- ✅ Item 15: the installers say https is pinned through redirects, but wget's `--https-only` does nothing for a single download.
+		- Reproduced with a local TLS listener that redirects to http: wget with the installers' flags fetches it at exit 0, and curl refuses.
+		- Note: the release payload is still checked against the signed sums file. The API listing that picks the tag, the rustup script in `install-dev.bash` and the fetched pins file are not.
+		- Origin: 2026-07-25. Confirmed.
+		- Fixed: the wget fetch lines in `install.bash` and `install-dev.bash` read wget's record of each response and refuse the file when a hop's `Location` is plain http. The rustup script is fetched to a file and run from there, so a refused download runs nothing. Installer 1.1.1.
+		- Test case: `shell-regress.bash` row `20260923-15-no-plain-http-redirect`, through a local https listener that redirects to a plain one. The wget arm fails on the old installers.
+		- Swept: `install.ps1` goes through .NET, which does not follow an https to http redirect. `fApiStatus` reads a status code and no content.
+		- Opened: 20260923-145138
+		- Closed: 20260927-195730
 
 	- ✅ Item 12: `tokens` reads `* ` with a trailing blank as a name fault.
 		- Reproduced, all four: `a:` then `\t* ` gives `fault=0:expected a field name`, while `check` gives `E009 empty list element`. `*\t` and `*\r` do the same.
@@ -6404,6 +6409,14 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Closed: 20260925-160837
 
 - Code review 20260924d:
+
+	- ✅ Idea 2: `install.bash --uninstall` says it removed shcl when nothing was there.
+		- Note: seen in an empty scratch HOME. With `user` now the default, a 1.0-era system install gets the same message and stays.
+		- Done: with nothing of an install at the target, it says so and exits 0, and names a system install in /opt/shcl when the target was user.
+		- Test case: `shell-regress.bash` row `20260924d-idea2-uninstall-nothing-there`. It fails on the old installer. The no-terminal row now gives its scratch home an install dir, so it still reaches the prompt.
+		- Note: `install.ps1` says "removed" the same way. Left for the next Windows visit, since only Windows runs that path.
+		- Opened: 20260924-190225
+		- Closed: 20260927-195730
 
 	- ✅ Idea 1: stage 7's fallback destination `~/.local/bin` is now also the dogfood runner's link and the installer's user link.
 		- Note: `fInstallAtomic` there would replace the runner's link with a regular file, which the runner and `install.bash` then both refuse. Dropping `~/.local/bin` from `DOGFOOD_FIXED_DESTS` avoids it. Not run.
