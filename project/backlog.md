@@ -35,7 +35,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - `fmt` indents a Schema line, and `check` then stops validating at exit 0
 	- ID: 2026092813365301
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: High
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 1
@@ -49,11 +49,99 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Reproduced: 20260928, all four CLIs.
 	- Origin: `2c528a23` (schema line, 2026-09-26). The line is matched only at column 0, and the emitter indents a comment to its node's depth. Not seen before. Confirmed.
 	- Estimated effort: Avg
+	- Actual fix: the Schema and Format lines count after any indent, in all four bindings.
+	- Swept: `schema_ref` and `format_line_version` in all four. `set_banner` finds the old block from parsed comments, so the column never mattered there.
+	- Note: the keep-lines fuzz floor went from 90 to 85 percent. The new corpus case moved the seeds, and dev's own code then kept 150 of 167 tidy configs. Every fallback was a designed one: a child under a stacked list or a dotted line, or a comment on a dotted path.
+	- Branch: schemaline
+	- Commit: 27d73efb
+	- Test case: corpus 182, cli-regress `schema-line-indented` and `migrate-indented-stamp-noop`. Each fails on dev.
+
+- The H005 check slows every parse, most in Python and on escaped values in C
+	- ID: 2026092813365305
+	- Type: Bug
+	- Status: Waiting on signoff
+	- Severity: Avg
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 5
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce:
+		- Python: `shcl fmt` on 60,000 lines of `nameN: value N`.
+		- C: `shcl count FILE k0` on 200,000 lines of two double-quoted elements holding `\t` and `\n`.
+	- Incorrect behavior: Python goes from 1.30 s to 1.82 s. C goes from 0.64 s to 1.0 s and from 240 MB to 290 MB. Rust and Go gain a little on the escaped file.
+	- Expected behavior: a hint that only fires on a unit-named field costs next to nothing elsewhere.
+	- Reproduced: 20260928, head against the previous round's builds.
+	- Origin: `95bec7c1` (durations and sizes). Every leaf and element runs the unit check before the cheap test on the name. Python lowers the name once per unit, and C copies each escaped element into scratch that nothing frees during the parse. Confirmed.
+	- Sweep: the H005 site in the field and element arms, in all four.
+	- Estimated effort: Low
+	- Actual fix: the field arm asks whether the name ends in a unit before it builds the value's text, in all four. Python also tests the separator before it lowers the name.
+	- Swept: the H005 field and element arms in all four. The element arm already had its text.
+	- Verified: C `count` on the escaped file went from 0.98 s and 290 MB to 0.71 s and 241 MB. Python `fmt` on the plain file went from 1.9 s to 1.4 s, level with the build before H005.
+	- Branch: schemaline
+	- Commit: 27d73efb
+	- Test case: none for the time. perf-gate's ratio catches worse than linear, not a constant factor like this. H005 itself stays pinned by corpus 176 and cli-regress `unit-hint`.
+
+- The C CLI cuts a Schema path at a NUL and validates against another file
+	- ID: 2026092813365307
+	- Type: Bug
+	- Status: Waiting on signoff
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 7
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce: a file `a` holding a schema, and a config holding `x: 1`, then `##    Schema   a`, a NUL byte and `b`. Run `shcl check` on it.
+	- Incorrect behavior: C validates against `a` and exits 6. Rust, Go and Python refuse the path and exit 8.
+	- Expected behavior: exit 8, as the other three.
+	- Reproduced: 20260928.
+	- Origin: `2c528a23`. A NUL could not reach a path before, since argv cannot hold one. Confirmed.
+	- Estimated effort: Low
+	- Actual fix: C refuses a Schema path holding a NUL at exit 8 and prints the whole path.
+	- Branch: schemaline
+	- Commit: 27d73efb
+	- Test case: cli-regress `schema-line-nul`. C exits 6 on dev.
+
+- `check` without `--schema` got about three times slower on large escaped files in C
+	- ID: 2026092813365308
+	- Type: Bug
+	- Status: Waiting on signoff
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 8
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce: `shcl check` on the escaped file from item 5.
+	- Incorrect behavior: C goes from 0.57 s to 1.75 s. Rust gains about 0.13 s.
+	- Expected behavior: looking for one comment line costs next to nothing.
+	- Reproduced: 20260928, C. Rust by the sweep's timing.
+	- Origin: `2c528a23`. The Schema line search runs every line through the full 2.x rewrite only to track raw fences. Confirmed.
+	- Estimated effort: Low
+	- Actual fix: the Schema and Format line walks run a line through the 2.x tokenizer only when it holds a run of three backticks or tildes, the only kind of line that can open a raw block. All four.
+	- Verified: C `check` on the review's escaped file went from 1.7 s to 0.68 s, and Rust from 0.75 s to 0.52 s.
+	- Branch: schemaline
+	- Commit: 27d73efb
+	- Test case: corpus 182 holds a quoted fence run that opens nothing and a value fence that opens a block. The time has no gate, as in item 5.
+
+- The Schema line's directory is split at a backslash on Linux and macOS
+	- ID: 2026092813365310
+	- Type: Bug
+	- Status: Waiting on signoff
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 10
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce: a config named `we\ird.shcl` holding `##    Schema   ./app.schema.shcl`, with the schema beside it. Run `shcl check` on it.
+	- Incorrect behavior: exit 8, `we/./app.schema.shcl: No such file or directory`. A path starting with `\` also counts as absolute there.
+	- Expected behavior: a backslash is a separator only on Windows, as `old_copy_name` already has it.
+	- Reproduced: 20260928, all four CLIs.
+	- Origin: `2c528a23`. Confirmed.
+	- Estimated effort: Low
+	- Actual fix: a backslash is a separator only on Windows, in the Schema path's directory and in the absolute-path test. All four, through the `name_start` helper `old_copy_name` now shares.
+	- Branch: schemaline
+	- Commit: 27d73efb
+	- Test case: cli-regress `schema-line-backslash-name`, which fails on dev.
 
 - A Schema line makes `check` open any path, devices and network shares included
 	- ID: 2026092813365302
 	- Type: Bug
-	- Status: Queued
+	- Status: Testing
 	- Severity: High
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 2
@@ -68,6 +156,33 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Origin: `2c528a23`. New ground. Confirmed.
 	- Sweep: `schema_for` in all four CLIs, and anywhere else a path read from a file is opened.
 	- Estimated effort: Avg
+	- Actual fix: `check` reads only a regular file from a Schema line, asked before the open and again after it. On Windows a line starting with two separators or `\??\` is refused at exit 8. The test is on the line's own text, so a config sitting on a share can still name a schema beside it.
+	- Swept: `schema_for` in all four CLIs. Nothing else opens a path read out of a file.
+	- Verified: the share and `\??\` refusals under wine for Rust, Go and C.
+	- Branch: schemaline
+	- Commit: 27d73efb
+	- Test case: cli-regress `schema-line-device` and `schema-line-fifo`, both failing on dev, and `schema-line-share`, which runs on Windows only. Python on Windows waits for the Windows batch.
+
+- On Windows, the `_old_v2` name for `C:.shclrc` puts the suffix in the wrong place
+	- ID: 2026092813365313
+	- Type: Bug
+	- Status: Testing
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 13
+	- Target OS: Windows
+	- Steps to reproduce: `shcl migrate -w C:.shclrc` on a 2.x file holding `a: "x\qy"`.
+	- Incorrect behavior: expected, not yet seen. The copy is named `C:_old_v2.shclrc`.
+	- Expected behavior: `C:.shclrc_old_v2`, since the function's own comment says a leading dot is part of the name.
+	- Reproduced: No. Plausible, read in the Rust CLI, for the Windows batch.
+	- Origin: `6c49d1b0`. The name starts after the last `/` or `\`, not after a drive.
+	- Sweep: `old_copy_name` in all four CLIs.
+	- Estimated effort: Low
+	- Actual fix: `name_start` starts the name after a drive, so the copy of `C:.shclrc` is `C:.shclrc_old_v2`. All four.
+	- Verified: Rust, Go and C under wine, with `Z:.shclrc`.
+	- Branch: schemaline
+	- Commit: 27d73efb
+	- Test case: none hosted yet, since a drive-relative path depends on the runner's drives. Python waits for the Windows batch.
 
 - The `_old_v2` copy takes the directory's group, so a private config gets a backup that group can read
 	- ID: 2026092813365303
@@ -105,24 +220,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Origin: older than the range, from `shcl.ps1`'s run path (`c52fa077` and before). Not seen before.
 	- Estimated effort: Avg
 
-- The H005 check slows every parse, most in Python and on escaped values in C
-	- ID: 2026092813365305
-	- Type: Bug
-	- Status: Queued
-	- Severity: Avg
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 5
-	- Version and build: dev at `f90708d8`
-	- Steps to reproduce:
-		- Python: `shcl fmt` on 60,000 lines of `nameN: value N`.
-		- C: `shcl count FILE k0` on 200,000 lines of two double-quoted elements holding `\t` and `\n`.
-	- Incorrect behavior: Python goes from 1.30 s to 1.82 s. C goes from 0.64 s to 1.0 s and from 240 MB to 290 MB. Rust and Go gain a little on the escaped file.
-	- Expected behavior: a hint that only fires on a unit-named field costs next to nothing elsewhere.
-	- Reproduced: 20260928, head against the previous round's builds.
-	- Origin: `95bec7c1` (durations and sizes). Every leaf and element runs the unit check before the cheap test on the name. Python lowers the name once per unit, and C copies each escaped element into scratch that nothing frees during the parse. Confirmed.
-	- Sweep: the H005 site in the field and element arms, in all four.
-	- Estimated effort: Low
-
 - Go and Python drop the setuid, setgid and sticky bits from the `_old_v2` copy
 	- ID: 2026092813365306
 	- Type: Bug
@@ -136,36 +233,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Expected behavior: the copy takes the original's mode, as Rust and C do.
 	- Reproduced: 20260928.
 	- Origin: `6c49d1b0`. Go keeps only the permission bits, and Python sets the mode before its buffered write goes out, which clears setuid and setgid. The library save already avoids the second. Confirmed.
-	- Estimated effort: Low
-
-- The C CLI cuts a Schema path at a NUL and validates against another file
-	- ID: 2026092813365307
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 7
-	- Version and build: dev at `f90708d8`
-	- Steps to reproduce: a file `a` holding a schema, and a config holding `x: 1`, then `##    Schema   a`, a NUL byte and `b`. Run `shcl check` on it.
-	- Incorrect behavior: C validates against `a` and exits 6. Rust, Go and Python refuse the path and exit 8.
-	- Expected behavior: exit 8, as the other three.
-	- Reproduced: 20260928.
-	- Origin: `2c528a23`. A NUL could not reach a path before, since argv cannot hold one. Confirmed.
-	- Estimated effort: Low
-
-- `check` without `--schema` got about three times slower on large escaped files in C
-	- ID: 2026092813365308
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 8
-	- Version and build: dev at `f90708d8`
-	- Steps to reproduce: `shcl check` on the escaped file from item 5.
-	- Incorrect behavior: C goes from 0.57 s to 1.75 s. Rust gains about 0.13 s.
-	- Expected behavior: looking for one comment line costs next to nothing.
-	- Reproduced: 20260928, C. Rust by the sweep's timing.
-	- Origin: `2c528a23`. The Schema line search runs every line through the full 2.x rewrite only to track raw fences. Confirmed.
 	- Estimated effort: Low
 
 - `about --version` and `version --donate` are usage errors now
@@ -186,21 +253,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- 20260928: the informational outputs are flags: `-h`/`--help`, `-v`/`-V`/`--version`, `--about` and `--donate`. The words `version`, `about` and `donate` go, and a leftover one gets the did-you-mean hint at exit 1. `help` stays as a word, since it takes a topic (`help CMD`). No scripts use v2, so nothing breaks.
 		- Several asked in one run print once each, in the order asked, with one blank line before, between and after. `--about` covers `--version`, since its first line is the version line. A lone `--version` stays unpadded. Today the first one asked wins silently: `--help --version` prints only the help.
 		- `help` still refuses anything after it but one topic and the informational flags. design.md's paragraph and 20260923 item 17's rule change to match.
-	- Estimated effort: Low
-
-- The Schema line's directory is split at a backslash on Linux and macOS
-	- ID: 2026092813365310
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 10
-	- Version and build: dev at `f90708d8`
-	- Steps to reproduce: a config named `we\ird.shcl` holding `##    Schema   ./app.schema.shcl`, with the schema beside it. Run `shcl check` on it.
-	- Incorrect behavior: exit 8, `we/./app.schema.shcl: No such file or directory`. A path starting with `\` also counts as absolute there.
-	- Expected behavior: a backslash is a separator only on Windows, as `old_copy_name` already has it.
-	- Reproduced: 20260928, all four CLIs.
-	- Origin: `2c528a23`. Confirmed.
 	- Estimated effort: Low
 
 - Go's `_old_v2` copy errors name the path twice
@@ -231,22 +283,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Expected behavior: as Rust and Go, which skip the mode on Windows.
 	- Reproduced: No. Plausible, for the Windows batch. The guard is `hasattr(os, "fchmod")`, and Python 3.13 added `fchmod` on Windows. The library save guards the same call by `os.name`.
 	- Origin: `6c49d1b0`.
-	- Estimated effort: Low
-
-- On Windows, the `_old_v2` name for `C:.shclrc` puts the suffix in the wrong place
-	- ID: 2026092813365313
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 13
-	- Target OS: Windows
-	- Steps to reproduce: `shcl migrate -w C:.shclrc` on a 2.x file holding `a: "x\qy"`.
-	- Incorrect behavior: expected, not yet seen. The copy is named `C:_old_v2.shclrc`.
-	- Expected behavior: `C:.shclrc_old_v2`, since the function's own comment says a leading dot is part of the name.
-	- Reproduced: No. Plausible, read in the Rust CLI, for the Windows batch.
-	- Origin: `6c49d1b0`. The name starts after the last `/` or `\`, not after a drive.
-	- Sweep: `old_copy_name` in all four CLIs.
 	- Estimated effort: Low
 
 - Under Windows PowerShell 5.1, `install.ps1` may follow an https to http redirect for the release list
