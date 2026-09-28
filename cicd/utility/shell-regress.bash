@@ -438,6 +438,29 @@ if fHave pwsh; then
 	out="$(env -u DISPLAY -u WAYLAND_DISPLAY PATH="${tmpDir}/pwbin/opener:${PATH}" pwsh -NoProfile -Command ". '${repoDir}/source/powershell/shcl.ps1'; \$env:SHCL_BIN = '${tmpDir}/pwbin/exe/x'; shcl a b" 2>&1 </dev/null || true)"
 	[[ "${out}" == "exe a b" ]] || fBad "PowerShell wrapper did not take x.exe for SHCL_BIN=x: ${out@Q}"
 
+	fTest ErD2LTv 20260928-item4-ps1-legacy-quotes
+	##	20260928 item 4: Windows PowerShell 5.1 builds a native command line the
+	##	old way, so an embedded quote never reached the binary and an empty
+	##	argument was left out. The Legacy mode of 7 builds it the same way, so
+	##	it stands in for 5.1 here. Each value goes in as --default and has to
+	##	come back from a read of a missing path as it went in.
+	#  shellcheck disable=2016,2028  ## PowerShell's own $variables and backslashes, quoted so bash leaves them alone.
+	{
+		echo 'Set-StrictMode -Version Latest'
+		printf '. %s\n' "'${repoDir}/source/powershell/shcl.ps1'"
+		printf '$env:SHCL_BIN = %s\n' "'${cli}'"
+		echo '$PSNativeCommandArgumentPassing = "Legacy"'
+		echo '$q = [string][char]34'
+		echo '$vals = @(($q + "q" + $q), ("a" + $q + "b"), "", "C:\a b\", ("p\" + $q + "q"), ("x " + $q + "y" + $q + " z"))'
+		echo 'if ($vals.Count -ne 6) { "the value list has $($vals.Count) entries" }'
+		echo 'foreach ($v in $vals) { $o = shcl get "--default=$v" $args[0] nope; if (($o -join "`n") -cne $v -or $LASTEXITCODE -ne 0) { "lost: [$v] came back [$($o -join "|")] rc $LASTEXITCODE" } }'
+		echo '$o = shcl get --default "" $args[0] nope; if ($LASTEXITCODE -ne 0) { "lost: an empty argument, rc $LASTEXITCODE" }'
+		echo '"done"'
+	} > "${tmpDir}/legacy.ps1"
+	printf 'a: 1\n' > "${tmpDir}/legacy.shcl"
+	out="$(env -u DISPLAY -u WAYLAND_DISPLAY pwsh -NoProfile -File "${tmpDir}/legacy.ps1" "${tmpDir}/legacy.shcl" 2>&1 </dev/null || true)"
+	[[ "${out}" == "done" ]] || fBad "PowerShell wrapper under legacy argument passing: ${out@Q}"
+
 	fTest EoUqEKW 20260830b-10-ps1-link-resolver
 	##	20260830b item 10: the symlink resolver called a .NET 6 method that
 	##	Windows PowerShell 5.1 does not have, unguarded and at load, so every
@@ -2561,6 +2584,26 @@ if fHave pwsh; then
 	ln -sfn "${dh}/other/shcl" "${dh}/.local/bin/shcl"
 	out="$(fDogfoodN --no-update)" || true
 	[[ "${out}" == held ]] || fBad "dogfood_shcl.ps1 --no-update ran what the fixed name pointed at: ${out@Q}"
+else
+	fTestSkip
+fi
+
+fTest ErD17r2 20260928-item16-dogfood-impossible-date
+##	20260928 item 16: a pool file named for a date that cannot be, a 13th month,
+##	stopped every run before shcl started, --no-update included. It is not one
+##	of the runner's, so it is left alone.
+if fHave pwsh; then
+	dh="${tmpDir}/dfbaddate"
+	dsrc="${dh}/synced/0-0/common/exec/util/linux/bin"
+	mkdir -p "${dsrc}" "${dh}/.local/bin"
+	printf '#!/bin/sh\necho held\n' > "${dsrc}/shcl"; chmod +x "${dsrc}/shcl"
+	fDogfoodB(){ env -u DISPLAY -u WAYLAND_DISPLAY HOME="${dh}" pwsh -NoProfile -File "${repoDir}/utility/dogfood_shcl.ps1" "$@" 2>"${tmpDir}/df.err" ;}
+	fDogfoodB x >/dev/null || true
+	: > "${dh}/.local/bin/shcl_versions/shcl_20261399-000000"
+	rc=0; out="$(fDogfoodB --no-update)" || rc=$?
+	[[ "${out}" == held && "${rc}" == 0 ]] || fBad "dogfood_shcl.ps1 --no-update with an impossible pool date: ${out@Q} rc ${rc}: $(head -c 200 "${tmpDir}/df.err")"
+	rc=0; out="$(fDogfoodB x)" || rc=$?
+	[[ "${out}" == held && "${rc}" == 0 && -e "${dh}/.local/bin/shcl_versions/shcl_20261399-000000" ]] || fBad "dogfood_shcl.ps1 with an impossible pool date: ${out@Q} rc ${rc}, or the file went"
 else
 	fTestSkip
 fi

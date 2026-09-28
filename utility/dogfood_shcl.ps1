@@ -26,8 +26,9 @@
 ##	as many as fit in 1 GB. Which ones stay is a GFS rotation: the oldest, the
 ##	newest, the last of each recent hour, day, week, month and year, and the
 ##	few most recent. Each file is named shcl_<yyyyMMdd-HHmmss>_<role>, from
-##	the build's write time in UTC, so the names sort the same in any culture
-##	and across a clock change.
+##	the build's write time in local time and the invariant culture, so the
+##	names read the same in any culture. A DST change or a new time zone can
+##	put one out of order once.
 ##
 ##	Output: shcl's own stdout and stderr, and its exit code. What this script
 ##	has to say goes to stderr, and only on a run that took a new build or
@@ -136,10 +137,14 @@ function Exit-Launcher {
 	exit 1
 }
 
+## The stamp as a date, or nothing when it names no real one, such as a 13th
+## month. A name like that is not one this script wrote.
 function ConvertFrom-Stamp {
 	[CmdletBinding()]
 	param([string]$Stamp)
-	return [datetime]::ParseExact($Stamp, $StampFormat, $Invariant)
+	$when = [datetime]::MinValue
+	if ([datetime]::TryParseExact($Stamp, $StampFormat, $Invariant, [Globalization.DateTimeStyles]::None, [ref]$when)) { return $when }
+	return $null
 }
 
 ## The newest build in the first source dir that has one, or nothing.
@@ -154,8 +159,8 @@ function Get-SourceBuild {
 }
 
 ## Every version in the pool, as { File, Name, Stamp }, oldest first. Only an
-## exact name counts, so anything else put in the directory is left alone. A
-## version copied in this run has no role yet.
+## exact name with a real date counts, so anything else put in the directory
+## is left alone. A version copied in this run has no role yet.
 function Get-HeldVersion {
 	[CmdletBinding()]
 	param()
@@ -163,7 +168,8 @@ function Get-HeldVersion {
 	$rx = '^' + [regex]::Escape($ProgramName) + '_(?<stamp>\d{8}-\d{6})(_[a-z]+)?' + [regex]::Escape($ExeExt) + '$'
 	$found = @(Get-ChildItem -LiteralPath $PoolDir -File | Where-Object { $_.Name -match $rx } | ForEach-Object {
 			$null = $_.Name -match $rx
-			[PSCustomObject]@{ File = $_; Name = $_.Name; Stamp = (ConvertFrom-Stamp -Stamp $Matches.stamp) }
+			$stamp = ConvertFrom-Stamp -Stamp $Matches.stamp
+			if ($null -ne $stamp) { [PSCustomObject]@{ File = $_; Name = $_.Name; Stamp = $stamp } }
 		})
 	return , @($found | Sort-Object -Property Stamp, Name)
 }
@@ -423,4 +429,4 @@ exit $LASTEXITCODE
 ##	History:
 ##		- 2026-09-24 JC: Created, in place of n8runshcl.ps1. Takes the build from the synced dogfood dir rather than the repo, and keeps a GFS-rotated pool with a fixed name on the newest.
 ##		- 2026-09-27 JC: Runs under Windows PowerShell 5.1. The Windows fixed name is in install.ps1's user folder. Stamps in UTC and the invariant culture. Runs the fixed name only when it names the newest pool version. Says why the fixed name was not updated only on a run that took a build. Help block.
-##		- 2026-09-28 JC: Stamps back in local time.
+##		- 2026-09-28 JC: Stamps back in local time. A pool name holding an impossible date is skipped rather than stopping every run.

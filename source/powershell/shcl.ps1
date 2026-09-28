@@ -170,6 +170,26 @@ function _shcl_resolve {
 ## here it stops reading the global and pipes ASCII again, and a caller's own
 ## copy wins there either way. A host with no console can refuse the console's,
 ## and then it is left as it was.
+## Windows PowerShell 5.1, 7 before 7.3, and 7.3 and later set to Legacy, hand
+## a native command one command line built the old way. An embedded double
+## quote goes through bare, so the binary's argument parser drops it, and an
+## empty argument is left out. So each argument holding a blank or a quote is
+## quoted here the way that parser reads it back: a quote escaped, and the
+## backslashes before a quote or the closing one doubled. PowerShell leaves an
+## argument that is already quoted alone. The other modes pass each argument
+## through as is.
+function _shcl_native_args {
+	$legacy = $PSVersionTable.PSVersion -lt [version]'7.3'
+	if (-not $legacy) { $legacy = (Get-Variable -Name PSNativeCommandArgumentPassing -ValueOnly -ErrorAction Ignore) -eq 'Legacy' }
+	if (-not $legacy) { return $args }
+	foreach ($a in $args) {
+		if ($a -isnot [string]) { $a }
+		elseif ($a -eq '') { '""' }
+		elseif ($a -match '[\s"]') { '"' + (($a -replace '(\\*)"', '$1$1\"') -replace '(\\+)$', '$1$1') + '"' }
+		else { $a }
+	}
+}
+
 function shcl {
 	if (-not (_shcl_resolve)) { $global:LASTEXITCODE = 1; return }
 	$utf8 = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false
@@ -183,9 +203,10 @@ function shcl {
 			[Console]::OutputEncoding = $utf8
 		}
 	} catch { $consoleWas = $null }
+	$pass = @(_shcl_native_args @args)
 	try {
-		if ($MyInvocation.ExpectingInput) { $input | & $script:_SHCL_BIN @args }
-		else { & $script:_SHCL_BIN @args }
+		if ($MyInvocation.ExpectingInput) { $input | & $script:_SHCL_BIN @pass }
+		else { & $script:_SHCL_BIN @pass }
 	} finally {
 		$global:OutputEncoding = $pipeWas
 		if ($consoleWas) { try { [Console]::OutputEncoding = $consoleWas } catch { $null = $_ } }
