@@ -35,10 +35,10 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - The C++ interface is a full binding of its own, with the C interface kept out of sight
 	- ID: 2026092617331100
 	- Type: Done
-	- Status: Waiting on signoff
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20260926-173311
-	- Opened by: Jim Collier
+	- Opened by: JC
 	- Requirements:
 		- A full parity interface, not a second implementation. It calls the C core inside.
 		- A C++ consumer never sees the C interface: no `shcl_*` names, no C handle, no C structs.
@@ -55,7 +55,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - A line-keeping save deletes lines the load dropped, at exit 0
 	- ID: 2026092620255201
 	- Type: Bug
-	- Status: Waiting on signoff
+	- Status: Done
 	- Severity: High
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 1
@@ -83,7 +83,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - `clear-comments` deletes a misplaced line kept as written
 	- ID: 2026092620255202
 	- Type: Bug
-	- Status: Waiting on signoff
+	- Status: Done
 	- Severity: High
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 2
@@ -126,7 +126,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Progress log:
 		- 20260927: tried `is_comment` in the replaced-leaf rule. The 2M fuzz's reload property failed at iteration 1076: the canonical text writes the line as a comment, so a merge onto the reload drops it with the leaf. Keeping it means an exemption for merges the fixtures cannot express through the public calls. Needs a call: keep the line through a merge and accept the reload difference, or leave it going with the leaf like the leaf's comments.
 	- Decisions:
-		- 20260928: left going with the leaf's comments, the way a merge onto the reload of the saved base behaves. The question went unanswered, so the recommended option went in; it is easy to reverse.
+		- 20260928: left going with the leaf's comments, the way a merge onto the reload of the saved base behaves.
 	- Actual fix: a sentence in the spec's merge notes.
 	- Test case: none. The reload-parity fuzz and fixtures pin the behavior as it stands.
 	- Closed: 20260927-223316
@@ -134,7 +134,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - C `shcl_compact` reaches the out-of-memory hook on a document with a kept misplaced line
 	- ID: 2026092620255203
 	- Type: Bug
-	- Status: Waiting on signoff
+	- Status: Done
 	- Severity: Avg
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 3
@@ -153,7 +153,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - A merge result depends on whether the lower layer spells a list stacked or inline
 	- ID: 2026092620255204
 	- Type: Bug
-	- Status: Waiting on signoff
+	- Status: Done
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 4
@@ -176,7 +176,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - `banner on` adds a second info block when the old one sits under the first field
 	- ID: 2026092620255205
 	- Type: Bug
-	- Status: Waiting on signoff
+	- Status: Done
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 5
@@ -200,7 +200,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - C `shcl_compact` turns earlier generation faults into ordinary diagnostics
 	- ID: 2026092620255206
 	- Type: Bug
-	- Status: Waiting on signoff
+	- Status: Done
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 6
@@ -219,7 +219,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - C++ `const` reads on one document race each other
 	- ID: 2026092620255207
 	- Type: Bug
-	- Status: Waiting on signoff
+	- Status: Done
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 7
@@ -231,7 +231,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Estimated effort: Low
 	- Actual effort: Avg
 	- Decisions:
-		- 20260928: const members lock, rather than a header line saying a Document is not shared or taking const off. The question went unanswered, so the recommended option went in; design.md records why.
+		- 20260928: const members lock, rather than a header line saying a Document is not shared or taking const off. design.md records why.
 		- Not only the reads: every call into the core writes to the document behind it, its read and scratch arenas and its index, so every const member holds the lock for the whole call, the copy into std types included. A call that reads a second document, as `validate` and `merge` do, takes both together.
 	- Actual fix: `detail::held` and `detail::fresh` in `shcl.hpp` return a guard holding one of 64 recursive locks, picked by the document's address. The header's comment on `Document` states the rule.
 	- Swept: every const member and every free function taking a `const Document &`.
@@ -241,7 +241,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - On Windows, creating a file through a `\\.\C:\` path is refused as not a regular file
 	- ID: 2026092620255208
 	- Type: Bug
-	- Status: Waiting on signoff
+	- Status: Done
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 8
@@ -262,7 +262,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - `FormatVersion` in Go, Python and C reads Format numbers past 2^32 that Rust reads as the current major
 	- ID: 2026092620255209
 	- Type: Bug
-	- Status: Waiting on signoff
+	- Status: Done
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 9
@@ -284,7 +284,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - Man page and README lag three changes
 	- ID: 2026092620255210
 	- Type: Bug
-	- Status: Waiting on signoff
+	- Status: Done
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 10
@@ -317,15 +317,17 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Actual effort: Low
 	- Decisions:
 		- 20260927: stamps are the build's write time in UTC, written and read in the invariant culture, and the period keys too. A pool from before keeps its local-time names, so its newest may look a few hours off once.
-	- Actual fix: `$Invariant` and `LastWriteTimeUtc` in `dogfood_shcl.ps1`.
+		- 20260928-094425: Correction: Times should be local, even if crossing timezones and DST changes results in times that are off. But the name shouldn't jump between runs (except for actual local time advancing), let alone 543 years.
+		- 20260928: back to local time, still written and read in the invariant culture. After a fall DST change or a move west, a build made in the repeated hours sorts older than the one before it, so it is skipped until the clock passes that stamp.
+	- Actual fix: `$Invariant` in `dogfood_shcl.ps1`. Reopened fix: `LastWriteTime` and `Get-Date` in place of their UTC forms.
 	- Swept: every `ToString` and `ParseExact` in the runner.
-	- Branch: `dogfood`
-	- Test case: `shell-regress.bash` row `20260926-item11-dogfood-stamp-culture`, under th-TH. It fails on the old runner.
+	- Branch: `dogfood`, reopened on `stamplocal`
+	- Test case: `shell-regress.bash` row `20260926-item11-dogfood-stamp-culture`, under th-TH and `Asia/Bangkok`. It fails on the original runner, which drifts by 543 years a run, and on the UTC one. The other dogfood rows pin `TZ=UTC`.
 
 - The drop-ins tarball's file modes follow the checkout's umask
 	- ID: 2026092620255212
 	- Type: Bug
-	- Status: Waiting on signoff
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 12
@@ -344,7 +346,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - The pre-push green-tree skip passes over the main-push installer check
 	- ID: 2026092620255213
 	- Type: Bug
-	- Status: Waiting on signoff
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 13
@@ -363,7 +365,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - `conformance.c` does not build at `-Os` with the gate's warnings
 	- ID: 2026092620255214
 	- Type: Bug
-	- Status: Waiting on signoff
+	- Status: Closed
 	- Severity: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 item 14
@@ -379,30 +381,10 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Branch: `compact`
 	- Test case: `check-c-compilers.bash` now builds `conformance.c` and `mem_bounds.c` at every `-O` level. It fails with the old buffer.
 
-- Comment style in new code
-	- ID: 2026092620255215
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Opened: 20260926-202552
-	- Opened by: Code review 20260926 item 15
-	- Incorrect behavior:
-		- "lands" and "land" in comments, one added in `lib.rs` in the range and many older ones in `shcl.h` and `main.c`.
-		- `dogfood_shcl.ps1` has no comment-based help, while the other scripts gained it in the range.
-	- Expected behavior: the code style directives.
-	- Reproduced: 20260926, `git grep -w -E 'lands|land' -- source`.
-	- Origin: various. Confirmed.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Actual fix: every "land" in comments and messages in `source`, `cicd` and `utility` is reworded, the same way in each binding. `dogfood_shcl.ps1` has a help block.
-	- Swept: `git grep -w -E 'lands|land|landed|landing'` over `source`, `cicd`, `utility` and the installers comes back empty, but for the copied publisher script, which is patched only where it changes.
-	- Branch: `dogfood`
-	- Test case: none. A checked-in word scan would itself be a tell. `Get-Help` on the runner shows the new block.
-
 - Every closed backlog item gets a Test line
 	- ID: 2026092620255216
 	- Type: Enhancement
-	- Status: Waiting on signoff
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 idea 1, directives of 20260926
@@ -419,7 +401,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - `set` says when it wrote the canonical form instead of keeping lines
 	- ID: 2026092620255217
 	- Type: Enhancement
-	- Status: Waiting on signoff
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 idea 2
@@ -437,10 +419,10 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - `fmt` keeps the quotes on a number with a leading zero
 	- ID: 2026092621211801
 	- Type: Enhancement
-	- Status: Waiting on signoff
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20260926-212118
-	- Opened by: Jim Collier
+	- Opened by: JC
 	- Requirements:
 		- `zip: "02134"` stays quoted through `fmt` and every canonical save. Today the quotes come off, since the text reads as an int.
 		- Bare `zip: 02134` stays bare.
@@ -457,10 +439,10 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - `0o` and `0b` integer spellings
 	- ID: 2026092621211802
 	- Type: Feature
-	- Status: Waiting on signoff
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20260926-212118
-	- Opened by: Jim Collier
+	- Opened by: JC
 	- Requirements:
 		- `0o644` reads as 420 and `0b101` as 5. Either letter case, and signed the same way as hex.
 		- Bare `0644` still reads as 644.
@@ -475,10 +457,10 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - Duration read
 	- ID: 2026092621211803
 	- Type: Feature
-	- Status: Waiting on signoff
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20260926-212118
-	- Opened by: Jim Collier
+	- Opened by: JC
 	- Requirements:
 		- A duration read in all four bindings and the veneer, `get --duration`, and a schema type.
 		- Go and systemd spellings: `500ms`, `30s`, `5m`, `1h30m`, `2d`. Spaces between parts are allowed.
@@ -502,10 +484,10 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - Byte size read
 	- ID: 2026092621211804
 	- Type: Feature
-	- Status: Waiting on signoff
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20260926-212118
-	- Opened by: Jim Collier
+	- Opened by: JC
 	- Requirements:
 		- A size read in all four bindings and the veneer, `get --size`, and a schema type.
 		- `KiB`, `MiB`, `GiB` and `TiB` are always base 2.
@@ -525,10 +507,10 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - `\u` escapes, with invisible characters escaped on output
 	- ID: 2026092621211805
 	- Type: Feature
-	- Status: Waiting on signoff
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20260926-212118
-	- Opened by: Jim Collier
+	- Opened by: JC
 	- Requirements:
 		- `\uXXXX` and `\UXXXXXXXX` in double quotes, as in TOML. A surrogate or a value past U+10FFFF is `E023`.
 		- Canonical output writes control characters with no short escape, zero-width characters and the right-to-left overrides as `\u` escapes, in names and values. Raw bodies stay as written.
@@ -551,10 +533,10 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - A schema pointer in the config file
 	- ID: 2026092621211806
 	- Type: Feature
-	- Status: Waiting on signoff
+	- Status: Closed
 	- Priority: Avg
 	- Opened: 20260926-212118
-	- Opened by: Jim Collier
+	- Opened by: JC
 	- Requirements:
 		- A comment line naming the file's schema, a path or a URL, spelled like the info block's `Format` line.
 		- `check` and editor tooling use it when no `--schema` is given. A relative path resolves from the config file's directory.
@@ -573,7 +555,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - `set --write` builds the kept text twice
 	- ID: 2026092620255218
 	- Type: Enhancement
-	- Status: Waiting on signoff
+	- Status: Closed
 	- Priority: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 idea 3
@@ -590,7 +572,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - `perf-gate`'s Python `keeps` row runs close to its budget
 	- ID: 2026092620255219
 	- Type: Enhancement
-	- Status: Waiting on signoff
+	- Status: Closed
 	- Priority: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 idea 4
@@ -607,7 +589,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 - `cli-regress` rows have no timeout
 	- ID: 2026092620255220
 	- Type: Enhancement
-	- Status: Waiting on signoff
+	- Status: Closed
 	- Priority: Low
 	- Opened: 20260926-202552
 	- Opened by: Code review 20260926 idea 5
@@ -627,7 +609,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Status: Done
 	- Priority: Avg
 	- Opened: 20260927-092436
-	- Opened by: Jim Collier
+	- Opened by: JC
 	- Requirements:
 		- Rather than converting in place, end up with both files. `config.shcl` holds the new format, and `config_old_v2.shcl` the original bytes.
 		- Pick the version by context.
