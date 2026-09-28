@@ -9766,7 +9766,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- 🚫 Idea 8: the pipeline calls `git` and `gh` directly.
 		- Note: use `gitsby raw` when it is installed and plain `git` otherwise, so a fresh clone still builds. The publisher is a copied file, so only its changed block would be patched.
 		- Note: Don't fix.
-		- Decided against: the pipeline keeps calling `git` and `gh` directly (the owner's note on the item).
+		- Decided against: the pipeline keeps calling `git` and `gh` directly (the note on the item, 2026-09-24).
 		- Opened: 20260924-133723
 		- Closed: 20260927-203331
 
