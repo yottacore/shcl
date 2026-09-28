@@ -72,7 +72,8 @@ fJob(){  ## fJob NAME COMMAND ARGS...
 ## Waits for all of them, then prints each log from job $1 on, in the order
 ## they started, and names the ones that failed in `failed` and `jobFailed`.
 ## The C runners print a status line per test of their own, which the runner
-## stages already showed; here only this gate's lines are the tests.
+## stages already showed; here only this gate's lines are the tests. A runner's
+## FAIL line stays, since a failure only the sanitizer sees has no other name.
 declare -A jobFailed=()
 fJobsWait(){
 	local i jrc
@@ -80,7 +81,7 @@ fJobsWait(){
 	nLive=0
 	failed=()
 	for ((i = $1; i <= nJobs; i++)); do
-		grep -vE '^(ok|FAIL|skip) +[0-9A-Za-z-]{7} c(\+\+)? ' "${work}/${i}.log" || true
+		grep -vE '^(ok|skip) +[0-9A-Za-z-]{7} c(\+\+)? ' "${work}/${i}.log" || true
 		jrc=""
 		if [[ -f "${work}/${i}.rc" ]]; then read -r jrc <"${work}/${i}.rc"; fi
 		if [[ -z "${jrc}" ]]; then failed+=("${jobNames[i]}: ended without a result"); jobFailed[${jobNames[i]}]=1

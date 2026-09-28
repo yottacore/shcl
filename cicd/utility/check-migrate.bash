@@ -279,6 +279,9 @@ for f in "${corpus}"/*/input.shcl "${dump}"/*.shcl; do
 		diff <(printf '%s\n' "${old}") <(printf '%s\n' "${old2}") | head -12 || true
 	fi
 done
+##	The floors are this test's, or its line read ok on a run that then refused
+##	for comparing too little. The exit below still says which floor.
+if ((nCompared < minCompared || nCorpus < minCorpus || nCompared - nCorpus < minFuzz)); then nBad+=1; fi
 
 ##	Each named case has to keep carrying its shape, or the exception is stale.
 fTest EpUIoZd 068 still carries a fence label holding a hash

@@ -20,7 +20,9 @@
 
 from __future__ import annotations
 
+import fnmatch
 import re
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -73,6 +75,15 @@ COLLECT: list[tuple[str, str]] = [
 	("cicd/utility/*.ps1", rf"\bTest-Check -Id '({ID})' "),
 	("cicd/config.bash", rf"^PROFILE_CHECK_ID=({ID})$"),
 ]
+##	Every test a language's own runner finds, in any tracked file. One outside
+##	the NEED table's files, or spelled so its pattern misses it, would run with
+##	no ID and nothing here saying so. TestMain runs the tests and is none. The
+##	comparison tool's crate stays out of the gate, so its tests are not CI tests.
+STRAY: list[tuple[str, str]] = [
+	("*.rs", r"^\s*#\[test\]"),
+	("*_test.go", r"^func Test(?!Main\()\w*\("),
+]
+STRAY_EXEMPT = ("cicd/utility/comparison/",)
 ##	Arrays whose every row is a test, with the ID as its first field.
 ROWS: list[tuple[str, str]] = [
 	("cicd/utility/cli-regress.bash", "rows"),
@@ -122,6 +133,14 @@ def fScan() -> tuple[list[tuple[str, str, int]], list[str]]:
 					bad.append(f"{rel}:{n + 1}: a test with no ID line under it")
 					continue
 				found.append((hit.group(1), rel, m + 1))
+
+	placed = {(str(p.relative_to(repo)), need) for glob, need, _, _ in NEED for p in repo.glob(glob)}
+	tracked = subprocess.run(["git", "-C", str(repo), "ls-files", "-z"], capture_output=True, check=True).stdout.decode().split("\0")
+	for glob, pattern in STRAY:
+		for rel in sorted(t for t in tracked if fnmatch.fnmatch(Path(t).name, glob) and not t.startswith(STRAY_EXEMPT)):
+			for n, line in enumerate((repo / rel).read_text(encoding="utf-8").splitlines()):
+				if re.match(pattern, line) and not any(f == rel and re.match(need, line) for f, need in placed):
+					bad.append(f"{rel}:{n + 1}: a test in a place the tables here do not know")
 
 	for glob, pattern in COLLECT:
 		for path in sorted(repo.glob(glob)):

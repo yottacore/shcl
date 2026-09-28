@@ -7,6 +7,8 @@
 ##		name of its failure counter, then call:
 ##			fTest ID NAME...   close the open test and open the next
 ##			fTestSkip          the open test skipped what it checks
+##			fTestSkipBlock     from a skipped block's else branch: the open test
+##			                   skipped, and so did every test the block opens
 ##			fTestEnd           close the open test
 ##		A test fails when the counter grew while it was open. A new test's ID
 ##		comes from `cicd/utility/test-ids.py new`.
@@ -40,7 +42,36 @@ fTest(){
 }
 
 fTestSkip(){ testSkipped=1; }
+##	The block is the `if` whose `else` sits above the caller's line at the
+##	caller's indent less one, read out of the calling script, so a test added to
+##	the block needs no list kept beside it.
+fTestSkipBlock(){
+	local src="${BASH_SOURCE[1]}" at="${BASH_LINENO[0]}" id name
+	testSkipped=1
+	fTestEnd
+	while IFS=$'\t' read -r id name; do
+		fTestLine skip "${id}" "${name}"
+	done < <(awk -v at="${at}" '
+		{ line[NR] = $0 }
+		NR == at { exit }
+		END {
+			for (e = at; e > 0 && line[e] !~ /^\t*else([ \t]|$)/; e--) {}
+			if (e == 0) exit
+			match(line[e], /^\t*/); tabs = RLENGTH
+			for (i = e - 1; i > 0; i--) {
+				match(line[i], /^\t*/)
+				if (RLENGTH == tabs && line[i] ~ /^\t*if /) break
+			}
+			for (k = i + 1; k < e; k++)
+				if (line[k] ~ /^\t+fTest [^ ]+ /) {
+					t = line[k]; sub(/^\t+fTest /, "", t)
+					id = t; sub(/ .*/, "", id); sub(/^[^ ]+ /, "", t)
+					printf "%s\t%s\n", id, t
+				}
+		}' "${src}")
+}
 
 
 ##	History:
 ##		- 2026-09-27 JC: Created.
+##		- 2026-09-28 JC: fTestSkipBlock, so a skipped block names the tests in it.

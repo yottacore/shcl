@@ -309,10 +309,11 @@ workloads=(
 for row in "${workloads[@]}"; do
 	IFS='|' read -r tid w <<<"${row}"
 	fTest "${tid}" "${w}"
-	times=""
+	times=""; ran=0
 	for b in "${bindings[@]}"; do
 		name="${b%%|*}"; cli="${b#*|}"
 		[[ -n "${budgetOf[${name}]:-}" ]] || continue
+		ran=$((ran + 1))
 		budget="${budgetOf[${name}]}"; baseMs="${baseOf[${name}]}"
 		if [[ "${w}" == keeps ]]; then
 			## Three parses by design, the source, the edited text and the
@@ -356,9 +357,11 @@ for row in "${workloads[@]}"; do
 			times+="${times:+, }${name} ${ms}/${budget} ms"
 		fi
 	done
-	## The timings ride on the status line, as time against budget.
+	## The timings ride on the status line, as time against budget. With no
+	## baseline to judge against, no binding ran it.
 	# shellcheck disable=SC2034
 	testName="${w}${times:+: ${times}}"
+	((ran)) || fTestSkip
 done
 
 ##	A count where the clock only drifts: the write calls for the refused-lines

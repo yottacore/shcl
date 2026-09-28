@@ -328,6 +328,8 @@ fTest EpHNNhw 20260904-39-wrappers-match-the-binary
 		#  shellcheck disable=2016  ## The backticks are a fence.
 		out="$(printf 'r: ```\n\tab\rcd\n```\n' | pwsh -NoProfile -File "${repoDir}/source/powershell/shcl.ps1" get --raw - r 2>&1 || true)"
 		[[ "${out}" == *$'ab\rcd'* ]] || fBad "shcl.ps1 run by -File turns a CR in stdin into a line break: ${out@Q}"
+	else
+		fTestSkipBlock
 	fi
 	unset SHCL_BIN
 }
@@ -732,7 +734,7 @@ SRVEOF
 		&& fBad "shclpath.ps1 exited 0 with no registry to write"
 else
 	echo "shell-regress: pwsh not installed - PowerShell rows skipped"
-	fTestSkip
+	fTestSkipBlock
 fi
 
 fTest Eojt4B6 20260830b-12-system-install-modes
@@ -1347,7 +1349,7 @@ if fHave openssl; then
 	fi
 else
 	echo "shell-regress: openssl not installed - signing rows skipped"
-	fTestSkip
+	fTestSkipBlock
 fi
 
 fTest EojuRVQ 20260901b-20-flame-report-partial-graphs
@@ -1431,6 +1433,8 @@ if fHave cc; then
 	else
 		fBad "the C corpus runner did not build"
 	fi
+else
+	fTestSkipBlock
 fi
 fTest Eq5kgry 20260909-28-largedoc-empty-reference
 ##	20260909 item 28: largedoc.bash skipped its invariants when the reference
@@ -1748,6 +1752,8 @@ if fHave pwsh; then
 		[[ "${out}" == *"ro=[cannot write"*"not writable]"* ]] || fBad "install.ps1 did not see a read-only target before the download: ${out@Q}"
 	fi
 	[[ "${out}" == *"held=[cannot replace"*"in use"* ]] || fBad "install.ps1 did not see a shcl.exe held open: ${out@Q}"
+else
+	fTestSkipBlock
 fi
 
 fTest EonXwmA 20260901b-34-install-ps1-windows-only-paths
@@ -1881,6 +1887,14 @@ if [[ "${tarLine}" == *"dropins.tar.gz"* ]]; then
 		|| fBad "the drop-ins tarball differs between two checkouts of the same files"
 	tarOwners="$(tar -tvzf "${tmpDir}/dropins/a/shcl-9.9.9-dropins.tar.gz" | awk '{print $2}' | sort -u)"
 	[[ "${tarOwners}" == "0/0" ]] || fBad "the drop-ins tarball records an owner: ${tarOwners}"
+	##	20260928 idea 7: the two builds match under the old tar line too when
+	##	this checkout was itself made under umask 077, so the modes are checked
+	##	as well: 644, or 755 where git records the file executable.
+	while read -r perm _ _ _ _ name; do
+		want="-rw-r--r--"
+		[[ "$(git -C "${repoDir}" ls-files -s -- "${name}" | cut -c1-6)" == 100755 ]] && want="-rwxr-xr-x"
+		[[ "${perm}" == "${want}" ]] || fBad "the drop-ins tarball has ${name} at ${perm}, not ${want}"
+	done < <(tar -tvzf "${tmpDir}/dropins/a/shcl-9.9.9-dropins.tar.gz")
 else
 	fBad "cicd.bash no longer builds the drop-ins tarball with a tar --sort=name line"
 fi
@@ -1947,7 +1961,7 @@ if fHave makensis; then
 	fi
 else
 	echo "shell-regress: makensis not installed - packaging row skipped"
-	fTestSkip
+	fTestSkipBlock
 fi
 
 fTest EoUqEKX 20260830b-11-guarded-iswindows
@@ -2073,7 +2087,7 @@ elif [[ -n "${SHCL_GATE_STRICT:-}" ]]; then
 else
 	echo "shell-regress: skipping the demo output order (no Pillow here)"
 	echo shell-regress >> "${SHCL_GATE_SKIPS:-/dev/null}"
-	fTestSkip
+	fTestSkipBlock
 fi
 
 fTest Ep1EGVf 20260904-26-perf-gate-stub-clis
@@ -2658,6 +2672,66 @@ fTest Ep1BXPn 20260904-25-largedoc-small-size
 if [[ -x "${cli}" && -x "${repoDir}/source/go/shcl" && -x "${repoDir}/source/c/shcl" ]]; then
 	out="$(bash "${repoDir}/cicd/utility/largedoc.bash" --mib 1 "rust|${cli}" "go|${repoDir}/source/go/shcl" "python|${repoDir}/source/python/cmd/shcl/main.py" "c|${repoDir}/source/c/shcl" 2>&1 || true)"
 	[[ "${out}" == *"OK"* && "${out}" != *"TOO BIG"* ]] || fBad "largedoc --mib 1 fails on a healthy tree: $(tail -n 3 <<<"${out}")"
+else
+	fTestSkip
+fi
+
+fTest ErD7avs 20260928-item18-closed-items-test-parent
+##	20260928 item 18: check-docs' closed-items check took the nearest closed item
+##	above as the parent, so an item under a review round's heading bullet passed
+##	on a Test line from an item above the round. The check's Python is lifted
+##	out by text and run on a small backlog: one borrowed line must be named,
+##	and an item inside a closed item with a Test line, or under a plain bullet
+##	inside one, must not.
+docs="${repoDir}/cicd/utility/check-docs.bash"
+awk -v id=Er8RudX '$1 == "fTest" && $2 == id {on = 1} on && /<<.PYEOF.$/ {py = 1; next} py && /^PYEOF$/ {exit} py' "${docs}" > "${tmpDir}/closed.py"
+{
+	printf '## Done\n\n'
+	printf -- '- \u2705 Earlier item.\n\t- Test case: t0.\n\n'
+	printf -- '- Code review X:\n\n\t- \u2705 Borrowed item.\n\t\t- Opened: 1\n\n'
+	printf -- '- \u2705 Parent item.\n\t- Test case: t1.\n\t- \u2705 Child item.\n\t- Languages:\n\t\t- \u2705 Grandchild item.\n'
+} > "${tmpDir}/closed.md"
+if [[ ! -s "${tmpDir}/closed.py" ]]; then
+	fBad "the closed-items check was not found in check-docs.bash"
+else
+	out="$(python3 "${tmpDir}/closed.py" "${tmpDir}/closed.md" 2>&1 || true)"
+	[[ "${out}" == *"Borrowed item"* && "${out}" != *"Child item"* && "${out}" != *"Grandchild"* && "${out}" != *"Traceback"* ]] \
+		|| fBad "closed-items check on a fixture backlog said: ${out@Q}"
+fi
+
+fTest ErD9eyc 20260928-item19-skipped-block-names-its-tests
+##	20260928 item 19: a block skipped for a missing tool printed a skip line for
+##	the test opened before it and nothing for the tests inside it. The helper
+##	reads the block out of the calling script, so it is run on a script here,
+##	nested blocks, a one-line else and a function included.
+{
+	printf '%s\n' 'testWhere=t testCounter=nBad; nBad=0' "source '${repoDir}/cicd/utility/include/test-id.bash'"
+	printf '%s\n' 'fTest A1 first' 'if false; then' '	fTest B2 nested' '	if true; then' '		fTest C3 deeper' '	fi' 'else' '	fTestSkipBlock' 'fi'
+	printf '%s\n' 'fTest D4 after' 'fg(){' '	fTest E5 in-function' '	if false; then' '		fTest F6 fn-nested' '	else fTestSkipBlock; fi' '}' 'fg' 'fTestEnd'
+} > "${tmpDir}/skipblock.bash"
+out="$(bash "${tmpDir}/skipblock.bash" 2>&1 | tr '\n' ' ' || true)"
+[[ "${out}" == "skip A1 t first skip B2 t nested skip C3 t deeper ok   D4 t after skip E5 t in-function skip F6 t fn-nested " ]] \
+	|| fBad "fTestSkipBlock on a fixture script printed: ${out@Q}"
+
+fTest ErDB6ek 20260928-idea6-test-ids-strays
+##	20260928 idea 6: a Rust test outside lib.rs and tests/, a Go test whose
+##	parameter is not t, and one under the Go CLI's module ran with no ID, and
+##	test-ids.py said nothing. A fake tree holds one of each, and a placed one.
+ti="${tmpDir}/tids"
+mkdir -p "${ti}/cicd/utility" "${ti}/project/conformance" "${ti}/source/rust/src" "${ti}/source/go/cmd/shcl"
+cp "${repoDir}/cicd/utility/test-ids.py" "${ti}/cicd/utility/"
+printf 'rows=(\n)\nsaveCases=(\n)\n' > "${ti}/cicd/utility/cli-regress.bash"
+printf 'workloads=(\n)\n' > "${ti}/cicd/utility/perf-gate.bash"
+printf '#[cfg(test)]\nmod t {\n\t#[test]\n\tfn x() {}\n}\n' > "${ti}/source/rust/src/other.rs"
+printf 'package shcl\n\nfunc TestTT(tt *testing.T) {\n}\n\nfunc TestOk(t *testing.T) {\n\tdefer testID(t, "ErD9eyd")\n}\n' > "${ti}/source/go/x_test.go"
+printf 'package main\n\nfunc TestCmd(t *testing.T) {\n}\n' > "${ti}/source/go/cmd/shcl/main_test.go"
+if git -C "${ti}" init -q 2>/dev/null && git -C "${ti}" add -A 2>/dev/null; then
+	out="$(python3 "${ti}/cicd/utility/test-ids.py" check 2>&1 || true)"
+	n="$(grep -c 'a test in a place the tables here do not know' <<<"${out}" || true)"
+	[[ "${n}" == 3 && "${out}" == *"other.rs:3:"* && "${out}" == *"x_test.go:3:"* && "${out}" == *"main_test.go:3:"* ]] \
+		|| fBad "test-ids.py on three misplaced tests said: ${out@Q}"
+else
+	fBad "could not make the fake tree for test-ids.py"
 fi
 
 fTest EoXPkY4 check-completions-option-less-subcommand
@@ -2782,6 +2856,8 @@ if fHave setsid; then
 	rc=0; HOME="${tmpDir}/ttyhome" setsid -w bash "${repoDir}/install.bash" --uninstall --target=user >/dev/null 2>"${tmpDir}/tty.err" </dev/null || rc=$?
 	[[ "${rc}" == 1 && "$(head -n1 "${tmpDir}/tty.err")" == "install.bash: no terminal to confirm on - pass --yes" ]] \
 		|| fBad "install.bash with no terminal does not say so first (exit ${rc}): $(head -n1 "${tmpDir}/tty.err")"
+else
+	fTestSkip
 fi
 ttyReads="$(grep -n -F '</dev/tty' "${repoDir}/install.bash" "${repoDir}/install-dev.bash" || true)"
 n="$(grep -c . <<<"${ttyReads}" || true)"
@@ -2851,6 +2927,8 @@ if [[ -f "${ps1}" ]]; then
 		grep -qF '& ([scriptblock]::Create((irm https://raw.githubusercontent.com/yottacore/shcl/main/install.ps1)))' "${repoDir}/README.md" \
 			|| fBad "the README no longer documents the one-liner install.ps1 names"
 	fi
+else
+	fTestSkipBlock
 fi
 
 fTest EomZie0 flame-report-names-a-missing-dir
