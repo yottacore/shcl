@@ -1620,8 +1620,8 @@ static int do_set(Opts *o) {
 		}
 	}
 	/* Byte order marks off the front: Windows PowerShell 5.1 puts one or more
-	   before text it pipes to a program (20260924 item
-	   7), and the first op then read as unknown. No op starts with one. */
+	   before text it pipes to a program (20260924 item 7), and the first op
+	   then read as unknown. No op starts with one. */
 	int rc = 0; size_t start = 0, lineno = 0;
 	while (opslen - start >= 3 && (unsigned char)ops[start] == 0xEF && (unsigned char)ops[start + 1] == 0xBB && (unsigned char)ops[start + 2] == 0xBF) start += 3;
 	for (size_t i = start; i <= opslen; i++) {

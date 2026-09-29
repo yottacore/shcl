@@ -2642,8 +2642,8 @@ fn do_set(o: &Opts) -> u8 {
 		}
 	}
 	// Byte order marks off the front: Windows PowerShell 5.1 puts one or more
-	// before text it pipes to a program (20260924 item
-	// 7), and the first op then read as unknown. No op starts with one.
+	// before text it pipes to a program (20260924 item 7), and the first op
+	// then read as unknown. No op starts with one.
 	let ops = ops.trim_start_matches('\u{feff}');
 	// Split on the newline and take one CR off each piece: that is the CR of a
 	// CRLF, or of a CRLF at EOF that lost its LF. A second one is the value's,

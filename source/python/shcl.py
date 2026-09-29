@@ -2627,15 +2627,13 @@ class _Parser:
 		self._err(line, code, msg)
 		holds = outcome.kind in ("retained", "dropped")
 		if outcome.kind in ("value_dropped", "dropped"):
-			gone = [line]
+			self.lost += 1
 		elif outcome.kind == "stopped":
-			gone = [line + k for k, ln in enumerate(outcome.rest) if _trim_wsp(ln)]
-		else:
-			gone = []
-		self.lost += len(gone)
-		# Which lines those were, for the save that keeps lines.
-		if self.track_dropped:
-			self.dropped.extend(gone)
+			self.lost += sum(1 for ln in outcome.rest if _trim_wsp(ln))
+		# Which line that was, for the save that keeps lines. Its parse has no
+		# node cap, so it never stops early.
+		if self.track_dropped and outcome.kind in ("value_dropped", "dropped"):
+			self.dropped.append(line)
 		if outcome.kind == "retained":
 			p = _Pend(outcome.text, indent, outcome.blank_before, line)
 			# A line kept as written never hangs on a block: its indent is not
@@ -3987,9 +3985,8 @@ def _keep_lines(src, doc):
 def _drop_banners(leads):
 	"""Take each run of "##" lines holding the info block's SHCL line or a
 	version line out of `leads`, all but a Schema line. Returns how many came
-	off, whether the last
-	one had a blank above it with no line after it to take that blank, and
-	the lines left."""
+	off, whether the last one had a blank above it with no line after it to
+	take that blank, and the lines left."""
 	def is_block_line(t):
 		return t == "## This config file format is SHCL." or t.startswith(FORMAT_LINE_HEAD)
 

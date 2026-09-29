@@ -3808,18 +3808,18 @@ static void p_refuse(ShclParser *P, size_t line, const char *code, ShclStr msg, 
 	switch (out.kind) {
 	case OUT_VALUE_DROPPED: case OUT_DROPPED:
 		n = 1;
-		if (P->d->track_dropped) ShclVecSize_push(&P->d->arena, &P->d->dropped, line);
 		break;
 	case OUT_STOPPED:
-		for (size_t r = 0; r < out.nrest; r++) {
-			if (!s_trim_wsp(out.rest[r]).n) continue;
-			n++;
-			if (P->d->track_dropped) ShclVecSize_push(&P->d->arena, &P->d->dropped, line + r);
-		}
+		for (size_t r = 0; r < out.nrest; r++)
+			if (s_trim_wsp(out.rest[r]).n) n++;
 		break;
 	case OUT_RETAINED: break;
 	}
 	P->d->lost += n;
+	/* Which line that was, for the save that keeps lines. Its parse has no node
+	   cap, so it never stops early. */
+	if (P->d->track_dropped && (out.kind == OUT_VALUE_DROPPED || out.kind == OUT_DROPPED))
+		ShclVecSize_push(&P->d->arena, &P->d->dropped, line);
 	if (out.kind == OUT_RETAINED) {
 		/* A line kept as written never hangs on a block: its indent is not one
 		   the output's levels are spelled with, so the block it would match
@@ -5551,8 +5551,9 @@ static int banner_line(ShclStr t) {
 }
 
 /* Take each run of "##" lines holding the info block's SHCL line or a version
-   line out of v, all but a Schema line. Returns how many came off; *owed says whether the last one
-   had a blank above it with no line after it to take that blank. */
+   line out of v, all but a Schema line. Returns how many came off; *owed says
+   whether the last one had a blank above it with no line after it to take
+   that blank. */
 static size_t drop_banners(ShclVecLead *v, int *owed) {
 	size_t w = 0, removed = 0, i = 0;
 	*owed = 0;
