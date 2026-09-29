@@ -137,15 +137,18 @@ fOneLine2x(){ awk '
 
 ##	A quoted name as the current CLI spells it: an invisible character is a
 ##	\u escape now, and 2.x wrote it as it is. The name is the same either way,
-##	so only the 2.x side's paths are respelled. The list is `invisible` in the
-##	bindings.
-fSpellNames2x(){ python3 -c '
-import sys
-hide = set(range(0x00, 0x09)) | set(range(0x0B, 0x20)) | set(range(0x7F, 0xA0)) \
-	| {0x061C, 0x200B, 0x200E, 0x200F, 0xFEFF} | set(range(0x2028, 0x202F)) \
-	| set(range(0x2060, 0x2065)) | set(range(0x2066, 0x206A))
+##	so only the 2.x side's paths are respelled: each quoted name is read with
+##	2.x's escapes and written again by the Python binding's own emitter, so
+##	no copy of its list lives here.
+fSpellNames2x(){ PYTHONPATH="${root}/source/python" python3 -c '
+import re, sys
+import shcl
 text = sys.stdin.buffer.read().decode("utf-8", "surrogateescape")
-sys.stdout.buffer.write("".join("\\u%04X" % ord(c) if ord(c) in hide and c != "\n" else c for c in text).encode("utf-8", "surrogateescape"))
+unescape = {"t": "\t", "n": "\n"}
+def respell(m):
+	name = re.sub(r"\\(.)", lambda e: unescape.get(e.group(1), e.group(1)), m.group(1), flags=re.S)
+	return shcl._escape_name(name)
+sys.stdout.buffer.write(re.sub(r"\"((?:[^\"\\]|\\.)*)\"", respell, text, flags=re.S).encode("utf-8", "surrogateescape"))
 '; }
 
 ##	Everything a tree is, read through one CLI: the paths, the count at each,

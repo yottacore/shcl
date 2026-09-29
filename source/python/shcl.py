@@ -1499,31 +1499,103 @@ def _unicode_escape(kind, after):
 	return chr(v), n
 
 
-# Characters canonical output writes as a \u escape, so a reader of the file
-# sees every character that is there: controls with no short escape, the
-# direction marks, embeddings, overrides and isolates, zero-width spaces, the
-# byte order mark, and the line and paragraph separators. The zero-width
-# joiner and non-joiner stay as written, since emoji and several scripts need
-# them.
-_INVISIBLE = frozenset(
-	chr(c)
-	for lo, hi in (
-		(0x00, 0x08),
-		(0x0B, 0x1F),
-		(0x7F, 0x9F),
-		(0x061C, 0x061C),
-		(0x200B, 0x200B),
-		(0x200E, 0x200F),
-		(0x2028, 0x202E),
-		(0x2060, 0x2064),
-		(0x2066, 0x2069),
-		(0xFEFF, 0xFEFF),
-	)
-	for c in range(lo, hi + 1)
+# gen-escapes.py: begin
+# Generated from Unicode 18.0 by cicd/utility/gen-escapes.py. Edit the script, not this block.
+_INVISIBLE_RANGES = (
+	(0x0000, 0x0008),
+	(0x000B, 0x001F),
+	(0x007F, 0x009F),
+	(0x00AD, 0x00AD),
+	(0x034F, 0x034F),
+	(0x061C, 0x061C),
+	(0x115F, 0x1160),
+	(0x17B4, 0x17B5),
+	(0x180B, 0x180F),
+	(0x200B, 0x200B),
+	(0x200E, 0x200F),
+	(0x2028, 0x202E),
+	(0x2060, 0x206F),
+	(0x3164, 0x3164),
+	(0xFE00, 0xFE0F),
+	(0xFEFF, 0xFEFF),
+	(0xFFA0, 0xFFA0),
+	(0xFFF0, 0xFFFB),
+	(0x1BCA0, 0x1BCA3),
+	(0x1D173, 0x1D17A),
+	(0xE0000, 0xE0FFF),
 )
+_SELECTOR_RANGES = (
+	(0x180B, 0x180D),
+	(0x180F, 0x180F),
+	(0xFE00, 0xFE0F),
+	(0xE0100, 0xE01EF),
+)
+# gen-escapes.py: end
+
+# Characters canonical output writes as a \u escape, so a reader of the file
+# sees every character that is there: controls with no short escape, the line
+# and paragraph separators, the interlinear annotation marks, and what Unicode
+# calls default-ignorable, such as zero-width spaces, direction marks and tag
+# characters. The zero-width joiner and non-joiner are not in the list, since
+# emoji and several scripts need them, and _invisible_at keeps two more kinds
+# where text needs them.
+_INVISIBLE = frozenset(chr(c) for lo, hi in _INVISIBLE_RANGES for c in range(lo, hi + 1))
+_SELECTORS = frozenset(chr(c) for lo, hi in _SELECTOR_RANGES for c in range(lo, hi + 1))
+
+
+def _invisible_at(t, i):
+	"""Whether t[i] is written as a \\u escape. A variation selector stays as
+	written directly after a visible character, and the tags of a subdivision
+	flag stay too; anywhere else they hide text."""
+	c = t[i]
+	if c not in _INVISIBLE:
+		return False
+	if c in _SELECTORS:
+		return not (i > 0 and _selector_base(t[i - 1]))
+	if "\U000E0020" <= c <= "\U000E007F":
+		return not _flag_tag(t, i)
+	return True
+
+
+def _selector_base(c):
+	"""A character a variation selector can modify: one written as itself that
+	is not a blank or a joiner. Another selector is not one, so a run of them
+	cannot carry hidden text."""
+	return c > " " and c != "\u200c" and c != "\u200d" and c not in _INVISIBLE
+
+
+def _flag_spec(c):
+	return "\U000E0030" <= c <= "\U000E0039" or "\U000E0061" <= c <= "\U000E007A"
+
+
+def _flag_tag(t, i):
+	"""Whether the tag at t[i] is part of a subdivision flag, as UTS #51 spells
+	one: U+1F3F4, three to seven tag digits or lowercase tag letters, and the
+	cancel tag."""
+	start = i
+	while start > 0 and _flag_spec(t[start - 1]):
+		start -= 1
+		if i - start > 7:
+			return False
+	if start == 0 or t[start - 1] != "\U0001F3F4":
+		return False
+	end = start
+	while end < len(t) and _flag_spec(t[end]):
+		end += 1
+		if end - start > 7:
+			return False
+	return end < len(t) and t[end] == "\U000E007F" and end - start >= 3
+
+
+def _has_invisible(t):
+	"""Whether the text holds a character _invisible_at escapes."""
+	return not _INVISIBLE.isdisjoint(t) and any(_invisible_at(t, i) for i, c in enumerate(t) if c in _INVISIBLE)
 
 
 def _unicode_escape_text(c):
+	# \u takes four digits, so a character past U+FFFF is spelled with \U.
+	if ord(c) > 0xFFFF:
+		return f"\\U{ord(c):08X}"
 	return f"\\u{ord(c):04X}"
 
 
@@ -6324,7 +6396,7 @@ def _escape_name_as(name, rules):
 	if name and _BARE_NAME_CHARS.issuperset(name):
 		return name
 	out = ['"']
-	for c in name:
+	for i, c in enumerate(name):
 		if c == "\\":
 			out.append("\\\\")
 		elif c == '"':
@@ -6333,7 +6405,7 @@ def _escape_name_as(name, rules):
 			out.append("\\t")
 		elif c == "\n":
 			out.append("\\n")
-		elif c in _INVISIBLE and rules is Rules.CURRENT:
+		elif c in _INVISIBLE and rules is Rules.CURRENT and _invisible_at(name, i):
 			out.append(_unicode_escape_text(c))
 		else:
 			out.append(c)
@@ -6920,7 +6992,7 @@ def _needs_quotes(t):
 	"""Minimal quoting: bare unless a reserved character (or lookalike hazard) forces it."""
 	# isdisjoint iterates the text in C and stops at the first hit; the generator
 	# it replaced made one Python call per character of every element emitted.
-	needs = (not t) or not _RESERVED.isdisjoint(t) or not _INVISIBLE.isdisjoint(t) or (_fence_open(t) is not None)
+	needs = (not t) or not _RESERVED.isdisjoint(t) or _has_invisible(t) or (_fence_open(t) is not None)
 	# Edge whitespace still has to force quotes, for the carriage return: it is
 	# a blank, so a piece ending in one loses it to the reload. Space and tab
 	# are already in the list above. The test is the whole Unicode whitespace
@@ -6993,7 +7065,7 @@ def _quote_text(t):
 
 def _quote_text_as(t, rules):
 	"""_quote_text for a reader of rules, as in _quote_double_as."""
-	control = "\n" in t or "\t" in t or (rules is Rules.CURRENT and not _INVISIBLE.isdisjoint(t))
+	control = "\n" in t or "\t" in t or (rules is Rules.CURRENT and _has_invisible(t))
 	if not control and "'" not in t and ('"' in t or "\\" in t):
 		return "'" + t + "'"
 	return _quote_double_as(t, rules)
@@ -7004,7 +7076,7 @@ def _quote_double_as(t, rules):
 	except a \\u escape, which 2.x kept as written, so for 2.x an invisible
 	character goes in as it is."""
 	out = ['"']
-	for c in t:
+	for i, c in enumerate(t):
 		if c == "\\":
 			out.append("\\\\")
 		elif c == '"':
@@ -7013,7 +7085,7 @@ def _quote_double_as(t, rules):
 			out.append("\\n")
 		elif c == "\t":
 			out.append("\\t")
-		elif c in _INVISIBLE and rules is Rules.CURRENT:
+		elif c in _INVISIBLE and rules is Rules.CURRENT and _invisible_at(t, i):
 			out.append(_unicode_escape_text(c))
 		else:
 			out.append(c)

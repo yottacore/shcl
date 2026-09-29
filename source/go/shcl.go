@@ -1553,26 +1553,68 @@ func unicodeEscape(kind byte, after string) (rune, int, bool) {
 	return rune(v), n, true
 }
 
+// gen-escapes.py: begin
+// Generated from Unicode 18.0 by cicd/utility/gen-escapes.py. Edit the script, not this block.
+var invisibleRanges = [][2]rune{
+	{0x0000, 0x0008},
+	{0x000B, 0x001F},
+	{0x007F, 0x009F},
+	{0x00AD, 0x00AD},
+	{0x034F, 0x034F},
+	{0x061C, 0x061C},
+	{0x115F, 0x1160},
+	{0x17B4, 0x17B5},
+	{0x180B, 0x180F},
+	{0x200B, 0x200B},
+	{0x200E, 0x200F},
+	{0x2028, 0x202E},
+	{0x2060, 0x206F},
+	{0x3164, 0x3164},
+	{0xFE00, 0xFE0F},
+	{0xFEFF, 0xFEFF},
+	{0xFFA0, 0xFFA0},
+	{0xFFF0, 0xFFFB},
+	{0x1BCA0, 0x1BCA3},
+	{0x1D173, 0x1D17A},
+	{0xE0000, 0xE0FFF},
+}
+var selectorRanges = [][2]rune{
+	{0x180B, 0x180D},
+	{0x180F, 0x180F},
+	{0xFE00, 0xFE0F},
+	{0xE0100, 0xE01EF},
+}
+
+// gen-escapes.py: end
+
 // invisible reports a character canonical output writes as a \u escape, so a
 // reader of the file sees every character that is there: controls with no
-// short escape, the direction marks, embeddings, overrides and isolates,
-// zero-width spaces, the byte order mark, and the line and paragraph
-// separators. The zero-width joiner and non-joiner stay as written, since
-// emoji and several scripts need them.
+// short escape, the line and paragraph separators, the interlinear annotation
+// marks, and what Unicode calls default-ignorable, such as zero-width spaces,
+// direction marks and tag characters. The zero-width joiner and non-joiner are
+// not in the list, since emoji and several scripts need them, and invisibleAt
+// keeps two more kinds where text needs them.
 func invisible(r rune) bool {
-	switch {
-	case r <= 0x08, r >= 0x0B && r <= 0x1F, r >= 0x7F && r <= 0x9F:
-		return true
-	case r == 0x061C, r == 0x200B, r == 0x200E, r == 0x200F, r == 0xFEFF:
-		return true
-	case r >= 0x2028 && r <= 0x202E, r >= 0x2060 && r <= 0x2064, r >= 0x2066 && r <= 0x2069:
-		return true
+	return (r < ' ' || r > '~') && inRanges(invisibleRanges, r)
+}
+
+func inRanges(ranges [][2]rune, r rune) bool {
+	for _, rg := range ranges {
+		if r < rg[0] {
+			return false
+		}
+		if r <= rg[1] {
+			return true
+		}
 	}
 	return false
 }
 
-// invisibleAt decodes the character at t[i] when it is one invisible names,
-// with its width in bytes. Bytes that are not UTF-8 are never one.
+// invisibleAt decodes the character at t[i] with its width in bytes, and
+// reports whether it is written as a \u escape. A variation selector stays as
+// written directly after a visible character, and the tags of a subdivision
+// flag stay too; anywhere else they hide text. Bytes that are not UTF-8 are
+// never escaped.
 func invisibleAt(t string, i int) (rune, int, bool) {
 	r, n := rune(t[i]), 1
 	if r >= utf8.RuneSelf {
@@ -1581,10 +1623,79 @@ func invisibleAt(t string, i int) (rune, int, bool) {
 			return 0, 1, false
 		}
 	}
-	return r, n, invisible(r)
+	if !invisible(r) {
+		return r, n, false
+	}
+	if inRanges(selectorRanges, r) {
+		p, pn := utf8.DecodeLastRuneInString(t[:i])
+		return r, n, !(pn > 0 && !(p == utf8.RuneError && pn == 1) && selectorBase(p))
+	}
+	if r >= 0xE0020 && r <= 0xE007F {
+		return r, n, !flagTag(t, i)
+	}
+	return r, n, true
 }
 
+// selectorBase reports a character a variation selector can modify: one
+// written as itself that is not a blank or a joiner. Another selector is not
+// one, so a run of them cannot carry hidden text.
+func selectorBase(r rune) bool {
+	return r > ' ' && r != 0x200C && r != 0x200D && !invisible(r)
+}
+
+// flagTag reports whether the tag at t[i] is part of a subdivision flag, as
+// UTS #51 spells one: U+1F3F4, three to seven tag digits or lowercase tag
+// letters, and the cancel tag.
+func flagTag(t string, i int) bool {
+	spec := func(r rune) bool { return (r >= 0xE0030 && r <= 0xE0039) || (r >= 0xE0061 && r <= 0xE007A) }
+	start, count := i, 0
+	for start > 0 {
+		r, n := utf8.DecodeLastRuneInString(t[:start])
+		if !spec(r) {
+			break
+		}
+		count++
+		if count > 7 {
+			return false
+		}
+		start -= n
+	}
+	if !strings.HasSuffix(t[:start], "\U0001F3F4") {
+		return false
+	}
+	count = 0
+	for _, r := range t[start:] {
+		if !spec(r) {
+			return r == 0xE007F && count >= 3
+		}
+		count++
+		if count > 7 {
+			return false
+		}
+	}
+	return false
+}
+
+// hasInvisible reports whether the text holds a character invisibleAt
+// escapes.
+func hasInvisible(t string) bool {
+	for i := 0; i < len(t); {
+		_, n, ok := invisibleAt(t, i)
+		if ok {
+			return true
+		}
+		i += n
+	}
+	return false
+}
+
+// writeUnicodeEscape spells r as \u with four digits, or as \U with eight
+// past U+FFFF, since \u takes four.
 func writeUnicodeEscape(out *strings.Builder, r rune) {
+	if r > 0xFFFF {
+		fmt.Fprintf(out, "\\U%08X", r)
+		return
+	}
 	fmt.Fprintf(out, "\\u%04X", r)
 }
 
@@ -6187,12 +6298,12 @@ func SuppressDeclaredReopens(schema *Document, diags []Diagnostic) []Diagnostic 
 func needsQuotes(t string) bool {
 	needs := t == ""
 	if !needs {
-		for _, c := range t {
+		for i, c := range t {
 			switch c {
 			case ' ', '\t', '\n', ',', ':', '#', '"', '\'', '[', ']':
 				needs = true
 			default:
-				needs = invisible(c)
+				_, _, needs = invisibleAt(t, i)
 			}
 			if needs {
 				break
@@ -6303,7 +6414,7 @@ func quoteText(t string) string {
 
 // quoteTextAs is quoteText for a reader of rules, as in quoteDoubleAs.
 func quoteTextAs(t string, rules Rules) string {
-	control := strings.ContainsAny(t, "\n\t") || (rules == RulesCurrent && strings.IndexFunc(t, invisible) >= 0)
+	control := strings.ContainsAny(t, "\n\t") || (rules == RulesCurrent && hasInvisible(t))
 	if !control && !strings.Contains(t, "'") && strings.ContainsAny(t, "\"\\") {
 		return "'" + t + "'"
 	}
