@@ -33,408 +33,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
-- `fmt` indents a Schema line, and `check` then stops validating at exit 0
-	- ID: 2026092813365301
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: High
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 1
-	- Version and build: dev at `f90708d8`
-	- Steps to reproduce:
-		- A schema `s.shcl` holding `field: server.port` with `type: int` and `max: 100` under it.
-		- A config holding `server:`, then `##    Schema   s.shcl` at column 0, then `\tport: 8080`.
-		- `shcl check cfg.shcl` exits 6, then `shcl fmt --write cfg.shcl`, then `shcl check cfg.shcl` again.
-	- Incorrect behavior: after `fmt` the line sits one tab in, the schema is no longer found, and `check` exits 0. The reverse happens too: an indented Schema line is ignored until `fmt` moves it to column 0.
-	- Expected behavior: whether a file names a schema does not depend on `fmt`. The spec says a comment changes nothing about the document.
-	- Reproduced: 20260928, all four CLIs.
-	- Origin: `2c528a23` (schema line, 2026-09-26). The line is matched only at column 0, and the emitter indents a comment to its node's depth. Not seen before. Confirmed.
-	- Estimated effort: Avg
-	- Actual fix: the Schema and Format lines count after any indent, in all four bindings.
-	- Swept: `schema_ref` and `format_line_version` in all four. `set_banner` finds the old block from parsed comments, so the column never mattered there.
-	- Note: the keep-lines fuzz floor went from 90 to 85 percent. The new corpus case moved the seeds, and dev's own code then kept 150 of 167 tidy configs. Every fallback was a designed one: a child under a stacked list or a dotted line, or a comment on a dotted path.
-	- Branch: schemaline
-	- Commit: 27d73efb
-	- Test case: corpus 182, cli-regress `schema-line-indented` and `migrate-indented-stamp-noop`. Each fails on dev.
-
-- The H005 check slows every parse, most in Python and on escaped values in C
-	- ID: 2026092813365305
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Avg
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 5
-	- Version and build: dev at `f90708d8`
-	- Steps to reproduce:
-		- Python: `shcl fmt` on 60,000 lines of `nameN: value N`.
-		- C: `shcl count FILE k0` on 200,000 lines of two double-quoted elements holding `\t` and `\n`.
-	- Incorrect behavior: Python goes from 1.30 s to 1.82 s. C goes from 0.64 s to 1.0 s and from 240 MB to 290 MB. Rust and Go gain a little on the escaped file.
-	- Expected behavior: a hint that only fires on a unit-named field costs next to nothing elsewhere.
-	- Reproduced: 20260928, head against the previous round's builds.
-	- Origin: `95bec7c1` (durations and sizes). Every leaf and element runs the unit check before the cheap test on the name. Python lowers the name once per unit, and C copies each escaped element into scratch that nothing frees during the parse. Confirmed.
-	- Sweep: the H005 site in the field and element arms, in all four.
-	- Estimated effort: Low
-	- Actual fix: the field arm asks whether the name ends in a unit before it builds the value's text, in all four. Python also tests the separator before it lowers the name.
-	- Swept: the H005 field and element arms in all four. The element arm already had its text.
-	- Verified: C `count` on the escaped file went from 0.98 s and 290 MB to 0.71 s and 241 MB. Python `fmt` on the plain file went from 1.9 s to 1.4 s, level with the build before H005.
-	- Branch: schemaline
-	- Commit: 27d73efb
-	- Test case: none for the time. perf-gate's ratio catches worse than linear, not a constant factor like this. H005 itself stays pinned by corpus 176 and cli-regress `unit-hint`.
-
-- The `_old_v2` copy takes the directory's group, so a private config gets a backup that group can read
-	- ID: 2026092813365303
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Avg
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 3
-	- Version and build: dev at `f90708d8`
-	- Steps to reproduce:
-		- A setgid directory owned by group `devs`, mode 2775.
-		- A 2.x file in it owned by the user's own group, mode 640, holding `a: "x\qy"`.
-		- `shcl migrate --write FILE`.
-	- Incorrect behavior: `c_old_v2.shcl` is mode 640 with group `devs`, so members of `devs` can read the old config. The migrated file keeps its group.
-	- Expected behavior: the copy is made private and gets the original's group before its mode, the way the save does it.
-	- Reproduced: 20260928, all four CLIs.
-	- Origin: `6c49d1b0` (keepold). Against the item's own decision that a private config does not get a readable backup. Confirmed.
-	- Note: on Windows the copy takes the directory's ACL, while `ReplaceFile` keeps the original's. Plausible, for the Windows batch.
-	- Estimated effort: Low
-	- Actual fix: the copy takes the original's group before its mode, as the save does, in all four CLIs.
-	- Note: the Windows ACL half is split out as 2026092815155546.
-	- Branch: oldcopy
-	- Commit: 4dbe70af
-	- Test case: cli-regress save case `migrate-setgid`, which fails on dev in all four.
-
-- The C CLI cuts a Schema path at a NUL and validates against another file
-	- ID: 2026092813365307
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 7
-	- Version and build: dev at `f90708d8`
-	- Steps to reproduce: a file `a` holding a schema, and a config holding `x: 1`, then `##    Schema   a`, a NUL byte and `b`. Run `shcl check` on it.
-	- Incorrect behavior: C validates against `a` and exits 6. Rust, Go and Python refuse the path and exit 8.
-	- Expected behavior: exit 8, as the other three.
-	- Reproduced: 20260928.
-	- Origin: `2c528a23`. A NUL could not reach a path before, since argv cannot hold one. Confirmed.
-	- Estimated effort: Low
-	- Actual fix: C refuses a Schema path holding a NUL at exit 8 and prints the whole path.
-	- Branch: schemaline
-	- Commit: 27d73efb
-	- Test case: cli-regress `schema-line-nul`. C exits 6 on dev.
-
-- `check` without `--schema` got about three times slower on large escaped files in C
-	- ID: 2026092813365308
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 8
-	- Version and build: dev at `f90708d8`
-	- Steps to reproduce: `shcl check` on the escaped file from item 5.
-	- Incorrect behavior: C goes from 0.57 s to 1.75 s. Rust gains about 0.13 s.
-	- Expected behavior: looking for one comment line costs next to nothing.
-	- Reproduced: 20260928, C. Rust by the sweep's timing.
-	- Origin: `2c528a23`. The Schema line search runs every line through the full 2.x rewrite only to track raw fences. Confirmed.
-	- Estimated effort: Low
-	- Actual fix: the Schema and Format line walks run a line through the 2.x tokenizer only when it holds a run of three backticks or tildes, the only kind of line that can open a raw block. All four.
-	- Verified: C `check` on the review's escaped file went from 1.7 s to 0.68 s, and Rust from 0.75 s to 0.52 s.
-	- Branch: schemaline
-	- Commit: 27d73efb
-	- Test case: corpus 182 holds a quoted fence run that opens nothing and a value fence that opens a block. The time has no gate, as in item 5.
-
-- The Schema line's directory is split at a backslash on Linux and macOS
-	- ID: 2026092813365310
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 10
-	- Version and build: dev at `f90708d8`
-	- Steps to reproduce: a config named `we\ird.shcl` holding `##    Schema   ./app.schema.shcl`, with the schema beside it. Run `shcl check` on it.
-	- Incorrect behavior: exit 8, `we/./app.schema.shcl: No such file or directory`. A path starting with `\` also counts as absolute there.
-	- Expected behavior: a backslash is a separator only on Windows, as `old_copy_name` already has it.
-	- Reproduced: 20260928, all four CLIs.
-	- Origin: `2c528a23`. Confirmed.
-	- Estimated effort: Low
-	- Actual fix: a backslash is a separator only on Windows, in the Schema path's directory and in the absolute-path test. All four, through the `name_start` helper `old_copy_name` now shares.
-	- Branch: schemaline
-	- Commit: 27d73efb
-	- Test case: cli-regress `schema-line-backslash-name`, which fails on dev.
-
-- Go and Python drop the setuid, setgid and sticky bits from the `_old_v2` copy
-	- ID: 2026092813365306
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 6
-	- Version and build: dev at `f90708d8`
-	- Steps to reproduce: `chmod 2755` a 2.x file, then `shcl migrate --write FILE`, then `stat -c %a` on the copy.
-	- Incorrect behavior: Go writes 755 for 1644, 2755 and 4755. Python writes 755 for 2755 and 4755. Rust and C keep every bit.
-	- Expected behavior: the copy takes the original's mode, as Rust and C do.
-	- Reproduced: 20260928.
-	- Origin: `6c49d1b0`. Go keeps only the permission bits, and Python sets the mode before its buffered write goes out, which clears setuid and setgid. The library save already avoids the second. Confirmed.
-	- Estimated effort: Low
-	- Actual fix: Go carries the whole mode, and Python flushes before the mode goes on.
-	- Branch: oldcopy
-	- Commit: 4dbe70af
-	- Test case: cli-regress save case `migrate-setid` at 6755, which fails on dev for Go and Python.
-
-- Go's `_old_v2` copy errors name the path twice
-	- ID: 2026092813365311
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 11
-	- Version and build: dev at `f90708d8`
-	- Steps to reproduce: `shcl migrate -w ro/g.shcl` with `ro` read-only.
-	- Incorrect behavior: `ro/g_old_v2.shcl: open ro/g_old_v2.shcl: permission denied`.
-	- Expected behavior: `FILE: ` and the system's message, as the UI guide says and the other three print.
-	- Reproduced: 20260928.
-	- Origin: `6c49d1b0`. The missed twin of 20260926 item 16, fixed for reads in the same range. Confirmed.
-	- Estimated effort: Low
-	- Actual fix: both copy errors print the system's message without the path error around it.
-	- Swept: the other Go CLI paths that wrap a path error already unwrap it.
-	- Branch: oldcopy
-	- Commit: 4dbe70af
-	- Test case: cli-regress save case `migrate-rodir`, which fails on dev for Go.
-
-- `about --version` and `version --donate` are usage errors now
-	- ID: 2026092813365309
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 9
-	- Version and build: dev at `f90708d8`
-	- Steps to reproduce: `shcl about --version`, `shcl version --donate`.
-	- Incorrect behavior: exit 1, `usage: shcl about (see --help)`. `shcl fmt --version` still exits 0. Before `39ad1f23` all of these exited 0.
-	- Expected behavior: design.md says the flag spellings are recognized anywhere in option position.
-	- Reproduced: 20260928, all four CLIs.
-	- Origin: `39ad1f23` (cli fixes, 20260923 item 17). Regression. Confirmed.
-	- Keep: 20260923 item 17 says the words refuse anything after them but their own flags. That line and design.md disagree on this case, so it needs a call.
-	- Decisions:
-		- 20260928: the informational outputs are flags: `-h`/`--help`, `-v`/`-V`/`--version`, `--about` and `--donate`. The words `version`, `about` and `donate` go, and a leftover one gets the did-you-mean hint at exit 1. `help` stays as a word, since it takes a topic (`help CMD`). No scripts use v2, so nothing breaks.
-		- Several asked in one run print once each, in the order asked, with one blank line before, between and after. `--about` covers `--version`, since its first line is the version line. A lone `--version` stays unpadded. Today the first one asked wins silently: `--help --version` prints only the help.
-		- `help` still refuses anything after it but one topic and the informational flags. design.md's paragraph and 20260923 item 17's rule change to match.
-	- Estimated effort: Low
-	- Actual fix: as decided, in all four CLIs. `help` still refuses more than one topic. The installers, the shcl.ps1 test and the dogfood runner's examples call `--version`, which 2.0.0 takes too.
-	- Swept: the help text, man page, both completion files, README, design.md, changelog, `install.bash`, `install.ps1`, shell-regress and check-completions, which reads the flag table out of `main.rs`.
-	- Note: 20260923 item 17's three rows are commented out with the reason, since the words they tested are gone. Installers are 1.1.2 and 1.1.4, and main owes them a sync.
-	- Branch: infoflags2
-	- Commit: 74cc8fdd
-	- Test case: cli-regress `version-word-gone`, `about-word-gone`, `donate-word-gone`, `help-topic-version-word`, `info-flags-in-order` and `info-about-covers-version`. Each fails on dev.
-
-- Help leaves out `kB` and the `--duration` and `--size` refusals with `--array`
-	- ID: 2026092813365317
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 17
-	- Version and build: dev at `f90708d8`
-	- Incorrect behavior: `--unit` takes `kB`, and the spec lists it, but the help, man page and both completion lists leave it out. The help's refusal paragraph names `--array with --raw or --rawinfo` only. The man page and the CLIs also refuse it with `--duration` and `--size`.
-	- Expected behavior: the help and completions list what the CLI takes and refuses.
-	- Reproduced: 20260928, by reading and running the Rust CLI. Help is identical in all four.
-	- Origin: `95bec7c1`. Confirmed.
-	- Estimated effort: Low
-	- Actual fix: the help and man page list `kB`, both completion files offer it, and the help's refusal paragraph names `--duration` and `--size` with `--array`.
-	- Branch: infoflags2
-	- Commit: 74cc8fdd
-	- Test case: none new. cli-regress keeps the four helps identical and within 80 columns, and check-completions ties the completions to the CLI's tables.
-
-- The dogfood runner's header still says stamps are UTC
-	- ID: 2026092813365315
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 15
-	- Version and build: dev at `f90708d8`
-	- Incorrect behavior: the header says the stamp is from the build's write time in UTC, and that names sort the same across a clock change. The settings comment below it says local time, and that a clock change can put a stamp out of order.
-	- Expected behavior: the header says local time.
-	- Reproduced: 20260928, by reading.
-	- Origin: `589926ba` wrote the sentence, and `ffb9ef9f` (stamps local) did not update it. Confirmed.
-	- Estimated effort: Low
-	- Actual fix: the header says local time and the invariant culture, and that a clock change can put one stamp out of order.
-	- Branch: psfix
-	- Commit: c63a6ace
-	- Test case: none, a comment.
-
-- One pool file with an impossible date stops the dogfood runner on every run
-	- ID: 2026092813365316
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 16
-	- Steps to reproduce: with one held build, create an empty `shcl_20261399-000000` in the pool and run the runner.
-	- Incorrect behavior: exit 1, "The DateTime represented by the string '20261399-000000' is not supported", and shcl never runs, `--no-update` included.
-	- Expected behavior: the runner's comment says anything else put in the directory is left alone.
-	- Reproduced: 20260928, by the sweep under pwsh 7 on Linux with a scratch HOME.
-	- Origin: `eefd1dba` (dogfood runner, 2026-09-24). The stamp is parsed with a call that throws. Not seen before. Confirmed.
-	- Estimated effort: Low
-	- Actual fix: a stamp that names no real date reads as no stamp, so that file is not taken for a version and is left alone.
-	- Branch: psfix
-	- Commit: c63a6ace
-	- Test case: shell-regress `20260928-item16-dogfood-impossible-date`, which fails on dev.
-
-- The closed-items Test check borrows a Test line from an unrelated item
-	- ID: 2026092813365318
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 18
-	- Version and build: dev at `f90708d8`
-	- Steps to reproduce: take both Test lines out of 20260924d idea 2 in a copy of the backlog, and run the check on it.
-	- Incorrect behavior: it passes. A closed item under a review round's heading bullet counts as covered when the last closed item above the round has a Test line. 20260925b idea 1 has none and passes that way today.
-	- Expected behavior: the check's comment says the Test line is the item's own or one under a closed item it sits in.
-	- Reproduced: 20260928, by the sweep on mutated copies.
-	- Origin: `8d15a2b4` (closed items check). The check takes the nearest shallower closed item as the parent, not the real one. Confirmed.
-	- Estimated effort: Low
-	- Actual fix: an item counts as covered by a Test line of its own or on any closed item among the bullets it sits in, found by walking up its real parents. A review round's heading bullet covers nothing.
-	- Note: 20260925b idea 1 got its Test line, the one item that had passed by borrowing.
-	- Branch: gatefix
-	- Commit: 530f8deb
-	- Test case: shell-regress `20260928-item18-closed-items-test-parent`, which lifts the check out of check-docs and runs it on a small backlog. It fails on dev.
-
-- Gate status lines can say `ok` for a test that failed or did not run
-	- ID: 2026092813365319
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 19
-	- Version and build: dev at `f90708d8`
-	- Incorrect behavior:
-		- crosscheck prints `ok` for every test, then refuses at its `--min` floor and exits 2. check-migrate does the same with its floors.
-		- Where a tool is missing, only the first test before the tool check prints `skip`. The tests inside the block print nothing, about 15 of them under pwsh.
-		- A test with a quiet skip inside prints `ok`: shell-regress's largedoc row, check-docs' ratio row, perf-gate when every baseline failed.
-		- sanitize-c drops the runners' FAIL lines along with ok and skip, so an ASan-only failure shows no name.
-	- Expected behavior: one true status line per test that runs, as the test ID rule says.
-	- Reproduced: 20260928, crosscheck by running it. The rest by reading.
-	- Origin: `831dfd58` and `c972bafd` (test ids). Confirmed for crosscheck, Plausible for the rest.
-	- Estimated effort: Avg
-	- Actual fix: crosscheck and check-migrate count a missed floor against the test that owns it. `fTestSkipBlock` in the test-id include prints a skip line for every test inside a skipped block, read out of the calling script, and the tool-gated blocks in shell-regress use it. The largedoc row, the check-docs ratio row and a perf-gate workload with no baseline say skip. sanitize-c keeps a runner's FAIL lines.
-	- Verified: crosscheck `--min 999999` and check-migrate `--min 999999` print FAIL on the owning test; perf-gate on a CLI whose baseline fails prints skip for each workload.
-	- Branch: gatefix
-	- Commit: 530f8deb
-	- Test case: shell-regress `20260928-item19-skipped-block-names-its-tests` for the helper. The floors and skips were checked by hand, as above.
-
-- `config.bash` says the hosted gate does not install makensis, but it does, unpinned
-	- ID: 2026092813365320
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 20
-	- Version and build: dev at `f90708d8`
-	- Incorrect behavior: `ci.yml` installs `nsis` through apt, and shell-regress's nsis rows run hosted on whatever version the image has. check-pins leaves makensis out, on the comment's word.
-	- Expected behavior: the comment matches `ci.yml`, and a tool the hosted gate runs is pinned or its exemption says why.
-	- Reproduced: 20260928, by reading.
-	- Origin: `f372d6a3` (pins). Confirmed.
-	- Estimated effort: Low
-	- Actual fix: the config.bash and check-pins comments say the hosted gate takes apt's nsis for the rows that compile the setup script, which build nothing published. The pin stays for release boxes.
-	- Branch: gatefix
-	- Commit: 530f8deb
-	- Test case: none, comments.
-
-- Style: three small leftovers in the range
-	- ID: 2026092813365321
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 21
-	- Version and build: dev at `f90708d8`
-	- Incorrect behavior:
-		- The `drop_banners` doc comment in `lib.rs` has one line far longer than the rest.
-		- A comment in Rust's `do_set` breaks "20260924 item 7" across two lines.
-		- Go splits Rust's one `name_unit` into three functions. The style guide lists no such deviation.
-	- Expected behavior: the style guide and the Rust reference's structure.
-	- Reproduced: 20260928, by reading.
-	- Origin: `2c528a23`, `95bec7c1` and the setkeep merge. Confirmed.
-	- Estimated effort: Low
-	- Actual fix: the `drop_banners` comment is rewrapped, and its uneven twins in Python and C with it. "20260924 item 7" is on one line in all four CLIs. Go's three name-unit functions are one generic `nameUnit`, as in Rust, so no style guide line is needed.
-	- Swept: `drop_banners` in all four; Go's was already even. The item 7 comment in all four CLIs. No other caller of the old Go names in the repo.
-	- Note: C also splits `name_unit` into `name_ends` and two lookups, since C has no generics. The style guide does not list that either.
-	- Verified: the four conformance suites, `go test`, crosscheck with fuzz inputs, cli-regress, and a unit-name probe on mixed-case names that all four CLIs answer the same. Lints: gofmt, vet, staticcheck, clippy, ruff, mypy, cppcheck.
-	- Branch: tidy21
-	- Commit: c6e40940
-	- Test case: none new. Comments and structure only; corpus `176-durations-sizes` and `177-schema-durations-sizes` and the crosscheck pin the behavior.
-
-- `test-ids.py` passes a test in a place its tables do not know
-	- ID: 2026092813365327
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 idea 6
-	- Requirements: a `#[test]` in a Rust source file other than `lib.rs`, a Go test whose parameter is not `t`, or a test under `source/go/cmd/` gets no ID and is not flagged. Find every `#[test]` and `func Test` in any file, and fail on any it cannot place.
-	- Estimated effort: Low
-	- Done: `test-ids.py check` finds every `#[test]` and `func Test` in any tracked file and fails on one its tables do not place. TestMain and the comparison tool's crate are left out.
-	- Branch: gatefix
-	- Commit: 530f8deb
-	- Test case: shell-regress `20260928-idea6-test-ids-strays`, a fake tree with three misplaced tests. It fails on dev.
-
-- The drop-ins tarball mode row passes on a checkout made under umask 077
-	- ID: 2026092813365328
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 idea 7
-	- Requirements: the row compares the tarball built under umask 077 with the checkout. When the checkout was itself made under 077, both match under the old tar line too. Check the modes themselves, 644 and 755.
-	- Estimated effort: Low
-	- Done: the row also checks each file's mode in the tarball, 644, or 755 where git records it executable.
-	- Branch: gatefix
-	- Commit: 530f8deb
-	- Test case: shell-regress `20260829-26-dropins-tarball-reproducible`. With `--mode` taken off the tar line it fails on the modes.
-
-- The dropped-line bookkeeping has an arm that cannot run
-	- ID: 2026092813365326
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 idea 5
-	- Requirements: the `Stopped` outcome in the `track_dropped` path never happens. Only the line-keeping save's reparse sets `track_dropped`, and it has no node cap. Remove it in all four, or say in a comment why it stays.
-	- Estimated effort: Low
-	- Done: the stopped arm of the dropped-line tracking is gone in all four, with a short comment saying the keep save's parse never stops. The lost count still counts a stopped parse's lines, which a capped load needs.
-	- Verified: cargo test, the Go, Python and C runners, crosscheck with fuzz inputs, cli-regress, shell-regress, cppcheck.
-	- Swept: the one place each binding turns tracking on (Rust and Python `keep_lines`, Go `keepLines`, C `keep_lines` through `do_parse`) parses with no node cap. The cap is set only by the capped parse calls, which never track.
-	- Branch: tidy21
-	- Commit: c6e40940
-	- Test case: none new, since no input reaches the removed code. The keep-dropped cli-regress rows, the Rust fuzz and the shared fixtures pass unchanged.
-
-- Escape more invisible characters on output
-	- ID: 2026092813365322
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 idea 1
-	- Requirements:
-		- The output escape list leaves out tag characters (U+E0000 to U+E007F, used to hide text in plain sight), U+00AD, U+180E, U+034F, U+206A to U+206F, U+FFF9 to U+FFFB and the Hangul fillers.
-		- Unicode's Default_Ignorable_Code_Point property is the usual list. Tags inside a flag sequence and variation selectors would need the same pass ZWJ gets.
-	- Note: the spec lists the escaped set, so this changes the format's output. It has to go in before `v3.0.0-beta1` or wait for another major.
-	- Estimated effort: Avg
-	- Decisions:
-		- 20260928: signed off to go in before `v3.0.0-beta1`.
-		- The list is Unicode 18.0's Default_Ignorable_Code_Point, plus the controls, the line and paragraph separators and U+FFF9 to U+FFFB. The format fixes it, so a later Unicode changes nothing.
-		- The joiners stay as written, as decided 2026-09-26.
-		- A variation selector stays only right after a visible character: not a blank, a line break, a joiner, or anything in the list. So a run of selectors is escaped past the first.
-		- A tag stays only inside a subdivision flag: U+1F3F4, three to seven tag digits or lowercase letters, then the cancel tag.
-		- Other format characters that draw a mark or change layout, and the Unicode spaces, stay as written. They are not in the property.
-		- One list, written into the four bindings and the grammar by `gen-escapes.py`. `check-docs.bash` fails when a copy differs.
-	- Actual effort: Avg
-	- Actual fix: the wider table and a context check for selectors and tags in all four, with `\U` for an escape past U+FFFF. That spelling was wrong in all four before, and unseen, since nothing that high was escaped. Grammar, spec, design.md, changelog. check-migrate respells 2.x names through the Python binding instead of its own copy of the list.
-	- Branch: `escapes`
-	- Commit: `5c18d81d`
-	- Test case: corpus `183-invisible-escapes`, cli-regress `escape-ignorable-fmt`, `escape-tags-fmt`, `escape-tags-set`, `escape-selector-run` (each fails on dev) and `escape-flag-kept`, `escape-selector-kept` (unchanged behavior), seven check-abnf `fmt-bareword` samples (five fail on the old grammar), and check-docs `escape-tables-match`, seen red on a changed Go table. The fuzz alphabet gained a selector, a black flag and two tags.
-	- Swept: every `invisible` call site in the four bindings (the two quoting checks and the name and value escape loops each), `QuoteSegment` and `diag_name` through `escape_name`, the grammar's bare class, check-migrate's copy, the C++ veneer (no copy), and the bash and PowerShell wrappers (no copy).
-	- Verified: the four conformance suites, cargo test, go test per module, crosscheck with a fuzz dump, cli-regress, shell-regress, check-migrate, check-abnf, check-docs, check-veneer, perf-gate, test-ids check, the fuzz at 2,000,000 in release, clippy, go vet, staticcheck, cppcheck, ruff, mypy, shellcheck and markdownlint. Random selector and tag text through all four CLIs gave the same output and a fixpoint.
-
 - A Schema line makes `check` open any path, devices and network shares included
 	- ID: 2026092813365302
 	- Type: Bug
@@ -585,6 +183,31 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Requirements: `a: 1, 2`, `b: 0`, then `a:` with two stacked elements, then `c: [x]` prints line 6's E019 before line 3's H002. Nothing requires line order, but a sort by line at the end of the parse reads better. All four agree today.
 	- Estimated effort: Low
 
+- `fmt` indents a Schema line, and `check` then stops validating at exit 0
+	- ID: 2026092813365301
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 1
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce:
+		- A schema `s.shcl` holding `field: server.port` with `type: int` and `max: 100` under it.
+		- A config holding `server:`, then `##    Schema   s.shcl` at column 0, then `\tport: 8080`.
+		- `shcl check cfg.shcl` exits 6, then `shcl fmt --write cfg.shcl`, then `shcl check cfg.shcl` again.
+	- Incorrect behavior: after `fmt` the line sits one tab in, the schema is no longer found, and `check` exits 0. The reverse happens too: an indented Schema line is ignored until `fmt` moves it to column 0.
+	- Expected behavior: whether a file names a schema does not depend on `fmt`. The spec says a comment changes nothing about the document.
+	- Reproduced: 20260928, all four CLIs.
+	- Origin: `2c528a23` (schema line, 2026-09-26). The line is matched only at column 0, and the emitter indents a comment to its node's depth. Not seen before. Confirmed.
+	- Estimated effort: Avg
+	- Actual fix: the Schema and Format lines count after any indent, in all four bindings.
+	- Swept: `schema_ref` and `format_line_version` in all four. `set_banner` finds the old block from parsed comments, so the column never mattered there.
+	- Note: the keep-lines fuzz floor went from 90 to 85 percent. The new corpus case moved the seeds, and dev's own code then kept 150 of 167 tidy configs. Every fallback was a designed one: a child under a stacked list or a dotted line, or a comment on a dotted path.
+	- Branch: schemaline
+	- Commit: 27d73efb
+	- Test case: corpus 182, cli-regress `schema-line-indented` and `migrate-indented-stamp-noop`. Each fails on dev.
+	- Closed: 20260929-052459
+
 - A line-keeping save deletes lines the load dropped, at exit 0
 	- ID: 2026092620255201
 	- Type: Bug
@@ -638,6 +261,56 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Swept: every test for a leading `#` on a comment line in all four. The merge's replaced-leaf rule is the one other site, filed as 2026092718195400.
 	- Branch: `keepdrop`
 	- Test case: corpus `178-clear-comments-kept-line`, both routes, with `comments` reads. It fails on the old code.
+
+- The H005 check slows every parse, most in Python and on escaped values in C
+	- ID: 2026092813365305
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 5
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce:
+		- Python: `shcl fmt` on 60,000 lines of `nameN: value N`.
+		- C: `shcl count FILE k0` on 200,000 lines of two double-quoted elements holding `\t` and `\n`.
+	- Incorrect behavior: Python goes from 1.30 s to 1.82 s. C goes from 0.64 s to 1.0 s and from 240 MB to 290 MB. Rust and Go gain a little on the escaped file.
+	- Expected behavior: a hint that only fires on a unit-named field costs next to nothing elsewhere.
+	- Reproduced: 20260928, head against the previous round's builds.
+	- Origin: `95bec7c1` (durations and sizes). Every leaf and element runs the unit check before the cheap test on the name. Python lowers the name once per unit, and C copies each escaped element into scratch that nothing frees during the parse. Confirmed.
+	- Sweep: the H005 site in the field and element arms, in all four.
+	- Estimated effort: Low
+	- Actual fix: the field arm asks whether the name ends in a unit before it builds the value's text, in all four. Python also tests the separator before it lowers the name.
+	- Swept: the H005 field and element arms in all four. The element arm already had its text.
+	- Verified: C `count` on the escaped file went from 0.98 s and 290 MB to 0.71 s and 241 MB. Python `fmt` on the plain file went from 1.9 s to 1.4 s, level with the build before H005.
+	- Branch: schemaline
+	- Commit: 27d73efb
+	- Test case: none for the time. perf-gate's ratio catches worse than linear, not a constant factor like this. H005 itself stays pinned by corpus 176 and cli-regress `unit-hint`.
+	- Closed: 20260929-052459
+
+- The `_old_v2` copy takes the directory's group, so a private config gets a backup that group can read
+	- ID: 2026092813365303
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 3
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce:
+		- A setgid directory owned by group `devs`, mode 2775.
+		- A 2.x file in it owned by the user's own group, mode 640, holding `a: "x\qy"`.
+		- `shcl migrate --write FILE`.
+	- Incorrect behavior: `c_old_v2.shcl` is mode 640 with group `devs`, so members of `devs` can read the old config. The migrated file keeps its group.
+	- Expected behavior: the copy is made private and gets the original's group before its mode, the way the save does it.
+	- Reproduced: 20260928, all four CLIs.
+	- Origin: `6c49d1b0` (keepold). Against the item's own decision that a private config does not get a readable backup. Confirmed.
+	- Note: on Windows the copy takes the directory's ACL, while `ReplaceFile` keeps the original's. Plausible, for the Windows batch.
+	- Estimated effort: Low
+	- Actual fix: the copy takes the original's group before its mode, as the save does, in all four CLIs.
+	- Note: the Windows ACL half is split out as 2026092815155546.
+	- Branch: oldcopy
+	- Commit: 4dbe70af
+	- Test case: cli-regress save case `migrate-setgid`, which fails on dev in all four.
+	- Closed: 20260929-052459
 
 - C `shcl_compact` reaches the out-of-memory hook on a document with a kept misplaced line
 	- ID: 2026092620255203
@@ -931,6 +604,281 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Commit: `1a12c02`
 	- Test case: corpus `171-windows-path-hint`, cli-regress `path-hint-*` rows. The read and strict rows and case 171 fail with the hint off, and `path-hint-set` shows a write is unaffected. The migrate goldens of cases 118, 122 and 170 now list the hint.
 
+- The C CLI cuts a Schema path at a NUL and validates against another file
+	- ID: 2026092813365307
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 7
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce: a file `a` holding a schema, and a config holding `x: 1`, then `##    Schema   a`, a NUL byte and `b`. Run `shcl check` on it.
+	- Incorrect behavior: C validates against `a` and exits 6. Rust, Go and Python refuse the path and exit 8.
+	- Expected behavior: exit 8, as the other three.
+	- Reproduced: 20260928.
+	- Origin: `2c528a23`. A NUL could not reach a path before, since argv cannot hold one. Confirmed.
+	- Estimated effort: Low
+	- Actual fix: C refuses a Schema path holding a NUL at exit 8 and prints the whole path.
+	- Branch: schemaline
+	- Commit: 27d73efb
+	- Test case: cli-regress `schema-line-nul`. C exits 6 on dev.
+	- Closed: 20260929-052459
+
+- `check` without `--schema` got about three times slower on large escaped files in C
+	- ID: 2026092813365308
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 8
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce: `shcl check` on the escaped file from item 5.
+	- Incorrect behavior: C goes from 0.57 s to 1.75 s. Rust gains about 0.13 s.
+	- Expected behavior: looking for one comment line costs next to nothing.
+	- Reproduced: 20260928, C. Rust by the sweep's timing.
+	- Origin: `2c528a23`. The Schema line search runs every line through the full 2.x rewrite only to track raw fences. Confirmed.
+	- Estimated effort: Low
+	- Actual fix: the Schema and Format line walks run a line through the 2.x tokenizer only when it holds a run of three backticks or tildes, the only kind of line that can open a raw block. All four.
+	- Verified: C `check` on the review's escaped file went from 1.7 s to 0.68 s, and Rust from 0.75 s to 0.52 s.
+	- Branch: schemaline
+	- Commit: 27d73efb
+	- Test case: corpus 182 holds a quoted fence run that opens nothing and a value fence that opens a block. The time has no gate, as in item 5.
+	- Closed: 20260929-052459
+
+- The Schema line's directory is split at a backslash on Linux and macOS
+	- ID: 2026092813365310
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 10
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce: a config named `we\ird.shcl` holding `##    Schema   ./app.schema.shcl`, with the schema beside it. Run `shcl check` on it.
+	- Incorrect behavior: exit 8, `we/./app.schema.shcl: No such file or directory`. A path starting with `\` also counts as absolute there.
+	- Expected behavior: a backslash is a separator only on Windows, as `old_copy_name` already has it.
+	- Reproduced: 20260928, all four CLIs.
+	- Origin: `2c528a23`. Confirmed.
+	- Estimated effort: Low
+	- Actual fix: a backslash is a separator only on Windows, in the Schema path's directory and in the absolute-path test. All four, through the `name_start` helper `old_copy_name` now shares.
+	- Branch: schemaline
+	- Commit: 27d73efb
+	- Test case: cli-regress `schema-line-backslash-name`, which fails on dev.
+	- Closed: 20260929-052459
+
+- Go and Python drop the setuid, setgid and sticky bits from the `_old_v2` copy
+	- ID: 2026092813365306
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 6
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce: `chmod 2755` a 2.x file, then `shcl migrate --write FILE`, then `stat -c %a` on the copy.
+	- Incorrect behavior: Go writes 755 for 1644, 2755 and 4755. Python writes 755 for 2755 and 4755. Rust and C keep every bit.
+	- Expected behavior: the copy takes the original's mode, as Rust and C do.
+	- Reproduced: 20260928.
+	- Origin: `6c49d1b0`. Go keeps only the permission bits, and Python sets the mode before its buffered write goes out, which clears setuid and setgid. The library save already avoids the second. Confirmed.
+	- Estimated effort: Low
+	- Actual fix: Go carries the whole mode, and Python flushes before the mode goes on.
+	- Branch: oldcopy
+	- Commit: 4dbe70af
+	- Test case: cli-regress save case `migrate-setid` at 6755, which fails on dev for Go and Python.
+	- Closed: 20260929-052459
+
+- Go's `_old_v2` copy errors name the path twice
+	- ID: 2026092813365311
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 11
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce: `shcl migrate -w ro/g.shcl` with `ro` read-only.
+	- Incorrect behavior: `ro/g_old_v2.shcl: open ro/g_old_v2.shcl: permission denied`.
+	- Expected behavior: `FILE: ` and the system's message, as the UI guide says and the other three print.
+	- Reproduced: 20260928.
+	- Origin: `6c49d1b0`. The missed twin of 20260926 item 16, fixed for reads in the same range. Confirmed.
+	- Estimated effort: Low
+	- Actual fix: both copy errors print the system's message without the path error around it.
+	- Swept: the other Go CLI paths that wrap a path error already unwrap it.
+	- Branch: oldcopy
+	- Commit: 4dbe70af
+	- Test case: cli-regress save case `migrate-rodir`, which fails on dev for Go.
+	- Closed: 20260929-052459
+
+- `about --version` and `version --donate` are usage errors now
+	- ID: 2026092813365309
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 9
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce: `shcl about --version`, `shcl version --donate`.
+	- Incorrect behavior: exit 1, `usage: shcl about (see --help)`. `shcl fmt --version` still exits 0. Before `39ad1f23` all of these exited 0.
+	- Expected behavior: design.md says the flag spellings are recognized anywhere in option position.
+	- Reproduced: 20260928, all four CLIs.
+	- Origin: `39ad1f23` (cli fixes, 20260923 item 17). Regression. Confirmed.
+	- Keep: 20260923 item 17 says the words refuse anything after them but their own flags. That line and design.md disagree on this case, so it needs a call.
+	- Decisions:
+		- 20260928: the informational outputs are flags: `-h`/`--help`, `-v`/`-V`/`--version`, `--about` and `--donate`. The words `version`, `about` and `donate` go, and a leftover one gets the did-you-mean hint at exit 1. `help` stays as a word, since it takes a topic (`help CMD`). No scripts use v2, so nothing breaks.
+		- Several asked in one run print once each, in the order asked, with one blank line before, between and after. `--about` covers `--version`, since its first line is the version line. A lone `--version` stays unpadded. Today the first one asked wins silently: `--help --version` prints only the help.
+		- `help` still refuses anything after it but one topic and the informational flags. design.md's paragraph and 20260923 item 17's rule change to match.
+	- Estimated effort: Low
+	- Actual fix: as decided, in all four CLIs. `help` still refuses more than one topic. The installers, the shcl.ps1 test and the dogfood runner's examples call `--version`, which 2.0.0 takes too.
+	- Swept: the help text, man page, both completion files, README, design.md, changelog, `install.bash`, `install.ps1`, shell-regress and check-completions, which reads the flag table out of `main.rs`.
+	- Note: 20260923 item 17's three rows are commented out with the reason, since the words they tested are gone. Installers are 1.1.2 and 1.1.4, and main owes them a sync.
+	- Branch: infoflags2
+	- Commit: 74cc8fdd
+	- Test case: cli-regress `version-word-gone`, `about-word-gone`, `donate-word-gone`, `help-topic-version-word`, `info-flags-in-order` and `info-about-covers-version`. Each fails on dev.
+	- Closed: 20260929-052459
+
+- Help leaves out `kB` and the `--duration` and `--size` refusals with `--array`
+	- ID: 2026092813365317
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 17
+	- Version and build: dev at `f90708d8`
+	- Incorrect behavior: `--unit` takes `kB`, and the spec lists it, but the help, man page and both completion lists leave it out. The help's refusal paragraph names `--array with --raw or --rawinfo` only. The man page and the CLIs also refuse it with `--duration` and `--size`.
+	- Expected behavior: the help and completions list what the CLI takes and refuses.
+	- Reproduced: 20260928, by reading and running the Rust CLI. Help is identical in all four.
+	- Origin: `95bec7c1`. Confirmed.
+	- Estimated effort: Low
+	- Actual fix: the help and man page list `kB`, both completion files offer it, and the help's refusal paragraph names `--duration` and `--size` with `--array`.
+	- Branch: infoflags2
+	- Commit: 74cc8fdd
+	- Test case: none new. cli-regress keeps the four helps identical and within 80 columns, and check-completions ties the completions to the CLI's tables.
+	- Closed: 20260929-052459
+
+- The dogfood runner's header still says stamps are UTC
+	- ID: 2026092813365315
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 15
+	- Version and build: dev at `f90708d8`
+	- Incorrect behavior: the header says the stamp is from the build's write time in UTC, and that names sort the same across a clock change. The settings comment below it says local time, and that a clock change can put a stamp out of order.
+	- Expected behavior: the header says local time.
+	- Reproduced: 20260928, by reading.
+	- Origin: `589926ba` wrote the sentence, and `ffb9ef9f` (stamps local) did not update it. Confirmed.
+	- Estimated effort: Low
+	- Actual fix: the header says local time and the invariant culture, and that a clock change can put one stamp out of order.
+	- Branch: psfix
+	- Commit: c63a6ace
+	- Test case: none, a comment.
+	- Closed: 20260929-052459
+
+- One pool file with an impossible date stops the dogfood runner on every run
+	- ID: 2026092813365316
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 16
+	- Steps to reproduce: with one held build, create an empty `shcl_20261399-000000` in the pool and run the runner.
+	- Incorrect behavior: exit 1, "The DateTime represented by the string '20261399-000000' is not supported", and shcl never runs, `--no-update` included.
+	- Expected behavior: the runner's comment says anything else put in the directory is left alone.
+	- Reproduced: 20260928, by the sweep under pwsh 7 on Linux with a scratch HOME.
+	- Origin: `eefd1dba` (dogfood runner, 2026-09-24). The stamp is parsed with a call that throws. Not seen before. Confirmed.
+	- Estimated effort: Low
+	- Actual fix: a stamp that names no real date reads as no stamp, so that file is not taken for a version and is left alone.
+	- Branch: psfix
+	- Commit: c63a6ace
+	- Test case: shell-regress `20260928-item16-dogfood-impossible-date`, which fails on dev.
+	- Closed: 20260929-052459
+
+- The closed-items Test check borrows a Test line from an unrelated item
+	- ID: 2026092813365318
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 18
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce: take both Test lines out of 20260924d idea 2 in a copy of the backlog, and run the check on it.
+	- Incorrect behavior: it passes. A closed item under a review round's heading bullet counts as covered when the last closed item above the round has a Test line. 20260925b idea 1 has none and passes that way today.
+	- Expected behavior: the check's comment says the Test line is the item's own or one under a closed item it sits in.
+	- Reproduced: 20260928, by the sweep on mutated copies.
+	- Origin: `8d15a2b4` (closed items check). The check takes the nearest shallower closed item as the parent, not the real one. Confirmed.
+	- Estimated effort: Low
+	- Actual fix: an item counts as covered by a Test line of its own or on any closed item among the bullets it sits in, found by walking up its real parents. A review round's heading bullet covers nothing.
+	- Note: 20260925b idea 1 got its Test line, the one item that had passed by borrowing.
+	- Branch: gatefix
+	- Commit: 530f8deb
+	- Test case: shell-regress `20260928-item18-closed-items-test-parent`, which lifts the check out of check-docs and runs it on a small backlog. It fails on dev.
+	- Closed: 20260929-052459
+
+- Gate status lines can say `ok` for a test that failed or did not run
+	- ID: 2026092813365319
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 19
+	- Version and build: dev at `f90708d8`
+	- Incorrect behavior:
+		- crosscheck prints `ok` for every test, then refuses at its `--min` floor and exits 2. check-migrate does the same with its floors.
+		- Where a tool is missing, only the first test before the tool check prints `skip`. The tests inside the block print nothing, about 15 of them under pwsh.
+		- A test with a quiet skip inside prints `ok`: shell-regress's largedoc row, check-docs' ratio row, perf-gate when every baseline failed.
+		- sanitize-c drops the runners' FAIL lines along with ok and skip, so an ASan-only failure shows no name.
+	- Expected behavior: one true status line per test that runs, as the test ID rule says.
+	- Reproduced: 20260928, crosscheck by running it. The rest by reading.
+	- Origin: `831dfd58` and `c972bafd` (test ids). Confirmed for crosscheck, Plausible for the rest.
+	- Estimated effort: Avg
+	- Actual fix: crosscheck and check-migrate count a missed floor against the test that owns it. `fTestSkipBlock` in the test-id include prints a skip line for every test inside a skipped block, read out of the calling script, and the tool-gated blocks in shell-regress use it. The largedoc row, the check-docs ratio row and a perf-gate workload with no baseline say skip. sanitize-c keeps a runner's FAIL lines.
+	- Verified: crosscheck `--min 999999` and check-migrate `--min 999999` print FAIL on the owning test; perf-gate on a CLI whose baseline fails prints skip for each workload.
+	- Branch: gatefix
+	- Commit: 530f8deb
+	- Test case: shell-regress `20260928-item19-skipped-block-names-its-tests` for the helper. The floors and skips were checked by hand, as above.
+	- Closed: 20260929-052459
+
+- `config.bash` says the hosted gate does not install makensis, but it does, unpinned
+	- ID: 2026092813365320
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 20
+	- Version and build: dev at `f90708d8`
+	- Incorrect behavior: `ci.yml` installs `nsis` through apt, and shell-regress's nsis rows run hosted on whatever version the image has. check-pins leaves makensis out, on the comment's word.
+	- Expected behavior: the comment matches `ci.yml`, and a tool the hosted gate runs is pinned or its exemption says why.
+	- Reproduced: 20260928, by reading.
+	- Origin: `f372d6a3` (pins). Confirmed.
+	- Estimated effort: Low
+	- Actual fix: the config.bash and check-pins comments say the hosted gate takes apt's nsis for the rows that compile the setup script, which build nothing published. The pin stays for release boxes.
+	- Branch: gatefix
+	- Commit: 530f8deb
+	- Test case: none, comments.
+	- Closed: 20260929-052459
+
+- Style: three small leftovers in the range
+	- ID: 2026092813365321
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 21
+	- Version and build: dev at `f90708d8`
+	- Incorrect behavior:
+		- The `drop_banners` doc comment in `lib.rs` has one line far longer than the rest.
+		- A comment in Rust's `do_set` breaks "20260924 item 7" across two lines.
+		- Go splits Rust's one `name_unit` into three functions. The style guide lists no such deviation.
+	- Expected behavior: the style guide and the Rust reference's structure.
+	- Reproduced: 20260928, by reading.
+	- Origin: `2c528a23`, `95bec7c1` and the setkeep merge. Confirmed.
+	- Estimated effort: Low
+	- Actual fix: the `drop_banners` comment is rewrapped, and its uneven twins in Python and C with it. "20260924 item 7" is on one line in all four CLIs. Go's three name-unit functions are one generic `nameUnit`, as in Rust, so no style guide line is needed.
+	- Swept: `drop_banners` in all four; Go's was already even. The item 7 comment in all four CLIs. No other caller of the old Go names in the repo.
+	- Note: C also splits `name_unit` into `name_ends` and two lookups, since C has no generics. The style guide does not list that either.
+	- Verified: the four conformance suites, `go test`, crosscheck with fuzz inputs, cli-regress, and a unit-name probe on mixed-case names that all four CLIs answer the same. Lints: gofmt, vet, staticcheck, clippy, ruff, mypy, cppcheck.
+	- Branch: tidy21
+	- Commit: c6e40940
+	- Test case: none new. Comments and structure only; corpus `176-durations-sizes` and `177-schema-durations-sizes` and the crosscheck pin the behavior.
+	- Closed: 20260929-052459
+
 - The dogfood runner stamps builds in local time and the current culture
 	- ID: 2026092620255211
 	- Type: Bug
@@ -1212,6 +1160,78 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Verified: a stub CLI that sleeps, with the limit at 1 s, times out row by row by name.
 	- Branch: `setkeep`
 	- Test case: none standing, since a row that must hang costs the full limit on every run.
+
+- `test-ids.py` passes a test in a place its tables do not know
+	- ID: 2026092813365327
+	- Type: Enhancement
+	- Status: Done
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 idea 6
+	- Requirements: a `#[test]` in a Rust source file other than `lib.rs`, a Go test whose parameter is not `t`, or a test under `source/go/cmd/` gets no ID and is not flagged. Find every `#[test]` and `func Test` in any file, and fail on any it cannot place.
+	- Estimated effort: Low
+	- Done: `test-ids.py check` finds every `#[test]` and `func Test` in any tracked file and fails on one its tables do not place. TestMain and the comparison tool's crate are left out.
+	- Branch: gatefix
+	- Commit: 530f8deb
+	- Test case: shell-regress `20260928-idea6-test-ids-strays`, a fake tree with three misplaced tests. It fails on dev.
+	- Closed: 20260929-052459
+
+- The drop-ins tarball mode row passes on a checkout made under umask 077
+	- ID: 2026092813365328
+	- Type: Enhancement
+	- Status: Done
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 idea 7
+	- Requirements: the row compares the tarball built under umask 077 with the checkout. When the checkout was itself made under 077, both match under the old tar line too. Check the modes themselves, 644 and 755.
+	- Estimated effort: Low
+	- Done: the row also checks each file's mode in the tarball, 644, or 755 where git records it executable.
+	- Branch: gatefix
+	- Commit: 530f8deb
+	- Test case: shell-regress `20260829-26-dropins-tarball-reproducible`. With `--mode` taken off the tar line it fails on the modes.
+	- Closed: 20260929-052459
+
+- The dropped-line bookkeeping has an arm that cannot run
+	- ID: 2026092813365326
+	- Type: Enhancement
+	- Status: Done
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 idea 5
+	- Requirements: the `Stopped` outcome in the `track_dropped` path never happens. Only the line-keeping save's reparse sets `track_dropped`, and it has no node cap. Remove it in all four, or say in a comment why it stays.
+	- Estimated effort: Low
+	- Done: the stopped arm of the dropped-line tracking is gone in all four, with a short comment saying the keep save's parse never stops. The lost count still counts a stopped parse's lines, which a capped load needs.
+	- Verified: cargo test, the Go, Python and C runners, crosscheck with fuzz inputs, cli-regress, shell-regress, cppcheck.
+	- Swept: the one place each binding turns tracking on (Rust and Python `keep_lines`, Go `keepLines`, C `keep_lines` through `do_parse`) parses with no node cap. The cap is set only by the capped parse calls, which never track.
+	- Branch: tidy21
+	- Commit: c6e40940
+	- Test case: none new, since no input reaches the removed code. The keep-dropped cli-regress rows, the Rust fuzz and the shared fixtures pass unchanged.
+	- Closed: 20260929-052459
+
+- Escape more invisible characters on output
+	- ID: 2026092813365322
+	- Type: Enhancement
+	- Status: Done
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 idea 1
+	- Requirements:
+		- The output escape list leaves out tag characters (U+E0000 to U+E007F, used to hide text in plain sight), U+00AD, U+180E, U+034F, U+206A to U+206F, U+FFF9 to U+FFFB and the Hangul fillers.
+		- Unicode's Default_Ignorable_Code_Point property is the usual list. Tags inside a flag sequence and variation selectors would need the same pass ZWJ gets.
+	- Note: the spec lists the escaped set, so this changes the format's output. It has to go in before `v3.0.0-beta1` or wait for another major.
+	- Estimated effort: Avg
+	- Decisions:
+		- 20260928: signed off to go in before `v3.0.0-beta1`.
+		- The list is Unicode 18.0's Default_Ignorable_Code_Point, plus the controls, the line and paragraph separators and U+FFF9 to U+FFFB. The format fixes it, so a later Unicode changes nothing.
+		- The joiners stay as written, as decided 2026-09-26.
+		- A variation selector stays only right after a visible character: not a blank, a line break, a joiner, or anything in the list. So a run of selectors is escaped past the first.
+		- A tag stays only inside a subdivision flag: U+1F3F4, three to seven tag digits or lowercase letters, then the cancel tag.
+		- Other format characters that draw a mark or change layout, and the Unicode spaces, stay as written. They are not in the property.
+		- One list, written into the four bindings and the grammar by `gen-escapes.py`. `check-docs.bash` fails when a copy differs.
+	- Actual effort: Avg
+	- Actual fix: the wider table and a context check for selectors and tags in all four, with `\U` for an escape past U+FFFF. That spelling was wrong in all four before, and unseen, since nothing that high was escaped. Grammar, spec, design.md, changelog. check-migrate respells 2.x names through the Python binding instead of its own copy of the list.
+	- Branch: `escapes`
+	- Commit: `5c18d81d`
+	- Test case: corpus `183-invisible-escapes`, cli-regress `escape-ignorable-fmt`, `escape-tags-fmt`, `escape-tags-set`, `escape-selector-run` (each fails on dev) and `escape-flag-kept`, `escape-selector-kept` (unchanged behavior), seven check-abnf `fmt-bareword` samples (five fail on the old grammar), and check-docs `escape-tables-match`, seen red on a changed Go table. The fuzz alphabet gained a selector, a black flag and two tags.
+	- Swept: every `invisible` call site in the four bindings (the two quoting checks and the name and value escape loops each), `QuoteSegment` and `diag_name` through `escape_name`, the grammar's bare class, check-migrate's copy, the C++ veneer (no copy), and the bash and PowerShell wrappers (no copy).
+	- Verified: the four conformance suites, cargo test, go test per module, crosscheck with a fuzz dump, cli-regress, shell-regress, check-migrate, check-abnf, check-docs, check-veneer, perf-gate, test-ids check, the fuzz at 2,000,000 in release, clippy, go vet, staticcheck, cppcheck, ruff, mypy, shellcheck and markdownlint. Random selector and tag text through all four CLIs gave the same output and a fixpoint.
+	- Closed: 20260929-052459
 
 - A merge that replaces a leaf drops a kept line the settle turned into a comment
 	- ID: 2026092718195400
