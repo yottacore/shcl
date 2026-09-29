@@ -478,7 +478,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - Style: three small leftovers in the range
 	- ID: 2026092813365321
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Low
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 21
@@ -491,6 +491,13 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: 20260928, by reading.
 	- Origin: `2c528a23`, `95bec7c1` and the setkeep merge. Confirmed.
 	- Estimated effort: Low
+	- Actual fix: the `drop_banners` comment is rewrapped, and its uneven twins in Python and C with it. "20260924 item 7" is on one line in all four CLIs. Go's three name-unit functions are one generic `nameUnit`, as in Rust, so no style guide line is needed.
+	- Swept: `drop_banners` in all four; Go's was already even. The item 7 comment in all four CLIs. No other caller of the old Go names in the repo.
+	- Note: C also splits `name_unit` into `name_ends` and two lookups, since C has no generics. The style guide does not list that either.
+	- Verified: the four conformance suites, `go test`, crosscheck with fuzz inputs, cli-regress, and a unit-name probe on mixed-case names that all four CLIs answer the same. Lints: gofmt, vet, staticcheck, clippy, ruff, mypy, cppcheck.
+	- Branch: tidy21
+	- Commit: c6e40940
+	- Test case: none new. Comments and structure only; corpus `176-durations-sizes` and `177-schema-durations-sizes` and the crosscheck pin the behavior.
 
 - On Windows, the `_old_v2` copy may take the directory's ACL rather than the original's
 	- ID: 2026092815155546
@@ -551,11 +558,17 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - The dropped-line bookkeeping has an arm that cannot run
 	- ID: 2026092813365326
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 idea 5
 	- Requirements: the `Stopped` outcome in the `track_dropped` path never happens. Only the line-keeping save's reparse sets `track_dropped`, and it has no node cap. Remove it in all four, or say in a comment why it stays.
 	- Estimated effort: Low
+	- Done: the stopped arm of the dropped-line tracking is gone in all four, with a short comment saying the keep save's parse never stops. The lost count still counts a stopped parse's lines, which a capped load needs.
+	- Verified: cargo test, the Go, Python and C runners, crosscheck with fuzz inputs, cli-regress, shell-regress, cppcheck.
+	- Swept: the one place each binding turns tracking on (Rust and Python `keep_lines`, Go `keepLines`, C `keep_lines` through `do_parse`) parses with no node cap. The cap is set only by the capped parse calls, which never track.
+	- Branch: tidy21
+	- Commit: c6e40940
+	- Test case: none new, since no input reaches the removed code. The keep-dropped cli-regress rows, the Rust fuzz and the shared fixtures pass unchanged.
 
 - A line-keeping save deletes lines the load dropped, at exit 0
 	- ID: 2026092620255201
