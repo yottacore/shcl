@@ -1,13 +1,10 @@
-<!-- markdownlint-disable MD007 -- Indent count -->
+<!-- markdownlint-disable MD007 -- Unordered list indentation -->
 <!-- markdownlint-disable MD010 -- No hard tabs -->
 <!-- markdownlint-disable MD033 -- No inline html -->
-<!-- markdownlint-disable MD055 -- Table pipe style [Expected: leading_and_trailing; Actual: leading_only; Missing trailing pipe] -->
 <!-- markdownlint-disable MD041 -- First line in a file should be a top-level heading -->
 
 <!-- TOC ignore:true -->
 # SHCL backlog
-
-The product backlog: bugs, features, enhancements, and code-review findings. Outside reports come in through GitHub Issues (see `contributing.md`); the work itself is tracked here.
 
 <!-- TOC ignore:true -->
 ## Table of contents
@@ -15,22 +12,26 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 <!-- TOC -->
 
 - [Introduction](#introduction)
-- [New format](#new-format)
-- [Bugs](#bugs)
-- [Features and enhancements](#features-and-enhancements)
-- [Done](#done)
-	- [Done - Bugs](#done---bugs)
-	- [Done - Features and enhancements](#done---features-and-enhancements)
-- [Deferred](#deferred)
-- [Canceled](#canceled)
+- [Issues](#issues)
+- [Old format](#old-format)
+	- [Bugs](#bugs)
+	- [Features and enhancements](#features-and-enhancements)
+	- [Done](#done)
+		- [Done - Bugs](#done---bugs)
+		- [Done - Features and enhancements](#done---features-and-enhancements)
+	- [Deferred](#deferred)
+	- [Canceled](#canceled)
+- [Template](#template)
 
 <!-- /TOC -->
 
 ## Introduction
 
-Going forward, new issues in the new template at the bottom of this file, will go in the '## New format' section only. No more status emojis, but will be sorted (top-down) by status, then severity|priority. Issues in the old format (with status emojis) won't be refactored, but will continue to be worked until moved to closed, canceled, or deferred sections, and emojis updated. (Eventually this will all be moved to nano-git-db anyway. This new template is an intermediate effort to make issues going forward more structured and importable.)
+Going forward, new issues in the new template at the bottom of this file, will go in the '## New format' section only. No more status emojis. Refer to '## Reference' for sort order. Issues in the old format (with status emojis) won't be refactored, but will continue to be worked until moved to closed, canceled, or deferred sections, and emojis updated. (Eventually this will all be moved to nano-git-db anyway. This new template is an intermediate effort to make issues going forward more structured and importable.)
 
-## New format
+The product backlog: bugs, features, enhancements, and code-review findings. Outside reports come in through GitHub Issues (see `contributing.md`); the work itself is tracked here.
+
+## Issues
 
 - `fmt` indents a Schema line, and `check` then stops validating at exit 0
 	- ID: 2026092813365301
@@ -661,237 +662,6 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Acceptance signoff: 20260926
 	- Closed: 20260926-171332
 
-- The dogfood runner stamps builds in local time and the current culture
-	- ID: 2026092620255211
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20260926-202552
-	- Opened by: Code review 20260926 item 11
-	- Steps to reproduce: a scratch HOME, then `LC_ALL=th_TH.UTF-8 pwsh -NoProfile -File utility/dogfood_shcl.ps1 version` three times.
-	- Incorrect behavior: the held name jumps 543 years on each run, and a newer build is never copied in. Across a fall DST change a later build can sort as older and is skipped the same way.
-	- Expected behavior: a stable name, and the newest build runs. The stamp is written in the current culture and read back as invariant, which the tree's PowerShell traps warn about.
-	- Reproduced: 20260926, pwsh on Linux.
-	- Origin: `eefd1db` (2026-09-24). Confirmed.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Decisions:
-		- 20260927: stamps are the build's write time in UTC, written and read in the invariant culture, and the period keys too. A pool from before keeps its local-time names, so its newest may look a few hours off once.
-		- 20260928-094425: Correction: Times should be local, even if crossing timezones and DST changes results in times that are off. But the name shouldn't jump between runs (except for actual local time advancing), let alone 543 years.
-		- 20260928: back to local time, still written and read in the invariant culture. After a fall DST change or a move west, a build made in the repeated hours sorts older than the one before it, so it is skipped until the clock passes that stamp.
-	- Actual fix: `$Invariant` in `dogfood_shcl.ps1`. Reopened fix: `LastWriteTime` and `Get-Date` in place of their UTC forms.
-	- Swept: every `ToString` and `ParseExact` in the runner.
-	- Branch: `dogfood`, reopened on `stamplocal`
-	- Test case: `shell-regress.bash` row `20260926-item11-dogfood-stamp-culture`, under th-TH and `Asia/Bangkok`. It fails on the original runner, which drifts by 543 years a run, and on the UTC one. The other dogfood rows pin `TZ=UTC`.
-
-- A merge result depends on whether the lower layer spells a list stacked or inline
-	- ID: 2026092620255204
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20260926-202552
-	- Opened by: Code review 20260926 item 4
-	- Steps to reproduce:
-		- `L1` holds `x:` then `\t* 2`. `L2` holds `x: 2`. `F` holds `x:`, `  x: 0`, `x: 2`, ` no colon 4`.
-		- `shcl fmt --layer=L1 F`, then `shcl fmt --layer=L2 F`.
-	- Incorrect behavior: the first writes `x` as a stacked list, the second inline. Values are the same.
-	- Expected behavior: the same text both ways, as before `d0b200c`. The fuzz property "a step on a document and on a reload of its saved text give the same text" says so.
-	- Reproduced: 20260926, all four CLIs. The base build gives the inline form both ways.
-	- Origin: `d0b200c` (2026-09-24), `stacks()` reads a stacked flag a reload clears. 20260924d read the hunk and did not see it. Confirmed.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Decisions:
-		- 20260927: a merge onto a matched node writes it stacked only when either side is written stacked on its own. `stacks()` gives the same answer on a document and on its reload, and the flag alone does not.
-	- Actual fix: the overlay's matched branch sets the stacked flag from `stacks()` of both sides, in all four.
-	- Swept: the flag is read only by `stacks()` and the parser. The merge's clone of an unmatched node copies the higher layer's own flag, which that layer's reload keeps.
-	- Branch: `stackmerge`
-	- Test case: corpus `179-merge-stacked-spelling`. It fails on the old code.
-
-- `banner on` adds a second info block when the old one sits under the first field
-	- ID: 2026092620255205
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20260926-202552
-	- Opened by: Code review 20260926 item 5
-	- Steps to reproduce: a file holding `a:`, then the block's `##` lines indented one tab, then `\tb: 1`. `printf 'banner\ton\n' | shcl set FILE`.
-	- Incorrect behavior: the indented block stays and a second block is written at the end.
-	- Expected behavior: the doc says the block is looked for above every field but the first. This one is above `b`.
-	- Reproduced: 20260926, all four CLIs.
-	- Origin: `f1362fb` (2026-09-25). The skip list takes the whole first-child chain, not only the nodes on the first line. Confirmed.
-	- Estimated effort: Low
-	- Actual effort: Avg
-	- Actual cause:
-		- Not a code defect. A saved file never writes a dotted line, so `a.b: 1` with a block above it and `a:`, the block, `b: 1` save to the same text. A rule that tells them apart by source line gives a document and its reload different answers.
-		- Tried: stopping the chain at the first child on another line. The 2M fuzz's reload property failed at once, on a dotted first line that the saved text writes on two lines.
-	- Decisions:
-		- 20260927: keep the whole first-child chain and correct the doc to say so. This one needs signoff, since the item asked for the code to change.
-	- Actual fix: the `set_banner` doc comment in all four now names the first field's first child down and says why.
-	- Swept: the rule is stated only in the four doc comments. The spec, man page and README do not give it.
-	- Branch: `stackmerge`
-	- Test case: corpus `180-banner-first-child` pins that the block stays and a new one goes at the end.
-
-- C `shcl_compact` turns earlier generation faults into ordinary diagnostics
-	- ID: 2026092620255206
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20260926-202552
-	- Opened by: Code review 20260926 item 6
-	- Steps to reproduce: `shcl_generate` twice, `shcl_compact`, then `shcl_generate` again.
-	- Incorrect behavior: the third call lists two `V097` faults.
-	- Expected behavior: one. The header says faults from an earlier call are dropped first. The base build gives one.
-	- Reproduced: 20260926, a scratch harness. C++ is not affected, since its `generate` strips the faults itself.
-	- Origin: `5dfcecd` (2026-09-19). `push_diag` in compact clears the `generated` flag. Confirmed.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Actual fix: the compaction copies each diagnostic whole, flag included.
-	- Swept: compaction is C only.
-	- Branch: `compact`
-	- Test case: C runner `compact_keeps_generation_faults`. It fails on the old code.
-
-- C++ `const` reads on one document race each other
-	- ID: 2026092620255207
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20260926-202552
-	- Opened by: Code review 20260926 item 7
-	- Steps to reproduce: two threads calling `read_string` and `read_int_array` on one `const shcl::Document`, built with `-fsanitize=thread`.
-	- Incorrect behavior: ThreadSanitizer reports a data race in `arena_reset`, reached through `shcl_reads_release` from every `const` read.
-	- Expected behavior: the Rust `Document` is `Sync`, and a `const` member in C++ is safe to call at once from two threads. Either the reads stop being `const`, or the header says a document is not shared across threads.
-	- Reproduced: 20260926.
-	- Origin: the older veneer had the same pattern. `74a2e5d` (2026-09-26) kept it. Confirmed.
-	- Estimated effort: Low
-	- Actual effort: Avg
-	- Decisions:
-		- 20260928: const members lock, rather than a header line saying a Document is not shared or taking const off. design.md records why.
-		- Not only the reads: every call into the core writes to the document behind it, its read and scratch arenas and its index, so every const member holds the lock for the whole call, the copy into std types included. A call that reads a second document, as `validate` and `merge` do, takes both together.
-	- Actual fix: `detail::held` and `detail::fresh` in `shcl.hpp` return a guard holding one of 64 recursive locks, picked by the document's address. The header's comment on `Document` states the rule.
-	- Swept: every const member and every free function taking a `const Document &`.
-	- Branch: `cxxlock`
-	- Test case: `check-veneer.bash` `const-reads-share-across-threads`, two threads of mixed const reads under ThreadSanitizer. It fails on the old header.
-
-- On Windows, creating a file through a `\\.\C:\` path is refused as not a regular file
-	- ID: 2026092620255208
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20260926-202552
-	- Opened by: Code review 20260926 item 8
-	- Target OS: Windows
-	- Steps to reproduce: `shcl set -w '\\.\C:\dir\new.shcl' --set a=2`, where `new.shcl` does not exist.
-	- Incorrect behavior: "not a regular file", exit 8. The same path to an existing file works, and so does `\\?\` for a new one.
-	- Expected behavior: the file is created. The code's own comment keeps a volume-prefixed path out of the device case.
-	- Reproduced: 20260926, the C CLI under wine. Not yet on a real Windows box; Rust, Go and Python have the same test by reading.
-	- Origin: `64ca57b` (2026-09-20). Plausible for the other three.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Actual fix: a full path of `\\.\` followed by a drive letter and a colon is a volume path, not a device, in each library's device check and each CLI's copy.
-	- Swept: the library and CLI copies in all four; C's CLI calls the library's.
-	- Verified: hosted windows job on `windev`, all four CLIs.
-	- Branch: `windev`
-	- Test case: cli-regress `windows-volume-path-create`, which runs on windows only.
-
-- `FormatVersion` in Go, Python and C reads Format numbers past 2^32 that Rust reads as the current major
-	- ID: 2026092620255209
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20260926-202552
-	- Opened by: Code review 20260926 item 9
-	- Steps to reproduce: `format_version` of `##    Format   4294967296` then `a: 1`.
-	- Incorrect behavior: Rust gives 3, Go and Python give 4294967296. C returns `int64_t`.
-	- Expected behavior: one answer. Every doc comment says digits that do not fit read as the current major, but "fit" means `u32` in Rust.
-	- Reproduced: 20260926, library drivers for Rust and Go.
-	- Note: `migrate` is unaffected, since any value of 3 or more is current. Rust is the odd one out, so widening its type may be the smaller fix.
-	- Origin: `c62b3a5` (2026-09-24) made it public. Confirmed.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Decisions:
-		- 20260927: C already capped at 32 bits the way Rust does, so Go and Python came in line with those two. No public type changed.
-	- Actual fix: Go and Python read digits past 32 bits as the current major, and the helper comments in three bindings say 32 bits.
-	- Swept: the version parse in all four; `migrate` goes through the same helper.
-	- Branch: `fmtver`
-	- Test case: `format_version_caps_at_32_bits` in all four runners. The Go and Python ones fail on the old code.
-
-- Man page and README lag three changes
-	- ID: 2026092620255210
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20260926-202552
-	- Opened by: Code review 20260926 item 10
-	- Incorrect behavior:
-		- The man page's `children` entry says a path that resolves to several instances prints nothing. All four print every instance's children, as the spec and changelog say. From `d0b200c`.
-		- The man page's MIGRATING section says two edges read differently. The spec and design.md say three, adding the misplaced indent, and that `migrate --write` refuses at 7 while one is left. The EXIT STATUS entry for 7 leaves it out too. From `ff55910`.
-		- The README's `migrate` sentence lists what it rewrites and leaves out doubling the backslash of an unknown escape. From `ea4b719`.
-	- Reproduced: 20260926, the first against all four CLIs, the rest by reading.
-	- Origin: as listed. Confirmed.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Actual fix: the man page's `children`, MIGRATING and exit 7 entries, and the README's `migrate` list.
-	- Swept: help text, spec and design.md already said the same.
-	- Branch: `fmtver`
-	- Test case: none. Prose, checked against the spec by reading.
-
-- The drop-ins tarball's file modes follow the checkout's umask
-	- ID: 2026092620255212
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20260926-202552
-	- Opened by: Code review 20260926 item 12
-	- Steps to reproduce: build the tarball from a checkout made under umask 077, and again under 022.
-	- Incorrect behavior: `-rw-------` against `-rw-r--r--`, and the sums differ.
-	- Expected behavior: the comment above it says two builds of one commit on any box give the same bytes. `--mode=go-w` only takes write away.
-	- Reproduced: 20260926, a scratch copy of the payload.
-	- Origin: `a722ff1` (2026-08-29). The new "two checkouts" row copies on one box, so it cannot see it. Confirmed.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Actual fix: `--mode=u=rwX,go=rX`, so every file is 644 and the one git marks executable 755, whatever the checkout's umask.
-	- Swept: `package.bash` already sets its payload's modes outright.
-	- Branch: `tarmode`
-	- Test case: `shell-regress.bash` row `20260829-26-dropins-tarball-reproducible` now takes the second copy's group and other bits away. It fails on the old tar line.
-
-- The pre-push green-tree skip passes over the main-push installer check
-	- ID: 2026092620255213
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20260926-202552
-	- Opened by: Code review 20260926 item 13
-	- Steps to reproduce: record a tree green in a dev-context `--ci` run while its `install.bash` differs from `origin/dev`, then push that tree to main.
-	- Incorrect behavior: the hook skips the gate as already passed. `SHCL_GATE_REF=main check-docs.bash` on the same tree fails with "installer differs between this push to main and dev".
-	- Expected behavior: `green-tree.bash` says a push to main judges the tree it pushes, not the refs.
-	- Reproduced: no, read only.
-	- Origin: `999fff9` (2026-09-18). Plausible.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Actual fix: before it skips a push to main, the hook compares the pushed tree's installers with `origin/dev` and runs the gate when they differ.
-	- Swept: the installer check is the only one that reads refs; `green-tree.bash`'s header says the hook makes it.
-	- Branch: `tarmode`
-	- Test case: `check-push-gate.bash` row "a recorded tree whose installers differ from dev is gated on main". It fails on the old hook.
-
-- `conformance.c` does not build at `-Os` with the gate's warnings
-	- ID: 2026092620255214
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20260926-202552
-	- Opened by: Code review 20260926 item 14
-	- Steps to reproduce: `gcc -std=c11 -Os -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror -Isource/c source/c/tests/conformance.c`.
-	- Incorrect behavior: `-Werror=format-truncation` on `char v[8]` at line 619, on gcc 14 as well as gcc-15.
-	- Expected behavior: the test sources build at every `-O` level the header is checked at.
-	- Reproduced: 20260926, gcc 14.
-	- Origin: `186b201` (2026-09-23). Seen during the line-keeping work and put down to gcc-15 only. Confirmed.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Actual fix: the buffer is wide enough for any `size_t`.
-	- Swept: every `char` buffer given to `snprintf` in the C tests builds at all five levels on gcc 12 to 15 and clang 19.
-	- Branch: `compact`
-	- Test case: `check-c-compilers.bash` now builds `conformance.c` and `mem_bounds.c` at every `-O` level. It fails with the old buffer.
-
 - The C++ interface is a full binding of its own, with the C interface kept out of sight
 	- ID: 2026092617331100
 	- Type: Done
@@ -1133,6 +903,237 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Commit: `1a12c02`
 	- Test case: corpus `171-windows-path-hint`, cli-regress `path-hint-*` rows. The read and strict rows and case 171 fail with the hint off, and `path-hint-set` shows a write is unaffected. The migrate goldens of cases 118, 122 and 170 now list the hint.
 
+- The dogfood runner stamps builds in local time and the current culture
+	- ID: 2026092620255211
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 item 11
+	- Steps to reproduce: a scratch HOME, then `LC_ALL=th_TH.UTF-8 pwsh -NoProfile -File utility/dogfood_shcl.ps1 version` three times.
+	- Incorrect behavior: the held name jumps 543 years on each run, and a newer build is never copied in. Across a fall DST change a later build can sort as older and is skipped the same way.
+	- Expected behavior: a stable name, and the newest build runs. The stamp is written in the current culture and read back as invariant, which the tree's PowerShell traps warn about.
+	- Reproduced: 20260926, pwsh on Linux.
+	- Origin: `eefd1db` (2026-09-24). Confirmed.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Decisions:
+		- 20260927: stamps are the build's write time in UTC, written and read in the invariant culture, and the period keys too. A pool from before keeps its local-time names, so its newest may look a few hours off once.
+		- 20260928-094425: Correction: Times should be local, even if crossing timezones and DST changes results in times that are off. But the name shouldn't jump between runs (except for actual local time advancing), let alone 543 years.
+		- 20260928: back to local time, still written and read in the invariant culture. After a fall DST change or a move west, a build made in the repeated hours sorts older than the one before it, so it is skipped until the clock passes that stamp.
+	- Actual fix: `$Invariant` in `dogfood_shcl.ps1`. Reopened fix: `LastWriteTime` and `Get-Date` in place of their UTC forms.
+	- Swept: every `ToString` and `ParseExact` in the runner.
+	- Branch: `dogfood`, reopened on `stamplocal`
+	- Test case: `shell-regress.bash` row `20260926-item11-dogfood-stamp-culture`, under th-TH and `Asia/Bangkok`. It fails on the original runner, which drifts by 543 years a run, and on the UTC one. The other dogfood rows pin `TZ=UTC`.
+
+- A merge result depends on whether the lower layer spells a list stacked or inline
+	- ID: 2026092620255204
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 item 4
+	- Steps to reproduce:
+		- `L1` holds `x:` then `\t* 2`. `L2` holds `x: 2`. `F` holds `x:`, `  x: 0`, `x: 2`, ` no colon 4`.
+		- `shcl fmt --layer=L1 F`, then `shcl fmt --layer=L2 F`.
+	- Incorrect behavior: the first writes `x` as a stacked list, the second inline. Values are the same.
+	- Expected behavior: the same text both ways, as before `d0b200c`. The fuzz property "a step on a document and on a reload of its saved text give the same text" says so.
+	- Reproduced: 20260926, all four CLIs. The base build gives the inline form both ways.
+	- Origin: `d0b200c` (2026-09-24), `stacks()` reads a stacked flag a reload clears. 20260924d read the hunk and did not see it. Confirmed.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Decisions:
+		- 20260927: a merge onto a matched node writes it stacked only when either side is written stacked on its own. `stacks()` gives the same answer on a document and on its reload, and the flag alone does not.
+	- Actual fix: the overlay's matched branch sets the stacked flag from `stacks()` of both sides, in all four.
+	- Swept: the flag is read only by `stacks()` and the parser. The merge's clone of an unmatched node copies the higher layer's own flag, which that layer's reload keeps.
+	- Branch: `stackmerge`
+	- Test case: corpus `179-merge-stacked-spelling`. It fails on the old code.
+
+- `banner on` adds a second info block when the old one sits under the first field
+	- ID: 2026092620255205
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 item 5
+	- Steps to reproduce: a file holding `a:`, then the block's `##` lines indented one tab, then `\tb: 1`. `printf 'banner\ton\n' | shcl set FILE`.
+	- Incorrect behavior: the indented block stays and a second block is written at the end.
+	- Expected behavior: the doc says the block is looked for above every field but the first. This one is above `b`.
+	- Reproduced: 20260926, all four CLIs.
+	- Origin: `f1362fb` (2026-09-25). The skip list takes the whole first-child chain, not only the nodes on the first line. Confirmed.
+	- Estimated effort: Low
+	- Actual effort: Avg
+	- Actual cause:
+		- Not a code defect. A saved file never writes a dotted line, so `a.b: 1` with a block above it and `a:`, the block, `b: 1` save to the same text. A rule that tells them apart by source line gives a document and its reload different answers.
+		- Tried: stopping the chain at the first child on another line. The 2M fuzz's reload property failed at once, on a dotted first line that the saved text writes on two lines.
+	- Decisions:
+		- 20260927: keep the whole first-child chain and correct the doc to say so. This one needs signoff, since the item asked for the code to change.
+	- Actual fix: the `set_banner` doc comment in all four now names the first field's first child down and says why.
+	- Swept: the rule is stated only in the four doc comments. The spec, man page and README do not give it.
+	- Branch: `stackmerge`
+	- Test case: corpus `180-banner-first-child` pins that the block stays and a new one goes at the end.
+
+- C `shcl_compact` turns earlier generation faults into ordinary diagnostics
+	- ID: 2026092620255206
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 item 6
+	- Steps to reproduce: `shcl_generate` twice, `shcl_compact`, then `shcl_generate` again.
+	- Incorrect behavior: the third call lists two `V097` faults.
+	- Expected behavior: one. The header says faults from an earlier call are dropped first. The base build gives one.
+	- Reproduced: 20260926, a scratch harness. C++ is not affected, since its `generate` strips the faults itself.
+	- Origin: `5dfcecd` (2026-09-19). `push_diag` in compact clears the `generated` flag. Confirmed.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: the compaction copies each diagnostic whole, flag included.
+	- Swept: compaction is C only.
+	- Branch: `compact`
+	- Test case: C runner `compact_keeps_generation_faults`. It fails on the old code.
+
+- C++ `const` reads on one document race each other
+	- ID: 2026092620255207
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 item 7
+	- Steps to reproduce: two threads calling `read_string` and `read_int_array` on one `const shcl::Document`, built with `-fsanitize=thread`.
+	- Incorrect behavior: ThreadSanitizer reports a data race in `arena_reset`, reached through `shcl_reads_release` from every `const` read.
+	- Expected behavior: the Rust `Document` is `Sync`, and a `const` member in C++ is safe to call at once from two threads. Either the reads stop being `const`, or the header says a document is not shared across threads.
+	- Reproduced: 20260926.
+	- Origin: the older veneer had the same pattern. `74a2e5d` (2026-09-26) kept it. Confirmed.
+	- Estimated effort: Low
+	- Actual effort: Avg
+	- Decisions:
+		- 20260928: const members lock, rather than a header line saying a Document is not shared or taking const off. design.md records why.
+		- Not only the reads: every call into the core writes to the document behind it, its read and scratch arenas and its index, so every const member holds the lock for the whole call, the copy into std types included. A call that reads a second document, as `validate` and `merge` do, takes both together.
+	- Actual fix: `detail::held` and `detail::fresh` in `shcl.hpp` return a guard holding one of 64 recursive locks, picked by the document's address. The header's comment on `Document` states the rule.
+	- Swept: every const member and every free function taking a `const Document &`.
+	- Branch: `cxxlock`
+	- Test case: `check-veneer.bash` `const-reads-share-across-threads`, two threads of mixed const reads under ThreadSanitizer. It fails on the old header.
+
+- On Windows, creating a file through a `\\.\C:\` path is refused as not a regular file
+	- ID: 2026092620255208
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 item 8
+	- Target OS: Windows
+	- Steps to reproduce: `shcl set -w '\\.\C:\dir\new.shcl' --set a=2`, where `new.shcl` does not exist.
+	- Incorrect behavior: "not a regular file", exit 8. The same path to an existing file works, and so does `\\?\` for a new one.
+	- Expected behavior: the file is created. The code's own comment keeps a volume-prefixed path out of the device case.
+	- Reproduced: 20260926, the C CLI under wine. Not yet on a real Windows box; Rust, Go and Python have the same test by reading.
+	- Origin: `64ca57b` (2026-09-20). Plausible for the other three.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: a full path of `\\.\` followed by a drive letter and a colon is a volume path, not a device, in each library's device check and each CLI's copy.
+	- Swept: the library and CLI copies in all four; C's CLI calls the library's.
+	- Verified: hosted windows job on `windev`, all four CLIs.
+	- Branch: `windev`
+	- Test case: cli-regress `windows-volume-path-create`, which runs on windows only.
+
+- `FormatVersion` in Go, Python and C reads Format numbers past 2^32 that Rust reads as the current major
+	- ID: 2026092620255209
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 item 9
+	- Steps to reproduce: `format_version` of `##    Format   4294967296` then `a: 1`.
+	- Incorrect behavior: Rust gives 3, Go and Python give 4294967296. C returns `int64_t`.
+	- Expected behavior: one answer. Every doc comment says digits that do not fit read as the current major, but "fit" means `u32` in Rust.
+	- Reproduced: 20260926, library drivers for Rust and Go.
+	- Note: `migrate` is unaffected, since any value of 3 or more is current. Rust is the odd one out, so widening its type may be the smaller fix.
+	- Origin: `c62b3a5` (2026-09-24) made it public. Confirmed.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Decisions:
+		- 20260927: C already capped at 32 bits the way Rust does, so Go and Python came in line with those two. No public type changed.
+	- Actual fix: Go and Python read digits past 32 bits as the current major, and the helper comments in three bindings say 32 bits.
+	- Swept: the version parse in all four; `migrate` goes through the same helper.
+	- Branch: `fmtver`
+	- Test case: `format_version_caps_at_32_bits` in all four runners. The Go and Python ones fail on the old code.
+
+- Man page and README lag three changes
+	- ID: 2026092620255210
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 item 10
+	- Incorrect behavior:
+		- The man page's `children` entry says a path that resolves to several instances prints nothing. All four print every instance's children, as the spec and changelog say. From `d0b200c`.
+		- The man page's MIGRATING section says two edges read differently. The spec and design.md say three, adding the misplaced indent, and that `migrate --write` refuses at 7 while one is left. The EXIT STATUS entry for 7 leaves it out too. From `ff55910`.
+		- The README's `migrate` sentence lists what it rewrites and leaves out doubling the backslash of an unknown escape. From `ea4b719`.
+	- Reproduced: 20260926, the first against all four CLIs, the rest by reading.
+	- Origin: as listed. Confirmed.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: the man page's `children`, MIGRATING and exit 7 entries, and the README's `migrate` list.
+	- Swept: help text, spec and design.md already said the same.
+	- Branch: `fmtver`
+	- Test case: none. Prose, checked against the spec by reading.
+
+- The drop-ins tarball's file modes follow the checkout's umask
+	- ID: 2026092620255212
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 item 12
+	- Steps to reproduce: build the tarball from a checkout made under umask 077, and again under 022.
+	- Incorrect behavior: `-rw-------` against `-rw-r--r--`, and the sums differ.
+	- Expected behavior: the comment above it says two builds of one commit on any box give the same bytes. `--mode=go-w` only takes write away.
+	- Reproduced: 20260926, a scratch copy of the payload.
+	- Origin: `a722ff1` (2026-08-29). The new "two checkouts" row copies on one box, so it cannot see it. Confirmed.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: `--mode=u=rwX,go=rX`, so every file is 644 and the one git marks executable 755, whatever the checkout's umask.
+	- Swept: `package.bash` already sets its payload's modes outright.
+	- Branch: `tarmode`
+	- Test case: `shell-regress.bash` row `20260829-26-dropins-tarball-reproducible` now takes the second copy's group and other bits away. It fails on the old tar line.
+
+- The pre-push green-tree skip passes over the main-push installer check
+	- ID: 2026092620255213
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 item 13
+	- Steps to reproduce: record a tree green in a dev-context `--ci` run while its `install.bash` differs from `origin/dev`, then push that tree to main.
+	- Incorrect behavior: the hook skips the gate as already passed. `SHCL_GATE_REF=main check-docs.bash` on the same tree fails with "installer differs between this push to main and dev".
+	- Expected behavior: `green-tree.bash` says a push to main judges the tree it pushes, not the refs.
+	- Reproduced: no, read only.
+	- Origin: `999fff9` (2026-09-18). Plausible.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: before it skips a push to main, the hook compares the pushed tree's installers with `origin/dev` and runs the gate when they differ.
+	- Swept: the installer check is the only one that reads refs; `green-tree.bash`'s header says the hook makes it.
+	- Branch: `tarmode`
+	- Test case: `check-push-gate.bash` row "a recorded tree whose installers differ from dev is gated on main". It fails on the old hook.
+
+- `conformance.c` does not build at `-Os` with the gate's warnings
+	- ID: 2026092620255214
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260926-202552
+	- Opened by: Code review 20260926 item 14
+	- Steps to reproduce: `gcc -std=c11 -Os -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror -Isource/c source/c/tests/conformance.c`.
+	- Incorrect behavior: `-Werror=format-truncation` on `char v[8]` at line 619, on gcc 14 as well as gcc-15.
+	- Expected behavior: the test sources build at every `-O` level the header is checked at.
+	- Reproduced: 20260926, gcc 14.
+	- Origin: `186b201` (2026-09-23). Seen during the line-keeping work and put down to gcc-15 only. Confirmed.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: the buffer is wide enough for any `size_t`.
+	- Swept: every `char` buffer given to `snprintf` in the C tests builds at all five levels on gcc 12 to 15 and clang 19.
+	- Branch: `compact`
+	- Test case: `check-c-compilers.bash` now builds `conformance.c` and `mem_bounds.c` at every `-O` level. It fails with the old buffer.
+
 - `set --write` builds the kept text twice
 	- ID: 2026092620255218
 	- Type: Enhancement
@@ -1209,9 +1210,11 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Test case: none. The reload-parity fuzz and fixtures pin the behavior as it stands.
 	- Closed: 20260927-223316
 
-## Bugs
+## Old format
 
-## Features and enhancements
+### Bugs
+
+### Features and enhancements
 
 **Stop here for a release cut**.
 
@@ -1219,9 +1222,9 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Note: short release notes that just say issues were fixed, and a short changelog that names the fixes. This release only.
 	- Opened: 20260925-115006
 
-## Done
+### Done
 
-### Done - Bugs
+#### Done - Bugs
 
 - From the test-gap audit:
 
@@ -6227,7 +6230,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Opened: 20260718-165550
 		- Closed: 20260721-104508
 
-### Done - Features and enhancements
+#### Done - Features and enhancements
 
 - From nemo-anywhere:
 
@@ -10449,7 +10452,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Opened: 20260718-165550
 		- Closed: 20260721-122219
 
-## Deferred
+### Deferred
 
 - ✋ Code review 20260924c idea 17: `install.ps1` runs on Windows only.
 	- Note: `install.bash` covers Linux, and there are no macOS binaries. Porting the Linux layout would also mean changing the `shell-regress.bash` row that removes the Windows check by its text.
@@ -10526,7 +10529,7 @@ Going forward, new issues in the new template at the bottom of this file, will g
 	- Listed among the packaging targets and never built. README.md is accurate.
 	- Opened: 20260819-111243
 
-## Canceled
+### Canceled
 
 - 🚫 Default configuration hard-coded.
 	- 🚫 Overridden by a per-user config file, created the first time a default is changed.
@@ -10618,11 +10621,9 @@ Going forward, new issues in the new template at the bottom of this file, will g
 		- Opened: 20260817-204524
 		- Closed: 20260818-155051
 
-## Reference
+## Template
 
-<!-- New issue template
-
-Legacy statuses:
+### Old format
 
 - 🔘 Not started
 
@@ -10636,63 +10637,61 @@ Legacy statuses:
 
 - 🚫 Canceled
 
-New issue format:
+### New format
 
-- Only use rows that you actually need or expect will be filled in. Always fill in the title, ID, Type, Status, Opened and Created by.
+- Notes:
 
-- The ID is the local time to the hundredth of a second. Opened is when it was written down, which may differ. (Use a keyboard macro and possibly something like project 'zuid' to generate.)
+	- Only use rows that you actually need or expect will be filled in. Always fill in the title, ID, Type, Status, Opened and Created by.
 
-- Status values meaning: Testing means the fix is in and checks are running or still to run. Waiting on signoff means automated testing passed. Moot means something else changed that made it irrelevant. Canceled means it still applies but was decided against.
+	- The ID is the local time to the hundredth of a second. Opened is when it was written down, which may differ. (Use a keyboard macro and possibly something like project 'zuid' to generate.)
 
-- As issues are worked, and statuses change, place them in correct sorting order within the list:
-	- First by status: Waiting on signoff, Testing, Stalled, Started, Queued, Done, Deferred, Canceled, Moot
-	- Then by type: Bugs, [not bugs together]
-	- Then by severity|priority: Critical, High, Avg, Low
+	- Status values meaning: Testing means the fix is in and checks are running or still to run. Waiting on signoff means automated testing passed. Moot means something else changed that made it irrelevant. Canceled means it still applies but was decided against. Waiting for testing means the fix is in and waits on a long CI run or an outside test host. Can't reproduce means a real attempt to reproduce it failed.
 
-- Rows marked [Bug] are for bugs only, and rows marked [Feature] for features and enhancements. Children are not nested. They sit at the top level and point back with Parent ID.
+	- As issues are worked, and statuses change, place them in correct sorting order within the list:
+		- First by status: Waiting for answers, Waiting on signoff, Testing, Waiting for testing, Can't reproduce, Stalled, Started, Queued, Done, Deferred, Canceled, Moot
+		- Then by severity|priority: Critical, High, Avg, Low
+		- Then by type: Bugs, [not bugs together]
+
+	- Rows marked [Bug] are for bugs only, and rows marked [Feature] for features and enhancements. Children are not nested. They sit at the top level and point back with Parent ID.
 
 Template:
 
 - Title
 	- ID: YYYYmmDDHHMMSSNN
 	- Type: [Bug|Feature|Enhancement|Task]
-	- Status: [Queued|Started|Stalled|Testing|Waiting on signoff|Moot|Canceled|Deferred|Done]
+	- Status: [Queued|Waiting for answers|Waiting on signoff|Waiting for testing|Started|Testing|Stalled|Can't reproduce|Moot|Canceled|Deferred|Done]
+	- Needs local test suite run?:
+	- Needs external testing:
 	- Priority|Severity [Bug]: [Critical|High|Avg|Low]
-	- Opened: YYYYmmDD-HHMMSS
+	- Opened:
 	- Opened by:
 	- Assigned to:
-	- Parent ID: YYYYmmDDHHMMSSNN
+	- Parent ID:
 	- Prereq IDs:
-		- YYYYmmDDHHMMSSNN
 	- Related IDs:
-		- YYYYmmDDHHMMSSNN
 	- Target OS:
 	- Test environment:
 	- Version and build:
 	- Requirements  [Feature]:
 		- Hierarchical bulleted list.
 	- Steps to reproduce [Bug]:
-		- ...
+		- …
 	- Incorrect behavior [Bug]:
 	- Expected behavior [Bug]:
 	- Reproduced [Bug]: [No, or when, where and how]
 	- Possible cause [Bug]:
 	- Actual cause [Bug]:
-		- ...
+		- …
 	- Estimated effort: [High|Avg|Low]
 	- Actual effort: [High|Avg|Low]
 	- Progress log:
-		- YYYYmmDD-HHMMSS: Notable effort.
+		- …
 	- Decisions:
-		- ...
+		- …
 	- Actual fix [Bug]:
 	- Branch:
 	- Commit:
 	- Test case: [Reason not applicable, or CI test case #]
 	- Acceptance signoff:
-	- Superseded by ID: YYYYmmDDHHMMSSNN
-	- Closed: YYYYmmDD-HHMMSS
-
--->
-
-Old and new formats.
+	- Superseded by ID:
+	- Closed:
