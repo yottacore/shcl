@@ -609,9 +609,9 @@ fi
 fTest EoXYMt6 backlog-stamps-end-items
 ##	The stamps terminate an item: an outcome bullet below them makes them stop
 ##	being a reliable end marker, and puts the result furthest from the finding.
-##	Legacy items only. The new issue template, and the section that uses it,
-##	put Opened near the top. That section runs to the next heading at its own
-##	level or above, whichever level it sits at.
+##	Legacy items only. The new issue template put Opened near the top, so the
+##	Issues section and the template's own New format part are skipped. Each
+##	runs to the next heading at its own level or above.
 while IFS= read -r hit; do
 	fBad "backlog.md: sub-bullet below the stamps: ${hit}"
 done < <(awk '
@@ -619,7 +619,7 @@ done < <(awk '
 	/-->/                  { tmpl = 0; next }
 	/^#+ / {
 		level = index($0, " ") - 1
-		if ($0 ~ /^#+ New format/) newfmt = level
+		if ($0 ~ /^#+ (Issues|New format)$/) newfmt = level
 		else if (newfmt && level <= newfmt) newfmt = 0
 	}
 	tmpl || newfmt         { next }
@@ -638,12 +638,15 @@ while IFS= read -r hit; do
 done < <(python3 - "${backlog}" <<'PYEOF'
 import re, sys
 lines = open(sys.argv[1], encoding="utf-8").read().split("\n")
-# The issue template's legend sits in a comment; it is no item.
-inside = False
+# The issue template's legend is no item, whether it sits in a comment or
+# under its own Template heading.
+inside = template = False
 for i, line in enumerate(lines):
 	if line.startswith("<!--"):
 		inside = True
-	if inside:
+	if line.startswith("## "):
+		template = line.rstrip() == "## Template"
+	if inside or template:
 		lines[i] = ""
 	if "-->" in line:
 		inside = False
