@@ -2017,8 +2017,8 @@ def do_set(o):
 			sys.stderr.write("stdin: invalid UTF-8\n")
 			return EXIT_IO
 	# Byte order marks off the front: Windows PowerShell 5.1 puts one or more
-	# before text it pipes to a program (20260924 item
-	# 7), and the first op then read as unknown. No op starts with one.
+	# before text it pipes to a program (20260924 item 7), and the first op
+	# then read as unknown. No op starts with one.
 	ops = ops.lstrip("\ufeff")
 	pieces = ops.split("\n")
 	for n, line in enumerate(pieces):

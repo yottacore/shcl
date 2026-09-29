@@ -3188,20 +3188,19 @@ func (p *parser) refuse(line int, code, msg string, out outcome, indent string) 
 	switch out.kind {
 	case outcomeValueDropped, outcomeDropped:
 		n = 1
-		if p.trackDropped {
-			p.dropped = append(p.dropped, line)
-		}
 	case outcomeStopped:
-		for k, l := range out.rest {
+		for _, l := range out.rest {
 			if trimWsp(l) != "" {
 				n++
-				if p.trackDropped {
-					p.dropped = append(p.dropped, line+k)
-				}
 			}
 		}
 	}
 	p.lost += n
+	// Which line that was, for the save that keeps lines. Its parse has no
+	// node cap, so it never stops early.
+	if p.trackDropped && (out.kind == outcomeValueDropped || out.kind == outcomeDropped) {
+		p.dropped = append(p.dropped, line)
+	}
 	if out.kind == outcomeRetained {
 		// A line kept as written never hangs on a block: its indent is not
 		// one the output's levels are spelled with, so the block it would
@@ -8551,50 +8550,39 @@ func SizeUnitFromSpelling(s string) (SizeUnit, bool) {
 // time.Duration range, so every binding holds every duration another reads.
 const durationMaxMs = 9_223_372_036_854
 
+// unitName is a field name ending and the unit it gives.
+type unitName[U any] struct {
+	end  string
+	unit U
+}
+
 // durationNames are the field name endings that give a bare number its
 // unit, after a `-` or `_`. min, m and s are left out: `retries-min` is a
 // minimum, and a trailing s is usually a plural. A capitalized word
 // (`timeoutMs`) is not a boundary, since names fold to lower case and fmt
 // writes them folded.
-var durationNames = []struct {
-	end  string
-	unit DurationUnit
-}{
+var durationNames = []unitName[DurationUnit]{
 	{"ms", DurationMillis}, {"sec", DurationSeconds}, {"seconds", DurationSeconds},
 	{"minutes", DurationMinutes}, {"hours", DurationHours}, {"days", DurationDays},
 }
 
-var sizeNames = []struct {
-	end  string
-	unit SizeUnit
-}{
+var sizeNames = []unitName[SizeUnit]{
 	{"bytes", SizeBytes}, {"kb", SizeKilo}, {"mb", SizeMega}, {"gb", SizeGiga}, {"tb", SizeTera},
 	{"kib", SizeKibi}, {"mib", SizeMebi}, {"gib", SizeGibi}, {"tib", SizeTebi},
 }
 
-// nameEnds reports whether name ends in end, in any letter case, after a `-`
-// or `_`.
-func nameEnds(name, end string) bool {
-	at := len(name) - len(end)
-	return at > 0 && strings.EqualFold(name[at:], end) && (name[at-1] == '-' || name[at-1] == '_')
-}
-
-func nameDurationUnit(name string) DurationUnit {
-	for _, e := range durationNames {
-		if nameEnds(name, e.end) {
+// nameUnit is the unit a field name ends in, from table: the ending, in any
+// letter case, after a `-` or `_`. The zero unit, DurationNone or SizeNone,
+// when it ends in none.
+func nameUnit[U any](name string, table []unitName[U]) U {
+	for _, e := range table {
+		at := len(name) - len(e.end)
+		if at > 0 && strings.EqualFold(name[at:], e.end) && (name[at-1] == '-' || name[at-1] == '_') {
 			return e.unit
 		}
 	}
-	return DurationNone
-}
-
-func nameSizeUnit(name string) SizeUnit {
-	for _, e := range sizeNames {
-		if nameEnds(name, e.end) {
-			return e.unit
-		}
-	}
-	return SizeNone
+	var none U
+	return none
 }
 
 // decimalAt reads a decimal number at the start of s: digits, then a point
@@ -8754,7 +8742,7 @@ func parseSizeText(t string, bare SizeUnit, decimal bool) (int64, SizeUnit, bool
 // unitNamed says whether a name ends in a duration or size unit. Asked before
 // a value's text is built for unitClash, since most names do not.
 func unitNamed(name string) bool {
-	return nameDurationUnit(name) != DurationNone || nameSizeUnit(name) != SizeNone
+	return nameUnit(name, durationNames) != DurationNone || nameUnit(name, sizeNames) != SizeNone
 }
 
 // unitClash is a value in another unit than the one its field name ends in
@@ -8764,7 +8752,7 @@ func unitClash(name, text string) (string, bool) {
 	said := func(v, n string) string {
 		return "value is in " + v + " and the name says " + n + "; the value's unit is the one read"
 	}
-	if nu := nameDurationUnit(name); nu != DurationNone {
+	if nu := nameUnit(name, durationNames); nu != DurationNone {
 		if _, units, ok := parseDurationText(text, DurationNone); ok {
 			has := false
 			for _, u := range units {
@@ -8777,7 +8765,7 @@ func unitClash(name, text string) (string, bool) {
 			}
 		}
 	}
-	if nu := nameSizeUnit(name); nu != SizeNone {
+	if nu := nameUnit(name, sizeNames); nu != SizeNone {
 		if _, vu, ok := parseSizeText(text, SizeNone, false); ok && vu != SizeNone && vu != nu {
 			return said(vu.Spelling(), nu.Spelling()), true
 		}
@@ -9201,7 +9189,7 @@ func readNamed[T any](d *Document, path string, coerce func(*element, string) (T
 // unit, and is BadType with neither.
 func (d *Document) ReadDuration(path string, unit DurationUnit) Read[time.Duration] {
 	return readNamed(d, path, func(e *element, name string) (time.Duration, bool) {
-		bare := nameDurationUnit(name)
+		bare := nameUnit(name, durationNames)
 		if bare == DurationNone {
 			bare = unit
 		}
@@ -9215,7 +9203,7 @@ func (d *Document) ReadDuration(path string, unit DurationUnit) Read[time.Durati
 // are powers of 1024 unless decimal is set.
 func (d *Document) ReadSize(path string, unit SizeUnit, decimal bool) Read[int64] {
 	return readNamed(d, path, func(e *element, name string) (int64, bool) {
-		bare := nameSizeUnit(name)
+		bare := nameUnit(name, sizeNames)
 		if bare == SizeNone {
 			bare = unit
 		}
@@ -11400,13 +11388,13 @@ func (d *Document) vNode(c *constraint, n int, out *[]Diagnostic) {
 				var v int64
 				var ok bool
 				if base == "duration" {
-					bare := nameDurationUnit(node.name)
+					bare := nameUnit(node.name, durationNames)
 					if bare == DurationNone {
 						bare = c.unitD
 					}
 					v, _, ok = parseDurationText(els[i].text, bare)
 				} else {
-					bare := nameSizeUnit(node.name)
+					bare := nameUnit(node.name, sizeNames)
 					if bare == SizeNone {
 						bare = c.unitS
 					}

@@ -2701,18 +2701,10 @@ impl<'a> Parser<'a> {
 			Outcome::Retained { .. } => 0,
 			Outcome::Stopped(rest) => rest.iter().filter(|l| !trim_wsp(l).is_empty()).count(),
 		};
-		// Which lines those were, for the save that keeps lines.
-		if self.track_dropped {
-			match &outcome {
-				Outcome::ValueDropped | Outcome::Dropped => self.dropped.push(line),
-				Outcome::Retained { .. } => {}
-				Outcome::Stopped(rest) => self.dropped.extend(
-					(line..)
-						.zip(rest.iter())
-						.filter(|(_, l)| !trim_wsp(l).is_empty())
-						.map(|(k, _)| k),
-				),
-			}
+		// Which line that was, for the save that keeps lines. Its parse has
+		// no node cap, so it never stops early.
+		if self.track_dropped && matches!(outcome, Outcome::ValueDropped | Outcome::Dropped) {
+			self.dropped.push(line);
 		}
 		if let Outcome::Retained { text, blank_before } = outcome {
 			// A line kept as written never hangs on a block: its indent is not
@@ -5524,8 +5516,9 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 }
 
 /// Take each run of `##` lines holding the info block's SHCL line or a
-/// version line out of `leads`, all but a Schema line. Returns how many came off, and whether the
-/// last one had a blank above it with no line after it to take that blank.
+/// version line out of `leads`, all but a Schema line. Returns how many came
+/// off, and whether the last one had a blank above it with no line after it
+/// to take that blank.
 fn drop_banners(leads: &mut Vec<Lead>) -> (usize, bool) {
 	let is_block_line =
 		|t: &str| t == "## This config file format is SHCL." || t.starts_with(FORMAT_LINE_HEAD);
