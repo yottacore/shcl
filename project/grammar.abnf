@@ -127,7 +127,8 @@ bare-first      = %x00-08 / %x0B-0C / %x0E-1F / %x21 / %x24-26 / %x28-2B
                 ; a quote in first position opens a quoted piece, and a "["
                 ; there is the bracket-array spelling.
 
-fmt-bareword    = 1*fmt-bare-char
+fmt-bareword    = 1*( fmt-bare-char [ variation-sel ] / %x200C-200D
+                / subdivision-flag )
                 ; the minimally-quoted shape the FORMATTER emits, reached from
                 ; nothing above. A value holding anything outside this class,
                 ; or whitespace at either edge, or a run that would read as a
@@ -135,16 +136,25 @@ fmt-bareword    = 1*fmt-bare-char
                 ; shapes keep getting confused: this class WAS the parse-side
                 ; rule until 2026-09-20, which left the grammar unable to
                 ; derive "q: needs no quotes" - the most ordinary line there is.
+subdivision-flag= %x1F3F4 3*7flag-tag %xE007F
+flag-tag        = %xE0030-E0039 / %xE0061-E007A
+; gen-escapes.py: begin
+; Generated from Unicode 18.0 by cicd/utility/gen-escapes.py. Edit the script, not this block.
 fmt-bare-char   = %x21 / %x24-26 / %x28-2B / %x2D-39 / %x3B-5A / %x5C
-                / %x5E-7E / %xA0-61B / %x61D-200A / %x200C-200D
-                / %x2010-2027 / %x202F-205F / %x2065 / %x206A-FEFE
-                / %xFF00-10FFFF
-                ; excludes a blank, LF, "," ":" "#" DQUOTE "'" "[" "]"
-                ; (0x20 0x09 0x0D 0x0A 0x2C 0x3A 0x23 0x22 0x27 0x5B 0x5D),
-                ; and each character the formatter writes as a \u escape:
-                ; controls, 061C, 200B, 200E-200F, 2028-202E, 2060-2064,
-                ; 2066-2069 and FEFF. "\" (0x5C) is in: the formatter leaves
-                ; a backslash bare.
+                / %x5E-7E / %xA0-AC / %xAE-34E / %x350-61B / %x61D-115E
+                / %x1161-17B3 / %x17B6-180A / %x1810-200A / %x2010-2027
+                / %x202F-205F / %x2070-3163 / %x3165-FDFF / %xFE10-FEFE
+                / %xFF00-FF9F / %xFFA1-FFEF / %xFFFC-1BC9F
+                / %x1BCA4-1D172 / %x1D17B-DFFFF / %xE1000-10FFFF
+variation-sel   = %x180B-180D / %x180F / %xFE00-FE0F / %xE0100-E01EF
+; gen-escapes.py: end
+                ; fmt-bare-char excludes a blank, LF, "," ":" "#" DQUOTE "'"
+                ; "[" "]" (0x20 0x09 0x0D 0x0A 0x2C 0x3A 0x23 0x22 0x27 0x5B
+                ; 0x5D), and each character the formatter writes as a \u
+                ; escape (spec.md, "Escapes"). "\" (0x5C) is in: the formatter
+                ; leaves a backslash bare. The joiners, a variation selector
+                ; after a visible character and the tags of a subdivision flag
+                ; are written as they are, so fmt-bareword places them.
 
 escape          = "\" ( %s"t" / %s"n" / "\" / DQUOTE / "'"
                 / %s"u" 4HEXDIG / %s"U" 8HEXDIG )

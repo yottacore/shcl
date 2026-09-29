@@ -1463,30 +1463,127 @@ fn unicode_escape(kind: char, after: &str) -> Option<(char, usize)> {
 	Some((ch, len))
 }
 
+// gen-escapes.py: begin
+// Generated from Unicode 18.0 by cicd/utility/gen-escapes.py. Edit the script, not this block.
+#[rustfmt::skip]
+const INVISIBLE: [(u32, u32); 21] = [
+	(0x0000, 0x0008),
+	(0x000B, 0x001F),
+	(0x007F, 0x009F),
+	(0x00AD, 0x00AD),
+	(0x034F, 0x034F),
+	(0x061C, 0x061C),
+	(0x115F, 0x1160),
+	(0x17B4, 0x17B5),
+	(0x180B, 0x180F),
+	(0x200B, 0x200B),
+	(0x200E, 0x200F),
+	(0x2028, 0x202E),
+	(0x2060, 0x206F),
+	(0x3164, 0x3164),
+	(0xFE00, 0xFE0F),
+	(0xFEFF, 0xFEFF),
+	(0xFFA0, 0xFFA0),
+	(0xFFF0, 0xFFFB),
+	(0x1BCA0, 0x1BCA3),
+	(0x1D173, 0x1D17A),
+	(0xE0000, 0xE0FFF),
+];
+#[rustfmt::skip]
+const SELECTORS: [(u32, u32); 4] = [
+	(0x180B, 0x180D),
+	(0x180F, 0x180F),
+	(0xFE00, 0xFE0F),
+	(0xE0100, 0xE01EF),
+];
+// gen-escapes.py: end
+
 /// Characters canonical output writes as a `\u` escape, so a reader of the
 /// file sees every character that is there: controls with no short escape,
-/// the direction marks, embeddings, overrides and isolates, zero-width
-/// spaces, the byte order mark, and the line and paragraph separators. The
-/// zero-width joiner and non-joiner stay as written, since emoji and several
-/// scripts need them.
+/// the line and paragraph separators, the interlinear annotation marks, and
+/// what Unicode calls default-ignorable, such as zero-width spaces, direction
+/// marks and tag characters. The zero-width joiner and non-joiner are not in
+/// the list, since emoji and several scripts need them, and `invisible_at`
+/// keeps two more kinds where text needs them.
 fn invisible(c: char) -> bool {
-	matches!(
-		c as u32,
-		0x00..=0x08
-			| 0x0B..=0x1F
-			| 0x7F..=0x9F
-			| 0x061C | 0x200B
-			| 0x200E | 0x200F
-			| 0x2028..=0x202E
-			| 0x2060..=0x2064
-			| 0x2066..=0x2069
-			| 0xFEFF
-	)
+	!(' '..='~').contains(&c) && in_ranges(&INVISIBLE, c)
 }
 
+fn in_ranges(ranges: &[(u32, u32)], c: char) -> bool {
+	let c = c as u32;
+	ranges.iter().take_while(|r| r.0 <= c).any(|r| c <= r.1)
+}
+
+/// Whether `c`, the character at byte `i` of `t`, is written as a `\u`
+/// escape. A variation selector stays as written directly after a visible
+/// character, and the tags of a subdivision flag stay too; anywhere else they
+/// hide text.
+fn invisible_at(t: &str, i: usize, c: char) -> bool {
+	if !invisible(c) {
+		return false;
+	}
+	if in_ranges(&SELECTORS, c) {
+		return !t[..i].chars().next_back().is_some_and(selector_base);
+	}
+	if ('\u{E0020}'..='\u{E007F}').contains(&c) {
+		return !flag_tag(t, i);
+	}
+	true
+}
+
+/// A character a variation selector can modify: one written as itself that
+/// is not a blank or a joiner. Another selector is not one, so a run of them
+/// cannot carry hidden text.
+fn selector_base(c: char) -> bool {
+	c > ' ' && c != '\u{200C}' && c != '\u{200D}' && !invisible(c)
+}
+
+/// Whether the tag at byte `i` of `t` is part of a subdivision flag, as UTS #51
+/// spells one: U+1F3F4, three to seven tag digits or lowercase tag letters,
+/// and the cancel tag.
+fn flag_tag(t: &str, i: usize) -> bool {
+	let spec = |c: char| matches!(c, '\u{E0030}'..='\u{E0039}' | '\u{E0061}'..='\u{E007A}');
+	let mut start = i;
+	let mut count = 0;
+	for c in t[..i].chars().rev() {
+		if !spec(c) {
+			break;
+		}
+		count += 1;
+		if count > 7 {
+			return false;
+		}
+		start -= c.len_utf8();
+	}
+	if !t[..start].ends_with('\u{1F3F4}') {
+		return false;
+	}
+	count = 0;
+	for c in t[start..].chars() {
+		if !spec(c) {
+			return c == '\u{E007F}' && count >= 3;
+		}
+		count += 1;
+		if count > 7 {
+			return false;
+		}
+	}
+	false
+}
+
+/// Whether the text holds a character `invisible_at` escapes.
+fn has_invisible(t: &str) -> bool {
+	t.char_indices().any(|(i, c)| invisible_at(t, i, c))
+}
+
+/// `\u` takes four digits, so a character past U+FFFF is spelled with `\U`.
 fn push_unicode_escape(out: &mut String, c: char) {
 	use std::fmt::Write;
-	let _ = write!(out, "\\u{:04X}", c as u32);
+	let _ = if (c as u32) > 0xFFFF {
+		write!(out, "\\U{:08X}", c as u32)
+	} else {
+		write!(out, "\\u{:04X}", c as u32)
+	};
 }
 
 /// The predicate a `[value]` selector matches with: the display form, which
@@ -5625,13 +5722,15 @@ fn escape_name_as(name: &str, rules: Rules) -> std::borrow::Cow<'_, str> {
 	}
 	let mut out = String::with_capacity(name.len() + 2);
 	out.push('"');
-	for c in name.chars() {
+	for (i, c) in name.char_indices() {
 		match c {
 			'\\' => out.push_str("\\\\"),
 			'"' => out.push_str("\\\""),
 			'\t' => out.push_str("\\t"),
 			'\n' => out.push_str("\\n"),
-			c if rules == Rules::Current && invisible(c) => push_unicode_escape(&mut out, c),
+			c if rules == Rules::Current && invisible_at(name, i, c) => {
+				push_unicode_escape(&mut out, c)
+			}
 			_ => out.push(c),
 		}
 	}
@@ -6491,11 +6590,11 @@ fn needs_quotes(t: &str) -> bool {
 	// content. Edges only: interior whitespace is never trimmed and quoting it
 	// would move bytes.
 	t.is_empty()
-		|| t.chars().any(|c| {
+		|| t.char_indices().any(|(i, c)| {
 			matches!(
 				c,
 				' ' | '\t' | '\n' | ',' | ':' | '#' | '"' | '\'' | '[' | ']'
-			) || invisible(c)
+			) || invisible_at(t, i, c)
 		}) || t.starts_with(char::is_whitespace)
 		|| t.ends_with(char::is_whitespace)
 		|| fence_open(t).is_some()
@@ -6563,7 +6662,7 @@ fn quote_text(t: &str) -> String {
 
 /// `quote_text` for a reader of `rules`, as in `quote_double_as`.
 fn quote_text_as(t: &str, rules: Rules) -> String {
-	let control = t.contains(['\n', '\t']) || (rules == Rules::Current && t.chars().any(invisible));
+	let control = t.contains(['\n', '\t']) || (rules == Rules::Current && has_invisible(t));
 	if !control && !t.contains('\'') && (t.contains('"') || t.contains('\\')) {
 		return format!("'{}'", t);
 	}
@@ -6576,13 +6675,15 @@ fn quote_text_as(t: &str, rules: Rules) -> String {
 fn quote_double_as(t: &str, rules: Rules) -> String {
 	let mut out = String::with_capacity(t.len() + 2);
 	out.push('"');
-	for c in t.chars() {
+	for (i, c) in t.char_indices() {
 		match c {
 			'\\' => out.push_str("\\\\"),
 			'"' => out.push_str("\\\""),
 			'\n' => out.push_str("\\n"),
 			'\t' => out.push_str("\\t"),
-			c if rules == Rules::Current && invisible(c) => push_unicode_escape(&mut out, c),
+			c if rules == Rules::Current && invisible_at(t, i, c) => {
+				push_unicode_escape(&mut out, c)
+			}
 			_ => out.push(c),
 		}
 	}

@@ -20,7 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `\uXXXX` and `\UXXXXXXXX` in double quotes name a character, as in TOML. 2.x kept them as written, so `migrate --from-2x` doubles the backslash. One that names no character is `E023`.
 
-- `fmt` and every save write an invisible character in a name or value as a `\u` escape: a control, a zero-width space, a direction mark or override, the byte order mark, a line or paragraph separator. A carriage return inside a value comes out as `\u000D`.
+- `fmt` and every save write an invisible character in a name or value as a `\u` escape, or `\U` past U+FFFF: a control, a line or paragraph separator, and each character Unicode lists as default-ignorable, such as a zero-width space, a direction mark or override, a soft hyphen, the byte order mark or a tag character. The joiners stay as written, and so do a variation selector after a visible character and the tags of a subdivision flag. A carriage return inside a value comes out as `\u000D`.
 
 - A double-quoted value that starts like a Windows path and holds a `\t` or `\n` escape, such as `"C:\temp"`, gets the hint `H004`. It still loads and saves as written.
 

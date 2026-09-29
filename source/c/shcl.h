@@ -1676,28 +1676,99 @@ static size_t unicode_escape(unsigned char kind, ShclStr after, uint32_t *cp) {
 	if (v > 0x10FFFF || (v >= 0xD800 && v <= 0xDFFF)) return 0;
 	*cp = v; return n;
 }
-/* Characters canonical output writes as a \u escape, so a reader of the file
-   sees every character that is there: controls with no short escape, the
-   direction marks, embeddings, overrides and isolates, zero-width spaces, the
-   byte order mark, and the line and paragraph separators. The zero-width
-   joiner and non-joiner stay as written, since emoji and several scripts need
-   them. */
-static int invisible(uint32_t c) {
-	return c <= 0x08 || (c >= 0x0B && c <= 0x1F) || (c >= 0x7F && c <= 0x9F)
-		|| c == 0x061C || c == 0x200B || c == 0x200E || c == 0x200F || c == 0xFEFF
-		|| (c >= 0x2028 && c <= 0x202E) || (c >= 0x2060 && c <= 0x2064) || (c >= 0x2066 && c <= 0x2069);
+// gen-escapes.py: begin
+/* Generated from Unicode 18.0 by cicd/utility/gen-escapes.py. Edit the script, not this block. */
+static const uint32_t invisible_ranges[][2] = {
+	{0x0000, 0x0008},
+	{0x000B, 0x001F},
+	{0x007F, 0x009F},
+	{0x00AD, 0x00AD},
+	{0x034F, 0x034F},
+	{0x061C, 0x061C},
+	{0x115F, 0x1160},
+	{0x17B4, 0x17B5},
+	{0x180B, 0x180F},
+	{0x200B, 0x200B},
+	{0x200E, 0x200F},
+	{0x2028, 0x202E},
+	{0x2060, 0x206F},
+	{0x3164, 0x3164},
+	{0xFE00, 0xFE0F},
+	{0xFEFF, 0xFEFF},
+	{0xFFA0, 0xFFA0},
+	{0xFFF0, 0xFFFB},
+	{0x1BCA0, 0x1BCA3},
+	{0x1D173, 0x1D17A},
+	{0xE0000, 0xE0FFF},
+};
+static const uint32_t selector_ranges[][2] = {
+	{0x180B, 0x180D},
+	{0x180F, 0x180F},
+	{0xFE00, 0xFE0F},
+	{0xE0100, 0xE01EF},
+};
+// gen-escapes.py: end
+static int in_ranges(const uint32_t (*ranges)[2], size_t n, uint32_t c) {
+	for (size_t k = 0; k < n && ranges[k][0] <= c; k++) if (c <= ranges[k][1]) return 1;
+	return 0;
 }
-/* The width of the character at t[i] when invisible names it, else 0. A byte
-   that is not UTF-8 is never one. */
+/* Characters canonical output writes as a \u escape, so a reader of the file
+   sees every character that is there: controls with no short escape, the line
+   and paragraph separators, the interlinear annotation marks, and what Unicode
+   calls default-ignorable, such as zero-width spaces, direction marks and tag
+   characters. The zero-width joiner and non-joiner are not in the list, since
+   emoji and several scripts need them, and invisible_at keeps two more kinds
+   where text needs them. */
+static int invisible(uint32_t c) {
+	return (c < ' ' || c > '~') && in_ranges(invisible_ranges, sizeof invisible_ranges / sizeof *invisible_ranges, c);
+}
+/* A character a variation selector can modify: one written as itself that is
+   not a blank or a joiner. Another selector is not one, so a run of them
+   cannot carry hidden text. */
+static int selector_base(uint32_t c) { return c > ' ' && c != 0x200C && c != 0x200D && !invisible(c); }
+static int flag_spec(uint32_t c) { return (c >= 0xE0030 && c <= 0xE0039) || (c >= 0xE0061 && c <= 0xE007A); }
+/* Whether the tag at t[i] is part of a subdivision flag, as UTS #51 spells
+   one: U+1F3F4, three to seven tag digits or lowercase tag letters, and the
+   cancel tag. */
+static int flag_tag(ShclStr t, size_t i) {
+	size_t start = i; int count = 0; uint32_t c;
+	for (;;) {
+		size_t l = utf8_last(s_slice(t, 0, start), &c);
+		if (l == 0 || !flag_spec(c)) break;
+		if (++count > 7) return 0;
+		start -= l;
+	}
+	if (utf8_last(s_slice(t, 0, start), &c) != 4 || c != 0x1F3F4) return 0;
+	count = 0;
+	for (size_t k = start; k < t.n;) {
+		k += utf8_decode(t.p, t.n, k, &c);
+		if (!flag_spec(c)) return c == 0xE007F && count >= 3;
+		if (++count > 7) return 0;
+	}
+	return 0;
+}
+/* The width of the character at t[i] when it is written as a \u escape, else
+   0. A variation selector stays as written directly after a visible
+   character, and the tags of a subdivision flag stay too; anywhere else they
+   hide text. A byte that is not UTF-8 is never escaped. */
 static size_t invisible_at(ShclStr t, size_t i, uint32_t *cp) {
 	size_t l = utf8_decode(t.p, t.n, i, cp);
 	if (l == 1 && *cp >= 0x80) return 0;
-	return invisible(*cp) ? l : 0;
+	if (!invisible(*cp)) return 0;
+	if (in_ranges(selector_ranges, sizeof selector_ranges / sizeof *selector_ranges, *cp)) {
+		uint32_t p; size_t pl = utf8_last(s_slice(t, 0, i), &p);
+		return pl > 0 && !(pl == 1 && p >= 0x80) && selector_base(p) ? 0 : l;
+	}
+	if (*cp >= 0xE0020 && *cp <= 0xE007F) return flag_tag(t, i) ? 0 : l;
+	return l;
 }
+/* \u takes four digits, so a character past U+FFFF is spelled with \U. */
 static void sb_put_unicode_escape(ShclArena *a, ShclSB *s, uint32_t cp) {
 	static const char hex[] = "0123456789ABCDEF";
-	char b[6] = {'\\', 'u', hex[(cp >> 12) & 0xF], hex[(cp >> 8) & 0xF], hex[(cp >> 4) & 0xF], hex[cp & 0xF]};
-	sb_put(a, s, b, sizeof b);
+	int digits = cp > 0xFFFF ? 8 : 4;
+	char b[10] = {'\\', cp > 0xFFFF ? 'U' : 'u'};
+	for (int k = 0; k < digits; k++) b[2 + k] = hex[(cp >> (4 * (digits - 1 - k))) & 0xF];
+	sb_put(a, s, b, (size_t)(2 + digits));
 }
 
 // Escape processing (a double-quoted piece): \t \n \\ \" \' \uXXXX
@@ -6394,9 +6465,10 @@ static int needs_quotes(ShclStr t) {
 	int needs = (t.n == 0);
 	if (!needs) {
 		size_t i = 0;
-		while (i < t.n) { uint32_t c; size_t l = utf8_decode(t.p, t.n, i, &c); i += l;
+		while (i < t.n) { uint32_t c; size_t l = utf8_decode(t.p, t.n, i, &c);
 			if (c == ' ' || c == '\t' || c == '\n' || c == ',' || c == ':' || c == '#' || c == '"' || c == '\'' || c == '[' || c == ']') { needs = 1; break; }
-			if ((l > 1 || c < 0x80) && invisible(c)) { needs = 1; break; } }
+			if (invisible_at(t, i, &c)) { needs = 1; break; }
+			i += l; }
 	}
 	/* Edge whitespace still has to force quotes, for the carriage return: it is
 	   a blank, so a piece ending in one loses it to the reload. Space and tab

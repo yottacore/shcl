@@ -133,7 +133,7 @@ LINT_EXTRA=(
 	## python utilities: ruff never imports what it checks, so this costs nothing
 	## and the files are covered. cicd/utility/ruff.toml extends the project rule
 	## set for them.
-	'RAYON_NUM_THREADS="${CPU_CAP}" ruff check ${QUIET_FLAG} cicd/utility/flame-report.py cicd/utility/gen-demo-gif.py cicd/utility/check-abnf.py cicd/utility/comparison/pyworker.py cicd/utility/test-ids.py'
+	'RAYON_NUM_THREADS="${CPU_CAP}" ruff check ${QUIET_FLAG} cicd/utility/flame-report.py cicd/utility/gen-demo-gif.py cicd/utility/check-abnf.py cicd/utility/gen-escapes.py cicd/utility/comparison/pyworker.py cicd/utility/test-ids.py'
 	## Exhaustive over every #ifdef mix of the header is about ten minutes, and
 	## most runs change no C. The build dir keeps each file's result, keyed on its
 	## code, its comments and these options, so an unchanged file replays in well

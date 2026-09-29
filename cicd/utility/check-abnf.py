@@ -111,6 +111,15 @@ SAMPLES: list[tuple[str, str, bool]] = [
 	("fmt-bareword", "a]b", False),
 	("fmt-bareword", "it's", False),
 	("fmt-bareword", "back\\slash", True),
+	## A character nobody can see is escaped, so it needs quotes. A variation
+	## selector after a visible character and a subdivision flag's tags stay.
+	("fmt-bareword", "soft­hyphen", False),
+	("fmt-bareword", "❤️", True),
+	("fmt-bareword", "️a", False),
+	("fmt-bareword", "a️️", False),
+	("fmt-bareword", "\U0001f3f4\U000e0067\U000e0062\U000e0065\U000e006e\U000e0067\U000e007f", True),
+	("fmt-bareword", "\U0001f3f4\U000e0067\U000e007f", False),
+	("fmt-bareword", "hidden\U000e0068\U000e0069", False),
 	("file", "a: 1", True),
 	("file", "a: 1\n", True),
 	("file", "a: 1\r\n", True),

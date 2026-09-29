@@ -573,6 +573,15 @@ rows=(
 	'Er2qNPg|escape-unicode-name|paths -|"a\\u202Eb": 1\n|0|"a\\u202Eb"\n|-'
 	'Er2qNPh|escape-unicode-migrate-refused|migrate -|q: "\\u0041"\n|7|q: "\\u0041"\n|does not say which it was written for'
 	'Er2qNPi|escape-unicode-migrate-2x|migrate --from-2x -|q: "\\u0041"\n|0|q: "\\\\u0041"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	## Every default-ignorable character is escaped, and one past U+FFFF takes
+	## \U, since \u reads four digits. A variation selector after a visible
+	## character stays, and so do a subdivision flag's tags.
+	'ErEBHU3|escape-ignorable-fmt|fmt -|a: soft\xc2\xadhyphen\n|0|a: "soft\\u00ADhyphen"\n|-'
+	'ErEBHU4|escape-tags-fmt|fmt -|a: ok\xf3\xa0\x81\xa8\xf3\xa0\x81\xa9\n|0|a: "ok\\U000E0068\\U000E0069"\n|-'
+	'ErEBHU5|escape-tags-set|set -|string\ta\tok\xf3\xa0\x81\xa8\xf3\xa0\x81\xa9\n|0|a: "ok\\U000E0068\\U000E0069"\n|-'
+	'ErEBHU6|escape-flag-kept|fmt -|a: \xf0\x9f\x8f\xb4\xf3\xa0\x81\xa7\xf3\xa0\x81\xa2\xf3\xa0\x81\xa5\xf3\xa0\x81\xae\xf3\xa0\x81\xa7\xf3\xa0\x81\xbf\n|0|a: \xf0\x9f\x8f\xb4\xf3\xa0\x81\xa7\xf3\xa0\x81\xa2\xf3\xa0\x81\xa5\xf3\xa0\x81\xae\xf3\xa0\x81\xa7\xf3\xa0\x81\xbf\n|-'
+	'ErEBHU7|escape-selector-kept|fmt -|a: \xe2\x9d\xa4\xef\xb8\x8f\n|0|a: \xe2\x9d\xa4\xef\xb8\x8f\n|-'
+	'ErEBHU8|escape-selector-run|fmt -|a: x\xef\xb8\x8f\xef\xb8\x8f\n|0|a: "x\xef\xb8\x8f\\uFE0F"\n|-'
 	## A path in double quotes whose escapes are all real still reads and saves
 	## as written. The hint says so and changes nothing else.
 	'Er1iG7N|path-hint-read|get - a|a: "C:\\temp"\n|0|C:\temp\n|H004 value looks like a Windows path'

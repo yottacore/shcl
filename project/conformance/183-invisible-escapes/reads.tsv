@@ -1,0 +1,14 @@
+query	type	expected	status
+-	load	ok	-
+-	load	ok	-	strict
+-	lost	0	-
+soft	string	Silben­trennung	Good
+hidden	string	ok󠁨󠁩	Good
+flag	string	🏴󠁧󠁢󠁳󠁣󠁴󠁿	Good
+flag-short	string	🏴󠁧󠁢󠁿	Good
+run	string	a️️	Good
+hangul	string[]	ㅤ|ﾠ|x	Good
+list	string[]	a️|️b	Good
+"name\u00AD"	int	1	Good
+"\uFE0F"	int	2	Good
+-	paths	soft|ends|neighbors|joiners|annotation|hangul|hidden|language|flag|flag-bare|flag-three|flag-seven|flag-short|flag-long|flag-upper|flag-open|flag-no-base|flag-twice|heart|heart-bare|ideograph|mongolian|lead|run|after-space|after-joiner|after-escape|after-flag|family|list|"name\u00AD"|"\uFE0F"|"n️"	-

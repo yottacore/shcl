@@ -420,6 +420,13 @@ fTestEnd
 python3 "${repoDir}/cicd/utility/check-abnf.py" "${repoDir}/project/grammar.abnf" \
 	|| fBad "project/grammar.abnf failed check-abnf.py (run it for the detail)"
 
+fTest ErEBrlo escape-tables-match
+##	The characters written as a \u escape are one list, copied into the four
+##	bindings and the grammar. gen-escapes.py writes the copies and says which
+##	one differs.
+python3 "${repoDir}/cicd/utility/gen-escapes.py" \
+	|| fBad "an escape table differs from cicd/utility/gen-escapes.py (run it with --write)"
+
 fTest EqL29qS man-page-date-current
 ##	The man page carries a revision date and no version, and the date went
 ##	stale on the next edit twice. The rule: the .TH date is no earlier than the
