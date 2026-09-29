@@ -141,6 +141,8 @@ New bindings (Tier 3) follow the same recipe: port the reference function-for-fu
 
 - Deliberate deviation: `shcl_reads_release` has no counterpart in the other three. Read results are copied into the document's read arena, which only `shcl_free` reclaims - the right default for a read-once consumer and the documented contract. A process polling one document in a loop needs a way out, and the other three bindings have one for free because they hand back owned collections their runtime reclaims. C++ calls it on every read, since it copies each result into owned std types the moment it gets it. The `_to` read forms are C-only for the same reason: they copy into the caller's buffer, so a caller never has to remember the release, and C++ does not wrap them.
 
+- Rust's generic `name_unit` is `name_duration_unit` and `name_size_unit` in C, over a shared `name_ends`. C has no generics, so one lookup per unit table is the closest it gets.
+
 - The read structs stay value+status, where the other three carry `raw`, `line` and `quoted` on the read result. Those two of the three that a C consumer can still ask for are separate accessors - `shcl_line`, `shcl_quoted` - because widening a by-value struct to carry a borrowed span costs every read that never looks at it. C++'s `Read<T>` follows C here rather than the other three. Filling `line` and `quoted` would resolve the path twice more on every read, so they stay `line()` and `quoted()` on the `Document`.
 
 ### Bash and PowerShell (wrappers)
