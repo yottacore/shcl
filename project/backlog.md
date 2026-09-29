@@ -408,6 +408,33 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Commit: c6e40940
 	- Test case: none new, since no input reaches the removed code. The keep-dropped cli-regress rows, the Rust fuzz and the shared fixtures pass unchanged.
 
+- Escape more invisible characters on output
+	- ID: 2026092813365322
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 idea 1
+	- Requirements:
+		- The output escape list leaves out tag characters (U+E0000 to U+E007F, used to hide text in plain sight), U+00AD, U+180E, U+034F, U+206A to U+206F, U+FFF9 to U+FFFB and the Hangul fillers.
+		- Unicode's Default_Ignorable_Code_Point property is the usual list. Tags inside a flag sequence and variation selectors would need the same pass ZWJ gets.
+	- Note: the spec lists the escaped set, so this changes the format's output. It has to go in before `v3.0.0-beta1` or wait for another major.
+	- Estimated effort: Avg
+	- Decisions:
+		- 20260928: signed off to go in before `v3.0.0-beta1`.
+		- The list is Unicode 18.0's Default_Ignorable_Code_Point, plus the controls, the line and paragraph separators and U+FFF9 to U+FFFB. The format fixes it, so a later Unicode changes nothing.
+		- The joiners stay as written, as decided 2026-09-26.
+		- A variation selector stays only right after a visible character: not a blank, a line break, a joiner, or anything in the list. So a run of selectors is escaped past the first.
+		- A tag stays only inside a subdivision flag: U+1F3F4, three to seven tag digits or lowercase letters, then the cancel tag.
+		- Other format characters that draw a mark or change layout, and the Unicode spaces, stay as written. They are not in the property.
+		- One list, written into the four bindings and the grammar by `gen-escapes.py`. `check-docs.bash` fails when a copy differs.
+	- Actual effort: Avg
+	- Actual fix: the wider table and a context check for selectors and tags in all four, with `\U` for an escape past U+FFFF. That spelling was wrong in all four before, and unseen, since nothing that high was escaped. Grammar, spec, design.md, changelog. check-migrate respells 2.x names through the Python binding instead of its own copy of the list.
+	- Branch: `escapes`
+	- Commit: `5c18d81d`
+	- Test case: corpus `183-invisible-escapes`, cli-regress `escape-ignorable-fmt`, `escape-tags-fmt`, `escape-tags-set`, `escape-selector-run` (each fails on dev) and `escape-flag-kept`, `escape-selector-kept` (unchanged behavior), seven check-abnf `fmt-bareword` samples (five fail on the old grammar), and check-docs `escape-tables-match`, seen red on a changed Go table. The fuzz alphabet gained a selector, a black flag and two tags.
+	- Swept: every `invisible` call site in the four bindings (the two quoting checks and the name and value escape loops each), `QuoteSegment` and `diag_name` through `escape_name`, the grammar's bare class, check-migrate's copy, the C++ veneer (no copy), and the bash and PowerShell wrappers (no copy).
+	- Verified: the four conformance suites, cargo test, go test per module, crosscheck with a fuzz dump, cli-regress, shell-regress, check-migrate, check-abnf, check-docs, check-veneer, perf-gate, test-ids check, the fuzz at 2,000,000 in release, clippy, go vet, staticcheck, cppcheck, ruff, mypy, shellcheck and markdownlint. Random selector and tag text through all four CLIs gave the same output and a fixpoint.
+
 - A Schema line makes `check` open any path, devices and network shares included
 	- ID: 2026092813365302
 	- Type: Bug
@@ -528,33 +555,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Expected behavior: a private config does not get a readable backup.
 	- Reproduced: No. Plausible, for the Windows batch.
 	- Estimated effort: Avg
-
-- Escape more invisible characters on output
-	- ID: 2026092813365322
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 idea 1
-	- Requirements:
-		- The output escape list leaves out tag characters (U+E0000 to U+E007F, used to hide text in plain sight), U+00AD, U+180E, U+034F, U+206A to U+206F, U+FFF9 to U+FFFB and the Hangul fillers.
-		- Unicode's Default_Ignorable_Code_Point property is the usual list. Tags inside a flag sequence and variation selectors would need the same pass ZWJ gets.
-	- Note: the spec lists the escaped set, so this changes the format's output. It has to go in before `v3.0.0-beta1` or wait for another major.
-	- Estimated effort: Avg
-	- Decisions:
-		- 20260928: signed off to go in before `v3.0.0-beta1`.
-		- The list is Unicode 18.0's Default_Ignorable_Code_Point, plus the controls, the line and paragraph separators and U+FFF9 to U+FFFB. The format fixes it, so a later Unicode changes nothing.
-		- The joiners stay as written, as decided 2026-09-26.
-		- A variation selector stays only right after a visible character: not a blank, a line break, a joiner, or anything in the list. So a run of selectors is escaped past the first.
-		- A tag stays only inside a subdivision flag: U+1F3F4, three to seven tag digits or lowercase letters, then the cancel tag.
-		- Other format characters that draw a mark or change layout, and the Unicode spaces, stay as written. They are not in the property.
-		- One list, written into the four bindings and the grammar by `gen-escapes.py`. `check-docs.bash` fails when a copy differs.
-	- Actual effort: Avg
-	- Actual fix: the wider table and a context check for selectors and tags in all four, with `\U` for an escape past U+FFFF. That spelling was wrong in all four before, and unseen, since nothing that high was escaped. Grammar, spec, design.md, changelog. check-migrate respells 2.x names through the Python binding instead of its own copy of the list.
-	- Branch: `escapes`
-	- Commit: `5c18d81d`
-	- Test case: corpus `183-invisible-escapes`, cli-regress `escape-ignorable-fmt`, `escape-tags-fmt`, `escape-tags-set`, `escape-selector-run` (each fails on dev) and `escape-flag-kept`, `escape-selector-kept` (unchanged behavior), seven check-abnf `fmt-bareword` samples (five fail on the old grammar), and check-docs `escape-tables-match`, seen red on a changed Go table. The fuzz alphabet gained a selector, a black flag and two tags.
-	- Swept: every `invisible` call site in the four bindings (the two quoting checks and the name and value escape loops each), `QuoteSegment` and `diag_name` through `escape_name`, the grammar's bare class, check-migrate's copy, the C++ veneer (no copy), and the bash and PowerShell wrappers (no copy).
-	- Verified: the four conformance suites, cargo test, go test per module, crosscheck with a fuzz dump, cli-regress, shell-regress, check-migrate, check-abnf, check-docs, check-veneer, perf-gate, test-ids check, the fuzz at 2,000,000 in release, clippy, go vet, staticcheck, cppcheck, ruff, mypy, shellcheck and markdownlint. Random selector and tag text through all four CLIs gave the same output and a fixpoint.
 
 - A schema `min` and `max` could take the unit from the field name
 	- ID: 2026092813365323
