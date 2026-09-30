@@ -7072,6 +7072,9 @@ static int settle_kept_once(shcl_doc *d) {
 		}
 		moved.len = 0;
 	}
+	/* A line moved above the first list in the file is now the first thing
+	   written, so its blank goes the way the load's did. */
+	if (among) settle_first_blank(d);
 	return among > 0;
 }
 

@@ -4545,6 +4545,11 @@ func (d *Document) settleKeptOnce() bool {
 		}
 		moved = moved[:0]
 	}
+	// A line moved above the first list in the file is now the first
+	// thing written, so its blank goes the way the load's did.
+	if movedAny {
+		settleFirstBlank(d.arena, d.orphans)
+	}
 	return movedAny
 }
 

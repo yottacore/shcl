@@ -396,6 +396,8 @@ Case `184` pins a bare duration or size `min` and `max` read the way the value i
 
 Case `185` pins the order of a load's diagnostics: by line, with a late-fold `H002` and an `H001` in their lines' places rather than after every other diagnostic, and an `H004` found in the pass ahead of the `H001` that shares its line.
 
+Case `186` pins a misplaced line kept as written that the load turns into a comment and moves above the first list in the file. The blank line above it goes, as it would before the first line of any file, so merging the file under another layer gives what merging its canonical form does.
+
 Beyond the fixed corpus, the differential harness (`cicd/utility/crosscheck.bash`) also derives accessor coverage over the fuzz set: the reference's fuzz dump writes a `<name>.reads.tsv` beside each dumped input (paths it knows exist, cycling type and strictness), which the `--extra` replay runs through the same row machinery. Every scalar read row - corpus and fuzz-derived - is additionally replayed under `--on-bad=error` (an exit-code differential) and `--default=<x>` (a stdout differential), so the on-bad/default policy surface is pinned cross-binding too. It also runs three `set` edits (a changed value, a new child, a removal) on the first paths of every input, corpus and fuzz alike, so the save that keeps lines is compared well past the goldens.
 
 Not yet modeled natively (as golden files): the on-bad/default outputs (covered cross-binding via the harness above, not by per-row `expected`). Diagnostic expectations are modeled natively via `expected-diags.txt` (above) and cross-binding via the `load` rows.

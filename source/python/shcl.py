@@ -4500,6 +4500,10 @@ class Document:
 				lead.kept = True
 				t.leading.append(lead)
 			moved = []
+		# A line moved above the first list in the file is now the first
+		# thing written, so its blank goes the way the load's did.
+		if moved_any:
+			_settle_first_blank(self.arena, self.orphans)
 		return moved_any
 
 	def _emit_children(self, kids, depth, stack):
