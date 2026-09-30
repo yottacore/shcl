@@ -1970,6 +1970,17 @@ def main():
 		if bst != shcl.FileStatus.Clean or back.to_canonical() != "a: 1\n":
 			raise SystemExit("overwritten file did not round-trip")
 
+		test_id("ErOTliS", "save_writes_lf_bytes")
+		# A load reads a CR as a blank, so only the bytes show a text-mode fd on
+		# windows. Python-only: the other three write through binary handles.
+		lfdoc = shcl.Document.parse("a: 1\nb:\n\tc: 2\n")
+		lf = os.path.join(td, "lf.shcl")
+		for how in ("create", "overwrite"):
+			lfdoc.save_file(lf)
+			written = Path(lf).read_bytes()
+			if written != b"a: 1\nb:\n\tc: 2\n":
+				raise SystemExit(f"{how} wrote {written!r}")
+
 		test_id("EnWwo1I", "save_keeps_the_file_mode")
 		# A new file ends up where an ordinary create puts one - 0666 narrowed by the
 		# umask - and an existing one keeps the mode it had. Neither is visible

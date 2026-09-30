@@ -572,7 +572,8 @@ static void temp_takes_the_targets_dacl(void) {
 		snprintf(target, sizeof target, "%s\\%s", dir, names[i]);
 		snprintf(tmp, sizeof tmp, "%s\\.%s.tmp%ld.0", dir, names[i], (long)getpid());
 		seed(target, "a: 1\n");
-		snprintf(cmd, sizeof cmd, "icacls \"%s\" %s >nul", target, acls[i]);
+		// The precision keeps gcc from sizing acls[i] as the whole array.
+		snprintf(cmd, sizeof cmd, "icacls \"%s\" %.*s >nul", target, (int)sizeof acls[i] - 1, acls[i]);
 		if (system(cmd) != 0) fail("dacl", "icacls on the file failed");
 		if (!dacl_sddl(target, want, sizeof want) || strncmp(want, prefixes[i], strlen(prefixes[i])) != 0) {
 			fprintf(stderr, "FAIL dacl: %s: the fixture did not take: %s\n", names[i], want);
@@ -1184,8 +1185,9 @@ int main(int argc, char **argv) {
 				const struct dirent *le;
 				while ((le = readdir(cd))) {
 					size_t dn = strlen(le->d_name);
-					if (dn > 5 && !strncmp(le->d_name, "layer", 5) && !strcmp(le->d_name + dn - 5, ".shcl") && nlayer < 64)
-						snprintf(layerNames[nlayer++], 256, "%s", le->d_name);
+					// d_name holds 260 on mingw, more than a row.
+					if (dn > 5 && dn < sizeof layerNames[0] && !strncmp(le->d_name, "layer", 5) && !strcmp(le->d_name + dn - 5, ".shcl") && nlayer < 64)
+						memcpy(layerNames[nlayer++], le->d_name, dn + 1);
 				}
 				closedir(cd);
 			}
