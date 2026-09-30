@@ -624,6 +624,20 @@ static void temp_takes_the_targets_dacl(void) {
 	char *ft = read_file(fresh, &fn), *bt = read_file(b, &bn);
 	if (!ft || !bt || fn != bn || memcmp(ft, bt, fn) != 0) fail("dacl", "an overwrite and a create wrote different bytes");
 	free(ft); free(bt);
+	// With no DACL to copy, the create still goes through, with the
+	// directory's.
+	char copied[300], missing[300];
+	snprintf(copied, sizeof copied, "%s\\c.shcl", dir);
+	snprintf(missing, sizeof missing, "%s\\missing.shcl", dir);
+	wchar_t *wc = shcl_widen(copied), *wm = shcl_widen(missing);
+	int cfd = wc && wm ? shcl_create_like(wm, wc) : -1;
+	free(wc); free(wm);
+	if (cfd < 0) fail("dacl", "a create with no DACL to copy failed");
+	else close(cfd);
+	if (!dacl_sddl(copied, got, sizeof got) || strcmp(got, want) != 0) {
+		fprintf(stderr, "FAIL dacl: a temp file with no DACL to copy has %s, want %s\n", got, want);
+		nfail++;
+	}
 	DIR *dd = opendir(dir); const struct dirent *de;
 	while (dd && (de = readdir(dd))) if (strcmp(de->d_name, ".") != 0 && strcmp(de->d_name, "..") != 0) {
 		char left[600]; snprintf(left, sizeof left, "%s\\%s", dir, de->d_name); remove(left);

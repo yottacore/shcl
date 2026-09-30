@@ -9483,6 +9483,11 @@ shcl_doc *shcl_load_and_validate(const char *text, size_t len, const char *schem
 #include <fcntl.h>
 #ifdef _WIN32
 	#include <windows.h>
+	// The save's temp-file create reads and sets DACLs. mingw links advapi32
+	// by default; gcc refuses the pragma it does not know under -Werror.
+	#ifdef _MSC_VER
+		#pragma comment(lib, "advapi32")
+	#endif
 	#include <io.h>
 	#include <process.h>
 	#include <sys/stat.h>
@@ -9556,6 +9561,47 @@ static wchar_t *shcl_backup_name(const wchar_t *tmp) {
 	if (at) memcpy(at, L".bak", 4 * sizeof(wchar_t));
 	else memcpy(b + n, L".bak", 5 * sizeof(wchar_t));
 	return b;
+}
+
+// The exclusive create of a save's temp file over an existing file. A plain
+// create takes the directory's ACL, so the new text of a private config sat
+// where others could read it until the replace, and a fallback move published
+// that wider ACL. The temp is born with the file's DACL instead. Best effort:
+// when that cannot be read, the directory's it is, as for a new file. An fd,
+// or -1 with errno set.
+static int shcl_create_like(const wchar_t *wfrom, const wchar_t *wto) {
+	PSECURITY_DESCRIPTOR sd = NULL;
+	DWORD need = 0;
+	GetFileSecurityW(wfrom, DACL_SECURITY_INFORMATION, NULL, 0, &need);
+	if (need > 0 && (sd = (PSECURITY_DESCRIPTOR)malloc(need)) != NULL && !GetFileSecurityW(wfrom, DACL_SECURITY_INFORMATION, sd, need, &need)) {
+		free(sd);
+		sd = NULL;
+	}
+	SECURITY_ATTRIBUTES sa = { (DWORD)sizeof sa, sd, FALSE };
+	HANDLE h = CreateFileW(wto, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, sd ? &sa : NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (h == INVALID_HANDLE_VALUE) {
+		errno = shcl_errno_from_win32(GetLastError());
+		free(sd);
+		return -1;
+	}
+	// A create takes the ACEs but drops the auto-inherited mark, and without it
+	// a later change to the directory's ACL does not reach the file once a
+	// fallback move makes the temp the config. Setting the same DACL again with
+	// the request bit puts it back.
+	SECURITY_DESCRIPTOR_CONTROL control = 0;
+	DWORD revision = 0;
+	if (sd && GetSecurityDescriptorControl(sd, &control, &revision) && (control & SE_DACL_AUTO_INHERITED)
+		&& SetSecurityDescriptorControl(sd, SE_DACL_AUTO_INHERIT_REQ, SE_DACL_AUTO_INHERIT_REQ))
+		(void)SetFileSecurityW(wto, DACL_SECURITY_INFORMATION, sd);
+	free(sd);
+	int fd = _open_osfhandle((intptr_t)h, _O_WRONLY | _O_BINARY);
+	if (fd < 0) {
+		int e = errno;
+		CloseHandle(h);
+		DeleteFileW(wto);
+		errno = e;
+	}
+	return fd;
 }
 
 // ReplaceFile carries the destination's ACLs, security attributes and named
@@ -10011,7 +10057,8 @@ int shcl_write_file_atomic(const char *path, const char *data, size_t n) {
 #ifdef _WIN32
 		free(wtmp);
 		if (!(wtmp = shcl_widen(tmp))) break;
-		fd = _wopen(wtmp, _O_WRONLY | _O_CREAT | _O_EXCL | _O_BINARY, _S_IREAD | _S_IWRITE);
+		fd = attrs != INVALID_FILE_ATTRIBUTES ? shcl_create_like(wtarget, wtmp)
+			: _wopen(wtmp, _O_WRONLY | _O_CREAT | _O_EXCL | _O_BINARY, _S_IREAD | _S_IWRITE);
 #else
 		fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL, have_st ? 0600 : 0666);
 #endif
