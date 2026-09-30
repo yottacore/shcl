@@ -230,7 +230,7 @@ static const char *HELP =
 
 // About and donate are stdout, so they are byte-for-byte contracts across the
 // bindings the same way the help text and the init banner are. The version
-// concatenates from the VERSION macro so it cannot drift from `shcl version`.
+// concatenates from the VERSION macro so it cannot drift from `shcl --version`.
 static const char *ABOUT =
 	VERSION_LINE "\n"
 	"Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ].\n"

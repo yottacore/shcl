@@ -324,7 +324,7 @@ fRunDogfood() {
 		mkdir -p "${src}" "${app}"
 		cp source/rust/target/debug/shcl.exe "${src}/shcl.exe"
 		out="$(USERPROFILE="$(cygpath -w "${prof}")" LOCALAPPDATA="$(cygpath -w "${app}")" \
-			"${sh}" -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w utility/dogfood_shcl.ps1)" version 2>&1)" \
+			"${sh}" -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w utility/dogfood_shcl.ps1)" --version 2>&1)" \
 			|| { echo "win-runners: dogfood (${sh}): ${out}" >&2; return 1; }
 		[[ "${out}" == *"shcl v"* ]] || { echo "win-runners: dogfood (${sh}) did not run the build: ${out@Q}" >&2; return 1; }
 		[[ -e "${app}/Programs/Shcl/shcl.exe" ]] || { echo "win-runners: dogfood (${sh}) left no fixed name in Programs\\Shcl" >&2; return 1; }

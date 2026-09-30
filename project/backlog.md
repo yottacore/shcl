@@ -127,6 +127,42 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Commit: 5e1f1eaf
 	- Test case: cli-regress `windows-migrate-acl`, in the hosted windows job. It failed on dev in all four and passes with the fix.
 
+- The hosted windows job's dogfood row still runs `shcl version`
+	- ID: 2026093009281083
+	- Type: Bug
+	- Status: Waiting for testing
+	- Needs external testing: the hosted windows job, row `Er8Neza`.
+	- Severity: Avg
+	- Opened: 20260930-092810
+	- Opened by: the Windows batch for review 20260928
+	- Target OS: Windows
+	- Steps to reproduce: a hosted CI run on dev, or run `utility/dogfood_shcl.ps1 version` from a scratch HOME.
+	- Incorrect behavior: the runner prints `unknown command: version`, so `win-runners` fails `dogfood runner` and the windows job is red on dev.
+	- Expected behavior: the row runs the build and sees `shcl v`.
+	- Reproduced: 20260930, hosted run `36734575613` on dev, and locally under pwsh with a scratch HOME.
+	- Origin: `74cc8fdd` (review 20260928 item 9) made the informational outputs flags only. The row in `win-runners.bash` kept the old word.
+	- Actual fix: the row passes `--version`. Three comments in the Go, Python and C CLIs named `shcl version` too.
+	- Swept: every script in `cicd`, `utility` and `.github` for a bare `version`, `about` or `donate` argument. The only other hit is crosscheck's `usage version` row, which checks the refusal on purpose.
+	- Verified: under pwsh 7 on Linux with a scratch HOME, the runner with `version` prints the refusal and with `--version` prints `shcl v2.0.0`. shellcheck passes.
+	- Branch: dogfoodver
+	- Test case: `Er8Neza` (`win-runners` dogfood runner), red on dev in the hosted windows job.
+
+- On Windows the library save's temp file takes the directory's ACL
+	- ID: 2026093009281183
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260930-092811
+	- Opened by: the Windows batch for review 20260928, from 2026092815155546
+	- Related IDs: 2026092815155546
+	- Target OS: Windows
+	- Steps to reproduce: a config whose ACL is narrower than its directory's, then a save that stalls between writing the temp file and `ReplaceFile`, then `icacls` on the temp file.
+	- Incorrect behavior: expected, not yet seen. The temp file is a new file, so it holds the new text under the directory's ACL until `ReplaceFile` swaps it in.
+	- Expected behavior: the new text is never readable by anyone the original's ACL shuts out, the same as the `_old_v2` copy now.
+	- Reproduced: No. Plausible, read in all four libraries while fixing 2026092815155546.
+	- Sweep: the Windows temp-file create in the library save of all four bindings.
+	- Estimated effort: Avg
+
 - `fmt` indents a Schema line, and `check` then stops validating at exit 0
 	- ID: 2026092813365301
 	- Type: Bug
