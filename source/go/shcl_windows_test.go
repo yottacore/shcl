@@ -309,4 +309,15 @@ func TestTempFileTakesTargetsDACL(t *testing.T) {
 	if string(nb) != string(bb) {
 		t.Errorf("an overwrite and a create wrote different bytes: %q and %q", bb, nb)
 	}
+	// With no DACL to copy, the create still goes through, with the
+	// directory's.
+	copied := filepath.Join(root, "c.shcl")
+	cf, cerr := windowsCreateTemp(filepath.Join(root, "missing.shcl"), copied, 0o600)
+	if cerr != nil {
+		t.Fatal(cerr)
+	}
+	_ = cf.Close() // only its DACL is checked
+	if got, _ := sddl(copied); got != born {
+		t.Errorf("a temp file with no DACL to copy has %s, want %s", got, born)
+	}
 }

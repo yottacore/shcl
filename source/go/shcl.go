@@ -5896,7 +5896,11 @@ func WriteFileAtomic(file, data string) error {
 	var last error
 	for attempt := 0; attempt < 8; attempt++ {
 		tmp = filepath.Join(dir, "."+base+".tmp"+strconv.Itoa(os.Getpid())+"."+strconv.Itoa(attempt))
-		h, oerr := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, born)
+		from := ""
+		if existErr == nil {
+			from = target
+		}
+		h, oerr := createTemp(from, tmp, born)
 		if oerr == nil {
 			f = h
 			break
@@ -6123,6 +6127,13 @@ var publishNewFile = func(tmp, target string) error {
 var carriedAttrs = func(os.FileInfo) uint32 { return 0 }
 
 var restoreAttrs = func(string, uint32) {}
+
+// createTemp is the exclusive create of a save's temp file. The windows build
+// swaps in one that gives the temp the DACL of the file at from
+// (shcl_windows.go).
+var createTemp = func(_, tmp string, perm os.FileMode) (*os.File, error) {
+	return os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
+}
 
 // notADiskFile says whether something is at the path and is not a disk file: a
 // windows device name. POSIX has no such thing at a path, so the default answers
