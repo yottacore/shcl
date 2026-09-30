@@ -6589,9 +6589,7 @@ def _create_like(src, tmp):
 		):
 			adv.SetFileSecurityW(tmp, DACL_SECURITY_INFORMATION, sd)
 	try:
-		# Text mode, as os.open gives the new-file create in the save, so an
-		# overwrite and a create write the same bytes.
-		return msvcrt.open_osfhandle(h, os.O_WRONLY | os.O_TEXT)  # type: ignore[attr-defined]
+		return msvcrt.open_osfhandle(h, os.O_WRONLY | os.O_BINARY)  # type: ignore[attr-defined]
 	except OSError:
 		k32.CloseHandle(h)
 		k32.DeleteFileW(tmp)
@@ -6906,7 +6904,8 @@ def write_file_atomic(file: str | os.PathLike[str], data: str) -> str | None:
 			if os.name == "nt" and existing is not None:
 				fd = _create_like(target, tmp)
 			else:
-				fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, born)
+				fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), born)
+			# fdopen puts a windows fd in binary mode as well, so no LF becomes CRLF.
 			f = os.fdopen(fd, "w", encoding="utf-8", newline="")
 			break
 		except (OSError, ValueError) as e:
