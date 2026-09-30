@@ -33,33 +33,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
-- On Windows the library save's temp file takes the directory's ACL
-	- ID: 2026093009281183
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Hosted windows job, 20260930: Rust, Go and Python fail on the tests-only commit `0671c515` and pass on the tip. C does not build on either. The new C test's `snprintf` into `cmd` trips `-Werror=format-truncation` under the runner's gcc 15 (`conformance.c:575`), so the windows job is red on dev and the C fix is unproven there.
-	- Severity: Low
-	- Opened: 20260930-092811
-	- Opened by: the Windows batch for review 20260928, from 2026092815155546
-	- Related IDs: 2026092815155546
-	- Target OS: Windows
-	- Steps to reproduce: a config whose ACL is narrower than its directory's, then a save that stalls between writing the temp file and `ReplaceFile`, then `icacls` on the temp file.
-	- Incorrect behavior: expected, not yet seen. The temp file is a new file, so it holds the new text under the directory's ACL until `ReplaceFile` swaps it in.
-	- Expected behavior: the new text is never readable by anyone the original's ACL shuts out, the same as the `_old_v2` copy now.
-	- Reproduced: No. Plausible, read in all four libraries while fixing 2026092815155546.
-	- Sweep: the Windows temp-file create in the library save of all four bindings.
-	- Estimated effort: Avg
-	- Actual effort: Avg
-	- Actual fix: on Windows a save over an existing file creates its temp file with that file's DACL, then marks it auto-inherited when the file's is. When the DACL cannot be read, the temp takes the directory's, as before. A save that creates a new file is unchanged. All four libraries.
-	- Swept: `write_file_atomic` in Rust, Go and Python, and `shcl_write_file_atomic` in C. Checked and left: the dangling-link probe in `shcl_resolve_path` in C, which creates an empty file and deletes it, and never holds text. No other create in the four libraries.
-	- Progress log:
-		- 20260930: the C test did not build under gcc 15. gcc sized `acls[i]` by the whole two-row array, so up to 914 bytes could go into the 800-byte `cmd`. The `%s` now takes the row's size as its precision. Verified: gcc 15 warned on the old line and is clean on the new, and a `cmd` one byte too small for the real bound still warns.
-		- Swept: every `snprintf` in the C tests, the library and the CLI, under gcc 15 at all five `-O` levels. One more warned at `-O0`, `-O1` and `-Os`: the conformance runner's layer-name store, since `d_name` is 260 bytes on mingw and a row is 256. It now skips a name that does not fit. C conformance passes natively and under wine.
-		- 20260930: the hosted run 36785011455 on dev at `fa421bd7` builds the C runner, and all four DACL tests pass there, C's included.
-	- Branch: tempacl, winfollow
-	- Commit: 0671c515 (tests), 6dbed730, 1f882e83, 808ccfb8, c3a6395f, f6a43b42, faeb522f (C test build)
-	- Test case: `temp_file_takes_the_targets_dacl` (Rust, ErO2NoD), `TestTempFileTakesTargetsDACL` (Go, ErO2NoE), `temp_takes_the_targets_dacl` (C, ErO2NoF; Python, ErO2NoG), in the hosted windows job. They skip under wine, which keeps no ACLs.
-
 - On Windows the Python save may write CRLF line endings
 	- ID: 2026093012535909
 	- Type: Bug
@@ -578,6 +551,35 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `pathhint`
 	- Commit: `1a12c02`
 	- Test case: corpus `171-windows-path-hint`, cli-regress `path-hint-*` rows. The read and strict rows and case 171 fail with the hint off, and `path-hint-set` shows a write is unaffected. The migrate goldens of cases 118, 122 and 170 now list the hint.
+
+- On Windows the library save's temp file takes the directory's ACL
+	- ID: 2026093009281183
+	- Type: Bug
+	- Status: Done
+	- Hosted windows job, 20260930: Rust, Go and Python fail on the tests-only commit `0671c515` and pass on the tip. C does not build on either. The new C test's `snprintf` into `cmd` trips `-Werror=format-truncation` under the runner's gcc 15 (`conformance.c:575`), so the windows job is red on dev and the C fix is unproven there.
+	- Severity: Low
+	- Opened: 20260930-092811
+	- Opened by: the Windows batch for review 20260928, from 2026092815155546
+	- Related IDs: 2026092815155546
+	- Target OS: Windows
+	- Steps to reproduce: a config whose ACL is narrower than its directory's, then a save that stalls between writing the temp file and `ReplaceFile`, then `icacls` on the temp file.
+	- Incorrect behavior: expected, not yet seen. The temp file is a new file, so it holds the new text under the directory's ACL until `ReplaceFile` swaps it in.
+	- Expected behavior: the new text is never readable by anyone the original's ACL shuts out, the same as the `_old_v2` copy now.
+	- Reproduced: No. Plausible, read in all four libraries while fixing 2026092815155546.
+	- Sweep: the Windows temp-file create in the library save of all four bindings.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Actual fix: on Windows a save over an existing file creates its temp file with that file's DACL, then marks it auto-inherited when the file's is. When the DACL cannot be read, the temp takes the directory's, as before. A save that creates a new file is unchanged. All four libraries.
+	- Swept: `write_file_atomic` in Rust, Go and Python, and `shcl_write_file_atomic` in C. Checked and left: the dangling-link probe in `shcl_resolve_path` in C, which creates an empty file and deletes it, and never holds text. No other create in the four libraries.
+	- Progress log:
+		- 20260930: the C test did not build under gcc 15. gcc sized `acls[i]` by the whole two-row array, so up to 914 bytes could go into the 800-byte `cmd`. The `%s` now takes the row's size as its precision. Verified: gcc 15 warned on the old line and is clean on the new, and a `cmd` one byte too small for the real bound still warns.
+		- Swept: every `snprintf` in the C tests, the library and the CLI, under gcc 15 at all five `-O` levels. One more warned at `-O0`, `-O1` and `-Os`: the conformance runner's layer-name store, since `d_name` is 260 bytes on mingw and a row is 256. It now skips a name that does not fit. C conformance passes natively and under wine.
+		- 20260930: the hosted run 36785011455 on dev at `fa421bd7` builds the C runner, and all four DACL tests pass there, C's included.
+	- Branch: tempacl, winfollow
+	- Commit: 0671c515 (tests), 6dbed730, 1f882e83, 808ccfb8, c3a6395f, f6a43b42, faeb522f (C test build)
+	- Test case: `temp_file_takes_the_targets_dacl` (Rust, ErO2NoD), `TestTempFileTakesTargetsDACL` (Go, ErO2NoE), `temp_takes_the_targets_dacl` (C, ErO2NoF; Python, ErO2NoG), in the hosted windows job. They skip under wine, which keeps no ACLs.
+	- Acceptance signoff: 20260930
+	- Closed: 20260930-164249
 
 - Clippy for the Windows target fails on the Rust conformance tests
 	- ID: 2026093013402836
