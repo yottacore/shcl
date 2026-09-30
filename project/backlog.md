@@ -173,6 +173,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Actual fix: the bound reader in `parse_field` takes the unit from the path's last name before the schema's `unit`, in all four. Spec, design.md, changelog. The veneer has no schema code of its own.
 	- Swept: the one bound reader per binding (`quantity` in Rust, Go and Python, the min and max loop in C). The value side already read the name first. `allowed` refuses durations and sizes, so it reads no bound.
 	- Branch: `boundunit`
+	- Commit: `c0c09cd5`
 	- Test case: corpus `184-schema-bound-name-unit`, red on dev in all four runners. It pins a bare bound from `-ms`, `_mb` and a decimal `-kb`, the name winning over `unit`, a bound's own unit winning over the name, and `V092` where neither the name nor `unit` gives one, a `*` path included.
 
 - Duration and size helpers in the bash and PowerShell bindings
