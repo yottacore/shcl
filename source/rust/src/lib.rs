@@ -4202,6 +4202,10 @@ impl<'a> Parser<'a> {
 			settle_block(&mut self.arena, n, 1);
 		}
 		self.emit_repeated_leaf_hints();
+		// Line order, so a hint found only after the pass (a fold, a repeated
+		// leaf) sits with its line. Stable, so two on one line keep the order
+		// they were found in. Before the cap entry, which ends the list.
+		self.diags.sort_by_key(|d| d.line);
 		let mut chain = Vec::new();
 		let mut orphans: Vec<Lead> = self
 			.pending

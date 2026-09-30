@@ -1,5 +1,5 @@
 line 7: Hint: H002
+line 8: Hint: H001
 line 9: Hint: H002
 line 10: Hint: H002
-line 8: Hint: H001
 ok (4 diagnostic(s))

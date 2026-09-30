@@ -1,6 +1,6 @@
-line 15: Hint: H002
 line 5: Hint: H001
 line 7: Hint: H001
+line 15: Hint: H002
 line 4: Error: V092
 line 6: Error: V092
 line 12: Error: V092

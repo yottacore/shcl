@@ -156,6 +156,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - An all-digit selector too big for a 64-bit index names no instance, in every binding.
 
+- A load lists its diagnostics in line order. The `H001` hints and a late `H002` came after everything else.
+
 ### Reads
 
 - A wildcard whose parent is missing reads `NotFound`, not `Empty`.

@@ -1,6 +1,6 @@
-line 12: Hint: H002
-line 15: Hint: H002
+line 3: Hint: H001
 line 5: Hint: H001
 line 7: Hint: H001
-line 3: Hint: H001
+line 12: Hint: H002
+line 15: Hint: H002
 ok (5 diagnostic(s))

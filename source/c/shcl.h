@@ -4296,6 +4296,30 @@ static ShclStr h001_head(ShclArena *a, ShclStr name) {
 	return sb_S(&s);
 }
 
+/* The parse's diagnostics in line order, stable, so a hint found only after
+   the pass (a fold, a repeated leaf) sits with its line and two on one line
+   keep the order they were found in. qsort is not stable, and a late hint
+   can sit far from its line, so a bottom-up merge through a scratch buffer.
+   A list already in order, the usual case, costs one pass. */
+static void diags_by_line(ShclArena *tmp, ShclVecDiag *v) {
+	size_t n = v->len, i = 1;
+	while (i < n && v->data[i - 1].line <= v->data[i].line) i++;
+	if (i >= n) return;
+	ShclDiag *src = v->data, *dst = (ShclDiag *)arena_alloc(tmp, n * sizeof *dst);
+	for (size_t width = 1; width < n; width *= 2) {
+		for (size_t lo = 0; lo < n; lo += 2 * width) {
+			size_t mid = n - lo > width ? lo + width : n;
+			size_t hi = n - mid > width ? mid + width : n;
+			size_t l = lo, r = mid, k = lo;
+			while (l < mid && r < hi) dst[k++] = src[r].line < src[l].line ? src[r++] : src[l++];
+			while (l < mid) dst[k++] = src[l++];
+			while (r < hi) dst[k++] = src[r++];
+		}
+		ShclDiag *t = src; src = dst; dst = t;
+	}
+	if (src != v->data) memcpy(v->data, src, n * sizeof *src);
+}
+
 static void emit_repeated_leaf_hints(ShclParser *P) {
 	ShclArena *a = &P->d->arena;
 	/* Grouping bookkeeping (name buckets, member lists, joined displays) is
@@ -4626,6 +4650,9 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 	fold_late_dups(&P);
 	for (size_t n = 0; n < d->nodes.len; n++) settle_block(d, n, 1);
 	emit_repeated_leaf_hints(&P);
+	/* Before the cap entry, which ends the list. */
+	arena_reset(P.hints);
+	diags_by_line(P.hints, &d->diags);
 	P.depth_chain.len = 0;
 	for (size_t k = 0; k < P.pending.len; k++)
 		ShclVecLead_push(a, &d->orphans, lead_at(P.pending.data[k].text, P.pending.data[k].blank_before, comment_depth(&P, s_empty(), P.pending.data[k].text, P.pending.data[k].indent), P.pending.data[k].line));
