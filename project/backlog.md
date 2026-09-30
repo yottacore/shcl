@@ -36,7 +36,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - A Schema line makes `check` open any path, devices and network shares included
 	- ID: 2026092813365302
 	- Type: Bug
-	- Status: Waiting on signoff
+	- Status: Done
 	- Severity: High
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 2
@@ -62,7 +62,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - Under Windows PowerShell 5.1, `install.ps1` may follow an https to http redirect for the release list
 	- ID: 2026092813365314
 	- Type: Bug
-	- Status: Waiting on signoff
+	- Status: Done
 	- Severity: Low
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 14
@@ -83,7 +83,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - On Windows, the `_old_v2` copy may take the directory's ACL rather than the original's
 	- ID: 2026092815155546
 	- Type: Bug
-	- Status: Waiting on signoff
+	- Status: Done
 	- Severity: Low
 	- Opened: 20260928-151555
 	- Opened by: split from 2026092813365303
