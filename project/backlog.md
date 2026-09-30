@@ -107,7 +107,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - On Windows the library save's temp file takes the directory's ACL
 	- ID: 2026093009281183
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting for testing
+	- Needs external testing: the hosted windows job, on the tests-only commit, where the four new tests should fail, and on the branch tip, where they should pass.
 	- Severity: Low
 	- Opened: 20260930-092811
 	- Opened by: the Windows batch for review 20260928, from 2026092815155546
@@ -119,6 +120,12 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: No. Plausible, read in all four libraries while fixing 2026092815155546.
 	- Sweep: the Windows temp-file create in the library save of all four bindings.
 	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Actual fix: on Windows a save over an existing file creates its temp file with that file's DACL, then marks it auto-inherited when the file's is. When the DACL cannot be read, the temp takes the directory's, as before. A save that creates a new file is unchanged. All four libraries.
+	- Swept: `write_file_atomic` in Rust, Go and Python, and `shcl_write_file_atomic` in C. Checked and left: the dangling-link probe in `shcl_resolve_path` in C, which creates an empty file and deletes it, and never holds text. No other create in the four libraries.
+	- Branch: tempacl
+	- Commit: 0671c515 (tests), 6dbed730, 1f882e83, 808ccfb8, c3a6395f, f6a43b42
+	- Test case: `temp_file_takes_the_targets_dacl` (Rust, ErO2NoD), `TestTempFileTakesTargetsDACL` (Go, ErO2NoE), `temp_takes_the_targets_dacl` (C, ErO2NoF; Python, ErO2NoG), in the hosted windows job. They skip under wine, which keeps no ACLs.
 
 - On Windows the Python save may write CRLF line endings
 	- ID: 2026093012535909
