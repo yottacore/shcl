@@ -603,6 +603,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Actual effort: Low
 	- Actual fix: the ci job's timeout is 60 minutes.
 	- Branch: citimeout
+	- Commit: 6947d37e
 	- Test case: none fits. A timeout margin shows only on a slow hosted run.
 	- Acceptance signoff: Self-closed: asked for directly, and the change is one number.
 	- Closed: 20260930-115848
