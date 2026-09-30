@@ -1791,6 +1791,8 @@ fn save_rewrites_a_read_only_file() {
 	let left: Vec<_> = std::fs::read_dir(&dir).unwrap().collect();
 	assert_eq!(left.len(), 1);
 	let mut perms = std::fs::metadata(&f).unwrap().permissions();
+	// Windows only: this clears the read-only attribute, not a Unix mode.
+	#[allow(clippy::permissions_set_readonly_false)]
 	perms.set_readonly(false);
 	std::fs::set_permissions(&f, perms).unwrap();
 	// Hidden and system come back too: ReplaceFile's preserve list does not

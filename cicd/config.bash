@@ -121,6 +121,9 @@ BUILD_EXTRA=(
 ## feature-gated profiler chain - small, and not nothing.
 LINT_CMD=(cargo clippy -j "${CPU_CAP}" --manifest-path "${MANIFEST}" --all-targets -- -D warnings)
 LINT_EXTRA=(
+	## The host clippy never compiles the cfg(windows) code. The target comes with
+	## rust-toolchain.toml, and a check needs no mingw linker.
+	'cargo clippy -j "${CPU_CAP}" --manifest-path "${MANIFEST}" --target x86_64-pc-windows-gnu --all-targets -- -D warnings'
 	'GOMAXPROCS="${CPU_CAP}" go -C source/go vet ./...'
 	'GOMAXPROCS="${CPU_CAP}" go -C source/go/cmd vet ./...'
 	'( cd source/go && GOMAXPROCS="${CPU_CAP}" staticcheck ./... )'
