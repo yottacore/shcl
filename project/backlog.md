@@ -107,8 +107,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - On Windows the library save's temp file takes the directory's ACL
 	- ID: 2026093009281183
 	- Type: Bug
-	- Status: Waiting for testing
-	- Needs external testing: the hosted windows job, on the tests-only commit, where the four new tests should fail, and on the branch tip, where they should pass.
+	- Status: Queued
+	- Hosted windows job, 20260930: Rust, Go and Python fail on the tests-only commit `0671c515` and pass on the tip. C does not build on either. The new C test's `snprintf` into `cmd` trips `-Werror=format-truncation` under the runner's gcc 15 (`conformance.c:575`), so the windows job is red on dev and the C fix is unproven there.
 	- Severity: Low
 	- Opened: 20260930-092811
 	- Opened by: the Windows batch for review 20260928, from 2026092815155546
