@@ -33,6 +33,26 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
+- shell-regress's sourced wrapper mode runs `shcl.bash` as a script
+	- ID: 2026092917233341
+	- Type: Bug
+	- Status: Waiting on signoff
+	- Severity: Low
+	- Opened: 20260929-172333
+	- Opened by: found while working 2026092813365324
+	- Steps to reproduce: read the `bashsrc` arm of test `EpHNNhw` (`20260904-39-wrappers-match-the-binary`) in `cicd/utility/shell-regress.bash`.
+	- Incorrect behavior: it runs `bash -c 'source "$0"; shcl "$@"' PATH`. With the path as `$0`, the wrapper's `BASH_SOURCE[0] == $0` test is true, so the file runs as a script and the sourced path is never tested.
+	- Expected behavior: the mode sources the file, as a user's script would.
+	- Reproduced: 20260929. The same form in a new test failed with `unknown command: shcl_int`. The `shcl` rows give the same output either way, so the test stays green.
+	- Actual cause: `bash -c` puts its first argument in `$0`, so with the wrapper's path there the wrapper's `BASH_SOURCE[0] == $0` test was true and it ran as a script.
+	- Estimated effort: Low
+	- Actual fix: both `bashsrc` arms, with and without stdin, pass the path as `$1` and shift it off before sourcing, as `ErJEygN` does. A short comment at the site says why.
+	- Branch: bashsrc
+	- Commit: 1252f801
+	- Test case: `EpHNNhw` (`20260904-39-wrappers-match-the-binary`), `bashsrc` mode.
+	- Swept: every `source` or `.` inside a `bash -c` in `cicd/` and the rest of the tracked tree. Only the two `bashsrc` arms used `$0`. The four `SHCL_BIN` rows near the top of shell-regress inline the path in the command text, so `$0` stays `bash`. The sibling-binary rows, `ErJEygN` and the dogfood-dests row pass it as `$1`.
+	- Verified: with an override of `shcl` added only on the sourced path, `EpHNNhw` stayed green on the old form and went red on the new one, all 10 rows, stdin rows included. With the wrapper restored, shell-regress exits 0, and shellcheck and `test-ids.py check` pass.
+
 - A schema `min` and `max` could take the unit from the field name
 	- ID: 2026092813365323
 	- Type: Enhancement
@@ -191,26 +211,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Expected behavior: a private config does not get a readable backup.
 	- Reproduced: No. Plausible, for the Windows batch.
 	- Estimated effort: Avg
-
-- shell-regress's sourced wrapper mode runs `shcl.bash` as a script
-	- ID: 2026092917233341
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Opened: 20260929-172333
-	- Opened by: found while working 2026092813365324
-	- Steps to reproduce: read the `bashsrc` arm of test `EpHNNhw` (`20260904-39-wrappers-match-the-binary`) in `cicd/utility/shell-regress.bash`.
-	- Incorrect behavior: it runs `bash -c 'source "$0"; shcl "$@"' PATH`. With the path as `$0`, the wrapper's `BASH_SOURCE[0] == $0` test is true, so the file runs as a script and the sourced path is never tested.
-	- Expected behavior: the mode sources the file, as a user's script would.
-	- Reproduced: 20260929. The same form in a new test failed with `unknown command: shcl_int`. The `shcl` rows give the same output either way, so the test stays green.
-	- Actual cause: `bash -c` puts its first argument in `$0`, so with the wrapper's path there the wrapper's `BASH_SOURCE[0] == $0` test was true and it ran as a script.
-	- Estimated effort: Low
-	- Actual fix: both `bashsrc` arms, with and without stdin, pass the path as `$1` and shift it off before sourcing, as `ErJEygN` does. A short comment at the site says why.
-	- Branch: bashsrc
-	- Commit: 1252f801
-	- Test case: `EpHNNhw` (`20260904-39-wrappers-match-the-binary`), `bashsrc` mode.
-	- Swept: every `source` or `.` inside a `bash -c` in `cicd/` and the rest of the tracked tree. Only the two `bashsrc` arms used `$0`. The four `SHCL_BIN` rows near the top of shell-regress inline the path in the command text, so `$0` stays `bash`. The sibling-binary rows, `ErJEygN` and the dogfood-dests row pass it as `$1`.
-	- Verified: with an override of `shcl` added only on the sourced path, `EpHNNhw` stayed green on the old form and went red on the new one, all 10 rows, stdin rows included. With the wrapper restored, shell-regress exits 0, and shellcheck and `test-ids.py check` pass.
 
 - Late-fold H002 hints print after every other parse diagnostic
 	- ID: 2026092813365325
