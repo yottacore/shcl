@@ -662,6 +662,12 @@ def _temp_takes_the_targets_dacl(td):
 	with open(fresh, "rb") as nh, open(os.path.join(d, "b.shcl"), "rb") as bh:
 		if nh.read() != bh.read():
 			raise SystemExit("an overwrite and a create wrote different bytes")
+	# With no DACL to copy, the create still goes through, with the
+	# directory's.
+	copied = os.path.join(d, "c.shcl")
+	os.close(shcl._create_like(os.path.join(d, "missing.shcl"), copied))
+	if sddl(copied) != born:
+		raise SystemExit(f"a temp file with no DACL to copy has {sddl(copied)}, want {born}")
 
 
 def setters_write_only_what_reads_back():

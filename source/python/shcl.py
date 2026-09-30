@@ -6524,6 +6524,80 @@ def _restore_attrs(target, bits):
 		k32.SetFileAttributesW(str(target), now | bits)
 
 
+def _create_like(src, tmp):
+	# The exclusive create of a save's temp file over an existing file, on
+	# windows. A plain create takes the directory's ACL, so the new text of a
+	# private config sat where others could read it until the replace, and a
+	# fallback move published that wider ACL. The temp is born with the file's
+	# DACL instead. Best effort: when that cannot be read, the directory's it
+	# is, as for a new file.
+	import ctypes
+	import msvcrt
+
+	DACL_SECURITY_INFORMATION = 0x4
+	SE_DACL_AUTO_INHERIT_REQ = 0x0100
+	SE_DACL_AUTO_INHERITED = 0x0400
+	GENERIC_WRITE = 0x40000000
+	FILE_SHARE_ALL = 0x7
+	CREATE_NEW = 1
+	FILE_ATTRIBUTE_NORMAL = 0x80
+
+	class SecurityAttributes(ctypes.Structure):
+		_fields_ = [("length", ctypes.c_ulong), ("descriptor", ctypes.c_void_p), ("inherit", ctypes.c_int)]
+
+	# WinDLL exists only on windows, and mypy checks this file against the
+	# POSIX stubs, where the name is simply absent.
+	adv = ctypes.WinDLL("advapi32", use_last_error=True)  # type: ignore[attr-defined]
+	k32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+	adv.GetFileSecurityW.restype = ctypes.c_int
+	adv.GetFileSecurityW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong)]
+	adv.SetFileSecurityW.restype = ctypes.c_int
+	adv.SetFileSecurityW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_void_p]
+	adv.GetSecurityDescriptorControl.restype = ctypes.c_int
+	adv.GetSecurityDescriptorControl.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ushort), ctypes.POINTER(ctypes.c_ulong)]
+	adv.SetSecurityDescriptorControl.restype = ctypes.c_int
+	adv.SetSecurityDescriptorControl.argtypes = [ctypes.c_void_p, ctypes.c_ushort, ctypes.c_ushort]
+	k32.CreateFileW.restype = ctypes.c_void_p
+	k32.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p]
+	k32.CloseHandle.argtypes = [ctypes.c_void_p]
+	k32.DeleteFileW.argtypes = [ctypes.c_wchar_p]
+	# 64-bit words, since a security descriptor wants more than byte alignment.
+	sd = None
+	need = ctypes.c_ulong(0)
+	adv.GetFileSecurityW(src, DACL_SECURITY_INFORMATION, None, 0, ctypes.byref(need))
+	if need.value:
+		sd = (ctypes.c_uint64 * ((need.value + 7) // 8))()
+		if not adv.GetFileSecurityW(src, DACL_SECURITY_INFORMATION, sd, ctypes.sizeof(sd), ctypes.byref(need)):
+			sd = None
+	sa = SecurityAttributes(ctypes.sizeof(SecurityAttributes), ctypes.addressof(sd) if sd is not None else None, 0)
+	h = k32.CreateFileW(tmp, GENERIC_WRITE, FILE_SHARE_ALL, ctypes.byref(sa) if sd is not None else None, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, None)
+	if h is None or h == ctypes.c_void_p(-1).value:
+		# In errno's words, the way os.open said it.
+		e = ctypes.WinError(ctypes.get_last_error())  # type: ignore[attr-defined]
+		raise OSError(e.errno, os.strerror(e.errno), tmp, e.winerror)
+	# A create takes the ACEs but drops the auto-inherited mark, and without it
+	# a later change to the directory's ACL does not reach the file once a
+	# fallback move makes the temp the config. Setting the same DACL again with
+	# the request bit puts it back.
+	if sd is not None:
+		control = ctypes.c_ushort(0)
+		revision = ctypes.c_ulong(0)
+		if (
+			adv.GetSecurityDescriptorControl(sd, ctypes.byref(control), ctypes.byref(revision))
+			and control.value & SE_DACL_AUTO_INHERITED
+			and adv.SetSecurityDescriptorControl(sd, SE_DACL_AUTO_INHERIT_REQ, SE_DACL_AUTO_INHERIT_REQ)
+		):
+			adv.SetFileSecurityW(tmp, DACL_SECURITY_INFORMATION, sd)
+	try:
+		# Text mode, as os.open gives the new-file create in the save, so an
+		# overwrite and a create write the same bytes.
+		return msvcrt.open_osfhandle(h, os.O_WRONLY | os.O_TEXT)  # type: ignore[attr-defined]
+	except OSError:
+		k32.CloseHandle(h)
+		k32.DeleteFileW(tmp)
+		raise
+
+
 def _publish_file(tmp, target):
 	# Move the finished temp file over the target. On windows that means
 	# ReplaceFile rather than a rename: a rename publishes a brand-new file and
@@ -6829,7 +6903,10 @@ def write_file_atomic(file: str | os.PathLike[str], data: str) -> str | None:
 	for attempt in range(8):
 		tmp = os.path.join(d, f".{base}.tmp{os.getpid()}.{attempt}")
 		try:
-			fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, born)
+			if os.name == "nt" and existing is not None:
+				fd = _create_like(target, tmp)
+			else:
+				fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, born)
 			f = os.fdopen(fd, "w", encoding="utf-8", newline="")
 			break
 		except (OSError, ValueError) as e:
