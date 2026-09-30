@@ -6418,6 +6418,183 @@ mod windows_publish {
 		assert!(!root.join(".t.shcl.bak1.0").exists());
 		let _ = std::fs::remove_dir_all(&root);
 	}
+
+	#[link(name = "advapi32")]
+	unsafe extern "system" {
+		fn GetFileSecurityW(
+			name: *const u16,
+			info: u32,
+			sd: *mut u64,
+			len: u32,
+			need: *mut u32,
+		) -> i32;
+		fn ConvertSecurityDescriptorToStringSecurityDescriptorW(
+			sd: *mut u64,
+			revision: u32,
+			info: u32,
+			out: *mut *mut u16,
+			len: *mut u32,
+		) -> i32;
+	}
+	#[link(name = "kernel32")]
+	unsafe extern "system" {
+		fn LocalFree(mem: *mut u16) -> *mut u16;
+		fn GetModuleHandleW(name: *const u16) -> isize;
+		fn GetProcAddress(module: isize, name: *const u8) -> isize;
+	}
+
+	// The file's DACL as SDDL, or None when it cannot be read.
+	fn sddl(p: &Path) -> Option<String> {
+		use std::os::windows::ffi::OsStrExt;
+		const DACL_SECURITY_INFORMATION: u32 = 0x4;
+		const SDDL_REVISION_1: u32 = 1;
+		let wide: Vec<u16> = p
+			.as_os_str()
+			.encode_wide()
+			.chain(std::iter::once(0))
+			.collect();
+		let mut need = 0u32;
+		unsafe {
+			GetFileSecurityW(
+				wide.as_ptr(),
+				DACL_SECURITY_INFORMATION,
+				std::ptr::null_mut(),
+				0,
+				&mut need,
+			);
+			if need == 0 {
+				return None;
+			}
+			let mut sd = vec![0u64; (need as usize).div_ceil(8)];
+			let len = (sd.len() * 8) as u32;
+			if GetFileSecurityW(
+				wide.as_ptr(),
+				DACL_SECURITY_INFORMATION,
+				sd.as_mut_ptr(),
+				len,
+				&mut need,
+			) == 0
+			{
+				return None;
+			}
+			let mut out: *mut u16 = std::ptr::null_mut();
+			if ConvertSecurityDescriptorToStringSecurityDescriptorW(
+				sd.as_mut_ptr(),
+				SDDL_REVISION_1,
+				DACL_SECURITY_INFORMATION,
+				&mut out,
+				std::ptr::null_mut(),
+			) == 0
+			{
+				return None;
+			}
+			let n = (0..).take_while(|&i| *out.add(i) != 0).count();
+			let s = String::from_utf16_lossy(std::slice::from_raw_parts(out, n));
+			LocalFree(out);
+			Some(s)
+		}
+	}
+
+	fn under_wine() -> bool {
+		let ntdll: Vec<u16> = "ntdll.dll"
+			.encode_utf16()
+			.chain(std::iter::once(0))
+			.collect();
+		unsafe {
+			let m = GetModuleHandleW(ntdll.as_ptr());
+			m != 0 && GetProcAddress(m, c"wine_get_version".as_ptr().cast()) != 0
+		}
+	}
+
+	// A save over a file whose DACL is narrower than its directory's must not
+	// put the new text under the directory's. Holding the target without delete
+	// sharing fails the publish on every try, which keeps the temp file there
+	// long enough for a poller to read its DACL. Same fixture in every runner.
+	#[test]
+	fn temp_file_takes_the_targets_dacl() {
+		let _id = test_id("ErO2NoD");
+		use std::os::windows::fs::OpenOptionsExt;
+		use std::sync::atomic::{AtomicBool, Ordering};
+		if under_wine() {
+			eprintln!("conformance: skipping the temp-file DACL fixture (wine keeps no ACLs)");
+			return;
+		}
+		let root = scratch("dacl");
+		let dir = root.to_string_lossy().into_owned();
+		icacls(&[&dir, "/grant", "*S-1-5-32-545:(OI)(CI)(R)"]);
+		let grant = format!("{}:(F)", std::env::var("USERNAME").unwrap());
+		let setups: [(&str, Vec<&str>, &str); 2] = [
+			("a.shcl", vec!["/inheritance:r", "/grant:r", &grant], "D:P"),
+			("b.shcl", vec!["/grant", "*S-1-5-19:(R)"], "D:AI"),
+		];
+		for (name, acl, prefix) in setups {
+			let target = root.join(name);
+			let t = target.to_string_lossy().into_owned();
+			std::fs::write(&target, "a: 1\n").unwrap();
+			let mut args = vec![t.as_str()];
+			args.extend(acl);
+			icacls(&args);
+			let want = sddl(&target).unwrap_or_default();
+			assert!(
+				want.starts_with(prefix),
+				"{}: the fixture did not take: {}",
+				name,
+				want
+			);
+			let tmp = root.join(format!(".{}.tmp{}.0", name, std::process::id()));
+			let hold = std::fs::OpenOptions::new()
+				.read(true)
+				.share_mode(1) // FILE_SHARE_READ
+				.open(&target)
+				.unwrap();
+			let stop = std::sync::Arc::new(AtomicBool::new(false));
+			let poller = {
+				let (stop, tmp) = (stop.clone(), tmp.clone());
+				std::thread::spawn(move || {
+					let mut seen = None;
+					while !stop.load(Ordering::Relaxed) {
+						if let Some(s) = sddl(&tmp) {
+							seen = Some(s);
+						}
+					}
+					seen
+				})
+			};
+			let saved = super::write_file_atomic(&t, "a: 2\n");
+			stop.store(true, Ordering::Relaxed);
+			let seen = poller.join().unwrap();
+			drop(hold);
+			assert!(
+				saved.is_err(),
+				"{}: a save over a held file went through",
+				name
+			);
+			let seen = seen.unwrap_or_else(|| panic!("{}: the temp file was never seen", name));
+			assert_eq!(seen, want, "{}: the temp file's DACL", name);
+			let left: Vec<String> = std::fs::read_dir(&root)
+				.unwrap()
+				.filter_map(|e| e.ok())
+				.map(|e| e.file_name().to_string_lossy().into_owned())
+				.filter(|n| n.contains(".tmp") || n.contains(".bak"))
+				.collect();
+			assert!(left.is_empty(), "{}: left behind: {:?}", name, left);
+			super::write_file_atomic(&t, "a: 2\n").unwrap();
+			assert_eq!(sddl(&target), Some(want), "{}: the saved file's DACL", name);
+		}
+		let fresh = root.join("n.shcl");
+		super::write_file_atomic(&fresh.to_string_lossy(), "a: 2\n").unwrap();
+		let plain = root.join("p.shcl");
+		std::fs::write(&plain, "a: 2\n").unwrap();
+		let born = sddl(&plain);
+		assert!(born.is_some(), "the plain file's DACL could not be read");
+		assert_eq!(sddl(&fresh), born, "a new file's DACL");
+		assert_eq!(
+			std::fs::read(&fresh).unwrap(),
+			std::fs::read(root.join("b.shcl")).unwrap(),
+			"an overwrite and a create wrote different bytes"
+		);
+		let _ = std::fs::remove_dir_all(&root);
+	}
 }
 
 /// The publish for a save that found nothing at the path, which must not
