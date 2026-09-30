@@ -33,87 +33,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
-- shell-regress's sourced wrapper mode runs `shcl.bash` as a script
-	- ID: 2026092917233341
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Opened: 20260929-172333
-	- Opened by: found while working 2026092813365324
-	- Steps to reproduce: read the `bashsrc` arm of test `EpHNNhw` (`20260904-39-wrappers-match-the-binary`) in `cicd/utility/shell-regress.bash`.
-	- Incorrect behavior: it runs `bash -c 'source "$0"; shcl "$@"' PATH`. With the path as `$0`, the wrapper's `BASH_SOURCE[0] == $0` test is true, so the file runs as a script and the sourced path is never tested.
-	- Expected behavior: the mode sources the file, as a user's script would.
-	- Reproduced: 20260929. The same form in a new test failed with `unknown command: shcl_int`. The `shcl` rows give the same output either way, so the test stays green.
-	- Actual cause: `bash -c` puts its first argument in `$0`, so with the wrapper's path there the wrapper's `BASH_SOURCE[0] == $0` test was true and it ran as a script.
-	- Estimated effort: Low
-	- Actual fix: both `bashsrc` arms, with and without stdin, pass the path as `$1` and shift it off before sourcing, as `ErJEygN` does. A short comment at the site says why.
-	- Branch: bashsrc
-	- Commit: 1252f801
-	- Test case: `EpHNNhw` (`20260904-39-wrappers-match-the-binary`), `bashsrc` mode.
-	- Swept: every `source` or `.` inside a `bash -c` in `cicd/` and the rest of the tracked tree. Only the two `bashsrc` arms used `$0`. The four `SHCL_BIN` rows near the top of shell-regress inline the path in the command text, so `$0` stays `bash`. The sibling-binary rows, `ErJEygN` and the dogfood-dests row pass it as `$1`.
-	- Verified: with an override of `shcl` added only on the sourced path, `EpHNNhw` stayed green on the old form and went red on the new one, all 10 rows, stdin rows included. With the wrapper restored, shell-regress exits 0, and shellcheck and `test-ids.py check` pass.
-
-- A schema `min` and `max` could take the unit from the field name
-	- ID: 2026092813365323
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 idea 2
-	- Requirements:
-		- `hold-ms: 150` reads as 150 ms, but a schema `min: 100` on `hold-ms` is a V092 fault unless the schema also gives `unit`.
-		- Read a bare bound the way the document reads the value, from the field name's unit.
-	- Estimated effort: Low
-	- Decisions:
-		- Signed off to go in before `v3.0.0-beta1`.
-		- 20260929: a bound resolves in the value's order: its own unit, then the field name's, then the schema's `unit`. Schema `unit` first was turned down, since `wait-seconds` with `unit: ms` would read `min: 2` as 2 ms and the value `1` as 1 s. Reversible.
-		- The name is the last segment of the field's path. A path ending in `*` gives none, so a bare bound there still needs `unit`.
-	- Note: a schema whose `unit` disagrees with its field name reads differently. `min: 2` on `wait-seconds` with `unit: ms` was 2 ms and is now 2 s, as the value already was. Durations and sizes are new since 2.0.0, so no release had the old reading.
-	- Actual effort: Low
-	- Actual fix: the bound reader in `parse_field` takes the unit from the path's last name before the schema's `unit`, in all four. Spec, design.md, changelog. The veneer has no schema code of its own.
-	- Swept: the one bound reader per binding (`quantity` in Rust, Go and Python, the min and max loop in C). The value side already read the name first. `allowed` refuses durations and sizes, so it reads no bound.
-	- Branch: `boundunit`
-	- Commit: `c0c09cd5`
-	- Test case: corpus `184-schema-bound-name-unit`, red on dev in all four runners. It pins a bare bound from `-ms`, `_mb` and a decimal `-kb`, the name winning over `unit`, a bound's own unit winning over the name, and `V092` where neither the name nor `unit` gives one, a `*` path included.
-
-- Duration and size helpers in the bash and PowerShell bindings
-	- ID: 2026092813365324
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 idea 3
-	- Requirements: `shcl.bash` has a helper per `get` type (`shcl_int`, `shcl_datetime` and the rest), and no `shcl_duration` or `shcl_size`. `shcl.ps1` likewise.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Actual fix: `shcl_duration` and `shcl_size` in both wrappers, one line each like the other typed helpers, the PowerShell pair with the pipeline branch. `--unit` and `--decimal` pass through. Header lists, README's shell examples, design.md's wrapper section and the changelog name them.
-	- Verified: shell-regress, check-docs, shellcheck, PSScriptAnalyzer, markdownlint, test-ids check.
-	- Swept: `git grep` for `shcl_datetime` and `shcl_int` outside the parser sources. The man page and both completion files list no helpers.
-	- Branch: unithelpers
-	- Commit: d873c301
-	- Test case: shell-regress `20260928-idea-3-bash-typed-helpers-match-the-binary`, the typed bash helpers but `shcl_raw` against the binary, and two new rows in `20260918b-32-piped-helpers-match-the-binary` for PowerShell. The new rows fail on dev in both shells.
-
-- Late-fold H002 hints print after every other parse diagnostic
-	- ID: 2026092813365325
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 idea 4
-	- Requirements: `a: 1, 2`, `b: 0`, then `a:` with two stacked elements, then `c: [x]` prints line 6's E019 before line 3's H002. Nothing requires line order, but a sort by line at the end of the parse reads better. All four agree today.
-	- Reproduced: 20260929, all four CLIs. The `H001` hints come after everything else too, since they are found in a pass after the parse.
-	- Estimated effort: Low
-	- Actual fix: the parse ends with a stable sort of its diagnostics by line, after the late fold and the `H001` pass and before the `E022` cap entry, in all four bindings. C uses a merge sort, since `qsort` is not stable.
-	- Decisions:
-		- Only the parse is sorted. Validation keeps its own documented order, after the parse's.
-		- Each file's list is sorted on its own. A merge does not combine lists, and `--layer` prints each file's apart, lowest layer first, so no sort crosses files.
-		- Two on one line keep the order they were found in. Under a diagnostic cap the listed ones are the first found, and `E022` stays last.
-		- The spec's Diagnostics section now says so, and design.md's rule reads "in line order, and in first-appearance order within a line".
-	- Note: goldens that changed order, each an `H001` that now sits at its line instead of at the end: corpus 048 (ahead of two `H002`s), 078 (three `H001`s ahead of two `H002`s, in the diags and the validate golden), 103 (ahead of an `E003`) and 133 (ahead of an `E014`).
-	- Branch: diagorder
-	- Commit: 4e6c2580
-	- Test case: corpus 185 (`185-diag-line-order`) and cli-regress `diag-line-order`, which pins stdout and the whole of stderr. Each fails on dev in all four bindings. cli-regress gained a `=` stderr field for an exact match. The cap tests in all four pin `E022` last.
-	- Swept: the end of the parse in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`. The C++ interface calls the C parse and keeps no list of its own. No binding's merge touches the diagnostics.
-	- Verified: the four conformance suites, cargo test, go test in both modules, cli-regress, crosscheck with a fuzz dump, check-docs, check-abnf, test-ids, shell-regress, sanitize-c, cppcheck, and the Rust, Go, Python, C, shell and markdown lints. A 974-line document of mixed late hints and errors gave the same stdout and stderr in all four, in line order.
-	- Note: the 2,000,000-iteration fuzz now fails `merge_never_panics_and_stays_fixpoint`. Case 185 moves the seed set onto a shared merge defect: a layer and its canonical form merge one blank line apart, above a comment. dev's code fails the same way with the case added and passes without it. It needs its own bug item.
-
 - A Schema line makes `check` open any path, devices and network shares included
 	- ID: 2026092813365302
 	- Type: Bug
@@ -1183,6 +1102,28 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `compact`
 	- Test case: `check-c-compilers.bash` now builds `conformance.c` and `mem_bounds.c` at every `-O` level. It fails with the old buffer.
 
+- shell-regress's sourced wrapper mode runs `shcl.bash` as a script
+	- ID: 2026092917233341
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260929-172333
+	- Opened by: found while working 2026092813365324
+	- Steps to reproduce: read the `bashsrc` arm of test `EpHNNhw` (`20260904-39-wrappers-match-the-binary`) in `cicd/utility/shell-regress.bash`.
+	- Incorrect behavior: it runs `bash -c 'source "$0"; shcl "$@"' PATH`. With the path as `$0`, the wrapper's `BASH_SOURCE[0] == $0` test is true, so the file runs as a script and the sourced path is never tested.
+	- Expected behavior: the mode sources the file, as a user's script would.
+	- Reproduced: 20260929. The same form in a new test failed with `unknown command: shcl_int`. The `shcl` rows give the same output either way, so the test stays green.
+	- Actual cause: `bash -c` puts its first argument in `$0`, so with the wrapper's path there the wrapper's `BASH_SOURCE[0] == $0` test was true and it ran as a script.
+	- Estimated effort: Low
+	- Actual fix: both `bashsrc` arms, with and without stdin, pass the path as `$1` and shift it off before sourcing, as `ErJEygN` does. A short comment at the site says why.
+	- Branch: bashsrc
+	- Commit: 1252f801
+	- Test case: `EpHNNhw` (`20260904-39-wrappers-match-the-binary`), `bashsrc` mode.
+	- Swept: every `source` or `.` inside a `bash -c` in `cicd/` and the rest of the tracked tree. Only the two `bashsrc` arms used `$0`. The four `SHCL_BIN` rows near the top of shell-regress inline the path in the command text, so `$0` stays `bash`. The sibling-binary rows, `ErJEygN` and the dogfood-dests row pass it as `$1`.
+	- Verified: with an override of `shcl` added only on the sourced path, `EpHNNhw` stayed green on the old form and went red on the new one, all 10 rows, stdin rows included. With the wrapper restored, shell-regress exits 0, and shellcheck and `test-ids.py check` pass.
+	- Acceptance signoff: Self-closed: a test harness fix, red on the old form and green on the new.
+	- Closed: 20260930-073042
+
 - `set --write` builds the kept text twice
 	- ID: 2026092620255218
 	- Type: Enhancement
@@ -1305,6 +1246,73 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Swept: every `invisible` call site in the four bindings (the two quoting checks and the name and value escape loops each), `QuoteSegment` and `diag_name` through `escape_name`, the grammar's bare class, check-migrate's copy, the C++ veneer (no copy), and the bash and PowerShell wrappers (no copy).
 	- Verified: the four conformance suites, cargo test, go test per module, crosscheck with a fuzz dump, cli-regress, shell-regress, check-migrate, check-abnf, check-docs, check-veneer, perf-gate, test-ids check, the fuzz at 2,000,000 in release, clippy, go vet, staticcheck, cppcheck, ruff, mypy, shellcheck and markdownlint. Random selector and tag text through all four CLIs gave the same output and a fixpoint.
 	- Closed: 20260929-052459
+
+- A schema `min` and `max` could take the unit from the field name
+	- ID: 2026092813365323
+	- Type: Enhancement
+	- Status: Done
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 idea 2
+	- Requirements:
+		- `hold-ms: 150` reads as 150 ms, but a schema `min: 100` on `hold-ms` is a V092 fault unless the schema also gives `unit`.
+		- Read a bare bound the way the document reads the value, from the field name's unit.
+	- Estimated effort: Low
+	- Decisions:
+		- Signed off to go in before `v3.0.0-beta1`.
+		- 20260929: a bound resolves in the value's order: its own unit, then the field name's, then the schema's `unit`. Schema `unit` first was turned down, since `wait-seconds` with `unit: ms` would read `min: 2` as 2 ms and the value `1` as 1 s. Reversible.
+		- The name is the last segment of the field's path. A path ending in `*` gives none, so a bare bound there still needs `unit`.
+	- Note: a schema whose `unit` disagrees with its field name reads differently. `min: 2` on `wait-seconds` with `unit: ms` was 2 ms and is now 2 s, as the value already was. Durations and sizes are new since 2.0.0, so no release had the old reading.
+	- Actual effort: Low
+	- Actual fix: the bound reader in `parse_field` takes the unit from the path's last name before the schema's `unit`, in all four. Spec, design.md, changelog. The veneer has no schema code of its own.
+	- Swept: the one bound reader per binding (`quantity` in Rust, Go and Python, the min and max loop in C). The value side already read the name first. `allowed` refuses durations and sizes, so it reads no bound.
+	- Branch: `boundunit`
+	- Commit: `c0c09cd5`
+	- Test case: corpus `184-schema-bound-name-unit`, red on dev in all four runners. It pins a bare bound from `-ms`, `_mb` and a decimal `-kb`, the name winning over `unit`, a bound's own unit winning over the name, and `V092` where neither the name nor `unit` gives one, a `*` path included.
+	- Acceptance signoff: Self-closed: the bound now reads the way the value does, as asked, and its case fails on dev.
+	- Closed: 20260930-073042
+
+- Duration and size helpers in the bash and PowerShell bindings
+	- ID: 2026092813365324
+	- Type: Enhancement
+	- Status: Done
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 idea 3
+	- Requirements: `shcl.bash` has a helper per `get` type (`shcl_int`, `shcl_datetime` and the rest), and no `shcl_duration` or `shcl_size`. `shcl.ps1` likewise.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: `shcl_duration` and `shcl_size` in both wrappers, one line each like the other typed helpers, the PowerShell pair with the pipeline branch. `--unit` and `--decimal` pass through. Header lists, README's shell examples, design.md's wrapper section and the changelog name them.
+	- Verified: shell-regress, check-docs, shellcheck, PSScriptAnalyzer, markdownlint, test-ids check.
+	- Swept: `git grep` for `shcl_datetime` and `shcl_int` outside the parser sources. The man page and both completion files list no helpers.
+	- Branch: unithelpers
+	- Commit: d873c301
+	- Test case: shell-regress `20260928-idea-3-bash-typed-helpers-match-the-binary`, the typed bash helpers but `shcl_raw` against the binary, and two new rows in `20260918b-32-piped-helpers-match-the-binary` for PowerShell. The new rows fail on dev in both shells.
+	- Acceptance signoff: Self-closed: mechanical, two helpers beside the existing ones, and the new rows fail on dev.
+	- Closed: 20260930-073042
+
+- Late-fold H002 hints print after every other parse diagnostic
+	- ID: 2026092813365325
+	- Type: Enhancement
+	- Status: Done
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 idea 4
+	- Requirements: `a: 1, 2`, `b: 0`, then `a:` with two stacked elements, then `c: [x]` prints line 6's E019 before line 3's H002. Nothing requires line order, but a sort by line at the end of the parse reads better. All four agree today.
+	- Reproduced: 20260929, all four CLIs. The `H001` hints come after everything else too, since they are found in a pass after the parse.
+	- Estimated effort: Low
+	- Actual fix: the parse ends with a stable sort of its diagnostics by line, after the late fold and the `H001` pass and before the `E022` cap entry, in all four bindings. C uses a merge sort, since `qsort` is not stable.
+	- Decisions:
+		- Only the parse is sorted. Validation keeps its own documented order, after the parse's.
+		- Each file's list is sorted on its own. A merge does not combine lists, and `--layer` prints each file's apart, lowest layer first, so no sort crosses files.
+		- Two on one line keep the order they were found in. Under a diagnostic cap the listed ones are the first found, and `E022` stays last.
+		- The spec's Diagnostics section now says so, and design.md's rule reads "in line order, and in first-appearance order within a line".
+	- Note: goldens that changed order, each an `H001` that now sits at its line instead of at the end: corpus 048 (ahead of two `H002`s), 078 (three `H001`s ahead of two `H002`s, in the diags and the validate golden), 103 (ahead of an `E003`) and 133 (ahead of an `E014`).
+	- Branch: diagorder
+	- Commit: 4e6c2580
+	- Test case: corpus 185 (`185-diag-line-order`) and cli-regress `diag-line-order`, which pins stdout and the whole of stderr. Each fails on dev in all four bindings. cli-regress gained a `=` stderr field for an exact match. The cap tests in all four pin `E022` last.
+	- Swept: the end of the parse in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`. The C++ interface calls the C parse and keeps no list of its own. No binding's merge touches the diagnostics.
+	- Verified: the four conformance suites, cargo test, go test in both modules, cli-regress, crosscheck with a fuzz dump, check-docs, check-abnf, test-ids, shell-regress, sanitize-c, cppcheck, and the Rust, Go, Python, C, shell and markdown lints. A 974-line document of mixed late hints and errors gave the same stdout and stderr in all four, in line order.
+	- Note: the 2,000,000-iteration fuzz now fails `merge_never_panics_and_stays_fixpoint`. Case 185 moves the seed set onto a shared merge defect: a layer and its canonical form merge one blank line apart, above a comment. dev's code fails the same way with the case added and passes without it. Filed as 2026092918110222.
+	- Acceptance signoff: Self-closed: the sort by line asked for, and its tests fail on dev.
+	- Closed: 20260930-073042
 
 - A merge that replaces a leaf drops a kept line the settle turned into a comment
 	- ID: 2026092718195400
