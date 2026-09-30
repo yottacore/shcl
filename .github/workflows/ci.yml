@@ -26,7 +26,8 @@ jobs:
     runs-on: ubuntu-latest
     ## 25 was enough until the large-document gate; that adds several minutes of
     ## single-threaded parsing per binding, and a hosted runner is slower again.
-    timeout-minutes: 45
+    ## A normal run is about 38 minutes, and a slow tool install once pushed one past 45.
+    timeout-minutes: 60
     steps:
       ## Actions by commit SHA (tag in the comment), so a moved tag cannot
       ## silently change what runs.
