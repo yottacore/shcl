@@ -224,6 +224,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A `min` above its `max` is a schema fault. The range is dropped, and the unknown-field check still runs.
 
+- A bare `min` or `max` on a duration or size takes its unit from the field name before the schema's `unit`, the same as the value, so `min: 100` on `hold-ms` needs no `unit`.
+
 - `init` writes lines in tree order.
 
 - `init` selects a valued parent's instance by its value (`srv[web].port:`), on live and commented lines alike.

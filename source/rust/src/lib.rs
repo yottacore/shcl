@@ -10046,12 +10046,24 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 		);
 		c.decimal = false;
 	}
-	// A duration or size bound, or allowed value, is read the way the
-	// document's value is, less the field name: the schema says its unit.
+	// A duration or size bound is read the way the document's value is: its
+	// own unit, then the field name's, then the schema's `unit`. A path that
+	// ends in `*` has no one name to give it.
+	let name = c
+		.segs
+		.last()
+		.filter(|seg| !seg.star)
+		.map_or("", |seg| seg.name.as_str());
 	let quantity = |e: &Element| -> Option<i64> {
 		match base {
-			"duration" => parse_duration_text(&e.text, c.unit_d).map(|(v, _)| v),
-			"size" => parse_size_text(&e.text, c.unit_s, c.decimal).map(|(v, _)| v),
+			"duration" => {
+				let bare = name_unit(name, &DURATION_NAMES).or(c.unit_d);
+				parse_duration_text(&e.text, bare).map(|(v, _)| v)
+			}
+			"size" => {
+				let bare = name_unit(name, &SIZE_NAMES).or(c.unit_s);
+				parse_size_text(&e.text, bare, c.decimal).map(|(v, _)| v)
+			}
 			_ => None,
 		}
 	};

@@ -8359,11 +8359,18 @@ static int v_parse_field(ShclArena *a, shcl_doc *schema, size_t f, ShclVecDiag *
 				else { c.has_max_f = 1; c.max_f = v; }
 			} else v_diag(a, faults, kid->line, "V092", v_msg_key(a, key));
 		} else if (is_duration || is_size) {
-			/* Read the way the document's value is, less the field name: the
-			   schema says its unit. */
+			/* Read the way the document's value is: its own unit, then the
+			   field name's, then the schema's `unit`. A path that ends in `*`
+			   has no one name to give it. */
+			ShclStr name = s_empty();
+			if (c.segs.len > 0 && !c.segs.data[c.segs.len - 1].star) name = c.segs.data[c.segs.len - 1].name;
+			shcl_duration_unit bare_d = name_duration_unit(name);
+			if (bare_d == SHCL_DURATION_NONE) bare_d = c.unit_d;
+			shcl_size_unit bare_s = name_size_unit(name);
+			if (bare_s == SHCL_SIZE_NONE) bare_s = c.unit_s;
 			int64_t v; unsigned units; shcl_duration_unit first; shcl_size_unit vu;
-			int ok = is_duration ? parse_duration_text(el->text, c.unit_d, &v, &units, &first)
-				: parse_size_text(el->text, c.unit_s, c.decimal, &v, &vu);
+			int ok = is_duration ? parse_duration_text(el->text, bare_d, &v, &units, &first)
+				: parse_size_text(el->text, bare_s, c.decimal, &v, &vu);
 			if (ok) {
 				if (is_min) { c.has_min_i = 1; c.min_i = v; c.min_text = el->text; }
 				else { c.has_max_i = 1; c.max_i = v; c.max_text = el->text; }
