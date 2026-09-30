@@ -189,6 +189,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Verified: shell-regress, check-docs, shellcheck, PSScriptAnalyzer, markdownlint, test-ids check.
 	- Swept: `git grep` for `shcl_datetime` and `shcl_int` outside the parser sources. The man page and both completion files list no helpers.
 	- Branch: unithelpers
+	- Commit: d873c301
 	- Test case: shell-regress `20260928-idea-3-bash-typed-helpers-match-the-binary`, the typed bash helpers but `shcl_raw` against the binary, and two new rows in `20260918b-32-piped-helpers-match-the-binary` for PowerShell. The new rows fail on dev in both shells.
 
 - Late-fold H002 hints print after every other parse diagnostic
