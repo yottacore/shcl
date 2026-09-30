@@ -216,13 +216,15 @@ fTest EpHNNhw 20260904-39-wrappers-match-the-binary
 	fRunWrapper(){  ## fRunWrapper MODE STDIN ARGS...
 		local mode="$1" stdinSpec="$2"; shift 2
 		local rc=0
+		##	bashsrc keeps the wrapper's path out of $0, or the wrapper sees
+		##	BASH_SOURCE[0] == $0 and runs as a script instead of being sourced.
 		case "${mode}" in
 			binary)   if [[ "${stdinSpec}" == - ]]; then "${cli}" "$@" >"${tmpDir}/wo" 2>"${tmpDir}/we" </dev/null || rc=$?
 			          else printf '%b' "${stdinSpec}" | "${cli}" "$@" >"${tmpDir}/wo" 2>"${tmpDir}/we" || rc=$?; fi ;;
 			bash)     if [[ "${stdinSpec}" == - ]]; then bash "${repoDir}/source/bash/shcl.bash" "$@" >"${tmpDir}/wo" 2>"${tmpDir}/we" </dev/null || rc=$?
 			          else printf '%b' "${stdinSpec}" | bash "${repoDir}/source/bash/shcl.bash" "$@" >"${tmpDir}/wo" 2>"${tmpDir}/we" || rc=$?; fi ;;
-			bashsrc)  if [[ "${stdinSpec}" == - ]]; then bash -c 'source "$0"; shcl "$@"' "${repoDir}/source/bash/shcl.bash" "$@" >"${tmpDir}/wo" 2>"${tmpDir}/we" </dev/null || rc=$?
-			          else printf '%b' "${stdinSpec}" | bash -c 'source "$0"; shcl "$@"' "${repoDir}/source/bash/shcl.bash" "$@" >"${tmpDir}/wo" 2>"${tmpDir}/we" || rc=$?; fi ;;
+			bashsrc)  if [[ "${stdinSpec}" == - ]]; then bash -c 'w="$1"; shift; source "$w"; shcl "$@"' bashsrc "${repoDir}/source/bash/shcl.bash" "$@" >"${tmpDir}/wo" 2>"${tmpDir}/we" </dev/null || rc=$?
+			          else printf '%b' "${stdinSpec}" | bash -c 'w="$1"; shift; source "$w"; shcl "$@"' bashsrc "${repoDir}/source/bash/shcl.bash" "$@" >"${tmpDir}/wo" 2>"${tmpDir}/we" || rc=$?; fi ;;
 			pwsh)     if [[ "${stdinSpec}" == - ]]; then pwsh -NoProfile -File "${repoDir}/source/powershell/shcl.ps1" "$@" >"${tmpDir}/wo" 2>"${tmpDir}/we" </dev/null || rc=$?
 			          else printf '%b' "${stdinSpec}" | pwsh -NoProfile -File "${repoDir}/source/powershell/shcl.ps1" "$@" >"${tmpDir}/wo" 2>"${tmpDir}/we" || rc=$?; fi ;;
 			pwshsrc)  if [[ "${stdinSpec}" == - ]]; then pwsh -NoProfile -File "${tmpDir}/wdot.ps1" "$@" >"${tmpDir}/wo" 2>"${tmpDir}/we" </dev/null || rc=$?
