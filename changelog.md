@@ -332,7 +332,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Windows
 
-- A save keeps the hidden and system attributes, and can no longer leave nothing at the path. A publish blocked for a moment is retried.
+- A save keeps the hidden and system attributes, and can no longer leave nothing at the path. A publish blocked for a moment is retried. Its temp file takes the file's ACL.
 
 - A save to a device name such as `CON` or `NUL` is refused.
 
