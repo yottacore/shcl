@@ -215,11 +215,25 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - Late-fold H002 hints print after every other parse diagnostic
 	- ID: 2026092813365325
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 idea 4
 	- Requirements: `a: 1, 2`, `b: 0`, then `a:` with two stacked elements, then `c: [x]` prints line 6's E019 before line 3's H002. Nothing requires line order, but a sort by line at the end of the parse reads better. All four agree today.
+	- Reproduced: 20260929, all four CLIs. The `H001` hints come after everything else too, since they are found in a pass after the parse.
 	- Estimated effort: Low
+	- Actual fix: the parse ends with a stable sort of its diagnostics by line, after the late fold and the `H001` pass and before the `E022` cap entry, in all four bindings. C uses a merge sort, since `qsort` is not stable.
+	- Decisions:
+		- Only the parse is sorted. Validation keeps its own documented order, after the parse's.
+		- Each file's list is sorted on its own. A merge does not combine lists, and `--layer` prints each file's apart, lowest layer first, so no sort crosses files.
+		- Two on one line keep the order they were found in. Under a diagnostic cap the listed ones are the first found, and `E022` stays last.
+		- The spec's Diagnostics section now says so, and design.md's rule reads "in line order, and in first-appearance order within a line".
+	- Note: goldens that changed order, each an `H001` that now sits at its line instead of at the end: corpus 048 (ahead of two `H002`s), 078 (three `H001`s ahead of two `H002`s, in the diags and the validate golden), 103 (ahead of an `E003`) and 133 (ahead of an `E014`).
+	- Branch: diagorder
+	- Commit: 4e6c2580
+	- Test case: corpus 185 (`185-diag-line-order`) and cli-regress `diag-line-order`, which pins stdout and the whole of stderr. Each fails on dev in all four bindings. cli-regress gained a `=` stderr field for an exact match. The cap tests in all four pin `E022` last.
+	- Swept: the end of the parse in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`. The C++ interface calls the C parse and keeps no list of its own. No binding's merge touches the diagnostics.
+	- Verified: the four conformance suites, cargo test, go test in both modules, cli-regress, crosscheck with a fuzz dump, check-docs, check-abnf, test-ids, shell-regress, sanitize-c, cppcheck, and the Rust, Go, Python, C, shell and markdown lints. A 974-line document of mixed late hints and errors gave the same stdout and stderr in all four, in line order.
+	- Note: the 2,000,000-iteration fuzz now fails `merge_never_panics_and_stays_fixpoint`. Case 185 moves the seed set onto a shared merge defect: a layer and its canonical form merge one blank line apart, above a comment. dev's code fails the same way with the case added and passes without it. It needs its own bug item.
 
 - `fmt` indents a Schema line, and `check` then stops validating at exit 0
 	- ID: 2026092813365301
