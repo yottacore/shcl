@@ -36,8 +36,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - On Windows the library save's temp file takes the directory's ACL
 	- ID: 2026093009281183
 	- Type: Bug
-	- Status: Waiting for testing
-	- Needs external testing: hosted windows job (`gh workflow run ci --ref dev` after merge). It should build the C conformance runner and show `ok ErO2NoF c temp_takes_the_targets_dacl`. Then Waiting on signoff.
+	- Status: Waiting on signoff
 	- Hosted windows job, 20260930: Rust, Go and Python fail on the tests-only commit `0671c515` and pass on the tip. C does not build on either. The new C test's `snprintf` into `cmd` trips `-Werror=format-truncation` under the runner's gcc 15 (`conformance.c:575`), so the windows job is red on dev and the C fix is unproven there.
 	- Severity: Low
 	- Opened: 20260930-092811
@@ -56,6 +55,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Progress log:
 		- 20260930: the C test did not build under gcc 15. gcc sized `acls[i]` by the whole two-row array, so up to 914 bytes could go into the 800-byte `cmd`. The `%s` now takes the row's size as its precision. Verified: gcc 15 warned on the old line and is clean on the new, and a `cmd` one byte too small for the real bound still warns.
 		- Swept: every `snprintf` in the C tests, the library and the CLI, under gcc 15 at all five `-O` levels. One more warned at `-O0`, `-O1` and `-Os`: the conformance runner's layer-name store, since `d_name` is 260 bytes on mingw and a row is 256. It now skips a name that does not fit. C conformance passes natively and under wine.
+		- 20260930: the hosted run 36785011455 on dev at `fa421bd7` builds the C runner, and all four DACL tests pass there, C's included.
 	- Branch: tempacl, winfollow
 	- Commit: 0671c515 (tests), 6dbed730, 1f882e83, 808ccfb8, c3a6395f, f6a43b42, faeb522f (C test build)
 	- Test case: `temp_file_takes_the_targets_dacl` (Rust, ErO2NoD), `TestTempFileTakesTargetsDACL` (Go, ErO2NoE), `temp_takes_the_targets_dacl` (C, ErO2NoF; Python, ErO2NoG), in the hosted windows job. They skip under wine, which keeps no ACLs.
@@ -63,8 +63,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - On Windows the Python save may write CRLF line endings
 	- ID: 2026093012535909
 	- Type: Bug
-	- Status: Waiting for testing
-	- Needs external testing: hosted windows job (`gh workflow run ci --ref dev` after merge). It should show `ok ErOTliS python save_writes_lf_bytes`. The save is not expected to have written CRLF, so a pass closes this as Can't reproduce.
+	- Status: Can't reproduce
 	- Severity: Low
 	- Opened: 20260930-125359
 	- Opened by: the design for 2026093009281183
@@ -80,34 +79,11 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Actual fix: no change to the bytes. Both opens now ask for binary themselves, so the code no longer claims text mode: `getattr(os, "O_BINARY", 0)` on the create, and `O_BINARY` in place of `O_TEXT` in `_create_like`.
 	- Swept: every `os.open` in the Python binding, its CLI and its tests. The CLI's `_old_v2` create and handle open already pass `O_BINARY`. `_sync_dir` opens a directory read-only for fsync and writes nothing. The tests have none.
 	- Verified: the new test fails on a save that writes CRLF and passes on the tree. Python conformance, ruff and mypy pass.
+	- Verified: `save_writes_lf_bytes` passes in the hosted run 36785011455 on dev at `fa421bd7`. The save wrote LF both ways on Windows. The explicit binary opens stay, since they match what the code does.
 	- Branch: winfollow
 	- Commit: 50ceb521
 	- Test case: `save_writes_lf_bytes` (Python, ErOTliS), a byte check of a create and an overwrite, in the hosted windows job.
-
-- Clippy for the Windows target fails on the Rust conformance tests
-	- ID: 2026093013402836
-	- Type: Bug
-	- Status: Waiting for testing
-	- Needs external testing: hosted windows job (`gh workflow run ci --ref dev` after merge). The same run's ci job should pass the lint stage, which now runs clippy for the Windows target.
-	- Severity: Low
-	- Opened: 20260930-134028
-	- Opened by: the review of 2026093009281183
-	- Related IDs: 2026093009281183
-	- Target OS: Windows
-	- Steps to reproduce: `cargo clippy --target x86_64-pc-windows-gnu --all-targets -- -D warnings` on the Rust crate.
-	- Incorrect behavior: `permissions_set_readonly_false` at `perms.set_readonly(false)` in the read-only save test in `tests/conformance.rs`. The host lint never compiles that test, so nothing gates it.
-	- Expected behavior: clippy is clean for the Windows target too. The lint's warning is about Unix modes and does not apply to a Windows-only test.
-	- Reproduced: 20260930, on dev as of `4203a7f2`.
-	- Origin: `f1d70ccf`. Not seen before, since no gate runs clippy for that target.
-	- Actual cause: the lint fires on any `set_readonly(false)`, because on Unix that makes a file world-writable. In this Windows-only test the call clears the read-only attribute, which is what it means to do.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Actual fix: an `allow` on that one statement, with the reason. The lint stage now also runs clippy for the Windows target. The target comes with `rust-toolchain.toml`, and the release cross build already uses it in CI.
-	- Swept: `set_readonly` in the crate. `set_read_only` in lib.rs passes a variable, which the lint does not flag. Clippy for the Windows target is clean on all targets.
-	- Verified: clippy for the Windows target failed on the old test and passes now. The new lint line fails with the `allow` taken out. The Rust conformance tests pass on the host and for the Windows target under wine.
-	- Branch: winfollow
-	- Commit: ec6e4cdf
-	- Test case: the Windows-target clippy line in the lint stage, `LINT_EXTRA` in `cicd/config.bash`.
+	- Closed: 20260930-161101
 
 - A Schema line makes `check` open any path, devices and network shares included
 	- ID: 2026092813365302
@@ -602,6 +578,33 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `pathhint`
 	- Commit: `1a12c02`
 	- Test case: corpus `171-windows-path-hint`, cli-regress `path-hint-*` rows. The read and strict rows and case 171 fail with the hint off, and `path-hint-set` shows a write is unaffected. The migrate goldens of cases 118, 122 and 170 now list the hint.
+
+- Clippy for the Windows target fails on the Rust conformance tests
+	- ID: 2026093013402836
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260930-134028
+	- Opened by: the review of 2026093009281183
+	- Related IDs: 2026093009281183
+	- Target OS: Windows
+	- Steps to reproduce: `cargo clippy --target x86_64-pc-windows-gnu --all-targets -- -D warnings` on the Rust crate.
+	- Incorrect behavior: `permissions_set_readonly_false` at `perms.set_readonly(false)` in the read-only save test in `tests/conformance.rs`. The host lint never compiles that test, so nothing gates it.
+	- Expected behavior: clippy is clean for the Windows target too. The lint's warning is about Unix modes and does not apply to a Windows-only test.
+	- Reproduced: 20260930, on dev as of `4203a7f2`.
+	- Origin: `f1d70ccf`. Not seen before, since no gate runs clippy for that target.
+	- Actual cause: the lint fires on any `set_readonly(false)`, because on Unix that makes a file world-writable. In this Windows-only test the call clears the read-only attribute, which is what it means to do.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: an `allow` on that one statement, with the reason. The lint stage now also runs clippy for the Windows target. The target comes with `rust-toolchain.toml`, and the release cross build already uses it in CI.
+	- Swept: `set_readonly` in the crate. `set_read_only` in lib.rs passes a variable, which the lint does not flag. Clippy for the Windows target is clean on all targets.
+	- Verified: clippy for the Windows target failed on the old test and passes now. The new lint line fails with the `allow` taken out. The Rust conformance tests pass on the host and for the Windows target under wine.
+	- Verified: the hosted run 36785011455 on dev at `fa421bd7` passes its lint stage with the Windows-target clippy line.
+	- Branch: winfollow
+	- Commit: ec6e4cdf
+	- Test case: the Windows-target clippy line in the lint stage, `LINT_EXTRA` in `cicd/config.bash`.
+	- Acceptance signoff: Self-closed: mechanical, a scoped lint allow with the reason, and the new lint line fails without it.
+	- Closed: 20260930-161101
 
 - Under Windows PowerShell 5.1, `install.ps1` may follow an https to http redirect for the release list
 	- ID: 2026092813365314
