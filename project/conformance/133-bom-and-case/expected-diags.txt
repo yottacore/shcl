@@ -1,3 +1,3 @@
-line 9: Error: E014
 line 7: Hint: H001
+line 9: Error: E014
 failed: 2 diagnostic(s), 1 error(s)

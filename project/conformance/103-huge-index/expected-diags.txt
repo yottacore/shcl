@@ -1,3 +1,3 @@
-line 4: Error: E003
 line 3: Hint: H001
+line 4: Error: E003
 failed: 2 diagnostic(s), 1 error(s)

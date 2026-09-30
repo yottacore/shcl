@@ -656,7 +656,7 @@ Two portability rules bind every binding:
 
 - Floats render as shortest round-trip decimal, never scientific notation. This matches the reference's native float formatting.
 
-- Diagnostic order must be deterministic, in first-appearance order. A port can match a rule, but not a coin flip.
+- Diagnostic order must be deterministic: a load's list is in line order, and in first-appearance order within a line. A port can match a rule, but not a coin flip.
 
 ### Format comparison
 

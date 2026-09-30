@@ -3331,6 +3331,10 @@ class _Parser:
 		for n in range(len(self.arena)):
 			_settle_block(self.arena, n, 1)
 		self._emit_repeated_leaf_hints()
+		# Line order, so a hint found only after the pass (a fold, a repeated
+		# leaf) sits with its line. Stable, so two on one line keep the order
+		# they were found in. Before the cap entry, which ends the list.
+		self.diags.sort(key=lambda d: d.line)
 		chain: list[tuple[str, int]] = []
 		orphans = [_Lead(p.text, p.blank_before, _comment_depth(chain, "", p.text, p.indent), p.line) for p in self.pending]
 		self.pending = []

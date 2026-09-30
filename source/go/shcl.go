@@ -4145,6 +4145,10 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 		settleBlock(p.arena, n, 1)
 	}
 	p.emitRepeatedLeafHints()
+	// Line order, so a hint found only after the pass (a fold, a repeated
+	// leaf) sits with its line. Stable, so two on one line keep the order
+	// they were found in. Before the cap entry, which ends the list.
+	sort.SliceStable(p.diags, func(i, j int) bool { return p.diags[i].Line < p.diags[j].Line })
 	orphans := make([]lead, 0, len(p.pending))
 	var chain []depthEnt
 	for _, pn := range p.pending {

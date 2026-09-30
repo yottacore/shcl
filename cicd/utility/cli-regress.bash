@@ -12,7 +12,7 @@
 ##
 ##		stdout and the exit code are contract and are matched exactly. stderr
 ##		wording is per-binding voice, so a row matches it with a regex that has
-##		to hold for all four.
+##		to hold for all four, or exactly where all four say the same thing.
 ##	Syntax:
 ##		cli-regress.bash NAME|CLI [NAME|CLI ...]
 ##	Exit: 0 = every row passes everywhere, 1 = a row failed, 2 = usage.
@@ -345,7 +345,8 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	stdin for its ops, '@asciilocale' none, with an ASCII-only locale and
 ##	PYTHONIOENCODING.
 ##	stdout and stderr: '-' means unchecked; an empty stdout field means exactly empty.
-##	A stderr regex starting with '!' must match NO line.
+##	A stderr regex starting with '!' must match NO line. A stderr field
+##	starting with '=' is the whole of stderr, printf %b text, matched exactly.
 ##	Each row names the round and item it pins, and starts with its test ID.
 ## A CLI that starts reading a stdin nothing feeds would hang the gate. Each
 ## row runs under this limit and fails by name instead (20260926 idea 5).
@@ -606,6 +607,10 @@ rows=(
 	'Er35Y6N|unit-clash|get --duration --unit=s --unit=m - t|t: 1\n|1||^--unit=s cannot be combined with --unit=m'
 	'Er35Y6O|duration-no-array|get --duration --array - t|t: 1s\n|1||^--duration has no --array form'
 	'Er35Y6P|unit-hint|check -|t-ms: 5s\n|0|line 1: Hint: H005\nok (1 diagnostic(s))\n|H005 value is in s and the name says ms'
+	## 20260928 idea 4: a hint found after the parse's pass, here a late fold,
+	## was listed after every other diagnostic. The prose is the same in all
+	## four, so stderr is pinned whole.
+	"ErJK4ni|diag-line-order|check -|a: 1, 2\nb: 0\na:\n\t* 1\n\t* 2\nc: [x]\n|6|line 3: Hint: H002\nline 6: Error: E019\nfailed: 2 diagnostic(s), 1 error(s)\n|=line 3: Hint: H002 merged with 'a' at line 1 (same name and value combine)\nline 6: Error: E019 bracket array syntax; an array is comma-separated, without brackets\n(run 'shcl explain CODE' for the rule behind a code)\n"
 	## A Schema line names the schema check uses when --schema is not given,
 	## read from the config file's directory. A URL is left to editors.
 	'Er2thhx|schema-line-check|check %SP%|-|6|line 2: Error: V003\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
@@ -1198,7 +1203,13 @@ for row in "${rows[@]}"; do
 		if [[ "${wantErr}" != "-" ]]; then
 			## The stdin notice is a prompt, not a diagnostic; it is not what a row is about.
 			gotErr="$(grep -v 'reading write-ops from stdin' "${tmpDir}/err" || true)"
-			if [[ "${wantErr}" == !* ]]; then
+			if [[ "${wantErr}" == =* ]]; then
+				IFS= read -r -d '' gotErr <"${tmpDir}/err" || true
+				printf -v expErr '%b' "${wantErr#=}"
+				if [[ "${gotErr}" != "${expErr}" ]]; then
+					echo "cli-regress: ${id} [${name}]: stderr ${gotErr@Q}, expected ${expErr@Q}" >&2; nBad+=1
+				fi
+			elif [[ "${wantErr}" == !* ]]; then
 				if grep -qE -- "${wantErr#!}" <<<"${gotErr}"; then
 					echo "cli-regress: ${id} [${name}]: stderr ${gotErr@Q} matches /${wantErr#!}/" >&2; nBad+=1
 				fi
@@ -1693,3 +1704,4 @@ echo "cli-regress: OK: ${#rows[@]} row(s) across ${#bindings[@]} binding(s), ${n
 ##		            80 columns with nothing to fail on.
 ##		2026-09-08  Man page width, rendered at 80, after the page next to that
 ##		            help was found carrying an 81-column example line.
+##		2026-09-29  Exact stderr ('=' field), for diagnostic order.

@@ -394,6 +394,8 @@ Case `183` pins which characters canonical output escapes: both ends of every ra
 
 Case `184` pins a bare duration or size `min` and `max` read the way the value is: the bound's own unit, then the field name's, then the schema's `unit`. A name ending in `-ms`, `_mb` or a decimal `-kb` gives the bound its unit, the name wins over `unit`, and a bound with its own unit keeps it. With no unit from either, and on a path ending in `*`, a bare bound is still `V092`.
 
+Case `185` pins the order of a load's diagnostics: by line, with a late-fold `H002` and an `H001` in their lines' places rather than after every other diagnostic, and an `H004` found in the pass ahead of the `H001` that shares its line.
+
 Beyond the fixed corpus, the differential harness (`cicd/utility/crosscheck.bash`) also derives accessor coverage over the fuzz set: the reference's fuzz dump writes a `<name>.reads.tsv` beside each dumped input (paths it knows exist, cycling type and strictness), which the `--extra` replay runs through the same row machinery. Every scalar read row - corpus and fuzz-derived - is additionally replayed under `--on-bad=error` (an exit-code differential) and `--default=<x>` (a stdout differential), so the on-bad/default policy surface is pinned cross-binding too. It also runs three `set` edits (a changed value, a new child, a removal) on the first paths of every input, corpus and fuzz alike, so the save that keeps lines is compared well past the goldens.
 
 Not yet modeled natively (as golden files): the on-bad/default outputs (covered cross-binding via the harness above, not by per-row `expected`). Diagnostic expectations are modeled natively via `expected-diags.txt` (above) and cross-binding via the `load` rows.
