@@ -104,25 +104,18 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Commit: 5e1f1eaf
 	- Test case: cli-regress `windows-migrate-acl`, in the hosted windows job. It failed on dev in all four and passes with the fix.
 
-- The hosted windows job's dogfood row still runs `shcl version`
-	- ID: 2026093009281083
+- The hosted ci job runs close to its 45-minute timeout
+	- ID: 2026093010155541
 	- Type: Bug
-	- Status: Waiting for testing
-	- Needs external testing: the hosted windows job, row `Er8Neza`.
-	- Severity: Avg
-	- Opened: 20260930-092810
-	- Opened by: the Windows batch for review 20260928
-	- Target OS: Windows
-	- Steps to reproduce: a hosted CI run on dev, or run `utility/dogfood_shcl.ps1 version` from a scratch HOME.
-	- Incorrect behavior: the runner prints `unknown command: version`, so `win-runners` fails `dogfood runner` and the windows job is red on dev.
-	- Expected behavior: the row runs the build and sees `shcl v`.
-	- Reproduced: 20260930, hosted run `36734575613` on dev, and locally under pwsh with a scratch HOME.
-	- Origin: `74cc8fdd` (review 20260928 item 9) made the informational outputs flags only. The row in `win-runners.bash` kept the old word.
-	- Actual fix: the row passes `--version`. Three comments in the Go, Python and C CLIs named `shcl version` too.
-	- Swept: every script in `cicd`, `utility` and `.github` for a bare `version`, `about` or `donate` argument. The only other hit is crosscheck's `usage version` row, which checks the refusal on purpose.
-	- Verified: under pwsh 7 on Linux with a scratch HOME, the runner with `version` prints the refusal and with `--version` prints `shcl v2.0.0`. shellcheck passes.
-	- Branch: dogfoodver
-	- Test case: `Er8Neza` (`win-runners` dogfood runner), red on dev in the hosted windows job.
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260930-101555
+	- Opened by: hosted run `36744540495` on `dogfoodver`
+	- Steps to reproduce: a hosted run where the tool install step is slow.
+	- Incorrect behavior: the ci job took 38 minutes in both runs before it. In `36744540495` the tool install step took 11 minutes instead of 1, and the job was canceled at 45 minutes during crosscheck, with every earlier stage green.
+	- Expected behavior: a slow mirror does not turn the gate red.
+	- Possible cause: `timeout-minutes: 45` in `ci.yml` leaves about 7 minutes over a normal run. The job has grown since the comment above it was written.
+	- Estimated effort: Low
 
 - On Windows the library save's temp file takes the directory's ACL
 	- ID: 2026093009281183
@@ -218,6 +211,28 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Swept: every test for a leading `#` on a comment line in all four. The merge's replaced-leaf rule is the one other site, filed as 2026092718195400.
 	- Branch: `keepdrop`
 	- Test case: corpus `178-clear-comments-kept-line`, both routes, with `comments` reads. It fails on the old code.
+
+- The hosted windows job's dogfood row still runs `shcl version`
+	- ID: 2026093009281083
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20260930-092810
+	- Opened by: the Windows batch for review 20260928
+	- Target OS: Windows
+	- Steps to reproduce: a hosted CI run on dev, or run `utility/dogfood_shcl.ps1 version` from a scratch HOME.
+	- Incorrect behavior: the runner prints `unknown command: version`, so `win-runners` fails `dogfood runner` and the windows job is red on dev.
+	- Expected behavior: the row runs the build and sees `shcl v`.
+	- Reproduced: 20260930, hosted run `36734575613` on dev, and locally under pwsh with a scratch HOME.
+	- Origin: `74cc8fdd` (review 20260928 item 9) made the informational outputs flags only. The row in `win-runners.bash` kept the old word.
+	- Actual fix: the row passes `--version`. Three comments in the Go, Python and C CLIs named `shcl version` too.
+	- Swept: every script in `cicd`, `utility` and `.github` for a bare `version`, `about` or `donate` argument. The only other hit is crosscheck's `usage version` row, which checks the refusal on purpose.
+	- Verified: under pwsh 7 on Linux with a scratch HOME, the runner with `version` prints the refusal and with `--version` prints `shcl v2.0.0`. shellcheck passes. In hosted run `36744540495` on the branch, `Er8Neza` passes and the windows job is green.
+	- Branch: dogfoodver
+	- Commit: 9418ba5e
+	- Test case: `Er8Neza` (`win-runners` dogfood runner), red on dev in the hosted windows job.
+	- Acceptance signoff: Self-closed: mechanical, the row passes the flag the CLIs now take.
+	- Closed: 20260930-101555
 
 - Under Windows PowerShell 5.1 a quote inside an argument never reaches the binary
 	- ID: 2026092813365304
