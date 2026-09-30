@@ -1119,6 +1119,51 @@ static char *old_copy_name(const char *file) {
 	return old;
 }
 
+#ifdef _WIN32
+// The exclusive create of the old copy. A new file takes the directory's ACL,
+// while the save keeps the original's on the migrated file, so a private
+// config got a backup others could read. The copy is born with the original's
+// DACL instead. Best effort: when that cannot be read, the directory's it is.
+// -1 with errno set when the copy cannot be made.
+static int create_copy(const char *file, const wchar_t *wold) {
+	PSECURITY_DESCRIPTOR sd = NULL;
+	wchar_t *wfile = shcl_widen(file);
+	if (wfile) {
+		DWORD need = 0;
+		GetFileSecurityW(wfile, DACL_SECURITY_INFORMATION, NULL, 0, &need);
+		if (need > 0 && (sd = malloc(need)) != NULL && !GetFileSecurityW(wfile, DACL_SECURITY_INFORMATION, sd, need, &need)) {
+			free(sd);
+			sd = NULL;
+		}
+		free(wfile);
+	}
+	SECURITY_ATTRIBUTES sa = { sizeof sa, sd, FALSE };
+	HANDLE h = CreateFileW(wold, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, sd ? &sa : NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (h == INVALID_HANDLE_VALUE) {
+		errno = shcl_errno_from_win32(GetLastError());
+		free(sd);
+		return -1;
+	}
+	// A create takes the ACEs but drops the auto-inherited mark, and without it
+	// a later change to the directory's ACL is not carried down to the copy.
+	// Setting the same DACL again with the request bit puts it back.
+	SECURITY_DESCRIPTOR_CONTROL control = 0;
+	DWORD revision = 0;
+	if (sd && GetSecurityDescriptorControl(sd, &control, &revision) && (control & SE_DACL_AUTO_INHERITED)
+		&& SetSecurityDescriptorControl(sd, SE_DACL_AUTO_INHERIT_REQ, SE_DACL_AUTO_INHERIT_REQ))
+		(void)SetFileSecurityW(wold, DACL_SECURITY_INFORMATION, sd);
+	free(sd);
+	int fd = _open_osfhandle((intptr_t)h, _O_WRONLY | _O_BINARY);
+	if (fd < 0) {
+		int e = errno;
+		CloseHandle(h);
+		DeleteFileW(wold);
+		errno = e;
+	}
+	return fd;
+}
+#endif
+
 // The original bytes, at the old-copy name, before the migrated text replaces
 // them. The create is exclusive, so an earlier copy is never replaced, and the
 // copy is synced before the save starts. NULL, with the reason printed, when
@@ -1127,7 +1172,7 @@ static char *keep_original(const char *file, const char *text, size_t len) {
 	char *old = old_copy_name(file);
 #ifdef _WIN32
 	wchar_t *w = shcl_widen(old);
-	int fd = w ? _wopen(w, _O_WRONLY | _O_CREAT | _O_EXCL | _O_BINARY, _S_IREAD | _S_IWRITE) : -1;
+	int fd = w ? create_copy(file, w) : -1;
 #else
 	int fd = open(old, O_WRONLY | O_CREAT | O_EXCL, 0600);
 #endif

@@ -36,7 +36,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - A Schema line makes `check` open any path, devices and network shares included
 	- ID: 2026092813365302
 	- Type: Bug
-	- Status: Testing
+	- Status: Waiting on signoff
 	- Severity: High
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 2
@@ -54,14 +54,15 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Actual fix: `check` reads only a regular file from a Schema line, asked before the open and again after it. On Windows a line starting with two separators or `\??\` is refused at exit 8. The test is on the line's own text, so a config sitting on a share can still name a schema beside it.
 	- Swept: `schema_for` in all four CLIs. Nothing else opens a path read out of a file.
 	- Verified: the share and `\??\` refusals under wine for Rust, Go and C.
+	- Verified: on Windows 11, all four refuse a Schema line naming `//host/share/...`, `\\host\share\...`, `/\host\...` or `\??\C:\...` at exit 8, and still read a local or relative schema. Python before the fix tried the share and read the `\??\` path.
 	- Branch: schemaline
 	- Commit: 27d73efb
-	- Test case: cli-regress `schema-line-device` and `schema-line-fifo`, both failing on dev, and `schema-line-share`, which runs on Windows only. Python on Windows waits for the Windows batch.
+	- Test case: cli-regress `schema-line-device` and `schema-line-fifo`, both failing on dev, and `schema-line-share`, which runs on Windows only, in the hosted windows job with all four.
 
 - Under Windows PowerShell 5.1 a quote inside an argument never reaches the binary
 	- ID: 2026092813365304
 	- Type: Bug
-	- Status: Testing
+	- Status: Waiting on signoff
 	- Severity: Avg
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 4
@@ -76,54 +77,15 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Estimated effort: Avg
 	- Reproduced: 20260928 under pwsh 7 with `$PSNativeCommandArgumentPassing` set to Legacy, which builds the command line the way 5.1 does. `a"b` was a usage error, `x "y" z` came through as `x y z`, and an empty argument was left out.
 	- Actual fix: under 5.1, 7 before 7.3, or Legacy, `shcl.ps1` quotes each argument holding a blank or a quote the way the binary's parser reads it back, and passes an empty one as `""`.
+	- Verified: under Windows PowerShell 5.1, dot-sourced and as a script, the binary gets `--set-literal=zip="02134"`, an empty argument, `x "y" z`, `a"b`, `C:\dir with space\` and `p\"q` as typed, the same as under 7.6. The item's steps then write `zip: "02134"` in Rust, Go and C. The old `shcl.ps1` under 5.1 dropped the quotes and the empty argument, and ran `a"b` and the trailing backslash into the next argument.
 	- Branch: psfix
 	- Commit: c63a6ace
-	- Test case: shell-regress `20260928-item4-ps1-legacy-quotes`, which fails on dev. A run under 5.1 itself waits for the Windows batch.
-
-- On Windows, the `_old_v2` name for `C:.shclrc` puts the suffix in the wrong place
-	- ID: 2026092813365313
-	- Type: Bug
-	- Status: Testing
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 13
-	- Target OS: Windows
-	- Steps to reproduce: `shcl migrate -w C:.shclrc` on a 2.x file holding `a: "x\qy"`.
-	- Incorrect behavior: expected, not yet seen. The copy is named `C:_old_v2.shclrc`.
-	- Expected behavior: `C:.shclrc_old_v2`, since the function's own comment says a leading dot is part of the name.
-	- Reproduced: No. Plausible, read in the Rust CLI, for the Windows batch.
-	- Origin: `6c49d1b0`. The name starts after the last `/` or `\`, not after a drive.
-	- Sweep: `old_copy_name` in all four CLIs.
-	- Estimated effort: Low
-	- Actual fix: `name_start` starts the name after a drive, so the copy of `C:.shclrc` is `C:.shclrc_old_v2`. All four.
-	- Verified: Rust, Go and C under wine, with `Z:.shclrc`.
-	- Branch: schemaline
-	- Commit: 27d73efb
-	- Test case: none hosted yet, since a drive-relative path depends on the runner's drives. Python waits for the Windows batch.
-
-- On Windows, Python's `_old_v2` copy of a read-only file comes out read-only
-	- ID: 2026092813365312
-	- Type: Bug
-	- Status: Testing
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 12
-	- Target OS: Windows, Python 3.13 and later
-	- Steps to reproduce: `attrib +r` a 2.x file, then `python main.py migrate --write --from-2x f.shcl`, then `attrib f_old_v2.shcl`.
-	- Incorrect behavior: expected, not yet seen. The copy is read-only, so a failed save cannot remove it, and the next run exits 8 on the taken name.
-	- Expected behavior: as Rust and Go, which skip the mode on Windows.
-	- Reproduced: No. Plausible, for the Windows batch. The guard is `hasattr(os, "fchmod")`, and Python 3.13 added `fchmod` on Windows. The library save guards the same call by `os.name`.
-	- Origin: `6c49d1b0`.
-	- Estimated effort: Low
-	- Actual fix: the group and mode go on only when `os.name` is not `nt`, the library save's guard.
-	- Branch: oldcopy
-	- Commit: 4dbe70af
-	- Test case: waits for the Windows batch. No hosted runner has Python 3.13 on Windows yet.
+	- Test case: shell-regress `20260928-item4-ps1-legacy-quotes`, which fails on dev. No hosted test runs it under 5.1 itself; that run is the Verified line above.
 
 - Under Windows PowerShell 5.1, `install.ps1` may follow an https to http redirect for the release list
 	- ID: 2026092813365314
 	- Type: Bug
-	- Status: Testing
+	- Status: Waiting on signoff
 	- Severity: Low
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 item 14
@@ -135,14 +97,16 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Origin: the claim is in 20260923 item 15's Swept line (`f96a80e0`).
 	- Estimated effort: Low
 	- Actual fix: under 5.1 the release-list call follows no redirect. The API answers that URL without one. Installer 1.1.5.
+	- Verified: under Windows PowerShell 5.1 the installer still reads the release list from the API and offers `v2.0.0` for stable. With the list URL pointed at an https to http to https redirect, it stops at "cannot fetch", under 5.1 and under 7. The installer before the fix, under 5.1, followed that redirect to the plan.
+	- Note: under 5.1 an https to https redirect is refused too, such as the old `jim-collier/shcl` API URL, which 7 follows. The message then is the "none published yet, or network down" one.
 	- Branch: psfix
 	- Commit: c63a6ace
-	- Test case: waits for the Windows batch, since only 5.1 follows the downgrade.
+	- Test case: none hosted. The list URL comes from the repo name, so a redirect needs an edited copy of the installer. The Verified line above is that run.
 
 - On Windows, the `_old_v2` copy may take the directory's ACL rather than the original's
 	- ID: 2026092815155546
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Low
 	- Opened: 20260928-151555
 	- Opened by: split from 2026092813365303
@@ -152,7 +116,16 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Incorrect behavior: expected, not yet seen. The copy is a new file, so it inherits the directory's ACL, while `ReplaceFile` keeps the original's on the migrated file.
 	- Expected behavior: a private config does not get a readable backup.
 	- Reproduced: No. Plausible, for the Windows batch.
+	- Reproduced: 20260930, Windows 11, all four CLIs. The migrated file kept its DACL, which granted only the user, and the copy took the directory's, so `BUILTIN\Users` could read it.
+	- Actual cause: the copy is a new file, so it inherits the directory's ACL.
 	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Actual fix: on Windows the copy is created with the original's DACL, then marked auto-inherited when the original is, so a later change to the directory's ACL still reaches it. When the original's DACL cannot be read, the copy takes the directory's, as before. All four CLIs.
+	- Swept: `keep_original` in all four CLIs. The library save's temp file on Windows is created the same way, and holds the new text under the directory's ACL until `ReplaceFile` runs. Left alone here.
+	- Verified: on Windows 11, all four: a protected DACL granting only the user, an inherited DACL with an added grant, and a protected DACL with a deny all come through to the copy unchanged. Also in a subdirectory, with either separator, and with a non-ASCII name. A taken copy name and a directory that refuses the create still exit 8 with the same messages.
+	- Branch: winbatch
+	- Commit: 5e1f1eaf
+	- Test case: cli-regress `windows-migrate-acl`, in the hosted windows job. It failed on dev in all four and passes with the fix.
 
 - `fmt` indents a Schema line, and `check` then stops validating at exit 0
 	- ID: 2026092813365301
@@ -574,6 +547,52 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `pathhint`
 	- Commit: `1a12c02`
 	- Test case: corpus `171-windows-path-hint`, cli-regress `path-hint-*` rows. The read and strict rows and case 171 fail with the hint off, and `path-hint-set` shows a write is unaffected. The migrate goldens of cases 118, 122 and 170 now list the hint.
+
+- On Windows, the `_old_v2` name for `C:.shclrc` puts the suffix in the wrong place
+	- ID: 2026092813365313
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 13
+	- Target OS: Windows
+	- Steps to reproduce: `shcl migrate -w C:.shclrc` on a 2.x file holding `a: "x\qy"`.
+	- Incorrect behavior: expected, not yet seen. The copy is named `C:_old_v2.shclrc`.
+	- Expected behavior: `C:.shclrc_old_v2`, since the function's own comment says a leading dot is part of the name.
+	- Reproduced: No. Plausible, read in the Rust CLI, for the Windows batch.
+	- Origin: `6c49d1b0`. The name starts after the last `/` or `\`, not after a drive.
+	- Sweep: `old_copy_name` in all four CLIs.
+	- Estimated effort: Low
+	- Actual fix: `name_start` starts the name after a drive, so the copy of `C:.shclrc` is `C:.shclrc_old_v2`. All four.
+	- Verified: Rust, Go and C under wine, with `Z:.shclrc`.
+	- Verified: on Windows 11, all four keep the copy of `C:.shclrc` as `C:.shclrc_old_v2`. Python before the fix wrote `C:_old_v2.shclrc`.
+	- Branch: schemaline
+	- Commit: 27d73efb
+	- Test case: cli-regress `windows-migrate-drive-relative`, which names the file by the fixture's own drive and runs in the hosted windows job with all four.
+	- Acceptance signoff: Self-closed: reproduced before the fix, passes after in all four, and the fix is mechanical.
+	- Closed: 20260930-083333
+
+- On Windows, Python's `_old_v2` copy of a read-only file comes out read-only
+	- ID: 2026092813365312
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 12
+	- Target OS: Windows, Python 3.13 and later
+	- Steps to reproduce: `attrib +r` a 2.x file, then `python main.py migrate --write --from-2x f.shcl`, then `attrib f_old_v2.shcl`.
+	- Incorrect behavior: expected, not yet seen. The copy is read-only, so a failed save cannot remove it, and the next run exits 8 on the taken name.
+	- Expected behavior: as Rust and Go, which skip the mode on Windows.
+	- Reproduced: No. Plausible, for the Windows batch. The guard is `hasattr(os, "fchmod")`, and Python 3.13 added `fchmod` on Windows. The library save guards the same call by `os.name`.
+	- Origin: `6c49d1b0`.
+	- Estimated effort: Low
+	- Actual fix: the group and mode go on only when `os.name` is not `nt`, the library save's guard.
+	- Verified: with Python 3.14 on Windows 11, the copy of a read-only file is writable. Before the fix it was read-only. Rust, Go and C leave it writable too.
+	- Branch: oldcopy
+	- Commit: 4dbe70af
+	- Test case: cli-regress `windows-migrate-readonly`, which the hosted windows job runs with Python 3.13.
+	- Acceptance signoff: Self-closed: reproduced before the fix and passes after, and the fix is mechanical.
+	- Closed: 20260930-083333
 
 - The C CLI cuts a Schema path at a NUL and validates against another file
 	- ID: 2026092813365307
