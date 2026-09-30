@@ -104,19 +104,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Commit: 5e1f1eaf
 	- Test case: cli-regress `windows-migrate-acl`, in the hosted windows job. It failed on dev in all four and passes with the fix.
 
-- The hosted ci job runs close to its 45-minute timeout
-	- ID: 2026093010155541
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20260930-101555
-	- Opened by: hosted run `36744540495` on `dogfoodver`
-	- Steps to reproduce: a hosted run where the tool install step is slow.
-	- Incorrect behavior: the ci job took 38 minutes in both runs before it. In `36744540495` the tool install step took 11 minutes instead of 1, and the job was canceled at 45 minutes during crosscheck, with every earlier stage green.
-	- Expected behavior: a slow mirror does not turn the gate red.
-	- Possible cause: `timeout-minutes: 45` in `ci.yml` leaves about 7 minutes over a normal run. The job has grown since the comment above it was written.
-	- Estimated effort: Low
-
 - On Windows the library save's temp file takes the directory's ACL
 	- ID: 2026093009281183
 	- Type: Bug
@@ -600,6 +587,25 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `pathhint`
 	- Commit: `1a12c02`
 	- Test case: corpus `171-windows-path-hint`, cli-regress `path-hint-*` rows. The read and strict rows and case 171 fail with the hint off, and `path-hint-set` shows a write is unaffected. The migrate goldens of cases 118, 122 and 170 now list the hint.
+
+- The hosted ci job runs close to its 45-minute timeout
+	- ID: 2026093010155541
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260930-101555
+	- Opened by: hosted run `36744540495` on `dogfoodver`
+	- Steps to reproduce: a hosted run where the tool install step is slow.
+	- Incorrect behavior: the ci job took 38 minutes in both runs before it. In `36744540495` the tool install step took 11 minutes instead of 1, and the job was canceled at 45 minutes during crosscheck, with every earlier stage green.
+	- Expected behavior: a slow mirror does not turn the gate red.
+	- Possible cause: `timeout-minutes: 45` in `ci.yml` leaves about 7 minutes over a normal run. The job has grown since the comment above it was written.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: the ci job's timeout is 60 minutes.
+	- Branch: citimeout
+	- Test case: none fits. A timeout margin shows only on a slow hosted run.
+	- Acceptance signoff: Self-closed: asked for directly, and the change is one number.
+	- Closed: 20260930-115848
 
 - On Windows, the `_old_v2` name for `C:.shclrc` puts the suffix in the wrong place
 	- ID: 2026092813365313
