@@ -1331,6 +1331,80 @@ else
 	fTestSkip
 fi
 
+## 2026092815155546: the old copy was a new file, so it took the directory's
+## ACL, while the migrated file keeps the original's. A config readable by its
+## owner only got a copy the directory's readers could open. The copy's DACL
+## has to match the original's as it was before the run.
+fDacl(){
+	MSYS_NO_PATHCONV=1 powershell.exe -NoProfile -NonInteractive -Command "(Get-Acl -LiteralPath '$1').GetSecurityDescriptorSddlForm('Access')" 2>/dev/null | tr -d '\r' || true
+}
+fTest ErMwKp1 windows-migrate-acl
+if [[ "${onWindows}" == 1 ]]; then
+	aclDir="${tmpDir}/migacl"
+	for b in "${bindings[@]}"; do
+		name="${b%%|*}"; cli="$(realpath -- "${b#*|}")"
+		rm -rf "${aclDir}"; mkdir -p "${aclDir}"
+		printf 'base:[Boston]\n' > "${aclDir}/f.shcl"
+		winDir="$(cygpath -w "${aclDir}")"
+		MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' icacls "${winDir}" /grant '*S-1-5-32-545:(OI)(CI)(R)' >/dev/null
+		MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' icacls "${winDir}\\f.shcl" /inheritance:r /grant:r "${USERNAME}:(F)" >/dev/null
+		want="$(fDacl "${winDir}\\f.shcl")"
+		rc=0; (cd "${aclDir}" && timeout "${rowSecs}" "${cli}" migrate --write f.shcl >/dev/null 2>"${tmpDir}/err" </dev/null) || rc=$?
+		got="$(fDacl "${winDir}\\f_old_v2.shcl")"
+		nRun+=1
+		if [[ "${rc}" != 0 || "${want}" != D:P* || "${got}" != "${want}" ]]; then
+			echo "cli-regress: windows-migrate-acl [${name}]: exit ${rc}, copy ${got@Q}, original ${want@Q}: $(head -c 200 "${tmpDir}/err")" >&2; nBad+=1
+		fi
+	done
+else
+	fTestSkip
+fi
+
+## 20260928 item 12: Python 3.13 and later has os.fchmod on windows, which put
+## the read-only bit on the copy of a read-only file. A failed save could not
+## remove that copy, and the next run refused the taken name.
+fTest ErMwwHF windows-migrate-readonly
+if [[ "${onWindows}" == 1 ]]; then
+	roDir="${tmpDir}/migro"
+	for b in "${bindings[@]}"; do
+		name="${b%%|*}"; cli="$(realpath -- "${b#*|}")"
+		rm -rf "${roDir}"; mkdir -p "${roDir}"
+		printf 'base:[Boston]\n' > "${roDir}/f.shcl"
+		winDir="$(cygpath -w "${roDir}")"
+		MSYS_NO_PATHCONV=1 attrib +r "${winDir}\\f.shcl" >/dev/null
+		rc=0; (cd "${roDir}" && timeout "${rowSecs}" "${cli}" migrate --write f.shcl >/dev/null 2>"${tmpDir}/err" </dev/null) || rc=$?
+		got="$(MSYS_NO_PATHCONV=1 powershell.exe -NoProfile -NonInteractive -Command "(Get-Item -LiteralPath '${winDir}\\f_old_v2.shcl').IsReadOnly" 2>/dev/null | tr -d '\r' || true)"
+		MSYS_NO_PATHCONV=1 attrib -r "${winDir}\\*" >/dev/null || true
+		nRun+=1
+		if [[ "${rc}" != 0 || "${got}" != False ]]; then
+			echo "cli-regress: windows-migrate-readonly [${name}]: exit ${rc}, copy read-only ${got@Q}: $(head -c 200 "${tmpDir}/err")" >&2; nBad+=1
+		fi
+	done
+else
+	fTestSkip
+fi
+
+## 20260928 item 13: the name starts after a drive with no separator, so the
+## copy of C:.shclrc is C:.shclrc_old_v2, not C:_old_v2.shclrc. The drive is
+## the fixture's own, whose current directory is the fixture.
+fTest ErMwwZ1 windows-migrate-drive-relative
+if [[ "${onWindows}" == 1 ]]; then
+	drelDir="${tmpDir}/migdrel"
+	for b in "${bindings[@]}"; do
+		name="${b%%|*}"; cli="$(realpath -- "${b#*|}")"
+		rm -rf "${drelDir}"; mkdir -p "${drelDir}"
+		printf 'base:[Boston]\n' > "${drelDir}/.shclrc"
+		drive="$(cygpath -w "${drelDir}")"; drive="${drive:0:2}"
+		rc=0; (cd "${drelDir}" && MSYS_NO_PATHCONV=1 timeout "${rowSecs}" "${cli}" migrate --write "${drive}.shclrc" >/dev/null 2>"${tmpDir}/err" </dev/null) || rc=$?
+		nRun+=1
+		if [[ "${rc}" != 0 || ! -f "${drelDir}/.shclrc_old_v2" || -e "${drelDir}/_old_v2.shclrc" ]]; then
+			echo "cli-regress: windows-migrate-drive-relative [${name}]: exit ${rc}, left $(find "${drelDir}" -mindepth 1 -printf '%f '): $(head -c 200 "${tmpDir}/err")" >&2; nBad+=1
+		fi
+	done
+else
+	fTestSkip
+fi
+
 ## 20260716 item 26: the C CLI's own allocations went unchecked, so running out
 ## of memory was a segfault where the library's path exits 70. Two inputs under
 ## an address-space cap: one too big to read, which is the CLI's own buffer, and
