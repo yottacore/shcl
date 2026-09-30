@@ -2021,12 +2021,9 @@ fn old_copy_name(file: &str) -> String {
 	}
 }
 
-/// Writes the original bytes to the old-copy name before the migrated text
-/// replaces them. The create is exclusive, so an earlier copy is never
-/// replaced, and the copy is synced before the save starts.
-fn keep_original(file: &str, text: &str) -> Result<String, String> {
-	use std::io::Write;
-	let old = old_copy_name(file);
+/// The exclusive create of the old copy, born private.
+#[cfg(not(windows))]
+fn create_copy(_file: &str, old: &str) -> std::io::Result<std::fs::File> {
 	let mut opts = std::fs::OpenOptions::new();
 	opts.write(true).create_new(true);
 	#[cfg(unix)]
@@ -2034,7 +2031,142 @@ fn keep_original(file: &str, text: &str) -> Result<String, String> {
 		use std::os::unix::fs::OpenOptionsExt;
 		opts.mode(0o600);
 	}
-	let mut f = opts.open(&old).map_err(|e| {
+	opts.open(old)
+}
+
+/// The exclusive create of the old copy. A new file takes the directory's
+/// ACL, while the save keeps the original's on the migrated file, so a private
+/// config got a backup others could read. The copy is born with the original's
+/// DACL instead. Best effort: when that cannot be read, the directory's it is.
+#[cfg(windows)]
+fn create_copy(file: &str, old: &str) -> std::io::Result<std::fs::File> {
+	use std::os::windows::ffi::OsStrExt;
+	use std::os::windows::io::FromRawHandle;
+	#[repr(C)]
+	struct SecurityAttributes {
+		length: u32,
+		descriptor: *mut u64,
+		inherit: i32,
+	}
+	#[link(name = "advapi32")]
+	unsafe extern "system" {
+		fn GetFileSecurityW(
+			name: *const u16,
+			info: u32,
+			sd: *mut u64,
+			len: u32,
+			need: *mut u32,
+		) -> i32;
+		fn SetFileSecurityW(name: *const u16, info: u32, sd: *mut u64) -> i32;
+		fn GetSecurityDescriptorControl(sd: *mut u64, control: *mut u16, revision: *mut u32)
+		-> i32;
+		fn SetSecurityDescriptorControl(sd: *mut u64, mask: u16, bits: u16) -> i32;
+	}
+	#[link(name = "kernel32")]
+	unsafe extern "system" {
+		fn CreateFileW(
+			name: *const u16,
+			access: u32,
+			share: u32,
+			sa: *const u8,
+			disp: u32,
+			flags: u32,
+			tmpl: isize,
+		) -> isize;
+	}
+	const DACL_SECURITY_INFORMATION: u32 = 0x4;
+	const SE_DACL_AUTO_INHERIT_REQ: u16 = 0x0100;
+	const SE_DACL_AUTO_INHERITED: u16 = 0x0400;
+	const GENERIC_WRITE: u32 = 0x4000_0000;
+	const FILE_SHARE_ALL: u32 = 0x7;
+	const CREATE_NEW: u32 = 1;
+	const FILE_ATTRIBUTE_NORMAL: u32 = 0x80;
+	let wide = |s: &str| -> Vec<u16> {
+		std::ffi::OsStr::new(s)
+			.encode_wide()
+			.chain(std::iter::once(0))
+			.collect()
+	};
+	// A NUL would end the name early here, where std refuses it.
+	if old.contains('\0') {
+		return Err(std::io::Error::new(
+			std::io::ErrorKind::InvalidInput,
+			"file name contained an unexpected NUL byte",
+		));
+	}
+	let (src, dst) = (wide(file), wide(old));
+	// u64 words, since a security descriptor wants more than byte alignment.
+	let mut sd: Vec<u64> = Vec::new();
+	let mut need = 0u32;
+	unsafe {
+		GetFileSecurityW(
+			src.as_ptr(),
+			DACL_SECURITY_INFORMATION,
+			std::ptr::null_mut(),
+			0,
+			&mut need,
+		);
+		if need > 0 {
+			sd.resize((need as usize).div_ceil(8), 0);
+			let len = (sd.len() * 8) as u32;
+			if GetFileSecurityW(
+				src.as_ptr(),
+				DACL_SECURITY_INFORMATION,
+				sd.as_mut_ptr(),
+				len,
+				&mut need,
+			) == 0
+			{
+				sd.clear();
+			}
+		}
+		let sa = SecurityAttributes {
+			length: std::mem::size_of::<SecurityAttributes>() as u32,
+			descriptor: sd.as_mut_ptr(),
+			inherit: 0,
+		};
+		let handle = CreateFileW(
+			dst.as_ptr(),
+			GENERIC_WRITE,
+			FILE_SHARE_ALL,
+			if sd.is_empty() {
+				std::ptr::null()
+			} else {
+				(&raw const sa).cast()
+			},
+			CREATE_NEW,
+			FILE_ATTRIBUTE_NORMAL,
+			0,
+		);
+		if handle == -1 {
+			return Err(std::io::Error::last_os_error());
+		}
+		// A create takes the ACEs but drops the auto-inherited mark, and without
+		// it a later change to the directory's ACL is not carried down to the
+		// copy. Setting the same DACL again with the request bit puts it back.
+		let (mut control, mut revision) = (0u16, 0u32);
+		if !sd.is_empty()
+			&& GetSecurityDescriptorControl(sd.as_mut_ptr(), &mut control, &mut revision) != 0
+			&& control & SE_DACL_AUTO_INHERITED != 0
+			&& SetSecurityDescriptorControl(
+				sd.as_mut_ptr(),
+				SE_DACL_AUTO_INHERIT_REQ,
+				SE_DACL_AUTO_INHERIT_REQ,
+			) != 0
+		{
+			SetFileSecurityW(dst.as_ptr(), DACL_SECURITY_INFORMATION, sd.as_mut_ptr());
+		}
+		Ok(std::fs::File::from_raw_handle(handle as _))
+	}
+}
+
+/// Writes the original bytes to the old-copy name before the migrated text
+/// replaces them. The create is exclusive, so an earlier copy is never
+/// replaced, and the copy is synced before the save starts.
+fn keep_original(file: &str, text: &str) -> Result<String, String> {
+	use std::io::Write;
+	let old = old_copy_name(file);
+	let mut f = create_copy(file, &old).map_err(|e| {
 		if e.kind() == std::io::ErrorKind::AlreadyExists {
 			format!(
 				"{}: already exists; migrate keeps the original file there, so nothing was written",

@@ -1467,13 +1467,89 @@ def old_copy_name(file):
 	return file + "_old_v2"
 
 
+def create_copy(file, old):
+	# The exclusive create of the old copy, born private. On windows a new file
+	# takes the directory's ACL, while the save keeps the original's on the
+	# migrated file, so a private config got a backup others could read. The
+	# copy is born with the original's DACL there instead. Best effort: when
+	# that cannot be read, the directory's it is.
+	if os.name != "nt":
+		return os.open(old, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
+	import ctypes
+	import msvcrt
+
+	DACL_SECURITY_INFORMATION = 0x4
+	SE_DACL_AUTO_INHERIT_REQ = 0x0100
+	SE_DACL_AUTO_INHERITED = 0x0400
+	GENERIC_WRITE = 0x40000000
+	FILE_SHARE_ALL = 0x7
+	CREATE_NEW = 1
+	FILE_ATTRIBUTE_NORMAL = 0x80
+
+	class SecurityAttributes(ctypes.Structure):
+		_fields_ = [("length", ctypes.c_ulong), ("descriptor", ctypes.c_void_p), ("inherit", ctypes.c_int)]
+
+	# A NUL would end the name early here, where os.open refuses it.
+	if "\0" in old:
+		raise ValueError("embedded null character in path")
+	# WinDLL exists only on windows, and mypy checks this file against the
+	# POSIX stubs, where the name is simply absent.
+	adv = ctypes.WinDLL("advapi32", use_last_error=True)  # type: ignore[attr-defined]
+	k32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+	adv.GetFileSecurityW.restype = ctypes.c_int
+	adv.GetFileSecurityW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong)]
+	adv.SetFileSecurityW.restype = ctypes.c_int
+	adv.SetFileSecurityW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_void_p]
+	adv.GetSecurityDescriptorControl.restype = ctypes.c_int
+	adv.GetSecurityDescriptorControl.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ushort), ctypes.POINTER(ctypes.c_ulong)]
+	adv.SetSecurityDescriptorControl.restype = ctypes.c_int
+	adv.SetSecurityDescriptorControl.argtypes = [ctypes.c_void_p, ctypes.c_ushort, ctypes.c_ushort]
+	k32.CreateFileW.restype = ctypes.c_void_p
+	k32.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p]
+	k32.CloseHandle.argtypes = [ctypes.c_void_p]
+	k32.DeleteFileW.argtypes = [ctypes.c_wchar_p]
+	# 64-bit words, since a security descriptor wants more than byte alignment.
+	sd = None
+	need = ctypes.c_ulong(0)
+	if "\0" not in file:
+		adv.GetFileSecurityW(file, DACL_SECURITY_INFORMATION, None, 0, ctypes.byref(need))
+	if need.value:
+		sd = (ctypes.c_uint64 * ((need.value + 7) // 8))()
+		if not adv.GetFileSecurityW(file, DACL_SECURITY_INFORMATION, sd, ctypes.sizeof(sd), ctypes.byref(need)):
+			sd = None
+	sa = SecurityAttributes(ctypes.sizeof(SecurityAttributes), ctypes.addressof(sd) if sd is not None else None, 0)
+	h = k32.CreateFileW(old, GENERIC_WRITE, FILE_SHARE_ALL, ctypes.byref(sa) if sd is not None else None, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, None)
+	if h is None or h == ctypes.c_void_p(-1).value:
+		# In errno's words, the way os.open said it.
+		e = ctypes.WinError(ctypes.get_last_error())  # type: ignore[attr-defined]
+		raise OSError(e.errno, os.strerror(e.errno), old, e.winerror)
+	# A create takes the ACEs but drops the auto-inherited mark, and without it
+	# a later change to the directory's ACL is not carried down to the copy.
+	# Setting the same DACL again with the request bit puts it back.
+	if sd is not None:
+		control = ctypes.c_ushort(0)
+		revision = ctypes.c_ulong(0)
+		if (
+			adv.GetSecurityDescriptorControl(sd, ctypes.byref(control), ctypes.byref(revision))
+			and control.value & SE_DACL_AUTO_INHERITED
+			and adv.SetSecurityDescriptorControl(sd, SE_DACL_AUTO_INHERIT_REQ, SE_DACL_AUTO_INHERIT_REQ)
+		):
+			adv.SetFileSecurityW(old, DACL_SECURITY_INFORMATION, sd)
+	try:
+		return msvcrt.open_osfhandle(h, os.O_WRONLY | os.O_BINARY)  # type: ignore[attr-defined]
+	except OSError:
+		k32.CloseHandle(h)
+		k32.DeleteFileW(old)
+		raise
+
+
 def keep_original(file, text):
 	# The original bytes, at the old-copy name, before the migrated text
 	# replaces them. The create is exclusive, so an earlier copy is never
 	# replaced, and the copy is synced before the save starts.
 	old = old_copy_name(file)
 	try:
-		fd = os.open(old, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
+		fd = create_copy(file, old)
 	except FileExistsError:
 		return None, f"{old}: already exists; migrate keeps the original file there, so nothing was written"
 	except (OSError, ValueError) as e:

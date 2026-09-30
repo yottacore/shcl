@@ -2002,6 +2002,13 @@ func nameStart(file string) int {
 	return start
 }
 
+// createCopy is the exclusive create of the old copy, born private. The
+// windows build swaps in one that gives the copy the original's DACL
+// (main_windows.go).
+var createCopy = func(_, old string) (*os.File, error) {
+	return os.OpenFile(old, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+}
+
 // keepOriginal writes the original bytes to the old-copy name before the
 // migrated text replaces them. The create is exclusive, so an earlier copy is
 // never replaced, and the copy is synced before the save starts.
@@ -2016,7 +2023,7 @@ func keepOriginal(file, text string) (string, error) {
 		}
 		return err
 	}
-	f, err := os.OpenFile(old, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	f, err := createCopy(file, old)
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return "", fmt.Errorf("%s: already exists; migrate keeps the original file there, so nothing was written", old)
