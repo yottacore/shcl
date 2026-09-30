@@ -82,52 +82,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Commit: c63a6ace
 	- Test case: shell-regress `20260928-item4-ps1-legacy-quotes`, which fails on dev. No hosted test runs it under 5.1 itself; that run is the Verified line above.
 
-- On Windows, the `_old_v2` name for `C:.shclrc` puts the suffix in the wrong place
-	- ID: 2026092813365313
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 13
-	- Target OS: Windows
-	- Steps to reproduce: `shcl migrate -w C:.shclrc` on a 2.x file holding `a: "x\qy"`.
-	- Incorrect behavior: expected, not yet seen. The copy is named `C:_old_v2.shclrc`.
-	- Expected behavior: `C:.shclrc_old_v2`, since the function's own comment says a leading dot is part of the name.
-	- Reproduced: No. Plausible, read in the Rust CLI, for the Windows batch.
-	- Origin: `6c49d1b0`. The name starts after the last `/` or `\`, not after a drive.
-	- Sweep: `old_copy_name` in all four CLIs.
-	- Estimated effort: Low
-	- Actual fix: `name_start` starts the name after a drive, so the copy of `C:.shclrc` is `C:.shclrc_old_v2`. All four.
-	- Verified: Rust, Go and C under wine, with `Z:.shclrc`.
-	- Verified: on Windows 11, all four keep the copy of `C:.shclrc` as `C:.shclrc_old_v2`. Python before the fix wrote `C:_old_v2.shclrc`.
-	- Branch: schemaline
-	- Commit: 27d73efb
-	- Test case: cli-regress `windows-migrate-drive-relative`, which names the file by the fixture's own drive and runs in the hosted windows job with all four.
-	- Acceptance signoff: Self-closed: reproduced before the fix, passes after in all four, and the fix is mechanical.
-	- Closed: 20260930-083333
-
-- On Windows, Python's `_old_v2` copy of a read-only file comes out read-only
-	- ID: 2026092813365312
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 12
-	- Target OS: Windows, Python 3.13 and later
-	- Steps to reproduce: `attrib +r` a 2.x file, then `python main.py migrate --write --from-2x f.shcl`, then `attrib f_old_v2.shcl`.
-	- Incorrect behavior: expected, not yet seen. The copy is read-only, so a failed save cannot remove it, and the next run exits 8 on the taken name.
-	- Expected behavior: as Rust and Go, which skip the mode on Windows.
-	- Reproduced: No. Plausible, for the Windows batch. The guard is `hasattr(os, "fchmod")`, and Python 3.13 added `fchmod` on Windows. The library save guards the same call by `os.name`.
-	- Origin: `6c49d1b0`.
-	- Estimated effort: Low
-	- Actual fix: the group and mode go on only when `os.name` is not `nt`, the library save's guard.
-	- Verified: with Python 3.14 on Windows 11, the copy of a read-only file is writable. Before the fix it was read-only. Rust, Go and C leave it writable too.
-	- Branch: oldcopy
-	- Commit: 4dbe70af
-	- Test case: cli-regress `windows-migrate-readonly`, which the hosted windows job runs with Python 3.13.
-	- Acceptance signoff: Self-closed: reproduced before the fix and passes after, and the fix is mechanical.
-	- Closed: 20260930-083333
-
 - Under Windows PowerShell 5.1, `install.ps1` may follow an https to http redirect for the release list
 	- ID: 2026092813365314
 	- Type: Bug
@@ -593,6 +547,52 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `pathhint`
 	- Commit: `1a12c02`
 	- Test case: corpus `171-windows-path-hint`, cli-regress `path-hint-*` rows. The read and strict rows and case 171 fail with the hint off, and `path-hint-set` shows a write is unaffected. The migrate goldens of cases 118, 122 and 170 now list the hint.
+
+- On Windows, the `_old_v2` name for `C:.shclrc` puts the suffix in the wrong place
+	- ID: 2026092813365313
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 13
+	- Target OS: Windows
+	- Steps to reproduce: `shcl migrate -w C:.shclrc` on a 2.x file holding `a: "x\qy"`.
+	- Incorrect behavior: expected, not yet seen. The copy is named `C:_old_v2.shclrc`.
+	- Expected behavior: `C:.shclrc_old_v2`, since the function's own comment says a leading dot is part of the name.
+	- Reproduced: No. Plausible, read in the Rust CLI, for the Windows batch.
+	- Origin: `6c49d1b0`. The name starts after the last `/` or `\`, not after a drive.
+	- Sweep: `old_copy_name` in all four CLIs.
+	- Estimated effort: Low
+	- Actual fix: `name_start` starts the name after a drive, so the copy of `C:.shclrc` is `C:.shclrc_old_v2`. All four.
+	- Verified: Rust, Go and C under wine, with `Z:.shclrc`.
+	- Verified: on Windows 11, all four keep the copy of `C:.shclrc` as `C:.shclrc_old_v2`. Python before the fix wrote `C:_old_v2.shclrc`.
+	- Branch: schemaline
+	- Commit: 27d73efb
+	- Test case: cli-regress `windows-migrate-drive-relative`, which names the file by the fixture's own drive and runs in the hosted windows job with all four.
+	- Acceptance signoff: Self-closed: reproduced before the fix, passes after in all four, and the fix is mechanical.
+	- Closed: 20260930-083333
+
+- On Windows, Python's `_old_v2` copy of a read-only file comes out read-only
+	- ID: 2026092813365312
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 12
+	- Target OS: Windows, Python 3.13 and later
+	- Steps to reproduce: `attrib +r` a 2.x file, then `python main.py migrate --write --from-2x f.shcl`, then `attrib f_old_v2.shcl`.
+	- Incorrect behavior: expected, not yet seen. The copy is read-only, so a failed save cannot remove it, and the next run exits 8 on the taken name.
+	- Expected behavior: as Rust and Go, which skip the mode on Windows.
+	- Reproduced: No. Plausible, for the Windows batch. The guard is `hasattr(os, "fchmod")`, and Python 3.13 added `fchmod` on Windows. The library save guards the same call by `os.name`.
+	- Origin: `6c49d1b0`.
+	- Estimated effort: Low
+	- Actual fix: the group and mode go on only when `os.name` is not `nt`, the library save's guard.
+	- Verified: with Python 3.14 on Windows 11, the copy of a read-only file is writable. Before the fix it was read-only. Rust, Go and C leave it writable too.
+	- Branch: oldcopy
+	- Commit: 4dbe70af
+	- Test case: cli-regress `windows-migrate-readonly`, which the hosted windows job runs with Python 3.13.
+	- Acceptance signoff: Self-closed: reproduced before the fix and passes after, and the fix is mechanical.
+	- Closed: 20260930-083333
 
 - The C CLI cuts a Schema path at a NUL and validates against another file
 	- ID: 2026092813365307
