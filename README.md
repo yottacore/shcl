@@ -870,6 +870,7 @@ source shcl.bash
 
 workers=$(shcl_int --default=4 server.shcl workers)
 root=$(shcl_get --default='' server.shcl 'site[example.com].root')
+maxUpload=$(shcl_size server.shcl 'site[example.com].Max-Upload-MB')   # 52428800, in bytes
 
 # Repeatable, applied in order; --write rewrites the file in place.
 shcl set --write server.shcl \
@@ -896,8 +897,9 @@ Dot-source it for the same helper names:
 ~~~powershell
 . ./shcl.ps1
 
-$workers = [int](shcl_int --default=4 server.shcl workers)
-$root    = shcl_get --default='' server.shcl 'site[example.com].root'
+$workers   = [int](shcl_int --default=4 server.shcl workers)
+$root      = shcl_get --default='' server.shcl 'site[example.com].root'
+$maxUpload = [long](shcl_size server.shcl 'site[example.com].Max-Upload-MB')
 
 shcl set --write server.shcl `
          --set "workers=$($workers * 2)" `

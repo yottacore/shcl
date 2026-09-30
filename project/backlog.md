@@ -55,6 +55,22 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Commit: `c0c09cd5`
 	- Test case: corpus `184-schema-bound-name-unit`, red on dev in all four runners. It pins a bare bound from `-ms`, `_mb` and a decimal `-kb`, the name winning over `unit`, a bound's own unit winning over the name, and `V092` where neither the name nor `unit` gives one, a `*` path included.
 
+- Duration and size helpers in the bash and PowerShell bindings
+	- ID: 2026092813365324
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 idea 3
+	- Requirements: `shcl.bash` has a helper per `get` type (`shcl_int`, `shcl_datetime` and the rest), and no `shcl_duration` or `shcl_size`. `shcl.ps1` likewise.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: `shcl_duration` and `shcl_size` in both wrappers, one line each like the other typed helpers, the PowerShell pair with the pipeline branch. `--unit` and `--decimal` pass through. Header lists, README's shell examples, design.md's wrapper section and the changelog name them.
+	- Verified: shell-regress, check-docs, shellcheck, PSScriptAnalyzer, markdownlint, test-ids check.
+	- Swept: `git grep` for `shcl_datetime` and `shcl_int` outside the parser sources. The man page and both completion files list no helpers.
+	- Branch: unithelpers
+	- Commit: d873c301
+	- Test case: shell-regress `20260928-idea-3-bash-typed-helpers-match-the-binary`, the typed bash helpers but `shcl_raw` against the binary, and two new rows in `20260918b-32-piped-helpers-match-the-binary` for PowerShell. The new rows fail on dev in both shells.
+
 - A Schema line makes `check` open any path, devices and network shares included
 	- ID: 2026092813365302
 	- Type: Bug
@@ -176,13 +192,17 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: No. Plausible, for the Windows batch.
 	- Estimated effort: Avg
 
-- Duration and size helpers in the bash and PowerShell bindings
-	- ID: 2026092813365324
-	- Type: Enhancement
+- shell-regress's sourced wrapper mode runs `shcl.bash` as a script
+	- ID: 2026092917233341
+	- Type: Bug
 	- Status: Queued
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 idea 3
-	- Requirements: `shcl.bash` has a helper per `get` type (`shcl_int`, `shcl_datetime` and the rest), and no `shcl_duration` or `shcl_size`. `shcl.ps1` likewise.
+	- Severity: Low
+	- Opened: 20260929-172333
+	- Opened by: found while working 2026092813365324
+	- Steps to reproduce: read the `bashsrc` arm of test `EpHNNhw` (`20260904-39-wrappers-match-the-binary`) in `cicd/utility/shell-regress.bash`.
+	- Incorrect behavior: it runs `bash -c 'source "$0"; shcl "$@"' PATH`. With the path as `$0`, the wrapper's `BASH_SOURCE[0] == $0` test is true, so the file runs as a script and the sourced path is never tested.
+	- Expected behavior: the mode sources the file, as a user's script would.
+	- Reproduced: 20260929. The same form in a new test failed with `unknown command: shcl_int`. The `shcl` rows give the same output either way, so the test stays green.
 	- Estimated effort: Low
 
 - Late-fold H002 hints print after every other parse diagnostic

@@ -806,7 +806,7 @@ The responsibility is split rather than duplicate the pipeline:
 
 - PowerShell (`source/powershell/shcl.ps1`) is the second wrapper, built to the same design: dual-mode (run, or dot-source for the identical `shcl`/`shcl_*` helper names), the same binary-resolution order, and exit codes passed through into `$LASTEXITCODE`. It deliberately has no script-level param block - one would try to bind subcommand words - so every argument arrives in `$args` verbatim. Like the Bash wrapper it forwards rather than parses, so it is not in the cross-binding differential.
 
-- One `shcl` function is the whole CLI. `shcl_get`, `shcl_int`, `shcl_bool`, and friends are one-line typed sugar. Both modes take the same arguments and return the binary's exit code unchanged, so a not-found or empty read stays a distinct nonzero.
+- One `shcl` function is the whole CLI. `shcl_get`, `shcl_int`, `shcl_bool`, and friends are one-line typed sugar. `shcl_duration` and `shcl_size` hand back milliseconds and bytes, as `get --duration` and `get --size` do. Both modes take the same arguments and return the binary's exit code unchanged, so a not-found or empty read stays a distinct nonzero.
 
 - Two things a sourced tool must not do, and doesn't:
 

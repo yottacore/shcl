@@ -37,6 +37,7 @@
 ##		                     (pipeline input is forwarded, so `set` can be piped)
 ##		shcl_get             read a string (the default type)
 ##		shcl_int shcl_float shcl_bool shcl_datetime shcl_raw
+##		shcl_duration shcl_size
 ##		                     read one typed value
 ##		shcl_array           read an array (pass a --type, else --string)
 ##		shcl_fmt shcl_check shcl_count shcl_instances shcl_children shcl_paths
@@ -228,6 +229,8 @@ function shcl_int       { if ($MyInvocation.ExpectingInput) { $input | shcl get 
 function shcl_float     { if ($MyInvocation.ExpectingInput) { $input | shcl get --float @args } else { shcl get --float @args } }
 function shcl_bool      { if ($MyInvocation.ExpectingInput) { $input | shcl get --bool @args } else { shcl get --bool @args } }
 function shcl_datetime  { if ($MyInvocation.ExpectingInput) { $input | shcl get --datetime @args } else { shcl get --datetime @args } }
+function shcl_duration  { if ($MyInvocation.ExpectingInput) { $input | shcl get --duration @args } else { shcl get --duration @args } }   ## milliseconds; --unit for a bare number
+function shcl_size      { if ($MyInvocation.ExpectingInput) { $input | shcl get --size @args } else { shcl get --size @args } }   ## bytes; --unit, --decimal
 function shcl_raw       { if ($MyInvocation.ExpectingInput) { $input | shcl get --raw @args } else { shcl get --raw @args } }
 function shcl_array     { if ($MyInvocation.ExpectingInput) { $input | shcl get --array @args } else { shcl get --array @args } }   ## prefix a --type, else string
 function shcl_fmt       { if ($MyInvocation.ExpectingInput) { $input | shcl fmt @args } else { shcl fmt @args } }
