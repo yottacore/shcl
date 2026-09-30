@@ -373,6 +373,8 @@ Both open points are settled:
 
 - A value with its own unit wins over the name, with the hint `H005` when they differ. A read cannot carry a diagnostic and validation reports only errors, so the hint comes from the load.
 
+- A schema `min` or `max` is read the same way as the value it bounds (2026-09-29): its own unit, then the field name's, then the schema's `unit`, which stands in for the program's. Taking the schema's `unit` before the name was turned down, since `wait-seconds` with `unit: ms` would then read `min: 2` as 2 ms and the value `wait-seconds: 1` as 1 s. The name is the last segment of the field's path, so a path ending in `*` gives none.
+
 - A fraction has to come out whole, and at most 18 digits after the point count, so the arithmetic is exact in 64 bits in every binding with no wider type.
 
 ### Formatter

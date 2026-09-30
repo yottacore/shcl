@@ -33,6 +33,28 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
+- A schema `min` and `max` could take the unit from the field name
+	- ID: 2026092813365323
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 idea 2
+	- Requirements:
+		- `hold-ms: 150` reads as 150 ms, but a schema `min: 100` on `hold-ms` is a V092 fault unless the schema also gives `unit`.
+		- Read a bare bound the way the document reads the value, from the field name's unit.
+	- Estimated effort: Low
+	- Decisions:
+		- Signed off to go in before `v3.0.0-beta1`.
+		- 20260929: a bound resolves in the value's order: its own unit, then the field name's, then the schema's `unit`. Schema `unit` first was turned down, since `wait-seconds` with `unit: ms` would read `min: 2` as 2 ms and the value `1` as 1 s. Reversible.
+		- The name is the last segment of the field's path. A path ending in `*` gives none, so a bare bound there still needs `unit`.
+	- Note: a schema whose `unit` disagrees with its field name reads differently. `min: 2` on `wait-seconds` with `unit: ms` was 2 ms and is now 2 s, as the value already was. Durations and sizes are new since 2.0.0, so no release had the old reading.
+	- Actual effort: Low
+	- Actual fix: the bound reader in `parse_field` takes the unit from the path's last name before the schema's `unit`, in all four. Spec, design.md, changelog. The veneer has no schema code of its own.
+	- Swept: the one bound reader per binding (`quantity` in Rust, Go and Python, the min and max loop in C). The value side already read the name first. `allowed` refuses durations and sizes, so it reads no bound.
+	- Branch: `boundunit`
+	- Commit: `c0c09cd5`
+	- Test case: corpus `184-schema-bound-name-unit`, red on dev in all four runners. It pins a bare bound from `-ms`, `_mb` and a decimal `-kb`, the name winning over `unit`, a bound's own unit winning over the name, and `V092` where neither the name nor `unit` gives one, a `*` path included.
+
 - A Schema line makes `check` open any path, devices and network shares included
 	- ID: 2026092813365302
 	- Type: Bug
@@ -153,17 +175,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Expected behavior: a private config does not get a readable backup.
 	- Reproduced: No. Plausible, for the Windows batch.
 	- Estimated effort: Avg
-
-- A schema `min` and `max` could take the unit from the field name
-	- ID: 2026092813365323
-	- Type: Enhancement
-	- Status: Queued
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 idea 2
-	- Requirements:
-		- `hold-ms: 150` reads as 150 ms, but a schema `min: 100` on `hold-ms` is a V092 fault unless the schema also gives `unit`.
-		- Read a bare bound the way the document reads the value, from the field name's unit.
-	- Estimated effort: Low
 
 - Duration and size helpers in the bash and PowerShell bindings
 	- ID: 2026092813365324

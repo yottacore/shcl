@@ -8305,14 +8305,17 @@ def _parse_field(schema, f, faults):
 		_vdiag(faults, schema.arena[decimal_key_at].line, "V092", "bad schema constraint 'decimal'")
 		c.decimal = False
 
-	# A duration or size bound is read the way the document's value is, less
-	# the field name: the schema says its unit.
+	# A duration or size bound is read the way the document's value is: its
+	# own unit, then the field name's, then the schema's `unit`. A path that
+	# ends in `*` has no one name to give it.
+	name = c.segs[-1].name if c.segs and not c.segs[-1].star else ""
+
 	def quantity(e):
 		if base == "duration":
-			d = _parse_duration_text(e.text, c.unit_d)
+			d = _parse_duration_text(e.text, _name_unit(name, _DURATION_NAMES) or c.unit_d)
 			return None if d is None else d[0]
 		if base == "size":
-			z = _parse_size_text(e.text, c.unit_s, c.decimal)
+			z = _parse_size_text(e.text, _name_unit(name, _SIZE_NAMES) or c.unit_s, c.decimal)
 			return None if z is None else z[0]
 		return None
 

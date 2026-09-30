@@ -10135,15 +10135,28 @@ func parseField(schema *Document, f int, faults *[]Diagnostic) (constraint, bool
 		vdiag(faults, schema.arena[decimalKeyAt].line, "V092", "bad schema constraint 'decimal'")
 		c.decimal = false
 	}
-	// A duration or size bound is read the way the document's value is, less
-	// the field name: the schema says its unit.
+	// A duration or size bound is read the way the document's value is: its
+	// own unit, then the field name's, then the schema's `unit`. A path that
+	// ends in `*` has no one name to give it.
+	name := ""
+	if n := len(c.segs); n > 0 && !c.segs[n-1].star {
+		name = c.segs[n-1].name
+	}
 	quantity := func(e *element) (int64, bool) {
 		switch base {
 		case "duration":
-			v, _, ok := parseDurationText(e.text, c.unitD)
+			bare := nameUnit(name, durationNames)
+			if bare == DurationNone {
+				bare = c.unitD
+			}
+			v, _, ok := parseDurationText(e.text, bare)
 			return v, ok
 		case "size":
-			v, _, ok := parseSizeText(e.text, c.unitS, c.decimal)
+			bare := nameUnit(name, sizeNames)
+			if bare == SizeNone {
+				bare = c.unitS
+			}
+			v, _, ok := parseSizeText(e.text, bare, c.decimal)
 			return v, ok
 		}
 		return 0, false
