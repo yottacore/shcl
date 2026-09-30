@@ -120,6 +120,21 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Sweep: the Windows temp-file create in the library save of all four bindings.
 	- Estimated effort: Avg
 
+- On Windows the Python save may write CRLF line endings
+	- ID: 2026093012535909
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260930-125359
+	- Opened by: the design for 2026093009281183
+	- Related IDs: 2026093009281183
+	- Target OS: Windows
+	- Steps to reproduce: on Windows, a Python save of `a: 1` over an existing file, then read the file's bytes.
+	- Incorrect behavior: expected, not yet seen. The save opens its temp file with `os.open` and no `O_BINARY`, which is text mode on Windows, so each LF may go out as CRLF.
+	- Expected behavior: the same bytes the other three bindings write.
+	- Reproduced: No. Plausible, read in `write_file_atomic`. The Windows save-target rows in cli-regress are skipped, and a CR reads back as a blank, so nothing that runs there would show it.
+	- Estimated effort: Low
+
 - `fmt` indents a Schema line, and `check` then stops validating at exit 0
 	- ID: 2026092813365301
 	- Type: Bug
