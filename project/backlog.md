@@ -59,29 +59,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Commit: 27d73efb
 	- Test case: cli-regress `schema-line-device` and `schema-line-fifo`, both failing on dev, and `schema-line-share`, which runs on Windows only, in the hosted windows job with all four.
 
-- Under Windows PowerShell 5.1 a quote inside an argument never reaches the binary
-	- ID: 2026092813365304
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Avg
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 4
-	- Target OS: Windows, PowerShell 5.1
-	- Steps to reproduce:
-		- Under `powershell.exe`, dot-source `shcl.ps1`.
-		- `shcl set -w f.shcl '--set-literal=zip="02134"'`, then `type f.shcl`.
-	- Incorrect behavior: expected, not yet seen. 5.1 passes native arguments the legacy way and drops embedded double quotes, so the binary gets `zip=02134` and writes a bare number at exit 0.
-	- Expected behavior: `shcl.ps1`'s header says every argument goes to the binary as is.
-	- Reproduced: No. Plausible, for the Windows batch. The dogfood `.cmd` now falls back to 5.1, so more runs go through it.
-	- Origin: older than the range, from `shcl.ps1`'s run path (`c52fa077` and before). Not seen before.
-	- Estimated effort: Avg
-	- Reproduced: 20260928 under pwsh 7 with `$PSNativeCommandArgumentPassing` set to Legacy, which builds the command line the way 5.1 does. `a"b` was a usage error, `x "y" z` came through as `x y z`, and an empty argument was left out.
-	- Actual fix: under 5.1, 7 before 7.3, or Legacy, `shcl.ps1` quotes each argument holding a blank or a quote the way the binary's parser reads it back, and passes an empty one as `""`.
-	- Verified: under Windows PowerShell 5.1, dot-sourced and as a script, the binary gets `--set-literal=zip="02134"`, an empty argument, `x "y" z`, `a"b`, `C:\dir with space\` and `p\"q` as typed, the same as under 7.6. The item's steps then write `zip: "02134"` in Rust, Go and C. The old `shcl.ps1` under 5.1 dropped the quotes and the empty argument, and ran `a"b` and the trailing backslash into the next argument.
-	- Branch: psfix
-	- Commit: c63a6ace
-	- Test case: shell-regress `20260928-item4-ps1-legacy-quotes`, which fails on dev. No hosted test runs it under 5.1 itself; that run is the Verified line above.
-
 - Under Windows PowerShell 5.1, `install.ps1` may follow an https to http redirect for the release list
 	- ID: 2026092813365314
 	- Type: Bug
@@ -241,6 +218,31 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Swept: every test for a leading `#` on a comment line in all four. The merge's replaced-leaf rule is the one other site, filed as 2026092718195400.
 	- Branch: `keepdrop`
 	- Test case: corpus `178-clear-comments-kept-line`, both routes, with `comments` reads. It fails on the old code.
+
+- Under Windows PowerShell 5.1 a quote inside an argument never reaches the binary
+	- ID: 2026092813365304
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 4
+	- Target OS: Windows, PowerShell 5.1
+	- Steps to reproduce:
+		- Under `powershell.exe`, dot-source `shcl.ps1`.
+		- `shcl set -w f.shcl '--set-literal=zip="02134"'`, then `type f.shcl`.
+	- Incorrect behavior: expected, not yet seen. 5.1 passes native arguments the legacy way and drops embedded double quotes, so the binary gets `zip=02134` and writes a bare number at exit 0.
+	- Expected behavior: `shcl.ps1`'s header says every argument goes to the binary as is.
+	- Reproduced: No. Plausible, for the Windows batch. The dogfood `.cmd` now falls back to 5.1, so more runs go through it.
+	- Origin: older than the range, from `shcl.ps1`'s run path (`c52fa077` and before). Not seen before.
+	- Estimated effort: Avg
+	- Reproduced: 20260928 under pwsh 7 with `$PSNativeCommandArgumentPassing` set to Legacy, which builds the command line the way 5.1 does. `a"b` was a usage error, `x "y" z` came through as `x y z`, and an empty argument was left out.
+	- Actual fix: under 5.1, 7 before 7.3, or Legacy, `shcl.ps1` quotes each argument holding a blank or a quote the way the binary's parser reads it back, and passes an empty one as `""`.
+	- Verified: under Windows PowerShell 5.1, dot-sourced and as a script, the binary gets `--set-literal=zip="02134"`, an empty argument, `x "y" z`, `a"b`, `C:\dir with space\` and `p\"q` as typed, the same as under 7.6. The item's steps then write `zip: "02134"` in Rust, Go and C. The old `shcl.ps1` under 5.1 dropped the quotes and the empty argument, and ran `a"b` and the trailing backslash into the next argument.
+	- Branch: psfix
+	- Commit: c63a6ace
+	- Test case: shell-regress `20260928-item4-ps1-legacy-quotes`, which fails on dev. No hosted test runs it under 5.1 itself; that run is the Verified line above.
+	- Acceptance signoff: Self-closed: the arguments reach the binary as typed under real 5.1, as the header says, and the test fails on the old code.
+	- Closed: 20260930-093300
 
 - The H005 check slows every parse, most in Python and on escaped values in C
 	- ID: 2026092813365305
