@@ -33,77 +33,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
-- A Schema line makes `check` open any path, devices and network shares included
-	- ID: 2026092813365302
-	- Type: Bug
-	- Status: Done
-	- Severity: High
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 2
-	- Target OS: all, and Windows for the share
-	- Version and build: dev at `f90708d8`
-	- Steps to reproduce:
-		- A config holding `x: 1`, then `##    Schema   /dev/zero`.
-		- `shcl check cfg.shcl`.
-	- Incorrect behavior: each CLI reads until memory runs out. Under a 1.5 GB limit Rust exits 8, Go 2, C 70 and Python 1 with a traceback. A FIFO would hang. On Windows `\\host\share\s.shcl` goes to the file open as is, which makes an SMB connection with the user's credentials.
-	- Expected behavior: a line in a file someone else wrote cannot make an unattended `check` hang, run out of memory, or reach the network. The spec already refuses a URL for that reason.
-	- Reproduced: 20260928, devices on Linux in all four. The share is Plausible and goes in the Windows batch.
-	- Origin: `2c528a23`. New ground. Confirmed.
-	- Sweep: `schema_for` in all four CLIs, and anywhere else a path read from a file is opened.
-	- Estimated effort: Avg
-	- Actual fix: `check` reads only a regular file from a Schema line, asked before the open and again after it. On Windows a line starting with two separators or `\??\` is refused at exit 8. The test is on the line's own text, so a config sitting on a share can still name a schema beside it.
-	- Swept: `schema_for` in all four CLIs. Nothing else opens a path read out of a file.
-	- Verified: the share and `\??\` refusals under wine for Rust, Go and C.
-	- Verified: on Windows 11, all four refuse a Schema line naming `//host/share/...`, `\\host\share\...`, `/\host\...` or `\??\C:\...` at exit 8, and still read a local or relative schema. Python before the fix tried the share and read the `\??\` path.
-	- Branch: schemaline
-	- Commit: 27d73efb
-	- Test case: cli-regress `schema-line-device` and `schema-line-fifo`, both failing on dev, and `schema-line-share`, which runs on Windows only, in the hosted windows job with all four.
-
-- Under Windows PowerShell 5.1, `install.ps1` may follow an https to http redirect for the release list
-	- ID: 2026092813365314
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20260928-133653
-	- Opened by: Code review 20260928 item 14
-	- Target OS: Windows, PowerShell 5.1
-	- Steps to reproduce: under `powershell.exe`, `Invoke-WebRequest -UseBasicParsing` on an https URL that redirects to plain http.
-	- Incorrect behavior: expected, not yet seen. .NET Framework follows it, so the release list that picks the tag could come over plain http. The download itself is still signature-checked.
-	- Expected behavior: 20260923 item 15 says `install.ps1` does not follow such a redirect. That is true for pwsh 7.
-	- Reproduced: No. Plausible, for the Windows batch.
-	- Origin: the claim is in 20260923 item 15's Swept line (`f96a80e0`).
-	- Estimated effort: Low
-	- Actual fix: under 5.1 the release-list call follows no redirect. The API answers that URL without one. Installer 1.1.5.
-	- Verified: under Windows PowerShell 5.1 the installer still reads the release list from the API and offers `v2.0.0` for stable. With the list URL pointed at an https to http to https redirect, it stops at "cannot fetch", under 5.1 and under 7. The installer before the fix, under 5.1, followed that redirect to the plan.
-	- Note: under 5.1 an https to https redirect is refused too, such as the old `jim-collier/shcl` API URL, which 7 follows. The message then is the "none published yet, or network down" one.
-	- Branch: psfix
-	- Commit: c63a6ace
-	- Test case: none hosted. The list URL comes from the repo name, so a redirect needs an edited copy of the installer. The Verified line above is that run.
-
-- On Windows, the `_old_v2` copy may take the directory's ACL rather than the original's
-	- ID: 2026092815155546
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20260928-151555
-	- Opened by: split from 2026092813365303
-	- Parent ID: 2026092813365303
-	- Target OS: Windows
-	- Steps to reproduce: a 2.x file whose ACL is narrower than its directory's, then `shcl migrate --write FILE`, then `icacls` on the copy.
-	- Incorrect behavior: expected, not yet seen. The copy is a new file, so it inherits the directory's ACL, while `ReplaceFile` keeps the original's on the migrated file.
-	- Expected behavior: a private config does not get a readable backup.
-	- Reproduced: No. Plausible, for the Windows batch.
-	- Reproduced: 20260930, Windows 11, all four CLIs. The migrated file kept its DACL, which granted only the user, and the copy took the directory's, so `BUILTIN\Users` could read it.
-	- Actual cause: the copy is a new file, so it inherits the directory's ACL.
-	- Estimated effort: Avg
-	- Actual effort: Avg
-	- Actual fix: on Windows the copy is created with the original's DACL, then marked auto-inherited when the original is, so a later change to the directory's ACL still reaches it. When the original's DACL cannot be read, the copy takes the directory's, as before. All four CLIs.
-	- Swept: `keep_original` in all four CLIs. The library save's temp file on Windows is created the same way, and holds the new text under the directory's ACL until `ReplaceFile` runs. Left alone here.
-	- Verified: on Windows 11, all four: a protected DACL granting only the user, an inherited DACL with an added grant, and a protected DACL with a deny all come through to the copy unchanged. Also in a subdirectory, with either separator, and with a non-ASCII name. A taken copy name and a directory that refuses the create still exit 8 with the same messages.
-	- Branch: winbatch
-	- Commit: 5e1f1eaf
-	- Test case: cli-regress `windows-migrate-acl`, in the hosted windows job. It failed on dev in all four and passes with the fix.
-
 - On Windows the library save's temp file takes the directory's ACL
 	- ID: 2026093009281183
 	- Type: Bug
@@ -179,6 +108,32 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: winfollow
 	- Commit: ec6e4cdf
 	- Test case: the Windows-target clippy line in the lint stage, `LINT_EXTRA` in `cicd/config.bash`.
+
+- A Schema line makes `check` open any path, devices and network shares included
+	- ID: 2026092813365302
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 2
+	- Target OS: all, and Windows for the share
+	- Version and build: dev at `f90708d8`
+	- Steps to reproduce:
+		- A config holding `x: 1`, then `##    Schema   /dev/zero`.
+		- `shcl check cfg.shcl`.
+	- Incorrect behavior: each CLI reads until memory runs out. Under a 1.5 GB limit Rust exits 8, Go 2, C 70 and Python 1 with a traceback. A FIFO would hang. On Windows `\\host\share\s.shcl` goes to the file open as is, which makes an SMB connection with the user's credentials.
+	- Expected behavior: a line in a file someone else wrote cannot make an unattended `check` hang, run out of memory, or reach the network. The spec already refuses a URL for that reason.
+	- Reproduced: 20260928, devices on Linux in all four. The share is Plausible and goes in the Windows batch.
+	- Origin: `2c528a23`. New ground. Confirmed.
+	- Sweep: `schema_for` in all four CLIs, and anywhere else a path read from a file is opened.
+	- Estimated effort: Avg
+	- Actual fix: `check` reads only a regular file from a Schema line, asked before the open and again after it. On Windows a line starting with two separators or `\??\` is refused at exit 8. The test is on the line's own text, so a config sitting on a share can still name a schema beside it.
+	- Swept: `schema_for` in all four CLIs. Nothing else opens a path read out of a file.
+	- Verified: the share and `\??\` refusals under wine for Rust, Go and C.
+	- Verified: on Windows 11, all four refuse a Schema line naming `//host/share/...`, `\\host\share\...`, `/\host\...` or `\??\C:\...` at exit 8, and still read a local or relative schema. Python before the fix tried the share and read the `\??\` path.
+	- Branch: schemaline
+	- Commit: 27d73efb
+	- Test case: cli-regress `schema-line-device` and `schema-line-fifo`, both failing on dev, and `schema-line-share`, which runs on Windows only, in the hosted windows job with all four.
 
 - `fmt` indents a Schema line, and `check` then stops validating at exit 0
 	- ID: 2026092813365301
@@ -647,6 +602,51 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `pathhint`
 	- Commit: `1a12c02`
 	- Test case: corpus `171-windows-path-hint`, cli-regress `path-hint-*` rows. The read and strict rows and case 171 fail with the hint off, and `path-hint-set` shows a write is unaffected. The migrate goldens of cases 118, 122 and 170 now list the hint.
+
+- Under Windows PowerShell 5.1, `install.ps1` may follow an https to http redirect for the release list
+	- ID: 2026092813365314
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260928-133653
+	- Opened by: Code review 20260928 item 14
+	- Target OS: Windows, PowerShell 5.1
+	- Steps to reproduce: under `powershell.exe`, `Invoke-WebRequest -UseBasicParsing` on an https URL that redirects to plain http.
+	- Incorrect behavior: expected, not yet seen. .NET Framework follows it, so the release list that picks the tag could come over plain http. The download itself is still signature-checked.
+	- Expected behavior: 20260923 item 15 says `install.ps1` does not follow such a redirect. That is true for pwsh 7.
+	- Reproduced: No. Plausible, for the Windows batch.
+	- Origin: the claim is in 20260923 item 15's Swept line (`f96a80e0`).
+	- Estimated effort: Low
+	- Actual fix: under 5.1 the release-list call follows no redirect. The API answers that URL without one. Installer 1.1.5.
+	- Verified: under Windows PowerShell 5.1 the installer still reads the release list from the API and offers `v2.0.0` for stable. With the list URL pointed at an https to http to https redirect, it stops at "cannot fetch", under 5.1 and under 7. The installer before the fix, under 5.1, followed that redirect to the plan.
+	- Note: under 5.1 an https to https redirect is refused too, such as the old `jim-collier/shcl` API URL, which 7 follows. The message then is the "none published yet, or network down" one.
+	- Branch: psfix
+	- Commit: c63a6ace
+	- Test case: none hosted. The list URL comes from the repo name, so a redirect needs an edited copy of the installer. The Verified line above is that run.
+
+- On Windows, the `_old_v2` copy may take the directory's ACL rather than the original's
+	- ID: 2026092815155546
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260928-151555
+	- Opened by: split from 2026092813365303
+	- Parent ID: 2026092813365303
+	- Target OS: Windows
+	- Steps to reproduce: a 2.x file whose ACL is narrower than its directory's, then `shcl migrate --write FILE`, then `icacls` on the copy.
+	- Incorrect behavior: expected, not yet seen. The copy is a new file, so it inherits the directory's ACL, while `ReplaceFile` keeps the original's on the migrated file.
+	- Expected behavior: a private config does not get a readable backup.
+	- Reproduced: No. Plausible, for the Windows batch.
+	- Reproduced: 20260930, Windows 11, all four CLIs. The migrated file kept its DACL, which granted only the user, and the copy took the directory's, so `BUILTIN\Users` could read it.
+	- Actual cause: the copy is a new file, so it inherits the directory's ACL.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Actual fix: on Windows the copy is created with the original's DACL, then marked auto-inherited when the original is, so a later change to the directory's ACL still reaches it. When the original's DACL cannot be read, the copy takes the directory's, as before. All four CLIs.
+	- Swept: `keep_original` in all four CLIs. The library save's temp file on Windows is created the same way, and holds the new text under the directory's ACL until `ReplaceFile` runs. Left alone here.
+	- Verified: on Windows 11, all four: a protected DACL granting only the user, an inherited DACL with an added grant, and a protected DACL with a deny all come through to the copy unchanged. Also in a subdirectory, with either separator, and with a non-ASCII name. A taken copy name and a directory that refuses the create still exit 8 with the same messages.
+	- Branch: winbatch
+	- Commit: 5e1f1eaf
+	- Test case: cli-regress `windows-migrate-acl`, in the hosted windows job. It failed on dev in all four and passes with the fix.
 
 - The hosted ci job runs close to its 45-minute timeout
 	- ID: 2026093010155541
