@@ -4662,6 +4662,11 @@ impl Document {
 				t.leading.push(l);
 			}
 		}
+		// A line moved above the first list in the file is now the first
+		// thing written, so its blank goes the way the load's did.
+		if moved_any {
+			settle_first_blank(&mut self.arena, &mut self.orphans);
+		}
 		moved_any
 	}
 

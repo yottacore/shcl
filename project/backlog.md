@@ -154,27 +154,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: No. Plausible, for the Windows batch.
 	- Estimated effort: Avg
 
-- A merge over a broken raw block puts a blank line that a second pass does not
-	- ID: 2026092918110222
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20260929-181102
-	- Opened by: the 2,000,000 release fuzz while working 2026092813365325
-	- Steps to reproduce:
-
-		~~~bash
-		printf 'b:`, 2\nb:\ta:\xc3\xa9\n`\tx 1\n' > A.shcl
-		printf 'r:\n\t``\n\t  l ne1\n\t   \n\n\t `\n\t*  line2\n\t```\n' > B.shcl
-		shcl fmt B.shcl > Bf.shcl
-		diff <(shcl fmt --layer=A.shcl B.shcl) <(shcl fmt --layer=A.shcl Bf.shcl)
-		~~~
-
-	- Incorrect behavior: the first output has a blank line above the comment the second does not. `merge_never_panics_and_stays_fixpoint` fails at iteration 748271.
-	- Expected behavior: both give the same text.
-	- Reproduced: 20260929, all four CLIs. Case 185 shifted the fuzz seed set onto it. Dev with case 185 added fails at the same iteration, and dev without it passes. The 200,000 run in `--ci` does not reach it.
-	- Estimated effort: Avg
-
 - `fmt` indents a Schema line, and `check` then stops validating at exit 0
 	- ID: 2026092813365301
 	- Type: Bug
@@ -1123,6 +1102,36 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Verified: with an override of `shcl` added only on the sourced path, `EpHNNhw` stayed green on the old form and went red on the new one, all 10 rows, stdin rows included. With the wrapper restored, shell-regress exits 0, and shellcheck and `test-ids.py check` pass.
 	- Acceptance signoff: Self-closed: a test harness fix, red on the old form and green on the new.
 	- Closed: 20260930-073042
+
+- A kept line moved above the first list keeps its blank line, so a merge differs from a merge of the `fmt` form
+	- ID: 2026092918110222
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260929-181102
+	- Opened by: the 2,000,000 release fuzz while working 2026092813365325
+	- Steps to reproduce:
+
+		~~~bash
+		printf 'b:`, 2\nb:\ta:\xc3\xa9\n`\tx 1\n' > A.shcl
+		printf 'r:\n\t``\n\t  l ne1\n\t   \n\n\t `\n\t*  line2\n\t```\n' > B.shcl
+		shcl fmt B.shcl > Bf.shcl
+		diff <(shcl fmt --layer=A.shcl B.shcl) <(shcl fmt --layer=A.shcl Bf.shcl)
+		~~~
+
+	- Incorrect behavior: the first output has a blank line above the comment the second does not. `merge_never_panics_and_stays_fixpoint` fails at iteration 748271.
+	- Expected behavior: both give the same text.
+	- Reproduced: 20260929, all four CLIs. Case 185 shifted the fuzz seed set onto it. Dev with case 185 added fails at the same iteration, and dev without it passes. The 200,000 run in `--ci` does not reach it.
+	- Estimated effort: Avg
+	- Actual cause: the load, not the merge. The raw block plays no part. A misplaced line kept among a list's elements, with a blank above it, would drop on a reload, so the load's last step makes it a comment and moves it above the list. When that list is the first node in the file, the comment is now the first line written, but the blank above it was already past the step that clears a blank there. The emitter hides that blank at the start of a file, so `fmt` shows nothing, and a merge that puts the layer after other lines writes it. The layer's canonical form has no blank there.
+	- Actual fix: once the settle has moved a line out of a list, it clears the first blank again. `settle_kept_once` in Rust and C, `settleKeptOnce` in Go, `_settle_kept_once` in Python.
+	- Swept: every caller of `settle_first_blank` in all four clears first and settles kept lines after, so the one place covers the load and each edit. The settle's in-place turn into a comment moves nothing, and `unstack` moves lines only on a list that follows an empty binding of its name, which is never the first node.
+	- Verified: corpus 186 fails the merge dimension in all four runners on dev and passes after. The 2,000,000 release fuzz passes with case 186 and without it. The four conformance suites, `cargo test`, `go test -count=1` in both modules, `cargo fmt --check`, clippy, go vet, staticcheck, ruff, mypy, cppcheck, markdownlint, cli-regress, crosscheck with a fuzz dump, check-docs, check-abnf, `test-ids.py check` and shell-regress pass.
+	- Branch: rawmerge
+	- Commit: 54ae8503
+	- Test case: corpus `186-kept-line-first-blank`, a kept line that turns into a comment above the first list, merged under a one-line layer.
+	- Acceptance signoff: Self-closed: reproduced, its test failed before the fix and passes after in all four.
+	- Closed: 20260930-080144
 
 - `set --write` builds the kept text twice
 	- ID: 2026092620255218

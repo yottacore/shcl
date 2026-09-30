@@ -1,0 +1,4 @@
+line 2: Error: E014
+line 3: Error: E018
+line 5: Error: E012
+failed: 3 diagnostic(s), 3 error(s)
