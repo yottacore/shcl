@@ -142,6 +142,22 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: No. Plausible, read in `write_file_atomic`. The Windows save-target rows in cli-regress are skipped, and a CR reads back as a blank, so nothing that runs there would show it.
 	- Estimated effort: Low
 
+- Clippy for the Windows target fails on the Rust conformance tests
+	- ID: 2026093013402836
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260930-134028
+	- Opened by: the review of 2026093009281183
+	- Related IDs: 2026093009281183
+	- Target OS: Windows
+	- Steps to reproduce: `cargo clippy --target x86_64-pc-windows-gnu --all-targets -- -D warnings` on the Rust crate.
+	- Incorrect behavior: `permissions_set_readonly_false` at `perms.set_readonly(false)` in the read-only save test in `tests/conformance.rs`. The host lint never compiles that test, so nothing gates it.
+	- Expected behavior: clippy is clean for the Windows target too. The lint's warning is about Unix modes and does not apply to a Windows-only test.
+	- Reproduced: 20260930, on dev as of `4203a7f2`.
+	- Origin: `f1d70ccf`. Not seen before, since no gate runs clippy for that target.
+	- Estimated effort: Low
+
 - `fmt` indents a Schema line, and `check` then stops validating at exit 0
 	- ID: 2026092813365301
 	- Type: Bug
