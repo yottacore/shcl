@@ -1386,7 +1386,8 @@ fi
 
 ## 20260928 item 13: the name starts after a drive with no separator, so the
 ## copy of C:.shclrc is C:.shclrc_old_v2, not C:_old_v2.shclrc. The drive is
-## the fixture's own, whose current directory is the fixture.
+## the fixture's own, whose current directory is the fixture. Only that argument
+## is kept from path conversion, since the python wrapper's own path needs it.
 fTest ErMwwZ1 windows-migrate-drive-relative
 if [[ "${onWindows}" == 1 ]]; then
 	drelDir="${tmpDir}/migdrel"
@@ -1395,7 +1396,7 @@ if [[ "${onWindows}" == 1 ]]; then
 		rm -rf "${drelDir}"; mkdir -p "${drelDir}"
 		printf 'base:[Boston]\n' > "${drelDir}/.shclrc"
 		drive="$(cygpath -w "${drelDir}")"; drive="${drive:0:2}"
-		rc=0; (cd "${drelDir}" && MSYS_NO_PATHCONV=1 timeout "${rowSecs}" "${cli}" migrate --write "${drive}.shclrc" >/dev/null 2>"${tmpDir}/err" </dev/null) || rc=$?
+		rc=0; (cd "${drelDir}" && MSYS2_ARG_CONV_EXCL="${drive}" timeout "${rowSecs}" "${cli}" migrate --write "${drive}.shclrc" >/dev/null 2>"${tmpDir}/err" </dev/null) || rc=$?
 		nRun+=1
 		if [[ "${rc}" != 0 || ! -f "${drelDir}/.shclrc_old_v2" || -e "${drelDir}/_old_v2.shclrc" ]]; then
 			echo "cli-regress: windows-migrate-drive-relative [${name}]: exit ${rc}, left $(find "${drelDir}" -mindepth 1 -printf '%f '): $(head -c 200 "${tmpDir}/err")" >&2; nBad+=1
