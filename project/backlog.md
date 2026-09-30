@@ -179,11 +179,17 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - Duration and size helpers in the bash and PowerShell bindings
 	- ID: 2026092813365324
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Opened: 20260928-133653
 	- Opened by: Code review 20260928 idea 3
 	- Requirements: `shcl.bash` has a helper per `get` type (`shcl_int`, `shcl_datetime` and the rest), and no `shcl_duration` or `shcl_size`. `shcl.ps1` likewise.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: `shcl_duration` and `shcl_size` in both wrappers, one line each like the other typed helpers, the PowerShell pair with the pipeline branch. `--unit` and `--decimal` pass through. Header lists, README's shell examples, design.md's wrapper section and the changelog name them.
+	- Verified: shell-regress, check-docs, shellcheck, PSScriptAnalyzer, markdownlint, test-ids check.
+	- Swept: `git grep` for `shcl_datetime` and `shcl_int` outside the parser sources. The man page and both completion files list no helpers.
+	- Branch: unithelpers
+	- Test case: shell-regress `20260928-idea-3-bash-typed-helpers-match-the-binary`, the typed bash helpers but `shcl_raw` against the binary, and two new rows in `20260918b-32-piped-helpers-match-the-binary` for PowerShell. The new rows fail on dev in both shells.
 
 - Late-fold H002 hints print after every other parse diagnostic
 	- ID: 2026092813365325

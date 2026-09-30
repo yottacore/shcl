@@ -30,6 +30,7 @@
 ##		                     children|paths ...
 ##		shcl_get             read a string (the default type)
 ##		shcl_int shcl_float shcl_bool shcl_datetime shcl_raw
+##		shcl_duration shcl_size
 ##		                     read one typed value
 ##		shcl_array           read an array (pass a --type, else --string)
 ##		shcl_fmt shcl_check shcl_count shcl_instances shcl_children shcl_paths
@@ -120,6 +121,8 @@ shcl_int()       { shcl get --int "$@"      ; }
 shcl_float()     { shcl get --float "$@"    ; }
 shcl_bool()      { shcl get --bool "$@"     ; }
 shcl_datetime()  { shcl get --datetime "$@" ; }
+shcl_duration()  { shcl get --duration "$@" ; }   ## milliseconds; --unit for a bare number
+shcl_size()      { shcl get --size "$@"     ; }   ## bytes; --unit, --decimal
 shcl_raw()       { shcl get --raw "$@"      ; }
 shcl_array()     { shcl get --array "$@"    ; }   ## prefix a --type, else string
 shcl_fmt()       { shcl fmt "$@"            ; }

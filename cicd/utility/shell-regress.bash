@@ -255,6 +255,34 @@ fTest EpHNNhw 20260904-39-wrappers-match-the-binary
 		done
 	done
 
+	fTest ErJEygN 20260928-idea-3-bash-typed-helpers-match-the-binary
+	##	Code review 20260928 idea 3 added shcl_duration and shcl_size. Each row
+	##	calls a sourced typed helper and the binary on the same piped text.
+	##	id | piped text | the helper call | the same thing on the binary
+	bashHelperRows=(
+		'int|a: 5|shcl_int - a|get --int - a'
+		'float|a: 1.5|shcl_float - a|get --float - a'
+		'bool|a: on|shcl_bool - a|get --bool - a'
+		'datetime|a: 2026-09-28|shcl_datetime - a|get --datetime - a'
+		'duration|t: 90s|shcl_duration - t|get --duration - t'
+		'duration-unit|t: 3|shcl_duration --unit=s - t|get --duration --unit=s - t'
+		'duration-bad|t: soon|shcl_duration - t|get --duration - t'
+		'size|m: 2KB|shcl_size - m|get --size - m'
+		'size-decimal|m: 2KB|shcl_size --decimal - m|get --size --decimal - m'
+		'size-unit|m: 3|shcl_size --unit=MB - m|get --size --unit=MB - m'
+	)
+	for row in "${bashHelperRows[@]}"; do
+		IFS='|' read -r hid piped hcall bcall <<<"${row}"
+		read -r -a hargs <<<"${hcall}"
+		read -r -a bargs <<<"${bcall}"
+		hrc=0
+		hout="$(printf '%s\n' "${piped}" | bash -c 'w="$1"; shift; source "$w"; "$@"' helpers "${repoDir}/source/bash/shcl.bash" "${hargs[@]}" 2>&1)" || hrc=$?
+		brc=0
+		bout="$(printf '%s\n' "${piped}" | "${cli}" "${bargs[@]}" 2>&1)" || brc=$?
+		[[ "${hout}" == "${bout}" && "${hrc}" == "${brc}" ]] \
+			|| fBad "bash helper ${hid} differs from the binary: ${hout@Q} rc=${hrc} against ${bout@Q} rc=${brc}"
+	done
+
 	fTest EqM3Y7s 20260918b-32-piped-helpers-match-the-binary
 	##	20260918b item 32: the matrix above pipes into the script, where the
 	##	binary inherits the process's stdin and a wrapper that drops $input
@@ -278,6 +306,8 @@ fTest EpHNNhw 20260904-39-wrappers-match-the-binary
 			'array|a: 1, 2|shcl_array --int - a|get --array --int - a'
 			'check|bad line|shcl_check -|check -'
 			'count|a: 1|shcl_count - a|count - a'
+			'duration|t: 3|shcl_duration --unit=s - t|get --duration --unit=s - t'
+			'size|m: 2KB|shcl_size --decimal - m|get --size --decimal - m'
 		)
 		for row in "${helperRows[@]}"; do
 			IFS='|' read -r hid piped hcall bcall <<<"${row}"

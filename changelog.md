@@ -68,6 +68,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Duration and size reads in every binding (`read_duration`, `read_size`), `shcl get --duration` and `--size` with `--unit` and `--decimal`, and schema types `duration` and `size` with `unit`, `decimal`, `min` and `max`. `500ms`, `1h 30m` and `1.5 GiB` read as whole milliseconds or bytes, and a bare number takes its unit from a name such as `timeout-ms`.
 
+- The shell wrappers gain `shcl_duration` and `shcl_size`.
+
 - Hint `H005` for a value in another unit than its field name ends in, as `timeout-ms: 5s`.
 
 - Integers can be written in octal and binary, `0o644` and `0b101`, beside hex.
