@@ -9,10 +9,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
+	"unsafe"
 )
 
 // Hidden and system survive a save. ReplaceFile's documented preserve list does
@@ -156,5 +158,166 @@ func TestBriefHoldIsWaitedOut(t *testing.T) {
 	}
 	if isThere(tmp) || isThere(filepath.Join(root, ".t.shcl.bak1.0")) {
 		t.Error("the temp or the backup was left behind")
+	}
+}
+
+var (
+	sddlAdvapi32         = syscall.NewLazyDLL("advapi32.dll")
+	procSddlFileSecurity = sddlAdvapi32.NewProc("GetFileSecurityW")
+	procSddlToStringSDDL = sddlAdvapi32.NewProc("ConvertSecurityDescriptorToStringSecurityDescriptorW")
+)
+
+// sddl is the file's DACL as SDDL, and false when it cannot be read.
+func sddl(path string) (string, bool) {
+	const daclSecurityInformation = 0x4
+	p, err := syscall.UTF16PtrFromString(path)
+	if err != nil {
+		return "", false
+	}
+	var need uint32
+	_, _, _ = procSddlFileSecurity.Call(uintptr(unsafe.Pointer(p)), daclSecurityInformation, 0, 0, uintptr(unsafe.Pointer(&need)))
+	if need == 0 {
+		return "", false
+	}
+	sd := make([]uint64, (need+7)/8)
+	r, _, _ := procSddlFileSecurity.Call(uintptr(unsafe.Pointer(p)), daclSecurityInformation,
+		uintptr(unsafe.Pointer(&sd[0])), uintptr(len(sd)*8), uintptr(unsafe.Pointer(&need)))
+	if r == 0 {
+		return "", false
+	}
+	var out *uint16
+	r, _, _ = procSddlToStringSDDL.Call(uintptr(unsafe.Pointer(&sd[0])), 1, daclSecurityInformation, uintptr(unsafe.Pointer(&out)), 0)
+	if r == 0 {
+		return "", false
+	}
+	n := 0
+	for *(*uint16)(unsafe.Add(unsafe.Pointer(out), n*2)) != 0 {
+		n++
+	}
+	s := syscall.UTF16ToString(unsafe.Slice(out, n))
+	_, _ = syscall.LocalFree(syscall.Handle(uintptr(unsafe.Pointer(out))))
+	return s, true
+}
+
+func underWine() bool {
+	return syscall.NewLazyDLL("ntdll.dll").NewProc("wine_get_version").Find() == nil
+}
+
+func icaclsOK(t *testing.T, args ...string) {
+	t.Helper()
+	if out, err := exec.Command("icacls", args...).CombinedOutput(); err != nil {
+		t.Fatalf("icacls %v: %v %s", args, err, out)
+	}
+}
+
+// A save over a file whose DACL is narrower than its directory's must not put
+// the new text under the directory's. Holding the target without delete sharing
+// fails the publish on every try, which keeps the temp file there long enough
+// for a poller to read its DACL. Same fixture in every runner.
+func TestTempFileTakesTargetsDACL(t *testing.T) {
+	defer testID(t, "ErO2NoE")
+	if underWine() {
+		t.Skip("wine keeps no ACLs")
+	}
+	root := t.TempDir()
+	icaclsOK(t, root, "/grant", "*S-1-5-32-545:(OI)(CI)(R)")
+	setups := []struct {
+		name, prefix string
+		acl          []string
+	}{
+		{"a.shcl", "D:P", []string{"/inheritance:r", "/grant:r", os.Getenv("USERNAME") + ":(F)"}},
+		{"b.shcl", "D:AI", []string{"/grant", "*S-1-5-19:(R)"}},
+	}
+	for _, s := range setups {
+		target := filepath.Join(root, s.name)
+		if err := os.WriteFile(target, []byte("a: 1\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		icaclsOK(t, append([]string{target}, s.acl...)...)
+		want, _ := sddl(target)
+		if !strings.HasPrefix(want, s.prefix) {
+			t.Fatalf("%s: the fixture did not take: %s", s.name, want)
+		}
+		tmp := filepath.Join(root, "."+s.name+".tmp"+strconv.Itoa(os.Getpid())+".0")
+		p, perr := syscall.UTF16PtrFromString(target)
+		if perr != nil {
+			t.Fatal(perr)
+		}
+		hold, herr := syscall.CreateFile(p, syscall.GENERIC_READ, syscall.FILE_SHARE_READ, nil, syscall.OPEN_EXISTING, 0, 0)
+		if herr != nil {
+			t.Fatal(herr)
+		}
+		stop, seen := make(chan struct{}), make(chan string)
+		go func() {
+			last := ""
+			for {
+				select {
+				case <-stop:
+					seen <- last
+					return
+				default:
+				}
+				if got, ok := sddl(tmp); ok {
+					last = got
+				}
+			}
+		}()
+		serr := WriteFileAtomic(target, "a: 2\n")
+		close(stop)
+		got := <-seen
+		_ = syscall.CloseHandle(hold) // the checks below are the test
+		if serr == nil {
+			t.Fatalf("%s: a save over a held file went through", s.name)
+		}
+		if got == "" {
+			t.Errorf("%s: the temp file was never seen", s.name)
+		} else if got != want {
+			t.Errorf("%s: the temp file's DACL is %s, want %s", s.name, got, want)
+		}
+		entries, rerr := os.ReadDir(root)
+		if rerr != nil {
+			t.Fatal(rerr)
+		}
+		for _, e := range entries {
+			if strings.Contains(e.Name(), ".tmp") || strings.Contains(e.Name(), ".bak") {
+				t.Errorf("%s: left behind: %s", s.name, e.Name())
+			}
+		}
+		if err := WriteFileAtomic(target, "a: 2\n"); err != nil {
+			t.Fatal(err)
+		}
+		if after, _ := sddl(target); after != want {
+			t.Errorf("%s: the saved file's DACL is %s, want %s", s.name, after, want)
+		}
+	}
+	fresh, plain := filepath.Join(root, "n.shcl"), filepath.Join(root, "p.shcl")
+	if err := WriteFileAtomic(fresh, "a: 2\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(plain, []byte("a: 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	born, ok := sddl(plain)
+	if !ok {
+		t.Fatal("the plain file's DACL could not be read")
+	}
+	if got, _ := sddl(fresh); got != born {
+		t.Errorf("a new file's DACL is %s, want %s", got, born)
+	}
+	nb, _ := os.ReadFile(fresh)
+	bb, _ := os.ReadFile(filepath.Join(root, "b.shcl"))
+	if string(nb) != string(bb) {
+		t.Errorf("an overwrite and a create wrote different bytes: %q and %q", bb, nb)
+	}
+	// With no DACL to copy, the create still goes through, with the
+	// directory's.
+	copied := filepath.Join(root, "c.shcl")
+	cf, cerr := windowsCreateTemp(filepath.Join(root, "missing.shcl"), copied, 0o600)
+	if cerr != nil {
+		t.Fatal(cerr)
+	}
+	_ = cf.Close() // only its DACL is checked
+	if got, _ := sddl(copied); got != born {
+		t.Errorf("a temp file with no DACL to copy has %s, want %s", got, born)
 	}
 }

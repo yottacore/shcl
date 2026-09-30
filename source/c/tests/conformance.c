@@ -24,6 +24,7 @@ typedef int Arena, Node, Value, Element, Str, Parser, Diag, Segment, Selector, S
 #include <dirent.h>
 #ifdef _WIN32
 #include <direct.h>   // _mkdir - windows' mkdir takes no mode argument
+#include <sddl.h>     // the DACL fixture compares DACLs as SDDL
 #else
 #include <sys/stat.h>   // the file-mode fixture stats and chmods for itself
 #include <pthread.h>    // the small-stack validate fixture
@@ -512,6 +513,137 @@ static void publish_failures(void) {
 	if (there(tmp) || there(backup)) fail("publish", "a brief hold: the temp or the backup was left behind");
 	remove(target); remove(tmp); remove(backup);
 	rmdir(x); rmdir(y); rmdir(dir);
+}
+
+// The file's DACL as SDDL into out. 0 when it cannot be read.
+static int dacl_sddl(const char *path, char *out, size_t cap) {
+	wchar_t *w = shcl_widen(path);
+	if (!w) return 0;
+	DWORD need = 0;
+	GetFileSecurityW(w, DACL_SECURITY_INFORMATION, NULL, 0, &need);
+	PSECURITY_DESCRIPTOR sd = need ? malloc(need) : NULL;
+	char *s = NULL;
+	int ok = sd && GetFileSecurityW(w, DACL_SECURITY_INFORMATION, sd, need, &need)
+		&& ConvertSecurityDescriptorToStringSecurityDescriptorA(sd, SDDL_REVISION_1, DACL_SECURITY_INFORMATION, &s, NULL)
+		&& strlen(s) < cap;
+	if (ok) strcpy(out, s);
+	if (s) LocalFree(s);
+	free(sd);
+	free(w);
+	return ok;
+}
+
+static int under_wine(void) {
+	HMODULE m = GetModuleHandleW(L"ntdll.dll");
+	return m && GetProcAddress(m, "wine_get_version") != NULL;
+}
+
+typedef struct { const char *path; volatile LONG stop; char last[2048]; } DaclPoll;
+
+static DWORD WINAPI dacl_poller(LPVOID arg) {
+	DaclPoll *p = (DaclPoll *)arg;
+	char got[sizeof p->last];
+	while (!InterlockedCompareExchange(&p->stop, 0, 0))
+		if (dacl_sddl(p->path, got, sizeof got)) memcpy(p->last, got, sizeof got);
+	return 0;
+}
+
+// A save over a file whose DACL is narrower than its directory's must not put
+// the new text under the directory's. Holding the target without delete
+// sharing fails the publish on every try, which keeps the temp file there long
+// enough for a poller to read its DACL. Same fixture in every runner.
+static void temp_takes_the_targets_dacl(void) {
+	if (under_wine()) {
+		printf("conformance: skipping the temp-file DACL fixture (wine keeps no ACLs)\n");
+		test_skip();
+		return;
+	}
+	char dir[256], target[300], tmp[320], want[2048], got[2048], cmd[800];
+	const char *user = getenv("USERNAME");
+	snprintf(dir, sizeof dir, "%s\\shcl-dacl-%ld", tmp_root(), (long)getpid());
+	if (_mkdir(dir) != 0) fail("dacl", "mkdir failed");
+	snprintf(cmd, sizeof cmd, "icacls \"%s\" /grant *S-1-5-32-545:(OI)(CI)(R) >nul", dir);
+	if (system(cmd) != 0) fail("dacl", "icacls on the directory failed");
+	const char *names[2] = { "a.shcl", "b.shcl" }, *prefixes[2] = { "D:P", "D:AI" };
+	char acls[2][300];
+	snprintf(acls[0], sizeof acls[0], "/inheritance:r /grant:r \"%s:(F)\"", user ? user : "");
+	snprintf(acls[1], sizeof acls[1], "/grant *S-1-5-19:(R)");
+	for (int i = 0; i < 2; i++) {
+		snprintf(target, sizeof target, "%s\\%s", dir, names[i]);
+		snprintf(tmp, sizeof tmp, "%s\\.%s.tmp%ld.0", dir, names[i], (long)getpid());
+		seed(target, "a: 1\n");
+		snprintf(cmd, sizeof cmd, "icacls \"%s\" %s >nul", target, acls[i]);
+		if (system(cmd) != 0) fail("dacl", "icacls on the file failed");
+		if (!dacl_sddl(target, want, sizeof want) || strncmp(want, prefixes[i], strlen(prefixes[i])) != 0) {
+			fprintf(stderr, "FAIL dacl: %s: the fixture did not take: %s\n", names[i], want);
+			nfail++;
+			continue;
+		}
+		wchar_t *wt = shcl_widen(target);
+		HANDLE hold = wt ? CreateFileW(wt, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL) : INVALID_HANDLE_VALUE;
+		free(wt);
+		if (hold == INVALID_HANDLE_VALUE) { fail("dacl", "hold failed"); continue; }
+		DaclPoll poll = { tmp, 0, "" };
+		HANDLE poller = CreateThread(NULL, 0, dacl_poller, &poll, 0, NULL);
+		if (!poller) fail("dacl", "thread failed");
+		int saved = shcl_write_file_atomic(target, "a: 2\n", 5);
+		InterlockedExchange(&poll.stop, 1);
+		if (poller) { WaitForSingleObject(poller, INFINITE); CloseHandle(poller); }
+		CloseHandle(hold);
+		if (saved) fail("dacl", "a save over a held file went through");
+		if (!poll.last[0]) fail("dacl", "the temp file was never seen");
+		else if (strcmp(poll.last, want) != 0) {
+			fprintf(stderr, "FAIL dacl: %s: the temp file's DACL is %s, want %s\n", names[i], poll.last, want);
+			nfail++;
+		}
+		DIR *dd = opendir(dir); const struct dirent *de;
+		while (dd && (de = readdir(dd)))
+			if (strstr(de->d_name, ".tmp") || strstr(de->d_name, ".bak")) {
+				fprintf(stderr, "FAIL dacl: %s: left behind: %s\n", names[i], de->d_name);
+				nfail++;
+			}
+		if (dd) closedir(dd);
+		if (!shcl_write_file_atomic(target, "a: 2\n", 5)) fail("dacl", "a save over an unheld file failed");
+		if (!dacl_sddl(target, got, sizeof got) || strcmp(got, want) != 0) {
+			fprintf(stderr, "FAIL dacl: %s: the saved file's DACL is %s, want %s\n", names[i], got, want);
+			nfail++;
+		}
+	}
+	char fresh[300], plain[300], b[300];
+	snprintf(fresh, sizeof fresh, "%s\\n.shcl", dir);
+	snprintf(plain, sizeof plain, "%s\\p.shcl", dir);
+	snprintf(b, sizeof b, "%s\\b.shcl", dir);
+	if (!shcl_write_file_atomic(fresh, "a: 2\n", 5)) fail("dacl", "a save to a new file failed");
+	seed(plain, "a: 2\n");
+	if (!dacl_sddl(plain, want, sizeof want)) fail("dacl", "the plain file's DACL could not be read");
+	else if (!dacl_sddl(fresh, got, sizeof got) || strcmp(got, want) != 0) {
+		fprintf(stderr, "FAIL dacl: a new file's DACL is %s, want %s\n", got, want);
+		nfail++;
+	}
+	size_t fn = 0, bn = 0;
+	char *ft = read_file(fresh, &fn), *bt = read_file(b, &bn);
+	if (!ft || !bt || fn != bn || memcmp(ft, bt, fn) != 0) fail("dacl", "an overwrite and a create wrote different bytes");
+	free(ft); free(bt);
+	// With no DACL to copy, the create still goes through, with the
+	// directory's.
+	char copied[300], missing[300];
+	snprintf(copied, sizeof copied, "%s\\c.shcl", dir);
+	snprintf(missing, sizeof missing, "%s\\missing.shcl", dir);
+	wchar_t *wc = shcl_widen(copied), *wm = shcl_widen(missing);
+	int cfd = wc && wm ? shcl_create_like(wm, wc) : -1;
+	free(wc); free(wm);
+	if (cfd < 0) fail("dacl", "a create with no DACL to copy failed");
+	else close(cfd);
+	if (!dacl_sddl(copied, got, sizeof got) || strcmp(got, want) != 0) {
+		fprintf(stderr, "FAIL dacl: a temp file with no DACL to copy has %s, want %s\n", got, want);
+		nfail++;
+	}
+	DIR *dd = opendir(dir); const struct dirent *de;
+	while (dd && (de = readdir(dd))) if (strcmp(de->d_name, ".") != 0 && strcmp(de->d_name, "..") != 0) {
+		char left[600]; snprintf(left, sizeof left, "%s\\%s", dir, de->d_name); remove(left);
+	}
+	if (dd) closedir(dd);
+	rmdir(dir);
 }
 #endif
 
@@ -1981,6 +2113,8 @@ int main(int argc, char **argv) {
 	}
 	test_id("EoM5gSB", "publish_failures");
 	publish_failures();
+	test_id("ErO2NoF", "temp_takes_the_targets_dacl");
+	temp_takes_the_targets_dacl();
 #endif
 	// Reads and saves must not retain: a read of a plain field hands back a
 	// slice of the retained input (a million reads once grew a document by

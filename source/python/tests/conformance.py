@@ -557,6 +557,119 @@ def _brief_hold_is_waited_out(td):
 		raise SystemExit("a brief hold: the temp or the backup was left behind")
 
 
+def _temp_takes_the_targets_dacl(td):
+	import ctypes
+	import subprocess
+	import threading
+
+	# A save over a file whose DACL is narrower than its directory's must not
+	# put the new text under the directory's. Holding the target without delete
+	# sharing fails the publish on every try, which keeps the temp file there
+	# long enough for a poller to read its DACL. Same fixture in every runner.
+	if hasattr(ctypes.WinDLL("ntdll"), "wine_get_version"):  # type: ignore[attr-defined]
+		print("conformance: skipping the temp-file DACL fixture (wine keeps no ACLs)")
+		test_skip()
+		return
+	adv = ctypes.WinDLL("advapi32", use_last_error=True)  # type: ignore[attr-defined]
+	k32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+	adv.GetFileSecurityW.restype = ctypes.c_int
+	adv.GetFileSecurityW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong)]
+	to_sddl = adv.ConvertSecurityDescriptorToStringSecurityDescriptorW
+	to_sddl.restype = ctypes.c_int
+	to_sddl.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p]
+	k32.LocalFree.argtypes = [ctypes.c_void_p]
+	k32.CreateFileW.restype = ctypes.c_void_p
+	k32.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p]
+	k32.CloseHandle.argtypes = [ctypes.c_void_p]
+
+	def sddl(path):
+		# The file's DACL as SDDL, or None when it cannot be read.
+		need = ctypes.c_ulong(0)
+		adv.GetFileSecurityW(path, 0x4, None, 0, ctypes.byref(need))
+		if not need.value:
+			return None
+		sd = (ctypes.c_uint64 * ((need.value + 7) // 8))()
+		if not adv.GetFileSecurityW(path, 0x4, sd, ctypes.sizeof(sd), ctypes.byref(need)):
+			return None
+		out = ctypes.c_void_p()
+		if not to_sddl(sd, 1, 0x4, ctypes.byref(out), None) or out.value is None:
+			return None
+		text = ctypes.wstring_at(out.value)
+		k32.LocalFree(out)
+		return text
+
+	def poll(path, stop, seen):
+		while not stop.is_set():
+			got = sddl(path)
+			if got is not None:
+				seen.append(got)
+
+	d = os.path.join(td, "pdacl")
+	os.makedirs(d)
+	subprocess.run(["icacls", d, "/grant", "*S-1-5-32-545:(OI)(CI)(R)"], check=True, capture_output=True)
+	setups = (
+		("a.shcl", ["/inheritance:r", "/grant:r", os.environ.get("USERNAME", "") + ":(F)"], "D:P"),
+		("b.shcl", ["/grant", "*S-1-5-19:(R)"], "D:AI"),
+	)
+	for name, acl, prefix in setups:
+		target = os.path.join(d, name)
+		with open(target, "w", encoding="utf-8", newline="") as fh:
+			fh.write("a: 1\n")
+		subprocess.run(["icacls", target, *acl], check=True, capture_output=True)
+		want = sddl(target) or ""
+		if not want.startswith(prefix):
+			raise SystemExit(f"{name}: the fixture did not take: {want}")
+		tmp = os.path.join(d, f".{name}.tmp{os.getpid()}.0")
+		# GENERIC_READ, FILE_SHARE_READ, OPEN_EXISTING
+		hold = k32.CreateFileW(target, 0x80000000, 0x1, None, 3, 0, None)
+		if hold in (None, ctypes.c_void_p(-1).value):
+			raise SystemExit("could not hold the target open")
+		seen: list[str] = []
+		stop = threading.Event()
+		poller = threading.Thread(target=poll, args=(tmp, stop, seen))
+		poller.start()
+		try:
+			err = shcl.write_file_atomic(target, "a: 2\n")
+		finally:
+			stop.set()
+			poller.join()
+			k32.CloseHandle(hold)
+		if err is None:
+			raise SystemExit(f"{name}: a save over a held file went through")
+		if not seen:
+			raise SystemExit(f"{name}: the temp file was never seen")
+		if seen[-1] != want:
+			raise SystemExit(f"{name}: the temp file's DACL is {seen[-1]}, want {want}")
+		left = [n for n in os.listdir(d) if ".tmp" in n or ".bak" in n]
+		if left:
+			raise SystemExit(f"{name}: left behind: {left}")
+		err = shcl.write_file_atomic(target, "a: 2\n")
+		if err is not None:
+			raise SystemExit(err)
+		if sddl(target) != want:
+			raise SystemExit(f"{name}: the saved file's DACL is {sddl(target)}, want {want}")
+	fresh, plain = os.path.join(d, "n.shcl"), os.path.join(d, "p.shcl")
+	err = shcl.write_file_atomic(fresh, "a: 2\n")
+	if err is not None:
+		raise SystemExit(err)
+	with open(plain, "w", encoding="utf-8", newline="") as fh:
+		fh.write("a: 2\n")
+	born = sddl(plain)
+	if born is None:
+		raise SystemExit("the plain file's DACL could not be read")
+	if sddl(fresh) != born:
+		raise SystemExit(f"a new file's DACL is {sddl(fresh)}, want {born}")
+	with open(fresh, "rb") as nh, open(os.path.join(d, "b.shcl"), "rb") as bh:
+		if nh.read() != bh.read():
+			raise SystemExit("an overwrite and a create wrote different bytes")
+	# With no DACL to copy, the create still goes through, with the
+	# directory's.
+	copied = os.path.join(d, "c.shcl")
+	os.close(shcl._create_like(os.path.join(d, "missing.shcl"), copied))
+	if sddl(copied) != born:
+		raise SystemExit(f"a temp file with no DACL to copy has {sddl(copied)}, want {born}")
+
+
 def setters_write_only_what_reads_back():
 	# A setter writes only what reads back. Each one builds its text through the
 	# emitter and hands it to the tokenizer before the document is touched, so
@@ -2013,6 +2126,8 @@ def main():
 				raise SystemExit("file did not come back system")
 			k32.SetFileAttributesW(ro, 0x80)
 			windows_publish_failures(td)
+			test_id("ErO2NoG", "temp_takes_the_targets_dacl")
+			_temp_takes_the_targets_dacl(td)
 		test_id("EoM2uEl", "a_surrogate_save_leaves_no_temp_file")
 		# A document holding a lone surrogate has no UTF-8 spelling; the save
 		# fails like any other failed write, and leaves no temp file behind.
