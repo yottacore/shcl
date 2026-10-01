@@ -291,6 +291,9 @@ printf 'a: 1\r\nb: 2\nc: 3\n' > "${tmpDir}/keeplf.shcl"
 printf 'x: 1\ny: 2\nr: ```\r\n\tb\r\n\t```\r\nz: 3\n' > "${tmpDir}/keepraw.shcl"
 printf 'a: 1\r\nb: 2\nc: 3\nx: 0\r\nz: 9' > "${tmpDir}/keeptail.shcl"
 printf 'a: 1\r\nb: 2\r\nc: 3\r\nx: 0\nz: 9' > "${tmpDir}/keeptaillf.shcl"
+## 2.x selector sugar in a CRLF file, and in one split evenly between the two.
+printf 'base:[Boston]\r\n\tlat: 42\r\n' > "${tmpDir}/migcrlf.shcl"
+printf 'base:[Boston]\r\n\tlat: 42\n' > "${tmpDir}/migtie.shcl"
 ## A schema key nothing knows, on schema line 2.
 printf 'field: a\n\tbogus: 1\n' > "${tmpDir}/unkey.shcl"
 ## A file and a name that both start with a dash, so only `--` makes them data.
@@ -334,6 +337,7 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	of one block, %KF% one whose save cannot keep its lines, %KM%/%KN% ones
 ##	whose line ends are mostly CRLF and mostly LF, %KR% a CRLF raw block in an
 ##	LF file, %KT%/%KU% no final newline after a last line ending the other way,
+##	%MC% 2.x sugar in a CRLF file, %MT% the same with as many LF line ends,
 ##	%W% a fresh copy of the selector-sugar file, %BS% a fresh copy of a file
 ##	whose value reads differently under the two rule sets, %BW% a fresh copy of
 ##	the bracket array, %V3% a file that already names its format,
@@ -707,6 +711,9 @@ rows=(
 	'Eq4wD3c|migrate-check-from-2x|migrate --check --from-2x %BS%|-|6||bs\.shcl:1: migrate would rewrite'
 	'Eq4wD3d|migrate-check-write|migrate --check --write %W%|-|1|-|--check cannot be combined with --write'
 	'Eq4wD3e|migrate-write-says|migrate --write %W%|-|0||migrated, 1 line\(s\) rewritten'
+	## The Format and Migrated lines end the way most of the file's lines do.
+	'ErTecqE|migrate-write-eol-crlf|migrate --write %MC%|-|0||-|base: Boston\r\n\tlat: 42\r\n##    Format   3\r\n##    Migrated from SHCL 2.x.\r\n'
+	'ErTecqF|migrate-eol-tie-lf|migrate %MT%|-|0|base: Boston\r\n\tlat: 42\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	## The kept original, named. The save cases below check the file itself,
 	## but they are POSIX fixtures, so this is the one windows runs.
 	'Er5qICu|migrate-write-keeps|migrate --write %W%|-|0||migrated, 1 line\(s\) rewritten; the original is .*w_old_v2\.shcl$'
@@ -1057,6 +1064,7 @@ for row in "${rows[@]}"; do
 	argv="${argv//%RF2%/${tmpDir}/rawfmt2.shcl}"
 	argv="${argv//%RF3%/${tmpDir}/rawfmt3.shcl}"
 	argv="${argv//%ML%/${tmpDir}/mlost.shcl}"
+	argv="${argv//%MT%/${tmpDir}/migtie.shcl}"
 	argv="${argv//%SU%/${tmpDir}/unkey.shcl}"
 	argv="${argv//%NA%/${tmpDir}/nonascii.shcl}"
 	runIn=""
@@ -1128,6 +1136,11 @@ for row in "${rows[@]}"; do
 	if [[ "${argv}" == *%KU%* ]]; then
 		freshKeepTailLf=1
 		argv="${argv//%KU%/${tmpDir}/created.shcl}"
+	fi
+	freshMigCrlf=0
+	if [[ "${argv}" == *%MC%* ]]; then
+		freshMigCrlf=1
+		argv="${argv//%MC%/${tmpDir}/created.shcl}"
 	fi
 	freshCreate=0
 	if [[ "${argv}" == *%C%* ]]; then
@@ -1203,7 +1216,7 @@ for row in "${rows[@]}"; do
 		name="${b%%|*}"; cli="${b#*|}"
 		## migrate --write keeps the original beside the file, and refuses when a
 		## copy from the last binding's run is still there.
-		rm -f "${tmpDir}/w_old_v2.shcl" "${tmpDir}/bs_old_v2.shcl" "${tmpDir}/bw_old_v2.shcl"
+		rm -f "${tmpDir}/w_old_v2.shcl" "${tmpDir}/bs_old_v2.shcl" "${tmpDir}/bw_old_v2.shcl" "${tmpDir}/created_old_v2.shcl"
 		((freshCopy)) && cp "${tmpDir}/sugar.shcl" "${tmpDir}/w.shcl"
 		((freshBs)) && cp "${tmpDir}/bsrc.shcl" "${tmpDir}/bs.shcl"
 		((freshBw)) && cp "${tmpDir}/brsrc.shcl" "${tmpDir}/bw.shcl"
@@ -1220,6 +1233,7 @@ for row in "${rows[@]}"; do
 		((freshKeepRaw)) && cp "${tmpDir}/keepraw.shcl" "${tmpDir}/created.shcl"
 		((freshKeepTail)) && cp "${tmpDir}/keeptail.shcl" "${tmpDir}/created.shcl"
 		((freshKeepTailLf)) && cp "${tmpDir}/keeptaillf.shcl" "${tmpDir}/created.shcl"
+		((freshMigCrlf)) && cp "${tmpDir}/migcrlf.shcl" "${tmpDir}/created.shcl"
 		if [[ -n "${runIn}" ]]; then cli="$(realpath -- "${cli}")"; cd -- "${runIn}"; fi
 		rc=0
 		case "${stdinSpec}" in

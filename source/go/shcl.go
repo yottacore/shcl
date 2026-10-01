@@ -2175,6 +2175,17 @@ func MigrateUnstamped(text string, fromV2 bool) Migration {
 	return migrateText(text, fromV2, false)
 }
 
+// majorityEol is the line ending most of the text's lines end with. A tie
+// goes to LF.
+func majorityEol(text string) string {
+	crlf := strings.Count(text, "\r\n")
+	lf := strings.Count(text, "\n") - crlf
+	if crlf > lf {
+		return "\r\n"
+	}
+	return "\n"
+}
+
 func migrateText(text string, fromV2, stamp bool) Migration {
 	whole := text
 	bom := ""
@@ -2221,17 +2232,19 @@ func migrateText(text string, fromV2, stamp bool) Migration {
 	// Stamping a file whose ambiguous pieces were left alone would claim a
 	// migration that did not finish, and the next run would then skip it. A
 	// document that never closes its raw block has nowhere to put the line
-	// either: appended, it would be another line of the block's content.
+	// either: appended, it would be another line of the block's content. The
+	// lines end the way most of the file's do.
 	if stamp && st.ambiguous == 0 && !fence.open {
+		eol := majorityEol(text)
 		s := out.String()
 		if s != "" && !strings.HasSuffix(s, "\n") {
-			out.WriteByte('\n')
+			out.WriteString(eol)
 		}
 		out.WriteString(FormatLine)
-		out.WriteByte('\n')
+		out.WriteString(eol)
 		if changed {
 			out.WriteString(MigratedLine)
-			out.WriteByte('\n')
+			out.WriteString(eol)
 		}
 	}
 	return Migration{Text: out.String(), Ambiguous: st.ambiguous, Lost: st.lost}
@@ -5186,19 +5199,8 @@ func keepLines(src string, doc *Document) (string, bool) {
 			left[k] = false
 		}
 	}
-	// New lines end the way most of the file's lines do. A tie goes to LF.
-	crlf, lf := 0, 0
-	for k := 1; k <= n; k++ {
-		if strings.HasSuffix(line(k), "\r\n") {
-			crlf++
-		} else if strings.HasSuffix(line(k), "\n") {
-			lf++
-		}
-	}
-	eol := "\n"
-	if crlf > lf {
-		eol = "\r\n"
-	}
+	// New lines end the way most of the file's lines do.
+	eol := majorityEol(body)
 	// One level of the source's indent: a line one level in, or failing that
 	// the first indented line, a list element or a fence.
 	step := ""

@@ -2003,6 +2003,13 @@ pub fn migrate_unstamped(text: &str, from_v2: bool) -> Migration {
 	migrate_text(text, from_v2, false)
 }
 
+/// The line ending most of the text's lines end with. A tie goes to LF.
+fn majority_eol(text: &str) -> &'static str {
+	let crlf = text.matches("\r\n").count();
+	let lf = text.matches('\n').count() - crlf;
+	if crlf > lf { "\r\n" } else { "\n" }
+}
+
 fn migrate_text(text: &str, from_v2: bool, stamp: bool) -> Migration {
 	let (bom, body_text) = match text.strip_prefix('\u{feff}') {
 		Some(t) => ("\u{feff}", t),
@@ -2053,16 +2060,18 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool) -> Migration {
 	// Stamping a file whose ambiguous pieces were left alone would claim a
 	// migration that did not finish, and the next run would then skip it. A
 	// document that never closes its raw block has nowhere to put the line
-	// either: appended, it would be another line of the block's content.
+	// either: appended, it would be another line of the block's content. The
+	// lines end the way most of the file's do.
 	if stamp && st.ambiguous == 0 && fence.is_none() {
+		let eol = majority_eol(body_text);
 		if !out.is_empty() && !out.ends_with('\n') {
-			out.push('\n');
+			out.push_str(eol);
 		}
 		out.push_str(FORMAT_LINE);
-		out.push('\n');
+		out.push_str(eol);
 		if changed {
 			out.push_str(MIGRATED_LINE);
-			out.push('\n');
+			out.push_str(eol);
 		}
 	}
 	Migration {
@@ -5435,10 +5444,8 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 	for &l in &claimed {
 		left[l..=end[l].min(n)].fill(false);
 	}
-	// New lines end the way most of the file's lines do. A tie goes to LF.
-	let crlf = lines.iter().filter(|l| l.ends_with("\r\n")).count();
-	let lf = lines.iter().filter(|l| l.ends_with('\n')).count() - crlf;
-	let eol = if crlf > lf { "\r\n" } else { "\n" };
+	// New lines end the way most of the file's lines do.
+	let eol = majority_eol(body);
 	// One level of the source's indent: a line one level in, or failing that
 	// the first indented line, a list element or a fence.
 	let step = was_runs

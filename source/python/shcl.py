@@ -1856,6 +1856,13 @@ def migrate_unstamped(text: str, from_v2: bool) -> Migration:
 	return _migrate_text(text, from_v2, False)
 
 
+def _majority_eol(text):
+	"""The line ending most of the text's lines end with. A tie goes to LF."""
+	crlf = text.count("\r\n")
+	lf = text.count("\n") - crlf
+	return "\r\n" if crlf > lf else "\n"
+
+
 def _migrate_text(text, from_v2, stamp):
 	whole = text
 	bom = ""
@@ -1893,16 +1900,18 @@ def _migrate_text(text, from_v2, stamp):
 	# Stamping a file whose ambiguous pieces were left alone would claim a
 	# migration that did not finish, and the next run would then skip it. A
 	# document that never closes its raw block has nowhere to put the line
-	# either: appended, it would be another line of the block's content.
+	# either: appended, it would be another line of the block's content. The
+	# lines end the way most of the file's do.
 	if stamp and st.ambiguous == 0 and fence is None:
+		eol = _majority_eol(text)
 		s = "".join(out)
 		if s and not s.endswith("\n"):
-			out.append("\n")
+			out.append(eol)
 		out.append(FORMAT_LINE)
-		out.append("\n")
+		out.append(eol)
 		if changed:
 			out.append(MIGRATED_LINE)
-			out.append("\n")
+			out.append(eol)
 	return Migration("".join(out), ambiguous=st.ambiguous, lost=st.lost)
 
 
@@ -3913,10 +3922,8 @@ def _keep_lines(src, doc):
 	left = [0 < k <= n and not blank(k) for k in range(n + 2)]
 	for k in claimed:
 		left[k:min(end[k], n) + 1] = [False] * (min(end[k], n) + 1 - k)
-	# New lines end the way most of the file's lines do. A tie goes to LF.
-	crlf = sum(1 for k in range(1, n + 1) if line(k).endswith("\r\n"))
-	lf = sum(1 for k in range(1, n + 1) if line(k).endswith("\n")) - crlf
-	eol = "\r\n" if crlf > lf else "\n"
+	# New lines end the way most of the file's lines do.
+	eol = _majority_eol(body)
 	# One level of the source's indent: a line one level in, or failing that
 	# the first indented line, a list element or a fence.
 	step = next((indent(u.line) for u in was_runs if u.line != 0 and u.line <= n and _tabs(loaded.text, u.start) == 1 and indent(u.line)), "")

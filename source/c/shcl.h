@@ -2522,6 +2522,17 @@ static int64_t format_line_version(ShclArena *ta, ShclArena *sc, ShclStr text, S
    leaves those pieces alone, counted in st->ambiguous for the caller to refuse
    over. A rewritten file is stamped with the version line, so the second run
    has an answer the first one did not; stamp 0 leaves it off. */
+/* The line ending most of the text's lines end with. A tie goes to LF. */
+static const char *majority_eol(ShclStr text) {
+	size_t crlf = 0, lf = 0;
+	for (size_t i = 0; i < text.n; i++) {
+		if (text.p[i] != '\n') continue;
+		if (i > 0 && text.p[i - 1] == '\r') crlf++;
+		else lf++;
+	}
+	return crlf > lf ? "\r\n" : "\n";
+}
+
 static ShclStr migrate(ShclArena *a, ShclArena *sc, ShclStr text, ShclMigrating *st, int *current, int stamp) {
 	ShclStr whole = text, bom = s_empty();
 	if (text.n >= 3 && (unsigned char)text.p[0] == 0xEF && (unsigned char)text.p[1] == 0xBB && (unsigned char)text.p[2] == 0xBF) {
@@ -2565,11 +2576,13 @@ static ShclStr migrate(ShclArena *a, ShclArena *sc, ShclStr text, ShclMigrating 
 	/* Stamping a file whose ambiguous pieces were left alone would claim a
 	   migration that did not finish, and the next run would then skip it. A
 	   document that never closes its raw block has nowhere to put the line
-	   either: appended, it would be another line of the block's content. */
+	   either: appended, it would be another line of the block's content. The
+	   lines end the way most of the file's do. */
 	if (stamp && st->ambiguous == 0 && !fence_on) {
-		if (out.len && out.data[out.len - 1] != '\n') sb_putc(a, &out, '\n');
-		sb_puts(a, &out, SHCL_FORMAT_LINE); sb_putc(a, &out, '\n');
-		if (changed) { sb_puts(a, &out, SHCL_MIGRATED_LINE); sb_putc(a, &out, '\n'); }
+		const char *eol = majority_eol(text);
+		if (out.len && out.data[out.len - 1] != '\n') sb_puts(a, &out, eol);
+		sb_puts(a, &out, SHCL_FORMAT_LINE); sb_puts(a, &out, eol);
+		if (changed) { sb_puts(a, &out, SHCL_MIGRATED_LINE); sb_puts(a, &out, eol); }
 	}
 	return sb_S(&out);
 }
@@ -7549,14 +7562,8 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 	   list over a refused element (20260926 item 1). */
 	unsigned char *wrote = (unsigned char *)arena_alloc(a, n + 2);
 	memset(wrote, 0, n + 2);
-	/* New lines end the way most of the file's lines do. A tie goes to LF. */
-	size_t crlf = 0, lf = 0;
-	for (size_t k = 1; k <= n; k++) {
-		ShclStr lk = KL_LINE(k);
-		if (lk.n >= 2 && lk.p[lk.n - 2] == '\r' && lk.p[lk.n - 1] == '\n') crlf++;
-		else if (lk.n >= 1 && lk.p[lk.n - 1] == '\n') lf++;
-	}
-	const char *eol = crlf > lf ? "\r\n" : "\n";
+	/* New lines end the way most of the file's lines do. */
+	const char *eol = majority_eol(body);
 	/* One level of the source's indent: a line one level in, or failing that
 	   the first indented line, a list element or a fence. */
 	ShclStr step = s_lit("\t");
