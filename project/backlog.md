@@ -58,6 +58,99 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Test case: `save_writes_lf_bytes` (Python, ErOTliS), a byte check of a create and an overwrite, in the hosted windows job.
 	- Closed: 20260930-161101
 
+- A keep save gives a raw block turned scalar the file's line ending, not its own
+	- ID: 2026093019075901
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260930-190759
+	- Opened by: Code review 20260930 item 1
+	- Version and build: dev at `4c28d902`
+	- Steps to reproduce:
+		- `printf 'x: 1\ny: 2\nr: ```\r\n\tb\r\n\t```\r\nz: 3\n' > f.shcl`
+		- `shcl set --write --set r=9 f.shcl`, then read the bytes.
+	- Incorrect behavior: the new `r: 9` line ends in LF. All four, exit 0.
+	- Expected behavior: `r: 9\r\n`. The spec says a changed line keeps its own line ending. A list turned scalar, or a scalar changed in place, already does.
+	- Reproduced: 20260930, all four CLIs.
+	- Origin: the spec sentence came in with `4ad726f6`. Base `f90708d8` wrote the same bytes, but nothing claimed otherwise then. Not seen by an earlier round. Confirmed.
+	- Sweep: every keep-save path that replaces a multi-line value with one line.
+	- Estimated effort: Low
+
+- A keep save can leave a lone CR at the end of a file with no final newline
+	- ID: 2026093019075902
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260930-190759
+	- Opened by: Code review 20260930 item 2
+	- Version and build: dev at `4c28d902`
+	- Steps to reproduce:
+		- `printf 'a: 1\r\nb: 2\nc: 3\nx: 0\r\nz: 9' > f.shcl`
+		- `shcl set --write --remove z f.shcl`, then read the bytes.
+	- Incorrect behavior: the file ends `x: 0\r`. All four, exit 0. It still reloads the same, and `fmt` drops the CR.
+	- Expected behavior: `x: 0` with no line ending, as base wrote for this input.
+	- Reproduced: 20260930, all four CLIs.
+	- Possible cause: with no final newline in the source, the save trims one majority line ending off the end. When the last line kept CRLF in an LF-majority file, only the LF comes off.
+	- Origin: the trim is from the line-keeping save, `d426c740`. Base already did this when the last line was a raw fence ending in CRLF in an LF file. `4ad726f6` widened it to any kept CRLF line. Not seen by an earlier round. Confirmed.
+	- Estimated effort: Low
+
+- A Schema line naming `/proc/self/pagemap` makes `check` read until memory runs out
+	- ID: 2026093019075903
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20260930-190759
+	- Opened by: Code review 20260930 item 3
+	- Related IDs: 2026092813365302
+	- Target OS: Linux
+	- Version and build: dev at `4c28d902`
+	- Steps to reproduce:
+		- A config holding `##    Schema   /proc/self/pagemap`, then `port: 1`.
+		- `shcl check cfg.shcl` under `ulimit -v 2000000`.
+	- Incorrect behavior: Rust exits 8 out of memory, Go 2, C 70. Python stops at once with `Invalid argument`. Without a limit it grows until the kernel kills it.
+	- Expected behavior: the fix for 2026092813365302 says a Schema line cannot make an unattended `check` read a device until memory runs out.
+	- Reproduced: 20260930, Rust, Go and C.
+	- Possible cause: `/proc/self/pagemap` is a regular file with size 0 that reads as about 256 GiB of zeros, so the regular-file test lets it through. A size cap on the read, as `ReadFile` already has, would close every such file.
+	- Origin: an incomplete fix, `27d73efb` for 2026092813365302. Base read it too. Confirmed.
+	- Sweep: `read_named_schema` and its twins in the four CLIs.
+	- Estimated effort: Low
+
+- `migrate --write` stamps its lines with LF in a CRLF file
+	- ID: 2026093019075904
+	- Type: Enhancement
+	- Status: Queued
+	- Opened: 20260930-190759
+	- Opened by: Code review 20260930 idea 1
+	- Requirements:
+		- The Format and Migrated lines end the way most of the file's lines do, as a keep save's new lines already do. A tie goes to LF.
+		- `printf 'a: 1\r\nb: 2\r\n' > f; shcl migrate --write --from-2x f` gives `...b: 2\r\n##    Format   3\n` in all four.
+	- Note: no doc claims migrate follows the rule, so this is not a defect. The file reloads the same.
+	- Estimated effort: Low
+
+- Mixed line endings in the keep-save fuzz
+	- ID: 2026093019075905
+	- Type: Enhancement
+	- Status: Queued
+	- Opened: 20260930-190759
+	- Opened by: Code review 20260930 idea 2
+	- Related IDs: 2026093019075901, 2026093019075902
+	- Requirements:
+		- The fuzz properties generate mixed LF, CRLF and no final newline, and check each kept or changed line's ending against the spec rule.
+		- Today only cli-regress `ErPO61B` and `ErPO633` pin the rule. A tie, a changed line keeping its own ending and a missing final newline are pinned nowhere.
+	- Note: items 1 and 2 of this round are what it would have found.
+	- Estimated effort: Avg
+
+- The cli-regress group rows skip without a recorded skip
+	- ID: 2026093019075906
+	- Type: Enhancement
+	- Status: Queued
+	- Opened: 20260930-190759
+	- Opened by: Code review 20260930 idea 3
+	- Requirements:
+		- `save-group` and `migrate-setgid` go through the strict-skip list when the user is in only one group, rather than passing quietly.
+		- Both ran on this box. Whether the hosted runner's user has a second group was not checked.
+	- Estimated effort: Low
+
 - A Schema line makes `check` open any path, devices and network shares included
 	- ID: 2026092813365302
 	- Type: Bug
