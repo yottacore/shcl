@@ -358,6 +358,7 @@ Both open points are settled:
 - The line counts at any indent (2026-09-28). The formatter indents a comment to the field below it, and a match at column 0 only meant `fmt` could turn a file's check off.
 
 - `check` reads only a regular file there, and on Windows refuses a path starting with two separators or `\??\` (2026-09-28). The file may come from someone else, and a device, a FIFO or a network share would make an unattended check run out of memory, hang, or connect to another host.
+	- The read stops past 16 MiB (2026-10-01). A regular file can still read without end: Linux's `/proc/self/pagemap` has size 0 and reads as hundreds of GiB. A real schema is far smaller.
 
 - A URL is left to editors. A check that goes to the network because of a line in a file is not one to run unattended, so `check` says it skipped it and validates nothing.
 

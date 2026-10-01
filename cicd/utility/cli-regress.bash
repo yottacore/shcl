@@ -214,6 +214,17 @@ if [[ "${onWindows}" == 0 ]]; then
 	mkfifo "${tmpDir}/sp/fifo"
 	printf '##    Schema   ./app.schema.shcl\nport: abc\n' > "${tmpDir}/sp/back\\slash.shcl"
 fi
+## The kernel's page map is a regular file of size 0 that reads as hundreds of
+## GiB, so only a cap on the read stops it. A schema exactly at the cap is
+## read, and one a byte over is not.
+printf '##    Schema   /proc/self/pagemap\nport: 1\n' > "${tmpDir}/sp/pagemap.shcl"
+printf '##    Schema   atcap.schema.shcl\nport: abc\n' > "${tmpDir}/sp/atcap.shcl"
+printf '##    Schema   overcap.schema.shcl\nport: abc\n' > "${tmpDir}/sp/overcap.shcl"
+capPad="#$(printf 'x%.0s' {1..1022})"$'\n'; capPad="${capPad}${capPad}${capPad}${capPad}"
+{ printf 'field: port\n\ttype: int\n'; for ((i = 0; i < 4200; i++)); do printf '%s' "${capPad}"; done; } > "${tmpDir}/sp/atcap.schema.shcl"
+cp "${tmpDir}/sp/atcap.schema.shcl" "${tmpDir}/sp/overcap.schema.shcl"
+truncate -s 16777216 "${tmpDir}/sp/atcap.schema.shcl"
+truncate -s 16777217 "${tmpDir}/sp/overcap.schema.shcl"
 ## A Format line indented under a block, beside a value 2.x read another way.
 printf 'p: %s\nsrv:\n\t##    Format   3\n\tx: 1\n' "'C:\temp'" > "${tmpDir}/indstamped.shcl"
 ## A Format line of five thousand digits: no format will carry that number, and
@@ -306,7 +317,9 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	a file naming a URL there, %SPG% one naming a schema that is not there,
 ##	%SPI% one naming it on an indented line, %SPZ%/%SPF%/%SPN% ones naming a
 ##	device, a FIFO and a path holding a NUL, %SPW% one naming a windows share
-##	(windows only), %SPB% one whose name holds a backslash, %V3I% a file whose
+##	(windows only), %SPB% one whose name holds a backslash, %SPM% one naming
+##	/proc/self/pagemap, %SPC%/%SPO% ones naming a schema exactly at the read
+##	cap and one byte over it, %V3I% a file whose
 ##	Format line is indented,
 ##	%SV% a schema naming a path the two-error file does not have,
 ##	%NV% two instance values holding a line break beside one plain value,
@@ -347,7 +360,8 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	stream, '@fullout' / '@fullerr' point it at a device that is always full,
 ##	'@appear' / '@change' make %C% or change it while the command waits on
 ##	stdin for its ops, '@asciilocale' none, with an ASCII-only locale and
-##	PYTHONIOENCODING.
+##	PYTHONIOENCODING, '@memcap' none, under a 2 GB address-space cap so a read
+##	that never ends fails fast.
 ##	stdout and stderr: '-' means unchecked; an empty stdout field means exactly empty.
 ##	A stderr regex starting with '!' must match NO line. A stderr field
 ##	starting with '=' is the whole of stderr, printf %b text, matched exactly.
@@ -632,6 +646,10 @@ rows=(
 	'ErCkXr4|schema-line-nul|check %SPN%|-|8||-'
 	'ErCkXsU|schema-line-backslash-name|check %SPB%|-|6|line 2: Error: V003\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
 	'ErCkoh2|schema-line-share|check %SPW%|-|8||network or device path'
+	## 20260930 item 3: a regular file can still read without end.
+	'ErTZaL2|schema-line-pagemap|check %SPM%|@memcap|8||too large for a schema'
+	'ErTZaL3|schema-line-at-cap|check %SPC%|-|6|line 2: Error: V003\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
+	'ErTZaL4|schema-line-over-cap|check %SPO%|-|8||too large for a schema'
 	'Eq4Rkv2|migrate-ambiguous-refused|migrate %BS%|-|7|-|does not say which it was written for'
 	"Eq4Rkv3|migrate-ambiguous-kept|migrate %BS%|-|7|p: 'C:\\\\temp'\n|-"
 	'Eq4Rkv4|migrate-ambiguous-write-refused|migrate --write %BS%|-|7|-|refusing to rewrite'
@@ -999,6 +1017,9 @@ for row in "${rows[@]}"; do
 	argv="${argv//%SPN%/${tmpDir}/sp/nul.shcl}"
 	argv="${argv//%SPB%/${tmpDir}/sp/back\\slash.shcl}"
 	argv="${argv//%SPW%/${tmpDir}/sp/share.shcl}"
+	argv="${argv//%SPM%/${tmpDir}/sp/pagemap.shcl}"
+	argv="${argv//%SPC%/${tmpDir}/sp/atcap.shcl}"
+	argv="${argv//%SPO%/${tmpDir}/sp/overcap.shcl}"
 	argv="${argv//%SPU%/${tmpDir}/spurl.shcl}"
 	argv="${argv//%SPG%/${tmpDir}/spgone.shcl}"
 	argv="${argv//%SP%/${tmpDir}/sp/cfg.shcl}"
@@ -1120,8 +1141,17 @@ for row in "${rows[@]}"; do
 		echo "cli-regress ${id}" >> "${SHCL_GATE_SKIPS:-/dev/null}"
 		fTestSkip; continue
 	fi
-	if [[ "${onWindows}" == 1 && ( "${stdinSpec}" == @full* || "${stdinSpec}" == @closedout || "${stdinSpec}" == @appear || "${stdinSpec}" == @change || "${argv}" == *%XF%* || "${argv}" == *"${tmpDir}/sp/zero"* || "${argv}" == *"${tmpDir}/sp/fifo"* || "${argv}" == *"${tmpDir}/sp/back"* ) ]]; then
+	if [[ "${onWindows}" == 1 && ( "${stdinSpec}" == @full* || "${stdinSpec}" == @memcap || "${stdinSpec}" == @closedout || "${stdinSpec}" == @appear || "${stdinSpec}" == @change || "${argv}" == *%XF%* || "${argv}" == *"${tmpDir}/sp/zero"* || "${argv}" == *"${tmpDir}/sp/fifo"* || "${argv}" == *"${tmpDir}/sp/back"* ) ]]; then
 		echo "cli-regress: skipping ${id} (POSIX fixture; not judged on windows)"
+		fTestSkip; continue
+	fi
+	##	Linux has the page map; another POSIX system may not.
+	if [[ "${onWindows}" == 0 && "${argv}" == *"${tmpDir}/sp/pagemap"* && ! -r /proc/self/pagemap ]]; then
+		if [[ -n "${SHCL_GATE_STRICT:-}" && "$(uname -s)" == Linux ]]; then
+			echo "cli-regress: ${id}: no /proc/self/pagemap here and the gate requires it" >&2; nBad+=1; continue
+		fi
+		echo "cli-regress: skipping ${id} (no /proc/self/pagemap here)"
+		echo "cli-regress ${id}" >> "${SHCL_GATE_SKIPS:-/dev/null}"
 		fTestSkip; continue
 	fi
 	if [[ "${onWindows}" == 0 && "${argv}" == *"${tmpDir}/sp/share.shcl"* ]]; then
@@ -1170,6 +1200,7 @@ for row in "${rows[@]}"; do
 			@fullerr)   timeout "${rowSecs}" "${cli}" "${args[@]}" >"${tmpDir}/out" 2>/dev/full || rc=$?; : >"${tmpDir}/err" ;;
 			-)          timeout "${rowSecs}" "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" </dev/null || rc=$? ;;
 			@asciilocale) PYTHONIOENCODING=ascii LC_ALL=C timeout "${rowSecs}" "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" </dev/null || rc=$? ;;
+			@memcap)    (ulimit -v 2000000; exec timeout "${rowSecs}" "${cli}" "${args[@]}") >"${tmpDir}/out" 2>"${tmpDir}/err" </dev/null || rc=$? ;;
 			## The file turns up while the command waits on stdin: after its
 			## notice and before the ops, so the create has already been decided.
 			## @change: the file is there first and changes during the wait.

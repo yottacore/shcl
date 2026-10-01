@@ -677,7 +677,7 @@ A config file can name its own schema on a comment line spelled like the info bl
 
 - The line is `##    Schema   ` then a path or a URL, at the start of a line or after its indent, anywhere in the file. The formatter indents a comment to the field below it, so an indented line counts the same. The same goes for the `Format` line. The first such line wins, and one inside a raw body is that block's content. `SchemaRef` returns what it names, and `SCHEMA_LINE_HEAD` is its spelling, for a program writing one.
 
-- `check` without `--schema` validates against it, reading a relative path from the config file's directory, or from the working directory when the file is stdin. A `--schema` on the command line wins. A schema the line names that cannot be read fails the check the way a missing `--schema` file does, with exit 8. So does one that is not a regular file, such as a device or a FIFO, and on Windows a path starting with two slashes or backslashes, or with `\??\`, which names a network share or a device.
+- `check` without `--schema` validates against it, reading a relative path from the config file's directory, or from the working directory when the file is stdin. A `--schema` on the command line wins. A schema the line names that cannot be read fails the check the way a missing `--schema` file does, with exit 8. So does one that is not a regular file, such as a device or a FIFO, and on Windows a path starting with two slashes or backslashes, or with `\??\`, which names a network share or a device. So does a file over 16 MiB.
 
 - A URL is for editors. `check` does not fetch one, and says so on stderr, since a check that reads the network because of a line in a file is not one to run unattended.
 
