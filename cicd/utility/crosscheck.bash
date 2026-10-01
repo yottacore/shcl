@@ -660,7 +660,7 @@ nKindBad+=badExtra
 [[ -n "$extra" ]] || fTestSkip
 fTest ErUF4nK mixed line-ending keep saves agree
 nKindBad+=badEol
-[[ -d "${extra}/eol" ]] || fTestSkip
+[[ -n "$extra" && -d "${extra}/eol" ]] || fTestSkip
 fTestEnd
 if ((nFailed)); then exit 2; fi
 
