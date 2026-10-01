@@ -684,6 +684,8 @@ bracket text after a colon is
 .BR E019 ,
 an unknown escape in double quotes is
 .BR E023 ,
+a Windows path in double quotes with a \et or \en escape is
+.BR E024 ,
 and a line the current rules cannot read at all is a malformed line. A file
 carrying one of those says so the first time it loads.
 .PP
@@ -706,9 +708,10 @@ says it really is 2.x. A file
 rewrites is stamped with the line, so a second run has the answer the first
 one did not.
 .PP
-Bracket text after the colon is the one line 2.x bound that nothing binds now.
+Bracket text after the colon, and a line break in a value that starts like a
+Windows path, are what 2.x bound that nothing binds now.
 .B migrate
-leaves it and exits 7 rather than reporting success;
+exits 7 on either rather than reporting success;
 .B \-\-lossy
 accepts the loss on a rewrite.
 .PP
