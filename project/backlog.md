@@ -33,32 +33,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
-- The banner's Syntax link names a tag the cut may not create
-	- ID: 2026100115323211
-	- Type: Bug
-	- Status: Done
-	- Severity: High
-	- Opened: 20261001-153232
-	- Opened by: gitsby feedback
-	- Related IDs: the old-format items "`GEN_BANNER`'s Syntax link is dead until 3.0.0 final" and "Cut `v3.0.0-beta1`"
-	- Version and build: dev at `b10c2009`
-	- Steps to reproduce:
-		- Read `GenBanner` (and its twins in the other bindings).
-	- Incorrect behavior: the Syntax line is `https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md`. The release is now meant to be `v3.0.0-beta.1`, with a dot. Tagged that way, the link is dead in every file written during format 3, and nothing catches it.
-	- Expected behavior: the banner names the tag the cut makes. Either the cut tags `v3.0.0-beta1` exactly, or the banner moves to `v3.0.0-beta.1` before the cut.
-	- Reproduced: Yes, 20261001, Go module at `b10c2009`.
-	- Note: a release step that fails when the banner's tag doesn't exist after the push would keep it from drifting again.
-	- Decisions:
-		- 20261001: the cut tags the way the earlier betas did (`v1.0.0-beta1`, `v1.0.0-beta2`), so `v3.0.0-beta1`. The banner stays. What's left is the release step that checks the tag.
-	- Actual fix: the pre-push hook refuses a push to main once the pushed version has reached the tag the banner's Syntax link names, unless that tag is already on the remote or goes out in the same push. It runs even when the gate is skipped for a tree that already passed. A deleted tag, or a pushed one with no `project/spec.md`, is refused too. The release recipe pushes main and its tags in one push, and runs the same check against origin once the push is through.
-	- Swept: the hook is the one place a push to main passes through. The tag is read from the Rust constant; the corpus holds the other three bindings to the same bytes.
-	- Verified: `check-push-gate.bash` passes. With the hook's call taken out, six of its eight new tests go red. The plain `sort -V` order, a tail match on the remote's tags, and dropping the delete or spec checks each turn their test red. shellcheck, `test-ids.py check` and `check-docs.bash` pass. Against origin on dev, at 2.0.0, the check passes with no tag due.
-	- Branch: `bannertag`
-	- Commit: 62c1033f
-	- Test case: `check-push-gate` `ErUaPZV`, `ErUaPbL`, `ErUaPd9`, `ErUaPf2`, `ErUawc7`, `ErUaPgt`, `ErUaPj3`, `ErUaPkx`.
-	- Acceptance signoff: Self-closed: does what the decision asked, and its tests were seen to fail with the check removed.
-	- Closed: 20261001-155818
-
 - A bad escape on a line that opens a block drops the whole block
 	- ID: 2026100115403384
 	- Type: Bug
@@ -174,6 +148,32 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Not a reopen of the 20260925 decision. `fmt` keeps its canonical quoting; this is only for a program setting a value.
 	- Decisions:
 		- 20261001, from the answer on 2026100115323216: single quotes are the go-to for stopping escapes, when the string holds no `'`.
+
+- The banner's Syntax link names a tag the cut may not create
+	- ID: 2026100115323211
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Opened: 20261001-153232
+	- Opened by: gitsby feedback
+	- Related IDs: the old-format items "`GEN_BANNER`'s Syntax link is dead until 3.0.0 final" and "Cut `v3.0.0-beta1`"
+	- Version and build: dev at `b10c2009`
+	- Steps to reproduce:
+		- Read `GenBanner` (and its twins in the other bindings).
+	- Incorrect behavior: the Syntax line is `https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md`. The release is now meant to be `v3.0.0-beta.1`, with a dot. Tagged that way, the link is dead in every file written during format 3, and nothing catches it.
+	- Expected behavior: the banner names the tag the cut makes. Either the cut tags `v3.0.0-beta1` exactly, or the banner moves to `v3.0.0-beta.1` before the cut.
+	- Reproduced: Yes, 20261001, Go module at `b10c2009`.
+	- Note: a release step that fails when the banner's tag doesn't exist after the push would keep it from drifting again.
+	- Decisions:
+		- 20261001: the cut tags the way the earlier betas did (`v1.0.0-beta1`, `v1.0.0-beta2`), so `v3.0.0-beta1`. The banner stays. What's left is the release step that checks the tag.
+	- Actual fix: the pre-push hook refuses a push to main once the pushed version has reached the tag the banner's Syntax link names, unless that tag is already on the remote or goes out in the same push. It runs even when the gate is skipped for a tree that already passed. A deleted tag, or a pushed one with no `project/spec.md`, is refused too. The release recipe pushes main and its tags in one push, and runs the same check against origin once the push is through.
+	- Swept: the hook is the one place a push to main passes through. The tag is read from the Rust constant; the corpus holds the other three bindings to the same bytes.
+	- Verified: `check-push-gate.bash` passes. With the hook's call taken out, six of its eight new tests go red. The plain `sort -V` order, a tail match on the remote's tags, and dropping the delete or spec checks each turn their test red. shellcheck, `test-ids.py check` and `check-docs.bash` pass. Against origin on dev, at 2.0.0, the check passes with no tag due.
+	- Branch: `bannertag`
+	- Commit: 62c1033f
+	- Test case: `check-push-gate` `ErUaPZV`, `ErUaPbL`, `ErUaPd9`, `ErUaPf2`, `ErUawc7`, `ErUaPgt`, `ErUaPj3`, `ErUaPkx`.
+	- Acceptance signoff: Self-closed: does what the decision asked, and its tests were seen to fail with the check removed.
+	- Closed: 20261001-155818
 
 - A Schema line makes `check` open any path, devices and network shares included
 	- ID: 2026092813365302
