@@ -78,7 +78,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Verified: the Rust CLI's write equals the library's checked text on all 100 dumped inputs, and the other three already agree. Crosscheck went red with new lines always LF in the Go keep save, and with a tie going to CRLF in the Python one; the tie was seen by the new test alone. Green again after each restore and a clean rebuild.
 	- Verified: crosscheck over the corpus and a fresh dump, shell-regress (its new row failed with the ops not fed on stdin), cargo test for the fuzz file, cargo fmt, clippy, `test-ids.py check`, check-docs, shellcheck and markdownlint pass.
 	- Branch: eolcross
-	- Commit: 8ee021ce
+	- Commit: 8ee021ce, c906e66b
 	- Test case: crosscheck `ErUF4nK` (mixed line-ending keep saves agree), and shell-regress `ErUF4pC` for its failure paths.
 	- Acceptance signoff: Self-closed: a test only, it does what the item asked, and it failed on each injected defect.
 	- Closed: 20261001-143722
