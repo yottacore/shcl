@@ -53,6 +53,7 @@ git init -q -b dev "${repo}" || { echo "check-push-gate: git init failed" >&2; e
 mkdir -p "${repo}/cicd/hooks" "${repo}/cicd/utility" "${repo}/source/rust"
 cp "${root}/cicd/hooks/pre-push" "${repo}/cicd/hooks/pre-push"
 cp "${helper}" "${repo}/cicd/utility/green-tree.bash"
+cp "${root}/cicd/utility/check-banner-tag.bash" "${repo}/cicd/utility/check-banner-tag.bash"
 cp "${root}/.gitignore" "${repo}/.gitignore"
 cat > "${repo}/cicd/cicd.bash" <<'EOF'
 #!/usr/bin/env bash
@@ -68,7 +69,7 @@ printf 'one\n' > "${repo}/a.txt"
 printf 'gone\n' > "${repo}/c.txt"
 printf '#!/bin/sh\n' > "${repo}/x.sh"
 : > "${repo}/source/rust/.keep"
-chmod +x "${repo}/cicd/cicd.bash" "${repo}/cicd/hooks/pre-push" "${repo}/cicd/utility/green-tree.bash" "${repo}/x.sh"
+chmod +x "${repo}/cicd/cicd.bash" "${repo}/cicd/hooks/pre-push" "${repo}/cicd/utility/green-tree.bash" "${repo}/cicd/utility/check-banner-tag.bash" "${repo}/x.sh"
 { git -C "${repo}" add --all && git -C "${repo}" commit -q -m base; } || { echo "check-push-gate: first commit failed" >&2; exit 2; }
 helper="${repo}/cicd/utility/green-tree.bash"
 
@@ -118,10 +119,11 @@ prc=0; "${helper}" passed "${repo}" '.*' 2>/dev/null || prc=$?
 ((prc == 2)) || fail "passed took '.*' as a tree (exit ${prc})"
 
 export STUB_LOG="${work}/stub.log"
+hookRemote=()  ## the remote git names to the hook; none until the banner tag checks
 fPushLines(){  ## fPushLines LINES -> hookRc, hookOut, ran (times the stubbed gate ran)
 	: > "${STUB_LOG}"; : > "${STUB_LOG}.head"
 	hookRc=0
-	hookOut="$(printf '%s' "$1" | bash "${repo}/cicd/hooks/pre-push" 2>&1)" || hookRc=$?
+	hookOut="$(printf '%s' "$1" | bash "${repo}/cicd/hooks/pre-push" ${hookRemote[@]+"${hookRemote[@]}"} 2>&1)" || hookRc=$?
 	ran="$(wc -l < "${STUB_LOG}")"
 }
 fPush(){ fPushLines "$(printf 'refs/heads/x %s refs/heads/%s %s' "$2" "$1" "${zeros}")"$'\n' ;}  ## fPush BRANCH SHA
@@ -246,6 +248,70 @@ ran="$(wc -l < "${STUB_LOG}")"
 git -C "${repo}" config --unset core.hooksPath
 git -C "${repo}" worktree remove --force "${work}/linked"
 
+## 20261001: the banner's Syntax link names a tag that the cut has to create.
+## Once a commit at that version reaches main, the tag has to be on the remote
+## or in the same push, recorded tree or not.
+bannerTag=v3.0.0-beta1
+fBannerCommit(){  ## fBannerCommit VERSION [SPEC] -> the new commit on branch cut
+	mkdir -p "${repo}/source/rust/src" "${repo}/project"
+	printf '##    Syntax   https://github.com/yottacore/shcl/blob/%s/project/spec.md\n' "${bannerTag}" > "${repo}/source/rust/src/lib.rs"
+	printf '[package]\nname = "stub"\nversion = "%s"\n' "$1" > "${repo}/source/rust/Cargo.toml"
+	if [[ -n "${2:-}" ]]; then printf 'spec\n' > "${repo}/project/spec.md"; else rm -f "${repo}/project/spec.md"; fi
+	git -C "${repo}" add --all && git -C "${repo}" commit -q -m "$1" && git -C "${repo}" rev-parse HEAD
+}
+git -C "${repo}" checkout -q -b cut
+before="$(fBannerCommit 2.0.0 spec)"
+nospec="$(fBannerCommit 3.0.0-beta1)"
+final="$(fBannerCommit 3.0.0 spec)"
+git -C "${repo}" reset -q --hard HEAD~1
+cut="$(fBannerCommit 3.0.0-beta1 spec)"
+git -C "${repo}" tag -a -m cut "${bannerTag}" "${cut}"
+git -C "${repo}" tag -a -m nospec nospec "${nospec}"
+cutTag="$(git -C "${repo}" rev-parse "refs/tags/${bannerTag}")"
+for bare in none have odd; do git init -q --bare "${work}/${bare}.git" || { echo "check-push-gate: git init failed" >&2; exit 2; }; done
+git -C "${repo}" push -q --no-verify "${work}/have.git" "refs/tags/${bannerTag}"
+git -C "${repo}" push -q --no-verify "${work}/odd.git" "refs/tags/${bannerTag}:refs/tags/x/${bannerTag}"
+fTagLine(){ printf 'refs/tags/%s %s refs/tags/%s %s\n' "$1" "$2" "${bannerTag}" "${zeros}" ;}  ## fTagLine LOCALTAG SHA
+
+fTest ErUaPZV a cut pushed to main without the banner tag is refused
+hookRemote=("${work}/none.git"); fPush main "${cut}"
+((hookRc == 1 && ran == 0)) && [[ "${hookOut}" == *"has no such tag"* ]] \
+	|| fail "a cut at the banner's version, pushed to main with no tag anywhere: exit ${hookRc}, gate ran ${ran} time(s): $(tail -c 300 <<<"${hookOut}")"
+fTest ErUaPbL a cut pushed to main with the banner tag goes through
+fPushLines "$(printf 'refs/heads/x %s refs/heads/main %s\n' "${cut}" "${zeros}")"$'\n'"$(fTagLine "${bannerTag}" "${cutTag}")"$'\n'
+((hookRc == 0 && ran == 1)) || fail "a cut pushed to main with its tag: exit ${hookRc}, gate ran ${ran} time(s): $(tail -c 300 <<<"${hookOut}")"
+fTest ErUaPd9 a recorded cut still needs the tag, and a tag on the remote counts
+"${helper}" record "${repo}" "$(git -C "${repo}" rev-parse 'HEAD^{tree}')" || fail "record refused the cut"
+fPush main "${cut}"
+((hookRc == 1 && ran == 0)) || fail "a recorded cut pushed to main with no tag: exit ${hookRc}, gate ran ${ran} time(s)"
+hookRemote=("${work}/have.git"); fPush main "${cut}"
+((hookRc == 0 && ran == 0)) || fail "a recorded cut whose tag is on the remote: exit ${hookRc}, gate ran ${ran} time(s): $(tail -c 300 <<<"${hookOut}")"
+fTest ErUaPf2 a tree below the banner version needs no tag
+hookRemote=("${work}/none.git"); fPush main "${before}"
+((hookRc == 0 && ran == 1)) || fail "a tree at 2.0.0 pushed to main with no tag: exit ${hookRc}, gate ran ${ran} time(s): $(tail -c 300 <<<"${hookOut}")"
+fTest ErUawc7 the final release after a beta tag still needs that tag
+## sort -V alone ranks 3.0.0 below 3.0.0-beta1, which would wave this through.
+fPush main "${final}"
+((hookRc == 1 && ran == 0)) || fail "a tree at 3.0.0 pushed to main with no ${bannerTag} tag: exit ${hookRc}, gate ran ${ran} time(s)"
+fTest ErUaPgt a push that deletes the tag, or sends one with no spec, is refused
+hookRemote=("${work}/have.git")
+fPushLines "$(printf 'refs/heads/x %s refs/heads/main %s\n(delete) %s refs/tags/%s %s\n' "${cut}" "${zeros}" "${zeros}" "${bannerTag}" "${cutTag}")"$'\n'
+((hookRc == 1 && ran == 0)) && [[ "${hookOut}" == *"this push deletes ${bannerTag}"* ]] \
+	|| fail "a main push that deletes the banner tag: exit ${hookRc}, gate ran ${ran} time(s): $(tail -c 300 <<<"${hookOut}")"
+hookRemote=("${work}/none.git")
+fPushLines "$(printf 'refs/heads/x %s refs/heads/main %s\n' "${cut}" "${zeros}")"$'\n'"$(fTagLine nospec "$(git -C "${repo}" rev-parse refs/tags/nospec)")"$'\n'
+((hookRc == 1 && ran == 0)) && [[ "${hookOut}" == *"has no project/spec.md"* ]] \
+	|| fail "a main push sending the banner tag on a tree with no spec: exit ${hookRc}, gate ran ${ran} time(s): $(tail -c 300 <<<"${hookOut}")"
+fTest ErUaPj3 a tag that only ends in the banner tag name does not count
+hookRemote=("${work}/odd.git"); fPush main "${cut}"
+((hookRc == 1 && ran == 0)) || fail "a remote holding only refs/tags/x/${bannerTag}: exit ${hookRc}, gate ran ${ran} time(s)"
+fTest ErUaPkx a remote that cannot be read refuses the cut
+hookRemote=("${work}/missing.git"); fPush main "${cut}"
+((hookRc == 1 && ran == 0)) && [[ "${hookOut}" == *"cannot list the tags"* ]] \
+	|| fail "an unreadable remote: exit ${hookRc}, gate ran ${ran} time(s): $(tail -c 300 <<<"${hookOut}")"
+hookRemote=()
+git -C "${repo}" checkout -q dev
+
 fTest EqGjDth the installer drift check judges the pushed tree as main
 ## 20260918 item 6: the installer drift check, on a clone of this repository
 ## with the refs as they stand between a dev push that changes an installer and
@@ -344,7 +410,7 @@ fEngine GIT_DIR="${eng}/.git" STUB_GITDIR="${work}/eng.gitdir" -- --ci
 	|| fail "cicd.bash passed GIT_DIR on to its gates: $(cat "${work}/eng.gitdir" 2>/dev/null || true)"
 
 fTestEnd
-(( rc == 0 )) && echo "check-push-gate: OK: the tree matches a commit of the working copy, a recorded tree skips the gate, only a push to main runs it with the full gate, a red gate refuses, the gate builds into target-gate and runs once on main's commit in a multi-ref push, no gate sees a linked worktree's GIT_DIR, the drift check judges the pushed tree as main, and a partial run records nothing"
+(( rc == 0 )) && echo "check-push-gate: OK: the tree matches a commit of the working copy, a recorded tree skips the gate, only a push to main runs it with the full gate, a red gate refuses, the gate builds into target-gate and runs once on main's commit in a multi-ref push, no gate sees a linked worktree's GIT_DIR, the drift check judges the pushed tree as main, a cut needs the banner tag on the remote or in the push, and a partial run records nothing"
 exit "${rc}"
 
 
@@ -360,3 +426,4 @@ exit "${rc}"
 ##		  GIT_DIR exported, must not hand GIT_DIR to the gate.
 ##		- 2026-09-26 JC: The gate's target link, and a push naming main and a
 ##		  feature ref.
+##		- 2026-10-01 JC: A cut pushed to main needs the banner's tag.

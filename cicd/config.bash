@@ -172,6 +172,7 @@ LINT_EXTRA=(
 SHELLCHECK_TARGETS=(
 	cicd/cicd.bash
 	cicd/config.bash
+	cicd/utility/check-banner-tag.bash
 	cicd/utility/check-c-compilers.bash
 	cicd/utility/check-completions.bash
 	cicd/utility/check-docs.bash
