@@ -1277,6 +1277,24 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Acceptance signoff: Self-closed: reproduced, its test failed before the fix and passes after in all four.
 	- Closed: 20260930-080144
 
+- A line-keeping save ends new lines the way most of the file's lines do
+	- ID: 2026093018312980
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Low
+	- Opened: 20260930-183129
+	- Opened by: a question about CRLF after 2026093012535909
+	- Related IDs: 2026093012535909
+	- Description: the line-keeping save took the line ending for new lines from the first line alone. A mixed file whose first line was the odd one out got its new lines in the minority ending. The spec also never said that this save keeps a file's line endings and indent.
+	- Actual fix: new lines end in CRLF when more of the file's lines end in CRLF than in LF, and in LF otherwise, a tie included. A changed line keeps its own ending, as before. All four bindings. spec.md says both under Encoding and lines and under File tier.
+	- Swept: the one line-ending choice in each binding's keep save. No other code in the four libraries or CLIs picks a line ending.
+	- Verified: both new rows failed on the old Rust build and pass in all four. cli-regress (327 rows), the four conformance suites, the veneer smoke test, crosscheck, the 2,000,000 release fuzz and the lints pass.
+	- Branch: eolmajority
+	- Commit: 4ad726f6
+	- Test case: cli-regress `ErPO61B` (`set-write-eol-mostly-crlf`) and `ErPO633` (`set-write-eol-mostly-lf`).
+	- Acceptance signoff: Self-closed: asked for directly, and the rows fail on the old code.
+	- Closed: 20260930-183520
+
 - `set --write` builds the kept text twice
 	- ID: 2026092620255218
 	- Type: Enhancement
