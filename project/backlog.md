@@ -67,28 +67,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Commit: 1c0d325b
 	- Test case: cli-regress `schema-line-pagemap` and `schema-line-over-cap`, both failing on dev, and `schema-line-at-cap`.
 
-- `migrate --write` stamps its lines with LF in a CRLF file
-	- ID: 2026093019075904
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Opened: 20260930-190759
-	- Opened by: Code review 20260930 idea 1
-	- Requirements:
-		- The Format and Migrated lines end the way most of the file's lines do, as a keep save's new lines already do. A tie goes to LF.
-		- `printf 'a: 1\r\nb: 2\r\n' > f; shcl migrate --write --from-2x f` gives `...b: 2\r\n##    Format   3\n` in all four.
-	- Note: no doc claims migrate follows the rule, so this is not a defect. The file reloads the same.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Actual fix: the Format and Migrated lines end in the file's majority line ending, a tie going to LF, and so does the line ending added after a last line that had none. One count serves this and the keep save, in all four bindings. spec.md says so under Migrating from 2.x.
-	- Note: corpus 124's migrate golden and the four runners' "the stamp is the only difference" check had pinned LF stamps. Both now expect the majority ending.
-	- Swept: each binding's migrate is the only code that writes the stamp. The unstamped call writes none, and `init` and a creating `set --write` write a new file, canonical and LF.
-	- Verified: `ErTecqE` failed in all four on dev and passes after. `ErTecqF`, the tie, passes on both. The same gates as 2026093019075901 pass.
-	- Verified: both rows pass in the linux and windows jobs of the hosted run 36916523189 on dev at `6169e71f`.
-	- Branch: eolfix
-	- Commit: 8aa812a9, 38259bbd
-	- Test case: cli-regress `ErTecqE` (`migrate-write-eol-crlf`) and `ErTecqF` (`migrate-eol-tie-lf`), and corpus `124-migrate-crlf-fence`.
-	- Acceptance signoff: waiting. It changes what `migrate --write` puts on disk, and moved corpus 124's golden.
-
 - On Windows the Python save may write CRLF line endings
 	- ID: 2026093012535909
 	- Type: Bug
@@ -113,6 +91,20 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Commit: 50ceb521
 	- Test case: `save_writes_lf_bytes` (Python, ErOTliS), a byte check of a create and an overwrite, in the hosted windows job.
 	- Closed: 20260930-161101
+
+- Compare the four bindings' keep saves on mixed line-ending inputs
+	- ID: 2026100114175701
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261001-141757
+	- Opened by: the fuzz work for 2026093019075905
+	- Related IDs: 2026093019075905, 2026093019075901, 2026093019075902, 2026093019075904
+	- Requirements:
+		- The Rust fuzz property `ErTmDwQ` checks only the Rust keep save. A file mixing LF, CRLF and no final newline is never run through the other three.
+		- Dump a capped set of those inputs, with the edit each one makes, beside the `fmt` dump crosscheck already reads.
+		- Crosscheck runs each through a keep save in all four and compares the bytes on disk.
+	- Estimated effort: Low
 
 - A Schema line makes `check` open any path, devices and network shares included
 	- ID: 2026092813365302
@@ -1457,6 +1449,29 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Verified: a stub CLI that sleeps, with the limit at 1 s, times out row by row by name.
 	- Branch: `setkeep`
 	- Test case: none standing, since a row that must hang costs the full limit on every run.
+
+- `migrate --write` stamps its lines with LF in a CRLF file
+	- ID: 2026093019075904
+	- Type: Enhancement
+	- Status: Done
+	- Opened: 20260930-190759
+	- Opened by: Code review 20260930 idea 1
+	- Requirements:
+		- The Format and Migrated lines end the way most of the file's lines do, as a keep save's new lines already do. A tie goes to LF.
+		- `printf 'a: 1\r\nb: 2\r\n' > f; shcl migrate --write --from-2x f` gives `...b: 2\r\n##    Format   3\n` in all four.
+	- Note: no doc claims migrate follows the rule, so this is not a defect. The file reloads the same.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: the Format and Migrated lines end in the file's majority line ending, a tie going to LF, and so does the line ending added after a last line that had none. One count serves this and the keep save, in all four bindings. spec.md says so under Migrating from 2.x.
+	- Note: corpus 124's migrate golden and the four runners' "the stamp is the only difference" check had pinned LF stamps. Both now expect the majority ending.
+	- Swept: each binding's migrate is the only code that writes the stamp. The unstamped call writes none, and `init` and a creating `set --write` write a new file, canonical and LF.
+	- Verified: `ErTecqE` failed in all four on dev and passes after. `ErTecqF`, the tie, passes on both. The same gates as 2026093019075901 pass.
+	- Verified: both rows pass in the linux and windows jobs of the hosted run 36916523189 on dev at `6169e71f`.
+	- Branch: eolfix
+	- Commit: 8aa812a9, 38259bbd
+	- Test case: cli-regress `ErTecqE` (`migrate-write-eol-crlf`) and `ErTecqF` (`migrate-eol-tie-lf`), and corpus `124-migrate-crlf-fence`.
+	- Acceptance signoff: 20261001
+	- Closed: 20261001-141757
 
 - Mixed line endings in the keep-save fuzz
 	- ID: 2026093019075905
