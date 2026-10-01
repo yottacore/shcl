@@ -11123,7 +11123,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Then by severity|priority: Critical, High, Avg, Low
 		- Then by type: Bugs, [not bugs together]
 
-	- Rows marked [Bug] are for bugs only, and rows marked [Feature] for features and enhancements. Children are not nested. They sit at the top level and point back with Parent ID.
+	- Rows marked [Bug] are for bugs only, and rows marked [Feature] for features and enhancements. Priority and Severity share one row and one scale. Priority is for a Feature or Enhancement, and Severity for a Bug. Children are not nested. They sit at the top level and point back with Parent ID.
 
 Template:
 
@@ -11133,7 +11133,7 @@ Template:
 	- Status: [Queued|Waiting for answers|Waiting on signoff|Waiting for testing|Started|Testing|Stalled|Can't reproduce|Moot|Canceled|Deferred|Done]
 	- Needs local test suite run?:
 	- Needs external testing:
-	- Priority|Severity [Bug]: [Critical|High|Avg|Low]
+	- Priority [Feature|Enhancement] | Severity [Bug]: [Critical|High|Avg|Low]
 	- Opened:
 	- Opened by:
 	- Assigned to:
