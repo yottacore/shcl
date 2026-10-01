@@ -33,30 +33,139 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
-- On Windows the Python save may write CRLF line endings
-	- ID: 2026093012535909
+- The banner's Syntax link names a tag the cut may not create
+	- ID: 2026100115323211
 	- Type: Bug
-	- Status: Can't reproduce
+	- Status: Queued
+	- Severity: High
+	- Opened: 20261001-153232
+	- Opened by: gitsby feedback
+	- Related IDs: the old-format items "`GEN_BANNER`'s Syntax link is dead until 3.0.0 final" and "Cut `v3.0.0-beta1`"
+	- Version and build: dev at `b10c2009`
+	- Steps to reproduce:
+		- Read `GenBanner` (and its twins in the other bindings).
+	- Incorrect behavior: the Syntax line is `https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md`. The release is now meant to be `v3.0.0-beta.1`, with a dot. Tagged that way, the link is dead in every file written during format 3, and nothing catches it.
+	- Expected behavior: the banner names the tag the cut makes. Either the cut tags `v3.0.0-beta1` exactly, or the banner moves to `v3.0.0-beta.1` before the cut.
+	- Reproduced: Yes, 20261001, Go module at `b10c2009`.
+	- Note: a release step that fails when the banner's tag doesn't exist after the push would keep it from drifting again.
+	- Decisions:
+		- 20261001: the cut tags the way the earlier betas did (`v1.0.0-beta1`, `v1.0.0-beta2`), so `v3.0.0-beta1`. The banner stays. What's left is the release step that checks the tag.
+
+- A bad escape on a line that opens a block drops the whole block
+	- ID: 2026100115403384
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261001-154033
+	- Opened by: silkterm feedback
+	- Version and build: dev at `b10c2009`
+	- Steps to reproduce:
+		- `Parse("wallpaper: \"C:\\Users\\x.png\"\n\trotate:\n\t\tenabled: false\n\topacity: 0.2\n")`
+	- Incorrect behavior: line 1 is `E023` and every line under it is `E018`, so `lost_count()` is 3 and `wallpaper.rotate.enabled` and `wallpaper.opacity` read NotFound. At `f2a8ad2` all of them read.
+	- Expected behavior: the bad value sets nothing, and the block under it still loads, since its lines are fine.
+	- Reproduced: Yes, 20261001, Rust at `b10c2009`.
+	- Possible cause: the rule that skips a line indented under a skipped line also covers a line skipped only for its value.
+	- Note: a silent wrong answer. One typo in a path takes out a whole section, and a save refuses where the lines cannot be kept. A Windows path in double quotes with single backslashes is the likely way in.
+
+- The writer spells Windows paths three different ways
+	- ID: 2026100115323216
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261001-153232
+	- Opened by: gitsby feedback
+	- Version and build: dev at `b10c2009`
+	- Requirements:
+		- Today, `SetString` then `ToCanonical`:
+			- `~\dev\tools` -> `p: ~\dev\tools` (bare)
+			- `\\srv\share` -> `p: \\srv\share` (bare)
+			- `%USERPROFILE%\x` -> `p: %USERPROFILE%\x` (bare)
+			- `C:\work` -> `p: 'C:\work'`
+			- `C:\Bob's\new` -> `p: "C:\\Bob's\\new"`
+		- All read back right. The problem is the person who copies a line to type the next path. A bare one copied into double quotes, or a single-quoted one edited to hold an apostrophe, turns its backslashes into escapes.
+		- A value with a backslash always goes in single quotes, never bare.
+		- One single quotes can't hold (an apostrophe, a line break, a character written as `\u`) goes in double quotes with each backslash doubled, as now.
+	- Note: gitsby does this itself in `setValue` (`src-go/shcl.go`), through `SetLiteral` and a read-back check. It would drop that once the writer does it.
+	- Decisions:
+		- 20261001: single quotes for a value with a backslash, since they stop escaping. A Windows path can hold a `'`, which single quotes can't, so that one goes in double quotes with each backslash doubled. Same for canonical output, so `fmt` too.
+
+- `Remove` of the last key under a repeated header leaves the header and takes the blank line
+	- ID: 2026100115323232
+	- Type: Bug
+	- Status: Queued
 	- Severity: Low
-	- Opened: 20260930-125359
-	- Opened by: the design for 2026093009281183
-	- Related IDs: 2026093009281183
-	- Target OS: Windows
-	- Steps to reproduce: on Windows, a Python save of `a: 1` over an existing file, then read the file's bytes.
-	- Incorrect behavior: expected, not yet seen. The save opens its temp file with `os.open` and no `O_BINARY`, which is text mode on Windows, so each LF may go out as CRLF.
-	- Expected behavior: the same bytes the other three bindings write.
-	- Reproduced: No. Plausible, read in `write_file_atomic`. The Windows save-target rows in cli-regress are skipped, and a CR reads back as a blank, so nothing that runs there would show it.
-	- Actual cause: half right. An `os.open` fd is text mode on Windows, since CPython calls `_wopen` with no `O_BINARY` and never sets `_fmode`, so a plain `os.write` to it would turn LF into CRLF. The save never writes to the bare fd, though. `os.fdopen` wraps it in a file object, and that puts the fd in binary mode on Windows. The hosted windows job of 20260930 byte-checked a Python overwrite (`save_rewrites_a_read_only_file`) and matched a create against an overwrite, and both passed.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Actual fix: no change to the bytes. Both opens now ask for binary themselves, so the code no longer claims text mode: `getattr(os, "O_BINARY", 0)` on the create, and `O_BINARY` in place of `O_TEXT` in `_create_like`.
-	- Swept: every `os.open` in the Python binding, its CLI and its tests. The CLI's `_old_v2` create and handle open already pass `O_BINARY`. `_sync_dir` opens a directory read-only for fsync and writes nothing. The tests have none.
-	- Verified: the new test fails on a save that writes CRLF and passes on the tree. Python conformance, ruff and mypy pass.
-	- Verified: `save_writes_lf_bytes` passes in the hosted run 36785011455 on dev at `fa421bd7`. The save wrote LF both ways on Windows. The explicit binary opens stay, since they match what the code does.
-	- Branch: winfollow
-	- Commit: 50ceb521
-	- Test case: `save_writes_lf_bytes` (Python, ErOTliS), a byte check of a create and an overwrite, in the hosted windows job.
-	- Closed: 20260930-161101
+	- Opened: 20261001-153232
+	- Opened by: gitsby feedback
+	- Version and build: dev at `b10c2009`
+	- Steps to reproduce:
+		- `ParseKeepLines("account: w\n\temail: a@x\n\naccount: w\n\tname: W\n", Standard)`
+		- `Remove("account[#0].name")`, then `ToTextKeepLines()`.
+	- Incorrect behavior: `account: w\n\temail: a@x\naccount: w\n`, kept true. The second `account: w` stays with nothing under it, and the blank line between the blocks is gone.
+	- Expected behavior: the emptied header goes with its last key, since the first block already holds that instance, and the blank line above it goes too. Or both stay. Not one of each.
+	- Reproduced: Yes, 20261001, Go module at `b10c2009`. It reads back the same, so it is cosmetic.
+
+- A file stamped Format 3 during the beta is never migrated
+	- ID: 2026100115403385
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261001-154033
+	- Opened by: silkterm feedback
+	- Related IDs: 2026100115323227
+	- Version and build: dev at `b10c2009`
+	- Steps to reproduce:
+		- `migrate(text, false)`, `migrate(text, true)` and `migrate_unstamped(text, true)` on a file ending in `GEN_BANNER` and holding `image: "C:\Users\x.png"`.
+	- Incorrect behavior: all three return `current: true` and the text unchanged. Under `b10c2009` the line is `E023` and sets nothing. At `f2a8ad2`, which wrote the same `Format 3` line, it read as written.
+	- Expected behavior: some way to bring such a file forward, or a stated choice that pre-release files are on their own.
+	- Reproduced: Yes, 20261001, Rust at `b10c2009`.
+	- Note: a rough edge. Only programs that shipped a beta build of 3.0 to users are hit. SilkTerm's dogfood builds did; none of its releases did.
+
+- New lines from a keep-lines save copy an odd block's indent step
+	- ID: 2026100115403386
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261001-154033
+	- Opened by: silkterm feedback
+	- Version and build: dev at `b10c2009`
+	- Steps to reproduce:
+		- `parse_keep_lines("window:\n\t\topacity: 1.0\nwindow:\n\tcolumns: 80\n", Standard)`
+		- `set_string("shell.list.bash.command", "/bin/bash")`, then `to_text_keep_lines()`.
+	- Incorrect behavior: the new block comes out as `shell:\n\t\tlist:\n\t\t\t\tbash:\n\t\t\t\t\t\tcommand: /bin/bash`, two tabs a level, taken from the first `window:` block. Every other block in the file uses one.
+	- Expected behavior: a new block takes the indent most of the file uses, or one tab, rather than the first block's.
+	- Reproduced: Yes, 20261001, Rust at `b10c2009`. It reads back right, so it is cosmetic.
+
+- `"C:\temp"` loads with a tab and only a hint says so
+	- ID: 2026100115323227
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261001-153232
+	- Opened by: gitsby feedback
+	- Related IDs: 2026092616330237, 2026092617133293
+	- Version and build: dev at `b10c2009`
+	- Requirements:
+		- `p: "C:\temp"` reads as `C:`, a tab, `emp`, status Good, with `H004` at severity Hint.
+		- design.md keeps it a hint on purpose, since nothing about the text is wrong. Filed to look at that again from a consumer's side: the reason `"C:\work\new"` became `E023` was that "a hint reaches only a caller that reads diagnostics". A caller that lists only errors, as gitsby does, says nothing about `"C:\temp"`, and on Windows the path just never matches.
+		- Options: make `H004` an error where the value looks like a path, or leave it and say in the spec that a consumer reading paths should show hints.
+	- Decisions:
+		- 20261001: an error, not a hint and not a note in the spec.
+
+- No way to ask a setter for single quotes
+	- ID: 2026100115323222
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261001-153232
+	- Opened by: gitsby feedback
+	- Related IDs: the old-format item "A save that edits only the lines that changed", whose 20260925 decision keeps `fmt`'s canonical quoting
+	- Version and build: dev at `b10c2009`
+	- Requirements:
+		- `SetLiteral("p", "'C:/work'")` reads back `C:/work`, then writes `p: "C:/work"`. So does `'a#b'`. A single quote survives only when the value holds a backslash.
+		- A setter option, or a `SetLiteral` that keeps a quote style that reads back the same, so a program can write single quotes where the value allows.
+		- Not a reopen of the 20260925 decision. `fmt` keeps its canonical quoting; this is only for a program setting a value.
+	- Decisions:
+		- 20261001, from the answer on 2026100115323216: single quotes are the go-to for stopping escapes, when the string holds no `'`.
 
 - A Schema line makes `check` open any path, devices and network shares included
 	- ID: 2026092813365302
@@ -551,6 +660,31 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `pathhint`
 	- Commit: `1a12c02`
 	- Test case: corpus `171-windows-path-hint`, cli-regress `path-hint-*` rows. The read and strict rows and case 171 fail with the hint off, and `path-hint-set` shows a write is unaffected. The migrate goldens of cases 118, 122 and 170 now list the hint.
+
+- On Windows the Python save may write CRLF line endings
+	- ID: 2026093012535909
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20260930-125359
+	- Opened by: the design for 2026093009281183
+	- Related IDs: 2026093009281183
+	- Target OS: Windows
+	- Steps to reproduce: on Windows, a Python save of `a: 1` over an existing file, then read the file's bytes.
+	- Incorrect behavior: expected, not yet seen. The save opens its temp file with `os.open` and no `O_BINARY`, which is text mode on Windows, so each LF may go out as CRLF.
+	- Expected behavior: the same bytes the other three bindings write.
+	- Reproduced: No. Plausible, read in `write_file_atomic`. The Windows save-target rows in cli-regress are skipped, and a CR reads back as a blank, so nothing that runs there would show it.
+	- Actual cause: half right. An `os.open` fd is text mode on Windows, since CPython calls `_wopen` with no `O_BINARY` and never sets `_fmode`, so a plain `os.write` to it would turn LF into CRLF. The save never writes to the bare fd, though. `os.fdopen` wraps it in a file object, and that puts the fd in binary mode on Windows. The hosted windows job of 20260930 byte-checked a Python overwrite (`save_rewrites_a_read_only_file`) and matched a create against an overwrite, and both passed.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: no change to the bytes. Both opens now ask for binary themselves, so the code no longer claims text mode: `getattr(os, "O_BINARY", 0)` on the create, and `O_BINARY` in place of `O_TEXT` in `_create_like`.
+	- Swept: every `os.open` in the Python binding, its CLI and its tests. The CLI's `_old_v2` create and handle open already pass `O_BINARY`. `_sync_dir` opens a directory read-only for fsync and writes nothing. The tests have none.
+	- Verified: the new test fails on a save that writes CRLF and passes on the tree. Python conformance, ruff and mypy pass.
+	- Verified: `save_writes_lf_bytes` passes in the hosted run 36785011455 on dev at `fa421bd7`. The save wrote LF both ways on Windows. The explicit binary opens stay, since they match what the code does.
+	- Branch: winfollow
+	- Commit: 50ceb521
+	- Test case: `save_writes_lf_bytes` (Python, ErOTliS), a byte check of a create and an overwrite, in the hosted windows job.
+	- Closed: 20260930-161101
 
 - A Schema line naming `/proc/self/pagemap` makes `check` read until memory runs out
 	- ID: 2026093019075903
@@ -1347,14 +1481,12 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Opened: 20260929-181102
 	- Opened by: the 2,000,000 release fuzz while working 2026092813365325
 	- Steps to reproduce:
-
 		~~~bash
 		printf 'b:`, 2\nb:\ta:\xc3\xa9\n`\tx 1\n' > A.shcl
 		printf 'r:\n\t``\n\t  l ne1\n\t   \n\n\t `\n\t*  line2\n\t```\n' > B.shcl
 		shcl fmt B.shcl > Bf.shcl
 		diff <(shcl fmt --layer=A.shcl B.shcl) <(shcl fmt --layer=A.shcl Bf.shcl)
 		~~~
-
 	- Incorrect behavior: the first output has a blank line above the comment the second does not. `merge_never_panics_and_stays_fixpoint` fails at iteration 748271.
 	- Expected behavior: both give the same text.
 	- Reproduced: 20260929, all four CLIs. Case 185 shifted the fuzz seed set onto it. Dev with case 185 added fails at the same iteration, and dev without it passes. The 200,000 run in `--ci` does not reach it.
