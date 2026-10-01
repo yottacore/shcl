@@ -272,6 +272,9 @@ printf 'font:\n\tsize: 12\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n' > "${t
 printf 'val: 1\n\t* e\nz: 2\n' > "${tmpDir}/keepelem.shcl"
 printf 'x: [1, 2]\n x:\nx.a: 2\n' > "${tmpDir}/keepgap.shcl"
 printf 'a:\n\tx: 1\nb:   2\na:\n\ty: 1\n' > "${tmpDir}/keepfold.shcl"
+## Mixed line ends, the first line the odd one out either way.
+printf 'a: 1\nb: 2\r\nc: 3\r\n' > "${tmpDir}/keepcrlf.shcl"
+printf 'a: 1\r\nb: 2\nc: 3\n' > "${tmpDir}/keeplf.shcl"
 ## A schema key nothing knows, on schema line 2.
 printf 'field: a\n\tbogus: 1\n' > "${tmpDir}/unkey.shcl"
 ## A file and a name that both start with a dash, so only `--` makes them data.
@@ -310,7 +313,8 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	%K% a fresh copy of a file kept by hand, at the path %C% names, %KL% the
 ##	same for a file whose load drops a line, %KE% one that drops an element
 ##	under a field with a value, %KG% one that drops a line between two lines
-##	of one block, %KF% one whose save cannot keep its lines,
+##	of one block, %KF% one whose save cannot keep its lines, %KM%/%KN% ones
+##	whose line ends are mostly CRLF and mostly LF,
 ##	%W% a fresh copy of the selector-sugar file, %BS% a fresh copy of a file
 ##	whose value reads differently under the two rule sets, %BW% a fresh copy of
 ##	the bracket array, %V3% a file that already names its format,
@@ -510,6 +514,9 @@ rows=(
 	'EqutO7J|set-keeps-lines|set %K% --set=block.a=2|-|0|# note\nName:   "x"   # c\nblock:\n    a: 2\n|-'
 	'EqutO7K|set-write-keeps-lines|set --write %K% --set=block.b=3|-|0|-|-|# note\nName:   "x"   # c\nblock:\n    a: 1\n    b: 3\n'
 	'EqutO7L|fmt-write-rewrites-all|fmt --write %K%|-|0|-|-|# note\nname: "x"  # c\nblock:\n\ta: 1\n'
+	## A new line ends the way most of the file's lines do, not its first.
+	'ErPO61B|set-write-eol-mostly-crlf|set --write %KM% --set=d=4|-|0|-|-|a: 1\nb: 2\r\nc: 3\r\n\r\nd: 4\r\n'
+	'ErPO633|set-write-eol-mostly-lf|set --write %KN% --set=d=4|-|0|-|-|a: 1\r\nb: 2\nc: 3\n\nd: 4\n'
 	## A dropped line refuses the write only when the save falls back to
 	## canonical. Removing margin would put stray under window, so that one does.
 	'EqzUbG4|set-write-keeps-dropped|set --write %KL% --set=font.size=13|-|0|-|E012|font:\n\tsize: 13\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n'
@@ -1065,6 +1072,16 @@ for row in "${rows[@]}"; do
 		freshKeepFold=1
 		argv="${argv//%KF%/${tmpDir}/created.shcl}"
 	fi
+	freshKeepCrlf=0
+	if [[ "${argv}" == *%KM%* ]]; then
+		freshKeepCrlf=1
+		argv="${argv//%KM%/${tmpDir}/created.shcl}"
+	fi
+	freshKeepLf=0
+	if [[ "${argv}" == *%KN%* ]]; then
+		freshKeepLf=1
+		argv="${argv//%KN%/${tmpDir}/created.shcl}"
+	fi
 	freshCreate=0
 	if [[ "${argv}" == *%C%* ]]; then
 		freshCreate=1
@@ -1142,6 +1159,8 @@ for row in "${rows[@]}"; do
 		((freshKeepElem)) && cp "${tmpDir}/keepelem.shcl" "${tmpDir}/created.shcl"
 		((freshKeepGap)) && cp "${tmpDir}/keepgap.shcl" "${tmpDir}/created.shcl"
 		((freshKeepFold)) && cp "${tmpDir}/keepfold.shcl" "${tmpDir}/created.shcl"
+		((freshKeepCrlf)) && cp "${tmpDir}/keepcrlf.shcl" "${tmpDir}/created.shcl"
+		((freshKeepLf)) && cp "${tmpDir}/keeplf.shcl" "${tmpDir}/created.shcl"
 		if [[ -n "${runIn}" ]]; then cli="$(realpath -- "${cli}")"; cd -- "${runIn}"; fi
 		rc=0
 		case "${stdinSpec}" in
