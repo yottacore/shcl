@@ -165,8 +165,8 @@ printf 'db:\n\thost: h\n\t"odd.key": 2\nweb:\n\tport: 1\n' > "${tmpDir}/tree.shc
 printf 'a: 1\nb: 2\n' > "${tmpDir}/two.shcl"
 ## Bracket text on a value line is kept verbatim and binds nothing, so the
 ## rewrite goes through unchanged. The 2.x selector sugar reads the same way
-## now, and the line under it goes with it, so that file refuses to save until
-## migrate rewrites it. The sugar file is copied fresh for every run of a row
+## now, and the line under it loads under the field with no value, so that
+## file saves as written too. The sugar file is copied fresh for every run of a row
 ## that names %W%, since a rewrite is the thing being tested.
 printf 'ports: [80, 443]\n' > "${tmpDir}/brarray.shcl"
 printf 'srv["1,000"].port: 1\n' > "${tmpDir}/selcomma.shcl"
@@ -281,7 +281,9 @@ printf '# note\nName:   "x"   # c\nblock:\n    a: 1\n' > "${tmpDir}/keepsrc.shcl
 ## The load drops the tab-indented stray line. The keep save writes it back.
 printf 'font:\n\tsize: 12\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n' > "${tmpDir}/keeplost.shcl"
 printf 'val: 1\n\t* e\nz: 2\n' > "${tmpDir}/keepelem.shcl"
-printf 'x: [1, 2]\n x:\nx.a: 2\n' > "${tmpDir}/keepgap.shcl"
+## A wildcard selector keeps the line under the bracket text dropped: the
+## path could not open, where a plain one now does (2026100115403384).
+printf 'x[*]: [1, 2]\n x:\nx.a: 2\n' > "${tmpDir}/keepgap.shcl"
 printf 'a:\n\tx: 1\nb:   2\na:\n\ty: 1\n' > "${tmpDir}/keepfold.shcl"
 ## Mixed line ends, the first line the odd one out either way.
 printf 'a: 1\nb: 2\r\nc: 3\r\n' > "${tmpDir}/keepcrlf.shcl"
@@ -558,7 +560,7 @@ rows=(
 	## 20260926 idea 2: a save meant to keep the lines that rewrote the whole
 	## file said nothing.
 	'Er8Ivln|set-write-says-canonical|set --write %KF% --set=b=3|-|0|-|rewritten in the canonical form|a:\n\tx: 1\n\ty: 1\nb: 3\n'
-	'Er7gihi|set-write-keeps-dropped-between|set --write %KG% --set=x=v|-|7|-|dropped 1 line|x: [1, 2]\n x:\nx.a: 2\n'
+	'Er7gihi|set-write-keeps-dropped-between|set --write %KG% --set=x=v|-|7|-|dropped 1 line|x[*]: [1, 2]\n x:\nx.a: 2\n'
 	"Ep3OILN|set-open-quote-refused|set --set=a[\"open=1 %X%|-|1|-|bad --set value"
 	## 20260909 item 13: a value built by a setter or a selector read as
 	## unquoted, so quoted thousands were BadType until a save and reload.
@@ -588,9 +590,14 @@ rows=(
 	'EqGaO23|schema-text-v093|check --schema=%SM% %DL%|-|6|-|V093 bad schema path: d\."x\\ny"\.$'
 	'Ep3QaNl|bracket-array-check|check %BA%|-|6|line 1: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
 	'EpFkZy7|bracket-array-write-kept|fmt --write %BA%|-|0||-'
-	'Ep3QaNm|sugar-check|check %W%|-|6|line 1: Error: E019\nline 2: Error: E018\nfailed: 2 diagnostic(s), 2 error(s)\n|-'
+	## The line under bracket text loads now (2026100115403384), so these two
+	## no longer hold: no E018, nothing lost, and the write goes through.
+	#'Ep3QaNm|sugar-check|check %W%|-|6|line 1: Error: E019\nline 2: Error: E018\nfailed: 2 diagnostic(s), 2 error(s)\n|-'
 	'Ep3QaNn|sugar-check-strict|check --strictness=strict %W%|-|6|-|-'
-	'EpFkZy8|sugar-write-refused|fmt --write %W%|-|7|-|dropped 1 line'
+	#'EpFkZy8|sugar-write-refused|fmt --write %W%|-|7|-|dropped 1 line'
+	'ErUmRRa|sugar-check-block|check %W%|-|6|line 1: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
+	'ErUmRRb|sugar-block-read|get %W% base.lat|-|0|42\n|-'
+	'ErUmRRc|sugar-write-kept|fmt --write %W%|-|0||-'
 	'EpFkZy9|sugar-migrate|migrate %W%|-|0|base: Boston\n\tlat: 42\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	'EpFkZyA|sugar-migrate-write|migrate --write %W%|-|0||-'
 	## An unknown escape in double quotes is refused and kept as written, not
@@ -620,11 +627,22 @@ rows=(
 	'ErEBHU6|escape-flag-kept|fmt -|a: \xf0\x9f\x8f\xb4\xf3\xa0\x81\xa7\xf3\xa0\x81\xa2\xf3\xa0\x81\xa5\xf3\xa0\x81\xae\xf3\xa0\x81\xa7\xf3\xa0\x81\xbf\n|0|a: \xf0\x9f\x8f\xb4\xf3\xa0\x81\xa7\xf3\xa0\x81\xa2\xf3\xa0\x81\xa5\xf3\xa0\x81\xae\xf3\xa0\x81\xa7\xf3\xa0\x81\xbf\n|-'
 	'ErEBHU7|escape-selector-kept|fmt -|a: \xe2\x9d\xa4\xef\xb8\x8f\n|0|a: \xe2\x9d\xa4\xef\xb8\x8f\n|-'
 	'ErEBHU8|escape-selector-run|fmt -|a: x\xef\xb8\x8f\xef\xb8\x8f\n|0|a: "x\xef\xb8\x8f\\uFE0F"\n|-'
-	## A path in double quotes whose escapes are all real still reads and saves
-	## as written. The hint says so and changes nothing else.
-	'Er1iG7N|path-hint-read|get - a|a: "C:\\temp"\n|0|C:\temp\n|H004 value looks like a Windows path'
-	'Er1iG7O|path-hint-strict|check --strictness=strict -|a: "C:\\temp"\n|0|line 1: Hint: H004\nok (1 diagnostic(s))\n|-'
-	'Er1iG7P|path-hint-set|set - --set b=1|a: "C:\\temp"\n|0|a: "C:\\temp"\n\nb: 1\n|-'
+	## A path in double quotes with a \t or \n escape was a hint, H004, and
+	## reads, loads strict and saves as written. It is E024 now
+	## (2026100115323227), so these three no longer hold.
+	#'Er1iG7N|path-hint-read|get - a|a: "C:\\temp"\n|0|C:\temp\n|H004 value looks like a Windows path'
+	#'Er1iG7O|path-hint-strict|check --strictness=strict -|a: "C:\\temp"\n|0|line 1: Hint: H004\nok (1 diagnostic(s))\n|-'
+	#'Er1iG7P|path-hint-set|set - --set b=1|a: "C:\\temp"\n|0|a: "C:\\temp"\n\nb: 1\n|-'
+	## It is refused like E023: kept as written, read as nothing, and the
+	## lines under it still load. A tab or line break a setter writes into
+	## such a value goes out as a \u escape, and SetLiteral text holding one
+	## is refused.
+	'ErUmRRd|path-escape-read|get - a|a: "C:\\temp"\n|3|\n|E024 value starts like a Windows path'
+	'ErUmRRe|path-escape-strict|check -|a: "C:\\temp"\n|6|line 1: Error: E024\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
+	'ErUmRRf|path-escape-block|get - a.b|a: "C:\\temp"\n\tb: 1\n|0|1\n|-'
+	'ErUmRRg|path-escape-set|set -|string\ta\tC:\\temp\n|0|a: "C:\\u0009emp"\n|-'
+	'ErUmRRh|path-escape-literal|set %F2%|literal\tx\t"C:\\temp"\n|1||^op line 1: cannot write x'
+	'ErUmRRi|path-escape-migrate-lost|migrate -|q: "\\\\\\\\srv\\new"\n|7|-|line break in a Windows path'
 	'Er1adAs|escape-unknown-migrate|migrate -|q: "C:\\work"\n|0|q: "C:\\\\work"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	## 20260909 item 4: a 3.0 file spells a backslash value the same way a 2.x
 	## one does, so migrating on a guess changed a correct file at exit 0. The
@@ -669,7 +687,9 @@ rows=(
 	'Eq4Rkv2|migrate-ambiguous-refused|migrate %BS%|-|7|-|does not say which it was written for'
 	"Eq4Rkv3|migrate-ambiguous-kept|migrate %BS%|-|7|p: 'C:\\\\temp'\n|-"
 	'Eq4Rkv4|migrate-ambiguous-write-refused|migrate --write %BS%|-|7|-|refusing to rewrite'
-	'Eq4Rkv5|migrate-from-2x|migrate --from-2x %BS%|-|0|p: "C:\\temp"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	## The 2.x tab now goes in as it is, since "C:\temp" is E024 (2026100115323227).
+	#'Eq4Rkv5|migrate-from-2x|migrate --from-2x %BS%|-|0|p: "C:\\temp"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'ErUn2Bt|migrate-from-2x-tab|migrate --from-2x %BS%|-|0|p: "C:\temp"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	## A file that names its format has nothing to migrate, which is what stops
 	## the second run from rewriting the first run's output.
 	'Eq4Rkv6|migrate-stamped-noop|migrate %V3%|-|0|p: 1\n##    Format   3\n|nothing to migrate'
@@ -700,12 +720,17 @@ rows=(
 	'EqMO8f5|fmt-check-write|fmt --check --write %NC%|-|1|-|--check cannot be combined with --write'
 	## 20260920 item 1: --check promised a rewrite --write then refused. The
 	## sugar file's --write row two dozen lines up is the other half of the pair.
-	'EqQSqyX|fmt-check-refused|fmt --check %W%|-|7||fmt --write would refuse: the load dropped 1 line'
+	## The sugar file loses nothing now (2026100115403384), so the pair moved
+	## to a file whose load drops a line.
+	#'EqQSqyX|fmt-check-refused|fmt --check %W%|-|7||fmt --write would refuse: the load dropped 1 line'
+	'ErUn2Bu|fmt-check-refused-dropped|fmt --check %KL%|-|7||fmt --write would refuse: the load dropped 1 line'
 	'EqQSqyY|migrate-check-refused|migrate --check %ML%|-|7||migrate --write would refuse: the migrated text drops 1 line'
 	'EqQSqyZ|migrate-write-refused-lost|migrate --write %ML%|-|7|-|refusing to rewrite: the migrated text drops 1 line'
 	## 20260918b item 55: a created file says so, since nothing else does.
 	'EqMO8f6|create-says|set --write --no-banner %C% --set=a=1|-|0|-|created\.shcl: created|a: 1\n'
-	'EqMO8f7|write-existing-quiet|fmt --write %W%|-|7|-|!created'
+	## The sugar file's write goes through now (2026100115403384).
+	#'EqMO8f7|write-existing-quiet|fmt --write %W%|-|7|-|!created'
+	'ErUn2Bv|write-existing-quiet-kept|fmt --write %W%|-|0|-|!created'
 	'Eq4wD3Z|migrate-check-clean|migrate --check %F%|-|0||!.'
 	'Eq4wD3a|migrate-check-stamped|migrate --check %V3%|-|0||nothing to migrate'
 	'Eq4wD3b|migrate-check-ambiguous|migrate --check %BS%|-|7||does not say which it was written for'
