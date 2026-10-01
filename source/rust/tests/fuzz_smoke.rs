@@ -1211,6 +1211,198 @@ fn keeping_lines_reloads_as_the_document() {
 	);
 }
 
+/// A config like tidy()'s where each line ends in LF or CRLF on its own, all
+/// one kind, alternating (a tie when the count is even) or at random, and a
+/// third of them with no final newline. Every line is spelled the way the
+/// canonical form never writes it, with a blank before the colon or at the
+/// end, so a line written fresh cannot pass for one kept or changed. Raw body
+/// lines and closing fences cannot be spelled that way, so they come back
+/// apart and go unchecked.
+fn mixed_eol(rng: &mut Rng) -> (String, Vec<String>) {
+	let unit = ["\t", "  ", "    "][rng.below(3)];
+	let mut lines: Vec<String> = Vec::new();
+	let mut raw: Vec<String> = Vec::new();
+	let mut depth = 0usize;
+	for n in 0..(1 + rng.below(14)) {
+		if depth > 0 && rng.below(4) == 0 {
+			depth -= 1;
+		}
+		let ind = unit.repeat(depth);
+		let inner = unit.repeat(depth + 1);
+		let name = format!("{}{}", ["k", "Srv", "port", "x_y"][rng.below(4)], n);
+		match rng.below(10) {
+			0 => lines.push(format!("{ind}# note {n} ")),
+			1 => lines.push(String::new()),
+			2 => {
+				depth += 1;
+				lines.push(format!("{ind}{name} :"));
+			}
+			3 => lines.push(format!("{ind}{name} :  \"quoted {n}\"   # c{n} ")),
+			4 => lines.push(format!("{ind}{name} :  a{n}, b,  c ")),
+			5 => lines.extend([
+				format!("{ind}{name} :"),
+				format!("{inner}* one{n} "),
+				format!("{inner}* two{n} "),
+			]),
+			6 => {
+				let body = [
+					format!("{inner}body {n}"),
+					format!("{inner}  deeper {n}"),
+					format!("{inner}```"),
+				];
+				lines.push(format!("{ind}{name} :  ```"));
+				raw.extend(body.iter().cloned());
+				lines.extend(body);
+			}
+			7 => lines.push(format!("{ind}{name}.sub :  {} ", rng.below(100))),
+			_ => lines.push(format!("{ind}{name} :  {} ", rng.below(100))),
+		}
+	}
+	let mode = rng.below(4);
+	let mut out = String::new();
+	for (k, l) in lines.iter().enumerate() {
+		out.push_str(l);
+		let crlf = match mode {
+			0 => false,
+			1 => true,
+			2 => k % 2 == 1,
+			_ => rng.below(2) == 0,
+		};
+		out.push_str(if crlf { "\r\n" } else { "\n" });
+	}
+	if rng.below(3) == 0 {
+		out.truncate(out.trim_end_matches(['\r', '\n']).len());
+	}
+	(out, raw)
+}
+
+/// Each line of a text and its line ending: CRLF, LF, or none on a last line
+/// with no newline.
+fn eol_lines(text: &str) -> Vec<(&str, &str)> {
+	text.split_inclusive('\n')
+		.map(|l| {
+			let body = match l.strip_suffix('\n') {
+				Some(b) => b.strip_suffix('\r').unwrap_or(b),
+				None => l,
+			};
+			(body, &l[body.len()..])
+		})
+		.collect()
+}
+
+/// The ending owed to the one source line a line stands for: its own, or
+/// the majority one when it had none. None when several could be it.
+fn one<'a>(hits: &[&(&str, &'a str)], majority: &'a str) -> Option<&'a str> {
+	match hits {
+		[(_, e)] => Some(if e.is_empty() { majority } else { e }),
+		_ => None,
+	}
+}
+
+/// The keep save ends each line the way the spec says: a line kept as
+/// written keeps its own ending, a changed line keeps its own, a new line
+/// takes the file's majority one with a tie going to LF, and a source line
+/// that had none, the last of a file with no final newline, takes the
+/// majority one too. A file with no final newline keeps none, and nothing is
+/// left of the last line's own ending, a lone CR included. A line counts as
+/// the source's when its text, or failing that its name through the colon,
+/// is one source line's. Only the save that kept the lines is held to it;
+/// the fallback is canonical and LF.
+#[test]
+fn keeping_lines_ends_each_line_by_the_rule() {
+	let _id = test_id("ErTmDwQ");
+	let iters = iter_count(300);
+	let mut rng = Rng(0x5EED_1001_E01F_0001);
+	// Kept and changed lines whose ending is not the majority one, new lines,
+	// tied files, and files with no final newline whose last line moved.
+	let mut seen = [0usize; 5];
+	for i in 0..iters {
+		let (base, raw) = mixed_eol(&mut rng);
+		let mut doc =
+			Document::parse_keep_lines(&base, Strictness::Standard).unwrap_or_else(|e| e.document);
+		let mut log = format!("base: {base:?}\n");
+		for step in 0..(1 + rng.below(3)) {
+			let paths = doc.paths();
+			let path = if paths.is_empty() || rng.below(4) == 0 {
+				format!("z{step}")
+			} else {
+				paths[rng.below(paths.len())].clone()
+			};
+			let op = rng.below(9);
+			let _ = match op {
+				0 => doc.set_int(&path, 7),
+				1 => doc.set_string(&path, "new text"),
+				2 => doc.remove(&path) > 0,
+				3 => doc.set_comment(&path, "added"),
+				4 => doc.clear_comments(&path) > 0,
+				5 => doc.set_int(&format!("{path}.kid{step}"), 3),
+				6 => doc.set_empty(&path),
+				7 => doc.set_banner(true) > 0,
+				_ => doc.set_raw(&path, "one\n\ttwo", "sh"),
+			};
+			log.push_str(&format!("op {op} at {path:?}\n"));
+		}
+		let (text, kept) = doc.to_text_keep_lines();
+		if !kept || text == base {
+			continue;
+		}
+		let source = eol_lines(&base);
+		let crlf = source.iter().filter(|l| l.1 == "\r\n").count();
+		let lf = source.iter().filter(|l| l.1 == "\n").count();
+		let majority = if crlf > lf { "\r\n" } else { "\n" };
+		let no_final = !base.is_empty() && !base.ends_with('\n');
+		seen[3] += usize::from(crlf == lf && crlf > 0);
+		let lines = eol_lines(&text);
+		let head = |t: &str| t.find(':').map(|k| t[..=k].to_string());
+		for (j, &(line, eol)) in lines.iter().enumerate() {
+			let fail = || format!("iteration {i}, line {}:\n{log}--- wrote {text:?}", j + 1);
+			assert!(
+				!line.contains('\r'),
+				"a carriage return left over, {}",
+				fail()
+			);
+			if j + 1 == lines.len() {
+				assert_eq!(eol.is_empty(), no_final, "the final newline, {}", fail());
+				if no_final {
+					seen[4] += usize::from(source.last().map(|l| l.0) != Some(line));
+					continue;
+				}
+			}
+			if line.trim().is_empty() || raw.iter().any(|r| r == line) {
+				continue;
+			}
+			let same: Vec<_> = source.iter().filter(|s| s.0 == line).collect();
+			let (want, class) = if !same.is_empty() {
+				(one(&same, majority), 0)
+			} else if let Some(h) = head(line) {
+				let named: Vec<_> = source
+					.iter()
+					.filter(|s| head(s.0).as_ref() == Some(&h))
+					.collect();
+				match named.len() {
+					0 => (Some(majority), 2),
+					_ => (one(&named, majority), 1),
+				}
+			} else {
+				(Some(majority), 2)
+			};
+			let Some(want) = want else { continue };
+			assert_eq!(
+				eol,
+				want,
+				"a {} line ends wrong, {}",
+				["kept", "changed", "new"][class],
+				fail()
+			);
+			seen[class] += usize::from(class == 2 || want != majority);
+		}
+	}
+	assert!(
+		seen.iter().all(|&n| n > 0),
+		"a case never came up (kept, changed, new, tie, no final newline): {seen:?}"
+	);
+}
+
 /// Lines built from the grammar with their spans known as they are laid
 /// down, so the tokenizer has an oracle outside itself: the four bindings
 /// agreeing on `tokens` proves parity, and this is what proves the spans are
