@@ -37,8 +37,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- ID: 2026093019075903
 	- Type: Bug
 	- Status: Waiting on signoff
-	- Needs local test suite run?: cppcheck's exhaustive pass over the C CLI, at the next full run.
-	- Needs external testing: the hosted windows job, which runs the at-cap and over-cap rows.
 	- Severity: Low
 	- Opened: 20260930-190759
 	- Opened by: Code review 20260930 item 3
@@ -64,6 +62,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Verified: on dev, `check` under a 2 GB address-space cap exits 8 out of memory in Rust, 2 in Go, 70 in C and 8 with `Invalid argument` in Python. After, all four print the same line and exit 8.
 	- Verified: cli-regress passes in all four. Over-cap and at-cap also pass for the Windows C and Go builds under wine.
 	- Verified: cargo fmt, clippy, go vet, staticcheck, ruff, mypy, shellcheck, the gcc 15 and mingw builds, and `test-ids.py check`.
+	- Verified: the hosted run 36916523189 on dev at `6169e71f` is green, cppcheck included. The windows job passed the at-cap and over-cap rows in all four and skipped the pagemap row.
 	- Branch: schemacap
 	- Commit: 1c0d325b
 	- Test case: cli-regress `schema-line-pagemap` and `schema-line-over-cap`, both failing on dev, and `schema-line-at-cap`.
@@ -84,6 +83,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: corpus 124's migrate golden and the four runners' "the stamp is the only difference" check had pinned LF stamps. Both now expect the majority ending.
 	- Swept: each binding's migrate is the only code that writes the stamp. The unstamped call writes none, and `init` and a creating `set --write` write a new file, canonical and LF.
 	- Verified: `ErTecqE` failed in all four on dev and passes after. `ErTecqF`, the tie, passes on both. The same gates as 2026093019075901 pass.
+	- Verified: both rows pass in the linux and windows jobs of the hosted run 36916523189 on dev at `6169e71f`.
 	- Branch: eolfix
 	- Commit: 8aa812a9, 38259bbd
 	- Test case: cli-regress `ErTecqE` (`migrate-write-eol-crlf`) and `ErTecqF` (`migrate-eol-tie-lf`), and corpus `124-migrate-crlf-fence`.
