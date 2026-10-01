@@ -96,7 +96,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - A keep save gives a raw block turned scalar the file's line ending, not its own
 	- ID: 2026093019075901
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20260930-190759
 	- Opened by: Code review 20260930 item 1
@@ -109,12 +109,22 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: 20260930, all four CLIs.
 	- Origin: the spec sentence came in with `4ad726f6`. Base `f90708d8` wrote the same bytes, but nothing claimed otherwise then. Not seen by an earlier round. Confirmed.
 	- Sweep: every keep-save path that replaces a multi-line value with one line.
+	- Actual cause: a changed value that cannot be spliced into its line, as a raw block turned scalar, is written fresh after the line's own name. That line took the file's majority line ending, not its own.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: that line keeps the source line's own ending. It takes the majority one only when the source line had none, as the last line of a file with no final newline. All four bindings.
+	- Swept: the three ways a keep save writes a changed line, in all four. The value splice and the group splice keep the source line's tail, ending included. The line rewritten after its name was the one that did not. Lines written fresh below it are new lines and take the majority ending, as the spec says.
+	- Verified: `ErTecqB` failed in all four on dev and passes after. cli-regress (335 rows), the four conformance suites, the veneer smoke test, `cargo test`, the 2,000,000 release fuzz, crosscheck, check-docs, shell-regress, `test-ids.py check`, shellcheck, clippy, go vet, staticcheck, ruff and mypy pass.
+	- Branch: eolfix
+	- Commit: 353a4a5c
+	- Test case: cli-regress `ErTecqB` (`set-write-eol-raw-to-scalar`).
+	- Acceptance signoff: Self-closed: reproduced, its test failed before the fix and passes after in all four.
+	- Closed: 20261001-121827
 
 - A keep save can leave a lone CR at the end of a file with no final newline
 	- ID: 2026093019075902
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20260930-190759
 	- Opened by: Code review 20260930 item 2
@@ -127,12 +137,22 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: 20260930, all four CLIs.
 	- Possible cause: with no final newline in the source, the save trims one majority line ending off the end. When the last line kept CRLF in an LF-majority file, only the LF comes off.
 	- Origin: the trim is from the line-keeping save, `d426c740`. Base already did this when the last line was a raw fence ending in CRLF in an LF file. `4ad726f6` widened it to any kept CRLF line. Not seen by an earlier round. Confirmed.
+	- Actual cause: as the possible cause says. The trim took off the majority ending, and only when the text ended in it. The twin was also there: an LF last line in a CRLF-majority file kept its LF, so the file gained a final newline.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: the trim takes off whichever line ending the text ends with. All four bindings.
+	- Swept: the one end trim in each binding's keep save.
+	- Verified: `ErTecqC` and `ErTecqD` failed in all four on dev and pass after. The same gates as 2026093019075901 pass.
+	- Branch: eolfix
+	- Commit: 353a4a5c
+	- Test case: cli-regress `ErTecqC` (`set-write-eol-no-final-crlf`) and `ErTecqD` (`set-write-eol-no-final-lf`).
+	- Acceptance signoff: Self-closed: reproduced, its tests failed before the fix and pass after in all four.
+	- Closed: 20261001-121827
 
 - `migrate --write` stamps its lines with LF in a CRLF file
 	- ID: 2026093019075904
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Opened: 20260930-190759
 	- Opened by: Code review 20260930 idea 1
 	- Requirements:
@@ -140,6 +160,16 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- `printf 'a: 1\r\nb: 2\r\n' > f; shcl migrate --write --from-2x f` gives `...b: 2\r\n##    Format   3\n` in all four.
 	- Note: no doc claims migrate follows the rule, so this is not a defect. The file reloads the same.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: the Format and Migrated lines end in the file's majority line ending, a tie going to LF, and so does the line ending added after a last line that had none. One count serves this and the keep save, in all four bindings. spec.md says so under Migrating from 2.x.
+	- Note: corpus 124's migrate golden and the four runners' "the stamp is the only difference" check had pinned LF stamps. Both now expect the majority ending.
+	- Swept: each binding's migrate is the only code that writes the stamp. The unstamped call writes none, and `init` and a creating `set --write` write a new file, canonical and LF.
+	- Verified: `ErTecqE` failed in all four on dev and passes after. `ErTecqF`, the tie, passes on both. The same gates as 2026093019075901 pass.
+	- Branch: eolfix
+	- Commit: 8aa812a9, 38259bbd
+	- Test case: cli-regress `ErTecqE` (`migrate-write-eol-crlf`) and `ErTecqF` (`migrate-eol-tie-lf`), and corpus `124-migrate-crlf-fence`.
+	- Acceptance signoff: Self-closed: the change does what the requirements ask, and its test failed before and passes after.
+	- Closed: 20261001-121827
 
 - Mixed line endings in the keep-save fuzz
 	- ID: 2026093019075905
