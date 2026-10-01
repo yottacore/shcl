@@ -288,6 +288,7 @@ printf 'a: 1\nb: 2\r\nc: 3\r\n' > "${tmpDir}/keepcrlf.shcl"
 printf 'a: 1\r\nb: 2\nc: 3\n' > "${tmpDir}/keeplf.shcl"
 ## A CRLF raw block in an LF file, and files with no final newline whose last
 ## kept line ends the other way from most.
+#  shellcheck disable=2016  ## the backticks are the fence the fixture needs.
 printf 'x: 1\ny: 2\nr: ```\r\n\tb\r\n\t```\r\nz: 3\n' > "${tmpDir}/keepraw.shcl"
 printf 'a: 1\r\nb: 2\nc: 3\nx: 0\r\nz: 9' > "${tmpDir}/keeptail.shcl"
 printf 'a: 1\r\nb: 2\r\nc: 3\r\nx: 0\nz: 9' > "${tmpDir}/keeptaillf.shcl"

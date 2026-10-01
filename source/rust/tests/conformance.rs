@@ -897,16 +897,23 @@ fn migrate_unstamped_is_migrate_without_the_stamp() {
 				"{}: migrate_unstamped wrote a Format line",
 				case.name
 			);
+			// The stamp's lines end the way most of the input's lines do.
+			let crlf = case.input.matches("\r\n").count();
+			let eol = if crlf > case.input.matches('\n').count() - crlf {
+				"\r\n"
+			} else {
+				"\n"
+			};
 			let mut want = bare.text.clone();
 			if !full.current && full.text != bare.text {
 				if !want.is_empty() && !want.ends_with('\n') {
-					want.push('\n');
+					want.push_str(eol);
 				}
 				want.push_str(FORMAT_LINE);
-				want.push('\n');
+				want.push_str(eol);
 				if bare.text != case.input {
 					want.push_str(MIGRATED_LINE);
-					want.push('\n');
+					want.push_str(eol);
 				}
 			}
 			assert_eq!(
