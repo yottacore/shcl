@@ -1331,16 +1331,27 @@ int main(int argc, char **argv) {
 			shcl_migration bare = shcl_migrate_unstamped(input, ilen, from_v2);
 			if (bare.current != full.current || bare.ambiguous != full.ambiguous || bare.lost != full.lost) fail(names[ci], "counts differ without the stamp");
 			if (contains(bare.text, bare.len, SHCL_FORMAT_LINE_HEAD) && !contains(input, ilen, SHCL_FORMAT_LINE_HEAD)) fail(names[ci], "migrate_unstamped wrote a Format line");
-			size_t wcap = bare.len + sizeof(SHCL_FORMAT_LINE) + sizeof(SHCL_MIGRATED_LINE) + 4, wn = 0;
+			// The stamp's lines end the way most of the input's lines do.
+			size_t crlf = 0, lf = 0;
+			for (size_t k = 0; k < ilen; k++) {
+				if (input[k] != '\n') continue;
+				if (k > 0 && input[k - 1] == '\r') crlf++;
+				else lf++;
+			}
+			const char *eol = crlf > lf ? "\r\n" : "\n";
+			size_t eol_n = strlen(eol);
+			size_t wcap = bare.len + sizeof(SHCL_FORMAT_LINE) + sizeof(SHCL_MIGRATED_LINE) + 8, wn = 0;
 			char *want = (char *)malloc(wcap);
 			if (!want) abort();
 			memcpy(want, bare.text, bare.len); wn = bare.len;
 			int same = full.len == bare.len && (bare.len == 0 || memcmp(full.text, bare.text, bare.len) == 0);
 			if (!full.current && !same) {
-				if (wn && want[wn - 1] != '\n') want[wn++] = '\n';
-				memcpy(want + wn, SHCL_FORMAT_LINE, sizeof(SHCL_FORMAT_LINE) - 1); wn += sizeof(SHCL_FORMAT_LINE) - 1; want[wn++] = '\n';
+				if (wn && want[wn - 1] != '\n') { memcpy(want + wn, eol, eol_n); wn += eol_n; }
+				memcpy(want + wn, SHCL_FORMAT_LINE, sizeof(SHCL_FORMAT_LINE) - 1); wn += sizeof(SHCL_FORMAT_LINE) - 1;
+				memcpy(want + wn, eol, eol_n); wn += eol_n;
 				if (bare.len != ilen || (ilen && memcmp(bare.text, input, ilen) != 0)) {
-					memcpy(want + wn, SHCL_MIGRATED_LINE, sizeof(SHCL_MIGRATED_LINE) - 1); wn += sizeof(SHCL_MIGRATED_LINE) - 1; want[wn++] = '\n';
+					memcpy(want + wn, SHCL_MIGRATED_LINE, sizeof(SHCL_MIGRATED_LINE) - 1); wn += sizeof(SHCL_MIGRATED_LINE) - 1;
+					memcpy(want + wn, eol, eol_n); wn += eol_n;
 				}
 			}
 			if (full.len != wn || (wn && memcmp(full.text, want, wn) != 0)) fail(names[ci], "the stamp is not the only difference");

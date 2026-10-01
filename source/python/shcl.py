@@ -1856,6 +1856,13 @@ def migrate_unstamped(text: str, from_v2: bool) -> Migration:
 	return _migrate_text(text, from_v2, False)
 
 
+def _majority_eol(text):
+	"""The line ending most of the text's lines end with. A tie goes to LF."""
+	crlf = text.count("\r\n")
+	lf = text.count("\n") - crlf
+	return "\r\n" if crlf > lf else "\n"
+
+
 def _migrate_text(text, from_v2, stamp):
 	whole = text
 	bom = ""
@@ -1893,16 +1900,18 @@ def _migrate_text(text, from_v2, stamp):
 	# Stamping a file whose ambiguous pieces were left alone would claim a
 	# migration that did not finish, and the next run would then skip it. A
 	# document that never closes its raw block has nowhere to put the line
-	# either: appended, it would be another line of the block's content.
+	# either: appended, it would be another line of the block's content. The
+	# lines end the way most of the file's do.
 	if stamp and st.ambiguous == 0 and fence is None:
+		eol = _majority_eol(text)
 		s = "".join(out)
 		if s and not s.endswith("\n"):
-			out.append("\n")
+			out.append(eol)
 		out.append(FORMAT_LINE)
-		out.append("\n")
+		out.append(eol)
 		if changed:
 			out.append(MIGRATED_LINE)
-			out.append("\n")
+			out.append(eol)
 	return Migration("".join(out), ambiguous=st.ambiguous, lost=st.lost)
 
 
@@ -3659,6 +3668,15 @@ def _line_end(text, pos):
 	return len(text) if i < 0 else i + 1
 
 
+def _eol_of(t):
+	"""The line ending `t` ends with: CRLF, LF or none."""
+	if t.endswith("\r\n"):
+		return "\r\n"
+	if t.endswith("\n"):
+		return "\n"
+	return ""
+
+
 def _tabs(s, pos=0):
 	k = pos
 	while k < len(s) and s[k] == "\t":
@@ -3904,10 +3922,8 @@ def _keep_lines(src, doc):
 	left = [0 < k <= n and not blank(k) for k in range(n + 2)]
 	for k in claimed:
 		left[k:min(end[k], n) + 1] = [False] * (min(end[k], n) + 1 - k)
-	# New lines end the way most of the file's lines do. A tie goes to LF.
-	crlf = sum(1 for k in range(1, n + 1) if line(k).endswith("\r\n"))
-	lf = sum(1 for k in range(1, n + 1) if line(k).endswith("\n")) - crlf
-	eol = "\r\n" if crlf > lf else "\n"
+	# New lines end the way most of the file's lines do.
+	eol = _majority_eol(body)
 	# One level of the source's indent: a line one level in, or failing that
 	# the first indented line, a list element or a fence.
 	step = next((indent(u.line) for u in was_runs if u.line != 0 and u.line <= n and _tabs(loaded.text, u.start) == 1 and indent(u.line)), "")
@@ -4029,7 +4045,8 @@ def _keep_lines(src, doc):
 				t = _authored_head(line(k), now.text[u.start:first - 1])
 				if t is not None:
 					out.append(t)
-					out.append(eol)
+					# A changed line keeps its own line ending.
+					out.append(_eol_of(line(k)) or eol)
 					_note_indent(indents, depth, indent(k))
 					frm = first
 			_write_run(out, now, frm, u.end, indents, step, eol)
@@ -4045,9 +4062,10 @@ def _keep_lines(src, doc):
 	if any(left) or not all(wrote[g] for g in loaded_doc._dropped):
 		return None
 	text = "".join(out)
-	# So does a last line with no newline.
-	if body and not body.endswith("\n") and text.endswith(eol):
-		text = text[:-len(eol)]
+	# So does a last line with no newline. The line that ends the text now
+	# can be one kept with the other line ending.
+	if body and not body.endswith("\n"):
+		text = text[:len(text) - len(_eol_of(text))]
 	text = bom + text
 	# The reload has to be the document, and it may not load with an error the
 	# source did not have: a child the edits gave an element list that stayed

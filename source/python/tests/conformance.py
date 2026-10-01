@@ -1121,13 +1121,16 @@ def main():
 				fails.append(f"{case['name']}: counts differ without the stamp")
 			if shcl.FORMAT_LINE_HEAD in unstamped.text and shcl.FORMAT_LINE_HEAD not in case["input"]:
 				fails.append(f"{case['name']}: migrate_unstamped wrote a Format line")
+			# The stamp's lines end the way most of the input's lines do.
+			crlf = case["input"].count("\r\n")
+			eol = "\r\n" if crlf > case["input"].count("\n") - crlf else "\n"
 			stamp_want = unstamped.text
 			if not stamped.current and stamped.text != unstamped.text:
 				if stamp_want and not stamp_want.endswith("\n"):
-					stamp_want += "\n"
-				stamp_want += shcl.FORMAT_LINE + "\n"
+					stamp_want += eol
+				stamp_want += shcl.FORMAT_LINE + eol
 				if unstamped.text != case["input"]:
-					stamp_want += shcl.MIGRATED_LINE + "\n"
+					stamp_want += shcl.MIGRATED_LINE + eol
 			if stamped.text != stamp_want:
 				fails.append(f"{case['name']}: the stamp is not the only difference")
 			named = shcl.format_version(case["input"])

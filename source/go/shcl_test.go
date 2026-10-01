@@ -705,14 +705,19 @@ func TestMigrateUnstampedIsMigrateWithoutTheStamp(t *testing.T) {
 			if strings.Contains(bare.Text, FormatLineHead) && !strings.Contains(c.input, FormatLineHead) {
 				t.Errorf("%s: MigrateUnstamped wrote a Format line", c.name)
 			}
+			// The stamp's lines end the way most of the input's lines do.
+			eol := "\n"
+			if crlf := strings.Count(c.input, "\r\n"); crlf > strings.Count(c.input, "\n")-crlf {
+				eol = "\r\n"
+			}
 			want := bare.Text
 			if !full.Current && full.Text != bare.Text {
 				if want != "" && !strings.HasSuffix(want, "\n") {
-					want += "\n"
+					want += eol
 				}
-				want += FormatLine + "\n"
+				want += FormatLine + eol
 				if bare.Text != c.input {
-					want += MigratedLine + "\n"
+					want += MigratedLine + eol
 				}
 			}
 			if full.Text != want {

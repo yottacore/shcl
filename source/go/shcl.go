@@ -2175,6 +2175,17 @@ func MigrateUnstamped(text string, fromV2 bool) Migration {
 	return migrateText(text, fromV2, false)
 }
 
+// majorityEol is the line ending most of the text's lines end with. A tie
+// goes to LF.
+func majorityEol(text string) string {
+	crlf := strings.Count(text, "\r\n")
+	lf := strings.Count(text, "\n") - crlf
+	if crlf > lf {
+		return "\r\n"
+	}
+	return "\n"
+}
+
 func migrateText(text string, fromV2, stamp bool) Migration {
 	whole := text
 	bom := ""
@@ -2221,17 +2232,19 @@ func migrateText(text string, fromV2, stamp bool) Migration {
 	// Stamping a file whose ambiguous pieces were left alone would claim a
 	// migration that did not finish, and the next run would then skip it. A
 	// document that never closes its raw block has nowhere to put the line
-	// either: appended, it would be another line of the block's content.
+	// either: appended, it would be another line of the block's content. The
+	// lines end the way most of the file's do.
 	if stamp && st.ambiguous == 0 && !fence.open {
+		eol := majorityEol(text)
 		s := out.String()
 		if s != "" && !strings.HasSuffix(s, "\n") {
-			out.WriteByte('\n')
+			out.WriteString(eol)
 		}
 		out.WriteString(FormatLine)
-		out.WriteByte('\n')
+		out.WriteString(eol)
 		if changed {
 			out.WriteString(MigratedLine)
-			out.WriteByte('\n')
+			out.WriteString(eol)
 		}
 	}
 	return Migration{Text: out.String(), Ambiguous: st.ambiguous, Lost: st.lost}
@@ -4873,6 +4886,16 @@ func lineEnd(text string, pos int) int {
 	return len(text)
 }
 
+// eolOf is the line ending t ends with: CRLF, LF or none.
+func eolOf(t string) string {
+	if strings.HasSuffix(t, "\r\n") {
+		return "\r\n"
+	} else if strings.HasSuffix(t, "\n") {
+		return "\n"
+	}
+	return ""
+}
+
 func tabs(s string) int {
 	n := 0
 	for n < len(s) && s[n] == '\t' {
@@ -5176,19 +5199,8 @@ func keepLines(src string, doc *Document) (string, bool) {
 			left[k] = false
 		}
 	}
-	// New lines end the way most of the file's lines do. A tie goes to LF.
-	crlf, lf := 0, 0
-	for k := 1; k <= n; k++ {
-		if strings.HasSuffix(line(k), "\r\n") {
-			crlf++
-		} else if strings.HasSuffix(line(k), "\n") {
-			lf++
-		}
-	}
-	eol := "\n"
-	if crlf > lf {
-		eol = "\r\n"
-	}
+	// New lines end the way most of the file's lines do.
+	eol := majorityEol(body)
 	// One level of the source's indent: a line one level in, or failing that
 	// the first indented line, a list element or a fence.
 	step := ""
@@ -5357,7 +5369,12 @@ func keepLines(src string, doc *Document) (string, bool) {
 				first := lineEnd(nowText, u.start)
 				if t, ok := authoredHead(line(l), nowText[u.start:first-1]); ok {
 					out.WriteString(t)
-					out.WriteString(eol)
+					// A changed line keeps its own line ending.
+					ownEol := eolOf(line(l))
+					if ownEol == "" {
+						ownEol = eol
+					}
+					out.WriteString(ownEol)
 					indents = noteIndent(indents, depth, indent(l))
 					from = first
 				}
@@ -5396,9 +5413,10 @@ func keepLines(src string, doc *Document) (string, bool) {
 		}
 	}
 	text := out.String()
-	// So does a last line with no newline.
-	if body != "" && !strings.HasSuffix(body, "\n") && strings.HasSuffix(text, eol) {
-		text = text[:len(text)-len(eol)]
+	// So does a last line with no newline. The line that ends the text now
+	// can be one kept with the other line ending.
+	if body != "" && !strings.HasSuffix(body, "\n") {
+		text = text[:len(text)-len(eolOf(text))]
 	}
 	// The reload has to be the document, and it may not load with an error the
 	// source did not have: a child the edits gave an element list that stayed
