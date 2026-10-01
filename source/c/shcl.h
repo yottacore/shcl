@@ -7542,8 +7542,14 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 	   list over a refused element (20260926 item 1). */
 	unsigned char *wrote = (unsigned char *)arena_alloc(a, n + 2);
 	memset(wrote, 0, n + 2);
-	const char *eol = "\n";
-	if (n > 0) { ShclStr l1 = KL_LINE(1); if (l1.n >= 2 && l1.p[l1.n - 2] == '\r' && l1.p[l1.n - 1] == '\n') eol = "\r\n"; }
+	/* New lines end the way most of the file's lines do. A tie goes to LF. */
+	size_t crlf = 0, lf = 0;
+	for (size_t k = 1; k <= n; k++) {
+		ShclStr lk = KL_LINE(k);
+		if (lk.n >= 2 && lk.p[lk.n - 2] == '\r' && lk.p[lk.n - 1] == '\n') crlf++;
+		else if (lk.n >= 1 && lk.p[lk.n - 1] == '\n') lf++;
+	}
+	const char *eol = crlf > lf ? "\r\n" : "\n";
 	size_t eol_n = strlen(eol);
 	/* One level of the source's indent: a line one level in, or failing that
 	   the first indented line, a list element or a fence. */

@@ -123,7 +123,7 @@ A few nouns from the wider surface:
 
 - Files are UTF-8. A leading UTF-8 BOM is stripped if present. What a *library* does with bytes that are not valid UTF-8 is unspecified, and the bindings do differ - refusing, parsing the bytes as they are, and substituting are all in use - so a consumer handing the library raw bytes has to check the encoding itself. The CLIs do agree: every one refuses such a file at exit 8.
 
-- Line endings may be LF or CRLF (both accepted); the canonical formatter emits LF.
+- Line endings may be LF or CRLF (both accepted); the canonical formatter emits LF. A save that keeps the lines keeps the file's own line endings and indent instead, as described under [File tier](#file-tier).
 
 - Trailing whitespace on a line is trimmed before parsing.
 
@@ -552,7 +552,7 @@ Every consumer that persists a config re-implements the same load/save dance, an
 
 - `SaveFile(doc, path)` writes the document's canonical text through the same temp-file-and-rename mechanics the CLI's `--write` uses (described above), so an interrupted save can never truncate the config it rewrites; the CLIs call this same code, so the two cannot drift.
 
-- A second save **keeps the lines** an edit did not touch. `ParseKeepLines` and `LoadFileKeepLines` (each binding's spelling) load a document that holds on to its text, and `ToTextKeepLines` and `SaveFileKeepLines` write it back: each line no edit touched byte for byte, a changed value into its own line with the name, spacing and comment around it left alone, and a new line at the indent of the lines around it. The text has to load back as the edited document, with no error the file did not already have. When it would not, as after a merge, or a child added under a flat dotted line, the save writes the canonical form instead and reports which one it wrote. A document the text was not kept for, a merged one included, always gets the canonical form. A line the load dropped comes back as written when the lines are kept, so the refusal below applies only when the save writes the canonical form. `set` saves like this; `fmt` and `SaveFile` write the canonical form.
+- A second save **keeps the lines** an edit did not touch. `ParseKeepLines` and `LoadFileKeepLines` (each binding's spelling) load a document that holds on to its text, and `ToTextKeepLines` and `SaveFileKeepLines` write it back: each line no edit touched byte for byte, a changed value into its own line with the name, spacing and comment around it left alone, and a new line at the indent of the lines around it. A changed line keeps its own line ending, and a new one ends the way most of the file's lines do, so a CRLF file stays CRLF. A tie goes to LF. The text has to load back as the edited document, with no error the file did not already have. When it would not, as after a merge, or a child added under a flat dotted line, the save writes the canonical form instead and reports which one it wrote. A document the text was not kept for, a merged one included, always gets the canonical form. A line the load dropped comes back as written when the lines are kept, so the refusal below applies only when the save writes the canonical form. `set` saves like this; `fmt` and `SaveFile` write the canonical form.
 
 - A save that **creates** a file has no mode to preserve, so the file gets the `0666 & ~umask` an ordinary create would produce - the same bits the user's editor or shell redirect would have given it. An existing file keeps the permission bits it already had, which is the case the temp file is born private for.
 

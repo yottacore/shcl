@@ -5176,8 +5176,17 @@ func keepLines(src string, doc *Document) (string, bool) {
 			left[k] = false
 		}
 	}
+	// New lines end the way most of the file's lines do. A tie goes to LF.
+	crlf, lf := 0, 0
+	for k := 1; k <= n; k++ {
+		if strings.HasSuffix(line(k), "\r\n") {
+			crlf++
+		} else if strings.HasSuffix(line(k), "\n") {
+			lf++
+		}
+	}
 	eol := "\n"
-	if n > 0 && strings.HasSuffix(line(1), "\r\n") {
+	if crlf > lf {
 		eol = "\r\n"
 	}
 	// One level of the source's indent: a line one level in, or failing that

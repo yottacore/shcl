@@ -5424,11 +5424,10 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 	for &l in &claimed {
 		left[l..=end[l].min(n)].fill(false);
 	}
-	let eol = if n > 0 && line(1).ends_with("\r\n") {
-		"\r\n"
-	} else {
-		"\n"
-	};
+	// New lines end the way most of the file's lines do. A tie goes to LF.
+	let crlf = lines.iter().filter(|l| l.ends_with("\r\n")).count();
+	let lf = lines.iter().filter(|l| l.ends_with('\n')).count() - crlf;
+	let eol = if crlf > lf { "\r\n" } else { "\n" };
 	// One level of the source's indent: a line one level in, or failing that
 	// the first indented line, a list element or a fence.
 	let step = was_runs
