@@ -126,6 +126,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Verified: cli-regress passes in all four. Over-cap and at-cap also pass for the Windows C and Go builds under wine.
 	- Verified: cargo fmt, clippy, go vet, staticcheck, ruff, mypy, shellcheck, the gcc 15 and mingw builds, and `test-ids.py check`.
 	- Branch: schemacap
+	- Commit: 1c0d325b
 	- Test case: cli-regress `schema-line-pagemap` and `schema-line-over-cap`, both failing on dev, and `schema-line-at-cap`.
 
 - `migrate --write` stamps its lines with LF in a CRLF file
