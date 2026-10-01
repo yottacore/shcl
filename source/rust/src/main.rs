@@ -2868,9 +2868,14 @@ fn schema_for(o: &Opts, file: &str, text: &str) -> Result<Option<String>, String
 	Ok(Some(format!("{}{}", &file[..start], named)))
 }
 
+/// The most a Schema line's file may hold. A regular file can still read
+/// without end: the kernel's page map has size 0 and reads as hundreds of GiB.
+const SCHEMA_LINE_MAX: usize = 16 << 20;
+
 /// Reads the schema a Schema line names. A line in a file someone else wrote
 /// must not make an unattended check wait on a FIFO or read a device until
-/// memory runs out, so only a regular file is read.
+/// memory runs out, so only a regular file is read, and no more of it than
+/// SCHEMA_LINE_MAX.
 fn read_named_schema(path: &str) -> Result<String, String> {
 	use std::io::Read;
 	#[cfg(windows)]
@@ -2887,10 +2892,23 @@ fn read_named_schema(path: &str) -> Result<String, String> {
 	regular(std::fs::metadata(path))?;
 	let mut f = std::fs::File::open(path).map_err(|e| format!("{}: {}", path, e))?;
 	regular(f.metadata())?;
-	let mut s = String::new();
-	f.read_to_string(&mut s)
-		.map_err(|e| format!("{}: {}", path, e))?;
-	Ok(s)
+	// Fixed reads, since the page map refuses one that is not a multiple of 8.
+	// One read past the cap is what tells a file at it from one over it.
+	let mut bytes = Vec::new();
+	let mut chunk = vec![0u8; 1 << 16];
+	loop {
+		let n = match f.read(&mut chunk) {
+			Ok(0) => break,
+			Ok(n) => n,
+			Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+			Err(e) => return Err(format!("{}: {}", path, e)),
+		};
+		bytes.extend_from_slice(&chunk[..n]);
+		if bytes.len() > SCHEMA_LINE_MAX {
+			return Err(format!("{}: too large for a schema (over 16 MiB)", path));
+		}
+	}
+	String::from_utf8(bytes).map_err(|_| format!("{}: stream did not contain valid UTF-8", path))
 }
 
 fn do_check(o: &Opts) -> u8 {

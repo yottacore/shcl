@@ -566,18 +566,20 @@ static int write_target_ok(const char *file) {
 	return 1;
 }
 
-static char *read_stream(FILE *f, const char *who, size_t *len);
+static char *read_stream(FILE *f, const char *who, size_t max, size_t *len);
 static char *read_input(const char *file, size_t *len) {
 	int is_stdin = strcmp(file, "-") == 0;
 	const char *who = is_stdin ? "stdin" : file;
 	if (!is_stdin && is_a_directory(file)) { fprintf(stderr, "%s: Is a directory\n", who); return NULL; }
 	FILE *f = is_stdin ? stdin : open_rb(file);
 	if (!f) { fprintf(stderr, "%s: %s\n", who, strerror(errno)); return NULL; }
-	return read_stream(f, who, len);
+	return read_stream(f, who, 0, len);
 }
 
 // The rest of read_input, once FILE is open. It closes f unless it is stdin.
-static char *read_stream(FILE *f, const char *who, size_t *len) {
+// More than MAX bytes is refused, with 0 for no cap. The reads are a fixed
+// 64 KiB, so one past the cap is what tells a file at it from one over it.
+static char *read_stream(FILE *f, const char *who, size_t max, size_t *len) {
 	char *buf = NULL; size_t cap = 0, n = 0;
 	int is_stdin = f == stdin;
 	char chunk[65536]; size_t r;
@@ -585,6 +587,11 @@ static char *read_stream(FILE *f, const char *who, size_t *len) {
 	while ((r = fread(chunk, 1, sizeof chunk, f)) > 0) {
 		if (n + r > cap) { cap = (n + r) * 2; buf = (char *)xrealloc(buf, cap ? cap : 1); }
 		memcpy(buf + n, chunk, r); n += r;
+		if (max && n > max) {
+			if (f != stdin) fclose(f);
+			fprintf(stderr, "%s: too large for a schema (over 16 MiB)\n", who);
+			free(buf); return NULL;
+		}
 	}
 	int ferr = ferror(f);
 	// A stdin that is not attached at all reads as an empty document, the way
@@ -1758,10 +1765,14 @@ static char *schema_for(const Opts *o, const char *file, const char *text, size_
 	return out;
 }
 
+/* The most a Schema line's file may hold. A regular file can still read
+   without end: the kernel's page map has size 0 and reads as hundreds of GiB. */
+#define SCHEMA_LINE_MAX ((size_t)16 << 20)
+
 /* The schema a Schema line names. A line in a file someone else wrote must not
    make an unattended check wait on a FIFO or read a device until memory runs
-   out, so only a regular file is read. The path comes from the file, so
-   unlike argv it can hold a NUL. */
+   out, so only a regular file is read, and no more of it than SCHEMA_LINE_MAX.
+   The path comes from the file, so unlike argv it can hold a NUL. */
 static char *read_named_schema(const char *path, size_t pn, size_t *len) {
 	if (memchr(path, 0, pn)) {
 		fwrite(path, 1, pn, stderr);
@@ -1773,7 +1784,10 @@ static char *read_named_schema(const char *path, size_t pn, size_t *len) {
 		fprintf(stderr, "%s: not a regular file\n", path);
 		return NULL;
 	}
-	return read_input(path, len);
+	if (is_a_directory(path)) { fprintf(stderr, "%s: Is a directory\n", path); return NULL; }
+	FILE *f = open_rb(path);
+	if (!f) { fprintf(stderr, "%s: %s\n", path, strerror(errno)); return NULL; }
+	return read_stream(f, path, SCHEMA_LINE_MAX, len);
 #else
 	/* Asked before the open too, since opening a FIFO waits for a writer. */
 	struct stat st;
@@ -1789,7 +1803,7 @@ static char *read_named_schema(const char *path, size_t pn, size_t *len) {
 		fclose(f);
 		return NULL;
 	}
-	return read_stream(f, path, len);
+	return read_stream(f, path, SCHEMA_LINE_MAX, len);
 #endif
 }
 

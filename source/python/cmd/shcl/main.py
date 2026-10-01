@@ -2157,10 +2157,16 @@ def schema_for(o, file, text):
 	return file[:start] + named
 
 
+# The most a Schema line's file may hold. A regular file can still read
+# without end: the kernel's page map has size 0 and reads as hundreds of GiB.
+SCHEMA_LINE_MAX = 16 << 20
+
+
 def read_named_schema(path):
 	"""The schema a Schema line names. A line in a file someone else wrote must
 	not make an unattended check wait on a FIFO or read a device until memory
-	runs out, so only a regular file is read."""
+	runs out, so only a regular file is read, and no more of it than
+	SCHEMA_LINE_MAX."""
 
 	def regular(st):
 		if stat.S_ISDIR(st.st_mode):
@@ -2171,9 +2177,16 @@ def read_named_schema(path):
 	try:
 		# Asked before the open too, since opening a FIFO waits for a writer.
 		regular(os.stat(path))
-		with open(path, "rb") as f:
+		# Unbuffered fixed reads, since the page map refuses one that is not a
+		# multiple of 8. One read past the cap is what tells a file at it from
+		# one over it.
+		with open(path, "rb", buffering=0) as f:
 			regular(os.fstat(f.fileno()))
-			data = f.read()
+			data = bytearray()
+			while chunk := f.read(1 << 16):
+				data += chunk
+				if len(data) > SCHEMA_LINE_MAX:
+					raise OSError(f"{path}: too large for a schema (over 16 MiB)")
 	except ValueError as e:
 		raise OSError(f"{path}: {e}") from e
 	except OSError as e:

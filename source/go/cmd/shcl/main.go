@@ -2927,9 +2927,15 @@ func schemaFor(o *opts, file, text string) (string, bool, error) {
 	return file[:start] + named, true, nil
 }
 
+// schemaLineMax is the most a Schema line's file may hold. A regular file can
+// still read without end: the kernel's page map has size 0 and reads as
+// hundreds of GiB.
+const schemaLineMax = 16 << 20
+
 // readNamedSchema reads the schema a Schema line names. A line in a file
 // someone else wrote must not make an unattended check wait on a FIFO or read
-// a device until memory runs out, so only a regular file is read.
+// a device until memory runs out, so only a regular file is read, and no more
+// of it than schemaLineMax.
 func readNamedSchema(path string) (string, error) {
 	if notADiskFile(path) {
 		return "", fmt.Errorf("%s: not a regular file", path)
@@ -2960,9 +2966,22 @@ func readNamedSchema(path string) (string, error) {
 	if err := regular(f.Stat()); err != nil {
 		return "", err
 	}
-	b, err := io.ReadAll(f)
-	if err != nil {
-		return "", regular(nil, err)
+	// Fixed reads, since the page map refuses one that is not a multiple of 8.
+	// One read past the cap is what tells a file at it from one over it.
+	var b []byte
+	chunk := make([]byte, 1<<16)
+	for {
+		n, err := f.Read(chunk)
+		b = append(b, chunk[:n]...)
+		if len(b) > schemaLineMax {
+			return "", fmt.Errorf("%s: too large for a schema (over 16 MiB)", path)
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", regular(nil, err)
+		}
 	}
 	if !utf8.Valid(b) {
 		return "", fmt.Errorf("%s: stream did not contain valid UTF-8", path)

@@ -97,7 +97,9 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - A Schema line naming `/proc/self/pagemap` makes `check` read until memory runs out
 	- ID: 2026093019075903
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
+	- Needs local test suite run?: cppcheck's exhaustive pass over the C CLI, at the next full run.
+	- Needs external testing: the hosted windows job, which runs the at-cap and over-cap rows.
 	- Severity: Low
 	- Opened: 20260930-190759
 	- Opened by: Code review 20260930 item 3
@@ -113,7 +115,18 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Possible cause: `/proc/self/pagemap` is a regular file with size 0 that reads as about 256 GiB of zeros, so the regular-file test lets it through. A size cap on the read, as `ReadFile` already has, would close every such file.
 	- Origin: an incomplete fix, `27d73efb` for 2026092813365302. Base read it too. Confirmed.
 	- Sweep: `read_named_schema` and its twins in the four CLIs.
+	- Actual cause: the regular-file test cannot see how much a file will read, and the read had no bound. Python stopped at once only because its whole-file read asked for a length that is not a multiple of 8, which the page map refuses.
 	- Estimated effort: Low
+	- Actual fix: `check` reads a Schema line's file in fixed 64 KiB reads and stops past 16 MiB, at exit 8 with `PATH: too large for a schema (over 16 MiB)`, the same in all four. A file exactly at 16 MiB still reads. The regular-file test, the share refusal and `--schema` are unchanged. Spec and design say so.
+	- Decisions:
+		- The cap is the CLI's own, not the library's `ReadFile`, since that opens the path again and the regular-file test is asked on the open handle. Same rule as `ReadFile`: one read past the cap tells a file at it from one over it.
+		- 16 MiB is open to signoff. A real schema is far smaller, and the at-cap row reads in under 0.1 s in each binding.
+	- Swept: `read_named_schema` in Rust, Python and C, `readNamedSchema` in Go, including C's Windows branch, which read through `read_input` with no cap. `--schema` and FILE come from the command line and stay uncapped. Nothing else opens a path read out of a file.
+	- Verified: on dev, `check` under a 2 GB address-space cap exits 8 out of memory in Rust, 2 in Go, 70 in C and 8 with `Invalid argument` in Python. After, all four print the same line and exit 8.
+	- Verified: cli-regress passes in all four. Over-cap and at-cap also pass for the Windows C and Go builds under wine.
+	- Verified: cargo fmt, clippy, go vet, staticcheck, ruff, mypy, shellcheck, the gcc 15 and mingw builds, and `test-ids.py check`.
+	- Branch: schemacap
+	- Test case: cli-regress `schema-line-pagemap` and `schema-line-over-cap`, both failing on dev, and `schema-line-at-cap`.
 
 - `migrate --write` stamps its lines with LF in a CRLF file
 	- ID: 2026093019075904
