@@ -1,4 +1,5 @@
 query	type	expected	status
--	lost	1	-
+-	lost	0	-
+parent.child	int	1	Good
 tilde	string	-	NotFound
 after-tilde	int	1	Good

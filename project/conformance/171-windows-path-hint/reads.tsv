@@ -1,9 +1,0 @@
-query	type	expected	status
--	load	ok	-
--	load	ok	-	strict
--	lost	0	-
-doubled	string	C:\ok\fine	Good
-single	string	C:\temp	Good
-temp	count	1	-
-pair	count	1	-
-last	int	1	Good

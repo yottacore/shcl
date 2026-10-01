@@ -1,4 +1,4 @@
-servers: [a, b]
+"serv\q": a, b
 	script: ```sh
 	echo hi
 	port: 1

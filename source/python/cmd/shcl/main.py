@@ -331,6 +331,7 @@ E019|error|a value beginning with '[', the way JSON and YAML spell arrays
   A '[' after the colon is never a selector, and reading the text without
   its brackets would bake a changed value in, so the line is kept verbatim:
   it binds nothing, a read on it is NotFound, and nothing counts as lost.
+  The lines under it still load, under the field with no value.
 E020|error|node cap exceeded (fires only under a caller-supplied cap)
   The parse stopped there and the unparsed remainder counts as lost, so a
   later save refuses rather than writing a truncated file.
@@ -346,7 +347,13 @@ E023|error|a bad escape in double quotes
   \\u or \\U escape must name a character. A Windows path typed in double
   quotes is the usual cause, and its \\n would already be a newline, so the
   line is kept verbatim: it binds nothing and a read on it is NotFound. Use
-  single quotes or no quotes, or double each backslash.
+  single quotes or no quotes, or double each backslash. When only the value
+  is wrong, the lines under it still load, under the field with no value.
+E024|error|a Windows path in double quotes with a \\t or \\n escape
+  "C:\\temp" would read as C:, a tab, then emp, which a path almost never
+  means. The line is kept verbatim like E023: it binds nothing, a read on it
+  is NotFound, and the lines under it still load. Use single quotes or no
+  quotes, or double each backslash.
 H001|hint|repeated bare leaf (an array spelled as repeated lines)
   Repeated leaves are legal - that is how instances are written - but
   'tags: red' twice and 'tags: red, blue' look alike, so the parser says
@@ -359,10 +366,6 @@ H003|hint|a stacked '*' element spelled like a field binding
   '* name: value' is the YAML habit for a list of objects. Here it is one
   string element, the text 'name: value'. Quote it to keep the string; a
   list of objects is written as instances of a field.
-H004|hint|a Windows path in double quotes with a \\t or \\n escape
-  "C:\\temp" reads as C:, a tab, then emp. The line loads and saves as
-  usual, since that is legal, but a path almost never means it. Single
-  quotes or no quotes keep each backslash as written; so does doubling it.
 H005|hint|a value in another unit than its field name ends in
   timeout-ms: 5s reads as 5000 milliseconds, since a unit in the value
   wins over the one the name gives a bare number. Legal, and often a slip.
@@ -1621,7 +1624,7 @@ def do_migrate(o):
 		sys.stderr.write(f"{file}: {m.ambiguous} value(s) read one way under 2.x and another under these rules, and the file does not say which it was written for; left as written (--from-2x rewrites them)\n")
 		rc = 7
 	if m.lost != 0:
-		sys.stderr.write(f"{file}: {m.lost} line(s) bound a value under 2.x that nothing binds now: bracket text after the colon, which has no spelling here (--lossy overrides)\n")
+		sys.stderr.write(f"{file}: {m.lost} line(s) bound a value under 2.x that nothing binds now: bracket text after the colon or a line break in a Windows path, which have no spelling here (--lossy overrides)\n")
 		if not o.lossy:
 			rc = 7
 	rewritten = rewritten_lines(text, m.text)

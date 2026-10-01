@@ -4,6 +4,6 @@
 x: [y]
 a: 1, 2
 b: 0
-path: /tmp
-path: "C:\temp"
+wait-ms: 1
+wait-ms: 5s
 c: [x]

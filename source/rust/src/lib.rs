@@ -707,6 +707,21 @@ const DEAD: usize = usize::MAX;
 // level a sibling can bind at, but deeper lines are still under it. It sits
 // on top of the levels open before it without closing any of them.
 const UNOPENED: usize = usize::MAX - 1;
+// Stack entry for a field line refused for its value alone (E019, E023,
+// E024): it binds nothing, but its path is fine, so the first line that
+// binds under it opens the path as `name:` would and binds there.
+const LAZY: usize = usize::MAX - 2;
+
+/// A LAZY level's line, for opening it: the stack entry it sits at, its
+/// path, and how many pending lines go with it, its own included.
+struct Lazy<'a> {
+	at: usize,
+	segs: Vec<Segment>,
+	line: usize,
+	indent: &'a str,
+	pend: usize,
+	depth: usize,
+}
 
 /// Merge a later instance into an earlier one under the in-file merge rule:
 /// children and trivia move over, first trailing wins (a second demotes to a
@@ -1858,7 +1873,8 @@ pub struct Migration {
 	/// between, left as written. Always 0 when the caller said the file is 2.x.
 	pub ambiguous: usize,
 	/// Lines 2.x bound a value on that nothing binds now: bracket text after
-	/// the colon, which has no 3.0 spelling to move to.
+	/// the colon, or a line break in a value that starts like a Windows path,
+	/// neither of which has a 3.0 spelling to move to.
 	pub lost: usize,
 }
 
@@ -2108,6 +2124,7 @@ fn reads_same(spelling: &str, quoted: bool, logical: &str) -> bool {
 		&& matches!(tok.elements[0].quote, Quote::Single | Quote::Double) == quoted
 		&& tok.elements[0].quote != Quote::Open
 		&& bad_escape(&tok, spelling, true).is_none()
+		&& !path_like(&tok.elements[0], spelling)
 		&& piece_text(&tok.elements[0], spelling) == logical
 }
 
@@ -2115,7 +2132,8 @@ fn reads_same(spelling: &str, quoted: bool, logical: &str) -> bool {
 /// single-quoted text as an escape too, and double quotes are where both rule
 /// sets read one alike. No `\u` goes in, since 2.x would keep it as written.
 /// So the migrated file reads the same under 2.x, and a second run changes
-/// nothing.
+/// nothing. A line break in a value that starts like a Windows path has no
+/// such spelling: written this way it is E024, so the caller counts it lost.
 fn migrate_spelling(logical: &str, bare: bool) -> String {
 	if logical.contains('\\') {
 		quote_double_as(logical, Rules::V2)
@@ -2170,6 +2188,10 @@ fn value_edits(text: &str, tok: &Tokens, edits: &mut Vec<Edit>, st: &mut Migrati
 			continue;
 		}
 		let spelling = migrate_spelling(&logical, !(quoted || p.quote == Quote::Open));
+		// Spelled the way 2.x read it, the line is E024 and binds nothing.
+		if spelling.starts_with('"') && spells_path_escape(&spelling) {
+			st.lost += 1;
+		}
 		edits.push((a, b, spelling));
 	}
 }
@@ -2278,13 +2300,20 @@ fn migrate_line(
 						st.ambiguous += 1;
 						continue;
 					}
-					let spelling = if logical != body {
+					let mut spelling = if logical != body {
 						migrate_spelling(&logical, false)
 					} else if quoted && !unknown {
 						rest[open + 1..close].trim_matches(is_wsp).to_string()
 					} else {
 						migrate_spelling(&logical, true)
 					};
+					// As a value, a path holding a `\t` or `\n` is E024.
+					if spelling.starts_with('"') && spells_path_escape(&spelling) {
+						spelling = migrate_spelling(&logical, false);
+						if spelling.starts_with('"') && spells_path_escape(&spelling) {
+							st.lost += 1;
+						}
+					}
 					edits.push((c, close + 1, format!(": {}", spelling)));
 					continue;
 				}
@@ -2477,9 +2506,9 @@ fn bad_escape(tok: &Tokens, text: &str, values: bool) -> Option<char> {
 }
 
 /// A double-quoted value that starts like a Windows path, a drive (`C:\`) or
-/// a share (`\\`), and holds a `\t` or `\n` escape (`H004`). `"C:\temp"`
-/// reads as `C:`, a tab and `emp`: legal, and almost never meant. Any other
-/// pair made the line `E023` before this is asked.
+/// a share (`\\`), and holds a `\t` or `\n` escape (`E024`). `"C:\temp"`
+/// would read as `C:`, a tab and `emp`, which a path almost never means. Any
+/// other pair made the line `E023` before this is asked.
 fn path_like(p: &Piece, text: &str) -> bool {
 	if p.quote != Quote::Double {
 		return false;
@@ -2503,7 +2532,7 @@ fn path_like(p: &Piece, text: &str) -> bool {
 	false
 }
 
-const PATH_HINT: &str = "value looks like a Windows path, and its \\t or \\n reads as a tab or newline; single quotes keep a backslash as written";
+const PATH_MSG: &str = "value starts like a Windows path, and its \\t or \\n would read as a tab or newline; write a backslash as '\\\\' or use single quotes";
 
 fn escape_msg(c: char) -> String {
 	if c == 'u' || c == 'U' {
@@ -2516,6 +2545,48 @@ fn escape_msg(c: char) -> String {
 		"unknown escape '\\{}' in double quotes; write a backslash as '\\\\' or use single quotes",
 		one_line(&c.to_string())
 	)
+}
+
+/// Why a field line that scanned is refused for what it spells, before the
+/// element cap: bracket text, a bad escape, or a value that starts like a
+/// Windows path and holds a `\t` or `\n` escape.
+fn line_fault(tok: &Tokens, text: &str) -> Option<(&'static str, String)> {
+	if bracket_text(tok, text) {
+		return Some((
+			"E019",
+			"bracket array syntax; an array is comma-separated, without brackets".to_string(),
+		));
+	}
+	let values = line_fence(tok, text).is_none();
+	if let Some(c) = bad_escape(tok, text, values) {
+		return Some(("E023", escape_msg(c)));
+	}
+	if values && tok.elements.iter().any(|p| path_like(p, text)) {
+		return Some(("E024", PATH_MSG.to_string()));
+	}
+	None
+}
+
+/// A path segment a LAZY level can open: no index or wildcard selector,
+/// which could fail to place it.
+fn opens_as_written(seg: &Segment) -> bool {
+	matches!(seg.selector, None | Some(Selector::ByValue { .. }))
+}
+
+/// True when a reload holds this kept line's level open (LAZY): a field
+/// line refused for its value alone, with a path that opens.
+fn opens_later(text: &str) -> bool {
+	if text.starts_with(['#', '*']) {
+		return false;
+	}
+	let mut tok = Tokens::default();
+	tokenize(text, b':', false, Rules::Current, &mut tok);
+	let Ok(scan) = path_of(&tok, text) else {
+		return false;
+	};
+	bad_escape(&tok, text, false).is_none()
+		&& scan.segments.iter().all(opens_as_written)
+		&& line_fault(&tok, text).is_some()
 }
 
 /// Bracket text (`E019`): a `[` first after the colon. Read off the first
@@ -2648,6 +2719,7 @@ struct Parser<'a> {
 	// since a capped parse of a huge bad file would hold one per line.
 	track_dropped: bool,
 	dropped: Vec<usize>,
+	lazies: Vec<Lazy<'a>>,
 }
 
 /// resolve_parent() on a level stack, without moving anything: the parent it
@@ -2754,6 +2826,7 @@ impl<'a> Parser<'a> {
 			ends: Vec::new(),
 			track_dropped: false,
 			dropped: Vec::new(),
+			lazies: Vec::new(),
 		}
 	}
 
@@ -3111,6 +3184,7 @@ impl<'a> Parser<'a> {
 					.find(|(_, (ind, node))| {
 						*node != ROOT
 							&& *node != DEAD && *node != UNOPENED
+							&& *node != LAZY
 							&& ind.len() >= new_indent.len()
 							&& p.indent.starts_with(*ind)
 					})
@@ -3245,6 +3319,88 @@ impl<'a> Parser<'a> {
 			Outcome::Dropped,
 			indent,
 		);
+	}
+
+	/// A field line refused for its value alone holds its level open for
+	/// what is written under it. Called right after the refusal pushed the
+	/// line's level. A path that could not open, or would open past the
+	/// nesting cap, leaves the level dead.
+	fn hold_open(&mut self, parent: usize, segs: Vec<Segment>, line: usize, indent: &'a str) {
+		let at = self.stack.len() - 1;
+		if self.stack[at] != (indent, DEAD) || !segs.iter().all(opens_as_written) {
+			return;
+		}
+		self.lazies.retain(|l| l.at < at);
+		let mut depth = 0;
+		if parent == LAZY {
+			depth = self.lazies.last().map_or(0, |l| l.depth);
+		} else {
+			let mut up = parent;
+			while up != ROOT {
+				depth += 1;
+				up = self.arena[up].parent;
+			}
+		}
+		if depth + segs.len() > MAX_DEPTH {
+			return;
+		}
+		self.stack[at].1 = LAZY;
+		self.lazies.push(Lazy {
+			at,
+			depth: depth + segs.len(),
+			segs,
+			line,
+			indent,
+			pend: self.pending.len(),
+		});
+	}
+
+	/// The node a line binds under: a LAZY level, and any LAZY one it sits
+	/// under, opens here as an empty field, the way its line would have
+	/// bound with nothing after the colon. Its own line and the comments
+	/// before it go with it.
+	fn open_lazy(&mut self, parent: usize) -> usize {
+		if parent != LAZY {
+			return parent;
+		}
+		let top = self.stack.len() - 1;
+		let mut from = top;
+		while from > 1 && self.stack[from - 1].1 == LAZY {
+			from -= 1;
+		}
+		let mut node = self.stack[from - 1].1;
+		for at in from..=top {
+			let Some(k) = self.lazies.iter().rposition(|l| l.at == at) else {
+				break;
+			};
+			let l = self.lazies.remove(k);
+			// hold_open() let through only a path that opens.
+			if let Some(n) = self.attach_path(node, l.segs, Value::Empty, l.line, l.indent) {
+				node = n;
+			}
+			self.stack[at].1 = node;
+			let count = l.pend.min(self.pending.len());
+			if count > 0 {
+				let t = self.arena[node].triv_mut();
+				let mut chain = Vec::new();
+				for p in self.pending.drain(..count) {
+					t.leading.push(Lead {
+						depth: comment_depth(&mut chain, l.indent, &p.text, p.indent),
+						text: p.text,
+						blank_before: p.blank_before,
+						line: p.line,
+						kept: false,
+					});
+				}
+				for m in &mut self.pend_marks {
+					m.0 = m.0.saturating_sub(count);
+				}
+				for o in &mut self.lazies {
+					o.pend = o.pend.saturating_sub(count);
+				}
+			}
+		}
+		node
 	}
 
 	/// Where the parse resumes after a refused field line. Every arm that
@@ -3594,7 +3750,6 @@ impl<'a> Parser<'a> {
 			self.err(line, "E017", "unterminated quote in value");
 		}
 		let binding_like = !el.quoted && looks_like_binding(&el.text);
-		let path = path_like(&piece, text);
 		let clash = unit_clash(&self.arena[parent].name, &el.text);
 		// Element cap: each element line past it is refused on its own, the way
 		// any other bad element line is. Only a line that would join the list:
@@ -3657,14 +3812,6 @@ impl<'a> Parser<'a> {
 				message: "list element looks like a field binding; it is read as a string (quote it to say so)"
 					.to_string(),
 				code: "H003",
-			});
-		}
-		if path {
-			self.diag(Diagnostic {
-				line,
-				severity: Severity::Hint,
-				message: PATH_HINT.to_string(),
-				code: "H004",
 			});
 		}
 		if let Some(m) = clash {
@@ -3909,9 +4056,12 @@ impl<'a> Parser<'a> {
 						Outcome::Dropped,
 						indent,
 					);
-				} else if let Some(node) = self.bind_block(parent, value, lineno, indent) {
-					self.ends.push((self.arena[node].line, next));
-					self.attach_trivia(node, indent, comment);
+				} else {
+					let parent = self.open_lazy(parent);
+					if let Some(node) = self.bind_block(parent, value, lineno, indent) {
+						self.ends.push((self.arena[node].line, next));
+						self.attach_trivia(node, indent, comment);
+					}
 				}
 				i = next;
 				continue;
@@ -3939,11 +4089,18 @@ impl<'a> Parser<'a> {
 						continue;
 					}
 					tokenize_value(rest, 1, Rules::Current, &mut tok);
-					if let Some(c) = bad_escape(&tok, rest, true) {
+					let fault = if let Some(c) = bad_escape(&tok, rest, true) {
+						Some(("E023", escape_msg(c)))
+					} else if tok.elements.iter().any(|p| path_like(p, rest)) {
+						Some(("E024", PATH_MSG.to_string()))
+					} else {
+						None
+					};
+					if let Some((code, msg)) = fault {
 						self.refuse(
 							lineno,
-							"E023",
-							escape_msg(c),
+							code,
+							msg,
 							Outcome::Retained {
 								text: trim_wsp_end(rest).to_string(),
 								blank_before: had_blank,
@@ -3953,6 +4110,7 @@ impl<'a> Parser<'a> {
 						i += 1;
 						continue;
 					}
+					let parent = self.open_lazy(parent);
 					let comment = tok.comment.map(|c| &rest[c..]);
 					// Elements have no node of their own; trivia rides the field.
 					// At the root there is no field (E007), so the comment rides
@@ -4062,38 +4220,28 @@ impl<'a> Parser<'a> {
 			if selector_open_quote(&tok) {
 				self.err(lineno, "E017", "unterminated quote in selector");
 			}
-			// A value spelled the way JSON, TOML and YAML spell an array. The
-			// brackets are not a selector after the colon, and reading the
-			// text without them would bake a changed value in, so the line is
-			// kept verbatim. Judged before the cap and from the first piece,
-			// which the cap keeps: a cap refuses only a line that would bind.
-			if bracket_text(&tok, rest) {
+			// A value spelled the way JSON, TOML and YAML spell an array, or
+			// an escape that cannot be read as written or as an escape without
+			// guessing. The brackets are not a selector after the colon, and
+			// reading the text without them would bake a changed value in, so
+			// the line is kept verbatim. Judged before the cap and from the
+			// first piece, which the cap keeps: a cap refuses only a line that
+			// would bind. Only the value is wrong, so the lines under it still
+			// load, under the path opened empty.
+			if let Some((code, msg)) = line_fault(&tok, rest) {
 				self.refuse(
 					lineno,
-					"E019",
-					"bracket array syntax; an array is comma-separated, without brackets",
+					code,
+					msg,
 					Outcome::Retained {
 						text: trim_wsp_end(rest).to_string(),
 						blank_before: had_blank,
 					},
 					indent,
 				);
-				i = next;
-				continue;
-			}
-			// Same outcome as bracket text, and judged at the same point: the
-			// pair cannot be read as written or as an escape without guessing.
-			if let Some(c) = bad_escape(&tok, rest, line_fence(&tok, rest).is_none()) {
-				self.refuse(
-					lineno,
-					"E023",
-					escape_msg(c),
-					Outcome::Retained {
-						text: trim_wsp_end(rest).to_string(),
-						blank_before: had_blank,
-					},
-					indent,
-				);
+				if bad_escape(&tok, rest, false).is_none() {
+					self.hold_open(parent, scan.segments, lineno, indent);
+				}
 				i = next;
 				continue;
 			}
@@ -4147,15 +4295,8 @@ impl<'a> Parser<'a> {
 			// (a merge into an equal-valued node keeps the first line's span;
 			// a value dropped after a last-segment selector records nothing).
 			let vkey = src_text.as_ref().map(|_| value_hash(&value));
+			let parent = self.open_lazy(parent);
 			if let Some(node) = self.attach_path(parent, scan.segments, value, lineno, indent) {
-				if src_text.is_some() && tok.elements.iter().any(|p| path_like(p, rest)) {
-					self.diag(Diagnostic {
-						line: lineno,
-						severity: Severity::Hint,
-						message: PATH_HINT.to_string(),
-						code: "H004",
-					});
-				}
 				if src_text.is_some()
 					&& unit_named(&self.arena[node].name)
 					&& let Some(m) = tok
@@ -4723,6 +4864,12 @@ impl Document {
 		// the parent's walk. Each blank rides its own comment (or the binding
 		// line), never as the first output line.
 		push_leads(e, node.leading(), depth, (idx, Site::Leading, 0));
+		// The kept line just written opens this block on a reload.
+		if heads_block(node) {
+			e.bound(depth);
+			e.near(idx, pos);
+			return;
+		}
 		if node.blank_before && !e.out.is_empty() {
 			e.out.push('\n');
 		}
@@ -4964,6 +5111,34 @@ enum Site {
 	Orphans,
 }
 
+/// True when a field's last leading line is one kept for its value alone,
+/// naming just this field, so that line is written in place of the bare
+/// `name:` line: a reload opens the field from it the same way. An empty
+/// block keeps its own line, since nothing would open the field. Only what
+/// a reload restores counts, so a document and its reload agree.
+fn heads_block(node: &NodeData) -> bool {
+	if !node.value.is_empty()
+		|| node.children.is_empty()
+		|| node.blank_before
+		|| !node.trailing().is_empty()
+	{
+		return false;
+	}
+	let Some(l) = node.leading().last() else {
+		return false;
+	};
+	if l.depth != 0 || l.text.starts_with([' ', '\t']) || !opens_later(&l.text) {
+		return false;
+	}
+	let mut tok = Tokens::default();
+	tokenize(&l.text, b':', false, Rules::Current, &mut tok);
+	path_of(&tok, &l.text).is_ok_and(|scan| {
+		scan.segments.len() == 1
+			&& scan.segments[0].selector.is_none()
+			&& scan.segments[0].name == node.name
+	})
+}
+
 /// A misplaced line's text as the comment it falls back to.
 fn commented(text: &str) -> String {
 	format!("# {}", &text[leading_ws(text).len()..])
@@ -5027,11 +5202,18 @@ fn push_leads(e: &mut Emit, leads: &[Lead], base: usize, at: (usize, Site, usize
 		if c.text.starts_with('#') {
 			last_comment = c.depth;
 		} else {
-			// A kept malformed line resolves and holds its column on a reload.
+			// A kept malformed line resolves and holds its column on a reload,
+			// open for the lines under it when only its value was wrong.
 			let indent = "\t".repeat(pad);
-			let (_, open, tail) = e.resolve(&indent);
+			let (parent, open, tail) = e.resolve(&indent);
 			e.hold = None;
-			e.refused(&indent, open, tail);
+			if parent.is_some_and(|p| p != DEAD) && opens_later(&c.text) {
+				e.open = open;
+				e.tail = tail;
+				e.tail.push((indent, ROOT));
+			} else {
+				e.refused(&indent, open, tail);
+			}
 		}
 		e.out.extend(std::iter::repeat_n('\t', pad));
 		e.out.push_str(&c.text);
@@ -7013,12 +7195,35 @@ fn quote_text_as(t: &str, rules: Rules) -> String {
 /// except a `\u` escape, which 2.x kept as written, so for 2.x an invisible
 /// character goes in as it is.
 fn quote_double_as(t: &str, rules: Rules) -> String {
+	let out = quote_double_with(t, rules, false);
+	// Spelled `\t` or `\n`, a path is E024 on the reload, and a `\u` escape
+	// reads the same. 2.x kept one as written, so for 2.x a tab goes in as it
+	// is, and a line break has no spelling: migrate counts that one lost.
+	if spells_path_escape(&out) {
+		return quote_double_with(t, rules, true);
+	}
+	out
+}
+
+/// True when a double-quoted spelling would be E024.
+fn spells_path_escape(quoted: &str) -> bool {
+	let piece = Piece {
+		start: 1,
+		end: quoted.len() - 1,
+		quote: Quote::Double,
+	};
+	path_like(&piece, quoted)
+}
+
+fn quote_double_with(t: &str, rules: Rules, path: bool) -> String {
 	let mut out = String::with_capacity(t.len() + 2);
 	out.push('"');
 	for (i, c) in t.char_indices() {
 		match c {
 			'\\' => out.push_str("\\\\"),
 			'"' => out.push_str("\\\""),
+			'\t' if path && rules != Rules::Current => out.push(c),
+			'\n' | '\t' if path && rules == Rules::Current => push_unicode_escape(&mut out, c),
 			'\n' => out.push_str("\\n"),
 			'\t' => out.push_str("\\t"),
 			c if rules == Rules::Current && invisible_at(t, i, c) => {
@@ -7505,7 +7710,8 @@ impl Document {
 /// with: a line break, which no file line can hold, an unterminated quote
 /// (E017), bracket text (E019, the line kept verbatim - writing it as a
 /// two-element array holding `[1` and `2]` would be a different wrong answer),
-/// and an unknown escape in double quotes (E023).
+/// an unknown escape in double quotes (E023), and a Windows path in double
+/// quotes holding a `\t` or `\n` escape (E024).
 fn literal_value(text: &str) -> Option<Value> {
 	if text.contains('\n') {
 		return None;
@@ -7515,6 +7721,7 @@ fn literal_value(text: &str) -> Option<Value> {
 	if tok.elements.iter().any(|p| p.quote == Quote::Open)
 		|| line[tok.value.0..].starts_with('[')
 		|| bad_escape(&tok, &line, true).is_some()
+		|| tok.elements.iter().any(|p| path_like(p, &line))
 	{
 		return None;
 	}

@@ -495,14 +495,15 @@ def _literal_value(text):
 	# report it with: a line break, which no file line can hold, an unterminated
 	# quote (E017), bracket text (E019, the line kept verbatim - writing it as
 	# a two-element array holding `[1` and `2]` would be a different wrong
-	# answer), and an unknown escape in double quotes (E023).
+	# answer), an unknown escape in double quotes (E023), and a Windows path in
+	# double quotes holding a `\t` or `\n` escape (E024).
 	if "\n" in text:
 		return None
 	tok = Tokens()
 	s = _value_half(text, tok)
 	if any(p.quote is Quote.OPEN for p in tok.elements) or s[tok.value[0]:tok.value[0] + 1] == b"[":
 		return None
-	if _bad_escape(tok, True) is not None:
+	if _bad_escape(tok, True) is not None or any(_path_like(p, s) for p in tok.elements):
 		return None
 	return _cell_of_tokens(tok, s)
 
@@ -682,6 +683,10 @@ DEAD = sys.maxsize
 # level a sibling can bind at, but deeper lines are still under it. It sits
 # on top of the levels open before it without closing any of them.
 UNOPENED = sys.maxsize - 1
+# Stack entry for a field line refused for its value alone (E019, E023,
+# E024): it binds nothing, but its path is fine, so the first line that binds
+# under it opens the path as `name:` would and binds there.
+LAZY = sys.maxsize - 2
 # Ends a name-index chain (see _NameIndex).
 NIL = sys.maxsize
 
@@ -1713,7 +1718,8 @@ class Migration:
 	and text is the input. ambiguous: pieces the two rule sets read differently
 	and nothing can decide between, left as written; always 0 when the caller
 	said the file is 2.x. lost: lines 2.x bound a value on that nothing binds
-	now - bracket text after the colon, which has no spelling here."""
+	now - bracket text after the colon, or a line break in a value that starts
+	like a Windows path, neither of which has a spelling here."""
 
 	__slots__ = ("text", "current", "ambiguous", "lost")
 
@@ -1940,6 +1946,7 @@ def _reads_same(spelling, quoted, logical):
 		(p.quote is Quote.SINGLE or p.quote is Quote.DOUBLE) == quoted
 		and p.quote is not Quote.OPEN
 		and _bad_escape(tok, True) is None
+		and not _path_like(p, tok.src)
 		and _piece_text(p, tok.src) == logical
 	)
 
@@ -1949,7 +1956,8 @@ def _migrate_spelling(logical, bare):
 	single-quoted text as an escape too, and double quotes are where both rule
 	sets read one alike. No \\u goes in, since 2.x would keep it as written.
 	So the migrated file reads the same under 2.x, and a second run changes
-	nothing."""
+	nothing. A line break in a value that starts like a Windows path has no
+	such spelling: written this way it is E024, so the caller counts it lost."""
 	if "\\" in logical:
 		return _quote_double_as(logical, Rules.V2)
 	if bare and not _needs_quotes(logical):
@@ -1996,6 +2004,9 @@ def _value_edits(s, tok, edits, st):
 			st.ambiguous += 1
 			continue
 		spelling = _migrate_spelling(logical, not (quoted or p.quote is Quote.OPEN))
+		# Spelled the way 2.x read it, the line is E024 and binds nothing.
+		if spelling.startswith('"') and _spells_path_escape(spelling):
+			st.lost += 1
 		edits.append((a, b, spelling.encode("utf-8", "surrogatepass")))
 
 
@@ -2084,6 +2095,11 @@ def _migrate_line(rest, tok, fence, st):
 						spelling = _trim_wsp(s[open_at + 1:close].decode("utf-8", "surrogatepass"))
 					else:
 						spelling = _migrate_spelling(logical, True)
+					# As a value, a path holding a `\\t` or `\\n` is E024.
+					if spelling.startswith('"') and _spells_path_escape(spelling):
+						spelling = _migrate_spelling(logical, False)
+						if spelling.startswith('"') and _spells_path_escape(spelling):
+							st.lost += 1
 					edits.append((colon, close + 1, (": " + spelling).encode("utf-8", "surrogatepass")))
 					continue
 			elif colon is not None:
@@ -2261,9 +2277,9 @@ def _bad_escape(tok, values):
 
 def _path_like(p, src):
 	"""A double-quoted value that starts like a Windows path, a drive (`C:\\`)
-	or a share (`\\\\`), and holds a `\\t` or `\\n` escape (H004).
-	`"C:\\temp"` reads as `C:`, a tab and `emp`: legal, and almost never
-	meant. Any other pair made the line E023 before this is asked."""
+	or a share (`\\\\`), and holds a `\\t` or `\\n` escape (E024).
+	`"C:\\temp"` would read as `C:`, a tab and `emp`, which a path almost
+	never means. Any other pair made the line E023 before this is asked."""
 	if p.quote is not Quote.DOUBLE:
 		return False
 	raw = src[p.start:p.end]
@@ -2281,13 +2297,48 @@ def _path_like(p, src):
 	return False
 
 
-_PATH_HINT = "value looks like a Windows path, and its \\t or \\n reads as a tab or newline; single quotes keep a backslash as written"
+_PATH_MSG = "value starts like a Windows path, and its \\t or \\n would read as a tab or newline; write a backslash as '\\\\' or use single quotes"
 
 
 def _escape_msg(c):
 	if c in ("u", "U"):
 		return "bad escape '\\" + c + "' in double quotes; \\u takes 4 hex digits and \\U takes 8, naming a Unicode character; write a backslash as '\\\\' or use single quotes"
 	return "unknown escape '\\" + _one_line(c) + "' in double quotes; write a backslash as '\\\\' or use single quotes"
+
+
+def _line_fault(tok):
+	"""Why a field line that scanned is refused for what it spells, before
+	the element cap, as (code, message): bracket text, a bad escape, or a
+	value that starts like a Windows path and holds a `\\t` or `\\n` escape."""
+	if _bracket_text(tok):
+		return ("E019", "bracket array syntax; an array is comma-separated, without brackets")
+	values = _line_fence(tok) is None
+	c = _bad_escape(tok, values)
+	if c is not None:
+		return ("E023", _escape_msg(c))
+	if values and any(_path_like(p, tok.src) for p in tok.elements):
+		return ("E024", _PATH_MSG)
+	return None
+
+
+def _opens_as_written(seg):
+	"""A path segment a LAZY level can open: no index or wildcard selector,
+	which could fail to place it."""
+	return seg.selector is None or seg.selector[0] == "val"
+
+
+def _opens_later(text):
+	"""True when a reload holds this kept line's level open (LAZY): a field
+	line refused for its value alone, with a path that opens."""
+	if text.startswith(("#", "*")):
+		return False
+	tok = Tokens()
+	tokenize(text, ":", False, Rules.CURRENT, tok)
+	try:
+		segments, _ = _path_of(tok, tok.src)
+	except _PathError:
+		return False
+	return _bad_escape(tok, False) is None and all(_opens_as_written(g) for g in segments) and _line_fault(tok) is not None
 
 
 def _bracket_text(tok):
@@ -2472,6 +2523,10 @@ class _Parser:
 		# since a capped parse of a huge bad file would hold one per line.
 		self.track_dropped = False
 		self.dropped: list[int] = []
+		# A LAZY level's line, for opening it: [stack index it sits at, path,
+		# line, indent, how many pending lines go with it (its own included),
+		# depth it opens to].
+		self.lazies: list[list] = []
 
 	def _err(self, line, code, msg):
 		self._diag(Diagnostic(line, Severity.Error, msg, code))
@@ -2651,7 +2706,7 @@ class _Parser:
 				at = None
 				for si in range(len(self.stack) - 1, -1, -1):
 					ind, node = self.stack[si]
-					if node != ROOT and node != DEAD and node != UNOPENED and len(ind) >= len(new_indent) and p.indent.startswith(ind):
+					if node != ROOT and node != DEAD and node != UNOPENED and node != LAZY and len(ind) >= len(new_indent) and p.indent.startswith(ind):
 						# A list element's column is an entry with the list's
 						# node on the list's own entry. It is inside the list,
 						# not its level.
@@ -2757,6 +2812,63 @@ class _Parser:
 		"""Diagnose a line written under a skipped line, and skip it too. Its own
 		level stays dead so deeper lines go the same way."""
 		self._refuse(line, "E018", "parent line was skipped; line skipped", OUT_DROPPED, indent)
+
+	def _hold_open(self, parent, segs, line, indent):
+		"""A field line refused for its value alone holds its level open for
+		what is written under it. Called right after the refusal pushed the
+		line's level. A path that could not open, or would open past the
+		nesting cap, leaves the level dead."""
+		at = len(self.stack) - 1
+		if self.stack[at] != (indent, DEAD) or not all(_opens_as_written(g) for g in segs):
+			return
+		self.lazies = [lz for lz in self.lazies if lz[0] < at]
+		depth = 0
+		if parent == LAZY:
+			if self.lazies:
+				depth = self.lazies[-1][5]
+		else:
+			up = parent
+			while up != ROOT:
+				depth += 1
+				up = self.arena[up].parent
+		if depth + len(segs) > MAX_DEPTH:
+			return
+		self.stack[at] = (indent, LAZY)
+		self.lazies.append([at, segs, line, indent, len(self.pending), depth + len(segs)])
+
+	def _open_lazy(self, parent):
+		"""The node a line binds under: a LAZY level, and any LAZY one it sits
+		under, opens here as an empty field, the way its line would have bound
+		with nothing after the colon. Its own line and the comments before it
+		go with it."""
+		if parent != LAZY:
+			return parent
+		top = len(self.stack) - 1
+		start = top
+		while start > 1 and self.stack[start - 1][1] == LAZY:
+			start -= 1
+		node = self.stack[start - 1][1]
+		for at in range(start, top + 1):
+			k = next((j for j in range(len(self.lazies) - 1, -1, -1) if self.lazies[j][0] == at), None)
+			if k is None:
+				break
+			_, segs, line, indent, pend, _ = self.lazies.pop(k)
+			# _hold_open let through only a path that opens.
+			opened = self._attach_path(node, segs, _empty(), line, indent)
+			if opened is not None:
+				node = opened
+			self.stack[at] = (self.stack[at][0], node)
+			count = min(pend, len(self.pending))
+			if count > 0:
+				t = self.arena[node]._triv()
+				chain: list[tuple[str, int]] = []
+				for pn in self.pending[:count]:
+					t.leading.append(_Lead(pn.text, pn.blank_before, _comment_depth(chain, indent, pn.text, pn.indent), pn.line))
+				del self.pending[:count]
+				self.pend_marks = [(max(m[0] - count, 0), m[1]) for m in self.pend_marks]
+				for lz in self.lazies:
+					lz[4] = max(lz[4] - count, 0)
+		return node
 
 	def _skip_field_line(self, lines, i, indent, tok):
 		"""Where the parse resumes after a refused field line. Every arm that
@@ -2950,7 +3062,6 @@ class _Parser:
 		if piece.quote is Quote.OPEN:
 			self._err(line, "E017", "unterminated quote in value")
 		binding_like = not el.quoted and _looks_like_binding(el.text)
-		path = _path_like(piece, s)
 		clash = _unit_clash(self.arena[parent].name, el.text)
 		# Element cap: each element line past it is refused on its own, the way
 		# any other bad element line is. Only a line that would join the list:
@@ -2989,8 +3100,6 @@ class _Parser:
 			return False
 		if binding_like:
 			self._diag(Diagnostic(line, Severity.Hint, "list element looks like a field binding; it is read as a string (quote it to say so)", "H003"))
-		if path:
-			self._diag(Diagnostic(line, Severity.Hint, _PATH_HINT, "H004"))
 		if clash is not None:
 			self._diag(Diagnostic(line, Severity.Hint, clash, "H005"))
 		# A kept element holds its column as a dropped one does, with the field
@@ -3151,7 +3260,7 @@ class _Parser:
 					# lines.
 					self._refuse(lineno, "E021", f"array longer than {self.max_elements} elements; line skipped", OUT_DROPPED, indent)
 				else:
-					node = self._bind_block(parent, value, lineno, indent)
+					node = self._bind_block(self._open_lazy(parent), value, lineno, indent)
 					if node is not None:
 						self.ends.append((self.arena[node].line, nxt))
 						self._attach_trivia(node, indent, comment)
@@ -3179,10 +3288,16 @@ class _Parser:
 						continue
 					tokenize_value(rest, 1, Rules.CURRENT, tok)
 					c = _bad_escape(tok, True)
+					fault = None
 					if c is not None:
-						self._refuse(lineno, "E023", _escape_msg(c), _out_retained(_trim_wsp_end(rest), had_blank), indent)
+						fault = ("E023", _escape_msg(c))
+					elif any(_path_like(p, tok.src) for p in tok.elements):
+						fault = ("E024", _PATH_MSG)
+					if fault is not None:
+						self._refuse(lineno, fault[0], fault[1], _out_retained(_trim_wsp_end(rest), had_blank), indent)
 						i += 1
 						continue
+					parent = self._open_lazy(parent)
 					comment = tok.src[tok.comment:].decode("utf-8", "surrogatepass") if tok.comment is not None else ""
 					# Elements have no node of their own; trivia rides the field. At the
 					# root there is no field (E007), so the comment rides the document
@@ -3251,20 +3366,19 @@ class _Parser:
 			# all, so the line still binds - somewhere the author did not mean.
 			if _selector_open_quote(tok):
 				self._err(lineno, "E017", "unterminated quote in selector")
-			# A value spelled the way JSON, TOML and YAML spell an array. The
-			# brackets are not a selector after the colon, and reading the
-			# text without them would bake a changed value in, so the line is
-			# kept verbatim. Judged before the cap and from the first piece,
-			# which the cap keeps: a cap refuses only a line that would bind.
-			if _bracket_text(tok):
-				self._refuse(lineno, "E019", "bracket array syntax; an array is comma-separated, without brackets", _out_retained(_trim_wsp_end(rest), had_blank), indent)
-				i = nxt
-				continue
-			# Same outcome as bracket text, and judged at the same point: the
-			# pair cannot be read as written or as an escape without guessing.
-			c = _bad_escape(tok, _line_fence(tok) is None)
-			if c is not None:
-				self._refuse(lineno, "E023", _escape_msg(c), _out_retained(_trim_wsp_end(rest), had_blank), indent)
+			# A value spelled the way JSON, TOML and YAML spell an array, or an
+			# escape that cannot be read as written or as an escape without
+			# guessing. The brackets are not a selector after the colon, and
+			# reading the text without them would bake a changed value in, so
+			# the line is kept verbatim. Judged before the cap and from the
+			# first piece, which the cap keeps: a cap refuses only a line that
+			# would bind. Only the value is wrong, so the lines under it still
+			# load, under the path opened empty.
+			fault = _line_fault(tok)
+			if fault is not None:
+				self._refuse(lineno, fault[0], fault[1], _out_retained(_trim_wsp_end(rest), had_blank), indent)
+				if _bad_escape(tok, False) is None:
+					self._hold_open(parent, segments, lineno, indent)
 				i = nxt
 				continue
 			# Element cap: the whole line is refused, so a capped load never
@@ -3299,10 +3413,9 @@ class _Parser:
 			# Record only when the bound node holds exactly this line's value
 			# (a merge into an equal-valued node keeps the first line's span;
 			# a value dropped after a last-segment selector records nothing).
+			parent = self._open_lazy(parent)
 			node = self._attach_path(parent, segments, value, lineno, indent)
 			if node is not None:
-				if src_text is not None and any(_path_like(p, tok.src) for p in tok.elements):
-					self._diag(Diagnostic(lineno, Severity.Hint, _PATH_HINT, "H004"))
 				if src_text is not None and _unit_named(self.arena[node].name):
 					for p in tok.elements:
 						clash = _unit_clash(self.arena[node].name, _piece_text(p, tok.src))
@@ -3497,6 +3610,29 @@ class _Emit:
 		self.hold = None
 
 
+def _heads_block(node):
+	"""True when a field's last leading line is one kept for its value alone,
+	naming just this field, so that line is written in place of the bare
+	`name:` line: a reload opens the field from it the same way. An empty
+	block keeps its own line, since nothing would open the field. Only what a
+	reload restores counts, so a document and its reload agree."""
+	if not node.value.is_empty() or not node.children or node.blank_before or node.trailing():
+		return False
+	leading = node.leading()
+	if not leading:
+		return False
+	lead = leading[-1]
+	if lead.depth != 0 or lead.text.startswith((" ", "\t")) or not _opens_later(lead.text):
+		return False
+	tok = Tokens()
+	tokenize(lead.text, ":", False, Rules.CURRENT, tok)
+	try:
+		segments, _ = _path_of(tok, tok.src)
+	except _PathError:
+		return False
+	return len(segments) == 1 and segments[0].selector is None and segments[0].name == node.name
+
+
 def _commented(text):
 	"""A misplaced line's text as the comment it falls back to."""
 	return "# " + text[len(_leading_ws(text)):]
@@ -3554,11 +3690,17 @@ def _push_leads(e, leads, base, at):
 		if text.startswith("#"):
 			last_comment = c.depth
 		else:
-			# A kept malformed line resolves and holds its column on a reload.
+			# A kept malformed line resolves and holds its column on a reload,
+			# open for the lines under it when only its value was wrong.
 			indent = "\t" * pad
-			_, open_, tail = e.resolve(indent)
+			parent, open_, tail = e.resolve(indent)
 			e.hold = None
-			e.refused(indent, open_, tail)
+			if parent is not None and parent != DEAD and _opens_later(text):
+				e.open = open_
+				e.tail = tail
+				tail.append((indent, ROOT))
+			else:
+				e.refused(indent, open_, tail)
 		out.append("\t" * pad)
 		out.append(text)
 		out.append("\n")
@@ -4558,6 +4700,15 @@ class Document:
 		if leading:
 			_push_leads(e, leading, depth, (idx, "leading", 0))
 		out = e.out
+		# The kept line just written opens this block on a reload.
+		if _heads_block(node):
+			e.open = depth
+			e.tail = []
+			e.hold = None
+			if e.record:
+				e.near = [(idx, pos)]
+				e.flushed = 0
+			return
 		if node.blank_before and out:
 			out.append("\n")
 		e.mark(node.line)
@@ -7180,12 +7331,32 @@ def _quote_double_as(t, rules):
 	"""The double-quoted spelling for a reader of rules. The two read it alike,
 	except a \\u escape, which 2.x kept as written, so for 2.x an invisible
 	character goes in as it is."""
+	out = _quote_double_with(t, rules, False)
+	# Spelled `\\t` or `\\n`, a path is E024 on the reload, and a `\\u`
+	# escape reads the same. 2.x kept one as written, so for 2.x a tab goes in
+	# as it is, and a line break has no spelling: migrate counts that one lost.
+	if _spells_path_escape(out):
+		return _quote_double_with(t, rules, True)
+	return out
+
+
+def _spells_path_escape(quoted):
+	"""True when a double-quoted spelling would be E024."""
+	src = quoted.encode("utf-8", "surrogatepass")
+	return _path_like(Piece(1, len(src) - 1, Quote.DOUBLE), src)
+
+
+def _quote_double_with(t, rules, path):
 	out = ['"']
 	for i, c in enumerate(t):
 		if c == "\\":
 			out.append("\\\\")
 		elif c == '"':
 			out.append('\\"')
+		elif c in "\n\t" and path and rules is Rules.CURRENT:
+			out.append(_unicode_escape_text(c))
+		elif c == "\t" and path:
+			out.append(c)
 		elif c == "\n":
 			out.append("\\n")
 		elif c == "\t":

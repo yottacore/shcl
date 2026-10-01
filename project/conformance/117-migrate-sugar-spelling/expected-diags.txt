@@ -5,9 +5,8 @@ line 7: Error: E019
 line 9: Error: E019
 line 10: Error: E019
 line 11: Error: E019
-line 12: Error: E018
 line 14: Error: E019
 line 16: Error: E019
 line 17: Error: E019
 line 18: Error: E019
-failed: 12 diagnostic(s), 12 error(s)
+failed: 11 diagnostic(s), 11 error(s)

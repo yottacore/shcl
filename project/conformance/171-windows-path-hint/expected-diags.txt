@@ -1,6 +1,0 @@
-line 2: Hint: H004
-line 3: Hint: H004
-line 4: Hint: H004
-line 8: Hint: H004
-line 11: Hint: H004
-ok (5 diagnostic(s))
