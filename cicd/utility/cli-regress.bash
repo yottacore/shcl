@@ -1565,8 +1565,7 @@ if [[ "${onWindows}" == 1 ]]; then fTestSkip; else fSmallStack set; fi
 ## directory, since the save is what is under test, and a timeout, since the old
 ## code blocked reading a FIFO. POSIX fixtures: links and FIFOs.
 saveDir="${tmpDir}/save"
-## A group the caller is in that is not its own, for the group-carry case. A
-## runner with one group has nothing to tell apart, so the case drops out.
+## A group the caller is in that is not its own, for the group-carry cases.
 altGroup="$(id -Gn | tr ' ' '\n' | grep -vx "$(id -gn)" | head -1 || true)"
 fSaveSetup() {
 	case "$1" in
@@ -1639,16 +1638,24 @@ saveCases=(
 	'ErCrqz4|migrate-setid|migrate --write f.shcl|0|[[ "$(stat -c %a f_old_v2.shcl)" == 6755 ]]'
 	'ErCrr0Y|migrate-rodir|migrate --write ro/g.shcl|8|grep -qx "base:\[Boston\]" ro/g.shcl && grep -qiE "^ro/g_old_v2\.shcl: permission denied" "${tmpDir}/err" && ! grep -q "open " "${tmpDir}/err"'
 )
-if [[ -z "${altGroup}" ]]; then
-	echo "cli-regress: skipping the save-group cases (the caller is in one group only)"
-fi
 if [[ "${onWindows}" == 1 ]]; then
 	echo "cli-regress: skipping the save-target cases (POSIX fixtures; not judged on windows)"
 fi
 for sc in "${saveCases[@]}"; do
 	IFS='|' read -r tid id argv wantRc holds <<<"${sc}"
 	fTest "${tid}" "save-${id}"
-	if [[ "${onWindows}" == 1 || ( ( "${id}" == group || "${id}" == migrate-setgid ) && -z "${altGroup}" ) ]]; then
+	if [[ "${onWindows}" == 1 ]]; then
+		fTestSkip; continue
+	fi
+	##	A caller in one group has nothing to tell apart. Under the gate that is a
+	##	failure, as the /dev/full rows are: these two rows are the only cover the
+	##	group carry has. The hosted ubuntu runner's user is in several groups.
+	if [[ ( "${id}" == group || "${id}" == migrate-setgid ) && -z "${altGroup}" ]]; then
+		if [[ -n "${SHCL_GATE_STRICT:-}" ]]; then
+			echo "cli-regress: save-${id}: no second group for the caller and the gate requires one" >&2; nBad+=1; continue
+		fi
+		echo "cli-regress: skipping save-${id} (no second group for the caller)"
+		echo "cli-regress save-${id}" >> "${SHCL_GATE_SKIPS:-/dev/null}"
 		fTestSkip; continue
 	fi
 	## Root writes through a read-only directory.
