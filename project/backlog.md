@@ -127,25 +127,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: items 1 and 2 of this round are what it would have found.
 	- Estimated effort: Avg
 
-- The cli-regress group rows skip without a recorded skip
-	- ID: 2026093019075906
-	- Type: Enhancement
-	- Status: Done
-	- Opened: 20260930-190759
-	- Opened by: Code review 20260930 idea 3
-	- Requirements:
-		- `save-group` and `migrate-setgid` go through the strict-skip list when the user is in only one group, rather than passing quietly.
-		- Both ran on this box. Whether the hosted runner's user has a second group was not checked.
-	- Estimated effort: Low
-	- Actual fix: with no second group, each row is noted in `SHCL_GATE_SKIPS`, and under `--ci` it fails instead, as the `/dev/full` rows do. Windows still skips both as a platform fact.
-	- Note: the hosted linux job needs no change. Both rows passed there in run `36785011455`, so the runner user already has a second group.
-	- Verified: with the caller in one group, both rows skip and are noted, and under strict both fail and cli-regress exits 1. Before the change the same case exits 0 under strict and notes nothing. With a second group both rows pass. shellcheck, shell-regress, check-docs and `test-ids.py check` pass, and `EqGhNQu` goes red with the note line removed.
-	- Branch: groupskip
-	- Commit: c8187a46
-	- Test case: `EqMO8fA` and `ErCrqxU` (cli-regress), with `EqGhNQu` (shell-regress) holding the skip to the strict read and the note.
-	- Acceptance signoff: Self-closed: the change does what the item asked, and its pin fails when the note is dropped.
-	- Closed: 20261001-122751
-
 - A Schema line makes `check` open any path, devices and network shares included
 	- ID: 2026092813365302
 	- Type: Bug
@@ -1489,6 +1470,25 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Verified: a stub CLI that sleeps, with the limit at 1 s, times out row by row by name.
 	- Branch: `setkeep`
 	- Test case: none standing, since a row that must hang costs the full limit on every run.
+
+- The cli-regress group rows skip without a recorded skip
+	- ID: 2026093019075906
+	- Type: Enhancement
+	- Status: Done
+	- Opened: 20260930-190759
+	- Opened by: Code review 20260930 idea 3
+	- Requirements:
+		- `save-group` and `migrate-setgid` go through the strict-skip list when the user is in only one group, rather than passing quietly.
+		- Both ran on this box. Whether the hosted runner's user has a second group was not checked.
+	- Estimated effort: Low
+	- Actual fix: with no second group, each row is noted in `SHCL_GATE_SKIPS`, and under `--ci` it fails instead, as the `/dev/full` rows do. Windows still skips both as a platform fact.
+	- Note: the hosted linux job needs no change. Both rows passed there in run `36785011455`, so the runner user already has a second group.
+	- Verified: with the caller in one group, both rows skip and are noted, and under strict both fail and cli-regress exits 1. Before the change the same case exits 0 under strict and notes nothing. With a second group both rows pass. shellcheck, shell-regress, check-docs and `test-ids.py check` pass, and `EqGhNQu` goes red with the note line removed.
+	- Branch: groupskip
+	- Commit: c8187a46
+	- Test case: `EqMO8fA` and `ErCrqxU` (cli-regress), with `EqGhNQu` (shell-regress) holding the skip to the strict read and the note.
+	- Acceptance signoff: Self-closed: the change does what the item asked, and its pin fails when the note is dropped.
+	- Closed: 20261001-122751
 
 - `test-ids.py` passes a test in a place its tables do not know
 	- ID: 2026092813365327
