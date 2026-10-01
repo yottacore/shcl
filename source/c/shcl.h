@@ -560,7 +560,8 @@ size_t shcl_tokens_element_count(const shcl_tokens *t);
 // so there was nothing to migrate and text is the input. ambiguous: pieces the
 // two rule sets read differently and nothing can decide between, left as
 // written; always 0 when from_v2 said the file is 2.x. lost: lines 2.x bound a
-// value on that nothing binds now - bracket text after the colon.
+// value on that nothing binds now - bracket text after the colon, or a line
+// break in a value that starts like a Windows path.
 typedef struct { char *text; size_t len; int current; size_t ambiguous; size_t lost; } shcl_migration;
 
 // Rewrite a document written under the 2.x lexical rules so this parser reads
@@ -1888,6 +1889,13 @@ static int path_like(const ShclPiece *p, ShclStr text) {
 	return 0;
 }
 
+/* True when a double-quoted spelling would be E024. */
+static int spells_path_escape(ShclStr quoted) {
+	if (quoted.n < 2 || quoted.p[0] != '"') return 0;
+	ShclPiece p; p.start = 1; p.end = quoted.n - 1; p.quote = SHCL_QUOTE_DOUBLE;
+	return path_like(&p, quoted);
+}
+
 // --- Durations and sizes ---------------------------------------------------
 // A number with a unit, or a bare number whose unit the field name or the
 // caller gives.
@@ -2316,6 +2324,7 @@ static int reads_same(ShclArena *a, ShclStr spelling, int quoted, ShclStr logica
 		&& piece_quoted(tok.elements[0].quote) == quoted
 		&& tok.elements[0].quote != SHCL_QUOTE_OPEN
 		&& !bad_escape(&tok, spelling, 1, &c)
+		&& !path_like(&tok.elements[0], spelling)
 		&& s_eq(piece_text(a, &tok.elements[0], spelling), logical);
 }
 
@@ -2323,7 +2332,8 @@ static int reads_same(ShclArena *a, ShclStr spelling, int quoted, ShclStr logica
    single-quoted text as an escape too, and double quotes are where both rule
    sets read one alike. No \u goes in, since 2.x would keep it as written.
    So the migrated file reads the same under 2.x, and a second run changes
-   nothing. */
+   nothing. A line break in a value that starts like a Windows path has no
+   such spelling: written this way it is E024, so the caller counts it lost. */
 static ShclStr migrate_spelling(ShclArena *a, ShclStr logical, int bare) {
 	if (memchr(logical.p, '\\', logical.n)) return quote_double_as(a, logical, SHCL_RULES_V2);
 	if (bare && !needs_quotes(logical)) return logical;
@@ -2362,7 +2372,10 @@ static void value_edits(ShclArena *a, ShclStr text, const ShclTokens *tok, ShclV
 		   in double quotes is a character now and was text in 2.x. */
 		int differs = p->quote == SHCL_QUOTE_DOUBLE ? unicode_pair_differs(raw) : !s_eq(logical, raw);
 		if (differs && !st->from_v2) { st->ambiguous++; continue; }
-		edit_push(a, edits, ea, eb, migrate_spelling(a, logical, !(quoted || p->quote == SHCL_QUOTE_OPEN)));
+		ShclStr spelling = migrate_spelling(a, logical, !(quoted || p->quote == SHCL_QUOTE_OPEN));
+		/* Spelled the way 2.x read it, the line is E024 and binds nothing. */
+		if (spells_path_escape(spelling)) st->lost++;
+		edit_push(a, edits, ea, eb, spelling);
 	}
 }
 
@@ -2432,6 +2445,11 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 					if (!s_eq(logical, body)) spelling = migrate_spelling(a, logical, 0);
 					else if (quoted && !unknown) spelling = s_trim_wsp(s_slice(rest, open + 1, close));
 					else spelling = migrate_spelling(a, logical, 1);
+					/* As a value, a path holding a \t or \n is E024. */
+					if (spells_path_escape(spelling)) {
+						spelling = migrate_spelling(a, logical, 0);
+						if (spells_path_escape(spelling)) st->lost++;
+					}
 					ShclSB sb = {0}; sb_puts(a, &sb, ": "); sb_putS(a, &sb, spelling);
 					edit_push(a, &edits, colon, close + 1, sb_S(&sb));
 					continue;
@@ -5886,7 +5904,8 @@ int shcl_set_string(shcl_doc *d, const char *path, size_t plen, const char *s, s
    with: a line break, which no file line can hold, an unterminated quote
    (E017), bracket text (E019, the line kept verbatim - writing it as a
    two-element array holding `[1` and `2]` would be a different wrong answer),
-   and an unknown escape in double quotes (E023). */
+   an unknown escape in double quotes (E023), and a Windows path in double
+   quotes holding a \t or \n escape (E024). */
 static int literal_value(ShclArena *a, ShclArena *tmp, ShclStr text, ShclValue *out) {
 	for (size_t i = 0; i < text.n; i++) { if (text.p[i] == '\n') return 0; }
 	/* One copy of the value text up front: the elements slice it, and the
@@ -5896,7 +5915,7 @@ static int literal_value(ShclArena *a, ShclArena *tmp, ShclStr text, ShclValue *
 	for (size_t i = 0; i < tok.nelem; i++) if (tok.elements[i].quote == SHCL_QUOTE_OPEN) return 0;
 	if (tok.value_start < line.n && line.p[tok.value_start] == '[') return 0;
 	uint32_t c;
-	if (bad_escape(&tok, line, 1, &c)) return 0;
+	if (bad_escape(&tok, line, 1, &c) || any_path_like(&tok, line)) return 0;
 	*out = cell_of_tokens(a, tmp, &tok, line);
 	return 1;
 }
@@ -6573,7 +6592,17 @@ static ShclStr quote_text_as(ShclArena *a, ShclStr t, shcl_rules rules) {
 /* The double-quoted spelling for a reader of rules. The two read it alike,
    except a \u escape, which 2.x kept as written, so for 2.x an invisible
    character goes in as it is. */
+static ShclStr quote_double_with(ShclArena *a, ShclStr t, shcl_rules rules, int path);
 static ShclStr quote_double_as(ShclArena *a, ShclStr t, shcl_rules rules) {
+	ShclStr out = quote_double_with(a, t, rules, 0);
+	/* Spelled \t or \n, a path is E024 on the reload, and a \u escape reads
+	   the same. 2.x kept one as written, so for 2.x a tab goes in as it is, and
+	   a line break has no spelling: migrate counts that one lost. */
+	if (spells_path_escape(out)) return quote_double_with(a, t, rules, 1);
+	return out;
+}
+
+static ShclStr quote_double_with(ShclArena *a, ShclStr t, shcl_rules rules, int path) {
 	ShclSB s = {0};
 	sb_reserve(a, &s, t.n + 2);
 	sb_putc(a, &s, '"');
@@ -6581,6 +6610,8 @@ static ShclStr quote_double_as(ShclArena *a, ShclStr t, shcl_rules rules) {
 		char c = t.p[i]; uint32_t cp; size_t l;
 		if (c == '\\') sb_puts(a, &s, "\\\\");
 		else if (c == '"') sb_puts(a, &s, "\\\"");
+		else if ((c == '\n' || c == '\t') && path && rules == SHCL_RULES_CURRENT) sb_put_unicode_escape(a, &s, (uint32_t)c);
+		else if (c == '\t' && path) sb_putc(a, &s, c);
 		else if (c == '\n') sb_puts(a, &s, "\\n");
 		else if (c == '\t') sb_puts(a, &s, "\\t");
 		else if (rules == SHCL_RULES_CURRENT && (l = invisible_at(t, i, &cp)) != 0) { sb_put_unicode_escape(a, &s, cp); i += l - 1; }
@@ -6950,6 +6981,23 @@ static void emit_placed(ShclEmit *e, ShclStr indent) {
 	e->has_hold = 0;
 }
 
+/* True when a field's last leading line is one kept for its value alone,
+   naming just this field, so that line is written in place of the bare
+   `name:` line: a reload opens the field from it the same way. An empty block
+   keeps its own line, since nothing would open the field. Only what a reload
+   restores counts, so a document and its reload agree. */
+static int heads_block(ShclArena *a, const ShclNode *node) {
+	if (!v_is_empty(&node->value) || node->children.len == 0 || node->blank_before || triv_trailing(node).n) return 0;
+	ShclVecLead lead = triv_leading(node);
+	if (lead.len == 0) return 0;
+	const ShclLead *l = &lead.data[lead.len - 1];
+	if (l->depth != 0 || (l->text.n && (l->text.p[0] == ' ' || l->text.p[0] == '\t')) || !opens_later(a, l->text)) return 0;
+	ShclTokens tok; memset(&tok, 0, sizeof tok);
+	tokenize(a, l->text, ':', 0, SHCL_RULES_CURRENT, &tok);
+	ShclPathScan scan = path_of(a, &tok, l->text);
+	return scan.ok && scan.segs.len == 1 && scan.segs.data[0].sel.tag == SEL_NONE && s_eq(scan.segs.data[0].name, node->name);
+}
+
 /* A misplaced line's text as the comment it falls back to. */
 static ShclStr commented(ShclArena *a, ShclStr text) {
 	ShclSB b = {0};
@@ -6999,11 +7047,16 @@ static void push_leads(ShclEmit *e, const ShclLead *leads, size_t n, size_t base
 		size_t pad = base + c->depth;
 		if (c->text.n && c->text.p[0] == '#') last_comment = c->depth;
 		else {
-			/* A kept malformed line resolves and holds its column on a reload. */
+			/* A kept malformed line resolves and holds its column on a reload,
+			   open for the lines under it when only its value was wrong. */
 			ShclStr ind = emit_tabs(e, pad);
 			ShclTrial t = emit_resolve(e, ind);
 			e->has_hold = 0;
-			emit_refused(e, ind, &t);
+			if (t.found && t.parent != DEAD && opens_later(a, c->text)) {
+				emit_take(e, &t);
+				ShclStackEnt se; se.indent = ind; se.node = ROOT; ShclVecStack_push(a, &e->tail, se);
+			}
+			else emit_refused(e, ind, &t);
 		}
 		sb_putS(a, &e->out, emit_tabs(e, pad));
 		sb_putS(a, &e->out, c->text); sb_putc(a, &e->out, '\n');
@@ -7065,6 +7118,12 @@ static void emit_line(shcl_doc *d, size_t idx, size_t pos, size_t depth, int wou
 	   never as the first output line. */
 	emit_near(e, idx, pos);
 	push_leads(e, lead.data, lead.len, depth, idx, SITE_LEADING, 0);
+	/* The kept line just written opens this block on a reload. */
+	if (heads_block(a, node)) {
+		emit_bound(e, depth);
+		emit_near(e, idx, pos);
+		return;
+	}
 	if (node->blank_before && out->len) sb_putc(a, out, '\n');
 	emit_mark(e, node->line);
 	if (would_merge && trailing.n) {

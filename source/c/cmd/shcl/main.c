@@ -368,6 +368,7 @@ static const char *CODES =
 	"  A '[' after the colon is never a selector, and reading the text without\n"
 	"  its brackets would bake a changed value in, so the line is kept verbatim:\n"
 	"  it binds nothing, a read on it is NotFound, and nothing counts as lost.\n"
+	"  The lines under it still load, under the field with no value.\n"
 	"E020|error|node cap exceeded (fires only under a caller-supplied cap)\n"
 	"  The parse stopped there and the unparsed remainder counts as lost, so a\n"
 	"  later save refuses rather than writing a truncated file.\n"
@@ -383,7 +384,13 @@ static const char *CODES =
 	"  \\u or \\U escape must name a character. A Windows path typed in double\n"
 	"  quotes is the usual cause, and its \\n would already be a newline, so the\n"
 	"  line is kept verbatim: it binds nothing and a read on it is NotFound. Use\n"
-	"  single quotes or no quotes, or double each backslash.\n"
+	"  single quotes or no quotes, or double each backslash. When only the value\n"
+	"  is wrong, the lines under it still load, under the field with no value.\n"
+	"E024|error|a Windows path in double quotes with a \\t or \\n escape\n"
+	"  \"C:\\temp\" would read as C:, a tab, then emp, which a path almost never\n"
+	"  means. The line is kept verbatim like E023: it binds nothing, a read on it\n"
+	"  is NotFound, and the lines under it still load. Use single quotes or no\n"
+	"  quotes, or double each backslash.\n"
 	"H001|hint|repeated bare leaf (an array spelled as repeated lines)\n"
 	"  Repeated leaves are legal - that is how instances are written - but\n"
 	"  'tags: red' twice and 'tags: red, blue' look alike, so the parser says\n"
@@ -396,10 +403,6 @@ static const char *CODES =
 	"  '* name: value' is the YAML habit for a list of objects. Here it is one\n"
 	"  string element, the text 'name: value'. Quote it to keep the string; a\n"
 	"  list of objects is written as instances of a field.\n"
-	"H004|hint|a Windows path in double quotes with a \\t or \\n escape\n"
-	"  \"C:\\temp\" reads as C:, a tab, then emp. The line loads and saves as\n"
-	"  usual, since that is legal, but a path almost never means it. Single\n"
-	"  quotes or no quotes keep each backslash as written; so does doubling it.\n"
 	"H005|hint|a value in another unit than its field name ends in\n"
 	"  timeout-ms: 5s reads as 5000 milliseconds, since a unit in the value\n"
 	"  wins over the one the name gives a bare number. Legal, and often a slip.\n"
@@ -1261,7 +1264,7 @@ static int do_migrate(const Opts *o) {
 		rc = 7;
 	}
 	if (m.lost) {
-		fprintf(stderr, "%s: %zu line(s) bound a value under 2.x that nothing binds now: bracket text after the colon, which has no spelling here (--lossy overrides)\n", file, m.lost);
+		fprintf(stderr, "%s: %zu line(s) bound a value under 2.x that nothing binds now: bracket text after the colon or a line break in a Windows path, which have no spelling here (--lossy overrides)\n", file, m.lost);
 		if (!o->lossy) rc = 7;
 	}
 	size_t rewritten = rewritten_lines(o->check ? file : NULL, text, len, m.text, m.len);
