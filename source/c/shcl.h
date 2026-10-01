@@ -7170,6 +7170,13 @@ static size_t line_end(ShclStr text, size_t pos) {
 	return nl ? (size_t)(nl - text.p) + 1 : text.n;
 }
 
+/* The line ending t ends with: CRLF, LF or none. */
+static const char *eol_of(ShclStr t) {
+	if (t.n >= 2 && t.p[t.n - 2] == '\r' && t.p[t.n - 1] == '\n') return "\r\n";
+	if (t.n >= 1 && t.p[t.n - 1] == '\n') return "\n";
+	return "";
+}
+
 static size_t tabs_of(ShclStr s) {
 	size_t n = 0;
 	while (n < s.n && s.p[n] == '\t') n++;
@@ -7550,7 +7557,6 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 		else if (lk.n >= 1 && lk.p[lk.n - 1] == '\n') lf++;
 	}
 	const char *eol = crlf > lf ? "\r\n" : "\n";
-	size_t eol_n = strlen(eol);
 	/* One level of the source's indent: a line one level in, or failing that
 	   the first indented line, a list element or a fence. */
 	ShclStr step = s_lit("\t");
@@ -7661,7 +7667,9 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 				ShclStr head;
 				if (authored_head(a, KL_LINE(l), s_slice(nowS, u->start, first - 1), &head)) {
 					sb_putS(a, &ob, head);
-					sb_puts(a, &ob, eol);
+					/* A changed line keeps its own line ending. */
+					const char *own_eol = eol_of(KL_LINE(l));
+					sb_puts(a, &ob, *own_eol ? own_eol : eol);
 					note_indent(a, &indents, depth, leading_ws(KL_LINE(l)));
 					start = first;
 				}
@@ -7686,8 +7694,9 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 	if (ob.len > bom && all_blank) for (size_t k = tail; k <= n; k++) sb_putS(a, &ob, KL_LINE(k));
 	for (size_t k = 1; k <= n; k++) if (left[k]) return 0;
 	for (size_t k = 0; k < ld->dropped.len; k++) if (!wrote[ld->dropped.data[k]]) return 0;
-	/* So does a last line with no newline. */
-	if (body.n && body.p[body.n - 1] != '\n' && ob.len >= eol_n && memcmp(ob.data + ob.len - eol_n, eol, eol_n) == 0) ob.len -= eol_n;
+	/* So does a last line with no newline. The line that ends the text now
+	   can be one kept with the other line ending. */
+	if (body.n && body.p[body.n - 1] != '\n') ob.len -= strlen(eol_of(sb_S(&ob)));
 	#undef KL_LINE
 	ShclStr text = sb_S(&ob);
 	/* The reload has to be the document, and it may not load with an error

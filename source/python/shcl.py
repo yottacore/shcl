@@ -3659,6 +3659,15 @@ def _line_end(text, pos):
 	return len(text) if i < 0 else i + 1
 
 
+def _eol_of(t):
+	"""The line ending `t` ends with: CRLF, LF or none."""
+	if t.endswith("\r\n"):
+		return "\r\n"
+	if t.endswith("\n"):
+		return "\n"
+	return ""
+
+
 def _tabs(s, pos=0):
 	k = pos
 	while k < len(s) and s[k] == "\t":
@@ -4029,7 +4038,8 @@ def _keep_lines(src, doc):
 				t = _authored_head(line(k), now.text[u.start:first - 1])
 				if t is not None:
 					out.append(t)
-					out.append(eol)
+					# A changed line keeps its own line ending.
+					out.append(_eol_of(line(k)) or eol)
 					_note_indent(indents, depth, indent(k))
 					frm = first
 			_write_run(out, now, frm, u.end, indents, step, eol)
@@ -4045,9 +4055,10 @@ def _keep_lines(src, doc):
 	if any(left) or not all(wrote[g] for g in loaded_doc._dropped):
 		return None
 	text = "".join(out)
-	# So does a last line with no newline.
-	if body and not body.endswith("\n") and text.endswith(eol):
-		text = text[:-len(eol)]
+	# So does a last line with no newline. The line that ends the text now
+	# can be one kept with the other line ending.
+	if body and not body.endswith("\n"):
+		text = text[:len(text) - len(_eol_of(text))]
 	text = bom + text
 	# The reload has to be the document, and it may not load with an error the
 	# source did not have: a child the edits gave an element list that stayed

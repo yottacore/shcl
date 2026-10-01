@@ -286,6 +286,11 @@ printf 'a:\n\tx: 1\nb:   2\na:\n\ty: 1\n' > "${tmpDir}/keepfold.shcl"
 ## Mixed line ends, the first line the odd one out either way.
 printf 'a: 1\nb: 2\r\nc: 3\r\n' > "${tmpDir}/keepcrlf.shcl"
 printf 'a: 1\r\nb: 2\nc: 3\n' > "${tmpDir}/keeplf.shcl"
+## A CRLF raw block in an LF file, and files with no final newline whose last
+## kept line ends the other way from most.
+printf 'x: 1\ny: 2\nr: ```\r\n\tb\r\n\t```\r\nz: 3\n' > "${tmpDir}/keepraw.shcl"
+printf 'a: 1\r\nb: 2\nc: 3\nx: 0\r\nz: 9' > "${tmpDir}/keeptail.shcl"
+printf 'a: 1\r\nb: 2\r\nc: 3\r\nx: 0\nz: 9' > "${tmpDir}/keeptaillf.shcl"
 ## A schema key nothing knows, on schema line 2.
 printf 'field: a\n\tbogus: 1\n' > "${tmpDir}/unkey.shcl"
 ## A file and a name that both start with a dash, so only `--` makes them data.
@@ -327,7 +332,8 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	same for a file whose load drops a line, %KE% one that drops an element
 ##	under a field with a value, %KG% one that drops a line between two lines
 ##	of one block, %KF% one whose save cannot keep its lines, %KM%/%KN% ones
-##	whose line ends are mostly CRLF and mostly LF,
+##	whose line ends are mostly CRLF and mostly LF, %KR% a CRLF raw block in an
+##	LF file, %KT%/%KU% no final newline after a last line ending the other way,
 ##	%W% a fresh copy of the selector-sugar file, %BS% a fresh copy of a file
 ##	whose value reads differently under the two rule sets, %BW% a fresh copy of
 ##	the bracket array, %V3% a file that already names its format,
@@ -531,6 +537,11 @@ rows=(
 	## A new line ends the way most of the file's lines do, not its first.
 	'ErPO61B|set-write-eol-mostly-crlf|set --write %KM% --set=d=4|-|0|-|-|a: 1\nb: 2\r\nc: 3\r\n\r\nd: 4\r\n'
 	'ErPO633|set-write-eol-mostly-lf|set --write %KN% --set=d=4|-|0|-|-|a: 1\r\nb: 2\nc: 3\n\nd: 4\n'
+	## A changed line keeps its own, a raw block turned scalar too.
+	'ErTecqB|set-write-eol-raw-to-scalar|set --write %KR% --set=r=9|-|0|-|-|x: 1\ny: 2\nr: 9\r\nz: 3\n'
+	## No final newline stays none, whichever way the new last line ended.
+	'ErTecqC|set-write-eol-no-final-crlf|set --write %KT% --remove=z|-|0|-|-|a: 1\r\nb: 2\nc: 3\nx: 0'
+	'ErTecqD|set-write-eol-no-final-lf|set --write %KU% --remove=z|-|0|-|-|a: 1\r\nb: 2\r\nc: 3\r\nx: 0'
 	## A dropped line refuses the write only when the save falls back to
 	## canonical. Removing margin would put stray under window, so that one does.
 	'EqzUbG4|set-write-keeps-dropped|set --write %KL% --set=font.size=13|-|0|-|E012|font:\n\tsize: 13\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n'
@@ -1103,6 +1114,21 @@ for row in "${rows[@]}"; do
 		freshKeepLf=1
 		argv="${argv//%KN%/${tmpDir}/created.shcl}"
 	fi
+	freshKeepRaw=0
+	if [[ "${argv}" == *%KR%* ]]; then
+		freshKeepRaw=1
+		argv="${argv//%KR%/${tmpDir}/created.shcl}"
+	fi
+	freshKeepTail=0
+	if [[ "${argv}" == *%KT%* ]]; then
+		freshKeepTail=1
+		argv="${argv//%KT%/${tmpDir}/created.shcl}"
+	fi
+	freshKeepTailLf=0
+	if [[ "${argv}" == *%KU%* ]]; then
+		freshKeepTailLf=1
+		argv="${argv//%KU%/${tmpDir}/created.shcl}"
+	fi
 	freshCreate=0
 	if [[ "${argv}" == *%C%* ]]; then
 		freshCreate=1
@@ -1191,6 +1217,9 @@ for row in "${rows[@]}"; do
 		((freshKeepFold)) && cp "${tmpDir}/keepfold.shcl" "${tmpDir}/created.shcl"
 		((freshKeepCrlf)) && cp "${tmpDir}/keepcrlf.shcl" "${tmpDir}/created.shcl"
 		((freshKeepLf)) && cp "${tmpDir}/keeplf.shcl" "${tmpDir}/created.shcl"
+		((freshKeepRaw)) && cp "${tmpDir}/keepraw.shcl" "${tmpDir}/created.shcl"
+		((freshKeepTail)) && cp "${tmpDir}/keeptail.shcl" "${tmpDir}/created.shcl"
+		((freshKeepTailLf)) && cp "${tmpDir}/keeptaillf.shcl" "${tmpDir}/created.shcl"
 		if [[ -n "${runIn}" ]]; then cli="$(realpath -- "${cli}")"; cd -- "${runIn}"; fi
 		rc=0
 		case "${stdinSpec}" in

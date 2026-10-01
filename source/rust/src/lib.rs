@@ -5144,6 +5144,17 @@ fn line_end(text: &[u8], pos: usize) -> usize {
 		.map_or(text.len(), |i| pos + i + 1)
 }
 
+/// The line ending `t` ends with: CRLF, LF or none.
+fn eol_of(t: &str) -> &'static str {
+	if t.ends_with("\r\n") {
+		"\r\n"
+	} else if t.ends_with('\n') {
+		"\n"
+	} else {
+		""
+	}
+}
+
 fn tabs(s: &str) -> usize {
 	s.bytes().take_while(|&b| b == b'\t').count()
 }
@@ -5581,7 +5592,9 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 				let first = line_end(now.out.as_bytes(), u.start);
 				if let Some(t) = authored_head(line(l), &now.out[u.start..first - 1]) {
 					out.push_str(&t);
-					out.push_str(eol);
+					// A changed line keeps its own line ending.
+					let own_eol = eol_of(line(l));
+					out.push_str(if own_eol.is_empty() { eol } else { own_eol });
 					note_indent(&mut indents, depth, indent(l));
 					from = first;
 				}
@@ -5603,9 +5616,10 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 	if left.contains(&true) || loaded_doc.dropped.iter().any(|&k| !wrote[k]) {
 		return None;
 	}
-	// So does a last line with no newline.
-	if !body.is_empty() && !body.ends_with('\n') && out.ends_with(eol) {
-		out.truncate(out.len() - eol.len());
+	// So does a last line with no newline. The line that ends the text now
+	// can be one kept with the other line ending.
+	if !body.is_empty() && !body.ends_with('\n') {
+		out.truncate(out.len() - eol_of(&out).len());
 	}
 	// The reload has to be the document, and it may not load with an error
 	// the source did not have: a child the edits gave an element list that

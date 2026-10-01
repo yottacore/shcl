@@ -4873,6 +4873,16 @@ func lineEnd(text string, pos int) int {
 	return len(text)
 }
 
+// eolOf is the line ending t ends with: CRLF, LF or none.
+func eolOf(t string) string {
+	if strings.HasSuffix(t, "\r\n") {
+		return "\r\n"
+	} else if strings.HasSuffix(t, "\n") {
+		return "\n"
+	}
+	return ""
+}
+
 func tabs(s string) int {
 	n := 0
 	for n < len(s) && s[n] == '\t' {
@@ -5357,7 +5367,12 @@ func keepLines(src string, doc *Document) (string, bool) {
 				first := lineEnd(nowText, u.start)
 				if t, ok := authoredHead(line(l), nowText[u.start:first-1]); ok {
 					out.WriteString(t)
-					out.WriteString(eol)
+					// A changed line keeps its own line ending.
+					ownEol := eolOf(line(l))
+					if ownEol == "" {
+						ownEol = eol
+					}
+					out.WriteString(ownEol)
 					indents = noteIndent(indents, depth, indent(l))
 					from = first
 				}
@@ -5396,9 +5411,10 @@ func keepLines(src string, doc *Document) (string, bool) {
 		}
 	}
 	text := out.String()
-	// So does a last line with no newline.
-	if body != "" && !strings.HasSuffix(body, "\n") && strings.HasSuffix(text, eol) {
-		text = text[:len(text)-len(eol)]
+	// So does a last line with no newline. The line that ends the text now
+	// can be one kept with the other line ending.
+	if body != "" && !strings.HasSuffix(body, "\n") {
+		text = text[:len(text)-len(eolOf(text))]
 	}
 	// The reload has to be the document, and it may not load with an error the
 	// source did not have: a child the edits gave an element list that stayed
