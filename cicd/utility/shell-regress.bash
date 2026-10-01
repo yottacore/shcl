@@ -3298,11 +3298,13 @@ case "${0##*/}:${line}" in
 	two:version\ |two:about\ ) echo "other" ;;
 	nonl:version\ ) printf '%s' "${line}" ;;
 	tsv:count\ *zz\ ) echo "other" ;;
+	crlf:set\ --write\ c.shcl\ ) sed 's/$/\r/' >>"${@: -1}" ;;
+	*:set\ --write\ c.shcl\ ) cat >>"${@: -1}" ;;
 	*) printf '%s\n' "${line}" ;;
 esac
 EOF
 chmod +x "${xcDir}/ref"
-for m in two nonl tsv; do cp "${xcDir}/ref" "${xcDir}/${m}"; done
+for m in two nonl tsv crlf; do cp "${xcDir}/ref" "${xcDir}/${m}"; done
 printf 'a: 1\n' > "${xcDir}/corpus/001-a/input.shcl"
 printf 'query\ttype\texpected\tstatus\na\tint\t1\tok\nzz\tcount\t0\tok' > "${xcDir}/corpus/001-a/reads.tsv"
 fCrosscheck(){  ## fCrosscheck ARGS...: crosscheck's stdout and stderr in xcOut, its exit in xcRc
@@ -3333,6 +3335,28 @@ fCrosscheck --corpus "${xcDir}/corpus" --extra "${xcDir}/nodump" "ref|${xcDir}/r
 [[ "${xcRc}" == 2 ]] || fBad "crosscheck took an --extra directory with no *.shcl (exit ${xcRc})"
 fCrosscheck --corpus "${xcDir}/corpus" --min 1000000 "ref|${xcDir}/ref" "other|${xcDir}/ref"
 [[ "${xcRc}" == 2 && "${xcOut}" == *"need at least 1000000"* ]] || fBad "crosscheck passed below its --min floor (exit ${xcRc})"
+fTest ErUF4pC 2026100114175701-crosscheck-eol-keep-saves
+##	2026100114175701: the dump's eol/ inputs go through each binding's keep
+##	save with their ops on stdin, and the bytes on disk are compared, CRs and
+##	all. An input with no ops, or an eol/ with no input, is a broken dump.
+mkdir -p "${xcDir}/eoldump/eol"
+printf 'a: 1\n' > "${xcDir}/eoldump/fuzz_00000.shcl"
+printf 'a :  1 \r\nb :  2 \n' > "${xcDir}/eoldump/eol/00000.shcl"
+printf 'int\tz0\t7\n' > "${xcDir}/eoldump/eol/00000.ops"
+fCrosscheck --corpus "${xcDir}/corpus" --extra "${xcDir}/eoldump" "ref|${xcDir}/ref" "other|${xcDir}/ref"
+[[ "${xcRc}" == 0 && "${xcOut}" == *"ok   ErUF4nK "* ]] || fBad "crosscheck: two identical keep saves did not agree (exit ${xcRc}): ${xcOut@Q}"
+fCrosscheck --corpus "${xcDir}/corpus" --extra "${xcDir}/eoldump" "ref|${xcDir}/ref" "crlf|${xcDir}/crlf"
+[[ "${xcRc}" == 1 && "${xcOut}" == *"DIVERGE keep save 00000.shcl: crlf vs ref"* && "${xcOut}" == *"FAIL ErUF4nK "* ]] \
+	|| fBad "crosscheck missed a keep save that ends its lines in CRLF (exit ${xcRc}): ${xcOut@Q}"
+mkdir -p "${xcDir}/eolnoops/eol"
+cp "${xcDir}/eoldump/fuzz_00000.shcl" "${xcDir}/eolnoops/"
+cp "${xcDir}/eoldump/eol/00000.shcl" "${xcDir}/eolnoops/eol/"
+fCrosscheck --corpus "${xcDir}/corpus" --extra "${xcDir}/eolnoops" "ref|${xcDir}/ref" "other|${xcDir}/ref"
+[[ "${xcRc}" == 2 && "${xcOut}" == *"has no .ops beside it"* ]] || fBad "crosscheck took an eol/ input with no ops (exit ${xcRc}): ${xcOut@Q}"
+mkdir -p "${xcDir}/eolempty/eol"
+cp "${xcDir}/eoldump/fuzz_00000.shcl" "${xcDir}/eolempty/"
+fCrosscheck --corpus "${xcDir}/corpus" --extra "${xcDir}/eolempty" "ref|${xcDir}/ref" "other|${xcDir}/ref"
+[[ "${xcRc}" == 2 && "${xcOut}" == *"empty keep-save dump"* ]] || fBad "crosscheck took an empty eol/ (exit ${xcRc})"
 
 fTestEnd
 

@@ -1316,11 +1316,23 @@ fn keeping_lines_ends_each_line_by_the_rule() {
 	// Kept and changed lines whose ending is not the majority one, new lines,
 	// tied files, and files with no final newline whose last line moved.
 	let mut seen = [0usize; 5];
+	// SHCL_FUZZ_DUMP: the first inputs checked here, each with the edits that
+	// took as a write-ops script, go to an eol/ folder beside the fmt dump.
+	// crosscheck replays them through every binding's keep save. Capped, since
+	// each one is a write per binding.
+	let dump_dir = std::env::var("SHCL_FUZZ_DUMP")
+		.ok()
+		.map(|d| format!("{d}/eol"));
+	if let Some(dir) = &dump_dir {
+		std::fs::create_dir_all(dir).unwrap_or_else(|e| panic!("dump dir {dir}: {e}"));
+	}
+	let mut dumped = 0usize;
 	for i in 0..iters {
 		let (base, raw) = mixed_eol(&mut rng);
 		let mut doc =
 			Document::parse_keep_lines(&base, Strictness::Standard).unwrap_or_else(|e| e.document);
 		let mut log = format!("base: {base:?}\n");
+		let mut ops = String::new();
 		for step in 0..(1 + rng.below(3)) {
 			let paths = doc.paths();
 			let path = if paths.is_empty() || rng.below(4) == 0 {
@@ -1329,22 +1341,55 @@ fn keeping_lines_ends_each_line_by_the_rule() {
 				paths[rng.below(paths.len())].clone()
 			};
 			let op = rng.below(9);
-			let _ = match op {
-				0 => doc.set_int(&path, 7),
-				1 => doc.set_string(&path, "new text"),
-				2 => doc.remove(&path) > 0,
-				3 => doc.set_comment(&path, "added"),
-				4 => doc.clear_comments(&path) > 0,
-				5 => doc.set_int(&format!("{path}.kid{step}"), 3),
-				6 => doc.set_empty(&path),
-				7 => doc.set_banner(true) > 0,
-				_ => doc.set_raw(&path, "one\n\ttwo", "sh"),
+			let (took, line) = match op {
+				0 => (doc.set_int(&path, 7), format!("int\t{path}\t7")),
+				1 => (
+					doc.set_string(&path, "new text"),
+					format!("string\t{path}\tnew text"),
+				),
+				2 => (doc.remove(&path) > 0, format!("remove\t{path}")),
+				3 => (
+					doc.set_comment(&path, "added"),
+					format!("comment\t{path}\tadded"),
+				),
+				4 => (
+					doc.clear_comments(&path) > 0,
+					format!("clear-comments\t{path}"),
+				),
+				5 => (
+					doc.set_int(&format!("{path}.kid{step}"), 3),
+					format!("int\t{path}.kid{step}\t3"),
+				),
+				6 => (doc.set_empty(&path), format!("empty\t{path}")),
+				// The count is of old blocks taken off; the new one goes on
+				// either way.
+				7 => {
+					doc.set_banner(true);
+					(true, "banner\ton".to_string())
+				}
+				_ => (
+					doc.set_raw(&path, "one\n\ttwo", "sh"),
+					format!("raw\t{path}\tsh\tone\\n\\ttwo"),
+				),
 			};
+			// An edit that did not take changed nothing, so the script leaves
+			// it out rather than ask the CLIs to refuse it.
+			if took {
+				ops.push_str(&line);
+				ops.push('\n');
+			}
 			log.push_str(&format!("op {op} at {path:?}\n"));
 		}
 		let (text, kept) = doc.to_text_keep_lines();
 		if !kept || text == base {
 			continue;
+		}
+		if let Some(dir) = &dump_dir
+			&& dumped < 100
+		{
+			std::fs::write(format!("{dir}/{i:05}.shcl"), &base).expect("dump input");
+			std::fs::write(format!("{dir}/{i:05}.ops"), &ops).expect("dump ops");
+			dumped += 1;
 		}
 		let source = eol_lines(&base);
 		let crlf = source.iter().filter(|l| l.1 == "\r\n").count();
