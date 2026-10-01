@@ -25,6 +25,10 @@
 ##	  the run this hook starts included, so a full run's own publish push, a
 ##	  --no-ff merge of a branch that passed, and a retry after a dropped
 ##	  connection all go straight through. SHCL_GATE_RERUN=1 runs it anyway.
+##	- A push to main whose version has reached the tag the banner's Syntax link
+##	  names has to find that tag on the remote, or send it in the same push
+##	  (utility/check-banner-tag.bash). That check runs even when the gate is
+##	  skipped.
 ##	- The large-document stage is left out here (minutes; a full local run and
 ##	  the hosted workflow on main carry it); this is the fast correctness half.
 ##	- Escape hatch: `git push --no-verify`, or SHCL_SKIP_HOOK=1.
@@ -57,11 +61,12 @@ root="$(cd "${here}/../.." && pwd)"
 ## Only a push that would move main is worth the wait; the sha bound for it is
 ## what gets tested. All zeros means a delete: nothing to test. One push names
 ## main at most once, so this collects a single sha, and the loop stays general
-## in case another branch is gated again. Collected inside the loop: the read
-## that ends it clears the vars.
-gatedShas=(); gatedRefs=()
+## in case another branch is gated again. Tag refs are collected for the banner
+## tag check. Collected inside the loop: the read that ends it clears the vars.
+gatedShas=(); gatedRefs=(); pushedTags=()
 while read -r _localRef localSha remoteRef _remoteSha; do
 	case "${remoteRef}" in
+		refs/tags/*) pushedTags+=("${remoteRef}=${localSha}") ;;
 		refs/heads/main)
 			[[ "${localSha}" =~ ^0+$ ]] && continue
 			refName="${remoteRef#refs/heads/}"; seen=0
@@ -89,6 +94,14 @@ trap fCleanup EXIT
 
 for i in "${!gatedShas[@]}"; do
 	sha="${gatedShas[i]}"
+	## Ahead of the skip below, since a tree that passed the gate on dev never
+	## asked about tags.
+	if ! "${root}/cicd/utility/check-banner-tag.bash" "${1:-origin}" "${sha}" ${pushedTags[@]+"${pushedTags[@]}"}; then
+		echo
+		echo "[ pre-push: the tag the banner's Syntax link names will not be on ${1:-origin} - push refused (--no-verify overrides) ]" >&2
+		echo
+		exit 1
+	fi
 	## A failed lookup, or a checkout with no helper, reads as not passed.
 	tree="$(git -C "${root}" rev-parse -q --verify "${sha}^{tree}" || true)"
 	if [[ -n "${tree}" && -z "${SHCL_GATE_RERUN:-}" ]] && "${root}/cicd/utility/green-tree.bash" passed "${root}" "${tree}"; then
