@@ -61,7 +61,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - Compare the four bindings' keep saves on mixed line-ending inputs
 	- ID: 2026100114175701
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority: Low
 	- Opened: 20261001-141757
 	- Opened by: the fuzz work for 2026093019075905
@@ -71,6 +71,17 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Dump a capped set of those inputs, with the edit each one makes, beside the `fmt` dump crosscheck already reads.
 		- Crosscheck runs each through a keep save in all four and compares the bytes on disk.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: with `SHCL_FUZZ_DUMP` set, `ErTmDwQ` writes the first 100 inputs it checks to an `eol/` folder in the dump, each with the edits that took as a write-ops script. Crosscheck finds that folder through `--extra`, runs each input through `set --write` with its ops on stdin in all four, and compares the file left on disk, CRs included, as its own test. An input with no ops, or an empty `eol/`, exits 2. The cicd stage needed no change.
+	- Note: the property's checks and its random sequence are unchanged. About half the dumped inputs mix both endings and about a third have no final newline.
+	- Swept: the cicd stage and `config.bash` pass the dump as before. check-migrate runs only the `fmt` fuzz test and globs the dump's top level, so it never sees `eol/`. The conformance README's crosscheck paragraph now names the `eol/` replay.
+	- Verified: the Rust CLI's write equals the library's checked text on all 100 dumped inputs, and the other three already agree. Crosscheck went red with new lines always LF in the Go keep save, and with a tie going to CRLF in the Python one; the tie was seen by the new test alone. Green again after each restore and a clean rebuild.
+	- Verified: crosscheck over the corpus and a fresh dump, shell-regress (its new row failed with the ops not fed on stdin), cargo test for the fuzz file, cargo fmt, clippy, `test-ids.py check`, check-docs, shellcheck and markdownlint pass.
+	- Branch: eolcross
+	- Commit: 8ee021ce
+	- Test case: crosscheck `ErUF4nK` (mixed line-ending keep saves agree), and shell-regress `ErUF4pC` for its failure paths.
+	- Acceptance signoff: Self-closed: a test only, it does what the item asked, and it failed on each injected defect.
+	- Closed: 20261001-143722
 
 - A Schema line makes `check` open any path, devices and network shares included
 	- ID: 2026092813365302
