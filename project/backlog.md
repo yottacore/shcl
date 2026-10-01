@@ -117,7 +117,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - Mixed line endings in the keep-save fuzz
 	- ID: 2026093019075905
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Opened: 20260930-190759
 	- Opened by: Code review 20260930 idea 2
 	- Related IDs: 2026093019075901, 2026093019075902
@@ -126,6 +126,16 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Today only cli-regress `ErPO61B` and `ErPO633` pin the rule. A tie, a changed line keeping its own ending and a missing final newline are pinned nowhere.
 	- Note: items 1 and 2 of this round are what it would have found.
 	- Estimated effort: Avg
+	- Actual effort: Low
+	- Actual fix: a new fuzz property in the Rust reference. It builds configs whose lines end in LF or CRLF one by one: all one kind, alternating for a tie, or at random, and a third with no final newline. After a few edits, a keep save's lines are checked one by one. A line kept as written or changed keeps its own ending, a new line takes the majority one, the file's final newline stays as it was, and no lone CR is left. The fallback save is left out, since it is canonical.
+	- Note: the source lines are spelled the way the canonical form never writes them, so a fresh line cannot pass for a kept one. Raw body lines and closing fences go unchecked for that reason.
+	- Swept: the fuzz is the reference's alone. Go, Python and C have no fuzz to twin, and their keep saves are held by cli-regress and by crosscheck's replay of the reference's fuzz-dumped inputs, none with mixed line endings.
+	- Verified: the property fails with the fix for 2026093019075901 undone, with the fix for 2026093019075902 undone, and with a tie going to CRLF. It passes on the tree, at the default count and at 2,000,000 in release with the rest of the fuzz. `cargo test`, cargo fmt, clippy, `test-ids.py check` and check-docs pass.
+	- Branch: eolfuzz
+	- Commit: 61495af6
+	- Test case: fuzz `keeping_lines_ends_each_line_by_the_rule` (`ErTmDwQ`).
+	- Acceptance signoff: Self-closed: a test only, it does what the item asked, and it failed with each fix undone.
+	- Closed: 20261001-124327
 
 - A Schema line makes `check` open any path, devices and network shares included
 	- ID: 2026092813365302
