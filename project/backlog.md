@@ -36,7 +36,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - A bad escape on a line that opens a block drops the whole block
 	- ID: 2026100115403384
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
+	- Needs local test suite run?: full `--ci` at the next main push. Exhaustive cppcheck did not finish here in 10 minutes; normal-level cppcheck reported no warnings, and gcc 14 and 15 and clang build it with `-Werror`.
 	- Severity: Avg
 	- Opened: 20261001-154033
 	- Opened by: silkterm feedback
@@ -48,6 +49,48 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: Yes, 20261001, Rust at `b10c2009`.
 	- Possible cause: the rule that skips a line indented under a skipped line also covers a line skipped only for its value.
 	- Note: a silent wrong answer. One typo in a path takes out a whole section, and a save refuses where the lines cannot be kept. A Windows path in double quotes with single backslashes is the likely way in.
+	- Actual cause: every retained line pushed a dead level, so a line refused only for its value (`E019`, `E023` in a value) dropped its block the way a malformed path does. `E017` never refuses a line, so it was not affected.
+	- Decisions:
+		- 20261001: such a line holds its level open. The first line under it that binds opens the path as `name:` would, so the key exists only when something under it loads. A path with an index or wildcard selector, or past the nesting cap, still holds a dead level, since it could fail to place.
+		- 20261001: canonical output writes the kept line in place of the bare `name:` line when it is the field's last leading line and names just that field, so `fmt` gives the file back as written. Otherwise the kept line is followed by `name:`.
+		- 20261001: a line with a bad escape in its name or selector still takes its block with it, since its path cannot be read.
+		- 20261001: where a later bad line reopens a block, `fmt` drops the earlier bare `name:` line and the keep-lines save falls back to canonical. Both reload to the same document, so it is left as is.
+		- Corpus 106, 126 and 178 and cli-regress rows `sugar-check`, `sugar-write-refused`, `fmt-check-refused`, `write-existing-quiet` and `set-write-keeps-dropped-between` pinned the old dropped block. 126, 178 and the last row now use a parent skipped for its path; the others are commented out with new rows beside them.
+	- Actual fix: a LAZY stack level in all four parsers (`hold_open`, `open_lazy`), the same model in the emitter's reload stack, and `heads_block` in the canonical emit. Spec, design outcome table, explain text for `E019` and `E023` in all four CLIs, changelog.
+	- Swept: the field arm, the stacked element arm and the raw fence arm in all four bindings. A retained `*` element line still holds a dead level, since nothing under an element binds.
+	- Verified: the four conformance suites, cli-regress (339 rows), crosscheck with a 2000-iteration fuzz dump (28764 comparisons), check-docs, check-abnf, shell-regress, check-migrate, clippy (host and windows), rustfmt, go vet, staticcheck, ruff, mypy, test-ids, and the 2,000,000 release fuzz with the new corpus case. Corpus 187 and cli-regress `ErUmRRa` to `ErUmRRc` fail on dev at `5956ff4a`.
+	- Branch: escblock
+	- Commit: c29f08fa
+	- Test case: corpus `187-value-fault-opens-block`; cli-regress `sugar-check-block`, `sugar-block-read`, `sugar-write-kept`, `path-escape-block`.
+
+- `"C:\temp"` loads with a tab and only a hint says so
+	- ID: 2026100115323227
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Needs local test suite run?: full `--ci` at the next main push, as for 2026100115403384.
+	- Priority: Low
+	- Opened: 20261001-153232
+	- Opened by: gitsby feedback
+	- Related IDs: 2026092616330237, 2026092617133293
+	- Version and build: dev at `b10c2009`
+	- Requirements:
+		- `p: "C:\temp"` reads as `C:`, a tab, `emp`, status Good, with `H004` at severity Hint.
+		- design.md keeps it a hint on purpose, since nothing about the text is wrong. Filed to look at that again from a consumer's side: the reason `"C:\work\new"` became `E023` was that "a hint reaches only a caller that reads diagnostics". A caller that lists only errors, as gitsby does, says nothing about `"C:\temp"`, and on Windows the path just never matches.
+		- Options: make `H004` an error where the value looks like a path, or leave it and say in the spec that a consumer reading paths should show hints.
+	- Decisions:
+		- 20261001: an error, not a hint and not a note in the spec.
+		- 20261001, reversible: the `H004` condition became `E024`, retained exactly like `E023`: binds nothing, a read is NotFound, nothing counted lost, a save keeps it, and `SetLiteral` text holding it is refused. The lines under it load, per 2026100115403384. Names, selectors and paths with no drive or share stay out, as in 2026092617133293.
+		- 20261001, reversible: `H004` is retired and not reused. The design table lists it as retired; the spec and explain lists drop it.
+		- 20261001, reversible: the writer spells a tab or line break in such a value `\u0009` or `\u000A`, so a setter or `fmt` never writes text that reloads as `E024`.
+		- 20261001, reversible: `migrate` writes a 2.x tab in such a value as a literal tab, which 2.x and 3.0 read alike. A 2.x line break there has no spelling both read alike, and a `\u` escape would change on a second `--from-2x` run, so the value is written the way 2.x read it, which is `E024`, and counted lost like bracket text (exit 7, `--lossy` overrides). check-migrate takes those lines out of its comparison, as it does the other two known edges, and asserts corpus 170 still has one.
+	- Progress log:
+		- 20261001: exit 7 on a 2.x line break in such a path follows the standing rule for hard 2.x edges: refuse rather than build machinery, and never damage a correct file at exit 0.
+		- 20261001: `"C:\work\new"` in a 2.x file used to migrate to `"C:\\work\new"` with a newline in it. It now migrates to that same text and exit 7, since that text is `E024`.
+	- Swept: the field and stacked element arms, `SetLiteral`, the double-quoted writer, migrate's value and sugar edits, and its read-back check, in all four bindings. Explain, migrate's lost message and the `lost` field docs in all four.
+	- Verified: same gate list as 2026100115403384, all run on this branch. cli-regress `ErUmRRd`, `ErUmRRe`, `ErUmRRg` to `ErUmRRi` and `ErUn2Bt` fail on dev at `5956ff4a`, and so do corpus 118, 122, 170 and 171.
+	- Branch: escblock
+	- Commit: c29f08fa
+	- Test case: corpus `171-windows-path-escape` (was `171-windows-path-hint`) with new `write.ops` rows and a `write-bad.ops`; cli-regress `path-escape-read`, `path-escape-strict`, `path-escape-set`, `path-escape-literal`, `path-escape-migrate-lost`, `migrate-from-2x-tab`; check-migrate `ErUuq8D`. The old `path-hint-*` rows are commented out.
 
 - The writer spells Windows paths three different ways
 	- ID: 2026100115323216
@@ -117,21 +160,34 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Expected behavior: a new block takes the indent most of the file uses, or one tab, rather than the first block's.
 	- Reproduced: Yes, 20261001, Rust at `b10c2009`. It reads back right, so it is cosmetic.
 
-- `"C:\temp"` loads with a tab and only a hint says so
-	- ID: 2026100115323227
-	- Type: Enhancement
+- A bad escape in the name of a line that opens a raw block leaves the body to be read as lines
+	- ID: 2026100117214801
+	- Type: Bug
 	- Status: Queued
-	- Priority: Low
-	- Opened: 20261001-153232
-	- Opened by: gitsby feedback
-	- Related IDs: 2026092616330237, 2026092617133293
-	- Version and build: dev at `b10c2009`
-	- Requirements:
-		- `p: "C:\temp"` reads as `C:`, a tab, `emp`, status Good, with `H004` at severity Hint.
-		- design.md keeps it a hint on purpose, since nothing about the text is wrong. Filed to look at that again from a consumer's side: the reason `"C:\work\new"` became `E023` was that "a hint reaches only a caller that reads diagnostics". A caller that lists only errors, as gitsby does, says nothing about `"C:\temp"`, and on Windows the path just never matches.
-		- Options: make `H004` an error where the value looks like a path, or leave it and say in the spec that a consumer reading paths should show hints.
-	- Decisions:
-		- 20261001: an error, not a hint and not a note in the spec.
+	- Severity: Low
+	- Opened: 20261001-172148
+	- Opened by: found while working 2026100115403384
+	- Version and build: dev at `5956ff4a`
+	- Steps to reproduce:
+		- `shcl check` and `shcl fmt` on a line `"a\w":` followed by a three-backtick fence on the same line, then `x: 1`, then a closing fence.
+	- Incorrect behavior: line 1 is `E023` and kept, `x: 1` binds at the root, and the closing fence is `E005` and `E006`. `fmt` writes no closing fence.
+	- Expected behavior: the body goes with its line, as it does for every other skipped field line (`skip_field_line`).
+	- Reproduced: Yes, 20261001, Rust at `5956ff4a`.
+	- Note: the retained line keeps only its own text, so taking the body would need the body kept too, or the line dropped instead.
+
+- `set` on a file ending in a kept line writes the new key above it
+	- ID: 2026100117214802
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261001-172148
+	- Opened by: found while working 2026100115323227
+	- Version and build: dev at `5956ff4a`
+	- Steps to reproduce:
+		- `printf 'a: "C:\\work"\n' | shcl set - --set b=1`
+	- Incorrect behavior: `b: 1`, then `a: "C:\work"`. The kept line moved below the new one.
+	- Expected behavior: the kept line stays where it was, with the new key after it.
+	- Reproduced: Yes, 20261001, Rust at `5956ff4a`. It reads back the same, so it is cosmetic.
 
 - No way to ask a setter for single quotes
 	- ID: 2026100115323222

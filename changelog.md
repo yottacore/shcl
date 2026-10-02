@@ -14,15 +14,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The `field:[disc]` selector form is gone. `field[disc]` is the one spelling.
 
-- Bracket text after a colon, such as `ports: [80, 443]`, is `E019`. The line is kept as written and binds nothing.
+- Bracket text after a colon, such as `ports: [80, 443]`, is `E019`. The line is kept as written and binds nothing, and the lines under it still load.
 
-- An escape in double quotes other than `\t`, `\n`, `\\`, `\"` and `\'` is `E023`, so `"C:\work\new"` no longer loads with a newline in it. The line is kept as written and binds nothing. `migrate` doubles the backslash.
+- An escape in double quotes other than `\t`, `\n`, `\\`, `\"` and `\'` is `E023`, so `"C:\work\new"` no longer loads with a newline in it. The line is kept as written and binds nothing. When the pair is in the value, the lines under it still load. `migrate` doubles the backslash.
 
 - `\uXXXX` and `\UXXXXXXXX` in double quotes name a character, as in TOML. 2.x kept them as written, so `migrate --from-2x` doubles the backslash. One that names no character is `E023`.
 
 - `fmt` and every save write an invisible character in a name or value as a `\u` escape, or `\U` past U+FFFF: a control, a line or paragraph separator, and each character Unicode lists as default-ignorable, such as a zero-width space, a direction mark or override, a soft hyphen, the byte order mark or a tag character. The joiners stay as written, and so do a variation selector after a visible character and the tags of a subdivision flag. A carriage return inside a value comes out as `\u000D`.
 
-- A double-quoted value that starts like a Windows path and holds a `\t` or `\n` escape, such as `"C:\temp"`, gets the hint `H004`. It still loads and saves as written.
+- A double-quoted value that starts like a Windows path and holds a `\t` or `\n` escape, such as `"C:\temp"`, is `E024`. The line is kept as written and binds nothing, and the lines under it still load. It was the hint `H004` before this release, and `H004` is retired. A tab or line break written into such a value goes out as `\u0009` or `\u000A`. `migrate` writes a 2.x tab there as it is, and counts a 2.x line break there as a binding nothing reads now.
 
 - `fmt` and every canonical save keep the quotes on a number with a leading zero, such as `zip: "02134"`, where they took them off.
 

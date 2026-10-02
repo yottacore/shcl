@@ -720,6 +720,22 @@ const dead = -1
 // of them.
 const unopened = -2
 
+// lazy is the stack entry for a field line refused for its value alone (E019,
+// E023, E024): it binds nothing, but its path is fine, so the first line that
+// binds under it opens the path as `name:` would and binds there.
+const lazy = -3
+
+// lazyLevel is a lazy level's line, for opening it: the stack entry it sits
+// at, its path, and how many pending lines go with it, its own included.
+type lazyLevel struct {
+	at     int
+	segs   []segment
+	line   int
+	indent string
+	pend   int
+	depth  int
+}
+
 // foldNodeInto merges a later instance into an earlier one under the in-file
 // merge rule: children and trivia move over, first trailing wins (a second
 // demotes to a leading line), first spelling stays. The caller drops the loser
@@ -2030,7 +2046,8 @@ type Migration struct {
 	// decide between, left as written. Always 0 when the caller said 2.x.
 	Ambiguous int
 	// Lost: lines 2.x bound a value on that nothing binds now - bracket text
-	// after the colon, which has no spelling here.
+	// after the colon, or a line break in a value that starts like a Windows
+	// path, neither of which has a spelling here.
 	Lost int
 }
 
@@ -2285,14 +2302,16 @@ func readsSame(spelling string, quoted bool, logical string) bool {
 	}
 	p := &tok.Elements[0]
 	return (p.Quote == QuoteSingle || p.Quote == QuoteDouble) == quoted &&
-		p.Quote != QuoteOpen && pieceText(p, spelling) == logical
+		p.Quote != QuoteOpen && !pathLike(p, spelling) && pieceText(p, spelling) == logical
 }
 
 // migrateSpelling is how a re-spelled piece is written. 2.x read a backslash
 // in bare and single-quoted text as an escape too, and double quotes are
 // where both rule sets read one alike. No \u goes in, since 2.x would keep it
 // as written. So the migrated file reads the same under 2.x, and a second run
-// changes nothing.
+// changes nothing. A line break in a value that starts like a Windows path
+// has no such spelling: written this way it is E024, so the caller counts it
+// lost.
 func migrateSpelling(logical string, bare bool) string {
 	if strings.Contains(logical, "\\") {
 		return quoteDoubleAs(logical, RulesV2)
@@ -2346,6 +2365,10 @@ func valueEdits(text string, tok *Tokens, edits *[]edit, st *migrating) {
 			continue
 		}
 		spelling := migrateSpelling(logical, !(quoted || p.Quote == QuoteOpen))
+		// Spelled the way 2.x read it, the line is E024 and binds nothing.
+		if strings.HasPrefix(spelling, "\"") && spellsPathEscape(spelling) {
+			st.lost++
+		}
 		*edits = append(*edits, edit{start: a, end: b, with: spelling})
 	}
 }
@@ -2456,6 +2479,13 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 						spelling = trimWsp(rest[open+1 : close])
 					} else {
 						spelling = migrateSpelling(logical, true)
+					}
+					// As a value, a path holding a `\t` or `\n` is E024.
+					if strings.HasPrefix(spelling, "\"") && spellsPathEscape(spelling) {
+						spelling = migrateSpelling(logical, false)
+						if strings.HasPrefix(spelling, "\"") && spellsPathEscape(spelling) {
+							st.lost++
+						}
 					}
 					edits = append(edits, edit{start: colon, end: close + 1, with: ": " + spelling})
 					continue
@@ -2679,9 +2709,9 @@ func badEscape(tok *Tokens, text string, values bool) (rune, bool) {
 }
 
 // pathLike reports a double-quoted value that starts like a Windows path, a
-// drive (`C:\`) or a share (`\\`), and holds a `\t` or `\n` escape (H004).
-// `"C:\temp"` reads as `C:`, a tab and `emp`: legal, and almost never meant.
-// Any other pair made the line E023 before this is asked.
+// drive (`C:\`) or a share (`\\`), and holds a `\t` or `\n` escape (E024).
+// `"C:\temp"` would read as `C:`, a tab and `emp`, which a path almost never
+// means. Any other pair made the line E023 before this is asked.
 func pathLike(p *Piece, text string) bool {
 	if p.Quote != QuoteDouble {
 		return false
@@ -2704,13 +2734,70 @@ func pathLike(p *Piece, text string) bool {
 	return false
 }
 
-const pathHint = "value looks like a Windows path, and its \\t or \\n reads as a tab or newline; single quotes keep a backslash as written"
+const pathMsg = "value starts like a Windows path, and its \\t or \\n would read as a tab or newline; write a backslash as '\\\\' or use single quotes"
+
+// anyPathLike reports a value element pathLike holds for.
+func anyPathLike(tok *Tokens, text string) bool {
+	for i := range tok.Elements {
+		if pathLike(&tok.Elements[i], text) {
+			return true
+		}
+	}
+	return false
+}
 
 func escapeMsg(r rune) string {
 	if r == 'u' || r == 'U' {
 		return "bad escape '\\" + string(r) + "' in double quotes; \\u takes 4 hex digits and \\U takes 8, naming a Unicode character; write a backslash as '\\\\' or use single quotes"
 	}
 	return "unknown escape '\\" + oneLine(string(r)) + "' in double quotes; write a backslash as '\\\\' or use single quotes"
+}
+
+// lineFault is why a field line that scanned is refused for what it spells,
+// before the element cap: bracket text, a bad escape, or a value that starts
+// like a Windows path and holds a `\t` or `\n` escape.
+func lineFault(tok *Tokens, text string) (code, msg string, bad bool) {
+	if bracketText(tok, text) {
+		return "E019", "bracket array syntax; an array is comma-separated, without brackets", true
+	}
+	_, _, _, fenced := lineFence(tok, text)
+	if r, ok := badEscape(tok, text, !fenced); ok {
+		return "E023", escapeMsg(r), true
+	}
+	if !fenced && anyPathLike(tok, text) {
+		return "E024", pathMsg, true
+	}
+	return "", "", false
+}
+
+// opensAsWritten reports a path segment a lazy level can open: no index or
+// wildcard selector, which could fail to place it.
+func opensAsWritten(seg *segment) bool {
+	return seg.sel == nil || seg.sel.kind == selByValue
+}
+
+// opensLater reports a kept line whose level a reload holds open (lazy): a
+// field line refused for its value alone, with a path that opens.
+func opensLater(text string) bool {
+	if strings.HasPrefix(text, "#") || strings.HasPrefix(text, "*") {
+		return false
+	}
+	var tok Tokens
+	Tokenize(text, ':', false, RulesCurrent, &tok)
+	scan, err := pathOf(&tok, text)
+	if err != nil {
+		return false
+	}
+	if _, inPath := badEscape(&tok, text, false); inPath {
+		return false
+	}
+	for i := range scan.segments {
+		if !opensAsWritten(&scan.segments[i]) {
+			return false
+		}
+	}
+	_, _, bad := lineFault(&tok, text)
+	return bad
 }
 
 // bracketText reports bracket text (E019): a `[` first after the colon. Read
@@ -2872,6 +2959,7 @@ type parser struct {
 	// since a capped parse of a huge bad file would hold one per line.
 	trackDropped bool
 	dropped      []int
+	lazies       []lazyLevel
 }
 
 func newParser() *parser {
@@ -3125,7 +3213,7 @@ func (p *parser) hangDeeperPending(newIndent string) {
 			atOwnLevel := false
 			for j := len(p.stack) - 1; j >= 0; j-- {
 				ent := p.stack[j]
-				if ent.node != root && ent.node != dead && ent.node != unopened && len(ent.indent) >= len(newIndent) &&
+				if ent.node != root && ent.node != dead && ent.node != unopened && ent.node != lazy && len(ent.indent) >= len(newIndent) &&
 					strings.HasPrefix(pn.indent, ent.indent) {
 					si, target = j, ent.node
 					// A list element's column is an entry with the list's
@@ -3379,6 +3467,104 @@ func (p *parser) skipUnderDead(line int, indent string) {
 	p.refuse(line, "E018", "parent line was skipped; line skipped", outDropped, indent)
 }
 
+// holdOpen keeps the level of a field line refused for its value alone open
+// for what is written under it. Called right after the refusal pushed the
+// line's level. A path that could not open, or would open past the nesting
+// cap, leaves the level dead.
+func (p *parser) holdOpen(parent int, segs []segment, line int, indent string) {
+	at := len(p.stack) - 1
+	if p.stack[at].node != dead || p.stack[at].indent != indent {
+		return
+	}
+	for i := range segs {
+		if !opensAsWritten(&segs[i]) {
+			return
+		}
+	}
+	kept := p.lazies[:0]
+	for _, l := range p.lazies {
+		if l.at < at {
+			kept = append(kept, l)
+		}
+	}
+	p.lazies = kept
+	depth := 0
+	if parent == lazy {
+		if n := len(p.lazies); n > 0 {
+			depth = p.lazies[n-1].depth
+		}
+	} else {
+		for up := parent; up != root; up = p.arena[up].parent {
+			depth++
+		}
+	}
+	if depth+len(segs) > MaxDepth {
+		return
+	}
+	p.stack[at].node = lazy
+	p.lazies = append(p.lazies, lazyLevel{at: at, segs: segs, line: line, indent: indent, pend: len(p.pending), depth: depth + len(segs)})
+}
+
+// openLazy is the node a line binds under: a lazy level, and any lazy one it
+// sits under, opens here as an empty field, the way its line would have bound
+// with nothing after the colon. Its own line and the comments before it go
+// with it.
+func (p *parser) openLazy(parent int) int {
+	if parent != lazy {
+		return parent
+	}
+	top := len(p.stack) - 1
+	from := top
+	for from > 1 && p.stack[from-1].node == lazy {
+		from--
+	}
+	node := p.stack[from-1].node
+	for at := from; at <= top; at++ {
+		k := -1
+		for j := len(p.lazies) - 1; j >= 0; j-- {
+			if p.lazies[j].at == at {
+				k = j
+				break
+			}
+		}
+		if k < 0 {
+			break
+		}
+		l := p.lazies[k]
+		p.lazies = append(p.lazies[:k], p.lazies[k+1:]...)
+		// holdOpen let through only a path that opens.
+		if n, ok := p.attachPath(node, l.segs, value{kind: vEmpty}, l.line, l.indent); ok {
+			node = n
+		}
+		p.stack[at].node = node
+		count := l.pend
+		if count > len(p.pending) {
+			count = len(p.pending)
+		}
+		if count > 0 {
+			t := p.arena[node].trivMut()
+			var chain []depthEnt
+			for _, pn := range p.pending[:count] {
+				t.leading = append(t.leading, lead{text: pn.text, blankBefore: pn.blankBefore, depth: commentDepth(&chain, l.indent, pn.text, pn.indent), line: pn.line})
+			}
+			p.pending = append(p.pending[:0], p.pending[count:]...)
+			for j := range p.pendMarks {
+				p.pendMarks[j].end -= count
+				if p.pendMarks[j].end < 0 {
+					p.pendMarks[j].end = 0
+				}
+			}
+			for j := range p.lazies {
+				p.lazies[j].pend -= count
+				if p.lazies[j].pend < 0 {
+					p.lazies[j].pend = 0
+				}
+			}
+		}
+	}
+	return node
+}
+
 // skipFieldLine is where the parse resumes after a refused field line. Every
 // arm that skips one comes through here, so a skipped line whose value opens a
 // raw block takes the body with it: read as lines, the body would bind or be
@@ -3625,7 +3811,6 @@ func (p *parser) addStarElement(parent int, tok *Tokens, text string, line int, 
 		p.err(line, "E017", "unterminated quote in value")
 	}
 	bindingLike := !el.quoted && looksLikeBinding(el.text)
-	path := pathLike(&piece, text)
 	clash, clashed := unitClash(p.arena[parent].name, el.text)
 	// Element cap: each element line past it is refused on its own, the way
 	// any other bad element line is. Only a line that would join the list:
@@ -3669,9 +3854,6 @@ func (p *parser) addStarElement(parent int, tok *Tokens, text string, line int, 
 			Message:  "list element looks like a field binding; it is read as a string (quote it to say so)",
 			Code:     "H003",
 		})
-	}
-	if path {
-		p.diag(Diagnostic{Line: line, Severity: SeverityHint, Message: pathHint, Code: "H004"})
 	}
 	if clashed {
 		p.diag(Diagnostic{Line: line, Severity: SeverityHint, Message: clash, Code: "H005"})
@@ -3925,7 +4107,7 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 					// The block goes with its line, or the body would read as live
 					// lines.
 					p.refuse(lineno, "E021", fmt.Sprintf("array longer than %d elements; line skipped", p.maxElements), outDropped, indent)
-				} else if node := p.bindBlock(parent, v, lineno, indent); node >= 0 {
+				} else if node := p.bindBlock(p.openLazy(parent), v, lineno, indent); node >= 0 {
 					p.ends = append(p.ends, [2]int{p.arena[node].line, next})
 					p.attachTrivia(node, indent, comment)
 				}
@@ -3956,11 +4138,18 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 					continue
 				}
 				TokenizeValue(rest, 1, RulesCurrent, &tok)
+				code, msg := "", ""
 				if r, bad := badEscape(&tok, rest, true); bad {
-					p.refuse(lineno, "E023", escapeMsg(r), outRetained(trimEndWS(rest), hadBlank), indent)
+					code, msg = "E023", escapeMsg(r)
+				} else if anyPathLike(&tok, rest) {
+					code, msg = "E024", pathMsg
+				}
+				if code != "" {
+					p.refuse(lineno, code, msg, outRetained(trimEndWS(rest), hadBlank), indent)
 					i++
 					continue
 				}
+				parent = p.openLazy(parent)
 				comment := ""
 				if tok.Comment >= 0 {
 					comment = rest[tok.Comment:]
@@ -4048,21 +4237,19 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 		if selectorOpenQuote(&tok) {
 			p.err(lineno, "E017", "unterminated quote in selector")
 		}
-		// A value spelled the way JSON, TOML and YAML spell an array. The
-		// brackets are not a selector after the colon, and reading the text
-		// without them would bake a changed value in, so the line is kept
-		// verbatim. Judged before the cap and from the first piece, which
-		// the cap keeps: a cap refuses only a line that would bind.
-		if bracketText(&tok, rest) {
-			p.refuse(lineno, "E019", "bracket array syntax; an array is comma-separated, without brackets", outRetained(trimEndWS(rest), hadBlank), indent)
-			i = next
-			continue
-		}
-		// Same outcome as bracket text, and judged at the same point: the
-		// pair cannot be read as written or as an escape without guessing.
-		_, _, _, fenced := lineFence(&tok, rest)
-		if r, bad := badEscape(&tok, rest, !fenced); bad {
-			p.refuse(lineno, "E023", escapeMsg(r), outRetained(trimEndWS(rest), hadBlank), indent)
+		// A value spelled the way JSON, TOML and YAML spell an array, or an
+		// escape that cannot be read as written or as an escape without
+		// guessing. The brackets are not a selector after the colon, and
+		// reading the text without them would bake a changed value in, so the
+		// line is kept verbatim. Judged before the cap and from the first
+		// piece, which the cap keeps: a cap refuses only a line that would
+		// bind. Only the value is wrong, so the lines under it still load,
+		// under the path opened empty.
+		if code, msg, bad := lineFault(&tok, rest); bad {
+			p.refuse(lineno, code, msg, outRetained(trimEndWS(rest), hadBlank), indent)
+			if _, inPath := badEscape(&tok, rest, false); !inPath {
+				p.holdOpen(parent, scan.segments, lineno, indent)
+			}
 			i = next
 			continue
 		}
@@ -4110,14 +4297,9 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 		if haveSrc {
 			vkey = valueHash(&v)
 		}
+		parent = p.openLazy(parent)
 		if node, ok := p.attachPath(parent, scan.segments, v, lineno, indent); ok {
 			if haveSrc {
-				for i := range tok.Elements {
-					if pathLike(&tok.Elements[i], rest) {
-						p.diag(Diagnostic{Line: lineno, Severity: SeverityHint, Message: pathHint, Code: "H004"})
-						break
-					}
-				}
 				for i := 0; unitNamed(p.arena[node].name) && i < len(tok.Elements); i++ {
 					if m, ok := unitClash(p.arena[node].name, pieceText(&tok.Elements[i], rest)); ok {
 						p.diag(Diagnostic{Line: lineno, Severity: SeverityHint, Message: m, Code: "H005"})
@@ -4704,6 +4886,29 @@ func (e *emit) placed(indent string) {
 	e.held = false
 }
 
+// headsBlock reports a field whose last leading line is one kept for its
+// value alone, naming just this field, so that line is written in place of
+// the bare `name:` line: a reload opens the field from it the same way. An
+// empty block keeps its own line, since nothing would open the field. Only
+// what a reload restores counts, so a document and its reload agree.
+func headsBlock(node *nodeData) bool {
+	if !node.value.isEmpty() || len(node.children) == 0 || node.blankBefore || node.trailing() != "" {
+		return false
+	}
+	leads := node.leading()
+	if len(leads) == 0 {
+		return false
+	}
+	l := leads[len(leads)-1]
+	if l.depth != 0 || strings.HasPrefix(l.text, " ") || strings.HasPrefix(l.text, "\t") || !opensLater(l.text) {
+		return false
+	}
+	var tok Tokens
+	Tokenize(l.text, ':', false, RulesCurrent, &tok)
+	scan, err := pathOf(&tok, l.text)
+	return err == nil && len(scan.segments) == 1 && scan.segments[0].sel == nil && scan.segments[0].name == node.name
+}
+
 // commented is a misplaced line's text as the comment it falls back to.
 func commented(text string) string {
 	return "# " + text[len(leadingWS(text)):]
@@ -4766,11 +4971,17 @@ func pushLeads(e *emit, leads []lead, base, node int, at site, from int) {
 		if strings.HasPrefix(c.text, "#") {
 			lastComment = c.depth
 		} else {
-			// A kept malformed line resolves and holds its column on a reload.
+			// A kept malformed line resolves and holds its column on a reload,
+			// open for the lines under it when only its value was wrong.
 			indent := strings.Repeat("\t", pad)
-			_, open, tail := e.resolve(indent)
+			found, open, tail := e.resolve(indent)
 			e.held = false
-			e.refused(indent, open, tail)
+			if found.ok && found.parent != dead && opensLater(c.text) {
+				e.open = open
+				e.tail = append(tail, stackEnt{indent: indent, node: root})
+			} else {
+				e.refused(indent, open, tail)
+			}
 		}
 		writeTabs(&e.out, pad)
 		e.out.WriteString(c.text)
@@ -5569,6 +5780,12 @@ func (d *Document) emitLine(idx, pos, depth int, wouldMerge bool, e *emit) {
 	// walk. Each blank rides its own comment (or the binding line), never as
 	// the first output line.
 	pushLeads(e, node.leading(), depth, idx, siteLeading, 0)
+	// The kept line just written opens this block on a reload.
+	if headsBlock(node) {
+		e.bound(depth)
+		e.near(idx, pos)
+		return
+	}
 	if node.blankBefore && out.Len() > 0 {
 		out.WriteByte('\n')
 	}
@@ -6472,6 +6689,22 @@ func quoteTextAs(t string, rules Rules) string {
 // read it alike, except a \u escape, which 2.x kept as written, so for 2.x an
 // invisible character goes in as it is.
 func quoteDoubleAs(t string, rules Rules) string {
+	out := quoteDoubleWith(t, rules, false)
+	// Spelled `\t` or `\n`, a path is E024 on the reload, and a `\u` escape
+	// reads the same. 2.x kept one as written, so for 2.x a tab goes in as it
+	// is, and a line break has no spelling: migrate counts that one lost.
+	if spellsPathEscape(out) {
+		return quoteDoubleWith(t, rules, true)
+	}
+	return out
+}
+
+// spellsPathEscape reports a double-quoted spelling that would be E024.
+func spellsPathEscape(quoted string) bool {
+	return pathLike(&Piece{Start: 1, End: len(quoted) - 1, Quote: QuoteDouble}, quoted)
+}
+
+func quoteDoubleWith(t string, rules Rules, path bool) string {
 	// Bytes: every escape written here is ASCII, and a continuation byte is
 	// none of them, so the rest of the text copies through untouched. A
 	// character invisible names is decoded first.
@@ -6484,10 +6717,17 @@ func quoteDoubleAs(t string, rules Rules) string {
 			out.WriteString("\\\\")
 		case '"':
 			out.WriteString("\\\"")
-		case '\n':
-			out.WriteString("\\n")
-		case '\t':
-			out.WriteString("\\t")
+		case '\n', '\t':
+			switch {
+			case path && rules == RulesCurrent:
+				writeUnicodeEscape(&out, rune(t[i]))
+			case path && t[i] == '\t':
+				out.WriteByte(t[i])
+			case t[i] == '\n':
+				out.WriteString("\\n")
+			default:
+				out.WriteString("\\t")
+			}
 		default:
 			if r, n, ok := invisibleAt(t, i); ok && rules == RulesCurrent {
 				writeUnicodeEscape(&out, r)
@@ -7093,7 +7333,8 @@ func boolText(v bool) string {
 // it with: a line break, which no file line can hold, an unterminated quote
 // (E017), bracket text (E019, the line kept verbatim - writing it as a
 // two-element array holding `[1` and `2]` would be a different wrong answer),
-// and an unknown escape in double quotes (E023).
+// an unknown escape in double quotes (E023), and a Windows path in double
+// quotes holding a `\t` or `\n` escape (E024).
 func literalValue(text string) (value, bool) {
 	if strings.Contains(text, "\n") {
 		return value{}, false
@@ -7109,6 +7350,9 @@ func literalValue(text string) (value, bool) {
 		return value{}, false
 	}
 	if _, bad := badEscape(&tok, line, true); bad {
+		return value{}, false
+	}
+	if anyPathLike(&tok, line) {
 		return value{}, false
 	}
 	return cellOfTokens(&tok, line), true

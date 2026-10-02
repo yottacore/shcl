@@ -5,7 +5,7 @@ pair: "a\\", b
 shield: "a\\, b"
 tail: x, "a\\"
 noted: "a\\" # note
-real-tab: "C:\temp"
+real-tab: "C:	emp"
 real-newline: "a\nb"
 users: "C:\\Users\\me"
 open: "\"00:30\\"

@@ -1,6 +1,6 @@
 line 4: Error: E019
 line 7: Hint: H002
-line 11: Hint: H004
+line 11: Hint: H005
 line 11: Hint: H001
 line 12: Error: E019
 failed: 5 diagnostic(s), 2 error(s)

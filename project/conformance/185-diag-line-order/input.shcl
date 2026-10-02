@@ -7,6 +7,6 @@ b: 0
 a:
 	* 1
 	* 2
-path: /tmp
-path: "C:\temp"
+wait-ms: 1
+wait-ms: 5s
 c: [x]

@@ -6,7 +6,13 @@ doubled: 'C:\ok\fine'
 message: "Done\nNext"
 single: 'C:\temp'
 pair: x, "D:\tools"
-list: one, "E:\new"
+list:
+	* one
+	* "E:\new"
 last: 2
 
 added: 'C:\x'
+
+tabbed: "C:\u0009emp"
+
+share2: "\\\\srv\u000Aew"

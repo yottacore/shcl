@@ -1,4 +1,4 @@
-line 1: Error: E019
+line 1: Error: E023
 line 2: Error: E018
 line 9: Error: E012
 failed: 3 diagnostic(s), 3 error(s)

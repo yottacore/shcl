@@ -1,2 +1,1 @@
-line 8: Hint: H004
-ok (1 diagnostic(s))
+ok (0 diagnostic(s))

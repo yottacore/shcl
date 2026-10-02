@@ -3,4 +3,4 @@ query	type	expected	status
 -	load	fail	-	strict
 -	lost	0	-
 a	int[]	1|2	Good
-	children	a|b|path|path	-
+	children	a|b|wait-ms|wait-ms	-

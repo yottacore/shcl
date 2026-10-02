@@ -560,7 +560,8 @@ size_t shcl_tokens_element_count(const shcl_tokens *t);
 // so there was nothing to migrate and text is the input. ambiguous: pieces the
 // two rule sets read differently and nothing can decide between, left as
 // written; always 0 when from_v2 said the file is 2.x. lost: lines 2.x bound a
-// value on that nothing binds now - bracket text after the colon.
+// value on that nothing binds now - bracket text after the colon, or a line
+// break in a value that starts like a Windows path.
 typedef struct { char *text; size_t len; int current; size_t ambiguous; size_t lost; } shcl_migration;
 
 // Rewrite a document written under the 2.x lexical rules so this parser reads
@@ -1259,6 +1260,10 @@ static void doc_guard(shcl_doc *d, jmp_buf *panic) {
    level a sibling can bind at, but deeper lines are still under it. It sits on
    top of the levels open before it without closing any of them. */
 #define UNOPENED ((size_t)-2)
+/* Stack entry for a field line refused for its value alone (E019, E023,
+   E024): it binds nothing, but its path is fine, so the first line that binds
+   under it opens the path as `name:` would and binds there. */
+#define LAZY ((size_t)-3)
 
 /* The node vector lives in malloc storage, not the bump arena: the arena
    cannot reclaim the abandoned copy at each doubling, which held about one
@@ -1868,9 +1873,9 @@ static int bad_escape(const ShclTokens *tok, ShclStr text, int values, uint32_t 
 }
 
 /* A double-quoted value that starts like a Windows path, a drive (C:\) or a
-   share (\\), and holds a \t or \n escape (H004). "C:\temp" reads as C:, a tab
-   and emp: legal, and almost never meant. Any other pair made the line E023
-   before this is asked. */
+   share (\\), and holds a \t or \n escape (E024). "C:\temp" would read as C:,
+   a tab and emp, which a path almost never means. Any other pair made the line
+   E023 before this is asked. */
 static int path_like(const ShclPiece *p, ShclStr text) {
 	if (p->quote != SHCL_QUOTE_DOUBLE) return 0;
 	ShclStr raw = s_slice(text, p->start, p->end);
@@ -1882,6 +1887,13 @@ static int path_like(const ShclPiece *p, ShclStr text) {
 		i += 2;
 	}
 	return 0;
+}
+
+/* True when a double-quoted spelling would be E024. */
+static int spells_path_escape(ShclStr quoted) {
+	if (quoted.n < 2 || quoted.p[0] != '"') return 0;
+	ShclPiece p; p.start = 1; p.end = quoted.n - 1; p.quote = SHCL_QUOTE_DOUBLE;
+	return path_like(&p, quoted);
 }
 
 // --- Durations and sizes ---------------------------------------------------
@@ -2086,7 +2098,13 @@ static int unit_clash(ShclArena *a, ShclStr name, ShclStr text, ShclStr *msg) {
 	*msg = sb_S(&m); return 1;
 }
 
-static const char path_hint[] = "value looks like a Windows path, and its \\t or \\n reads as a tab or newline; single quotes keep a backslash as written";
+static const char path_msg[] = "value starts like a Windows path, and its \\t or \\n would read as a tab or newline; write a backslash as '\\\\' or use single quotes";
+
+static int any_path_like(const ShclTokens *tok, ShclStr text) {
+	for (size_t k = 0; k < tok->nelem; k++)
+		if (path_like(&tok->elements[k], text)) return 1;
+	return 0;
+}
 
 static ShclStr escape_msg(ShclArena *a, uint32_t c) {
 	ShclSB m = {0};
@@ -2306,6 +2324,7 @@ static int reads_same(ShclArena *a, ShclStr spelling, int quoted, ShclStr logica
 		&& piece_quoted(tok.elements[0].quote) == quoted
 		&& tok.elements[0].quote != SHCL_QUOTE_OPEN
 		&& !bad_escape(&tok, spelling, 1, &c)
+		&& !path_like(&tok.elements[0], spelling)
 		&& s_eq(piece_text(a, &tok.elements[0], spelling), logical);
 }
 
@@ -2313,7 +2332,8 @@ static int reads_same(ShclArena *a, ShclStr spelling, int quoted, ShclStr logica
    single-quoted text as an escape too, and double quotes are where both rule
    sets read one alike. No \u goes in, since 2.x would keep it as written.
    So the migrated file reads the same under 2.x, and a second run changes
-   nothing. */
+   nothing. A line break in a value that starts like a Windows path has no
+   such spelling: written this way it is E024, so the caller counts it lost. */
 static ShclStr migrate_spelling(ShclArena *a, ShclStr logical, int bare) {
 	if (memchr(logical.p, '\\', logical.n)) return quote_double_as(a, logical, SHCL_RULES_V2);
 	if (bare && !needs_quotes(logical)) return logical;
@@ -2352,7 +2372,10 @@ static void value_edits(ShclArena *a, ShclStr text, const ShclTokens *tok, ShclV
 		   in double quotes is a character now and was text in 2.x. */
 		int differs = p->quote == SHCL_QUOTE_DOUBLE ? unicode_pair_differs(raw) : !s_eq(logical, raw);
 		if (differs && !st->from_v2) { st->ambiguous++; continue; }
-		edit_push(a, edits, ea, eb, migrate_spelling(a, logical, !(quoted || p->quote == SHCL_QUOTE_OPEN)));
+		ShclStr spelling = migrate_spelling(a, logical, !(quoted || p->quote == SHCL_QUOTE_OPEN));
+		/* Spelled the way 2.x read it, the line is E024 and binds nothing. */
+		if (spells_path_escape(spelling)) st->lost++;
+		edit_push(a, edits, ea, eb, spelling);
 	}
 }
 
@@ -2422,6 +2445,11 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 					if (!s_eq(logical, body)) spelling = migrate_spelling(a, logical, 0);
 					else if (quoted && !unknown) spelling = s_trim_wsp(s_slice(rest, open + 1, close));
 					else spelling = migrate_spelling(a, logical, 1);
+					/* As a value, a path holding a \t or \n is E024. */
+					if (spells_path_escape(spelling)) {
+						spelling = migrate_spelling(a, logical, 0);
+						if (spells_path_escape(spelling)) st->lost++;
+					}
 					ShclSB sb = {0}; sb_puts(a, &sb, ": "); sb_putS(a, &sb, spelling);
 					edit_push(a, &edits, colon, close + 1, sb_S(&sb));
 					continue;
@@ -3381,6 +3409,11 @@ DEFINE_VEC(ShclVecPend, ShclPend)
 /* Every pending entry before end has a ceiling at or under indent_len. */
 typedef struct { size_t end; size_t indent_len; } ShclPendMark;
 DEFINE_VEC(ShclVecPendMark, ShclPendMark)
+/* A LAZY level's line, for opening it: the stack entry it sits at, its path
+   (copied out of the line's arena), and how many pending lines go with it,
+   its own included. */
+typedef struct { size_t at; ShclSegment *segs; size_t nsegs; size_t line; ShclStr indent; size_t pend; size_t depth; } ShclLazy;
+DEFINE_VEC(ShclVecLazy, ShclLazy)
 
 /* What a parse owns outright and has to give back, on the heap rather than in
    do_parse's frame: the recovery path is reached by longjmp, which leaves a
@@ -3429,7 +3462,8 @@ typedef struct { shcl_doc *d; ShclArena *tmp; ShclArena *line; ShclArena *hints;
 	/* Indent of the last E012 line kept as written, while the lines after it
 	   sit under it; those are E018 and are kept as written too. */
 	int has_kept_hold; ShclStr kept_hold;
-	int kept_any; } ShclParser;
+	int kept_any;
+	ShclVecLazy lazies; } ShclParser;
 
 static void push_diag(shcl_doc *d, size_t line, shcl_severity sev, const char *code, ShclStr msg) {
 	ShclDiag dg; dg.line = line; dg.sev = sev; dg.message = msg; dg.code = code; dg.generated = 0;
@@ -3772,7 +3806,7 @@ static void hang_deeper_pending(ShclParser *P, ShclStr new_indent) {
 			size_t si = (size_t)-1, target = (size_t)-1; int at_own_level = 0;
 			for (size_t ii = P->stack.len; ii-- > 0;) {
 				ShclStr ind = P->stack.data[ii].indent; size_t n = P->stack.data[ii].node;
-				if (n != ROOT && n != DEAD && n != UNOPENED && ind.n >= new_indent.n && p.indent.n >= ind.n && memcmp(p.indent.p, ind.p, ind.n) == 0) {
+				if (n != ROOT && n != DEAD && n != UNOPENED && n != LAZY && ind.n >= new_indent.n && p.indent.n >= ind.n && memcmp(p.indent.p, ind.p, ind.n) == 0) {
 					/* A list element's column is an entry with the list's node on
 					   the list's own entry. It is inside the list, not its level. */
 					int column = ii > 0 && P->stack.data[ii - 1].node == n;
@@ -4168,6 +4202,107 @@ static ShclFence line_fence(const ShclTokens *tok, ShclStr rest) {
 	return fence_open(tok->capped ? s_trim_wsp(s_slice(rest, tok->value_start, rest.n)) : s_slice(rest, tok->value_start, tok->value_end));
 }
 
+/* Why a field line that scanned is refused for what it spells, before the
+   element cap: bracket text, a bad escape, or a value that starts like a
+   Windows path and holds a \t or \n escape. The code, or NULL. */
+static const char *line_fault(ShclArena *a, const ShclTokens *tok, ShclStr text, ShclStr *msg) {
+	if (bracket_text(tok, text)) { *msg = s_lit("bracket array syntax; an array is comma-separated, without brackets"); return "E019"; }
+	int values = !line_fence(tok, text).ok;
+	uint32_t esc;
+	if (bad_escape(tok, text, values, &esc)) { *msg = escape_msg(a, esc); return "E023"; }
+	if (values && any_path_like(tok, text)) { *msg = s_lit(path_msg); return "E024"; }
+	return NULL;
+}
+
+/* A path segment a LAZY level can open: no index or wildcard selector, which
+   could fail to place it. */
+static int opens_as_written(const ShclSegment *seg) { return seg->sel.tag == SEL_NONE || seg->sel.tag == SEL_VALUE; }
+
+/* True when a reload holds this kept line's level open (LAZY): a field line
+   refused for its value alone, with a path that opens. */
+static int opens_later(ShclArena *a, ShclStr text) {
+	if (text.n && (text.p[0] == '#' || text.p[0] == '*')) return 0;
+	ShclTokens tok; memset(&tok, 0, sizeof tok);
+	tokenize(a, text, ':', 0, SHCL_RULES_CURRENT, &tok);
+	ShclPathScan scan = path_of(a, &tok, text);
+	if (!scan.ok) return 0;
+	uint32_t esc;
+	if (bad_escape(&tok, text, 0, &esc)) return 0;
+	for (size_t k = 0; k < scan.segs.len; k++)
+		if (!opens_as_written(&scan.segs.data[k])) return 0;
+	ShclStr msg;
+	return line_fault(a, &tok, text, &msg) != NULL;
+}
+
+/* A field line refused for its value alone holds its level open for what is
+   written under it. Called right after the refusal pushed the line's level.
+   A path that could not open, or would open past the nesting cap, leaves the
+   level dead. */
+static void hold_open(ShclParser *P, size_t parent, const ShclSegment *segs, size_t nsegs, size_t line, ShclStr indent) {
+	size_t at = P->stack.len - 1;
+	if (!(P->stack.data[at].node == DEAD && s_eq(P->stack.data[at].indent, indent))) return;
+	for (size_t k = 0; k < nsegs; k++)
+		if (!opens_as_written(&segs[k])) return;
+	while (P->lazies.len && P->lazies.data[P->lazies.len - 1].at >= at) P->lazies.len--;
+	size_t depth = 0;
+	if (parent == LAZY) {
+		if (P->lazies.len) depth = P->lazies.data[P->lazies.len - 1].depth;
+	} else {
+		for (size_t up = parent; up != ROOT; up = NODE(P->d, up).parent) depth++;
+	}
+	if (depth + nsegs > SHCL_MAX_DEPTH) return;
+	/* The segments live in the line's arena, which the next line resets. */
+	ShclSegment *copy = (ShclSegment *)arena_alloc(P->tmp, (nsegs ? nsegs : 1) * sizeof(ShclSegment));
+	for (size_t k = 0; k < nsegs; k++) {
+		copy[k] = segs[k];
+		copy[k].name = s_dup(P->tmp, segs[k].name);
+		copy[k].name_src = s_dup(P->tmp, segs[k].name_src);
+		copy[k].sel.value = s_dup(P->tmp, segs[k].sel.value);
+	}
+	P->stack.data[at].node = LAZY;
+	ShclLazy lz; lz.at = at; lz.segs = copy; lz.nsegs = nsegs; lz.line = line; lz.indent = indent; lz.pend = P->pending.len; lz.depth = depth + nsegs;
+	ShclVecLazy_push(P->tmp, &P->lazies, lz);
+}
+
+/* The node a line binds under: a LAZY level, and any LAZY one it sits under,
+   opens here as an empty field, the way its line would have bound with
+   nothing after the colon. Its own line and the comments before it go with
+   it. */
+static size_t open_lazy(ShclParser *P, size_t parent) {
+	if (parent != LAZY) return parent;
+	size_t top = P->stack.len - 1;
+	size_t from = top;
+	while (from > 1 && P->stack.data[from - 1].node == LAZY) from--;
+	size_t node = P->stack.data[from - 1].node;
+	for (size_t at = from; at <= top; at++) {
+		size_t k = P->lazies.len;
+		while (k > 0 && P->lazies.data[k - 1].at != at) k--;
+		if (k == 0) break;
+		ShclLazy lz = P->lazies.data[k - 1];
+		memmove(&P->lazies.data[k - 1], &P->lazies.data[k], (P->lazies.len - k) * sizeof(ShclLazy));
+		P->lazies.len--;
+		/* hold_open let through only a path that opens. */
+		size_t opened = 0;
+		if (attach_path(P, node, lz.segs, lz.nsegs, v_empty(), lz.line, lz.indent, &opened)) node = opened;
+		P->stack.data[at].node = node;
+		size_t count = lz.pend < P->pending.len ? lz.pend : P->pending.len;
+		if (count) {
+			ShclArena *a = &P->d->arena;
+			ShclTrivia *t = triv_mut(a, &NODE(P->d, node));
+			P->depth_chain.len = 0;
+			for (size_t j = 0; j < count; j++) {
+				const ShclPend *pn = &P->pending.data[j];
+				ShclVecLead_push(a, &t->leading, lead_at(pn->text, pn->blank_before, comment_depth(P, lz.indent, pn->text, pn->indent), pn->line));
+			}
+			memmove(P->pending.data, P->pending.data + count, (P->pending.len - count) * sizeof(ShclPend));
+			P->pending.len -= count;
+			for (size_t j = 0; j < P->pend_marks.len; j++) P->pend_marks.data[j].end = P->pend_marks.data[j].end > count ? P->pend_marks.data[j].end - count : 0;
+			for (size_t j = 0; j < P->lazies.len; j++) P->lazies.data[j].pend = P->lazies.data[j].pend > count ? P->lazies.data[j].pend - count : 0;
+		}
+	}
+	return node;
+}
+
 /* Where the parse resumes after a refused field line. Every arm that skips one
    comes through here, so a skipped line whose value opens a raw block takes the
    body with it: read as lines, the body would bind or be refused line by line,
@@ -4221,7 +4356,6 @@ static int add_star_element(ShclParser *P, size_t parent, const ShclTokens *tok,
 	if (!element_of(a, &piece, text, &el)) { p_refuse(P, line, "E009", s_lit("empty list element"), out_kind(OUT_DROPPED), indent); return 0; }
 	if (piece.quote == SHCL_QUOTE_OPEN) p_err(P, line, "E017", s_lit("unterminated quote in value"));
 	int binding_like = !el.quoted && looks_like_binding(el.text);
-	int path = path_like(&piece, text);
 	ShclStr clash;
 	int clashed = unit_clash(P->tmp, NODE(P->d, parent).name, el.text, &clash);
 	/* Element cap: each element line past it is refused on its own, the way
@@ -4263,7 +4397,6 @@ static int add_star_element(ShclParser *P, size_t parent, const ShclTokens *tok,
 		return 0;
 	}
 	if (binding_like) p_diag(P, line, SHCL_SEV_HINT, "H003", s_lit("list element looks like a field binding; it is read as a string (quote it to say so)"));
-	if (path) p_diag(P, line, SHCL_SEV_HINT, "H004", s_lit(path_hint));
 	if (clashed) p_diag(P, line, SHCL_SEV_HINT, "H005", clash);
 	/* A kept element holds its column as a dropped one does, with the field as
 	   that level's node: a line written deeper binds where it always did, and a
@@ -4406,7 +4539,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 	ShclParser P; P.d = d; P.tmp = &d->scratch; P.line = &own->line; P.hints = &own->hints; P.cmaps = &own->cmaps; P.dmaps = &own->dmaps; memset(&P.stack, 0, sizeof P.stack); memset(&P.pending, 0, sizeof P.pending); memset(&P.pend_marks, 0, sizeof P.pend_marks); memset(&P.depth_chain, 0, sizeof P.depth_chain);
 	P.star_open = 0; P.star_node = 0; P.star_key = 0; P.star_disp = 0; P.saw_blank = 0;
 	P.max_nodes = max_nodes; P.max_elements = max_elements; P.max_diags = max_diags; P.unlisted_errors = 0; P.unlisted_hints = 0;
-	P.has_kept_hold = 0; P.kept_hold = s_empty(); P.kept_any = 0;
+	P.has_kept_hold = 0; P.kept_hold = s_empty(); P.kept_any = 0; memset(&P.lazies, 0, sizeof P.lazies);
 	memset(&P.reent_node, 0, sizeof P.reent_node); memset(&P.reent_line, 0, sizeof P.reent_line); memset(&P.late_dups, 0, sizeof P.late_dups);
 	ShclStackEnt e0; e0.indent = s_empty(); e0.node = ROOT; ShclVecStack_push(P.tmp, &P.stack, e0);
 	maps_push(d->panic, P.cmaps, NULL);
@@ -4512,7 +4645,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 				p_refuse(&P, lineno, "E021", sb_S(&m), out_kind(OUT_DROPPED), indent);
 			}
 			else {
-				size_t bnode = bind_block(&P, parent, val, lineno, indent);
+				size_t bnode = bind_block(&P, open_lazy(&P, parent), val, lineno, indent);
 				if (bnode != (size_t)-1) {
 					ShclVecSize_push(a, &d->ends, NODE(d, bnode).line); ShclVecSize_push(a, &d->ends, next);
 					attach_trivia(&P, bnode, indent, fcomment);
@@ -4533,10 +4666,14 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 				if (parent == DEAD) { misplaced(&P, lineno, "E018", indent, rest, had_blank, 0); i++; continue; }
 				tokenize_value(P.tmp, rest, 1, SHCL_RULES_CURRENT, &tok);
 				uint32_t esc;
-				if (bad_escape(&tok, rest, 1, &esc)) {
-					p_refuse(&P, lineno, "E023", escape_msg(P.line, esc), out_retained(trim_wsp_end(rest), had_blank), indent);
+				const char *fault = NULL; ShclStr fmsg = s_empty();
+				if (bad_escape(&tok, rest, 1, &esc)) { fault = "E023"; fmsg = escape_msg(P.line, esc); }
+				else if (any_path_like(&tok, rest)) { fault = "E024"; fmsg = s_lit(path_msg); }
+				if (fault) {
+					p_refuse(&P, lineno, fault, fmsg, out_retained(trim_wsp_end(rest), had_blank), indent);
 					i++; continue;
 				}
+				parent = open_lazy(&P, parent);
 				ShclStr ecomment = tok.has_comment ? s_slice(rest, tok.comment, rest.n) : s_empty();
 				/* Elements have no node of their own; trivia rides the field. At the
 				   root there is no field (E007), so the comment rides the document
@@ -4588,21 +4725,23 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 		   and the same code: the body is read bare, quotes and all, so the line
 		   still binds - somewhere the author did not mean. */
 		if (selector_open_quote(&tok)) p_err(&P, lineno, "E017", s_lit("unterminated quote in selector"));
-		/* A value spelled the way JSON, TOML and YAML spell an array. The
-		   brackets are not a selector after the colon, and reading the text
-		   without them would bake a changed value in, so the line is kept
-		   verbatim. Judged before the cap and from the first piece, which the
-		   cap keeps: a cap refuses only a line that would bind. */
-		if (bracket_text(&tok, rest)) {
-			p_refuse(&P, lineno, "E019", s_lit("bracket array syntax; an array is comma-separated, without brackets"), out_retained(trim_wsp_end(rest), had_blank), indent);
-			i = next; continue;
-		}
-		/* Same outcome as bracket text, and judged at the same point: the pair
-		   cannot be read as written or as an escape without guessing. */
-		uint32_t esc;
-		if (bad_escape(&tok, rest, !line_fence(&tok, rest).ok, &esc)) {
-			p_refuse(&P, lineno, "E023", escape_msg(P.line, esc), out_retained(trim_wsp_end(rest), had_blank), indent);
-			i = next; continue;
+		/* A value spelled the way JSON, TOML and YAML spell an array, or an
+		   escape that cannot be read as written or as an escape without
+		   guessing. The brackets are not a selector after the colon, and
+		   reading the text without them would bake a changed value in, so the
+		   line is kept verbatim. Judged before the cap and from the first
+		   piece, which the cap keeps: a cap refuses only a line that would
+		   bind. Only the value is wrong, so the lines under it still load,
+		   under the path opened empty. */
+		{
+			ShclStr fmsg;
+			const char *fault = line_fault(P.line, &tok, rest, &fmsg);
+			if (fault) {
+				p_refuse(&P, lineno, fault, fmsg, out_retained(trim_wsp_end(rest), had_blank), indent);
+				uint32_t esc;
+				if (!bad_escape(&tok, rest, 0, &esc)) hold_open(&P, parent, scan.segs.data, scan.segs.len, lineno, indent);
+				i = next; continue;
+			}
 		}
 		/* Element cap: the whole line is refused, so a capped load never holds
 		   a truncated array that would read as the document's value. The scan
@@ -4635,9 +4774,8 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 			}
 		}
 		size_t node = 0; /* attach_path fills it; the init quiets gcc's inlining-dependent maybe-uninitialized */
+		parent = open_lazy(&P, parent);
 		if (attach_path(&P, parent, scan.segs.data, scan.segs.len, value, lineno, indent, &node)) {
-			for (size_t k = 0; celled && k < tok.nelem; k++)
-				if (path_like(&tok.elements[k], rest)) { p_diag(&P, lineno, SHCL_SEV_HINT, "H004", s_lit(path_hint)); break; }
 			for (size_t k = 0; celled && unit_named(NODE(d, node).name) && k < tok.nelem; k++) {
 				ShclStr clash;
 				if (unit_clash(P.tmp, NODE(d, node).name, piece_text(P.tmp, &tok.elements[k], rest), &clash)) { p_diag(&P, lineno, SHCL_SEV_HINT, "H005", clash); break; }
@@ -5766,7 +5904,8 @@ int shcl_set_string(shcl_doc *d, const char *path, size_t plen, const char *s, s
    with: a line break, which no file line can hold, an unterminated quote
    (E017), bracket text (E019, the line kept verbatim - writing it as a
    two-element array holding `[1` and `2]` would be a different wrong answer),
-   and an unknown escape in double quotes (E023). */
+   an unknown escape in double quotes (E023), and a Windows path in double
+   quotes holding a \t or \n escape (E024). */
 static int literal_value(ShclArena *a, ShclArena *tmp, ShclStr text, ShclValue *out) {
 	for (size_t i = 0; i < text.n; i++) { if (text.p[i] == '\n') return 0; }
 	/* One copy of the value text up front: the elements slice it, and the
@@ -5776,7 +5915,7 @@ static int literal_value(ShclArena *a, ShclArena *tmp, ShclStr text, ShclValue *
 	for (size_t i = 0; i < tok.nelem; i++) if (tok.elements[i].quote == SHCL_QUOTE_OPEN) return 0;
 	if (tok.value_start < line.n && line.p[tok.value_start] == '[') return 0;
 	uint32_t c;
-	if (bad_escape(&tok, line, 1, &c)) return 0;
+	if (bad_escape(&tok, line, 1, &c) || any_path_like(&tok, line)) return 0;
 	*out = cell_of_tokens(a, tmp, &tok, line);
 	return 1;
 }
@@ -6453,7 +6592,17 @@ static ShclStr quote_text_as(ShclArena *a, ShclStr t, shcl_rules rules) {
 /* The double-quoted spelling for a reader of rules. The two read it alike,
    except a \u escape, which 2.x kept as written, so for 2.x an invisible
    character goes in as it is. */
+static ShclStr quote_double_with(ShclArena *a, ShclStr t, shcl_rules rules, int path);
 static ShclStr quote_double_as(ShclArena *a, ShclStr t, shcl_rules rules) {
+	ShclStr out = quote_double_with(a, t, rules, 0);
+	/* Spelled \t or \n, a path is E024 on the reload, and a \u escape reads
+	   the same. 2.x kept one as written, so for 2.x a tab goes in as it is, and
+	   a line break has no spelling: migrate counts that one lost. */
+	if (spells_path_escape(out)) return quote_double_with(a, t, rules, 1);
+	return out;
+}
+
+static ShclStr quote_double_with(ShclArena *a, ShclStr t, shcl_rules rules, int path) {
 	ShclSB s = {0};
 	sb_reserve(a, &s, t.n + 2);
 	sb_putc(a, &s, '"');
@@ -6461,6 +6610,8 @@ static ShclStr quote_double_as(ShclArena *a, ShclStr t, shcl_rules rules) {
 		char c = t.p[i]; uint32_t cp; size_t l;
 		if (c == '\\') sb_puts(a, &s, "\\\\");
 		else if (c == '"') sb_puts(a, &s, "\\\"");
+		else if ((c == '\n' || c == '\t') && path && rules == SHCL_RULES_CURRENT) sb_put_unicode_escape(a, &s, (uint32_t)c);
+		else if (c == '\t' && path) sb_putc(a, &s, c);
 		else if (c == '\n') sb_puts(a, &s, "\\n");
 		else if (c == '\t') sb_puts(a, &s, "\\t");
 		else if (rules == SHCL_RULES_CURRENT && (l = invisible_at(t, i, &cp)) != 0) { sb_put_unicode_escape(a, &s, cp); i += l - 1; }
@@ -6830,6 +6981,23 @@ static void emit_placed(ShclEmit *e, ShclStr indent) {
 	e->has_hold = 0;
 }
 
+/* True when a field's last leading line is one kept for its value alone,
+   naming just this field, so that line is written in place of the bare
+   `name:` line: a reload opens the field from it the same way. An empty block
+   keeps its own line, since nothing would open the field. Only what a reload
+   restores counts, so a document and its reload agree. */
+static int heads_block(ShclArena *a, const ShclNode *node) {
+	if (!v_is_empty(&node->value) || node->children.len == 0 || node->blank_before || triv_trailing(node).n) return 0;
+	ShclVecLead lead = triv_leading(node);
+	if (lead.len == 0) return 0;
+	const ShclLead *l = &lead.data[lead.len - 1];
+	if (l->depth != 0 || (l->text.n && (l->text.p[0] == ' ' || l->text.p[0] == '\t')) || !opens_later(a, l->text)) return 0;
+	ShclTokens tok; memset(&tok, 0, sizeof tok);
+	tokenize(a, l->text, ':', 0, SHCL_RULES_CURRENT, &tok);
+	ShclPathScan scan = path_of(a, &tok, l->text);
+	return scan.ok && scan.segs.len == 1 && scan.segs.data[0].sel.tag == SEL_NONE && s_eq(scan.segs.data[0].name, node->name);
+}
+
 /* A misplaced line's text as the comment it falls back to. */
 static ShclStr commented(ShclArena *a, ShclStr text) {
 	ShclSB b = {0};
@@ -6879,11 +7047,16 @@ static void push_leads(ShclEmit *e, const ShclLead *leads, size_t n, size_t base
 		size_t pad = base + c->depth;
 		if (c->text.n && c->text.p[0] == '#') last_comment = c->depth;
 		else {
-			/* A kept malformed line resolves and holds its column on a reload. */
+			/* A kept malformed line resolves and holds its column on a reload,
+			   open for the lines under it when only its value was wrong. */
 			ShclStr ind = emit_tabs(e, pad);
 			ShclTrial t = emit_resolve(e, ind);
 			e->has_hold = 0;
-			emit_refused(e, ind, &t);
+			if (t.found && t.parent != DEAD && opens_later(a, c->text)) {
+				emit_take(e, &t);
+				ShclStackEnt se; se.indent = ind; se.node = ROOT; ShclVecStack_push(a, &e->tail, se);
+			}
+			else emit_refused(e, ind, &t);
 		}
 		sb_putS(a, &e->out, emit_tabs(e, pad));
 		sb_putS(a, &e->out, c->text); sb_putc(a, &e->out, '\n');
@@ -6945,6 +7118,12 @@ static void emit_line(shcl_doc *d, size_t idx, size_t pos, size_t depth, int wou
 	   never as the first output line. */
 	emit_near(e, idx, pos);
 	push_leads(e, lead.data, lead.len, depth, idx, SITE_LEADING, 0);
+	/* The kept line just written opens this block on a reload. */
+	if (heads_block(a, node)) {
+		emit_bound(e, depth);
+		emit_near(e, idx, pos);
+		return;
+	}
 	if (node->blank_before && out->len) sb_putc(a, out, '\n');
 	emit_mark(e, node->line);
 	if (would_merge && trailing.n) {

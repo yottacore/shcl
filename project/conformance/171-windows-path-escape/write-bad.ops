@@ -1,0 +1,2 @@
+literal	bad	"C:\temp"
+literal	bad	x, "\\srv\new"

@@ -236,7 +236,7 @@ Case `104` pins an element with no parent field at the top of a file (`E007`, dr
 
 Case `105` pins bare selector bodies holding an apostrophe, a mid-text quote or a trailing backslash, and quoted ones spanning a `]` or holding a `#`, each followed by a comment that stays a comment. No diagnostics and nothing lost.
 
-Case `106` pins the 2.x selector sugar under the 3.0 rules: `base:[Boston]` is bracket text, `E019` and kept, the line under it is `E018`, and the load fails at Strict.
+Case `106` pins the 2.x selector sugar under the 3.0 rules: `base:[Boston]` is bracket text, `E019` and kept, and the load fails at Strict. The line under it loads under `base` with no value, so `base.lat` reads while `base[Boston].lat` does not, and nothing is lost.
 
 Case `107` pins recursive fragment mounts under the validation memo: a type fault seven mounts down (`V003`), a star path through a mount, and an unknown leaf at the bottom (`V001`) are all still reported.
 
@@ -276,7 +276,7 @@ Case `121` pins that a default form judges the value as well as the path. Its `w
 
 Case `125` pins an optional child of an optional valued field in `init`: the commented child selects the parent by its default (`# srv[web].port: 80`), so uncommenting both lines names one instance. The input is that output with both lines uncommented.
 
-Case `126` pins a skipped field line whose value opens a raw block, under a skipped parent (`E018`) and at an indent that matches no open level (`E012`). The body goes with the line. Read as lines, it bound its own `port` and `name`, and its closing fence opened a block that ran to the end of the file.
+Case `126` pins a skipped field line whose value opens a raw block, under a parent skipped for an escape in its name (`E018`) and at an indent that matches no open level (`E012`). The body goes with the line. Read as lines, it bound its own `port` and `name`, and its closing fence opened a block that ran to the end of the file.
 
 Case `130` pins a wildcard remove over a leaf that repeats under one instance. A read calls such a slot ambiguous, and the remove used to skip it, leave the data and exit 0. Its reads still expect the ambiguous slot, so the two answers are pinned apart.
 
@@ -364,9 +364,9 @@ Case `168` pins validation of a schema path whose `[#N]` index is past every int
 
 Case `169` pins the writer's fold two levels down: emptying a block value makes it equal to a later block, and the children the two now share fold at each level, as a reload would.
 
-Case `170` pins an unknown escape in double quotes: `E023` in a value, a quoted name, a selector body and a stacked element. Each line is kept as written and binds nothing, while single quotes, bare text, a doubled backslash and a raw block's info string read clean. Its `write-bad.ops` refuses the pair from `literal` and in a setter path, and its migrate golden doubles each backslash.
+Case `170` pins an unknown escape in double quotes: `E023` in a value, a quoted name, a selector body and a stacked element. Each line is kept as written and binds nothing, while single quotes, bare text, a doubled backslash and a raw block's info string read clean. Its `write-bad.ops` refuses the pair from `literal` and in a setter path, and its migrate golden doubles each backslash. Where the doubled spelling is a drive path holding a line break 2.x read, it is `E024`, and `migrate` counts the line lost.
 
-Case `171` pins the Windows path hint `H004`: a drive or share path in double quotes whose `\t` or `\n` is real gets the hint on a value, an inline array element and a stacked element. The document still loads clean at Strict, loses nothing, and keeps every line through a write. A doubled backslash, single quotes and a message with a `\n` get no hint.
+Case `171` pins `E024`, which was the hint `H004`: a drive or share path in double quotes whose `\t` or `\n` is real is refused on a value, an inline array element and a stacked element. Each line is kept as written, binds nothing and loses nothing, and the load fails at Strict. A doubled backslash, single quotes and a message with a `\n` read clean. Its `write.ops` writes a tab and a line break into such values as `\u0009` and `\u000A`, and its `write-bad.ops` refuses the spelling from `literal`.
 
 Case `172` pins a quoted number with a leading zero: it keeps its quotes through canonical output, element by element, while a bare one stays bare and a quoted `0.5`, `0` or hex value comes back bare. Int and float reads drop the zeros, and a string read keeps them.
 
@@ -380,7 +380,7 @@ Case `176` pins duration and size reads: units from the value, from a field name
 
 Case `177` pins the `duration` and `size` schema types: `unit`, `decimal`, and `min` and `max` in the type's units, a bare number read by the field name first, the faults for `unit` or `decimal` on another type and for `allowed` on these, and `init` writing their annotations and defaults.
 
-Case `178` pins a misplaced line kept as written that turned into a comment, once from the load, since as written it would bind, and once from a setter that unstacks the list it sat in. `clear-comments` takes the real comment above it and leaves it, and `comments` does not list it.
+Case `178` pins a misplaced line kept as written that turned into a comment, once from the load under a line skipped for an escape in its name, since as written it would bind, and once from a setter that unstacks the list it sat in. `clear-comments` takes the real comment above it and leaves it, and `comments` does not list it.
 
 Case `179` pins a merge onto a list the lower layer spells stacked. The spelling shows only while a kept line holds the list stacked, and a reload of that layer would lose it, so the kept line the higher layer brings is written under the list inline, as it is when the lower layer spells it inline.
 
@@ -394,9 +394,11 @@ Case `183` pins which characters canonical output escapes: both ends of every ra
 
 Case `184` pins a bare duration or size `min` and `max` read the way the value is: the bound's own unit, then the field name's, then the schema's `unit`. A name ending in `-ms`, `_mb` or a decimal `-kb` gives the bound its unit, the name wins over `unit`, and a bound with its own unit keeps it. With no unit from either, and on a path ending in `*`, a bare bound is still `V092`.
 
-Case `185` pins the order of a load's diagnostics: by line, with a late-fold `H002` and an `H001` in their lines' places rather than after every other diagnostic, and an `H004` found in the pass ahead of the `H001` that shares its line.
+Case `185` pins the order of a load's diagnostics: by line, with a late-fold `H002` and an `H001` in their lines' places rather than after every other diagnostic, and an `H005` found in the pass ahead of the `H001` that shares its line.
 
 Case `186` pins a misplaced line kept as written that the load turns into a comment and moves above the first list in the file. The blank line above it goes, as it would before the first line of any file, so merging the file under another layer gives what merging its canonical form does.
+
+Case `187` pins a field line refused for its value alone, `E019`, `E023` in a value and `E024`: it binds nothing, and the lines under it load under the field with no value, nested ones and stacked elements included. A field with nothing under it stays absent, and a line with an escape in its name still takes its block with it (`E018`). Canonical output writes the kept line in place of the bare `name:` line, and both saves keep it as written.
 
 Beyond the fixed corpus, the differential harness (`cicd/utility/crosscheck.bash`) also derives accessor coverage over the fuzz set: the reference's fuzz dump writes a `<name>.reads.tsv` beside each dumped input (paths it knows exist, cycling type and strictness), which the `--extra` replay runs through the same row machinery. Every scalar read row - corpus and fuzz-derived - is additionally replayed under `--on-bad=error` (an exit-code differential) and `--default=<x>` (a stdout differential), so the on-bad/default policy surface is pinned cross-binding too. It also runs three `set` edits (a changed value, a new child, a removal) on the first paths of every input, corpus and fuzz alike, so the save that keeps lines is compared well past the goldens. The reference's line-ending fuzz dumps up to 100 more inputs, each mixing LF and CRLF with its edits as a write-ops script, into an `eol/` folder beside the rest. Each goes through `set --write` in every binding, and the files left on disk must match byte for byte.
 

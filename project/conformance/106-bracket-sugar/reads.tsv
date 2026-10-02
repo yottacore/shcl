@@ -1,9 +1,10 @@
 query	type	expected	status	level
 -	load	ok	-	
 -	load	fail	-	strict
-base	string	-	NotFound	
-base.lat	int	-	NotFound	
+base	string	-	Empty	
+base.lat	int	42	Good	
+base[Boston].lat	int	-	NotFound	
 tags	string	-	NotFound	
 note	string	-	NotFound	
 srv[web].name	string	-	NotFound	
--	lost	1	-	
+-	lost	0	-	

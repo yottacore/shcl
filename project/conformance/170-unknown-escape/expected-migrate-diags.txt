@@ -1,4 +1,4 @@
-line 2: Hint: H004
-line 3: Hint: H004
-line 4: Hint: H004
-ok (3 diagnostic(s))
+line 2: Error: E024
+line 3: Error: E024
+line 4: Error: E024
+failed: 3 diagnostic(s), 3 error(s)

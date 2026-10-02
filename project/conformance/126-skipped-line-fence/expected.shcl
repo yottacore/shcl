@@ -1,4 +1,4 @@
-servers: [a, b]
+"serv\q": a, b
 port: 80
 a:
 	b: 1
