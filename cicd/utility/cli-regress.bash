@@ -560,7 +560,11 @@ rows=(
 	## 20260926 idea 2: a save meant to keep the lines that rewrote the whole
 	## file said nothing.
 	'Er8Ivln|set-write-says-canonical|set --write %KF% --set=b=3|-|0|-|rewritten in the canonical form|a:\n\tx: 1\n\ty: 1\nb: 3\n'
-	'Er7gihi|set-write-keeps-dropped-between|set --write %KG% --set=x=v|-|7|-|dropped 1 line|x[*]: [1, 2]\n x:\nx.a: 2\n'
+	## The kept line before a dotted line now sits level with its first name
+	## (2026100213205957), so this save keeps its lines, the dropped one too.
+	#'Er7gihi|set-write-keeps-dropped-between|set --write %KG% --set=x=v|-|7|-|dropped 1 line|x[*]: [1, 2]\n x:\nx.a: 2\n'
+	'EraAIXa|set-write-keeps-dropped-gap|set --write %KG% --set=x=v|-|0|-|-|x[*]: [1, 2]\n x:\nx: v\n a: 2\n'
+	'EraAIXb|set-write-gap-fallback-refused|set --write %KG% --set=x.b=1|-|7|-|dropped 1 line|x[*]: [1, 2]\n x:\nx.a: 2\n'
 	"Ep3OILN|set-open-quote-refused|set --set=a[\"open=1 %X%|-|1|-|bad --set value"
 	## 20260909 item 13: a value built by a setter or a selector read as
 	## unquoted, so quoted thousands were BadType until a save and reload.
@@ -598,6 +602,8 @@ rows=(
 	'ErUmRRa|sugar-check-block|check %W%|-|6|line 1: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
 	'ErUmRRb|sugar-block-read|get %W% base.lat|-|0|42\n|-'
 	'ErUmRRc|sugar-write-kept|fmt --write %W%|-|0||-'
+	'Era9kPy|kept-under-kept-fmt|fmt -|a: [1]\n\tb: [2]\n|0|a: [1]\n\tb: [2]\n|-'
+	'Era9kPz|kept-before-dotted-fmt|fmt -|k: [3]\nm.n: 2\n|0|k: [3]\nm:\n\tn: 2\n|-'
 	'EpFkZy9|sugar-migrate|migrate %W%|-|0|base: Boston\n\tlat: 42\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	'EpFkZyA|sugar-migrate-write|migrate --write %W%|-|0||-'
 	## An unknown escape in double quotes is refused and kept as written, not

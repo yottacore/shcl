@@ -1211,6 +1211,186 @@ fn keeping_lines_reloads_as_the_document() {
 	);
 }
 
+/// Where each line a load refused for what it spells (`E019`, `E023`,
+/// `E024`) binds once fixed. Each is cut back to `name:`, the way a reload
+/// opens it when a line under it binds, and the node its line made gives
+/// the path. Pairs of (N, path), N being the line's text's place in
+/// `texts`, sorted. None when the load dropped a line, since a save drops
+/// it again and the lines under it go with it. A raw fence takes its body
+/// along, so a value that opens one stays as it was.
+fn kept_paths(text: &str, texts: &mut Vec<String>) -> Option<Vec<(usize, String)>> {
+	let doc = Document::parse(text);
+	if doc.lost_count() > 0 {
+		return None;
+	}
+	let mut lines: Vec<String> = text.split('\n').map(str::to_string).collect();
+	let mut tok = Tokens::default();
+	let mut kept: Vec<(usize, usize)> = Vec::new();
+	for d in doc.diagnostics() {
+		if !matches!(d.code, "E019" | "E023" | "E024") || d.line == 0 {
+			continue;
+		}
+		let line = &lines[d.line - 1];
+		let rest = line.trim_start_matches([' ', '\t']);
+		let indent = &line[..line.len() - rest.len()];
+		tokenize(rest, b':', false, Rules::Current, &mut tok);
+		let Some(sep) = tok.sep else {
+			continue;
+		};
+		if rest[tok.value.0..].starts_with(['`', '~']) {
+			continue;
+		}
+		let key = rest.trim_end().to_string();
+		let n = texts.iter().position(|t| *t == key).unwrap_or_else(|| {
+			texts.push(key);
+			texts.len() - 1
+		});
+		kept.push((d.line, n));
+		lines[d.line - 1] = format!("{indent}{}", &rest[..=sep]);
+	}
+	// A dotted line makes a node per segment; the last one seen is its own.
+	let fixed = Document::parse(&lines.join("\n"));
+	let mut by_line: std::collections::HashMap<usize, String> = std::collections::HashMap::new();
+	for p in fixed.instance_paths() {
+		if let Some(&l) = fixed.lines(&p).first() {
+			by_line.insert(l, without_instances(&p));
+		}
+	}
+	// Two lines spelled alike can trade which one makes the node the other
+	// joins, so only a text that appears once is compared.
+	let once = |n: usize| kept.iter().filter(|k| k.1 == n).count() == 1;
+	let mut at: Vec<(usize, String)> = kept
+		.iter()
+		.filter(|k| once(k.1))
+		.filter_map(|&(l, n)| by_line.get(&l).map(|p| (n, p.clone())))
+		.collect();
+	at.sort();
+	Some(at)
+}
+
+/// The pairs both sides have the same number of for their N. A line that
+/// joins a node an earlier line made has no node of its own, and a save can
+/// write the two in either order.
+fn common(a: &[(usize, String)], b: &[(usize, String)]) -> Vec<(usize, String)> {
+	let count = |v: &[(usize, String)], n: usize| v.iter().filter(|p| p.0 == n).count();
+	a.iter()
+		.filter(|p| count(a, p.0) == count(b, p.0))
+		.cloned()
+		.collect()
+}
+
+/// An instance path with its `[#i]` selectors taken out: a save may write
+/// a repeated block as one, or one as two.
+fn without_instances(path: &str) -> String {
+	let mut out = String::with_capacity(path.len());
+	let (mut quoted, mut escaped) = (false, false);
+	let mut rest = path;
+	while let Some(c) = rest.chars().next() {
+		if !quoted
+			&& let Some(tail) = rest.strip_prefix("[#")
+			&& let Some(end) = tail.find(']')
+			&& end > 0
+			&& tail[..end].bytes().all(|b| b.is_ascii_digit())
+		{
+			rest = &tail[end + 1..];
+			continue;
+		}
+		if escaped {
+			escaped = false;
+		} else if quoted && c == '\\' {
+			escaped = true;
+		} else if c == '"' {
+			quoted = !quoted;
+		}
+		out.push(c);
+		rest = &rest[c.len_utf8()..];
+	}
+	out
+}
+
+/// Blocks nested under lines refused for their value alone, mixed with
+/// lines that bind, comments and blanks, so a kept line often has kept
+/// lines, and nothing else, written under it.
+fn kept_soup(rng: &mut Rng) -> String {
+	let unit = ["\t", "  ", "    "][rng.below(3)];
+	let mut out = String::new();
+	let mut depth = 0usize;
+	for n in 0..(1 + rng.below(12)) {
+		depth = rng.below(depth + 2);
+		let ind = unit.repeat(depth);
+		let name = ["a", "b", "srv", "\"q.k\"", "a.b"][rng.below(5)];
+		let line = match rng.below(12) {
+			0 => format!("{ind}# note {n}"),
+			1 => String::new(),
+			2 => format!("{ind}{name}: {n}"),
+			3 => format!("{ind}{name}:"),
+			4 => format!("{ind}* {n}"),
+			5 => format!("{ind}{name}: \"a\\qb\""),
+			6 => format!("{ind}{name}: \"C:\\temp\""),
+			7 => format!("{ind}{name}[x]: [{n}]"),
+			_ => format!("{ind}{name}: [{n}]"),
+		};
+		out.push_str(&line);
+		out.push('\n');
+	}
+	out
+}
+
+/// A kept line reloads at the same path, under the same parent lines, after
+/// a canonical save and after one that keeps lines. As written it binds
+/// nothing, so each is compared by where it would bind once its value is
+/// fixed (2026100213205957).
+#[test]
+fn kept_lines_keep_their_path() {
+	let _id = test_id("ErZx5Et");
+	let iters = iter_count(300);
+	let seeds = seed_texts();
+	let mut rng = Rng(0x5EED_1002_1320_0001);
+	let mut checked = 0usize;
+	for i in 0..iters {
+		let base = match rng.below(4) {
+			0 => {
+				let seed = rng.below(seeds.len());
+				mutate(&mut rng, &seeds[seed])
+			}
+			1 => structural(&mut rng),
+			_ => kept_soup(&mut rng),
+		};
+		let mut texts = Vec::new();
+		let Some(want) = kept_paths(&base, &mut texts) else {
+			continue;
+		};
+		if want.is_empty() {
+			continue;
+		}
+		checked += 1;
+		let once = Document::parse(&base).to_canonical();
+		let got = kept_paths(&once, &mut texts).unwrap_or_default();
+		assert_eq!(
+			common(&got, &want),
+			common(&want, &got),
+			"iteration {i}: a kept line moved in the canonical save:\n{base}--- wrote\n{once}"
+		);
+		// A new field changes no kept line's parent.
+		let mut doc =
+			Document::parse_keep_lines(&base, Strictness::Standard).unwrap_or_else(|e| e.document);
+		if !doc.set_int("zz_new", 1) {
+			continue;
+		}
+		let (text, _) = doc.to_text_keep_lines();
+		let got = kept_paths(&text, &mut texts).unwrap_or_default();
+		assert_eq!(
+			common(&got, &want),
+			common(&want, &got),
+			"iteration {i}: a kept line moved in the save that keeps lines:\n{base}--- wrote\n{text}"
+		);
+	}
+	assert!(
+		checked * 4 >= iters,
+		"only {checked} of {iters} inputs had a kept line to check"
+	);
+}
+
 /// A config like tidy()'s where each line ends in LF or CRLF on its own, all
 /// one kind, alternating (a tie when the count is even) or at random, and a
 /// third of them with no final newline. Every line is spelled the way the

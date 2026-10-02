@@ -370,18 +370,22 @@ class _Lead:
 		return self.text.startswith("#") and not self.kept
 
 
-def _comment_depth(chain, base, text, indent):
+def _comment_depth(chain, held, base, text, indent):
 	"""How many levels past its place a pending line is written: the place's
 	own level for a comment no deeper than `base`, the place's own indent,
 	which also starts a new chain; for a deeper one, one level under the
 	nearest comment before it whose indent its own extends, level with one it
 	equals, or at the place's level when there is none. `chain` holds those
-	comments' indents with their depths, innermost last. A line kept for being
-	malformed always sits at the place's level and leaves the chain alone: it
-	holds its level on a reload, so written deeper it would move what
-	follows."""
-	if not text.startswith("#"):
+	comments' indents with their depths, innermost last. A field line kept
+	for what it spells goes by the same rule over `held`, the kept lines
+	before it: it holds its level on a reload, so it goes deeper only under
+	one of those, which a reload holds open for it. A misplaced line, which
+	carries its own indent, sits at the place's level and leaves both
+	alone."""
+	if text.startswith((" ", "\t")):
 		return 0
+	if not text.startswith("#"):
+		chain = held
 	if not (len(indent) > len(base) and indent.startswith(base)):
 		chain[:] = [(indent, 0)]
 		return 0
@@ -395,6 +399,12 @@ def _comment_depth(chain, base, text, indent):
 	depth = chain[-1][1] + 1 if chain else 0
 	chain.append((indent, depth))
 	return depth
+
+
+def _is_field(text):
+	"""A pending line kept for what it says, not for where it sits: neither a
+	comment nor a misplaced line, which carries its own indent."""
+	return not text.startswith(("#", " ", "\t"))
 
 
 class _Pend:
@@ -2661,8 +2671,9 @@ class _Parser:
 		if self.pending:
 			t = self.arena[node]._triv()
 			chain: list[tuple[str, int]] = []
+			held: list[tuple[str, int]] = []
 			for p in self.pending:
-				t.leading.append(_Lead(p.text, p.blank_before, _comment_depth(chain, indent, p.text, p.indent), p.line))
+				t.leading.append(_Lead(p.text, p.blank_before, _comment_depth(chain, held, indent, p.text, p.indent), p.line))
 			self.pending = []
 			self.pend_marks = []
 		if trailing:
@@ -2693,13 +2704,20 @@ class _Parser:
 		# A comment never goes ahead of the one written before it. Once one
 		# stays for the incoming line every later one stays too, and one whose
 		# block would be written out before the last one's goes there with it
-		# instead. What sits before `start` stays, so nothing after it can hang.
+		# instead. What sits before `start` stays, so no comment after it can
+		# hang. A kept field line is the exception below.
 		kept = start > 0
 		# Where the last comment went: (stack index, node, at its own level).
 		last = None
+		last_field = None
 		chain: list[tuple[str, int]] = []
+		held: list[tuple[str, int]] = []
 		for p in taken:
-			if not kept and p.ceiling > new_len:
+			# A kept field line goes to the block it sits in whatever stays
+			# before it, since that block is its parent on a reload. Comments
+			# give way to it.
+			field = _is_field(p.text)
+			if (not kept or field) and p.ceiling > new_len:
 				# A level shallower than the incoming line stays open and may
 				# still gain children, so a comment must not hang there - it
 				# would emit below the child; keep it pending instead.
@@ -2723,16 +2741,33 @@ class _Parser:
 				if at is not None and (not at[2] or self.arena[at[1]].parent != ROOT):
 					# A deeper block is written out first, and a block's inside
 					# comments before its after ones.
-					if last is not None and (at[0], not at[2]) > (last[0], not last[2]):
+					if last is not None and not field and (at[0], not at[2]) > (last[0], not last[2]):
 						at = last
 					if at != last:
 						chain.clear()
 					last = at
-					lead = _Lead(p.text, p.blank_before, _comment_depth(chain, self.stack[at[0]][0], p.text, p.indent), p.line)
+					# A kept line's parent goes to the same block it does,
+					# whatever block the comments between them went to.
+					if field and at != last_field:
+						held.clear()
+						last_field = at
+					base = self.stack[at[0]][0]
+					leads = []
+					# The comments that stayed right above it go along, so the
+					# two keep their order and a save can keep both lines.
+					if field:
+						frm = len(self.pending)
+						while frm > start and self.pending[frm - 1].text.startswith("#"):
+							frm -= 1
+						for c in self.pending[frm:]:
+							leads.append(_Lead(c.text, c.blank_before, _comment_depth(chain, held, base, c.text, c.indent), c.line))
+						del self.pending[frm:]
+						kept = len(self.pending) > 0
+					leads.append(_Lead(p.text, p.blank_before, _comment_depth(chain, held, base, p.text, p.indent), p.line))
 					if at[2]:
-						self.arena[at[1]]._triv().after.append(lead)
+						self.arena[at[1]]._triv().after.extend(leads)
 					else:
-						self.arena[at[1]]._triv().inside.append(lead)
+						self.arena[at[1]]._triv().inside.extend(leads)
 					continue
 			kept = True
 			p.ceiling = min(p.ceiling, new_len)
@@ -2859,16 +2894,31 @@ class _Parser:
 				node = opened
 			self.stack[at] = (self.stack[at][0], node)
 			count = min(pend, len(self.pending))
-			if count > 0:
-				t = self.arena[node]._triv()
-				chain: list[tuple[str, int]] = []
-				for pn in self.pending[:count]:
-					t.leading.append(_Lead(pn.text, pn.blank_before, _comment_depth(chain, indent, pn.text, pn.indent), pn.line))
-				del self.pending[:count]
-				self.pend_marks = [(max(m[0] - count, 0), m[1]) for m in self.pend_marks]
-				for lz in self.lazies:
-					lz[4] = max(lz[4] - count, 0)
+			self._give_pending(self._head_of(node, len(segs)), indent, count, False)
 		return node
+
+	def _head_of(self, node, nsegs):
+		"""The node a path's first segment bound, from the one its last did."""
+		head = node
+		for _ in range(1, nsegs):
+			head = self.arena[head].parent
+		return head
+
+	def _give_pending(self, node, indent, count, inside):
+		"""The first `count` pending lines become the node's leading lines, or
+		the lines inside its block, after its children."""
+		if count == 0:
+			return
+		t = self.arena[node]._triv()
+		target = t.inside if inside else t.leading
+		chain: list[tuple[str, int]] = []
+		held: list[tuple[str, int]] = []
+		for pn in self.pending[:count]:
+			target.append(_Lead(pn.text, pn.blank_before, _comment_depth(chain, held, indent, pn.text, pn.indent), pn.line))
+		del self.pending[:count]
+		self.pend_marks = [(max(m[0] - count, 0), m[1]) for m in self.pend_marks]
+		for lz in self.lazies:
+			lz[4] = max(lz[4] - count, 0)
 
 	def _skip_field_line(self, lines, i, indent, tok):
 		"""Where the parse resumes after a refused field line. Every arm that
@@ -3110,7 +3160,7 @@ class _Parser:
 		self.stack.append((indent, parent))
 		return True
 
-	def _keep_among(self, parent):
+	def _keep_among(self, parent, indent):
 		"""Kept lines waiting for the list element that just joined sat among
 		the list's elements, so they stay there; comments still ride the
 		field."""
@@ -3122,11 +3172,13 @@ class _Parser:
 		before = len(node.value.els) - 1
 		rest = []
 		among = node._triv().among
+		chain: list[tuple[str, int]] = []
+		held: list[tuple[str, int]] = []
 		for p in self.pending:
 			if p.text.startswith("#"):
 				rest.append(p)
 			else:
-				among.append((before, _Lead(p.text, p.blank_before)))
+				among.append((before, _Lead(p.text, p.blank_before, _comment_depth(chain, held, indent, p.text, p.indent))))
 		self.pending = rest
 		self.pend_marks = []
 
@@ -3260,7 +3312,19 @@ class _Parser:
 					# lines.
 					self._refuse(lineno, "E021", f"array longer than {self.max_elements} elements; line skipped", OUT_DROPPED, indent)
 				else:
-					node = self._bind_block(self._open_lazy(parent), value, lineno, indent)
+					parent = self._open_lazy(parent)
+					# The fence binds its field again, so a kept field line
+					# before it, which sits under that field, stays in the
+					# block, with the comments before it. A misplaced line
+					# never hangs on a block, so it waits for the next line.
+					k = next((j for j in range(len(self.pending) - 1, -1, -1) if _is_field(self.pending[j].text)), None)
+					base = next((ind for ind, n in reversed(self.stack) if n == parent), None)
+					if parent != ROOT and k is not None and base is not None:
+						moved = [p for p in self.pending[:k + 1] if not p.text.startswith((" ", "\t"))]
+						misplaced = [p for p in self.pending[:k + 1] if p.text.startswith((" ", "\t"))]
+						self.pending[:k + 1] = moved + misplaced
+						self._give_pending(parent, base, len(moved), True)
+					node = self._bind_block(parent, value, lineno, indent)
 					if node is not None:
 						self.ends.append((self.arena[node].line, nxt))
 						self._attach_trivia(node, indent, comment)
@@ -3304,7 +3368,7 @@ class _Parser:
 					# like any other pending one.
 					if parent != ROOT:
 						if self._add_star_element(parent, tok, tok.src, lineno, indent):
-							self._keep_among(parent)
+							self._keep_among(parent, indent)
 						head = self.arena[parent].line
 						if self.ends and self.ends[-1][0] == head:
 							self.ends[-1] = (head, lineno)
@@ -3414,6 +3478,7 @@ class _Parser:
 			# (a merge into an equal-valued node keeps the first line's span;
 			# a value dropped after a last-segment selector records nothing).
 			parent = self._open_lazy(parent)
+			nsegs = len(segments)
 			node = self._attach_path(parent, segments, value, lineno, indent)
 			if node is not None:
 				if src_text is not None and _unit_named(self.arena[node].name):
@@ -3437,6 +3502,13 @@ class _Parser:
 					self.arena[node].blank_before = True
 				if nxt > i + 1:
 					self.ends.append((lineno, nxt))
+				# A kept line before a dotted line sits level with its first
+				# segment, so it goes there with the comments before it. Under
+				# the last one it would be written deeper and read as a child.
+				if nsegs > 1:
+					k = next((j for j in range(len(self.pending) - 1, -1, -1) if _is_field(self.pending[j].text)), None)
+					if k is not None:
+						self._give_pending(self._head_of(node, nsegs), indent, k + 1, False)
 				self._attach_trivia(node, indent, comment)
 				self.stack.append((indent, node))
 			i = nxt
@@ -3458,7 +3530,8 @@ class _Parser:
 		# they were found in. Before the cap entry, which ends the list.
 		self.diags.sort(key=lambda d: d.line)
 		chain: list[tuple[str, int]] = []
-		orphans = [_Lead(p.text, p.blank_before, _comment_depth(chain, "", p.text, p.indent), p.line) for p in self.pending]
+		held: list[tuple[str, int]] = []
+		orphans = [_Lead(p.text, p.blank_before, _comment_depth(chain, held, "", p.text, p.indent), p.line) for p in self.pending]
 		self.pending = []
 		_settle_first_blank(self.arena, orphans)
 		# The one entry past the cap: what was not listed, and whether any of
@@ -5718,8 +5791,15 @@ class Document:
 		# a reload puts a comment at most one level past the comment before
 		# it, so none goes deeper than that.
 		room = next((e.depth + 1 for e in reversed(self.orphans) if e.text.startswith("#")), 0)
-		for o in over.orphans:
-			if not any(e.text == o.text and e.depth == o.depth for e in self.orphans[:had]):
+		# A kept line with kept lines under it goes in whole, so none of them
+		# lands under some other line.
+		whole = [False] * len(over.orphans)
+		fields = [i for i, o in enumerate(over.orphans) if _is_field(o.text)]
+		for a, b in zip(fields, fields[1:]):
+			if over.orphans[b].depth > 0:
+				whole[a] = whole[b] = True
+		for i, o in enumerate(over.orphans):
+			if whole[i] or not any(e.text == o.text and e.depth == o.depth for e in self.orphans[:had]):
 				depth = o.depth
 				if o.text.startswith("#"):
 					depth = min(depth, room)
