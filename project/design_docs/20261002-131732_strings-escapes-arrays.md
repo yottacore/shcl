@@ -325,7 +325,7 @@ Quoted text inside an array is just a string, so `["[a]", "b"]` is two strings.
 
 - `[a, b, c]` is the array spelling, and the canonical one.
 	- Spaces after the commas are only separators. Each element follows the value rules, so `[New York, Boston]` is `E025` and `["New York", Boston]` is fine.
-	- `[]` is the empty array.
+	- `[]` is the empty array. `x: []` and `x:` both read as an empty array. A plain read of `x:` still gives its Empty status, and a string read of `x: []` gives `[]`.
 	- `[80]` is a one-element array.
 
 - A bare comma outside brackets and quotes is `E026`. `ports: 80, 443` clearly means an array, so the error says to add the brackets, and `migrate` adds them.
@@ -427,6 +427,7 @@ What the writer and `fmt` produce. The line-keeping save still writes unchanged 
 
 - Escapes written:
 	- A line break is `◉NEWLINE◉`, and a carriage return is `◉CR◉`.
+	- A tab inside a quoted value is `◉TAB◉`, since a tab can't be told from spaces by eye. A literal tab in the input still reads as a tab.
 	- The other controls on the list are written by their canonical names.
 	- A real `◉` is `◉ESCAPE_CHAR◉`.
 	- Each hidden character, below, is `◉U_XXXX◉` with at least four hex digits in capitals.
@@ -630,10 +631,6 @@ What the build has today, and what replaces it.
 3. Then cut `v3.0.0-beta1`.
 
 Open points, each with a proposed answer:
-
-- A tab inside a quoted value. Proposed: written as `◉TAB◉`, since a tab can't be told from spaces by eye. A literal tab in the input still reads as a tab.
-
-- `x: []` and `x:`. Proposed: both read as an empty array, `x:` keeps its Empty status on a plain read, and `x: []` reads as `[]` as a string.
 
 - Files stamped `Format 3` by a pre-release build (2026100115403385). Proposed: state that pre-release files are on their own, per the 2.x low-stakes rule, and let programs give up on them as above.
 
