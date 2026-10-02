@@ -33,6 +33,44 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
+- No '\' escapes
+	- ID: 2026100207032800
+	- Type: Enhancement
+	- Status: Queued
+	- Needs local test suite run?: Y
+	- Needs external testing: Y
+	- Priority: Critical
+	- Opened: 20261002-070407
+	- Opened by: JC
+	- Assigned to:
+	- Parent ID:
+	- Prereq IDs:
+	- Related IDs: 2026100213205957, 2026100115403384, 2026100115323227, 2026100115323216, 2026100115323222, 2026100115403385, 2026100117214801, 2026100117214802
+	- Target OS:
+	- Test environment:
+	- Version and build:
+	- Problem description:
+		- Most bug/fix/bug/fix churn is being caused by escapes. For example: "C:\shouldn't\be\tab\or\newline"
+		- The full problem description, ideas 1 to 3 and the settled rules are in the design doc, `project/design_docs/20261002-131732_strings-escapes-arrays.md`. The doc is the source of truth for this item.
+	- Requirements:
+		- A backslash is plain text everywhere.
+		- An escape is `◉NAME◉`, from a closed list. Anything else between two `◉` is an error.
+		- A bare value with whitespace is an error. Quote it.
+		- Arrays are `[a, b]`, or one `- ` item per line.
+		- A backtick value is raw. The program decodes it.
+		- Ideas 1 and 2 were ruled out. Their text is under Rejected in the design doc.
+	- Estimated effort: High
+	- Actual effort:
+	- Progress log:
+	- Decisions:
+		- 20261002: idea 3, with the changes listed in the design doc. Open points and their proposed answers are under its Roadmap.
+	- Branch:
+	- Commit:
+	- Test case:
+	- Acceptance signoff:
+	- Superseded by ID:
+	- Closed:
+
 - A bad escape on a line that opens a block drops the whole block
 	- ID: 2026100115403384
 	- Type: Bug
@@ -59,6 +97,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Actual fix: a LAZY stack level in all four parsers (`hold_open`, `open_lazy`), the same model in the emitter's reload stack, and `heads_block` in the canonical emit. Spec, design outcome table, explain text for `E019` and `E023` in all four CLIs, changelog.
 	- Swept: the field arm, the stacked element arm and the raw fence arm in all four bindings. A retained `*` element line still holds a dead level, since nothing under an element binds.
 	- Verified: the four conformance suites, cli-regress (339 rows), crosscheck with a 2000-iteration fuzz dump (28764 comparisons), check-docs, check-abnf, shell-regress, check-migrate, clippy (host and windows), rustfmt, go vet, staticcheck, ruff, mypy, test-ids, and the 2,000,000 release fuzz with the new corpus case. Corpus 187 and cli-regress `ErUmRRa` to `ErUmRRc` fail on dev at `5956ff4a`.
+	- Note: 20261002, still needed under 2026100207032800, where a bare value with a space becomes a value-only refusal too. Its sibling bug is 2026100213205957. Design: `project/design_docs/20261002-131732_strings-escapes-arrays.md`.
 	- Branch: escblock
 	- Commit: c29f08fa
 	- Test case: corpus `187-value-fault-opens-block`; cli-regress `sugar-check-block`, `sugar-block-read`, `sugar-write-kept`, `path-escape-block`.
@@ -88,15 +127,36 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261001: `"C:\work\new"` in a 2.x file used to migrate to `"C:\\work\new"` with a newline in it. It now migrates to that same text and exit 7, since that text is `E024`.
 	- Swept: the field and stacked element arms, `SetLiteral`, the double-quoted writer, migrate's value and sugar edits, and its read-back check, in all four bindings. Explain, migrate's lost message and the `lost` field docs in all four.
 	- Verified: same gate list as 2026100115403384, all run on this branch. cli-regress `ErUmRRd`, `ErUmRRe`, `ErUmRRg` to `ErUmRRi` and `ErUn2Bt` fail on dev at `5956ff4a`, and so do corpus 118, 122, 170 and 171.
+	- Note: 20261002, superseded by 2026100207032800. A backslash is plain text under the new rules, so `E024` goes, along with the `\u0009` and `\u000A` spellings. This work stays in the build until that item is built. Design: `project/design_docs/20261002-131732_strings-escapes-arrays.md`.
+	- Superseded by ID: 2026100207032800
 	- Branch: escblock
 	- Commit: c29f08fa
 	- Test case: corpus `171-windows-path-escape` (was `171-windows-path-hint`) with new `write.ops` rows and a `write-bad.ops`; cli-regress `path-escape-read`, `path-escape-strict`, `path-escape-set`, `path-escape-literal`, `path-escape-migrate-lost`, `migrate-from-2x-tab`; check-migrate `ErUuq8D`. The old `path-hint-*` rows are commented out.
+
+- A kept line under a kept value-only line is saved at column 0
+	- ID: 2026100213205957
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261002-132059
+	- Opened by: found while discussing 2026100115403384
+	- Related IDs: 2026100115403384, 2026100207032800
+	- Version and build: dev at `d2fbdacd`
+	- Steps to reproduce:
+		- `printf 'a: [1]\n\tb: [2]\n' | shcl fmt -`
+	- Incorrect behavior: both lines are `E019`, and `fmt` writes `a: [1]` and then `b: [2]` at column 0, at exit 0. Once the brackets are fixed, `b` reads at the root, not as `a.b`.
+	- Expected behavior: `b: [2]` is written back under `a: [1]`, where it was.
+	- Reproduced: Yes, 20261002, Rust at `d2fbdacd`. Two nested lines with a bad escape do the same.
+	- Possible cause: the lazy level opens only on a line that binds. When nothing under it binds, the writer has no node to put the kept child under.
+	- Note: a silent wrong answer once the values are fixed. Under 2026100207032800 it gets more common, since a bare value with a space is refused the same way. Close the class with a fuzz property: a kept line reloads at the same path, under the same parent lines, after a canonical and a line-keeping save, in all four bindings. Design: `project/design_docs/20261002-131732_strings-escapes-arrays.md`.
 
 - The writer spells Windows paths three different ways
 	- ID: 2026100115323216
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Avg
+	- Note: 20261002, superseded by 2026100207032800. With no backslash escapes, a backslash plays no part in choosing quotes, so nothing here is needed. Design: `project/design_docs/20261002-131732_strings-escapes-arrays.md`.
+	- Superseded by ID: 2026100207032800
 	- Opened: 20261001-153232
 	- Opened by: gitsby feedback
 	- Version and build: dev at `b10c2009`
@@ -134,6 +194,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Type: Bug
 	- Status: Queued
 	- Severity: Low
+	- Note: 20261002, an open point in the design for 2026100207032800, which changes much more of format 3. Proposed there: pre-release files are on their own, per the 2.x low-stakes rule. Design: `project/design_docs/20261002-131732_strings-escapes-arrays.md`.
 	- Opened: 20261001-154033
 	- Opened by: silkterm feedback
 	- Related IDs: 2026100115323227
@@ -165,6 +226,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Type: Bug
 	- Status: Queued
 	- Severity: Low
+	- Note: 20261002, under 2026100207032800 a backslash is text, so this repro no longer fails. A bad `◉` escape in the name, such as `"a◉X◉":`, does the same thing, so the bug stays.
 	- Opened: 20261001-172148
 	- Opened by: found while working 2026100115403384
 	- Version and build: dev at `5956ff4a`
@@ -180,6 +242,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Type: Bug
 	- Status: Queued
 	- Severity: Low
+	- Note: 20261002, under 2026100207032800 this repro has no kept line. Any other kept line, such as `a: My App`, does the same thing, so the bug stays.
 	- Opened: 20261001-172148
 	- Opened by: found while working 2026100115323227
 	- Version and build: dev at `5956ff4a`
@@ -194,6 +257,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
+	- Note: 20261002, superseded by 2026100207032800. With no backslash escapes, a backslash plays no part in choosing quotes, so nothing here is needed. Design: `project/design_docs/20261002-131732_strings-escapes-arrays.md`.
+	- Superseded by ID: 2026100207032800
 	- Opened: 20261001-153232
 	- Opened by: gitsby feedback
 	- Related IDs: the old-format item "A save that edits only the lines that changed", whose 20260925 decision keeps `fmt`'s canonical quoting
@@ -11350,8 +11415,11 @@ Template:
 	- Target OS:
 	- Test environment:
 	- Version and build:
-	- Requirements  [Feature]:
+	- Problem description [Feature]:
+	- Requirements [Feature]:
 		- Hierarchical bulleted list.
+	- Reason [Feature]:
+		- …
 	- Steps to reproduce [Bug]:
 		- …
 	- Incorrect behavior [Bug]:
