@@ -227,7 +227,7 @@ Quoted text inside an array is just a string, so `["[a]", "b"]` is two strings.
 	1. It's already possible to put tabs in strings. The only real everyday outlier then is newlines. And other kinds of escapes, but those are either:
 		- Vanishingly rare (e.g. other ASCII escapes) and don't deserve an "easy" solution that causes never-ending grief for the rest of the codebase, or
 		- Are standalone values like hex values, or unicode values - that can be indicated other ways that don't cause never-ending grief for the rest of the codebase.
-	2. Escapes that are signalled with only a single character - and then you have to guess where it ends - is already fraught with problems by definition.
+	2. Escapes that are signaled with only a single character - and then you have to guess where it ends - is already fraught with problems by definition.
 
 - Considering this, if we (as a civilization) were to fundamentally rethink escapes and start from scratch, we would:
 	- Use one or more characters to unambiguously signal the start *and* end of an escape sequence.
@@ -493,8 +493,8 @@ Not looked at in any depth:
 ### Rejected
 
 - Escape rule idea 1, ruled out as possibly making things worse. `%` collides with Windows environment variables such as `%USERPROFILE%`, which puts the same burden on the same users that backslash does.
-	- The beginning is signalled with `%`.
-	- The end is signalled with `%`.
+	- The beginning is signaled with `%`.
+	- The end is signaled with `%`.
 	- The format is generally, `%VALUE_BEING_ESCAPED%`
 		- The value inside is case-insensitive, and can contain *only* one of: `A-Z`, `a-z`, `0-9`, `_`, `-`
 	- In-between `%%`, is a finite list of possibilities. Values not in that list, are an error.
@@ -512,8 +512,8 @@ Not looked at in any depth:
 	- Names for keyboard symbols such as `◉HASH◉`, `◉LEFT_BRACKET◉` and `◉PERCENT◉`. Inside quotes those characters are already plain text, so the names only mattered in bare text, where they would have reopened the comment rule.
 	- Backtick values that SHCL decoded. See the backtick entry below.
 	- The idea as written:
-		- The beginning is signalled with `◉`.
-		- The end is signalled with `◉`. (Same symbol)
+		- The beginning is signaled with `◉`.
+		- The end is signaled with `◉`. (Same symbol)
 		- The format is generally, `◉VALUE_BEING_ESCAPED◉`
 			- The value inside is case-insensitive, and can contain *only* one of: `A-Z`, `a-z`, `0-9`, `_`, `-`
 		- In-between `◉VALUE_BEING_ESCAPED◉`, is a finite list of possibilities.
