@@ -1347,6 +1347,13 @@ fn kept_lines_keep_their_path() {
 	let seeds = seed_texts();
 	let mut rng = Rng(0x5EED_1002_1320_0001);
 	let mut checked = 0usize;
+	// SHCL_FUZZ_DUMP: these go out too, so the cross-binding check holds the
+	// other bindings to the same bytes on the same soup.
+	let dump_dir = std::env::var("SHCL_FUZZ_DUMP").ok();
+	let dump_max: usize = std::env::var("SHCL_FUZZ_DUMP_MAX")
+		.ok()
+		.and_then(|v| v.parse().ok())
+		.unwrap_or(500);
 	for i in 0..iters {
 		let base = match rng.below(4) {
 			0 => {
@@ -1356,6 +1363,11 @@ fn kept_lines_keep_their_path() {
 			1 => structural(&mut rng),
 			_ => kept_soup(&mut rng),
 		};
+		if let Some(dir) = &dump_dir
+			&& i < dump_max
+		{
+			let _ = std::fs::write(format!("{dir}/kept_{i:05}.shcl"), &base);
+		}
 		let mut texts = Vec::new();
 		let Some(want) = kept_paths(&base, &mut texts) else {
 			continue;

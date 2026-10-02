@@ -136,7 +136,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - A kept line under a kept value-only line is saved at column 0
 	- ID: 2026100213205957
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Avg
 	- Opened: 20261002-132059
 	- Opened by: found while discussing 2026100115403384
@@ -149,6 +149,21 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: Yes, 20261002, Rust at `d2fbdacd`. Two nested lines with a bad escape do the same.
 	- Possible cause: the lazy level opens only on a line that binds. When nothing under it binds, the writer has no node to put the kept child under.
 	- Note: a silent wrong answer once the values are fixed. Under 2026100207032800 it gets more common, since a bare value with a space is refused the same way. Close the class with a fuzz property: a kept line reloads at the same path, under the same parent lines, after a canonical and a line-keeping save, in all four bindings. Design: `project/design_docs/20261002-131732_strings-escapes-arrays.md`.
+	- Actual cause: a kept line always took the level of the place it was filed at, and four places filed it away from its parent. Under another kept line nothing opened, so it went to that place's level. Before a dotted line it went to the last name's node, one level too deep. Behind a comment at column 0 that stayed, it went to the next line's level instead of its own block. Before a child fence it went ahead of the field the fence binds again. A kept line among stacked elements also lost its nesting.
+	- Decisions:
+		- 20261002: a field line kept for what it spells nests one level under the kept line before it that it is written under, by the same chain rule comments use, kept apart from the comment chain. Comments keep their old depths.
+		- 20261002: kept lines before a dotted line, with the comments above them, go to the node of its first name. Comments after the last kept line stay with the last name, as before.
+		- 20261002: a kept field line hangs on the block it sits in even when a comment before it stays for the next line, and the comments right above it go along. So a comment at column 0 inside a block is written at the block's level by `fmt`, and the save that keeps lines keeps both lines as written.
+		- 20261002: kept lines before a child fence stay inside the field's block. A misplaced line never hangs on a block, so it waits for the next line.
+		- 20261002: a merge never drops a layer's kept line that has kept lines under it, or one under another, as a repeat of the footer. The group goes in whole.
+	- Actual fix: all four bindings. A second chain in `comment_depth` for kept lines, `give_pending` and `head_of` beside `open_lazy`, the two hang rules in `hang_deeper_pending`, `keep_among` nesting, the fence arm, and the merge footer. design.md's line on kept-line levels names the exception.
+	- Swept: every `comment_depth` caller in all four (attach, hang, open_lazy, the end of the parse, keep_among), the field, fence and element arms, and the merge footer dedup. The settle, clear_comments, drop_banners and the fold move whole lead lists or only comments, so they need nothing.
+	- Verified: the four conformance suites, cli-regress (342 rows), crosscheck over the corpus and a 2000-iteration dump that now includes the new property's soup (39564 comparisons), check-docs, check-abnf, shell-regress, test-ids, shellcheck, clippy, go vet, staticcheck, ruff, mypy, gcc 14 and 15 and clang at `-Werror`, and the 2,000,000 release fuzz with the new corpus case. Corpus 188 fails on dev at `dfdd3385` in all four, and so does the fuzz property. The commands behind cli-regress `Era9kPy`, `Era9kPz` and `EraAIXa` give the old output on dev's Rust CLI; the script itself was not run against dev.
+	- Note: cli-regress `Er7gihi` expected exit 7, since the save could not keep its lines once the kept line sat under the dotted line. It now keeps them, the dropped line included, at exit 0. It is commented out with the reason; `EraAIXa` pins the new result and `EraAIXb` keeps the refusal on a save that falls back.
+	- Note: the property lives in the Rust fuzz. The other three are held to it through the crosscheck, which now replays its inputs too.
+	- Needs local test suite run?: full `--ci` at the next main push.
+	- Branch: keptnest
+	- Test case: fuzz `ErZx5Et` (`kept_lines_keep_their_path`); corpus `188-kept-line-keeps-parent`; cli-regress `kept-under-kept-fmt`, `kept-before-dotted-fmt`, `set-write-keeps-dropped-gap`, `set-write-gap-fallback-refused`.
 
 - The writer spells Windows paths three different ways
 	- ID: 2026100115323216
