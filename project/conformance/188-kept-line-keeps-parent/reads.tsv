@@ -1,0 +1,13 @@
+query	type	expected	status	level
+-	load	ok	-	
+-	load	fail	-	strict
+-	paths	m|m.n|x|x.y|w|r|r.v|l|end	-	
+-	lost	0	-	
+a	count	0	-	
+m.n	int	2	Good	
+x	children	y	-	
+w	int	1	Good	
+r	raw	body	Good	
+r.v	int	1	Good	
+l	string[]	1|2	Good	
+end	int	1	Good	

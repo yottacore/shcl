@@ -3449,7 +3449,7 @@ typedef struct { ShclArena line, hints; ShclVecMapPtr cmaps, dmaps; } ShclParseO
    per node. Everything a node keeps (name, value, trivia text) is still dup'd
    into the document arena. Nothing resets scratch during a parse; the first
    read after it does. */
-typedef struct { shcl_doc *d; ShclArena *tmp; ShclArena *line; ShclArena *hints; ShclStr src; ShclVecStack stack; ShclVecMapPtr *cmaps; ShclVecMapPtr *dmaps; ShclVecPend pending; ShclVecPendMark pend_marks; ShclVecDepth depth_chain; int star_open; size_t star_node; uint64_t star_key; uint64_t star_disp; int saw_blank; ShclVecSize reent_node; ShclVecSize reent_line;
+typedef struct { shcl_doc *d; ShclArena *tmp; ShclArena *line; ShclArena *hints; ShclStr src; ShclVecStack stack; ShclVecMapPtr *cmaps; ShclVecMapPtr *dmaps; ShclVecPend pending; ShclVecPendMark pend_marks; ShclVecDepth depth_chain; ShclVecDepth held_chain; int star_open; size_t star_node; uint64_t star_key; uint64_t star_disp; int saw_blank; ShclVecSize reent_node; ShclVecSize reent_line;
 	/* Parents where a remap ended up on a key a sibling already held: the only
 	   places a duplicate can survive the keyed lookup, so the fold starts here. */
 	ShclVecSize late_dups;
@@ -3729,13 +3729,15 @@ static void fold_dups_from(ShclParser *P, size_t start) {
    starts a new chain; for a deeper one, one level under the nearest comment
    before it whose indent its own extends, level with one it equals, or at the
    place's level when there is none. depth_chain holds those comments' indents
-   with their depths, innermost last. A line kept for being malformed always
-   sits at the place's level and leaves the chain alone: it holds its level on
-   a reload, so written deeper it would move what follows. */
+   with their depths, innermost last. A field line kept for what it spells goes
+   by the same rule over held_chain, the kept lines before it: it holds its
+   level on a reload, so it goes deeper only under one of those, which a reload
+   holds open for it. A misplaced line, which carries its own indent, sits at
+   the place's level and leaves both alone. */
 static size_t comment_depth(ShclParser *P, ShclStr base, ShclStr text, ShclStr indent) {
-	ShclVecDepth *chain = &P->depth_chain;
+	ShclVecDepth *chain = text.n && text.p[0] == '#' ? &P->depth_chain : &P->held_chain;
 	ShclDepthEnt e; e.indent = indent; e.depth = 0;
-	if (!(text.n && text.p[0] == '#')) return 0;
+	if (text.n && (text.p[0] == ' ' || text.p[0] == '\t')) return 0;
 	if (!(indent.n > base.n && (base.n == 0 || memcmp(indent.p, base.p, base.n) == 0))) {
 		chain->len = 0;
 		ShclVecDepth_push(P->tmp, chain, e);
@@ -3752,6 +3754,12 @@ static size_t comment_depth(ShclParser *P, ShclStr base, ShclStr text, ShclStr i
 	return e.depth;
 }
 
+/* A pending line kept for what it says, not for where it sits: neither a
+   comment nor a misplaced line, which carries its own indent. */
+static int is_field(ShclStr text) {
+	return !(text.n && (text.p[0] == '#' || text.p[0] == ' ' || text.p[0] == '\t'));
+}
+
 /* Hand pending leading comments (and this line's trailing one) to a node.
    First trailing wins; a later one demotes to leading so nothing is lost.
    Comment text is stored verbatim, so pending and trailing alike are slices
@@ -3761,6 +3769,7 @@ static void attach_trivia(ShclParser *P, size_t node, ShclStr indent, ShclStr tr
 	if (P->pending.len) {
 		ShclTrivia *t = triv_mut(a, &NODE(P->d, node));
 		P->depth_chain.len = 0;
+		P->held_chain.len = 0;
 		for (size_t k = 0; k < P->pending.len; k++) {
 			const ShclPend *p = &P->pending.data[k];
 			ShclVecLead_push(a, &t->leading, lead_at(p->text, p->blank_before, comment_depth(P, indent, p->text, p->indent), p->line));
@@ -3789,17 +3798,25 @@ static void hang_deeper_pending(ShclParser *P, ShclStr new_indent) {
 	/* Only entries above the last mark at or under this indent can hang. */
 	while (P->pend_marks.len && P->pend_marks.data[P->pend_marks.len - 1].indent_len > new_indent.n) P->pend_marks.len--;
 	size_t w = P->pend_marks.len ? P->pend_marks.data[P->pend_marks.len - 1].end : 0;
+	const size_t start = w;
 	/* A comment never goes ahead of the one written before it. Once one stays
 	   for the incoming line every later one stays too, and one whose block
 	   would be written out before the last one's goes there with it instead.
-	   What sits before w stays, so nothing after it can hang. */
+	   What sits before w stays, so no comment after it can hang. A kept field
+	   line is the exception below. */
 	int kept = w > 0;
 	/* Where the last comment went: stack index, node, at its own level. */
 	size_t last_si = (size_t)-1, last_node = 0; int last_own = 0;
+	size_t last_field_si = (size_t)-1; int last_field_own = 0;
 	P->depth_chain.len = 0;
+	P->held_chain.len = 0;
 	for (size_t k = w; k < P->pending.len; k++) {
 		ShclPend p = P->pending.data[k];
-		if (!kept && p.ceiling > new_indent.n) {
+		/* A kept field line goes to the block it sits in whatever stays
+		   before it, since that block is its parent on a reload. Comments
+		   give way to it. */
+		int field = is_field(p.text);
+		if ((!kept || field) && p.ceiling > new_indent.n) {
 			/* A level shallower than the incoming line stays open and may
 			   still gain children, so a comment must not hang there - it
 			   would emit below the child; keep it pending instead. */
@@ -3823,13 +3840,28 @@ static void hang_deeper_pending(ShclParser *P, ShclStr new_indent) {
 			if (target != (size_t)-1 && (!at_own_level || NODE(P->d, target).parent != ROOT)) {
 				/* A deeper block is written out first, and a block's inside
 				   comments before its after ones. */
-				if (last_si != (size_t)-1 && (si > last_si || (si == last_si && !at_own_level && last_own))) { si = last_si; target = last_node; at_own_level = last_own; }
+				if (last_si != (size_t)-1 && !field && (si > last_si || (si == last_si && !at_own_level && last_own))) { si = last_si; target = last_node; at_own_level = last_own; }
 				if (si != last_si || at_own_level != last_own) P->depth_chain.len = 0;
 				last_si = si; last_node = target; last_own = at_own_level;
-				ShclLead lead = lead_at(p.text, p.blank_before, comment_depth(P, P->stack.data[si].indent, p.text, p.indent), p.line);
+				/* A kept line's parent goes to the same block it does, whatever
+				   block the comments between them went to. */
+				if (field && (si != last_field_si || at_own_level != last_field_own)) { P->held_chain.len = 0; last_field_si = si; last_field_own = at_own_level; }
+				ShclStr base = P->stack.data[si].indent;
 				ShclTrivia *t = triv_mut(a, &NODE(P->d, target));
-				if (at_own_level) ShclVecLead_push(a, &t->after, lead);
-				else ShclVecLead_push(a, &t->inside, lead);
+				ShclVecLead *list = at_own_level ? &t->after : &t->inside;
+				/* The comments that stayed right above it go along, so the two
+				   keep their order and a save can keep both lines. */
+				if (field) {
+					size_t from = w;
+					while (from > start && P->pending.data[from - 1].text.n && P->pending.data[from - 1].text.p[0] == '#') from--;
+					for (size_t q = from; q < w; q++) {
+						const ShclPend *c = &P->pending.data[q];
+						ShclVecLead_push(a, list, lead_at(c->text, c->blank_before, comment_depth(P, base, c->text, c->indent), c->line));
+					}
+					w = from;
+					kept = w > 0;
+				}
+				ShclVecLead_push(a, list, lead_at(p.text, p.blank_before, comment_depth(P, base, p.text, p.indent), p.line));
 				continue;
 			}
 		}
@@ -4264,6 +4296,31 @@ static void hold_open(ShclParser *P, size_t parent, const ShclSegment *segs, siz
 	ShclVecLazy_push(P->tmp, &P->lazies, lz);
 }
 
+/* The node a path's first segment bound, from the one its last did. */
+static size_t head_of(ShclParser *P, size_t node, size_t nsegs) {
+	for (size_t k = 1; k < nsegs; k++) node = NODE(P->d, node).parent;
+	return node;
+}
+
+/* The first count pending lines become the node's leading lines, or the lines
+   inside its block, after its children. */
+static void give_pending(ShclParser *P, size_t node, ShclStr indent, size_t count, int inside) {
+	if (!count) return;
+	ShclArena *a = &P->d->arena;
+	ShclTrivia *t = triv_mut(a, &NODE(P->d, node));
+	ShclVecLead *list = inside ? &t->inside : &t->leading;
+	P->depth_chain.len = 0;
+	P->held_chain.len = 0;
+	for (size_t j = 0; j < count; j++) {
+		const ShclPend *pn = &P->pending.data[j];
+		ShclVecLead_push(a, list, lead_at(pn->text, pn->blank_before, comment_depth(P, indent, pn->text, pn->indent), pn->line));
+	}
+	memmove(P->pending.data, P->pending.data + count, (P->pending.len - count) * sizeof(ShclPend));
+	P->pending.len -= count;
+	for (size_t j = 0; j < P->pend_marks.len; j++) P->pend_marks.data[j].end = P->pend_marks.data[j].end > count ? P->pend_marks.data[j].end - count : 0;
+	for (size_t j = 0; j < P->lazies.len; j++) P->lazies.data[j].pend = P->lazies.data[j].pend > count ? P->lazies.data[j].pend - count : 0;
+}
+
 /* The node a line binds under: a LAZY level, and any LAZY one it sits under,
    opens here as an empty field, the way its line would have bound with
    nothing after the colon. Its own line and the comments before it go with
@@ -4286,19 +4343,7 @@ static size_t open_lazy(ShclParser *P, size_t parent) {
 		if (attach_path(P, node, lz.segs, lz.nsegs, v_empty(), lz.line, lz.indent, &opened)) node = opened;
 		P->stack.data[at].node = node;
 		size_t count = lz.pend < P->pending.len ? lz.pend : P->pending.len;
-		if (count) {
-			ShclArena *a = &P->d->arena;
-			ShclTrivia *t = triv_mut(a, &NODE(P->d, node));
-			P->depth_chain.len = 0;
-			for (size_t j = 0; j < count; j++) {
-				const ShclPend *pn = &P->pending.data[j];
-				ShclVecLead_push(a, &t->leading, lead_at(pn->text, pn->blank_before, comment_depth(P, lz.indent, pn->text, pn->indent), pn->line));
-			}
-			memmove(P->pending.data, P->pending.data + count, (P->pending.len - count) * sizeof(ShclPend));
-			P->pending.len -= count;
-			for (size_t j = 0; j < P->pend_marks.len; j++) P->pend_marks.data[j].end = P->pend_marks.data[j].end > count ? P->pend_marks.data[j].end - count : 0;
-			for (size_t j = 0; j < P->lazies.len; j++) P->lazies.data[j].pend = P->lazies.data[j].pend > count ? P->lazies.data[j].pend - count : 0;
-		}
+		give_pending(P, head_of(P, node, lz.nsegs), lz.indent, count, 0);
 	}
 	return node;
 }
@@ -4408,7 +4453,7 @@ static int add_star_element(ShclParser *P, size_t parent, const ShclTokens *tok,
 
 /* Kept lines waiting for the list element that just joined sat among the
    list's elements, so they stay there; comments still ride the field. */
-static void keep_among(ShclParser *P, size_t parent) {
+static void keep_among(ShclParser *P, size_t parent, ShclStr indent) {
 	size_t k = 0;
 	while (k < P->pending.len && P->pending.data[k].text.n && P->pending.data[k].text.p[0] == '#') k++;
 	if (k == P->pending.len) return;
@@ -4416,10 +4461,12 @@ static void keep_among(ShclParser *P, size_t parent) {
 	size_t before = NODE(P->d, parent).value.nels - 1;
 	ShclArena *a = &P->d->arena;
 	size_t w = 0;
+	P->depth_chain.len = 0;
+	P->held_chain.len = 0;
 	for (size_t r = 0; r < P->pending.len; r++) {
 		ShclPend pd = P->pending.data[r];
 		if (pd.text.n && pd.text.p[0] == '#') { P->pending.data[w++] = pd; continue; }
-		ShclAmong am; am.before = before; am.lead = lead_make(pd.text, pd.blank_before, 0);
+		ShclAmong am; am.before = before; am.lead = lead_make(pd.text, pd.blank_before, comment_depth(P, indent, pd.text, pd.indent));
 		ShclVecAmong_push(a, &triv_mut(a, &NODE(P->d, parent))->among, am);
 	}
 	P->pending.len = w;
@@ -4536,7 +4583,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 	   cannot share the scratch arena: that one carries the parser's bookkeeping
 	   for the whole parse. Everything a node keeps is dup'd into the document
 	   arena before the next reset. */
-	ShclParser P; P.d = d; P.tmp = &d->scratch; P.line = &own->line; P.hints = &own->hints; P.cmaps = &own->cmaps; P.dmaps = &own->dmaps; memset(&P.stack, 0, sizeof P.stack); memset(&P.pending, 0, sizeof P.pending); memset(&P.pend_marks, 0, sizeof P.pend_marks); memset(&P.depth_chain, 0, sizeof P.depth_chain);
+	ShclParser P; P.d = d; P.tmp = &d->scratch; P.line = &own->line; P.hints = &own->hints; P.cmaps = &own->cmaps; P.dmaps = &own->dmaps; memset(&P.stack, 0, sizeof P.stack); memset(&P.pending, 0, sizeof P.pending); memset(&P.pend_marks, 0, sizeof P.pend_marks); memset(&P.depth_chain, 0, sizeof P.depth_chain); memset(&P.held_chain, 0, sizeof P.held_chain);
 	P.star_open = 0; P.star_node = 0; P.star_key = 0; P.star_disp = 0; P.saw_blank = 0;
 	P.max_nodes = max_nodes; P.max_elements = max_elements; P.max_diags = max_diags; P.unlisted_errors = 0; P.unlisted_hints = 0;
 	P.has_kept_hold = 0; P.kept_hold = s_empty(); P.kept_any = 0; memset(&P.lazies, 0, sizeof P.lazies);
@@ -4645,7 +4692,26 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 				p_refuse(&P, lineno, "E021", sb_S(&m), out_kind(OUT_DROPPED), indent);
 			}
 			else {
-				size_t bnode = bind_block(&P, open_lazy(&P, parent), val, lineno, indent);
+				parent = open_lazy(&P, parent);
+				/* The fence binds its field again, so a kept field line before
+				   it, which sits under that field, stays in the block, with the
+				   comments before it. A misplaced line never hangs on a block,
+				   so it waits for the next line. */
+				size_t kf = P.pending.len, si = P.stack.len;
+				while (kf > 0 && !is_field(P.pending.data[kf - 1].text)) kf--;
+				while (si > 0 && P.stack.data[si - 1].node != parent) si--;
+				if (parent != ROOT && kf > 0 && si > 0) {
+					ShclPend *misplaced = (ShclPend *)arena_alloc(P.tmp, kf * sizeof(ShclPend));
+					size_t moved = 0, off = 0;
+					for (size_t r = 0; r < kf; r++) {
+						ShclStr t = P.pending.data[r].text;
+						if (!(t.n && (t.p[0] == ' ' || t.p[0] == '\t'))) P.pending.data[moved++] = P.pending.data[r];
+						else misplaced[off++] = P.pending.data[r];
+					}
+					memcpy(P.pending.data + moved, misplaced, off * sizeof(ShclPend));
+					give_pending(&P, parent, P.stack.data[si - 1].indent, moved, 1);
+				}
+				size_t bnode = bind_block(&P, parent, val, lineno, indent);
 				if (bnode != (size_t)-1) {
 					ShclVecSize_push(a, &d->ends, NODE(d, bnode).line); ShclVecSize_push(a, &d->ends, next);
 					attach_trivia(&P, bnode, indent, fcomment);
@@ -4679,7 +4745,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 				   root there is no field (E007), so the comment rides the document
 				   like any other pending one. */
 				if (parent != ROOT) {
-					if (add_star_element(&P, parent, &tok, rest, lineno, indent)) keep_among(&P, parent);
+					if (add_star_element(&P, parent, &tok, rest, lineno, indent)) keep_among(&P, parent, indent);
 					size_t head = NODE(d, parent).line;
 					if (d->ends.len && d->ends.data[d->ends.len - 2] == head) d->ends.data[d->ends.len - 1] = lineno;
 					else { ShclVecSize_push(a, &d->ends, head); ShclVecSize_push(a, &d->ends, lineno); }
@@ -4775,6 +4841,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 		}
 		size_t node = 0; /* attach_path fills it; the init quiets gcc's inlining-dependent maybe-uninitialized */
 		parent = open_lazy(&P, parent);
+		size_t nsegs = scan.segs.len;
 		if (attach_path(&P, parent, scan.segs.data, scan.segs.len, value, lineno, indent, &node)) {
 			for (size_t k = 0; celled && unit_named(NODE(d, node).name) && k < tok.nelem; k++) {
 				ShclStr clash;
@@ -4782,6 +4849,14 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 			}
 			if (had_blank) NODE(d, node).blank_before = 1;
 			if (next > i + 1) { ShclVecSize_push(a, &d->ends, lineno); ShclVecSize_push(a, &d->ends, next); }
+			/* A kept line before a dotted line sits level with its first
+			   segment, so it goes there with the comments before it. Under the
+			   last one it would be written deeper and read as a child. */
+			if (nsegs > 1) {
+				size_t kf = P.pending.len;
+				while (kf > 0 && !is_field(P.pending.data[kf - 1].text)) kf--;
+				give_pending(&P, head_of(&P, node, nsegs), indent, kf, 0);
+			}
 			attach_trivia(&P, node, indent, comment);
 			ShclStackEnt se; se.indent = indent; se.node = node; ShclVecStack_push(P.tmp, &P.stack, se);
 		}
@@ -4805,6 +4880,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 	arena_reset(P.hints);
 	diags_by_line(P.hints, &d->diags);
 	P.depth_chain.len = 0;
+	P.held_chain.len = 0;
 	for (size_t k = 0; k < P.pending.len; k++)
 		ShclVecLead_push(a, &d->orphans, lead_at(P.pending.data[k].text, P.pending.data[k].blank_before, comment_depth(&P, s_empty(), P.pending.data[k].text, P.pending.data[k].indent), P.pending.data[k].line));
 	settle_first_blank(d);
@@ -6334,8 +6410,17 @@ void shcl_merge(shcl_doc *d, const shcl_doc *over) {
 	for (size_t i = 0; i < over->orphans.len; i++) {
 		ShclStr ot = over->orphans.data[i].text;
 		size_t depth = over->orphans.data[i].depth;
+		/* A kept line with kept lines under it goes in whole, so none of them
+		   lands under some other line. */
+		int whole = 0;
+		if (is_field(ot)) {
+			size_t prev = i, next = i + 1;
+			while (prev > 0 && !is_field(over->orphans.data[prev - 1].text)) prev--;
+			while (next < over->orphans.len && !is_field(over->orphans.data[next].text)) next++;
+			whole = (depth > 0 && prev > 0) || (next < over->orphans.len && over->orphans.data[next].depth > 0);
+		}
 		int dup = 0;
-		for (size_t k = 0; k < had; k++) if (s_eq(d->orphans.data[k].text, ot) && d->orphans.data[k].depth == depth) { dup = 1; break; }
+		for (size_t k = 0; k < had && !whole; k++) if (s_eq(d->orphans.data[k].text, ot) && d->orphans.data[k].depth == depth) { dup = 1; break; }
 		if (dup) continue;
 		if (ot.n && ot.p[0] == '#') { if (depth > room) depth = room; room = depth + 1; }
 		ShclLead o = lead_moved(a, &over->orphans.data[i]);

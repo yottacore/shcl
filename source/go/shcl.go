@@ -367,13 +367,18 @@ type depthEnt struct {
 // place's own indent, which also starts a new chain; for a deeper one, one
 // level under the nearest comment before it whose indent its own extends,
 // level with one it equals, or at the place's level when there is none. chain
-// holds those comments' indents with their depths, innermost last. A line kept
-// for being malformed always sits at the place's level and leaves the chain
-// alone: it holds its level on a reload, so written deeper it would move what
-// follows.
-func commentDepth(chain *[]depthEnt, base, text, indent string) int {
-	if !strings.HasPrefix(text, "#") {
+// holds those comments' indents with their depths, innermost last. A field
+// line kept for what it spells goes by the same rule over held, the kept
+// lines before it: it holds its level on a reload, so it goes deeper only
+// under one of those, which a reload holds open for it. A misplaced line,
+// which carries its own indent, sits at the place's level and leaves both
+// alone.
+func commentDepth(chain, held *[]depthEnt, base, text, indent string) int {
+	if strings.HasPrefix(text, " ") || strings.HasPrefix(text, "\t") {
 		return 0
+	}
+	if !strings.HasPrefix(text, "#") {
+		chain = held
 	}
 	if !(len(indent) > len(base) && strings.HasPrefix(indent, base)) {
 		*chain = append((*chain)[:0], depthEnt{indent: indent})
@@ -395,6 +400,12 @@ func commentDepth(chain *[]depthEnt, base, text, indent string) int {
 	}
 	*chain = append(*chain, depthEnt{indent: indent, depth: depth})
 	return depth
+}
+
+// isField: a pending line kept for what it says, not for where it sits:
+// neither a comment nor a misplaced line, which carries its own indent.
+func isField(text string) bool {
+	return !strings.HasPrefix(text, "#") && !strings.HasPrefix(text, " ") && !strings.HasPrefix(text, "\t")
 }
 
 // pend is a pending whole-line comment during parse: text, source indent (used
@@ -3154,9 +3165,9 @@ func (p *parser) hintFold(parent, kept, gone int, apart bool) {
 func (p *parser) attachTrivia(node int, indent, trailing string) {
 	if len(p.pending) > 0 {
 		t := p.arena[node].trivMut()
-		var chain []depthEnt
+		var chain, held []depthEnt
 		for _, pn := range p.pending {
-			t.leading = append(t.leading, lead{text: pn.text, blankBefore: pn.blankBefore, depth: commentDepth(&chain, indent, pn.text, pn.indent), line: pn.line})
+			t.leading = append(t.leading, lead{text: pn.text, blankBefore: pn.blankBefore, depth: commentDepth(&chain, &held, indent, pn.text, pn.indent), line: pn.line})
 		}
 		p.pending = p.pending[:0]
 		p.pendMarks = p.pendMarks[:0]
@@ -3199,13 +3210,19 @@ func (p *parser) hangDeeperPending(newIndent string) {
 	// A comment never goes ahead of the one written before it. Once one stays
 	// for the incoming line every later one stays too, and one whose block
 	// would be written out before the last one's goes there with it instead.
-	// What sits before start stays, so nothing after it can hang.
+	// What sits before start stays, so no comment after it can hang. A kept
+	// field line is the exception below.
 	kept := start > 0
 	// Where the last comment went: stack index, node, at its own level.
 	lastSi, lastNode, lastOwn := -1, -1, false
-	var chain []depthEnt
+	lastFieldSi, lastFieldOwn := -1, false
+	var chain, held []depthEnt
 	for _, pn := range taken {
-		if !kept && pn.ceiling > newLen {
+		// A kept field line goes to the block it sits in whatever stays
+		// before it, since that block is its parent on a reload. Comments
+		// give way to it.
+		field := isField(pn.text)
+		if (!kept || field) && pn.ceiling > newLen {
 			// A level shallower than the incoming line stays open and may
 			// still gain children, so a comment must not hang there - it
 			// would emit below the child; keep it pending instead.
@@ -3234,19 +3251,40 @@ func (p *parser) hangDeeperPending(newIndent string) {
 			if target >= 0 && (!atOwnLevel || p.arena[target].parent != root) {
 				// A deeper block is written out first, and a block's inside
 				// comments before its after ones.
-				if lastSi >= 0 && (si > lastSi || (si == lastSi && !atOwnLevel && lastOwn)) {
+				if lastSi >= 0 && !field && (si > lastSi || (si == lastSi && !atOwnLevel && lastOwn)) {
 					si, target, atOwnLevel = lastSi, lastNode, lastOwn
 				}
 				if si != lastSi || atOwnLevel != lastOwn {
 					chain = chain[:0]
 				}
 				lastSi, lastNode, lastOwn = si, target, atOwnLevel
-				l := lead{text: pn.text, blankBefore: pn.blankBefore, depth: commentDepth(&chain, p.stack[si].indent, pn.text, pn.indent), line: pn.line}
+				// A kept line's parent goes to the same block it does,
+				// whatever block the comments between them went to.
+				if field && (si != lastFieldSi || atOwnLevel != lastFieldOwn) {
+					held = held[:0]
+					lastFieldSi, lastFieldOwn = si, atOwnLevel
+				}
+				base := p.stack[si].indent
+				var leads []lead
+				// The comments that stayed right above it go along, so the two
+				// keep their order and a save can keep both lines.
+				if field {
+					from := w
+					for from > start && strings.HasPrefix(p.pending[from-1].text, "#") {
+						from--
+					}
+					for _, c := range p.pending[from:w] {
+						leads = append(leads, lead{text: c.text, blankBefore: c.blankBefore, depth: commentDepth(&chain, &held, base, c.text, c.indent), line: c.line})
+					}
+					w = from
+					kept = w > 0
+				}
+				leads = append(leads, lead{text: pn.text, blankBefore: pn.blankBefore, depth: commentDepth(&chain, &held, base, pn.text, pn.indent), line: pn.line})
 				t := p.arena[target].trivMut()
 				if atOwnLevel {
-					t.after = append(t.after, l)
+					t.after = append(t.after, leads...)
 				} else {
-					t.inside = append(t.inside, l)
+					t.inside = append(t.inside, leads...)
 				}
 				continue
 			}
@@ -3541,28 +3579,48 @@ func (p *parser) openLazy(parent int) int {
 		if count > len(p.pending) {
 			count = len(p.pending)
 		}
-		if count > 0 {
-			t := p.arena[node].trivMut()
-			var chain []depthEnt
-			for _, pn := range p.pending[:count] {
-				t.leading = append(t.leading, lead{text: pn.text, blankBefore: pn.blankBefore, depth: commentDepth(&chain, l.indent, pn.text, pn.indent), line: pn.line})
-			}
-			p.pending = append(p.pending[:0], p.pending[count:]...)
-			for j := range p.pendMarks {
-				p.pendMarks[j].end -= count
-				if p.pendMarks[j].end < 0 {
-					p.pendMarks[j].end = 0
-				}
-			}
-			for j := range p.lazies {
-				p.lazies[j].pend -= count
-				if p.lazies[j].pend < 0 {
-					p.lazies[j].pend = 0
-				}
-			}
-		}
+		p.givePending(p.headOf(node, len(l.segs)), l.indent, count, false)
 	}
 	return node
+}
+
+// headOf is the node a path's first segment bound, from the one its last did.
+func (p *parser) headOf(node, nsegs int) int {
+	head := node
+	for i := 1; i < nsegs; i++ {
+		head = p.arena[head].parent
+	}
+	return head
+}
+
+// givePending makes the first count pending lines the node's leading lines,
+// or the lines inside its block, after its children.
+func (p *parser) givePending(node int, indent string, count int, inside bool) {
+	if count == 0 {
+		return
+	}
+	t := p.arena[node].trivMut()
+	list := &t.leading
+	if inside {
+		list = &t.inside
+	}
+	var chain, held []depthEnt
+	for _, pn := range p.pending[:count] {
+		*list = append(*list, lead{text: pn.text, blankBefore: pn.blankBefore, depth: commentDepth(&chain, &held, indent, pn.text, pn.indent), line: pn.line})
+	}
+	p.pending = append(p.pending[:0], p.pending[count:]...)
+	for j := range p.pendMarks {
+		p.pendMarks[j].end -= count
+		if p.pendMarks[j].end < 0 {
+			p.pendMarks[j].end = 0
+		}
+	}
+	for j := range p.lazies {
+		p.lazies[j].pend -= count
+		if p.lazies[j].pend < 0 {
+			p.lazies[j].pend = 0
+		}
+	}
 }
 
 // skipFieldLine is where the parse resumes after a refused field line. Every
@@ -3869,7 +3927,7 @@ func (p *parser) addStarElement(parent int, tok *Tokens, text string, line int, 
 // keepAmong: kept lines waiting for the list element that just joined sat
 // among the list's elements, so they stay there; comments still ride the
 // field.
-func (p *parser) keepAmong(parent int) {
+func (p *parser) keepAmong(parent int, indent string) {
 	anyKept := false
 	for _, pn := range p.pending {
 		if !strings.HasPrefix(pn.text, "#") {
@@ -3882,13 +3940,14 @@ func (p *parser) keepAmong(parent int) {
 	}
 	before := len(p.arena[parent].value.els) - 1
 	rest := make([]pend, 0, len(p.pending))
+	var chain, held []depthEnt
 	for _, pn := range p.pending {
 		if strings.HasPrefix(pn.text, "#") {
 			rest = append(rest, pn)
 			continue
 		}
 		t := p.arena[parent].trivMut()
-		t.among = append(t.among, amongLead{before: before, lead: lead{text: pn.text, blankBefore: pn.blankBefore}})
+		t.among = append(t.among, amongLead{before: before, lead: lead{text: pn.text, blankBefore: pn.blankBefore, depth: commentDepth(&chain, &held, indent, pn.text, pn.indent)}})
 	}
 	p.pending = rest
 	p.pendMarks = p.pendMarks[:0]
@@ -4107,9 +4166,42 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 					// The block goes with its line, or the body would read as live
 					// lines.
 					p.refuse(lineno, "E021", fmt.Sprintf("array longer than %d elements; line skipped", p.maxElements), outDropped, indent)
-				} else if node := p.bindBlock(p.openLazy(parent), v, lineno, indent); node >= 0 {
-					p.ends = append(p.ends, [2]int{p.arena[node].line, next})
-					p.attachTrivia(node, indent, comment)
+				} else {
+					parent = p.openLazy(parent)
+					// The fence binds its field again, so a kept field line
+					// before it, which sits under that field, stays in the
+					// block, with the comments before it. A misplaced line
+					// never hangs on a block, so it waits for the next line.
+					k := -1
+					for j := len(p.pending) - 1; j >= 0; j-- {
+						if isField(p.pending[j].text) {
+							k = j
+							break
+						}
+					}
+					si := len(p.stack) - 1
+					for si >= 0 && p.stack[si].node != parent {
+						si--
+					}
+					if parent != root && k >= 0 && si >= 0 {
+						moved := make([]pend, 0, len(p.pending))
+						var misplaced []pend
+						for _, pn := range p.pending[:k+1] {
+							if strings.HasPrefix(pn.text, " ") || strings.HasPrefix(pn.text, "\t") {
+								misplaced = append(misplaced, pn)
+							} else {
+								moved = append(moved, pn)
+							}
+						}
+						count := len(moved)
+						moved = append(moved, misplaced...)
+						p.pending = append(moved, p.pending[k+1:]...)
+						p.givePending(parent, p.stack[si].indent, count, true)
+					}
+					if node := p.bindBlock(parent, v, lineno, indent); node >= 0 {
+						p.ends = append(p.ends, [2]int{p.arena[node].line, next})
+						p.attachTrivia(node, indent, comment)
+					}
 				}
 				i = next
 				continue
@@ -4159,7 +4251,7 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 				// any other pending one.
 				if parent != root {
 					if p.addStarElement(parent, &tok, rest, lineno, indent) {
-						p.keepAmong(parent)
+						p.keepAmong(parent, indent)
 					}
 					head := p.arena[parent].line
 					if n := len(p.ends); n > 0 && p.ends[n-1][0] == head {
@@ -4298,6 +4390,7 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 			vkey = valueHash(&v)
 		}
 		parent = p.openLazy(parent)
+		nsegs := len(scan.segments)
 		if node, ok := p.attachPath(parent, scan.segments, v, lineno, indent); ok {
 			if haveSrc {
 				for i := 0; unitNamed(p.arena[node].name) && i < len(tok.Elements); i++ {
@@ -4319,6 +4412,17 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 			}
 			if next > i+1 {
 				p.ends = append(p.ends, [2]int{lineno, next})
+			}
+			// A kept line before a dotted line sits level with its first
+			// segment, so it goes there with the comments before it. Under the
+			// last one it would be written deeper and read as a child.
+			if nsegs > 1 {
+				for k := len(p.pending) - 1; k >= 0; k-- {
+					if isField(p.pending[k].text) {
+						p.givePending(p.headOf(node, nsegs), indent, k+1, false)
+						break
+					}
+				}
 			}
 			p.attachTrivia(node, indent, comment)
 			p.stack = append(p.stack, stackEnt{indent: indent, node: node})
@@ -4345,9 +4449,9 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 	// they were found in. Before the cap entry, which ends the list.
 	sort.SliceStable(p.diags, func(i, j int) bool { return p.diags[i].Line < p.diags[j].Line })
 	orphans := make([]lead, 0, len(p.pending))
-	var chain []depthEnt
+	var chain, held []depthEnt
 	for _, pn := range p.pending {
-		orphans = append(orphans, lead{text: pn.text, blankBefore: pn.blankBefore, depth: commentDepth(&chain, "", pn.text, pn.indent), line: pn.line})
+		orphans = append(orphans, lead{text: pn.text, blankBefore: pn.blankBefore, depth: commentDepth(&chain, &held, "", pn.text, pn.indent), line: pn.line})
 	}
 	p.pending = p.pending[:0]
 	settleFirstBlank(p.arena, orphans)
@@ -8223,10 +8327,24 @@ func (d *Document) Merge(over *Document) {
 			break
 		}
 	}
-	for _, o := range over.orphans {
+	// A kept line with kept lines under it goes in whole, so none of them
+	// lands under some other line.
+	whole := make([]bool, len(over.orphans))
+	prev := -1
+	for i := range over.orphans {
+		if !isField(over.orphans[i].text) {
+			continue
+		}
+		if prev >= 0 && over.orphans[i].depth > 0 {
+			whole[prev] = true
+			whole[i] = true
+		}
+		prev = i
+	}
+	for i, o := range over.orphans {
 		seen := false
 		for _, e := range d.orphans[:had] {
-			if e.text == o.text && e.depth == o.depth {
+			if !whole[i] && e.text == o.text && e.depth == o.depth {
 				seen = true
 				break
 			}

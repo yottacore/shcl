@@ -399,7 +399,7 @@ Structure-only canonicalizer: block form, tabs, insertion order, minimal quoting
 
 - A comment kept away from its own block keeps its depth under the comment before it, one tab per level. A comment no deeper than the place it ends up sits at that place's level, as before, which also keeps a run's first comment there, so a reload files the run the same way.
 
-- A malformed line kept verbatim keeps the place's level. It holds its level on a reload, so written deeper it would move the lines after it.
+- A malformed line kept verbatim keeps the place's level. It holds its level on a reload, so written deeper it would move the lines after it. The exception is a line under a field line refused for its value alone, which a reload holds open: it goes one level under that line, so it reads at the same path once its value is fixed.
 
 - A reload puts a comment at most one level past the comment before it. A merge that drops a layer's repeated footer line can drop the one the next line sat under, so that line comes no deeper than one level past what it now follows.
 

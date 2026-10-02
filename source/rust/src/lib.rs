@@ -391,18 +391,22 @@ impl Lead {
 /// which also starts a new chain; for a deeper one, one level under the
 /// nearest comment before it whose indent its own extends, level with one it
 /// equals, or at the place's level when there is none. `chain` holds those
-/// comments' indents with their depths, innermost last. A line kept for being
-/// malformed always sits at the place's level and leaves the chain alone: it
-/// holds its level on a reload, so written deeper it would move what follows.
+/// comments' indents with their depths, innermost last. A field line kept
+/// for what it spells goes by the same rule over `held`, the kept lines
+/// before it: it holds its level on a reload, so it goes deeper only under
+/// one of those, which a reload holds open for it. A misplaced line, which
+/// carries its own indent, sits at the place's level and leaves both alone.
 fn comment_depth<'a>(
 	chain: &mut Vec<(&'a str, usize)>,
+	held: &mut Vec<(&'a str, usize)>,
 	base: &str,
 	text: &str,
 	indent: &'a str,
 ) -> usize {
-	if !text.starts_with('#') {
+	if text.starts_with([' ', '\t']) {
 		return 0;
 	}
+	let chain = if text.starts_with('#') { chain } else { held };
 	if !(indent.len() > base.len() && indent.starts_with(base)) {
 		chain.clear();
 		chain.push((indent, 0));
@@ -420,6 +424,12 @@ fn comment_depth<'a>(
 	let depth = chain.last().map_or(0, |(_, d)| d + 1);
 	chain.push((indent, depth));
 	depth
+}
+
+/// A pending line kept for what it says, not for where it sits: neither a
+/// comment nor a misplaced line, which carries its own indent.
+fn is_field(text: &str) -> bool {
+	!text.starts_with(['#', ' ', '\t'])
 }
 
 /// A pending whole-line comment during parse: text, source indent (used only
@@ -3117,10 +3127,10 @@ impl<'a> Parser<'a> {
 	fn attach_trivia(&mut self, node: usize, indent: &str, trailing: Option<&str>) {
 		if !self.pending.is_empty() {
 			let t = self.arena[node].triv_mut();
-			let mut chain = Vec::new();
+			let (mut chain, mut held) = (Vec::new(), Vec::new());
 			for p in self.pending.drain(..) {
 				t.leading.push(Lead {
-					depth: comment_depth(&mut chain, indent, &p.text, p.indent),
+					depth: comment_depth(&mut chain, &mut held, indent, &p.text, p.indent),
 					text: p.text,
 					blank_before: p.blank_before,
 					line: p.line,
@@ -3164,15 +3174,21 @@ impl<'a> Parser<'a> {
 		// A comment never goes ahead of the one written before it. Once one
 		// stays for the incoming line every later one stays too, and one
 		// whose block would be written out before the last one's goes there
-		// with it instead. What sits before `start` stays, so nothing after it
-		// can hang.
+		// with it instead. What sits before `start` stays, so no comment
+		// after it can hang. A kept field line is the exception below.
 		let mut kept = start > 0;
 		// Where the last comment went: (stack index, node, at its own level).
 		let mut last: Option<(usize, usize, bool)> = None;
 		let mut chain: Vec<(&str, usize)> = Vec::new();
+		let mut held: Vec<(&str, usize)> = Vec::new();
+		let mut last_field: Option<(usize, usize, bool)> = None;
 		for r in start..pending.len() {
 			let p = &mut pending[r];
-			if !kept && p.ceiling > new_len {
+			// A kept field line goes to the block it sits in whatever stays
+			// before it, since that block is its parent on a reload. Comments
+			// give way to it.
+			let field = is_field(&p.text);
+			if (!kept || field) && p.ceiling > new_len {
 				// A level shallower than the incoming line stays open and may
 				// still gain children, so a comment must not hang there - it
 				// would emit below the child; keep it pending instead.
@@ -3206,7 +3222,7 @@ impl<'a> Parser<'a> {
 					// A deeper block is written out first, and a block's
 					// inside comments before its after ones.
 					if let Some(prev) = last
-						&& (at.0, !at.2) > (prev.0, !prev.2)
+						&& !field && (at.0, !at.2) > (prev.0, !prev.2)
 					{
 						at = prev;
 					}
@@ -3214,18 +3230,48 @@ impl<'a> Parser<'a> {
 						chain.clear();
 					}
 					last = Some(at);
-					let base = &self.stack[at.0].0;
-					let lead = Lead {
-						depth: comment_depth(&mut chain, base, &p.text, p.indent),
+					// A kept line's parent goes to the same block it does,
+					// whatever block the comments between them went to.
+					if field && last_field != Some(at) {
+						held.clear();
+						last_field = Some(at);
+					}
+					let base = self.stack[at.0].0;
+					let mut leads = Vec::new();
+					// The comments that stayed right above it go along, so the
+					// two keep their order and a save can keep both lines.
+					if field {
+						let mut from = w;
+						while from > start && pending[from - 1].text.starts_with('#') {
+							from -= 1;
+						}
+						for c in &mut pending[from..w] {
+							leads.push(Lead {
+								depth: comment_depth(
+									&mut chain, &mut held, base, &c.text, c.indent,
+								),
+								text: std::mem::take(&mut c.text),
+								blank_before: c.blank_before,
+								line: c.line,
+								kept: false,
+							});
+						}
+						w = from;
+						kept = w > 0;
+					}
+					let p = &mut pending[r];
+					leads.push(Lead {
+						depth: comment_depth(&mut chain, &mut held, base, &p.text, p.indent),
 						text: std::mem::take(&mut p.text),
 						blank_before: p.blank_before,
 						line: p.line,
 						kept: false,
-					};
+					});
+					let t = self.arena[at.1].triv_mut();
 					if at.2 {
-						self.arena[at.1].triv_mut().after.push(lead);
+						t.after.extend(leads);
 					} else {
-						self.arena[at.1].triv_mut().inside.push(lead);
+						t.inside.extend(leads);
 					}
 					continue;
 				}
@@ -3373,33 +3419,55 @@ impl<'a> Parser<'a> {
 				break;
 			};
 			let l = self.lazies.remove(k);
+			let nsegs = l.segs.len();
 			// hold_open() let through only a path that opens.
 			if let Some(n) = self.attach_path(node, l.segs, Value::Empty, l.line, l.indent) {
 				node = n;
 			}
 			self.stack[at].1 = node;
 			let count = l.pend.min(self.pending.len());
-			if count > 0 {
-				let t = self.arena[node].triv_mut();
-				let mut chain = Vec::new();
-				for p in self.pending.drain(..count) {
-					t.leading.push(Lead {
-						depth: comment_depth(&mut chain, l.indent, &p.text, p.indent),
-						text: p.text,
-						blank_before: p.blank_before,
-						line: p.line,
-						kept: false,
-					});
-				}
-				for m in &mut self.pend_marks {
-					m.0 = m.0.saturating_sub(count);
-				}
-				for o in &mut self.lazies {
-					o.pend = o.pend.saturating_sub(count);
-				}
-			}
+			self.give_pending(self.head_of(node, nsegs), l.indent, count, false);
 		}
 		node
+	}
+
+	/// The node a path's first segment bound, from the one its last did.
+	fn head_of(&self, node: usize, nsegs: usize) -> usize {
+		let mut head = node;
+		for _ in 1..nsegs {
+			head = self.arena[head].parent;
+		}
+		head
+	}
+
+	/// The first `count` pending lines become the node's leading lines, or
+	/// the lines inside its block, after its children.
+	fn give_pending(&mut self, node: usize, indent: &str, count: usize, inside: bool) {
+		if count == 0 {
+			return;
+		}
+		let t = self.arena[node].triv_mut();
+		let list = if inside {
+			&mut t.inside
+		} else {
+			&mut t.leading
+		};
+		let (mut chain, mut held) = (Vec::new(), Vec::new());
+		for p in self.pending.drain(..count) {
+			list.push(Lead {
+				depth: comment_depth(&mut chain, &mut held, indent, &p.text, p.indent),
+				text: p.text,
+				blank_before: p.blank_before,
+				line: p.line,
+				kept: false,
+			});
+		}
+		for m in &mut self.pend_marks {
+			m.0 = m.0.saturating_sub(count);
+		}
+		for o in &mut self.lazies {
+			o.pend = o.pend.saturating_sub(count);
+		}
 	}
 
 	/// Where the parse resumes after a refused field line. Every arm that
@@ -3832,7 +3900,7 @@ impl<'a> Parser<'a> {
 
 	/// Kept lines waiting for the list element that just joined sat among
 	/// the list's elements, so they stay there; comments still ride the field.
-	fn keep_among(&mut self, parent: usize) {
+	fn keep_among(&mut self, parent: usize, indent: &str) {
 		if !self.pending.iter().any(|p| !p.text.starts_with('#')) {
 			return;
 		}
@@ -3841,6 +3909,7 @@ impl<'a> Parser<'a> {
 			_ => return,
 		};
 		let mut rest = Vec::with_capacity(self.pending.len());
+		let (mut chain, mut held) = (Vec::new(), Vec::new());
 		for p in self.pending.drain(..) {
 			if p.text.starts_with('#') {
 				rest.push(p);
@@ -3848,9 +3917,9 @@ impl<'a> Parser<'a> {
 				self.arena[parent].triv_mut().among.push((
 					before,
 					Lead {
+						depth: comment_depth(&mut chain, &mut held, indent, &p.text, p.indent),
 						text: p.text,
 						blank_before: p.blank_before,
-						depth: 0,
 						line: 0,
 						kept: false,
 					},
@@ -4057,6 +4126,24 @@ impl<'a> Parser<'a> {
 					);
 				} else {
 					let parent = self.open_lazy(parent);
+					// The fence binds its field again, so a kept field line
+					// before it, which sits under that field, stays in the
+					// block, with the comments before it. A misplaced line
+					// never hangs on a block, so it waits for the next line.
+					if parent != ROOT
+						&& let Some(k) = self.pending.iter().rposition(|p| is_field(&p.text))
+						&& let Some(&(base, _)) =
+							self.stack.iter().rev().find(|(_, n)| *n == parent)
+					{
+						let (mut moved, misplaced): (Vec<_>, Vec<_>) = self
+							.pending
+							.drain(..=k)
+							.partition(|p| !p.text.starts_with([' ', '\t']));
+						let count = moved.len();
+						moved.extend(misplaced);
+						self.pending.splice(0..0, moved);
+						self.give_pending(parent, base, count, true);
+					}
 					if let Some(node) = self.bind_block(parent, value, lineno, indent) {
 						self.ends.push((self.arena[node].line, next));
 						self.attach_trivia(node, indent, comment);
@@ -4116,7 +4203,7 @@ impl<'a> Parser<'a> {
 					// the document like any other pending one.
 					if parent != ROOT {
 						if self.add_star_element(parent, &tok, rest, lineno, indent) {
-							self.keep_among(parent);
+							self.keep_among(parent, indent);
 						}
 						let head = self.arena[parent].line;
 						match self.ends.last_mut() {
@@ -4295,6 +4382,7 @@ impl<'a> Parser<'a> {
 			// a value dropped after a last-segment selector records nothing).
 			let vkey = src_text.as_ref().map(|_| value_hash(&value));
 			let parent = self.open_lazy(parent);
+			let nsegs = scan.segments.len();
 			if let Some(node) = self.attach_path(parent, scan.segments, value, lineno, indent) {
 				if src_text.is_some()
 					&& unit_named(&self.arena[node].name)
@@ -4324,6 +4412,14 @@ impl<'a> Parser<'a> {
 				}
 				if next > i + 1 {
 					self.ends.push((lineno, next));
+				}
+				// A kept line before a dotted line sits level with its first
+				// segment, so it goes there with the comments before it. Under
+				// the last one it would be written deeper and read as a child.
+				if nsegs > 1
+					&& let Some(k) = self.pending.iter().rposition(|p| is_field(&p.text))
+				{
+					self.give_pending(self.head_of(node, nsegs), indent, k + 1, false);
 				}
 				self.attach_trivia(node, indent, comment);
 				self.stack.push((indent, node));
@@ -4355,12 +4451,12 @@ impl<'a> Parser<'a> {
 		// leaf) sits with its line. Stable, so two on one line keep the order
 		// they were found in. Before the cap entry, which ends the list.
 		self.diags.sort_by_key(|d| d.line);
-		let mut chain = Vec::new();
+		let (mut chain, mut held) = (Vec::new(), Vec::new());
 		let mut orphans: Vec<Lead> = self
 			.pending
 			.drain(..)
 			.map(|p| Lead {
-				depth: comment_depth(&mut chain, "", &p.text, p.indent),
+				depth: comment_depth(&mut chain, &mut held, "", &p.text, p.indent),
 				text: p.text,
 				blank_before: p.blank_before,
 				line: p.line,
@@ -8524,10 +8620,23 @@ impl Document {
 			.rev()
 			.find(|l| l.text.starts_with('#'))
 			.map_or(0, |l| l.depth + 1);
-		for o in &over.orphans {
-			if !self.orphans[..had]
-				.iter()
-				.any(|e| e.text == o.text && e.depth == o.depth)
+		// A kept line with kept lines under it goes in whole, so none of
+		// them lands under some other line.
+		let mut whole = vec![false; over.orphans.len()];
+		let fields: Vec<usize> = (0..over.orphans.len())
+			.filter(|&i| is_field(&over.orphans[i].text))
+			.collect();
+		for w in fields.windows(2) {
+			if over.orphans[w[1]].depth > 0 {
+				whole[w[0]] = true;
+				whole[w[1]] = true;
+			}
+		}
+		for (i, o) in over.orphans.iter().enumerate() {
+			if whole[i]
+				|| !self.orphans[..had]
+					.iter()
+					.any(|e| e.text == o.text && e.depth == o.depth)
 			{
 				let mut o = o.clone();
 				if o.text.starts_with('#') {
