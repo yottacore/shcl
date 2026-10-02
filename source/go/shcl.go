@@ -3473,7 +3473,7 @@ func (p *parser) skipUnderDead(line int, indent string) {
 // cap, leaves the level dead.
 func (p *parser) holdOpen(parent int, segs []segment, line int, indent string) {
 	at := len(p.stack) - 1
-	if p.stack[at] != (stackEnt{indent: indent, node: dead}) {
+	if p.stack[at].node != dead || p.stack[at].indent != indent {
 		return
 	}
 	for i := range segs {

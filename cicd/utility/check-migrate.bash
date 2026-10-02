@@ -24,8 +24,11 @@
 ##		come out the same way: a fence label holding a `#`, which 2.x ran to
 ##		the end of the line and which ends at the `#` now, with no quoting to
 ##		spell it; and a carriage return in the middle of a line, which 2.x kept
-##		as content and which is a blank at a piece's edge now. Each is asserted
-##		on a corpus case, so the list cannot rot.
+##		as content and which is a blank at a piece's edge now. A third: a
+##		value that starts like a Windows path and held a line break, which
+##		has no spelling both rule sets read alike (E024), so migrate counts it
+##		lost the way it does a bracket array. Each is asserted on a corpus
+##		case, so the list cannot rot.
 ##
 ##		A compared document also has to migrate at exit 0, and a document whose
 ##		only unclean lines are bracket arrays has to be refused over exactly
@@ -210,6 +213,15 @@ fCrMidLine(){ grep -q $'\r[^\r]' "$1"; }
 ##	`migrate --write` and `fmt --write` refuse at exit 7. Asked of the current
 ##	parser rather than matched on the text, since what counts is the column the
 ##	indent falls on and not which characters spell it.
+##	A value that starts like a Windows path and held a line break: migrate
+##	writes it the way 2.x read it, which is E024 now, and counts it lost. The
+##	rewrite adds or drops no line ahead of its stamp, so the migrated text's
+##	line numbers are the source's.
+fPathBreak(){
+	{ "${newCli}" migrate --from-2x "$1" 2>/dev/null || true; } \
+		| { "${newCli}" check - 2>/dev/null || true; } | awk '$1 == "line" && $4 == "E024" { sub(/:$/, "", $2); print $2 }'
+}
+
 fUnplaced(){
 	{ "${newCli}" check "$1" 2>/dev/null || true; } | awk '$1 == "line" && $4 == "E012" { sub(/:$/, "", $2); print $2 }'
 }
@@ -225,6 +237,7 @@ fTrim(){
 		((round == 1)) || check2x="$(fCheck2x "${dst}")"
 		lines="$( { fUnclean2x <<<"${check2x}"
 			fUnplaced "${dst}"
+			fPathBreak "${dst}"
 			grep -anE '(```|~~~)[^#]*#' "${dst}" | cut -d: -f1
 			grep -an $'\r[^\r]' "${dst}" | cut -d: -f1; } | sort -un)"
 		if [[ -z "${lines}" ]]; then [[ -s "${dst}" ]]; return; fi
@@ -249,7 +262,7 @@ for f in "${corpus}"/*/input.shcl "${dump}"/*.shcl; do
 	unclean="$(fUnclean2x <<<"${check2x}" | sort -un)"
 	arrays="$(awk '$1 == "line" && $3 == "Error:" && $4 == "E019" { sub(/:$/, "", $2); print $2 }' <<<"${check2x}" | sort -un)"
 	if [[ -n "${unclean}" && "${unclean}" == "${arrays}" ]]; then
-		wantLost="$(wc -l <<<"${unclean}")"
+		wantLost="$(( $(wc -l <<<"${unclean}") + $(fPathBreak "${f}" | grep -c . || true) ))"
 		gotLost="$({ "${newCli}" migrate --from-2x "${f}" 2>&1 >/dev/null || true; } \
 			| sed -n 's/.*: \([0-9][0-9]*\) line(s) bound a value under 2\.x.*/\1/p')"
 		nLostChecked+=1
@@ -290,6 +303,9 @@ if ((nCompared < minCompared || nCorpus < minCorpus || nCompared - nCorpus < min
 fTest EpUIoZd 068 still carries a fence label holding a hash
 fInfoHashLabel "${corpus}/068-info-hash-spellings/input.shcl" 2>/dev/null \
 	|| { echo "check-migrate: 068-info-hash-spellings no longer carries a fence label holding a #" >&2; nBad+=1; }
+fTest ErUuq8D 170 still carries a path that held a line break
+[[ -n "$(fPathBreak "${corpus}/170-unknown-escape/input.shcl")" ]] \
+	|| { echo "check-migrate: 170-unknown-escape no longer carries a path that held a line break" >&2; nBad+=1; }
 fTest EpUIoZe 094 still carries a mid-line carriage return
 fCrMidLine "${corpus}/094-unicode-space/input.shcl" 2>/dev/null \
 	|| { echo "check-migrate: 094-unicode-space no longer carries a mid-line carriage return" >&2; nBad+=1; }

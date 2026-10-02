@@ -3184,8 +3184,7 @@ impl<'a> Parser<'a> {
 					.find(|(_, (ind, node))| {
 						*node != ROOT
 							&& *node != DEAD && *node != UNOPENED
-							&& *node != LAZY
-							&& ind.len() >= new_indent.len()
+							&& *node != LAZY && ind.len() >= new_indent.len()
 							&& p.indent.starts_with(*ind)
 					})
 					// A list element's column is an entry with the list's node on
