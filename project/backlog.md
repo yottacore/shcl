@@ -45,151 +45,25 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Assigned to:
 	- Parent ID:
 	- Prereq IDs:
-	- Related IDs:
+	- Related IDs: 2026100213205957, 2026100115403384, 2026100115323227, 2026100115323216, 2026100115323222, 2026100115403385, 2026100117214801, 2026100117214802
 	- Target OS:
 	- Test environment:
 	- Version and build:
 	- Problem description:
 		- Most bug/fix/bug/fix churn is being caused by escapes. For example: "C:\shouldn't\be\tab\or\newline"
-			- Will be read as "C:\<bad escape>\shouldn't\be\<tab>ab\or\<newline>ewline"
-		- It could be put in single quotes for a raw read, but anything after 'C:\shouldn' is an error (or at least a new class of problem to deal with).
-		- The canonical way to handle it is to escape the backslash itself, e.g. "C:\\shouldn't\\be\\tab\\or\\newline".
-			- This works, but is hard for regular users to remember, and easy to screw up.
-		- Let's really get to the heart of the matter:
-			1. *Using a common necessary keyboard character to begin an escape sequence, has always been a stupid convention*.
-				- Or to put it more charitably, has always caused never-ending headaches.
-			2. *Users generally don't need or want to put newlines or tabs in regular strings.*.
-		- So I'm twisting myself in knots over a known problematic use case that nothing like shcl has ever really solved well.
-		- We already have a way to easily get newlines and tabs into strings: A fenced block.
-		- If you really want them also in regular strings, let's consider these observations:
-			1. It's already possible to put tabs in strings. The only real everyday outlier then is newlines. And other kinds of escapes, but those are either:
-				- Vanishingly rare (e.g. other ASCII escapes) and don't deserve an "easy" solution that causes never-ending greif for the rest of the codebase, or
-				- Are standalone values like hex values, or unicode values - that can be indicated other ways that don't cause never-ending greif for the rest of the codebase.
-			2. Escapes that are signalled with only a single character - and then you have to guess where it ends - is already fraught with problems by definition.
-		- Considering this, if we (as a civilization) were to fundamentally rethink escapes and start from scratch, we would:
-			- Use one or more characters to unambiguously signal the start *and* end of an escape sequence.
-			- Have high "signal" value that is much harder to confuse with content.
-			- Use one or more characters that don't have high-frequency use.
-			- Be rare enough that the need to escape itself is low.
-				- But also, be able to easily escape *itself* to mean that literal character within the string.
-			- Have a finite list of possible things being escaped, for easier validation.
-		- The solution proposed here (in the "Requirements" section) has some drawbacks:
-			- Since the characters aren't on the keyboard (except the `%` idea) - the whole point - they aren't easy for users to gen into the string.
-				- This can be partially mitigated by programmatically including the escape signal character[s] in the file's comments, so users can at least copy/paste.
-				- Also mitigated by the fact that programs can easily write the escape.
-			- It might feel weird for older die-hard users of traditional escaping. 🤷
+		- The full problem description, ideas 1 to 3 and the settled rules are in the design doc, `project/design_docs/20261002-131732_strings-escapes-arrays.md`. The doc is the source of truth for this item.
 	- Requirements:
-		- Escape rule idea 1 (ruled out as possibly making things worse):
-			- The beginning is signalled with `%`.
-			- The end is signalled with `%`.
-			- The format is generally, `%VALUE_BEING_ESCAPED%`
-				- The value inside is case-insensitive, and can contain *only* one of: `A-Z`, `a-z`, `0-9`, `_`, `-`
-			- In-between `%%`, is a finite list of possibilities. Values not in that list, are an error.
-			- The real character `%` is encoded as `%PERCENT%`
-			- An odd number of `%` is an automatic error.
-			- Escapes can't be nested.
-			- Pros:
-				- Is easy to encode, since `%` is on the keyboard.
-			- Cons:
-				- User would have to remember to escape real `%`s with `%PERCENT%`
-		- Escape rule idea 2 (ruled out as too complicated, and error-prone, and unnecessary):
-			- The beginning is signalled with `◉`.
-			- The end is signalled with `◉`. (Same symbol)
-			- The format is generally, `◉VALUE_BEING_ESCAPED◉`
-				- The value inside is case-insensitive, and can contain *only* one of: `A-Z`, `a-z`, `0-9`, `_`, `-`
-			- In-between `◉VALUE_BEING_ESCAPED◉`, is a finite list of possibilities.
-			- The real character `◉` is encoded as `◉ESCAPE_CHAR◉`, `◉FISHEYE◉`, `◉U_9673◉`
-			- An odd number of escape characters is an automatic error.
-			- Escapes can't be nested.
-			- Other symbol ideas:
-				- `⹗VAL⹘`: Not vertically aligned very well. Requires two symbols.
-				- `🢔VAL🢖`: Nice because they have extra space on left and right, but is less clear which direction is "open" and "close". Which can also be a problem, e.g. "Is this one 🢒SPACE🢐 or two?" Requires two symbols.
-				- `🢒VAL🢐`: Hard to tell those are triangles. Requires two symbols.
-				- `🞂VAL🞀`: Better but technically, we don't need two values. Requires two symbols.
-			- Finite list of escapes:
-				- ASCII:
-					- `◉NUL◉`, `◉NULL◉`
-					- `◉BEL◉`, `◉BELL◉`
-					- `◉BS◉`, `◉BACKSPACE◉`
-					- `◉HT◉`, `◉TAB◉`
-					- `◉LF◉`, `◉NEWLINE◉`, `◉NEW_LINE◉`, `◉LINEFEED◉`,  `◉LINE_FEED◉`
-					- `◉VT◉`, `◉VERTICALTAB◉`, `◉VERTICAL_TAB◉`
-					- `◉FF◉`, `◉FORMFEED◉`, `◉FORM_FEED◉`
-					- `◉CR◉`, `◉CARRIAGERETURN◉`, `◉◉CARRIAGE_RETURN◉`
-					- `◉ESC◉`, `◉ESCAPE◉`
-					- `◉DEL◉`, `◉DELETE◉`
-				- Common:
-					- `◉HEX_[0-9A-F]+◉`
-					- `◉OCTAL_[0-7]+◉`, `◉0_[0-7]+◉`
-					- `◉U_[0-9]+◉`, `◉UNICODE_[0-9]+◉`
-				- Potentially problematic regular keyboard symbols in some contexts:
-					- `◉HASH◉`, `◉HASHTAG◉`, `◉HASH_TAG◉`, `◉POUND◉`, `◉OCTOTHORPE◉`
-					- `◉LEFT_BRACKET◉`, `◉LEFTBRACKET◉`, `◉RIGHT_BRACKET◉`, `◉RIGHTBRACKET◉`
-					- `◉UNDERSCORE◉`
-					- `◉MINUS◉`, `◉PERCENT◉`, `◉BACK_SLASH◉`, `◉BACKSLASH◉`, `◉FORWARD_SLASH◉`, `◉FORWARDSLASH◉`, `◉BACK_TICK◉`, `◉BACKTICK◉`, `◉TICK◉`, etc.
-			- For values that are standalone escape values, not embedded in a string (e.g. a hex color), they can be indicated with backticks. But for single standalone values only, not field names. E.g.:
-				- [tic]`#FF8800`[tic]
-				- [tic]`\0`[tic]
-				- [tic]`\t`[tic]
-				- [tic]`\x7F`[tic]
-				- [tic]`\u9673`[tic]
-				- [tic]`\x00FF`[tic]
-				- etc.
-		- Escape rule idea 3:
-			- Case-insensitive but usually (not always) all-caps.
-			- The beginning and end of an escape sequence is signalled with `⍟`.
-			- The format is generally, `⍟VALUE_BEING_ESCAPED⍟`
-				- The value inside is case-insensitive, and can contain *only* one of: `A-Z`, `a-z`, `0-9`, `_`, `-`, `+`
-			- In-between `⍟⍟`, is a finite list of possibilities. Anything else is an error.
-			- An odd number of escape characters is an automatic error.
-			- Nested escapes is an error. (Already caught by "finite list of possibilities".)
-			- The real character `⍟` *must* be encoded  - as `⍟ESCAPE_CHAR⍟`, `⍟CIRCLE_STAR⍟`, `⍟U+235F⍟`, or [tic]`&#9055`[tic]
-			- Anything inside single or double quotes is literal, *except* `⍟VALUE_BEING_ESCAPED⍟`
-			- Finite list of escapes:
-				- ASCII (our documented canonical form listed first, acceptable aliases after):
-					- `⍟NUL⍟`,                     `⍟NULL⍟`
-					- `⍟BEL⍟`,                     `⍟BELL⍟`
-					- `⍟BACKSPACE⍟`,      `⍟BS⍟`
-					- `⍟TAB⍟`,            `⍟HT⍟`,  `⍟HORIZONTAL_TAB⍟`
-					- `⍟NEWLINE⍟`,        `⍟LF⍟`,  `⍟LINEFEED⍟`, `⍟LINE_FEED⍟`, `⍟NEW_LINE⍟`
-					- `⍟VT⍟`,                      `⍟VERTICAL_TAB⍟`, `⍟VERTICALTAB⍟`
-					- `⍟FF⍟`,                      `⍟FORM_FEED⍟`, `⍟FORMFEED⍟`
-					- `⍟CR⍟`,                      `⍟CARRIAGERETURN⍟`, `⍟⍟CARRIAGE_RETURN⍟`
-					- `⍟ESC⍟`,                     `⍟ESCAPE⍟`
-					- `⍟DEL⍟`,                     `⍟DELETE⍟`
-				- Common escapes (canonical, then aliases) - expressed in pseudo-regex, case-insensitive:
-					- `⍟x[0-9A-F]+⍟`,  `⍟(HE)?X[+_\-]?[0-9A-F]+⍟`     ## Any kind of hex. It's up to the reading program to validate bounds, etc.
-					- `⍟OCT_[0-7]+⍟`,  `⍟(OCT(AL)?|0)[+_\-]?[0-7]+⍟`
-					- `⍟U+[0-9A-F]+⍟`, `⍟U(NICODE)?[+_\-]?[0-9A-F]+⍟` ## Unicode-specific hex.
-				- Potentially problematic symbols that can be escaped if desired, and/or for clarity, and/or if necessary (e.g. a quoted string with both single and double quotes in the string itself):
-					- `⍟SINGLE_QUOTE⍟` (alias `⍟S(INGLE)?_?QUOTE⍟`)
-					- `⍟DOUBLE_QUOTE⍟` (alias `⍟D(OUBLE)?_?QUOTE⍟`)
-					- `⍟BACK_TICK⍟`    (alias `⍟(BACK(_?))?TICK)⍟`)
-					- `⍟SPACE⍟`        # So that a string with spaces in it, can be encoded without single or double quotes (if so desired).
-			- For standalone escape values, not embedded in a string or part of any other value (e.g. a hex color), they can be indicated in traditional form, with backticks.
-				- The backticks are not optional. The only way to encode an escape, is with `⍟⍟`, or with backticks.
-				- If the same values are in single or double quotes, they are interpreted literally.
-				- But for single standalone values (or arrays) only, not part of field names.
-				- Single or double quotes are NOT acceptable aliases for backtick in this context.
-				- E.g.:
-					- [tic]`#FF8800`[tic]
-					- [tic]`\0`[tic]
-					- [tic]`\t`[tic]
-					- [tic]`\x7F`[tic]
-					- [tic]`\u25C9`[tic]
-					- [tic]`\x00FF`[tic]
-					- [tic]`\077`[tic]
-					- [tic]`&#x27`[tic]
-					- [tic]`&quot`[tic]
-					- [tic]`'`[tic]
-					- [tic]`"`[tic]
-					- [tic]`$`[tic]
-					- etc.
-			- If a string has a literal space in it, it must be in single or double quotes, otherwise it's an error.
+		- A backslash is plain text everywhere.
+		- An escape is `◉NAME◉`, from a closed list. Anything else between two `◉` is an error.
+		- A bare value with whitespace is an error. Quote it.
+		- Arrays are `[a, b]`, or one `- ` item per line.
+		- A backtick value is raw. The program decodes it.
+		- Ideas 1 and 2 were ruled out. Their text is under Rejected in the design doc.
 	- Estimated effort: High
 	- Actual effort:
 	- Progress log:
 	- Decisions:
+		- 20261002: idea 3, with the changes listed in the design doc. Open points and their proposed answers are under its Roadmap.
 	- Branch:
 	- Commit:
 	- Test case:
@@ -223,6 +97,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Actual fix: a LAZY stack level in all four parsers (`hold_open`, `open_lazy`), the same model in the emitter's reload stack, and `heads_block` in the canonical emit. Spec, design outcome table, explain text for `E019` and `E023` in all four CLIs, changelog.
 	- Swept: the field arm, the stacked element arm and the raw fence arm in all four bindings. A retained `*` element line still holds a dead level, since nothing under an element binds.
 	- Verified: the four conformance suites, cli-regress (339 rows), crosscheck with a 2000-iteration fuzz dump (28764 comparisons), check-docs, check-abnf, shell-regress, check-migrate, clippy (host and windows), rustfmt, go vet, staticcheck, ruff, mypy, test-ids, and the 2,000,000 release fuzz with the new corpus case. Corpus 187 and cli-regress `ErUmRRa` to `ErUmRRc` fail on dev at `5956ff4a`.
+	- Note: 20261002, still needed under 2026100207032800, where a bare value with a space becomes a value-only refusal too. Its sibling bug is 2026100213205957. Design: `project/design_docs/20261002-131732_strings-escapes-arrays.md`.
 	- Branch: escblock
 	- Commit: c29f08fa
 	- Test case: corpus `187-value-fault-opens-block`; cli-regress `sugar-check-block`, `sugar-block-read`, `sugar-write-kept`, `path-escape-block`.
@@ -252,15 +127,36 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261001: `"C:\work\new"` in a 2.x file used to migrate to `"C:\\work\new"` with a newline in it. It now migrates to that same text and exit 7, since that text is `E024`.
 	- Swept: the field and stacked element arms, `SetLiteral`, the double-quoted writer, migrate's value and sugar edits, and its read-back check, in all four bindings. Explain, migrate's lost message and the `lost` field docs in all four.
 	- Verified: same gate list as 2026100115403384, all run on this branch. cli-regress `ErUmRRd`, `ErUmRRe`, `ErUmRRg` to `ErUmRRi` and `ErUn2Bt` fail on dev at `5956ff4a`, and so do corpus 118, 122, 170 and 171.
+	- Note: 20261002, superseded by 2026100207032800. A backslash is plain text under the new rules, so `E024` goes, along with the `\u0009` and `\u000A` spellings. This work stays in the build until that item is built. Design: `project/design_docs/20261002-131732_strings-escapes-arrays.md`.
+	- Superseded by ID: 2026100207032800
 	- Branch: escblock
 	- Commit: c29f08fa
 	- Test case: corpus `171-windows-path-escape` (was `171-windows-path-hint`) with new `write.ops` rows and a `write-bad.ops`; cli-regress `path-escape-read`, `path-escape-strict`, `path-escape-set`, `path-escape-literal`, `path-escape-migrate-lost`, `migrate-from-2x-tab`; check-migrate `ErUuq8D`. The old `path-hint-*` rows are commented out.
+
+- A kept line under a kept value-only line is saved at column 0
+	- ID: 2026100213205957
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261002-132059
+	- Opened by: found while discussing 2026100115403384
+	- Related IDs: 2026100115403384, 2026100207032800
+	- Version and build: dev at `d2fbdacd`
+	- Steps to reproduce:
+		- `printf 'a: [1]\n\tb: [2]\n' | shcl fmt -`
+	- Incorrect behavior: both lines are `E019`, and `fmt` writes `a: [1]` and then `b: [2]` at column 0, at exit 0. Once the brackets are fixed, `b` reads at the root, not as `a.b`.
+	- Expected behavior: `b: [2]` is written back under `a: [1]`, where it was.
+	- Reproduced: Yes, 20261002, Rust at `d2fbdacd`. Two nested lines with a bad escape do the same.
+	- Possible cause: the lazy level opens only on a line that binds. When nothing under it binds, the writer has no node to put the kept child under.
+	- Note: a silent wrong answer once the values are fixed. Under 2026100207032800 it gets more common, since a bare value with a space is refused the same way. Close the class with a fuzz property: a kept line reloads at the same path, under the same parent lines, after a canonical and a line-keeping save, in all four bindings. Design: `project/design_docs/20261002-131732_strings-escapes-arrays.md`.
 
 - The writer spells Windows paths three different ways
 	- ID: 2026100115323216
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Avg
+	- Note: 20261002, superseded by 2026100207032800. With no backslash escapes, a backslash plays no part in choosing quotes, so nothing here is needed. Design: `project/design_docs/20261002-131732_strings-escapes-arrays.md`.
+	- Superseded by ID: 2026100207032800
 	- Opened: 20261001-153232
 	- Opened by: gitsby feedback
 	- Version and build: dev at `b10c2009`
@@ -298,6 +194,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Type: Bug
 	- Status: Queued
 	- Severity: Low
+	- Note: 20261002, an open point in the design for 2026100207032800, which changes much more of format 3. Proposed there: pre-release files are on their own, per the 2.x low-stakes rule. Design: `project/design_docs/20261002-131732_strings-escapes-arrays.md`.
 	- Opened: 20261001-154033
 	- Opened by: silkterm feedback
 	- Related IDs: 2026100115323227
@@ -329,6 +226,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Type: Bug
 	- Status: Queued
 	- Severity: Low
+	- Note: 20261002, under 2026100207032800 a backslash is text, so this repro no longer fails. A bad `◉` escape in the name, such as `"a◉X◉":`, does the same thing, so the bug stays.
 	- Opened: 20261001-172148
 	- Opened by: found while working 2026100115403384
 	- Version and build: dev at `5956ff4a`
@@ -344,6 +242,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Type: Bug
 	- Status: Queued
 	- Severity: Low
+	- Note: 20261002, under 2026100207032800 this repro has no kept line. Any other kept line, such as `a: My App`, does the same thing, so the bug stays.
 	- Opened: 20261001-172148
 	- Opened by: found while working 2026100115323227
 	- Version and build: dev at `5956ff4a`
@@ -358,6 +257,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
+	- Note: 20261002, superseded by 2026100207032800. With no backslash escapes, a backslash plays no part in choosing quotes, so nothing here is needed. Design: `project/design_docs/20261002-131732_strings-escapes-arrays.md`.
+	- Superseded by ID: 2026100207032800
 	- Opened: 20261001-153232
 	- Opened by: gitsby feedback
 	- Related IDs: the old-format item "A save that edits only the lines that changed", whose 20260925 decision keeps `fmt`'s canonical quoting
