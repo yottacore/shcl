@@ -33,6 +33,170 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
+- No '\' escapes
+	- ID: 2026100207032800
+	- Type: Enhancement
+	- Status: Queued
+	- Needs local test suite run?: Y
+	- Needs external testing: Y
+	- Priority: Critical
+	- Opened: 20261002-070407
+	- Opened by: JC
+	- Assigned to:
+	- Parent ID:
+	- Prereq IDs:
+	- Related IDs:
+	- Target OS:
+	- Test environment:
+	- Version and build:
+	- Problem description:
+		- Most bug/fix/bug/fix churn is being caused by escapes. For example: "C:\shouldn't\be\tab\or\newline"
+			- Will be read as "C:\<bad escape>\shouldn't\be\<tab>ab\or\<newline>ewline"
+		- It could be put in single quotes for a raw read, but anything after 'C:\shouldn' is an error (or at least a new class of problem to deal with).
+		- The canonical way to handle it is to escape the backslash itself, e.g. "C:\\shouldn't\\be\\tab\\or\\newline".
+			- This works, but is hard for regular users to remember, and easy to screw up.
+		- Let's really get to the heart of the matter:
+			1. *Using a common necessary keyboard character to begin an escape sequence, has always been a stupid convention*.
+				- Or to put it more charitably, has always caused never-ending headaches.
+			2. *Users generally don't need or want to put newlines or tabs in regular strings.*.
+		- So I'm twisting myself in knots over a known problematic use case that nothing like shcl has ever really solved well.
+		- We already have a way to easily get newlines and tabs into strings: A fenced block.
+		- If you really want them also in regular strings, let's consider these observations:
+			1. It's already possible to put tabs in strings. The only real everyday outlier then is newlines. And other kinds of escapes, but those are either:
+				- Vanishingly rare (e.g. other ASCII escapes) and don't deserve an "easy" solution that causes never-ending greif for the rest of the codebase, or
+				- Are standalone values like hex values, or unicode values - that can be indicated other ways that don't cause never-ending greif for the rest of the codebase.
+			2. Escapes that are signalled with only a single character - and then you have to guess where it ends - is already fraught with problems by definition.
+		- Considering this, if we (as a civilization) were to fundamentally rethink escapes and start from scratch, we would:
+			- Use one or more characters to unambiguously signal the start *and* end of an escape sequence.
+			- Have high "signal" value that is much harder to confuse with content.
+			- Use one or more characters that don't have high-frequency use.
+			- Be rare enough that the need to escape itself is low.
+				- But also, be able to easily escape *itself* to mean that literal character within the string.
+			- Have a finite list of possible things being escaped, for easier validation.
+		- The solution proposed here (in the "Requirements" section) has some drawbacks:
+			- Since the characters aren't on the keyboard (except the `%` idea) - the whole point - they aren't easy for users to gen into the string.
+				- This can be partially mitigated by programmatically including the escape signal character[s] in the file's comments, so users can at least copy/paste.
+				- Also mitigated by the fact that programs can easily write the escape.
+			- It might feel weird for older die-hard users of traditional escaping. 🤷
+	- Requirements:
+		- Escape rule idea 1 (ruled out as possibly making things worse):
+			- The beginning is signalled with `%`.
+			- The end is signalled with `%`.
+			- The format is generally, `%VALUE_BEING_ESCAPED%`
+				- The value inside is case-insensitive, and can contain *only* one of: `A-Z`, `a-z`, `0-9`, `_`, `-`
+			- In-between `%%`, is a finite list of possibilities. Values not in that list, are an error.
+			- The real character `%` is encoded as `%PERCENT%`
+			- An odd number of `%` is an automatic error.
+			- Escapes can't be nested.
+			- Pros:
+				- Is easy to encode, since `%` is on the keyboard.
+			- Cons:
+				- User would have to remember to escape real `%`s with `%PERCENT%`
+		- Escape rule idea 2 (ruled out as too complicated, and error-prone, and unnecessary):
+			- The beginning is signalled with `◉`.
+			- The end is signalled with `◉`. (Same symbol)
+			- The format is generally, `◉VALUE_BEING_ESCAPED◉`
+				- The value inside is case-insensitive, and can contain *only* one of: `A-Z`, `a-z`, `0-9`, `_`, `-`
+			- In-between `◉VALUE_BEING_ESCAPED◉`, is a finite list of possibilities.
+			- The real character `◉` is encoded as `◉ESCAPE_CHAR◉`, `◉FISHEYE◉`, `◉U_9673◉`
+			- An odd number of escape characters is an automatic error.
+			- Escapes can't be nested.
+			- Other symbol ideas:
+				- `⹗VAL⹘`: Not vertically aligned very well. Requires two symbols.
+				- `🢔VAL🢖`: Nice because they have extra space on left and right, but is less clear which direction is "open" and "close". Which can also be a problem, e.g. "Is this one 🢒SPACE🢐 or two?" Requires two symbols.
+				- `🢒VAL🢐`: Hard to tell those are triangles. Requires two symbols.
+				- `🞂VAL🞀`: Better but technically, we don't need two values. Requires two symbols.
+			- Finite list of escapes:
+				- ASCII:
+					- `◉NUL◉`, `◉NULL◉`
+					- `◉BEL◉`, `◉BELL◉`
+					- `◉BS◉`, `◉BACKSPACE◉`
+					- `◉HT◉`, `◉TAB◉`
+					- `◉LF◉`, `◉NEWLINE◉`, `◉NEW_LINE◉`, `◉LINEFEED◉`,  `◉LINE_FEED◉`
+					- `◉VT◉`, `◉VERTICALTAB◉`, `◉VERTICAL_TAB◉`
+					- `◉FF◉`, `◉FORMFEED◉`, `◉FORM_FEED◉`
+					- `◉CR◉`, `◉CARRIAGERETURN◉`, `◉◉CARRIAGE_RETURN◉`
+					- `◉ESC◉`, `◉ESCAPE◉`
+					- `◉DEL◉`, `◉DELETE◉`
+				- Common:
+					- `◉HEX_[0-9A-F]+◉`
+					- `◉OCTAL_[0-7]+◉`, `◉0_[0-7]+◉`
+					- `◉U_[0-9]+◉`, `◉UNICODE_[0-9]+◉`
+				- Potentially problematic regular keyboard symbols in some contexts:
+					- `◉HASH◉`, `◉HASHTAG◉`, `◉HASH_TAG◉`, `◉POUND◉`, `◉OCTOTHORPE◉`
+					- `◉LEFT_BRACKET◉`, `◉LEFTBRACKET◉`, `◉RIGHT_BRACKET◉`, `◉RIGHTBRACKET◉`
+					- `◉UNDERSCORE◉`
+					- `◉MINUS◉`, `◉PERCENT◉`, `◉BACK_SLASH◉`, `◉BACKSLASH◉`, `◉FORWARD_SLASH◉`, `◉FORWARDSLASH◉`, `◉BACK_TICK◉`, `◉BACKTICK◉`, `◉TICK◉`, etc.
+			- For values that are standalone escape values, not embedded in a string (e.g. a hex color), they can be indicated with backticks. But for single standalone values only, not field names. E.g.:
+				- [tic]`#FF8800`[tic]
+				- [tic]`\0`[tic]
+				- [tic]`\t`[tic]
+				- [tic]`\x7F`[tic]
+				- [tic]`\u9673`[tic]
+				- [tic]`\x00FF`[tic]
+				- etc.
+		- Escape rule idea 3:
+			- Case-insensitive but usually (not always) all-caps.
+			- The beginning and end of an escape sequence is signalled with `⍟`.
+			- The format is generally, `⍟VALUE_BEING_ESCAPED⍟`
+				- The value inside is case-insensitive, and can contain *only* one of: `A-Z`, `a-z`, `0-9`, `_`, `-`, `+`
+			- In-between `⍟⍟`, is a finite list of possibilities. Anything else is an error.
+			- An odd number of escape characters is an automatic error.
+			- Nested escapes is an error. (Already caught by "finite list of possibilities".)
+			- The real character `⍟` *must* be encoded  - as `⍟ESCAPE_CHAR⍟`, `⍟CIRCLE_STAR⍟`, `⍟U+235F⍟`, or [tic]`&#9055`[tic]
+			- Anything inside single or double quotes is literal, *except* `⍟VALUE_BEING_ESCAPED⍟`
+			- Finite list of escapes:
+				- ASCII (our documented canonical form listed first, acceptable aliases after):
+					- `⍟NUL⍟`,                     `⍟NULL⍟`
+					- `⍟BEL⍟`,                     `⍟BELL⍟`
+					- `⍟BACKSPACE⍟`,      `⍟BS⍟`
+					- `⍟TAB⍟`,            `⍟HT⍟`,  `⍟HORIZONTAL_TAB⍟`
+					- `⍟NEWLINE⍟`,        `⍟LF⍟`,  `⍟LINEFEED⍟`, `⍟LINE_FEED⍟`, `⍟NEW_LINE⍟`
+					- `⍟VT⍟`,                      `⍟VERTICAL_TAB⍟`, `⍟VERTICALTAB⍟`
+					- `⍟FF⍟`,                      `⍟FORM_FEED⍟`, `⍟FORMFEED⍟`
+					- `⍟CR⍟`,                      `⍟CARRIAGERETURN⍟`, `⍟⍟CARRIAGE_RETURN⍟`
+					- `⍟ESC⍟`,                     `⍟ESCAPE⍟`
+					- `⍟DEL⍟`,                     `⍟DELETE⍟`
+				- Common escapes (canonical, then aliases) - expressed in pseudo-regex, case-insensitive:
+					- `⍟x[0-9A-F]+⍟`,  `⍟(HE)?X[+_\-]?[0-9A-F]+⍟`     ## Any kind of hex. It's up to the reading program to validate bounds, etc.
+					- `⍟OCT_[0-7]+⍟`,  `⍟(OCT(AL)?|0)[+_\-]?[0-7]+⍟`
+					- `⍟U+[0-9A-F]+⍟`, `⍟U(NICODE)?[+_\-]?[0-9A-F]+⍟` ## Unicode-specific hex.
+				- Potentially problematic symbols that can be escaped if desired, and/or for clarity, and/or if necessary (e.g. a quoted string with both single and double quotes in the string itself):
+					- `⍟SINGLE_QUOTE⍟` (alias `⍟S(INGLE)?_?QUOTE⍟`)
+					- `⍟DOUBLE_QUOTE⍟` (alias `⍟D(OUBLE)?_?QUOTE⍟`)
+					- `⍟BACK_TICK⍟`    (alias `⍟(BACK(_?))?TICK)⍟`)
+					- `⍟SPACE⍟`        # So that a string with spaces in it, can be encoded without single or double quotes (if so desired).
+			- For standalone escape values, not embedded in a string or part of any other value (e.g. a hex color), they can be indicated in traditional form, with backticks.
+				- The backticks are not optional. The only way to encode an escape, is with `⍟⍟`, or with backticks.
+				- If the same values are in single or double quotes, they are interpreted literally.
+				- But for single standalone values (or arrays) only, not part of field names.
+				- Single or double quotes are NOT acceptable aliases for backtick in this context.
+				- E.g.:
+					- [tic]`#FF8800`[tic]
+					- [tic]`\0`[tic]
+					- [tic]`\t`[tic]
+					- [tic]`\x7F`[tic]
+					- [tic]`\u25C9`[tic]
+					- [tic]`\x00FF`[tic]
+					- [tic]`\077`[tic]
+					- [tic]`&#x27`[tic]
+					- [tic]`&quot`[tic]
+					- [tic]`'`[tic]
+					- [tic]`"`[tic]
+					- [tic]`$`[tic]
+					- etc.
+			- If a string has a literal space in it, it must be in single or double quotes, otherwise it's an error.
+	- Estimated effort: High
+	- Actual effort:
+	- Progress log:
+	- Decisions:
+	- Branch:
+	- Commit:
+	- Test case:
+	- Acceptance signoff:
+	- Superseded by ID:
+	- Closed:
+
 - A bad escape on a line that opens a block drops the whole block
 	- ID: 2026100115403384
 	- Type: Bug
@@ -11350,8 +11514,11 @@ Template:
 	- Target OS:
 	- Test environment:
 	- Version and build:
-	- Requirements  [Feature]:
+	- Problem description [Feature]:
+	- Requirements [Feature]:
 		- Hierarchical bulleted list.
+	- Reason [Feature]:
+		- …
 	- Steps to reproduce [Bug]:
 		- …
 	- Incorrect behavior [Bug]:
