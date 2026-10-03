@@ -3123,3 +3123,37 @@ func TestAMergedLayerOwesItsKeptLines(t *testing.T) {
 		t.Fatalf("LostCount %d, want 1", n)
 	}
 }
+
+// design.md's table: a settled kept line on a leaf the layer replaces goes
+// with the leaf's comments, so it is no longer owed.
+func TestAReplacedLeafTakesItsSettledKeptLine(t *testing.T) {
+	defer testID(t, "ErfGoMK")
+	doc := Parse("x: 0\n\tc: 2\n  a: 5\nb: 1\n")
+	if n := doc.Remove("x.c"); n != 1 {
+		t.Fatalf("removed %d", n)
+	}
+	if got := doc.ToCanonical(); got != "x: 0\n# a: 5\nb: 1\n" {
+		t.Fatalf("after the remove %q", got)
+	}
+	doc.Merge(Parse("b: 9\n"))
+	if got := doc.ToCanonical(); got != "x: 0\nb: 9\n" {
+		t.Fatalf("after the merge %q", got)
+	}
+	if n := doc.LostCount(); n != 0 {
+		t.Fatalf("LostCount %d, want 0", n)
+	}
+}
+
+// design.md's table: the footer dedup skips a layer's kept line the base
+// already has, so that copy is not owed.
+func TestAFooterLineTheBaseHasIsNotOwedTwice(t *testing.T) {
+	defer testID(t, "ErfGoML")
+	doc := Parse("bad name: 1\n")
+	doc.Merge(Parse("bad name: 1\n"))
+	if got := doc.ToCanonical(); got != "bad name: 1\n" {
+		t.Fatalf("wrote %q", got)
+	}
+	if n := doc.LostCount(); n != 0 {
+		t.Fatalf("LostCount %d, want 0", n)
+	}
+}
