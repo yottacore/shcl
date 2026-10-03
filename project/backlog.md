@@ -294,6 +294,22 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Decisions:
 		- 20261002: comments nest under kept lines too.
 
+- The Python binding parses about 25% slower than on 2026-09-19
+	- ID: 2026100221215300
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261002-212153
+	- Opened by: benchmark rerun, 2026100219565400
+	- Related IDs: 2026100219565400, 2026100207032800
+	- Version and build: dev at `7e81cd87`
+	- Steps to reproduce:
+		- Time `shcl.Document.parse` on the comparison's `ddl.shcl` with `shcl.py` from `efcc7dd8`, then from dev.
+	- Incorrect behavior: 186 ms before, 228 ms now, back to back on the same box. The comparison run shows 20% to 30% on every shape. Rust got faster over the same span.
+	- Possible cause: the per-line fault checks added with the escape errors. `_line_fault` and the extra `any` calls account for most of the gap.
+	- Decisions:
+		- 20261002: recheck after 2026100207032800 is built, since it removes most of those checks. No perf work before 3.0.0 otherwise.
+
 - No way to ask a setter for single quotes
 	- ID: 2026100115323222
 	- Type: Enhancement
@@ -613,6 +629,25 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- `generate` returns this call's faults and leaves the schema as it was, as in Rust.
 	- Branch: `cxxveneer`
 	- Test case: `veneer_smoke.cpp` covers the new surface. `check-veneer.bash` fails when the public half names C, when a consumer file can reach `shcl_parse`, or when a consumer and the implementation built apart do not link and run. Each was watched to fail. `check-readme.bash` builds the new C++ README example the same way and compares the file it saves.
+
+- Make sure the benchmark comparisons in README.md are current
+	- ID: 2026100219565400
+	- Type: Task
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20261002-195654
+	- Opened by: JC
+	- Related IDs: 2026100221215300
+	- Version and build: dev at `7e81cd87`
+	- Problem description:
+		- The README tables came from the 2026-09-19 run. The parser has changed a lot since then.
+	- Progress log:
+		- 20261002: full rerun at 64 MiB, the same size as the last published run, recorded as `20261002-210439`. A second Rust run right after came within 2% on every README number.
+		- 20261002: README tables and prose, and design.md's findings, now quote that run. Rust SHCL got a little faster and its peak memory on the stress test fell from 2.1 GB to 1.7. Python SHCL got slower, filed as 2026100221215300.
+		- The "minimap" in the request was taken as a SilkTerm leftover. Nothing here has one.
+	- Branch: benchrerun
+	- Test case: check-docs `EqQW89I` performance-numbers-match-results. It works out the ratios, places, gzip gap and schema sentence from the newest run and fails when a document does not match.
+	- Closed: 20261002-212153
 
 - Every closed backlog item gets a Test line
 	- ID: 2026092620255216
