@@ -222,6 +222,25 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: 20261003, `check-migrate.bash` already builds 2.x from pinned `7be348d` and compares reads after `migrate`. This would extend it to the backup and rewrite in 2026100313461649, and to beta-stamped Format 3 files once 2026100207032800 is in.
 	- Estimated effort: Avg
 
+- `migrate` exits 0 on a file whose raw block never closes, and leaves it unstamped
+	- ID: 2026100316275800
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261003-162758
+	- Opened by: signoff talk on 2026100307163903
+	- Related IDs: 2026100307163903
+	- Version and build: dev at `4eb17db4`
+	- Steps to reproduce:
+		- A file holding `a: 'x\ty'`, then `b: ~~~` and a tab-indented `line`, with no closing fence.
+		- `shcl migrate --from-2x --write f.shcl`
+	- Incorrect behavior: it prints `E005 unterminated raw block`, rewrites line 1, keeps `f_old_v2.shcl`, and exits 0. No Format line is added, so a later run cannot tell the file was migrated.
+	- Expected behavior: `check` already fails this file at 6. `migrate` should refuse at 7 and write nothing, since it cannot finish the job.
+	- Reproduced: 20261003, Rust CLI. The other three not checked yet.
+	- Possible cause: the no-stamp rule skips the stamp quietly rather than refusing.
+	- Note: a refusal fits the 2.x low-stakes rule. Fixing the fence then running `migrate` again does the whole job.
+	- Estimated effort: Low
+
 - `migrate --check` exits 6 and `--write` keeps a needless copy when a CRLF file has no final newline
 	- ID: 2026100307163906
 	- Type: Bug
