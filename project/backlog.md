@@ -33,6 +33,31 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
+- A fuzz property and a save-gate check for kept lines, so edits stop losing them one site at a time
+	- ID: 2026100307310000
+	- Type: Task
+	- Status: Waiting for testing
+	- Priority: High
+	- Opened: 20261003-073100
+	- Opened by: Code review 20261003, OK'd 2026-10-03
+	- Related IDs: 2026100307163901, 2026100307163902, 2026100307163907, 2026100213205957, 2026100117214801, 2026100117214802, 2026100218185700, 2026092620255202
+	- Problem description:
+		- Edits that lose a kept line keep turning up, one site per round: `clear-comments`, then `remove`, the lazy level, nesting and the raw-block arms.
+		- The save gate does not count kept lines, so each of these saves at exit 0.
+		- 800 makes more lines kept, so the class grows with it.
+	- Requirements:
+		- A fuzz property: after any edit, every kept line outside the edit's target is still in the saved text, or the save refuses.
+		- The save gate counts kept lines, in all four bindings.
+		- design.md gets a rule table: each edit and what it does with the kept lines beside and under its target.
+	- Note: best done before the fixes for items 1, 2 and 7 of the same round, so the property tests them.
+	- Estimated effort: Avg
+	- Progress log:
+		- 20261003: built. The save gate counts kept lines in all four bindings, and a C compaction keeps the count. The property holds items 1, 2 and 7 as open rows and found no other class up to 2,000,000 runs. No existing test had to change.
+		- 20261003, review round 1: each binding tests the two kept lines a merge may drop. The refusal reads "this write would delete N line(s)/value(s) from the file" in the four CLIs and the library errors (answered 2026-10-03). The property picks the lines a merge may drop by where they sit, not by text (answered 2026-10-03).
+		- 20261003: review passed. Waits on the hosted Windows run, then signoff, since the refusal wording changed.
+	- Branch: `keptgate`
+	- Test case: `EreT6dh` (`kept_lines_survive_edits`, fuzz_smoke.rs); per binding `kept_gate` tests `EreRyr7`, `EreUeCs`, `EreRysn` (Rust), `EreUzvf`, `EreUzxY`, `EreUzzO` (Go), `EreVRei`, `EreVRgk`, `EreVRis` (Python), `EreWlg6`, `EreWli7`, `EreWlk5`, `EreZ0ar` (C); the merge's two exceptions `ErfGoMI`, `ErfGoMJ` (Rust), `ErfGoMK`, `ErfGoML` (Go), `ErfGoMM`, `ErfGoMN` (Python), `ErfGoMO`, `ErfGoMP` (C); cli-regress `EreYYXK`; crosscheck `EreXO4J`.
+
 - `remove` deletes kept lines next to the field it removes, at exit 0
 	- ID: 2026100307163901
 	- Type: Bug
@@ -200,30 +225,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Possible cause: `-File` binds a `-`-led argument with a colon as a parameter name and value before the script sees `$args`.
 	- Origin: `37fe62d0` (PowerShell wrapper, 2026-07-18). Not seen by an earlier round. 20260928 item 4 fixed quotes under 5.1 in the same wrapper. Confirmed.
 	- Estimated effort: Avg
-
-- A fuzz property and a save-gate check for kept lines, so edits stop losing them one site at a time
-	- ID: 2026100307310000
-	- Type: Task
-	- Status: Queued
-	- Priority: High
-	- Opened: 20261003-073100
-	- Opened by: Code review 20261003, OK'd 2026-10-03
-	- Related IDs: 2026100307163901, 2026100307163902, 2026100307163907, 2026100213205957, 2026100117214801, 2026100117214802, 2026100218185700, 2026092620255202
-	- Problem description:
-		- Edits that lose a kept line keep turning up, one site per round: `clear-comments`, then `remove`, the lazy level, nesting and the raw-block arms.
-		- The save gate does not count kept lines, so each of these saves at exit 0.
-		- 800 makes more lines kept, so the class grows with it.
-	- Requirements:
-		- A fuzz property: after any edit, every kept line outside the edit's target is still in the saved text, or the save refuses.
-		- The save gate counts kept lines, in all four bindings.
-		- design.md gets a rule table: each edit and what it does with the kept lines beside and under its target.
-	- Note: best done before the fixes for items 1, 2 and 7 of the same round, so the property tests them.
-	- Estimated effort: Avg
-	- Progress log:
-		- 20261003: built. The save gate counts kept lines in all four bindings, and a C compaction keeps the count. The property holds items 1, 2 and 7 as open rows and found no other class up to 2,000,000 runs. No existing test had to change.
-		- 20261003, review round 1: each binding tests the two kept lines a merge may drop. The refusal reads "this write would delete N line(s)/value(s) from the file" in the four CLIs and the library errors (answered 2026-10-03). The property picks the lines a merge may drop by where they sit, not by text (answered 2026-10-03).
-	- Branch: `keptgate`
-	- Test case: `EreT6dh` (`kept_lines_survive_edits`, fuzz_smoke.rs); per binding `kept_gate` tests `EreRyr7`, `EreUeCs`, `EreRysn` (Rust), `EreUzvf`, `EreUzxY`, `EreUzzO` (Go), `EreVRei`, `EreVRgk`, `EreVRis` (Python), `EreWlg6`, `EreWli7`, `EreWlk5`, `EreZ0ar` (C); the merge's two exceptions `ErfGoMI`, `ErfGoMJ` (Rust), `ErfGoMK`, `ErfGoML` (Go), `ErfGoMM`, `ErfGoMN` (Python), `ErfGoMO`, `ErfGoMP` (C); cli-regress `EreYYXK`; crosscheck `EreXO4J`.
 
 - `migrate --check` exits 6 and `--write` keeps a needless copy when a CRLF file has no final newline
 	- ID: 2026100307163906
