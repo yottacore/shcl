@@ -1833,6 +1833,18 @@ fn line_fence(tok: &Tokens, rest: &str) -> Option<(u8, usize, String)> {
 	})
 }
 
+/// The fence a line opens under the field above it, read as a value.
+fn child_fence(rest: &str, tok: &mut Tokens) -> Option<(u8, usize, String)> {
+	tokenize_value(rest, 0, Rules::Current, tok);
+	// A capped scan zeroed the value, and a fence is told by its leading run
+	// alone.
+	fence_open(if tok.capped {
+		rest
+	} else {
+		&rest[tok.value.0..tok.value.1]
+	})
+}
+
 /// Opening fence: a run of >=3 backticks or tildes, then an optional info-string.
 fn fence_open(rest: &str) -> Option<(u8, usize, String)> {
 	let first = rest.as_bytes().first().copied()?;
@@ -1918,44 +1930,41 @@ pub fn format_version(text: &str) -> Option<u32> {
 /// format_version() on text with the BOM already off. Digits that do not fit
 /// 32 bits read as "newer than this", since whatever wrote them was not 2.x.
 ///
-/// Raw bodies are skipped exactly where the rewrite skips them, by walking the
-/// lines through the same `migrate_line`. A Format line pasted into a block is
-/// that block's content, and taking it as the file's would rewrite a current
-/// file, or leave an old one alone. A file naming this format on any line has
-/// nothing to migrate, so the highest line decides: the stamp `migrate` adds
-/// comes after an older one, and the next run has to see it.
+/// A Format line pasted into a raw body is that block's content, and taking
+/// it as the file's would rewrite a current file, or leave an old one alone.
+/// Where the blocks are turns on the rules the file was written under, which
+/// is what the line itself says: a line naming this format counts outside the
+/// blocks the parser finds, and an older one outside the blocks the rewrite
+/// skips. The two differ on a single-quoted name ending in a backslash. A file
+/// naming this format on any line has nothing to migrate, so the highest line
+/// decides: the stamp `migrate` adds comes after an older one, and the next
+/// run has to see it.
 fn format_line_version(text: &str) -> Option<u32> {
-	let mut tok = Tokens::default();
-	let mut fence: Option<(u8, usize)> = None;
-	// Only the blocks a line opens are wanted here, not what it counts.
-	let mut dry = Migrating {
-		from_v2: true,
-		ambiguous: 0,
-		lost: 0,
-	};
+	let mut now = RawLines::new(Rules::Current);
+	let mut then = RawLines::new(Rules::V2);
 	let mut found: Option<u32> = None;
 	for line in text.split('\n') {
-		let body = line.trim_end_matches('\r');
-		if let Some((ch, len)) = fence {
-			if is_fence_close(body, ch, len) {
-				fence = None;
-			}
+		let current = now.step(line);
+		let old = then.step(line);
+		let Some(n) = current
+			.or(old)
+			.and_then(|r| r.strip_prefix(FORMAT_LINE_HEAD))
+		else {
+			continue;
+		};
+		if n.is_empty() || !n.bytes().all(|c| c.is_ascii_digit()) {
 			continue;
 		}
-		let rest = trim_wsp_end(&body[leading_ws(body).len()..]);
-		if let Some(n) = rest.strip_prefix(FORMAT_LINE_HEAD) {
-			// More digits than fit is not a 2.x file either, so it reads as
-			// this major and there is nothing to migrate.
-			if !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()) {
-				let v = n.parse().unwrap_or(FORMAT_MAJOR);
-				if v >= FORMAT_MAJOR {
-					return Some(v);
-				}
-				found = found.max(Some(v));
-				continue;
+		// More digits than fit is not a 2.x file either, so it reads as this
+		// major and there is nothing to migrate.
+		let v = n.parse().unwrap_or(FORMAT_MAJOR);
+		if v >= FORMAT_MAJOR {
+			if current.is_some() {
+				return Some(v);
 			}
+		} else if old.is_some() {
+			found = found.max(Some(v));
 		}
-		track_fence(rest, &mut tok, &mut fence, &mut dry);
 	}
 	found
 }
@@ -1969,41 +1978,88 @@ fn format_line_version(text: &str) -> Option<u32> {
 #[must_use]
 pub fn schema_ref(text: &str) -> Option<String> {
 	let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-	let mut tok = Tokens::default();
-	let mut fence: Option<(u8, usize)> = None;
-	let mut dry = Migrating {
-		from_v2: true,
-		ambiguous: 0,
-		lost: 0,
-	};
+	// The Schema line is new in this format, so the blocks are the parser's.
+	let mut lines = RawLines::new(Rules::Current);
 	for line in text.split('\n') {
-		let body = line.trim_end_matches('\r');
-		if let Some((ch, len)) = fence {
-			if is_fence_close(body, ch, len) {
-				fence = None;
-			}
+		let Some(r) = lines
+			.step(line)
+			.and_then(|r| r.strip_prefix(SCHEMA_LINE_HEAD))
+		else {
 			continue;
+		};
+		let r = trim_wsp(r);
+		if !r.is_empty() {
+			return Some(r.to_string());
 		}
-		let rest = trim_wsp_end(&body[leading_ws(body).len()..]);
-		if let Some(r) = rest.strip_prefix(SCHEMA_LINE_HEAD) {
-			let r = trim_wsp(r);
-			if !r.is_empty() {
-				return Some(r.to_string());
-			}
-			continue;
-		}
-		track_fence(rest, &mut tok, &mut fence, &mut dry);
 	}
 	None
 }
 
-/// Note the raw block a line opens, the way the rewrite does. Only a line
-/// with a run of three backticks or tildes can open one, so the rest skip the
-/// tokenizer.
-fn track_fence(rest: &str, tok: &mut Tokens, fence: &mut Option<(u8, usize)>, dry: &mut Migrating) {
-	if rest.contains("```") || rest.contains("~~~") {
-		migrate_line(rest, tok, fence, dry);
+/// Walks a document's lines and tells raw-body content from the rest, the
+/// way one rule set reads the file: the current rules find a block where the
+/// parser does, and the 2.x rules where the rewrite does.
+struct RawLines {
+	rules: Rules,
+	tok: Tokens,
+	fence: Option<(u8, usize)>,
+	// Only the blocks a line opens are wanted, not what the rewrite counts.
+	dry: Migrating,
+}
+
+impl RawLines {
+	fn new(rules: Rules) -> Self {
+		RawLines {
+			rules,
+			tok: Tokens::default(),
+			fence: None,
+			dry: Migrating {
+				from_v2: true,
+				ambiguous: 0,
+				lost: 0,
+			},
+		}
 	}
+
+	/// The next line's text past its indent, or None when it is part of a
+	/// raw block, fences included.
+	fn step<'t>(&mut self, line: &'t str) -> Option<&'t str> {
+		let body = line.trim_end_matches('\r');
+		if let Some((ch, len)) = self.fence {
+			if is_fence_close(body, ch, len) {
+				self.fence = None;
+			}
+			return None;
+		}
+		let rest = trim_wsp_end(&body[leading_ws(body).len()..]);
+		// Only a line with a run of three backticks or tildes can open a
+		// block, so the rest skip the tokenizer.
+		if rest.contains("```") || rest.contains("~~~") {
+			match self.rules {
+				Rules::Current => self.fence = opens_raw(rest, &mut self.tok),
+				Rules::V2 => {
+					migrate_line(rest, &mut self.tok, &mut self.fence, &mut self.dry);
+				}
+			}
+		}
+		Some(rest)
+	}
+}
+
+/// The raw block a line opens under the current rules: a fence line under a
+/// field, or a field line whose value is a fence, read as the parser reads
+/// them. A line refused for where it sits still takes its body. One refused
+/// for its text may not yet, and then the file fails `check` anyway.
+fn opens_raw(rest: &str, tok: &mut Tokens) -> Option<(u8, usize)> {
+	let rest = rest.trim_start_matches(is_wsp);
+	let fence = if rest.starts_with(['`', '~']) {
+		child_fence(rest, tok)
+	} else if rest.starts_with(['#', '*']) {
+		None
+	} else {
+		tokenize(rest, b':', false, Rules::Current, tok);
+		line_fence(tok, rest)
+	};
+	fence.map(|(ch, len, _)| (ch, len))
 }
 
 /// Rewrite a document written under the 2.x rules so this parser reads the
@@ -2070,10 +2126,15 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool) -> Migration {
 	let mut tok = Tokens::default();
 	let mut fence: Option<(u8, usize)> = None;
 	let mut changed = false;
+	// The output as the parser will read it, for where its raw blocks are.
+	let mut now = RawLines::new(Rules::Current);
+	let mut split = false;
 	for (i, line) in body_text.split('\n').enumerate() {
 		if i > 0 {
 			out.push('\n');
 		}
+		let start = out.len();
+		let raw_then = fence.is_some();
 		let body = line.trim_end_matches('\r');
 		let cr = &line[body.len()..];
 		if let Some((ch, len)) = fence {
@@ -2081,24 +2142,31 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool) -> Migration {
 				fence = None;
 			}
 			out.push_str(line);
-			continue;
+		} else {
+			let indent = leading_ws(body);
+			let rest_full = &body[indent.len()..];
+			let rest = trim_wsp_end(rest_full);
+			let migrated = migrate_line(rest, &mut tok, &mut fence, &mut st);
+			changed |= migrated != rest;
+			out.push_str(indent);
+			out.push_str(&migrated);
+			out.push_str(&rest_full[rest.len()..]);
+			out.push_str(cr);
 		}
-		let indent = leading_ws(body);
-		let rest_full = &body[indent.len()..];
-		let rest = trim_wsp_end(rest_full);
-		let migrated = migrate_line(rest, &mut tok, &mut fence, &mut st);
-		changed |= migrated != rest;
-		out.push_str(indent);
-		out.push_str(&migrated);
-		out.push_str(&rest_full[rest.len()..]);
-		out.push_str(cr);
+		// Lines one rule set reads as a raw body and the other as fields are
+		// one more thing that reads two ways, counted once per run of them.
+		let differs = now.step(&out[start..]).is_none() != raw_then;
+		if differs && !split && !st.from_v2 {
+			st.ambiguous += 1;
+		}
+		split = differs;
 	}
 	// Stamping a file whose ambiguous pieces were left alone would claim a
 	// migration that did not finish, and the next run would then skip it. A
 	// document that never closes its raw block has nowhere to put the line
-	// either: appended, it would be another line of the block's content. The
-	// lines end the way most of the file's do.
-	if stamp && st.ambiguous == 0 && fence.is_none() {
+	// either, under either rule set: appended, it would be another line of the
+	// block's content. The lines end the way most of the file's do.
+	if stamp && st.ambiguous == 0 && fence.is_none() && now.fence.is_none() {
 		let eol = majority_eol(body_text);
 		if !out.is_empty() && !out.ends_with('\n') {
 			out.push_str(eol);
@@ -4100,16 +4168,8 @@ impl<'a> Parser<'a> {
 			// Child-indent fence: a value line for its parent field. The fence
 			// and its info string are the value; a comment may follow them.
 			if rest.starts_with(['`', '~'])
-				&& let Some(fence) = {
-					tokenize_value(rest, 0, Rules::Current, &mut tok);
-					// A capped scan zeroed the value, and a fence is told by its
-					// leading run alone.
-					fence_open(if tok.capped {
-						rest
-					} else {
-						&rest[tok.value.0..tok.value.1]
-					})
-				} {
+				&& let Some(fence) = child_fence(rest, &mut tok)
+			{
 				let comment = tok.comment.map(|c| &rest[c..]);
 				let parent = self.resolve_parent(indent, found);
 				let (value, next) = self.consume_raw(&lines, i + 1, lineno, indent, fence);

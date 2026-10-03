@@ -1,0 +1,8 @@
+# Schema and Format lines in a raw body are the block's, even after a name
+# ending in a backslash, which 2.x read as an escaped quote
+'C:\': ~~~
+	##    Schema   ./lax.shcl
+	##    Format   3
+	~~~
+##    Schema   ./app.schema.shcl
+port: 8080

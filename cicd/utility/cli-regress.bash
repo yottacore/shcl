@@ -214,6 +214,12 @@ if [[ "${onWindows}" == 0 ]]; then
 	mkfifo "${tmpDir}/sp/fifo"
 	printf '##    Schema   ./app.schema.shcl\nport: abc\n' > "${tmpDir}/sp/back\\slash.shcl"
 fi
+## A Schema line in a raw body opened by a single-quoted name ending in a
+## backslash. 2.x read that backslash as escaping the quote, and a line walk
+## that read the file that way took the line as the file's. The same for a
+## Format line, beside a value the two rule sets read differently.
+printf '%s: ~~~\n\t##    Schema   ./lax.shcl\n\t~~~\n##    Schema   app.schema.shcl\nport: abc\n' "'C:\\'" > "${tmpDir}/sp/rawname.shcl"
+printf '%s: ~~~\n\t##    Format   3\n\t~~~\np: %s\n' "'C:\\'" "'C:\temp'" > "${tmpDir}/rawfmtq.shcl"
 ## The kernel's page map is a regular file of size 0 that reads as hundreds of
 ## GiB, so only a cap on the read stops it. A schema exactly at the cap is
 ## read, and one a byte over is not.
@@ -330,7 +336,8 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	device, a FIFO and a path holding a NUL, %SPW% one naming a windows share
 ##	(windows only), %SPB% one whose name holds a backslash, %SPM% one naming
 ##	/proc/self/pagemap, %SPC%/%SPO% ones naming a schema exactly at the read
-##	cap and one byte over it, %V3I% a file whose
+##	cap and one byte over it, %SPR% one naming it after a raw body opened by a
+##	name ending in a backslash, %V3I% a file whose
 ##	Format line is indented,
 ##	%SV% a schema naming a path the two-error file does not have,
 ##	%NV% two instance values holding a line break beside one plain value,
@@ -345,7 +352,7 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	whose value reads differently under the two rule sets, %BW% a fresh copy of
 ##	the bracket array, %V3% a file that already names its format,
 ##	%V3B% the same behind a BOM, %V03% an older Format line and then the
-##	current one, %FB% a Format line of five thousand digits, %RF2%/%RF3% a raw body holding a Format line,
+##	current one, %FB% a Format line of five thousand digits, %RF2%/%RF3% a raw body holding a Format line, %RFQ% one opened by a name ending in a backslash,
 ##	%ML% a 2.x file migrate rewrites whose migrated text still drops a line,
 ##	%SB%/%SC% a last-segment selector whose default contradicts it and one
 ##	whose default names it, %SD%/%SE% an optional field's bad default and
@@ -690,6 +697,8 @@ rows=(
 	'ErTZaL2|schema-line-pagemap|check %SPM%|@memcap|8||too large for a schema'
 	'ErTZaL3|schema-line-at-cap|check %SPC%|-|6|line 2: Error: V003\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
 	'ErTZaL4|schema-line-over-cap|check %SPO%|-|8||too large for a schema'
+	## 20261003 item 3: the walk read raw blocks the 2.x way.
+	'ErfuRh7|schema-line-raw-after-backslash|check %SPR%|-|6|line 5: Error: V003\nline 1: Error: V001\nfailed: 2 diagnostic(s), 2 error(s)\n|-'
 	'Eq4Rkv2|migrate-ambiguous-refused|migrate %BS%|-|7|-|does not say which it was written for'
 	"Eq4Rkv3|migrate-ambiguous-kept|migrate %BS%|-|7|p: 'C:\\\\temp'\n|-"
 	'Eq4Rkv4|migrate-ambiguous-write-refused|migrate --write %BS%|-|7|-|refusing to rewrite'
@@ -703,6 +712,7 @@ rows=(
 	## 20260918 item 1: the version scan read raw bodies the rewrite skips.
 	'EqGUXeC|migrate-format-in-raw-old|migrate %RF2%|-|7|-|does not say which it was written for'
 	'EqGUXeD|migrate-format-in-raw-new|migrate %RF3%|-|7|-|does not say which it was written for'
+	'ErfuRj5|migrate-format-in-raw-after-backslash|migrate %RFQ%|-|7|-|does not say which it was written for'
 	## 20260918 item 2: C looked for the version line before taking off a BOM.
 	'EqGUXeE|migrate-bom-stamped|migrate %V3B%|-|0|-|nothing to migrate'
 	'EqGUXeF|migrate-bom-stamped-from-2x|migrate --from-2x %V3B%|-|0|-|nothing to migrate'
@@ -1070,6 +1080,7 @@ for row in "${rows[@]}"; do
 	argv="${argv//%SPM%/${tmpDir}/sp/pagemap.shcl}"
 	argv="${argv//%SPC%/${tmpDir}/sp/atcap.shcl}"
 	argv="${argv//%SPO%/${tmpDir}/sp/overcap.shcl}"
+	argv="${argv//%SPR%/${tmpDir}/sp/rawname.shcl}"
 	argv="${argv//%SPU%/${tmpDir}/spurl.shcl}"
 	argv="${argv//%SPG%/${tmpDir}/spgone.shcl}"
 	argv="${argv//%SP%/${tmpDir}/sp/cfg.shcl}"
@@ -1095,6 +1106,7 @@ for row in "${rows[@]}"; do
 	argv="${argv//%FB%/${tmpDir}/bigfmt.shcl}"
 	argv="${argv//%RF2%/${tmpDir}/rawfmt2.shcl}"
 	argv="${argv//%RF3%/${tmpDir}/rawfmt3.shcl}"
+	argv="${argv//%RFQ%/${tmpDir}/rawfmtq.shcl}"
 	argv="${argv//%ML%/${tmpDir}/mlost.shcl}"
 	argv="${argv//%MT%/${tmpDir}/migtie.shcl}"
 	argv="${argv//%SU%/${tmpDir}/unkey.shcl}"
