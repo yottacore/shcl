@@ -215,6 +215,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Status: Queued
 	- Severity: Low
 	- Note: 20261002, an open point in the design for 2026100207032800, which changes much more of format 3. Proposed there: pre-release files are on their own, per the 2.x low-stakes rule. Design: `project/design_docs/value-syntax.md`.
+	- Note: 20261002, the proposal was OK'd. What is left is saying so in the docs.
 	- Opened: 20261001-154033
 	- Opened by: silkterm feedback
 	- Related IDs: 2026100115323227

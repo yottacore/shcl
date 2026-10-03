@@ -395,6 +395,8 @@ Quoted text inside an array is just a string, so `["[a]", "b"]` is two strings.
 
 - Every line at the item column is an item, or none is, as today. The field opening the list has no value of its own.
 
+- `fmt` and the writer keep a list written this way stacked. See [Canonical output](#canonical-output).
+
 ### Selectors and discriminators
 
 - A field with lines under it takes one plain value or none.
@@ -451,6 +453,8 @@ What the writer and `fmt` produce. The line-keeping save still writes unchanged 
 
 - Arrays are written `[a, b]`. A one-element array keeps its brackets, `[80]`, when it was written that way or set through an array setter. The empty array is `[]`.
 
+- A list written with `- ` stays stacked, one item per line. It is the author's choice, like quotes.
+
 - Backtick values stay in backticks.
 
 - Escapes written:
@@ -506,7 +510,7 @@ Moved from `design.md`, with the escape spelling changed to `◉U+XXXX◉`.
 
 - A program may also give up on an old file: read what it can, then write a fresh one from the values it kept. That is fine for every program using SHCL so far.
 
-- Files stamped `Format 3` by a pre-release build are an open question. See [Roadmap](#roadmap).
+- Files stamped `Format 3` by a pre-release build are on their own, as 2.x files are. `migrate` treats them as current, and a program can give up on one the same way. Item 2026100115403385.
 
 ## Alternative ideas
 
@@ -605,6 +609,8 @@ Not looked at in any depth:
 
 - Reading `- name: value` as a YAML object in a list. Instances already do that job.
 
+- `fmt` rewriting a `- ` list as brackets. Canonical output keeps the author's quotes, and the list form is the same kind of choice.
+
 ### Superseded
 
 What the build has today, and what replaces it.
@@ -662,9 +668,7 @@ What the build has today, and what replaces it.
 
 Open points, each with a proposed answer:
 
-- Files stamped `Format 3` by a pre-release build (2026100115403385). Proposed: state that pre-release files are on their own, per the 2.x low-stakes rule, and let programs give up on them as above.
-
-- Whether canonical output keeps a list written with `- ` in that form. Proposed: no, `fmt` writes brackets. The line-keeping save keeps the lines as they were.
+- Which form a merge writes when two layers write one list in different forms. A merge and a merge of its reloaded output must still give the same text, the fuzz property behind 2026092620255204. Proposed: the form of the last layer that sets the list.
 
 - How a setter asks for a backtick value, or for brackets on a one-element array. Proposed: options on the existing setters, named when built.
 
@@ -681,6 +685,6 @@ Open points, each with a proposed answer:
 | 2026100115323227 | `"C:\temp"` loads with a tab and only a hint says so                                          | Superseded. `E024` goes.
 | 2026100115323216 | The writer spells Windows paths three different ways                                          | Superseded
 | 2026100115323222 | No way to ask a setter for single quotes                                                      | Superseded
-| 2026100115403385 | A file stamped Format 3 during the beta is never migrated                                     | Open point above
+| 2026100115403385 | A file stamped Format 3 during the beta is never migrated                                     | Answered: on their own
 | 2026100117214801 | A bad escape in the name of a line that opens a raw block leaves the body to be read as lines | Stays. Its repro changes.
 | 2026100117214802 | `set` on a file ending in a kept line writes the new key above it                             | Stays. Its repro changes.
