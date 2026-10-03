@@ -110,7 +110,7 @@ Other points
 - The lexical rules are few, and a byte's position decides what it means. The rule table is under Lexical edges below; `spec.md` carries the normative wording.
 	- Why: the same lexical rule lived in seven scanners per binding, and every scanner defect since July was two of them disagreeing. A fix reached the copies that were reproduced. One tokenizer per binding replaces them, and fewer rules leave it less to get wrong.
 	- What changed at 3.0, and what `migrate` rewrites a 2.x file for: escapes are processed inside double quotes only, single quotes are literal, and bare text never processes a backslash, which is TOML's and YAML's rule. A quoted piece opens with a quote as its first character and closes at the next matching quote, which has to be the last thing in the piece; anywhere else a quote is a character. The `field:[disc]` sugar is gone, so a `[` right after a name is a selector and a `[` first after the colon is bracket text.
-	- Escapes, quoting, arrays and the hidden-character list moved to [the strings design](design_docs/20261002-131732_strings-escapes-arrays.md), with what replaces the backslash escapes, `E023` as it is now and `E024`. The build still has those until that design is built.
+	- Escapes, quoting, arrays and the hidden-character list moved to [the value syntax design](design_docs/value-syntax.md), with what replaces the backslash escapes, `E023` as it is now and `E024`. The build still has those until that design is built.
 	- The cost, said once: a bare `\n` or `\t` and a single-quoted escape change meaning, and a bracket array 2.x folded into one string binds nothing. `migrate` rewrites a file in one pass, and a 2.x reader is unaffected by the migrated file. There is no 2.1.0; everything since 2.0.0 goes out in 3.0.0.
 	- What did not change: the comment rule is 2.x's, so a 2.x file's comments and values read the same before and after. Three edges do read differently, and `migrate` leaves all three: a fence label holding a `#`, which 2.x ran to the end of the line and which has no quoting; a carriage return at a piece's edge in the middle of a line, which 2.x kept and which is a blank now; and an indent landing on no open level's column, which 2.x placed by a looser comparison and which is `E012` now, since `migrate` rewrites spellings and not layout.
 	- Which rules wrote a file is not in the text, so the info block carries a `Format` line naming the format's major and `migrate` is the only command that reads it. `format_version` hands a program the same answer, so it can ask before it rewrites anything. A file carrying the current major has nothing to migrate; one carrying an older major, or a caller passing `--from-2x`, gets the backslash re-spellings; anything else gets every other rewrite and leaves those pieces as written, at exit 7. A rewritten file is stamped with the line and a migrated-from note, which is what makes a second run a no-op rather than a second rewrite of the first one's output. The library never adds the whole block, since that would write bytes the document does not hold, and it does not stamp a file that never closes a raw block, since the line would end up inside the block as content. `migrate_unstamped` leaves the stamp off for a program that writes the whole block itself as its footer, which then carries the line.
@@ -377,7 +377,7 @@ Both open points are settled:
 
 Structure-only canonicalizer: block form, tabs, insertion order, minimal quoting, redundancy collapsed, value text untouched (it cannot know types).
 
-**Author quoting on plain strings survives canonical output; quoted data-format values still normalize to bare.** Moved to [the strings design](design_docs/20261002-131732_strings-escapes-arrays.md), under Canonical output.
+**Author quoting on plain strings survives canonical output; quoted data-format values still normalize to bare.** Moved to [the value syntax design](design_docs/value-syntax.md), under Canonical output.
 
 **A raw block's nesting is the closing fence's own indent, and the rule is symmetric.** The nesting used to be the common indent of the body's non-blank lines, which made a shared body indent unrepresentable and needed an emit exception for a body with no non-blank line at all - the case that once grew by a level per pass.
 
@@ -538,7 +538,7 @@ The table is the rule. If a code's behavior ever disagrees with its row, the cod
 | `H003` | hint          | bound
 | `H004` | hint          | retired: became `E024`
 
-- Rows `E013`, `E017`, `E019`, `E023`, `E024` and `H003` change, and `E025` to `E028` come in, with [the strings design](design_docs/20261002-131732_strings-escapes-arrays.md). This table changes when that is built.
+- Rows `E013`, `E017`, `E019`, `E023`, `E024` and `H003` change, and `E025` to `E028` come in, with [the value syntax design](design_docs/value-syntax.md). This table changes when that is built.
 
 - A line that qualifies for more than one refusal takes the first that applies, in this order: where it sits (`E012`, `E018`), then what it is (`E014`, `E019`, `E023`, `E024`, and on an element line `E007` to `E011`), and only then the element cap (`E021`). A cap refuses only a line that would otherwise bind. Bracket text under a cap is `E019` and kept, and an element under a field that already has a value is `E011`. The bracket test reads the value's first piece, which a capped scan keeps, not the value span, which it empties. The fuzz property `a_cap_refuses_only_a_line_that_would_bind` holds the order.
 
@@ -572,7 +572,7 @@ The table is the rule. If a code's behavior ever disagrees with its row, the cod
 
 Where a byte sits decides whether it is content or trivia, and this table is the rule. The tokenizer, the emitter and every setter follow it; if any of them disagrees with a row, that code is wrong. Three positions cover everything: bare text (a name, a selector body, a value or element, a fence label, a comment - anything outside quotes), inside matching quotes (a piece that opens with a quote and closes with the same quote as its last character), and a raw body (the lines between fences).
 
-The rows for quotes, the backslash, the comma, the bracket and the line break change with [the strings design](design_docs/20261002-131732_strings-escapes-arrays.md), which is the source of truth for them. This table changes when that is built.
+The rows for quotes, the backslash, the comma, the bracket and the line break change with [the value syntax design](design_docs/value-syntax.md), which is the source of truth for them. This table changes when that is built.
 
 | Byte                        | Bare text                                                                                            | Inside matching quotes                                                                          | Raw body
 | :---                        | :---                                                                                                 | :---                                                                                            | :---

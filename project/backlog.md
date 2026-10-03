@@ -45,17 +45,18 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Assigned to:
 	- Parent ID:
 	- Prereq IDs:
-	- Related IDs: 2026100213205957, 2026100115403384, 2026100115323227, 2026100115323216, 2026100115323222, 2026100115403385, 2026100117214801, 2026100117214802
+	- Related IDs: 2026100213205957, 2026100218185700, 2026100115403384, 2026100115323227, 2026100115323216, 2026100115323222, 2026100115403385, 2026100117214801, 2026100117214802
 	- Target OS:
 	- Test environment:
 	- Version and build:
 	- Problem description:
 		- Most bug/fix/bug/fix churn is being caused by escapes. For example: "C:\shouldn't\be\tab\or\newline"
-		- The full problem description, ideas 1 to 3 and the settled rules are in the design doc, `project/design_docs/20261002-131732_strings-escapes-arrays.md`. The doc is the source of truth for this item.
+		- The full problem description, ideas 1 to 3 and the settled rules are in the design doc, `project/design_docs/value-syntax.md`. The doc is the source of truth for this item.
 	- Requirements:
 		- A backslash is plain text everywhere.
 		- An escape is `◉NAME◉`, from a closed list. Anything else between two `◉` is an error.
-		- A bare value with whitespace is an error. Quote it.
+		- A bare value with whitespace or a quote is an error. Quote it.
+		- A bare field name starts with a letter.
 		- Arrays are `[a, b]`, or one `- ` item per line.
 		- A backtick value is raw. The program decodes it.
 		- Ideas 1 and 2 were ruled out. Their text is under Rejected in the design doc.
@@ -64,6 +65,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Progress log:
 	- Decisions:
 		- 20261002: idea 3, with the changes listed in the design doc. Open points and their proposed answers are under its Roadmap.
+		- 20261002: a quote anywhere in a bare value is an error, and a bare field name starts with a letter. Dates, times, durations and sizes without spaces stay bare.
 	- Branch:
 	- Commit:
 	- Test case:
@@ -97,7 +99,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Actual fix: a LAZY stack level in all four parsers (`hold_open`, `open_lazy`), the same model in the emitter's reload stack, and `heads_block` in the canonical emit. Spec, design outcome table, explain text for `E019` and `E023` in all four CLIs, changelog.
 	- Swept: the field arm, the stacked element arm and the raw fence arm in all four bindings. A retained `*` element line still holds a dead level, since nothing under an element binds.
 	- Verified: the four conformance suites, cli-regress (339 rows), crosscheck with a 2000-iteration fuzz dump (28764 comparisons), check-docs, check-abnf, shell-regress, check-migrate, clippy (host and windows), rustfmt, go vet, staticcheck, ruff, mypy, test-ids, and the 2,000,000 release fuzz with the new corpus case. Corpus 187 and cli-regress `ErUmRRa` to `ErUmRRc` fail on dev at `5956ff4a`.
-	- Note: 20261002, still needed under 2026100207032800, where a bare value with a space becomes a value-only refusal too. Its sibling bug is 2026100213205957. Design: `project/design_docs/20261002-131732_strings-escapes-arrays.md`.
+	- Note: 20261002, still needed under 2026100207032800, where a bare value with a space becomes a value-only refusal too. Its sibling bug is 2026100213205957. Design: `project/design_docs/value-syntax.md`.
 	- Branch: escblock
 	- Commit: c29f08fa
 	- Test case: corpus `187-value-fault-opens-block`; cli-regress `sugar-check-block`, `sugar-block-read`, `sugar-write-kept`, `path-escape-block`.
@@ -117,7 +119,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Expected behavior: `b: [2]` is written back under `a: [1]`, where it was.
 	- Reproduced: Yes, 20261002, Rust at `d2fbdacd`. Two nested lines with a bad escape do the same.
 	- Possible cause: the lazy level opens only on a line that binds. When nothing under it binds, the writer has no node to put the kept child under.
-	- Note: a silent wrong answer once the values are fixed. Under 2026100207032800 it gets more common, since a bare value with a space is refused the same way. Close the class with a fuzz property: a kept line reloads at the same path, under the same parent lines, after a canonical and a line-keeping save, in all four bindings. Design: `project/design_docs/20261002-131732_strings-escapes-arrays.md`.
+	- Note: a silent wrong answer once the values are fixed. Under 2026100207032800 it gets more common, since a bare value with a space is refused the same way. Close the class with a fuzz property: a kept line reloads at the same path, under the same parent lines, after a canonical and a line-keeping save, in all four bindings. Design: `project/design_docs/value-syntax.md`.
 	- Actual cause: a kept line always took the level of the place it was filed at, and four places filed it away from its parent. Under another kept line nothing opened, so it went to that place's level. Before a dotted line it went to the last name's node, one level too deep. Behind a comment at column 0 that stayed, it went to the next line's level instead of its own block. Before a child fence it went ahead of the field the fence binds again. A kept line among stacked elements also lost its nesting.
 	- Decisions:
 		- 20261002: a field line kept for what it spells nests one level under the kept line before it that it is written under, by the same chain rule comments use, kept apart from the comment chain. Comments keep their old depths.
@@ -129,6 +131,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Swept: every `comment_depth` caller in all four (attach, hang, open_lazy, the end of the parse, keep_among), the field, fence and element arms, and the merge footer dedup. The settle, clear_comments, drop_banners and the fold move whole lead lists or only comments, so they need nothing.
 	- Verified: the four conformance suites, cli-regress (342 rows), crosscheck over the corpus and a 2000-iteration dump that now includes the new property's soup (39564 comparisons), check-docs, check-abnf, shell-regress, test-ids, shellcheck, clippy, go vet, staticcheck, ruff, mypy, gcc 14 and 15 and clang at `-Werror`, and the 2,000,000 release fuzz with the new corpus case. Corpus 188 fails on dev at `dfdd3385` in all four, and so does the fuzz property. The commands behind cli-regress `Era9kPy`, `Era9kPz` and `EraAIXa` give the old output on dev's Rust CLI; the script itself was not run against dev.
 	- Note: cli-regress `Er7gihi` expected exit 7, since the save could not keep its lines once the kept line sat under the dotted line. It now keeps them, the dropped line included, at exit 0. It is commented out with the reason; `EraAIXa` pins the new result and `EraAIXb` keeps the refusal on a save that falls back.
+	- Note: 20261002, comments between nested kept lines should nest too. Filed as 2026100218185700.
 	- Note: the property lives in the Rust fuzz. The other three are held to it through the crosscheck, which now replays its inputs too.
 	- Needs local test suite run?: full `--ci` at the next main push.
 	- Branch: keptnest
@@ -159,7 +162,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261001: `"C:\work\new"` in a 2.x file used to migrate to `"C:\\work\new"` with a newline in it. It now migrates to that same text and exit 7, since that text is `E024`.
 	- Swept: the field and stacked element arms, `SetLiteral`, the double-quoted writer, migrate's value and sugar edits, and its read-back check, in all four bindings. Explain, migrate's lost message and the `lost` field docs in all four.
 	- Verified: same gate list as 2026100115403384, all run on this branch. cli-regress `ErUmRRd`, `ErUmRRe`, `ErUmRRg` to `ErUmRRi` and `ErUn2Bt` fail on dev at `5956ff4a`, and so do corpus 118, 122, 170 and 171.
-	- Note: 20261002, superseded by 2026100207032800. A backslash is plain text under the new rules, so `E024` goes, along with the `\u0009` and `\u000A` spellings. This work stays in the build until that item is built. Design: `project/design_docs/20261002-131732_strings-escapes-arrays.md`.
+	- Note: 20261002, superseded by 2026100207032800. A backslash is plain text under the new rules, so `E024` goes, along with the `\u0009` and `\u000A` spellings. This work stays in the build until that item is built. Design: `project/design_docs/value-syntax.md`.
 	- Superseded by ID: 2026100207032800
 	- Branch: escblock
 	- Commit: c29f08fa
@@ -170,7 +173,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Avg
-	- Note: 20261002, superseded by 2026100207032800. With no backslash escapes, a backslash plays no part in choosing quotes, so nothing here is needed. Design: `project/design_docs/20261002-131732_strings-escapes-arrays.md`.
+	- Note: 20261002, superseded by 2026100207032800. With no backslash escapes, a backslash plays no part in choosing quotes, so nothing here is needed. Design: `project/design_docs/value-syntax.md`.
 	- Superseded by ID: 2026100207032800
 	- Opened: 20261001-153232
 	- Opened by: gitsby feedback
@@ -209,7 +212,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Type: Bug
 	- Status: Queued
 	- Severity: Low
-	- Note: 20261002, an open point in the design for 2026100207032800, which changes much more of format 3. Proposed there: pre-release files are on their own, per the 2.x low-stakes rule. Design: `project/design_docs/20261002-131732_strings-escapes-arrays.md`.
+	- Note: 20261002, an open point in the design for 2026100207032800, which changes much more of format 3. Proposed there: pre-release files are on their own, per the 2.x low-stakes rule. Design: `project/design_docs/value-syntax.md`.
 	- Opened: 20261001-154033
 	- Opened by: silkterm feedback
 	- Related IDs: 2026100115323227
@@ -267,12 +270,29 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Expected behavior: the kept line stays where it was, with the new key after it.
 	- Reproduced: Yes, 20261001, Rust at `5956ff4a`. It reads back the same, so it is cosmetic.
 
+- A comment between nested kept lines is written at column 0
+	- ID: 2026100218185700
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261002-181857
+	- Opened by: question on 2026100213205957
+	- Related IDs: 2026100213205957
+	- Version and build: dev at `b904d681`
+	- Steps to reproduce:
+		- `printf 'a: [1]\n\t# note\n\tb: [2]\n' | shcl fmt -`
+	- Incorrect behavior: `# note` is written at column 0, between `a: [1]` and the nested `b: [2]`.
+	- Expected behavior: the comment nests under `a: [1]`, the same as `b: [2]`.
+	- Reproduced: Yes, 20261002, Rust at `b904d681`. It reads back the same, so it is cosmetic.
+	- Decisions:
+		- 20261002: comments nest under kept lines too.
+
 - No way to ask a setter for single quotes
 	- ID: 2026100115323222
 	- Type: Enhancement
 	- Status: Queued
 	- Priority: Low
-	- Note: 20261002, superseded by 2026100207032800. With no backslash escapes, a backslash plays no part in choosing quotes, so nothing here is needed. Design: `project/design_docs/20261002-131732_strings-escapes-arrays.md`.
+	- Note: 20261002, superseded by 2026100207032800. With no backslash escapes, a backslash plays no part in choosing quotes, so nothing here is needed. Design: `project/design_docs/value-syntax.md`.
 	- Superseded by ID: 2026100207032800
 	- Opened: 20261001-153232
 	- Opened by: gitsby feedback
