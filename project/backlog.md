@@ -399,6 +399,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Requirements:
 		- MacOS gets a universal binary for both amd64 and ARM, if appropriate.
 	- Note: 20261003, no macOS binary is built yet. `cicd/config.bash` defers it for lack of an Apple SDK on the build box, and `install.bash` sends macOS users to build from source. A hosted macOS runner can build both Rust targets and join them with `lipo`. The installers and the release asset names would need a macOS entry too.
+	- Note: 20261003, b26 is an Intel Mac that other projects already use, booked through a lock like the Windows boxes. It can build and test the amd64 half and run `lipo`. The ARM half can be cross-built there but not run, so a hosted ARM runner would still have to test it.
 	- Estimated effort: Avg
 
 - `Remove` of the last key under a repeated header leaves the header and takes the blank line
