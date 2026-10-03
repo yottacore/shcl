@@ -1727,6 +1727,28 @@ def main():
 	kdoc.arena[kept_child(kdoc, "y")]._triv().leading.pop()
 	if kdoc.lost_count() != 1:
 		fails.append(f"kept gate: a merged kept line taken out gave lost_count {kdoc.lost_count()}, want 1")
+
+	test_id("ErfGoMM", "a_replaced_leaf_takes_its_settled_kept_line")
+	# design.md's table: a settled kept line on a leaf the layer replaces goes
+	# with the leaf's comments, so it is no longer owed.
+	kdoc = shcl.Document.parse("x: 0\n\tc: 2\n  a: 5\nb: 1\n")
+	if kdoc.remove("x.c") != 1 or kdoc.to_canonical() != "x: 0\n# a: 5\nb: 1\n":
+		fails.append(f"kept gate: the replaced-leaf fixture wrote {kdoc.to_canonical()!r} after the remove")
+	kdoc.merge(shcl.Document.parse("b: 9\n"))
+	if kdoc.lost_count() != 0 or kdoc.to_canonical() != "x: 0\nb: 9\n":
+		fails.append(f"kept gate: a replaced leaf's settled line lost {kdoc.lost_count()} and wrote {kdoc.to_canonical()!r}")
+
+	test_id("ErfGoMN", "a_footer_line_the_base_has_is_not_owed_twice")
+	# design.md's table: the footer dedup skips a layer's kept line the base
+	# already has, so that copy is not owed.
+	kdoc = shcl.Document.parse("bad name: 1\n")
+	kdoc.merge(shcl.Document.parse("bad name: 1\n"))
+	if kdoc.lost_count() != 0 or kdoc.to_canonical() != "bad name: 1\n":
+		fails.append(f"kept gate: a deduped footer line lost {kdoc.lost_count()} and wrote {kdoc.to_canonical()!r}")
+	# The failure report above has run already, so these end the run here.
+	if fails:
+		test_id_end()
+		raise SystemExit("\n".join(f"FAIL {f}" for f in fails))
 	test_id("EolmVOa", "diagnostics_hand_out_a_copy")
 	# What a read hands out must not be the document's own list: a caller
 	# clearing it used to take the document's diagnostics with it, and a failed
