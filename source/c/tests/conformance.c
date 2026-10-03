@@ -1916,6 +1916,68 @@ int main(int argc, char **argv) {
 		shcl_free(lo); shcl_free(kd);
 		remove(tfile); rmdir(tdir);
 	}
+	// The save gate on kept lines, from inside: once the edits that lose one are
+	// fixed, no public call reaches the gate, so these take a line out by hand.
+	// Same fixture in every runner.
+	test_id("EreWlg6", "a_kept_line_gone_from_the_tree_refuses_the_save");
+	{
+		const char *kbase = "x: 1\nr: [1, 2]\ny: 3\n";
+		shcl_doc *kd = shcl_parse_keep_lines(kbase, strlen(kbase), SHCL_STANDARD);
+		if (shcl_lost_count(kd) != 0) fail("kept_gate", "lost before the edit");
+		ShclVecSize *kids = &kd->nodes.data[0].children; // the root
+		ShclTrivia *yt = kd->nodes.data[kids->data[kids->len - 1]].trivia;
+		if (!yt || yt->leading.len == 0 || !lead_is_kept_line(&yt->leading.data[yt->leading.len - 1])) fail("kept_gate", "no kept line on y");
+		else yt->leading.len--;
+		if (shcl_lost_count(kd) != 1) fail("kept_gate", "lost_count not 1");
+		int kk = 1;
+		shcl_to_text_keep_lines(kd, &kk);
+		if (kk) fail("kept_gate", "the keep save kept lines with one gone");
+		char kdir[256], kfile[288];
+		snprintf(kdir, sizeof kdir, "%s/shcl-keptgate-%ld", tmp_root(), (long)getpid());
+		snprintf(kfile, sizeof kfile, "%s/f.shcl", kdir);
+#ifdef _WIN32
+		if (_mkdir(kdir) != 0) fail("kept_gate", "mkdir failed");
+#else
+		if (mkdir(kdir, 0700) != 0) fail("kept_gate", "mkdir failed");
+#endif
+		FILE *kf = fopen(kfile, "wb");
+		if (kf) { fputs(kbase, kf); fclose(kf); }
+		if (shcl_save_file(kd, kfile) != SHCL_SAVE_REFUSED) fail("kept_gate", "save_file did not refuse");
+		if (shcl_save_file_keep_lines(kd, kfile, &kk) != SHCL_SAVE_REFUSED) fail("kept_gate", "save_file_keep_lines did not refuse");
+		size_t kn = 0; shcl_file_status kst;
+		char *kt = shcl_read_file(kfile, 0, &kn, &kst);
+		if (!kt || kn != strlen(kbase) || memcmp(kt, kbase, kn) != 0) fail("kept_gate", "the file changed");
+		free(kt);
+		shcl_free(kd);
+		remove(kfile); rmdir(kdir);
+	}
+	// design.md's table: a remove takes the kept line written as the field's own
+	// line, and nothing beside it.
+	test_id("EreWli7", "a_remove_takes_the_kept_line_heading_its_field");
+	{
+		const char *ht = "a: [1]\n\tb: 2\ny: 3\n";
+		shcl_doc *hd = shcl_parse(ht, strlen(ht));
+		if (shcl_remove(hd, "a", 1) != 1) fail("kept_gate", "remove a failed");
+		if (shcl_lost_count(hd) != 0) fail("kept_gate", "removing a field opened from a kept line counted it lost");
+		shcl_str hc = shcl_to_canonical(hd);
+		if (hc.n != 5 || memcmp(hc.p, "y: 3\n", 5) != 0) fail("kept_gate", "removing a field opened from a kept line left more than y");
+		shcl_free(hd);
+	}
+	test_id("EreWlk5", "a_merged_layer_owes_its_kept_lines");
+	{
+		const char *kbase = "x: 1\nr: [1, 2]\ny: 3\n";
+		shcl_doc *md = shcl_parse("a: 1\n", 5);
+		shcl_doc *ml = shcl_parse(kbase, strlen(kbase));
+		shcl_merge(md, ml);
+		shcl_str mc = shcl_to_canonical(md);
+		if (shcl_lost_count(md) != 0 || !contains(mc.p, mc.n, "r: [1, 2]\n")) fail("kept_gate", "a merged layer's kept line counted as lost or went missing");
+		// Owed, not just present: taking it out again is a loss.
+		ShclVecSize *mk = &md->nodes.data[0].children;
+		ShclTrivia *my = md->nodes.data[mk->data[mk->len - 1]].trivia;
+		if (my && my->leading.len) my->leading.len--;
+		if (shcl_lost_count(md) != 1) fail("kept_gate", "a merged kept line taken out did not count as lost");
+		shcl_free(ml); shcl_free(md);
+	}
 	// set_raw: the body's shared indent survives a reload (the closing fence's
 	// indent is what comes off), the info-string is stored as a fence line
 	// reads it back, and an info with a line break or a `#` has no spelling and
