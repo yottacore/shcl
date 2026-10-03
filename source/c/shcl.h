@@ -356,7 +356,7 @@ size_t shcl_line(shcl_doc *d, const char *path, size_t plen);
 // reason the raw text does: C keeps those two fields wide.
 int shcl_quoted(shcl_doc *d, const char *path, size_t plen);
 
-// The field name at a path exactly as the author spelled it (case unfolded,
+// The field name at a path exactly as the author wrote it (case unfolded,
 // outer quotes stripped), so a message can echo SYMBOLS when the file said
 // SYMBOLS. Escape sequences stay as written too: a name is stored, compared
 // and emitted with its escapes RESOLVED, so this is the one call that hands the
@@ -390,7 +390,7 @@ size_t shcl_paths(shcl_doc *d, shcl_str **out);
 // shcl_paths one instance at a time: every binding's path in file order, with
 // `[#i]` on each segment whose name repeats under its parent, so each path
 // reads exactly one node and a repeated block is walked instance by instance.
-// Segments are spelled as shcl_paths spells them. Returns the count; *out
+// Segments are written as shcl_paths writes them. Returns the count; *out
 // stays valid until shcl_free, or until shcl_reads_release.
 size_t shcl_instance_paths(shcl_doc *d, shcl_str **out);
 // Quote one path segment so it can be spliced into a lookup path: a bare name
@@ -550,7 +550,7 @@ size_t shcl_tokens_element_count(const shcl_tokens *t);
 #define SHCL_FORMAT_LINE_HEAD "##    Format   "
 #define SHCL_FORMAT_LINE "##    Format   3"
 #define SHCL_MIGRATED_LINE "##    Migrated from SHCL 2.x."
-// The start of a line naming the file's schema, spelled like the Format line,
+// The start of a line naming the file's schema, written like the Format line,
 // for check and for editors: `##    Schema   ./app.schema.shcl`.
 #define SHCL_SCHEMA_LINE_HEAD "##    Schema   "
 
@@ -622,7 +622,7 @@ size_t shcl_clear_comments(shcl_doc *d, const char *path, size_t plen);
 // Put the info block (SHCL_GEN_BANNER) at the end of the document, or with on
 // 0 just take it off. An old block comes off first, found by its "This config
 // file format is SHCL." line or its version line, never by its links or Legal
-// line, which a later release may spell differently. A version line
+// line, which a later release may word differently. A version line
 // shcl_migrate stamped counts too. A block is a run of "##" lines with no blank
 // inside, so a "##" comment of the file's own, written right against it, goes
 // with it. It is looked for in the footer and above every field but the first
@@ -749,7 +749,7 @@ int shcl_status_ok(shcl_status s);
 #include <setjmp.h>
 #include <locale.h>
 
-// SHCL spells a float with '.', but strtod and printf use whatever the host
+// SHCL writes a float with '.', but strtod and printf use whatever the host
 // locale calls the decimal point - so in a consumer that has called setlocale
 // both directions of float conversion need translating. The CLI never sets a
 // locale, which is why only library callers ever saw this.
@@ -1134,10 +1134,10 @@ typedef struct {
 
 typedef struct {
 	ShclStr name;
-	/* The name as the author spelled it (case unfolded, quotes and escapes
+	/* The name as the author wrote it (case unfolded, quotes and escapes
 	   resolved) - what shcl_authored_name hands back, via node_authored.
 	   Merged instances keep the first binding's spelling, like shcl_line and
-	   comments. Empty = spelled exactly like `name` (the overwhelmingly
+	   comments. Empty = written exactly like `name` (the overwhelmingly
 	   common case). */
 	ShclStr name_src;
 	ShclValue value;
@@ -1642,7 +1642,7 @@ static int element_of(ShclArena *a, const ShclPiece *p, ShclStr text, ShclElemen
 	return 1;
 }
 
-// The value the tokenized pieces spell. Element texts go into `a` (only when
+// The value the tokenized pieces give. Element texts go into `a` (only when
 // built - see piece_text); the growing element vector is a per-call temporary
 // and goes to `tmp`, so only the exact-size final array reaches the document
 // arena.
@@ -1664,7 +1664,7 @@ static ShclValue cell_of_tokens(ShclArena *a, ShclArena *tmp, const ShclTokens *
 static int literal_value(ShclArena *a, ShclArena *tmp, ShclStr text, ShclValue *out);
 
 /* The character a \u or \U escape names, from the hex digits in after: four
-   after u, eight after U, as in TOML. Returns how many digits spell it, or 0
+   after u, eight after U, as in TOML. Returns how many digits it takes, or 0
    for a short run, a surrogate or a value past U+10FFFF. */
 static size_t unicode_escape(unsigned char kind, ShclStr after, uint32_t *cp) {
 	size_t n = kind == 'u' ? 4 : 8;
@@ -1732,7 +1732,7 @@ static int invisible(uint32_t c) {
    cannot carry hidden text. */
 static int selector_base(uint32_t c) { return c > ' ' && c != 0x200C && c != 0x200D && !invisible(c); }
 static int flag_spec(uint32_t c) { return (c >= 0xE0030 && c <= 0xE0039) || (c >= 0xE0061 && c <= 0xE007A); }
-/* Whether the tag at t[i] is part of a subdivision flag, as UTS #51 spells
+/* Whether the tag at t[i] is part of a subdivision flag, as UTS #51 defines
    one: U+1F3F4, three to seven tag digits or lowercase tag letters, and the
    cancel tag. */
 static int flag_tag(ShclStr t, size_t i) {
@@ -1767,7 +1767,7 @@ static size_t invisible_at(ShclStr t, size_t i, uint32_t *cp) {
 	if (*cp >= 0xE0020 && *cp <= 0xE007F) return flag_tag(t, i) ? 0 : l;
 	return l;
 }
-/* \u takes four digits, so a character past U+FFFF is spelled with \U. */
+/* \u takes four digits, so a character past U+FFFF is written with \U. */
 static void sb_put_unicode_escape(ShclArena *a, ShclSB *s, uint32_t cp) {
 	static const char hex[] = "0123456789ABCDEF";
 	int digits = cp > 0xFFFF ? 8 : 4;
@@ -2023,7 +2023,7 @@ static int scaled(ShclStr ip, ShclStr fp, uint64_t scale, uint64_t *out) {
 	}
 	*out = total; return 1;
 }
-/* A duration in whole milliseconds, and the units the text spelled as a bit
+/* A duration in whole milliseconds, and the units the text used, as a bit
    set (bit u for unit u): parts such as `1h 30m`, largest unit first and each
    once, with blanks allowed between a number and its unit and between parts.
    A bare number takes bare, and fails without one. No sign. */
@@ -2057,7 +2057,7 @@ static int parse_duration_text(ShclStr t, shcl_duration_unit bare, int64_t *ms, 
 	if (last == SHCL_DURATION_NONE || total > SHCL_DURATION_MAX_MS) return 0;
 	*ms = (int64_t)total; return 1;
 }
-/* A size in whole bytes, and the unit the text spelled (NONE for a bare
+/* A size in whole bytes, and the unit the text used (NONE for a bare
    number): a number, blanks allowed, then a unit. A bare number takes bare,
    and fails without one. No sign. */
 static int parse_size_text(ShclStr t, shcl_size_unit bare, int decimal, int64_t *bytes, shcl_size_unit *unit) {
@@ -2134,16 +2134,16 @@ static ShclStr disp_key(ShclArena *a, const ShclValue *v) {
 	return value_display(a, v);
 }
 
-// FNV-1a, fed the same byte sequence the old built key strings spelled - the
-// accelerator maps key on a u64 and a hit verifies against the arena, so the
-// strings themselves never get built. The hash only has to be stable within
-// one parse, not injective; a collision just chains in the slot.
+// FNV-1a, fed the same byte sequence the old built key strings contained -
+// the accelerator maps key on a u64 and a hit verifies against the arena, so
+// the strings themselves never get built. The hash only has to be stable
+// within one parse, not injective; a collision just chains in the slot.
 static uint64_t fnv_byte(uint64_t h, unsigned char b) { return (h ^ b) * 1099511628211ull; }
 static uint64_t fnv_str(uint64_t h, ShclStr s) {
 	for (size_t i = 0; i < s.n; i++) h = fnv_byte(h, (unsigned char)s.p[i]);
 	return h;
 }
-/* A length prefix in decimal, spelled without allocating. */
+/* A length prefix in decimal, written without allocating. */
 static uint64_t fnv_dec(uint64_t h, size_t n) {
 	char buf[20];
 	size_t i = sizeof buf;
@@ -2213,7 +2213,7 @@ static int merge_eq(ShclStr name_a, const ShclValue *va, ShclStr name_b, const S
 
 
 /* Hash of the (name, display) pair a `[value]` selector matches with - what
-   disp_key spells, streamed instead of built. */
+   disp_key gives, streamed instead of built. */
 static uint64_t disp_hash(ShclStr name, const ShclValue *v) {
 	uint64_t h = 1469598103934665603ull;
 	h = fnv_str(h, name);
@@ -2328,7 +2328,7 @@ static int reads_same(ShclArena *a, ShclStr spelling, int quoted, ShclStr logica
 		&& s_eq(piece_text(a, &tok.elements[0], spelling), logical);
 }
 
-/* How a re-spelled piece is written. 2.x read a backslash in bare and
+/* How a changed piece is written. 2.x read a backslash in bare and
    single-quoted text as an escape too, and double quotes are where both rule
    sets read one alike. No \u goes in, since 2.x would keep it as written.
    So the migrated file reads the same under 2.x, and a second run changes
@@ -2354,7 +2354,7 @@ typedef struct { int from_v2; size_t ambiguous; size_t lost; } ShclMigrating;
 
 /* The re-spellings a value's pieces need. Each piece is read the 2.x way
    (escapes everywhere, an open quote kept whole, a quote at both ends making
-   it quoted) and re-spelled only where the current rules would read the same
+   it quoted) and rewritten only where the current rules would read the same
    text as something else. */
 static void value_edits(ShclArena *a, ShclStr text, const ShclTokens *tok, ShclVecEdit *edits, ShclMigrating *st) {
 	for (size_t i = 0; i < tok->nelem; i++) {
@@ -2373,7 +2373,7 @@ static void value_edits(ShclArena *a, ShclStr text, const ShclTokens *tok, ShclV
 		int differs = p->quote == SHCL_QUOTE_DOUBLE ? unicode_pair_differs(raw) : !s_eq(logical, raw);
 		if (differs && !st->from_v2) { st->ambiguous++; continue; }
 		ShclStr spelling = migrate_spelling(a, logical, !(quoted || p->quote == SHCL_QUOTE_OPEN));
-		/* Spelled the way 2.x read it, the line is E024 and binds nothing. */
+		/* Written the way 2.x read it, the line is E024 and binds nothing. */
 		if (spells_path_escape(spelling)) st->lost++;
 		edit_push(a, edits, ea, eb, spelling);
 	}
@@ -2433,7 +2433,7 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 					   one - and an index or the wildcard was refused as a
 					   selector, so those stay as written. A bare body moves
 					   into a value, where a fence run opens a raw block and a
-					   leading `[` is bracket text, so the emitter spells it. */
+					   leading `[` is bracket text, so the emitter writes it. */
 					if (!quoted && (index_shape(body) || (body.n == 1 && body.p[0] == '*'))) return rest;
 					/* 2.x bound the bracket array, as one folded string. There
 					   is no spelling to move that to - a value beginning with
@@ -2621,12 +2621,12 @@ static ShclStr migrate(ShclArena *a, ShclArena *sc, ShclStr text, ShclMigrating 
 typedef struct { ShclArena a, sc; } ShclMigrateOwn;
 
 /* Rewrite a document written under the 2.x rules so this parser reads the
-   same tree. Each line is read with the 2.x tokenizer and re-spelled only
+   same tree. Each line is read with the 2.x tokenizer and rewritten only
    where the two rule sets disagree: a bare or single-quoted piece whose
    backslash meant an escape is double-quoted with that escape; a piece that
    opened a quote it never closed is quoted whole; the name:[disc] selector
    sugar loses its colon, and on a last segment becomes `name: disc`, with
-   `disc` spelled the way the formatter spells a value. A re-spelled piece
+   `disc` written the way the formatter writes a value. A rewritten piece
    holding a backslash is double-quoted, so the result reads the same under
    2.x and a second run changes nothing.
    Everything else - comments, blank lines, raw bodies, layout, a line 2.x
@@ -2831,7 +2831,7 @@ static int bracket_text(const ShclTokens *tok, ShclStr text) {
 	return p.quote == SHCL_QUOTE_NONE && p.end > p.start && p.start < text.n && text.p[p.start] == '[';
 }
 
-/* The path the tokens spell. ok == 0 with err is the tokenizer's fault: input
+/* The path the tokens give. ok == 0 with err is the tokenizer's fault: input
    that is not a path at all, which the caller skips with a diagnostic. */
 static ShclPathScan path_of(ShclArena *a, const ShclTokens *tok, ShclStr text) {
 	ShclPathScan ps; ps.ok = 0; memset(&ps.segs, 0, sizeof ps.segs); ps.has_value = 0; ps.value_text = s_empty(); ps.err = s_empty();
@@ -3831,7 +3831,7 @@ static void hang_deeper_pending(ShclParser *P, ShclStr new_indent) {
 				}
 			}
 			/* A root node's trailing comment emits at column zero, which is
-			   exactly how the document's own trailing comment is spelled, so
+			   exactly how the document's own trailing comment is written, so
 			   keeping the two apart here made a merge depend on whether the
 			   layer had been formatted first. Let it orphan, the way a reload
 			   of this document's own output reads it. A comment deeper than the
@@ -3972,7 +3972,7 @@ static void p_refuse(ShclParser *P, size_t line, const char *code, ShclStr msg, 
 		ShclVecSize_push(&P->d->arena, &P->d->dropped, line);
 	if (out.kind == OUT_RETAINED) {
 		/* A line kept as written never hangs on a block: its indent is not one
-		   the output's levels are spelled with, so the block it would match
+		   the output's levels are written with, so the block it would match
 		   here is not the one it matches on a reload. It waits for the next
 		   binding line, as do the pending lines after it. */
 		ShclPend pd; pd.text = out.text; pd.indent = indent; pd.blank_before = out.blank_before; pd.line = line;
@@ -3991,7 +3991,7 @@ static void p_refuse(ShclParser *P, size_t line, const char *code, ShclStr msg, 
 /* A line refused for where it sits rather than for what it says: E012, or
    E018 under one. Written back exactly as it was, it sits the same way on a
    reload, as long as its indent holds a space, since no level the emitter
-   opens is spelled with one. A tab-only indent would bind there, and a line
+   opens is written with one. A tab-only indent would bind there, and a line
    opening a raw block would take its body along, so those are dropped. An
    E018 line is kept only under a kept E012 one. rest is the trimmed line
    after its indent and any blanks. */
@@ -4777,7 +4777,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 		if (!scan.ok) {
 			ShclSB m = {0}; sb_puts(P.line, &m, "malformed line skipped: "); sb_putS(P.line, &m, scan.err);
 			/* The column counts bytes from the line start, so all four bindings
-			   spell it the same on non-ASCII text. */
+			   report it the same on non-ASCII text. */
 			sb_puts(P.line, &m, ", at column "); sb_put_u64(P.line, &m, (uint64_t)(indent.n + lead + tok.fault_at + 1));
 			/* Content-malformed at any position, so retained - except a line led
 			   by a BOM, which the file-start strip would rewrite into something
@@ -4791,7 +4791,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 		   and the same code: the body is read bare, quotes and all, so the line
 		   still binds - somewhere the author did not mean. */
 		if (selector_open_quote(&tok)) p_err(&P, lineno, "E017", s_lit("unterminated quote in selector"));
-		/* A value spelled the way JSON, TOML and YAML spell an array, or an
+		/* A value written the way JSON, TOML and YAML write an array, or an
 		   escape that cannot be read as written or as an escape without
 		   guessing. The brackets are not a selector after the colon, and
 		   reading the text without them would bake a changed value in, so the
@@ -5565,7 +5565,7 @@ static int w_place(shcl_doc *d, ShclStr path, size_t *out) {
 	size_t *trail = (size_t *)arena_alloc(t, (ps.segs.len ? ps.segs.len : 1) * sizeof(size_t));
 	if (w_probe_write(d, t, &ps, trail) != SHCL_W_WRITABLE) return 0;
 	/* Nothing is created until every segment the write would create is known
-	   to spell back: the name through the name escaper, an instance selector
+	   to read back: the name through the name escaper, an instance selector
 	   as the value it binds. */
 	for (size_t i = 0; i < ps.segs.len; i++) {
 		const ShclSegment *seg = &ps.segs.data[i];
@@ -5973,7 +5973,7 @@ int shcl_set_bool(shcl_doc *d, const char *path, size_t plen, int v) { ShclArena
 int shcl_set_string(shcl_doc *d, const char *path, size_t plen, const char *s, size_t slen) { ShclArena *a = &d->arena; ShclStr p; p.p = path; p.n = plen; ShclStr in; in.p = s; in.n = slen; ShclMark m = arena_mark(a); return w_set_marked(d, p, w_cell1(a, s_dup(a, in)), m); }
 
 /* Read text as the value half of a line, for the setters that take value
-   syntax rather than data: whatever a file line spells with this text is what
+   syntax rather than data: whatever a file line means with this text is what
    gets stored, so a trailing blank comes off and a `#` outside quotes ends
    the value exactly as they would in a file. What is refused is what a
    file reports as an error, since a setter has no diagnostic to report it
@@ -6680,7 +6680,7 @@ static ShclStr quote_text_as(ShclArena *a, ShclStr t, shcl_rules rules) {
 static ShclStr quote_double_with(ShclArena *a, ShclStr t, shcl_rules rules, int path);
 static ShclStr quote_double_as(ShclArena *a, ShclStr t, shcl_rules rules) {
 	ShclStr out = quote_double_with(a, t, rules, 0);
-	/* Spelled \t or \n, a path is E024 on the reload, and a \u escape reads
+	/* Written \t or \n, a path is E024 on the reload, and a \u escape reads
 	   the same. 2.x kept one as written, so for 2.x a tab goes in as it is, and
 	   a line break has no spelling: migrate counts that one lost. */
 	if (spells_path_escape(out)) return quote_double_with(a, t, rules, 1);
@@ -6770,7 +6770,7 @@ static ShclStr emit_element(ShclArena *a, const ShclElement *e) {
 	int needs = needs_quotes(t) || (e->quoted && !is_data_format(a, e));
 	return needs ? quote_text(a, t) : t;
 }
-// An element no source spelled. It counts as quoted when canonical output will
+// An element no source wrote. It counts as quoted when canonical output will
 // quote it, so a read gives the same answer before a save as after one.
 static ShclElement new_element(ShclStr text) {
 	ShclElement e; e.text = text; e.quoted = needs_quotes(text); return e;
@@ -6802,12 +6802,12 @@ static ShclStr escape_name_as(ShclArena *a, ShclStr name, shcl_rules rules) {
 	return sb_S(&b);
 }
 static ShclStr emit_name(ShclArena *a, ShclStr name) { return escape_name(a, name); }
-/* A field name for a diagnostic message: spelled the way the emitter would
+/* A field name for a diagnostic message: put the way the emitter would
    write it, so a name carrying a line break, a dot or a quote cannot pose as
    something it is not - a raw `a.b` reads exactly like `a` nesting `b`, and a
    raw line break splits one diagnostic across two. */
 static ShclStr diag_name(ShclArena *a, ShclStr name) { return escape_name(a, name); }
-/* One element of a value, spelled for a diagnostic message: the emitter's
+/* One element of a value, written for a diagnostic message: the emitter's
    inline spelling, so a value carrying a line break cannot split one
    diagnostic across two. */
 static ShclStr diag_element(ShclArena *a, const ShclElement *e) { return emit_element(a, e); }
@@ -6965,7 +6965,7 @@ typedef struct {
 	ShclVecSize near; size_t flushed; ShclVecSize kept_near;
 	/* shcl_to_text_keep_lines only: where the lines from each source line
 	   start (offset, line; 0 for none), each raw body with the tabs its lines
-	   are padded with (start, end, pad), and where each value is spelled on
+	   are padded with (start, end, pad), and where each value is written on
 	   its binding line (start, end), all flat. */
 	int lines; ShclVecSize marks, bodies, spans;
 } ShclEmit;
@@ -7524,7 +7524,7 @@ static ShclVecUnit group_units(ShclArena *a, const ShclVecUnit *units, const siz
 	return groups;
 }
 
-/* One level's indent as the source spells it, when known. */
+/* One level's indent as the source writes it, when known. */
 typedef struct { int has; ShclStr s; } ShclIndent;
 DEFINE_VEC(ShclVecIndent, ShclIndent)
 
@@ -7609,8 +7609,8 @@ static ShclSrcLine src_line(ShclStr line) {
 	return r;
 }
 
-/* A binding line the edits rewrote, with the name spelled the way the source
-   line spelled it. 0 unless both lines bind one plain name. */
+/* A binding line the edits rewrote, with the name written the way the source
+   line wrote it. 0 unless both lines bind one plain name. */
 static int authored_head(ShclArena *a, ShclStr src, ShclStr canon, ShclStr *out) {
 	ShclSrcLine sl = src_line(src);
 	ShclStr c = s_slice(canon, tabs_of(canon), canon.n);
@@ -8353,7 +8353,7 @@ typedef struct {
 	int has_min_i, has_max_i, has_min_f, has_max_f;
 	int64_t min_i, max_i; double min_f, max_f;
 	/* duration and size: the unit a bare number takes when the field name
-	   gives none, base 10 for KB to TB, and the bounds as the schema spelled
+	   gives none, base 10 for KB to TB, and the bounds as the schema wrote
 	   them, since min_i and max_i hold them in milliseconds or bytes. */
 	shcl_duration_unit unit_d; shcl_size_unit unit_s; int decimal;
 	ShclStr min_text, max_text;
@@ -8398,7 +8398,7 @@ static void v_diag(ShclArena *a, ShclVecDiag *out, size_t line, const char *code
 }
 static ShclStr v_msgz(ShclArena *a, const char *z) { ShclStr s; s.p = z; s.n = strlen(z); return s_dup(a, s); }
 /* Schema text for a diagnostic or a generated comment: a path or a type as the
-   schema wrote it, with a line break spelled `\n`, so one diagnostic stays one
+   schema wrote it, with a line break written `\n`, so one diagnostic stays one
    line. Only the break is escaped, so a path reads the way it was written. */
 static ShclStr schema_text(ShclArena *a, ShclStr s) {
 	int has = 0;
@@ -8571,7 +8571,7 @@ static int v_parse_field(ShclArena *a, shcl_doc *schema, size_t f, ShclVecDiag *
 		} else if (s_eq(kid->name, s_lit("desc"))) {
 			// Generator-only (`shcl init`); validation ignores it. First wins.
 			// A comma in a sentence makes the value several elements, and the
-			// comment is prose: take them all, spelled as written.
+			// comment is prose: take them all, kept as written.
 			if (!c.has_desc && kid->value.kind == V_CELL) {
 				ShclSB s = {0, 0, 0};
 				for (size_t x = 0; x < kid->value.nels; x++) { if (x) sb_puts(a, &s, ", "); sb_putS(a, &s, kid->value.els[x].text); }
@@ -8608,7 +8608,7 @@ static int v_parse_field(ShclArena *a, shcl_doc *schema, size_t f, ShclVecDiag *
 	}
 	int is_duration = strcmp(base, "duration") == 0, is_size = strcmp(base, "size") == 0;
 	/* `unit` and `decimal` belong to the types that read a bare number in
-	   one, and a unit has to be one that type spells. */
+	   one, and a unit has to be one that type takes. */
 	if (unit_at != (size_t)-1) {
 		ShclNode *kid = &NODE(schema, unit_at);
 		ShclStr t = kid->value.els[0].text;
@@ -9954,7 +9954,7 @@ static FILE *shcl_fopen_rb(const char *path) {
 #ifdef _WIN32
 	// Through the same resolver the write side uses, so a read past MAX_PATH
 	// works too: the narrow and wide file calls both refuse such a path unless
-	// it carries the long-path prefix. A path the resolver cannot spell is
+	// it carries the long-path prefix. A path the resolver cannot resolve is
 	// opened as given, which is what it did before. A read never probes a
 	// dangling link: the probe creates a file where the link points, and a
 	// read has nothing to create.
@@ -10597,7 +10597,7 @@ static ShclStr v_gen_annotation(ShclArena *a, const ShclVCons *c, ShclStr tyname
 	}
 	// The bounds are their own part of the annotation line, not an alternative
 	// to `allowed`. A field can carry both, and the validator enforces both. A
-	// duration or size bound reads the way the schema spelled it.
+	// duration or size bound reads the way the schema wrote it.
 	if (c->min_text.n || c->max_text.n) {
 		sb_puts(a, &s, ", ");
 		if (c->min_text.n && c->max_text.n) { sb_putS(a, &s, c->min_text); sb_putc(a, &s, '-'); sb_putS(a, &s, c->max_text); }
@@ -10640,7 +10640,7 @@ static int g_has_wild(const ShclVCons *c) {
 // `[#N]` needs a pre-existing instance and its `#` would start a comment on a
 // binding line. A path deeper than a document may nest cannot be generated
 // either: the line would draw E016 on the way back in. A newline in a name or a
-// by-value selector is writable, since both are spelled escaped.
+// by-value selector is writable, since both are written escaped.
 // The reason doubles as the predicate, so the refusal cannot name a path for a
 // reason generation did not act on.
 static const char *g_why_unwritable(const ShclVCons *c) {
@@ -10758,7 +10758,7 @@ static int path_reads_back(ShclArena *a, ShclStr path, const ShclVecSeg *segs) {
    out of that line's value, and each candidate is scanned back the way a file
    line is scanned, so none of the scanner's rules is copied here to go stale.
    That copy was the cause twice: an all-digit body past 64 bits, and a quoted
-   array element spelled as the body. One element tries the spelling it was
+   array element written as the body. One element tries the spelling it was
    written in first; an array has only the bare body, since a quoted selector
    matches one element only, and a bare one the elements joined. */
 static int gen_selector_text(ShclArena *a, ShclStr v, ShclStr *out) {

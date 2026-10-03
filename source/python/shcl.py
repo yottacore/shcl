@@ -182,7 +182,7 @@ class Read(Generic[T]):
 		self.line = 0
 		self.quoted = False
 
-	# The reference derives Debug. Enum members are spelled with str(), since a
+	# The reference derives Debug. Enum members are written with str(), since a
 	# list's repr would print the slots as <Status.Good: 0> beside a plain
 	# Status.Good for .status.
 	def __repr__(self) -> str:
@@ -315,7 +315,7 @@ DateTime = ShclDateTime
 
 def format_float(v: float) -> str:
 	"""Float -> string, matching the reference: positional, shortest round-trip,
-	never scientific. inf/NaN spelled as the reference spells them."""
+	never scientific. inf/NaN written as the reference writes them."""
 	if v != v:
 		return "NaN"
 	if v == math.inf:
@@ -498,7 +498,7 @@ def _raw(content, info, fence_char, fence_len):
 
 def _literal_value(text):
 	# Read text as the value half of a line, for the setters that take value
-	# syntax rather than data: whatever a file line spells with this text is
+	# syntax rather than data: whatever a file line means with this text is
 	# what gets stored, so a trailing blank comes off and a `#` outside quotes
 	# ends the value exactly as they would in a file. What is refused is what a
 	# file reports as an error, since a setter has no diagnostic to
@@ -626,7 +626,7 @@ class _Node:
 		# ASCII-folded to lower; non-ASCII never folds. Interned: siblings and
 		# repeated sections share one string object instead of one per node.
 		self.name = sys.intern(name)
-		# The name as the author spelled it (case unfolded, quotes and escapes
+		# The name as the author wrote it (case unfolded, quotes and escapes
 		# resolved) - what authored_name() hands back. Merged instances keep the
 		# first binding's spelling, like line() and comments. The same object as
 		# `name` when the spellings match (the overwhelmingly common case), so
@@ -1411,7 +1411,7 @@ def _element_of(p, s):
 
 
 def _cell_of_tokens(tok, s):
-	"""The value the tokenized pieces spell."""
+	"""The value the tokenized pieces give."""
 	els = []
 	for p in tok.elements:
 		e = _element_of(p, s)
@@ -1429,7 +1429,7 @@ def _one_line(s):
 
 def _schema_text(s):
 	# Schema text for a diagnostic or a generated comment: a path or a type as
-	# the schema wrote it, with a line break spelled `\n`, so one diagnostic
+	# the schema wrote it, with a line break written `\n`, so one diagnostic
 	# stays one line. Only the break is escaped, so a path reads the way it was
 	# written.
 	return s.replace("\n", "\\n")
@@ -1501,8 +1501,8 @@ _HEX_CHARS = frozenset("0123456789abcdefABCDEF")
 
 
 def _unicode_escape(kind, after):
-	"""The character a \\u or \\U escape names, and how many hex digits spell
-	it: four after u, eight after U, as in TOML. None for a short run, a
+	"""The character a \\u or \\U escape names, and how many hex digits it
+	takes: four after u, eight after U, as in TOML. None for a short run, a
 	surrogate or a value past U+10FFFF."""
 	n = 4 if kind == "u" else 8
 	digits = after[:n]
@@ -1584,9 +1584,9 @@ def _flag_spec(c):
 
 
 def _flag_tag(t, i):
-	"""Whether the tag at t[i] is part of a subdivision flag, as UTS #51 spells
-	one: U+1F3F4, three to seven tag digits or lowercase tag letters, and the
-	cancel tag."""
+	"""Whether the tag at t[i] is part of a subdivision flag, as UTS #51
+	defines one: U+1F3F4, three to seven tag digits or lowercase tag letters,
+	and the cancel tag."""
 	start = i
 	while start > 0 and _flag_spec(t[start - 1]):
 		start -= 1
@@ -1608,7 +1608,7 @@ def _has_invisible(t):
 
 
 def _unicode_escape_text(c):
-	# \u takes four digits, so a character past U+FFFF is spelled with \U.
+	# \u takes four digits, so a character past U+FFFF is written with \U.
 	if ord(c) > 0xFFFF:
 		return f"\\U{ord(c):08X}"
 	return f"\\u{ord(c):04X}"
@@ -1841,12 +1841,12 @@ def _track_fence(rest: str, tok: Tokens, fence: tuple[str, int] | None, dry: _Mi
 
 def migrate(text: str, from_v2: bool) -> Migration:
 	"""Rewrite a document written under the 2.x rules so this parser reads the
-	same tree. Each line is read with the 2.x tokenizer and re-spelled only
+	same tree. Each line is read with the 2.x tokenizer and rewritten only
 	where the two rule sets disagree: a bare or single-quoted piece whose
 	backslash meant an escape is double-quoted with that escape; a piece that
 	opened a quote it never closed is quoted whole; the `name:[disc]` selector
 	sugar loses its colon, and on a last segment becomes `name: disc`, with
-	`disc` spelled the way the formatter spells a value. A re-spelled piece
+	`disc` written the way the formatter writes a value. A rewritten piece
 	holding a backslash is double-quoted, so the result reads the same under
 	2.x and a second run changes nothing.
 	Everything else - comments, blank lines, raw bodies, layout, a line 2.x
@@ -1962,7 +1962,7 @@ def _reads_same(spelling, quoted, logical):
 
 
 def _migrate_spelling(logical, bare):
-	"""How a re-spelled piece is written. 2.x read a backslash in bare and
+	"""How a changed piece is written. 2.x read a backslash in bare and
 	single-quoted text as an escape too, and double quotes are where both rule
 	sets read one alike. No \\u goes in, since 2.x would keep it as written.
 	So the migrated file reads the same under 2.x, and a second run changes
@@ -1987,7 +1987,7 @@ def _v2_bracket_array(body):
 def _value_edits(s, tok, edits, st):
 	"""The re-spellings a value's pieces need. Each piece is read the 2.x way
 	(escapes everywhere, an open quote kept whole, a quote at both ends making
-	it quoted) and re-spelled only where the current rules would read the
+	it quoted) and rewritten only where the current rules would read the
 	same text as something else."""
 	for p in tok.elements:
 		raw = s[p.start:p.end].decode("utf-8", "surrogatepass")
@@ -2014,14 +2014,14 @@ def _value_edits(s, tok, edits, st):
 			st.ambiguous += 1
 			continue
 		spelling = _migrate_spelling(logical, not (quoted or p.quote is Quote.OPEN))
-		# Spelled the way 2.x read it, the line is E024 and binds nothing.
+		# Written the way 2.x read it, the line is E024 and binds nothing.
 		if spelling.startswith('"') and _spells_path_escape(spelling):
 			st.lost += 1
 		edits.append((a, b, spelling.encode("utf-8", "surrogatepass")))
 
 
 def _migrate_line(rest, tok, fence, st):
-	"""One line's content after its indent, re-spelled. Returns the text and
+	"""One line's content after its indent, rewritten. Returns the text and
 	the fence a raw block it opened is closed by (None when it opened none)."""
 	if not rest or rest.startswith("#"):
 		return rest, fence
@@ -2086,7 +2086,7 @@ def _migrate_line(rest, tok, fence, st):
 					# one - and an index or the wildcard was refused as a
 					# selector, so those stay as written. A bare body moves
 					# into a value, where a fence run opens a raw block and a
-					# leading `[` is bracket text, so the emitter spells it.
+					# leading `[` is bracket text, so the emitter writes it.
 					if not quoted and (_index_shape(body) or body == "*"):
 						return rest, fence
 					# 2.x bound the bracket array, as one folded string. There
@@ -2362,7 +2362,7 @@ def _bracket_text(tok):
 
 
 def _path_of(tok, s):
-	"""The path the tokens spell: (segments, value_text), value_text None when
+	"""The path the tokens give: (segments, value_text), value_text None when
 	there was no separator. Raises _PathError with the tokenizer's fault:
 	input that is not a path at all, which the caller skips with a
 	diagnostic."""
@@ -2732,7 +2732,7 @@ class _Parser:
 						at = (si, node, len(ind) == len(p.indent) and not column)
 						break
 				# A root node's trailing comment emits at column zero, which is
-				# exactly how the document's own trailing comment is spelled, so
+				# exactly how the document's own trailing comment is written, so
 				# keeping the two apart here made a merge depend on whether the
 				# layer had been formatted first. Let it orphan, the way a
 				# reload of this document's own output reads it. A comment
@@ -2808,7 +2808,7 @@ class _Parser:
 		if outcome.kind == "retained":
 			p = _Pend(outcome.text, indent, outcome.blank_before, line)
 			# A line kept as written never hangs on a block: its indent is not
-			# one the output's levels are spelled with, so the block it would
+			# one the output's levels are written with, so the block it would
 			# match here is not the one it matches on a reload. It waits for
 			# the next binding line, as do the pending lines after it.
 			if outcome.text.startswith((" ", "\t")):
@@ -2824,7 +2824,7 @@ class _Parser:
 		"""A line refused for where it sits rather than for what it says: E012,
 		or E018 under one. Written back exactly as it was, it sits the same way
 		on a reload, as long as its indent holds a space, since no level the
-		emitter opens is spelled with one. A tab-only indent would bind there,
+		emitter opens is written with one. A tab-only indent would bind there,
 		and a line opening a raw block would take its body along, so those are
 		dropped. An E018 line is kept only under a kept E012 one."""
 		if raw:
@@ -3417,9 +3417,9 @@ class _Parser:
 				# something that can bind.
 				out = OUT_DROPPED if rest.startswith("\ufeff") else _out_retained(_trim_wsp_end(rest), had_blank)
 				# The column counts bytes from the line start, so all four
-				# bindings spell it the same on non-ASCII text. The indent and
-				# the blank run after it are blanks only, so their lengths are
-				# their byte counts.
+				# bindings report it the same on non-ASCII text. The indent
+				# and the blank run after it are blanks only, so their lengths
+				# are their byte counts.
 				col = len(indent) + lead + (tok.fault[0] if tok.fault else 0) + 1
 				self._refuse(lineno, "E014", f"malformed line skipped: {e.args[0]}, at column {col}", out, indent)
 				i += 1
@@ -3430,7 +3430,7 @@ class _Parser:
 			# all, so the line still binds - somewhere the author did not mean.
 			if _selector_open_quote(tok):
 				self._err(lineno, "E017", "unterminated quote in selector")
-			# A value spelled the way JSON, TOML and YAML spell an array, or an
+			# A value written the way JSON, TOML and YAML write an array, or an
 			# escape that cannot be read as written or as an escape without
 			# guessing. The brackets are not a selector after the colon, and
 			# reading the text without them would bake a changed value in, so
@@ -3636,7 +3636,7 @@ class _Emit:
 		self.kept_near: list[tuple[int, int]] = []
 		# to_text_keep_lines() only: where the lines from each source line
 		# start (0 for none), each raw body with the tabs its lines are padded
-		# with, and where each value is spelled on its binding line. Positions
+		# with, and where each value is written on its binding line. Positions
 		# are indexes into `out`; _emit_marked() makes them offsets.
 		self.lines = False
 		self.marks: list[tuple[int, int]] = []
@@ -3964,8 +3964,8 @@ def _write_run(out, m, pos, end, indents, step, eol):
 
 
 def _authored_head(src, canon):
-	"""A binding line the edits rewrote, with the name spelled the way the
-	source line spelled it. None unless both lines bind one plain name."""
+	"""A binding line the edits rewrote, with the name written the way the
+	source line wrote it. None unless both lines bind one plain name."""
 	t = _trim_wsp_end(src[:-1] if src.endswith("\n") else src)
 	ilen = len(t) - len(t.lstrip(" \t"))
 	rest = t[ilen:].lstrip(_WSP)
@@ -5056,7 +5056,7 @@ class Document:
 		return 0
 
 	def authored_name(self, path: str) -> str:
-		"""The field name at a path exactly as the author spelled it (case
+		"""The field name at a path exactly as the author wrote it (case
 		unfolded, outer quotes stripped), so a message can echo `SYMBOLS` when
 		the file said SYMBOLS. Escape sequences stay as written too: a name is
 		stored, compared and emitted with its escapes RESOLVED, so this is the
@@ -5112,7 +5112,7 @@ class Document:
 		"""paths() one instance at a time: every binding's path in file order,
 		with `[#i]` on each segment whose name repeats under its parent, so
 		each path reads exactly one node and a repeated block is walked
-		instance by instance. Segments are spelled as paths() spells them."""
+		instance by instance. Segments are written as paths() writes them."""
 		out: list[str] = []
 		stack = [(ROOT, "")]
 		while stack:
@@ -5252,7 +5252,7 @@ class Document:
 		if self._probe_write(segments, value_text, trail)[0] != WriteReason.Writable:
 			return None
 		# Nothing is created until every segment the write would create is known
-		# to spell back: the name through the name escaper, an instance selector
+		# to read back: the name through the name escaper, an instance selector
 		# as the value it binds.
 		for i, seg in enumerate(segments):
 			if trail[i] is not None:
@@ -5540,7 +5540,7 @@ class Document:
 		"""Put the info block (GEN_BANNER) at the end of the document, or with
 		on False just take it off. An old block comes off first, found by its
 		"This config file format is SHCL." line or its version line, never by
-		its links or Legal line, which a later release may spell differently.
+		its links or Legal line, which a later release may word differently.
 		A version line migrate stamped counts too. A block is a run of "##"
 		lines with no blank inside, so a "##" comment of the file's own,
 		written right against it, goes with it. It is looked for in the footer
@@ -6678,7 +6678,7 @@ def _emit_name(name: str) -> str:
 
 
 def _diag_name(name):
-	# A field name for a diagnostic message: spelled the way the emitter would
+	# A field name for a diagnostic message: put the way the emitter would
 	# write it, so a name carrying a line break, a dot or a quote cannot pose as
 	# something it is not - a raw `a.b` reads exactly like `a` nesting `b`, and a
 	# raw line break splits one diagnostic across two.
@@ -6686,7 +6686,7 @@ def _diag_name(name):
 
 
 def _diag_element(e):
-	# One element of a value, spelled for a diagnostic message: the emitter's
+	# One element of a value, written for a diagnostic message: the emitter's
 	# inline spelling, so a value carrying a line break cannot split one
 	# diagnostic across two.
 	return _emit_element(e)
@@ -6998,7 +6998,7 @@ def _sync_dir(d):
 
 def _read_capped(f, limit):
 	# At most `limit` bytes, in bounded pieces: f.read(n) allocates n bytes up
-	# front, so a cap spelled as the type maximum failed on the allocation
+	# front, so a cap given as the type maximum failed on the allocation
 	# instead of reading.
 	chunks = []
 	got = 0
@@ -7354,7 +7354,7 @@ def _emit_element(e):
 
 
 def _new_element(text):
-	"""An element no source spelled. It counts as quoted when canonical output will
+	"""An element no source wrote. It counts as quoted when canonical output will
 	quote it, so a read gives the same answer before a save as after one."""
 	return _Element(text, _needs_quotes(text))
 
@@ -7412,7 +7412,7 @@ def _quote_double_as(t, rules):
 	except a \\u escape, which 2.x kept as written, so for 2.x an invisible
 	character goes in as it is."""
 	out = _quote_double_with(t, rules, False)
-	# Spelled `\\t` or `\\n`, a path is E024 on the reload, and a `\\u`
+	# Written `\\t` or `\\n`, a path is E024 on the reload, and a `\\u`
 	# escape reads the same. 2.x kept one as written, so for 2.x a tab goes in
 	# as it is, and a line break has no spelling: migrate counts that one lost.
 	if _spells_path_escape(out):
@@ -7979,7 +7979,7 @@ def _scaled(int_digits, frac_digits, scale):
 
 
 def _parse_duration_text(t, bare):
-	"""A duration in whole milliseconds and the units the text spelled, or None:
+	"""A duration in whole milliseconds and the units the text used, or None:
 	parts such as `1h 30m`, largest unit first and each once, with blanks
 	allowed between a number and its unit and between parts. A bare number
 	takes bare, and is None without one. No sign."""
@@ -8020,7 +8020,7 @@ def _parse_duration_text(t, bare):
 
 
 def _parse_size_text(t, bare, decimal):
-	"""A size in whole bytes and the unit the text spelled, or None: a number,
+	"""A size in whole bytes and the unit the text used, or None: a number,
 	blanks allowed, then a unit. A bare number takes bare, and is None without
 	one. No sign."""
 	t = _trim_wsp(t)
@@ -8345,7 +8345,7 @@ class _Constraint:
 		self.max_f = None
 		# duration and size: the unit a bare number takes when the field name
 		# gives none, base 10 for KB to TB, and the bounds as the schema
-		# spelled them, since min_i and max_i hold them in ms or bytes.
+		# wrote them, since min_i and max_i hold them in ms or bytes.
 		self.unit_d = None
 		self.unit_s = None
 		self.decimal = False
@@ -8624,7 +8624,7 @@ def _parse_field(schema, f, faults):
 		elif kid.name == "desc":
 			# Generator-only (`shcl init`); validation ignores it. First wins.
 			# A comma in a sentence makes the value several elements, and the
-			# comment is prose: take them all, spelled as written.
+			# comment is prose: take them all, kept as written.
 			if c.desc is None and kid.value.kind == "cell":
 				c.desc = ", ".join(e.text for e in kid.value.els)
 		elif kid.name == "default":
@@ -8647,7 +8647,7 @@ def _parse_field(schema, f, faults):
 	if base is None:
 		base = "string"
 	# `unit` and `decimal` belong to the types that read a bare number in one,
-	# and a unit has to be one that type spells.
+	# and a unit has to be one that type takes.
 	if unit_at is not None:
 		ukid = schema.arena[unit_at]
 		t = _single_text(ukid.value) or ""
@@ -8792,7 +8792,7 @@ def _gen_annotation(c, tyname):
 		parts.append("one of: " + _allowed_join(c.allowed))
 	# The bounds are their own part of the annotation line, not an alternative
 	# to `allowed`. A field can carry both, and the validator enforces both. A
-	# duration or size bound reads the way the schema spelled it.
+	# duration or size bound reads the way the schema wrote it.
 	if c.min_text is not None or c.max_text is not None:
 		if c.min_text is not None and c.max_text is not None:
 			parts.append(c.min_text + "-" + c.max_text)
@@ -8888,7 +8888,7 @@ def generate(schema: Document, no_banner: bool = False) -> tuple[str, list[Diagn
 	# `[#N]` needs a pre-existing instance and its `#` would start a comment on a
 	# binding line. A path deeper than a document may nest cannot be generated
 	# either: the line would draw E016 on the way back in. A newline in a name or
-	# a by-value selector is writable, since both are spelled escaped.
+	# a by-value selector is writable, since both are written escaped.
 	# The reason doubles as the predicate, so the refusal below can never name a
 	# path for a reason generation did not act on.
 	def why_unwritable(c):
@@ -9176,13 +9176,13 @@ FORMAT_MAJOR = 3
 # file from one of its own.
 FORMAT_LINE_HEAD = "##    Format   "
 
-# The whole version line, as the block spells it. A program writing a config of
+# The whole version line, as the block has it. A program writing a config of
 # its own emits GEN_BANNER, which carries this; migrate appends this line on its
 # own to a file it rewrote, since that file has no block to add it to and
 # inventing one would write bytes the document does not hold.
 FORMAT_LINE = "##    Format   3"
 
-# The start of a line naming the file's schema, spelled like the Format line,
+# The start of a line naming the file's schema, written like the Format line,
 # for check and for editors: `##    Schema   ./app.schema.shcl`.
 SCHEMA_LINE_HEAD = "##    Schema   "
 
@@ -9205,7 +9205,7 @@ def _gen_selector_text(v):
 	of that line's value, and each candidate is scanned back the way a file
 	line is scanned, so none of the scanner's rules is copied here to go stale.
 	That copy was the cause twice: an all-digit body past 64 bits, and a
-	quoted array element spelled as the body. One element tries the spelling
+	quoted array element written as the body. One element tries the spelling
 	it was written in first; an array has only the bare body, since a quoted
 	selector matches one element only, and a bare one the elements joined."""
 	spelled = _gen_default_text(v)

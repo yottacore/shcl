@@ -79,7 +79,7 @@ printf 'field: "*"\n\ttype: int\n\trepeat: 2\n' > "${tmpDir}/star2.shcl"
 ## limit while its message said past it.
 awk 'BEGIN{ for (i = 0; i < 10000; i++) printf "field: f%d\n", i }' > "${tmpDir}/cap10000.shcl"
 awk 'BEGIN{ for (i = 0; i < 10001; i++) printf "field: f%d\n", i }' > "${tmpDir}/cap10001.shcl"
-## A generator-only `default` the schema cannot spell on a value line: a raw
+## A generator-only `default` the schema cannot write on a value line: a raw
 ## block has no inline form, and a `type: raw` field's default goes out inline
 ## and then fails its own type check. Both used to be dropped or reported as a
 ## wrong type in the generated output.
@@ -176,7 +176,7 @@ printf 'base:[Boston]\n\tlat: 42\n' > "${tmpDir}/sugar.shcl"
 ## guesses damages whichever file it guessed wrong about. Copied fresh for the
 ## rows that rewrite, the way the sugar file is.
 printf 'p: %s\n' "'C:\temp'" > "${tmpDir}/bsrc.shcl"
-## An escaped comma 2.x folded into one element, so migrate re-spells the line,
+## An escaped comma 2.x folded into one element, so migrate rewrites the line,
 ## plus an empty element the load drops. The rewrite is refused, which is what
 ## --check has to say rather than counting the line it would have changed.
 printf 'list: a\\,b, c\nother:\n  * \n' > "${tmpDir}/mlost.shcl"
@@ -302,7 +302,7 @@ printf 'field: a\n\tbogus: 1\n' > "${tmpDir}/unkey.shcl"
 ## A file and a name that both start with a dash, so only `--` makes them data.
 ## The row that names it runs from inside the temp dir.
 printf -- '-h: 7\n' > "${tmpDir}/-dash.shcl"
-## A value outside ASCII, for a stdout whose locale cannot spell it.
+## A value outside ASCII, for a stdout whose locale cannot write it.
 printf 'n: "caf\303\251 \342\202\254"\n' > "${tmpDir}/nonascii.shcl"
 ## Seventy of each: the C CLI once held these in fixed arrays of 64.
 manyLayers="$(printf -- '--layer=%%F%% %.0s' {1..70})"
@@ -574,7 +574,7 @@ rows=(
 	## 3.0: bracket text after the colon is one outcome, kept verbatim. The
 	## 2.x selector sugar is that shape now too, and migrate is what carries
 	## a file written with it across.
-	## One diagnostic is one line, and a name is spelled the way the emitter
+	## One diagnostic is one line, and a name is printed the way the emitter
 	## would write it. A line break in a name used to split one hint across
 	## three stderr lines, and a flat `x.y` printed the same as `x` nesting `y`.
 	'Eq4AfLV|diag-name-line-break|check %NB%|-|0|line 2: Hint: H001\nok (1 diagnostic(s))\n|^line 2: Hint: H001 ."a\\nb". repeats'
@@ -614,7 +614,7 @@ rows=(
 	'Er1adAq|escape-unknown-path|get - "a\w"|"a\\\\w": 1\n|3|\n|no value at that path'
 	'Er1adAr|escape-doubled-path|get - "a\\w"|"a\\\\w": 1\n|0|1\n|-'
 	## \u and \U name a character by its code point, and one that names none is
-	## E023. Canonical output spells an invisible character as one. 2.x kept the
+	## E023. Canonical output writes an invisible character as one. 2.x kept the
 	## pair as written, so migrate needs to be told which rules wrote the file.
 	## Raw UTF-8 bytes rather than \u in the printf text: msys bash leaves a \u
 	## as written under the windows runner's locale.
@@ -650,7 +650,7 @@ rows=(
 	'ErUmRRh|path-escape-literal|set %F2%|literal\tx\t"C:\\temp"\n|1||^op line 1: cannot write x'
 	'ErUmRRi|path-escape-migrate-lost|migrate -|q: "\\\\\\\\srv\\new"\n|7|-|line break in a Windows path'
 	'Er1adAs|escape-unknown-migrate|migrate -|q: "C:\\work"\n|0|q: "C:\\\\work"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
-	## 20260909 item 4: a 3.0 file spells a backslash value the same way a 2.x
+	## 20260909 item 4: a 3.0 file writes a backslash value the same way a 2.x
 	## one does, so migrating on a guess changed a correct file at exit 0. The
 	## file has to say which rules wrote it, or the caller has to.
 	## Durations and sizes print whole milliseconds and bytes. --unit gives a bare
@@ -976,12 +976,12 @@ rows=(
 	## 20260909 item 48: V005 and V006 named the field alone, so a long report
 	## made you open the schema for every range failure. The int row also pins
 	## that the element named is the one that broke the bound, not the first;
-	## the float row pins that the bound is spelled the way the annotation line
-	## spells it, so `min: 1.0` reads as 1.
+	## the float row pins that the bound is printed the way the annotation line
+	## writes it, so `min: 1.0` reads as 1.
 	'EqAaU1B|range-max-names-value|check --schema=%SG% %DG%|-|6|line 1: Error: V006\nline 2: Error: V005\nfailed: 2 diagnostic(s), 2 error(s)\n|V006 value above max 10 at .ns.: 20$'
 	'EqAaU1C|range-min-names-bound|check --schema=%SG% %DG%|-|6|-|V005 value below min 1 at .fs.: 0\.5$'
 	## 20260802 item 12: the whole command line was scanned for help and version
-	## flags, so a value spelled like one printed the help at exit 0.
+	## flags, so a value written like one printed the help at exit 0.
 	'EqzuLVo|help-flag-as-default|get --default -h %F% nope|-|0|-h\n|-'
 	'EqzuLVp|version-flag-as-default|get --default --version %F% nope|-|0|--version\n|-'
 	## 20260923 item 17: the word forms ignored whatever came after them. An
@@ -1196,7 +1196,7 @@ for row in "${rows[@]}"; do
 	## A device that is always full exists on linux and not on windows; the
 	## rows that need one are skipped out loud rather than passing vacuously.
 	## On windows the msys layer answers for /dev/full and takes the write, and
-	## a closed stdout is an invalid handle each runtime spells its own way, so
+	## a closed stdout is an invalid handle each runtime reports its own way, so
 	## those rows are POSIX rows and say so there. The unwritable directory is
 	## an ACL deny there instead of a chmod.
 	if [[ "${stdinSpec}" == @full* && ! -w /dev/full ]]; then

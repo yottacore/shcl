@@ -653,7 +653,7 @@ impl Gen {
 	pub fn record(&mut self, o: &mut String, key: &str, name: &str, fields: &[(String, Node)]) {
 		match self.fmt {
 			// The instance label IS the identity; the other four carry it as an
-			// ordinary first field, which is the same data spelled their way.
+			// ordinary first field, which is the same data written their way.
 			Fmt::Shcl => {
 				let _ = writeln!(o, "{}: {}", key, shcl_scalar(&Val::Str(name.to_string())));
 				for (k, v) in fields {

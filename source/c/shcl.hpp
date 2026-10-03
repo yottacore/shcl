@@ -60,7 +60,7 @@ extern const std::string_view GEN_BANNER;
 extern const std::string_view FORMAT_LINE_HEAD;
 extern const std::string_view FORMAT_LINE;
 extern const std::string_view MIGRATED_LINE;
-// The start of a line naming the file's schema, spelled like the Format line.
+// The start of a line naming the file's schema, written like the Format line.
 extern const std::string_view SCHEMA_LINE_HEAD;
 
 class Document;
@@ -352,7 +352,7 @@ public:
 	bool quoted(std::string_view path) const;
 	// Whether a path resolves to at least one node.
 	bool exists(std::string_view path) const;
-	// The field name at a path exactly as the author spelled it (case
+	// The field name at a path exactly as the author wrote it (case
 	// unfolded, outer quotes stripped - escape sequences stay as written too,
 	// where every other name operation sees them resolved); empty when the path
 	// does not resolve to exactly one node.

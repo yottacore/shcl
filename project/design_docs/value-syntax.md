@@ -83,7 +83,7 @@ The rules in short. The reasons are under [Design](#design).
 	- A quote means `'`, `"` or a backtick, anywhere in the piece.
 
 - A bare field name starts with an ASCII letter, then has only ASCII letters, digits, `-` and `_`. Anything else is `E014`. A quoted name can be any text.
-	- A name that breaks only these spelling rules, such as `404`, `-x`, `user name` or `Straße`, can still be read. Its line is kept, and the lines under it load under the name it spells.
+	- A name that breaks only these spelling rules, such as `404`, `-x`, `user name` or `Straße`, can still be read. Its line is kept, and the lines under it load under the name it reads as.
 	- A name that can't be read at all, such as one with a bad escape, still takes its block with it, as today.
 
 - Single and double quotes work the same way. Each one can contain the other kind of quote as plain text.
@@ -337,7 +337,7 @@ Quoted text inside an array is just a string, so `["[a]", "b"]` is two strings.
 
 - The text is raw: no escapes, and `◉`, `#`, `,`, `[` and whitespace are all plain text.
 
-- A backtick value can't contain a backtick. Three backticks open a fence, so there is no way to spell one.
+- A backtick value can't contain a backtick. Three backticks open a fence, so there is no way to write one.
 
 - Allowed as a whole value or a whole array element. Not in a field name or a selector.
 
@@ -365,7 +365,7 @@ Quoted text inside an array is just a string, so `["[a]", "b"]` is two strings.
 
 - A string read of an array gives its canonical bracket form, as a multi-element read does today with the comma form. So brackets count as part of the value wherever text is compared: `x: 80` and `x: [80]` are two different instances, two different selector matches, and two different values against a schema's `allowed` list.
 
-- Why brackets: every other format people know spells an array this way, and before this change a value starting with `[` was always an error (`E019`), so no file that loaded is read differently.
+- Why brackets: every other format people know writes an array this way, and before this change a value starting with `[` was always an error (`E019`), so no file that loaded is read differently.
 
 ### Stacked lists
 
@@ -415,7 +415,7 @@ Quoted text inside an array is just a string, so `["[a]", "b"]` is two strings.
 
 - A line refused for its value alone keeps its level open. That covers `E017`, `E019`, `E023` and `E025` when they are in the value, plus `E026` and `E028`.
 	- The name is fine, so lines indented under it still load under that name.
-	- `E014` for a name that can still be read works the same way. The lines under it load under the name it spells.
+	- `E014` for a name that can still be read works the same way. The lines under it load under the name it reads as.
 	- The field only exists if one of those lines binds.
 	- This is the rule from 2026100115403384. Without it, one typo in a value takes its whole block with it.
 	- The full outcome rules for every code are in `design.md` under Load outcomes.
@@ -479,13 +479,13 @@ Moved from `design.md`, with the escape spelling changed to `◉U+XXXX◉`.
 
 - The writer escapes every character a reader could not see in an editor, so nothing hidden survives a save unnoticed.
 	- The list is the controls, the line and paragraph separators, the interlinear annotation marks U+FFF9 to U+FFFB, and every character Unicode 18.0 lists as `Default_Ignorable_Code_Point`, such as a zero-width space, a direction mark, an embedding, override or isolate, a soft hyphen, the byte order mark, a Hangul filler or a tag character.
-	- Tag characters settled it: a run of them spells ASCII no editor shows, and a soft hyphen or a Hangul filler hides text as well as a zero-width space does.
+	- Tag characters settled it: a run of them encodes ASCII no editor shows, and a soft hyphen or a Hangul filler hides text as well as a zero-width space does.
 	- The list is fixed at Unicode 18.0, so a later Unicode does not change a format 3 file. It lives in `cicd/utility/gen-escapes.py`, which writes it into the four bindings and the grammar, and `check-docs.bash` fails when a copy differs.
 
 - Three kinds stay as written where ordinary text needs them.
 	- The zero-width joiner and non-joiner always stay, since emoji and several scripts need them. A run of them can still hide bits. Escaping them would break emoji sequences and those scripts.
 	- A variation selector stays after a visible character, since emoji (`❤️`), ideograph variants and Mongolian need one there. Anywhere else it is escaped, so a run of selectors cannot carry hidden bytes.
-	- A tag stays only inside a subdivision flag as UTS #51 spells one: U+1F3F4, three to seven tag digits or lowercase tag letters, and the cancel tag U+E007F. That covers the flags of England, Scotland and Wales, and nothing long enough to hide a sentence.
+	- A tag stays only inside a subdivision flag as UTS #51 encodes one: U+1F3F4, three to seven tag digits or lowercase tag letters, and the cancel tag U+E007F. That covers the flags of England, Scotland and Wales, and nothing long enough to hide a sentence.
 
 - Judging selectors and tags by what sits next to them was chosen over escaping all of them, which turns emoji and flags into escapes, and over keeping all of them, which leaves open the hiding this list is for.
 
@@ -632,7 +632,7 @@ What the build has today, and what replaces it.
 
 - `*` as the stacked list marker, decision 36. `-` had been turned down because of negative numbers and field names that start with a dash. Requiring whitespace after the dash, and a letter at the start of a bare name, settles both, and `- ` is what people already know from YAML and Markdown.
 
-- The hint `H003`, for a `*` item spelled like a field. That case is an error now.
+- The hint `H003`, for a `*` item written like a field. That case is an error now.
 
 - Bracket text after a colon as always `E019`, "the JSON habit". Brackets are the array spelling now, and `E019` means a malformed one.
 
@@ -652,7 +652,7 @@ What the build has today, and what replaces it.
 	- TOML, YAML and JSON all use backslash escapes inside double quotes.
 	- TOML's own spec points Windows paths at its single-quoted literal strings, `'C:\Users\nodejs\templates'`, because of this.
 	- TOML requires quotes on every string. YAML allows bare strings with spaces.
-	- YAML, TOML and JSON all spell an inline array `[a, b]`, and YAML writes a list one item per line with `- `.
+	- YAML, TOML and JSON all write an inline array `[a, b]`, and YAML writes a list one item per line with `- `.
 
 - The fehu rune `ᚠ` was an earlier attempt at an escape-free spelling. It wrote literal backslash runs, and `\ᚠ` was a literal fehu. It was removed, with raw blocks named as the verbatim escape hatch.
 
@@ -686,7 +686,7 @@ Open points, each with a proposed answer:
 | 2026100218185700 | A comment between nested kept lines is written at column 0                                    | Open bug, fixed with this
 | 2026100115403384 | A bad escape on a line that opens a block drops the whole block                               | The lazy level. Stays.
 | 2026100115323227 | `"C:\temp"` loads with a tab and only a hint says so                                          | Superseded. `E024` goes.
-| 2026100115323216 | The writer spells Windows paths three different ways                                          | Moot
+| 2026100115323216 | Windows paths are written three different ways                                                | Moot
 | 2026100115323222 | No way to ask a setter for single quotes                                                      | Moot
 | 2026100115403385 | A file stamped Format 3 during the beta is never migrated                                     | Answered: on their own
 | 2026100117214801 | A bad escape in the name of a line that opens a raw block leaves the body to be read as lines | Stays. Its repro changes.

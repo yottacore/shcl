@@ -628,7 +628,7 @@ func applyOpTest(t *testing.T, doc *Document, line, at string) {
 	}
 }
 
-// diagText is the load diagnostics of text at Standard, spelled the way
+// diagText is the load diagnostics of text at Standard, written the way
 // `check` prints them: one line per diagnostic, then the summary.
 func diagText(text string) string {
 	diags := Parse(text).Diagnostics()
@@ -986,7 +986,7 @@ func TestWriteReasonNamesTheFailure(t *testing.T) {
 	}
 	// A literal line break is writable wherever a path can carry one: a name
 	// emits through the name escaper and a selector value through the value
-	// emitter, and both spell a break \n and read it back as one. The selector
+	// emitter, and both write a break \n and read it back as one. The selector
 	// was refused while the value emitter still wrote elements in their source
 	// spelling and had nothing to escape with. Not corpus-pinnable - an ops
 	// line cannot carry a raw newline.
@@ -1386,7 +1386,7 @@ func TestSaveFileErrorWrapsTheCause(t *testing.T) {
 
 func TestReadFileAtTheLargestCap(t *testing.T) {
 	defer testID(t, "EoLznCy")
-	// A cap spelled as the type maximum used to overflow the over-cap probe and
+	// A cap given as the type maximum used to overflow the over-cap probe and
 	// read nothing. Same fixture in every runner.
 	f := filepath.Join(t.TempDir(), "t.shcl")
 	if err := os.WriteFile(f, []byte("a: 1\n"), 0o644); err != nil {
@@ -1660,7 +1660,7 @@ func TestSaveRefusesADirectoryShapedPath(t *testing.T) {
 // UTF-8 fails the write rather than storing a replacement character per bad
 // byte and reporting success. Go-only: the other three cannot hold such a
 // string in the first place.
-// Both halves of a path can carry a line break and spell it \n: a name through
+// Both halves of a path can carry a line break and write it \n: a name through
 // the name escaper, a selector value through the value emitter. The selector
 // was refused while elements were stored in their source spelling and the
 // emitter had nothing to escape with. Same fixture in every runner.
@@ -2258,7 +2258,7 @@ func TestLayeredMergeMatchesExpected(t *testing.T) {
 		// Reads answered by the merged document itself, not just its text: a
 		// merged arena holds dropped nodes, a rebuilt index and cloned child
 		// lists, and only a read walks those. Instances is left out because it
-		// hands back the source spelling, which canonical output may respell.
+		// hands back the source spelling, which canonical output may rewrite.
 		// Same fixture in every runner.
 		back := Parse(got)
 		if !reflect.DeepEqual(doc.Paths(), back.Paths()) {
@@ -2803,7 +2803,7 @@ func TestSettersWriteOnlyWhatReadsBack(t *testing.T) {
 				}
 			}
 		}
-		// The same rule for a name: whatever QuoteSegment spells has to come
+		// The same rule for a name: whatever QuoteSegment writes has to come
 		// back as one segment holding that name, or the write is refused.
 		path := QuoteSegment(s)
 		doc := Parse("k: 1\n")

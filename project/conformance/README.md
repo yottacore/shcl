@@ -128,7 +128,7 @@ Case `049` pins retained lines: a malformed line inside a block and one at the t
 
 Case `050` pins that quoting decides a value's elements: `x: "a, b"` is one element and `x: a, b` two, so they are two instances (`H001`) and `x["a, b"]` selects the first.
 
-Case `051` pins a selector that reaches an instance spelled another way: a bare `x[a"b, c]` finds the two-element instance and a quoted `x["a\"b, c"]` the one-element one, while `y["p, r"]` and `z["m, n"]` match nothing and create an instance.
+Case `051` pins a selector that reaches an instance written another way: a bare `x[a"b, c]` finds the two-element instance and a quoted `x["a\"b, c"]` the one-element one, while `y["p, r"]` and `z["m, n"]` match nothing and create an instance.
 
 Case `052` pins edge whitespace through the writer: a value set with a no-break space, a vertical tab, a form feed or another Unicode space at an edge is quoted on output, so it reads back whole.
 
@@ -200,7 +200,7 @@ Case `085` pins `allowed` on a time: `Z`, `+00:00` and `-00:00` are all the mome
 
 Case `086` pins a bare index on a binding line that names no instance: `a[5].b` is `E003`, dropped and counted lost, while `c[1].d` reaches the second `c`.
 
-Case `087` pins where a merge puts a layer holding only a comment: above the base's trailing comment, after the field. The field is spelled without a colon (`E015`) and still binds.
+Case `087` pins where a merge puts a layer holding only a comment: above the base's trailing comment, after the field. The field is written without a colon (`E015`) and still binds.
 
 Case `088` pins a quote in the middle of a bare value as content: `don't panic` leaves its trailing comment a comment, and apostrophes, mid-text double quotes and a quoted `#` read as written.
 
@@ -228,7 +228,7 @@ Case `100` pins integers past the i64 range: hex, decimal and quoted-thousands s
 
 Case `101` pins an empty name: two `""` leaves are a repeated leaf (`H001`), and a schema declaring `repeat: 1, 5` on the field drops the hint. It carries the `H001` half of the strict `load ok` pair described under case `035`.
 
-Case `102` pins one field spelled twice in a schema (`w` and `w[*]`): `init` writes one line.
+Case `102` pins one field written twice in a schema (`w` and `w[*]`): `init` writes one line.
 
 Case `103` pins an all-digit selector past the u64 range: an index naming no instance, so the binding line is `E003` and lost, a read is `NotFound`, and a write through it is refused.
 
@@ -254,7 +254,7 @@ Case `113` pins `init` spelling a line break in a by-value selector and in a nam
 
 Case `114` pins raw reads: an empty binding is `Empty` for `raw` and `rawinfo`, a value that is not a block is `BadType`, and a block reads its body and label.
 
-Case `115` pins a carriage return as a blank outside a raw body: trimmed at the edge of a name, a selector, a value, an element and a comment, and content in the middle of one. Canonical output spells that middle one `\u000D`.
+Case `115` pins a carriage return as a blank outside a raw body: trimmed at the edge of a name, a selector, a value, an element and a comment, and content in the middle of one. Canonical output writes that middle one as `\u000D`.
 
 Case `116` pins a selector body that opens a quote it never closes: `E017`, kept as bare text quotes and all, so `srv["prod]` is its own instance and not `srv[prod]`, and a line whose selector and value both open one reports each.
 
@@ -262,15 +262,15 @@ Case `045` pins comment depth under childless headers: a header whose children a
 
 Case `044` pins the value-syntax setter: an array, a single element, a quoted element keeping its internal comma, trimming, a `#` outside quotes ending the value wherever it sits (`#ff0000` leaves it empty, `a#b` keeps `a`, `x#` keeps `x`), an empty value, and the only-if-absent form both skipping an existing path and creating a new one. Its `write-bad.ops` pins the two rejections - a value opening a quote it never closes (the same text the parser reports `E017` for) and a wildcard path.
 
-Case `117` pins how `migrate` spells a 2.x `name:[disc]` line on a last segment. A discriminator carrying a fence run or a leading `[` is quoted when the sugar becomes a value, so the rewrite opens no raw block and no bracket text, at top level, nested, spaced, with a trailing comment and with children below. An ordinary discriminator stays bare (`plain: Boston`), one the formatter would quote is quoted (`city: "New York"`), and the author's quotes are kept. The input itself is refused line by line under the current rules, which is the damage migrate exists to prevent.
+Case `117` pins how `migrate` rewrites a 2.x `name:[disc]` line on a last segment. A discriminator carrying a fence run or a leading `[` is quoted when the sugar becomes a value, so the rewrite opens no raw block and no bracket text, at top level, nested, spaced, with a trailing comment and with children below. An ordinary discriminator stays bare (`plain: Boston`), one the formatter would quote is quoted (`city: "New York"`), and the author's quotes are kept. The input itself is refused line by line under the current rules, which is the damage migrate exists to prevent.
 
-Cases `118` and `119` pin how `migrate` spells a piece holding a backslash: always in double quotes, in a value, a star element, a selector and the sugar arm. 2.x read a backslash in bare and single-quoted text as an escape, so the migrated file reads the same under 2.x, and a second run changes nothing. `118` also pins a bare backslash before a comma, the line end and a comment, where a spelling that reads right alone would shield what follows it. `119` also pins a quoted discriminator with text between its closing quote and the `]`, which 2.x refused as a malformed line, so `migrate` leaves it as written.
+Cases `118` and `119` pin how `migrate` writes a piece holding a backslash: always in double quotes, in a value, a star element, a selector and the sugar arm. 2.x read a backslash in bare and single-quoted text as an escape, so the migrated file reads the same under 2.x, and a second run changes nothing. `118` also pins a bare backslash before a comma, the line end and a comment, where a spelling that reads right alone would shield what follows it. `119` also pins a quoted discriminator with text between its closing quote and the `]`, which 2.x refused as a malformed line, so `migrate` leaves it as written.
 
 Cases `122` and `123` pin a backslash in a selector body, which 2.x shielded inside quotes only: a bare body runs to its first `]`, so the line still reads and the rest of it migrates. `122` is clean under 2.x, so the migrate gate compares it document by document; `123` carries the sugar spellings, where a comma behind a backslash never made the brackets an array, and a real two-element bracket array stays as written.
 
 Case `124` pins a CRLF file whose raw block closes before a line `migrate` rewrites. The closing fence ends in a carriage return, and the block still has to close there, or the sugar and the backslash value after it are taken as block content and left as written.
 
-Case `120` pins `init` on a last-segment by-value selector with a default: the line is spelled as the bare path carrying the default (`env: prod`), and without a default the selector line stays.
+Case `120` pins `init` on a last-segment by-value selector with a default: the line is written as the bare path carrying the default (`env: prod`), and without a default the selector line stays.
 
 Case `121` pins that a default form judges the value as well as the path. Its `write-bad.ops` gives bracket text and an open quote on paths that already resolve, where the form writes nothing, and bracket text again on a path that does not. Every line is refused either way.
 
@@ -312,7 +312,7 @@ Case `142` pins a comment left above a block's later instance. `# c` follows `p`
 
 Case `143` pins where comments go once a merge or a write changes a block, which must be where a reload of the saved text puts them. Three layers merged at once keep `# inside` right after `c`, above the top layer's `d`, as merging two and then the third from saved text does. Two children written into `k`, whose only line is a comment, get the comment between them, as two separate runs of `set` do. And a raw block after an empty `b` has its trailing comment written on the line above it, which a reload files as a leading comment, so it stays there once the empty `b` is set to 5.
 
-Case `144` pins the `H003` hint (20260923 item 18). A bare stacked element spelled `name: value` or `name:` is one string, and the load says so, since a list of objects in the YAML style reads that way without a word. Text with a blank before its colon, a colon with no blank after it, and a quoted element get no hint.
+Case `144` pins the `H003` hint (20260923 item 18). A bare stacked element written `name: value` or `name:` is one string, and the load says so, since a list of objects in the YAML style reads that way without a word. Text with a blank before its colon, a colon with no blank after it, and a quoted element get no hint.
 
 Case `145` pins which misplaced lines a save keeps. An `E012` line whose indent holds a space is written back as it was, and so is an `E018` line under it. An `E012` line indented with tabs alone would bind on a reload, so it is lost. A kept line that a re-opened block carries up to the top of the file would bind there as written, so it is written as a comment instead.
 
@@ -358,7 +358,7 @@ Case `165` pins a comment set on a node the writer just created at the top level
 
 Case `166` pins numbers far past any type's width, 5000 digits: an int value, a quoted one, a day inside a quoted date, a selector index and a schema `repeat` bound all read as out of range, and a small value behind 5000 zeros still reads.
 
-Case `167` pins generation over a wildcard spelled with blanks inside its brackets, which fills exactly like `[*]`.
+Case `167` pins generation over a wildcard written with blanks inside its brackets, which fills exactly like `[*]`.
 
 Case `168` pins validation of a schema path whose `[#N]` index is past every int width: it finds nothing, and the required one reports missing.
 
@@ -382,7 +382,7 @@ Case `177` pins the `duration` and `size` schema types: `unit`, `decimal`, and `
 
 Case `178` pins a misplaced line kept as written that turned into a comment, once from the load under a line skipped for an escape in its name, since as written it would bind, and once from a setter that unstacks the list it sat in. `clear-comments` takes the real comment above it and leaves it, and `comments` does not list it.
 
-Case `179` pins a merge onto a list the lower layer spells stacked. The spelling shows only while a kept line holds the list stacked, and a reload of that layer would lose it, so the kept line the higher layer brings is written under the list inline, as it is when the lower layer spells it inline.
+Case `179` pins a merge onto a list the lower layer writes stacked. The spelling shows only while a kept line holds the list stacked, and a reload of that layer would lose it, so the kept line the higher layer brings is written under the list inline, as it is when the lower layer writes it inline.
 
 Case `180` pins `banner on` with an info block above the first field's first child. A dotted first line hangs a block at the top of the file on its last name, and a saved file writes that name as the first field's first child, so the two cannot be told apart after a save. The block stays, and the new one goes at the end.
 
@@ -390,7 +390,7 @@ Case `181` pins the `H002` hint on a late fold: a stacked list that closes onto 
 
 Case `182` pins a Schema line indented under a field, which is where `fmt` puts one written at column 0 above an indented field. A quoted value holding a fence run opens no raw block, and one after a colon does.
 
-Case `183` pins which characters canonical output escapes: both ends of every range past the controls and a neighbor on each side, a soft hyphen, the annotation marks, hidden tag text, and names. It also pins what stays as written: the joiners, a variation selector after a visible character (an emoji, an ideograph, a Mongolian letter), and subdivision flags of three and seven tags. A selector at the start, after a blank, a joiner, an escaped character or another selector is escaped, and so are a flag with two or eight tags, capital tags, no cancel tag or no black flag. An escape past U+FFFF is spelled with `\U`. Its write ops set hidden tags, a flag, a selector run and a soft hyphen through the setters.
+Case `183` pins which characters canonical output escapes: both ends of every range past the controls and a neighbor on each side, a soft hyphen, the annotation marks, hidden tag text, and names. It also pins what stays as written: the joiners, a variation selector after a visible character (an emoji, an ideograph, a Mongolian letter), and subdivision flags of three and seven tags. A selector at the start, after a blank, a joiner, an escaped character or another selector is escaped, and so are a flag with two or eight tags, capital tags, no cancel tag or no black flag. An escape past U+FFFF is written with `\U`. Its write ops set hidden tags, a flag, a selector run and a soft hyphen through the setters.
 
 Case `184` pins a bare duration or size `min` and `max` read the way the value is: the bound's own unit, then the field name's, then the schema's `unit`. A name ending in `-ms`, `_mb` or a decimal `-kb` gives the bound its unit, the name wins over `unit`, and a bound with its own unit keeps it. With no unit from either, and on a path ending in `*`, a bare bound is still `V092`.
 

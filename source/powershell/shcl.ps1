@@ -259,7 +259,7 @@ function shcl_tokens { if ($MyInvocation.ExpectingInput) { $input | shcl tokens 
 if ($MyInvocation.InvocationName -ne '.') {
 	if ($MyInvocation.ExpectingInput -and $MyInvocation.Line) { (Get-Variable -Name input -ValueOnly) | shcl @args }
 	else { shcl @args }
-	## Spelled the long way rather than with ??, so this runs on the Windows
+	## Written the long way rather than with ??, so this runs on the Windows
 	## PowerShell 5.1 that ships with the OS as well as on 7.
 	$rc = $LASTEXITCODE
 	if ($null -eq $rc) { $rc = 1 }   ## null only if nothing ran; treat as usage

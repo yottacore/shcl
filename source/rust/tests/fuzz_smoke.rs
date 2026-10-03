@@ -869,7 +869,7 @@ fn merge_never_panics_and_stays_fixpoint() {
 		// see them. Every eighth iteration, since it walks every path.
 		//
 		// `instances` is left out on purpose: it hands back the SOURCE
-		// spelling, and canonical output legitimately respells a value -
+		// spelling, and canonical output legitimately rewrites a value -
 		// escaping a quote to keep it on one line, say - so the two differ for
 		// a reason that has nothing to do with merging.
 		if i % 8 == 0 {
@@ -1256,7 +1256,7 @@ fn kept_paths(text: &str, texts: &mut Vec<String>) -> Option<Vec<(usize, String)
 			by_line.insert(l, without_instances(&p));
 		}
 	}
-	// Two lines spelled alike can trade which one makes the node the other
+	// Two lines written alike can trade which one makes the node the other
 	// joins, so only a text that appears once is compared.
 	let once = |n: usize| kept.iter().filter(|k| k.1 == n).count() == 1;
 	let mut at: Vec<(usize, String)> = kept
@@ -1405,10 +1405,10 @@ fn kept_lines_keep_their_path() {
 
 /// A config like tidy()'s where each line ends in LF or CRLF on its own, all
 /// one kind, alternating (a tie when the count is even) or at random, and a
-/// third of them with no final newline. Every line is spelled the way the
+/// third of them with no final newline. Every line is written the way the
 /// canonical form never writes it, with a blank before the colon or at the
 /// end, so a line written fresh cannot pass for one kept or changed. Raw body
-/// lines and closing fences cannot be spelled that way, so they come back
+/// lines and closing fences cannot be written that way, so they come back
 /// apart and go unchecked.
 fn mixed_eol(rng: &mut Rng) -> (String, Vec<String>) {
 	let unit = ["\t", "  ", "    "][rng.below(3)];

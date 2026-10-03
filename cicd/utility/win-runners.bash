@@ -142,7 +142,7 @@ fBuildCcli() {
 }
 
 ## The C CLI's argv: the narrow one arrives in the active code page, best-fit
-## mapped, so a name the page cannot spell reached a different file. The two
+## mapped, so a name the page cannot encode reached a different file. The two
 ## names here are the shapes that went wrong: one outside the page, one the
 ## page maps onto a plain letter.
 fRunCcli() {
@@ -160,7 +160,7 @@ fRunCcli() {
 	grep -q '^x: 1$' "${dir}/ā.shcl" || { echo "win-runners: c cli: ā.shcl was not written" >&2; return 1; }
 }
 
-## A path past MAX_PATH, which needs the `\\?\` prefix a caller has to spell
+## A path past MAX_PATH, which needs the `\\?\` prefix a caller has to add
 ## itself. The C save prefixed an already-prefixed path again and built
 ## `\\?\UNC\?\C:\...`, which no create opens; under MAX_PATH the strip that
 ## follows undid it, so only a long path showed it. Nothing on linux has the
@@ -185,7 +185,7 @@ fRunLongPath() {
 ## A stdin nothing is attached to reads as an empty document, exit 0. POSIX
 ## reports that as EOF and every binding already agreed there; windows answers
 ## with an invalid handle or an invalid function instead, which each runtime
-## spells its own way, so this is the only place the rule can be judged.
+## reports its own way, so this is the only place the rule can be judged.
 fRunClosedStdin() {
 	local bad=0
 	local clis=()

@@ -158,7 +158,7 @@ Options (the subcommands each belongs to are in parentheses):
                                          FILE) leave out the info block naming
                                          the format and pointing at its spec
   --write                                (fmt/set/migrate) rewrite FILE in
-                                         place, spelled -w too, through a
+                                         place, written -w too, through a
                                          temp file and a rename; refused
                                          with a FILE of '-'
   --lossy                                (fmt/set/migrate) with --write, rewrite
@@ -196,7 +196,7 @@ Options (the subcommands each belongs to are in parentheses):
                                          syntax
   --set-literal=PATH=TEXT                (same subcommands) as --set, except
                                          TEXT goes in as value
-                                         syntax the way a file spells it, so
+                                         syntax the way a file writes it, so
                                          'ports=80, 443' writes a two-element
                                          array. A # outside quotes ends the
                                          value; text spanning lines is rejected
@@ -302,7 +302,7 @@ E010|error|bare comma in a stacked '*' list element
   The stacked form is one element per line. Quote the comma, or write the
   whole array on the field's own line.
 E011|error|stacked '*' element for a field that already has a value
-  The field's value is kept and the element is ignored. A field is spelled
+  The field's value is kept and the element is ignored. A field is written
   one way or the other, not both.
 E012|error|indentation matches no open level
   The line is skipped, and anything written deeper is skipped with it
@@ -326,7 +326,7 @@ E017|error|a quote that never closes with the matching quote last
 E018|error|line written under a line that was skipped
   It is skipped with it, so a skipped line's block never re-parents one
   level up. Fix the line above and this one comes back with it.
-E019|error|a value beginning with '[', the way JSON and YAML spell arrays
+E019|error|a value beginning with '[', the way JSON and YAML write arrays
   An array is comma-separated and written without brackets: ports: 80, 443.
   A '[' after the colon is never a selector, and reading the text without
   its brackets would bake a changed value in, so the line is kept verbatim:
@@ -354,7 +354,7 @@ E024|error|a Windows path in double quotes with a \\t or \\n escape
   means. The line is kept verbatim like E023: it binds nothing, a read on it
   is NotFound, and the lines under it still load. Use single quotes or no
   quotes, or double each backslash.
-H001|hint|repeated bare leaf (an array spelled as repeated lines)
+H001|hint|repeated bare leaf (an array written as repeated lines)
   Repeated leaves are legal - that is how instances are written - but
   'tags: red' twice and 'tags: red, blue' look alike, so the parser says
   which one it read. A schema's repeat bound above 1 disavows it.
@@ -362,7 +362,7 @@ H002|hint|a binding merged with a non-adjacent earlier one
   Same name and value, so the two combine. Legal, and only the parser can
   see it happened. The prose names the earlier line, and a schema can
   disavow it per section with 'reopen: true'.
-H003|hint|a stacked '*' element spelled like a field binding
+H003|hint|a stacked '*' element written like a field binding
   '* name: value' is the YAML habit for a list of objects. Here it is one
   string element, the text 'name: value'. Quote it to keep the string; a
   list of objects is written as instances of a field.
@@ -599,7 +599,7 @@ def asked_for(argv):
 	# The informational outputs the command line asks for, each once, in the
 	# order first asked. Only tokens in option position count: the value of a
 	# value-taking option and anything after `--` are data (a FILE or PATH
-	# spelled `-h` needs the `--` anyway, since the option parser would refuse
+	# written `-h` needs the `--` anyway, since the option parser would refuse
 	# it). Scanning values too once let a read of a missing path answer with
 	# the help text and exit 0. --about opens with the version line, so it
 	# covers --version.
@@ -864,7 +864,8 @@ def read_input(file):
 			data = b""
 	else:
 		# The message for reading a directory is the platform's, and windows
-		# spells it four different ways depending on the binding. Say it here.
+		# puts it four different ways depending on the binding, so all four
+		# print this one instead.
 		if os.path.isdir(file):
 			raise OSError(f"{file}: Is a directory")
 		# FILE: and the system's own message, as the UI guide has it, not
@@ -1437,7 +1438,7 @@ def do_fmt(o):
 
 
 def rewritten_lines(before, after):
-	# The numbers of the lines migrate spells differently, counted from 1. The
+	# The numbers of the lines migrate writes differently, counted from 1. The
 	# rewrite goes line for line and only appends, so line N of the input is
 	# line N of the output.
 	if before == "":
@@ -2466,7 +2467,7 @@ def run(argv):
 	# that. init and explain want no FILE.
 	if cmd not in ("init", "explain") and not o.args and o.swallowed is not None:
 		name, value = o.swallowed
-		sys.stderr.write(f"option {name} took '{value}' as its value, so no FILE is left; spell it {name}=VALUE\n")
+		sys.stderr.write(f"option {name} took '{value}' as its value, so no FILE is left; write it {name}=VALUE\n")
 		return 1
 	if cmd == "get":
 		return do_get(o)

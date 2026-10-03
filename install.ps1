@@ -337,7 +337,7 @@ installed.
 	## here too. Hands back what would not go and whether anything this
 	## installer did not write is left, since a locked file left behind used
 	## to be reported as someone else's. What is left is judged by name within
-	## its own dir: a full path read back can be spelled differently from the
+	## its own dir: a full path read back can be written differently from the
 	## one given, as a short 8.3 name is.
 	function Remove-ShclFile {
 		[CmdletBinding()]

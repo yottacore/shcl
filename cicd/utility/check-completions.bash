@@ -48,7 +48,7 @@ fRustTable() {
 	done
 }
 
-## The same table out of a completion file. Both files spell it identically, so
+## The same table out of a completion file. Both files write it identically, so
 ## one extractor covers them.
 fCompTable() {
 	sed -n "s/^[[:space:]]*\([a-z|]\+\))[[:space:]]*echo '\([^']*\)'.*/\1\t\2/p" "$1" \

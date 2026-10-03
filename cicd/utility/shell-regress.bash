@@ -730,7 +730,7 @@ SRVEOF
 	[[ "${out}" == *"did not put there"* ]] && fBad "install.ps1 -Uninstall blamed its own file on someone else: ${out@Q}"
 	##	The other answers, from the function itself: a clean removal takes the
 	##	dir, and a file nobody installed keeps it and says so. The dirs are
-	##	named relative, which reads back spelled differently from the path
+	##	named relative, which reads back written differently from the path
 	##	given, as a short 8.3 name does on windows. A file that would not go
 	##	was then counted as someone else's.
 	mkdir -p "${tmpDir}/rmfile/clean/code" "${tmpDir}/rmfile/other/scripts" "${tmpDir}/rmfile/held/code"
@@ -1492,7 +1492,7 @@ fPinsRun 's/^//' || fBad "check-pins.bash failed on an unchanged copy of ci.yml"
 fTest Eq5jgxG 20260830-43-check-pins-exact-names
 ##	20260830 item 43: pins matched by substring, so `build` found itself inside
 ##	other names and a version inside a longer one. And the cppcheck wheel was
-##	spelled in three places with only two compared.
+##	written in three places with only two compared.
 fPinsRun 's#staticcheck@2026\.1$#staticcheck@2026.10#' && fBad "check-pins.bash took 2026.10 for a pin of 2026.1"
 fPinsRun 's# build==# pybuild==#' || true
 pinsOut="$(bash "${tmpDir}/pins/cicd/utility/check-pins.bash" 2>&1 || true)"
@@ -1514,7 +1514,7 @@ sed -E -e '/(pip|npm) install/d' -e 's#^([[:space:]]*)(go install honnef\.co.*)$
 pinsOut="$(bash "${tmpDir}/pins/cicd/utility/check-pins.bash" 2>&1 || true)"
 [[ "${pinsOut}" == *"installs unpinnedtool at a pinned version"* ]] \
 	|| fBad "check-pins.bash missed an unpinned go install once ci.yml had no pip line: $(tail -n 3 <<<"${pinsOut}")"
-##	And a family whose line is there but spelled so its pattern reads no name
+##	And a family whose line is there but written so its pattern reads no name
 ##	has gone blind; that is a failure too, not an empty list.
 fPinsRun 's#pip install ruff==.*$#pip install -r requirements.txt#' || true
 pinsOut="$(bash "${tmpDir}/pins/cicd/utility/check-pins.bash" 2>&1 || true)"
@@ -2769,7 +2769,7 @@ fi
 fTest EoXPkY4 check-completions-option-less-subcommand
 ##	The completions check against a subcommand that takes no options. One side
 ##	emitted a row for it and the other dropped any row with an empty option
-##	list, so the two could never agree however the completions spelled it - a
+##	list, so the two could never agree however the completions wrote it - a
 ##	lint failure blaming the completions on the day such a subcommand is added.
 ##	The fixture is the real files with one added, so the check runs against the
 ##	extractors as shipped rather than a hand-written stand-in.
@@ -2815,7 +2815,7 @@ PYEOF
 	if ((fixRc != 0)); then
 		fBad "the check-completions fixture did not build: $(cat "${tmpDir}/optless.log")"
 	elif ! out="$("${gate}" "${fix}" 2>&1)"; then
-		fBad "check-completions rejects an option-less subcommand the completions spell correctly: ${out}"
+		fBad "check-completions rejects an option-less subcommand the completions list correctly: ${out}"
 	fi
 fi
 
@@ -3012,7 +3012,7 @@ fScanTabEre(){
 
 ##	A `grep` inside an assigned command substitution with no `|| true`: when it
 ##	matches nothing the assignment fails, errexit kills the script, and the
-##	check that would have printed the reason never runs. Every way to spell an
+##	check that would have printed the reason never runs. Every way to write an
 ##	assignment counts - a keyword prefix, an array element, `+=`, backticks.
 ##	Line continuations are joined first, so a substitution that ends in
 ##	`|| true` several lines down is read as guarded.

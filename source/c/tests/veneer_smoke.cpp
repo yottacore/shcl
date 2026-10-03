@@ -231,7 +231,7 @@ int main() {
 	auto gschema = shcl::Document::parse("field: port\n\ttype: int\n\trequired: yes\n\tdefault: 8080\n");
 	// The 2.x rewrite comes back as an owned string: the selector sugar loses
 	// its colon and a bare backslash escape is double-quoted.
-	// Told the file is 2.x, the backslash value is re-spelled and the result is
+	// Told the file is 2.x, the backslash value is rewritten and the result is
 	// stamped with the format line, which is what makes a second run a no-op.
 	auto mig = shcl::migrate("base:[Boston]\n\tlat: 42\nnote: a\\tb\n", true);
 	CHECK(mig.text == "base: Boston\n\tlat: 42\nnote: \"a\\tb\"\n##    Format   3\n##    Migrated from SHCL 2.x.\n");
