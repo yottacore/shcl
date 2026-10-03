@@ -33,66 +33,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
-- `check` can take its Schema line from inside a raw block and validate against the wrong schema at exit 0
-	- ID: 2026100307163903
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Needs local test suite run?: Y, the full `--ci`. cppcheck's exhaustive pass over the changed header did not finish in 10 minutes here.
-	- Severity: Critical
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 item 3
-	- Version and build: dev at `6e8b7f89`
-	- Steps to reproduce:
-		- A file holding `'C:\': ~~~`, a tab-indented `##    Schema   ./lax.shcl`, a tab-indented `~~~`, then `##    Schema   ./strict.shcl` and `port: abc`. `strict.shcl` makes `port` an int.
-		- `shcl check f.shcl`
-	- Incorrect behavior: `ok (0 diagnostic(s))` at exit 0 in all four. It used `lax.shcl`, the line inside the raw body.
-	- Expected behavior: V003 at exit 6, as `check --schema=strict.shcl` gives.
-	- Reproduced: 20261003, all four CLIs. Same cause in `migrate`: a file whose only `##    Format   3` line is inside such a body comes back untouched at exit 0 instead of refusing at 7.
-	- Possible cause: `schema_ref` and `format_line_version` find raw blocks through `migrate_line`, which reads with the 2.x tokenizer. In 2.x a backslash escapes inside single quotes too, so `'C:\'` never closes there and the fence is missed. A 2M-line fuzz against the parser found no other class.
-	- Origin: `2c528a23` (schema line, 2026-09-26) and `27d73efb` (schema line fixes, 2026-09-28). The 20260928 decided-against list says the tracker differs from the parser only on an E023 fence name, in a file that already fails `check`. This file loads clean, so that premise does not hold. Confirmed.
-	- Sweep: `schema_ref` and `format_line_version` in all four, and anything else that walks lines with `migrate_line`.
-	- Estimated effort: Low
-	- Actual cause: as above. Both walks found raw blocks with the 2.x tokenizer, in all four.
-	- Actual fix: one line walk that knows which rules it reads by. The Schema line is new in format 3, so `schema_ref` finds blocks the way the parser does, through the parser's own tokenizer and fence tests (`child_fence`, `line_fence`). A Format line counts by the rules it names: one naming format 3 counts outside the parser's blocks, and an older one outside the blocks 2.x found. `migrate` on a file that names no format also counts lines one rule set reads as a raw body and the other does not as reading two ways, so it refuses at 7 unless `--from-2x` says the file is 2.x. It does not stamp a file whose output ends inside a raw block under either rule set. Spec and design say so.
-	- Note: a line refused for its text (E014, E019, E023, E024) can still read its body as lines in the parser while the walk takes the body. That file fails `check` anyway, and 2026100307163902 and 2026100117214801 move the parser to the walk's answer.
-	- Note: with `--from-2x`, 2.x's reading stands. A 2.x line that 2.x refused and that now opens a block is left as written, per the low-stakes rule for 2.x.
-	- Note: the new corpus case moved the fuzz seeds, and `EreT6dh` then failed on a remove whose kept line starts with a next-line character. Rust's `trim` takes that character and the format does not, so a settled comment compared unequal to its line. The property now trims the format's blanks only. Not a library defect.
-	- Swept: `schema_ref` and `format_line_version` in Rust, Go, Python and C now read through one walker (`RawLines`, `rawLines`, `_RawLines`, `ShclRawLines`), and the parser's child-fence test is the shared `child_fence`. The only other caller of `migrate_line` is the rewrite loop in `migrate`, which reads 2.x on purpose and now checks its output against the parser's blocks. The C++ veneer only wraps the two C calls, and no script reads either line.
-	- Verified: the repro gives V003 at exit 6 and the `migrate` repro exits 7, in all four CLIs. The four conformance suites, `cli-regress.bash` (344 rows), `crosscheck.bash` over the corpus and a 2,000-input fuzz dump, `check-migrate.bash`, `shell-regress.bash`, `check-docs.bash`, markdownlint, `test-ids.py check`, clippy (host and windows), go vet and staticcheck (also windows), ruff, mypy, gcc 15 with `_FORTIFY_SOURCE=3`, the mingw C build and the C runner under ASan and UBSan pass. The release fuzz at 2,000,000 passes.
-	- Branch: `schemaraw`
-	- Commit: 4fcfec0b, 55d4777d
-	- Test case: corpus `189-schema-line-raw-after-backslash` (`ErfuRcU`, all four runners), cli-regress `ErfuRh7` and `ErfuRj5`, fuzz property `ErfuRfE`. Each fails on the old code and passes on the new.
-	- Note: left for signoff: the new `migrate` refusal and no-stamp rule, which go past the item, and the `EreT6dh` trim change.
-
-- `banner on` and `banner off` delete the file's own `##` comments written against the info block
-	- ID: 2026100307163904
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Needs local test suite run?: the full `--ci`, for the exhaustive cppcheck. At the normal level cppcheck crashes on `main.c` with dev's header too.
-	- Severity: High
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 item 4
-	- Version and build: dev at `6e8b7f89`
-	- Steps to reproduce:
-		- A file holding `port: 1`, a blank line, the info block, then `## Ops team: do not edit by hand.` and `## Pager: 555-0100` with no blank line before them.
-		- `printf 'banner\toff\n' | shcl set f.shcl`, or `banner on`.
-	- Incorrect behavior: exit 0, and only `port: 1` is left. The two comments went with the block, and `-w` saves it that way.
-	- Expected behavior: the spec says comments are never discarded. The block has a known first and last line, so it can come off alone.
-	- Reproduced: 20261003, all four. Also reached without writing against the block by hand: `migrate --from-2x` on a file ending in `## Owner: ops team` appends the Format line right under it, and a later `banner on` deletes the comment.
-	- Possible cause: `drop_banners` takes the whole run of `##` lines that holds the block.
-	- Origin: `f1362fbf` (2026-09-25). The `set_banner` doc comment says a `##` comment written against the block goes with it, but the spec and design do not. Not seen by an earlier round. Confirmed.
-	- Note: this meets the letter of the release bar, but the behavior is stated at the call, so it is filed High, not Critical.
-	- Actual cause: `drop_banners` took the whole run of `##` lines holding the block's first line or a Format line, so any comment written right against the block went with it.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Actual fix: an old block comes off from the lone `##` above its first line to the next lone `##`. With that closing line gone, it ends after its last line written the block's way. A Format line `migrate` stamped comes off with the migrated note under it. Every other comment stays. All four bindings, their doc comments and the spec say so.
-	- Swept: `drop_banners` in Rust and C, `dropBanners` in Go, `_drop_banners` in Python, and the four `set_banner` doc comments. The C++ veneer only wraps `shcl_set_banner`, and its comment says nothing about comments. Nothing else removes the block: `git grep "This config file format is SHCL"` finds the constants, the runners' init checks and the corpus. `format_line_version` only reads the Format line.
-	- Verified: corpus 190 and the four new cli-regress tests fail on dev's code in all four bindings and pass on the branch. Also the four conformance suites, `cargo test`, the Go tests, cli-regress, crosscheck over the corpus and a fresh fuzz dump, check-docs, shell-regress, the test ID check, clippy for linux and windows, go vet, staticcheck, ruff, mypy, check-veneer, the veneer smoke test, the C runner under ASan and UBSan, and a gcc 15 fortified build.
-	- Note: the 2,000,000 release fuzz is green but for `EreT6dh`, which fails at iterations 558881 and 1061439 with dev's library as well, and with no banner op in either. The first is a misplaced `E012` line opening a raw block, which the property excuses only for `E014`. The second is kept lines lost by a canonical save after a merge and a raw set. Neither is this item.
-	- Branch: `bannerkeep`
-	- Commit: `6c00b70d`
-	- Test case: corpus `190-banner-own-comments` (`Erg8DKu`). cli-regress `Erg8DKv` and `Erg8DKw` run `banner off` and `banner on` on the review's file. `Erg8DKx` and `Erg8DKy` run `migrate --from-2x --write` then `banner on`, without and with the migrated note.
-
 - A fuzz property and a save-gate check for kept lines, so edits stop losing them one site at a time
 	- ID: 2026100307310000
 	- Type: Task
@@ -753,6 +693,70 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- The property removes excused lines by position, not text.
 		- A repeated parent either gets its own rule in the property, or a test shows the merge leaves its kept lines alone.
 	- Estimated effort: Low
+
+- `check` can take its Schema line from inside a raw block and validate against the wrong schema at exit 0
+	- ID: 2026100307163903
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: Y, the full `--ci`. cppcheck's exhaustive pass over the changed header did not finish in 10 minutes here.
+	- Severity: Critical
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 3
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- A file holding `'C:\': ~~~`, a tab-indented `##    Schema   ./lax.shcl`, a tab-indented `~~~`, then `##    Schema   ./strict.shcl` and `port: abc`. `strict.shcl` makes `port` an int.
+		- `shcl check f.shcl`
+	- Incorrect behavior: `ok (0 diagnostic(s))` at exit 0 in all four. It used `lax.shcl`, the line inside the raw body.
+	- Expected behavior: V003 at exit 6, as `check --schema=strict.shcl` gives.
+	- Reproduced: 20261003, all four CLIs. Same cause in `migrate`: a file whose only `##    Format   3` line is inside such a body comes back untouched at exit 0 instead of refusing at 7.
+	- Possible cause: `schema_ref` and `format_line_version` find raw blocks through `migrate_line`, which reads with the 2.x tokenizer. In 2.x a backslash escapes inside single quotes too, so `'C:\'` never closes there and the fence is missed. A 2M-line fuzz against the parser found no other class.
+	- Origin: `2c528a23` (schema line, 2026-09-26) and `27d73efb` (schema line fixes, 2026-09-28). The 20260928 decided-against list says the tracker differs from the parser only on an E023 fence name, in a file that already fails `check`. This file loads clean, so that premise does not hold. Confirmed.
+	- Sweep: `schema_ref` and `format_line_version` in all four, and anything else that walks lines with `migrate_line`.
+	- Estimated effort: Low
+	- Actual cause: as above. Both walks found raw blocks with the 2.x tokenizer, in all four.
+	- Actual fix: one line walk that knows which rules it reads by. The Schema line is new in format 3, so `schema_ref` finds blocks the way the parser does, through the parser's own tokenizer and fence tests (`child_fence`, `line_fence`). A Format line counts by the rules it names: one naming format 3 counts outside the parser's blocks, and an older one outside the blocks 2.x found. `migrate` on a file that names no format also counts lines one rule set reads as a raw body and the other does not as reading two ways, so it refuses at 7 unless `--from-2x` says the file is 2.x. It does not stamp a file whose output ends inside a raw block under either rule set. Spec and design say so.
+	- Note: a line refused for its text (E014, E019, E023, E024) can still read its body as lines in the parser while the walk takes the body. That file fails `check` anyway, and 2026100307163902 and 2026100117214801 move the parser to the walk's answer.
+	- Note: with `--from-2x`, 2.x's reading stands. A 2.x line that 2.x refused and that now opens a block is left as written, per the low-stakes rule for 2.x.
+	- Note: the new corpus case moved the fuzz seeds, and `EreT6dh` then failed on a remove whose kept line starts with a next-line character. Rust's `trim` takes that character and the format does not, so a settled comment compared unequal to its line. The property now trims the format's blanks only. Not a library defect.
+	- Swept: `schema_ref` and `format_line_version` in Rust, Go, Python and C now read through one walker (`RawLines`, `rawLines`, `_RawLines`, `ShclRawLines`), and the parser's child-fence test is the shared `child_fence`. The only other caller of `migrate_line` is the rewrite loop in `migrate`, which reads 2.x on purpose and now checks its output against the parser's blocks. The C++ veneer only wraps the two C calls, and no script reads either line.
+	- Verified: the repro gives V003 at exit 6 and the `migrate` repro exits 7, in all four CLIs. The four conformance suites, `cli-regress.bash` (344 rows), `crosscheck.bash` over the corpus and a 2,000-input fuzz dump, `check-migrate.bash`, `shell-regress.bash`, `check-docs.bash`, markdownlint, `test-ids.py check`, clippy (host and windows), go vet and staticcheck (also windows), ruff, mypy, gcc 15 with `_FORTIFY_SOURCE=3`, the mingw C build and the C runner under ASan and UBSan pass. The release fuzz at 2,000,000 passes.
+	- Branch: `schemaraw`
+	- Commit: 4fcfec0b, 55d4777d
+	- Test case: corpus `189-schema-line-raw-after-backslash` (`ErfuRcU`, all four runners), cli-regress `ErfuRh7` and `ErfuRj5`, fuzz property `ErfuRfE`. Each fails on the old code and passes on the new.
+	- Note: left for signoff: the new `migrate` refusal and no-stamp rule, which go past the item, and the `EreT6dh` trim change.
+	- Acceptance signoff: 20261003, signed off. The `migrate` refusal at 7 was OK'd. The no-stamp rule is the one design.md already had, now checked under both rule sets, and the `EreT6dh` change is a fix to the test, so neither needed a call.
+	- Closed: 20261003-162005
+
+- `banner on` and `banner off` delete the file's own `##` comments written against the info block
+	- ID: 2026100307163904
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: the full `--ci`, for the exhaustive cppcheck. At the normal level cppcheck crashes on `main.c` with dev's header too.
+	- Severity: High
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 4
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- A file holding `port: 1`, a blank line, the info block, then `## Ops team: do not edit by hand.` and `## Pager: 555-0100` with no blank line before them.
+		- `printf 'banner\toff\n' | shcl set f.shcl`, or `banner on`.
+	- Incorrect behavior: exit 0, and only `port: 1` is left. The two comments went with the block, and `-w` saves it that way.
+	- Expected behavior: the spec says comments are never discarded. The block has a known first and last line, so it can come off alone.
+	- Reproduced: 20261003, all four. Also reached without writing against the block by hand: `migrate --from-2x` on a file ending in `## Owner: ops team` appends the Format line right under it, and a later `banner on` deletes the comment.
+	- Possible cause: `drop_banners` takes the whole run of `##` lines that holds the block.
+	- Origin: `f1362fbf` (2026-09-25). The `set_banner` doc comment says a `##` comment written against the block goes with it, but the spec and design do not. Not seen by an earlier round. Confirmed.
+	- Note: this meets the letter of the release bar, but the behavior is stated at the call, so it is filed High, not Critical.
+	- Actual cause: `drop_banners` took the whole run of `##` lines holding the block's first line or a Format line, so any comment written right against the block went with it.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: an old block comes off from the lone `##` above its first line to the next lone `##`. With that closing line gone, it ends after its last line written the block's way. A Format line `migrate` stamped comes off with the migrated note under it. Every other comment stays. All four bindings, their doc comments and the spec say so.
+	- Swept: `drop_banners` in Rust and C, `dropBanners` in Go, `_drop_banners` in Python, and the four `set_banner` doc comments. The C++ veneer only wraps `shcl_set_banner`, and its comment says nothing about comments. Nothing else removes the block: `git grep "This config file format is SHCL"` finds the constants, the runners' init checks and the corpus. `format_line_version` only reads the Format line.
+	- Verified: corpus 190 and the four new cli-regress tests fail on dev's code in all four bindings and pass on the branch. Also the four conformance suites, `cargo test`, the Go tests, cli-regress, crosscheck over the corpus and a fresh fuzz dump, check-docs, shell-regress, the test ID check, clippy for linux and windows, go vet, staticcheck, ruff, mypy, check-veneer, the veneer smoke test, the C runner under ASan and UBSan, and a gcc 15 fortified build.
+	- Note: the 2,000,000 release fuzz is green but for `EreT6dh`, which fails at iterations 558881 and 1061439 with dev's library as well, and with no banner op in either. The first is a misplaced `E012` line opening a raw block, which the property excuses only for `E014`. The second is kept lines lost by a canonical save after a merge and a raw set. Neither is this item.
+	- Branch: `bannerkeep`
+	- Commit: `6c00b70d`
+	- Test case: corpus `190-banner-own-comments` (`Erg8DKu`). cli-regress `Erg8DKv` and `Erg8DKw` run `banner off` and `banner on` on the review's file. `Erg8DKx` and `Erg8DKy` run `migrate --from-2x --write` then `banner on`, without and with the migrated note.
+	- Acceptance signoff: 20261003, signed off.
+	- Closed: 20261003-162005
 
 - The banner's Syntax link names a tag the cut may not create
 	- ID: 2026100115323211
