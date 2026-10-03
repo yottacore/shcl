@@ -12655,6 +12655,17 @@ mod kept_gate {
 		let _ = std::fs::remove_dir_all(&dir);
 	}
 
+	// design.md's table: a remove takes the kept line written as the field's
+	// own line, and nothing beside it.
+	#[test]
+	fn a_remove_takes_the_kept_line_heading_its_field() {
+		let _id = test_id("EreUeCs");
+		let mut doc = Document::parse("a: [1]\n\tb: 2\ny: 3\n");
+		assert_eq!(doc.remove("a"), 1);
+		assert_eq!(doc.lost_count(), 0);
+		assert_eq!(doc.to_canonical(), "y: 3\n");
+	}
+
 	#[test]
 	fn a_merged_layer_owes_its_kept_lines() {
 		let _id = test_id("EreRysn");
