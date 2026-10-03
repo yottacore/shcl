@@ -538,7 +538,7 @@ The table is the rule. If a code's behavior ever disagrees with its row, the cod
 | `H003` | hint          | bound
 | `H004` | hint          | retired: became `E024`
 
-- Rows `E013`, `E017`, `E019`, `E023`, `E024` and `H003` change, and `E025` to `E028` come in, with [the value syntax design](design_docs/value-syntax.md). This table changes when that is built.
+- Rows `E013`, `E014`, `E017`, `E019`, `E023`, `E024` and `H003` change, and `E025` to `E028` come in, with [the value syntax design](design_docs/value-syntax.md). This table changes when that is built.
 
 - A line that qualifies for more than one refusal takes the first that applies, in this order: where it sits (`E012`, `E018`), then what it is (`E014`, `E019`, `E023`, `E024`, and on an element line `E007` to `E011`), and only then the element cap (`E021`). A cap refuses only a line that would otherwise bind. Bracket text under a cap is `E019` and kept, and an element under a field that already has a value is `E011`. The bracket test reads the value's first piece, which a capped scan keeps, not the value span, which it empties. The fuzz property `a_cap_refuses_only_a_line_that_would_bind` holds the order.
 

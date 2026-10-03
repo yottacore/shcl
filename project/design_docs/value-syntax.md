@@ -59,7 +59,7 @@ Scope: escapes, quoting, bare values and field names, arrays, list items and sel
 
 - Backticks wrap a raw value the program decodes itself, such as `` `#FF8800` `` or `` `\x7F` ``. SHCL hands back the text between the backticks as is.
 
-- Every mistake is a loud error on its own line. The rest of the file still loads, and a save keeps the bad line as written.
+- Every mistake is a loud error on its own line. The rest of the file still loads, and a save keeps the bad line as written. Lines under a bad line still load wherever its name can be read.
 
 - The point is to end the review and fix churn that backslash escapes have caused since 3.0 work began. The backlog item is 2026100207032800.
 
@@ -82,7 +82,9 @@ The rules in short. The reasons are under [Design](#design).
 	- Whitespace at the start and end is trimmed first, so `port: 80   # main` is fine.
 	- A quote means `'`, `"` or a backtick, anywhere in the piece.
 
-- A bare field name starts with an ASCII letter, then has only ASCII letters, digits, `-` and `_`. Anything else is `E014`, as a bad name is today. A quoted name can be any text.
+- A bare field name starts with an ASCII letter, then has only ASCII letters, digits, `-` and `_`. Anything else is `E014`. A quoted name can be any text.
+	- A name that breaks only these spelling rules, such as `404`, `-x`, `user name` or `Straße`, can still be read. Its line is kept, and the lines under it load under the name it spells.
+	- A name that can't be read at all, such as one with a bad escape, still takes its block with it, as today.
 
 - Single and double quotes work the same way. Each one can contain the other kind of quote as plain text.
 
@@ -139,15 +141,15 @@ The code numbers are provisional until the change is built. "Value only" means t
 
 | Code   | Meaning                                                                            | Outcome
 | :---   | :---                                                                               | :---
-| `E013` | A line starting with `*`. A list item is `- ` now                                  | Retained
+| `E013` | A line starting with `*`. A list item is `- ` now                                  | Retained. The other items still load.
+| `E014` | A bare field name that breaks the spelling rules, such as `-x: y` or `404: x`      | Retained. Holds its level open, which is new.
 | `E017` | A quote or backtick that opens a piece and does not close it as its last character | Retained, value only. It used to bind, read bare.
 | `E019` | A bracket array that is not well formed                                            | Retained, value only
 | `E023` | A bad `◉` escape                                                                   | Retained. Value only when it sits in the value.
-| `E014` | Now also a bare field name that doesn't start with a letter, such as `-x: y`       | Retained, as today
 | `E024` | Retired. A Windows path with `\t` or `\n` in it is just text now                   | None
 | `E025` | Whitespace or a quote in a bare value, bare array element or bare selector body    | Retained. Value only when it sits in the value.
 | `E026` | A bare comma outside brackets and quotes, such as `ports: 80, 443`                 | Retained, value only
-| `E027` | A list item that is a bare name ending in `:`, such as `- name:`                   | Retained
+| `E027` | A list item that is a bare name ending in `:`, such as `- name:`                   | Retained. The other items still load.
 | `E028` | An array value on a field that has lines under it                                  | Retained, value only
 | `H003` | Retired. The case it hinted at is `E025` or `E027` now                             | None
 
@@ -314,7 +316,7 @@ Quoted text inside an array is just a string, so `["[a]", "b"]` is two strings.
 
 - A bare field name starts with an ASCII letter.
 	- That is the usual rule for names in programming languages, and it keeps a name from being read as a number or a list item.
-	- `-x: y`, `404: x` and `_id: 7` are `E014`. Quote them: `"404": x`.
+	- `-x: y`, `404: x` and `_id: 7` are `E014`. Quote them: `"404": x`. The lines under them still load meanwhile.
 	- A name that starts with a letter is unchanged.
 
 - Quoted field names follow the same rules as quoted values, and resolve `◉` escapes, so `"a◉DOUBLE_QUOTE◉b"` and `'a"b'` name the same field.
@@ -384,7 +386,8 @@ Quoted text inside an array is just a string, so `["[a]", "b"]` is two strings.
 
 - Each item is one value and follows the value rules. `- extra large` is `E025`.
 
-- `- name:` is `E027`. That is how YAML starts an object in a list, and SHCL does that with instances.
+- `- name:` is `E027`. That is how YAML starts an object in a list, and SHCL does that with instances. The line is kept, and the other items still load.
+	- `- "name:"` is the item `name:`.
 	- `- name: value` is already `E025`, for the space.
 	- `- localhost:8080` is fine. The rule is a bare name ending in a colon, not any colon.
 
@@ -404,10 +407,13 @@ Quoted text inside an array is just a string, so `["[a]", "b"]` is two strings.
 
 ### Errors and kept lines
 
+- No error here stops the load or throws out good lines. Each one complains on its line and keeps the rest: the lines around it, the lines under it where they can be placed, and the other items of a list.
+
 - Every new error keeps the line exactly as written. It binds nothing, a read on it is NotFound, nothing is counted lost, and a save writes it back where it was.
 
 - A line refused for its value alone keeps its level open. That covers `E017`, `E019`, `E023` and `E025` when they are in the value, plus `E026` and `E028`.
 	- The name is fine, so lines indented under it still load under that name.
+	- `E014` for a name that can still be read works the same way. The lines under it load under the name it spells.
 	- The field only exists if one of those lines binds.
 	- This is the rule from 2026100115403384. Without it, one typo in a value takes its whole block with it.
 	- The full outcome rules for every code are in `design.md` under Load outcomes.
@@ -431,7 +437,9 @@ Quoted text inside an array is just a string, so `["[a]", "b"]` is two strings.
 
 What the writer and `fmt` produce. The line-keeping save still writes unchanged lines as they were.
 
-- A value is written bare when it has no whitespace, none of `,` `:` `#` `"` `'` `` ` `` `[` `]` `◉`, and nothing that needs an escape. Otherwise it is quoted.
+- A value is written bare when it has no whitespace, none of `,` `#` `"` `'` `` ` `` `[` `]` `◉`, doesn't end in `:`, and needs no escape. Otherwise it is quoted.
+	- A `:` inside a value is text, so `2:30PM` and `localhost:8080` stay bare.
+	- A value ending in `:` is quoted, since as a list item it would read as `- name:`.
 
 - The user's quotes on a plain string are kept, as today.
 	- Quoting used to be pure spelling, normalized away, which silently took the quotes off values a downstream language treats as special, such as `"@null"` or a quoted function name. The `quoted` read flag exists for that case.
