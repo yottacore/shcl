@@ -2,7 +2,7 @@
 
 ##	Purpose:
 ##		Keep the shell completions in step with the CLI. Both completion files
-##		carry the same per-subcommand option table the CLI validates against in
+##		have the same per-subcommand option table the CLI validates against in
 ##		check_opts(), so an option added to one and not the others would offer a
 ##		completion the CLI rejects as a usage error - or hide a real one. This
 ##		diffs all three tables, and the top-level offers (subcommand words plus
@@ -95,7 +95,7 @@ fCompValOpts() {
 
 ## The reference's dispatch arms, one name per line. Matched on the arm arrow
 ## rather than on indentation: `\t` is not an escape in POSIX ERE, so a pattern
-## carrying one matches nothing under the grep a script gets.
+## with one matches nothing under the grep a script gets.
 fRustDispatch() {
 	sed -n '/^fn run(cmd: &str, o: &Opts) -> u8 {/,/^}$/p' "${mainRs}" \
 	| { grep -oE '"[a-z]+" =>' || true ;} | tr -d '">= ' | sort -u

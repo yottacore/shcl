@@ -49,7 +49,7 @@ source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
 
 ##	Is tool $1 here? Under the gate a missing one is a failure rather than a
 ##	skipped block: a runner that loses a tool would otherwise report OK forever.
-##	Locally it stays a skip, since a working copy need not carry every tool, and
+##	Locally it stays a skip, since a working copy need not have every tool, and
 ##	is noted in SHCL_GATE_SKIPS so the run is not taken for a full gate.
 fHave(){
 	command -v "$1" > /dev/null 2>&1 && return 0
@@ -1078,7 +1078,7 @@ fTest EqL3dg0 20260918b-37-token-not-sent-on-downloads
 ##	download redirects to another host. curl drops the header there and wget
 ##	1.x sends it on. Two local https listeners, the first redirecting to the
 ##	second under another name, and install.bash's own fetch lines for each
-##	tool: a download carries no token anywhere, the API calls carry it.
+##	tool: a download sends no token anywhere, the API calls send it.
 if fHave openssl && fHave wget && fHave curl; then
 	tdir="${tmpDir}/token"; mkdir -p "${tdir}"
 	openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=localhost -addext 'subjectAltName=IP:127.0.0.1,DNS:localhost' \
@@ -1133,7 +1133,7 @@ SRVEOF
 		grep -q "^/download/${tool} auth=None$" "${tdir}/origin.log" 2>/dev/null \
 			|| fBad "install.bash's ${tool} download sent GITHUB_TOKEN"
 		[[ "$(grep -c "^/api/${tool} auth=Bearer regress-token$" "${tdir}/origin.log" 2>/dev/null || true)" == "2" ]] \
-			|| fBad "install.bash's ${tool} API calls did not both carry GITHUB_TOKEN"
+			|| fBad "install.bash's ${tool} API calls did not both pass GITHUB_TOKEN"
 	done
 else
 	fTestSkip
@@ -1227,7 +1227,7 @@ nBadBefore="${nBad}"
 fTest Eonfke8 20260901b-46-wrapper-header-width
 ##	20260901b item 46: the PowerShell wrapper's header ran one line out to 126
 ##	columns where its bash twin wraps. Comment lines only - the code in both
-##	carries a couple of long ones on purpose.
+##	has a couple of long ones on purpose.
 for wrapper in source/bash/shcl.bash source/powershell/shcl.ps1; do
 	long="$(awk '/^#{2}/ && length > 100 { print NR": "length }' "${repoDir}/${wrapper}")"
 	[[ -z "${long}" ]] || fBad "${wrapper}: header comment runs past 100 columns at ${long//$'\n'/, }"
@@ -1236,7 +1236,7 @@ done
 fTest EqzwPFK 20260901b-18-on-path-trailing-slash
 ##	20260901b item 18: the "not on your PATH" note compared strings against
 ##	`:dir:`, so a PATH element written with a trailing slash was not seen. Both
-##	installers carry the helper; install-dev.bash's reads the PATH as it was
+##	installers have the helper; install-dev.bash's reads the PATH as it was
 ##	before the script put its tool dirs in front.
 for inst in install.bash install-dev.bash; do
 	eval "$(sed -n '/^fOnPath()/,/^}/p' "${repoDir}/${inst}")"
@@ -1315,7 +1315,7 @@ if fHave openssl; then
 	##	20260829 item 24: the modulus check piped through xxd, and a box
 	##	without it ended the run with nothing said. Every key copy in this tree
 	##	holds the throwaway key, so the run gets past them to the signature, on
-	##	a PATH carrying every tool here but xxd. The modulus is written without
+	##	a PATH with every tool here but xxd. The modulus is written without
 	##	the script's own round trip, and a wrong one still has to be refused.
 	skey="${tmpDir}/signkey"
 	mkdir -p "${skey}/cicd/utility" "${skey}/source/rust" "${tmpDir}/sign5" "${tmpDir}/noxxd"
@@ -1338,10 +1338,10 @@ if fHave openssl; then
 	# shellcheck disable=SC2016  ## install.ps1's own variable name
 	printf '$signingModulus = '"'%s'"'\n' "x${smod}" > "${skey}/install.ps1"
 	fSignNoXxd
-	[[ "${signOut}" == *"install.ps1 carries a different key"* ]] || fBad "sign-release.bash with xxd off the PATH did not refuse a wrong modulus: ${signOut@Q}"
+	[[ "${signOut}" == *"install.ps1 has a different key"* ]] || fBad "sign-release.bash with xxd off the PATH did not refuse a wrong modulus: ${signOut@Q}"
 	fTest Er1zTEf 20260725-37-installers-check-the-signature
 	##	20260725 item 37: nothing in the sums file is trusted until its signature
-	##	checks out against the key the installer carries. Each installer's check,
+	##	checks out against the key the installer has. Each installer's check,
 	##	lifted by text and given the throwaway key: the file it signed passes, and
 	##	the same file with one byte changed is refused.
 	mkdir -p "${tmpDir}/sigchk"
@@ -1433,7 +1433,7 @@ fFlameRun "${tmpDir}/flame/flame_20260101-000000_whole.svg"
 rm -f "${tmpDir}/flame/flame_20260101-000000_whole.svg.samples"
 fFlameRun "${tmpDir}/flame/flame_20260101-000000_whole.svg"
 [[ "${flameOut}" != *"reached the graph"* ]] \
-	|| fBad "flame-report.py invented a sample count for a graph that carries none"
+	|| fBad "flame-report.py invented a sample count for a graph that has none"
 grep -q '{}.samples' "${repoDir}/source/rust/src/main.rs" \
 	|| fBad "the profiler does not record how many samples reached the graph"
 fTest EqeDCi0 20260922-1-flame-report-recursion
@@ -1856,7 +1856,7 @@ if fHave nfpm && fHave dpkg-deb && fHave rpm; then
 	printf 'x\n' | gzip -9nc > "${pDir}/payload/man/shcl.1.gz"
 	printf 'x\n' | gzip -9nc > "${pDir}/payload/doc/changelog.gz"
 	##	20260918b item 40: the rpm required a package named libgcc, which
-	##	openSUSE does not have. The stub carries a real binary linked to
+	##	openSUSE does not have. The stub has a real binary linked to
 	##	libgcc_s, the way the x86_64 build is, with the names package.bash
 	##	uses, so the read-back can hold them against what rpm generates.
 	cp "${cli}" "${pDir}/p"
@@ -1933,7 +1933,7 @@ fi
 
 fTest Er20EK7 20260904-40-no-profiler-in-artifacts
 ##	20260904 item 40: the profiler never shipping rested on the release command
-##	not carrying the feature flag. package.bash checks the files now, and it
+##	not including the feature flag. package.bash checks the files now, and it
 ##	runs only at release, so its check runs here on a stub artifact with one of
 ##	the crate names in it, and on a clean one.
 eval "$(sed -n '/^fCheckNoProfiler()/,/^}/p' "${repoDir}/cicd/utility/package.bash")"
@@ -1949,10 +1949,10 @@ if declare -F fCheckNoProfiler >/dev/null; then
 	# shellcheck disable=SC2034,SC2329
 	profOut="$( artDir="${tmpDir}/noprof/art"; payload="${tmpDir}/noprof/payload"
 	  fDie(){ echo "$*"; exit 1; }; fCheckNoProfiler )" || true
-	[[ "${profOut}" == "shcl-1.0.0-linux-x86_64: carries the profiler dependency, which must never ship" ]] \
-		|| fBad "package.bash packaged a binary carrying the profiler: ${profOut@Q}"
+	[[ "${profOut}" == "shcl-1.0.0-linux-x86_64: has the profiler dependency, which must never ship" ]] \
+		|| fBad "package.bash packaged a binary with the profiler: ${profOut@Q}"
 else
-	fBad "package.bash no longer carries fCheckNoProfiler"
+	fBad "package.bash no longer has fCheckNoProfiler"
 fi
 
 fTest EoUoQT2 20260830b-8-prerelease-nsis-version
@@ -1989,7 +1989,7 @@ if fHave makensis; then
 			fBad "the setup's uninstaller deletes by wildcard: $(grep -E '^Delete: .*\*' <<<"${nsiOut}" | tr '\n' ' ' || true)"
 		fi
 	else
-		fBad "package.bash no longer carries fUninstallList, which the setup's uninstall list comes from"
+		fBad "package.bash no longer has fUninstallList, which the setup's uninstall list comes from"
 	fi
 else
 	echo "shell-regress: makensis not installed - packaging row skipped"
@@ -2095,7 +2095,7 @@ PYEOF
 	##	20260918b item 62: the committed gif showed output the CLI no longer
 	##	printed - an E014 wording two rounds old, and a `check` missing its
 	##	explain line - because the gif stage is the one the release gate skips
-	##	(--no-gif), so nothing held the two together. The gif carries whatever
+	##	(--no-gif), so nothing held the two together. The gif shows whatever
 	##	fRunStep captures, so capturing it here and comparing it with a golden
 	##	says the gif is stale the day the output changes.
 	demoGot="$(cd "${repoDir}" && python3 - "${gif}" "${repoDir}/cicd/demo-scenario.toml" "${cli}" <<'DEMOEOF'
@@ -2235,7 +2235,7 @@ if declare -F fBuildNumber >/dev/null; then
 	done
 	if [[ -e "${marker}" ]]; then fBad "cicd.bash build number ran a command from its argument"; fi
 else
-	fBad "cicd.bash no longer carries fBuildNumber"
+	fBad "cicd.bash no longer has fBuildNumber"
 fi
 buildLine="$( { grep -n '^[[:space:]]*export SHCL_BUILD$' "${repoDir}/cicd/cicd.bash" || true; } | head -n1 | cut -d: -f1)"
 # shellcheck disable=SC2016  ## cicd.bash's own text, matched literally
@@ -2250,7 +2250,7 @@ fTest Ep1EGVh 20260904-28-gates-read-the-strict-flag
 grep -qE '^\s*export SHCL_GATE_STRICT=1' "${repoDir}/cicd/cicd.bash" || fBad "cicd.bash no longer exports SHCL_GATE_STRICT under --ci"
 ##	The grep is for the expansion, not the name: a history line or a comment
 ##	mentioning the flag satisfied the old pattern, so a gate could lose its
-##	guard and stay on the list. -F because the pattern carries braces.
+##	guard and stay on the list. -F because the pattern has braces.
 # shellcheck disable=SC2016  ## the literal expansion is the pattern
 for g in check-c-compilers.bash check-locale.bash check-docs.bash check-readme.bash package.bash shell-regress.bash cli-regress.bash; do
 	grep -qF '${SHCL_GATE_STRICT' "${repoDir}/cicd/utility/${g}" || fBad "${g} no longer reads SHCL_GATE_STRICT"
@@ -2372,7 +2372,7 @@ if [[ "${cccFns}" == *"fBuild()"*"fRefuse()"* ]]; then
 		[[ "${rc}" == 1 ]] || fBad "check-c-compilers.bash's ${call%% *} on a long error cascade returned ${rc}, not 1"
 	done
 else
-	fBad "check-c-compilers.bash no longer carries fBuild and fRefuse"
+	fBad "check-c-compilers.bash no longer has fBuild and fRefuse"
 fi
 
 fTest EqGiYnI 20260918-12-check-migrate-empty-dump
@@ -2398,7 +2398,7 @@ fTest Ep1BXPm 20260904-24-publish-identity-fallbacks
 ##	statement under set -e, so a repository with no identity died in the trap
 ##	before doing anything; and its ssh-host probe assigned from a pipeline
 ##	whose failure killed the script ahead of the fallback on the next line.
-##	Both lines have to carry their fallback.
+##	Both lines need their fallback.
 pub="${repoDir}/cicd/utility/n8git_backup-and-publish"
 [[ "$(grep -cE 'git config user\.(name|email)[^|]*\|\|' "${pub}" || true)" == 2 ]] || fBad "n8git_backup-and-publish reads the git identity without a fallback"
 grep -qE 'sshHost="\$\(git remote get-url origin[^)]*\|\| true\)"' "${pub}" || fBad "n8git_backup-and-publish assigns sshHost without a fallback"
@@ -2511,7 +2511,7 @@ DIE: the local changes conflict with origin/main; they are safe in the stash - r
 2"
 	[[ "${out}" == "${syncWant}" ]] || fBad "cicd.bash's remote sync did not stop, fast-forward and keep the work as it should: ${out@Q}"
 else
-	fBad "cicd.bash no longer carries its remote sync stage as one if-block"
+	fBad "cicd.bash no longer has its remote sync stage as one if-block"
 fi
 
 fTest Eq92jkm 20260909-39-git-auto-msg-empty-messages
@@ -2546,7 +2546,7 @@ if command -v git >/dev/null 2>&1; then
 fi
 
 fTest EqpV5Gi 20260924c-idea11-dogfood-runner
-##	20260924c idea 11: dogfood_shcl.ps1 replaced n8runshcl.ps1 and carries its
+##	20260924c idea 11: dogfood_shcl.ps1 replaced n8runshcl.ps1 and keeps its
 ##	lessons: a file with some other name in the pool is not a version, the build
 ##	about to run is never pruned, and a failed removal says so. Plus its own: the
 ##	pipe sees only what shcl printed, `-v` reaches shcl, a running version stays,
@@ -2685,7 +2685,7 @@ fTest EqpV5Gj 20260924c-idea9-dogfood-binary-in-use
 ##	It asks /proc first now.
 eval "$(sed -n '/^fInUse()/,/^}/p' "${repoDir}/cicd/cicd.bash")"
 if ! declare -F fInUse >/dev/null; then
-	fBad "cicd.bash no longer carries fInUse"
+	fBad "cicd.bash no longer has fInUse"
 elif [[ -d /proc/self ]]; then
 	cp /bin/sleep "${tmpDir}/inuse-bin"
 	"${tmpDir}/inuse-bin" 60 & inusePid=$!
@@ -2821,7 +2821,7 @@ fi
 
 fTest EoXV3tQ installers-help-version-refusals
 ##	Both bash installers used to heredoc their own source header, so the help
-##	opened with the file name as a comment and every wrapped line carried a `##`
+##	opened with the file name as a comment and every wrapped line had a `##`
 ##	and a hard tab. The PowerShell installer printed clean prose, so the two
 ##	documented installers spoke in different registers.
 for inst in install.bash install-dev.bash; do
@@ -2976,7 +2976,7 @@ if [[ -f "${report}" ]]; then
 fi
 
 ##	Every tracked shell script, whether or not it is named `*.bash`: the
-##	pre-push hook and the publish script carry no extension, and both are
+##	pre-push hook and the publish script have no extension, and both are
 ##	`set -e` scripts the scans below are about. Untracked-but-not-ignored files
 ##	are in, so a script written and not yet added is still scanned; build output
 ##	is out, because it is ignored. Built once, since it reads the start of every
@@ -3023,7 +3023,7 @@ fScanUnguardedGrep(){
 }
 
 fTest EqL3ERV fhave-strict-and-skip
-##	The self-test: one file carrying every spelling, so a scan that stops seeing
+##	The self-test: one file with every spelling, so a scan that stops seeing
 ##	one of them fails here rather than going quiet over the repo.
 ##	The strict switch itself: under the gate a missing tool has to be a failure,
 ##	or a runner that loses one reports OK forever. Locally it stays a skip.
@@ -3116,7 +3116,7 @@ counts="$(fScanFunnel "${tmpDir}/funnelbait.h" '^static void p_refuse\(' '^stati
 
 fTest EpFkZy6 tokenizer-scan
 ##	The tokenizer is the one place the lexical rules live, so no binding may
-##	carry a second quote state machine. The scan lifts each binding's
+##	have a second quote state machine. The scan lifts each binding's
 ##	tokenizer section by its header and refuses a quote-state variable or the
 ##	close-finder anywhere outside it; inside it wants at least two hits, or
 ##	the scan is blind.

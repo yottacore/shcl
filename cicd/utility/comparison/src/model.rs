@@ -78,7 +78,7 @@ impl Shape {
 		}
 	}
 	/// The four scaling shapes take whatever size the run asks for, because what
-	/// they measure is parser behavior at volume. The two realistic ones carry
+	/// they measure is parser behavior at volume. The two realistic ones have
 	/// their own size instead: a config file is a few kilobytes and a schema
 	/// file a few hundred, and neither says anything useful at 64 MiB.
 	pub fn plan(self, mib: usize) -> Plan {
@@ -212,7 +212,7 @@ fn deep_level(i: usize, level: usize) -> Node {
 }
 
 /// One `records` unit: an instance of the repeated root key, with the mix of
-/// field kinds a real service block carries - including a value holding the
+/// field kinds a real service block has - including a value holding the
 /// separator, so every encoder's quoting rules are exercised.
 pub fn record_unit(i: usize) -> (String, Vec<(String, Node)>) {
 	let name = format!("svc-{i:06}");
@@ -280,7 +280,7 @@ pub fn record_unit(i: usize) -> (String, Vec<(String, Node)>) {
 	(name, fields)
 }
 
-/// One `text` unit: a multi-line blob carrying the characters each format has to
+/// One `text` unit: a multi-line blob with the characters each format has to
 /// escape or fence its way around.
 pub fn text_unit(i: usize) -> (String, Node) {
 	let mut body = String::new();
@@ -472,7 +472,7 @@ pub fn config_unit(i: usize) -> (String, Node) {
 }
 
 /// Column templates for the `ddl` shape. A table takes a run of them, so the
-/// definitions vary in width and in which optional clauses they carry, the way
+/// definitions vary in width and in which optional clauses they have, the way
 /// a real schema does. An empty default or comment means the clause is absent
 /// rather than blank.
 #[rustfmt::skip]
@@ -652,7 +652,7 @@ impl Gen {
 	/// One instance of the repeated root key, for the `records` shape.
 	pub fn record(&mut self, o: &mut String, key: &str, name: &str, fields: &[(String, Node)]) {
 		match self.fmt {
-			// The instance label IS the identity; the other four carry it as an
+			// The instance label IS the identity; the other four store it as an
 			// ordinary first field, which is the same data written their way.
 			Fmt::Shcl => {
 				let _ = writeln!(o, "{}: {}", key, shcl_scalar(&Val::Str(name.to_string())));

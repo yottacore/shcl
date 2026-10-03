@@ -58,5 +58,5 @@ declare -i isSourced_ldg7c=0; [[ "${BASH_SOURCE[0]}" == "${0}" ]] || isSourced_l
 ##	History:
 ##		- 2026-08-29 JC: Lifted out of largedoc.bash so the profiler runs the
 ##		  same document instead of forty concatenated copies of the corpus.
-##		- 2026-09-02 JC: The second instance of each service carries its own value;
+##		- 2026-09-02 JC: The second instance of each service has its own value;
 ##		  it used to reopen the first, so half the nodes merged and every unit hinted.

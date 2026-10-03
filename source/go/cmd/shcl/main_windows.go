@@ -101,7 +101,7 @@ func windowsCreateCopy(file, old string) (*os.File, error) {
 		return nil, &fs.PathError{Op: "open", Path: old, Err: err}
 	}
 	// A create takes the ACEs but drops the auto-inherited mark, and without it
-	// a later change to the directory's ACL is not carried down to the copy.
+	// a later change to the directory's ACL is not passed down to the copy.
 	// Setting the same DACL again with the request bit puts it back.
 	if sd != nil {
 		var control uint16

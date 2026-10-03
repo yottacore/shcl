@@ -128,7 +128,7 @@ class WriteReason(Enum):
 	the rest name the five ways it cannot."""
 	Writable = 0
 	BadPath = 1       # empty path, or the scanner rejected it
-	ValueInPath = 2   # the path carries a `: value` part; writes take values separately
+	ValueInPath = 2   # the path has a `: value` part; writes take values separately
 	Wildcard = 3      # wildcard selectors are query-only
 	NoSuchIndex = 4   # a `[#k]` instance that does not (and can never) exist
 	TooDeep = 5       # deeper than the nesting cap; the writer never creates past it
@@ -157,7 +157,7 @@ T = TypeVar("T")
 
 class Read(Generic[T]):
 	"""Value plus status plus the original raw text (when the path resolved).
-	Array reads also carry one status per slot (element, or wildcard instance)
+	Array reads also give one status per slot (element, or wildcard instance)
 	in .slots; .status is then the worst slot. Scalar reads leave .slots empty.
 	.line is the 1-based source line of the resolved binding (0 when the path
 	did not resolve to one node, or the node was writer-built), so a consumer
@@ -205,7 +205,7 @@ class Read(Generic[T]):
 
 
 class LoadError(Exception):
-	"""A failed strict load. Carries the full diagnostics list AND the document
+	"""A failed strict load. Includes the full diagnostics list AND the document
 	the parse produced anyway - recover-and-continue means the diagnostics are
 	the point, and the tree is what a Standard load would have kept."""
 	diagnostics: list[Diagnostic]
@@ -380,7 +380,7 @@ def _comment_depth(chain, held, base, text, indent):
 	for its value or name goes by the same rule over `held`, the kept lines
 	before it: it holds its level on a reload, so it goes deeper only under
 	one of those, which a reload holds open for it. A misplaced line, which
-	carries its own indent, sits at the place's level and leaves both
+	has its own indent, sits at the place's level and leaves both
 	alone."""
 	if text.startswith((" ", "\t")):
 		return 0
@@ -403,7 +403,7 @@ def _comment_depth(chain, held, base, text, indent):
 
 def _is_field(text):
 	"""A pending line kept for what it says, not for where it sits: neither a
-	comment nor a misplaced line, which carries its own indent."""
+	comment nor a misplaced line, which has its own indent."""
 	return not text.startswith(("#", " ", "\t"))
 
 
@@ -590,7 +590,7 @@ def _choose_fence(content):
 
 
 class _Trivia:
-	"""Comment trivia, boxed off to the side: most nodes carry none, and the
+	"""Comment trivia, boxed off to the side: most nodes have none, and the
 	four empty containers were a third of every node. Verbatim from `#` to end
 	of line. Never part of identity or reads; merged instances concatenate
 	leading, first trailing wins (later ones demote to leading - a canonical
@@ -846,7 +846,7 @@ TMP_NAME_BYTES = 64
 # Every reading of a line's parts goes through tokenize: the parser's line
 # dispatch, the path scanner behind every lookup and setter, the comment and
 # comma splits, the element cap, the unterminated-quote check, set_literal
-# and the CLI's --set split. Seven scanners used to carry their own copy of
+# and the CLI's --set split. Seven scanners used to have their own copy of
 # these rules, and every scanner defect since July was two of them
 # disagreeing. The rules, one sentence each:
 #
@@ -1230,7 +1230,7 @@ def tokenize_value(text: str, from_: int, rules: Rules, out: Tokens) -> None:
 		from_ = 0
 	# A Python string can hold a lone surrogate (os.listdir, sys.argv and
 	# os.environ hand them out), and a strict encode raised from a parse that
-	# promises never to. Carried through, it is one more non-ASCII character,
+	# promises never to. Passed through, it is one more non-ASCII character,
 	# as it was before the tokenizer read bytes; every decode here matches.
 	# The save is where text with no UTF-8 spelling fails.
 	s = text.encode("utf-8", "surrogatepass")
@@ -1423,7 +1423,7 @@ def _cell_of_tokens(tok, s):
 def _one_line(s):
 	# Value text for a diagnostic message: line breaks and tabs escaped, so one
 	# diagnostic is one line. A raw block's body is the value that made this
-	# necessary - it carries its own newlines.
+	# necessary - it contains its own newlines.
 	return s.replace("\\", "\\\\").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
 
 
@@ -1575,7 +1575,7 @@ def _invisible_at(t, i):
 def _selector_base(c):
 	"""A character a variation selector can modify: one written as itself that
 	is not a blank or a joiner. Another selector is not one, so a run of them
-	cannot carry hidden text."""
+	cannot contain hidden text."""
 	return c > " " and c != "\u200c" and c != "\u200d" and c not in _INVISIBLE
 
 
@@ -1722,7 +1722,7 @@ def _strip_common(line, common):
 
 
 class Migration:
-	"""What migrate produced, and what it could not carry across.
+	"""What migrate produced, and what it could not keep.
 
 	current: the file already names its format, so there was nothing to migrate
 	and text is the input. ambiguous: pieces the two rule sets read differently
@@ -1787,7 +1787,7 @@ def _format_line_version(text):
 			n = rest[len(FORMAT_LINE_HEAD):]
 			if n and all("0" <= c <= "9" for c in n):
 				# A number too long for int() - CPython refuses past 4300
-				# digits - is one no format will ever carry. The reference's
+				# digits - is one no format will ever have. The reference's
 				# parse fails on it too and reads the line as this major, so
 				# the file needs nothing (20260918b item 30).
 				digits = n.lstrip("0") or "0"
@@ -1867,8 +1867,8 @@ def migrate(text: str, from_v2: bool) -> Migration:
 
 def migrate_unstamped(text: str, from_v2: bool) -> Migration:
 	"""migrate() without the version line or the migrated note, for a program
-	that writes GEN_BANNER itself, which carries the version line. The next run
-	can tell the result is current only once that is written."""
+	that writes GEN_BANNER itself, which includes the version line. The next
+	run can tell the result is current only once that is written."""
 	return _migrate_text(text, from_v2, False)
 
 
@@ -2033,7 +2033,7 @@ def _migrate_line(rest, tok, fence, st):
 	s = rest.encode("utf-8", "surrogatepass")
 	if rest.startswith("*") and len(s) > 1 and _is_wsp_byte(s[1]):
 		tokenize_value(rest, 1, Rules.V2, tok)
-		# A bare comma was refused (E010), so there is nothing to carry.
+		# A bare comma was refused (E010), so there is nothing to convert.
 		if len(tok.elements) == 1:
 			_value_edits(s, tok, edits, st)
 	else:
@@ -2453,7 +2453,7 @@ class _Outcome:
 		self.rest = rest  # stopped: the lines never read
 
 
-# The line binds; a value it carried has nowhere to go and is gone.
+# The line binds; a value on it has nowhere to go and is gone.
 OUT_VALUE_DROPPED = _Outcome("value_dropped")
 # Read but not applicable here; re-emitted it could bind elsewhere, so it is
 # gone and counts.
@@ -2934,7 +2934,7 @@ class _Parser:
 
 	def _attach_path(self, parent, segs, value, line, indent):
 		"""Walk path segments under `parent`, select-or-creating; returns the node
-		for the last segment carrying `value`. None aborts the line (diagnosed)."""
+		for the last segment with `value`. None aborts the line (diagnosed)."""
 		self._star_flush()
 		# Field child under a stacked list: diagnose the mix once, keep the field.
 		pnode = self.arena[parent]
@@ -3058,7 +3058,7 @@ class _Parser:
 		while i < len(lines):
 			if _is_fence_close(lines[i], ch, length):
 				# The closing fence's indent is the nesting; everything a content
-				# line carries past it is content, so a body whose lines all
+				# line has past it is content, so a body whose lines all
 				# share an indent keeps it (a writer-built block depends on that).
 				nest = _leading_ws(lines[i])
 				closed = True
@@ -3391,7 +3391,7 @@ class _Parser:
 					i += 1
 					continue
 				# Content-malformed at any position, so safe to retain. The BOM
-				# exception the field arm carries cannot apply here: this line
+				# exception the field arm makes cannot apply here: this line
 				# starts with the '*' that brought us in.
 				self._refuse(lineno, "E013", "malformed line: '*' must be followed by a space", _out_retained(_trim_wsp_end(rest), had_blank), indent)
 				i += 1
@@ -3518,7 +3518,7 @@ class _Parser:
 			self._refuse(nlines, "E020", f"node cap of {self.max_nodes} exceeded; parse stopped", _out_stopped(()), "")
 		self._star_flush()
 		# Indented tail comments keep their block; only top-level ones orphan.
-		# Before the fold, which carries a dropped instance's comments over to
+		# Before the fold, which moves a dropped instance's comments over to
 		# the one it joins: after it they would hang on the dropped one.
 		self._hang_deeper_pending("")
 		self._fold_late_dups()
@@ -3713,7 +3713,7 @@ def _commented(text):
 
 def _push_leads(e, leads, base, at):
 	"""Write a run of comments and kept lines, `base` levels deep. A misplaced
-	line kept as written (its text carries its own indent, a comment's never
+	line kept as written (its text has its own indent, a comment's never
 	does) goes back as it was only where a reload keeps it again, which the
 	model of the reload's stack answers the way the parser will: refused for
 	its indent, or under the kept line before it. A merge or an edit can leave
@@ -4416,7 +4416,7 @@ class Document:
 	@staticmethod
 	def parse_with(text: str, strictness: Strictness) -> Document:
 		"""Parse at a chosen strictness. Only Strict can fail (any error
-		diagnostic); the raised LoadError still carries the parsed document
+		diagnostic); the raised LoadError still includes the parsed document
 		alongside the diagnostics."""
 		doc = _Parser().parse(text, strictness)
 		if strictness == Strictness.Strict and any(d.severity == Severity.Error for d in doc.diags):
@@ -4512,7 +4512,7 @@ class Document:
 		return self._lost
 
 	def error_count(self) -> int:
-		"""How many error-severity diagnostics the document carries - the "did
+		"""How many error-severity diagnostics the document has - the "did
 		this file have errors?" predicate, so recover-and-continue can't read
 		as success by accident. Counts whatever diagnostics() holds (after
 		load_and_validate, that includes validation errors)."""
@@ -4521,7 +4521,7 @@ class Document:
 	@staticmethod
 	def load_and_validate(text: str, schema_text: str, strictness: Strictness) -> Document:
 		"""One-shot load-and-validate: parse at a strictness, validate against a
-		schema, and hand back the document carrying ONE combined diagnostics
+		schema, and hand back the document with ONE combined diagnostics
 		list (parse first, then validation - the order `check --schema`
 		prints), so half the errors can't vanish because a caller forgot one
 		of the two lists. Never fails: a strict-failing document comes back as
@@ -4633,7 +4633,7 @@ class Document:
 			idx, depth, would_merge, pos = stack.pop()
 			if would_merge is None:
 				# Post-children marker. Comments this block owns with no child
-				# to carry them re-emit one deeper, then the ones that hung on
+				# to take them re-emit one deeper, then the ones that hung on
 				# this block after its last child at the block's own depth.
 				nd = self.arena[idx]
 				if e.record:
@@ -4763,7 +4763,7 @@ class Document:
 			e.near.append((idx, pos))
 		pad = "\t" * depth
 		v = node.value
-		# Same-line fence spelling can't carry an inline comment (an unbalanced
+		# Same-line fence spelling can't have an inline comment (an unbalanced
 		# quote in the info-string could hide the `#` on reparse), so its
 		# trailing comment joins the leading lines instead; the flag comes from
 		# the parent's walk. Each blank rides its own comment (or the binding
@@ -4904,7 +4904,7 @@ class Document:
 		# not reach one node (NotFound missing, Multiple ambiguous).
 		# The per-instance sub-resolution behind a wildcard is the same walk
 		# over the remaining segments, run flat (_resolve_slots) rather than one
-		# frame per wildcard: a path can carry a wildcard per document level,
+		# frame per wildcard: a path can have a wildcard per document level,
 		# and the frame budget is small. A wildcard inside the sub-walk widens
 		# the run rather than ending it, so the two compose.
 		# group: a sub-path reaching several nodes joins the slot list instead
@@ -4959,7 +4959,7 @@ class Document:
 		# index, or the Status saying why the sub-path did not reach one node
 		# (NotFound missing, Multiple ambiguous) - but a further wildcard in
 		# `rest` contributes its own slots to the same flat run. Walked with an
-		# explicit stack rather than one frame per wildcard: a path can carry a
+		# explicit stack rather than one frame per wildcard: a path can have a
 		# wildcard per document level, and the frame budget is small. The stack
 		# is depth-first with children pushed in reverse, so slots come out in
 		# file order.
@@ -5413,7 +5413,7 @@ class Document:
 		pairs: list[tuple[int, int]] = []
 		for t in targets:
 			p = self.arena[t].parent
-			# A node already marked would carry DEAD into the rebuild below as
+			# A node already marked would pass DEAD into the rebuild below as
 			# an index, so skip it rather than trust resolve never to name one
 			# twice.
 			if p == DEAD:
@@ -5617,7 +5617,7 @@ class Document:
 		return self._set_value(path, _cell_of(v))
 
 	def set_datetime(self, path: str, v: ShclDateTime) -> bool:
-		"""Bind a ShclDateTime; anything else is a TypeError. Its fields carry
+		"""Bind a ShclDateTime; anything else is a TypeError. Its fields have
 		no invariant, so a value the reader would refuse (month 13, a fraction
 		with no seconds, an empty one) fails the write rather than binding
 		text that cannot read back."""
@@ -5865,7 +5865,7 @@ class Document:
 				groups[n] = g
 			g.append((pos, k))
 		# Base side, one pass: does the name have a container instance, and
-		# which child carries each (name, key) - every key computed once. The
+		# which child has each (name, key) - every key computed once. The
 		# list is copied because the splices below rewrite it as they go.
 		base_kids = list(self.arena[base_parent].children)
 		has_container: dict = {}
@@ -6630,7 +6630,7 @@ class Document:
 
 class StatusError(Exception):
 	"""Raised by the must-exist convenience reads (get_* with no default): a
-	public name a caller can actually catch. Carries the Status in .status."""
+	public name a caller can actually catch. The Status is in .status."""
 	status: Status
 
 	def __init__(self, status: Status):
@@ -6679,7 +6679,7 @@ def _emit_name(name: str) -> str:
 
 def _diag_name(name):
 	# A field name for a diagnostic message: put the way the emitter would
-	# write it, so a name carrying a line break, a dot or a quote cannot pose as
+	# write it, so a name with a line break, a dot or a quote cannot pose as
 	# something it is not - a raw `a.b` reads exactly like `a` nesting `b`, and a
 	# raw line break splits one diagnostic across two.
 	return _emit_name(name)
@@ -6687,7 +6687,7 @@ def _diag_name(name):
 
 def _diag_element(e):
 	# One element of a value, written for a diagnostic message: the emitter's
-	# inline spelling, so a value carrying a line break cannot split one
+	# inline spelling, so a value with a line break cannot split one
 	# diagnostic across two.
 	return _emit_element(e)
 
@@ -6741,7 +6741,7 @@ def suppress_declared_repeats(schema: Document, diags: list[Diagnostic]) -> None
 
 class FileStatus(Enum):
 	"""What load_file found: the four cases a consumer's own load path
-	otherwise confuses. Clean and HadErrors both carry a usable document;
+	otherwise confuses. Clean and HadErrors both have a usable document;
 	NotFound and Unreadable come back with an empty one."""
 	Clean = 0        # read and parsed, no error diagnostics (hints allowed)
 	HadErrors = 1    # read and parsed, but error diagnostics are present
@@ -6749,10 +6749,10 @@ class FileStatus(Enum):
 	Unreadable = 3   # exists but could not be read (permissions, a directory, bad encoding, past a read_file cap)
 
 
-# The attribute bits a publish will not carry across by itself - hidden and
+# The attribute bits a publish will not keep by itself - hidden and
 # system on windows, nothing anywhere else. ReplaceFile's documented preserve
 # list is creation time, short name, object id, DACLs, security attributes,
-# encryption, compression and named streams, and the os.replace fallback carries
+# encryption, compression and named streams, and the os.replace fallback keeps
 # nothing at all. Read-only is handled separately: it has to come OFF first.
 _CARRIED_ATTRS = 0x2 | 0x4   # FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM
 
@@ -6852,8 +6852,8 @@ def _publish_file(tmp, target):
 	# Move the finished temp file over the target. On windows that means
 	# ReplaceFile rather than a rename: a rename publishes a brand-new file and
 	# leaves the destination's ACLs, security attributes and named streams
-	# behind, which ReplaceFile carries onto the replacement instead. What it
-	# does not carry is the basic attributes - hidden and system - which the save
+	# behind, which ReplaceFile copies onto the replacement instead. What it
+	# does not copy is the basic attributes - hidden and system - which the save
 	# re-applies by hand. It needs the destination to exist, and it fails rather
 	# than skip a merge it cannot do (no WRITE_DAC, say), so a create and any
 	# failure fall back to os.replace. WRITE_THROUGH is asked for and documented
@@ -7084,7 +7084,7 @@ def write_file_atomic(file: str | os.PathLike[str], data: str) -> str | None:
 	# promises a returned message, never a throw. POSIX raises it here, at the
 	# resolve; windows resolves such a path happily and raises at the first call
 	# that touches the filesystem instead, so every one of them below has to
-	# carry the same guard.
+	# have the same guard.
 	file = os.fspath(file)   # an int is a TypeError here, not a descriptor (see read_file)
 	# A path that names a directory rather than a file: it ends in a separator,
 	# or its last component is `.` or `..`. The OS refuses to open such a path as
@@ -7103,7 +7103,7 @@ def write_file_atomic(file: str | os.PathLike[str], data: str) -> str | None:
 	if base == "":
 		base = target
 	# At most the first 64 bytes of the name, cut where a character starts, so the
-	# temp's own length is fixed. Carrying the whole name put the temp over the
+	# temp's own length is fixed. Keeping the whole name put the temp over the
 	# filesystem's 255 bytes at a target name in the low 240s - and the exact
 	# cut-off moved with the width of the process id, so the same file saved on one
 	# machine and failed on another. Bytes, not characters: 64 characters of four
@@ -7144,7 +7144,7 @@ def write_file_atomic(file: str | os.PathLike[str], data: str) -> str | None:
 	read_only = os.name == "nt" and existing is not None and not existing.st_mode & stat.S_IWRITE
 	# Hidden and system ride back the same way: ReplaceFile's documented preserve
 	# list does not include the basic attributes, and the os.replace fallback
-	# carries nothing, so a hidden config came back visible.
+	# keeps nothing, so a hidden config came back visible.
 	carried = _carried_attrs(existing) if existing is not None else 0
 	born = 0o600 if existing is not None else 0o666
 	f = None
@@ -7172,9 +7172,9 @@ def write_file_atomic(file: str | os.PathLike[str], data: str) -> str | None:
 			# On the handle, so umask cannot narrow it the way it narrows a
 			# create mode, and after the data, because a write by anyone but
 			# root clears setuid/setgid. Best effort: a filesystem that cannot
-			# carry the mode is not a reason to fail a write that otherwise
+			# store the mode is not a reason to fail a write that otherwise
 			# succeeded. The whole mode goes, setuid/setgid/sticky included, as
-			# an editor's rewrite would carry it. The mode is a POSIX concept -
+			# an editor's rewrite would keep it. The mode is a POSIX concept -
 			# on windows the destination's attributes come across in the publish
 			# step instead, and a 3.13 fchmod there would only touch the
 			# read-only bit the publish handles itself.
@@ -7183,7 +7183,7 @@ def write_file_atomic(file: str | os.PathLike[str], data: str) -> str | None:
 					# The group first, because a chown clears setuid/setgid on
 					# most systems. Best effort like the mode: a caller who is
 					# not in the old group keeps its own, which is what it had
-					# before this. The owner is not carried - see the file tier
+					# before this. The owner is not copied - see the file tier
 					# in spec.md.
 					if hasattr(os, "fchown"):
 						try:
@@ -7393,7 +7393,7 @@ def _leading_zero(t):
 def _quote_text(t):
 	"""Quote a logical string so the tokenizer reads it back as the same
 	string. Single quotes are literal, so they are the spelling for text
-	holding a double quote or a backslash; double quotes carry the escapes, so
+	holding a double quote or a backslash; double quotes have the escapes, so
 	they are the spelling for a line break, a tab, an invisible character, or
 	text holding both quote kinds."""
 	return _quote_text_as(t, Rules.CURRENT)
@@ -7554,7 +7554,7 @@ def _name_reads_back(name):
 
 def _comment_line(text):
 	"""The comment line this text is written as, or None when it has no
-	spelling. A `#` is added when the text carries none. The load trims every
+	spelling. A `#` is added when the text has none. The load trims every
 	line's end, so the trimmed text is what gets written; text holding a line
 	break is refused rather than cut down to its first line."""
 	if "\n" in text:
@@ -8791,7 +8791,7 @@ def _gen_annotation(c, tyname):
 	if c.allowed is not None:
 		parts.append("one of: " + _allowed_join(c.allowed))
 	# The bounds are their own part of the annotation line, not an alternative
-	# to `allowed`. A field can carry both, and the validator enforces both. A
+	# to `allowed`. A field can have both, and the validator enforces both. A
 	# duration or size bound reads the way the schema wrote it.
 	if c.min_text is not None or c.max_text is not None:
 		if c.min_text is not None and c.max_text is not None:
@@ -8823,7 +8823,7 @@ def _gen_annotation(c, tyname):
 
 
 def _gen_default_text(v):
-	# A default carrying a literal newline cannot sit on a value line; the
+	# A default with a literal newline cannot sit on a value line; the
 	# quoted escaped spelling reads back to the same string.
 	if "\n" not in v:
 		return v
@@ -8927,7 +8927,7 @@ def generate(schema: Document, no_banner: bool = False) -> tuple[str, list[Diagn
 				changed = True
 		if not changed:
 			break
-	# A live line with a value materializes an instance carrying that value,
+	# A live line with a value materializes an instance with that value,
 	# and a dotted child names the empty-valued instance instead - so `srv:
 	# web` followed by `srv.port:` is two `srv` nodes, and the child never
 	# ends up where the schema looks. Any line under such a parent selects it by
@@ -8993,7 +8993,7 @@ def generate(schema: Document, no_banner: bool = False) -> tuple[str, list[Diagn
 			wild.append((_schema_text(c.path), tyname))
 			continue
 		# A filled wildcard emits in dotted form, targeting the materialized
-		# instance - by its value when the materializing line carries one.
+		# instance - by its value when the materializing line has one.
 		# Rebuilt from the parsed segments, not by cutting text out of the
 		# path: the same path can be written several ways, and only the
 		# segments say what it means. Otherwise the schema's own spelling.
@@ -9002,7 +9002,7 @@ def generate(schema: Document, no_banner: bool = False) -> tuple[str, list[Diagn
 			c.segs[k - 1].selector is None and tuple(names_of(c.segs[:k])) in values
 			for k in range(1, len(c.segs))
 		)
-		# A name carrying a newline has no verbatim spelling on a binding line;
+		# A name with a newline has no verbatim spelling on a binding line;
 		# the segment renderer escapes it, so such a path goes through there
 		# whether or not it was filled.
 		# A value after a last-segment selector is ignored, so a default there
@@ -9177,8 +9177,8 @@ FORMAT_MAJOR = 3
 FORMAT_LINE_HEAD = "##    Format   "
 
 # The whole version line, as the block has it. A program writing a config of
-# its own emits GEN_BANNER, which carries this; migrate appends this line on its
-# own to a file it rewrote, since that file has no block to add it to and
+# its own emits GEN_BANNER, which includes this; migrate appends this line on
+# its own to a file it rewrote, since that file has no block to add it to and
 # inventing one would write bytes the document does not hold.
 FORMAT_LINE = "##    Format   3"
 
@@ -9229,7 +9229,7 @@ def _gen_selector_text(v):
 def _selector_reads_back(body, text, quoted):
 	"""Whether body between brackets on a file line reads back as a value
 	selector for text, quoted or bare as asked."""
-	# The tokenizer reads one line and never sees a line end, so text carrying a
+	# The tokenizer reads one line and never sees a line end, so text with a
 	# real line break would read back here and then be written across two lines,
 	# which is not the same path. A file line cannot hold one, so refuse and let
 	# the escaped spelling be tried instead.
@@ -9250,7 +9250,7 @@ def _selector_reads_back(body, text, quoted):
 def _path_reads_back(path, segs):
 	"""Whether a schema path written on a file line reads back as the same
 	segments. A lookup path takes spellings a file line does not."""
-	# The tokenizer reads one line and never sees a line end, so text carrying a
+	# The tokenizer reads one line and never sees a line end, so text with a
 	# real line break would read back here and then be written across two lines,
 	# which is not the same path. A file line cannot hold one, so refuse and let
 	# the escaped spelling be tried instead.
@@ -9274,7 +9274,7 @@ def _gen_path_text(segs, parent_values):
 	"""Render parsed segments back as a dotted path, dropping wildcard selectors
 	(a generated line targets the one instance it materializes) and quoting a
 	name that needs it, so the result is a path the scanner reads back the same.
-	A segment whose prefix names a live line carrying a value selects that
+	A segment whose prefix names a live line with a value selects that
 	instance by the value, in place of a wildcard or a bare name. None when a
 	selector has no spelling a file line reads back."""
 	out = []
@@ -9322,7 +9322,7 @@ def _expand_mounts(sdef):
 	# Work stack of (constraint, mount prefix or None, chain of fragment names
 	# being expanded), fields pushed in reverse so they pop in schema order.
 	# One frame per mount level recursed to the depth cap, past the frame
-	# budget from a deep caller; the chain each job carries is what the
+	# budget from a deep caller; the chain each job has is what the
 	# recursion kept on the call stack.
 	work: list = [(c, None, ()) for c in reversed(sdef.cons)]
 	while work:

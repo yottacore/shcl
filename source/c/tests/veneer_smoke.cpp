@@ -108,7 +108,7 @@ int main() {
 	CHECK(qd.exists("a") && !qd.exists("nope"));
 	auto nums = qd.read_int_array("nums");
 	CHECK(nums.slots.size() == 3 && nums.slots[0] == shcl::Status::Good && nums.slots[1] == shcl::Status::BadType);
-	CHECK(qd.read_int("a").slots.empty()); // scalar reads carry no slots
+	CHECK(qd.read_int("a").slots.empty()); // scalar reads have no slots
 	auto when = qd.read_datetime_array_str("when");
 	CHECK(when.value.size() == 2 && when.value[0] == "2026-08-02" && when.slots[1] == shcl::Status::BadType);
 	auto whenDt = qd.read_datetime_array("when");
@@ -195,7 +195,7 @@ int main() {
 	CHECK(rawDoc.get_raw_or("missing", "fb") == "fb" && rawDoc.get_raw_info_or("missing", "fb") == "fb");
 
 	// Schema validation rides through the veneer: a conforming doc is clean, a
-	// violation carries its stable V-code, and a key-level schema fault still
+	// violation has its stable V-code, and a key-level schema fault still
 	// lets the unknown-field sweep run (the faulted entry keeps its path).
 	auto schema = shcl::Document::parse("field: port\n\ttype: int\n\tmin: 1\nfield: city\nfield: ratio\nfield: name\nfield: on\nfield: tags\n");
 	CHECK(doc.validate(schema).empty());

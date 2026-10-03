@@ -50,7 +50,7 @@ def fSkip(msg: str) -> NoReturn:
 def fKept(path: Path) -> tuple[int, int] | None:
 	##	The profiler writes what it kept beside the SVG, because the sampler
 	##	drops a sample whose leaf is inside libc rather than truncating it and
-	##	the graph itself carries no trace of that. An older graph has no such
+	##	the graph itself has no trace of that. An older graph has no such
 	##	file, and says nothing rather than guessing.
 	##	Rotation retags the SVG and leaves the sidecar under its old role, so a
 	##	missing one is looked for by the timestamp in the name.
@@ -66,7 +66,7 @@ def fKept(path: Path) -> tuple[int, int] | None:
 
 
 def fAge(path: Path) -> str:
-	##	How old the graph is, in whichever unit reads plainest. The name carries a
+	##	How old the graph is, in whichever unit reads plainest. The name has a
 	##	timestamp, but nobody reads a date as an age, and SEEN and NEW look the
 	##	same whether the profile behind them is from this morning or a fortnight
 	##	ago - and a stale one has been read as today's picture of the code.

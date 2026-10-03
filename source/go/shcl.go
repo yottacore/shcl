@@ -119,7 +119,7 @@ type Status int
 
 const (
 	Good     Status = iota // value present and coercible
-	Empty                  // path resolved but carries no value
+	Empty                  // path resolved but has no value
 	NotFound               // path resolved to no node
 	BadType                // value would not coerce to the asked type
 	Multiple               // path resolved to more than one node
@@ -150,7 +150,7 @@ type WriteReason int
 const (
 	Writable    WriteReason = iota // the path passes the writer's validation
 	BadPath                        // empty path, or the scanner rejected it
-	ValueInPath                    // the path carries a `: value` part; writes take values separately
+	ValueInPath                    // the path has a `: value` part; writes take values separately
 	Wildcard                       // wildcard selectors are query-only
 	NoSuchIndex                    // a `[#k]` instance that does not (and can never) exist
 	TooDeep                        // deeper than the nesting cap; the writer never creates past it
@@ -177,7 +177,7 @@ func (r WriteReason) String() string {
 
 // Read is the full-tier read result: value plus status plus the original raw
 // text (when the path resolved), so a caller can always recover what was
-// actually in the file. Array reads also carry one status per slot (element,
+// actually in the file. Array reads also give one status per slot (element,
 // or wildcard instance) in Slots; Status is then the worst slot. Scalar reads
 // leave Slots nil.
 // Line is the 1-based source line of the resolved binding (0 when the path
@@ -371,7 +371,7 @@ type depthEnt struct {
 // line kept for its value or name goes by the same rule over held, the kept
 // lines before it: it holds its level on a reload, so it goes deeper only
 // under one of those, which a reload holds open for it. A misplaced line,
-// which carries its own indent, sits at the place's level and leaves both
+// which has its own indent, sits at the place's level and leaves both
 // alone.
 func commentDepth(chain, held *[]depthEnt, base, text, indent string) int {
 	if strings.HasPrefix(text, " ") || strings.HasPrefix(text, "\t") {
@@ -403,7 +403,7 @@ func commentDepth(chain, held *[]depthEnt, base, text, indent string) int {
 }
 
 // isField: a pending line kept for what it says, not for where it sits:
-// neither a comment nor a misplaced line, which carries its own indent.
+// neither a comment nor a misplaced line, which has its own indent.
 func isField(text string) bool {
 	return !strings.HasPrefix(text, "#") && !strings.HasPrefix(text, " ") && !strings.HasPrefix(text, "\t")
 }
@@ -480,7 +480,7 @@ type nodeData struct {
 	// This node has decided its src - set by the first source line whose
 	// value the node holds, whether or not a string was worth keeping.
 	srcSet bool
-	// Comment trivia, kept off to the side: most nodes carry none, and the
+	// Comment trivia, kept off to the side: most nodes have none, and the
 	// four empty containers were a third of every node.
 	trivia *trivia
 	// Verbatim value text from the source line (after the colon, comment
@@ -928,7 +928,7 @@ const tmpNameBytes = 64
 // Every reading of a line's parts goes through Tokenize: the parser's line
 // dispatch, the path scanner behind every lookup and setter, the comment and
 // comma splits, the element cap, the unterminated-quote check, SetLiteral
-// and the CLI's --set split. Seven scanners used to carry their own copy of
+// and the CLI's --set split. Seven scanners used to have their own copy of
 // these rules, and every scanner defect since July was two of them
 // disagreeing. The rules, one sentence each:
 //
@@ -1481,7 +1481,7 @@ func leadingWS(s string) string {
 
 // oneLine is value text for a diagnostic message: line breaks and tabs escaped,
 // so one diagnostic is one line. A raw block's body is the value that made this
-// necessary - it carries its own newlines. The replacer is built once, since
+// necessary - it contains its own newlines. The replacer is built once, since
 // building it was most of what a validation with range faults allocated.
 func oneLine(s string) string {
 	return oneLineReplacer.Replace(s)
@@ -1665,7 +1665,7 @@ func invisibleAt(t string, i int) (rune, int, bool) {
 
 // selectorBase reports a character a variation selector can modify: one
 // written as itself that is not a blank or a joiner. Another selector is not
-// one, so a run of them cannot carry hidden text.
+// one, so a run of them cannot contain hidden text.
 func selectorBase(r rune) bool {
 	return r > ' ' && r != 0x200C && r != 0x200D && !invisible(r)
 }
@@ -1921,7 +1921,7 @@ func (s *slot) remove(idx int) bool {
 	return len(kept) == 0
 }
 
-// The bucket helpers below carry the read-modify-write a map entry needs
+// The bucket helpers below do the read-modify-write a map entry needs
 // (map values are not addressable), so the call sites stay one line each.
 
 // slotInsert chains idx into the bucket at h, insertion order preserved.
@@ -2032,7 +2032,7 @@ const FormatMajor = 3
 const FormatLineHead = "##    Format   "
 
 // FormatLine is the whole version line, as the block has it. A program
-// writing a config of its own emits GenBanner, which carries this; Migrate
+// writing a config of its own emits GenBanner, which includes this; Migrate
 // appends this line on its own to a file it rewrote, since that file has no
 // block to add it to and inventing one would write bytes the document does
 // not hold.
@@ -2047,7 +2047,7 @@ const SchemaLineHead = "##    Schema   "
 // It is a note for whoever opens the file; nothing reads it back.
 const MigratedLine = "##    Migrated from SHCL 2.x."
 
-// Migration is what Migrate produced, and what it could not carry across.
+// Migration is what Migrate produced, and what it could not keep.
 type Migration struct {
 	Text string
 	// Current: the file already names its format, so there was nothing to
@@ -2062,7 +2062,7 @@ type Migration struct {
 	Lost int
 }
 
-// migrating carries the counters a line rewrite reports back, and the one
+// migrating keeps the counters a line rewrite reports back, and the one
 // thing it asks.
 type migrating struct {
 	fromV2    bool
@@ -2197,7 +2197,7 @@ func Migrate(text string, fromV2 bool) Migration {
 }
 
 // MigrateUnstamped is Migrate without the version line or the migrated note,
-// for a program that writes GenBanner itself, which carries the version line.
+// for a program that writes GenBanner itself, which includes the version line.
 // The next run can tell the result is current only once that is written.
 func MigrateUnstamped(text string, fromV2 bool) Migration {
 	return migrateText(text, fromV2, false)
@@ -2397,7 +2397,7 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 	var edits []edit
 	if strings.HasPrefix(rest, "*") && len(s) > 1 && isWspByte(s[1]) {
 		TokenizeValue(rest, 1, RulesV2, tok)
-		// A bare comma was refused (E010), so there is nothing to carry.
+		// A bare comma was refused (E010), so there is nothing to convert.
 		if len(tok.Elements) == 1 {
 			valueEdits(rest, tok, &edits, st)
 		}
@@ -3404,7 +3404,7 @@ type outcome struct {
 }
 
 const (
-	// The line binds; a value it carried has nowhere to go and is gone.
+	// The line binds; a value on it has nowhere to go and is gone.
 	outcomeValueDropped = iota
 	// Content-malformed: kept verbatim as trivia and written back in place,
 	// where it re-diagnoses identically and never reads as a binding.
@@ -3653,7 +3653,7 @@ func lineFence(tok *Tokens, rest string) (ch byte, length int, info string, ok b
 }
 
 // attachPath walks path segments under parent, select-or-creating; returns the
-// node for the last segment carrying v. ok=false aborts the line (diagnosed).
+// node for the last segment with v. ok=false aborts the line (diagnosed).
 func (p *parser) attachPath(parent int, segs []segment, v value, line int, indent string) (int, bool) {
 	p.starFlush()
 	// Field child under a stacked list: diagnose the mix once, keep the field.
@@ -3800,7 +3800,7 @@ func (p *parser) consumeRaw(
 	for i < len(lines) {
 		if isFenceClose(lines[i], ch, length) {
 			// The closing fence's indent is the nesting; everything a content
-			// line carries past it is content, so a body whose lines all
+			// line has past it is content, so a body whose lines all
 			// share an indent keeps it (a writer-built block depends on that).
 			nest = leadingWS(lines[i])
 			closed = true
@@ -4281,7 +4281,7 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 				continue
 			}
 			// Content-malformed at any position, so safe to retain. The BOM
-			// exception the field arm carries cannot apply here: this line
+			// exception the field arm makes cannot apply here: this line
 			// starts with the '*' that brought us in.
 			p.refuse(lineno, "E013", "malformed line: '*' must be followed by a space", outRetained(trimEndWS(rest), hadBlank), indent)
 			i++
@@ -4436,7 +4436,7 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 	}
 	p.starFlush()
 	// Indented tail comments keep their block; only top-level ones orphan.
-	// Before the fold, which carries a dropped instance's comments over to the
+	// Before the fold, which moves a dropped instance's comments over to the
 	// one it joins: after it they would hang on the dropped one.
 	p.hangDeeperPending("")
 	p.foldLateDups()
@@ -4493,7 +4493,7 @@ func Parse(text string) *Document {
 
 // ParseWith parses at a chosen strictness. Only Strict can fail (any error
 // diagnostic). The Document comes back even then - non-nil alongside the
-// error, with the error carrying it too - so `doc, err :=` callers can
+// error, with the error including it too - so `doc, err :=` callers can
 // inspect doc.Diagnostics() without a nil check blowing up.
 func ParseWith(text string, strictness Strictness) (*Document, error) {
 	doc := newParser().parse(text, strictness)
@@ -4557,7 +4557,7 @@ func (d *Document) LostCount() int {
 	return d.lost
 }
 
-// ErrorCount is how many error-severity diagnostics the document carries - the
+// ErrorCount is how many error-severity diagnostics the document has - the
 // "did this file have errors?" predicate, so recover-and-continue can't read
 // as success by accident. Counts whatever Diagnostics() holds (after
 // LoadAndValidate, that includes validation errors).
@@ -4572,7 +4572,7 @@ func (d *Document) ErrorCount() int {
 }
 
 // LoadAndValidate is the one-shot load-and-validate: parse at a strictness,
-// validate against a schema, and hand back the document carrying ONE combined
+// validate against a schema, and hand back the document with ONE combined
 // diagnostics list (parse first, then validation - the order `check --schema`
 // prints), so half the errors can't vanish because a caller forgot one of the
 // two lists. Never fails: a strict-failing document comes back as the document
@@ -5019,7 +5019,7 @@ func commented(text string) string {
 }
 
 // pushLeads writes a run of comments and kept lines, base levels deep. A
-// misplaced line kept as written (its text carries its own indent, a
+// misplaced line kept as written (its text has its own indent, a
 // comment's never does) goes back as it was only where a reload keeps it
 // again, which the model of the reload's stack answers the way the parser
 // will: refused for its indent, or under the kept line before it. A merge or
@@ -5867,7 +5867,7 @@ func (d *Document) emitNode(idx, pos, depth int, wouldMerge bool, e *emit) {
 	d.emitLine(idx, pos, depth, wouldMerge, e)
 	d.emitChildren(d.arena[idx].children, depth+1, e)
 	e.near(idx, pos)
-	// Comments this block owns with no child to carry them, one deeper.
+	// Comments this block owns with no child to take them, one deeper.
 	pushLeads(e, d.arena[idx].inside(), depth+1, idx, siteInside, 0)
 	// Comments that hung on this block after its last child.
 	pushLeads(e, d.arena[idx].after(), depth, idx, siteAfter, 0)
@@ -5878,7 +5878,7 @@ func (d *Document) emitLine(idx, pos, depth int, wouldMerge bool, e *emit) {
 	e.near(idx, pos)
 	pad := strings.Repeat("\t", depth)
 	out := &e.out
-	// Same-line fence spelling can't carry an inline comment (an unbalanced
+	// Same-line fence spelling can't have an inline comment (an unbalanced
 	// quote in the info-string could hide the `#` on reparse), so its trailing
 	// comment joins the leading lines instead; the flag comes from the parent's
 	// walk. Each blank rides its own comment (or the binding line), never as
@@ -6044,7 +6044,7 @@ func QuoteSegment(name string) string {
 }
 
 // diagName is a field name for a diagnostic message: put the way the
-// emitter would write it, so a name carrying a line break, a dot or a quote
+// emitter would write it, so a name with a line break, a dot or a quote
 // cannot pose as something it is not - a raw `a.b` reads exactly like `a`
 // nesting `b`, and a raw line break splits one diagnostic across two.
 func diagName(name string) string {
@@ -6052,7 +6052,7 @@ func diagName(name string) string {
 }
 
 // diagElement is one element of a value, written for a diagnostic message:
-// the emitter's inline spelling, so a value carrying a line break cannot split
+// the emitter's inline spelling, so a value with a line break cannot split
 // one diagnostic across two.
 func diagElement(e *element) string {
 	return emitElement(e)
@@ -6186,7 +6186,7 @@ func WriteFileAtomic(file, data string) error {
 	dir := filepath.Dir(target)
 	base := filepath.Base(target)
 	// At most the first 64 bytes of the name, cut where a character starts, so the
-	// temp's own length is fixed. Carrying the whole name put the temp over the
+	// temp's own length is fixed. Keeping the whole name put the temp over the
 	// filesystem's 255 bytes at a target name in the low 240s - and the exact
 	// cut-off moved with the width of the process id, so the same file saved on one
 	// machine and failed on another. Bytes, not characters: 64 characters of four
@@ -6232,7 +6232,7 @@ func WriteFileAtomic(file, data string) error {
 	// publish and goes back on the new file after it - the same outcome as
 	// POSIX, where the rename never needed the file writable. Hidden and system
 	// ride back the same way: ReplaceFile's documented preserve list does not
-	// include the basic attributes, and the rename fallback carries nothing, so
+	// include the basic attributes, and the rename fallback keeps nothing, so
 	// a hidden config came back visible.
 	readOnly := runtime.GOOS == "windows" && existErr == nil && existing.Mode().Perm()&0o200 == 0
 	var carried uint32
@@ -6266,15 +6266,15 @@ func WriteFileAtomic(file, data string) error {
 	}
 	// On the handle, so umask cannot narrow it the way it narrows a create
 	// mode, and after the data, because a write by anyone but root clears
-	// setuid/setgid. Best effort: a filesystem that cannot carry the mode is
+	// setuid/setgid. Best effort: a filesystem that cannot store the mode is
 	// not a reason to fail a write that otherwise succeeded. The whole mode
-	// goes, setuid/setgid/sticky included, as an editor's rewrite would carry
+	// goes, setuid/setgid/sticky included, as an editor's rewrite would keep
 	// it.
 	if err == nil && existErr == nil && runtime.GOOS != "windows" {
 		// The group first, because a chown clears setuid/setgid on most
 		// systems. Best effort like the mode: a caller who is not in the old
 		// group keeps its own, which is what it had before this. The owner is
-		// not carried - see the file tier in spec.md.
+		// not copied - see the file tier in spec.md.
 		if gid, ok := statGID(existing); ok {
 			_ = f.Chown(-1, gid)
 		}
@@ -6469,7 +6469,7 @@ var publishNewFile = func(tmp, target string) error {
 	return os.Rename(tmp, target)
 }
 
-// carriedAttrs is the attribute bits a publish will not carry across by itself
+// carriedAttrs is the attribute bits a publish will not keep by itself
 // - hidden and system on windows, nothing anywhere else - and restoreAttrs
 // turns them back on afterwards. Hooks for the same reason publishFile is.
 var carriedAttrs = func(os.FileInfo) uint32 { return 0 }
@@ -6504,7 +6504,7 @@ func syncDir(dir string) {
 }
 
 // FileStatus is what LoadFile found: the four cases a consumer's own load
-// path otherwise confuses. FileClean and FileHadErrors both carry a usable
+// path otherwise confuses. FileClean and FileHadErrors both have a usable
 // document; FileNotFound and FileUnreadable come back with an empty one.
 type FileStatus int
 
@@ -6773,7 +6773,7 @@ func leadingZero(t string) bool {
 
 // quoteText quotes a logical string so the tokenizer reads it back as the
 // same string. Single quotes are literal, so they are the spelling for text
-// holding a double quote or a backslash; double quotes carry the escapes, so
+// holding a double quote or a backslash; double quotes have the escapes, so
 // they are the spelling for a line break, a tab, an invisible character, or
 // text holding both quote kinds.
 func quoteText(t string) string {
@@ -6970,7 +6970,7 @@ func nameReadsBack(name string) bool {
 }
 
 // commentLine is the comment line this text is written as, or ok=false when it
-// has no spelling. A `#` is added when the text carries none. The load trims
+// has no spelling. A `#` is added when the text has none. The load trims
 // every line's end, so the trimmed text is what gets written; text holding a
 // line break is refused rather than cut down to its first line.
 func commentLine(text string) (string, bool) {
@@ -7834,7 +7834,7 @@ func (d *Document) Remove(path string) int {
 	pairs := make([]pair, 0, len(targets))
 	for _, t := range targets {
 		p := d.arena[t].parent
-		// A node already marked would carry dead into the rebuild below as an
+		// A node already marked would pass dead into the rebuild below as an
 		// index, so skip it rather than trust resolve never to name one twice.
 		if p == dead {
 			continue
@@ -8098,7 +8098,7 @@ func (d *Document) SetString(path, v string) bool {
 }
 
 // SetDateTime binds a datetime at path, in its canonical spelling. The
-// struct's fields are public and carry no invariant, so a value the reader
+// struct's fields are public and have no invariant, so a value the reader
 // would refuse (month 13, a fraction with no seconds, an empty struct) fails
 // the write rather than binding text that cannot read back.
 func (d *Document) SetDateTime(path string, v DateTime) bool {
@@ -8412,7 +8412,7 @@ func (d *Document) overlay(baseParent int, over *Document, overParent int, touch
 		groups[n] = append(groups[n], overKid{pos, k})
 	}
 	// Base side, one pass: does the name have a container instance, and
-	// which child carries each (name, key) - every key computed once. The
+	// which child has each (name, key) - every key computed once. The
 	// list is cloned because the splices below rewrite it as they go.
 	baseKids := append([]int(nil), d.arena[baseParent].children...)
 	hasContainer := map[string]bool{}
@@ -10484,7 +10484,7 @@ func parseField(schema *Document, f int, faults *[]Diagnostic) (constraint, bool
 				vdiag(faults, kid.line, "V092", "bad schema constraint 'inherits'")
 			}
 		// Generator-only (`shcl init`); validation ignores both. First
-		// occurrence wins (a merged schema could carry two).
+		// occurrence wins (a merged schema could have two).
 		case "desc":
 			// A comma in a sentence makes the value several elements, and the
 			// comment is prose: take them all, kept as written.
@@ -10770,7 +10770,7 @@ func genAnnotation(c *constraint, tyname string) string {
 		parts = append(parts, "one of: "+allowedJoin(c.allowed))
 	}
 	// The bounds are their own part of the annotation line, not an alternative
-	// to `allowed`. A field can carry both, and the validator enforces both. A
+	// to `allowed`. A field can have both, and the validator enforces both. A
 	// duration or size bound reads the way the schema wrote it.
 	switch {
 	case c.minText != nil || c.maxText != nil:
@@ -10814,7 +10814,7 @@ func genAnnotation(c *constraint, tyname string) string {
 	return strings.Join(parts, ", ")
 }
 
-// genDefaultText: a default carrying a literal newline cannot sit on a value
+// genDefaultText: a default with a literal newline cannot sit on a value
 // line; the quoted escaped spelling reads back to the same string.
 func genDefaultText(v string) string {
 	if !strings.Contains(v, "\n") {
@@ -10973,7 +10973,7 @@ func Generate(schema *Document, noBanner bool) (string, []Diagnostic) {
 			break
 		}
 	}
-	// A live line with a value materializes an instance carrying that value,
+	// A live line with a value materializes an instance with that value,
 	// and a dotted child names the empty-valued instance instead - so `srv:
 	// web` followed by `srv.port:` is two `srv` nodes, and the child never
 	// ends up where the schema looks. Any line under such a parent selects it
@@ -11064,7 +11064,7 @@ func Generate(schema *Document, noBanner bool) (string, []Diagnostic) {
 			continue
 		}
 		// A filled wildcard emits in dotted form, targeting the materialized
-		// instance - by its value when the materializing line carries one.
+		// instance - by its value when the materializing line has one.
 		// Rebuilt from the parsed segments, not by cutting text out of the
 		// path: the same path can be written several ways, and only the
 		// segments say what it means. Otherwise the schema's own spelling.
@@ -11079,7 +11079,7 @@ func Generate(schema *Document, noBanner bool) (string, []Diagnostic) {
 				break
 			}
 		}
-		// A name carrying a newline has no verbatim spelling on a binding line;
+		// A name with a newline has no verbatim spelling on a binding line;
 		// the segment renderer escapes it, so such a path goes through there
 		// whether or not it was filled.
 		// A value after a last-segment selector is ignored, so a default there
@@ -11399,7 +11399,7 @@ func genSelectorText(v string) (string, bool) {
 // reads back as a value selector for text, quoted or bare as asked.
 func selectorReadsBack(body, text string, quoted bool) bool {
 	line := "x[" + body + "]:"
-	// The tokenizer reads one line and never sees a line end, so text carrying a
+	// The tokenizer reads one line and never sees a line end, so text with a
 	// real line break would read back here and then be written across two lines,
 	// which is not the same path. A file line cannot hold one, so refuse and let
 	// the escaped spelling be tried instead.
@@ -11424,7 +11424,7 @@ func selectorReadsBack(body, text string, quoted bool) bool {
 // not.
 func pathReadsBack(path string, segs []segment) bool {
 	line := path + ":"
-	// The tokenizer reads one line and never sees a line end, so text carrying a
+	// The tokenizer reads one line and never sees a line end, so text with a
 	// real line break would read back here and then be written across two lines,
 	// which is not the same path. A file line cannot hold one, so refuse and let
 	// the escaped spelling be tried instead.
@@ -11456,7 +11456,7 @@ func pathReadsBack(path string, segs []segment) bool {
 // wildcard selectors (a generated line targets the one instance it
 // materializes) and quoting a name that needs it, so the result is a path the
 // scanner reads back the same. A segment whose prefix names a live line
-// carrying a value selects that instance by the value, in place of a wildcard
+// with a value selects that instance by the value, in place of a wildcard
 // or a bare name. False when a selector has no spelling a file line reads
 // back.
 func genPathText(segs []segment, parentValues map[string]string) (string, bool) {

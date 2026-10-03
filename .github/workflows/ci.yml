@@ -36,7 +36,7 @@ jobs:
       ## toolchain on first cargo call; keep "what passing means" in the engine.
       ## The go.mod directive is the CONSUMER floor (1.20), not the pipeline's
       ## toolchain: cicd's own `go -C` needs a current release. Pinned to a
-      ## series rather than stable, because staticcheck carries its own copy of
+      ## series rather than stable, because staticcheck has its own copy of
       ## the type checker and cannot read export data from a Go newer than the
       ## release it was cut against - stable rolling to 1.27 broke the lint
       ## stage here while the local gate, on 1.26, stayed green. Move this when
@@ -56,13 +56,13 @@ jobs:
       ## the runner's preinstalled pwsh. Versions match cicd/config.bash
       ## TOOL_PINS, so CI and the local gate agree about what "passing" was
       ## tested against. Exception: the cppcheck wheel's own version is not the
-      ## Cppcheck version it carries - package 1.5.1 bundles the 2.17.1 binary
+      ## Cppcheck version it includes - package 1.5.1 bundles the 2.17.1 binary
       ## that TOOL_PINS checks for. Pin the package version here (it is
       ## CPPCHECK_WHEEL in config.bash; the binary version is not a package that
       ## exists), and keep the binary version in this comment: check-pins.bash
       ## reads both.
       ##
-      ## shellcheck is preinstalled but at whatever version the image carries,
+      ## shellcheck is preinstalled but at whatever version the image has,
       ## which is not the one the local gate runs - it warns about shapes newer
       ## releases stopped flagging, so a script can pass locally and fail here.
       ## Install the pinned version ahead of the image's copy on PATH.
@@ -78,7 +78,7 @@ jobs:
           ## script for its output-order row. Both skips fail the gate too.
           ## The cross checks run under --ci since 20260920, and the first of
           ## them builds the C library and CLI for windows with mingw's gcc,
-          ## which this image does not carry.
+          ## which this image does not have.
           ## perf-gate counts write calls with strace.
           ## The stub-package rows build a .deb and an .rpm and read them back:
           ## dpkg-deb ships on the image, rpm does not, and nfpm is installed
@@ -158,7 +158,7 @@ jobs:
           cd cmd
           go vet ./...
 
-  ## The file tier is the only part of the library carrying real per-platform
+  ## The file tier is the only part of the library with real per-platform
   ## code - the publish step is a different path in all four bindings - and the
   ## job above runs none of it on windows. The python binding threw on every
   ## windows overwrite through a whole release without anything here noticing.

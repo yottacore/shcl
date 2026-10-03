@@ -173,7 +173,7 @@ void tokenize(std::string_view text, char sep, bool path, Rules rules, Tokens &o
 // comment found on the way.
 void tokenize_value(std::string_view text, std::size_t from, Rules rules, Tokens &out);
 
-// What migrate produced, and what it could not carry across: current when the
+// What migrate produced, and what it could not keep: current when the
 // file already names its format, ambiguous for pieces the two rule sets read
 // differently and nothing can decide between, lost for lines 2.x bound a value
 // on that nothing binds now.
@@ -189,7 +189,7 @@ struct Migration {
 // spellings the two rule sets read differently.
 Migration migrate(std::string_view text, bool from_v2);
 // migrate() without the version line or the migrated note, for a program that
-// writes GEN_BANNER itself, which carries the version line.
+// writes GEN_BANNER itself, which includes the version line.
 Migration migrate_unstamped(std::string_view text, bool from_v2);
 // The format major a document's Format line names, read the way migrate reads
 // it; none when no line names one. migrate hands a file back untouched exactly
@@ -295,7 +295,7 @@ public:
 
 	// Diagnostics in emission order: parse-time ones, then repeated-leaf hints.
 	std::vector<Diagnostic> diagnostics() const;
-	// How many error-severity diagnostics the document carries. After
+	// How many error-severity diagnostics the document has. After
 	// load_and_validate, that includes validation errors.
 	std::size_t error_count() const;
 	// How many lines or values parsing dropped that canonical output cannot
@@ -436,7 +436,7 @@ public:
 	std::chrono::milliseconds get_duration_or(std::string_view path, std::optional<DurationUnit> unit, std::chrono::milliseconds def) const;
 	std::int64_t get_size_or(std::string_view path, std::optional<SizeUnit> unit, bool decimal, std::int64_t def) const;
 
-	// Array reads carry the per-slot statuses in .slots, so a partly-resolved
+	// Array reads give the per-slot statuses in .slots, so a partly-resolved
 	// array says which slots failed rather than only that the read did.
 	Read<std::vector<std::int64_t>> read_int_array(std::string_view path) const;
 	Read<std::vector<double>> read_float_array(std::string_view path) const;

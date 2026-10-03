@@ -34,7 +34,7 @@ fEcho(){ echo "[ $* ]"; }
 fWarn(){ fEcho "WARNING: $*"; }
 fDie(){ echo "package: $*" >&2; exit 1; }
 
-##	NSIS wants four dot-separated integers where the project version can carry a
+##	NSIS wants four dot-separated integers where the project version can have a
 ##	prerelease tail. Same rule the Rust build script uses for the executable's
 ##	own version field: the digit-only pieces in order, padded to four.
 fVersionQuad(){
@@ -69,9 +69,9 @@ find "${payload}" -exec touch -d "@${SOURCE_DATE_EPOCH}" {} +
 
 ##	The profiler is a feature-gated dependency chain under a license `deny.toml`
 ##	allows on exactly the basis that it never ships. Nothing enforced that
-##	beyond the release command not carrying the flag, so it is checked against
+##	beyond the release command not including the flag, so it is checked against
 ##	the file rather than the command: every binary in the artifact directory,
-##	and the source payload beside them, must carry no trace of the three crates.
+##	and the source payload beside them, must have no trace of the three crates.
 ##	The names are assembled so this test does not match itself.
 fCheckNoProfiler(){
 	local f hit
@@ -79,7 +79,7 @@ fCheckNoProfiler(){
 		[[ -f "${f}" ]] || continue
 		case "${f}" in *.sha256|*sha256sums*) continue ;; esac
 		hit="$(LC_ALL=C grep -l -a -e "ppr""of" -e "inf""erno" -e "quick""-xml" "${f}" || true)"
-		[[ -z "${hit}" ]] || fDie "$(basename "${f}"): carries the profiler dependency, which must never ship"
+		[[ -z "${hit}" ]] || fDie "$(basename "${f}"): has the profiler dependency, which must never ship"
 	done
 }
 fCheckNoProfiler
@@ -93,7 +93,7 @@ built=0
 debGccDep='libgcc-s1'
 rpmGccDep='libgcc_s.so.1()(64bit)'
 
-##	The deb's Depends and the rpm's Requires against the binary they carry:
+##	The deb's Depends and the rpm's Requires against the binary they contain:
 ##	the glibc floor, libgcc when linked, and the Debian doc files.
 fCheckDeps(){
 	local stem="$1" glibc="$2" needGcc="$3" deps
@@ -119,7 +119,7 @@ fCheckDeps(){
 		if [[ -n "${needGcc}" ]] && ! grep -qxF "${rpmGccDep}" <<<"${deps}"; then fDie "$(basename "${stem}").rpm: Requires ${deps@Q} lacks ${rpmGccDep}"; fi
 		## And that name has to be one rpm's own generator gives the binary,
 		## which is what every rpm distro provides; a package name is one
-		## distro's. STEM is the binary the package carries.
+		## distro's. STEM is the binary the package contains.
 		if [[ -n "${needGcc}" ]]; then
 			local elfdeps=/usr/lib/rpm/elfdeps gen
 			if [[ -x "${elfdeps}" ]]; then
@@ -139,7 +139,7 @@ fCheckDeps(){
 }
 
 ## Linux: .deb + .rpm per arch with a binary present. nfpm arch names are
-## GOARCH-style; the artifact names carry the uname-style spelling. The config
+## GOARCH-style; the artifact names use the uname-style spelling. The config
 ## template is sed-rendered per build (nfpm won't expand env vars in src paths).
 if command -v nfpm >/dev/null 2>&1; then
 	## The man page and the shell completions have a home only on Linux, so they
@@ -205,7 +205,7 @@ fUninstallList(){
 if command -v makensis >/dev/null 2>&1; then
 	## Beside the payload rather than in it; nfpm packs only the subdirectories.
 	fUninstallList "${payload}" > "${payload}/uninstall.nsh"
-	## Same icon the executables carry. Absent is not an error - the setup just
+	## Same icon the executables use. Absent is not an error - the setup just
 	## falls back to the NSIS default.
 	icoArg=""; [[ -f "${root}/assets/shcl.ico" ]] && icoArg="${root}/assets/shcl.ico"
 	## Packed verbatim into the setup; its mtime rides into the archive too.
@@ -231,7 +231,7 @@ fi
 ##	History:
 ##		- 2026-07-22: Created: nfpm deb/rpm + NSIS setup over the release artifact dir.
 ##		- 2026-09-08: The profiler dependency is checked against the artifacts,
-##		  not against the release command not carrying its flag.
+##		  not against the release command not including its flag.
 ##		- 2026-08-29: Reproducible output: mtimes pinned to the commit time; man page
 ##		  and completions staged for the Linux packages only.
 ##		- 2026-09-02: Dependencies read off the binary, Debian copyright and changelog

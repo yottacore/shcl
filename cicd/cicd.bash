@@ -31,7 +31,7 @@
 ##	                       what the GitHub workflow runs - one definition of "passing".
 ##	   --quick             skip the slow stages: large-document gate, cross-compile,
 ##	                       profiler, demo gif; tests run at the shorter fuzz depth
-##	                       when the config carries TEST_QUICK_CMD
+##	                       when the config has TEST_QUICK_CMD
 ##	   -q, --quiet         unattended (no prompt) and quiet: no preflight block,
 ##	                       and cargo, ruff and the gif renderer get their own
 ##	                       quiet flags. Stage headers, results and warnings
@@ -136,7 +136,7 @@ if ((ci_mode)); then
 	## A gate that quietly skips what it cannot run is a gate that stops
 	## checking when a runner loses a tool. The gates read this and fail on a
 	## skip instead; locally a missing tool is still a skip, since a working
-	## copy is not required to carry every one.
+	## copy is not required to have every one.
 	export SHCL_GATE_STRICT=1
 	sync_enable=0       ## the runner already checked out the exact commit under test
 	FMT_CMD=()          ## check-only via FMT_CHECK_CMD; never rewrite in CI
@@ -537,7 +537,7 @@ if [[ -n "${green_tree}" ]]; then
 fi
 if ((${#RELEASE_NATIVE_CMD[@]})); then
 	## Stamped from the commit, not the clock, so a rebuild of one commit gives
-	## the same bytes. Only these builds carry it: the gate's own builds stay
+	## the same bytes. Only these builds have it: the gate's own builds stay
 	## unstamped, the same as the other three CLIs they are compared against.
 	SHCL_BUILD="$(fBuildNumber "$(git -C "${root}" log -1 --format=%ct)")" || fDie "no build number from the commit time"
 	export SHCL_BUILD
@@ -576,7 +576,7 @@ if ((${#RELEASE_NATIVE_CMD[@]})); then
 		## The drop-in sources, wrappers, man page and completions the installer
 		## lays down, as one asset in the same family - so they are covered by the
 		## signed sums like everything else. The installer used to take them from
-		## GitHub's generated source tarball, which carries no signature and no
+		## GitHub's generated source tarball, which has no signature and no
 		## checksum. The modes are set outright: a checkout under umask 077 has no
 		## group or other bits, and only the execute bit comes from git.
 		( cd "${root}" && tar --sort=name --owner=0 --group=0 --numeric-owner --mode=u=rwX,go=rX \
@@ -702,7 +702,7 @@ if ((${#GIT_PUBLISH[@]})); then
 	## An installer fix reaches nobody until it is on main: the README's
 	## one-liners fetch the scripts from there as they run, so a fix that stays
 	## on dev is the one drift every user meets. Judged after the publish so a
-	## dev run that carries one goes red until the docs-only merge to main.
+	## dev run that has one goes red until the docs-only merge to main.
 	if [[ "$(git branch --show-current)" == dev ]] && git rev-parse -q --verify origin/main >/dev/null 2>&1; then
 		installer_drift="$(git diff --stat origin/main -- install.bash install.ps1 install-dev.bash || true)"
 		[[ -z "${installer_drift}" ]] || fDie "the installers differ from origin/main; merge them to main under the docs-only rule:"$'\n'"${installer_drift}"

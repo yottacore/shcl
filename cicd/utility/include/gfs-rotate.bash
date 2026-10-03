@@ -50,7 +50,7 @@
 ## redefine these as required interfaces, but only AFTER this module is loaded.
 [[ -v ERRNUM_MSG_ALREADY_SHOWN    ]] || declare -gri ERRNUM_MSG_ALREADY_SHOWN=3
 
-## Echo "<epoch> <YYYYmmDD-HHMMSS>" for a file, from its name if it carries a
+## Echo "<epoch> <YYYYmmDD-HHMMSS>" for a file, from its name if it has a
 ## date, else from its mtime.
 _gfs_ts(){
 	local base d="" t="000000" epoch="" canon

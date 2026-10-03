@@ -31,7 +31,7 @@ InstallDir "$PROGRAMFILES64\Shcl"
 RequestExecutionLevel admin
 SetCompressor /SOLID lzma
 
-; Same icon the executable carries, and the metadata Windows shows for the
+; Same icon the executable has, and the metadata Windows shows for the
 ; setup itself. VIProductVersion needs four integers and nothing else, so the
 ; caller passes VERQUAD; the display strings keep the full version, prerelease
 ; tail and all.

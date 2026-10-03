@@ -214,7 +214,7 @@ chmod +x "${net}/git" "${net}/curl"
 	|| fail "a fresh clone by a relative --dir did not get the hooks: $(tail -n 3 "${work}/fresh.out")"
 
 fTest EqRTWFe a config with no CPPCHECK_WHEEL is refused
-## The wheel version is read out of the config, not carried in the script: with
+## The wheel version is read out of the config, not kept in the script: with
 ## the line gone the run refuses rather than installing whatever pipx has.
 grep -v '^CPPCHECK_WHEEL=' "${work}/clone/cicd/config.bash" > "${work}/cfg.nowheel"
 cp "${work}/cfg.nowheel" "${work}/clone/cicd/config.bash"

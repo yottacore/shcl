@@ -984,12 +984,12 @@ func TestWriteReasonNamesTheFailure(t *testing.T) {
 	if got := doc.WriteReason(deep); got != TooDeep {
 		t.Errorf("deep path: got %v, want TooDeep", got)
 	}
-	// A literal line break is writable wherever a path can carry one: a name
+	// A literal line break is writable wherever a path can have one: a name
 	// emits through the name escaper and a selector value through the value
 	// emitter, and both write a break \n and read it back as one. The selector
 	// was refused while the value emitter still wrote elements in their source
 	// spelling and had nothing to escape with. Not corpus-pinnable - an ops
-	// line cannot carry a raw newline.
+	// line cannot contain a raw newline.
 	if got := doc.WriteReason("a[\"p\nq\"].b"); got != Writable {
 		t.Errorf("newline in selector: got %v, want Writable", got)
 	}
@@ -1660,7 +1660,7 @@ func TestSaveRefusesADirectoryShapedPath(t *testing.T) {
 // UTF-8 fails the write rather than storing a replacement character per bad
 // byte and reporting success. Go-only: the other three cannot hold such a
 // string in the first place.
-// Both halves of a path can carry a line break and write it \n: a name through
+// Both halves of a path can contain a line break and write it \n: a name through
 // the name escaper, a selector value through the value emitter. The selector
 // was refused while elements were stored in their source spelling and the
 // emitter had nothing to escape with. Same fixture in every runner.
@@ -1722,7 +1722,7 @@ func TestSetStringRefusesInvalidUTF8(t *testing.T) {
 	}
 }
 
-// A written value carrying both quote kinds is stored the way its own reload
+// A written value with both quote kinds is stored the way its own reload
 // stores it, so Instances and a read's raw text agree across a save. The
 // emitter escapes the double quotes; the writer used to keep them bare. Same
 // fixture in every runner.
@@ -1966,7 +1966,7 @@ func TestStrictFailureCarriesDocument(t *testing.T) {
 	}
 	le := err.(*LoadError)
 	if le.Document != doc || len(le.Diagnostics) == 0 {
-		t.Fatalf("error does not carry the document/diagnostics")
+		t.Fatalf("error does not include the document/diagnostics")
 	}
 	if r := doc.ReadInt("ok"); r.Value != 1 {
 		t.Fatalf("doc unusable: %v", r)
@@ -2400,7 +2400,7 @@ func TestSuppressLeavesTheCallersDiagnosticsAlone(t *testing.T) {
 	_, err := ParseWith("a\n", Strict)
 	var le *LoadError
 	if !errors.As(err, &le) || len(le.Diagnostics) == 0 {
-		t.Fatal("want a strict load failure carrying diagnostics")
+		t.Fatal("want a strict load failure with diagnostics")
 	}
 	le.Diagnostics[0].Message = "rewritten by the caller"
 	if bad := le.Document.Diagnostics(); bad[0].Message == "rewritten by the caller" {
@@ -2855,7 +2855,7 @@ func (g *seqGen) below(n int) int {
 
 var seqNames = []string{"a", "b", "m"}
 
-// doc builds a small document out of the lines that carry comments and blanks
+// doc builds a small document out of the lines that have comments and blanks
 // somewhere a later step can move them: comments at every depth, empty and
 // reopened blocks, a same-line fence with a comment after an empty binding, and
 // misplaced lines kept as written, one of them among a list's elements.

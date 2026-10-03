@@ -58,12 +58,12 @@ if ! [[ "${mib}" =~ ^[1-9][0-9]*$ ]]; then echo "largedoc: --mib wants a positiv
 ## Python at 100 MiB was the whole gate's critical path, two minutes and more;
 ## 16 MiB still shows a quadratic parse or a buffer that grows wrong. Empty means
 ## the full --mib. The reference always runs the full size.
-## Time carries wide headroom - the pipeline runs the reference unoptimized (about
+## Time gets wide headroom - the pipeline runs the reference unoptimized (about
 ## six times slower than a release build), and a shared CI runner is slower again;
 ## the target is a growth-rate regression, not a stopwatch. Memory is held much
 ## closer, since peak RSS barely moves between machines or build profiles.
 ## Measured at 100 MiB on a workstation: rust 0.53 s/MiB and 21 MiB/MiB, go 0.08
-## and 33-41 (concurrent GC moves it run to run, so its ceiling carries more
+## and 33-41 (concurrent GC moves it run to run, so its ceiling has more
 ## slack), c 0.04 and 30, python 1.11 and 47.
 limits=(
 	"rust|3.00|32|16|"

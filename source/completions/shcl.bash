@@ -18,7 +18,7 @@
 ## Subcommands. The CLI takes exactly one, and always as the first word.
 _shcl_subcommands='get set fmt check init count instances children paths migrate tokens explain help'
 
-## Type options, valid on `get` only. The table below carries them as the single
+## Type options, valid on `get` only. The table below lists them as the single
 ## token --<type>, exactly as the CLI's own table does.
 _shcl_types='--int --float --bool --datetime --string --raw --rawinfo --duration --size'
 

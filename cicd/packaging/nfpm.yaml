@@ -38,7 +38,7 @@ contents:
       mode: 0755
   # rpm owns only what is listed, and a tree's parent is not listed for it, so
   # removing the package used to leave /usr/share/shcl behind. The deb's own
-  # tree entries carry the parent; this makes both formats own it.
+  # tree entries include the parent; this makes both formats own it.
   - dst: /usr/share/shcl
     type: dir
     file_info:

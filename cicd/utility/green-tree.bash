@@ -40,8 +40,8 @@ fList(){
 }
 
 ## A scratch index seeded from HEAD rather than copied from the real one, so
-## every file is hashed from disk: a copied index would carry assume-unchanged
-## and skip-worktree bits, and a file carrying one would be tested as it sits on
+## every file is hashed from disk: a copied index would keep assume-unchanged
+## and skip-worktree bits, and a file with one would be tested as it sits on
 ## disk and committed as the index has it.
 fTree(){
 	local idx tree

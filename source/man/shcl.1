@@ -1,9 +1,9 @@
 .\" SPDX-License-Identifier: MIT
 .\" Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
 .\"
-.\" Carries no version string on purpose: the release bump touches eight files
+.\" Has no version string on purpose: the release bump touches eight files
 .\" and this is not one of them. Keep it in step with HELP in the four CLIs.
-.TH SHCL 1 2026-10-01 shcl "User Commands"
+.TH SHCL 1 2026-10-02 shcl "User Commands"
 .SH NAME
 shcl \- read, edit, validate and format Simple Hierarchical Config Language files
 .SH SYNOPSIS
@@ -215,7 +215,7 @@ written. The migrated text's diagnostics are printed, so a line the new rules
 refuse is named rather than silently kept.
 Which file it is looking at cannot be read off the text, so the info block's
 .B Format
-line decides: a file carrying it is left alone, and one without it keeps the
+line decides: a file that has it is left alone, and one without it keeps the
 spellings the two rule sets read differently and exits 7 unless
 .B \-\-from\-2x
 says it really is 2.x. A rewritten file is stamped with that line, and
@@ -249,7 +249,7 @@ Print what a diagnostic code means: the code, its severity and the rule behind
 it. With no
 .I CODE
 it lists every code one line each. The codes are the portable half of a
-diagnostic \- the same problem carries the same code in every binding \- so
+diagnostic \- the same problem gets the same code in every binding \- so
 this is where to look one up. The prose beside a code on screen is per-binding
 voice and says the same thing at less length.
 .TP
@@ -582,7 +582,7 @@ gives a value that neither mode would print.
 .B \-\-layer=\-
 is not valid on
 .BR set ,
-where stdin already carries the ops script or the document.
+where stdin already has the ops script or the document.
 .BR \-\-raw ,
 .BR \-\-rawinfo ,
 .B \-\-duration
@@ -620,7 +620,7 @@ reads a write-ops script on stdin when none of
 .B \-\-set\-literal\-default
 or
 .B \-\-remove
-carries the edits. One op per line, fields separated by tabs:
+gives the edits. One op per line, fields separated by tabs:
 .PP
 .RS
 .nf
@@ -687,7 +687,7 @@ an unknown escape in double quotes is
 a Windows path in double quotes with a \et or \en escape is
 .BR E024 ,
 and a line the current rules cannot read at all is a malformed line. A file
-carrying one of those says so the first time it loads.
+with one of those says so the first time it loads.
 .PP
 The comment rule did not change: a
 .B #
@@ -697,9 +697,9 @@ Which file it is looking at is the one thing
 .B migrate
 cannot read off the text: a backslash value is written the same way under both
 rule sets and means two different things, so rewriting a 3.0 file would change
-what it says. The info block carries a
+what it says. The info block has a
 .B Format
-line naming the format's major, and that decides. A file carrying it has
+line naming the format's major, and that decides. A file with it has
 nothing to migrate. A file without it keeps those spellings as written and
 exits 7, unless
 .B \-\-from\-2x

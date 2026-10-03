@@ -134,7 +134,7 @@ int main(void) {
 
 	// The parser borrows the scratch arena for its lines vector, per-parent
 	// maps, stack and pending lists - about ten times the input. It used to sit
-	// there until the first resolve, so a parsed document nobody read carried
+	// there until the first resolve, so a parsed document nobody read kept
 	// all of it.
 	tlen = 0;
 	text = (char *)malloc(reps * 24 + 1);

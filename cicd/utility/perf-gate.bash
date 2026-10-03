@@ -7,7 +7,7 @@
 ##		nothing had a number to fail on. A third round found a plain text file
 ##		parsing in quadratic time, and a fourth the did-you-mean suggestion
 ##		quadratic in name length. Each workload is timed against the same
-##		binding's parse-only baseline on the same machine, so the gate carries
+##		binding's parse-only baseline on the same machine, so the gate has
 ##		no wall-clock constant and does not care how fast the runner is:
 ##		applying the ops, refusing every line, or suggesting a name for every
 ##		unknown field, must stay small beside reading a well-formed document

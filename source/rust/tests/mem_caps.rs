@@ -67,7 +67,7 @@ fn a_plain_name_costs_the_scan_nothing() {
 	let _id = test_id("EoneEzg");
 	use shcl::{Document, Strictness};
 	// Same document twice over, once with one segment a line and once with
-	// four. The extra segments carry no extra text, so anything the count
+	// four. The extra segments add no extra text, so anything the count
 	// gains is the scan allocating per segment.
 	let lines = 2_000;
 	let flat: String = (0..lines).map(|i| format!("k{}: v\n", i)).collect();

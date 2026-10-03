@@ -85,9 +85,9 @@ awk 'BEGIN{ for (i = 0; i < 10001; i++) printf "field: f%d\n", i }' > "${tmpDir}
 ## wrong type in the generated output.
 printf 'field: b\n\ttype: raw\n\tdefault: hello\n\trequired: yes\n' > "${tmpDir}/rawdef.shcl"
 ## A `desc` with a comma in it: the value is several elements, and the comment
-## used to come out missing rather than carrying the sentence.
+## used to come out missing rather than containing the sentence.
 printf 'field: a\n\tdesc: one, two\n\trequired: yes\n' > "${tmpDir}/commadesc.shcl"
-## A field name carrying a line break, and a flat name carrying a dot. Both used
+## A field name with a line break, and a flat name with a dot. Both used
 ## to be pasted into the diagnostic exactly as stored, so one hint arrived as
 ## three stderr lines and a flat name read just like nesting.
 printf '"a\\nb": 1\n"a\\nb": 2\n' > "${tmpDir}/nbname.shcl"
@@ -102,7 +102,7 @@ printf '\r  b[c: 2\n' > "${tmpDir}/colcr.shcl"
 printf 'field: ns\n\ttype: int-array\n\tmax: 10\nfield: fs\n\ttype: float-array\n\tmin: 1.0\n' > "${tmpDir}/range.shcl"
 printf 'ns: 5, 20, 3\nfs: 2.0, 0.5, 4.0\n' > "${tmpDir}/outofrange.shcl"
 printf '"x.y": 1\n' > "${tmpDir}/dotname.shcl"
-## Schema paths and a type carrying a line break. Every code that names schema
+## Schema paths and a type with a line break. Every code that names schema
 ## text printed it raw, so one diagnostic arrived as two stderr lines.
 printf 'field: "a.\\"x\\ny\\""\n\trequired: yes\nfield: "b.\\"x\\ny\\""\n\ttype: int\n\tmin: 5\n\tmax: 6\n\tallowed: 5, 6, 1\n\trepeat: 3\nfield: "c.\\"x\\ny\\""\n\ttype: bool\n' > "${tmpDir}/nlschema.shcl"
 printf 'b:\n\t"x\\ny": 9\n\t"x\\ny": 1\nc:\n\t"x\\ny": maybe\n' > "${tmpDir}/nldoc.shcl"
@@ -130,7 +130,7 @@ if [[ "${onWindows}" == 1 ]]; then
 		nowriteHeld=1
 	fi
 fi
-## A raw block against a string `allowed`: the body carries its own newlines, so
+## A raw block against a string `allowed`: the body has its own newlines, so
 ## one diagnostic used to span several stderr lines.
 #  shellcheck disable=2016  ## the backticks are the fence the fixture needs.
 printf 'b:\n\t```\n\tline one\n\tline two\n\t```\n' > "${tmpDir}/rawval.shcl"
@@ -227,7 +227,7 @@ truncate -s 16777216 "${tmpDir}/sp/atcap.schema.shcl"
 truncate -s 16777217 "${tmpDir}/sp/overcap.schema.shcl"
 ## A Format line indented under a block, beside a value 2.x read another way.
 printf 'p: %s\nsrv:\n\t##    Format   3\n\tx: 1\n' "'C:\temp'" > "${tmpDir}/indstamped.shcl"
-## A Format line of five thousand digits: no format will carry that number, and
+## A Format line of five thousand digits: no format will have that number, and
 ## CPython refuses an int() past 4300 digits, so Python raised where the other
 ## three read it as this major and said there was nothing to migrate.
 { printf 'p: 1\n##    Format   '; printf '9%.0s' $(seq 5000); printf '\n'; } > "${tmpDir}/bigfmt.shcl"
@@ -263,7 +263,7 @@ printf 'field: srv\n\trepeat: 0, 1\n\tdefault: web\nfield: srv.port\n\ttype: int
 printf 'field: "flag[on]"\n\ttype: int\n' > "${tmpDir}/optnodef.shcl"
 printf 'field: tags\n\trequired: yes\n\tdefault: "a]", c\nfield: tags.x\n\trequired: yes\n' > "${tmpDir}/nosel.shcl"
 
-## A 250-character basename. The temp file used to carry the whole name plus
+## A 250-character basename. The temp file used to take the whole name plus
 ## the process id, which put it over the filesystem's limit somewhere in the
 ## low 240s - at a point that moved with the width of the pid.
 longName="$(printf 'l%.0s' $(seq 245)).shcl"
@@ -355,13 +355,13 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	default whose value breaks its type, %SK% a valued parent whose array
 ##	default has no selector spelling,
 ##	%C% a path with nothing at it, cleared before every binding's run, %E% an
-##	empty argument, %DB% a --default carrying a line break, %LS% a long s
+##	empty argument, %DB% a --default with a line break, %LS% a long s
 ##	(U+017F), which Unicode upper-cases to S,
 ##	%L% a fresh copy of a file whose basename is 250 characters, %LW% one whose
 ##	basename is 245 bytes of four-byte characters,
-##	%NB% a repeated field name carrying a line break, %DN%/%SN% a flat name
-##	carrying a dot and a schema that declares it as nesting, %SL%/%SM% schema
-##	paths and a type carrying a line break, valid and faulted, and %DL% a
+##	%NB% a repeated field name with a line break, %DN%/%SN% a flat name
+##	with a dot and a schema that declares it as nesting, %SL%/%SM% schema
+##	paths and a type with a line break, valid and faulted, and %DL% a
 ##	document for them, %CB% a malformed
 ##	line indented and behind a non-ASCII name, %CR% one behind a carriage
 ##	return that is not indent, %SG%/%DG% a schema with an int
@@ -476,14 +476,14 @@ rows=(
 	## became two instances once both lines were uncommented. The row below is
 	## the same schema and exit code with the new spelling.
 	# 'init-optional-defaults-ok|init --no-banner --schema=%SE%|-|0|## any, repeat 0-1\n# srv: web\n\n## int\n# srv.port: 80\n\n## any\n# a: c\n|-'
-	## Retired 2026-09-18 by 20260918 item 4: its `a[b]` carried `default: c`,
+	## Retired 2026-09-18 by 20260918 item 4: its `a[b]` had `default: c`,
 	## which names another instance than the path selects, and the spec says
 	## that fails generation for an optional field too. The row below is the
 	## same schema with the default naming `b`.
 	# 'init-optional-defaults-ok|init --no-banner --schema=%SE%|-|0|## any, repeat 0-1\n# srv: web\n\n## int\n# srv[web].port: 80\n\n## any\n# a: c\n|-'
 	'EqGXrwX|init-optional-defaults-ok-named|init --no-banner --schema=%SI%|-|0|## any, repeat 0-1\n# srv: web\n\n## int\n# srv[web].port: 80\n\n## any\n# a: b\n|-'
 	## 20260918b item 26: every commented line is read back, not only one
-	## carrying a default. Item 27: no selector spelling is a refusal, not a
+	## with a default. Item 27: no selector spelling is a refusal, not a
 	## child under another instance.
 	'EqLiw1w|init-optional-no-default-read-back|init --schema=%SJ%|-|6||V097 generated value fails the schema that produced it: wrong type at .flag\[on\].'
 	'EqLiw1x|init-no-selector-spelling|init --schema=%SK%|-|6||V097 required path cannot be generated: tags.x \(its parent.s value has no selector spelling\)'
@@ -520,7 +520,7 @@ rows=(
 	'EoUxXlV|help-after-file|get %F% -h|-|0|-|-'
 	'EoUxXlW|help-after-file-long|get %F% --help|-|0|-|-'
 	## 20260830 item 47: at the default strictness a recovered-from typo was
-	## silent unless --write was passed, so stdout carried the repair with
+	## silent unless --write was passed, so stdout had the repair with
 	## nothing said about it.
 	'EoUxXlX|fmt-diags-without-write|fmt %B%|-|0|-|E015 missing colon'
 	'EoUxXlY|set-diags-without-write|set --set=a=2 %B%|-|0|-|E015 missing colon'
@@ -572,14 +572,14 @@ rows=(
 	"EpykNRx|set-selector-thousands|get --int --set=x[\"1,000\"].y=1 %F% x|-|0|1000\n|-"
 	'EpykNRy|selector-thousands|get --int %SQ% srv|-|0|1000\n|-'
 	## 3.0: bracket text after the colon is one outcome, kept verbatim. The
-	## 2.x selector sugar is that shape now too, and migrate is what carries
+	## 2.x selector sugar is that shape now too, and migrate is what brings
 	## a file written with it across.
 	## One diagnostic is one line, and a name is printed the way the emitter
 	## would write it. A line break in a name used to split one hint across
 	## three stderr lines, and a flat `x.y` printed the same as `x` nesting `y`.
 	'Eq4AfLV|diag-name-line-break|check %NB%|-|0|line 2: Hint: H001\nok (1 diagnostic(s))\n|^line 2: Hint: H001 ."a\\nb". repeats'
 	## The value half of the same rule: the H001 hint splices the repeated
-	## values into its suggestion, and a value carrying a line break used to go
+	## values into its suggestion, and a value with a line break used to go
 	## in raw, so the hint arrived as four stderr lines.
 	'EqTPxzc|diag-value-line-break|check %NV%|-|0|line 2: Hint: H001\nok (1 diagnostic(s))\n|^line 2: Hint: H001 .srv. repeats as a bare leaf - did you mean .srv: "a\\nb", "c\\nd".\?$'
 	'Eq4AfLW|diag-name-dotted|check --schema=%SN% %DN%|-|6|line 1: Error: V001\nfailed: 1 diagnostic(s), 1 error(s)\n|unknown field ."x\.y".'
@@ -916,7 +916,7 @@ rows=(
 	'Eolhrw2|full-stdout-get|get %F% a|@fullout|8|-|-'
 	'Eolhrw3|full-stdout-set|set --set=a=2 %F%|@fullout|8|-|-'
 	'Eolhrw4|full-stderr-keeps-stdout|fmt %B%|@fullerr|0|a: 1\n\tbad:\nb 2\n|-'
-	## Found working 20260830b item 18: a merge does not carry diagnostics, so
+	## Found working 20260830b item 18: a merge does not keep diagnostics, so
 	## reading them off the merged doc reported the lowest layer and stayed
 	## silent about FILE - the one file the caller actually named.
 	'EoXB1RA|layer-base-diags|fmt --layer=%F% %B%|-|0|-|E015 missing colon'
@@ -1415,7 +1415,7 @@ done
 ## the reference's abort, 141 from Go and 0 from Python. Settled as dying of
 ## SIGPIPE the way cat and head do, with nothing on stderr. The document has to
 ## outlast the pipe buffer, or the write is done before the reader goes. An
-## ignored SIGPIPE carries through exec and would let Go and C exit quietly, so
+## ignored SIGPIPE survives exec and would let Go and C exit quietly, so
 ## the default goes back on first. Not a closed stdout: that is EBADF, and the
 ## closed-stdout row above already pins it.
 awk 'BEGIN{ for (i = 0; i < 40000; i++) printf "k%d: %d\n", i, i }' > "${tmpDir}/big.shcl"
@@ -1596,7 +1596,7 @@ if [[ "${onWindows}" == 1 ]]; then fTestSkip; else fSmallStack set; fi
 ## directory, since the save is what is under test, and a timeout, since the old
 ## code blocked reading a FIFO. POSIX fixtures: links and FIFOs.
 saveDir="${tmpDir}/save"
-## A group the caller is in that is not its own, for the group-carry cases.
+## A group the caller is in that is not its own, for the kept-group cases.
 altGroup="$(id -Gn | tr ' ' '\n' | grep -vx "$(id -gn)" | head -1 || true)"
 fSaveSetup() {
 	case "$1" in
@@ -1680,7 +1680,7 @@ for sc in "${saveCases[@]}"; do
 	fi
 	##	A caller in one group has nothing to tell apart. Under the gate that is a
 	##	failure, as the /dev/full rows are: these two rows are the only cover the
-	##	group carry has. The hosted ubuntu runner's user is in several groups.
+	##	kept group has. The hosted ubuntu runner's user is in several groups.
 	if [[ ( "${id}" == group || "${id}" == migrate-setgid ) && -z "${altGroup}" ]]; then
 		if [[ -n "${SHCL_GATE_STRICT:-}" ]]; then
 			echo "cli-regress: save-${id}: no second group for the caller and the gate requires one" >&2; nBad+=1; continue
@@ -1744,7 +1744,7 @@ fi
 ## The help text is a column-aligned table sitting at exactly 80 wide, and it is
 ## hand-duplicated in four CLIs, so one added word wraps it in every terminal at
 ## once and nothing else here would notice. Only help is checked: about and
-## donate carry the copyright symbol and the author ID by design, so a byte
+## donate include the copyright symbol and the author ID by design, so a byte
 ## count is not a column count there, and neither is aligned anyway.
 maxCols=80
 fTest Eq9yPCQ help-width
@@ -1785,7 +1785,7 @@ done
 ## those options joined them unseen - three times over. What a subcommand takes
 ## is asked of the CLI itself, since an option it does not use is refused as
 ## "not valid for CMD", and the parentheses have to name exactly that set.
-## "(same)", or no parentheses at all, carries the entry above.
+## "(same)", or no parentheses at all, repeats the entry above.
 fTest EqM10js option-entries
 for b in "${bindings[@]}"; do
 	name="${b%%|*}"; cli="${b#*|}"
@@ -1869,7 +1869,7 @@ for b in "${bindings[@]}"; do
 done
 
 ## The man page sits next to that help and had nothing holding it to the same
-## width; rendered at 80 it already carried one 81-column line, from an example
+## width; rendered at 80 it already had one 81-column line, from an example
 ## block nroff does not fill. Rendered rather than read, because the source's
 ## line lengths are not the page's. The overstrike sequences nroff writes for
 ## bold come off first, or every emphasized line reads as double its width.
@@ -1910,5 +1910,5 @@ echo "cli-regress: OK: ${#rows[@]} row(s) across ${#bindings[@]} binding(s), ${n
 ##		2026-08-31  Help width, after the help text was found sitting at exactly
 ##		            80 columns with nothing to fail on.
 ##		2026-09-08  Man page width, rendered at 80, after the page next to that
-##		            help was found carrying an 81-column example line.
+##		            help was found with an 81-column example line.
 ##		2026-09-29  Exact stderr ('=' field), for diagnostic order.

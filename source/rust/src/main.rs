@@ -228,7 +228,7 @@ once per run; 'shcl explain CODE' gives the rule behind one of their codes. An
 in-place write also refuses when the load dropped content the rewrite would
 delete (--lossy overrides). migrate refuses a file that does not say which
 rules it was written for, when the two readings differ (--from-2x says it is
-2.x), and reports a 2.x binding it cannot carry.
+2.x), and reports a 2.x binding it cannot convert.
 FILE may be '-' for stdin. With --layer, FILE is the highest file layer and
 each --layer is merged under it in order; --set applies last. 'fmt' with
 layers prints the merged canonical document.
@@ -381,7 +381,7 @@ H005|hint|a value in another unit than its field name ends in
   wins over the one the name gives a bare number. Legal, and often a slip.
 V001|error|unknown field
   No schema path covers it. Only the topmost unknown node is reported; its
-  subtree is skipped. The prose carries the did-you-mean suggestion.
+  subtree is skipped. The prose has the did-you-mean suggestion.
 V002|error|required path missing
   Declared 'required: yes' and nothing in the document resolves it.
 V003|error|wrong type
@@ -1017,7 +1017,7 @@ fn set_value_opt(o: &mut Opts, name: &str, v: &str) -> Result<(), String> {
 
 /// The options each subcommand takes. `check_opts` judges against it, the
 /// per-subcommand help is cut from the full help with it, and the shell
-/// completions carry the same table (check-completions.bash diffs the two).
+/// completions have the same table (check-completions.bash diffs the two).
 fn allowed_opts(cmd: &str) -> &'static [&'static str] {
 	let allowed: &[&str] = match cmd {
 		"get" => &[
@@ -1117,7 +1117,7 @@ fn help_topic(argv: &[String]) -> Result<Option<&str>, u8> {
 /// takes one, and the option entries `allowed_opts` lets it have. Cut from the
 /// full help rather than written out a second time, so the two cannot drift
 /// and the four bindings stay byte-identical for free. An entry keeps the
-/// "(get)" style annotation it carries there, which still reads true.
+/// "(get)" style annotation it has there, which still reads true.
 fn help_for(cmd: &str) -> String {
 	let mut out = String::from("Usage:\n");
 	let want = format!("  shcl {} ", cmd);
@@ -1322,7 +1322,7 @@ fn check_opts(cmd: &str, o: &Opts) -> Result<(), u8> {
 	// The ops script already has stdin, so a layer cannot read it too.
 	if cmd == "set" && o.layers.iter().any(|l| l == "-") {
 		errln!(
-			"--layer=- is not valid for set: stdin carries the ops script or the document (see --help)"
+			"--layer=- is not valid for set: stdin already has the ops script or the document (see --help)"
 		);
 		return Err(1);
 	}
@@ -1377,8 +1377,8 @@ fn say_diagnostics(diags: &[Diagnostic]) {
 /// nothing to tell them apart.
 fn say_diagnostics_from(file: &str, diags: &[Diagnostic]) {
 	for d in diags {
-		// V090-V095 carry a schema line; V096 and V097 are about generation as a
-		// whole and carry line 0, so "schema line 0" named a line space they are
+		// V090-V095 have a schema line; V096 and V097 are about generation as a
+		// whole and have line 0, so "schema line 0" named a line space they are
 		// not in. V099 stands for a schema that did not load and is line 0 too.
 		let space = if d.code.starts_with("V09") && !matches!(d.code, "V096" | "V097" | "V099") {
 			"schema line"
@@ -1415,8 +1415,8 @@ fn say_diagnostics_from(file: &str, diags: &[Diagnostic]) {
 ///
 /// Prints every layer's diagnostics itself, lowest layer first, before the
 /// `--set` overrides run: they belong to the load, and a refused edit used to
-/// return before anything was said about them. A merge does not carry
-/// diagnostics over, so the merged document only holds the lowest layer's -
+/// return before anything was said about them. A merge does not pass
+/// diagnostics on, so the merged document only holds the lowest layer's -
 /// reading them off it drops the diagnostics for FILE itself, which is the one
 /// the caller named.
 fn load_layered(o: &Opts, file: &str) -> Result<Document, u8> {
@@ -1838,7 +1838,7 @@ fn do_get(o: &Opts) -> u8 {
 		}
 	};
 	// Why the read failed is worth saying even when the exit code already
-	// carries it: at the default mode the user otherwise gets an empty line, a
+	// shows it: at the default mode the user otherwise gets an empty line, a
 	// nonzero code, and nothing to go on. Stdout is untouched - this only ever
 	// goes to stderr. Two silences are deliberate: `default` mode, because a
 	// caller who supplied a fallback has already said the miss is expected, and
@@ -1908,7 +1908,7 @@ fn do_get(o: &Opts) -> u8 {
 		// printing nothing on stdout.
 		(_, OnBad::Error) => status_code(status),
 		(_, OnBad::Flag) => {
-			// print the zero/empty value anyway; the exit code carries the status
+			// print the zero/empty value anyway; the exit code gives the status
 			emit(&lines);
 			status_code(status)
 		}
@@ -2146,7 +2146,7 @@ fn create_copy(file: &str, old: &str) -> std::io::Result<std::fs::File> {
 			return Err(std::io::Error::last_os_error());
 		}
 		// A create takes the ACEs but drops the auto-inherited mark, and without
-		// it a later change to the directory's ACL is not carried down to the
+		// it a later change to the directory's ACL is not passed down to the
 		// copy. Setting the same DACL again with the request bit puts it back.
 		let (mut control, mut revision) = (0u16, 0u32);
 		if !sd.is_empty()
@@ -2185,7 +2185,7 @@ fn keep_original(file: &str, text: &str) -> Result<String, String> {
 		// Born private, then given the original's group and bits, so a 600
 		// config never has a readable copy, and one in a setgid directory does
 		// not go to the directory's group. The group first, since a chown
-		// clears setuid/setgid. Best effort, the way the save carries both.
+		// clears setuid/setgid. Best effort, the way the save keeps both.
 		#[cfg(unix)]
 		if let Ok(m) = std::fs::metadata(file) {
 			use std::os::unix::fs::MetadataExt;
@@ -2264,7 +2264,7 @@ fn do_migrate(o: &Opts) -> u8 {
 	let rewritten = rewritten_lines(&text, &m.text);
 	// A save keeps a line at an indent no level matches, but 2.x placed some
 	// such lines by a looser rule and read them, so a migration that leaves
-	// one has not carried the file across. With nothing lost, every one of
+	// one has not brought the file across. With nothing lost, every one of
 	// them is kept.
 	let misplaced = doc
 		.diagnostics()
@@ -2402,7 +2402,7 @@ fn do_explain(o: &Opts) -> u8 {
 		}
 	};
 	// The entry runs from its head line to the next one. Built up first, since
-	// a code the table does not carry prints nothing at all.
+	// a code the table does not have prints nothing at all.
 	let mut body = String::new();
 	let mut found = false;
 	for l in CODES.lines() {
@@ -2762,7 +2762,7 @@ fn do_set(o: &Opts) -> u8 {
 		Ok(loaded) => loaded,
 		Err(code) => return code,
 	};
-	// --set carries the edits, so stdin is left alone: reading it here would
+	// --set gives the edits, so stdin is left alone: reading it here would
 	// block on the console for anyone who passed edits as options.
 	let mut ops = String::new();
 	if o.sets.is_empty() {
@@ -2770,7 +2770,7 @@ fn do_set(o: &Opts) -> u8 {
 		// Say so before blocking. With nothing on stdin this used to sit there
 		// silently, which reads as a hang rather than as a prompt; the note is
 		// unconditional so a pipeline and a terminal behave identically. The
-		// program-name prefix marks it as a notice; errors carry none.
+		// program-name prefix marks it as a notice; errors have none.
 		errln!("shcl: reading write-ops from stdin (one op per line, tab-separated; end with EOF)");
 		if let Err(e) = std::io::stdin().read_to_string(&mut ops) {
 			errln!("stdin: {}", e);
@@ -2931,7 +2931,7 @@ fn do_check(o: &Opts) -> u8 {
 	// is what the library's one-shot `load_and_validate` validates. So the schema
 	// half runs either way: at strict a user was getting less out of `check` than
 	// at standard on the same file, and `check` writes nothing, so `fmt`'s refusal
-	// to rewrite a strict-failing document does not carry over.
+	// to rewrite a strict-failing document does not apply.
 	let (doc, strict_failed) = match Document::parse_with(&text, o.strictness) {
 		Ok(doc) => (doc, false),
 		Err(e) => (e.document, true),
@@ -3003,7 +3003,7 @@ fn do_check(o: &Opts) -> u8 {
 		}
 		diags
 	};
-	// stdout carries the stable codes - the cross-binding contract. The prose is
+	// stdout gets the stable codes - the cross-binding contract. The prose is
 	// per-binding voice and goes to stderr (which the differential check drops).
 	// A V090-V093 line number is a SCHEMA line (the code table says so); the
 	// prose names the file so the two number spaces cannot be confused.
@@ -3076,8 +3076,8 @@ fn do_init(o: &Opts) -> u8 {
 			0
 		}
 		Err(faults) => {
-			// V090-V095 carry a schema line; V096 and V097 are about generation
-			// as a whole and carry line 0, so "schema line 0" named a line space
+			// V090-V095 have a schema line; V096 and V097 are about generation
+			// as a whole and have line 0, so "schema line 0" named a line space
 			// they are not in.
 			say_diagnostics(&faults);
 			errln!("init: schema has faults");

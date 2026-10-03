@@ -115,7 +115,7 @@ fTest EqjdNqC doc-comments-on-the-right-declaration
 ##	each time from code inserted between a comment and its function. Two places
 ##	can be read mechanically. A Go comment opens with the name it documents, so
 ##	one opening with another name declared in the package has moved. And every
-##	veneer declaration that starts a group carries a comment, so the one left
+##	veneer declaration that starts a group has a comment, so the one left
 ##	bare when its comment moved shows. The attribute and a signature that wraps
 ##	still count as a declaration.
 while IFS= read -r problem; do fBad "${problem}"; done < <(
@@ -283,7 +283,7 @@ fTest EqL4fPc withdrawn-lexical-wording-gone
 ##	per round: a `#` ending a value only behind a blank (2026-09-06, replaced
 ##	on 2026-09-10 by a `#` outside quotes always opening a comment), and an open
 ##	quote running to the line end (2.x). The documents that state the current
-##	rules may not carry the old phrasing. The changelog is history and is left
+##	rules may not use the old phrasing. The changelog is history and is left
 ##	out.
 # shellcheck disable=SC2016  ## the backticks are markdown, not command substitution
 while IFS= read -r hit; do
@@ -293,7 +293,7 @@ done < <(grep -nHiE 'behind a blank|a `#` anywhere else|swallowing the trailing 
 	"${repoDir}/project/conformance/README.md" "${repoDir}/source/man/shcl.1" 2>/dev/null | sed "s|^${repoDir}/||" || true)
 
 fTest EqL4fPd corpus-readme-notes-every-case
-##	contributing.md says the corpus README carries a note per case, and 58
+##	contributing.md says the corpus README has a note per case, and 58
 ##	cases went without one. Every case directory has to be named in a note,
 ##	alone (`044`) or as the edge of a range (`014`-`016`).
 corpusDir="${repoDir}/project/conformance"
@@ -344,7 +344,7 @@ fTest EqSvlSq copyright-marker-bytes
 ##	one and read the same on screen, and the check above only asks for the word
 ##	"Copyright". So compare the bytes. The PowerShell files and rust/build.rs
 ##	are the sanctioned ASCII forms with no marker, and the shared cicd/utility
-##	scripts carry the Bubbles form.
+##	scripts use the Bubbles form.
 if git -C "${repoDir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 	marker='[ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]'
 	mkFiles=()
@@ -356,7 +356,7 @@ if git -C "${repoDir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 	##	The first marker line in each file's first 80, as a head and a grep -m1
 	##	per file found it.
 	while IFS=$'\t' read -r f line; do
-		[[ "${line}" == *"${marker}"* ]] || fBad "${f#"${repoDir}/"} carries a copyright marker that is not the canonical bytes"
+		[[ "${line}" == *"${marker}"* ]] || fBad "${f#"${repoDir}/"} has a copyright marker that is not the canonical bytes"
 	done < <(((${#mkFiles[@]})) && LC_ALL=C awk '
 		FNR > 80 { nextfile }
 		/Copyright.*ID:/ { print FILENAME "\t" $0; nextfile }' "${mkFiles[@]}")
@@ -428,7 +428,7 @@ python3 "${repoDir}/cicd/utility/gen-escapes.py" \
 	|| fBad "an escape table differs from cicd/utility/gen-escapes.py (run it with --write)"
 
 fTest EqL29qS man-page-date-current
-##	The man page carries a revision date and no version, and the date went
+##	The man page has a revision date and no version, and the date went
 ##	stale on the next edit twice. The rule: the .TH date is no earlier than the
 ##	last commit that touched the page. A commit that edits the page and bumps
 ##	the date the same day passes, and so does a bump not yet committed. A
@@ -462,7 +462,7 @@ if [[ -f "${cmpResults}" && -f "${designDoc}" ]]; then
 	newestRun="$(sed -nE 's/^run: ([0-9]{8})-[0-9]{6}[[:space:]]*$/\1/p' "${cmpResults}" | sort | tail -n1)"
 	rerunDate="$(sed -nE 's/.*rerun on ([0-9]{4}-[0-9]{2}-[0-9]{2}).*/\1/p' "${designDoc}" | head -n1)"
 	if [[ -z "${newestRun}" ]]; then
-		fBad "cicd/utility/comparison/results.shcl carries no run: stamp"
+		fBad "cicd/utility/comparison/results.shcl has no run: stamp"
 	elif [[ -z "${rerunDate}" ]]; then
 		fBad "project/design.md no longer says when the format comparison was last rerun"
 	elif [[ "${rerunDate}" != "${newestRun:0:4}-${newestRun:4:2}-${newestRun:6:2}" ]]; then
@@ -591,10 +591,10 @@ done < <(find "${repoDir}" -name '*.md' -not -path '*/target/*' -not -path '*/.g
 
 fTest EoXWh5c prose-to-stderr-claim
 ##	The claim that the code goes to stdout and the prose to stderr. The stderr
-##	line carries the code too, and has since the round that changed the CLI's
+##	line has the code too, and has since the round that changed the CLI's
 ##	voice - so a document saying otherwise describes a split that is not there.
 while IFS= read -r hit; do
-	fBad "says the prose alone goes to stderr, but the stderr line carries the code: ${hit}"
+	fBad "says the prose alone goes to stderr, but the stderr line has the code: ${hit}"
 done < <(grep -rn "prose to stderr" --include='*.md' "${repoDir}" | grep -v '/backlog\.md:' || true)
 
 fTest EoXX3yy setter-examples-check-the-result
@@ -636,9 +636,9 @@ done < <(awk '
 
 fTest Er8RudX backlog-closed-items-name-a-test
 ##	Every closed item says which test pins it, or why none does: a legacy
-##	checkmark item carries a Test case, Test or Pinned by line of its own or
+##	checkmark item has a Test case, Test or Pinned by line of its own or
 ##	under a checked item it sits in, and a new-format item that is Done or
-##	waiting on signoff carries a Test case row. 98 closed items had none before
+##	waiting on signoff has a Test case row. 98 closed items had none before
 ##	anything checked (20260926 idea 1).
 while IFS= read -r hit; do
 	fBad "backlog.md: a closed item names no test: ${hit}"
@@ -760,7 +760,7 @@ if [[ -n "${help}" ]]; then
 	writeops="$(sed -n '/^\.SH WRITE OPS/,/One op per line/p' "${repoDir}/source/man/shcl.1")"
 	for opt in '\-\-set' '\-\-set\-literal' '\-\-set\-default' '\-\-set\-literal\-default' '\-\-remove'; do
 		grep -qF -- "${opt}" <<<"${writeops}" \
-			|| fBad "shcl.1: WRITE OPS does not name ${opt//\\/} among the options that carry the edits"
+			|| fBad "shcl.1: WRITE OPS does not name ${opt//\\/} among the options that give the edits"
 	done
 fi
 
@@ -784,7 +784,7 @@ else
 fi
 
 fTest EqRTWFc exit-codes-match-help
-##	The CLI style guide carries its own copy of the exit codes, and nothing held
+##	The CLI style guide has its own copy of the exit codes, and nothing held
 ##	it to the CLI: its row for 6 named migrate --check for two days after fmt
 ##	got one, so the guide called the fmt arm a bug. Two things are checked. The
 ##	help's code list and the guide's table have to name the same codes, and no
@@ -828,7 +828,7 @@ if [[ -n "${help}" ]]; then
 		done
 		tr ' ' '\n' <<<"${out}" | sort -u | xargs
 	}
-	##	"(same)", or no parentheses at all, carries the entry above, in the help
+	##	"(same)", or no parentheses at all, repeats the entry above, in the help
 	##	and in the man page alike.
 	declare -A helpScope=()
 	carried=""
@@ -1031,7 +1031,7 @@ grep -B 3 -F 'shcl_str shcl_authored_name(shcl_doc *d' "${repoDir}/source/c/shcl
 fTest EqQW89J contents-blocks-match-headings
 ##	A contents block is generated by an editor extension, so nothing in the
 ##	pipeline had ever compared one with the headings under it. The spec went
-##	without one entirely for 758 lines. Each document that carries a block gets
+##	without one entirely for 758 lines. Each document that has a block gets
 ##	it rebuilt here from its own h2 to h5 and compared. Heading-slug collisions
 ##	come out of the same pass, which no linter catches either.
 fBuildToc(){  ## fBuildToc FILE: the contents block those headings would generate
@@ -1057,7 +1057,7 @@ for doc in README.md contributing.md project/design.md project/spec.md ai_policy
 	[[ -f "${repoDir}/${doc}" ]] || continue
 	live="$(sed -n '/^<!-- TOC -->$/,/^<!-- \/TOC -->$/p' "${repoDir}/${doc}" | sed '1d;$d' | sed '/^$/d')"
 	if [[ -z "${live}" ]]; then
-		fBad "${doc} carries no contents block, and it is long enough to need one"
+		fBad "${doc} has no contents block, and it is long enough to need one"
 		continue
 	fi
 	want="$(fBuildToc "${repoDir}/${doc}")"
@@ -1168,7 +1168,7 @@ echo "check-docs: OK"
 ##		2026-09-19  The man page date is no older than its last commit.
 ##		2026-09-19  grammar.abnf reads as ABNF and derives the fence labels
 ##		            the parser reads.
-##		2026-09-19  Every tracked source file carries the SPDX and copyright lines.
+##		2026-09-19  Every tracked source file has the SPDX and copyright lines.
 ##		2026-09-19  The corpus README states no withdrawn lexical rule and has a
 ##		            note for every case.
 ##		2026-09-19  design.md's comparison rerun date matches the newest run in

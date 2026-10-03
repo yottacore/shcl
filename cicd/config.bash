@@ -69,7 +69,7 @@ TOOL_PINS=(
 	## serves that day.
 	"PSScriptAnalyzer|1.25.0|pwsh -NoProfile -Command \"(Get-Module -ListAvailable PSScriptAnalyzer | Select-Object -First 1).Version.ToString()\""
 	## The Go series ci.yml installs (go-version). One decision with the
-	## staticcheck pin: staticcheck carries its own type checker and cannot read
+	## staticcheck pin: staticcheck has its own type checker and cannot read
 	## export data from a Go newer than the release it was cut against, so the
 	## two move together.
 	"go|1.26|go version"
@@ -88,7 +88,7 @@ TOOL_PINS=(
 	"zig|0.16.0|zig version"
 	"pillow|11.1.0|python3 -c 'import PIL; print(PIL.__version__)'"
 )
-## The PyPI wheel that carries the pinned cppcheck binary has its own version,
+## The PyPI wheel that bundles the pinned cppcheck binary has its own version,
 ## and that is the one pip installs (ci.yml, install-dev.bash). Bump it with
 ## the binary pin above; check-pins.bash holds ci.yml to both.
 CPPCHECK_WHEEL="1.5.1"
@@ -295,7 +295,7 @@ XCHECK_GEN='env SHCL_FUZZ_DUMP="${XCHECK_DUMP_DIR}" SHCL_FUZZ_ITERS=2000 SHCL_FU
 ## quadratic or a buffer that only misbehaves past a few megabytes. One generated
 ## document goes through every binding in BINDING_CLIS; they must agree on it
 ## byte for byte, and each stays inside the wall-clock and peak-RSS ceilings
-## largedoc.bash carries. Set 0 to skip (--no-largedoc does the same).
+## largedoc.bash sets. Set 0 to skip (--no-largedoc does the same).
 ##
 ## 100 MiB is the floor worth testing: the memory multiplier is 40-70x input, so
 ## this is also the only place the pipeline notices a document costing gigabytes.
@@ -373,7 +373,7 @@ CROSS_TARGETS=(
 ## never been built here, which is how a regression in it reached dev. Same
 ## "label|command" shape as CROSS_TARGETS, minus the artifact. These run under
 ## --ci as well, since they are checks rather than artifacts; ci.yml has to
-## carry whatever they need, which today means mingw's gcc.
+## install whatever they need, which today means mingw's gcc.
 ## No -Wconversion for mingw: its isfinite and isnan macros convert to float in
 ## the branch they do not take.
 CROSS_CHECKS=(

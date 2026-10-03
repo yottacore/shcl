@@ -94,7 +94,7 @@ impl std::fmt::Display for Status {
 }
 
 /// What load_file found: the four cases a consumer's own load path otherwise
-/// confuses. Clean and HadErrors both carry a usable document; NotFound and
+/// confuses. Clean and HadErrors both have a usable document; NotFound and
 /// Unreadable come back with an empty one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileStatus {
@@ -112,7 +112,7 @@ pub enum FileStatus {
 pub enum SaveError {
 	/// The load dropped content this save would delete (see `lost_count`).
 	Refused { path: String, lost: usize },
-	/// The write itself failed; carries the reported message.
+	/// The write itself failed; has the reported message.
 	Io(String),
 }
 
@@ -138,7 +138,7 @@ impl std::error::Error for SaveError {}
 pub enum WriteReason {
 	Writable,
 	BadPath,     // empty path, or the scanner rejected it
-	ValueInPath, // the path carries a `: value` part; writes take values separately
+	ValueInPath, // the path has a `: value` part; writes take values separately
 	Wildcard,    // wildcard selectors are query-only
 	NoSuchIndex, // a `[#k]` instance that does not (and can never) exist
 	TooDeep,     // deeper than the nesting cap; the writer never creates past it
@@ -146,7 +146,7 @@ pub enum WriteReason {
 
 /// Full-tier read result: value plus status plus the original raw text (when the
 /// path resolved), so a caller can always recover what was actually in the file.
-/// Array reads also carry one status per slot (element, or wildcard instance) in
+/// Array reads also give one status per slot (element, or wildcard instance) in
 /// `slots`; `status` is then the worst slot. Scalar reads leave `slots` empty.
 /// `line` is the 1-based source line of the resolved binding (0 when the path
 /// did not resolve to one node, or the node was writer-built), so a consumer
@@ -395,7 +395,7 @@ impl Lead {
 /// for its value or name goes by the same rule over `held`, the kept lines
 /// before it: it holds its level on a reload, so it goes deeper only under
 /// one of those, which a reload holds open for it. A misplaced line, which
-/// carries its own indent, sits at the place's level and leaves both alone.
+/// has its own indent, sits at the place's level and leaves both alone.
 fn comment_depth<'a>(
 	chain: &mut Vec<(&'a str, usize)>,
 	held: &mut Vec<(&'a str, usize)>,
@@ -427,7 +427,7 @@ fn comment_depth<'a>(
 }
 
 /// A pending line kept for what it says, not for where it sits: neither a
-/// comment nor a misplaced line, which carries its own indent.
+/// comment nor a misplaced line, which has its own indent.
 fn is_field(text: &str) -> bool {
 	!text.starts_with(['#', ' ', '\t'])
 }
@@ -491,7 +491,7 @@ struct NodeData {
 	line: usize,
 	star_list: bool,  // value built from stacked "* " lines
 	star_mixed: bool, // mix of "* " and field children already diagnosed
-	// Comment trivia, boxed off to the side: most nodes carry none, and the
+	// Comment trivia, boxed off to the side: most nodes have none, and the
 	// four empty containers were a third of every node.
 	trivia: Option<Box<Trivia>>,
 	// Blank-line grouping is the other half of hand-authored layout: set when
@@ -894,7 +894,7 @@ const TMP_NAME_BYTES: usize = 64;
 // Every reading of a line's parts goes through `tokenize`: the parser's line
 // dispatch, the path scanner behind every lookup and setter, the comment and
 // comma splits, the element cap, the unterminated-quote check, `SetLiteral`
-// and the CLI's `--set` split. Seven scanners used to carry their own copy of
+// and the CLI's `--set` split. Seven scanners used to have their own copy of
 // these rules, and every scanner defect since July was two of them
 // disagreeing. The rules, one sentence each:
 //
@@ -1417,7 +1417,7 @@ fn trim_wsp_end(s: &str) -> &str {
 
 /// Value text for a diagnostic message: line breaks and tabs escaped, so one
 /// diagnostic is one line. A raw block's body is the value that made this
-/// necessary - it carries its own newlines.
+/// necessary - it contains its own newlines.
 fn one_line(s: &str) -> String {
 	s.replace('\\', "\\\\")
 		.replace('\n', "\\n")
@@ -1558,7 +1558,7 @@ fn invisible_at(t: &str, i: usize, c: char) -> bool {
 
 /// A character a variation selector can modify: one written as itself that
 /// is not a blank or a joiner. Another selector is not one, so a run of them
-/// cannot carry hidden text.
+/// cannot contain hidden text.
 fn selector_base(c: char) -> bool {
 	c > ' ' && c != '\u{200C}' && c != '\u{200D}' && !invisible(c)
 }
@@ -1872,7 +1872,7 @@ fn strip_common<'a>(line: &'a str, common: &str) -> &'a str {
 // Migration: a 2.x document rewritten for the current lexical rules
 // ---------------------------------------------------------------------------
 
-/// What `migrate` produced, and what it could not carry across.
+/// What `migrate` produced, and what it could not keep.
 #[derive(Debug)]
 pub struct Migration {
 	pub text: String,
@@ -2023,7 +2023,7 @@ pub fn migrate(text: &str, from_v2: bool) -> Migration {
 }
 
 /// migrate() without the version line or the migrated note, for a program
-/// that writes `GEN_BANNER` itself, which carries the version line. The
+/// that writes `GEN_BANNER` itself, which includes the version line. The
 /// next run can tell the result is current only once that is written.
 pub fn migrate_unstamped(text: &str, from_v2: bool) -> Migration {
 	migrate_text(text, from_v2, false)
@@ -2224,7 +2224,7 @@ fn migrate_line(
 	let mut edits: Vec<Edit> = Vec::new();
 	if rest.starts_with('*') && s.get(1).is_some_and(|&b| is_wsp_byte(b)) {
 		tokenize_value(rest, 1, Rules::V2, tok);
-		// A bare comma was refused (E010), so there is nothing to carry.
+		// A bare comma was refused (E010), so there is nothing to convert.
 		if tok.elements.len() == 1 {
 			value_edits(rest, tok, &mut edits, st);
 		}
@@ -2787,7 +2787,7 @@ enum Cut {
 /// What became of a line the parser did not bind whole. Only the funnel
 /// (`Parser::refuse`) reads it; the count and the level follow from it.
 enum Outcome<'a> {
-	/// The line binds; a value it carried has nowhere to go and is gone.
+	/// The line binds; a value on it has nowhere to go and is gone.
 	ValueDropped,
 	/// Content-malformed: kept verbatim as trivia and written back in place,
 	/// where it re-diagnoses identically and never reads as a binding.
@@ -3491,7 +3491,7 @@ impl<'a> Parser<'a> {
 	}
 
 	/// Walk path segments under `parent`, select-or-creating; returns the node
-	/// for the last segment carrying `value`. None aborts the line (diagnosed).
+	/// for the last segment with `value`. None aborts the line (diagnosed).
 	fn attach_path(
 		&mut self,
 		parent: usize,
@@ -3705,7 +3705,7 @@ impl<'a> Parser<'a> {
 		while i < lines.len() {
 			if is_fence_close(lines[i], ch, len) {
 				// The closing fence's indent is the nesting; everything a content
-				// line carries past it is content, so a body whose lines all
+				// line has past it is content, so a body whose lines all
 				// share an indent keeps it (a writer-built block depends on that).
 				nest = leading_ws(lines[i]);
 				closed = true;
@@ -4237,7 +4237,7 @@ impl<'a> Parser<'a> {
 					continue;
 				}
 				// Content-malformed at any position, so safe to retain. The BOM
-				// exception the field arm carries cannot apply here: this line
+				// exception the field arm makes cannot apply here: this line
 				// starts with the '*' that brought us in.
 				self.refuse(
 					lineno,
@@ -4439,7 +4439,7 @@ impl<'a> Parser<'a> {
 		}
 		self.star_flush();
 		// Indented tail comments keep their block; only top-level ones orphan.
-		// Before the fold, which carries a dropped instance's comments over to
+		// Before the fold, which moves a dropped instance's comments over to
 		// the one it joins: after it they would hang on the dropped one.
 		self.hang_deeper_pending("");
 		self.fold_late_dups();
@@ -4518,8 +4518,8 @@ impl Document {
 	}
 
 	/// Parse at a chosen strictness. Only Strict can fail (any error diagnostic);
-	/// the error still carries the parsed document alongside the diagnostics.
-	// The Err carries the whole document by design (recover-and-continue);
+	/// the error still includes the parsed document alongside the diagnostics.
+	// The Err includes the whole document by design (recover-and-continue);
 	// boxing it would change the public shape for a value built once per load.
 	#[allow(clippy::result_large_err)]
 	pub fn parse_with(text: &str, strictness: Strictness) -> Result<Document, LoadError> {
@@ -4586,7 +4586,7 @@ impl Document {
 		self.lost
 	}
 
-	/// How many error-severity diagnostics the document carries - the "did
+	/// How many error-severity diagnostics the document has - the "did
 	/// this file have errors?" predicate, so recover-and-continue can't read
 	/// as success by accident. Counts whatever diagnostics() holds (after
 	/// load_and_validate, that includes validation errors).
@@ -4598,7 +4598,7 @@ impl Document {
 	}
 
 	/// One-shot load-and-validate: parse at a strictness, validate against a
-	/// schema, and hand back the document carrying ONE combined diagnostics
+	/// schema, and hand back the document with ONE combined diagnostics
 	/// list (parse first, then validation - the order `check --schema`
 	/// prints), so half the errors can't vanish because a caller forgot one
 	/// of the two lists. Never fails: a strict-failing document comes back as
@@ -4934,7 +4934,7 @@ impl Document {
 		self.emit_line(idx, pos, depth, would_merge, e);
 		self.emit_children(&self.arena[idx].children, depth + 1, e);
 		e.near(idx, pos);
-		// Comments this block owns with no child to carry them, one deeper.
+		// Comments this block owns with no child to take them, one deeper.
 		push_leads(
 			e,
 			self.arena[idx].inside(),
@@ -4953,7 +4953,7 @@ impl Document {
 		let node = &self.arena[idx];
 		e.near(idx, pos);
 		let pad: String = "\t".repeat(depth);
-		// Same-line fence spelling can't carry an inline comment (an unbalanced
+		// Same-line fence spelling can't have an inline comment (an unbalanced
 		// quote in the info-string could hide the `#` on reparse), so its
 		// trailing comment joins the leading lines instead; the flag comes from
 		// the parent's walk. Each blank rides its own comment (or the binding
@@ -5240,7 +5240,7 @@ fn commented(text: &str) -> String {
 }
 
 /// Write a run of comments and kept lines, `base` levels deep. A misplaced
-/// line kept as written (its text carries its own indent, a comment's never
+/// line kept as written (its text has its own indent, a comment's never
 /// does) goes back as it was only where a reload keeps it again, which the
 /// model of the reload's stack answers the way the parser will: refused for
 /// its indent, or under the kept line before it. A merge or an edit can
@@ -6049,7 +6049,7 @@ fn emit_name(name: &str) -> std::borrow::Cow<'_, str> {
 }
 
 /// A field name for a diagnostic message: put the way the emitter would
-/// write it, so a name carrying a line break, a dot or a quote cannot pose as
+/// write it, so a name with a line break, a dot or a quote cannot pose as
 /// something it is not - a raw `a.b` reads exactly like `a` nesting `b`, and a
 /// raw line break splits one diagnostic across two.
 fn diag_name(name: &str) -> String {
@@ -6057,7 +6057,7 @@ fn diag_name(name: &str) -> String {
 }
 
 /// One element of a value, written for a diagnostic message: the emitter's
-/// inline spelling, so a value carrying a line break cannot split one
+/// inline spelling, so a value with a line break cannot split one
 /// diagnostic across two.
 fn diag_element(e: &Element) -> String {
 	emit_element(e).into_owned()
@@ -6189,7 +6189,7 @@ pub fn write_file_atomic(file: &str, data: &str) -> Result<(), String> {
 		.map(|b| b.to_string_lossy().into_owned())
 		.unwrap_or_else(|| file.to_string());
 	// At most the first 64 bytes of the name, cut where a character starts, so the
-	// temp's own length is fixed. Carrying the whole name put the temp over the
+	// temp's own length is fixed. Keeping the whole name put the temp over the
 	// filesystem's 255 bytes at a target name in the low 240s - and the exact
 	// cut-off moved with the width of the process id, so the same file saved on one
 	// machine and failed on another. Bytes, not characters: 64 characters of four
@@ -6233,7 +6233,7 @@ pub fn write_file_atomic(file: &str, data: &str) -> Result<(), String> {
 	// publish and goes back on the new file after it - the same outcome as
 	// POSIX, where the rename never needed the file writable. Hidden and system
 	// ride back the same way: ReplaceFile's documented preserve list does not
-	// include the basic attributes, and the rename fallback carries nothing, so
+	// include the basic attributes, and the rename fallback keeps nothing, so
 	// a hidden config came back visible.
 	#[cfg(windows)]
 	let read_only = existing
@@ -6282,16 +6282,16 @@ pub fn write_file_atomic(file: &str, data: &str) -> Result<(), String> {
 		f.sync_all()?;
 		// On the handle, so umask cannot narrow it the way it narrows a create
 		// mode, and after the data, because a write by anyone but root clears
-		// setuid/setgid. Best effort: a filesystem that cannot carry the mode
+		// setuid/setgid. Best effort: a filesystem that cannot store the mode
 		// is not a reason to fail a write that otherwise succeeded. The whole
 		// mode goes, setuid/setgid/sticky included, as an editor's rewrite
-		// would carry it.
+		// would keep it.
 		#[cfg(unix)]
 		if let Some(m) = &existing {
 			// The group first, because a chown clears setuid/setgid on most
 			// systems. Best effort like the mode: a caller who is not in the
 			// old group keeps its own, which is what it had before this. The
-			// owner is not carried - see the file tier in spec.md.
+			// owner is not copied - see the file tier in spec.md.
 			use std::os::unix::fs::MetadataExt;
 			let _ = std::os::unix::fs::fchown(&f, None, Some(m.gid()));
 			let _ = f.set_permissions(m.permissions());
@@ -6631,8 +6631,8 @@ fn create_like(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<
 /// Move the finished temp file over the target. On windows that means
 /// ReplaceFile rather than a rename: a rename publishes a brand-new file and
 /// leaves the destination's ACLs, security attributes and named streams behind,
-/// which ReplaceFile carries onto the replacement instead. What it does not
-/// carry is the basic attributes - hidden and system - which the save re-applies
+/// which ReplaceFile copies onto the replacement instead. What it does not
+/// copy is the basic attributes - hidden and system - which the save re-applies
 /// by hand. It needs the destination to exist, and it fails rather than skip a
 /// merge it cannot do (no WRITE_DAC, say), so a create and any failure fall back
 /// to the rename. WRITE_THROUGH is asked for and documented as unsupported by
@@ -7270,7 +7270,7 @@ fn leading_zero(t: &str) -> bool {
 
 /// Quote a logical string so the tokenizer reads it back as the same string.
 /// Single quotes are literal, so they are the spelling for text holding a
-/// double quote or a backslash; double quotes carry the escapes, so they are
+/// double quote or a backslash; double quotes have the escapes, so they are
 /// the spelling for a line break, a tab, an invisible character, or text
 /// holding both quote kinds.
 fn quote_text(t: &str) -> String {
@@ -7442,7 +7442,7 @@ fn name_reads_back(name: &str) -> bool {
 }
 
 /// The comment line this text is written as, or None when it has no spelling.
-/// A `#` is added when the text carries none. The load trims every line's
+/// A `#` is added when the text has none. The load trims every line's
 /// end, so the trimmed text is what gets written; text holding a line break
 /// is refused rather than cut down to its first line.
 fn comment_line(text: &str) -> Option<String> {
@@ -8174,7 +8174,7 @@ impl Document {
 		let mut pairs: Vec<(usize, usize)> = Vec::with_capacity(targets.len());
 		for &t in &targets {
 			let p = self.arena[t].parent;
-			// A node already marked would carry DEAD into the rebuild below as
+			// A node already marked would pass DEAD into the rebuild below as
 			// an index, so skip it rather than trust resolve never to name one
 			// twice.
 			if p == DEAD {
@@ -8397,7 +8397,7 @@ impl Document {
 		self.set_value(path, cell_of(v.to_string()))
 	}
 	/// Bind a datetime at a path, in its canonical spelling. The struct's
-	/// fields are public and carry no invariant, so a value the reader would
+	/// fields are public and have no invariant, so a value the reader would
 	/// refuse (month 13, a fraction with no seconds, an empty struct) fails
 	/// the write rather than binding text that cannot read back.
 	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
@@ -8703,7 +8703,7 @@ impl Document {
 				.push((pos, k));
 		}
 		// Base side, one pass: does the name have a container instance, and
-		// which child carries each (name, key) - every key computed once. The
+		// which child has each (name, key) - every key computed once. The
 		// list is cloned because the splices below rewrite it as they go.
 		let base_kids = self.arena[base_parent].children.clone();
 		let mut has_container: HashMap<String, bool> = HashMap::new();
@@ -10619,7 +10619,7 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 				),
 			},
 			// Generator-only (`shcl init`); validation ignores both. First
-			// occurrence wins (a merged schema could carry two).
+			// occurrence wins (a merged schema could have two).
 			"desc" => {
 				// A comma in a sentence makes the value several elements, and
 				// the comment is prose: take them all, kept as written.
@@ -10904,7 +10904,7 @@ fn gen_annotation(c: &Constraint, tyname: &str) -> String {
 		parts.push(format!("one of: {}", allowed_join(a)));
 	}
 	// The bounds are their own part of the annotation line, not an alternative
-	// to `allowed`. A field can carry both, and the validator enforces both.
+	// to `allowed`. A field can have both, and the validator enforces both.
 	// A duration or size bound reads the way the schema wrote it.
 	if c.bound_text.0.is_some() || c.bound_text.1.is_some() {
 		parts.push(match &c.bound_text {
@@ -10941,7 +10941,7 @@ fn gen_annotation(c: &Constraint, tyname: &str) -> String {
 	parts.join(", ")
 }
 
-/// A default carrying a literal newline cannot sit on a value line; the quoted
+/// A default with a literal newline cannot sit on a value line; the quoted
 /// escaped spelling reads back to the same string.
 fn gen_default_text(v: &str) -> String {
 	if !v.contains('\n') {
@@ -11080,7 +11080,7 @@ pub fn generate(schema: &Document, no_banner: bool) -> Result<String, Vec<Diagno
 			break;
 		}
 	}
-	// A live line with a value materializes an instance carrying that value,
+	// A live line with a value materializes an instance with that value,
 	// and a dotted child names the empty-valued instance instead - so `srv:
 	// web` followed by `srv.port:` is two `srv` nodes, and the child never
 	// ends up where the schema looks. Any line under such a parent selects it
@@ -11161,7 +11161,7 @@ pub fn generate(schema: &Document, no_banner: bool) -> Result<String, Vec<Diagno
 			continue;
 		}
 		// A filled wildcard emits in dotted form, targeting the materialized
-		// instance - by its value when the materializing line carries one.
+		// instance - by its value when the materializing line has one.
 		// Rebuilt from the parsed segments, not by cutting text out of the
 		// path: the same path can be written several ways, and only the
 		// segments say what it means. Otherwise the schema's own spelling.
@@ -11173,7 +11173,7 @@ pub fn generate(schema: &Document, no_banner: bool) -> Result<String, Vec<Diagno
 		let under_valued_parent = (1..c.segs.len()).any(|k| {
 			c.segs[k - 1].selector.is_none() && values.contains_key(&names_of(&c.segs[..k]))
 		});
-		// A name carrying a newline has no verbatim spelling on a binding line;
+		// A name with a newline has no verbatim spelling on a binding line;
 		// the segment renderer escapes it, so such a path goes through there
 		// whether or not it was filled.
 		// A value after a last-segment selector is ignored, so a default there
@@ -11445,7 +11445,7 @@ pub const FORMAT_MAJOR: u32 = 3;
 pub const FORMAT_LINE_HEAD: &str = "##    Format   ";
 
 /// The whole version line, as the block has it. A program writing a config
-/// of its own emits `GEN_BANNER`, which carries this; `migrate` appends this
+/// of its own emits `GEN_BANNER`, which includes this; `migrate` appends this
 /// line on its own to a file it rewrote, since that file has no block to add
 /// it to and inventing one would write bytes the document does not hold.
 pub const FORMAT_LINE: &str = "##    Format   3";
@@ -11461,7 +11461,7 @@ pub const MIGRATED_LINE: &str = "##    Migrated from SHCL 2.x.";
 /// Render parsed segments back as a dotted path, dropping wildcard selectors
 /// (a generated line targets the one instance it materializes) and quoting a
 /// name that needs it, so the result is a path the scanner reads back the same.
-/// A segment whose prefix names a live line carrying a value selects that
+/// A segment whose prefix names a live line with a value selects that
 /// instance by the value, in place of a wildcard or a bare name. None when a
 /// selector has no spelling a file line reads back.
 fn gen_path_text(segs: &[Segment], parent_values: &HashMap<Vec<&str>, &str>) -> Option<String> {
@@ -11547,7 +11547,7 @@ fn gen_selector_text(v: &str) -> Option<String> {
 /// selector for `text`, quoted or bare as asked.
 fn selector_reads_back(body: &str, text: &str, quoted: bool) -> bool {
 	let line = format!("x[{}]:", body);
-	// The tokenizer reads one line and never sees a line end, so text carrying a
+	// The tokenizer reads one line and never sees a line end, so text with a
 	// real line break would read back here and then be written across two lines,
 	// which is not the same path. A file line cannot hold one, so refuse and let
 	// the escaped spelling be tried instead.
@@ -11569,7 +11569,7 @@ fn selector_reads_back(body: &str, text: &str, quoted: bool) -> bool {
 /// segments. A lookup path takes spellings a file line does not.
 fn path_reads_back(path: &str, segs: &[Segment]) -> bool {
 	let line = format!("{}:", path);
-	// The tokenizer reads one line and never sees a line end, so text carrying a
+	// The tokenizer reads one line and never sees a line end, so text with a
 	// real line break would read back here and then be written across two lines,
 	// which is not the same path. A file line cannot hold one, so refuse and let
 	// the escaped spelling be tried instead.

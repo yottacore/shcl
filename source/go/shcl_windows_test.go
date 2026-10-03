@@ -18,7 +18,7 @@ import (
 )
 
 // Hidden and system survive a save. ReplaceFile's documented preserve list does
-// not include the basic attributes and the fallback rename carries none, so a
+// not include the basic attributes and the fallback rename keeps none, so a
 // hidden config used to come back visible. Same fixture in every runner; its
 // own file because the symbols are windows-only.
 func TestSaveKeepsHiddenAndSystem(t *testing.T) {

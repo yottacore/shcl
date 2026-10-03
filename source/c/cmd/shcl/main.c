@@ -217,7 +217,7 @@ static const char *HELP =
 	"in-place write also refuses when the load dropped content the rewrite would\n"
 	"delete (--lossy overrides). migrate refuses a file that does not say which\n"
 	"rules it was written for, when the two readings differ (--from-2x says it is\n"
-	"2.x), and reports a 2.x binding it cannot carry.\n"
+	"2.x), and reports a 2.x binding it cannot convert.\n"
 	"FILE may be '-' for stdin. With --layer, FILE is the highest file layer and\n"
 	"each --layer is merged under it in order; --set applies last. 'fmt' with\n"
 	"layers prints the merged canonical document.\n"
@@ -408,7 +408,7 @@ static const char *CODES =
 	"  wins over the one the name gives a bare number. Legal, and often a slip.\n"
 	"V001|error|unknown field\n"
 	"  No schema path covers it. Only the topmost unknown node is reported; its\n"
-	"  subtree is skipped. The prose carries the did-you-mean suggestion.\n"
+	"  subtree is skipped. The prose has the did-you-mean suggestion.\n"
 	"V002|error|required path missing\n"
 	"  Declared 'required: yes' and nothing in the document resolves it.\n"
 	"V003|error|wrong type\n"
@@ -639,8 +639,8 @@ static void say_diag(size_t line, shcl_severity sev, const char *code, shcl_str 
 // screen, so two layers with a bad line 2 printed the same thing twice with
 // nothing to tell them apart.
 static void say_diag_from(const char *file, size_t line, shcl_severity sev, const char *code, shcl_str msg) {
-	/* V090-V095 carry a schema line; V096 and V097 are about generation as a
-	   whole and carry line 0, so "schema line 0" named a line space they are not
+	/* V090-V095 have a schema line; V096 and V097 are about generation as a
+	   whole and have line 0, so "schema line 0" named a line space they are not
 	   in. V099 stands for a schema that did not load and is line 0 too. */
 	const char *space = (!strncmp(code, "V09", 3) && strcmp(code, "V096") && strcmp(code, "V097")
 		&& strcmp(code, "V099")) ? "schema line" : "line";
@@ -672,7 +672,7 @@ static int strict_gate_from(const char *file, const shcl_doc *d) {
 
 // Holds a merged doc and the input buffers its nodes still reference (the base
 // layer's node strings are not dup'd off its text). The over-layers are kept
-// too: a merge does not carry diagnostics over, so their docs are the only
+// too: a merge does not pass diagnostics on, so their docs are the only
 // place the layers' own diagnostics live. Free everything with layered_free.
 typedef struct { shcl_doc *doc; shcl_doc **overs; int novers; char **texts; int ntexts;
 	const char **names; int nnames; size_t base_len; } LayeredDoc;
@@ -873,7 +873,7 @@ static int do_get(Opts *o) {
 		if (o->slots || o->array) out_one_line((P), (N)); else outln((P), (N)); \
 	} while (0)
 	// Why the read failed is worth saying even when the exit code already
-	// carries it: at the default mode the user otherwise gets an empty line, a
+	// shows it: at the default mode the user otherwise gets an empty line, a
 	// nonzero code, and nothing to go on. Stdout is untouched - this only ever
 	// goes to stderr. Two silences are deliberate: default mode, because a
 	// caller who supplied a fallback has already said the miss is expected, and
@@ -1156,7 +1156,7 @@ static int create_copy(const char *file, const wchar_t *wold) {
 		return -1;
 	}
 	// A create takes the ACEs but drops the auto-inherited mark, and without it
-	// a later change to the directory's ACL is not carried down to the copy.
+	// a later change to the directory's ACL is not passed down to the copy.
 	// Setting the same DACL again with the request bit puts it back.
 	SECURITY_DESCRIPTOR_CONTROL control = 0;
 	DWORD revision = 0;
@@ -1206,7 +1206,7 @@ static char *keep_original(const char *file, const char *text, size_t len) {
 	// Born private, then given the original's group and bits, so a 600 config
 	// never has a readable copy, and one in a setgid directory does not go to
 	// the directory's group. The group first, since a chown clears
-	// setuid/setgid. Best effort, the way the save carries both; fchown is
+	// setuid/setgid. Best effort, the way the save keeps both; fchown is
 	// warn_unused_result, and a cast does not silence that everywhere.
 	struct stat st;
 	if (ok && stat(file, &st) == 0) {
@@ -1271,7 +1271,7 @@ static int do_migrate(const Opts *o) {
 	size_t rewritten = rewritten_lines(o->check ? file : NULL, text, len, m.text, m.len);
 	// A save keeps a line at an indent no level matches, but 2.x placed some
 	// such lines by a looser rule and read them, so a migration that leaves one
-	// has not carried the file across. With nothing lost, every one of them is
+	// has not brought the file across. With nothing lost, every one of them is
 	// kept.
 	size_t misplaced = 0;
 	for (size_t k = 0; k < shcl_diag_count(d); k++) {
@@ -1506,7 +1506,7 @@ static int g_bool(const char *p, size_t n, int *out) {
 	return 0;
 }
 
-// The `op line N:` prefix every ops-script error carries.
+// The `op line N:` prefix every ops-script error has.
 static void op_err(size_t lineno, const char *fmt, ...) {
 	va_list ap;
 	fprintf(stderr, "op line %zu: ", lineno);
@@ -1660,7 +1660,7 @@ static int do_set(Opts *o) {
 	LayeredDoc L; int lgate = load_layered_from(o, file, given, given_len, !creating, &L);
 	if (lgate) return lgate;
 	shcl_doc *d = L.doc;
-	// --set carries the edits, so stdin is left alone: reading it here would
+	// --set gives the edits, so stdin is left alone: reading it here would
 	// block on the console for anyone who passed edits as options.
 	size_t opslen = 0; char *ops = NULL;
 	if (o->nsets == 0) {
@@ -1827,7 +1827,7 @@ static int do_check(const Opts *o) {
 	   library's one-shot validate walks. So the schema half runs either way: at
 	   strict a user was getting less out of check than at standard on the same
 	   file, and check writes nothing, so fmt's refusal to rewrite a
-	   strict-failing document does not carry over. */
+	   strict-failing document does not apply. */
 	size_t spn = 0;
 	int refused;
 	char *schema_file = schema_for(o, o->args[0], text, len, &spn, &refused);
@@ -1866,7 +1866,7 @@ static int do_check(const Opts *o) {
 	size_t n = shcl_diag_count(d), nerr = 0;
 	size_t nval = val ? shcl_validation_count(val) : 0;
 	size_t total = n + nval + (v99 ? 1 : 0);
-	// stdout carries the stable codes - the cross-binding contract. The prose is
+	// stdout gets the stable codes - the cross-binding contract. The prose is
 	// per-binding voice and goes to stderr (which the differential check drops).
 	for (size_t i = 0; i < n; i++) {
 		const char *sev = shcl_diag_severity(d, i) == SHCL_SEV_ERROR ? "Error" : "Hint";
@@ -2168,7 +2168,7 @@ static int do_paths(Opts *o) {
 
 // The options each subcommand takes. check_opts judges against it, the
 // per-subcommand help is cut from the full help with it, and the shell
-// completions carry the same table (check-completions.bash diffs the two).
+// completions have the same table (check-completions.bash diffs the two).
 static const char *const *allowed_opts(const char *cmd) {
 	static const char *get_ok[] = { "--<type>", "--array", "--slots", "--unit", "--decimal", "--default", "--on-bad", "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove", NULL };
 	static const char *set_ok[] = { "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove", "--write", "--lossy", "--no-banner", NULL };
@@ -2277,7 +2277,7 @@ static int check_opts(const char *cmd, const Opts *o) {
 	if (!strcmp(cmd, "set")) {
 		for (int i = 0; i < o->nlayers; i++) {
 			if (!strcmp(o->layers[i], "-")) {
-				fprintf(stderr, "--layer=- is not valid for set: stdin carries the ops script or the document (see --help)\n");
+				fprintf(stderr, "--layer=- is not valid for set: stdin already has the ops script or the document (see --help)\n");
 				return 1;
 			}
 		}
@@ -2489,7 +2489,7 @@ static int help_options(const char *cmd, int print) {
 // takes one, and the option entries allowed_opts lets it have. Cut from the
 // full help rather than written out a second time, so the two cannot drift and
 // the four bindings stay byte-identical for free. An entry keeps the "(get)"
-// style annotation it carries there, which still reads true. The other three
+// style annotation it has there, which still reads true. The other three
 // build the text and print it once; C prints as it goes, having no builder.
 static void print_help_for(const char *cmd) {
 	char want[64], lead[64];
@@ -2580,7 +2580,7 @@ static int do_explain(const Opts *o) {
 		code[i] = c >= 'a' && c <= 'z' ? (char)(c - 32) : c;
 	}
 	code[cl] = '\0';
-	// Found first, then printed: a code the table does not carry prints nothing
+	// Found first, then printed: a code the table does not have prints nothing
 	// at all.
 	const char *head = NULL;
 	for (const char *p = CODES; *p;) {

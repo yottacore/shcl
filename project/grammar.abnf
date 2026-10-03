@@ -106,7 +106,7 @@ sqchar          = %x00-26 / %x28-10FFFF       ; anything but "'": single quotes 
 bareword        = bare-first [ *bare-char bare-last ]
                 ; what the PARSER takes. Everything after the ":" up to an
                 ; unquoted "#" is the value, split on unquoted commas, each
-                ; piece trimmed at both edges. So a bare piece carries mid-text
+                ; piece trimmed at both edges. So a bare piece keeps mid-text
                 ; spaces, ":", "'", "]", "[", "\", even '"', verbatim:
                 ; "q: needs no quotes", "p: C:\dir\file", "t: 12:30" and
                 ; "a: x[y]" all load clean. Only four things keep a meaning
@@ -168,7 +168,7 @@ escape          = "\" ( %s"t" / %s"n" / "\" / DQUOTE / "'"
 ; Block arrays (stacked list form)
 ;-----------------------------------------------------------------------------
 ; Sugar for the inline comma array (above): an empty-valued field whose child
-; lines are all "* element" is identical to that field carrying the inline
+; lines are all "* element" is identical to that field with the inline
 ; array of the same elements. Context-sensitive (indentation), enforced in
 ; prose (spec.md, "Arrays"):
 ;   - opens only under a field-line whose inline value is EMPTY;
@@ -190,7 +190,7 @@ array-elem-line = indent "*" 1*blank scalar *blank [ comment ]
 fence-line      = indent fence-open *blank [ comment ]
                 ; a value line for the parent field (spec.md): fills the parent's
                 ; empty value, or creates a new instance of the parent if it
-                ; already carries one - same rule as a repeated leaf.
+                ; already has one - same rule as a repeated leaf.
 fence-open      = fence-run [ info-string ]
 fence-run       = 3*"`" / 3*"~"                 ; run length N captured for close-match
 info-string     = *blank 1*info-char *( *blank 1*info-char )

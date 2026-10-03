@@ -270,7 +270,7 @@ Quoted text inside an array is just a string, so `["[a]", "b"]` is two strings.
 
 - It isn't on a keyboard, and that is the point.
 	- Programs write it.
-	- People copy it from a comment or the docs. The info block `init` writes should carry one.
+	- People copy it from a comment or the docs. The info block `init` writes should include one.
 
 - Lookalikes such as `⦿`, `◎` and `⊙` are plain text. Typing one by hand is unlikely, since the realistic ways in are a program or a paste, so the risk is accepted. A lone real `◉` is an error, since the count in a piece is then odd.
 
@@ -484,7 +484,7 @@ Moved from `design.md`, with the escape spelling changed to `◉U+XXXX◉`.
 
 - Three kinds stay as written where ordinary text needs them.
 	- The zero-width joiner and non-joiner always stay, since emoji and several scripts need them. A run of them can still hide bits. Escaping them would break emoji sequences and those scripts.
-	- A variation selector stays after a visible character, since emoji (`❤️`), ideograph variants and Mongolian need one there. Anywhere else it is escaped, so a run of selectors cannot carry hidden bytes.
+	- A variation selector stays after a visible character, since emoji (`❤️`), ideograph variants and Mongolian need one there. Anywhere else it is escaped, so a run of selectors cannot include hidden bytes.
 	- A tag stays only inside a subdivision flag as UTS #51 encodes one: U+1F3F4, three to seven tag digits or lowercase tag letters, and the cancel tag U+E007F. That covers the flags of England, Scotland and Wales, and nothing long enough to hide a sentence.
 
 - Judging selectors and tags by what sits next to them was chosen over escaping all of them, which turns emoji and flags into escapes, and over keeping all of them, which leaves open the hiding this list is for.

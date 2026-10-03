@@ -8,7 +8,7 @@
 ##		leave is compared with the block that says what the save does.
 ##
 ##		These are the first thing a consumer copies, and nothing else in the
-##		pipeline builds them. The C one also carries a build order that is easy
+##		pipeline builds them. The C one also has a build order that is easy
 ##		to "tidy" wrong: shcl.h asks for a POSIX level, a feature request only
 ##		counts before the first system header, and putting <stdio.h> above the
 ##		header turns the file tier into a wall of implicit declarations. The Go
@@ -114,7 +114,7 @@ awk 'BEGIN { pre = 1 }
      { print }
      END { print "}" }' "${tmpDir}/cppex/block2.cpp" > "${tmpDir}/cppex/main.cpp"
 grep -q '^int main' "${tmpDir}/cppex/main.cpp" \
-	|| { echo "check-readme: the cpp example no longer carries the line the main() split is taken at" >&2; exit 1 ;}
+	|| { echo "check-readme: the cpp example no longer has the line the main() split is taken at" >&2; exit 1 ;}
 if ! ( cd "${tmpDir}/cppex" && c++ -std=c++17 -O2 -Wall -Wextra -Werror main.cpp impl.cpp -o ex -lm ) 2> "${tmpDir}/cpp.err"; then
 	echo "check-readme: the README's C++ example does not build:" >&2
 	head -n 20 "${tmpDir}/cpp.err" >&2
@@ -222,7 +222,7 @@ if command -v zig >/dev/null 2>&1; then
 	     { print }
 	     END { print "}" }' "${tmpDir}/block.zig" > "${tmpDir}/zigex/main.zig"
 	grep -q '^pub fn main' "${tmpDir}/zigex/main.zig" \
-		|| { echo "check-readme: the zig example no longer carries the line the main() split is taken at" >&2; exit 1 ;}
+		|| { echo "check-readme: the zig example no longer has the line the main() split is taken at" >&2; exit 1 ;}
 	if ! ( cd "${tmpDir}/zigex" && zig build-exe main.zig impl.c -lc -lm -I. ) > "${tmpDir}/zig.err" 2>&1; then
 		echo "check-readme: the README's Zig example does not build:" >&2
 		head -n 20 "${tmpDir}/zig.err" >&2
@@ -242,7 +242,7 @@ fi
 ##	shows it. They drifted twice, each time a new line of output reached no
 ##	transcript. Two files the README describes rather than shows are made here:
 ##	server.shcl with the colon knocked off line 3, for the block that starts
-##	with `shcl check server.shcl`, and an app.shcl whose line 2 carries the
+##	with `shcl check server.shcl`, and an app.shcl whose line 2 has the
 ##	misspelled key its schema block reports.
 fTest EqGg9jM console-transcripts
 cli="${SHCL_CLI:-${repoDir}/source/rust/target/debug/shcl}"

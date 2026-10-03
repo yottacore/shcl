@@ -356,7 +356,7 @@ fn edit_value_scalars(v: &toml_edit::Value) -> u64 {
 /// roxmltree borrows the source instead of copying it, which is most of why it
 /// is fast and is a fair thing to show. It has no writer, by design, so the emit
 /// column is empty rather than filled with harness code the other rows do not
-/// carry.
+/// have.
 fn run_roxmltree(src: &str, iters: usize, count: bool, base: u64) -> Measured {
 	if let Err(e) = roxmltree::Document::parse(src) {
 		return failed(e.to_string());

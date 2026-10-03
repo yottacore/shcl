@@ -241,7 +241,7 @@ Beyond the list at the top:
 
 - Three strictness levels, from most forgiving to fail-on-anything. At Loose, `"$1,200"` reads as 1200 and `15%` as 0.15. Standard and Strict refuse both.
 
-- Every diagnostic carries a stable code (`E014`, `V001`), so tooling can match on the code while the prose stays free to improve.
+- Every diagnostic has a stable code (`E014`, `V001`), so tooling can match on the code while the prose stays free to improve.
 
 - Schema validation, layered loading (defaults, site, user), and commented starter-config generation, all as library features.
 
@@ -318,7 +318,7 @@ The latest release, `v2.0.0`, has packages, prebuilt CLI binaries, and a checksu
 
 Each binding is published where its own ecosystem looks for it, all under the name `shcl`: [crates.io](https://crates.io/crates/shcl) for Rust, [PyPI](https://pypi.org/project/shcl/) for Python, and the [Go module](https://pkg.go.dev/github.com/yottacore/shcl/source/go/v2) for Go.
 
-Only the crate carries the CLI as well as the library, which is the easiest way to get the binary on a platform with no prebuilt one - macOS and the BSDs included.
+Only the crate includes the CLI as well as the library, which is the easiest way to get the binary on a platform with no prebuilt one - macOS and the BSDs included.
 
 #### Cargo
 
@@ -376,7 +376,7 @@ Downloads a release, checks its signature, and installs the binary plus the drop
 
 The default is the newest full release. Until 3.0.0 is out that is still 2.0.0, which reads files by the 2.x rules. For the 3.0 beta this page describes, add `--release dev` (`-Release dev` on Windows).
 
-Each release includes a `shcl-<version>-sha256sums.txt` and a detached `.sig` over it, covering every asset - the binary, the packages, and the drop-in payload alike. Both installers carry the release public key and verify that signature *before* reading any checksum out of the file, so replacing a release asset is not enough to get past them. Nothing unverified is installed: a release with no signed drop-in payload gets the binary and a note saying what was skipped. On Linux this needs `openssl`, alongside `curl` or `wget`; there is no install-anyway fallback, so use the [DIY install](#diy-install) route on a machine that lacks it.
+Each release includes a `shcl-<version>-sha256sums.txt` and a detached `.sig` over it, covering every asset - the binary, the packages, and the drop-in payload alike. Both installers include the release public key and verify that signature *before* reading any checksum out of the file, so replacing a release asset is not enough to get past them. Nothing unverified is installed: a release with no signed drop-in payload gets the binary and a note saying what was skipped. On Linux this needs `openssl`, alongside `curl` or `wget`; there is no install-anyway fallback, so use the [DIY install](#diy-install) route on a machine that lacks it.
 
 The Linux installer also lays down the man page and the shell completions. It symlinks the man page into the target's own `man1` directory, so `man shcl` works once the install directory is on your `PATH` - man derives its search path from the `bin` directories there. Completions are left under `<install dir>/completions/` for you to enable, and the installer prints the line to paste for each shell: there is no single directory that works everywhere, and writing into the distribution's own is the packages' job, not a tarball installer's.
 
@@ -402,7 +402,7 @@ irm https://raw.githubusercontent.com/yottacore/shcl/main/install.ps1 | iex
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/yottacore/shcl/main/install.ps1))) -Help
 ~~~
 
-The installer unpacks the drop-in payload with `tar`, which Windows 10 1803, Server 2019 and later carry. On an older Windows, use the setup `.exe` from the releases page instead.
+The installer unpacks the drop-in payload with `tar`, which Windows 10 1803, Server 2019 and later include. On an older Windows, use the setup `.exe` from the releases page instead.
 
 | Target           | Linux                                                    | Windows
 | :---             | :---                                                     | :---
@@ -500,7 +500,7 @@ line 3: Error: E014 malformed line skipped: unexpected character after the path,
 warn
 ~~~
 
-Every subcommand that loads the file says what the load dropped, once, on stderr - a read that came back fine is still a file with a line missing. Both streams carry the code; only stdout is the contract. The stdout line is `line N: Severity: CODE` and nothing else, so a script can match on `E014` without parsing English, while the stderr line adds the prose for a person reading along. `check` exits 6 when it found errors - enough to gate a build.
+Every subcommand that loads the file says what the load dropped, once, on stderr - a read that came back fine is still a file with a line missing. Both streams include the code; only stdout is the contract. The stdout line is `line N: Severity: CODE` and nothing else, so a script can match on `E014` without parsing English, while the stderr line adds the prose for a person reading along. `check` exits 6 when it found errors - enough to gate a build.
 
 Hand it a schema and it validates against that too. A schema is an ordinary `.shcl` file: one `field:` instance per path, constraints written as its children ([the spec](project/spec.md#schema-validation) has the full vocabulary).
 
@@ -573,7 +573,7 @@ An in-place write is the library's own save, with the same refusal (at its own e
 
 Two more verbs round out the CLI. `migrate` rewrites a file written for shcl 2.x under the 3.0 rules, touching only what the two read differently (a backslash outside double quotes, an unknown escape in double quotes, a quote that never closed, the old `name:[disc]` spelling) and leaving comments, blank lines and layout as they were; `--write` saves it through the same gate and keeps the original beside it, as `config_old_v2.shcl` for `config.shcl`, and `--check` names the lines it would change without touching anything. `tokens` prints each line as the parser reads it, span by span, for the times a line is refused and it is not obvious why. Each line is read on its own, so a raw body line comes out as if it were a field line.
 
-If you have files written for 2.x, run `migrate --from-2x` over them once and read what comes back. The flag is not optional politeness: a backslash value is written the same way under both rule sets and means two different things, so without being told which rules wrote the file, `migrate` leaves those values alone and exits 7 rather than guessing and damaging a file that was already correct. What it rewrites it stamps, so running it twice is safe. Most of what changed at 3.0 is loud, and a file carrying it says so the first time it loads. A raw block's label is the quiet exception: one holding a `#` ran to the end of the line in 2.x and ends at the `#` now, and `migrate` cannot rewrite that, since a label has no quoting.
+If you have files written for 2.x, run `migrate --from-2x` over them once and read what comes back. The flag is not optional politeness: a backslash value is written the same way under both rule sets and means two different things, so without being told which rules wrote the file, `migrate` leaves those values alone and exits 7 rather than guessing and damaging a file that was already correct. What it rewrites it stamps, so running it twice is safe. Most of what changed at 3.0 is loud, and a file that has it says so the first time it loads. A raw block's label is the quiet exception: one holding a `#` ran to the end of the line in 2.x and ends at the `#` now, and `migrate` cannot rewrite that, since a label has no quoting.
 
 `shcl help` covers the rest and `man shcl` says the same at more length; `shcl help get` narrows it to one subcommand, and `shcl explain E019` gives the rule behind a diagnostic code, with `shcl explain` alone listing every code. A typo in a command or an option says what was probably meant. `shcl --about` names the version, license and project home, and `shcl --donate` points at the sponsors page. Tab completion for bash and zsh is included. To drive it from a script with typed helpers instead, there are [Bash](#bash) and [PowerShell](#powershell) wrappers.
 
@@ -589,7 +589,7 @@ Every binding is one file with no dependencies. You can optionally just copy it 
 
 - Dependency line: `shcl = "2"`
 
-- Note: The Rust crate carries the library and the CLI together. See [Language packages](#language-packages) if the binary is what you are after.
+- Note: The Rust crate includes the library and the CLI together. See [Language packages](#language-packages) if the binary is what you are after.
 
 ~~~rust
 use shcl::{Document, FileStatus, Status};
@@ -639,7 +639,7 @@ doc.save_file("server.shcl")?;
 
 - Dependency line: `require github.com/yottacore/shcl/source/go/v2 v2.0.0`
 
-- Notes: this repo keeps the Go module in a subdirectory, so the import path ends in `/source/go` and the module's own tags carry a matching `source/go/` prefix. From 2.0 the major goes in the path too, as Go requires, so the import ends `/source/go/v2` and `go get -u` tracks `2.x` without ever crossing to a 3.x. A 1.x consumer keeps working on the old path until it edits the import.
+- Notes: this repo keeps the Go module in a subdirectory, so the import path ends in `/source/go` and the module's own tags have a matching `source/go/` prefix. From 2.0 the major goes in the path too, as Go requires, so the import ends `/source/go/v2` and `go get -u` tracks `2.x` without ever crossing to a 3.x. A 1.x consumer keeps working on the old path until it edits the import.
 
 ~~~go
 import shcl "github.com/yottacore/shcl/source/go/v2"
@@ -720,13 +720,13 @@ doc.save_file("server.shcl")
 
 ### Zig
 
-Zig needs no binding of its own - it consumes the C header directly. `@cImport` takes the declarations, one C file carries the implementation, and thin wrappers let Zig slices supply the pointer-and-length pairs the C API wants:
+Zig needs no binding of its own - it consumes the C header directly. `@cImport` takes the declarations, one C file has the implementation, and thin wrappers let Zig slices supply the pointer-and-length pairs the C API wants:
 
 ~~~zig
 const std = @import("std");
 const c = @cImport(@cInclude("shcl.h"));
 
-// The C API takes (pointer, length) paths; a Zig slice already carries both.
+// The C API takes (pointer, length) paths; a Zig slice already has both.
 fn getInt(doc: ?*c.shcl_doc, path: []const u8, def: i64) i64 {
 	return c.shcl_get_int(doc, path.ptr, path.len, def);
 }

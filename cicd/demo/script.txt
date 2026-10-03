@@ -15,7 +15,7 @@ shcl get --int app.shcl 'servers[web1].port'
 
 # Bad lines: skipped, not fatal
 shcl check app.shcl
-	@ exits 6 - the demo file carries a deliberate bad line
+	@ exits 6 - the demo file has a deliberate bad line
 	@ pause 1.6 seconds
 
 # Canonical fmt; nothing lost
