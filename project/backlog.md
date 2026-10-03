@@ -134,102 +134,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Superseded by ID:
 	- Closed:
 
-- A bad escape on a line that opens a block drops the whole block
-	- ID: 2026100115403384
-	- Type: Bug
-	- Status: Done
-	- Needs local test suite run?: full `--ci` at the next main push. Exhaustive cppcheck did not finish here in 10 minutes; normal-level cppcheck reported no warnings, and gcc 14 and 15 and clang build it with `-Werror`.
-	- Severity: Avg
-	- Opened: 20261001-154033
-	- Opened by: silkterm feedback
-	- Version and build: dev at `b10c2009`
-	- Steps to reproduce:
-		- `Parse("wallpaper: \"C:\\Users\\x.png\"\n\trotate:\n\t\tenabled: false\n\topacity: 0.2\n")`
-	- Incorrect behavior: line 1 is `E023` and every line under it is `E018`, so `lost_count()` is 3 and `wallpaper.rotate.enabled` and `wallpaper.opacity` read NotFound. At `f2a8ad2` all of them read.
-	- Expected behavior: the bad value sets nothing, and the block under it still loads, since its lines are fine.
-	- Reproduced: Yes, 20261001, Rust at `b10c2009`.
-	- Possible cause: the rule that skips a line indented under a skipped line also covers a line skipped only for its value.
-	- Note: a silent wrong answer. One typo in a path takes out a whole section, and a save refuses where the lines cannot be kept. A Windows path in double quotes with single backslashes is the likely way in.
-	- Actual cause: every retained line pushed a dead level, so a line refused only for its value (`E019`, `E023` in a value) dropped its block the way a malformed path does. `E017` never refuses a line, so it was not affected.
-	- Decisions:
-		- 20261001: such a line holds its level open. The first line under it that binds opens the path as `name:` would, so the key exists only when something under it loads. A path with an index or wildcard selector, or past the nesting cap, still holds a dead level, since it could fail to place.
-		- 20261001: canonical output writes the kept line in place of the bare `name:` line when it is the field's last leading line and names just that field, so `fmt` gives the file back as written. Otherwise the kept line is followed by `name:`.
-		- 20261001: a line with a bad escape in its name or selector still takes its block with it, since its path cannot be read.
-		- 20261001: where a later bad line reopens a block, `fmt` drops the earlier bare `name:` line and the keep-lines save falls back to canonical. Both reload to the same document, so it is left as is.
-		- Corpus 106, 126 and 178 and cli-regress rows `sugar-check`, `sugar-write-refused`, `fmt-check-refused`, `write-existing-quiet` and `set-write-keeps-dropped-between` pinned the old dropped block. 126, 178 and the last row now use a parent skipped for its path; the others are commented out with new rows beside them.
-	- Actual fix: a LAZY stack level in all four parsers (`hold_open`, `open_lazy`), the same model in the emitter's reload stack, and `heads_block` in the canonical emit. Spec, design outcome table, explain text for `E019` and `E023` in all four CLIs, changelog.
-	- Swept: the field arm, the stacked element arm and the raw fence arm in all four bindings. A retained `*` element line still holds a dead level, since nothing under an element binds.
-	- Verified: the four conformance suites, cli-regress (339 rows), crosscheck with a 2000-iteration fuzz dump (28764 comparisons), check-docs, check-abnf, shell-regress, check-migrate, clippy (host and windows), rustfmt, go vet, staticcheck, ruff, mypy, test-ids, and the 2,000,000 release fuzz with the new corpus case. Corpus 187 and cli-regress `ErUmRRa` to `ErUmRRc` fail on dev at `5956ff4a`.
-	- Note: 20261002, still needed under 2026100207032800, where a bare value with a space becomes a value-only refusal too. Its sibling bug is 2026100213205957. Design: `project/design_docs/value-syntax.md`.
-	- Branch: escblock
-	- Commit: c29f08fa
-	- Test case: corpus `187-value-fault-opens-block`; cli-regress `sugar-check-block`, `sugar-block-read`, `sugar-write-kept`, `path-escape-block`.
-
-- A kept line under a kept value-only line is saved at column 0
-	- ID: 2026100213205957
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Avg
-	- Opened: 20261002-132059
-	- Opened by: found while discussing 2026100115403384
-	- Related IDs: 2026100115403384, 2026100207032800
-	- Version and build: dev at `d2fbdacd`
-	- Steps to reproduce:
-		- `printf 'a: [1]\n\tb: [2]\n' | shcl fmt -`
-	- Incorrect behavior: both lines are `E019`, and `fmt` writes `a: [1]` and then `b: [2]` at column 0, at exit 0. Once the brackets are fixed, `b` reads at the root, not as `a.b`.
-	- Expected behavior: `b: [2]` is written back under `a: [1]`, where it was.
-	- Reproduced: Yes, 20261002, Rust at `d2fbdacd`. Two nested lines with a bad escape do the same.
-	- Possible cause: the lazy level opens only on a line that binds. When nothing under it binds, the writer has no node to put the kept child under.
-	- Note: a silent wrong answer once the values are fixed. Under 2026100207032800 it gets more common, since a bare value with a space is refused the same way. Close the class with a fuzz property: a kept line reloads at the same path, under the same parent lines, after a canonical and a line-keeping save, in all four bindings. Design: `project/design_docs/value-syntax.md`.
-	- Actual cause: a kept line always took the level of the place it was filed at, and four places filed it away from its parent. Under another kept line nothing opened, so it went to that place's level. Before a dotted line it went to the last name's node, one level too deep. Behind a comment at column 0 that stayed, it went to the next line's level instead of its own block. Before a child fence it went ahead of the field the fence binds again. A kept line among stacked elements also lost its nesting.
-	- Decisions:
-		- 20261002: a field line kept for its value or name nests one level under the kept line before it that it is written under, by the same chain rule comments use, kept apart from the comment chain. Comments keep their old depths.
-		- 20261002: kept lines before a dotted line, with the comments above them, go to the node of its first name. Comments after the last kept line stay with the last name, as before.
-		- 20261002: a kept field line hangs on the block it sits in even when a comment before it stays for the next line, and the comments right above it go along. So a comment at column 0 inside a block is written at the block's level by `fmt`, and the save that keeps lines keeps both lines as written.
-		- 20261002: kept lines before a child fence stay inside the field's block. A misplaced line never hangs on a block, so it waits for the next line.
-		- 20261002: a merge never drops a layer's kept line that has kept lines under it, or one under another, as a repeat of the footer. The group goes in whole.
-	- Actual fix: all four bindings. A second chain in `comment_depth` for kept lines, `give_pending` and `head_of` beside `open_lazy`, the two hang rules in `hang_deeper_pending`, `keep_among` nesting, the fence arm, and the merge footer. design.md's line on kept-line levels names the exception.
-	- Swept: every `comment_depth` caller in all four (attach, hang, open_lazy, the end of the parse, keep_among), the field, fence and element arms, and the merge footer dedup. The settle, clear_comments, drop_banners and the fold move whole lead lists or only comments, so they need nothing.
-	- Verified: the four conformance suites, cli-regress (342 rows), crosscheck over the corpus and a 2000-iteration dump that now includes the new property's soup (39564 comparisons), check-docs, check-abnf, shell-regress, test-ids, shellcheck, clippy, go vet, staticcheck, ruff, mypy, gcc 14 and 15 and clang at `-Werror`, and the 2,000,000 release fuzz with the new corpus case. Corpus 188 fails on dev at `dfdd3385` in all four, and so does the fuzz property. The commands behind cli-regress `Era9kPy`, `Era9kPz` and `EraAIXa` give the old output on dev's Rust CLI; the script itself was not run against dev.
-	- Note: cli-regress `Er7gihi` expected exit 7, since the save could not keep its lines once the kept line sat under the dotted line. It now keeps them, the dropped line included, at exit 0. It is commented out with the reason; `EraAIXa` pins the new result and `EraAIXb` keeps the refusal on a save that falls back.
-	- Note: 20261002, comments between nested kept lines should nest too. Filed as 2026100218185700.
-	- Note: 20261002, design.md's wording on kept-line levels is OK.
-	- Note: the property lives in the Rust fuzz. The other three are held to it through the crosscheck, which now replays its inputs too.
-	- Needs local test suite run?: full `--ci` at the next main push.
-	- Branch: keptnest
-	- Test case: fuzz `ErZx5Et` (`kept_lines_keep_their_path`); corpus `188-kept-line-keeps-parent`; cli-regress `kept-under-kept-fmt`, `kept-before-dotted-fmt`, `set-write-keeps-dropped-gap`, `set-write-gap-fallback-refused`.
-
-- `"C:\temp"` loads with a tab and only a hint says so
-	- ID: 2026100115323227
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Needs local test suite run?: full `--ci` at the next main push, as for 2026100115403384.
-	- Priority: Low
-	- Opened: 20261001-153232
-	- Opened by: gitsby feedback
-	- Related IDs: 2026092616330237, 2026092617133293
-	- Version and build: dev at `b10c2009`
-	- Requirements:
-		- `p: "C:\temp"` reads as `C:`, a tab, `emp`, status Good, with `H004` at severity Hint.
-		- design.md keeps it a hint on purpose, since nothing about the text is wrong. Filed to look at that again from a consumer's side: the reason `"C:\work\new"` became `E023` was that "a hint reaches only a caller that reads diagnostics". A caller that lists only errors, as gitsby does, says nothing about `"C:\temp"`, and on Windows the path just never matches.
-		- Options: make `H004` an error where the value looks like a path, or leave it and say in the spec that a consumer reading paths should show hints.
-	- Decisions:
-		- 20261001: an error, not a hint and not a note in the spec.
-		- 20261001, reversible: the `H004` condition became `E024`, retained exactly like `E023`: binds nothing, a read is NotFound, nothing counted lost, a save keeps it, and `SetLiteral` text holding it is refused. The lines under it load, per 2026100115403384. Names, selectors and paths with no drive or share stay out, as in 2026092617133293.
-		- 20261001, reversible: `H004` is retired and not reused. The design table lists it as retired; the spec and explain lists drop it.
-		- 20261001, reversible: the writer writes a tab or line break in such a value as `\u0009` or `\u000A`, so a setter or `fmt` never writes text that reloads as `E024`.
-		- 20261001, reversible: `migrate` writes a 2.x tab in such a value as a literal tab, which 2.x and 3.0 read alike. A 2.x line break there has no spelling both read alike, and a `\u` escape would change on a second `--from-2x` run, so the value is written the way 2.x read it, which is `E024`, and counted lost like bracket text (exit 7, `--lossy` overrides). check-migrate takes those lines out of its comparison, as it does the other two known edges, and asserts corpus 170 still has one.
-	- Progress log:
-		- 20261001: exit 7 on a 2.x line break in such a path follows the standing rule for hard 2.x edges: refuse rather than build machinery, and never damage a correct file at exit 0.
-		- 20261001: `"C:\work\new"` in a 2.x file used to migrate to `"C:\\work\new"` with a newline in it. It now migrates to that same text and exit 7, since that text is `E024`.
-	- Swept: the field and stacked element arms, `SetLiteral`, the double-quoted writer, migrate's value and sugar edits, and its read-back check, in all four bindings. Explain, migrate's lost message and the `lost` field docs in all four.
-	- Verified: same gate list as 2026100115403384, all run on this branch. cli-regress `ErUmRRd`, `ErUmRRe`, `ErUmRRg` to `ErUmRRi` and `ErUn2Bt` fail on dev at `5956ff4a`, and so do corpus 118, 122, 170 and 171.
-	- Note: 20261002, superseded by 2026100207032800. A backslash is plain text under the new rules, so `E024` goes, along with the `\u0009` and `\u000A` spellings. This work stays in the build until that item is built. Design: `project/design_docs/value-syntax.md`.
-	- Superseded by ID: 2026100207032800
-	- Branch: escblock
-	- Commit: c29f08fa
-	- Test case: corpus `171-windows-path-escape` (was `171-windows-path-hint`) with new `write.ops` rows and a `write-bad.ops`; cli-regress `path-escape-read`, `path-escape-strict`, `path-escape-set`, `path-escape-literal`, `path-escape-migrate-lost`, `migrate-from-2x-tab`; check-migrate `ErUuq8D`. The old `path-hint-*` rows are commented out.
-
 - Windows paths are written three different ways
 	- ID: 2026100115323216
 	- Type: Enhancement
@@ -968,6 +872,73 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Test case: corpus `170-unknown-escape`, cli-regress `escape-unknown-*` and `escape-doubled-path` rows, check-abnf `field-line` samples. Each fails on the old code.
 	- Acceptance signoff: 20260926
 	- Closed: 20260926-171332
+
+- A bad escape on a line that opens a block drops the whole block
+	- ID: 2026100115403384
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: full `--ci` at the next main push. Exhaustive cppcheck did not finish here in 10 minutes; normal-level cppcheck reported no warnings, and gcc 14 and 15 and clang build it with `-Werror`.
+	- Severity: Avg
+	- Opened: 20261001-154033
+	- Opened by: silkterm feedback
+	- Version and build: dev at `b10c2009`
+	- Steps to reproduce:
+		- `Parse("wallpaper: \"C:\\Users\\x.png\"\n\trotate:\n\t\tenabled: false\n\topacity: 0.2\n")`
+	- Incorrect behavior: line 1 is `E023` and every line under it is `E018`, so `lost_count()` is 3 and `wallpaper.rotate.enabled` and `wallpaper.opacity` read NotFound. At `f2a8ad2` all of them read.
+	- Expected behavior: the bad value sets nothing, and the block under it still loads, since its lines are fine.
+	- Reproduced: Yes, 20261001, Rust at `b10c2009`.
+	- Possible cause: the rule that skips a line indented under a skipped line also covers a line skipped only for its value.
+	- Note: a silent wrong answer. One typo in a path takes out a whole section, and a save refuses where the lines cannot be kept. A Windows path in double quotes with single backslashes is the likely way in.
+	- Actual cause: every retained line pushed a dead level, so a line refused only for its value (`E019`, `E023` in a value) dropped its block the way a malformed path does. `E017` never refuses a line, so it was not affected.
+	- Decisions:
+		- 20261001: such a line holds its level open. The first line under it that binds opens the path as `name:` would, so the key exists only when something under it loads. A path with an index or wildcard selector, or past the nesting cap, still holds a dead level, since it could fail to place.
+		- 20261001: canonical output writes the kept line in place of the bare `name:` line when it is the field's last leading line and names just that field, so `fmt` gives the file back as written. Otherwise the kept line is followed by `name:`.
+		- 20261001: a line with a bad escape in its name or selector still takes its block with it, since its path cannot be read.
+		- 20261001: where a later bad line reopens a block, `fmt` drops the earlier bare `name:` line and the keep-lines save falls back to canonical. Both reload to the same document, so it is left as is.
+		- Corpus 106, 126 and 178 and cli-regress rows `sugar-check`, `sugar-write-refused`, `fmt-check-refused`, `write-existing-quiet` and `set-write-keeps-dropped-between` pinned the old dropped block. 126, 178 and the last row now use a parent skipped for its path; the others are commented out with new rows beside them.
+	- Actual fix: a LAZY stack level in all four parsers (`hold_open`, `open_lazy`), the same model in the emitter's reload stack, and `heads_block` in the canonical emit. Spec, design outcome table, explain text for `E019` and `E023` in all four CLIs, changelog.
+	- Swept: the field arm, the stacked element arm and the raw fence arm in all four bindings. A retained `*` element line still holds a dead level, since nothing under an element binds.
+	- Verified: the four conformance suites, cli-regress (339 rows), crosscheck with a 2000-iteration fuzz dump (28764 comparisons), check-docs, check-abnf, shell-regress, check-migrate, clippy (host and windows), rustfmt, go vet, staticcheck, ruff, mypy, test-ids, and the 2,000,000 release fuzz with the new corpus case. Corpus 187 and cli-regress `ErUmRRa` to `ErUmRRc` fail on dev at `5956ff4a`.
+	- Note: 20261002, still needed under 2026100207032800, where a bare value with a space becomes a value-only refusal too. Its sibling bug is 2026100213205957. Design: `project/design_docs/value-syntax.md`.
+	- Branch: escblock
+	- Commit: c29f08fa
+	- Test case: corpus `187-value-fault-opens-block`; cli-regress `sugar-check-block`, `sugar-block-read`, `sugar-write-kept`, `path-escape-block`.
+
+- A kept line under a kept value-only line is saved at column 0
+	- ID: 2026100213205957
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261002-132059
+	- Opened by: found while discussing 2026100115403384
+	- Related IDs: 2026100115403384, 2026100207032800
+	- Version and build: dev at `d2fbdacd`
+	- Steps to reproduce:
+		- `printf 'a: [1]\n\tb: [2]\n' | shcl fmt -`
+	- Incorrect behavior: both lines are `E019`, and `fmt` writes `a: [1]` and then `b: [2]` at column 0, at exit 0. Once the brackets are fixed, `b` reads at the root, not as `a.b`.
+	- Expected behavior: `b: [2]` is written back under `a: [1]`, where it was.
+	- Reproduced: Yes, 20261002, Rust at `d2fbdacd`. Two nested lines with a bad escape do the same.
+	- Possible cause: the lazy level opens only on a line that binds. When nothing under it binds, the writer has no node to put the kept child under.
+	- Note: a silent wrong answer once the values are fixed. Under 2026100207032800 it gets more common, since a bare value with a space is refused the same way. Close the class with a fuzz property: a kept line reloads at the same path, under the same parent lines, after a canonical and a line-keeping save, in all four bindings. Design: `project/design_docs/value-syntax.md`.
+	- Actual cause: a kept line always took the level of the place it was filed at, and four places filed it away from its parent. Under another kept line nothing opened, so it went to that place's level. Before a dotted line it went to the last name's node, one level too deep. Behind a comment at column 0 that stayed, it went to the next line's level instead of its own block. Before a child fence it went ahead of the field the fence binds again. A kept line among stacked elements also lost its nesting.
+	- Decisions:
+		- 20261002: a field line kept for its value or name nests one level under the kept line before it that it is written under, by the same chain rule comments use, kept apart from the comment chain. Comments keep their old depths.
+		- 20261002: kept lines before a dotted line, with the comments above them, go to the node of its first name. Comments after the last kept line stay with the last name, as before.
+		- 20261002: a kept field line hangs on the block it sits in even when a comment before it stays for the next line, and the comments right above it go along. So a comment at column 0 inside a block is written at the block's level by `fmt`, and the save that keeps lines keeps both lines as written.
+		- 20261002: kept lines before a child fence stay inside the field's block. A misplaced line never hangs on a block, so it waits for the next line.
+		- 20261002: a merge never drops a layer's kept line that has kept lines under it, or one under another, as a repeat of the footer. The group goes in whole.
+	- Actual fix: all four bindings. A second chain in `comment_depth` for kept lines, `give_pending` and `head_of` beside `open_lazy`, the two hang rules in `hang_deeper_pending`, `keep_among` nesting, the fence arm, and the merge footer. design.md's line on kept-line levels names the exception.
+	- Swept: every `comment_depth` caller in all four (attach, hang, open_lazy, the end of the parse, keep_among), the field, fence and element arms, and the merge footer dedup. The settle, clear_comments, drop_banners and the fold move whole lead lists or only comments, so they need nothing.
+	- Verified: the four conformance suites, cli-regress (342 rows), crosscheck over the corpus and a 2000-iteration dump that now includes the new property's soup (39564 comparisons), check-docs, check-abnf, shell-regress, test-ids, shellcheck, clippy, go vet, staticcheck, ruff, mypy, gcc 14 and 15 and clang at `-Werror`, and the 2,000,000 release fuzz with the new corpus case. Corpus 188 fails on dev at `dfdd3385` in all four, and so does the fuzz property. The commands behind cli-regress `Era9kPy`, `Era9kPz` and `EraAIXa` give the old output on dev's Rust CLI; the script itself was not run against dev.
+	- Note: cli-regress `Er7gihi` expected exit 7, since the save could not keep its lines once the kept line sat under the dotted line. It now keeps them, the dropped line included, at exit 0. It is commented out with the reason; `EraAIXa` pins the new result and `EraAIXb` keeps the refusal on a save that falls back.
+	- Note: 20261002, comments between nested kept lines should nest too. Filed as 2026100218185700.
+	- Note: 20261002, design.md's wording on kept-line levels is OK.
+	- Note: the property lives in the Rust fuzz. The other three are held to it through the crosscheck, which now replays its inputs too.
+	- Needs local test suite run?: full `--ci` at the next main push.
+	- Branch: keptnest
+	- Test case: fuzz `ErZx5Et` (`kept_lines_keep_their_path`); corpus `188-kept-line-keeps-parent`; cli-regress `kept-under-kept-fmt`, `kept-before-dotted-fmt`, `set-write-keeps-dropped-gap`, `set-write-gap-fallback-refused`.
+	- Acceptance signoff: 20261003, closed without a hand check: the fuzz property, corpus 188 and the cli-regress rows cover what a hand test would, and the open question on the item went to 2026100218185700.
+	- Closed: 20261003-113243
 
 - The C++ interface is a full binding of its own, with the C interface kept out of sight
 	- ID: 2026092617331100
@@ -2408,6 +2379,39 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Actual fix: a sentence in the spec's merge notes.
 	- Test case: none. The reload-parity fuzz and fixtures pin the behavior as it stands.
 	- Closed: 20260927-223316
+
+- `"C:\temp"` loads with a tab and only a hint says so
+	- ID: 2026100115323227
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: full `--ci` at the next main push, as for 2026100115403384.
+	- Priority: Low
+	- Opened: 20261001-153232
+	- Opened by: gitsby feedback
+	- Related IDs: 2026092616330237, 2026092617133293
+	- Version and build: dev at `b10c2009`
+	- Requirements:
+		- `p: "C:\temp"` reads as `C:`, a tab, `emp`, status Good, with `H004` at severity Hint.
+		- design.md keeps it a hint on purpose, since nothing about the text is wrong. Filed to look at that again from a consumer's side: the reason `"C:\work\new"` became `E023` was that "a hint reaches only a caller that reads diagnostics". A caller that lists only errors, as gitsby does, says nothing about `"C:\temp"`, and on Windows the path just never matches.
+		- Options: make `H004` an error where the value looks like a path, or leave it and say in the spec that a consumer reading paths should show hints.
+	- Decisions:
+		- 20261001: an error, not a hint and not a note in the spec.
+		- 20261001, reversible: the `H004` condition became `E024`, retained exactly like `E023`: binds nothing, a read is NotFound, nothing counted lost, a save keeps it, and `SetLiteral` text holding it is refused. The lines under it load, per 2026100115403384. Names, selectors and paths with no drive or share stay out, as in 2026092617133293.
+		- 20261001, reversible: `H004` is retired and not reused. The design table lists it as retired; the spec and explain lists drop it.
+		- 20261001, reversible: the writer writes a tab or line break in such a value as `\u0009` or `\u000A`, so a setter or `fmt` never writes text that reloads as `E024`.
+		- 20261001, reversible: `migrate` writes a 2.x tab in such a value as a literal tab, which 2.x and 3.0 read alike. A 2.x line break there has no spelling both read alike, and a `\u` escape would change on a second `--from-2x` run, so the value is written the way 2.x read it, which is `E024`, and counted lost like bracket text (exit 7, `--lossy` overrides). check-migrate takes those lines out of its comparison, as it does the other two known edges, and asserts corpus 170 still has one.
+	- Progress log:
+		- 20261001: exit 7 on a 2.x line break in such a path follows the standing rule for hard 2.x edges: refuse rather than build machinery, and never damage a correct file at exit 0.
+		- 20261001: `"C:\work\new"` in a 2.x file used to migrate to `"C:\\work\new"` with a newline in it. It now migrates to that same text and exit 7, since that text is `E024`.
+	- Swept: the field and stacked element arms, `SetLiteral`, the double-quoted writer, migrate's value and sugar edits, and its read-back check, in all four bindings. Explain, migrate's lost message and the `lost` field docs in all four.
+	- Verified: same gate list as 2026100115403384, all run on this branch. cli-regress `ErUmRRd`, `ErUmRRe`, `ErUmRRg` to `ErUmRRi` and `ErUn2Bt` fail on dev at `5956ff4a`, and so do corpus 118, 122, 170 and 171.
+	- Note: 20261002, superseded by 2026100207032800. A backslash is plain text under the new rules, so `E024` goes, along with the `\u0009` and `\u000A` spellings. This work stays in the build until that item is built. Design: `project/design_docs/value-syntax.md`.
+	- Superseded by ID: 2026100207032800
+	- Branch: escblock
+	- Commit: c29f08fa
+	- Test case: corpus `171-windows-path-escape` (was `171-windows-path-hint`) with new `write.ops` rows and a `write-bad.ops`; cli-regress `path-escape-read`, `path-escape-strict`, `path-escape-set`, `path-escape-literal`, `path-escape-migrate-lost`, `migrate-from-2x-tab`; check-migrate `ErUuq8D`. The old `path-hint-*` rows are commented out.
+	- Acceptance signoff: 20261003, closed without a hand check: every case is pinned in all four bindings, its sibling 2026100115403384 was signed off from the same branch, and 2026100207032800 replaces this behavior anyway.
+	- Closed: 20261003-113243
 
 ## Old format
 
