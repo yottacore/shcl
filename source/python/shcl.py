@@ -1667,6 +1667,16 @@ def _src_matches_display(v, s):
 	return s == v.display()
 
 
+def _child_fence(rest, tok):
+	"""The fence a line opens under the field above it, read as a value."""
+	tokenize_value(rest, 0, Rules.CURRENT, tok)
+	# A capped scan zeroed the value, and a fence is told by its leading run
+	# alone.
+	if tok.capped:
+		return _fence_open(rest)
+	return _fence_open(tok.src[tok.value[0]:tok.value[1]].decode("utf-8", "surrogatepass"))
+
+
 def _fence_open(rest):
 	"""Opening fence: a run of >=3 backticks or tildes, then an optional info-string."""
 	if not rest:
@@ -1770,40 +1780,38 @@ def _format_line_version(text):
 	fit 32 bits read as "newer than this", since whatever wrote them was not
 	2.x.
 
-	Raw bodies are skipped exactly where the rewrite skips them, by walking the
-	lines through the same _migrate_line. A Format line pasted into a block is
-	that block's content, and taking it as the file's would rewrite a current
-	file, or leave an old one alone. A file naming this format on any line has
-	nothing to migrate, so the highest line decides: the stamp migrate adds
-	comes after an older one, and the next run has to see it."""
-	tok = Tokens()
-	fence = None
-	# Only the blocks a line opens are wanted here, not what it counts.
-	dry = _Migrating(True)
+	A Format line pasted into a raw body is that block's content, and taking
+	it as the file's would rewrite a current file, or leave an old one alone.
+	Where the blocks are turns on the rules the file was written under, which
+	is what the line itself says: a line naming this format counts outside the
+	blocks the parser finds, and an older one outside the blocks the rewrite
+	skips. The two differ on a single-quoted name ending in a backslash. A file
+	naming this format on any line has nothing to migrate, so the highest line
+	decides: the stamp migrate adds comes after an older one, and the next run
+	has to see it."""
+	now = _RawLines(Rules.CURRENT)
+	then = _RawLines(Rules.V2)
 	found = None
 	for line in text.split("\n"):
-		body = line.rstrip("\r")
-		if fence is not None:
-			if _is_fence_close(body, fence[0], fence[1]):
-				fence = None
+		current = now.step(line)
+		old = then.step(line)
+		rest = current if current is not None else old
+		if rest is None or not rest.startswith(FORMAT_LINE_HEAD):
 			continue
-		rest = _trim_wsp_end(body[len(_leading_ws(body)):])
-		if rest.startswith(FORMAT_LINE_HEAD):
-			n = rest[len(FORMAT_LINE_HEAD):]
-			if n and all("0" <= c <= "9" for c in n):
-				# A number too long for int() - CPython refuses past 4300
-				# digits - is one no format will ever have. The reference's
-				# parse fails on it too and reads the line as this major, so
-				# the file needs nothing (20260918b item 30).
-				digits = n.lstrip("0") or "0"
-				if len(digits) > 10 or int(digits) > 0xFFFFFFFF:
-					return FORMAT_MAJOR
-				v = int(digits)
-				if v >= FORMAT_MAJOR:
-					return v
-				found = v if found is None else max(found, v)
-				continue
-		fence = _track_fence(rest, tok, fence, dry)
+		n = rest[len(FORMAT_LINE_HEAD):]
+		if not n or not all("0" <= c <= "9" for c in n):
+			continue
+		# A number too long for int() - CPython refuses past 4300 digits - is
+		# one no format will ever have. The reference's parse fails on it too
+		# and reads the line as this major, so the file needs nothing
+		# (20260918b item 30).
+		digits = n.lstrip("0") or "0"
+		v = FORMAT_MAJOR if len(digits) > 10 or int(digits) > 0xFFFFFFFF else int(digits)
+		if v >= FORMAT_MAJOR:
+			if current is not None:
+				return v
+		elif old is not None:
+			found = v if found is None else max(found, v)
 	return found
 
 
@@ -1816,32 +1824,63 @@ def schema_ref(text: str) -> str | None:
 	from the config file's directory."""
 	if text.startswith("\ufeff"):
 		text = text[1:]
-	tok = Tokens()
-	fence = None
-	dry = _Migrating(True)
+	# The Schema line is new in this format, so the blocks are the parser's.
+	lines = _RawLines(Rules.CURRENT)
 	for line in text.split("\n"):
-		body = line.rstrip("\r")
-		if fence is not None:
-			if _is_fence_close(body, fence[0], fence[1]):
-				fence = None
+		rest = lines.step(line)
+		if rest is None or not rest.startswith(SCHEMA_LINE_HEAD):
 			continue
-		rest = _trim_wsp_end(body[len(_leading_ws(body)):])
-		if rest.startswith(SCHEMA_LINE_HEAD):
-			r = _trim_wsp(rest[len(SCHEMA_LINE_HEAD):])
-			if r:
-				return r
-			continue
-		fence = _track_fence(rest, tok, fence, dry)
+		r = _trim_wsp(rest[len(SCHEMA_LINE_HEAD):])
+		if r:
+			return r
 	return None
 
 
-def _track_fence(rest: str, tok: Tokens, fence: tuple[str, int] | None, dry: _Migrating) -> tuple[str, int] | None:
-	"""Note the raw block a line opens, the way the rewrite does. Only a line
-	with a run of three backticks or tildes can open one, so the rest skip the
-	tokenizer."""
-	if "```" in rest or "~~~" in rest:
-		_, fence = _migrate_line(rest, tok, fence, dry)
-	return fence
+class _RawLines:
+	"""Walks a document's lines and tells raw-body content from the rest, the
+	way one rule set reads the file: the current rules find a block where the
+	parser does, and the 2.x rules where the rewrite does."""
+
+	def __init__(self, rules: Rules) -> None:
+		self.rules = rules
+		self.tok = Tokens()
+		self.fence: tuple[str, int] | None = None
+		# Only the blocks a line opens are wanted, not what the rewrite counts.
+		self.dry = _Migrating(True)
+
+	def step(self, line: str) -> str | None:
+		"""The next line's text past its indent, or None when it is part of a
+		raw block, fences included."""
+		body = line.rstrip("\r")
+		if self.fence is not None:
+			if _is_fence_close(body, self.fence[0], self.fence[1]):
+				self.fence = None
+			return None
+		rest = _trim_wsp_end(body[len(_leading_ws(body)):])
+		# Only a line with a run of three backticks or tildes can open a
+		# block, so the rest skip the tokenizer.
+		if "```" in rest or "~~~" in rest:
+			if self.rules == Rules.CURRENT:
+				self.fence = _opens_raw(rest, self.tok)
+			else:
+				_, self.fence = _migrate_line(rest, self.tok, self.fence, self.dry)
+		return rest
+
+
+def _opens_raw(rest: str, tok: Tokens) -> tuple[str, int] | None:
+	"""The raw block a line opens under the current rules: a fence line under a
+	field, or a field line whose value is a fence, read as the parser reads
+	them. A line refused for where it sits still takes its body. One refused
+	for its text may not yet, and then the file fails check anyway."""
+	rest = rest.lstrip(_WSP)
+	if rest[0] == "`" or rest[0] == "~":
+		fence = _child_fence(rest, tok)
+	elif rest[0] == "#" or rest[0] == "*":
+		fence = None
+	else:
+		tokenize(rest, ":", False, Rules.CURRENT, tok)
+		fence = _line_fence(tok)
+	return None if fence is None else (fence[0], fence[1])
 
 
 def migrate(text: str, from_v2: bool) -> Migration:
@@ -1898,32 +1937,40 @@ def _migrate_text(text, from_v2, stamp):
 	tok = Tokens()
 	fence = None
 	changed = False
+	# The output as the parser will read it, for where its raw blocks are.
+	now = _RawLines(Rules.CURRENT)
+	split = False
 	for i, line in enumerate(text.split("\n")):
 		if i > 0:
 			out.append("\n")
+		raw_then = fence is not None
 		body = line.rstrip("\r")
 		cr = line[len(body):]
 		if fence is not None:
 			if _is_fence_close(body, fence[0], fence[1]):
 				fence = None
-			out.append(line)
-			continue
-		indent = _leading_ws(body)
-		rest_full = body[len(indent):]
-		rest = _trim_wsp_end(rest_full)
-		migrated, fence = _migrate_line(rest, tok, fence, st)
-		if migrated != rest:
-			changed = True
-		out.append(indent)
-		out.append(migrated)
-		out.append(rest_full[len(rest):])
-		out.append(cr)
+			line_out = line
+		else:
+			indent = _leading_ws(body)
+			rest_full = body[len(indent):]
+			rest = _trim_wsp_end(rest_full)
+			migrated, fence = _migrate_line(rest, tok, fence, st)
+			if migrated != rest:
+				changed = True
+			line_out = indent + migrated + rest_full[len(rest):] + cr
+		out.append(line_out)
+		# Lines one rule set reads as a raw body and the other as fields are
+		# one more thing that reads two ways, counted once per run of them.
+		differs = (now.step(line_out) is None) != raw_then
+		if differs and not split and not st.from_v2:
+			st.ambiguous += 1
+		split = differs
 	# Stamping a file whose ambiguous pieces were left alone would claim a
 	# migration that did not finish, and the next run would then skip it. A
 	# document that never closes its raw block has nowhere to put the line
-	# either: appended, it would be another line of the block's content. The
-	# lines end the way most of the file's do.
-	if stamp and st.ambiguous == 0 and fence is None:
+	# either, under either rule set: appended, it would be another line of the
+	# block's content. The lines end the way most of the file's do.
+	if stamp and st.ambiguous == 0 and fence is None and now.fence is None:
 		eol = _majority_eol(text)
 		s = "".join(out)
 		if s and not s.endswith("\n"):
@@ -3303,10 +3350,7 @@ class _Parser:
 			# and its info string are the value; a comment may follow them.
 			fence = None
 			if rest[0] == "`" or rest[0] == "~":
-				tokenize_value(rest, 0, Rules.CURRENT, tok)
-				# A capped scan zeroed the value, and a fence is told by its
-				# leading run alone.
-				fence = _fence_open(rest if tok.capped else tok.src[tok.value[0]:tok.value[1]].decode("utf-8", "surrogatepass"))
+				fence = _child_fence(rest, tok)
 			if fence is not None:
 				comment = tok.src[tok.comment:].decode("utf-8", "surrogatepass") if tok.comment is not None else ""
 				parent = self._resolve_parent(indent, found)

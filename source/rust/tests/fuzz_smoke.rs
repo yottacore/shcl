@@ -10,8 +10,8 @@ mod common;
 
 use common::test_id;
 use shcl::{
-	Document, Piece, Quote, Rules, SegTok, Severity, Strictness, Tokens, migrate, tokenize,
-	tokenize_value,
+	Document, Piece, Quote, Rules, SegTok, Severity, Strictness, Tokens, format_version, migrate,
+	schema_ref, tokenize, tokenize_value,
 };
 
 /// Small deterministic PRNG (xorshift64*); no external crates, stable across runs.
@@ -826,6 +826,81 @@ fn raw_bodies_stay_content() {
 		skipped > iters / 60,
 		"the soup skipped only {} block openers",
 		skipped
+	);
+}
+
+/// A Schema or Format line counts exactly where the parser reads it as a
+/// comment, and not inside a raw body. The line walk that finds them used the
+/// 2.x tokenizer, where a backslash escapes in single quotes too, so after
+/// `'C:\': ~~~` it missed the block and took the line in its body as the
+/// file's. Judged on files that load without an error, since a line the
+/// parser refuses for its text may still read its body as lines.
+#[test]
+fn schema_and_format_lines_follow_the_parser() {
+	let _id = test_id("ErfuRfE");
+	const NAMES: &[&str] = &["a", "b", "'C:\\'", "'a\\'", "\"c\\\\\"", "'q\\'.r'"];
+	let iters = iter_count(1);
+	let mut rng = Rng(0x5EED_5C4E_3A00_0011);
+	let (mut inside, mut outside) = (0usize, 0usize);
+	for i in 0..iters {
+		let mut lines: Vec<String> = Vec::new();
+		for _ in 0..(1 + rng.below(6)) {
+			let name = NAMES[rng.below(NAMES.len())];
+			let block = match rng.below(4) {
+				0 => format!("{name}: {}", rng.below(9)),
+				1 => format!("# note {}", rng.below(3)),
+				_ => fence(&mut rng, "", name),
+			};
+			lines.extend(block.lines().map(str::to_string));
+		}
+		let at = rng.below(lines.len() + 1);
+		let indent = if rng.below(2) == 0 { "" } else { "\t" };
+		let mark = ["Schema   mark.shcl", "Format   3"][rng.below(2)];
+		lines.insert(at, format!("{indent}##    {mark}"));
+		let text = lines.join("\n") + "\n";
+		let doc = Document::parse(&text);
+		if doc
+			.diagnostics()
+			.iter()
+			.any(|d| d.severity == Severity::Error)
+		{
+			continue;
+		}
+		let in_body = doc
+			.paths()
+			.iter()
+			.flat_map(|p| doc.instances(p))
+			.any(|v| v.contains(mark));
+		if in_body {
+			inside += 1;
+		} else {
+			outside += 1;
+		}
+		let counted = if mark.starts_with("Schema") {
+			schema_ref(&text).is_some()
+		} else {
+			format_version(&text).is_some()
+		};
+		assert_eq!(
+			counted,
+			!in_body,
+			"the {} line counted {} where the parser reads it {} a raw body, at iteration {}:\n{}",
+			mark,
+			counted,
+			if in_body { "in" } else { "outside" },
+			i,
+			text
+		);
+	}
+	assert!(
+		inside > iters / 20,
+		"only {} lines landed in a raw body",
+		inside
+	);
+	assert!(
+		outside > iters / 20,
+		"only {} lines landed outside one",
+		outside
 	);
 }
 

@@ -2259,6 +2259,22 @@ static ShclFence fence_open(ShclStr rest) {
 	f.info = s_trim_wsp(s_slice(rest, run, rest.n));
 	return f;
 }
+/* The fence a field line's value opens, if it opens one. A line that did not
+   tokenize has no value to read. */
+static ShclFence line_fence(const ShclTokens *tok, ShclStr rest) {
+	if (tok->has_fault || !tok->has_sep) { ShclFence f; f.ok = 0; f.ch = 0; f.len = 0; f.info = s_empty(); return f; }
+	/* A capped scan zeroed the value, and a fence is told by its leading run
+	   alone. */
+	return fence_open(tok->capped ? s_trim_wsp(s_slice(rest, tok->value_start, rest.n)) : s_slice(rest, tok->value_start, tok->value_end));
+}
+
+/* The fence a line opens under the field above it, read as a value. */
+static ShclFence child_fence(ShclArena *a, ShclStr rest, ShclTokens *tok) {
+	tokenize_value(a, rest, 0, SHCL_RULES_CURRENT, tok);
+	/* A capped scan zeroed the value, and a fence is told by its leading run
+	   alone. */
+	return fence_open(tok->capped ? rest : s_slice(rest, tok->value_start, tok->value_end));
+}
 /* min_len is the opening fence's length, which the grammar puts at three or
    more, so the length test already rules out the empty line the loop below
    would otherwise accept. */
@@ -2492,63 +2508,102 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 	return s_splice(a, rest, &edits);
 }
 
+/* Walks a document's lines and tells raw-body content from the rest, the way
+   one rule set reads the file: the current rules find a block where the parser
+   does, and the 2.x rules where the rewrite does. */
+typedef struct {
+	ShclRules rules;
+	ShclTokens tok;
+	int fence_on; unsigned char fence_ch; size_t fence_len;
+	/* Only the blocks a line opens are wanted, not what the rewrite counts. */
+	ShclMigrating dry;
+} ShclRawLines;
+
+static void raw_lines_init(ShclRawLines *w, ShclRules rules) {
+	memset(w, 0, sizeof *w);
+	w->rules = rules;
+	w->dry.from_v2 = 1;
+}
+
+/* The raw block a line opens under the current rules: a fence line under a
+   field, or a field line whose value is a fence, read as the parser reads
+   them. A line refused for where it sits still takes its body. One refused for
+   its text may not yet, and then the file fails check anyway. */
+static ShclFence opens_raw(ShclArena *ta, ShclStr rest, ShclTokens *tok) {
+	rest = trim_wsp_start(rest);
+	if (rest.p[0] == '`' || rest.p[0] == '~') return child_fence(ta, rest, tok);
+	if (rest.p[0] == '#' || rest.p[0] == '*') return fence_open(s_empty());
+	tokenize(ta, rest, ':', 0, SHCL_RULES_CURRENT, tok);
+	return line_fence(tok, rest);
+}
+
+/* The next line's text past its indent in *rest, or 0 when the line is part of
+   a raw block, fences included. */
+static int raw_lines_step(ShclArena *ta, ShclArena *sc, ShclRawLines *w, ShclStr line, ShclStr *rest) {
+	size_t bn = line.n;
+	while (bn > 0 && line.p[bn - 1] == '\r') bn--;
+	ShclStr body = s_slice(line, 0, bn);
+	if (w->fence_on) {
+		if (is_fence_close(body, w->fence_ch, w->fence_len)) w->fence_on = 0;
+		return 0;
+	}
+	*rest = trim_wsp_end(s_slice(body, leading_ws(body).n, body.n));
+	/* Only a line with a run of three backticks or tildes can open a block, so
+	   the rest skip the tokenizer. */
+	for (size_t k = 0; k + 2 < rest->n; k++) {
+		char c = rest->p[k];
+		if ((c == '`' || c == '~') && rest->p[k + 1] == c && rest->p[k + 2] == c) {
+			if (w->rules == SHCL_RULES_CURRENT) {
+				ShclFence f = opens_raw(ta, *rest, &w->tok);
+				w->fence_on = f.ok; w->fence_ch = f.ch; w->fence_len = f.len;
+			} else {
+				arena_reset(sc);
+				migrate_line(ta, sc, *rest, &w->tok, &w->fence_on, &w->fence_ch, &w->fence_len, &w->dry);
+			}
+			break;
+		}
+	}
+	return 1;
+}
+
 /* shcl_format_version() on text with the BOM already off: the major a
    `##    Format   N` line names, or -1 when the document has none. Digits
    that do not fit 32 bits read as "newer than this", since whatever wrote them
    was not 2.x.
-   Raw bodies are skipped exactly where the rewrite skips them, by walking the
-   lines through the same migrate_line. A Format line pasted into a block is
-   that block's content, and taking it as the file's would rewrite a current
-   file, or leave an old one alone. A file naming this format on any line has
-   nothing to migrate, so the highest line decides: the stamp migrate adds
-   comes after an older one, and the next run has to see it. */
-/* Note the raw block a line opens, the way the rewrite does. Only a line with
-   a run of three backticks or tildes can open one, so the rest skip the
-   tokenizer. */
-static void track_fence(ShclArena *ta, ShclArena *sc, ShclStr rest, ShclTokens *tok, int *fence_on, unsigned char *fence_ch, size_t *fence_len, ShclMigrating *dry) {
-	for (size_t k = 0; k + 2 < rest.n; k++) {
-		char c = rest.p[k];
-		if ((c == '`' || c == '~') && rest.p[k + 1] == c && rest.p[k + 2] == c) {
-			arena_reset(sc);
-			migrate_line(ta, sc, rest, tok, fence_on, fence_ch, fence_len, dry);
-			return;
-		}
-	}
-}
-
-static int64_t format_line_version(ShclArena *ta, ShclArena *sc, ShclStr text, ShclTokens *tok) {
+   A Format line pasted into a raw body is that block's content, and taking it
+   as the file's would rewrite a current file, or leave an old one alone. Where
+   the blocks are turns on the rules the file was written under, which is what
+   the line itself says: a line naming this format counts outside the blocks
+   the parser finds, and an older one outside the blocks the rewrite skips. The
+   two differ on a single-quoted name ending in a backslash. A file naming this
+   format on any line has nothing to migrate, so the highest line decides: the
+   stamp migrate adds comes after an older one, and the next run has to see it. */
+static int64_t format_line_version(ShclArena *ta, ShclArena *sc, ShclStr text) {
 	size_t headn = sizeof(SHCL_FORMAT_LINE_HEAD) - 1, start = 0;
 	int64_t found = -1;
-	int fence_on = 0; unsigned char fence_ch = 0; size_t fence_len = 0;
-	/* Only the blocks a line opens are wanted here, not what it counts. */
-	ShclMigrating dry; dry.from_v2 = 1; dry.ambiguous = 0; dry.lost = 0;
+	ShclRawLines now, then;
+	raw_lines_init(&now, SHCL_RULES_CURRENT);
+	raw_lines_init(&then, SHCL_RULES_V2);
 	for (size_t i = 0; i <= text.n; i++) {
 		if (i < text.n && text.p[i] != '\n') continue;
 		ShclStr raw = s_slice(text, start, i);
 		start = i + 1;
-		size_t bn = raw.n;
-		while (bn > 0 && raw.p[bn - 1] == '\r') bn--;
-		ShclStr body = s_slice(raw, 0, bn);
-		if (fence_on) {
-			if (is_fence_close(body, fence_ch, fence_len)) fence_on = 0;
-			continue;
+		ShclStr current = s_empty(), old = s_empty();
+		int in_now = raw_lines_step(ta, sc, &now, raw, &current);
+		int in_then = raw_lines_step(ta, sc, &then, raw, &old);
+		ShclStr line = in_now ? current : old;
+		if (!(in_now || in_then) || line.n <= headn || memcmp(line.p, SHCL_FORMAT_LINE_HEAD, headn) != 0) continue;
+		ShclStr n = s_slice(line, headn, line.n);
+		uint64_t u = 0; int ok = 1, big = 0;
+		for (size_t k = 0; k < n.n; k++) {
+			if (!is_adigit((unsigned char)n.p[k])) { ok = 0; break; }
+			if (!big) { u = u * 10 + (uint64_t)(n.p[k] - '0'); if (u > UINT32_MAX) big = 1; }
 		}
-		ShclStr line = trim_wsp_end(s_slice(body, leading_ws(body).n, body.n));
-		if (line.n > headn && memcmp(line.p, SHCL_FORMAT_LINE_HEAD, headn) == 0) {
-			ShclStr n = s_slice(line, headn, line.n);
-			uint64_t u = 0; int ok = 1, big = 0;
-			for (size_t k = 0; k < n.n; k++) {
-				if (!is_adigit((unsigned char)n.p[k])) { ok = 0; break; }
-				if (!big) { u = u * 10 + (uint64_t)(n.p[k] - '0'); if (u > UINT32_MAX) big = 1; }
-			}
-			if (ok) {
-				int64_t v = big ? SHCL_FORMAT_MAJOR : (int64_t)u;
-				if (v >= SHCL_FORMAT_MAJOR) return v;
-				if (v > found) found = v;
-				continue;
-			}
-		}
-		track_fence(ta, sc, line, tok, &fence_on, &fence_ch, &fence_len, &dry);
+		if (!ok) continue;
+		int64_t v = big ? SHCL_FORMAT_MAJOR : (int64_t)u;
+		if (v >= SHCL_FORMAT_MAJOR) {
+			if (in_now) return v;
+		} else if (in_then && v > found) found = v;
 	}
 	return found;
 }
@@ -2578,20 +2633,26 @@ static ShclStr migrate(ShclArena *a, ShclArena *sc, ShclStr text, ShclMigrating 
 		bom = s_slice(text, 0, 3);
 		text = s_slice(text, 3, text.n);
 	}
-	ShclTokens tok; memset(&tok, 0, sizeof tok);
-	int64_t version = format_line_version(a, sc, text, &tok);
+	int64_t version = format_line_version(a, sc, text);
 	if (version >= SHCL_FORMAT_MAJOR) { *current = 1; return whole; }
 	if (version >= 0) st->from_v2 = 1;
+	ShclTokens tok; memset(&tok, 0, sizeof tok);
 	int changed = 0;
 	ShclSB out = {0};
 	sb_reserve(a, &out, whole.n + 96);
 	sb_putS(a, &out, bom);
 	int fence_on = 0; unsigned char fence_ch = 0; size_t fence_len = 0;
+	/* The output as the parser will read it, for where its raw blocks are. */
+	ShclRawLines now;
+	raw_lines_init(&now, SHCL_RULES_CURRENT);
+	int split = 0;
 	size_t start = 0, lineno = 0;
 	for (size_t i = 0; i <= text.n; i++) {
 		if (i < text.n && text.p[i] != '\n') continue;
 		ShclStr line = s_slice(text, start, i);
 		if (lineno++ > 0) sb_putc(a, &out, '\n');
+		size_t out_start = out.len;
+		int raw_then = fence_on;
 		size_t bn = line.n;
 		while (bn > 0 && line.p[bn - 1] == '\r') bn--;
 		ShclStr body = s_slice(line, 0, bn), cr = s_slice(line, bn, line.n);
@@ -2610,14 +2671,21 @@ static ShclStr migrate(ShclArena *a, ShclArena *sc, ShclStr text, ShclMigrating 
 			sb_putS(a, &out, s_slice(rest_full, rest.n, rest_full.n));
 			sb_putS(a, &out, cr);
 		}
+		/* Lines one rule set reads as a raw body and the other as fields are
+		   one more thing that reads two ways, counted once per run of them. */
+		ShclStr written; written.p = out.data + out_start; written.n = out.len - out_start;
+		ShclStr ignored = s_empty();
+		int differs = (!raw_lines_step(a, sc, &now, written, &ignored)) != raw_then;
+		if (differs && !split && !st->from_v2) st->ambiguous++;
+		split = differs;
 		start = i + 1;
 	}
 	/* Stamping a file whose ambiguous pieces were left alone would claim a
 	   migration that did not finish, and the next run would then skip it. A
 	   document that never closes its raw block has nowhere to put the line
-	   either: appended, it would be another line of the block's content. The
-	   lines end the way most of the file's do. */
-	if (stamp && st->ambiguous == 0 && !fence_on) {
+	   either, under either rule set: appended, it would be another line of the
+	   block's content. The lines end the way most of the file's do. */
+	if (stamp && st->ambiguous == 0 && !fence_on && !now.fence_on) {
 		const char *eol = majority_eol(text);
 		if (out.len && out.data[out.len - 1] != '\n') sb_puts(a, &out, eol);
 		sb_puts(a, &out, SHCL_FORMAT_LINE); sb_puts(a, &out, eol);
@@ -2701,36 +2769,28 @@ int64_t shcl_format_version(const char *text, size_t len) {
 	arena_guard(&own->a, &panic); arena_guard(&own->sc, &panic);
 	ShclStr in; in.p = text ? text : ""; in.n = len;
 	if (in.n >= 3 && (unsigned char)in.p[0] == 0xEF && (unsigned char)in.p[1] == 0xBB && (unsigned char)in.p[2] == 0xBF) in = s_slice(in, 3, in.n);
-	ShclTokens tok; memset(&tok, 0, sizeof tok);
-	int64_t v = format_line_version(&own->a, &own->sc, in, &tok);
+	int64_t v = format_line_version(&own->a, &own->sc, in);
 	ShclMigrateOwn *done = own;
 	arena_free(&done->a); arena_free(&done->sc); free(done);
 	return v;
 }
 
-/* The Schema line's reference, walked the way format_line_version walks. */
-static int schema_line_ref(ShclArena *ta, ShclArena *sc, ShclStr text, ShclTokens *tok, ShclStr *out) {
+/* The Schema line's reference. The line is new in this format, so the blocks
+   are the parser's. */
+static int schema_line_ref(ShclArena *ta, ShclArena *sc, ShclStr text, ShclStr *out) {
 	size_t headn = sizeof(SHCL_SCHEMA_LINE_HEAD) - 1, start = 0;
-	int fence_on = 0; unsigned char fence_ch = 0; size_t fence_len = 0;
-	ShclMigrating dry; dry.from_v2 = 1; dry.ambiguous = 0; dry.lost = 0;
+	ShclRawLines lines;
+	raw_lines_init(&lines, SHCL_RULES_CURRENT);
 	for (size_t i = 0; i <= text.n; i++) {
 		if (i < text.n && text.p[i] != '\n') continue;
 		ShclStr raw = s_slice(text, start, i);
 		start = i + 1;
-		size_t bn = raw.n;
-		while (bn > 0 && raw.p[bn - 1] == '\r') bn--;
-		ShclStr body = s_slice(raw, 0, bn);
-		if (fence_on) {
-			if (is_fence_close(body, fence_ch, fence_len)) fence_on = 0;
-			continue;
-		}
-		ShclStr rest = trim_wsp_end(s_slice(body, leading_ws(body).n, body.n));
+		ShclStr rest = s_empty();
+		if (!raw_lines_step(ta, sc, &lines, raw, &rest)) continue;
 		if (rest.n >= headn && memcmp(rest.p, SHCL_SCHEMA_LINE_HEAD, headn) == 0) {
 			ShclStr r = s_trim_wsp(s_slice(rest, headn, rest.n));
 			if (r.n) { *out = r; return 1; }
-			continue;
 		}
-		track_fence(ta, sc, rest, tok, &fence_on, &fence_ch, &fence_len, &dry);
 	}
 	return 0;
 }
@@ -2754,9 +2814,8 @@ const char *shcl_schema_ref(const char *text, size_t len, size_t *ref_len) {
 	arena_guard(&own->a, &panic); arena_guard(&own->sc, &panic);
 	ShclStr in; in.p = text ? text : ""; in.n = len;
 	if (in.n >= 3 && (unsigned char)in.p[0] == 0xEF && (unsigned char)in.p[1] == 0xBB && (unsigned char)in.p[2] == 0xBF) in = s_slice(in, 3, in.n);
-	ShclTokens tok; memset(&tok, 0, sizeof tok);
 	ShclStr r = s_empty();
-	int found = schema_line_ref(&own->a, &own->sc, in, &tok, &r);
+	int found = schema_line_ref(&own->a, &own->sc, in, &r);
 	ShclMigrateOwn *done = own;
 	arena_free(&done->a); arena_free(&done->sc); free(done);
 	if (ref_len) *ref_len = found ? r.n : 0;
@@ -4241,15 +4300,6 @@ static ShclValue consume_raw(ShclParser *P, const ShclStr *lines, size_t nlines,
 	return v;
 }
 
-/* The fence a field line's value opens, if it opens one. A line that did not
-   tokenize has no value to read. */
-static ShclFence line_fence(const ShclTokens *tok, ShclStr rest) {
-	if (tok->has_fault || !tok->has_sep) { ShclFence f; f.ok = 0; f.ch = 0; f.len = 0; f.info = s_empty(); return f; }
-	/* A capped scan zeroed the value, and a fence is told by its leading run
-	   alone. */
-	return fence_open(tok->capped ? s_trim_wsp(s_slice(rest, tok->value_start, rest.n)) : s_slice(rest, tok->value_start, tok->value_end));
-}
-
 /* Why a field line that scanned is refused for its value, before the
    element cap: bracket text, a bad escape, or a value that starts like a
    Windows path and holds a \t or \n escape. The code, or NULL. */
@@ -4686,12 +4736,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 		/* Child-indent fence: a value line for its parent field. The fence and
 		   its info string are the value; a comment may follow them. */
 		ShclFence f; f.ok = 0; f.ch = 0; f.len = 0; f.info = s_empty();
-		if (rest.p[0] == '`' || rest.p[0] == '~') {
-			tokenize_value(P.tmp, rest, 0, SHCL_RULES_CURRENT, &tok);
-			/* A capped scan zeroed the value, and a fence is told by its leading
-			   run alone. */
-			f = fence_open(tok.capped ? rest : s_slice(rest, tok.value_start, tok.value_end));
-		}
+		if (rest.p[0] == '`' || rest.p[0] == '~') f = child_fence(P.tmp, rest, &tok);
 		if (f.ok) {
 			ShclStr fcomment = tok.has_comment ? s_slice(rest, tok.comment, rest.n) : s_empty();
 			size_t parent;

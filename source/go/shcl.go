@@ -1970,6 +1970,18 @@ func slotRemove(m map[uint64]slot, h uint64, idx int) {
 	}
 }
 
+// childFence is the fence a line opens under the field above it, read as a
+// value.
+func childFence(rest string, tok *Tokens) (ch byte, length int, info string, ok bool) {
+	TokenizeValue(rest, 0, RulesCurrent, tok)
+	// A capped scan zeroed the value, and a fence is told by its leading run
+	// alone.
+	if tok.Capped {
+		return fenceOpen(rest)
+	}
+	return fenceOpen(rest[tok.Value[0]:tok.Value[1]])
+}
+
 // fenceOpen matches an opening fence: a run of >=3 backticks or tildes, then
 // an optional info-string.
 func fenceOpen(rest string) (ch byte, length int, info string, ok bool) {
@@ -2097,86 +2109,128 @@ func FormatVersion(text string) (int, bool) {
 // caller's to resolve, from the config file's directory.
 func SchemaRef(text string) (string, bool) {
 	text = strings.TrimPrefix(text, "\ufeff")
-	var tok Tokens
-	var fence openFence
-	dry := migrating{fromV2: true}
+	// The Schema line is new in this format, so the blocks are the parser's.
+	lines := newRawLines(RulesCurrent)
 	for _, line := range strings.Split(text, "\n") {
-		body := strings.TrimRight(line, "\r")
-		if fence.open {
-			if isFenceClose(body, fence.ch, fence.length) {
-				fence.open = false
-			}
+		rest, ok := lines.step(line)
+		if !ok {
 			continue
 		}
-		rest := trimEndWS(body[len(leadingWS(body)):])
 		if r, ok := strings.CutPrefix(rest, SchemaLineHead); ok {
 			if r = trimWsp(r); r != "" {
 				return r, true
 			}
-			continue
 		}
-		trackFence(rest, &tok, &fence, &dry)
 	}
 	return "", false
 }
 
-// trackFence notes the raw block a line opens, the way the rewrite does. Only
-// a line with a run of three backticks or tildes can open one, so the rest
-// skip the tokenizer.
-func trackFence(rest string, tok *Tokens, fence *openFence, dry *migrating) {
-	if strings.Contains(rest, "```") || strings.Contains(rest, "~~~") {
-		migrateLine(rest, tok, fence, dry)
+// rawLines walks a document's lines and tells raw-body content from the rest,
+// the way one rule set reads the file: the current rules find a block where
+// the parser does, and the 2.x rules where the rewrite does.
+type rawLines struct {
+	rules Rules
+	tok   Tokens
+	fence openFence
+	// Only the blocks a line opens are wanted, not what the rewrite counts.
+	dry migrating
+}
+
+func newRawLines(rules Rules) *rawLines {
+	return &rawLines{rules: rules, dry: migrating{fromV2: true}}
+}
+
+// step reads the next line. ok is false when it is part of a raw block,
+// fences included; otherwise rest is its text past the indent.
+func (w *rawLines) step(line string) (rest string, ok bool) {
+	body := strings.TrimRight(line, "\r")
+	if w.fence.open {
+		if isFenceClose(body, w.fence.ch, w.fence.length) {
+			w.fence.open = false
+		}
+		return "", false
 	}
+	rest = trimEndWS(body[len(leadingWS(body)):])
+	// Only a line with a run of three backticks or tildes can open a block,
+	// so the rest skip the tokenizer.
+	if strings.Contains(rest, "```") || strings.Contains(rest, "~~~") {
+		if w.rules == RulesCurrent {
+			w.fence = opensRaw(rest, &w.tok)
+		} else {
+			migrateLine(rest, &w.tok, &w.fence, &w.dry)
+		}
+	}
+	return rest, true
+}
+
+// opensRaw is the raw block a line opens under the current rules: a fence
+// line under a field, or a field line whose value is a fence, read as the
+// parser reads them. A line refused for where it sits still takes its body.
+// One refused for its text may not yet, and then the file fails check anyway.
+func opensRaw(rest string, tok *Tokens) openFence {
+	rest = strings.TrimLeftFunc(rest, isWsp)
+	var ch byte
+	var length int
+	var ok bool
+	switch {
+	case rest[0] == '`' || rest[0] == '~':
+		ch, length, _, ok = childFence(rest, tok)
+	case rest[0] == '#' || rest[0] == '*':
+	default:
+		Tokenize(rest, ':', false, RulesCurrent, tok)
+		ch, length, _, ok = lineFence(tok, rest)
+	}
+	return openFence{ch: ch, length: length, open: ok}
 }
 
 // formatLineVersion is FormatVersion on text with the BOM already off. Digits
 // that do not fit 32 bits are not a 2.x file either, so they read as this
 // major and there is nothing to migrate.
 //
-// Raw bodies are skipped exactly where the rewrite skips them, by walking the
-// lines through the same migrateLine. A Format line pasted into a block is
-// that block's content, and taking it as the file's would rewrite a current
-// file, or leave an old one alone. A file naming this format on any line has
-// nothing to migrate, so the highest line decides: the stamp Migrate adds comes
-// after an older one, and the next run has to see it.
+// A Format line pasted into a raw body is that block's content, and taking it
+// as the file's would rewrite a current file, or leave an old one alone. Where
+// the blocks are turns on the rules the file was written under, which is what
+// the line itself says: a line naming this format counts outside the blocks
+// the parser finds, and an older one outside the blocks the rewrite skips. The
+// two differ on a single-quoted name ending in a backslash. A file naming this
+// format on any line has nothing to migrate, so the highest line decides: the
+// stamp Migrate adds comes after an older one, and the next run has to see it.
 func formatLineVersion(text string) (int, bool) {
-	var tok Tokens
-	var fence openFence
-	// Only the blocks a line opens are wanted here, not what it counts.
-	dry := migrating{fromV2: true}
+	now := newRawLines(RulesCurrent)
+	then := newRawLines(RulesV2)
 	found, has := 0, false
 	for _, line := range strings.Split(text, "\n") {
-		body := strings.TrimRight(line, "\r")
-		if fence.open {
-			if isFenceClose(body, fence.ch, fence.length) {
-				fence.open = false
-			}
+		current, inNow := now.step(line)
+		old, inThen := then.step(line)
+		rest := current
+		if !inNow {
+			rest = old
+		}
+		n, ok := strings.CutPrefix(rest, FormatLineHead)
+		if !(inNow || inThen) || !ok || n == "" {
 			continue
 		}
-		rest := trimEndWS(body[len(leadingWS(body)):])
-		if n, ok := strings.CutPrefix(rest, FormatLineHead); ok && n != "" {
-			digits := true
-			for i := 0; i < len(n); i++ {
-				if n[i] < '0' || n[i] > '9' {
-					digits = false
-					break
-				}
-			}
-			if digits {
-				v, err := strconv.Atoi(n)
-				if err != nil || v > math.MaxUint32 {
-					return FormatMajor, true
-				}
-				if v >= FormatMajor {
-					return v, true
-				}
-				if !has || v > found {
-					found, has = v, true
-				}
-				continue
+		digits := true
+		for i := 0; i < len(n); i++ {
+			if n[i] < '0' || n[i] > '9' {
+				digits = false
+				break
 			}
 		}
-		trackFence(rest, &tok, &fence, &dry)
+		if !digits {
+			continue
+		}
+		v, err := strconv.Atoi(n)
+		if err != nil || v > math.MaxUint32 {
+			v = FormatMajor
+		}
+		if v >= FormatMajor {
+			if inNow {
+				return v, true
+			}
+		} else if inThen && (!has || v > found) {
+			found, has = v, true
+		}
 	}
 	return found, has
 }
@@ -2242,10 +2296,15 @@ func migrateText(text string, fromV2, stamp bool) Migration {
 	var tok Tokens
 	var fence openFence
 	changed := false
+	// The output as the parser will read it, for where its raw blocks are.
+	now := newRawLines(RulesCurrent)
+	split := false
 	for i, line := range strings.Split(text, "\n") {
 		if i > 0 {
 			out.WriteByte('\n')
 		}
+		start := out.Len()
+		rawThen := fence.open
 		body := strings.TrimRight(line, "\r")
 		cr := line[len(body):]
 		if fence.open {
@@ -2253,26 +2312,34 @@ func migrateText(text string, fromV2, stamp bool) Migration {
 				fence.open = false
 			}
 			out.WriteString(line)
-			continue
+		} else {
+			indent := leadingWS(body)
+			restFull := body[len(indent):]
+			rest := trimEndWS(restFull)
+			migrated := migrateLine(rest, &tok, &fence, &st)
+			if migrated != rest {
+				changed = true
+			}
+			out.WriteString(indent)
+			out.WriteString(migrated)
+			out.WriteString(restFull[len(rest):])
+			out.WriteString(cr)
 		}
-		indent := leadingWS(body)
-		restFull := body[len(indent):]
-		rest := trimEndWS(restFull)
-		migrated := migrateLine(rest, &tok, &fence, &st)
-		if migrated != rest {
-			changed = true
+		// Lines one rule set reads as a raw body and the other as fields are
+		// one more thing that reads two ways, counted once per run of them.
+		_, outside := now.step(out.String()[start:])
+		differs := !outside != rawThen
+		if differs && !split && !st.fromV2 {
+			st.ambiguous++
 		}
-		out.WriteString(indent)
-		out.WriteString(migrated)
-		out.WriteString(restFull[len(rest):])
-		out.WriteString(cr)
+		split = differs
 	}
 	// Stamping a file whose ambiguous pieces were left alone would claim a
 	// migration that did not finish, and the next run would then skip it. A
 	// document that never closes its raw block has nowhere to put the line
-	// either: appended, it would be another line of the block's content. The
-	// lines end the way most of the file's do.
-	if stamp && st.ambiguous == 0 && !fence.open {
+	// either, under either rule set: appended, it would be another line of the
+	// block's content. The lines end the way most of the file's do.
+	if stamp && st.ambiguous == 0 && !fence.open && !now.fence.open {
 		eol := majorityEol(text)
 		s := out.String()
 		if s != "" && !strings.HasSuffix(s, "\n") {
@@ -4155,14 +4222,7 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 		// Child-indent fence: a value line for its parent field. The fence
 		// and its info string are the value; a comment may follow them.
 		if rest[0] == '`' || rest[0] == '~' {
-			TokenizeValue(rest, 0, RulesCurrent, &tok)
-			// A capped scan zeroed the value, and a fence is told by its leading
-			// run alone.
-			fenceText := rest[tok.Value[0]:tok.Value[1]]
-			if tok.Capped {
-				fenceText = rest
-			}
-			if ch, length, info, ok := fenceOpen(fenceText); ok {
+			if ch, length, info, ok := childFence(rest, &tok); ok {
 				comment := ""
 				if tok.Comment >= 0 {
 					comment = rest[tok.Comment:]
