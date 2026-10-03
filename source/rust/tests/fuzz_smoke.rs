@@ -1517,25 +1517,28 @@ fn unsettled(t: &str) -> &str {
 /// How many of `want` a text writes, each line used once: as written, or as
 /// the comment the settle makes of it.
 fn missing_kept(text: &str, want: &[String]) -> Vec<String> {
-	let mut have: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
-	let mut as_is: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
 	// The keep save writes a file-start BOM back; the load strips it.
-	for l in text.strip_prefix('\u{feff}').unwrap_or(text).lines() {
-		let t = l.trim();
-		*have.entry(unsettled(t)).or_default() += 1;
-		*as_is.entry(t).or_default() += 1;
-	}
+	let mut lines: Vec<Option<&str>> = text
+		.strip_prefix('\u{feff}')
+		.unwrap_or(text)
+		.lines()
+		.map(|l| Some(l.trim()))
+		.collect();
 	let mut missing = Vec::new();
 	for w in want {
-		// One kept for a blank ahead of its `#` is written as it was.
-		let from = if w.starts_with('#') {
-			&mut as_is
-		} else {
-			&mut have
-		};
-		match from.get_mut(w.as_str()) {
-			Some(n) if *n > 0 => *n -= 1,
-			_ => missing.push(w.clone()),
+		// As written first: a kept line can start with a `#` behind some
+		// other blank, and its settled form can too.
+		let at = lines
+			.iter()
+			.position(|l| *l == Some(w.as_str()))
+			.or_else(|| {
+				lines
+					.iter()
+					.position(|l| l.is_some_and(|t| unsettled(t) == w))
+			});
+		match at {
+			Some(k) => lines[k] = None,
+			None => missing.push(w.clone()),
 		}
 	}
 	missing
@@ -1738,11 +1741,16 @@ fn kept_lines_survive_edits() {
 					if n > 0 {
 						removes_near += usize::from(near);
 						for t in &taken {
-							let t = unsettled(t);
-							if let Some(k) = want.iter().position(|w| w == t) {
+							// As written first: a kept line can start with a `#`
+							// behind some other blank.
+							let at = want
+								.iter()
+								.position(|w| w == t)
+								.or_else(|| want.iter().position(|w| w == unsettled(t)));
+							if let Some(k) = at {
 								want.remove(k);
 							}
-							spans.retain(|s| s.0 != t);
+							spans.retain(|s| s.0 != *t && s.0 != unsettled(t));
 						}
 					}
 					(n > 0, format!("remove\t{path}"))
