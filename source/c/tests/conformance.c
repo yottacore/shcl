@@ -1991,6 +1991,37 @@ int main(int argc, char **argv) {
 		if (shcl_lost_count(md) != 1) fail("kept_gate", "a merged kept line taken out did not count as lost");
 		shcl_free(ml); shcl_free(md);
 	}
+	// design.md's table: a settled kept line on a leaf the layer replaces goes
+	// with the leaf's comments, so it is no longer owed.
+	test_id("ErfGoMO", "a_replaced_leaf_takes_its_settled_kept_line");
+	{
+		const char *rt = "x: 0\n\tc: 2\n  a: 5\nb: 1\n";
+		shcl_doc *rd = shcl_parse(rt, strlen(rt));
+		if (shcl_remove(rd, "x.c", 3) != 1) fail("kept_gate", "remove x.c failed");
+		shcl_str rc = shcl_to_canonical(rd);
+		const char *rw = "x: 0\n# a: 5\nb: 1\n";
+		if (rc.n != strlen(rw) || memcmp(rc.p, rw, rc.n) != 0) fail("kept_gate", "the replaced-leaf fixture did not settle its kept line");
+		shcl_doc *rl = shcl_parse("b: 9\n", 5);
+		shcl_merge(rd, rl);
+		rc = shcl_to_canonical(rd);
+		rw = "x: 0\nb: 9\n";
+		if (rc.n != strlen(rw) || memcmp(rc.p, rw, rc.n) != 0) fail("kept_gate", "the replaced leaf kept its settled line");
+		if (shcl_lost_count(rd) != 0) fail("kept_gate", "a replaced leaf's settled line counted as lost");
+		shcl_free(rl); shcl_free(rd);
+	}
+	// design.md's table: the footer dedup skips a layer's kept line the base
+	// already has, so that copy is not owed.
+	test_id("ErfGoMP", "a_footer_line_the_base_has_is_not_owed_twice");
+	{
+		const char *ft = "bad name: 1\n";
+		shcl_doc *fd = shcl_parse(ft, strlen(ft));
+		shcl_doc *fl = shcl_parse(ft, strlen(ft));
+		shcl_merge(fd, fl);
+		shcl_str fc = shcl_to_canonical(fd);
+		if (fc.n != strlen(ft) || memcmp(fc.p, ft, fc.n) != 0) fail("kept_gate", "the footer dedup wrote the line twice");
+		if (shcl_lost_count(fd) != 0) fail("kept_gate", "a deduped footer line counted as lost");
+		shcl_free(fl); shcl_free(fd);
+	}
 	// set_raw: the body's shared indent survives a reload (the closing fence's
 	// indent is what comes off), the info-string is stored as a fence line
 	// reads it back, and an info with a line break or a `#` has no spelling and
