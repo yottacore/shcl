@@ -1593,6 +1593,133 @@ fn parent_line(canon: &str, n: usize) -> Option<usize> {
 	})
 }
 
+/// Where canonical text's footer starts, as a 1-based line number: the first
+/// line at no indent past the last field's line. The load keeps everything
+/// from there on as the document's own lines, not a field's. Canonical text
+/// writes a field's raw body deeper than the field, so no body line is at no
+/// indent; a line that only looks like a fence opens nothing here
+/// (2026100307163902).
+fn footer_start(canon: &str) -> usize {
+	let doc = Document::parse(canon);
+	let lines: Vec<&str> = canon.lines().collect();
+	let last = doc
+		.paths()
+		.iter()
+		.flat_map(|p| doc.lines(p))
+		.max()
+		.unwrap_or(0);
+	(last + 1..=lines.len())
+		.find(|&n| {
+			let l = lines[n - 1];
+			!l.trim_matches([' ', '\t', '\r']).is_empty() && !l.starts_with([' ', '\t'])
+		})
+		.unwrap_or(lines.len() + 1)
+}
+
+/// The footer of canonical text, each line as its depth in tabs and its
+/// trimmed text.
+fn footer(canon: &str) -> Vec<(usize, &str)> {
+	let lines: Vec<&str> = canon.lines().collect();
+	lines[(footer_start(canon) - 1).min(lines.len())..]
+		.iter()
+		.map(|l| (l.len() - l.trim_start_matches('\t').len(), l.trim()))
+		.filter(|l| !l.1.is_empty())
+		.collect()
+}
+
+/// The kept lines of a layer that a merge onto `before` skips by design.md's
+/// table: a footer line the base's footer already has, at the same depth. A
+/// field-like one with a deeper one after it goes in whole, so neither of the
+/// two is skipped. Read from both canonical texts, where the footer is written
+/// last and each line at its depth.
+fn footer_skips(before: &str, layer: &str) -> Vec<String> {
+	let had = footer(before);
+	let canon = Document::parse(layer).to_canonical();
+	let theirs = footer(&canon);
+	let fields: Vec<usize> = (0..theirs.len())
+		.filter(|&k| !theirs[k].1.starts_with('#'))
+		.collect();
+	let mut whole = vec![false; theirs.len()];
+	for w in fields.windows(2) {
+		if theirs[w[1]].0 > 0 {
+			whole[w[0]] = true;
+			whole[w[1]] = true;
+		}
+	}
+	(0..theirs.len())
+		.filter(|&k| !theirs[k].1.starts_with('#') && !whole[k] && had.contains(&theirs[k]))
+		.map(|k| theirs[k].1.to_string())
+		.collect()
+}
+
+/// A path's parents, outermost first, split at each dot outside quotes.
+fn parent_paths(path: &str) -> Vec<&str> {
+	let (mut out, mut quoted, mut escaped) = (Vec::new(), false, false);
+	for (k, c) in path.char_indices() {
+		match c {
+			_ if escaped => escaped = false,
+			'\\' if quoted => escaped = true,
+			'"' => quoted = !quoted,
+			'.' if !quoted => out.push(&path[..k]),
+			_ => {}
+		}
+	}
+	out
+}
+
+/// The settled kept lines a merge of `layer` takes from `before` by
+/// design.md's table: the ones on a leaf the layer replaces, each with its
+/// `# ` taken off. A leaf's own lines are the ones a remove of it takes from
+/// the reparsed text, where a settled line is a plain comment. Only a leaf
+/// whose every parent is one node on each side with the same value counts,
+/// since then which leaf the layer replaces is plain from the two texts.
+fn replaced_leaf_lines(before: &str, layer: &str) -> Vec<String> {
+	let base = Document::parse(before);
+	let over = Document::parse(&Document::parse(layer).to_canonical());
+	let same = |p: &str| {
+		let (b, o) = (base.read_string(p), over.read_string(p));
+		base.count(p) == 1
+			&& over.count(p) == 1
+			&& b.status == o.status
+			&& b.value == o.value
+			&& b.raw == o.raw
+	};
+	let mut out = Vec::new();
+	for p in over.paths() {
+		if !over.children(&p).is_empty()
+			|| base.count(&p) == 0
+			|| !base.children(&p).is_empty()
+			|| !parent_paths(&p).into_iter().all(same)
+		{
+			continue;
+		}
+		let had = base.to_canonical();
+		let mut cut = base.clone();
+		cut.remove(&p);
+		let left = cut.to_canonical();
+		let mut left = left.lines().map(|l| unsettled(l.trim())).peekable();
+		let mut gone = Vec::new();
+		for l in had.lines() {
+			if left.peek() == Some(&unsettled(l.trim())) {
+				left.next();
+			} else {
+				gone.push(l.trim());
+			}
+		}
+		// A remove that wrote a line of its own (2026100307163907) leaves no
+		// plain answer, so nothing is excused.
+		if left.next().is_some() {
+			continue;
+		}
+		out.extend(
+			gone.into_iter()
+				.filter_map(|l| l.strip_prefix("# "))
+				.map(|t| t.trim().to_string()),
+		);
+	}
+	out
+}
+
 /// Classes the property finds that are open in the backlog. Each is a check
 /// and an edit, never an input.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -1663,9 +1790,6 @@ fn kept_lines_survive_edits() {
 		// A step an open row excused ends the case after its dump: its later
 		// checks would only see the same class again.
 		let mut excused = false;
-		// Lines a merge may drop by the table: a footer line the base has,
-		// and a settled line on a leaf the layer replaces.
-		let mut may_go: Vec<String> = Vec::new();
 		for step in 0..rng.below(4) {
 			let paths = doc.paths();
 			let path = if paths.is_empty() || rng.below(4) == 0 {
@@ -1715,19 +1839,22 @@ fn kept_lines_survive_edits() {
 					let over = Document::parse(&layer);
 					lost += over.lost_count();
 					let theirs = kept_text(&layer);
-					for (_, t) in &theirs.lines {
-						if want.contains(t) {
-							may_go.push(t.clone());
+					// The table's two merge exceptions, each a line picked by
+					// where it sits and taken off the expected lines once.
+					let mut theirs_lines: Vec<String> =
+						theirs.lines.into_iter().map(|l| l.1).collect();
+					for t in footer_skips(&before, &layer) {
+						if let Some(k) = theirs_lines.iter().rposition(|l| *l == t) {
+							theirs_lines.remove(k);
 						}
 					}
-					may_go.extend(
-						before
-							.lines()
-							.filter_map(|l| l.trim().strip_prefix("# "))
-							.filter(|t| want.iter().any(|w| w == t))
-							.map(str::to_string),
-					);
-					want.extend(theirs.lines.into_iter().map(|l| l.1));
+					want.extend(theirs_lines);
+					for t in replaced_leaf_lines(&before, &layer) {
+						if let Some(k) = want.iter().position(|w| *w == t) {
+							want.remove(k);
+							spans.retain(|s| s.0 != t);
+						}
+					}
 					spans.extend(theirs.spans);
 					doc.merge(&over);
 					merged = true;
@@ -1827,10 +1954,7 @@ fn kept_lines_survive_edits() {
 			if refused {
 				continue;
 			}
-			let missing: Vec<String> = missing_kept(&text, &want)
-				.into_iter()
-				.filter(|m| !(merged && may_go.contains(m)))
-				.collect();
+			let missing = missing_kept(&text, &want);
 			assert!(
 				missing.is_empty(),
 				"iteration {i}: the {which} save lost kept line(s) {missing:?}:\n{log}--- wrote\n{text}"
