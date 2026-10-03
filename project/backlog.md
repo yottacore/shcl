@@ -66,6 +66,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Decisions:
 		- 20261002: idea 3, with the changes listed in the design doc. Open points and their proposed answers are under its Roadmap.
 		- 20261002: a quote anywhere in a bare value is an error, and a bare field name starts with a letter. Dates, times, durations and sizes without spaces stay bare.
+		- 20261002: no new error throws out good lines. A bad bare name that can still be read keeps its block, as a value-only refusal does. The writer quotes a value with `:` only when it ends in one.
 	- Branch:
 	- Commit:
 	- Test case:
@@ -132,6 +133,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Verified: the four conformance suites, cli-regress (342 rows), crosscheck over the corpus and a 2000-iteration dump that now includes the new property's soup (39564 comparisons), check-docs, check-abnf, shell-regress, test-ids, shellcheck, clippy, go vet, staticcheck, ruff, mypy, gcc 14 and 15 and clang at `-Werror`, and the 2,000,000 release fuzz with the new corpus case. Corpus 188 fails on dev at `dfdd3385` in all four, and so does the fuzz property. The commands behind cli-regress `Era9kPy`, `Era9kPz` and `EraAIXa` give the old output on dev's Rust CLI; the script itself was not run against dev.
 	- Note: cli-regress `Er7gihi` expected exit 7, since the save could not keep its lines once the kept line sat under the dotted line. It now keeps them, the dropped line included, at exit 0. It is commented out with the reason; `EraAIXa` pins the new result and `EraAIXb` keeps the refusal on a save that falls back.
 	- Note: 20261002, comments between nested kept lines should nest too. Filed as 2026100218185700.
+	- Note: 20261002, design.md's wording on kept-line levels is OK.
 	- Note: the property lives in the Rust fuzz. The other three are held to it through the crosscheck, which now replays its inputs too.
 	- Needs local test suite run?: full `--ci` at the next main push.
 	- Branch: keptnest
