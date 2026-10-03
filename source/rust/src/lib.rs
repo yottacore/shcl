@@ -12683,4 +12683,29 @@ mod kept_gate {
 		doc.arena[y].triv_mut().leading.pop();
 		assert_eq!(doc.lost_count(), 1);
 	}
+
+	// design.md's table: a settled kept line on a leaf the layer replaces
+	// goes with the leaf's comments, so it is no longer owed.
+	#[test]
+	fn a_replaced_leaf_takes_its_settled_kept_line() {
+		let _id = test_id("ErfGoMI");
+		let mut doc = Document::parse("x: 0\n\tc: 2\n  a: 5\nb: 1\n");
+		assert_eq!(doc.remove("x.c"), 1);
+		assert_eq!(doc.to_canonical(), "x: 0\n# a: 5\nb: 1\n");
+		assert_eq!(doc.lost_count(), 0);
+		doc.merge(&Document::parse("b: 9\n"));
+		assert_eq!(doc.to_canonical(), "x: 0\nb: 9\n");
+		assert_eq!(doc.lost_count(), 0);
+	}
+
+	// design.md's table: the footer dedup skips a layer's kept line the base
+	// already has, so that copy is not owed.
+	#[test]
+	fn a_footer_line_the_base_has_is_not_owed_twice() {
+		let _id = test_id("ErfGoMJ");
+		let mut doc = Document::parse("bad name: 1\n");
+		doc.merge(&Document::parse("bad name: 1\n"));
+		assert_eq!(doc.to_canonical(), "bad name: 1\n");
+		assert_eq!(doc.lost_count(), 0);
+	}
 }
