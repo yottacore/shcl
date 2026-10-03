@@ -137,7 +137,7 @@ The writer always uses the first name. The others are read as aliases.
 
 ### Error codes
 
-The code numbers are provisional until the change is built. "Value only" means the line's name is fine, so the lines under it still load, as described under [Errors and kept lines](#errors-and-kept-lines).
+"Value only" means the line's name is fine, so the lines under it still load, as described under [Errors and kept lines](#errors-and-kept-lines).
 
 | Code   | Meaning                                                                            | Outcome
 | :---   | :---                                                                               | :---
@@ -455,6 +455,8 @@ What the writer and `fmt` produce. The line-keeping save still writes unchanged 
 
 - A list written with `- ` stays stacked, one item per line. It is the author's choice, like quotes.
 
+- A merge writes every list in brackets, whatever form its layers used. A merge of its own reloaded output then gives the same text.
+
 - Backtick values stay in backticks.
 
 - Escapes written:
@@ -616,6 +618,8 @@ Not looked at in any depth:
 
 - `fmt` rewriting a `- ` list as brackets. Canonical output keeps the author's quotes, and the list form is the same kind of choice.
 
+- A merge writing a list in the form of the last layer that sets it. Brackets every time is simpler, and needs no rule for which layer counts.
+
 ### Superseded
 
 What the build has today, and what replaces it.
@@ -658,9 +662,7 @@ What the build has today, and what replaces it.
 
 ## Roadmap
 
-1. Settle the open points below.
-
-2. Build it, reference first, then the other bindings.
+1. Build it, reference first, then the other bindings.
 	- Rust, then Go, Python and C, then the C++ veneer.
 	- The tokenizer, the writer, `SetLiteral` and `--set-literal`, and `migrate`. `--set` and the typed setters take data, not syntax, so `--set 'title=My App'` still works.
 	- One generated table for the escape names and aliases and the whitespace list, beside the hidden-character list.
@@ -669,13 +671,7 @@ What the build has today, and what replaces it.
 	- CLI help showing the quoted form for `--set-literal`: `--set-literal 'title="My App"'`.
 	- Comments nesting under kept lines, 2026100218185700.
 
-3. Then cut `v3.0.0-beta1`.
-
-Open points, each with a proposed answer:
-
-- Which form a merge writes when two layers write one list in different forms. A merge and a merge of its reloaded output must still give the same text, the fuzz property behind 2026092620255204. Proposed: the form of the last layer that sets the list.
-
-- The error code numbers.
+2. Then cut `v3.0.0-beta1`.
 
 ## Related backlog issues
 
