@@ -466,6 +466,11 @@ What the writer and `fmt` produce. The line-keeping save still writes unchanged 
 
 - A kept line is written back exactly as it was.
 
+- Setters get no new options.
+	- A backtick value goes in through `SetLiteral` or `--set-literal`, written as the file would have it.
+	- An array setter writes brackets even for one element, so `SetIntArray` gives `port: [80]` and `SetInt` gives `port: 80`.
+	- A setter that overwrites a value keeps its quote kind, backtick, single or double, when the new text can be written that way. Otherwise the writer picks.
+
 - The quoting rule runs at standard strictness, fixed, so canonical form can't vary with how strictly the file was loaded.
 
 ### Hidden characters
@@ -670,8 +675,6 @@ Open points, each with a proposed answer:
 
 - Which form a merge writes when two layers write one list in different forms. A merge and a merge of its reloaded output must still give the same text, the fuzz property behind 2026092620255204. Proposed: the form of the last layer that sets the list.
 
-- How a setter asks for a backtick value, or for brackets on a one-element array. Proposed: options on the existing setters, named when built.
-
 - The error code numbers.
 
 ## Related backlog issues
@@ -683,8 +686,8 @@ Open points, each with a proposed answer:
 | 2026100218185700 | A comment between nested kept lines is written at column 0                                    | Open bug, fixed with this
 | 2026100115403384 | A bad escape on a line that opens a block drops the whole block                               | The lazy level. Stays.
 | 2026100115323227 | `"C:\temp"` loads with a tab and only a hint says so                                          | Superseded. `E024` goes.
-| 2026100115323216 | The writer spells Windows paths three different ways                                          | Superseded
-| 2026100115323222 | No way to ask a setter for single quotes                                                      | Superseded
+| 2026100115323216 | The writer spells Windows paths three different ways                                          | Moot
+| 2026100115323222 | No way to ask a setter for single quotes                                                      | Moot
 | 2026100115403385 | A file stamped Format 3 during the beta is never migrated                                     | Answered: on their own
 | 2026100117214801 | A bad escape in the name of a line that opens a raw block leaves the body to be read as lines | Stays. Its repro changes.
 | 2026100117214802 | `set` on a file ending in a kept line writes the new key above it                             | Stays. Its repro changes.

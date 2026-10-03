@@ -67,6 +67,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261002: idea 3, with the changes listed in the design doc. Open points and their proposed answers are under its Roadmap.
 		- 20261002: a quote anywhere in a bare value is an error, and a bare field name starts with a letter. Dates, times, durations and sizes without spaces stay bare.
 		- 20261002: no new error throws out good lines. A bad bare name that can still be read keeps its block, as a value-only refusal does. The writer quotes a value with `:` only when it ends in one.
+		- 20261002: pre-release Format 3 files are on their own. `fmt` keeps a `- ` list stacked. Setters get no new options, and an overwrite keeps the old quote kind when it can.
 	- Branch:
 	- Commit:
 	- Test case:
@@ -173,10 +174,11 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - The writer spells Windows paths three different ways
 	- ID: 2026100115323216
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Moot
 	- Priority: Avg
 	- Note: 20261002, superseded by 2026100207032800. With no backslash escapes, a backslash plays no part in choosing quotes, so nothing here is needed. Design: `project/design_docs/value-syntax.md`.
 	- Superseded by ID: 2026100207032800
+	- Test case: none. Nothing is built for it; 2026100207032800 carries the tests.
 	- Opened: 20261001-153232
 	- Opened by: gitsby feedback
 	- Version and build: dev at `b10c2009`
@@ -193,6 +195,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: gitsby does this itself in `setValue` (`src-go/shcl.go`), through `SetLiteral` and a read-back check. It would drop that once the writer does it.
 	- Decisions:
 		- 20261001: single quotes for a value with a backslash, since they stop escaping. A Windows path can hold a `'`, which single quotes can't, so that one goes in double quotes with each backslash doubled. Same for canonical output, so `fmt` too.
+		- 20261002: closed as Moot. A backslash is plain text under 2026100207032800.
+	- Closed: 20261002-184515
 
 - `Remove` of the last key under a repeated header leaves the header and takes the blank line
 	- ID: 2026100115323232
@@ -293,10 +297,11 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - No way to ask a setter for single quotes
 	- ID: 2026100115323222
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Moot
 	- Priority: Low
 	- Note: 20261002, superseded by 2026100207032800. With no backslash escapes, a backslash plays no part in choosing quotes, so nothing here is needed. Design: `project/design_docs/value-syntax.md`.
 	- Superseded by ID: 2026100207032800
+	- Test case: none. Nothing is built for it; 2026100207032800 carries the tests.
 	- Opened: 20261001-153232
 	- Opened by: gitsby feedback
 	- Related IDs: the old-format item "A save that edits only the lines that changed", whose 20260925 decision keeps `fmt`'s canonical quoting
@@ -307,6 +312,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Not a reopen of the 20260925 decision. `fmt` keeps its canonical quoting; this is only for a program setting a value.
 	- Decisions:
 		- 20261001, from the answer on 2026100115323216: single quotes are the go-to for stopping escapes, when the string holds no `'`.
+		- 20261002: closed as Moot. No setter options. A setter that overwrites a value keeps its quote kind when it can, and `SetLiteral` takes any quotes as written.
+	- Closed: 20261002-184515
 
 - The banner's Syntax link names a tag the cut may not create
 	- ID: 2026100115323211
