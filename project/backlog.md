@@ -350,6 +350,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: 20261003, all four.
 	- Possible cause: the lazily opened node outlives its last child, and `heads_block` needs at least one child, so the writer puts out the kept line and then a bare `a:`.
 	- Origin: `3ef0bc8c` (escblock), new since the last round. Not the trigger of 2026100213205957, which is the load; this one is an edit. Confirmed.
+	- Note: 20261003, `set f.shcl --set a=5` on the same file writes a second line, `a: 5`, after the kept `a: [1]`, with `b` under the new one. Once the first line is fixed, `a` reads as Multiple the same way. Same class, found while designing 2026100307310000. Confirmed on dev at `1e2e4210`, Rust CLI.
 	- Estimated effort: Low
 
 - The dogfood runner drops quotes and empty arguments under Windows PowerShell 5.1
