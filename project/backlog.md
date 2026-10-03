@@ -226,6 +226,44 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Origin: `37fe62d0` (PowerShell wrapper, 2026-07-18). Not seen by an earlier round. 20260928 item 4 fixed quotes under 5.1 in the same wrapper. Confirmed.
 	- Estimated effort: Avg
 
+- Back up and rewrite a config file when a program's shcl upgrade breaks it
+	- ID: 2026100313461649
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261003-134616
+	- Opened by: JC
+	- Related IDs: 2026100313461650, 2026092709243678, 2026100115403385, 2026100207032800
+	- Problem description:
+		- When a client program's shcl upgrade breaks compatibility with an existing file(s).
+		- Three programs so far are now configured to do this themselves. So just be careful not to race, conflict, or trample what the client program is doing.
+	- Requirements:
+		- Check if the new shcl version has breaking changes with the existing doc. If so:
+			- Rename the latest config file `[origname]_backup_YYYYmmDD-HHMMSS_format-v[shcl version].shcl`.
+				- In local time.
+			- Have the program write a new config file with the same previous path and name, from scratch, using whatever settings and conversions shcl can handle.
+		- Explore ideas like providing a "backup and upgrade config" function, that starts with a nice clean fresh config file, but with previous settings correctly carried over.
+	- Reason: just below "critical" importance as a feature.
+	- Note: 20261003, open points to settle before building.
+		- `migrate --write` already keeps the original as `NAME_old_v2.EXT` (2026092709243678). The two names should probably become one.
+		- Which version goes in the name: the file's format or the shcl library version.
+		- The info block comes only from `init` and a creating `set --write`, never from the library save. A fresh rewrite through the library would need an exception.
+		- 2026100115403385 says beta-stamped Format 3 files are on their own. This item would cover them, if the check can tell a beta file apart.
+	- Estimated effort: High
+
+- A CICD test that makes old shcl files and checks the automatic conversion
+	- ID: 2026100313461650
+	- Type: Task
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261003-134616
+	- Opened by: JC
+	- Related IDs: 2026100313461649, 2026100307163909
+	- Requirements:
+		- Write a test as part of CICD that creates old shcl file versions, and tests the automatic conversion.
+	- Note: 20261003, `check-migrate.bash` already builds 2.x from pinned `7be348d` and compares reads after `migrate`. This would extend it to the backup and rewrite in 2026100313461649, and to beta-stamped Format 3 files once 2026100207032800 is in.
+	- Estimated effort: Avg
+
 - `migrate --check` exits 6 and `--write` keeps a needless copy when a CRLF file has no final newline
 	- ID: 2026100307163906
 	- Type: Bug
@@ -336,6 +374,32 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- The demo file, `cicd/demo/script.txt` and `cicd/demo-scenario.toml` use current syntax.
 		- Each step's output in the GIF matches what the current release binary prints.
 		- Regenerate it with the cicd gif stage and check `cicd/demo/expected.txt` still matches.
+
+- README note on how escapes work, and why
+	- ID: 2026100313461651
+	- Type: Task
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261003-134616
+	- Opened by: JC
+	- Prereq IDs: 2026100207032800
+	- Requirements:
+		- Briefly note in README our different way of handling escapes, and why.
+		- Use the "newline" escape as an example, windows paths, and unicode escapes.
+	- Note: 20261003, the escape names come from `project/design_docs/value-syntax.md`: `◉NEWLINE◉`, `◉U+XXXX◉`, and a backslash is plain text, so `C:\temp` needs no doubling.
+	- Estimated effort: Low
+
+- A macOS universal binary for amd64 and ARM
+	- ID: 2026100313461652
+	- Type: Feature
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261003-134616
+	- Opened by: JC
+	- Requirements:
+		- MacOS gets a universal binary for both amd64 and ARM, if appropriate.
+	- Note: 20261003, no macOS binary is built yet. `cicd/config.bash` defers it for lack of an Apple SDK on the build box, and `install.bash` sends macOS users to build from source. A hosted macOS runner can build both Rust targets and join them with `lipo`. The installers and the release asset names would need a macOS entry too.
+	- Estimated effort: Avg
 
 - `Remove` of the last key under a repeated header leaves the header and takes the blank line
 	- ID: 2026100115323232
