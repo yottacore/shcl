@@ -295,6 +295,25 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Origin: `37fe62d0` (PowerShell wrapper, 2026-07-18). Not seen by an earlier round. 20260928 item 4 fixed quotes under 5.1 in the same wrapper. Confirmed.
 	- Estimated effort: Avg
 
+- A fuzz property and a save-gate check for kept lines, so edits stop losing them one site at a time
+	- ID: 2026100307310000
+	- Type: Task
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261003-073100
+	- Opened by: Code review 20261003, OK'd 2026-10-03
+	- Related IDs: 2026100307163901, 2026100307163902, 2026100307163907, 2026100213205957, 2026100117214801, 2026100117214802, 2026100218185700, 2026092620255202
+	- Problem description:
+		- Edits that lose a kept line keep turning up, one site per round: `clear-comments`, then `remove`, the lazy level, nesting and the raw-block arms.
+		- The save gate does not count kept lines, so each of these saves at exit 0.
+		- 800 makes more lines kept, so the class grows with it.
+	- Requirements:
+		- A fuzz property: after any edit, every kept line outside the edit's target is still in the saved text, or the save refuses.
+		- The save gate counts kept lines, in all four bindings.
+		- design.md gets a rule table: each edit and what it does with the kept lines beside and under its target.
+	- Note: best done before the fixes for items 1, 2 and 7 of the same round, so the property tests them.
+	- Estimated effort: Avg
+
 - `migrate --check` exits 6 and `--write` keeps a needless copy when a CRLF file has no final newline
 	- ID: 2026100307163906
 	- Type: Bug
@@ -2030,12 +2049,14 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Opened: 20260929-181102
 	- Opened by: the 2,000,000 release fuzz while working 2026092813365325
 	- Steps to reproduce:
+
 		~~~bash
 		printf 'b:`, 2\nb:\ta:\xc3\xa9\n`\tx 1\n' > A.shcl
 		printf 'r:\n\t``\n\t  l ne1\n\t   \n\n\t `\n\t*  line2\n\t```\n' > B.shcl
 		shcl fmt B.shcl > Bf.shcl
 		diff <(shcl fmt --layer=A.shcl B.shcl) <(shcl fmt --layer=A.shcl Bf.shcl)
 		~~~
+
 	- Incorrect behavior: the first output has a blank line above the comment the second does not. `merge_never_panics_and_stays_fixpoint` fails at iteration 748271.
 	- Expected behavior: both give the same text.
 	- Reproduced: 20260929, all four CLIs. Case 185 shifted the fuzz seed set onto it. Dev with case 185 added fails at the same iteration, and dev without it passes. The 200,000 run in `--ci` does not reach it.
