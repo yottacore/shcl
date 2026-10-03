@@ -198,6 +198,23 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261002: closed as Moot. A backslash is plain text under 2026100207032800.
 	- Closed: 20261002-184515
 
+- Make sure the demo GIF is still accurate and current
+	- ID: 2026100306315606
+	- Type: Task
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261003-063156
+	- Opened by: JC
+	- Prereq IDs: 2026100207032800
+	- Version and build: dev at `34ceede2`
+	- Problem description:
+		- `assets/demo.gif` was last made on 2026-09-19. The parser and CLI output have changed a lot since.
+		- The demo file's `tags: fast, "eu, west", cheap` line is a bare value with spaces and quotes, which is an error under 2026100207032800. That item has to go in first.
+	- Requirements:
+		- The demo file, `cicd/demo/script.txt` and `cicd/demo-scenario.toml` use current syntax.
+		- Each step's output in the GIF matches what the current release binary prints.
+		- Regenerate it with the cicd gif stage and check `cicd/demo/expected.txt` still matches.
+
 - `Remove` of the last key under a repeated header leaves the header and takes the blank line
 	- ID: 2026100115323232
 	- Type: Bug
