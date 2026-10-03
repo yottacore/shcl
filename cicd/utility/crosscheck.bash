@@ -12,15 +12,17 @@
 ##		inputs (`fmt` only). stdout and exit code must both match the reference.
 ##		The dump's eol/ folder holds inputs with mixed line endings, each with a
 ##		write-ops script; each goes through `set --write`, the save that keeps
-##		lines, and the file it leaves must match byte for byte.
+##		lines, and the file it leaves must match byte for byte. Its kept/ folder
+##		is the same, over lines kept as written and edits near them, so a
+##		binding that loses one where the reference refuses shows here.
 ##		With fewer than two bindings there is nothing to compare - prints a note
 ##		and exits 0, so it can stay wired into cicd from day one.
 ##	Syntax:
 ##		crosscheck.bash --corpus DIR [--extra DIR] [--min N] NAME|CLI [NAME|CLI ...]
 ##		  --corpus DIR  conformance corpus root (case dirs with input.shcl etc.)
 ##		  --extra DIR   also compare `fmt` over every *.shcl in this directory,
-##		                and the keep save over every *.shcl in DIR/eol, with
-##		                its *.ops beside it
+##		                and the keep save over every *.shcl in DIR/eol and
+##		                DIR/kept, with its *.ops beside it
 ##		  --min N       fail unless at least N comparisons ran (default 1, so a
 ##		                collapsed corpus/dump can't pass on zero)
 ##		  NAME|CLI      binding name + its CLI path; first entry is the reference
@@ -428,10 +430,11 @@ fExtraFile(){
 ##	One input with mixed line endings and its edits. The keep save ends each
 ##	line by a rule the reference's fuzz checks; this holds the other three to
 ##	the same bytes on disk, which a stdout compare would see only in part.
+##	The kept/ folder goes through here too, with its own label.
 fEolFile(){
-	local f="$1"
+	local f="$1" label="${2:-keep save}"
 	caseSrc="$f"; writeStdin="${f%.shcl}.ops"
-	fCompareWrite "keep save ${f##*/}" fFixCase set --write
+	fCompareWrite "${label} ${f##*/}" fFixCase set --write
 	writeStdin=""
 }
 
@@ -583,25 +586,26 @@ if [[ -n "$extra" && -d "$extra" ]]; then
 		echo "crosscheck: --extra ${extra} matched no *.shcl (empty fuzz dump?)" >&2
 		exit 2
 	fi
-	if [[ -d "${extra}/eol" ]]; then
+	for kind in eol kept; do
+		[[ -d "${extra}/${kind}" ]] || continue
 		nExtra=0
-		for f in "${extra}"/eol/*.shcl; do
+		for f in "${extra}/${kind}"/*.shcl; do
 			[[ -e "$f" ]] || continue
 			[[ -f "${f%.shcl}.ops" ]] || { echo "crosscheck: ${f} has no .ops beside it" >&2; exit 2; }
 			nExtra+=1
-			units+=("eol|${f}")
+			units+=("${kind}|${f}")
 		done
 		if ((nExtra == 0)); then
-			echo "crosscheck: ${extra}/eol matched no *.shcl (empty keep-save dump?)" >&2
+			echo "crosscheck: ${extra}/${kind} matched no *.shcl (empty keep-save dump?)" >&2
 			exit 2
 		fi
-	fi
+	done
 fi
 
 ##	Divergences are counted per kind of unit too, since each kind is a test.
 fWorker(){
 	local k="$1" i=0 u before
-	local -A kindBad=([usage]=0 [case]=0 [extra]=0 [eol]=0)
+	local -A kindBad=([usage]=0 [case]=0 [extra]=0 [eol]=0 [kept]=0)
 	tmpDir="${tmpDir}/w${k}"
 	mkdir "$tmpDir"
 	for u in "${units[@]}"; do
@@ -612,12 +616,13 @@ fWorker(){
 				case\|*)  fCase "${u#*|}" ;;
 				extra\|*) fExtraFile "${u#*|}" ;;
 				eol\|*)   fEolFile "${u#*|}" ;;
+				kept\|*)  fEolFile "${u#*|}" "kept lines" ;;
 			esac
 			kindBad[${u%%|*}]=$((kindBad[${u%%|*}] + nBad - before))
 		fi
 		i=$((i + 1))
 	done
-	echo "${kindBad[usage]} ${kindBad[case]} ${kindBad[extra]} ${kindBad[eol]}" >"${tmpDir}/kinds"
+	echo "${kindBad[usage]} ${kindBad[case]} ${kindBad[extra]} ${kindBad[eol]} ${kindBad[kept]}" >"${tmpDir}/kinds"
 	echo "${nCompared} ${nBad}" >"${tmpDir}/counts"
 }
 
@@ -633,18 +638,18 @@ for ((k = 0; k < nWorkers; k++)); do
 done
 ## Logs in worker order, so a run reads the same whichever worker ends first.
 ## A worker that did not finish fails every kind, since any of them was its.
-declare -i nFailed=0 wCompared wBad wUsage wCase wExtra wEol badUsage=0 badCase=0 badExtra=0 badEol=0 nKindBad=0
+declare -i nFailed=0 wCompared wBad wUsage wCase wExtra wEol wKept badUsage=0 badCase=0 badExtra=0 badEol=0 badKept=0 nKindBad=0
 for k in "${!pids[@]}"; do
 	wrc=0; wait "${pids[k]}" || wrc=$?
 	cat "${tmpDir}/w${k}.log"
 	if [[ -f "${tmpDir}/w${k}/counts" && -f "${tmpDir}/w${k}/kinds" ]]; then
 		read -r wCompared wBad <"${tmpDir}/w${k}/counts"
 		nCompared=$((nCompared + wCompared)); nBad=$((nBad + wBad))
-		read -r wUsage wCase wExtra wEol <"${tmpDir}/w${k}/kinds"
-		badUsage=$((badUsage + wUsage)); badCase=$((badCase + wCase)); badExtra=$((badExtra + wExtra)); badEol=$((badEol + wEol))
+		read -r wUsage wCase wExtra wEol wKept <"${tmpDir}/w${k}/kinds"
+		badUsage=$((badUsage + wUsage)); badCase=$((badCase + wCase)); badExtra=$((badExtra + wExtra)); badEol=$((badEol + wEol)); badKept=$((badKept + wKept))
 	else
 		nFailed+=1
-		badUsage+=1; badCase+=1; badExtra+=1; badEol+=1
+		badUsage+=1; badCase+=1; badExtra+=1; badEol+=1; badKept+=1
 		echo "crosscheck: worker ${k} ended at exit ${wrc} without finishing" >&2
 	fi
 done
@@ -661,6 +666,9 @@ nKindBad+=badExtra
 fTest ErUF4nK mixed line-ending keep saves agree
 nKindBad+=badEol
 [[ -n "$extra" && -d "${extra}/eol" ]] || fTestSkip
+fTest EreXO4J kept lines under edits agree
+nKindBad+=badKept
+[[ -n "$extra" && -d "${extra}/kept" ]] || fTestSkip
 fTestEnd
 if ((nFailed)); then exit 2; fi
 
@@ -702,3 +710,6 @@ echo "crosscheck: ${#bindings[@]} bindings agree on ${nCompared} comparison(s)"
 ##		- 20260926: A corpus with no case directory exits 2 on its own check.
 ##		- 20261001: Keep saves over the fuzz dump's mixed line-ending inputs,
 ##		               compared on disk.
+##		- 20261003: The same over the dump's kept/ folder: kept lines and the
+##		               edits near them, so the save gate on kept lines is held
+##		               in every binding.

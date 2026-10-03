@@ -1638,7 +1638,7 @@ fn kept_lines_survive_edits() {
 		std::fs::create_dir_all(dir).unwrap_or_else(|e| panic!("dump dir {dir}: {e}"));
 	}
 	let mut dumped = 0usize;
-	'iter: for i in 0..iters {
+	for i in 0..iters {
 		let base = match rng.below(4) {
 			0 => {
 				let seed = rng.below(seeds.len());
@@ -1657,6 +1657,9 @@ fn kept_lines_survive_edits() {
 		let mut log = format!("base: {base:?}\n");
 		let mut ops = String::new();
 		let mut merged = false;
+		// A step an open row excused ends the case after its dump: its later
+		// checks would only see the same class again.
+		let mut excused = false;
 		// Lines a merge may drop by the table: a footer line the base has,
 		// and a settled line on a leaf the layer replaces.
 		let mut may_go: Vec<String> = Vec::new();
@@ -1759,7 +1762,8 @@ fn kept_lines_survive_edits() {
 				);
 				if op > 10 {
 					excuse(Class::RemoveTakesBeside, &why);
-					continue 'iter;
+					excused = true;
+					break;
 				}
 				panic!("{why}");
 			}
@@ -1786,7 +1790,8 @@ fn kept_lines_survive_edits() {
 						.any(|p| kept_at.contains(&p));
 					if under_kept {
 						excuse(Class::BareNameLeft, &why);
-						continue 'iter;
+						excused = true;
+						break;
 					}
 					panic!("{why}");
 				}
@@ -1799,6 +1804,9 @@ fn kept_lines_survive_edits() {
 			std::fs::write(format!("{dir}/{i:05}.shcl"), &base).expect("dump input");
 			std::fs::write(format!("{dir}/{i:05}.ops"), &ops).expect("dump ops");
 			dumped += 1;
+		}
+		if excused {
+			continue;
 		}
 		// (a) Every kept line no target took is written, or the save refuses.
 		let canon = doc.to_canonical();
