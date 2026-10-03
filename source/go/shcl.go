@@ -2065,6 +2065,13 @@ const FormatLine = "##    Format   3"
 // `##    Schema   ./app.schema.shcl`.
 const SchemaLineHead = "##    Schema   "
 
+// The info block's first two text lines. SetBanner finds an old block by the
+// first, which no release has worded differently.
+const (
+	bannerTitle = "## This config file format is SHCL."
+	bannerName  = "## \"Simple Hierarchical Config Language\""
+)
+
 // MigratedLine is written under FormatLine on a file Migrate actually changed.
 // It is a note for whoever opens the file; nothing reads it back.
 const MigratedLine = "##    Migrated from SHCL 2.x."
@@ -5900,54 +5907,66 @@ func keepLines(src string, doc *Document) (string, bool) {
 	return "", false
 }
 
-// dropBanners takes each run of "##" lines holding the info block's SHCL line
-// or a version line out of leads, all but a Schema line. It returns how many
-// came off, and whether the last one had a blank above it with no line after
-// it to take that blank.
+// dropBanners takes the info block out of leads, from the lone "##" above its
+// "This config file format is SHCL." line to the next lone "##", and each
+// version line Migrate stamped, with the note under it. A block with no
+// closing "##" ends after its last line written the block's way. A Schema line
+// in a block stays, and so does any other comment around one, even written
+// right against it. It returns how many came off, and whether the last one
+// had a blank above it with no line after it to take that blank.
 func dropBanners(leads *[]lead) (int, bool) {
-	isBlockLine := func(t string) bool {
-		return t == "## This config file format is SHCL." || strings.HasPrefix(t, FormatLineHead)
-	}
 	ls := *leads
+	inRun := func(l lead) bool { return strings.HasPrefix(l.text, "##") && !l.blankBefore }
 	keep := make([]lead, 0, len(ls))
-	removed, owed := 0, false
+	removed, owed, prevKept := 0, false, false
 	for i := 0; i < len(ls); {
-		end := i + 1
-		if strings.HasPrefix(ls[i].text, "##") {
-			for end < len(ls) && strings.HasPrefix(ls[end].text, "##") && !ls[end].blankBefore {
-				end++
+		start, end := i, i+1
+		switch {
+		case ls[i].text == bannerTitle:
+			if prevKept && !ls[i].blankBefore && ls[i-1].text == "##" {
+				keep = keep[:len(keep)-1]
+				start = i - 1
 			}
-			hit := false
-			for _, l := range ls[i:end] {
-				if isBlockLine(l.text) {
-					hit = true
+			closed := false
+			for k := end; k < len(ls) && inRun(ls[k]); k++ {
+				if ls[k].text == "##" {
+					end, closed = k+1, true
 					break
 				}
 			}
-			if hit {
-				// The blank that set the block off moves to whatever followed
-				// it, so the lines around it stay apart. A Schema line in the
-				// block is the author's and stays, with the blank.
-				at := len(keep)
-				for _, l := range ls[i:end] {
-					if strings.HasPrefix(l.text, SchemaLineHead) {
-						keep = append(keep, l)
-					}
-				}
-				switch {
-				case at < len(keep):
-					keep[at].blankBefore = ls[i].blankBefore
-				case end < len(ls):
-					ls[end].blankBefore = ls[end].blankBefore || ls[i].blankBefore
-				default:
-					owed = ls[i].blankBefore
-				}
-				removed++
-				i = end
-				continue
+			for !closed && end < len(ls) && inRun(ls[end]) &&
+				(strings.HasPrefix(ls[end].text, "##    ") || ls[end].text == bannerName) {
+				end++
+			}
+		case strings.HasPrefix(ls[i].text, FormatLineHead):
+			if end < len(ls) && inRun(ls[end]) && ls[end].text == MigratedLine {
+				end++
+			}
+		default:
+			keep = append(keep, ls[i])
+			prevKept = true
+			i++
+			continue
+		}
+		// The blank that set the block off moves to whatever followed it, so
+		// the lines around it stay apart. A Schema line in the block is the
+		// author's and stays, with the blank.
+		at := len(keep)
+		for _, l := range ls[start:end] {
+			if strings.HasPrefix(l.text, SchemaLineHead) {
+				keep = append(keep, l)
 			}
 		}
-		keep = append(keep, ls[i:end]...)
+		switch {
+		case at < len(keep):
+			keep[at].blankBefore = ls[start].blankBefore
+		case end < len(ls):
+			ls[end].blankBefore = ls[end].blankBefore || ls[start].blankBefore
+		default:
+			owed = ls[start].blankBefore
+		}
+		removed++
+		prevKept = false
 		i = end
 	}
 	if removed > 0 {
@@ -8171,18 +8190,18 @@ func (d *Document) ClearComments(path string) int {
 
 // SetBanner puts the info block (GenBanner) at the end of the document, or
 // with on false just takes it off. An old block comes off first, found by its
-// "This config file format is SHCL." line or its version line, never by its
-// links or Legal line, which a later release may word differently. A version
-// line Migrate stamped counts too. A block is a run of "##" lines with no
-// blank inside, so a "##" comment of the file's own, written right against
-// it, goes with it. It is looked for in the footer and above every field but
-// the first one and its first child down, since a field added below it by hand
-// takes it as its comment. A block at the top of the file is left alone. A
-// dotted first line hangs it on its last name, which a saved file writes as the
-// first field's first child, so a block there is left alone too, however it
-// got there. The library save never adds the block by itself; this is for a
-// program that wants it in a file it writes. Returns how many old blocks came
-// off.
+// "This config file format is SHCL." line, never by its links or Legal line,
+// which a later release may word differently. It runs from the lone "##"
+// above that line to the next one, so a "##" comment of the file's own stays,
+// even written right against it. A version line Migrate stamped comes off
+// too, with the note under it. Both are looked for in the footer and above
+// every field but the first one and its first child down, since a field added
+// below one by hand takes it as its comment. A block at the top of the file is
+// left alone. A dotted first line hangs it on its last name, which a saved file
+// writes as the first field's first child, so a block there is left alone too,
+// however it got there. The library save never adds the block by itself; this
+// is for a program that wants it in a file it writes. Returns how many old
+// blocks came off.
 func (d *Document) SetBanner(on bool) int {
 	removed := 0
 	// The first line's comments are the top of the file, on the first node

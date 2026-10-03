@@ -6056,49 +6056,71 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 	.then_some(out)
 }
 
-/// Take each run of `##` lines holding the info block's SHCL line or a
-/// version line out of `leads`, all but a Schema line. Returns how many came
-/// off, and whether the last one had a blank above it with no line after it
-/// to take that blank.
+/// Take the info block out of `leads`, from the lone `##` above its
+/// `This config file format is SHCL.` line to the next lone `##`, and each
+/// version line `migrate` stamped, with the note under it. A block with no
+/// closing `##` ends after its last line written the block's way. A Schema
+/// line in a block stays, and so does any other comment around one, even
+/// written right against it. Returns how many came off, and whether the last
+/// one had a blank above it with no line after it to take that blank.
 fn drop_banners(leads: &mut Vec<Lead>) -> (usize, bool) {
-	let is_block_line =
-		|t: &str| t == "## This config file format is SHCL." || t.starts_with(FORMAT_LINE_HEAD);
+	let in_run = |l: &Lead| l.text.starts_with("##") && !l.blank_before;
 	let mut keep: Vec<Lead> = Vec::with_capacity(leads.len());
-	let (mut removed, mut owed) = (0, false);
+	let (mut removed, mut owed, mut prev_kept) = (0, false, false);
 	let mut i = 0;
 	while i < leads.len() {
+		let mut start = i;
 		let mut end = i + 1;
-		if leads[i].text.starts_with("##") {
-			while end < leads.len() && leads[end].text.starts_with("##") && !leads[end].blank_before
-			{
-				end += 1;
+		if leads[i].text == BANNER_TITLE {
+			if prev_kept && !leads[i].blank_before && leads[i - 1].text == "##" {
+				keep.pop();
+				start = i - 1;
 			}
-			if leads[i..end].iter().any(|l| is_block_line(&l.text)) {
-				// The blank that set the block off moves to whatever
-				// followed it, so the lines around it stay apart. A Schema
-				// line in the block is the author's and stays, with the blank.
-				let blank = leads[i].blank_before;
-				let at = keep.len();
-				keep.extend(
-					leads[i..end]
-						.iter()
-						.filter(|l| l.text.starts_with(SCHEMA_LINE_HEAD))
-						.cloned(),
-				);
-				if let Some(first) = keep.get_mut(at) {
-					first.blank_before = blank;
-				} else {
-					match leads.get_mut(end) {
-						Some(next) => next.blank_before |= blank,
-						None => owed = blank,
+			match (end..leads.len())
+				.take_while(|&k| in_run(&leads[k]))
+				.find(|&k| leads[k].text == "##")
+			{
+				Some(close) => end = close + 1,
+				None => {
+					while end < leads.len()
+						&& in_run(&leads[end])
+						&& (leads[end].text.starts_with("##    ") || leads[end].text == BANNER_NAME)
+					{
+						end += 1;
 					}
 				}
-				removed += 1;
-				i = end;
-				continue;
+			}
+		} else if leads[i].text.starts_with(FORMAT_LINE_HEAD) {
+			if end < leads.len() && in_run(&leads[end]) && leads[end].text == MIGRATED_LINE {
+				end += 1;
+			}
+		} else {
+			keep.push(leads[i].clone());
+			prev_kept = true;
+			i += 1;
+			continue;
+		}
+		// The blank that set the block off moves to whatever followed it, so
+		// the lines around it stay apart. A Schema line in the block is the
+		// author's and stays, with the blank.
+		let blank = leads[start].blank_before;
+		let at = keep.len();
+		keep.extend(
+			leads[start..end]
+				.iter()
+				.filter(|l| l.text.starts_with(SCHEMA_LINE_HEAD))
+				.cloned(),
+		);
+		if let Some(first) = keep.get_mut(at) {
+			first.blank_before = blank;
+		} else {
+			match leads.get_mut(end) {
+				Some(next) => next.blank_before |= blank,
+				None => owed = blank,
 			}
 		}
-		keep.extend(leads[i..end].iter().cloned());
+		removed += 1;
+		prev_kept = false;
 		i = end;
 	}
 	if removed > 0 {
@@ -8457,19 +8479,19 @@ impl Document {
 
 	/// Put the info block (`GEN_BANNER`) at the end of the document, or with
 	/// `on` false just take it off. An old block comes off first, found by its
-	/// `This config file format is SHCL.` line or its version line, never by
-	/// its links or Legal line, which a later release may word differently.
-	/// A version line `migrate` stamped counts too. A block is a run of `##`
-	/// lines with no blank inside, so a `##` comment of the file's own,
-	/// written right against it, goes with it. It is looked for in the
-	/// footer and above every field but the first one and its first child
-	/// down, since a field added below it by hand takes it as its comment.
-	/// A block at the top of the file is left alone. A dotted first line
-	/// hangs it on its last name, which a saved file writes as the first
-	/// field's first child, so a block there is left alone too, however it
-	/// got there. The library save never adds the block by itself;
-	/// this is for a program that wants it in a file it writes. Returns how
-	/// many old blocks came off.
+	/// `This config file format is SHCL.` line, never by its links or Legal
+	/// line, which a later release may word differently. It runs from the
+	/// lone `##` above that line to the next one, so a `##` comment of the
+	/// file's own stays, even written right against it. A version line
+	/// `migrate` stamped comes off too, with the note under it. Both are
+	/// looked for in the footer and above every field but the first one and
+	/// its first child down, since a field added below one by hand takes it
+	/// as its comment. A block at the top of the file is left alone.
+	/// A dotted first line hangs it on its last name, which a saved file
+	/// writes as the first field's first child, so a block there is left
+	/// alone too, however it got there. The library save never adds the
+	/// block by itself; this is for a program that wants it in a file it
+	/// writes. Returns how many old blocks came off.
 	pub fn set_banner(&mut self, on: bool) -> usize {
 		let mut removed = 0;
 		// The first line's comments are the top of the file, on the first
@@ -11581,6 +11603,11 @@ pub const GEN_BANNER: &str = "\
 ##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.
 ##
 ";
+
+/// The info block's first two text lines. `set_banner` finds an old block by
+/// the first, which no release has worded differently.
+const BANNER_TITLE: &str = "## This config file format is SHCL.";
+const BANNER_NAME: &str = "## \"Simple Hierarchical Config Language\"";
 
 /// The format major the info block names. Bumped with the format, not with the
 /// crate: a file says which rule set it was written for, and nothing else.

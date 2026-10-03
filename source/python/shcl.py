@@ -4361,38 +4361,59 @@ def _keep_lines(src, doc):
 
 
 def _drop_banners(leads):
-	"""Take each run of "##" lines holding the info block's SHCL line or a
-	version line out of `leads`, all but a Schema line. Returns how many came
-	off, whether the last one had a blank above it with no line after it to
-	take that blank, and the lines left."""
-	def is_block_line(t):
-		return t == "## This config file format is SHCL." or t.startswith(FORMAT_LINE_HEAD)
+	"""Take the info block out of `leads`, from the lone "##" above its "This
+	config file format is SHCL." line to the next lone "##", and each version
+	line migrate stamped, with the note under it. A block with no closing "##"
+	ends after its last line written the block's way. A Schema line in a block
+	stays, and so does any other comment around one, even written right against
+	it. Returns how many came off, whether the last one had a blank above it
+	with no line after it to take that blank, and the lines left."""
+	def in_run(c):
+		return c.text.startswith("##") and not c.blank_before
 
 	keep: list[_Lead] = []
-	removed, owed = 0, False
+	removed, owed, prev_kept = 0, False, False
 	i = 0
 	while i < len(leads):
-		end = i + 1
-		if leads[i].text.startswith("##"):
-			while end < len(leads) and leads[end].text.startswith("##") and not leads[end].blank_before:
+		start, end = i, i + 1
+		if leads[i].text == _BANNER_TITLE:
+			if prev_kept and not leads[i].blank_before and leads[i - 1].text == "##":
+				keep.pop()
+				start = i - 1
+			close = end
+			while close < len(leads) and in_run(leads[close]) and leads[close].text != "##":
+				close += 1
+			if close < len(leads) and in_run(leads[close]):
+				end = close + 1
+			else:
+				while (
+					end < len(leads)
+					and in_run(leads[end])
+					and (leads[end].text.startswith("##    ") or leads[end].text == _BANNER_NAME)
+				):
+					end += 1
+		elif leads[i].text.startswith(FORMAT_LINE_HEAD):
+			if end < len(leads) and in_run(leads[end]) and leads[end].text == MIGRATED_LINE:
 				end += 1
-			if any(is_block_line(c.text) for c in leads[i:end]):
-				# The blank that set the block off moves to whatever followed
-				# it, so the lines around it stay apart. A Schema line in the
-				# block is the author's and stays, with the blank.
-				blank = leads[i].blank_before
-				at = len(keep)
-				keep.extend(c for c in leads[i:end] if c.text.startswith(SCHEMA_LINE_HEAD))
-				if at < len(keep):
-					keep[at].blank_before = blank
-				elif end < len(leads):
-					leads[end].blank_before = leads[end].blank_before or blank
-				else:
-					owed = blank
-				removed += 1
-				i = end
-				continue
-		keep.extend(leads[i:end])
+		else:
+			keep.append(leads[i])
+			prev_kept = True
+			i += 1
+			continue
+		# The blank that set the block off moves to whatever followed it, so
+		# the lines around it stay apart. A Schema line in the block is the
+		# author's and stays, with the blank.
+		blank = leads[start].blank_before
+		at = len(keep)
+		keep.extend(c for c in leads[start:end] if c.text.startswith(SCHEMA_LINE_HEAD))
+		if at < len(keep):
+			keep[at].blank_before = blank
+		elif end < len(leads):
+			leads[end].blank_before = leads[end].blank_before or blank
+		else:
+			owed = blank
+		removed += 1
+		prev_kept = False
 		i = end
 	if removed:
 		# A reload puts a comment at most one level past the one before it,
@@ -5653,19 +5674,19 @@ class Document:
 	def set_banner(self, on: bool) -> int:
 		"""Put the info block (GEN_BANNER) at the end of the document, or with
 		on False just take it off. An old block comes off first, found by its
-		"This config file format is SHCL." line or its version line, never by
-		its links or Legal line, which a later release may word differently.
-		A version line migrate stamped counts too. A block is a run of "##"
-		lines with no blank inside, so a "##" comment of the file's own,
-		written right against it, goes with it. It is looked for in the footer
-		and above every field but the first one and its first child down,
-		since a field added below it by hand takes it as its comment. A block
-		at the top of the file is left alone. A dotted first line hangs it on
-		its last name, which a saved file writes as the first field's first
-		child, so a block there is left alone too, however it got there. The
-		library save never adds the block by itself; this is for a program
-		that wants it in a file it writes. Returns how many old blocks came
-		off."""
+		"This config file format is SHCL." line, never by its links or Legal
+		line, which a later release may word differently. It runs from the
+		lone "##" above that line to the next one, so a "##" comment of the
+		file's own stays, even written right against it. A version line
+		migrate stamped comes off too, with the note under it. Both are looked
+		for in the footer and above every field but the first one and its
+		first child down, since a field added below one by hand takes it as
+		its comment. A block at the top of the file is left alone. A dotted
+		first line hangs it on its last name, which a saved file writes as
+		the first field's first child, so a block there is left alone too,
+		however it got there. The library save never adds the block by
+		itself; this is for a program that wants it in a file it writes.
+		Returns how many old blocks came off."""
 		_want("set_banner", on, "bool")
 		removed = 0
 		# The first line's comments are the top of the file, on the first node
@@ -9311,6 +9332,11 @@ SCHEMA_LINE_HEAD = "##    Schema   "
 # Written under FORMAT_LINE on a file migrate actually changed. It is a note for
 # whoever opens the file; nothing reads it back.
 MIGRATED_LINE = "##    Migrated from SHCL 2.x."
+
+# The info block's first two text lines. set_banner finds an old block by the
+# first, which no release has worded differently.
+_BANNER_TITLE = "## This config file format is SHCL."
+_BANNER_NAME = '## "Simple Hierarchical Config Language"'
 
 
 def _v007_sanctioned(message):

@@ -240,6 +240,8 @@ printf 'p: %s\nsrv:\n\t##    Format   3\n\tx: 1\n' "'C:\temp'" > "${tmpDir}/inds
 ## An older Format line with migrate's own stamp after it, so the first line
 ## found is the older one.
 printf 'a: 1\n##    Format   0\n##    Format   3\n' > "${tmpDir}/twostamps.shcl"
+## An old info block with the file's own comments written right under it.
+printf 'port: 1\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3\n##    Home     https://example.invalid/shcl\n##\n## Ops team: do not edit by hand.\n## Pager: 555-0100\n' > "${tmpDir}/ownbanner.shcl"
 ## A default on a path whose last segment selects by value. A value after that
 ## selector is ignored, so generation used to write a line that failed its own
 ## check. One default contradicts the selector and one names it.
@@ -352,7 +354,7 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	whose value reads differently under the two rule sets, %BW% a fresh copy of
 ##	the bracket array, %V3% a file that already names its format,
 ##	%V3B% the same behind a BOM, %V03% an older Format line and then the
-##	current one, %FB% a Format line of five thousand digits, %RF2%/%RF3% a raw body holding a Format line, %RFQ% one opened by a name ending in a backslash,
+##	current one, %BN% an info block with the file's own comments under it, %FB% a Format line of five thousand digits, %RF2%/%RF3% a raw body holding a Format line, %RFQ% one opened by a name ending in a backslash,
 ##	%ML% a 2.x file migrate rewrites whose migrated text still drops a line,
 ##	%SB%/%SC% a last-segment selector whose default contradicts it and one
 ##	whose default names it, %SD%/%SE% an optional field's bad default and
@@ -410,6 +412,10 @@ rows=(
 	## 20260925: the banner op takes on or off where other ops take a path.
 	'Equbm1a|banner-on-off|set %F%|banner\ton\nbanner\toff\n|0|a: 1\n|-'
 	'Equbm1b|banner-bad-value|set %F%|banner\tmaybe\n|1|-|op line 1: bad banner: maybe \(on or off\)$'
+	## 2026100307163904: banner took the file's own comments written against
+	## the block with it, at exit 0.
+	'Erg8DKv|banner-off-keeps-own-comments|set %BN%|banner\toff\n|0|port: 1\n\n## Ops team: do not edit by hand.\n## Pager: 555-0100\n|-'
+	'Erg8DKw|banner-on-keeps-own-comments|set %BN%|banner\ton\n|0|port: 1\n\n## Ops team: do not edit by hand.\n## Pager: 555-0100\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright \xc2\xa9 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n|-'
 	'Equbm1c|clear-comments-extra-field|set %F%|clear-comments\ta\tx\n|1|-|clear-comments takes 2 tab-separated field'
 	## 20260830 item 18: C answered a directory with a bare "read error". Exit 8
 	## since 20260830b item 22 split I/O out of the usage code. The wording is
@@ -1103,6 +1109,7 @@ for row in "${rows[@]}"; do
 	argv="${argv//%V3I%/${tmpDir}/indstamped.shcl}"
 	argv="${argv//%V3B%/${tmpDir}/bomstamped.shcl}"
 	argv="${argv//%V03%/${tmpDir}/twostamps.shcl}"
+	argv="${argv//%BN%/${tmpDir}/ownbanner.shcl}"
 	argv="${argv//%FB%/${tmpDir}/bigfmt.shcl}"
 	argv="${argv//%RF2%/${tmpDir}/rawfmt2.shcl}"
 	argv="${argv//%RF3%/${tmpDir}/rawfmt3.shcl}"
@@ -1726,6 +1733,34 @@ for sc in "${saveCases[@]}"; do
 		fi
 		if ! (cd "${saveDir}" && eval "${holds}"); then
 			echo "cli-regress: save-${id} [${name}]: afterwards, not true: ${holds}" >&2; nBad+=1
+		fi
+	done
+done
+
+## 2026100307163904: migrate stamps a file right under its last comment, and a
+## later banner on took the comment with the stamp. Run as a user would, one
+## command after the other on the file, once with the migrated note and once
+## without it.
+infoBlock="$(printf '%b' '##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright \xc2\xa9 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n')"
+banDir="${tmpDir}/banner"
+for bc in 'Erg8DKx|stamp|p: 1\n## Owner: ops team\n' 'Erg8DKy|stamp-note|base:[Boston]\n## Owner: ops team\n'; do
+	IFS='|' read -r tid id text <<<"${bc}"
+	fTest "${tid}" "migrate-then-banner-${id}"
+	want="$(printf '%b' "${text}" | sed 's/:\[Boston\]/: Boston/')"
+	for b in "${bindings[@]}"; do
+		name="${b%%|*}"; cli="${b#*|}"
+		rm -rf "${banDir}"; mkdir -p "${banDir}"
+		printf '%b' "${text}" > "${banDir}/f.shcl"
+		rc=0
+		"${cli}" migrate --from-2x --write "${banDir}/f.shcl" >/dev/null 2>"${tmpDir}/err" </dev/null || rc=$?
+		if ((rc == 0)); then
+			printf 'banner\ton\n' | "${cli}" set --write "${banDir}/f.shcl" >/dev/null 2>"${tmpDir}/err" || rc=$?
+		fi
+		nRun+=1
+		if ((rc != 0)); then
+			echo "cli-regress: migrate-then-banner-${id} [${name}]: exit ${rc}: $(head -c 200 "${tmpDir}/err")" >&2; nBad+=1
+		elif [[ "$(cat "${banDir}/f.shcl"; echo .)" != "${want}"$'\n\n'"${infoBlock}"$'\n.' ]]; then
+			echo "cli-regress: migrate-then-banner-${id} [${name}]: the file afterwards: $(head -c 300 "${banDir}/f.shcl")" >&2; nBad+=1
 		fi
 	done
 done
