@@ -699,15 +699,15 @@ It is not a pipeline gate. Benchmarks are noisy and slow, and a red build caused
 
 One thing the tool found about a library rather than a format, recorded so nobody re-derives it: `lxml` goes quadratic on the long-and-flat shape, dropping from 59 MiB/s at 3 MiB to 5.7 at 26 - measured with and without `huge_tree`, which makes no difference, so it is not the flag that lifts libxml2's size ceilings. The likely cause is the shape's millions of *distinct* element names against libxml2's name dictionary; the shapes whose names repeat show nothing of the sort, and no other library in either tier does this. It is a good argument for measuring more than one document shape.
 
-What it found, at 64 MiB per shape (rerun on 2026-09-19; runs before it read the memory figure with two documents alive for five of the seven Rust libraries):
+What it found, at 64 MiB per shape (rerun on 2026-10-02; runs before 2026-09-19 read the memory figure with two documents alive for five of the seven Rust libraries):
 
 - SHCL writes the smallest file of the five in three shapes of four, and the gap widens with nesting - half the size of JSON and of XML on deep structure. Gzipped, SHCL is within 3% of the smallest file on every shape, so the win is a plain-text one.
 
-- SHCL loads fifth of seven in Rust and last in Python by aggregate, four to eight times behind `serde_json`. On memory it sits in the middle: below YAML on three shapes of four, below TOML on two, above JSON on all four, and below `toml_edit` on all four, about half of it on the records. `toml_edit` is the one other parser that keeps the file.
+- SHCL loads fifth of seven in Rust and last in Python by aggregate, three to six times behind `serde_json`. On memory it sits in the middle: below YAML on three shapes of four, below TOML on two, above JSON on all four, and below `toml_edit` on all four, about 40% of it on the records. `toml_edit` is the one other parser that keeps the file.
 
-- The Python tier puts SHCL 3.5x behind `tomllib`, the tier's one other pure-Python parser, against 1.5x behind `toml` in Rust, so part of the Python gap is the implementation rather than the format. The rest of the trade is the design working as intended rather than a defect.
+- The Python tier puts SHCL 4.2x behind `tomllib`, the tier's one other pure-Python parser, against 1.3x behind `toml` in Rust, so part of the Python gap is the implementation rather than the format. The rest of the trade is the design working as intended rather than a defect.
 
-- At the two realistic sizes the size result holds and the speed result stops mattering: SHCL writes the smallest file of the five for both the config and the schema definition, and reads them in 0.04 ms and 7 ms.
+- At the two realistic sizes the size result holds and the speed result stops mattering: SHCL writes the smallest file of the five for both the config and the schema definition, and reads them in 0.04 ms and 6 ms.
 
 ### CI/CD
 
