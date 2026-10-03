@@ -1570,11 +1570,11 @@ fn kept_text(text: &str) -> KeptText {
 		if in_body(n) {
 			continue;
 		}
-		let line = lines[n - 1].trim().to_string();
+		let line = lines[n - 1].trim_matches(BLANKS).to_string();
 		if let Some(&(_, close)) = spans.iter().find(|s| s.0 == n) {
 			let body = lines[n..close.min(lines.len())]
 				.iter()
-				.map(|l| l.trim().to_string())
+				.map(|l| l.trim_matches(BLANKS).to_string())
 				.collect();
 			out.spans.push((line.clone(), body, name_refused));
 		}
@@ -1583,10 +1583,15 @@ fn kept_text(text: &str) -> KeptText {
 	out
 }
 
+/// The blanks the format trims. `str::trim` also takes a next-line or a
+/// no-break space, which are content here, so a kept line led by one compared
+/// unequal to the comment a settle made of it.
+const BLANKS: [char; 3] = [' ', '\t', '\r'];
+
 /// A trimmed line with the `# ` a settle puts in front taken off. The settle
 /// keeps any other blank that followed the indent, so trim again.
 fn unsettled(t: &str) -> &str {
-	t.strip_prefix("# ").map_or(t, str::trim)
+	t.strip_prefix("# ").map_or(t, |t| t.trim_matches(BLANKS))
 }
 
 /// How many of `want` a text writes, each line used once: as written, or as
@@ -1597,7 +1602,7 @@ fn missing_kept(text: &str, want: &[String]) -> Vec<String> {
 		.strip_prefix('\u{feff}')
 		.unwrap_or(text)
 		.lines()
-		.map(|l| Some(l.trim()))
+		.map(|l| Some(l.trim_matches(BLANKS)))
 		.collect();
 	let mut missing = Vec::new();
 	for w in want {
@@ -1635,7 +1640,7 @@ fn taken_lines(canon: &str, path: &str) -> Vec<String> {
 			continue;
 		}
 		let depth = tabs(lines[n - 1]);
-		out.push(lines[n - 1].trim().to_string());
+		out.push(lines[n - 1].trim_matches(BLANKS).to_string());
 		let mut waiting = Vec::new();
 		for l in &lines[n..] {
 			// Blank as the load reads it: a kept line can be all other space.
@@ -1643,14 +1648,14 @@ fn taken_lines(canon: &str, path: &str) -> Vec<String> {
 				continue;
 			}
 			if l[..l.len() - l.trim_start_matches([' ', '\t']).len()].contains(' ') {
-				waiting.push(l.trim().to_string());
+				waiting.push(l.trim_matches(BLANKS).to_string());
 				continue;
 			}
 			if tabs(l) <= depth {
 				break;
 			}
 			out.append(&mut waiting);
-			out.push(l.trim().to_string());
+			out.push(l.trim_matches(BLANKS).to_string());
 		}
 	}
 	out
@@ -1663,7 +1668,7 @@ fn parent_line(canon: &str, n: usize) -> Option<usize> {
 	let depth = tabs(lines.get(n.wrapping_sub(1))?);
 	(1..n).rev().find(|&k| {
 		let l = lines[k - 1];
-		let t = l.trim();
+		let t = l.trim_matches(BLANKS);
 		!t.is_empty() && !t.starts_with('#') && tabs(l) < depth
 	})
 }
@@ -1697,7 +1702,12 @@ fn footer(canon: &str) -> Vec<(usize, &str)> {
 	let lines: Vec<&str> = canon.lines().collect();
 	lines[(footer_start(canon) - 1).min(lines.len())..]
 		.iter()
-		.map(|l| (l.len() - l.trim_start_matches('\t').len(), l.trim()))
+		.map(|l| {
+			(
+				l.len() - l.trim_start_matches('\t').len(),
+				l.trim_matches(BLANKS),
+			)
+		})
 		.filter(|l| !l.1.is_empty())
 		.collect()
 }
@@ -1772,13 +1782,16 @@ fn replaced_leaf_lines(before: &str, layer: &str) -> Vec<String> {
 		let mut cut = base.clone();
 		cut.remove(&p);
 		let left = cut.to_canonical();
-		let mut left = left.lines().map(|l| unsettled(l.trim())).peekable();
+		let mut left = left
+			.lines()
+			.map(|l| unsettled(l.trim_matches(BLANKS)))
+			.peekable();
 		let mut gone = Vec::new();
 		for l in had.lines() {
-			if left.peek() == Some(&unsettled(l.trim())) {
+			if left.peek() == Some(&unsettled(l.trim_matches(BLANKS))) {
 				left.next();
 			} else {
-				gone.push(l.trim());
+				gone.push(l.trim_matches(BLANKS));
 			}
 		}
 		// A remove that wrote a line of its own (2026100307163907) leaves no
@@ -1789,7 +1802,7 @@ fn replaced_leaf_lines(before: &str, layer: &str) -> Vec<String> {
 		out.extend(
 			gone.into_iter()
 				.filter_map(|l| l.strip_prefix("# "))
-				.map(|t| t.trim().to_string()),
+				.map(|t| t.trim_matches(BLANKS).to_string()),
 		);
 	}
 	out
@@ -1980,12 +1993,14 @@ fn kept_lines_survive_edits() {
 			// (c) A remove only takes lines away.
 			if op > 10 && took {
 				// A settle can turn a line into a comment, or back.
-				let had: std::collections::HashSet<&str> =
-					before.lines().map(|l| unsettled(l.trim())).collect();
+				let had: std::collections::HashSet<&str> = before
+					.lines()
+					.map(|l| unsettled(l.trim_matches(BLANKS)))
+					.collect();
 				let after = doc.to_canonical();
 				let new: Vec<&str> = after
 					.lines()
-					.map(str::trim)
+					.map(|t| t.trim_matches(BLANKS))
 					.filter(|t| !t.is_empty() && !had.contains(unsettled(t)))
 					.collect();
 				if !new.is_empty() {
@@ -2038,7 +2053,7 @@ fn kept_lines_survive_edits() {
 				.strip_prefix('\u{feff}')
 				.unwrap_or(&text)
 				.lines()
-				.map(str::trim)
+				.map(|t| t.trim_matches(BLANKS))
 				.collect();
 			for (opener, body, name_refused) in &spans {
 				let whole: Vec<&str> = std::iter::once(opener.as_str())
