@@ -232,15 +232,15 @@ class SaveError(Exception):
 
 
 class SaveRefused(SaveError):
-	"""The lost-content gate fired: the load dropped content this save would
-	delete (see lost_count). save_file_lossy is the override."""
+	"""The lost-content gate fired: this save would delete content from the
+	file (see lost_count). save_file_lossy is the override."""
 	path: str | os.PathLike[str]
 	lost: int
 
 	def __init__(self, path: str | os.PathLike[str], lost: int):
 		self.path = path
 		self.lost = lost
-		super().__init__(f"{path}: refusing to save: load dropped {lost} line(s)/value(s) this write would delete (see diagnostics; save_file_lossy overrides)")
+		super().__init__(f"{path}: refusing to save: this write would delete {lost} line(s)/value(s) from the file (see diagnostics; save_file_lossy overrides)")
 
 
 class SaveFailed(SaveError):
@@ -368,6 +368,11 @@ class _Lead:
 
 	def is_comment(self):
 		return self.text.startswith("#") and not self.kept
+
+	def is_kept_line(self):
+		"""A line the load kept as written, settled or not. The save gate
+		counts these (design.md, Kept lines under edits)."""
+		return self.kept or not self.text.startswith("#")
 
 
 def _comment_depth(chain, held, base, text, indent):
@@ -2513,6 +2518,8 @@ class _Parser:
 		self.reentered = {}
 		# Dropped lines/values canonical output cannot re-emit.
 		self.lost = 0
+		# Lines kept as written, one per retained outcome.
+		self.kept_owed = 0
 		# Indent of the last E012 line kept as written, while the lines after
 		# it sit under it; those are E018 and are kept as written too.
 		self.kept_hold = None
@@ -2806,6 +2813,11 @@ class _Parser:
 		if self.track_dropped and outcome.kind in ("value_dropped", "dropped"):
 			self.dropped.append(line)
 		if outcome.kind == "retained":
+			# One retained outcome makes one _Pend, and each _Pend becomes one
+			# _Lead, so right after a load _kept_lines() equals this. An arm
+			# that files a retained line nowhere breaks that, and the save gate
+			# then refuses even a plain fmt --write, as it should.
+			self.kept_owed += 1
 			p = _Pend(outcome.text, indent, outcome.blank_before, line)
 			# A line kept as written never hangs on a block: its indent is not
 			# one the output's levels are written with, so the block it would
@@ -3548,6 +3560,7 @@ class _Parser:
 		doc._ends = self.ends
 		doc._dropped = self.dropped
 		doc._kept = self.kept_any
+		doc._kept_owed = self.kept_owed
 		doc._settle_kept()
 		return doc
 
@@ -3681,6 +3694,15 @@ class _Emit:
 		_, self.open, self.tail = self.resolve(indent)
 		self.tail.append((indent, ROOT))
 		self.hold = None
+
+
+def _kept_in(leads):
+	return sum(1 for lead in leads if lead.is_kept_line())
+
+
+def _kept_in_lists(nd):
+	"""Kept lines in all of one node's trivia lists."""
+	return _kept_in(nd.leading()) + _kept_in(nd.after()) + _kept_in(nd.inside()) + _kept_in(a[1] for a in nd.among())
 
 
 def _heads_block(node):
@@ -4357,7 +4379,7 @@ def _errors_within(d, of):
 
 class Document:
 	"""A parsed SHCL document: the tree, its diagnostics, and its strictness level."""
-	__slots__ = ("arena", "diags", "_strictness", "orphans", "_lost", "_index", "_probe", "_probe_doc", "_kept", "_kept_near", "_kept_sum", "_ends", "_dropped", "_source")
+	__slots__ = ("arena", "diags", "_strictness", "orphans", "_lost", "_kept_owed", "_index", "_probe", "_probe_doc", "_kept", "_kept_near", "_kept_sum", "_ends", "_dropped", "_source")
 
 	def __init__(
 		self,
@@ -4376,6 +4398,10 @@ class Document:
 		# Content-malformed lines are NOT counted - they are retained as trivia
 		# and survive a save. lost_count() serves it; save_file() gates on it.
 		self._lost = lost
+		# How many kept lines the document must still write: the load's, plus
+		# a merged layer's, less those design.md's kept-lines table lets an
+		# edit take. Fewer in the tree than this counts as lost.
+		self._kept_owed = 0
 		# Built on the first path lookup and kept current by the writer (a new
 		# child appends, a removed one unlinks); only a merge drops it. Without
 		# it every lookup scans the parent's children, so a flat document read
@@ -4482,8 +4508,9 @@ class Document:
 		anyway. Raises SaveRefused for the gate and SaveFailed for a failed
 		write: returning the message instead would let the obvious spelling -
 		the call on a line of its own - report success while doing nothing."""
-		if self._lost > 0:
-			raise SaveRefused(path, self._lost)
+		lost = self.lost_count()
+		if lost > 0:
+			raise SaveRefused(path, lost)
 		err = write_file_atomic(path, self.to_canonical())
 		if err is not None:
 			raise SaveFailed(err)
@@ -4508,8 +4535,45 @@ class Document:
 		cap. Content-malformed lines do NOT count: those are retained as trivia
 		and survive a save. Nonzero means a save_file would delete hand-written
 		content, so save_file refuses then (save_file_lossy overrides), and
-		save_file_keep_lines does when it cannot keep the lines."""
-		return self._lost
+		save_file_keep_lines does when it cannot keep the lines. It also counts
+		lines the load kept as written that an edit took and design.md's
+		kept-lines table does not let it take."""
+		return self._lost + self._kept_shortfall()
+
+	def _kept_shortfall(self) -> int:
+		"""Kept lines the document owes and no longer holds. Free on a
+		document that never had one."""
+		if self._kept_owed == 0:
+			return 0
+		return max(self._kept_owed - self._kept_lines(), 0)
+
+	def _kept_lines(self) -> int:
+		"""Kept lines in the live tree and the orphans. From ROOT, since a
+		removed node stays in the arena; a stack, since a recursive walk
+		overflowed Windows' 1 MB main stack on the deepest legal document."""
+		n = _kept_in(self.orphans)
+		stack = [ROOT]
+		while stack:
+			nd = self.arena[stack.pop()]
+			n += _kept_in_lists(nd)
+			stack.extend(nd.children)
+		return n
+
+	def _taken(self, node: int) -> int:
+		"""The kept lines a remove of node takes, by design.md's table: every
+		one written inside its block, and the one written as its own line. Read
+		from where the lines sit before the edit, so a remove that drops one
+		beside its target is caught by the gate rather than allowed."""
+		nd = self.arena[node]
+		n = _kept_in(nd.inside()) + _kept_in(a[1] for a in nd.among())
+		if _heads_block(nd) and nd.leading()[-1].is_kept_line():
+			n += 1
+		stack = list(nd.children)
+		while stack:
+			c = self.arena[stack.pop()]
+			n += _kept_in_lists(c)
+			stack.extend(c.children)
+		return n
 
 	def error_count(self) -> int:
 		"""How many error-severity diagnostics the document has - the "did
@@ -4588,9 +4652,12 @@ class Document:
 		for byte; a changed value is written into its line; new lines are
 		indented the way the lines around them are. The result has to reload
 		as this document. When it does not, or the document was not loaded
-		with parse_keep_lines or load_file_keep_lines, or it took a merge,
-		this is to_canonical() and False."""
-		if self._source is not None:
+		with parse_keep_lines or load_file_keep_lines, or it took a merge, or
+		an edit took a kept line it should not have, this is to_canonical()
+		and False."""
+		# The reparse check cannot see a kept line gone from both the tree and
+		# the text, so falling back leaves it to the lost-count gate.
+		if self._source is not None and self._kept_shortfall() == 0:
 			t = _keep_lines(self._source, self)
 			if t is not None:
 				return t, True
@@ -4602,8 +4669,9 @@ class Document:
 		comes back as written when the lines are kept, so this refuses the way
 		save_file does only when it would write canonical."""
 		text, kept = self.to_text_keep_lines()
-		if not kept and self._lost > 0:
-			raise SaveRefused(path, self._lost)
+		lost = self.lost_count()
+		if not kept and lost > 0:
+			raise SaveRefused(path, lost)
 		err = write_file_atomic(path, text)
 		if err is not None:
 			raise SaveFailed(err)
@@ -5418,6 +5486,8 @@ class Document:
 			# twice.
 			if p == DEAD:
 				continue
+			if self._kept_owed > 0:
+				self._kept_owed = max(self._kept_owed - self._taken(t), 0)
 			if self._index is not None:
 				self._index.unlink(_name_key(p, self.arena[t].name), t)
 			self.arena[t].parent = DEAD
@@ -5774,6 +5844,7 @@ class Document:
 		self._index = None
 		self._source = None
 		self._lost += over._lost
+		self._kept_owed += over._kept_owed
 		# The layer's own kept lines were modeled against its own tree.
 		fresh = over._kept
 		self._kept = self._kept or over._kept
@@ -5805,6 +5876,9 @@ class Document:
 					depth = min(depth, room)
 					room = depth + 1
 				self.orphans.append(_Lead(o.text, o.blank_before, depth, kept=o.kept))
+			elif o.is_kept_line():
+				# The table lets the dedup skip a footer line the base has.
+				self._kept_owed = max(self._kept_owed - 1, 0)
 		_settle_first_blank(self.arena, self.orphans)
 		if fresh:
 			self._settle_kept()
@@ -5908,6 +5982,10 @@ class Document:
 						nd = self.arena[b]
 						lines = [*nd.leading(), *(a[1] for a in nd.among()), *nd.inside(), *nd.after()]
 						kept.extend(_Lead(lead.text, lead.blank_before, lead.depth) for lead in lines if not lead.text.startswith("#"))
+						# A settled one goes with the leaf's comments (decided
+						# 2026-09-28), so it is no longer owed.
+						settled = sum(1 for lead in lines if lead.kept and lead.text.startswith("#"))
+						self._kept_owed = max(self._kept_owed - settled, 0)
 					if kept:
 						t = self.arena[clones[0][1]]._triv()
 						t.leading = kept + t.leading

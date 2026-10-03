@@ -552,19 +552,19 @@ rows=(
 	## A dropped line refuses the write only when the save falls back to
 	## canonical. Removing margin would put stray under window, so that one does.
 	'EqzUbG4|set-write-keeps-dropped|set --write %KL% --set=font.size=13|-|0|-|E012|font:\n\tsize: 13\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n'
-	'EqzUbG5|set-write-fallback-refused|set --write %KL% --remove=window.margin|-|7|-|dropped 1 line|font:\n\tsize: 12\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n'
+	'EqzUbG5|set-write-fallback-refused|set --write %KL% --remove=window.margin|-|7|-|would delete 1 line|font:\n\tsize: 12\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n'
 	## 20260926 item 1: a rewritten line took a dropped line with it at exit
 	## 0, an element under a field with a value or an E018 line between two
 	## lines of one block.
-	'Er7gigM|set-write-keeps-dropped-element|set --write %KE% --set=val=9|-|7|-|dropped 1 line|val: 1\n\t* e\nz: 2\n'
+	'Er7gigM|set-write-keeps-dropped-element|set --write %KE% --set=val=9|-|7|-|would delete 1 line|val: 1\n\t* e\nz: 2\n'
 	## 20260926 idea 2: a save meant to keep the lines that rewrote the whole
 	## file said nothing.
 	'Er8Ivln|set-write-says-canonical|set --write %KF% --set=b=3|-|0|-|rewritten in the canonical form|a:\n\tx: 1\n\ty: 1\nb: 3\n'
 	## The kept line before a dotted line now sits level with its first name
 	## (2026100213205957), so this save keeps its lines, the dropped one too.
-	#'Er7gihi|set-write-keeps-dropped-between|set --write %KG% --set=x=v|-|7|-|dropped 1 line|x[*]: [1, 2]\n x:\nx.a: 2\n'
+	#'Er7gihi|set-write-keeps-dropped-between|set --write %KG% --set=x=v|-|7|-|would delete 1 line|x[*]: [1, 2]\n x:\nx.a: 2\n'
 	'EraAIXa|set-write-keeps-dropped-gap|set --write %KG% --set=x=v|-|0|-|-|x[*]: [1, 2]\n x:\nx: v\n a: 2\n'
-	'EraAIXb|set-write-gap-fallback-refused|set --write %KG% --set=x.b=1|-|7|-|dropped 1 line|x[*]: [1, 2]\n x:\nx.a: 2\n'
+	'EraAIXb|set-write-gap-fallback-refused|set --write %KG% --set=x.b=1|-|7|-|would delete 1 line|x[*]: [1, 2]\n x:\nx.a: 2\n'
 	"Ep3OILN|set-open-quote-refused|set --set=a[\"open=1 %X%|-|1|-|bad --set value"
 	## 20260909 item 13: a value built by a setter or a selector read as
 	## unquoted, so quoted thousands were BadType until a save and reload.
@@ -598,7 +598,7 @@ rows=(
 	## no longer hold: no E018, nothing lost, and the write goes through.
 	#'Ep3QaNm|sugar-check|check %W%|-|6|line 1: Error: E019\nline 2: Error: E018\nfailed: 2 diagnostic(s), 2 error(s)\n|-'
 	'Ep3QaNn|sugar-check-strict|check --strictness=strict %W%|-|6|-|-'
-	#'EpFkZy8|sugar-write-refused|fmt --write %W%|-|7|-|dropped 1 line'
+	#'EpFkZy8|sugar-write-refused|fmt --write %W%|-|7|-|would delete 1 line'
 	'ErUmRRa|sugar-check-block|check %W%|-|6|line 1: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
 	'ErUmRRb|sugar-block-read|get %W% base.lat|-|0|42\n|-'
 	'ErUmRRc|sugar-write-kept|fmt --write %W%|-|0||-'
@@ -728,8 +728,8 @@ rows=(
 	## sugar file's --write row two dozen lines up is the other half of the pair.
 	## The sugar file loses nothing now (2026100115403384), so the pair moved
 	## to a file whose load drops a line.
-	#'EqQSqyX|fmt-check-refused|fmt --check %W%|-|7||fmt --write would refuse: the load dropped 1 line'
-	'ErUn2Bu|fmt-check-refused-dropped|fmt --check %KL%|-|7||fmt --write would refuse: the load dropped 1 line'
+	#'EqQSqyX|fmt-check-refused|fmt --check %W%|-|7||fmt --write would refuse: it would delete 1 line'
+	'ErUn2Bu|fmt-check-refused-dropped|fmt --check %KL%|-|7||fmt --write would refuse: it would delete 1 line'
 	'EqQSqyY|migrate-check-refused|migrate --check %ML%|-|7||migrate --write would refuse: the migrated text drops 1 line'
 	'EqQSqyZ|migrate-write-refused-lost|migrate --write %ML%|-|7|-|refusing to rewrite: the migrated text drops 1 line'
 	## 20260918b item 55: a created file says so, since nothing else does.
@@ -1617,6 +1617,7 @@ fSaveSetup() {
 		migrate)  printf 'base:[Boston]\n\tlat: 42\n' > f.shcl; chmod 0640 f.shcl ;;
 		migrate-taken) printf 'base:[Boston]\n' > f.shcl; printf 'x\n' > f_old_v2.shcl ;;
 		migrate-stamp) printf 'a: 1\n' > f.shcl ;;
+		kept-remove) printf 'x: 1\nr: [1, 2]\ny: 3\n' > f.shcl ;;
 		migrate-dotname) printf 'base:[Boston]\n' > .f ;;
 		migrate-dotdir) mkdir d.x; printf 'base:[Boston]\n' > d.x/f ;;
 		migrate-link) mkdir real; printf 'base:[Boston]\n' > real/c.shcl; ln -s real/c.shcl f.shcl ;;
@@ -1667,6 +1668,11 @@ saveCases=(
 	## over too. A copy that cannot be made names its path once.
 	'ErCrqxU|migrate-setgid|migrate --write sg/f.shcl|0|[[ "$(stat -c %G sg/f_old_v2.shcl)" == "$(id -gn)" && "$(stat -c %a sg/f_old_v2.shcl)" == 640 ]]'
 	'ErCrqz4|migrate-setid|migrate --write f.shcl|0|[[ "$(stat -c %a f_old_v2.shcl)" == 6755 ]]'
+	## A remove that takes a kept line beside its target refuses at 7 and leaves
+	## the file alone, since the save gate counts kept lines (2026100307310000).
+	## The fix for 2026100307163901 makes this exit 0 with `r: [1, 2]` kept, a
+	## stronger check, not a looser one.
+	'EreYYXK|kept-remove|set --write --remove y f.shcl|7|cmp -s f.shcl <(printf "x: 1\nr: [1, 2]\ny: 3\n") && grep -qxF "f.shcl: refusing to rewrite: this write would delete 1 line(s)/value(s) from the file (--lossy overrides)" "${tmpDir}/err"'
 	'ErCrr0Y|migrate-rodir|migrate --write ro/g.shcl|8|grep -qx "base:\[Boston\]" ro/g.shcl && grep -qiE "^ro/g_old_v2\.shcl: permission denied" "${tmpDir}/err" && ! grep -q "open " "${tmpDir}/err"'
 )
 if [[ "${onWindows}" == 1 ]]; then

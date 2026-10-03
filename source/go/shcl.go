@@ -356,6 +356,12 @@ func (l *lead) isComment() bool {
 	return strings.HasPrefix(l.text, "#") && !l.kept
 }
 
+// isKeptLine: a line the load kept as written, settled or not. The save gate
+// counts these (design.md, Kept lines under edits).
+func (l *lead) isKeptLine() bool {
+	return l.kept || !strings.HasPrefix(l.text, "#")
+}
+
 // depthEnt is one comment on a commentDepth chain: its indent and depth.
 type depthEnt struct {
 	indent string
@@ -620,6 +626,10 @@ type Document struct {
 	// Content-malformed lines are NOT counted - they are retained as trivia
 	// and survive a save. LostCount() serves it; SaveFile() gates on it.
 	lost int
+	// How many kept lines the document must still write: the load's, plus a
+	// merged layer's, less those design.md's kept-lines table lets an edit
+	// take. Fewer in the tree than this counts as lost.
+	keptOwed int
 	// Built on the first path lookup and kept current by the writer (a new
 	// child appends, a removed one unlinks); only a merge drops it. Without it
 	// every lookup scans the parent's children, so a flat document read or
@@ -2949,6 +2959,7 @@ type parser struct {
 	// children (hint) from ones the re-opened region itself created (silent).
 	reentered map[int]int
 	lost      int // dropped lines/values canonical output cannot re-emit
+	keptOwed  int // lines kept as written, one per Retained outcome
 	// Indent of the last E012 line kept as written, while the lines after it
 	// sit under it; those are E018 and are kept as written too.
 	keptHold string
@@ -3452,6 +3463,11 @@ func (p *parser) refuse(line int, code, msg string, out outcome, indent string) 
 		p.dropped = append(p.dropped, line)
 	}
 	if out.kind == outcomeRetained {
+		// One Retained outcome makes one pend, and each pend becomes one
+		// lead, so right after a load keptLines() equals this. An arm that
+		// files a retained line nowhere breaks that, and the save gate then
+		// refuses even a plain fmt --write, as it should.
+		p.keptOwed++
 		// A line kept as written never hangs on a block: its indent is not
 		// one the output's levels are written with, so the block it would
 		// match here is not the one it matches on a reload. It waits for the
@@ -4476,7 +4492,7 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 	if 2*len(p.arena) < cap(p.arena) {
 		p.arena = append([]nodeData(nil), p.arena...)
 	}
-	doc := &Document{arena: p.arena, diags: p.diags, strictness: strictness, orphans: orphans, lost: p.lost, kept: p.keptAny, ends: p.ends, dropped: p.dropped}
+	doc := &Document{arena: p.arena, diags: p.diags, strictness: strictness, orphans: orphans, lost: p.lost, keptOwed: p.keptOwed, kept: p.keptAny, ends: p.ends, dropped: p.dropped}
 	doc.settleKept()
 	return doc
 }
@@ -4552,9 +4568,85 @@ func (d *Document) Diagnostics() []Diagnostic {
 // the depth cap. Content-malformed lines do NOT count: those are retained as
 // trivia and survive a save. Nonzero means a SaveFile would delete
 // hand-written content, so SaveFile refuses then (SaveFileLossy overrides),
-// and SaveFileKeepLines does when it cannot keep the lines.
+// and SaveFileKeepLines does when it cannot keep the lines. It also counts
+// lines the load kept as written that an edit took and design.md's
+// kept-lines table does not let it take.
 func (d *Document) LostCount() int {
-	return d.lost
+	return d.lost + d.keptShortfall()
+}
+
+// keptShortfall is the kept lines the document owes and no longer holds. Free
+// on a document that never had one.
+func (d *Document) keptShortfall() int {
+	if d.keptOwed == 0 {
+		return 0
+	}
+	if short := d.keptOwed - d.keptLines(); short > 0 {
+		return short
+	}
+	return 0
+}
+
+// keptLines counts kept lines in the live tree and the orphans. From root,
+// since a removed node stays in the arena; a stack, since a recursive walk
+// overflowed Windows' 1 MB main stack on the deepest legal document.
+func (d *Document) keptLines() int {
+	n := keptIn(d.orphans)
+	stack := []int{root}
+	for len(stack) > 0 {
+		i := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		n += keptInLists(&d.arena[i])
+		stack = append(stack, d.arena[i].children...)
+	}
+	return n
+}
+
+// taken is the kept lines a remove of node takes, by design.md's table:
+// every one written inside its block, and the one written as its own line.
+// Read from where the lines sit before the edit, so a remove that drops one
+// beside its target is caught by the gate rather than allowed.
+func (d *Document) taken(node int) int {
+	nd := &d.arena[node]
+	n := keptIn(nd.inside()) + keptAmong(nd.among())
+	if headsBlock(nd) {
+		if l := nd.leading(); l[len(l)-1].isKeptLine() {
+			n++
+		}
+	}
+	stack := append([]int(nil), nd.children...)
+	for len(stack) > 0 {
+		i := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		n += keptInLists(&d.arena[i])
+		stack = append(stack, d.arena[i].children...)
+	}
+	return n
+}
+
+func keptIn(leads []lead) int {
+	n := 0
+	for i := range leads {
+		if leads[i].isKeptLine() {
+			n++
+		}
+	}
+	return n
+}
+
+func keptAmong(among []amongLead) int {
+	n := 0
+	for i := range among {
+		if among[i].lead.isKeptLine() {
+			n++
+		}
+	}
+	return n
+}
+
+// keptInLists counts kept lines in all of one node's trivia lists.
+func keptInLists(nd *nodeData) int {
+	return keptIn(nd.leading()) + keptIn(nd.after()) + keptIn(nd.inside()) + keptAmong(nd.among())
 }
 
 // ErrorCount is how many error-severity diagnostics the document has - the
@@ -4659,10 +4751,12 @@ func LoadFileKeepLines(path string, level Strictness) (*Document, FileStatus) {
 // line, byte for byte; a changed value is written into its line; new lines are
 // indented the way the lines around them are. The result has to reload as this
 // document. When it does not, or the document was not loaded with
-// ParseKeepLines or LoadFileKeepLines, or it took a merge, this is
-// ToCanonical() and false.
+// ParseKeepLines or LoadFileKeepLines, or it took a merge, or an edit took a
+// kept line it should not have, this is ToCanonical() and false.
 func (d *Document) ToTextKeepLines() (string, bool) {
-	if d.source != nil {
+	// The reparse check cannot see a kept line gone from both the tree and
+	// the text, so falling back leaves it to the lost-count gate.
+	if d.source != nil && d.keptShortfall() == 0 {
 		if t, ok := keepLines(*d.source, d); ok {
 			return t, true
 		}
@@ -4676,8 +4770,8 @@ func (d *Document) ToTextKeepLines() (string, bool) {
 // way SaveFile does only when it would write canonical.
 func (d *Document) SaveFileKeepLines(path string) (bool, error) {
 	text, kept := d.ToTextKeepLines()
-	if !kept && d.lost > 0 {
-		return false, &SaveRefused{Path: path, Lost: d.lost}
+	if lost := d.LostCount(); !kept && lost > 0 {
+		return false, &SaveRefused{Path: path, Lost: lost}
 	}
 	if err := WriteFileAtomic(path, text); err != nil {
 		return false, err
@@ -6565,14 +6659,14 @@ func LoadFileWith(path string, level Strictness) (*Document, FileStatus) {
 // answer.
 type SaveRefused struct {
 	Path string
-	Lost int // lines/values the load dropped (see LostCount)
+	Lost int // lines/values the save would delete (see LostCount)
 }
 
 // Error states the refusal with the path and the count, so a log line says
 // which file and how much a lossy save would drop.
 func (e *SaveRefused) Error() string {
-	return fmt.Sprintf("%s: refusing to save: load dropped %d line(s)/value(s) "+
-		"this write would delete (see diagnostics; SaveFileLossy overrides)", e.Path, e.Lost)
+	return fmt.Sprintf("%s: refusing to save: this write would delete %d line(s)/value(s) "+
+		"from the file (see diagnostics; SaveFileLossy overrides)", e.Path, e.Lost)
 }
 
 // SaveFile is the file tier's save half: write this document's canonical text
@@ -6582,8 +6676,8 @@ func (e *SaveRefused) Error() string {
 // LostCount); SaveFileLossy writes anyway. A refusal comes back as
 // *SaveRefused, a write failure as the wrapped i/o error.
 func (d *Document) SaveFile(path string) error {
-	if d.lost > 0 {
-		return &SaveRefused{Path: path, Lost: d.lost}
+	if lost := d.LostCount(); lost > 0 {
+		return &SaveRefused{Path: path, Lost: lost}
 	}
 	return WriteFileAtomic(path, d.ToCanonical())
 }
@@ -7839,6 +7933,12 @@ func (d *Document) Remove(path string) int {
 		if p == dead {
 			continue
 		}
+		if d.keptOwed > 0 {
+			d.keptOwed -= d.taken(t)
+			if d.keptOwed < 0 {
+				d.keptOwed = 0
+			}
+		}
 		if ix := d.index.Load(); ix != nil {
 			ix.unlink(nameKey(p, d.arena[t].name), t)
 		}
@@ -8301,6 +8401,7 @@ func (d *Document) Merge(over *Document) {
 	d.index.Store(nil)
 	d.source = nil
 	d.lost += over.lost
+	d.keptOwed += over.keptOwed
 	// The layer's own kept lines were modeled against its own tree.
 	fresh := over.kept
 	d.kept = d.kept || over.kept
@@ -8357,6 +8458,11 @@ func (d *Document) Merge(over *Document) {
 				room = o.depth + 1
 			}
 			d.orphans = append(d.orphans, o)
+		} else if o.isKeptLine() {
+			// The table lets the dedup skip a footer line the base has.
+			if d.keptOwed > 0 {
+				d.keptOwed--
+			}
 		}
 	}
 	settleFirstBlank(d.arena, d.orphans)
@@ -8480,6 +8586,12 @@ func (d *Document) overlay(baseParent int, over *Document, overParent int, touch
 						for _, l := range list {
 							if !strings.HasPrefix(l.text, "#") {
 								kept = append(kept, l)
+							} else if l.kept {
+								// A settled one goes with the leaf's comments
+								// (decided 2026-09-28), so it is no longer owed.
+								if d.keptOwed > 0 {
+									d.keptOwed--
+								}
 							}
 						}
 					}

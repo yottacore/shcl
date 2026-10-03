@@ -1627,8 +1627,8 @@ func writeBack(doc *shcl.Document, file string, o *opts, read *string, keep bool
 	// override a user has here is a flag, not a function.
 	var refused *shcl.SaveRefused
 	if errors.As(werr, &refused) {
-		fmt.Fprintf(os.Stderr, "%s: refusing to rewrite: the load dropped %d line(s)/value(s) "+
-			"this write would delete (--lossy overrides)\n", file, refused.Lost)
+		fmt.Fprintf(os.Stderr, "%s: refusing to rewrite: this write would delete %d line(s)/value(s) "+
+			"from the file (--lossy overrides)\n", file, refused.Lost)
 		return 7
 	}
 	fmt.Fprintln(os.Stderr, werr)
@@ -1942,8 +1942,8 @@ func doFmt(o *opts) int {
 		// The save gate --write goes through is asked first, so 6 never
 		// promises a rewrite the same command would refuse to make.
 		if !o.lossy && doc.LostCount() != 0 {
-			fmt.Fprintf(os.Stderr, "%s: fmt --write would refuse: the load dropped %d line(s)/value(s) "+
-				"it would delete (--lossy overrides)\n", file, doc.LostCount())
+			fmt.Fprintf(os.Stderr, "%s: fmt --write would refuse: it would delete %d line(s)/value(s) "+
+				"from the file (--lossy overrides)\n", file, doc.LostCount())
 			return 7
 		}
 		if doc.ToCanonical() == read {

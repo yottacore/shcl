@@ -1403,6 +1403,604 @@ fn kept_lines_keep_their_path() {
 	);
 }
 
+/// kept_soup with two shapes spliced in, each a third of the time, at a line
+/// boundary and that line's indent. One is a block holding a line refused for
+/// its name that opens a raw block, its body and fence at the line's own
+/// indent or one deeper. At its own indent the closer binds to the block, so
+/// the body is read as fields and the save goes through (2026100307163902).
+/// The other is a field opened from a kept line with one line under it, which
+/// a remove of that line leaves bare (2026100307163907).
+fn kept_soup_spliced(rng: &mut Rng) -> String {
+	let soup = kept_soup(rng);
+	let mut lines: Vec<String> = soup.lines().map(str::to_string).collect();
+	let mut splice = |rng: &mut Rng, shape: &dyn Fn(&mut Rng, &str) -> String| {
+		let at = rng.below(lines.len() + 1);
+		let ind = lines.get(at).map_or(String::new(), |l| {
+			l[..l.len() - l.trim_start_matches([' ', '\t']).len()].to_string()
+		});
+		let block = shape(rng, &ind);
+		lines.insert(at, block);
+	};
+	if rng.below(3) == 0 {
+		splice(rng, &|rng, ind| {
+			let inner = format!("{ind}\t");
+			let body = if rng.below(2) == 0 {
+				inner.clone()
+			} else {
+				format!("{inner}\t")
+			};
+			let run = ["run: x y", "echo hi", "run: 1"][rng.below(3)];
+			format!("{ind}blk:\n{inner}bad name: ~~~\n{body}{run}\n{body}~~~")
+		});
+	}
+	if rng.below(3) == 0 {
+		splice(rng, &|rng, ind| {
+			format!("{ind}lz: [{}]\n{ind}\tonly: 2", rng.below(9))
+		});
+	}
+	let mut out = lines.join("\n");
+	out.push('\n');
+	out
+}
+
+/// The lines of a text the outcome table keeps as written, by number and
+/// trimmed text, and each raw span one of them opens: its opener, its body
+/// and fence, and whether the opener was refused for its name. Read from the
+/// diagnostics and the spec's lexical rules, not the parser's tree.
+struct KeptText {
+	lines: Vec<(usize, String)>,
+	spans: Vec<(String, Vec<String>, bool)>,
+	// Every line the parser retained, raw bodies included: where a body was
+	// read as fields (2026100307163902), its lines are the parser's kept ones.
+	parsed: Vec<usize>,
+}
+
+fn kept_text(text: &str) -> KeptText {
+	let doc = Document::parse(text);
+	let lines: Vec<&str> = text
+		.strip_prefix('\u{feff}')
+		.unwrap_or(text)
+		.lines()
+		.collect();
+	let codes: std::collections::HashMap<usize, &str> =
+		doc.diagnostics().iter().map(|d| (d.line, d.code)).collect();
+	let misplaced = kept_misplaced(&lines, &codes);
+	let spans = raw_spans(text);
+	// A body line is the block's content, whatever the parser made of it.
+	let in_body = |n: usize| spans.iter().any(|&(o, c)| n > o && n <= c);
+	let mut at: std::collections::BTreeMap<usize, bool> = std::collections::BTreeMap::new();
+	for d in doc.diagnostics() {
+		let Some(src) = lines.get(d.line.wrapping_sub(1)) else {
+			continue;
+		};
+		let bare = src.trim_start_matches([' ', '\t']);
+		let name_refused = d.code == "E014"
+			|| (d.code == "E023" && bare.split_once(':').is_some_and(|(n, _)| n.contains('\\')));
+		let kept = match d.code {
+			"E014" => !bare.starts_with('\u{feff}'),
+			"E013" | "E019" | "E023" | "E024" => true,
+			"E012" | "E018" => misplaced.contains(&d.line),
+			_ => false,
+		};
+		if kept {
+			*at.entry(d.line).or_default() |= name_refused;
+		}
+	}
+	let mut out = KeptText {
+		lines: Vec::new(),
+		spans: Vec::new(),
+		parsed: at.keys().copied().collect(),
+	};
+	for (&n, &name_refused) in &at {
+		if in_body(n) {
+			continue;
+		}
+		let line = lines[n - 1].trim().to_string();
+		if let Some(&(_, close)) = spans.iter().find(|s| s.0 == n) {
+			let body = lines[n..close.min(lines.len())]
+				.iter()
+				.map(|l| l.trim().to_string())
+				.collect();
+			out.spans.push((line.clone(), body, name_refused));
+		}
+		out.lines.push((n, line));
+	}
+	out
+}
+
+/// A trimmed line with the `# ` a settle puts in front taken off. The settle
+/// keeps any other blank that followed the indent, so trim again.
+fn unsettled(t: &str) -> &str {
+	t.strip_prefix("# ").map_or(t, str::trim)
+}
+
+/// How many of `want` a text writes, each line used once: as written, or as
+/// the comment the settle makes of it.
+fn missing_kept(text: &str, want: &[String]) -> Vec<String> {
+	// The keep save writes a file-start BOM back; the load strips it.
+	let mut lines: Vec<Option<&str>> = text
+		.strip_prefix('\u{feff}')
+		.unwrap_or(text)
+		.lines()
+		.map(|l| Some(l.trim()))
+		.collect();
+	let mut missing = Vec::new();
+	for w in want {
+		// As written first: a kept line can start with a `#` behind some
+		// other blank, and its settled form can too.
+		let at = lines
+			.iter()
+			.position(|l| *l == Some(w.as_str()))
+			.or_else(|| {
+				lines
+					.iter()
+					.position(|l| l.is_some_and(|t| unsettled(t) == w))
+			});
+		match at {
+			Some(k) => lines[k] = None,
+			None => missing.push(w.clone()),
+		}
+	}
+	missing
+}
+
+/// The lines of canonical text a remove of `path` takes by design.md's
+/// table: each line the path names, which is the field's own line or the kept
+/// line written in its place, and every line after it written deeper, up to
+/// the first that is not. A misplaced line keeps its own indent, with a space
+/// in it, and belongs with the next line written with tabs, so it is taken
+/// only when that one is. Read from the text, so the oracle is not the code
+/// that drops.
+fn taken_lines(canon: &str, path: &str) -> Vec<String> {
+	let lines: Vec<&str> = canon.lines().collect();
+	let tabs = |l: &str| l.len() - l.trim_start_matches('\t').len();
+	let mut out = Vec::new();
+	for n in Document::parse(canon).lines(path) {
+		if n == 0 || n > lines.len() {
+			continue;
+		}
+		let depth = tabs(lines[n - 1]);
+		out.push(lines[n - 1].trim().to_string());
+		let mut waiting = Vec::new();
+		for l in &lines[n..] {
+			// Blank as the load reads it: a kept line can be all other space.
+			if l.trim_matches([' ', '\t', '\r']).is_empty() {
+				continue;
+			}
+			if l[..l.len() - l.trim_start_matches([' ', '\t']).len()].contains(' ') {
+				waiting.push(l.trim().to_string());
+				continue;
+			}
+			if tabs(l) <= depth {
+				break;
+			}
+			out.append(&mut waiting);
+			out.push(l.trim().to_string());
+		}
+	}
+	out
+}
+
+/// The line a field at line `n` of canonical text sits under, if any.
+fn parent_line(canon: &str, n: usize) -> Option<usize> {
+	let lines: Vec<&str> = canon.lines().collect();
+	let tabs = |l: &str| l.len() - l.trim_start_matches('\t').len();
+	let depth = tabs(lines.get(n.wrapping_sub(1))?);
+	(1..n).rev().find(|&k| {
+		let l = lines[k - 1];
+		let t = l.trim();
+		!t.is_empty() && !t.starts_with('#') && tabs(l) < depth
+	})
+}
+
+/// Where canonical text's footer starts, as a 1-based line number: the first
+/// line at no indent past the last field's line. The load keeps everything
+/// from there on as the document's own lines, not a field's. Canonical text
+/// writes a field's raw body deeper than the field, so no body line is at no
+/// indent; a line that only looks like a fence opens nothing here
+/// (2026100307163902).
+fn footer_start(canon: &str) -> usize {
+	let doc = Document::parse(canon);
+	let lines: Vec<&str> = canon.lines().collect();
+	let last = doc
+		.paths()
+		.iter()
+		.flat_map(|p| doc.lines(p))
+		.max()
+		.unwrap_or(0);
+	(last + 1..=lines.len())
+		.find(|&n| {
+			let l = lines[n - 1];
+			!l.trim_matches([' ', '\t', '\r']).is_empty() && !l.starts_with([' ', '\t'])
+		})
+		.unwrap_or(lines.len() + 1)
+}
+
+/// The footer of canonical text, each line as its depth in tabs and its
+/// trimmed text.
+fn footer(canon: &str) -> Vec<(usize, &str)> {
+	let lines: Vec<&str> = canon.lines().collect();
+	lines[(footer_start(canon) - 1).min(lines.len())..]
+		.iter()
+		.map(|l| (l.len() - l.trim_start_matches('\t').len(), l.trim()))
+		.filter(|l| !l.1.is_empty())
+		.collect()
+}
+
+/// The kept lines of a layer that a merge onto `before` skips by design.md's
+/// table: a footer line the base's footer already has, at the same depth. A
+/// field-like one with a deeper one after it goes in whole, so neither of the
+/// two is skipped. Read from both canonical texts, where the footer is written
+/// last and each line at its depth.
+fn footer_skips(before: &str, layer: &str) -> Vec<String> {
+	let had = footer(before);
+	let canon = Document::parse(layer).to_canonical();
+	let theirs = footer(&canon);
+	let fields: Vec<usize> = (0..theirs.len())
+		.filter(|&k| !theirs[k].1.starts_with('#'))
+		.collect();
+	let mut whole = vec![false; theirs.len()];
+	for w in fields.windows(2) {
+		if theirs[w[1]].0 > 0 {
+			whole[w[0]] = true;
+			whole[w[1]] = true;
+		}
+	}
+	(0..theirs.len())
+		.filter(|&k| !theirs[k].1.starts_with('#') && !whole[k] && had.contains(&theirs[k]))
+		.map(|k| theirs[k].1.to_string())
+		.collect()
+}
+
+/// A path's parents, outermost first, split at each dot outside quotes.
+fn parent_paths(path: &str) -> Vec<&str> {
+	let (mut out, mut quoted, mut escaped) = (Vec::new(), false, false);
+	for (k, c) in path.char_indices() {
+		match c {
+			_ if escaped => escaped = false,
+			'\\' if quoted => escaped = true,
+			'"' => quoted = !quoted,
+			'.' if !quoted => out.push(&path[..k]),
+			_ => {}
+		}
+	}
+	out
+}
+
+/// The settled kept lines a merge of `layer` takes from `before` by
+/// design.md's table: the ones on a leaf the layer replaces, each with its
+/// `# ` taken off. A leaf's own lines are the ones a remove of it takes from
+/// the reparsed text, where a settled line is a plain comment. Only a leaf
+/// whose every parent is one node on each side with the same value counts,
+/// since then which leaf the layer replaces is plain from the two texts.
+fn replaced_leaf_lines(before: &str, layer: &str) -> Vec<String> {
+	let base = Document::parse(before);
+	let over = Document::parse(&Document::parse(layer).to_canonical());
+	let same = |p: &str| {
+		let (b, o) = (base.read_string(p), over.read_string(p));
+		base.count(p) == 1
+			&& over.count(p) == 1
+			&& b.status == o.status
+			&& b.value == o.value
+			&& b.raw == o.raw
+	};
+	let mut out = Vec::new();
+	for p in over.paths() {
+		if !over.children(&p).is_empty()
+			|| base.count(&p) == 0
+			|| !base.children(&p).is_empty()
+			|| !parent_paths(&p).into_iter().all(same)
+		{
+			continue;
+		}
+		let had = base.to_canonical();
+		let mut cut = base.clone();
+		cut.remove(&p);
+		let left = cut.to_canonical();
+		let mut left = left.lines().map(|l| unsettled(l.trim())).peekable();
+		let mut gone = Vec::new();
+		for l in had.lines() {
+			if left.peek() == Some(&unsettled(l.trim())) {
+				left.next();
+			} else {
+				gone.push(l.trim());
+			}
+		}
+		// A remove that wrote a line of its own (2026100307163907) leaves no
+		// plain answer, so nothing is excused.
+		if left.next().is_some() {
+			continue;
+		}
+		out.extend(
+			gone.into_iter()
+				.filter_map(|l| l.strip_prefix("# "))
+				.map(|t| t.trim().to_string()),
+		);
+	}
+	out
+}
+
+/// Classes the property finds that are open in the backlog. Each is a check
+/// and an edit, never an input.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Class {
+	// (b): a remove took a kept line beside its target.
+	RemoveTakesBeside,
+	// (a): the body of a raw block opened by a line refused for its name.
+	BodyReadAsFields,
+	// (c): a remove left a bare `name:` under a field opened from a kept line.
+	BareNameLeft,
+}
+
+/// After any edits, every kept line no edit's target took is in the saved
+/// text, or the save refuses (design.md, Kept lines under edits). Also: an
+/// edit raises the lost count only where the table says, and a remove adds
+/// no line.
+#[test]
+fn kept_lines_survive_edits() {
+	let _id = test_id("EreT6dh");
+	// Classes this property finds that are open in the backlog, by ID. Each
+	// must match at least once a run, so the fix that closes one fails here
+	// until it takes its row out.
+	const OPEN: &[(&str, Class)] = &[
+		("2026100307163901", Class::RemoveTakesBeside),
+		("2026100307163902", Class::BodyReadAsFields),
+		("2026100307163907", Class::BareNameLeft),
+	];
+	let mut matched = vec![0usize; OPEN.len()];
+	let mut excuse = |class: Class, why: &str| {
+		let Some(k) = OPEN.iter().position(|r| r.1 == class) else {
+			panic!("{why}");
+		};
+		matched[k] += 1;
+	};
+	let iters = iter_count(300);
+	let seeds = seed_texts();
+	let mut rng = Rng(0x5EED_1003_0731_0001);
+	let (mut with_kept, mut removes_near) = (0usize, 0usize);
+	// SHCL_FUZZ_DUMP: each input with the edits that took, refused or not,
+	// so the cross-binding check holds the other three to the same exit code
+	// and bytes. A merge has no CLI form, so those are not dumped.
+	let dump_dir = std::env::var("SHCL_FUZZ_DUMP")
+		.ok()
+		.map(|d| format!("{d}/kept"));
+	if let Some(dir) = &dump_dir {
+		std::fs::create_dir_all(dir).unwrap_or_else(|e| panic!("dump dir {dir}: {e}"));
+	}
+	let mut dumped = 0usize;
+	for i in 0..iters {
+		let base = match rng.below(4) {
+			0 => {
+				let seed = rng.below(seeds.len());
+				mutate(&mut rng, &seeds[seed])
+			}
+			1 => structural(&mut rng),
+			_ => kept_soup_spliced(&mut rng),
+		};
+		let mut doc =
+			Document::parse_keep_lines(&base, Strictness::Standard).unwrap_or_else(|e| e.document);
+		let found = kept_text(&base);
+		let mut want: Vec<String> = found.lines.iter().map(|l| l.1.clone()).collect();
+		let mut spans = found.spans;
+		with_kept += usize::from(!want.is_empty());
+		let mut lost = Document::parse(&base).lost_count();
+		let mut log = format!("base: {base:?}\n");
+		let mut ops = String::new();
+		let mut merged = false;
+		// A step an open row excused ends the case after its dump: its later
+		// checks would only see the same class again.
+		let mut excused = false;
+		for step in 0..rng.below(4) {
+			let paths = doc.paths();
+			let path = if paths.is_empty() || rng.below(4) == 0 {
+				format!("z{step}")
+			} else {
+				paths[rng.below(paths.len())].clone()
+			};
+			let before = doc.to_canonical();
+			let op = rng.below(15);
+			let (took, line) = match op {
+				0 => (doc.set_int(&path, 7), format!("int\t{path}\t7")),
+				1 => (
+					doc.set_string(&path, "new text"),
+					format!("string\t{path}\tnew text"),
+				),
+				2 => (
+					doc.set_literal(&path, "9, 8"),
+					format!("literal\t{path}\t9, 8"),
+				),
+				3 => (
+					doc.set_comment(&path, "added"),
+					format!("comment\t{path}\tadded"),
+				),
+				4 => (
+					doc.clear_comments(&path) > 0,
+					format!("clear-comments\t{path}"),
+				),
+				5 => (doc.set_empty(&path), format!("empty\t{path}")),
+				6 => (
+					doc.set_raw(&path, "one\n\ttwo", "sh"),
+					format!("raw\t{path}\tsh\tone\\n\\ttwo"),
+				),
+				7 => {
+					doc.set_banner(true);
+					(true, "banner\ton".to_string())
+				}
+				8 => {
+					doc.set_banner(false);
+					(true, "banner\toff".to_string())
+				}
+				9 => (
+					doc.set_int_default(&path, 5),
+					format!("int-default\t{path}\t5"),
+				),
+				10 => {
+					let layer = kept_soup(&mut rng);
+					let over = Document::parse(&layer);
+					lost += over.lost_count();
+					let theirs = kept_text(&layer);
+					// The table's two merge exceptions, each a line picked by
+					// where it sits and taken off the expected lines once.
+					let mut theirs_lines: Vec<String> =
+						theirs.lines.into_iter().map(|l| l.1).collect();
+					for t in footer_skips(&before, &layer) {
+						if let Some(k) = theirs_lines.iter().rposition(|l| *l == t) {
+							theirs_lines.remove(k);
+						}
+					}
+					want.extend(theirs_lines);
+					for t in replaced_leaf_lines(&before, &layer) {
+						if let Some(k) = want.iter().position(|w| *w == t) {
+							want.remove(k);
+							spans.retain(|s| s.0 != t);
+						}
+					}
+					spans.extend(theirs.spans);
+					doc.merge(&over);
+					merged = true;
+					log.push_str(&format!("merge {layer:?}\n"));
+					(false, String::new())
+				}
+				_ => {
+					let taken = taken_lines(&before, &path);
+					let near = !want.is_empty();
+					let n = doc.remove(&path);
+					if n > 0 {
+						removes_near += usize::from(near);
+						for t in &taken {
+							// As written first: a kept line can start with a `#`
+							// behind some other blank.
+							let at = want
+								.iter()
+								.position(|w| w == t)
+								.or_else(|| want.iter().position(|w| w == unsettled(t)));
+							if let Some(k) = at {
+								want.remove(k);
+							}
+							spans.retain(|s| s.0 != *t && s.0 != unsettled(t));
+						}
+					}
+					(n > 0, format!("remove\t{path}"))
+				}
+			};
+			if took {
+				ops.push_str(&line);
+				ops.push('\n');
+			}
+			log.push_str(&format!("op {op} at {path:?}\n"));
+			// (b) Only the table's own losses: none outside a merge's.
+			if doc.lost_count() != lost {
+				let why = format!(
+					"iteration {i}: op {op} raised the lost count to {} from {lost}:\n{log}--- before\n{before}--- after\n{}",
+					doc.lost_count(),
+					doc.to_canonical()
+				);
+				if op > 10 {
+					excuse(Class::RemoveTakesBeside, &why);
+					excused = true;
+					break;
+				}
+				panic!("{why}");
+			}
+			// (c) A remove only takes lines away.
+			if op > 10 && took {
+				// A settle can turn a line into a comment, or back.
+				let had: std::collections::HashSet<&str> =
+					before.lines().map(|l| unsettled(l.trim())).collect();
+				let after = doc.to_canonical();
+				let new: Vec<&str> = after
+					.lines()
+					.map(str::trim)
+					.filter(|t| !t.is_empty() && !had.contains(unsettled(t)))
+					.collect();
+				if !new.is_empty() {
+					let why = format!(
+						"iteration {i}: removing {path:?} wrote {new:?}:\n{log}--- before\n{before}--- after\n{after}"
+					);
+					let kept_at = kept_text(&before).parsed;
+					let under_kept = Document::parse(&before)
+						.lines(&path)
+						.iter()
+						.filter_map(|&n| parent_line(&before, n))
+						.any(|p| kept_at.contains(&p));
+					if under_kept {
+						excuse(Class::BareNameLeft, &why);
+						excused = true;
+						break;
+					}
+					panic!("{why}");
+				}
+			}
+		}
+		if let Some(dir) = &dump_dir
+			&& !merged
+			&& dumped < 100
+		{
+			std::fs::write(format!("{dir}/{i:05}.shcl"), &base).expect("dump input");
+			std::fs::write(format!("{dir}/{i:05}.ops"), &ops).expect("dump ops");
+			dumped += 1;
+		}
+		if excused {
+			continue;
+		}
+		// (a) Every kept line no target took is written, or the save refuses.
+		let canon = doc.to_canonical();
+		let (keep, kept) = doc.to_text_keep_lines();
+		let saves = [
+			("canonical", canon, doc.lost_count() > 0),
+			("keep", keep, !kept && doc.lost_count() > 0),
+		];
+		for (which, text, refused) in saves {
+			if refused {
+				continue;
+			}
+			let missing = missing_kept(&text, &want);
+			assert!(
+				missing.is_empty(),
+				"iteration {i}: the {which} save lost kept line(s) {missing:?}:\n{log}--- wrote\n{text}"
+			);
+			let written: Vec<&str> = text
+				.strip_prefix('\u{feff}')
+				.unwrap_or(&text)
+				.lines()
+				.map(str::trim)
+				.collect();
+			for (opener, body, name_refused) in &spans {
+				let whole: Vec<&str> = std::iter::once(opener.as_str())
+					.chain(body.iter().map(String::as_str))
+					.collect();
+				if written.windows(whole.len()).any(|w| w == whole.as_slice()) {
+					continue;
+				}
+				let why = format!(
+					"iteration {i}: the {which} save split the raw block {whole:?}:\n{log}--- wrote\n{text}"
+				);
+				if *name_refused {
+					excuse(Class::BodyReadAsFields, &why);
+				} else {
+					panic!("{why}");
+				}
+			}
+		}
+	}
+	assert!(
+		with_kept * 4 >= iters,
+		"only {with_kept} of {iters} inputs had a kept line"
+	);
+	assert!(
+		removes_near * 20 >= iters,
+		"only {removes_near} of {iters} inputs removed a field beside a kept line"
+	);
+	if iters >= 300 {
+		for (k, (id, class)) in OPEN.iter().enumerate() {
+			assert!(
+				matched[k] > 0,
+				"{class:?} ({id}) matched nothing in {iters} runs; if {id} is fixed, take its row out"
+			);
+		}
+	}
+}
+
 /// A config like tidy()'s where each line ends in LF or CRLF on its own, all
 /// one kind, alternating (a tie when the count is even) or at random, and a
 /// third of them with no final newline. Every line is written the way the

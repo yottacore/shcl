@@ -961,7 +961,7 @@ def write_back(doc, file, o, read=None, keep=False):
 	# The rule stays in the library; only the wording is the CLI's, because the
 	# override a user has here is a flag, not a function.
 	except shcl.SaveRefused as e:
-		sys.stderr.write(f"{file}: refusing to rewrite: the load dropped {e.lost} line(s)/value(s) this write would delete (--lossy overrides)\n")
+		sys.stderr.write(f"{file}: refusing to rewrite: this write would delete {e.lost} line(s)/value(s) from the file (--lossy overrides)\n")
 		return 7
 	except shcl.SaveError as e:
 		sys.stderr.write(str(e) + "\n")
@@ -1425,7 +1425,7 @@ def do_fmt(o):
 		# The save gate --write goes through is asked first, so 6 never
 		# promises a rewrite the same command would refuse to make.
 		if not o.lossy and doc.lost_count() != 0:
-			sys.stderr.write(f"{file}: fmt --write would refuse: the load dropped {doc.lost_count()} line(s)/value(s) it would delete (--lossy overrides)\n")
+			sys.stderr.write(f"{file}: fmt --write would refuse: it would delete {doc.lost_count()} line(s)/value(s) from the file (--lossy overrides)\n")
 			return 7
 		if doc.to_canonical() == read:
 			return 0

@@ -172,7 +172,9 @@ const char *shcl_diag_code(const shcl_doc *d, size_t i);
 // Content-malformed lines do NOT count: those are retained as trivia and
 // survive a save. Nonzero means a save would delete hand-written content, so
 // shcl_save_file refuses then (shcl_save_file_lossy overrides), and
-// shcl_save_file_keep_lines does when it cannot keep the lines.
+// shcl_save_file_keep_lines does when it cannot keep the lines. It also counts
+// lines the load kept as written that an edit took and design.md's kept-lines
+// table does not let it take.
 size_t shcl_lost_count(const shcl_doc *d);
 // How many error-severity diagnostics the document has - the "did this
 // file have errors?" predicate, so recover-and-continue can't read as success
@@ -1106,6 +1108,11 @@ static ShclLead lead_copy(ShclArena *a, const ShclLead *l) { ShclLead c = lead_a
 /* A copy that no longer stands for a source line, as a merge moves it. */
 static ShclLead lead_moved(ShclArena *a, const ShclLead *l) { ShclLead c = lead_make(s_dup(a, l->text), l->blank_before, l->depth); c.kept = l->kept; return c; }
 static int lead_is_comment(const ShclLead *l) { return l->text.n && l->text.p[0] == '#' && !l->kept; }
+/* A line the load kept as written, settled or not. The save gate counts these
+   (design.md, Kept lines under edits). */
+static int lead_is_kept_line(const ShclLead *l) { return l->kept || !(l->text.n && l->text.p[0] == '#'); }
+static size_t kept_shortfall(const shcl_doc *d);
+static size_t kept_taken(shcl_doc *d, size_t node);
 /* A kept line among a stacked list's elements, with how many elements come
    before it. */
 typedef struct { size_t before; ShclLead lead; } ShclAmong;
@@ -1191,6 +1198,10 @@ struct shcl_doc {
 	   and survive a save. shcl_lost_count serves it; shcl_save_file gates on
 	   it. */
 	size_t lost;
+	/* How many kept lines the document must still write: the load's, plus a
+	   merged layer's, less those design.md's kept-lines table lets an edit
+	   take. Fewer in the tree than this counts as lost. */
+	size_t kept_owed;
 	/* Read accelerator: the first child of each (parent, name), chained on to
 	   the next same-named sibling, plus the chain tail so an append is O(1).
 	   A hash collision chains a stranger in; the lookup checks the name, so
@@ -3971,6 +3982,11 @@ static void p_refuse(ShclParser *P, size_t line, const char *code, ShclStr msg, 
 	if (P->d->track_dropped && (out.kind == OUT_VALUE_DROPPED || out.kind == OUT_DROPPED))
 		ShclVecSize_push(&P->d->arena, &P->d->dropped, line);
 	if (out.kind == OUT_RETAINED) {
+		/* One retained outcome makes one pend, and each pend becomes one lead,
+		   so right after a load kept_lines() equals this. An arm that files a
+		   retained line nowhere breaks that, and the save gate then refuses
+		   even a plain fmt --write, as it should. */
+		P->d->kept_owed++;
 		/* A line kept as written never hangs on a block: its indent is not one
 		   the output's levels are written with, so the block it would match
 		   here is not the one it matches on a reload. It waits for the next
@@ -5745,6 +5761,10 @@ size_t shcl_remove(shcl_doc *d, const char *path, size_t plen) {
 		// A node already marked would pass DEAD into the rebuild below as an
 		// index, so skip it rather than trust resolve never to name one twice.
 		if (pn == DEAD) continue;
+		if (d->kept_owed > 0) {
+			size_t took = kept_taken(d, t);
+			d->kept_owed = took < d->kept_owed ? d->kept_owed - took : 0;
+		}
 		if (d->index_built == 1) index_unlink(d, name_key(pn, NODE(d, t).name), t);
 		NODE(d, t).parent = DEAD;
 		ShclVecSize_push(a, &marked, t); ShclVecSize_push(a, &parents, pn);
@@ -6280,12 +6300,19 @@ static void w_overlay(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, S
 					if (!bt) continue;
 					const ShclVecLead *lists[3] = { &bt->leading, &bt->inside, &bt->after };
 					for (size_t li = 0; li < 3; li++) {
-						for (size_t k = 0; k < lists[li]->len; k++)
+						for (size_t k = 0; k < lists[li]->len; k++) {
 							if (!(lists[li]->data[k].text.n && lists[li]->data[k].text.p[0] == '#')) ShclVecLead_push(t, &kept, lists[li]->data[k]);
+							/* A settled one goes with the leaf's comments
+							   (decided 2026-09-28), so it is no longer owed. */
+							else if (lists[li]->data[k].kept && d->kept_owed > 0) d->kept_owed--;
+						}
 						/* The lines among a list's elements come after its leading ones. */
-						if (li == 0)
-							for (size_t k = 0; k < bt->among.len; k++)
+						if (li == 0) {
+							for (size_t k = 0; k < bt->among.len; k++) {
 								if (!(bt->among.data[k].lead.text.n && bt->among.data[k].lead.text.p[0] == '#')) ShclVecLead_push(t, &kept, bt->among.data[k].lead);
+								else if (bt->among.data[k].lead.kept && d->kept_owed > 0) d->kept_owed--;
+							}
+						}
 					}
 				}
 				if (kept.len) {
@@ -6386,6 +6413,7 @@ void shcl_merge(shcl_doc *d, const shcl_doc *over) {
 	index_drop(d);
 	d->has_source = 0;
 	d->lost += over->lost;
+	d->kept_owed += over->kept_owed;
 	/* The layer's own kept lines were modeled against its own tree. */
 	int fresh = over->kept;
 	d->kept |= over->kept;
@@ -6421,7 +6449,11 @@ void shcl_merge(shcl_doc *d, const shcl_doc *over) {
 		}
 		int dup = 0;
 		for (size_t k = 0; k < had && !whole; k++) if (s_eq(d->orphans.data[k].text, ot) && d->orphans.data[k].depth == depth) { dup = 1; break; }
-		if (dup) continue;
+		if (dup) {
+			/* The table lets the dedup skip a footer line the base has. */
+			if (lead_is_kept_line(&over->orphans.data[i]) && d->kept_owed > 0) d->kept_owed--;
+			continue;
+		}
 		if (ot.n && ot.p[0] == '#') { if (depth > room) depth = room; room = depth + 1; }
 		ShclLead o = lead_moved(a, &over->orphans.data[i]);
 		o.depth = depth;
@@ -7988,7 +8020,9 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
    canonical form when there is no source or the lines would not reload the
    same. *out lives in d's scratch or arena, until the next call on d. */
 static int keep_text(shcl_doc *d, ShclStr *out) {
-	if (!d->has_source) { *out = emit_canonical(d); return 0; }
+	/* The reparse check cannot see a kept line gone from both the tree and the
+	   text, so falling back leaves it to the lost-count gate. */
+	if (!d->has_source || kept_shortfall(d) > 0) { *out = emit_canonical(d); return 0; }
 	ShclKeepOwn *volatile own = (ShclKeepOwn *)calloc(1, sizeof *own);
 	if (!own) { SHCL_OOM(); abort(); }
 	jmp_buf panic;
@@ -8296,6 +8330,7 @@ void shcl_compact(shcl_doc *d) {
 	if (d->has_source) n->source = s_dup(a, d->source);
 	n->strictness = d->strictness;
 	n->lost = d->lost;
+	n->kept_owed = d->kept_owed;
 	n->kept = d->kept;
 	n->probe_doc = d->probe_doc;
 	/* Every node has a new number, so what the last settle recorded names
@@ -9694,7 +9729,80 @@ void shcl_suppress_declared_reopens(shcl_doc *schema, shcl_doc *doc) { suppress_
 // survive a save. Nonzero means a save would delete hand-written content, so
 // shcl_save_file refuses then (shcl_save_file_lossy overrides), and
 // shcl_save_file_keep_lines does when it cannot keep the lines.
-size_t shcl_lost_count(const shcl_doc *d) { return d->lost; }
+static size_t kept_in(const ShclVecLead *v) {
+	size_t n = 0;
+	for (size_t i = 0; i < v->len; i++) if (lead_is_kept_line(&v->data[i])) n++;
+	return n;
+}
+
+static size_t kept_among(const ShclVecAmong *v) {
+	size_t n = 0;
+	for (size_t i = 0; i < v->len; i++) if (lead_is_kept_line(&v->data[i].lead)) n++;
+	return n;
+}
+
+/* Kept lines in all of one node's trivia lists. */
+static size_t kept_in_lists(const ShclNode *nd) {
+	const ShclTrivia *t = nd->trivia;
+	if (!t) return 0;
+	return kept_in(&t->leading) + kept_in(&t->after) + kept_in(&t->inside) + kept_among(&t->among);
+}
+
+/* Kept lines in every list of the subtree under the nodes in stack[0..len),
+   those nodes included. A stack, since a recursive walk overflowed Windows'
+   1 MB main stack on the deepest legal document; each node goes on it once,
+   so the node count bounds it. */
+static size_t kept_walk(const shcl_doc *d, size_t *stack, size_t len) {
+	size_t n = 0;
+	while (len) {
+		const ShclNode *nd = &NODE(d, stack[--len]);
+		n += kept_in_lists(nd);
+		for (size_t k = 0; k < nd->children.len; k++) stack[len++] = nd->children.data[k];
+	}
+	return n;
+}
+
+static size_t *kept_stack(const shcl_doc *d) {
+	size_t *stack = (size_t *)malloc((d->nodes.len + 1) * sizeof *stack);
+	if (!stack) { SHCL_OOM(); abort(); }
+	return stack;
+}
+
+/* Kept lines in the live tree and the orphans. From ROOT, since a removed node
+   stays in the arena. */
+static size_t kept_lines(const shcl_doc *d) {
+	size_t *stack = kept_stack(d);
+	stack[0] = ROOT;
+	size_t n = kept_in(&d->orphans) + kept_walk(d, stack, 1);
+	free(stack);
+	return n;
+}
+
+/* Kept lines the document owes and no longer holds. Free on a document that
+   never had one. */
+static size_t kept_shortfall(const shcl_doc *d) {
+	if (d->kept_owed == 0) return 0;
+	size_t have = kept_lines(d);
+	return have < d->kept_owed ? d->kept_owed - have : 0;
+}
+
+/* The kept lines a remove of node takes, by design.md's table: every one
+   written inside its block, and the one written as its own line. Read from
+   where the lines sit before the edit, so a remove that drops one beside its
+   target is caught by the gate rather than allowed. */
+static size_t kept_taken(shcl_doc *d, size_t node) {
+	const ShclNode *nd = &NODE(d, node);
+	size_t n = 0;
+	if (nd->trivia) n = kept_in(&nd->trivia->inside) + kept_among(&nd->trivia->among);
+	if (heads_block(&d->scratch, nd) && lead_is_kept_line(&nd->trivia->leading.data[nd->trivia->leading.len - 1])) n++;
+	size_t *stack = kept_stack(d);
+	for (size_t k = 0; k < nd->children.len; k++) stack[k] = nd->children.data[k];
+	n += kept_walk(d, stack, nd->children.len);
+	free(stack);
+	return n;
+}
+
+size_t shcl_lost_count(const shcl_doc *d) { return d->lost + kept_shortfall(d); }
 
 size_t shcl_error_count(const shcl_doc *d) {
 	size_t n = 0;
@@ -10539,7 +10647,7 @@ shcl_doc *shcl_load_file_keep_lines(const char *path, shcl_strictness s, shcl_fi
 // SHCL_SAVE_REFUSED, distinct from SHCL_SAVE_FAILED so the caller need not
 // guess which happened; shcl_save_file_lossy writes anyway.
 shcl_save_result shcl_save_file(shcl_doc *d, const char *path) {
-	if (d->lost > 0) return SHCL_SAVE_REFUSED;
+	if (shcl_lost_count(d) > 0) return SHCL_SAVE_REFUSED;
 	ShclStr c = emit_canonical(d);
 	return shcl_write_file_atomic(path, c.p, c.n) ? SHCL_SAVE_OK : SHCL_SAVE_FAILED;
 }
@@ -10560,7 +10668,7 @@ shcl_save_result shcl_save_file_keep_lines(shcl_doc *d, const char *path, int *k
 	if (kept) *kept = 0;
 	ShclStr t;
 	int k = keep_text(d, &t);
-	if (!k && d->lost > 0) return SHCL_SAVE_REFUSED;
+	if (!k && shcl_lost_count(d) > 0) return SHCL_SAVE_REFUSED;
 	if (kept) *kept = k;
 	return shcl_write_file_atomic(path, t.p, t.n) ? SHCL_SAVE_OK : SHCL_SAVE_FAILED;
 }

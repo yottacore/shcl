@@ -28,6 +28,7 @@ Design, requirements, and direction. The task list is in `backlog.md`. The full 
 	- [Load outcomes](#load-outcomes)
 	- [Lexical edges](#lexical-edges)
 	- [Write outcomes](#write-outcomes)
+	- [Kept lines under edits](#kept-lines-under-edits)
 	- [Generation outcomes](#generation-outcomes)
 	- [Testing](#testing)
 	- [Format comparison](#format-comparison)
@@ -609,6 +610,31 @@ The mirror of the load outcomes, on the write side. A setter builds its line tex
 - `SetLiteral` takes syntax rather than data, so whatever a file line gives with its text is what gets stored - a trailing blank comes off and a `#` outside quotes ends the value. What it refuses is what a file reports as an error, since a setter has no diagnostic to report one with: a line break, an unterminated quote (`E017`), bracket text (`E019`).
 
 - A path may have a line break in either half. A name emits through the name escaper and a selector value through the value emitter, and both write one as `\n` and read it back. The selector was refused until the tokenizer cut, while elements were still stored in their source spelling and the value emitter had nothing to escape with.
+
+### Kept lines under edits
+
+What each edit does with the kept lines near its target. A kept line is one the load kept as written: retained for its content, or kept for where it sits. The table is the rule. Edits lost these lines one site at a time, each at exit 0, so a new edit gets a row before it gets code.
+
+Where a kept line sits is read from canonical output before the edit. Under the target means written inside its block. Heading the target means written in place of its `name:` line, which canonical output does for a field opened from a line kept for its value. Beside it is anything else.
+
+| Edit                                                         | Beside the target | Heading the target | Under the target
+| :---                                                         | :---              | :---               | :---
+| `Remove`                                                     | stays             | goes               | goes
+| Every setter, the default forms included                     | stays             | stays              | stays
+| `SetComment`, `ClearComments`                                | stays             | stays              | stays
+| `SetBanner`                                                  | stays             | stays              | stays
+| `Merge`, the base's lines                                    | stays             | stays              | stays, except one the settle wrote as a comment on a leaf the layer replaces, which goes with that leaf's comments
+| `Merge`, the layer's lines                                   | comes in          | comes in           | comes in, except a footer line the base already has, unless kept lines sit under it
+
+- A remove only takes lines away. It writes no line the document did not write before, so a field opened from a kept line does not leave a bare `name:` behind.
+
+- A setter that replaces a stacked list's value moves the kept lines among its elements above it, as under Load outcomes. A move is not a loss.
+
+- The merge exception for a settled line on a replaced leaf was decided on 2026-09-28: the line goes the way it would in a merge onto the reload of the saved base, where it is a comment.
+
+- The save gate counts kept lines. The load records how many it kept, and each edit takes off only what this table lets it. A document holding fewer than that counts the rest as lost, so `LostCount` includes them, the save refuses, and the save that keeps lines falls back and refuses with it. `--lossy` writes anyway, as for a dropped line. Among checking each edit site and checking the count at the save, the count was chosen, since the sites were the problem.
+
+- A fuzz property holds all four bindings to it: after any edits, every kept line no edit's target took is still in the saved text, or the save refuses, and a remove adds no line. The other three are held through the cross-binding check, which replays its inputs and edits through each CLI's `set --write`.
 
 ### Generation outcomes
 

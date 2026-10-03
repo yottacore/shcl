@@ -1677,6 +1677,80 @@ def main():
 	bound = 3000.0 if ms[0] <= 0 else ms[0] * 25 + 1000
 	if ms[1] > bound:
 		raise SystemExit(f"50 edits and merges beside a kept line {ms[1]:.1f} ms against {ms[0]:.1f} ms without it (bound {bound:.1f} ms) - each one settles the whole document")
+	test_id("EreVRei", "a_kept_line_gone_from_the_tree_refuses_the_save")
+	# The save gate on kept lines, from inside: once the edits that lose one
+	# are fixed, no public call reaches the gate, so this takes a line out by
+	# hand. Same fixture in every runner.
+	kbase = "x: 1\nr: [1, 2]\ny: 3\n"
+
+	def kept_child(doc, name):
+		return next(c for c in doc.arena[shcl.ROOT].children if doc.arena[c].name == name)
+
+	kdoc = shcl.Document.parse_keep_lines(kbase, shcl.Strictness.Standard)
+	if kdoc.lost_count() != 0:
+		fails.append("kept gate: lost before the edit")
+	gone = kdoc.arena[kept_child(kdoc, "y")]._triv().leading.pop()
+	if not gone.is_kept_line():
+		fails.append(f"kept gate: took {gone.text!r}, not a kept line")
+	if kdoc.lost_count() != 1:
+		fails.append(f"kept gate: lost_count {kdoc.lost_count()}, want 1")
+	if kdoc.to_text_keep_lines()[1]:
+		fails.append("kept gate: the keep save kept lines with one gone")
+	with tempfile.TemporaryDirectory() as ktd:
+		kpath = os.path.join(ktd, "f.shcl")
+		with open(kpath, "w", encoding="utf-8", newline="") as kf:
+			kf.write(kbase)
+		for save in (kdoc.save_file, kdoc.save_file_keep_lines):
+			try:
+				save(kpath)
+				fails.append(f"kept gate: {save.__name__} wrote")
+			except shcl.SaveRefused as e:
+				if e.lost != 1:
+					fails.append(f"kept gate: {save.__name__} refused with {e.lost}")
+				if str(e) != f"{kpath}: refusing to save: this write would delete 1 line(s)/value(s) from the file (see diagnostics; save_file_lossy overrides)":
+					fails.append(f"kept gate: {save.__name__} said {e}")
+		with open(kpath, encoding="utf-8", newline="") as kf:
+			if kf.read() != kbase:
+				fails.append("kept gate: the file changed")
+
+	test_id("EreVRgk", "a_remove_takes_the_kept_line_heading_its_field")
+	# design.md's table: a remove takes the kept line written as the field's
+	# own line, and nothing beside it.
+	kdoc = shcl.Document.parse("a: [1]\n\tb: 2\ny: 3\n")
+	if kdoc.remove("a") != 1 or kdoc.lost_count() != 0 or kdoc.to_canonical() != "y: 3\n":
+		fails.append(f"kept gate: removing a field opened from a kept line lost {kdoc.lost_count()} and wrote {kdoc.to_canonical()!r}")
+
+	test_id("EreVRis", "a_merged_layer_owes_its_kept_lines")
+	kdoc = shcl.Document.parse("a: 1\n")
+	kdoc.merge(shcl.Document.parse(kbase))
+	if kdoc.lost_count() != 0 or "r: [1, 2]\n" not in kdoc.to_canonical():
+		fails.append("kept gate: a merged layer's kept line counted as lost or went missing")
+	# Owed, not just present: taking it out again is a loss.
+	kdoc.arena[kept_child(kdoc, "y")]._triv().leading.pop()
+	if kdoc.lost_count() != 1:
+		fails.append(f"kept gate: a merged kept line taken out gave lost_count {kdoc.lost_count()}, want 1")
+
+	test_id("ErfGoMM", "a_replaced_leaf_takes_its_settled_kept_line")
+	# design.md's table: a settled kept line on a leaf the layer replaces goes
+	# with the leaf's comments, so it is no longer owed.
+	kdoc = shcl.Document.parse("x: 0\n\tc: 2\n  a: 5\nb: 1\n")
+	if kdoc.remove("x.c") != 1 or kdoc.to_canonical() != "x: 0\n# a: 5\nb: 1\n":
+		fails.append(f"kept gate: the replaced-leaf fixture wrote {kdoc.to_canonical()!r} after the remove")
+	kdoc.merge(shcl.Document.parse("b: 9\n"))
+	if kdoc.lost_count() != 0 or kdoc.to_canonical() != "x: 0\nb: 9\n":
+		fails.append(f"kept gate: a replaced leaf's settled line lost {kdoc.lost_count()} and wrote {kdoc.to_canonical()!r}")
+
+	test_id("ErfGoMN", "a_footer_line_the_base_has_is_not_owed_twice")
+	# design.md's table: the footer dedup skips a layer's kept line the base
+	# already has, so that copy is not owed.
+	kdoc = shcl.Document.parse("bad name: 1\n")
+	kdoc.merge(shcl.Document.parse("bad name: 1\n"))
+	if kdoc.lost_count() != 0 or kdoc.to_canonical() != "bad name: 1\n":
+		fails.append(f"kept gate: a deduped footer line lost {kdoc.lost_count()} and wrote {kdoc.to_canonical()!r}")
+	# The failure report above has run already, so these end the run here.
+	if fails:
+		test_id_end()
+		raise SystemExit("\n".join(f"FAIL {f}" for f in fails))
 	test_id("EolmVOa", "diagnostics_hand_out_a_copy")
 	# What a read hands out must not be the document's own list: a caller
 	# clearing it used to take the document's diagnostics with it, and a failed

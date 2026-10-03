@@ -110,7 +110,7 @@ pub enum FileStatus {
 /// and `Io` is the disk's answer, which they cannot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SaveError {
-	/// The load dropped content this save would delete (see `lost_count`).
+	/// This save would delete content from the file (see `lost_count`).
 	Refused { path: String, lost: usize },
 	/// The write itself failed; has the reported message.
 	Io(String),
@@ -121,7 +121,7 @@ impl std::fmt::Display for SaveError {
 		match self {
 			SaveError::Refused { path, lost } => write!(
 				f,
-				"{}: refusing to save: load dropped {} line(s)/value(s) this write would delete (see diagnostics; save_file_lossy overrides)",
+				"{}: refusing to save: this write would delete {} line(s)/value(s) from the file (see diagnostics; save_file_lossy overrides)",
 				path, lost
 			),
 			SaveError::Io(m) => f.write_str(m),
@@ -384,6 +384,12 @@ impl Lead {
 	fn is_comment(&self) -> bool {
 		self.text.starts_with('#') && !self.kept
 	}
+
+	/// A line the load kept as written, settled or not. The save gate
+	/// counts these (design.md, Kept lines under edits).
+	fn is_kept_line(&self) -> bool {
+		self.kept || !self.text.starts_with('#')
+	}
 }
 
 /// How many levels past its place a pending line is written: the place's
@@ -612,6 +618,10 @@ pub struct Document {
 	// Content-malformed lines are NOT counted - they are retained as trivia
 	// and survive a save. lost_count() serves it; save_file() gates on it.
 	lost: usize,
+	// How many kept lines the document must still write: the load's, plus a
+	// merged layer's, less those design.md's kept-lines table lets an edit
+	// take. Fewer in the tree than this counts as lost.
+	kept_owed: usize,
 	// Built on the first path lookup and kept current by the writer (a new
 	// child appends, a removed one unlinks); only a merge drops it. Without it
 	// every lookup scans the parent's children, so a flat document read or
@@ -2709,7 +2719,8 @@ struct Parser<'a> {
 	// merged level reports, not just the outermost. The stored line splits old
 	// children (hint) from ones the re-opened region itself created (silent).
 	reentered: HashMap<usize, usize>,
-	lost: usize, // dropped lines/values canonical output cannot re-emit
+	lost: usize,      // dropped lines/values canonical output cannot re-emit
+	kept_owed: usize, // lines kept as written, one per Retained outcome
 	// Indent of the last E012 line kept as written, while the lines after it
 	// sit under it; those are E018 and are kept as written too.
 	kept_hold: Option<&'a str>,
@@ -2827,6 +2838,7 @@ impl<'a> Parser<'a> {
 			late_dups: Vec::new(),
 			reentered: HashMap::new(),
 			lost: 0,
+			kept_owed: 0,
 			kept_hold: None,
 			kept_any: false,
 			max_nodes: 0,
@@ -2896,6 +2908,11 @@ impl<'a> Parser<'a> {
 			self.dropped.push(line);
 		}
 		if let Outcome::Retained { text, blank_before } = outcome {
+			// One Retained outcome makes one Pend, and each Pend becomes one
+			// Lead, so right after a load kept_lines() equals this. An arm
+			// that files a retained line nowhere breaks that, and the save
+			// gate then refuses even a plain fmt --write, as it should.
+			self.kept_owed += 1;
 			// A line kept as written never hangs on a block: its indent is not
 			// one the output's levels are written with, so the block it would
 			// match here is not the one it matches on a reload. It waits for
@@ -4491,6 +4508,7 @@ impl<'a> Parser<'a> {
 			strictness,
 			orphans,
 			lost: self.lost,
+			kept_owed: self.kept_owed,
 			index: std::sync::OnceLock::new(),
 			probe: false,
 			probe_doc: None,
@@ -4581,9 +4599,51 @@ impl Document {
 	/// cap. Content-malformed lines do NOT count: those are retained as trivia
 	/// and survive a save. Nonzero means a save_file would delete hand-written
 	/// content, so save_file refuses then (save_file_lossy overrides), and
-	/// save_file_keep_lines does when it cannot keep the lines.
+	/// save_file_keep_lines does when it cannot keep the lines. It also counts
+	/// lines the load kept as written that an edit took and design.md's
+	/// kept-lines table does not let it take.
 	pub fn lost_count(&self) -> usize {
-		self.lost
+		self.lost + self.kept_shortfall()
+	}
+
+	/// Kept lines the document owes and no longer holds. Free on a document
+	/// that never had one.
+	fn kept_shortfall(&self) -> usize {
+		if self.kept_owed == 0 {
+			return 0;
+		}
+		self.kept_owed.saturating_sub(self.kept_lines())
+	}
+
+	/// Kept lines in the live tree and the orphans. From ROOT, since a removed
+	/// node stays in the arena; a stack, since a recursive walk overflowed
+	/// Windows' 1 MB main stack on the deepest legal document.
+	fn kept_lines(&self) -> usize {
+		let mut n = kept_in(&self.orphans);
+		let mut stack = vec![ROOT];
+		while let Some(i) = stack.pop() {
+			n += kept_in_lists(&self.arena[i]);
+			stack.extend_from_slice(&self.arena[i].children);
+		}
+		n
+	}
+
+	/// The kept lines a remove of `node` takes, by design.md's table: every
+	/// one written inside its block, and the one written as its own line.
+	/// Read from where the lines sit before the edit, so a remove that drops
+	/// one beside its target is caught by the gate rather than allowed.
+	fn taken(&self, node: usize) -> usize {
+		let nd = &self.arena[node];
+		let mut n = kept_in(nd.inside()) + nd.among().iter().filter(|a| a.1.is_kept_line()).count();
+		if heads_block(nd) && nd.leading().last().is_some_and(Lead::is_kept_line) {
+			n += 1;
+		}
+		let mut stack = nd.children.clone();
+		while let Some(i) = stack.pop() {
+			n += kept_in_lists(&self.arena[i]);
+			stack.extend_from_slice(&self.arena[i].children);
+		}
+		n
 	}
 
 	/// How many error-severity diagnostics the document has - the "did
@@ -4667,10 +4727,11 @@ impl Document {
 	/// writes anyway. The Err tells the two apart without matching on prose:
 	/// SaveError::Refused is the gate, SaveError::Io is the write failing.
 	pub fn save_file(&self, path: &str) -> Result<(), SaveError> {
-		if self.lost > 0 {
+		let lost = self.lost_count();
+		if lost > 0 {
 			return Err(SaveError::Refused {
 				path: path.to_string(),
-				lost: self.lost,
+				lost,
 			});
 		}
 		write_file_atomic(path, &self.to_canonical()).map_err(SaveError::Io)
@@ -4737,10 +4798,14 @@ impl Document {
 	/// for byte; a changed value is written into its line; new lines are
 	/// indented the way the lines around them are. The result has to reload
 	/// as this document. When it does not, or the document was not loaded
-	/// with parse_keep_lines or load_file_keep_lines, or it took a merge, this
-	/// is to_canonical() and false.
+	/// with parse_keep_lines or load_file_keep_lines, or it took a merge, or
+	/// an edit took a kept line it should not have, this is to_canonical()
+	/// and false.
 	pub fn to_text_keep_lines(&self) -> (String, bool) {
+		// The reparse check below cannot see a kept line gone from both the
+		// tree and the text, so falling back leaves it to the lost-count gate.
 		if let Some(src) = &self.source
+			&& self.kept_shortfall() == 0
 			&& let Some(t) = keep_lines(src, self)
 		{
 			return (t, true);
@@ -4754,10 +4819,11 @@ impl Document {
 	/// refuses the way save_file does only when it would write canonical.
 	pub fn save_file_keep_lines(&self, path: &str) -> Result<bool, SaveError> {
 		let (text, kept) = self.to_text_keep_lines();
-		if !kept && self.lost > 0 {
+		let lost = self.lost_count();
+		if !kept && lost > 0 {
 			return Err(SaveError::Refused {
 				path: path.to_string(),
-				lost: self.lost,
+				lost,
 			});
 		}
 		write_file_atomic(path, &text).map_err(SaveError::Io)?;
@@ -5232,6 +5298,18 @@ fn heads_block(node: &NodeData) -> bool {
 			&& scan.segments[0].selector.is_none()
 			&& scan.segments[0].name == node.name
 	})
+}
+
+fn kept_in(leads: &[Lead]) -> usize {
+	leads.iter().filter(|l| l.is_kept_line()).count()
+}
+
+/// Kept lines in all of one node's trivia lists.
+fn kept_in_lists(nd: &NodeData) -> usize {
+	kept_in(nd.leading())
+		+ kept_in(nd.after())
+		+ kept_in(nd.inside())
+		+ nd.among().iter().filter(|a| a.1.is_kept_line()).count()
 }
 
 /// A misplaced line's text as the comment it falls back to.
@@ -8180,6 +8258,9 @@ impl Document {
 			if p == DEAD {
 				continue;
 			}
+			if self.kept_owed > 0 {
+				self.kept_owed = self.kept_owed.saturating_sub(self.taken(t));
+			}
 			if let Some(ix) = self.index.get_mut() {
 				ix.unlink(name_key(p, &self.arena[t].name), t);
 			}
@@ -8595,6 +8676,7 @@ impl Document {
 		self.index.take();
 		self.source = None;
 		self.lost += over.lost;
+		self.kept_owed += over.kept_owed;
 		// The layer's own kept lines were modeled against its own tree.
 		let fresh = over.kept;
 		self.kept |= over.kept;
@@ -8644,6 +8726,9 @@ impl Document {
 					room = o.depth + 1;
 				}
 				self.orphans.push(o);
+			} else if o.is_kept_line() {
+				// The table lets the dedup skip a footer line the base has.
+				self.kept_owed = self.kept_owed.saturating_sub(1);
 			}
 		}
 		settle_first_blank(&mut self.arena, &mut self.orphans);
@@ -8774,6 +8859,10 @@ impl Document {
 						{
 							if !l.text.starts_with('#') {
 								kept.push(l.clone());
+							} else if l.kept {
+								// A settled one goes with the leaf's comments
+								// (decided 2026-09-28), so it is no longer owed.
+								self.kept_owed = self.kept_owed.saturating_sub(1);
 							}
 						}
 					}
@@ -12496,5 +12585,131 @@ fn deletion_spellings(cs: &[char], mut f: impl FnMut(u64)) {
 		for b in a + 1..cs.len() {
 			f(hash(a, b));
 		}
+	}
+}
+
+// The save gate on kept lines, from inside: once the edits that lose one are
+// fixed, no public call reaches the gate, so these take a line out by hand.
+#[cfg(test)]
+mod kept_gate {
+	use super::*;
+
+	// The status line tests/common prints, since that module is out of reach.
+	struct TestId(&'static str);
+
+	fn test_id(id: &'static str) -> TestId {
+		TestId(id)
+	}
+
+	impl Drop for TestId {
+		fn drop(&mut self) {
+			use std::io::Write;
+			let status = if std::thread::panicking() {
+				"FAIL"
+			} else {
+				"ok"
+			};
+			let thread = std::thread::current();
+			let name = thread.name().unwrap_or("?");
+			let _ = writeln!(
+				std::io::stderr().lock(),
+				"{:<4} {} rust {}",
+				status,
+				self.0,
+				name
+			);
+		}
+	}
+
+	const BASE: &str = "x: 1\nr: [1, 2]\ny: 3\n";
+
+	#[test]
+	fn a_kept_line_gone_from_the_tree_refuses_the_save() {
+		let _id = test_id("EreRyr7");
+		let mut doc = Document::parse_keep_lines(BASE, Strictness::Standard).unwrap();
+		assert_eq!(doc.lost_count(), 0);
+		let y = doc.arena[ROOT]
+			.children
+			.iter()
+			.copied()
+			.find(|&c| doc.arena[c].name == "y")
+			.unwrap();
+		let gone = doc.arena[y].triv_mut().leading.pop().unwrap();
+		assert!(gone.is_kept_line(), "{:?}", gone);
+		assert_eq!(doc.lost_count(), 1);
+		assert!(!doc.to_text_keep_lines().1);
+		let dir = std::env::temp_dir().join(format!("shcl-keptgate-{}", std::process::id()));
+		std::fs::create_dir_all(&dir).unwrap();
+		let path = dir.join("f.shcl");
+		let path = path.to_str().unwrap();
+		std::fs::write(path, BASE).unwrap();
+		let refused = doc.save_file(path).unwrap_err();
+		assert!(matches!(refused, SaveError::Refused { lost: 1, .. }));
+		assert_eq!(
+			refused.to_string(),
+			format!(
+				"{path}: refusing to save: this write would delete 1 line(s)/value(s) from the file (see diagnostics; save_file_lossy overrides)"
+			)
+		);
+		assert!(matches!(
+			doc.save_file_keep_lines(path),
+			Err(SaveError::Refused { lost: 1, .. })
+		));
+		assert_eq!(std::fs::read_to_string(path).unwrap(), BASE);
+		let _ = std::fs::remove_dir_all(&dir);
+	}
+
+	// design.md's table: a remove takes the kept line written as the field's
+	// own line, and nothing beside it.
+	#[test]
+	fn a_remove_takes_the_kept_line_heading_its_field() {
+		let _id = test_id("EreUeCs");
+		let mut doc = Document::parse("a: [1]\n\tb: 2\ny: 3\n");
+		assert_eq!(doc.remove("a"), 1);
+		assert_eq!(doc.lost_count(), 0);
+		assert_eq!(doc.to_canonical(), "y: 3\n");
+	}
+
+	#[test]
+	fn a_merged_layer_owes_its_kept_lines() {
+		let _id = test_id("EreRysn");
+		let mut doc = Document::parse("a: 1\n");
+		doc.merge(&Document::parse(BASE));
+		assert_eq!(doc.lost_count(), 0);
+		assert!(doc.to_canonical().contains("r: [1, 2]\n"));
+		// Owed, not just present: taking it out again is a loss.
+		let y = doc.arena[ROOT]
+			.children
+			.iter()
+			.copied()
+			.find(|&c| doc.arena[c].name == "y")
+			.unwrap();
+		doc.arena[y].triv_mut().leading.pop();
+		assert_eq!(doc.lost_count(), 1);
+	}
+
+	// design.md's table: a settled kept line on a leaf the layer replaces
+	// goes with the leaf's comments, so it is no longer owed.
+	#[test]
+	fn a_replaced_leaf_takes_its_settled_kept_line() {
+		let _id = test_id("ErfGoMI");
+		let mut doc = Document::parse("x: 0\n\tc: 2\n  a: 5\nb: 1\n");
+		assert_eq!(doc.remove("x.c"), 1);
+		assert_eq!(doc.to_canonical(), "x: 0\n# a: 5\nb: 1\n");
+		assert_eq!(doc.lost_count(), 0);
+		doc.merge(&Document::parse("b: 9\n"));
+		assert_eq!(doc.to_canonical(), "x: 0\nb: 9\n");
+		assert_eq!(doc.lost_count(), 0);
+	}
+
+	// design.md's table: the footer dedup skips a layer's kept line the base
+	// already has, so that copy is not owed.
+	#[test]
+	fn a_footer_line_the_base_has_is_not_owed_twice() {
+		let _id = test_id("ErfGoMJ");
+		let mut doc = Document::parse("bad name: 1\n");
+		doc.merge(&Document::parse("bad name: 1\n"));
+		assert_eq!(doc.to_canonical(), "bad name: 1\n");
+		assert_eq!(doc.lost_count(), 0);
 	}
 }
