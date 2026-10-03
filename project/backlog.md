@@ -103,7 +103,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - `check` can take its Schema line from inside a raw block and validate against the wrong schema at exit 0
 	- ID: 2026100307163903
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
+	- Needs local test suite run?: Y, the full `--ci`. cppcheck's exhaustive pass over the changed header did not finish in 10 minutes here.
 	- Severity: Critical
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 3
@@ -118,6 +119,17 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Origin: `2c528a23` (schema line, 2026-09-26) and `27d73efb` (schema line fixes, 2026-09-28). The 20260928 decided-against list says the tracker differs from the parser only on an E023 fence name, in a file that already fails `check`. This file loads clean, so that premise does not hold. Confirmed.
 	- Sweep: `schema_ref` and `format_line_version` in all four, and anything else that walks lines with `migrate_line`.
 	- Estimated effort: Low
+	- Actual cause: as above. Both walks found raw blocks with the 2.x tokenizer, in all four.
+	- Actual fix: one line walk that knows which rules it reads by. The Schema line is new in format 3, so `schema_ref` finds blocks the way the parser does, through the parser's own tokenizer and fence tests (`child_fence`, `line_fence`). A Format line counts by the rules it names: one naming format 3 counts outside the parser's blocks, and an older one outside the blocks 2.x found. `migrate` on a file that names no format also counts lines one rule set reads as a raw body and the other does not as reading two ways, so it refuses at 7 unless `--from-2x` says the file is 2.x. It does not stamp a file whose output ends inside a raw block under either rule set. Spec and design say so.
+	- Note: a line refused for its text (E014, E019, E023, E024) can still read its body as lines in the parser while the walk takes the body. That file fails `check` anyway, and 2026100307163902 and 2026100117214801 move the parser to the walk's answer.
+	- Note: with `--from-2x`, 2.x's reading stands. A 2.x line that 2.x refused and that now opens a block is left as written, per the low-stakes rule for 2.x.
+	- Note: the new corpus case moved the fuzz seeds, and `EreT6dh` then failed on a remove whose kept line starts with a next-line character. Rust's `trim` takes that character and the format does not, so a settled comment compared unequal to its line. The property now trims the format's blanks only. Not a library defect.
+	- Swept: `schema_ref` and `format_line_version` in Rust, Go, Python and C now read through one walker (`RawLines`, `rawLines`, `_RawLines`, `ShclRawLines`), and the parser's child-fence test is the shared `child_fence`. The only other caller of `migrate_line` is the rewrite loop in `migrate`, which reads 2.x on purpose and now checks its output against the parser's blocks. The C++ veneer only wraps the two C calls, and no script reads either line.
+	- Verified: the repro gives V003 at exit 6 and the `migrate` repro exits 7, in all four CLIs. The four conformance suites, `cli-regress.bash` (344 rows), `crosscheck.bash` over the corpus and a 2,000-input fuzz dump, `check-migrate.bash`, `shell-regress.bash`, `check-docs.bash`, markdownlint, `test-ids.py check`, clippy (host and windows), go vet and staticcheck (also windows), ruff, mypy, gcc 15 with `_FORTIFY_SOURCE=3`, the mingw C build and the C runner under ASan and UBSan pass. The release fuzz at 2,000,000 passes.
+	- Branch: `schemaraw`
+	- Commit: 4fcfec0b, 55d4777d
+	- Test case: corpus `189-schema-line-raw-after-backslash` (`ErfuRcU`, all four runners), cli-regress `ErfuRh7` and `ErfuRj5`, fuzz property `ErfuRfE`. Each fails on the old code and passes on the new.
+	- Note: left for signoff: the new `migrate` refusal and no-stamp rule, which go past the item, and the `EreT6dh` trim change.
 
 - No '\' escapes
 	- ID: 2026100207032800
