@@ -1211,7 +1211,7 @@ fn keeping_lines_reloads_as_the_document() {
 	);
 }
 
-/// Where each line a load refused for what it spells (`E019`, `E023`,
+/// Where each line a load refused for its value (`E019`, `E023`,
 /// `E024`) binds once fixed. Each is cut back to `name:`, the way a reload
 /// opens it when a line under it binds, and the node its line made gives
 /// the path. Pairs of (N, path), N being the line's text's place in
