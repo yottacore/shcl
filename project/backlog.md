@@ -153,6 +153,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261002: a quote anywhere in a bare value is an error, and a bare field name starts with a letter. Dates, times, durations and sizes without spaces stay bare.
 		- 20261002: no new error throws out good lines. A bad bare name that can still be read keeps its block, as a value-only refusal does. The writer quotes a value with `:` only when it ends in one.
 		- 20261002: pre-release Format 3 files are on their own. `fmt` keeps a `- ` list stacked. Setters get no new options, and an overwrite keeps the old quote kind when it can.
+		- 20261003: a merge writes every list in brackets, whatever form its layers used. The error code table in the design doc is final.
 	- Branch:
 	- Commit:
 	- Test case:
