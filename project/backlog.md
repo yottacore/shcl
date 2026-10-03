@@ -137,7 +137,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - A bad escape on a line that opens a block drops the whole block
 	- ID: 2026100115403384
 	- Type: Bug
-	- Status: Waiting on signoff
+	- Status: Done
 	- Needs local test suite run?: full `--ci` at the next main push. Exhaustive cppcheck did not finish here in 10 minutes; normal-level cppcheck reported no warnings, and gcc 14 and 15 and clang build it with `-Werror`.
 	- Severity: Avg
 	- Opened: 20261001-154033
