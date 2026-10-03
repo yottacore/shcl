@@ -3039,3 +3039,87 @@ func TestEditsAndMergesMatchAReload(t *testing.T) {
 		}
 	}
 }
+
+// The save gate on kept lines, from inside: once the edits that lose one are
+// fixed, no public call reaches the gate, so these take a line out by hand.
+const keptGateBase = "x: 1\nr: [1, 2]\ny: 3\n"
+
+func childNamed(d *Document, name string) int {
+	for _, c := range d.arena[root].children {
+		if d.arena[c].name == name {
+			return c
+		}
+	}
+	return -1
+}
+
+func TestAKeptLineGoneFromTheTreeRefusesTheSave(t *testing.T) {
+	defer testID(t, "EreUzvf")
+	doc, err := ParseKeepLines(keptGateBase, Standard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := doc.LostCount(); n != 0 {
+		t.Fatalf("lost %d before the edit", n)
+	}
+	tv := doc.arena[childNamed(doc, "y")].trivMut()
+	gone := tv.leading[len(tv.leading)-1]
+	tv.leading = tv.leading[:len(tv.leading)-1]
+	if !gone.isKeptLine() {
+		t.Fatalf("not a kept line: %+v", gone)
+	}
+	if n := doc.LostCount(); n != 1 {
+		t.Fatalf("LostCount %d, want 1", n)
+	}
+	if _, kept := doc.ToTextKeepLines(); kept {
+		t.Fatal("the keep save kept lines with one gone")
+	}
+	path := filepath.Join(t.TempDir(), "f.shcl")
+	if err := os.WriteFile(path, []byte(keptGateBase), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var refused *SaveRefused
+	if err := doc.SaveFile(path); !errors.As(err, &refused) || refused.Lost != 1 {
+		t.Fatalf("SaveFile: %v", err)
+	}
+	if _, err := doc.SaveFileKeepLines(path); !errors.As(err, &refused) || refused.Lost != 1 {
+		t.Fatalf("SaveFileKeepLines: %v", err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != keptGateBase {
+		t.Fatalf("file changed: %q", b)
+	}
+}
+
+// design.md's table: a remove takes the kept line written as the field's own
+// line, and nothing beside it.
+func TestARemoveTakesTheKeptLineHeadingItsField(t *testing.T) {
+	defer testID(t, "EreUzxY")
+	doc := Parse("a: [1]\n\tb: 2\ny: 3\n")
+	if n := doc.Remove("a"); n != 1 {
+		t.Fatalf("removed %d", n)
+	}
+	if n := doc.LostCount(); n != 0 {
+		t.Fatalf("LostCount %d, want 0", n)
+	}
+	if got := doc.ToCanonical(); got != "y: 3\n" {
+		t.Fatalf("wrote %q", got)
+	}
+}
+
+func TestAMergedLayerOwesItsKeptLines(t *testing.T) {
+	defer testID(t, "EreUzzO")
+	doc := Parse("a: 1\n")
+	doc.Merge(Parse(keptGateBase))
+	if n := doc.LostCount(); n != 0 {
+		t.Fatalf("LostCount %d after the merge", n)
+	}
+	if !strings.Contains(doc.ToCanonical(), "r: [1, 2]\n") {
+		t.Fatalf("merged line missing:\n%s", doc.ToCanonical())
+	}
+	// Owed, not just present: taking it out again is a loss.
+	tv := doc.arena[childNamed(doc, "y")].trivMut()
+	tv.leading = tv.leading[:len(tv.leading)-1]
+	if n := doc.LostCount(); n != 1 {
+		t.Fatalf("LostCount %d, want 1", n)
+	}
+}
