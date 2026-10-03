@@ -488,10 +488,10 @@ type nodeData struct {
 	// was synthesized (writer, stacked list, fence) OR when the spelling is
 	// exactly the display form; raw falls back to the display form either way.
 	src *string
-	// The name as the author spelled it (case unfolded, quotes and escapes
+	// The name as the author wrote it (case unfolded, quotes and escapes
 	// resolved) - what AuthoredName() hands back, via authored(). Merged
 	// instances keep the first binding's spelling, like Line() and comments.
-	// Empty = spelled exactly like name (the overwhelmingly common case).
+	// Empty = written exactly like name (the overwhelmingly common case).
 	nameSrc string
 }
 
@@ -1394,7 +1394,7 @@ func elementOf(p *Piece, text string) (element, bool) {
 	return element{text: pieceText(p, text), quoted: p.Quote == QuoteSingle || p.Quote == QuoteDouble}, true
 }
 
-// cellOfTokens is the value the tokenized pieces spell.
+// cellOfTokens is the value the tokenized pieces give.
 func cellOfTokens(tok *Tokens, text string) value {
 	els := make([]element, 0, len(tok.Elements))
 	for i := range tok.Elements {
@@ -1490,7 +1490,7 @@ func oneLine(s string) string {
 var oneLineReplacer = strings.NewReplacer("\\", "\\\\", "\n", "\\n", "\r", "\\r", "\t", "\\t")
 
 // schemaText is schema text for a diagnostic or a generated comment: a path or
-// a type as the schema wrote it, with a line break spelled `\n`, so one
+// a type as the schema wrote it, with a line break written `\n`, so one
 // diagnostic stays one line. Only the break is escaped, so a path reads the
 // way it was written.
 func schemaText(s string) string {
@@ -1556,7 +1556,7 @@ func resolveEscapes(s string, rules Rules) string {
 }
 
 // unicodeEscape is the character a \u or \U escape names, and how many hex
-// digits spell it: four after u, eight after U, as in TOML. Not ok for a
+// digits it takes: four after u, eight after U, as in TOML. Not ok for a
 // short run, a surrogate or a value past U+10FFFF.
 func unicodeEscape(kind byte, after string) (rune, int, bool) {
 	n := 4
@@ -1671,7 +1671,7 @@ func selectorBase(r rune) bool {
 }
 
 // flagTag reports whether the tag at t[i] is part of a subdivision flag, as
-// UTS #51 spells one: U+1F3F4, three to seven tag digits or lowercase tag
+// UTS #51 defines one: U+1F3F4, three to seven tag digits or lowercase tag
 // letters, and the cancel tag.
 func flagTag(t string, i int) bool {
 	spec := func(r rune) bool { return (r >= 0xE0030 && r <= 0xE0039) || (r >= 0xE0061 && r <= 0xE007A) }
@@ -1716,7 +1716,7 @@ func hasInvisible(t string) bool {
 	return false
 }
 
-// writeUnicodeEscape spells r as \u with four digits, or as \U with eight
+// writeUnicodeEscape writes r as \u with four digits, or as \U with eight
 // past U+FFFF, since \u takes four.
 func writeUnicodeEscape(out *strings.Builder, r rune) {
 	if r > 0xFFFF {
@@ -1740,10 +1740,10 @@ func dispKey(v *value) string {
 	return v.display()
 }
 
-// fnv is FNV-1a, fed the same byte sequence the key strings would spell - the
-// accelerator maps key on a uint64 and verify hits against the arena, so the
-// strings themselves never get built. The hash only has to be stable within
-// one parse, not injective; a collision just chains in the slot.
+// fnv is FNV-1a, fed the same byte sequence the key strings would contain -
+// the accelerator maps key on a uint64 and verify hits against the arena, so
+// the strings themselves never get built. The hash only has to be stable
+// within one parse, not injective; a collision just chains in the slot.
 type fnv struct {
 	h uint64
 }
@@ -1762,7 +1762,7 @@ func (f *fnv) bytes(s string) {
 	}
 }
 
-// dec spells a length prefix in decimal, without allocating.
+// dec writes a length prefix in decimal, without allocating.
 func (f *fnv) dec(n int) {
 	var buf [20]byte
 	i := len(buf)
@@ -1838,7 +1838,7 @@ func mergeEq(nameA string, va *value, nameB string, vb *value) bool {
 }
 
 // dispHash hashes the (name, display) pair a `[value]` selector matches with -
-// what dispKey would spell, streamed instead of built. Elements hold the
+// what dispKey would give, streamed instead of built. Elements hold the
 // logical string, so the bytes feed straight in.
 func dispHash(name string, v *value) uint64 {
 	f := newFnv()
@@ -1860,7 +1860,7 @@ func dispHash(name string, v *value) uint64 {
 }
 
 // dispHashText is the query-side twin of dispHash: the selector's logical
-// text, the same bytes the display would spell.
+// text, the same bytes the display would contain.
 func dispHashText(name, want string) uint64 {
 	f := newFnv()
 	f.bytes(name)
@@ -2031,14 +2031,14 @@ const FormatMajor = 3
 // still tell an older file from one of its own.
 const FormatLineHead = "##    Format   "
 
-// FormatLine is the whole version line, as the block spells it. A program
+// FormatLine is the whole version line, as the block has it. A program
 // writing a config of its own emits GenBanner, which carries this; Migrate
 // appends this line on its own to a file it rewrote, since that file has no
 // block to add it to and inventing one would write bytes the document does
 // not hold.
 const FormatLine = "##    Format   3"
 
-// SchemaLineHead is the start of a line naming the file's schema, spelled
+// SchemaLineHead is the start of a line naming the file's schema, written
 // like the Format line, for check and for editors:
 // `##    Schema   ./app.schema.shcl`.
 const SchemaLineHead = "##    Schema   "
@@ -2173,12 +2173,12 @@ func formatLineVersion(text string) (int, bool) {
 
 // Migrate rewrites a document written under the 2.x rules so this parser
 // reads the same tree. Each line is read with the 2.x tokenizer and
-// re-spelled only where the two rule sets disagree: a bare or single-quoted
+// rewritten only where the two rule sets disagree: a bare or single-quoted
 // piece whose backslash meant an escape is double-quoted with that escape; a
 // piece that opened a quote it never closed is quoted whole; the
 // `name:[disc]` selector sugar loses its colon, and on a last segment becomes
-// `name: disc`, with `disc` spelled the way the formatter spells a value. A
-// re-spelled piece holding a backslash is double-quoted, so the result reads
+// `name: disc`, with `disc` written the way the formatter writes a value. A
+// rewritten piece holding a backslash is double-quoted, so the result reads
 // the same under 2.x and a second run changes nothing.
 // Everything else - comments, blank lines, raw bodies, layout, a line 2.x
 // could not read - comes through as written. One shape has no spelling here
@@ -2316,7 +2316,7 @@ func readsSame(spelling string, quoted bool, logical string) bool {
 		p.Quote != QuoteOpen && !pathLike(p, spelling) && pieceText(p, spelling) == logical
 }
 
-// migrateSpelling is how a re-spelled piece is written. 2.x read a backslash
+// migrateSpelling is how a changed piece is written. 2.x read a backslash
 // in bare and single-quoted text as an escape too, and double quotes are
 // where both rule sets read one alike. No \u goes in, since 2.x would keep it
 // as written. So the migrated file reads the same under 2.x, and a second run
@@ -2344,7 +2344,7 @@ func v2BracketArray(body string) bool {
 
 // valueEdits collects the re-spellings a value's pieces need. Each piece is
 // read the 2.x way (escapes everywhere, an open quote kept whole, a quote at
-// both ends making it quoted) and re-spelled only where the current rules
+// both ends making it quoted) and rewritten only where the current rules
 // would read the same text as something else.
 func valueEdits(text string, tok *Tokens, edits *[]edit, st *migrating) {
 	for i := range tok.Elements {
@@ -2376,7 +2376,7 @@ func valueEdits(text string, tok *Tokens, edits *[]edit, st *migrating) {
 			continue
 		}
 		spelling := migrateSpelling(logical, !(quoted || p.Quote == QuoteOpen))
-		// Spelled the way 2.x read it, the line is E024 and binds nothing.
+		// Written the way 2.x read it, the line is E024 and binds nothing.
 		if strings.HasPrefix(spelling, "\"") && spellsPathEscape(spelling) {
 			st.lost++
 		}
@@ -2467,7 +2467,7 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 					// one - and an index or the wildcard was refused as a
 					// selector, so those stay as written. A bare body moves
 					// into a value, where a fence run opens a raw block and a
-					// leading `[` is bracket text, so the emitter spells it.
+					// leading `[` is bracket text, so the emitter writes it.
 					if !quoted && (indexShape(body) || body == "*") {
 						return rest
 					}
@@ -2822,7 +2822,7 @@ func bracketText(tok *Tokens, text string) bool {
 	return p.Quote == QuoteNone && p.End > p.Start && text[p.Start] == '['
 }
 
-// pathOf is the path the tokens spell. An error is the tokenizer's fault:
+// pathOf is the path the tokens give. An error is the tokenizer's fault:
 // input that is not a path at all, which the caller skips with a diagnostic.
 func pathOf(tok *Tokens, text string) (pathScan, error) {
 	if tok.Fault >= 0 {
@@ -3242,7 +3242,7 @@ func (p *parser) hangDeeperPending(newIndent string) {
 				}
 			}
 			// A root node's trailing comment emits at column zero, which is
-			// exactly how the document's own trailing comment is spelled, so
+			// exactly how the document's own trailing comment is written, so
 			// keeping the two apart here made a merge depend on whether the
 			// layer had been formatted first. Let it orphan, the way a reload
 			// of this document's own output reads it. A comment deeper than the
@@ -3453,7 +3453,7 @@ func (p *parser) refuse(line int, code, msg string, out outcome, indent string) 
 	}
 	if out.kind == outcomeRetained {
 		// A line kept as written never hangs on a block: its indent is not
-		// one the output's levels are spelled with, so the block it would
+		// one the output's levels are written with, so the block it would
 		// match here is not the one it matches on a reload. It waits for the
 		// next binding line, as do the pending lines after it.
 		ceiling := len(indent)
@@ -3474,7 +3474,7 @@ func (p *parser) refuse(line int, code, msg string, out outcome, indent string) 
 // misplaced refuses a line for where it sits rather than for what it says:
 // E012, or E018 under one. Written back exactly as it was, it sits the same
 // way on a reload, as long as its indent holds a space, since no level the
-// emitter opens is spelled with one. A tab-only indent would bind there, and
+// emitter opens is written with one. A tab-only indent would bind there, and
 // a line opening a raw block would take its body along, so those are
 // dropped. An E018 line is kept only under a kept E012 one.
 func (p *parser) misplaced(line int, code, indent, rest string, hadBlank, raw bool) {
@@ -4316,7 +4316,7 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 				out = outDropped
 			}
 			// The column counts bytes from the line start, so all four bindings
-			// spell it the same on non-ASCII text.
+			// report it the same on non-ASCII text.
 			msg := fmt.Sprintf("malformed line skipped: %s, at column %d", serr.Error(), len(indent)+lead+tok.Fault+1)
 			p.refuse(lineno, "E014", msg, out, indent)
 			i++
@@ -4329,7 +4329,7 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 		if selectorOpenQuote(&tok) {
 			p.err(lineno, "E017", "unterminated quote in selector")
 		}
-		// A value spelled the way JSON, TOML and YAML spell an array, or an
+		// A value written the way JSON, TOML and YAML write an array, or an
 		// escape that cannot be read as written or as an escape without
 		// guessing. The brackets are not a selector after the colon, and
 		// reading the text without them would bake a changed value in, so the
@@ -4875,7 +4875,7 @@ type emit struct {
 	keptNear []nearNode
 	// ToTextKeepLines() only: where the lines from each source line start
 	// (0 for none), each raw body with the tabs its lines are padded with,
-	// and where each value is spelled on its binding line.
+	// and where each value is written on its binding line.
 	lines  bool
 	marks  [][2]int
 	bodies [][3]int
@@ -5293,8 +5293,8 @@ func writeRun(out *strings.Builder, e *emit, text string, pos, end int, indents 
 	return indents
 }
 
-// authoredHead is a binding line the edits rewrote, with the name spelled the
-// way the source line spelled it. False unless both lines bind one plain name.
+// authoredHead is a binding line the edits rewrote, with the name written the
+// way the source line wrote it. False unless both lines bind one plain name.
 func authoredHead(src, canon string) (string, bool) {
 	t := trimEndWS(strings.TrimSuffix(src, "\n"))
 	ilen := len(leadingWS(t))
@@ -6043,7 +6043,7 @@ func QuoteSegment(name string) string {
 	return emitName(name)
 }
 
-// diagName is a field name for a diagnostic message: spelled the way the
+// diagName is a field name for a diagnostic message: put the way the
 // emitter would write it, so a name carrying a line break, a dot or a quote
 // cannot pose as something it is not - a raw `a.b` reads exactly like `a`
 // nesting `b`, and a raw line break splits one diagnostic across two.
@@ -6051,7 +6051,7 @@ func diagName(name string) string {
 	return emitName(name)
 }
 
-// diagElement is one element of a value, spelled for a diagnostic message:
+// diagElement is one element of a value, written for a diagnostic message:
 // the emitter's inline spelling, so a value carrying a line break cannot split
 // one diagnostic across two.
 func diagElement(e *element) string {
@@ -6141,7 +6141,7 @@ func ReadFile(path string, maxBytes int) (string, FileStatus) {
 	// over is caught without trusting a length from Stat.
 	var r io.Reader = f
 	if maxBytes > 0 {
-		// Saturating: a cap spelled as the type maximum must not wrap to a
+		// Saturating: a cap given as the type maximum must not wrap to a
 		// negative limit and read nothing.
 		limit := int64(maxBytes)
 		if limit < math.MaxInt64 {
@@ -6568,7 +6568,7 @@ type SaveRefused struct {
 	Lost int // lines/values the load dropped (see LostCount)
 }
 
-// Error spells the refusal with the path and the count, so a log line says
+// Error states the refusal with the path and the count, so a log line says
 // which file and how much a lossy save would drop.
 func (e *SaveRefused) Error() string {
 	return fmt.Sprintf("%s: refusing to save: load dropped %d line(s)/value(s) "+
@@ -6713,7 +6713,7 @@ func emitElement(e *element) string {
 	return t
 }
 
-// newElement builds an element no source spelled. It counts as quoted when
+// newElement builds an element no source wrote. It counts as quoted when
 // canonical output will quote it, so a read gives the same answer before a
 // save as after one.
 func newElement(text string) element {
@@ -6794,7 +6794,7 @@ func quoteTextAs(t string, rules Rules) string {
 // invisible character goes in as it is.
 func quoteDoubleAs(t string, rules Rules) string {
 	out := quoteDoubleWith(t, rules, false)
-	// Spelled `\t` or `\n`, a path is E024 on the reload, and a `\u` escape
+	// Written `\t` or `\n`, a path is E024 on the reload, and a `\u` escape
 	// reads the same. 2.x kept one as written, so for 2.x a tab goes in as it
 	// is, and a line break has no spelling: migrate counts that one lost.
 	if spellsPathEscape(out) {
@@ -7250,7 +7250,7 @@ func (d *Document) Line(path string) int {
 	return d.arena[r.one].line
 }
 
-// AuthoredName is the field name at a path exactly as the author spelled it
+// AuthoredName is the field name at a path exactly as the author wrote it
 // (case unfolded, outer quotes stripped), so a message can echo `SYMBOLS` when
 // the file said SYMBOLS. Escape sequences stay as written too: a name is
 // stored, compared and emitted with its escapes RESOLVED, so this is the one
@@ -7342,7 +7342,7 @@ func (d *Document) Children(path string) []string {
 // InstancePaths is Paths() one instance at a time: every binding's path in
 // file order, with `[#i]` on each segment whose name repeats under its
 // parent, so each path reads exactly one node and a repeated block is walked
-// instance by instance. Segments are spelled as Paths() spells them.
+// instance by instance. Segments are written as Paths() writes them.
 func (d *Document) InstancePaths() []string {
 	var out []string
 	type ent struct {
@@ -7430,7 +7430,7 @@ func boolText(v bool) string {
 }
 
 // literalValue reads text as the value half of a line, for the setters that
-// take value syntax rather than data: whatever a file line spells with this
+// take value syntax rather than data: whatever a file line means with this
 // text is what gets stored, so a trailing blank comes off and a # outside
 // quotes ends the value exactly as they would in a file. What is refused is
 // what a file reports as an error, since a setter has no diagnostic to report
@@ -7614,7 +7614,7 @@ func (d *Document) place(path string) (int, bool) {
 		return 0, false
 	}
 	// Nothing is created until every segment the write would create is known
-	// to spell back: the name through the name escaper, an instance selector
+	// to read back: the name through the name escaper, an instance selector
 	// as the value it binds.
 	for i := range scan.segments {
 		if trail[i] >= 0 {
@@ -8012,7 +8012,7 @@ func (d *Document) ClearComments(path string) int {
 // SetBanner puts the info block (GenBanner) at the end of the document, or
 // with on false just takes it off. An old block comes off first, found by its
 // "This config file format is SHCL." line or its version line, never by its
-// links or Legal line, which a later release may spell differently. A version
+// links or Legal line, which a later release may word differently. A version
 // line Migrate stamped counts too. A block is a run of "##" lines with no
 // blank inside, so a "##" comment of the file's own, written right against
 // it, goes with it. It is looked for in the footer and above every field but
@@ -8932,7 +8932,7 @@ func (u DurationUnit) millis() uint64 {
 	return 0
 }
 
-// Spelling is the unit as a value spells it: ms, s, m, h or d.
+// Spelling is the unit as a value has it: ms, s, m, h or d.
 func (u DurationUnit) Spelling() string {
 	switch u {
 	case DurationMillis:
@@ -9013,7 +9013,7 @@ func (u SizeUnit) bytes(decimal bool) uint64 {
 	return 0
 }
 
-// Spelling is the unit as a value spells it: B, KB, MB, GB, TB, KiB, MiB, GiB
+// Spelling is the unit as a value has it: B, KB, MB, GB, TB, KiB, MiB, GiB
 // or TiB.
 func (u SizeUnit) Spelling() string {
 	switch u {
@@ -9179,7 +9179,7 @@ func scaled(intDigits, fracDigits string, scale uint64) (uint64, bool) {
 }
 
 // parseDurationText is a duration in whole milliseconds, and the units the
-// text spelled: parts such as `1h 30m`, largest unit first and each once,
+// text used: parts such as `1h 30m`, largest unit first and each once,
 // with blanks allowed between a number and its unit and between parts. A
 // bare number takes bare, and is not ok without one. No sign.
 func parseDurationText(t string, bare DurationUnit) (int64, []DurationUnit, bool) {
@@ -9229,7 +9229,7 @@ func parseDurationText(t string, bare DurationUnit) (int64, []DurationUnit, bool
 	return int64(total), units, true
 }
 
-// parseSizeText is a size in whole bytes, and the unit the text spelled: a
+// parseSizeText is a size in whole bytes, and the unit the text used: a
 // number, blanks allowed, then a unit. A bare number takes bare, and is not
 // ok without one. No sign.
 func parseSizeText(t string, bare SizeUnit, decimal bool) (int64, SizeUnit, bool) {
@@ -10170,7 +10170,7 @@ type constraint struct {
 	minF     *float64
 	maxF     *float64
 	// duration and size: the unit a bare number takes when the field name
-	// gives none, base 10 for KB to TB, and the bounds as the schema spelled
+	// gives none, base 10 for KB to TB, and the bounds as the schema wrote
 	// them, since minI and maxI hold them in milliseconds or bytes.
 	unitD        DurationUnit
 	unitS        SizeUnit
@@ -10487,7 +10487,7 @@ func parseField(schema *Document, f int, faults *[]Diagnostic) (constraint, bool
 		// occurrence wins (a merged schema could carry two).
 		case "desc":
 			// A comma in a sentence makes the value several elements, and the
-			// comment is prose: take them all, spelled as written.
+			// comment is prose: take them all, kept as written.
 			if c.desc == nil && kid.value.kind == vCell {
 				parts := make([]string, len(kid.value.els))
 				for i := range kid.value.els {
@@ -10526,7 +10526,7 @@ func parseField(schema *Document, f int, faults *[]Diagnostic) (constraint, bool
 		base = "string"
 	}
 	// `unit` and `decimal` belong to the types that read a bare number in one,
-	// and a unit has to be one that type spells.
+	// and a unit has to be one that type takes.
 	if unitAt >= 0 {
 		kid := &schema.arena[unitAt]
 		t, _ := singleText(&kid.value)
@@ -10771,7 +10771,7 @@ func genAnnotation(c *constraint, tyname string) string {
 	}
 	// The bounds are their own part of the annotation line, not an alternative
 	// to `allowed`. A field can carry both, and the validator enforces both. A
-	// duration or size bound reads the way the schema spelled it.
+	// duration or size bound reads the way the schema wrote it.
 	switch {
 	case c.minText != nil || c.maxText != nil:
 		switch {
@@ -10889,7 +10889,7 @@ func Generate(schema *Document, noBanner bool) (string, []Diagnostic) {
 	// `[#N]` needs a pre-existing instance and its `#` would start a comment on
 	// a binding line. A path deeper than a document may nest cannot be generated
 	// either: the line would draw E016 on the way back in. A newline in a name
-	// or a by-value selector is writable, since both are spelled escaped.
+	// or a by-value selector is writable, since both are written escaped.
 	// The reason doubles as the predicate, so the refusal below can never name a
 	// path for a reason generation did not act on.
 	whyUnwritable := func(c *constraint) string {
@@ -11361,7 +11361,7 @@ func namesKey(names []string) string {
 // the reader takes out of that line's value, and each candidate is scanned
 // back the way a file line is scanned, so none of the scanner's rules is
 // copied here to go stale. That copy was the cause twice: an all-digit body
-// past 64 bits, and a quoted array element spelled as the body. One element
+// past 64 bits, and a quoted array element written as the body. One element
 // tries the spelling it was written in first; an array has only the bare
 // body, since a quoted selector matches one element only, and a bare one the
 // elements joined.

@@ -276,7 +276,7 @@ static int cf_f64(const char *p, size_t n, double *out) {
 		if (i != n) return 0;
 	}
 	/* strtod follows the locale's decimal point, and the gate runs this under a
-	   comma-decimal one. An op file spells a float with '.', same as a
+	   comma-decimal one. An op file writes a float with '.', same as a
 	   document, so translate before the call - the library does the same at its
 	   own two conversion sites. */
 	const char *dp = localeconv()->decimal_point;
@@ -381,7 +381,7 @@ static void apply_op_c(shcl_doc *d, char *line) {
 
 static int cmp_str(const void *a, const void *b) { return strcmp(*(const char *const *)a, *(const char *const *)b); }
 
-// The load diagnostics of a document at Standard, spelled the way `check`
+// The load diagnostics of a document at Standard, written the way `check`
 // prints them: one line per diagnostic, then the summary. malloc'd; *len gets
 // the length.
 static char *diag_text(shcl_doc *d, size_t *len) {
@@ -1233,7 +1233,7 @@ int main(int argc, char **argv) {
 			   merged arena holds dropped nodes, a rebuilt index and cloned child
 			   lists, and only a read walks those. shcl_instances is left out
 			   because it hands back the source spelling, which canonical output
-			   may respell. Same fixture in every runner. Results live until
+			   may rewrite. Same fixture in every runner. Results live until
 			   shcl_free here, so nothing has to be copied between reads. */
 			{
 				shcl_str *mp1 = NULL, *mp2 = NULL;
@@ -1742,7 +1742,7 @@ int main(int argc, char **argv) {
 			rt = shcl_read_file(tfile, 9, &rn, &rst);
 			if (rt || rst != SHCL_FILE_UNREADABLE) fail("file_tier", "read_file past the cap");
 			free(rt);
-			// A cap spelled as the type maximum used to overflow the over-cap
+			// A cap given as the type maximum used to overflow the over-cap
 			// probe and read nothing. Same fixture in every runner.
 			rt = shcl_read_file(tfile, (size_t)-1, &rn, &rst);
 			if (!rt || rst != SHCL_FILE_CLEAN || rn != 10 || memcmp(rt, "a: 1\nb: x\n", 11) != 0) fail("file_tier", "read_file at the largest cap");
@@ -1812,7 +1812,7 @@ int main(int argc, char **argv) {
 				remove(probe); remove(born);
 			}
 #endif
-			// Windows-only, and C-only in effect: a path spelled with the platform
+			// Windows-only, and C-only in effect: a path written with the platform
 			// separator, a name outside the active code page, and a drive-relative
 			// target. The fixture above joins with '/', which is why none of these
 			// ever failed here - the writer split on '/' alone, and every file call
@@ -2255,7 +2255,7 @@ int main(int argc, char **argv) {
 		}
 		// A literal line break is writable wherever a path can carry one: a name
 		// emits through the name escaper and a selector value through the value
-		// emitter, and both spell a break \n and read it back as one. The
+		// emitter, and both write a break \n and read it back as one. The
 		// selector was refused while the value emitter still wrote elements in
 		// their source spelling and had nothing to escape with. Not
 		// corpus-pinnable - an ops line cannot carry a raw newline.
@@ -2266,7 +2266,7 @@ int main(int argc, char **argv) {
 		if (shcl_count(wd, "a", 1) != 1) fail("write_reason", "probe created nodes");
 		shcl_free(wd);
 	}
-	// Both halves of a path can carry a line break and spell it \n: a name
+	// Both halves of a path can carry a line break and write it \n: a name
 	// through the name escaper, a selector value through the value emitter. The
 	// selector was refused while elements were stored in their source spelling
 	// and the emitter had nothing to escape with. Same fixture in every runner.
@@ -2597,7 +2597,7 @@ int main(int argc, char **argv) {
 				}
 				shcl_free(back); shcl_free(sd);
 			}
-			/* The same rule for a name: whatever shcl_quote_segment spells has
+			/* The same rule for a name: whatever shcl_quote_segment writes has
 			   to come back as one segment holding that name, or the write is
 			   refused. */
 			shcl_doc *nd = shcl_parse("k: 1\n", 5);

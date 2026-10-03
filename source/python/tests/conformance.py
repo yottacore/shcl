@@ -168,7 +168,7 @@ def _read(path):
 
 
 def _diag_text(text):
-	"""The load diagnostics of `text` at Standard, spelled the way `check`
+	"""The load diagnostics of `text` at Standard, written the way `check`
 	prints them: one line per diagnostic, then the summary."""
 	diags = shcl.Document.parse(text).diagnostics()
 	got = ""
@@ -728,7 +728,7 @@ def setters_write_only_what_reads_back():
 					raise SystemExit(f"raw info {s!r} got {back.read_raw_info('k').value!r}")
 			if kind == 5 and back.read_string_array("k").value != ["x", s]:
 				raise SystemExit(f"array {s!r} got {back.read_string_array('k').value!r}")
-		# The same rule for a name: whatever quote_segment spells has to come
+		# The same rule for a name: whatever quote_segment writes has to come
 		# back as one segment holding that name, or the write is refused.
 		path = shcl.quote_segment(s)
 		doc = shcl.Document.parse("k: 1\n")
@@ -1042,7 +1042,7 @@ def main():
 		# Reads answered by the merged document itself, not just its text: a
 		# merged arena holds dropped nodes, a rebuilt index and cloned child
 		# lists, and only a read walks those. instances() is left out because it
-		# hands back the source spelling, which canonical output may respell.
+		# hands back the source spelling, which canonical output may rewrite.
 		# Same fixture in every runner.
 		mback = shcl.Document.parse(got)
 		if doc.paths() != mback.paths():
@@ -1364,7 +1364,7 @@ def main():
 		(".".join(["d"] * 513), shcl.WriteReason.TooDeep),
 		# A literal line break is writable wherever a path can carry one: a name
 		# emits through the name escaper and a selector value through the value
-		# emitter, and both spell a break \n and read it back as one. The
+		# emitter, and both write a break \n and read it back as one. The
 		# selector was refused while the value emitter still wrote elements in
 		# their source spelling and had nothing to escape with. Not
 		# corpus-pinnable - an ops line cannot carry a raw newline.
@@ -1944,7 +1944,7 @@ def main():
 			raise SystemExit("read_file at the cap")
 		if shcl.read_file(fpath, 9) != (None, shcl.FileStatus.Unreadable):
 			raise SystemExit("read_file past the cap")
-		# A cap spelled as the type maximum used to overflow the over-cap probe
+		# A cap given as the type maximum used to overflow the over-cap probe
 		# and read nothing. Same fixture in every runner.
 		if shcl.read_file(fpath, sys.maxsize) != ("a: 1\nb: x\n", shcl.FileStatus.Clean):
 			raise SystemExit("read_file at the largest cap")
@@ -2441,7 +2441,7 @@ def main():
 		raise SystemExit(f"ShclDateTime repr is not readable: {dtxt}")
 
 	test_id("EpGigIS", "a_line_break_in_a_path_writes_and_reads_back")
-	# Both halves of a path can carry a line break and spell it \n: a name
+	# Both halves of a path can carry a line break and write it \n: a name
 	# through the name escaper, a selector value through the value emitter. The
 	# selector was refused while elements were stored in their source spelling
 	# and the emitter had nothing to escape with. Same fixture in every runner.

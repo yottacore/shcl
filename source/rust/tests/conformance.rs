@@ -331,7 +331,7 @@ fn canonical_format_matches_expected() {
 	});
 }
 
-/// The load diagnostics of `text` at Standard, spelled the way `check` prints
+/// The load diagnostics of `text` at Standard, written the way `check` prints
 /// them: one line per diagnostic, then the summary.
 fn diag_text(text: &str) -> String {
 	let doc = Document::parse(text);
@@ -785,7 +785,7 @@ fn layered_merge_matches_expected() {
 		// Reads answered by the merged document itself, not just its text: a
 		// merged arena holds dropped nodes, a rebuilt index and cloned child
 		// lists, and only a read walks those. `instances` is left out because it
-		// hands back the source spelling, which canonical output may respell.
+		// hands back the source spelling, which canonical output may rewrite.
 		// Same fixture in every runner.
 		let back = Document::parse(&got);
 		assert_eq!(doc.paths(), back.paths(), "{}: merged paths", case.name);
@@ -1302,7 +1302,7 @@ fn write_reason_names_the_failure() {
 	assert_eq!(doc.write_reason(&deep), TooDeep);
 	// A literal line break is writable wherever a path can carry one: a name
 	// emits through the name escaper and a selector value through the value
-	// emitter, and both spell a break `\n` and read it back as one. The
+	// emitter, and both write a break `\n` and read it back as one. The
 	// selector was refused while the value emitter still wrote elements in
 	// their source spelling and had nothing to escape with. Not corpus-pinnable
 	// - an ops line cannot carry a raw newline.
@@ -1389,7 +1389,7 @@ fn setters_refuse_a_value_the_reader_refuses() {
 #[test]
 fn a_line_break_in_a_path_writes_and_reads_back() {
 	let _id = test_id("EpGigIK");
-	// Both halves of a path can carry one and spell it `\n`: a name through the
+	// Both halves of a path can carry one and write it `\n`: a name through the
 	// name escaper, a selector value through the value emitter. The selector
 	// was refused while elements were stored in their source spelling and the
 	// emitter had nothing to escape with. Same fixture in every runner.
@@ -1616,7 +1616,7 @@ fn file_tier_load_save() {
 #[test]
 fn read_file_at_the_largest_cap() {
 	let _id = test_id("EoLwIlh");
-	// A cap spelled as the type maximum used to overflow the over-cap probe and
+	// A cap given as the type maximum used to overflow the over-cap probe and
 	// read nothing. Same fixture in every runner.
 	let dir = std::env::temp_dir().join(format!("shcl-readcap-{}", std::process::id()));
 	std::fs::create_dir_all(&dir).unwrap();
@@ -2436,7 +2436,7 @@ fn setters_write_only_what_reads_back() {
 				_ => {}
 			}
 		}
-		// The same rule for a name: whatever `quote_segment` spells has to come
+		// The same rule for a name: whatever `quote_segment` writes has to come
 		// back as one segment holding that name, or the write is refused.
 		let path = shcl::quote_segment(&s);
 		let mut doc = Document::parse("k: 1\n");

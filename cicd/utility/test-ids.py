@@ -76,7 +76,7 @@ COLLECT: list[tuple[str, str]] = [
 	("cicd/config.bash", rf"^PROFILE_CHECK_ID=({ID})$"),
 ]
 ##	Every test a language's own runner finds, in any tracked file. One outside
-##	the NEED table's files, or spelled so its pattern misses it, would run with
+##	the NEED table's files, or written so its pattern misses it, would run with
 ##	no ID and nothing here saying so. TestMain runs the tests and is none. The
 ##	comparison tool's crate stays out of the gate, so its tests are not CI tests.
 STRAY: list[tuple[str, str]] = [

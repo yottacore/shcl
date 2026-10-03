@@ -72,7 +72,7 @@ There are four CLIs, one per binding. Only the Rust one is distributed. The Go, 
 
 - A file that cannot be opened is `FILE: ` and the system's own message.
 
-- A count that can be one or more is spelled `N line(s)`, `N diagnostic(s)`.
+- A count that can be one or more is written `N line(s)`, `N diagnostic(s)`.
 
 - Quotes around a suggested word are single quotes: `did you mean 'fmt'?`.
 

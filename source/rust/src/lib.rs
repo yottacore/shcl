@@ -505,10 +505,10 @@ struct NodeData {
 	// was synthesized (writer, stacked list, fence) OR when the spelling is
 	// exactly the display form; raw falls back to the display form either way.
 	src: Option<String>,
-	// The name as the author spelled it (case unfolded, quotes and escapes
+	// The name as the author wrote it (case unfolded, quotes and escapes
 	// resolved) - what authored_name() hands back, via authored(). Merged
 	// instances keep the first binding's spelling, like line() and comments.
-	// Empty = spelled exactly like `name` (the overwhelmingly common case).
+	// Empty = written exactly like `name` (the overwhelmingly common case).
 	name_src: String,
 }
 
@@ -1379,7 +1379,7 @@ fn element_of(p: &Piece, text: &str) -> Option<Element> {
 	})
 }
 
-/// The value the tokenized pieces spell.
+/// The value the tokenized pieces give.
 fn cell_of_tokens(tok: &Tokens, text: &str) -> Value {
 	let mut els: Vec<Element> = Vec::with_capacity(tok.elements.len());
 	els.extend(tok.elements.iter().filter_map(|p| element_of(p, text)));
@@ -1426,7 +1426,7 @@ fn one_line(s: &str) -> String {
 }
 
 /// Schema text for a diagnostic or a generated comment: a path or a type as the
-/// schema wrote it, with a line break spelled `\n`, so one diagnostic stays one
+/// schema wrote it, with a line break written `\n`, so one diagnostic stays one
 /// line. Only the break is escaped, so a path reads the way it was written.
 fn schema_text(s: &str) -> String {
 	s.replace('\n', "\\n")
@@ -1475,9 +1475,9 @@ fn resolve_escapes(s: &str, rules: Rules) -> String {
 	out
 }
 
-/// The character a `\u` or `\U` escape names, and how many hex digits spell
-/// it: four after `u`, eight after `U`, as in TOML. None for a short run, a
-/// surrogate or a value past U+10FFFF.
+/// The character a `\u` or `\U` escape names, and how many hex digits it
+/// takes: four after `u`, eight after `U`, as in TOML. None for a short run,
+/// a surrogate or a value past U+10FFFF.
 fn unicode_escape(kind: char, after: &str) -> Option<(char, usize)> {
 	let len = if kind == 'u' { 4 } else { 8 };
 	let digits = after.get(..len)?;
@@ -1564,7 +1564,7 @@ fn selector_base(c: char) -> bool {
 }
 
 /// Whether the tag at byte `i` of `t` is part of a subdivision flag, as UTS #51
-/// spells one: U+1F3F4, three to seven tag digits or lowercase tag letters,
+/// defines one: U+1F3F4, three to seven tag digits or lowercase tag letters,
 /// and the cancel tag.
 fn flag_tag(t: &str, i: usize) -> bool {
 	let spec = |c: char| matches!(c, '\u{E0030}'..='\u{E0039}' | '\u{E0061}'..='\u{E007A}');
@@ -1601,7 +1601,7 @@ fn has_invisible(t: &str) -> bool {
 	t.char_indices().any(|(i, c)| invisible_at(t, i, c))
 }
 
-/// `\u` takes four digits, so a character past U+FFFF is spelled with `\U`.
+/// `\u` takes four digits, so a character past U+FFFF is written with `\U`.
 fn push_unicode_escape(out: &mut String, c: char) {
 	use std::fmt::Write;
 	let _ = if (c as u32) > 0xFFFF {
@@ -1625,7 +1625,7 @@ fn single_scalar(v: &Value) -> bool {
 	matches!(v, Value::Cell(els) if els.len() == 1)
 }
 
-// FNV-1a, fed the same byte sequence the key strings would spell - the
+// FNV-1a, fed the same byte sequence the key strings would contain - the
 // accelerator maps key on a u64 and verify hits against the arena, so the
 // strings themselves never get built. The hash only has to be stable within
 // one parse, not injective; a collision just chains in the slot.
@@ -1643,7 +1643,7 @@ impl Fnv {
 			self.byte(b);
 		}
 	}
-	/// A length prefix in decimal, spelled without allocating.
+	/// A length prefix in decimal, written without allocating.
 	fn dec(&mut self, mut n: usize) {
 		let mut buf = [0u8; 20];
 		let mut i = buf.len();
@@ -1738,7 +1738,7 @@ fn merge_eq(name_a: &str, va: &Value, name_b: &str, vb: &Value) -> bool {
 }
 
 /// Hash of the (name, display) pair a `[value]` selector matches with - what
-/// disp_key would spell, streamed instead of built. Elements hold the logical
+/// disp_key would give, streamed instead of built. Elements hold the logical
 /// string, so the bytes feed straight in.
 fn disp_hash(name: &str, v: &Value) -> u64 {
 	let mut h = Fnv::new();
@@ -1760,7 +1760,7 @@ fn disp_hash(name: &str, v: &Value) -> u64 {
 }
 
 /// The query-side twin of disp_hash: the selector's logical text, the same
-/// bytes the display would spell.
+/// bytes the display would contain.
 fn disp_hash_text(name: &str, want: &str) -> u64 {
 	let mut h = Fnv::new();
 	h.bytes(name.as_bytes());
@@ -1997,12 +1997,12 @@ fn track_fence(rest: &str, tok: &mut Tokens, fence: &mut Option<(u8, usize)>, dr
 }
 
 /// Rewrite a document written under the 2.x rules so this parser reads the
-/// same tree. Each line is read with the 2.x tokenizer and re-spelled only
+/// same tree. Each line is read with the 2.x tokenizer and rewritten only
 /// where the two rule sets disagree: a bare or single-quoted piece whose
 /// backslash meant an escape is double-quoted with that escape; a piece
 /// that opened a quote it never closed is quoted whole; the `name:[disc]`
 /// selector sugar loses its colon, and on a last segment becomes `name: disc`,
-/// with `disc` spelled the way the formatter spells a value. A re-spelled
+/// with `disc` written the way the formatter writes a value. A rewritten
 /// piece holding a backslash is double-quoted, so the result reads the same
 /// under 2.x and a second run changes nothing.
 /// Everything else - comments, blank lines, raw bodies, layout, a line 2.x
@@ -2138,7 +2138,7 @@ fn reads_same(spelling: &str, quoted: bool, logical: &str) -> bool {
 		&& piece_text(&tok.elements[0], spelling) == logical
 }
 
-/// How a re-spelled piece is written. 2.x read a backslash in bare and
+/// How a changed piece is written. 2.x read a backslash in bare and
 /// single-quoted text as an escape too, and double quotes are where both rule
 /// sets read one alike. No `\u` goes in, since 2.x would keep it as written.
 /// So the migrated file reads the same under 2.x, and a second run changes
@@ -2165,7 +2165,7 @@ fn v2_bracket_array(body: &str) -> bool {
 
 /// The re-spellings a value's pieces need. Each piece is read the 2.x way
 /// (escapes everywhere, an open quote kept whole, a quote at both ends
-/// making it quoted) and re-spelled only where the current rules would read
+/// making it quoted) and rewritten only where the current rules would read
 /// the same text as something else.
 fn value_edits(text: &str, tok: &Tokens, edits: &mut Vec<Edit>, st: &mut Migrating) {
 	for p in &tok.elements {
@@ -2198,7 +2198,7 @@ fn value_edits(text: &str, tok: &Tokens, edits: &mut Vec<Edit>, st: &mut Migrati
 			continue;
 		}
 		let spelling = migrate_spelling(&logical, !(quoted || p.quote == Quote::Open));
-		// Spelled the way 2.x read it, the line is E024 and binds nothing.
+		// Written the way 2.x read it, the line is E024 and binds nothing.
 		if spelling.starts_with('"') && spells_path_escape(&spelling) {
 			st.lost += 1;
 		}
@@ -2294,7 +2294,7 @@ fn migrate_line(
 					// one - and an index or the wildcard was refused as a
 					// selector, so those stay as written. A bare body moves
 					// into a value, where a fence run opens a raw block and a
-					// leading `[` is bracket text, so the emitter spells it.
+					// leading `[` is bracket text, so the emitter writes it.
 					if !quoted && (index_shape(body) || body == "*") {
 						return rest.to_string();
 					}
@@ -2609,7 +2609,7 @@ fn bracket_text(tok: &Tokens, text: &str) -> bool {
 		})
 }
 
-/// The path the tokens spell. Err(reason) is the tokenizer's fault: input
+/// The path the tokens give. Err(reason) is the tokenizer's fault: input
 /// that is not a path at all, which the caller skips with a diagnostic.
 fn path_of(tok: &Tokens, text: &str) -> Result<PathScan, String> {
 	if let Some((_, reason)) = tok.fault {
@@ -2897,7 +2897,7 @@ impl<'a> Parser<'a> {
 		}
 		if let Outcome::Retained { text, blank_before } = outcome {
 			// A line kept as written never hangs on a block: its indent is not
-			// one the output's levels are spelled with, so the block it would
+			// one the output's levels are written with, so the block it would
 			// match here is not the one it matches on a reload. It waits for
 			// the next binding line, as do the pending lines after it.
 			let ceiling = if text.starts_with([' ', '\t']) {
@@ -3211,7 +3211,7 @@ impl<'a> Parser<'a> {
 					});
 				// A root node's trailing comment emits at column zero, which
 				// is exactly how the document's own trailing comment is
-				// spelled, so keeping the two apart here made a merge depend on
+				// written, so keeping the two apart here made a merge depend on
 				// whether the layer had been formatted first. Let it orphan,
 				// the way a reload of this document's own output reads it. A
 				// comment deeper than the node keeps an indent of its own and
@@ -3317,7 +3317,7 @@ impl<'a> Parser<'a> {
 	/// A line refused for where it sits rather than for what it says: `E012`,
 	/// or `E018` under one. Written back exactly as it was, it sits the same
 	/// way on a reload, as long as its indent holds a space, since no level
-	/// the emitter opens is spelled with one. A tab-only indent would bind
+	/// the emitter opens is written with one. A tab-only indent would bind
 	/// there, and a line opening a raw block would take its body along, so
 	/// those are dropped. An `E018` line is kept only under a kept `E012` one.
 	fn misplaced(
@@ -4271,7 +4271,7 @@ impl<'a> Parser<'a> {
 				Ok(s) => s,
 				Err(reason) => {
 					// The column counts bytes from the line start, so all four
-					// bindings spell it the same on non-ASCII text.
+					// bindings report it the same on non-ASCII text.
 					let at = tok.fault.map_or(0, |(pos, _)| pos);
 					// Content-malformed at any position, so retained - except a
 					// line led by a BOM, which the file-start strip would rewrite
@@ -4306,7 +4306,7 @@ impl<'a> Parser<'a> {
 			if selector_open_quote(&tok) {
 				self.err(lineno, "E017", "unterminated quote in selector");
 			}
-			// A value spelled the way JSON, TOML and YAML spell an array, or
+			// A value written the way JSON, TOML and YAML write an array, or
 			// an escape that cannot be read as written or as an escape without
 			// guessing. The brackets are not a selector after the colon, and
 			// reading the text without them would bake a changed value in, so
@@ -5094,7 +5094,7 @@ struct Emit {
 	kept_near: Vec<(usize, usize)>,
 	// to_text_keep_lines() only: where the lines from each source line start
 	// (0 for none), each raw body with the tabs its lines are padded with,
-	// and where each value is spelled on its binding line.
+	// and where each value is written on its binding line.
 	lines: bool,
 	marks: Vec<(usize, usize)>,
 	bodies: Vec<(usize, usize, usize)>,
@@ -5517,8 +5517,8 @@ fn write_run(
 	}
 }
 
-/// A binding line the edits rewrote, with the name spelled the way the
-/// source line spelled it. None unless both lines bind one plain name.
+/// A binding line the edits rewrote, with the name written the way the
+/// source line wrote it. None unless both lines bind one plain name.
 fn authored_head(src: &str, canon: &str) -> Option<String> {
 	let t = trim_wsp_end(src.strip_suffix('\n').unwrap_or(src));
 	let ilen = t.bytes().take_while(|&b| b == b' ' || b == b'\t').count();
@@ -6048,7 +6048,7 @@ fn emit_name(name: &str) -> std::borrow::Cow<'_, str> {
 	escape_name(name)
 }
 
-/// A field name for a diagnostic message: spelled the way the emitter would
+/// A field name for a diagnostic message: put the way the emitter would
 /// write it, so a name carrying a line break, a dot or a quote cannot pose as
 /// something it is not - a raw `a.b` reads exactly like `a` nesting `b`, and a
 /// raw line break splits one diagnostic across two.
@@ -6056,7 +6056,7 @@ fn diag_name(name: &str) -> String {
 	emit_name(name).into_owned()
 }
 
-/// One element of a value, spelled for a diagnostic message: the emitter's
+/// One element of a value, written for a diagnostic message: the emitter's
 /// inline spelling, so a value carrying a line break cannot split one
 /// diagnostic across two.
 fn diag_element(e: &Element) -> String {
@@ -7232,7 +7232,7 @@ fn emit_element(e: &Element) -> std::borrow::Cow<'_, str> {
 	}
 }
 
-/// An element no source spelled. It counts as quoted when canonical output will
+/// An element no source wrote. It counts as quoted when canonical output will
 /// quote it, so a read gives the same answer before a save as after one.
 fn new_element(text: String) -> Element {
 	Element {
@@ -7291,7 +7291,7 @@ fn quote_text_as(t: &str, rules: Rules) -> String {
 /// character goes in as it is.
 fn quote_double_as(t: &str, rules: Rules) -> String {
 	let out = quote_double_with(t, rules, false);
-	// Spelled `\t` or `\n`, a path is E024 on the reload, and a `\u` escape
+	// Written `\t` or `\n`, a path is E024 on the reload, and a `\u` escape
 	// reads the same. 2.x kept one as written, so for 2.x a tab goes in as it
 	// is, and a line break has no spelling: migrate counts that one lost.
 	if spells_path_escape(&out) {
@@ -7674,7 +7674,7 @@ impl Document {
 		}
 	}
 
-	/// The field name at a path exactly as the author spelled it (case
+	/// The field name at a path exactly as the author wrote it (case
 	/// unfolded, outer quotes stripped), so a message can echo `SYMBOLS` when
 	/// the file said SYMBOLS. Escape sequences stay as written too: a name is
 	/// stored, compared and emitted with its escapes RESOLVED, so this is the
@@ -7736,7 +7736,7 @@ impl Document {
 	/// paths() one instance at a time: every binding's path in file order,
 	/// with `[#i]` on each segment whose name repeats under its parent, so
 	/// each path reads exactly one node and a repeated block is walked
-	/// instance by instance. Segments are spelled as paths() spells them.
+	/// instance by instance. Segments are written as paths() writes them.
 	pub fn instance_paths(&self) -> Vec<String> {
 		let mut out = Vec::new();
 		let mut stack: Vec<(usize, String)> = vec![(ROOT, String::new())];
@@ -7798,7 +7798,7 @@ impl Document {
 // already gone and is not maintained here.
 
 /// Read text as the value half of a line, for the setters that take value
-/// syntax rather than data: whatever a file line spells with this text is
+/// syntax rather than data: whatever a file line means with this text is
 /// what gets stored, so a trailing blank comes off and a `#` outside quotes
 /// ends the value exactly as they would in a file. What is refused is what
 /// a file reports as an error, since a setter has no diagnostic to report it
@@ -7927,8 +7927,8 @@ impl Document {
 			// escapes a line break, so nothing downstream can rescue it - and
 			// the reload loses nothing it can count, so the save gate would not
 			// catch it either. A newline in a NAME is fine: names are stored
-			// escape-resolved and emitted through the name escaper, which spells
-			// a line break `\n` and reads it back as one.
+			// escape-resolved and emitted through the name escaper, which writes
+			// a line break as `\n` and reads it back as one.
 			match &seg.selector {
 				Some(Selector::Wildcard) => return WriteReason::Wildcard,
 				Some(Selector::ByIndex(k)) => {
@@ -7972,7 +7972,7 @@ impl Document {
 			return None;
 		}
 		// Nothing is created until every segment the write would create is
-		// known to spell back: the name through the name escaper, an instance
+		// known to read back: the name through the name escaper, an instance
 		// selector as the value it binds.
 		for (i, seg) in scan.segments.iter().enumerate() {
 			if trail[i].is_some() {
@@ -8317,7 +8317,7 @@ impl Document {
 	/// Put the info block (`GEN_BANNER`) at the end of the document, or with
 	/// `on` false just take it off. An old block comes off first, found by its
 	/// `This config file format is SHCL.` line or its version line, never by
-	/// its links or Legal line, which a later release may spell differently.
+	/// its links or Legal line, which a later release may word differently.
 	/// A version line `migrate` stamped counts too. A block is a run of `##`
 	/// lines with no blank inside, so a `##` comment of the file's own,
 	/// written right against it, goes with it. It is looked for in the
@@ -9337,7 +9337,7 @@ fn scaled(int: &str, frac: &str, scale: u64) -> Option<u64> {
 	Some(total)
 }
 
-/// A duration in whole milliseconds, and the units the text spelled: parts
+/// A duration in whole milliseconds, and the units the text used: parts
 /// such as `1h 30m`, largest unit first and each once, with blanks allowed
 /// between a number and its unit and between parts. A bare number takes
 /// `bare`, and is None without one. No sign.
@@ -9370,7 +9370,7 @@ fn parse_duration_text(t: &str, bare: Option<DurationUnit>) -> Option<(i64, Vec<
 	Some((total as i64, units))
 }
 
-/// A size in whole bytes, and the unit the text spelled: a number, blanks
+/// A size in whole bytes, and the unit the text used: a number, blanks
 /// allowed, then a unit. A bare number takes `bare`, and is None without
 /// one. No sign.
 fn parse_size_text(
@@ -10260,7 +10260,7 @@ struct Constraint {
 	min_f: Option<f64>,
 	max_f: Option<f64>,
 	// duration and size: the unit a bare number takes when the field name
-	// gives none, base 10 for KB to TB, and the bounds as the schema spelled
+	// gives none, base 10 for KB to TB, and the bounds as the schema wrote
 	// them, since min_i and max_i hold them in milliseconds or bytes.
 	unit_d: Option<DurationUnit>,
 	unit_s: Option<SizeUnit>,
@@ -10622,7 +10622,7 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 			// occurrence wins (a merged schema could carry two).
 			"desc" => {
 				// A comma in a sentence makes the value several elements, and
-				// the comment is prose: take them all, spelled as written.
+				// the comment is prose: take them all, kept as written.
 				if c.desc.is_none() {
 					c.desc = match &kid.value {
 						Value::Cell(els) => Some(
@@ -10672,7 +10672,7 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 			.map(|t| t.strip_suffix("-array").unwrap_or(t))
 			.unwrap_or("string");
 	// `unit` and `decimal` belong to the types that read a bare number in
-	// one, and a unit has to be one that type spells.
+	// one, and a unit has to be one that type takes.
 	if let Some(u) = unit_at {
 		let kid = &schema.arena[u];
 		let text = single_text(&kid.value).unwrap_or_default();
@@ -10905,7 +10905,7 @@ fn gen_annotation(c: &Constraint, tyname: &str) -> String {
 	}
 	// The bounds are their own part of the annotation line, not an alternative
 	// to `allowed`. A field can carry both, and the validator enforces both.
-	// A duration or size bound reads the way the schema spelled it.
+	// A duration or size bound reads the way the schema wrote it.
 	if c.bound_text.0.is_some() || c.bound_text.1.is_some() {
 		parts.push(match &c.bound_text {
 			(Some(lo), Some(hi)) => format!("{}-{}", lo, hi),
@@ -11022,7 +11022,7 @@ pub fn generate(schema: &Document, no_banner: bool) -> Result<String, Vec<Diagno
 	// `[#N]` needs a pre-existing instance and its `#` would start a comment on
 	// a binding line. A path deeper than a document may nest cannot be generated
 	// either: the line would draw E016 on the way back in. A newline in a name
-	// or a by-value selector is writable, since both are spelled escaped.
+	// or a by-value selector is writable, since both are written escaped.
 	// The reason doubles as the predicate, so the refusal below can never name a
 	// path for a reason generation did not act on.
 	let why_unwritable = |c: &Constraint| -> &'static str {
@@ -11444,13 +11444,13 @@ pub const FORMAT_MAJOR: u32 = 3;
 /// older file from one of its own.
 pub const FORMAT_LINE_HEAD: &str = "##    Format   ";
 
-/// The whole version line, as the block spells it. A program writing a config
+/// The whole version line, as the block has it. A program writing a config
 /// of its own emits `GEN_BANNER`, which carries this; `migrate` appends this
 /// line on its own to a file it rewrote, since that file has no block to add
 /// it to and inventing one would write bytes the document does not hold.
 pub const FORMAT_LINE: &str = "##    Format   3";
 
-/// The start of a line naming the file's schema, spelled like the Format line,
+/// The start of a line naming the file's schema, written like the Format line,
 /// for `check` and for editors: `##    Schema   ./app.schema.shcl`.
 pub const SCHEMA_LINE_HEAD: &str = "##    Schema   ";
 
@@ -11514,7 +11514,7 @@ fn gen_path_text(segs: &[Segment], parent_values: &HashMap<Vec<&str>, &str>) -> 
 /// of that line's value, and each candidate is scanned back the way a file
 /// line is scanned, so none of the scanner's rules is copied here to go stale.
 /// That copy was the cause twice: an all-digit body past 64 bits, and a
-/// quoted array element spelled as the body. One element tries the spelling
+/// quoted array element written as the body. One element tries the spelling
 /// it was written in first; an array has only the bare body, since a quoted
 /// selector matches one element only, and a bare one the elements joined.
 fn gen_selector_text(v: &str) -> Option<String> {

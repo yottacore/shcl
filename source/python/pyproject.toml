@@ -84,5 +84,5 @@ warn_unused_ignores = true
 no_implicit_optional = true
 strict_equality = true
 ## The parser assigns a narrower type back over a wider one in a few places
-## where the reference uses an enum the Python version spells as a union.
+## where the reference uses an enum the Python version writes as a union.
 disable_error_code = ["assignment"]

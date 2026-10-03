@@ -430,7 +430,7 @@ It cannot be combined with
 .TP
 .BR \-\-strictness= loose | standard | strict
 .RB ( get ", " set ", " fmt ", " check ", " count ", " instances ", " children ", " paths )
-How much the loader tolerates; also spelled
+How much the loader tolerates; also written
 .BR 1 ,
 .B 2
 and
@@ -485,7 +485,7 @@ As
 .BR \-\-set ,
 except
 .I TEXT
-goes in as value syntax the way a file spells it \- so
+goes in as value syntax the way a file writes it \- so
 .B ports=80, 443
 writes a two-element array. A
 .B #
@@ -695,7 +695,7 @@ outside quotes opened a comment in 2.x and still does.
 .PP
 Which file it is looking at is the one thing
 .B migrate
-cannot read off the text: a backslash value is spelled the same way under both
+cannot read off the text: a backslash value is written the same way under both
 rule sets and means two different things, so rewriting a 3.0 file would change
 what it says. The info block carries a
 .B Format

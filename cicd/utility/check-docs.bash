@@ -26,7 +26,7 @@ testWhere="check-docs"; testCounter="nBad"
 source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
 
 fTest Ep19Ax7 default-ops-in-help-table
-##	Every write op the CLI dispatches with a -default form has to be spelled in
+##	Every write op the CLI dispatches with a -default form has to be written in
 ##	the help's op table, either by its own `name[-default]` entry or by the
 ##	`<type>[-array]-default` line that covers the typed scalars and arrays.
 ##	`raw-default` was accepted for a year and named nowhere.
@@ -39,7 +39,7 @@ while IFS= read -r op; do
 	case "${base}" in
 		int|float|bool|string|datetime|*-array) continue ;;
 	esac
-	grep -qF -- "  ${base}[-default]<TAB>" "${mainRs}" || fBad "write op ${op} is dispatched but the help's op table never spells ${base}[-default]"
+	grep -qF -- "  ${base}[-default]<TAB>" "${mainRs}" || fBad "write op ${op} is dispatched but the help's op table never lists ${base}[-default]"
 done <<<"${defaultOps}"
 
 fTest Eqp7thg python-version-matches-cargo
@@ -363,7 +363,7 @@ if git -C "${repoDir}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 
 fTest EqzuifI contact-address-spelling
-##	20260920b item 21: a contact address people read is spelled with the
+##	20260920b item 21: a contact address people read is written with the
 ##	circled A, not as a plain address, and three had sat on an old domain. The
 ##	code of conduct is the Contributor Covenant's own text, nfpm.yaml is read
 ##	by a packaging tool as an email, and the backlog quotes old findings.
@@ -817,7 +817,7 @@ if [[ -n "${help}" ]]; then
 
 	##	Both lists name subcommands in prose around them, so each is reduced to
 	##	the subcommand names it holds and the two sets are compared. The man
-	##	page spells an option with escaped hyphens and roff font macros around
+	##	page writes an option with escaped hyphens and roff font macros around
 	##	the names, which come off first.
 	mapfile -t docCmds < <(printf '%s\n' "${help}" | { grep -oE '^  shcl [a-z]+' || true ;} \
 		| awk '{print $2}' | { grep -vxE 'help|about' || true ;} | sort -u)
@@ -871,7 +871,7 @@ if [[ -n "${help}" ]]; then
 	##	20260904 item 31: the fmt synopsis had lost `[options]` and `-w` in the
 	##	help and the man page alike. Every word of a help synopsis has to be in
 	##	the man page's .SY block for that subcommand. The man page may say more,
-	##	since the help's column is narrow, and may spell a placeholder longer
+	##	since the help's column is narrow, and may write a placeholder longer
 	##	(S there, SCHEMA here). ` | ` between two subcommands starts another.
 	##	`[options]` may also be spelled out, as long as every option the
 	##	subcommand's own help lists is there.

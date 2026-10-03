@@ -121,7 +121,7 @@ warns="$(grep -inE 'warning|rustsec-|vulnerab|unmaintained|yanked' "$log" 2>/dev
 	| grep -viE 'no vulnerabilities found|affected by 0 vulnerabilities|this scan also found|appear to call|^[0-9]+:these vulnerabilities\.$|enable=warning|-D warnings' || true)"
 if [[ -n "$warns" ]]; then n=$(printf '%s\n' "$warns" | grep -c .); else n=0; fi
 
-##	A failed run is never CLEAN. Case-sensitive: each tool spells its failure one
+##	A failed run is never CLEAN. Case-sensitive: each tool prints its failure one
 ##	way, and the lower-case words turn up in passing output. The pipeline stops
 ##	two ways: an unexpected error raises the ABORTED line, and a check that fails
 ##	on purpose prints `[ FAILED: ... ]` and exits.

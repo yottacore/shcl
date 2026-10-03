@@ -231,7 +231,7 @@ Your config never needs a debugger, and a non-programmer can still edit it.
 
 Beyond the list at the top:
 
-- Hierarchy by indentation or dot paths (`site[blog.example.com].tls.hsts: off`), freely mixed. Both spell the same tree.
+- Hierarchy by indentation or dot paths (`site[blog.example.com].tls.hsts: off`), freely mixed. Both give the same tree.
 
 - Reads come as int, float, bool, datetime, string, raw block, or an array of any of them.
 
@@ -298,7 +298,7 @@ site: example.com
 site: blog.example.com
 	root: /srv/www/blog
 
-# Dotted paths spell the same tree; add to any instance from anywhere
+# Dotted paths give the same tree; add to any instance from anywhere
 site[blog.example.com].tls.hsts: off
 
 # Multi-line content goes in a fenced block, kept verbatim
@@ -573,7 +573,7 @@ An in-place write is the library's own save, with the same refusal (at its own e
 
 Two more verbs round out the CLI. `migrate` rewrites a file written for shcl 2.x under the 3.0 rules, touching only what the two read differently (a backslash outside double quotes, an unknown escape in double quotes, a quote that never closed, the old `name:[disc]` spelling) and leaving comments, blank lines and layout as they were; `--write` saves it through the same gate and keeps the original beside it, as `config_old_v2.shcl` for `config.shcl`, and `--check` names the lines it would change without touching anything. `tokens` prints each line as the parser reads it, span by span, for the times a line is refused and it is not obvious why. Each line is read on its own, so a raw body line comes out as if it were a field line.
 
-If you have files written for 2.x, run `migrate --from-2x` over them once and read what comes back. The flag is not optional politeness: a backslash value is spelled the same way under both rule sets and means two different things, so without being told which rules wrote the file, `migrate` leaves those values alone and exits 7 rather than guessing and damaging a file that was already correct. What it rewrites it stamps, so running it twice is safe. Most of what changed at 3.0 is loud, and a file carrying it says so the first time it loads. A raw block's label is the quiet exception: one holding a `#` ran to the end of the line in 2.x and ends at the `#` now, and `migrate` cannot rewrite that, since a label has no quoting.
+If you have files written for 2.x, run `migrate --from-2x` over them once and read what comes back. The flag is not optional politeness: a backslash value is written the same way under both rule sets and means two different things, so without being told which rules wrote the file, `migrate` leaves those values alone and exits 7 rather than guessing and damaging a file that was already correct. What it rewrites it stamps, so running it twice is safe. Most of what changed at 3.0 is loud, and a file carrying it says so the first time it loads. A raw block's label is the quiet exception: one holding a `#` ran to the end of the line in 2.x and ends at the `#` now, and `migrate` cannot rewrite that, since a label has no quoting.
 
 `shcl help` covers the rest and `man shcl` says the same at more length; `shcl help get` narrows it to one subcommand, and `shcl explain E019` gives the rule behind a diagnostic code, with `shcl explain` alone listing every code. A typo in a command or an option says what was probably meant. `shcl --about` names the version, license and project home, and `shcl --donate` points at the sponsors page. Tab completion for bash and zsh is included. To drive it from a script with typed helpers instead, there are [Bash](#bash) and [PowerShell](#powershell) wrappers.
 
@@ -879,7 +879,7 @@ shcl set --write server.shcl \
     --set-literal 'cluster.hosts=a.example.com, b.example.com'
 ~~~
 
-The two spellings differ in how the value is read. `--set` takes **data**: its type follows the text, so `workers=8` writes an integer, but a comma in it is content - `hosts=a, b` would store one quoted string. `--set-literal` takes **value syntax**, the way a file spells it, so that same text writes a two-element array. Reach for it whenever the value is not a plain scalar.
+The two spellings differ in how the value is read. `--set` takes **data**: its type follows the text, so `workers=8` writes an integer, but a comma in it is content - `hosts=a, b` would store one quoted string. `--set-literal` takes **value syntax**, the way a file writes it, so that same text writes a two-element array. Reach for it whenever the value is not a plain scalar.
 
 Removal and set-only-if-absent have option forms too - `--remove=PATH`, `--set-default=PATH=VALUE`, `--set-literal-default=PATH=TEXT` - and all five share one ordered list, so two options touching the same path resolve in the order given. Raw blocks are the one edit with no option form; those go in as a write-ops script on stdin, one op per line, fields separated by a literal tab:
 
@@ -948,7 +948,7 @@ site: blog.example.com
 	root: /srv/www/blog
 	tls:
 
-		# Dotted paths spell the same tree; add to any instance from anywhere
+		# Dotted paths give the same tree; add to any instance from anywhere
 		hsts: off
 
 # Multi-line content goes in a fenced block, kept verbatim

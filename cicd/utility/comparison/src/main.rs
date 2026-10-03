@@ -590,7 +590,7 @@ fn verify(o: &Opts) -> bool {
 			}
 		}
 		// The four non-SHCL encodings carry the instance label as an ordinary
-		// `name` field, which SHCL spells as the binding's own value. Same data,
+		// `name` field, which SHCL writes as the binding's own value. Same data,
 		// one fewer scalar binding.
 		let offset = if shape.list_key().is_some() {
 			units as u64

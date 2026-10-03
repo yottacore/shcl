@@ -6,7 +6,7 @@
 ##		The migration gate: for every corpus input and every fuzz-dumped
 ##		document, the current parser's reading of `migrate`'s output equals the
 ##		2.x parser's reading of the original. Read, not canonical text: the two
-##		emitters spell a value differently on purpose (single quotes for a
+##		emitters write a value differently on purpose (single quotes for a
 ##		backslash, no `\'`), so the trees are compared through the reads - the
 ##		path list, the instance count at every path, and each instance's
 ##		string array, raw body and info string. The 2.x side is a build of the
@@ -23,7 +23,7 @@
 ##		compared, as long as 2.x then reads it cleanly. Two more kinds of line
 ##		come out the same way: a fence label holding a `#`, which 2.x ran to
 ##		the end of the line and which ends at the `#` now, with no quoting to
-##		spell it; and a carriage return in the middle of a line, which 2.x kept
+##		write it; and a carriage return in the middle of a line, which 2.x kept
 ##		as content and which is a blank at a piece's edge now. A third: a
 ##		value that starts like a Windows path and held a line break, which
 ##		has no spelling both rule sets read alike (E024), so migrate counts it
@@ -138,9 +138,9 @@ fOneLine2x(){ awk '
 	{ v = v "\n" $0 }
 	END { put() }'; }
 
-##	A quoted name as the current CLI spells it: an invisible character is a
+##	A quoted name as the current CLI writes it: an invisible character is a
 ##	\u escape now, and 2.x wrote it as it is. The name is the same either way,
-##	so only the 2.x side's paths are respelled: each quoted name is read with
+##	so only the 2.x side's paths are rewritten: each quoted name is read with
 ##	2.x's escapes and written again by the Python binding's own emitter, so
 ##	no copy of its list lives here.
 fSpellNames2x(){ PYTHONPATH="${root}/source/python" python3 -c '
@@ -212,7 +212,7 @@ fCrMidLine(){ grep -q $'\r[^\r]' "$1"; }
 ##	design. Nothing is damaged quietly: a load that dropped the line makes
 ##	`migrate --write` and `fmt --write` refuse at exit 7. Asked of the current
 ##	parser rather than matched on the text, since what counts is the column the
-##	indent falls on and not which characters spell it.
+##	indent falls on and not which characters make it up.
 ##	A value that starts like a Windows path and held a line break: migrate
 ##	writes it the way 2.x read it, which is E024 now, and counts it lost. The
 ##	rewrite adds or drops no line ahead of its stamp, so the migrated text's

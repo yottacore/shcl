@@ -86,7 +86,7 @@ Other points
 	- It waited for the 2.0 major because it moves canonical output for a spelling already published, and because two fields that were distinct merge - the same class of merge case folding already performs.
 	- The as-authored accessor is deliberately the one call that still hands back the source spelling; that is what it is for.
 	- Emitting needed a real escaper rather than the value one, which picks a quote style to *avoid* escaping and never escapes a backslash - correct for a value, which is stored in its escaped spelling, and wrong for a name, which is stored resolved.
-	- One consequence fell out for free: a line break in a name is now writable, because the name escaper spells it `\n`, where before it had to be refused. A line break in a `[value]` selector is still refused, since the value emitter has no such spelling.
+	- One consequence fell out for free: a line break in a name is now writable, because the name escaper writes it as `\n`, where before it had to be refused. A line break in a `[value]` selector is still refused, since the value emitter has no such spelling.
 
 - Raw (fenced) blocks give verbatim escape hatches (DDL, code, templates) without contorting the config syntax.
 
@@ -147,7 +147,7 @@ The consumer-facing surface is the **Accessor** (read) and the **Writer** (emit)
 
 The consuming programmer is assumed to be a junior in *every* binding, not just the dynamic ones, so ergonomics are a design constraint, not an afterthought. Decided:
 
-- Two tiers, junior-first. A convenience tier is the documented default: one value, one baked-in fallback, one return, no status to inspect. The full tier, the status-returning form, is there when the caller needs to know *why* a read failed. Every binding spells the convenience tier `_or`, so a routine ported between two of them cannot keep the call name while changing tier; each language's native idiom for the same thing still works where it has one (Rust `unwrap_or`, Python's default argument, the CLI's `--default=`).
+- Two tiers, junior-first. A convenience tier is the documented default: one value, one baked-in fallback, one return, no status to inspect. The full tier, the status-returning form, is there when the caller needs to know *why* a read failed. Every binding names the convenience tier `_or`, so a routine ported between two of them cannot keep the call name while changing tier; each language's native idiom for the same thing still works where it has one (Rust `unwrap_or`, Python's default argument, the CLI's `--default=`).
 
 - A supplied default implies default-behavior. The caller never writes a fallback *and* an explicit on-bad - which is why the libraries carry no on-bad parameter at all: the tier you call *is* the mode. `Error` mode has no library form, because a read that cannot reach a value is a normal outcome rather than a fault, and a caller who wants a throw already has the status to raise on. The CLI keeps the explicit `--on-bad`, having no tiers to choose between.
 
@@ -206,9 +206,9 @@ Compared to schema-bearing config languages (Pkl, CUE), SHCL is deliberately wea
 	- A path whose last segment selects by value, with a `default`, is written as the bare path carrying the default (`env[prod]` with `default: prod` is `env: prod`), since a value after that selector is ignored. Validation decides whether the default names the selected instance. Refusing every such default was rejected, because it faults satisfiable schemas. Writing `env[prod]:` and dropping the default was rejected, because a dropped schema input is what the raw-default `V092` fault exists to stop. Comparing the default with the selector inside the generator was rejected as a second copy of a match the validator already owns. The self-check reads the load's error diagnostics before validation's, so a line that does not load is `V097` as well.
 	- An optional field's commented line gets the same check: the line is read back alone and its value checked against its own field. Uncommenting every optional line and validating the whole text was rejected. A valued parent and a dotted child written as two lines name two instances, so a schema whose lines each work would fault.
 	- The annotation line and the footer are both byte-for-byte cross-binding contracts, so their format is fixed and the annotation's numbers use the canonical formatters.
-	- Among the options for the footer it was decided to write it by default and spell the knob negatively (`no_banner`, `--no-banner`): a generated file is usually the first SHCL a person ever sees, so the pointer to the spec earns its place, and a negative flag means the useful behavior is what a caller gets by saying nothing. It goes at the bottom so the settings, not the boilerplate, are what the file opens with.
+	- Among the options for the footer it was decided to write it by default and name the knob negatively (`no_banner`, `--no-banner`): a generated file is usually the first SHCL a person ever sees, so the pointer to the spec earns its place, and a negative flag means the useful behavior is what a caller gets by saying nothing. It goes at the bottom so the settings, not the boilerplate, are what the file opens with.
 	- Its `Legal` line leads with SHCL as the subject rather than with the copyright, so a reader cannot take it as a claim over the config it sits in.
-	- Prose the generator writes carries `##`, a commented-out setting a single `# `. A starter config is mostly comment, and one `#` for both left the reader sorting prose from settings by eye. Nothing keys on the difference: to the language both are comments, and a config author may spell a comment however they like. The banner is a public constant in every binding, so the CLI writing it into a created file is not a second copy of it.
+	- Prose the generator writes carries `##`, a commented-out setting a single `# `. A starter config is mostly comment, and one `#` for both left the reader sorting prose from settings by eye. Nothing keys on the difference: to the language both are comments, and a config author may write a comment however they like. The banner is a public constant in every binding, so the CLI writing it into a created file is not a second copy of it.
 	- `set --write` creating a file writes the same block, since that is the other way a new config file comes into being. It is seeded as the created document's text rather than appended after the fact, so the edits go above it and the write still runs through the library's save gate.
 
 Explicitly out of scope, with finality unless something big changes: in-language expressions, functions, inheritance, interpolation, imports, anchors/references. The moment config files can compute, they need debugging - that is the complexity cliff to avoid.
@@ -260,7 +260,7 @@ Consequences of the flat form:
 
 The "did you mean `enabled`?" suggestion rides in the prose message, not the code. Edit-distance implementations would otherwise have to agree byte-for-byte across four bindings for a string that is explicitly per-binding voice.
 
-**A field name in a diagnostic is spelled the way the emitter would write it.** Pasting the stored name in raw let a name carrying a line break split one diagnostic across two lines, and printed a flat `a.b` exactly like `a` nesting `b` - the ambiguity `paths` output and `QuoteSegment` already avoid by quoting. Every site that names a field now goes through one helper, so the `H001` and `H002` suppressors still match the head their builder emitted. A carriage return is escaped for display only: the name parse has no `\r` escape to read back, so the emitter cannot write one.
+**A field name in a diagnostic appears the way the emitter would write it.** Pasting the stored name in raw let a name carrying a line break split one diagnostic across two lines, and printed a flat `a.b` exactly like `a` nesting `b` - the ambiguity `paths` output and `QuoteSegment` already avoid by quoting. Every site that names a field now goes through one helper, so the `H001` and `H002` suppressors still match the head their builder emitted. A carriage return is escaped for display only: the name parse has no `\r` escape to read back, so the emitter cannot write one.
 
 **A broken schema is reported against the schema.** Codes `V090+` cover schema faults (unknown constraint key, unusable type name), and their line numbers refer to the schema file.
 
@@ -346,7 +346,7 @@ Both open points are settled:
 
 **A config file names its own schema on a `##    Schema   REF` comment line** (2026-09-26). The model is JSON's `$schema` and the YAML language server's schema comment, so an editor can find the schema with nothing else to go on.
 
-- It is spelled like the `Format` line so it reads as part of the same family, and a comment changes nothing about the document.
+- It is written like the `Format` line so it reads as part of the same family, and a comment changes nothing about the document.
 
 - `check` reads a path from the config file's directory, the way an editor does, and a `--schema` on the command line wins.
 
@@ -389,7 +389,7 @@ Structure-only canonicalizer: block form, tabs, insertion order, minimal quoting
 
 **A raw block in a higher layer fills a same-named empty binding below.** Merge matched instances by `(name, value)` only, so a bare `blk:` in the base and a `blk:` carrying a block in the overlay both survived a merge, where parsing the two run together folds them.
 
-- That made merged output not a formatter fixpoint, and dragged in a second defect, since the emitter's workaround for the resulting pair spells the fence on the name's line and loses an info string containing `#`.
+- That made merged output not a formatter fixpoint, and dragged in a second defect, since the emitter's workaround for the resulting pair writes the fence on the name's line and loses an info string containing `#`.
 
 - It was decided that merge adopts the parser's own empty-fill rule, so a merge and a parse of the concatenation agree. The fill is limited to raw blocks because that is the limit of the parser's rule: a valued instance still appends.
 
@@ -413,7 +413,7 @@ Structure-only canonicalizer: block form, tabs, insertion order, minimal quoting
 
 **A float is written with the fewest digits that read back, and an exact tie between two such spellings rounds to even.** Shortest-round-trip formatters agree on every double except two cases, and both had leaked into the output: at a power of two the rounding interval is lopsided, so the closest short spelling can fall outside it while its neighbor reads back, and on an exact tie between two spellings of the shortest length Rust's formatter rounds away from zero where Go's, Python's and glibc's round to even.
 
-- We decided on round to even: it is IEEE 754's own tie rule, what three of the four bindings already did, and what `repr` in Python and `strconv` in Go print, so a value read from another tool's output spells the same here. The reference takes the correctly rounded spelling of the shortest length whenever it reads back, and keeps its own shortest spelling only when it does not.
+- We decided on round to even: it is IEEE 754's own tie rule, what three of the four bindings already did, and what `repr` in Python and `strconv` in Go print, so a value read from another tool's output is written the same here. The reference takes the correctly rounded spelling of the shortest length whenever it reads back, and keeps its own shortest spelling only when it does not.
 
 - C tries the last-digit neighbors before adding a digit, which is what the shortest-digits algorithms find at a power of two. Every power of two and a fixed set of random doubles go through a float write in every binding in the cross-binding check, so a formatter that drifts on either case is caught there.
 
@@ -501,7 +501,7 @@ Every load-time code has one outcome, and the parser derives the lost count and 
 
 - **Dropped**. Read but not applicable where it sits; re-emitted it could bind somewhere else, so it is gone. Counts one lost. Holds its indent level the same way.
 
-- **Kept as written**. Refused for where it sits, with an indent that holds a space. No level canonical output opens is spelled with one, so written back exactly as it was, indent included, a reload refuses it the same way. Counts nothing. Holds its indent level the way a dropped line does.
+- **Kept as written**. Refused for where it sits, with an indent that holds a space. No level canonical output opens is written with one, so written back exactly as it was, indent included, a reload refuses it the same way. Counts nothing. Holds its indent level the way a dropped line does.
 
 - **Value dropped**. The line binds, but a value it carried had nowhere to go. Counts one lost; the level is the bound node's.
 
@@ -550,7 +550,7 @@ The table is the rule. If a code's behavior ever disagrees with its row, the cod
 
 - The unopened level sits on top of the levels open before it and closes none of them. Popping every level its indent did not extend was rejected: one stray space-indented line in a tab-indented block then dropped every later sibling in that block, which 2.0.0 read fine. It holds until a line comes that is neither under it nor at its column, so the stack carries one at most.
 
-- Among dropping a misplaced line (which stopped every later save of the file), writing it back as a comment, and writing it back as it was, it was decided that it goes back as it was, and as a comment only where it would bind as written. A comment would hide an error the line still has, and one stray space in a hand-edited config should not stop a program saving its window size (the SilkTerm report, 2026-09-24). A tab-only indent is always one a level can be spelled with, so that line is still dropped.
+- Among dropping a misplaced line (which stopped every later save of the file), writing it back as a comment, and writing it back as it was, it was decided that it goes back as it was, and as a comment only where it would bind as written. A comment would hide an error the line still has, and one stray space in a hand-edited config should not stop a program saving its window size (the SilkTerm report, 2026-09-24). A tab-only indent is always one a level can be written with, so that line is still dropped.
 
 - Canonical output indents with tabs whatever the input used, and a save keeps a misplaced line when its indent holds the other character. Among that, writing the file back in its own style (tabs or spaces, whichever it uses more), and writing a tab-only misplaced line as a comment, it was decided that output stays tabs and a tab-only line stays lost, so the save refuses (the user, 2026-09-24).
 	- In its own style the kept and lost cases only trade places. A space-indented file's likely typo, a miscounted run of spaces, is kept now, and in 4-space output it could line up with a level and would have to be lost. A stray tab in a space file, the case that is lost now, is the rarer typo. A tab file's tab-count mistake lands on no level only when the file itself skips one.
@@ -558,7 +558,7 @@ The table is the rule. If a code's behavior ever disagrees with its row, the cod
 	- A comment would let the save through, but nothing would flag the line again. A refusal changes nothing and says why.
 	- Corpus case `147-indent-styles` pins all four: a stray space in a tab block and a miscounted space run in a space block are kept, and a tab line in a block that skips a level and a stray tab in a space block are lost. It is a release gate: change the rule and the case, and this entry, together.
 
-- A kept misplaced line never hangs on a block, and a line refused for where it sits never hangs the comments before it. Its indent is not one canonical output spells levels with, so the block it matches in the source is not the one it matches on a reload, and comments it measured differently moved on the next load. It waits for the next binding line, and whatever follows it waits with it.
+- A kept misplaced line never hangs on a block, and a line refused for where it sits never hangs the comments before it. Its indent is not one canonical output writes levels with, so the block it matches in the source is not the one it matches on a reload, and comments it measured differently moved on the next load. It waits for the next binding line, and whatever follows it waits with it.
 
 - The emitter asks the reload before it writes one. It runs the parser's own resolve on a model of the level stack the reload will have at that line: the levels up to the last binding line, and what the lines refused since then pushed. The line goes out as written only where the parser would keep it again. A merge or an edit can move a kept line to where it would bind, and there it is written as a comment. The document settles to that comment after every load and edit, so the next step gives the same result whether or not the file was saved in between. Whether a kept line binds depends only on the lines between it and the binding line above it. An edit that changes none of those skips the settle, so a kept line far away costs an edit nothing.
 
@@ -582,19 +582,19 @@ The rows for quotes, the backslash, the comma, the bracket and the line break ch
 | `\`                         | content                                                                                              | starts an escape inside double quotes; content inside single quotes                             | content
 | `,`                         | ends an element                                                                                      | content                                                                                         | content
 | `[`                         | after a name opens a selector; first after the colon is bracket text (`E019`); content anywhere else | content                                                                                         | content
-| line break                  | ends the line                                                                                        | none; a setter spells one as `\n` in a name or a selector                                       | ends the body line
+| line break                  | ends the line                                                                                        | none; a setter writes one as `\n` in a name or a selector                                       | ends the body line
 
 What follows from the table:
 
 - A `#` is a comment anywhere outside quotes and outside a raw body, whether or not whitespace precedes it. `color: "#ff0000"` and `url: "http://x/y#frag"` are the spellings for a value holding one. `a[#0]` in a file is a selector cut off by a comment, so the `[#N]` index selector is a path spelling for the API and the CLI; a file addresses an instance by value. A fence line's info string ends where a comment starts, so ```` ```c# ```` labels the block `c`.
 
-- `##` for prose and `# ` for a disabled setting are conventions. To the language both are comments, and a config author may spell one with any number of `#` and any spacing.
+- `##` for prose and `# ` for a disabled setting are conventions. To the language both are comments, and a config author may write one with any number of `#` and any spacing.
 
 - A carriage return is a blank outside a raw body, and does whatever a blank does where it sits: it is trimmed at the end of a line, a name, a selector body, a value, an element, a comment or a fence label, and it is content in the middle of one. Inside a raw body the trailing run comes off each line and a carriage return mid-line is content.
 
 - Bracket text after the colon (`ports: [80, 443]`) is one thing: the JSON habit. The line is `E019`, kept as written, binds nothing and counts nothing lost, so `check` reports it and an in-place write goes through unchanged, the way a pasted YAML `- item` line already does. `x:[y]` is never a selector.
 
-- The writer spells what the table lets it spell and refuses the rest. A value holding a `#`, a comma, a leading quote or a leading `[` is quoted; a line break in a name or a selector is escaped. What has no spelling is refused whole: a fence label holding a `#` or a line break, a comment holding a line break, a raw body line ending in a carriage return. Nothing on the write side trims or quotes its way around a byte the table calls content.
+- The writer writes what the table lets it write and refuses the rest. A value holding a `#`, a comma, a leading quote or a leading `[` is quoted; a line break in a name or a selector is escaped. What has no spelling is refused whole: a fence label holding a `#` or a line break, a comment holding a line break, a raw body line ending in a carriage return. Nothing on the write side trims or quotes its way around a byte the table calls content.
 
 ### Write outcomes
 
@@ -606,15 +606,15 @@ The mirror of the load outcomes, on the write side. A setter builds its line tex
 
 - The typed setters keep their render-and-parse-back on top of the round trip. It answers a different question: the round trip asks whether the same text comes back, and a float or a datetime has to come back as that type. `inf` reads back as the text `inf` and as no float at all.
 
-- `SetLiteral` takes syntax rather than data, so whatever a file line spells with its text is what gets stored - a trailing blank comes off and a `#` outside quotes ends the value. What it refuses is what a file reports as an error, since a setter has no diagnostic to report one with: a line break, an unterminated quote (`E017`), bracket text (`E019`).
+- `SetLiteral` takes syntax rather than data, so whatever a file line gives with its text is what gets stored - a trailing blank comes off and a `#` outside quotes ends the value. What it refuses is what a file reports as an error, since a setter has no diagnostic to report one with: a line break, an unterminated quote (`E017`), bracket text (`E019`).
 
-- A path may carry a line break in either half. A name emits through the name escaper and a selector value through the value emitter, and both spell one `\n` and read it back. The selector was refused until the tokenizer cut, while elements were still stored in their source spelling and the value emitter had nothing to escape with.
+- A path may carry a line break in either half. A name emits through the name escaper and a selector value through the value emitter, and both write one as `\n` and read it back. The selector was refused until the tokenizer cut, while elements were still stored in their source spelling and the value emitter had nothing to escape with.
 
 ### Generation outcomes
 
 What `init` writes for each kind of line, and what proves the line reads back. The table is the rule. `init` output that failed its own check was a long-running class of defect, and every one was the generator predicting what the scanner would read. It does not predict now: each spelling it picks is scanned back as a file line first, the way the load will scan it, and every line it writes is read back.
 
-| A generated line           | How it is spelled                                                                                                                                                                                            | How it is checked
+| A generated line           | How it is written                                                                                                                                                                                            | How it is checked
 | :---                       | :---                                                                                                                                                                                                         | :---
 | A field's path             | The schema's own spelling when a file line reads it back as the same path, else rendered from the path's segments.                                                                                           | The whole output loads with no error and validates clean against the schema.
 | A child of a valued parent | Selects the parent by its value. The body is the first candidate a file line reads back as a value selector for that value: a single element as written, bare, then quoted. An array has only the bare body. | No candidate reads back: `V097`.

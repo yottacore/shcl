@@ -144,7 +144,7 @@ static const char *HELP =
 	"                                         FILE) leave out the info block naming\n"
 	"                                         the format and pointing at its spec\n"
 	"  --write                                (fmt/set/migrate) rewrite FILE in\n"
-	"                                         place, spelled -w too, through a\n"
+	"                                         place, written -w too, through a\n"
 	"                                         temp file and a rename; refused\n"
 	"                                         with a FILE of '-'\n"
 	"  --lossy                                (fmt/set/migrate) with --write, rewrite\n"
@@ -182,7 +182,7 @@ static const char *HELP =
 	"                                         syntax\n"
 	"  --set-literal=PATH=TEXT                (same subcommands) as --set, except\n"
 	"                                         TEXT goes in as value\n"
-	"                                         syntax the way a file spells it, so\n"
+	"                                         syntax the way a file writes it, so\n"
 	"                                         'ports=80, 443' writes a two-element\n"
 	"                                         array. A # outside quotes ends the\n"
 	"                                         value; text spanning lines is rejected\n"
@@ -339,7 +339,7 @@ static const char *CODES =
 	"  The stacked form is one element per line. Quote the comma, or write the\n"
 	"  whole array on the field's own line.\n"
 	"E011|error|stacked '*' element for a field that already has a value\n"
-	"  The field's value is kept and the element is ignored. A field is spelled\n"
+	"  The field's value is kept and the element is ignored. A field is written\n"
 	"  one way or the other, not both.\n"
 	"E012|error|indentation matches no open level\n"
 	"  The line is skipped, and anything written deeper is skipped with it\n"
@@ -363,7 +363,7 @@ static const char *CODES =
 	"E018|error|line written under a line that was skipped\n"
 	"  It is skipped with it, so a skipped line's block never re-parents one\n"
 	"  level up. Fix the line above and this one comes back with it.\n"
-	"E019|error|a value beginning with '[', the way JSON and YAML spell arrays\n"
+	"E019|error|a value beginning with '[', the way JSON and YAML write arrays\n"
 	"  An array is comma-separated and written without brackets: ports: 80, 443.\n"
 	"  A '[' after the colon is never a selector, and reading the text without\n"
 	"  its brackets would bake a changed value in, so the line is kept verbatim:\n"
@@ -391,7 +391,7 @@ static const char *CODES =
 	"  means. The line is kept verbatim like E023: it binds nothing, a read on it\n"
 	"  is NotFound, and the lines under it still load. Use single quotes or no\n"
 	"  quotes, or double each backslash.\n"
-	"H001|hint|repeated bare leaf (an array spelled as repeated lines)\n"
+	"H001|hint|repeated bare leaf (an array written as repeated lines)\n"
 	"  Repeated leaves are legal - that is how instances are written - but\n"
 	"  'tags: red' twice and 'tags: red, blue' look alike, so the parser says\n"
 	"  which one it read. A schema's repeat bound above 1 disavows it.\n"
@@ -399,7 +399,7 @@ static const char *CODES =
 	"  Same name and value, so the two combine. Legal, and only the parser can\n"
 	"  see it happened. The prose names the earlier line, and a schema can\n"
 	"  disavow it per section with 'reopen: true'.\n"
-	"H003|hint|a stacked '*' element spelled like a field binding\n"
+	"H003|hint|a stacked '*' element written like a field binding\n"
 	"  '* name: value' is the YAML habit for a list of objects. Here it is one\n"
 	"  string element, the text 'name: value'. Quote it to keep the string; a\n"
 	"  list of objects is written as instances of a field.\n"
@@ -533,8 +533,9 @@ static int path_absent(const char *file) {
 	return errno == ENOENT;
 }
 
-// The message for reading a directory is the platform's, and windows spells it
-// four different ways depending on the binding. Say it here.
+// The message for reading a directory is the platform's, and windows
+// puts it four different ways depending on the binding, so all four
+// print this one instead.
 static int is_a_directory(const char *file) {
 #ifdef _WIN32
 	wchar_t *w = shcl_widen(file);
@@ -1077,7 +1078,7 @@ static int do_fmt(Opts *o) {
 	layered_free(&L); return rc;
 }
 
-// How many lines migrate spells differently, each named on stderr when a file
+// How many lines migrate writes differently, each named on stderr when a file
 // name is given. The rewrite goes line for line and only appends, so line N of
 // the input is line N of the output.
 static size_t rewritten_lines(const char *file, const char *before, size_t blen, const char *after, size_t alen) {
@@ -2296,7 +2297,7 @@ static int check_opts(const char *cmd, const Opts *o) {
 // The informational outputs the command line asks for, each once, in the order
 // first asked, into asked[4]; the count comes back. Only tokens in option
 // position count: the value of a value-taking option and anything after `--`
-// are data (a FILE or PATH spelled `-h` needs the `--` anyway, since the
+// are data (a FILE or PATH written `-h` needs the `--` anyway, since the
 // option parser would refuse it). Scanning values too once let a read of a
 // missing path answer with the help text and exit 0. --about opens with the
 // version line, so it covers --version.
@@ -2630,7 +2631,7 @@ static int do_explain(const Opts *o) {
 
 #ifdef _WIN32
 // The narrow argv arrives in the active code page, best-fit mapped: a name
-// the page cannot spell becomes a different name, and `--write` then rewrites
+// the page cannot encode becomes a different name, and `--write` then rewrites
 // a different file. The wide command line is exact; hand it over as UTF-8,
 // which is what the library's file tier expects. NULL when the conversion
 // fails (nothing sensible is left to run).
@@ -2748,7 +2749,7 @@ static int cli_main(int argc, char **argv) {
 	// after the options, so an option the command does not take is named as
 	// that. init and explain want no FILE.
 	else if (strcmp(cmd, "init") != 0 && strcmp(cmd, "explain") != 0 && o.nargs == 0 && o.swallowed_opt) {
-		fprintf(stderr, "option %s took '%s' as its value, so no FILE is left; spell it %s=VALUE\n",
+		fprintf(stderr, "option %s took '%s' as its value, so no FILE is left; write it %s=VALUE\n",
 			o.swallowed_opt, o.swallowed_value, o.swallowed_opt);
 		rc = 1;
 	}
