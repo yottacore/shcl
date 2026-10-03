@@ -1707,6 +1707,8 @@ def main():
 			except shcl.SaveRefused as e:
 				if e.lost != 1:
 					fails.append(f"kept gate: {save.__name__} refused with {e.lost}")
+				if str(e) != f"{kpath}: refusing to save: this write would delete 1 line(s)/value(s) from the file (see diagnostics; save_file_lossy overrides)":
+					fails.append(f"kept gate: {save.__name__} said {e}")
 		with open(kpath, encoding="utf-8", newline="") as kf:
 			if kf.read() != kbase:
 				fails.append("kept gate: the file changed")

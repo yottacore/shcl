@@ -1027,7 +1027,7 @@ static int write_back(shcl_doc *d, const char *file, Opts *o, const char *read, 
 	// The rule stays in the library; only the wording is the CLI's, because the
 	// override a user has here is a flag, not a function.
 	if (r == SHCL_SAVE_REFUSED) {
-		fprintf(stderr, "%s: refusing to rewrite: the load dropped %zu line(s)/value(s) this write would delete (--lossy overrides)\n", file, shcl_lost_count(d));
+		fprintf(stderr, "%s: refusing to rewrite: this write would delete %zu line(s)/value(s) from the file (--lossy overrides)\n", file, shcl_lost_count(d));
 		return 7;
 	}
 	// The library reports a failed save through errno alone; the phase worth
@@ -1057,7 +1057,7 @@ static int do_fmt(Opts *o) {
 		// The save gate --write goes through is asked first, so 6 never
 		// promises a rewrite the same command would refuse to make.
 		if (!o->lossy && shcl_lost_count(L.doc) != 0) {
-			fprintf(stderr, "%s: fmt --write would refuse: the load dropped %zu line(s)/value(s) it would delete (--lossy overrides)\n", file, shcl_lost_count(L.doc));
+			fprintf(stderr, "%s: fmt --write would refuse: it would delete %zu line(s)/value(s) from the file (--lossy overrides)\n", file, shcl_lost_count(L.doc));
 			rc = 7;
 		} else {
 			shcl_str c = shcl_to_canonical(L.doc);

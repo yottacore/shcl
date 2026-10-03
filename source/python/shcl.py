@@ -232,15 +232,15 @@ class SaveError(Exception):
 
 
 class SaveRefused(SaveError):
-	"""The lost-content gate fired: the load dropped content this save would
-	delete (see lost_count). save_file_lossy is the override."""
+	"""The lost-content gate fired: this save would delete content from the
+	file (see lost_count). save_file_lossy is the override."""
 	path: str | os.PathLike[str]
 	lost: int
 
 	def __init__(self, path: str | os.PathLike[str], lost: int):
 		self.path = path
 		self.lost = lost
-		super().__init__(f"{path}: refusing to save: load dropped {lost} line(s)/value(s) this write would delete (see diagnostics; save_file_lossy overrides)")
+		super().__init__(f"{path}: refusing to save: this write would delete {lost} line(s)/value(s) from the file (see diagnostics; save_file_lossy overrides)")
 
 
 class SaveFailed(SaveError):

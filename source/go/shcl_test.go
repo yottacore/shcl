@@ -3082,6 +3082,9 @@ func TestAKeptLineGoneFromTheTreeRefusesTheSave(t *testing.T) {
 	if err := doc.SaveFile(path); !errors.As(err, &refused) || refused.Lost != 1 {
 		t.Fatalf("SaveFile: %v", err)
 	}
+	if want := path + ": refusing to save: this write would delete 1 line(s)/value(s) from the file (see diagnostics; SaveFileLossy overrides)"; refused.Error() != want {
+		t.Fatalf("SaveFile said %q, want %q", refused.Error(), want)
+	}
 	if _, err := doc.SaveFileKeepLines(path); !errors.As(err, &refused) || refused.Lost != 1 {
 		t.Fatalf("SaveFileKeepLines: %v", err)
 	}

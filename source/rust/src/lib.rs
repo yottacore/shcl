@@ -110,7 +110,7 @@ pub enum FileStatus {
 /// and `Io` is the disk's answer, which they cannot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SaveError {
-	/// The load dropped content this save would delete (see `lost_count`).
+	/// This save would delete content from the file (see `lost_count`).
 	Refused { path: String, lost: usize },
 	/// The write itself failed; has the reported message.
 	Io(String),
@@ -121,7 +121,7 @@ impl std::fmt::Display for SaveError {
 		match self {
 			SaveError::Refused { path, lost } => write!(
 				f,
-				"{}: refusing to save: load dropped {} line(s)/value(s) this write would delete (see diagnostics; save_file_lossy overrides)",
+				"{}: refusing to save: this write would delete {} line(s)/value(s) from the file (see diagnostics; save_file_lossy overrides)",
 				path, lost
 			),
 			SaveError::Io(m) => f.write_str(m),
@@ -12643,10 +12643,14 @@ mod kept_gate {
 		let path = dir.join("f.shcl");
 		let path = path.to_str().unwrap();
 		std::fs::write(path, BASE).unwrap();
-		assert!(matches!(
-			doc.save_file(path),
-			Err(SaveError::Refused { lost: 1, .. })
-		));
+		let refused = doc.save_file(path).unwrap_err();
+		assert!(matches!(refused, SaveError::Refused { lost: 1, .. }));
+		assert_eq!(
+			refused.to_string(),
+			format!(
+				"{path}: refusing to save: this write would delete 1 line(s)/value(s) from the file (see diagnostics; save_file_lossy overrides)"
+			)
+		);
 		assert!(matches!(
 			doc.save_file_keep_lines(path),
 			Err(SaveError::Refused { lost: 1, .. })

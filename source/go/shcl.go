@@ -6659,14 +6659,14 @@ func LoadFileWith(path string, level Strictness) (*Document, FileStatus) {
 // answer.
 type SaveRefused struct {
 	Path string
-	Lost int // lines/values the load dropped (see LostCount)
+	Lost int // lines/values the save would delete (see LostCount)
 }
 
 // Error states the refusal with the path and the count, so a log line says
 // which file and how much a lossy save would drop.
 func (e *SaveRefused) Error() string {
-	return fmt.Sprintf("%s: refusing to save: load dropped %d line(s)/value(s) "+
-		"this write would delete (see diagnostics; SaveFileLossy overrides)", e.Path, e.Lost)
+	return fmt.Sprintf("%s: refusing to save: this write would delete %d line(s)/value(s) "+
+		"from the file (see diagnostics; SaveFileLossy overrides)", e.Path, e.Lost)
 }
 
 // SaveFile is the file tier's save half: write this document's canonical text

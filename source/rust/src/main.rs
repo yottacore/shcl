@@ -1547,7 +1547,7 @@ fn write_back(doc: &Document, file: &str, o: &Opts, read: Option<&str>, keep: bo
 			// The rule stays in the library; only the wording is the CLI's,
 			// because the override a user has here is a flag, not a function.
 			errln!(
-				"{}: refusing to rewrite: the load dropped {} line(s)/value(s) this write would delete (--lossy overrides)",
+				"{}: refusing to rewrite: this write would delete {} line(s)/value(s) from the file (--lossy overrides)",
 				file,
 				lost
 			);
@@ -1961,7 +1961,7 @@ fn do_fmt(o: &Opts) -> u8 {
 		// promises a rewrite the same command would refuse to make.
 		if !o.lossy && doc.lost_count() != 0 {
 			errln!(
-				"{}: fmt --write would refuse: the load dropped {} line(s)/value(s) it would delete (--lossy overrides)",
+				"{}: fmt --write would refuse: it would delete {} line(s)/value(s) from the file (--lossy overrides)",
 				file,
 				doc.lost_count()
 			);
