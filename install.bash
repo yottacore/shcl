@@ -160,7 +160,7 @@ esac
 ## curl or wget, whichever is present. https is pinned through redirects and
 ## TLS floored at 1.2, so a bounced download can't silently downgrade.
 ## GITHUB_TOKEN goes to the API calls alone. Every release download redirects
-## to another host, and wget sends a --header on to it, so fetch carries none.
+## to another host, and wget sends a --header on to it, so fetch sends none.
 if command -v curl >/dev/null; then
 	fFetch() { curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 -o "$2" "$1"; }
 	fFetchApi() { curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 ${GITHUB_TOKEN:+-H "Authorization: Bearer ${GITHUB_TOKEN}"} -o "$2" "$1"; }
@@ -420,7 +420,7 @@ got="$(sha256sum "${tmp}/shcl" | cut -d' ' -f1)"
 
 ## Drop-in code files and wrappers come from a release asset covered by the same
 ## signed sums file as the binary. They used to come from GitHub's generated
-## source tarball, which carries neither a signature nor a checksum - so the one
+## source tarball, which has neither a signature nor a checksum - so the one
 ## payload we made executable was the one nothing had verified. Releases before
 ## the asset existed simply install the binary and say what was skipped.
 chmod 755 "${tmp}/shcl"
@@ -461,7 +461,7 @@ if [[ -n "${want_src}" ]]; then
 	   "${tmp}/x/source/c/shcl.h" "${tmp}/x/source/c/shcl.hpp" "${tmp}/code/"
 	cp "${tmp}/x/source/bash/shcl.bash" "${tmp}/x/source/powershell/shcl.ps1" "${tmp}/scripts/"
 	## A payload from before the man page and completions existed is still a
-	## valid payload - install what it has and say what it did not carry.
+	## valid payload - install what it has and say what it did not include.
 	if [[ -f "${tmp}/x/source/man/shcl.1" ]]; then
 		cp "${tmp}/x/source/man/shcl.1" "${tmp}/man/"
 		cp "${tmp}/x/source/completions/shcl.bash" "${tmp}/x/source/completions/_shcl" "${tmp}/completions/"
