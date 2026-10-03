@@ -21,7 +21,7 @@
 ##		sign-release.bash --key FILE [--dir DIR] [--no-tag-check]
 ##		  --key FILE      private signing key (PEM). Prompts if passphrase-protected.
 ##		  --dir DIR       release artifact dir (default cicd/artifacts/release)
-##		  --no-tag-check  sign even when HEAD does not carry the v<version> tag
+##		  --no-tag-check  sign even when HEAD does not have the v<version> tag
 ##		                  (rehearsals only; a real cut is signed at the tag)
 ##	Exit: 0 signed and verified, 1 failure, 2 usage/missing input.
 ##	History: At bottom of script.
@@ -61,7 +61,7 @@ fUsage(){
 ##		sign-release.bash --key FILE [--dir DIR] [--no-tag-check]
 ##		  --key FILE      private signing key (PEM). Prompts if passphrase-protected.
 ##		  --dir DIR       release artifact dir (default cicd/artifacts/release)
-##		  --no-tag-check  sign even when HEAD does not carry the v<version> tag
+##		  --no-tag-check  sign even when HEAD does not have the v<version> tag
 ##		                  (rehearsals only; a real cut is signed at the tag)
 ##	Exit: 0 signed and verified, 1 failure, 2 usage/missing input.
 ##	History: At bottom of script.
@@ -97,7 +97,7 @@ command -v openssl >/dev/null || fDie "need openssl"
 ## The tag is what the installers and the release page name the assets by, and
 ## Cargo.toml is the version they were built from. A mistyped tag would sign a
 ## sums file whose entries no download URL can reach, so refuse unless HEAD
-## carries exactly v<version>. `git tag --points-at` rather than `describe`:
+## is tagged exactly v<version>. `git tag --points-at` rather than `describe`:
 ## the cut puts two tags on the commit (v2.0.0 and source/go/v2.0.0).
 ver="$(sed -n '/^version *= *"/{ s/^version *= *"\(.*\)".*/\1/p; q; }' "${root}/source/rust/Cargo.toml")"
 [[ -n "${ver}" ]] || fDie "cannot read the version from source/rust/Cargo.toml"
@@ -150,21 +150,21 @@ done
 ## Published key file, the one README tells people to verify against.
 [[ "$(fFp "${root}/shcl-signing.pub")" == "${want}" ]] || fDie "shcl-signing.pub is not this key"
 
-## install.bash carries the PEM inside a single-quoted bash string, so the
+## install.bash has the PEM inside a single-quoted bash string, so the
 ## BEGIN line has a 'readonly SIGNING_KEY=' prefix and the END line a trailing
 ## quote. Strip both, or what comes out is not a PEM at all.
 sed -n '/BEGIN PUBLIC KEY/,/END PUBLIC KEY/p' "${root}/install.bash" \
 	| sed "s/^[^-]*'//; s/'[[:space:]]*$//" > "${tmppub}"
-[[ "$(fFp "${tmppub}")" == "${want}" ]] || fDie "install.bash carries a different key"
+[[ "$(fFp "${tmppub}")" == "${want}" ]] || fDie "install.bash has a different key"
 
-## install.ps1 carries the bare modulus, not a PEM - compare that directly.
+## install.ps1 has the bare modulus, not a PEM - compare that directly.
 ## openssl gives the modulus as hex; printf turns each pair into its byte and
 ## openssl base64s the result, so no other tool is needed for the round trip.
 psmod="$(sed -n "s/^\$signingModulus = '\(.*\)'.*/\1/p" "${root}/install.ps1")"
 modhex="$(openssl rsa -pubin -in "${pub}" -modulus -noout 2>/dev/null | sed 's/^Modulus=//; s/../\\x&/g' || true)"
 [[ -n "${modhex}" ]] || fDie "cannot read the key's modulus"
 keymod="$(printf '%b' "${modhex}" | openssl enc -base64 -A)"
-[[ -n "${psmod}" && "${psmod}" == "${keymod}" ]] || fDie "install.ps1 carries a different key"
+[[ -n "${psmod}" && "${psmod}" == "${keymod}" ]] || fDie "install.ps1 has a different key"
 
 ## Everything checked; sign, and verify what was written. A signature that
 ## does not verify is removed rather than left looking finished.

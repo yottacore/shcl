@@ -246,7 +246,7 @@ once per run; 'shcl explain CODE' gives the rule behind one of their codes. An
 in-place write also refuses when the load dropped content the rewrite would
 delete (--lossy overrides). migrate refuses a file that does not say which
 rules it was written for, when the two readings differ (--from-2x says it is
-2.x), and reports a 2.x binding it cannot carry.
+2.x), and reports a 2.x binding it cannot convert.
 FILE may be '-' for stdin. With --layer, FILE is the highest file layer and
 each --layer is merged under it in order; --set applies last. 'fmt' with
 layers prints the merged canonical document.
@@ -385,7 +385,7 @@ H005|hint|a value in another unit than its field name ends in
   wins over the one the name gives a bare number. Legal, and often a slip.
 V001|error|unknown field
   No schema path covers it. Only the topmost unknown node is reported; its
-  subtree is skipped. The prose carries the did-you-mean suggestion.
+  subtree is skipped. The prose has the did-you-mean suggestion.
 V002|error|required path missing
   Declared 'required: yes' and nothing in the document resolves it.
 V003|error|wrong type
@@ -1087,7 +1087,7 @@ func parseOpts(argv []string) (*opts, error) {
 
 // allowedOpts is the options each subcommand takes. checkOpts judges against
 // it, the per-subcommand help is cut from the full help with it, and the shell
-// completions carry the same table (check-completions.bash diffs the two).
+// completions have the same table (check-completions.bash diffs the two).
 func allowedOpts(cmd string) []string {
 	var allowed []string
 	switch cmd {
@@ -1163,7 +1163,7 @@ func helpTopic(argv []string) (string, int) {
 // block when it takes one, and the option entries allowedOpts lets it have.
 // Cut from the full help rather than written out a second time, so the two
 // cannot drift and the four bindings stay byte-identical for free. An entry
-// keeps the "(get)" style annotation it carries there, which still reads true.
+// keeps the "(get)" style annotation it has there, which still reads true.
 func helpFor(cmd string) string {
 	var out strings.Builder
 	out.WriteString("Usage:\n")
@@ -1366,7 +1366,7 @@ func checkOpts(cmd string, o *opts) int {
 	if cmd == "set" {
 		for _, l := range o.layers {
 			if l == "-" {
-				fmt.Fprintln(os.Stderr, "--layer=- is not valid for set: stdin carries the ops script or the document (see --help)")
+				fmt.Fprintln(os.Stderr, "--layer=- is not valid for set: stdin already has the ops script or the document (see --help)")
 				return 1
 			}
 		}
@@ -1424,8 +1424,8 @@ func sayDiagnostics(diags []shcl.Diagnostic) {
 // twice with nothing to tell them apart.
 func sayDiagnosticsFrom(file string, diags []shcl.Diagnostic) {
 	for _, d := range diags {
-		// V090-V095 carry a schema line; V096 and V097 are about generation as a
-		// whole and carry line 0, so "schema line 0" named a line space they are
+		// V090-V095 have a schema line; V096 and V097 are about generation as a
+		// whole and have line 0, so "schema line 0" named a line space they are
 		// not in. V099 stands for a schema that did not load and is line 0 too.
 		space := "line"
 		if strings.HasPrefix(d.Code, "V09") && d.Code != "V096" && d.Code != "V097" && d.Code != "V099" {
@@ -1642,7 +1642,7 @@ func writeBack(doc *shcl.Document, file string, o *opts, read *string, keep bool
 //
 // It prints every layer's diagnostics itself, lowest first, before the --set
 // overrides run: they belong to the load, and a refused edit used to return
-// with nothing said about them. A merge does not carry diagnostics over, so
+// with nothing said about them. A merge does not pass diagnostics on, so
 // reading them off the merged document drops the ones for FILE itself, which
 // is the one the caller named.
 func loadLayered(o *opts, file string) (*shcl.Document, int) {
@@ -1827,7 +1827,7 @@ func doGet(o *opts) int {
 		}
 	}
 	// Why the read failed is worth saying even when the exit code already
-	// carries it: at the default mode the user otherwise gets an empty line, a
+	// shows it: at the default mode the user otherwise gets an empty line, a
 	// nonzero code, and nothing to go on. Stdout is untouched - this only ever
 	// goes to stderr. Two silences are deliberate: default mode, because a
 	// caller who supplied a fallback has already said the miss is expected, and
@@ -1884,7 +1884,7 @@ func doGet(o *opts) int {
 		// printing nothing on stdout.
 		return statusCode(status)
 	default:
-		// print the zero/empty value anyway; the exit code carries the status
+		// print the zero/empty value anyway; the exit code gives the status
 		emit(lines)
 		return statusCode(status)
 	}
@@ -2038,7 +2038,7 @@ func keepOriginal(file, text string) (string, error) {
 	// Born private, then given the original's group and bits, so a 600 config
 	// never has a readable copy, and one in a setgid directory does not go to
 	// the directory's group. The group first, since a chown clears
-	// setuid/setgid. Best effort, the way the save carries both.
+	// setuid/setgid. Best effort, the way the save keeps both.
 	if fi, serr := os.Stat(file); err == nil && serr == nil && runtime.GOOS != "windows" {
 		if gid, ok := statGID(fi); ok {
 			_ = f.Chown(-1, gid)
@@ -2130,7 +2130,7 @@ func doMigrate(o *opts) int {
 	rewritten := rewrittenLines(text, m.Text)
 	// A save keeps a line at an indent no level matches, but 2.x placed some
 	// such lines by a looser rule and read them, so a migration that leaves
-	// one has not carried the file across. With nothing lost, every one of
+	// one has not brought the file across. With nothing lost, every one of
 	// them is kept.
 	misplaced := 0
 	for _, d := range doc.Diagnostics() {
@@ -2251,7 +2251,7 @@ func doExplain(o *opts) int {
 	}
 	code := asciiUpper(o.args[0])
 	// The entry runs from its head line to the next one. Built up first, since
-	// a code the table does not carry prints nothing at all.
+	// a code the table does not have prints nothing at all.
 	var body strings.Builder
 	found := false
 	for _, l := range strings.Split(strings.TrimSuffix(codes, "\n"), "\n") {
@@ -2830,7 +2830,7 @@ func doSet(o *opts) int {
 	if doc == nil {
 		return code
 	}
-	// --set carries the edits, so stdin is left alone: reading it here would
+	// --set gives the edits, so stdin is left alone: reading it here would
 	// block on the console for anyone who passed edits as options.
 	var ops []byte
 	if len(o.sets) == 0 {
@@ -2838,7 +2838,7 @@ func doSet(o *opts) int {
 		// Say so before blocking. With nothing on stdin this used to sit there
 		// silently, which reads as a hang rather than as a prompt; the note is
 		// unconditional so a pipeline and a terminal behave identically. The
-		// program-name prefix marks it as a notice; errors carry none.
+		// program-name prefix marks it as a notice; errors have none.
 		fmt.Fprintln(os.Stderr, "shcl: reading write-ops from stdin (one op per line, tab-separated; end with EOF)")
 		ops, err = io.ReadAll(os.Stdin)
 		if err != nil {
@@ -3007,7 +3007,7 @@ func doCheck(o *opts) int {
 	// is what the library's one-shot Validate walks. So the schema half runs
 	// either way: at strict a user was getting less out of check than at
 	// standard on the same file, and check writes nothing, so fmt's refusal to
-	// rewrite a strict-failing document does not carry over.
+	// rewrite a strict-failing document does not apply.
 	doc, perr := shcl.ParseWith(text, o.strictness)
 	strictFailed := perr != nil
 	diags := doc.Diagnostics()
@@ -3056,7 +3056,7 @@ func doCheck(o *opts) int {
 			diags = shcl.SuppressDeclaredReopens(sdoc, diags)
 		}
 	}
-	// stdout carries the stable codes - the cross-binding contract. The prose is
+	// stdout gets the stable codes - the cross-binding contract. The prose is
 	// per-binding voice and goes to stderr (which the differential check drops).
 	// A V090-V093 line number is a SCHEMA line (the code table says so); the
 	// prose names the file so the two number spaces cannot be confused.

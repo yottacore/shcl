@@ -8,11 +8,11 @@
 ##		stayed red for days while the local gate was green. For every pinned
 ##		tool the hosted gate installs, some line of ci.yml has to name the tool
 ##		and its pinned version together as one token (ruff==X, staticcheck@X,
-##		a download URL carrying X, go-version: "X") - whole words, so `build`
+##		a download URL with X, go-version: "X") - whole words, so `build`
 ##		is not satisfied by a line that merely contains those letters, nor
 ##		`1.5.0` by govulncheck's v1.5.0. cppcheck is the odd one: pip installs
 ##		its PyPI wheel, whose version (CPPCHECK_WHEEL) is not the binary version
-##		TOOL_PINS checks, so ci.yml has to carry the wheel token and, on a line
+##		TOOL_PINS checks, so ci.yml has to name the wheel token and, on a line
 ##		naming cppcheck, the binary version that wheel bundles - bump both.
 ##	Syntax:
 ##		check-pins.bash
@@ -97,7 +97,7 @@ while IFS= read -r target; do
 	if [[ -z "${checked}" ]]; then
 		echo "check-pins: ci.yml downloads ${target} and never checks it" >&2; nBad=$((nBad + 1))
 	elif ! grep -qE -- '[0-9a-f]{64}' <<<"${checked}"; then
-		echo "check-pins: the check on ${target} carries no sha256" >&2; nBad=$((nBad + 1))
+		echo "check-pins: the check on ${target} has no sha256" >&2; nBad=$((nBad + 1))
 	fi
 done < <(grep -oE -- '-o[[:space:]]+/[^[:space:]]+' <<<"${liveLines}" | sed 's/^-o[[:space:]]*//' | sort -u || true)
 

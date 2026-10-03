@@ -4,7 +4,7 @@
 //go:build windows
 
 // Windows has no rename that keeps the destination's ACLs, attributes and named
-// streams; ReplaceFile exists for exactly this publish step and carries them
+// streams; ReplaceFile exists for exactly this publish step and copies them
 // onto the replacement. shcl.go is deliberately droppable on its own and so
 // cannot reach a windows-only symbol, which is why this arrives as a hook: with
 // this file the module upgrades the publish, without it a rename still works.
@@ -31,7 +31,7 @@ func init() {
 	createTemp = windowsCreateTemp
 }
 
-// A device carries the same ARCHIVE bit an ordinary file does, so an attribute
+// A device has the same ARCHIVE bit an ordinary file does, so an attribute
 // test cannot tell them apart. The handle is the OS's own answer, and it keeps
 // an exotic but real path (a volume-prefixed `\\.\C:\dir\file`) out of the
 // device case. CON refuses that open outright (ERROR_INVALID_PARAMETER) and a
@@ -151,7 +151,7 @@ func windowsPublishNewFile(tmp, target string) error {
 
 // ReplaceFile's documented preserve list is creation time, short name, object
 // id, DACLs, security attributes, encryption, compression and named streams -
-// not the basic attributes - and the fallback rename carries nothing at all, so
+// not the basic attributes - and the fallback rename keeps nothing at all, so
 // hidden and system are re-applied by hand after the publish. Read-only is
 // handled separately: it has to come OFF before the publish.
 const carriedFileAttrs = syscall.FILE_ATTRIBUTE_HIDDEN | syscall.FILE_ATTRIBUTE_SYSTEM

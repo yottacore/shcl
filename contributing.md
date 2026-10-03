@@ -154,7 +154,7 @@ GitHub CI runs on pushes to `main`, on pull requests, and by hand from the Actio
 - Rust via rustup - `rust-toolchain.toml` pins the version and cross targets; `rustfmt` and `clippy` come with it.
 	- Only rustup honors that pin. If your distro also packages Rust and its `cargo` wins on `PATH`, the pin is ignored with no warning, and you can end up building at one version while formatting and linting at another. `cicd.bash` prepends `~/.cargo/bin` so the pipeline is safe either way, but a bare `cargo` at the prompt is not. Check with `type -a cargo` and `rustup show active-toolchain`; fix by putting `~/.cargo/bin` ahead of the system directories, not after.
 
-- Go - install a current release. Hosted CI pins the 1.26 series rather than `stable`, because `staticcheck` carries its own type checker and cannot read a newer Go's export data; the two pins move together (the reason is spelled out in `.github/workflows/ci.yml`). The `go` directive in `source/go/go.mod` is the minimum for a consumer of the library, not enough for the pipeline. `gofmt` and `go vet` are built in.
+- Go - install a current release. Hosted CI pins the 1.26 series rather than `stable`, because `staticcheck` has its own type checker and cannot read a newer Go's export data; the two pins move together (the reason is spelled out in `.github/workflows/ci.yml`). The `go` directive in `source/go/go.mod` is the minimum for a consumer of the library, not enough for the pipeline. `gofmt` and `go vet` are built in.
 
 - Python 3.9+ - the binding and its tests are stdlib-only.
 
@@ -202,7 +202,7 @@ Behavior changes come with a corpus case, or they are not pinned.
 	- `layer*.shcl` + `merge.sets` + `expected-merged.shcl` - layered loading.
 	- `init-schema.shcl` + `expected-init.shcl` - starter-config generation.
 
-- Column meanings and file grammars are in `project/conformance/README.md`. It also carries a short note per case, so add one for yours.
+- Column meanings and file grammars are in `project/conformance/README.md`. It also has a short note per case, so add one for yours.
 
 - Generate the golden files from the Rust reference and eyeball them. Never hand-edit a golden to make a test pass.
 
@@ -220,7 +220,7 @@ Behavior the corpus cannot see, because it is not stdout, belongs in `cicd/utili
 	- `cargo-deny` - Rust: `cargo install cargo-deny --version <pin>`; advisories, licenses and duplicate versions over the lockfile, config in `source/rust/deny.toml`.
 	- `shellcheck` - the pipeline's own scripts and the bash wrapper.
 	- `ruff` + `mypy` - Python: `pipx install ruff` and `pipx install mypy`; both read their settings from `source/python/pyproject.toml`.
-	- `build` - Python: `pipx install build`. The lint stage builds the wheel and sdist and checks they carry the library alone, since the CLI and the tests must never ship.
+	- `build` - Python: `pipx install build`. The lint stage builds the wheel and sdist and checks they contain the library alone, since the CLI and the tests must never ship.
 	- `cppcheck` - C: `pipx install cppcheck` (PyPI wheel bundles the real binary).
 	- `markdownlint-cli2` - docs: `npm install -g markdownlint-cli2`; repo config in `.markdownlint-cli2.jsonc`.
 	- `PSScriptAnalyzer` - ps1 wrapper: `pwsh -Command 'Install-Module PSScriptAnalyzer -Scope CurrentUser'`.

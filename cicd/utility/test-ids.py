@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-##	Purpose: Test IDs. Every test the pipeline runs carries one, and prints it
+##	Purpose: Test IDs. Every test the pipeline runs has one, and prints it
 ##		on its status line. An ID is the test's creation time in milliseconds
 ##		since 2000-01-01 00:00 UTC, in base 62 (0-9, A-Z, a-z), padded to seven
 ##		characters, so IDs sort by age.

@@ -33,7 +33,7 @@ shcl-comparison - measure SHCL against JSON, YAML, TOML and XML
 Usage: shcl-comparison [options]
 
   --mib N          target size of each scaling shape's SHCL encoding (default
-                   16); the config and ddl shapes carry their own realistic size
+                   16); the config and ddl shapes set their own realistic size
   --iters N        timed runs per measurement, best wins (default 3); scaled up
                    on a document small enough to parse in microseconds
   --shape NAME     only this shape; repeatable (flat, deep, records, text,
@@ -386,7 +386,7 @@ fn orchestrate(o: &Opts) -> i32 {
 	for &shape in &o.shapes {
 		// SHCL sets the unit count by hitting the size target; every other
 		// format then encodes exactly that data, so size is a result rather
-		// than an input. The shapes that carry their own size skip the target
+		// than an input. The shapes that set their own size skip the target
 		// and render a fixed number of units instead.
 		let (shcl_text, units) = match shape.plan(o.mib) {
 			model::Plan::Units(n) => render(shape, Fmt::Shcl, n, None),
@@ -589,7 +589,7 @@ fn verify(o: &Opts) -> bool {
 				}
 			}
 		}
-		// The four non-SHCL encodings carry the instance label as an ordinary
+		// The four non-SHCL encodings store the instance label as an ordinary
 		// `name` field, which SHCL writes as the binding's own value. Same data,
 		// one fewer scalar binding.
 		let offset = if shape.list_key().is_some() {

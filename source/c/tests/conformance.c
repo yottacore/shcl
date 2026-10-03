@@ -43,7 +43,7 @@ static const char *tmp_root(void) {
 
 #ifdef _WIN32
 /* The fixture's own tree goes past MAX_PATH, and the narrow calls refuse such a
-   path the same way the library used to - so its setup and teardown carry the
+   path the same way the library used to - so its setup and teardown use the
    long-path prefix too. Forward slashes are not allowed after it. */
 static wchar_t *long_wide(const char *p) {
 	char buf[1200];
@@ -666,7 +666,7 @@ static void seq_puts(SeqBuf *b, const char *s) { seq_put(b, s, strlen(s)); }
 static void seq_num(SeqBuf *b, size_t n) { char t[24]; snprintf(t, sizeof t, "%zu", n); seq_puts(b, t); }
 static const char *const seq_names[] = {"a", "b", "m"};
 
-/* Lines that carry comments and blanks somewhere a later step can move them:
+/* Lines that have comments and blanks somewhere a later step can move them:
    comments at every depth, empty and reopened blocks, a same-line fence with a
    comment after an empty binding, and misplaced lines kept as written, one of
    them among a list's elements. */
@@ -1360,7 +1360,7 @@ int main(int argc, char **argv) {
 		}
 		free(input); free(expected); free(reads);
 		/* The case's test ID, or dashes: a corpus built for a test of this
-		   runner need not carry one. */
+		   runner need not have one. */
 		char id[16] = "-------";
 		snprintf(path, sizeof path, "%s/%s/test-id", corpus, names[ci]); size_t tlen; char *tid = read_file(path, &tlen);
 		if (tid) {
@@ -1410,7 +1410,7 @@ int main(int argc, char **argv) {
 		shcl_free(rd);
 	}
 	// line()/quoted()/children(): read-surface accessors. Same fixture in every
-	// runner - the other three carry line and quoted on the read result, C
+	// runner - the other three have line and quoted on the read result, C
 	// keeps its read structs value+status and answers with these instead.
 	test_id("ElorUZm", "read_surface_line_quoted_children");
 	{
@@ -2068,7 +2068,7 @@ int main(int argc, char **argv) {
 		free(rt);
 		if (!(GetFileAttributesA(rfile) & FILE_ATTRIBUTE_READONLY)) fail("readonly", "file did not come back read-only");
 		// Hidden and system come back too: ReplaceFile's preserve list does not
-		// include the basic attributes and the fallback move carries none, so a
+		// include the basic attributes and the fallback move keeps none, so a
 		// hidden config used to come back visible.
 		SetFileAttributesA(rfile, (GetFileAttributesA(rfile) & ~(DWORD)FILE_ATTRIBUTE_READONLY) | FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM);
 		shcl_doc *hd = shcl_parse("a: 3\n", 5);
@@ -2253,12 +2253,12 @@ int main(int argc, char **argv) {
 			for (size_t i = 0; i < 513; i++) { if (i) deep[dn++] = '.'; deep[dn++] = 'd'; }
 			if (shcl_write_reason_(wd, deep, dn) != SHCL_W_TOO_DEEP) fail("write_reason", "513 segments not too deep");
 		}
-		// A literal line break is writable wherever a path can carry one: a name
+		// A literal line break is writable wherever a path can have one: a name
 		// emits through the name escaper and a selector value through the value
 		// emitter, and both write a break \n and read it back as one. The
 		// selector was refused while the value emitter still wrote elements in
 		// their source spelling and had nothing to escape with. Not
-		// corpus-pinnable - an ops line cannot carry a raw newline.
+		// corpus-pinnable - an ops line cannot contain a raw newline.
 		if (shcl_write_reason_(wd, "a[\"p\nq\"].b", 10) != SHCL_W_WRITABLE) fail("write_reason", "newline in selector not writable");
 		if (shcl_write_reason_(wd, "\"x\ny\".b", 7) != SHCL_W_WRITABLE) fail("write_reason", "newline in name not writable");
 		if (shcl_write_reason_(wd, "\"x\\ny\".b", 8) != SHCL_W_WRITABLE) fail("write_reason", "escaped newline not writable");
@@ -2266,7 +2266,7 @@ int main(int argc, char **argv) {
 		if (shcl_count(wd, "a", 1) != 1) fail("write_reason", "probe created nodes");
 		shcl_free(wd);
 	}
-	// Both halves of a path can carry a line break and write it \n: a name
+	// Both halves of a path can contain a line break and write it \n: a name
 	// through the name escaper, a selector value through the value emitter. The
 	// selector was refused while elements were stored in their source spelling
 	// and the emitter had nothing to escape with. Same fixture in every runner.
@@ -2429,7 +2429,7 @@ int main(int argc, char **argv) {
 	// Every arena a validate arms has to be disarmed before the call returns,
 	// or the guard still names a frame that has gone. The suggestion scratch is
 	// armed down inside the unknown-field sweep, so the sweep has to run: the
-	// document carries a field the schema does not declare.
+	// document has a field the schema does not declare.
 	test_id("EoXPDVg", "validate_disarms_every_guard");
 	{
 		const char *vt = "port: 1\nprot: 2\n";
@@ -2499,7 +2499,7 @@ int main(int argc, char **argv) {
 		remove(dfile); rmdir(ddir);
 	}
 
-	/* A written value carrying both quote kinds is stored the way its own
+	/* A written value with both quote kinds is stored the way its own
 	   reload stores it, so shcl_instances and a read's raw text agree across a
 	   save. The emitter escapes the double quotes; the writer used to keep them
 	   bare. Same fixture in every runner. */
@@ -2677,7 +2677,7 @@ int main(int argc, char **argv) {
 	test_id("EonWXt3", "save_through_a_long_path");
 	{
 		/* A path past MAX_PATH. The narrow and wide file calls both refuse one
-		   unless it carries the \\?\ prefix, so a save through a deep tree used
+		   unless it has the \\?\ prefix, so a save through a deep tree used
 		   to fail on windows and work everywhere else. */
 		char lp[1024], real_short[320]; size_t ln = 0;
 		snprintf(real_short, sizeof real_short, "%s/shcl-short-%ld.shcl", tmp_root(), (long)getpid());
@@ -2700,7 +2700,7 @@ int main(int argc, char **argv) {
 		free(sr);
 		shcl_doc *ld = shcl_parse("a: 1\n", 5);
 		if (shcl_save_file(ld, lp) != SHCL_SAVE_OK) fail("longpath", "save refused a path past MAX_PATH");
-		/* Through the library, which is what has to carry the prefix: the
+		/* Through the library, which is what has to add the prefix: the
 		   runner's own reader is plain fopen and would refuse the path. */
 		size_t rn = 0; shcl_file_status lst; char *rt = shcl_read_file(lp, 0, &rn, &lst);
 		if (!rt || lst != SHCL_FILE_CLEAN || rn != 5 || memcmp(rt, "a: 1\n", 5) != 0)

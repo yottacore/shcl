@@ -179,7 +179,7 @@ fn structural(rng: &mut Rng) -> String {
 			2 => "[#1]",
 			_ => "",
 		};
-		// Shapes 11 to 13 carry a `# k` comment behind a selector holding a
+		// Shapes 11 to 13 have a `# k` comment behind a selector holding a
 		// quote, a backslash or a quoted `]`; see comments_behind_selectors.
 		let line = match rng.below(24) {
 			0 => format!("{indent}# comment {}", rng.below(3)),
@@ -281,7 +281,7 @@ fn mutated_inputs_never_panic_and_format_is_fixpoint() {
 				let paths = Document::parse(&text).paths();
 				if !paths.is_empty() {
 					let mut tsv = String::from("query\ttype\texpected\tstatus\tlevel\n");
-					// Quoted segments may carry a literal tab; those cannot ride
+					// Quoted segments may contain a literal tab; those cannot ride
 					// a tab-separated row, so leave them to the native runners.
 					for p in paths.iter().filter(|p| !p.contains('\t')).take(3) {
 						for (ty, lvl) in [
@@ -413,7 +413,7 @@ fn writes_on_structural_soup_stay_fixpoint() {
 /// quoted `]` in a selector used to leave the name-half scan in the wrong
 /// state, so the `#` after it was read as value text with zero diagnostics,
 /// and the write that followed was a fixpoint, so nothing else could see it.
-/// The structural shapes that carry `# k` are the only source of that text; a
+/// The structural shapes that have `# k` are the only source of that text; a
 /// swallowed one comes back quoted (`port: "8080  # k"`), so a canonical line
 /// holding it has to end with it.
 #[test]
@@ -460,7 +460,7 @@ fn comments_behind_selectors_stay_comments() {
 	}
 	assert!(
 		seen > iters / 4,
-		"the soup carried only {} commented lines",
+		"the soup had only {} commented lines",
 		seen
 	);
 }
@@ -947,7 +947,7 @@ fn writer_roundtrips_and_stays_fixpoint() {
 			s
 		);
 		// The written document and its own reload agree on the source spelling
-		// too, not just on the value: a text carrying both quote kinds used to
+		// too, not just on the value: a text with both quote kinds used to
 		// store one form and reparse as another.
 		assert_eq!(
 			d.instances("k"),

@@ -364,7 +364,7 @@ class Matcher:
 ##	reading to agree. Without it the rows are a second grammar written by hand,
 ##	which is how the info-string rule came to be narrower than the parser.
 ##	Indentation and fence termination are context ABNF cannot state, so a line
-##	rule's sample goes under a parent field, with a tab added when it carries
+##	rule's sample goes under a parent field, with a tab added when it has
 ##	no indent of its own - the rule's own indent is *(SP / HTAB), so that stays
 ##	inside it.
 
@@ -384,7 +384,7 @@ def fRun(cli: Path, args: list[str], work: Path) -> tuple[int, list[str]]:
 
 
 def fWrite(work: Path, text: str) -> None:
-	## Bytes, so a row carrying CRLF reaches the parser as it is written.
+	## Bytes, so a row with CRLF reaches the parser as it is written.
 	(work / "s.shcl").write_bytes(text.encode("utf-8"))
 
 
@@ -463,7 +463,7 @@ def fTie(cli: Path, work: Path, rule: str, text: str) -> bool:
 		return rc == 0 and any(ln.startswith("p.") for ln in out)
 	if rule == "fence-line":
 		return fRun(cli, ["get", "--raw", "s.shcl", "p"], work)[0] == 0
-	## array-elem-line: the parent carries the element and no child field.
+	## array-elem-line: the parent has the element and no child field.
 	return fRun(cli, ["get", "s.shcl", "p"], work)[0] == 0 and fRun(cli, ["children", "s.shcl", "p"], work)[1] == []
 
 

@@ -772,7 +772,7 @@ class SeqGen:
 		return ((x * 0x2545F4914F6CDD1D) & 0xFFFFFFFFFFFFFFFF) % n
 
 	def doc(self):
-		# Lines that carry comments and blanks somewhere a later step can move
+		# Lines that have comments and blanks somewhere a later step can move
 		# them: comments at every depth, empty and reopened blocks, a same-line
 		# fence with a comment after an empty binding, and misplaced lines kept
 		# as written, one of them among a list's elements.
@@ -1362,12 +1362,12 @@ def main():
 		("a[#5].b", shcl.WriteReason.NoSuchIndex),
 		("nope[#0].b", shcl.WriteReason.NoSuchIndex),
 		(".".join(["d"] * 513), shcl.WriteReason.TooDeep),
-		# A literal line break is writable wherever a path can carry one: a name
+		# A literal line break is writable wherever a path can have one: a name
 		# emits through the name escaper and a selector value through the value
 		# emitter, and both write a break \n and read it back as one. The
 		# selector was refused while the value emitter still wrote elements in
 		# their source spelling and had nothing to escape with. Not
-		# corpus-pinnable - an ops line cannot carry a raw newline.
+		# corpus-pinnable - an ops line cannot contain a raw newline.
 		('a["p\nq"].b', shcl.WriteReason.Writable),
 		('"x\ny".b', shcl.WriteReason.Writable),
 		('"x\\ny".b', shcl.WriteReason.Writable),
@@ -1578,7 +1578,7 @@ def main():
 	if not gdoc.set_int_array("k", gen) or gdoc.to_canonical() != "k: 1, 2, 3\n":  # type: ignore[arg-type]
 		raise SystemExit(f"a generator wrote {gdoc.to_canonical()!r}")
 	test_id("EommtF5", "written_spelling_matches_its_reload")
-	# A written value carrying both quote kinds is stored the way its own reload
+	# A written value with both quote kinds is stored the way its own reload
 	# stores it, so instances() and a read's raw text agree across a save. The
 	# emitter escapes the double quotes; the writer used to keep them bare. Same
 	# fixture in every runner.
@@ -2125,7 +2125,7 @@ def main():
 			test_id("Eom3Uj3", "save_keeps_hidden_and_system")
 			# Hidden and system come back too: ReplaceFile's preserve list does
 			# not include the basic attributes and the os.replace fallback
-			# carries none, so a hidden config used to come back visible.
+			# keeps none, so a hidden config used to come back visible.
 			import ctypes
 
 			# WinDLL and st_file_attributes exist only on windows, and mypy
@@ -2245,7 +2245,7 @@ def main():
 		raise SystemExit("strict load unexpectedly passed")
 	except shcl.LoadError as le:
 		if le.document is None or le.document.read_int("ok").value != 1:
-			raise SystemExit("LoadError does not carry a usable document") from None
+			raise SystemExit("LoadError does not include a usable document") from None
 		if "; line " not in str(le):
 			raise SystemExit("LoadError message lacks diagnostics: " + str(le)) from None
 	test_id("ElonRnP", "raw_is_source_text")
@@ -2441,7 +2441,7 @@ def main():
 		raise SystemExit(f"ShclDateTime repr is not readable: {dtxt}")
 
 	test_id("EpGigIS", "a_line_break_in_a_path_writes_and_reads_back")
-	# Both halves of a path can carry a line break and write it \n: a name
+	# Both halves of a path can contain a line break and write it \n: a name
 	# through the name escaper, a selector value through the value emitter. The
 	# selector was refused while elements were stored in their source spelling
 	# and the emitter had nothing to escape with. Same fixture in every runner.
@@ -2459,7 +2459,7 @@ def main():
 			raise SystemExit(f"read {nlpath!r} got {nlback.read_int(nlpath).value}")
 
 	test_id("EoXKdQm", "hot_path_shortcuts_hold")
-	# Three hot-path shortcuts this binding carries because it is the slow one.
+	# Three hot-path shortcuts this binding has because it is the slow one.
 	# Each is asserted structurally, by what the code does rather than by a
 	# clock: a wall-time threshold on a constant-factor win either flakes or
 	# never fires. Their combined effect was parse-plus-emit 1.05 s -> 0.87 s on

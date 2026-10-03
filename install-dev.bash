@@ -182,7 +182,7 @@ fPin() {
 	[[ -n "${line}" ]] || fDie "no TOOL_PINS entry for $1 in cicd/config.bash"
 	pin_ver="${line#*|}"; pin_cmd="${pin_ver#*|}"; pin_ver="${pin_ver%%|*}"
 }
-## The cppcheck pin names the binary; the PyPI wheel that carries it has its own
+## The cppcheck pin names the binary; the PyPI wheel that contains it has its own
 ## version, kept beside TOOL_PINS as CPPCHECK_WHEEL so nothing here can drift.
 fCppcheckWheel() {
 	cppcheck_wheel="$(sed -n 's/^CPPCHECK_WHEEL="\([^"]*\)".*/\1/p' "${pins_file}")"

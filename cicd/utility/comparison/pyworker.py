@@ -158,7 +158,7 @@ def data_scalars(v: Any) -> int:
 
 
 def xml_scalars(el: Any) -> int:
-	"""Both XML readers: a leaf element carries the value, a branch carries
+	"""Both XML readers: a leaf element has the value, a branch has
 	none. lxml puts comments and processing instructions in the child list with
 	a tag that is not a string, so they are dropped."""
 	kids = [k for k in el if isinstance(getattr(k, "tag", None), str)]
@@ -270,7 +270,7 @@ def run(key: str, path: str, iters: int) -> None:
 		print(f"skipped={e}")
 		return
 	# Whatever `prepare` builds is built once, before the baseline, so neither
-	# the clock nor the memory figure carries it.
+	# the clock nor the memory figure includes it.
 	parse, emit, prepare, whole = unpack(loaded)
 	src = Path(path).read_text(encoding="utf-8")
 	subject = prepare(src)

@@ -14,7 +14,7 @@ ignore = [
 	## they stay: nothing here parses XML (inferno only writes the flamegraph
 	## SVG), the whole chain is behind the profiling feature and never ships, and
 	## inferno 0.11 pins quick-xml 0.26 so there is no version to move to. Drop
-	## these the moment pprof carries a newer inferno.
+	## these the moment pprof uses a newer inferno.
 	{ id = "RUSTSEC-2026-0194", reason = "dev-only profiler chain, no XML is parsed, no upgrade path" },
 	{ id = "RUSTSEC-2026-0195", reason = "dev-only profiler chain, no XML is parsed, no upgrade path" },
 ]
@@ -38,7 +38,7 @@ confidence-threshold = 0.9
 ## profiling chain is not ours to flatten.
 multiple-versions = "warn"
 wildcards = "deny"
-## The three duplicates that chain does carry today, each the older half of a
+## The three duplicates that chain does have today, each the older half of a
 ## pair pulled in two places under pprof. Allowed by name so every run's lint
 ## report is not the same three warnings; a fourth one still shows up.
 skip = [

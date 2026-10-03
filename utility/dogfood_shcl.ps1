@@ -175,7 +175,7 @@ function Get-HeldVersion {
 }
 
 ## A held version with the same bytes as the source build, or nothing. The sync
-## layer restamps what it carries, so a build already held can look new.
+## layer restamps what it has, so a build already held can look new.
 function Find-HeldTwin {
 	[CmdletBinding()]
 	param($Source)

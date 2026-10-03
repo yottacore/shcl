@@ -283,7 +283,7 @@ fRunUninstallLock() {
 }
 
 ## 20260924 item 7: Windows PowerShell 5.1 puts a BOM in front of text it pipes
-## to a program when $OutputEncoding carries one, as it does on a UTF-8 console,
+## to a program when $OutputEncoding has one, as it does on a UTF-8 console,
 ## and `set` then read the first op as unknown. Piped the way a user types it.
 fRunOpsBom51() {
 	local f="${work}/bom51.shcl" ps="${work}/bom51.ps1" out

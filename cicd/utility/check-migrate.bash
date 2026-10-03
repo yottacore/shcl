@@ -193,7 +193,7 @@ fAge2xReads(){ awk '$0 == "rawinfo exit 4" && prev == "" && prev2 == "raw exit 2
 ##	runners pin those.
 fHasNul(){ IFS= read -r -d '' _ <"$1"; }
 
-##	A 2.x fence label carrying a `#` has no spelling here at all: the `#` opens
+##	A 2.x fence label with a `#` has no spelling here at all: the `#` opens
 ##	the line's comment now, and nothing quotes a label. So `migrate` leaves the
 ##	line as written and the reading differs by design. Matched on the text
 ##	rather than by file name, because a fuzz document's number moves every time
@@ -299,16 +299,16 @@ done
 ##	for comparing too little. The exit below still says which floor.
 if ((nCompared < minCompared || nCorpus < minCorpus || nCompared - nCorpus < minFuzz)); then nBad+=1; fi
 
-##	Each named case has to keep carrying its shape, or the exception is stale.
-fTest EpUIoZd 068 still carries a fence label holding a hash
+##	Each named case has to keep its shape, or the exception is stale.
+fTest EpUIoZd 068 still has a fence label holding a hash
 fInfoHashLabel "${corpus}/068-info-hash-spellings/input.shcl" 2>/dev/null \
-	|| { echo "check-migrate: 068-info-hash-spellings no longer carries a fence label holding a #" >&2; nBad+=1; }
-fTest ErUuq8D 170 still carries a path that held a line break
+	|| { echo "check-migrate: 068-info-hash-spellings no longer has a fence label holding a #" >&2; nBad+=1; }
+fTest ErUuq8D 170 still has a path that held a line break
 [[ -n "$(fPathBreak "${corpus}/170-unknown-escape/input.shcl")" ]] \
-	|| { echo "check-migrate: 170-unknown-escape no longer carries a path that held a line break" >&2; nBad+=1; }
-fTest EpUIoZe 094 still carries a mid-line carriage return
+	|| { echo "check-migrate: 170-unknown-escape no longer has a path that held a line break" >&2; nBad+=1; }
+fTest EpUIoZe 094 still has a mid-line carriage return
 fCrMidLine "${corpus}/094-unicode-space/input.shcl" 2>/dev/null \
-	|| { echo "check-migrate: 094-unicode-space no longer carries a mid-line carriage return" >&2; nBad+=1; }
+	|| { echo "check-migrate: 094-unicode-space no longer has a mid-line carriage return" >&2; nBad+=1; }
 ##	The third has no corpus case - a new one shifts the fuzz seed set, which
 ##	costs a gate round - so it is checked against a document built here: 2.x
 ##	reads both elements, the current parser places only the first, and the write

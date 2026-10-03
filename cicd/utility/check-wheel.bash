@@ -11,7 +11,7 @@
 ##	Syntax:
 ##		check-wheel.bash [ROOT]
 ##		  ROOT   repo root (default: two levels up from this script)
-##	Exit: 0 = the wheel and sdist carry the library and nothing else, 1 = they do not.
+##	Exit: 0 = the wheel and sdist have the library and nothing else, 1 = they do not.
 ##	History: At bottom of script.
 
 ##	Copyright (c) 2026 Bubbles
@@ -104,7 +104,7 @@ print("\n".join(sorted(n for n in names if ".dist-info/" not in n and not n.ends
 PY
 )"
 if [[ "${wheelPayload}" != "shcl.py" ]]; then
-	echo "check-wheel: the wheel should carry shcl.py and nothing else; it carries:" >&2
+	echo "check-wheel: the wheel should have shcl.py and nothing else; it has:" >&2
 	fIndent "${wheelPayload:-(nothing)}" >&2
 	nBad=$((nBad + 1))
 fi
@@ -123,11 +123,11 @@ then
 fi
 
 fTest EnUSdUI sdist-has-no-cli-or-tests
-## The sdist is looser by nature - it carries the project files - but the CLI
+## The sdist is looser by nature - it has the project files - but the CLI
 ## and the tests still have no business in it.
 strays="$(tar tzf "${outDir}"/*.tar.gz | grep -E '/(cmd|tests)/' || true)"
 if [[ -n "${strays}" ]]; then
-	echo "check-wheel: the sdist carries the CLI or the tests:" >&2
+	echo "check-wheel: the sdist has the CLI or the tests:" >&2
 	fIndent "${strays}" >&2
 	nBad=$((nBad + 1))
 fi

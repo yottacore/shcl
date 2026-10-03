@@ -301,7 +301,7 @@ def fNeighborKey(ch: str, rng: random.Random) -> str:
 	return ch
 
 
-##	Palette: one shared 256-entry table for every frame. The text colors carry
+##	Palette: one shared 256-entry table for every frame. The text colors have
 ##	short blend ramps toward their background so antialiased edges quantize
 ##	cleanly instead of dithering, and the leftover entries are median-cut from
 ##	the emoji tiles the scenario actually produces. One global table means no
@@ -631,7 +631,7 @@ def fMain() -> None:
 	scr = Screen(font, fontName, sc.get("title", prog), prompt, None, sc.get("fontsize", 15))
 
 	##	Run every command up front: the outputs feed the demo AND tell the
-	##	palette which emoji it must carry before the first frame renders.
+	##	palette which emoji it must include before the first frame renders.
 	stepOut = [fRunStep(step, prog, binpath) for step in sc["step"]]
 	emojiSet = sorted({ch for lines in stepOut for ln in lines for ch in ln
 	                   if scr.fIsEmoji(ch)})

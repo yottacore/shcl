@@ -30,7 +30,7 @@
 ##	  (utility/check-banner-tag.bash). That check runs even when the gate is
 ##	  skipped.
 ##	- The large-document stage is left out here (minutes; a full local run and
-##	  the hosted workflow on main carry it); this is the fast correctness half.
+##	  the hosted workflow on main run it); this is the fast correctness half.
 ##	- Escape hatch: `git push --no-verify`, or SHCL_SKIP_HOOK=1.
 ##	- Installed by pointing git at this directory:
 ##		git config core.hooksPath cicd/hooks
@@ -57,7 +57,7 @@ for gitVar in $(git rev-parse --local-env-vars 2>/dev/null || true); do unset "$
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "${here}/../.." && pwd)"
 
-## stdin carries "<local ref> <local sha> <remote ref> <remote sha>" per ref.
+## stdin gives "<local ref> <local sha> <remote ref> <remote sha>" per ref.
 ## Only a push that would move main is worth the wait; the sha bound for it is
 ## what gets tested. All zeros means a delete: nothing to test. One push names
 ## main at most once, so this collects a single sha, and the loop stays general

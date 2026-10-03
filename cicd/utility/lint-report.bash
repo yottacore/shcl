@@ -113,7 +113,7 @@ fi
 ##	run's log (a passing run aborts on the first error). Drop the "0 warnings" noise,
 ##	govulncheck's clean-result prose (its "found N vulnerabilities in modules you
 ##	require, but your code doesn't appear to call" block is informational and prints
-##	on every run), and the echoed command lines that carry the word: cppcheck's
+##	on every run), and the echoed command lines that contain the word: cppcheck's
 ##	`--enable=warning`, and clippy's `-D warnings`, which the pre-push gate's
 ##	nested run echoes during publish and which used to read as a finding.
 warns="$(grep -inE 'warning|rustsec-|vulnerab|unmaintained|yanked' "$log" 2>/dev/null \

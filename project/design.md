@@ -107,14 +107,14 @@ Other points
 
 - Those outputs print with a blank line above and below, so the block does not butt up against the shell prompts either side of it. Bare `shcl` counts as asking: it prints the same padded help as `shcl help` and exits 0. `version` stays unpadded on purpose, a single bare line so a script can still capture it cleanly. The rule is "padded when a person asked for it", not "padded when it is long".
 
-- The lexical rules are few, and a byte's position decides what it means. The rule table is under Lexical edges below; `spec.md` carries the normative wording.
+- The lexical rules are few, and a byte's position decides what it means. The rule table is under Lexical edges below; `spec.md` has the normative wording.
 	- Why: the same lexical rule lived in seven scanners per binding, and every scanner defect since July was two of them disagreeing. A fix reached the copies that were reproduced. One tokenizer per binding replaces them, and fewer rules leave it less to get wrong.
 	- What changed at 3.0, and what `migrate` rewrites a 2.x file for: escapes are processed inside double quotes only, single quotes are literal, and bare text never processes a backslash, which is TOML's and YAML's rule. A quoted piece opens with a quote as its first character and closes at the next matching quote, which has to be the last thing in the piece; anywhere else a quote is a character. The `field:[disc]` sugar is gone, so a `[` right after a name is a selector and a `[` first after the colon is bracket text.
 	- Escapes, quoting, arrays and the hidden-character list moved to [the value syntax design](design_docs/value-syntax.md), with what replaces the backslash escapes, `E023` as it is now and `E024`. The build still has those until that design is built.
 	- The cost, said once: a bare `\n` or `\t` and a single-quoted escape change meaning, and a bracket array 2.x folded into one string binds nothing. `migrate` rewrites a file in one pass, and a 2.x reader is unaffected by the migrated file. There is no 2.1.0; everything since 2.0.0 goes out in 3.0.0.
 	- What did not change: the comment rule is 2.x's, so a 2.x file's comments and values read the same before and after. Three edges do read differently, and `migrate` leaves all three: a fence label holding a `#`, which 2.x ran to the end of the line and which has no quoting; a carriage return at a piece's edge in the middle of a line, which 2.x kept and which is a blank now; and an indent landing on no open level's column, which 2.x placed by a looser comparison and which is `E012` now, since `migrate` rewrites spellings and not layout.
-	- Which rules wrote a file is not in the text, so the info block carries a `Format` line naming the format's major and `migrate` is the only command that reads it. `format_version` hands a program the same answer, so it can ask before it rewrites anything. A file carrying the current major has nothing to migrate; one carrying an older major, or a caller passing `--from-2x`, gets the backslash re-spellings; anything else gets every other rewrite and leaves those pieces as written, at exit 7. A rewritten file is stamped with the line and a migrated-from note, which is what makes a second run a no-op rather than a second rewrite of the first one's output. The library never adds the whole block, since that would write bytes the document does not hold, and it does not stamp a file that never closes a raw block, since the line would end up inside the block as content. `migrate_unstamped` leaves the stamp off for a program that writes the whole block itself as its footer, which then carries the line.
-	- `migrate` reports what it could not carry rather than exiting 0 over it: the pieces it could not decide between the two rule sets, and the one form 2.x bound that nothing binds now, bracket text after the colon. Both are exit 7, and each has its own override - `--from-2x` for the first, `--lossy` for the second on a rewrite - because one is a question the text cannot answer and the other is a real loss.
+	- Which rules wrote a file is not in the text, so the info block has a `Format` line naming the format's major and `migrate` is the only command that reads it. `format_version` hands a program the same answer, so it can ask before it rewrites anything. A file with the current major has nothing to migrate; one with an older major, or a caller passing `--from-2x`, gets the backslash re-spellings; anything else gets every other rewrite and leaves those pieces as written, at exit 7. A rewritten file is stamped with the line and a migrated-from note, which is what makes a second run a no-op rather than a second rewrite of the first one's output. The library never adds the whole block, since that would write bytes the document does not hold, and it does not stamp a file that never closes a raw block, since the line would end up inside the block as content. `migrate_unstamped` leaves the stamp off for a program that writes the whole block itself as its footer, which then includes the line.
+	- `migrate` reports what it could not convert rather than exiting 0 over it: the pieces it could not decide between the two rule sets, and the one form 2.x bound that nothing binds now, bracket text after the colon. Both are exit 7, and each has its own override - `--from-2x` for the first, `--lossy` for the second on a rewrite - because one is a question the text cannot answer and the other is a real loss.
 	- `migrate --write` ends with two files rather than one converted in place: the new text at the path, and the original bytes beside it as `NAME_old_v2.EXT` (2026-09-27). The copy is made only when a line is rewritten, since a file that only gains the Format line reads the same under both rule sets and may be a 3.0 file nobody stamped. It is an exclusive create, synced, at the original's mode, and it is written before the save starts. A taken name is exit 8, never an overwrite. If the save then fails and the file still holds the original, the copy is removed so the next run is not blocked; if the file does not, as after a replace that failed part way on windows, the copy stays and the error names it.
 	- `migrate --check` compares the input and the migrated text line by line, in the CLI. The rewrite never adds or drops a line ahead of its stamp, so line N is line N on both sides, and the library needs nothing new. A line to rewrite is exit 6, the code `check` uses for a file with something to fix, and exit 7 still wins when `migrate` could not finish or when the save gate would refuse the rewrite. `fmt --check` asks that gate the same way.
 
@@ -149,7 +149,7 @@ The consuming programmer is assumed to be a junior in *every* binding, not just 
 
 - Two tiers, junior-first. A convenience tier is the documented default: one value, one baked-in fallback, one return, no status to inspect. The full tier, the status-returning form, is there when the caller needs to know *why* a read failed. Every binding names the convenience tier `_or`, so a routine ported between two of them cannot keep the call name while changing tier; each language's native idiom for the same thing still works where it has one (Rust `unwrap_or`, Python's default argument, the CLI's `--default=`).
 
-- A supplied default implies default-behavior. The caller never writes a fallback *and* an explicit on-bad - which is why the libraries carry no on-bad parameter at all: the tier you call *is* the mode. `Error` mode has no library form, because a read that cannot reach a value is a normal outcome rather than a fault, and a caller who wants a throw already has the status to raise on. The CLI keeps the explicit `--on-bad`, having no tiers to choose between.
+- A supplied default implies default-behavior. The caller never writes a fallback *and* an explicit on-bad - which is why the libraries have no on-bad parameter at all: the tier you call *is* the mode. `Error` mode has no library form, because a read that cannot reach a value is a normal outcome rather than a fault, and a caller who wants a throw already has the status to raise on. The CLI keeps the explicit `--on-bad`, having no tiers to choose between.
 
 - The convenience tier defuses the one real hazard of a forgiving accessor - a junior discarding the status and trusting a `0`/`""` that was actually empty or missing. Making the fallback mandatory and visible at the call site means an unwanted zero can't slip in unseen.
 
@@ -181,7 +181,7 @@ One question - "how do you pull SHCL into your project?" - with two kinds of ans
 
 - **Bundled**. Compile the same source into your binary, so you distribute one self-contained file.
 
-The last two are the same code compiled two ways - "shared" stays a separate file loaded at runtime, "bundled" is baked into your binary. Neither is published as a prebuilt artifact, and that is a decision rather than a gap. A release carries the CLI binaries, the packages and the drop-in sources. Shipping a shared object means an ABI to keep: a soname, symbol versioning, a separate headers package, and a promise that a caller built against an old one keeps working. All of that pulls against the one-file zero-dependency premise, and the C header exports plain externs with no export macro, so a Windows DLL would need one anyway. Every mode reaches the same Accessor/Writer surface; the choice is packaging, not capability.
+The last two are the same code compiled two ways - "shared" stays a separate file loaded at runtime, "bundled" is baked into your binary. Neither is published as a prebuilt artifact, and that is a decision rather than a gap. A release includes the CLI binaries, the packages and the drop-in sources. Shipping a shared object means an ABI to keep: a soname, symbol versioning, a separate headers package, and a promise that a caller built against an old one keeps working. All of that pulls against the one-file zero-dependency premise, and the C header exports plain externs with no export macro, so a Windows DLL would need one anyway. Every mode reaches the same Accessor/Writer surface; the choice is packaging, not capability.
 
 ### Power layer (library-level, grammar untouched)
 
@@ -203,12 +203,12 @@ Compared to schema-bearing config languages (Pkl, CUE), SHCL is deliberately wea
 - **Schema-driven generation.** (Implemented; see spec.md "Schema-driven generation".) `generate(schema, no_banner)` + `shcl init --schema` emit a commented, typed starter config.
 	- `desc` becomes a comment, a generated annotation line summarizes type/constraints, required fields are live (their `default` or an empty value), optional fields are the same line commented out, and wildcard paths go in a trailing comment block.
 	- Output is flat dotted form (mirrors the schema shape) and always loads clean, and ends with a footer naming the format and linking its spec.
-	- A path whose last segment selects by value, with a `default`, is written as the bare path carrying the default (`env[prod]` with `default: prod` is `env: prod`), since a value after that selector is ignored. Validation decides whether the default names the selected instance. Refusing every such default was rejected, because it faults satisfiable schemas. Writing `env[prod]:` and dropping the default was rejected, because a dropped schema input is what the raw-default `V092` fault exists to stop. Comparing the default with the selector inside the generator was rejected as a second copy of a match the validator already owns. The self-check reads the load's error diagnostics before validation's, so a line that does not load is `V097` as well.
+	- A path whose last segment selects by value, with a `default`, is written as the bare path with the default (`env[prod]` with `default: prod` is `env: prod`), since a value after that selector is ignored. Validation decides whether the default names the selected instance. Refusing every such default was rejected, because it faults satisfiable schemas. Writing `env[prod]:` and dropping the default was rejected, because a dropped schema input is what the raw-default `V092` fault exists to stop. Comparing the default with the selector inside the generator was rejected as a second copy of a match the validator already owns. The self-check reads the load's error diagnostics before validation's, so a line that does not load is `V097` as well.
 	- An optional field's commented line gets the same check: the line is read back alone and its value checked against its own field. Uncommenting every optional line and validating the whole text was rejected. A valued parent and a dotted child written as two lines name two instances, so a schema whose lines each work would fault.
 	- The annotation line and the footer are both byte-for-byte cross-binding contracts, so their format is fixed and the annotation's numbers use the canonical formatters.
 	- Among the options for the footer it was decided to write it by default and name the knob negatively (`no_banner`, `--no-banner`): a generated file is usually the first SHCL a person ever sees, so the pointer to the spec earns its place, and a negative flag means the useful behavior is what a caller gets by saying nothing. It goes at the bottom so the settings, not the boilerplate, are what the file opens with.
 	- Its `Legal` line leads with SHCL as the subject rather than with the copyright, so a reader cannot take it as a claim over the config it sits in.
-	- Prose the generator writes carries `##`, a commented-out setting a single `# `. A starter config is mostly comment, and one `#` for both left the reader sorting prose from settings by eye. Nothing keys on the difference: to the language both are comments, and a config author may write a comment however they like. The banner is a public constant in every binding, so the CLI writing it into a created file is not a second copy of it.
+	- Prose the generator writes has `##`, a commented-out setting a single `# `. A starter config is mostly comment, and one `#` for both left the reader sorting prose from settings by eye. Nothing keys on the difference: to the language both are comments, and a config author may write a comment however they like. The banner is a public constant in every binding, so the CLI writing it into a created file is not a second copy of it.
 	- `set --write` creating a file writes the same block, since that is the other way a new config file comes into being. It is seeded as the created document's text rather than appended after the fact, so the edits go above it and the write still runs through the library's save gate.
 
 Explicitly out of scope, with finality unless something big changes: in-language expressions, functions, inheritance, interpolation, imports, anchors/references. The moment config files can compute, they need debugging - that is the complexity cliff to avoid.
@@ -240,7 +240,7 @@ Consequences of the flat form:
 
 - A schema file is a formatter fixpoint like any other SHCL document, so `shcl fmt` works on schemas for free.
 
-**Wildcards carry the repeated-instance story.** `server[*].port` constrains every instance of `server`, which is how a schema says "each server needs a port" in a language whose core idea is repeated instances. `repeat` (on the parent path) bounds the instance count itself - the one constraint with no equivalent in tree-shaped schema languages.
+**Wildcards cover the repeated-instance story.** `server[*].port` constrains every instance of `server`, which is how a schema says "each server needs a port" in a language whose core idea is repeated instances. `repeat` (on the parent path) bounds the instance count itself - the one constraint with no equivalent in tree-shaped schema languages.
 
 **The vocabulary stays small and closed**, in the same spirit as the Loose coercion list: `type`, `required`, `allowed` (an enum, written as an ordinary array), `min`/`max` (numeric ranges, inclusive), `repeat`, plus `default` and `desc` which only the generator reads.
 
@@ -260,7 +260,7 @@ Consequences of the flat form:
 
 The "did you mean `enabled`?" suggestion rides in the prose message, not the code. Edit-distance implementations would otherwise have to agree byte-for-byte across four bindings for a string that is explicitly per-binding voice.
 
-**A field name in a diagnostic appears the way the emitter would write it.** Pasting the stored name in raw let a name carrying a line break split one diagnostic across two lines, and printed a flat `a.b` exactly like `a` nesting `b` - the ambiguity `paths` output and `QuoteSegment` already avoid by quoting. Every site that names a field now goes through one helper, so the `H001` and `H002` suppressors still match the head their builder emitted. A carriage return is escaped for display only: the name parse has no `\r` escape to read back, so the emitter cannot write one.
+**A field name in a diagnostic appears the way the emitter would write it.** Pasting the stored name in raw let a name with a line break split one diagnostic across two lines, and printed a flat `a.b` exactly like `a` nesting `b` - the ambiguity `paths` output and `QuoteSegment` already avoid by quoting. Every site that names a field now goes through one helper, so the `H001` and `H002` suppressors still match the head their builder emitted. A carriage return is escaped for display only: the name parse has no `\r` escape to read back, so the emitter cannot write one.
 
 **A broken schema is reported against the schema.** Codes `V090+` cover schema faults (unknown constraint key, unusable type name), and their line numbers refer to the schema file.
 
@@ -318,11 +318,11 @@ Both open points are settled:
 
 - The CLI's in-place write goes through the same gate: it was first left alone on the grounds that a person sees the diagnostics on stderr, which turned out to be false - at the default strictness the load recovers and prints nothing, so `--write` deleted the line at exit 0 in silence. It now prints the load's diagnostics and refuses while `LostCount` is nonzero, with `--lossy` as the stated override.
 
-- The CLIs call `SaveFile` rather than carrying their own copy of the rule, so the command line and a consumer program cannot disagree about which rewrites are safe.
+- The CLIs call `SaveFile` rather than having their own copy of the rule, so the command line and a consumer program cannot disagree about which rewrites are safe.
 
 - The refusal is a value, not prose: every binding reports it distinguishably from a failed write, because only one of the two is the caller's to reverse - and Python raises rather than returning a message, since a message a caller may ignore turns the safest spelling of the call into a silent no-op that reports success.
 
-**The library carries an optional file tier; file lifecycle is where consumer bugs live.** Consumer feedback showed every program that persists a config re-implementing the same load/save dance and making the same mistakes independently - confusing absent with unreadable, fumbling buffer lengths, tearing a config with a plain overwrite.
+**The library has an optional file tier; file lifecycle is where consumer bugs live.** Consumer feedback showed every program that persists a config re-implementing the same load/save dance and making the same mistakes independently - confusing absent with unreadable, fumbling buffer lengths, tearing a config with a plain overwrite.
 
 - We decided on a small companion tier. The load never fails and returns a four-way status (clean / had-errors / not-found / unreadable) beside an always-usable document. The save writes canonical text through the same atomic temp-and-rename the CLI's `--write` already used, moved into the library so the CLIs call it and the two cannot drift.
 
@@ -330,7 +330,7 @@ Both open points are settled:
 
 **H002 reports every merged level, and a schema can disavow it per section with `reopen:`.** The first cut hinted only the outermost re-open: inner merges looked adjacent at their own scope, because the newest-child test cannot see that the whole region arrived by re-opening. That made consumer-side filtering unsound - allowing one section's hint silently waved through everything nested under it.
 
-- We decided merges under a hinted container hint too, each naming its own earlier line (the parser carries the re-open line down, so text the re-opened region itself wrote stays silent).
+- We decided merges under a hinted container hint too, each naming its own earlier line (the parser passes the re-open line down, so text the re-opened region itself wrote stays silent).
 
 - The disavowal is a dedicated `reopen:` key rather than an overload of `repeat` - "many instances" and "one section written in parts" are different declarations.
 
@@ -367,7 +367,7 @@ Both open points are settled:
 
 - `KB` to `TB` are powers of 1024 unless the program asks for 1000. Guessing the base from words such as `disk` or `network` in the name was turned down: `cache-size` or `chunk` fit either, and two programs would read one line two ways with no error.
 
-- A value with its own unit wins over the name, with the hint `H005` when they differ. A read cannot carry a diagnostic and validation reports only errors, so the hint comes from the load.
+- A value with its own unit wins over the name, with the hint `H005` when they differ. A read cannot include a diagnostic and validation reports only errors, so the hint comes from the load.
 
 - A schema `min` or `max` is read the same way as the value it bounds (2026-09-29): its own unit, then the field name's, then the schema's `unit`, which stands in for the program's. Taking the schema's `unit` before the name was turned down, since `wait-seconds` with `unit: ms` would then read `min: 2` as 2 ms and the value `wait-seconds: 1` as 1 s. The name is the last segment of the field's path, so a path ending in `*` gives none.
 
@@ -385,9 +385,9 @@ Structure-only canonicalizer: block form, tabs, insertion order, minimal quoting
 
 - Strip and pad mirror each other exactly, so no special case is left: a body's shared extra indent survives as content, and a whitespace-only body keeps its spacing for the same reason as any other line - a raw block promising verbatim content should not be the place that quietly rewrites it.
 
-**`SetRaw` refuses an info-string an emitted fence line cannot carry.** A line break, or a `#`: the fence line would read the `#` as opening a comment, so the block would come back with a different info-string than the one written. The info-string is also trimmed the way a fence line reads it back, and the op script's `raw` op shares the gate.
+**`SetRaw` refuses an info-string an emitted fence line cannot contain.** A line break, or a `#`: the fence line would read the `#` as opening a comment, so the block would come back with a different info-string than the one written. The info-string is also trimmed the way a fence line reads it back, and the op script's `raw` op shares the gate.
 
-**A raw block in a higher layer fills a same-named empty binding below.** Merge matched instances by `(name, value)` only, so a bare `blk:` in the base and a `blk:` carrying a block in the overlay both survived a merge, where parsing the two run together folds them.
+**A raw block in a higher layer fills a same-named empty binding below.** Merge matched instances by `(name, value)` only, so a bare `blk:` in the base and a `blk:` with a block in the overlay both survived a merge, where parsing the two run together folds them.
 
 - That made merged output not a formatter fixpoint, and dragged in a second defect, since the emitter's workaround for the resulting pair writes the fence on the name's line and loses an info string containing `#`.
 
@@ -407,7 +407,7 @@ Structure-only canonicalizer: block form, tabs, insertion order, minimal quoting
 
 - A block reopened later in the file gains children after the one that was last. That child's comments at its own level then sit right above a sibling, and a reload files them on the sibling, so the load moves them there too, once the tree is final.
 
-- Tail comments are filed before the end-of-load fold of late duplicates, not after. The fold carries a dropped instance's comments over to the one it joins; after it, they were filed on the dropped one and lost.
+- Tail comments are filed before the end-of-load fold of late duplicates, not after. The fold moves a dropped instance's comments over to the one it joins; after it, they were filed on the dropped one and lost.
 
 - A merge, a new child and the writer's fold change child lists after the load, so each files comments by the same rules where it changed one. Otherwise the next step put a comment in one place on the document and in another on its saved text, and whether a file was saved between two edits decided where the comment went. The same holds for the blank the emitter drops on the first line, and for a raw block's trailing comment, which goes on its own line above when an empty binding of its name comes first.
 
@@ -419,15 +419,15 @@ Structure-only canonicalizer: block form, tabs, insertion order, minimal quoting
 
 ### Saving a file
 
-- **A save publishes a new file in the old one's place.** Write a temp file beside the target, then move it over. That is what makes an interrupted save unable to truncate a config, and it is also the source of every limitation below: the bytes are new, so anything the old file carried outside its contents has to be deliberately carried across or it is gone.
+- **A save publishes a new file in the old one's place.** Write a temp file beside the target, then move it over. That is what makes an interrupted save unable to truncate a config, and it is also the source of every limitation below: the bytes are new, so anything the old file had outside its contents has to be deliberately copied across or it is gone.
 
-- **The temp file borrows at most the first 64 bytes of the target's name, cut where a character starts.** It used to carry the whole name plus the process id, which put it over the 255-byte limit for a target name in the low 240s - and moved the exact cut-off with the width of the pid, so the same file saved on one machine and failed on another. A fixed-width stem removes the band. The cap counted characters at first, and a name of four-byte characters pushed the temp past the limit again. Two long names sharing a 64-byte prefix can want the same temp; the exclusive create and the eight attempts already answer that.
+- **The temp file borrows at most the first 64 bytes of the target's name, cut where a character starts.** It used to include the whole name plus the process id, which put it over the 255-byte limit for a target name in the low 240s - and moved the exact cut-off with the width of the pid, so the same file saved on one machine and failed on another. A fixed-width stem removes the band. The cap counted characters at first, and a name of four-byte characters pushed the temp past the limit again. Two long names sharing a 64-byte prefix can want the same temp; the exclusive create and the eight attempts already answer that.
 
-- **What is carried, and what is not.** The permission bits are copied deliberately, and the group is carried best effort with them, since a `me:www-data 0640` config that comes back with the saver's group loses the service its read. The owner is not carried: a save that is not root cannot set it, and trying was decided against. On POSIX that is the whole of what gets copied: ACLs, extended attributes, the SELinux label and any other xattr are lost, as are other hard links to the old file.
+- **What is kept, and what is not.** The permission bits are copied deliberately, and the group is kept best effort with them, since a `me:www-data 0640` config that comes back with the saver's group loses the service its read. The owner is not kept: a save that is not root cannot set it, and trying was decided against. On POSIX that is the whole of what gets copied: ACLs, extended attributes, the SELinux label and any other xattr are lost, as are other hard links to the old file.
 	- None of that is fixable at this layer, since a rename cannot preserve what a rename replaces, so it is documented in the spec rather than papered over.
 	- A relabeled config on an SELinux host is the case worth knowing about: the new file takes the label its parent directory and the writing process imply, which is the same label in the ordinary case and not the same one after a `chcon`.
 
-- **Windows goes through `ReplaceFile` instead**, because it does not have the same constraint. `ReplaceFile` exists for exactly this publish step and carries the destination's ACLs, security attributes and named streams onto the replacement, which is the gap a plain move leaves. Its documented preserve list stops short of the basic attributes, so hidden and system are re-applied by hand after the publish, the way read-only already was; without that a hidden config came back visible. It needs a destination to replace, and it fails outright rather than skip a merge it cannot perform, so a create and any failure fall back to the replacing move - the behavior that was there before, never worse.
+- **Windows goes through `ReplaceFile` instead**, because it does not have the same constraint. `ReplaceFile` exists for exactly this publish step and copies the destination's ACLs, security attributes and named streams onto the replacement, which is the gap a plain move leaves. Its documented preserve list stops short of the basic attributes, so hidden and system are re-applied by hand after the publish, the way read-only already was; without that a hidden config came back visible. It needs a destination to replace, and it fails outright rather than skip a merge it cannot perform, so a create and any failure fall back to the replacing move - the behavior that was there before, never worse.
 	- `ReplaceFile` is given a backup name. It works in two moves, the old file out and the new one in, and without a backup name a failure between them is documented to delete the old file (1176) or leave it under a name nobody is told (1177). With one, 1177 leaves the old file at the backup and nothing at the path. The save moves it back, and if that fails too it keeps both files and names them in the error.
 	- The backup is the temp name with `.tmp` swapped for `.bak`, so it sits beside the temp and has the same length limit. It is removed after a good publish.
 	- A publish that is refused is tried again, five tries 50 ms apart. A scanner or an indexer that opens the fresh temp file blocks the replace and the move both for a moment, and one try made that a failed save. A permanent refusal costs a fifth of a second before the error.
@@ -462,7 +462,7 @@ Structure-only canonicalizer: block form, tabs, insertion order, minimal quoting
 
 - **A file or stream that cannot be read or written exits 8, and 1 is now the usage code alone.** The same reasoning as exit 7, applied to what was left in the catch-all. The two remedies have nothing in common: one is fixing the command line, the other is fixing a path, a permission or a disk. A path a write option refuses (a wildcard, an index naming no instance) stays at 1, because what has to change there is the option's value.
 
-- **Every subcommand that loads a document prints the load's diagnostics to stderr, once per run.** It was decided that neither where the canonical text goes nor which subcommand asked for the load should decide whether a recovered-from typo is mentioned. This started as `fmt` and `set` in both modes, with the read subcommands left quiet; that half was reversed, because a read below strict returns the value and says nothing at all, which is the case where silence costs most. stdout carries the same bytes either way.
+- **Every subcommand that loads a document prints the load's diagnostics to stderr, once per run.** It was decided that neither where the canonical text goes nor which subcommand asked for the load should decide whether a recovered-from typo is mentioned. This started as `fmt` and `set` in both modes, with the read subcommands left quiet; that half was reversed, because a read below strict returns the value and says nothing at all, which is the case where silence costs most. stdout has the same bytes either way.
 
 - **The mode is applied to the temp file again after its data is written.** The kernel clears setuid and setgid on a write by a process without the right capability, so giving the temp file the target's mode before filling it silently dropped those bits - the copied mode has to land last, after write and fsync, before the publish.
 
@@ -503,7 +503,7 @@ Every load-time code has one outcome, and the parser derives the lost count and 
 
 - **Kept as written**. Refused for where it sits, with an indent that holds a space. No level canonical output opens is written with one, so written back exactly as it was, indent included, a reload refuses it the same way. Counts nothing. Holds its indent level the way a dropped line does.
 
-- **Value dropped**. The line binds, but a value it carried had nowhere to go. Counts one lost; the level is the bound node's.
+- **Value dropped**. The line binds, but a value on the line had nowhere to go. Counts one lost; the level is the bound node's.
 
 The table is the rule. If a code's behavior ever disagrees with its row, the code is wrong.
 
@@ -548,7 +548,7 @@ The table is the rule. If a code's behavior ever disagrees with its row, the cod
 
 - An indent that matched no open level (`E012`) already holds an unopened level from the resolve, which refuses a sibling at the same indent the same way. The funnel leaves that one in place rather than stacking a dead level on it.
 
-- The unopened level sits on top of the levels open before it and closes none of them. Popping every level its indent did not extend was rejected: one stray space-indented line in a tab-indented block then dropped every later sibling in that block, which 2.0.0 read fine. It holds until a line comes that is neither under it nor at its column, so the stack carries one at most.
+- The unopened level sits on top of the levels open before it and closes none of them. Popping every level its indent did not extend was rejected: one stray space-indented line in a tab-indented block then dropped every later sibling in that block, which 2.0.0 read fine. It holds until a line comes that is neither under it nor at its column, so the stack has one at most.
 
 - Among dropping a misplaced line (which stopped every later save of the file), writing it back as a comment, and writing it back as it was, it was decided that it goes back as it was, and as a comment only where it would bind as written. A comment would hide an error the line still has, and one stray space in a hand-edited config should not stop a program saving its window size (the SilkTerm report, 2026-09-24). A tab-only indent is always one a level can be written with, so that line is still dropped.
 
@@ -566,7 +566,7 @@ The table is the rule. If a code's behavior ever disagrees with its row, the cod
 
 - A malformed or misplaced line kept among a stacked list's elements stays where it sat, and keeps the list in the stacked spelling. It used to ride the field line like a comment, so a fix typed into it ended up outside the list (the SilkTerm report). Comments among the elements still ride the field line. A setter that replaces the list's value moves the kept lines above it, and so does a list after an empty binding of its name, whose bare header would merge into that binding on a reload.
 
-- A comment at a list element's column after the last element belongs inside the list's block. The element's column entry carries the list as its node, which read as the list's own level, so the comment went out a level up. Nothing showed while lists were always written inline; a stacked one moved the comment on its first reload.
+- A comment at a list element's column after the last element belongs inside the list's block. The element's column entry has the list as its node, which read as the list's own level, so the comment went out a level up. Nothing showed while lists were always written inline; a stacked one moved the comment on its first reload.
 
 ### Lexical edges
 
@@ -598,7 +598,7 @@ What follows from the table:
 
 ### Write outcomes
 
-The mirror of the load outcomes, on the write side. A setter builds its line text through the emitter, hands it to the tokenizer, and refuses unless what comes back is the value it was given. Nothing else on the write side decides what a quote, a `#`, a comma or a carriage return means, so a setter added later carries no rule of its own and cannot disagree with the parser. The table under Lexical edges is what both sides read.
+The mirror of the load outcomes, on the write side. A setter builds its line text through the emitter, hands it to the tokenizer, and refuses unless what comes back is the value it was given. Nothing else on the write side decides what a quote, a `#`, a comma or a carriage return means, so a setter added later has no rule of its own and cannot disagree with the parser. The table under Lexical edges is what both sides read.
 
 - The refusals follow from the lexical rules rather than from a list. A raw block's info string may not hold a line break or a `#`, because the fence line would read the `#` as opening a comment. A raw body line may not end in a carriage return, because the load takes the trailing run off every line. A comment may not hold a line break, because a comment is one line and keeping the first would drop the rest with nothing to say so.
 
@@ -608,7 +608,7 @@ The mirror of the load outcomes, on the write side. A setter builds its line tex
 
 - `SetLiteral` takes syntax rather than data, so whatever a file line gives with its text is what gets stored - a trailing blank comes off and a `#` outside quotes ends the value. What it refuses is what a file reports as an error, since a setter has no diagnostic to report one with: a line break, an unterminated quote (`E017`), bracket text (`E019`).
 
-- A path may carry a line break in either half. A name emits through the name escaper and a selector value through the value emitter, and both write one as `\n` and read it back. The selector was refused until the tokenizer cut, while elements were still stored in their source spelling and the value emitter had nothing to escape with.
+- A path may have a line break in either half. A name emits through the name escaper and a selector value through the value emitter, and both write one as `\n` and read it back. The selector was refused until the tokenizer cut, while elements were still stored in their source spelling and the value emitter had nothing to escape with.
 
 ### Generation outcomes
 
@@ -638,7 +638,7 @@ Both of those run on small inputs, which leaves a whole class of defect unwatche
 
 - The bindings must agree on the result byte for byte, exactly as on the corpus. The document is generated rather than stored: a fixture that size has no business in a repo, and the shape matters more than the bytes.
 
-- Each binding is held to a wall-clock and a peak-memory ceiling, expressed per input MiB so they follow the configured size. The ceilings are set to catch a change in growth rate, not to time a machine - the time ones carry wide headroom, because the pipeline runs the reference unoptimized and a hosted runner is slower again. Memory is held closer, since peak usage barely moves between machines.
+- Each binding is held to a wall-clock and a peak-memory ceiling, expressed per input MiB so they follow the configured size. The ceilings are set to catch a change in growth rate, not to time a machine - the time ones have wide headroom, because the pipeline runs the reference unoptimized and a hosted runner is slower again. Memory is held closer, since peak usage barely moves between machines.
 
 - At that size the reference also has to prove formatting is a fixpoint and that a long array reads back whole, both of which are cheap to state and impossible for a small case to check.
 
@@ -668,7 +668,7 @@ Method, and why each part of it is the way it is:
 
 - **Two tiers, never ranked against each other.** Rust is the headline, because there every format has a mature native parser and the comparison is as close to formats-only as it gets.
 	- Python then repeats the exercise over the same documents, to answer the question one tier cannot: how much of a format's cost is the format and how much is one implementation of it.
-	- Most of what Python reaches for is a C extension wearing a Python name - `json`, `ElementTree`, PyYAML's `CSafeLoader` - while this project's Python binding is pure Python, so the row that carries the weight there is `tomllib`, which is also pure Python.
+	- Most of what Python reaches for is a C extension wearing a Python name - `json`, `ElementTree`, PyYAML's `CSafeLoader` - while this project's Python binding is pure Python, so the row that matters there is `tomllib`, which is also pure Python.
 	- That pair is the tier's only like-for-like comparison, and every entry records which side of the line it is on. Python libraries that are not installed are skipped and named rather than failing the run.
 
 - **One abstract model per document, five encoders.** Each shape is built once as a small tree and then encoded five ways, so the files hold the same data by construction rather than by five hand-written generators happening to agree. Each encoding is the spelling a person would really use - SHCL raw blocks against YAML block scalars against XML CDATA - because a number taken from an unidiomatic encoding is not measuring the format.
@@ -677,7 +677,7 @@ Method, and why each part of it is the way it is:
 
 - **One process per measurement.** Peak resident memory is only attributable that way: a process that parsed six documents says nothing about what any one of them cost.
 
-- **Six shapes**, because one document shape hides most of what separates these formats. Four of them scale to whatever size the run asks for: long and flat, wide and deep, an array of records, and multi-line text blocks. The other two carry their own realistic size instead - a hand-edited application config of a couple of kilobytes, and a schema definition file of a few hundred. A config file measured at 64 MiB is not a config file anybody has, and the scaling shapes measured at two kilobytes would be measuring process startup.
+- **Six shapes**, because one document shape hides most of what separates these formats. Four of them scale to whatever size the run asks for: long and flat, wide and deep, an array of records, and multi-line text blocks. The other two have their own realistic size instead - a hand-edited application config of a couple of kilobytes, and a schema definition file of a few hundred. A config file measured at 64 MiB is not a config file anybody has, and the scaling shapes measured at two kilobytes would be measuring process startup.
 
 - **The run count scales with the document.** Best of three says nothing when the parse takes microseconds, so a small document gets proportionally more timed runs, up to 200 times the count the run asked for. The count actually used is recorded beside each shape.
 
@@ -730,7 +730,7 @@ The responsibility is split rather than duplicate the pipeline:
 
 - Branch flow: `dev` is the integration target (feature branches merge there, `--no-ff`); `main` is release-only. A dev -> main merge is normally a release cut.
 	- The exception is a merge that changes no product code - documentation, the demo asset, the pipeline. Those go to `main` on their own so the front page and the install one-liners (which read from `main`) stay current, and the version stays where it is. Cutting a tag for them would publish a second set of binaries that behave identically to the last one, which tells a reader nothing.
-	- The three installer scripts count as front-page material for that rule, not as product code. Nothing ships them - no package, no release asset carries them - and the one-liners fetch them from `main` at the moment somebody runs one, so a fix that sits on `dev` reaches nobody. The alternative was to fetch them at a tag, which was rejected: it would freeze an installer's bugs into every release that shipped with them, and the installer's job is to fetch the newest release, not to be part of one. So an installer fix may go to `main` on its own, under the same no-tag, no-version-bump, no-changelog-entry rule as a docs merge.
+	- The three installer scripts count as front-page material for that rule, not as product code. Nothing ships them - no package, no release asset includes them - and the one-liners fetch them from `main` at the moment somebody runs one, so a fix that sits on `dev` reaches nobody. The alternative was to fetch them at a tag, which was rejected: it would freeze an installer's bugs into every release that shipped with them, and the installer's job is to fetch the newest release, not to be part of one. So an installer fix may go to `main` on its own, under the same no-tag, no-version-bump, no-changelog-entry rule as a docs merge.
 
 - One canonical version source: `source/rust/Cargo.toml`. The pipeline reads it for artifact names and release tags. (An automatic bump-before-push guard was tried and dropped: dev is the integration branch, and versions there are cut deliberately at release time, not policed per push.)
 	- The Go/Python/C CLI version strings and `source/python/pyproject.toml` are hand-kept mirrors of it, moved together at a cut along with the changelog heading and the front-page README's literal version strings.
@@ -742,14 +742,14 @@ The responsibility is split rather than duplicate the pipeline:
 
 - Installer packages ride the release stage, not a separate pipeline: `cicd/utility/package.bash` builds .deb/.rpm (nfpm, one sed-rendered template) per Linux binary and an NSIS setup per Windows binary, into the same versioned artifact family before the checksums are written. Package layout follows distro convention (/usr/bin + /usr/share/shcl) rather than the /opt layout the standalone install.bash uses - packages answer to distro policy, the script answers to the spec. Payload matches install.bash: binary + code/ drop-ins + scripts/ wrappers.
 
-- Release trust root: the sha256sums file is signed offline with an RSA-4096 key, and both installers carry the public half inlined and check it before reading a checksum out of the file. Decisions behind it:
+- Release trust root: the sha256sums file is signed offline with an RSA-4096 key, and both installers include the public half inlined and check it before reading a checksum out of the file. Decisions behind it:
 	- Order matters more than the algorithm - a checksum taken from an unverified sums file proves nothing, so the signature is checked first or not at all.
 	- The threat addressed is release-asset replacement (a leaked token with release scope, a compromised CI job), not full repo compromise: an attacker who can rewrite `install.bash` on `main` can also delete the check. Those are different access paths, and separating them is the point.
 	- The key is offline and signing is manual. A key in CI secrets would be reachable by exactly the compromise being defended against, which would make the signature decorative.
 	- The key is inlined, not fetched. A key downloaded over the same channel as the artifact authenticates nothing.
 	- RSA, not the more fashionable Ed25519, purely on verifier availability: `openssl` covers Unix, and .NET's RSA covers Windows PowerShell 5.1, where Ed25519 is absent. Any scheme needing a tool the box does not already have (minisign, cosign, gpg) loses to the bootstrap problem - verifying the verifier.
 	- `openssl` became a hard prerequisite of `install.bash` alongside curl/wget. Installing unverified is not offered as a fallback; the DIY path is there for a box that genuinely lacks it.
-	- Rotation is expensive by construction, since old installers carry the old key. Treat a key change as a breaking change: new installer, and a release note.
+	- Rotation is expensive by construction, since old installers have the old key. Treat a key change as a breaking change: new installer, and a release note.
 	- The Go binding gets tamper-evidence free from `sum.golang.org`, so this covers the binaries and drop-in payload, which have no equivalent backstop.
 
 - Toolchain pins: `rust-toolchain.toml` (rustc + clippy + cross targets) and warn-only pins for cargo-installed helpers, so a box update cannot silently change results.
@@ -818,7 +818,7 @@ The responsibility is split rather than duplicate the pipeline:
 
 - `source/man/shcl.1` is roff by hand rather than generated from the help text. The help is a byte-for-byte contract across the four CLIs and is shaped by an 80-column terminal; a man page has different obligations - sections a reader can jump to, and room to say why a refusal exists. Generating one from the other would either bloat the help or flatten the page.
 
-- The man page carries no version string, so the release bump stays the same eight files it has always been. What it does carry is a revision date.
+- The man page has no version string, so the release bump stays the same eight files it has always been. What it does have is a revision date.
 
 - The completions mirror the CLI's own per-subcommand option table rather than inventing one. Offering an option the subcommand rejects is worse than offering none, because the CLI treats an unusable option as a usage error rather than ignoring it. `cicd/utility/check-completions.bash` diffs the CLI's table against both completion files at lint time, so the three cannot drift apart silently.
 

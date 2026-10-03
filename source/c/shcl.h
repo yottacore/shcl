@@ -96,7 +96,7 @@ typedef enum {
 typedef enum {
 	SHCL_W_WRITABLE,
 	SHCL_W_BAD_PATH,      // empty path, or the scanner rejected it
-	SHCL_W_VALUE_IN_PATH, // the path carries a `: value` part; writes take values separately
+	SHCL_W_VALUE_IN_PATH, // the path has a `: value` part; writes take values separately
 	SHCL_W_WILDCARD,      // wildcard selectors are query-only
 	SHCL_W_NO_SUCH_INDEX, // a `[#k]` instance that does not (and can never) exist
 	SHCL_W_TOO_DEEP       // deeper than the nesting cap; the writer never creates past it
@@ -120,7 +120,7 @@ typedef struct { int     value;  shcl_status status; } shcl_read_bool;
 typedef struct { shcl_str value; shcl_status status; } shcl_read_str;
 typedef struct { shcl_datetime value; shcl_status status; } shcl_read_dt;
 
-// Array results also carry one status per slot (element, or wildcard instance)
+// Array results also give one status per slot (element, or wildcard instance)
 // in statuses[0..n); status is then the worst slot. NULL on whole-path errors.
 typedef struct { int64_t *values; size_t n; shcl_status status; const shcl_status *statuses; } shcl_read_i64_arr;
 typedef struct { double  *values; size_t n; shcl_status status; const shcl_status *statuses; } shcl_read_f64_arr;
@@ -174,7 +174,7 @@ const char *shcl_diag_code(const shcl_doc *d, size_t i);
 // shcl_save_file refuses then (shcl_save_file_lossy overrides), and
 // shcl_save_file_keep_lines does when it cannot keep the lines.
 size_t shcl_lost_count(const shcl_doc *d);
-// How many error-severity diagnostics the document carries - the "did this
+// How many error-severity diagnostics the document has - the "did this
 // file have errors?" predicate, so recover-and-continue can't read as success
 // by accident. Counts whatever the shcl_diag_* accessors hold (after
 // shcl_load_and_validate, that includes validation errors).
@@ -554,7 +554,7 @@ size_t shcl_tokens_element_count(const shcl_tokens *t);
 // for check and for editors: `##    Schema   ./app.schema.shcl`.
 #define SHCL_SCHEMA_LINE_HEAD "##    Schema   "
 
-// What shcl_migrate produced, and what it could not carry across. text is
+// What shcl_migrate produced, and what it could not keep. text is
 // malloc'd and NUL-terminated, the caller frees it, len is its length, and it
 // may hold NUL if the input did. current: the file already names its format,
 // so there was nothing to migrate and text is the input. ambiguous: pieces the
@@ -572,8 +572,8 @@ typedef struct { char *text; size_t len; int current; size_t ambiguous; size_t l
 // runs, so a hook that longjmps out is not left holding the two arenas.
 shcl_migration shcl_migrate(const char *text, size_t len, int from_v2);
 // shcl_migrate without the version line or the migrated note, for a program
-// that writes SHCL_GEN_BANNER itself, which carries the version line. The next
-// run can tell the result is current only once that is written.
+// that writes SHCL_GEN_BANNER itself, which includes the version line. The
+// next run can tell the result is current only once that is written.
 shcl_migration shcl_migrate_unstamped(const char *text, size_t len, int from_v2);
 // The format major a document's `##    Format   N` line names, read the way
 // shcl_migrate reads it, or -1 when no line names one, which is every 2.x file
@@ -718,7 +718,7 @@ int shcl_parse_datetime(const char *text, size_t tlen, shcl_datetime *out);
 int shcl_status_code(shcl_status s);
 const char *shcl_status_name(shcl_status s);
 // Whether the author addressed the field at all: Good or Empty. A status
-// predicate rather than a per-struct helper, since every read struct carries
+// predicate rather than a per-struct helper, since every read struct has
 // the same status. Note this deliberately answers differently from the
 // convenience tier, which falls back on Empty like any other non-Good read -
 // this asks "is this field spoken for", shcl_get_int_or asks "do I have a
@@ -1144,7 +1144,7 @@ typedef struct {
 	ShclVecSize children;
 	size_t parent;
 	size_t line;
-	/* Comment trivia, hung off to the side: most nodes carry none, and the
+	/* Comment trivia, hung off to the side: most nodes have none, and the
 	   four empty containers were a third of every node. NULL = none. */
 	ShclTrivia *trivia;
 	int star_list;  /* value built from stacked "* " lines */
@@ -1360,7 +1360,7 @@ static ShclStr value_display(ShclArena *a, const ShclValue *v) {
 // Every reading of a line's parts goes through tokenize: the parser's line
 // dispatch, the path scanner behind every lookup and setter, the comment and
 // comma splits, the element cap, the unterminated-quote check, shcl_set_literal
-// and the CLI's --set split. Seven scanners used to carry their own copy of
+// and the CLI's --set split. Seven scanners used to have their own copy of
 // these rules, and every scanner defect since July was two of them
 // disagreeing. The rules, one sentence each:
 //
@@ -1729,7 +1729,7 @@ static int invisible(uint32_t c) {
 }
 /* A character a variation selector can modify: one written as itself that is
    not a blank or a joiner. Another selector is not one, so a run of them
-   cannot carry hidden text. */
+   cannot contain hidden text. */
 static int selector_base(uint32_t c) { return c > ' ' && c != 0x200C && c != 0x200D && !invisible(c); }
 static int flag_spec(uint32_t c) { return (c >= 0xE0030 && c <= 0xE0039) || (c >= 0xE0061 && c <= 0xE007A); }
 /* Whether the tag at t[i] is part of a subdivision flag, as UTS #51 defines
@@ -2195,7 +2195,7 @@ static uint64_t merge_hash(ShclStr name, const ShclValue *v) {
 
 /* The exact (name, merge-key) equality a hashed hit is verified with -
    compares what the two key strings would have held, element by element. The
-   quoted flag is not part of the key, same as the strings never carried it. */
+   quoted flag is not part of the key, same as the strings never included it. */
 static int value_eq(const ShclValue *a, const ShclValue *b) {
 	if (a->kind != b->kind) return 0;
 	if (a->kind == V_EMPTY) return 1;
@@ -2389,7 +2389,7 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 	ShclVecEdit edits = {0};
 	if (rest.p[0] == '*' && rest.n > 1 && is_wsp((unsigned char)rest.p[1])) {
 		tokenize_value(ta, rest, 1, SHCL_RULES_V2, tok);
-		/* A bare comma was refused (E010), so there is nothing to carry. */
+		/* A bare comma was refused (E010), so there is nothing to convert. */
 		if (tok->nelem == 1) value_edits(a, rest, tok, &edits, st);
 	} else {
 		tokenize(ta, rest, ':', 0, SHCL_RULES_V2, tok);
@@ -2482,7 +2482,7 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 }
 
 /* shcl_format_version() on text with the BOM already off: the major a
-   `##    Format   N` line names, or -1 when the document carries none. Digits
+   `##    Format   N` line names, or -1 when the document has none. Digits
    that do not fit 32 bits read as "newer than this", since whatever wrote them
    was not 2.x.
    Raw bodies are skipped exactly where the rewrite skips them, by walking the
@@ -3311,7 +3311,7 @@ static int parse_datetime(ShclArena *a, ShclStr text, shcl_datetime *out) {
 /* Per-node hash-of-(name, merge-key) -> matching children. Pure lookup
    accelerator for select_or_create (the linear scan was O(children^2) per
    parent); the children vec keeps the order. Chained buckets, entries
-   arena-allocated. An entry carries only the hash and a value - no key
+   arena-allocated. An entry has only the hash and a value - no key
    string is built or stored; equality past the hash is the caller's to
    verify against what the value names (merge_eq for the parser maps). Two
    different exact keys can collide in the hash, so same-hash entries keep
@@ -3732,7 +3732,7 @@ static void fold_dups_from(ShclParser *P, size_t start) {
    with their depths, innermost last. A field line kept for its value or name
    goes by the same rule over held_chain, the kept lines before it: it holds
    its level on a reload, so it goes deeper only under one of those, which a
-   reload holds open for it. A misplaced line, which carries its own indent,
+   reload holds open for it. A misplaced line, which has its own indent,
    sits at the place's level and leaves both alone. */
 static size_t comment_depth(ShclParser *P, ShclStr base, ShclStr text, ShclStr indent) {
 	ShclVecDepth *chain = text.n && text.p[0] == '#' ? &P->depth_chain : &P->held_chain;
@@ -3755,7 +3755,7 @@ static size_t comment_depth(ShclParser *P, ShclStr base, ShclStr text, ShclStr i
 }
 
 /* A pending line kept for what it says, not for where it sits: neither a
-   comment nor a misplaced line, which carries its own indent. */
+   comment nor a misplaced line, which has its own indent. */
 static int is_field(ShclStr text) {
 	return !(text.n && (text.p[0] == '#' || text.p[0] == ' ' || text.p[0] == '\t'));
 }
@@ -3937,7 +3937,7 @@ static int resolve_parent(ShclParser *P, ShclStr indent, ShclLocated found, size
 /* What became of a line the parser did not bind whole. Only the funnel
    (p_refuse) reads it; the count and the level follow from it. */
 typedef enum {
-	OUT_VALUE_DROPPED, /* the line binds; a value it carried has nowhere to go and is gone */
+	OUT_VALUE_DROPPED, /* the line binds; a value on it has nowhere to go and is gone */
 	OUT_RETAINED,      /* content-malformed: kept verbatim as trivia and written back in place */
 	OUT_DROPPED,       /* read but not applicable here; re-emitted it could bind elsewhere, so it is gone and counts */
 	OUT_STOPPED        /* the parse stopped before this line; the rest was never read */
@@ -4204,7 +4204,7 @@ static ShclValue consume_raw(ShclParser *P, const ShclStr *lines, size_t nlines,
 	while (i < nlines) {
 		if (is_fence_close(lines[i], ch, len)) {
 			/* The closing fence's indent is the nesting; everything a content
-			   line carries past it is content, so a body whose lines all
+			   line has past it is content, so a body whose lines all
 			   share an indent keeps it (a writer-built block depends on that). */
 			nest = leading_ws(lines[i]);
 			closed = 1; i++; break;
@@ -4580,7 +4580,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 	nodes_push(d, root);
 	/* Per-line temporaries - the path scan above all, which allocates a segment
 	   vector for every line parsed - reset at the top of each iteration. They
-	   cannot share the scratch arena: that one carries the parser's bookkeeping
+	   cannot share the scratch arena: that one keeps the parser's bookkeeping
 	   for the whole parse. Everything a node keeps is dup'd into the document
 	   arena before the next reset. */
 	ShclParser P; P.d = d; P.tmp = &d->scratch; P.line = &own->line; P.hints = &own->hints; P.cmaps = &own->cmaps; P.dmaps = &own->dmaps; memset(&P.stack, 0, sizeof P.stack); memset(&P.pending, 0, sizeof P.pending); memset(&P.pend_marks, 0, sizeof P.pend_marks); memset(&P.depth_chain, 0, sizeof P.depth_chain); memset(&P.held_chain, 0, sizeof P.held_chain);
@@ -4762,7 +4762,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 				if (parent == DEAD) { misplaced(&P, lineno, "E018", indent, rest, had_blank, 0); i++; continue; }
 			}
 			/* Content-malformed at any position, so safe to retain. The BOM
-			   exception the field arm carries cannot apply here: this line
+			   exception the field arm makes cannot apply here: this line
 			   starts with the '*' that brought us in. */
 			p_refuse(&P, lineno, "E013", s_lit("malformed line: '*' must be followed by a space"), out_retained(trim_wsp_end(rest), had_blank), indent);
 			i++; continue;
@@ -4870,7 +4870,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 	}
 	star_flush(&P);
 	/* Indented tail comments keep their block; only top-level ones orphan.
-	   Before the fold, which carries a dropped instance's comments over to the
+	   Before the fold, which moves a dropped instance's comments over to the
 	   one it joins: after it they would hang on the dropped one. */
 	hang_deeper_pending(&P, s_empty());
 	fold_late_dups(&P);
@@ -4945,7 +4945,7 @@ static shcl_doc *do_parse(const char *text, size_t len, shcl_strictness strict, 
 	/* The parser borrows scratch for its lines vector, per-parent maps, stack
 	   and pending lists - about ten times the input, dead the moment the parse
 	   ends. Every resolve resets it anyway, so a document nobody reads would
-	   otherwise carry all of it until it was freed. */
+	   otherwise keep all of it until it was freed. */
 	arena_free(&d->scratch);
 	return d;
 }
@@ -5354,7 +5354,7 @@ size_t shcl_line(shcl_doc *d, const char *path, size_t plen) {
 	ShclStr p; p.p = path; p.n = plen;
 	ShclResolved r; if (!resolve(d, p, &r)) return 0;
 	if (r.kind != R_ONE) return 0;
-	return NODE(d, r.one).line; // writer-built nodes carry 0
+	return NODE(d, r.one).line; // writer-built nodes have 0
 }
 
 int shcl_quoted(shcl_doc *d, const char *path, size_t plen) {
@@ -5387,7 +5387,7 @@ size_t shcl_lines(shcl_doc *d, const char *path, size_t plen, size_t **out) {
 	if (r.kind == R_ONE) ShclVecSize_push(a, &nodes, r.one);
 	else if (r.kind == R_MANY) for (size_t k = 0; k < r.many.len; k++) ShclVecSize_push(a, &nodes, r.many.data[k]);
 	size_t *arr = (size_t *)arena_alloc(a, (nodes.len ? nodes.len : 1) * sizeof(size_t));
-	for (size_t k = 0; k < nodes.len; k++) arr[k] = NODE(d, nodes.data[k]).line; // writer-built nodes carry 0
+	for (size_t k = 0; k < nodes.len; k++) arr[k] = NODE(d, nodes.data[k]).line; // writer-built nodes have 0
 	*out = arr; return nodes.len;
 }
 
@@ -5742,7 +5742,7 @@ size_t shcl_remove(shcl_doc *d, const char *path, size_t plen) {
 	ShclVecSize marked = {0}, parents = {0};
 	for (size_t i = 0; i < targets.len; i++) {
 		size_t t = targets.data[i]; size_t pn = NODE(d, t).parent;
-		// A node already marked would carry DEAD into the rebuild below as an
+		// A node already marked would pass DEAD into the rebuild below as an
 		// index, so skip it rather than trust resolve never to name one twice.
 		if (pn == DEAD) continue;
 		if (d->index_built == 1) index_unlink(d, name_key(pn, NODE(d, t).name), t);
@@ -6198,7 +6198,7 @@ static void w_overlay(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, S
 	}
 	// Base side, one pass: every child of a name (entries index a posting
 	// list, whose first element names it), which names have a container
-	// instance, and which child carries each (name, merge key). The posting
+	// instance, and which child has each (name, merge key). The posting
 	// list is what keeps the override arm below off a scan of every base
 	// child, which made N overridden leaves quadratic (20260918b item 58).
 	ShclVecSize base = {0};
@@ -6658,7 +6658,7 @@ shcl_status shcl_read_string_array_to(shcl_doc *d, const char *path, size_t plen
 
 /* Quote a logical string so the tokenizer reads it back as the same string.
    Single quotes are literal, so they are the spelling for text holding a
-   double quote or a backslash; double quotes carry the escapes, so they are
+   double quote or a backslash; double quotes have the escapes, so they are
    the spelling for a line break, a tab, an invisible character, or text
    holding both quote kinds. */
 static ShclStr quote_text(ShclArena *a, ShclStr t) { return quote_text_as(a, t, SHCL_RULES_CURRENT); }
@@ -6803,12 +6803,12 @@ static ShclStr escape_name_as(ShclArena *a, ShclStr name, shcl_rules rules) {
 }
 static ShclStr emit_name(ShclArena *a, ShclStr name) { return escape_name(a, name); }
 /* A field name for a diagnostic message: put the way the emitter would
-   write it, so a name carrying a line break, a dot or a quote cannot pose as
+   write it, so a name with a line break, a dot or a quote cannot pose as
    something it is not - a raw `a.b` reads exactly like `a` nesting `b`, and a
    raw line break splits one diagnostic across two. */
 static ShclStr diag_name(ShclArena *a, ShclStr name) { return escape_name(a, name); }
 /* One element of a value, written for a diagnostic message: the emitter's
-   inline spelling, so a value carrying a line break cannot split one
+   inline spelling, so a value with a line break cannot split one
    diagnostic across two. */
 static ShclStr diag_element(ShclArena *a, const ShclElement *e) { return emit_element(a, e); }
 /* A value for a diagnostic message. Only a cell reaches this today, from the
@@ -6919,7 +6919,7 @@ static int name_reads_back(ShclArena *a, ShclStr name) {
 }
 
 /* The comment line this text is written as, 0 when it has no spelling. A `#`
-   is added when the text carries none. The load trims every line's end, so
+   is added when the text has none. The load trims every line's end, so
    the trimmed text is what gets written; text holding a line break is refused
    rather than cut down to its first line. */
 static int comment_line(ShclArena *a, ShclStr text, ShclStr *out) {
@@ -7091,7 +7091,7 @@ static ShclStr commented(ShclArena *a, ShclStr text) {
 }
 
 /* Write a run of comments and kept lines, base levels deep. A misplaced line
-   kept as written (its text carries its own indent, a comment's never does)
+   kept as written (its text has its own indent, a comment's never does)
    goes back as it was only where a reload keeps it again, which the model of
    the reload's stack answers the way the parser will: refused for its indent,
    or under the kept line before it. A merge or an edit can leave it where it
@@ -7174,7 +7174,7 @@ static void emit_node(shcl_doc *d, size_t idx, size_t pos, size_t depth, int wou
 	ShclVecSize ch = NODE(d, idx).children;
 	emit_children(d, &ch, depth + 1, e);
 	emit_near(e, idx, pos);
-	/* Comments this block owns with no child to carry them, one deeper. */
+	/* Comments this block owns with no child to take them, one deeper. */
 	ShclVecLead ins = triv_inside(&NODE(d, idx));
 	push_leads(e, ins.data, ins.len, depth + 1, idx, SITE_INSIDE, 0);
 	/* Comments that hung on this block after its last child. */
@@ -7196,7 +7196,7 @@ static void emit_line(shcl_doc *d, size_t idx, size_t pos, size_t depth, int wou
 	ShclValue *v = &node->value;
 	ShclVecLead lead = triv_leading(node);
 	ShclStr trailing = triv_trailing(node);
-	/* Same-line fence spelling can't carry an inline comment (an unbalanced
+	/* Same-line fence spelling can't have an inline comment (an unbalanced
 	   quote in the info-string could hide the `#` on reparse), so its trailing
 	   comment joins the leading lines instead; the flag comes from the
 	   parent's walk. Each blank rides its own comment (or the binding line),
@@ -8092,7 +8092,7 @@ static int big_cmp(const ShclBig *a, const ShclBig *b) {
 }
 typedef struct { ShclBig lo, hi; int S, T, even; } ShclF64Interval;
 // exp10 is the decimal exponent of v's 17-digit spelling: the smallest k any
-// shorter spelling can carry is exp10 - 16, which fixes T for all of them.
+// shorter spelling can have is exp10 - 16, which fixes T for all of them.
 static void f64_interval(double v, int exp10, ShclF64Interval *iv) {
 	uint64_t bits; memcpy(&bits, &v, sizeof bits);
 	int E = (int)((bits >> 52) & 0x7FF); uint64_t F = bits & 0xFFFFFFFFFFFFFull;
@@ -8179,7 +8179,7 @@ size_t shcl_format_float(double v, char *out) {
 	return (size_t)(o - out);
 }
 size_t shcl_datetime_str(const shcl_datetime *dt, char *out) {
-	// Every field is public, so a hand-built struct can carry values parsing
+	// Every field is public, so a hand-built struct can have values parsing
 	// never yields (a -1 sentinel, epoch seconds in sec): render whole into a
 	// worst-case local buffer (~109 bytes), then clamp the copy to the
 	// documented SHCL_DT_BUF. Parsed values stay under the clamp (<= 56 with
@@ -9037,7 +9037,7 @@ static void v_wrong_type(ShclArena *a, ShclVecDiag *out, size_t line, const Shcl
 }
 /* Value text for a diagnostic message: line breaks and tabs escaped, so one
    diagnostic is one line. A raw block's body is the value that made this
-   necessary - it carries its own newlines. */
+   necessary - it contains its own newlines. */
 static ShclStr v_one_line(ShclArena *a, ShclStr t) {
 	ShclSB o = {0, 0, 0};
 	sb_reserve(a, &o, t.n);
@@ -9816,7 +9816,7 @@ static int shcl_errno_from_win32(DWORD e) {
 	case ERROR_DIRECTORY: return ENOTDIR;
 	// A link that points at itself. Without this the message read "Invalid
 	// argument" where the other three say "too many levels of symbolic links",
-	// which is the wording the Save outcomes table carries.
+	// which is the wording the Save outcomes table uses.
 	case ERROR_CANT_RESOLVE_FILENAME: return ELOOP;
 	default: return EIO;
 	}
@@ -9890,9 +9890,9 @@ static int shcl_create_like(const wchar_t *wfrom, const wchar_t *wto) {
 	return fd;
 }
 
-// ReplaceFile carries the destination's ACLs, security attributes and named
+// ReplaceFile copies the destination's ACLs, security attributes and named
 // streams onto the replacement; a move publishes a brand-new file and leaves
-// all of it behind. What it does NOT carry is the basic attributes - hidden and
+// all of it behind. What it does NOT copy is the basic attributes - hidden and
 // system - which the save re-applies by hand. It needs the destination to
 // exist, and it fails rather than skip a merge it cannot do (no WRITE_DAC,
 // say), so a create and any failure fall back to MoveFileEx - which is there
@@ -9954,7 +9954,7 @@ static FILE *shcl_fopen_rb(const char *path) {
 #ifdef _WIN32
 	// Through the same resolver the write side uses, so a read past MAX_PATH
 	// works too: the narrow and wide file calls both refuse such a path unless
-	// it carries the long-path prefix. A path the resolver cannot resolve is
+	// it has the long-path prefix. A path the resolver cannot resolve is
 	// opened as given, which is what it did before. A read never probes a
 	// dangling link: the probe creates a file where the link points, and a
 	// read has nothing to create.
@@ -9984,7 +9984,7 @@ static const char *shcl_last_sep(const char *target) {
 }
 
 // At most the first 64 bytes of the name, cut where a character starts, so the
-// temp's own length is fixed. Carrying the whole name put the temp over the
+// temp's own length is fixed. Keeping the whole name put the temp over the
 // filesystem's 255 bytes at a target name in the low 240s - and the exact
 // cut-off moved with the width of the process id, so the same file saved on one
 // machine and failed on another. Bytes, not characters: 64 characters of four
@@ -10043,7 +10043,7 @@ static int shcl_not_a_disk_file(const char *path) {
 // The path a save actually rewrites. A symlink or junction is followed, so a
 // save through a linked-in config replaces the file it points at rather than
 // the link - the same thing the POSIX side has always done. The answer comes
-// back \\?\-prefixed, which is also what carries a path past MAX_PATH, so the
+// back \\?\-prefixed, which is also what takes a path past MAX_PATH, so the
 // prefix is kept only where the name would otherwise be too long for the temp
 // file beside it; a short path stays the plain name it was. A file that is not
 // there yet has no final path, so its full path is prefixed by hand. malloc'd
@@ -10270,7 +10270,7 @@ static int shcl_names_a_directory(const char *path) {
 // rename so a crash cannot publish an empty file. The target is resolved
 // through symlinks first (a dangling link gets its file created where it
 // points) and the original's whole mode - setuid, setgid and sticky included,
-// as an editor's rewrite would carry it - is copied onto the temp file; other
+// as an editor's rewrite would keep it - is copied onto the temp file; other
 // hard links to the old inode keep the old content (inherent to rename).
 // Returns 1 on success, 0 on failure with errno left describing it.
 int shcl_write_file_atomic(const char *path, const char *data, size_t n) {
@@ -10292,7 +10292,7 @@ int shcl_write_file_atomic(const char *path, const char *data, size_t n) {
 	// publish and goes back on the new file after it - the same outcome as
 	// POSIX, where the rename never needed the file writable. Hidden and system
 	// ride back the same way: ReplaceFile's documented preserve list does not
-	// include the basic attributes, and the fallback move carries nothing, so a
+	// include the basic attributes, and the fallback move keeps nothing, so a
 	// hidden config came back visible.
 	#define SHCL_CARRIED_ATTRS ((DWORD)(FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM))
 	DWORD attrs = GetFileAttributesW(wtarget);
@@ -10360,11 +10360,11 @@ int shcl_write_file_atomic(const char *path, const char *data, size_t n) {
 	ok = ok && fsync(fileno(f)) == 0;
 	// On the descriptor, so umask cannot narrow it the way it narrows a create
 	// mode, and after the data, because a write by anyone but root clears
-	// setuid/setgid. Best effort: a filesystem that cannot carry the mode is
+	// setuid/setgid. Best effort: a filesystem that cannot store the mode is
 	// not a failure.
 	// The group first, because a chown clears setuid/setgid on most systems.
 	// Best effort like the mode: a caller who is not in the old group keeps its
-	// own, which is what it had before this. The owner is not carried - see the
+	// own, which is what it had before this. The owner is not copied - see the
 	// file tier in spec.md.
 	// The result goes into a variable rather than a (void) cast: glibc marks
 	// fchown warn_unused_result, and a cast does not silence that everywhere
@@ -10596,7 +10596,7 @@ static ShclStr v_gen_annotation(ShclArena *a, const ShclVCons *c, ShclStr tyname
 		sb_puts(a, &s, ", one of: "); sb_putS(a, &s, v_allowed_join(a, c));
 	}
 	// The bounds are their own part of the annotation line, not an alternative
-	// to `allowed`. A field can carry both, and the validator enforces both. A
+	// to `allowed`. A field can have both, and the validator enforces both. A
 	// duration or size bound reads the way the schema wrote it.
 	if (c->min_text.n || c->max_text.n) {
 		sb_puts(a, &s, ", ");
@@ -10656,7 +10656,7 @@ static int g_unwritable(const ShclVCons *c) { return g_why_unwritable(c)[0] != '
 // A repeat lower bound of 2 or more is the one documented shortfall - the line
 // is emitted once and the count reported - so it is not the fault below.
 static int g_cannot_satisfy(const ShclVCons *c) { return c->required || (c->has_repeat && c->rep_lo == 1); }
-// A default carrying a literal newline cannot sit on a value line; the quoted
+// A default with a literal newline cannot sit on a value line; the quoted
 // escaped spelling reads back to the same string.
 static ShclStr g_default_text(ShclArena *a, ShclStr v) {
 	int has = 0;
@@ -10693,7 +10693,7 @@ static int v007_sanctioned(ShclStr message) {
 	return k > 0 && lo >= 2;
 }
 
-/* Parent lines that carry a value, keyed by their segment names: the live
+/* Parent lines with a value, keyed by their segment names: the live
    must-exist concrete constraints with a default. A dotted child of one has
    to select that instance by the value, or it names the empty-valued one. */
 typedef struct { const ShclVecSeg *segs; ShclStr value; } ShclParentValue;
@@ -10714,7 +10714,7 @@ static int selector_reads_back(ShclArena *a, ShclStr body, ShclStr text, int quo
 	ShclSB l = {0, 0, 0};
 	sb_puts(a, &l, "x["); sb_putS(a, &l, body); sb_puts(a, &l, "]:");
 	ShclStr line = sb_S(&l);
-	/* The tokenizer reads one line and never sees a line end, so text carrying a
+	/* The tokenizer reads one line and never sees a line end, so text with a
 	   real line break would read back here and then be written across two lines,
 	   which is not the same path. A file line cannot hold one, so refuse and let
 	   the escaped spelling be tried instead. */
@@ -10734,7 +10734,7 @@ static int path_reads_back(ShclArena *a, ShclStr path, const ShclVecSeg *segs) {
 	ShclSB l = {0, 0, 0};
 	sb_putS(a, &l, path); sb_putc(a, &l, ':');
 	ShclStr line = sb_S(&l);
-	/* The tokenizer reads one line and never sees a line end, so text carrying a
+	/* The tokenizer reads one line and never sees a line end, so text with a
 	   real line break would read back here and then be written across two lines,
 	   which is not the same path. A file line cannot hold one, so refuse and let
 	   the escaped spelling be tried instead. */
@@ -10794,7 +10794,7 @@ static int gen_selector_text(ShclArena *a, ShclStr v, ShclStr *out) {
 // Render parsed segments back as a dotted path, dropping wildcard selectors
 // (a generated line targets the one instance it materializes) and quoting a
 // name that needs it, so the result is a path the scanner reads back the same.
-// A segment whose prefix names a live line carrying a value selects that
+// A segment whose prefix names a live line with a value selects that
 // instance by the value, in place of a wildcard or a bare name. The path goes
 // in *OUT; 0 when a selector has no spelling a file line reads back.
 static int gen_path_text(ShclArena *a, const ShclVecSeg *segs, const ShclParentValues *pv, ShclStr *out_path) {
@@ -10970,7 +10970,7 @@ static shcl_str generate_in(shcl_doc *schema, int no_banner, int *ok, ShclGenOwn
 		if (!changed) break;
 	}
 	#undef LIVE_PUSH
-	/* A live line with a value materializes an instance carrying that value,
+	/* A live line with a value materializes an instance with that value,
 	   and a dotted child names the empty-valued instance instead - so `srv:
 	   web` followed by `srv.port:` is two `srv` nodes, and the child never
 	   ends up where the schema looks. Any line under such a parent selects it
@@ -11050,7 +11050,7 @@ static shcl_str generate_in(shcl_doc *schema, int no_banner, int *ok, ShclGenOwn
 			continue;
 		}
 		// A filled wildcard emits in dotted form, targeting the materialized
-		// instance - by its value when the materializing line carries one.
+		// instance - by its value when the materializing line has one.
 		// Rebuilt from the parsed segments, not by cutting text out of the
 		// path: the same path can be written several ways, and only the
 		// segments say what it means. Otherwise the schema's own spelling.
@@ -11058,7 +11058,7 @@ static shcl_str generate_in(shcl_doc *schema, int no_banner, int *ok, ShclGenOwn
 		int under_valued_parent = 0;
 		for (size_t k = 1; k < c->segs.len && !under_valued_parent; k++)
 			under_valued_parent = c->segs.data[k - 1].sel.tag == SEL_NONE && parent_value_for(values, &c->segs, k) != NULL;
-		// A name carrying a newline has no verbatim spelling on a binding line;
+		// A name with a newline has no verbatim spelling on a binding line;
 		// the segment renderer escapes it, so such a path goes through there
 		// whether or not it was filled.
 		// A value after a last-segment selector is ignored, so a default there

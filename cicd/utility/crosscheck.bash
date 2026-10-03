@@ -199,7 +199,7 @@ fCompareWrite(){
 }
 
 ##	Same idea, for the one write property a fixture cannot set up in advance:
-##	the temp file's name carries the writer's pid, so the decoy can only be
+##	the temp file's name includes the writer's pid, so the decoy can only be
 ##	planted by the process that is about to become the CLI. `exec` from a
 ##	subshell hands the CLI that subshell's pid, so `$$` names the file it is
 ##	about to create. Writing through the decoy would leave `stolen` behind and
@@ -314,7 +314,7 @@ fReadRow(){
 ##	file for one with no fork.
 fHasNul(){ IFS= read -r -d '' _ <"$1"; }
 
-##	One corpus case, every dimension it carries.
+##	One corpus case, every dimension it has.
 fCase(){
 	local caseDir="$1"
 	local input="${caseDir}input.shcl" caseName="${caseDir%/}"
@@ -460,7 +460,7 @@ fUsage(){
 		fCompare "usage help ${cmd}" help "${cmd}"
 		fCompare "usage ${cmd} --help" "${cmd}" --help
 	done < <("$refCli" help | { grep -oE '^  shcl [a-z]+' || true ;} | awk '{print $2}' | sort -u)
-	# about/donate carry both spellings and the blank-line padding; bare help above
+	# about/donate have both spellings and the blank-line padding; bare help above
 	# is the control, since it prints the same text with no padding.
 	fCompare "usage about" about
 	fCompare "usage about flag" --about
@@ -682,8 +682,8 @@ echo "crosscheck: ${#bindings[@]} bindings agree on ${nCompared} comparison(s)"
 ##		               file has no trailing newline; skip NUL-bearing inputs (bash
 ##		               can't hold a NUL; native runners pin those).
 ##		- 20260724: Layered-load dimension (fmt with --layer/--set) for cases
-##		               carrying expected-merged.shcl; generation dimension (init
-##		               --schema) for cases carrying init-schema.shcl.
+##		               with expected-merged.shcl; generation dimension (init
+##		               --schema) for cases with init-schema.shcl.
 ##		- 20260726: In-place write dimension: compare the tree an in-place write
 ##		               leaves behind (mode, symlink, link count, content), not
 ##		               just stdout. Also made the DIVERGE diff non-fatal - under

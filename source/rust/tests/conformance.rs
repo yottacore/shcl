@@ -1300,12 +1300,12 @@ fn write_reason_names_the_failure() {
 	assert_eq!(doc.write_reason("nope[#0].b"), NoSuchIndex);
 	let deep = vec!["d"; 513].join(".");
 	assert_eq!(doc.write_reason(&deep), TooDeep);
-	// A literal line break is writable wherever a path can carry one: a name
+	// A literal line break is writable wherever a path can have one: a name
 	// emits through the name escaper and a selector value through the value
 	// emitter, and both write a break `\n` and read it back as one. The
 	// selector was refused while the value emitter still wrote elements in
 	// their source spelling and had nothing to escape with. Not corpus-pinnable
-	// - an ops line cannot carry a raw newline.
+	// - an ops line cannot contain a raw newline.
 	assert_eq!(doc.write_reason("a[\"p\nq\"].b"), Writable);
 	assert_eq!(doc.write_reason("\"x\ny\".b"), Writable);
 	assert_eq!(doc.write_reason("\"x\\ny\".b"), Writable);
@@ -1389,7 +1389,7 @@ fn setters_refuse_a_value_the_reader_refuses() {
 #[test]
 fn a_line_break_in_a_path_writes_and_reads_back() {
 	let _id = test_id("EpGigIK");
-	// Both halves of a path can carry one and write it `\n`: a name through the
+	// Both halves of a path can contain one and write it `\n`: a name through the
 	// name escaper, a selector value through the value emitter. The selector
 	// was refused while elements were stored in their source spelling and the
 	// emitter had nothing to escape with. Same fixture in every runner.
@@ -1803,7 +1803,7 @@ fn save_rewrites_a_read_only_file() {
 	perms.set_readonly(false);
 	std::fs::set_permissions(&f, perms).unwrap();
 	// Hidden and system come back too: ReplaceFile's preserve list does not
-	// include the basic attributes and the fallback rename carries none, so a
+	// include the basic attributes and the fallback rename keeps none, so a
 	// hidden config used to come back visible.
 	set_attrs(&f, 0x2 | 0x4);
 	Document::parse("a: 3\n")
@@ -1864,7 +1864,7 @@ fn save_refuses_a_directory_shaped_path() {
 	let _ = std::fs::remove_dir(&dir);
 }
 
-/// A written value carrying both quote kinds is stored the way its own reload
+/// A written value with both quote kinds is stored the way its own reload
 /// stores it, so `instances` and a read's raw text agree across a save. The
 /// emitter escapes the double quotes; the writer used to keep them bare. Same
 /// fixture in every runner.
@@ -2249,7 +2249,7 @@ fn quote_segment_backslash_round_trips() {
 fn repeat_suppression_uses_parsed_leaf() {
 	let _id = test_id("Elv59bd");
 	// A quoted last segment with a dot must not disavow an unrelated field
-	// that happens to carry the split-off text.
+	// that happens to have the split-off text.
 	let schema = Document::parse("field: a.\"b.c\"\n\trepeat: 0, 5\nfield: c\n");
 	let doc = Document::parse("c: 1\nc: 2\n");
 	let mut diags = doc.diagnostics().to_vec();

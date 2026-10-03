@@ -18,7 +18,7 @@
 ##		https://mit-license.org/
 ##	SPDX-License-Identifier: MIT
 
-## Type options, valid on `get` only. The table below carries them as the single
+## Type options, valid on `get` only. The table below lists them as the single
 ## token --<type>, exactly as the CLI's own table does.
 _shcl_types='--int --float --bool --datetime --string --raw --rawinfo --duration --size'
 
