@@ -1,0 +1,25 @@
+# A comment written right against an info block is the file's own, and banner
+# keeps it. A block comes off from the lone line above its first line to the
+# next one, or after its last line written the block's way when that is gone.
+# A migrate stamp comes off with its note and leaves the comment above it.
+a: 1
+## Pinned by ops.
+## Ask before you change b.
+b: 2
+## Owner: ops team
+c: 3
+## Keep d at 4.
+d: 4
+
+## Ops team: do not edit by hand.
+##
+## Pager: 555-0100
+
+##
+## This config file format is SHCL.
+## "Simple Hierarchical Config Language"
+##    Format   3
+##    Home     https://github.com/yottacore/shcl
+##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md
+##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.
+##

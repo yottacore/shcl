@@ -60,7 +60,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `format_version()` and `migrate_unstamped()` in every binding, for a program that writes its own info block.
 
-- `set_banner()` in every binding, and the `banner` op, put the info block at the end of a file and take an old one off first.
+- `set_banner()` in every binding, and the `banner` op, put the info block at the end of a file and take an old one off first. The file's own comments next to the old one stay.
 
 - `clear_comments()` in every binding, and the `clear-comments` op, take off the comment lines above a node, so a comment can be replaced. `comments()` reads them.
 

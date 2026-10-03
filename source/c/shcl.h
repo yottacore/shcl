@@ -623,18 +623,17 @@ size_t shcl_comments(shcl_doc *d, const char *path, size_t plen, shcl_str **out)
 size_t shcl_clear_comments(shcl_doc *d, const char *path, size_t plen);
 // Put the info block (SHCL_GEN_BANNER) at the end of the document, or with on
 // 0 just take it off. An old block comes off first, found by its "This config
-// file format is SHCL." line or its version line, never by its links or Legal
-// line, which a later release may word differently. A version line
-// shcl_migrate stamped counts too. A block is a run of "##" lines with no blank
-// inside, so a "##" comment of the file's own, written right against it, goes
-// with it. It is looked for in the footer and above every field but the first
-// one and its first child down, since a field added below it by hand takes it
-// as its comment. A block at the top of the file is left alone. A dotted first
-// line hangs it on its last name, which a saved file writes as the first
-// field's first child, so a block there is left alone too, however it got
-// there. The library save never adds the block by itself; this is for a
-// program that wants it in a file it writes. Returns how many old blocks came
-// off.
+// file format is SHCL." line, never by its links or Legal line, which a later
+// release may word differently. It runs from the lone "##" above that line to
+// the next one, so a "##" comment of the file's own stays, even written right
+// against it. A version line shcl_migrate stamped comes off too, with the note
+// under it. Both are looked for in the footer and above every field but the
+// first one and its first child down, since a field added below one by hand
+// takes it as its comment. A block at the top of the file is left alone. A
+// dotted first line hangs it on its last name, which a saved file writes as the
+// first field's first child, so a block there is left alone too, however it got
+// there. The library save never adds the block by itself; this is for a program
+// that wants it in a file it writes. Returns how many old blocks came off.
 size_t shcl_set_banner(shcl_doc *d, int on);
 int shcl_set_empty(shcl_doc *d, const char *path, size_t plen);
 // Why a write at this path would fail - the reason behind a setter's bare 0,
@@ -5936,38 +5935,58 @@ size_t shcl_clear_comments(shcl_doc *d, const char *path, size_t plen) {
 	return cleared;
 }
 
-static int banner_line(ShclStr t) {
-	return s_eq(t, s_lit("## This config file format is SHCL.")) || s_starts(t, SHCL_FORMAT_LINE_HEAD);
-}
+/* The info block's first two text lines. An old block is found by the first,
+   which no release has worded differently. */
+static const char banner_title[] = "## This config file format is SHCL.";
+static const char banner_name[] = "## \"Simple Hierarchical Config Language\"";
 
-/* Take each run of "##" lines holding the info block's SHCL line or a version
-   line out of v, all but a Schema line. Returns how many came off; *owed says
-   whether the last one had a blank above it with no line after it to take
-   that blank. */
+static int banner_in_run(const ShclLead *l) { return s_starts(l->text, "##") && !l->blank_before; }
+
+/* Take the info block out of v, from the lone "##" above its "This config
+   file format is SHCL." line to the next lone "##", and each version line
+   shcl_migrate stamped, with the note under it. A block with no closing "##"
+   ends after its last line written the block's way. A Schema line in a block
+   stays, and so does any other comment around one, even written right against
+   it. Returns how many came off; *owed says whether the last one had a blank
+   above it with no line after it to take that blank. */
 static size_t drop_banners(ShclVecLead *v, int *owed) {
 	size_t w = 0, removed = 0, i = 0;
+	int prev_kept = 0;
 	*owed = 0;
 	while (i < v->len) {
-		size_t end = i + 1;
-		if (s_starts(v->data[i].text, "##")) {
-			while (end < v->len && s_starts(v->data[end].text, "##") && !v->data[end].blank_before) end++;
-			int hit = 0;
-			for (size_t k = i; k < end && !hit; k++) hit = banner_line(v->data[k].text);
-			if (hit) {
-				/* The blank that set the block off moves to whatever followed
-				   it, so the lines around it stay apart. A Schema line in the
-				   block is the author's and stays, with the blank. */
-				int blank = v->data[i].blank_before;
-				size_t at = w;
-				for (size_t k = i; k < end; k++)
-					if (s_starts(v->data[k].text, SHCL_SCHEMA_LINE_HEAD)) v->data[w++] = v->data[k];
-				if (at < w) v->data[at].blank_before = blank;
-				else if (end < v->len) v->data[end].blank_before |= blank;
-				else *owed = blank;
-				removed++; i = end; continue;
+		size_t start = i, end = i + 1;
+		if (s_eq(v->data[i].text, s_lit(banner_title))) {
+			if (prev_kept && !v->data[i].blank_before && s_eq(v->data[w - 1].text, s_lit("##"))) {
+				w--;
+				start = i - 1;
 			}
+			size_t close = end;
+			while (close < v->len && banner_in_run(&v->data[close]) && !s_eq(v->data[close].text, s_lit("##"))) close++;
+			if (close < v->len && banner_in_run(&v->data[close])) end = close + 1;
+			else
+				while (end < v->len && banner_in_run(&v->data[end]) &&
+				       (s_starts(v->data[end].text, "##    ") || s_eq(v->data[end].text, s_lit(banner_name))))
+					end++;
+		} else if (s_starts(v->data[i].text, SHCL_FORMAT_LINE_HEAD)) {
+			if (end < v->len && banner_in_run(&v->data[end]) && s_eq(v->data[end].text, s_lit(SHCL_MIGRATED_LINE))) end++;
+		} else {
+			v->data[w++] = v->data[i++];
+			prev_kept = 1;
+			continue;
 		}
-		for (; i < end; i++) v->data[w++] = v->data[i];
+		/* The blank that set the block off moves to whatever followed it, so
+		   the lines around it stay apart. A Schema line in the block is the
+		   author's and stays, with the blank. */
+		int blank = v->data[start].blank_before;
+		size_t at = w;
+		for (size_t k = start; k < end; k++)
+			if (s_starts(v->data[k].text, SHCL_SCHEMA_LINE_HEAD)) v->data[w++] = v->data[k];
+		if (at < w) v->data[at].blank_before = blank;
+		else if (end < v->len) v->data[end].blank_before |= blank;
+		else *owed = blank;
+		removed++;
+		prev_kept = 0;
+		i = end;
 	}
 	v->len = w;
 	if (removed) {
