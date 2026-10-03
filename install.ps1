@@ -148,7 +148,7 @@ installed.
 		Exit-Install "needs Windows PowerShell 5.1 or pwsh 7, and this is $($PSVersionTable.PSVersion) - see https://aka.ms/powershell"
 	}
 
-	## Release signing key, carried as raw RSA parameters rather than PEM on purpose:
+	## Release signing key, stored as raw RSA parameters rather than PEM on purpose:
 	## ImportFromPem needs PowerShell 7, and 5.1 is still what most Windows boxes
 	## run. Modulus + exponent import the same on both. The sha256sums file is signed
 	## offline with the matching private key, so replacing a release asset is not
@@ -161,7 +161,7 @@ installed.
 	## PATH, idempotently - straight at the registry. [Environment]::Get expands
 	## %VAR% references before returning and Set writes the result back REG_SZ,
 	## which freezes every reference and downgrades the value type (user PATHs
-	## commonly carry %USERPROFILE%). Reading unexpanded and writing
+	## commonly contain %USERPROFILE%). Reading unexpanded and writing
 	## REG_EXPAND_SZ keeps the stored value intact. True when it wrote.
 	function Update-ShclPath {
 		## The installer's own confirm prompt is the gate; a nested -WhatIf
@@ -337,7 +337,7 @@ installed.
 	## here too. Hands back what would not go and whether anything this
 	## installer did not write is left, since a locked file left behind used
 	## to be reported as someone else's. What is left is judged by name within
-	## its own dir: a full path read back can be spelled differently from the
+	## its own dir: a full path read back can be written differently from the
 	## one given, as a short 8.3 name is.
 	function Remove-ShclFile {
 		[CmdletBinding()]
@@ -450,7 +450,7 @@ installed.
 		return
 	}
 
-	## A 32-bit shell on a 64-bit OS reports x86; ARCHITEW6432 carries the real arch.
+	## A 32-bit shell on a 64-bit OS reports x86; ARCHITEW6432 has the real arch.
 	$archRaw = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
 	$arch = switch ($archRaw) {
 		'AMD64' { 'x86_64' }
@@ -566,7 +566,7 @@ installed.
 
 		## Drop-in code files and wrappers come from a release asset covered by the
 		## same signed sums file as the binary. They used to come from GitHub's
-		## generated source zipball, which carries neither a signature nor a
+		## generated source zipball, which has neither a signature nor a
 		## checksum. Releases predating the asset install the binary alone.
 		$dropins = "shcl-$version-dropins.tar.gz"
 		$wantSrc = (Get-Content -LiteralPath $sums | Where-Object { $_ -cmatch ('\s' + [regex]::Escape($dropins) + '$') } | ForEach-Object { ($_ -split '\s+')[0] } | Select-Object -First 1)
