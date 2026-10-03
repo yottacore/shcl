@@ -176,7 +176,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - `banner on` and `banner off` delete the file's own `##` comments written against the info block
 	- ID: 2026100307163904
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
+	- Needs local test suite run?: the full `--ci`, for the exhaustive cppcheck. At the normal level cppcheck crashes on `main.c` with dev's header too.
 	- Severity: High
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 4
@@ -190,7 +191,16 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Possible cause: `drop_banners` takes the whole run of `##` lines that holds the block.
 	- Origin: `f1362fbf` (2026-09-25). The `set_banner` doc comment says a `##` comment written against the block goes with it, but the spec and design do not. Not seen by an earlier round. Confirmed.
 	- Note: this meets the letter of the release bar, but the behavior is stated at the call, so it is filed High, not Critical.
+	- Actual cause: `drop_banners` took the whole run of `##` lines holding the block's first line or a Format line, so any comment written right against the block went with it.
 	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: an old block comes off from the lone `##` above its first line to the next lone `##`. With that closing line gone, it ends after its last line written the block's way. A Format line `migrate` stamped comes off with the migrated note under it. Every other comment stays. All four bindings, their doc comments and the spec say so.
+	- Swept: `drop_banners` in Rust and C, `dropBanners` in Go, `_drop_banners` in Python, and the four `set_banner` doc comments. The C++ veneer only wraps `shcl_set_banner`, and its comment says nothing about comments. Nothing else removes the block: `git grep "This config file format is SHCL"` finds the constants, the runners' init checks and the corpus. `format_line_version` only reads the Format line.
+	- Verified: corpus 190 and the four new cli-regress tests fail on dev's code in all four bindings and pass on the branch. Also the four conformance suites, `cargo test`, the Go tests, cli-regress, crosscheck over the corpus and a fresh fuzz dump, check-docs, shell-regress, the test ID check, clippy for linux and windows, go vet, staticcheck, ruff, mypy, check-veneer, the veneer smoke test, the C runner under ASan and UBSan, and a gcc 15 fortified build.
+	- Note: the 2,000,000 release fuzz is green but for `EreT6dh`, which fails at iterations 558881 and 1061439 with dev's library as well, and with no banner op in either. The first is a misplaced `E012` line opening a raw block, which the property excuses only for `E014`. The second is kept lines lost by a canonical save after a merge and a raw set. Neither is this item.
+	- Branch: `bannerkeep`
+	- Commit: `6c00b70d`
+	- Test case: corpus `190-banner-own-comments` (`Erg8DKu`). cli-regress `Erg8DKv` and `Erg8DKw` run `banner off` and `banner on` on the review's file. `Erg8DKx` and `Erg8DKy` run `migrate --from-2x --write` then `banner on`, without and with the migrated note.
 
 - Started with `pwsh -File`, the PowerShell wrapper splits an argument at its first colon, and the answer is wrong at exit 0
 	- ID: 2026100307163905
