@@ -33,6 +33,65 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
+- `remove` deletes kept lines next to the field it removes, at exit 0
+	- ID: 2026100307163901
+	- Type: Bug
+	- Status: Queued
+	- Severity: Critical
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 1
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- `printf 'x: 1\nr: [1, 2]\ny: 3\n' > f.shcl`
+		- `shcl set f.shcl --remove y --write`
+	- Incorrect behavior: exit 0, and the file is just `x: 1`. The kept `r: [1, 2]` line went with `y`.
+	- Expected behavior: a kept line stays where it was written. The spec says a hand typo survives a load, edit and save.
+	- Reproduced: 20261003, all four CLIs and the Rust, Go and Python libraries. Same with `r: "C:\temp"` (E024), `r: "a\qb"` (E023), `bad name: 1` (E014), `*x` and `"r: 1`. Inside a block, `--remove j.q` takes a kept `j.r` whether it sits above or below `q`.
+	- Possible cause: a kept line is held as trivia on the next binding's node, and `remove` drops the node with its trivia. `clear_comments` already skips kept lines; `remove` does not. The save gate does not count kept lines, so `--write` goes through.
+	- Origin: kept lines as trivia came with `b216ad2b` (funnel, 2026-09-07), and rs-base does the same. For the `"C:\temp"` spelling it is a regression from `3ef0bc8c` (escblock): base kept that line as an H004 hint and the remove left it. Not seen by an earlier round. Backlog item 2026092620255202 is the same class for `clear-comments`. Confirmed.
+	- Note: 2026100207032800 makes more lines kept, a bare value with spaces among them, so this gets wider once that goes in.
+	- Sweep: every edit that drops or moves a node's trivia in all four: `remove`, the merge's replaced leaf, the setters that replace a node.
+	- Estimated effort: Avg
+
+- A field line refused for its name that opens a raw block has its body read as fields, and `fmt --write` scrambles the file at exit 0
+	- ID: 2026100307163902
+	- Type: Bug
+	- Status: Queued
+	- Severity: Critical
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 2
+	- Related IDs: 2026100117214801
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- A file holding `tools:`, then tab-indented `my script: ~~~sh`, `echo hi`, `run: rm -rf /tmp/x`, `~~~` and `port: 8080`.
+		- `shcl get f.shcl tools.run`, then `shcl fmt --write f.shcl`.
+	- Incorrect behavior: `get` prints `rm -rf /tmp/x` at exit 0 and `tools.port` is NotFound. `fmt --write` exits 0 and writes a raw block holding `port: 8080`, with `run: "rm -rf /tmp/x"` as a live field. `set -w --set tools.port=9090` exits 0 too and adds a second `port`.
+	- Expected behavior: the body goes with its line, as the E018 row in the spec says for every skipped field line, and a save never rewrites body text as fields.
+	- Reproduced: 20261003, all four CLIs. With the body one level deeper, the closing fence opens a block that runs to the end of the file; the save then refuses at 7 but every later field reads NotFound.
+	- Possible cause: the E014 arm moves on one line without taking the block, and the `line_fault` arm, which takes E023 in a name, does the same. `skip_field_line` does not help as written, since `line_fence` returns nothing on a faulted token list.
+	- Origin: older than the range. The 20260918 and 20260918b rounds declined the E014 fence run on the belief that the closing fence hides the rest of the file at E005, so a save refuses. This repro saves at exit 0, and the 2026-10-02 rule that an error never throws out good lines came after. Item 2026100117214801 is the E023 half of the same class. Confirmed.
+	- Note: a fix wants the whole class from 20260918b: a kept or refused line on which the tokenizer can still see a fence run takes its body. 801 would close with it.
+	- Estimated effort: Avg
+
+- `check` can take its Schema line from inside a raw block and validate against the wrong schema at exit 0
+	- ID: 2026100307163903
+	- Type: Bug
+	- Status: Queued
+	- Severity: Critical
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 3
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- A file holding `'C:\': ~~~`, a tab-indented `##    Schema   ./lax.shcl`, a tab-indented `~~~`, then `##    Schema   ./strict.shcl` and `port: abc`. `strict.shcl` makes `port` an int.
+		- `shcl check f.shcl`
+	- Incorrect behavior: `ok (0 diagnostic(s))` at exit 0 in all four. It used `lax.shcl`, the line inside the raw body.
+	- Expected behavior: V003 at exit 6, as `check --schema=strict.shcl` gives.
+	- Reproduced: 20261003, all four CLIs. Same cause in `migrate`: a file whose only `##    Format   3` line is inside such a body comes back untouched at exit 0 instead of refusing at 7.
+	- Possible cause: `schema_ref` and `format_line_version` find raw blocks through `migrate_line`, which reads with the 2.x tokenizer. In 2.x a backslash escapes inside single quotes too, so `'C:\'` never closes there and the fence is missed. A 2M-line fuzz against the parser found no other class.
+	- Origin: `2c528a23` (schema line, 2026-09-26) and `27d73efb` (schema line fixes, 2026-09-28). The 20260928 decided-against list says the tracker differs from the parser only on an E023 fence name, in a file that already fails `check`. This file loads clean, so that premise does not hold. Confirmed.
+	- Sweep: `schema_ref` and `format_line_version` in all four, and anything else that walks lines with `migrate_line`.
+	- Estimated effort: Low
+
 - No '\' escapes
 	- ID: 2026100207032800
 	- Type: Enhancement
@@ -198,6 +257,136 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261002: closed as Moot. A backslash is plain text under 2026100207032800.
 	- Closed: 20261002-184515
 
+- `banner on` and `banner off` delete the file's own `##` comments written against the info block
+	- ID: 2026100307163904
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 4
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- A file holding `port: 1`, a blank line, the info block, then `## Ops team: do not edit by hand.` and `## Pager: 555-0100` with no blank line before them.
+		- `printf 'banner\toff\n' | shcl set f.shcl`, or `banner on`.
+	- Incorrect behavior: exit 0, and only `port: 1` is left. The two comments went with the block, and `-w` saves it that way.
+	- Expected behavior: the spec says comments are never discarded. The block has a known first and last line, so it can come off alone.
+	- Reproduced: 20261003, all four. Also reached without writing against the block by hand: `migrate --from-2x` on a file ending in `## Owner: ops team` appends the Format line right under it, and a later `banner on` deletes the comment.
+	- Possible cause: `drop_banners` takes the whole run of `##` lines that holds the block.
+	- Origin: `f1362fbf` (2026-09-25). The `set_banner` doc comment says a `##` comment written against the block goes with it, but the spec and design do not. Not seen by an earlier round. Confirmed.
+	- Note: this meets the letter of the release bar, but the behavior is stated at the call, so it is filed High, not Critical.
+	- Estimated effort: Low
+
+- Started with `pwsh -File`, the PowerShell wrapper splits an argument at its first colon, and the answer is wrong at exit 0
+	- ID: 2026100307163905
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Needs external testing: a Windows box for the `.cmd` launcher and 5.1
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 5
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- `printf 'site: a\nurl: b\n' > c.shcl`
+		- `pwsh -NoProfile -File shcl.ps1 children c.shcl --set=url=http://x`
+	- Incorrect behavior: nothing printed, exit 0. shcl gets `--set=url=http` and `//x`. The binary called directly prints `site` and `url`. `-?` prints PowerShell's own help, and `--%` is dropped.
+	- Expected behavior: every argument reaches shcl as typed, as the script's description says.
+	- Reproduced: 20261003, pwsh 7.6 on Linux. `utility/dogfood_shcl` and `dogfood_shcl.cmd` start the runner with `-File`, so they hit it too. Calling the script from inside a session is fine. Most other spellings fail loudly, such as `get --default=12:30` at exit 1.
+	- Possible cause: `-File` binds a `-`-led argument with a colon as a parameter name and value before the script sees `$args`.
+	- Origin: `37fe62d0` (PowerShell wrapper, 2026-07-18). Not seen by an earlier round. 20260928 item 4 fixed quotes under 5.1 in the same wrapper. Confirmed.
+	- Estimated effort: Avg
+
+- `migrate --check` exits 6 and `--write` keeps a needless copy when a CRLF file has no final newline
+	- ID: 2026100307163906
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 6
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- `printf 'a: 1\r\nb: 2\r\nc: 3' > f.shcl`
+		- `shcl migrate --check f.shcl`, then `shcl migrate --write f.shcl`.
+	- Incorrect behavior: `--check` says line 3 would be rewritten, exit 6. `--write` reports 1 line rewritten and leaves `f_old_v2.shcl`. On base, exit 0 and no copy. A last line ending in a lone CR does the same in an LF file.
+	- Expected behavior: only the Format line is added, so `--check` names nothing and no 2.x original is kept.
+	- Reproduced: 20261003, all four.
+	- Possible cause: the stamp adds the majority ending after an unterminated last line, and `rewritten_lines` splits on `\n` only, so `c: 3` and `c: 3\r` compare as different.
+	- Origin: `8aa812a9` (migrate stamp eol, merged in `32088e0a`), from 20260930 idea 1. cli-regress `migcrlf` and `migtie` use files that end in a newline. Regression of a fresh fix. Confirmed.
+	- Sweep: `rewritten_lines` in all four CLIs.
+	- Estimated effort: Low
+
+- Removing the only line under a lazily opened field leaves a bare `name:`, and the field later reads as Multiple
+	- ID: 2026100307163907
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 7
+	- Related IDs: 2026100213205957
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- `printf 'a: [1]\n\tb: 2\ny: 3\n' > f.shcl`
+		- `shcl set f.shcl --remove a.b --write`, then fix the first line to `a: 1, 2` as E019 asks.
+	- Incorrect behavior: the save writes `a: [1]`, `a:`, `y: 3` at exit 0. After the fix `get a` exits 5 and `count a` is 2, so a read with a default quietly gets the default.
+	- Expected behavior: a field opened only by the lines under it goes away with the last of them, as the escblock decision says.
+	- Reproduced: 20261003, all four.
+	- Possible cause: the lazily opened node outlives its last child, and `heads_block` needs at least one child, so the writer puts out the kept line and then a bare `a:`.
+	- Origin: `3ef0bc8c` (escblock), new since the last round. Not the trigger of 2026100213205957, which is the load; this one is an edit. Confirmed.
+	- Estimated effort: Low
+
+- The dogfood runner drops quotes and empty arguments under Windows PowerShell 5.1
+	- ID: 2026100307163908
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Needs external testing: 5.1 on a Windows box
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 8
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- Under 5.1, or pwsh 7 with `$PSNativeCommandArgumentPassing = 'Legacy'`: `dogfood_shcl.ps1 --no-update set -w f.shcl '--set-literal=zip="02134"'`
+	- Incorrect behavior: the file holds `zip: 02134` at exit 0, and `get --int` reads 2134. Empty arguments vanish too.
+	- Expected behavior: arguments reach shcl as typed, as through `shcl.ps1`.
+	- Reproduced: 20261003, pwsh 7.6 in Legacy mode. `dogfood_shcl.cmd` falls back to 5.1 when pwsh is missing.
+	- Possible cause: `& $exe @passArgs` at `dogfood_shcl.ps1:426`. 20260928 item 4 added `_shcl_native_args` to `shcl.ps1` only.
+	- Origin: `eefd1dba` (dogfood runner, 2026-09-24). Sibling of 20260928 item 4 that its sweep missed. Confirmed.
+	- Estimated effort: Low
+
+- check-migrate leaves out the lines a broken migrate writes as E024, so it passes over a lost value
+	- ID: 2026100307163909
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 9
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- In a scratch clone, wrap the debug `shcl` so `migrate` output has `C:\t` turned back into `C:\\t`, so it writes `p: "C:\temp"` at exit 0.
+		- Run `check-migrate.bash` over a small corpus with that case.
+	- Incorrect behavior: green either way. The injected run shows one more document "with lines taken out first".
+	- Expected behavior: a migrate that writes a line it cannot read back, at exit 0, fails the gate.
+	- Reproduced: 20261003, in a scratch clone. cli-regress `ErUn2Bt` catches this one spelling, not the class.
+	- Possible cause: `fPathBreak` picks the lines to take out by running `migrate` and looking for E024 in its output, so the code under test chooses what is not compared. The only check that migrate refuses such a line at 7 is in the branch where every unclean 2.x line is a bracket array.
+	- Origin: `c29f08fa` (gates, in `d2fbdacd` escblock). New since the last round. Confirmed.
+	- Estimated effort: Low
+
+- check-banner-tag passes when it cannot read the banner's Syntax line
+	- ID: 2026100307163910
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 10
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- A scratch repo at version `3.0.0-beta1` and an empty remote. Change the banner's `##    Syntax` line in `lib.rs` to `Syntax:`, `tree/` for `blob/`, or add a trailing space.
+		- Run `check-banner-tag.bash`.
+	- Incorrect behavior: exit 0 and nothing printed. The unchanged line gives exit 1, "has no such tag". A moved banner or a missing `lib.rs` reads as no tag needed too.
+	- Expected behavior: a version at or past the format's first tag with no readable Syntax tag fails.
+	- Reproduced: 20261003, scratch repo.
+	- Possible cause: `[[ -n "${tag}" ]] || exit 0` after one exact `sed` pattern. Nothing else pins the banner's text for this check; check-push-gate writes its own stub `lib.rs`.
+	- Origin: `62c1033f` (banner tag check), new since the last round. Confirmed.
+	- Estimated effort: Low
+
 - Make sure the demo GIF is still accurate and current
 	- ID: 2026100306315606
 	- Type: Task
@@ -326,6 +515,140 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Possible cause: the per-line fault checks added with the escape errors. `_line_fault` and the extra `any` calls account for most of the gap.
 	- Decisions:
 		- 20261002: recheck after 2026100207032800 is built, since it removes most of those checks. No perf work before 3.0.0 otherwise.
+
+- A FIFO swapped in at the Schema path between the type check and the open hangs `check`
+	- ID: 2026100307163911
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 11
+	- Related IDs: 2026092813365302
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- A config with `a: 1` and `##    Schema   s.schema`. A loop swaps `s.schema` between a regular file and a FIFO with `ln -f` and `mv -f`.
+		- Run `timeout -s KILL 3 shcl check cfg.shcl` over and over.
+	- Incorrect behavior: a run hangs until killed. Python hung on run 165, Go on 281, Rust on 1942, C on 2007.
+	- Expected behavior: what 2026092813365302 set out to do: a line in a file someone else wrote cannot make an unattended `check` hang.
+	- Reproduced: 20261003, all four.
+	- Possible cause: the `stat` before and `fstat` after the open leave the open itself blocking on a FIFO. Open non-blocking, `fstat` the descriptor, then clear the flag.
+	- Origin: `27d73efb` (schema line fixes), the fix for 2026092813365302. A gap in a closed fix, which needs someone able to swap files beside the config. Confirmed.
+	- Sweep: `read_named_schema` in all four CLIs, and the Windows branch.
+	- Estimated effort: Low
+
+- crosscheck's line-ending replay skips without a word when the dump has no `eol/` folder
+	- ID: 2026100307163912
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 12
+	- Related IDs: 2026100114175701
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- `SHCL_GATE_STRICT=1 SHCL_GATE_SKIPS=skips.txt crosscheck.bash --corpus project/conformance --extra DIR` with a `DIR` that has no `eol/`.
+	- Incorrect behavior: `skip ErUF4nK`, exit 0, and `skips.txt` stays empty. A local run would record the tree as green. Anything that stops `ErTmDwQ` dumping turns the replay off unseen.
+	- Expected behavior: a strict run fails, or the skip is logged where the skip lints see it.
+	- Reproduced: 20261003, scratch run.
+	- Possible cause: `crosscheck.bash:663` calls `fTestSkip` with no strict check and no "skipping (no" message.
+	- Origin: `8ee021ce` (crosscheck eol keep saves). The fix for 2026100114175701 covers an empty `eol/` and a missing `.ops`, not a missing folder. Confirmed.
+	- Estimated effort: Low
+
+- The C CLI exits 6 where the other three exit 8 when a strict layer fails before a missing one
+	- ID: 2026100307163913
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 13
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- `printf 'bad line\n' > bad.shcl; printf 'a: 1\n' > f.shcl`
+		- `shcl paths --strictness=strict --layer=bad.shcl --layer=missing.shcl f.shcl`
+	- Incorrect behavior: C exits 6 for the strict load. Rust, Go and Python exit 8 for the missing file.
+	- Expected behavior: the same exit code in all four. Rust reads every file before loading any.
+	- Reproduced: 20261003, all four.
+	- Possible cause: `main.c:776-786` reads and strict-checks each layer in turn.
+	- Origin: `9c2aa225` (set layer labels, 2026-09-19). No corpus case has a missing layer, so crosscheck cannot see it. Confirmed.
+	- Estimated effort: Low
+
+- The E019, E023 and E024 text says a read on the field is NotFound, but it is Empty when lines load under it
+	- ID: 2026100307163914
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 14
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- `printf 'a: "C:\\temp"\n\tb: 1\n' > f.shcl`
+		- `shcl get f.shcl a; echo $?`, and `shcl explain E024`.
+	- Incorrect behavior: `get` exits 2, Empty, and `count a` is 1. The spec rows and `explain` for E024 say NotFound. E019 and E023 say the same, softened by "under the field with no value".
+	- Expected behavior: the text says a read is NotFound with nothing under it, and Empty once a line under it loads.
+	- Reproduced: 20261003, all four.
+	- Origin: `3ef0bc8c` and `752f2177` (escblock and its docs). Confirmed.
+	- Sweep: the spec rows, `explain` in all four CLIs, design.md and value-syntax.md.
+	- Estimated effort: Low
+
+- The zsh completion still says `set` prints the canonical form
+	- ID: 2026100307163915
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 15
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- Read `source/completions/_shcl:63`.
+	- Incorrect behavior: `'set:apply edits and print the canonical form'`. `set` has kept unedited lines as written since the keep save went in.
+	- Expected behavior: the same summary as the help's `set` line.
+	- Reproduced: 20261003, by reading, against `shcl --help`.
+	- Origin: `012a2b4f` (2026-08-19), and the keep save made it stale. Confirmed.
+	- Estimated effort: Low
+
+- The man page says the wrappers are installed beside `shcl`, and no install puts them there
+	- ID: 2026100307163916
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 16
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- `install.bash` into a scratch HOME, take `~/.local/bin` off PATH, then `bash ~/.local/share/shcl/scripts/shcl.bash --version`.
+	- Incorrect behavior: "cannot find a shcl binary", exit 1, though the binary is at `../shcl`. `shcl.1:833` says the wrappers sit beside the command. `install.bash` puts them in `scripts/`, and the deb and rpm in `/usr/share/shcl/scripts`, so `shcl.bash`'s lookup beside itself never finds one.
+	- Expected behavior: the man page names where they go, and the wrapper looks where the installers put the binary.
+	- Reproduced: 20261003, `install.bash` with stub downloads. `install.ps1` is Plausible, by reading.
+	- Origin: `84ceff51` (2026-08-30) for the man line. The installer was right; the claim and the lookup were not. Confirmed.
+	- Estimated effort: Low
+
+- `explain` on a retired code could name the code that replaced it
+	- ID: 2026100307163917
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 idea 1
+	- Version and build: dev at `6e8b7f89`
+	- Problem description:
+		- `shcl explain H004` answers "did you mean 'E004'?" at exit 1 in all four. H004 became E024, so a reader with an old log is sent to an unrelated code.
+	- Requirements:
+		- `explain` on a retired code says what replaced it, in all four CLIs.
+
+- check-banner-tag trusts the push to be atomic and the tag to point at the cut
+	- ID: 2026100307163918
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 idea 2
+	- Version and build: dev at `6e8b7f89`
+	- Problem description:
+		- A push of `main` and the tag without `--atomic` passes the hook. If the remote turns down the tag, main is at the cut and the tag is missing. The hook cannot see `--atomic`.
+		- A pushed tag on any commit with a `project/spec.md` passes, even one at an older version. By reading only.
+	- Requirements:
+		- The script's header says it relies on `--atomic`, or the recipe's check after the push fails loudly.
+		- The tag must point at a commit whose version is the cut's.
 
 - No way to ask a setter for single quotes
 	- ID: 2026100115323222
@@ -2024,6 +2347,21 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: the 2,000,000-iteration fuzz now fails `merge_never_panics_and_stays_fixpoint`. Case 185 moves the seed set onto a shared merge defect: a layer and its canonical form merge one blank line apart, above a comment. dev's code fails the same way with the case added and passes without it. Filed as 2026092918110222.
 	- Acceptance signoff: Self-closed: the sort by line asked for, and its tests fail on dev.
 	- Closed: 20260930-073042
+
+- Reads, sets and removes by selector cost time in the number of instances
+	- ID: 2026100307163919
+	- Type: Enhancement
+	- Status: Deferred
+	- Priority: Low
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 idea 3
+	- Version and build: dev at `6e8b7f89`
+	- Problem description:
+		- Each lookup builds the whole chain of same-named children, and a `ByValue` match builds the display text of every sibling. `remove` rebuilds the parent's child list each call.
+		- Reading every one of 20k instances by value takes 80 s in Rust, and 3.8 s by `[#i]`. 2,000 removes on a file with 50k instances take 13 s in Rust and 120 s in Python.
+	- Requirements:
+		- Lookups by name and by value scale with the matches, not the siblings.
+	- Note: performance ideas wait until 3.0.0 is out. Reopen then, or when a user reports a file with thousands of instances.
 
 - A merge that replaces a leaf drops a kept line the settle turned into a comment
 	- ID: 2026092718195400
