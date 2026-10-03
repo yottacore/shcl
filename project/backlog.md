@@ -400,7 +400,21 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- MacOS gets a universal binary for both amd64 and ARM, if appropriate.
 	- Note: 20261003, no macOS binary is built yet. `cicd/config.bash` defers it for lack of an Apple SDK on the build box, and `install.bash` sends macOS users to build from source. A hosted macOS runner can build both Rust targets and join them with `lipo`. The installers and the release asset names would need a macOS entry too.
 	- Note: 20261003, b26 is an Intel Mac that other projects already use, booked through a lock like the Windows boxes. It can build and test the amd64 half and run `lipo`. The ARM half can be cross-built there but not run, so a hosted ARM runner would still have to test it.
+	- Prereq IDs: 2026100314005369
 	- Estimated effort: Avg
+
+- Read the lock script and add b26
+	- ID: 2026100314005369
+	- Type: Task
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261003-140053
+	- Opened by: JC
+	- Related IDs: 2026100313461652
+	- Requirements:
+		- Read the lock script and add b26.
+	- Note: 20261003, the script is `claude_windows-host-lock.bash` in the synced util bash dir. Whether it already takes b26 is not known yet. The b26 notes would go beside the Windows boxes in the per-machine `~/.claude/CLAUDE.md`, so other projects find them too.
+	- Estimated effort: Low
 
 - `Remove` of the last key under a repeated header leaves the header and takes the blank line
 	- ID: 2026100115323232
