@@ -33,6 +33,37 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
+- `check` can take its Schema line from inside a raw block and validate against the wrong schema at exit 0
+	- ID: 2026100307163903
+	- Type: Bug
+	- Status: Waiting on signoff
+	- Needs local test suite run?: Y, the full `--ci`. cppcheck's exhaustive pass over the changed header did not finish in 10 minutes here.
+	- Severity: Critical
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 3
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- A file holding `'C:\': ~~~`, a tab-indented `##    Schema   ./lax.shcl`, a tab-indented `~~~`, then `##    Schema   ./strict.shcl` and `port: abc`. `strict.shcl` makes `port` an int.
+		- `shcl check f.shcl`
+	- Incorrect behavior: `ok (0 diagnostic(s))` at exit 0 in all four. It used `lax.shcl`, the line inside the raw body.
+	- Expected behavior: V003 at exit 6, as `check --schema=strict.shcl` gives.
+	- Reproduced: 20261003, all four CLIs. Same cause in `migrate`: a file whose only `##    Format   3` line is inside such a body comes back untouched at exit 0 instead of refusing at 7.
+	- Possible cause: `schema_ref` and `format_line_version` find raw blocks through `migrate_line`, which reads with the 2.x tokenizer. In 2.x a backslash escapes inside single quotes too, so `'C:\'` never closes there and the fence is missed. A 2M-line fuzz against the parser found no other class.
+	- Origin: `2c528a23` (schema line, 2026-09-26) and `27d73efb` (schema line fixes, 2026-09-28). The 20260928 decided-against list says the tracker differs from the parser only on an E023 fence name, in a file that already fails `check`. This file loads clean, so that premise does not hold. Confirmed.
+	- Sweep: `schema_ref` and `format_line_version` in all four, and anything else that walks lines with `migrate_line`.
+	- Estimated effort: Low
+	- Actual cause: as above. Both walks found raw blocks with the 2.x tokenizer, in all four.
+	- Actual fix: one line walk that knows which rules it reads by. The Schema line is new in format 3, so `schema_ref` finds blocks the way the parser does, through the parser's own tokenizer and fence tests (`child_fence`, `line_fence`). A Format line counts by the rules it names: one naming format 3 counts outside the parser's blocks, and an older one outside the blocks 2.x found. `migrate` on a file that names no format also counts lines one rule set reads as a raw body and the other does not as reading two ways, so it refuses at 7 unless `--from-2x` says the file is 2.x. It does not stamp a file whose output ends inside a raw block under either rule set. Spec and design say so.
+	- Note: a line refused for its text (E014, E019, E023, E024) can still read its body as lines in the parser while the walk takes the body. That file fails `check` anyway, and 2026100307163902 and 2026100117214801 move the parser to the walk's answer.
+	- Note: with `--from-2x`, 2.x's reading stands. A 2.x line that 2.x refused and that now opens a block is left as written, per the low-stakes rule for 2.x.
+	- Note: the new corpus case moved the fuzz seeds, and `EreT6dh` then failed on a remove whose kept line starts with a next-line character. Rust's `trim` takes that character and the format does not, so a settled comment compared unequal to its line. The property now trims the format's blanks only. Not a library defect.
+	- Swept: `schema_ref` and `format_line_version` in Rust, Go, Python and C now read through one walker (`RawLines`, `rawLines`, `_RawLines`, `ShclRawLines`), and the parser's child-fence test is the shared `child_fence`. The only other caller of `migrate_line` is the rewrite loop in `migrate`, which reads 2.x on purpose and now checks its output against the parser's blocks. The C++ veneer only wraps the two C calls, and no script reads either line.
+	- Verified: the repro gives V003 at exit 6 and the `migrate` repro exits 7, in all four CLIs. The four conformance suites, `cli-regress.bash` (344 rows), `crosscheck.bash` over the corpus and a 2,000-input fuzz dump, `check-migrate.bash`, `shell-regress.bash`, `check-docs.bash`, markdownlint, `test-ids.py check`, clippy (host and windows), go vet and staticcheck (also windows), ruff, mypy, gcc 15 with `_FORTIFY_SOURCE=3`, the mingw C build and the C runner under ASan and UBSan pass. The release fuzz at 2,000,000 passes.
+	- Branch: `schemaraw`
+	- Commit: 4fcfec0b, 55d4777d
+	- Test case: corpus `189-schema-line-raw-after-backslash` (`ErfuRcU`, all four runners), cli-regress `ErfuRh7` and `ErfuRj5`, fuzz property `ErfuRfE`. Each fails on the old code and passes on the new.
+	- Note: left for signoff: the new `migrate` refusal and no-stamp rule, which go past the item, and the `EreT6dh` trim change.
+
 - A fuzz property and a save-gate check for kept lines, so edits stop losing them one site at a time
 	- ID: 2026100307310000
 	- Type: Task
@@ -100,37 +131,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: 20261003, from 2026100307310000. The kept-lines property `EreT6dh` skips this class through its row keyed by this ID, and the fix takes the row out. The save gate counts one kept line per retained outcome, so whatever the body becomes, the load must still hold one kept line for each, or a plain `fmt --write` refuses.
 	- Estimated effort: Avg
 
-- `check` can take its Schema line from inside a raw block and validate against the wrong schema at exit 0
-	- ID: 2026100307163903
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Needs local test suite run?: Y, the full `--ci`. cppcheck's exhaustive pass over the changed header did not finish in 10 minutes here.
-	- Severity: Critical
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 item 3
-	- Version and build: dev at `6e8b7f89`
-	- Steps to reproduce:
-		- A file holding `'C:\': ~~~`, a tab-indented `##    Schema   ./lax.shcl`, a tab-indented `~~~`, then `##    Schema   ./strict.shcl` and `port: abc`. `strict.shcl` makes `port` an int.
-		- `shcl check f.shcl`
-	- Incorrect behavior: `ok (0 diagnostic(s))` at exit 0 in all four. It used `lax.shcl`, the line inside the raw body.
-	- Expected behavior: V003 at exit 6, as `check --schema=strict.shcl` gives.
-	- Reproduced: 20261003, all four CLIs. Same cause in `migrate`: a file whose only `##    Format   3` line is inside such a body comes back untouched at exit 0 instead of refusing at 7.
-	- Possible cause: `schema_ref` and `format_line_version` find raw blocks through `migrate_line`, which reads with the 2.x tokenizer. In 2.x a backslash escapes inside single quotes too, so `'C:\'` never closes there and the fence is missed. A 2M-line fuzz against the parser found no other class.
-	- Origin: `2c528a23` (schema line, 2026-09-26) and `27d73efb` (schema line fixes, 2026-09-28). The 20260928 decided-against list says the tracker differs from the parser only on an E023 fence name, in a file that already fails `check`. This file loads clean, so that premise does not hold. Confirmed.
-	- Sweep: `schema_ref` and `format_line_version` in all four, and anything else that walks lines with `migrate_line`.
-	- Estimated effort: Low
-	- Actual cause: as above. Both walks found raw blocks with the 2.x tokenizer, in all four.
-	- Actual fix: one line walk that knows which rules it reads by. The Schema line is new in format 3, so `schema_ref` finds blocks the way the parser does, through the parser's own tokenizer and fence tests (`child_fence`, `line_fence`). A Format line counts by the rules it names: one naming format 3 counts outside the parser's blocks, and an older one outside the blocks 2.x found. `migrate` on a file that names no format also counts lines one rule set reads as a raw body and the other does not as reading two ways, so it refuses at 7 unless `--from-2x` says the file is 2.x. It does not stamp a file whose output ends inside a raw block under either rule set. Spec and design say so.
-	- Note: a line refused for its text (E014, E019, E023, E024) can still read its body as lines in the parser while the walk takes the body. That file fails `check` anyway, and 2026100307163902 and 2026100117214801 move the parser to the walk's answer.
-	- Note: with `--from-2x`, 2.x's reading stands. A 2.x line that 2.x refused and that now opens a block is left as written, per the low-stakes rule for 2.x.
-	- Note: the new corpus case moved the fuzz seeds, and `EreT6dh` then failed on a remove whose kept line starts with a next-line character. Rust's `trim` takes that character and the format does not, so a settled comment compared unequal to its line. The property now trims the format's blanks only. Not a library defect.
-	- Swept: `schema_ref` and `format_line_version` in Rust, Go, Python and C now read through one walker (`RawLines`, `rawLines`, `_RawLines`, `ShclRawLines`), and the parser's child-fence test is the shared `child_fence`. The only other caller of `migrate_line` is the rewrite loop in `migrate`, which reads 2.x on purpose and now checks its output against the parser's blocks. The C++ veneer only wraps the two C calls, and no script reads either line.
-	- Verified: the repro gives V003 at exit 6 and the `migrate` repro exits 7, in all four CLIs. The four conformance suites, `cli-regress.bash` (344 rows), `crosscheck.bash` over the corpus and a 2,000-input fuzz dump, `check-migrate.bash`, `shell-regress.bash`, `check-docs.bash`, markdownlint, `test-ids.py check`, clippy (host and windows), go vet and staticcheck (also windows), ruff, mypy, gcc 15 with `_FORTIFY_SOURCE=3`, the mingw C build and the C runner under ASan and UBSan pass. The release fuzz at 2,000,000 passes.
-	- Branch: `schemaraw`
-	- Commit: 4fcfec0b, 55d4777d
-	- Test case: corpus `189-schema-line-raw-after-backslash` (`ErfuRcU`, all four runners), cli-regress `ErfuRh7` and `ErfuRj5`, fuzz property `ErfuRfE`. Each fails on the old code and passes on the new.
-	- Note: left for signoff: the new `migrate` refusal and no-stamp rule, which go past the item, and the `EreT6dh` trim change.
-
 - No '\' escapes
 	- ID: 2026100207032800
 	- Type: Enhancement
@@ -172,33 +172,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Acceptance signoff:
 	- Superseded by ID:
 	- Closed:
-
-- Windows paths are written three different ways
-	- ID: 2026100115323216
-	- Type: Enhancement
-	- Status: Moot
-	- Priority: Avg
-	- Note: 20261002, superseded by 2026100207032800. With no backslash escapes, a backslash plays no part in choosing quotes, so nothing here is needed. Design: `project/design_docs/value-syntax.md`.
-	- Superseded by ID: 2026100207032800
-	- Test case: none. Nothing is built for it; the tests are under 2026100207032800.
-	- Opened: 20261001-153232
-	- Opened by: gitsby feedback
-	- Version and build: dev at `b10c2009`
-	- Requirements:
-		- Today, `SetString` then `ToCanonical`:
-			- `~\dev\tools` -> `p: ~\dev\tools` (bare)
-			- `\\srv\share` -> `p: \\srv\share` (bare)
-			- `%USERPROFILE%\x` -> `p: %USERPROFILE%\x` (bare)
-			- `C:\work` -> `p: 'C:\work'`
-			- `C:\Bob's\new` -> `p: "C:\\Bob's\\new"`
-		- All read back right. The problem is the person who copies a line to type the next path. A bare one copied into double quotes, or a single-quoted one edited to hold an apostrophe, turns its backslashes into escapes.
-		- A value with a backslash always goes in single quotes, never bare.
-		- One single quotes can't hold (an apostrophe, a line break, a character written as `\u`) goes in double quotes with each backslash doubled, as now.
-	- Note: gitsby does this itself in `setValue` (`src-go/shcl.go`), through `SetLiteral` and a read-back check. It would drop that once the writer does it.
-	- Decisions:
-		- 20261001: single quotes for a value with a backslash, since they stop escaping. A Windows path can hold a `'`, which single quotes can't, so that one goes in double quotes with each backslash doubled. Same for canonical output, so `fmt` too.
-		- 20261002: closed as Moot. A backslash is plain text under 2026100207032800.
-	- Closed: 20261002-184515
 
 - `banner on` and `banner off` delete the file's own `##` comments written against the info block
 	- ID: 2026100307163904
@@ -752,27 +725,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- The property removes excused lines by position, not text.
 		- A repeated parent either gets its own rule in the property, or a test shows the merge leaves its kept lines alone.
 	- Estimated effort: Low
-
-- No way to ask a setter for single quotes
-	- ID: 2026100115323222
-	- Type: Enhancement
-	- Status: Moot
-	- Priority: Low
-	- Note: 20261002, superseded by 2026100207032800. With no backslash escapes, a backslash plays no part in choosing quotes, so nothing here is needed. Design: `project/design_docs/value-syntax.md`.
-	- Superseded by ID: 2026100207032800
-	- Test case: none. Nothing is built for it; the tests are under 2026100207032800.
-	- Opened: 20261001-153232
-	- Opened by: gitsby feedback
-	- Related IDs: the old-format item "A save that edits only the lines that changed", whose 20260925 decision keeps `fmt`'s canonical quoting
-	- Version and build: dev at `b10c2009`
-	- Requirements:
-		- `SetLiteral("p", "'C:/work'")` reads back `C:/work`, then writes `p: "C:/work"`. So does `'a#b'`. A single quote survives only when the value holds a backslash.
-		- A setter option, or a `SetLiteral` that keeps a quote style that reads back the same, so a program can write single quotes where the value allows.
-		- Not a reopen of the 20260925 decision. `fmt` keeps its canonical quoting; this is only for a program setting a value.
-	- Decisions:
-		- 20261001, from the answer on 2026100115323216: single quotes are the go-to for stopping escapes, when the string holds no `'`.
-		- 20261002: closed as Moot. No setter options. A setter that overwrites a value keeps its quote kind when it can, and `SetLiteral` takes any quotes as written.
-	- Closed: 20261002-184515
 
 - The banner's Syntax link names a tag the cut may not create
 	- ID: 2026100115323211
@@ -2316,6 +2268,39 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `setkeep`
 	- Test case: none standing, since a row that must hang costs the full limit on every run.
 
+- `"C:\temp"` loads with a tab and only a hint says so
+	- ID: 2026100115323227
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: full `--ci` at the next main push, as for 2026100115403384.
+	- Priority: Low
+	- Opened: 20261001-153232
+	- Opened by: gitsby feedback
+	- Related IDs: 2026092616330237, 2026092617133293
+	- Version and build: dev at `b10c2009`
+	- Requirements:
+		- `p: "C:\temp"` reads as `C:`, a tab, `emp`, status Good, with `H004` at severity Hint.
+		- design.md keeps it a hint on purpose, since nothing about the text is wrong. Filed to look at that again from a consumer's side: the reason `"C:\work\new"` became `E023` was that "a hint reaches only a caller that reads diagnostics". A caller that lists only errors, as gitsby does, says nothing about `"C:\temp"`, and on Windows the path just never matches.
+		- Options: make `H004` an error where the value looks like a path, or leave it and say in the spec that a consumer reading paths should show hints.
+	- Decisions:
+		- 20261001: an error, not a hint and not a note in the spec.
+		- 20261001, reversible: the `H004` condition became `E024`, retained exactly like `E023`: binds nothing, a read is NotFound, nothing counted lost, a save keeps it, and `SetLiteral` text holding it is refused. The lines under it load, per 2026100115403384. Names, selectors and paths with no drive or share stay out, as in 2026092617133293.
+		- 20261001, reversible: `H004` is retired and not reused. The design table lists it as retired; the spec and explain lists drop it.
+		- 20261001, reversible: the writer writes a tab or line break in such a value as `\u0009` or `\u000A`, so a setter or `fmt` never writes text that reloads as `E024`.
+		- 20261001, reversible: `migrate` writes a 2.x tab in such a value as a literal tab, which 2.x and 3.0 read alike. A 2.x line break there has no spelling both read alike, and a `\u` escape would change on a second `--from-2x` run, so the value is written the way 2.x read it, which is `E024`, and counted lost like bracket text (exit 7, `--lossy` overrides). check-migrate takes those lines out of its comparison, as it does the other two known edges, and asserts corpus 170 still has one.
+	- Progress log:
+		- 20261001: exit 7 on a 2.x line break in such a path follows the standing rule for hard 2.x edges: refuse rather than build machinery, and never damage a correct file at exit 0.
+		- 20261001: `"C:\work\new"` in a 2.x file used to migrate to `"C:\\work\new"` with a newline in it. It now migrates to that same text and exit 7, since that text is `E024`.
+	- Swept: the field and stacked element arms, `SetLiteral`, the double-quoted writer, migrate's value and sugar edits, and its read-back check, in all four bindings. Explain, migrate's lost message and the `lost` field docs in all four.
+	- Verified: same gate list as 2026100115403384, all run on this branch. cli-regress `ErUmRRd`, `ErUmRRe`, `ErUmRRg` to `ErUmRRi` and `ErUn2Bt` fail on dev at `5956ff4a`, and so do corpus 118, 122, 170 and 171.
+	- Note: 20261002, superseded by 2026100207032800. A backslash is plain text under the new rules, so `E024` goes, along with the `\u0009` and `\u000A` spellings. This work stays in the build until that item is built. Design: `project/design_docs/value-syntax.md`.
+	- Superseded by ID: 2026100207032800
+	- Branch: escblock
+	- Commit: c29f08fa
+	- Test case: corpus `171-windows-path-escape` (was `171-windows-path-hint`) with new `write.ops` rows and a `write-bad.ops`; cli-regress `path-escape-read`, `path-escape-strict`, `path-escape-set`, `path-escape-literal`, `path-escape-migrate-lost`, `migrate-from-2x-tab`; check-migrate `ErUuq8D`. The old `path-hint-*` rows are commented out.
+	- Acceptance signoff: 20261003, closed without a hand check: every case is pinned in all four bindings, its sibling 2026100115403384 was signed off from the same branch, and 2026100207032800 replaces this behavior anyway.
+	- Closed: 20261003-113243
+
 - `migrate --write` stamps its lines with LF in a CRLF file
 	- ID: 2026093019075904
 	- Type: Enhancement
@@ -2560,38 +2545,53 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Test case: none. The reload-parity fuzz and fixtures pin the behavior as it stands.
 	- Closed: 20260927-223316
 
-- `"C:\temp"` loads with a tab and only a hint says so
-	- ID: 2026100115323227
+- Windows paths are written three different ways
+	- ID: 2026100115323216
 	- Type: Enhancement
-	- Status: Done
-	- Needs local test suite run?: full `--ci` at the next main push, as for 2026100115403384.
-	- Priority: Low
+	- Status: Moot
+	- Priority: Avg
+	- Note: 20261002, superseded by 2026100207032800. With no backslash escapes, a backslash plays no part in choosing quotes, so nothing here is needed. Design: `project/design_docs/value-syntax.md`.
+	- Superseded by ID: 2026100207032800
+	- Test case: none. Nothing is built for it; the tests are under 2026100207032800.
 	- Opened: 20261001-153232
 	- Opened by: gitsby feedback
-	- Related IDs: 2026092616330237, 2026092617133293
 	- Version and build: dev at `b10c2009`
 	- Requirements:
-		- `p: "C:\temp"` reads as `C:`, a tab, `emp`, status Good, with `H004` at severity Hint.
-		- design.md keeps it a hint on purpose, since nothing about the text is wrong. Filed to look at that again from a consumer's side: the reason `"C:\work\new"` became `E023` was that "a hint reaches only a caller that reads diagnostics". A caller that lists only errors, as gitsby does, says nothing about `"C:\temp"`, and on Windows the path just never matches.
-		- Options: make `H004` an error where the value looks like a path, or leave it and say in the spec that a consumer reading paths should show hints.
+		- Today, `SetString` then `ToCanonical`:
+			- `~\dev\tools` -> `p: ~\dev\tools` (bare)
+			- `\\srv\share` -> `p: \\srv\share` (bare)
+			- `%USERPROFILE%\x` -> `p: %USERPROFILE%\x` (bare)
+			- `C:\work` -> `p: 'C:\work'`
+			- `C:\Bob's\new` -> `p: "C:\\Bob's\\new"`
+		- All read back right. The problem is the person who copies a line to type the next path. A bare one copied into double quotes, or a single-quoted one edited to hold an apostrophe, turns its backslashes into escapes.
+		- A value with a backslash always goes in single quotes, never bare.
+		- One single quotes can't hold (an apostrophe, a line break, a character written as `\u`) goes in double quotes with each backslash doubled, as now.
+	- Note: gitsby does this itself in `setValue` (`src-go/shcl.go`), through `SetLiteral` and a read-back check. It would drop that once the writer does it.
 	- Decisions:
-		- 20261001: an error, not a hint and not a note in the spec.
-		- 20261001, reversible: the `H004` condition became `E024`, retained exactly like `E023`: binds nothing, a read is NotFound, nothing counted lost, a save keeps it, and `SetLiteral` text holding it is refused. The lines under it load, per 2026100115403384. Names, selectors and paths with no drive or share stay out, as in 2026092617133293.
-		- 20261001, reversible: `H004` is retired and not reused. The design table lists it as retired; the spec and explain lists drop it.
-		- 20261001, reversible: the writer writes a tab or line break in such a value as `\u0009` or `\u000A`, so a setter or `fmt` never writes text that reloads as `E024`.
-		- 20261001, reversible: `migrate` writes a 2.x tab in such a value as a literal tab, which 2.x and 3.0 read alike. A 2.x line break there has no spelling both read alike, and a `\u` escape would change on a second `--from-2x` run, so the value is written the way 2.x read it, which is `E024`, and counted lost like bracket text (exit 7, `--lossy` overrides). check-migrate takes those lines out of its comparison, as it does the other two known edges, and asserts corpus 170 still has one.
-	- Progress log:
-		- 20261001: exit 7 on a 2.x line break in such a path follows the standing rule for hard 2.x edges: refuse rather than build machinery, and never damage a correct file at exit 0.
-		- 20261001: `"C:\work\new"` in a 2.x file used to migrate to `"C:\\work\new"` with a newline in it. It now migrates to that same text and exit 7, since that text is `E024`.
-	- Swept: the field and stacked element arms, `SetLiteral`, the double-quoted writer, migrate's value and sugar edits, and its read-back check, in all four bindings. Explain, migrate's lost message and the `lost` field docs in all four.
-	- Verified: same gate list as 2026100115403384, all run on this branch. cli-regress `ErUmRRd`, `ErUmRRe`, `ErUmRRg` to `ErUmRRi` and `ErUn2Bt` fail on dev at `5956ff4a`, and so do corpus 118, 122, 170 and 171.
-	- Note: 20261002, superseded by 2026100207032800. A backslash is plain text under the new rules, so `E024` goes, along with the `\u0009` and `\u000A` spellings. This work stays in the build until that item is built. Design: `project/design_docs/value-syntax.md`.
+		- 20261001: single quotes for a value with a backslash, since they stop escaping. A Windows path can hold a `'`, which single quotes can't, so that one goes in double quotes with each backslash doubled. Same for canonical output, so `fmt` too.
+		- 20261002: closed as Moot. A backslash is plain text under 2026100207032800.
+	- Closed: 20261002-184515
+
+- No way to ask a setter for single quotes
+	- ID: 2026100115323222
+	- Type: Enhancement
+	- Status: Moot
+	- Priority: Low
+	- Note: 20261002, superseded by 2026100207032800. With no backslash escapes, a backslash plays no part in choosing quotes, so nothing here is needed. Design: `project/design_docs/value-syntax.md`.
 	- Superseded by ID: 2026100207032800
-	- Branch: escblock
-	- Commit: c29f08fa
-	- Test case: corpus `171-windows-path-escape` (was `171-windows-path-hint`) with new `write.ops` rows and a `write-bad.ops`; cli-regress `path-escape-read`, `path-escape-strict`, `path-escape-set`, `path-escape-literal`, `path-escape-migrate-lost`, `migrate-from-2x-tab`; check-migrate `ErUuq8D`. The old `path-hint-*` rows are commented out.
-	- Acceptance signoff: 20261003, closed without a hand check: every case is pinned in all four bindings, its sibling 2026100115403384 was signed off from the same branch, and 2026100207032800 replaces this behavior anyway.
-	- Closed: 20261003-113243
+	- Test case: none. Nothing is built for it; the tests are under 2026100207032800.
+	- Opened: 20261001-153232
+	- Opened by: gitsby feedback
+	- Related IDs: the old-format item "A save that edits only the lines that changed", whose 20260925 decision keeps `fmt`'s canonical quoting
+	- Version and build: dev at `b10c2009`
+	- Requirements:
+		- `SetLiteral("p", "'C:/work'")` reads back `C:/work`, then writes `p: "C:/work"`. So does `'a#b'`. A single quote survives only when the value holds a backslash.
+		- A setter option, or a `SetLiteral` that keeps a quote style that reads back the same, so a program can write single quotes where the value allows.
+		- Not a reopen of the 20260925 decision. `fmt` keeps its canonical quoting; this is only for a program setting a value.
+	- Decisions:
+		- 20261001, from the answer on 2026100115323216: single quotes are the go-to for stopping escapes, when the string holds no `'`.
+		- 20261002: closed as Moot. No setter options. A setter that overwrites a value keeps its quote kind when it can, and `SetLiteral` takes any quotes as written.
+	- Closed: 20261002-184515
 
 ## Old format
 
