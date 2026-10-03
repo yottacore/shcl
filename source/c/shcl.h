@@ -8330,6 +8330,7 @@ void shcl_compact(shcl_doc *d) {
 	if (d->has_source) n->source = s_dup(a, d->source);
 	n->strictness = d->strictness;
 	n->lost = d->lost;
+	n->kept_owed = d->kept_owed;
 	n->kept = d->kept;
 	n->probe_doc = d->probe_doc;
 	/* Every node has a new number, so what the last settle recorded names

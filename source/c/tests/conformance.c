@@ -1951,6 +1951,19 @@ int main(int argc, char **argv) {
 		shcl_free(kd);
 		remove(kfile); rmdir(kdir);
 	}
+	// A compaction rebuilds the document, so it carries the kept-line count
+	// with the lost count, or a compacted document never refuses. C only.
+	test_id("EreZ0ar", "compact_keeps_the_kept_line_count");
+	{
+		const char *kbase = "x: 1\nr: [1, 2]\ny: 3\n";
+		shcl_doc *cd = shcl_parse(kbase, strlen(kbase));
+		shcl_compact(cd);
+		ShclVecSize *ck = &cd->nodes.data[0].children;
+		ShclTrivia *cy = cd->nodes.data[ck->data[ck->len - 1]].trivia;
+		if (cy && cy->leading.len) cy->leading.len--;
+		if (shcl_lost_count(cd) != 1) fail("kept_gate", "a compacted document lost a kept line and did not count it");
+		shcl_free(cd);
+	}
 	// design.md's table: a remove takes the kept line written as the field's own
 	// line, and nothing beside it.
 	test_id("EreWli7", "a_remove_takes_the_kept_line_heading_its_field");
