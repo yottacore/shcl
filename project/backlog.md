@@ -51,6 +51,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Origin: kept lines as trivia came with `b216ad2b` (funnel, 2026-09-07), and rs-base does the same. For the `"C:\temp"` spelling it is a regression from `3ef0bc8c` (escblock): base kept that line as an H004 hint and the remove left it. Not seen by an earlier round. Backlog item 2026092620255202 is the same class for `clear-comments`. Confirmed.
 	- Note: 2026100207032800 makes more lines kept, a bare value with spaces among them, so this gets wider once that goes in.
 	- Sweep: every edit that drops or moves a node's trivia in all four: `remove`, the merge's replaced leaf, the setters that replace a node.
+	- Note: 20261003, from 2026100307310000. The save gate now counts kept lines, so the repro exits 7 and leaves the file alone, in all four. cli-regress `EreYYXK` (`save-kept-remove`) pins that; this fix turns it into exit 0 with `r: [1, 2]` kept. The kept-lines property `EreT6dh` skips this class through its row keyed by this ID, and the fix takes the row out. Up to 2,000,000 runs, only `remove` hit it; no setter or merge did.
 	- Estimated effort: Avg
 
 - A field line refused for its name that opens a raw block has its body read as fields, and `fmt --write` scrambles the file at exit 0
@@ -71,6 +72,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Possible cause: the E014 arm moves on one line without taking the block, and the `line_fault` arm, which takes E023 in a name, does the same. `skip_field_line` does not help as written, since `line_fence` returns nothing on a faulted token list.
 	- Origin: older than the range. The 20260918 and 20260918b rounds declined the E014 fence run on the belief that the closing fence hides the rest of the file at E005, so a save refuses. This repro saves at exit 0, and the 2026-10-02 rule that an error never throws out good lines came after. Item 2026100117214801 is the E023 half of the same class. Confirmed.
 	- Note: a fix wants the whole class from 20260918b: a kept or refused line on which the tokenizer can still see a fence run takes its body. 801 would close with it.
+	- Note: 20261003, from 2026100307310000. The kept-lines property `EreT6dh` skips this class through its row keyed by this ID, and the fix takes the row out. The save gate counts one kept line per retained outcome, so whatever the body becomes, the load must still hold one kept line for each, or a plain `fmt --write` refuses.
 	- Estimated effort: Avg
 
 - `check` can take its Schema line from inside a raw block and validate against the wrong schema at exit 0
@@ -313,6 +315,10 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- design.md gets a rule table: each edit and what it does with the kept lines beside and under its target.
 	- Note: best done before the fixes for items 1, 2 and 7 of the same round, so the property tests them.
 	- Estimated effort: Avg
+	- Progress log:
+		- 20261003: built. The save gate counts kept lines in all four bindings, and a C compaction keeps the count. The property holds items 1, 2 and 7 as open rows and found no other class up to 2,000,000 runs. No existing test had to change.
+	- Branch: `keptgate`
+	- Test case: `EreT6dh` (`kept_lines_survive_edits`, fuzz_smoke.rs); per binding `kept_gate` tests `EreRyr7`, `EreUeCs`, `EreRysn` (Rust), `EreUzvf`, `EreUzxY`, `EreUzzO` (Go), `EreVRei`, `EreVRgk`, `EreVRis` (Python), `EreWlg6`, `EreWli7`, `EreWlk5`, `EreZ0ar` (C); cli-regress `EreYYXK`; crosscheck `EreXO4J`.
 
 - `migrate --check` exits 6 and `--write` keeps a needless copy when a CRLF file has no final newline
 	- ID: 2026100307163906
@@ -351,6 +357,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Possible cause: the lazily opened node outlives its last child, and `heads_block` needs at least one child, so the writer puts out the kept line and then a bare `a:`.
 	- Origin: `3ef0bc8c` (escblock), new since the last round. Not the trigger of 2026100213205957, which is the load; this one is an edit. Confirmed.
 	- Note: 20261003, `set f.shcl --set a=5` on the same file writes a second line, `a: 5`, after the kept `a: [1]`, with `b` under the new one. Once the first line is fixed, `a` reads as Multiple the same way. Same class, found while designing 2026100307310000. Confirmed on dev at `1e2e4210`, Rust CLI.
+	- Note: 20261003, from 2026100307310000. The kept-lines property `EreT6dh` skips this class through its row keyed by this ID, and the fix takes the row out.
 	- Estimated effort: Low
 
 - The dogfood runner drops quotes and empty arguments under Windows PowerShell 5.1
