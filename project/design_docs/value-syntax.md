@@ -4,9 +4,11 @@
 <!-- markdownlint-disable MD055 -- Table pipe style [Expected: leading_and_trailing; Actual: leading_only; Missing trailing pipe] -->
 <!-- markdownlint-disable MD041 -- First line in a file should be a top-level heading -->
 <!-- TOC ignore:true -->
-# Strings, escapes and arrays
+# Value syntax
 
 Status: draft, not built yet. Target: format 3, before the `v3.0.0-beta1` cut. Until it is built, `spec.md` describes what the code does today, and this document wins wherever the two disagree about where the format is going.
+
+Scope: escapes, quoting, bare values and field names, arrays, list items and selectors. Between them they decide how nearly every line in a file is read.
 
 <!-- TOC ignore:true -->
 ## Table of contents
@@ -47,13 +49,15 @@ Status: draft, not built yet. Target: format 3, before the `v3.0.0-beta1` cut. U
 
 - A backslash is plain text everywhere. `"C:\temp"` is a path, not `C:`, a tab and `emp`.
 
-- An escape is a name between two `◉` characters, from a short fixed list: `◉NEWLINE◉`, `◉TAB◉`, `◉U_200B◉`. Anything else between two `◉` is an error.
+- An escape is a name between two `◉` characters, from a short fixed list under [escape list](#escape-list), such as `◉NEWLINE◉`, `◉TAB◉`, `◉U+200B◉`. Anything between `◉` but not in [escape list](#escape-list) is an error.
 
-- A bare value can't contain whitespace. `title: My App` is an error, and `title: "My App"` is the fix.
+- A bare value can't contain whitespace or a quote. `title: My App` and `name: O'Brien` are errors, and `title: "My App"` and `name: "O'Brien"` are the fix.
+
+- A bare field name starts with a letter. Any other name is quoted.
 
 - Arrays are written in brackets, `ports: [80, 443]`, or one item per line with `- `.
 
-- Backticks wrap a value the program decodes itself, such as `` `#FF8800` `` or `` `\x7F` ``. SHCL hands back the text between the backticks as is.
+- Backticks wrap a raw value the program decodes itself, such as `` `#FF8800` `` or `` `\x7F` ``. SHCL hands back the text between the backticks as is.
 
 - Every mistake is a loud error on its own line. The rest of the file still loads, and a save keeps the bad line as written.
 
@@ -73,9 +77,12 @@ The rules in short. The reasons are under [Design](#design).
 	- A piece is one bare value or array element, one quoted string, one quoted field name or one selector body.
 	- A real `◉` is written `◉ESCAPE_CHAR◉`.
 
-- Whitespace in a bare value, a bare array element or a bare selector body is `E025`.
+- Whitespace or a quote in a bare value, a bare array element or a bare selector body is `E025`.
 	- Whitespace means a space, a tab, a carriage return, and every other character Unicode lists as `White_Space`.
 	- Whitespace at the start and end is trimmed first, so `port: 80   # main` is fine.
+	- A quote means `'`, `"` or a backtick, anywhere in the piece.
+
+- A bare field name starts with an ASCII letter, then has only ASCII letters, digits, `-` and `_`. Anything else is `E014`, as a bad name is today. A quoted name can be any text.
 
 - Single and double quotes work the same way. Each one can contain the other kind of quote as plain text.
 
@@ -89,11 +96,11 @@ The rules in short. The reasons are under [Design](#design).
 
 | Text                           | `◉` escapes | Whitespace inside | Notes
 | :---                           | :---        | :---              | :---
-| Bare value or array element    | yes         | no                | `E025` on whitespace
+| Bare value or array element    | yes         | no                | `E025` on whitespace or a quote
 | Single or double quoted string | yes         | yes               | Either quote can contain the other
 | Backtick value                 | no          | yes               | Values and array elements only
-| Bare field name                | no          | no                | Letters, digits, `-` and `_`, as today
-| Quoted field name              | yes         | yes               | The same field as any other spelling of it
+| Bare field name                | no          | no                | A letter, then letters, digits, `-` and `_`
+| Quoted field name              | yes         | yes               | `"user name"`, `"Straße"`, `"404"`. The same field as any other spelling of it
 | Selector body                  | yes         | quoted only       | Same rules as a value
 | Comment                        | no          | yes               | A `◉` is plain text
 | Raw block body and fence label | no          | yes               | A `◉` is plain text
@@ -112,6 +119,7 @@ The writer always uses the first name. The others are read as aliases.
 | `◉VT◉`           | `◉VERTICAL_TAB◉`, `◉VERTICALTAB◉`                                                 | U+000B
 | `◉FF◉`           | `◉FORM_FEED◉`, `◉FORMFEED◉`                                                       | U+000C
 | `◉CR◉`           | `◉CARRIAGERETURN◉`, `◉CARRIAGE_RETURN◉`                                           | U+000D
+| `◉CRLF◉`         | `◉CARRIAGERETURN_LINEFEED◉`, `◉CARRIAGE_RETURN_LINE_FEED◉`                        | U+000D U+000A
 | `◉ESC◉`          | `◉ESCAPE◉`                                                                        | U+001B
 | `◉DEL◉`          | `◉DELETE◉`                                                                        | U+007F
 | `◉SPACE◉`        | none                                                                              | U+0020
@@ -119,9 +127,9 @@ The writer always uses the first name. The others are read as aliases.
 | `◉DOUBLE_QUOTE◉` | `◉DQUOTE◉`, `◉D_QUOTE◉`, `◉DOUBLEQUOTE◉`                                          | `"`
 | `◉BACK_TICK◉`    | `◉BACKTICK◉`, `◉TICK◉`                                                            | `` ` ``
 | `◉ESCAPE_CHAR◉`  | `◉FISHEYE◉`                                                                       | `◉`, U+25C9
-| `◉U_XXXX◉`       | `U`, `U+`, `U-`, `UNICODE`, `UNICODE_`, `UNICODE+` or `UNICODE-` in place of `U_` | The character at that hex code point
+| `◉U+XXXX◉`       | `U`, `U_`, `U-`, `UNICODE`, `UNICODE_`, `UNICODE+` or `UNICODE-` in place of `U+` | The character at that hex code point
 
-- `◉U_XXXX◉` takes one to six hex digits, up to `10FFFF`. A surrogate, `D800` to `DFFF`, is `E023`.
+- `◉U+XXXX◉` takes one to six hex digits, up to `10FFFF`. A surrogate, `D800` to `DFFF`, is `E023`.
 
 - There are no hex byte or octal escapes. See [Rejected](#rejected).
 
@@ -135,8 +143,9 @@ The code numbers are provisional until the change is built. "Value only" means t
 | `E017` | A quote or backtick that opens a piece and does not close it as its last character | Retained, value only. It used to bind, read bare.
 | `E019` | A bracket array that is not well formed                                            | Retained, value only
 | `E023` | A bad `◉` escape                                                                   | Retained. Value only when it sits in the value.
+| `E014` | Now also a bare field name that doesn't start with a letter, such as `-x: y`       | Retained, as today
 | `E024` | Retired. A Windows path with `\t` or `\n` in it is just text now                   | None
-| `E025` | Whitespace in a bare value, bare array element or bare selector body               | Retained. Value only when it sits in the value.
+| `E025` | Whitespace or a quote in a bare value, bare array element or bare selector body    | Retained. Value only when it sits in the value.
 | `E026` | A bare comma outside brackets and quotes, such as `ports: 80, 443`                 | Retained, value only
 | `E027` | A list item that is a bare name ending in `:`, such as `- name:`                   | Retained
 | `E028` | An array value on a field that has lines under it                                  | Retained, value only
@@ -165,7 +174,8 @@ Quoted text inside an array is just a string, so `["[a]", "b"]` is two strings.
 | `title: My◉SPACE◉App`         | `My App`                         | An escape works bare too
 | `msg: "line one◉NEWLINE◉two"` | two lines                        | An escape in quotes
 | `msg: "say ◉HELLO◉"`          | `E023`                           | Not on the list
-| `name: O'Brien`               | `O'Brien`                        | A quote mid-value is text
+| `name: O'Brien`               | `E025`                           | A quote in a bare value
+| `name: "O'Brien"`             | `O'Brien`                        | Quoted
 | `q: 'He said "hi"'`           | `He said "hi"`                   | The other quote is text
 | `ports: [80, 443]`            | two elements                     | The array spelling
 | `ports: 80, 443`              | `E026`                           | Arrays need brackets
@@ -173,6 +183,9 @@ Quoted text inside an array is just a string, so `["[a]", "b"]` is two strings.
 | `log: "[INFO] started"`       | `[INFO] started`                 | Quoted text
 | `` color: `#FF8800` ``        | `#FF8800`, flagged as backticked | The program decodes it
 | `when: "Jul 12 2026"`         | a date                           | Typed reads still work on quoted text
+| `when: Jul-12-2026`           | a date                           | No space, so no quotes needed
+| `404: not-found.html`         | `E014`                           | A bare name starts with a letter
+| `"404": not-found.html`       | field `404`                      | Quoted
 
 ## Goals
 
@@ -287,17 +300,24 @@ Quoted text inside an array is just a string, so `["[a]", "b"]` is two strings.
 	- The writer already quoted any value with whitespace, so a file `fmt` wrote is already legal.
 	- This reverses "Quotes are optional" in `spec.md`. A hand-typed `title: My App` is now an error, accepted as the price of one reading per line.
 
-- A quote in the middle of a bare value is text: `O'Brien`, `a"b`.
+- A quote anywhere in a bare value is `E025` too: `O'Brien` and `a"b` are errors, and `"O'Brien"` and `'a"b'` are the fix.
+	- A quote mid-value used to be text, which left a person guessing whether it opened a string.
+	- The same goes for a backtick.
 
 - A piece that starts with a quote must end with the matching quote. Otherwise it is `E017`, and the line is now refused instead of read bare, since a bare reading would break the whitespace rule.
 
 - Single and double quotes differ only in which quote each can contain.
 	- `'He said "hi"'` and `"it's"` need no escapes.
-	- A string with both uses `◉DOUBLE_QUOTE◉` or `◉SINGLE_QUOTE◉`.
+	- A string with both should use `◉DOUBLE_QUOTE◉` and/or `◉SINGLE_QUOTE◉`.
 
-- Dates, times, durations and sizes with spaces need quotes now: `"Jul 12 2026"`, `"2:30 PM"`, `"1h 30m"`, `"1.5 GiB"`. Typed reads don't care about the quotes, as before.
+- Dates, times, durations and sizes with spaces need quotes now: `"Jul 12 2026"`, `"2:30 PM"`, `"1h 30m"`, `"1.5 GiB"`. Without the spaces they stay bare: `Jul-12-2026`, `2:30PM`, `1h30m`, `1.5GiB`. Typed reads don't care about the quotes, as before.
 
-- Quoted field names follow the same rules, and resolve `◉` escapes, so `"a◉DOUBLE_QUOTE◉b"` and `'a"b'` name the same field. Bare names are unchanged.
+- A bare field name starts with an ASCII letter.
+	- That is the usual rule for names in programming languages, and it keeps a name from being read as a number or a list item.
+	- `-x: y`, `404: x` and `_id: 7` are `E014`. Quote them: `"404": x`.
+	- A name that starts with a letter is unchanged.
+
+- Quoted field names follow the same rules as quoted values, and resolve `◉` escapes, so `"a◉DOUBLE_QUOTE◉b"` and `'a"b'` name the same field.
 
 ### Backtick values
 
@@ -309,11 +329,11 @@ Quoted text inside an array is just a string, so `["[a]", "b"]` is two strings.
 	- `` `&#x27` ``, `` `&quot` ``, `` `&#9673` ``
 	- `` `'` ``, `` `"` ``, `` `$` ``
 
-- SHCL never decodes the text. A read returns exactly what is between the backticks, plus a flag saying it was backticked, the way the `quoted` flag works today. The program decides what `\x7F` means.
+- SHCL never decodes the text inside backticks. A read returns exactly what is between the backticks, plus a flag saying it was backticked, the way the `quoted` flag works today. The program decides what `\x7F` means.
 
 - Single and double quotes are not aliases for backticks. `"\x7F"` is the four characters `\`, `x`, `7`, `F`, and so is `` `\x7F` ``. Only the flag differs.
 
-- The text is raw: no escapes, and `#`, `,`, `[` and whitespace are all plain text.
+- The text is raw: no escapes, and `◉`, `#`, `,`, `[` and whitespace are all plain text.
 
 - A backtick value can't contain a backtick. Three backticks open a fence, so there is no way to spell one.
 
@@ -359,12 +379,12 @@ Quoted text inside an array is just a string, so `["[a]", "b"]` is two strings.
 - That reads the same as `sizes: [small, "extra large", "Bond, James"]`.
 
 - The marker is `-` then whitespace. The whitespace is required.
-	- `-x: y` is a field whose name starts with a dash, since a bare name never contains whitespace.
+	- `-x: y` is `E014`, since a bare name starts with a letter.
 	- `-5` alone on a line has no colon, so it was never a legal line. `- -5` is the item `-5`.
 
 - Each item is one value and follows the value rules. `- extra large` is `E025`.
 
-- `- name:` is `E027`. That is how YAML starts an object in a list, and SHCL spells that with instances.
+- `- name:` is `E027`. That is how YAML starts an object in a list, and SHCL does that with instances.
 	- `- name: value` is already `E025`, for the space.
 	- `- localhost:8080` is fine. The rule is a bare name ending in a colon, not any colon.
 
@@ -380,7 +400,7 @@ Quoted text inside an array is just a string, so `["[a]", "b"]` is two strings.
 
 - A selector matches one plain value: `base[Boston]`, `base["New York"]`.
 	- The old match by display form, where `base[Boston, MA]` found the array value `Boston, MA`, is gone.
-	- A bare selector body follows the bare value rules, so `base[New York]` is `E025`.
+	- A bare selector body follows the bare value rules, so `base[New York]` and `srv[O'Brien]` are `E025`.
 
 ### Errors and kept lines
 
@@ -392,7 +412,7 @@ Quoted text inside an array is just a string, so `["[a]", "b"]` is two strings.
 	- This is the rule from 2026100115403384. Without it, one typo in a value takes its whole block with it.
 	- The full outcome rules for every code are in `design.md` under Load outcomes.
 
-- Known bug, 2026100213205957: two value-only refusals, one nested under the other.
+- Bug 2026100213205957, fixed: two value-only refusals, one nested under the other.
 
 	~~~text
 	a: My App
@@ -400,10 +420,10 @@ Quoted text inside an array is just a string, so `["[a]", "b"]` is two strings.
 	~~~
 
 	- Both lines are errors, which is right.
-	- Since nothing binds, `a` never exists, and the save writes `b: x y` at column 0.
-	- When the quotes are added, `b` reads as a top-level field, not `a.b`.
-	- Expected: the save writes `b` back under `a`, where it was.
-	- The fuzz property: a kept line reloads at the same path, under the same parent lines, after both a canonical and a line-keeping save, in all four bindings.
+	- Since nothing binds, `a` never exists, and the save used to write `b: x y` at column 0. Once the quotes were added, `b` read as a top-level field, not `a.b`.
+	- The save now writes `b` back under `a`, where it was.
+	- A fuzz property holds it: a kept line reloads at the same path, under the same parent lines, after both a canonical and a line-keeping save.
+	- A comment between the two is still written at column 0. It should nest too, under 2026100218185700.
 
 - These errors become far more common than `E023` and `E024` were, since a bare value with a space is a very common hand-typed line. That makes the kept-line rules and the bug above more important, not less.
 
@@ -413,10 +433,10 @@ What the writer and `fmt` produce. The line-keeping save still writes unchanged 
 
 - A value is written bare when it has no whitespace, none of `,` `:` `#` `"` `'` `` ` `` `[` `]` `◉`, and nothing that needs an escape. Otherwise it is quoted.
 
-- The author's quotes on a plain string are kept, as today.
+- The user's quotes on a plain string are kept, as today.
 	- Quoting used to be pure spelling, normalized away, which silently took the quotes off values a downstream language treats as special, such as `"@null"` or a quoted function name. The `quoted` read flag exists for that case.
 	- `ver: "8"` still becomes `ver: 8`, since readers type the value either way.
-	- A number with a leading zero keeps its quotes, as today: `zip: "02134"`.
+	- A number with a leading zero keeps its quotes, as today: `zip: "02134"`. The quotes don't stop a typed read, so a program that reads `zip` as an int gets 2134. Knowing a zip code isn't a number is up to the program.
 	- A data value whose bare spelling would break the whitespace rule keeps its quotes: `"Jul 12 2026"`, `"1h 30m"`.
 
 - Quote choice when the writer picks: double quotes, or single quotes when the text has a `"` and no `'`. Text with both goes in double quotes with `◉DOUBLE_QUOTE◉`. A backslash plays no part in the choice any more.
@@ -426,11 +446,11 @@ What the writer and `fmt` produce. The line-keeping save still writes unchanged 
 - Backtick values stay in backticks.
 
 - Escapes written:
-	- A line break is `◉NEWLINE◉`, and a carriage return is `◉CR◉`.
+	- A line break is `◉NEWLINE◉`, a carriage return is `◉CR◉`, and the pair of them is `◉CRLF◉`.
 	- A tab inside a quoted value is `◉TAB◉`, since a tab can't be told from spaces by eye. A literal tab in the input still reads as a tab.
 	- The other controls on the list are written by their canonical names.
 	- A real `◉` is `◉ESCAPE_CHAR◉`.
-	- Each hidden character, below, is `◉U_XXXX◉` with at least four hex digits in capitals.
+	- Each hidden character, below, is `◉U+XXXX◉` with at least four hex digits in capitals.
 
 - A kept line is written back exactly as it was.
 
@@ -438,7 +458,7 @@ What the writer and `fmt` produce. The line-keeping save still writes unchanged 
 
 ### Hidden characters
 
-Moved from `design.md`, with the escape spelling changed to `◉U_XXXX◉`.
+Moved from `design.md`, with the escape spelling changed to `◉U+XXXX◉`.
 
 - The writer escapes every character a reader could not see in an editor, so nothing hidden survives a save unnoticed.
 	- The list is the controls, the line and paragraph separators, the interlinear annotation marks U+FFF9 to U+FFFB, and every character Unicode 18.0 lists as `Default_Ignorable_Code_Point`, such as a zero-width space, a direction mark, an embedding, override or isolate, a soft hyphen, the byte order mark, a Hangul filler or a tag character.
@@ -458,17 +478,19 @@ Moved from `design.md`, with the escape spelling changed to `◉U_XXXX◉`.
 
 - `migrate` rewrites a 2.x file into the new rules. It writes each value the way 2.x read it.
 
-| Before                       | After
-| :---                         | :---
-| `"C:\\work"`                 | `"C:\work"`
-| `\t` and `\n` escapes        | `◉TAB◉` and `◉NEWLINE◉`
-| `\"` and `\'`                | The other quote kind, or `◉DOUBLE_QUOTE◉` and `◉SINGLE_QUOTE◉`
-| `\uXXXX`                     | The character, or `◉U_XXXX◉` when it is hidden
-| A bare value with whitespace | The same text, quoted
-| `a, b`                       | `[a, b]`
-| `* item`                     | `- item`
-| `* key: value`               | `- "key: value"`
-| A real `◉`                   | `◉ESCAPE_CHAR◉`
+| Before                          | After
+| :---                            | :---
+| `"C:\\work"`                    | `"C:\work"`
+| `\t` and `\n` escapes           | `◉TAB◉` and `◉NEWLINE◉`
+| `\"` and `\'`                   | The other quote kind, or `◉DOUBLE_QUOTE◉` and `◉SINGLE_QUOTE◉`
+| `\uXXXX`                        | The character, or `◉U+XXXX◉` when it is hidden
+| A bare value with whitespace    | The same text, quoted
+| A bare value with a quote       | The same text, quoted
+| A bare name not led by a letter | The same name, quoted
+| `a, b`                          | `[a, b]`
+| `* item`                        | `- item`
+| `* key: value`                  | `- "key: value"`
+| A real `◉`                      | `◉ESCAPE_CHAR◉`
 
 - Bracket text after a colon in a 2.x file is still counted lost, as now. That is exit 7, and `--lossy` overrides it.
 
@@ -559,7 +581,7 @@ Not looked at in any depth:
 	- `⍟`, U+235F, from the APL block. Very rare in text, but some fonts lack it.
 	- `¤`, U+00A4. In every font and every old 8-bit character set, but ICU currency patterns use it, as in `"¤#,##0.00"`.
 
-- Hex and octal escapes in strings, `◉x41◉` and `◉OCT_101◉`. Half of readers would expect a number and half a character. In a string the parser has to build text, so a hex byte would have to be a code point anyway. `◉U_...◉` covers characters, and a backtick value covers anything a program wants to decode itself.
+- Hex and octal escapes in strings, `◉x41◉` and `◉OCT_101◉`. Half of readers would expect a number and half a character. In a string the parser has to build text, so a hex byte would have to be a code point anyway. `◉U+...◉` covers characters, and a backtick value covers anything a program wants to decode itself.
 
 - SHCL decoding backtick values. The examples mix C escapes, HTML entities, a CSS color and plain characters, and no one decoder fits all of them. Decoding `\x7F` would also bring backslash escapes back, in four bindings.
 
@@ -589,7 +611,7 @@ What the build has today, and what replaces it.
 
 - The inline comma array, `tags: red, green, blue`, and its leniency: empty elements dropped, and a value of only commas read as the empty array. Replaced by brackets, where an empty element is an error.
 
-- `*` as the stacked list marker, decision 36. `-` had been turned down because of negative numbers and field names that start with a dash. Requiring whitespace after the dash settles both, and `- ` is what people already know from YAML and Markdown.
+- `*` as the stacked list marker, decision 36. `-` had been turned down because of negative numbers and field names that start with a dash. Requiring whitespace after the dash, and a letter at the start of a bare name, settles both, and `- ` is what people already know from YAML and Markdown.
 
 - The hint `H003`, for a `*` item spelled like a field. That case is an error now.
 
@@ -626,7 +648,7 @@ What the build has today, and what replaces it.
 	- `spec.md`, `grammar.abnf`, and `design.md` under Lexical edges and Load outcomes.
 	- Corpus cases and goldens. Most goldens change, since arrays and quoting change.
 	- CLI help showing the quoted form for `--set-literal`: `--set-literal 'title="My App"'`.
-	- The fix for 2026100213205957 and its fuzz property.
+	- Comments nesting under kept lines, 2026100218185700.
 
 3. Then cut `v3.0.0-beta1`.
 
@@ -645,7 +667,8 @@ Open points, each with a proposed answer:
 | ID               | Title                                                                                         | Relation
 | :---             | :---                                                                                          | :---
 | 2026100207032800 | No '\' escapes                                                                                | This design
-| 2026100213205957 | A kept line under a kept value-only line is saved at column 0                                 | Open bug, fixed with this
+| 2026100213205957 | A kept line under a kept value-only line is saved at column 0                                 | Fixed
+| 2026100218185700 | A comment between nested kept lines is written at column 0                                    | Open bug, fixed with this
 | 2026100115403384 | A bad escape on a line that opens a block drops the whole block                               | The lazy level. Stays.
 | 2026100115323227 | `"C:\temp"` loads with a tab and only a hint says so                                          | Superseded. `E024` goes.
 | 2026100115323216 | The writer spells Windows paths three different ways                                          | Superseded
