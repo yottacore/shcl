@@ -3729,11 +3729,11 @@ static void fold_dups_from(ShclParser *P, size_t start) {
    starts a new chain; for a deeper one, one level under the nearest comment
    before it whose indent its own extends, level with one it equals, or at the
    place's level when there is none. depth_chain holds those comments' indents
-   with their depths, innermost last. A field line kept for what it spells goes
-   by the same rule over held_chain, the kept lines before it: it holds its
-   level on a reload, so it goes deeper only under one of those, which a reload
-   holds open for it. A misplaced line, which carries its own indent, sits at
-   the place's level and leaves both alone. */
+   with their depths, innermost last. A field line kept for its value or name
+   goes by the same rule over held_chain, the kept lines before it: it holds
+   its level on a reload, so it goes deeper only under one of those, which a
+   reload holds open for it. A misplaced line, which carries its own indent,
+   sits at the place's level and leaves both alone. */
 static size_t comment_depth(ShclParser *P, ShclStr base, ShclStr text, ShclStr indent) {
 	ShclVecDepth *chain = text.n && text.p[0] == '#' ? &P->depth_chain : &P->held_chain;
 	ShclDepthEnt e; e.indent = indent; e.depth = 0;
@@ -4234,7 +4234,7 @@ static ShclFence line_fence(const ShclTokens *tok, ShclStr rest) {
 	return fence_open(tok->capped ? s_trim_wsp(s_slice(rest, tok->value_start, rest.n)) : s_slice(rest, tok->value_start, tok->value_end));
 }
 
-/* Why a field line that scanned is refused for what it spells, before the
+/* Why a field line that scanned is refused for its value, before the
    element cap: bracket text, a bad escape, or a value that starts like a
    Windows path and holds a \t or \n escape. The code, or NULL. */
 static const char *line_fault(ShclArena *a, const ShclTokens *tok, ShclStr text, ShclStr *msg) {

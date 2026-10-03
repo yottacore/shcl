@@ -392,7 +392,7 @@ impl Lead {
 /// nearest comment before it whose indent its own extends, level with one it
 /// equals, or at the place's level when there is none. `chain` holds those
 /// comments' indents with their depths, innermost last. A field line kept
-/// for what it spells goes by the same rule over `held`, the kept lines
+/// for its value or name goes by the same rule over `held`, the kept lines
 /// before it: it holds its level on a reload, so it goes deeper only under
 /// one of those, which a reload holds open for it. A misplaced line, which
 /// carries its own indent, sits at the place's level and leaves both alone.
@@ -2557,7 +2557,7 @@ fn escape_msg(c: char) -> String {
 	)
 }
 
-/// Why a field line that scanned is refused for what it spells, before the
+/// Why a field line that scanned is refused for its value, before the
 /// element cap: bracket text, a bad escape, or a value that starts like a
 /// Windows path and holds a `\t` or `\n` escape.
 fn line_fault(tok: &Tokens, text: &str) -> Option<(&'static str, String)> {
