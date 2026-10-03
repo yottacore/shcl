@@ -221,8 +221,9 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Estimated effort: Avg
 	- Progress log:
 		- 20261003: built. The save gate counts kept lines in all four bindings, and a C compaction keeps the count. The property holds items 1, 2 and 7 as open rows and found no other class up to 2,000,000 runs. No existing test had to change.
+		- 20261003, review round 1: each binding tests the two kept lines a merge may drop. The refusal reads "this write would delete N line(s)/value(s) from the file" in the four CLIs and the library errors (answered 2026-10-03). The property picks the lines a merge may drop by where they sit, not by text (answered 2026-10-03).
 	- Branch: `keptgate`
-	- Test case: `EreT6dh` (`kept_lines_survive_edits`, fuzz_smoke.rs); per binding `kept_gate` tests `EreRyr7`, `EreUeCs`, `EreRysn` (Rust), `EreUzvf`, `EreUzxY`, `EreUzzO` (Go), `EreVRei`, `EreVRgk`, `EreVRis` (Python), `EreWlg6`, `EreWli7`, `EreWlk5`, `EreZ0ar` (C); cli-regress `EreYYXK`; crosscheck `EreXO4J`.
+	- Test case: `EreT6dh` (`kept_lines_survive_edits`, fuzz_smoke.rs); per binding `kept_gate` tests `EreRyr7`, `EreUeCs`, `EreRysn` (Rust), `EreUzvf`, `EreUzxY`, `EreUzzO` (Go), `EreVRei`, `EreVRgk`, `EreVRis` (Python), `EreWlg6`, `EreWli7`, `EreWlk5`, `EreZ0ar` (C); the merge's two exceptions `ErfGoMI`, `ErfGoMJ` (Rust), `ErfGoMK`, `ErfGoML` (Go), `ErfGoMM`, `ErfGoMN` (Python), `ErfGoMO`, `ErfGoMP` (C); cli-regress `EreYYXK`; crosscheck `EreXO4J`.
 
 - `migrate --check` exits 6 and `--write` keeps a needless copy when a CRLF file has no final newline
 	- ID: 2026100307163906
