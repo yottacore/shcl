@@ -555,6 +555,62 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Origin: `84ceff51` (2026-08-30) for the man line. The installer was right; the claim and the lookup were not. Confirmed.
 	- Estimated effort: Low
 
+- The C header's comment on the save result still says the save refuses only over what the load dropped
+	- ID: 2026100313174973
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261003-131749
+	- Opened by: the review of 2026100307310000, round 1 (F7)
+	- Parent ID: 2026100307310000
+	- Version and build: dev at `e74c95bd`
+	- Incorrect behavior: `source/c/shcl.h` line 257, above the save result enum, says "Save refuses while the load dropped content the write would silently delete". The Rust, Go and Python twins now say the save would delete content from the file, since the count includes kept lines an edit lost.
+	- Expected behavior: the C comment says the same as the other three.
+	- Estimated effort: Low
+
+- design.md's kept-line table puts the merge's replaced-leaf exception in the wrong column
+	- ID: 2026100313174974
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261003-131749
+	- Opened by: the review of 2026100307310000, round 1 (F8)
+	- Parent ID: 2026100307310000
+	- Version and build: dev at `e74c95bd`
+	- Incorrect behavior: in "Kept lines under edits", the row for the base's lines in a merge has the replaced-leaf exception under "Under the target", and "Beside the target" says "stays". A leaf has nothing under it. The line the exception takes is the leaf's leading comment, which the table's own definition puts beside the target. Test `ErfGoMI` is that case: `# a: 5` above `b: 1` goes when a layer replaces `b`.
+	- Expected behavior: the row says a settled line among a replaced leaf's own comment lines goes, in the column that holds them. The bullet under the table already has it right.
+	- Estimated effort: Low
+
+- README, the man page and the UI guide say a save refuses only over lines the load dropped
+	- ID: 2026100313174975
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261003-131749
+	- Opened by: the review of 2026100307310000, round 1
+	- Parent ID: 2026100307310000
+	- Version and build: dev at `e74c95bd`
+	- Incorrect behavior: all three describe the refusal as over a line the load dropped. Since 2026100307310000 it also refuses when an edit would lose a kept line. Incomplete, not wrong. None quotes the message, so they were left alone with the Q1 wording change.
+	- Expected behavior: they say the save refuses when the write would delete lines or values from the file, whatever the cause.
+	- Estimated effort: Low
+
+- A crosscheck run aborted the Python CLI with exit 134 under load
+	- ID: 2026100313174976
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261003-131749
+	- Opened by: found while working 2026100307310000
+	- Parent ID: 2026100307310000
+	- Version and build: `keptgate` before review round 0
+	- Steps to reproduce:
+		- `crosscheck.bash` over the conformance corpus while cppcheck runs beside it, load about 20.
+	- Incorrect behavior: 8 Python reads failed with the Python CLI exiting 134. A rerun at `CPU_CAP=4` was green.
+	- Expected behavior: no abort, or a clear error the crosscheck reports as such.
+	- Reproduced: No. Seen once; its stderr was not kept.
+	- Possible cause: a fatal interpreter error under memory pressure rather than shcl code. Unconfirmed.
+	- Estimated effort: Low
+
 - `explain` on a retired code could name the code that replaced it
 	- ID: 2026100307163917
 	- Type: Enhancement
@@ -582,6 +638,23 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Requirements:
 		- The script's header says it relies on `--atomic`, or the recipe's check after the push fails loudly.
 		- The tag must point at a commit whose version is the cut's.
+
+- The kept-line property's merge step has two loose ends
+	- ID: 2026100313174977
+	- Type: Task
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261003-131749
+	- Opened by: the review of 2026100307310000, round 1
+	- Parent ID: 2026100307310000
+	- Version and build: dev at `e74c95bd`
+	- Problem description:
+		- `EreT6dh` picks the lines a merge may drop by position, then takes each out of a list of expected texts. With two kept lines of the same text, a merge that kept the excused one and dropped the other would pass. It moves a line without deleting content, and no merge code does it today.
+		- A replaced leaf counts only when every parent above it is a single node with the same value on both sides. Under a repeated parent nothing is excused, so a correct merge there could show as a false failure at high iteration counts. None showed up to 2,000,000.
+	- Requirements:
+		- The property removes excused lines by position, not text.
+		- A repeated parent either gets its own rule in the property, or a test shows the merge leaves its kept lines alone.
+	- Estimated effort: Low
 
 - No way to ask a setter for single quotes
 	- ID: 2026100115323222
