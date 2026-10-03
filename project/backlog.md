@@ -249,6 +249,11 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Which version goes in the name: the file's format or the shcl library version.
 		- The info block comes only from `init` and a creating `set --write`, never from the library save. A fresh rewrite through the library would need an exception.
 		- 2026100115403385 says beta-stamped Format 3 files are on their own. This item would cover them, if the check can tell a beta file apart.
+	- Decisions:
+		- 20261003: one backup name. `migrate --write` moves from `NAME_old_v2.EXT` to the same timestamped name.
+		- 20261003: the version in the name is the old file's format, so `format-v2` for a 2.x file.
+		- 20261003: the fresh file gets the info block, as `init` writes it. This call is the one library write that does.
+		- 20261003: it covers beta-stamped Format 3 files too, when they can be told apart. This reopens the scope of 2026100115403385.
 	- Estimated effort: High
 
 - A CICD test that makes old shcl files and checks the automatic conversion
@@ -438,6 +443,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Severity: Low
 	- Note: 20261002, an open point in the design for 2026100207032800, which changes much more of format 3. Proposed there: pre-release files are on their own, per the 2.x low-stakes rule. Design: `project/design_docs/value-syntax.md`.
 	- Note: 20261002, the proposal was OK'd. What is left is saying so in the docs.
+	- Note: 20261003, 2026100313461649 now brings beta-stamped files forward when they can be told apart. This item waits on it.
 	- Opened: 20261001-154033
 	- Opened by: silkterm feedback
 	- Related IDs: 2026100115323227
