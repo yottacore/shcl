@@ -9189,13 +9189,28 @@ impl Document {
 					// (20260918b item 58).
 					for &b in by_name.get(name).map_or(&[][..], |v| v.as_slice()) {
 						let nd = &self.arena[b];
+						// The leaf's own comments are the ones a remove would
+						// take: above it those after its last kept line, below
+						// it those before its first. The rest sit with a kept
+						// line beside it and stay. A settled line counts as
+						// the comment a reload reads it as.
+						let leading = nd.leading();
+						let above = leading
+							.iter()
+							.rposition(|l| !l.text.starts_with('#'))
+							.map_or(0, |k| k + 1);
+						let after = nd.after();
+						let below = after
+							.iter()
+							.position(|l| !l.text.starts_with('#'))
+							.unwrap_or(after.len());
+						kept.extend_from_slice(&leading[..above]);
 						let among = nd.among().iter().map(|a| &a.1);
-						for l in nd
-							.leading()
+						for l in leading[above..]
 							.iter()
 							.chain(among)
 							.chain(nd.inside())
-							.chain(nd.after())
+							.chain(&after[..below])
 						{
 							if !l.text.starts_with('#') {
 								kept.push(l.clone());
@@ -9205,11 +9220,14 @@ impl Document {
 								self.kept_owed = self.kept_owed.saturating_sub(1);
 							}
 						}
+						kept.extend_from_slice(&after[below..]);
 					}
 					if !kept.is_empty() {
 						let t = self.arena[clones[0].1].triv_mut();
 						kept.append(&mut t.leading);
 						t.leading = kept;
+						// Comments from two sources now share one run.
+						restep(&mut t.leading);
 					}
 					replace.insert(name, clones.into_iter().map(|(_, c)| c).collect());
 				} else {
@@ -13126,6 +13144,29 @@ mod kept_gate {
 		let mut doc = Document::parse("bad name: 1\n");
 		doc.merge(&Document::parse("bad name: 1\n"));
 		assert_eq!(doc.to_canonical(), "bad name: 1\n");
+		assert_eq!(doc.lost_count(), 0);
+	}
+
+	// design.md's table: a replaced leaf takes only its own comments, the
+	// ones a remove would take. A settled line or a comment past a kept line
+	// beside it stays with that line.
+	#[test]
+	fn a_replaced_leaf_leaves_the_lines_beside_it() {
+		let _id = test_id("ErkSy71");
+		let mut doc = Document::parse("    srv: a\n  srv[x]: [3]\nb[x]: [4]\n# mine\nq: c\n");
+		assert_eq!(
+			doc.to_canonical(),
+			"srv: a\n# srv[x]: [3]\nb[x]: [4]\n# mine\nq: c\n"
+		);
+		doc.merge(&Document::parse("q: 9\n"));
+		assert_eq!(
+			doc.to_canonical(),
+			"srv: a\n# srv[x]: [3]\nb[x]: [4]\nq: 9\n"
+		);
+		assert_eq!(doc.lost_count(), 0);
+		let mut doc = Document::parse("p:\n\tq: c\n\t# mine\n\tb[x]: [4]\n\t# n\n");
+		doc.merge(&Document::parse("p:\n\tq: 9\n"));
+		assert_eq!(doc.to_canonical(), "p:\n\tb[x]: [4]\n\t# n\n\tq: 9\n");
 		assert_eq!(doc.lost_count(), 0);
 	}
 }

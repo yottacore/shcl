@@ -3209,3 +3209,29 @@ func TestAFooterLineTheBaseHasIsNotOwedTwice(t *testing.T) {
 		t.Fatalf("LostCount %d, want 0", n)
 	}
 }
+
+// design.md's table: a replaced leaf takes only its own comments, the ones a
+// remove would take. A settled line or a comment past a kept line beside it
+// stays with that line.
+func TestAReplacedLeafLeavesTheLinesBesideIt(t *testing.T) {
+	defer testID(t, "ErkSyFW")
+	doc := Parse("    srv: a\n  srv[x]: [3]\nb[x]: [4]\n# mine\nq: c\n")
+	if got := doc.ToCanonical(); got != "srv: a\n# srv[x]: [3]\nb[x]: [4]\n# mine\nq: c\n" {
+		t.Fatalf("loaded %q", got)
+	}
+	doc.Merge(Parse("q: 9\n"))
+	if got := doc.ToCanonical(); got != "srv: a\n# srv[x]: [3]\nb[x]: [4]\nq: 9\n" {
+		t.Fatalf("after the merge %q", got)
+	}
+	if n := doc.LostCount(); n != 0 {
+		t.Fatalf("LostCount %d, want 0", n)
+	}
+	doc = Parse("p:\n\tq: c\n\t# mine\n\tb[x]: [4]\n\t# n\n")
+	doc.Merge(Parse("p:\n\tq: 9\n"))
+	if got := doc.ToCanonical(); got != "p:\n\tb[x]: [4]\n\t# n\n\tq: 9\n" {
+		t.Fatalf("after the block merge %q", got)
+	}
+	if n := doc.LostCount(); n != 0 {
+		t.Fatalf("block LostCount %d, want 0", n)
+	}
+}

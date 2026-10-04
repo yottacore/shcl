@@ -159,7 +159,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - A canonical save after a merge and a raw set loses kept lines, found by the kept-lines fuzz
 	- ID: 2026100316012486
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting for testing
+	- Needs local test suite run?: Y, the full `--ci`. cppcheck's exhaustive pass over the changed header did not finish in 10 minutes here.
 	- Severity: Critical
 	- Opened: 20261003-160124
 	- Opened by: found while working 2026100307163904
@@ -173,7 +174,20 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: filed Critical on the release bar, since the property fails only when the save goes through. Lower it if the cut-down case shows the save refused.
 	- Note: 20261003, found while working 2026100307163901. With the known rows excused, the 2,000,000 release fuzz fails `EreT6dh` at iteration 960275 on a merge with no raw set that loses the kept line `b: 4` at exit 0. Dev does the same. Likely a second repro of this item.
 	- Note: 20261003, found while working 2026100307163902. After that fix, the 2,000,000 release fuzz fails `EreT6dh` first at iteration 749492: a merge loses the kept line `srv[x]: [3]`, with no raw block in the input. With merges excused, nothing else fails up to 2,000,000.
+	- Reproduced: 20261004, cut down to `    srv: a` / `  srv[x]: [3]` / `b[x]: [4]` / `q: c` merged with `q: 9`. The load settles `srv[x]: [3]` as a comment, and the merge writes `srv: a` / `b[x]: [4]` / `q: 9` at a lost count of 0, so the save goes through. All four bindings did the same. The 960275 report is the same class: on the seed set from before corpus 191, the old code fails at 959829 losing `b: 4` the same way. The raw set in the title had no part in it.
+	- Actual cause:
+		- A merge that replaces a leaf dropped every comment held on it, settled lines included, and kept only its plain kept lines. Lines above a kept line beside the leaf are held on the leaf too, so a settled line there went with it. By design.md's table only the leaf's own comments go, and a remove already reads those as the ones after its last kept line.
+	- Actual fix: a replaced leaf takes only its own comments, the ones a remove would take, with a settled line read as the comment a reload makes of it. The rest stay, with the comment run restepped where they join the new leaf's lines. All four bindings. design.md's kept-lines section says so.
+	- Against: the 2026-09-28 decision (a settled line on a replaced leaf goes with the leaf's comments). It still holds. This only says which comments are the leaf's, which the decision did not spell out.
+	- Note: corpus 091's merged golden moved. Its top comment sits above a kept line, so it now stays. A comment of the leaf's own was added to its layer so the case still shows one going.
+	- Swept: the replace path in each binding's merge is the only site that drops a settled line (grep for the kept-owed decrements: remove, the footer dedup and this one). The property was right; 2026100313174977 is not the cause and was left alone.
+	- Verified: the 2,000,000 release fuzz passes with no excuses, all 17 properties, and `EreT6dh` passes on the seed set from before corpus 191. The four conformance suites, cli-regress, crosscheck over the corpus plus a fuzz dump, check-docs, shell-regress, clippy for both targets, rustfmt, go vet, staticcheck, ruff and mypy pass.
 	- Estimated effort: Avg
+	- Progress log:
+		- 20261004: fixed and tested. Waits on the full `--ci`, then signoff on the comment placement, since a merge now keeps a plain comment it used to drop.
+	- Branch: `mergekept`
+	- Commit: `5d31a47d`
+	- Test case: `ErkSy71` (Rust), `ErkSyFW` (Go), `ErkSyPf` (Python), `ErkSySr` (C), `a_replaced_leaf_leaves_the_lines_beside_it`; each fails on the old code. Corpus 091. `EreT6dh` at 2,000,000.
 
 - No '\' escapes
 	- ID: 2026100207032800

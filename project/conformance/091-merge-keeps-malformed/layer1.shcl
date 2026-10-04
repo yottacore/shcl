@@ -1,5 +1,6 @@
 # A leaf override drops the base leaf's comments, not a retained bad line.
 square-miles 300
+# The comment above sits with the bad line and stays; this one goes.
 ok: 1
 name: x
 	*bad

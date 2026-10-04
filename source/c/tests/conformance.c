@@ -2056,6 +2056,34 @@ int main(int argc, char **argv) {
 		if (shcl_lost_count(fd) != 0) fail("kept_gate", "a deduped footer line counted as lost");
 		shcl_free(fl); shcl_free(fd);
 	}
+	// design.md's table: a replaced leaf takes only its own comments, the ones
+	// a remove would take. A settled line or a comment past a kept line beside
+	// it stays with that line.
+	test_id("ErkSySr", "a_replaced_leaf_leaves_the_lines_beside_it");
+	{
+		const char *bt = "    srv: a\n  srv[x]: [3]\nb[x]: [4]\n# mine\nq: c\n";
+		shcl_doc *bd = shcl_parse(bt, strlen(bt));
+		shcl_str bc = shcl_to_canonical(bd);
+		const char *bw = "srv: a\n# srv[x]: [3]\nb[x]: [4]\n# mine\nq: c\n";
+		if (bc.n != strlen(bw) || memcmp(bc.p, bw, bc.n) != 0) fail("kept_gate", "the beside fixture did not settle its kept line");
+		shcl_doc *bl = shcl_parse("q: 9\n", 5);
+		shcl_merge(bd, bl);
+		bc = shcl_to_canonical(bd);
+		bw = "srv: a\n# srv[x]: [3]\nb[x]: [4]\nq: 9\n";
+		if (bc.n != strlen(bw) || memcmp(bc.p, bw, bc.n) != 0) fail("kept_gate", "a replaced leaf took the lines beside it");
+		if (shcl_lost_count(bd) != 0) fail("kept_gate", "a replaced leaf's neighbors counted as lost");
+		shcl_free(bl); shcl_free(bd);
+		const char *pt = "p:\n\tq: c\n\t# mine\n\tb[x]: [4]\n\t# n\n";
+		const char *pl = "p:\n\tq: 9\n";
+		shcl_doc *pd = shcl_parse(pt, strlen(pt));
+		shcl_doc *pld = shcl_parse(pl, strlen(pl));
+		shcl_merge(pd, pld);
+		bc = shcl_to_canonical(pd);
+		bw = "p:\n\tb[x]: [4]\n\t# n\n\tq: 9\n";
+		if (bc.n != strlen(bw) || memcmp(bc.p, bw, bc.n) != 0) fail("kept_gate", "a replaced leaf took the lines below it");
+		if (shcl_lost_count(pd) != 0) fail("kept_gate", "a replaced leaf's lines below counted as lost");
+		shcl_free(pld); shcl_free(pd);
+	}
 	// set_raw: the body's shared indent survives a reload (the closing fence's
 	// indent is what comes off), the info-string is stored as a fence line
 	// reads it back, and an info with a line break or a `#` has no spelling and
