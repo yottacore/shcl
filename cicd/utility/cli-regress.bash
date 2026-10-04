@@ -634,6 +634,9 @@ rows=(
 	'ErUmRRc|sugar-write-kept|fmt --write %W%|-|0||-'
 	'Era9kPy|kept-under-kept-fmt|fmt -|a: [1]\n\tb: [2]\n|0|a: [1]\n\tb: [2]\n|-'
 	'Era9kPz|kept-before-dotted-fmt|fmt -|k: [3]\nm.n: 2\n|0|k: [3]\nm:\n\tn: 2\n|-'
+	## A comment between nested kept lines nests with them (2026100218185700).
+	'Erls2v2|comment-under-kept-fmt|fmt -|a: [1]\n\t# note\n\tb: [2]\n|0|a: [1]\n\t# note\n\tb: [2]\n|-'
+	'Erls2v3|comment-under-kept-in-block-fmt|fmt -|x:\n  a: [1]\n    # note\n    b: [2]\n  c: 1\n|0|x:\n\ta: [1]\n\t\t# note\n\t\tb: [2]\n\tc: 1\n|-'
 	## A new field at the end of a block goes after the kept lines that end it,
 	## not above them (2026100117214802).
 	'Erls2uw|set-new-key-after-kept-end|set --set=b=1 -|x: 1\na:   [1]\n# end\n|0|x: 1\na:   [1]\n\nb: 1\n# end\n|-'

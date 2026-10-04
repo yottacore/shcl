@@ -3819,12 +3819,31 @@ static void fold_dups_from(ShclParser *P, size_t start) {
    with their depths, innermost last. A field line kept for its value or name
    goes by the same rule over held_chain, the kept lines before it: it holds
    its level on a reload, so it goes deeper only under one of those, which a
-   reload holds open for it. A misplaced line, which has its own indent,
-   sits at the place's level and leaves both alone. */
+   reload holds open for it. That line then takes its place in depth_chain at
+   its own level, so a comment nests under it too (2026100218185700). A
+   misplaced line, which has its own indent, sits at the place's level and
+   leaves both alone. */
+static size_t chain_depth(ShclParser *P, ShclVecDepth *chain, ShclStr base, ShclStr indent);
 static size_t comment_depth(ShclParser *P, ShclStr base, ShclStr text, ShclStr indent) {
-	ShclVecDepth *chain = text.n && text.p[0] == '#' ? &P->depth_chain : &P->held_chain;
-	ShclDepthEnt e; e.indent = indent; e.depth = 0;
 	if (text.n && (text.p[0] == ' ' || text.p[0] == '\t')) return 0;
+	if (text.n && text.p[0] == '#') return chain_depth(P, &P->depth_chain, base, indent);
+	size_t depth = chain_depth(P, &P->held_chain, base, indent);
+	/* It is written at its own level, so on a reload nothing at that level or
+	   deeper is left for a comment after it to nest under. */
+	ShclVecDepth *chain = &P->depth_chain;
+	while (chain->len) {
+		const ShclDepthEnt *top = &chain->data[chain->len - 1];
+		if (top->depth < depth && indent.n > top->indent.n && (top->indent.n == 0 || memcmp(indent.p, top->indent.p, top->indent.n) == 0)) break;
+		chain->len--;
+	}
+	ShclDepthEnt e; e.indent = indent; e.depth = depth;
+	ShclVecDepth_push(P->tmp, chain, e);
+	return depth;
+}
+
+/* comment_depth() over one chain. */
+static size_t chain_depth(ShclParser *P, ShclVecDepth *chain, ShclStr base, ShclStr indent) {
+	ShclDepthEnt e; e.indent = indent; e.depth = 0;
 	if (!(indent.n > base.n && (base.n == 0 || memcmp(indent.p, base.p, base.n) == 0))) {
 		chain->len = 0;
 		ShclVecDepth_push(P->tmp, chain, e);
@@ -5856,11 +5875,13 @@ int shcl_exists(shcl_doc *d, const char *path, size_t plen) {
 static int heads_block(ShclArena *a, const ShclNode *node);
 static int opened_by_kept(ShclArena *a, const ShclNode *node);
 
-/* A reload starts a comment run at 0 and steps one level at a time, so a
-   comment left after the one it sat under went is pulled back to fit. */
+/* A reload starts a comment run at 0 and steps one level at a time past the
+   comment or kept field line before it, so a comment left after the line it
+   sat under went is pulled back to fit. */
 static void restep(ShclVecLead *v) {
 	size_t room = 0;
 	for (size_t k = 0; k < v->len; k++) {
+		if (is_field(v->data[k].text)) { room = v->data[k].depth + 1; continue; }
 		if (!(v->data[k].text.n && v->data[k].text.p[0] == '#')) continue;
 		if (v->data[k].depth > room) v->data[k].depth = room;
 		room = v->data[k].depth + 1;
@@ -6204,16 +6225,8 @@ static size_t drop_banners(ShclVecLead *v, int *owed) {
 		i = end;
 	}
 	v->len = w;
-	if (removed) {
-		/* A reload puts a comment at most one level past the one before it,
-		   and the first at none, so what followed a block steps up to that. */
-		size_t room = 0;
-		for (size_t k = 0; k < v->len; k++) {
-			if (!s_starts(v->data[k].text, "#")) continue;
-			if (v->data[k].depth > room) v->data[k].depth = room;
-			room = v->data[k].depth + 1;
-		}
-	}
+	/* What followed a block steps up to fit the run. */
+	if (removed) restep(v);
 	return removed;
 }
 
@@ -6724,11 +6737,11 @@ void shcl_merge(shcl_doc *d, const shcl_doc *over) {
 	// of files from repeating it once per layer. Only the lines already here
 	// count: a layer's own repeats are its content.
 	size_t had = d->orphans.len;
-	/* A repeat skipped here may be the comment the next one sat under, and a
-	   reload puts a comment at most one level past the comment before it, so
-	   none goes deeper than that. */
+	/* A repeat skipped here may be the line the next one sat under, and a
+	   reload puts a comment at most one level past the comment or kept field
+	   line before it, so none goes deeper than that. */
 	size_t room = 0;
-	for (size_t k = had; k-- > 0;) if (d->orphans.data[k].text.n && d->orphans.data[k].text.p[0] == '#') { room = d->orphans.data[k].depth + 1; break; }
+	for (size_t k = had; k-- > 0;) if (!s_starts(d->orphans.data[k].text, " ") && !s_starts(d->orphans.data[k].text, "\t")) { room = d->orphans.data[k].depth + 1; break; }
 	for (size_t i = 0; i < over->orphans.len; i++) {
 		ShclStr ot = over->orphans.data[i].text;
 		size_t depth = over->orphans.data[i].depth;
@@ -6749,6 +6762,7 @@ void shcl_merge(shcl_doc *d, const shcl_doc *over) {
 			continue;
 		}
 		if (ot.n && ot.p[0] == '#') { if (depth > room) depth = room; room = depth + 1; }
+		else if (is_field(ot)) room = depth + 1;
 		ShclLead o = lead_moved(a, &over->orphans.data[i]);
 		o.depth = depth;
 		ShclVecLead_push(a, &d->orphans, o);
@@ -7582,8 +7596,8 @@ static void push_leads(ShclEmit *e, const ShclLead *leads, size_t n, size_t base
 				}
 				sb_putS(a, &e->out, c->text); sb_putc(a, &e->out, '\n');
 			} else {
-				/* Level with the comment before it, so the run's nesting reads
-				   back the same. */
+				/* Level with the comment or kept field line before it, so the
+				   run's nesting reads back the same. */
 				if (e->record) { ShclFell f; f.node = node; f.site = site; f.i = first + i; f.depth = last_comment; ShclVecFell_push(a, &e->fell, f); }
 				sb_putS(a, &e->out, emit_tabs(e, base + last_comment));
 				sb_puts(a, &e->out, "# "); sb_putS(a, &e->out, s_slice(c->text, indent.n, c->text.n)); sb_putc(a, &e->out, '\n');
@@ -7591,8 +7605,8 @@ static void push_leads(ShclEmit *e, const ShclLead *leads, size_t n, size_t base
 			continue;
 		}
 		size_t pad = base + c->depth;
-		if (c->text.n && c->text.p[0] == '#') last_comment = c->depth;
-		else {
+		last_comment = c->depth;
+		if (!(c->text.n && c->text.p[0] == '#')) {
 			/* A kept malformed line resolves and holds its column on a reload,
 			   open for the lines under it when only its value was wrong. */
 			ShclStr ind = emit_tabs(e, pad);
@@ -7799,7 +7813,7 @@ static int settle_kept_once(shcl_doc *d) {
 		while (j-- > 0 && e.fell.data[j].site != SITE_AMONG) {}
 		if (j != (size_t)-1 && e.fell.data[j].node == f->node) continue;
 		size_t depth = 0;
-		for (size_t q = t->leading.len; q-- > 0;) if (t->leading.data[q].text.n && t->leading.data[q].text.p[0] == '#') { depth = t->leading.data[q].depth; break; }
+		for (size_t q = t->leading.len; q-- > 0;) if (!s_starts(t->leading.data[q].text, " ") && !s_starts(t->leading.data[q].text, "\t")) { depth = t->leading.data[q].depth; break; }
 		for (size_t q = moved.len; q-- > 0;) {
 			ShclLead l = moved.data[q];
 			l.text = commented(a, l.text);

@@ -376,16 +376,33 @@ type depthEnt struct {
 // holds those comments' indents with their depths, innermost last. A field
 // line kept for its value or name goes by the same rule over held, the kept
 // lines before it: it holds its level on a reload, so it goes deeper only
-// under one of those, which a reload holds open for it. A misplaced line,
-// which has its own indent, sits at the place's level and leaves both
-// alone.
+// under one of those, which a reload holds open for it. That line then takes
+// its place in chain at its own level, so a comment nests under it too
+// (2026100218185700). A misplaced line, which has its own indent, sits at the
+// place's level and leaves both alone.
 func commentDepth(chain, held *[]depthEnt, base, text, indent string) int {
 	if strings.HasPrefix(text, " ") || strings.HasPrefix(text, "\t") {
 		return 0
 	}
-	if !strings.HasPrefix(text, "#") {
-		chain = held
+	if strings.HasPrefix(text, "#") {
+		return chainDepth(chain, base, indent)
 	}
+	depth := chainDepth(held, base, indent)
+	// It is written at its own level, so on a reload nothing at that level or
+	// deeper is left for a comment after it to nest under.
+	for len(*chain) > 0 {
+		top := (*chain)[len(*chain)-1]
+		if top.depth < depth && len(indent) > len(top.indent) && strings.HasPrefix(indent, top.indent) {
+			break
+		}
+		*chain = (*chain)[:len(*chain)-1]
+	}
+	*chain = append(*chain, depthEnt{indent: indent, depth: depth})
+	return depth
+}
+
+// chainDepth is commentDepth over one chain.
+func chainDepth(chain *[]depthEnt, base, indent string) int {
 	if !(len(indent) > len(base) && strings.HasPrefix(indent, base)) {
 		*chain = append((*chain)[:0], depthEnt{indent: indent})
 		return 0
@@ -4782,13 +4799,16 @@ func keptInLists(nd *nodeData) int {
 	return keptIn(nd.leading()) + keptIn(nd.after()) + keptIn(nd.inside()) + keptAmong(nd.among())
 }
 
-// restep: a reload starts a comment run at 0 and steps one level at a time,
-// so a comment left after the one it sat under went is pulled back to fit.
+// restep: a reload starts a comment run at 0 and steps one level at a time
+// past the comment or kept field line before it, so a comment left after the
+// line it sat under went is pulled back to fit.
 func restep(leads []lead) {
 	room := 0
 	for k := range leads {
 		if strings.HasPrefix(leads[k].text, "#") {
 			leads[k].depth = minInt(leads[k].depth, room)
+			room = leads[k].depth + 1
+		} else if isField(leads[k].text) {
 			room = leads[k].depth + 1
 		}
 	}
@@ -5104,7 +5124,7 @@ func (d *Document) settleKeptOnce() bool {
 		}
 		depth := 0
 		for j := len(t.leading) - 1; j >= 0; j-- {
-			if strings.HasPrefix(t.leading[j].text, "#") {
+			if !strings.HasPrefix(t.leading[j].text, " ") && !strings.HasPrefix(t.leading[j].text, "\t") {
 				depth = t.leading[j].depth
 				break
 			}
@@ -5402,8 +5422,8 @@ func pushLeads(e *emit, leads []lead, base, node int, at site, from int) {
 				e.out.WriteString(c.text)
 				e.out.WriteByte('\n')
 			} else {
-				// Level with the comment before it, so the run's nesting reads
-				// back the same.
+				// Level with the comment or kept field line before it, so the
+				// run's nesting reads back the same.
 				if e.record {
 					e.fell = append(e.fell, fell{node: node, site: at, i: from + i, depth: lastComment})
 				}
@@ -5414,9 +5434,8 @@ func pushLeads(e *emit, leads []lead, base, node int, at site, from int) {
 			continue
 		}
 		pad := base + c.depth
-		if strings.HasPrefix(c.text, "#") {
-			lastComment = c.depth
-		} else {
+		lastComment = c.depth
+		if !strings.HasPrefix(c.text, "#") {
 			// A kept malformed line resolves and holds its column on a reload,
 			// open for the lines under it when only its value was wrong.
 			indent := strings.Repeat("\t", pad)
@@ -6292,17 +6311,8 @@ func dropBanners(leads *[]lead) (int, bool) {
 		i = end
 	}
 	if removed > 0 {
-		// A reload puts a comment at most one level past the one before it,
-		// and the first at none, so what followed a block steps up to that.
-		room := 0
-		for k := range keep {
-			if strings.HasPrefix(keep[k].text, "#") {
-				if keep[k].depth > room {
-					keep[k].depth = room
-				}
-				room = keep[k].depth + 1
-			}
-		}
+		// What followed a block steps up to fit the run.
+		restep(keep)
 		*leads = keep
 	}
 	return removed, owed
@@ -9015,12 +9025,12 @@ func (d *Document) Merge(over *Document) {
 	// stack of files from repeating it once per layer. Only the lines
 	// already here count: a layer's own repeats are its content.
 	had := len(d.orphans)
-	// A repeat skipped here may be the comment the next one sat under, and a
-	// reload puts a comment at most one level past the comment before it, so
-	// none goes deeper than that.
+	// A repeat skipped here may be the line the next one sat under, and a
+	// reload puts a comment at most one level past the comment or kept field
+	// line before it, so none goes deeper than that.
 	room := 0
 	for k := len(d.orphans) - 1; k >= 0; k-- {
-		if strings.HasPrefix(d.orphans[k].text, "#") {
+		if !strings.HasPrefix(d.orphans[k].text, " ") && !strings.HasPrefix(d.orphans[k].text, "\t") {
 			room = d.orphans[k].depth + 1
 			break
 		}
@@ -9052,6 +9062,8 @@ func (d *Document) Merge(over *Document) {
 				if o.depth > room {
 					o.depth = room
 				}
+				room = o.depth + 1
+			} else if isField(o.text) {
 				room = o.depth + 1
 			}
 			d.orphans = append(d.orphans, o)

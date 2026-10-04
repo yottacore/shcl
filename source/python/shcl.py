@@ -385,13 +385,25 @@ def _comment_depth(chain, held, base, text, indent):
 	comments' indents with their depths, innermost last. A field line kept
 	for its value or name goes by the same rule over `held`, the kept lines
 	before it: it holds its level on a reload, so it goes deeper only under
-	one of those, which a reload holds open for it. A misplaced line, which
-	has its own indent, sits at the place's level and leaves both
-	alone."""
+	one of those, which a reload holds open for it. That line then takes its
+	place in `chain` at its own level, so a comment nests under it too
+	(2026100218185700). A misplaced line, which has its own indent, sits at
+	the place's level and leaves both alone."""
 	if text.startswith((" ", "\t")):
 		return 0
-	if not text.startswith("#"):
-		chain = held
+	if text.startswith("#"):
+		return _chain_depth(chain, base, indent)
+	depth = _chain_depth(held, base, indent)
+	# It is written at its own level, so on a reload nothing at that level or
+	# deeper is left for a comment after it to nest under.
+	while chain and not (chain[-1][1] < depth and len(indent) > len(chain[-1][0]) and indent.startswith(chain[-1][0])):
+		chain.pop()
+	chain.append((indent, depth))
+	return depth
+
+
+def _chain_depth(chain, base, indent):
+	"""_comment_depth() over one chain."""
 	if not (len(indent) > len(base) and indent.startswith(base)):
 		chain[:] = [(indent, 0)]
 		return 0
@@ -3795,12 +3807,15 @@ def _kept_in_lists(nd):
 
 
 def _restep(leads):
-	"""A reload starts a comment run at 0 and steps one level at a time, so a
-	comment left after the one it sat under went is pulled back to fit."""
+	"""A reload starts a comment run at 0 and steps one level at a time past
+	the comment or kept field line before it, so a comment left after the
+	line it sat under went is pulled back to fit."""
 	room = 0
 	for c in leads:
 		if c.text.startswith("#"):
 			c.depth = min(c.depth, room)
+			room = c.depth + 1
+		elif _is_field(c.text):
 			room = c.depth + 1
 
 
@@ -3944,8 +3959,8 @@ def _push_leads(e, leads, base, at):
 				out.append(text)
 				out.append("\n")
 			else:
-				# Level with the comment before it, so the run's nesting reads
-				# back the same.
+				# Level with the comment or kept field line before it, so the
+				# run's nesting reads back the same.
 				if e.record:
 					e.fell.append((at[0], at[1], at[2] + i, last_comment))
 				out.append("\t" * (base + last_comment))
@@ -3953,9 +3968,8 @@ def _push_leads(e, leads, base, at):
 				out.append("\n")
 			continue
 		pad = base + c.depth
-		if text.startswith("#"):
-			last_comment = c.depth
-		else:
+		last_comment = c.depth
+		if not text.startswith("#"):
 			# A kept malformed line resolves and holds its column on a reload,
 			# open for the lines under it when only its value was wrong.
 			indent = "\t" * pad
@@ -4629,13 +4643,8 @@ def _drop_banners(leads):
 		prev_kept = False
 		i = end
 	if removed:
-		# A reload puts a comment at most one level past the one before it,
-		# and the first at none, so what followed a block steps up to that.
-		room = 0
-		for c in keep:
-			if c.text.startswith("#"):
-				c.depth = min(c.depth, room)
-				room = c.depth + 1
+		# What followed a block steps up to fit the run.
+		_restep(keep)
 	return removed, owed, (keep if removed else leads)
 
 
@@ -5074,7 +5083,7 @@ class Document:
 			moved.append(t.among.pop(i)[1])
 			if among and among[-1][0] == node:
 				continue
-			depth = next((c.depth for c in reversed(t.leading) if c.text.startswith("#")), 0)
+			depth = next((c.depth for c in reversed(t.leading) if not c.text.startswith((" ", "\t"))), 0)
 			for lead in reversed(moved):
 				lead.text = _commented(lead.text)
 				lead.depth = depth
@@ -6272,10 +6281,10 @@ class Document:
 		# stack of files from repeating it once per layer. Only the lines
 		# already here count: a layer's own repeats are its content.
 		had = len(self.orphans)
-		# A repeat skipped here may be the comment the next one sat under, and
-		# a reload puts a comment at most one level past the comment before
-		# it, so none goes deeper than that.
-		room = next((e.depth + 1 for e in reversed(self.orphans) if e.text.startswith("#")), 0)
+		# A repeat skipped here may be the line the next one sat under, and a
+		# reload puts a comment at most one level past the comment or kept
+		# field line before it, so none goes deeper than that.
+		room = next((e.depth + 1 for e in reversed(self.orphans) if not e.text.startswith((" ", "\t"))), 0)
 		# A kept line with kept lines under it goes in whole, so none of them
 		# lands under some other line.
 		whole = [False] * len(over.orphans)
@@ -6288,6 +6297,8 @@ class Document:
 				depth = o.depth
 				if o.text.startswith("#"):
 					depth = min(depth, room)
+					room = depth + 1
+				elif _is_field(o.text):
 					room = depth + 1
 				self.orphans.append(_Lead(o.text, o.blank_before, depth, kept=o.kept))
 			elif o.is_kept_line():

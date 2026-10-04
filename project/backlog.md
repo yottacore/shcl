@@ -373,7 +373,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - A comment between nested kept lines is written at column 0
 	- ID: 2026100218185700
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Low
 	- Opened: 20261002-181857
 	- Opened by: question on 2026100213205957
@@ -386,6 +386,16 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: Yes, 20261002, Rust at `b904d681`. It reads back the same, so it is cosmetic.
 	- Decisions:
 		- 20261002: comments nest under kept lines too.
+	- Reproduced: Yes, 20261004, all four at `f26c2802`.
+	- Actual cause: a comment's level came from the comments before it alone, and a kept field line's from the kept lines before it alone (2026100213205957). A comment under a kept line had no comment to nest under, so it went to the place's level.
+	- Actual fix: all four bindings. A kept field line now also takes its place in the comment chain at its own level, so a comment written under it nests one level under it, and one level with it stays level. Anything at its level or deeper drops off the chain, as on a reload of the written text. Kept field lines still nest only under kept lines. The rule that a reload puts a comment at most one level past the line before it now counts kept field lines as well as comments: the restep after a remove or a banner change, the merge's footer, the emitter's level for a misplaced line written as a comment, and the settle's level for a line moved out of a list.
+	- Against: the standing rule that in an emitted comment run each comment is at most one level past the one before it. It still holds, with "the one before" now taking in kept field lines. Without that, a reload of the written text would read some comments a level shallower.
+	- Note: a comment after a kept field line that sits deeper in the source than the comments around it now nests by that line, not by the comment before it. Odd files only, and both ways reload the same.
+	- Note: design.md's comment-run bullets say "the comment before it". They should say "the comment or kept field line before it". Left for the docs pass, which is on another branch.
+	- Swept: every `comment_depth` caller goes through the one function in each binding. The places that set a comment's level after the load: `restep`, `drop_banners`' own copy of it (now a call to `restep`), the merge footer, `push_leads`, and the settle's move out of a list, in all four.
+	- Verified: the four conformance suites, cli-regress, and the 2,000,000 release fuzz. Both new rows fail on `f26c2802`'s libraries in all four and pass with the fix.
+	- Branch: keepcosm
+	- Test case: cli-regress `Erls2v2` (`comment-under-kept-fmt`), `Erls2v3` (`comment-under-kept-in-block-fmt`); the fuzz fixpoint and `edits_and_merges_match_a_reload` properties.
 
 - The Python binding parses about 25% slower than on 2026-09-19
 	- ID: 2026100221215300
