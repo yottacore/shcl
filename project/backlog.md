@@ -122,7 +122,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - Removing the only line under a lazily opened field leaves a bare `name:`, and the field later reads as Multiple
 	- ID: 2026100307163907
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Avg
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 7
@@ -148,11 +148,15 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Proposed text, OK'd 20261004: `# a: [1]  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 bracket array syntax`. It names the path, since library setters do this too and not only `set`. It names the code and message the load gave, since that is the actual reason.
 		- The time is local, with the zone's short name, or its offset such as `UTC-07:00` when no short name is known (the user, 20261004). Windows gives only long names like "Pacific Daylight Time", so it writes the offset. Tests pin the clock and zone through an override.
 		- Rust has no crates to lean on here. Local time comes from `localtime_r` on POSIX and the Win32 time zone calls on Windows, declared by hand like the existing `ReplaceFile` ones.
-	- Actual fix [Bug]: `remove` drops such a field once its last child goes, in all four.
-	- Swept: as 2026100307163901.
-	- Branch: `removekept`
-	- Commit: `46e6176a`
-	- Test case: `ErgToax` (Rust), `ErgToef` (Go), `ErgToiG` (Python), `ErgTom6` (C); cli-regress `ErgTonu`; corpus 187; fuzz `EreT6dh`.
+		- 20261004: setter half fixed in all four. A setter on a field opened from a kept line writes that line as the OK'd comment, then sets. The line is a plain comment from then on, as a reload reads it, so `ClearComments` and a remove of the field take it. `SHCL_TEST_CLOCK` pins the time for tests, and cli-regress and crosscheck set it. design.md's setter row, spec.md and the changelog say so.
+		- 20261004: `EreT6dh` had no row left for this item, since the remove half took it out. It now counts a setter's comment, by its note, as the line it was. A 300,000 run reached that path 8,516 times.
+		- Question: a setter that creates a field leaves a kept line naming it beside the new one, as the table's beside column says. From `a: [1]` and `y: 3`, `set a=5` writes `a: 5` at the end, and once line 1 is fixed `a` reads as Multiple. `--remove a.b --set a=1` on the item's file ends the same way. Should a setter comment that line out too?
+	- Actual fix [Bug]: `remove` drops such a field once its last child goes, in all four. A setter on such a field writes its kept line as a comment with a note, then sets, in all four.
+	- Swept: as 2026100307163901. Setter half: every setter in all four goes through one `set_value`. The other value writes are the parser's own fills and merge, whose row is 2026100313174974.
+	- Verified: 20261004, the four suites, cli-regress over the four CLIs, crosscheck with a fresh fuzz dump, check-docs, clippy for the host and windows, go vet and staticcheck, ruff and mypy, cppcheck, shellcheck, the test ID check, markdownlint, and the 2,000,000 release fuzz. Each new test failed with the fix taken out. The Rust and C windows paths ran under wine and wrote the offset.
+	- Branch: `removekept`, `setkept`
+	- Commit: `46e6176a`, `80d64922`
+	- Test case: `ErgToax` (Rust), `ErgToef` (Go), `ErgToiG` (Python), `ErgTom6` (C); cli-regress `ErgTonu`; corpus 187; fuzz `EreT6dh`. Setter: `ErleUnO` and `ErleV68` (Rust), `Erlf124` and `Erlf14o` (Go), `Erlf17j` and `Erlf1AN` (Python), `Erlf1DT` and `Erlf1GC` (C); cli-regress `Erlf1Is`.
 
 - Group a release's downloads in a table, with the CPU architecture in columns and the target OS in rows
 	- ID: 2026100411093274
