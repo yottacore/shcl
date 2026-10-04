@@ -1442,11 +1442,13 @@ def do_fmt(o):
 def rewritten_lines(before, after):
 	# The numbers of the lines migrate writes differently, counted from 1. The
 	# rewrite goes line for line and only appends, so line N of the input is
-	# line N of the output.
+	# line N of the output. It never touches a line's carriage returns, but the
+	# stamp ends an unterminated last line the way most lines end, which can
+	# put a CR after it, so those are left out of the compare.
 	if before == "":
 		return []
 	b = before[:-1] if before.endswith("\n") else before
-	return [i + 1 for i, (x, y) in enumerate(zip(b.split("\n"), after.split("\n"))) if x != y]
+	return [i + 1 for i, (x, y) in enumerate(zip(b.split("\n"), after.split("\n"))) if x.rstrip("\r") != y.rstrip("\r")]
 
 
 def name_start(file):

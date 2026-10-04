@@ -1082,7 +1082,9 @@ static int do_fmt(Opts *o) {
 
 // How many lines migrate writes differently, each named on stderr when a file
 // name is given. The rewrite goes line for line and only appends, so line N of
-// the input is line N of the output.
+// the input is line N of the output. It never touches a line's carriage
+// returns, but the stamp ends an unterminated last line the way most lines
+// end, which can put a CR after it, so those are left out of the compare.
 static size_t rewritten_lines(const char *file, const char *before, size_t blen, const char *after, size_t alen) {
 	size_t count = 0, n = 0, bi = 0, ai = 0;
 	if (blen && before[blen - 1] == '\n') blen--;
@@ -1093,7 +1095,10 @@ static size_t rewritten_lines(const char *file, const char *before, size_t blen,
 		size_t bl = be ? (size_t)(be - (before + bi)) : blen - bi;
 		const char *ae = ai <= alen ? memchr(after + ai, '\n', alen - ai) : NULL;
 		size_t al = ae ? (size_t)(ae - (after + ai)) : alen - ai;
-		if (bl != al || memcmp(before + bi, after + ai, bl) != 0) {
+		size_t bt = bl, at = al;
+		while (bt && before[bi + bt - 1] == '\r') bt--;
+		while (at && after[ai + at - 1] == '\r') at--;
+		if (bt != at || memcmp(before + bi, after + ai, bt) != 0) {
 			count++;
 			if (file) fprintf(stderr, "%s:%zu: migrate would rewrite this line\n", file, n);
 		}

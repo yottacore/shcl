@@ -305,6 +305,11 @@ printf 'a: 1\r\nb: 2\r\nc: 3\r\nx: 0\nz: 9' > "${tmpDir}/keeptaillf.shcl"
 ## 2.x selector sugar in a CRLF file, and in one split evenly between the two.
 printf 'base:[Boston]\r\n\tlat: 42\r\n' > "${tmpDir}/migcrlf.shcl"
 printf 'base:[Boston]\r\n\tlat: 42\n' > "${tmpDir}/migtie.shcl"
+## No final newline: a CRLF file, and a last line ending in a lone CR in an LF
+## file and in a CRLF one. The stamp ends that line, and that is no rewrite.
+printf 'a: 1\r\nb: 2\r\nc: 3' > "${tmpDir}/mignofinal.shcl"
+printf 'a: 1\nb: 2\r' > "${tmpDir}/miglonecr.shcl"
+printf 'a: 1\r\nb: 2\r\nc: 3\r' > "${tmpDir}/miglonecrcrlf.shcl"
 ## A schema key nothing knows, on schema line 2.
 printf 'field: a\n\tbogus: 1\n' > "${tmpDir}/unkey.shcl"
 ## A file and a name that both start with a dash, so only `--` makes them data.
@@ -350,6 +355,9 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	whose line ends are mostly CRLF and mostly LF, %KR% a CRLF raw block in an
 ##	LF file, %KT%/%KU% no final newline after a last line ending the other way,
 ##	%MC% 2.x sugar in a CRLF file, %MT% the same with as many LF line ends,
+##	%MN%/%MX%/%MY% a CRLF file with no final newline and ones whose last line
+##	ends in a lone CR, in an LF file and a CRLF one, and %MNW%/%MXW% fresh
+##	copies of the first two at the path %C% names,
 ##	%W% a fresh copy of the selector-sugar file, %BS% a fresh copy of a file
 ##	whose value reads differently under the two rule sets, %BW% a fresh copy of
 ##	the bracket array, %V3% a file that already names its format,
@@ -762,6 +770,13 @@ rows=(
 	## The Format and Migrated lines end the way most of the file's lines do.
 	'ErTecqE|migrate-write-eol-crlf|migrate --write %MC%|-|0||-|base: Boston\r\n\tlat: 42\r\n##    Format   3\r\n##    Migrated from SHCL 2.x.\r\n'
 	'ErTecqF|migrate-eol-tie-lf|migrate %MT%|-|0|base: Boston\r\n\tlat: 42\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	## 20261003 item 6: an unterminated last line compared unequal to itself
+	## once the stamp ended it, so --check said 6 and --write kept a copy.
+	'ErkalBd|migrate-check-no-final-crlf|migrate --check %MN%|-|0||!.'
+	'ErkalBe|migrate-write-no-final-crlf|migrate --write %MNW%|-|0||migrated, 0 line\(s\) rewritten$|a: 1\r\nb: 2\r\nc: 3\r\n##    Format   3\r\n'
+	'ErkalBf|migrate-check-lone-cr-lf|migrate --check %MX%|-|0||!.'
+	'ErkalBg|migrate-write-lone-cr-lf|migrate --write %MXW%|-|0||migrated, 0 line\(s\) rewritten$|a: 1\nb: 2\r\n##    Format   3\n'
+	'ErkalBh|migrate-check-lone-cr-crlf|migrate --check %MY%|-|0||!.'
 	## The kept original, named. The save cases below check the file itself,
 	## but they are POSIX fixtures, so this is the one windows runs.
 	'Er5qICu|migrate-write-keeps|migrate --write %W%|-|0||migrated, 1 line\(s\) rewritten; the original is .*w_old_v2\.shcl$'
@@ -1116,6 +1131,9 @@ for row in "${rows[@]}"; do
 	argv="${argv//%RFQ%/${tmpDir}/rawfmtq.shcl}"
 	argv="${argv//%ML%/${tmpDir}/mlost.shcl}"
 	argv="${argv//%MT%/${tmpDir}/migtie.shcl}"
+	argv="${argv//%MN%/${tmpDir}/mignofinal.shcl}"
+	argv="${argv//%MX%/${tmpDir}/miglonecr.shcl}"
+	argv="${argv//%MY%/${tmpDir}/miglonecrcrlf.shcl}"
 	argv="${argv//%SU%/${tmpDir}/unkey.shcl}"
 	argv="${argv//%NA%/${tmpDir}/nonascii.shcl}"
 	runIn=""
@@ -1192,6 +1210,14 @@ for row in "${rows[@]}"; do
 	if [[ "${argv}" == *%MC%* ]]; then
 		freshMigCrlf=1
 		argv="${argv//%MC%/${tmpDir}/created.shcl}"
+	fi
+	freshMigSrc=""
+	if [[ "${argv}" == *%MNW%* ]]; then
+		freshMigSrc=mignofinal
+		argv="${argv//%MNW%/${tmpDir}/created.shcl}"
+	elif [[ "${argv}" == *%MXW%* ]]; then
+		freshMigSrc=miglonecr
+		argv="${argv//%MXW%/${tmpDir}/created.shcl}"
 	fi
 	freshCreate=0
 	if [[ "${argv}" == *%C%* ]]; then
@@ -1285,6 +1311,7 @@ for row in "${rows[@]}"; do
 		((freshKeepTail)) && cp "${tmpDir}/keeptail.shcl" "${tmpDir}/created.shcl"
 		((freshKeepTailLf)) && cp "${tmpDir}/keeptaillf.shcl" "${tmpDir}/created.shcl"
 		((freshMigCrlf)) && cp "${tmpDir}/migcrlf.shcl" "${tmpDir}/created.shcl"
+		[[ -n "${freshMigSrc}" ]] && cp "${tmpDir}/${freshMigSrc}.shcl" "${tmpDir}/created.shcl"
 		if [[ -n "${runIn}" ]]; then cli="$(realpath -- "${cli}")"; cd -- "${runIn}"; fi
 		rc=0
 		case "${stdinSpec}" in

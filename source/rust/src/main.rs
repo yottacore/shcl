@@ -1984,7 +1984,9 @@ fn do_fmt(o: &Opts) -> u8 {
 
 /// The numbers of the lines migrate writes differently, counted from 1. The
 /// rewrite goes line for line and only appends, so line N of the input is line
-/// N of the output.
+/// N of the output. It never touches a line's carriage returns, but the stamp
+/// ends an unterminated last line the way most lines end, which can put a CR
+/// after it, so those are left out of the compare.
 fn rewritten_lines(before: &str, after: &str) -> Vec<usize> {
 	if before.is_empty() {
 		return Vec::new();
@@ -1994,7 +1996,7 @@ fn rewritten_lines(before: &str, after: &str) -> Vec<usize> {
 		.split('\n')
 		.zip(after.split('\n'))
 		.enumerate()
-		.filter(|(_, (a, b))| a != b)
+		.filter(|(_, (a, b))| a.trim_end_matches('\r') != b.trim_end_matches('\r'))
 		.map(|(i, _)| i + 1)
 		.collect()
 }
