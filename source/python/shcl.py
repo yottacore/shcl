@@ -4393,9 +4393,28 @@ def _keep_lines(src, doc):
 			released[h] = True
 	# New lines end the way most of the file's lines do.
 	eol = _majority_eol(body)
-	# One level of the source's indent: a line one level in, or failing that
-	# the first indented line, a list element or a fence.
-	step = next((indent(u.line) for u in was_runs if u.line != 0 and u.line <= n and _tabs(loaded.text, u.start) == 1 and indent(u.line)), "")
+	# One level of the source's indent: the one most blocks use for a line one
+	# level in, each block counted once, by its first such line. A tie goes to
+	# one tab when that is among them, else to the block first in the file, so
+	# one odd block does not set it (2026100115403386). Failing that, the first
+	# indented line, a list element or a fence.
+	firsts = sorted(u.line for u in was_runs if u.line != 0 and u.line <= n and _tabs(loaded.text, u.start) == 1 and indent(u.line))
+	steps: dict[str, int] = {}
+	top, block, g = 0, -1, 1
+	for ln in firsts:
+		while g <= ln:
+			if owner[g] == g and not blank(g) and not indent(g) and not line(g).startswith("#"):
+				top = g
+			g += 1
+		if block == top:
+			continue
+		block = top
+		steps[indent(ln)] = steps.get(indent(ln), 0) + 1
+	most = max(steps.values(), default=0)
+	if steps.get("\t") == most:
+		step = "\t"
+	else:
+		step = next((st for st, c in steps.items() if c == most), "")
 	if not step:
 		step = next((indent(k) for k in range(1, n + 1) if not blank(k) and indent(k)), "\t")
 	out: list[str] = []

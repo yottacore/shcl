@@ -6220,15 +6220,52 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 	}
 	// New lines end the way most of the file's lines do.
 	let eol = majority_eol(body);
-	// One level of the source's indent: a line one level in, or failing that
-	// the first indented line, a list element or a fence.
-	let step = was_runs
+	// One level of the source's indent: the one most blocks use for a line
+	// one level in, each block counted once, by its first such line. A tie
+	// goes to one tab when that is among them, else to the block first in
+	// the file, so one odd block does not set it (2026100115403386). Failing
+	// that, the first indented line, a list element or a fence.
+	let mut firsts: Vec<usize> = was_runs
 		.iter()
 		.filter(|u| u.line != 0 && u.line <= n && tabs(&loaded.out[u.start..]) == 1)
-		.map(|u| indent(u.line))
-		.chain((1..=n).filter(|&l| !blank(l)).map(indent))
-		.find(|i| !i.is_empty())
-		.unwrap_or("\t");
+		.map(|u| u.line)
+		.filter(|&l| !indent(l).is_empty())
+		.collect();
+	firsts.sort_unstable();
+	let mut steps: Vec<(&str, usize)> = Vec::new();
+	let (mut top, mut block, mut k) = (0, usize::MAX, 1);
+	for &l in &firsts {
+		while k <= l {
+			if owner[k] == k && !blank(k) && indent(k).is_empty() && !line(k).starts_with('#') {
+				top = k;
+			}
+			k += 1;
+		}
+		if block == top {
+			continue;
+		}
+		block = top;
+		match steps.iter_mut().find(|s| s.0 == indent(l)) {
+			Some(s) => s.1 += 1,
+			None => steps.push((indent(l), 1)),
+		}
+	}
+	let most = steps.iter().map(|s| s.1).max().unwrap_or(0);
+	let step = if steps.iter().any(|s| s.1 == most && s.0 == "\t") {
+		"\t"
+	} else {
+		steps
+			.iter()
+			.find(|s| s.1 == most)
+			.map(|s| s.0)
+			.or_else(|| {
+				(1..=n)
+					.filter(|&l| !blank(l))
+					.map(indent)
+					.find(|i| !i.is_empty())
+			})
+			.unwrap_or("\t")
+	};
 	let mut out = String::with_capacity(src.len() + now.out.len() / 8);
 	out.push_str(bom);
 	let break_line = |out: &mut String| {

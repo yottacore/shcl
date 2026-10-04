@@ -326,7 +326,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - New lines from a keep-lines save copy an odd block's indent step
 	- ID: 2026100115403386
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Low
 	- Opened: 20261001-154033
 	- Opened by: silkterm feedback
@@ -337,6 +337,15 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Incorrect behavior: the new block comes out as `shell:\n\t\tlist:\n\t\t\t\tbash:\n\t\t\t\t\t\tcommand: /bin/bash`, two tabs a level, taken from the first `window:` block. Every other block in the file uses one.
 	- Expected behavior: a new block takes the indent most of the file uses, or one tab, rather than the first block's.
 	- Reproduced: Yes, 20261001, Rust at `b10c2009`. It reads back right, so it is cosmetic.
+	- Reproduced: Yes, 20261004, all four at `f8c0685e`.
+	- Actual cause: the save that keeps lines took its indent step from the first line one level in, so the first block set it for every new level in the file.
+	- Decisions:
+		- 20261004: a new level takes the step most blocks use, each block counted once. A tie goes to one tab when that is one of the tied steps, else to the first block's. One tab for every new level was the simpler rule, but in a file indented with spaces it writes a tab after the spaces on a new nested line, which reads worse. Canonical output still indents with tabs whatever the input used. This only changes new lines in a save that keeps the file's own lines.
+	- Actual fix: all four bindings. The step is counted per block, from each block's first line one level in. Lines that already sit at a level still set the indent of new lines next to them, as before.
+	- Swept: the one place the step is chosen, in the save that keeps lines, in all four. Canonical output does not use it.
+	- Verified: the four conformance suites and cli-regress. Both new rows fail on `f8c0685e`'s libraries in all four and pass with the fix.
+	- Branch: keepcosm
+	- Test case: cli-regress `Erls2v0` (`set-new-block-majority-step`), `Erls2v1` (`set-new-block-space-step`).
 
 - `set` on a file ending in a kept line writes the new key above it
 	- ID: 2026100117214802

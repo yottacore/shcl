@@ -5938,13 +5938,59 @@ func keepLines(src string, doc *Document) (string, bool) {
 	}
 	// New lines end the way most of the file's lines do.
 	eol := majorityEol(body)
-	// One level of the source's indent: a line one level in, or failing that
+	// One level of the source's indent: the one most blocks use for a line
+	// one level in, each block counted once, by its first such line. A tie
+	// goes to one tab when that is among them, else to the block first in the
+	// file, so one odd block does not set it (2026100115403386). Failing that,
 	// the first indented line, a list element or a fence.
-	step := ""
+	var firsts []int
 	for _, u := range wasRuns {
 		if u.line != 0 && u.line <= n && tabs(loadedText[u.start:]) == 1 && indent(u.line) != "" {
-			step = indent(u.line)
-			break
+			firsts = append(firsts, u.line)
+		}
+	}
+	sort.Ints(firsts)
+	type stepCount struct {
+		step  string
+		count int
+	}
+	var steps []stepCount
+	top, block, k := 0, -1, 1
+	for _, l := range firsts {
+		for ; k <= l; k++ {
+			if owner[k] == k && !blank(k) && indent(k) == "" && !strings.HasPrefix(line(k), "#") {
+				top = k
+			}
+		}
+		if block == top {
+			continue
+		}
+		block = top
+		found := false
+		for i := range steps {
+			if steps[i].step == indent(l) {
+				steps[i].count++
+				found = true
+				break
+			}
+		}
+		if !found {
+			steps = append(steps, stepCount{indent(l), 1})
+		}
+	}
+	most := 0
+	for _, sc := range steps {
+		most = maxInt(most, sc.count)
+	}
+	step := ""
+	for _, sc := range steps {
+		if sc.count == most && sc.step == "\t" {
+			step = "\t"
+		}
+	}
+	for _, sc := range steps {
+		if step == "" && sc.count == most {
+			step = sc.step
 		}
 	}
 	for l := 1; step == "" && l <= n; l++ {

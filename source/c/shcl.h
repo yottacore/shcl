@@ -8323,16 +8323,38 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 	memset(wrote, 0, n + 2);
 	/* New lines end the way most of the file's lines do. */
 	const char *eol = majority_eol(body);
-	/* One level of the source's indent: a line one level in, or failing that
+	/* One level of the source's indent: the one most blocks use for a line
+	   one level in, each block counted once, by its first such line. A tie
+	   goes to one tab when that is among them, else to the block first in the
+	   file, so one odd block does not set it (2026100115403386). Failing that,
 	   the first indented line, a list element or a fence. */
 	ShclStr step = s_lit("\t");
 	int found = 0;
-	for (size_t i = 0; i < wasR.len && !found; i++) {
+	unsigned char *one_in = (unsigned char *)arena_alloc(a, n + 2);
+	memset(one_in, 0, n + 2);
+	for (size_t i = 0; i < wasR.len; i++) {
 		const ShclUnit *u = &wasR.data[i];
 		if (u->line == 0 || u->line > n || tabs_of(s_slice(wasS, u->start, wasS.n)) != 1) continue;
-		ShclStr ind = leading_ws(KL_LINE(u->line));
-		if (ind.n) { step = ind; found = 1; }
+		if (leading_ws(KL_LINE(u->line)).n) one_in[u->line] = 1;
 	}
+	ShclStr *steps = (ShclStr *)arena_alloc(a, (n + 1) * sizeof(ShclStr));
+	size_t *counts = (size_t *)arena_alloc(a, (n + 1) * sizeof(size_t));
+	size_t nsteps = 0, top_line = 0, block = (size_t)-1, most = 0;
+	for (size_t l = 1; l <= n; l++) {
+		ShclStr ln = KL_LINE(l);
+		if (owner[l] == l && !kl_blank(ln) && leading_ws(ln).n == 0 && ln.p[0] != '#') top_line = l;
+		if (!one_in[l] || block == top_line) continue;
+		block = top_line;
+		ShclStr ind = leading_ws(ln);
+		size_t j = 0;
+		while (j < nsteps && !s_eq(steps[j], ind)) j++;
+		if (j == nsteps) { steps[nsteps] = ind; counts[nsteps++] = 0; }
+		if (++counts[j] > most) most = counts[j];
+	}
+	for (size_t j = 0; j < nsteps && !found; j++)
+		if (counts[j] == most && s_eq(steps[j], s_lit("\t"))) { step = steps[j]; found = 1; }
+	for (size_t j = 0; j < nsteps && !found; j++)
+		if (counts[j] == most) { step = steps[j]; found = 1; }
 	for (size_t l = 1; l <= n && !found; l++) {
 		if (kl_blank(KL_LINE(l))) continue;
 		ShclStr ind = leading_ws(KL_LINE(l));
