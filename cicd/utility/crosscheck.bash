@@ -46,6 +46,9 @@ source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
 testWhere=crosscheck; testCounter=nKindBad
 
 corpus=""; extra=""; bindings=(); declare -i minCompared=1
+## A setter's note on a kept line it comments out has the local time in it,
+## and the four runs are not in the same second.
+export SHCL_TEST_CLOCK="2026-10-04 00:15:00 -420 PDT"
 while (($#)); do case "$1" in
 	--corpus)  corpus="${2:-}"; shift 2 ;;
 	--extra)   extra="${2:-}"; shift 2 ;;

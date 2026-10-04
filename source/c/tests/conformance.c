@@ -2010,6 +2010,88 @@ int main(int argc, char **argv) {
 			shcl_free(rd);
 		}
 	}
+	test_id("Erlf1DT", "a_setter_comments_out_the_kept_line_heading_its_target");
+	{
+		// A setter on a field a kept line opened writes that line as a comment
+		// with a note, so the file has one line for the field (2026100307163907).
+#ifdef _WIN32
+		_putenv_s("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT");
+#else
+		setenv("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT", 1);
+#endif
+		static const struct { const char *text, *path, *want; } sc[] = {
+			{"a: [1]\n\tb: 2\ny: 3\n", "a",
+				"# a: [1]  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 bracket array syntax\na: 5\n\tb: 2\ny: 3\n"},
+			{"o:\n\ta: \"x\\q\"\n\t\tb: 2\n", "o.a",
+				"o:\n\t# a: \"x\\q\"  ## commented out by shcl when setting o.a, 2026-10-04 00:15:00 PDT: E023 unknown escape '\\q' in double quotes\n\ta: 5\n\t\tb: 2\n"},
+			{"p: \"C:\\temp\\new\"\n\tq: 1\n", "p",
+				"# p: \"C:\\temp\\new\"  ## commented out by shcl when setting p, 2026-10-04 00:15:00 PDT: E024 value starts like a Windows path, and its \\t or \\n would read as a tab or newline\np: 5\n\tq: 1\n"},
+		};
+		for (size_t i = 0; i < sizeof sc / sizeof sc[0]; i++) {
+			shcl_doc *sd = shcl_parse_keep_lines(sc[i].text, strlen(sc[i].text), SHCL_STANDARD);
+			int took = shcl_set_int(sd, sc[i].path, strlen(sc[i].path), 5);
+			shcl_str out = shcl_to_canonical(sd);
+			if (!took || shcl_lost_count(sd) != 0 || out.n != strlen(sc[i].want) || memcmp(out.p, sc[i].want, out.n) != 0) {
+				fail("kept_gate", sc[i].text);
+			} else {
+				shcl_doc *back = shcl_parse(out.p, out.n);
+				shcl_str again = shcl_to_canonical(back);
+				if (shcl_diag_count(back) != 0 || shcl_count(back, sc[i].path, strlen(sc[i].path)) != 1 || again.n != out.n || memcmp(again.p, out.p, out.n) != 0)
+					fail("kept_gate", "a setter wrote text that reloads otherwise");
+				shcl_free(back);
+				int kept = 0;
+				shcl_str keep = shcl_to_text_keep_lines(sd, &kept);
+				if (!kept || keep.n != out.n || memcmp(keep.p, out.p, out.n) != 0) fail("kept_gate", "a setter's keep save differs from canonical");
+			}
+			shcl_free(sd);
+		}
+#ifdef _WIN32
+		_putenv_s("SHCL_TEST_CLOCK", "");
+#else
+		unsetenv("SHCL_TEST_CLOCK");
+#endif
+		// Only the field the kept line opened: a child of it, or a field beside
+		// a kept line, leaves the line as it was.
+		static const struct { const char *path, *want; } bc[] = {
+			{"a.c", "a: [1]\n\tb: 2\n\tc: 5\n"},
+			{"z", "a: [1]\n\tb: 2\n\nz: 5\n"},
+		};
+		for (size_t i = 0; i < sizeof bc / sizeof bc[0]; i++) {
+			shcl_doc *bd = shcl_parse("a: [1]\n\tb: 2\n", 13);
+			int took = shcl_set_int(bd, bc[i].path, strlen(bc[i].path), 5);
+			shcl_str out = shcl_to_canonical(bd);
+			if (!took || out.n != strlen(bc[i].want) || memcmp(out.p, bc[i].want, out.n) != 0) fail("kept_gate", bc[i].path);
+			shcl_free(bd);
+		}
+	}
+	test_id("Erlf1GC", "a_note_names_the_zone_or_its_offset");
+	{
+		// The zone's short name, else its offset; and the test clock's form.
+		static const struct { int offset; const char *name, *want; } zc[] = {
+			{-420, "PDT", "PDT"}, {-420, "", "UTC-07:00"}, {240, "+04", "UTC+04:00"}, {330, "IST", "IST"},
+			{-150, "-0230", "UTC-02:30"}, {0, "Pacific Daylight Time", "UTC+00:00"}, {0, "", "UTC+00:00"},
+		};
+		char label[64], when[32], name[64];
+		int offset = 0;
+		for (size_t i = 0; i < sizeof zc / sizeof zc[0]; i++) {
+			zone_label(zc[i].offset, zc[i].name, label);
+			if (strcmp(label, zc[i].want) != 0) fail("note_clock", zc[i].want);
+		}
+		if (!test_clock("2026-10-04 00:15:00 -420 PDT", when, &offset, name) || strcmp(when, "2026-10-04 00:15:00") != 0 || offset != -420 || strcmp(name, "PDT") != 0)
+			fail("note_clock", "the test clock with a name");
+		if (!test_clock("2026-10-04 00:15:00 60", when, &offset, name) || strcmp(when, "2026-10-04 00:15:00") != 0 || offset != 60 || name[0])
+			fail("note_clock", "the test clock with no name");
+		if (test_clock("2026-10-04 00:15:00", when, &offset, name) || test_clock("2026-10-04 00:15:00 x PDT", when, &offset, name))
+			fail("note_clock", "a bad test clock was taken");
+		local_clock(when, &offset, name);
+		zone_label(offset, name, label);
+		int shape = strlen(when) == 19 && offset >= -14 * 60 && offset <= 14 * 60;
+		for (size_t k = 0; shape && k < 19; k++) {
+			char c = when[k];
+			shape = (k == 4 || k == 7) ? c == '-' : k == 10 ? c == ' ' : (k == 13 || k == 16) ? c == ':' : (c >= '0' && c <= '9');
+		}
+		if (!shape || (strncmp(label, "UTC+", 4) != 0 && strncmp(label, "UTC-", 4) != 0 && strcmp(label, name) != 0)) fail("note_clock", when);
+	}
 	test_id("EreWlk5", "a_merged_layer_owes_its_kept_lines");
 	{
 		const char *kbase = "x: 1\nr: [1, 2]\ny: 3\n";

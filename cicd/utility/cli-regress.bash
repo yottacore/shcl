@@ -45,6 +45,8 @@ done
 
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) onWindows=1 ;; *) onWindows=0 ;; esac
 startDir="${PWD}"
+## A setter's note on a kept line it comments out has the local time in it.
+export SHCL_TEST_CLOCK="2026-10-04 00:15:00 -420 PDT"
 
 ##	The unwritable directory below has to be made writable again or the cleanup
 ##	cannot empty it.
@@ -1743,6 +1745,7 @@ fSaveSetup() {
 		migrate-stamp) printf 'a: 1\n' > f.shcl ;;
 		kept-remove) printf 'x: 1\nr: [1, 2]\ny: 3\n' > f.shcl ;;
 		kept-lazy) printf 'a: [1]\n\tb: 2\ny: 3\n' > f.shcl ;;
+		kept-set)  printf 'a: [1]\n\tb: 2\ny: 3\n' > f.shcl ;;
 		migrate-dotname) printf 'base:[Boston]\n' > .f ;;
 		migrate-dotdir) mkdir d.x; printf 'base:[Boston]\n' > d.x/f ;;
 		migrate-link) mkdir real; printf 'base:[Boston]\n' > real/c.shcl; ln -s real/c.shcl f.shcl ;;
@@ -1799,6 +1802,9 @@ saveCases=(
 	## A field opened only by the line under it goes with that line, and its own
 	## kept line stays, with no bare `a:` left behind (2026100307163907).
 	'ErgTonu|kept-lazy|set --write --remove a.b f.shcl|0|cmp -s f.shcl <(printf "a: [1]\ny: 3\n")'
+	## A setter on that field writes its kept line as a comment with a note, so
+	## the file has one `a` (2026100307163907).
+	'Erlf1Is|kept-set|set --write --set a=5 f.shcl|0|cmp -s f.shcl <(printf "# a: [1]  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 bracket array syntax\na: 5\n\tb: 2\ny: 3\n")'
 	'ErCrr0Y|migrate-rodir|migrate --write ro/g.shcl|8|grep -qx "base:\[Boston\]" ro/g.shcl && grep -qiE "^ro/g_old_v2\.shcl: permission denied" "${tmpDir}/err" && ! grep -q "open " "${tmpDir}/err"'
 )
 if [[ "${onWindows}" == 1 ]]; then

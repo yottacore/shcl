@@ -192,6 +192,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A remove leaves the malformed lines beside the removed field where they were. A field opened only by the lines under it goes with the last of them and no longer leaves a bare `name:` line.
 
+- A setter on a field opened only by the lines under a malformed line writes that line as a comment, with a note giving the path, the local time and the reason, so the file has one line for the field. It wrote a second line for it.
+
 - A setter writes only what reads back, and refuses anything else.
 
 - `SetFloat` refuses infinity and NaN, and `SetDateTime` refuses a date that cannot exist.

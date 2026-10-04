@@ -751,6 +751,7 @@ int shcl_status_ok(shcl_status s);
 #include <inttypes.h>
 #include <setjmp.h>
 #include <locale.h>
+#include <time.h>
 
 // SHCL writes a float with '.', but strtod and printf use whatever the host
 // locale calls the decimal point - so in a consumer that has called setlocale
@@ -5803,11 +5804,14 @@ static void w_collapse_dup(shcl_doc *d, size_t node) {
    mark. The mark is taken by the caller, before it encodes. A value refused
    by its read-back is checked in scratch, and nothing resets scratch after a
    refusal, so it goes back here. */
+static int heads_block(ShclArena *a, const ShclNode *node);
+static void comment_out_head(shcl_doc *d, size_t idx, ShclStr path);
 static int w_set_marked(shcl_doc *d, ShclStr path, ShclValue v, ShclMark m) {
 	size_t idx;
 	if (!value_reads_back(&d->scratch, &v)) { arena_release(&d->arena, m); arena_reset(&d->scratch); return 0; }
 	if (d->probe) { arena_release(&d->arena, m); arena_reset_smallest(&d->scratch); return 1; }
 	if (!w_place(d, path, &idx)) { arena_release(&d->arena, m); return 0; }
+	if (heads_block(&d->scratch, &NODE(d, idx))) comment_out_head(d, idx, path);
 	NODE(d, idx).value = v;
 	/* No longer the list the lines among its elements sat in. */
 	unstack(d, &NODE(d, idx));
@@ -7400,6 +7404,104 @@ static ShclStr commented(ShclArena *a, ShclStr text) {
 	ShclSB b = {0};
 	sb_puts(a, &b, "# "); sb_putS(a, &b, s_slice(text, leading_ws(text).n, text.n));
 	return sb_S(&b);
+}
+
+/* A path in a note, kept to one line. */
+static void put_note_text(ShclArena *a, ShclSB *b, ShclStr s) {
+	for (size_t i = 0; i < s.n; i++) {
+		if (s.p[i] == '\n') sb_puts(a, b, "\\n");
+		else if (s.p[i] == '\r') sb_puts(a, b, "\\r");
+		else sb_putc(a, b, s.p[i]);
+	}
+}
+
+#if !defined(_WIN32) || defined(SHCL_NO_FILE_IO)
+/* A struct tm's local time as text, and its offset from the UTC one for the
+   same instant. */
+static void clock_fields(const struct tm *local, const struct tm *utc, char when[32], int *offset) {
+	int days = local->tm_yday - utc->tm_yday;
+	if (local->tm_year != utc->tm_year) days = local->tm_year < utc->tm_year ? -1 : 1;
+	*offset = (days * 24 + local->tm_hour - utc->tm_hour) * 60 + local->tm_min - utc->tm_min;
+	snprintf(when, 32, "%04d-%02d-%02d %02d:%02d:%02d", (local->tm_year + 1900) % 10000, (local->tm_mon + 1) % 100,
+		local->tm_mday % 100, local->tm_hour % 100, local->tm_min % 100, local->tm_sec % 100);
+}
+#endif
+
+/* The local time as "YYYY-mm-DD HH:MM:SS", its offset from UTC in minutes,
+   and the zone's short name, or "" when there is none. With the file tier. */
+static void local_clock(char when[32], int *offset, char name[64]);
+
+/* SHCL_TEST_CLOCK's "YYYY-mm-DD HH:MM:SS OFFSET_MINUTES [NAME]". */
+static int test_clock(const char *spec, char when[32], int *offset, char name[64]) {
+	char date[16], tod[16], off[16], zone[64];
+	int n = spec ? sscanf(spec, "%15s %15s %15s %63s", date, tod, off, zone) : 0;
+	if (n < 3) return 0;
+	char rest[2];
+	if (n == 4 && sscanf(spec, "%*s %*s %*s %*s %1s", rest) == 1) return 0;
+	char *end;
+	long v = strtol(off, &end, 10);
+	if (*end || end == off || v != (long)(int)v) return 0;
+	if (strlen(date) + 1 + strlen(tod) >= 32) return 0;
+	snprintf(when, 32, "%s %s", date, tod);
+	*offset = (int)v;
+	snprintf(name, 64, "%s", n == 4 ? zone : "");
+	return 1;
+}
+
+/* The zone's short name, such as PDT, or its offset when it has none:
+   Windows gives only long names, and some zones a number such as `+03`. */
+static void zone_label(int offset, const char *name, char out[64]) {
+	int alpha = name[0] != 0;
+	for (const char *c = name; *c; c++)
+		if (!((*c >= 'A' && *c <= 'Z') || (*c >= 'a' && *c <= 'z'))) alpha = 0;
+	if (alpha) { snprintf(out, 64, "%s", name); return; }
+	char sign = offset < 0 ? '-' : '+';
+	long m = offset < 0 ? -(long)offset : (long)offset;
+	snprintf(out, 64, "UTC%c%02ld:%02ld", sign, m / 60, m % 60);
+}
+
+/* Local time to the second, with the zone, for a setter's note on a line it
+   commented out. SHCL_TEST_CLOCK stands in for the system clock and zone, so
+   tests can pin the text. */
+static void note_stamp(ShclArena *a, ShclSB *b) {
+	char when[32], name[64], label[64];
+	int offset = 0;
+	if (!test_clock(getenv("SHCL_TEST_CLOCK"), when, &offset, name)) local_clock(when, &offset, name);
+	zone_label(offset, name, label);
+	sb_puts(a, b, when); sb_putc(a, b, ' '); sb_puts(a, b, label);
+}
+
+/* A setter on a field a kept line opened writes that line as a comment, with
+   a note giving why and when, so the file is left with one line for the
+   field (design.md, Kept lines under edits). The line is a comment from here
+   on, as a reload reads it, so it is no longer owed. */
+static void comment_out_head(shcl_doc *d, size_t idx, ShclStr path) {
+	ShclTrivia *t = triv_mut(&d->arena, &NODE(d, idx));
+	if (t->leading.len == 0) return;
+	ShclLead *l = &t->leading.data[t->leading.len - 1];
+	/* A line refused for its value alone never takes a raw body, but one that
+	   did could not be commented out as one line. */
+	if (l->text.n && memchr(l->text.p, '\n', l->text.n)) return;
+	ShclTokens tok; memset(&tok, 0, sizeof tok);
+	tokenize(&d->scratch, l->text, ':', 0, SHCL_RULES_CURRENT, &tok);
+	ShclStr msg;
+	const char *code = line_fault(&d->scratch, &tok, l->text, &msg);
+	if (!code) return;
+	/* The reason, without the advice after it. */
+	const char *semi = msg.n ? (const char *)memchr(msg.p, ';', msg.n) : NULL;
+	ShclStr why = semi ? s_slice(msg, 0, (size_t)(semi - msg.p)) : msg;
+	ShclSB b = {0};
+	sb_putS(&d->arena, &b, commented(&d->scratch, l->text));
+	sb_puts(&d->arena, &b, "  ## commented out by shcl when setting ");
+	put_note_text(&d->arena, &b, path);
+	sb_puts(&d->arena, &b, ", ");
+	note_stamp(&d->arena, &b);
+	sb_puts(&d->arena, &b, ": "); sb_puts(&d->arena, &b, code);
+	sb_putc(&d->arena, &b, ' '); sb_putS(&d->arena, &b, why);
+	l->text = sb_S(&b);
+	l->line = 0;
+	l->kept = 0;
+	if (d->kept_owed > 0) d->kept_owed--;
 }
 
 /* A kept line, and the raw body and fence it took, if any, which go one level
@@ -10982,6 +11084,61 @@ shcl_save_result shcl_save_file_keep_lines(shcl_doc *d, const char *path, int *k
 	if (!k && shcl_lost_count(d) > 0) return SHCL_SAVE_REFUSED;
 	if (kept) *kept = k;
 	return shcl_write_file_atomic(path, t.p, t.n) ? SHCL_SAVE_OK : SHCL_SAVE_FAILED;
+}
+
+#ifdef _WIN32
+/* Windows names a zone only in full, such as "Pacific Daylight Time", so the
+   label is always the offset. */
+static void local_clock(char when[32], int *offset, char name[64]) {
+	FILETIME now, utc_ft, local_ft;
+	SYSTEMTIME utc, local;
+	GetSystemTimeAsFileTime(&now);
+	int ok = FileTimeToSystemTime(&now, &utc) != 0;
+	utc.wMilliseconds = 0;
+	ok = ok && SystemTimeToTzSpecificLocalTime(NULL, &utc, &local) != 0
+		&& SystemTimeToFileTime(&utc, &utc_ft) != 0
+		&& SystemTimeToFileTime(&local, &local_ft) != 0;
+	if (!ok) { local = utc; local_ft = utc_ft; }
+	/* FILETIME counts 100 ns ticks. */
+	int64_t ticks = (int64_t)(((uint64_t)local_ft.dwHighDateTime << 32) | local_ft.dwLowDateTime)
+		- (int64_t)(((uint64_t)utc_ft.dwHighDateTime << 32) | utc_ft.dwLowDateTime);
+	*offset = (int)(ticks / 600000000);
+	snprintf(when, 32, "%04u-%02u-%02u %02u:%02u:%02u", (unsigned)local.wYear % 10000u, (unsigned)local.wMonth % 100u,
+		(unsigned)local.wDay % 100u, (unsigned)local.wHour % 100u, (unsigned)local.wMinute % 100u, (unsigned)local.wSecond % 100u);
+	name[0] = 0;
+}
+#else
+/* The offset is the local time less UTC for the same instant, since
+   tm_gmtoff is not in POSIX's struct tm. */
+static void local_clock(char when[32], int *offset, char name[64]) {
+	time_t now = time(NULL);
+	struct tm local, utc;
+	memset(&local, 0, sizeof local); memset(&utc, 0, sizeof utc);
+	tzset();
+	if (!gmtime_r(&now, &utc)) utc.tm_year = 70;
+	if (!localtime_r(&now, &local)) local = utc;
+	clock_fields(&local, &utc, when, offset);
+	size_t n = strftime(name, 64, "%Z", &local);
+	name[n] = 0;
+}
+#endif
+#else
+/* Without the file tier there is no POSIX: the C library's own calls, which
+   share one buffer, so each is copied out at once. */
+static void local_clock(char when[32], int *offset, char name[64]) {
+	time_t now = time(NULL);
+	struct tm local, utc;
+	memset(&local, 0, sizeof local); memset(&utc, 0, sizeof utc);
+	const struct tm *p = gmtime(&now);
+	if (p) utc = *p; else utc.tm_year = 70;
+	p = localtime(&now);
+	local = p ? *p : utc;
+	clock_fields(&local, &utc, when, offset);
+	size_t n = strftime(name, 64, "%Z", &local);
+	name[n] = 0;
+#ifdef _WIN32
+	name[0] = 0;
+#endif
 }
 #endif /* SHCL_NO_FILE_IO */
 
