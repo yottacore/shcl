@@ -360,6 +360,7 @@ PROFILE_TIMED=(
 ## Stage 6: native release + cross targets. One per line:
 ## "label|os-arch|artifact|command...". os-arch feeds the versioned artifact name
 ## (<exe>-<version>-<os-arch>[.exe]). macOS is deferred (no Apple SDK on this box).
+## FreeBSD is x86_64 only: Rust ships no prebuilt std for it on arm64.
 RELEASE_NATIVE_CMD=(cargo build --release -j "${CPU_CAP}" --manifest-path "${MANIFEST}")
 RELEASE_NATIVE_BIN="source/rust/target/release/${EXE_NAME}"
 RELEASE_NATIVE_OSARCH="linux-x86_64"
@@ -367,6 +368,7 @@ CROSS_TARGETS=(
 	"Windows x86_64 (mingw)|windows-x86_64|source/rust/target/x86_64-pc-windows-gnu/release/${EXE_NAME}.exe|cargo build --release -j \${CPU_CAP} --manifest-path ${MANIFEST} --target x86_64-pc-windows-gnu"
 	"Linux ARM64 (zig)|linux-arm64|source/rust/target/aarch64-unknown-linux-gnu/release/${EXE_NAME}|cargo zigbuild --release -j \${CPU_CAP} --manifest-path ${MANIFEST} --target aarch64-unknown-linux-gnu"
 	"Windows ARM64 (zig)|windows-arm64|source/rust/target/aarch64-pc-windows-gnullvm/release/${EXE_NAME}.exe|cargo zigbuild --release -j \${CPU_CAP} --manifest-path ${MANIFEST} --target aarch64-pc-windows-gnullvm"
+	"FreeBSD x86_64 (zig)|freebsd-x86_64|source/rust/target/x86_64-unknown-freebsd/release/${EXE_NAME}|cargo zigbuild --release -j \${CPU_CAP} --manifest-path ${MANIFEST} --target x86_64-unknown-freebsd"
 )
 ## Cross-compile checks that ship nothing: they exist so the non-Rust bindings'
 ## platform branches are compiled somewhere. The C header's Windows path had
