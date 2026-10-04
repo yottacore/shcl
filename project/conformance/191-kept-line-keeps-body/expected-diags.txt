@@ -1,0 +1,7 @@
+line 4: Error: E014
+line 9: Error: E023
+line 14: Error: E014
+line 22: Error: E012
+line 27: Error: E014
+line 27: Error: E005
+failed: 6 diagnostic(s), 6 error(s)

@@ -1819,11 +1819,21 @@ impl Slot {
 }
 
 /// The fence a field line's value opens, if it opens one. A line that did
-/// not tokenize has no value to read.
+/// not tokenize opens one too when a fence follows its first colon past
+/// where it stopped making sense, with no comment before that colon. Read
+/// as lines, such a body would bind, and its closing fence would open a
+/// block of its own.
 fn line_fence(tok: &Tokens, rest: &str) -> Option<(u8, usize, String)> {
-	if tok.fault.is_some() || tok.sep.is_none() {
-		return None;
+	if let Some((at, _)) = tok.fault {
+		let s = rest.as_bytes();
+		let sep = (at..s.len())
+			.find(|&k| s[k] == b':' || comment_at(s, k))
+			.filter(|&k| s[k] == b':')?;
+		let mut value = Tokens::default();
+		tokenize_value(rest, sep + 1, Rules::Current, &mut value);
+		return fence_open(&rest[value.value.0..value.value.1]);
 	}
+	tok.sep?;
 	// A capped scan zeroed the value, and a fence is told by its leading run
 	// alone.
 	fence_open(if tok.capped {
@@ -2047,8 +2057,8 @@ impl RawLines {
 
 /// The raw block a line opens under the current rules: a fence line under a
 /// field, or a field line whose value is a fence, read as the parser reads
-/// them. A line refused for where it sits still takes its body. One refused
-/// for its text may not yet, and then the file fails `check` anyway.
+/// them. A line refused for where it sits or for its text still takes its
+/// body.
 fn opens_raw(rest: &str, tok: &mut Tokens) -> Option<(u8, usize)> {
 	let rest = rest.trim_start_matches(is_wsp);
 	let fence = if rest.starts_with(['`', '~']) {
@@ -3559,8 +3569,8 @@ impl<'a> Parser<'a> {
 	/// skips one comes through here, so a skipped line whose value opens a
 	/// raw block takes the body with it: read as lines, the body would bind
 	/// or be refused line by line, and its closing fence would open a block
-	/// that runs to the end of the file. A line whose path did not parse has
-	/// no value to read, so it goes alone.
+	/// that runs to the end of the file. A line whose path did not parse
+	/// takes it too, when a fence follows its colon (`line_fence`).
 	fn skip_field_line(
 		&mut self,
 		lines: &[&str],
@@ -3573,6 +3583,56 @@ impl<'a> Parser<'a> {
 			Some(fence) => self.consume_raw(lines, i + 1, i + 1, indent, fence).1,
 			None => i + 1,
 		}
+	}
+
+	/// skip_field_line() for a line the refusal just kept: the body is kept
+	/// too, on the end of the line's text, so a save writes it back under its
+	/// line and the load still holds one kept line for it. As in a field's
+	/// block, the closing fence's indent comes off each body line, and the
+	/// body goes one level under the line when it is written. A block that
+	/// never closed gets its closing fence, or whatever a save writes after it
+	/// would read as its body.
+	fn keep_body(
+		&mut self,
+		lines: &[&str],
+		i: usize,
+		indent: &str,
+		tok: &Tokens,
+		rest: &str,
+	) -> usize {
+		let Some(fence) = line_fence(tok, rest) else {
+			return i + 1;
+		};
+		let (ch, len) = (fence.0, fence.1);
+		let next = self.consume_raw(lines, i + 1, i + 1, indent, fence).1;
+		let closed = next > i + 1 && is_fence_close(lines[next - 1], ch, len);
+		let (body, nest, close) = if closed {
+			let fence_line = lines[next - 1];
+			(
+				&lines[i + 1..next - 1],
+				leading_ws(fence_line),
+				fence_line.trim_matches([' ', '\t']).to_string(),
+			)
+		} else {
+			(
+				&lines[i + 1..next],
+				indent,
+				std::iter::repeat_n(char::from(ch), len).collect(),
+			)
+		};
+		let Some(p) = self.pending.last_mut() else {
+			return next;
+		};
+		for l in body {
+			p.text.push('\n');
+			p.text.push_str(strip_common(l, nest));
+		}
+		p.text.push('\n');
+		p.text.push_str(&close);
+		if next > i + 1 {
+			self.ends.push((i + 1, next));
+		}
+		next
 	}
 
 	/// Walk path segments under `parent`, select-or-creating; returns the node
@@ -4353,7 +4413,8 @@ impl<'a> Parser<'a> {
 					// Content-malformed at any position, so retained - except a
 					// line led by a BOM, which the file-start strip would rewrite
 					// into something that can bind.
-					let outcome = if rest.starts_with('\u{feff}') {
+					let bom = rest.starts_with('\u{feff}');
+					let outcome = if bom {
 						Outcome::Dropped
 					} else {
 						Outcome::Retained {
@@ -4372,7 +4433,11 @@ impl<'a> Parser<'a> {
 						outcome,
 						indent,
 					);
-					i += 1;
+					i = if bom {
+						self.skip_field_line(&lines, i, indent, &tok, rest)
+					} else {
+						self.keep_body(&lines, i, indent, &tok, rest)
+					};
 					continue;
 				}
 			};
@@ -4405,7 +4470,8 @@ impl<'a> Parser<'a> {
 				if bad_escape(&tok, rest, false).is_none() {
 					self.hold_open(parent, scan.segments, lineno, indent);
 				}
-				i = next;
+				// Only a fault in the name leaves a fence to read here.
+				i = self.keep_body(&lines, i, indent, &tok, rest);
 				continue;
 			}
 			// Element cap: the whole line is refused, so a capped load never
@@ -5489,8 +5555,40 @@ fn push_leads(e: &mut Emit, leads: &[Lead], base: usize, at: (usize, Site, usize
 			}
 		}
 		e.out.extend(std::iter::repeat_n('\t', pad));
-		e.out.push_str(&c.text);
+		push_kept(e, &c.text, pad);
+	}
+}
+
+/// A kept line, and the raw body and fence it took, if any, which go one
+/// level under it, as a field's block does. The body moves with its line.
+fn push_kept(e: &mut Emit, text: &str, pad: usize) {
+	let Some((line, block)) = text.split_once('\n') else {
+		e.out.push_str(text);
 		e.out.push('\n');
+		return;
+	};
+	e.out.push_str(line);
+	e.out.push('\n');
+	let body = e.out.len();
+	let fence = match block.rsplit_once('\n') {
+		Some((lines, fence)) => {
+			for l in lines.split('\n') {
+				if !l.is_empty() {
+					e.out.extend(std::iter::repeat_n('\t', pad + 1));
+				}
+				e.out.push_str(l);
+				e.out.push('\n');
+			}
+			fence
+		}
+		None => block,
+	};
+	let end = e.out.len();
+	e.out.extend(std::iter::repeat_n('\t', pad + 1));
+	e.out.push_str(fence);
+	e.out.push('\n');
+	if e.lines {
+		e.bodies.push((body, end, pad + 1));
 	}
 }
 

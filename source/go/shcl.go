@@ -2172,8 +2172,8 @@ func (w *rawLines) step(line string) (rest string, ok bool) {
 
 // opensRaw is the raw block a line opens under the current rules: a fence
 // line under a field, or a field line whose value is a fence, read as the
-// parser reads them. A line refused for where it sits still takes its body.
-// One refused for its text may not yet, and then the file fails check anyway.
+// parser reads them. A line refused for where it sits or for its text still
+// takes its body.
 func opensRaw(rest string, tok *Tokens) openFence {
 	rest = strings.TrimLeftFunc(rest, isWsp)
 	var ch byte
@@ -3717,8 +3717,8 @@ func (p *parser) givePending(node int, indent string, count int, inside bool) {
 // arm that skips one comes through here, so a skipped line whose value opens a
 // raw block takes the body with it: read as lines, the body would bind or be
 // refused line by line, and its closing fence would open a block that runs to
-// the end of the file. A line whose path did not parse has no value to read,
-// so it goes alone.
+// the end of the file. A line whose path did not parse takes it too, when a
+// fence follows its colon (lineFence).
 func (p *parser) skipFieldLine(lines []string, i int, indent string, tok *Tokens, rest string) int {
 	if ch, length, info, ok := lineFence(tok, rest); ok {
 		_, next := p.consumeRaw(lines, i+1, i+1, indent, ch, length, info)
@@ -3727,10 +3727,65 @@ func (p *parser) skipFieldLine(lines []string, i int, indent string, tok *Tokens
 	return i + 1
 }
 
+// keepBody is skipFieldLine for a line the refusal just kept: the body is kept
+// too, on the end of the line's text, so a save writes it back under its line
+// and the load still holds one kept line for it. As in a field's block, the
+// closing fence's indent comes off each body line, and the body goes one level
+// under the line when it is written. A block that never closed gets its
+// closing fence, or whatever a save writes after it would read as its body.
+func (p *parser) keepBody(lines []string, i int, indent string, tok *Tokens, rest string) int {
+	ch, length, info, ok := lineFence(tok, rest)
+	if !ok {
+		return i + 1
+	}
+	_, next := p.consumeRaw(lines, i+1, i+1, indent, ch, length, info)
+	closed := next > i+1 && isFenceClose(lines[next-1], ch, length)
+	body, nest, closer := lines[i+1:next], indent, strings.Repeat(string(ch), length)
+	if closed {
+		fenceLine := lines[next-1]
+		body, nest, closer = lines[i+1:next-1], leadingWS(fenceLine), strings.Trim(fenceLine, " \t")
+	}
+	if len(p.pending) == 0 {
+		return next
+	}
+	last := &p.pending[len(p.pending)-1]
+	var b strings.Builder
+	b.WriteString(last.text)
+	for _, l := range body {
+		b.WriteByte('\n')
+		b.WriteString(stripCommon(l, nest))
+	}
+	b.WriteByte('\n')
+	b.WriteString(closer)
+	last.text = b.String()
+	if next > i+1 {
+		p.ends = append(p.ends, [2]int{i + 1, next})
+	}
+	return next
+}
+
 // lineFence is the fence a field line's value opens, if it opens one. A line
-// that did not tokenize has no value to read.
+// that did not tokenize opens one too when a fence follows its first colon
+// past where it stopped making sense, with no comment before that colon. Read
+// as lines, such a body would bind, and its closing fence would open a block
+// of its own.
 func lineFence(tok *Tokens, rest string) (ch byte, length int, info string, ok bool) {
-	if tok.Fault >= 0 || tok.Sep < 0 {
+	if tok.Fault >= 0 {
+		sep := -1
+		for k := tok.Fault; k < len(rest); k++ {
+			if rest[k] == ':' || commentAt(rest, k) {
+				sep = k
+				break
+			}
+		}
+		if sep < 0 || rest[sep] != ':' {
+			return 0, 0, "", false
+		}
+		var v Tokens
+		TokenizeValue(rest, sep+1, RulesCurrent, &v)
+		return fenceOpen(rest[v.Value[0]:v.Value[1]])
+	}
+	if tok.Sep < 0 {
 		return 0, 0, "", false
 	}
 	// A capped scan zeroed the value, and a fence is told by its leading run
@@ -4394,15 +4449,20 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 			// Content-malformed at any position, so retained - except a line
 			// led by a BOM, which the file-start strip would rewrite into
 			// something that can bind.
+			bom := strings.HasPrefix(rest, "\ufeff")
 			out := outRetained(trimEndWS(rest), hadBlank)
-			if strings.HasPrefix(rest, "\ufeff") {
+			if bom {
 				out = outDropped
 			}
 			// The column counts bytes from the line start, so all four bindings
 			// report it the same on non-ASCII text.
 			msg := fmt.Sprintf("malformed line skipped: %s, at column %d", serr.Error(), len(indent)+lead+tok.Fault+1)
 			p.refuse(lineno, "E014", msg, out, indent)
-			i++
+			if bom {
+				i = p.skipFieldLine(lines, i, indent, &tok, rest)
+			} else {
+				i = p.keepBody(lines, i, indent, &tok, rest)
+			}
 			continue
 		}
 		next := i + 1
@@ -4425,7 +4485,8 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 			if _, inPath := badEscape(&tok, rest, false); !inPath {
 				p.holdOpen(parent, scan.segments, lineno, indent)
 			}
-			i = next
+			// Only a fault in the name leaves a fence to read here.
+			i = p.keepBody(lines, i, indent, &tok, rest)
 			continue
 		}
 		// Element cap: the whole line is refused, so a capped load never
@@ -5303,8 +5364,38 @@ func pushLeads(e *emit, leads []lead, base, node int, at site, from int) {
 			}
 		}
 		writeTabs(&e.out, pad)
-		e.out.WriteString(c.text)
-		e.out.WriteByte('\n')
+		pushKept(e, c.text, pad)
+	}
+}
+
+// pushKept writes a kept line, and the raw body and fence it took, if any,
+// which go one level under it, as a field's block does. The body moves with
+// its line.
+func pushKept(e *emit, text string, pad int) {
+	line, block, hasBody := strings.Cut(text, "\n")
+	e.out.WriteString(line)
+	e.out.WriteByte('\n')
+	if !hasBody {
+		return
+	}
+	body := e.out.Len()
+	fence := block
+	if k := strings.LastIndexByte(block, '\n'); k >= 0 {
+		for _, l := range strings.Split(block[:k], "\n") {
+			if l != "" {
+				writeTabs(&e.out, pad+1)
+			}
+			e.out.WriteString(l)
+			e.out.WriteByte('\n')
+		}
+		fence = block[k+1:]
+	}
+	end := e.out.Len()
+	writeTabs(&e.out, pad+1)
+	e.out.WriteString(fence)
+	e.out.WriteByte('\n')
+	if e.lines {
+		e.bodies = append(e.bodies, [3]int{body, end, pad + 1})
 	}
 }
 

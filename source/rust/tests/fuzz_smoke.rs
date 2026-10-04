@@ -507,8 +507,7 @@ fn kept_misplaced(
 		} else if rest.starts_with('*') {
 			None
 		} else {
-			tokenize(rest, b':', false, Rules::Current, &mut tok);
-			(tok.fault.is_none() && tok.sep.is_some()).then(|| &rest[tok.value.0..tok.value.1])
+			field_value(rest, &mut tok)
 		};
 		let opens = value.and_then(|v| {
 			let ch = *v.as_bytes().first()?;
@@ -689,6 +688,23 @@ fn a_cap_refuses_only_a_line_that_would_bind() {
 	);
 }
 
+/// A field line's value, from the text past its indent: what follows the
+/// separator, as the tokenizer reads it. A line that did not tokenize still
+/// has one after its first colon past the fault, unless a comment comes
+/// first; only its leading run is read.
+fn field_value<'t>(rest: &'t str, tok: &mut Tokens) -> Option<&'t str> {
+	tokenize(rest, b':', false, Rules::Current, tok);
+	match tok.fault {
+		Some((at, _)) => {
+			let tail = &rest[at..];
+			tail.find([':', '#'])
+				.filter(|&k| tail.as_bytes()[k] == b':')
+				.map(|k| tail[k + 1..].trim_start_matches([' ', '\t', '\r']))
+		}
+		None => tok.sep.map(|_| &rest[tok.value.0..tok.value.1]),
+	}
+}
+
 /// A leading run of three or more `` ` `` or `~`, which is how a fence line
 /// both opens and closes a block.
 fn fence_run(text: &str) -> Option<(char, usize)> {
@@ -715,6 +731,7 @@ fn raw_spans(text: &str) -> Vec<(usize, usize)> {
 	let lines: Vec<&str> = text.lines().collect();
 	let mut spans = Vec::new();
 	let mut open: Option<(char, usize, usize)> = None;
+	let mut tok = Tokens::default();
 	for (k, line) in lines.iter().enumerate() {
 		let bare = line.trim_start_matches([' ', '\t']);
 		if let Some((c, n, at)) = open {
@@ -726,14 +743,15 @@ fn raw_spans(text: &str) -> Vec<(usize, usize)> {
 			continue;
 		}
 		// The block spelling: the fence is the whole line. The same-line
-		// spelling: it is the value half. No name the soup builds holds a
-		// `: `, so the first one is the field's. A `*` is no field name, so
-		// such a line has no value and opens nothing.
-		if bare.starts_with('*') {
+		// spelling: it is the value. A `*` is no field name, so such a line
+		// has no value and opens nothing, and a comment has none either.
+		if bare.starts_with(['*', '#']) {
 			continue;
 		}
-		let value = line.split_once(": ").map(|(_, v)| v.trim_start());
-		if let Some((c, n)) = fence_run(bare).or_else(|| value.and_then(fence_run)) {
+		let opens = fence_run(bare).or_else(|| {
+			field_value(bare.trim_start_matches([' ', '\t', '\r']), &mut tok).and_then(fence_run)
+		});
+		if let Some((c, n)) = opens {
 			open = Some((c, n, k + 1));
 		}
 	}
@@ -748,8 +766,8 @@ fn raw_spans(text: &str) -> Vec<(usize, usize)> {
 /// lines, and its closing fence then opened a block of its own; nine review
 /// items were some arm of that. So no diagnostic may fall on a body line or a
 /// closing fence, unless the opening line has no value to read: a `*` name,
-/// which is no field at all, a path that did not parse (E014), or a fence with
-/// no field above it to bind to (E006).
+/// which is no field at all, or a fence with no field above it to bind to
+/// (E006). A path that did not parse (E014) takes its body too.
 #[test]
 fn raw_bodies_stay_content() {
 	let _id = test_id("EqGWdij");
@@ -779,7 +797,7 @@ fn raw_bodies_stay_content() {
 				.any(|d| d.line == n && (codes.is_empty() || codes.contains(&d.code)))
 		};
 		for (opener, last) in raw_spans(&text) {
-			if on(opener, &["E006", "E014"]) {
+			if on(opener, &["E006"]) {
 				continue;
 			}
 			seen += 1;
@@ -1481,9 +1499,8 @@ fn kept_lines_keep_their_path() {
 /// kept_soup with two shapes spliced in, each a third of the time, at a line
 /// boundary and that line's indent. One is a block holding a line refused for
 /// its name that opens a raw block, its body and fence at the line's own
-/// indent or one deeper. At its own indent the closer binds to the block, so
-/// the body is read as fields and the save goes through (2026100307163902).
-/// The other is a field opened from a kept line with one line under it, which
+/// indent or one deeper. The body is kept with its line; read as fields at the
+/// line's own indent, it once let the save through. The other is a field opened from a kept line with one line under it, which
 /// a remove of that line takes with it, leaving the kept line.
 fn kept_soup_spliced(rng: &mut Rng) -> String {
 	let soup = kept_soup(rng);
@@ -1519,12 +1536,12 @@ fn kept_soup_spliced(rng: &mut Rng) -> String {
 }
 
 /// The lines of a text the outcome table keeps as written, by number and
-/// trimmed text, and each raw span one of them opens: its opener, its body
-/// and fence, and whether the opener was refused for its name. Read from the
-/// diagnostics and the spec's lexical rules, not the parser's tree.
+/// trimmed text, and each raw span one of them opens: its opener, and its body
+/// and fence. Read from the diagnostics and the spec's lexical rules, not the
+/// parser's tree.
 struct KeptText {
 	lines: Vec<(usize, String)>,
-	spans: Vec<(String, Vec<String>, bool)>,
+	spans: Vec<(String, Vec<String>)>,
 }
 
 fn kept_text(text: &str) -> KeptText {
@@ -1540,14 +1557,12 @@ fn kept_text(text: &str) -> KeptText {
 	let spans = raw_spans(text);
 	// A body line is the block's content, whatever the parser made of it.
 	let in_body = |n: usize| spans.iter().any(|&(o, c)| n > o && n <= c);
-	let mut at: std::collections::BTreeMap<usize, bool> = std::collections::BTreeMap::new();
+	let mut at: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
 	for d in doc.diagnostics() {
 		let Some(src) = lines.get(d.line.wrapping_sub(1)) else {
 			continue;
 		};
 		let bare = src.trim_start_matches([' ', '\t']);
-		let name_refused = d.code == "E014"
-			|| (d.code == "E023" && bare.split_once(':').is_some_and(|(n, _)| n.contains('\\')));
 		let kept = match d.code {
 			"E014" => !bare.starts_with('\u{feff}'),
 			"E013" | "E019" | "E023" | "E024" => true,
@@ -1555,14 +1570,14 @@ fn kept_text(text: &str) -> KeptText {
 			_ => false,
 		};
 		if kept {
-			*at.entry(d.line).or_default() |= name_refused;
+			at.insert(d.line);
 		}
 	}
 	let mut out = KeptText {
 		lines: Vec::new(),
 		spans: Vec::new(),
 	};
-	for (&n, &name_refused) in &at {
+	for &n in &at {
 		if in_body(n) {
 			continue;
 		}
@@ -1572,7 +1587,7 @@ fn kept_text(text: &str) -> KeptText {
 				.iter()
 				.map(|l| l.trim_matches(BLANKS).to_string())
 				.collect();
-			out.spans.push((line.clone(), body, name_refused));
+			out.spans.push((line.clone(), body));
 		}
 		out.lines.push((n, line));
 	}
@@ -1661,8 +1676,7 @@ fn taken_lines(canon: &str, path: &str) -> Vec<String> {
 /// line at no indent past the last field's line. The load keeps everything
 /// from there on as the document's own lines, not a field's. Canonical text
 /// writes a field's raw body deeper than the field, so no body line is at no
-/// indent; a line that only looks like a fence opens nothing here
-/// (2026100307163902).
+/// indent, and a kept line's body goes out under the kept line.
 fn footer_start(canon: &str) -> usize {
 	let doc = Document::parse(canon);
 	let lines: Vec<&str> = canon.lines().collect();
@@ -1818,14 +1832,6 @@ fn replaced_leaf_lines(before: &str, layer: &str) -> Vec<String> {
 	out
 }
 
-/// Classes the property finds that are open in the backlog. Each is a check
-/// and an edit, never an input.
-#[derive(Clone, Copy, PartialEq, Debug)]
-enum Class {
-	// (a): the body of a raw block opened by a line refused for its name.
-	BodyReadAsFields,
-}
-
 /// After any edits, every kept line no edit's target took is in the saved
 /// text, or the save refuses (design.md, Kept lines under edits). Also: an
 /// edit raises the lost count only where the table says, and a remove adds
@@ -1833,17 +1839,6 @@ enum Class {
 #[test]
 fn kept_lines_survive_edits() {
 	let _id = test_id("EreT6dh");
-	// Classes this property finds that are open in the backlog, by ID. Each
-	// must match at least once a run, so the fix that closes one fails here
-	// until it takes its row out.
-	const OPEN: &[(&str, Class)] = &[("2026100307163902", Class::BodyReadAsFields)];
-	let mut matched = vec![0usize; OPEN.len()];
-	let mut excuse = |class: Class, why: &str| {
-		let Some(k) = OPEN.iter().position(|r| r.1 == class) else {
-			panic!("{why}");
-		};
-		matched[k] += 1;
-	};
 	let iters = iter_count(300);
 	let seeds = seed_texts();
 	let mut rng = Rng(0x5EED_1003_0731_0001);
@@ -2030,21 +2025,16 @@ fn kept_lines_survive_edits() {
 				.lines()
 				.map(|t| t.trim_matches(BLANKS))
 				.collect();
-			for (opener, body, name_refused) in &spans {
+			for (opener, body) in &spans {
 				let whole: Vec<&str> = std::iter::once(opener.as_str())
 					.chain(body.iter().map(String::as_str))
 					.collect();
 				if written.windows(whole.len()).any(|w| w == whole.as_slice()) {
 					continue;
 				}
-				let why = format!(
+				panic!(
 					"iteration {i}: the {which} save split the raw block {whole:?}:\n{log}--- wrote\n{text}"
 				);
-				if *name_refused {
-					excuse(Class::BodyReadAsFields, &why);
-				} else {
-					panic!("{why}");
-				}
 			}
 		}
 	}
@@ -2056,14 +2046,6 @@ fn kept_lines_survive_edits() {
 		removes_near * 20 >= iters,
 		"only {removes_near} of {iters} inputs removed a field beside a kept line"
 	);
-	if iters >= 300 {
-		for (k, (id, class)) in OPEN.iter().enumerate() {
-			assert!(
-				matched[k] > 0,
-				"{class:?} ({id}) matched nothing in {iters} runs; if {id} is fixed, take its row out"
-			);
-		}
-	}
 }
 
 /// A config like tidy()'s where each line ends in LF or CRLF on its own, all

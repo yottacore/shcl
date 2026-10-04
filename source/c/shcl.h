@@ -2261,9 +2261,20 @@ static ShclFence fence_open(ShclStr rest) {
 	return f;
 }
 /* The fence a field line's value opens, if it opens one. A line that did not
-   tokenize has no value to read. */
-static ShclFence line_fence(const ShclTokens *tok, ShclStr rest) {
-	if (tok->has_fault || !tok->has_sep) { ShclFence f; f.ok = 0; f.ch = 0; f.len = 0; f.info = s_empty(); return f; }
+   tokenize opens one too when a fence follows its first colon past where it
+   stopped making sense, with no comment before that colon. Read as lines, such
+   a body would bind, and its closing fence would open a block of its own. a
+   holds the value's pieces for a line that did not tokenize. */
+static ShclFence line_fence(ShclArena *a, const ShclTokens *tok, ShclStr rest) {
+	if (tok->has_fault) {
+		size_t sep = tok->fault_at;
+		while (sep < rest.n && rest.p[sep] != ':' && !comment_at(rest, sep)) sep++;
+		if (sep >= rest.n || rest.p[sep] != ':') return fence_open(s_empty());
+		ShclTokens value; memset(&value, 0, sizeof value);
+		tokenize_value(a, rest, sep + 1, SHCL_RULES_CURRENT, &value);
+		return fence_open(s_slice(rest, value.value_start, value.value_end));
+	}
+	if (!tok->has_sep) { ShclFence f; f.ok = 0; f.ch = 0; f.len = 0; f.info = s_empty(); return f; }
 	/* A capped scan zeroed the value, and a fence is told by its leading run
 	   alone. */
 	return fence_open(tok->capped ? s_trim_wsp(s_slice(rest, tok->value_start, rest.n)) : s_slice(rest, tok->value_start, tok->value_end));
@@ -2528,14 +2539,14 @@ static void raw_lines_init(ShclRawLines *w, ShclRules rules) {
 
 /* The raw block a line opens under the current rules: a fence line under a
    field, or a field line whose value is a fence, read as the parser reads
-   them. A line refused for where it sits still takes its body. One refused for
-   its text may not yet, and then the file fails check anyway. */
+   them. A line refused for where it sits or for its text still takes its
+   body. */
 static ShclFence opens_raw(ShclArena *ta, ShclStr rest, ShclTokens *tok) {
 	rest = trim_wsp_start(rest);
 	if (rest.p[0] == '`' || rest.p[0] == '~') return child_fence(ta, rest, tok);
 	if (rest.p[0] == '#' || rest.p[0] == '*') return fence_open(s_empty());
 	tokenize(ta, rest, ':', 0, SHCL_RULES_CURRENT, tok);
-	return line_fence(tok, rest);
+	return line_fence(ta, tok, rest);
 }
 
 /* The next line's text past its indent in *rest, or 0 when the line is part of
@@ -3469,9 +3480,10 @@ static void cmap_del(ShclCMap *m, uint64_t h, size_t val) {
 
 /* A pending whole-line comment during parse: text, source indent (used only
    to decide whether it hangs on a deeper block), and the blank it consumed.
-   Both strings slice the retained input copy. ceiling is the shortest
-   incoming indent already checked against it: a later check can only hang it
-   from a shorter one, so a longer one skips it. */
+   Both strings slice the retained input copy, except the text of a kept line
+   with the raw body it took, built in the document's arena. ceiling is the
+   shortest incoming indent already checked against it: a later check can only
+   hang it from a shorter one, so a longer one skips it. */
 typedef struct { ShclStr text; ShclStr indent; int blank_before; size_t ceiling; size_t line; } ShclPend;
 /* One comment on a comment_depth chain: its indent and depth. */
 typedef struct { ShclStr indent; size_t depth; } ShclDepthEnt;
@@ -4306,7 +4318,7 @@ static ShclValue consume_raw(ShclParser *P, const ShclStr *lines, size_t nlines,
    Windows path and holds a \t or \n escape. The code, or NULL. */
 static const char *line_fault(ShclArena *a, const ShclTokens *tok, ShclStr text, ShclStr *msg) {
 	if (bracket_text(tok, text)) { *msg = s_lit("bracket array syntax; an array is comma-separated, without brackets"); return "E019"; }
-	int values = !line_fence(tok, text).ok;
+	int values = !line_fence(a, tok, text).ok;
 	uint32_t esc;
 	if (bad_escape(tok, text, values, &esc)) { *msg = escape_msg(a, esc); return "E023"; }
 	if (values && any_path_like(tok, text)) { *msg = s_lit(path_msg); return "E024"; }
@@ -4419,12 +4431,41 @@ static size_t open_lazy(ShclParser *P, size_t parent) {
    comes through here, so a skipped line whose value opens a raw block takes the
    body with it: read as lines, the body would bind or be refused line by line,
    and its closing fence would open a block that runs to the end of the file. A
-   line whose path did not parse has no value to read, so it goes alone. */
+   line whose path did not parse takes it too, when a fence follows its colon
+   (line_fence). */
 static size_t skip_field_line(ShclParser *P, const ShclStr *lines, size_t nlines, size_t i, ShclStr indent, const ShclTokens *tok, ShclStr rest) {
-	ShclFence f = line_fence(tok, rest);
+	ShclFence f = line_fence(P->tmp, tok, rest);
 	if (!f.ok) return i + 1;
 	size_t next;
 	(void)consume_raw(P, lines, nlines, i + 1, i + 1, indent, f, &next);
+	return next;
+}
+
+/* skip_field_line() for a line the refusal just kept: the body is kept too, on
+   the end of the line's text, so a save writes it back under its line and the
+   load still holds one kept line for it. As in a field's block, the closing
+   fence's indent comes off each body line, and the body goes one level under
+   the line when it is written. A block that never closed gets its closing
+   fence, or whatever a save writes after it would read as its body. */
+static size_t keep_body(ShclParser *P, const ShclStr *lines, size_t nlines, size_t i, ShclStr indent, const ShclTokens *tok, ShclStr rest) {
+	ShclFence f = line_fence(P->tmp, tok, rest);
+	if (!f.ok) return i + 1;
+	size_t next;
+	(void)consume_raw(P, lines, nlines, i + 1, i + 1, indent, f, &next);
+	int closed = next > i + 1 && is_fence_close(lines[next - 1], f.ch, f.len);
+	size_t body_end = closed ? next - 1 : next;
+	ShclStr nest = closed ? leading_ws(lines[next - 1]) : indent;
+	if (!P->pending.len) return next;
+	ShclArena *a = &P->d->arena;
+	ShclPend *last = &P->pending.data[P->pending.len - 1];
+	ShclSB text = {0};
+	sb_putS(a, &text, last->text);
+	for (size_t k = i + 1; k < body_end; k++) { sb_putc(a, &text, '\n'); sb_putS(a, &text, strip_common(lines[k], nest)); }
+	sb_putc(a, &text, '\n');
+	if (closed) sb_putS(a, &text, s_trim_sp_tab(lines[next - 1]));
+	else for (size_t k = 0; k < f.len; k++) sb_putc(a, &text, (char)f.ch);
+	last->text = sb_S(&text);
+	if (next > i + 1) { ShclVecSize_push(a, &P->d->ends, i + 1); ShclVecSize_push(a, &P->d->ends, next); }
 	return next;
 }
 
@@ -4833,8 +4874,8 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 		tokenize(P.tmp, rest, ':', 0, SHCL_RULES_CURRENT, &tok);
 		ShclStr comment = tok.has_comment ? s_slice(rest, tok.comment, rest.n) : s_empty();
 		size_t parent;
-		if (!resolve_parent(&P, indent, found, &parent)) { misplaced(&P, lineno, "E012", indent, rest, had_blank, line_fence(&tok, rest).ok); i = skip_field_line(&P, lines.data, lines.len, i, indent, &tok, rest); continue; }
-		if (parent == DEAD) { misplaced(&P, lineno, "E018", indent, rest, had_blank, line_fence(&tok, rest).ok); i = skip_field_line(&P, lines.data, lines.len, i, indent, &tok, rest); continue; }
+		if (!resolve_parent(&P, indent, found, &parent)) { misplaced(&P, lineno, "E012", indent, rest, had_blank, line_fence(P.tmp, &tok, rest).ok); i = skip_field_line(&P, lines.data, lines.len, i, indent, &tok, rest); continue; }
+		if (parent == DEAD) { misplaced(&P, lineno, "E018", indent, rest, had_blank, line_fence(P.tmp, &tok, rest).ok); i = skip_field_line(&P, lines.data, lines.len, i, indent, &tok, rest); continue; }
 		ShclPathScan scan = path_of(&own->line, &tok, rest);
 		if (!scan.ok) {
 			ShclSB m = {0}; sb_puts(P.line, &m, "malformed line skipped: "); sb_putS(P.line, &m, scan.err);
@@ -4846,7 +4887,8 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 			   that can bind. */
 			int bom = rest.n >= 3 && (unsigned char)rest.p[0] == 0xEF && (unsigned char)rest.p[1] == 0xBB && (unsigned char)rest.p[2] == 0xBF;
 			p_refuse(&P, lineno, "E014", sb_S(&m), bom ? out_kind(OUT_DROPPED) : out_retained(trim_wsp_end(rest), had_blank), indent);
-			i++; continue;
+			i = bom ? skip_field_line(&P, lines.data, lines.len, i, indent, &tok, rest) : keep_body(&P, lines.data, lines.len, i, indent, &tok, rest);
+			continue;
 		}
 		size_t next = i + 1;
 		/* A selector body takes the same open-quote rule as a value element,
@@ -4868,7 +4910,8 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 				p_refuse(&P, lineno, fault, fmsg, out_retained(trim_wsp_end(rest), had_blank), indent);
 				uint32_t esc;
 				if (!bad_escape(&tok, rest, 0, &esc)) hold_open(&P, parent, scan.segs.data, scan.segs.len, lineno, indent);
-				i = next; continue;
+				/* Only a fault in the name leaves a fence to read here. */
+				i = keep_body(&P, lines.data, lines.len, i, indent, &tok, rest); continue;
 			}
 		}
 		/* Element cap: the whole line is refused, so a capped load never holds
@@ -7341,6 +7384,37 @@ static ShclStr commented(ShclArena *a, ShclStr text) {
 	return sb_S(&b);
 }
 
+/* A kept line, and the raw body and fence it took, if any, which go one level
+   under it, as a field's block does. The body moves with its line. */
+static void push_kept(ShclEmit *e, ShclStr text, size_t pad) {
+	ShclArena *a = e->a;
+	const char *nl = text.n ? (const char *)memchr(text.p, '\n', text.n) : NULL;
+	if (!nl) { sb_putS(a, &e->out, text); sb_putc(a, &e->out, '\n'); return; }
+	size_t cut = (size_t)(nl - text.p);
+	sb_putS(a, &e->out, s_slice(text, 0, cut)); sb_putc(a, &e->out, '\n');
+	ShclStr block = s_slice(text, cut + 1, text.n);
+	size_t body = e->out.len;
+	size_t fence = 0;
+	for (size_t k = block.n; k > 0; k--) if (block.p[k - 1] == '\n') { fence = k; break; }
+	if (fence) {
+		size_t start = 0;
+		for (size_t k = 0; k < fence; k++) if (block.p[k] == '\n') {
+			ShclStr l = s_slice(block, start, k);
+			if (l.n) sb_putS(a, &e->out, emit_tabs(e, pad + 1));
+			sb_putS(a, &e->out, l); sb_putc(a, &e->out, '\n');
+			start = k + 1;
+		}
+	}
+	size_t end = e->out.len;
+	sb_putS(a, &e->out, emit_tabs(e, pad + 1));
+	sb_putS(a, &e->out, s_slice(block, fence, block.n)); sb_putc(a, &e->out, '\n');
+	if (e->lines) {
+		ShclVecSize_push(a, &e->bodies, body);
+		ShclVecSize_push(a, &e->bodies, end);
+		ShclVecSize_push(a, &e->bodies, pad + 1);
+	}
+}
+
 /* Write a run of comments and kept lines, base levels deep. A misplaced line
    kept as written (its text has its own indent, a comment's never does)
    goes back as it was only where a reload keeps it again, which the model of
@@ -7395,7 +7469,7 @@ static void push_leads(ShclEmit *e, const ShclLead *leads, size_t n, size_t base
 			else emit_refused(e, ind, &t);
 		}
 		sb_putS(a, &e->out, emit_tabs(e, pad));
-		sb_putS(a, &e->out, c->text); sb_putc(a, &e->out, '\n');
+		push_kept(e, c->text, pad);
 	}
 }
 
