@@ -623,7 +623,7 @@ Where a kept line sits is read from canonical output before the edit. Under the 
 | Edit                                                         | Beside the target | Heading the target | Under the target
 | :---                                                         | :---              | :---               | :---
 | `Remove`                                                     | stays             | goes               | goes
-| Every setter, the default forms included                     | stays             | stays              | stays
+| Every setter, the default forms included                     | stays             | becomes a comment  | stays
 | `SetComment`, `ClearComments`                                | stays             | stays              | stays
 | `SetBanner`                                                  | stays             | stays              | stays
 | `Merge`, the base's lines                                    | stays             | stays              | stays, except one the settle wrote as a comment on a leaf the layer replaces, which goes with that leaf's comments
@@ -638,6 +638,10 @@ Where a kept line sits is read from canonical output before the edit. Under the 
 - The kept lines beside a target that was the last field in its block stay at the end of that block. A misplaced line among them has no level there, so it goes down to just above the next field line, with the comments after it, which is where a reload files them.
 
 - A setter that replaces a stacked list's value moves the kept lines among its elements above it, as under Load outcomes. A move is not a loss.
+
+- A setter on a field opened from a kept line writes that line as a comment, then sets the field, so the file is left with one line for it. A trailing note says why and when: `# a: [1]  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 bracket array syntax`. It names the path the setter was given, the local time with the zone's short name, and the code and reason the load gave, without the advice after the reason. A zone with no short name, such as one named `+03`, is written as its offset, `UTC+03:00`. Windows names a zone only in full, so there it is always the offset. The line is a plain comment from then on, as a reload reads it. It is no longer owed to the save gate, and `ClearComments` and a remove of the field take it like any comment on the field. The default forms write nothing on a path that exists, so they never get here.
+
+- `SHCL_TEST_CLOCK`, in the form `YYYY-mm-DD HH:MM:SS OFFSET_MINUTES [NAME]`, stands in for the clock and zone in that note, so tests can pin it. `cli-regress.bash` and `crosscheck.bash` set it.
 
 - A kept line's raw body is part of the line. Every edit keeps or takes the two together.
 

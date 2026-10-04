@@ -10,6 +10,7 @@ import ast
 import collections
 import math
 import os
+import re
 import stat
 import sys
 import tempfile
@@ -1752,6 +1753,62 @@ def main():
 		("o: [9]\n\ta: [1]\n\t\tb: 2\ny: 3\n", "o.a.b", "o: [9]\n\ta: [1]\ny: 3\n"),
 		("o:\n\ta: [1]\n\t\tb: 2\n", "o.a.b", "o:\n\ta: [1]\n"),
 	])
+
+	test_id("Erlf17j", "a_setter_comments_out_the_kept_line_heading_its_target")
+	# A setter on a field a kept line opened writes that line as a comment
+	# with a note, so the file has one line for the field (2026100307163907).
+	held_clock = os.environ.get("SHCL_TEST_CLOCK")
+	os.environ["SHCL_TEST_CLOCK"] = "2026-10-04 00:15:00 -420 PDT"
+	for text, set_path, set_want in [
+		("a: [1]\n\tb: 2\ny: 3\n", "a",
+			"# a: [1]  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 bracket array syntax\na: 5\n\tb: 2\ny: 3\n"),
+		("o:\n\ta: \"x\\q\"\n\t\tb: 2\n", "o.a",
+			"o:\n\t# a: \"x\\q\"  ## commented out by shcl when setting o.a, 2026-10-04 00:15:00 PDT: E023 unknown escape '\\q' in double quotes\n\ta: 5\n\t\tb: 2\n"),
+		("p: \"C:\\temp\\new\"\n\tq: 1\n", "p",
+			"# p: \"C:\\temp\\new\"  ## commented out by shcl when setting p, 2026-10-04 00:15:00 PDT: E024 value starts like a Windows path, and its \\t or \\n would read as a tab or newline\np: 5\n\tq: 1\n"),
+	]:
+		kdoc = shcl.Document.parse_keep_lines(text, shcl.Strictness.Standard)
+		took = kdoc.set_int(set_path, 5)
+		out = kdoc.to_canonical()
+		if not took or kdoc.lost_count() != 0 or out != set_want:
+			fails.append(f"kept gate: setting {set_path} in {text!r} wrote {out!r}")
+			continue
+		back = shcl.Document.parse(out)
+		if back.diagnostics() or back.count(set_path) != 1 or back.to_canonical() != out:
+			fails.append(f"kept gate: the reload of {out!r} differs")
+		if kdoc.to_text_keep_lines() != (out, True):
+			fails.append(f"kept gate: the keep save of {text!r} gave {kdoc.to_text_keep_lines()!r}")
+	if held_clock is None:
+		del os.environ["SHCL_TEST_CLOCK"]
+	else:
+		os.environ["SHCL_TEST_CLOCK"] = held_clock
+	# Only the field the kept line opened: a child of it, or a field beside a
+	# kept line, leaves the line as it was.
+	for set_path, set_want in [("a.c", "a: [1]\n\tb: 2\n\tc: 5\n"), ("z", "a: [1]\n\tb: 2\n\nz: 5\n")]:
+		kdoc = shcl.Document.parse("a: [1]\n\tb: 2\n")
+		if not kdoc.set_int(set_path, 5) or kdoc.to_canonical() != set_want:
+			fails.append(f"kept gate: setting {set_path} beside a kept line wrote {kdoc.to_canonical()!r}")
+
+	test_id("Erlf1AN", "a_note_names_the_zone_or_its_offset")
+	# The zone's short name, else its offset; and the test clock's form.
+	for offset, name, want in [
+		(-420, "PDT", "PDT"), (-420, "", "UTC-07:00"), (240, "+04", "UTC+04:00"), (330, "IST", "IST"),
+		(-150, "-0230", "UTC-02:30"), (0, "Pacific Daylight Time", "UTC+00:00"), (0, "", "UTC+00:00"),
+	]:
+		if shcl._zone_label(offset, name) != want:
+			fails.append(f"note clock: zone label of {offset} {name!r} is {shcl._zone_label(offset, name)!r}, want {want!r}")
+	for spec, want in [
+		("2026-10-04 00:15:00 -420 PDT", ("2026-10-04 00:15:00", -420, "PDT")),
+		("2026-10-04 00:15:00 60", ("2026-10-04 00:15:00", 60, "")),
+		("2026-10-04 00:15:00", None),
+		("2026-10-04 00:15:00 x PDT", None),
+	]:
+		if shcl._test_clock(spec) != want:
+			fails.append(f"note clock: test clock {spec!r} read as {shcl._test_clock(spec)!r}")
+	when, offset, name = shcl._local_clock()
+	label = f"{when} {shcl._zone_label(offset, name)}"
+	if not re.fullmatch(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d ([A-Za-z]+|UTC[+-]\d\d:\d\d)", label) or abs(offset) > 14 * 60:
+		fails.append(f"note clock: the local clock gave {label!r} ({offset})")
 
 	test_id("EreVRis", "a_merged_layer_owes_its_kept_lines")
 	kdoc = shcl.Document.parse("a: 1\n")

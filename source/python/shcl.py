@@ -29,6 +29,7 @@ import os
 import re
 import stat
 import sys
+import time
 from collections.abc import Callable
 from datetime import timedelta
 from decimal import Decimal
@@ -3859,6 +3860,50 @@ def _commented(text):
 	return "# " + text[len(_leading_ws(text)):]
 
 
+def _note_text(s):
+	"""A path in a note, kept to one line."""
+	return s.replace("\n", "\\n").replace("\r", "\\r")
+
+
+def _note_stamp():
+	"""Local time to the second, with the zone, for a setter's note on a line
+	it commented out. SHCL_TEST_CLOCK stands in for the system clock and zone,
+	so tests can pin the text: "YYYY-mm-DD HH:MM:SS OFFSET_MINUTES [NAME]"."""
+	clock = _test_clock(os.environ.get("SHCL_TEST_CLOCK", ""))
+	when, offset, name = clock if clock is not None else _local_clock()
+	return f"{when} {_zone_label(offset, name)}"
+
+
+def _test_clock(spec):
+	f = spec.split()
+	if len(f) not in (3, 4):
+		return None
+	try:
+		offset = int(f[2])
+	except ValueError:
+		return None
+	return (f"{f[0]} {f[1]}", offset, f[3] if len(f) == 4 else "")
+
+
+def _zone_label(offset, name):
+	"""The zone's short name, such as PDT, or its offset when it has none:
+	Windows gives only long names, and some zones a number such as `+03`."""
+	if name and all("A" <= c <= "Z" or "a" <= c <= "z" for c in name):
+		return name
+	sign = "-" if offset < 0 else "+"
+	m = abs(offset)
+	return f"UTC{sign}{m // 60:02d}:{m % 60:02d}"
+
+
+def _local_clock():
+	"""The local time, its offset from UTC in minutes, and the zone's short
+	name. Windows names a zone only in full, such as "Pacific Daylight Time",
+	so there the label is always the offset."""
+	now = time.localtime()
+	name = "" if os.name == "nt" else (now.tm_zone or "")
+	return (time.strftime("%Y-%m-%d %H:%M:%S", now), int((now.tm_gmtoff or 0) / 60), name)
+
+
 def _push_leads(e, leads, base, at):
 	"""Write a run of comments and kept lines, `base` levels deep. A misplaced
 	line kept as written (its text has its own indent, a comment's never
@@ -5527,6 +5572,8 @@ class Document:
 		idx = self._place(path)
 		if idx is None:
 			return False
+		if _heads_block(self.arena[idx]):
+			self._comment_out_head(idx, path)
 		self.arena[idx].value = value
 		self.arena[idx].src = None   # written value has no source spelling
 		# No longer the list the lines among its elements sat in.
@@ -5541,6 +5588,33 @@ class Document:
 		_settle_first_blank(self.arena, self.orphans)
 		self._resettle_kept()
 		return True
+
+	def _comment_out_head(self, idx, path):
+		# A setter on a field a kept line opened writes that line as a
+		# comment, with a note giving why and when, so the file is left with
+		# one line for the field (design.md, Kept lines under edits). The line
+		# is a comment from here on, as a reload reads it, so it is no longer
+		# owed.
+		leading = self.arena[idx]._triv().leading
+		if not leading:
+			return
+		lead = leading[-1]
+		# A line refused for its value alone never takes a raw body, but one
+		# that did could not be commented out as one line.
+		if "\n" in lead.text:
+			return
+		tok = Tokens()
+		tokenize(lead.text, ":", False, Rules.CURRENT, tok)
+		fault = _line_fault(tok)
+		if fault is None:
+			return
+		code, msg = fault
+		# The reason, without the advice after it.
+		why = msg.split(";", 1)[0]
+		lead.text = f"{_commented(lead.text)}  ## commented out by shcl when setting {_note_text(path)}, {_note_stamp()}: {code} {why}"
+		lead.line = 0
+		lead.kept = False
+		self._kept_owed = max(self._kept_owed - 1, 0)
 
 	def _collapse_dup(self, node):
 		# A written value may now collide with a same-named sibling under the

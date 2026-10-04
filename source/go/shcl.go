@@ -5299,6 +5299,67 @@ func commented(text string) string {
 	return "# " + text[len(leadingWS(text)):]
 }
 
+// noteText is a path in a note, kept to one line.
+func noteText(s string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(s, "\n", `\n`), "\r", `\r`)
+}
+
+// noteStamp is the local time to the second, with the zone, for a setter's
+// note on a line it commented out. SHCL_TEST_CLOCK stands in for the system
+// clock and zone, so tests can pin the text: "YYYY-mm-DD HH:MM:SS
+// OFFSET_MINUTES [NAME]".
+func noteStamp() string {
+	when, offset, name, ok := testClock(os.Getenv("SHCL_TEST_CLOCK"))
+	if !ok {
+		when, offset, name = localClock()
+	}
+	return when + " " + zoneLabel(offset, name)
+}
+
+func testClock(spec string) (string, int, string, bool) {
+	f := strings.Fields(spec)
+	if len(f) != 3 && len(f) != 4 {
+		return "", 0, "", false
+	}
+	offset, err := strconv.ParseInt(f[2], 10, 32)
+	if err != nil {
+		return "", 0, "", false
+	}
+	name := ""
+	if len(f) == 4 {
+		name = f[3]
+	}
+	return f[0] + " " + f[1], int(offset), name, true
+}
+
+// zoneLabel is the zone's short name, such as PDT, or its offset when it has
+// none: Windows gives only long names, and some zones a number such as `+03`.
+func zoneLabel(offset int, name string) string {
+	if name != "" && strings.IndexFunc(name, func(r rune) bool {
+		return !(r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z')
+	}) < 0 {
+		return name
+	}
+	sign := '+'
+	if offset < 0 {
+		sign = '-'
+		offset = -offset
+	}
+	return fmt.Sprintf("UTC%c%02d:%02d", sign, offset/60, offset%60)
+}
+
+// localClock is the local time, its offset from UTC in minutes, and the
+// zone's short name. Windows names a zone only in full, such as "Pacific
+// Daylight Time", so there the label is always the offset.
+func localClock() (string, int, string) {
+	now := time.Now()
+	name, secs := now.Zone()
+	if runtime.GOOS == "windows" {
+		name = ""
+	}
+	return now.Format("2006-01-02 15:04:05"), secs / 60, name
+}
+
 // pushLeads writes a run of comments and kept lines, base levels deep. A
 // misplaced line kept as written (its text has its own indent, a
 // comment's never does) goes back as it was only where a reload keeps it
@@ -7988,6 +8049,9 @@ func (d *Document) setValue(path string, v value) bool {
 	if !ok {
 		return false
 	}
+	if headsBlock(&d.arena[idx]) {
+		d.commentOutHead(idx, path)
+	}
 	d.arena[idx].value = v
 	d.arena[idx].src = nil // written value has no source spelling
 	// No longer the list the lines among its elements sat in.
@@ -8003,6 +8067,38 @@ func (d *Document) setValue(path string, v value) bool {
 	settleFirstBlank(d.arena, d.orphans)
 	d.resettleKept()
 	return true
+}
+
+// commentOutHead: a setter on a field a kept line opened writes that line as
+// a comment, with a note giving why and when, so the file is left with one
+// line for the field (design.md, Kept lines under edits). The line is a
+// comment from here on, as a reload reads it, so it is no longer owed.
+func (d *Document) commentOutHead(idx int, path string) {
+	t := d.arena[idx].trivMut()
+	if len(t.leading) == 0 {
+		return
+	}
+	l := &t.leading[len(t.leading)-1]
+	// A line refused for its value alone never takes a raw body, but one
+	// that did could not be commented out as one line.
+	if strings.Contains(l.text, "\n") {
+		return
+	}
+	var tok Tokens
+	Tokenize(l.text, ':', false, RulesCurrent, &tok)
+	code, msg, bad := lineFault(&tok, l.text)
+	if !bad {
+		return
+	}
+	// The reason, without the advice after it.
+	why, _, _ := strings.Cut(msg, ";")
+	l.text = fmt.Sprintf("%s  ## commented out by shcl when setting %s, %s: %s %s",
+		commented(l.text), noteText(path), noteStamp(), code, why)
+	l.line = 0
+	l.kept = false
+	if d.keptOwed > 0 {
+		d.keptOwed--
+	}
 }
 
 // collapseDup: a written value may now collide with a same-named sibling under

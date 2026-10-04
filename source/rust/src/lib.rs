@@ -5486,6 +5486,174 @@ fn commented(text: &str) -> String {
 	format!("# {}", &text[leading_ws(text).len()..])
 }
 
+/// A path in a note, kept to one line.
+fn note_text(s: &str) -> String {
+	s.replace('\n', "\\n").replace('\r', "\\r")
+}
+
+/// Local time to the second, with the zone, for a setter's note on a line it
+/// commented out. SHCL_TEST_CLOCK stands in for the system clock and zone, so
+/// tests can pin the text: "YYYY-mm-DD HH:MM:SS OFFSET_MINUTES [NAME]".
+fn note_stamp() -> String {
+	let (when, offset, name) = std::env::var("SHCL_TEST_CLOCK")
+		.ok()
+		.and_then(|s| test_clock(&s))
+		.unwrap_or_else(local_clock);
+	format!("{when} {}", zone_label(offset, &name))
+}
+
+fn test_clock(spec: &str) -> Option<(String, i32, String)> {
+	let f: Vec<&str> = spec.split_whitespace().collect();
+	if f.len() != 3 && f.len() != 4 {
+		return None;
+	}
+	let offset = f[2].parse().ok()?;
+	let name = f.get(3).map_or("", |n| n);
+	Some((format!("{} {}", f[0], f[1]), offset, name.to_string()))
+}
+
+/// The zone's short name, such as PDT, or its offset when it has none:
+/// Windows gives only long names, and some zones a number such as `+03`.
+fn zone_label(offset: i32, name: &str) -> String {
+	if !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphabetic()) {
+		return name.to_string();
+	}
+	let sign = if offset < 0 { '-' } else { '+' };
+	let m = offset.unsigned_abs();
+	format!("UTC{sign}{:02}:{:02}", m / 60, m % 60)
+}
+
+/// The local time, its offset from UTC in minutes, and the zone's short name.
+/// The offset is the local time less UTC for the same instant, since
+/// `tm_gmtoff` is not in POSIX's `struct tm`.
+#[cfg(unix)]
+fn local_clock() -> (String, i32, String) {
+	use std::ffi::{c_char, c_int};
+	// The nine fields POSIX names, then room for whatever the platform adds,
+	// such as glibc's tm_zone, which strftime's %Z reads.
+	#[repr(C)]
+	#[derive(Clone, Copy)]
+	struct Tm {
+		sec: c_int,
+		min: c_int,
+		hour: c_int,
+		mday: c_int,
+		mon: c_int,
+		year: c_int,
+		wday: c_int,
+		yday: c_int,
+		isdst: c_int,
+		rest: [u64; 8],
+	}
+	// time_t is 64 bits on every target this builds for.
+	unsafe extern "C" {
+		fn tzset();
+		fn localtime_r(t: *const i64, out: *mut Tm) -> *mut Tm;
+		fn gmtime_r(t: *const i64, out: *mut Tm) -> *mut Tm;
+		fn strftime(buf: *mut c_char, max: usize, format: *const c_char, tm: *const Tm) -> usize;
+	}
+	let now = std::time::SystemTime::now()
+		.duration_since(std::time::UNIX_EPOCH)
+		.map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0));
+	let blank = Tm {
+		sec: 0,
+		min: 0,
+		hour: 0,
+		mday: 1,
+		mon: 0,
+		year: 70,
+		wday: 0,
+		yday: 0,
+		isdst: 0,
+		rest: [0; 8],
+	};
+	let (mut local, mut utc) = (blank, blank);
+	let mut buf = [0 as c_char; 64];
+	// SAFETY: each call writes only into the buffer it is handed, and the
+	// struct is larger than any platform's struct tm.
+	let n = unsafe {
+		tzset();
+		if gmtime_r(&now, &mut utc).is_null() {
+			utc = blank;
+		}
+		if localtime_r(&now, &mut local).is_null() {
+			local = utc;
+		}
+		strftime(buf.as_mut_ptr(), buf.len(), c"%Z".as_ptr(), &local)
+	};
+	let name: String = buf[..n].iter().map(|&b| char::from(b as u8)).collect();
+	let mut days = local.yday - utc.yday;
+	if local.year != utc.year {
+		days = if local.year < utc.year { -1 } else { 1 };
+	}
+	let offset = (days * 24 + local.hour - utc.hour) * 60 + local.min - utc.min;
+	let when = format!(
+		"{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+		local.year + 1900,
+		local.mon + 1,
+		local.mday,
+		local.hour,
+		local.min,
+		local.sec
+	);
+	(when, offset, name)
+}
+
+/// As the unix one. Windows names a zone only in full, such as "Pacific
+/// Daylight Time", so the label is always the offset.
+#[cfg(windows)]
+fn local_clock() -> (String, i32, String) {
+	#[repr(C)]
+	#[derive(Clone, Copy, Default)]
+	struct SystemTime {
+		year: u16,
+		month: u16,
+		weekday: u16,
+		day: u16,
+		hour: u16,
+		minute: u16,
+		second: u16,
+		millis: u16,
+	}
+	#[link(name = "kernel32")]
+	unsafe extern "system" {
+		fn GetSystemTimeAsFileTime(out: *mut u64);
+		fn FileTimeToSystemTime(file_time: *const u64, out: *mut SystemTime) -> i32;
+		fn SystemTimeToTzSpecificLocalTime(
+			zone: *const core::ffi::c_void,
+			utc: *const SystemTime,
+			local: *mut SystemTime,
+		) -> i32;
+		fn SystemTimeToFileTime(st: *const SystemTime, out: *mut u64) -> i32;
+	}
+	let (mut utc, mut local) = (SystemTime::default(), SystemTime::default());
+	let (mut now, mut utc_ft, mut local_ft) = (0u64, 0u64, 0u64);
+	// SAFETY: each call writes only into the value it is handed. A FILETIME
+	// is two u32 halves, low first, which is a u64 on this little-endian
+	// target.
+	let ok = unsafe {
+		GetSystemTimeAsFileTime(&mut now);
+		FileTimeToSystemTime(&now, &mut utc) != 0 && {
+			utc.millis = 0;
+			SystemTimeToTzSpecificLocalTime(std::ptr::null(), &utc, &mut local) != 0
+				&& SystemTimeToFileTime(&utc, &mut utc_ft) != 0
+				&& SystemTimeToFileTime(&local, &mut local_ft) != 0
+		}
+	};
+	if !ok {
+		local = utc;
+		local_ft = utc_ft;
+	}
+	// FILETIME counts 100 ns ticks.
+	let ticks = i64::try_from(local_ft).unwrap_or(0) - i64::try_from(utc_ft).unwrap_or(0);
+	let offset = i32::try_from(ticks / 600_000_000).unwrap_or(0);
+	let when = format!(
+		"{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+		local.year, local.month, local.day, local.hour, local.minute, local.second
+	);
+	(when, offset, String::new())
+}
+
 /// Write a run of comments and kept lines, `base` levels deep. A misplaced
 /// line kept as written (its text has its own indent, a comment's never
 /// does) goes back as it was only where a reload keeps it again, which the
@@ -8319,6 +8487,9 @@ impl Document {
 		}
 		match self.place(path) {
 			Some(node) => {
+				if heads_block(&self.arena[node]) {
+					self.comment_out_head(node, path);
+				}
 				self.arena[node].value = value;
 				self.arena[node].src = None; // written value has no source spelling
 				// No longer the list the lines among its elements sat in.
@@ -8337,6 +8508,37 @@ impl Document {
 			}
 			None => false,
 		}
+	}
+
+	/// A setter on a field a kept line opened writes that line as a comment,
+	/// with a note giving why and when, so the file is left with one line
+	/// for the field (design.md, Kept lines under edits). The line is a
+	/// comment from here on, as a reload reads it, so it is no longer owed.
+	fn comment_out_head(&mut self, node: usize, path: &str) {
+		let Some(l) = self.arena[node].triv_mut().leading.last_mut() else {
+			return;
+		};
+		// A line refused for its value alone never takes a raw body, but one
+		// that did could not be commented out as one line.
+		if l.text.contains('\n') {
+			return;
+		}
+		let mut tok = Tokens::default();
+		tokenize(&l.text, b':', false, Rules::Current, &mut tok);
+		let Some((code, msg)) = line_fault(&tok, &l.text) else {
+			return;
+		};
+		// The reason, without the advice after it.
+		let why = msg.split(';').next().unwrap_or_default();
+		l.text = format!(
+			"{}  ## commented out by shcl when setting {}, {}: {code} {why}",
+			commented(&l.text),
+			note_text(path),
+			note_stamp()
+		);
+		l.line = 0;
+		l.kept = false;
+		self.kept_owed = self.kept_owed.saturating_sub(1);
 	}
 
 	/// A written value may now collide with a same-named sibling under the
@@ -13105,6 +13307,118 @@ mod kept_gate {
 			assert_eq!(out, want, "{text:?}");
 			assert_eq!(Document::parse(&out).to_canonical(), out, "{text:?}");
 		}
+	}
+
+	// A setter on a field a kept line opened writes that line as a comment
+	// with a note, so the file has one line for the field (2026100307163907).
+	// The stamp is the real clock's here; the CLI rows pin it.
+	#[test]
+	fn a_setter_comments_out_the_kept_line_heading_its_target() {
+		let _id = test_id("ErleUnO");
+		for (text, path, above, line, why, rest) in [
+			(
+				"a: [1]\n\tb: 2\ny: 3\n",
+				"a",
+				"",
+				"# a: [1]",
+				"E019 bracket array syntax",
+				"a: 5\n\tb: 2\ny: 3\n",
+			),
+			(
+				"o:\n\ta: \"x\\q\"\n\t\tb: 2\n",
+				"o.a",
+				"o:\n",
+				"\t# a: \"x\\q\"",
+				"E023 unknown escape '\\q' in double quotes",
+				"\ta: 5\n\t\tb: 2\n",
+			),
+			(
+				"p: \"C:\\temp\\new\"\n\tq: 1\n",
+				"p",
+				"",
+				"# p: \"C:\\temp\\new\"",
+				"E024 value starts like a Windows path, and its \\t or \\n would read as a tab or newline",
+				"p: 5\n\tq: 1\n",
+			),
+		] {
+			let mut doc = Document::parse_keep_lines(text, Strictness::Standard)
+				.unwrap_or_else(|e| e.document);
+			assert!(doc.set_int(path, 5), "{text:?}");
+			assert_eq!(doc.lost_count(), 0, "{text:?}");
+			let out = doc.to_canonical();
+			let (first, after) = out
+				.strip_prefix(above)
+				.and_then(|o| o.split_once('\n'))
+				.unwrap_or_default();
+			let head = format!("{line}  ## commented out by shcl when setting {path}, ");
+			let stamp = first
+				.strip_prefix(&head)
+				.and_then(|s| s.strip_suffix(&format!(": {why}")))
+				.unwrap_or_else(|| panic!("{text:?} wrote {out:?}"));
+			assert!(is_stamp(stamp), "{stamp:?}");
+			assert_eq!(after, rest, "{text:?}");
+			let back = Document::parse(&out);
+			assert!(back.diagnostics().is_empty(), "{out:?}");
+			assert_eq!(back.count(path), 1, "{out:?}");
+			assert_eq!(back.to_canonical(), out);
+			assert_eq!(doc.to_text_keep_lines(), (out.clone(), true));
+		}
+		// Only the field the kept line opened: a child of it, or a field
+		// beside a kept line, leaves the line as it was.
+		for (path, want) in [
+			("a.c", "a: [1]\n\tb: 2\n\tc: 5\n"),
+			("z", "a: [1]\n\tb: 2\n\nz: 5\n"),
+		] {
+			let mut doc = Document::parse("a: [1]\n\tb: 2\n");
+			assert!(doc.set_int(path, 5));
+			assert_eq!(doc.to_canonical(), want);
+		}
+	}
+
+	fn is_stamp(s: &str) -> bool {
+		let (when, zone) = s.split_at(s.len().min(19));
+		let digits = when.bytes().enumerate().all(|(k, b)| match k {
+			4 | 7 => b == b'-',
+			10 => b == b' ',
+			13 | 16 => b == b':',
+			_ => b.is_ascii_digit(),
+		});
+		let Some(zone) = zone.strip_prefix(' ') else {
+			return false;
+		};
+		digits
+			&& when.len() == 19
+			&& (zone_label(0, zone) == zone
+				|| zone.len() == 9 && zone.starts_with("UTC") && zone.as_bytes()[6] == b':')
+	}
+
+	// The zone's short name, else its offset; and the test clock's form.
+	#[test]
+	fn a_note_names_the_zone_or_its_offset() {
+		let _id = test_id("ErleV68");
+		assert_eq!(zone_label(-420, "PDT"), "PDT");
+		assert_eq!(zone_label(-420, ""), "UTC-07:00");
+		assert_eq!(zone_label(240, "+04"), "UTC+04:00");
+		assert_eq!(zone_label(330, "IST"), "IST");
+		assert_eq!(zone_label(-150, "-0230"), "UTC-02:30");
+		assert_eq!(zone_label(0, "Pacific Daylight Time"), "UTC+00:00");
+		assert_eq!(zone_label(0, ""), "UTC+00:00");
+		assert_eq!(
+			test_clock("2026-10-04 00:15:00 -420 PDT"),
+			Some(("2026-10-04 00:15:00".to_string(), -420, "PDT".to_string()))
+		);
+		assert_eq!(
+			test_clock("2026-10-04 00:15:00 60"),
+			Some(("2026-10-04 00:15:00".to_string(), 60, String::new()))
+		);
+		assert_eq!(test_clock("2026-10-04 00:15:00"), None);
+		assert_eq!(test_clock("2026-10-04 00:15:00 x PDT"), None);
+		let (when, offset, name) = local_clock();
+		assert!(
+			is_stamp(&format!("{when} {}", zone_label(offset, &name))),
+			"{when:?} {offset} {name:?}"
+		);
+		assert!(offset.abs() <= 14 * 60, "{offset}");
 	}
 
 	#[test]

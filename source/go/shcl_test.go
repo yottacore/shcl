@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -3156,6 +3157,88 @@ func TestAFieldOpenedByAKeptLineGoesWithItsLastLine(t *testing.T) {
 		{"o: [9]\n\ta: [1]\n\t\tb: 2\ny: 3\n", "o.a.b", "o: [9]\n\ta: [1]\ny: 3\n"},
 		{"o:\n\ta: [1]\n\t\tb: 2\n", "o.a.b", "o:\n\ta: [1]\n"},
 	})
+}
+
+// A setter on a field a kept line opened writes that line as a comment with
+// a note, so the file has one line for the field (2026100307163907).
+func TestASetterCommentsOutTheKeptLineHeadingItsTarget(t *testing.T) {
+	defer testID(t, "Erlf124")
+	t.Setenv("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT")
+	for _, c := range []struct{ text, path, want string }{
+		{"a: [1]\n\tb: 2\ny: 3\n", "a",
+			"# a: [1]  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 bracket array syntax\na: 5\n\tb: 2\ny: 3\n"},
+		{"o:\n\ta: \"x\\q\"\n\t\tb: 2\n", "o.a",
+			"o:\n\t# a: \"x\\q\"  ## commented out by shcl when setting o.a, 2026-10-04 00:15:00 PDT: E023 unknown escape '\\q' in double quotes\n\ta: 5\n\t\tb: 2\n"},
+		{"p: \"C:\\temp\\new\"\n\tq: 1\n", "p",
+			"# p: \"C:\\temp\\new\"  ## commented out by shcl when setting p, 2026-10-04 00:15:00 PDT: E024 value starts like a Windows path, and its \\t or \\n would read as a tab or newline\np: 5\n\tq: 1\n"},
+	} {
+		doc, _ := ParseKeepLines(c.text, Standard)
+		if !doc.SetInt(c.path, 5) {
+			t.Fatalf("%q: SetInt refused", c.text)
+		}
+		if n := doc.LostCount(); n != 0 {
+			t.Fatalf("%q: LostCount %d", c.text, n)
+		}
+		out := doc.ToCanonical()
+		if out != c.want {
+			t.Fatalf("%q wrote\n%q\nwant\n%q", c.text, out, c.want)
+		}
+		back := Parse(out)
+		if len(back.Diagnostics()) != 0 || back.Count(c.path) != 1 || back.ToCanonical() != out {
+			t.Fatalf("%q: reload of %q differs", c.text, out)
+		}
+		if keep, kept := doc.ToTextKeepLines(); keep != out || !kept {
+			t.Fatalf("%q: keep save %q %v", c.text, keep, kept)
+		}
+	}
+	// Only the field the kept line opened: a child of it, or a field beside
+	// a kept line, leaves the line as it was.
+	for _, c := range []struct{ path, want string }{
+		{"a.c", "a: [1]\n\tb: 2\n\tc: 5\n"},
+		{"z", "a: [1]\n\tb: 2\n\nz: 5\n"},
+	} {
+		doc := Parse("a: [1]\n\tb: 2\n")
+		if !doc.SetInt(c.path, 5) || doc.ToCanonical() != c.want {
+			t.Fatalf("%s: wrote %q", c.path, doc.ToCanonical())
+		}
+	}
+}
+
+// The zone's short name, else its offset; and the test clock's form.
+func TestANoteNamesTheZoneOrItsOffset(t *testing.T) {
+	defer testID(t, "Erlf14o")
+	for _, c := range []struct {
+		offset     int
+		name, want string
+	}{
+		{-420, "PDT", "PDT"},
+		{-420, "", "UTC-07:00"},
+		{240, "+04", "UTC+04:00"},
+		{330, "IST", "IST"},
+		{-150, "-0230", "UTC-02:30"},
+		{0, "Pacific Daylight Time", "UTC+00:00"},
+		{0, "", "UTC+00:00"},
+	} {
+		if got := zoneLabel(c.offset, c.name); got != c.want {
+			t.Fatalf("zoneLabel(%d, %q) = %q, want %q", c.offset, c.name, got, c.want)
+		}
+	}
+	if w, o, n, ok := testClock("2026-10-04 00:15:00 -420 PDT"); !ok || w != "2026-10-04 00:15:00" || o != -420 || n != "PDT" {
+		t.Fatalf("testClock: %q %d %q %v", w, o, n, ok)
+	}
+	if w, o, n, ok := testClock("2026-10-04 00:15:00 60"); !ok || w != "2026-10-04 00:15:00" || o != 60 || n != "" {
+		t.Fatalf("testClock: %q %d %q %v", w, o, n, ok)
+	}
+	for _, bad := range []string{"2026-10-04 00:15:00", "2026-10-04 00:15:00 x PDT"} {
+		if _, _, _, ok := testClock(bad); ok {
+			t.Fatalf("testClock(%q) took it", bad)
+		}
+	}
+	when, offset, name := localClock()
+	stamp := regexp.MustCompile(`^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d ([A-Za-z]+|UTC[+-]\d\d:\d\d)$`)
+	if label := when + " " + zoneLabel(offset, name); !stamp.MatchString(label) || offset < -14*60 || offset > 14*60 {
+		t.Fatalf("local clock: %q (%d)", label, offset)
+	}
 }
 
 func TestAMergedLayerOwesItsKeptLines(t *testing.T) {

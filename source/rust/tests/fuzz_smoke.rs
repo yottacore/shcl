@@ -1635,6 +1635,36 @@ fn missing_kept(text: &str, want: &[String]) -> Vec<String> {
 	missing
 }
 
+/// The kept lines a setter on `path` wrote as comments, one entry for each
+/// such comment the text gained: `# LINE  ## commented out by shcl when
+/// setting PATH, ...`, by design.md's table.
+fn setter_comments(before: &str, after: &str, path: &str) -> Vec<String> {
+	let note = format!(
+		"  ## commented out by shcl when setting {}, ",
+		path.replace('\n', "\\n").replace('\r', "\\r")
+	);
+	let lines = |text: &str| -> Vec<String> {
+		text.lines()
+			.filter_map(|l| {
+				let t = l.trim_matches(BLANKS).strip_prefix("# ")?;
+				let k = t.find(note.as_str())?;
+				Some(t[..k].trim_matches(BLANKS).to_string())
+			})
+			.collect()
+	};
+	let mut had = lines(before);
+	let mut out = Vec::new();
+	for l in lines(after) {
+		match had.iter().position(|h| *h == l) {
+			Some(k) => {
+				had.remove(k);
+			}
+			None => out.push(l),
+		}
+	}
+	out
+}
+
 /// The lines of canonical text a remove of `path` takes by design.md's
 /// table: each line the path names, which is the field's own line or the kept
 /// line written in its place, and every line after it written deeper, up to
@@ -1968,6 +1998,16 @@ fn kept_lines_survive_edits() {
 			if took {
 				ops.push_str(&line);
 				ops.push('\n');
+			}
+			// A setter writes the kept line heading its target as a comment
+			// with a note naming the path, and it is a comment from then on.
+			if took && matches!(op, 0 | 1 | 2 | 5 | 6 | 9) {
+				let after = doc.to_canonical();
+				for w in setter_comments(&before, &after, &path) {
+					if let Some(k) = want.iter().position(|x| *x == w) {
+						want.remove(k);
+					}
+				}
 			}
 			log.push_str(&format!("op {op} at {path:?}\n"));
 			// (b) Only the table's own losses: none outside a merge's.
