@@ -38,8 +38,10 @@
 ##		                     the matching subcommands
 ##
 ##	Finding the binary (first hit wins):
-##		$SHCL_BIN, else a `shcl` beside this file, else `shcl` on PATH, else the
-##		repo release/debug build. Set SHCL_BIN to pin an exact one.
+##		$SHCL_BIN, else a `shcl` beside this file, else one a level up (where
+##		the install scripts put it, with this file in scripts/), else `shcl` on
+##		PATH, else the repo release/debug build. Set SHCL_BIN to pin an exact
+##		one.
 ##
 ##	Exit codes (straight from the binary): 0 good, 1 usage error, 2 empty,
 ##	3 not found, 4 bad type, 5 multiple instances, 6 check failed, strict
@@ -93,6 +95,7 @@ _shcl_resolve() {
 	local candidate
 	for candidate in \
 		"${_SHCL_DIR}/shcl" \
+		"${_SHCL_DIR}/../shcl" \
 		"$(type -P shcl 2>/dev/null || true)" \
 		"${_SHCL_DIR}/../rust/target/release/shcl" \
 		"${_SHCL_DIR}/../rust/target/debug/shcl"

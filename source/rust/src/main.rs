@@ -2891,6 +2891,41 @@ fn schema_for(o: &Opts, file: &str, text: &str) -> Result<Option<String>, String
 /// without end: the kernel's page map has size 0 and reads as hundreds of GiB.
 const SCHEMA_LINE_MAX: usize = 16 << 20;
 
+/// The path can turn into a FIFO between the stat and the open, and opening a
+/// FIFO waits for a writer. So on POSIX the open does not wait, and the flag
+/// comes straight back off: only the open waits, and the caller's fstat
+/// refuses a FIFO before any read. Self-contained extern to stay zero-dep.
+#[cfg(unix)]
+fn open_no_wait(path: &str) -> std::io::Result<std::fs::File> {
+	use std::os::fd::AsRawFd;
+	use std::os::unix::fs::OpenOptionsExt;
+	const F_GETFL: i32 = 3;
+	const F_SETFL: i32 = 4;
+	unsafe extern "C" {
+		fn fcntl(fd: i32, cmd: i32, ...) -> i32;
+	}
+	let f = std::fs::OpenOptions::new()
+		.read(true)
+		.custom_flags(O_NONBLOCK)
+		.open(path)?;
+	let fd = f.as_raw_fd();
+	let flags = unsafe { fcntl(fd, F_GETFL) };
+	if flags == -1 || unsafe { fcntl(fd, F_SETFL, flags & !O_NONBLOCK) } == -1 {
+		return Err(std::io::Error::last_os_error());
+	}
+	Ok(f)
+}
+#[cfg(not(unix))]
+fn open_no_wait(path: &str) -> std::io::Result<std::fs::File> {
+	std::fs::File::open(path)
+}
+
+// Linux on mips and sparc has its own values; no release builds for either.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+const O_NONBLOCK: i32 = 0o4000;
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
+const O_NONBLOCK: i32 = 0x4;
+
 /// Reads the schema a Schema line names. A line in a file someone else wrote
 /// must not make an unattended check wait on a FIFO or read a device until
 /// memory runs out, so only a regular file is read, and no more of it than
@@ -2909,7 +2944,7 @@ fn read_named_schema(path: &str) -> Result<String, String> {
 	};
 	// Asked before the open too, since opening a FIFO waits for a writer.
 	regular(std::fs::metadata(path))?;
-	let mut f = std::fs::File::open(path).map_err(|e| format!("{}: {}", path, e))?;
+	let mut f = open_no_wait(path).map_err(|e| format!("{}: {}", path, e))?;
 	regular(f.metadata())?;
 	// Fixed reads, since the page map refuses one that is not a multiple of 8.
 	// One read past the cap is what tells a file at it from one over it.

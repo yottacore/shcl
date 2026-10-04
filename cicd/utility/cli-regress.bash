@@ -897,6 +897,10 @@ rows=(
 	## and says which layer it was.
 	'EonFb9s|layer-strict-names-the-layer|fmt --strictness=strict --layer=%B% %B2%|-|6|-|bad.shcl line 2: Error: E015'
 	'EqLcx3x|layer-strict-names-the-layer-set|set --set=q=1 --strictness=strict --layer=%B% %B2%|-|6|-|bad.shcl line 2: Error: E015'
+	## 20261003 item 13: every file is read before any is loaded, so a missing
+	## layer above a strict failure is 8, not 6. C read and loaded in turn.
+	'Erlbzz0|layer-strict-then-missing|paths --strictness=strict --layer=%B% --layer=%M% %F%|-|8|-|not-there\.shcl'
+	'Erlc00p|layer-strict-then-missing-set|set --set=q=1 --strictness=strict --layer=%B% --layer=%M% %F%|-|8|-|not-there\.shcl'
 	## 20260902 item 44: the failing phase is named, not guessed.
 	'Eon514S|write-names-the-phase|set --write --set=a=2 %N%|-|8|-|cannot create temporary file'
 	## 20260902 item 41: the schema's own diagnostics were never printed, so the
@@ -1654,6 +1658,62 @@ fTest Er0CdE8 small-stack-fmt
 if [[ "${onWindows}" == 1 ]]; then fTestSkip; else fSmallStack fmt; fi
 fTest Er0CdE9 small-stack-set
 if [[ "${onWindows}" == 1 ]]; then fTestSkip; else fSmallStack set; fi
+
+## 20261003 item 11: a Schema line's file swapped for a FIFO after the stat and
+## before the open hung check, since the open waited for a writer. The stat on
+## that path is held up while the swap runs, so the open meets the FIFO every
+## time rather than once in a few hundred runs. The open has to meet the FIFO,
+## or the swap came too early or too late and the row tested nothing; it tries
+## again with more time before calling that a failure.
+fSchemaSwap(){
+	local d log rc gotErr hit try swapAt holdUs
+	for b in "${bindings[@]}"; do
+		name="${b%%|*}"; cli="${b#*|}"
+		d="${tmpDir}/swap-${name}"; log="${d}.trace"
+		hit=0
+		for try in "0.25 600000" "1.5 4000000"; do
+			swapAt="${try% *}"; holdUs="${try#* }"
+			mkdir -p "${d}"
+			printf 'a: 1\n##    Schema   s.schema\n' > "${d}/cfg.shcl"
+			## The last try left a FIFO here, and a write to it would wait.
+			rm -f "${d}/fifo" "${d}/s.schema"; mkfifo "${d}/fifo"
+			printf 'a: int\n' > "${d}/s.schema"
+			( sleep "${swapAt}"; mv -f "${d}/fifo" "${d}/s.schema" ) &
+			rc=0
+			strace -f -qq -o "${log}" -P "${d}/s.schema" -e trace='%%stat,openat,open' \
+				-e inject="%%stat:delay_exit=${holdUs}:when=1" \
+				timeout -s KILL 10 "${cli}" check "${d}/cfg.shcl" >/dev/null 2>"${tmpDir}/err" </dev/null || rc=$?
+			wait "$!" || true
+			gotErr=""; IFS= read -r -d '' gotErr <"${tmpDir}/err" || true
+			## The open met the FIFO: it hung until killed, or an fstat after it
+			## saw one.
+			if [[ "${rc}" == 137 ]] || awk -v p="\"${d}/s.schema\", O_RDONLY" \
+				'index($0, p) { opened = 1 } opened && /S_IFIFO/ { hit = 1 } END { exit !hit }' "${log}"; then
+				hit=1; break
+			fi
+		done
+		nRun+=1
+		if [[ "${hit}" == 0 ]]; then
+			echo "cli-regress: schema-line-fifo-swap [${name}]: the swap never landed between the stat and the open" >&2; nBad+=1
+		elif [[ "${rc}" != 8 || "${gotErr}" != *"not a regular file"* ]]; then
+			echo "cli-regress: schema-line-fifo-swap [${name}]: exit ${rc}, expected 8; stderr ${gotErr@Q}" >&2; nBad+=1
+		fi
+	done
+}
+fTest Erlf8t9 schema-line-fifo-swap
+if [[ "${onWindows}" == 1 ]]; then
+	echo "cli-regress: skipping schema-line-fifo-swap (POSIX fixture; windows has no FIFO at a path)"
+	fTestSkip
+elif ! command -v strace >/dev/null 2>&1; then
+	if [[ -n "${SHCL_GATE_STRICT:-}" && "$(uname -s)" == Linux ]]; then
+		echo "cli-regress: schema-line-fifo-swap: no strace here and the gate requires it" >&2; nBad+=1
+	fi
+	echo "cli-regress: skipping schema-line-fifo-swap (no strace here)"
+	echo "cli-regress schema-line-fifo-swap" >> "${SHCL_GATE_SKIPS:-/dev/null}"
+	fTestSkip
+else
+	fSchemaSwap
+fi
 
 ## What a save does with each thing it can find at the path, one case per row of
 ## the Save outcomes table in design.md, which is the rule. A FIFO, a link whose

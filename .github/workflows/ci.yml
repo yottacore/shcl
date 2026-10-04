@@ -79,7 +79,8 @@ jobs:
           ## The cross checks run under --ci since 20260920, and the first of
           ## them builds the C library and CLI for windows with mingw's gcc,
           ## which this image does not have.
-          ## perf-gate counts write calls with strace.
+          ## perf-gate counts write calls with strace, and cli-regress holds a
+          ## stat with it for the Schema line FIFO swap.
           ## The stub-package rows build a .deb and an .rpm and read them back:
           ## dpkg-deb ships on the image, rpm does not, and nfpm is installed
           ## with the Go tools below.

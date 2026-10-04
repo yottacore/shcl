@@ -2191,10 +2191,17 @@ def read_named_schema(path):
 	try:
 		# Asked before the open too, since opening a FIFO waits for a writer.
 		regular(os.stat(path))
+		# The path can turn into a FIFO between the stat and the open, so on
+		# POSIX the open does not wait, and the flag comes straight back off:
+		# only the open waits, and the fstat refuses a FIFO before any read.
+		no_wait = getattr(os, "O_NONBLOCK", 0)
+		fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0) | no_wait)
 		# Unbuffered fixed reads, since the page map refuses one that is not a
 		# multiple of 8. One read past the cap is what tells a file at it from
 		# one over it.
-		with open(path, "rb", buffering=0) as f:
+		with open(fd, "rb", buffering=0) as f:
+			if no_wait:
+				os.set_blocking(fd, True)
 			regular(os.fstat(f.fileno()))
 			data = bytearray()
 			while chunk := f.read(1 << 16):

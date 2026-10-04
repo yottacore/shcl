@@ -177,6 +177,35 @@ if [[ "${rustCmds}" != "${rustArms}" ]]; then
 	nBad=$((nBad + 1))
 fi
 
+fTest ErlbzxH zsh-summaries-match-help
+## Each zsh summary's longer words must be in that subcommand's help entry. The
+## set summary said "canonical form" for months after set stopped printing one.
+## Words under five letters are skipped, so "the help text" and the like pass.
+helpText="$(sed -n '/^const HELP: &str = "\\$/,/^";$/p' "${mainRs}")"
+nSummaries=0
+while IFS=$'\t' read -r sub desc; do
+	entry="$(awk -v want="  shcl ${sub}" '
+		index($0, want " ") == 1 || $0 == want { on = 1; print; next }
+		on && /^  shcl / { exit }
+		on && /^$/ { exit }
+		on { print }' <<<"${helpText}")"
+	nSummaries=$((nSummaries + 1))
+	[[ -n "${entry}" ]] || { echo "check-completions: the help has no entry for ${sub}" >&2; nBad=$((nBad + 1)); }
+	read -ra words <<<"${desc}"
+	for word in "${words[@]}"; do
+		word="${word//[^A-Za-z]/}"
+		(( ${#word} >= 5 )) || continue
+		if ! grep -qiw -- "${word}" <<<"${entry}"; then
+			echo "check-completions: _shcl's ${sub} summary says '${word}', which the help's ${sub} entry does not: ${desc}" >&2
+			nBad=$((nBad + 1))
+		fi
+	done
+done < <(sed -n "s/^[[:space:]]*'\([a-z]*\):\([^']*\)'$/\1\t\2/p" "${root}/source/completions/_shcl")
+if [[ "${nSummaries}" == 0 ]]; then
+	echo "check-completions: no subcommand summaries found in _shcl" >&2
+	nBad=$((nBad + 1))
+fi
+
 fTestEnd
 rc=0
 if [[ "${nBad}" != 0 ]]; then rc=1; fi
@@ -188,3 +217,4 @@ exit "${rc}"
 ##		- 20260818: Created.
 ##		- 20260830: Also diff the top-level offers.
 ##		- 20260905: Also diff the value-option lists.
+##		- 20261004: Also hold the zsh summaries to the help.
