@@ -1812,6 +1812,12 @@ static char *read_named_schema(const char *path, size_t pn, size_t *len) {
 	if (is_a_directory(path)) { fprintf(stderr, "%s: Is a directory\n", path); return NULL; }
 	FILE *f = open_rb(path);
 	if (!f) { fprintf(stderr, "%s: %s\n", path, strerror(errno)); return NULL; }
+	/* Asked again of the handle, since the path can change after the test. */
+	if (GetFileType((HANDLE)_get_osfhandle(_fileno(f))) != FILE_TYPE_DISK) {
+		fprintf(stderr, "%s: not a regular file\n", path);
+		fclose(f);
+		return NULL;
+	}
 	return read_stream(f, path, SCHEMA_LINE_MAX, len);
 #else
 	/* Asked before the open too, since opening a FIFO waits for a writer. */
@@ -1821,13 +1827,24 @@ static char *read_named_schema(const char *path, size_t pn, size_t *len) {
 		return NULL;
 	}
 	if (is_a_directory(path)) { fprintf(stderr, "%s: Is a directory\n", path); return NULL; }
-	FILE *f = open_rb(path);
-	if (!f) { fprintf(stderr, "%s: %s\n", path, strerror(errno)); return NULL; }
-	if (fstat(fileno(f), &st) == 0 && !S_ISREG(st.st_mode)) {
-		fprintf(stderr, "%s: not a regular file\n", path);
-		fclose(f);
+	/* The path can turn into a FIFO between the stat and the open, so the open
+	   does not wait, and the flag comes straight back off: only the open
+	   waits, and the fstat refuses a FIFO before any read. */
+	int fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+	if (fd < 0) { fprintf(stderr, "%s: %s\n", path, strerror(errno)); return NULL; }
+	int flags = fcntl(fd, F_GETFL);
+	if (flags == -1 || fcntl(fd, F_SETFL, flags & ~O_NONBLOCK) == -1) {
+		fprintf(stderr, "%s: %s\n", path, strerror(errno));
+		close(fd);
 		return NULL;
 	}
+	if (fstat(fd, &st) == 0 && !S_ISREG(st.st_mode)) {
+		fprintf(stderr, "%s: not a regular file\n", path);
+		close(fd);
+		return NULL;
+	}
+	FILE *f = fdopen(fd, "rb");
+	if (!f) { fprintf(stderr, "%s: %s\n", path, strerror(errno)); close(fd); return NULL; }
 	return read_stream(f, path, SCHEMA_LINE_MAX, len);
 #endif
 }

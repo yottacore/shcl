@@ -354,7 +354,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - A FIFO swapped in at the Schema path between the type check and the open hangs `check`
 	- ID: 2026100307163911
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 11
@@ -370,6 +370,15 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Origin: `27d73efb` (schema line fixes), the fix for 2026092813365302. A gap in a closed fix, which needs someone able to swap files beside the config. Confirmed.
 	- Sweep: `read_named_schema` in all four CLIs, and the Windows branch.
 	- Estimated effort: Low
+	- Actual cause: the open itself waits on a FIFO, and the stat before it cannot see a swap that comes after.
+	- Actual fix: on POSIX the open asks not to wait, the flag comes straight back off, and the fstat after it refuses the FIFO before any read. All four. The C Windows branch had no check after the open; it now asks the handle's type too.
+	- Swept: `read_named_schema` in all four CLIs. On Windows a FIFO cannot sit at a path, and a pipe is refused after the open in all four: Rust's handle metadata, Go's `Stat`, Python's `fstat` and now C's `GetFileType`. Nothing else opens a path read out of a file.
+	- Verified: cli-regress `Erlf8t9` holds the stat on the schema path while the path turns into a FIFO, so the open meets it every run. All four hung until killed before the fix and refuse at exit 8 after. It tries again with more time if the swap missed the window, and was seen to recover from a swap too early and too late. Rust clippy for Linux and Windows, `cargo check` for FreeBSD and macOS, Go vet and staticcheck for Linux and Windows, ruff and mypy, and the C build under gcc 14, gcc 15 and mingw pass. The mingw C build still reads a local schema under wine.
+	- Note: the C Windows refusal of a pipe swapped in after the test is by reading only. `--write` FILE has the same gap between its stat and the read, and was left: that path is the user's own, named on the command line.
+	- Branch: clismall
+	- Test case: cli-regress `Erlf8t9` (`schema-line-fifo-swap`). It needs strace, which the hosted job installs; POSIX only.
+	- Acceptance signoff: Self-closed: reproduced, its test failed before the fix and passes after, sweep answered.
+	- Closed: 20261004-141028
 
 - The C CLI exits 6 where the other three exit 8 when a strict layer fails before a missing one
 	- ID: 2026100307163913
