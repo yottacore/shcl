@@ -381,7 +381,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - The E019, E023 and E024 text says a read on the field is NotFound, but it is Empty when lines load under it
 	- ID: 2026100307163914
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Low
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 14
@@ -395,11 +395,18 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Origin: `3ef0bc8c` and `752f2177` (escblock and its docs). Confirmed.
 	- Sweep: the spec rows, `explain` in all four CLIs, design.md and value-syntax.md.
 	- Estimated effort: Low
+	- Actual fix [Bug]: the spec rows, `explain` in all four CLIs, design.md and value-syntax.md now say a read on the field is NotFound with nothing under it and Empty once a line under it loads. value-syntax.md changed in that sentence only.
+	- Swept: spec rows `E019`, `E023`, `E024`; `explain` for the three codes in Rust, Go, Python and C, byte-identical; design.md Load outcomes, Retained; value-syntax.md, Errors and kept lines. README and the man page make no NotFound claim for these codes.
+	- Verified: cli-regress over the four CLIs passes, 362 rows. Against dev's Go and C CLIs, the three `explain` rows fail and the three `get` rows pass, since only the text changed.
+	- Branch: `doctext`
+	- Commit: `28ef9598`
+	- Test case: cli-regress `Erlr8eZ`, `Erlr8gU`, `Erlr8iQ` (`get` exits 2 for `E019`, `E023` and `E024` with a line under), `Erlr21T`, `Erlr23g`, `Erlr25Z` (`explain` text for the three).
+	- Acceptance signoff: waits on signoff for the `explain` wording.
 
 - The C header's comment on the save result still says the save refuses only over what the load dropped
 	- ID: 2026100313174973
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261003-131749
 	- Opened by: the review of 2026100307310000, round 1 (F7)
@@ -408,11 +415,18 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Incorrect behavior: `source/c/shcl.h` line 257, above the save result enum, says "Save refuses while the load dropped content the write would silently delete". The Rust, Go and Python twins now say the save would delete content from the file, since the count includes kept lines an edit lost.
 	- Expected behavior: the C comment says the same as the other three.
 	- Estimated effort: Low
+	- Actual fix [Bug]: the comment says the save refuses when the write would delete content from the file, as the Rust, Go and Python twins do.
+	- Swept: the save result comments in all four. The `save_file` doc comments in all four still say "Refuses when parsing lost content"; filed as 2026100414480001, since they are in the library sources.
+	- Branch: `doctext`
+	- Commit: `28ef9598`
+	- Test case: none, a comment only.
+	- Acceptance signoff: Self-closed: mechanical.
+	- Closed: 20261004-144800
 
 - design.md's kept-line table puts the merge's replaced-leaf exception in the wrong column
 	- ID: 2026100313174974
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261003-131749
 	- Opened by: the review of 2026100307310000, round 1 (F8)
@@ -421,11 +435,17 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Incorrect behavior: in "Kept lines under edits", the row for the base's lines in a merge has the replaced-leaf exception under "Under the target", and "Beside the target" says "stays". A leaf has nothing under it. The line the exception takes is the leaf's leading comment, which the table's own definition puts beside the target. Test `ErfGoMI` is that case: `# a: 5` above `b: 1` goes when a layer replaces `b`.
 	- Expected behavior: the row says a settled line among a replaced leaf's own comment lines goes, in the column that holds them. The bullet under the table already has it right.
 	- Estimated effort: Low
+	- Actual fix [Bug]: the base's row now has the exception under "Beside the target": a settled line among the comments of a leaf the layer replaces goes with them. "Under the target" says "stays". The setter row is unchanged.
+	- Branch: `doctext`
+	- Commit: `28ef9598`
+	- Test case: none for the table itself. The behavior it states is `ErfGoMI` to `ErfGoMP`, one pair per binding.
+	- Acceptance signoff: Self-closed: mechanical, matches the bullet under the table and `ErfGoMI`.
+	- Closed: 20261004-144800
 
 - README, the man page and the UI guide say a save refuses only over lines the load dropped
 	- ID: 2026100313174975
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Low
 	- Opened: 20261003-131749
 	- Opened by: the review of 2026100307310000, round 1
@@ -433,6 +453,26 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Version and build: dev at `e74c95bd`
 	- Incorrect behavior: all three describe the refusal as over a line the load dropped. Since 2026100307310000 it also refuses when an edit would lose a kept line. Incomplete, not wrong. None quotes the message, so they were left alone with the Q1 wording change.
 	- Expected behavior: they say the save refuses when the write would delete lines or values from the file, whatever the cause.
+	- Estimated effort: Low
+	- Actual fix [Bug]: each one now says the save refuses when the write would delete lines or values from the file. Only that claim changed.
+	- Swept: README (the intro bullet, the CLI paragraph, the five save comments in the code examples, and "What saving does"), the man page (`--lossy`, WRITING IN PLACE, exit 7), the UI guide, the spec's refusal bullet, and the CLI help in all four (`--lossy` and the paragraph after the options). The help stays byte-identical across the four. README's keep-lines paragraph still holds as written, since that save refuses only when it falls back.
+	- Verified: check-docs, check-readme, markdownlint on the changed docs, and cli-regress over the four CLIs (help width rows included) all pass.
+	- Branch: `doctext`
+	- Commit: `28ef9598`
+	- Test case: none, wording only. The behavior is `EreYYXK` and the per-binding `kept_gate` tests.
+	- Acceptance signoff: waits on signoff for the README and help wording.
+
+- The library `save_file` doc comments still say the save refuses over what the load dropped
+	- ID: 2026100414480001
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261004-144800
+	- Opened by: 2026100313174973's sweep
+	- Parent ID: 2026100307310000
+	- Version and build: dev at `c3eb6db7`
+	- Incorrect behavior: the doc comment on `save_file` in all four says it "Refuses when parsing lost content that a save would silently delete". Since 2026100307310000 the count also has kept lines an edit lost. Go's `SaveFile`, Python's `save_file`, Rust's `save_file`, and C's `shcl_save_file` in `shcl.h`.
+	- Expected behavior: they say the save refuses when the write would delete content from the file, like the save result comments.
 	- Estimated effort: Low
 
 - A crosscheck run aborted the Python CLI with exit 134 under load
