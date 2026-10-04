@@ -495,6 +495,26 @@ if fHave pwsh; then
 	out="$(env -u DISPLAY -u WAYLAND_DISPLAY pwsh -NoProfile -File "${tmpDir}/legacy.ps1" "${tmpDir}/legacy.shcl" 2>&1 </dev/null || true)"
 	[[ "${out}" == "done" ]] || fBad "PowerShell wrapper under legacy argument passing: ${out@Q}"
 
+	fTest ErkOqpb 20261003-item5-ps1-file-colon-args
+	##	Code review 20261003 item 5: started by -File, PowerShell took a `-`-led
+	##	argument with a colon apart before the script saw it, so
+	##	`--set=url=http://x` reached the binary as two arguments and the read
+	##	answered wrong at exit 0. A stub that prints its arguments stands in for
+	##	the binary, then the real one runs the review's own case.
+	#  shellcheck disable=2016  ## the stub's own $@ and $a.
+	printf '#!/bin/sh\nfor a in "$@"; do printf "[%%s]\\n" "$a"; done\n' > "${tmpDir}/argv.sh"; chmod +x "${tmpDir}/argv.sh"
+	#  shellcheck disable=2016  ## PowerShell's own $true, passed as typed.
+	colonArgs=(children x.shcl '--set=url=http://x' '-x:y' '-b:' c '-k:$true' '--z=1:2' -- -File '' 'a b')
+	want="$("${tmpDir}/argv.sh" "${colonArgs[@]}")"
+	got="$(SHCL_BIN="${tmpDir}/argv.sh" pwsh -NoProfile -File "${repoDir}/source/powershell/shcl.ps1" "${colonArgs[@]}" 2>&1 </dev/null || true)"
+	[[ "${got}" == "${want}" ]] || fBad "shcl.ps1 run by -File changed its arguments: ${got@Q} against ${want@Q}"
+	got="$(cd "${repoDir}/source/powershell" && SHCL_BIN="${tmpDir}/argv.sh" pwsh -NoProfile shcl.ps1 "${colonArgs[@]}" 2>&1 </dev/null || true)"
+	[[ "${got}" == "${want}" ]] || fBad "shcl.ps1 run as pwsh's first word changed its arguments: ${got@Q} against ${want@Q}"
+	printf 'site: a\nurl: b\n' > "${tmpDir}/colon.shcl"
+	want="$("${cli}" children "${tmpDir}/colon.shcl" --set=url=http://x 2>&1)" || true
+	got="$(SHCL_BIN="${cli}" pwsh -NoProfile -File "${repoDir}/source/powershell/shcl.ps1" children "${tmpDir}/colon.shcl" --set=url=http://x 2>&1 </dev/null || true)"
+	[[ -n "${want}" && "${got}" == "${want}" ]] || fBad "shcl.ps1 run by -File: children with --set=url=http://x gave ${got@Q}, the binary ${want@Q}"
+
 	fTest EoUqEKW 20260830b-10-ps1-link-resolver
 	##	20260830b item 10: the symlink resolver called a .NET 6 method that
 	##	Windows PowerShell 5.1 does not have, unguarded and at load, so every
@@ -2650,6 +2670,54 @@ if fHave pwsh; then
 	[[ "${out}" == held && "${rc}" == 0 ]] || fBad "dogfood_shcl.ps1 --no-update with an impossible pool date: ${out@Q} rc ${rc}: $(head -c 200 "${tmpDir}/df.err")"
 	rc=0; out="$(fDogfoodB x)" || rc=$?
 	[[ "${out}" == held && "${rc}" == 0 && -e "${dh}/.local/bin/shcl_versions/shcl_20261399-000000" ]] || fBad "dogfood_shcl.ps1 with an impossible pool date: ${out@Q} rc ${rc}, or the file went"
+else
+	fTestSkip
+fi
+
+fTest ErkOqsp 20261003-item5-dogfood-file-colon-args
+##	Code review 20261003 item 5: the launchers start the runner with -File, so
+##	a `-`-led argument with a colon reached shcl in two pieces. Through the
+##	bash launcher, the way it is typed.
+if fHave pwsh; then
+	dh="${tmpDir}/dfcolon"
+	dsrc="${dh}/synced/0-0/common/exec/util/linux/bin"
+	mkdir -p "${dsrc}" "${dh}/.local/bin"
+	#  shellcheck disable=2016  ## the stub's own $@ and $a.
+	printf '#!/bin/sh\nfor a in "$@"; do printf "[%%s]\\n" "$a"; done\n' > "${dsrc}/shcl"; chmod +x "${dsrc}/shcl"
+	#  shellcheck disable=2016  ## PowerShell's own $true, passed as typed.
+	colonArgs=(get '--set=url=http://x' '-x:y' '-b:' c '-k:$true' '--z=1:2' -- '' 'a b')
+	want="$(printf '[%s]\n' "${colonArgs[@]}")"
+	got="$(env -u DISPLAY -u WAYLAND_DISPLAY HOME="${dh}" bash "${repoDir}/utility/dogfood_shcl" "${colonArgs[@]}" 2>/dev/null </dev/null || true)"
+	[[ "${got}" == "${want}" ]] || fBad "dogfood_shcl changed its arguments on the way to shcl: ${got@Q} against ${want@Q}"
+else
+	fTestSkip
+fi
+
+fTest ErkOqyK 20261003-item8-dogfood-legacy-quotes
+##	Code review 20261003 item 8: the runner called shcl with its arguments as
+##	they came, so under Windows PowerShell 5.1 an embedded quote never reached
+##	shcl and an empty argument was left out. `zip="02134"` saved as a number at
+##	exit 0. The Legacy mode of 7 builds the command line the same way, so it
+##	stands in for 5.1. Same values as shcl.ps1's row (20260928 item 4).
+if fHave pwsh; then
+	dh="${tmpDir}/dflegacy"
+	dsrc="${dh}/synced/0-0/common/exec/util/linux/bin"
+	mkdir -p "${dsrc}" "${dh}/.local/bin"
+	#  shellcheck disable=2016  ## the stub's own $@ and $a.
+	printf '#!/bin/sh\nfor a in "$@"; do printf "[%%s]\\n" "$a"; done\n' > "${dsrc}/shcl"; chmod +x "${dsrc}/shcl"
+	#  shellcheck disable=2016,2028  ## PowerShell's own $variables and backslashes, quoted so bash leaves them alone.
+	{
+		echo 'Set-StrictMode -Version Latest'
+		echo '$PSNativeCommandArgumentPassing = "Legacy"'
+		echo '$q = [string][char]34'
+		echo '$vals = @(("zip=" + $q + "02134" + $q), ($q + "q" + $q), ("a" + $q + "b"), "", "C:\a b\", ("p\" + $q + "q"), ("x " + $q + "y" + $q + " z"))'
+		echo '$o = @(& $args[0] --no-update @vals)'
+		echo '$want = @($vals | ForEach-Object { "[" + $_ + "]" })'
+		echo 'if (($o -join "|") -cne ($want -join "|")) { "lost: came back [$($o -join "|")]" } else { "done" }'
+	} > "${tmpDir}/dflegacy.ps1"
+	env -u DISPLAY -u WAYLAND_DISPLAY HOME="${dh}" pwsh -NoProfile -File "${repoDir}/utility/dogfood_shcl.ps1" x >/dev/null 2>&1 </dev/null || true
+	out="$(env -u DISPLAY -u WAYLAND_DISPLAY HOME="${dh}" pwsh -NoProfile -File "${tmpDir}/dflegacy.ps1" "${repoDir}/utility/dogfood_shcl.ps1" 2>&1 </dev/null || true)"
+	[[ "${out}" == "done" ]] || fBad "dogfood_shcl.ps1 under legacy argument passing: ${out@Q}"
 else
 	fTestSkip
 fi

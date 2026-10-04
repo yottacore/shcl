@@ -246,6 +246,21 @@ function shcl_tokens { if ($MyInvocation.ExpectingInput) { $input | shcl tokens 
 # Run path
 #==============================================================================
 
+## Started by -File, PowerShell has also parsed the arguments as its own before
+## the script sees them. A `-`-led one with a colon became a name and a value,
+## so `--set=url=http://x` reached the binary as `--set=url=http` and `//x`,
+## `-x:$true` came as a boolean, and `--%` not at all. The process's own
+## argument list still has them as typed, after this script's path. With no
+## match there, $args is all there is.
+function _shcl_file_args([string]$self) {
+	$argv = [Environment]::GetCommandLineArgs()
+	$leaf = ($self -split '[\\/]')[-1]
+	for ($i = 1; $i -lt $argv.Count; $i++) {
+		if (($argv[$i] -split '[\\/]')[-1] -eq $leaf) { return , [string[]]@($argv | Select-Object -Skip ($i + 1)) }
+	}
+	return $null
+}
+
 ## When executed (not dot-sourced), be the CLI: forward args, forward the code.
 ## InvocationName is '.' only when dot-sourced. Pipeline input is forwarded the
 ## way the function and the helpers forward it; without that, 'a: 5' |
@@ -258,7 +273,12 @@ function shcl_tokens { if ($MyInvocation.ExpectingInput) { $input | shcl tokens 
 ## script runs when the script names $input at its top level.
 if ($MyInvocation.InvocationName -ne '.') {
 	if ($MyInvocation.ExpectingInput -and $MyInvocation.Line) { (Get-Variable -Name input -ValueOnly) | shcl @args }
-	else { shcl @args }
+	elseif ($MyInvocation.Line) { shcl @args }
+	else {
+		$given = _shcl_file_args $PSCommandPath
+		if ($null -eq $given) { $given = $args }
+		shcl @given
+	}
 	## Written the long way rather than with ??, so this runs on the Windows
 	## PowerShell 5.1 that ships with the OS as well as on 7.
 	$rc = $LASTEXITCODE
