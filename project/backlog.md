@@ -33,6 +33,72 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
+- Removing the only line under a lazily opened field leaves a bare `name:`, and the field later reads as Multiple
+	- ID: 2026100307163907
+	- Type: Bug
+	- Status: Waiting for answers
+	- Needs local test suite run?: the full `--ci`, with 2026100307163901.
+	- Severity: Avg
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 7
+	- Related IDs: 2026100213205957
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- `printf 'a: [1]\n\tb: 2\ny: 3\n' > f.shcl`
+		- `shcl set f.shcl --remove a.b --write`, then fix the first line to `a: 1, 2` as E019 asks.
+	- Incorrect behavior: the save writes `a: [1]`, `a:`, `y: 3` at exit 0. After the fix `get a` exits 5 and `count a` is 2, so a read with a default quietly gets the default.
+	- Expected behavior: a field opened only by the lines under it goes away with the last of them, as the escblock decision says.
+	- Reproduced: 20261003, all four.
+	- Possible cause: the lazily opened node outlives its last child, and `heads_block` needs at least one child, so the writer puts out the kept line and then a bare `a:`.
+	- Origin: `3ef0bc8c` (escblock), new since the last round. Not the trigger of 2026100213205957, which is the load; this one is an edit. Confirmed.
+	- Note: 20261003, `set f.shcl --set a=5` on the same file writes a second line, `a: 5`, after the kept `a: [1]`, with `b` under the new one. Once the first line is fixed, `a` reads as Multiple the same way. Same class, found while designing 2026100307310000. Confirmed on dev at `1e2e4210`, Rust CLI.
+	- Note: 20261003, from 2026100307310000. The kept-lines property `EreT6dh` skips this class through its row keyed by this ID, and the fix takes the row out.
+	- Estimated effort: Low
+	- Actual cause [Bug]: as above. The node a kept line opened outlived its last child.
+	- Progress log:
+		- 20261003: fixed in all four, with 2026100307163901. After a remove, a field opened from a kept line with nothing left under it goes too, and its lines stay where it stood. A field above it opened the same way follows. Corpus 187's two goldens had the bare `inner:` line from this bug; both now end that block at `inner: [x]`.
+		- 20261003: the `--set a=5` note is left as design.md's table has it: a setter keeps the kept line heading its target. The set writes `a: 5` under the kept `a: [1]` and reads 5. Once line 1 is fixed by hand, `a` reads as Multiple and `check` says nothing.
+		- Question: should a setter on a field opened from a kept line keep the table's rule, or do something else, such as refuse, or write the kept line as a comment?
+	- Actual fix [Bug]: `remove` drops such a field once its last child goes, in all four.
+	- Swept: as 2026100307163901.
+	- Branch: `removekept`
+	- Commit: `46e6176a`
+	- Test case: `ErgToax` (Rust), `ErgToef` (Go), `ErgToiG` (Python), `ErgTom6` (C); cli-regress `ErgTonu`; corpus 187; fuzz `EreT6dh`.
+
+- `remove` deletes kept lines next to the field it removes, at exit 0
+	- ID: 2026100307163901
+	- Type: Bug
+	- Status: Waiting for testing
+	- Needs local test suite run?: the full `--ci`. cppcheck ran on the changed `shcl.h` at the normal level only.
+	- Severity: Critical
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 1
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- `printf 'x: 1\nr: [1, 2]\ny: 3\n' > f.shcl`
+		- `shcl set f.shcl --remove y --write`
+	- Incorrect behavior: exit 0, and the file is just `x: 1`. The kept `r: [1, 2]` line went with `y`.
+	- Expected behavior: a kept line stays where it was written. The spec says a hand typo survives a load, edit and save.
+	- Reproduced: 20261003, all four CLIs and the Rust, Go and Python libraries. Same with `r: "C:\temp"` (E024), `r: "a\qb"` (E023), `bad name: 1` (E014), `*x` and `"r: 1`. Inside a block, `--remove j.q` takes a kept `j.r` whether it sits above or below `q`.
+	- Possible cause: a kept line is held as trivia on the next binding's node, and `remove` drops the node with its trivia. `clear_comments` already skips kept lines; `remove` does not. The save gate does not count kept lines, so `--write` goes through.
+	- Origin: kept lines as trivia came with `b216ad2b` (funnel, 2026-09-07), and rs-base does the same. For the `"C:\temp"` spelling it is a regression from `3ef0bc8c` (escblock): base kept that line as an H004 hint and the remove left it. Not seen by an earlier round. Backlog item 2026092620255202 is the same class for `clear-comments`. Confirmed.
+	- Note: 2026100207032800 makes more lines kept, a bare value with spaces among them, so this gets wider once that goes in.
+	- Sweep: every edit that drops or moves a node's trivia in all four: `remove`, the merge's replaced leaf, the setters that replace a node.
+	- Note: 20261003, from 2026100307310000. The save gate now counts kept lines, so the repro exits 7 and leaves the file alone, in all four. cli-regress `EreYYXK` (`save-kept-remove`) pins that; this fix turns it into exit 0 with `r: [1, 2]` kept. The kept-lines property `EreT6dh` skips this class through its row keyed by this ID, and the fix takes the row out. Up to 2,000,000 runs, only `remove` hit it; no setter or merge did.
+	- Estimated effort: Avg
+	- Actual cause [Bug]: a kept line sits in the next field's leading lines, or in a block's trailing ones, and `remove` dropped those lines with the field.
+	- Progress log:
+		- 20261003: fixed in all four, with 2026100307163907. A remove leaves the kept lines beside its target where they were, with the comments above them. A comment written right against the target goes with it. When the target was the last field in its block, its kept lines stay at the end of the block, and a misplaced line among them moves down to just above the next field line, where a reload files it.
+		- 20261003: tests whose expectation moved. cli-regress `EreYYXK` now expects exit 0 with `r: [1, 2]` kept, where it pinned the refusal at 7. `EreT6dh` lost this item's open row, and its check that a remove writes no new line now reads a raw block's fence moved to its own line as the same line. The reload property `Eqk24nZ` and its Go, Python and C twins now excuse a remove beside a settled kept line, as they already did for `clear_comments` (20260926 item 2). The document keeps that line, and the reload of its canonical text sees a plain comment.
+		- 20261003: left for signoff: which comments go with the target. The fix takes those between the target and the nearest kept line, and keeps the rest.
+	- Actual fix [Bug]: `remove` puts what stays above the next field, or at the end of the block, in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`. design.md's "Kept lines under edits" has three new bullets for it. No table cell changed.
+	- Swept: `remove` in all four. The merge's replaced leaf already moves its kept lines onto the replacement. Every setter goes through `set_value` or its twin, which changes the value in place and keeps the node's lines, and `collapse_dup` folds them into the survivor. `clear_comments` already skipped kept lines. No other edit unlinks a node.
+	- Verified: the Rust, Go, Python and C suites, cli-regress, crosscheck, shell-regress, sanitize-c, check-veneer, clippy, staticcheck, ruff and mypy. Each new test failed with the fix taken out. The 2,000,000 release fuzz is green but for `EreT6dh`, which still fails on the open row of 2026100307163902 first.
+	- Note: 20261003, the 2,000,000 release fuzz, run on past known rows with local excuses only. A merge loses a kept line at exit 0 with dev's library as well, at iteration 960275 (`set_int`, banner on, merge; no raw set). An `E019` line ending in a fence has its body read as fields, the same class as 2026100307163902 and 2026100117214801; dev never reached it, since this item's row excused the step first. Nothing else failed.
+	- Branch: `removekept`
+	- Commit: `46e6176a`
+	- Test case: `ErgToYw` (Rust), `ErgTocq` (Go), `ErgTogT` (Python), `ErgTokB` (C); cli-regress `EreYYXK`; fuzz `EreT6dh`.
+
 - A fuzz property and a save-gate check for kept lines, so edits stop losing them one site at a time
 	- ID: 2026100307310000
 	- Type: Task
@@ -73,41 +139,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Expected behavior: every kept line outside the edit's target is in the saved text, or the save refuses.
 	- Reproduced: 20261003, Rust fuzz only, with the widened excuse made locally and not committed. Not cut down to a small file yet, and not checked by hand in the other three bindings.
 	- Note: filed Critical on the release bar, since the property fails only when the save goes through. Lower it if the cut-down case shows the save refused.
+	- Note: 20261003, found while working 2026100307163901. With the known rows excused, the 2,000,000 release fuzz fails `EreT6dh` at iteration 960275 on a merge with no raw set that loses the kept line `b: 4` at exit 0. Dev does the same. Likely a second repro of this item.
 	- Estimated effort: Avg
-
-- `remove` deletes kept lines next to the field it removes, at exit 0
-	- ID: 2026100307163901
-	- Type: Bug
-	- Status: Waiting for testing
-	- Needs local test suite run?: the full `--ci`. cppcheck ran on the changed `shcl.h` at the normal level only.
-	- Severity: Critical
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 item 1
-	- Version and build: dev at `6e8b7f89`
-	- Steps to reproduce:
-		- `printf 'x: 1\nr: [1, 2]\ny: 3\n' > f.shcl`
-		- `shcl set f.shcl --remove y --write`
-	- Incorrect behavior: exit 0, and the file is just `x: 1`. The kept `r: [1, 2]` line went with `y`.
-	- Expected behavior: a kept line stays where it was written. The spec says a hand typo survives a load, edit and save.
-	- Reproduced: 20261003, all four CLIs and the Rust, Go and Python libraries. Same with `r: "C:\temp"` (E024), `r: "a\qb"` (E023), `bad name: 1` (E014), `*x` and `"r: 1`. Inside a block, `--remove j.q` takes a kept `j.r` whether it sits above or below `q`.
-	- Possible cause: a kept line is held as trivia on the next binding's node, and `remove` drops the node with its trivia. `clear_comments` already skips kept lines; `remove` does not. The save gate does not count kept lines, so `--write` goes through.
-	- Origin: kept lines as trivia came with `b216ad2b` (funnel, 2026-09-07), and rs-base does the same. For the `"C:\temp"` spelling it is a regression from `3ef0bc8c` (escblock): base kept that line as an H004 hint and the remove left it. Not seen by an earlier round. Backlog item 2026092620255202 is the same class for `clear-comments`. Confirmed.
-	- Note: 2026100207032800 makes more lines kept, a bare value with spaces among them, so this gets wider once that goes in.
-	- Sweep: every edit that drops or moves a node's trivia in all four: `remove`, the merge's replaced leaf, the setters that replace a node.
-	- Note: 20261003, from 2026100307310000. The save gate now counts kept lines, so the repro exits 7 and leaves the file alone, in all four. cli-regress `EreYYXK` (`save-kept-remove`) pins that; this fix turns it into exit 0 with `r: [1, 2]` kept. The kept-lines property `EreT6dh` skips this class through its row keyed by this ID, and the fix takes the row out. Up to 2,000,000 runs, only `remove` hit it; no setter or merge did.
-	- Estimated effort: Avg
-	- Actual cause [Bug]: a kept line sits in the next field's leading lines, or in a block's trailing ones, and `remove` dropped those lines with the field.
-	- Progress log:
-		- 20261003: fixed in all four, with 2026100307163907. A remove leaves the kept lines beside its target where they were, with the comments above them. A comment written right against the target goes with it. When the target was the last field in its block, its kept lines stay at the end of the block, and a misplaced line among them moves down to just above the next field line, where a reload files it.
-		- 20261003: tests whose expectation moved. cli-regress `EreYYXK` now expects exit 0 with `r: [1, 2]` kept, where it pinned the refusal at 7. `EreT6dh` lost this item's open row, and its check that a remove writes no new line now reads a raw block's fence moved to its own line as the same line. The reload property `Eqk24nZ` and its Go, Python and C twins now excuse a remove beside a settled kept line, as they already did for `clear_comments` (20260926 item 2). The document keeps that line, and the reload of its canonical text sees a plain comment.
-		- 20261003: left for signoff: which comments go with the target. The fix takes those between the target and the nearest kept line, and keeps the rest.
-	- Actual fix [Bug]: `remove` puts what stays above the next field, or at the end of the block, in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`. design.md's "Kept lines under edits" has three new bullets for it. No table cell changed.
-	- Swept: `remove` in all four. The merge's replaced leaf already moves its kept lines onto the replacement. Every setter goes through `set_value` or its twin, which changes the value in place and keeps the node's lines, and `collapse_dup` folds them into the survivor. `clear_comments` already skipped kept lines. No other edit unlinks a node.
-	- Verified: the Rust, Go, Python and C suites, cli-regress, crosscheck, shell-regress, sanitize-c, check-veneer, clippy, staticcheck, ruff and mypy. Each new test failed with the fix taken out. The 2,000,000 release fuzz is green but for `EreT6dh`, which still fails on the open row of 2026100307163902 first.
-	- Note: 20261003, the 2,000,000 release fuzz, run on past known rows with local excuses only. A merge loses a kept line at exit 0 with dev's library as well, at iteration 960275 (`set_int`, banner on, merge; no raw set). An `E019` line ending in a fence has its body read as fields, the same class as 2026100307163902 and 2026100117214801; dev never reached it, since this item's row excused the step first. Nothing else failed.
-	- Branch: `removekept`
-	- Commit: `46e6176a`
-	- Test case: `ErgToYw` (Rust), `ErgTocq` (Go), `ErgTogT` (Python), `ErgTokB` (C); cli-regress `EreYYXK`; fuzz `EreT6dh`.
 
 - A field line refused for its name that opens a raw block has its body read as fields, and `fmt --write` scrambles the file at exit 0
 	- ID: 2026100307163902
@@ -129,6 +162,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: a fix wants the whole class from 20260918b: a kept or refused line on which the tokenizer can still see a fence run takes its body. 801 would close with it.
 	- Note: 20261003, found while working 2026100307163904. The 2,000,000 release fuzz fails `EreT6dh` at iteration 558881 on dev too: a misplaced `E012` line opens a raw block and its body is read as fields. The property excuses this only for `E014`, so `E012` is the same class and this fix should cover it.
 	- Note: 20261003, from 2026100307310000. The kept-lines property `EreT6dh` skips this class through its row keyed by this ID, and the fix takes the row out. The save gate counts one kept line per retained outcome, so whatever the body becomes, the load must still hold one kept line for each, or a plain `fmt --write` refuses.
+	- Note: 20261003, found while working 2026100307163901. Past the known rows, the 2,000,000 release fuzz fails `EreT6dh` at iteration 1818622 on an `E019` line ending in a fence, with its body read as fields. Same class, so this fix should cover `E019` too.
 	- Estimated effort: Avg
 
 - No '\' escapes
@@ -273,38 +307,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Origin: `8aa812a9` (migrate stamp eol, merged in `32088e0a`), from 20260930 idea 1. cli-regress `migcrlf` and `migtie` use files that end in a newline. Regression of a fresh fix. Confirmed.
 	- Sweep: `rewritten_lines` in all four CLIs.
 	- Estimated effort: Low
-
-- Removing the only line under a lazily opened field leaves a bare `name:`, and the field later reads as Multiple
-	- ID: 2026100307163907
-	- Type: Bug
-	- Status: Waiting for answers
-	- Needs local test suite run?: the full `--ci`, with 2026100307163901.
-	- Severity: Avg
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 item 7
-	- Related IDs: 2026100213205957
-	- Version and build: dev at `6e8b7f89`
-	- Steps to reproduce:
-		- `printf 'a: [1]\n\tb: 2\ny: 3\n' > f.shcl`
-		- `shcl set f.shcl --remove a.b --write`, then fix the first line to `a: 1, 2` as E019 asks.
-	- Incorrect behavior: the save writes `a: [1]`, `a:`, `y: 3` at exit 0. After the fix `get a` exits 5 and `count a` is 2, so a read with a default quietly gets the default.
-	- Expected behavior: a field opened only by the lines under it goes away with the last of them, as the escblock decision says.
-	- Reproduced: 20261003, all four.
-	- Possible cause: the lazily opened node outlives its last child, and `heads_block` needs at least one child, so the writer puts out the kept line and then a bare `a:`.
-	- Origin: `3ef0bc8c` (escblock), new since the last round. Not the trigger of 2026100213205957, which is the load; this one is an edit. Confirmed.
-	- Note: 20261003, `set f.shcl --set a=5` on the same file writes a second line, `a: 5`, after the kept `a: [1]`, with `b` under the new one. Once the first line is fixed, `a` reads as Multiple the same way. Same class, found while designing 2026100307310000. Confirmed on dev at `1e2e4210`, Rust CLI.
-	- Note: 20261003, from 2026100307310000. The kept-lines property `EreT6dh` skips this class through its row keyed by this ID, and the fix takes the row out.
-	- Estimated effort: Low
-	- Actual cause [Bug]: as above. The node a kept line opened outlived its last child.
-	- Progress log:
-		- 20261003: fixed in all four, with 2026100307163901. After a remove, a field opened from a kept line with nothing left under it goes too, and its lines stay where it stood. A field above it opened the same way follows. Corpus 187's two goldens had the bare `inner:` line from this bug; both now end that block at `inner: [x]`.
-		- 20261003: the `--set a=5` note is left as design.md's table has it: a setter keeps the kept line heading its target. The set writes `a: 5` under the kept `a: [1]` and reads 5. Once line 1 is fixed by hand, `a` reads as Multiple and `check` says nothing.
-		- Question: should a setter on a field opened from a kept line keep the table's rule, or do something else, such as refuse, or write the kept line as a comment?
-	- Actual fix [Bug]: `remove` drops such a field once its last child goes, in all four.
-	- Swept: as 2026100307163901.
-	- Branch: `removekept`
-	- Commit: `46e6176a`
-	- Test case: `ErgToax` (Rust), `ErgToef` (Go), `ErgToiG` (Python), `ErgTom6` (C); cli-regress `ErgTonu`; corpus 187; fuzz `EreT6dh`.
 
 - The dogfood runner drops quotes and empty arguments under Windows PowerShell 5.1
 	- ID: 2026100307163908
