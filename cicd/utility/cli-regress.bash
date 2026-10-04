@@ -1637,6 +1637,7 @@ fSaveSetup() {
 		migrate-taken) printf 'base:[Boston]\n' > f.shcl; printf 'x\n' > f_old_v2.shcl ;;
 		migrate-stamp) printf 'a: 1\n' > f.shcl ;;
 		kept-remove) printf 'x: 1\nr: [1, 2]\ny: 3\n' > f.shcl ;;
+		kept-lazy) printf 'a: [1]\n\tb: 2\ny: 3\n' > f.shcl ;;
 		migrate-dotname) printf 'base:[Boston]\n' > .f ;;
 		migrate-dotdir) mkdir d.x; printf 'base:[Boston]\n' > d.x/f ;;
 		migrate-link) mkdir real; printf 'base:[Boston]\n' > real/c.shcl; ln -s real/c.shcl f.shcl ;;
@@ -1687,11 +1688,12 @@ saveCases=(
 	## over too. A copy that cannot be made names its path once.
 	'ErCrqxU|migrate-setgid|migrate --write sg/f.shcl|0|[[ "$(stat -c %G sg/f_old_v2.shcl)" == "$(id -gn)" && "$(stat -c %a sg/f_old_v2.shcl)" == 640 ]]'
 	'ErCrqz4|migrate-setid|migrate --write f.shcl|0|[[ "$(stat -c %a f_old_v2.shcl)" == 6755 ]]'
-	## A remove that takes a kept line beside its target refuses at 7 and leaves
-	## the file alone, since the save gate counts kept lines (2026100307310000).
-	## The fix for 2026100307163901 makes this exit 0 with `r: [1, 2]` kept, a
-	## stronger check, not a looser one.
-	'EreYYXK|kept-remove|set --write --remove y f.shcl|7|cmp -s f.shcl <(printf "x: 1\nr: [1, 2]\ny: 3\n") && grep -qxF "f.shcl: refusing to rewrite: this write would delete 1 line(s)/value(s) from the file (--lossy overrides)" "${tmpDir}/err"'
+	## A remove leaves the kept line beside its target (2026100307163901). Until
+	## that fix the save gate refused this at 7 and left the file alone.
+	'EreYYXK|kept-remove|set --write --remove y f.shcl|0|cmp -s f.shcl <(printf "x: 1\nr: [1, 2]\n") && ! grep -q "refusing" "${tmpDir}/err"'
+	## A field opened only by the line under it goes with that line, and its own
+	## kept line stays, with no bare `a:` left behind (2026100307163907).
+	'ErgTonu|kept-lazy|set --write --remove a.b f.shcl|0|cmp -s f.shcl <(printf "a: [1]\ny: 3\n")'
 	'ErCrr0Y|migrate-rodir|migrate --write ro/g.shcl|8|grep -qx "base:\[Boston\]" ro/g.shcl && grep -qiE "^ro/g_old_v2\.shcl: permission denied" "${tmpDir}/err" && ! grep -q "open " "${tmpDir}/err"'
 )
 if [[ "${onWindows}" == 1 ]]; then

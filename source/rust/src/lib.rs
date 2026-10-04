@@ -5338,11 +5338,13 @@ enum Site {
 /// block keeps its own line, since nothing would open the field. Only what
 /// a reload restores counts, so a document and its reload agree.
 fn heads_block(node: &NodeData) -> bool {
-	if !node.value.is_empty()
-		|| node.children.is_empty()
-		|| node.blank_before
-		|| !node.trailing().is_empty()
-	{
+	!node.children.is_empty() && opened_by_kept(node)
+}
+
+/// heads_block() but for the children: a field a reload would open only
+/// from the lines under it, so it goes with the last of them.
+fn opened_by_kept(node: &NodeData) -> bool {
+	if !node.value.is_empty() || node.blank_before || !node.trailing().is_empty() {
 		return false;
 	}
 	let Some(l) = node.leading().last() else {
@@ -5362,6 +5364,44 @@ fn heads_block(node: &NodeData) -> bool {
 
 fn kept_in(leads: &[Lead]) -> usize {
 	leads.iter().filter(|l| l.is_kept_line()).count()
+}
+
+/// A reload starts a comment run at 0 and steps one level at a time, so a
+/// comment left after the one it sat under went is pulled back to fit.
+fn restep(leads: &mut [Lead]) {
+	let mut room = 0;
+	for l in leads.iter_mut().filter(|l| l.text.starts_with('#')) {
+		l.depth = l.depth.min(room);
+		room = l.depth + 1;
+	}
+}
+
+/// What a remove of this node leaves of its lines, by design.md's kept-lines
+/// table: the kept lines beside it, with the comments that sit with them.
+/// Above it that is everything up to its last kept line, below it everything
+/// from its first, so a comment written against the node goes with it. The
+/// kept line written in place of its `name:` line goes too.
+fn beside_kept(nd: &mut NodeData) -> Vec<Lead> {
+	let heads = heads_block(nd);
+	let Some(t) = nd.trivia.as_deref_mut() else {
+		return Vec::new();
+	};
+	let mut left = std::mem::take(&mut t.leading);
+	if heads {
+		left.pop();
+	}
+	left.truncate(
+		left.iter()
+			.rposition(Lead::is_kept_line)
+			.map_or(0, |k| k + 1),
+	);
+	let from = t
+		.after
+		.iter()
+		.position(Lead::is_kept_line)
+		.unwrap_or(t.after.len());
+	left.extend(t.after.drain(from..));
+	left
 }
 
 /// Kept lines in all of one node's trivia lists.
@@ -8320,6 +8360,8 @@ impl Document {
 	}
 
 	/// Delete the node(s) at a path (with their subtrees); returns how many.
+	/// Lines kept as written beside a node stay where they were, and a field
+	/// opened only by the lines under it goes with the last of them.
 	/// A removed node's storage is not reclaimed, so a process that adds and removes in a loop grows by a few hundred bytes a pair. Reloading the canonical text gives it back.
 	pub fn remove(&mut self, path: &str) -> usize {
 		let targets: Vec<usize> = match self.resolve_group(path) {
@@ -8358,18 +8400,140 @@ impl Document {
 			}
 			let kids = std::mem::take(&mut self.arena[p].children);
 			let mut keep: Vec<usize> = Vec::with_capacity(kids.len());
+			let mut left: Vec<Lead> = Vec::new();
 			for c in kids {
 				if self.arena[c].parent == DEAD {
 					self.arena[c].parent = p;
+					left.append(&mut beside_kept(&mut self.arena[c]));
 				} else {
+					if !left.is_empty() {
+						self.leave_above(c, std::mem::take(&mut left));
+					}
 					keep.push(c);
 				}
 			}
 			self.arena[p].children = keep;
+			if !left.is_empty() {
+				self.leave_last(p, left);
+			}
+		}
+		// A field opened only by the lines under it goes with the last of
+		// them, and its own kept line stays where it was (escblock).
+		let mut open: Vec<usize> = pairs.iter().map(|&(_, p)| p).collect();
+		while let Some(p) = open.pop() {
+			if p == ROOT
+				|| !self.arena[p].children.is_empty()
+				|| !opened_by_kept(&self.arena[p])
+				|| !self.live(p)
+			{
+				continue;
+			}
+			let pp = self.arena[p].parent;
+			let t = self.arena[p].triv_mut();
+			let mut left = std::mem::take(&mut t.leading);
+			let mut under = std::mem::take(&mut t.inside);
+			for l in &mut under {
+				l.depth += 1;
+			}
+			left.append(&mut under);
+			left.append(&mut t.after);
+			if let Some(ix) = self.index.get_mut() {
+				ix.unlink(name_key(pp, &self.arena[p].name), p);
+			}
+			let at = self.arena[pp]
+				.children
+				.iter()
+				.position(|&c| c == p)
+				.unwrap_or_default();
+			self.arena[pp].children.remove(at);
+			match self.arena[pp].children.get(at) {
+				Some(&next) => self.leave_above(next, left),
+				None => self.leave_last(pp, left),
+			}
+			open.push(pp);
 		}
 		settle_first_blank(&mut self.arena, &mut self.orphans);
 		self.resettle_kept();
 		targets.len()
+	}
+
+	/// Lines a remove left, put above the sibling that followed them.
+	fn leave_above(&mut self, node: usize, mut left: Vec<Lead>) {
+		let t = self.arena[node].triv_mut();
+		left.append(&mut t.leading);
+		t.leading = left;
+		restep(&mut t.leading);
+	}
+
+	/// Lines a remove left after the last of `parent`'s children: the
+	/// document's footer at the top, else after the last child left, else
+	/// inside the block. A misplaced line has no level there, so a reload
+	/// files it with the next binding line, and the comments after it go
+	/// along; kept field lines still go to the block.
+	fn leave_last(&mut self, parent: usize, mut left: Vec<Lead>) {
+		if parent == ROOT {
+			left.append(&mut self.orphans);
+			self.orphans = left;
+			restep(&mut self.orphans);
+			return;
+		}
+		let mut below = Vec::new();
+		if let Some(at) = left.iter().position(|l| l.text.starts_with([' ', '\t'])) {
+			let mut rest = left.split_off(at);
+			let fields: Vec<Lead>;
+			(fields, below) = rest.drain(..).partition(|l| is_field(&l.text));
+			left.extend(fields);
+		}
+		if !left.is_empty() {
+			// Stacked with no kept line among the elements is gone on a
+			// reload, so it may not decide how these lines are written.
+			let stacked = stacks(&self.arena[parent]);
+			self.arena[parent].star_list = stacked;
+			let list = match self.arena[parent].children.last().copied() {
+				Some(last) => &mut self.arena[last].triv_mut().after,
+				None => &mut self.arena[parent].triv_mut().inside,
+			};
+			list.append(&mut left);
+			restep(list);
+		}
+		if !below.is_empty() {
+			self.leave_below(parent, below);
+		}
+	}
+
+	/// Lines a remove left right after `node`'s block: above the next
+	/// binding line, or the footer when there is none.
+	fn leave_below(&mut self, node: usize, mut left: Vec<Lead>) {
+		let mut at = node;
+		while at != ROOT {
+			let up = self.arena[at].parent;
+			let kids = &self.arena[up].children;
+			if let Some(&next) = kids
+				.iter()
+				.position(|&c| c == at)
+				.and_then(|k| kids.get(k + 1))
+			{
+				self.leave_above(next, left);
+				return;
+			}
+			at = up;
+		}
+		left.append(&mut self.orphans);
+		self.orphans = left;
+		restep(&mut self.orphans);
+	}
+
+	/// Still in the tree: each node up to ROOT is in its parent's list. A
+	/// removed node keeps its parent link, so the link alone does not say.
+	fn live(&self, mut node: usize) -> bool {
+		while node != ROOT {
+			let p = self.arena[node].parent;
+			if p == DEAD || !self.arena[p].children.contains(&node) {
+				return false;
+			}
+			node = p;
+		}
+		true
 	}
 
 	/// Attach a leading comment line to the node at a path (creating an empty
@@ -8458,12 +8622,8 @@ impl Document {
 			}
 			cleared += gone;
 			// A kept line left in the run may have sat under a comment that
-			// went. A reload starts a run at 0 and steps one at a time.
-			let mut room = 0;
-			for l in tr.leading.iter_mut().filter(|l| l.text.starts_with('#')) {
-				l.depth = l.depth.min(room);
-				room = l.depth + 1;
-			}
+			// went.
+			restep(&mut tr.leading);
 			if let Some(first) = tr.leading.first_mut() {
 				first.blank_before |= blank;
 			} else {
@@ -12755,6 +12915,77 @@ mod kept_gate {
 		assert_eq!(doc.remove("a"), 1);
 		assert_eq!(doc.lost_count(), 0);
 		assert_eq!(doc.to_canonical(), "y: 3\n");
+	}
+
+	// design.md's table: a remove leaves the kept lines beside its target,
+	// above or below it, with the comments above them (2026100307163901).
+	#[test]
+	fn a_remove_leaves_the_kept_lines_beside_it() {
+		let _id = test_id("ErgToYw");
+		for (text, path, want) in [
+			(BASE, "y", "x: 1\nr: [1, 2]\n"),
+			("x: 1\nbad name: 1\ny: 3\n", "y", "x: 1\nbad name: 1\n"),
+			(
+				"j:\n\tr: [1]\n\tq: 1\nz: 2\n",
+				"j.q",
+				"j:\n\tr: [1]\nz: 2\n",
+			),
+			(
+				"j:\n\tq: 1\n\tr: [1]\nz: 2\n",
+				"j.q",
+				"j:\n\tr: [1]\nz: 2\n",
+			),
+			(
+				"j:\n\tq: 1\n\tr: [1]\n\tw: 3\nz: 2\n",
+				"j.q",
+				"j:\n\tr: [1]\n\tw: 3\nz: 2\n",
+			),
+			(
+				"# on r\nr: [1]\n# on y\ny: 3\nz: 1\n",
+				"y",
+				"# on r\nr: [1]\nz: 1\n",
+			),
+		] {
+			let mut doc = Document::parse(text);
+			assert_eq!(doc.remove(path), 1, "{text:?}");
+			assert_eq!(doc.lost_count(), 0, "{text:?}");
+			let out = doc.to_canonical();
+			assert_eq!(out, want, "{text:?}");
+			assert_eq!(Document::parse(&out).to_canonical(), out, "{text:?}");
+		}
+	}
+
+	// A field opened only by the lines under it goes with the last of them,
+	// and its kept line stays (escblock; 2026100307163907).
+	#[test]
+	fn a_field_opened_by_a_kept_line_goes_with_its_last_line() {
+		let _id = test_id("ErgToax");
+		for (text, path, want) in [
+			("a: [1]\n\tb: 2\ny: 3\n", "a.b", "a: [1]\ny: 3\n"),
+			(
+				"a: [1]\n\tb: 2\n\tc: 3\ny: 3\n",
+				"a.b",
+				"a: [1]\n\tc: 3\ny: 3\n",
+			),
+			(
+				"a: [1]\n\tb: 2\n\tr: [3]\ny: 3\n",
+				"a.b",
+				"a: [1]\n\tr: [3]\ny: 3\n",
+			),
+			(
+				"o: [9]\n\ta: [1]\n\t\tb: 2\ny: 3\n",
+				"o.a.b",
+				"o: [9]\n\ta: [1]\ny: 3\n",
+			),
+			("o:\n\ta: [1]\n\t\tb: 2\n", "o.a.b", "o:\n\ta: [1]\n"),
+		] {
+			let mut doc = Document::parse(text);
+			assert_eq!(doc.remove(path), 1, "{text:?}");
+			assert_eq!(doc.lost_count(), 0, "{text:?}");
+			let out = doc.to_canonical();
+			assert_eq!(out, want, "{text:?}");
+			assert_eq!(Document::parse(&out).to_canonical(), out, "{text:?}");
+		}
 	}
 
 	#[test]

@@ -605,7 +605,9 @@ const char *shcl_schema_ref(const char *text, size_t len, size_t *ref_len);
 // writes a document missing the edit, and reports success doing it.
 shcl_doc *shcl_new(void); // an empty document (start point for generation), or NULL on an allocation failure
 int shcl_exists(shcl_doc *d, const char *path, size_t plen);       // 0/1
-// A removed node's storage is not reclaimed until shcl_compact or shcl_free.
+// Lines kept as written beside a node stay where they were, and a field opened
+// only by the lines under it goes with the last of them. A removed node's
+// storage is not reclaimed until shcl_compact or shcl_free.
 size_t shcl_remove(shcl_doc *d, const char *path, size_t plen);    // count deleted
 int shcl_set_comment(shcl_doc *d, const char *path, size_t plen, const char *text, size_t tlen);
 // The comment lines above the node(s) at a path, the ones shcl_clear_comments
@@ -5785,6 +5787,122 @@ int shcl_exists(shcl_doc *d, const char *path, size_t plen) {
 	return 0;
 }
 
+static int heads_block(ShclArena *a, const ShclNode *node);
+static int opened_by_kept(ShclArena *a, const ShclNode *node);
+
+/* A reload starts a comment run at 0 and steps one level at a time, so a
+   comment left after the one it sat under went is pulled back to fit. */
+static void restep(ShclVecLead *v) {
+	size_t room = 0;
+	for (size_t k = 0; k < v->len; k++) {
+		if (!(v->data[k].text.n && v->data[k].text.p[0] == '#')) continue;
+		if (v->data[k].depth > room) v->data[k].depth = room;
+		room = v->data[k].depth + 1;
+	}
+}
+
+/* What a remove of this node leaves of its lines, by design.md's kept-lines
+   table, onto the end of left: the kept lines beside it, with the comments
+   that sit with them. Above it that is everything up to its last kept line,
+   below it everything from its first, so a comment written against the node
+   goes with it. The kept line written in place of its `name:` line goes
+   too. */
+static void beside_kept(shcl_doc *d, ShclNode *nd, ShclVecLead *left) {
+	int heads = heads_block(&d->scratch, nd);
+	ShclTrivia *t = nd->trivia;
+	if (!t) return;
+	size_t end = 0;
+	for (size_t k = t->leading.len - (heads ? 1 : 0); k > 0; k--)
+		if (lead_is_kept_line(&t->leading.data[k - 1])) { end = k; break; }
+	for (size_t k = 0; k < end; k++) ShclVecLead_push(&d->arena, left, t->leading.data[k]);
+	t->leading.len = 0;
+	size_t from = t->after.len;
+	for (size_t k = 0; k < t->after.len; k++)
+		if (lead_is_kept_line(&t->after.data[k])) { from = k; break; }
+	for (size_t k = from; k < t->after.len; k++) ShclVecLead_push(&d->arena, left, t->after.data[k]);
+	t->after.len = from;
+}
+
+/* Lines a remove left, put above the sibling that followed them. Takes left. */
+static void leave_above(shcl_doc *d, size_t node, ShclVecLead *left) {
+	ShclTrivia *t = triv_mut(&d->arena, &NODE(d, node));
+	for (size_t k = 0; k < t->leading.len; k++) ShclVecLead_push(&d->arena, left, t->leading.data[k]);
+	t->leading = *left;
+	restep(&t->leading);
+	memset(left, 0, sizeof *left);
+}
+
+/* The same, as the document's footer. */
+static void leave_orphans(shcl_doc *d, ShclVecLead *left) {
+	for (size_t k = 0; k < d->orphans.len; k++) ShclVecLead_push(&d->arena, left, d->orphans.data[k]);
+	d->orphans = *left;
+	restep(&d->orphans);
+	memset(left, 0, sizeof *left);
+}
+
+/* Lines a remove left right after node's block: above the next binding line,
+   or the footer when there is none. Takes left. */
+static void leave_below(shcl_doc *d, size_t node, ShclVecLead *left) {
+	size_t at = node;
+	while (at != ROOT) {
+		size_t up = NODE(d, at).parent;
+		ShclVecSize kids = NODE(d, up).children;
+		for (size_t k = 0; k + 1 < kids.len; k++)
+			if (kids.data[k] == at) { leave_above(d, kids.data[k + 1], left); return; }
+		at = up;
+	}
+	leave_orphans(d, left);
+}
+
+/* Lines a remove left after the last of parent's children: the document's
+   footer at the top, else after the last child left, else inside the block.
+   A misplaced line has no level there, so a reload files it with the next
+   binding line, and the comments after it go along; kept field lines still
+   go to the block. Takes left. */
+static void leave_last(shcl_doc *d, size_t parent, ShclVecLead *left) {
+	if (parent == ROOT) { leave_orphans(d, left); return; }
+	ShclVecLead below = {0};
+	size_t at = left->len;
+	for (size_t k = 0; k < left->len; k++) {
+		ShclStr x = left->data[k].text;
+		if (x.n && (x.p[0] == ' ' || x.p[0] == '\t')) { at = k; break; }
+	}
+	size_t w = at;
+	for (size_t k = at; k < left->len; k++) {
+		if (is_field(left->data[k].text)) left->data[w++] = left->data[k];
+		else ShclVecLead_push(&d->arena, &below, left->data[k]);
+	}
+	left->len = w;
+	if (w) {
+		/* Stacked with no kept line among the elements is gone on a reload, so
+		   it may not decide how these lines are written. */
+		ShclNode *nd = &NODE(d, parent);
+		nd->star_list = stacks(nd);
+		ShclVecLead *list = nd->children.len
+			? &triv_mut(&d->arena, &NODE(d, nd->children.data[nd->children.len - 1]))->after
+			: &triv_mut(&d->arena, nd)->inside;
+		for (size_t k = 0; k < w; k++) ShclVecLead_push(&d->arena, list, left->data[k]);
+		restep(list);
+	}
+	memset(left, 0, sizeof *left);
+	if (below.len) leave_below(d, parent, &below);
+}
+
+/* Still in the tree: each node up to ROOT is in its parent's list. A removed
+   node keeps its parent link, so the link alone does not say. */
+static int node_live(const shcl_doc *d, size_t node) {
+	while (node != ROOT) {
+		size_t p = NODE(d, node).parent;
+		if (p == DEAD) return 0;
+		ShclVecSize kids = NODE(d, p).children;
+		size_t k = 0;
+		while (k < kids.len && kids.data[k] != node) k++;
+		if (k == kids.len) return 0;
+		node = p;
+	}
+	return 1;
+}
+
 size_t shcl_remove(shcl_doc *d, const char *path, size_t plen) {
 	// Work vectors only, so they go in the scratch the resolve below resets -
 	// the document arena is never reset, and a wildcard remove left two vectors
@@ -5820,13 +5938,50 @@ size_t shcl_remove(shcl_doc *d, const char *path, size_t plen) {
 		if (NODE(d, marked.data[i]).parent != DEAD) continue;
 		size_t pn = parents.data[i];
 		ShclVecSize *kids = &NODE(d, pn).children;
+		ShclVecLead left = {0};
 		size_t w = 0;
 		for (size_t k = 0; k < kids->len; k++) {
 			size_t c = kids->data[k];
-			if (NODE(d, c).parent == DEAD) NODE(d, c).parent = pn;
-			else kids->data[w++] = c;
+			if (NODE(d, c).parent == DEAD) {
+				NODE(d, c).parent = pn;
+				beside_kept(d, &NODE(d, c), &left);
+			} else {
+				if (left.len) leave_above(d, c, &left);
+				kids->data[w++] = c;
+			}
 		}
 		kids->len = w;
+		if (left.len) leave_last(d, pn, &left);
+	}
+	/* A field opened only by the lines under it goes with the last of them,
+	   and its own kept line stays where it was (escblock). */
+	ShclVecSize open = {0};
+	for (size_t i = 0; i < parents.len; i++) ShclVecSize_push(a, &open, parents.data[i]);
+	while (open.len) {
+		size_t pn = open.data[--open.len];
+		if (pn == ROOT || NODE(d, pn).children.len || !opened_by_kept(&d->scratch, &NODE(d, pn)) || !node_live(d, pn)) continue;
+		size_t pp = NODE(d, pn).parent;
+		ShclTrivia *t = NODE(d, pn).trivia;
+		ShclVecLead left = t->leading;
+		for (size_t k = 0; k < t->inside.len; k++) {
+			ShclLead l = t->inside.data[k];
+			l.depth++;
+			ShclVecLead_push(&d->arena, &left, l);
+		}
+		for (size_t k = 0; k < t->after.len; k++) ShclVecLead_push(&d->arena, &left, t->after.data[k]);
+		memset(&t->leading, 0, sizeof t->leading);
+		t->inside.len = 0;
+		t->after.len = 0;
+		if (d->index_built == 1) index_unlink(d, name_key(pp, NODE(d, pn).name), pn);
+		ShclVecSize *kids = &NODE(d, pp).children;
+		size_t at = 0;
+		while (at < kids->len && kids->data[at] != pn) at++;
+		if (at == kids->len) continue;
+		memmove(kids->data + at, kids->data + at + 1, (kids->len - at - 1) * sizeof *kids->data);
+		kids->len--;
+		if (at < kids->len) leave_above(d, kids->data[at], &left);
+		else leave_last(d, pp, &left);
+		ShclVecSize_push(a, &open, pp);
 	}
 	settle_first_blank(d);
 	resettle_kept(d);
@@ -5920,14 +6075,8 @@ size_t shcl_clear_comments(shcl_doc *d, const char *path, size_t plen) {
 		ld->len = w;
 		if (!gone) continue;
 		cleared += gone;
-		/* A kept line left in the run may have sat under a comment that went.
-		   A reload starts a run at 0 and steps one at a time. */
-		size_t room = 0;
-		for (size_t k = 0; k < w; k++) {
-			if (!(ld->data[k].text.n && ld->data[k].text.p[0] == '#')) continue;
-			if (ld->data[k].depth > room) ld->data[k].depth = room;
-			room = ld->data[k].depth + 1;
-		}
+		/* A kept line left in the run may have sat under a comment that went. */
+		restep(ld);
 		if (w) ld->data[0].blank_before |= blank;
 		else nd->blank_before |= blank;
 	}
@@ -7168,7 +7317,13 @@ static void emit_placed(ShclEmit *e, ShclStr indent) {
    keeps its own line, since nothing would open the field. Only what a reload
    restores counts, so a document and its reload agree. */
 static int heads_block(ShclArena *a, const ShclNode *node) {
-	if (!v_is_empty(&node->value) || node->children.len == 0 || node->blank_before || triv_trailing(node).n) return 0;
+	return node->children.len != 0 && opened_by_kept(a, node);
+}
+
+/* heads_block() but for the children: a field a reload would open only from
+   the lines under it, so it goes with the last of them. */
+static int opened_by_kept(ShclArena *a, const ShclNode *node) {
+	if (!v_is_empty(&node->value) || node->blank_before || triv_trailing(node).n) return 0;
 	ShclVecLead lead = triv_leading(node);
 	if (lead.len == 0) return 0;
 	const ShclLead *l = &lead.data[lead.len - 1];

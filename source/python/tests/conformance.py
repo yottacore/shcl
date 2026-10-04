@@ -863,10 +863,10 @@ def edits_and_merges_match_a_reload():
 			op = g.below(11)
 			layer = g.doc()
 			# A kept line the settle turned into a comment is still the user's
-			# line and survives clear_comments. The canonical text writes it as a
-			# comment, so on the reload it is one, and the two cannot agree
-			# (20260926 item 2).
-			settled = op == 9 and live.comments(path) != back.comments(path)
+			# line and survives clear_comments, and a remove beside it. The
+			# canonical text writes it as a comment, so on the reload it is one,
+			# and the two cannot agree (20260926 item 2).
+			settled = op in (4, 9) and live.comments(path) != back.comments(path)
 			for d in (live, back):
 				if op <= 1:
 					d.merge(shcl.Document.parse(layer))
@@ -1719,6 +1719,39 @@ def main():
 	kdoc = shcl.Document.parse("a: [1]\n\tb: 2\ny: 3\n")
 	if kdoc.remove("a") != 1 or kdoc.lost_count() != 0 or kdoc.to_canonical() != "y: 3\n":
 		fails.append(f"kept gate: removing a field opened from a kept line lost {kdoc.lost_count()} and wrote {kdoc.to_canonical()!r}")
+
+	def check_removes(cases):
+		for text, path, want in cases:
+			kdoc = shcl.Document.parse(text)
+			n = kdoc.remove(path)
+			out = kdoc.to_canonical()
+			if n != 1 or kdoc.lost_count() != 0 or out != want:
+				fails.append(f"kept gate: removing {path} from {text!r} took {n}, lost {kdoc.lost_count()} and wrote {out!r}")
+			elif shcl.Document.parse(out).to_canonical() != out:
+				fails.append(f"kept gate: removing {path} from {text!r} wrote text that reloads otherwise")
+
+	test_id("ErgTogT", "a_remove_leaves_the_kept_lines_beside_it")
+	# design.md's table: a remove leaves the kept lines beside its target,
+	# above or below it, with the comments above them (2026100307163901).
+	check_removes([
+		(kbase, "y", "x: 1\nr: [1, 2]\n"),
+		("x: 1\nbad name: 1\ny: 3\n", "y", "x: 1\nbad name: 1\n"),
+		("j:\n\tr: [1]\n\tq: 1\nz: 2\n", "j.q", "j:\n\tr: [1]\nz: 2\n"),
+		("j:\n\tq: 1\n\tr: [1]\nz: 2\n", "j.q", "j:\n\tr: [1]\nz: 2\n"),
+		("j:\n\tq: 1\n\tr: [1]\n\tw: 3\nz: 2\n", "j.q", "j:\n\tr: [1]\n\tw: 3\nz: 2\n"),
+		("# on r\nr: [1]\n# on y\ny: 3\nz: 1\n", "y", "# on r\nr: [1]\nz: 1\n"),
+	])
+
+	test_id("ErgToiG", "a_field_opened_by_a_kept_line_goes_with_its_last_line")
+	# A field opened only by the lines under it goes with the last of them,
+	# and its kept line stays (escblock; 2026100307163907).
+	check_removes([
+		("a: [1]\n\tb: 2\ny: 3\n", "a.b", "a: [1]\ny: 3\n"),
+		("a: [1]\n\tb: 2\n\tc: 3\ny: 3\n", "a.b", "a: [1]\n\tc: 3\ny: 3\n"),
+		("a: [1]\n\tb: 2\n\tr: [3]\ny: 3\n", "a.b", "a: [1]\n\tr: [3]\ny: 3\n"),
+		("o: [9]\n\ta: [1]\n\t\tb: 2\ny: 3\n", "o.a.b", "o: [9]\n\ta: [1]\ny: 3\n"),
+		("o:\n\ta: [1]\n\t\tb: 2\n", "o.a.b", "o:\n\ta: [1]\n"),
+	])
 
 	test_id("EreVRis", "a_merged_layer_owes_its_kept_lines")
 	kdoc = shcl.Document.parse("a: 1\n")

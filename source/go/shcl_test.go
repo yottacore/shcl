@@ -2987,10 +2987,10 @@ func TestEditsAndMergesMatchAReload(t *testing.T) {
 			op := g.below(11)
 			layer := g.doc()
 			// A kept line the settle turned into a comment is still the user's
-			// line and survives ClearComments. The canonical text writes it as a
-			// comment, so on the reload it is one, and the two cannot agree
-			// (20260926 item 2).
-			settled := op == 9 && !reflect.DeepEqual(live.Comments(path), back.Comments(path))
+			// line and survives ClearComments, and a remove beside it. The
+			// canonical text writes it as a comment, so on the reload it is one,
+			// and the two cannot agree (20260926 item 2).
+			settled := (op == 4 || op == 9) && !reflect.DeepEqual(live.Comments(path), back.Comments(path))
 			for _, d := range []*Document{live, back} {
 				switch op {
 				case 0, 1:
@@ -3107,6 +3107,55 @@ func TestARemoveTakesTheKeptLineHeadingItsField(t *testing.T) {
 	if got := doc.ToCanonical(); got != "y: 3\n" {
 		t.Fatalf("wrote %q", got)
 	}
+}
+
+type removeCase struct{ text, path, want string }
+
+func checkRemoves(t *testing.T, cases []removeCase) {
+	t.Helper()
+	for _, c := range cases {
+		doc := Parse(c.text)
+		if n := doc.Remove(c.path); n != 1 {
+			t.Fatalf("%q: removed %d", c.text, n)
+		}
+		if n := doc.LostCount(); n != 0 {
+			t.Fatalf("%q: LostCount %d, want 0", c.text, n)
+		}
+		out := doc.ToCanonical()
+		if out != c.want {
+			t.Fatalf("%q: wrote %q, want %q", c.text, out, c.want)
+		}
+		if back := Parse(out).ToCanonical(); back != out {
+			t.Fatalf("%q: reload wrote %q", c.text, back)
+		}
+	}
+}
+
+// design.md's table: a remove leaves the kept lines beside its target, above
+// or below it, with the comments above them (2026100307163901).
+func TestARemoveLeavesTheKeptLinesBesideIt(t *testing.T) {
+	defer testID(t, "ErgTocq")
+	checkRemoves(t, []removeCase{
+		{keptGateBase, "y", "x: 1\nr: [1, 2]\n"},
+		{"x: 1\nbad name: 1\ny: 3\n", "y", "x: 1\nbad name: 1\n"},
+		{"j:\n\tr: [1]\n\tq: 1\nz: 2\n", "j.q", "j:\n\tr: [1]\nz: 2\n"},
+		{"j:\n\tq: 1\n\tr: [1]\nz: 2\n", "j.q", "j:\n\tr: [1]\nz: 2\n"},
+		{"j:\n\tq: 1\n\tr: [1]\n\tw: 3\nz: 2\n", "j.q", "j:\n\tr: [1]\n\tw: 3\nz: 2\n"},
+		{"# on r\nr: [1]\n# on y\ny: 3\nz: 1\n", "y", "# on r\nr: [1]\nz: 1\n"},
+	})
+}
+
+// A field opened only by the lines under it goes with the last of them, and
+// its kept line stays (escblock; 2026100307163907).
+func TestAFieldOpenedByAKeptLineGoesWithItsLastLine(t *testing.T) {
+	defer testID(t, "ErgToef")
+	checkRemoves(t, []removeCase{
+		{"a: [1]\n\tb: 2\ny: 3\n", "a.b", "a: [1]\ny: 3\n"},
+		{"a: [1]\n\tb: 2\n\tc: 3\ny: 3\n", "a.b", "a: [1]\n\tc: 3\ny: 3\n"},
+		{"a: [1]\n\tb: 2\n\tr: [3]\ny: 3\n", "a.b", "a: [1]\n\tr: [3]\ny: 3\n"},
+		{"o: [9]\n\ta: [1]\n\t\tb: 2\ny: 3\n", "o.a.b", "o: [9]\n\ta: [1]\ny: 3\n"},
+		{"o:\n\ta: [1]\n\t\tb: 2\n", "o.a.b", "o:\n\ta: [1]\n"},
+	})
 }
 
 func TestAMergedLayerOwesItsKeptLines(t *testing.T) {

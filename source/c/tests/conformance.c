@@ -789,11 +789,11 @@ static void edits_and_merges_match_a_reload(void) {
 			size_t op = seq_below(11);
 			seq_doc(&layer);
 			/* A kept line the settle turned into a comment is still the user's
-			   line and survives shcl_clear_comments. The canonical text writes
-			   it as a comment, so on the reload it is one, and the two cannot
-			   agree (20260926 item 2). */
+			   line and survives shcl_clear_comments, and a remove beside it.
+			   The canonical text writes it as a comment, so on the reload it is
+			   one, and the two cannot agree (20260926 item 2). */
 			int settled = 0;
-			if (op == 9) {
+			if (op == 4 || op == 9) {
 				shcl_str *lc, *bc;
 				size_t nl = shcl_comments(live, path.p, path.n, &lc);
 				settled = nl != shcl_comments(back, path.p, path.n, &bc);
@@ -1975,6 +1975,40 @@ int main(int argc, char **argv) {
 		shcl_str hc = shcl_to_canonical(hd);
 		if (hc.n != 5 || memcmp(hc.p, "y: 3\n", 5) != 0) fail("kept_gate", "removing a field opened from a kept line left more than y");
 		shcl_free(hd);
+	}
+	{
+		// design.md's table: a remove leaves the kept lines beside its target,
+		// above or below it, with the comments above them (2026100307163901).
+		// Then a field opened only by the lines under it goes with the last of
+		// them, and its kept line stays (escblock; 2026100307163907).
+		static const struct { const char *id, *name, *text, *path, *want; } rc[] = {
+			{"ErgTokB", "a_remove_leaves_the_kept_lines_beside_it", "x: 1\nr: [1, 2]\ny: 3\n", "y", "x: 1\nr: [1, 2]\n"},
+			{NULL, NULL, "x: 1\nbad name: 1\ny: 3\n", "y", "x: 1\nbad name: 1\n"},
+			{NULL, NULL, "j:\n\tr: [1]\n\tq: 1\nz: 2\n", "j.q", "j:\n\tr: [1]\nz: 2\n"},
+			{NULL, NULL, "j:\n\tq: 1\n\tr: [1]\nz: 2\n", "j.q", "j:\n\tr: [1]\nz: 2\n"},
+			{NULL, NULL, "j:\n\tq: 1\n\tr: [1]\n\tw: 3\nz: 2\n", "j.q", "j:\n\tr: [1]\n\tw: 3\nz: 2\n"},
+			{NULL, NULL, "# on r\nr: [1]\n# on y\ny: 3\nz: 1\n", "y", "# on r\nr: [1]\nz: 1\n"},
+			{"ErgTom6", "a_field_opened_by_a_kept_line_goes_with_its_last_line", "a: [1]\n\tb: 2\ny: 3\n", "a.b", "a: [1]\ny: 3\n"},
+			{NULL, NULL, "a: [1]\n\tb: 2\n\tc: 3\ny: 3\n", "a.b", "a: [1]\n\tc: 3\ny: 3\n"},
+			{NULL, NULL, "a: [1]\n\tb: 2\n\tr: [3]\ny: 3\n", "a.b", "a: [1]\n\tr: [3]\ny: 3\n"},
+			{NULL, NULL, "o: [9]\n\ta: [1]\n\t\tb: 2\ny: 3\n", "o.a.b", "o: [9]\n\ta: [1]\ny: 3\n"},
+			{NULL, NULL, "o:\n\ta: [1]\n\t\tb: 2\n", "o.a.b", "o:\n\ta: [1]\n"},
+		};
+		for (size_t i = 0; i < sizeof rc / sizeof rc[0]; i++) {
+			if (rc[i].id) test_id(rc[i].id, rc[i].name);
+			shcl_doc *rd = shcl_parse(rc[i].text, strlen(rc[i].text));
+			size_t n = shcl_remove(rd, rc[i].path, strlen(rc[i].path));
+			shcl_str out = shcl_to_canonical(rd);
+			if (n != 1 || shcl_lost_count(rd) != 0 || out.n != strlen(rc[i].want) || memcmp(out.p, rc[i].want, out.n) != 0) {
+				fail("kept_gate", rc[i].text);
+			} else {
+				shcl_doc *back = shcl_parse(out.p, out.n);
+				shcl_str again = shcl_to_canonical(back);
+				if (again.n != out.n || memcmp(again.p, out.p, out.n) != 0) fail("kept_gate", "a remove wrote text that reloads otherwise");
+				shcl_free(back);
+			}
+			shcl_free(rd);
+		}
 	}
 	test_id("EreWlk5", "a_merged_layer_owes_its_kept_lines");
 	{

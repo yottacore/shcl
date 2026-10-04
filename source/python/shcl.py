@@ -3749,13 +3749,51 @@ def _kept_in_lists(nd):
 	return _kept_in(nd.leading()) + _kept_in(nd.after()) + _kept_in(nd.inside()) + _kept_in(a[1] for a in nd.among())
 
 
+def _restep(leads):
+	"""A reload starts a comment run at 0 and steps one level at a time, so a
+	comment left after the one it sat under went is pulled back to fit."""
+	room = 0
+	for c in leads:
+		if c.text.startswith("#"):
+			c.depth = min(c.depth, room)
+			room = c.depth + 1
+
+
+def _beside_kept(nd):
+	"""What a remove of this node leaves of its lines, by design.md's
+	kept-lines table: the kept lines beside it, with the comments that sit
+	with them. Above it that is everything up to its last kept line, below it
+	everything from its first, so a comment written against the node goes
+	with it. The kept line written in place of its `name:` line goes too."""
+	heads = _heads_block(nd)
+	t = nd.trivia
+	if t is None:
+		return []
+	left = t.leading
+	t.leading = []
+	if heads:
+		left.pop()
+	end = next((k + 1 for k in range(len(left) - 1, -1, -1) if left[k].is_kept_line()), 0)
+	del left[end:]
+	start = next((k for k, c in enumerate(t.after) if c.is_kept_line()), len(t.after))
+	left.extend(t.after[start:])
+	del t.after[start:]
+	return left
+
+
 def _heads_block(node):
 	"""True when a field's last leading line is one kept for its value alone,
 	naming just this field, so that line is written in place of the bare
 	`name:` line: a reload opens the field from it the same way. An empty
 	block keeps its own line, since nothing would open the field. Only what a
 	reload restores counts, so a document and its reload agree."""
-	if not node.value.is_empty() or not node.children or node.blank_before or node.trailing():
+	return bool(node.children) and _opened_by_kept(node)
+
+
+def _opened_by_kept(node):
+	"""_heads_block() but for the children: a field a reload would open only
+	from the lines under it, so it goes with the last of them."""
+	if not node.value.is_empty() or node.blank_before or node.trailing():
 		return False
 	leading = node.leading()
 	if not leading:
@@ -5527,6 +5565,8 @@ class Document:
 
 	def remove(self, path: str) -> int:
 		"""Delete the node(s) at a path (with their subtrees); returns how many.
+		Lines kept as written beside a node stay where they were, and a field
+		opened only by the lines under it goes with the last of them.
 
 		A removed node's storage is not reclaimed, so a process that adds and removes in a loop grows by a few hundred bytes a pair. Reloading the canonical text gives it back.
 		"""
@@ -5564,15 +5604,110 @@ class Document:
 			if self.arena[t].parent != DEAD:
 				continue
 			keep: list[int] = []
+			left: list[_Lead] = []
 			for c in self.arena[p].children:
 				if self.arena[c].parent == DEAD:
 					self.arena[c].parent = p
+					left.extend(_beside_kept(self.arena[c]))
 				else:
+					if left:
+						self._leave_above(c, left)
+						left = []
 					keep.append(c)
 			self.arena[p].children = keep
+			if left:
+				self._leave_last(p, left)
+		# A field opened only by the lines under it goes with the last of
+		# them, and its own kept line stays where it was (escblock).
+		open_ = [p for _, p in pairs]
+		while open_:
+			p = open_.pop()
+			if p == ROOT or self.arena[p].children or not _opened_by_kept(self.arena[p]) or not self._live(p):
+				continue
+			pp = self.arena[p].parent
+			t = self.arena[p]._triv()
+			left = t.leading
+			for c in t.inside:
+				c.depth += 1
+			left.extend(t.inside)
+			left.extend(t.after)
+			t.leading, t.inside, t.after = [], [], []
+			if self._index is not None:
+				self._index.unlink(_name_key(pp, self.arena[p].name), p)
+			kids = self.arena[pp].children
+			at = kids.index(p)
+			del kids[at]
+			if at < len(kids):
+				self._leave_above(kids[at], left)
+			else:
+				self._leave_last(pp, left)
+			open_.append(pp)
 		_settle_first_blank(self.arena, self.orphans)
 		self._resettle_kept()
 		return len(targets)
+
+	def _leave_above(self, node: int, left: list[_Lead]) -> None:
+		"""Lines a remove left, put above the sibling that followed them."""
+		t = self.arena[node]._triv()
+		t.leading = left + t.leading
+		_restep(t.leading)
+
+	def _leave_last(self, parent: int, left: list[_Lead]) -> None:
+		"""Lines a remove left after the last of `parent`'s children: the
+		document's footer at the top, else after the last child left, else
+		inside the block. A misplaced line has no level there, so a reload
+		files it with the next binding line, and the comments after it go
+		along; kept field lines still go to the block."""
+		if parent == ROOT:
+			self.orphans[:0] = left
+			_restep(self.orphans)
+			return
+		below: list[_Lead] = []
+		at = next((k for k, c in enumerate(left) if c.text.startswith((" ", "\t"))), None)
+		if at is not None:
+			rest = left[at:]
+			left = left[:at] + [c for c in rest if _is_field(c.text)]
+			below = [c for c in rest if not _is_field(c.text)]
+		if left:
+			# Stacked with no kept line among the elements is gone on a reload,
+			# so it may not decide how these lines are written.
+			nd = self.arena[parent]
+			nd.star_list = _stacks(nd)
+			if nd.children:
+				t = self.arena[nd.children[-1]]._triv()
+				t.after.extend(left)
+				_restep(t.after)
+			else:
+				t = nd._triv()
+				t.inside.extend(left)
+				_restep(t.inside)
+		if below:
+			self._leave_below(parent, below)
+
+	def _leave_below(self, node: int, left: list[_Lead]) -> None:
+		"""Lines a remove left right after `node`'s block: above the next
+		binding line, or the footer when there is none."""
+		at = node
+		while at != ROOT:
+			up = self.arena[at].parent
+			kids = self.arena[up].children
+			k = kids.index(at)
+			if k + 1 < len(kids):
+				self._leave_above(kids[k + 1], left)
+				return
+			at = up
+		self.orphans[:0] = left
+		_restep(self.orphans)
+
+	def _live(self, node: int) -> bool:
+		"""Still in the tree: each node up to ROOT is in its parent's list. A
+		removed node keeps its parent link, so the link alone does not say."""
+		while node != ROOT:
+			p = self.arena[node].parent
+			if p == DEAD or node not in self.arena[p].children:
+				return False
+			node = p
+		return True
 
 	def set_comment(self, path: str, text: str) -> bool:
 		"""Attach a leading comment line to the node at a path (creating an empty
@@ -5656,12 +5791,8 @@ class Document:
 				continue
 			cleared += gone
 			# A kept line left in the run may have sat under a comment that
-			# went. A reload starts a run at 0 and steps one at a time.
-			room = 0
-			for c in tr.leading:
-				if c.text.startswith("#"):
-					c.depth = min(c.depth, room)
-					room = c.depth + 1
+			# went.
+			_restep(tr.leading)
 			if tr.leading:
 				tr.leading[0].blank_before = tr.leading[0].blank_before or blank
 			else:
