@@ -186,6 +186,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Progress log:
 		- 20261004: fixed and tested. Waits on the full `--ci`, then signoff on the comment placement, since a merge now keeps a plain comment it used to drop.
 	- Branch: `mergekept`
+	- Commit: `5d31a47d`
 	- Test case: `ErkSy71` (Rust), `ErkSyFW` (Go), `ErkSyPf` (Python), `ErkSySr` (C), `a_replaced_leaf_leaves_the_lines_beside_it`; each fails on the old code. Corpus 091. `EreT6dh` at 2,000,000.
 
 - No '\' escapes
