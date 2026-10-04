@@ -410,7 +410,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - The zsh completion still says `set` prints the canonical form
 	- ID: 2026100307163915
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Low
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 15
@@ -422,6 +422,12 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: 20261003, by reading, against `shcl --help`.
 	- Origin: `012a2b4f` (2026-08-19), and the keep save made it stale. Confirmed.
 	- Estimated effort: Low
+	- Actual fix: the zsh summary now reads "apply edits and print the file with the edited lines changed", from the help's own words. check-completions also holds every zsh summary to the help: each word of five letters or more has to be in that subcommand's help entry.
+	- Swept: the bash completion has no summaries, and there are no fish or PowerShell completions. No other zsh summary disagrees with the help. The man page's `set` entry already says unedited lines come back as written.
+	- Verified: check-completions `ErlbzxH` fails on the old summary and passes on the new one. shellcheck passes.
+	- Branch: clismall
+	- Test case: check-completions `ErlbzxH`.
+	- Acceptance signoff: wording of the new summary.
 
 - The man page says the wrappers are installed beside `shcl`, and no install puts them there
 	- ID: 2026100307163916

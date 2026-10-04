@@ -2928,6 +2928,8 @@ arm = TAB * 2 + '"count" | "instances" | "children" | "paths" => &['
 s = sub(s, arm, TAB * 2 + '"ping" => &[],' + NL + arm, "main.rs: the option-less arm of allowed_opts")
 s = sub(s, TAB + '"explain",' + NL + "];", TAB + '"explain",' + NL + TAB + '"ping",' + NL + "];", "main.rs: the end of COMMANDS")
 disp = TAB * 2 + '"paths" => do_paths(o),'
+hl = "  shcl paths [options] FILE "
+s = sub(s, hl, "  shcl ping                              say nothing" + NL + hl, "main.rs: the paths line of the help")
 s = sub(s, disp, disp + NL + TAB * 2 + '"ping" => 0,', "main.rs: the paths line of the dispatch")
 open(fix + "/source/rust/src/main.rs", "w").write(s)
 for name in ("shcl.bash", "_shcl"):

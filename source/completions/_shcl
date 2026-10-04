@@ -60,7 +60,7 @@ _shcl() {
 
 	cmds=(
 		'get:read one value (or array) at a path'
-		'set:apply edits and print the canonical form'
+		'set:apply edits and print the file with the edited lines changed'
 		'fmt:print the canonical form of a file'
 		'check:load and print diagnostics'
 		'init:print a starter config from a schema'
