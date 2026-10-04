@@ -33,38 +33,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
-- Removing the only line under a lazily opened field leaves a bare `name:`, and the field later reads as Multiple
-	- ID: 2026100307163907
-	- Type: Bug
-	- Status: Waiting for answers
-	- Needs local test suite run?: the full `--ci`, with 2026100307163901.
-	- Severity: Avg
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 item 7
-	- Related IDs: 2026100213205957
-	- Version and build: dev at `6e8b7f89`
-	- Steps to reproduce:
-		- `printf 'a: [1]\n\tb: 2\ny: 3\n' > f.shcl`
-		- `shcl set f.shcl --remove a.b --write`, then fix the first line to `a: 1, 2` as E019 asks.
-	- Incorrect behavior: the save writes `a: [1]`, `a:`, `y: 3` at exit 0. After the fix `get a` exits 5 and `count a` is 2, so a read with a default quietly gets the default.
-	- Expected behavior: a field opened only by the lines under it goes away with the last of them, as the escblock decision says.
-	- Reproduced: 20261003, all four.
-	- Possible cause: the lazily opened node outlives its last child, and `heads_block` needs at least one child, so the writer puts out the kept line and then a bare `a:`.
-	- Origin: `3ef0bc8c` (escblock), new since the last round. Not the trigger of 2026100213205957, which is the load; this one is an edit. Confirmed.
-	- Note: 20261003, `set f.shcl --set a=5` on the same file writes a second line, `a: 5`, after the kept `a: [1]`, with `b` under the new one. Once the first line is fixed, `a` reads as Multiple the same way. Same class, found while designing 2026100307310000. Confirmed on dev at `1e2e4210`, Rust CLI.
-	- Note: 20261003, from 2026100307310000. The kept-lines property `EreT6dh` skips this class through its row keyed by this ID, and the fix takes the row out.
-	- Estimated effort: Low
-	- Actual cause [Bug]: as above. The node a kept line opened outlived its last child.
-	- Progress log:
-		- 20261003: fixed in all four, with 2026100307163901. After a remove, a field opened from a kept line with nothing left under it goes too, and its lines stay where it stood. A field above it opened the same way follows. Corpus 187's two goldens had the bare `inner:` line from this bug; both now end that block at `inner: [x]`.
-		- 20261003: the `--set a=5` note is left as design.md's table has it: a setter keeps the kept line heading its target. The set writes `a: 5` under the kept `a: [1]` and reads 5. Once line 1 is fixed by hand, `a` reads as Multiple and `check` says nothing.
-		- Question: should a setter on a field opened from a kept line keep the table's rule, or do something else, such as refuse, or write the kept line as a comment?
-	- Actual fix [Bug]: `remove` drops such a field once its last child goes, in all four.
-	- Swept: as 2026100307163901.
-	- Branch: `removekept`
-	- Commit: `46e6176a`
-	- Test case: `ErgToax` (Rust), `ErgToef` (Go), `ErgToiG` (Python), `ErgTom6` (C); cli-regress `ErgTonu`; corpus 187; fuzz `EreT6dh`.
-
 - `remove` deletes kept lines next to the field it removes, at exit 0
 	- ID: 2026100307163901
 	- Type: Bug
@@ -309,6 +277,40 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Write a test as part of CICD that creates old shcl file versions, and tests the automatic conversion.
 	- Note: 20261003, `check-migrate.bash` already builds 2.x from pinned `7be348d` and compares reads after `migrate`. This would extend it to the backup and rewrite in 2026100313461649, and to beta-stamped Format 3 files once 2026100207032800 is in.
 	- Estimated effort: Avg
+
+- Removing the only line under a lazily opened field leaves a bare `name:`, and the field later reads as Multiple
+	- ID: 2026100307163907
+	- Type: Bug
+	- Status: Queued
+	- Needs local test suite run?: the full `--ci`, with 2026100307163901.
+	- Severity: Avg
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 7
+	- Related IDs: 2026100213205957
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- `printf 'a: [1]\n\tb: 2\ny: 3\n' > f.shcl`
+		- `shcl set f.shcl --remove a.b --write`, then fix the first line to `a: 1, 2` as E019 asks.
+	- Incorrect behavior: the save writes `a: [1]`, `a:`, `y: 3` at exit 0. After the fix `get a` exits 5 and `count a` is 2, so a read with a default quietly gets the default.
+	- Expected behavior: a field opened only by the lines under it goes away with the last of them, as the escblock decision says.
+	- Reproduced: 20261003, all four.
+	- Possible cause: the lazily opened node outlives its last child, and `heads_block` needs at least one child, so the writer puts out the kept line and then a bare `a:`.
+	- Origin: `3ef0bc8c` (escblock), new since the last round. Not the trigger of 2026100213205957, which is the load; this one is an edit. Confirmed.
+	- Note: 20261003, `set f.shcl --set a=5` on the same file writes a second line, `a: 5`, after the kept `a: [1]`, with `b` under the new one. Once the first line is fixed, `a` reads as Multiple the same way. Same class, found while designing 2026100307310000. Confirmed on dev at `1e2e4210`, Rust CLI.
+	- Note: 20261003, from 2026100307310000. The kept-lines property `EreT6dh` skips this class through its row keyed by this ID, and the fix takes the row out.
+	- Estimated effort: Low
+	- Actual cause [Bug]: as above. The node a kept line opened outlived its last child.
+	- Progress log:
+		- 20261003: fixed in all four, with 2026100307163901. After a remove, a field opened from a kept line with nothing left under it goes too, and its lines stay where it stood. A field above it opened the same way follows. Corpus 187's two goldens had the bare `inner:` line from this bug; both now end that block at `inner: [x]`.
+		- 20261003: the `--set a=5` note is left as design.md's table has it: a setter keeps the kept line heading its target. The set writes `a: 5` under the kept `a: [1]` and reads 5. Once line 1 is fixed by hand, `a` reads as Multiple and `check` says nothing.
+		- Question: should a setter on a field opened from a kept line keep the table's rule, or do something else, such as refuse, or write the kept line as a comment?
+		- 20261004, answered: a setter writes the kept line as a comment, says why and when, and the set then goes ahead, so the file has one `a`. The example given was `# a: [1]  ## Invalid original value commented out by shcl on 'set' command, YYYY-mm-DD HH:MM:SS.`, to be made exact.
+		- Proposed text: `# a: [1]  ## commented out by shcl when setting a, 2026-10-04 07:15:00 UTC: E019 bracket array syntax`. It names the path, since library setters do this too and not only `set`. It names the code and message the load gave, since that is the actual reason. The time is UTC, so all four write the same text, and tests pin it through a fixed-clock override.
+	- Actual fix [Bug]: `remove` drops such a field once its last child goes, in all four.
+	- Swept: as 2026100307163901.
+	- Branch: `removekept`
+	- Commit: `46e6176a`
+	- Test case: `ErgToax` (Rust), `ErgToef` (Go), `ErgToiG` (Python), `ErgTom6` (C); cli-regress `ErgTonu`; corpus 187; fuzz `EreT6dh`.
 
 - `migrate` exits 0 on a file whose raw block never closes, and leaves it unstamped
 	- ID: 2026100316275800
