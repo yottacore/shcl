@@ -33,100 +33,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
-- A canonical save after a merge and a raw set loses kept lines, found by the kept-lines fuzz
-	- ID: 2026100316012486
-	- Type: Bug
-	- Status: Waiting for testing
-	- Needs local test suite run?: Y, the full `--ci`. cppcheck's exhaustive pass over the changed header did not finish in 10 minutes here.
-	- Severity: Critical
-	- Opened: 20261003-160124
-	- Opened by: found while working 2026100307163904
-	- Related IDs: 2026100307310000, 2026100307163902
-	- Version and build: dev at `e9e4a6cc`
-	- Steps to reproduce:
-		- `SHCL_FUZZ_ITERS=2000000` release fuzz, with the `EreT6dh` excuse for 2026100307163902 widened from `E014` to `E012` so it gets past iteration 558881.
-	- Incorrect behavior: `EreT6dh` fails at iteration 1061439. A canonical save after a merge and a raw set loses kept lines. Dev's code fails the same way, so the banner fix did not cause it.
-	- Expected behavior: every kept line outside the edit's target is in the saved text, or the save refuses.
-	- Reproduced: 20261003, Rust fuzz only, with the widened excuse made locally and not committed. Not cut down to a small file yet, and not checked by hand in the other three bindings.
-	- Note: filed Critical on the release bar, since the property fails only when the save goes through. Lower it if the cut-down case shows the save refused.
-	- Note: 20261003, found while working 2026100307163901. With the known rows excused, the 2,000,000 release fuzz fails `EreT6dh` at iteration 960275 on a merge with no raw set that loses the kept line `b: 4` at exit 0. Dev does the same. Likely a second repro of this item.
-	- Note: 20261003, found while working 2026100307163902. After that fix, the 2,000,000 release fuzz fails `EreT6dh` first at iteration 749492: a merge loses the kept line `srv[x]: [3]`, with no raw block in the input. With merges excused, nothing else fails up to 2,000,000.
-	- Reproduced: 20261004, cut down to `    srv: a` / `  srv[x]: [3]` / `b[x]: [4]` / `q: c` merged with `q: 9`. The load settles `srv[x]: [3]` as a comment, and the merge writes `srv: a` / `b[x]: [4]` / `q: 9` at a lost count of 0, so the save goes through. All four bindings did the same. The 960275 report is the same class: on the seed set from before corpus 191, the old code fails at 959829 losing `b: 4` the same way. The raw set in the title had no part in it.
-	- Actual cause:
-		- A merge that replaces a leaf dropped every comment held on it, settled lines included, and kept only its plain kept lines. Lines above a kept line beside the leaf are held on the leaf too, so a settled line there went with it. By design.md's table only the leaf's own comments go, and a remove already reads those as the ones after its last kept line.
-	- Actual fix: a replaced leaf takes only its own comments, the ones a remove would take, with a settled line read as the comment a reload makes of it. The rest stay, with the comment run restepped where they join the new leaf's lines. All four bindings. design.md's kept-lines section says so.
-	- Against: the 2026-09-28 decision (a settled line on a replaced leaf goes with the leaf's comments). It still holds. This only says which comments are the leaf's, which the decision did not spell out.
-	- Note: corpus 091's merged golden moved. Its top comment sits above a kept line, so it now stays. A comment of the leaf's own was added to its layer so the case still shows one going.
-	- Swept: the replace path in each binding's merge is the only site that drops a settled line (grep for the kept-owed decrements: remove, the footer dedup and this one). The property was right; 2026100313174977 is not the cause and was left alone.
-	- Verified: the 2,000,000 release fuzz passes with no excuses, all 17 properties, and `EreT6dh` passes on the seed set from before corpus 191. The four conformance suites, cli-regress, crosscheck over the corpus plus a fuzz dump, check-docs, shell-regress, clippy for both targets, rustfmt, go vet, staticcheck, ruff and mypy pass.
-	- Estimated effort: Avg
-	- Progress log:
-		- 20261004: fixed and tested. Waits on the full `--ci`, then signoff on the comment placement, since a merge now keeps a plain comment it used to drop.
-	- Branch: `mergekept`
-	- Commit: `5d31a47d`
-	- Test case: `ErkSy71` (Rust), `ErkSyFW` (Go), `ErkSyPf` (Python), `ErkSySr` (C), `a_replaced_leaf_leaves_the_lines_beside_it`; each fails on the old code. Corpus 091. `EreT6dh` at 2,000,000.
-
-- Started with `pwsh -File`, the PowerShell wrapper splits an argument at its first colon, and the answer is wrong at exit 0
-	- ID: 2026100307163905
-	- Type: Bug
-	- Status: Waiting for testing
-	- Severity: High
-	- Needs external testing: the hosted windows job. Its win-runners row `ErkQHTh` runs both scripts under 5.1 and 7, and the `.cmd` launcher.
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 item 5
-	- Version and build: dev at `6e8b7f89`
-	- Steps to reproduce:
-		- `printf 'site: a\nurl: b\n' > c.shcl`
-		- `pwsh -NoProfile -File shcl.ps1 children c.shcl --set=url=http://x`
-	- Incorrect behavior: nothing printed, exit 0. shcl gets `--set=url=http` and `//x`. The binary called directly prints `site` and `url`. `-?` prints PowerShell's own help, and `--%` is dropped.
-	- Expected behavior: every argument reaches shcl as typed, as the script's description says.
-	- Reproduced: 20261003, pwsh 7.6 on Linux. `utility/dogfood_shcl` and `dogfood_shcl.cmd` start the runner with `-File`, so they hit it too. Calling the script from inside a session is fine. Most other spellings fail loudly, such as `get --default=12:30` at exit 1.
-	- Possible cause: `-File` binds a `-`-led argument with a colon as a parameter name and value before the script sees `$args`.
-	- Origin: `37fe62d0` (PowerShell wrapper, 2026-07-18). Not seen by an earlier round. 20260928 item 4 fixed quotes under 5.1 in the same wrapper. Confirmed.
-	- Actual cause [Bug]: under `-File`, PowerShell's own command-line parser reads each `-`-led argument after the script path as a parameter, before the script runs. One with a colon becomes a name and a value with the colon gone, `-x:$true` becomes a boolean, and `--%` is dropped. Nothing in `$args` can give the typed text back.
-	- Estimated effort: Avg
-	- Progress log:
-		- 20261004: fixed in both scripts. Both shell-regress tests below failed before the fix and pass after. The win-runners row has not run yet.
-		- 20261004: ruled out a `-Command` start in the launchers. It would fix the two launchers only, not `pwsh -File shcl.ps1` or a shebang run, and every argument would need quoting for PowerShell's parser.
-		- 20261004: `-?` still prints the script's help, under `-File` and in a session alike. PowerShell answers it from the help block before the script runs, so dropping the block is the only way to pass it on. The binary refuses `-?` at exit 1 anyway. Left as is, for signoff.
-		- 20261004: a `--%` argument still never reaches the binary. PowerShell drops it from any native call, quoted or splatted, and passes the rest unquoted. The binary refuses `--%`, so it is left.
-		- 20261004: in a session, an unquoted `-x:y` loses its `-x:` on the way to the binary, in both scripts. That is a different cause, filed as 2026100408550401.
-		- 20261004: also fixed: `-k:$true` made the dogfood runner skip its update, since that boolean on the left of `-ceq` equals any word.
-		- 20261004: `-?` stays with PowerShell. It is how every PowerShell command shows its help, the binary refuses it anyway, and passing it on would mean dropping both help blocks. Both blocks now say to run `--help` for shcl's own help.
-	- Actual fix [Bug]: started by `-File`, which leaves no invoking line, `shcl.ps1` and `dogfood_shcl.ps1` take their arguments from the process's own argument list, after the entry naming the script. With no such entry, or from a session, `$args` is used as before. The launchers are unchanged.
-	- Swept: `shcl.ps1`, `dogfood_shcl.ps1`, and the launchers `utility/dogfood_shcl` and `dogfood_shcl.cmd`. `install.ps1`, `shclpath.ps1`, `winpath-regress.ps1` and `winpath-sandbox.ps1` have param blocks and pass nothing through.
-	- Verified: shell-regress, check-docs, PSScriptAnalyzer on both scripts, shellcheck, `test-ids.py check`.
-	- Branch: `psargs`
-	- Commit: `cbda6273`
-	- Test case: shell-regress `ErkOqpb` (`shcl.ps1` by `-File` and as pwsh's first word, and the steps above on the real binary) and `ErkOqsp` (the bash launcher); win-runners `ErkQHTh`.
-
-- The dogfood runner drops quotes and empty arguments under Windows PowerShell 5.1
-	- ID: 2026100307163908
-	- Type: Bug
-	- Status: Waiting for testing
-	- Severity: Avg
-	- Needs external testing: 5.1 on Windows, through the hosted windows job's win-runners row `ErkQHTh`.
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 item 8
-	- Version and build: dev at `6e8b7f89`
-	- Steps to reproduce:
-		- Under 5.1, or pwsh 7 with `$PSNativeCommandArgumentPassing = 'Legacy'`: `dogfood_shcl.ps1 --no-update set -w f.shcl '--set-literal=zip="02134"'`
-	- Incorrect behavior: the file holds `zip: 02134` at exit 0, and `get --int` reads 2134. Empty arguments vanish too.
-	- Expected behavior: arguments reach shcl as typed, as through `shcl.ps1`.
-	- Reproduced: 20261003, pwsh 7.6 in Legacy mode. `dogfood_shcl.cmd` falls back to 5.1 when pwsh is missing.
-	- Possible cause: `& $exe @passArgs` at `dogfood_shcl.ps1:426`. 20260928 item 4 added `_shcl_native_args` to `shcl.ps1` only.
-	- Origin: `eefd1dba` (dogfood runner, 2026-09-24). Sibling of 20260928 item 4 that its sweep missed. Confirmed.
-	- Actual cause [Bug]: as the possible cause says. 5.1 builds a native command line the old way, and the runner passed its arguments as they came.
-	- Estimated effort: Low
-	- Progress log:
-		- 20261004: fixed. `ErkOqyK` failed before the fix and passes after. The win-runners row has not run yet.
-	- Actual fix [Bug]: the runner quotes its arguments before the call, with the same rules as `_shcl_native_args` in `shcl.ps1`, as the advanced function `ConvertTo-NativeArgument`.
-	- Swept: every native call in a `.ps1` that passes arguments through: `shcl.ps1` (two, already fixed) and `dogfood_shcl.ps1`. `install.ps1` runs `--version` only.
-	- Verified: shell-regress, PSScriptAnalyzer, `test-ids.py check`.
-	- Branch: `psargs`
-	- Commit: `cbda6273`
-	- Test case: shell-regress `ErkOqyK` (Legacy mode of 7, the values of `ErD2LTv` plus the one above); win-runners `ErkQHTh` under 5.1.
-
 - No '\' escapes
 	- ID: 2026100207032800
 	- Type: Enhancement
@@ -596,6 +502,42 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- A repeated parent either gets its own rule in the property, or a test shows the merge leaves its kept lines alone.
 	- Estimated effort: Low
 
+- A canonical save after a merge and a raw set loses kept lines, found by the kept-lines fuzz
+	- ID: 2026100316012486
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: Y, the full `--ci`. cppcheck's exhaustive pass over the changed header did not finish in 10 minutes here.
+	- Severity: Critical
+	- Opened: 20261003-160124
+	- Opened by: found while working 2026100307163904
+	- Related IDs: 2026100307310000, 2026100307163902
+	- Version and build: dev at `e9e4a6cc`
+	- Steps to reproduce:
+		- `SHCL_FUZZ_ITERS=2000000` release fuzz, with the `EreT6dh` excuse for 2026100307163902 widened from `E014` to `E012` so it gets past iteration 558881.
+	- Incorrect behavior: `EreT6dh` fails at iteration 1061439. A canonical save after a merge and a raw set loses kept lines. Dev's code fails the same way, so the banner fix did not cause it.
+	- Expected behavior: every kept line outside the edit's target is in the saved text, or the save refuses.
+	- Reproduced: 20261003, Rust fuzz only, with the widened excuse made locally and not committed. Not cut down to a small file yet, and not checked by hand in the other three bindings.
+	- Note: filed Critical on the release bar, since the property fails only when the save goes through. Lower it if the cut-down case shows the save refused.
+	- Note: 20261003, found while working 2026100307163901. With the known rows excused, the 2,000,000 release fuzz fails `EreT6dh` at iteration 960275 on a merge with no raw set that loses the kept line `b: 4` at exit 0. Dev does the same. Likely a second repro of this item.
+	- Note: 20261003, found while working 2026100307163902. After that fix, the 2,000,000 release fuzz fails `EreT6dh` first at iteration 749492: a merge loses the kept line `srv[x]: [3]`, with no raw block in the input. With merges excused, nothing else fails up to 2,000,000.
+	- Reproduced: 20261004, cut down to `    srv: a` / `  srv[x]: [3]` / `b[x]: [4]` / `q: c` merged with `q: 9`. The load settles `srv[x]: [3]` as a comment, and the merge writes `srv: a` / `b[x]: [4]` / `q: 9` at a lost count of 0, so the save goes through. All four bindings did the same. The 960275 report is the same class: on the seed set from before corpus 191, the old code fails at 959829 losing `b: 4` the same way. The raw set in the title had no part in it.
+	- Actual cause:
+		- A merge that replaces a leaf dropped every comment held on it, settled lines included, and kept only its plain kept lines. Lines above a kept line beside the leaf are held on the leaf too, so a settled line there went with it. By design.md's table only the leaf's own comments go, and a remove already reads those as the ones after its last kept line.
+	- Actual fix: a replaced leaf takes only its own comments, the ones a remove would take, with a settled line read as the comment a reload makes of it. The rest stay, with the comment run restepped where they join the new leaf's lines. All four bindings. design.md's kept-lines section says so.
+	- Against: the 2026-09-28 decision (a settled line on a replaced leaf goes with the leaf's comments). It still holds. This only says which comments are the leaf's, which the decision did not spell out.
+	- Note: corpus 091's merged golden moved. Its top comment sits above a kept line, so it now stays. A comment of the leaf's own was added to its layer so the case still shows one going.
+	- Swept: the replace path in each binding's merge is the only site that drops a settled line (grep for the kept-owed decrements: remove, the footer dedup and this one). The property was right; 2026100313174977 is not the cause and was left alone.
+	- Verified: the 2,000,000 release fuzz passes with no excuses, all 17 properties, and `EreT6dh` passes on the seed set from before corpus 191. The four conformance suites, cli-regress, crosscheck over the corpus plus a fuzz dump, check-docs, shell-regress, clippy for both targets, rustfmt, go vet, staticcheck, ruff and mypy pass.
+	- Estimated effort: Avg
+	- Progress log:
+		- 20261004: fixed and tested. Waits on the full `--ci`, then signoff on the comment placement, since a merge now keeps a plain comment it used to drop.
+		- 20261004: hosted run 37223480776 on dev at `3e9b1a31` passed, the full `--ci` included, with the four new tests and `EreT6dh` green. A merge now keeps a plain comment it used to drop, as design.md's table says.
+	- Branch: `mergekept`
+	- Commit: `5d31a47d`
+	- Test case: `ErkSy71` (Rust), `ErkSyFW` (Go), `ErkSyPf` (Python), `ErkSySr` (C), `a_replaced_leaf_leaves_the_lines_beside_it`; each fails on the old code. Corpus 091. `EreT6dh` at 2,000,000.
+	- Acceptance signoff: 20261004, signed off. Its tests cover it and the hosted run passed.
+	- Closed: 20261004-114043
+
 - `remove` deletes kept lines next to the field it removes, at exit 0
 	- ID: 2026100307163901
 	- Type: Bug
@@ -702,6 +644,43 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: left for signoff: the new `migrate` refusal and no-stamp rule, which go past the item, and the `EreT6dh` trim change.
 	- Acceptance signoff: 20261003, signed off. The `migrate` refusal at 7 was OK'd. The no-stamp rule is the one design.md already had, now checked under both rule sets, and the `EreT6dh` change is a fix to the test, so neither needed a call.
 	- Closed: 20261003-162005
+
+- Started with `pwsh -File`, the PowerShell wrapper splits an argument at its first colon, and the answer is wrong at exit 0
+	- ID: 2026100307163905
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Needs external testing: the hosted windows job. Its win-runners row `ErkQHTh` runs both scripts under 5.1 and 7, and the `.cmd` launcher.
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 5
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- `printf 'site: a\nurl: b\n' > c.shcl`
+		- `pwsh -NoProfile -File shcl.ps1 children c.shcl --set=url=http://x`
+	- Incorrect behavior: nothing printed, exit 0. shcl gets `--set=url=http` and `//x`. The binary called directly prints `site` and `url`. `-?` prints PowerShell's own help, and `--%` is dropped.
+	- Expected behavior: every argument reaches shcl as typed, as the script's description says.
+	- Reproduced: 20261003, pwsh 7.6 on Linux. `utility/dogfood_shcl` and `dogfood_shcl.cmd` start the runner with `-File`, so they hit it too. Calling the script from inside a session is fine. Most other spellings fail loudly, such as `get --default=12:30` at exit 1.
+	- Possible cause: `-File` binds a `-`-led argument with a colon as a parameter name and value before the script sees `$args`.
+	- Origin: `37fe62d0` (PowerShell wrapper, 2026-07-18). Not seen by an earlier round. 20260928 item 4 fixed quotes under 5.1 in the same wrapper. Confirmed.
+	- Actual cause [Bug]: under `-File`, PowerShell's own command-line parser reads each `-`-led argument after the script path as a parameter, before the script runs. One with a colon becomes a name and a value with the colon gone, `-x:$true` becomes a boolean, and `--%` is dropped. Nothing in `$args` can give the typed text back.
+	- Estimated effort: Avg
+	- Progress log:
+		- 20261004: fixed in both scripts. Both shell-regress tests below failed before the fix and pass after. The win-runners row has not run yet.
+		- 20261004: ruled out a `-Command` start in the launchers. It would fix the two launchers only, not `pwsh -File shcl.ps1` or a shebang run, and every argument would need quoting for PowerShell's parser.
+		- 20261004: `-?` still prints the script's help, under `-File` and in a session alike. PowerShell answers it from the help block before the script runs, so dropping the block is the only way to pass it on. The binary refuses `-?` at exit 1 anyway. Left as is, for signoff.
+		- 20261004: a `--%` argument still never reaches the binary. PowerShell drops it from any native call, quoted or splatted, and passes the rest unquoted. The binary refuses `--%`, so it is left.
+		- 20261004: in a session, an unquoted `-x:y` loses its `-x:` on the way to the binary, in both scripts. That is a different cause, filed as 2026100408550401.
+		- 20261004: also fixed: `-k:$true` made the dogfood runner skip its update, since that boolean on the left of `-ceq` equals any word.
+		- 20261004: `-?` stays with PowerShell. It is how every PowerShell command shows its help, the binary refuses it anyway, and passing it on would mean dropping both help blocks. Both blocks now say to run `--help` for shcl's own help.
+		- 20261004: hosted run 37223480776 on dev at `3e9b1a31` passed, win-runners `ErkQHTh` included under 5.1 and 7.
+	- Actual fix [Bug]: started by `-File`, which leaves no invoking line, `shcl.ps1` and `dogfood_shcl.ps1` take their arguments from the process's own argument list, after the entry naming the script. With no such entry, or from a session, `$args` is used as before. The launchers are unchanged.
+	- Swept: `shcl.ps1`, `dogfood_shcl.ps1`, and the launchers `utility/dogfood_shcl` and `dogfood_shcl.cmd`. `install.ps1`, `shclpath.ps1`, `winpath-regress.ps1` and `winpath-sandbox.ps1` have param blocks and pass nothing through.
+	- Verified: shell-regress, check-docs, PSScriptAnalyzer on both scripts, shellcheck, `test-ids.py check`.
+	- Branch: `psargs`
+	- Commit: `cbda6273`
+	- Test case: shell-regress `ErkOqpb` (`shcl.ps1` by `-File` and as pwsh's first word, and the steps above on the real binary) and `ErkOqsp` (the bash launcher); win-runners `ErkQHTh`.
+	- Acceptance signoff: 20261004, signed off. Its tests cover it and the hosted run passed.
+	- Closed: 20261004-114043
 
 - `banner on` and `banner off` delete the file's own `##` comments written against the info block
 	- ID: 2026100307163904
@@ -893,6 +872,36 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Test case: `EreT6dh` (`kept_lines_survive_edits`, fuzz_smoke.rs); per binding `kept_gate` tests `EreRyr7`, `EreUeCs`, `EreRysn` (Rust), `EreUzvf`, `EreUzxY`, `EreUzzO` (Go), `EreVRei`, `EreVRgk`, `EreVRis` (Python), `EreWlg6`, `EreWli7`, `EreWlk5`, `EreZ0ar` (C); the merge's two exceptions `ErfGoMI`, `ErfGoMJ` (Rust), `ErfGoMK`, `ErfGoML` (Go), `ErfGoMM`, `ErfGoMN` (Python), `ErfGoMO`, `ErfGoMP` (C); cli-regress `EreYYXK`; crosscheck `EreXO4J`.
 	- Acceptance signoff: 20261004, signed off. Its tests cover it and the full run passed.
 	- Closed: 20261004-110932
+
+- The dogfood runner drops quotes and empty arguments under Windows PowerShell 5.1
+	- ID: 2026100307163908
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Needs external testing: 5.1 on Windows, through the hosted windows job's win-runners row `ErkQHTh`.
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 8
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- Under 5.1, or pwsh 7 with `$PSNativeCommandArgumentPassing = 'Legacy'`: `dogfood_shcl.ps1 --no-update set -w f.shcl '--set-literal=zip="02134"'`
+	- Incorrect behavior: the file holds `zip: 02134` at exit 0, and `get --int` reads 2134. Empty arguments vanish too.
+	- Expected behavior: arguments reach shcl as typed, as through `shcl.ps1`.
+	- Reproduced: 20261003, pwsh 7.6 in Legacy mode. `dogfood_shcl.cmd` falls back to 5.1 when pwsh is missing.
+	- Possible cause: `& $exe @passArgs` at `dogfood_shcl.ps1:426`. 20260928 item 4 added `_shcl_native_args` to `shcl.ps1` only.
+	- Origin: `eefd1dba` (dogfood runner, 2026-09-24). Sibling of 20260928 item 4 that its sweep missed. Confirmed.
+	- Actual cause [Bug]: as the possible cause says. 5.1 builds a native command line the old way, and the runner passed its arguments as they came.
+	- Estimated effort: Low
+	- Progress log:
+		- 20261004: fixed. `ErkOqyK` failed before the fix and passes after. The win-runners row has not run yet.
+		- 20261004: hosted run 37223480776 on dev at `3e9b1a31` passed, win-runners `ErkQHTh` included under 5.1.
+	- Actual fix [Bug]: the runner quotes its arguments before the call, with the same rules as `_shcl_native_args` in `shcl.ps1`, as the advanced function `ConvertTo-NativeArgument`.
+	- Swept: every native call in a `.ps1` that passes arguments through: `shcl.ps1` (two, already fixed) and `dogfood_shcl.ps1`. `install.ps1` runs `--version` only.
+	- Verified: shell-regress, PSScriptAnalyzer, `test-ids.py check`.
+	- Branch: `psargs`
+	- Commit: `cbda6273`
+	- Test case: shell-regress `ErkOqyK` (Legacy mode of 7, the values of `ErD2LTv` plus the one above); win-runners `ErkQHTh` under 5.1.
+	- Acceptance signoff: 20261004, signed off. Its tests cover it and the hosted run passed.
+	- Closed: 20261004-114043
 
 - `migrate` exits 0 on a file whose raw block never closes, and leaves it unstamped
 	- ID: 2026100316275800
