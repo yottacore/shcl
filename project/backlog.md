@@ -214,6 +214,45 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Prereq IDs: 2026100314005369
 	- Estimated effort: Avg
 
+- Run the Linux ARM64 release binary on real ARM64 hardware
+	- ID: 2026100413052100
+	- Type: Task
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261004-130521
+	- Opened by: JC
+	- Related IDs: 2026100413052101
+	- Target OS: Linux ARM64
+	- Test environment: vmDebARM64, booked through the host lock.
+	- Problem description:
+		- Stage 6 cross-builds `linux-arm64` with zig and the release ships it, but nothing ever runs it. No gate uses qemu, and the hosted jobs are all x86_64.
+	- Requirements:
+		- Run the release binary on vmDebARM64 against the conformance corpus and cli-regress.
+		- Build and run the four bindings' suites there natively, to catch anything the cross build hides.
+		- Check the installer picks the arm64 asset and its glibc floor message (2.30).
+	- Note: 20261004, vmDebARM64 has no setup notes yet. Ask how it is set up before the first visit.
+	- Estimated effort: Avg
+
+- Build and test on FreeBSD
+	- ID: 2026100413052101
+	- Type: Task
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261004-130521
+	- Opened by: JC
+	- Related IDs: 2026100413052100
+	- Target OS: FreeBSD
+	- Test environment: vmFreeBSD (FreeBSD 15.1), booked through the host lock.
+	- Problem description:
+		- The README and `install.bash` point BSD users at `cargo install shcl` or a source build, but neither has been tried on a BSD.
+	- Requirements:
+		- `cargo install shcl` from the crate works, and the CLI passes the corpus and cli-regress.
+		- The C binding builds with the system cc, which is clang, and passes its runner.
+		- Go and Python suites pass, where their packages are easy to install.
+		- File what breaks. A prebuilt BSD binary is a separate call, not part of this item.
+	- Note: 20261004, the gate scripts are bash and assume GNU tools, so some may need `gsed` or the like. Fixing the product comes first. Porting the gates only matters if a BSD job is wanted.
+	- Estimated effort: Avg
+
 - `Remove` of the last key under a repeated header leaves the header and takes the blank line
 	- ID: 2026100115323232
 	- Type: Bug
