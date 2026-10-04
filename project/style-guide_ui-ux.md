@@ -98,6 +98,6 @@ A new failure reuses one of these where one fits.
 
 - An in-place write goes through the library's save: a temp file, then a rename over the original.
 
-- A write that would delete a line the load dropped is refused with exit 7, and the file is left alone. `--lossy` says the loss was meant.
+- A write that would delete lines or values from the file is refused with exit 7, and the file is left alone. `--lossy` says the loss was meant.
 
 - `--write` on `set` creates FILE when it is not there yet, with the info block unless `--no-banner` is given.

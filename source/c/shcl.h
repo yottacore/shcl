@@ -254,7 +254,7 @@ typedef enum {
 	SHCL_FILE_NOT_FOUND,  /* no file at the path */
 	SHCL_FILE_UNREADABLE  /* exists but could not be read (permissions, a directory, bad encoding, past a shcl_read_file cap) */
 } shcl_file_status;
-/* Save refuses while the load dropped content the write would silently delete
+/* Save refuses when the write would delete content from the file
    (shcl_lost_count); shcl_save_file_lossy is the override, and is the only way
    to write then. The two failures are separate values rather than one falsey
    answer because they need different handling: a refusal is the caller's to

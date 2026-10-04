@@ -411,7 +411,7 @@ Quoted text inside an array is just a string, so `["[a]", "b"]` is two strings.
 
 - No error here stops the load or throws out good lines. Each one complains on its line and keeps the rest: the lines around it, the lines under it where they can be placed, and the other items of a list.
 
-- Every new error keeps the line exactly as written. It binds nothing, a read on it is NotFound, nothing is counted lost, and a save writes it back where it was.
+- Every new error keeps the line exactly as written. It binds nothing, nothing is counted lost, and a save writes it back where it was. A read on it is NotFound, or Empty when a line under it loads.
 
 - A line refused for its value alone keeps its level open. That covers `E017`, `E019`, `E023` and `E025` when they are in the value, plus `E026` and `E028`.
 	- The name is fine, so lines indented under it still load under that name.
