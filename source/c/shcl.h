@@ -8199,8 +8199,14 @@ static int errors_within(ShclArena *a, const shcl_doc *d, const shcl_doc *of) {
    indented past them goes first, since one written under a dropped line would
    be dropped with it. A line the load dropped comes back this way. */
 static void kl_flush(ShclArena *a, ShclSB *ob, const ShclVecS *lines, unsigned char *left, unsigned char *wrote, size_t from, size_t to) {
-	for (size_t k = from; k < to; k++)
+	/* The blank lines among them stay, up to the last one written. */
+	size_t last = 0;
+	for (size_t k = (to < lines->len + 1 ? to : lines->len + 1); k > from; k--)
+		if (left[k - 1]) { last = k - 1; break; }
+	for (size_t k = from; k < to; k++) {
 		if (left[k]) { sb_putS(a, ob, lines->data[k - 1]); wrote[k] = 1; left[k] = 0; }
+		else if (k < last && kl_blank(lines->data[k - 1])) sb_putS(a, ob, lines->data[k - 1]);
+	}
 }
 
 static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *out) {
@@ -8282,6 +8288,34 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 	for (size_t k = 1; k <= n; k++) left[k] = !kl_blank(KL_LINE(k));
 	for (size_t k = 0; k < claimed.len; k++)
 		for (size_t l = claimed.data[k]; l <= end[claimed.data[k]] && l <= n; l++) left[l] = 0;
+	/* A repeat the load folded away goes when the edits took every line under
+	   it, and the blank lines above it go along: the field is still written
+	   where it first was. A remove writes no line the document did not write
+	   before (2026100115323232). */
+	unsigned char *present = (unsigned char *)arena_alloc(a, n + 2);
+	unsigned char *tagged = (unsigned char *)arena_alloc(a, n + 2);
+	unsigned char *dropped = (unsigned char *)arena_alloc(a, n + 2);
+	unsigned char *released = (unsigned char *)arena_alloc(a, n + 2);
+	memset(present, 0, n + 2); memset(tagged, 0, n + 2); memset(dropped, 0, n + 2); memset(released, 0, n + 2);
+	for (size_t r = 0; r < isR.len; r++) if (isR.data[r].line != 0 && isR.data[r].line <= n) present[owner[isR.data[r].line]] = 1;
+	for (size_t r = 0; r < wasR.len; r++) if (wasR.data[r].line != 0 && wasR.data[r].line <= n) tagged[owner[wasR.data[r].line]] = 1;
+	for (size_t k = 0; k < ld->dropped.len; k++) if (ld->dropped.data[k] <= n) dropped[ld->dropped.data[k]] = 1;
+	for (size_t h = n; h >= 1; h--) {
+		if (!left[h] || dropped[h]) continue;
+		ShclStr hi = leading_ws(KL_LINE(h));
+		int any = 0, all = 1;
+		for (size_t k = h + 1; k <= n; k++) {
+			if (kl_blank(KL_LINE(k))) continue;
+			/* A line in a raw body or a stacked list is under h when the line
+			   it belongs to is, whatever its own indent. */
+			size_t o = owner[k];
+			ShclStr ki = leading_ws(KL_LINE(k));
+			if (o == k && !(ki.n > hi.n && memcmp(ki.p, hi.p, hi.n) == 0)) break;
+			any = 1;
+			if (!released[k] && !(tagged[o] && !present[o])) { all = 0; break; }
+		}
+		if (any && all) { left[h] = 0; released[h] = 1; }
+	}
 	/* Which source lines went out as written. Every line the load dropped has
 	   to, or the save falls back: a rewritten group can span one, as a stacked
 	   list over a refused element (20260926 item 1). */
@@ -8368,9 +8402,14 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 				for (size_t k = 1; k < l; k++) { sb_putS(a, &ob, KL_LINE(k)); wrote[k] = 1; left[k] = 0; }
 		} else if (kept && prev != 0 && next[prev] == l) {
 			int blanks = 0;
-			for (size_t k = end[prev] + 1; k < l; k++) if (kl_blank(KL_LINE(k))) blanks = 1;
+			/* A blank line above a source line written here stays with it. */
+			size_t last = 0;
+			for (size_t k = end[prev] + 1; k < l; k++) {
+				if (kl_blank(KL_LINE(k))) blanks = 1;
+				else last = k;
+			}
 			for (size_t k = end[prev] + 1; k < l; k++)
-				if (blanks_stay || !kl_blank(KL_LINE(k))) { sb_putS(a, &ob, KL_LINE(k)); wrote[k] = 1; left[k] = 0; }
+				if (blanks_stay || !kl_blank(KL_LINE(k)) || k < last) { sb_putS(a, &ob, KL_LINE(k)); wrote[k] = 1; left[k] = 0; }
 			if (!blanks) for (size_t k = 0; k < u->blanks; k++) sb_puts(a, &ob, eol);
 		} else if (known && blanks_stay && l > 1 && kl_blank(KL_LINE(l - 1))) {
 			size_t k = l - 1;

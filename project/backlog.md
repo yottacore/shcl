@@ -284,7 +284,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - `Remove` of the last key under a repeated header leaves the header and takes the blank line
 	- ID: 2026100115323232
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Low
 	- Opened: 20261001-153232
 	- Opened by: gitsby feedback
@@ -295,6 +295,14 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Incorrect behavior: `account: w\n\temail: a@x\naccount: w\n`, kept true. The second `account: w` stays with nothing under it, and the blank line between the blocks is gone.
 	- Expected behavior: the emptied header goes with its last key, since the first block already holds that instance, and the blank line above it goes too. Or both stay. Not one of each.
 	- Reproduced: Yes, 20261001, Go module at `b10c2009`. It reads back the same, so it is cosmetic.
+	- Reproduced: Yes, 20261004, all four at `f97003c8`. The blank line above a repeated header was lost on any edit, not only this remove: `--set=s.a=5` on `s:`, `a: 1`, a blank, `s:`, `b: 2` dropped it too, with both headers kept.
+	- Actual cause: the save that keeps lines writes a repeat the load folded away as a source line that no group stands for. It wrote that line whether or not anything under it was left, and it wrote the blank lines around it only when the canonical form had a blank there, which it never does for a folded repeat.
+	- Actual fix: all four bindings. A repeat header goes when the edits took every line under it, and the blank lines above it go with it. While anything under it stays, the header stays with the blank lines above it. This is remove's one rule for a header: a remove writes no line the document did not write before. A field that still exists keeps its `name:` line, as `b:` does once `b.c` is gone. A folded repeat writes nothing of its own, so it goes with the last line under it.
+	- Note: design.md's notes under "Kept lines under edits" could say this. Left for the docs pass, which is on another branch.
+	- Swept: both places the save writes lines no group stands for, the gap between two kept groups and the flush after a kept group, in all four. The first-group and end-of-file paths write the source's own leading and trailing lines whole and needed nothing.
+	- Verified: the four conformance suites and cli-regress. Both new rows fail on `f97003c8`'s libraries in all four and pass with the fix.
+	- Branch: keepcosm
+	- Test case: cli-regress `Erls2uy` (`remove-emptied-repeat-header`), `Erls2uz` (`set-keeps-blank-above-repeat`).
 
 - A file stamped Format 3 during the beta is never migrated
 	- ID: 2026100115403385

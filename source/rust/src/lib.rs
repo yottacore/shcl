@@ -6168,6 +6168,56 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 	for &l in &claimed {
 		left[l..=end[l].min(n)].fill(false);
 	}
+	// A repeat the load folded away goes when the edits took every line
+	// under it, and the blank lines above it go along: the field is still
+	// written where it first was. A remove writes no line the document did
+	// not write before (2026100115323232).
+	let mut present = vec![false; n + 2];
+	for r in &is_runs {
+		if r.line != 0 && r.line <= n {
+			present[owner[r.line]] = true;
+		}
+	}
+	let mut tagged = vec![false; n + 2];
+	for r in &was_runs {
+		if r.line != 0 && r.line <= n {
+			tagged[owner[r.line]] = true;
+		}
+	}
+	let mut dropped = vec![false; n + 2];
+	for &k in &loaded_doc.dropped {
+		if k <= n {
+			dropped[k] = true;
+		}
+	}
+	let mut released = vec![false; n + 2];
+	for h in (1..=n).rev() {
+		if !left[h] || dropped[h] {
+			continue;
+		}
+		let (mut any, mut all) = (false, true);
+		for k in h + 1..=n {
+			if blank(k) {
+				continue;
+			}
+			// A line in a raw body or a stacked list is under h when the line
+			// it belongs to is, whatever its own indent.
+			let o = owner[k];
+			let i = indent(k);
+			if o == k && !(i.len() > indent(h).len() && i.starts_with(indent(h))) {
+				break;
+			}
+			any = true;
+			if !released[k] && !(tagged[o] && !present[o]) {
+				all = false;
+				break;
+			}
+		}
+		if any && all {
+			left[h] = false;
+			released[h] = true;
+		}
+	}
 	// New lines end the way most of the file's lines do.
 	let eol = majority_eol(body);
 	// One level of the source's indent: a line one level in, or failing that
@@ -6198,11 +6248,15 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 	// comes back this way.
 	let flush =
 		|out: &mut String, left: &mut [bool], wrote: &mut [bool], from: usize, to: usize| {
+			// The blank lines among them stay, up to the last one written.
+			let last = (from..to).rev().find(|&k| left[k]).unwrap_or(0);
 			for (k, l) in left.iter_mut().enumerate().take(to).skip(from) {
 				if *l {
 					out.push_str(line(k));
 					wrote[k] = true;
 					*l = false;
+				} else if k < last && blank(k) {
+					out.push_str(line(k));
 				}
 			}
 		};
@@ -6273,8 +6327,10 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 		} else if kept && prev != 0 && next[prev] == l {
 			let gap = end[prev] + 1..l;
 			let blanks = gap.clone().any(blank);
+			// A blank line above a source line written here stays with it.
+			let last = gap.clone().rev().find(|&k| !blank(k)).unwrap_or(0);
 			for k in gap {
-				if blanks_stay || !blank(k) {
+				if blanks_stay || !blank(k) || k < last {
 					out.push_str(line(k));
 					wrote[k] = true;
 					left[k] = false;

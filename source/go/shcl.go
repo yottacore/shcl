@@ -5886,6 +5886,56 @@ func keepLines(src string, doc *Document) (string, bool) {
 			left[k] = false
 		}
 	}
+	// A repeat the load folded away goes when the edits took every line under
+	// it, and the blank lines above it go along: the field is still written
+	// where it first was. A remove writes no line the document did not write
+	// before (2026100115323232).
+	present := make([]bool, n+2)
+	for _, r := range isRuns {
+		if r.line != 0 && r.line <= n {
+			present[owner[r.line]] = true
+		}
+	}
+	tagged := make([]bool, n+2)
+	for _, r := range wasRuns {
+		if r.line != 0 && r.line <= n {
+			tagged[owner[r.line]] = true
+		}
+	}
+	dropped := make([]bool, n+2)
+	for _, k := range loadedDoc.dropped {
+		if k <= n {
+			dropped[k] = true
+		}
+	}
+	released := make([]bool, n+2)
+	for h := n; h >= 1; h-- {
+		if !left[h] || dropped[h] {
+			continue
+		}
+		anyUnder, allGone := false, true
+		for k := h + 1; k <= n; k++ {
+			if blank(k) {
+				continue
+			}
+			// A line in a raw body or a stacked list is under h when the line
+			// it belongs to is, whatever its own indent.
+			o := owner[k]
+			i := indent(k)
+			if o == k && !(len(i) > len(indent(h)) && strings.HasPrefix(i, indent(h))) {
+				break
+			}
+			anyUnder = true
+			if !released[k] && !(tagged[o] && !present[o]) {
+				allGone = false
+				break
+			}
+		}
+		if anyUnder && allGone {
+			left[h] = false
+			released[h] = true
+		}
+	}
 	// New lines end the way most of the file's lines do.
 	eol := majorityEol(body)
 	// One level of the source's indent: a line one level in, or failing that
@@ -5924,11 +5974,21 @@ func keepLines(src string, doc *Document) (string, bool) {
 	// a dropped line would be dropped with it. A line the load dropped comes
 	// back this way.
 	flush := func(from, to int) {
+		// The blank lines among them stay, up to the last one written.
+		last := 0
+		for k := minInt(to, n+1) - 1; k >= from; k-- {
+			if left[k] {
+				last = k
+				break
+			}
+		}
 		for k := from; k < to; k++ {
 			if left[k] {
 				out.WriteString(line(k))
 				wrote[k] = true
 				left[k] = false
+			} else if k < last && blank(k) {
+				out.WriteString(line(k))
 			}
 		}
 	}
@@ -6003,11 +6063,16 @@ func keepLines(src string, doc *Document) (string, bool) {
 			}
 		case kept && prev != 0 && next[prev] == l:
 			blanks := false
+			// A blank line above a source line written here stays with it.
+			last := 0
 			for k := end[prev] + 1; k < l; k++ {
 				blanks = blanks || blank(k)
+				if !blank(k) {
+					last = k
+				}
 			}
 			for k := end[prev] + 1; k < l; k++ {
-				if blanksStay || !blank(k) {
+				if blanksStay || !blank(k) || k < last {
 					out.WriteString(line(k))
 					wrote[k] = true
 					left[k] = false

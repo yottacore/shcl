@@ -4354,6 +4354,43 @@ def _keep_lines(src, doc):
 	left = [0 < k <= n and not blank(k) for k in range(n + 2)]
 	for k in claimed:
 		left[k:min(end[k], n) + 1] = [False] * (min(end[k], n) + 1 - k)
+	# A repeat the load folded away goes when the edits took every line under
+	# it, and the blank lines above it go along: the field is still written
+	# where it first was. A remove writes no line the document did not write
+	# before (2026100115323232).
+	present = [False] * (n + 2)
+	for r in is_runs:
+		if r.line != 0 and r.line <= n:
+			present[owner[r.line]] = True
+	tagged = [False] * (n + 2)
+	for r in was_runs:
+		if r.line != 0 and r.line <= n:
+			tagged[owner[r.line]] = True
+	dropped = [False] * (n + 2)
+	for g in loaded_doc._dropped:
+		if g <= n:
+			dropped[g] = True
+	released = [False] * (n + 2)
+	for h in range(n, 0, -1):
+		if not left[h] or dropped[h]:
+			continue
+		any_under, all_gone = False, True
+		for g in range(h + 1, n + 1):
+			if blank(g):
+				continue
+			# A line in a raw body or a stacked list is under h when the line
+			# it belongs to is, whatever its own indent.
+			o = owner[g]
+			ind = indent(g)
+			if o == g and not (len(ind) > len(indent(h)) and ind.startswith(indent(h))):
+				break
+			any_under = True
+			if not released[g] and not (tagged[o] and not present[o]):
+				all_gone = False
+				break
+		if any_under and all_gone:
+			left[h] = False
+			released[h] = True
 	# New lines end the way most of the file's lines do.
 	eol = _majority_eol(body)
 	# One level of the source's indent: a line one level in, or failing that
@@ -4380,11 +4417,15 @@ def _keep_lines(src, doc):
 	# dropped line would be dropped with it. A line the load dropped comes
 	# back this way.
 	def flush(frm, to):
+		# The blank lines among them stay, up to the last one written.
+		last = next((g for g in range(min(to, n + 1) - 1, frm - 1, -1) if left[g]), 0)
 		for g in range(frm, to):
 			if left[g]:
 				out.append(line(g))
 				wrote[g] = True
 				left[g] = False
+			elif g < last and blank(g):
+				out.append(line(g))
 
 	indents: list[str | None] = [""]
 	# The line of the group just written while it is a source one, and the end
@@ -4438,8 +4479,10 @@ def _keep_lines(src, doc):
 		elif kept and prev != 0 and nxt[prev] == k:
 			gap = range(end[prev] + 1, k)
 			blanks = any(blank(g) for g in gap)
+			# A blank line above a source line written here stays with it.
+			last = next((g for g in reversed(gap) if not blank(g)), 0)
 			for g in gap:
-				if blanks_stay or not blank(g):
+				if blanks_stay or not blank(g) or g < last:
 					out.append(line(g))
 					wrote[g] = True
 					left[g] = False

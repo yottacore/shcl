@@ -638,6 +638,11 @@ rows=(
 	## not above them (2026100117214802).
 	'Erls2uw|set-new-key-after-kept-end|set --set=b=1 -|x: 1\na:   [1]\n# end\n|0|x: 1\na:   [1]\n\nb: 1\n# end\n|-'
 	'Erls2ux|set-new-key-after-kept-in-block|set --set=s.b=1 -|s:\n    a:   [1]\n    # c\n|0|s:\n    a:   [1]\n    b: 1\n    # c\n|-'
+	## A repeat header the load folded away goes with the last line under it,
+	## blank line and all, and stays with its blank line while anything under
+	## it does (2026100115323232).
+	'Erls2uy|remove-emptied-repeat-header|set --remove=account[#0].name -|account: w\n\temail: a@x\n\naccount: w\n\tname: W\n\nz: 1\n|0|account: w\n\temail: a@x\n\nz: 1\n|-'
+	'Erls2uz|set-keeps-blank-above-repeat|set --set=s.a=5 -|s:\n\ta: 1\n\ns:\n\tb: 2\n|0|s:\n\ta: 5\n\ns:\n\tb: 2\n|-'
 	'EpFkZy9|sugar-migrate|migrate %W%|-|0|base: Boston\n\tlat: 42\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	'EpFkZyA|sugar-migrate-write|migrate --write %W%|-|0||-'
 	## An unknown escape in double quotes is refused and kept as written, not
