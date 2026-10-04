@@ -394,8 +394,8 @@ also keeps the original file; see above.
 .RB ( fmt ", " set ", " migrate )
 With
 .BR \-\-write ,
-rewrite even when the load dropped lines this write would delete. Without it
-the write refuses and nothing is changed.
+rewrite even when this write would delete lines or values from the file.
+Without it the write refuses and nothing is changed.
 .TP
 .B \-\-from\-2x
 .RB ( migrate )
@@ -668,7 +668,8 @@ empty base when the ops script has stdin instead.
 Every subcommand that loads a document prints the load's diagnostics to stderr,
 once per run, so a recovered-from typo is just as visible when the value reads
 back fine and the result goes to stdout. An in-place write also refuses
-outright, at exit 7, when the load dropped content the rewrite would delete
+outright, at exit 7, when the rewrite would delete lines or values from the
+file
 \- a typo does not cost the line above it.
 .B \-\-lossy
 is how to say it was meant.
@@ -760,8 +761,8 @@ schema has faults, or
 found a rewrite to make.
 .TP
 .B 7
-An in-place write was refused because the load dropped content the rewrite
-would delete
+An in-place write was refused because the rewrite would delete lines or
+values from the file
 .RB ( \-\-lossy
 overrides), or
 .B migrate
