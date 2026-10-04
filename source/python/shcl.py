@@ -6241,15 +6241,28 @@ class Document:
 					kept: list[_Lead] = []
 					for b in by_name.get(name, ()):
 						nd = self.arena[b]
-						lines = [*nd.leading(), *(a[1] for a in nd.among()), *nd.inside(), *nd.after()]
+						# The leaf's own comments are the ones a remove would
+						# take: above it those after its last kept line, below
+						# it those before its first. The rest sit with a kept
+						# line beside it and stay. A settled line counts as the
+						# comment a reload reads it as.
+						leading = nd.leading()
+						above = next((k + 1 for k in range(len(leading) - 1, -1, -1) if not leading[k].text.startswith("#")), 0)
+						after = nd.after()
+						below = next((k for k, c in enumerate(after) if not c.text.startswith("#")), len(after))
+						kept.extend(_Lead(c.text, c.blank_before, c.depth, c.line, c.kept) for c in leading[:above])
+						lines = [*leading[above:], *(a[1] for a in nd.among()), *nd.inside(), *after[:below]]
 						kept.extend(_Lead(lead.text, lead.blank_before, lead.depth) for lead in lines if not lead.text.startswith("#"))
 						# A settled one goes with the leaf's comments (decided
 						# 2026-09-28), so it is no longer owed.
 						settled = sum(1 for lead in lines if lead.kept and lead.text.startswith("#"))
 						self._kept_owed = max(self._kept_owed - settled, 0)
+						kept.extend(_Lead(c.text, c.blank_before, c.depth, c.line, c.kept) for c in after[below:])
 					if kept:
 						t = self.arena[clones[0][1]]._triv()
 						t.leading = kept + t.leading
+						# Comments from two sources now share one run.
+						_restep(t.leading)
 					replace[name] = [c for _, c in clones]
 				else:
 					appended.extend(clones)

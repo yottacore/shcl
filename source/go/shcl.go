@@ -8941,11 +8941,33 @@ func (d *Document) overlay(baseParent int, over *Document, overParent int, touch
 				var kept []lead
 				for _, b := range byName[name] {
 					nd := &d.arena[b]
+					// The leaf's own comments are the ones a remove would
+					// take: above it those after its last kept line, below
+					// it those before its first. The rest sit with a kept
+					// line beside it and stay. A settled line counts as
+					// the comment a reload reads it as.
+					leading := nd.leading()
+					above := 0
+					for k := len(leading) - 1; k >= 0; k-- {
+						if !strings.HasPrefix(leading[k].text, "#") {
+							above = k + 1
+							break
+						}
+					}
+					after := nd.after()
+					below := len(after)
+					for k, l := range after {
+						if !strings.HasPrefix(l.text, "#") {
+							below = k
+							break
+						}
+					}
+					kept = append(kept, leading[:above]...)
 					among := make([]lead, 0, len(nd.among()))
 					for _, a := range nd.among() {
 						among = append(among, a.lead)
 					}
-					for _, list := range [][]lead{nd.leading(), among, nd.inside(), nd.after()} {
+					for _, list := range [][]lead{leading[above:], among, nd.inside(), after[:below]} {
 						for _, l := range list {
 							if !strings.HasPrefix(l.text, "#") {
 								kept = append(kept, l)
@@ -8958,10 +8980,13 @@ func (d *Document) overlay(baseParent int, over *Document, overParent int, touch
 							}
 						}
 					}
+					kept = append(kept, after[below:]...)
 				}
 				if len(kept) > 0 {
 					t := d.arena[clones[0]].trivMut()
 					t.leading = append(kept, t.leading...)
+					// Comments from two sources now share one run.
+					restep(t.leading)
 				}
 				replace[name] = clones
 			} else {

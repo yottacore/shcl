@@ -643,6 +643,8 @@ Where a kept line sits is read from canonical output before the edit. Under the 
 
 - The merge exception for a settled line on a replaced leaf was decided on 2026-09-28: the line goes the way it would in a merge onto the reload of the saved base, where it is a comment.
 
+- A leaf's comments, for a merge that replaces it, are the ones a remove would take: above it those after its last kept line, below it those before its first. A settled line counts as the comment a reload reads it as. A comment or a settled line past a kept line beside the leaf stays with that line.
+
 - The save gate counts kept lines. The load records how many it kept, and each edit takes off only what this table lets it. A document holding fewer than that counts the rest as lost, so `LostCount` includes them, the save refuses, and the save that keeps lines falls back and refuses with it. `--lossy` writes anyway, as for a dropped line. Among checking each edit site and checking the count at the save, the count was chosen, since the sites were the problem.
 
 - A fuzz property holds all four bindings to it: after any edits, every kept line no edit's target took is still in the saved text, or the save refuses, and a remove adds no line. The other three are held through the cross-binding check, which replays its inputs and edits through each CLI's `set --write`.

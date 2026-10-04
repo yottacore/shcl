@@ -6554,9 +6554,21 @@ static void w_overlay(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, S
 					size_t b = named[bni].data[i];
 					const ShclTrivia *bt = NODE(d, b).trivia;
 					if (!bt) continue;
+					/* The leaf's own comments are the ones a remove would
+					   take: above it those after its last kept line, below it
+					   those before its first. The rest sit with a kept line
+					   beside it and stay. A settled line counts as the comment
+					   a reload reads it as. */
+					size_t above = 0, below = bt->after.len;
+					for (size_t k = bt->leading.len; k > 0; k--)
+						if (!(bt->leading.data[k - 1].text.n && bt->leading.data[k - 1].text.p[0] == '#')) { above = k; break; }
+					for (size_t k = 0; k < bt->after.len; k++)
+						if (!(bt->after.data[k].text.n && bt->after.data[k].text.p[0] == '#')) { below = k; break; }
+					for (size_t k = 0; k < above; k++) ShclVecLead_push(t, &kept, bt->leading.data[k]);
 					const ShclVecLead *lists[3] = { &bt->leading, &bt->inside, &bt->after };
+					size_t from[3] = { above, 0, 0 }, to[3] = { bt->leading.len, bt->inside.len, below };
 					for (size_t li = 0; li < 3; li++) {
-						for (size_t k = 0; k < lists[li]->len; k++) {
+						for (size_t k = from[li]; k < to[li]; k++) {
 							if (!(lists[li]->data[k].text.n && lists[li]->data[k].text.p[0] == '#')) ShclVecLead_push(t, &kept, lists[li]->data[k]);
 							/* A settled one goes with the leaf's comments
 							   (decided 2026-09-28), so it is no longer owed. */
@@ -6570,6 +6582,7 @@ static void w_overlay(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, S
 							}
 						}
 					}
+					for (size_t k = below; k < bt->after.len; k++) ShclVecLead_push(t, &kept, bt->after.data[k]);
 				}
 				if (kept.len) {
 					ShclTrivia *ct = triv_mut(a, &NODE(d, rep[gi].data[0]));
@@ -6577,6 +6590,8 @@ static void w_overlay(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, S
 					for (size_t k = 0; k < kept.len; k++) ShclVecLead_push(a, &lead, kept.data[k]);
 					for (size_t k = 0; k < ct->leading.len; k++) ShclVecLead_push(a, &lead, ct->leading.data[k]);
 					ct->leading = lead;
+					/* Comments from two sources now share one run. */
+					restep(&ct->leading);
 				}
 			}
 		} else {
