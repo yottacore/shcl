@@ -498,6 +498,7 @@ Every load-time code has one outcome, and the parser derives the lost count and 
 
 - **Retained**. Content-malformed at any position, so kept verbatim as trivia and written back in place, where it re-diagnoses identically and can never read as a binding. Counts nothing. Holds its indent level, so what is written deeper is `E018`.
 	- Except a field line refused for its value alone: `E019`, `E023` in a value, `E024`. Its path is fine, so its level stays open, and the first line under it that binds opens the path as `name:` with nothing after the colon would, then binds there. A line under it that is itself refused opens nothing, so a field with no line under it that binds is still not there. One typo in a value used to take its whole block with it, a silent wrong answer for every key under it (SilkTerm, 2026-10-01). A path with an index or wildcard selector, or one past the nesting cap, could fail to place, so it still holds a dead level.
+	- A retained line whose value opens a raw block keeps the body and its closing fence with it, as one kept line. Read as lines, the body bound as fields at exit 0, and its closing fence opened a block that took the rest of the file (review 20261003 item 2; 20260918b had declined it as a file that fails `check` anyway). Throwing the line and body out instead would refuse every later save over one typo in a name. The closing fence's indent comes off each body line, as in a field's block, and canonical output writes the body one level under the line, so the block moves with it. A block that never closed gets its closing fence, or whatever is written after it would read as its body.
 	- Canonical output writes the kept line in place of the opened field's bare `name:` line when it is the field's last leading line and names just that field, since a reload opens the field from it the same way. A field the edits left with nothing under it keeps its own `name:` line too, since nothing would open it. The emitter's model of the reload's stack holds such a line's level open the same way, so a kept misplaced line under it is judged the way the parser will.
 
 - **Dropped**. Read but not applicable where it sits; re-emitted it could bind somewhere else, so it is gone. Counts one lost. Holds its indent level the same way.
@@ -523,7 +524,7 @@ The table is the rule. If a code's behavior ever disagrees with its row, the cod
 | `E011` | error         | dropped
 | `E012` | error         | kept as written when the indent holds a space and the line opens no raw block; dropped otherwise
 | `E013` | error         | retained
-| `E014` | error         | retained; dropped when the line begins with a BOM, which the file-start strip would rewrite into something that can bind
+| `E014` | error         | retained, with any raw block it opens; dropped when the line begins with a BOM, which the file-start strip would rewrite into something that can bind
 | `E015` | error         | bound
 | `E016` | error         | dropped
 | `E017` | error         | bound
@@ -532,7 +533,7 @@ The table is the rule. If a code's behavior ever disagrees with its row, the cod
 | `E020` | error         | the parse stopped: every later non-blank line is dropped, and no level is held
 | `E021` | error         | dropped
 | `E022` | error or hint | bound (about the list, not a line)
-| `E023` | error         | retained; a value fault holds its level open
+| `E023` | error         | retained; a value fault holds its level open, and a name fault keeps any raw block it opens
 | `E024` | error         | retained; holds its level open
 | `H001` | hint          | bound
 | `H002` | hint          | bound
@@ -593,6 +594,8 @@ What follows from the table:
 
 - A carriage return is a blank outside a raw body, and does whatever a blank does where it sits: it is trimmed at the end of a line, a name, a selector body, a value, an element, a comment or a fence label, and it is content in the middle of one. Inside a raw body the trailing run comes off each line and a carriage return mid-line is content.
 
+- A field line that cannot be read still opens a raw block when a fence follows its first colon past where reading stopped, and no `#` comes before that colon. Quotes past that point are not read as quotes, since none there parse. Bracket text (`E019`) opens nothing, since its value starts with `[`.
+
 - Bracket text after the colon (`ports: [80, 443]`) is one thing: the JSON habit. The line is `E019`, kept as written, binds nothing and counts nothing lost, so `check` reports it and an in-place write goes through unchanged, the way a pasted YAML `- item` line already does. `x:[y]` is never a selector.
 
 - The writer writes what the table lets it write and refuses the rest. A value holding a `#`, a comma, a leading quote or a leading `[` is quoted; a line break in a name or a selector is escaped. What has no spelling is refused whole: a fence label holding a `#` or a line break, a comment holding a line break, a raw body line ending in a carriage return. Nothing on the write side trims or quotes its way around a byte the table calls content.
@@ -635,6 +638,8 @@ Where a kept line sits is read from canonical output before the edit. Under the 
 - The kept lines beside a target that was the last field in its block stay at the end of that block. A misplaced line among them has no level there, so it goes down to just above the next field line, with the comments after it, which is where a reload files them.
 
 - A setter that replaces a stacked list's value moves the kept lines among its elements above it, as under Load outcomes. A move is not a loss.
+
+- A kept line's raw body is part of the line. Every edit keeps or takes the two together.
 
 - The merge exception for a settled line on a replaced leaf was decided on 2026-09-28: the line goes the way it would in a merge onto the reload of the saved base, where it is a comment.
 

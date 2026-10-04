@@ -327,7 +327,8 @@ E013|error|malformed '*' line ('*' not followed by a space)
   The line is skipped, and what is written under it goes with it.
 E014|error|malformed line skipped (the message names the reason)
   The reason and the byte column the line went wrong at are in the prose.
-  A quote that never closes in a field name arrives here too.
+  A quote that never closes in a field name arrives here too. A raw block
+  the line opens is kept with it.
 E015|error|missing colon (repaired as an empty value)
   The name binds with no value rather than the line being dropped.
 E016|error|nesting deeper than the 512-level cap (line skipped)
@@ -363,6 +364,7 @@ E023|error|a bad escape in double quotes
   line is kept verbatim: it binds nothing and a read on it is NotFound. Use
   single quotes or no quotes, or double each backslash. When only the value
   is wrong, the lines under it still load, under the field with no value.
+  When the name is, a raw block the line opens is kept with it.
 E024|error|a Windows path in double quotes with a \t or \n escape
   "C:\temp" would read as C:, a tab, then emp, which a path almost never
   means. The line is kept verbatim like E023: it binds nothing, a read on it

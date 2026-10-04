@@ -120,6 +120,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A skipped line that opens a raw block takes the block with it.
 
+- A malformed line that opens a raw block keeps the block with it, so the body no longer loads as fields and `fmt` writes it back under the line. A line that cannot be read at all still opens one when a fence follows its colon.
+
 - A carriage return is whitespace outside a raw block, at the edge of any piece.
 
 - Only a space, a tab or a carriage return is trimmed. A no-break space or other Unicode space at the end of a value is content.

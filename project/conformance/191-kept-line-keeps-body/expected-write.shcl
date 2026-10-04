@@ -1,0 +1,21 @@
+# A line kept for its name takes the raw block it opens, kept with it and
+# written back under it, so the body never reads as fields.
+tools:
+	my script: ~~~sh
+		echo hi
+		run: rm -rf /tmp/x
+		~~~
+	port: 9090
+"a\w": ```
+	x: 1
+	```
+deep:
+	after: 2
+# A misplaced line that opens a block takes it too, and is lost.
+a:
+	b: 1
+z: 4
+# A block that never closes gets its fence.
+last name: ~~~
+	tail: 9
+	~~~

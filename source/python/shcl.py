@@ -1697,8 +1697,20 @@ def _fence_open(rest):
 
 def _line_fence(tok):
 	"""The fence a field line's value opens, if it opens one. A line that did
-	not tokenize has no value to read."""
-	if tok.fault is not None or tok.sep is None:
+	not tokenize opens one too when a fence follows its first colon past
+	where it stopped making sense, with no comment before that colon. Read as
+	lines, such a body would bind, and its closing fence would open a block
+	of its own."""
+	if tok.fault is not None:
+		s = tok.src
+		sep = next((k for k in range(tok.fault[0], len(s)) if s[k] == 0x3A or _comment_at(s, k)), None)
+		if sep is None or s[sep] != 0x3A:
+			return None
+		value = Tokens()
+		value.src = s
+		_scan_value(s, sep + 1, Rules.CURRENT, value)
+		return _fence_open(s[value.value[0]:value.value[1]].decode("utf-8", "surrogatepass"))
+	if tok.sep is None:
 		return None
 	# A capped scan zeroed the value, and a fence is told by its leading run
 	# alone.
@@ -1870,8 +1882,8 @@ class _RawLines:
 def _opens_raw(rest: str, tok: Tokens) -> tuple[str, int] | None:
 	"""The raw block a line opens under the current rules: a fence line under a
 	field, or a field line whose value is a fence, read as the parser reads
-	them. A line refused for where it sits still takes its body. One refused
-	for its text may not yet, and then the file fails check anyway."""
+	them. A line refused for where it sits or for its text still takes its
+	body."""
 	rest = rest.lstrip(_WSP)
 	if rest[0] == "`" or rest[0] == "~":
 		fence = _child_fence(rest, tok)
@@ -2984,12 +2996,39 @@ class _Parser:
 		skips one comes through here, so a skipped line whose value opens a raw
 		block takes the body with it: read as lines, the body would bind or be
 		refused line by line, and its closing fence would open a block that runs
-		to the end of the file. A line whose path did not parse has no value to
-		read, so it goes alone."""
+		to the end of the file. A line whose path did not parse takes it too,
+		when a fence follows its colon (_line_fence)."""
 		fence = _line_fence(tok)
 		if fence is None:
 			return i + 1
 		return self._consume_raw(lines, i + 1, i + 1, indent, fence)[1]
+
+	def _keep_body(self, lines, i, indent, tok):
+		"""_skip_field_line() for a line the refusal just kept: the body is kept
+		too, on the end of the line's text, so a save writes it back under its
+		line and the load still holds one kept line for it. As in a field's
+		block, the closing fence's indent comes off each body line, and the
+		body goes one level under the line when it is written. A block that
+		never closed gets its closing fence, or whatever a save writes after it
+		would read as its body."""
+		fence = _line_fence(tok)
+		if fence is None:
+			return i + 1
+		ch, length = fence[0], fence[1]
+		nxt = self._consume_raw(lines, i + 1, i + 1, indent, fence)[1]
+		closed = nxt > i + 1 and _is_fence_close(lines[nxt - 1], ch, length)
+		if closed:
+			fence_line = lines[nxt - 1]
+			body, nest, close = lines[i + 1:nxt - 1], _leading_ws(fence_line), fence_line.strip(" \t")
+		else:
+			body, nest, close = lines[i + 1:nxt], indent, ch * length
+		if not self.pending:
+			return nxt
+		p = self.pending[-1]
+		p.text = "\n".join([p.text, *(_strip_common(ln, nest) for ln in body), close])
+		if nxt > i + 1:
+			self.ends.append((i + 1, nxt))
+		return nxt
 
 	def _attach_path(self, parent, segs, value, line, indent):
 		"""Walk path segments under `parent`, select-or-creating; returns the node
@@ -3471,14 +3510,15 @@ class _Parser:
 				# Content-malformed at any position, so retained - except a line
 				# led by a BOM, which the file-start strip would rewrite into
 				# something that can bind.
-				out = OUT_DROPPED if rest.startswith("\ufeff") else _out_retained(_trim_wsp_end(rest), had_blank)
+				bom = rest.startswith("\ufeff")
+				out = OUT_DROPPED if bom else _out_retained(_trim_wsp_end(rest), had_blank)
 				# The column counts bytes from the line start, so all four
 				# bindings report it the same on non-ASCII text. The indent
 				# and the blank run after it are blanks only, so their lengths
 				# are their byte counts.
 				col = len(indent) + lead + (tok.fault[0] if tok.fault else 0) + 1
 				self._refuse(lineno, "E014", f"malformed line skipped: {e.args[0]}, at column {col}", out, indent)
-				i += 1
+				i = self._skip_field_line(lines, i, indent, tok) if bom else self._keep_body(lines, i, indent, tok)
 				continue
 			nxt = i + 1
 			# A selector body takes the same open-quote rule as a value
@@ -3499,7 +3539,8 @@ class _Parser:
 				self._refuse(lineno, fault[0], fault[1], _out_retained(_trim_wsp_end(rest), had_blank), indent)
 				if _bad_escape(tok, False) is None:
 					self._hold_open(parent, segments, lineno, indent)
-				i = nxt
+				# Only a fault in the name leaves a fence to read here.
+				i = self._keep_body(lines, i, indent, tok)
 				continue
 			# Element cap: the whole line is refused, so a capped load never
 			# holds a truncated array that would read as the document's
@@ -3879,8 +3920,32 @@ def _push_leads(e, leads, base, at):
 			else:
 				e.refused(indent, open_, tail)
 		out.append("\t" * pad)
-		out.append(text)
-		out.append("\n")
+		_push_kept(e, text, pad)
+
+
+def _push_kept(e, text, pad):
+	"""A kept line, and the raw body and fence it took, if any, which go one
+	level under it, as a field's block does. The body moves with its line."""
+	out = e.out
+	line, nl, block = text.partition("\n")
+	out.append(line)
+	out.append("\n")
+	if not nl:
+		return
+	body_pad = "\t" * (pad + 1)
+	body = len(out)
+	lines, nl, fence = block.rpartition("\n")
+	if nl:
+		for ln in lines.split("\n"):
+			if ln:
+				out.append(body_pad)
+			out.append(ln)
+			out.append("\n")
+	if e.lines:
+		e.bodies.append((body, len(out), pad + 1))
+	out.append(body_pad)
+	out.append(fence)
+	out.append("\n")
 
 
 class _Marked:
