@@ -103,6 +103,35 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Commit: `0a6d1bb5`
 	- Test case: corpus 191 (`Ergr8Z4`) in all four; fuzz `EreT6dh` (open row taken out) and `EqGWdij` (its `E014` excuse taken out).
 
+- `migrate` exits 0 on a file whose raw block never closes, and leaves it unstamped
+	- ID: 2026100316275800
+	- Type: Bug
+	- Status: Waiting on signoff
+	- Severity: Avg
+	- Opened: 20261003-162758
+	- Opened by: signoff talk on 2026100307163903
+	- Related IDs: 2026100307163903
+	- Version and build: dev at `4eb17db4`
+	- Steps to reproduce:
+		- A file holding `a: 'x\ty'`, then `b: ~~~` and a tab-indented `line`, with no closing fence.
+		- `shcl migrate --from-2x --write f.shcl`
+	- Incorrect behavior: it prints `E005 unterminated raw block`, rewrites line 1, keeps `f_old_v2.shcl`, and exits 0. No Format line is added, so a later run cannot tell the file was migrated.
+	- Expected behavior: `check` already fails this file at 6. `migrate` should refuse at 7 and write nothing, since it cannot finish the job.
+	- Reproduced: 20261003, Rust CLI. The other three not checked yet.
+	- Possible cause: the no-stamp rule skips the stamp quietly rather than refusing.
+	- Note: a refusal fits the 2.x low-stakes rule. Fixing the fence then running `migrate` again does the whole job.
+	- Estimated effort: Low
+	- Reproduced: 20261004, all four CLIs. `--check` exited 6 over line 1 rather than refusing.
+	- Actual cause [Bug]: the library leaves the stamp off such a file, as designed, and the CLI went on to write the rest at exit 0.
+	- Actual fix [Bug]: `migrate` refuses at 7 when nothing is ambiguous and the migrated text still names no current format, which only an open raw block leaves. It asks `format_version` of the output rather than looking for the block itself. `--check` and the print form say the same, and `--write` writes nothing and keeps no copy. All four CLIs. Spec, design.md, the man page and the changelog say so.
+	- Swept: `do_migrate` in Rust, Go, Python and C. The library is unchanged. A program calling `migrate()` can ask `format_version()` of the result the same way.
+	- Verified: the repro exits 7 in all four, with the file untouched and no copy. The four conformance suites, `cli-regress.bash` (353 rows), `crosscheck.bash` over the corpus, `check-docs.bash`, `shell-regress.bash`, markdownlint, `test-ids.py check`, clippy (host and windows), go vet, staticcheck, ruff, mypy and shellcheck pass. `check-migrate.bash` passes with the change below.
+	- Note: left for signoff: the message, "a raw block never closes, so there is nowhere to put the Format line; close it and run migrate again".
+	- Branch: `migfix`
+	- Note: `check-migrate.bash` wanted exit 0 from every document 2.x read cleanly, and 2.x took an unterminated raw block as clean, so the refusal turned it red on 36 documents (corpus 056, 059, 075, 096, 097, 143 and 191, and 29 fuzz documents). Now a document whose 2.x check reports `E005` has to be refused at 7 over the open block, and its reads are still compared. It passes over 635 documents, 36 of them refused this way. It goes red when `migrate` refuses a document without an open block (582 divergences), and when the refusal is taken out (all 36, plus `Erklujb`).
+	- Commit: `673052a8`, and `5852d913` for the gate
+	- Test case: cli-regress `ErkalBb` (`--check`) and `ErkalBc` (`--write`, file unchanged), all four CLIs. Both fail on the old code and pass on the new. check-migrate `Eq5YPgP` over the corpus and fuzz dump, and `Erklujb` on corpus 096.
+
 - A bad escape in the name of a line that opens a raw block leaves the body to be read as lines
 	- ID: 2026100117214801
 	- Type: Bug
@@ -128,6 +157,30 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `rawkept`
 	- Commit: `0a6d1bb5`
 	- Test case: corpus 191 (`Ergr8Z4`), its line 9, in all four.
+
+- check-banner-tag trusts the push to be atomic and the tag to point at the cut
+	- ID: 2026100307163918
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Priority: Low
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 idea 2
+	- Version and build: dev at `6e8b7f89`
+	- Problem description:
+		- A push of `main` and the tag without `--atomic` passes the hook. If the remote turns down the tag, main is at the cut and the tag is missing. The hook cannot see `--atomic`.
+		- A pushed tag on any commit with a `project/spec.md` passes, even one at an older version. By reading only.
+	- Requirements:
+		- The script's header says it relies on `--atomic`, or the recipe's check after the push fails loudly.
+		- The tag must point at a commit whose version is the cut's.
+	- Progress log:
+		- 20261004: the item allowed either a header note with a loud check in the recipe, or a hook check. The first was taken. The hook gets the same ref list for an `--atomic` push and a plain one, so a rule there would either refuse the recipe's own push or miss the half-taken one. The recipe's run after the push reads what origin holds, however the push went. That choice, and the refusal of a remote tag this clone does not hold, are what is left to sign off.
+	- Actual fix:
+		- The tag, sent in the push or already on the remote, has to point at a commit with a spec whose version is the tag's. A remote tag this clone does not hold is refused at 2, with the fetch to run.
+		- The script's header says it relies on `--atomic`. The release recipe's run after the push now has to print `TAG OK`, and says to push the tags on their own at once when it does not.
+	- Verified: `Erkafzp` (a tag on a 2.0.0 commit, sent in the push and on the remote) and `Erkag2h` (a remote tag on a commit this clone lacks) failed on the old script and pass now. `check-push-gate.bash` passes.
+	- Branch: `gatefix`
+	- Commit: d7b7001a
+	- Test case: `check-push-gate` `Erkafzp`, `Erkag2h`. The `--atomic` half is a recipe step, with no test.
 
 - A canonical save after a merge and a raw set loses kept lines, found by the kept-lines fuzz
 	- ID: 2026100316012486
@@ -370,117 +423,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Commit: `46e6176a`
 	- Test case: `ErgToax` (Rust), `ErgToef` (Go), `ErgToiG` (Python), `ErgTom6` (C); cli-regress `ErgTonu`; corpus 187; fuzz `EreT6dh`.
 
-- `migrate` exits 0 on a file whose raw block never closes, and leaves it unstamped
-	- ID: 2026100316275800
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Avg
-	- Opened: 20261003-162758
-	- Opened by: signoff talk on 2026100307163903
-	- Related IDs: 2026100307163903
-	- Version and build: dev at `4eb17db4`
-	- Steps to reproduce:
-		- A file holding `a: 'x\ty'`, then `b: ~~~` and a tab-indented `line`, with no closing fence.
-		- `shcl migrate --from-2x --write f.shcl`
-	- Incorrect behavior: it prints `E005 unterminated raw block`, rewrites line 1, keeps `f_old_v2.shcl`, and exits 0. No Format line is added, so a later run cannot tell the file was migrated.
-	- Expected behavior: `check` already fails this file at 6. `migrate` should refuse at 7 and write nothing, since it cannot finish the job.
-	- Reproduced: 20261003, Rust CLI. The other three not checked yet.
-	- Possible cause: the no-stamp rule skips the stamp quietly rather than refusing.
-	- Note: a refusal fits the 2.x low-stakes rule. Fixing the fence then running `migrate` again does the whole job.
-	- Estimated effort: Low
-	- Reproduced: 20261004, all four CLIs. `--check` exited 6 over line 1 rather than refusing.
-	- Actual cause [Bug]: the library leaves the stamp off such a file, as designed, and the CLI went on to write the rest at exit 0.
-	- Actual fix [Bug]: `migrate` refuses at 7 when nothing is ambiguous and the migrated text still names no current format, which only an open raw block leaves. It asks `format_version` of the output rather than looking for the block itself. `--check` and the print form say the same, and `--write` writes nothing and keeps no copy. All four CLIs. Spec, design.md, the man page and the changelog say so.
-	- Swept: `do_migrate` in Rust, Go, Python and C. The library is unchanged. A program calling `migrate()` can ask `format_version()` of the result the same way.
-	- Verified: the repro exits 7 in all four, with the file untouched and no copy. The four conformance suites, `cli-regress.bash` (353 rows), `crosscheck.bash` over the corpus, `check-docs.bash`, `shell-regress.bash`, markdownlint, `test-ids.py check`, clippy (host and windows), go vet, staticcheck, ruff, mypy and shellcheck pass. `check-migrate.bash` passes with the change below.
-	- Note: left for signoff: the message, "a raw block never closes, so there is nowhere to put the Format line; close it and run migrate again".
-	- Branch: `migfix`
-	- Note: `check-migrate.bash` wanted exit 0 from every document 2.x read cleanly, and 2.x took an unterminated raw block as clean, so the refusal turned it red on 36 documents (corpus 056, 059, 075, 096, 097, 143 and 191, and 29 fuzz documents). Now a document whose 2.x check reports `E005` has to be refused at 7 over the open block, and its reads are still compared. It passes over 635 documents, 36 of them refused this way. It goes red when `migrate` refuses a document without an open block (582 divergences), and when the refusal is taken out (all 36, plus `Erklujb`).
-	- Commit: `673052a8`, and `5852d913` for the gate
-	- Test case: cli-regress `ErkalBb` (`--check`) and `ErkalBc` (`--write`, file unchanged), all four CLIs. Both fail on the old code and pass on the new. check-migrate `Eq5YPgP` over the corpus and fuzz dump, and `Erklujb` on corpus 096.
-
-- `migrate --check` exits 6 and `--write` keeps a needless copy when a CRLF file has no final newline
-	- ID: 2026100307163906
-	- Type: Bug
-	- Status: Done
-	- Severity: Avg
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 item 6
-	- Version and build: dev at `6e8b7f89`
-	- Steps to reproduce:
-		- `printf 'a: 1\r\nb: 2\r\nc: 3' > f.shcl`
-		- `shcl migrate --check f.shcl`, then `shcl migrate --write f.shcl`.
-	- Incorrect behavior: `--check` says line 3 would be rewritten, exit 6. `--write` reports 1 line rewritten and leaves `f_old_v2.shcl`. On base, exit 0 and no copy. A last line ending in a lone CR does the same in an LF file.
-	- Expected behavior: only the Format line is added, so `--check` names nothing and no 2.x original is kept.
-	- Reproduced: 20261003, all four.
-	- Possible cause: the stamp adds the majority ending after an unterminated last line, and `rewritten_lines` splits on `\n` only, so `c: 3` and `c: 3\r` compare as different.
-	- Origin: `8aa812a9` (migrate stamp eol, merged in `32088e0a`), from 20260930 idea 1. cli-regress `migcrlf` and `migtie` use files that end in a newline. Regression of a fresh fix. Confirmed.
-	- Sweep: `rewritten_lines` in all four CLIs.
-	- Estimated effort: Low
-	- Actual cause [Bug]: as above. A CRLF file whose last line ends in a lone CR did the same, since the stamp then added a second CR. The lone CR in an LF file did not reproduce: the stamp adds only an LF there, so the line compares equal.
-	- Actual fix [Bug]: `rewritten_lines` compares lines without their trailing CRs. `migrate` never changes those, so only the ending the stamp adds is left out. All four CLIs.
-	- Swept: `rewritten_lines` in Rust, Python and C and `rewrittenLines` in Go, the only line compare in each `migrate`.
-	- Verified: the repro gives exit 0 with nothing named from `--check`, and `--write` adds only the Format line and keeps no copy, in all four. Same gates as 2026100316275800.
-	- Branch: `migfix`
-	- Commit: `05f5871c`
-	- Test case: cli-regress `ErkalBd` to `ErkalBh`: `--check` and `--write` on a CRLF file with no final newline, the same on an LF file whose last line ends in a lone CR, and `--check` on a CRLF file whose last line does. `ErkalBd`, `ErkalBe` and `ErkalBh` fail on the old code and pass on the new; the two LF rows pass on both.
-	- Acceptance signoff: Self-closed: reproduced, its tests fail before the fix and pass after, and the sweep is answered.
-	- Closed: 20261004-100737
-
-- check-migrate leaves out the lines a broken migrate writes as E024, so it passes over a lost value
-	- ID: 2026100307163909
-	- Type: Bug
-	- Status: Done
-	- Severity: Avg
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 item 9
-	- Version and build: dev at `6e8b7f89`
-	- Steps to reproduce:
-		- In a scratch clone, wrap the debug `shcl` so `migrate` output has `C:\t` turned back into `C:\\t`, so it writes `p: "C:\temp"` at exit 0.
-		- Run `check-migrate.bash` over a small corpus with that case.
-	- Incorrect behavior: green either way. The injected run shows one more document "with lines taken out first".
-	- Expected behavior: a migrate that writes a line it cannot read back, at exit 0, fails the gate.
-	- Reproduced: 20261003, in a scratch clone. cli-regress `ErUn2Bt` catches this one spelling, not the class.
-	- Possible cause: `fPathBreak` picks the lines to take out by running `migrate` and looking for E024 in its output, so the code under test chooses what is not compared. The only check that migrate refuses such a line at 7 is in the branch where every unclean 2.x line is a bracket array.
-	- Origin: `c29f08fa` (gates, in `d2fbdacd` escblock). New since the last round. Confirmed.
-	- Estimated effort: Low
-	- Actual cause: `fPathBreak` took its lines from `migrate`'s own output, so a migrate that wrote a line it cannot read back picked that line to leave out of the comparison. Only a document whose unclean 2.x lines were all bracket arrays was checked for the refusal.
-	- Actual fix: the lines are found in the 2.x text: a value whose 2.x reading, written in double quotes, starts like a Windows path and holds a line break. Any document with one has to be refused at 7. The exact lost count is checked whenever its other unclean lines are bracket arrays or there are none.
-	- Swept: `fPathBreak` was the one place the gate asked `migrate` which lines to leave out. `fUnplaced` asks the current parser about the source, not migrate's output.
-	- Verified: with a `migrate` that turns `C:\\t` into `C:\t` in its output, the old gate passed and the new one fails on the read compare. With one that exits 0 over a lost path, `Eq5YPgP` stayed green on the old gate and goes red on the new one. The full gate passes: 635 documents, 11 lost counts checked (8 before). Over the corpus and a 2,000-iteration dump, the new line set matches the E024 lines in migrate's output everywhere but two fuzz lines 2.x refused anyway. `ErkiUcu` goes red with the share form left out.
-	- Branch: `gatefix`
-	- Commit: 9de427ea
-	- Test case: `check-migrate` `Eq5YPgP` and `ErkiUcu`; `ErUuq8D` still holds 170.
-	- Acceptance signoff: Self-closed: reproduced, and the gate was seen to fail on both injected defects after the fix and pass on the real `migrate`.
-	- Closed: 20261004-100557
-
-- check-banner-tag passes when it cannot read the banner's Syntax line
-	- ID: 2026100307163910
-	- Type: Bug
-	- Status: Done
-	- Severity: Avg
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 item 10
-	- Version and build: dev at `6e8b7f89`
-	- Steps to reproduce:
-		- A scratch repo at version `3.0.0-beta1` and an empty remote. Change the banner's `##    Syntax` line in `lib.rs` to `Syntax:`, `tree/` for `blob/`, or add a trailing space.
-		- Run `check-banner-tag.bash`.
-	- Incorrect behavior: exit 0 and nothing printed. The unchanged line gives exit 1, "has no such tag". A moved banner or a missing `lib.rs` reads as no tag needed too.
-	- Expected behavior: a version at or past the format's first tag with no readable Syntax tag fails.
-	- Reproduced: 20261003, scratch repo.
-	- Possible cause: `[[ -n "${tag}" ]] || exit 0` after one exact `sed` pattern. Nothing else pins the banner's text for this check; check-push-gate writes its own stub `lib.rs`.
-	- Origin: `62c1033f` (banner tag check), new since the last round. Confirmed.
-	- Estimated effort: Low
-	- Actual cause: an empty tag read as no tag due, so a Syntax line the pattern no longer matched, a moved banner or a missing `lib.rs` all passed.
-	- Actual fix: a tree at or past `3.0.0-beta1`, the first release whose banner names a tag, has to give the check a tag. If not, the push is refused at 2 with a message naming the file and the pattern. Below that version an untagged banner still passes, as main's 2.0.0 does. A new test pushes a cut built from the real `lib.rs`, so a banner change that leaves the pattern behind goes red there.
-	- Swept: the pre-push hook is the only caller, and the release recipe runs the same script after the push.
-	- Verified: `check-push-gate.bash` passes. `Erkafqf` failed on the old script for all five banners: `Syntax:`, `tree/`, a trailing space, no banner and no `lib.rs`. `Erkafx3` goes red with the real banner's spacing changed, and `ErkafuD` with the version floor removed. Against origin/main (2.0.0, banner links `main`) and dev, the check passes.
-	- Branch: `gatefix`
-	- Commit: d7b7001a
-	- Test case: `check-push-gate` `Erkafqf`, `ErkafuD`, `Erkafx3`.
-	- Acceptance signoff: Self-closed: reproduced, its test failed before the fix and passes after.
-	- Closed: 20261004-100557
-
 - Make sure the demo GIF is still accurate and current
 	- ID: 2026100306315606
 	- Type: Task
@@ -656,62 +598,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Sweep: `read_named_schema` in all four CLIs, and the Windows branch.
 	- Estimated effort: Low
 
-- crosscheck's line-ending replay skips without a word when the dump has no `eol/` folder
-	- ID: 2026100307163912
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 item 12
-	- Related IDs: 2026100114175701
-	- Version and build: dev at `6e8b7f89`
-	- Steps to reproduce:
-		- `SHCL_GATE_STRICT=1 SHCL_GATE_SKIPS=skips.txt crosscheck.bash --corpus project/conformance --extra DIR` with a `DIR` that has no `eol/`.
-	- Incorrect behavior: `skip ErUF4nK`, exit 0, and `skips.txt` stays empty. A local run would record the tree as green. Anything that stops `ErTmDwQ` dumping turns the replay off unseen.
-	- Expected behavior: a strict run fails, or the skip is logged where the skip lints see it.
-	- Reproduced: 20261003, scratch run.
-	- Possible cause: `crosscheck.bash:663` calls `fTestSkip` with no strict check and no "skipping (no" message.
-	- Origin: `8ee021ce` (crosscheck eol keep saves). The fix for 2026100114175701 covers an empty `eol/` and a missing `.ops`, not a missing folder. Confirmed.
-	- Estimated effort: Low
-	- Actual cause: the unit loop passed over a missing `eol/` or `kept/` with `continue`, and the test line then marked it skipped with no look at strict mode and nothing in the skip list.
-	- Actual fix: a dump given with `--extra` and missing either folder fails a strict run at 2. Otherwise crosscheck says it is skipping that folder and notes it in `SHCL_GATE_SKIPS`, so the tree is not recorded as green. shell-regress's crosscheck rows now run without the run's strict flag and skip list, since their stub dumps leave folders out on purpose.
-	- Swept: `kept/` had the same skip and goes through the same code. A run with no `--extra` still skips both without a note, since it asked for less.
-	- Verified: shell-regress row `Erkag5x` fails on the old crosscheck and passes now. A strict run over the corpus with a real dump missing `eol/` exits 2. With the full dump, strict, all four bindings agree on 40656 comparisons and nothing is noted as skipped.
-	- Branch: `gatefix`
-	- Commit: b27660f2
-	- Test case: `shell-regress` `Erkag5x`.
-	- Acceptance signoff: Self-closed: reproduced, its test failed before the fix and passes after.
-	- Closed: 20261004-100557
-
-- `migrate` counts lost values, not lines, in its refusal
-	- ID: 2026100410055748
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20261004-100557
-	- Opened by: found while fixing 2026100307163909
-	- Related IDs: 2026100307163909
-	- Version and build: dev at `25fa6d5b`
-	- Steps to reproduce:
-		- A file with `p: "C:\\a\nb", "D:\\c\nd"` on one line and `q: [1, 2]` on the next.
-		- `shcl migrate --from-2x FILE`
-	- Incorrect behavior: "3 line(s) bound a value under 2.x", exit 7. Two lines are lost.
-	- Expected behavior: 2 line(s), or a message that counts values.
-	- Reproduced: 20261004, all four.
-	- Possible cause: `value_edits` adds one to the lost count per value, not per line.
-	- Note: `check-migrate` counts lines, so a document like this in the corpus or the fuzz dump turns it red.
-	- Sweep: `value_edits` and its ports in all four CLIs.
-	- Estimated effort: Low
-	- Actual cause [Bug]: as above. `lost` is documented as lines in all four libraries, but each lost value added one.
-	- Actual fix [Bug]: the line loop in `migrate` counts a line once, however many of its values were lost. That covers `value_edits` and the selector sugar alike. All four libraries.
-	- Swept: `migrate_text` in Rust, `migrateText` in Go, `_migrate_text` in Python and `migrate` in C, each the one caller of its line rewrite that keeps the count. The raw-block walk calls the same rewrite with a throwaway count.
-	- Verified: the repro says 2 line(s) in all four. The four conformance suites, `cli-regress.bash` (354 rows), `crosscheck.bash` over the corpus, `check-migrate.bash` (11 lost counts match), `shell-regress.bash`, clippy (host and windows), go vet, staticcheck, ruff, mypy, the C++ veneer smoke test and gcc 15 with `_FORTIFY_SOURCE=3` pass.
-	- Branch: `migfix`
-	- Commit: `84b786ce`
-	- Test case: cli-regress `Erkljp5`, all four CLIs. It fails on the old code and passes on the new.
-	- Acceptance signoff: Self-closed: reproduced, its test fails before the fix and passes after, and the sweep is answered.
-	- Closed: 20261004-104626
-
 - The C CLI exits 6 where the other three exit 8 when a strict layer fails before a missing one
 	- ID: 2026100307163913
 	- Type: Bug
@@ -865,30 +751,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- `shcl explain H004` answers "did you mean 'E004'?" at exit 1 in all four. H004 became E024, so a reader with an old log is sent to an unrelated code.
 	- Requirements:
 		- `explain` on a retired code says what replaced it, in all four CLIs.
-
-- check-banner-tag trusts the push to be atomic and the tag to point at the cut
-	- ID: 2026100307163918
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Priority: Low
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 idea 2
-	- Version and build: dev at `6e8b7f89`
-	- Problem description:
-		- A push of `main` and the tag without `--atomic` passes the hook. If the remote turns down the tag, main is at the cut and the tag is missing. The hook cannot see `--atomic`.
-		- A pushed tag on any commit with a `project/spec.md` passes, even one at an older version. By reading only.
-	- Requirements:
-		- The script's header says it relies on `--atomic`, or the recipe's check after the push fails loudly.
-		- The tag must point at a commit whose version is the cut's.
-	- Progress log:
-		- 20261004: the item allowed either a header note with a loud check in the recipe, or a hook check. The first was taken. The hook gets the same ref list for an `--atomic` push and a plain one, so a rule there would either refuse the recipe's own push or miss the half-taken one. The recipe's run after the push reads what origin holds, however the push went. That choice, and the refusal of a remote tag this clone does not hold, are what is left to sign off.
-	- Actual fix:
-		- The tag, sent in the push or already on the remote, has to point at a commit with a spec whose version is the tag's. A remote tag this clone does not hold is refused at 2, with the fetch to run.
-		- The script's header says it relies on `--atomic`. The release recipe's run after the push now has to print `TAG OK`, and says to push the tags on their own at once when it does not.
-	- Verified: `Erkafzp` (a tag on a 2.0.0 commit, sent in the push and on the remote) and `Erkag2h` (a remote tag on a commit this clone lacks) failed on the old script and pass now. `check-push-gate.bash` passes.
-	- Branch: `gatefix`
-	- Commit: d7b7001a
-	- Test case: `check-push-gate` `Erkafzp`, `Erkag2h`. The `--atomic` half is a recipe step, with no test.
 
 - The kept-line property's merge step has two loose ends
 	- ID: 2026100313174977
@@ -1101,6 +963,88 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Swept: every test for a leading `#` on a comment line in all four. The merge's replaced-leaf rule is the one other site, filed as 2026092718195400.
 	- Branch: `keepdrop`
 	- Test case: corpus `178-clear-comments-kept-line`, both routes, with `comments` reads. It fails on the old code.
+
+- `migrate --check` exits 6 and `--write` keeps a needless copy when a CRLF file has no final newline
+	- ID: 2026100307163906
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 6
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- `printf 'a: 1\r\nb: 2\r\nc: 3' > f.shcl`
+		- `shcl migrate --check f.shcl`, then `shcl migrate --write f.shcl`.
+	- Incorrect behavior: `--check` says line 3 would be rewritten, exit 6. `--write` reports 1 line rewritten and leaves `f_old_v2.shcl`. On base, exit 0 and no copy. A last line ending in a lone CR does the same in an LF file.
+	- Expected behavior: only the Format line is added, so `--check` names nothing and no 2.x original is kept.
+	- Reproduced: 20261003, all four.
+	- Possible cause: the stamp adds the majority ending after an unterminated last line, and `rewritten_lines` splits on `\n` only, so `c: 3` and `c: 3\r` compare as different.
+	- Origin: `8aa812a9` (migrate stamp eol, merged in `32088e0a`), from 20260930 idea 1. cli-regress `migcrlf` and `migtie` use files that end in a newline. Regression of a fresh fix. Confirmed.
+	- Sweep: `rewritten_lines` in all four CLIs.
+	- Estimated effort: Low
+	- Actual cause [Bug]: as above. A CRLF file whose last line ends in a lone CR did the same, since the stamp then added a second CR. The lone CR in an LF file did not reproduce: the stamp adds only an LF there, so the line compares equal.
+	- Actual fix [Bug]: `rewritten_lines` compares lines without their trailing CRs. `migrate` never changes those, so only the ending the stamp adds is left out. All four CLIs.
+	- Swept: `rewritten_lines` in Rust, Python and C and `rewrittenLines` in Go, the only line compare in each `migrate`.
+	- Verified: the repro gives exit 0 with nothing named from `--check`, and `--write` adds only the Format line and keeps no copy, in all four. Same gates as 2026100316275800.
+	- Branch: `migfix`
+	- Commit: `05f5871c`
+	- Test case: cli-regress `ErkalBd` to `ErkalBh`: `--check` and `--write` on a CRLF file with no final newline, the same on an LF file whose last line ends in a lone CR, and `--check` on a CRLF file whose last line does. `ErkalBd`, `ErkalBe` and `ErkalBh` fail on the old code and pass on the new; the two LF rows pass on both.
+	- Acceptance signoff: Self-closed: reproduced, its tests fail before the fix and pass after, and the sweep is answered.
+	- Closed: 20261004-100737
+
+- check-migrate leaves out the lines a broken migrate writes as E024, so it passes over a lost value
+	- ID: 2026100307163909
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 9
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- In a scratch clone, wrap the debug `shcl` so `migrate` output has `C:\t` turned back into `C:\\t`, so it writes `p: "C:\temp"` at exit 0.
+		- Run `check-migrate.bash` over a small corpus with that case.
+	- Incorrect behavior: green either way. The injected run shows one more document "with lines taken out first".
+	- Expected behavior: a migrate that writes a line it cannot read back, at exit 0, fails the gate.
+	- Reproduced: 20261003, in a scratch clone. cli-regress `ErUn2Bt` catches this one spelling, not the class.
+	- Possible cause: `fPathBreak` picks the lines to take out by running `migrate` and looking for E024 in its output, so the code under test chooses what is not compared. The only check that migrate refuses such a line at 7 is in the branch where every unclean 2.x line is a bracket array.
+	- Origin: `c29f08fa` (gates, in `d2fbdacd` escblock). New since the last round. Confirmed.
+	- Estimated effort: Low
+	- Actual cause: `fPathBreak` took its lines from `migrate`'s own output, so a migrate that wrote a line it cannot read back picked that line to leave out of the comparison. Only a document whose unclean 2.x lines were all bracket arrays was checked for the refusal.
+	- Actual fix: the lines are found in the 2.x text: a value whose 2.x reading, written in double quotes, starts like a Windows path and holds a line break. Any document with one has to be refused at 7. The exact lost count is checked whenever its other unclean lines are bracket arrays or there are none.
+	- Swept: `fPathBreak` was the one place the gate asked `migrate` which lines to leave out. `fUnplaced` asks the current parser about the source, not migrate's output.
+	- Verified: with a `migrate` that turns `C:\\t` into `C:\t` in its output, the old gate passed and the new one fails on the read compare. With one that exits 0 over a lost path, `Eq5YPgP` stayed green on the old gate and goes red on the new one. The full gate passes: 635 documents, 11 lost counts checked (8 before). Over the corpus and a 2,000-iteration dump, the new line set matches the E024 lines in migrate's output everywhere but two fuzz lines 2.x refused anyway. `ErkiUcu` goes red with the share form left out.
+	- Branch: `gatefix`
+	- Commit: 9de427ea
+	- Test case: `check-migrate` `Eq5YPgP` and `ErkiUcu`; `ErUuq8D` still holds 170.
+	- Acceptance signoff: Self-closed: reproduced, and the gate was seen to fail on both injected defects after the fix and pass on the real `migrate`.
+	- Closed: 20261004-100557
+
+- check-banner-tag passes when it cannot read the banner's Syntax line
+	- ID: 2026100307163910
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 10
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- A scratch repo at version `3.0.0-beta1` and an empty remote. Change the banner's `##    Syntax` line in `lib.rs` to `Syntax:`, `tree/` for `blob/`, or add a trailing space.
+		- Run `check-banner-tag.bash`.
+	- Incorrect behavior: exit 0 and nothing printed. The unchanged line gives exit 1, "has no such tag". A moved banner or a missing `lib.rs` reads as no tag needed too.
+	- Expected behavior: a version at or past the format's first tag with no readable Syntax tag fails.
+	- Reproduced: 20261003, scratch repo.
+	- Possible cause: `[[ -n "${tag}" ]] || exit 0` after one exact `sed` pattern. Nothing else pins the banner's text for this check; check-push-gate writes its own stub `lib.rs`.
+	- Origin: `62c1033f` (banner tag check), new since the last round. Confirmed.
+	- Estimated effort: Low
+	- Actual cause: an empty tag read as no tag due, so a Syntax line the pattern no longer matched, a moved banner or a missing `lib.rs` all passed.
+	- Actual fix: a tree at or past `3.0.0-beta1`, the first release whose banner names a tag, has to give the check a tag. If not, the push is refused at 2 with a message naming the file and the pattern. Below that version an untagged banner still passes, as main's 2.0.0 does. A new test pushes a cut built from the real `lib.rs`, so a banner change that leaves the pattern behind goes red there.
+	- Swept: the pre-push hook is the only caller, and the release recipe runs the same script after the push.
+	- Verified: `check-push-gate.bash` passes. `Erkafqf` failed on the old script for all five banners: `Syntax:`, `tree/`, a trailing space, no banner and no `lib.rs`. `Erkafx3` goes red with the real banner's spacing changed, and `ErkafuD` with the version floor removed. Against origin/main (2.0.0, banner links `main`) and dev, the check passes.
+	- Branch: `gatefix`
+	- Commit: d7b7001a
+	- Test case: `check-push-gate` `Erkafqf`, `ErkafuD`, `Erkafx3`.
+	- Acceptance signoff: Self-closed: reproduced, its test failed before the fix and passes after.
+	- Closed: 20261004-100557
 
 - The hosted windows job's dogfood row still runs `shcl version`
 	- ID: 2026093009281083
@@ -1576,6 +1520,62 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `pathhint`
 	- Commit: `1a12c02`
 	- Test case: corpus `171-windows-path-hint`, cli-regress `path-hint-*` rows. The read and strict rows and case 171 fail with the hint off, and `path-hint-set` shows a write is unaffected. The migrate goldens of cases 118, 122 and 170 now list the hint.
+
+- crosscheck's line-ending replay skips without a word when the dump has no `eol/` folder
+	- ID: 2026100307163912
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 12
+	- Related IDs: 2026100114175701
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- `SHCL_GATE_STRICT=1 SHCL_GATE_SKIPS=skips.txt crosscheck.bash --corpus project/conformance --extra DIR` with a `DIR` that has no `eol/`.
+	- Incorrect behavior: `skip ErUF4nK`, exit 0, and `skips.txt` stays empty. A local run would record the tree as green. Anything that stops `ErTmDwQ` dumping turns the replay off unseen.
+	- Expected behavior: a strict run fails, or the skip is logged where the skip lints see it.
+	- Reproduced: 20261003, scratch run.
+	- Possible cause: `crosscheck.bash:663` calls `fTestSkip` with no strict check and no "skipping (no" message.
+	- Origin: `8ee021ce` (crosscheck eol keep saves). The fix for 2026100114175701 covers an empty `eol/` and a missing `.ops`, not a missing folder. Confirmed.
+	- Estimated effort: Low
+	- Actual cause: the unit loop passed over a missing `eol/` or `kept/` with `continue`, and the test line then marked it skipped with no look at strict mode and nothing in the skip list.
+	- Actual fix: a dump given with `--extra` and missing either folder fails a strict run at 2. Otherwise crosscheck says it is skipping that folder and notes it in `SHCL_GATE_SKIPS`, so the tree is not recorded as green. shell-regress's crosscheck rows now run without the run's strict flag and skip list, since their stub dumps leave folders out on purpose.
+	- Swept: `kept/` had the same skip and goes through the same code. A run with no `--extra` still skips both without a note, since it asked for less.
+	- Verified: shell-regress row `Erkag5x` fails on the old crosscheck and passes now. A strict run over the corpus with a real dump missing `eol/` exits 2. With the full dump, strict, all four bindings agree on 40656 comparisons and nothing is noted as skipped.
+	- Branch: `gatefix`
+	- Commit: b27660f2
+	- Test case: `shell-regress` `Erkag5x`.
+	- Acceptance signoff: Self-closed: reproduced, its test failed before the fix and passes after.
+	- Closed: 20261004-100557
+
+- `migrate` counts lost values, not lines, in its refusal
+	- ID: 2026100410055748
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261004-100557
+	- Opened by: found while fixing 2026100307163909
+	- Related IDs: 2026100307163909
+	- Version and build: dev at `25fa6d5b`
+	- Steps to reproduce:
+		- A file with `p: "C:\\a\nb", "D:\\c\nd"` on one line and `q: [1, 2]` on the next.
+		- `shcl migrate --from-2x FILE`
+	- Incorrect behavior: "3 line(s) bound a value under 2.x", exit 7. Two lines are lost.
+	- Expected behavior: 2 line(s), or a message that counts values.
+	- Reproduced: 20261004, all four.
+	- Possible cause: `value_edits` adds one to the lost count per value, not per line.
+	- Note: `check-migrate` counts lines, so a document like this in the corpus or the fuzz dump turns it red.
+	- Sweep: `value_edits` and its ports in all four CLIs.
+	- Estimated effort: Low
+	- Actual cause [Bug]: as above. `lost` is documented as lines in all four libraries, but each lost value added one.
+	- Actual fix [Bug]: the line loop in `migrate` counts a line once, however many of its values were lost. That covers `value_edits` and the selector sugar alike. All four libraries.
+	- Swept: `migrate_text` in Rust, `migrateText` in Go, `_migrate_text` in Python and `migrate` in C, each the one caller of its line rewrite that keeps the count. The raw-block walk calls the same rewrite with a throwaway count.
+	- Verified: the repro says 2 line(s) in all four. The four conformance suites, `cli-regress.bash` (354 rows), `crosscheck.bash` over the corpus, `check-migrate.bash` (11 lost counts match), `shell-regress.bash`, clippy (host and windows), go vet, staticcheck, ruff, mypy, the C++ veneer smoke test and gcc 15 with `_FORTIFY_SOURCE=3` pass.
+	- Branch: `migfix`
+	- Commit: `84b786ce`
+	- Test case: cli-regress `Erkljp5`, all four CLIs. It fails on the old code and passes on the new.
+	- Acceptance signoff: Self-closed: reproduced, its test fails before the fix and passes after, and the sweep is answered.
+	- Closed: 20261004-104626
 
 - On Windows the Python save may write CRLF line endings
 	- ID: 2026093012535909
