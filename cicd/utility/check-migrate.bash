@@ -31,7 +31,9 @@
 ##		never in migrate's output. Each is asserted on a corpus case, so the
 ##		list cannot rot.
 ##
-##		A compared document also has to migrate at exit 0. A document with a
+##		A compared document also has to migrate at exit 0, unless 2.x read a
+##		raw block that never closes: the Format line would be more of its body,
+##		so migrate refuses that file at 7, and has to. A document with a
 ##		path that held a line break has to be refused at 7, and one whose only
 ##		unclean lines are bracket arrays and such paths has to be refused over
 ##		exactly that many lost lines. The corpus half has its own floor, since the fuzz
@@ -258,6 +260,10 @@ for n, line in enumerate(lines, 1):
 			print(n); break
 ' "$1"; }
 
+##	2.x read the body of a raw block that never closes to the end of the file
+##	(E005, a clean code above). Asked of 2.x, not of migrate's output.
+fRawOpen2x(){ awk '$1 == "line" && $4 == "E005" { found = 1 } END { exit !found }' <<<"$(fCheck2x "$1")"; }
+
 fUnplaced(){
 	{ "${newCli}" check "$1" 2>/dev/null || true; } | awk '$1 == "line" && $4 == "E012" { sub(/:$/, "", $2); print $2 }'
 }
@@ -283,7 +289,7 @@ fTrim(){
 	return 1
 }
 
-declare -i nCompared=0 nCorpus=0 nTrimmed=0 nSkipped=0 nBad=0 nLostChecked=0
+declare -i nCompared=0 nCorpus=0 nTrimmed=0 nSkipped=0 nBad=0 nLostChecked=0 nRawOpen=0
 fTest Eq5YPgP corpus and fuzz documents migrate to the tree 2.x read
 for f in "${corpus}"/*/input.shcl "${dump}"/*.shcl; do
 	[[ -f "${f}" ]] || continue
@@ -319,8 +325,15 @@ for f in "${corpus}"/*/input.shcl "${dump}"/*.shcl; do
 	if ! fTrim "${f}" "${tmpDir}/original.shcl" "${check2x}"; then nSkipped+=1; continue; fi
 	cmp -s "${f}" "${tmpDir}/original.shcl" || nTrimmed+=1
 	f="${tmpDir}/original.shcl"
-	rc=0; "${newCli}" migrate --from-2x "${f}" > "${tmpDir}/migrated.shcl" 2>/dev/null || rc=$?
-	if ((rc != 0)); then
+	rc=0; "${newCli}" migrate --from-2x "${f}" > "${tmpDir}/migrated.shcl" 2>"${tmpDir}/migrate.err" || rc=$?
+	## The refusal still prints the migrated text, so the reads below compare it.
+	if fRawOpen2x "${f}"; then
+		nRawOpen+=1
+		if ((rc != 7)) || ! grep -q 'nowhere to put the Format line' "${tmpDir}/migrate.err"; then
+			nBad+=1
+			echo "check-migrate: DIVERGE ${name}: 2.x read a raw block that never closes, and migrate exited ${rc} without refusing over it"
+		fi
+	elif ((rc != 0)); then
 		nBad+=1
 		echo "check-migrate: DIVERGE ${name}: 2.x read it cleanly, and migrate exited ${rc}"
 	fi
@@ -357,6 +370,10 @@ fTest ErkiUcu the paths that held a line break in 171 are found in its 2.x text
 breaks171="$(fPathBreak "${corpus}/171-windows-path-escape/input.shcl" | paste -sd ' ')"
 [[ "${breaks171}" == "3 4 11" ]] \
 	|| { echo "check-migrate: 171-windows-path-escape has paths that held a line break on lines '${breaks171}', not '3 4 11'" >&2; nBad+=1; }
+fTest Erklujb 096 is refused for the raw block 2.x read to the end
+rawRc=0; "${newCli}" migrate --from-2x "${corpus}/096-raw-unterminated-eof/input.shcl" >/dev/null 2>"${tmpDir}/migrate.err" || rawRc=$?
+{ fRawOpen2x "${corpus}/096-raw-unterminated-eof/input.shcl" && ((rawRc == 7)) && grep -q 'nowhere to put the Format line' "${tmpDir}/migrate.err"; } \
+	|| { echo "check-migrate: 096-raw-unterminated-eof is no longer an open raw block under 2.x that migrate refuses (exit ${rawRc})" >&2; nBad+=1; }
 fTest EpUIoZe 094 still has a mid-line carriage return
 fCrMidLine "${corpus}/094-unicode-space/input.shcl" 2>/dev/null \
 	|| { echo "check-migrate: 094-unicode-space no longer has a mid-line carriage return" >&2; nBad+=1; }
@@ -385,7 +402,7 @@ if ((nBad)); then
 	echo "check-migrate: ${nBad} divergence(s) over ${nCompared} document(s) (${nSkipped} skipped)" >&2
 	exit 1
 fi
-echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, ${nCorpus} corpus cases, $((nCompared - nCorpus)) fuzz-dumped and ${nTrimmed} with lines taken out first; ${nLostChecked} lost count(s) match; ${nSkipped} skipped"
+echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, ${nCorpus} corpus cases, $((nCompared - nCorpus)) fuzz-dumped and ${nTrimmed} with lines taken out first; ${nLostChecked} lost count(s) match; ${nRawOpen} refused for an open raw block; ${nSkipped} skipped"
 
 ##	History:
 ##		2026-09-08  Created with the 3.0 lexical cut, pinned on the funnel merge.
@@ -399,3 +416,5 @@ echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, 
 ##		2026-10-04  Paths that held a line break are found in the 2.x text rather
 ##		            than in migrate's output, and any document with one has to
 ##		            be refused at 7.
+##		2026-10-04  A document 2.x read with a raw block that never closes has to
+##		            be refused at 7 over it, and its reads still compare.
