@@ -33,235 +33,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
-- Removing the only line under a lazily opened field leaves a bare `name:`, and the field later reads as Multiple
-	- ID: 2026100307163907
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Avg
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 item 7
-	- Related IDs: 2026100213205957
-	- Version and build: dev at `6e8b7f89`
-	- Steps to reproduce:
-		- `printf 'a: [1]\n\tb: 2\ny: 3\n' > f.shcl`
-		- `shcl set f.shcl --remove a.b --write`, then fix the first line to `a: 1, 2` as E019 asks.
-	- Incorrect behavior: the save writes `a: [1]`, `a:`, `y: 3` at exit 0. After the fix `get a` exits 5 and `count a` is 2, so a read with a default quietly gets the default.
-	- Expected behavior: a field opened only by the lines under it goes away with the last of them, as the escblock decision says.
-	- Reproduced: 20261003, all four.
-	- Possible cause: the lazily opened node outlives its last child, and `heads_block` needs at least one child, so the writer puts out the kept line and then a bare `a:`.
-	- Origin: `3ef0bc8c` (escblock), new since the last round. Not the trigger of 2026100213205957, which is the load; this one is an edit. Confirmed.
-	- Note: 20261003, `set f.shcl --set a=5` on the same file writes a second line, `a: 5`, after the kept `a: [1]`, with `b` under the new one. Once the first line is fixed, `a` reads as Multiple the same way. Same class, found while designing 2026100307310000. Confirmed on dev at `1e2e4210`, Rust CLI.
-	- Note: 20261003, from 2026100307310000. The kept-lines property `EreT6dh` skips this class through its row keyed by this ID, and the fix takes the row out.
-	- Estimated effort: Low
-	- Actual cause [Bug]: as above. The node a kept line opened outlived its last child.
-	- Progress log:
-		- 20261003: fixed in all four, with 2026100307163901. After a remove, a field opened from a kept line with nothing left under it goes too, and its lines stay where it stood. A field above it opened the same way follows. Corpus 187's two goldens had the bare `inner:` line from this bug; both now end that block at `inner: [x]`.
-		- 20261003: the `--set a=5` note is left as design.md's table has it: a setter keeps the kept line heading its target. The set writes `a: 5` under the kept `a: [1]` and reads 5. Once line 1 is fixed by hand, `a` reads as Multiple and `check` says nothing.
-		- Question: should a setter on a field opened from a kept line keep the table's rule, or do something else, such as refuse, or write the kept line as a comment?
-		- 20261004, answered: a setter writes the kept line as a comment, says why and when, and the set then goes ahead, so the file has one `a`. The example given was `# a: [1]  ## Invalid original value commented out by shcl on 'set' command, YYYY-mm-DD HH:MM:SS.`, to be made exact.
-		- Proposed text, OK'd 20261004: `# a: [1]  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 bracket array syntax`. It names the path, since library setters do this too and not only `set`. It names the code and message the load gave, since that is the actual reason.
-		- The time is local, with the zone's short name, or its offset such as `UTC-07:00` when no short name is known (the user, 20261004). Windows gives only long names like "Pacific Daylight Time", so it writes the offset. Tests pin the clock and zone through an override.
-		- Rust has no crates to lean on here. Local time comes from `localtime_r` on POSIX and the Win32 time zone calls on Windows, declared by hand like the existing `ReplaceFile` ones.
-		- 20261004: setter half fixed in all four. A setter on a field opened from a kept line writes that line as the OK'd comment, then sets. The line is a plain comment from then on, as a reload reads it, so `ClearComments` and a remove of the field take it. `SHCL_TEST_CLOCK` pins the time for tests, and cli-regress and crosscheck set it. design.md's setter row, spec.md and the changelog say so.
-		- 20261004: `EreT6dh` had no row left for this item, since the remove half took it out. It now counts a setter's comment, by its note, as the line it was. A 300,000 run reached that path 8,516 times.
-		- Question: a setter that creates a field leaves a kept line naming it beside the new one, as the table's beside column says. From `a: [1]` and `y: 3`, `set a=5` writes `a: 5` at the end, and once line 1 is fixed `a` reads as Multiple. `--remove a.b --set a=1` on the item's file ends the same way. Should a setter comment that line out too?
-	- Actual fix [Bug]: `remove` drops such a field once its last child goes, in all four. A setter on such a field writes its kept line as a comment with a note, then sets, in all four.
-	- Swept: as 2026100307163901. Setter half: every setter in all four goes through one `set_value`. The other value writes are the parser's own fills and merge, whose row is 2026100313174974.
-	- Verified: 20261004, the four suites, cli-regress over the four CLIs, crosscheck with a fresh fuzz dump, check-docs, clippy for the host and windows, go vet and staticcheck, ruff and mypy, cppcheck, shellcheck, the test ID check, markdownlint, and the 2,000,000 release fuzz. Each new test failed with the fix taken out. The Rust and C windows paths ran under wine and wrote the offset.
-	- Branch: `removekept`, `setkept`
-	- Commit: `46e6176a`, `80d64922`
-	- Test case: `ErgToax` (Rust), `ErgToef` (Go), `ErgToiG` (Python), `ErgTom6` (C); cli-regress `ErgTonu`; corpus 187; fuzz `EreT6dh`. Setter: `ErleUnO` and `ErleV68` (Rust), `Erlf124` and `Erlf14o` (Go), `Erlf17j` and `Erlf1AN` (Python), `Erlf1DT` and `Erlf1GC` (C); cli-regress `Erlf1Is`.
-
-- The zsh completion still says `set` prints the canonical form
-	- ID: 2026100307163915
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 item 15
-	- Version and build: dev at `6e8b7f89`
-	- Steps to reproduce:
-		- Read `source/completions/_shcl:63`.
-	- Incorrect behavior: `'set:apply edits and print the canonical form'`. `set` has kept unedited lines as written since the keep save went in.
-	- Expected behavior: the same summary as the help's `set` line.
-	- Reproduced: 20261003, by reading, against `shcl --help`.
-	- Origin: `012a2b4f` (2026-08-19), and the keep save made it stale. Confirmed.
-	- Estimated effort: Low
-	- Actual fix: the zsh summary now reads "apply edits and print the file with the edited lines changed", from the help's own words. check-completions also holds every zsh summary to the help: each word of five letters or more has to be in that subcommand's help entry.
-	- Swept: the bash completion has no summaries, and there are no fish or PowerShell completions. No other zsh summary disagrees with the help. The man page's `set` entry already says unedited lines come back as written.
-	- Verified: check-completions `ErlbzxH` fails on the old summary and passes on the new one. shellcheck passes.
-	- Branch: clismall
-	- Test case: check-completions `ErlbzxH`.
-	- Acceptance signoff: wording of the new summary.
-
-- The man page says the wrappers are installed beside `shcl`, and no install puts them there
-	- ID: 2026100307163916
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 item 16
-	- Version and build: dev at `6e8b7f89`
-	- Steps to reproduce:
-		- `install.bash` into a scratch HOME, take `~/.local/bin` off PATH, then `bash ~/.local/share/shcl/scripts/shcl.bash --version`.
-	- Incorrect behavior: "cannot find a shcl binary", exit 1, though the binary is at `../shcl`. `shcl.1:833` says the wrappers sit beside the command. `install.bash` puts them in `scripts/`, and the deb and rpm in `/usr/share/shcl/scripts`, so `shcl.bash`'s lookup beside itself never finds one.
-	- Expected behavior: the man page names where they go, and the wrapper looks where the installers put the binary.
-	- Reproduced: 20261003, `install.bash` with stub downloads. `install.ps1` is Plausible, by reading.
-	- Origin: `84ceff51` (2026-08-30) for the man line. The installer was right; the claim and the lookup were not. Confirmed.
-	- Estimated effort: Low
-	- Actual fix: the man page names the wrappers and where they go: `/usr/share/shcl/scripts` from the .deb and .rpm, and `scripts` under the install directory from the other installers. Both wrappers now also look a level up from themselves, where every installer but the packages puts the binary, before PATH. The packages put the binary in `/usr/bin`, which PATH finds.
-	- Swept: `install.bash`, `install.ps1`, the NSIS setup and nfpm.yaml all put the wrappers in `scripts` beside the binary, or in `/usr/share/shcl/scripts` with the binary in `/usr/bin`. No installer changed. The README makes no claim about where the wrappers sit. Both wrapper headers now list the new step.
-	- Verified: shell-regress `ErlisVv` (bash) and `ErlisYf` (pwsh) lay out an install with a stub binary a level up and no shcl on PATH. Both wrappers from dev said "cannot find a shcl binary"; both now run the stub. shell-regress, shellcheck and PSScriptAnalyzer pass, and the man page renders at 80 columns.
-	- Branch: clismall
-	- Test case: shell-regress `ErlisVv` and `ErlisYf`.
-	- Acceptance signoff: the man page wording.
-
-- The E019, E023 and E024 text says a read on the field is NotFound, but it is Empty when lines load under it
-	- ID: 2026100307163914
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 item 14
-	- Version and build: dev at `6e8b7f89`
-	- Steps to reproduce:
-		- `printf 'a: "C:\\temp"\n\tb: 1\n' > f.shcl`
-		- `shcl get f.shcl a; echo $?`, and `shcl explain E024`.
-	- Incorrect behavior: `get` exits 2, Empty, and `count a` is 1. The spec rows and `explain` for E024 say NotFound. E019 and E023 say the same, softened by "under the field with no value".
-	- Expected behavior: the text says a read is NotFound with nothing under it, and Empty once a line under it loads.
-	- Reproduced: 20261003, all four.
-	- Origin: `3ef0bc8c` and `752f2177` (escblock and its docs). Confirmed.
-	- Sweep: the spec rows, `explain` in all four CLIs, design.md and value-syntax.md.
-	- Estimated effort: Low
-	- Actual fix [Bug]: the spec rows, `explain` in all four CLIs, design.md and value-syntax.md now say a read on the field is NotFound with nothing under it and Empty once a line under it loads. value-syntax.md changed in that sentence only.
-	- Swept: spec rows `E019`, `E023`, `E024`; `explain` for the three codes in Rust, Go, Python and C, byte-identical; design.md Load outcomes, Retained; value-syntax.md, Errors and kept lines. README and the man page make no NotFound claim for these codes.
-	- Verified: cli-regress over the four CLIs passes, 362 rows. Against dev's Go and C CLIs, the three `explain` rows fail and the three `get` rows pass, since only the text changed.
-	- Branch: `doctext`
-	- Commit: `28ef9598`
-	- Test case: cli-regress `Erlr8eZ`, `Erlr8gU`, `Erlr8iQ` (`get` exits 2 for `E019`, `E023` and `E024` with a line under), `Erlr21T`, `Erlr23g`, `Erlr25Z` (`explain` text for the three).
-	- Acceptance signoff: waits on signoff for the `explain` wording.
-
-- README, the man page and the UI guide say a save refuses only over lines the load dropped
-	- ID: 2026100313174975
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Opened: 20261003-131749
-	- Opened by: the review of 2026100307310000, round 1
-	- Parent ID: 2026100307310000
-	- Version and build: dev at `e74c95bd`
-	- Incorrect behavior: all three describe the refusal as over a line the load dropped. Since 2026100307310000 it also refuses when an edit would lose a kept line. Incomplete, not wrong. None quotes the message, so they were left alone with the Q1 wording change.
-	- Expected behavior: they say the save refuses when the write would delete lines or values from the file, whatever the cause.
-	- Estimated effort: Low
-	- Actual fix [Bug]: each one now says the save refuses when the write would delete lines or values from the file. Only that claim changed.
-	- Swept: README (the intro bullet, the CLI paragraph, the five save comments in the code examples, and "What saving does"), the man page (`--lossy`, WRITING IN PLACE, exit 7), the UI guide, the spec's refusal bullet, and the CLI help in all four (`--lossy` and the paragraph after the options). The help stays byte-identical across the four. README's keep-lines paragraph still holds as written, since that save refuses only when it falls back.
-	- Verified: check-docs, check-readme, markdownlint on the changed docs, and cli-regress over the four CLIs (help width rows included) all pass.
-	- Branch: `doctext`
-	- Commit: `28ef9598`
-	- Test case: none, wording only. The behavior is `EreYYXK` and the per-binding `kept_gate` tests.
-	- Acceptance signoff: waits on signoff for the README and help wording.
-
-- `Remove` of the last key under a repeated header leaves the header and takes the blank line
-	- ID: 2026100115323232
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Opened: 20261001-153232
-	- Opened by: gitsby feedback
-	- Version and build: dev at `b10c2009`
-	- Steps to reproduce:
-		- `ParseKeepLines("account: w\n\temail: a@x\n\naccount: w\n\tname: W\n", Standard)`
-		- `Remove("account[#0].name")`, then `ToTextKeepLines()`.
-	- Incorrect behavior: `account: w\n\temail: a@x\naccount: w\n`, kept true. The second `account: w` stays with nothing under it, and the blank line between the blocks is gone.
-	- Expected behavior: the emptied header goes with its last key, since the first block already holds that instance, and the blank line above it goes too. Or both stay. Not one of each.
-	- Reproduced: Yes, 20261001, Go module at `b10c2009`. It reads back the same, so it is cosmetic.
-	- Reproduced: Yes, 20261004, all four at `f97003c8`. The blank line above a repeated header was lost on any edit, not only this remove: `--set=s.a=5` on `s:`, `a: 1`, a blank, `s:`, `b: 2` dropped it too, with both headers kept.
-	- Actual cause: the save that keeps lines writes a repeat the load folded away as a source line that no group stands for. It wrote that line whether or not anything under it was left, and it wrote the blank lines around it only when the canonical form had a blank there, which it never does for a folded repeat.
-	- Actual fix: all four bindings. A repeat header goes when the edits took every line under it, and the blank lines above it go with it. While anything under it stays, the header stays with the blank lines above it. This is remove's one rule for a header: a remove writes no line the document did not write before. A field that still exists keeps its `name:` line, as `b:` does once `b.c` is gone. A folded repeat writes nothing of its own, so it goes with the last line under it.
-	- Note: design.md's notes under "Kept lines under edits" could say this. Left for the docs pass, which is on another branch.
-	- Swept: both places the save writes lines no group stands for, the gap between two kept groups and the flush after a kept group, in all four. The first-group and end-of-file paths write the source's own leading and trailing lines whole and needed nothing.
-	- Verified: the four conformance suites, cli-regress, crosscheck over the corpus and a 2000-iteration fuzz dump (40656 comparisons), shell-regress, check-docs, test-ids, clippy for both targets, go vet, staticcheck, ruff, mypy, gcc 14 and 15, clang and mingw at `-Werror`, cppcheck at the normal level, and the 2,000,000 release fuzz. Both new rows fail on `f97003c8`'s libraries in all four and pass with the fix.
-	- Needs local test suite run?: full `--ci` at the next main push, for exhaustive cppcheck.
-	- Branch: keepcosm
-	- Test case: cli-regress `Erls2uy` (`remove-emptied-repeat-header`), `Erls2uz` (`set-keeps-blank-above-repeat`).
-
-- New lines from a keep-lines save copy an odd block's indent step
-	- ID: 2026100115403386
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Opened: 20261001-154033
-	- Opened by: silkterm feedback
-	- Version and build: dev at `b10c2009`
-	- Steps to reproduce:
-		- `parse_keep_lines("window:\n\t\topacity: 1.0\nwindow:\n\tcolumns: 80\n", Standard)`
-		- `set_string("shell.list.bash.command", "/bin/bash")`, then `to_text_keep_lines()`.
-	- Incorrect behavior: the new block comes out as `shell:\n\t\tlist:\n\t\t\t\tbash:\n\t\t\t\t\t\tcommand: /bin/bash`, two tabs a level, taken from the first `window:` block. Every other block in the file uses one.
-	- Expected behavior: a new block takes the indent most of the file uses, or one tab, rather than the first block's.
-	- Reproduced: Yes, 20261001, Rust at `b10c2009`. It reads back right, so it is cosmetic.
-	- Reproduced: Yes, 20261004, all four at `f8c0685e`.
-	- Actual cause: the save that keeps lines took its indent step from the first line one level in, so the first block set it for every new level in the file.
-	- Decisions:
-		- 20261004: a new level takes the step most blocks use, each block counted once. A tie goes to one tab when that is one of the tied steps, else to the first block's. One tab for every new level was the simpler rule, but in a file indented with spaces it writes a tab after the spaces on a new nested line, which reads worse. Canonical output still indents with tabs whatever the input used. This only changes new lines in a save that keeps the file's own lines.
-	- Actual fix: all four bindings. The step is counted per block, from each block's first line one level in. Lines that already sit at a level still set the indent of new lines next to them, as before.
-	- Swept: the one place the step is chosen, in the save that keeps lines, in all four. Canonical output does not use it.
-	- Verified: the four conformance suites, cli-regress, crosscheck over the corpus and a 2000-iteration fuzz dump (40656 comparisons), shell-regress, check-docs, test-ids, clippy for both targets, go vet, staticcheck, ruff, mypy, gcc 14 and 15, clang and mingw at `-Werror`, cppcheck at the normal level, and the 2,000,000 release fuzz. Both new rows fail on `f8c0685e`'s libraries in all four and pass with the fix.
-	- Needs local test suite run?: full `--ci` at the next main push, for exhaustive cppcheck.
-	- Branch: keepcosm
-	- Test case: cli-regress `Erls2v0` (`set-new-block-majority-step`), `Erls2v1` (`set-new-block-space-step`).
-
-- `set` on a file ending in a kept line writes the new key above it
-	- ID: 2026100117214802
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Note: 20261002, under 2026100207032800 this repro has no kept line. Any other kept line, such as `a: My App`, does the same thing, so the bug stays.
-	- Opened: 20261001-172148
-	- Opened by: found while working 2026100115323227
-	- Version and build: dev at `5956ff4a`
-	- Steps to reproduce:
-		- `printf 'a: "C:\\work"\n' | shcl set - --set b=1`
-	- Incorrect behavior: `b: 1`, then `a: "C:\work"`. The kept line moved below the new one.
-	- Expected behavior: the kept line stays where it was, with the new key after it.
-	- Reproduced: Yes, 20261001, Rust at `5956ff4a`. It reads back the same, so it is cosmetic.
-	- Reproduced: Yes, 20261004, all four at `c3eb6db7`, with `x: 1` then `a: [1]`, and with a kept line ending an inner block (`s:` then `a: [1]` under it, setting `s.b`).
-	- Actual cause: a new field goes after the last field of its block, and the lines that end the block are written after every field: the footer at the top, the block's own end lines below it. A kept line among them moved below the new field.
-	- Actual fix: all four bindings. A new field takes the kept lines that end its block, with the comments before them, as the lines above it, which is where a reload files them. Comments after the last kept line stay at the end. So does a kept line the settle wrote as a comment, since a reload reads it as one.
-	- Note: corpus 065's write goldens had the new `q` above the kept `ports` line. Both now have it after.
-	- Swept: the one place a write creates a field, `new_child` in all four, which every setter and `SetComment` go through. A merge puts a layer's fields in the layer's order, so it is not this case.
-	- Verified: the four conformance suites, cli-regress, crosscheck over the corpus and a 2000-iteration fuzz dump (40656 comparisons), shell-regress, check-docs, test-ids, clippy for both targets, go vet, staticcheck, ruff, mypy, gcc 14 and 15, clang and mingw at `-Werror`, cppcheck at the normal level, and the 2,000,000 release fuzz. The new rows and corpus 065 fail on `c3eb6db7`'s libraries in all four and pass with the fix.
-	- Needs local test suite run?: full `--ci` at the next main push, for exhaustive cppcheck.
-	- Branch: keepcosm
-	- Test case: cli-regress `Erls2uw` (`set-new-key-after-kept-end`), `Erls2ux` (`set-new-key-after-kept-in-block`); corpus `065-bracket-array`.
-
-- A comment between nested kept lines is written at column 0
-	- ID: 2026100218185700
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Opened: 20261002-181857
-	- Opened by: question on 2026100213205957
-	- Related IDs: 2026100213205957
-	- Version and build: dev at `b904d681`
-	- Steps to reproduce:
-		- `printf 'a: [1]\n\t# note\n\tb: [2]\n' | shcl fmt -`
-	- Incorrect behavior: `# note` is written at column 0, between `a: [1]` and the nested `b: [2]`.
-	- Expected behavior: the comment nests under `a: [1]`, the same as `b: [2]`.
-	- Reproduced: Yes, 20261002, Rust at `b904d681`. It reads back the same, so it is cosmetic.
-	- Decisions:
-		- 20261002: comments nest under kept lines too.
-	- Reproduced: Yes, 20261004, all four at `f26c2802`.
-	- Actual cause: a comment's level came from the comments before it alone, and a kept field line's from the kept lines before it alone (2026100213205957). A comment under a kept line had no comment to nest under, so it went to the place's level.
-	- Actual fix: all four bindings. A kept field line now also takes its place in the comment chain at its own level, so a comment written under it nests one level under it, and one level with it stays level. Anything at its level or deeper drops off the chain, as on a reload of the written text. Kept field lines still nest only under kept lines. The rule that a reload puts a comment at most one level past the line before it now counts kept field lines as well as comments: the restep after a remove or a banner change, the merge's footer, the emitter's level for a misplaced line written as a comment, and the settle's level for a line moved out of a list.
-	- Against: the standing rule that in an emitted comment run each comment is at most one level past the one before it. It still holds, with "the one before" now taking in kept field lines. Without that, a reload of the written text would read some comments a level shallower.
-	- Note: a comment after a kept field line that sits deeper in the source than the comments around it now nests by that line, not by the comment before it. Odd files only, and both ways reload the same.
-	- Note: design.md's comment-run bullets say "the comment before it". They should say "the comment or kept field line before it". Left for the docs pass, which is on another branch.
-	- Swept: every `comment_depth` caller goes through the one function in each binding. The places that set a comment's level after the load: `restep`, `drop_banners`' own copy of it (now a call to `restep`), the merge footer, `push_leads`, and the settle's move out of a list, in all four.
-	- Verified: the four conformance suites, cli-regress, crosscheck over the corpus and a 2000-iteration fuzz dump (40656 comparisons), shell-regress, check-docs, test-ids, clippy for both targets, go vet, staticcheck, ruff, mypy, gcc 14 and 15, clang and mingw at `-Werror`, cppcheck at the normal level, and the 2,000,000 release fuzz. Both new rows fail on `f26c2802`'s libraries in all four and pass with the fix.
-	- Needs local test suite run?: full `--ci` at the next main push, for exhaustive cppcheck.
-	- Branch: keepcosm
-	- Test case: cli-regress `Erls2v2` (`comment-under-kept-fmt`), `Erls2v3` (`comment-under-kept-in-block-fmt`); the fuzz fixpoint and `edits_and_merges_match_a_reload` properties.
-
 - No '\' escapes
 	- ID: 2026100207032800
 	- Type: Enhancement
@@ -347,6 +118,47 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Write a test as part of CICD that creates old shcl file versions, and tests the automatic conversion.
 	- Note: 20261003, `check-migrate.bash` already builds 2.x from pinned `7be348d` and compares reads after `migrate`. This would extend it to the backup and rewrite in 2026100313461649, and to beta-stamped Format 3 files once 2026100207032800 is in.
 	- Estimated effort: Avg
+
+- Removing the only line under a lazily opened field leaves a bare `name:`, and the field later reads as Multiple
+	- ID: 2026100307163907
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 7
+	- Related IDs: 2026100213205957
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- `printf 'a: [1]\n\tb: 2\ny: 3\n' > f.shcl`
+		- `shcl set f.shcl --remove a.b --write`, then fix the first line to `a: 1, 2` as E019 asks.
+	- Incorrect behavior: the save writes `a: [1]`, `a:`, `y: 3` at exit 0. After the fix `get a` exits 5 and `count a` is 2, so a read with a default quietly gets the default.
+	- Expected behavior: a field opened only by the lines under it goes away with the last of them, as the escblock decision says.
+	- Reproduced: 20261003, all four.
+	- Possible cause: the lazily opened node outlives its last child, and `heads_block` needs at least one child, so the writer puts out the kept line and then a bare `a:`.
+	- Origin: `3ef0bc8c` (escblock), new since the last round. Not the trigger of 2026100213205957, which is the load; this one is an edit. Confirmed.
+	- Note: 20261003, `set f.shcl --set a=5` on the same file writes a second line, `a: 5`, after the kept `a: [1]`, with `b` under the new one. Once the first line is fixed, `a` reads as Multiple the same way. Same class, found while designing 2026100307310000. Confirmed on dev at `1e2e4210`, Rust CLI.
+	- Note: 20261003, from 2026100307310000. The kept-lines property `EreT6dh` skips this class through its row keyed by this ID, and the fix takes the row out.
+	- Estimated effort: Low
+	- Actual cause [Bug]: as above. The node a kept line opened outlived its last child.
+	- Progress log:
+		- 20261003: fixed in all four, with 2026100307163901. After a remove, a field opened from a kept line with nothing left under it goes too, and its lines stay where it stood. A field above it opened the same way follows. Corpus 187's two goldens had the bare `inner:` line from this bug; both now end that block at `inner: [x]`.
+		- 20261003: the `--set a=5` note is left as design.md's table has it: a setter keeps the kept line heading its target. The set writes `a: 5` under the kept `a: [1]` and reads 5. Once line 1 is fixed by hand, `a` reads as Multiple and `check` says nothing.
+		- Question: should a setter on a field opened from a kept line keep the table's rule, or do something else, such as refuse, or write the kept line as a comment?
+		- 20261004, answered: a setter writes the kept line as a comment, says why and when, and the set then goes ahead, so the file has one `a`. The example given was `# a: [1]  ## Invalid original value commented out by shcl on 'set' command, YYYY-mm-DD HH:MM:SS.`, to be made exact.
+		- Proposed text, OK'd 20261004: `# a: [1]  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 bracket array syntax`. It names the path, since library setters do this too and not only `set`. It names the code and message the load gave, since that is the actual reason.
+		- The time is local, with the zone's short name, or its offset such as `UTC-07:00` when no short name is known (the user, 20261004). Windows gives only long names like "Pacific Daylight Time", so it writes the offset. Tests pin the clock and zone through an override.
+		- Rust has no crates to lean on here. Local time comes from `localtime_r` on POSIX and the Win32 time zone calls on Windows, declared by hand like the existing `ReplaceFile` ones.
+		- 20261004: setter half fixed in all four. A setter on a field opened from a kept line writes that line as the OK'd comment, then sets. The line is a plain comment from then on, as a reload reads it, so `ClearComments` and a remove of the field take it. `SHCL_TEST_CLOCK` pins the time for tests, and cli-regress and crosscheck set it. design.md's setter row, spec.md and the changelog say so.
+		- 20261004: `EreT6dh` had no row left for this item, since the remove half took it out. It now counts a setter's comment, by its note, as the line it was. A 300,000 run reached that path 8,516 times.
+		- Question: a setter that creates a field leaves a kept line naming it beside the new one, as the table's beside column says. From `a: [1]` and `y: 3`, `set a=5` writes `a: 5` at the end, and once line 1 is fixed `a` reads as Multiple. `--remove a.b --set a=1` on the item's file ends the same way. Should a setter comment that line out too?
+		- 20261004, answered: do what happens with two valid lines of one name. There a setter changes the first one. The setter made a second `a` only because the load could not read `a: [1]`, so the document had no `a` to change.
+		- So a setter that would create a field takes the first kept line of that name in the block as the field. It writes that line as the comment with its note, and the new line goes right under it. If a field of that name already loaded, the setter changes it and the kept line stays, as a second valid line would.
+	- Actual fix [Bug]: `remove` drops such a field once its last child goes, in all four. A setter on such a field writes its kept line as a comment with a note, then sets, in all four.
+	- Swept: as 2026100307163901. Setter half: every setter in all four goes through one `set_value`. The other value writes are the parser's own fills and merge, whose row is 2026100313174974.
+	- Verified: 20261004, the four suites, cli-regress over the four CLIs, crosscheck with a fresh fuzz dump, check-docs, clippy for the host and windows, go vet and staticcheck, ruff and mypy, cppcheck, shellcheck, the test ID check, markdownlint, and the 2,000,000 release fuzz. Each new test failed with the fix taken out. The Rust and C windows paths ran under wine and wrote the offset.
+	- Branch: `removekept`, `setkept`
+	- Commit: `46e6176a`, `80d64922`
+	- Test case: `ErgToax` (Rust), `ErgToef` (Go), `ErgToiG` (Python), `ErgTom6` (C); cli-regress `ErgTonu`; corpus 187; fuzz `EreT6dh`. Setter: `ErleUnO` and `ErleV68` (Rust), `Erlf124` and `Erlf14o` (Go), `Erlf17j` and `Erlf1AN` (Python), `Erlf1DT` and `Erlf1GC` (C); cli-regress `Erlf1Is`.
 
 - Group a release's downloads in a table, with the CPU architecture in columns and the target OS in rows
 	- ID: 2026100411093274
@@ -1587,6 +1399,208 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `pathhint`
 	- Commit: `1a12c02`
 	- Test case: corpus `171-windows-path-hint`, cli-regress `path-hint-*` rows. The read and strict rows and case 171 fail with the hint off, and `path-hint-set` shows a write is unaffected. The migrate goldens of cases 118, 122 and 170 now list the hint.
+
+- The zsh completion still says `set` prints the canonical form
+	- ID: 2026100307163915
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 15
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- Read `source/completions/_shcl:63`.
+	- Incorrect behavior: `'set:apply edits and print the canonical form'`. `set` has kept unedited lines as written since the keep save went in.
+	- Expected behavior: the same summary as the help's `set` line.
+	- Reproduced: 20261003, by reading, against `shcl --help`.
+	- Origin: `012a2b4f` (2026-08-19), and the keep save made it stale. Confirmed.
+	- Estimated effort: Low
+	- Actual fix: the zsh summary now reads "apply edits and print the file with the edited lines changed", from the help's own words. check-completions also holds every zsh summary to the help: each word of five letters or more has to be in that subcommand's help entry.
+	- Swept: the bash completion has no summaries, and there are no fish or PowerShell completions. No other zsh summary disagrees with the help. The man page's `set` entry already says unedited lines come back as written.
+	- Verified: check-completions `ErlbzxH` fails on the old summary and passes on the new one. shellcheck passes.
+	- Branch: clismall
+	- Test case: check-completions `ErlbzxH`.
+	- Acceptance signoff: 20261004, OK'd.
+	- Closed: 20261004-162000
+
+- The man page says the wrappers are installed beside `shcl`, and no install puts them there
+	- ID: 2026100307163916
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 16
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- `install.bash` into a scratch HOME, take `~/.local/bin` off PATH, then `bash ~/.local/share/shcl/scripts/shcl.bash --version`.
+	- Incorrect behavior: "cannot find a shcl binary", exit 1, though the binary is at `../shcl`. `shcl.1:833` says the wrappers sit beside the command. `install.bash` puts them in `scripts/`, and the deb and rpm in `/usr/share/shcl/scripts`, so `shcl.bash`'s lookup beside itself never finds one.
+	- Expected behavior: the man page names where they go, and the wrapper looks where the installers put the binary.
+	- Reproduced: 20261003, `install.bash` with stub downloads. `install.ps1` is Plausible, by reading.
+	- Origin: `84ceff51` (2026-08-30) for the man line. The installer was right; the claim and the lookup were not. Confirmed.
+	- Estimated effort: Low
+	- Actual fix: the man page names the wrappers and where they go: `/usr/share/shcl/scripts` from the .deb and .rpm, and `scripts` under the install directory from the other installers. Both wrappers now also look a level up from themselves, where every installer but the packages puts the binary, before PATH. The packages put the binary in `/usr/bin`, which PATH finds.
+	- Swept: `install.bash`, `install.ps1`, the NSIS setup and nfpm.yaml all put the wrappers in `scripts` beside the binary, or in `/usr/share/shcl/scripts` with the binary in `/usr/bin`. No installer changed. The README makes no claim about where the wrappers sit. Both wrapper headers now list the new step.
+	- Verified: shell-regress `ErlisVv` (bash) and `ErlisYf` (pwsh) lay out an install with a stub binary a level up and no shcl on PATH. Both wrappers from dev said "cannot find a shcl binary"; both now run the stub. shell-regress, shellcheck and PSScriptAnalyzer pass, and the man page renders at 80 columns.
+	- Branch: clismall
+	- Test case: shell-regress `ErlisVv` and `ErlisYf`.
+	- Acceptance signoff: 20261004, OK'd.
+	- Closed: 20261004-162000
+
+- The E019, E023 and E024 text says a read on the field is NotFound, but it is Empty when lines load under it
+	- ID: 2026100307163914
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 14
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- `printf 'a: "C:\\temp"\n\tb: 1\n' > f.shcl`
+		- `shcl get f.shcl a; echo $?`, and `shcl explain E024`.
+	- Incorrect behavior: `get` exits 2, Empty, and `count a` is 1. The spec rows and `explain` for E024 say NotFound. E019 and E023 say the same, softened by "under the field with no value".
+	- Expected behavior: the text says a read is NotFound with nothing under it, and Empty once a line under it loads.
+	- Reproduced: 20261003, all four.
+	- Origin: `3ef0bc8c` and `752f2177` (escblock and its docs). Confirmed.
+	- Sweep: the spec rows, `explain` in all four CLIs, design.md and value-syntax.md.
+	- Estimated effort: Low
+	- Actual fix [Bug]: the spec rows, `explain` in all four CLIs, design.md and value-syntax.md now say a read on the field is NotFound with nothing under it and Empty once a line under it loads. value-syntax.md changed in that sentence only.
+	- Swept: spec rows `E019`, `E023`, `E024`; `explain` for the three codes in Rust, Go, Python and C, byte-identical; design.md Load outcomes, Retained; value-syntax.md, Errors and kept lines. README and the man page make no NotFound claim for these codes.
+	- Verified: cli-regress over the four CLIs passes, 362 rows. Against dev's Go and C CLIs, the three `explain` rows fail and the three `get` rows pass, since only the text changed.
+	- Branch: `doctext`
+	- Commit: `28ef9598`
+	- Test case: cli-regress `Erlr8eZ`, `Erlr8gU`, `Erlr8iQ` (`get` exits 2 for `E019`, `E023` and `E024` with a line under), `Erlr21T`, `Erlr23g`, `Erlr25Z` (`explain` text for the three).
+	- Acceptance signoff: 20261004, OK'd.
+	- Closed: 20261004-162000
+
+- README, the man page and the UI guide say a save refuses only over lines the load dropped
+	- ID: 2026100313174975
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261003-131749
+	- Opened by: the review of 2026100307310000, round 1
+	- Parent ID: 2026100307310000
+	- Version and build: dev at `e74c95bd`
+	- Incorrect behavior: all three describe the refusal as over a line the load dropped. Since 2026100307310000 it also refuses when an edit would lose a kept line. Incomplete, not wrong. None quotes the message, so they were left alone with the Q1 wording change.
+	- Expected behavior: they say the save refuses when the write would delete lines or values from the file, whatever the cause.
+	- Estimated effort: Low
+	- Actual fix [Bug]: each one now says the save refuses when the write would delete lines or values from the file. Only that claim changed.
+	- Swept: README (the intro bullet, the CLI paragraph, the five save comments in the code examples, and "What saving does"), the man page (`--lossy`, WRITING IN PLACE, exit 7), the UI guide, the spec's refusal bullet, and the CLI help in all four (`--lossy` and the paragraph after the options). The help stays byte-identical across the four. README's keep-lines paragraph still holds as written, since that save refuses only when it falls back.
+	- Verified: check-docs, check-readme, markdownlint on the changed docs, and cli-regress over the four CLIs (help width rows included) all pass.
+	- Branch: `doctext`
+	- Commit: `28ef9598`
+	- Test case: none, wording only. The behavior is `EreYYXK` and the per-binding `kept_gate` tests.
+	- Acceptance signoff: 20261004, OK'd.
+	- Closed: 20261004-162000
+
+- `Remove` of the last key under a repeated header leaves the header and takes the blank line
+	- ID: 2026100115323232
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261001-153232
+	- Opened by: gitsby feedback
+	- Version and build: dev at `b10c2009`
+	- Steps to reproduce:
+		- `ParseKeepLines("account: w\n\temail: a@x\n\naccount: w\n\tname: W\n", Standard)`
+		- `Remove("account[#0].name")`, then `ToTextKeepLines()`.
+	- Incorrect behavior: `account: w\n\temail: a@x\naccount: w\n`, kept true. The second `account: w` stays with nothing under it, and the blank line between the blocks is gone.
+	- Expected behavior: the emptied header goes with its last key, since the first block already holds that instance, and the blank line above it goes too. Or both stay. Not one of each.
+	- Reproduced: Yes, 20261001, Go module at `b10c2009`. It reads back the same, so it is cosmetic.
+	- Reproduced: Yes, 20261004, all four at `f97003c8`. The blank line above a repeated header was lost on any edit, not only this remove: `--set=s.a=5` on `s:`, `a: 1`, a blank, `s:`, `b: 2` dropped it too, with both headers kept.
+	- Actual cause: the save that keeps lines writes a repeat the load folded away as a source line that no group stands for. It wrote that line whether or not anything under it was left, and it wrote the blank lines around it only when the canonical form had a blank there, which it never does for a folded repeat.
+	- Actual fix: all four bindings. A repeat header goes when the edits took every line under it, and the blank lines above it go with it. While anything under it stays, the header stays with the blank lines above it. This is remove's one rule for a header: a remove writes no line the document did not write before. A field that still exists keeps its `name:` line, as `b:` does once `b.c` is gone. A folded repeat writes nothing of its own, so it goes with the last line under it.
+	- Note: design.md's notes under "Kept lines under edits" could say this. Left for the docs pass, which is on another branch.
+	- Swept: both places the save writes lines no group stands for, the gap between two kept groups and the flush after a kept group, in all four. The first-group and end-of-file paths write the source's own leading and trailing lines whole and needed nothing.
+	- Verified: the four conformance suites, cli-regress, crosscheck over the corpus and a 2000-iteration fuzz dump (40656 comparisons), shell-regress, check-docs, test-ids, clippy for both targets, go vet, staticcheck, ruff, mypy, gcc 14 and 15, clang and mingw at `-Werror`, cppcheck at the normal level, and the 2,000,000 release fuzz. Both new rows fail on `f97003c8`'s libraries in all four and pass with the fix.
+	- Needs local test suite run?: full `--ci` at the next main push, for exhaustive cppcheck.
+	- Branch: keepcosm
+	- Test case: cli-regress `Erls2uy` (`remove-emptied-repeat-header`), `Erls2uz` (`set-keeps-blank-above-repeat`).
+	- Acceptance signoff: 20261004, OK'd.
+	- Closed: 20261004-162000
+
+- New lines from a keep-lines save copy an odd block's indent step
+	- ID: 2026100115403386
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261001-154033
+	- Opened by: silkterm feedback
+	- Version and build: dev at `b10c2009`
+	- Steps to reproduce:
+		- `parse_keep_lines("window:\n\t\topacity: 1.0\nwindow:\n\tcolumns: 80\n", Standard)`
+		- `set_string("shell.list.bash.command", "/bin/bash")`, then `to_text_keep_lines()`.
+	- Incorrect behavior: the new block comes out as `shell:\n\t\tlist:\n\t\t\t\tbash:\n\t\t\t\t\t\tcommand: /bin/bash`, two tabs a level, taken from the first `window:` block. Every other block in the file uses one.
+	- Expected behavior: a new block takes the indent most of the file uses, or one tab, rather than the first block's.
+	- Reproduced: Yes, 20261001, Rust at `b10c2009`. It reads back right, so it is cosmetic.
+	- Reproduced: Yes, 20261004, all four at `f8c0685e`.
+	- Actual cause: the save that keeps lines took its indent step from the first line one level in, so the first block set it for every new level in the file.
+	- Decisions:
+		- 20261004: a new level takes the step most blocks use, each block counted once. A tie goes to one tab when that is one of the tied steps, else to the first block's. One tab for every new level was the simpler rule, but in a file indented with spaces it writes a tab after the spaces on a new nested line, which reads worse. Canonical output still indents with tabs whatever the input used. This only changes new lines in a save that keeps the file's own lines.
+	- Actual fix: all four bindings. The step is counted per block, from each block's first line one level in. Lines that already sit at a level still set the indent of new lines next to them, as before.
+	- Swept: the one place the step is chosen, in the save that keeps lines, in all four. Canonical output does not use it.
+	- Verified: the four conformance suites, cli-regress, crosscheck over the corpus and a 2000-iteration fuzz dump (40656 comparisons), shell-regress, check-docs, test-ids, clippy for both targets, go vet, staticcheck, ruff, mypy, gcc 14 and 15, clang and mingw at `-Werror`, cppcheck at the normal level, and the 2,000,000 release fuzz. Both new rows fail on `f8c0685e`'s libraries in all four and pass with the fix.
+	- Needs local test suite run?: full `--ci` at the next main push, for exhaustive cppcheck.
+	- Branch: keepcosm
+	- Test case: cli-regress `Erls2v0` (`set-new-block-majority-step`), `Erls2v1` (`set-new-block-space-step`).
+	- Acceptance signoff: 20261004, OK'd.
+	- Closed: 20261004-162000
+
+- `set` on a file ending in a kept line writes the new key above it
+	- ID: 2026100117214802
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Note: 20261002, under 2026100207032800 this repro has no kept line. Any other kept line, such as `a: My App`, does the same thing, so the bug stays.
+	- Opened: 20261001-172148
+	- Opened by: found while working 2026100115323227
+	- Version and build: dev at `5956ff4a`
+	- Steps to reproduce:
+		- `printf 'a: "C:\\work"\n' | shcl set - --set b=1`
+	- Incorrect behavior: `b: 1`, then `a: "C:\work"`. The kept line moved below the new one.
+	- Expected behavior: the kept line stays where it was, with the new key after it.
+	- Reproduced: Yes, 20261001, Rust at `5956ff4a`. It reads back the same, so it is cosmetic.
+	- Reproduced: Yes, 20261004, all four at `c3eb6db7`, with `x: 1` then `a: [1]`, and with a kept line ending an inner block (`s:` then `a: [1]` under it, setting `s.b`).
+	- Actual cause: a new field goes after the last field of its block, and the lines that end the block are written after every field: the footer at the top, the block's own end lines below it. A kept line among them moved below the new field.
+	- Actual fix: all four bindings. A new field takes the kept lines that end its block, with the comments before them, as the lines above it, which is where a reload files them. Comments after the last kept line stay at the end. So does a kept line the settle wrote as a comment, since a reload reads it as one.
+	- Note: corpus 065's write goldens had the new `q` above the kept `ports` line. Both now have it after.
+	- Swept: the one place a write creates a field, `new_child` in all four, which every setter and `SetComment` go through. A merge puts a layer's fields in the layer's order, so it is not this case.
+	- Verified: the four conformance suites, cli-regress, crosscheck over the corpus and a 2000-iteration fuzz dump (40656 comparisons), shell-regress, check-docs, test-ids, clippy for both targets, go vet, staticcheck, ruff, mypy, gcc 14 and 15, clang and mingw at `-Werror`, cppcheck at the normal level, and the 2,000,000 release fuzz. The new rows and corpus 065 fail on `c3eb6db7`'s libraries in all four and pass with the fix.
+	- Needs local test suite run?: full `--ci` at the next main push, for exhaustive cppcheck.
+	- Branch: keepcosm
+	- Test case: cli-regress `Erls2uw` (`set-new-key-after-kept-end`), `Erls2ux` (`set-new-key-after-kept-in-block`); corpus `065-bracket-array`.
+	- Acceptance signoff: 20261004, OK'd.
+	- Closed: 20261004-162000
+
+- A comment between nested kept lines is written at column 0
+	- ID: 2026100218185700
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261002-181857
+	- Opened by: question on 2026100213205957
+	- Related IDs: 2026100213205957
+	- Version and build: dev at `b904d681`
+	- Steps to reproduce:
+		- `printf 'a: [1]\n\t# note\n\tb: [2]\n' | shcl fmt -`
+	- Incorrect behavior: `# note` is written at column 0, between `a: [1]` and the nested `b: [2]`.
+	- Expected behavior: the comment nests under `a: [1]`, the same as `b: [2]`.
+	- Reproduced: Yes, 20261002, Rust at `b904d681`. It reads back the same, so it is cosmetic.
+	- Decisions:
+		- 20261002: comments nest under kept lines too.
+	- Reproduced: Yes, 20261004, all four at `f26c2802`.
+	- Actual cause: a comment's level came from the comments before it alone, and a kept field line's from the kept lines before it alone (2026100213205957). A comment under a kept line had no comment to nest under, so it went to the place's level.
+	- Actual fix: all four bindings. A kept field line now also takes its place in the comment chain at its own level, so a comment written under it nests one level under it, and one level with it stays level. Anything at its level or deeper drops off the chain, as on a reload of the written text. Kept field lines still nest only under kept lines. The rule that a reload puts a comment at most one level past the line before it now counts kept field lines as well as comments: the restep after a remove or a banner change, the merge's footer, the emitter's level for a misplaced line written as a comment, and the settle's level for a line moved out of a list.
+	- Against: the standing rule that in an emitted comment run each comment is at most one level past the one before it. It still holds, with "the one before" now taking in kept field lines. Without that, a reload of the written text would read some comments a level shallower.
+	- Note: a comment after a kept field line that sits deeper in the source than the comments around it now nests by that line, not by the comment before it. Odd files only, and both ways reload the same.
+	- Note: design.md's comment-run bullets say "the comment before it". They should say "the comment or kept field line before it". Left for the docs pass, which is on another branch.
+	- Swept: every `comment_depth` caller goes through the one function in each binding. The places that set a comment's level after the load: `restep`, `drop_banners`' own copy of it (now a call to `restep`), the merge footer, `push_leads`, and the settle's move out of a list, in all four.
+	- Verified: the four conformance suites, cli-regress, crosscheck over the corpus and a 2000-iteration fuzz dump (40656 comparisons), shell-regress, check-docs, test-ids, clippy for both targets, go vet, staticcheck, ruff, mypy, gcc 14 and 15, clang and mingw at `-Werror`, cppcheck at the normal level, and the 2,000,000 release fuzz. Both new rows fail on `f26c2802`'s libraries in all four and pass with the fix.
+	- Needs local test suite run?: full `--ci` at the next main push, for exhaustive cppcheck.
+	- Branch: keepcosm
+	- Test case: cli-regress `Erls2v2` (`comment-under-kept-fmt`), `Erls2v3` (`comment-under-kept-in-block-fmt`); the fuzz fixpoint and `edits_and_merges_match_a_reload` properties.
+	- Acceptance signoff: 20261004, OK'd.
+	- Closed: 20261004-162000
 
 - The C header's comment on the save result still says the save refuses only over what the load dropped
 	- ID: 2026100313174973
