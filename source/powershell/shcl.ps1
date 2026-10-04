@@ -71,7 +71,7 @@
 .SYNOPSIS
 Front end to the shcl binary, run as a script or dot-sourced for its functions.
 .DESCRIPTION
-Every argument goes to the binary as-is, and its exit code comes back in $LASTEXITCODE. Dot-sourced, it defines shcl and the shcl_* helpers, which do the same.
+Every argument goes to the binary as-is, and its exit code comes back in $LASTEXITCODE. Dot-sourced, it defines shcl and the shcl_* helpers, which do the same. For the binary's own help, run it with --help.
 .EXAMPLE
 pwsh shcl.ps1 get --int app.shcl server.port
 .EXAMPLE

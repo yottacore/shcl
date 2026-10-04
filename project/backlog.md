@@ -33,182 +33,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
-- `remove` deletes kept lines next to the field it removes, at exit 0
-	- ID: 2026100307163901
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Critical
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 item 1
-	- Version and build: dev at `6e8b7f89`
-	- Steps to reproduce:
-		- `printf 'x: 1\nr: [1, 2]\ny: 3\n' > f.shcl`
-		- `shcl set f.shcl --remove y --write`
-	- Incorrect behavior: exit 0, and the file is just `x: 1`. The kept `r: [1, 2]` line went with `y`.
-	- Expected behavior: a kept line stays where it was written. The spec says a hand typo survives a load, edit and save.
-	- Reproduced: 20261003, all four CLIs and the Rust, Go and Python libraries. Same with `r: "C:\temp"` (E024), `r: "a\qb"` (E023), `bad name: 1` (E014), `*x` and `"r: 1`. Inside a block, `--remove j.q` takes a kept `j.r` whether it sits above or below `q`.
-	- Possible cause: a kept line is held as trivia on the next binding's node, and `remove` drops the node with its trivia. `clear_comments` already skips kept lines; `remove` does not. The save gate does not count kept lines, so `--write` goes through.
-	- Origin: kept lines as trivia came with `b216ad2b` (funnel, 2026-09-07), and rs-base does the same. For the `"C:\temp"` spelling it is a regression from `3ef0bc8c` (escblock): base kept that line as an H004 hint and the remove left it. Not seen by an earlier round. Backlog item 2026092620255202 is the same class for `clear-comments`. Confirmed.
-	- Note: 2026100207032800 makes more lines kept, a bare value with spaces among them, so this gets wider once that goes in.
-	- Sweep: every edit that drops or moves a node's trivia in all four: `remove`, the merge's replaced leaf, the setters that replace a node.
-	- Note: 20261003, from 2026100307310000. The save gate now counts kept lines, so the repro exits 7 and leaves the file alone, in all four. cli-regress `EreYYXK` (`save-kept-remove`) pins that; this fix turns it into exit 0 with `r: [1, 2]` kept. The kept-lines property `EreT6dh` skips this class through its row keyed by this ID, and the fix takes the row out. Up to 2,000,000 runs, only `remove` hit it; no setter or merge did.
-	- Estimated effort: Avg
-	- Actual cause [Bug]: a kept line sits in the next field's leading lines, or in a block's trailing ones, and `remove` dropped those lines with the field.
-	- Progress log:
-		- 20261003: fixed in all four, with 2026100307163907. A remove leaves the kept lines beside its target where they were, with the comments above them. A comment written right against the target goes with it. When the target was the last field in its block, its kept lines stay at the end of the block, and a misplaced line among them moves down to just above the next field line, where a reload files it.
-		- 20261003: tests whose expectation moved. cli-regress `EreYYXK` now expects exit 0 with `r: [1, 2]` kept, where it pinned the refusal at 7. `EreT6dh` lost this item's open row, and its check that a remove writes no new line now reads a raw block's fence moved to its own line as the same line. The reload property `Eqk24nZ` and its Go, Python and C twins now excuse a remove beside a settled kept line, as they already did for `clear_comments` (20260926 item 2). The document keeps that line, and the reload of its canonical text sees a plain comment.
-		- 20261003: left for signoff: which comments go with the target. The fix takes those between the target and the nearest kept line, and keeps the rest.
-		- 20261004: the full local run passed on dev at `063df7f2`, cppcheck exhaustive included.
-	- Actual fix [Bug]: `remove` puts what stays above the next field, or at the end of the block, in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`. design.md's "Kept lines under edits" has three new bullets for it. No table cell changed.
-	- Swept: `remove` in all four. The merge's replaced leaf already moves its kept lines onto the replacement. Every setter goes through `set_value` or its twin, which changes the value in place and keeps the node's lines, and `collapse_dup` folds them into the survivor. `clear_comments` already skipped kept lines. No other edit unlinks a node.
-	- Verified: the Rust, Go, Python and C suites, cli-regress, crosscheck, shell-regress, sanitize-c, check-veneer, clippy, staticcheck, ruff and mypy. Each new test failed with the fix taken out. The 2,000,000 release fuzz is green but for `EreT6dh`, which still fails on the open row of 2026100307163902 first.
-	- Note: 20261003, the 2,000,000 release fuzz, run on past known rows with local excuses only. A merge loses a kept line at exit 0 with dev's library as well, at iteration 960275 (`set_int`, banner on, merge; no raw set). An `E019` line ending in a fence has its body read as fields, the same class as 2026100307163902 and 2026100117214801; dev never reached it, since this item's row excused the step first. Nothing else failed.
-	- Branch: `removekept`
-	- Commit: `46e6176a`
-	- Test case: `ErgToYw` (Rust), `ErgTocq` (Go), `ErgTogT` (Python), `ErgTokB` (C); cli-regress `EreYYXK`; fuzz `EreT6dh`.
-
-- A field line refused for its name that opens a raw block has its body read as fields, and `fmt --write` scrambles the file at exit 0
-	- ID: 2026100307163902
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Critical
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 item 2
-	- Related IDs: 2026100117214801
-	- Version and build: dev at `6e8b7f89`
-	- Steps to reproduce:
-		- A file holding `tools:`, then tab-indented `my script: ~~~sh`, `echo hi`, `run: rm -rf /tmp/x`, `~~~` and `port: 8080`.
-		- `shcl get f.shcl tools.run`, then `shcl fmt --write f.shcl`.
-	- Incorrect behavior: `get` prints `rm -rf /tmp/x` at exit 0 and `tools.port` is NotFound. `fmt --write` exits 0 and writes a raw block holding `port: 8080`, with `run: "rm -rf /tmp/x"` as a live field. `set -w --set tools.port=9090` exits 0 too and adds a second `port`.
-	- Expected behavior: the body goes with its line, as the E018 row in the spec says for every skipped field line, and a save never rewrites body text as fields.
-	- Reproduced: 20261003, all four CLIs. With the body one level deeper, the closing fence opens a block that runs to the end of the file; the save then refuses at 7 but every later field reads NotFound.
-	- Possible cause: the E014 arm moves on one line without taking the block, and the `line_fault` arm, which takes E023 in a name, does the same. `skip_field_line` does not help as written, since `line_fence` returns nothing on a faulted token list.
-	- Origin: older than the range. The 20260918 and 20260918b rounds declined the E014 fence run on the belief that the closing fence hides the rest of the file at E005, so a save refuses. This repro saves at exit 0, and the 2026-10-02 rule that an error never throws out good lines came after. Item 2026100117214801 is the E023 half of the same class. Confirmed.
-	- Note: a fix wants the whole class from 20260918b: a kept or refused line on which the tokenizer can still see a fence run takes its body. 801 would close with it.
-	- Note: 20261003, found while working 2026100307163904. The 2,000,000 release fuzz fails `EreT6dh` at iteration 558881 on dev too: a misplaced `E012` line opens a raw block and its body is read as fields. The property excuses this only for `E014`, so `E012` is the same class and this fix should cover it.
-	- Note: 20261003, from 2026100307310000. The kept-lines property `EreT6dh` skips this class through its row keyed by this ID, and the fix takes the row out. The save gate counts one kept line per retained outcome, so whatever the body becomes, the load must still hold one kept line for each, or a plain `fmt --write` refuses.
-	- Note: 20261003, found while working 2026100307163901. Past the known rows, the 2,000,000 release fuzz fails `EreT6dh` at iteration 1818622 on an `E019` line ending in a fence, with its body read as fields. Same class, so this fix should cover `E019` too.
-	- Estimated effort: Avg
-	- Actual cause [Bug]: two arms moved on one line after keeping it: the `E014` arm, and the arm for a bad escape in a name. `line_fence` saw no fence on a line that did not tokenize, so the misplaced arms let such a body through too, which is the `E012` case at fuzz iteration 555233. The `E019` report at iteration 1818622 was the property's own guess at the value: `a_:[0]:` followed by a three-backtick fence is bracket text, whose value starts with `[`, so it opens no block.
-	- Progress log:
-		- 20261003: fixed in all four. A kept line whose value is a fence keeps the body and closing fence with it, as one kept line, so the save gate's count holds. A line that does not tokenize opens a block when a fence follows its first colon past where reading stopped, with no `#` before that colon. Canonical output writes the body one level under the line, as for a field's block, and a block that never closed gets its closing fence. A misplaced line that opens a block still takes it and is lost, as the `E012` row says.
-		- 20261003: the property's two oracles read a line's value with the tokenizer now, rather than splitting at the first `: `. That guess made the `E019` report above.
-		- 20261003: the 2,000,000 release fuzz is green but for `EreT6dh` on a merge, which is 2026100316012486. The new corpus case moved the seeds, and it now fails first at iteration 749492, a kept line lost after a merge with no raw block in the input. With merges excused locally, nothing else fails up to 2,000,000.
-		- 20261003: left for signoff: canonical output moves a kept body one level under its line, and `fmt` adds the closing fence to a kept block that never closed. Both change what `fmt --write` writes.
-		- 20261004: the full local run passed on dev at `063df7f2`, cppcheck exhaustive included.
-	- Actual fix [Bug]: `line_fence` sees a fence past a fault, and the `E014` and line-fault arms keep the body on the kept line's text (`keep_body`), in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`. The emitter writes it one level under the line (`push_kept`). Spec, design.md (Load outcomes, Lexical edges, Kept lines under edits), `explain E014` and `E023` in the four CLIs, and the changelog say so.
-	- Swept: every arm that refuses a line and moves on, in all four. Field lines: `E012`, `E018` and `E021` go through `skip_field_line`, which now sees past a fault; `E014`, `E019`, `E023` and `E024` through `keep_body`. A child fence line already took its body. A `*` element line (`E012`, `E018`, `E013`, `E023`, `E024`) has no value that can open a block. The Schema and Format line walk (`opens_raw`) reads through the same `line_fence`, so it agrees with the parser. No `E025` arm exists yet; 2026100207032800 adds them. No C++ veneer call changed.
-	- Verified: the four conformance suites, cli-regress, crosscheck over the corpus and a 2,000-input fuzz dump, shell-regress, check-veneer, sanitize-c, check-migrate, check-docs, check-abnf, test-ids, markdownlint, clippy, go vet, staticcheck, ruff, mypy, gcc 15 with `_FORTIFY_SOURCE=3` and the mingw C build. Corpus 191 fails on dev in all four, and `EreT6dh` fails on dev at iteration 25 with its row out. Both pass with the fix.
-	- Branch: `rawkept`
-	- Commit: `0a6d1bb5`
-	- Test case: corpus 191 (`Ergr8Z4`) in all four; fuzz `EreT6dh` (open row taken out) and `EqGWdij` (its `E014` excuse taken out).
-
-- A fuzz property and a save-gate check for kept lines, so edits stop losing them one site at a time
-	- ID: 2026100307310000
-	- Type: Task
-	- Status: Waiting on signoff
-	- Priority: High
-	- Opened: 20261003-073100
-	- Opened by: Code review 20261003, OK'd 2026-10-03
-	- Related IDs: 2026100307163901, 2026100307163902, 2026100307163907, 2026100213205957, 2026100117214801, 2026100117214802, 2026100218185700, 2026092620255202
-	- Problem description:
-		- Edits that lose a kept line keep turning up, one site per round: `clear-comments`, then `remove`, the lazy level, nesting and the raw-block arms.
-		- The save gate does not count kept lines, so each of these saves at exit 0.
-		- 800 makes more lines kept, so the class grows with it.
-	- Requirements:
-		- A fuzz property: after any edit, every kept line outside the edit's target is still in the saved text, or the save refuses.
-		- The save gate counts kept lines, in all four bindings.
-		- design.md gets a rule table: each edit and what it does with the kept lines beside and under its target.
-	- Note: best done before the fixes for items 1, 2 and 7 of the same round, so the property tests them.
-	- Estimated effort: Avg
-	- Progress log:
-		- 20261003: built. The save gate counts kept lines in all four bindings, and a C compaction keeps the count. The property holds items 1, 2 and 7 as open rows and found no other class up to 2,000,000 runs. No existing test had to change.
-		- 20261003, review round 1: each binding tests the two kept lines a merge may drop. The refusal reads "this write would delete N line(s)/value(s) from the file" in the four CLIs and the library errors (answered 2026-10-03). The property picks the lines a merge may drop by where they sit, not by text (answered 2026-10-03).
-		- 20261003: review passed. Waits on the hosted Windows run, then signoff, since the refusal wording changed.
-		- 20261004: the full local run passed on dev at `063df7f2`. Hosted run 37213067174 started on dev.
-		- 20261004: hosted run 37213067174 on dev passed, windows job included. Waits on signoff for the refusal wording.
-	- Branch: `keptgate`
-	- Test case: `EreT6dh` (`kept_lines_survive_edits`, fuzz_smoke.rs); per binding `kept_gate` tests `EreRyr7`, `EreUeCs`, `EreRysn` (Rust), `EreUzvf`, `EreUzxY`, `EreUzzO` (Go), `EreVRei`, `EreVRgk`, `EreVRis` (Python), `EreWlg6`, `EreWli7`, `EreWlk5`, `EreZ0ar` (C); the merge's two exceptions `ErfGoMI`, `ErfGoMJ` (Rust), `ErfGoMK`, `ErfGoML` (Go), `ErfGoMM`, `ErfGoMN` (Python), `ErfGoMO`, `ErfGoMP` (C); cli-regress `EreYYXK`; crosscheck `EreXO4J`.
-
-- `migrate` exits 0 on a file whose raw block never closes, and leaves it unstamped
-	- ID: 2026100316275800
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Avg
-	- Opened: 20261003-162758
-	- Opened by: signoff talk on 2026100307163903
-	- Related IDs: 2026100307163903
-	- Version and build: dev at `4eb17db4`
-	- Steps to reproduce:
-		- A file holding `a: 'x\ty'`, then `b: ~~~` and a tab-indented `line`, with no closing fence.
-		- `shcl migrate --from-2x --write f.shcl`
-	- Incorrect behavior: it prints `E005 unterminated raw block`, rewrites line 1, keeps `f_old_v2.shcl`, and exits 0. No Format line is added, so a later run cannot tell the file was migrated.
-	- Expected behavior: `check` already fails this file at 6. `migrate` should refuse at 7 and write nothing, since it cannot finish the job.
-	- Reproduced: 20261003, Rust CLI. The other three not checked yet.
-	- Possible cause: the no-stamp rule skips the stamp quietly rather than refusing.
-	- Note: a refusal fits the 2.x low-stakes rule. Fixing the fence then running `migrate` again does the whole job.
-	- Estimated effort: Low
-	- Reproduced: 20261004, all four CLIs. `--check` exited 6 over line 1 rather than refusing.
-	- Actual cause [Bug]: the library leaves the stamp off such a file, as designed, and the CLI went on to write the rest at exit 0.
-	- Actual fix [Bug]: `migrate` refuses at 7 when nothing is ambiguous and the migrated text still names no current format, which only an open raw block leaves. It asks `format_version` of the output rather than looking for the block itself. `--check` and the print form say the same, and `--write` writes nothing and keeps no copy. All four CLIs. Spec, design.md, the man page and the changelog say so.
-	- Swept: `do_migrate` in Rust, Go, Python and C. The library is unchanged. A program calling `migrate()` can ask `format_version()` of the result the same way.
-	- Verified: the repro exits 7 in all four, with the file untouched and no copy. The four conformance suites, `cli-regress.bash` (353 rows), `crosscheck.bash` over the corpus, `check-docs.bash`, `shell-regress.bash`, markdownlint, `test-ids.py check`, clippy (host and windows), go vet, staticcheck, ruff, mypy and shellcheck pass. `check-migrate.bash` passes with the change below.
-	- Note: left for signoff: the message, "a raw block never closes, so there is nowhere to put the Format line; close it and run migrate again".
-	- Branch: `migfix`
-	- Note: `check-migrate.bash` wanted exit 0 from every document 2.x read cleanly, and 2.x took an unterminated raw block as clean, so the refusal turned it red on 36 documents (corpus 056, 059, 075, 096, 097, 143 and 191, and 29 fuzz documents). Now a document whose 2.x check reports `E005` has to be refused at 7 over the open block, and its reads are still compared. It passes over 635 documents, 36 of them refused this way. It goes red when `migrate` refuses a document without an open block (582 divergences), and when the refusal is taken out (all 36, plus `Erklujb`).
-	- Commit: `673052a8`, and `5852d913` for the gate
-	- Test case: cli-regress `ErkalBb` (`--check`) and `ErkalBc` (`--write`, file unchanged), all four CLIs. Both fail on the old code and pass on the new. check-migrate `Eq5YPgP` over the corpus and fuzz dump, and `Erklujb` on corpus 096.
-
-- A bad escape in the name of a line that opens a raw block leaves the body to be read as lines
-	- ID: 2026100117214801
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Note: 20261002, under 2026100207032800 a backslash is text, so this repro no longer fails. A bad `◉` escape in the name, such as `"a◉X◉":`, does the same thing, so the bug stays.
-	- Opened: 20261001-172148
-	- Opened by: found while working 2026100115403384
-	- Version and build: dev at `5956ff4a`
-	- Steps to reproduce:
-		- `shcl check` and `shcl fmt` on a line `"a\w":` followed by a three-backtick fence on the same line, then `x: 1`, then a closing fence.
-	- Incorrect behavior: line 1 is `E023` and kept, `x: 1` binds at the root, and the closing fence is `E005` and `E006`. `fmt` writes no closing fence.
-	- Expected behavior: the body goes with its line, as it does for every other skipped field line (`skip_field_line`).
-	- Reproduced: Yes, 20261001, Rust at `5956ff4a`.
-	- Note: the retained line keeps only its own text, so taking the body would need the body kept too, or the line dropped instead.
-	- Actual cause [Bug]: the arm for a line refused for its value or its name moved on one line after keeping it. Only a fault in the name leaves a fence to read there.
-	- Progress log:
-		- 20261003: fixed with 2026100307163902. The body is kept with the line rather than the line dropped, since dropping it would throw out good lines. `x: 1` stays in the body, nothing binds at the root, and `fmt` writes the closing fence, in all four.
-		- 20261003: not checked: the `◉` spelling in the note above, which waits on 2026100207032800. A bad escape in a name should reach the same arm then; recheck it when that is built.
-		- 20261004: the full local run passed on dev at `063df7f2`, cppcheck exhaustive included.
-	- Actual fix [Bug]: as 2026100307163902 (`keep_body` on the line-fault arm).
-	- Swept: as 2026100307163902.
-	- Branch: `rawkept`
-	- Commit: `0a6d1bb5`
-	- Test case: corpus 191 (`Ergr8Z4`), its line 9, in all four.
-
-- check-banner-tag trusts the push to be atomic and the tag to point at the cut
-	- ID: 2026100307163918
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Priority: Low
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 idea 2
-	- Version and build: dev at `6e8b7f89`
-	- Problem description:
-		- A push of `main` and the tag without `--atomic` passes the hook. If the remote turns down the tag, main is at the cut and the tag is missing. The hook cannot see `--atomic`.
-		- A pushed tag on any commit with a `project/spec.md` passes, even one at an older version. By reading only.
-	- Requirements:
-		- The script's header says it relies on `--atomic`, or the recipe's check after the push fails loudly.
-		- The tag must point at a commit whose version is the cut's.
-	- Progress log:
-		- 20261004: the item allowed either a header note with a loud check in the recipe, or a hook check. The first was taken. The hook gets the same ref list for an `--atomic` push and a plain one, so a rule there would either refuse the recipe's own push or miss the half-taken one. The recipe's run after the push reads what origin holds, however the push went. That choice, and the refusal of a remote tag this clone does not hold, are what is left to sign off.
-	- Actual fix:
-		- The tag, sent in the push or already on the remote, has to point at a commit with a spec whose version is the tag's. A remote tag this clone does not hold is refused at 2, with the fetch to run.
-		- The script's header says it relies on `--atomic`. The release recipe's run after the push now has to print `TAG OK`, and says to push the tags on their own at once when it does not.
-	- Verified: `Erkafzp` (a tag on a 2.0.0 commit, sent in the push and on the remote) and `Erkag2h` (a remote tag on a commit this clone lacks) failed on the old script and pass now. `check-push-gate.bash` passes.
-	- Branch: `gatefix`
-	- Commit: d7b7001a
-	- Test case: `check-push-gate` `Erkafzp`, `Erkag2h`. The `--atomic` half is a recipe step, with no test.
-
 - A canonical save after a merge and a raw set loses kept lines, found by the kept-lines fuzz
 	- ID: 2026100316012486
 	- Type: Bug
@@ -268,6 +92,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261004: a `--%` argument still never reaches the binary. PowerShell drops it from any native call, quoted or splatted, and passes the rest unquoted. The binary refuses `--%`, so it is left.
 		- 20261004: in a session, an unquoted `-x:y` loses its `-x:` on the way to the binary, in both scripts. That is a different cause, filed as 2026100408550401.
 		- 20261004: also fixed: `-k:$true` made the dogfood runner skip its update, since that boolean on the left of `-ceq` equals any word.
+		- 20261004: `-?` stays with PowerShell. It is how every PowerShell command shows its help, the binary refuses it anyway, and passing it on would mean dropping both help blocks. Both blocks now say to run `--help` for shcl's own help.
 	- Actual fix [Bug]: started by `-File`, which leaves no invoking line, `shcl.ps1` and `dogfood_shcl.ps1` take their arguments from the process's own argument list, after the entry naming the script. With no such entry, or from a session, `$args` is used as before. The launchers are unchanged.
 	- Swept: `shcl.ps1`, `dogfood_shcl.ps1`, and the launchers `utility/dogfood_shcl` and `dogfood_shcl.cmd`. `install.ps1`, `shclpath.ps1`, `winpath-regress.ps1` and `winpath-sandbox.ps1` have param blocks and pass nothing through.
 	- Verified: shell-regress, check-docs, PSScriptAnalyzer on both scripts, shellcheck, `test-ids.py check`.
@@ -422,6 +247,21 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `removekept`
 	- Commit: `46e6176a`
 	- Test case: `ErgToax` (Rust), `ErgToef` (Go), `ErgToiG` (Python), `ErgTom6` (C); cli-regress `ErgTonu`; corpus 187; fuzz `EreT6dh`.
+
+- Group a release's downloads in a table, with the CPU architecture in columns and the target OS in rows
+	- ID: 2026100411093274
+	- Type: Feature
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261004-110932
+	- Opened by: JC
+	- Problem description:
+		- A release page lists its downloads as one long flat list, so finding the right file takes a scan.
+	- Requirements:
+		- The release notes get a table of the download links.
+		- CPU architecture in columns, target OS in rows.
+		- An empty cell where there is no build for that pair.
+	- Note: releases are cut by hand from the recipe in details.md, so the table goes in the recipe's notes step, or in a script that writes it from the asset list.
 
 - Make sure the demo GIF is still accurate and current
 	- ID: 2026100306315606
@@ -756,6 +596,80 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- A repeated parent either gets its own rule in the property, or a test shows the merge leaves its kept lines alone.
 	- Estimated effort: Low
 
+- `remove` deletes kept lines next to the field it removes, at exit 0
+	- ID: 2026100307163901
+	- Type: Bug
+	- Status: Done
+	- Severity: Critical
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 1
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- `printf 'x: 1\nr: [1, 2]\ny: 3\n' > f.shcl`
+		- `shcl set f.shcl --remove y --write`
+	- Incorrect behavior: exit 0, and the file is just `x: 1`. The kept `r: [1, 2]` line went with `y`.
+	- Expected behavior: a kept line stays where it was written. The spec says a hand typo survives a load, edit and save.
+	- Reproduced: 20261003, all four CLIs and the Rust, Go and Python libraries. Same with `r: "C:\temp"` (E024), `r: "a\qb"` (E023), `bad name: 1` (E014), `*x` and `"r: 1`. Inside a block, `--remove j.q` takes a kept `j.r` whether it sits above or below `q`.
+	- Possible cause: a kept line is held as trivia on the next binding's node, and `remove` drops the node with its trivia. `clear_comments` already skips kept lines; `remove` does not. The save gate does not count kept lines, so `--write` goes through.
+	- Origin: kept lines as trivia came with `b216ad2b` (funnel, 2026-09-07), and rs-base does the same. For the `"C:\temp"` spelling it is a regression from `3ef0bc8c` (escblock): base kept that line as an H004 hint and the remove left it. Not seen by an earlier round. Backlog item 2026092620255202 is the same class for `clear-comments`. Confirmed.
+	- Note: 2026100207032800 makes more lines kept, a bare value with spaces among them, so this gets wider once that goes in.
+	- Sweep: every edit that drops or moves a node's trivia in all four: `remove`, the merge's replaced leaf, the setters that replace a node.
+	- Note: 20261003, from 2026100307310000. The save gate now counts kept lines, so the repro exits 7 and leaves the file alone, in all four. cli-regress `EreYYXK` (`save-kept-remove`) pins that; this fix turns it into exit 0 with `r: [1, 2]` kept. The kept-lines property `EreT6dh` skips this class through its row keyed by this ID, and the fix takes the row out. Up to 2,000,000 runs, only `remove` hit it; no setter or merge did.
+	- Estimated effort: Avg
+	- Actual cause [Bug]: a kept line sits in the next field's leading lines, or in a block's trailing ones, and `remove` dropped those lines with the field.
+	- Progress log:
+		- 20261003: fixed in all four, with 2026100307163907. A remove leaves the kept lines beside its target where they were, with the comments above them. A comment written right against the target goes with it. When the target was the last field in its block, its kept lines stay at the end of the block, and a misplaced line among them moves down to just above the next field line, where a reload files it.
+		- 20261003: tests whose expectation moved. cli-regress `EreYYXK` now expects exit 0 with `r: [1, 2]` kept, where it pinned the refusal at 7. `EreT6dh` lost this item's open row, and its check that a remove writes no new line now reads a raw block's fence moved to its own line as the same line. The reload property `Eqk24nZ` and its Go, Python and C twins now excuse a remove beside a settled kept line, as they already did for `clear_comments` (20260926 item 2). The document keeps that line, and the reload of its canonical text sees a plain comment.
+		- 20261003: left for signoff: which comments go with the target. The fix takes those between the target and the nearest kept line, and keeps the rest.
+		- 20261004: the full local run passed on dev at `063df7f2`, cppcheck exhaustive included.
+	- Actual fix [Bug]: `remove` puts what stays above the next field, or at the end of the block, in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`. design.md's "Kept lines under edits" has three new bullets for it. No table cell changed.
+	- Swept: `remove` in all four. The merge's replaced leaf already moves its kept lines onto the replacement. Every setter goes through `set_value` or its twin, which changes the value in place and keeps the node's lines, and `collapse_dup` folds them into the survivor. `clear_comments` already skipped kept lines. No other edit unlinks a node.
+	- Verified: the Rust, Go, Python and C suites, cli-regress, crosscheck, shell-regress, sanitize-c, check-veneer, clippy, staticcheck, ruff and mypy. Each new test failed with the fix taken out. The 2,000,000 release fuzz is green but for `EreT6dh`, which still fails on the open row of 2026100307163902 first.
+	- Note: 20261003, the 2,000,000 release fuzz, run on past known rows with local excuses only. A merge loses a kept line at exit 0 with dev's library as well, at iteration 960275 (`set_int`, banner on, merge; no raw set). An `E019` line ending in a fence has its body read as fields, the same class as 2026100307163902 and 2026100117214801; dev never reached it, since this item's row excused the step first. Nothing else failed.
+	- Branch: `removekept`
+	- Commit: `46e6176a`
+	- Test case: `ErgToYw` (Rust), `ErgTocq` (Go), `ErgTogT` (Python), `ErgTokB` (C); cli-regress `EreYYXK`; fuzz `EreT6dh`.
+	- Acceptance signoff: 20261004, signed off. Its tests cover it and the full run passed.
+	- Closed: 20261004-110932
+
+- A field line refused for its name that opens a raw block has its body read as fields, and `fmt --write` scrambles the file at exit 0
+	- ID: 2026100307163902
+	- Type: Bug
+	- Status: Done
+	- Severity: Critical
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 2
+	- Related IDs: 2026100117214801
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- A file holding `tools:`, then tab-indented `my script: ~~~sh`, `echo hi`, `run: rm -rf /tmp/x`, `~~~` and `port: 8080`.
+		- `shcl get f.shcl tools.run`, then `shcl fmt --write f.shcl`.
+	- Incorrect behavior: `get` prints `rm -rf /tmp/x` at exit 0 and `tools.port` is NotFound. `fmt --write` exits 0 and writes a raw block holding `port: 8080`, with `run: "rm -rf /tmp/x"` as a live field. `set -w --set tools.port=9090` exits 0 too and adds a second `port`.
+	- Expected behavior: the body goes with its line, as the E018 row in the spec says for every skipped field line, and a save never rewrites body text as fields.
+	- Reproduced: 20261003, all four CLIs. With the body one level deeper, the closing fence opens a block that runs to the end of the file; the save then refuses at 7 but every later field reads NotFound.
+	- Possible cause: the E014 arm moves on one line without taking the block, and the `line_fault` arm, which takes E023 in a name, does the same. `skip_field_line` does not help as written, since `line_fence` returns nothing on a faulted token list.
+	- Origin: older than the range. The 20260918 and 20260918b rounds declined the E014 fence run on the belief that the closing fence hides the rest of the file at E005, so a save refuses. This repro saves at exit 0, and the 2026-10-02 rule that an error never throws out good lines came after. Item 2026100117214801 is the E023 half of the same class. Confirmed.
+	- Note: a fix wants the whole class from 20260918b: a kept or refused line on which the tokenizer can still see a fence run takes its body. 801 would close with it.
+	- Note: 20261003, found while working 2026100307163904. The 2,000,000 release fuzz fails `EreT6dh` at iteration 558881 on dev too: a misplaced `E012` line opens a raw block and its body is read as fields. The property excuses this only for `E014`, so `E012` is the same class and this fix should cover it.
+	- Note: 20261003, from 2026100307310000. The kept-lines property `EreT6dh` skips this class through its row keyed by this ID, and the fix takes the row out. The save gate counts one kept line per retained outcome, so whatever the body becomes, the load must still hold one kept line for each, or a plain `fmt --write` refuses.
+	- Note: 20261003, found while working 2026100307163901. Past the known rows, the 2,000,000 release fuzz fails `EreT6dh` at iteration 1818622 on an `E019` line ending in a fence, with its body read as fields. Same class, so this fix should cover `E019` too.
+	- Estimated effort: Avg
+	- Actual cause [Bug]: two arms moved on one line after keeping it: the `E014` arm, and the arm for a bad escape in a name. `line_fence` saw no fence on a line that did not tokenize, so the misplaced arms let such a body through too, which is the `E012` case at fuzz iteration 555233. The `E019` report at iteration 1818622 was the property's own guess at the value: `a_:[0]:` followed by a three-backtick fence is bracket text, whose value starts with `[`, so it opens no block.
+	- Progress log:
+		- 20261003: fixed in all four. A kept line whose value is a fence keeps the body and closing fence with it, as one kept line, so the save gate's count holds. A line that does not tokenize opens a block when a fence follows its first colon past where reading stopped, with no `#` before that colon. Canonical output writes the body one level under the line, as for a field's block, and a block that never closed gets its closing fence. A misplaced line that opens a block still takes it and is lost, as the `E012` row says.
+		- 20261003: the property's two oracles read a line's value with the tokenizer now, rather than splitting at the first `: `. That guess made the `E019` report above.
+		- 20261003: the 2,000,000 release fuzz is green but for `EreT6dh` on a merge, which is 2026100316012486. The new corpus case moved the seeds, and it now fails first at iteration 749492, a kept line lost after a merge with no raw block in the input. With merges excused locally, nothing else fails up to 2,000,000.
+		- 20261003: left for signoff: canonical output moves a kept body one level under its line, and `fmt` adds the closing fence to a kept block that never closed. Both change what `fmt --write` writes.
+		- 20261004: the full local run passed on dev at `063df7f2`, cppcheck exhaustive included.
+	- Actual fix [Bug]: `line_fence` sees a fence past a fault, and the `E014` and line-fault arms keep the body on the kept line's text (`keep_body`), in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`. The emitter writes it one level under the line (`push_kept`). Spec, design.md (Load outcomes, Lexical edges, Kept lines under edits), `explain E014` and `E023` in the four CLIs, and the changelog say so.
+	- Swept: every arm that refuses a line and moves on, in all four. Field lines: `E012`, `E018` and `E021` go through `skip_field_line`, which now sees past a fault; `E014`, `E019`, `E023` and `E024` through `keep_body`. A child fence line already took its body. A `*` element line (`E012`, `E018`, `E013`, `E023`, `E024`) has no value that can open a block. The Schema and Format line walk (`opens_raw`) reads through the same `line_fence`, so it agrees with the parser. No `E025` arm exists yet; 2026100207032800 adds them. No C++ veneer call changed.
+	- Verified: the four conformance suites, cli-regress, crosscheck over the corpus and a 2,000-input fuzz dump, shell-regress, check-veneer, sanitize-c, check-migrate, check-docs, check-abnf, test-ids, markdownlint, clippy, go vet, staticcheck, ruff, mypy, gcc 15 with `_FORTIFY_SOURCE=3` and the mingw C build. Corpus 191 fails on dev in all four, and `EreT6dh` fails on dev at iteration 25 with its row out. Both pass with the fix.
+	- Branch: `rawkept`
+	- Commit: `0a6d1bb5`
+	- Test case: corpus 191 (`Ergr8Z4`) in all four; fuzz `EreT6dh` (open row taken out) and `EqGWdij` (its `E014` excuse taken out).
+	- Acceptance signoff: 20261004, signed off. Its tests cover it and the full run passed.
+	- Closed: 20261004-110932
+
 - `check` can take its Schema line from inside a raw block and validate against the wrong schema at exit 0
 	- ID: 2026100307163903
 	- Type: Bug
@@ -950,6 +864,66 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Swept: every test for a leading `#` on a comment line in all four. The merge's replaced-leaf rule is the one other site, filed as 2026092718195400.
 	- Branch: `keepdrop`
 	- Test case: corpus `178-clear-comments-kept-line`, both routes, with `comments` reads. It fails on the old code.
+
+- A fuzz property and a save-gate check for kept lines, so edits stop losing them one site at a time
+	- ID: 2026100307310000
+	- Type: Task
+	- Status: Done
+	- Priority: High
+	- Opened: 20261003-073100
+	- Opened by: Code review 20261003, OK'd 2026-10-03
+	- Related IDs: 2026100307163901, 2026100307163902, 2026100307163907, 2026100213205957, 2026100117214801, 2026100117214802, 2026100218185700, 2026092620255202
+	- Problem description:
+		- Edits that lose a kept line keep turning up, one site per round: `clear-comments`, then `remove`, the lazy level, nesting and the raw-block arms.
+		- The save gate does not count kept lines, so each of these saves at exit 0.
+		- 800 makes more lines kept, so the class grows with it.
+	- Requirements:
+		- A fuzz property: after any edit, every kept line outside the edit's target is still in the saved text, or the save refuses.
+		- The save gate counts kept lines, in all four bindings.
+		- design.md gets a rule table: each edit and what it does with the kept lines beside and under its target.
+	- Note: best done before the fixes for items 1, 2 and 7 of the same round, so the property tests them.
+	- Estimated effort: Avg
+	- Progress log:
+		- 20261003: built. The save gate counts kept lines in all four bindings, and a C compaction keeps the count. The property holds items 1, 2 and 7 as open rows and found no other class up to 2,000,000 runs. No existing test had to change.
+		- 20261003, review round 1: each binding tests the two kept lines a merge may drop. The refusal reads "this write would delete N line(s)/value(s) from the file" in the four CLIs and the library errors (answered 2026-10-03). The property picks the lines a merge may drop by where they sit, not by text (answered 2026-10-03).
+		- 20261003: review passed. Waits on the hosted Windows run, then signoff, since the refusal wording changed.
+		- 20261004: the full local run passed on dev at `063df7f2`. Hosted run 37213067174 started on dev.
+		- 20261004: hosted run 37213067174 on dev passed, windows job included. Waits on signoff for the refusal wording.
+	- Branch: `keptgate`
+	- Test case: `EreT6dh` (`kept_lines_survive_edits`, fuzz_smoke.rs); per binding `kept_gate` tests `EreRyr7`, `EreUeCs`, `EreRysn` (Rust), `EreUzvf`, `EreUzxY`, `EreUzzO` (Go), `EreVRei`, `EreVRgk`, `EreVRis` (Python), `EreWlg6`, `EreWli7`, `EreWlk5`, `EreZ0ar` (C); the merge's two exceptions `ErfGoMI`, `ErfGoMJ` (Rust), `ErfGoMK`, `ErfGoML` (Go), `ErfGoMM`, `ErfGoMN` (Python), `ErfGoMO`, `ErfGoMP` (C); cli-regress `EreYYXK`; crosscheck `EreXO4J`.
+	- Acceptance signoff: 20261004, signed off. Its tests cover it and the full run passed.
+	- Closed: 20261004-110932
+
+- `migrate` exits 0 on a file whose raw block never closes, and leaves it unstamped
+	- ID: 2026100316275800
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261003-162758
+	- Opened by: signoff talk on 2026100307163903
+	- Related IDs: 2026100307163903
+	- Version and build: dev at `4eb17db4`
+	- Steps to reproduce:
+		- A file holding `a: 'x\ty'`, then `b: ~~~` and a tab-indented `line`, with no closing fence.
+		- `shcl migrate --from-2x --write f.shcl`
+	- Incorrect behavior: it prints `E005 unterminated raw block`, rewrites line 1, keeps `f_old_v2.shcl`, and exits 0. No Format line is added, so a later run cannot tell the file was migrated.
+	- Expected behavior: `check` already fails this file at 6. `migrate` should refuse at 7 and write nothing, since it cannot finish the job.
+	- Reproduced: 20261003, Rust CLI. The other three not checked yet.
+	- Possible cause: the no-stamp rule skips the stamp quietly rather than refusing.
+	- Note: a refusal fits the 2.x low-stakes rule. Fixing the fence then running `migrate` again does the whole job.
+	- Estimated effort: Low
+	- Reproduced: 20261004, all four CLIs. `--check` exited 6 over line 1 rather than refusing.
+	- Actual cause [Bug]: the library leaves the stamp off such a file, as designed, and the CLI went on to write the rest at exit 0.
+	- Actual fix [Bug]: `migrate` refuses at 7 when nothing is ambiguous and the migrated text still names no current format, which only an open raw block leaves. It asks `format_version` of the output rather than looking for the block itself. `--check` and the print form say the same, and `--write` writes nothing and keeps no copy. All four CLIs. Spec, design.md, the man page and the changelog say so.
+	- Swept: `do_migrate` in Rust, Go, Python and C. The library is unchanged. A program calling `migrate()` can ask `format_version()` of the result the same way.
+	- Verified: the repro exits 7 in all four, with the file untouched and no copy. The four conformance suites, `cli-regress.bash` (353 rows), `crosscheck.bash` over the corpus, `check-docs.bash`, `shell-regress.bash`, markdownlint, `test-ids.py check`, clippy (host and windows), go vet, staticcheck, ruff, mypy and shellcheck pass. `check-migrate.bash` passes with the change below.
+	- Note: left for signoff: the message, "a raw block never closes, so there is nowhere to put the Format line; close it and run migrate again".
+	- Branch: `migfix`
+	- Note: `check-migrate.bash` wanted exit 0 from every document 2.x read cleanly, and 2.x took an unterminated raw block as clean, so the refusal turned it red on 36 documents (corpus 056, 059, 075, 096, 097, 143 and 191, and 29 fuzz documents). Now a document whose 2.x check reports `E005` has to be refused at 7 over the open block, and its reads are still compared. It passes over 635 documents, 36 of them refused this way. It goes red when `migrate` refuses a document without an open block (582 divergences), and when the refusal is taken out (all 36, plus `Erklujb`).
+	- Commit: `673052a8`, and `5852d913` for the gate
+	- Test case: cli-regress `ErkalBb` (`--check`) and `ErkalBc` (`--write`, file unchanged), all four CLIs. Both fail on the old code and pass on the new. check-migrate `Eq5YPgP` over the corpus and fuzz dump, and `Erklujb` on corpus 096.
+	- Acceptance signoff: 20261004, signed off. Its tests cover it and the full run passed.
+	- Closed: 20261004-110932
 
 - `migrate --check` exits 6 and `--write` keeps a needless copy when a CRLF file has no final newline
 	- ID: 2026100307163906
@@ -1524,6 +1498,34 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `pathhint`
 	- Commit: `1a12c02`
 	- Test case: corpus `171-windows-path-hint`, cli-regress `path-hint-*` rows. The read and strict rows and case 171 fail with the hint off, and `path-hint-set` shows a write is unaffected. The migrate goldens of cases 118, 122 and 170 now list the hint.
+
+- A bad escape in the name of a line that opens a raw block leaves the body to be read as lines
+	- ID: 2026100117214801
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Note: 20261002, under 2026100207032800 a backslash is text, so this repro no longer fails. A bad `◉` escape in the name, such as `"a◉X◉":`, does the same thing, so the bug stays.
+	- Opened: 20261001-172148
+	- Opened by: found while working 2026100115403384
+	- Version and build: dev at `5956ff4a`
+	- Steps to reproduce:
+		- `shcl check` and `shcl fmt` on a line `"a\w":` followed by a three-backtick fence on the same line, then `x: 1`, then a closing fence.
+	- Incorrect behavior: line 1 is `E023` and kept, `x: 1` binds at the root, and the closing fence is `E005` and `E006`. `fmt` writes no closing fence.
+	- Expected behavior: the body goes with its line, as it does for every other skipped field line (`skip_field_line`).
+	- Reproduced: Yes, 20261001, Rust at `5956ff4a`.
+	- Note: the retained line keeps only its own text, so taking the body would need the body kept too, or the line dropped instead.
+	- Actual cause [Bug]: the arm for a line refused for its value or its name moved on one line after keeping it. Only a fault in the name leaves a fence to read there.
+	- Progress log:
+		- 20261003: fixed with 2026100307163902. The body is kept with the line rather than the line dropped, since dropping it would throw out good lines. `x: 1` stays in the body, nothing binds at the root, and `fmt` writes the closing fence, in all four.
+		- 20261003: not checked: the `◉` spelling in the note above, which waits on 2026100207032800. A bad escape in a name should reach the same arm then; recheck it when that is built.
+		- 20261004: the full local run passed on dev at `063df7f2`, cppcheck exhaustive included.
+	- Actual fix [Bug]: as 2026100307163902 (`keep_body` on the line-fault arm).
+	- Swept: as 2026100307163902.
+	- Branch: `rawkept`
+	- Commit: `0a6d1bb5`
+	- Test case: corpus 191 (`Ergr8Z4`), its line 9, in all four.
+	- Acceptance signoff: 20261004, signed off. Its tests cover it and the full run passed.
+	- Closed: 20261004-110932
 
 - crosscheck's line-ending replay skips without a word when the dump has no `eol/` folder
 	- ID: 2026100307163912
@@ -2422,6 +2424,32 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Test case: corpus `186-kept-line-first-blank`, a kept line that turns into a comment above the first list, merged under a one-line layer.
 	- Acceptance signoff: Self-closed: reproduced, its test failed before the fix and passes after in all four.
 	- Closed: 20260930-080144
+
+- check-banner-tag trusts the push to be atomic and the tag to point at the cut
+	- ID: 2026100307163918
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Low
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 idea 2
+	- Version and build: dev at `6e8b7f89`
+	- Problem description:
+		- A push of `main` and the tag without `--atomic` passes the hook. If the remote turns down the tag, main is at the cut and the tag is missing. The hook cannot see `--atomic`.
+		- A pushed tag on any commit with a `project/spec.md` passes, even one at an older version. By reading only.
+	- Requirements:
+		- The script's header says it relies on `--atomic`, or the recipe's check after the push fails loudly.
+		- The tag must point at a commit whose version is the cut's.
+	- Progress log:
+		- 20261004: the item allowed either a header note with a loud check in the recipe, or a hook check. The first was taken. The hook gets the same ref list for an `--atomic` push and a plain one, so a rule there would either refuse the recipe's own push or miss the half-taken one. The recipe's run after the push reads what origin holds, however the push went. That choice, and the refusal of a remote tag this clone does not hold, are what is left to sign off.
+	- Actual fix:
+		- The tag, sent in the push or already on the remote, has to point at a commit with a spec whose version is the tag's. A remote tag this clone does not hold is refused at 2, with the fetch to run.
+		- The script's header says it relies on `--atomic`. The release recipe's run after the push now has to print `TAG OK`, and says to push the tags on their own at once when it does not.
+	- Verified: `Erkafzp` (a tag on a 2.0.0 commit, sent in the push and on the remote) and `Erkag2h` (a remote tag on a commit this clone lacks) failed on the old script and pass now. `check-push-gate.bash` passes.
+	- Branch: `gatefix`
+	- Commit: d7b7001a
+	- Test case: `check-push-gate` `Erkafzp`, `Erkag2h`. The `--atomic` half is a recipe step, with no test.
+	- Acceptance signoff: 20261004, signed off. Its tests cover it and the full run passed.
+	- Closed: 20261004-110932
 
 - Compare the four bindings' keep saves on mixed line-ending inputs
 	- ID: 2026100114175701
