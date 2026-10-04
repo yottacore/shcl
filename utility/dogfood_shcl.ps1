@@ -50,7 +50,7 @@
 .SYNOPSIS
 Runs the newest dogfood build of shcl, taking a new one from the synced dogfood dir first.
 .DESCRIPTION
-Every argument but --no-update goes to shcl as it came, and shcl's exit code comes back. --no-update runs the newest build already held and copies nothing.
+Every argument but --no-update goes to shcl as it came, and shcl's exit code comes back. --no-update runs the newest build already held and copies nothing. For shcl's own help, run it with --help.
 .EXAMPLE
 dogfood_shcl get --int app.shcl server.port
 .EXAMPLE
