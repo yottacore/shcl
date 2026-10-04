@@ -2156,7 +2156,10 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool) -> Migration {
 			let indent = leading_ws(body);
 			let rest_full = &body[indent.len()..];
 			let rest = trim_wsp_end(rest_full);
+			// `lost` counts lines, and one line can lose several values.
+			let lost_before = st.lost;
 			let migrated = migrate_line(rest, &mut tok, &mut fence, &mut st);
+			st.lost = lost_before + usize::from(st.lost > lost_before);
 			changed |= migrated != rest;
 			out.push_str(indent);
 			out.push_str(&migrated);

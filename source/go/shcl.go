@@ -2323,7 +2323,12 @@ func migrateText(text string, fromV2, stamp bool) Migration {
 			indent := leadingWS(body)
 			restFull := body[len(indent):]
 			rest := trimEndWS(restFull)
+			// lost counts lines, and one line can lose several values.
+			lostBefore := st.lost
 			migrated := migrateLine(rest, &tok, &fence, &st)
+			if st.lost > lostBefore {
+				st.lost = lostBefore + 1
+			}
 			if migrated != rest {
 				changed = true
 			}

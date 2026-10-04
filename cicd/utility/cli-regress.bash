@@ -312,6 +312,9 @@ printf 'a: 1\nb: 2\r' > "${tmpDir}/miglonecr.shcl"
 printf 'a: 1\r\nb: 2\r\nc: 3\r' > "${tmpDir}/miglonecrcrlf.shcl"
 ## A 2.x file whose raw block never closes, so the Format line has nowhere to go.
 printf 'a: %s\nb: ~~~\n\tline\n' "'x\ty'" > "${tmpDir}/migraw.shcl"
+## Two Windows paths holding a line break on one line, and a bracket array on
+## the next: three values lost, on two lines.
+printf '%s\n' 'p: "C:\\a\nb", "D:\\c\nd"' 'q: [1, 2]' > "${tmpDir}/miglost2.shcl"
 ## A schema key nothing knows, on schema line 2.
 printf 'field: a\n\tbogus: 1\n' > "${tmpDir}/unkey.shcl"
 ## A file and a name that both start with a dash, so only `--` makes them data.
@@ -360,7 +363,8 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	%MN%/%MX%/%MY% a CRLF file with no final newline and ones whose last line
 ##	ends in a lone CR, in an LF file and a CRLF one, %MR% a 2.x file whose raw
 ##	block never closes, and %MNW%/%MXW%/%MRW% fresh copies of the first, second
-##	and fourth at the path %C% names,
+##	and fourth at the path %C% names, %MV% two lost values on one line and a
+##	bracket array on the next,
 ##	%W% a fresh copy of the selector-sugar file, %BS% a fresh copy of a file
 ##	whose value reads differently under the two rule sets, %BW% a fresh copy of
 ##	the bracket array, %V3% a file that already names its format,
@@ -744,6 +748,8 @@ rows=(
 	'Eq4Rkv7|migrate-lost-binding|migrate %BA%|-|7|-|bound a value under 2.x that nothing binds now'
 	'Eq4Rkv8|migrate-lost-write-refused|migrate --write %BW%|-|7|-|refusing to rewrite'
 	'Eq4Rkv9|migrate-lost-write-lossy|migrate --write --lossy %BW%|-|0|-|bound a value under 2.x'
+	## 2026100410055748: the count was values, so this said 3 line(s).
+	'Erkljp5|migrate-lost-counts-lines|migrate --from-2x %MV%|-|7|-|: 2 line\(s\) bound a value under 2\.x'
 	## 20260909 item 41: telling a file that needs migrating from one that does
 	## not took a diff of the output, and --write said nothing either way.
 	'Eq4wD3Y|migrate-check-names|migrate --check %W%|-|6||w\.shcl:1: migrate would rewrite this line'
@@ -1142,6 +1148,7 @@ for row in "${rows[@]}"; do
 	argv="${argv//%MX%/${tmpDir}/miglonecr.shcl}"
 	argv="${argv//%MY%/${tmpDir}/miglonecrcrlf.shcl}"
 	argv="${argv//%MR%/${tmpDir}/migraw.shcl}"
+	argv="${argv//%MV%/${tmpDir}/miglost2.shcl}"
 	argv="${argv//%SU%/${tmpDir}/unkey.shcl}"
 	argv="${argv//%NA%/${tmpDir}/nonascii.shcl}"
 	runIn=""
