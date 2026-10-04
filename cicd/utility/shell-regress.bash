@@ -3375,9 +3375,12 @@ chmod +x "${xcDir}/ref"
 for m in two nonl tsv crlf; do cp "${xcDir}/ref" "${xcDir}/${m}"; done
 printf 'a: 1\n' > "${xcDir}/corpus/001-a/input.shcl"
 printf 'query\ttype\texpected\tstatus\na\tint\t1\tok\nzz\tcount\t0\tok' > "${xcDir}/corpus/001-a/reads.tsv"
+## The run's strict flag and skip list stay out, since these dumps leave out
+## folders on purpose; a row that wants either sets it in xcEnv.
+xcEnv=()
 fCrosscheck(){  ## fCrosscheck ARGS...: crosscheck's stdout and stderr in xcOut, its exit in xcRc
 	xcRc=0
-	xcOut="$(cd "${repoDir}" && CPU_CAP=2 bash cicd/utility/crosscheck.bash "$@" 2>&1)" || xcRc=$?
+	xcOut="$(cd "${repoDir}" && env -u SHCL_GATE_STRICT SHCL_GATE_SKIPS=/dev/null CPU_CAP=2 ${xcEnv[@]+"${xcEnv[@]}"} bash cicd/utility/crosscheck.bash "$@" 2>&1)" || xcRc=$?
 }
 fCrosscheck --corpus "${xcDir}/corpus" "ref|${xcDir}/ref" "other|${xcDir}/ref"
 [[ "${xcRc}" == 0 && "${xcOut}" == *"bindings agree on"* ]] || fBad "crosscheck self-test: two identical stubs did not agree (exit ${xcRc}): ${xcOut@Q}"
@@ -3425,6 +3428,21 @@ mkdir -p "${xcDir}/eolempty/eol"
 cp "${xcDir}/eoldump/fuzz_00000.shcl" "${xcDir}/eolempty/"
 fCrosscheck --corpus "${xcDir}/corpus" --extra "${xcDir}/eolempty" "ref|${xcDir}/ref" "other|${xcDir}/ref"
 [[ "${xcRc}" == 2 && "${xcOut}" == *"empty keep-save dump"* ]] || fBad "crosscheck took an empty eol/ (exit ${xcRc})"
+fTest Erkag5x 2026100307163912-crosscheck-dump-folder-missing
+##	2026100307163912: a dump with no eol/ folder turned the keep-save replay
+##	off without a word, strict or not.
+mkdir -p "${xcDir}/noeol/kept"
+cp "${xcDir}/eoldump/fuzz_00000.shcl" "${xcDir}/noeol/"
+cp "${xcDir}/eoldump/eol/00000.shcl" "${xcDir}/eoldump/eol/00000.ops" "${xcDir}/noeol/kept/"
+xcEnv=(SHCL_GATE_STRICT=1)
+fCrosscheck --corpus "${xcDir}/corpus" --extra "${xcDir}/noeol" "ref|${xcDir}/ref" "other|${xcDir}/ref"
+[[ "${xcRc}" == 2 && "${xcOut}" == *"has no eol/ folder"* ]] || fBad "a strict crosscheck took a dump with no eol/ (exit ${xcRc}): ${xcOut@Q}"
+: > "${xcDir}/skips"
+xcEnv=(SHCL_GATE_SKIPS="${xcDir}/skips")
+fCrosscheck --corpus "${xcDir}/corpus" --extra "${xcDir}/noeol" "ref|${xcDir}/ref" "other|${xcDir}/ref"
+[[ "${xcRc}" == 0 && "${xcOut}" == *"skip ErUF4nK "* && "${xcOut}" == *"ok   EreXO4J "* && "$(cat "${xcDir}/skips")" == "crosscheck eol" ]] \
+	|| fBad "crosscheck did not note a dump with no eol/ as a skip (exit ${xcRc}, skips $(cat "${xcDir}/skips")): ${xcOut@Q}"
+xcEnv=()
 
 fTestEnd
 

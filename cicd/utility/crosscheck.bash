@@ -22,7 +22,9 @@
 ##		  --corpus DIR  conformance corpus root (case dirs with input.shcl etc.)
 ##		  --extra DIR   also compare `fmt` over every *.shcl in this directory,
 ##		                and the keep save over every *.shcl in DIR/eol and
-##		                DIR/kept, with its *.ops beside it
+##		                DIR/kept, with its *.ops beside it. Either folder
+##		                missing fails under SHCL_GATE_STRICT and is noted in
+##		                SHCL_GATE_SKIPS otherwise
 ##		  --min N       fail unless at least N comparisons ran (default 1, so a
 ##		                collapsed corpus/dump can't pass on zero)
 ##		  NAME|CLI      binding name + its CLI path; first entry is the reference
@@ -586,8 +588,18 @@ if [[ -n "$extra" && -d "$extra" ]]; then
 		echo "crosscheck: --extra ${extra} matched no *.shcl (empty fuzz dump?)" >&2
 		exit 2
 	fi
+	## The fuzz dump writes both folders, so one that is not there is a dump that
+	## stopped writing it, and the keep saves it holds go unchecked.
 	for kind in eol kept; do
-		[[ -d "${extra}/${kind}" ]] || continue
+		if [[ ! -d "${extra}/${kind}" ]]; then
+			if [[ -n "${SHCL_GATE_STRICT:-}" ]]; then
+				echo "crosscheck: ${extra} has no ${kind}/ folder (keep-save dump missing?), and the gate requires it" >&2
+				exit 2
+			fi
+			echo "crosscheck: skipping the ${kind}/ keep saves (no ${extra}/${kind})"
+			echo "crosscheck ${kind}" >> "${SHCL_GATE_SKIPS:-/dev/null}"
+			continue
+		fi
 		nExtra=0
 		for f in "${extra}/${kind}"/*.shcl; do
 			[[ -e "$f" ]] || continue
@@ -713,3 +725,5 @@ echo "crosscheck: ${#bindings[@]} bindings agree on ${nCompared} comparison(s)"
 ##		- 20261003: The same over the dump's kept/ folder: kept lines and the
 ##		               edits near them, so the save gate on kept lines is held
 ##		               in every binding.
+##		- 20261004: An --extra dump with no eol/ or kept/ fails a strict run,
+##		               and is noted in SHCL_GATE_SKIPS otherwise.
