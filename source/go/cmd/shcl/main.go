@@ -2131,6 +2131,14 @@ func doMigrate(o *opts) int {
 			rc = 7
 		}
 	}
+	// With nothing ambiguous, the stamp is left off only when a raw block runs
+	// to the end of the file, where the line would be the block's content.
+	// Unstamped, the next run could not tell the file was migrated.
+	if v, ok := shcl.FormatVersion(m.Text); m.Ambiguous == 0 && (!ok || v < shcl.FormatMajor) {
+		fmt.Fprintf(os.Stderr, "%s: a raw block never closes, so there is nowhere to put the Format line; "+
+			"close it and run migrate again\n", file)
+		rc = 7
+	}
 	rewritten := rewrittenLines(text, m.Text)
 	// A save keeps a line at an indent no level matches, but 2.x placed some
 	// such lines by a looser rule and read them, so a migration that leaves

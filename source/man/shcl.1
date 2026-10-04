@@ -3,7 +3,7 @@
 .\"
 .\" Has no version string on purpose: the release bump touches eight files
 .\" and this is not one of them. Keep it in step with HELP in the four CLIs.
-.TH SHCL 1 2026-10-02 shcl "User Commands"
+.TH SHCL 1 2026-10-04 shcl "User Commands"
 .SH NAME
 shcl \- read, edit, validate and format Simple Hierarchical Config Language files
 .SH SYNOPSIS
@@ -706,7 +706,9 @@ exits 7, unless
 says it really is 2.x. A file
 .B migrate
 rewrites is stamped with the line, so a second run has the answer the first
-one did not.
+one did not. A raw block that never closes leaves the line nowhere to go, so
+.B migrate
+exits 7 and writes nothing until the block is closed.
 .PP
 Bracket text after the colon, and a line break in a value that starts like a
 Windows path, are what 2.x bound that nothing binds now.
@@ -765,8 +767,8 @@ overrides), or
 .B migrate
 left something behind: values it cannot decide between the two rule sets
 .RB ( \-\-from\-2x
-decides them), a 2.x binding with no spelling here, or a line whose indent
-matches no open level.
+decides them), a 2.x binding with no spelling here, a line whose indent
+matches no open level, or a raw block that never closes.
 .TP
 .B 8
 A file or stream could not be read or written \- it is missing, unreadable,

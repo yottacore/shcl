@@ -5,9 +5,10 @@
 //! so the exit codes and flags below are a stable surface, not conveniences.
 
 use shcl::{
-	Diagnostic, Document, DurationUnit, GEN_BANNER, Piece, Quote, Rules, SaveError, Severity,
-	SizeUnit, Status, Strictness, Tokens, format_float, generate, migrate, parse_datetime,
-	schema_ref, suppress_declared_reopens, suppress_declared_repeats, tokenize, write_file_atomic,
+	Diagnostic, Document, DurationUnit, FORMAT_MAJOR, GEN_BANNER, Piece, Quote, Rules, SaveError,
+	Severity, SizeUnit, Status, Strictness, Tokens, format_float, format_version, generate,
+	migrate, parse_datetime, schema_ref, suppress_declared_reopens, suppress_declared_repeats,
+	tokenize, write_file_atomic,
 };
 use std::fmt::Write as _;
 use std::process::ExitCode;
@@ -2264,6 +2265,16 @@ fn do_migrate(o: &Opts) -> u8 {
 		if !o.lossy {
 			rc = 7;
 		}
+	}
+	// With nothing ambiguous, the stamp is left off only when a raw block runs
+	// to the end of the file, where the line would be the block's content.
+	// Unstamped, the next run could not tell the file was migrated.
+	if m.ambiguous == 0 && format_version(&m.text).is_none_or(|v| v < FORMAT_MAJOR) {
+		errln!(
+			"{}: a raw block never closes, so there is nowhere to put the Format line; close it and run migrate again",
+			file
+		);
+		rc = 7;
 	}
 	let rewritten = rewritten_lines(&text, &m.text);
 	// A save keeps a line at an indent no level matches, but 2.x placed some

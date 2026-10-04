@@ -1275,6 +1275,13 @@ static int do_migrate(const Opts *o) {
 		fprintf(stderr, "%s: %zu line(s) bound a value under 2.x that nothing binds now: bracket text after the colon or a line break in a Windows path, which have no spelling here (--lossy overrides)\n", file, m.lost);
 		if (!o->lossy) rc = 7;
 	}
+	// With nothing ambiguous, the stamp is left off only when a raw block runs
+	// to the end of the file, where the line would be the block's content.
+	// Unstamped, the next run could not tell the file was migrated.
+	if (!m.ambiguous && shcl_format_version(m.text, m.len) < SHCL_FORMAT_MAJOR) {
+		fprintf(stderr, "%s: a raw block never closes, so there is nowhere to put the Format line; close it and run migrate again\n", file);
+		rc = 7;
+	}
 	size_t rewritten = rewritten_lines(o->check ? file : NULL, text, len, m.text, m.len);
 	// A save keeps a line at an indent no level matches, but 2.x placed some
 	// such lines by a looser rule and read them, so a migration that leaves one
