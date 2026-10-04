@@ -405,7 +405,9 @@ public:
 	[[nodiscard]] bool set_string_array_default(std::string_view path, const std::vector<std::string> &v);
 	[[nodiscard]] bool set_datetime_array_default(std::string_view path, const std::vector<DateTime> &v);
 
-	// Delete the nodes at a path, subtrees included, and say how many.
+	// Delete the nodes at a path, subtrees included, and say how many. Lines
+	// kept as written beside a node stay where they were, and a field opened
+	// only by the lines under it goes with the last of them.
 	std::size_t remove(std::string_view path);
 	// A leading comment line on the node at a path, creating an empty node when
 	// there is none so a section can be annotated. A missing `#` is added. Text

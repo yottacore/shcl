@@ -10,7 +10,6 @@ path: "C:\temp"
 path: one, two
 nested: "\q"
 	inner: [x]
-	inner:
 sel[web]: "\q"
 sel: web
 	port: 8

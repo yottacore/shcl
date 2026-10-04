@@ -184,7 +184,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A malformed line among stacked list elements keeps the list stacked, with the line where it was.
 
-- A save refuses when an edit would lose a line kept as written, such as a malformed line beside a removed field, the same way it refuses over a line the load dropped. The refusal says how many lines the write would delete from the file.
+- A save refuses when an edit would lose a line kept as written, the same way it refuses over a line the load dropped. The refusal says how many lines the write would delete from the file.
+
+- A remove leaves the malformed lines beside the removed field where they were. A field opened only by the lines under it goes with the last of them and no longer leaves a bare `name:` line.
 
 - A setter writes only what reads back, and refuses anything else.
 

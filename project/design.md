@@ -628,6 +628,12 @@ Where a kept line sits is read from canonical output before the edit. Under the 
 
 - A remove only takes lines away. It writes no line the document did not write before, so a field opened from a kept line does not leave a bare `name:` behind.
 
+- A field opened from a kept line goes with the last line under it, and the kept line stays where it was. A raw block of the same name after it had its fence on the name's line only because of that empty field, so the fence moves to a line of its own. That is the one rewrite a remove makes.
+
+- A remove takes the comments written against its target: above it, those after the last kept line; below it, those before the first. A comment on the far side of a kept line stays with that line. A kept line the settle wrote as a comment counts as kept here, though a reload of the canonical text reads it as a plain comment.
+
+- The kept lines beside a target that was the last field in its block stay at the end of that block. A misplaced line among them has no level there, so it goes down to just above the next field line, with the comments after it, which is where a reload files them.
+
 - A setter that replaces a stacked list's value moves the kept lines among its elements above it, as under Load outcomes. A move is not a loss.
 
 - The merge exception for a settled line on a replaced leaf was decided on 2026-09-28: the line goes the way it would in a merge onto the reload of the saved base, where it is a comment.

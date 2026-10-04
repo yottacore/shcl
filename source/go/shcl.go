@@ -4716,6 +4716,54 @@ func keptInLists(nd *nodeData) int {
 	return keptIn(nd.leading()) + keptIn(nd.after()) + keptIn(nd.inside()) + keptAmong(nd.among())
 }
 
+// restep: a reload starts a comment run at 0 and steps one level at a time,
+// so a comment left after the one it sat under went is pulled back to fit.
+func restep(leads []lead) {
+	room := 0
+	for k := range leads {
+		if strings.HasPrefix(leads[k].text, "#") {
+			leads[k].depth = minInt(leads[k].depth, room)
+			room = leads[k].depth + 1
+		}
+	}
+}
+
+// besideKept is what a remove of this node leaves of its lines, by
+// design.md's kept-lines table: the kept lines beside it, with the comments
+// that sit with them. Above it that is everything up to its last kept line,
+// below it everything from its first, so a comment written against the node
+// goes with it. The kept line written in place of its `name:` line goes too.
+func besideKept(nd *nodeData) []lead {
+	heads := headsBlock(nd)
+	t := nd.trivia
+	if t == nil {
+		return nil
+	}
+	left := t.leading
+	t.leading = nil
+	if heads {
+		left = left[:len(left)-1]
+	}
+	end := 0
+	for k := len(left) - 1; k >= 0; k-- {
+		if left[k].isKeptLine() {
+			end = k + 1
+			break
+		}
+	}
+	left = left[:end]
+	from := len(t.after)
+	for k := range t.after {
+		if t.after[k].isKeptLine() {
+			from = k
+			break
+		}
+	}
+	left = append(left, t.after[from:]...)
+	t.after = t.after[:from]
+	return left
+}
+
 // ErrorCount is how many error-severity diagnostics the document has - the
 // "did this file have errors?" predicate, so recover-and-continue can't read
 // as success by accident. Counts whatever Diagnostics() holds (after
@@ -5157,7 +5205,13 @@ func (e *emit) placed(indent string) {
 // empty block keeps its own line, since nothing would open the field. Only
 // what a reload restores counts, so a document and its reload agree.
 func headsBlock(node *nodeData) bool {
-	if !node.value.isEmpty() || len(node.children) == 0 || node.blankBefore || node.trailing() != "" {
+	return len(node.children) != 0 && openedByKept(node)
+}
+
+// openedByKept is headsBlock() but for the children: a field a reload would
+// open only from the lines under it, so it goes with the last of them.
+func openedByKept(node *nodeData) bool {
+	if !node.value.isEmpty() || node.blankBefore || node.trailing() != "" {
 		return false
 	}
 	leads := node.leading()
@@ -7981,6 +8035,8 @@ func (d *Document) Exists(path string) bool {
 }
 
 // Remove deletes the node(s) at a path (with their subtrees); returns how many.
+// Lines kept as written beside a node stay where they were, and a field opened
+// only by the lines under it goes with the last of them.
 // A removed node's storage is not reclaimed, so a process that adds and removes in a loop grows by a few hundred bytes a pair. Reloading the canonical text gives it back.
 func (d *Document) Remove(path string) int {
 	r, ok := d.resolveGroup(path)
@@ -8032,18 +8088,162 @@ func (d *Document) Remove(path string) int {
 			continue
 		}
 		kids := d.arena[pr.parent].children[:0]
+		var left []lead
 		for _, c := range d.arena[pr.parent].children {
 			if d.arena[c].parent == dead {
 				d.arena[c].parent = pr.parent
+				left = append(left, besideKept(&d.arena[c])...)
 			} else {
+				if len(left) > 0 {
+					d.leaveAbove(c, left)
+					left = nil
+				}
 				kids = append(kids, c)
 			}
 		}
 		d.arena[pr.parent].children = kids
+		if len(left) > 0 {
+			d.leaveLast(pr.parent, left)
+		}
+	}
+	// A field opened only by the lines under it goes with the last of them,
+	// and its own kept line stays where it was (escblock).
+	open := make([]int, 0, len(pairs))
+	for _, pr := range pairs {
+		open = append(open, pr.parent)
+	}
+	for len(open) > 0 {
+		p := open[len(open)-1]
+		open = open[:len(open)-1]
+		if p == root || len(d.arena[p].children) != 0 || !openedByKept(&d.arena[p]) || !d.live(p) {
+			continue
+		}
+		pp := d.arena[p].parent
+		t := d.arena[p].trivMut()
+		left := t.leading
+		for _, l := range t.inside {
+			l.depth++
+			left = append(left, l)
+		}
+		left = append(left, t.after...)
+		t.leading, t.inside, t.after = nil, nil, nil
+		if ix := d.index.Load(); ix != nil {
+			ix.unlink(nameKey(pp, d.arena[p].name), p)
+		}
+		kids := d.arena[pp].children
+		at := 0
+		for k, c := range kids {
+			if c == p {
+				at = k
+				break
+			}
+		}
+		d.arena[pp].children = append(kids[:at:at], kids[at+1:]...)
+		if at < len(d.arena[pp].children) {
+			d.leaveAbove(d.arena[pp].children[at], left)
+		} else {
+			d.leaveLast(pp, left)
+		}
+		open = append(open, pp)
 	}
 	settleFirstBlank(d.arena, d.orphans)
 	d.resettleKept()
 	return len(targets)
+}
+
+// leaveAbove puts lines a remove left above the sibling that followed them.
+func (d *Document) leaveAbove(node int, left []lead) {
+	t := d.arena[node].trivMut()
+	t.leading = append(left, t.leading...)
+	restep(t.leading)
+}
+
+// leaveLast puts lines a remove left after the last of parent's children: the
+// document's footer at the top, else after the last child left, else inside
+// the block. A misplaced line has no level there, so a reload files it with
+// the next binding line, and the comments after it go along; kept field lines
+// still go to the block.
+func (d *Document) leaveLast(parent int, left []lead) {
+	if parent == root {
+		d.orphans = append(left, d.orphans...)
+		restep(d.orphans)
+		return
+	}
+	var below []lead
+	for at := range left {
+		if strings.HasPrefix(left[at].text, " ") || strings.HasPrefix(left[at].text, "\t") {
+			rest := append([]lead(nil), left[at:]...)
+			left = left[:at:at]
+			for _, l := range rest {
+				if isField(l.text) {
+					left = append(left, l)
+				} else {
+					below = append(below, l)
+				}
+			}
+			break
+		}
+	}
+	if len(left) > 0 {
+		// Stacked with no kept line among the elements is gone on a reload, so
+		// it may not decide how these lines are written.
+		d.arena[parent].starList = stacks(&d.arena[parent])
+		var t *trivia
+		if kids := d.arena[parent].children; len(kids) > 0 {
+			t = d.arena[kids[len(kids)-1]].trivMut()
+			t.after = append(t.after, left...)
+			restep(t.after)
+		} else {
+			t = d.arena[parent].trivMut()
+			t.inside = append(t.inside, left...)
+			restep(t.inside)
+		}
+	}
+	if len(below) > 0 {
+		d.leaveBelow(parent, below)
+	}
+}
+
+// leaveBelow puts lines a remove left right after node's block: above the
+// next binding line, or the footer when there is none.
+func (d *Document) leaveBelow(node int, left []lead) {
+	at := node
+	for at != root {
+		up := d.arena[at].parent
+		kids := d.arena[up].children
+		for k, c := range kids {
+			if c == at && k+1 < len(kids) {
+				d.leaveAbove(kids[k+1], left)
+				return
+			}
+		}
+		at = up
+	}
+	d.orphans = append(left, d.orphans...)
+	restep(d.orphans)
+}
+
+// live: still in the tree, each node up to root in its parent's list. A
+// removed node keeps its parent link, so the link alone does not say.
+func (d *Document) live(node int) bool {
+	for node != root {
+		p := d.arena[node].parent
+		if p == dead {
+			return false
+		}
+		found := false
+		for _, c := range d.arena[p].children {
+			if c == node {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+		node = p
+	}
+	return true
 }
 
 // SetComment attaches a leading comment line to the node at a path (creating an
@@ -8167,14 +8367,7 @@ func (d *Document) ClearComments(path string) int {
 		}
 		cleared += gone
 		// A kept line left in the run may have sat under a comment that went.
-		// A reload starts a run at 0 and steps one at a time.
-		room := 0
-		for k := range kept {
-			if strings.HasPrefix(kept[k].text, "#") {
-				kept[k].depth = minInt(kept[k].depth, room)
-				room = kept[k].depth + 1
-			}
-		}
+		restep(kept)
 		if len(kept) > 0 {
 			kept[0].blankBefore = kept[0].blankBefore || blank
 		} else {
