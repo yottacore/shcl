@@ -69,6 +69,9 @@ printf 'one\n' > "${repo}/a.txt"
 printf 'gone\n' > "${repo}/c.txt"
 printf '#!/bin/sh\n' > "${repo}/x.sh"
 : > "${repo}/source/rust/.keep"
+## A version below the banner's tag, so a push to main needs no tag until the
+## cut commits below.
+printf '[package]\nname = "stub"\nversion = "2.0.0"\n' > "${repo}/source/rust/Cargo.toml"
 chmod +x "${repo}/cicd/cicd.bash" "${repo}/cicd/hooks/pre-push" "${repo}/cicd/utility/green-tree.bash" "${repo}/cicd/utility/check-banner-tag.bash" "${repo}/x.sh"
 { git -C "${repo}" add --all && git -C "${repo}" commit -q -m base; } || { echo "check-push-gate: first commit failed" >&2; exit 2; }
 helper="${repo}/cicd/utility/green-tree.bash"
@@ -252,9 +255,16 @@ git -C "${repo}" worktree remove --force "${work}/linked"
 ## Once a commit at that version reaches main, the tag has to be on the remote
 ## or in the same push, recorded tree or not.
 bannerTag=v3.0.0-beta1
-fBannerCommit(){  ## fBannerCommit VERSION [SPEC] -> the new commit on branch cut
+syntaxUrl="https://github.com/yottacore/shcl/blob/${bannerTag}/project/spec.md"
+fBannerCommit(){  ## fBannerCommit VERSION [SPEC [LIBRS]] -> the new commit on branch cut
+	## LIBRS is lib.rs's text, "none" for no lib.rs, or "real" for this checkout's.
+	local libText="${3:-##    Syntax   ${syntaxUrl}}" libRs="${repo}/source/rust/src/lib.rs"
 	mkdir -p "${repo}/source/rust/src" "${repo}/project"
-	printf '##    Syntax   https://github.com/yottacore/shcl/blob/%s/project/spec.md\n' "${bannerTag}" > "${repo}/source/rust/src/lib.rs"
+	case "${libText}" in
+		none) rm -f "${libRs}" ;;
+		real) cp "${root}/source/rust/src/lib.rs" "${libRs}" ;;
+		*)    printf '%s\n' "${libText}" > "${libRs}" ;;
+	esac
 	printf '[package]\nname = "stub"\nversion = "%s"\n' "$1" > "${repo}/source/rust/Cargo.toml"
 	if [[ -n "${2:-}" ]]; then printf 'spec\n' > "${repo}/project/spec.md"; else rm -f "${repo}/project/spec.md"; fi
 	git -C "${repo}" add --all && git -C "${repo}" commit -q -m "$1" && git -C "${repo}" rev-parse HEAD
@@ -309,6 +319,51 @@ fTest ErUaPkx a remote that cannot be read refuses the cut
 hookRemote=("${work}/missing.git"); fPush main "${cut}"
 ((hookRc == 1 && ran == 0)) && [[ "${hookOut}" == *"cannot list the tags"* ]] \
 	|| fail "an unreadable remote: exit ${hookRc}, gate ran ${ran} time(s): $(tail -c 300 <<<"${hookOut}")"
+
+fTest Erkafqf a cut whose banner Syntax line cannot be read is refused
+## 2026100307163910: a Syntax line the pattern no longer matched read as a
+## banner naming no tag, and the cut went through with none.
+hookRemote=("${work}/none.git")
+for libText in "##    Syntax:  ${syntaxUrl}" "##    Syntax   ${syntaxUrl/\/blob\///tree/}" "##    Syntax   ${syntaxUrl} " "## no banner" none; do
+	odd="$(fBannerCommit 3.0.0-beta1 spec "${libText}")"
+	fPush main "${odd}"
+	((hookRc == 1 && ran == 0)) && [[ "${hookOut}" == *"cannot read the tag"* ]] \
+		|| fail "a cut whose lib.rs is '${libText}', pushed to main with no tag: exit ${hookRc}, gate ran ${ran} time(s): $(tail -c 300 <<<"${hookOut}")"
+done
+fTest ErkafuD a tree below the first tagged release needs no tag in its banner
+old="$(fBannerCommit 2.0.0 spec '#    Syntax   https://github.com/jim-collier/shcl/blob/main/project/spec.md')"
+fPush main "${old}"
+((hookRc == 0 && ran == 1)) || fail "a 2.x tree whose banner links main: exit ${hookRc}, gate ran ${ran} time(s): $(tail -c 300 <<<"${hookOut}")"
+fTest Erkafx3 the check reads the banner in the real lib.rs
+## Every other case writes a one-line lib.rs, so only this one sees the real
+## banner move away from the check's pattern.
+real="$(fBannerCommit "${bannerTag#v}" spec real)"
+fPush main "${real}"
+((hookRc == 1 && ran == 0)) && [[ "${hookOut}" == *"past ${bannerTag}, which the banner's Syntax link names,"* ]] \
+	|| fail "a cut with this checkout's lib.rs, pushed to main with no tag: exit ${hookRc}, gate ran ${ran} time(s): $(tail -c 300 <<<"${hookOut}")"
+
+fTest Erkafzp a banner tag on a commit at another version is refused
+## 2026100307163918: any commit with a spec passed as the tag, sent in the push
+## or already on the remote.
+git -C "${repo}" tag -a -m old oldcut "${before}"
+fPushLines "$(printf 'refs/heads/x %s refs/heads/main %s\n' "${cut}" "${zeros}")"$'\n'"$(fTagLine oldcut "$(git -C "${repo}" rev-parse refs/tags/oldcut)")"$'\n'
+((hookRc == 1 && ran == 0)) && [[ "${hookOut}" == *"at version 2.0.0"* ]] \
+	|| fail "a main push sending the banner tag on a 2.0.0 commit: exit ${hookRc}, gate ran ${ran} time(s): $(tail -c 300 <<<"${hookOut}")"
+git init -q --bare "${work}/stale.git" || { echo "check-push-gate: git init failed" >&2; exit 2; }
+git -C "${repo}" push -q --no-verify "${work}/stale.git" "refs/tags/oldcut:refs/tags/${bannerTag}"
+hookRemote=("${work}/stale.git"); fPush main "${cut}"
+((hookRc == 1 && ran == 0)) && [[ "${hookOut}" == *"at version 2.0.0"* ]] \
+	|| fail "a remote whose banner tag is on a 2.0.0 commit: exit ${hookRc}, gate ran ${ran} time(s): $(tail -c 300 <<<"${hookOut}")"
+fTest Erkag2h a banner tag on the remote that this clone does not have is refused
+if ! { git init -q -b dev "${work}/foreign" && printf 'x\n' > "${work}/foreign/x" \
+	&& git -C "${work}/foreign" add x && git -C "${work}/foreign" commit -q -m foreign \
+	&& git init -q --bare "${work}/foreign.git" \
+	&& git -C "${work}/foreign" push -q --no-verify "${work}/foreign.git" "HEAD:refs/tags/${bannerTag}"; }; then
+	echo "check-push-gate: cannot build the foreign remote" >&2; exit 2
+fi
+hookRemote=("${work}/foreign.git"); fPush main "${cut}"
+((hookRc == 1 && ran == 0)) && [[ "${hookOut}" == *"not in this clone"* ]] \
+	|| fail "a remote whose banner tag this clone cannot read: exit ${hookRc}, gate ran ${ran} time(s): $(tail -c 300 <<<"${hookOut}")"
 hookRemote=()
 git -C "${repo}" checkout -q dev
 
@@ -427,3 +482,5 @@ exit "${rc}"
 ##		- 2026-09-26 JC: The gate's target link, and a push naming main and a
 ##		  feature ref.
 ##		- 2026-10-01 JC: A cut pushed to main needs the banner's tag.
+##		- 2026-10-04 JC: A banner the check cannot read, this checkout's own
+##		  banner, and a tag on a commit at another version.
