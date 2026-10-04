@@ -2,7 +2,8 @@
 #••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## install.bash
 ##
-##	Release installer for shcl (Simple Hierarchical Config Language) on Linux.
+##	Release installer for shcl (Simple Hierarchical Config Language) on Linux
+##	and FreeBSD.
 ##	Downloads the latest release from GitHub, checks the sha256sums file against
 ##	the release signing key before trusting a checksum out of it, and lays out
 ##	the binary plus the drop-in source files and shell wrappers. Idempotent:
@@ -40,8 +41,8 @@
 ##		completions/ bash and zsh completions, enabled by hand (see the note the
 ##		             install prints - the .deb/.rpm put these in place for you)
 ##
-##	macOS and the BSDs have no prebuilt binaries yet - build from source or use
-##	a drop-in file (see README.md).
+##	macOS and the other BSDs have no prebuilt binaries yet - build from source
+##	or use a drop-in file (see README.md).
 #••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 
 ##	Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
@@ -51,7 +52,7 @@
 
 set -euo pipefail
 
-installer_version="1.1.2"
+installer_version="1.2.0"
 REPO="yottacore/shcl"
 release="stable"
 target="user"
@@ -85,7 +86,7 @@ fDie() { printf 'install.bash: %s\n\n' "$*" >&2; exit 1; }
 ## file (or a stray one named "bash" in the cwd).
 fUsage() {
 	cat <<EOF
-install.bash ${installer_version} - release installer for shcl on Linux
+install.bash ${installer_version} - release installer for shcl on Linux and FreeBSD
 
 Downloads the latest release from GitHub, checks the sha256sums file against the
 release signing key before trusting a checksum out of it, and lays out the binary
@@ -148,14 +149,20 @@ done
 case "${release}" in dev|development) release="dev" ;; stable) ;; *) fDie "--release must be dev or stable" ;; esac
 case "${target}" in user|system) ;; *) fDie "--target must be user or system" ;; esac
 
-## Platform gate: prebuilt binaries exist for Linux x86_64/arm64 only.
+## Platform gate: prebuilt binaries exist for Linux x86_64/arm64 and FreeBSD
+## x86_64 only. Rust has no prebuilt std for FreeBSD on arm64.
 os="$(uname -s)"
-[[ "${os}" == "Linux" ]] || fDie "no prebuilt ${os} binaries yet - build from source or use a drop-in file (see README.md)"
+case "${os}" in
+	Linux)   osname="linux" ;;
+	FreeBSD) osname="freebsd" ;;
+	*) fDie "no prebuilt ${os} binaries yet - build from source or use a drop-in file (see README.md)" ;;
+esac
 case "$(uname -m)" in
 	x86_64|amd64)  arch="x86_64" ;;
 	aarch64|arm64) arch="arm64" ;;
 	*) fDie "no prebuilt binary for $(uname -m)" ;;
 esac
+[[ "${osname}-${arch}" == freebsd-arm64 ]] && fDie "no prebuilt FreeBSD arm64 binary - build from source: cargo install shcl"
 
 ## curl or wget, whichever is present. https is pinned through redirects and
 ## TLS floored at 1.2, so a bounced download can't silently downgrade.
@@ -180,6 +187,8 @@ fi
 ## release signature cannot be checked, and installing unverified is not on
 ## offer. Verify by hand and use the DIY path if the box genuinely lacks it.
 command -v openssl >/dev/null || fDie "need openssl to verify the release signature (see README.md for a manual install)"
+## openssl does the checksums too. FreeBSD before 14 has no sha256sum.
+fSha256(){ openssl dgst -sha256 -r "$1" | cut -d' ' -f1; }
 
 ## Destinations.
 ## The man dir is the one man already reads for that target, so `man shcl` works
@@ -363,7 +372,7 @@ channel="${release}"
 ## State the plan; abort is the default when there is no tty to confirm on.
 existing="new install"
 [[ -e "${dest}/shcl" ]] && existing="updates the existing install"
-printf 'shcl %s (%s, linux-%s) -> %s (%s)\n' "${version}" "${channel}" "${arch}" "${dest}" "${existing}"
+printf 'shcl %s (%s, %s-%s) -> %s (%s)\n' "${version}" "${channel}" "${osname}" "${arch}" "${dest}" "${existing}"
 printf '  from     https://github.com/%s/releases/tag/%s\n' "${REPO}" "${tag}"
 printf '  binary   %s/shcl (symlink %s)\n' "${dest}" "${link}"
 printf '  drop-ins %s/code/, wrappers %s/scripts/\n' "${dest}" "${dest}"
@@ -399,12 +408,12 @@ if [[ -z "${asroot}" ]]; then
 	done
 fi
 
-## Download and verify the binary.
+## Download and verify the binary. The signed sums come first, since they list
+## every asset: a release from before a platform got its binary is named as
+## such, not reported as a failed download.
 echo
-asset="shcl-${version}-linux-${arch}"
+asset="shcl-${version}-${osname}-${arch}"
 base="https://github.com/${REPO}/releases/download/${tag}"
-echo "downloading ${asset}..."
-fFetch "${base}/${asset}" "${tmp}/shcl" || fDie "download failed: ${asset}"
 fFetch "${base}/shcl-${version}-sha256sums.txt" "${tmp}/sums" || fDie "download failed: sha256sums"
 fFetch "${base}/shcl-${version}-sha256sums.txt.sig" "${tmp}/sums.sig" || fDie "download failed: sha256sums signature"
 
@@ -415,7 +424,10 @@ openssl dgst -sha256 -verify "${tmp}/signing.pub" -signature "${tmp}/sums.sig" "
 	|| fDie "signature check failed on sha256sums - refusing to install"
 
 want="$(grep " ${asset}\$" "${tmp}/sums" | cut -d' ' -f1 || true)"
-got="$(sha256sum "${tmp}/shcl" | cut -d' ' -f1)"
+[[ -n "${want}" ]] || fDie "release ${tag} has no ${osname}-${arch} binary - pick a newer release, or build from source: cargo install shcl"
+echo "downloading ${asset}..."
+fFetch "${base}/${asset}" "${tmp}/shcl" || fDie "download failed: ${asset}"
+got="$(fSha256 "${tmp}/shcl")"
 [[ -n "${want}" && "${got}" == "${want}" ]] || fDie "sha256 mismatch on ${asset}"
 
 ## Drop-in code files and wrappers come from a release asset covered by the same
@@ -432,9 +444,10 @@ chmod 755 "${tmp}/shcl"
 ## libgcc_s, the arm64 one against 2.30 with no libgcc_s. Exit 126 is the temp
 ## dir refusing to execute at all (a noexec mount), which is not the binary's
 ## fault.
-case "${arch}" in
-	x86_64) needs="glibc 2.34 or newer (Ubuntu 22.04, Debian 12, RHEL 9, or later) plus libgcc_s.so.1" ;;
-	*)      needs="glibc 2.30 or newer (Ubuntu 20.04, Debian 11, RHEL 9, or later)" ;;
+case "${osname}-${arch}" in
+	linux-x86_64)  needs="glibc 2.34 or newer (Ubuntu 22.04, Debian 12, RHEL 9, or later) plus libgcc_s.so.1, and does not run on musl" ;;
+	linux-*)       needs="glibc 2.30 or newer (Ubuntu 20.04, Debian 11, RHEL 9, or later), and does not run on musl" ;;
+	freebsd-*)     needs="FreeBSD 14 or newer" ;;
 esac
 smoke_status=0
 "${tmp}/shcl" --version >/dev/null 2>"${tmp}/smoke.err" || smoke_status=$?
@@ -443,7 +456,7 @@ if [[ "${smoke_status}" != 0 ]]; then
 		fDie "cannot execute from ${tmp} (noexec mount?) - set TMPDIR to a directory that allows execution and re-run"
 	fi
 	head -n1 "${tmp}/smoke.err" >&2
-	fDie "the prebuilt linux-${arch} binary does not run here: it needs ${needs} and does not run on musl. Install from source instead: cargo install shcl"
+	fDie "the prebuilt ${osname}-${arch} binary does not run here: it needs ${needs}. Install from source instead: cargo install shcl"
 fi
 
 dropins="shcl-${version}-dropins.tar.gz"
@@ -453,7 +466,7 @@ have_docs=0
 if [[ -n "${want_src}" ]]; then
 	echo "downloading ${dropins}..."
 	fFetch "${base}/${dropins}" "${tmp}/dropins.tgz" || fDie "download failed: ${dropins}"
-	got_src="$(sha256sum "${tmp}/dropins.tgz" | cut -d' ' -f1)"
+	got_src="$(fSha256 "${tmp}/dropins.tgz")"
 	[[ "${got_src}" == "${want_src}" ]] || fDie "sha256 mismatch on ${dropins}"
 	mkdir -p "${tmp}/x" "${tmp}/code" "${tmp}/scripts" "${tmp}/man" "${tmp}/completions"
 	tar -xzf "${tmp}/dropins.tgz" -C "${tmp}/x"

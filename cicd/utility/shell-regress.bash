@@ -577,7 +577,7 @@ if fHave pwsh; then
 	[[ "$(tail -c 2 "${tmpDir}/ps.out" | od -An -c | tr -d ' ')" == '\n\n' ]] || fBad "install.ps1 -Help does not end on a blank line"
 	rc=0; fPs1 -Target user -Yes || rc=$?
 	if ! { [[ "${rc}" == 1 ]] && cmp -s "${tmpDir}/ps.out" <(printf '\n') \
-		&& cmp -s "${tmpDir}/ps.err" <(printf 'install.ps1: this installer is for Windows - on Linux use install.bash, elsewhere build from source (see README.md)\n\n'); }; then
+		&& cmp -s "${tmpDir}/ps.err" <(printf 'install.ps1: this installer is for Windows - on Linux or FreeBSD use install.bash, elsewhere build from source (see README.md)\n\n'); }; then
 		fBad "install.ps1 does not open and end a refusal on a blank line (exit ${rc}): $(od -c "${tmpDir}/ps.out" "${tmpDir}/ps.err" | head -n 5)"
 	fi
 
@@ -992,13 +992,13 @@ fTest EqzwPFH 20260829-17-smoke-test-and-glibc-floors
 ##	temp dir cannot execute, and one that runs. It has to come before the
 ##	lay-down, which is the rest of the fix.
 # shellcheck disable=SC2016  ## install.bash's own text, matched literally
-smokeCode="$(sed -n '/^fDie() /p;/^case "\${arch}" in$/,/^esac$/p;/^smoke_status=0$/,/^fi$/p' "${repoDir}/install.bash")"
+smokeCode="$(sed -n '/^fDie() /p;/^case "\${osname}-\${arch}" in$/,/^esac$/p;/^smoke_status=0$/,/^fi$/p' "${repoDir}/install.bash")"
 mkdir -p "${tmpDir}/smoke"
-fSmoke(){   ## fSmoke EXIT [ARCH]: the lifted step on a stand-in that exits EXIT
+fSmoke(){   ## fSmoke EXIT [ARCH [OS]]: the lifted step on a stand-in that exits EXIT
 	printf '#!/bin/sh\necho "shcl: version GLIBC_2.34 not found" >&2\nexit %s\n' "$1" > "${tmpDir}/smoke/shcl"
 	chmod 755 "${tmpDir}/smoke/shcl"
 	# shellcheck disable=SC2034  ## the lifted step's own globals
-	( tmp="${tmpDir}/smoke" arch="${2:-x86_64}"; eval "${smokeCode}"; echo "smoke passed" ) 2>&1 || true
+	( tmp="${tmpDir}/smoke" arch="${2:-x86_64}" osname="${3:-linux}"; eval "${smokeCode}"; echo "smoke passed" ) 2>&1 || true
 }
 out="$(fSmoke 127)"
 [[ "${out}" == *"needs glibc 2.34 or newer"*"cargo install shcl"* && "${out}" != *"smoke passed"* ]] \
@@ -1009,6 +1009,10 @@ out="$(fSmoke 127 arm64)"
 line="$(grep -F 'does not run here' <<<"${out}" || true)"
 [[ "${line}" == *"needs glibc 2.30 or newer"* && "${line}" != *"2.34"* && "${out}" != *"smoke passed"* ]] \
 	|| fBad "install.bash names the wrong glibc floor for arm64: ${out@Q}"
+out="$(fSmoke 1 x86_64 freebsd)"
+line="$(grep -F 'does not run here' <<<"${out}" || true)"
+[[ "${line}" == *"freebsd-x86_64 binary"*"FreeBSD 14 or newer"* && "${line}" != *glibc* && "${line}" != *musl* ]] \
+	|| fBad "install.bash names a Linux floor for the FreeBSD binary: ${out@Q}"
 out="$(fSmoke 126)"
 [[ "${out}" == *"noexec"* && "${out}" != *"smoke passed"* ]] || fBad "install.bash does not name a temp dir it cannot execute from: ${out@Q}"
 out="$(fSmoke 0)"
@@ -1724,6 +1728,63 @@ if fHave setsid && fHave openssl; then
 		[[ "${out}" == *"shcl ${tag#v} (${release}, linux-"*"  from     https://github.com/yottacore/shcl/releases/tag/${tag}"$'\n'* ]] \
 			|| fBad "install.bash --release ${release} plan does not name its release page: ${out@Q}"
 	done
+else
+	fTestSkip
+fi
+
+fTest ErlTWJD 20261004-install-bash-freebsd-plan
+##	FreeBSD x86_64 has its own binary, so a FreeBSD uname plans that asset, and
+##	FreeBSD on arm64 is refused before any fetch. Same run as the plan-page
+##	row, with a uname on PATH.
+if fHave setsid && fHave openssl; then
+	mkdir -p "${tmpDir}/bsdbin" "${tmpDir}/bsdhome"
+	cp "${tmpDir}/apibin/curl" "${tmpDir}/bsdbin/curl"
+	for bsdArch in amd64 arm64; do
+		# shellcheck disable=SC2016  ## the stub's own $1
+		printf '#!/bin/sh\ncase "$1" in -s) echo FreeBSD ;; -m) echo %s ;; *) echo FreeBSD ;; esac\n' "${bsdArch}" > "${tmpDir}/bsdbin/uname"
+		chmod 755 "${tmpDir}/bsdbin/uname"
+		# shellcheck disable=SC2031  ## the gate's own PATH, which no subshell above changed for this one
+		out="$(HOME="${tmpDir}/bsdhome" PATH="${tmpDir}/bsdbin:${PATH}" setsid -w bash "${repoDir}/install.bash" --release dev </dev/null 2>&1 || true)"
+		if [[ "${bsdArch}" == amd64 ]]; then
+			[[ "${out}" == *"shcl 3.0.0-beta1 (dev, freebsd-x86_64)"* ]] || fBad "install.bash on FreeBSD amd64 does not plan the freebsd-x86_64 binary: ${out@Q}"
+		else
+			[[ "${out}" == *"no prebuilt FreeBSD arm64 binary"* && "${out}" != *"shcl 3.0.0"* ]] || fBad "install.bash on FreeBSD arm64 got past the platform gate: ${out@Q}"
+		fi
+	done
+else
+	fTestSkip
+fi
+
+fTest ErlTWLO 20261004-install-bash-release-without-platform
+##	A release from before a platform got its binary is named as such, from the
+##	signed sums, and the binary is never fetched. openssl is stubbed, since the
+##	real signing key is not here, and only the verify step reaches it.
+if fHave setsid; then
+	mkdir -p "${tmpDir}/nobin/bin" "${tmpDir}/nobin/home"
+	printf '[{"tag_name":"v3.0.0-beta1","prerelease":true,"draft":false}]\n' > "${tmpDir}/nobin/rel.json"
+	printf 'abc  shcl-3.0.0-beta1-linux-x86_64\n' > "${tmpDir}/nobin/sums"
+	: > "${tmpDir}/nobin/fetched"
+	cat > "${tmpDir}/nobin/bin/curl" <<-STUB
+		#!/bin/sh
+		out=""; url=""
+		while [ \$# -gt 0 ]; do case "\$1" in -o) out="\$2"; shift 2 ;; -*) shift ;; *) url="\$1"; shift ;; esac; done
+		echo "\${url}" >> '${tmpDir}/nobin/fetched'
+		case "\${url}" in
+			https://api.github.com/repos/yottacore/shcl/releases*) cp '${tmpDir}/nobin/rel.json' "\${out}" ;;
+			*/shcl-3.0.0-beta1-sha256sums.txt) cp '${tmpDir}/nobin/sums' "\${out}" ;;
+			*/shcl-3.0.0-beta1-sha256sums.txt.sig) : > "\${out}" ;;
+			*) exit 22 ;;
+		esac
+	STUB
+	printf '#!/bin/sh\nexit 0\n' > "${tmpDir}/nobin/bin/openssl"
+	# shellcheck disable=SC2016  ## the stub's own $1
+	printf '#!/bin/sh\ncase "$1" in -s) echo FreeBSD ;; -m) echo amd64 ;; *) echo FreeBSD ;; esac\n' > "${tmpDir}/nobin/bin/uname"
+	chmod 755 "${tmpDir}/nobin/bin/curl" "${tmpDir}/nobin/bin/openssl" "${tmpDir}/nobin/bin/uname"
+	# shellcheck disable=SC2031  ## the gate's own PATH, which no subshell above changed for this one
+	out="$(HOME="${tmpDir}/nobin/home" PATH="${tmpDir}/nobin/bin:${PATH}" setsid -w bash "${repoDir}/install.bash" --release dev --yes </dev/null 2>&1 || true)"
+	[[ "${out}" == *"release v3.0.0-beta1 has no freebsd-x86_64 binary"* ]] || fBad "install.bash does not say the release lacks this platform's binary: ${out@Q}"
+	grep -q 'freebsd-x86_64$' "${tmpDir}/nobin/fetched" && fBad "install.bash fetched a binary the sums file does not list: $(cat "${tmpDir}/nobin/fetched")"
+	[[ -e "${tmpDir}/nobin/home/.local/share/shcl" ]] && fBad "install.bash laid something down for a release with no binary"
 else
 	fTestSkip
 fi

@@ -38,7 +38,7 @@
 
 - Each binding is one drop-in source file with no dependencies. The CLI is a single binary, with thin Bash and PowerShell wrappers over it.
 
-- Prebuilt for Linux and Windows, x86_64 and ARM64. Everything else builds from source with `cargo install shcl`.
+- Prebuilt for Linux and Windows, x86_64 and ARM64, and for FreeBSD on x86_64. Everything else builds from source with `cargo install shcl`.
 
 - Releases are signed, and the binaries are reproducible from the tag.
 
@@ -73,7 +73,7 @@
 		- [Fedora, RHEL, openSUSE](#fedora-rhel-opensuse)
 		- [Windows setup](#windows-setup)
 	- [Install scripts, stable or dev](#install-scripts-stable-or-dev)
-		- [Linux and WSL](#linux-and-wsl)
+		- [Linux, WSL and FreeBSD](#linux-wsl-and-freebsd)
 		- [Windows (PowerShell)](#windows-powershell)
 	- [DIY install](#diy-install)
 - [Using the CLI](#using-the-cli)
@@ -318,7 +318,7 @@ The latest release, `v2.0.0`, has packages, prebuilt CLI binaries, and a checksu
 
 Each binding is published where its own ecosystem looks for it, all under the name `shcl`: [crates.io](https://crates.io/crates/shcl) for Rust, [PyPI](https://pypi.org/project/shcl/) for Python, and the [Go module](https://pkg.go.dev/github.com/yottacore/shcl/source/go/v2) for Go.
 
-Only the crate includes the CLI as well as the library, which is the easiest way to get the binary on a platform with no prebuilt one - macOS and the BSDs included.
+Only the crate includes the CLI as well as the library, which is the easiest way to get the binary on a platform with no prebuilt one - macOS, NetBSD and OpenBSD included.
 
 #### Cargo
 
@@ -376,11 +376,11 @@ Downloads a release, checks its signature, and installs the binary plus the drop
 
 The default is the newest full release. Until 3.0.0 is out that is still 2.0.0, which reads files by the 2.x rules. For the 3.0 beta this page describes, add `--release dev` (`-Release dev` on Windows).
 
-Each release includes a `shcl-<version>-sha256sums.txt` and a detached `.sig` over it, covering every asset - the binary, the packages, and the drop-in payload alike. Both installers include the release public key and verify that signature *before* reading any checksum out of the file, so replacing a release asset is not enough to get past them. Nothing unverified is installed: a release with no signed drop-in payload gets the binary and a note saying what was skipped. On Linux this needs `openssl`, alongside `curl` or `wget`; there is no install-anyway fallback, so use the [DIY install](#diy-install) route on a machine that lacks it.
+Each release includes a `shcl-<version>-sha256sums.txt` and a detached `.sig` over it, covering every asset - the binary, the packages, and the drop-in payload alike. Both installers include the release public key and verify that signature *before* reading any checksum out of the file, so replacing a release asset is not enough to get past them. Nothing unverified is installed: a release with no signed drop-in payload gets the binary and a note saying what was skipped. On Linux and FreeBSD this needs `openssl`, alongside `curl` or `wget`; there is no install-anyway fallback, so use the [DIY install](#diy-install) route on a machine that lacks it.
 
-The Linux installer also lays down the man page and the shell completions. It symlinks the man page into the target's own `man1` directory, so `man shcl` works once the install directory is on your `PATH` - man derives its search path from the `bin` directories there. Completions are left under `<install dir>/completions/` for you to enable, and the installer prints the line to paste for each shell: there is no single directory that works everywhere, and writing into the distribution's own is the packages' job, not a tarball installer's.
+`install.bash` also lays down the man page and the shell completions. It symlinks the man page into the target's own `man1` directory, so `man shcl` works once the install directory is on your `PATH` - man derives its search path from the `bin` directories there. Completions are left under `<install dir>/completions/` for you to enable, and the installer prints the line to paste for each shell: there is no single directory that works everywhere, and writing into the distribution's own is the packages' job, not a tarball installer's.
 
-#### Linux and WSL
+#### Linux, WSL and FreeBSD
 
 ~~~sh
 bash <(curl -fsSL https://raw.githubusercontent.com/yottacore/shcl/main/install.bash)
@@ -389,6 +389,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/yottacore/shcl/main/install.
 Options go at the end, after the closing parenthesis.
 
 The prebuilt linux-x86_64 binary needs glibc 2.34 or newer (Ubuntu 22.04, Debian 12, RHEL 9, and later). On an older system, `cargo install shcl` builds against what is there.
+
+On FreeBSD the script needs bash and curl (`pkg install bash curl`). The prebuilt binary is x86_64 only and needs FreeBSD 14 or newer. The first release to have it is 3.0.0-beta1, so add `--release dev` until 3.0.0 is out.
 
 #### Windows (PowerShell)
 
@@ -404,14 +406,14 @@ irm https://raw.githubusercontent.com/yottacore/shcl/main/install.ps1 | iex
 
 The installer unpacks the drop-in payload with `tar`, which Windows 10 1803, Server 2019 and later include. On an older Windows, use the setup `.exe` from the releases page instead.
 
-| Target           | Linux                                                    | Windows
+| Target           | Linux and FreeBSD                                        | Windows
 | :---             | :---                                                     | :---
 | `user` (default) | `~/.local/share/shcl` plus a `~/.local/bin/shcl` symlink | `%LOCALAPPDATA%\Programs\Shcl`, added to your `PATH`
 | `system`         | `/opt/shcl` plus a `/usr/local/bin/shcl` symlink         | `C:\Program Files\Shcl`, added to `PATH`
 
 A `user` install needs no sudo or elevation. A `system` one does.
 
-macOS and the BSDs have no prebuilt binaries yet. Use `cargo install shcl`, a drop-in source file, or build the CLI.
+macOS, NetBSD and OpenBSD have no prebuilt binaries yet. Use `cargo install shcl`, a drop-in source file, or build the CLI.
 
 ### DIY install
 

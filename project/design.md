@@ -128,7 +128,7 @@ The itemized decisions are recorded in this file as they are made; `spec.md` is 
 
 ### Software stack
 
-Many bindings with a shared conformance corpus (`conformance/`) as the contract between them. One portability constraint shapes the Accessor: the requested value type is expressed by a typed entry point or a compile-time generic, never a runtime `type` field, because static languages (Go, Rust, C, C++, C#) cannot let a runtime value drive a return type. Prebuilt binaries cover Linux and Windows, on x86_64 and ARM64. macOS and the BSDs are buildable from source but have no published binary yet, since the pipeline runs on Linux.
+Many bindings with a shared conformance corpus (`conformance/`) as the contract between them. One portability constraint shapes the Accessor: the requested value type is expressed by a typed entry point or a compile-time generic, never a runtime `type` field, because static languages (Go, Rust, C, C++, C#) cannot let a runtime value drive a return type. Prebuilt binaries cover Linux and Windows, on x86_64 and ARM64, and FreeBSD on x86_64. FreeBSD cross-builds with zig, the same way as Linux ARM64. Rust has no prebuilt std for FreeBSD on ARM64 or for OpenBSD, and cargo-zigbuild does not take NetBSD, so those build from source. So does macOS, since there is no Apple SDK on the build box.
 
 ### Configuration model
 

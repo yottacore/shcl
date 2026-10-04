@@ -249,7 +249,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- `cargo install shcl` from the crate works, and the CLI passes the corpus and cli-regress.
 		- The C binding builds with the system cc, which is clang, and passes its runner.
 		- Go and Python suites pass, where their packages are easy to install.
-		- File what breaks. A prebuilt BSD binary is a separate call, not part of this item.
+		- File what breaks.
+	- Note: 20261004, prebuilt FreeBSD x86_64 binaries came in with 2026100413191500, and the release binary passed the corpus `fmt` and `check` there. This item still owes the crate install and the other three bindings.
 	- Note: 20261004, the gate scripts are bash and assume GNU tools, so some may need `gsed` or the like. Fixing the product comes first. Porting the gates only matters if a BSD job is wanted.
 	- Estimated effort: Avg
 
@@ -882,6 +883,28 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Swept: every test for a leading `#` on a comment line in all four. The merge's replaced-leaf rule is the one other site, filed as 2026092718195400.
 	- Branch: `keepdrop`
 	- Test case: corpus `178-clear-comments-kept-line`, both routes, with `comments` reads. It fails on the old code.
+
+- Prebuilt FreeBSD binaries
+	- ID: 2026100413191500
+	- Type: Feature
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20261004-131915
+	- Opened by: JC
+	- Related IDs: 2026100413052101
+	- Target OS: FreeBSD
+	- Test environment: vmFreeBSD (FreeBSD 15.1).
+	- Requirements:
+		- Distribute prebuilt binaries for BSD.
+	- Note: 20261004, only FreeBSD x86_64 is buildable here. Rust ships no prebuilt std for FreeBSD on arm64 or for OpenBSD, and cargo-zigbuild refuses NetBSD. Those stay on `cargo install shcl`.
+	- Progress log:
+		- 20261004: stage 6 cross-builds `freebsd-x86_64` with zig, so the release, its signed sums and the dogfood skip list pick it up like the other targets. No package; the installer and the plain binary cover it.
+		- 20261004: `install.bash` maps FreeBSD to the `freebsd` asset and refuses FreeBSD arm64 up front. It now reads the signed sums before fetching the binary, so a release without this platform's binary says so. Until the cut, every release is like that on FreeBSD. Checksums go through openssl, which it needs anyway. Installer 1.2.0, and `install.ps1` 1.1.6 for its pointer text.
+		- 20261004: README, design.md and the changelog say so. README says to `pkg install bash curl` first, since a fresh FreeBSD has neither.
+	- Verified: on vmFreeBSD the cross-built binary gave the same `fmt` and `check` output as Linux over all 189 corpus cases, and a `set --write` worked. `install.bash` ran there end to end against a local stand-in release: install, `man shcl`, the `bash <(...)` form, uninstall, and the no-binary message. The system target was not run there.
+	- Branch: `bsdbin`
+	- Test case: shell-regress `ErlTWJD` (FreeBSD plan line and the arm64 refusal), `ErlTWLO` (a release with no binary for the platform is named and nothing is fetched), and `EqzwPFH` (the FreeBSD floor). Each failed with its fix taken out.
+	- Closed: 20261004-131915
 
 - A fuzz property and a save-gate check for kept lines, so edits stop losing them one site at a time
 	- ID: 2026100307310000
