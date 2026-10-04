@@ -374,7 +374,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - The C CLI exits 6 where the other three exit 8 when a strict layer fails before a missing one
 	- ID: 2026100307163913
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 13
@@ -388,6 +388,13 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Possible cause: `main.c:776-786` reads and strict-checks each layer in turn.
 	- Origin: `9c2aa225` (set layer labels, 2026-09-19). No corpus case has a missing layer, so crosscheck cannot see it. Confirmed.
 	- Estimated effort: Low
+	- Actual fix: the C fold reads every file first, then loads them in order, as the other three do.
+	- Swept: `load_layered_from` is the one fold in the C CLI; `set` goes through it too. Go and Python already read every file first, and the new rows pass on all four.
+	- Verified: cli-regress `Erlbzz0` and `Erlc00p` fail on the old C build at exit 6 and pass on all four after. The full cli-regress passes on all four.
+	- Branch: clismall
+	- Test case: cli-regress `Erlbzz0` (`paths`) and `Erlc00p` (`set`), a strict failure in the first layer and a missing second one.
+	- Acceptance signoff: Self-closed: reproduced, its test failed before the fix and passes after.
+	- Closed: 20261004-134958
 
 - The E019, E023 and E024 text says a read on the field is NotFound, but it is Empty when lines load under it
 	- ID: 2026100307163914

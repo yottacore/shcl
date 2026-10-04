@@ -773,21 +773,28 @@ static int load_layered_from(Opts *o, const char *file, char *given, size_t give
 	out->names = (const char **)xrealloc(NULL, (size_t)(o->nlayers + 1) * sizeof *out->names);
 	out->nnames = 0; out->base_len = 0;
 	// Lowest -> highest file layer: the --layer files in order, then FILE.
+	// Every file is read before any is loaded, as in the reference, so a
+	// missing layer is exit 8 even when one before it fails a strict load.
+	size_t *lens = (size_t *)xrealloc(NULL, (size_t)(o->nlayers + 1) * sizeof *lens);
 	for (int i = 0; i <= o->nlayers; i++) {
 		const char *fname = i < o->nlayers ? o->layers[i] : file;
 		out->names[out->nnames++] = fname;
-		size_t len; char *t;
-		if (i == o->nlayers && given) { t = given; len = given_len; given = NULL; }
-		else t = read_input(fname, &len);
-		if (!t) { free(given); layered_free(out); return EXIT_IO; }
+		char *t;
+		if (i == o->nlayers && given) { t = given; lens[i] = given_len; given = NULL; }
+		else t = read_input(fname, &lens[i]);
+		if (!t) { free(given); free(lens); layered_free(out); return EXIT_IO; }
 		layered_push_text(out, t);
-		if (i == o->nlayers) out->base_len = len;
+	}
+	out->base_len = lens[o->nlayers];
+	for (int i = 0; i <= o->nlayers; i++) {
+		const char *t = out->texts[i];
 		// Only a document with no layers under it keeps its lines: a merge drops them.
-		shcl_doc *dd = xdoc(keep && o->nlayers == 0 ? shcl_parse_keep_lines(t, len, o->strictness) : shcl_parse_with(t, len, o->strictness));
-		int g = strict_gate_from(o->nlayers ? fname : "", dd);
-		if (g) { shcl_free(dd); layered_free(out); return g; }
+		shcl_doc *dd = xdoc(keep && o->nlayers == 0 ? shcl_parse_keep_lines(t, lens[i], o->strictness) : shcl_parse_with(t, lens[i], o->strictness));
+		int g = strict_gate_from(o->nlayers ? out->names[i] : "", dd);
+		if (g) { shcl_free(dd); free(lens); layered_free(out); return g; }
 		layered_push_doc(out, dd);
 	}
+	free(lens);
 	// The load's diagnostics belong to the load, so they go out before any edit
 	// runs: a refused --set used to return with nothing said about them.
 	say_layered_diagnostics(out);

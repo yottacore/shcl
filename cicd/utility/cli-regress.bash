@@ -895,6 +895,10 @@ rows=(
 	## and says which layer it was.
 	'EonFb9s|layer-strict-names-the-layer|fmt --strictness=strict --layer=%B% %B2%|-|6|-|bad.shcl line 2: Error: E015'
 	'EqLcx3x|layer-strict-names-the-layer-set|set --set=q=1 --strictness=strict --layer=%B% %B2%|-|6|-|bad.shcl line 2: Error: E015'
+	## 20261003 item 13: every file is read before any is loaded, so a missing
+	## layer above a strict failure is 8, not 6. C read and loaded in turn.
+	'Erlbzz0|layer-strict-then-missing|paths --strictness=strict --layer=%B% --layer=%M% %F%|-|8|-|not-there\.shcl'
+	'Erlc00p|layer-strict-then-missing-set|set --set=q=1 --strictness=strict --layer=%B% --layer=%M% %F%|-|8|-|not-there\.shcl'
 	## 20260902 item 44: the failing phase is named, not guessed.
 	'Eon514S|write-names-the-phase|set --write --set=a=2 %N%|-|8|-|cannot create temporary file'
 	## 20260902 item 41: the schema's own diagnostics were never printed, so the
