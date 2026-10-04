@@ -398,11 +398,11 @@ Structure-only canonicalizer: block form, tabs, insertion order, minimal quoting
 
 - It was decided that a comment never goes ahead of the one before it. Once one stays for the next binding, every later one stays too, and one whose block is written out before the last one's goes there with it. Order is the one thing a reader of a commented-out block cannot fix by eye.
 
-- A comment kept away from its own block keeps its depth under the comment before it, one tab per level. A comment no deeper than the place it ends up sits at that place's level, as before, which also keeps a run's first comment there, so a reload files the run the same way.
+- A comment kept away from its own block keeps its depth under the comment or kept field line before it, one tab per level. A comment no deeper than the place it ends up sits at that place's level, as before, which also keeps a run's first comment there, so a reload files the run the same way.
 
 - A malformed line kept verbatim keeps the place's level. It holds its level on a reload, so written deeper it would move the lines after it. The exception is a line under a field line refused for its value alone, which a reload holds open: it goes one level under that line, so it reads at the same path once its value is fixed.
 
-- A reload puts a comment at most one level past the comment before it. A merge that drops a layer's repeated footer line can drop the one the next line sat under, so that line comes no deeper than one level past what it now follows.
+- A reload puts a comment at most one level past the comment or kept field line before it. A merge that drops a layer's repeated footer line can drop the one the next line sat under, so that line comes no deeper than one level past what it now follows.
 
 - A block's inside comments are written out after its last child's block, at that child's level, and a reload files them on that child. The load files them there too, once the tree is final, since a merge treats the two differently. It has to wait for the end: a block reopened later gains children, and filed on the child it had at the time, the comment would end up ahead of them.
 
@@ -634,6 +634,8 @@ Where a kept line sits is read from canonical output before the edit. Under the 
 - A field opened from a kept line goes with the last line under it, and the kept line stays where it was. A raw block of the same name after it had its fence on the name's line only because of that empty field, so the fence moves to a line of its own. That is the one rewrite a remove makes.
 
 - A remove takes the comments written against its target: above it, those after the last kept line; below it, those before the first. A comment on the far side of a kept line stays with that line. A kept line the settle wrote as a comment counts as kept here, though a reload of the canonical text reads it as a plain comment.
+
+- A repeated header goes when the last line under it is removed, since an earlier block already has that instance, and the blank line above it goes too. While anything stays under it, the header and its blank line both stay.
 
 - The kept lines beside a target that was the last field in its block stay at the end of that block. A misplaced line among them has no level there, so it goes down to just above the next field line, with the comments after it, which is where a reload files them.
 
