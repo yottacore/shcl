@@ -106,6 +106,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Verified: the Rust, Go, Python and C suites, cli-regress, crosscheck, shell-regress, sanitize-c, check-veneer, clippy, staticcheck, ruff and mypy. Each new test failed with the fix taken out. The 2,000,000 release fuzz is green but for `EreT6dh`, which still fails on the open row of 2026100307163902 first.
 	- Note: 20261003, the 2,000,000 release fuzz, run on past known rows with local excuses only. A merge loses a kept line at exit 0 with dev's library as well, at iteration 960275 (`set_int`, banner on, merge; no raw set). An `E019` line ending in a fence has its body read as fields, the same class as 2026100307163902 and 2026100117214801; dev never reached it, since this item's row excused the step first. Nothing else failed.
 	- Branch: `removekept`
+	- Commit: `46e6176a`
 	- Test case: `ErgToYw` (Rust), `ErgTocq` (Go), `ErgTogT` (Python), `ErgTokB` (C); cli-regress `EreYYXK`; fuzz `EreT6dh`.
 
 - A field line refused for its name that opens a raw block has its body read as fields, and `fmt --write` scrambles the file at exit 0
@@ -302,6 +303,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Actual fix [Bug]: `remove` drops such a field once its last child goes, in all four.
 	- Swept: as 2026100307163901.
 	- Branch: `removekept`
+	- Commit: `46e6176a`
 	- Test case: `ErgToax` (Rust), `ErgToef` (Go), `ErgToiG` (Python), `ErgTom6` (C); cli-regress `ErgTonu`; corpus 187; fuzz `EreT6dh`.
 
 - The dogfood runner drops quotes and empty arguments under Windows PowerShell 5.1
