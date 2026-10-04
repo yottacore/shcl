@@ -8326,7 +8326,8 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 			ShclStr ki = leading_ws(KL_LINE(k));
 			if (o == k && !(ki.n > hi.n && memcmp(ki.p, hi.p, hi.n) == 0)) break;
 			any = 1;
-			if (!released[k] && !(tagged[o] && !present[o])) { all = 0; break; }
+			int gone = released[k] || (tagged[o] && !present[o]);
+			if (!gone) { all = 0; break; }
 		}
 		if (any && all) { left[h] = 0; released[h] = 1; }
 	}

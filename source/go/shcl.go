@@ -5945,7 +5945,8 @@ func keepLines(src string, doc *Document) (string, bool) {
 				break
 			}
 			anyUnder = true
-			if !released[k] && !(tagged[o] && !present[o]) {
+			gone := released[k] || (tagged[o] && !present[o])
+			if !gone {
 				allGone = false
 				break
 			}

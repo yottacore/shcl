@@ -300,7 +300,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Actual fix: all four bindings. A repeat header goes when the edits took every line under it, and the blank lines above it go with it. While anything under it stays, the header stays with the blank lines above it. This is remove's one rule for a header: a remove writes no line the document did not write before. A field that still exists keeps its `name:` line, as `b:` does once `b.c` is gone. A folded repeat writes nothing of its own, so it goes with the last line under it.
 	- Note: design.md's notes under "Kept lines under edits" could say this. Left for the docs pass, which is on another branch.
 	- Swept: both places the save writes lines no group stands for, the gap between two kept groups and the flush after a kept group, in all four. The first-group and end-of-file paths write the source's own leading and trailing lines whole and needed nothing.
-	- Verified: the four conformance suites and cli-regress. Both new rows fail on `f97003c8`'s libraries in all four and pass with the fix.
+	- Verified: the four conformance suites, cli-regress, crosscheck over the corpus and a 2000-iteration fuzz dump (40656 comparisons), shell-regress, check-docs, test-ids, clippy for both targets, go vet, staticcheck, ruff, mypy, gcc 14 and 15, clang and mingw at `-Werror`, cppcheck at the normal level, and the 2,000,000 release fuzz. Both new rows fail on `f97003c8`'s libraries in all four and pass with the fix.
+	- Needs local test suite run?: full `--ci` at the next main push, for exhaustive cppcheck.
 	- Branch: keepcosm
 	- Test case: cli-regress `Erls2uy` (`remove-emptied-repeat-header`), `Erls2uz` (`set-keeps-blank-above-repeat`).
 
@@ -343,7 +344,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261004: a new level takes the step most blocks use, each block counted once. A tie goes to one tab when that is one of the tied steps, else to the first block's. One tab for every new level was the simpler rule, but in a file indented with spaces it writes a tab after the spaces on a new nested line, which reads worse. Canonical output still indents with tabs whatever the input used. This only changes new lines in a save that keeps the file's own lines.
 	- Actual fix: all four bindings. The step is counted per block, from each block's first line one level in. Lines that already sit at a level still set the indent of new lines next to them, as before.
 	- Swept: the one place the step is chosen, in the save that keeps lines, in all four. Canonical output does not use it.
-	- Verified: the four conformance suites and cli-regress. Both new rows fail on `f8c0685e`'s libraries in all four and pass with the fix.
+	- Verified: the four conformance suites, cli-regress, crosscheck over the corpus and a 2000-iteration fuzz dump (40656 comparisons), shell-regress, check-docs, test-ids, clippy for both targets, go vet, staticcheck, ruff, mypy, gcc 14 and 15, clang and mingw at `-Werror`, cppcheck at the normal level, and the 2,000,000 release fuzz. Both new rows fail on `f8c0685e`'s libraries in all four and pass with the fix.
+	- Needs local test suite run?: full `--ci` at the next main push, for exhaustive cppcheck.
 	- Branch: keepcosm
 	- Test case: cli-regress `Erls2v0` (`set-new-block-majority-step`), `Erls2v1` (`set-new-block-space-step`).
 
@@ -366,7 +368,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Actual fix: all four bindings. A new field takes the kept lines that end its block, with the comments before them, as the lines above it, which is where a reload files them. Comments after the last kept line stay at the end. So does a kept line the settle wrote as a comment, since a reload reads it as one.
 	- Note: corpus 065's write goldens had the new `q` above the kept `ports` line. Both now have it after.
 	- Swept: the one place a write creates a field, `new_child` in all four, which every setter and `SetComment` go through. A merge puts a layer's fields in the layer's order, so it is not this case.
-	- Verified: the four conformance suites and cli-regress. The new rows and corpus 065 fail on `c3eb6db7`'s libraries in all four and pass with the fix.
+	- Verified: the four conformance suites, cli-regress, crosscheck over the corpus and a 2000-iteration fuzz dump (40656 comparisons), shell-regress, check-docs, test-ids, clippy for both targets, go vet, staticcheck, ruff, mypy, gcc 14 and 15, clang and mingw at `-Werror`, cppcheck at the normal level, and the 2,000,000 release fuzz. The new rows and corpus 065 fail on `c3eb6db7`'s libraries in all four and pass with the fix.
+	- Needs local test suite run?: full `--ci` at the next main push, for exhaustive cppcheck.
 	- Branch: keepcosm
 	- Test case: cli-regress `Erls2uw` (`set-new-key-after-kept-end`), `Erls2ux` (`set-new-key-after-kept-in-block`); corpus `065-bracket-array`.
 
@@ -393,7 +396,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: a comment after a kept field line that sits deeper in the source than the comments around it now nests by that line, not by the comment before it. Odd files only, and both ways reload the same.
 	- Note: design.md's comment-run bullets say "the comment before it". They should say "the comment or kept field line before it". Left for the docs pass, which is on another branch.
 	- Swept: every `comment_depth` caller goes through the one function in each binding. The places that set a comment's level after the load: `restep`, `drop_banners`' own copy of it (now a call to `restep`), the merge footer, `push_leads`, and the settle's move out of a list, in all four.
-	- Verified: the four conformance suites, cli-regress, and the 2,000,000 release fuzz. Both new rows fail on `f26c2802`'s libraries in all four and pass with the fix.
+	- Verified: the four conformance suites, cli-regress, crosscheck over the corpus and a 2000-iteration fuzz dump (40656 comparisons), shell-regress, check-docs, test-ids, clippy for both targets, go vet, staticcheck, ruff, mypy, gcc 14 and 15, clang and mingw at `-Werror`, cppcheck at the normal level, and the 2,000,000 release fuzz. Both new rows fail on `f26c2802`'s libraries in all four and pass with the fix.
+	- Needs local test suite run?: full `--ci` at the next main push, for exhaustive cppcheck.
 	- Branch: keepcosm
 	- Test case: cli-regress `Erls2v2` (`comment-under-kept-fmt`), `Erls2v3` (`comment-under-kept-in-block-fmt`); the fuzz fixpoint and `edits_and_merges_match_a_reload` properties.
 

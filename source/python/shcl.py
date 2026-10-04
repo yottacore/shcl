@@ -4399,7 +4399,8 @@ def _keep_lines(src, doc):
 			if o == g and not (len(ind) > len(indent(h)) and ind.startswith(indent(h))):
 				break
 			any_under = True
-			if not released[g] and not (tagged[o] and not present[o]):
+			gone = released[g] or (tagged[o] and not present[o])
+			if not gone:
 				all_gone = False
 				break
 		if any_under and all_gone:

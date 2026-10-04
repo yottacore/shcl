@@ -6230,7 +6230,8 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 				break;
 			}
 			any = true;
-			if !released[k] && !(tagged[o] && !present[o]) {
+			let gone = released[k] || (tagged[o] && !present[o]);
+			if !gone {
 				all = false;
 				break;
 			}
