@@ -773,21 +773,28 @@ static int load_layered_from(Opts *o, const char *file, char *given, size_t give
 	out->names = (const char **)xrealloc(NULL, (size_t)(o->nlayers + 1) * sizeof *out->names);
 	out->nnames = 0; out->base_len = 0;
 	// Lowest -> highest file layer: the --layer files in order, then FILE.
+	// Every file is read before any is loaded, as in the reference, so a
+	// missing layer is exit 8 even when one before it fails a strict load.
+	size_t *lens = (size_t *)xrealloc(NULL, (size_t)(o->nlayers + 1) * sizeof *lens);
 	for (int i = 0; i <= o->nlayers; i++) {
 		const char *fname = i < o->nlayers ? o->layers[i] : file;
 		out->names[out->nnames++] = fname;
-		size_t len; char *t;
-		if (i == o->nlayers && given) { t = given; len = given_len; given = NULL; }
-		else t = read_input(fname, &len);
-		if (!t) { free(given); layered_free(out); return EXIT_IO; }
+		char *t;
+		if (i == o->nlayers && given) { t = given; lens[i] = given_len; given = NULL; }
+		else t = read_input(fname, &lens[i]);
+		if (!t) { free(given); free(lens); layered_free(out); return EXIT_IO; }
 		layered_push_text(out, t);
-		if (i == o->nlayers) out->base_len = len;
+	}
+	out->base_len = lens[o->nlayers];
+	for (int i = 0; i <= o->nlayers; i++) {
+		const char *t = out->texts[i];
 		// Only a document with no layers under it keeps its lines: a merge drops them.
-		shcl_doc *dd = xdoc(keep && o->nlayers == 0 ? shcl_parse_keep_lines(t, len, o->strictness) : shcl_parse_with(t, len, o->strictness));
-		int g = strict_gate_from(o->nlayers ? fname : "", dd);
-		if (g) { shcl_free(dd); layered_free(out); return g; }
+		shcl_doc *dd = xdoc(keep && o->nlayers == 0 ? shcl_parse_keep_lines(t, lens[i], o->strictness) : shcl_parse_with(t, lens[i], o->strictness));
+		int g = strict_gate_from(o->nlayers ? out->names[i] : "", dd);
+		if (g) { shcl_free(dd); free(lens); layered_free(out); return g; }
 		layered_push_doc(out, dd);
 	}
+	free(lens);
 	// The load's diagnostics belong to the load, so they go out before any edit
 	// runs: a refused --set used to return with nothing said about them.
 	say_layered_diagnostics(out);
@@ -1805,6 +1812,12 @@ static char *read_named_schema(const char *path, size_t pn, size_t *len) {
 	if (is_a_directory(path)) { fprintf(stderr, "%s: Is a directory\n", path); return NULL; }
 	FILE *f = open_rb(path);
 	if (!f) { fprintf(stderr, "%s: %s\n", path, strerror(errno)); return NULL; }
+	/* Asked again of the handle, since the path can change after the test. */
+	if (GetFileType((HANDLE)_get_osfhandle(_fileno(f))) != FILE_TYPE_DISK) {
+		fprintf(stderr, "%s: not a regular file\n", path);
+		fclose(f);
+		return NULL;
+	}
 	return read_stream(f, path, SCHEMA_LINE_MAX, len);
 #else
 	/* Asked before the open too, since opening a FIFO waits for a writer. */
@@ -1814,13 +1827,24 @@ static char *read_named_schema(const char *path, size_t pn, size_t *len) {
 		return NULL;
 	}
 	if (is_a_directory(path)) { fprintf(stderr, "%s: Is a directory\n", path); return NULL; }
-	FILE *f = open_rb(path);
-	if (!f) { fprintf(stderr, "%s: %s\n", path, strerror(errno)); return NULL; }
-	if (fstat(fileno(f), &st) == 0 && !S_ISREG(st.st_mode)) {
-		fprintf(stderr, "%s: not a regular file\n", path);
-		fclose(f);
+	/* The path can turn into a FIFO between the stat and the open, so the open
+	   does not wait, and the flag comes straight back off: only the open
+	   waits, and the fstat refuses a FIFO before any read. */
+	int fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+	if (fd < 0) { fprintf(stderr, "%s: %s\n", path, strerror(errno)); return NULL; }
+	int flags = fcntl(fd, F_GETFL);
+	if (flags == -1 || fcntl(fd, F_SETFL, flags & ~O_NONBLOCK) == -1) {
+		fprintf(stderr, "%s: %s\n", path, strerror(errno));
+		close(fd);
 		return NULL;
 	}
+	if (fstat(fd, &st) == 0 && !S_ISREG(st.st_mode)) {
+		fprintf(stderr, "%s: not a regular file\n", path);
+		close(fd);
+		return NULL;
+	}
+	FILE *f = fdopen(fd, "rb");
+	if (!f) { fprintf(stderr, "%s: %s\n", path, strerror(errno)); close(fd); return NULL; }
 	return read_stream(f, path, SCHEMA_LINE_MAX, len);
 #endif
 }

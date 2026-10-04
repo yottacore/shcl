@@ -2948,6 +2948,10 @@ func schemaFor(o *opts, file, text string) (string, bool, error) {
 // hundreds of GiB.
 const schemaLineMax = 16 << 20
 
+// openNoWait opens a Schema line's file. The POSIX build swaps in an open that
+// does not wait on a FIFO; windows has none at a path.
+var openNoWait = os.Open
+
 // readNamedSchema reads the schema a Schema line names. A line in a file
 // someone else wrote must not make an unattended check wait on a FIFO or read
 // a device until memory runs out, so only a regular file is read, and no more
@@ -2974,7 +2978,7 @@ func readNamedSchema(path string) (string, error) {
 	if err := regular(os.Stat(path)); err != nil {
 		return "", err
 	}
-	f, err := os.Open(path)
+	f, err := openNoWait(path)
 	if err != nil {
 		return "", regular(nil, err)
 	}
