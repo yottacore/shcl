@@ -33,6 +33,50 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
+- The zsh completion still says `set` prints the canonical form
+	- ID: 2026100307163915
+	- Type: Bug
+	- Status: Waiting on signoff
+	- Severity: Low
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 15
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- Read `source/completions/_shcl:63`.
+	- Incorrect behavior: `'set:apply edits and print the canonical form'`. `set` has kept unedited lines as written since the keep save went in.
+	- Expected behavior: the same summary as the help's `set` line.
+	- Reproduced: 20261003, by reading, against `shcl --help`.
+	- Origin: `012a2b4f` (2026-08-19), and the keep save made it stale. Confirmed.
+	- Estimated effort: Low
+	- Actual fix: the zsh summary now reads "apply edits and print the file with the edited lines changed", from the help's own words. check-completions also holds every zsh summary to the help: each word of five letters or more has to be in that subcommand's help entry.
+	- Swept: the bash completion has no summaries, and there are no fish or PowerShell completions. No other zsh summary disagrees with the help. The man page's `set` entry already says unedited lines come back as written.
+	- Verified: check-completions `ErlbzxH` fails on the old summary and passes on the new one. shellcheck passes.
+	- Branch: clismall
+	- Test case: check-completions `ErlbzxH`.
+	- Acceptance signoff: wording of the new summary.
+
+- The man page says the wrappers are installed beside `shcl`, and no install puts them there
+	- ID: 2026100307163916
+	- Type: Bug
+	- Status: Waiting on signoff
+	- Severity: Low
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 16
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- `install.bash` into a scratch HOME, take `~/.local/bin` off PATH, then `bash ~/.local/share/shcl/scripts/shcl.bash --version`.
+	- Incorrect behavior: "cannot find a shcl binary", exit 1, though the binary is at `../shcl`. `shcl.1:833` says the wrappers sit beside the command. `install.bash` puts them in `scripts/`, and the deb and rpm in `/usr/share/shcl/scripts`, so `shcl.bash`'s lookup beside itself never finds one.
+	- Expected behavior: the man page names where they go, and the wrapper looks where the installers put the binary.
+	- Reproduced: 20261003, `install.bash` with stub downloads. `install.ps1` is Plausible, by reading.
+	- Origin: `84ceff51` (2026-08-30) for the man line. The installer was right; the claim and the lookup were not. Confirmed.
+	- Estimated effort: Low
+	- Actual fix: the man page names the wrappers and where they go: `/usr/share/shcl/scripts` from the .deb and .rpm, and `scripts` under the install directory from the other installers. Both wrappers now also look a level up from themselves, where every installer but the packages puts the binary, before PATH. The packages put the binary in `/usr/bin`, which PATH finds.
+	- Swept: `install.bash`, `install.ps1`, the NSIS setup and nfpm.yaml all put the wrappers in `scripts` beside the binary, or in `/usr/share/shcl/scripts` with the binary in `/usr/bin`. No installer changed. The README makes no claim about where the wrappers sit. Both wrapper headers now list the new step.
+	- Verified: shell-regress `ErlisVv` (bash) and `ErlisYf` (pwsh) lay out an install with a stub binary a level up and no shcl on PATH. Both wrappers from dev said "cannot find a shcl binary"; both now run the stub. shell-regress, shellcheck and PSScriptAnalyzer pass, and the man page renders at 80 columns.
+	- Branch: clismall
+	- Test case: shell-regress `ErlisVv` and `ErlisYf`.
+	- Acceptance signoff: the man page wording.
+
 - No '\' escapes
 	- ID: 2026100207032800
 	- Type: Enhancement
@@ -233,27 +277,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: 20261004, vmDebARM64 has no setup notes yet. Ask how it is set up before the first visit.
 	- Estimated effort: Avg
 
-- Build and test on FreeBSD
-	- ID: 2026100413052101
-	- Type: Task
-	- Status: Queued
-	- Priority: Low
-	- Opened: 20261004-130521
-	- Opened by: JC
-	- Related IDs: 2026100413052100
-	- Target OS: FreeBSD
-	- Test environment: vmFreeBSD (FreeBSD 15.1), booked through the host lock.
-	- Problem description:
-		- The README and `install.bash` point BSD users at `cargo install shcl` or a source build, but neither has been tried on a BSD.
-	- Requirements:
-		- `cargo install shcl` from the crate works, and the CLI passes the corpus and cli-regress.
-		- The C binding builds with the system cc, which is clang, and passes its runner.
-		- Go and Python suites pass, where their packages are easy to install.
-		- File what breaks.
-	- Note: 20261004, prebuilt FreeBSD x86_64 binaries came in with 2026100413191500, and the release binary passed the corpus `fmt` and `check` there. This item still owes the crate install and the other three bindings.
-	- Note: 20261004, the gate scripts are bash and assume GNU tools, so some may need `gsed` or the like. Fixing the product comes first. Porting the gates only matters if a BSD job is wanted.
-	- Estimated effort: Avg
-
 - `Remove` of the last key under a repeated header leaves the header and takes the blank line
 	- ID: 2026100115323232
 	- Type: Bug
@@ -351,60 +374,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Decisions:
 		- 20261002: recheck after 2026100207032800 is built, since it removes most of those checks. No perf work before 3.0.0 otherwise.
 
-- A FIFO swapped in at the Schema path between the type check and the open hangs `check`
-	- ID: 2026100307163911
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 item 11
-	- Related IDs: 2026092813365302
-	- Version and build: dev at `6e8b7f89`
-	- Steps to reproduce:
-		- A config with `a: 1` and `##    Schema   s.schema`. A loop swaps `s.schema` between a regular file and a FIFO with `ln -f` and `mv -f`.
-		- Run `timeout -s KILL 3 shcl check cfg.shcl` over and over.
-	- Incorrect behavior: a run hangs until killed. Python hung on run 165, Go on 281, Rust on 1942, C on 2007.
-	- Expected behavior: what 2026092813365302 set out to do: a line in a file someone else wrote cannot make an unattended `check` hang.
-	- Reproduced: 20261003, all four.
-	- Possible cause: the `stat` before and `fstat` after the open leave the open itself blocking on a FIFO. Open non-blocking, `fstat` the descriptor, then clear the flag.
-	- Origin: `27d73efb` (schema line fixes), the fix for 2026092813365302. A gap in a closed fix, which needs someone able to swap files beside the config. Confirmed.
-	- Sweep: `read_named_schema` in all four CLIs, and the Windows branch.
-	- Estimated effort: Low
-	- Actual cause: the open itself waits on a FIFO, and the stat before it cannot see a swap that comes after.
-	- Actual fix: on POSIX the open asks not to wait, the flag comes straight back off, and the fstat after it refuses the FIFO before any read. All four. The C Windows branch had no check after the open; it now asks the handle's type too.
-	- Swept: `read_named_schema` in all four CLIs. On Windows a FIFO cannot sit at a path, and a pipe is refused after the open in all four: Rust's handle metadata, Go's `Stat`, Python's `fstat` and now C's `GetFileType`. Nothing else opens a path read out of a file.
-	- Verified: cli-regress `Erlf8t9` holds the stat on the schema path while the path turns into a FIFO, so the open meets it every run. All four hung until killed before the fix and refuse at exit 8 after. It tries again with more time if the swap missed the window, and was seen to recover from a swap too early and too late. Rust clippy for Linux and Windows, `cargo check` for FreeBSD and macOS, Go vet and staticcheck for Linux and Windows, ruff and mypy, and the C build under gcc 14, gcc 15 and mingw pass. The mingw C build still reads a local schema under wine.
-	- Note: the C Windows refusal of a pipe swapped in after the test is by reading only. `--write` FILE has the same gap between its stat and the read, and was left: that path is the user's own, named on the command line.
-	- Branch: clismall
-	- Test case: cli-regress `Erlf8t9` (`schema-line-fifo-swap`). It needs strace, which the hosted job installs; POSIX only.
-	- Acceptance signoff: Self-closed: reproduced, its test failed before the fix and passes after, sweep answered.
-	- Closed: 20261004-141028
-
-- The C CLI exits 6 where the other three exit 8 when a strict layer fails before a missing one
-	- ID: 2026100307163913
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 item 13
-	- Version and build: dev at `6e8b7f89`
-	- Steps to reproduce:
-		- `printf 'bad line\n' > bad.shcl; printf 'a: 1\n' > f.shcl`
-		- `shcl paths --strictness=strict --layer=bad.shcl --layer=missing.shcl f.shcl`
-	- Incorrect behavior: C exits 6 for the strict load. Rust, Go and Python exit 8 for the missing file.
-	- Expected behavior: the same exit code in all four. Rust reads every file before loading any.
-	- Reproduced: 20261003, all four.
-	- Possible cause: `main.c:776-786` reads and strict-checks each layer in turn.
-	- Origin: `9c2aa225` (set layer labels, 2026-09-19). No corpus case has a missing layer, so crosscheck cannot see it. Confirmed.
-	- Estimated effort: Low
-	- Actual fix: the C fold reads every file first, then loads them in order, as the other three do.
-	- Swept: `load_layered_from` is the one fold in the C CLI; `set` goes through it too. Go and Python already read every file first, and the new rows pass on all four.
-	- Verified: cli-regress `Erlbzz0` and `Erlc00p` fail on the old C build at exit 6 and pass on all four after. The full cli-regress passes on all four.
-	- Branch: clismall
-	- Test case: cli-regress `Erlbzz0` (`paths`) and `Erlc00p` (`set`), a strict failure in the first layer and a missing second one.
-	- Acceptance signoff: Self-closed: reproduced, its test failed before the fix and passes after.
-	- Closed: 20261004-134958
-
 - The E019, E023 and E024 text says a read on the field is NotFound, but it is Empty when lines load under it
 	- ID: 2026100307163914
 	- Type: Bug
@@ -422,50 +391,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Origin: `3ef0bc8c` and `752f2177` (escblock and its docs). Confirmed.
 	- Sweep: the spec rows, `explain` in all four CLIs, design.md and value-syntax.md.
 	- Estimated effort: Low
-
-- The zsh completion still says `set` prints the canonical form
-	- ID: 2026100307163915
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 item 15
-	- Version and build: dev at `6e8b7f89`
-	- Steps to reproduce:
-		- Read `source/completions/_shcl:63`.
-	- Incorrect behavior: `'set:apply edits and print the canonical form'`. `set` has kept unedited lines as written since the keep save went in.
-	- Expected behavior: the same summary as the help's `set` line.
-	- Reproduced: 20261003, by reading, against `shcl --help`.
-	- Origin: `012a2b4f` (2026-08-19), and the keep save made it stale. Confirmed.
-	- Estimated effort: Low
-	- Actual fix: the zsh summary now reads "apply edits and print the file with the edited lines changed", from the help's own words. check-completions also holds every zsh summary to the help: each word of five letters or more has to be in that subcommand's help entry.
-	- Swept: the bash completion has no summaries, and there are no fish or PowerShell completions. No other zsh summary disagrees with the help. The man page's `set` entry already says unedited lines come back as written.
-	- Verified: check-completions `ErlbzxH` fails on the old summary and passes on the new one. shellcheck passes.
-	- Branch: clismall
-	- Test case: check-completions `ErlbzxH`.
-	- Acceptance signoff: wording of the new summary.
-
-- The man page says the wrappers are installed beside `shcl`, and no install puts them there
-	- ID: 2026100307163916
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Severity: Low
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 item 16
-	- Version and build: dev at `6e8b7f89`
-	- Steps to reproduce:
-		- `install.bash` into a scratch HOME, take `~/.local/bin` off PATH, then `bash ~/.local/share/shcl/scripts/shcl.bash --version`.
-	- Incorrect behavior: "cannot find a shcl binary", exit 1, though the binary is at `../shcl`. `shcl.1:833` says the wrappers sit beside the command. `install.bash` puts them in `scripts/`, and the deb and rpm in `/usr/share/shcl/scripts`, so `shcl.bash`'s lookup beside itself never finds one.
-	- Expected behavior: the man page names where they go, and the wrapper looks where the installers put the binary.
-	- Reproduced: 20261003, `install.bash` with stub downloads. `install.ps1` is Plausible, by reading.
-	- Origin: `84ceff51` (2026-08-30) for the man line. The installer was right; the claim and the lookup were not. Confirmed.
-	- Estimated effort: Low
-	- Actual fix: the man page names the wrappers and where they go: `/usr/share/shcl/scripts` from the .deb and .rpm, and `scripts` under the install directory from the other installers. Both wrappers now also look a level up from themselves, where every installer but the packages puts the binary, before PATH. The packages put the binary in `/usr/bin`, which PATH finds.
-	- Swept: `install.bash`, `install.ps1`, the NSIS setup and nfpm.yaml all put the wrappers in `scripts` beside the binary, or in `/usr/share/shcl/scripts` with the binary in `/usr/bin`. No installer changed. The README makes no claim about where the wrappers sit. Both wrapper headers now list the new step.
-	- Verified: shell-regress `ErlisVv` (bash) and `ErlisYf` (pwsh) lay out an install with a stub binary a level up and no shcl on PATH. Both wrappers from dev said "cannot find a shcl binary"; both now run the stub. shell-regress, shellcheck and PSScriptAnalyzer pass, and the man page renders at 80 columns.
-	- Branch: clismall
-	- Test case: shell-regress `ErlisVv` and `ErlisYf`.
-	- Acceptance signoff: the man page wording.
 
 - The C header's comment on the save result still says the save refuses only over what the load dropped
 	- ID: 2026100313174973
@@ -539,6 +464,27 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: 20261004, pwsh 7.6 on Linux. A double-dash spelling such as `--x:y` and a quoted `'-x:y'` go through.
 	- Possible cause: PowerShell splits a single-dash `-x:y` into a parameter token and a value in `$args`, and splatting that token to a native command drops it. Rejoining needs the hidden parameter mark, and `-x: y` with a space looks the same in `$args` while a direct call keeps it as two arguments.
 	- Estimated effort: Low
+
+- Build and test on FreeBSD
+	- ID: 2026100413052101
+	- Type: Task
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261004-130521
+	- Opened by: JC
+	- Related IDs: 2026100413052100
+	- Target OS: FreeBSD
+	- Test environment: vmFreeBSD (FreeBSD 15.1), booked through the host lock.
+	- Problem description:
+		- The README and `install.bash` point BSD users at `cargo install shcl` or a source build, but neither has been tried on a BSD.
+	- Requirements:
+		- `cargo install shcl` from the crate works, and the CLI passes the corpus and cli-regress.
+		- The C binding builds with the system cc, which is clang, and passes its runner.
+		- Go and Python suites pass, where their packages are easy to install.
+		- File what breaks.
+	- Note: 20261004, prebuilt FreeBSD x86_64 binaries came in with 2026100413191500, and the release binary passed the corpus `fmt` and `check` there. This item still owes the crate install and the other three bindings.
+	- Note: 20261004, the gate scripts are bash and assume GNU tools, so some may need `gsed` or the like. Fixing the product comes first. Porting the gates only matters if a BSD job is wanted.
+	- Estimated effort: Avg
 
 - `explain` on a retired code could name the code that replaced it
 	- ID: 2026100307163917
@@ -911,28 +857,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Swept: every test for a leading `#` on a comment line in all four. The merge's replaced-leaf rule is the one other site, filed as 2026092718195400.
 	- Branch: `keepdrop`
 	- Test case: corpus `178-clear-comments-kept-line`, both routes, with `comments` reads. It fails on the old code.
-
-- Prebuilt FreeBSD binaries
-	- ID: 2026100413191500
-	- Type: Feature
-	- Status: Done
-	- Priority: Avg
-	- Opened: 20261004-131915
-	- Opened by: JC
-	- Related IDs: 2026100413052101
-	- Target OS: FreeBSD
-	- Test environment: vmFreeBSD (FreeBSD 15.1).
-	- Requirements:
-		- Distribute prebuilt binaries for BSD.
-	- Note: 20261004, only FreeBSD x86_64 is buildable here. Rust ships no prebuilt std for FreeBSD on arm64 or for OpenBSD, and cargo-zigbuild refuses NetBSD. Those stay on `cargo install shcl`.
-	- Progress log:
-		- 20261004: stage 6 cross-builds `freebsd-x86_64` with zig, so the release, its signed sums and the dogfood skip list pick it up like the other targets. No package; the installer and the plain binary cover it.
-		- 20261004: `install.bash` maps FreeBSD to the `freebsd` asset and refuses FreeBSD arm64 up front. It now reads the signed sums before fetching the binary, so a release without this platform's binary says so. Until the cut, every release is like that on FreeBSD. Checksums go through openssl, which it needs anyway. Installer 1.2.0, and `install.ps1` 1.1.6 for its pointer text.
-		- 20261004: README, design.md and the changelog say so. README says to `pkg install bash curl` first, since a fresh FreeBSD has neither.
-	- Verified: on vmFreeBSD the cross-built binary gave the same `fmt` and `check` output as Linux over all 189 corpus cases, and a `set --write` worked. `install.bash` ran there end to end against a local stand-in release: install, `man shcl`, the `bash <(...)` form, uninstall, and the no-binary message. The system target was not run there.
-	- Branch: `bsdbin`
-	- Test case: shell-regress `ErlTWJD` (FreeBSD plan line and the arm64 refusal), `ErlTWLO` (a release with no binary for the platform is named and nothing is fetched), and `EqzwPFH` (the FreeBSD floor). Each failed with its fix taken out.
-	- Closed: 20261004-131915
 
 - A fuzz property and a save-gate check for kept lines, so edits stop losing them one site at a time
 	- ID: 2026100307310000
@@ -1321,6 +1245,28 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Acceptance signoff: 20261003, closed without a hand check: the fuzz property, corpus 188 and the cli-regress rows cover what a hand test would, and the open question on the item went to 2026100218185700.
 	- Closed: 20261003-113243
 
+- Prebuilt FreeBSD binaries
+	- ID: 2026100413191500
+	- Type: Feature
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20261004-131915
+	- Opened by: JC
+	- Related IDs: 2026100413052101
+	- Target OS: FreeBSD
+	- Test environment: vmFreeBSD (FreeBSD 15.1).
+	- Requirements:
+		- Distribute prebuilt binaries for BSD.
+	- Note: 20261004, only FreeBSD x86_64 is buildable here. Rust ships no prebuilt std for FreeBSD on arm64 or for OpenBSD, and cargo-zigbuild refuses NetBSD. Those stay on `cargo install shcl`.
+	- Progress log:
+		- 20261004: stage 6 cross-builds `freebsd-x86_64` with zig, so the release, its signed sums and the dogfood skip list pick it up like the other targets. No package; the installer and the plain binary cover it.
+		- 20261004: `install.bash` maps FreeBSD to the `freebsd` asset and refuses FreeBSD arm64 up front. It now reads the signed sums before fetching the binary, so a release without this platform's binary says so. Until the cut, every release is like that on FreeBSD. Checksums go through openssl, which it needs anyway. Installer 1.2.0, and `install.ps1` 1.1.6 for its pointer text.
+		- 20261004: README, design.md and the changelog say so. README says to `pkg install bash curl` first, since a fresh FreeBSD has neither.
+	- Verified: on vmFreeBSD the cross-built binary gave the same `fmt` and `check` output as Linux over all 189 corpus cases, and a `set --write` worked. `install.bash` ran there end to end against a local stand-in release: install, `man shcl`, the `bash <(...)` form, uninstall, and the no-binary message. The system target was not run there.
+	- Branch: `bsdbin`
+	- Test case: shell-regress `ErlTWJD` (FreeBSD plan line and the arm64 refusal), `ErlTWLO` (a release with no binary for the platform is named and nothing is fetched), and `EqzwPFH` (the FreeBSD floor). Each failed with its fix taken out.
+	- Closed: 20261004-131915
+
 - Read the lock script and add b26
 	- ID: 2026100314005369
 	- Type: Task
@@ -1597,6 +1543,60 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `pathhint`
 	- Commit: `1a12c02`
 	- Test case: corpus `171-windows-path-hint`, cli-regress `path-hint-*` rows. The read and strict rows and case 171 fail with the hint off, and `path-hint-set` shows a write is unaffected. The migrate goldens of cases 118, 122 and 170 now list the hint.
+
+- A FIFO swapped in at the Schema path between the type check and the open hangs `check`
+	- ID: 2026100307163911
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 11
+	- Related IDs: 2026092813365302
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- A config with `a: 1` and `##    Schema   s.schema`. A loop swaps `s.schema` between a regular file and a FIFO with `ln -f` and `mv -f`.
+		- Run `timeout -s KILL 3 shcl check cfg.shcl` over and over.
+	- Incorrect behavior: a run hangs until killed. Python hung on run 165, Go on 281, Rust on 1942, C on 2007.
+	- Expected behavior: what 2026092813365302 set out to do: a line in a file someone else wrote cannot make an unattended `check` hang.
+	- Reproduced: 20261003, all four.
+	- Possible cause: the `stat` before and `fstat` after the open leave the open itself blocking on a FIFO. Open non-blocking, `fstat` the descriptor, then clear the flag.
+	- Origin: `27d73efb` (schema line fixes), the fix for 2026092813365302. A gap in a closed fix, which needs someone able to swap files beside the config. Confirmed.
+	- Sweep: `read_named_schema` in all four CLIs, and the Windows branch.
+	- Estimated effort: Low
+	- Actual cause: the open itself waits on a FIFO, and the stat before it cannot see a swap that comes after.
+	- Actual fix: on POSIX the open asks not to wait, the flag comes straight back off, and the fstat after it refuses the FIFO before any read. All four. The C Windows branch had no check after the open; it now asks the handle's type too.
+	- Swept: `read_named_schema` in all four CLIs. On Windows a FIFO cannot sit at a path, and a pipe is refused after the open in all four: Rust's handle metadata, Go's `Stat`, Python's `fstat` and now C's `GetFileType`. Nothing else opens a path read out of a file.
+	- Verified: cli-regress `Erlf8t9` holds the stat on the schema path while the path turns into a FIFO, so the open meets it every run. All four hung until killed before the fix and refuse at exit 8 after. It tries again with more time if the swap missed the window, and was seen to recover from a swap too early and too late. Rust clippy for Linux and Windows, `cargo check` for FreeBSD and macOS, Go vet and staticcheck for Linux and Windows, ruff and mypy, and the C build under gcc 14, gcc 15 and mingw pass. The mingw C build still reads a local schema under wine.
+	- Note: the C Windows refusal of a pipe swapped in after the test is by reading only. `--write` FILE has the same gap between its stat and the read, and was left: that path is the user's own, named on the command line.
+	- Branch: clismall
+	- Test case: cli-regress `Erlf8t9` (`schema-line-fifo-swap`). It needs strace, which the hosted job installs; POSIX only.
+	- Acceptance signoff: Self-closed: reproduced, its test failed before the fix and passes after, sweep answered.
+	- Closed: 20261004-141028
+
+- The C CLI exits 6 where the other three exit 8 when a strict layer fails before a missing one
+	- ID: 2026100307163913
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 13
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- `printf 'bad line\n' > bad.shcl; printf 'a: 1\n' > f.shcl`
+		- `shcl paths --strictness=strict --layer=bad.shcl --layer=missing.shcl f.shcl`
+	- Incorrect behavior: C exits 6 for the strict load. Rust, Go and Python exit 8 for the missing file.
+	- Expected behavior: the same exit code in all four. Rust reads every file before loading any.
+	- Reproduced: 20261003, all four.
+	- Possible cause: `main.c:776-786` reads and strict-checks each layer in turn.
+	- Origin: `9c2aa225` (set layer labels, 2026-09-19). No corpus case has a missing layer, so crosscheck cannot see it. Confirmed.
+	- Estimated effort: Low
+	- Actual fix: the C fold reads every file first, then loads them in order, as the other three do.
+	- Swept: `load_layered_from` is the one fold in the C CLI; `set` goes through it too. Go and Python already read every file first, and the new rows pass on all four.
+	- Verified: cli-regress `Erlbzz0` and `Erlc00p` fail on the old C build at exit 6 and pass on all four after. The full cli-regress passes on all four.
+	- Branch: clismall
+	- Test case: cli-regress `Erlbzz0` (`paths`) and `Erlc00p` (`set`), a strict failure in the first layer and a missing second one.
+	- Acceptance signoff: Self-closed: reproduced, its test failed before the fix and passes after.
+	- Closed: 20261004-134958
 
 - A bad escape in the name of a line that opens a raw block leaves the body to be read as lines
 	- ID: 2026100117214801
