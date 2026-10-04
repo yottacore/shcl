@@ -634,6 +634,22 @@ rows=(
 	'ErUmRRc|sugar-write-kept|fmt --write %W%|-|0||-'
 	'Era9kPy|kept-under-kept-fmt|fmt -|a: [1]\n\tb: [2]\n|0|a: [1]\n\tb: [2]\n|-'
 	'Era9kPz|kept-before-dotted-fmt|fmt -|k: [3]\nm.n: 2\n|0|k: [3]\nm:\n\tn: 2\n|-'
+	## A comment between nested kept lines nests with them (2026100218185700).
+	'Erls2v2|comment-under-kept-fmt|fmt -|a: [1]\n\t# note\n\tb: [2]\n|0|a: [1]\n\t# note\n\tb: [2]\n|-'
+	'Erls2v3|comment-under-kept-in-block-fmt|fmt -|x:\n  a: [1]\n    # note\n    b: [2]\n  c: 1\n|0|x:\n\ta: [1]\n\t\t# note\n\t\tb: [2]\n\tc: 1\n|-'
+	## A new field at the end of a block goes after the kept lines that end it,
+	## not above them (2026100117214802).
+	'Erls2uw|set-new-key-after-kept-end|set --set=b=1 -|x: 1\na:   [1]\n# end\n|0|x: 1\na:   [1]\n\nb: 1\n# end\n|-'
+	'Erls2ux|set-new-key-after-kept-in-block|set --set=s.b=1 -|s:\n    a:   [1]\n    # c\n|0|s:\n    a:   [1]\n    b: 1\n    # c\n|-'
+	## A repeat header the load folded away goes with the last line under it,
+	## blank line and all, and stays with its blank line while anything under
+	## it does (2026100115323232).
+	'Erls2uy|remove-emptied-repeat-header|set --remove=account[#0].name -|account: w\n\temail: a@x\n\naccount: w\n\tname: W\n\nz: 1\n|0|account: w\n\temail: a@x\n\nz: 1\n|-'
+	'Erls2uz|set-keeps-blank-above-repeat|set --set=s.a=5 -|s:\n\ta: 1\n\ns:\n\tb: 2\n|0|s:\n\ta: 5\n\ns:\n\tb: 2\n|-'
+	## New lines take the indent step most blocks use, not the first block's
+	## (2026100115403386).
+	'Erls2v0|set-new-block-majority-step|set --set=shell.list.bash.command=/bin/bash -|window:\n\t\topacity: 1.0\nwindow:\n\tcolumns: 80\n|0|window:\n\t\topacity: 1.0\nwindow:\n\tcolumns: 80\n\nshell:\n\tlist:\n\t\tbash:\n\t\t\tcommand: /bin/bash\n|-'
+	'Erls2v1|set-new-block-space-step|set --set=d.e.f=1 -|a:\n  x: 1\nb:\n    y: 1\nc:\n    z: 1\n|0|a:\n  x: 1\nb:\n    y: 1\nc:\n    z: 1\n\nd:\n    e:\n        f: 1\n|-'
 	'EpFkZy9|sugar-migrate|migrate %W%|-|0|base: Boston\n\tlat: 42\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	'EpFkZyA|sugar-migrate-write|migrate --write %W%|-|0||-'
 	## An unknown escape in double quotes is refused and kept as written, not

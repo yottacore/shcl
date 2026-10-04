@@ -376,16 +376,33 @@ type depthEnt struct {
 // holds those comments' indents with their depths, innermost last. A field
 // line kept for its value or name goes by the same rule over held, the kept
 // lines before it: it holds its level on a reload, so it goes deeper only
-// under one of those, which a reload holds open for it. A misplaced line,
-// which has its own indent, sits at the place's level and leaves both
-// alone.
+// under one of those, which a reload holds open for it. That line then takes
+// its place in chain at its own level, so a comment nests under it too
+// (2026100218185700). A misplaced line, which has its own indent, sits at the
+// place's level and leaves both alone.
 func commentDepth(chain, held *[]depthEnt, base, text, indent string) int {
 	if strings.HasPrefix(text, " ") || strings.HasPrefix(text, "\t") {
 		return 0
 	}
-	if !strings.HasPrefix(text, "#") {
-		chain = held
+	if strings.HasPrefix(text, "#") {
+		return chainDepth(chain, base, indent)
 	}
+	depth := chainDepth(held, base, indent)
+	// It is written at its own level, so on a reload nothing at that level or
+	// deeper is left for a comment after it to nest under.
+	for len(*chain) > 0 {
+		top := (*chain)[len(*chain)-1]
+		if top.depth < depth && len(indent) > len(top.indent) && strings.HasPrefix(indent, top.indent) {
+			break
+		}
+		*chain = (*chain)[:len(*chain)-1]
+	}
+	*chain = append(*chain, depthEnt{indent: indent, depth: depth})
+	return depth
+}
+
+// chainDepth is commentDepth over one chain.
+func chainDepth(chain *[]depthEnt, base, indent string) int {
 	if !(len(indent) > len(base) && strings.HasPrefix(indent, base)) {
 		*chain = append((*chain)[:0], depthEnt{indent: indent})
 		return 0
@@ -4782,13 +4799,16 @@ func keptInLists(nd *nodeData) int {
 	return keptIn(nd.leading()) + keptIn(nd.after()) + keptIn(nd.inside()) + keptAmong(nd.among())
 }
 
-// restep: a reload starts a comment run at 0 and steps one level at a time,
-// so a comment left after the one it sat under went is pulled back to fit.
+// restep: a reload starts a comment run at 0 and steps one level at a time
+// past the comment or kept field line before it, so a comment left after the
+// line it sat under went is pulled back to fit.
 func restep(leads []lead) {
 	room := 0
 	for k := range leads {
 		if strings.HasPrefix(leads[k].text, "#") {
 			leads[k].depth = minInt(leads[k].depth, room)
+			room = leads[k].depth + 1
+		} else if isField(leads[k].text) {
 			room = leads[k].depth + 1
 		}
 	}
@@ -5104,7 +5124,7 @@ func (d *Document) settleKeptOnce() bool {
 		}
 		depth := 0
 		for j := len(t.leading) - 1; j >= 0; j-- {
-			if strings.HasPrefix(t.leading[j].text, "#") {
+			if !strings.HasPrefix(t.leading[j].text, " ") && !strings.HasPrefix(t.leading[j].text, "\t") {
 				depth = t.leading[j].depth
 				break
 			}
@@ -5402,8 +5422,8 @@ func pushLeads(e *emit, leads []lead, base, node int, at site, from int) {
 				e.out.WriteString(c.text)
 				e.out.WriteByte('\n')
 			} else {
-				// Level with the comment before it, so the run's nesting reads
-				// back the same.
+				// Level with the comment or kept field line before it, so the
+				// run's nesting reads back the same.
 				if e.record {
 					e.fell = append(e.fell, fell{node: node, site: at, i: from + i, depth: lastComment})
 				}
@@ -5414,9 +5434,8 @@ func pushLeads(e *emit, leads []lead, base, node int, at site, from int) {
 			continue
 		}
 		pad := base + c.depth
-		if strings.HasPrefix(c.text, "#") {
-			lastComment = c.depth
-		} else {
+		lastComment = c.depth
+		if !strings.HasPrefix(c.text, "#") {
 			// A kept malformed line resolves and holds its column on a reload,
 			// open for the lines under it when only its value was wrong.
 			indent := strings.Repeat("\t", pad)
@@ -5886,15 +5905,112 @@ func keepLines(src string, doc *Document) (string, bool) {
 			left[k] = false
 		}
 	}
+	// A repeat the load folded away goes when the edits took every line under
+	// it, and the blank lines above it go along: the field is still written
+	// where it first was. A remove writes no line the document did not write
+	// before (2026100115323232).
+	present := make([]bool, n+2)
+	for _, r := range isRuns {
+		if r.line != 0 && r.line <= n {
+			present[owner[r.line]] = true
+		}
+	}
+	tagged := make([]bool, n+2)
+	for _, r := range wasRuns {
+		if r.line != 0 && r.line <= n {
+			tagged[owner[r.line]] = true
+		}
+	}
+	dropped := make([]bool, n+2)
+	for _, k := range loadedDoc.dropped {
+		if k <= n {
+			dropped[k] = true
+		}
+	}
+	released := make([]bool, n+2)
+	for h := n; h >= 1; h-- {
+		if !left[h] || dropped[h] {
+			continue
+		}
+		anyUnder, allGone := false, true
+		for k := h + 1; k <= n; k++ {
+			if blank(k) {
+				continue
+			}
+			// A line in a raw body or a stacked list is under h when the line
+			// it belongs to is, whatever its own indent.
+			o := owner[k]
+			i := indent(k)
+			if o == k && !(len(i) > len(indent(h)) && strings.HasPrefix(i, indent(h))) {
+				break
+			}
+			anyUnder = true
+			gone := released[k] || (tagged[o] && !present[o])
+			if !gone {
+				allGone = false
+				break
+			}
+		}
+		if anyUnder && allGone {
+			left[h] = false
+			released[h] = true
+		}
+	}
 	// New lines end the way most of the file's lines do.
 	eol := majorityEol(body)
-	// One level of the source's indent: a line one level in, or failing that
+	// One level of the source's indent: the one most blocks use for a line
+	// one level in, each block counted once, by its first such line. A tie
+	// goes to one tab when that is among them, else to the block first in the
+	// file, so one odd block does not set it (2026100115403386). Failing that,
 	// the first indented line, a list element or a fence.
-	step := ""
+	var firsts []int
 	for _, u := range wasRuns {
 		if u.line != 0 && u.line <= n && tabs(loadedText[u.start:]) == 1 && indent(u.line) != "" {
-			step = indent(u.line)
-			break
+			firsts = append(firsts, u.line)
+		}
+	}
+	sort.Ints(firsts)
+	type stepCount struct {
+		step  string
+		count int
+	}
+	var steps []stepCount
+	top, block, k := 0, -1, 1
+	for _, l := range firsts {
+		for ; k <= l; k++ {
+			if owner[k] == k && !blank(k) && indent(k) == "" && !strings.HasPrefix(line(k), "#") {
+				top = k
+			}
+		}
+		if block == top {
+			continue
+		}
+		block = top
+		found := false
+		for i := range steps {
+			if steps[i].step == indent(l) {
+				steps[i].count++
+				found = true
+				break
+			}
+		}
+		if !found {
+			steps = append(steps, stepCount{indent(l), 1})
+		}
+	}
+	most := 0
+	for _, sc := range steps {
+		most = maxInt(most, sc.count)
+	}
+	step := ""
+	for _, sc := range steps {
+		if sc.count == most && sc.step == "\t" {
+			step = "\t"
+		}
+	}
+	for _, sc := range steps {
+		if step == "" && sc.count == most {
+			step = sc.step
 		}
 	}
 	for l := 1; step == "" && l <= n; l++ {
@@ -5924,11 +6040,21 @@ func keepLines(src string, doc *Document) (string, bool) {
 	// a dropped line would be dropped with it. A line the load dropped comes
 	// back this way.
 	flush := func(from, to int) {
+		// The blank lines among them stay, up to the last one written.
+		last := 0
+		for k := minInt(to, n+1) - 1; k >= from; k-- {
+			if left[k] {
+				last = k
+				break
+			}
+		}
 		for k := from; k < to; k++ {
 			if left[k] {
 				out.WriteString(line(k))
 				wrote[k] = true
 				left[k] = false
+			} else if k < last && blank(k) {
+				out.WriteString(line(k))
 			}
 		}
 	}
@@ -6003,11 +6129,16 @@ func keepLines(src string, doc *Document) (string, bool) {
 			}
 		case kept && prev != 0 && next[prev] == l:
 			blanks := false
+			// A blank line above a source line written here stays with it.
+			last := 0
 			for k := end[prev] + 1; k < l; k++ {
 				blanks = blanks || blank(k)
+				if !blank(k) {
+					last = k
+				}
 			}
 			for k := end[prev] + 1; k < l; k++ {
-				if blanksStay || !blank(k) {
+				if blanksStay || !blank(k) || k < last {
 					out.WriteString(line(k))
 					wrote[k] = true
 					left[k] = false
@@ -6181,17 +6312,8 @@ func dropBanners(leads *[]lead) (int, bool) {
 		i = end
 	}
 	if removed > 0 {
-		// A reload puts a comment at most one level past the one before it,
-		// and the first at none, so what followed a block steps up to that.
-		room := 0
-		for k := range keep {
-			if strings.HasPrefix(keep[k].text, "#") {
-				if keep[k].depth > room {
-					keep[k].depth = room
-				}
-				room = keep[k].depth + 1
-			}
-		}
+		// What followed a block steps up to fit the run.
+		restep(keep)
 		*leads = keep
 	}
 	return removed, owed
@@ -7900,6 +8022,28 @@ func (d *Document) newChild(parent int, name, nameSrc string, v value) int {
 	if ix := d.index.Load(); ix != nil {
 		ix.append(nameKey(parent, name), idx)
 	}
+	// Kept lines that end the block stay where they were, so the new field
+	// goes after the last of them, as a reload files them. The comments
+	// after it stay at the end, and so does a kept line the settle wrote as
+	// a comment, since a reload reads it as one.
+	var tail *[]lead
+	if parent == root {
+		tail = &d.orphans
+	} else if t := d.arena[parent].trivia; t != nil {
+		tail = &t.inside
+	}
+	if tail != nil {
+		k := len(*tail) - 1
+		for k >= 0 && strings.HasPrefix((*tail)[k].text, "#") {
+			k--
+		}
+		if k >= 0 {
+			lines := append([]lead(nil), (*tail)[:k+1]...)
+			*tail = append([]lead(nil), (*tail)[k+1:]...)
+			restep(*tail)
+			d.arena[idx].trivMut().leading = lines
+		}
+	}
 	settleBlock(d.arena, parent, len(d.arena[parent].children)-1)
 	return idx
 }
@@ -8882,12 +9026,12 @@ func (d *Document) Merge(over *Document) {
 	// stack of files from repeating it once per layer. Only the lines
 	// already here count: a layer's own repeats are its content.
 	had := len(d.orphans)
-	// A repeat skipped here may be the comment the next one sat under, and a
-	// reload puts a comment at most one level past the comment before it, so
-	// none goes deeper than that.
+	// A repeat skipped here may be the line the next one sat under, and a
+	// reload puts a comment at most one level past the comment or kept field
+	// line before it, so none goes deeper than that.
 	room := 0
 	for k := len(d.orphans) - 1; k >= 0; k-- {
-		if strings.HasPrefix(d.orphans[k].text, "#") {
+		if !strings.HasPrefix(d.orphans[k].text, " ") && !strings.HasPrefix(d.orphans[k].text, "\t") {
 			room = d.orphans[k].depth + 1
 			break
 		}
@@ -8919,6 +9063,8 @@ func (d *Document) Merge(over *Document) {
 				if o.depth > room {
 					o.depth = room
 				}
+				room = o.depth + 1
+			} else if isField(o.text) {
 				room = o.depth + 1
 			}
 			d.orphans = append(d.orphans, o)

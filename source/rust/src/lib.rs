@@ -400,8 +400,10 @@ impl Lead {
 /// comments' indents with their depths, innermost last. A field line kept
 /// for its value or name goes by the same rule over `held`, the kept lines
 /// before it: it holds its level on a reload, so it goes deeper only under
-/// one of those, which a reload holds open for it. A misplaced line, which
-/// has its own indent, sits at the place's level and leaves both alone.
+/// one of those, which a reload holds open for it. That line then takes its
+/// place in `chain` at its own level, so a comment nests under it too
+/// (2026100218185700). A misplaced line, which has its own indent, sits at
+/// the place's level and leaves both alone.
 fn comment_depth<'a>(
 	chain: &mut Vec<(&'a str, usize)>,
 	held: &mut Vec<(&'a str, usize)>,
@@ -412,7 +414,23 @@ fn comment_depth<'a>(
 	if text.starts_with([' ', '\t']) {
 		return 0;
 	}
-	let chain = if text.starts_with('#') { chain } else { held };
+	if text.starts_with('#') {
+		return chain_depth(chain, base, indent);
+	}
+	let depth = chain_depth(held, base, indent);
+	// It is written at its own level, so on a reload nothing at that level
+	// or deeper is left for a comment after it to nest under.
+	while chain.last().is_some_and(|(ind, d)| {
+		*d >= depth || !(indent.len() > ind.len() && indent.starts_with(*ind))
+	}) {
+		chain.pop();
+	}
+	chain.push((indent, depth));
+	depth
+}
+
+/// comment_depth() over one chain.
+fn chain_depth<'a>(chain: &mut Vec<(&'a str, usize)>, base: &str, indent: &'a str) -> usize {
 	if !(indent.len() > base.len() && indent.starts_with(base)) {
 		chain.clear();
 		chain.push((indent, 0));
@@ -5092,7 +5110,7 @@ impl Document {
 				.leading
 				.iter()
 				.rev()
-				.find(|c| c.text.starts_with('#'))
+				.find(|c| !c.text.starts_with([' ', '\t']))
 				.map_or(0, |c| c.depth);
 			for mut l in moved.drain(..).rev() {
 				l.text = commented(&l.text);
@@ -5435,13 +5453,18 @@ fn kept_in(leads: &[Lead]) -> usize {
 	leads.iter().filter(|l| l.is_kept_line()).count()
 }
 
-/// A reload starts a comment run at 0 and steps one level at a time, so a
-/// comment left after the one it sat under went is pulled back to fit.
+/// A reload starts a comment run at 0 and steps one level at a time past
+/// the comment or kept field line before it, so a comment left after the
+/// line it sat under went is pulled back to fit.
 fn restep(leads: &mut [Lead]) {
 	let mut room = 0;
-	for l in leads.iter_mut().filter(|l| l.text.starts_with('#')) {
-		l.depth = l.depth.min(room);
-		room = l.depth + 1;
+	for l in leads.iter_mut() {
+		if l.text.starts_with('#') {
+			l.depth = l.depth.min(room);
+			room = l.depth + 1;
+		} else if is_field(&l.text) {
+			room = l.depth + 1;
+		}
 	}
 }
 
@@ -5697,8 +5720,8 @@ fn push_leads(e: &mut Emit, leads: &[Lead], base: usize, at: (usize, Site, usize
 				e.out.push_str(&c.text);
 				e.out.push('\n');
 			} else {
-				// Level with the comment before it, so the run's nesting reads
-				// back the same.
+				// Level with the comment or kept field line before it, so the
+				// run's nesting reads back the same.
 				if e.record {
 					e.fell.push((at.0, at.1, at.2 + i, last_comment));
 				}
@@ -5709,9 +5732,8 @@ fn push_leads(e: &mut Emit, leads: &[Lead], base: usize, at: (usize, Site, usize
 			continue;
 		}
 		let pad = base + c.depth;
-		if c.text.starts_with('#') {
-			last_comment = c.depth;
-		} else {
+		last_comment = c.depth;
+		if !c.text.starts_with('#') {
 			// A kept malformed line resolves and holds its column on a reload,
 			// open for the lines under it when only its value was wrong.
 			let indent = "\t".repeat(pad);
@@ -6168,17 +6190,105 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 	for &l in &claimed {
 		left[l..=end[l].min(n)].fill(false);
 	}
+	// A repeat the load folded away goes when the edits took every line
+	// under it, and the blank lines above it go along: the field is still
+	// written where it first was. A remove writes no line the document did
+	// not write before (2026100115323232).
+	let mut present = vec![false; n + 2];
+	for r in &is_runs {
+		if r.line != 0 && r.line <= n {
+			present[owner[r.line]] = true;
+		}
+	}
+	let mut tagged = vec![false; n + 2];
+	for r in &was_runs {
+		if r.line != 0 && r.line <= n {
+			tagged[owner[r.line]] = true;
+		}
+	}
+	let mut dropped = vec![false; n + 2];
+	for &k in &loaded_doc.dropped {
+		if k <= n {
+			dropped[k] = true;
+		}
+	}
+	let mut released = vec![false; n + 2];
+	for h in (1..=n).rev() {
+		if !left[h] || dropped[h] {
+			continue;
+		}
+		let (mut any, mut all) = (false, true);
+		for k in h + 1..=n {
+			if blank(k) {
+				continue;
+			}
+			// A line in a raw body or a stacked list is under h when the line
+			// it belongs to is, whatever its own indent.
+			let o = owner[k];
+			let i = indent(k);
+			if o == k && !(i.len() > indent(h).len() && i.starts_with(indent(h))) {
+				break;
+			}
+			any = true;
+			let gone = released[k] || (tagged[o] && !present[o]);
+			if !gone {
+				all = false;
+				break;
+			}
+		}
+		if any && all {
+			left[h] = false;
+			released[h] = true;
+		}
+	}
 	// New lines end the way most of the file's lines do.
 	let eol = majority_eol(body);
-	// One level of the source's indent: a line one level in, or failing that
-	// the first indented line, a list element or a fence.
-	let step = was_runs
+	// One level of the source's indent: the one most blocks use for a line
+	// one level in, each block counted once, by its first such line. A tie
+	// goes to one tab when that is among them, else to the block first in
+	// the file, so one odd block does not set it (2026100115403386). Failing
+	// that, the first indented line, a list element or a fence.
+	let mut firsts: Vec<usize> = was_runs
 		.iter()
 		.filter(|u| u.line != 0 && u.line <= n && tabs(&loaded.out[u.start..]) == 1)
-		.map(|u| indent(u.line))
-		.chain((1..=n).filter(|&l| !blank(l)).map(indent))
-		.find(|i| !i.is_empty())
-		.unwrap_or("\t");
+		.map(|u| u.line)
+		.filter(|&l| !indent(l).is_empty())
+		.collect();
+	firsts.sort_unstable();
+	let mut steps: Vec<(&str, usize)> = Vec::new();
+	let (mut top, mut block, mut k) = (0, usize::MAX, 1);
+	for &l in &firsts {
+		while k <= l {
+			if owner[k] == k && !blank(k) && indent(k).is_empty() && !line(k).starts_with('#') {
+				top = k;
+			}
+			k += 1;
+		}
+		if block == top {
+			continue;
+		}
+		block = top;
+		match steps.iter_mut().find(|s| s.0 == indent(l)) {
+			Some(s) => s.1 += 1,
+			None => steps.push((indent(l), 1)),
+		}
+	}
+	let most = steps.iter().map(|s| s.1).max().unwrap_or(0);
+	let step = if steps.iter().any(|s| s.1 == most && s.0 == "\t") {
+		"\t"
+	} else {
+		steps
+			.iter()
+			.find(|s| s.1 == most)
+			.map(|s| s.0)
+			.or_else(|| {
+				(1..=n)
+					.filter(|&l| !blank(l))
+					.map(indent)
+					.find(|i| !i.is_empty())
+			})
+			.unwrap_or("\t")
+	};
 	let mut out = String::with_capacity(src.len() + now.out.len() / 8);
 	out.push_str(bom);
 	let break_line = |out: &mut String| {
@@ -6198,11 +6308,15 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 	// comes back this way.
 	let flush =
 		|out: &mut String, left: &mut [bool], wrote: &mut [bool], from: usize, to: usize| {
+			// The blank lines among them stay, up to the last one written.
+			let last = (from..to).rev().find(|&k| left[k]).unwrap_or(0);
 			for (k, l) in left.iter_mut().enumerate().take(to).skip(from) {
 				if *l {
 					out.push_str(line(k));
 					wrote[k] = true;
 					*l = false;
+				} else if k < last && blank(k) {
+					out.push_str(line(k));
 				}
 			}
 		};
@@ -6273,8 +6387,10 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 		} else if kept && prev != 0 && next[prev] == l {
 			let gap = end[prev] + 1..l;
 			let blanks = gap.clone().any(blank);
+			// A blank line above a source line written here stays with it.
+			let last = gap.clone().rev().find(|&k| !blank(k)).unwrap_or(0);
 			for k in gap {
-				if blanks_stay || !blank(k) {
+				if blanks_stay || !blank(k) || k < last {
 					out.push_str(line(k));
 					wrote[k] = true;
 					left[k] = false;
@@ -6433,13 +6549,8 @@ fn drop_banners(leads: &mut Vec<Lead>) -> (usize, bool) {
 		i = end;
 	}
 	if removed > 0 {
-		// A reload puts a comment at most one level past the one before it,
-		// and the first at none, so what followed a block steps up to that.
-		let mut room = 0;
-		for l in keep.iter_mut().filter(|l| l.text.starts_with('#')) {
-			l.depth = l.depth.min(room);
-			room = l.depth + 1;
-		}
+		// What followed a block steps up to fit the run.
+		restep(&mut keep);
 		*leads = keep;
 	}
 	(removed, owed)
@@ -8351,6 +8462,26 @@ impl Document {
 		if let Some(ix) = self.index.get_mut() {
 			ix.append(name_key(parent, name), idx);
 		}
+		// Kept lines that end the block stay where they were, so the new
+		// field goes after the last of them, as a reload files them. The
+		// comments after it stay at the end, and so does a kept line the
+		// settle wrote as a comment, since a reload reads it as one.
+		let tail = if parent == ROOT {
+			Some(&mut self.orphans)
+		} else {
+			self.arena[parent]
+				.trivia
+				.as_deref_mut()
+				.map(|t| &mut t.inside)
+		};
+		if let Some(tail) = tail
+			&& let Some(k) = tail.iter().rposition(|l| !l.text.starts_with('#'))
+		{
+			let rest = tail.split_off(k + 1);
+			let lines = std::mem::replace(tail, rest);
+			restep(tail);
+			self.arena[idx].triv_mut().leading = lines;
+		}
 		let last = self.arena[parent].children.len() - 1;
 		settle_block(&mut self.arena, parent, last);
 		idx
@@ -9238,14 +9369,14 @@ impl Document {
 		// stack of files from repeating it once per layer. Only the lines
 		// already here count: a layer's own repeats are its content.
 		let had = self.orphans.len();
-		// A repeat skipped here may be the comment the next one sat under, and
-		// a reload puts a comment at most one level past the comment before
-		// it, so none goes deeper than that.
+		// A repeat skipped here may be the line the next one sat under, and a
+		// reload puts a comment at most one level past the comment or kept
+		// field line before it, so none goes deeper than that.
 		let mut room = self
 			.orphans
 			.iter()
 			.rev()
-			.find(|l| l.text.starts_with('#'))
+			.find(|l| !l.text.starts_with([' ', '\t']))
 			.map_or(0, |l| l.depth + 1);
 		// A kept line with kept lines under it goes in whole, so none of
 		// them lands under some other line.
@@ -9268,6 +9399,8 @@ impl Document {
 				let mut o = o.clone();
 				if o.text.starts_with('#') {
 					o.depth = o.depth.min(room);
+					room = o.depth + 1;
+				} else if is_field(&o.text) {
 					room = o.depth + 1;
 				}
 				self.orphans.push(o);

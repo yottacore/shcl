@@ -385,13 +385,25 @@ def _comment_depth(chain, held, base, text, indent):
 	comments' indents with their depths, innermost last. A field line kept
 	for its value or name goes by the same rule over `held`, the kept lines
 	before it: it holds its level on a reload, so it goes deeper only under
-	one of those, which a reload holds open for it. A misplaced line, which
-	has its own indent, sits at the place's level and leaves both
-	alone."""
+	one of those, which a reload holds open for it. That line then takes its
+	place in `chain` at its own level, so a comment nests under it too
+	(2026100218185700). A misplaced line, which has its own indent, sits at
+	the place's level and leaves both alone."""
 	if text.startswith((" ", "\t")):
 		return 0
-	if not text.startswith("#"):
-		chain = held
+	if text.startswith("#"):
+		return _chain_depth(chain, base, indent)
+	depth = _chain_depth(held, base, indent)
+	# It is written at its own level, so on a reload nothing at that level or
+	# deeper is left for a comment after it to nest under.
+	while chain and not (chain[-1][1] < depth and len(indent) > len(chain[-1][0]) and indent.startswith(chain[-1][0])):
+		chain.pop()
+	chain.append((indent, depth))
+	return depth
+
+
+def _chain_depth(chain, base, indent):
+	"""_comment_depth() over one chain."""
 	if not (len(indent) > len(base) and indent.startswith(base)):
 		chain[:] = [(indent, 0)]
 		return 0
@@ -3795,12 +3807,15 @@ def _kept_in_lists(nd):
 
 
 def _restep(leads):
-	"""A reload starts a comment run at 0 and steps one level at a time, so a
-	comment left after the one it sat under went is pulled back to fit."""
+	"""A reload starts a comment run at 0 and steps one level at a time past
+	the comment or kept field line before it, so a comment left after the
+	line it sat under went is pulled back to fit."""
 	room = 0
 	for c in leads:
 		if c.text.startswith("#"):
 			c.depth = min(c.depth, room)
+			room = c.depth + 1
+		elif _is_field(c.text):
 			room = c.depth + 1
 
 
@@ -3944,8 +3959,8 @@ def _push_leads(e, leads, base, at):
 				out.append(text)
 				out.append("\n")
 			else:
-				# Level with the comment before it, so the run's nesting reads
-				# back the same.
+				# Level with the comment or kept field line before it, so the
+				# run's nesting reads back the same.
 				if e.record:
 					e.fell.append((at[0], at[1], at[2] + i, last_comment))
 				out.append("\t" * (base + last_comment))
@@ -3953,9 +3968,8 @@ def _push_leads(e, leads, base, at):
 				out.append("\n")
 			continue
 		pad = base + c.depth
-		if text.startswith("#"):
-			last_comment = c.depth
-		else:
+		last_comment = c.depth
+		if not text.startswith("#"):
 			# A kept malformed line resolves and holds its column on a reload,
 			# open for the lines under it when only its value was wrong.
 			indent = "\t" * pad
@@ -4354,11 +4368,68 @@ def _keep_lines(src, doc):
 	left = [0 < k <= n and not blank(k) for k in range(n + 2)]
 	for k in claimed:
 		left[k:min(end[k], n) + 1] = [False] * (min(end[k], n) + 1 - k)
+	# A repeat the load folded away goes when the edits took every line under
+	# it, and the blank lines above it go along: the field is still written
+	# where it first was. A remove writes no line the document did not write
+	# before (2026100115323232).
+	present = [False] * (n + 2)
+	for r in is_runs:
+		if r.line != 0 and r.line <= n:
+			present[owner[r.line]] = True
+	tagged = [False] * (n + 2)
+	for r in was_runs:
+		if r.line != 0 and r.line <= n:
+			tagged[owner[r.line]] = True
+	dropped = [False] * (n + 2)
+	for g in loaded_doc._dropped:
+		if g <= n:
+			dropped[g] = True
+	released = [False] * (n + 2)
+	for h in range(n, 0, -1):
+		if not left[h] or dropped[h]:
+			continue
+		any_under, all_gone = False, True
+		for g in range(h + 1, n + 1):
+			if blank(g):
+				continue
+			# A line in a raw body or a stacked list is under h when the line
+			# it belongs to is, whatever its own indent.
+			o = owner[g]
+			ind = indent(g)
+			if o == g and not (len(ind) > len(indent(h)) and ind.startswith(indent(h))):
+				break
+			any_under = True
+			gone = released[g] or (tagged[o] and not present[o])
+			if not gone:
+				all_gone = False
+				break
+		if any_under and all_gone:
+			left[h] = False
+			released[h] = True
 	# New lines end the way most of the file's lines do.
 	eol = _majority_eol(body)
-	# One level of the source's indent: a line one level in, or failing that
-	# the first indented line, a list element or a fence.
-	step = next((indent(u.line) for u in was_runs if u.line != 0 and u.line <= n and _tabs(loaded.text, u.start) == 1 and indent(u.line)), "")
+	# One level of the source's indent: the one most blocks use for a line one
+	# level in, each block counted once, by its first such line. A tie goes to
+	# one tab when that is among them, else to the block first in the file, so
+	# one odd block does not set it (2026100115403386). Failing that, the first
+	# indented line, a list element or a fence.
+	firsts = sorted(u.line for u in was_runs if u.line != 0 and u.line <= n and _tabs(loaded.text, u.start) == 1 and indent(u.line))
+	steps: dict[str, int] = {}
+	top, block, g = 0, -1, 1
+	for ln in firsts:
+		while g <= ln:
+			if owner[g] == g and not blank(g) and not indent(g) and not line(g).startswith("#"):
+				top = g
+			g += 1
+		if block == top:
+			continue
+		block = top
+		steps[indent(ln)] = steps.get(indent(ln), 0) + 1
+	most = max(steps.values(), default=0)
+	if steps.get("\t") == most:
+		step = "\t"
+	else:
+		step = next((st for st, c in steps.items() if c == most), "")
 	if not step:
 		step = next((indent(k) for k in range(1, n + 1) if not blank(k) and indent(k)), "\t")
 	out: list[str] = []
@@ -4380,11 +4451,15 @@ def _keep_lines(src, doc):
 	# dropped line would be dropped with it. A line the load dropped comes
 	# back this way.
 	def flush(frm, to):
+		# The blank lines among them stay, up to the last one written.
+		last = next((g for g in range(min(to, n + 1) - 1, frm - 1, -1) if left[g]), 0)
 		for g in range(frm, to):
 			if left[g]:
 				out.append(line(g))
 				wrote[g] = True
 				left[g] = False
+			elif g < last and blank(g):
+				out.append(line(g))
 
 	indents: list[str | None] = [""]
 	# The line of the group just written while it is a source one, and the end
@@ -4438,8 +4513,10 @@ def _keep_lines(src, doc):
 		elif kept and prev != 0 and nxt[prev] == k:
 			gap = range(end[prev] + 1, k)
 			blanks = any(blank(g) for g in gap)
+			# A blank line above a source line written here stays with it.
+			last = next((g for g in reversed(gap) if not blank(g)), 0)
 			for g in gap:
-				if blanks_stay or not blank(g):
+				if blanks_stay or not blank(g) or g < last:
 					out.append(line(g))
 					wrote[g] = True
 					left[g] = False
@@ -4567,13 +4644,8 @@ def _drop_banners(leads):
 		prev_kept = False
 		i = end
 	if removed:
-		# A reload puts a comment at most one level past the one before it,
-		# and the first at none, so what followed a block steps up to that.
-		room = 0
-		for c in keep:
-			if c.text.startswith("#"):
-				c.depth = min(c.depth, room)
-				room = c.depth + 1
+		# What followed a block steps up to fit the run.
+		_restep(keep)
 	return removed, owed, (keep if removed else leads)
 
 
@@ -5012,7 +5084,7 @@ class Document:
 			moved.append(t.among.pop(i)[1])
 			if among and among[-1][0] == node:
 				continue
-			depth = next((c.depth for c in reversed(t.leading) if c.text.startswith("#")), 0)
+			depth = next((c.depth for c in reversed(t.leading) if not c.text.startswith((" ", "\t"))), 0)
 			for lead in reversed(moved):
 				lead.text = _commented(lead.text)
 				lead.depth = depth
@@ -5462,6 +5534,20 @@ class Document:
 		self.arena[parent].children.append(idx)
 		if self._index is not None:
 			self._index.append(_name_key(parent, name), idx)
+		# Kept lines that end the block stay where they were, so the new field
+		# goes after the last of them, as a reload files them. The comments
+		# after it stay at the end, and so does a kept line the settle wrote as
+		# a comment, since a reload reads it as one.
+		if parent == ROOT:
+			tail = self.orphans
+		else:
+			t = self.arena[parent].trivia
+			tail = t.inside if t is not None else []
+		k = next((k for k in range(len(tail) - 1, -1, -1) if not tail[k].text.startswith("#")), -1)
+		if k >= 0:
+			node._triv().leading = tail[:k + 1]
+			del tail[:k + 1]
+			_restep(tail)
 		_settle_block(self.arena, parent, len(self.arena[parent].children) - 1)
 		return idx
 
@@ -6196,10 +6282,10 @@ class Document:
 		# stack of files from repeating it once per layer. Only the lines
 		# already here count: a layer's own repeats are its content.
 		had = len(self.orphans)
-		# A repeat skipped here may be the comment the next one sat under, and
-		# a reload puts a comment at most one level past the comment before
-		# it, so none goes deeper than that.
-		room = next((e.depth + 1 for e in reversed(self.orphans) if e.text.startswith("#")), 0)
+		# A repeat skipped here may be the line the next one sat under, and a
+		# reload puts a comment at most one level past the comment or kept
+		# field line before it, so none goes deeper than that.
+		room = next((e.depth + 1 for e in reversed(self.orphans) if not e.text.startswith((" ", "\t"))), 0)
 		# A kept line with kept lines under it goes in whole, so none of them
 		# lands under some other line.
 		whole = [False] * len(over.orphans)
@@ -6212,6 +6298,8 @@ class Document:
 				depth = o.depth
 				if o.text.startswith("#"):
 					depth = min(depth, room)
+					room = depth + 1
+				elif _is_field(o.text):
 					room = depth + 1
 				self.orphans.append(_Lead(o.text, o.blank_before, depth, kept=o.kept))
 			elif o.is_kept_line():

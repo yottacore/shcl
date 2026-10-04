@@ -3819,12 +3819,31 @@ static void fold_dups_from(ShclParser *P, size_t start) {
    with their depths, innermost last. A field line kept for its value or name
    goes by the same rule over held_chain, the kept lines before it: it holds
    its level on a reload, so it goes deeper only under one of those, which a
-   reload holds open for it. A misplaced line, which has its own indent,
-   sits at the place's level and leaves both alone. */
+   reload holds open for it. That line then takes its place in depth_chain at
+   its own level, so a comment nests under it too (2026100218185700). A
+   misplaced line, which has its own indent, sits at the place's level and
+   leaves both alone. */
+static size_t chain_depth(ShclParser *P, ShclVecDepth *chain, ShclStr base, ShclStr indent);
 static size_t comment_depth(ShclParser *P, ShclStr base, ShclStr text, ShclStr indent) {
-	ShclVecDepth *chain = text.n && text.p[0] == '#' ? &P->depth_chain : &P->held_chain;
-	ShclDepthEnt e; e.indent = indent; e.depth = 0;
 	if (text.n && (text.p[0] == ' ' || text.p[0] == '\t')) return 0;
+	if (text.n && text.p[0] == '#') return chain_depth(P, &P->depth_chain, base, indent);
+	size_t depth = chain_depth(P, &P->held_chain, base, indent);
+	/* It is written at its own level, so on a reload nothing at that level or
+	   deeper is left for a comment after it to nest under. */
+	ShclVecDepth *chain = &P->depth_chain;
+	while (chain->len) {
+		const ShclDepthEnt *top = &chain->data[chain->len - 1];
+		if (top->depth < depth && indent.n > top->indent.n && (top->indent.n == 0 || memcmp(indent.p, top->indent.p, top->indent.n) == 0)) break;
+		chain->len--;
+	}
+	ShclDepthEnt e; e.indent = indent; e.depth = depth;
+	ShclVecDepth_push(P->tmp, chain, e);
+	return depth;
+}
+
+/* comment_depth() over one chain. */
+static size_t chain_depth(ShclParser *P, ShclVecDepth *chain, ShclStr base, ShclStr indent) {
+	ShclDepthEnt e; e.indent = indent; e.depth = 0;
 	if (!(indent.n > base.n && (base.n == 0 || memcmp(indent.p, base.p, base.n) == 0))) {
 		chain->len = 0;
 		ShclVecDepth_push(P->tmp, chain, e);
@@ -5590,6 +5609,7 @@ static ShclValue w_array(ShclArena *a, const ShclStr *texts, size_t n) {
 	v.els = els; v.nels = n; return v;
 }
 
+static void restep(ShclVecLead *v);
 static size_t w_new_child(shcl_doc *d, size_t parent, ShclStr name, ShclStr name_src, ShclValue value) {
 	/* A list written stacked would get the child after its elements, which
 	   reloads as E001, so it goes inline. */
@@ -5604,6 +5624,21 @@ static size_t w_new_child(shcl_doc *d, size_t parent, ShclStr name, ShclStr name
 	nodes_push(d, n);
 	ShclVecSize_push(a, &NODE(d, parent).children, idx);
 	if (d->index_built == 1) index_append(d, name_key(parent, name), idx);
+	/* Kept lines that end the block stay where they were, so the new field
+	   goes after the last of them, as a reload files them. The comments
+	   after it stay at the end, and so does a kept line the settle wrote as
+	   a comment, since a reload reads it as one. */
+	ShclVecLead *tail = parent == ROOT ? &d->orphans : NODE(d, parent).trivia ? &NODE(d, parent).trivia->inside : NULL;
+	size_t k = tail ? tail->len : 0;
+	while (k > 0 && tail->data[k - 1].text.n && tail->data[k - 1].text.p[0] == '#') k--;
+	if (k > 0) {
+		ShclVecLead lines; memset(&lines, 0, sizeof lines);
+		for (size_t j = 0; j < k; j++) ShclVecLead_push(a, &lines, tail->data[j]);
+		memmove(tail->data, tail->data + k, (tail->len - k) * sizeof *tail->data);
+		tail->len -= k;
+		restep(tail);
+		triv_mut(a, &NODE(d, idx))->leading = lines;
+	}
 	settle_block(d, parent, NODE(d, parent).children.len - 1);
 	return idx;
 }
@@ -5840,11 +5875,13 @@ int shcl_exists(shcl_doc *d, const char *path, size_t plen) {
 static int heads_block(ShclArena *a, const ShclNode *node);
 static int opened_by_kept(ShclArena *a, const ShclNode *node);
 
-/* A reload starts a comment run at 0 and steps one level at a time, so a
-   comment left after the one it sat under went is pulled back to fit. */
+/* A reload starts a comment run at 0 and steps one level at a time past the
+   comment or kept field line before it, so a comment left after the line it
+   sat under went is pulled back to fit. */
 static void restep(ShclVecLead *v) {
 	size_t room = 0;
 	for (size_t k = 0; k < v->len; k++) {
+		if (is_field(v->data[k].text)) { room = v->data[k].depth + 1; continue; }
 		if (!(v->data[k].text.n && v->data[k].text.p[0] == '#')) continue;
 		if (v->data[k].depth > room) v->data[k].depth = room;
 		room = v->data[k].depth + 1;
@@ -6188,16 +6225,8 @@ static size_t drop_banners(ShclVecLead *v, int *owed) {
 		i = end;
 	}
 	v->len = w;
-	if (removed) {
-		/* A reload puts a comment at most one level past the one before it,
-		   and the first at none, so what followed a block steps up to that. */
-		size_t room = 0;
-		for (size_t k = 0; k < v->len; k++) {
-			if (!s_starts(v->data[k].text, "#")) continue;
-			if (v->data[k].depth > room) v->data[k].depth = room;
-			room = v->data[k].depth + 1;
-		}
-	}
+	/* What followed a block steps up to fit the run. */
+	if (removed) restep(v);
 	return removed;
 }
 
@@ -6708,11 +6737,11 @@ void shcl_merge(shcl_doc *d, const shcl_doc *over) {
 	// of files from repeating it once per layer. Only the lines already here
 	// count: a layer's own repeats are its content.
 	size_t had = d->orphans.len;
-	/* A repeat skipped here may be the comment the next one sat under, and a
-	   reload puts a comment at most one level past the comment before it, so
-	   none goes deeper than that. */
+	/* A repeat skipped here may be the line the next one sat under, and a
+	   reload puts a comment at most one level past the comment or kept field
+	   line before it, so none goes deeper than that. */
 	size_t room = 0;
-	for (size_t k = had; k-- > 0;) if (d->orphans.data[k].text.n && d->orphans.data[k].text.p[0] == '#') { room = d->orphans.data[k].depth + 1; break; }
+	for (size_t k = had; k-- > 0;) if (!s_starts(d->orphans.data[k].text, " ") && !s_starts(d->orphans.data[k].text, "\t")) { room = d->orphans.data[k].depth + 1; break; }
 	for (size_t i = 0; i < over->orphans.len; i++) {
 		ShclStr ot = over->orphans.data[i].text;
 		size_t depth = over->orphans.data[i].depth;
@@ -6733,6 +6762,7 @@ void shcl_merge(shcl_doc *d, const shcl_doc *over) {
 			continue;
 		}
 		if (ot.n && ot.p[0] == '#') { if (depth > room) depth = room; room = depth + 1; }
+		else if (is_field(ot)) room = depth + 1;
 		ShclLead o = lead_moved(a, &over->orphans.data[i]);
 		o.depth = depth;
 		ShclVecLead_push(a, &d->orphans, o);
@@ -7566,8 +7596,8 @@ static void push_leads(ShclEmit *e, const ShclLead *leads, size_t n, size_t base
 				}
 				sb_putS(a, &e->out, c->text); sb_putc(a, &e->out, '\n');
 			} else {
-				/* Level with the comment before it, so the run's nesting reads
-				   back the same. */
+				/* Level with the comment or kept field line before it, so the
+				   run's nesting reads back the same. */
 				if (e->record) { ShclFell f; f.node = node; f.site = site; f.i = first + i; f.depth = last_comment; ShclVecFell_push(a, &e->fell, f); }
 				sb_putS(a, &e->out, emit_tabs(e, base + last_comment));
 				sb_puts(a, &e->out, "# "); sb_putS(a, &e->out, s_slice(c->text, indent.n, c->text.n)); sb_putc(a, &e->out, '\n');
@@ -7575,8 +7605,8 @@ static void push_leads(ShclEmit *e, const ShclLead *leads, size_t n, size_t base
 			continue;
 		}
 		size_t pad = base + c->depth;
-		if (c->text.n && c->text.p[0] == '#') last_comment = c->depth;
-		else {
+		last_comment = c->depth;
+		if (!(c->text.n && c->text.p[0] == '#')) {
 			/* A kept malformed line resolves and holds its column on a reload,
 			   open for the lines under it when only its value was wrong. */
 			ShclStr ind = emit_tabs(e, pad);
@@ -7783,7 +7813,7 @@ static int settle_kept_once(shcl_doc *d) {
 		while (j-- > 0 && e.fell.data[j].site != SITE_AMONG) {}
 		if (j != (size_t)-1 && e.fell.data[j].node == f->node) continue;
 		size_t depth = 0;
-		for (size_t q = t->leading.len; q-- > 0;) if (t->leading.data[q].text.n && t->leading.data[q].text.p[0] == '#') { depth = t->leading.data[q].depth; break; }
+		for (size_t q = t->leading.len; q-- > 0;) if (!s_starts(t->leading.data[q].text, " ") && !s_starts(t->leading.data[q].text, "\t")) { depth = t->leading.data[q].depth; break; }
 		for (size_t q = moved.len; q-- > 0;) {
 			ShclLead l = moved.data[q];
 			l.text = commented(a, l.text);
@@ -8183,8 +8213,14 @@ static int errors_within(ShclArena *a, const shcl_doc *d, const shcl_doc *of) {
    indented past them goes first, since one written under a dropped line would
    be dropped with it. A line the load dropped comes back this way. */
 static void kl_flush(ShclArena *a, ShclSB *ob, const ShclVecS *lines, unsigned char *left, unsigned char *wrote, size_t from, size_t to) {
-	for (size_t k = from; k < to; k++)
+	/* The blank lines among them stay, up to the last one written. */
+	size_t last = 0;
+	for (size_t k = (to < lines->len + 1 ? to : lines->len + 1); k > from; k--)
+		if (left[k - 1]) { last = k - 1; break; }
+	for (size_t k = from; k < to; k++) {
 		if (left[k]) { sb_putS(a, ob, lines->data[k - 1]); wrote[k] = 1; left[k] = 0; }
+		else if (k < last && kl_blank(lines->data[k - 1])) sb_putS(a, ob, lines->data[k - 1]);
+	}
 }
 
 static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *out) {
@@ -8266,6 +8302,35 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 	for (size_t k = 1; k <= n; k++) left[k] = !kl_blank(KL_LINE(k));
 	for (size_t k = 0; k < claimed.len; k++)
 		for (size_t l = claimed.data[k]; l <= end[claimed.data[k]] && l <= n; l++) left[l] = 0;
+	/* A repeat the load folded away goes when the edits took every line under
+	   it, and the blank lines above it go along: the field is still written
+	   where it first was. A remove writes no line the document did not write
+	   before (2026100115323232). */
+	unsigned char *present = (unsigned char *)arena_alloc(a, n + 2);
+	unsigned char *tagged = (unsigned char *)arena_alloc(a, n + 2);
+	unsigned char *dropped = (unsigned char *)arena_alloc(a, n + 2);
+	unsigned char *released = (unsigned char *)arena_alloc(a, n + 2);
+	memset(present, 0, n + 2); memset(tagged, 0, n + 2); memset(dropped, 0, n + 2); memset(released, 0, n + 2);
+	for (size_t r = 0; r < isR.len; r++) if (isR.data[r].line != 0 && isR.data[r].line <= n) present[owner[isR.data[r].line]] = 1;
+	for (size_t r = 0; r < wasR.len; r++) if (wasR.data[r].line != 0 && wasR.data[r].line <= n) tagged[owner[wasR.data[r].line]] = 1;
+	for (size_t k = 0; k < ld->dropped.len; k++) if (ld->dropped.data[k] <= n) dropped[ld->dropped.data[k]] = 1;
+	for (size_t h = n; h >= 1; h--) {
+		if (!left[h] || dropped[h]) continue;
+		ShclStr hi = leading_ws(KL_LINE(h));
+		int any = 0, all = 1;
+		for (size_t k = h + 1; k <= n; k++) {
+			if (kl_blank(KL_LINE(k))) continue;
+			/* A line in a raw body or a stacked list is under h when the line
+			   it belongs to is, whatever its own indent. */
+			size_t o = owner[k];
+			ShclStr ki = leading_ws(KL_LINE(k));
+			if (o == k && !(ki.n > hi.n && memcmp(ki.p, hi.p, hi.n) == 0)) break;
+			any = 1;
+			int gone = released[k] || (tagged[o] && !present[o]);
+			if (!gone) { all = 0; break; }
+		}
+		if (any && all) { left[h] = 0; released[h] = 1; }
+	}
 	/* Which source lines went out as written. Every line the load dropped has
 	   to, or the save falls back: a rewritten group can span one, as a stacked
 	   list over a refused element (20260926 item 1). */
@@ -8273,16 +8338,38 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 	memset(wrote, 0, n + 2);
 	/* New lines end the way most of the file's lines do. */
 	const char *eol = majority_eol(body);
-	/* One level of the source's indent: a line one level in, or failing that
+	/* One level of the source's indent: the one most blocks use for a line
+	   one level in, each block counted once, by its first such line. A tie
+	   goes to one tab when that is among them, else to the block first in the
+	   file, so one odd block does not set it (2026100115403386). Failing that,
 	   the first indented line, a list element or a fence. */
 	ShclStr step = s_lit("\t");
 	int found = 0;
-	for (size_t i = 0; i < wasR.len && !found; i++) {
+	unsigned char *one_in = (unsigned char *)arena_alloc(a, n + 2);
+	memset(one_in, 0, n + 2);
+	for (size_t i = 0; i < wasR.len; i++) {
 		const ShclUnit *u = &wasR.data[i];
 		if (u->line == 0 || u->line > n || tabs_of(s_slice(wasS, u->start, wasS.n)) != 1) continue;
-		ShclStr ind = leading_ws(KL_LINE(u->line));
-		if (ind.n) { step = ind; found = 1; }
+		if (leading_ws(KL_LINE(u->line)).n) one_in[u->line] = 1;
 	}
+	ShclStr *steps = (ShclStr *)arena_alloc(a, (n + 1) * sizeof(ShclStr));
+	size_t *counts = (size_t *)arena_alloc(a, (n + 1) * sizeof(size_t));
+	size_t nsteps = 0, top_line = 0, block = (size_t)-1, most = 0;
+	for (size_t l = 1; l <= n; l++) {
+		ShclStr ln = KL_LINE(l);
+		if (owner[l] == l && !kl_blank(ln) && leading_ws(ln).n == 0 && ln.p[0] != '#') top_line = l;
+		if (!one_in[l] || block == top_line) continue;
+		block = top_line;
+		ShclStr ind = leading_ws(ln);
+		size_t j = 0;
+		while (j < nsteps && !s_eq(steps[j], ind)) j++;
+		if (j == nsteps) { steps[nsteps] = ind; counts[nsteps++] = 0; }
+		if (++counts[j] > most) most = counts[j];
+	}
+	for (size_t j = 0; j < nsteps && !found; j++)
+		if (counts[j] == most && s_eq(steps[j], s_lit("\t"))) { step = steps[j]; found = 1; }
+	for (size_t j = 0; j < nsteps && !found; j++)
+		if (counts[j] == most) { step = steps[j]; found = 1; }
 	for (size_t l = 1; l <= n && !found; l++) {
 		if (kl_blank(KL_LINE(l))) continue;
 		ShclStr ind = leading_ws(KL_LINE(l));
@@ -8352,9 +8439,14 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 				for (size_t k = 1; k < l; k++) { sb_putS(a, &ob, KL_LINE(k)); wrote[k] = 1; left[k] = 0; }
 		} else if (kept && prev != 0 && next[prev] == l) {
 			int blanks = 0;
-			for (size_t k = end[prev] + 1; k < l; k++) if (kl_blank(KL_LINE(k))) blanks = 1;
+			/* A blank line above a source line written here stays with it. */
+			size_t last = 0;
+			for (size_t k = end[prev] + 1; k < l; k++) {
+				if (kl_blank(KL_LINE(k))) blanks = 1;
+				else last = k;
+			}
 			for (size_t k = end[prev] + 1; k < l; k++)
-				if (blanks_stay || !kl_blank(KL_LINE(k))) { sb_putS(a, &ob, KL_LINE(k)); wrote[k] = 1; left[k] = 0; }
+				if (blanks_stay || !kl_blank(KL_LINE(k)) || k < last) { sb_putS(a, &ob, KL_LINE(k)); wrote[k] = 1; left[k] = 0; }
 			if (!blanks) for (size_t k = 0; k < u->blanks; k++) sb_puts(a, &ob, eol);
 		} else if (known && blanks_stay && l > 1 && kl_blank(KL_LINE(l - 1))) {
 			size_t k = l - 1;
