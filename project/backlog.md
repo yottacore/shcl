@@ -305,7 +305,9 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261003: the `--set a=5` note is left as design.md's table has it: a setter keeps the kept line heading its target. The set writes `a: 5` under the kept `a: [1]` and reads 5. Once line 1 is fixed by hand, `a` reads as Multiple and `check` says nothing.
 		- Question: should a setter on a field opened from a kept line keep the table's rule, or do something else, such as refuse, or write the kept line as a comment?
 		- 20261004, answered: a setter writes the kept line as a comment, says why and when, and the set then goes ahead, so the file has one `a`. The example given was `# a: [1]  ## Invalid original value commented out by shcl on 'set' command, YYYY-mm-DD HH:MM:SS.`, to be made exact.
-		- Proposed text: `# a: [1]  ## commented out by shcl when setting a, 2026-10-04 07:15:00 UTC: E019 bracket array syntax`. It names the path, since library setters do this too and not only `set`. It names the code and message the load gave, since that is the actual reason. The time is UTC, so all four write the same text, and tests pin it through a fixed-clock override.
+		- Proposed text, OK'd 20261004: `# a: [1]  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 bracket array syntax`. It names the path, since library setters do this too and not only `set`. It names the code and message the load gave, since that is the actual reason.
+		- The time is local, with the zone's short name, or its offset such as `UTC-07:00` when no short name is known (the user, 20261004). Windows gives only long names like "Pacific Daylight Time", so it writes the offset. Tests pin the clock and zone through an override.
+		- Rust has no crates to lean on here. Local time comes from `localtime_r` on POSIX and the Win32 time zone calls on Windows, declared by hand like the existing `ReplaceFile` ones.
 	- Actual fix [Bug]: `remove` drops such a field once its last child goes, in all four.
 	- Swept: as 2026100307163901.
 	- Branch: `removekept`
