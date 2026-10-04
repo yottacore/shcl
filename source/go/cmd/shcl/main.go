@@ -1963,7 +1963,9 @@ func doFmt(o *opts) int {
 
 // rewrittenLines numbers the lines migrate writes differently, counted from
 // 1. The rewrite goes line for line and only appends, so line N of the input
-// is line N of the output.
+// is line N of the output. It never touches a line's carriage returns, but the
+// stamp ends an unterminated last line the way most lines end, which can put a
+// CR after it, so those are left out of the compare.
 func rewrittenLines(before, after string) []int {
 	if before == "" {
 		return nil
@@ -1972,7 +1974,7 @@ func rewrittenLines(before, after string) []int {
 	a := strings.Split(after, "\n")
 	var lines []int
 	for i := 0; i < len(b) && i < len(a); i++ {
-		if b[i] != a[i] {
+		if strings.TrimRight(b[i], "\r") != strings.TrimRight(a[i], "\r") {
 			lines = append(lines, i+1)
 		}
 	}
@@ -2128,6 +2130,14 @@ func doMigrate(o *opts) int {
 		if !o.lossy {
 			rc = 7
 		}
+	}
+	// With nothing ambiguous, the stamp is left off only when a raw block runs
+	// to the end of the file, where the line would be the block's content.
+	// Unstamped, the next run could not tell the file was migrated.
+	if v, ok := shcl.FormatVersion(m.Text); m.Ambiguous == 0 && (!ok || v < shcl.FormatMajor) {
+		fmt.Fprintf(os.Stderr, "%s: a raw block never closes, so there is nowhere to put the Format line; "+
+			"close it and run migrate again\n", file)
+		rc = 7
 	}
 	rewritten := rewrittenLines(text, m.Text)
 	// A save keeps a line at an indent no level matches, but 2.x placed some

@@ -260,6 +260,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `migrate` refuses while a line sits at an indent no level matches, since 2.x read some of them.
 
+- `migrate` refuses a file whose raw block never closes, since its Format line would have nowhere to go. Close the block and run it again.
+
 - `get`, `count`, `instances`, `fmt` and `set` print the load's diagnostics to stderr, once, before any edit runs.
 
 - Diagnostics under `--layer` name their file, and every layer's are printed.

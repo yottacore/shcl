@@ -305,6 +305,16 @@ printf 'a: 1\r\nb: 2\r\nc: 3\r\nx: 0\nz: 9' > "${tmpDir}/keeptaillf.shcl"
 ## 2.x selector sugar in a CRLF file, and in one split evenly between the two.
 printf 'base:[Boston]\r\n\tlat: 42\r\n' > "${tmpDir}/migcrlf.shcl"
 printf 'base:[Boston]\r\n\tlat: 42\n' > "${tmpDir}/migtie.shcl"
+## No final newline: a CRLF file, and a last line ending in a lone CR in an LF
+## file and in a CRLF one. The stamp ends that line, and that is no rewrite.
+printf 'a: 1\r\nb: 2\r\nc: 3' > "${tmpDir}/mignofinal.shcl"
+printf 'a: 1\nb: 2\r' > "${tmpDir}/miglonecr.shcl"
+printf 'a: 1\r\nb: 2\r\nc: 3\r' > "${tmpDir}/miglonecrcrlf.shcl"
+## A 2.x file whose raw block never closes, so the Format line has nowhere to go.
+printf 'a: %s\nb: ~~~\n\tline\n' "'x\ty'" > "${tmpDir}/migraw.shcl"
+## Two Windows paths holding a line break on one line, and a bracket array on
+## the next: three values lost, on two lines.
+printf '%s\n' 'p: "C:\\a\nb", "D:\\c\nd"' 'q: [1, 2]' > "${tmpDir}/miglost2.shcl"
 ## A schema key nothing knows, on schema line 2.
 printf 'field: a\n\tbogus: 1\n' > "${tmpDir}/unkey.shcl"
 ## A file and a name that both start with a dash, so only `--` makes them data.
@@ -350,6 +360,11 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	whose line ends are mostly CRLF and mostly LF, %KR% a CRLF raw block in an
 ##	LF file, %KT%/%KU% no final newline after a last line ending the other way,
 ##	%MC% 2.x sugar in a CRLF file, %MT% the same with as many LF line ends,
+##	%MN%/%MX%/%MY% a CRLF file with no final newline and ones whose last line
+##	ends in a lone CR, in an LF file and a CRLF one, %MR% a 2.x file whose raw
+##	block never closes, and %MNW%/%MXW%/%MRW% fresh copies of the first, second
+##	and fourth at the path %C% names, %MV% two lost values on one line and a
+##	bracket array on the next,
 ##	%W% a fresh copy of the selector-sugar file, %BS% a fresh copy of a file
 ##	whose value reads differently under the two rule sets, %BW% a fresh copy of
 ##	the bracket array, %V3% a file that already names its format,
@@ -733,6 +748,8 @@ rows=(
 	'Eq4Rkv7|migrate-lost-binding|migrate %BA%|-|7|-|bound a value under 2.x that nothing binds now'
 	'Eq4Rkv8|migrate-lost-write-refused|migrate --write %BW%|-|7|-|refusing to rewrite'
 	'Eq4Rkv9|migrate-lost-write-lossy|migrate --write --lossy %BW%|-|0|-|bound a value under 2.x'
+	## 2026100410055748: the count was values, so this said 3 line(s).
+	'Erkljp5|migrate-lost-counts-lines|migrate --from-2x %MV%|-|7|-|: 2 line\(s\) bound a value under 2\.x'
 	## 20260909 item 41: telling a file that needs migrating from one that does
 	## not took a diff of the output, and --write said nothing either way.
 	'Eq4wD3Y|migrate-check-names|migrate --check %W%|-|6||w\.shcl:1: migrate would rewrite this line'
@@ -762,6 +779,17 @@ rows=(
 	## The Format and Migrated lines end the way most of the file's lines do.
 	'ErTecqE|migrate-write-eol-crlf|migrate --write %MC%|-|0||-|base: Boston\r\n\tlat: 42\r\n##    Format   3\r\n##    Migrated from SHCL 2.x.\r\n'
 	'ErTecqF|migrate-eol-tie-lf|migrate %MT%|-|0|base: Boston\r\n\tlat: 42\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	## 20261003 item 6: an unterminated last line compared unequal to itself
+	## once the stamp ended it, so --check said 6 and --write kept a copy.
+	'ErkalBd|migrate-check-no-final-crlf|migrate --check %MN%|-|0||!.'
+	'ErkalBe|migrate-write-no-final-crlf|migrate --write %MNW%|-|0||migrated, 0 line\(s\) rewritten$|a: 1\r\nb: 2\r\nc: 3\r\n##    Format   3\r\n'
+	'ErkalBf|migrate-check-lone-cr-lf|migrate --check %MX%|-|0||!.'
+	'ErkalBg|migrate-write-lone-cr-lf|migrate --write %MXW%|-|0||migrated, 0 line\(s\) rewritten$|a: 1\nb: 2\r\n##    Format   3\n'
+	'ErkalBh|migrate-check-lone-cr-crlf|migrate --check %MY%|-|0||!.'
+	## 2026100316275800: a raw block that never closes left the file
+	## unstamped at exit 0, so the next run could not tell it was migrated.
+	'ErkalBb|migrate-check-raw-open|migrate --check --from-2x %MR%|-|7||nowhere to put the Format line'
+	"ErkalBc|migrate-write-raw-open|migrate --write --from-2x %MRW%|-|7|-|nowhere to put the Format line|a: 'x\\\\ty'\nb: ~~~\n\tline\n"
 	## The kept original, named. The save cases below check the file itself,
 	## but they are POSIX fixtures, so this is the one windows runs.
 	'Er5qICu|migrate-write-keeps|migrate --write %W%|-|0||migrated, 1 line\(s\) rewritten; the original is .*w_old_v2\.shcl$'
@@ -1116,6 +1144,11 @@ for row in "${rows[@]}"; do
 	argv="${argv//%RFQ%/${tmpDir}/rawfmtq.shcl}"
 	argv="${argv//%ML%/${tmpDir}/mlost.shcl}"
 	argv="${argv//%MT%/${tmpDir}/migtie.shcl}"
+	argv="${argv//%MN%/${tmpDir}/mignofinal.shcl}"
+	argv="${argv//%MX%/${tmpDir}/miglonecr.shcl}"
+	argv="${argv//%MY%/${tmpDir}/miglonecrcrlf.shcl}"
+	argv="${argv//%MR%/${tmpDir}/migraw.shcl}"
+	argv="${argv//%MV%/${tmpDir}/miglost2.shcl}"
 	argv="${argv//%SU%/${tmpDir}/unkey.shcl}"
 	argv="${argv//%NA%/${tmpDir}/nonascii.shcl}"
 	runIn=""
@@ -1192,6 +1225,17 @@ for row in "${rows[@]}"; do
 	if [[ "${argv}" == *%MC%* ]]; then
 		freshMigCrlf=1
 		argv="${argv//%MC%/${tmpDir}/created.shcl}"
+	fi
+	freshMigSrc=""
+	if [[ "${argv}" == *%MNW%* ]]; then
+		freshMigSrc=mignofinal
+		argv="${argv//%MNW%/${tmpDir}/created.shcl}"
+	elif [[ "${argv}" == *%MXW%* ]]; then
+		freshMigSrc=miglonecr
+		argv="${argv//%MXW%/${tmpDir}/created.shcl}"
+	elif [[ "${argv}" == *%MRW%* ]]; then
+		freshMigSrc=migraw
+		argv="${argv//%MRW%/${tmpDir}/created.shcl}"
 	fi
 	freshCreate=0
 	if [[ "${argv}" == *%C%* ]]; then
@@ -1285,6 +1329,7 @@ for row in "${rows[@]}"; do
 		((freshKeepTail)) && cp "${tmpDir}/keeptail.shcl" "${tmpDir}/created.shcl"
 		((freshKeepTailLf)) && cp "${tmpDir}/keeptaillf.shcl" "${tmpDir}/created.shcl"
 		((freshMigCrlf)) && cp "${tmpDir}/migcrlf.shcl" "${tmpDir}/created.shcl"
+		[[ -n "${freshMigSrc}" ]] && cp "${tmpDir}/${freshMigSrc}.shcl" "${tmpDir}/created.shcl"
 		if [[ -n "${runIn}" ]]; then cli="$(realpath -- "${cli}")"; cd -- "${runIn}"; fi
 		rc=0
 		case "${stdinSpec}" in

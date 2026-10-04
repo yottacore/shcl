@@ -2676,7 +2676,10 @@ static ShclStr migrate(ShclArena *a, ShclArena *sc, ShclStr text, ShclMigrating 
 			ShclStr indent = leading_ws(body);
 			ShclStr rest_full = s_slice(body, indent.n, body.n);
 			ShclStr rest = trim_wsp_end(rest_full);
+			// lost counts lines, and one line can lose several values.
+			size_t lost_before = st->lost;
 			ShclStr migrated = migrate_line(a, sc, rest, &tok, &fence_on, &fence_ch, &fence_len, st);
+			if (st->lost > lost_before) st->lost = lost_before + 1;
 			if (!s_eq(migrated, rest)) changed = 1;
 			sb_putS(a, &out, indent);
 			sb_putS(a, &out, migrated);

@@ -1966,7 +1966,10 @@ def _migrate_text(text, from_v2, stamp):
 			indent = _leading_ws(body)
 			rest_full = body[len(indent):]
 			rest = _trim_wsp_end(rest_full)
+			# lost counts lines, and one line can lose several values.
+			lost_before = st.lost
 			migrated, fence = _migrate_line(rest, tok, fence, st)
+			st.lost = min(st.lost, lost_before + 1)
 			if migrated != rest:
 				changed = True
 			line_out = indent + migrated + rest_full[len(rest):] + cr

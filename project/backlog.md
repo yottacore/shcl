@@ -373,7 +373,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - `migrate` exits 0 on a file whose raw block never closes, and leaves it unstamped
 	- ID: 2026100316275800
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Avg
 	- Opened: 20261003-162758
 	- Opened by: signoff talk on 2026100307163903
@@ -388,11 +388,21 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Possible cause: the no-stamp rule skips the stamp quietly rather than refusing.
 	- Note: a refusal fits the 2.x low-stakes rule. Fixing the fence then running `migrate` again does the whole job.
 	- Estimated effort: Low
+	- Reproduced: 20261004, all four CLIs. `--check` exited 6 over line 1 rather than refusing.
+	- Actual cause [Bug]: the library leaves the stamp off such a file, as designed, and the CLI went on to write the rest at exit 0.
+	- Actual fix [Bug]: `migrate` refuses at 7 when nothing is ambiguous and the migrated text still names no current format, which only an open raw block leaves. It asks `format_version` of the output rather than looking for the block itself. `--check` and the print form say the same, and `--write` writes nothing and keeps no copy. All four CLIs. Spec, design.md, the man page and the changelog say so.
+	- Swept: `do_migrate` in Rust, Go, Python and C. The library is unchanged. A program calling `migrate()` can ask `format_version()` of the result the same way.
+	- Verified: the repro exits 7 in all four, with the file untouched and no copy. The four conformance suites, `cli-regress.bash` (353 rows), `crosscheck.bash` over the corpus, `check-docs.bash`, `shell-regress.bash`, markdownlint, `test-ids.py check`, clippy (host and windows), go vet, staticcheck, ruff, mypy and shellcheck pass. `check-migrate.bash` passes with the change below.
+	- Note: left for signoff: the message, "a raw block never closes, so there is nowhere to put the Format line; close it and run migrate again".
+	- Branch: `migfix`
+	- Note: `check-migrate.bash` wanted exit 0 from every document 2.x read cleanly, and 2.x took an unterminated raw block as clean, so the refusal turned it red on 36 documents (corpus 056, 059, 075, 096, 097, 143 and 191, and 29 fuzz documents). Now a document whose 2.x check reports `E005` has to be refused at 7 over the open block, and its reads are still compared. It passes over 635 documents, 36 of them refused this way. It goes red when `migrate` refuses a document without an open block (582 divergences), and when the refusal is taken out (all 36, plus `Erklujb`).
+	- Commit: `673052a8`, and `5852d913` for the gate
+	- Test case: cli-regress `ErkalBb` (`--check`) and `ErkalBc` (`--write`, file unchanged), all four CLIs. Both fail on the old code and pass on the new. check-migrate `Eq5YPgP` over the corpus and fuzz dump, and `Erklujb` on corpus 096.
 
 - `migrate --check` exits 6 and `--write` keeps a needless copy when a CRLF file has no final newline
 	- ID: 2026100307163906
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Avg
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 6
@@ -407,6 +417,15 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Origin: `8aa812a9` (migrate stamp eol, merged in `32088e0a`), from 20260930 idea 1. cli-regress `migcrlf` and `migtie` use files that end in a newline. Regression of a fresh fix. Confirmed.
 	- Sweep: `rewritten_lines` in all four CLIs.
 	- Estimated effort: Low
+	- Actual cause [Bug]: as above. A CRLF file whose last line ends in a lone CR did the same, since the stamp then added a second CR. The lone CR in an LF file did not reproduce: the stamp adds only an LF there, so the line compares equal.
+	- Actual fix [Bug]: `rewritten_lines` compares lines without their trailing CRs. `migrate` never changes those, so only the ending the stamp adds is left out. All four CLIs.
+	- Swept: `rewritten_lines` in Rust, Python and C and `rewrittenLines` in Go, the only line compare in each `migrate`.
+	- Verified: the repro gives exit 0 with nothing named from `--check`, and `--write` adds only the Format line and keeps no copy, in all four. Same gates as 2026100316275800.
+	- Branch: `migfix`
+	- Commit: `05f5871c`
+	- Test case: cli-regress `ErkalBd` to `ErkalBh`: `--check` and `--write` on a CRLF file with no final newline, the same on an LF file whose last line ends in a lone CR, and `--check` on a CRLF file whose last line does. `ErkalBd`, `ErkalBe` and `ErkalBh` fail on the old code and pass on the new; the two LF rows pass on both.
+	- Acceptance signoff: Self-closed: reproduced, its tests fail before the fix and pass after, and the sweep is answered.
+	- Closed: 20261004-100737
 
 - check-migrate leaves out the lines a broken migrate writes as E024, so it passes over a lost value
 	- ID: 2026100307163909
@@ -667,7 +686,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - `migrate` counts lost values, not lines, in its refusal
 	- ID: 2026100410055748
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261004-100557
 	- Opened by: found while fixing 2026100307163909
@@ -683,6 +702,15 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: `check-migrate` counts lines, so a document like this in the corpus or the fuzz dump turns it red.
 	- Sweep: `value_edits` and its ports in all four CLIs.
 	- Estimated effort: Low
+	- Actual cause [Bug]: as above. `lost` is documented as lines in all four libraries, but each lost value added one.
+	- Actual fix [Bug]: the line loop in `migrate` counts a line once, however many of its values were lost. That covers `value_edits` and the selector sugar alike. All four libraries.
+	- Swept: `migrate_text` in Rust, `migrateText` in Go, `_migrate_text` in Python and `migrate` in C, each the one caller of its line rewrite that keeps the count. The raw-block walk calls the same rewrite with a throwaway count.
+	- Verified: the repro says 2 line(s) in all four. The four conformance suites, `cli-regress.bash` (354 rows), `crosscheck.bash` over the corpus, `check-migrate.bash` (11 lost counts match), `shell-regress.bash`, clippy (host and windows), go vet, staticcheck, ruff, mypy, the C++ veneer smoke test and gcc 15 with `_FORTIFY_SOURCE=3` pass.
+	- Branch: `migfix`
+	- Commit: `84b786ce`
+	- Test case: cli-regress `Erkljp5`, all four CLIs. It fails on the old code and passes on the new.
+	- Acceptance signoff: Self-closed: reproduced, its test fails before the fix and passes after, and the sweep is answered.
+	- Closed: 20261004-104626
 
 - The C CLI exits 6 where the other three exit 8 when a strict layer fails before a missing one
 	- ID: 2026100307163913
