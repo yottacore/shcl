@@ -7900,6 +7900,28 @@ func (d *Document) newChild(parent int, name, nameSrc string, v value) int {
 	if ix := d.index.Load(); ix != nil {
 		ix.append(nameKey(parent, name), idx)
 	}
+	// Kept lines that end the block stay where they were, so the new field
+	// goes after the last of them, as a reload files them. The comments
+	// after it stay at the end, and so does a kept line the settle wrote as
+	// a comment, since a reload reads it as one.
+	var tail *[]lead
+	if parent == root {
+		tail = &d.orphans
+	} else if t := d.arena[parent].trivia; t != nil {
+		tail = &t.inside
+	}
+	if tail != nil {
+		k := len(*tail) - 1
+		for k >= 0 && strings.HasPrefix((*tail)[k].text, "#") {
+			k--
+		}
+		if k >= 0 {
+			lines := append([]lead(nil), (*tail)[:k+1]...)
+			*tail = append([]lead(nil), (*tail)[k+1:]...)
+			restep(*tail)
+			d.arena[idx].trivMut().leading = lines
+		}
+	}
 	settleBlock(d.arena, parent, len(d.arena[parent].children)-1)
 	return idx
 }

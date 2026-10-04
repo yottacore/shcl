@@ -634,6 +634,10 @@ rows=(
 	'ErUmRRc|sugar-write-kept|fmt --write %W%|-|0||-'
 	'Era9kPy|kept-under-kept-fmt|fmt -|a: [1]\n\tb: [2]\n|0|a: [1]\n\tb: [2]\n|-'
 	'Era9kPz|kept-before-dotted-fmt|fmt -|k: [3]\nm.n: 2\n|0|k: [3]\nm:\n\tn: 2\n|-'
+	## A new field at the end of a block goes after the kept lines that end it,
+	## not above them (2026100117214802).
+	'Erls2uw|set-new-key-after-kept-end|set --set=b=1 -|x: 1\na:   [1]\n# end\n|0|x: 1\na:   [1]\n\nb: 1\n# end\n|-'
+	'Erls2ux|set-new-key-after-kept-in-block|set --set=s.b=1 -|s:\n    a:   [1]\n    # c\n|0|s:\n    a:   [1]\n    b: 1\n    # c\n|-'
 	'EpFkZy9|sugar-migrate|migrate %W%|-|0|base: Boston\n\tlat: 42\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	'EpFkZyA|sugar-migrate-write|migrate --write %W%|-|0||-'
 	## An unknown escape in double quotes is refused and kept as written, not

@@ -8351,6 +8351,26 @@ impl Document {
 		if let Some(ix) = self.index.get_mut() {
 			ix.append(name_key(parent, name), idx);
 		}
+		// Kept lines that end the block stay where they were, so the new
+		// field goes after the last of them, as a reload files them. The
+		// comments after it stay at the end, and so does a kept line the
+		// settle wrote as a comment, since a reload reads it as one.
+		let tail = if parent == ROOT {
+			Some(&mut self.orphans)
+		} else {
+			self.arena[parent]
+				.trivia
+				.as_deref_mut()
+				.map(|t| &mut t.inside)
+		};
+		if let Some(tail) = tail
+			&& let Some(k) = tail.iter().rposition(|l| !l.text.starts_with('#'))
+		{
+			let rest = tail.split_off(k + 1);
+			let lines = std::mem::replace(tail, rest);
+			restep(tail);
+			self.arena[idx].triv_mut().leading = lines;
+		}
 		let last = self.arena[parent].children.len() - 1;
 		settle_block(&mut self.arena, parent, last);
 		idx

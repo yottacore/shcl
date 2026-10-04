@@ -5590,6 +5590,7 @@ static ShclValue w_array(ShclArena *a, const ShclStr *texts, size_t n) {
 	v.els = els; v.nels = n; return v;
 }
 
+static void restep(ShclVecLead *v);
 static size_t w_new_child(shcl_doc *d, size_t parent, ShclStr name, ShclStr name_src, ShclValue value) {
 	/* A list written stacked would get the child after its elements, which
 	   reloads as E001, so it goes inline. */
@@ -5604,6 +5605,21 @@ static size_t w_new_child(shcl_doc *d, size_t parent, ShclStr name, ShclStr name
 	nodes_push(d, n);
 	ShclVecSize_push(a, &NODE(d, parent).children, idx);
 	if (d->index_built == 1) index_append(d, name_key(parent, name), idx);
+	/* Kept lines that end the block stay where they were, so the new field
+	   goes after the last of them, as a reload files them. The comments
+	   after it stay at the end, and so does a kept line the settle wrote as
+	   a comment, since a reload reads it as one. */
+	ShclVecLead *tail = parent == ROOT ? &d->orphans : NODE(d, parent).trivia ? &NODE(d, parent).trivia->inside : NULL;
+	size_t k = tail ? tail->len : 0;
+	while (k > 0 && tail->data[k - 1].text.n && tail->data[k - 1].text.p[0] == '#') k--;
+	if (k > 0) {
+		ShclVecLead lines; memset(&lines, 0, sizeof lines);
+		for (size_t j = 0; j < k; j++) ShclVecLead_push(a, &lines, tail->data[j]);
+		memmove(tail->data, tail->data + k, (tail->len - k) * sizeof *tail->data);
+		tail->len -= k;
+		restep(tail);
+		triv_mut(a, &NODE(d, idx))->leading = lines;
+	}
 	settle_block(d, parent, NODE(d, parent).children.len - 1);
 	return idx;
 }

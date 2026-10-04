@@ -5462,6 +5462,20 @@ class Document:
 		self.arena[parent].children.append(idx)
 		if self._index is not None:
 			self._index.append(_name_key(parent, name), idx)
+		# Kept lines that end the block stay where they were, so the new field
+		# goes after the last of them, as a reload files them. The comments
+		# after it stay at the end, and so does a kept line the settle wrote as
+		# a comment, since a reload reads it as one.
+		if parent == ROOT:
+			tail = self.orphans
+		else:
+			t = self.arena[parent].trivia
+			tail = t.inside if t is not None else []
+		k = next((k for k in range(len(tail) - 1, -1, -1) if not tail[k].text.startswith("#")), -1)
+		if k >= 0:
+			node._triv().leading = tail[:k + 1]
+			del tail[:k + 1]
+			_restep(tail)
 		_settle_block(self.arena, parent, len(self.arena[parent].children) - 1)
 		return idx
 

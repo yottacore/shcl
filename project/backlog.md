@@ -333,7 +333,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - `set` on a file ending in a kept line writes the new key above it
 	- ID: 2026100117214802
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Low
 	- Note: 20261002, under 2026100207032800 this repro has no kept line. Any other kept line, such as `a: My App`, does the same thing, so the bug stays.
 	- Opened: 20261001-172148
@@ -344,6 +344,14 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Incorrect behavior: `b: 1`, then `a: "C:\work"`. The kept line moved below the new one.
 	- Expected behavior: the kept line stays where it was, with the new key after it.
 	- Reproduced: Yes, 20261001, Rust at `5956ff4a`. It reads back the same, so it is cosmetic.
+	- Reproduced: Yes, 20261004, all four at `c3eb6db7`, with `x: 1` then `a: [1]`, and with a kept line ending an inner block (`s:` then `a: [1]` under it, setting `s.b`).
+	- Actual cause: a new field goes after the last field of its block, and the lines that end the block are written after every field: the footer at the top, the block's own end lines below it. A kept line among them moved below the new field.
+	- Actual fix: all four bindings. A new field takes the kept lines that end its block, with the comments before them, as the lines above it, which is where a reload files them. Comments after the last kept line stay at the end. So does a kept line the settle wrote as a comment, since a reload reads it as one.
+	- Note: corpus 065's write goldens had the new `q` above the kept `ports` line. Both now have it after.
+	- Swept: the one place a write creates a field, `new_child` in all four, which every setter and `SetComment` go through. A merge puts a layer's fields in the layer's order, so it is not this case.
+	- Verified: the four conformance suites and cli-regress. The new rows and corpus 065 fail on `c3eb6db7`'s libraries in all four and pass with the fix.
+	- Branch: keepcosm
+	- Test case: cli-regress `Erls2uw` (`set-new-key-after-kept-end`), `Erls2ux` (`set-new-key-after-kept-in-block`); corpus `065-bracket-array`.
 
 - A comment between nested kept lines is written at column 0
 	- ID: 2026100218185700
