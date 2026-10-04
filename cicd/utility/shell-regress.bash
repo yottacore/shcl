@@ -101,6 +101,25 @@ for via in lnk/rel.bash abs.bash; do
 	[[ "${out}" == "sibling y" ]] || fBad "bash wrapper sourced through ${via} missed its sibling binary: ${out@Q}"
 done
 
+fTest ErlisVv 20261003-16-bash-wrapper-in-an-install
+##	20261003 item 16: every installer puts the wrappers in scripts/ with the
+##	binary a level up, and the wrapper looked only beside itself, so with the
+##	bin link off PATH it found nothing. PATH here has no shcl on it.
+mkdir -p "${tmpDir}/inst/scripts"
+cp "${repoDir}/source/bash/shcl.bash" "${repoDir}/source/powershell/shcl.ps1" "${tmpDir}/inst/scripts/"
+printf '#!/bin/sh\necho "installed $*"\n' > "${tmpDir}/inst/shcl"; chmod 755 "${tmpDir}/inst/shcl"
+out="$(env -u SHCL_BIN PATH=/usr/bin:/bin bash "${tmpDir}/inst/scripts/shcl.bash" x 2>&1 || true)"
+[[ "${out}" == "installed x" ]] || fBad "bash wrapper in an install's scripts/ missed the binary a level up: ${out@Q}"
+
+fTest ErlisYf 20261003-16-pwsh-wrapper-in-an-install
+if fHave pwsh; then
+	pwshExe="$(command -v pwsh)"
+	out="$(env -u SHCL_BIN PATH=/usr/bin:/bin "${pwshExe}" -NoProfile -File "${tmpDir}/inst/scripts/shcl.ps1" x 2>&1 </dev/null || true)"
+	[[ "${out}" == "installed x" ]] || fBad "pwsh wrapper in an install's scripts/ missed the binary a level up: ${out@Q}"
+else
+	fTestSkip
+fi
+
 fTest Ep11mJd 20260904-10-11-bash-completion-value-options
 ##	20260904 items 10 and 11: bash cuts `--opt=value` at the `=` before a
 ##	completion function runs, and the three value options added in 20260830b

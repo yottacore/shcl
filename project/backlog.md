@@ -448,7 +448,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - The man page says the wrappers are installed beside `shcl`, and no install puts them there
 	- ID: 2026100307163916
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Low
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 16
@@ -460,6 +460,12 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: 20261003, `install.bash` with stub downloads. `install.ps1` is Plausible, by reading.
 	- Origin: `84ceff51` (2026-08-30) for the man line. The installer was right; the claim and the lookup were not. Confirmed.
 	- Estimated effort: Low
+	- Actual fix: the man page names the wrappers and where they go: `/usr/share/shcl/scripts` from the .deb and .rpm, and `scripts` under the install directory from the other installers. Both wrappers now also look a level up from themselves, where every installer but the packages puts the binary, before PATH. The packages put the binary in `/usr/bin`, which PATH finds.
+	- Swept: `install.bash`, `install.ps1`, the NSIS setup and nfpm.yaml all put the wrappers in `scripts` beside the binary, or in `/usr/share/shcl/scripts` with the binary in `/usr/bin`. No installer changed. The README makes no claim about where the wrappers sit. Both wrapper headers now list the new step.
+	- Verified: shell-regress `ErlisVv` (bash) and `ErlisYf` (pwsh) lay out an install with a stub binary a level up and no shcl on PATH. Both wrappers from dev said "cannot find a shcl binary"; both now run the stub. shell-regress, shellcheck and PSScriptAnalyzer pass, and the man page renders at 80 columns.
+	- Branch: clismall
+	- Test case: shell-regress `ErlisVv` and `ErlisYf`.
+	- Acceptance signoff: the man page wording.
 
 - The C header's comment on the save result still says the save refuses only over what the load dropped
 	- ID: 2026100313174973

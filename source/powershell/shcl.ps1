@@ -45,9 +45,10 @@
 ##		                     the matching subcommands
 ##
 ##	Finding the binary (first hit wins):
-##		$env:SHCL_BIN, else a `shcl` beside this file, else `shcl` on PATH, else
-##		the repo release/debug build. Set SHCL_BIN to pin an exact one. On Windows
-##		a bare name also matches its `.exe`.
+##		$env:SHCL_BIN, else a `shcl` beside this file, else one a level up (where
+##		the installers put it, with this file in scripts\), else `shcl` on PATH,
+##		else the repo release/debug build. Set SHCL_BIN to pin an exact one. On
+##		Windows a bare name also matches its `.exe`.
 ##
 ##	Exit codes (straight from the binary): 0 good, 1 usage error, 2 empty,
 ##	3 not found, 4 bad type, 5 multiple instances, 6 check failed, strict
@@ -143,6 +144,7 @@ function _shcl_resolve {
 		Select-Object -First 1 -ExpandProperty Source
 	$candidates = @(
 		(_shcl_exe (Join-Path -Path $script:_SHCL_ROOT -ChildPath 'shcl')),
+		(_shcl_exe (Join-Path -Path $script:_SHCL_ROOT -ChildPath '../shcl')),
 		$onPath,
 		(_shcl_exe (Join-Path -Path $script:_SHCL_ROOT -ChildPath '../rust/target/release/shcl')),
 		(_shcl_exe (Join-Path -Path $script:_SHCL_ROOT -ChildPath '../rust/target/debug/shcl'))
