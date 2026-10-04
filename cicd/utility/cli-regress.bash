@@ -680,6 +680,14 @@ rows=(
 	'ErUmRRh|path-escape-literal|set %F2%|literal\tx\t"C:\\temp"\n|1||^op line 1: cannot write x'
 	'ErUmRRi|path-escape-migrate-lost|migrate -|q: "\\\\\\\\srv\\new"\n|7|-|line break in a Windows path'
 	'Er1adAs|escape-unknown-migrate|migrate -|q: "C:\\work"\n|0|q: "C:\\\\work"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	## 2026100307163914: a field line kept for its value alone reads NotFound with
+	## nothing under it and Empty once a line under it loads, and explain says so.
+	'Erlr8eZ|kept-value-e019-empty|get - a|a: [1]\n\tb: 1\n|2|\n|E019'
+	'Erlr8gU|kept-value-e023-empty|get - a|a: "x\\q"\n\tb: 1\n|2|\n|E023'
+	'Erlr8iQ|kept-value-e024-empty|get - a|a: "C:\\temp"\n\tb: 1\n|2|\n|E024'
+	'Erlr21T|explain-e019-read|explain E019|-|0|\nE019  error       a value beginning with \x27[\x27, the way JSON and YAML write arrays\n  An array is comma-separated and written without brackets: ports: 80, 443.\n  A \x27[\x27 after the colon is never a selector, and reading the text without\n  its brackets would bake a changed value in, so the line is kept verbatim:\n  it binds nothing and nothing counts as lost. The lines under it still\n  load, under the field with no value, so a read on the field is Empty when\n  one of them loads and NotFound when none does.\n\n|-'
+	'Erlr23g|explain-e023-read|explain E023|-|0|\nE023  error       a bad escape in double quotes\n  Only \\t, \\n, \\\\, \\", \\\x27, \\uXXXX and \\UXXXXXXXX are escapes there, and a\n  \\u or \\U escape must name a character. A Windows path typed in double\n  quotes is the usual cause, and its \\n would already be a newline, so the\n  line is kept verbatim: it binds nothing and a read on it is NotFound. Use\n  single quotes or no quotes, or double each backslash. When only the value\n  is wrong, the lines under it still load, under the field with no value,\n  and a read on the field is Empty once one of them loads. When the name\n  is, a raw block the line opens is kept with it.\n\n|-'
+	'Erlr25Z|explain-e024-read|explain E024|-|0|\nE024  error       a Windows path in double quotes with a \\t or \\n escape\n  "C:\\temp" would read as C:, a tab, then emp, which a path almost never\n  means. The line is kept verbatim like E023: it binds nothing, and the\n  lines under it still load. A read on the field is Empty when one of them\n  loads and NotFound when none does. Use single quotes or no quotes, or\n  double each backslash.\n\n|-'
 	## 20260909 item 4: a 3.0 file writes a backslash value the same way a 2.x
 	## one does, so migrating on a guess changed a correct file at exit 0. The
 	## file has to say which rules wrote it, or the caller has to.

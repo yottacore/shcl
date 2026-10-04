@@ -26,7 +26,7 @@
 
 </div>
 
-- A save never deletes a line you typed. If the load could not keep a line, the save refuses rather than dropping it.
+- A save never deletes a line you typed. If the write would delete a line or value from the file, the save refuses rather than dropping it.
 
 - Comments and blank lines survive a rewrite, attached to what they documented.
 
@@ -571,7 +571,7 @@ shcl fmt --write server.shcl
 shcl set --write server.shcl --set 'workers=8'
 ~~~
 
-An in-place write is the library's own save, with the same refusal (at its own exit code, 7) when the rewrite would delete a line the load dropped; see [What saving does](#what-saving-does). `--lossy` is the way to say you meant it.
+An in-place write is the library's own save, with the same refusal (at its own exit code, 7) when the rewrite would delete lines or values from the file; see [What saving does](#what-saving-does). `--lossy` is the way to say you meant it.
 
 Two more verbs round out the CLI. `migrate` rewrites a file written for shcl 2.x under the 3.0 rules, touching only what the two read differently (a backslash outside double quotes, an unknown escape in double quotes, a quote that never closed, the old `name:[disc]` spelling) and leaving comments, blank lines and layout as they were; `--write` saves it through the same gate and keeps the original beside it, as `config_old_v2.shcl` for `config.shcl`, and `--check` names the lines it would change without touching anything. `tokens` prints each line as the parser reads it, span by span, for the times a line is refused and it is not obvious why. Each line is read on its own, so a raw body line comes out as if it were a field line.
 
@@ -630,8 +630,8 @@ if !doc.set_string("site[blog.example.com].root", "/srv/www/blog") {
 	eprintln!("blog root: {:?}", doc.write_reason("site[blog.example.com].root"));
 }
 
-// Refuses if the load dropped a line this write would delete; see "What
-// saving does" below (save_file_lossy is the override).
+// Refuses if this write would delete lines or values from the file; see
+// "What saving does" below (save_file_lossy is the override).
 doc.save_file("server.shcl")?;
 ~~~
 
@@ -675,8 +675,8 @@ if !doc.SetString("site[blog.example.com].root", "/srv/www/blog") {
 	fmt.Println("blog root:", doc.WriteReason("site[blog.example.com].root"))
 }
 
-// Refuses if the load dropped a line this write would delete; see "What
-// saving does" below (SaveFileLossy is the override).
+// Refuses if this write would delete lines or values from the file; see
+// "What saving does" below (SaveFileLossy is the override).
 if err := doc.SaveFile("server.shcl"); err != nil {
 	log.Fatal(err)
 }
@@ -715,8 +715,8 @@ if not doc.set_bool("site[example.com].tls.hsts", True):
 if not doc.set_string("site[blog.example.com].root", "/srv/www/blog"):
 	print("blog root:", doc.write_reason("site[blog.example.com].root"))
 
-# Raises SaveRefused if the load dropped a line this write would delete; see
-# "What saving does" below (save_file_lossy is the override).
+# Raises SaveRefused if this write would delete lines or values from the
+# file; see "What saving does" below (save_file_lossy is the override).
 doc.save_file("server.shcl")
 ~~~
 
@@ -807,8 +807,8 @@ if (!shcl_set_bool(doc, P("site[example.com].tls.hsts"), 1))
 if (!shcl_set_string(doc, P("site[blog.example.com].root"), P("/srv/www/blog")))
 	fprintf(stderr, "blog root: reason %d\n", shcl_write_reason_(doc, P("site[blog.example.com].root")));
 
-// SHCL_SAVE_REFUSED means the load dropped a line this write would delete;
-// see "What saving does" below (shcl_save_file_lossy is the override).
+// SHCL_SAVE_REFUSED means this write would delete lines or values from the
+// file; see "What saving does" below (shcl_save_file_lossy is the override).
 if (shcl_save_file(doc, "server.shcl") != SHCL_SAVE_OK)
 	fprintf(stderr, "could not save\n");
 
@@ -851,8 +851,8 @@ if (!doc.set_bool("site[example.com].tls.hsts", true))
 if (!doc.set_string("site[blog.example.com].root", "/srv/www/blog"))
 	std::fprintf(stderr, "blog root: reason %d\n", static_cast<int>(doc.write_reason("site[blog.example.com].root")));
 
-// Refused means the load dropped a line this write would delete; see "What
-// saving does" below (save_file_lossy is the override).
+// Refused means this write would delete lines or values from the file; see
+// "What saving does" below (save_file_lossy is the override).
 if (doc.save_file("server.shcl") != shcl::SaveResult::Ok)
 	std::fprintf(stderr, "could not save\n");
 ~~~
@@ -964,7 +964,7 @@ That is the whole file after the edits, not an excerpt - a formatter that can su
 
 A file somebody keeps by hand can be saved the way they keep it instead. Load it with `parse_keep_lines` or `load_file_keep_lines`, and save with `save_file_keep_lines`. Each line the edits did not touch comes back byte for byte, a changed value is written into its own line, and a new line takes the indent of the lines around it. The text has to load back as the same document, with no new error. Where it would not, as after a merge, or a child added under a flat dotted line, the save writes the canonical form and returns false, so the program knows which one it got. A line the load dropped comes back as written too, so this save refuses only when it would write the canonical form. `shcl set` saves this way; `shcl fmt` is the canonical one.
 
-And the save protects the file it is overwriting. It goes through a temp file in the same directory plus a rename, so an interrupted save cannot leave a truncated config behind, and a linked-in config is written through rather than replaced. It also refuses when the load dropped something the write would delete. A line the parser cannot read at all is kept verbatim and survives the save untouched. A line it could read and not place (a stray indent, an impossible selector) has no safe spelling to re-emit. That one counts into `lost_count()`, and the save stops rather than quietly dropping a line somebody typed. `save_file_lossy` is there for when deleting it is what you actually want, so it is always a stated choice.
+And the save protects the file it is overwriting. It goes through a temp file in the same directory plus a rename, so an interrupted save cannot leave a truncated config behind, and a linked-in config is written through rather than replaced. It also refuses when the write would delete lines or values from the file. A line the parser cannot read at all is kept verbatim and survives the save untouched. A line it could read and not place (a stray indent, an impossible selector) has no safe spelling to re-emit. That one counts into `lost_count()`, and the save stops rather than quietly dropping a line somebody typed. `save_file_lossy` is there for when deleting it is what you actually want, so it is always a stated choice.
 
 A setter returns failure - `false`, or `0` in C - when a path cannot be written at all. Wildcards are the usual case, since those are query-only. Nothing is half-written, and `write_reason(path)` says which of the five reasons applied. Check that answer rather than assuming it: an ignored failure means the save that follows writes a config missing the edit, and reports success doing it. In Rust the setters are `#[must_use]`, so dropping the answer is a compile warning.
 

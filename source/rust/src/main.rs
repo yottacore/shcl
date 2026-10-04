@@ -160,8 +160,8 @@ Options (the subcommands each belongs to are in parentheses):
                                          temp file and a rename; refused
                                          with a FILE of '-'
   --lossy                                (fmt/set/migrate) with --write, rewrite
-                                         even when the load dropped lines this
-                                         write would delete; without it the
+                                         even when this write would delete lines
+                                         or values from the file; without it the
                                          write refuses and nothing is changed
   --from-2x                              (migrate) the file was written for
                                          2.x, so rewrite the spellings the two
@@ -226,10 +226,10 @@ values. Repeating an option with the same value is allowed, and --layer and
 --set are ordered lists, so they repeat.
 Every subcommand that loads a document prints the load's diagnostics to stderr,
 once per run; 'shcl explain CODE' gives the rule behind one of their codes. An
-in-place write also refuses when the load dropped content the rewrite would
-delete (--lossy overrides). migrate refuses a file that does not say which
-rules it was written for, when the two readings differ (--from-2x says it is
-2.x), and reports a 2.x binding it cannot convert.
+in-place write also refuses when the rewrite would delete lines or values
+from the file (--lossy overrides). migrate refuses a file that does not say
+which rules it was written for, when the two readings differ (--from-2x says
+it is 2.x), and reports a 2.x binding it cannot convert.
 FILE may be '-' for stdin. With --layer, FILE is the highest file layer and
 each --layer is merged under it in order; --set applies last. 'fmt' with
 layers prints the merged canonical document.
@@ -342,8 +342,9 @@ E019|error|a value beginning with '[', the way JSON and YAML write arrays
   An array is comma-separated and written without brackets: ports: 80, 443.
   A '[' after the colon is never a selector, and reading the text without
   its brackets would bake a changed value in, so the line is kept verbatim:
-  it binds nothing, a read on it is NotFound, and nothing counts as lost.
-  The lines under it still load, under the field with no value.
+  it binds nothing and nothing counts as lost. The lines under it still
+  load, under the field with no value, so a read on the field is Empty when
+  one of them loads and NotFound when none does.
 E020|error|node cap exceeded (fires only under a caller-supplied cap)
   The parse stopped there and the unparsed remainder counts as lost, so a
   later save refuses rather than writing a truncated file.
@@ -360,13 +361,15 @@ E023|error|a bad escape in double quotes
   quotes is the usual cause, and its \\n would already be a newline, so the
   line is kept verbatim: it binds nothing and a read on it is NotFound. Use
   single quotes or no quotes, or double each backslash. When only the value
-  is wrong, the lines under it still load, under the field with no value.
-  When the name is, a raw block the line opens is kept with it.
+  is wrong, the lines under it still load, under the field with no value,
+  and a read on the field is Empty once one of them loads. When the name
+  is, a raw block the line opens is kept with it.
 E024|error|a Windows path in double quotes with a \\t or \\n escape
   \"C:\\temp\" would read as C:, a tab, then emp, which a path almost never
-  means. The line is kept verbatim like E023: it binds nothing, a read on it
-  is NotFound, and the lines under it still load. Use single quotes or no
-  quotes, or double each backslash.
+  means. The line is kept verbatim like E023: it binds nothing, and the
+  lines under it still load. A read on the field is Empty when one of them
+  loads and NotFound when none does. Use single quotes or no quotes, or
+  double each backslash.
 H001|hint|repeated bare leaf (an array written as repeated lines)
   Repeated leaves are legal - that is how instances are written - but
   'tags: red' twice and 'tags: red, blue' look alike, so the parser says
