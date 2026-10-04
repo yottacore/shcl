@@ -221,9 +221,9 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - Started with `pwsh -File`, the PowerShell wrapper splits an argument at its first colon, and the answer is wrong at exit 0
 	- ID: 2026100307163905
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting for testing
 	- Severity: High
-	- Needs external testing: a Windows box for the `.cmd` launcher and 5.1
+	- Needs external testing: the hosted windows job. Its win-runners row `ErkQHTh` runs both scripts under 5.1 and 7, and the `.cmd` launcher.
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 5
 	- Version and build: dev at `6e8b7f89`
@@ -235,7 +235,21 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: 20261003, pwsh 7.6 on Linux. `utility/dogfood_shcl` and `dogfood_shcl.cmd` start the runner with `-File`, so they hit it too. Calling the script from inside a session is fine. Most other spellings fail loudly, such as `get --default=12:30` at exit 1.
 	- Possible cause: `-File` binds a `-`-led argument with a colon as a parameter name and value before the script sees `$args`.
 	- Origin: `37fe62d0` (PowerShell wrapper, 2026-07-18). Not seen by an earlier round. 20260928 item 4 fixed quotes under 5.1 in the same wrapper. Confirmed.
+	- Actual cause [Bug]: under `-File`, PowerShell's own command-line parser reads each `-`-led argument after the script path as a parameter, before the script runs. One with a colon becomes a name and a value with the colon gone, `-x:$true` becomes a boolean, and `--%` is dropped. Nothing in `$args` can give the typed text back.
 	- Estimated effort: Avg
+	- Progress log:
+		- 20261004: fixed in both scripts. Both shell-regress tests below failed before the fix and pass after. The win-runners row has not run yet.
+		- 20261004: ruled out a `-Command` start in the launchers. It would fix the two launchers only, not `pwsh -File shcl.ps1` or a shebang run, and every argument would need quoting for PowerShell's parser.
+		- 20261004: `-?` still prints the script's help, under `-File` and in a session alike. PowerShell answers it from the help block before the script runs, so dropping the block is the only way to pass it on. The binary refuses `-?` at exit 1 anyway. Left as is, for signoff.
+		- 20261004: a `--%` argument still never reaches the binary. PowerShell drops it from any native call, quoted or splatted, and passes the rest unquoted. The binary refuses `--%`, so it is left.
+		- 20261004: in a session, an unquoted `-x:y` loses its `-x:` on the way to the binary, in both scripts. That is a different cause, filed as 2026100408550401.
+		- 20261004: also fixed: `-k:$true` made the dogfood runner skip its update, since that boolean on the left of `-ceq` equals any word.
+	- Actual fix [Bug]: started by `-File`, which leaves no invoking line, `shcl.ps1` and `dogfood_shcl.ps1` take their arguments from the process's own argument list, after the entry naming the script. With no such entry, or from a session, `$args` is used as before. The launchers are unchanged.
+	- Swept: `shcl.ps1`, `dogfood_shcl.ps1`, and the launchers `utility/dogfood_shcl` and `dogfood_shcl.cmd`. `install.ps1`, `shclpath.ps1`, `winpath-regress.ps1` and `winpath-sandbox.ps1` have param blocks and pass nothing through.
+	- Verified: shell-regress, check-docs, PSScriptAnalyzer on both scripts, shellcheck, `test-ids.py check`.
+	- Branch: `psargs`
+	- Commit: `cbda6273`
+	- Test case: shell-regress `ErkOqpb` (`shcl.ps1` by `-File` and as pwsh's first word, and the steps above on the real binary) and `ErkOqsp` (the bash launcher); win-runners `ErkQHTh`.
 
 - Back up and rewrite a config file when a program's shcl upgrade breaks it
 	- ID: 2026100313461649
@@ -356,9 +370,9 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - The dogfood runner drops quotes and empty arguments under Windows PowerShell 5.1
 	- ID: 2026100307163908
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting for testing
 	- Severity: Avg
-	- Needs external testing: 5.1 on a Windows box
+	- Needs external testing: 5.1 on Windows, through the hosted windows job's win-runners row `ErkQHTh`.
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 8
 	- Version and build: dev at `6e8b7f89`
@@ -369,7 +383,16 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: 20261003, pwsh 7.6 in Legacy mode. `dogfood_shcl.cmd` falls back to 5.1 when pwsh is missing.
 	- Possible cause: `& $exe @passArgs` at `dogfood_shcl.ps1:426`. 20260928 item 4 added `_shcl_native_args` to `shcl.ps1` only.
 	- Origin: `eefd1dba` (dogfood runner, 2026-09-24). Sibling of 20260928 item 4 that its sweep missed. Confirmed.
+	- Actual cause [Bug]: as the possible cause says. 5.1 builds a native command line the old way, and the runner passed its arguments as they came.
 	- Estimated effort: Low
+	- Progress log:
+		- 20261004: fixed. `ErkOqyK` failed before the fix and passes after. The win-runners row has not run yet.
+	- Actual fix [Bug]: the runner quotes its arguments before the call, with the same rules as `_shcl_native_args` in `shcl.ps1`, as the advanced function `ConvertTo-NativeArgument`.
+	- Swept: every native call in a `.ps1` that passes arguments through: `shcl.ps1` (two, already fixed) and `dogfood_shcl.ps1`. `install.ps1` runs `--version` only.
+	- Verified: shell-regress, PSScriptAnalyzer, `test-ids.py check`.
+	- Branch: `psargs`
+	- Commit: `cbda6273`
+	- Test case: shell-regress `ErkOqyK` (Legacy mode of 7, the values of `ErD2LTv` plus the one above); win-runners `ErkQHTh` under 5.1.
 
 - check-migrate leaves out the lines a broken migrate writes as E024, so it passes over a lost value
 	- ID: 2026100307163909
@@ -722,6 +745,23 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Expected behavior: no abort, or a clear error the crosscheck reports as such.
 	- Reproduced: No. Seen once; its stderr was not kept.
 	- Possible cause: a fatal interpreter error under memory pressure rather than shcl code. Unconfirmed.
+	- Estimated effort: Low
+
+- Called from a session, an unquoted `-x:y` argument loses its `-x:` on the way through either PowerShell script
+	- ID: 2026100408550401
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261004-085504
+	- Opened by: found while working 2026100307163905
+	- Related IDs: 2026100307163905, 2026100307163908
+	- Version and build: dev at `2533bbbb`
+	- Steps to reproduce:
+		- `. ./shcl.ps1; shcl get f.shcl -x:y`, or `& ./shcl.ps1 get f.shcl -x:y`, or the same through `dogfood_shcl.ps1`.
+	- Incorrect behavior: the binary gets `get`, `f.shcl` and `y`, and answers for `y`. Under Legacy argument passing it gets `-x:` and `y` as two arguments. The binary called directly gets `-x:y`.
+	- Expected behavior: the binary gets `-x:y`, or the header says to quote it, as it does for `--` and a comma.
+	- Reproduced: 20261004, pwsh 7.6 on Linux. A double-dash spelling such as `--x:y` and a quoted `'-x:y'` go through.
+	- Possible cause: PowerShell splits a single-dash `-x:y` into a parameter token and a value in `$args`, and splatting that token to a native command drops it. Rejoining needs the hidden parameter mark, and `-x: y` with a space looks the same in `$args` while a direct call keeps it as two arguments.
 	- Estimated effort: Low
 
 - `explain` on a retired code could name the code that replaced it
