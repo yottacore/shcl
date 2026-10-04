@@ -27,12 +27,14 @@
 ##		as content and which is a blank at a piece's edge now. A third: a
 ##		value that starts like a Windows path and held a line break, which
 ##		has no spelling both rule sets read alike (E024), so migrate counts it
-##		lost the way it does a bracket array. Each is asserted on a corpus
-##		case, so the list cannot rot.
+##		lost the way it does a bracket array. These are found in the 2.x text,
+##		never in migrate's output. Each is asserted on a corpus case, so the
+##		list cannot rot.
 ##
-##		A compared document also has to migrate at exit 0, and a document whose
-##		only unclean lines are bracket arrays has to be refused over exactly
-##		that many lost lines. The corpus half has its own floor, since the fuzz
+##		A compared document also has to migrate at exit 0. A document with a
+##		path that held a line break has to be refused at 7, and one whose only
+##		unclean lines are bracket arrays and such paths has to be refused over
+##		exactly that many lost lines. The corpus half has its own floor, since the fuzz
 ##		dump alone can meet the overall one, and so does the fuzz half, since the
 ##		corpus alone can meet it too.
 ##	Syntax:
@@ -213,14 +215,48 @@ fCrMidLine(){ grep -q $'\r[^\r]' "$1"; }
 ##	`migrate --write` and `fmt --write` refuse at exit 7. Asked of the current
 ##	parser rather than matched on the text, since what counts is the column the
 ##	indent falls on and not which characters make it up.
-##	A value that starts like a Windows path and held a line break: migrate
-##	writes it the way 2.x read it, which is E024 now, and counts it lost. The
-##	rewrite adds or drops no line ahead of its stamp, so the migrated text's
-##	line numbers are the source's.
-fPathBreak(){
-	{ "${newCli}" migrate --from-2x "$1" 2>/dev/null || true; } \
-		| { "${newCli}" check - 2>/dev/null || true; } | awk '$1 == "line" && $4 == "E024" { sub(/:$/, "", $2); print $2 }'
-}
+##	A value that starts like a Windows path and held a line break. 2.x read
+##	`"C:\work\new"` as `C:\work`, a line break and `ew`, and double quotes are
+##	the one spelling both rule sets read alike. Written there it starts like a
+##	path and has a `\n`, which is E024 now, so migrate counts the line lost.
+##	Found in the 2.x text by the 2.x escapes, since asking migrate's output
+##	lets the code under test pick what is not compared. Each place a value can
+##	start is tried; a comment line and a fence body are left alone.
+fPathBreak(){ python3 -c '
+import re, sys
+esc = {"t": "\t", "n": "\n", "\\": "\\", "\"": "\"", "\x27": "\x27"}
+def piece(s, i):
+	q = s[i] if s[i:i + 1] in ("\"", "\x27") else ""
+	j = i + len(q); out = []
+	while j < len(s):
+		c = s[j]
+		if c == "\\" and j + 1 < len(s):
+			out.append(esc.get(s[j + 1], c + s[j + 1])); j += 2; continue
+		if c == q or (not q and c == ","):
+			break
+		out.append(c); j += 1
+	return "".join(out)
+path = re.compile(r"[A-Za-z]:\\|\\\\")
+with open(sys.argv[1], "rb") as f:
+	lines = f.read().decode("utf-8", "surrogateescape").split("\n")
+fence = ""
+for n, line in enumerate(lines, 1):
+	text = line.strip(" \t\r")
+	if fence:
+		if text.startswith(fence) and not text.strip(fence[0]).strip():
+			fence = ""
+		continue
+	if text.startswith("#"):
+		continue
+	m = re.search(r":[ \t]*(```+|~~~+)", text)
+	if m:
+		fence = m.group(1); continue
+	for m in re.finditer(r"[:,*][ \t]*", text):
+		v = piece(text, m.end())
+		spelled = v.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
+		if "\n" in v and path.match(spelled):
+			print(n); break
+' "$1"; }
 
 fUnplaced(){
 	{ "${newCli}" check "$1" 2>/dev/null || true; } | awk '$1 == "line" && $4 == "E012" { sub(/:$/, "", $2); print $2 }'
@@ -261,14 +297,23 @@ for f in "${corpus}"/*/input.shcl "${dump}"/*.shcl; do
 	check2x="$(fCheck2x "${f}")"
 	unclean="$(fUnclean2x <<<"${check2x}" | sort -un)"
 	arrays="$(awk '$1 == "line" && $3 == "Error:" && $4 == "E019" { sub(/:$/, "", $2); print $2 }' <<<"${check2x}" | sort -un)"
-	if [[ -n "${unclean}" && "${unclean}" == "${arrays}" ]]; then
-		wantLost="$(( $(wc -l <<<"${unclean}") + $(fPathBreak "${f}" | grep -c . || true) ))"
-		gotLost="$({ "${newCli}" migrate --from-2x "${f}" 2>&1 >/dev/null || true; } \
-			| sed -n 's/.*: \([0-9][0-9]*\) line(s) bound a value under 2\.x.*/\1/p')"
-		nLostChecked+=1
-		if [[ "${gotLost:-0}" != "${wantLost}" ]]; then
+	## A path that held a line break is lost wherever it is, so migrate has to
+	## refuse. With no other unclean line than bracket arrays, the count is exact.
+	pathBreaks="$(fPathBreak "${f}")"
+	if [[ -n "${pathBreaks}" || ( -n "${unclean}" && "${unclean}" == "${arrays}" ) ]]; then
+		lostRc=0; lostOut="$("${newCli}" migrate --from-2x "${f}" 2>&1 >/dev/null)" || lostRc=$?
+		if ((lostRc != 7)); then
 			nBad+=1
-			echo "check-migrate: DIVERGE ${name}: 2.x refused ${wantLost} bracket array(s), migrate counted ${gotLost:-0} lost"
+			echo "check-migrate: DIVERGE ${name}: 2.x read a value nothing spells now, and migrate exited ${lostRc}, not the refusal 7"
+		fi
+		if [[ "${unclean}" == "${arrays}" ]]; then
+			wantLost="$(printf '%s\n%s\n' "${arrays}" "${pathBreaks}" | sort -un | grep -c . || true)"
+			gotLost="$(sed -n 's/.*: \([0-9][0-9]*\) line(s) bound a value under 2\.x.*/\1/p' <<<"${lostOut}")"
+			nLostChecked+=1
+			if [[ "${gotLost:-0}" != "${wantLost}" ]]; then
+				nBad+=1
+				echo "check-migrate: DIVERGE ${name}: 2.x read ${wantLost} line(s) as bracket arrays or paths that held a line break, migrate counted ${gotLost:-0} lost"
+			fi
 		fi
 	fi
 	if ! fTrim "${f}" "${tmpDir}/original.shcl" "${check2x}"; then nSkipped+=1; continue; fi
@@ -306,6 +351,12 @@ fInfoHashLabel "${corpus}/068-info-hash-spellings/input.shcl" 2>/dev/null \
 fTest ErUuq8D 170 still has a path that held a line break
 [[ -n "$(fPathBreak "${corpus}/170-unknown-escape/input.shcl")" ]] \
 	|| { echo "check-migrate: 170-unknown-escape no longer has a path that held a line break" >&2; nBad+=1; }
+fTest ErkiUcu the paths that held a line break in 171 are found in its 2.x text
+## A drive, a share, and a list element 2.x read as `E:`, a line
+## break and `ew`, which double quotes write as `"E:\new"`.
+breaks171="$(fPathBreak "${corpus}/171-windows-path-escape/input.shcl" | paste -sd ' ')"
+[[ "${breaks171}" == "3 4 11" ]] \
+	|| { echo "check-migrate: 171-windows-path-escape has paths that held a line break on lines '${breaks171}', not '3 4 11'" >&2; nBad+=1; }
 fTest EpUIoZe 094 still has a mid-line carriage return
 fCrMidLine "${corpus}/094-unicode-space/input.shcl" 2>/dev/null \
 	|| { echo "check-migrate: 094-unicode-space no longer has a mid-line carriage return" >&2; nBad+=1; }
@@ -345,3 +396,6 @@ echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, 
 ##		            dump that wrote nothing passed on the corpus alone.
 ##		2026-09-20  An indent the current parser places nowhere comes out too, and
 ##		            the exception is checked against a document built here.
+##		2026-10-04  Paths that held a line break are found in the 2.x text rather
+##		            than in migrate's output, and any document with one has to
+##		            be refused at 7.
