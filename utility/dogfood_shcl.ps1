@@ -400,6 +400,42 @@ function Get-RunTarget {
 	return $newest.FullName
 }
 
+## Started by -File, PowerShell has parsed the arguments as its own before the
+## script sees them. A `-`-led one with a colon became a name and a value, so
+## `--set=url=http://x` reached shcl as `--set=url=http` and `//x`. The
+## process's own argument list still has them as typed, after this script's
+## path. Nothing when no argument there names this script. As in shcl.ps1.
+function Get-FileArgument {
+	[CmdletBinding()]
+	[OutputType([string[]])]
+	param([string]$Self)
+	$argv = [Environment]::GetCommandLineArgs()
+	$leaf = ($Self -split '[\\/]')[-1]
+	for ($i = 1; $i -lt $argv.Count; $i++) {
+		if (($argv[$i] -split '[\\/]')[-1] -eq $leaf) { return , [string[]]@($argv | Select-Object -Skip ($i + 1)) }
+	}
+	return $null
+}
+
+## Windows PowerShell 5.1, 7 before 7.3, and 7.3 and later set to Legacy, hand
+## a native command one command line built the old way, where an embedded
+## quote goes through bare and an empty argument is left out. So each argument
+## with a blank or a quote is quoted the way shcl's parser reads it back. As
+## _shcl_native_args in shcl.ps1.
+function ConvertTo-NativeArgument {
+	[CmdletBinding()]
+	param([object[]]$Argument)
+	$legacy = $PSVersionTable.PSVersion -lt [version]'7.3'
+	if (-not $legacy) { $legacy = (Get-Variable -Name PSNativeCommandArgumentPassing -ValueOnly -ErrorAction Ignore) -eq 'Legacy' }
+	if (-not $legacy) { return $Argument }
+	foreach ($a in $Argument) {
+		if ($a -isnot [string]) { $a }
+		elseif ($a -eq '') { '""' }
+		elseif ($a -match '[\s"]') { '"' + (($a -replace '(\\*)"', '$1$1\"') -replace '(\\+)$', '$1$1') + '"' }
+		else { $a }
+	}
+}
+
 #==============================================================================
 # Main
 #==============================================================================
@@ -409,10 +445,17 @@ $ErrorActionPreference = 'Stop'
 
 ## Its own flag is taken out; everything else goes to shcl as it came, `-v` and
 ## `-h` included, which is why there is no param() block to bind them.
+$given = $args
+if (-not $MyInvocation.Line) {
+	$fromFile = Get-FileArgument -Self $PSCommandPath
+	if ($null -ne $fromFile) { $given = $fromFile }
+}
+## The flag goes on the left. A `$true` from `-k:$true` on the left equals any
+## word, so that run copied nothing and then found no build.
 $noUpdate = $false
 $passArgs = @()
-foreach ($arg in $args) {
-	if ($arg -ceq '--no-update') { $noUpdate = $true } else { $passArgs += $arg }
+foreach ($arg in $given) {
+	if ('--no-update' -ceq $arg) { $noUpdate = $true } else { $passArgs += $arg }
 }
 
 if (-not $noUpdate) {
@@ -423,10 +466,12 @@ if (-not $noUpdate) {
 
 $exe = Get-RunTarget
 if (-not $exe) { Exit-Launcher "no $ProgramName build held, and none in $($SourceDirs -join ' or ')" }
-& $exe @passArgs
+$nativeArgs = @(ConvertTo-NativeArgument -Argument $passArgs)
+& $exe @nativeArgs
 exit $LASTEXITCODE
 
 ##	History:
 ##		- 2026-09-24 JC: Created, in place of n8runshcl.ps1. Takes the build from the synced dogfood dir rather than the repo, and keeps a GFS-rotated pool with a fixed name on the newest.
 ##		- 2026-09-27 JC: Runs under Windows PowerShell 5.1. The Windows fixed name is in install.ps1's user folder. Stamps in UTC and the invariant culture. Runs the fixed name only when it names the newest pool version. Says why the fixed name was not updated only on a run that took a build. Help block.
 ##		- 2026-09-28 JC: Stamps back in local time. A pool name holding an impossible date is skipped rather than stopping every run.
+##		- 2026-10-04 JC: Takes its arguments from the process when started by -File, which split a `-x:y` one. Quotes them for 5.1 the way shcl.ps1 does.

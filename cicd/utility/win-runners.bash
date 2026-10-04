@@ -331,6 +331,41 @@ fRunDogfood() {
 	done
 }
 
+## Code review 20261003 items 5 and 8: started by -File, the wrapper and the
+## dogfood runner both saw a `-`-led argument with a colon in two pieces, and
+## under 5.1 the runner lost an embedded quote and an empty argument. Both
+## shells run both scripts, and the .cmd launcher runs the runner under
+## whichever shell it finds. Path conversion is off, so every call gets the
+## same bytes.
+fRunPsArgs() {
+	local sh prof app src f bin out want
+	cargo build --quiet --manifest-path source/rust/Cargo.toml || return 1
+	f="${work}/psargs.shcl"; printf 'site: a\nurl: b\n' > "${f}"
+	f="$(cygpath -w "${f}")"; bin="$(cygpath -w source/rust/target/debug/shcl.exe)"
+	local -x MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
+	want="$(source/rust/target/debug/shcl.exe children "${f}" --set=url=http://x)"
+	[[ "${want}" == $'site\nurl' ]] || { echo "win-runners: psargs: the binary gave ${want@Q}" >&2; return 1; }
+	for sh in powershell pwsh; do
+		command -v "${sh}" >/dev/null 2>&1 || continue
+		out="$(SHCL_BIN="${bin}" "${sh}" -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w source/powershell/shcl.ps1)" children "${f}" --set=url=http://x 2>&1)" || true
+		[[ "${out//$'\r'/}" == "${want}" ]] || { echo "win-runners: psargs (${sh}): shcl.ps1 gave ${out@Q}" >&2; return 1; }
+		prof="${work}/pa-${sh}/profile"; app="${work}/pa-${sh}/app"
+		src="${prof}/Dropbox/0-0/common/exec/util/mswin/cli/by-self/win64"
+		mkdir -p "${src}" "${app}"
+		cp source/rust/target/debug/shcl.exe "${src}/shcl.exe"
+		prof="$(cygpath -w "${prof}")"; app="$(cygpath -w "${app}")"
+		out="$(USERPROFILE="${prof}" LOCALAPPDATA="${app}" "${sh}" -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w utility/dogfood_shcl.ps1)" children "${f}" --set=url=http://x 2>/dev/null)" || true
+		[[ "${out//$'\r'/}" == "${want}" ]] || { echo "win-runners: psargs (${sh}): dogfood_shcl.ps1 gave ${out@Q}" >&2; return 1; }
+		out="$(USERPROFILE="${prof}" LOCALAPPDATA="${app}" "${sh}" -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w utility/dogfood_shcl.ps1)" --no-update get '--default=zip="02134"' "${f}" nope 2>&1)" || true
+		[[ "${out//$'\r'/}" == 'zip="02134"' ]] || { echo "win-runners: psargs (${sh}): dogfood_shcl.ps1 lost a quote: ${out@Q}" >&2; return 1; }
+		out="$(USERPROFILE="${prof}" LOCALAPPDATA="${app}" "${sh}" -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w utility/dogfood_shcl.ps1)" --no-update get --default '' "${f}" nope 2>&1)" || true
+		[[ -z "${out//$'\r'/}" ]] || { echo "win-runners: psargs (${sh}): dogfood_shcl.ps1 lost an empty argument: ${out@Q}" >&2; return 1; }
+	done
+	[[ -n "${prof:-}" ]] || return 0
+	out="$(USERPROFILE="${prof}" LOCALAPPDATA="${app}" cmd /c "$(cygpath -w utility/dogfood_shcl.cmd)" --no-update children "${f}" --set=url=http://x 2>/dev/null)" || true
+	[[ "${out//$'\r'/}" == "${want}" ]] || { echo "win-runners: psargs: dogfood_shcl.cmd gave ${out@Q}" >&2; return 1; }
+}
+
 ## 20260924d idea 2's twin: install.ps1 -Uninstall said "removed" with nothing
 ## installed. A scratch LOCALAPPDATA, under 5.1, where the one-liner runs.
 fRunUninstallNothing() {
@@ -412,6 +447,7 @@ case "$(uname -s 2>/dev/null || true)" in
 	MINGW*|MSYS*|CYGWIN*)
 		fRun --id EqbvAmG "uninstall lock" "" fRunUninstallLock
 		fRun --id Er8Neza "dogfood runner" "cargo" fRunDogfood
+		fRun --id ErkQHTh "ps args" "cargo" fRunPsArgs
 		fRun --id Er8O5Tf "uninstall nothing" "" fRunUninstallNothing
 		fRun --id Er8M8AX "ops bom 5.1" "cargo" fRunOpsBom51
 		if [[ -n "${WINRUN_PARTIAL:-}" ]]; then fRunWinpathSandbox
