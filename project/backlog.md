@@ -145,7 +145,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - A field line refused for its name that opens a raw block has its body read as fields, and `fmt --write` scrambles the file at exit 0
 	- ID: 2026100307163902
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting for testing
+	- Needs local test suite run?: the full `--ci`. cppcheck ran on the changed `shcl.h` at the normal level only.
 	- Severity: Critical
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 2
@@ -164,6 +165,18 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: 20261003, from 2026100307310000. The kept-lines property `EreT6dh` skips this class through its row keyed by this ID, and the fix takes the row out. The save gate counts one kept line per retained outcome, so whatever the body becomes, the load must still hold one kept line for each, or a plain `fmt --write` refuses.
 	- Note: 20261003, found while working 2026100307163901. Past the known rows, the 2,000,000 release fuzz fails `EreT6dh` at iteration 1818622 on an `E019` line ending in a fence, with its body read as fields. Same class, so this fix should cover `E019` too.
 	- Estimated effort: Avg
+	- Actual cause [Bug]: two arms moved on one line after keeping it: the `E014` arm, and the arm for a bad escape in a name. `line_fence` saw no fence on a line that did not tokenize, so the misplaced arms let such a body through too, which is the `E012` case at fuzz iteration 555233. The `E019` report at iteration 1818622 was the property's own guess at the value: `a_:[0]:` followed by a three-backtick fence is bracket text, whose value starts with `[`, so it opens no block.
+	- Progress log:
+		- 20261003: fixed in all four. A kept line whose value is a fence keeps the body and closing fence with it, as one kept line, so the save gate's count holds. A line that does not tokenize opens a block when a fence follows its first colon past where reading stopped, with no `#` before that colon. Canonical output writes the body one level under the line, as for a field's block, and a block that never closed gets its closing fence. A misplaced line that opens a block still takes it and is lost, as the `E012` row says.
+		- 20261003: the property's two oracles read a line's value with the tokenizer now, rather than splitting at the first `: `. That guess made the `E019` report above.
+		- 20261003: the 2,000,000 release fuzz is green but for `EreT6dh` on a merge, which is 2026100316012486. The new corpus case moved the seeds, and it now fails first at iteration 749492, a kept line lost after a merge with no raw block in the input. With merges excused locally, nothing else fails up to 2,000,000.
+		- 20261003: left for signoff: canonical output moves a kept body one level under its line, and `fmt` adds the closing fence to a kept block that never closed. Both change what `fmt --write` writes.
+	- Actual fix [Bug]: `line_fence` sees a fence past a fault, and the `E014` and line-fault arms keep the body on the kept line's text (`keep_body`), in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`. The emitter writes it one level under the line (`push_kept`). Spec, design.md (Load outcomes, Lexical edges, Kept lines under edits), `explain E014` and `E023` in the four CLIs, and the changelog say so.
+	- Swept: every arm that refuses a line and moves on, in all four. Field lines: `E012`, `E018` and `E021` go through `skip_field_line`, which now sees past a fault; `E014`, `E019`, `E023` and `E024` through `keep_body`. A child fence line already took its body. A `*` element line (`E012`, `E018`, `E013`, `E023`, `E024`) has no value that can open a block. The Schema and Format line walk (`opens_raw`) reads through the same `line_fence`, so it agrees with the parser. No `E025` arm exists yet; 2026100207032800 adds them. No C++ veneer call changed.
+	- Verified: the four conformance suites, cli-regress, crosscheck over the corpus and a 2,000-input fuzz dump, shell-regress, check-veneer, sanitize-c, check-migrate, check-docs, check-abnf, test-ids, markdownlint, clippy, go vet, staticcheck, ruff, mypy, gcc 15 with `_FORTIFY_SOURCE=3` and the mingw C build. Corpus 191 fails on dev in all four, and `EreT6dh` fails on dev at iteration 25 with its row out. Both pass with the fix.
+	- Branch: `rawkept`
+	- Commit: `0a6d1bb5`
+	- Test case: corpus 191 (`Ergr8Z4`) in all four; fuzz `EreT6dh` (open row taken out) and `EqGWdij` (its `E014` excuse taken out).
 
 - No '\' escapes
 	- ID: 2026100207032800
@@ -472,7 +485,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - A bad escape in the name of a line that opens a raw block leaves the body to be read as lines
 	- ID: 2026100117214801
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting for testing
+	- Needs local test suite run?: as 2026100307163902.
 	- Severity: Low
 	- Note: 20261002, under 2026100207032800 a backslash is text, so this repro no longer fails. A bad `◉` escape in the name, such as `"a◉X◉":`, does the same thing, so the bug stays.
 	- Opened: 20261001-172148
@@ -484,6 +498,15 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Expected behavior: the body goes with its line, as it does for every other skipped field line (`skip_field_line`).
 	- Reproduced: Yes, 20261001, Rust at `5956ff4a`.
 	- Note: the retained line keeps only its own text, so taking the body would need the body kept too, or the line dropped instead.
+	- Actual cause [Bug]: the arm for a line refused for its value or its name moved on one line after keeping it. Only a fault in the name leaves a fence to read there.
+	- Progress log:
+		- 20261003: fixed with 2026100307163902. The body is kept with the line rather than the line dropped, since dropping it would throw out good lines. `x: 1` stays in the body, nothing binds at the root, and `fmt` writes the closing fence, in all four.
+		- 20261003: not checked: the `◉` spelling in the note above, which waits on 2026100207032800. A bad escape in a name should reach the same arm then; recheck it when that is built.
+	- Actual fix [Bug]: as 2026100307163902 (`keep_body` on the line-fault arm).
+	- Swept: as 2026100307163902.
+	- Branch: `rawkept`
+	- Commit: `0a6d1bb5`
+	- Test case: corpus 191 (`Ergr8Z4`), its line 9, in all four.
 
 - `set` on a file ending in a kept line writes the new key above it
 	- ID: 2026100117214802
