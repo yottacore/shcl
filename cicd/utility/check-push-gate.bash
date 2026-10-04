@@ -331,7 +331,7 @@ for libText in "##    Syntax:  ${syntaxUrl}" "##    Syntax   ${syntaxUrl/\/blob\
 		|| fail "a cut whose lib.rs is '${libText}', pushed to main with no tag: exit ${hookRc}, gate ran ${ran} time(s): $(tail -c 300 <<<"${hookOut}")"
 done
 fTest ErkafuD a tree below the first tagged release needs no tag in its banner
-old="$(fBannerCommit 2.0.0 spec '#    Syntax   https://github.com/jim-collier/shcl/blob/main/project/spec.md')"
+old="$(fBannerCommit 2.0.0 spec '#    Syntax   https://github.com/yottacore/shcl/blob/main/project/spec.md')"
 fPush main "${old}"
 ((hookRc == 0 && ran == 1)) || fail "a 2.x tree whose banner links main: exit ${hookRc}, gate ran ${ran} time(s): $(tail -c 300 <<<"${hookOut}")"
 fTest Erkafx3 the check reads the banner in the real lib.rs
