@@ -103,6 +103,33 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Commit: `0a6d1bb5`
 	- Test case: corpus 191 (`Ergr8Z4`) in all four; fuzz `EreT6dh` (open row taken out) and `EqGWdij` (its `E014` excuse taken out).
 
+- A fuzz property and a save-gate check for kept lines, so edits stop losing them one site at a time
+	- ID: 2026100307310000
+	- Type: Task
+	- Status: Waiting on signoff
+	- Priority: High
+	- Opened: 20261003-073100
+	- Opened by: Code review 20261003, OK'd 2026-10-03
+	- Related IDs: 2026100307163901, 2026100307163902, 2026100307163907, 2026100213205957, 2026100117214801, 2026100117214802, 2026100218185700, 2026092620255202
+	- Problem description:
+		- Edits that lose a kept line keep turning up, one site per round: `clear-comments`, then `remove`, the lazy level, nesting and the raw-block arms.
+		- The save gate does not count kept lines, so each of these saves at exit 0.
+		- 800 makes more lines kept, so the class grows with it.
+	- Requirements:
+		- A fuzz property: after any edit, every kept line outside the edit's target is still in the saved text, or the save refuses.
+		- The save gate counts kept lines, in all four bindings.
+		- design.md gets a rule table: each edit and what it does with the kept lines beside and under its target.
+	- Note: best done before the fixes for items 1, 2 and 7 of the same round, so the property tests them.
+	- Estimated effort: Avg
+	- Progress log:
+		- 20261003: built. The save gate counts kept lines in all four bindings, and a C compaction keeps the count. The property holds items 1, 2 and 7 as open rows and found no other class up to 2,000,000 runs. No existing test had to change.
+		- 20261003, review round 1: each binding tests the two kept lines a merge may drop. The refusal reads "this write would delete N line(s)/value(s) from the file" in the four CLIs and the library errors (answered 2026-10-03). The property picks the lines a merge may drop by where they sit, not by text (answered 2026-10-03).
+		- 20261003: review passed. Waits on the hosted Windows run, then signoff, since the refusal wording changed.
+		- 20261004: the full local run passed on dev at `063df7f2`. Hosted run 37213067174 started on dev.
+		- 20261004: hosted run 37213067174 on dev passed, windows job included. Waits on signoff for the refusal wording.
+	- Branch: `keptgate`
+	- Test case: `EreT6dh` (`kept_lines_survive_edits`, fuzz_smoke.rs); per binding `kept_gate` tests `EreRyr7`, `EreUeCs`, `EreRysn` (Rust), `EreUzvf`, `EreUzxY`, `EreUzzO` (Go), `EreVRei`, `EreVRgk`, `EreVRis` (Python), `EreWlg6`, `EreWli7`, `EreWlk5`, `EreZ0ar` (C); the merge's two exceptions `ErfGoMI`, `ErfGoMJ` (Rust), `ErfGoMK`, `ErfGoML` (Go), `ErfGoMM`, `ErfGoMN` (Python), `ErfGoMO`, `ErfGoMP` (C); cli-regress `EreYYXK`; crosscheck `EreXO4J`.
+
 - `migrate` exits 0 on a file whose raw block never closes, and leaves it unstamped
 	- ID: 2026100316275800
 	- Type: Bug
@@ -247,33 +274,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `psargs`
 	- Commit: `cbda6273`
 	- Test case: shell-regress `ErkOqpb` (`shcl.ps1` by `-File` and as pwsh's first word, and the steps above on the real binary) and `ErkOqsp` (the bash launcher); win-runners `ErkQHTh`.
-
-- A fuzz property and a save-gate check for kept lines, so edits stop losing them one site at a time
-	- ID: 2026100307310000
-	- Type: Task
-	- Status: Waiting for testing
-	- Needs external testing: the hosted run on dev, windows job included
-	- Priority: High
-	- Opened: 20261003-073100
-	- Opened by: Code review 20261003, OK'd 2026-10-03
-	- Related IDs: 2026100307163901, 2026100307163902, 2026100307163907, 2026100213205957, 2026100117214801, 2026100117214802, 2026100218185700, 2026092620255202
-	- Problem description:
-		- Edits that lose a kept line keep turning up, one site per round: `clear-comments`, then `remove`, the lazy level, nesting and the raw-block arms.
-		- The save gate does not count kept lines, so each of these saves at exit 0.
-		- 800 makes more lines kept, so the class grows with it.
-	- Requirements:
-		- A fuzz property: after any edit, every kept line outside the edit's target is still in the saved text, or the save refuses.
-		- The save gate counts kept lines, in all four bindings.
-		- design.md gets a rule table: each edit and what it does with the kept lines beside and under its target.
-	- Note: best done before the fixes for items 1, 2 and 7 of the same round, so the property tests them.
-	- Estimated effort: Avg
-	- Progress log:
-		- 20261003: built. The save gate counts kept lines in all four bindings, and a C compaction keeps the count. The property holds items 1, 2 and 7 as open rows and found no other class up to 2,000,000 runs. No existing test had to change.
-		- 20261003, review round 1: each binding tests the two kept lines a merge may drop. The refusal reads "this write would delete N line(s)/value(s) from the file" in the four CLIs and the library errors (answered 2026-10-03). The property picks the lines a merge may drop by where they sit, not by text (answered 2026-10-03).
-		- 20261003: review passed. Waits on the hosted Windows run, then signoff, since the refusal wording changed.
-		- 20261004: the full local run passed on dev at `063df7f2`. Hosted run 37213067174 started on dev.
-	- Branch: `keptgate`
-	- Test case: `EreT6dh` (`kept_lines_survive_edits`, fuzz_smoke.rs); per binding `kept_gate` tests `EreRyr7`, `EreUeCs`, `EreRysn` (Rust), `EreUzvf`, `EreUzxY`, `EreUzzO` (Go), `EreVRei`, `EreVRgk`, `EreVRis` (Python), `EreWlg6`, `EreWli7`, `EreWlk5`, `EreZ0ar` (C); the merge's two exceptions `ErfGoMI`, `ErfGoMJ` (Rust), `ErfGoMK`, `ErfGoML` (Go), `ErfGoMM`, `ErfGoMN` (Python), `ErfGoMO`, `ErfGoMP` (C); cli-regress `EreYYXK`; crosscheck `EreXO4J`.
 
 - The dogfood runner drops quotes and empty arguments under Windows PowerShell 5.1
 	- ID: 2026100307163908
@@ -467,19 +467,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: 20261003, b26 is an Intel Mac that other projects already use, booked through a lock like the Windows boxes. It can build and test the amd64 half and run `lipo`. The ARM half can be cross-built there but not run, so a hosted ARM runner would still have to test it.
 	- Prereq IDs: 2026100314005369
 	- Estimated effort: Avg
-
-- Read the lock script and add b26
-	- ID: 2026100314005369
-	- Type: Task
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261003-140053
-	- Opened by: JC
-	- Related IDs: 2026100313461652
-	- Requirements:
-		- Read the lock script and add b26.
-	- Note: 20261003, the script is `claude_windows-host-lock.bash` in the synced util bash dir. Whether it already takes b26 is not known yet. The b26 notes would go beside the Windows boxes in the per-machine `~/.claude/CLAUDE.md`, so other projects find them too.
-	- Estimated effort: Low
 
 - `Remove` of the last key under a repeated header leaves the header and takes the blank line
 	- ID: 2026100115323232
@@ -1260,6 +1247,23 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Test case: fuzz `ErZx5Et` (`kept_lines_keep_their_path`); corpus `188-kept-line-keeps-parent`; cli-regress `kept-under-kept-fmt`, `kept-before-dotted-fmt`, `set-write-keeps-dropped-gap`, `set-write-gap-fallback-refused`.
 	- Acceptance signoff: 20261003, closed without a hand check: the fuzz property, corpus 188 and the cli-regress rows cover what a hand test would, and the open question on the item went to 2026100218185700.
 	- Closed: 20261003-113243
+
+- Read the lock script and add b26
+	- ID: 2026100314005369
+	- Type: Task
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20261003-140053
+	- Opened by: JC
+	- Related IDs: 2026100313461652
+	- Requirements:
+		- Read the lock script and add b26.
+	- Note: 20261003, the script is `claude_windows-host-lock.bash` in the synced util bash dir. Whether it already takes b26 is not known yet. The b26 notes would go beside the Windows boxes in the per-machine `~/.claude/CLAUDE.md`, so other projects find them too.
+	- Estimated effort: Low
+	- Done: 20261004, outside this repo. The lock script takes b26 by name, with `vmDebARM64` and `vmFreeBSD`, and `~/.claude/CLAUDE.md` says so beside the Windows boxes.
+	- Test case: none in this repo. The script and its notes live in the synced util dir.
+	- Acceptance signoff: Self-closed: done elsewhere.
+	- Closed: 20261004-095708
 
 - The C++ interface is a full binding of its own, with the C interface kept out of sight
 	- ID: 2026092617331100
