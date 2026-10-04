@@ -36,8 +36,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - `remove` deletes kept lines next to the field it removes, at exit 0
 	- ID: 2026100307163901
 	- Type: Bug
-	- Status: Waiting for testing
-	- Needs local test suite run?: the full `--ci`. cppcheck ran on the changed `shcl.h` at the normal level only.
+	- Status: Waiting on signoff
 	- Severity: Critical
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 1
@@ -59,6 +58,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261003: fixed in all four, with 2026100307163907. A remove leaves the kept lines beside its target where they were, with the comments above them. A comment written right against the target goes with it. When the target was the last field in its block, its kept lines stay at the end of the block, and a misplaced line among them moves down to just above the next field line, where a reload files it.
 		- 20261003: tests whose expectation moved. cli-regress `EreYYXK` now expects exit 0 with `r: [1, 2]` kept, where it pinned the refusal at 7. `EreT6dh` lost this item's open row, and its check that a remove writes no new line now reads a raw block's fence moved to its own line as the same line. The reload property `Eqk24nZ` and its Go, Python and C twins now excuse a remove beside a settled kept line, as they already did for `clear_comments` (20260926 item 2). The document keeps that line, and the reload of its canonical text sees a plain comment.
 		- 20261003: left for signoff: which comments go with the target. The fix takes those between the target and the nearest kept line, and keeps the rest.
+		- 20261004: the full local run passed on dev at `063df7f2`, cppcheck exhaustive included.
 	- Actual fix [Bug]: `remove` puts what stays above the next field, or at the end of the block, in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`. design.md's "Kept lines under edits" has three new bullets for it. No table cell changed.
 	- Swept: `remove` in all four. The merge's replaced leaf already moves its kept lines onto the replacement. Every setter goes through `set_value` or its twin, which changes the value in place and keeps the node's lines, and `collapse_dup` folds them into the survivor. `clear_comments` already skipped kept lines. No other edit unlinks a node.
 	- Verified: the Rust, Go, Python and C suites, cli-regress, crosscheck, shell-regress, sanitize-c, check-veneer, clippy, staticcheck, ruff and mypy. Each new test failed with the fix taken out. The 2,000,000 release fuzz is green but for `EreT6dh`, which still fails on the open row of 2026100307163902 first.
@@ -70,8 +70,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - A field line refused for its name that opens a raw block has its body read as fields, and `fmt --write` scrambles the file at exit 0
 	- ID: 2026100307163902
 	- Type: Bug
-	- Status: Waiting for testing
-	- Needs local test suite run?: the full `--ci`. cppcheck ran on the changed `shcl.h` at the normal level only.
+	- Status: Waiting on signoff
 	- Severity: Critical
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 2
@@ -96,6 +95,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261003: the property's two oracles read a line's value with the tokenizer now, rather than splitting at the first `: `. That guess made the `E019` report above.
 		- 20261003: the 2,000,000 release fuzz is green but for `EreT6dh` on a merge, which is 2026100316012486. The new corpus case moved the seeds, and it now fails first at iteration 749492, a kept line lost after a merge with no raw block in the input. With merges excused locally, nothing else fails up to 2,000,000.
 		- 20261003: left for signoff: canonical output moves a kept body one level under its line, and `fmt` adds the closing fence to a kept block that never closed. Both change what `fmt --write` writes.
+		- 20261004: the full local run passed on dev at `063df7f2`, cppcheck exhaustive included.
 	- Actual fix [Bug]: `line_fence` sees a fence past a fault, and the `E014` and line-fault arms keep the body on the kept line's text (`keep_body`), in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`. The emitter writes it one level under the line (`push_kept`). Spec, design.md (Load outcomes, Lexical edges, Kept lines under edits), `explain E014` and `E023` in the four CLIs, and the changelog say so.
 	- Swept: every arm that refuses a line and moves on, in all four. Field lines: `E012`, `E018` and `E021` go through `skip_field_line`, which now sees past a fault; `E014`, `E019`, `E023` and `E024` through `keep_body`. A child fence line already took its body. A `*` element line (`E012`, `E018`, `E013`, `E023`, `E024`) has no value that can open a block. The Schema and Format line walk (`opens_raw`) reads through the same `line_fence`, so it agrees with the parser. No `E025` arm exists yet; 2026100207032800 adds them. No C++ veneer call changed.
 	- Verified: the four conformance suites, cli-regress, crosscheck over the corpus and a 2,000-input fuzz dump, shell-regress, check-veneer, sanitize-c, check-migrate, check-docs, check-abnf, test-ids, markdownlint, clippy, go vet, staticcheck, ruff, mypy, gcc 15 with `_FORTIFY_SOURCE=3` and the mingw C build. Corpus 191 fails on dev in all four, and `EreT6dh` fails on dev at iteration 25 with its row out. Both pass with the fix.
@@ -103,10 +103,37 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Commit: `0a6d1bb5`
 	- Test case: corpus 191 (`Ergr8Z4`) in all four; fuzz `EreT6dh` (open row taken out) and `EqGWdij` (its `E014` excuse taken out).
 
+- A bad escape in the name of a line that opens a raw block leaves the body to be read as lines
+	- ID: 2026100117214801
+	- Type: Bug
+	- Status: Waiting on signoff
+	- Severity: Low
+	- Note: 20261002, under 2026100207032800 a backslash is text, so this repro no longer fails. A bad `◉` escape in the name, such as `"a◉X◉":`, does the same thing, so the bug stays.
+	- Opened: 20261001-172148
+	- Opened by: found while working 2026100115403384
+	- Version and build: dev at `5956ff4a`
+	- Steps to reproduce:
+		- `shcl check` and `shcl fmt` on a line `"a\w":` followed by a three-backtick fence on the same line, then `x: 1`, then a closing fence.
+	- Incorrect behavior: line 1 is `E023` and kept, `x: 1` binds at the root, and the closing fence is `E005` and `E006`. `fmt` writes no closing fence.
+	- Expected behavior: the body goes with its line, as it does for every other skipped field line (`skip_field_line`).
+	- Reproduced: Yes, 20261001, Rust at `5956ff4a`.
+	- Note: the retained line keeps only its own text, so taking the body would need the body kept too, or the line dropped instead.
+	- Actual cause [Bug]: the arm for a line refused for its value or its name moved on one line after keeping it. Only a fault in the name leaves a fence to read there.
+	- Progress log:
+		- 20261003: fixed with 2026100307163902. The body is kept with the line rather than the line dropped, since dropping it would throw out good lines. `x: 1` stays in the body, nothing binds at the root, and `fmt` writes the closing fence, in all four.
+		- 20261003: not checked: the `◉` spelling in the note above, which waits on 2026100207032800. A bad escape in a name should reach the same arm then; recheck it when that is built.
+		- 20261004: the full local run passed on dev at `063df7f2`, cppcheck exhaustive included.
+	- Actual fix [Bug]: as 2026100307163902 (`keep_body` on the line-fault arm).
+	- Swept: as 2026100307163902.
+	- Branch: `rawkept`
+	- Commit: `0a6d1bb5`
+	- Test case: corpus 191 (`Ergr8Z4`), its line 9, in all four.
+
 - A fuzz property and a save-gate check for kept lines, so edits stop losing them one site at a time
 	- ID: 2026100307310000
 	- Type: Task
 	- Status: Waiting for testing
+	- Needs external testing: the hosted run on dev, windows job included
 	- Priority: High
 	- Opened: 20261003-073100
 	- Opened by: Code review 20261003, OK'd 2026-10-03
@@ -125,34 +152,9 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261003: built. The save gate counts kept lines in all four bindings, and a C compaction keeps the count. The property holds items 1, 2 and 7 as open rows and found no other class up to 2,000,000 runs. No existing test had to change.
 		- 20261003, review round 1: each binding tests the two kept lines a merge may drop. The refusal reads "this write would delete N line(s)/value(s) from the file" in the four CLIs and the library errors (answered 2026-10-03). The property picks the lines a merge may drop by where they sit, not by text (answered 2026-10-03).
 		- 20261003: review passed. Waits on the hosted Windows run, then signoff, since the refusal wording changed.
+		- 20261004: the full local run passed on dev at `063df7f2`. Hosted run 37213067174 started on dev.
 	- Branch: `keptgate`
 	- Test case: `EreT6dh` (`kept_lines_survive_edits`, fuzz_smoke.rs); per binding `kept_gate` tests `EreRyr7`, `EreUeCs`, `EreRysn` (Rust), `EreUzvf`, `EreUzxY`, `EreUzzO` (Go), `EreVRei`, `EreVRgk`, `EreVRis` (Python), `EreWlg6`, `EreWli7`, `EreWlk5`, `EreZ0ar` (C); the merge's two exceptions `ErfGoMI`, `ErfGoMJ` (Rust), `ErfGoMK`, `ErfGoML` (Go), `ErfGoMM`, `ErfGoMN` (Python), `ErfGoMO`, `ErfGoMP` (C); cli-regress `EreYYXK`; crosscheck `EreXO4J`.
-
-- A bad escape in the name of a line that opens a raw block leaves the body to be read as lines
-	- ID: 2026100117214801
-	- Type: Bug
-	- Status: Waiting for testing
-	- Needs local test suite run?: as 2026100307163902.
-	- Severity: Low
-	- Note: 20261002, under 2026100207032800 a backslash is text, so this repro no longer fails. A bad `◉` escape in the name, such as `"a◉X◉":`, does the same thing, so the bug stays.
-	- Opened: 20261001-172148
-	- Opened by: found while working 2026100115403384
-	- Version and build: dev at `5956ff4a`
-	- Steps to reproduce:
-		- `shcl check` and `shcl fmt` on a line `"a\w":` followed by a three-backtick fence on the same line, then `x: 1`, then a closing fence.
-	- Incorrect behavior: line 1 is `E023` and kept, `x: 1` binds at the root, and the closing fence is `E005` and `E006`. `fmt` writes no closing fence.
-	- Expected behavior: the body goes with its line, as it does for every other skipped field line (`skip_field_line`).
-	- Reproduced: Yes, 20261001, Rust at `5956ff4a`.
-	- Note: the retained line keeps only its own text, so taking the body would need the body kept too, or the line dropped instead.
-	- Actual cause [Bug]: the arm for a line refused for its value or its name moved on one line after keeping it. Only a fault in the name leaves a fence to read there.
-	- Progress log:
-		- 20261003: fixed with 2026100307163902. The body is kept with the line rather than the line dropped, since dropping it would throw out good lines. `x: 1` stays in the body, nothing binds at the root, and `fmt` writes the closing fence, in all four.
-		- 20261003: not checked: the `◉` spelling in the note above, which waits on 2026100207032800. A bad escape in a name should reach the same arm then; recheck it when that is built.
-	- Actual fix [Bug]: as 2026100307163902 (`keep_body` on the line-fault arm).
-	- Swept: as 2026100307163902.
-	- Branch: `rawkept`
-	- Commit: `0a6d1bb5`
-	- Test case: corpus 191 (`Ergr8Z4`), its line 9, in all four.
 
 - A canonical save after a merge and a raw set loses kept lines, found by the kept-lines fuzz
 	- ID: 2026100316012486
@@ -282,7 +284,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- ID: 2026100307163907
 	- Type: Bug
 	- Status: Queued
-	- Needs local test suite run?: the full `--ci`, with 2026100307163901.
 	- Severity: Avg
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 7
