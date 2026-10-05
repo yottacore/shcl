@@ -310,29 +310,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Decisions:
 		- 20261002: recheck after 2026100207032800 is built, since it removes most of those checks. No perf work before 3.0.0 otherwise.
 
-- A merge can leave a list with a field under it after an empty binding of its name that has fields, which no text reloads as
-	- ID: 2026100511210900
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20261005-112109
-	- Opened by: the work on 2026100207032800
-	- Related IDs: 2026100207032800
-	- Problem description:
-		- A list with a field under it (`E001`) has to be written stacked, since in brackets it is `E028`. After an empty binding of its name, a reload joins its header to that binding, and when that binding has fields the items are dropped (`E008`).
-		- A merge or an edit can leave that shape. The fuzz properties skip it (`list_after_empty` in `fuzz_smoke.rs`).
-		- Question: should a field line under stacked items stop binding (`E001` kept, not bound)? That would remove the shape, but reverses the uniform-or-nothing rule cases 010 and 128 pin.
-	- Decisions:
-		- 20261005: the load stays as is, so the `E001` line still binds. A save that would write this case refuses at exit 7.
-	- Actual fix: the lost count takes in the items of such a list, so `save_file`, the line-keeping save and every `--write` refuse at 7, and `--lossy` writes. The line-keeping save skipped its reload check when the loaded text was canonical, so it falls back to the gate here too. Rust only; the ports take it with 2026100207032800.
-	- Swept: `save_file`, `save_file_keep_lines`, the CLI's write path, a merge and an edit. The three fuzz properties that skipped the case now check the save refuses it, and `EreT6dh` stops its steps there.
-	- Verified: cli-regress `Ers2pP0` exits 0 and loses both items on the code before, and refuses at 7 with the file unchanged after.
-	- Branch: `vsfix`
-	- Commit: `11b069fe`
-	- Test case: conformance `Ers2oF1`; cli-regress `Ers2pP0` and `Ers2pP1`.
-	- Acceptance signoff: Self-closed: does what the 20261005 decision asked, and its tests fail before and pass after.
-	- Closed: 20261005-164930
-
 - A quoted value holding an invalid UTF-8 byte can lose its closing quote and fail as `E017`
 	- ID: 2026100511212359
 	- Type: Bug
@@ -1494,6 +1471,29 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `pathhint`
 	- Commit: `1a12c02`
 	- Test case: corpus `171-windows-path-hint`, cli-regress `path-hint-*` rows. The read and strict rows and case 171 fail with the hint off, and `path-hint-set` shows a write is unaffected. The migrate goldens of cases 118, 122 and 170 now list the hint.
+
+- A merge can leave a list with a field under it after an empty binding of its name that has fields, which no text reloads as
+	- ID: 2026100511210900
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261005-112109
+	- Opened by: the work on 2026100207032800
+	- Related IDs: 2026100207032800
+	- Problem description:
+		- A list with a field under it (`E001`) has to be written stacked, since in brackets it is `E028`. After an empty binding of its name, a reload joins its header to that binding, and when that binding has fields the items are dropped (`E008`).
+		- A merge or an edit can leave that shape. The fuzz properties skip it (`list_after_empty` in `fuzz_smoke.rs`).
+		- Question: should a field line under stacked items stop binding (`E001` kept, not bound)? That would remove the shape, but reverses the uniform-or-nothing rule cases 010 and 128 pin.
+	- Decisions:
+		- 20261005: the load stays as is, so the `E001` line still binds. A save that would write this case refuses at exit 7.
+	- Actual fix: the lost count takes in the items of such a list, so `save_file`, the line-keeping save and every `--write` refuse at 7, and `--lossy` writes. The line-keeping save skipped its reload check when the loaded text was canonical, so it falls back to the gate here too. Rust only; the ports take it with 2026100207032800.
+	- Swept: `save_file`, `save_file_keep_lines`, the CLI's write path, a merge and an edit. The three fuzz properties that skipped the case now check the save refuses it, and `EreT6dh` stops its steps there.
+	- Verified: cli-regress `Ers2pP0` exits 0 and loses both items on the code before, and refuses at 7 with the file unchanged after.
+	- Branch: `vsfix`
+	- Commit: `11b069fe`
+	- Test case: conformance `Ers2oF1`; cli-regress `Ers2pP0` and `Ers2pP1`.
+	- Acceptance signoff: Self-closed: does what the 20261005 decision asked, and its tests fail before and pass after.
+	- Closed: 20261005-164930
 
 - Called from a session, an unquoted `-x:y` argument loses its `-x:` on the way through either PowerShell script
 	- ID: 2026100408550401
