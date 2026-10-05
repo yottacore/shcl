@@ -19,7 +19,7 @@ field: label
 	unit: s
 field: pick
 	type: duration
-	allowed: 1s, 2s
+	allowed: [1s, 2s]
 field: base10
 	type: int
 	decimal: yes

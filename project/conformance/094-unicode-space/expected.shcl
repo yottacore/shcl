@@ -6,5 +6,5 @@ vt: val
 ff: val
 lead:  val
 tail: val
-list: a , b
-cr: x, y
+list: [a , b]
+cr: [x, y]

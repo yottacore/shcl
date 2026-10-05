@@ -1,5 +1,5 @@
 # Typed arrays big enough to force output-buffer growth in every CLI.
-nums: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
-temps: 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5
-flags: true, false, true, false, true, false, true, false, true, false
-days: 2026-01-01, 2026-01-02, 2026-01-03, 2026-01-04, 2026-01-05, 2026-01-06, 2026-01-07, 2026-01-08, 2026-01-09, 2026-01-10
+nums: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+temps: [0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5]
+flags: [true, false, true, false, true, false, true, false, true, false]
+days: [2026-01-01, 2026-01-02, 2026-01-03, 2026-01-04, 2026-01-05, 2026-01-06, 2026-01-07, 2026-01-08, 2026-01-09, 2026-01-10]

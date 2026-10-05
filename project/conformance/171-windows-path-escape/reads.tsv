@@ -9,5 +9,5 @@ temp	string	C:\temp	Good
 mixed	count	1	-
 share	count	1	-
 pair	count	1	-
-list	string	one, "E:\new"	Good
+list	string	[one, "E:\new"]	Good
 last	int	1	Good

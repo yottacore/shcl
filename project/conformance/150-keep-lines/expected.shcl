@@ -5,7 +5,9 @@ version: 3
 server:
 	host: api.example.com
 	port: 8443  # behind the proxy
-	paths: /v1, /v2
+	paths:
+		- /v1
+		- /v2
 
 	tls:
 		enabled: yes

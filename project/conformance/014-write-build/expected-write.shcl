@@ -7,9 +7,9 @@ debug: false
 
 ratio: 0.5
 
-ports: 80, 443, 8080
+ports: [80, 443, 8080]
 
-hosts: alpha, beta, gamma
+hosts: [alpha, beta, gamma]
 
 when: 2026-07-12T10:00:00Z
 
@@ -17,4 +17,4 @@ section:
 
 timeout: 30
 
-windows: 2026-01-01, 2026-06-30
+windows: [2026-01-01, 2026-06-30]

@@ -1,5 +1,5 @@
 query	type	expected	status
 -	load	ok	-
 -	load	fail	-	strict
-servers	string[]	14:30|port: 80|http://example.com|flag:	Good
+servers	string[]	14:30|port: 80|http://example.com	Good
 servers.name	string	-	NotFound

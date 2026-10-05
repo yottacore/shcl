@@ -1,0 +1,16 @@
+# An array is written in brackets. A one-element array keeps them, and []
+# and a bare name with no value are both the empty array.
+port: 80
+one: [80]
+pair: [80, 443]
+none: []
+blank:
+spaced: [1, 2, 3]
+quoted: ["New York", Boston, 'say "hi"', `#FF8800`]
+texts: ["[a]", "b, c", "#1"]  # a comment after the array
+glued: [7]
+
+# Brackets are part of the value, so these are two instances, and the third
+# line is the first again.
+x: 80
+x: [80]

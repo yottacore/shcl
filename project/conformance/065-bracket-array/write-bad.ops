@@ -1,5 +1,5 @@
-literal	ports	[80, 443]
-literal	p2	[1]
-literal-default	p3	[a, b]
-literal	p4	 [x] # c
 literal	r	[80, 443
+literal	r	[a,, b]
+literal	r	[INFO] up
+literal	r	[[1], 2]
+literal	r	80, 443

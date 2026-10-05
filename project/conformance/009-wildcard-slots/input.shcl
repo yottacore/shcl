@@ -3,4 +3,4 @@ base: Boston
 base[Boston].pop: 1
 base: Philly
 base: Chicago
-base[Chicago].pop: two, words
+base[Chicago].pop: [two, words]

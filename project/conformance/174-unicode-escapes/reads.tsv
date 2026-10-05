@@ -1,6 +1,6 @@
 query	type	expected	status
 -	load	ok	-
--	load	ok	-	strict
+-	load	fail	-	strict
 -	lost	0	-
 accent	string	caf\u00E9	Good
 smile	string	\U0001F600	Good
@@ -15,5 +15,5 @@ short	string	-	Good
 surrogate	string	-	Good
 past	string	-	Good
 nothex	string	-	Good
-list	string[]	\u0041|b	Good
+list	string[]		NotFound
 tier["\u0041"].port	int	80	Good

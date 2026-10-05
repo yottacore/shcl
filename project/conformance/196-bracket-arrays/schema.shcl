@@ -1,0 +1,22 @@
+field: port
+	type: int
+	allowed: [80]
+field: one
+	type: int
+	allowed: [80]
+field: pair
+	type: int-array
+	allowed: [80, 443]
+field: none
+	type: int
+field: blank
+field: spaced
+	type: int-array
+field: quoted
+	allowed: [Boston]
+field: texts
+	type: string-array
+field: glued
+	type: int
+field: x
+	allowed: ["80"]

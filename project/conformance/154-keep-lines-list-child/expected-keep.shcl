@@ -1,6 +1,6 @@
 # A child under a stacked list gives the canonical form.
-a: x, y
+a: [x, y]
 	c: 2
 *bad
-b: p, q
+b: [p, q]
 	c: 3

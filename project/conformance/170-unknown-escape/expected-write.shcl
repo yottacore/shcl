@@ -7,7 +7,10 @@ regex: "\d+"
 "n\ame": 1
 srv: a\b
 	port: 80
-list: one, "tw\o", three
+list:
+	* one
+	* "tw\o"
+	* three
 fence:
 	```"C:\x"
 	body

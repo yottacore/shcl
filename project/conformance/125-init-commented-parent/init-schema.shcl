@@ -3,7 +3,7 @@
 # parent's default the way it would under a live parent.
 field: srv
 	type: string
-	repeat: 0, 1
+	repeat: [0, 1]
 	default: web
 
 field: srv.port

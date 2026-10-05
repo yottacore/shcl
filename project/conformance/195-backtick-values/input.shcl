@@ -8,7 +8,7 @@ comma: `a, b`
 mark: `◉TAB◉`
 spaced: ` padded `
 empty: ``
-list: `a`, b, `c, d`
+list: [`a`, b, `c, d`]
 num: `80`
 over: `old`
 oversq: 'old'

@@ -1,5 +1,5 @@
 query	type	expected	status
 -	lost	0	-
 parent.child	int	1	Good
-tilde	string	-	NotFound
+tilde	string	-	Good
 after-tilde	int	1	Good

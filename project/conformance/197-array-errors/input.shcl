@@ -1,0 +1,19 @@
+# A malformed array (E019) and a bare comma (E026) keep their line as
+# written, and the lines under them still load.
+log: [INFO] started
+nest: [[1, 2], 3]
+gap: [a,, b]
+tail: [a, ]
+lead: [, a]
+open: [a, b  # no closing bracket
+	under: 1
+comma: 80, 443
+	kid: 2
+trailing: a,
+alone: ,
+spaced: [New York, Boston]
+quote: ["a, b]
+mark: [◉NOPE◉]
+fine: ["[a]", "b"]
+quoted: "80, 443"
+last: 1

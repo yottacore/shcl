@@ -86,13 +86,31 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 			- A value fault is judged before the element cap, as `E019` and `E023` were, so an open quote past the cap is `E017` and kept.
 			- `migrate` writes a re-spelled piece with the new writer, so its output reads right under the new rules. The fuzz check that `migrate` changes nothing on its own output now holds only stamped output.
 			- `explain E023` says "U+25C9" instead of the mark, since the help text is ASCII.
+		- 20261005: chunk B part 1 done on `vsarr`, off `valsyn`, Rust only.
+			- In: bracket arrays, with `[]` and a bare `x:` both the empty array, the doc's read table, a string read in bracket form, `[80]` kept in brackets, and array setters writing brackets for one element and for none. `E019` for a malformed array, `E026` for a bare comma. Stacked lists with `- `, `E013` for a `*` line, `E027` for `- name:`, and `fmt` and the writer keeping a `- ` list stacked. Schemas take `allowed: [a, b]` and `repeat: [1, 3]`.
+			- Corpus: 85 cases changed. Inputs moved to brackets and `- ` where the array was the point, goldens elsewhere. New cases 196 to 198. The migrate cases' goldens show `E013` and `E026` in the migrated text until chunk C.
+			- cli-regress: about 30 rows or their fixtures edited in place, 19 new, each seen to fail on the code before. shell-regress: the pwsh comma row uses brackets.
+			- Left for part 2: selectors (an array's display is its bracket form now, so a bare selector body never matches one), `E028` (cases 106, 154 and 196 and two sugar rows load an array with lines under it clean until then), merge output (case 179 still merges stacked), and `SetLiteral` and `--set-literal` beyond refusing `E019` and `E026` and storing a bracket array. The help and man page example reads `ports=[80, 443]` now.
+			- The 2,000,000 release fuzz passes all 19 properties on the new seed set.
+		- 20261005: calls made in chunk B part 1 that the doc does not settle. Each is easy to reverse.
+			- An array read of a bare `x:` is still Empty, and of `x: []` it is Good with no elements. A scalar read of `[]` is Empty.
+			- `[ ]` with only blanks inside is `[]`. Spacing inside brackets is not kept.
+			- In a value, a fault in a piece (`E017`, `E023`, `E025`) comes before a bare comma (`E026`), so `"open, b` is `E017` and `Jul 12, 2026` is `E025`. A malformed array (`E019`) comes before both, and of its faults, no closing `]` wins.
+			- A malformed array is judged past the element cap. The scan runs on without keeping pieces, so the cap still refuses only a line that would bind.
+			- A list item that is an array, `- [a]` or `- []`, is `E019` and kept. A bare comma in an item stays `E010` and dropped, since the code table did not retire it.
+			- `E027` is any bare item ending in `:`. Every line led by `*` is `E013`, `* x` and `*x` alike.
+			- An array setter over a stacked list writes brackets, and one with no elements writes `[]` where it used to write an empty value.
+			- A stacked list read from a file stays stacked with a field line under it (`E001`). A writer that adds a child still puts the list in brackets.
+			- A string or untyped field's `allowed` set sees an array's bracket text. A typed scalar field reads `[80]` as 80 for `allowed`, `min` and `max`.
+			- `H001` suggests the bracket form, `x: [a, b]`. `tokens` prints `item` for a `- ` line, and `array=` and `array-fault=` for a bracket array.
+			- A trailing comment on a stacked item still rides the field, so `fmt` moves it to the header line. Lists stay stacked now, so that shows more often. Not filed.
 	- Decisions:
 		- 20261002: idea 3, with the changes listed in the design doc. Open points and their proposed answers are under its Roadmap.
 		- 20261002: a quote anywhere in a bare value is an error, and a bare field name starts with a letter. Dates, times, durations and sizes without spaces stay bare.
 		- 20261002: no new error throws out good lines. A bad bare name that can still be read keeps its block, as a value-only refusal does. The writer quotes a value with `:` only when it ends in one.
 		- 20261002: pre-release Format 3 files are on their own. `fmt` keeps a `- ` list stacked. Setters get no new options, and an overwrite keeps the old quote kind when it can.
 		- 20261003: a merge writes every list in brackets, whatever form its layers used. The error code table in the design doc is final.
-	- Branch: `valsyn` (chunk A on `vslex`)
+	- Branch: `valsyn` (chunk A on `vslex`, chunk B part 1 on `vsarr`)
 	- Commit: `6355ba10` (chunk A)
 	- Test case:
 	- Acceptance signoff:

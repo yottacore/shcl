@@ -2,13 +2,13 @@
 # a piece and content in the middle of one.
 name: 1
 srv[web].port: 2
-list: a, b, c
+list: [a, b, c]
 mid: ab
 note: v#c
 # a whole-line comment behind a carriage return
 stack:
-	*one
-	* two
+	-one
+	- two
 raw: ```sql  # label
 body
 ```

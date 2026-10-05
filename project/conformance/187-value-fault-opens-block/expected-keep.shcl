@@ -4,13 +4,13 @@ wallpaper: "C:◉USERS◉x.png"
 	rotate:
 		enabled: false
 	opacity: 0.5
-ports: [80, 443] # kept
+ports: [80, 443 # kept
 	tls: on
 path: C:\Program Files
-	* one
-	* two
+	- one
+	- two
 nested: "◉Q◉"
-	inner: [x]
+	inner: [x
 sel[web]: "◉Q◉"
 	port: 8
 empty: "◉Q◉"

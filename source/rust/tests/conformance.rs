@@ -436,8 +436,9 @@ fn convenience_tier_falls_back_only_on_good() {
 	// The get-tier value survives only on Good; Empty/BadType/NotFound all fall
 	// back to the call-site default, so a real zero can't be faked. This pins the
 	// semantic every port's *Or/get_*(default=) mirrors.
-	let doc =
-		Document::parse("a: 42\nb: not-a-number\ne:\narr: 1, 2, 3\nblk:\n\t```html\n\thi\n\t```\n");
+	let doc = Document::parse(
+		"a: 42\nb: not-a-number\ne:\narr: [1, 2, 3]\nblk:\n\t```html\n\thi\n\t```\n",
+	);
 	assert_eq!(doc.get_int("a").unwrap_or(9), 42); // Good
 	assert_eq!(doc.get_int("b").unwrap_or(9), 9); // BadType
 	assert_eq!(doc.get_int("e").unwrap_or(9), 9); // Empty still falls back
@@ -1062,10 +1063,10 @@ fn parse_limited_caps() {
 	// 0 is no cap: identical to parse_with.
 	let doc = Document::parse_limited(text, Strictness::Standard, 0, 0, 0).unwrap();
 	assert!(doc.diagnostics().is_empty());
-	// Element cap, inline spelling: the whole line is refused, the rest of the
-	// document is untouched.
+	// Element cap, bracket spelling: the whole line is refused, the rest of
+	// the document is untouched.
 	let doc =
-		Document::parse_limited("arr: 1, 2, 3\nok: 5\n", Strictness::Standard, 0, 2, 0).unwrap();
+		Document::parse_limited("arr: [1, 2, 3]\nok: 5\n", Strictness::Standard, 0, 2, 0).unwrap();
 	let e021: Vec<_> = doc
 		.diagnostics()
 		.iter()
@@ -1078,7 +1079,7 @@ fn parse_limited_caps() {
 	assert_eq!(doc.lost_count(), 1);
 	// Element cap, stacked spelling: each element line past the cap is refused
 	// on its own; the array keeps what fit.
-	let doc = Document::parse_limited("arr:\n\t* 1\n\t* 2\n\t* 3\n", Strictness::Standard, 0, 2, 0)
+	let doc = Document::parse_limited("arr:\n\t- 1\n\t- 2\n\t- 3\n", Strictness::Standard, 0, 2, 0)
 		.unwrap();
 	assert_eq!(
 		doc.diagnostics()
@@ -1088,10 +1089,10 @@ fn parse_limited_caps() {
 		1
 	);
 	assert_eq!(doc.get_int_array("arr"), Ok(vec![1, 2]));
-	// A cap refuses only a line that would bind: bracket text stays E019 and
-	// kept, and an element under a field with a value stays E011.
+	// A cap refuses only a line that would bind: a malformed array stays E019
+	// and kept, and an element under a field with a value stays E011.
 	let doc = Document::parse_limited(
-		"arr: [1, 2, 3]\nk: x\n\t* 1\n",
+		"arr: [1,, 2, 3]\nk: x\n\t- 1\n",
 		Strictness::Standard,
 		0,
 		1,
@@ -1101,19 +1102,20 @@ fn parse_limited_caps() {
 	let codes: Vec<_> = doc.diagnostics().iter().map(|d| (d.line, d.code)).collect();
 	assert_eq!(codes, vec![(1, "E019"), (3, "E011")]);
 	assert_eq!(doc.lost_count(), 1);
-	assert!(doc.to_canonical().contains("arr: [1, 2, 3]"));
+	assert!(doc.to_canonical().contains("arr: [1,, 2, 3]"));
 	// The count the cap judges is the count the array reads back as, spelling
 	// by spelling: quoted commas, a backslash (a character, so it shields
-	// nothing), empty and blank slots, a quoted Unicode blank (content: only a
-	// space or a tab is blank, and bare it is E025). Refused at one under,
-	// kept at exact. A quote that never closes made the comma after it split
-	// before the value syntax; that line is E017 now and binds nothing.
+	// nothing), the empty array, a quoted Unicode blank (content: only a space
+	// or a tab is blank, and bare it is E025). Refused at one under, kept at
+	// exact. A quote that never closes made the comma after it split before
+	// the value syntax; that line is E017 now and binds nothing. An empty slot
+	// is E019 now, and a bare comma E026.
 	#[rustfmt::skip]
 	let counts: &[(&str, usize)] = &[
-		("1, 2, 3", 3), ("\"a, b\", c", 2), ("a\\, b, c", 3), ("a,,b", 2),
-		("a, , b", 2), (" a ", 1), ("\"\", ''", 2), ("'a\", b'", 1),
+		("[1, 2, 3]", 3), ("[\"a, b\", c]", 2), ("[a\\, b, c]", 3), ("[]", 0),
+		("[ ]", 0), (" a ", 1), ("[\"\", '']", 2), ("'a\", b'", 1),
 		// ("\"open, b", 2),
-		("\\", 1), ("x,\"\u{3000}\"", 2), ("x, \"\u{a0}y\"", 2), (", , ,", 0),
+		("\\", 1), ("[x,\"\u{3000}\"]", 2), ("[x, \"\u{a0}y\"]", 2), ("[80]", 1),
 	];
 	for &(spelling, n) in counts {
 		let text = format!("v: {spelling}\n");
@@ -1123,10 +1125,7 @@ fn parse_limited_caps() {
 			"{spelling:?} at cap {n}"
 		);
 		if n == 0 {
-			assert!(
-				doc.exists("v") && doc.get_string_array("v").is_err(),
-				"{spelling:?} empty"
-			);
+			assert_eq!(doc.get_string_array("v"), Ok(vec![]), "{spelling:?} empty");
 		} else {
 			assert_eq!(
 				doc.get_string_array("v").map(|a| a.len()),
@@ -1142,7 +1141,8 @@ fn parse_limited_caps() {
 	// An open quote is judged before the cap, like any value fault, from the
 	// pieces the capped scan kept: the line is kept as written, so the cap,
 	// which refuses only a line that would bind, says nothing.
-	let doc = Document::parse_limited("v: a, \"open, b\n", Strictness::Standard, 0, 1, 0).unwrap();
+	let doc =
+		Document::parse_limited("v: [a, \"open, b]\n", Strictness::Standard, 0, 1, 0).unwrap();
 	let codes: Vec<&str> = doc.diagnostics().iter().map(|d| d.code).collect();
 	assert_eq!(codes, ["E017"]);
 	assert_eq!(doc.lost_count(), 0);
@@ -1396,7 +1396,7 @@ fn setters_refuse_a_value_the_reader_refuses() {
 #[test]
 fn a_backtick_value_reads_raw_with_its_flag() {
 	let _id = test_id("ErpVwnh");
-	let mut doc = Document::parse("c: `#FF8800`\nq: \"x\"\nb: x\na: `1`, b\nn: `7`\n");
+	let mut doc = Document::parse("c: `#FF8800`\nq: \"x\"\nb: x\na: [`1`, b]\nn: `7`\n");
 	let r = doc.read_string("c");
 	assert_eq!(
 		(r.value.as_str(), r.quoted, r.backtick),
@@ -2146,14 +2146,18 @@ fn strict_failure_carries_document() {
 #[test]
 fn raw_is_source_text() {
 	let _id = test_id("ElonRnN");
-	// raw: the verbatim value span from the source line - not the display
-	// join, which rewrites `{2,3}` to `{2, 3}`. Same fixture in every runner
-	// whose read result exposes raw (the C read structs deliberately do not).
-	let doc = Document::parse("regex: ^\\d{2,3}$\nlist: a,  \"b c\"\n");
-	assert_eq!(doc.read_string("regex").raw.as_deref(), Some("^\\d{2,3}$"));
+	// raw: the verbatim value span from the source line, quotes and all - not
+	// the canonical form, which rewrites `[a,  "b c"]` to `[a, "b c"]`. Same
+	// fixture in every runner whose read result exposes raw (the C read
+	// structs deliberately do not).
+	let doc = Document::parse("regex: \"^\\d{2,3}$\"\nlist: [a,  \"b c\"]\n");
+	assert_eq!(
+		doc.read_string("regex").raw.as_deref(),
+		Some("\"^\\d{2,3}$\"")
+	);
 	assert_eq!(
 		doc.read_string_array("list").raw.as_deref(),
-		Some("a,  \"b c\"")
+		Some("[a,  \"b c\"]")
 	);
 	// A written value has no source spelling; raw falls back to display. The
 	// selector's escaped spelling must reach the existing instance.
@@ -2281,7 +2285,7 @@ fn repeat_suppression_uses_parsed_leaf() {
 	let _id = test_id("Elv59bd");
 	// A quoted last segment with a dot must not disavow an unrelated field
 	// that happens to have the split-off text.
-	let schema = Document::parse("field: 'a.\"b.c\"'\n\trepeat: 0, 5\nfield: c\n");
+	let schema = Document::parse("field: 'a.\"b.c\"'\n\trepeat: [0, 5]\nfield: c\n");
 	let doc = Document::parse("c: 1\nc: 2\n");
 	let mut diags = doc.diagnostics().to_vec();
 	assert_eq!(diags.iter().filter(|d| d.code == "H001").count(), 1);

@@ -1,6 +1,6 @@
 query	type	expected	status
 -	load	ok	-
--	load	ok	-	strict
+-	load	fail	-	strict
 -	lost	0	-
 win	string	C:\work\new	Good
 ok-single	string	C:\work\new	Good
@@ -10,7 +10,7 @@ regex	string	\d+	Good
 "n\ame"	int	1	Good
 "n\\ame"	int	-	NotFound
 srv.port	int	80	Good
-list	string[]	one|tw\o|three	Good
+list	string[]		Empty
 fence	rawinfo	"C:\x"	Good
 fence	raw	body	Good
 last	int	1	Good

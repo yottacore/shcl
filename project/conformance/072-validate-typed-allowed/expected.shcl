@@ -2,7 +2,7 @@ blurb:
 	```
 	there
 	```
-ratio: 0.5, 9.9
+ratio: [0.5, 9.9]
 flag: no
 when: 2021-02-03
 n: 3

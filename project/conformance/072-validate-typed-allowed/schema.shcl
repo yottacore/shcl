@@ -3,7 +3,7 @@ field: blurb
 	allowed: hi
 field: ratio
 	type: float-array
-	allowed: 1.5, 2.5
+	allowed: [1.5, 2.5]
 	min: 1.0
 	max: 3.0
 field: flag
@@ -14,4 +14,4 @@ field: when
 	allowed: 2020-01-01
 field: n
 	type: int-array
-	allowed: 1, 2
+	allowed: [1, 2]

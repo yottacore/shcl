@@ -1,4 +1,5 @@
-sizes: small
+sizes:
+	- small
 	color: red
 shape:
 	side: 4

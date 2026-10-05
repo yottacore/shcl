@@ -1,4 +1,5 @@
-literal-default	a	[1, 2]
+literal-default	a	[1,, 2]
 literal-default	a	"open
-literal-default	list	[x]
-literal-default	new	[1, 2]
+literal-default	list	[x
+literal-default	new	[1, 2
+literal-default	new	1, 2

@@ -1,8 +1,8 @@
 # A child under a stacked list gives the canonical form.
 a:
-	* x
-	* y
+	- x
+	- y
 b:
-	* p
+	- p
 	*bad
-	* q
+	- q

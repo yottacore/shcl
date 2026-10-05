@@ -12,8 +12,8 @@ hidden: "a◉U+200B◉b"
 srv: "a b"
 srv["a◉SPACE◉b"].port: 80
 list:
-	* "one◉NEWLINE◉"
-	* two◉SPACE◉three
+	- "one◉NEWLINE◉"
+	- two◉SPACE◉three
 # ◉ in a comment is text, odd count and all
 raw: ```◉info◉
 ◉ body ◉◉
@@ -31,8 +31,8 @@ spaced: "◉NEW LINE◉"
 	gone: 1
 sel["x◉NOPE◉"]: 1
 stack:
-	* "◉NOPE◉"
-	* fine
+	- "◉NOPE◉"
+	- fine
 last: 1
 
 made: "tab◉TAB◉here"

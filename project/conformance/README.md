@@ -17,9 +17,9 @@ Each case is a directory `NNN-short-name/` containing:
 
 - `write.ops` + `expected-write.shcl` (optional, as a pair) - the **Writer** dimension. `write.ops` is a script of write operations (one per line, tab-separated); each binding applies it to `input.shcl` via its library Writer and must produce `expected-write.shcl` byte-for-byte, and that output must be a formatter fixpoint. A blank line or one starting with `#` is skipped. Op grammar (`<T>` = `int|float|bool|string|datetime`):
 	- `<T><TAB>PATH<TAB>VALUE` - set a scalar. `datetime` VALUE is any accepted spelling and is stored canonically.
-	- `<T>-array<TAB>PATH<TAB>V1<TAB>V2...` - set an inline array (no elements = an empty value).
+	- `<T>-array<TAB>PATH<TAB>V1<TAB>V2...` - set an array, written in brackets whatever its length (no elements = `[]`).
 	- `<T>[-array]-default<TAB>...` - set only if the path does not already resolve.
-	- `literal<TAB>PATH<TAB>TEXT` (and `literal-default`) - set from value syntax rather than data, so `80, 443` stores a two-element array where the `string` op would store one quoted string. `TEXT` is read as the value half of a line: it is trimmed, a `#` outside quotes ends it wherever it sits, and text with a line break, an unclosed quote or a leading `[` is rejected.
+	- `literal<TAB>PATH<TAB>TEXT` (and `literal-default`) - set from value syntax rather than data, so `[80, 443]` stores a two-element array where the `string` op would store one quoted string. `TEXT` is read as the value half of a line: it is trimmed, a `#` outside quotes ends it wherever it sits, and text with a line break, an unclosed quote, a bare comma or a malformed array is rejected.
 	- `raw<TAB>PATH<TAB>INFO<TAB>CONTENT` (and `raw-default`) - set a raw block; `INFO` may be empty. `INFO` is taken as written - the escape decode below is for `CONTENT` only.
 	- `empty<TAB>PATH`, `comment<TAB>PATH<TAB>TEXT`, `clear-comments<TAB>PATH`, `remove<TAB>PATH`.
 	- `banner<TAB>on` puts the info block at the end, taking an old one off first. `banner<TAB>off` only takes it off.
@@ -42,7 +42,7 @@ Each case is a directory `NNN-short-name/` containing:
 
 Case `001` corrects the autoformat shown in `../../../notes.txt`: instances are kept in **insertion order** (Chicago, Cleveland, Boston, Philly), not sorted alphabetically, and values are **minimally quoted** (city names stay bare unless a reserved char forces quotes). Those two points are the intentional divergence from the original by-example draft.
 
-Case `002` pins the stacked (`*`) array form: an inline comma array and the `*`-per-line form read byte-identical and both canonicalize to the inline form, while repeated leaf lines stay separate **instances** (not an array).
+Case `002` pins the stacked (`- `) array form: a bracket array and the `- `-per-line form read byte-identical, `fmt` keeps each in the form it was written, and repeated leaf lines stay separate **instances** (not an array).
 
 Case `003` pins the strictness bundles on coercion: currency, `%`, float->int rounding, and the widened boolean set exist only at `loose`; `strict` narrows booleans to `true`/`false`.
 
@@ -50,7 +50,7 @@ Case `004` pins load behavior per level: a malformed line is skipped with a diag
 
 Case `005` pins raw-block binding: a fence is a value line for its parent field - both spellings (same-line and the canonical child-indent) bind as the field's value; a fence under an already-valued field creates a new instance, addressed with the normal `[0]`/`[#N]` selectors.
 
-Case `006` pins forgiving inline arrays: stray commas never error. Leading, doubled, and trailing commas drop their empty slots (`red,,blue` -> `red, blue`), an all-comma value (`,,,`) is the empty array, and a `""`-quoted element is the one way to keep a deliberately empty slot.
+Case `006` pins comma edges: a bare comma outside brackets is `E026`, and an empty element inside them is `E019`, leading, doubled or trailing. Each line is kept as written and nothing is lost. Spacing inside brackets is not kept, and a `""`-quoted element is the one way to write an empty one.
 
 Case `007` also pins that a multibyte char inside a time-shaped value's zone tail is a plain `BadType`, never a crash.
 
@@ -58,17 +58,17 @@ Case `008` pins 10-element typed arrays of every kind (int, float, bool, datetim
 
 Case `009` pins wildcard slot alignment: a missing sub-path keeps its slot (per-slot `NotFound`, value zero/default), an uncoercible one reads `BadType`, the aggregate status is the worst slot, and `count`/`instances` stay index-aligned with the read (unresolved slots enumerate as "").
 
-Case `010` pins uniform-or-nothing: mixing `*` elements and field children under one parent is not a block array - the first mixed field diagnoses an Error (and keeps the field), every `*` line after a field child is an Error and is dropped, and the document loads at `standard` but fails at `strict`.
+Case `010` pins uniform-or-nothing: mixing `- ` items and field children under one parent is not a block array - the first mixed field diagnoses an Error (and keeps the field), every `- ` line after a field child is an Error and is dropped, and the document loads at `standard` but fails at `strict`.
 
-Case `011` pins array-as-string: a multi-element value read as one string is the canonical inline form (minimal quoting, escapes intact), while the array-of-strings read unquotes and applies escapes per element. Its `base[Boston, MA]` line selected the array-valued instance by its display form; a bare selector body cannot hold a space now (`E025`), so the line is kept and takes its block with it.
+Case `011` pins array-as-string: an array read as one string is its canonical bracket form (minimal quoting, escapes intact), while the array-of-strings read unquotes and applies escapes per element. Its `base[Boston, MA]` line selected the array-valued instance by its display form; a bare selector body cannot hold a space now (`E025`), so the line is kept and takes its block with it.
 
 Case `012` pins raw-block identity: the info-string is part of a block's value, so equal bodies with `sql` and `python` infos are two instances (never a silent merge that drops an info).
 
 Cases `014`-`016` pin the **Writer**. `014` builds a document from an empty base (scalars, arrays, a comment above a later-set field, an empty section, and a `-default` that no-ops when the field already exists). `015` edits an existing document (overwrite the first instance of a leaf, `-default` that keeps the present value, `remove`, and a `[value]` selector that adds children under the matching instance). `016` pins the emit hazards: raw blocks (info string as identity), a string that looks like a fence, tricky strings (tab/quote/backslash and a fence-lookalike, minimally quoted so they read back verbatim), an explicit empty string (`""`, distinct from an empty value), and a bare 8-digit date stored canonically.
 
-Case `013` pins comment preservation through `fmt`: a whole-line comment re-emits above the node bound by the next line (merged instances concatenate theirs), a trailing comment stays on its line (a second one from a merged instance moves above), comments among `*` elements ride the field line, a comment between a bare header and its fence attaches to that field, `#` inside a raw block stays content, and comments after the last binding line re-emit at the end. The older cases' expected files have their inputs' comments too.
+Case `013` pins comment preservation through `fmt`: a whole-line comment re-emits above the node bound by the next line (merged instances concatenate theirs), a trailing comment stays on its line (a second one from a merged instance moves above), comments among `- ` items ride the field line, a comment between a bare header and its fence attaches to that field, `#` inside a raw block stays content, and comments after the last binding line re-emit at the end. The older cases' expected files have their inputs' comments too.
 
-Case `017` pins merge-key injectivity: a single element holding a literal NUL (`x: "a<NUL>b"`) stays distinct from the two-element array `x: a, b` (`count = 2`), where a bare-NUL-joined key would merge them and drop the second. The input contains an actual NUL byte, so the cross-binding differential skips it (bash cannot hold a NUL) and the four native runners do the pinning.
+Case `017` pins merge-key injectivity: a single element holding a literal NUL (`x: "a<NUL>b"`) stays distinct from the two-element array `x: [a, b]` (`count = 2`), where a bare-NUL-joined key would merge them and drop the second. The input contains an actual NUL byte, so the cross-binding differential skips it (bash cannot hold a NUL) and the four native runners do the pinning.
 
 Case `018` pins `field[disc]: value`: a value after a last-segment selector is an `error` (the instance is created from the discriminator, the value dropped), so the document loads at `standard` but fails at `strict`, and `city` ends up with the two discriminator instances.
 
@@ -120,15 +120,15 @@ Note when reading comparison counts: the fuzz seed set includes the corpus input
 
 Case `046` pins partial validation under a schema fault: a bad `min` is a `V092` at its schema line, the surviving constraints still flag a wrong type and a missing required field, and the unknown field draws no `V001` (the sweep needs a fault-free schema).
 
-Case `047` pins that a schema fault which loses a path (`field: workers, extra`, `V093`) still holds the unknown-field sweep back, so `mystery` draws no `V001`.
+Case `047` pins that a schema fault which loses a path (`field: [workers, extra]`, `V093`) still holds the unknown-field sweep back, so `mystery` draws no `V001`.
 
 Case `048` pins `H002` three levels deep: re-opening `table: users` hints at the reopened line and at each nested re-mention, beside the `H001` for the repeated `col`. Under the schema, `reopen: true` drops the top hint and `repeat` drops the `H001`, while the nested hints stay.
 
 Case `049` pins retained lines: a malformed line inside a block and one at the top level (`E014`, `E013`) are kept verbatim, written back where they sat, and count nothing lost.
 
-Case `050` pins that quoting decides a value's elements: `x: "a, b"` is one element and `x: a, b` two, so they are two instances (`H001`) and `x["a, b"]` selects the first.
+Case `050` pins that quoting decides a value's elements: `x: "a, b"` is one element and `x: [a, b]` an array, so they are two instances and `x["a, b"]` selects the first.
 
-Case `051` pins a selector that reaches an instance written another way: a quoted `x['a"b, c']` finds the one-element instance, while `y["p, r"]` and `z["m, n"]` match nothing and create an instance. A bare `x[a"b, c]` on a file line is `E025` and takes its block with it, and in a lookup it matches both instances (`Multiple`).
+Case `051` pins a selector that reaches an instance written another way: a quoted `x['a"b, c']` finds the one-element instance, while `y["p, r"]` and `z["m, n"]` match nothing and create an instance. A bare `x[a"b, c]` on a file line is `E025` and takes its block with it. In a lookup it matches only the one-element instance, since the stacked list reads as `['a"b', c]`.
 
 Case `052` pins edge whitespace through the writer: a value set with a no-break space, a vertical tab, a form feed or another Unicode space at an edge is quoted on output, so it reads back whole.
 
@@ -146,7 +146,7 @@ Case `058` pins raw-block nesting: the closing fence's indent is what comes off 
 
 Case `059` pins the two raw-block errors: a fence with no parent field (`E006`, the block is dropped) and a block that never closes (`E005`, the content runs to the end of the file and the block still binds).
 
-Case `060` pins the stacked-list errors: an element with no parent field (`E007`), an empty element (`E009`, a `*` followed only by a comment), a bare comma in an element (`E010`), and an element under a field that already holds a value (`E011`). The survivors still read as the list.
+Case `060` pins the stacked-list errors: an item with no parent field (`E007`), an empty item (`E009`, a `-` followed only by a comment), a bare comma in an item (`E010`), and an item under a field that already holds a value (`E011`). The survivors still read as the list.
 
 Case `061` pins `E012`: a dedent to a column that matches no open level is skipped and written back as it was, and the next line at a real level binds where it belongs.
 
@@ -156,7 +156,7 @@ Case `063` pins `remove` followed by a `-default` on the same path: the default 
 
 Case `064` pins that `raw` refuses an info string holding a `#`, which the fence line would read as a comment.
 
-Case `065` pins bracket text after the colon (`ports: [80, 443]`): `E019`, kept as written, nothing read and nothing lost. Its `write-bad.ops` refuses the same text from `literal`, in the default form, behind a comment and with no closing bracket, and `write.ops` accepts the quoted string.
+Case `065` pins `literal` on bracket arrays: `[80, 8080]`, `[1]`, `[]`, the default form and a trailing comment all store an array, and the quoted string `"[80, 443]"` stays a string. Its `write-bad.ops` refuses a missing `]`, an empty element, text after the `]`, a nested array and a bare comma.
 
 Case `066` pins comment text through the writer: a trailing space comes off, a trailing no-break space stays, and an empty comment is a bare `#`.
 
@@ -204,7 +204,7 @@ Case `087` pins where a merge puts a layer holding only a comment: above the bas
 
 Case `088` pins a quote in the middle of a bare value as an error (`E025`), on a field line and a stacked element: each line is kept as written, a trailing comment stays a comment, and a quoted `#` reads as written.
 
-Case `089` pins bracket text behind a colon that is not the field's own: after a quoted name holding one, a selector holding one, and selector sugar, `[80, 443]` is still `E019`, kept, with nothing lost.
+Case `089` pins that a colon before the field's own colon does not hide a bracket array: after a quoted name holding one and a selector holding one, `[80, 443]` reads as an array, and one with text after its `]` is `E019`, kept, with nothing lost.
 
 Case `090` pins a crossed range (`min` above `max`): `V092` at its schema line, while the other constraints still apply and the unknown-field sweep still names `bogus` and `other`.
 
@@ -216,7 +216,7 @@ Case `093` pins `allowed` on a datetime with an offset: the same instant written
 
 Case `094` pins what trimming takes off a bare piece: a space, a tab and a carriage return. A no-break space, a line separator, a vertical tab or a form feed left at an edge is whitespace inside the piece, so the line is `E025` and kept as written.
 
-Case `095` pins that a dropped element holds its level: what is written under an `E008`, `E009` or `E011` element is `E018` and lost with it.
+Case `095` pins that a dropped item holds its level: what is written under an `E008`, `E009` or `E011` item is `E018` and lost with it.
 
 Cases `096` and `097` pin a raw block that never closes, with and without a final newline: `E005`, and the block reads `body` either way.
 
@@ -232,15 +232,15 @@ Case `102` pins one field written twice in a schema (`w` and `w[*]`): `init` wri
 
 Case `103` pins an all-digit selector past the u64 range: an index naming no instance, so the binding line is `E003` and lost, a read is `NotFound`, and a write through it is refused.
 
-Case `104` pins an element with no parent field at the top of a file (`E007`, dropped): its trailing comment is kept.
+Case `104` pins an item with no parent field at the top of a file (`E007`, dropped): its trailing comment is kept.
 
 Case `105` pins bare selector bodies holding an apostrophe or a mid-text quote as `E025`, a trailing backslash as text, and quoted ones spanning a `]` or holding a `#`, each followed by a comment that stays a comment. A refused line is kept and takes its block with it.
 
-Case `106` pins the 2.x selector sugar under the 3.0 rules: `base:[Boston]` is bracket text, `E019` and kept, and the load fails at Strict. The line under it loads under `base` with no value, so `base.lat` reads while `base[Boston].lat` does not, and nothing is lost.
+Case `106` pins the 2.x selector sugar under the 3.0 rules: `base:[Boston]` is a one-element array, so `base.lat` reads under it while `base[Boston].lat` does not, `[prod]` and `["a, b"]` are arrays, and `srv:[web].name: [Boston]` is `E019` for the text after its first `]`, kept, with nothing lost. The load fails at Strict.
 
 Case `107` pins recursive fragment mounts under the validation memo: a type fault seven mounts down (`V003`), a star path through a mount, and an unknown leaf at the bottom (`V001`) are all still reported.
 
-Case `108` pins bracket text holding an index or a wildcard (`[80]`, `[*]`): `E019`, kept, nothing lost.
+Case `108` pins a bracket array holding an index or a wildcard (`[80]`, `[*]`): an ordinary array of that text, with nothing lost.
 
 Case `109` pins a `#` in a bare selector body on a file line: it opens a comment, the selector is left unterminated (`E014`), and the line is kept with nothing lost. `[#N]` is a lookup spelling only.
 
@@ -260,7 +260,7 @@ Case `116` pins a selector body that opens a quote it never closes: `E017`, and 
 
 Case `045` pins comment depth under childless headers: a header whose children are all commented keeps them indented under it (top-level, nested, and at end of file), while a commented line trailing a live child keeps the existing trails-the-binding placement.
 
-Case `044` pins the value-syntax setter: an array, a single element, a quoted element keeping its internal comma, trimming, a `#` outside quotes ending the value wherever it sits (`#ff0000` leaves it empty, `a#b` keeps `a`, `x#` keeps `x`), an empty value, and the only-if-absent form both skipping an existing path and creating a new one. Its `write-bad.ops` pins the two rejections - a value opening a quote it never closes (the same text the parser reports `E017` for) and a wildcard path.
+Case `044` pins the value-syntax setter: an array, a single element, a quoted element keeping its internal comma, trimming, a `#` outside quotes ending the value wherever it sits (`#ff0000` leaves it empty, `a#b` keeps `a`, `x#` keeps `x`), an empty value, and the only-if-absent form both skipping an existing path and creating a new one. Its `write-bad.ops` pins the rejections: a value opening a quote it never closes (the same text the parser reports `E017` for), a wildcard path, a bare comma (`E026`), and a malformed array (`E019`), with no closing `]` or with text after it.
 
 Case `117` pins how `migrate` rewrites a 2.x `name:[disc]` line on a last segment. A discriminator with a fence run or a leading `[` is quoted when the sugar becomes a value, so the rewrite opens no raw block and no bracket text, at top level, nested, spaced, with a trailing comment and with children below. An ordinary discriminator stays bare (`plain: Boston`), one the formatter would quote is quoted (`city: "New York"`), and the author's quotes are kept. The input itself is refused line by line under the current rules, which is the damage migrate exists to prevent.
 
@@ -272,7 +272,7 @@ Case `124` pins a CRLF file whose raw block closes before a line `migrate` rewri
 
 Case `120` pins `init` on a last-segment by-value selector with a default: the line is written as the bare path with the default (`env: prod`), and without a default the selector line stays.
 
-Case `121` pins that a default form judges the value as well as the path. Its `write-bad.ops` gives bracket text and an open quote on paths that already resolve, where the form writes nothing, and bracket text again on a path that does not. Every line is refused either way.
+Case `121` pins that a default form judges the value as well as the path. Its `write-bad.ops` gives a malformed array and an open quote on paths that already resolve, where the form writes nothing, and a malformed array and a bare comma on a path that does not. Every line is refused either way.
 
 Case `125` pins an optional child of an optional valued field in `init`: the commented child selects the parent by its default (`# srv[web].port: 80`), so uncommenting both lines names one instance. The input is that output with both lines uncommented.
 
@@ -282,7 +282,7 @@ Case `130` pins a wildcard remove over a leaf that repeats under one instance. A
 
 Case `129` pins a remove that matches many nodes at once. One path takes every child of a parent, another takes several top-level instances, a third matches nothing, and a write after them shows the parent and the name index still answer. Each match used to be dropped on its own, rebuilding the parent's whole child list every time.
 
-Case `128` pins the column a kept `*` element holds, beside case `095`'s dropped one (20260918b item 28). A field written deeper binds under the field (`E001`), the next field at the element's column binds as its sibling, and an element after a field child is `E008`. Every later sibling used to be `E012` and lost.
+Case `128` pins the column a kept `- ` item holds, beside case `095`'s dropped one (20260918b item 28). A field written deeper binds under the field (`E001`), the next field at the item's column binds as its sibling, and an item after a field child is `E008`. Every later sibling used to be `E012` and lost.
 
 Case `127` pins the `init` shapes where the generator guessed what the scanner would read (20260918b items 6, 7, 8, 25, 26 and 27). The first of two lines on one path is the instance its child selects. Two by-value fields with different values are two instances. An all-digit value past 64 bits is a quoted body, since bare it reads as an index. A `#` in a selector body is quoted. A fragment name holding a line break stays inside the trailing block. The input is the output with every line uncommented, and its reads count the instances. A child of an array value had a selector of the elements joined, which a bare body cannot spell now, so those fields are commented out of its schema.
 
@@ -292,7 +292,7 @@ Case `132` pins a space-indented file and a subtree indented tab-then-spaces, wh
 
 Case `133` pins a leading UTF-8 BOM, the ASCII-only case fold, and non-ASCII field names. `Srv` and `srv` are one container and an uppercase lookup finds it. `"clé"` and `"Clé"` fold together; `"CLÉ"` folds to `"clÉ"` and is a different field, because the fold is A-Z only and C counts bytes. A bare non-ASCII name is `E014` at the byte column where the name stops being bare.
 
-Case `134` pins real override for a raw block and an inline array, which `design.md` promises and the merge dimension only ever pinned for scalars and repeated leaves. The base layer's shell block and three-element array are replaced whole by the top layer's python block and single element, and a raw over-value fills the base's empty binding.
+Case `134` pins real override for a raw block and a bracket array, which `design.md` promises and the merge dimension only ever pinned for scalars and repeated leaves. The base layer's shell block and three-element array are replaced whole by the top layer's python block and single element, and a raw over-value fills the base's empty binding.
 
 Case `135` pins a schema path with a value selector, and the `bool-array` and `datetime-array` types, which no other schema names. The `max` on `srv[web1].port` leaves `srv[web2]`'s larger port alone, so a selector read as a wildcard shows up as an extra diagnostic.
 
@@ -302,7 +302,7 @@ Case `137` pins that a line matching no open level (`E012`) closes none of the l
 
 Case `138` pins that a run of whole-line comments keeps its order and its nesting. A commented-out header and its commented-out child, at the top level, inside a block and at the end of the file, and a run whose later comments sit deeper than the block the first one trails. The input is its own canonical form. The deeper comment used to hang on an earlier block and come back ahead of the comments written before it.
 
-Case `139` pins a comment and a malformed line written under a stacked list whose field ends up equal to an earlier instance, `q: 3` then `q:` with `* 3`. The field folds into the first `q` at the end of the load. Both lines were filed on the instance that went away and were not written back.
+Case `139` pins a comment and a malformed line written under a stacked list whose field ends up equal to an earlier instance, `q: [3]` then `q:` with `- 3`. The field folds into the first `q` at the end of the load. Both lines were filed on the instance that went away and were not written back.
 
 Case `140` pins where a comment inside a block goes when the block has children. The input's comment sits between the block's column and its child's, so the load files it on the block, where a reload of the canonical text files it on the last child. The merged golden has the comment right after `b`. Filed on the block, it went after the base layer's `c`, while the canonical form merged with it after `b`. Both layers also end on the same commented-out footer, nested one level deeper in the top one. The merge keeps one copy of each repeated line, and the top layer's last line comes one level past the base's line before it, since a reload would read no deeper.
 
@@ -312,11 +312,11 @@ Case `142` pins a comment left above a block's later instance. `# c` follows `p`
 
 Case `143` pins where comments go once a merge or a write changes a block, which must be where a reload of the saved text puts them. Three layers merged at once keep `# inside` right after `c`, above the top layer's `d`, as merging two and then the third from saved text does. Two children written into `k`, whose only line is a comment, get the comment between them, as two separate runs of `set` do. And a raw block after an empty `b` has its trailing comment written on the line above it, which a reload files as a leading comment, so it stays there once the empty `b` is set to 5.
 
-Case `144` pinned the `H003` hint, now retired. A bare stacked element written `name: value` is `E025` for its space and kept as written, `name:` and text with a colon and no blank read as plain elements, and the list stays stacked around the kept lines.
+Case `144` pinned the `H003` hint, now retired. A stacked item written `name: value` is `E025` for its space and kept as written, `- flag:` is `E027` and kept, text with a colon and no blank reads as a plain item, and the list stays stacked around the kept lines.
 
 Case `145` pins which misplaced lines a save keeps. An `E012` line whose indent holds a space is written back as it was, and so is an `E018` line under it. An `E012` line indented with tabs alone would bind on a reload, so it is lost. A kept line that a re-opened block moves up to the top of the file would bind there as written, so it is written as a comment instead.
 
-Case `146` pins a stacked list holding kept lines among its elements and after the last one. The list stays stacked with each line where it was, so a line fixed by hand is still inside the list. Without them the same list is written inline.
+Case `146` pins a stacked list holding kept lines among its items and after the last one, here `*` lines in the old marker (`E013`). The list stays stacked with each line where it was, so a line fixed by hand is still inside the list.
 
 Case `147` pins how a misplaced line fares by indent style (`design.md` -> Load outcomes). Output is always tabs, so a stray space in a tab-indented block and a miscounted run of spaces in a space-indented block are kept as written. A tab line in a block that skips a level and a stray tab in a space-indented block would line up with a tab level on a reload, so both are lost and a save refuses.
 
@@ -324,7 +324,7 @@ Case `148` pins `clear-comments`: every comment line above a node comes off, a g
 
 Case `149` pins `banner on`: an old info block in the footer comes off, found by its version line, not its links, and so does a bare version stamp from `migrate`. A `##` comment set off by a blank line stays. A second `banner on` changes nothing. Its `write-bad.ops` refuses a value other than `on` or `off`.
 
-Case `150` pins the save that keeps lines on a file kept by hand: four-space indents, padded values, a quoted value and capital letters in names. A changed value goes into its own line with the spacing and comment around it left alone, a new child takes its siblings' indent, a removed field takes its lines with it, and a rewritten raw block keeps the name's spelling. A stacked list given new values comes back inline.
+Case `150` pins the save that keeps lines on a file kept by hand: four-space indents, padded values, a quoted value and capital letters in names. A changed value goes into its own line with the spacing and comment around it left alone, a new child takes its siblings' indent, a removed field takes its lines with it, and a rewritten raw block keeps the name's spelling. A stacked list given new values comes back in brackets, the way an array setter writes one.
 
 Case `151` pins the edges of a file: a byte-order mark, CRLF line ends and no newline at the end all stay, and a new line gets CRLF too.
 
@@ -332,7 +332,7 @@ Case `152` pins two edits that give the canonical form: a child added under flat
 
 Case `153` pins a comment above a flat dotted line and above a selector line. The canonical form writes each comment inside the block the line makes, and the save keeps both as written. A changed value on either line goes into the line.
 
-Case `154` pins a child under a stacked list. Kept stacked, the list would reload with `E001`, so the save gives the canonical form. There the list goes inline, and a malformed line kept among its elements moves above it.
+Case `154` pins a child under a stacked list. Kept stacked, the list would reload with `E001`, so the save gives the canonical form. There the list goes in brackets, and a malformed line kept among its items moves above it.
 
 Case `155` pins a selector that puts a child under an earlier block. The canonical order differs from the file's, so an edit anywhere gives the canonical form.
 
@@ -344,13 +344,13 @@ Case `158` pins a repeated field at the end with a new field written after it. T
 
 Case `159` pins a line the load dropped, a tab-only indent that matches no level. A save that keeps lines writes it back as it was, with a new child of the block above it written above it.
 
-Case `160` pins a dropped list element between two instances of a block, kept as written when the second one is edited.
+Case `160` pins a dropped list item between two instances of a block, kept as written when the second one is edited.
 
 Case `161` pins info blocks a hand edit moved out of the footer, one above a plain field and one above a dotted line. `banner on` takes both off and adds one at the end. A comment nested under a footer block moves out to the column the block was at.
 
 Case `162` pins the `comments` read: the lines above a node from the `#` on, both instances' lines for a repeated leaf, nothing for a node with none or a missing path.
 
-Case `163` pins a comment at an element's column after a stacked list's last element: it stays inside the list, under an inline list and under one a malformed element keeps stacked.
+Case `163` pins a comment at an item's column after a stacked list's last item: it stays inside the list, with and without an old-marker line kept among the items.
 
 Case `164` pins quoted data values in canonical output: a quoted int, float, bool or date comes back bare, element by element, while a quoted plain string keeps its quotes.
 
@@ -382,7 +382,7 @@ Case `177` pins the `duration` and `size` schema types: `unit`, `decimal`, and `
 
 Case `178` pins a misplaced line kept as written that turned into a comment, once from the load under a line skipped for an escape in its name, since as written it would bind, and once from a setter that unstacks the list it sat in. `clear-comments` takes the real comment above it and leaves it, and `comments` does not list it.
 
-Case `179` pins a merge onto a list the lower layer writes stacked. The spelling shows only while a kept line holds the list stacked, and a reload of that layer would lose it, so the kept line the higher layer brings is written under the list inline, as it is when the lower layer writes it inline.
+Case `179` pins a merge onto a list the lower layer writes stacked: the higher layer's `x: [2]` is the same list, and the kept line it brings is written under the merged list.
 
 Case `180` pins `banner on` with an info block above the first field's first child. A dotted first line hangs a block at the top of the file on its last name, and a saved file writes that name as the first field's first child, so the two cannot be told apart after a save. The block stays, and the new one goes at the end.
 
@@ -398,9 +398,9 @@ Case `185` pins the order of a load's diagnostics: by line, with a late-fold `H0
 
 Case `186` pins a misplaced line kept as written that the load turns into a comment and moves above the first list in the file. The blank line above it goes, as it would before the first line of any file, so merging the file under another layer gives what merging its canonical form does.
 
-Case `187` pins a field line refused for its value alone, `E019`, `E023` in a value and `E025`: it binds nothing, and the lines under it load under the field with no value, nested ones and stacked elements included. A field with nothing under it stays absent, and a line with an escape in its name still takes its block with it (`E018`). Canonical output writes the kept line in place of the bare `name:` line, and both saves keep it as written.
+Case `187` pins a field line refused for its value alone, `E019`, `E023` in a value and `E025`: it binds nothing, and the lines under it load under the field with no value, nested ones and stacked items included. A field with nothing under it stays absent, and a line with an escape in its name still takes its block with it (`E018`). Canonical output writes the kept line in place of the bare `name:` line, and both saves keep it as written.
 
-Case `188` pins where a line refused for its value alone is written back: under the line it sat under, so it reads at the same path once its value is fixed. That holds under another such line, before a dotted line, after a comment at column 0 inside a block, before a child fence and among stacked elements. Its write ops change a value and add a field, and the save that keeps lines writes every other line as it was.
+Case `188` pins where a line refused for its value alone is written back: under the line it sat under, so it reads at the same path once its value is fixed. That holds under another such line, before a dotted line, after a comment at column 0 inside a block, before a child fence and among stacked items. Its write ops change a value and add a field, and the save that keeps lines writes every other line as it was.
 
 Case `189` pins a Schema line and a Format line in a raw body opened by the single-quoted name `'C:\'`. Under 2.x a backslash escaped the closing quote, so a line walk that read the file that way missed the block and took the Schema line in its body as the file's.
 
@@ -408,13 +408,19 @@ Case `190` pins `banner on` keeping the file's own `##` comments written right a
 
 Case `191` pins a field line refused for its name (`E014`, `E023` in a name) whose value opens a raw block: the body is kept with the line, so it never reads as fields and the closing fence opens nothing. A name that breaks only the spelling rule holds its level open as well. Canonical output writes the body one level under the line, a block that never closes gets its fence, and a remove of the field above takes the line and its body. A misplaced line that cannot be read but opens a block takes its body too, and is lost (`E012`).
 
-Case `192` pins the escape mark: names from the list in any case, aliases, every code point prefix, escapes in bare, single- and double-quoted values, a quoted name, a selector body and a stacked element, and the mark as text in a comment and a raw block. An unknown name, a lone mark, a surrogate, a code point past U+10FFFF or with seven digits, an empty pair and a name with a space are `E023`, kept as written; one in a value keeps its block, one in a name or selector takes it. Its write ops pin the writer's escapes: `TAB`, `NEWLINE`, `CR`, `CRLF`, `ESCAPE_CHAR`, the named controls, a code point for the rest, and `DOUBLE_QUOTE` in text holding both quotes.
+Case `192` pins the escape mark: names from the list in any case, aliases, every code point prefix, escapes in bare, single- and double-quoted values, a quoted name, a selector body and a stacked item, and the mark as text in a comment and a raw block. An unknown name, a lone mark, a surrogate, a code point past U+10FFFF or with seven digits, an empty pair and a name with a space are `E023`, kept as written; one in a value keeps its block, one in a name or selector takes it. Its write ops pin the writer's escapes: `TAB`, `NEWLINE`, `CR`, `CRLF`, `ESCAPE_CHAR`, the named controls, a code point for the rest, and `DOUBLE_QUOTE` in text holding both quotes.
 
-Case `193` pins `E025`: whitespace or a quote in a bare value, an inline array element, a stacked element or a bare selector body. Whitespace at the edges is trimmed first, and a colon inside a value is text, so a time, a URL and a dash-separated date stay bare. A line refused for its value keeps its block, and so does an open quote (`E017`); a refused selector takes it. Its write ops store spaced text as data, and the writer quotes a value only when it ends in a colon.
+Case `193` pins `E025`: whitespace or a quote in a bare value, an array element, a stacked item or a bare selector body. Whitespace at the edges is trimmed first, and a colon inside a value is text, so a time, a URL and a dash-separated date stay bare. A line refused for its value keeps its block, and so does an open quote (`E017`); a refused selector takes it. Its write ops store spaced text as data, and the writer quotes a value only when it ends in a colon.
 
 Case `194` pins the bare name rule (`E014`): a name not led by an ASCII letter, or holding a space or a non-ASCII letter, still reads, so its line is kept and the lines under it load under that name, a dotted segment included. A line with no colon reads that way too, and a clean name alone is `E015`. A name that cannot be read takes its block with it.
 
-Case `195` pins backtick values: raw text, with no escapes and with a `#`, a comma, quotes and the escape mark as text, kept in backticks on output and in an inline array. An unclosed backtick is `E017`, and one inside a bare value or a selector body is `E025`. Its write ops pin that an overwrite keeps a backtick, single or double quoted value in its kind when the new text fits, and the writer picks quotes when it does not.
+Case `195` pins backtick values: raw text, with no escapes and with a `#`, a comma, quotes and the escape mark as text, kept in backticks on output and in a bracket array. An unclosed backtick is `E017`, and one inside a bare value or a selector body is `E025`. Its write ops pin that an overwrite keeps a backtick, single or double quoted value in its kind when the new text fits, and the writer picks quotes when it does not.
+
+Case `196` pins bracket arrays and the read table in the value syntax doc: `80` and `[80]` read alike as an int or an int array and differ as a string, `[]` and a bare `name:` both read as the empty array, Good for `[]` and Empty for the bare name. Spacing inside the brackets is not kept, a quoted element keeps its quotes and a backtick element its backticks, and `x: 80` and `x: [80]` are two instances. Its schema pins that a string field's allowed set sees an array's bracket text while an int field reads `[80]` as 80, and its write ops that an array setter writes brackets for one element and for none, while a scalar setter writes no brackets.
+
+Case `197` pins the malformed array (`E019`): text after the `]`, a nested `[`, an empty element in three places, and no closing `]`. A bare comma is `E026`, and each element follows the value rules (`E025`, `E017`, `E023`). Every line is kept as written with nothing lost, and the lines under one still load under the field with no value.
+
+Case `198` pins the stacked list's `- ` marker: `fmt` keeps the list stacked, a one-item list is still an array, an old `*` line is `E013` and kept among the items that still load, `- name:` is `E027` while `- "name:"`, `- localhost:8080` and `- -5` are items, a nested array is `E019`, an item with a space is `E025`, and `-x: y` is a field line (`E014`) that holds its level. Its write ops pin that an array setter writes a stacked list in brackets.
 
 Beyond the fixed corpus, the differential harness (`cicd/utility/crosscheck.bash`) also derives accessor coverage over the fuzz set: the reference's fuzz dump writes a `<name>.reads.tsv` beside each dumped input (paths it knows exist, cycling type and strictness), which the `--extra` replay runs through the same row machinery. Every scalar read row - corpus and fuzz-derived - is additionally replayed under `--on-bad=error` (an exit-code differential) and `--default=<x>` (a stdout differential), so the on-bad/default policy surface is pinned cross-binding too. It also runs three `set` edits (a changed value, a new child, a removal) on the first paths of every input, corpus and fuzz alike, so the save that keeps lines is compared well past the goldens. The reference's line-ending fuzz dumps up to 100 more inputs, each mixing LF and CRLF with its edits as a write-ops script, into an `eol/` folder beside the rest. Each goes through `set --write` in every binding, and the files left on disk must match byte for byte.
 

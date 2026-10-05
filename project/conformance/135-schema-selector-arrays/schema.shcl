@@ -1,5 +1,5 @@
 field: srv
-	repeat: 1, 4
+	repeat: [1, 4]
 field: "srv[web1].port"
 	type: int
 	max: 1000

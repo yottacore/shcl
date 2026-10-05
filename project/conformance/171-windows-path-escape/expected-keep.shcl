@@ -5,10 +5,10 @@ share: "\\srv\new"
 doubled: "C:\\ok\\fine"
 message: "Done\nNext"
 single: 'C:\temp'
-pair: x, "D:\tools"
+pair: [x, "D:\tools"]
 list:
-	* one
-	* "E:\new"
+	- one
+	- "E:\new"
 last: 2
 
 added: C:\x

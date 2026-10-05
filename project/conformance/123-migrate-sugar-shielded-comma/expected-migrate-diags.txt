@@ -1,2 +1,1 @@
-line 3: Error: E019
-failed: 1 diagnostic(s), 1 error(s)
+ok (0 diagnostic(s))

@@ -4,6 +4,6 @@ negzero: -0
 big: +0009
 glued: "abc"def
 sq: 'x'y
-list: 007, +5, -0
+list: [007, +5, -0]
 srv: web1
 	port: 80

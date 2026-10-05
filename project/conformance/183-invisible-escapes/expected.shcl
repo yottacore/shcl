@@ -4,7 +4,7 @@ ends: "◉U+00AD◉◉U+034F◉◉U+061C◉◉U+115F◉◉U+1160◉◉U+17B4◉�
 neighbors: "¬®͎͐؛؝ᅞᅡឳា᠊᠐ ‐‧  ⁰ㅣㅥ﷿︐﻾＀ﾟﾡ￯￼𛲟𛲤𝅲𝅻󟿿󡀀"
 joiners: "a◉U+200B◉‌‍◉U+200E◉b"
 annotation: "◉U+FFF9◉base◉U+FFFA◉ruby◉U+FFFB◉"
-hangul: "◉U+3164◉", "◉U+FFA0◉", x
+hangul: ["◉U+3164◉", "◉U+FFA0◉", x]
 hidden: "ok◉U+E0068◉◉U+E0069◉"
 language: "◉U+E0001◉◉U+E0065◉◉U+E006E◉"
 flag: "🏴󠁧󠁢󠁳󠁣󠁴󠁿"
@@ -18,7 +18,7 @@ flag-open: "🏴◉U+E0067◉◉U+E0062◉◉U+E0065◉◉U+E006E◉◉U+E0067�
 flag-no-base: "x◉U+E0067◉◉U+E0062◉◉U+E0065◉◉U+E006E◉◉U+E0067◉◉U+E007F◉"
 flag-twice: 🏴󠁧󠁢󠁳󠁣󠁴󠁿🏴󠁧󠁢󠁥󠁮󠁧󠁿
 heart: "❤️"
-heart-bare: ❤️, ❤︎
+heart-bare: [❤️, ❤︎]
 ideograph: "葛󠄀"
 mongolian: "ᠠ᠋"
 lead: "◉U+FE0F◉"
@@ -28,7 +28,7 @@ after-joiner: "a‍◉U+FE0F◉"
 after-escape: "◉U+00AD◉◉U+FE0F◉"
 after-flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿◉U+FE0F◉"
 family: 👨‍👩‍👧
-list: a️, "◉U+FE0F◉b"
+list: [a️, "◉U+FE0F◉b"]
 "name◉U+00AD◉": 1
 "◉U+FE0F◉": 2
 "n️": 3
