@@ -3,7 +3,7 @@ field: title
 field: name
 	required: yes
 field: server
-	repeat: 1, 2
+	repeat: [1, 2]
 field: "server[*].port"
 	type: int
 	required: yes
@@ -12,7 +12,7 @@ field: "server[*].port"
 	repeat: 1
 field: "server[*].region"
 	type: string-array
-	allowed: us, eu
+	allowed: [us, eu]
 field: retries
 	type: int
 field: workers

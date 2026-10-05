@@ -1,4 +1,4 @@
 query	type	expected	status
-sugar-quoted	string	-	NotFound
+sugar-quoted	string	-	Good
 last	int	1	Good
 -	lost	0	-

@@ -1,10 +1,16 @@
-query	type	expected	status
-trail	string[]	red|green|blue	Good
-double	string[]	red|blue	Good
-lead	string[]	red|green	Good
-allcomma	string[]	-	Empty
-onecomma	string[]	-	Empty
-spaced	string[]	-	Empty
+query	type	expected	status	level
+-	load	ok	-
+-	load	fail	-	strict
+-	lost	0	-
+trail	string[]	-	NotFound
+double	string[]	-	NotFound
+lead	string[]	-	NotFound
+allcomma	string[]	-	NotFound
+onecomma	string[]	-	NotFound
+spaced	string[]	-	NotFound
+bare	string	-	NotFound
+tight	string	[red, green]	Good
+tight	string[]	red|green	Good
 emptyish	string[]	red||blue	Good
 emptyish	count	1	Good
-double	count	1	Good
+double	count	0	Good

@@ -4,7 +4,7 @@ field: "a[#2]"
 
 field: mode
 	type: string
-	allowed: "x\ny", z
+	allowed: ["x\ny", z]
 	default: "x\ny"
 	required: yes
 

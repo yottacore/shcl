@@ -11,7 +11,9 @@ server:
 	port: 8080
 # first element
 
-items: one, two  # second
+items:  # second
+	- one
+	- two
 # note between header and fence
 
 logs:

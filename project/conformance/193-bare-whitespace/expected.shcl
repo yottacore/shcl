@@ -19,9 +19,9 @@ ends: "ready:"
 open: "never closed
 	kid: 2
 stack:
-	* one
-	* two three
-	* four
+	- one
+	- two three
+	- four
 srv[New York].port: 1
 srv: "New York"
 	port: 2

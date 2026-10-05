@@ -4,7 +4,7 @@ field: title
 field: launched
 	type: datetime
 field: server
-	repeat: 1, 4
+	repeat: [1, 4]
 field: "server[*].port"
 	type: int
 	required: yes
@@ -16,7 +16,7 @@ field: "server[*].host"
 field: "server[*].region"
 	type: string-array
 field: "server[*].region"
-	allowed: us, eu, apac
+	allowed: [us, eu, apac]
 field: timeouts
 	type: int-array
 	min: 1

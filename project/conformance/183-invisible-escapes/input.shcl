@@ -4,7 +4,7 @@ ends: "◉U+00AD◉◉U+034F◉◉U+061C◉◉U+115F◉◉U+1160◉◉U+17B4◉�
 neighbors: "◉U+00AC◉◉U+00AE◉◉U+034E◉◉U+0350◉◉U+061B◉◉U+061D◉◉U+115E◉◉U+1161◉◉U+17B3◉◉U+17B6◉◉U+180A◉◉U+1810◉◉U+200A◉◉U+2010◉◉U+2027◉◉U+202F◉◉U+205F◉◉U+2070◉◉U+3163◉◉U+3165◉◉U+FDFF◉◉U+FE10◉◉U+FEFE◉◉U+FF00◉◉U+FF9F◉◉U+FFA1◉◉U+FFEF◉◉U+FFFC◉◉U+1BC9F◉◉U+1BCA4◉◉U+1D172◉◉U+1D17B◉◉U+DFFFF◉◉U+E1000◉"
 joiners: "a◉U+200B◉◉U+200C◉◉U+200D◉◉U+200E◉b"
 annotation: "◉U+FFF9◉base◉U+FFFA◉ruby◉U+FFFB◉"
-hangul: "◉U+3164◉", "◉U+FFA0◉", x
+hangul: ["◉U+3164◉", "◉U+FFA0◉", x]
 hidden: "ok◉U+E0068◉◉U+E0069◉"
 language: "◉U+E0001◉◉U+E0065◉◉U+E006E◉"
 flag: "◉U+1F3F4◉◉U+E0067◉◉U+E0062◉◉U+E0073◉◉U+E0063◉◉U+E0074◉◉U+E007F◉"
@@ -18,7 +18,7 @@ flag-open: 🏴󠁧󠁢󠁥󠁮󠁧
 flag-no-base: x󠁧󠁢󠁥󠁮󠁧󠁿
 flag-twice: 🏴󠁧󠁢󠁳󠁣󠁴󠁿🏴󠁧󠁢󠁥󠁮󠁧󠁿
 heart: "◉U+2764◉◉U+FE0F◉"
-heart-bare: ❤️, ❤︎
+heart-bare: [❤️, ❤︎]
 ideograph: "◉U+845B◉◉U+E0100◉"
 mongolian: "◉U+1820◉◉U+180B◉"
 lead: "◉U+FE0F◉"
@@ -28,7 +28,7 @@ after-joiner: "a◉U+200D◉◉U+FE0F◉"
 after-escape: "◉U+00AD◉◉U+FE0F◉"
 after-flag: "◉U+1F3F4◉◉U+E0067◉◉U+E0062◉◉U+E0065◉◉U+E006E◉◉U+E0067◉◉U+E007F◉◉U+FE0F◉"
 family: 👨‍👩‍👧
-list: a️, "◉U+FE0F◉b"
+list: [a️, "◉U+FE0F◉b"]
 "name◉U+00AD◉": 1
 "◉U+FE0F◉": 2
 "n◉U+FE0F◉": 3

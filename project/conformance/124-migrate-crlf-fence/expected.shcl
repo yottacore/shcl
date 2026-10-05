@@ -2,6 +2,6 @@ script:
 	```sh
 		echo hi
 	```
-city:[Boston]
+city: [Boston]
 path: C:\\temp
 last: 1

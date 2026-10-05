@@ -3,7 +3,7 @@ field: 'a."b.c"'
 field: x
 	repeat: 0x2
 field: y
-	repeat: 1, 2, 3
+	repeat: [1, 2, 3]
 field: z
 	reopen: yes
 field: z.p

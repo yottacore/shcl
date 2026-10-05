@@ -2,7 +2,7 @@
 base               : Chicago
 	metrics:
 		Population : 30200
-		Weather    : Hot,Cold, Lousy , "All around not that great"
+		Weather    : [Hot,Cold, Lousy , "All around not that great"]
 
 # Inline style
 base["Cleveland, OH"].metrics.population: 700  # Why only 700?

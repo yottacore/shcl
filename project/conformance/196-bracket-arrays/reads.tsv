@@ -1,0 +1,29 @@
+query	type	expected	status	level
+-	load	ok	-
+-	load	ok	-	strict
+-	lost	0	-
+port	int	80	Good
+port	int[]	80	Good
+port	string	80	Good
+one	int	80	Good
+one	int[]	80	Good
+one	string	[80]	Good
+pair	int	0	BadType
+pair	int[]	80|443	Good
+pair	string	[80, 443]	Good
+none	int	0	Empty
+none	int[]		Good
+none	string	[]	Good
+blank	int	0	Empty
+blank	int[]		Empty
+blank	string		Empty
+spaced	int[]	1|2|3	Good
+spaced	string	[1, 2, 3]	Good
+quoted	string[]	New York|Boston|say "hi"|#FF8800	Good
+quoted	string	["New York", Boston, 'say "hi"', `#FF8800`]	Good
+texts	string[]	[a]|b, c|#1	Good
+glued	int	7	Good
+x	count	2	-
+x	instances	80|[80]	-
+x[#1]	int	80	Good
+x[#1]	string	[80]	Good

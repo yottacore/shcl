@@ -3,5 +3,5 @@
 # a reload of the lower layer would not have it.
 x:
   x: 0
-x: 2
+x: [2]
  no colon 4

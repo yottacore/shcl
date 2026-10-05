@@ -9,7 +9,7 @@ field: server.port
 
 field: log.level
 	type: string
-	allowed: debug, info, warn
+	allowed: [debug, info, warn]
 	desc: "Log verbosity."
 	default: info
 
@@ -29,7 +29,7 @@ field: "server[*].host"
 
 field: replicas
 	type: int
-	repeat: 1, 5
+	repeat: [1, 5]
 
 field: ratio
 	type: float
@@ -38,7 +38,7 @@ field: ratio
 
 field: scale
 	type: float
-	allowed: 811212085039910.2, 1125899906842624.2
+	allowed: [811212085039910.2, 1125899906842624.2]
 
 # Both keys on one field: `allowed` and the bounds are separate parts of the
 # annotation line, and the validator enforces both.
@@ -46,10 +46,10 @@ field: tier
 	type: int
 	min: 1
 	max: 9
-	allowed: 3, 7
+	allowed: [3, 7]
 	default: 3
 
 field: gain
 	type: float
 	min: 0.5
-	allowed: 0.5, 1.5
+	allowed: [0.5, 1.5]

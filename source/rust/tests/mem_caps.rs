@@ -110,7 +110,7 @@ fn peak_during(f: impl FnOnce()) -> usize {
 fn element_cap_bounds_the_parse() {
 	let _id = test_id("EoezJiC");
 	use shcl::{Document, Strictness};
-	let text = format!("arr: {}\nok: 5\n", "1, ".repeat(200_000));
+	let text = format!("arr: [{}1]\nok: 5\n", "1, ".repeat(200_000));
 	let capped = peak_during(|| {
 		let doc = Document::parse_limited(&text, Strictness::Standard, 0, 8, 0).unwrap();
 		assert_eq!(doc.lost_count(), 1);
@@ -133,7 +133,7 @@ fn diagnostic_cap_bounds_the_parse() {
 	// and every refusal is a diagnostic: with the element cap alone, 200k
 	// refused lines cost more than the elements they refused. The diagnostic
 	// cap is what bounds that.
-	let text = format!("arr:\n{}", "\t* 1\n".repeat(200_000));
+	let text = format!("arr:\n{}", "\t- 1\n".repeat(200_000));
 	let capped = peak_during(|| {
 		let doc = Document::parse_limited(&text, Strictness::Standard, 0, 8, 100).unwrap();
 		assert_eq!(doc.diagnostics().len(), 101);

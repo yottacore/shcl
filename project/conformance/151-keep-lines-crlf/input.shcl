@@ -1,7 +1,7 @@
 ﻿# Windows-made file
 root:
 	mode:  fast
-	list: a, b
+	list: [a, b]
 
 
 other:  1   # last

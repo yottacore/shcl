@@ -1,1 +1,5 @@
-ok (0 diagnostic(s))
+line 4: Error: E026
+line 6: Error: E026
+line 20: Error: E013
+line 21: Error: E013
+failed: 4 diagnostic(s), 4 error(s)

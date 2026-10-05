@@ -1,5 +1,2 @@
-line 2: Error: E019
-line 3: Error: E019
-line 4: Error: E019
 line 5: Error: E019
-failed: 4 diagnostic(s), 4 error(s)
+failed: 1 diagnostic(s), 1 error(s)

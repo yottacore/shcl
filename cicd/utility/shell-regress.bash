@@ -466,13 +466,13 @@ if fHave pwsh; then
 	fTest EqM3Y7t 20260918b-35-pwsh-comma-split
 	##	20260918b item 35: the second difference, documented the same way.
 	##	PowerShell splits an unquoted `a,b` into an array for a function and
-	##	not for a native command, so the comma spelling of an inline array is a
+	##	not for a native command, so a bracket array with a comma in it is a
 	##	usage error dot-sourced and works quoted.
-	out="$(pwsh -NoProfile -Command ". '${repoDir}/source/powershell/shcl.ps1'; \$env:SHCL_BIN = '${cli}'; shcl set --set-literal=ports=80,443 '${tmpDir}/w.shcl'" 2>&1 || true)"
+	out="$(pwsh -NoProfile -Command ". '${repoDir}/source/powershell/shcl.ps1'; \$env:SHCL_BIN = '${cli}'; shcl set --set-literal=ports=[80,443] '${tmpDir}/w.shcl'" 2>&1 || true)"
 	[[ "${out}" == *"usage"* || "${out}" == *"unknown"* || "${out}" == *"bad --set"* ]] \
 		|| fBad "pwsh no longer splits an unquoted comma for a sourced function; the wrapper note is stale: ${out@Q}"
-	out="$(pwsh -NoProfile -Command ". '${repoDir}/source/powershell/shcl.ps1'; \$env:SHCL_BIN = '${cli}'; shcl set '--set-literal=ports=80,443' '${tmpDir}/w.shcl'" 2>&1 || true)"
-	[[ "${out}" == *"ports: 80, 443"* ]] || fBad "pwsh dot-sourced shcl did not take a quoted comma value: ${out@Q}"
+	out="$(pwsh -NoProfile -Command ". '${repoDir}/source/powershell/shcl.ps1'; \$env:SHCL_BIN = '${cli}'; shcl set '--set-literal=ports=[80,443]' '${tmpDir}/w.shcl'" 2>&1 || true)"
+	[[ "${out}" == *"ports: [80, 443]"* ]] || fBad "pwsh dot-sourced shcl did not take a quoted comma value: ${out@Q}"
 
 	fTest EqzwPFF 20260716-14-ps1-wrapper-refuses-a-bad-shcl-bin
 	out="$(pwsh -NoProfile -Command ". '${repoDir}/source/powershell/shcl.ps1'; \$env:SHCL_BIN = '${tmpDir}'; shcl_get '${tmpDir}/t.shcl' a" 2>&1 || true)"

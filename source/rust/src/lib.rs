@@ -493,8 +493,9 @@ struct Pend<'a> {
 #[derive(Debug, Clone, PartialEq)]
 enum Value {
 	Empty,
-	Cell(Vec<Element>), // one element = scalar, more = inline array
-	Raw(Box<RawVal>),   // boxed: the four fields would triple the enum's size
+	Cell(Element),       // one scalar
+	Array(Vec<Element>), // `[a, b]` or a stacked list; `[]` is the empty array
+	Raw(Box<RawVal>),    // boxed: the four fields would triple the enum's size
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -507,19 +508,13 @@ struct RawVal {
 
 impl Value {
 	/// Human/display form; also what selectors match against (case-sensitive).
+	/// An array is its canonical bracket form, so `x: 80` and `x: [80]` never
+	/// display alike.
 	fn display(&self) -> String {
 		match self {
 			Value::Empty => String::new(),
-			Value::Cell(els) => {
-				let mut s = String::new();
-				for (i, e) in els.iter().enumerate() {
-					if i > 0 {
-						s.push_str(", ");
-					}
-					s.push_str(&e.text);
-				}
-				s
-			}
+			Value::Cell(e) => e.text.clone(),
+			Value::Array(els) => emit_array(els),
 			Value::Raw(r) => r.content.clone(),
 		}
 	}
@@ -535,8 +530,8 @@ struct NodeData {
 	children: Vec<usize>,
 	parent: usize,
 	line: usize,
-	star_list: bool,  // value built from stacked "* " lines
-	star_mixed: bool, // mix of "* " and field children already diagnosed
+	star_list: bool,  // value built from stacked "- " lines, and written that way
+	star_mixed: bool, // mix of "- " and field children already diagnosed
 	// Comment trivia, boxed off to the side: most nodes have none, and the
 	// four empty containers were a third of every node.
 	trivia: Option<Box<Trivia>>,
@@ -625,22 +620,8 @@ fn src_matches_display(v: &Value, s: &str) -> bool {
 	match v {
 		Value::Empty => s.is_empty(),
 		Value::Raw(r) => s == r.content,
-		Value::Cell(els) => {
-			let mut rest = s;
-			for (i, e) in els.iter().enumerate() {
-				if i > 0 {
-					match rest.strip_prefix(", ") {
-						Some(r) => rest = r,
-						None => return false,
-					}
-				}
-				match rest.strip_prefix(e.text.as_str()) {
-					Some(r) => rest = r,
-					None => return false,
-				}
-			}
-			rest.is_empty()
-		}
+		Value::Cell(e) => s == e.text,
+		Value::Array(_) => s == v.display(),
 	}
 }
 
@@ -877,18 +858,17 @@ fn settle_fence_trailing(arena: &mut [NodeData], n: usize) {
 	}
 }
 
-/// Written stacked: a list holding a kept line among its elements or after
-/// its last one.
+/// Written stacked: a list the file wrote one `- ` item per line, kept that
+/// way like an author's quotes, or one holding a kept line among its items.
 fn stacks(nd: &NodeData) -> bool {
-	matches!(nd.value, Value::Cell(_))
-		&& (!nd.among().is_empty()
-			|| (nd.star_list && nd.inside().iter().any(|c| !c.text.starts_with('#'))))
+	matches!(&nd.value, Value::Array(els) if !els.is_empty())
+		&& (nd.star_list || !nd.among().is_empty())
 }
 
 /// A list after an empty binding of its name cannot be written stacked: its
-/// bare header would merge into that binding on a reload. It goes inline,
-/// and the lines among its elements go above it, where a reload files what
-/// sits there.
+/// bare header would merge into that binding on a reload. It goes in
+/// brackets, and the lines among its elements go above it, where a reload
+/// files what sits there.
 fn unstack(nd: &mut NodeData) {
 	nd.star_list = false;
 	if let Some(t) = nd.trivia.as_deref_mut() {
@@ -966,9 +946,14 @@ const TMP_NAME_BYTES: usize = 64;
 //   A file line's name that breaks only that rule still reads, up to the
 //   separator, a dot, a bracket or a comment, and is marked `misspelled`
 //   (`E014`). A `[` right after a name opens a selector, whose bare body
-//   runs to the first `]`; a `[` after the separator starts the value,
-//   which the parser refuses (`E019`).
-// - A value is split on unquoted commas, each piece trimmed.
+//   runs to the first `]`.
+// - A value is split on unquoted commas, each piece trimmed. More than one
+//   piece outside brackets is a bare comma, which the parser refuses
+//   (`E026`).
+// - A value that starts with `[` is a bracket array: its pieces run to the
+//   `]` that closes it, and nothing but a comment may follow. A bare `[` or
+//   `]` inside, an empty piece, or no `]` on the line is malformed, which the
+//   parser refuses (`E019`). `[]` is the empty array.
 //
 // Under `Rules::V2` the tokenizer reads the 2.x spellings instead, for
 // `migrate`: a backslash shields the next character in bare and single-quoted
@@ -1019,7 +1004,12 @@ pub struct Tokens {
 	/// The value: everything after the separator up to the comment, trimmed.
 	pub value: (usize, usize),
 	/// The value's comma-separated pieces, empty ones included, each trimmed.
+	/// For a bracket array, the pieces between the brackets.
 	pub elements: Vec<Piece>,
+	/// Offset of the `[` that opens a bracket array, when the value is one.
+	pub array: Option<usize>,
+	/// Where a bracket array stops being well formed, and why (`E019`).
+	pub array_fault: Option<(usize, &'static str)>,
 	/// Offset of the `#` that opens a trailing comment.
 	pub comment: Option<usize>,
 	/// Where the path stopped making sense, and why. A faulted line is
@@ -1042,6 +1032,8 @@ impl Tokens {
 		self.sep = None;
 		self.value = (0, 0);
 		self.elements.clear();
+		self.array = None;
+		self.array_fault = None;
 		self.comment = None;
 		self.fault = None;
 		self.misspelled = None;
@@ -1133,8 +1125,16 @@ fn comment_at(s: &[u8], i: usize) -> bool {
 /// or a selector body up to an unquoted `]` (`term`). Returns the trimmed
 /// piece and the offset of what ended it: the terminator, a comment's `#`,
 /// or the end of the text. `comments` is false only for a selector body in a
-/// lookup path, where `[#N]` is the index spelling.
-fn scan_piece(s: &[u8], mut pos: usize, term: u8, rules: Rules, comments: bool) -> (Piece, usize) {
+/// lookup path, where `[#N]` is the index spelling. In a bracket array
+/// (`array`) the `]` that closes it ends a value element too.
+fn scan_piece(
+	s: &[u8],
+	mut pos: usize,
+	term: u8,
+	rules: Rules,
+	comments: bool,
+	array: bool,
+) -> (Piece, usize) {
 	skip_wsp(s, &mut pos);
 	let start = pos;
 	let mut quote = Quote::None;
@@ -1150,7 +1150,7 @@ fn scan_piece(s: &[u8], mut pos: usize, term: u8, rules: Rules, comments: bool) 
 				let mut i = close + 1;
 				skip_wsp(s, &mut i);
 				let ended = if i < s.len() {
-					s[i] == term || (term == b',' && comment_at(s, i))
+					s[i] == term || (array && s[i] == b']') || (term == b',' && comment_at(s, i))
 				} else {
 					term == b','
 				};
@@ -1202,7 +1202,7 @@ fn scan_piece(s: &[u8], mut pos: usize, term: u8, rules: Rules, comments: bool) 
 			content_end = pos.min(s.len());
 			continue;
 		}
-		if b == term || (comments && comment_at(s, pos)) {
+		if b == term || (array && b == b']') || (comments && comment_at(s, pos)) {
 			break;
 		}
 		pos += utf8_len(b);
@@ -1259,10 +1259,16 @@ pub fn tokenize_value(text: &str, from: usize, rules: Rules, out: &mut Tokens) {
 fn scan_value(text: &str, from: usize, rules: Rules, out: &mut Tokens) {
 	let s = text.as_bytes();
 	let mut pos = from;
+	skip_wsp(s, &mut pos);
+	if rules == Rules::Current && pos < s.len() && s[pos] == b'[' {
+		scan_array(text, from, pos, out);
+		return;
+	}
+	pos = from;
 	let stop_at;
 	let mut count = 0usize;
 	loop {
-		let (piece, stop) = scan_piece(s, pos, b',', rules, true);
+		let (piece, stop) = scan_piece(s, pos, b',', rules, true, false);
 		out.elements.push(piece);
 		if piece.quote != Quote::None || piece.end > piece.start {
 			count += 1;
@@ -1295,6 +1301,95 @@ fn scan_value(text: &str, from: usize, rules: Rules, out: &mut Tokens) {
 	{
 		last.end = b.max(last.start);
 	}
+}
+
+/// A bracket array from the `[` at `open`: its pieces, each up to an
+/// unquoted comma or the `]` that closes it, then nothing but a comment. A
+/// fault is noted and the scan goes on, so the comment is still found. Past
+/// the element cap the pieces are no longer kept, but the scan still runs to
+/// the end, since a malformed array is refused for that and never reaches the
+/// cap, which refuses only a line that would bind.
+fn scan_array(text: &str, from: usize, open: usize, out: &mut Tokens) {
+	let s = text.as_bytes();
+	out.array = Some(open);
+	let mut pos = open + 1;
+	let mut count = 0usize;
+	let mut close = None;
+	let stop_at = loop {
+		let (piece, stop) = scan_piece(s, pos, b',', Rules::Current, true, true);
+		if !out.capped {
+			out.elements.push(piece);
+		}
+		if piece.quote == Quote::None && piece.end == piece.start {
+			// `[]`, blanks or not, is the empty array; any other empty piece
+			// is a slip.
+			let only = out.elements.len() == 1 && stop < s.len() && s[stop] == b']';
+			if !only {
+				out.array_fault
+					.get_or_insert((piece.start, "an empty element"));
+			}
+		} else {
+			count += 1;
+			if out.cap != 0 && count > out.cap {
+				out.capped = true;
+			}
+			if piece.quote == Quote::None
+				&& let Some(k) = s[piece.start..piece.end].iter().position(|&b| b == b'[')
+			{
+				out.array_fault
+					.get_or_insert((piece.start + k, "a '[' inside an array"));
+			}
+		}
+		if stop < s.len() && s[stop] == b',' {
+			pos = stop + 1;
+			continue;
+		}
+		if stop < s.len() && s[stop] == b']' {
+			close = Some(stop);
+		}
+		break stop;
+	};
+	let mut end = stop_at;
+	match close {
+		Some(at) => {
+			let mut after = at + 1;
+			skip_wsp(s, &mut after);
+			end = after;
+			if after < s.len() && !comment_at(s, after) {
+				out.array_fault.get_or_insert((after, "text after ']'"));
+				// The comment past the stray text, found the way a value finds it.
+				loop {
+					let (_, stop) = scan_piece(s, after, b',', Rules::Current, true, false);
+					if stop < s.len() && s[stop] == b',' {
+						after = stop + 1;
+						continue;
+					}
+					end = stop;
+					break;
+				}
+			}
+		}
+		// The one fault a reader can see from the outside, so it wins.
+		None => out.array_fault = Some((open, "no closing ']' on the line")),
+	}
+	if out.capped {
+		out.value = (from, from);
+		return;
+	}
+	if end < s.len() {
+		out.comment = Some(end);
+	}
+	if let [only] = out.elements.as_slice()
+		&& only.quote == Quote::None
+		&& only.end == only.start
+	{
+		out.elements.clear();
+	}
+	let mut b = end;
+	while b > open && is_wsp_byte(s[b - 1]) {
+		b -= 1;
+	}
+	out.value = (open, b);
 }
 
 /// Tokenize one line (`sep` = `b':'`) or one lookup path (`path`: the bare
@@ -1395,7 +1490,7 @@ pub fn tokenize(text: &str, sep: u8, path: bool, rules: Rules, out: &mut Tokens)
 				out.fault = Some((at, "selector on a name wildcard"));
 				return;
 			}
-			let (piece, stop) = scan_piece(s, at + 1, b']', rules, !path);
+			let (piece, stop) = scan_piece(s, at + 1, b']', rules, !path, false);
 			if stop >= s.len() || s[stop] != b']' {
 				out.fault = Some((at, "unterminated selector"));
 				return;
@@ -1484,14 +1579,21 @@ fn element_of(p: &Piece, text: &str) -> Option<Element> {
 	})
 }
 
-/// The value the tokenized pieces give.
+/// The value the tokenized pieces give: an array for a bracket array, else
+/// the one element, or Empty. A second piece outside brackets is a bare
+/// comma, which every caller refuses first (`E026`).
 fn cell_of_tokens(tok: &Tokens, text: &str) -> Value {
-	let mut els: Vec<Element> = Vec::with_capacity(tok.elements.len());
-	els.extend(tok.elements.iter().filter_map(|p| element_of(p, text)));
-	if els.is_empty() {
-		Value::Empty
-	} else {
-		Value::Cell(els)
+	if tok.array.is_some() {
+		return Value::Array(
+			tok.elements
+				.iter()
+				.filter_map(|p| element_of(p, text))
+				.collect(),
+		);
+	}
+	match tok.elements.iter().find_map(|p| element_of(p, text)) {
+		Some(e) => Value::Cell(e),
+		None => Value::Empty,
 	}
 }
 
@@ -1839,10 +1941,9 @@ fn disp_key(v: &Value) -> String {
 }
 
 /// The single-element restriction a QUOTED `[value]` selector adds on top of
-/// the display match: quoting selects the scalar spelling only, so the scalar
-/// "a, b" and the list a, b stop meeting the same selector.
+/// the display match: quoting selects the scalar spelling only.
 fn single_scalar(v: &Value) -> bool {
-	matches!(v, Value::Cell(els) if els.len() == 1)
+	matches!(v, Value::Cell(_))
 }
 
 // FNV-1a, fed the same byte sequence the key strings would contain - the
@@ -1917,8 +2018,15 @@ fn merge_hash(name: &str, v: &Value) -> u64 {
 	h.byte(0xFF); // separator; equality still verifies both parts
 	match v {
 		Value::Empty => h.byte(b'e'),
-		Value::Cell(els) => {
+		Value::Cell(e) => {
 			h.bytes(b"c:");
+			h.dec(e.text.len());
+			h.byte(b':');
+			h.bytes(e.text.as_bytes());
+		}
+		// Brackets are part of the value, so `[80]` is not the scalar 80.
+		Value::Array(els) => {
+			h.bytes(b"a:");
 			for e in els {
 				h.dec(e.text.len());
 				h.byte(b':');
@@ -1949,7 +2057,8 @@ fn merge_eq(name_a: &str, va: &Value, name_b: &str, vb: &Value) -> bool {
 	}
 	match (va, vb) {
 		(Value::Empty, Value::Empty) => true,
-		(Value::Cell(a), Value::Cell(b)) => {
+		(Value::Cell(a), Value::Cell(b)) => a.text == b.text,
+		(Value::Array(a), Value::Array(b)) => {
 			a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.text == y.text)
 		}
 		(Value::Raw(a), Value::Raw(b)) => a.info == b.info && a.content == b.content,
@@ -1966,14 +2075,8 @@ fn disp_hash(name: &str, v: &Value) -> u64 {
 	h.byte(0xFF);
 	match v {
 		Value::Empty => {}
-		Value::Cell(els) => {
-			for (i, e) in els.iter().enumerate() {
-				if i > 0 {
-					h.bytes(b", ");
-				}
-				h.bytes(e.text.as_bytes());
-			}
-		}
+		Value::Cell(e) => h.bytes(e.text.as_bytes()),
+		Value::Array(_) => h.bytes(v.display().as_bytes()),
 		Value::Raw(r) => h.bytes(r.content.as_bytes()),
 	}
 	h.0
@@ -2272,7 +2375,7 @@ fn opens_raw(rest: &str, tok: &mut Tokens) -> Option<(u8, usize)> {
 	let rest = rest.trim_start_matches(is_wsp);
 	let fence = if rest.starts_with(['`', '~']) {
 		child_fence(rest, tok)
-	} else if rest.starts_with(['#', '*']) {
+	} else if !is_field_text(rest) {
 		None
 	} else {
 		tokenize(rest, b':', false, Rules::Current, tok);
@@ -2753,13 +2856,67 @@ fn piece_fault(p: &Piece, text: &str, what: &str) -> Option<(&'static str, Strin
 	}
 }
 
-/// The first fault in a value's pieces. Only the value is wrong, so the
-/// name still reads.
-fn value_fault(pieces: &[Piece], text: &str) -> Option<Fault> {
-	pieces
+/// A malformed bracket array (`E019`). Only the value is wrong, so the name
+/// still reads.
+fn array_fault(tok: &Tokens) -> Option<Fault> {
+	tok.array_fault.map(|(_, why)| {
+		Fault::new(
+			"E019",
+			format!("malformed array, {}; quote the value if it is text", why),
+			true,
+		)
+	})
+}
+
+/// The first fault in a value: one of its pieces, then a bare comma outside
+/// brackets (`E026`). A piece first, since an open quote or a space is what
+/// a comma beside it most often means. Only the value is wrong, so the name
+/// still reads.
+fn value_fault(tok: &Tokens, text: &str) -> Option<Fault> {
+	let what = if tok.array.is_some() {
+		"array element"
+	} else {
+		"value"
+	};
+	if let Some((code, msg)) = tok.elements.iter().find_map(|p| piece_fault(p, text, what)) {
+		return Some(Fault::new(code, msg, true));
+	}
+	(tok.array.is_none() && tok.elements.len() > 1).then(|| {
+		Fault::new(
+			"E026",
+			"bare comma; an array is written in brackets, [a, b], and text with a comma is quoted",
+			true,
+		)
+	})
+}
+
+/// Why a stacked item's value is refused: an array, since arrays do not
+/// nest (`E019`), what a value is refused for, or a bare name ending in a
+/// colon, the way YAML starts an object in a list (`E027`). A bare comma is
+/// the list's business (`E010`).
+fn item_fault(tok: &Tokens, text: &str) -> Option<Fault> {
+	if tok.array.is_some() {
+		return Some(Fault::new(
+			"E019",
+			"a list item is one value; arrays do not nest",
+			true,
+		));
+	}
+	if let Some((code, msg)) = tok
+		.elements
 		.iter()
-		.find_map(|p| piece_fault(p, text, "value"))
-		.map(|(code, msg)| Fault::new(code, msg, true))
+		.find_map(|p| piece_fault(p, text, "list item"))
+	{
+		return Some(Fault::new(code, msg, true));
+	}
+	match tok.elements.as_slice() {
+		[p] if p.quote == Quote::None && text[p.start..p.end].ends_with(':') => Some(Fault::new(
+			"E027",
+			"a list item that is a name ending in ':'; a list of objects is written as instances, and text ending in ':' is quoted",
+			true,
+		)),
+		_ => None,
+	}
 }
 
 /// A fault in a path that leaves its name unread: a bad escape in a quoted
@@ -2783,10 +2940,10 @@ fn path_fault(tok: &Tokens, text: &str) -> Option<Fault> {
 }
 
 /// Why a field line that scanned is refused, before the element cap: a path
-/// that does not read, a bare name that breaks the spelling rule, bracket
-/// text, or a value with an open quote, a bad escape, or whitespace or a
-/// quote in bare text. A raw block's info string is not value text, so a
-/// fence line's value is not judged.
+/// that does not read, a bare name that breaks the spelling rule, a
+/// malformed bracket array, a bare comma, or a value with an open quote, a
+/// bad escape, or whitespace or a quote in bare text. A raw block's info
+/// string is not value text, so a fence line's value is not judged.
 fn line_fault(tok: &Tokens, text: &str) -> Option<Fault> {
 	if let Some(f) = path_fault(tok, text) {
 		return Some(f);
@@ -2798,17 +2955,13 @@ fn line_fault(tok: &Tokens, text: &str) -> Option<Fault> {
 			true,
 		));
 	}
-	if bracket_text(tok, text) {
-		return Some(Fault::new(
-			"E019",
-			"bracket array syntax; an array is comma-separated, without brackets",
-			true,
-		));
+	if let Some(f) = array_fault(tok) {
+		return Some(f);
 	}
 	if line_fence(tok, text).is_some() {
 		return None;
 	}
-	value_fault(&tok.elements, text)
+	value_fault(tok, text)
 }
 
 /// A path segment a LAZY level can open: no index or wildcard selector,
@@ -2821,7 +2974,7 @@ fn opens_as_written(seg: &Segment) -> bool {
 /// line refused for its value alone, or for a bare name that still reads,
 /// with a path that opens.
 fn opens_later(text: &str) -> bool {
-	if text.starts_with(['#', '*']) {
+	if !is_field_text(text) {
 		return false;
 	}
 	let mut tok = Tokens::default();
@@ -2832,14 +2985,17 @@ fn opens_later(text: &str) -> bool {
 	scan.segments.iter().all(opens_as_written) && line_fault(&tok, text).is_some_and(|f| f.opens)
 }
 
-/// Bracket text (`E019`): a `[` first after the colon. Read off the first
-/// piece rather than the value span, since a capped scan empties the span
-/// and keeps the pieces it built.
-fn bracket_text(tok: &Tokens, text: &str) -> bool {
-	tok.sep.is_some()
-		&& tok.elements.first().is_some_and(|p| {
-			p.quote == Quote::None && p.end > p.start && text.as_bytes()[p.start] == b'['
-		})
+/// A stacked list item's line: `-` then a blank. The blank is what keeps
+/// `-x: y` a field line (`E014`) and `- -5` the item `-5`.
+fn is_item(text: &str) -> bool {
+	let b = text.as_bytes();
+	b.first() == Some(&b'-') && b.get(1).is_some_and(|&c| is_wsp_byte(c))
+}
+
+/// A line's text after its indent that is read as a field line: not a
+/// comment, a list item, or an old `*` item (`E013`).
+fn is_field_text(text: &str) -> bool {
+	!text.starts_with(['#', '*']) && !is_item(text)
 }
 
 /// The path the tokens give. Err(reason) is the tokenizer's fault: input
@@ -3843,7 +3999,7 @@ impl<'a> Parser<'a> {
 					cur = match found {
 						Some(c) => c,
 						None => {
-							let disc = Value::Cell(vec![new_element(text)]);
+							let disc = Value::Cell(new_element(text));
 							self.select_or_create(
 								cur,
 								seg.name.clone(),
@@ -3971,7 +4127,7 @@ impl<'a> Parser<'a> {
 				if !quoted {
 					return None;
 				}
-				let disc = Value::Cell(vec![new_element(want.to_string())]);
+				let disc = Value::Cell(new_element(want.to_string()));
 				self.child_map[cur]
 					.as_deref()
 					.and_then(|m| m.get(&merge_hash(name, &disc)))
@@ -4063,7 +4219,7 @@ impl<'a> Parser<'a> {
 		}
 	}
 
-	/// One stacked-list element (`* scalar`) appends to the parent's array.
+	/// One stacked-list item (`- scalar`) appends to the parent's array.
 	fn add_star_element(
 		&mut self,
 		parent: usize,
@@ -4115,7 +4271,7 @@ impl<'a> Parser<'a> {
 		// under a field that already has a value it is E011, cap or not.
 		if self.max_elements != 0
 			&& self.arena[parent].star_list
-			&& let Value::Cell(els) = &self.arena[parent].value
+			&& let Value::Array(els) = &self.arena[parent].value
 			&& els.len() >= self.max_elements
 		{
 			self.refuse(
@@ -4133,7 +4289,7 @@ impl<'a> Parser<'a> {
 		if self.arena[parent].value.is_empty() {
 			let old_key = merge_hash(&self.arena[parent].name, &self.arena[parent].value);
 			let old_disp = disp_hash(&self.arena[parent].name, &self.arena[parent].value);
-			self.arena[parent].value = Value::Cell(vec![el]);
+			self.arena[parent].value = Value::Array(vec![el]);
 			self.arena[parent].star_list = true;
 			// First element: remap now (Empty -> cell changes both keys), then
 			// open the deferral window with the current keys. Rebuilding the
@@ -4143,7 +4299,8 @@ impl<'a> Parser<'a> {
 			let k = merge_hash(&self.arena[parent].name, &self.arena[parent].value);
 			let d = disp_hash(&self.arena[parent].name, &self.arena[parent].value);
 			self.star_open = Some((parent, k, d));
-		} else if matches!(self.arena[parent].value, Value::Cell(_)) && self.arena[parent].star_list
+		} else if matches!(self.arena[parent].value, Value::Array(_))
+			&& self.arena[parent].star_list
 		{
 			if !matches!(self.star_open, Some((n, _, _)) if n == parent) {
 				self.star_flush();
@@ -4151,7 +4308,7 @@ impl<'a> Parser<'a> {
 				let old_disp = disp_hash(&self.arena[parent].name, &self.arena[parent].value);
 				self.star_open = Some((parent, old_key, old_disp));
 			}
-			if let Value::Cell(els) = &mut self.arena[parent].value {
+			if let Value::Array(els) = &mut self.arena[parent].value {
 				els.push(el);
 			}
 		} else {
@@ -4188,7 +4345,7 @@ impl<'a> Parser<'a> {
 			return;
 		}
 		let before = match &self.arena[parent].value {
-			Value::Cell(els) => els.len() - 1,
+			Value::Array(els) => els.len() - 1,
 			_ => return,
 		};
 		let mut rest = Vec::with_capacity(self.pending.len());
@@ -4252,7 +4409,6 @@ impl<'a> Parser<'a> {
 				let all_scalar_leaves = group.iter().all(|&c| {
 					self.arena[c].children.is_empty()
 						&& matches!(self.arena[c].value, Value::Cell(_))
-						&& !self.arena[c].star_list
 				});
 				if all_scalar_leaves {
 					let line = group.iter().map(|&c| self.arena[c].line).max().unwrap_or(0);
@@ -4261,7 +4417,7 @@ impl<'a> Parser<'a> {
 						.map(|&c| diag_value(&self.arena[c].value))
 						.collect::<Vec<_>>()
 						.join(", ");
-					hints.push((line, format!("{}{}'?", h001_head(name), joined)));
+					hints.push((line, format!("{}[{}]'?", h001_head(name), joined)));
 				}
 			}
 		}
@@ -4427,18 +4583,20 @@ impl<'a> Parser<'a> {
 				i = next;
 				continue;
 			}
-			// Stacked-list element: colon-less by construction ('*' can't begin a name).
-			if let Some(after) = rest.strip_prefix('*') {
-				// A `*` alone after the trim: whether a space followed it
-				// decides between an empty element and a malformed line, and
-				// only the untrimmed line still knows.
-				let spaced = after.starts_with(is_wsp)
+			// Stacked-list item: `-` then a blank. A bare name starts with a
+			// letter, so no field line starts that way. A `-` alone after the
+			// trim is an empty item only when a blank followed it, and only the
+			// untrimmed line still knows; with none it is a field line (E014).
+			let item = rest.strip_prefix('-').is_some_and(|after| {
+				after.starts_with(is_wsp)
 					|| (after.is_empty()
 						&& lines[i]
 							.as_bytes()
 							.get(ilen + lead + 1)
-							.is_some_and(|&b| is_wsp_byte(b)));
-				if spaced {
+							.is_some_and(|&b| is_wsp_byte(b)))
+			});
+			if item || rest.starts_with('*') {
+				if item {
 					let Some(parent) = self.resolve_parent(indent, found) else {
 						self.misplaced(lineno, "E012", indent, rest, had_blank, false);
 						i += 1;
@@ -4450,7 +4608,7 @@ impl<'a> Parser<'a> {
 						continue;
 					}
 					tokenize_value(rest, 1, Rules::Current, &mut tok);
-					if let Some(f) = value_fault(&tok.elements, rest) {
+					if let Some(f) = item_fault(&tok, rest) {
 						self.refuse(
 							lineno,
 							f.code,
@@ -4504,13 +4662,14 @@ impl<'a> Parser<'a> {
 					i += 1;
 					continue;
 				}
-				// Content-malformed at any position, so safe to retain. The BOM
+				// The old item marker. Content-malformed at any position, so safe
+				// to retain, and the items around it still load. The BOM
 				// exception the field arm makes cannot apply here: this line
 				// starts with the '*' that brought us in.
 				self.refuse(
 					lineno,
 					"E013",
-					"malformed line: '*' must be followed by a space",
+					"a list item is written '- ' now, not '*'",
 					Outcome::Retained {
 						text: trim_wsp_end(rest).to_string(),
 						blank_before: had_blank,
@@ -5145,8 +5304,9 @@ impl Document {
 			h.byte(u8::from(stacks(nd)));
 			match &nd.value {
 				Value::Empty => h.byte(0),
-				Value::Cell(els) => {
-					h.byte(1);
+				Value::Cell(_) => h.byte(1),
+				Value::Array(els) => {
+					h.byte(3);
 					h.dec(els.len());
 				}
 				Value::Raw(_) => h.byte(2),
@@ -5300,7 +5460,7 @@ impl Document {
 				push_trailing(&mut e.out, node.trailing());
 				e.out.push('\n');
 			}
-			Value::Cell(els) if stacks(node) => {
+			Value::Array(els) if stacks(node) => {
 				// Stacked, with the kept lines where they sat.
 				push_trailing(&mut e.out, node.trailing());
 				e.out.push('\n');
@@ -5321,7 +5481,7 @@ impl Document {
 					}
 					let column = "\t".repeat(depth + 1);
 					e.out.push_str(&column);
-					e.out.push_str("* ");
+					e.out.push_str("- ");
 					e.out.push_str(&emit_element(el));
 					e.out.push('\n');
 					e.placed(&column);
@@ -5335,10 +5495,18 @@ impl Document {
 					);
 				}
 			}
-			Value::Cell(els) => {
+			Value::Cell(el) => {
 				let at = e.out.len();
 				e.out.push(' ');
-				emit_cell_into(&mut e.out, els);
+				e.out.push_str(&emit_element(el));
+				e.span(at);
+				push_trailing(&mut e.out, node.trailing());
+				e.out.push('\n');
+			}
+			Value::Array(els) => {
+				let at = e.out.len();
+				e.out.push(' ');
+				emit_array_into(&mut e.out, els);
 				e.span(at);
 				push_trailing(&mut e.out, node.trailing());
 				e.out.push('\n');
@@ -5620,7 +5788,11 @@ fn note_text(s: &str) -> String {
 /// alone, which a reload would read as another `name` once fixed by hand. A
 /// line with a raw body could not be commented out as one line.
 fn kept_naming(l: &Lead, name: &str) -> Option<(&'static str, String)> {
-	if l.depth != 0 || l.text.starts_with(['#', '*', ' ', '\t']) || l.text.contains('\n') {
+	if l.depth != 0
+		|| !is_field_text(&l.text)
+		|| l.text.starts_with([' ', '\t'])
+		|| l.text.contains('\n')
+	{
 		return None;
 	}
 	let mut tok = Tokens::default();
@@ -6152,7 +6324,7 @@ fn authored_head(src: &str, canon: &str) -> Option<String> {
 	let mut tok = Tokens::default();
 	let mut sep = [0; 2];
 	for (k, text) in [rest, c].into_iter().enumerate() {
-		if text.starts_with(['#', '*']) {
+		if !is_field_text(text) {
 			return None;
 		}
 		tokenize(text, b':', false, Rules::Current, &mut tok);
@@ -6190,14 +6362,14 @@ fn splice_value(line: &str, was: &Emit, w: &Unit, now: &Emit, u: &Unit) -> Optio
 	let ilen = t.bytes().take_while(|&b| b == b' ' || b == b'\t').count();
 	let rest = t[ilen..].trim_start_matches(is_wsp);
 	let head = t.len() - rest.len();
-	if rest.starts_with(['#', '*']) {
+	if !is_field_text(rest) {
 		return None;
 	}
 	let mut tok = Tokens::default();
 	tokenize(rest, b':', false, Rules::Current, &mut tok);
 	let colon = tok.sep?;
 	let (a, b) = path_of(&tok, rest).ok()?.value?;
-	if fence_open(&rest[a..b]).is_some() || bracket_text(&tok, rest) {
+	if fence_open(&rest[a..b]).is_some() || tok.array_fault.is_some() {
 		return None;
 	}
 	// The blanks after the colon stay as they were when there was a value
@@ -6776,12 +6948,12 @@ fn diag_element(e: &Element) -> String {
 	emit_element(e).into_owned()
 }
 
-/// A value for a diagnostic message. Only a cell reaches this today, from the
-/// H001 hint; a raw block has no one-line form worth suggesting.
+/// A value for a diagnostic message. Only a scalar reaches this today, from
+/// the H001 hint; a raw block has no one-line form worth suggesting.
 fn diag_value(v: &Value) -> String {
 	match v {
-		Value::Cell(els) => els.iter().map(diag_element).collect::<Vec<_>>().join(", "),
-		Value::Empty | Value::Raw(_) => v.display(),
+		Value::Cell(e) => diag_element(e),
+		Value::Empty | Value::Array(_) | Value::Raw(_) => v.display(),
 	}
 }
 
@@ -8042,19 +8214,31 @@ fn quote_with(t: &str, q: char) -> String {
 // since a float or a datetime has to read back as that type and not merely as
 // the same text.
 
-/// The value half of a binding line, the way `emit_line` writes it.
-fn emit_cell(els: &[Element]) -> String {
+/// An array the way `emit_line` writes it: `[a, b]`, and `[]` for none.
+fn emit_array(els: &[Element]) -> String {
 	let mut out = String::new();
-	emit_cell_into(&mut out, els);
+	emit_array_into(&mut out, els);
 	out
 }
 
-fn emit_cell_into(out: &mut String, els: &[Element]) {
+fn emit_array_into(out: &mut String, els: &[Element]) {
+	out.push('[');
 	for (i, e) in els.iter().enumerate() {
 		if i > 0 {
 			out.push_str(", ");
 		}
 		out.push_str(&emit_element(e));
+	}
+	out.push(']');
+}
+
+/// The value half of a binding line, the way `emit_line` writes it, or None
+/// for a value with no one-line form.
+fn emit_value_text(v: &Value) -> Option<String> {
+	match v {
+		Value::Cell(e) => Some(emit_element(e).into_owned()),
+		Value::Array(els) => Some(emit_array(els)),
+		Value::Empty | Value::Raw(_) => None,
 	}
 }
 
@@ -8083,14 +8267,25 @@ fn value_half(text: &str, out: &mut Tokens) -> String {
 fn value_reads_back(v: &Value) -> bool {
 	match v {
 		Value::Empty => true,
-		Value::Cell(els) => {
-			let text = emit_cell(els);
+		Value::Cell(_) | Value::Array(_) => {
+			let els = match v {
+				Value::Cell(e) => std::slice::from_ref(e),
+				Value::Array(els) => els.as_slice(),
+				_ => return false,
+			};
+			let Some(text) = emit_value_text(v) else {
+				return false;
+			};
 			if text.contains('\n') {
 				return false;
 			}
 			let mut tok = Tokens::default();
 			let line = value_half(&text, &mut tok);
-			if tok.comment.is_some() {
+			if tok.comment.is_some()
+				|| tok.array.is_some() != matches!(v, Value::Array(_))
+				|| array_fault(&tok).is_some()
+				|| value_fault(&tok, &line).is_some()
+			{
 				return false;
 			}
 			// Compared against the pieces rather than against a rebuilt value:
@@ -8500,11 +8695,10 @@ impl Document {
 /// what gets stored, so a trailing blank comes off and a `#` outside quotes
 /// ends the value exactly as they would in a file. What is refused is what
 /// a file reports as an error, since a setter has no diagnostic to report it
-/// with: a line break, which no file line can hold, bracket text (E019, the
-/// line kept verbatim - writing it as a two-element array holding `[1` and
-/// `2]` would be a different wrong answer), and whatever a value is refused
-/// for on a line: an unterminated quote (E017), a bad escape (E023), or
-/// whitespace or a quote in bare text (E025).
+/// with: a line break, which no file line can hold, a malformed bracket
+/// array (E019), and whatever a value is refused for on a line: a bare comma
+/// (E026), an unterminated quote (E017), a bad escape (E023), or whitespace
+/// or a quote in bare text (E025). A bracket array is stored as an array.
 fn literal_value(text: &str) -> Option<Value> {
 	if text.contains('\n') {
 		return None;
@@ -8514,8 +8708,9 @@ fn literal_value(text: &str) -> Option<Value> {
 	// A fence opener has no body here, so it is stored as the text it is,
 	// as before backtick values.
 	let fence = fence_open(&line[tok.value.0..tok.value.1]).is_some();
-	if line[tok.value.0..].starts_with('[')
-		|| (!fence && value_fault(&tok.elements, &line).is_some())
+	if array_fault(&tok).is_some()
+		|| tok.elements.len() > 1 && tok.array.is_none()
+		|| (!fence && value_fault(&tok, &line).is_some())
 	{
 		return None;
 	}
@@ -8528,9 +8723,6 @@ fn literal_value(text: &str) -> Option<Value> {
 /// a quoted data format is written bare.
 fn keep_mark(old: &Value, new: &mut Value) {
 	let (Value::Cell(was), Value::Cell(now)) = (old, &mut *new) else {
-		return;
-	};
-	let ([was], [now]) = (was.as_slice(), now.as_mut_slice()) else {
 		return;
 	};
 	let written = match emit_element(was).as_bytes().first() {
@@ -8549,15 +8741,15 @@ fn keep_mark(old: &Value, new: &mut Value) {
 		let before = now.mark;
 		now.mark = written;
 		if !value_reads_back(new)
-			&& let Value::Cell(els) = new
+			&& let Value::Cell(el) = new
 		{
-			els[0].mark = before;
+			el.mark = before;
 		}
 	}
 }
 
 fn cell_of(text: String) -> Value {
-	Value::Cell(vec![new_element(text)])
+	Value::Cell(new_element(text))
 }
 
 /// Pick a backtick fence long enough that no content line closes it early.
@@ -8572,13 +8764,10 @@ fn choose_fence(content: &str) -> (u8, usize) {
 	(b'`', (maxrun + 1).max(3))
 }
 
-/// Inline-array value; the empty array is an empty value (reads back Empty).
+/// An array setter's value: written in brackets whatever its length, so
+/// one element is `[80]` and none is `[]`.
 fn array_cell(texts: Vec<String>) -> Value {
-	if texts.is_empty() {
-		Value::Empty
-	} else {
-		Value::Cell(texts.into_iter().map(new_element).collect())
-	}
+	Value::Array(texts.into_iter().map(new_element).collect())
 }
 
 impl Document {
@@ -10814,12 +11003,18 @@ impl Document {
 		}
 	}
 
+	/// The one element a scalar read takes: `[80]` reads as 80 and `[]` as
+	/// empty, while two elements are not one scalar.
 	fn scalar_element<'a>(&self, v: &'a Value) -> Result<&'a Element, Status> {
 		match v {
 			Value::Empty => Err(Status::Empty),
 			Value::Raw { .. } => Err(Status::BadType),
-			Value::Cell(els) if els.len() == 1 => Ok(&els[0]),
-			Value::Cell(_) => Err(Status::BadType), // an array is not one scalar
+			Value::Cell(e) => Ok(e),
+			Value::Array(els) => match els.as_slice() {
+				[] => Err(Status::Empty),
+				[e] => Ok(e),
+				_ => Err(Status::BadType),
+			},
 		}
 	}
 
@@ -10910,7 +11105,7 @@ impl Document {
 	}
 
 	/// Any value reads as a string: a raw block yields its content, an array its
-	/// canonical inline text. Escapes are applied.
+	/// canonical bracket form. Escapes are applied.
 	pub fn read_string(&self, path: &str) -> Read<String> {
 		let node = match self.node_at(path) {
 			Ok(n) => n,
@@ -10922,12 +11117,10 @@ impl Document {
 		match value {
 			Value::Empty => Read::new(String::new(), Status::Empty, raw).at(line, None),
 			Value::Raw(r) => Read::new(r.content.clone(), Status::Good, raw).at(line, None),
-			Value::Cell(els) if els.len() == 1 => {
-				Read::new(els[0].text.clone(), Status::Good, raw).at(line, Some(&els[0]))
-			}
-			// Canonical inline form (quoting + escapes intact), so the string
-			// re-parses to the same array - not the bare display join.
-			Value::Cell(els) => Read::new(emit_cell(els), Status::Good, raw).at(line, None),
+			Value::Cell(e) => Read::new(e.text.clone(), Status::Good, raw).at(line, Some(e)),
+			// Canonical bracket form (quoting + escapes intact), so the string
+			// re-parses to the same array, and `[80]` never reads as `80`.
+			Value::Array(els) => Read::new(emit_array(els), Status::Good, raw).at(line, None),
 		}
 	}
 
@@ -10943,7 +11136,9 @@ impl Document {
 		match value {
 			Value::Raw(r) => Read::new(r.content.clone(), Status::Good, raw).at(line, None),
 			Value::Empty => Read::new(String::new(), Status::Empty, raw).at(line, None),
-			Value::Cell(_) => Read::new(String::new(), Status::BadType, raw).at(line, None),
+			Value::Cell(_) | Value::Array(_) => {
+				Read::new(String::new(), Status::BadType, raw).at(line, None)
+			}
 		}
 	}
 
@@ -10959,7 +11154,9 @@ impl Document {
 		match &self.arena[node].value {
 			Value::Raw(r) => Read::new(r.info.clone(), Status::Good, raw).at(line, None),
 			Value::Empty => Read::new(String::new(), Status::Empty, raw).at(line, None),
-			Value::Cell(_) => Read::new(String::new(), Status::BadType, raw).at(line, None),
+			Value::Cell(_) | Value::Array(_) => {
+				Read::new(String::new(), Status::BadType, raw).at(line, None)
+			}
 		}
 	}
 
@@ -11013,7 +11210,12 @@ impl Document {
 				match value {
 					Value::Empty => Read::new(Vec::new(), Status::Empty, raw).at(line, None),
 					Value::Raw { .. } => Read::new(Vec::new(), Status::BadType, raw).at(line, None),
-					Value::Cell(els) => {
+					Value::Cell(_) | Value::Array(_) => {
+						let els = match value {
+							Value::Array(els) => els.as_slice(),
+							Value::Cell(e) => std::slice::from_ref(e),
+							_ => &[],
+						};
 						let mut out = Vec::with_capacity(els.len());
 						let mut sts = Vec::with_capacity(els.len());
 						for el in els {
@@ -11022,14 +11224,11 @@ impl Document {
 							sts.push(st);
 						}
 						let status = sts.iter().copied().max().unwrap_or(Status::Good);
-						// A one-element cell has a single scalar element, so
+						// A one-element value has a single scalar element, so
 						// the flag means the same thing here as on the scalar
-						// read of the same node.
-						let only = if let [el] = els.as_slice() {
-							Some(el)
-						} else {
-							None
-						};
+						// read of the same node. `[]` is an empty array, which
+						// is Good, where an empty value is Empty.
+						let only = if let [el] = els { Some(el) } else { None };
 						Read::with_slots(out, status, raw, sts).at(line, only)
 					}
 				}
@@ -11401,8 +11600,17 @@ fn vdiag(out: &mut Vec<Diagnostic>, line: usize, code: &'static str, msg: String
 /// One scalar constraint value (escapes applied), or None for anything else.
 fn single_text(v: &Value) -> Option<String> {
 	match v {
-		Value::Cell(els) if els.len() == 1 => Some(els[0].text.clone()),
+		Value::Cell(e) => Some(e.text.clone()),
 		_ => None,
+	}
+}
+
+/// A schema value's elements: a scalar's one, or an array's.
+fn elements_of(v: &Value) -> &[Element] {
+	match v {
+		Value::Cell(e) => std::slice::from_ref(e),
+		Value::Array(els) => els,
+		Value::Empty | Value::Raw(_) => &[],
 	}
 }
 
@@ -11628,6 +11836,9 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 			}
 			"allowed" => match &kid.value {
 				Value::Cell(_) if allowed_at.is_none() => allowed_at = Some(k),
+				Value::Array(els) if !els.is_empty() && allowed_at.is_none() => {
+					allowed_at = Some(k)
+				}
 				_ => vdiag(
 					faults,
 					kid.line,
@@ -11636,7 +11847,7 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 				),
 			},
 			"min" => match &kid.value {
-				Value::Cell(els) if els.len() == 1 && min_at.is_none() => min_at = Some(k),
+				Value::Cell(_) if min_at.is_none() => min_at = Some(k),
 				_ => vdiag(
 					faults,
 					kid.line,
@@ -11645,7 +11856,7 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 				),
 			},
 			"max" => match &kid.value {
-				Value::Cell(els) if els.len() == 1 && max_at.is_none() => max_at = Some(k),
+				Value::Cell(_) if max_at.is_none() => max_at = Some(k),
 				_ => vdiag(
 					faults,
 					kid.line,
@@ -11654,7 +11865,7 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 				),
 			},
 			"unit" => match &kid.value {
-				Value::Cell(els) if els.len() == 1 && unit_at.is_none() => unit_at = Some(k),
+				Value::Cell(_) if unit_at.is_none() => unit_at = Some(k),
 				_ => vdiag(
 					faults,
 					kid.line,
@@ -11678,8 +11889,8 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 					),
 				}
 			}
-			"repeat" => match &kid.value {
-				Value::Cell(els) if c.repeat.is_none() && matches!(els.len(), 1 | 2) => {
+			"repeat" => match elements_of(&kid.value) {
+				els if c.repeat.is_none() && matches!(els.len(), 1 | 2) => {
 					let lo = els[0].text.parse::<u64>().ok();
 					let hi = els.last().and_then(|e| e.text.parse::<u64>().ok());
 					match (lo, hi) {
@@ -11714,12 +11925,13 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 			// Generator-only (`shcl init`); validation ignores both. First
 			// occurrence wins (a merged schema could have two).
 			"desc" => {
-				// A comma in a sentence makes the value several elements, and
-				// the comment is prose: take them all, kept as written.
+				// The comment is prose, so an array's elements are all taken,
+				// kept as written.
 				if c.desc.is_none() {
 					c.desc = match &kid.value {
-						Value::Cell(els) => Some(
-							els.iter()
+						Value::Cell(_) | Value::Array(_) => Some(
+							elements_of(&kid.value)
+								.iter()
 								.map(|e| e.text.clone())
 								.collect::<Vec<_>>()
 								.join(", "),
@@ -11817,11 +12029,8 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 	};
 	if let Some(a) = allowed_at {
 		let kid = &schema.arena[a];
-		// allowed_at is only ever set for a Cell; if that invariant slips,
-		// skip the constraint rather than abort the consumer.
-		let Value::Cell(els) = &kid.value else {
-			return None;
-		};
+		// allowed_at is only ever set for a scalar or an array.
+		let els = elements_of(&kid.value);
 		// Schema values are read at Standard; only the document's values
 		// coerce at the document's strictness.
 		let set = match base {
@@ -11865,11 +12074,10 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 	for (at, is_min) in [(min_at, true), (max_at, false)] {
 		let Some(m) = at else { continue };
 		let kid = &schema.arena[m];
-		// min/max is only ever a one-element Cell; if that invariant slips,
-		// skip the constraint rather than abort the consumer.
-		let el = match &kid.value {
-			Value::Cell(els) if els.len() == 1 => &els[0],
-			_ => continue,
+		// min/max is only ever a scalar; if that invariant slips, skip the
+		// constraint rather than abort the consumer.
+		let Value::Cell(el) = &kid.value else {
+			continue;
 		};
 		let key = if is_min { "min" } else { "max" };
 		match base {
@@ -11943,13 +12151,10 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 }
 
 /// A schema `default`/`allowed` value re-emitted as an inline value (minimal
-/// quoting, array elements joined by ", "). None for empty or raw - neither has
-/// a usable one-line form. Used by the generator, not the validator.
+/// quoting, an array in brackets). None for empty or raw - neither has a
+/// usable one-line form. Used by the generator, not the validator.
 fn emit_value_inline(v: &Value) -> Option<String> {
-	match v {
-		Value::Cell(els) => Some(emit_cell(els)),
-		Value::Empty | Value::Raw(_) => None,
-	}
+	emit_value_text(v)
 }
 
 // ---------------------------------------------------------------------------
@@ -12975,14 +13180,36 @@ impl Document {
 					);
 				}
 			}
-			Value::Cell(els) => {
+			Value::Cell(_) | Value::Array(_) => {
+				let els = elements_of(&node.value);
 				if base == "raw" {
 					wrong(out);
 					return;
 				}
+				// A string read of an array is its bracket form, so that is
+				// the text the allowed set sees: `x: 80` and `x: [80]` are two
+				// values.
+				if !is_array && base == "string" && matches!(node.value, Value::Array(_)) {
+					let text = node.value.display();
+					if let Some(AllowedSet::Strings(set)) = &c.allowed
+						&& !set.contains(&text)
+					{
+						vdiag(
+							out,
+							line,
+							"V004",
+							format!(
+								"value not allowed at '{}': {}",
+								schema_text(&c.path),
+								one_line(&text)
+							),
+						);
+					}
+					return;
+				}
 				// A scalar kind on a multi-element value is the array-where-one-
-				// scalar-expected miss - except string, which reads arrays.
-				if kind.is_some() && !is_array && base != "string" && els.len() > 1 {
+				// scalar-expected miss.
+				if !is_array && els.len() > 1 {
 					wrong(out);
 					return;
 				}
@@ -13619,7 +13846,7 @@ mod kept_gate {
 		}
 	}
 
-	const BASE: &str = "x: 1\nr: [1, 2]\ny: 3\n";
+	const BASE: &str = "x: 1\nr: [1, 2\ny: 3\n";
 
 	#[test]
 	fn a_kept_line_gone_from_the_tree_refuses_the_save() {
@@ -13662,7 +13889,7 @@ mod kept_gate {
 	#[test]
 	fn a_remove_takes_the_kept_line_heading_its_field() {
 		let _id = test_id("EreUeCs");
-		let mut doc = Document::parse("a: [1]\n\tb: 2\ny: 3\n");
+		let mut doc = Document::parse("a: [1\n\tb: 2\ny: 3\n");
 		assert_eq!(doc.remove("a"), 1);
 		assert_eq!(doc.lost_count(), 0);
 		assert_eq!(doc.to_canonical(), "y: 3\n");
@@ -13674,27 +13901,19 @@ mod kept_gate {
 	fn a_remove_leaves_the_kept_lines_beside_it() {
 		let _id = test_id("ErgToYw");
 		for (text, path, want) in [
-			(BASE, "y", "x: 1\nr: [1, 2]\n"),
+			(BASE, "y", "x: 1\nr: [1, 2\n"),
 			("x: 1\nbad name: 1\ny: 3\n", "y", "x: 1\nbad name: 1\n"),
+			("j:\n\tr: [1\n\tq: 1\nz: 2\n", "j.q", "j:\n\tr: [1\nz: 2\n"),
+			("j:\n\tq: 1\n\tr: [1\nz: 2\n", "j.q", "j:\n\tr: [1\nz: 2\n"),
 			(
-				"j:\n\tr: [1]\n\tq: 1\nz: 2\n",
+				"j:\n\tq: 1\n\tr: [1\n\tw: 3\nz: 2\n",
 				"j.q",
-				"j:\n\tr: [1]\nz: 2\n",
+				"j:\n\tr: [1\n\tw: 3\nz: 2\n",
 			),
 			(
-				"j:\n\tq: 1\n\tr: [1]\nz: 2\n",
-				"j.q",
-				"j:\n\tr: [1]\nz: 2\n",
-			),
-			(
-				"j:\n\tq: 1\n\tr: [1]\n\tw: 3\nz: 2\n",
-				"j.q",
-				"j:\n\tr: [1]\n\tw: 3\nz: 2\n",
-			),
-			(
-				"# on r\nr: [1]\n# on y\ny: 3\nz: 1\n",
+				"# on r\nr: [1\n# on y\ny: 3\nz: 1\n",
 				"y",
-				"# on r\nr: [1]\nz: 1\n",
+				"# on r\nr: [1\nz: 1\n",
 			),
 		] {
 			let mut doc = Document::parse(text);
@@ -13712,23 +13931,23 @@ mod kept_gate {
 	fn a_field_opened_by_a_kept_line_goes_with_its_last_line() {
 		let _id = test_id("ErgToax");
 		for (text, path, want) in [
-			("a: [1]\n\tb: 2\ny: 3\n", "a.b", "a: [1]\ny: 3\n"),
+			("a: [1\n\tb: 2\ny: 3\n", "a.b", "a: [1\ny: 3\n"),
 			(
-				"a: [1]\n\tb: 2\n\tc: 3\ny: 3\n",
+				"a: [1\n\tb: 2\n\tc: 3\ny: 3\n",
 				"a.b",
-				"a: [1]\n\tc: 3\ny: 3\n",
+				"a: [1\n\tc: 3\ny: 3\n",
 			),
 			(
-				"a: [1]\n\tb: 2\n\tr: [3]\ny: 3\n",
+				"a: [1\n\tb: 2\n\tr: [3\ny: 3\n",
 				"a.b",
-				"a: [1]\n\tr: [3]\ny: 3\n",
+				"a: [1\n\tr: [3\ny: 3\n",
 			),
 			(
-				"o: [9]\n\ta: [1]\n\t\tb: 2\ny: 3\n",
+				"o: [9\n\ta: [1\n\t\tb: 2\ny: 3\n",
 				"o.a.b",
-				"o: [9]\n\ta: [1]\ny: 3\n",
+				"o: [9\n\ta: [1\ny: 3\n",
 			),
-			("o:\n\ta: [1]\n\t\tb: 2\n", "o.a.b", "o:\n\ta: [1]\n"),
+			("o:\n\ta: [1\n\t\tb: 2\n", "o.a.b", "o:\n\ta: [1\n"),
 		] {
 			let mut doc = Document::parse(text);
 			assert_eq!(doc.remove(path), 1, "{text:?}");
@@ -13747,11 +13966,11 @@ mod kept_gate {
 		let _id = test_id("ErleUnO");
 		for (text, path, above, line, why, rest) in [
 			(
-				"a: [1]\n\tb: 2\ny: 3\n",
+				"a: [1\n\tb: 2\ny: 3\n",
 				"a",
 				"",
-				"# a: [1]",
-				"E019 bracket array syntax",
+				"# a: [1",
+				"E019 malformed array, no closing ']' on the line",
 				"a: 5\n\tb: 2\ny: 3\n",
 			),
 			(
@@ -13812,10 +14031,10 @@ mod kept_gate {
 		// Only the field the kept line opened: a child of it, or a field
 		// beside a kept line, leaves the line as it was.
 		for (path, want) in [
-			("a.c", "a: [1]\n\tb: 2\n\tc: 5\n"),
-			("z", "a: [1]\n\tb: 2\n\nz: 5\n"),
+			("a.c", "a: [1\n\tb: 2\n\tc: 5\n"),
+			("z", "a: [1\n\tb: 2\n\nz: 5\n"),
 		] {
-			let mut doc = Document::parse("a: [1]\n\tb: 2\n");
+			let mut doc = Document::parse("a: [1\n\tb: 2\n");
 			assert!(doc.set_int(path, 5));
 			assert_eq!(doc.to_canonical(), want);
 		}
@@ -13829,50 +14048,50 @@ mod kept_gate {
 		let _id = test_id("ErmXhmZ");
 		let note = |path: &str| {
 			format!(
-				"  ## commented out by shcl when setting {path}, STAMP: E019 bracket array syntax"
+				"  ## commented out by shcl when setting {path}, STAMP: E019 malformed array, no closing ']' on the line"
 			)
 		};
 		let (na, noa, nac) = (note("a"), note("o.a"), note("a.c"));
 		for (text, path, want, count) in [
 			// No loaded `a`: the new line goes under the first comment.
 			(
-				"a: [1]\ny: 3\n",
+				"a: [1\ny: 3\n",
 				"a",
-				format!("# a: [1]{na}\na: 5\ny: 3\n"),
+				format!("# a: [1{na}\na: 5\ny: 3\n"),
 				1,
 			),
 			(
-				"x: 1\na: [1]\ny: 3\na: [2]\n",
+				"x: 1\na: [1\ny: 3\na: [2\n",
 				"a",
-				format!("x: 1\n# a: [1]{na}\na: 5\ny: 3\n# a: [2]{na}\n"),
+				format!("x: 1\n# a: [1{na}\na: 5\ny: 3\n# a: [2{na}\n"),
 				1,
 			),
 			// What was under the line goes under the new one.
 			(
-				"a: [1]\n\t# under\n\tb: [2]\ny: 3\n",
+				"a: [1\n\t# under\n\tb: [2\ny: 3\n",
 				"a",
-				format!("# a: [1]{na}\na: 5\n\t# under\n\tb: [2]\ny: 3\n"),
+				format!("# a: [1{na}\na: 5\n\t# under\n\tb: [2\ny: 3\n"),
 				1,
 			),
 			// At the end of a block.
 			(
-				"o:\n\tx: 1\n\ta: [1]\n",
+				"o:\n\tx: 1\n\ta: [1\n",
 				"o.a",
-				format!("o:\n\tx: 1\n\t# a: [1]{noa}\n\ta: 5\n"),
+				format!("o:\n\tx: 1\n\t# a: [1{noa}\n\ta: 5\n"),
 				1,
 			),
 			// A field made on the way writes its line too.
 			(
-				"a: [1]\ny: 3\n",
+				"a: [1\ny: 3\n",
 				"a.c",
-				format!("# a: [1]{nac}\na:\n\tc: 5\ny: 3\n"),
+				format!("# a: [1{nac}\na:\n\tc: 5\ny: 3\n"),
 				1,
 			),
 			// A loaded `a` changes in place.
 			(
-				"a: 1\nb: [1]\na: [2]\n",
+				"a: 1\nb: [1\na: [2\n",
 				"a",
-				format!("a: 5\nb: [1]\n# a: [2]{na}\n"),
+				format!("a: 5\nb: [1\n# a: [2{na}\n"),
 				1,
 			),
 			// Two valid lines stay as they are, and so does a kept line with
@@ -13880,9 +14099,9 @@ mod kept_gate {
 			// under the field above.
 			("a: 1\na: 2\n", "a", "a: 5\na: 2\n".to_string(), 2),
 			(
-				"a: 1\na: [2]\n\tc: [3]\n",
+				"a: 1\na: [2\n\tc: [3\n",
 				"a",
-				"a: 5\na: [2]\n\tc: [3]\n".to_string(),
+				"a: 5\na: [2\n\tc: [3\n".to_string(),
 				1,
 			),
 		] {
@@ -13898,9 +14117,9 @@ mod kept_gate {
 			assert_eq!(doc.to_text_keep_lines(), (out.clone(), true));
 		}
 		// set_comment makes the field without touching the line.
-		let mut doc = Document::parse("a: [1]\ny: 3\n");
+		let mut doc = Document::parse("a: [1\ny: 3\n");
 		assert!(doc.set_comment("a", "n"));
-		assert_eq!(doc.to_canonical(), "a: [1]\ny: 3\n\n# n\na:\n");
+		assert_eq!(doc.to_canonical(), "a: [1\ny: 3\n\n# n\na:\n");
 	}
 
 	/// Each note's stamp, checked, as STAMP.
@@ -13974,7 +14193,7 @@ mod kept_gate {
 		let mut doc = Document::parse("a: 1\n");
 		doc.merge(&Document::parse(BASE));
 		assert_eq!(doc.lost_count(), 0);
-		assert!(doc.to_canonical().contains("r: [1, 2]\n"));
+		assert!(doc.to_canonical().contains("r: [1, 2\n"));
 		// Owed, not just present: taking it out again is a loss.
 		let y = doc.arena[ROOT]
 			.children
@@ -14017,20 +14236,17 @@ mod kept_gate {
 	#[test]
 	fn a_replaced_leaf_leaves_the_lines_beside_it() {
 		let _id = test_id("ErkSy71");
-		let mut doc = Document::parse("    srv: a\n  srv[x]: [3]\nb[x]: [4]\n# mine\nq: c\n");
+		let mut doc = Document::parse("    srv: a\n  srv[x]: [3\nb[x]: [4\n# mine\nq: c\n");
 		assert_eq!(
 			doc.to_canonical(),
-			"srv: a\n# srv[x]: [3]\nb[x]: [4]\n# mine\nq: c\n"
+			"srv: a\n# srv[x]: [3\nb[x]: [4\n# mine\nq: c\n"
 		);
 		doc.merge(&Document::parse("q: 9\n"));
-		assert_eq!(
-			doc.to_canonical(),
-			"srv: a\n# srv[x]: [3]\nb[x]: [4]\nq: 9\n"
-		);
+		assert_eq!(doc.to_canonical(), "srv: a\n# srv[x]: [3\nb[x]: [4\nq: 9\n");
 		assert_eq!(doc.lost_count(), 0);
-		let mut doc = Document::parse("p:\n\tq: c\n\t# mine\n\tb[x]: [4]\n\t# n\n");
+		let mut doc = Document::parse("p:\n\tq: c\n\t# mine\n\tb[x]: [4\n\t# n\n");
 		doc.merge(&Document::parse("p:\n\tq: 9\n"));
-		assert_eq!(doc.to_canonical(), "p:\n\tb[x]: [4]\n\t# n\n\tq: 9\n");
+		assert_eq!(doc.to_canonical(), "p:\n\tb[x]: [4\n\t# n\n\tq: 9\n");
 		assert_eq!(doc.lost_count(), 0);
 	}
 }

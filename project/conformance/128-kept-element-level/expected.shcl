@@ -2,10 +2,13 @@
 # that level's node. A field written deeper binds under the field (E001), and a
 # line back at the element's column is its sibling: the next field binds, and
 # an element after a field child is E008.
-a: x
+a:
+	- x
 	c: 1
 	d: 2
 b: 2
-list: one, two
+list:
+	- one
+	- two
 	deep: 3
 after: 4

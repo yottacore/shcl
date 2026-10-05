@@ -1,4 +1,4 @@
-field: workers, extra
+field: [workers, extra]
 	type: int
 field: title
 	type: string

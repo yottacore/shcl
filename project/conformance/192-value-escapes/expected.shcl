@@ -11,7 +11,9 @@ hidden: "a◉U+200B◉b"
 "name◉TAB◉x": 1
 srv: "a b"
 	port: 80
-list: "one◉NEWLINE◉", "two three"
+list:
+	- "one◉NEWLINE◉"
+	- "two three"
 # ◉ in a comment is text, odd count and all
 raw:
 	```◉info◉
@@ -29,6 +31,6 @@ spaced: "◉NEW LINE◉"
 "bad◉NAME◉": 1
 sel["x◉NOPE◉"]: 1
 stack:
-	* "◉NOPE◉"
-	* fine
+	- "◉NOPE◉"
+	- fine
 last: 1

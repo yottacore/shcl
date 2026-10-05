@@ -2,10 +2,10 @@
 note: don't panic  # keep this
 b: it's fine, ok
 c: say "hi" there, x
-d: "quoted, comma", 'single'
+d: ["quoted, comma", 'single']
 list:
-	* it's an element  # c
-	* "quoted # not a comment"
+	- it's an element  # c
+	- "quoted # not a comment"
 e: name's # c
 url: "http://h/#frag"
 f: "a:b"  # c

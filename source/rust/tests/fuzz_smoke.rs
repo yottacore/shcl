@@ -153,8 +153,8 @@ fn fence(rng: &mut Rng, indent: &str, name: &str) -> String {
 
 // Line-level shapes the character mutator almost never builds: duplicate keys
 // with children under them, a refused line with content beneath it, bracket
-// arrays, mixed and staircase indent, comments at every depth, stacked
-// elements against fields. Every defect all four bindings shared in the last
+// arrays well formed and not, mixed and staircase indent, comments at every
+// depth, stacked items against fields. Every defect all four bindings shared in the last
 // three rounds was one of these, so half the soup is built from them.
 fn structural(rng: &mut Rng) -> String {
 	const NAMES: &[&str] = &["a", "b", "c", "srv", "\"q.k\"", "*"];
@@ -181,23 +181,25 @@ fn structural(rng: &mut Rng) -> String {
 		};
 		// Shapes 11 to 13 have a `# k` comment behind a selector holding a
 		// quote, a backslash or a quoted `]`; see comments_behind_selectors.
-		let line = match rng.below(24) {
+		let line = match rng.below(29) {
 			0 => format!("{indent}# comment {}", rng.below(3)),
 			1 => String::new(),
 			2 => format!("{indent}no colon here"),
-			3 => format!("{indent}* {}", rng.below(4)),
+			3 => format!("{indent}- {}", rng.below(4)),
 			4 => format!("{indent}{name}: [{}, {}]", rng.below(9), rng.below(9)),
 			5 => format!("{indent}{name}{sel}:"),
 			6 => format!("{indent}{name}.{name}{sel}: {}", rng.below(9)),
-			7 => fence(rng, &indent, name),
+			// Twice the weight of a plain shape, so the blocks keep their share
+			// as shapes are added.
+			7 | 26 => fence(rng, &indent, name),
 			8 => format!("{indent}{name}: \"open"),
 			9 => format!("{indent}{name}: 1, , 2 # trailing"),
 			10 => format!("{indent}\u{feff}{name}: 1"),
 			11 => format!("{indent}{name}[O'x].{name}: {}  # k", rng.below(9)),
 			12 => format!("{indent}{name}[C:\\].{name}: it's  # k"),
 			13 => format!("{indent}{name}[ \"q]v\" ].{name}: {}  # k", rng.below(9)),
-			// One bracketed value, and the sugar spelling of a selector: neither
-			// loses anything, unlike shape 4.
+			// A one-element array, glued to the colon or not, which 2.x read
+			// as a selector.
 			14 => format!(
 				"{indent}{name}:{}[v{}]",
 				if rng.below(2) == 0 { " " } else { "" },
@@ -212,6 +214,17 @@ fn structural(rng: &mut Rng) -> String {
 			18 => format!("{indent}{name}:#x"),
 			19 => format!("{indent}{name}: \"a\" b, c  # k"),
 			20 => format!("{indent}{name}['x].{name}: {}  # k", rng.below(9)),
+			// The array and list shapes: the old marker, a malformed array two
+			// ways, with its fault past an element cap of one, and an item
+			// that is a name or text with a space.
+			21 => format!("{indent}* {}", rng.below(4)),
+			22 => format!("{indent}{name}: [{}, {}] x", rng.below(9), rng.below(9)),
+			23 => format!("{indent}{name}: [{},, {}]", rng.below(9), rng.below(9)),
+			24 => format!(
+				"{indent}- {}",
+				["name:", "a b", "[x]", "\"k:\""][rng.below(4)]
+			),
+			25 => format!("{indent}{name}: [[{}], {}]", rng.below(9), rng.below(9)),
 			_ => format!("{indent}{name}{sel}: {}", rng.below(9)),
 		};
 		out.push_str(&line);
@@ -245,7 +258,7 @@ fn seed_texts() -> Vec<String> {
 	// the PRNG makes. Sort so a run is actually reproducible.
 	seeds.sort();
 	seeds.push("a: 1\n\tb: 2\n".to_string());
-	seeds.push("x:\n\t* one\n\t* two\n".to_string());
+	seeds.push("x:\n\t- one\n\t- two\n".to_string());
 	seeds.push("r:\n\t~~~\n\tbody\n\t~~~\n".to_string());
 	seeds
 }
@@ -1479,11 +1492,13 @@ fn kept_soup(rng: &mut Rng) -> String {
 			1 => String::new(),
 			2 => format!("{ind}{name}: {n}"),
 			3 => format!("{ind}{name}:"),
-			4 => format!("{ind}* {n}"),
+			4 => format!("{ind}- {n}"),
 			5 => format!("{ind}{name}: \"a◉Q◉b\""),
 			6 => format!("{ind}{name}: C:\\Program Files"),
-			7 => format!("{ind}{name}[x]: [{n}]"),
-			_ => format!("{ind}{name}: [{n}]"),
+			7 => format!("{ind}{name}[x]: [{n}"),
+			8 => format!("{ind}{name}: {n}, {n}"),
+			9 => format!("{ind}- name:"),
+			_ => format!("{ind}{name}: [{n}"),
 		};
 		out.push_str(&line);
 		out.push('\n');
@@ -1589,7 +1604,7 @@ fn kept_soup_spliced(rng: &mut Rng) -> String {
 	}
 	if rng.below(3) == 0 {
 		splice(rng, &|rng, ind| {
-			format!("{ind}lz: [{}]\n{ind}\tonly: 2", rng.below(9))
+			format!("{ind}lz: [{}\n{ind}\tonly: 2", rng.below(9))
 		});
 	}
 	let mut out = lines.join("\n");
@@ -2986,7 +3001,7 @@ fn generated_starters_load_and_validate_clean() {
 		Some("\"#\""),
 		Some("'#'"),
 		Some("\"[x]\""),
-		Some("1, 2"),
+		Some("[1, 2]"),
 		Some("\"\""),
 		Some("\"*\""),
 		Some("\"7\""),

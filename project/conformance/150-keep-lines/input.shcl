@@ -6,8 +6,8 @@ Server:
     Host:   api.example.com
     Port:   8443     # behind the proxy
     Paths:
-        * /v1
-        * /v2
+        - /v1
+        - /v2
 
     TLS:
         enabled: yes

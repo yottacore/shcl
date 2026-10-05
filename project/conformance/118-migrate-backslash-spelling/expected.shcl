@@ -18,5 +18,7 @@ k: a\\tb
 j: a\\tb
 	v: 1
 srv:['a\\tb'].name: 1
-list: a\\tb, 'c\\d'
+list:
+	* a\\tb
+	* 'c\\d'
 last: 1

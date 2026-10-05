@@ -195,7 +195,7 @@ Options (the subcommands each belongs to are in parentheses):
   --set-literal=PATH=TEXT                (same subcommands) as --set, except
                                          TEXT goes in as value
                                          syntax the way a file writes it, so
-                                         'ports=80, 443' writes a two-element
+                                         'ports=[80, 443]' writes a two-element
                                          array. A # outside quotes ends the
                                          value; text spanning lines is rejected
   --set-default=PATH=VALUE               (same) as --set, but only when nothing
@@ -285,9 +285,9 @@ are worth just as much.
 /// to what a terminal shows. Like the help text it is byte-for-byte across the
 /// bindings, and crosscheck compares every code.
 const CODES: &str = "\
-E001|error|field line under a parent holding stacked '*' list elements
-  A parent holds list elements or named children, not both. The field line
-  is kept and the elements stay.
+E001|error|field line under a parent holding stacked '- ' list items
+  A parent holds list items or named children, not both. The field line
+  is kept and the items stay.
 E002|error|value after a last-segment selector (a.b[X]: v)
   The selector already says which instance, so the value has nowhere to go
   and is ignored. Put the value on the line that creates the instance.
@@ -303,25 +303,27 @@ E005|error|unterminated raw block (closing fence never found)
   opening fence's indent.
 E006|error|raw-block fence with no parent field to bind to
   A raw block is a field's value, so a fence needs a field line above it.
-E007|error|stacked '*' list element with no parent field
-  A '* value' line is an element of the field above it.
-E008|error|stacked '*' list element under a parent with field children
-  The parent already holds named children, so the element is dropped.
-E009|error|empty stacked '*' list element
-  A '*' with nothing after it has no value to add.
-E010|error|bare comma in a stacked '*' list element
-  The stacked form is one element per line. Quote the comma, or write the
-  whole array on the field's own line.
-E011|error|stacked '*' element for a field that already has a value
-  The field's value is kept and the element is ignored. A field is written
+E007|error|stacked '- ' list item with no parent field
+  A '- value' line is an item of the field above it.
+E008|error|stacked '- ' list item under a parent with field children
+  The parent already holds named children, so the item is dropped.
+E009|error|empty stacked '- ' list item
+  A '-' with nothing after it has no value to add.
+E010|error|bare comma in a stacked '- ' list item
+  The stacked form is one item per line. Quote the comma, or write the
+  whole array on the field's own line: ports: [80, 443].
+E011|error|stacked '- ' item for a field that already has a value
+  The field's value is kept and the item is ignored. A field is written
   one way or the other, not both.
 E012|error|indentation matches no open level
   The line is skipped, and anything written deeper is skipped with it
   (E018). A save writes them back as they were when the indent holds a
   space. One indented with tabs alone would bind there, so it is lost.
   Indent to a column some open parent already uses.
-E013|error|malformed '*' line ('*' not followed by a space)
-  The line is skipped, and what is written under it goes with it.
+E013|error|a line starting with '*', the old list item marker
+  A list item is written '- value' now. The line is kept as written and
+  binds nothing, and the other items still load. What is written under it
+  goes with it.
 E014|error|malformed line, or a bare field name that needs quotes
   A bare name is a letter, then letters, digits, '-' and '_'. One that
   breaks only that rule, such as 404 or user name, still reads: the line is
@@ -343,13 +345,15 @@ E017|error|an open quote or backtick in a value or selector body
 E018|error|line written under a line that was skipped
   It is skipped with it, so a skipped line's block never re-parents one
   level up. Fix the line above and this one comes back with it.
-E019|error|a value beginning with '[', the way JSON and YAML write arrays
-  An array is comma-separated and written without brackets: ports: 80, 443.
-  A '[' after the colon is never a selector, and reading the text without
-  its brackets would bake a changed value in, so the line is kept verbatim:
-  it binds nothing and nothing counts as lost. The lines under it still
-  load, under the field with no value, so a read on the field is Empty when
-  one of them loads and NotFound when none does.
+E019|error|a bracket array that is not well formed
+  An array is one line, ports: [80, 443], and [] is the empty array. Text
+  after the closing ']', a bare '[' or ']' inside, an empty element, or no
+  closing ']' on the line is malformed. Quote the value if it is text:
+  log: \"[INFO] started\". A list item that is an array is E019 too, since
+  arrays do not nest. The line is kept verbatim: it binds nothing and
+  nothing counts as lost. The lines under it still load, under the field
+  with no value, so a read on the field is Empty when one of them loads and
+  NotFound when none does.
 E020|error|node cap exceeded (fires only under a caller-supplied cap)
   The parse stopped there and the unparsed remainder counts as lost, so a
   later save refuses rather than writing a truncated file.
@@ -374,9 +378,17 @@ E025|error|whitespace or a quote in a bare value or selector body
   title: \"My App\" and name: \"O'Brien\". Whitespace at either end is
   trimmed first. The line is kept verbatim and binds nothing. In a value,
   the lines under it still load, under the field with no value.
+E026|error|a bare comma outside brackets and quotes
+  ports: 80, 443 is an error. Write the array in brackets, ports: [80, 443],
+  or quote text that has a comma. The line is kept verbatim and binds
+  nothing. The lines under it still load, under the field with no value.
+E027|error|a list item that is a bare name ending in ':', as in - name:
+  That is how YAML starts an object in a list, and SHCL writes one as an
+  instance. Quote the item if it is text: - \"name:\". The line is kept as
+  written, and the other items still load.
 H001|hint|repeated bare leaf (an array written as repeated lines)
   Repeated leaves are legal - that is how instances are written - but
-  'tags: red' twice and 'tags: red, blue' look alike, so the parser says
+  'tags: red' twice and 'tags: [red, blue]' look alike, so the parser says
   which one it read. A schema's repeat bound above 1 disavows it.
 H002|hint|a binding merged with a non-adjacent earlier one
   Same name and value, so the two combine. Legal, and only the parser can
@@ -2543,19 +2555,20 @@ fn do_tokens(o: &Opts) -> u8 {
 			Quote::Backtick => "`",
 			Quote::Open => "?",
 		};
-		// A stacked element and a fence line are value halves on their own. A
-		// `*` is an element when a blank follows it, trailing or not, which only
-		// the untrimmed line still shows (20260923 item 12).
-		let star = body.starts_with('*')
+		// A list item and a fence line are value halves on their own. A `-` is
+		// an item when a blank follows it, trailing or not, which only the
+		// untrimmed line still shows (20260923 item 12).
+		let item = body.starts_with('-')
 			&& line
 				.as_bytes()
 				.get(ilen + lead + 1)
 				.is_some_and(|&b| b == b' ' || b == b'\t' || b == b'\r');
 		let fence = body.starts_with("```") || body.starts_with("~~~");
-		if star || fence {
-			shcl::tokenize_value(rest, lead + usize::from(star), Rules::Current, &mut tok);
-			out.push_str(if star { " star" } else { " fence" });
+		if item || fence {
+			shcl::tokenize_value(rest, lead + usize::from(item), Rules::Current, &mut tok);
+			out.push_str(if item { " item" } else { " fence" });
 			let _ = write!(out, " value={}-{}", tok.value.0, tok.value.1);
+			push_array(&mut out, &tok);
 			for p in &tok.elements {
 				let _ = write!(out, " elem={}-{}{}", p.start, p.end, mark(p));
 			}
@@ -2576,6 +2589,7 @@ fn do_tokens(o: &Opts) -> u8 {
 		}
 		if let Some(at) = tok.sep {
 			let _ = write!(out, " sep={} value={}-{}", at, tok.value.0, tok.value.1);
+			push_array(&mut out, &tok);
 			for p in &tok.elements {
 				let _ = write!(out, " elem={}-{}{}", p.start, p.end, mark(p));
 			}
@@ -2590,6 +2604,16 @@ fn do_tokens(o: &Opts) -> u8 {
 	}
 	out!("{}", out);
 	0
+}
+
+/// A bracket array's `[` and, when it is malformed, where and why.
+fn push_array(out: &mut String, tok: &Tokens) {
+	if let Some(at) = tok.array {
+		let _ = write!(out, " array={}", at);
+	}
+	if let Some((at, why)) = tok.array_fault {
+		let _ = write!(out, " array-fault={}:{}", at, why);
+	}
 }
 
 /// Decode an ops-script value: \n \t \\ only; other `\x` stays verbatim. The
