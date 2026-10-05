@@ -261,6 +261,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Swept: all four DIVERGE sites in crosscheck (stdout, stdin-fed, in-place write, planted temp) show stderr; the reference's shows when it is the one that died.
 	- Test case: shell-regress `Ern198f`, a stub binding that exits 134 with text on stderr. Red on the old crosscheck, green on the new.
 	- Branch: `pyabort`
+	- Commit: `e9681e9a`
 	- Estimated effort: Low
 
 - Called from a session, an unquoted `-x:y` argument loses its `-x:` on the way through either PowerShell script
