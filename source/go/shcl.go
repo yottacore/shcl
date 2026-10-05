@@ -1105,20 +1105,28 @@ func skipWsp(s string, pos int) int {
 	return pos
 }
 
-// utf8Len is the byte length of the UTF-8 character that starts with b. The
-// scan only ever compares against ASCII structure characters, which UTF-8
-// guarantees cannot appear inside a multibyte sequence, so it advances by
-// whole characters and every offset it records is a character boundary.
-func utf8Len(b byte) int {
-	switch {
-	case b <= 0x7F:
-		return 1
+// utf8Len is the byte length of the UTF-8 character at s[i]. The scan only
+// ever compares against ASCII structure characters, which UTF-8 guarantees
+// cannot appear inside a multibyte sequence, so it advances by whole
+// characters and every offset it records is a character boundary. A byte that
+// starts nothing, or a sequence cut short, steps only over the continuation
+// bytes really there, so it never hides a quote or runs past the end
+// (2026100511212359).
+func utf8Len(s string, i int) int {
+	want := 1
+	switch b := s[i]; {
 	case b >= 0xC0 && b <= 0xDF:
-		return 2
+		want = 2
 	case b >= 0xE0 && b <= 0xEF:
-		return 3
+		want = 3
+	case b >= 0xF0 && b <= 0xF7:
+		want = 4
 	}
-	return 4
+	n := 1
+	for n < want && i+n < len(s) && s[i+n]&0xC0 == 0x80 {
+		n++
+	}
+	return n
 }
 
 // quoteClose is the offset of the quote that closes the one at pos, or -1.
@@ -1128,13 +1136,13 @@ func quoteClose(s string, pos int, rules Rules) int {
 	i := pos + 1
 	for i < len(s) {
 		if escapes && s[i] == '\\' && i+1 < len(s) {
-			i += 1 + utf8Len(s[i+1])
+			i += 1 + utf8Len(s, i+1)
 			continue
 		}
 		if s[i] == q {
 			return i
 		}
-		i += utf8Len(s[i])
+		i += utf8Len(s, i)
 	}
 	return -1
 }
@@ -1204,14 +1212,14 @@ func scanPiece(s string, pos int, term byte, rules Rules, comments bool) (Piece,
 	for pos < len(s) {
 		b := s[pos]
 		if shield && b == '\\' && pos+1 < len(s) {
-			pos += 1 + utf8Len(s[pos+1])
+			pos += 1 + utf8Len(s, pos+1)
 			contentEnd = clamp(pos)
 			continue
 		}
 		if b == term || (comments && commentAt(s, pos)) {
 			break
 		}
-		pos += utf8Len(b)
+		pos += utf8Len(s, pos)
 		if !isWspByte(b) {
 			contentEnd = clamp(pos)
 		}

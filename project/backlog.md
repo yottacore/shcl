@@ -242,7 +242,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - A quoted value holding an invalid UTF-8 byte can lose its closing quote and fail as `E017`
 	- ID: 2026100511212359
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261005-112123
 	- Opened by: convert-base-v2 feedback
@@ -255,6 +255,29 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: 20261005, Go binding at `0d1a491c`. C has the same helper, read but not run. Python and Rust take text, so they can't be handed the byte.
 	- Possible cause: `utf8Len` returns 4 for any byte that isn't a lead byte, continuation bytes included. `quoteClose` and the piece scan then step up to 3 bytes past it, and step over the quote when it's that close. C `utf8_len` is the same.
 	- Note: a rough edge. The file is still refused, only with the wrong message. convert-base-v2 hit it with a config base holding a bad digit, and refuses that digit itself once the line parses.
+	- Actual cause [Bug]: the step length came from the first byte alone. A byte that starts nothing stepped 4, and a lead byte cut short, like `"x\xe9"`, stepped over its quote too.
+	- Actual fix [Bug]: Go `utf8Len` and C `utf8_len` now step only over the continuation bytes that are there, so a bad byte is 1 and a cut-short sequence stops at the next ASCII byte or the line end. The value comes back with the byte in it.
+	- Swept: Go `utf8Len` (`quoteClose` twice, `scanPiece` twice) and C `utf8_len` (`quote_close` twice, `scan_piece` twice) are every use. The C++ veneer has no copy and gets the fix through `shcl_parse`. Rust `utf8_len` and Python `_utf8_len` are the same helper, but no Rust/Python twin is needed: Rust parses a `&str`, and Python encodes its `str` with `surrogatepass`, so both only ever see well-formed sequences.
+	- Note: `valsyn` rewrites these lexers. The fix only changes the helper and its call arguments, so it should merge cleanly or be easy to carry over.
+	- Verified: both new tests failed before the fix (Go: E017 on all 7 bad values, both quote kinds; C: 28 failures) and pass after. Go `go test -count=1` on both modules, go vet, the C conformance suite at -O0 to -O3 and -Os with gcc and gcc-15, veneer smoke, `test-ids.py check`, and crosscheck (4 bindings, 40659 comparisons) all pass. check-c-compilers passed apart from internal compiler segfaults in gcc and clang on random builds under load, a host fault; the one build that crashed in both runs passed at every level when built alone. cppcheck at the normal level reported no warnings; the exhaustive run did not finish in 10 minutes.
+	- Branch: `utf8len`
+	- Commit: `d9f38a4a`
+	- Test case: Go `ErryPpd` (`TestABadUTF8ByteKeepsItsClosingQuote`), C `ErryPsK` (`a_bad_utf8_byte_keeps_its_closing_quote`).
+	- Acceptance signoff: Self-closed: reproduced, failing test before the fix, passing after.
+	- Closed: 20261005-161622
+
+- The C CLI does not build at `-O3` with gcc 14 or 15
+	- ID: 2026100516162200
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261005-161622
+	- Opened by: found while working 2026100511212359
+	- Version and build: dev at `e4d586c3`
+	- Steps to reproduce:
+		- `gcc -std=c11 -O3 -Wall -Wextra -Wshadow -Wvla -Werror -Isource/c source/c/cmd/shcl/main.c -lm`, same with `gcc-15`.
+	- Incorrect behavior: `-Wmaybe-uninitialized` on `lens[o->nlayers]` in `load_layered_from`, so `-Werror` stops the build. -O0 to -O2 build clean.
+	- Possible cause: a false positive after inlining, since the loop before it fills every slot or returns. check-c-compilers builds `main.c` at -O2 only, so the gate never sees it.
 
 - Build and test on FreeBSD
 	- ID: 2026100413052101

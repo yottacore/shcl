@@ -1433,15 +1433,18 @@ size_t shcl_tokens_element_count(const shcl_tokens *t) {
 
 static void skip_wsp(ShclStr s, size_t *pos) { while (*pos < s.n && is_wsp((unsigned char)s.p[*pos])) (*pos)++; }
 
-/* Byte length of the UTF-8 character that starts with b. The scan only ever
-   compares against ASCII structure characters, which UTF-8 guarantees cannot
-   appear inside a multibyte sequence, so it advances by whole characters and
-   every offset it records is a character boundary. */
-static size_t utf8_len(unsigned char b) {
-	if (b < 0x80) return 1;
-	if (b >= 0xC0 && b < 0xE0) return 2;
-	if (b >= 0xE0 && b < 0xF0) return 3;
-	return 4;
+/* Byte length of the UTF-8 character at s.p[i]. The scan only ever compares
+   against ASCII structure characters, which UTF-8 guarantees cannot appear
+   inside a multibyte sequence, so it advances by whole characters and every
+   offset it records is a character boundary. A byte that starts nothing, or a
+   sequence cut short, steps only over the continuation bytes really there, so
+   it never hides a quote or runs past the end (2026100511212359). */
+static size_t utf8_len(ShclStr s, size_t i) {
+	unsigned char b = (unsigned char)s.p[i];
+	size_t want = b >= 0xC0 && b < 0xE0 ? 2 : b >= 0xE0 && b < 0xF0 ? 3 : b >= 0xF0 && b < 0xF8 ? 4 : 1;
+	size_t n = 1;
+	while (n < want && i + n < s.n && ((unsigned char)s.p[i + n] & 0xC0) == 0x80) n++;
+	return n;
 }
 
 /* Offset of the quote that closes the one at pos; 0 when there is none. */
@@ -1450,9 +1453,9 @@ static int quote_close(ShclStr s, size_t pos, ShclRules rules, size_t *close) {
 	int escapes = q == '"' || rules == SHCL_RULES_V2;
 	size_t i = pos + 1;
 	while (i < s.n) {
-		if (escapes && s.p[i] == '\\' && i + 1 < s.n) { i += 1 + utf8_len((unsigned char)s.p[i + 1]); continue; }
+		if (escapes && s.p[i] == '\\' && i + 1 < s.n) { i += 1 + utf8_len(s, i + 1); continue; }
 		if (s.p[i] == q) { *close = i; return 1; }
-		i += utf8_len((unsigned char)s.p[i]);
+		i += utf8_len(s, i);
 	}
 	return 0;
 }
@@ -1507,9 +1510,9 @@ static size_t scan_piece(ShclStr s, size_t pos, char term, ShclRules rules, int 
 	size_t content_end = start;
 	while (pos < s.n) {
 		unsigned char b = (unsigned char)s.p[pos];
-		if (shield && b == '\\' && pos + 1 < s.n) { pos += 1 + utf8_len((unsigned char)s.p[pos + 1]); content_end = min_sz(pos, s.n); continue; }
+		if (shield && b == '\\' && pos + 1 < s.n) { pos += 1 + utf8_len(s, pos + 1); content_end = min_sz(pos, s.n); continue; }
 		if (b == (unsigned char)term || (comments && comment_at(s, pos))) break;
-		pos += utf8_len(b);
+		pos += utf8_len(s, pos);
 		if (!is_wsp(b)) content_end = min_sz(pos, s.n);
 	}
 	/* 2.x judged a value piece quoted by its shape after the scan: a quote at
