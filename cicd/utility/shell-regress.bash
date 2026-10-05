@@ -534,6 +534,36 @@ if fHave pwsh; then
 	got="$(SHCL_BIN="${cli}" pwsh -NoProfile -File "${repoDir}/source/powershell/shcl.ps1" children "${tmpDir}/colon.shcl" --set=url=http://x 2>&1 </dev/null || true)"
 	[[ -n "${want}" && "${got}" == "${want}" ]] || fBad "shcl.ps1 run by -File: children with --set=url=http://x gave ${got@Q}, the binary ${want@Q}"
 
+	fTest Ermwgw4 2026100408550401-ps1-session-colon-args
+	##	Called from a session, an unquoted `-x:y` reached the binary as `y`. Each
+	##	row wants what a direct call passes, where `-x: y` is two arguments. The
+	##	last row is the fallback, where the caller's own parameter took `-q:1`.
+	cat > "${tmpDir}/sesscolon.ps1" <<'PSEOF'
+Set-StrictMode -Version Latest
+$ps1 = $args[0]
+$env:SHCL_BIN = $args[1]
+. $ps1
+function Test-Same([string]$Label, [object[]]$Got, [string[]]$Want) {
+	if (($Got -join '|') -cne ($Want -join '|')) { "${Label}: [$($Got -join '|')] against [$($Want -join '|')]" }
+}
+function Invoke-Wrap { shcl @args }
+function Invoke-Bound([string]$q) { $null = $q; shcl @args }
+Test-Same 'dot-sourced' (shcl a -x:y -x: y -k:$true -n:1,2 -s:"a b" -e: -q --z:w '-x:' y) @('[a]', '[-x:y]', '[-x:]', '[y]', '[-k:True]', '[-n:1,2]', '[-s:a b]', '[-e:]', '[-q]', '[--z:w]', '[-x:]', '[y]')
+Test-Same 'helper' (shcl_get f -x:y -x: y) @('[get]', '[f]', '[-x:y]', '[-x:]', '[y]')
+Test-Same 'script' (& $ps1 a -x:y -x: y) @('[a]', '[-x:y]', '[-x:]', '[y]')
+Test-Same 'wrapper' (Invoke-Wrap a -x:y -x: y) @('[a]', '[-x:y]', '[-x:]', '[y]')
+Test-Same 'piped' ('in' | shcl a -x:y -x: y) @('[a]', '[-x:y]', '[-x:]', '[y]')
+$got = shcl a -x:y `
+	-x: y
+Test-Same 'two lines' $got @('[a]', '[-x:y]', '[-x:]', '[y]')
+Test-Same 'bound' (Invoke-Bound -q:1 -x: y) @('[-x:y]')
+$PSNativeCommandArgumentPassing = 'Legacy'
+Test-Same 'legacy' (shcl a -x:y -x: y -s:"a b") @('[a]', '[-x:y]', '[-x:]', '[y]', '[-s:a b]')
+'done'
+PSEOF
+	out="$(env -u DISPLAY -u WAYLAND_DISPLAY pwsh -NoProfile -File "${tmpDir}/sesscolon.ps1" "${repoDir}/source/powershell/shcl.ps1" "${tmpDir}/argv.sh" 2>&1 </dev/null || true)"
+	[[ "${out}" == "done" ]] || fBad "shcl.ps1 from a session changed a colon argument: ${out@Q}"
+
 	fTest EoUqEKW 20260830b-10-ps1-link-resolver
 	##	20260830b item 10: the symlink resolver called a .NET 6 method that
 	##	Windows PowerShell 5.1 does not have, unguarded and at load, so every
@@ -2769,6 +2799,28 @@ if fHave pwsh; then
 	want="$(printf '[%s]\n' "${colonArgs[@]}")"
 	got="$(env -u DISPLAY -u WAYLAND_DISPLAY HOME="${dh}" bash "${repoDir}/utility/dogfood_shcl" "${colonArgs[@]}" 2>/dev/null </dev/null || true)"
 	[[ "${got}" == "${want}" ]] || fBad "dogfood_shcl changed its arguments on the way to shcl: ${got@Q} against ${want@Q}"
+else
+	fTestSkip
+fi
+
+fTest ErmwiJ3 2026100408550401-dogfood-session-colon-args
+##	Called from a session, an unquoted `-x:y` reached shcl as `y`. It wants
+##	what a direct call passes, where `-x: y` is two arguments.
+if fHave pwsh; then
+	dh="${tmpDir}/dfsesscolon"
+	dsrc="${dh}/synced/0-0/common/exec/util/linux/bin"
+	mkdir -p "${dsrc}" "${dh}/.local/bin"
+	#  shellcheck disable=2016  ## the stub's own $@ and $a.
+	printf '#!/bin/sh\nfor a in "$@"; do printf "[%%s]\\n" "$a"; done\n' > "${dsrc}/shcl"; chmod +x "${dsrc}/shcl"
+	cat > "${tmpDir}/dfsesscolon.ps1" <<'PSEOF'
+Set-StrictMode -Version Latest
+$o = @(& $args[0] --no-update a -x:y -x: y '-x:' y -k:$true)
+$want = @('[a]', '[-x:y]', '[-x:]', '[y]', '[-x:]', '[y]', '[-k:True]')
+if (($o -join '|') -cne ($want -join '|')) { "lost: came back [$($o -join '|')]" } else { 'done' }
+PSEOF
+	env -u DISPLAY -u WAYLAND_DISPLAY HOME="${dh}" pwsh -NoProfile -File "${repoDir}/utility/dogfood_shcl.ps1" x >/dev/null 2>&1 </dev/null || true
+	out="$(env -u DISPLAY -u WAYLAND_DISPLAY HOME="${dh}" pwsh -NoProfile -File "${tmpDir}/dfsesscolon.ps1" "${repoDir}/utility/dogfood_shcl.ps1" 2>&1 </dev/null || true)"
+	[[ "${out}" == "done" ]] || fBad "dogfood_shcl.ps1 from a session changed a colon argument: ${out@Q}"
 else
 	fTestSkip
 fi

@@ -336,10 +336,23 @@ fRunDogfood() {
 ## under 5.1 the runner lost an embedded quote and an empty argument. Both
 ## shells run both scripts, and the .cmd launcher runs the runner under
 ## whichever shell it finds. Path conversion is off, so every call gets the
-## same bytes.
+## same bytes. 2026100408550401: called from a session, both scripts passed
+## an unquoted `-x:y` on as `y`, and `-x: y` has to stay two arguments.
 fRunPsArgs() {
-	local sh prof app src f bin out want
+	local sh prof app src f bin out want sess
 	cargo build --quiet --manifest-path source/rust/Cargo.toml || return 1
+	sess="${work}/pscolon.ps1"
+	cat > "${sess}" <<'PSEOF'
+$ps1 = $args[0]; $env:SHCL_BIN = $args[1]; $f = $args[2]; $dogfood = $args[3]
+. $ps1
+$o = shcl get --default -x:y $f nope
+if ("$o" -cne '-x:y') { "shcl.ps1 joined: [$o]" }
+$o = shcl get --default -x: $f nope
+if ("$o" -cne '-x:') { "shcl.ps1 spaced: [$o]" }
+$o = & $dogfood --no-update get --default -x:y $f nope
+if ("$o" -cne '-x:y') { "dogfood_shcl.ps1 joined: [$o]" }
+'done'
+PSEOF
 	f="${work}/psargs.shcl"; printf 'site: a\nurl: b\n' > "${f}"
 	f="$(cygpath -w "${f}")"; bin="$(cygpath -w source/rust/target/debug/shcl.exe)"
 	local -x MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
@@ -360,6 +373,8 @@ fRunPsArgs() {
 		[[ "${out//$'\r'/}" == 'zip="02134"' ]] || { echo "win-runners: psargs (${sh}): dogfood_shcl.ps1 lost a quote: ${out@Q}" >&2; return 1; }
 		out="$(USERPROFILE="${prof}" LOCALAPPDATA="${app}" "${sh}" -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w utility/dogfood_shcl.ps1)" --no-update get --default '' "${f}" nope 2>&1)" || true
 		[[ -z "${out//$'\r'/}" ]] || { echo "win-runners: psargs (${sh}): dogfood_shcl.ps1 lost an empty argument: ${out@Q}" >&2; return 1; }
+		out="$(USERPROFILE="${prof}" LOCALAPPDATA="${app}" "${sh}" -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "${sess}")" "$(cygpath -w source/powershell/shcl.ps1)" "${bin}" "${f}" "$(cygpath -w utility/dogfood_shcl.ps1)" 2>&1)" || true
+		[[ "${out//$'\r'/}" == 'done' ]] || { echo "win-runners: psargs (${sh}): from a session: ${out@Q}" >&2; return 1; }
 	done
 	[[ -n "${prof:-}" ]] || return 0
 	out="$(USERPROFILE="${prof}" LOCALAPPDATA="${app}" cmd /c "$(cygpath -w utility/dogfood_shcl.cmd)" --no-update children "${f}" --set=url=http://x 2>/dev/null)" || true

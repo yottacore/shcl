@@ -193,6 +193,42 @@ function _shcl_native_args {
 	}
 }
 
+## Called from a session, an unquoted `-x:y` reaches a function as a marked
+## `-x:` and a `y`, and splatted on to a native command the `-x:` is dropped.
+## `-x: y` looks the same here, while a direct call passes it as two
+## arguments. The calling line tells them apart, so the call stack is searched
+## for a command whose colon parameters have the same names in the same order.
+## With none, as when a caller's own parameter took some of them, the pair is
+## joined. A value that is an array is joined with commas, as a direct call
+## does. What comes back is plain strings, which a splat leaves whole.
+function _shcl_colon_args([object[]]$given) {
+	$mark = '<CommandParameterName>'
+	$names = @(foreach ($a in $given) { if ($null -ne $a -and $a.PSObject.Properties[$mark] -and "$a".EndsWith(':')) { $a.PSObject.Properties[$mark].Value } })
+	if ($names.Count -eq 0) { return $given }
+	$wanted = $names -join ' '
+	$spaced = $null
+	foreach ($frame in Get-PSCallStack) {
+		if ($null -eq $frame.Position -or -not $frame.Position.Text) { continue }
+		$ast = [System.Management.Automation.Language.Parser]::ParseInput($frame.Position.Text, [ref]$null, [ref]$null)
+		foreach ($command in $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.CommandAst] }, $true)) {
+			$params = @($command.CommandElements | Where-Object { $_ -is [System.Management.Automation.Language.CommandParameterAst] -and $null -ne $_.Argument })
+			if ((@($params | ForEach-Object { $_.ParameterName }) -join ' ') -eq $wanted) {
+				$spaced = @($params | ForEach-Object { $_.Argument.Extent.StartOffset -gt $_.ErrorPosition.EndOffset })
+				break
+			}
+		}
+		if ($null -ne $spaced) { break }
+	}
+	$k = 0
+	for ($i = 0; $i -lt $given.Count; $i++) {
+		$a = $given[$i]
+		if ($null -eq $a -or -not $a.PSObject.Properties[$mark] -or -not "$a".EndsWith(':') -or $i + 1 -ge $given.Count) { $a; continue }
+		if ($null -ne $spaced -and $k -lt $spaced.Count -and $spaced[$k]) { "$a" }
+		else { $i++; "$a" + (@($given[$i]) -join ',') }
+		$k++
+	}
+}
+
 function shcl {
 	if (-not (_shcl_resolve)) { $global:LASTEXITCODE = 1; return }
 	$utf8 = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false
@@ -206,7 +242,8 @@ function shcl {
 			[Console]::OutputEncoding = $utf8
 		}
 	} catch { $consoleWas = $null }
-	$pass = @(_shcl_native_args @args)
+	$plain = @(_shcl_colon_args $args)
+	$pass = @(_shcl_native_args @plain)
 	try {
 		if ($MyInvocation.ExpectingInput) { $input | & $script:_SHCL_BIN @pass }
 		else { & $script:_SHCL_BIN @pass }
