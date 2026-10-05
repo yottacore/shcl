@@ -135,20 +135,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Superseded by ID:
 	- Closed:
 
-- A merge can leave a list with a field under it after an empty binding of its name that has fields, which no text reloads as
-	- ID: 2026100511210900
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261005-112109
-	- Opened by: JC
-	- Related IDs: 2026100207032800
-	- Problem description:
-		- A list with a field under it (`E001`) has to be written stacked, since in brackets it is `E028`. After an empty binding of its name, a reload joins its header to that binding, and when that binding has fields the items are dropped (`E008`).
-		- A merge or an edit can leave that shape. The fuzz properties skip it (`list_after_empty` in `fuzz_smoke.rs`).
-		- Question: should a field line under stacked items stop binding (`E001` kept, not bound)? That would remove the shape, but reverses the uniform-or-nothing rule cases 010 and 128 pin.
-	- Test case: none yet; the fuzz skip names the shape.
-
 - Back up and rewrite a config file when a program's shcl upgrade breaks it
 	- ID: 2026100313461649
 	- Type: Feature
@@ -306,6 +292,20 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Possible cause: the per-line fault checks added with the escape errors. `_line_fault` and the extra `any` calls account for most of the gap.
 	- Decisions:
 		- 20261002: recheck after 2026100207032800 is built, since it removes most of those checks. No perf work before 3.0.0 otherwise.
+
+- A merge can leave a list with a field under it after an empty binding of its name that has fields, which no text reloads as
+	- ID: 2026100511210900
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261005-112109
+	- Opened by: the work on 2026100207032800
+	- Related IDs: 2026100207032800
+	- Problem description:
+		- A list with a field under it (`E001`) has to be written stacked, since in brackets it is `E028`. After an empty binding of its name, a reload joins its header to that binding, and when that binding has fields the items are dropped (`E008`).
+		- A merge or an edit can leave that shape. The fuzz properties skip it (`list_after_empty` in `fuzz_smoke.rs`).
+		- Question: should a field line under stacked items stop binding (`E001` kept, not bound)? That would remove the shape, but reverses the uniform-or-nothing rule cases 010 and 128 pin.
+	- Test case: none yet; the fuzz skip names the shape.
 
 - Build and test on FreeBSD
 	- ID: 2026100413052101
