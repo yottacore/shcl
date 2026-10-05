@@ -5324,6 +5324,59 @@ func noteText(s string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(s, "\n", `\n`), "\r", `\r`)
 }
 
+// keptNaming is the code and message the load gave a kept line that names
+// just `name`, at the level of the block it sits in: a field line refused for
+// its value alone, which a reload would read as another `name` once fixed by
+// hand. A line with a raw body could not be commented out as one line.
+func keptNaming(l *lead, name string) (code, msg string, ok bool) {
+	if l.depth != 0 || l.text != "" && strings.IndexByte("#* \t", l.text[0]) >= 0 || strings.Contains(l.text, "\n") {
+		return "", "", false
+	}
+	var tok Tokens
+	Tokenize(l.text, ':', false, RulesCurrent, &tok)
+	scan, err := pathOf(&tok, l.text)
+	if err != nil || len(scan.segments) != 1 {
+		return "", "", false
+	}
+	seg := &scan.segments[0]
+	if seg.sel != nil || seg.name != name {
+		return "", "", false
+	}
+	if _, bad := badEscape(&tok, l.text, false); bad {
+		return "", "", false
+	}
+	return lineFault(&tok, l.text)
+}
+
+// noteLead writes a kept line as a comment, with the note giving why and
+// when. It is a plain comment from here on, as a reload reads it.
+func noteLead(l *lead, path, code, msg string) {
+	// The reason, without the advice after it.
+	why, _, _ := strings.Cut(msg, ";")
+	l.text = fmt.Sprintf("%s  ## commented out by shcl when setting %s, %s: %s %s",
+		commented(l.text), noteText(path), noteStamp(), code, why)
+	l.line = 0
+	l.kept = false
+}
+
+// runUnder is how many lines after leads[k] are written under it: each line
+// deeper than it up to the next field line that is not, with the comments and
+// misplaced lines among them, since neither ends the lines it holds open.
+func runUnder(leads []lead, k int) int {
+	depth := leads[k].depth
+	last := k
+	for i := k + 1; i < len(leads); i++ {
+		l := &leads[i]
+		// A misplaced line is at depth 0, whatever its own indent.
+		if l.depth > depth {
+			last = i
+		} else if !strings.HasPrefix(l.text, "#") && !strings.HasPrefix(l.text, " ") && !strings.HasPrefix(l.text, "\t") {
+			break
+		}
+	}
+	return last - k
+}
+
 // noteStamp is the local time to the second, with the zone, for a setter's
 // note on a line it commented out. SHCL_TEST_CLOCK stands in for the system
 // clock and zone, so tests can pin the text: "YYYY-mm-DD HH:MM:SS
@@ -8131,8 +8184,9 @@ func (d *Document) probeWrite(scan pathScan) (WriteReason, []int) {
 // selector selects the matching instance or creates it; [#k] must already
 // exist. ok=false means the path is unusable for a write (WriteReason says
 // why). Validation runs first, so a doomed path leaves no half-created
-// intermediates behind.
-func (d *Document) place(path string) (int, bool) {
+// intermediates behind. A setter creating a field deals with the kept lines
+// of its name, as setChild says.
+func (d *Document) place(path string, setter bool) (int, bool) {
 	scan, err := scanLookup(path)
 	if err != nil {
 		return 0, false
@@ -8168,18 +8222,35 @@ func (d *Document) place(path string) (int, bool) {
 			cur = trail[i]
 			continue
 		}
+		var v value
 		switch {
 		case seg.sel == nil:
-			cur = d.newChild(cur, seg.name, seg.nameSrc, value{kind: vEmpty})
+			v = value{kind: vEmpty}
 		case seg.sel.kind == selByValue:
-			cur = d.newChild(cur, seg.name, seg.nameSrc, cellOf(seg.sel.value))
+			v = cellOf(seg.sel.value)
 		default:
 			// Unreachable: probeWrite refuses a wildcard outright and an
 			// unresolvable index, so neither reaches an empty trail slot.
 			return 0, false
 		}
+		if setter {
+			cur = d.setChild(cur, seg.name, seg.nameSrc, v, path)
+		} else {
+			cur = d.newChild(cur, seg.name, seg.nameSrc, v)
+		}
 	}
 	return cur, true
+}
+
+// setChild: a setter creating a field writes the kept lines of its name in
+// the block as comments, and with no other field of that name the new one
+// goes right under the first of them (design.md, Kept lines under edits).
+func (d *Document) setChild(parent int, name, nameSrc string, v value, path string) int {
+	alone := len(d.childrenNamed(parent, name)) == 0
+	if at, ok := d.commentOutKept(parent, name, path, alone); ok {
+		return d.newChildUnder(parent, name, nameSrc, v, at)
+	}
+	return d.newChild(parent, name, nameSrc, v)
 }
 
 func (d *Document) setValue(path string, v value) bool {
@@ -8189,12 +8260,14 @@ func (d *Document) setValue(path string, v value) bool {
 	if d.probe {
 		return true
 	}
-	idx, ok := d.place(path)
+	fresh := len(d.arena)
+	idx, ok := d.place(path, true)
 	if !ok {
 		return false
 	}
-	if headsBlock(&d.arena[idx]) {
-		d.commentOutHead(idx, path)
+	// place has already done it for a field it created.
+	if idx < fresh && d.keptOwed > 0 {
+		d.commentOutKept(d.arena[idx].parent, d.arena[idx].name, path, false)
 	}
 	d.arena[idx].value = v
 	d.arena[idx].src = nil // written value has no source spelling
@@ -8213,36 +8286,161 @@ func (d *Document) setValue(path string, v value) bool {
 	return true
 }
 
-// commentOutHead: a setter on a field a kept line opened writes that line as
-// a comment, with a note giving why and when, so the file is left with one
-// line for the field (design.md, Kept lines under edits). The line is a
-// comment from here on, as a reload reads it, so it is no longer owed.
-func (d *Document) commentOutHead(idx int, path string) {
-	t := d.arena[idx].trivMut()
-	if len(t.leading) == 0 {
-		return
+// keptAt is where a lead sits: its list, the node that list is on, and its
+// place in it.
+type keptAt struct {
+	site  site
+	owner int
+	k     int
+}
+
+// commentOutKept: a setter writing a field writes every kept line of its
+// name in the block as a comment with a note, the one heading the field
+// included, so a hand fix of one later never gives Multiple (design.md, Kept
+// lines under edits). Each is no longer owed. With anchor, the first one is
+// where a new field goes, and is returned, and the kept lines under it go
+// under that field. Any other with a kept line under it stays, since as a
+// comment it would leave that line under the field above.
+func (d *Document) commentOutKept(parent int, name, path string, anchor bool) (keptAt, bool) {
+	var first keptAt
+	found := false
+	if d.keptOwed == 0 {
+		return first, false
 	}
-	l := &t.leading[len(t.leading)-1]
-	// A line refused for its value alone never takes a raw body, but one
-	// that did could not be commented out as one line.
-	if strings.Contains(l.text, "\n") {
-		return
+	for _, kn := range d.keptNamed(parent, name) {
+		leads := *d.leadsMut(kn.at.site, kn.at.owner)
+		k := kn.at.k
+		misplaced, fields := false, false
+		for _, l := range leads[k+1 : k+1+runUnder(leads, k)] {
+			if strings.HasPrefix(l.text, " ") || strings.HasPrefix(l.text, "\t") {
+				misplaced = true
+			} else if !strings.HasPrefix(l.text, "#") {
+				fields = true
+			}
+		}
+		// A misplaced line under it is filed by its own text, so it cannot
+		// move with it either.
+		if misplaced {
+			continue
+		}
+		if anchor && !found {
+			first, found = kn.at, true
+		} else if fields {
+			continue
+		}
+		noteLead(&leads[k], path, kn.code, kn.msg)
+		if d.keptOwed > 0 {
+			d.keptOwed--
+		}
 	}
-	var tok Tokens
-	Tokenize(l.text, ':', false, RulesCurrent, &tok)
-	code, msg, bad := lineFault(&tok, l.text)
-	if !bad {
-		return
+	return first, found
+}
+
+type keptName struct {
+	at        keptAt
+	code, msg string
+}
+
+// keptNamed is the kept lines naming just `name` in the block under parent,
+// in the order they are written, each with the fault the load gave it.
+func (d *Document) keptNamed(parent int, name string) []keptName {
+	var out []keptName
+	scan := func(st site, owner int, leads []lead) {
+		for k := range leads {
+			if code, msg, ok := keptNaming(&leads[k], name); ok {
+				out = append(out, keptName{keptAt{st, owner, k}, code, msg})
+			}
+		}
 	}
-	// The reason, without the advice after it.
-	why, _, _ := strings.Cut(msg, ";")
-	l.text = fmt.Sprintf("%s  ## commented out by shcl when setting %s, %s: %s %s",
-		commented(l.text), noteText(path), noteStamp(), code, why)
-	l.line = 0
-	l.kept = false
-	if d.keptOwed > 0 {
-		d.keptOwed--
+	for _, c := range d.arena[parent].children {
+		scan(siteLeading, c, d.arena[c].leading())
+		scan(siteAfter, c, d.arena[c].after())
 	}
+	scan(siteInside, parent, d.arena[parent].inside())
+	if parent == root {
+		scan(siteOrphans, root, d.orphans)
+	}
+	return out
+}
+
+func (d *Document) leadsMut(st site, owner int) *[]lead {
+	if st == siteOrphans {
+		return &d.orphans
+	}
+	t := d.arena[owner].trivMut()
+	switch st {
+	case siteLeading:
+		return &t.leading
+	case siteInside:
+		return &t.inside
+	default:
+		return &t.after
+	}
+}
+
+// newChildUnder is a new field right under the kept line at `at`, which a
+// setter just wrote as a comment. The lines written under that line go under
+// the field, where a reload files them.
+func (d *Document) newChildUnder(parent int, name, nameSrc string, v value, at keptAt) int {
+	if stacks(&d.arena[parent]) {
+		unstack(&d.arena[parent])
+	}
+	leads := d.leadsMut(at.site, at.owner)
+	all := *leads
+	k := at.k
+	end := k + 1 + runUnder(all, k)
+	line := []lead{all[k]}
+	under := append([]lead(nil), all[k+1:end]...)
+	rest := append([]lead(nil), all[end:]...)
+	head := append([]lead(nil), all[:k]...)
+	for i := range under {
+		if under[i].depth > 0 {
+			under[i].depth--
+		}
+	}
+	restep(under)
+	// Above the field, what was written before the line. After a sibling,
+	// that stays with the sibling and the settle below moves it.
+	var leading, after []lead
+	if at.site == siteAfter {
+		*leads = head
+		leading, after = line, rest
+	} else {
+		leading = append(head, line...)
+		if at.site == siteLeading {
+			restep(rest)
+		}
+		*leads = rest
+	}
+	kids := d.arena[parent].children
+	pos := len(kids)
+	if at.site == siteLeading || at.site == siteAfter {
+		for p, c := range kids {
+			if c != at.owner {
+				continue
+			}
+			pos = p
+			if at.site == siteAfter {
+				pos++
+			}
+			break
+		}
+	}
+	idx := len(d.arena)
+	d.arena = append(d.arena, nodeData{
+		name: name, nameSrc: spelled(name, nameSrc), value: v, parent: parent,
+		trivia: &trivia{leading: leading, after: after, inside: under},
+	})
+	kids = append(kids, 0)
+	copy(kids[pos+1:], kids[pos:])
+	kids[pos] = idx
+	d.arena[parent].children = kids
+	// No other field of this name, so the index order holds.
+	if ix := d.index.Load(); ix != nil {
+		ix.append(nameKey(parent, name), idx)
+	}
+	settleBlock(d.arena, parent, pos)
+	return idx
 }
 
 // collapseDup: a written value may now collide with a same-named sibling under
@@ -8593,7 +8791,7 @@ func (d *Document) SetComment(path, text string) bool {
 	if !ok {
 		return false
 	}
-	idx, ok := d.place(path)
+	idx, ok := d.place(path, false)
 	if !ok {
 		return false
 	}

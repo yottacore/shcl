@@ -122,7 +122,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - Removing the only line under a lazily opened field leaves a bare `name:`, and the field later reads as Multiple
 	- ID: 2026100307163907
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Avg
 	- Opened: 20261003-071639
 	- Opened by: Code review 20261003 item 7
@@ -154,12 +154,19 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261004, answered: do what happens with two valid lines of one name. There a setter changes the first one. The setter made a second `a` only because the load could not read `a: [1]`, so the document had no `a` to change.
 		- So a setter that would create a field takes the first kept line of that name in the block as the field. It writes that line as the comment with its note, and the new line goes right under it. If a field of that name already loaded, the setter changes it and the kept line stays, as a second valid line would.
 		- 20261004, changed: a kept line beside a loaded field of the same name would read as Multiple once fixed, so it goes too. A setter writing `a` writes every kept line named `a` in that block as the noted comment. It then changes the loaded `a` in place, or with none, puts the new line right under the first of those comments. Two valid lines of one name stay as they are.
-	- Actual fix [Bug]: `remove` drops such a field once its last child goes, in all four. A setter on such a field writes its kept line as a comment with a note, then sets, in all four.
-	- Swept: as 2026100307163901. Setter half: every setter in all four goes through one `set_value`. The other value writes are the parser's own fills and merge, whose row is 2026100313174974.
+		- 20261004: create case fixed in all four. A setter writing `a` writes every kept `a` line in that block as the noted comment, the one heading the field included. It changes a loaded `a` in place, or puts the new line right under the first comment. The lines written under that kept line go under the new field. A field made on the way to the target does the same, since `set a.c=1` beside a kept `a: [1]` gave Multiple the same way.
+		- 20261004: two kinds of kept line are left as they were. One has a kept line under it and is not where the new field goes; as a comment it would leave that line under the field above. The other has a misplaced line under it, which does not move with it. Both came up in the fuzz runs.
+		- 20261004: a line the load dropped right after the kept line a new field goes under is not placed by the line-keeping save. So `set --write` refuses at 7 there, where it appended at exit 0 before. Nothing is lost, and `--lossy` writes it. Left as is.
+		- 20261004: `Eqk24nZ` failed once in a 2,000,000 run and passed on the rerun. It sets the same field on a document and on its reload, and each reads the clock, so a second can tick between the two. It now leaves the note's time out when it compares.
+	- Actual fix [Bug]: `remove` drops such a field once its last child goes, in all four. A setter on such a field writes its kept line as a comment with a note, then sets, in all four. A setter writing a field writes every kept line of its name in the block as that comment, and a new field goes right under the first, in all four.
+	- Swept: as 2026100307163901. Setter half: every setter in all four goes through one `set_value`. The other value writes are the parser's own fills and merge, whose row is 2026100313174974. Create case: a field is created through one `place` in all four, which the setters and `SetComment` share; only the setters comment out, as design.md's table says for `SetComment`.
 	- Verified: 20261004, the four suites, cli-regress over the four CLIs, crosscheck with a fresh fuzz dump, check-docs, clippy for the host and windows, go vet and staticcheck, ruff and mypy, cppcheck, shellcheck, the test ID check, markdownlint, and the 2,000,000 release fuzz. Each new test failed with the fix taken out. The Rust and C windows paths ran under wine and wrote the offset.
-	- Branch: `removekept`, `setkept`
+	- Verified: 20261004, create case: the four suites, cli-regress over the four CLIs, crosscheck with a fresh fuzz dump and again over 1274 dumped edits that write a setter's comment, sanitize-c, those 1274 through the C CLI under ASan and UBSan, check-docs, check-abnf, check-veneer, shell-regress, clippy for the host and windows, go vet and staticcheck for both modules and windows, ruff and mypy, cppcheck exhaustive, shellcheck, the test ID check, markdownlint, and the 2,000,000 release fuzz. Each new test failed with the fix taken out.
+	- Branch: `removekept`, `setkept`, `setcreate`
 	- Commit: `46e6176a`, `80d64922`
-	- Test case: `ErgToax` (Rust), `ErgToef` (Go), `ErgToiG` (Python), `ErgTom6` (C); cli-regress `ErgTonu`; corpus 187; fuzz `EreT6dh`. Setter: `ErleUnO` and `ErleV68` (Rust), `Erlf124` and `Erlf14o` (Go), `Erlf17j` and `Erlf1AN` (Python), `Erlf1DT` and `Erlf1GC` (C); cli-regress `Erlf1Is`.
+	- Test case: `ErgToax` (Rust), `ErgToef` (Go), `ErgToiG` (Python), `ErgTom6` (C); cli-regress `ErgTonu`; corpus 187; fuzz `EreT6dh`. Setter: `ErleUnO` and `ErleV68` (Rust), `Erlf124` and `Erlf14o` (Go), `Erlf17j` and `Erlf1AN` (Python), `Erlf1DT` and `Erlf1GC` (C); cli-regress `Erlf1Is`. Create case: `ErmXhmZ` (Rust), `ErmXhpm` (Go), `ErmXhtL` (Python), `ErmXhwI` (C); cli-regress `ErmXhyt`.
+	- Acceptance signoff: Self-closed 20261004: built as answered, and its tests and the fuzz runs pass.
+	- Closed: 20261004-190620
 
 - Group a release's downloads in a table, with the CPU architecture in columns and the target OS in rows
 	- ID: 2026100411093274

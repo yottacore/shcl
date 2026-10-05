@@ -1789,6 +1789,51 @@ def main():
 		if not kdoc.set_int(set_path, 5) or kdoc.to_canonical() != set_want:
 			fails.append(f"kept gate: setting {set_path} beside a kept line wrote {kdoc.to_canonical()!r}")
 
+	test_id("ErmXhtL", "a_setter_comments_out_every_kept_line_of_its_name")
+	# A setter writing `a` writes every kept line named `a` in that block as
+	# the noted comment, and a field it creates goes right under the first of
+	# them, so a later hand fix never gives Multiple (2026100307163907).
+	held_clock = os.environ.get("SHCL_TEST_CLOCK")
+	os.environ["SHCL_TEST_CLOCK"] = "2026-10-04 00:15:00 -420 PDT"
+	na, noa, nac = (f"  ## commented out by shcl when setting {p}, 2026-10-04 00:15:00 PDT: E019 bracket array syntax" for p in ("a", "o.a", "a.c"))
+	for text, set_path, set_want, set_count in [
+		# No loaded `a`: the new line goes under the first comment.
+		("a: [1]\ny: 3\n", "a", f"# a: [1]{na}\na: 5\ny: 3\n", 1),
+		("x: 1\na: [1]\ny: 3\na: [2]\n", "a", f"x: 1\n# a: [1]{na}\na: 5\ny: 3\n# a: [2]{na}\n", 1),
+		# What was under the line goes under the new one.
+		("a: [1]\n\t# under\n\tb: [2]\ny: 3\n", "a", f"# a: [1]{na}\na: 5\n\t# under\n\tb: [2]\ny: 3\n", 1),
+		# At the end of a block.
+		("o:\n\tx: 1\n\ta: [1]\n", "o.a", f"o:\n\tx: 1\n\t# a: [1]{noa}\n\ta: 5\n", 1),
+		# A field made on the way writes its line too.
+		("a: [1]\ny: 3\n", "a.c", f"# a: [1]{nac}\na:\n\tc: 5\ny: 3\n", 1),
+		# A loaded `a` changes in place.
+		("a: 1\nb: [1]\na: [2]\n", "a", f"a: 5\nb: [1]\n# a: [2]{na}\n", 1),
+		# Two valid lines stay as they are, and so does a kept line with a
+		# kept line under it, which as a comment would leave that line under
+		# the field above.
+		("a: 1\na: 2\n", "a", "a: 5\na: 2\n", 2),
+		("a: 1\na: [2]\n\tc: [3]\n", "a", "a: 5\na: [2]\n\tc: [3]\n", 1),
+	]:
+		kdoc = shcl.Document.parse_keep_lines(text, shcl.Strictness.Standard)
+		took = kdoc.set_int(set_path, 5)
+		out = kdoc.to_canonical()
+		if not took or kdoc.lost_count() != 0 or out != set_want:
+			fails.append(f"kept gate: setting {set_path} in {text!r} wrote {out!r}")
+			continue
+		back = shcl.Document.parse(out)
+		if back.count(set_path) != set_count or back.to_canonical() != out:
+			fails.append(f"kept gate: the reload of {out!r} differs")
+		if kdoc.to_text_keep_lines() != (out, True):
+			fails.append(f"kept gate: the keep save of {text!r} gave {kdoc.to_text_keep_lines()!r}")
+	if held_clock is None:
+		del os.environ["SHCL_TEST_CLOCK"]
+	else:
+		os.environ["SHCL_TEST_CLOCK"] = held_clock
+	# set_comment makes the field without touching the line.
+	kdoc = shcl.Document.parse("a: [1]\ny: 3\n")
+	if not kdoc.set_comment("a", "n") or kdoc.to_canonical() != "a: [1]\ny: 3\n\n# n\na:\n":
+		fails.append(f"kept gate: set_comment beside a kept line wrote {kdoc.to_canonical()!r}")
+
 	test_id("Erlf1AN", "a_note_names_the_zone_or_its_offset")
 	# The zone's short name, else its offset; and the test clock's form.
 	for offset, name, want in [

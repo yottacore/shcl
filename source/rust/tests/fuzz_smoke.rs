@@ -1130,7 +1130,7 @@ fn edits_and_merges_match_a_reload() {
 				_ => format!("op {op} at {path:?}\n"),
 			});
 			assert!(
-				settled || live.to_canonical() == back.to_canonical(),
+				settled || unstamped(&live.to_canonical()) == unstamped(&back.to_canonical()),
 				"a step on the document and on its reload differ at iteration {i}:\n{log}"
 			);
 		}
@@ -1633,6 +1633,39 @@ fn missing_kept(text: &str, want: &[String]) -> Vec<String> {
 		}
 	}
 	missing
+}
+
+/// The text with the time in each setter's note left out. A step runs on
+/// the document and on its reload one after the other, and each reads the
+/// clock, which can tick between the two.
+fn unstamped(text: &str) -> String {
+	let mut out = String::with_capacity(text.len());
+	for line in text.split_inclusive('\n') {
+		let Some(k) = line.find("  ## commented out by shcl when setting ") else {
+			out.push_str(line);
+			continue;
+		};
+		// The stamp is the date and time, then the zone up to the colon.
+		let stamp = line[k..].char_indices().map(|(i, _)| k + i).find(|&i| {
+			let b = &line.as_bytes()[i..];
+			b.len() > 20
+				&& b[..19].iter().enumerate().all(|(j, &c)| match j {
+					4 | 7 => c == b'-',
+					10 => c == b' ',
+					13 | 16 => c == b':',
+					_ => c.is_ascii_digit(),
+				}) && b[19] == b' '
+		});
+		match stamp.and_then(|i| line[i + 20..].find(": ").map(|e| (i, i + 20 + e))) {
+			Some((from, to)) => {
+				out.push_str(&line[..from]);
+				out.push_str("STAMP");
+				out.push_str(&line[to..]);
+			}
+			None => out.push_str(line),
+		}
+	}
+	out
 }
 
 /// The kept lines a setter on `path` wrote as comments, one entry for each
