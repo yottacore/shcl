@@ -11,7 +11,7 @@ mod common;
 use common::test_id;
 use shcl::{
 	Document, Piece, Quote, Rules, SegTok, Severity, Strictness, Tokens, format_version, migrate,
-	schema_ref, tokenize, tokenize_value,
+	quote_segment, schema_ref, tokenize, tokenize_value,
 };
 
 /// Small deterministic PRNG (xorshift64*); no external crates, stable across runs.
@@ -1762,7 +1762,8 @@ fn footer_start(canon: &str) -> usize {
 }
 
 /// The footer of canonical text, each line as its depth in tabs and its
-/// trimmed text.
+/// text after them. A misplaced line is written with its own indent, and the
+/// dedup compares that too, so the spaces in it stay.
 fn footer(canon: &str) -> Vec<(usize, &str)> {
 	let lines: Vec<&str> = canon.lines().collect();
 	lines[(footer_start(canon) - 1).min(lines.len())..]
@@ -1770,7 +1771,7 @@ fn footer(canon: &str) -> Vec<(usize, &str)> {
 		.map(|l| {
 			(
 				l.len() - l.trim_start_matches('\t').len(),
-				l.trim_matches(BLANKS),
+				l.trim_start_matches('\t').trim_end_matches(BLANKS),
 			)
 		})
 		.filter(|l| !l.1.is_empty())
@@ -1798,7 +1799,7 @@ fn footer_skips(before: &str, layer: &str) -> Vec<String> {
 	}
 	(0..theirs.len())
 		.filter(|&k| !theirs[k].1.starts_with('#') && !whole[k] && had.contains(&theirs[k]))
-		.map(|k| theirs[k].1.to_string())
+		.map(|k| theirs[k].1.trim_matches(BLANKS).to_string())
 		.collect()
 }
 
@@ -1828,61 +1829,104 @@ fn fences_joined(canon: &str) -> Vec<String> {
 	out
 }
 
-/// A path's parents, outermost first, split at each dot outside quotes.
-fn parent_paths(path: &str) -> Vec<&str> {
-	let (mut out, mut quoted) = (Vec::new(), None);
-	for (k, c) in path.char_indices() {
-		match quoted {
-			Some(q) if c == q => quoted = None,
-			Some(_) => {}
-			None if c == '"' || c == '\'' => quoted = Some(c),
-			None if c == '.' => out.push(&path[..k]),
-			None => {}
+/// The leaves of `base` a merge of `over` replaces, each as a path that names
+/// every parent by its instance, `a[#0].b[#2].c`. A layer's instance merges
+/// into the base instance with the same name and value, so a parent counts
+/// only when exactly one base instance reads the same. A name the layer has
+/// only as leaves, where the base has it with no children, is replaced. Read
+/// from the two documents' paths and values, not from the merge.
+fn replaced_leaves(base: &Document, over: &Document, at: (&str, &str), out: &mut Vec<String>) {
+	let join = |pre: &str, seg: &str| {
+		if pre.is_empty() {
+			seg.to_string()
+		} else {
+			format!("{pre}.{seg}")
 		}
-	}
-	out
-}
-
-/// The settled kept lines a merge of `layer` takes from `before` by
-/// design.md's table: the ones on a leaf the layer replaces, each with its
-/// `# ` taken off. A leaf's own lines are the ones a remove of it takes from
-/// the reparsed text, where a settled line is a plain comment. Only a leaf
-/// whose every parent is one node on each side with the same value counts,
-/// since then which leaf the layer replaces is plain from the two texts.
-fn replaced_leaf_lines(before: &str, layer: &str) -> Vec<String> {
-	let base = Document::parse(before);
-	let over = Document::parse(&Document::parse(layer).to_canonical());
-	let same = |p: &str| {
-		let (b, o) = (base.read_string(p), over.read_string(p));
-		base.count(p) == 1
-			&& over.count(p) == 1
-			&& b.status == o.status
-			&& b.value == o.value
-			&& b.raw == o.raw
 	};
-	let mut out = Vec::new();
-	for p in over.paths() {
-		if !over.children(&p).is_empty()
-			|| base.count(&p) == 0
-			|| !base.children(&p).is_empty()
-			|| !parent_paths(&p).into_iter().all(same)
-		{
+	let mut names = over.children(at.1);
+	let mut seen = std::collections::HashSet::new();
+	names.retain(|n| seen.insert(n.clone()));
+	for name in names {
+		let seg = quote_segment(&name);
+		let (bn, on) = (join(at.0, &seg), join(at.1, &seg));
+		let instances = base.count(&bn);
+		if instances == 0 {
 			continue;
 		}
-		let had = base.to_canonical();
-		let mut cut = base.clone();
-		cut.remove(&p);
-		let left = cut.to_canonical();
+		if over.children(&on).is_empty() && base.children(&bn).is_empty() {
+			out.push(bn);
+			continue;
+		}
+		for i in 0..over.count(&on) {
+			let oi = format!("{on}[#{i}]");
+			let o = over.read_string(&oi);
+			let hits: Vec<String> = (0..instances)
+				.map(|k| format!("{bn}[#{k}]"))
+				.filter(|b| {
+					let r = base.read_string(b);
+					r.status == o.status && r.value == o.value && r.raw == o.raw
+				})
+				.collect();
+			if let [b] = hits.as_slice() {
+				replaced_leaves(base, over, (b, &oi), out);
+			}
+		}
+	}
+}
+
+/// What a merge of a layer may take from the base by design.md's table, read
+/// from the base's canonical text. A leaf the layer replaces takes the lines
+/// a remove of it takes from the reparsed text, and of those the settled kept
+/// lines go, each listed with its `# ` taken off. The reparse reads a settled
+/// line as a plain comment, so every comment there is listed. `near` has
+/// those lines and every other line between the field lines either side of
+/// such a leaf, as 0-based positions, since a merge moves a replaced leaf's
+/// lines with it, to where the first leaf of that name was.
+struct LeafCut {
+	had: String,
+	near: std::collections::BTreeSet<usize>,
+	settled: Vec<String>,
+}
+
+fn replaced_leaf_lines(before: &str, layer: &str) -> LeafCut {
+	let base = Document::parse(before);
+	let over = Document::parse(&Document::parse(layer).to_canonical());
+	let had = base.to_canonical();
+	let mut leaves = Vec::new();
+	replaced_leaves(&base, &over, ("", ""), &mut leaves);
+	let mut cut = std::collections::BTreeSet::new();
+	let mut near = std::collections::BTreeSet::new();
+	let mut settled = Vec::new();
+	let lines: Vec<&str> = had.lines().collect();
+	let fields: std::collections::BTreeSet<usize> = base
+		.paths()
+		.iter()
+		.flat_map(|p| base.lines(p))
+		.filter(|&n| n > 0)
+		.collect();
+	for p in leaves {
+		for n in base.lines(&p).into_iter().filter(|&n| n > 0) {
+			let from = fields.range(..n).next_back().copied().unwrap_or(0);
+			let to = fields
+				.range(n + 1..)
+				.next()
+				.copied()
+				.unwrap_or(lines.len() + 1);
+			near.extend(from..to - 1);
+		}
+		let mut less = base.clone();
+		less.remove(&p);
+		let left = less.to_canonical();
 		let mut left = left
 			.lines()
 			.map(|l| unsettled(l.trim_matches(BLANKS)))
 			.peekable();
 		let mut gone = Vec::new();
-		for l in had.lines() {
+		for (k, l) in lines.iter().enumerate() {
 			if left.peek() == Some(&unsettled(l.trim_matches(BLANKS))) {
 				left.next();
 			} else {
-				gone.push(l.trim_matches(BLANKS));
+				gone.push(k);
 			}
 		}
 		// A remove that wrote a line of its own leaves no plain answer, so
@@ -1890,13 +1934,179 @@ fn replaced_leaf_lines(before: &str, layer: &str) -> Vec<String> {
 		if left.next().is_some() {
 			continue;
 		}
-		out.extend(
-			gone.into_iter()
-				.filter_map(|l| l.strip_prefix("# "))
-				.map(|t| t.trim_matches(BLANKS).to_string()),
-		);
+		for k in gone {
+			if !cut.insert(k) {
+				continue;
+			}
+			if let Some(t) = lines[k].trim_matches(BLANKS).strip_prefix("# ") {
+				settled.push(t.trim_matches(BLANKS).to_string());
+			}
+		}
+	}
+	near.extend(cut);
+	LeafCut { had, near, settled }
+}
+
+/// The copies of a line `cut` lists that sat away from the replaced leaves
+/// and are missing from the same place in `merged`. Two lines of one text are
+/// one entry in a count, so a merge that kept the leaf's copy and dropped
+/// another would pass one. A place is the stretch between the nearest lines
+/// either side that each text writes once, in the same order in both, so a
+/// line may move within it. A copy is a comment or a kept line. The lines
+/// near a replaced leaf move with it, so they are neither copies nor bounds.
+fn left_behind(cut: &LeafCut, merged: &str) -> Vec<String> {
+	if cut.settled.is_empty() {
+		return Vec::new();
+	}
+	let raw: Vec<&str> = cut.had.lines().collect();
+	let had: Vec<&str> = raw
+		.iter()
+		.map(|l| unsettled(l.trim_matches(BLANKS)))
+		.collect();
+	let now: Vec<&str> = merged
+		.lines()
+		.map(|l| unsettled(l.trim_matches(BLANKS)))
+		.collect();
+	let kept: std::collections::HashSet<usize> =
+		kept_text(&cut.had).lines.iter().map(|l| l.0 - 1).collect();
+	let listed = |t: &str| cut.settled.iter().any(|s| s == t);
+	let copy = |k: usize| {
+		!cut.near.contains(&k)
+			&& listed(had[k])
+			&& (raw[k].trim_matches(BLANKS).starts_with('#') || kept.contains(&k))
+	};
+	let mut seen: std::collections::HashMap<&str, (usize, usize)> =
+		std::collections::HashMap::new();
+	for l in &had {
+		seen.entry(l).or_default().0 += 1;
+	}
+	for l in &now {
+		seen.entry(l).or_default().1 += 1;
+	}
+	let pairs: Vec<(usize, usize)> = (0..had.len())
+		.filter(|&k| {
+			!had[k].is_empty()
+				&& !cut.near.contains(&k)
+				&& !listed(had[k])
+				&& seen[had[k]] == (1, 1)
+		})
+		.filter_map(|k| now.iter().position(|l| *l == had[k]).map(|j| (k, j)))
+		.collect();
+	// The longest run of those in the same order in both.
+	let mut best = vec![(1usize, usize::MAX); pairs.len()];
+	for x in 0..pairs.len() {
+		for y in 0..x {
+			if pairs[y].1 < pairs[x].1 && best[y].0 + 1 > best[x].0 {
+				best[x] = (best[y].0 + 1, y);
+			}
+		}
+	}
+	let mut run = Vec::new();
+	let mut at = (0..pairs.len()).max_by_key(|&x| best[x].0);
+	while let Some(x) = at {
+		run.push(pairs[x]);
+		at = (best[x].1 != usize::MAX).then_some(best[x].1);
+	}
+	run.reverse();
+	// Each stretch as half-open ranges of both texts.
+	let mut edges = vec![(0, 0)];
+	edges.extend(run.iter().map(|&(k, j)| (k + 1, j + 1)));
+	edges.push((had.len() + 1, now.len() + 1));
+	let mut out = Vec::new();
+	for w in edges.windows(2) {
+		let (from, to) = ((w[0].0, w[1].0 - 1), (w[0].1, w[1].1 - 1));
+		let mut need: Vec<&str> = (from.0..from.1)
+			.filter(|&k| copy(k))
+			.map(|k| had[k])
+			.collect();
+		for l in &now[to.0..to.1] {
+			if let Some(k) = need.iter().position(|t| t == l) {
+				need.remove(k);
+			}
+		}
+		out.extend(need.into_iter().map(str::to_string));
 	}
 	out
+}
+
+/// The footer lines the dedup skipped that `merged` wrote anyway, beyond what
+/// the base's footer and the layer's account for. Such a line is in the wrong
+/// place, so the merge may have dropped some other copy of it, which a count
+/// by text would not show.
+fn footer_piled(before: &str, layer: &str, merged: &str, skipped: &[String]) -> Vec<String> {
+	let canon = Document::parse(layer).to_canonical();
+	let count = |text: &str, t: &str| {
+		footer(text)
+			.iter()
+			.filter(|l| unsettled(l.1.trim_matches(BLANKS)) == t)
+			.count()
+	};
+	let mut out: Vec<String> = Vec::new();
+	for t in skipped {
+		if out.contains(t) {
+			continue;
+		}
+		let skips = skipped.iter().filter(|s| *s == t).count();
+		if count(merged, t) + skips > count(before, t) + count(&canon, t) {
+			out.push(t.clone());
+		}
+	}
+	out
+}
+
+// The two merge exceptions in the property go by where a line sits, and a
+// leaf under a repeated parent counts.
+#[test]
+fn merge_exceptions_go_by_position() {
+	let _id = test_id("ErpR2rr");
+	let mut doc = Document::parse("s: u\n\tb: 1\ns: v\n\tx: 0\n\t\tc: 2\n\t  a: 5\n\tb: 1\n");
+	assert_eq!(doc.remove("s[v].x.c"), 1);
+	let before = doc.to_canonical();
+	let leaf = replaced_leaf_lines(&before, "s: v\n\tb: 9\n");
+	assert_eq!(leaf.settled, ["a: 5"]);
+	doc.merge(&Document::parse("s: v\n\tb: 9\n"));
+	assert_eq!(doc.to_canonical(), "s: u\n\tb: 1\ns: v\n\tx: 0\n\tb: 9\n");
+	assert_eq!(
+		left_behind(&leaf, &doc.to_canonical()),
+		Vec::<String>::new()
+	);
+	// The leaf's copy goes and the other stays. Keeping the leaf's and
+	// dropping the other writes the same lines, so only the place shows it.
+	let before = "x: 0\n# a: 5\nb: 1\ny: 2\n# a: 5\nz: 3\n";
+	let leaf = replaced_leaf_lines(before, "b: 9\n");
+	assert_eq!(leaf.settled, ["a: 5"]);
+	let mut doc = Document::parse(before);
+	doc.merge(&Document::parse("b: 9\n"));
+	assert_eq!(doc.to_canonical(), "x: 0\nb: 9\ny: 2\n# a: 5\nz: 3\n");
+	assert_eq!(
+		left_behind(&leaf, &doc.to_canonical()),
+		Vec::<String>::new()
+	);
+	let swapped = "x: 0\n# a: 5\nb: 9\ny: 2\nz: 3\n";
+	assert!(missing_kept(swapped, &["a: 5".to_string()]).is_empty());
+	assert_eq!(left_behind(&leaf, swapped), ["a: 5"]);
+	// A footer line the base has is skipped, and the layer's other copy of it
+	// comes in under its field.
+	let (before, layer) = ("a: 1\nbad name: 1\n", "c: 2\n\tbad name: 1\nbad name: 1\n");
+	let skipped = footer_skips(before, layer);
+	assert_eq!(skipped, ["bad name: 1"]);
+	let mut doc = Document::parse(before);
+	doc.merge(&Document::parse(layer));
+	let after = doc.to_canonical();
+	assert_eq!(after, "a: 1\nc: 2\n\tbad name: 1\nbad name: 1\n");
+	assert_eq!(
+		footer_piled(before, layer, &after, &skipped),
+		Vec::<String>::new()
+	);
+	assert_eq!(
+		footer_piled(
+			before,
+			layer,
+			"a: 1\nc: 2\nbad name: 1\nbad name: 1\n",
+			&skipped
+		),
+		["bad name: 1"]
+	);
 }
 
 /// After any edits, every kept line no edit's target took is in the saved
@@ -1990,24 +2200,39 @@ fn kept_lines_survive_edits() {
 					let theirs = kept_text(&layer);
 					// The table's two merge exceptions, each a line picked by
 					// where it sits and taken off the expected lines once.
+					// Copies of one text are one entry there, so the merged
+					// text is held to those places below.
 					let mut theirs_lines: Vec<String> =
 						theirs.lines.into_iter().map(|l| l.1).collect();
-					for t in footer_skips(&before, &layer) {
-						if let Some(k) = theirs_lines.iter().rposition(|l| *l == t) {
+					let skipped = footer_skips(&before, &layer);
+					for t in &skipped {
+						if let Some(k) = theirs_lines.iter().rposition(|l| l == t) {
 							theirs_lines.remove(k);
 						}
 					}
 					want.extend(theirs_lines);
-					for t in replaced_leaf_lines(&before, &layer) {
-						if let Some(k) = want.iter().position(|w| *w == t) {
+					let leaf = replaced_leaf_lines(&before, &layer);
+					for t in &leaf.settled {
+						if let Some(k) = want.iter().position(|w| w == t) {
 							want.remove(k);
-							spans.retain(|s| s.0 != t);
+							spans.retain(|s| s.0 != *t);
 						}
 					}
 					spans.extend(theirs.spans);
 					doc.merge(&over);
 					merged = true;
 					log.push_str(&format!("merge {layer:?}\n"));
+					let after = doc.to_canonical();
+					let moved = left_behind(&leaf, &after);
+					assert!(
+						moved.is_empty(),
+						"iteration {i}: the merge moved or dropped {moved:?} from beside a leaf it replaced:\n{log}--- before\n{before}--- after\n{after}"
+					);
+					let piled = footer_piled(&before, &layer, &after, &skipped);
+					assert!(
+						piled.is_empty(),
+						"iteration {i}: the merge wrote footer line(s) {piled:?} its dedup skips:\n{log}--- before\n{before}--- after\n{after}"
+					);
 					(false, String::new())
 				}
 				_ => {

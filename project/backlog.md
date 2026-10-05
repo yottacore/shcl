@@ -354,22 +354,19 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: 20261004, the gate scripts are bash and assume GNU tools, so some may need `gsed` or the like. Fixing the product comes first. Porting the gates only matters if a BSD job is wanted.
 	- Estimated effort: Avg
 
-- The kept-line property's merge step has two loose ends
-	- ID: 2026100313174977
+- The kept-line property's remove and setter steps take lines off by text
+	- ID: 2026100505513100
 	- Type: Task
 	- Status: Queued
 	- Priority: Low
-	- Opened: 20261003-131749
-	- Opened by: the review of 2026100307310000, round 1
-	- Parent ID: 2026100307310000
-	- Version and build: dev at `e74c95bd`
+	- Opened: 20261005-055131
+	- Opened by: the work on 2026100313174977
+	- Related IDs: 2026100313174977
 	- Problem description:
-		- `EreT6dh` picks the lines a merge may drop by position, then takes each out of a list of expected texts. With two kept lines of the same text, a merge that kept the excused one and dropped the other would pass. It moves a line without deleting content, and no merge code does it today.
-		- A replaced leaf counts only when every parent above it is a single node with the same value on both sides. Under a repeated parent nothing is excused, so a correct merge there could show as a false failure at high iteration counts. None showed up to 2,000,000.
+		- `EreT6dh` picks the lines a remove takes, and the kept lines a setter writes as comments, by where they sit, then takes each off the expected lines by text. With two kept lines of one text, a remove or setter that kept the one it should take and dropped or commented the other would pass. The merge step had the same gap until 2026100313174977.
 	- Requirements:
-		- The property removes excused lines by position, not text.
-		- A repeated parent either gets its own rule in the property, or a test shows the merge leaves its kept lines alone.
-	- Estimated effort: Low
+		- Those steps check the edited text by place, as the merge step does, or the item says why they cannot.
+	- Estimated effort: Avg
 
 - A canonical save after a merge and a raw set loses kept lines, found by the kept-lines fuzz
 	- ID: 2026100316012486
@@ -741,6 +738,25 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Test case: `EreT6dh` (`kept_lines_survive_edits`, fuzz_smoke.rs); per binding `kept_gate` tests `EreRyr7`, `EreUeCs`, `EreRysn` (Rust), `EreUzvf`, `EreUzxY`, `EreUzzO` (Go), `EreVRei`, `EreVRgk`, `EreVRis` (Python), `EreWlg6`, `EreWli7`, `EreWlk5`, `EreZ0ar` (C); the merge's two exceptions `ErfGoMI`, `ErfGoMJ` (Rust), `ErfGoMK`, `ErfGoML` (Go), `ErfGoMM`, `ErfGoMN` (Python), `ErfGoMO`, `ErfGoMP` (C); cli-regress `EreYYXK`; crosscheck `EreXO4J`.
 	- Acceptance signoff: 20261004, signed off. Its tests cover it and the full run passed.
 	- Closed: 20261004-110932
+
+- The owed full gate and the hosted run on dev were red on two test fixtures
+	- ID: 2026100514300000
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261005-143000
+	- Opened by: the owed full `--ci` and hosted run 37308154902, on dev at `7517627e`
+	- Related IDs: 2026100307310000
+	- Incorrect behavior:
+		- gcc 13 and 14 at `-O3` refuse `keep_text` in `shcl.h` with `-Wclobbered`, for a local of the inlined `keep_lines`. check-c-compilers failed 6 of 120 builds here, and the hosted ci job failed the same way.
+		- On the hosted windows job, cli-regress `Erls2v0` set a value of `/bin/bash`, and msys turned it into a Windows path before the CLI saw it.
+	- Actual cause [Bug]: the save gate's kept-line count (`253a397b`) and later edits changed what gcc inlines into `keep_text`. The row's value only had to be a plain word; a leading `/` was never the point.
+	- Actual fix [Bug]: `keep_text` gets the same scoped `-Wclobbered` pragma as `do_parse`, since its recovery path reads only the volatile `own`. The row now sets `bash`.
+	- Swept: every other `SHCL_SETJMP` site built clean in all 120 builds. No other cli-regress row passes a `--set` value starting with `/`.
+	- Verified: check-c-compilers (120 builds over gcc 12 to 15 and clang) failed before and passes after; `gcc-14 -O3` on `mem_bounds.c` builds. cli-regress against Rust passes. The windows row runs at the next hosted run.
+	- Branch: `cifix`
+	- Test case: check-c-compilers `EoezJiE` and `EoaFuVN`; cli-regress `Erls2v0` on the hosted windows job.
+	- Closed: 20261005-143000
 
 - Removing the only line under a lazily opened field leaves a bare `name:`, and the field later reads as Multiple
 	- ID: 2026100307163907
@@ -2721,6 +2737,40 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Test case: corpus `186-kept-line-first-blank`, a kept line that turns into a comment above the first list, merged under a one-line layer.
 	- Acceptance signoff: Self-closed: reproduced, its test failed before the fix and passes after in all four.
 	- Closed: 20260930-080144
+
+- The kept-line property's merge step has two loose ends
+	- ID: 2026100313174977
+	- Type: Task
+	- Status: Done
+	- Priority: Low
+	- Opened: 20261003-131749
+	- Opened by: the review of 2026100307310000, round 1
+	- Parent ID: 2026100307310000
+	- Version and build: dev at `e74c95bd`
+	- Problem description:
+		- `EreT6dh` picks the lines a merge may drop by position, then takes each out of a list of expected texts. With two kept lines of the same text, a merge that kept the excused one and dropped the other would pass. It moves a line without deleting content, and no merge code does it today.
+		- A replaced leaf counts only when every parent above it is a single node with the same value on both sides. Under a repeated parent nothing is excused, so a correct merge there could show as a false failure at high iteration counts. None showed up to 2,000,000.
+	- Requirements:
+		- The property removes excused lines by position, not text.
+		- A repeated parent either gets its own rule in the property, or a test shows the merge leaves its kept lines alone.
+	- Estimated effort: Low
+	- Actual effort: Avg
+	- Decisions:
+		- A repeated parent gets a rule. A test could not show the merge leaves those lines alone, since it does not: with `s: u` and `s: v` in the base, a layer `s: v` / `b: 9` takes the settled line on the second `s`'s `b`, as design.md's table says.
+	- Done:
+		- The merge step checks the merged text by place. Each copy of an excused line's text that sat away from the replaced leaves has to be in the same stretch of the merged text, between the nearest lines that both texts write once. Lines near a replaced leaf are left out, since the merge moves them with it. A footer line the dedup skips must not be written to the merged footer as well.
+		- The expected lines stay a count by text. A settled line and a comment of the same text are the same line of canonical text, so later steps cannot tell them apart either.
+		- A layer's instance goes into the base instance with the same name and value, so the property names each parent by instance, `s[#1].b`, and matches it by value. A parent with one instance on each side is the old rule.
+		- The footer lines were compared with their indent trimmed, so a misplaced layer line the dedup did not skip was excused. The spaces now stay, as in the dedup.
+	- Swept: the remove and setter steps of `EreT6dh` also take lines off by text. Filed as 2026100505513100, since the place check there needs its own rules for what a remove moves.
+	- Verified: `ErpR2rr` fails with the old parent rule, with the place check off, and with the footer check off, and passes with all three. The 2,000,000 release fuzz passes, all 18 tests. In that run 76 merges had a leaf under a repeated parent, 5 of them with a line to excuse, 11 stretches had copies to check, and 877 merges had a footer line skipped. `cargo test`, clippy with `-D warnings`, rustfmt and `test-ids.py check` pass.
+	- Progress log:
+		- 20261005: done on `keptmerge`. Test-only change, so no other binding is involved.
+	- Branch: `keptmerge`
+	- Commit: `dfff27a8`
+	- Test case: `ErpR2rr` (`merge_exceptions_go_by_position`), and `EreT6dh` at 2,000,000.
+	- Acceptance signoff: Self-closed: a test-only change that does what the item asked, and its test passes.
+	- Closed: 20261005-055131
 
 - check-banner-tag trusts the push to be atomic and the tag to point at the cut
 	- ID: 2026100307163918
