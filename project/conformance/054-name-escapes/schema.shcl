@@ -1,10 +1,10 @@
-field: "\"a\\\"b\""
+field: "'a◉DOUBLE_QUOTE◉b'"
 	type: int
-field: "\"tab\\there\""
+field: '"tab◉TAB◉here"'
 	type: int
-field: "\"back\\\\slash\""
+field: '"back\slash"'
 	type: int
-field: "\"it's\""
+field: "◉DOUBLE_QUOTE◉it's◉DOUBLE_QUOTE◉"
 	type: int
-field: "sect.\"x\\\"y\""
+field: "sect.'x◉DOUBLE_QUOTE◉y'"
 	type: int

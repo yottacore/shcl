@@ -5,7 +5,7 @@ field: "env[prod]"
 	required: yes
 	default: prod
 
-field: "\"data dir\"[main]"
+field: '"data dir"[main]'
 	required: yes
 	default: main
 

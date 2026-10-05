@@ -28,6 +28,6 @@ field: star
 field: "star[*].leaf"
 	required: yes
 
-field: "\"a\\nb\""
+field: '"a◉NEWLINE◉b"'
 	required: yes
 	default: v

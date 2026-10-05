@@ -1,5 +1,5 @@
 base: Boston, MA
-	pop: 700
+base[Boston, MA].pop: 700
 base: Philly
 	zip: 19019
 tags: red, "Bond, James", "it's"

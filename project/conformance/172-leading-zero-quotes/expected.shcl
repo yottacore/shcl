@@ -2,7 +2,7 @@
 zip: "02134"
 bare: 02134
 count: 42
-negative: "-007"
+negative: '-007'
 fraction: "00.5"
 small: 0.5
 zero: 0

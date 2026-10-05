@@ -3,7 +3,7 @@ neg: -3
 ratio: 1.5
 on: true
 day: 2026-01-02
-when: "2026-01-02T03:04:05Z"
+when: 2026-01-02T03:04:05Z
 ports: 80, 443
 hook: "8x"
 note: "fFoo()"

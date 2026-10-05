@@ -11,8 +11,8 @@ list:
 	* "E:\new"
 last: 2
 
-added: 'C:\x'
+added: C:\x
 
-tabbed: "C:\u0009emp"
+tabbed: "C:◉TAB◉emp"
 
-share2: "\\\\srv\u000Aew"
+share2: "\\srv◉NEWLINE◉ew"

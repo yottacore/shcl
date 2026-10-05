@@ -95,7 +95,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - No '\' escapes
 	- ID: 2026100207032800
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Started
 	- Needs local test suite run?: Y
 	- Needs external testing: Y
 	- Priority: Critical
@@ -128,18 +128,53 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 			- C: Rust `migrate`, then spec.md, grammar.abnf, design.md, the changelog and the rest of the corpus.
 			- D, E and F: the Go, Python and C ports, with the C++ veneer.
 			- G: crosscheck, cli-regress, shell-regress, check-docs and the 2,000,000 release fuzz on the merged branch, then the merge to dev.
+		- 20261005: chunk A done on `vslex`, off `valsyn`.
+			- In: a backslash is text; escapes from one generated table (names, aliases, code points, `White_Space`) in `gen-escapes.py`; `E023` for a bad escape, `E025`, the bare name rule as `E014` that keeps its block when the name reads; `E017` value only; backtick values with a `backtick` read flag; `E024` and `H003` retired, and `H004` lost its replacement; the writer's quoting and escapes.
+			- Corpus: about 60 cases changed, mostly goldens. Cases whose escapes were the point now use the new spelling. 170, 171 and 174 keep their backslash text and now pin it as text, with their bad ops commented out. New cases 192 to 195.
+			- cli-regress: 19 rows edited in place, the fixtures under 16 more, 17 commented out with the reason, 16 new. The other bindings fail those until their ports.
+			- Left for B: brackets, `- ` lists, selectors (a lookup path still takes the old bare rules), merge output, the `--set-literal` message.
+			- Left for C: `migrate` beyond the backslash re-spelling, spec.md, grammar.abnf, design.md, README. check-docs fails on the spec code table, check-abnf and the README `E014` transcript until then.
+			- Left for D to F: the other bindings' table copies and the same-fixture tests changed in the Rust runner.
+			- The 2,000,000 release fuzz fails `Eqk24nZ` on a class older than this, now reached far more often. Filed as 2026100506223902.
+		- 20261005: calls made in chunk A that the doc does not settle. Each is easy to reverse.
+			- An author's quote kind is kept by `fmt` too, not only on an overwrite: `'abc'` stays single quoted. A quoted data format still goes bare.
+			- A backtick value counts as quoted as well, and typed reads still read its text.
+			- Edge trimming is still a space, a tab and a carriage return. Any other whitespace at an edge stays in the piece, so it is `E025`.
+			- A readable bare name runs to the colon, a dot, a bracket, a `#`, a comma or a quote. A line with no colon whose name breaks the rule is `E014`, not `E015`.
+			- One diagnostic per line: a fault in the path first, then the name rule, then bracket text, then the value.
+			- A value fault is judged before the element cap, as `E019` and `E023` were, so an open quote past the cap is `E017` and kept.
+			- `migrate` writes a re-spelled piece with the new writer, so its output reads right under the new rules. The fuzz check that `migrate` changes nothing on its own output now holds only stamped output.
+			- `explain E023` says "U+25C9" instead of the mark, since the help text is ASCII.
 	- Decisions:
 		- 20261002: idea 3, with the changes listed in the design doc. Open points and their proposed answers are under its Roadmap.
 		- 20261002: a quote anywhere in a bare value is an error, and a bare field name starts with a letter. Dates, times, durations and sizes without spaces stay bare.
 		- 20261002: no new error throws out good lines. A bad bare name that can still be read keeps its block, as a value-only refusal does. The writer quotes a value with `:` only when it ends in one.
 		- 20261002: pre-release Format 3 files are on their own. `fmt` keeps a `- ` list stacked. Setters get no new options, and an overwrite keeps the old quote kind when it can.
 		- 20261003: a merge writes every list in brackets, whatever form its layers used. The error code table in the design doc is final.
-	- Branch:
-	- Commit:
+	- Branch: `valsyn` (chunk A on `vslex`)
+	- Commit: `6355ba10` (chunk A)
 	- Test case:
 	- Acceptance signoff:
 	- Superseded by ID:
 	- Closed:
+
+- A remove next to a settled kept line gives one answer on the document and another on its reload
+	- ID: 2026100506223902
+	- Type: Bug
+	- Status: Queued
+	- Needs local test suite run?: Y, the 200,000 debug fuzz in `--ci` and the 2,000,000 release fuzz.
+	- Severity: High
+	- Opened: 20261005-062239
+	- Opened by: found while working 2026100207032800
+	- Related IDs: 2026100207032800, 2026100307163901
+	- Version and build: `vslex` off `valsyn`
+	- Steps to reproduce:
+		- Load `a: [1]` / `\t\t": ` / `\t d-: 2` / `\te: 3`, then `clear_comments` on `a.d`, `set_empty` on `a.c`, `set_raw` on `b.c`, and save. Remove `a.c` from that document, and from a reload of the saved text.
+	- Incorrect behavior: the document keeps `\t# d-: 2`, a misplaced line the settle wrote as a comment, and the reload drops it with the removed field's comments. Fuzz `Eqk24nZ` fails on it.
+	- Expected behavior: the same text either way.
+	- Reproduced: 20261005, Rust, on dev's code with the line above, and on `vslex` with `a:` and a line separator in place of `a: [1]`. The 2,000,000 release fuzz on `vslex` finds 6 such inputs, the first at iteration 9285, so the 200,000 debug fuzz in `--ci` fails too. Dev's seed set never reached one. The value syntax keeps far more lines, so it reaches this often now.
+	- Estimated effort: Avg
+	- Test case: fuzz `Eqk24nZ` at 2,000,000.
 
 - Back up and rewrite a config file when a program's shcl upgrade breaks it
 	- ID: 2026100313461649

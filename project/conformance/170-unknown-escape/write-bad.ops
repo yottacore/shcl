@@ -1,3 +1,5 @@
-literal	bad	"C:\work"
-literal	bad2	a, "b\q"
-int	"x\w"	1
+# Each line below was refused for a backslash escape. A backslash is text
+# since the value syntax (2026100207032800), so each one is written now.
+# literal	bad	"C:\work"
+# literal	bad2	a, "b\q"
+# int	"x\w"	1

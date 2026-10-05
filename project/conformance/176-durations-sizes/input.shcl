@@ -4,24 +4,24 @@ delay_seconds: 90
 retry_minutes: 2
 ttl-hours: 1.5
 keep-days: 2
-span: 1h 30m
+span: "1h 30m"
 tight: 1h30m15s250ms
-spaced: 2 m
+spaced: "2 m"
 reversed: 30m1h
-twice: 5s 5s
+twice: "5s 5s"
 fine: 0.0001s
 upper: 5S
 signed: -5s
 plain: 45
-edge: 106751d 23h 47m 16s 854ms
-past: 106751d 23h 47m 16s 855ms
+edge: "106751d 23h 47m 16s 854ms"
+past: "106751d 23h 47m 16s 855ms"
 items: 3
 list-ms: 5s, 6s
 stack-ms:
 	* 7s
 cache-mb: 2GB
 heap-MiB: 512
-disk: 1.5 GiB
+disk: "1.5 GiB"
 mbit: 5Mb
 kilo: 1kB
 limit_bytes: 4096

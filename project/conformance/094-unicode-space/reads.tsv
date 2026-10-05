@@ -1,8 +1,8 @@
 query	type	expected	status
 -	load	ok	-
-nbsp	string	val 	Good
-lead	string	 val	Good
+nbsp	string	-	NotFound
+lead	string	-	NotFound
 tail	string	val	Good
-list	string[]	a |b	Good
+list	string[]	-	NotFound
 cr	string[]	x|y	Good
 -	lost	0	-

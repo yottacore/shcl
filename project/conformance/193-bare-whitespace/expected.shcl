@@ -1,0 +1,28 @@
+# A bare value has no whitespace and no quote; quote it instead.
+port: 80  # trimmed at the edges, so this is fine
+title: My App
+	sub: 1
+quoted: "My App"
+name: O'Brien
+fixed: "O'Brien"
+mid: a"b
+tick: a`b
+tab: a	b
+nbsp: a b
+ideo: a　b
+cr: ab
+pair: x, y z
+when: Jul-12-2026
+time: 2:30PM
+url: http://host:8080/path
+ends: "ready:"
+open: "never closed
+	kid: 2
+stack:
+	* one
+	* two three
+	* four
+srv[New York].port: 1
+srv: "New York"
+	port: 2
+last: 1

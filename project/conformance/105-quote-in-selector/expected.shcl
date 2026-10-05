@@ -1,9 +1,6 @@
-srv: "O'Brien"
-	port: 8080  # main
-a: 'St."Paul'
-	pop: 700  # why
-a: 'C:\'
-	b: "it's fine"  # note
+srv[O'Brien].port: 8080  # main
+a[St."Paul].pop: 700  # why
+a[C:\].b: it's fine  # note
 q: "x]y"
 	z: 1  # a quoted one still spans the bracket
 w: "a#b"

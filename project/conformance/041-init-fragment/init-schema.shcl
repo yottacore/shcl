@@ -1,6 +1,6 @@
 fragment: node
 	field: kind
-		desc: split or pane
+		desc: "split or pane"
 		type: string
 		required: yes
 		allowed: split, pane

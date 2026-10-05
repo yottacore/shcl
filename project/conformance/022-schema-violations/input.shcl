@@ -1,5 +1,5 @@
 title:
-naem: My app
+naem: "My app"
 server: web1
 	port: 70000
 	protocol: http

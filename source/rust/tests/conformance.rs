@@ -1104,14 +1104,16 @@ fn parse_limited_caps() {
 	assert!(doc.to_canonical().contains("arr: [1, 2, 3]"));
 	// The count the cap judges is the count the array reads back as, spelling
 	// by spelling: quoted commas, a backslash (a character, so it shields
-	// nothing), empty and blank slots, a Unicode blank (content: only a space
-	// or a tab is blank), a quote that never closes (a character too, so the
-	// comma after it splits). Refused at one under, kept at exact.
+	// nothing), empty and blank slots, a quoted Unicode blank (content: only a
+	// space or a tab is blank, and bare it is E025). Refused at one under,
+	// kept at exact. A quote that never closes made the comma after it split
+	// before the value syntax; that line is E017 now and binds nothing.
 	#[rustfmt::skip]
 	let counts: &[(&str, usize)] = &[
 		("1, 2, 3", 3), ("\"a, b\", c", 2), ("a\\, b, c", 3), ("a,,b", 2),
 		("a, , b", 2), (" a ", 1), ("\"\", ''", 2), ("'a\", b'", 1),
-		("\"open, b", 2), ("\\", 1), ("x,\u{3000}", 2), ("x, \u{a0}y", 2), (", , ,", 0),
+		// ("\"open, b", 2),
+		("\\", 1), ("x,\"\u{3000}\"", 2), ("x, \"\u{a0}y\"", 2), (", , ,", 0),
 	];
 	for &(spelling, n) in counts {
 		let text = format!("v: {spelling}\n");
@@ -1137,11 +1139,13 @@ fn parse_limited_caps() {
 			assert_eq!(doc.lost_count(), 1, "{spelling:?} at cap {}", n - 1);
 		}
 	}
-	// A refused line reports the cap alone: the quote check runs after it, so
-	// it never splits a value the cap already turned away.
+	// An open quote is judged before the cap, like any value fault, from the
+	// pieces the capped scan kept: the line is kept as written, so the cap,
+	// which refuses only a line that would bind, says nothing.
 	let doc = Document::parse_limited("v: a, \"open, b\n", Strictness::Standard, 0, 1, 0).unwrap();
 	let codes: Vec<&str> = doc.diagnostics().iter().map(|d| d.code).collect();
-	assert_eq!(codes, ["E021"]);
+	assert_eq!(codes, ["E017"]);
+	assert_eq!(doc.lost_count(), 0);
 	// A fence whose info string splits past the cap is refused with its block,
 	// in both spellings, so the body never reads as live lines. Same fixture in
 	// every runner.
@@ -1382,14 +1386,41 @@ fn setters_refuse_a_value_the_reader_refuses() {
 	assert_eq!(doc.get_datetime("d"), Ok(ok));
 	assert_eq!(
 		doc.to_canonical(),
-		"z: 0\n\nf: 2.5\n\nd: \"2026-01-02T03:04:05.60-01:30\"\n"
+		"z: 0\n\nf: 2.5\n\nd: 2026-01-02T03:04:05.60-01:30\n"
 	);
+}
+
+// A backtick value is raw text the program decodes itself: read as written,
+// with its own flag beside `quoted`. A setter keeps the backticks when the new
+// text fits in them, and the writer picks quotes when it does not.
+#[test]
+fn a_backtick_value_reads_raw_with_its_flag() {
+	let _id = test_id("ErpVwnh");
+	let mut doc = Document::parse("c: `#FF8800`\nq: \"x\"\nb: x\na: `1`, b\nn: `7`\n");
+	let r = doc.read_string("c");
+	assert_eq!(
+		(r.value.as_str(), r.quoted, r.backtick),
+		("#FF8800", true, true)
+	);
+	let r = doc.read_string("q");
+	assert_eq!((r.quoted, r.backtick), (true, false));
+	let r = doc.read_string("b");
+	assert_eq!((r.quoted, r.backtick), (false, false));
+	let r = doc.read_string_array("a");
+	assert_eq!((r.value.len(), r.quoted, r.backtick), (2, false, false));
+	let r = doc.read_int("n");
+	assert_eq!((r.value, r.backtick), (7, true));
+	assert!(doc.set_string("c", "#00FF00"));
+	assert!(doc.read_string("c").backtick);
+	assert!(doc.set_string("c", "a`b"));
+	assert!(!doc.read_string("c").backtick);
+	assert!(doc.to_canonical().starts_with("c: \"a`b\"\n"));
 }
 
 #[test]
 fn a_line_break_in_a_path_writes_and_reads_back() {
 	let _id = test_id("EpGigIK");
-	// Both halves of a path can contain one and write it `\n`: a name through the
+	// Both halves of a path can contain one and write it `◉NEWLINE◉`: a name through the
 	// name escaper, a selector value through the value emitter. The selector
 	// was refused while elements were stored in their source spelling and the
 	// emitter had nothing to escape with. Same fixture in every runner.
@@ -1400,8 +1431,8 @@ fn a_line_break_in_a_path_writes_and_reads_back() {
 	let back = Document::parse(&text);
 	assert_eq!(back.error_count(), 0);
 	assert_eq!(back.to_canonical(), text);
-	assert_eq!(back.read_int("x[\"p\\nq\"].c").value, 1);
-	assert_eq!(back.read_int("\"a\\nb\".c").value, 1);
+	assert_eq!(back.read_int("x[\"p◉NEWLINE◉q\"].c").value, 1);
+	assert_eq!(back.read_int("\"a◉NEWLINE◉b\".c").value, 1);
 	assert_eq!(back.read_int("\"a\nb\".c").value, 1);
 }
 
@@ -1496,12 +1527,12 @@ fn read_surface_line_quoted_children() {
 	// Escapes ARE resolved on a name, so both spellings of the path find the
 	// same node - while authored_name still hands back the source spelling,
 	// which is the one thing it is for. Same fixture in every runner.
-	let d3 = Document::parse("\"Ab\\tCd\": 2\n");
-	assert_eq!(d3.authored_name("\"ab\\tcd\""), "Ab\\tCd");
-	assert_eq!(d3.authored_name("\"ab\tcd\""), "Ab\\tCd");
+	let d3 = Document::parse("\"Ab◉TAB◉Cd\": 2\n");
+	assert_eq!(d3.authored_name("\"ab◉tab◉cd\""), "Ab◉TAB◉Cd");
+	assert_eq!(d3.authored_name("\"ab\tcd\""), "Ab◉TAB◉Cd");
 	assert_eq!(d3.read_int("\"ab\tcd\"").value, 2);
 	// Canonical output folds the case, as it always has, and escapes the tab.
-	assert_eq!(d3.to_canonical(), "\"ab\\tcd\": 2\n");
+	assert_eq!(d3.to_canonical(), "\"ab◉TAB◉cd\": 2\n");
 }
 
 #[test]
@@ -2127,7 +2158,7 @@ fn raw_is_source_text() {
 	// A written value has no source spelling; raw falls back to display. The
 	// selector's escaped spelling must reach the existing instance.
 	let mut doc2 = Document::parse("who: 'q\"uote'\n");
-	assert!(doc2.set_int("who[\"q\\\"uote\"].n", 5));
+	assert!(doc2.set_int("who[\"q◉DQUOTE◉uote\"].n", 5));
 	assert_eq!(doc2.count("who"), 1);
 	let r = doc2.read_int("who['q\"uote'].n");
 	assert_eq!((r.value, r.status), (5, shcl::Status::Good));
@@ -2250,7 +2281,7 @@ fn repeat_suppression_uses_parsed_leaf() {
 	let _id = test_id("Elv59bd");
 	// A quoted last segment with a dot must not disavow an unrelated field
 	// that happens to have the split-off text.
-	let schema = Document::parse("field: a.\"b.c\"\n\trepeat: 0, 5\nfield: c\n");
+	let schema = Document::parse("field: 'a.\"b.c\"'\n\trepeat: 0, 5\nfield: c\n");
 	let doc = Document::parse("c: 1\nc: 2\n");
 	let mut diags = doc.diagnostics().to_vec();
 	assert_eq!(diags.iter().filter(|d| d.code == "H001").count(), 1);

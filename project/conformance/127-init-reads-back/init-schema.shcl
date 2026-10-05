@@ -37,13 +37,15 @@ field: srv.port
 	required: yes
 	default: 2
 
-# A quoted element: the child selects the elements joined.
-field: tags
-	required: yes
-	default: "a, b", c
-field: tags.x
-	required: yes
-	default: 3
+# A quoted element: the child selected the elements joined. A bare selector
+# body cannot hold the space since the value syntax (2026100207032800), so
+# there is no spelling for it now.
+# field: tags
+# 	required: yes
+# 	default: "a, b", c
+# field: tags.x
+# 	required: yes
+# 	default: 3
 
 # A `#` in a selector body is fine in a lookup and a comment on a file line.
 field: "repo[org/name#123].branch"
@@ -53,7 +55,7 @@ field: "gh[org/name#9].ref"
 
 # A fragment name holding a line break stays inside the trailing block.
 field: m
-	inherits: "f\nb: 1"
-fragment: "f\nb: 1"
+	inherits: "f◉NEWLINE◉b: 1"
+fragment: "f◉NEWLINE◉b: 1"
 	field: x
-		inherits: "f\nb: 1"
+		inherits: "f◉NEWLINE◉b: 1"

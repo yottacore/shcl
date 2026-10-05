@@ -2,8 +2,8 @@
 # or not, so it reads at the same path once its value is fixed.
 a: [1]
 	b: [2]
-		c: "x\qy"
-	d: "C:\temp"
+		c: "x◉Q◉y"
+	d: C:\Program Files
 k: [3]
 m.n: 2
 x:

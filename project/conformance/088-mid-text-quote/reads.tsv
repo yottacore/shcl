@@ -1,11 +1,11 @@
 query	type	expected	status
 -	load	ok	-
-note	string	don't panic	Good
-b	string[]	it's fine|ok	Good
-c	string[]	say "hi" there|x	Good
+note	string	-	NotFound
+b	string[]	-	NotFound
+c	string[]	-	NotFound
 d	string[]	quoted, comma|single	Good
-list	string[]	it's an element|quoted # not a comment	Good
-e	string	name's	Good
+list	string[]	quoted # not a comment	Good
+e	string	-	NotFound
 url	string	http://h/#frag	Good
 f	string	a:b	Good
 -	lost	0	-

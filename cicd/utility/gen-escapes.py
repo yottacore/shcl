@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 
-##	Purpose: The characters canonical output writes as a \u escape, written
-##		into the four bindings and the grammar from the one list below. The
-##		copies were kept in step by hand, which is how a table drifts. Each
-##		copy sits between "gen-escapes.py: begin" and "gen-escapes.py: end".
+##	Purpose: The characters canonical output writes as an escape, the escape
+##		names and the whitespace list, written into the four bindings and the
+##		grammar from the one list below. The copies were kept in step by hand,
+##		which is how a table drifts. Each copy sits between
+##		"gen-escapes.py: begin" and "gen-escapes.py: end".
 ##	Syntax:
 ##		gen-escapes.py           check every copy matches the list
 ##		gen-escapes.py --write   rewrite the copies
@@ -93,6 +94,49 @@ def fSubtract(ranges: list[tuple[int, int]], drop: list[tuple[int, int]]) -> lis
 
 INVISIBLE = fSubtract(IGNORABLE + ALSO, JOINERS)
 
+## Unicode's White_Space property, which a bare value or selector body can't
+## hold. Stable across Unicode versions, and fixed here like the list above.
+WHITE_SPACE = [
+	(0x0009, 0x000D),
+	(0x0020, 0x0020),
+	(0x0085, 0x0085),
+	(0x00A0, 0x00A0),
+	(0x1680, 0x1680),
+	(0x2000, 0x200A),
+	(0x2028, 0x2029),
+	(0x202F, 0x202F),
+	(0x205F, 0x205F),
+	(0x3000, 0x3000),
+]
+
+## The escape character, U+25C9 FISHEYE, which opens and closes an escape.
+ESCAPE_MARK = 0x25C9
+
+## The closed list of escape names (value-syntax.md, Escape list). The first
+## name for each text is the one the writer uses; the rest are read as aliases.
+ESCAPE_NAMES = [
+	("NUL", "\x00"), ("NULL", "\x00"),
+	("BEL", "\x07"), ("BELL", "\x07"),
+	("BACKSPACE", "\x08"), ("BS", "\x08"),
+	("TAB", "\t"), ("HT", "\t"), ("HORIZONTAL_TAB", "\t"),
+	("NEWLINE", "\n"), ("LF", "\n"), ("LINEFEED", "\n"), ("LINE_FEED", "\n"), ("NEW_LINE", "\n"),
+	("VT", "\x0b"), ("VERTICAL_TAB", "\x0b"), ("VERTICALTAB", "\x0b"),
+	("FF", "\x0c"), ("FORM_FEED", "\x0c"), ("FORMFEED", "\x0c"),
+	("CR", "\r"), ("CARRIAGERETURN", "\r"), ("CARRIAGE_RETURN", "\r"),
+	("CRLF", "\r\n"), ("CARRIAGERETURN_LINEFEED", "\r\n"), ("CARRIAGE_RETURN_LINE_FEED", "\r\n"),
+	("ESC", "\x1b"), ("ESCAPE", "\x1b"),
+	("DEL", "\x7f"), ("DELETE", "\x7f"),
+	("SPACE", " "),
+	("SINGLE_QUOTE", "'"), ("SQUOTE", "'"), ("S_QUOTE", "'"), ("SINGLEQUOTE", "'"),
+	("DOUBLE_QUOTE", '"'), ("DQUOTE", '"'), ("D_QUOTE", '"'), ("DOUBLEQUOTE", '"'),
+	("BACK_TICK", "`"), ("BACKTICK", "`"), ("TICK", "`"),
+	("ESCAPE_CHAR", chr(ESCAPE_MARK)), ("FISHEYE", chr(ESCAPE_MARK)),
+]
+
+## What goes before the hex digits of a code point escape. The writer uses the
+## first. No two can match the same name, so the order is only for the writer.
+CODE_PREFIXES = ["U+", "UNICODE+", "UNICODE-", "UNICODE_", "UNICODE", "U-", "U_", "U"]
+
 HEAD = f"Generated from Unicode {UNICODE} by cicd/utility/gen-escapes.py. Edit the script, not this block."
 
 
@@ -100,12 +144,23 @@ def fHex(c: int) -> str:
 	return f"0x{c:04X}"
 
 
+def fRustText(text: str) -> str:
+	return '"' + "".join(f"\\u{{{ord(c):X}}}" for c in text) + '"'
+
+
 def fRust() -> list[str]:
 	lines = [f"// {HEAD}"]
-	for name, ranges in (("INVISIBLE", INVISIBLE), ("SELECTORS", SELECTORS)):
+	for name, ranges in (("INVISIBLE", INVISIBLE), ("SELECTORS", SELECTORS), ("WHITE_SPACE", WHITE_SPACE)):
 		lines += ["#[rustfmt::skip]", f"const {name}: [(u32, u32); {len(ranges)}] = ["]
 		lines += [f"\t({fHex(lo)}, {fHex(hi)})," for lo, hi in ranges]
 		lines += ["];"]
+	lines += [f"const ESCAPE_MARK: char = '\\u{{{ESCAPE_MARK:X}}}';"]
+	lines += ["#[rustfmt::skip]", f"const ESCAPE_NAMES: [(&str, &str); {len(ESCAPE_NAMES)}] = ["]
+	lines += [f'\t("{name}", {fRustText(text)}),' for name, text in ESCAPE_NAMES]
+	lines += ["];"]
+	lines += ["#[rustfmt::skip]", f"const CODE_PREFIXES: [&str; {len(CODE_PREFIXES)}] = ["]
+	lines += [f'\t"{p}",' for p in CODE_PREFIXES]
+	lines += ["];"]
 	return lines
 
 
@@ -201,3 +256,5 @@ if __name__ == "__main__":
 ##	History:
 ##		2026-09-28  Created, when the escape set grew to Unicode's
 ##		            Default_Ignorable_Code_Point list.
+##		2026-10-05  Escape names, code point prefixes and White_Space, for
+##		            the value syntax. Rust only so far.

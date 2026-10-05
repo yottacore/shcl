@@ -2,11 +2,9 @@
 temp: "C:\temp"
 mixed: "C:\\work\new"
 share: "\\srv\new"
-doubled: 'C:\ok\fine'
+doubled: "C:\\ok\\fine"
 message: "Done\nNext"
 single: 'C:\temp'
 pair: x, "D:\tools"
-list:
-	* one
-	* "E:\new"
+list: one, "E:\new"
 last: 1

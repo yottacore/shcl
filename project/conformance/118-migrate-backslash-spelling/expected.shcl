@@ -8,11 +8,11 @@ noted: a\\  # note
 real-tab: 'C:\temp'
 real-newline: a\nb
 users: 'C:\\Users\\me'
-open: '"00:30\'
-quote: "'it\\'s'"
+open: "00:30\
+quote: 'it\'s'
 end: 'x\\'
-"n\\\\tm": 1
-"n\\tm": 2
+"n\\tm": 1
+"n\tm": 2
 k: a\\tb
 	v: 1
 j: a\\tb
