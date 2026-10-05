@@ -195,7 +195,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Run the release binary on vmDebARM64 against the conformance corpus and cli-regress.
 		- Build and run the four bindings' suites there natively, to catch anything the cross build hides.
 		- Check the installer picks the arm64 asset and its glibc floor message (2.30).
-	- Note: 20261004, vmDebARM64 has no setup notes yet. Ask how it is set up before the first visit.
+	- Note: 20261004, vmDebARM64 has no setup notes yet. Ask how it is set up before the first visit. Answered 20261004: a test user with normal rights and no password, and `root` by ssh with b23's key.
+	- Note: 20261005, vmDebARM64 has Wine installed, so the `windows-arm64` release binary might run there too, if slowly. Try the corpus and cli-regress through `wine` on the same visit.
 	- Estimated effort: Avg
 
 - A file stamped Format 3 during the beta is never migrated
