@@ -417,6 +417,41 @@ function Get-FileArgument {
 	return $null
 }
 
+## Called from a session, an unquoted `-x:y` reaches the script as a marked
+## `-x:` and a `y`, and splatted on to shcl the `-x:` is dropped. The calling
+## line tells it apart from `-x: y`, which a direct call passes as two
+## arguments. With no command there whose colon parameters match, the pair is
+## joined. Plain strings come back. As _shcl_colon_args in shcl.ps1.
+function Join-ColonArgument {
+	[CmdletBinding()]
+	param([object[]]$Argument)
+	$mark = '<CommandParameterName>'
+	$names = @(foreach ($a in $Argument) { if ($null -ne $a -and $a.PSObject.Properties[$mark] -and "$a".EndsWith(':')) { $a.PSObject.Properties[$mark].Value } })
+	if ($names.Count -eq 0) { return $Argument }
+	$wanted = $names -join ' '
+	$spaced = $null
+	foreach ($frame in Get-PSCallStack) {
+		if ($null -eq $frame.Position -or -not $frame.Position.Text) { continue }
+		$ast = [System.Management.Automation.Language.Parser]::ParseInput($frame.Position.Text, [ref]$null, [ref]$null)
+		foreach ($command in $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.CommandAst] }, $true)) {
+			$params = @($command.CommandElements | Where-Object { $_ -is [System.Management.Automation.Language.CommandParameterAst] -and $null -ne $_.Argument })
+			if ((@($params | ForEach-Object { $_.ParameterName }) -join ' ') -eq $wanted) {
+				$spaced = @($params | ForEach-Object { $_.Argument.Extent.StartOffset -gt $_.ErrorPosition.EndOffset })
+				break
+			}
+		}
+		if ($null -ne $spaced) { break }
+	}
+	$k = 0
+	for ($i = 0; $i -lt $Argument.Count; $i++) {
+		$a = $Argument[$i]
+		if ($null -eq $a -or -not $a.PSObject.Properties[$mark] -or -not "$a".EndsWith(':') -or $i + 1 -ge $Argument.Count) { $a; continue }
+		if ($null -ne $spaced -and $k -lt $spaced.Count -and $spaced[$k]) { "$a" }
+		else { $i++; "$a" + (@($Argument[$i]) -join ',') }
+		$k++
+	}
+}
+
 ## Windows PowerShell 5.1, 7 before 7.3, and 7.3 and later set to Legacy, hand
 ## a native command one command line built the old way, where an embedded
 ## quote goes through bare and an empty argument is left out. So each argument
@@ -445,7 +480,7 @@ $ErrorActionPreference = 'Stop'
 
 ## Its own flag is taken out; everything else goes to shcl as it came, `-v` and
 ## `-h` included, which is why there is no param() block to bind them.
-$given = $args
+$given = @(Join-ColonArgument -Argument $args)
 if (-not $MyInvocation.Line) {
 	$fromFile = Get-FileArgument -Self $PSCommandPath
 	if ($null -ne $fromFile) { $given = $fromFile }
@@ -475,3 +510,4 @@ exit $LASTEXITCODE
 ##		- 2026-09-27 JC: Runs under Windows PowerShell 5.1. The Windows fixed name is in install.ps1's user folder. Stamps in UTC and the invariant culture. Runs the fixed name only when it names the newest pool version. Says why the fixed name was not updated only on a run that took a build. Help block.
 ##		- 2026-09-28 JC: Stamps back in local time. A pool name holding an impossible date is skipped rather than stopping every run.
 ##		- 2026-10-04 JC: Takes its arguments from the process when started by -File, which split a `-x:y` one. Quotes them for 5.1 the way shcl.ps1 does.
+##		- 2026-10-04 JC: Called from a session, keeps an unquoted `-x:y` whole rather than passing on only the `y`.
