@@ -36,10 +36,10 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - No '\' escapes
 	- ID: 2026100207032800
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Started
+	- Priority: Critical
 	- Needs local test suite run?: Y
 	- Needs external testing: Y
-	- Priority: Critical
 	- Opened: 20261002-070407
 	- Opened by: JC
 	- Assigned to:
@@ -63,6 +63,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Estimated effort: High
 	- Actual effort:
 	- Progress log:
+		- 20261005: worked on the `valsyn` branch, which merges to dev once all four bindings agree. Its progress log is in valsyn's copy of this file. Chunks A and B are in, Rust only.
 	- Decisions:
 		- 20261002: idea 3, with the changes listed in the design doc. Open points and their proposed answers are under its Roadmap.
 		- 20261002: a quote anywhere in a bare value is an error, and a bare field name starts with a letter. Dates, times, durations and sizes without spaces stay bare.
@@ -83,6 +84,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Priority: High
 	- Opened: 20261003-134616
 	- Opened by: JC
+	- Prereq IDs: 2026100207032800
 	- Related IDs: 2026100313461650, 2026092709243678, 2026100115403385, 2026100207032800
 	- Problem description:
 		- When a client program's shcl upgrade breaks compatibility with an existing file(s).
@@ -104,6 +106,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261003: the version in the name is the old file's format, so `format-v2` for a 2.x file.
 		- 20261003: the fresh file gets the info block, as `init` writes it. This call is the one library write that does.
 		- 20261003: it covers beta-stamped Format 3 files too, when they can be told apart. This reopens the scope of 2026100115403385.
+	- Note: 20261005, waits on 2026100207032800, since its rewrite goes through `migrate`, which that item's chunk C changes. Work it right after chunk C.
 	- Estimated effort: High
 
 - A CICD test that makes old shcl files and checks the automatic conversion
