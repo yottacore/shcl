@@ -2,4 +2,5 @@ query	type	expected	status	level
 -	load	ok	-
 who["q◉DQUOTE◉uote"].port	int	1	Good
 who['q"uote'].port	int	1	Good
-tick[it's].n	int	2	Good
+tick[it's].n	int	0	NotFound
+tick["it's"].n	int	2	Good

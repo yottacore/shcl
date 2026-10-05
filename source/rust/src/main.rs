@@ -196,8 +196,10 @@ Options (the subcommands each belongs to are in parentheses):
                                          TEXT goes in as value
                                          syntax the way a file writes it, so
                                          'ports=[80, 443]' writes a two-element
-                                         array. A # outside quotes ends the
-                                         value; text spanning lines is rejected
+                                         array, 'title=\"My App\"' a string and
+                                         'color=`#FF8800`' a backtick value. A
+                                         # outside quotes ends the value; text
+                                         spanning lines is rejected
   --set-default=PATH=VALUE               (same) as --set, but only when nothing
   --set-literal-default=PATH=TEXT        is at the path yet - the write-out-
                                          defaults half of the writer
@@ -309,9 +311,6 @@ E008|error|stacked '- ' list item under a parent with field children
   The parent already holds named children, so the item is dropped.
 E009|error|empty stacked '- ' list item
   A '-' with nothing after it has no value to add.
-E010|error|bare comma in a stacked '- ' list item
-  The stacked form is one item per line. Quote the comma, or write the
-  whole array on the field's own line: ports: [80, 443].
 E011|error|stacked '- ' item for a field that already has a value
   The field's value is kept and the item is ignored. A field is written
   one way or the other, not both.
@@ -381,11 +380,19 @@ E025|error|whitespace or a quote in a bare value or selector body
 E026|error|a bare comma outside brackets and quotes
   ports: 80, 443 is an error. Write the array in brackets, ports: [80, 443],
   or quote text that has a comma. The line is kept verbatim and binds
-  nothing. The lines under it still load, under the field with no value.
+  nothing. The lines under it still load, under the field with no value. A
+  list item with a bare comma, - a, b, is kept the same way, and the other
+  items still load.
 E027|error|a list item that is a bare name ending in ':', as in - name:
   That is how YAML starts an object in a list, and SHCL writes one as an
   instance. Quote the item if it is text: - \"name:\". The line is kept as
   written, and the other items still load.
+E028|error|an array on a field with lines under it
+  A field with fields under it takes one plain value or none, so
+  route: [GET, POST] with lines under it is an error. Give the field one
+  value and put the list in a field under it: methods: [GET, POST]. The line
+  is kept verbatim, and the lines under it load under the field with no
+  value.
 H001|hint|repeated bare leaf (an array written as repeated lines)
   Repeated leaves are legal - that is how instances are written - but
   'tags: red' twice and 'tags: [red, blue]' look alike, so the parser says
@@ -446,6 +453,7 @@ V099|error|schema failed to load
 /// the replacement empty when nothing took its rule. An old log can still
 /// name one, so `explain` says where it went rather than calling it unknown.
 const RETIRED: &str = "\
+E010|error|E026
 E024|error|
 H003|hint|
 H004|hint|

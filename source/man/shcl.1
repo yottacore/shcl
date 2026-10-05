@@ -489,7 +489,11 @@ except
 .I TEXT
 goes in as value syntax the way a file writes it \- so
 .B ports=[80, 443]
-writes a two-element array. A
+writes a two-element array,
+.B title="My App"
+a string and
+.B color=`#FF8800`
+a backtick value. A
 .B #
 outside quotes ends the value, and text spanning lines is rejected.
 .TP

@@ -2013,8 +2013,8 @@ fn disp_key(v: &Value) -> String {
 	v.display()
 }
 
-/// The single-element restriction a QUOTED `[value]` selector adds on top of
-/// the display match: quoting selects the scalar spelling only.
+/// A selector matches one plain value, quoted or not, never an array or a
+/// raw block (value-syntax.md, Selectors and discriminators).
 fn single_scalar(v: &Value) -> bool {
 	matches!(v, Value::Cell(_))
 }
@@ -3127,13 +3127,13 @@ fn path_of(tok: &Tokens, text: &str) -> Result<PathScan, String> {
 /// Scan a lookup path `a . b [sel] . c`: the document-line spelling plus
 /// the bare `*` segment (the name wildcard - any child name), which document
 /// lines never take; only lookups (reads, the writer probe, schema paths)
-/// do. Whitespace around dots, colons and brackets is insignificant.
+/// do. Whitespace around dots, colons and brackets is insignificant. A path
+/// a file line could not hold is refused the same: a bad escape, or a bare
+/// selector body with whitespace or a quote in it (`E025`).
 fn scan_lookup(input: &str) -> Result<PathScan, String> {
 	let mut tok = Tokens::default();
 	tokenize(input, b':', true, Rules::Current, &mut tok);
-	if let Some(f) = path_fault(&tok, input)
-		&& f.code == "E023"
-	{
+	if let Some(f) = path_fault(&tok, input) {
 		return Err(f.msg);
 	}
 	path_of(&tok, input)
@@ -4158,7 +4158,7 @@ impl<'a> Parser<'a> {
 		for (i, seg) in segs.into_iter().enumerate() {
 			let is_last = i + 1 == nsegs;
 			match (seg.selector, is_last) {
-				(Some(Selector::ByValue { text, quoted }), _) => {
+				(Some(Selector::ByValue { text, .. }), _) => {
 					// Same escape-applied display predicate resolve_from uses, so
 					// a selector also selects an array-valued instance instead of
 					// creating a spurious second one - via the disp_map accelerator
@@ -4169,7 +4169,7 @@ impl<'a> Parser<'a> {
 					// child, which may be the non-scalar one. An unquoted selector takes
 					// whatever the accelerator holds and does not scan, so it can bind a
 					// raw block where a quoted selector picks the scalar sibling.
-					let found = self.find_by_value(cur, &seg.name, &text, quoted);
+					let found = self.find_by_value(cur, &seg.name, &text);
 					cur = match found {
 						Some(c) => c,
 						None => {
@@ -4282,25 +4282,22 @@ impl<'a> Parser<'a> {
 		Some(cur)
 	}
 
-	/// The child of `cur` named `name` whose display form is the selector text
-	/// (escapes applied), or None. Quoted selectors only match a single scalar.
-	fn find_by_value(&self, cur: usize, name: &str, text: &str, quoted: bool) -> Option<usize> {
+	/// The child of `cur` named `name` whose one plain value is the selector
+	/// text (escapes applied), or None.
+	fn find_by_value(&self, cur: usize, name: &str, text: &str) -> Option<usize> {
 		let want = text;
 		self.disp_map[cur]
 			.as_deref()
 			.and_then(|m| m.get(&disp_hash_text(name, want)))
 			.copied()
 			.filter(|&c| self.arena[c].name == name && disp_key(&self.arena[c].value) == want)
-			.filter(|&c| !quoted || single_scalar(&self.arena[c].value))
+			.filter(|&c| single_scalar(&self.arena[c].value))
 			.or_else(|| {
 				// The display map keeps only the first same-display child, which
-				// may be an array where a quoted selector wants the scalar. A
+				// may be a raw block where the selector wants the scalar. A
 				// scalar child with this text is exactly the one-element value
 				// the merge map is keyed on, so ask that map: a scan of every
 				// sibling was the same answer, quadratic on the create path.
-				if !quoted {
-					return None;
-				}
 				let disc = Value::Cell(new_element(want.to_string()));
 				self.child_map[cur]
 					.as_deref()
@@ -8720,13 +8717,13 @@ impl Document {
 			}
 			match &seg.selector {
 				None => cur = next,
-				Some(Selector::ByValue { text, quoted }) => {
+				Some(Selector::ByValue { text, .. }) => {
 					let want = text.as_str();
 					cur = next
 						.into_iter()
 						.filter(|&c| {
-							disp_key(&self.arena[c].value) == want
-								&& (!quoted || single_scalar(&self.arena[c].value))
+							single_scalar(&self.arena[c].value)
+								&& disp_key(&self.arena[c].value) == want
 						})
 						.collect();
 				}
@@ -9154,12 +9151,12 @@ impl Document {
 						None => return WriteReason::NoSuchIndex,
 					}
 				}
-				Some(Selector::ByValue { text, quoted }) => {
+				Some(Selector::ByValue { text, .. }) => {
 					let want = text.as_str();
 					probe = probe.and_then(|c| {
 						self.children_named(c, &seg.name).into_iter().find(|&n| {
-							disp_key(&self.arena[n].value) == want
-								&& (!quoted || single_scalar(&self.arena[n].value))
+							single_scalar(&self.arena[n].value)
+								&& disp_key(&self.arena[n].value) == want
 						})
 					});
 				}
@@ -13366,13 +13363,13 @@ impl Document {
 			}
 			match &seg.selector {
 				None => cur = next,
-				Some(Selector::ByValue { text, quoted }) => {
+				Some(Selector::ByValue { text, .. }) => {
 					let want = text.as_str();
 					cur = next
 						.into_iter()
 						.filter(|&c| {
-							disp_key(&self.arena[c].value) == want
-								&& (!quoted || single_scalar(&self.arena[c].value))
+							single_scalar(&self.arena[c].value)
+								&& disp_key(&self.arena[c].value) == want
 						})
 						.collect();
 				}

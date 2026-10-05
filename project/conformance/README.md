@@ -94,7 +94,7 @@ Case `035` pins the `H002` merge hint: a binding that merges with a non-adjacent
 
 Case `034` pins comment placement fidelity: a comment run written deeper than the next binding hangs on the block it sits in (re-emitted after that block's last child, at the block's indent), an over-deep comment normalizes to its block's level, and end-of-file comment regions keep the blank lines between them.
 
-Case `033` pins escape-applied selector matching: a `["q◉DQUOTE◉uote"]` selector finds an instance written `'q"uote'`, and a bare `[it's]` in a lookup finds `"it's"` - the match is logical string against logical string, whichever spelling either side used. The write op does the same through the writer's place walk: the set applies to the existing instance instead of creating a spurious second one.
+Case `033` pins escape-applied selector matching: a `["q◉DQUOTE◉uote"]` selector finds an instance written `'q"uote'`, and `["it's"]` finds `"it's"` - the match is logical string against logical string, whichever spelling either side used. A bare `[it's]` in a lookup has a quote in it (`E025`), so it finds nothing. The write op does the same through the writer's place walk: the set applies to the existing instance instead of creating a spurious second one.
 
 Case `032` pins blank-line grouping: a run of blanks collapses to one, a blank before a comment group stays with the group, and the blank survives the format round-trip (the file never starts with one).
 
@@ -128,7 +128,7 @@ Case `049` pins retained lines: a malformed line inside a block and one at the t
 
 Case `050` pins that quoting decides a value's elements: `x: "a, b"` is one element and `x: [a, b]` an array, so they are two instances and `x["a, b"]` selects the first.
 
-Case `051` pins a selector that reaches an instance written another way: a quoted `x['a"b, c']` finds the one-element instance, while `y["p, r"]` and `z["m, n"]` match nothing and create an instance. A bare `x[a"b, c]` on a file line is `E025` and takes its block with it. In a lookup it matches only the one-element instance, since the stacked list reads as `['a"b', c]`.
+Case `051` pins a selector that reaches an instance written another way: a quoted `x['a"b, c']` finds the one-element instance, while `y["p, r"]` and `z["m, n"]` match nothing and create an instance. A bare `x[a"b, c]` on a file line is `E025` and takes its block with it. In a lookup it is refused the same way and finds nothing.
 
 Case `052` pins edge whitespace through the writer: a value set with a no-break space, a vertical tab, a form feed or another Unicode space at an edge is quoted on output, so it reads back whole.
 
@@ -166,7 +166,7 @@ Case `068` pins a `#` on a fence line in both spellings: it ends the label and o
 
 Case `069` pins traversal through the `children`, `paths` and `instance_paths` rows: children in file order with repeats kept, each instance's in turn where a path has several, nothing for a missing path, every path once, quoted where a name needs it, and every binding once with `[#i]` on a name its parent repeats.
 
-Case `070` pins a selector over a raw block and a scalar with the same display: `x[hi]` binds the raw block and `x["hi"]` the scalar, and a read of `x[hi]` counts both.
+Case `070` pins a selector over a raw block and a scalar with the same display: a selector matches one plain value, so `x[hi]` and `x["hi"]` both bind the scalar and a read of `x[hi]` counts one.
 
 Case `071` pins the schema-fault arms: a constraint given two values where it takes one (`type`, `repeat`, `inherits`, `min`, `max`), given twice (`allowed`), or given a value it cannot take (`maybe`, `abc`, a `min` on a string) draws `V092` at its schema line.
 
@@ -421,6 +421,10 @@ Case `196` pins bracket arrays and the read table in the value syntax doc: `80` 
 Case `197` pins the malformed array (`E019`): text after the `]`, a nested `[`, an empty element in three places, and no closing `]`. A bare comma is `E026`, and each element follows the value rules (`E025`, `E017`, `E023`). Every line is kept as written with nothing lost, and the lines under one still load under the field with no value.
 
 Case `198` pins the stacked list's `- ` marker: `fmt` keeps the list stacked, a one-item list is still an array, an old `*` line is `E013` and kept among the items that still load, `- name:` is `E027` while `- "name:"`, `- localhost:8080` and `- -5` are items, a nested array is `E019`, an item with a space is `E025`, and `-x: y` is a field line (`E014`) that holds its level. Its write ops pin that an array setter keeps a stacked list stacked.
+
+Case `199` pins `E028`: an array on a field with fields under it is kept as written, in place of the field's own line, and the fields under it load under the field with no value, a trailing comment and `[]` included. A kept line under an array binds nothing, so the array stands. An array line that joined an earlier binding of its value leaves that one its value and opens a field of its own. Its write ops pin that a field opened this way takes new fields.
+
+Case `200` pins that a selector matches one plain value, quoted or not: `srv[a]` and `srv["a"]` find the scalar `a` and never the array `[a]` or a raw block holding `a`. A bare selector body with a space is `E025` on a file line, which takes the block under it, and in a lookup it finds nothing.
 
 Beyond the fixed corpus, the differential harness (`cicd/utility/crosscheck.bash`) also derives accessor coverage over the fuzz set: the reference's fuzz dump writes a `<name>.reads.tsv` beside each dumped input (paths it knows exist, cycling type and strictness), which the `--extra` replay runs through the same row machinery. Every scalar read row - corpus and fuzz-derived - is additionally replayed under `--on-bad=error` (an exit-code differential) and `--default=<x>` (a stdout differential), so the on-bad/default policy surface is pinned cross-binding too. It also runs three `set` edits (a changed value, a new child, a removal) on the first paths of every input, corpus and fuzz alike, so the save that keeps lines is compared well past the goldens. The reference's line-ending fuzz dumps up to 100 more inputs, each mixing LF and CRLF with its edits as a write-ops script, into an `eol/` folder beside the rest. Each goes through `set --write` in every binding, and the files left on disk must match byte for byte.
 
