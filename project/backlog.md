@@ -313,10 +313,24 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: 20261004, the gate scripts are bash and assume GNU tools, so some may need `gsed` or the like. Fixing the product comes first. Porting the gates only matters if a BSD job is wanted.
 	- Estimated effort: Avg
 
+- The kept-line property's remove and setter steps take lines off by text
+	- ID: 2026100505513100
+	- Type: Task
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261005-055131
+	- Opened by: the work on 2026100313174977
+	- Related IDs: 2026100313174977
+	- Problem description:
+		- `EreT6dh` picks the lines a remove takes, and the kept lines a setter writes as comments, by where they sit, then takes each off the expected lines by text. With two kept lines of one text, a remove or setter that kept the one it should take and dropped or commented the other would pass. The merge step had the same gap until 2026100313174977.
+	- Requirements:
+		- Those steps check the edited text by place, as the merge step does, or the item says why they cannot.
+	- Estimated effort: Avg
+
 - The kept-line property's merge step has two loose ends
 	- ID: 2026100313174977
 	- Type: Task
-	- Status: Queued
+	- Status: Done
 	- Priority: Low
 	- Opened: 20261003-131749
 	- Opened by: the review of 2026100307310000, round 1
@@ -329,6 +343,23 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- The property removes excused lines by position, not text.
 		- A repeated parent either gets its own rule in the property, or a test shows the merge leaves its kept lines alone.
 	- Estimated effort: Low
+	- Actual effort: Avg
+	- Decisions:
+		- A repeated parent gets a rule. A test could not show the merge leaves those lines alone, since it does not: with `s: u` and `s: v` in the base, a layer `s: v` / `b: 9` takes the settled line on the second `s`'s `b`, as design.md's table says.
+	- Done:
+		- The merge step checks the merged text by place. Each copy of an excused line's text that sat away from the replaced leaves has to be in the same stretch of the merged text, between the nearest lines that both texts write once. Lines near a replaced leaf are left out, since the merge moves them with it. A footer line the dedup skips must not be written to the merged footer as well.
+		- The expected lines stay a count by text. A settled line and a comment of the same text are the same line of canonical text, so later steps cannot tell them apart either.
+		- A layer's instance goes into the base instance with the same name and value, so the property names each parent by instance, `s[#1].b`, and matches it by value. A parent with one instance on each side is the old rule.
+		- The footer lines were compared with their indent trimmed, so a misplaced layer line the dedup did not skip was excused. The spaces now stay, as in the dedup.
+	- Swept: the remove and setter steps of `EreT6dh` also take lines off by text. Filed as 2026100505513100, since the place check there needs its own rules for what a remove moves.
+	- Verified: `ErpR2rr` fails with the old parent rule, with the place check off, and with the footer check off, and passes with all three. The 2,000,000 release fuzz passes, all 18 tests. In that run 76 merges had a leaf under a repeated parent, 5 of them with a line to excuse, 11 stretches had copies to check, and 877 merges had a footer line skipped. `cargo test`, clippy with `-D warnings`, rustfmt and `test-ids.py check` pass.
+	- Progress log:
+		- 20261005: done on `keptmerge`. Test-only change, so no other binding is involved.
+	- Branch: `keptmerge`
+	- Commit: `dfff27a8`
+	- Test case: `ErpR2rr` (`merge_exceptions_go_by_position`), and `EreT6dh` at 2,000,000.
+	- Acceptance signoff: Self-closed: a test-only change that does what the item asked, and its test passes.
+	- Closed: 20261005-055131
 
 - A canonical save after a merge and a raw set loses kept lines, found by the kept-lines fuzz
 	- ID: 2026100316012486
