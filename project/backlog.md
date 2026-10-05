@@ -128,6 +128,9 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261002: no new error throws out good lines. A bad bare name that can still be read keeps its block, as a value-only refusal does. The writer quotes a value with `:` only when it ends in one.
 		- 20261002: pre-release Format 3 files are on their own. `fmt` keeps a `- ` list stacked. Setters get no new options, and an overwrite keeps the old quote kind when it can.
 		- 20261003: a merge writes every list in brackets, whatever form its layers used. The error code table in the design doc is final.
+		- 20261005: chunk A and B calls kept as built: `fmt` keeps the author's quote kind; a typed read reads a backtick value's text; only a space, a tab and a CR trim at a value's ends; one error per line, path then name then brackets then value; `- a, b` is `E026` with the line kept; an array setter keeps a `- ` list stacked; a comment on an item stays on its item.
+		- 20261005: changed from what chunk A built. A line with no colon is `E015` even when its name breaks the bare name rule, so `404` alone is `E015`. An item past the caller's array cap is `E021` and dropped, even when its value is broken. `migrate` leaves a 2.x backslash as written and it reads literally, with no escape added; check-migrate compares reads, so it has to allow for that. `explain E023` prints the mark itself, not `U+25C9`.
+		- 20261005: these go into the design doc with chunk C.
 	- Branch: `valsyn` (chunk A on `vslex`, chunk B part 1 on `vsarr`, part 2 on `vssel`)
 	- Commit: `6355ba10` (chunk A), `7c90c42d` and `f228c3e9` (chunk B part 2)
 	- Test case:
@@ -307,6 +310,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- A list with a field under it (`E001`) has to be written stacked, since in brackets it is `E028`. After an empty binding of its name, a reload joins its header to that binding, and when that binding has fields the items are dropped (`E008`).
 		- A merge or an edit can leave that shape. The fuzz properties skip it (`list_after_empty` in `fuzz_smoke.rs`).
 		- Question: should a field line under stacked items stop binding (`E001` kept, not bound)? That would remove the shape, but reverses the uniform-or-nothing rule cases 010 and 128 pin.
+	- Decisions:
+		- 20261005: the load stays as is, so the `E001` line still binds. A save that would write this case refuses at exit 7.
 	- Test case: none yet; the fuzz skip names the shape.
 
 - A quoted value holding an invalid UTF-8 byte can lose its closing quote and fail as `E017`
