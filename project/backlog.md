@@ -135,6 +135,34 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Superseded by ID:
 	- Closed:
 
+- A remove next to a settled kept line gives one answer on the document and another on its reload
+	- ID: 2026100506223902
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: N. The 2,000,000 release fuzz runs the 200,000 debug run's inputs and more, and passed on dev and on `valsyn`.
+	- Severity: High
+	- Opened: 20261005-062239
+	- Opened by: found while working 2026100207032800
+	- Related IDs: 2026100207032800, 2026100307163901, 2026092620255202, 2026100117214802
+	- Version and build: `vslex` off `valsyn`
+	- Steps to reproduce:
+		- Load `a: [1]` / `\t\t": ` / `\t d-: 2` / `\te: 3`, then `clear_comments` on `a.d`, `set_empty` on `a.c`, `set_raw` on `b.c`, and save. Remove `a.c` from that document, and from a reload of the saved text.
+	- Incorrect behavior: the document keeps `\t# d-: 2`, a misplaced line the settle wrote as a comment, and the reload drops it with the removed field's comments. Fuzz `Eqk24nZ` fails on it.
+	- Expected behavior: the same text either way.
+	- Reproduced: 20261005, Rust, on dev's code with the line above, and on `vslex` with `a:` and a line separator in place of `a: [1]`. The 2,000,000 release fuzz on `vslex` finds 6 such inputs, the first at iteration 9285, so the 200,000 debug fuzz in `--ci` fails too. Dev's seed set never reached one. The value syntax keeps far more lines, so it reaches this often now.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Actual cause [Bug]: the libraries follow design.md's table. A remove leaves a kept line beside its target, and a line the settle wrote as a comment counts as kept. The reload of the canonical text reads that line as a plain comment, so its remove takes it. The two cannot agree, as 2026100307163901 recorded, so `Eqk24nZ` excuses that step. It excused it only when the target's comments above it differed, which misses a settled line below the target. One sits there when a new field goes between a block's last kept line and a settled line after it, where 2026100117214802 puts it. A setter making a field from a kept line moves the lines under it into the new block, and the value syntax keeps far more such lines.
+	- Note: the table settles which side is wrong. It says the document keeps the line, and that a reload reads it as a plain comment. Making the two agree would mean a remove takes the line, as a merge already does for a replaced leaf. That drops the user's line and reverses the table's note, so it was not done. The fix is in the tests only, so it is easy to undo if that call changes.
+	- Actual fix [Bug]: no library change. The excuse in `Eqk24nZ` and its Go, Python and C twins now checks what differs, wherever it sits. The reload's comment lines must be some of the document's, in order, and with comment and blank lines left out the two must load as one document. Before, any difference in the target's comments excused the whole step.
+	- Swept: the reload property in all four, Rust and Python `edits_and_merges_match_a_reload`, Go `TestEditsAndMergesMatchAReload`, C `edits_and_merges_match_a_reload`. No other test excuses a step by its comments. `EreT6dh` already expects a line beside a removed target to stay.
+	- Verified: `Eqk24nZ` at 2,000,000 in release, on dev and on `valsyn` with the Rust change alone. On `valsyn` it failed at iteration 9285 before. On dev, every step the old excuse let through, 11,726 of them, passes the new check, and no other step needed it. The new fixture fails in all four with the check forced either way, and in Rust when the remove takes the settled line. The four conformance suites, cargo test, go test, clippy, cargo fmt, cli-regress, crosscheck, check-docs and the test ID check pass.
+	- Test case: `a_remove_keeps_a_settled_line_below_it`, the issue's steps with `a: [1`, which stays a refused value under the value syntax, as `ErpmA09` (Rust), `ErpmA2G` (Go), `ErpmA4L` (Python) and `ErpmA6K` (C); fuzz `Eqk24nZ` at 2,000,000.
+	- Branch: `settledrm`
+	- Commit: `002b821f`
+	- Acceptance signoff: Self-closed: the fuzz failed before and passes after on `valsyn`, and the table settles which side keeps the line.
+	- Closed: 20261005-071935
+
 - Back up and rewrite a config file when a program's shcl upgrade breaks it
 	- ID: 2026100313461649
 	- Type: Feature
