@@ -2064,6 +2064,68 @@ int main(int argc, char **argv) {
 			shcl_free(bd);
 		}
 	}
+	test_id("ErmXhwI", "a_setter_comments_out_every_kept_line_of_its_name");
+	{
+		// A setter writing `a` writes every kept line named `a` in that block
+		// as the noted comment, and a field it creates goes right under the
+		// first of them, so a later hand fix never gives Multiple
+		// (2026100307163907).
+#ifdef _WIN32
+		_putenv_s("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT");
+#else
+		setenv("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT", 1);
+#endif
+#define SETTER_NOTE(p) "  ## commented out by shcl when setting " p ", 2026-10-04 00:15:00 PDT: E019 bracket array syntax"
+		static const struct { const char *text, *path, *want; size_t count; } ec[] = {
+			// No loaded `a`: the new line goes under the first comment.
+			{"a: [1]\ny: 3\n", "a", "# a: [1]" SETTER_NOTE("a") "\na: 5\ny: 3\n", 1},
+			{"x: 1\na: [1]\ny: 3\na: [2]\n", "a", "x: 1\n# a: [1]" SETTER_NOTE("a") "\na: 5\ny: 3\n# a: [2]" SETTER_NOTE("a") "\n", 1},
+			// What was under the line goes under the new one.
+			{"a: [1]\n\t# under\n\tb: [2]\ny: 3\n", "a", "# a: [1]" SETTER_NOTE("a") "\na: 5\n\t# under\n\tb: [2]\ny: 3\n", 1},
+			// At the end of a block.
+			{"o:\n\tx: 1\n\ta: [1]\n", "o.a", "o:\n\tx: 1\n\t# a: [1]" SETTER_NOTE("o.a") "\n\ta: 5\n", 1},
+			// A field made on the way writes its line too.
+			{"a: [1]\ny: 3\n", "a.c", "# a: [1]" SETTER_NOTE("a.c") "\na:\n\tc: 5\ny: 3\n", 1},
+			// A loaded `a` changes in place.
+			{"a: 1\nb: [1]\na: [2]\n", "a", "a: 5\nb: [1]\n# a: [2]" SETTER_NOTE("a") "\n", 1},
+			// Two valid lines stay as they are, and so does a kept line with a
+			// kept line under it, which as a comment would leave that line
+			// under the field above.
+			{"a: 1\na: 2\n", "a", "a: 5\na: 2\n", 2},
+			{"a: 1\na: [2]\n\tc: [3]\n", "a", "a: 5\na: [2]\n\tc: [3]\n", 1},
+		};
+#undef SETTER_NOTE
+		for (size_t i = 0; i < sizeof ec / sizeof ec[0]; i++) {
+			shcl_doc *ed = shcl_parse_keep_lines(ec[i].text, strlen(ec[i].text), SHCL_STANDARD);
+			int took = shcl_set_int(ed, ec[i].path, strlen(ec[i].path), 5);
+			shcl_str out = shcl_to_canonical(ed);
+			if (!took || shcl_lost_count(ed) != 0 || out.n != strlen(ec[i].want) || memcmp(out.p, ec[i].want, out.n) != 0) {
+				fail("kept_gate", ec[i].text);
+			} else {
+				shcl_doc *back = shcl_parse(out.p, out.n);
+				shcl_str again = shcl_to_canonical(back);
+				if (shcl_count(back, ec[i].path, strlen(ec[i].path)) != ec[i].count || again.n != out.n || memcmp(again.p, out.p, out.n) != 0)
+					fail("kept_gate", "a setter's comments reload otherwise");
+				shcl_free(back);
+				int kept = 0;
+				shcl_str keep = shcl_to_text_keep_lines(ed, &kept);
+				if (!kept || keep.n != out.n || memcmp(keep.p, out.p, out.n) != 0) fail("kept_gate", "a setter's keep save differs from canonical");
+			}
+			shcl_free(ed);
+		}
+#ifdef _WIN32
+		_putenv_s("SHCL_TEST_CLOCK", "");
+#else
+		unsetenv("SHCL_TEST_CLOCK");
+#endif
+		// shcl_set_comment makes the field without touching the line.
+		shcl_doc *cd = shcl_parse("a: [1]\ny: 3\n", 12);
+		int took = shcl_set_comment(cd, "a", 1, "n", 1);
+		shcl_str out = shcl_to_canonical(cd);
+		static const char cwant[] = "a: [1]\ny: 3\n\n# n\na:\n";
+		if (!took || out.n != strlen(cwant) || memcmp(out.p, cwant, out.n) != 0) fail("kept_gate", "set_comment beside a kept line");
+		shcl_free(cd);
+	}
 	test_id("Erlf1GC", "a_note_names_the_zone_or_its_offset");
 	{
 		// The zone's short name, else its offset; and the test clock's form.

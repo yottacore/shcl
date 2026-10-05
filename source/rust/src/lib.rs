@@ -5514,6 +5514,58 @@ fn note_text(s: &str) -> String {
 	s.replace('\n', "\\n").replace('\r', "\\r")
 }
 
+/// The code and message the load gave a kept line that names just `name`,
+/// at the level of the block it sits in: a field line refused for its value
+/// alone, which a reload would read as another `name` once fixed by hand. A
+/// line with a raw body could not be commented out as one line.
+fn kept_naming(l: &Lead, name: &str) -> Option<(&'static str, String)> {
+	if l.depth != 0 || l.text.starts_with(['#', '*', ' ', '\t']) || l.text.contains('\n') {
+		return None;
+	}
+	let mut tok = Tokens::default();
+	tokenize(&l.text, b':', false, Rules::Current, &mut tok);
+	let scan = path_of(&tok, &l.text).ok()?;
+	let [seg] = scan.segments.as_slice() else {
+		return None;
+	};
+	if seg.selector.is_some() || seg.name != name || bad_escape(&tok, &l.text, false).is_some() {
+		return None;
+	}
+	line_fault(&tok, &l.text)
+}
+
+/// A kept line a setter writes as a comment, with the note giving why and
+/// when. It is a plain comment from here on, as a reload reads it.
+fn note_lead(l: &mut Lead, path: &str, code: &str, msg: &str) {
+	// The reason, without the advice after it.
+	let why = msg.split(';').next().unwrap_or_default();
+	l.text = format!(
+		"{}  ## commented out by shcl when setting {}, {}: {code} {why}",
+		commented(&l.text),
+		note_text(path),
+		note_stamp()
+	);
+	l.line = 0;
+	l.kept = false;
+}
+
+/// How many lines after `leads[k]` are written under it: each line deeper
+/// than it up to the next field line that is not, with the comments and
+/// misplaced lines among them, since neither ends the lines it holds open.
+fn run_under(leads: &[Lead], k: usize) -> usize {
+	let depth = leads[k].depth;
+	let mut last = k;
+	for (i, l) in leads.iter().enumerate().skip(k + 1) {
+		// A misplaced line is at depth 0, whatever its own indent.
+		if l.depth > depth {
+			last = i;
+		} else if !l.text.starts_with(['#', ' ', '\t']) {
+			break;
+		}
+	}
+	last - k
+}
+
 /// Local time to the second, with the zone, for a setter's note on a line it
 /// commented out. SHCL_TEST_CLOCK stands in for the system clock and zone, so
 /// tests can pin the text: "YYYY-mm-DD HH:MM:SS OFFSET_MINUTES [NAME]".
@@ -8564,8 +8616,9 @@ impl Document {
 	/// `[value]` selector selects the matching instance or creates it; `[#k]`
 	/// must already exist. None = path unusable for a write (write_reason()
 	/// says why). Validation runs first, so a doomed path leaves no
-	/// half-created intermediates behind.
-	fn place(&mut self, path: &str) -> Option<usize> {
+	/// half-created intermediates behind. A `setter` creating a field deals
+	/// with the kept lines of its name, as set_child() says.
+	fn place(&mut self, path: &str, setter: bool) -> Option<usize> {
 		let scan = scan_lookup(path).ok()?;
 		let mut trail: Vec<Option<usize>> = Vec::new();
 		if self.probe_write(&scan, &mut trail) != WriteReason::Writable {
@@ -8595,18 +8648,40 @@ impl Document {
 				cur = found;
 				continue;
 			}
-			cur = match &seg.selector {
-				None => self.new_child(cur, &seg.name, &seg.name_src, Value::Empty),
-				Some(Selector::ByValue { text, .. }) => {
-					self.new_child(cur, &seg.name, &seg.name_src, cell_of(text.clone()))
-				}
+			let value = match &seg.selector {
+				None => Value::Empty,
+				Some(Selector::ByValue { text, .. }) => cell_of(text.clone()),
 				// Both are unreachable: probe_write refuses a wildcard outright
 				// and an unresolvable index, so neither reaches an empty trail
 				// slot. Belt only.
 				Some(Selector::ByIndex(_)) | Some(Selector::Wildcard) => return None,
 			};
+			cur = if setter {
+				self.set_child(cur, &seg.name, &seg.name_src, value, path)
+			} else {
+				self.new_child(cur, &seg.name, &seg.name_src, value)
+			};
 		}
 		Some(cur)
+	}
+
+	/// A setter creating a field writes the kept lines of its name in the
+	/// block as comments, and with no other field of that name the new one
+	/// goes right under the first of them (design.md, Kept lines under
+	/// edits).
+	fn set_child(
+		&mut self,
+		parent: usize,
+		name: &str,
+		name_src: &str,
+		value: Value,
+		path: &str,
+	) -> usize {
+		let alone = self.children_named(parent, name).is_empty();
+		match self.comment_out_kept(parent, name, path, alone) {
+			Some(at) => self.new_child_under(parent, name, name_src, value, at),
+			None => self.new_child(parent, name, name_src, value),
+		}
 	}
 
 	fn set_value(&mut self, path: &str, value: Value) -> bool {
@@ -8616,10 +8691,13 @@ impl Document {
 		if self.probe {
 			return true;
 		}
-		match self.place(path) {
+		let fresh = self.arena.len();
+		match self.place(path, true) {
 			Some(node) => {
-				if heads_block(&self.arena[node]) {
-					self.comment_out_head(node, path);
+				// place() has already done it for a field it created.
+				if node < fresh && self.kept_owed > 0 {
+					let (parent, name) = (self.arena[node].parent, self.arena[node].name.clone());
+					self.comment_out_kept(parent, &name, path, false);
 				}
 				self.arena[node].value = value;
 				self.arena[node].src = None; // written value has no source spelling
@@ -8641,35 +8719,153 @@ impl Document {
 		}
 	}
 
-	/// A setter on a field a kept line opened writes that line as a comment,
-	/// with a note giving why and when, so the file is left with one line
-	/// for the field (design.md, Kept lines under edits). The line is a
-	/// comment from here on, as a reload reads it, so it is no longer owed.
-	fn comment_out_head(&mut self, node: usize, path: &str) {
-		let Some(l) = self.arena[node].triv_mut().leading.last_mut() else {
-			return;
-		};
-		// A line refused for its value alone never takes a raw body, but one
-		// that did could not be commented out as one line.
-		if l.text.contains('\n') {
-			return;
+	/// A setter writing a field writes every kept line of its name in the
+	/// block as a comment with a note, the one heading the field included,
+	/// so a hand fix of one later never gives Multiple (design.md, Kept lines
+	/// under edits). Each is no longer owed. With `anchor`, the first one is
+	/// where a new field goes, and is returned, and the kept lines under it
+	/// go under that field. Any other with a kept line under it stays, since
+	/// as a comment it would leave that line under the field above.
+	fn comment_out_kept(
+		&mut self,
+		parent: usize,
+		name: &str,
+		path: &str,
+		anchor: bool,
+	) -> Option<(Site, usize, usize)> {
+		if self.kept_owed == 0 {
+			return None;
 		}
-		let mut tok = Tokens::default();
-		tokenize(&l.text, b':', false, Rules::Current, &mut tok);
-		let Some((code, msg)) = line_fault(&tok, &l.text) else {
-			return;
+		let mut first = None;
+		for (site, owner, k, code, msg) in self.kept_named(parent, name) {
+			let leads = self.leads_mut(site, owner);
+			let under = &leads[k + 1..][..run_under(leads, k)];
+			// A misplaced line under it is filed by its own text, so it
+			// cannot move with it either.
+			if under.iter().any(|l| l.text.starts_with([' ', '\t'])) {
+				continue;
+			}
+			if anchor && first.is_none() {
+				first = Some((site, owner, k));
+			} else if under.iter().any(|l| !l.text.starts_with('#')) {
+				continue;
+			}
+			note_lead(&mut leads[k], path, code, &msg);
+			self.kept_owed = self.kept_owed.saturating_sub(1);
+		}
+		first
+	}
+
+	/// The kept lines naming just `name` in the block under `parent`, in the
+	/// order they are written, each with the fault the load gave it.
+	fn kept_named(
+		&self,
+		parent: usize,
+		name: &str,
+	) -> Vec<(Site, usize, usize, &'static str, String)> {
+		let mut out = Vec::new();
+		let mut scan = |site: Site, owner: usize, leads: &[Lead]| {
+			for (k, l) in leads.iter().enumerate() {
+				if let Some((code, msg)) = kept_naming(l, name) {
+					out.push((site, owner, k, code, msg));
+				}
+			}
 		};
-		// The reason, without the advice after it.
-		let why = msg.split(';').next().unwrap_or_default();
-		l.text = format!(
-			"{}  ## commented out by shcl when setting {}, {}: {code} {why}",
-			commented(&l.text),
-			note_text(path),
-			note_stamp()
-		);
-		l.line = 0;
-		l.kept = false;
-		self.kept_owed = self.kept_owed.saturating_sub(1);
+		for &c in &self.arena[parent].children {
+			scan(Site::Leading, c, self.arena[c].leading());
+			scan(Site::After, c, self.arena[c].after());
+		}
+		scan(Site::Inside, parent, self.arena[parent].inside());
+		if parent == ROOT {
+			scan(Site::Orphans, ROOT, &self.orphans);
+		}
+		out
+	}
+
+	fn leads_mut(&mut self, site: Site, owner: usize) -> &mut Vec<Lead> {
+		if site == Site::Orphans {
+			return &mut self.orphans;
+		}
+		let t = self.arena[owner].triv_mut();
+		match site {
+			Site::Leading => &mut t.leading,
+			Site::Inside => &mut t.inside,
+			_ => &mut t.after,
+		}
+	}
+
+	/// A new field right under the kept line at `at`, which a setter just
+	/// wrote as a comment. The lines written under that line go under the
+	/// field, where a reload files them.
+	fn new_child_under(
+		&mut self,
+		parent: usize,
+		name: &str,
+		name_src: &str,
+		value: Value,
+		at: (Site, usize, usize),
+	) -> usize {
+		if stacks(&self.arena[parent]) {
+			unstack(&mut self.arena[parent]);
+		}
+		let (site, owner, k) = at;
+		let leads = self.leads_mut(site, owner);
+		let mut line = leads.split_off(k);
+		let mut rest = line.split_off(1 + run_under(&line, 0));
+		let mut under = line.split_off(1);
+		for l in &mut under {
+			l.depth = l.depth.saturating_sub(1);
+		}
+		restep(&mut under);
+		// Above the field, what was written before the line. After a sibling,
+		// that stays with the sibling and the settle below moves it.
+		let (leading, after) = if site == Site::After {
+			(line, rest)
+		} else {
+			let mut above = std::mem::take(leads);
+			above.append(&mut line);
+			if site == Site::Leading {
+				restep(&mut rest);
+			}
+			*leads = rest;
+			(above, Vec::new())
+		};
+		let kids = &self.arena[parent].children;
+		let pos = match site {
+			Site::Leading => kids.iter().position(|&c| c == owner).unwrap_or(kids.len()),
+			Site::After => kids
+				.iter()
+				.position(|&c| c == owner)
+				.map_or(kids.len(), |p| p + 1),
+			_ => kids.len(),
+		};
+		let idx = self.arena.len();
+		self.arena.push(NodeData {
+			name: name.to_string(),
+			name_src: spelled(name, name_src.to_string()),
+			value,
+			children: Vec::new(),
+			parent,
+			line: 0,
+			star_list: false,
+			star_mixed: false,
+			trivia: Some(Box::new(Trivia {
+				leading,
+				after,
+				inside: under,
+				..Default::default()
+			})),
+			blank_before: false,
+			src_set: false,
+			src: None,
+		});
+		self.arena[parent].children.insert(pos, idx);
+		// No other field of this name, so the index order holds.
+		if let Some(ix) = self.index.get_mut() {
+			ix.append(name_key(parent, name), idx);
+		}
+		settle_block(&mut self.arena, parent, pos);
+		idx
 	}
 
 	/// A written value may now collide with a same-named sibling under the
@@ -8981,7 +9177,7 @@ impl Document {
 		let Some(c) = comment_line(text) else {
 			return false;
 		};
-		match self.place(path) {
+		match self.place(path, false) {
 			Some(node) => {
 				// The node's own blank moves above its first comment; otherwise
 				// the blank would separate the comment from what it annotates.
@@ -13506,6 +13702,107 @@ mod kept_gate {
 			assert!(doc.set_int(path, 5));
 			assert_eq!(doc.to_canonical(), want);
 		}
+	}
+
+	// A setter writing `a` writes every kept line named `a` in that block as
+	// the noted comment, and a field it creates goes right under the first
+	// of them, so a later hand fix never gives Multiple (2026100307163907).
+	#[test]
+	fn a_setter_comments_out_every_kept_line_of_its_name() {
+		let _id = test_id("ErmXhmZ");
+		let note = |path: &str| {
+			format!(
+				"  ## commented out by shcl when setting {path}, STAMP: E019 bracket array syntax"
+			)
+		};
+		let (na, noa, nac) = (note("a"), note("o.a"), note("a.c"));
+		for (text, path, want, count) in [
+			// No loaded `a`: the new line goes under the first comment.
+			(
+				"a: [1]\ny: 3\n",
+				"a",
+				format!("# a: [1]{na}\na: 5\ny: 3\n"),
+				1,
+			),
+			(
+				"x: 1\na: [1]\ny: 3\na: [2]\n",
+				"a",
+				format!("x: 1\n# a: [1]{na}\na: 5\ny: 3\n# a: [2]{na}\n"),
+				1,
+			),
+			// What was under the line goes under the new one.
+			(
+				"a: [1]\n\t# under\n\tb: [2]\ny: 3\n",
+				"a",
+				format!("# a: [1]{na}\na: 5\n\t# under\n\tb: [2]\ny: 3\n"),
+				1,
+			),
+			// At the end of a block.
+			(
+				"o:\n\tx: 1\n\ta: [1]\n",
+				"o.a",
+				format!("o:\n\tx: 1\n\t# a: [1]{noa}\n\ta: 5\n"),
+				1,
+			),
+			// A field made on the way writes its line too.
+			(
+				"a: [1]\ny: 3\n",
+				"a.c",
+				format!("# a: [1]{nac}\na:\n\tc: 5\ny: 3\n"),
+				1,
+			),
+			// A loaded `a` changes in place.
+			(
+				"a: 1\nb: [1]\na: [2]\n",
+				"a",
+				format!("a: 5\nb: [1]\n# a: [2]{na}\n"),
+				1,
+			),
+			// Two valid lines stay as they are, and so does a kept line with
+			// a kept line under it, which as a comment would leave that line
+			// under the field above.
+			("a: 1\na: 2\n", "a", "a: 5\na: 2\n".to_string(), 2),
+			(
+				"a: 1\na: [2]\n\tc: [3]\n",
+				"a",
+				"a: 5\na: [2]\n\tc: [3]\n".to_string(),
+				1,
+			),
+		] {
+			let mut doc = Document::parse_keep_lines(text, Strictness::Standard)
+				.unwrap_or_else(|e| e.document);
+			assert!(doc.set_int(path, 5), "{text:?}");
+			assert_eq!(doc.lost_count(), 0, "{text:?}");
+			let out = doc.to_canonical();
+			assert_eq!(unstamp(&out), want, "{text:?}");
+			let back = Document::parse(&out);
+			assert_eq!(back.count(path), count, "{out:?}");
+			assert_eq!(back.to_canonical(), out);
+			assert_eq!(doc.to_text_keep_lines(), (out.clone(), true));
+		}
+		// set_comment makes the field without touching the line.
+		let mut doc = Document::parse("a: [1]\ny: 3\n");
+		assert!(doc.set_comment("a", "n"));
+		assert_eq!(doc.to_canonical(), "a: [1]\ny: 3\n\n# n\na:\n");
+	}
+
+	/// Each note's stamp, checked, as STAMP.
+	fn unstamp(text: &str) -> String {
+		let mut out = String::new();
+		for line in text.split_inclusive('\n') {
+			let Some((head, tail)) = line.split_once("## commented out by shcl when setting ")
+			else {
+				out.push_str(line);
+				continue;
+			};
+			let (path, rest) = tail.split_once(", ").unwrap_or_default();
+			let (stamp, why) = rest.split_once(": ").unwrap_or_default();
+			assert!(is_stamp(stamp), "{line:?}");
+			out.push_str(&format!(
+				"{head}## commented out by shcl when setting {path}, STAMP: {why}"
+			));
+		}
+		out
 	}
 
 	fn is_stamp(s: &str) -> bool {

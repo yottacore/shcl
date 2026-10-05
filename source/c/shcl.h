@@ -5694,10 +5694,14 @@ static shcl_write_reason w_write_reason(shcl_doc *d, ShclArena *a, ShclStr path)
 	return w_probe_write(d, a, &ps, NULL);
 }
 
+static size_t w_set_child(shcl_doc *d, size_t parent, ShclStr name, ShclStr name_src, ShclValue value, ShclStr path);
+
 // Walk (creating as needed) to the node a write targets. Returns 1 + *out, or 0
 // if the path is unusable for a write (w_write_reason says why). Validation
-// runs first, so a doomed path leaves no half-created intermediates behind.
-static int w_place(shcl_doc *d, ShclStr path, size_t *out) {
+// runs first, so a doomed path leaves no half-created intermediates behind. A
+// setter creating a field deals with the kept lines of its name, as
+// w_set_child says.
+static int w_place(shcl_doc *d, ShclStr path, int setter, size_t *out) {
 	ShclArena *a = &d->arena;
 	// The probe, the scan, and the compare strings are dead once this returns,
 	// so they go through scratch (reset like resolve's; no resolve runs in
@@ -5726,11 +5730,13 @@ static int w_place(shcl_doc *d, ShclStr path, size_t *out) {
 		/* The probe already resolved every segment that exists; only the tail
 		   it fell off has anything to create. */
 		if (trail[i] != (size_t)-1) { cur = trail[i]; continue; }
-		if (seg->sel.tag == SEL_NONE) cur = w_new_child(d, cur, seg->name, seg->name_src, v_empty());
-		else if (seg->sel.tag == SEL_VALUE) cur = w_new_child(d, cur, seg->name, seg->name_src, w_cell1(a, s_dup(a, seg->sel.value)));
+		ShclValue v;
+		if (seg->sel.tag == SEL_NONE) v = v_empty();
+		else if (seg->sel.tag == SEL_VALUE) v = w_cell1(a, s_dup(a, seg->sel.value));
 		/* Unreachable: w_probe_write refuses a wildcard outright and an
 		   unresolvable index, so neither reaches an empty trail slot. */
 		else return 0;
+		cur = setter ? w_set_child(d, cur, seg->name, seg->name_src, v, path) : w_new_child(d, cur, seg->name, seg->name_src, v);
 	}
 	*out = cur; return 1;
 }
@@ -5839,14 +5845,19 @@ static void w_collapse_dup(shcl_doc *d, size_t node) {
    mark. The mark is taken by the caller, before it encodes. A value refused
    by its read-back is checked in scratch, and nothing resets scratch after a
    refusal, so it goes back here. */
-static int heads_block(ShclArena *a, const ShclNode *node);
-static void comment_out_head(shcl_doc *d, size_t idx, ShclStr path);
+/* Which trivia list a line sits in. */
+typedef enum { SITE_LEADING, SITE_INSIDE, SITE_AFTER, SITE_AMONG, SITE_ORPHANS } ShclSite;
+/* Where a lead sits: its list, the node that list is on, and its place in it. */
+typedef struct { ShclSite site; size_t owner, k; } ShclKeptAt;
+static int comment_out_kept(shcl_doc *d, size_t parent, ShclStr name, ShclStr path, int anchor, ShclKeptAt *first);
 static int w_set_marked(shcl_doc *d, ShclStr path, ShclValue v, ShclMark m) {
 	size_t idx;
 	if (!value_reads_back(&d->scratch, &v)) { arena_release(&d->arena, m); arena_reset(&d->scratch); return 0; }
 	if (d->probe) { arena_release(&d->arena, m); arena_reset_smallest(&d->scratch); return 1; }
-	if (!w_place(d, path, &idx)) { arena_release(&d->arena, m); return 0; }
-	if (heads_block(&d->scratch, &NODE(d, idx))) comment_out_head(d, idx, path);
+	size_t fresh = d->nodes.len;
+	if (!w_place(d, path, 1, &idx)) { arena_release(&d->arena, m); return 0; }
+	/* w_place has already done it for a field it created. */
+	if (idx < fresh && d->kept_owed > 0) comment_out_kept(d, NODE(d, idx).parent, NODE(d, idx).name, path, 0, NULL);
 	NODE(d, idx).value = v;
 	/* No longer the list the lines among its elements sat in. */
 	unstack(d, &NODE(d, idx));
@@ -6097,7 +6108,7 @@ int shcl_set_comment(shcl_doc *d, const char *path, size_t plen, const char *tex
 	   in; a refused place gives the copy straight back. */
 	ShclMark m = arena_mark(a);
 	ShclStr out = s_dup(a, line);
-	if (!w_place(d, p, &idx)) { arena_release(a, m); return 0; }
+	if (!w_place(d, p, 0, &idx)) { arena_release(a, m); return 0; }
 	/* The node's own blank moves above its first comment; otherwise the blank
 	   would separate the comment from what it annotates. Above the first one
 	   already there, when there is one. */
@@ -7279,8 +7290,6 @@ static int comment_line(ShclArena *a, ShclStr text, ShclStr *out) {
 static void emit_trailing(ShclArena *a, ShclSB *out, ShclStr trailing) {
 	if (trailing.n) { sb_puts(a, out, "  "); sb_putS(a, out, trailing); }
 }
-/* Which trivia list a line sits in. */
-typedef enum { SITE_LEADING, SITE_INSIDE, SITE_AFTER, SITE_AMONG, SITE_ORPHANS } ShclSite;
 typedef struct { size_t node; ShclSite site; size_t i; size_t depth; } ShclFell;
 DEFINE_VEC(ShclVecFell, ShclFell)
 
@@ -7501,22 +7510,26 @@ static void note_stamp(ShclArena *a, ShclSB *b) {
 	sb_puts(a, b, when); sb_putc(a, b, ' '); sb_puts(a, b, label);
 }
 
-/* A setter on a field a kept line opened writes that line as a comment, with
-   a note giving why and when, so the file is left with one line for the
-   field (design.md, Kept lines under edits). The line is a comment from here
-   on, as a reload reads it, so it is no longer owed. */
-static void comment_out_head(shcl_doc *d, size_t idx, ShclStr path) {
-	ShclTrivia *t = triv_mut(&d->arena, &NODE(d, idx));
-	if (t->leading.len == 0) return;
-	ShclLead *l = &t->leading.data[t->leading.len - 1];
-	/* A line refused for its value alone never takes a raw body, but one that
-	   did could not be commented out as one line. */
-	if (l->text.n && memchr(l->text.p, '\n', l->text.n)) return;
+/* The code the load gave a kept line that names just `name`, at the level of
+   the block it sits in, with its message in *msg; NULL for any other line. A
+   field line refused for its value alone is one a reload would read as
+   another `name` once fixed by hand. A line with a raw body could not be
+   commented out as one line. */
+static const char *kept_naming(ShclArena *a, const ShclLead *l, ShclStr name, ShclStr *msg) {
+	char c = l->text.n ? l->text.p[0] : 0;
+	if (l->depth != 0 || c == '#' || c == '*' || c == ' ' || c == '\t' || (l->text.n && memchr(l->text.p, '\n', l->text.n))) return NULL;
 	ShclTokens tok; memset(&tok, 0, sizeof tok);
-	tokenize(&d->scratch, l->text, ':', 0, SHCL_RULES_CURRENT, &tok);
-	ShclStr msg;
-	const char *code = line_fault(&d->scratch, &tok, l->text, &msg);
-	if (!code) return;
+	tokenize(a, l->text, ':', 0, SHCL_RULES_CURRENT, &tok);
+	ShclPathScan scan = path_of(a, &tok, l->text);
+	if (!scan.ok || scan.segs.len != 1 || scan.segs.data[0].sel.tag != SEL_NONE || !s_eq(scan.segs.data[0].name, name)) return NULL;
+	uint32_t esc;
+	if (bad_escape(&tok, l->text, 0, &esc)) return NULL;
+	return line_fault(a, &tok, l->text, msg);
+}
+
+/* A kept line a setter writes as a comment, with the note giving why and
+   when. It is a plain comment from here on, as a reload reads it. */
+static void note_lead(shcl_doc *d, ShclLead *l, ShclStr path, const char *code, ShclStr msg) {
 	/* The reason, without the advice after it. */
 	const char *semi = msg.n ? (const char *)memchr(msg.p, ';', msg.n) : NULL;
 	ShclStr why = semi ? s_slice(msg, 0, (size_t)(semi - msg.p)) : msg;
@@ -7531,7 +7544,145 @@ static void comment_out_head(shcl_doc *d, size_t idx, ShclStr path) {
 	l->text = sb_S(&b);
 	l->line = 0;
 	l->kept = 0;
-	if (d->kept_owed > 0) d->kept_owed--;
+}
+
+/* How many lines after v->data[k] are written under it: each line deeper than
+   it up to the next field line that is not, with the comments and misplaced
+   lines among them, since neither ends the lines it holds open. */
+static size_t run_under(const ShclVecLead *v, size_t k) {
+	size_t depth = v->data[k].depth, last = k;
+	for (size_t i = k + 1; i < v->len; i++) {
+		char c = v->data[i].text.n ? v->data[i].text.p[0] : 0;
+		/* A misplaced line is at depth 0, whatever its own indent. */
+		if (v->data[i].depth > depth) last = i;
+		else if (c != '#' && c != ' ' && c != '\t') break;
+	}
+	return last - k;
+}
+
+static ShclVecLead *leads_mut(shcl_doc *d, ShclSite site, size_t owner) {
+	if (site == SITE_ORPHANS) return &d->orphans;
+	ShclTrivia *t = triv_mut(&d->arena, &NODE(d, owner));
+	return site == SITE_LEADING ? &t->leading : site == SITE_INSIDE ? &t->inside : &t->after;
+}
+
+typedef struct { ShclKeptAt at; const char *code; ShclStr msg; } ShclKeptName;
+DEFINE_VEC(ShclVecKeptName, ShclKeptName)
+
+static void kept_named_in(shcl_doc *d, ShclVecKeptName *out, ShclSite site, size_t owner, ShclVecLead leads, ShclStr name) {
+	for (size_t k = 0; k < leads.len; k++) {
+		ShclKeptName kn;
+		kn.code = kept_naming(&d->scratch, &leads.data[k], name, &kn.msg);
+		if (!kn.code) continue;
+		kn.at.site = site; kn.at.owner = owner; kn.at.k = k;
+		ShclVecKeptName_push(&d->scratch, out, kn);
+	}
+}
+
+/* The kept lines naming just `name` in the block under parent, in the order
+   they are written, each with the fault the load gave it. */
+static void kept_named(shcl_doc *d, size_t parent, ShclStr name, ShclVecKeptName *out) {
+	for (size_t i = 0; i < NODE(d, parent).children.len; i++) {
+		size_t c = NODE(d, parent).children.data[i];
+		kept_named_in(d, out, SITE_LEADING, c, triv_leading(&NODE(d, c)), name);
+		kept_named_in(d, out, SITE_AFTER, c, triv_after(&NODE(d, c)), name);
+	}
+	kept_named_in(d, out, SITE_INSIDE, parent, triv_inside(&NODE(d, parent)), name);
+	if (parent == ROOT) kept_named_in(d, out, SITE_ORPHANS, ROOT, d->orphans, name);
+}
+
+/* A setter writing a field writes every kept line of its name in the block as
+   a comment with a note, the one heading the field included, so a hand fix of
+   one later never gives Multiple (design.md, Kept lines under edits). Each is
+   no longer owed. With anchor, the first one is where a new field goes, put
+   in *first, and the kept lines under it go under that field. Any other with
+   a kept line under it stays, since as a comment it would leave that line
+   under the field above. */
+static int comment_out_kept(shcl_doc *d, size_t parent, ShclStr name, ShclStr path, int anchor, ShclKeptAt *first) {
+	int found = 0;
+	if (d->kept_owed == 0) return 0;
+	ShclVecKeptName names; memset(&names, 0, sizeof names);
+	kept_named(d, parent, name, &names);
+	for (size_t i = 0; i < names.len; i++) {
+		ShclKeptName *kn = &names.data[i];
+		ShclVecLead *leads = leads_mut(d, kn->at.site, kn->at.owner);
+		size_t k = kn->at.k, end = k + 1 + run_under(leads, k);
+		int misplaced = 0, fields = 0;
+		for (size_t j = k + 1; j < end; j++) {
+			ShclStr t = leads->data[j].text;
+			if (t.n && (t.p[0] == ' ' || t.p[0] == '\t')) misplaced = 1;
+			else if (!(t.n && t.p[0] == '#')) fields = 1;
+		}
+		/* A misplaced line under it is filed by its own text, so it cannot
+		   move with it either. */
+		if (misplaced) continue;
+		if (anchor && !found) { *first = kn->at; found = 1; }
+		else if (fields) continue;
+		note_lead(d, &leads->data[k], path, kn->code, kn->msg);
+		if (d->kept_owed > 0) d->kept_owed--;
+	}
+	return found;
+}
+
+/* A new field right under the kept line at `at`, which a setter just wrote as
+   a comment. The lines written under that line go under the field, where a
+   reload files them. */
+static size_t w_new_child_under(shcl_doc *d, size_t parent, ShclStr name, ShclStr name_src, ShclValue value, ShclKeptAt at) {
+	if (stacks(&NODE(d, parent))) unstack(d, &NODE(d, parent));
+	ShclArena *a = &d->arena;
+	ShclVecLead *leads = leads_mut(d, at.site, at.owner);
+	size_t k = at.k, end = k + 1 + run_under(leads, k);
+	ShclVecLead leading, under, after, rest;
+	memset(&leading, 0, sizeof leading); memset(&under, 0, sizeof under);
+	memset(&after, 0, sizeof after); memset(&rest, 0, sizeof rest);
+	for (size_t j = k + 1; j < end; j++) {
+		ShclLead l = leads->data[j];
+		if (l.depth > 0) l.depth--;
+		ShclVecLead_push(a, &under, l);
+	}
+	restep(&under);
+	for (size_t j = end; j < leads->len; j++) ShclVecLead_push(a, &rest, leads->data[j]);
+	/* Above the field, what was written before the line. After a sibling, that
+	   stays with the sibling and the settle below moves it. */
+	if (at.site == SITE_AFTER) {
+		ShclVecLead_push(a, &leading, leads->data[k]);
+		leads->len = k;
+		after = rest;
+	} else {
+		for (size_t j = 0; j <= k; j++) ShclVecLead_push(a, &leading, leads->data[j]);
+		if (at.site == SITE_LEADING) restep(&rest);
+		*leads = rest;
+	}
+	ShclVecSize *kids = &NODE(d, parent).children;
+	size_t pos = kids->len;
+	if (at.site == SITE_LEADING || at.site == SITE_AFTER)
+		for (size_t j = 0; j < kids->len; j++)
+			if (kids->data[j] == at.owner) { pos = at.site == SITE_AFTER ? j + 1 : j; break; }
+	size_t idx = d->nodes.len;
+	ShclNode n; memset(&n, 0, sizeof n);
+	n.name = s_dup(a, name); n.name_src = spelled(a, name, name_src); n.value = value; n.parent = parent;
+	nodes_push(d, n);
+	ShclTrivia *t = triv_mut(a, &NODE(d, idx));
+	t->leading = leading; t->after = after; t->inside = under;
+	kids = &NODE(d, parent).children;
+	ShclVecSize_push(a, kids, idx);
+	memmove(kids->data + pos + 1, kids->data + pos, (kids->len - 1 - pos) * sizeof *kids->data);
+	kids->data[pos] = idx;
+	/* No other field of this name, so the index order holds. */
+	if (d->index_built == 1) index_append(d, name_key(parent, name), idx);
+	settle_block(d, parent, pos);
+	return idx;
+}
+
+/* A setter creating a field writes the kept lines of its name in the block as
+   comments, and with no other field of that name the new one goes right under
+   the first of them (design.md, Kept lines under edits). */
+static size_t w_set_child(shcl_doc *d, size_t parent, ShclStr name, ShclStr name_src, ShclValue value, ShclStr path) {
+	ShclVecSize same = {0};
+	children_named(d, &d->scratch, parent, name, &same);
+	ShclKeptAt at;
+	if (comment_out_kept(d, parent, name, path, same.len == 0, &at)) return w_new_child_under(d, parent, name, name_src, value, at);
+	return w_new_child(d, parent, name, name_src, value);
 }
 
 /* A kept line, and the raw body and fence it took, if any, which go one level

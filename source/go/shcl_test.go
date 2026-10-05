@@ -3204,6 +3204,63 @@ func TestASetterCommentsOutTheKeptLineHeadingItsTarget(t *testing.T) {
 	}
 }
 
+// A setter writing `a` writes every kept line named `a` in that block as the
+// noted comment, and a field it creates goes right under the first of them,
+// so a later hand fix never gives Multiple (2026100307163907).
+func TestASetterCommentsOutEveryKeptLineOfItsName(t *testing.T) {
+	defer testID(t, "ErmXhpm")
+	t.Setenv("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT")
+	note := func(path string) string {
+		return "  ## commented out by shcl when setting " + path + ", 2026-10-04 00:15:00 PDT: E019 bracket array syntax"
+	}
+	na, noa, nac := note("a"), note("o.a"), note("a.c")
+	for _, c := range []struct {
+		text, path, want string
+		count            int
+	}{
+		// No loaded `a`: the new line goes under the first comment.
+		{"a: [1]\ny: 3\n", "a", "# a: [1]" + na + "\na: 5\ny: 3\n", 1},
+		{"x: 1\na: [1]\ny: 3\na: [2]\n", "a", "x: 1\n# a: [1]" + na + "\na: 5\ny: 3\n# a: [2]" + na + "\n", 1},
+		// What was under the line goes under the new one.
+		{"a: [1]\n\t# under\n\tb: [2]\ny: 3\n", "a", "# a: [1]" + na + "\na: 5\n\t# under\n\tb: [2]\ny: 3\n", 1},
+		// At the end of a block.
+		{"o:\n\tx: 1\n\ta: [1]\n", "o.a", "o:\n\tx: 1\n\t# a: [1]" + noa + "\n\ta: 5\n", 1},
+		// A field made on the way writes its line too.
+		{"a: [1]\ny: 3\n", "a.c", "# a: [1]" + nac + "\na:\n\tc: 5\ny: 3\n", 1},
+		// A loaded `a` changes in place.
+		{"a: 1\nb: [1]\na: [2]\n", "a", "a: 5\nb: [1]\n# a: [2]" + na + "\n", 1},
+		// Two valid lines stay as they are, and so does a kept line with a
+		// kept line under it, which as a comment would leave that line under
+		// the field above.
+		{"a: 1\na: 2\n", "a", "a: 5\na: 2\n", 2},
+		{"a: 1\na: [2]\n\tc: [3]\n", "a", "a: 5\na: [2]\n\tc: [3]\n", 1},
+	} {
+		doc, _ := ParseKeepLines(c.text, Standard)
+		if !doc.SetInt(c.path, 5) {
+			t.Fatalf("%q: SetInt refused", c.text)
+		}
+		if n := doc.LostCount(); n != 0 {
+			t.Fatalf("%q: LostCount %d", c.text, n)
+		}
+		out := doc.ToCanonical()
+		if out != c.want {
+			t.Fatalf("%q wrote\n%q\nwant\n%q", c.text, out, c.want)
+		}
+		back := Parse(out)
+		if back.Count(c.path) != c.count || back.ToCanonical() != out {
+			t.Fatalf("%q: reload of %q differs", c.text, out)
+		}
+		if keep, kept := doc.ToTextKeepLines(); keep != out || !kept {
+			t.Fatalf("%q: keep save %q %v", c.text, keep, kept)
+		}
+	}
+	// SetComment makes the field without touching the line.
+	doc := Parse("a: [1]\ny: 3\n")
+	if !doc.SetComment("a", "n") || doc.ToCanonical() != "a: [1]\ny: 3\n\n# n\na:\n" {
+		t.Fatalf("SetComment wrote %q", doc.ToCanonical())
+	}
+}
+
 // The zone's short name, else its offset; and the test clock's form.
 func TestANoteNamesTheZoneOrItsOffset(t *testing.T) {
 	defer testID(t, "Erlf14o")

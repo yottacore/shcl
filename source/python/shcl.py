@@ -3880,6 +3880,52 @@ def _note_text(s):
 	return s.replace("\n", "\\n").replace("\r", "\\r")
 
 
+def _kept_naming(lead, name):
+	"""The code and message the load gave a kept line that names just `name`,
+	at the level of the block it sits in: a field line refused for its value
+	alone, which a reload would read as another `name` once fixed by hand. A
+	line with a raw body could not be commented out as one line."""
+	if lead.depth != 0 or lead.text.startswith(("#", "*", " ", "\t")) or "\n" in lead.text:
+		return None
+	tok = Tokens()
+	tokenize(lead.text, ":", False, Rules.CURRENT, tok)
+	try:
+		segments, _ = _path_of(tok, tok.src)
+	except _PathError:
+		return None
+	if len(segments) != 1 or segments[0].selector is not None or segments[0].name != name:
+		return None
+	if _bad_escape(tok, False) is not None:
+		return None
+	return _line_fault(tok)
+
+
+def _note_lead(lead, path, code, msg):
+	"""A kept line a setter writes as a comment, with the note giving why and
+	when. It is a plain comment from here on, as a reload reads it."""
+	# The reason, without the advice after it.
+	why = msg.split(";", 1)[0]
+	lead.text = f"{_commented(lead.text)}  ## commented out by shcl when setting {_note_text(path)}, {_note_stamp()}: {code} {why}"
+	lead.line = 0
+	lead.kept = False
+
+
+def _run_under(leads, k):
+	"""How many lines after leads[k] are written under it: each line deeper
+	than it up to the next field line that is not, with the comments and
+	misplaced lines among them, since neither ends the lines it holds open."""
+	depth = leads[k].depth
+	last = k
+	for i in range(k + 1, len(leads)):
+		lead = leads[i]
+		# A misplaced line is at depth 0, whatever its own indent.
+		if lead.depth > depth:
+			last = i
+		elif not lead.text.startswith(("#", " ", "\t")):
+			break
+	return last - k
+
+
 def _note_stamp():
 	"""Local time to the second, with the zone, for a setter's note on a line
 	it commented out. SHCL_TEST_CLOCK stands in for the system clock and zone,
@@ -5607,13 +5653,14 @@ class Document:
 				trail.append(probe)
 		return (WriteReason.Writable, trail)
 
-	def _place(self, path):
+	def _place(self, path, setter):
 		"""Walk (creating as needed) to the node a write targets. A trailing
 		name with no selector hits the first same-named instance (or a new one);
 		a `[value]` selector selects the matching instance or creates it; `[#k]`
 		must already exist. None = path unusable for a write (write_reason()
 		says why). Validation runs first, so a doomed path leaves no
-		half-created intermediates behind."""
+		half-created intermediates behind. A setter creating a field deals
+		with the kept lines of its name, as _set_child() says."""
 		try:
 			segments, value_text = _scan_lookup(path)
 		except _PathError:
@@ -5641,25 +5688,42 @@ class Document:
 				continue
 			sel = seg.selector
 			if sel is None:
-				cur = self._new_child(cur, seg.name, seg.name_src, _empty())
+				value = _empty()
 			elif sel[0] == "val":
-				cur = self._new_child(cur, seg.name, seg.name_src, _cell_of(sel[1]))
+				value = _cell_of(sel[1])
 			else:
 				# Unreachable: _probe_write refuses a wildcard outright and an
 				# unresolvable index, so neither reaches an empty trail slot.
 				return None
+			if setter:
+				cur = self._set_child(cur, seg.name, seg.name_src, value, path)
+			else:
+				cur = self._new_child(cur, seg.name, seg.name_src, value)
 		return cur
+
+	def _set_child(self, parent, name, name_src, value, path):
+		"""A setter creating a field writes the kept lines of its name in the
+		block as comments, and with no other field of that name the new one
+		goes right under the first of them (design.md, Kept lines under
+		edits)."""
+		alone = not self._children_named(parent, name)
+		at = self._comment_out_kept(parent, name, path, alone)
+		if at is not None:
+			return self._new_child_under(parent, name, name_src, value, at)
+		return self._new_child(parent, name, name_src, value)
 
 	def _set_value(self, path: str, value) -> bool:
 		if not _value_reads_back(value):
 			return False
 		if self._probe:
 			return True
-		idx = self._place(path)
+		fresh = len(self.arena)
+		idx = self._place(path, True)
 		if idx is None:
 			return False
-		if _heads_block(self.arena[idx]):
-			self._comment_out_head(idx, path)
+		# _place() has already done it for a field it created.
+		if idx < fresh and self._kept_owed > 0:
+			self._comment_out_kept(self.arena[idx].parent, self.arena[idx].name, path, False)
 		self.arena[idx].value = value
 		self.arena[idx].src = None   # written value has no source spelling
 		# No longer the list the lines among its elements sat in.
@@ -5675,32 +5739,97 @@ class Document:
 		self._resettle_kept()
 		return True
 
-	def _comment_out_head(self, idx, path):
-		# A setter on a field a kept line opened writes that line as a
-		# comment, with a note giving why and when, so the file is left with
-		# one line for the field (design.md, Kept lines under edits). The line
-		# is a comment from here on, as a reload reads it, so it is no longer
-		# owed.
-		leading = self.arena[idx]._triv().leading
-		if not leading:
-			return
-		lead = leading[-1]
-		# A line refused for its value alone never takes a raw body, but one
-		# that did could not be commented out as one line.
-		if "\n" in lead.text:
-			return
-		tok = Tokens()
-		tokenize(lead.text, ":", False, Rules.CURRENT, tok)
-		fault = _line_fault(tok)
-		if fault is None:
-			return
-		code, msg = fault
-		# The reason, without the advice after it.
-		why = msg.split(";", 1)[0]
-		lead.text = f"{_commented(lead.text)}  ## commented out by shcl when setting {_note_text(path)}, {_note_stamp()}: {code} {why}"
-		lead.line = 0
-		lead.kept = False
-		self._kept_owed = max(self._kept_owed - 1, 0)
+	def _comment_out_kept(self, parent, name, path, anchor):
+		"""A setter writing a field writes every kept line of its name in the
+		block as a comment with a note, the one heading the field included, so
+		a hand fix of one later never gives Multiple (design.md, Kept lines
+		under edits). Each is no longer owed. With `anchor`, the first one is
+		where a new field goes, and is returned, and the kept lines under it go
+		under that field. Any other with a kept line under it stays, since as a
+		comment it would leave that line under the field above."""
+		if self._kept_owed == 0:
+			return None
+		first = None
+		for site, owner, k, code, msg in self._kept_named(parent, name):
+			leads = self._leads_mut(site, owner)
+			under = leads[k + 1:k + 1 + _run_under(leads, k)]
+			# A misplaced line under it is filed by its own text, so it cannot
+			# move with it either.
+			if any(lead.text.startswith((" ", "\t")) for lead in under):
+				continue
+			if anchor and first is None:
+				first = (site, owner, k)
+			elif any(not lead.text.startswith("#") for lead in under):
+				continue
+			_note_lead(leads[k], path, code, msg)
+			self._kept_owed = max(self._kept_owed - 1, 0)
+		return first
+
+	def _kept_named(self, parent, name):
+		"""The kept lines naming just `name` in the block under `parent`, in
+		the order they are written, each with the fault the load gave it."""
+		out = []
+
+		def scan(site, owner, leads):
+			for k, lead in enumerate(leads):
+				fault = _kept_naming(lead, name)
+				if fault is not None:
+					out.append((site, owner, k, fault[0], fault[1]))
+
+		for c in self.arena[parent].children:
+			scan("leading", c, self.arena[c].leading())
+			scan("after", c, self.arena[c].after())
+		scan("inside", parent, self.arena[parent].inside())
+		if parent == ROOT:
+			scan("orphans", ROOT, self.orphans)
+		return out
+
+	def _leads_mut(self, site, owner):
+		if site == "orphans":
+			return self.orphans
+		t = self.arena[owner]._triv()
+		return t.leading if site == "leading" else t.inside if site == "inside" else t.after
+
+	def _new_child_under(self, parent, name, name_src, value, at):
+		"""A new field right under the kept line at `at`, which a setter just
+		wrote as a comment. The lines written under that line go under the
+		field, where a reload files them."""
+		if _stacks(self.arena[parent]):
+			_unstack(self.arena[parent])
+		site, owner, k = at
+		leads = self._leads_mut(site, owner)
+		end = k + 1 + _run_under(leads, k)
+		head, line, under, rest = leads[:k], [leads[k]], leads[k + 1:end], leads[end:]
+		for lead in under:
+			lead.depth = max(lead.depth - 1, 0)
+		_restep(under)
+		# Above the field, what was written before the line. After a sibling,
+		# that stays with the sibling and the settle below moves it.
+		if site == "after":
+			leads[:] = head
+			leading, after = line, rest
+		else:
+			leading, after = head + line, []
+			if site == "leading":
+				_restep(rest)
+			leads[:] = rest
+		kids = self.arena[parent].children
+		pos = len(kids)
+		if site in ("leading", "after") and owner in kids:
+			pos = kids.index(owner)
+			if site == "after":
+				pos += 1
+		idx = len(self.arena)
+		node = _Node(name, value, parent, 0, name_src)
+		t = node._triv()
+		t.leading, t.after, t.inside = leading, after, under
+		self.arena.append(node)
+		kids.insert(pos, idx)
+		# No other field of this name, so the index order holds.
+		if self._index is not None:
+			self._index.append(_name_key(parent, name), idx)
+		_settle_block(self.arena, parent, pos)
+		return idx
 
 	def _collapse_dup(self, node):
 		# A written value may now collide with a same-named sibling under the
@@ -5947,7 +6076,7 @@ class Document:
 		c = _comment_line(text)
 		if c is None:
 			return False
-		idx = self._place(path)
+		idx = self._place(path, False)
 		if idx is None:
 			return False
 		# The node's own blank moves above its first comment; otherwise the
