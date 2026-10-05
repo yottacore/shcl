@@ -234,6 +234,23 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Decisions:
 		- 20261002: recheck after 2026100207032800 is built, since it removes most of those checks. No perf work before 3.0.0 otherwise.
 
+- A quoted value holding an invalid UTF-8 byte can lose its closing quote and fail as `E017`
+	- ID: 2026100511212359
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261005-112123
+	- Opened by: convert-base-v2 feedback
+	- Version and build: dev at `0d1a491c`
+	- Steps to reproduce:
+		- Go `Parse` on `base:`, then a tab and `symbols: "a b \x80 c"`, with a real `\x80` byte.
+		- The same with `"\x80"`, `"a\x80 b"` or `"a b \xff c"`.
+	- Incorrect behavior: `line 2: E017 unterminated quote in value`. `"\xff a b c"` and `"a b \xe9 c"` parse fine.
+	- Expected behavior: the closing quote is found, and the program reading the value decides what to do with the byte. Or an error that names the bad byte.
+	- Reproduced: 20261005, Go binding at `0d1a491c`. C has the same helper, read but not run. Python and Rust take text, so they can't be handed the byte.
+	- Possible cause: `utf8Len` returns 4 for any byte that isn't a lead byte, continuation bytes included. `quoteClose` and the piece scan then step up to 3 bytes past it, and step over the quote when it's that close. C `utf8_len` is the same.
+	- Note: a rough edge. The file is still refused, only with the wrong message. convert-base-v2 hit it with a config base holding a bad digit, and refuses that digit itself once the line parses.
+
 - Build and test on FreeBSD
 	- ID: 2026100413052101
 	- Type: Task
