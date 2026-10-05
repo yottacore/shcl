@@ -754,7 +754,9 @@ fn raw_spans(text: &str) -> Vec<(usize, usize)> {
 	for (k, line) in lines.iter().enumerate() {
 		let bare = line.trim_start_matches([' ', '\t']);
 		if let Some((c, n, at)) = open {
-			let closer = line.trim();
+			// Only the blanks the load trims: a no-break space before a fence
+			// leaves it body text.
+			let closer = line.trim_matches(BLANKS);
 			if closer.chars().count() >= n && closer.chars().all(|x| x == c) {
 				spans.push((at, k + 1));
 				open = None;
@@ -1906,7 +1908,7 @@ fn setter_left_behind(before: &str, after: &str, path: &str, listed: &[String]) 
 		for t in texts {
 			let away = from
 				.clone()
-				.filter(|&k| !reach.contains(&k) && had[k] == (t, false))
+				.filter(|&k| !reach.contains(&k) && !own.contains(&k) && had[k] == (t, false))
 				.count();
 			let still = now[to.clone()].iter().filter(|l| **l == (t, false)).count();
 			if still < away {
@@ -1914,9 +1916,16 @@ fn setter_left_behind(before: &str, after: &str, path: &str, listed: &[String]) 
 			}
 		}
 	}
+	// A copy inside the target's own block can be raw body text the setter
+	// replaces, so only the copies outside it are owed.
 	for t in had_text.iter().filter(|t| listed(t)) {
-		let count = |lines: &[&str]| lines.iter().filter(|l| *l == t).count();
-		if count(&now_text) < count(&had_text) && !out.iter().any(|o| o == t) {
+		let away = had_text
+			.iter()
+			.enumerate()
+			.filter(|&(k, l)| l == t && !own.contains(&k))
+			.count();
+		let still = now_text.iter().filter(|l| *l == t).count();
+		if still < away && !out.iter().any(|o| o == t) {
 			out.push((*t).to_string());
 		}
 	}
@@ -2259,8 +2268,9 @@ fn stretches(
 /// the taken copy from another. `taken` is where the taken lines sat, as
 /// 0-based positions in `before`. The comments right above and below them
 /// may go with the target, so they are neither copies nor bounds. Nothing
-/// from the target to the next field line is a bound, and no misplaced line
-/// is, since one beside the target moves down to just above that field line.
+/// between the field lines either side of the target is a bound, and no
+/// misplaced line is, since one beside the target moves down to just above
+/// the next field line.
 fn remove_left_behind(
 	before: &str,
 	after: &str,
@@ -2298,6 +2308,10 @@ fn remove_left_behind(
 			.copied()
 			.unwrap_or(raw.len());
 		near.extend(k..to);
+		// The lines above it back to the field line before are its leads, and
+		// the remove leaves them with a misplaced one moved below the block.
+		let from = fields.range(..k).next_back().map_or(0, |f| f + 1);
+		near.extend(from..k);
 	}
 	// A settled line and a comment of one text are one line of canonical
 	// text, so the comments either side may be the target's own.
@@ -2450,7 +2464,7 @@ fn remove_and_setter_exceptions_go_by_position() {
 	assert_eq!(setter_reach(&before, "x.a"), [1, 2].into_iter().collect());
 	assert!(doc.set_int("x.a", 7));
 	let after = doc.to_canonical();
-	let note = "  ## commented out by shcl when setting x.a, STAMP: E019 bracket array syntax";
+	let note = "  ## commented out by shcl when setting x.a, STAMP: E019 malformed array, no closing ']' on the line";
 	assert_eq!(
 		unstamped(&after),
 		format!("x:\n\t# a: [1{note}\n\ta: 7\n\tq: 0\ny:\n\ta: [1\n\tq: 0\n")
@@ -2603,7 +2617,12 @@ fn kept_lines_survive_edits() {
 						// Each taken line comes off the expected lines once, by
 						// text, so the other copies are held to their places.
 						let mut listed = Vec::new();
-						for (_, t) in &taken {
+						// A raw body line is no kept line, whatever its text.
+						let bodies = raw_spans(&before);
+						for (k, t) in &taken {
+							if bodies.iter().any(|&(o, c)| *k + 1 > o && *k < c) {
+								continue;
+							}
 							// As written first: a kept line can start with a `#`
 							// behind some other blank.
 							let at = want
