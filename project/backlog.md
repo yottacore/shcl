@@ -152,7 +152,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261002: pre-release Format 3 files are on their own. `fmt` keeps a `- ` list stacked. Setters get no new options, and an overwrite keeps the old quote kind when it can.
 		- 20261003: a merge writes every list in brackets, whatever form its layers used. The error code table in the design doc is final.
 	- Branch: `valsyn` (chunk A on `vslex`)
-	- Commit:
+	- Commit: `6355ba10` (chunk A)
 	- Test case:
 	- Acceptance signoff:
 	- Superseded by ID:
