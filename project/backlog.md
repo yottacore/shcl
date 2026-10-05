@@ -258,16 +258,38 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - The kept-line property's remove and setter steps take lines off by text
 	- ID: 2026100505513100
 	- Type: Task
-	- Status: Queued
+	- Status: Done
 	- Priority: Low
 	- Opened: 20261005-055131
 	- Opened by: the work on 2026100313174977
-	- Related IDs: 2026100313174977
+	- Related IDs: 2026100313174977, 2026100506223902
 	- Problem description:
 		- `EreT6dh` picks the lines a remove takes, and the kept lines a setter writes as comments, by where they sit, then takes each off the expected lines by text. With two kept lines of one text, a remove or setter that kept the one it should take and dropped or commented the other would pass. The merge step had the same gap until 2026100313174977.
 	- Requirements:
 		- Those steps check the edited text by place, as the merge step does, or the item says why they cannot.
 	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Done:
+		- The remove step holds every other copy of a taken line to its stretch of the text, cut at lines both texts write once, as the merge step does. The comments right next to the target are left out, since a settled line and a comment of the same text are one line of canonical text. A misplaced line is no bound, since one beside the target moves down to the next field line.
+		- The setter step reads its reach from the text: the lines at the level of the target's parent's block, a repeated header's block included. Under a parent with two instances the setter can make fields on the way, so those levels count too. A copy outside the reach must stay in its stretch with no note, and no copy may go.
+		- A copy in reach may move, since a setter that folds two fields of one name moves their lines. Nothing from the target's first line to the end of its last block is a bound.
+		- The merge, remove and setter steps share one stretch cut.
+	- Note: `EreT6dh` is in the Rust tests only. The other three bindings are held to it through the cross-binding check, which replays its inputs and edits (design.md), so there was no twin to change.
+	- Note: every false failure on the way was a move the table allows. No library defect showed, so nothing was filed.
+	- Swept: the steps of `EreT6dh` that take expected lines off by text are the merge (2026100313174977), the remove and the setter, and all three now go by place. Go, Python and C have no copy of the property or its helpers.
+	- Verified:
+		- At 2,000,000 in release, 4,049 remove stretches and 1,427 setter stretches had a copy to hold, and all 20 fuzz tests pass.
+		- With a setter that also comments out the top level's kept lines of its name, the new check fails at iteration 69 and the old one passes all 2,000,000.
+		- With a remove that puts the lines beside its target above the sibling before it, the new check fails at iteration 58858, on two kept lines of one text with one taken. The old one passes all 2,000,000.
+		- `ErqSBCw` and `ErpR2rr` fail with the stretch cut turned off.
+		- The Rust suite at its default, the Go, Python and C suites, clippy for the host and windows, rustfmt and `test-ids.py check` pass.
+	- Progress log:
+		- 20261005: done on `keptplace`. Test-only, no library change.
+	- Branch: `keptplace`
+	- Commit: `216831f1`
+	- Test case: `ErqSBCw` (`remove_and_setter_exceptions_go_by_position`), and `EreT6dh` at 2,000,000.
+	- Acceptance signoff: Self-closed: a test-only change that does what the item asked. Its checks fail on both broken libraries and pass on the real one.
+	- Closed: 20261005-102024
 
 - A canonical save after a merge and a raw set loses kept lines, found by the kept-lines fuzz
 	- ID: 2026100316012486
