@@ -478,6 +478,16 @@ fn is_field(text: &str) -> bool {
 	!text.starts_with(['#', ' ', '\t'])
 }
 
+/// The last array line a node's level was opened by, and what the node had
+/// before it: its leading line count, whether it had a trailing comment, and
+/// its blank.
+struct ArrayLine {
+	line: usize,
+	leads: usize,
+	trailing: bool,
+	blank: bool,
+}
+
 /// A pending whole-line comment during parse: text, source indent (used only
 /// to decide whether it hangs on a deeper block), and the blank it consumed.
 /// `ceiling` is the shortest incoming indent already checked against it: a
@@ -573,6 +583,9 @@ struct Trivia {
 	// the number of elements before it. They keep the list stacked on output,
 	// so a line fixed by hand is still inside the list.
 	among: Vec<(usize, Lead)>,
+	// The comment trailing a stacked list item, with the item's index. Like
+	// the lines among the items, they keep the list stacked on output.
+	notes: Vec<(usize, String)>,
 }
 
 impl NodeData {
@@ -590,6 +603,9 @@ impl NodeData {
 	}
 	fn among(&self) -> &[(usize, Lead)] {
 		self.trivia.as_deref().map_or(&[], |t| &t.among)
+	}
+	fn notes(&self) -> &[(usize, String)] {
+		self.trivia.as_deref().map_or(&[], |t| &t.notes)
 	}
 	fn triv_mut(&mut self) -> &mut Trivia {
 		self.trivia.get_or_insert_with(Default::default)
@@ -656,6 +672,12 @@ pub struct Document {
 	probe_doc: Option<Box<Document>>,
 	// Holds a misplaced line kept as written, so edits have to settle it.
 	kept: bool,
+	// Holds an array line kept for the lines under it (E028), which an edit
+	// can leave with none.
+	arrays: bool,
+	// Every list has been put in brackets by a merge, so the next one only
+	// has the nodes it brings or visits to do.
+	bracketed: bool,
 	// What the last settle's kept lines were modeled through, and a sum of
 	// it, so an edit that changes none of it skips the settle. Removing a
 	// block above all of it goes unseen, which leaves `kept` set with no
@@ -790,6 +812,8 @@ fn fold_node_into(arena: &mut [NodeData], survivor: usize, loser: usize) {
 		st.inside.append(&mut lt.inside);
 		st.among.append(&mut lt.among);
 		st.among.sort_by_key(|a| a.0);
+		st.notes.append(&mut lt.notes);
+		st.notes.sort_by_key(|n| n.0);
 	}
 }
 
@@ -845,35 +869,84 @@ fn settle_fence_trailing(arena: &mut [NodeData], n: usize) {
 	{
 		return;
 	}
-	let mut empties: std::collections::HashSet<String> = std::collections::HashSet::new();
+	let mut empties: HashMap<String, usize> = HashMap::new();
+	let mut folded = Vec::new();
 	for i in 0..arena[n].children.len() {
-		let nd = &mut arena[arena[n].children[i]];
-		if fenced(nd) && empties.contains(&nd.name) {
+		let c = arena[n].children[i];
+		let nd = &mut arena[c];
+		if fenced(nd) && empties.contains_key(&nd.name) {
 			trailing_to_leading(nd);
-		} else if stacks(nd) && empties.contains(&nd.name) {
-			unstack(nd);
+		} else if stacks(nd)
+			&& let Some(&e) = empties.get(&nd.name)
+		{
+			if fold_list_into_empty(arena, e, c) {
+				folded.push(c);
+			}
 		} else if nd.value.is_empty() {
-			empties.insert(nd.name.clone());
+			empties.entry(nd.name.clone()).or_insert(c);
 		}
+	}
+	if !folded.is_empty() {
+		arena[n].children.retain(|c| !folded.contains(c));
 	}
 }
 
+/// A list after an empty binding of its name, which a stacked header would
+/// join on a reload. In brackets when it can be. A list with fields under it
+/// cannot, so it joins that binding here, as a reload joins it, when that
+/// binding has no field the items would land after. True when it
+/// joined, and the caller drops it from its parent's children.
+fn fold_list_into_empty(arena: &mut [NodeData], empty: usize, list: usize) -> bool {
+	unstack(&mut arena[list]);
+	let e = &arena[empty];
+	if !stacks(&arena[list])
+		|| !e.value.is_empty()
+		|| !e.children.is_empty()
+		|| !e.after().is_empty()
+	{
+		return false;
+	}
+	arena[empty].value = std::mem::replace(&mut arena[list].value, Value::Empty);
+	arena[empty].star_list = true;
+	fold_node_into(arena, empty, list);
+	true
+}
+
 /// Written stacked: a list the file wrote one `- ` item per line, kept that
-/// way like an author's quotes, or one holding a kept line among its items.
+/// way like an author's quotes, or one holding a kept line among its items,
+/// a comment on one, or a field under it (E001), which in brackets would make
+/// the array `E028`.
 fn stacks(nd: &NodeData) -> bool {
 	matches!(&nd.value, Value::Array(els) if !els.is_empty())
-		&& (nd.star_list || !nd.among().is_empty())
+		&& (nd.star_list
+			|| !nd.among().is_empty()
+			|| !nd.notes().is_empty()
+			|| !nd.children.is_empty())
 }
 
 /// A list after an empty binding of its name cannot be written stacked: its
 /// bare header would merge into that binding on a reload. It goes in
-/// brackets, and the lines among its elements go above it, where a reload
-/// files what sits there.
+/// brackets, and the lines among its elements and the comments on them go
+/// above it, in order, where a reload files what sits there.
 fn unstack(nd: &mut NodeData) {
 	nd.star_list = false;
 	if let Some(t) = nd.trivia.as_deref_mut() {
-		let moved: Vec<Lead> = t.among.drain(..).map(|a| a.1).collect();
-		t.leading.extend(moved);
+		let mut notes = t.notes.drain(..).peekable();
+		for (at, l) in t.among.drain(..) {
+			while let Some((_, n)) = notes.next_if(|n| n.0 < at) {
+				t.leading.push(Lead::plain(n));
+			}
+			t.leading.push(l);
+		}
+		t.leading.extend(notes.map(|n| Lead::plain(n.1)));
+	}
+}
+
+/// A merge writes a list in brackets. One with a field under it stays
+/// stacked (E001), since in brackets it is E028.
+fn bracket(nd: &mut NodeData) {
+	if nd.children.is_empty() && (nd.star_list || nd.trivia.is_some()) {
+		unstack(nd);
 	}
 }
 
@@ -2891,9 +2964,9 @@ fn value_fault(tok: &Tokens, text: &str) -> Option<Fault> {
 }
 
 /// Why a stacked item's value is refused: an array, since arrays do not
-/// nest (`E019`), what a value is refused for, or a bare name ending in a
-/// colon, the way YAML starts an object in a list (`E027`). A bare comma is
-/// the list's business (`E010`).
+/// nest (`E019`), what a value is refused for, a bare comma (`E026`), or a
+/// bare name ending in a colon, the way YAML starts an object in a list
+/// (`E027`).
 fn item_fault(tok: &Tokens, text: &str) -> Option<Fault> {
 	if tok.array.is_some() {
 		return Some(Fault::new(
@@ -2908,6 +2981,13 @@ fn item_fault(tok: &Tokens, text: &str) -> Option<Fault> {
 		.find_map(|p| piece_fault(p, text, "list item"))
 	{
 		return Some(Fault::new(code, msg, true));
+	}
+	if tok.elements.len() > 1 {
+		return Some(Fault::new(
+			"E026",
+			"bare comma in a list item; an item is one value, and text with a comma is quoted",
+			true,
+		));
 	}
 	match tok.elements.as_slice() {
 		[p] if p.quote == Quote::None && text[p.start..p.end].ends_with(':') => Some(Fault::new(
@@ -2971,8 +3051,8 @@ fn opens_as_written(seg: &Segment) -> bool {
 }
 
 /// True when a reload holds this kept line's level open (LAZY): a field
-/// line refused for its value alone, or for a bare name that still reads,
-/// with a path that opens.
+/// line refused for its value alone, an array kept for the lines under it,
+/// or a bare name that still reads, with a path that opens.
 fn opens_later(text: &str) -> bool {
 	if !is_field_text(text) {
 		return false;
@@ -2982,7 +3062,8 @@ fn opens_later(text: &str) -> bool {
 	let Ok(scan) = path_of(&tok, text) else {
 		return false;
 	};
-	scan.segments.iter().all(opens_as_written) && line_fault(&tok, text).is_some_and(|f| f.opens)
+	scan.segments.iter().all(opens_as_written)
+		&& line_fault(&tok, text).map_or(tok.array.is_some(), |f| f.opens)
 }
 
 /// A stacked list item's line: `-` then a blank. The blank is what keeps
@@ -3110,6 +3191,12 @@ struct Parser<'a> {
 	// sit under it; those are E018 and are kept as written too.
 	kept_hold: Option<&'a str>,
 	kept_any: bool,
+	kept_arrays: bool,
+	// The text's lines, and the last array line each node's level was
+	// opened by, for one found to have a field under it after it bound
+	// (E028).
+	src: Vec<&'a str>,
+	array_line: HashMap<usize, ArrayLine>,
 	// parse_limited's caps, 0 = uncapped: nodes counted against the arena
 	// (root excluded), elements against a single value's cell, diagnostics
 	// against the list. Past the diagnostic cap nothing is listed, only
@@ -3226,6 +3313,9 @@ impl<'a> Parser<'a> {
 			kept_owed: 0,
 			kept_hold: None,
 			kept_any: false,
+			kept_arrays: false,
+			src: Vec::new(),
+			array_line: HashMap::new(),
 			max_nodes: 0,
 			max_elements: 0,
 			max_diags: 0,
@@ -3321,6 +3411,82 @@ impl<'a> Parser<'a> {
 		if holds && !matches!(self.stack.last(), Some((i, n)) if *i == indent && *n == UNOPENED) {
 			self.stack.push((indent, DEAD));
 		}
+	}
+
+	/// A field binds under an array line, which a field with lines under it
+	/// cannot take (E028). The line is kept as written, written in place of
+	/// the field's own, and the field is open with no value, as a line
+	/// refused for its value alone opens it. When the line joined an earlier
+	/// binding of the same value, that one keeps its value and the field
+	/// opens on its own. Returns the field, which takes the level.
+	fn array_under(&mut self, node: usize) -> usize {
+		let mark = self.array_line.remove(&node);
+		let line = mark.as_ref().map_or(self.arena[node].line, |m| m.line);
+		let Some(src) = line.checked_sub(1).and_then(|k| self.src.get(k).copied()) else {
+			return node;
+		};
+		let text = trim_wsp_end(src).trim_start_matches(is_wsp).to_string();
+		self.err(
+			line,
+			"E028",
+			"an array on a field with lines under it; the field takes one plain value or none",
+		);
+		self.kept_owed += 1;
+		self.kept_arrays = true;
+		if let Some(m) = mark.filter(|m| m.line != self.arena[node].line) {
+			let (name, name_src, up) = (
+				self.arena[node].name.clone(),
+				self.arena[node].authored().to_string(),
+				self.arena[node].parent,
+			);
+			// The lines this one brought to the binding it joined go with it,
+			// and so do its blank and its comment, which its kept text has.
+			let nd = &mut self.arena[node];
+			let blank_before = nd.blank_before && !m.blank;
+			nd.blank_before = m.blank;
+			let t = nd.triv_mut();
+			let mut moved = t.leading.split_off(m.leads.min(t.leading.len()));
+			if !m.trailing {
+				t.trailing.clear();
+			} else {
+				let mut tok = Tokens::default();
+				tokenize(&text, b':', false, Rules::Current, &mut tok);
+				if tok.comment.is_some() {
+					moved.pop();
+				}
+			}
+			let open = self.select_or_create(up, name, name_src, Value::Empty, line);
+			moved.push(Lead {
+				depth: 0,
+				text,
+				blank_before,
+				line,
+				kept: false,
+			});
+			self.arena[open].triv_mut().leading.extend(moved);
+			if let Some(level) = self.stack.iter_mut().rev().find(|l| l.1 == node) {
+				level.1 = open;
+			}
+			return open;
+		}
+		let old_key = merge_hash(&self.arena[node].name, &self.arena[node].value);
+		let old_disp = disp_hash(&self.arena[node].name, &self.arena[node].value);
+		let nd = &mut self.arena[node];
+		nd.value = Value::Empty;
+		nd.src = None;
+		nd.src_set = false;
+		let blank_before = std::mem::take(&mut nd.blank_before);
+		let t = nd.triv_mut();
+		t.trailing.clear();
+		t.leading.push(Lead {
+			depth: 0,
+			text,
+			blank_before,
+			line,
+			kept: false,
+		});
+		self.remap_child(node, old_key, old_disp);
+		node
 	}
 
 	/// Find (or create by merge rule) the child of `parent` with this (name, value).
@@ -3956,6 +4122,14 @@ impl<'a> Parser<'a> {
 		// can move it out without a clone.
 		let mut value = Some(value);
 		self.star_flush();
+		let parent = if parent != ROOT
+			&& !self.arena[parent].star_list
+			&& matches!(self.arena[parent].value, Value::Array(_))
+		{
+			self.array_under(parent)
+		} else {
+			parent
+		};
 		// Field child under a stacked list: diagnose the mix once, keep the field.
 		if self.arena[parent].star_list && !self.arena[parent].star_mixed {
 			self.arena[parent].star_mixed = true;
@@ -4249,17 +4423,6 @@ impl<'a> Parser<'a> {
 			);
 			return false;
 		}
-		// One scalar per line; a bare comma is an error, not a second element.
-		if tok.elements.len() > 1 {
-			self.refuse(
-				line,
-				"E010",
-				"bare comma in list element (one element per line)",
-				Outcome::Dropped,
-				indent,
-			);
-			return false;
-		}
 		let piece = tok.elements[0];
 		let Some(el) = element_of(&piece, text) else {
 			self.refuse(line, "E009", "empty list element", Outcome::Dropped, indent);
@@ -4338,35 +4501,29 @@ impl<'a> Parser<'a> {
 		true
 	}
 
-	/// Kept lines waiting for the list element that just joined sat among
-	/// the list's elements, so they stay there; comments still ride the field.
+	/// Lines waiting for the list element that just joined sat among the
+	/// list's elements, so they stay there, comments and kept lines alike.
 	fn keep_among(&mut self, parent: usize, indent: &str) {
-		if !self.pending.iter().any(|p| !p.text.starts_with('#')) {
+		if self.pending.is_empty() {
 			return;
 		}
 		let before = match &self.arena[parent].value {
 			Value::Array(els) => els.len() - 1,
 			_ => return,
 		};
-		let mut rest = Vec::with_capacity(self.pending.len());
 		let (mut chain, mut held) = (Vec::new(), Vec::new());
 		for p in self.pending.drain(..) {
-			if p.text.starts_with('#') {
-				rest.push(p);
-			} else {
-				self.arena[parent].triv_mut().among.push((
-					before,
-					Lead {
-						depth: comment_depth(&mut chain, &mut held, indent, &p.text, p.indent),
-						text: p.text,
-						blank_before: p.blank_before,
-						line: 0,
-						kept: false,
-					},
-				));
-			}
+			self.arena[parent].triv_mut().among.push((
+				before,
+				Lead {
+					depth: comment_depth(&mut chain, &mut held, indent, &p.text, p.indent),
+					text: p.text,
+					blank_before: p.blank_before,
+					line: 0,
+					kept: false,
+				},
+			));
 		}
-		self.pending = rest;
 		self.pend_marks.clear();
 	}
 
@@ -4446,6 +4603,7 @@ impl<'a> Parser<'a> {
 		if text.ends_with('\n') {
 			lines.pop();
 		}
+		self.src = lines.clone();
 		let mut i = 0usize;
 		let mut node_capped = false;
 		let mut tok = Tokens {
@@ -4628,8 +4786,20 @@ impl<'a> Parser<'a> {
 					// At the root there is no field (E007), so the comment rides
 					// the document like any other pending one.
 					if parent != ROOT {
+						let mut comment = comment;
 						if self.add_star_element(parent, &tok, rest, lineno, indent) {
 							self.keep_among(parent, indent);
+							// A comment on an item stays on its item.
+							if let (Some(c), Value::Array(els)) =
+								(comment, &self.arena[parent].value)
+							{
+								let at = els.len() - 1;
+								self.arena[parent]
+									.triv_mut()
+									.notes
+									.push((at, c.to_string()));
+								comment = None;
+							}
 						}
 						let head = self.arena[parent].line;
 						match self.ends.last_mut() {
@@ -4831,6 +5001,14 @@ impl<'a> Parser<'a> {
 						self.arena[node].src = Some(s.to_string());
 					}
 				}
+				// What the node had before this line, for an array line that
+				// turns out to have a field under it.
+				let mark = ArrayLine {
+					line: lineno,
+					leads: self.arena[node].leading().len(),
+					trailing: !self.arena[node].trailing().is_empty(),
+					blank: self.arena[node].blank_before,
+				};
 				if had_blank {
 					self.arena[node].blank_before = true;
 				}
@@ -4847,6 +5025,9 @@ impl<'a> Parser<'a> {
 				}
 				self.attach_trivia(node, indent, comment);
 				self.stack.push((indent, node));
+				if tok.array.is_some() {
+					self.array_line.insert(node, mark);
+				}
 			}
 			i = next;
 		}
@@ -4920,6 +5101,8 @@ impl<'a> Parser<'a> {
 			probe: false,
 			probe_doc: None,
 			kept: self.kept_any,
+			arrays: self.kept_arrays,
+			bracketed: false,
 			kept_near: Vec::new(),
 			kept_sum: 0,
 			ends: self.ends,
@@ -5258,13 +5441,52 @@ impl Document {
 	/// reload files a comment there. Runs after a load and after each edit,
 	/// and only while the document holds such a line.
 	fn settle_kept(&mut self) {
+		self.settle_arrays();
 		// A line moved out of a list can leave it written inline, which
 		// changes what the lines after it sit under, so go again until
 		// nothing moves.
+		let was = self.kept;
 		while self.kept && self.settle_kept_once() {}
 		if self.kept {
 			self.kept_sum = self.near_sum();
 		}
+		// One of those may have been the line under a kept array.
+		if was {
+			self.settle_arrays();
+		}
+	}
+
+	/// A kept array line stays kept only while it heads a field with fields
+	/// under it (E028). One a merge or an edit leaves anywhere else would
+	/// bind on a reload, so it is written as a comment, the way the settle
+	/// writes a misplaced line that would read differently.
+	fn settle_arrays(&mut self) {
+		if !self.arrays {
+			return;
+		}
+		let mut stack = self.arena[ROOT].children.clone();
+		while let Some(n) = stack.pop() {
+			stack.extend_from_slice(&self.arena[n].children);
+			let heads = heads_block(&self.arena[n]);
+			let Some(t) = self.arena[n].trivia.as_deref_mut() else {
+				continue;
+			};
+			settle_array_run(&mut t.leading, heads);
+			settle_array_run(&mut t.inside, false);
+			settle_array_run(&mut t.after, false);
+			let mut from = 0;
+			while from < t.among.len() {
+				let at = t.among[from].0;
+				let to = from + t.among[from..].iter().take_while(|a| a.0 == at).count();
+				let mut run: Vec<Lead> = t.among[from..to].iter().map(|a| a.1.clone()).collect();
+				settle_array_run(&mut run, false);
+				for (slot, l) in t.among[from..to].iter_mut().zip(run) {
+					slot.1 = l;
+				}
+				from = to;
+			}
+		}
+		settle_array_run(&mut self.orphans, false);
 	}
 
 	/// After an edit. A kept line binds or not by the lines between it and
@@ -5274,6 +5496,8 @@ impl Document {
 	fn resettle_kept(&mut self) {
 		if self.kept && self.near_sum() != self.kept_sum {
 			self.settle_kept();
+		} else {
+			self.settle_arrays();
 		}
 	}
 
@@ -5483,6 +5707,9 @@ impl Document {
 					e.out.push_str(&column);
 					e.out.push_str("- ");
 					e.out.push_str(&emit_element(el));
+					for (_, n) in node.notes().iter().filter(|n| n.0 == i) {
+						push_trailing(&mut e.out, n);
+					}
 					e.out.push('\n');
 					e.placed(&column);
 				}
@@ -5776,6 +6003,50 @@ fn kept_in_lists(nd: &NodeData) -> usize {
 /// A misplaced line's text as the comment it falls back to.
 fn commented(text: &str) -> String {
 	format!("# {}", &text[leading_ws(text).len()..])
+}
+
+/// Comments out each kept array line in a run but one written in place of
+/// the line of a field with fields under it, the run's last when `heads`
+/// says so. Anywhere else no field binds under it on a reload, so it would
+/// bind itself. What sat under it goes the same way, since a comment holds
+/// no level.
+fn settle_array_run(run: &mut [Lead], heads: bool) {
+	let mut settled = false;
+	for k in 0..run.len() {
+		let l = &run[k];
+		if l.text.starts_with(['#', ' ', '\t'])
+			|| !array_kept(&l.text)
+			|| (heads && k + 1 == run.len())
+		{
+			continue;
+		}
+		let depth = l.depth;
+		let end = run[k + 1..]
+			.iter()
+			.position(|x| !x.text.starts_with('#') && x.depth <= depth)
+			.map_or(run.len(), |e| k + 1 + e);
+		for l in &mut run[k..end] {
+			if !l.text.starts_with('#') {
+				l.text = commented(&l.text);
+				l.kept = true;
+			}
+		}
+		settled = true;
+	}
+	if settled {
+		restep(run);
+	}
+}
+
+/// A field line kept only for the lines under it: a whole array, and
+/// nothing else wrong with it (E028).
+fn array_kept(text: &str) -> bool {
+	if !is_field(text) || !is_field_text(text) {
+		return false;
+	}
+	let mut tok = Tokens::default();
+	tokenize(text, b':', false, Rules::Current, &mut tok);
+	tok.array.is_some() && path_of(&tok, text).is_ok() && line_fault(&tok, text).is_none()
 }
 
 /// A path in a note, kept to one line.
@@ -8901,6 +9172,16 @@ impl Document {
 		WriteReason::Writable
 	}
 
+	/// The node a write at this path lands on when it is already there.
+	fn write_target(&self, path: &str) -> Option<usize> {
+		let scan = scan_lookup(path).ok()?;
+		let mut trail = Vec::new();
+		if self.probe_write(&scan, &mut trail) != WriteReason::Writable {
+			return None;
+		}
+		trail.last().copied().flatten()
+	}
+
 	/// Walk (creating as needed) to the node a write targets. A trailing name
 	/// with no selector hits the first same-named instance (or a new one); a
 	/// `[value]` selector selects the matching instance or creates it; `[#k]`
@@ -8916,10 +9197,17 @@ impl Document {
 		}
 		// Nothing is created until every segment the write would create is
 		// known to read back: the name through the name escaper, an instance
-		// selector as the value it binds.
+		// selector as the value it binds, and the first under a field that
+		// takes a field under it, which an array does not (E028).
 		for (i, seg) in scan.segments.iter().enumerate() {
 			if trail[i].is_some() {
 				continue;
+			}
+			if i > 0
+				&& let Some(up) = trail[i - 1]
+				&& matches!(self.arena[up].value, Value::Array(_))
+			{
+				return None;
 			}
 			if !name_reads_back(&seg.name) {
 				return None;
@@ -8988,6 +9276,13 @@ impl Document {
 			return true;
 		}
 		let fresh = self.arena.len();
+		// A field with lines under it takes one plain value or none (E028).
+		if matches!(value, Value::Array(_))
+			&& let Some(n) = self.write_target(path)
+			&& !self.arena[n].children.is_empty()
+		{
+			return false;
+		}
 		match self.place(path, true) {
 			Some(node) => {
 				// place() has already done it for a field it created.
@@ -8998,10 +9293,15 @@ impl Document {
 				if keep_quotes {
 					keep_mark(&self.arena[node].value, &mut value);
 				}
+				// A list written stacked stays stacked, as an overwrite keeps
+				// quotes, unless there is nothing left to stack.
+				let stacked = stacks(&self.arena[node])
+					&& matches!(&value, Value::Array(els) if !els.is_empty());
 				self.arena[node].value = value;
 				self.arena[node].src = None; // written value has no source spelling
 				// No longer the list the lines among its elements sat in.
 				unstack(&mut self.arena[node]);
+				self.arena[node].star_list = stacked;
 				// An empty binding or a raw block can put a fence after an
 				// empty sibling of its name.
 				let fence_side = matches!(self.arena[node].value, Value::Empty | Value::Raw(_));
@@ -9216,15 +9516,20 @@ impl Document {
 	/// instances can change, and walking them off the index keeps a write off
 	/// the rest of the block.
 	fn settle_fence_name(&mut self, parent: usize, name: &str) {
-		let mut seen_empty = false;
+		let mut empty = None;
 		for c in self.children_named(parent, name) {
 			let nd = &mut self.arena[c];
-			if seen_empty && matches!(nd.value, Value::Raw(_)) && !nd.trailing().is_empty() {
+			if empty.is_some() && matches!(nd.value, Value::Raw(_)) && !nd.trailing().is_empty() {
 				trailing_to_leading(nd);
-			} else if seen_empty && stacks(nd) {
-				unstack(nd);
-			} else if nd.value.is_empty() {
-				seen_empty = true;
+			} else if let Some(e) = empty.filter(|_| stacks(nd)) {
+				if fold_list_into_empty(&mut self.arena, e, c) {
+					self.arena[parent].children.retain(|&k| k != c);
+					if let Some(ix) = self.index.get_mut() {
+						ix.unlink(name_key(parent, name), c);
+					}
+				}
+			} else if nd.value.is_empty() && empty.is_none() {
+				empty = Some(c);
 			}
 		}
 	}
@@ -9327,6 +9632,9 @@ impl Document {
 			if self.arena[t].parent != DEAD {
 				continue;
 			}
+			// A list written stacked for the fields under it stays stacked:
+			// a remove only takes lines away.
+			let stacked = stacks(&self.arena[p]);
 			let kids = std::mem::take(&mut self.arena[p].children);
 			let mut keep: Vec<usize> = Vec::with_capacity(kids.len());
 			let mut left: Vec<Lead> = Vec::new();
@@ -9342,6 +9650,9 @@ impl Document {
 				}
 			}
 			self.arena[p].children = keep;
+			self.arena[p].star_list |= stacked;
+			// The next merge has a stacked list to put in brackets.
+			self.bracketed &= !stacked;
 			if !left.is_empty() {
 				self.leave_last(p, left);
 			}
@@ -9374,7 +9685,10 @@ impl Document {
 				.iter()
 				.position(|&c| c == p)
 				.unwrap_or_default();
+			let stacked = stacks(&self.arena[pp]);
 			self.arena[pp].children.remove(at);
+			self.arena[pp].star_list |= stacked;
+			self.bracketed &= !stacked;
 			match self.arena[pp].children.get(at) {
 				Some(&next) => self.leave_above(next, left),
 				None => self.leave_last(pp, left),
@@ -9851,10 +10165,20 @@ impl Document {
 		// The layer's own kept lines were modeled against its own tree.
 		let fresh = over.kept;
 		self.kept |= over.kept;
+		self.arrays |= over.arrays;
 		// Only a block the overlay visited can have a changed child list or
 		// comments; the rest was settled when it was built. Settling the whole
 		// tree made every merge cost the document (20260924 item 6). A block's
 		// settle writes only below it, so the order does not matter.
+		// Every list goes in brackets, whatever form its layers used, so a
+		// merge of the merged text gives the same text. After the first, only
+		// what the overlay brings or visits can be stacked.
+		if !self.bracketed {
+			for nd in &mut self.arena[1..] {
+				bracket(nd);
+			}
+			self.bracketed = true;
+		}
 		let mut touched = Vec::new();
 		self.overlay(ROOT, over, ROOT, &mut touched);
 		for n in touched {
@@ -9936,6 +10260,8 @@ impl Document {
 		bt.inside.extend_from_slice(&st.inside);
 		bt.among.extend_from_slice(&st.among);
 		bt.among.sort_by_key(|a| a.0);
+		bt.notes.extend_from_slice(&st.notes);
+		bt.notes.sort_by_key(|n| n.0);
 	}
 
 	fn overlay(
@@ -10095,10 +10421,9 @@ impl Document {
 							// A stacked spelling no kept line holds is gone on
 							// a reload, so it may not decide how the lines the
 							// other layer brings are written (20260926 item 4).
-							let stacked = stacks(&self.arena[b]) || stacks(&over.arena[ok]);
 							self.adopt_trivia(b, over, ok);
-							self.arena[b].star_list = stacked;
 							self.overlay(b, over, ok, touched);
+							bracket(&mut self.arena[b]);
 						}
 						None => {
 							let c = self.clone_subtree(over, ok, base_parent);
@@ -10155,6 +10480,7 @@ impl Document {
 			let c = self.clone_subtree(over, ok, idx);
 			self.arena[idx].children.push(c);
 		}
+		bracket(&mut self.arena[idx]);
 		idx
 	}
 }

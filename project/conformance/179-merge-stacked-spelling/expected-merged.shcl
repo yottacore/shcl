@@ -1,8 +1,10 @@
-x:
-	- 2
-	no colon 4
-# A list the lower layer spells stacked merges the way the same list written
-# inline does: the spelling shows only while a kept line holds it stacked, and
-# a reload of the lower layer would not have it.
-x:
-	x: 0
+# A merge writes every list in brackets, whatever form its layers used, so a
+# merge of the merged text gives the same text. A line kept among the items
+# and a comment on one go above the list.
+x: [2, 3]
+# on b
+y: [a, b]
+w: [5]
+*kept
+# on q
+z: [p, q]

@@ -1,5 +1,7 @@
 # A list item is `- ` then one value. `fmt` keeps a list written this way.
-sizes: [small, large]
+sizes:
+	- small
+	- large
 same: [small, "extra large", "Bond, James"]
 one:
 	- 80

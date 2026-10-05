@@ -1,4 +1,5 @@
-# A child under a stacked list gives the canonical form.
+# An array setter over a list written stacked keeps it stacked, as an
+# overwrite keeps quotes. A line kept among its items moves above it.
 a:
 	- x
 	- y

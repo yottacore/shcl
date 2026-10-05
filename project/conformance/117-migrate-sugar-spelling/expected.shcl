@@ -8,7 +8,7 @@ bracket:[[x]
 after-bracket: 1
 spaced: ["~~~y"]
 noted: ["~~~z"]  # kept
-parent: ["~~~w"]
+parent:[~~~w]
 	child: 1
 outer:
 	inner:[[v]

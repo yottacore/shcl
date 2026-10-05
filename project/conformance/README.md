@@ -66,7 +66,7 @@ Case `012` pins raw-block identity: the info-string is part of a block's value, 
 
 Cases `014`-`016` pin the **Writer**. `014` builds a document from an empty base (scalars, arrays, a comment above a later-set field, an empty section, and a `-default` that no-ops when the field already exists). `015` edits an existing document (overwrite the first instance of a leaf, `-default` that keeps the present value, `remove`, and a `[value]` selector that adds children under the matching instance). `016` pins the emit hazards: raw blocks (info string as identity), a string that looks like a fence, tricky strings (tab/quote/backslash and a fence-lookalike, minimally quoted so they read back verbatim), an explicit empty string (`""`, distinct from an empty value), and a bare 8-digit date stored canonically.
 
-Case `013` pins comment preservation through `fmt`: a whole-line comment re-emits above the node bound by the next line (merged instances concatenate theirs), a trailing comment stays on its line (a second one from a merged instance moves above), comments among `- ` items ride the field line, a comment between a bare header and its fence attaches to that field, `#` inside a raw block stays content, and comments after the last binding line re-emit at the end. The older cases' expected files have their inputs' comments too.
+Case `013` pins comment preservation through `fmt`: a whole-line comment re-emits above the node bound by the next line (merged instances concatenate theirs), a trailing comment stays on its line (a second one from a merged instance moves above), a comment among `- ` items or on one stays where it was, a comment between a bare header and its fence attaches to that field, `#` inside a raw block stays content, and comments after the last binding line re-emit at the end. The older cases' expected files have their inputs' comments too.
 
 Case `017` pins merge-key injectivity: a single element holding a literal NUL (`x: "a<NUL>b"`) stays distinct from the two-element array `x: [a, b]` (`count = 2`), where a bare-NUL-joined key would merge them and drop the second. The input contains an actual NUL byte, so the cross-binding differential skips it (bash cannot hold a NUL) and the four native runners do the pinning.
 
@@ -120,7 +120,7 @@ Note when reading comparison counts: the fuzz seed set includes the corpus input
 
 Case `046` pins partial validation under a schema fault: a bad `min` is a `V092` at its schema line, the surviving constraints still flag a wrong type and a missing required field, and the unknown field draws no `V001` (the sweep needs a fault-free schema).
 
-Case `047` pins that a schema fault which loses a path (`field: [workers, extra]`, `V093`) still holds the unknown-field sweep back, so `mystery` draws no `V001`.
+Case `047` pins that a schema fault which loses a path (`field: "[workers, extra]"`, `V093`) still holds the unknown-field sweep back, so `mystery` draws no `V001`.
 
 Case `048` pins `H002` three levels deep: re-opening `table: users` hints at the reopened line and at each nested re-mention, beside the `H001` for the repeated `col`. Under the schema, `reopen: true` drops the top hint and `repeat` drops the `H001`, while the nested hints stay.
 
@@ -146,11 +146,11 @@ Case `058` pins raw-block nesting: the closing fence's indent is what comes off 
 
 Case `059` pins the two raw-block errors: a fence with no parent field (`E006`, the block is dropped) and a block that never closes (`E005`, the content runs to the end of the file and the block still binds).
 
-Case `060` pins the stacked-list errors: an item with no parent field (`E007`), an empty item (`E009`, a `-` followed only by a comment), a bare comma in an item (`E010`), and an item under a field that already holds a value (`E011`). The survivors still read as the list.
+Case `060` pins the stacked-list errors: an item with no parent field (`E007`), an empty item (`E009`, a `-` followed only by a comment), a bare comma in an item (`E026`, kept among the items), and an item under a field that already holds a value (`E011`). The survivors still read as the list.
 
 Case `061` pins `E012`: a dedent to a column that matches no open level is skipped and written back as it was, and the next line at a real level binds where it belongs.
 
-Case `062` pins a writer fold: `empty b` clears the value of `b: 1, 2`, which then merges with the `b` below it. The `int b.c 5` before it names which `b` the setter picked, since the merged order differs by instance; the op it replaced set a value the `b` below already had, so the golden read the same either way.
+Case `062` pins a writer fold: `empty b` clears the value of `b: 1`, which then merges with the `b` below it. The `int b.c 5` before it names which `b` the setter picked, since the merged order differs by instance; the op it replaced set a value the `b` below already had, so the golden read the same either way.
 
 Case `063` pins `remove` followed by a `-default` on the same path: the default finds the path gone and writes it again, at the end.
 
@@ -236,7 +236,7 @@ Case `104` pins an item with no parent field at the top of a file (`E007`, dropp
 
 Case `105` pins bare selector bodies holding an apostrophe or a mid-text quote as `E025`, a trailing backslash as text, and quoted ones spanning a `]` or holding a `#`, each followed by a comment that stays a comment. A refused line is kept and takes its block with it.
 
-Case `106` pins the 2.x selector sugar under the 3.0 rules: `base:[Boston]` is a one-element array, so `base.lat` reads under it while `base[Boston].lat` does not, `[prod]` and `["a, b"]` are arrays, and `srv:[web].name: [Boston]` is `E019` for the text after its first `]`, kept, with nothing lost. The load fails at Strict.
+Case `106` pins the 2.x selector sugar under the 3.0 rules: `base:[Boston]` is an array on a field with a line under it, `E028`, kept, so `base` reads Empty, `base.lat` reads under it and `base[Boston].lat` does not, `[prod]` and `["a, b"]` are arrays, and `srv:[web].name: [Boston]` is `E019` for the text after its first `]`, kept, with nothing lost. The load fails at Strict.
 
 Case `107` pins recursive fragment mounts under the validation memo: a type fault seven mounts down (`V003`), a star path through a mount, and an unknown leaf at the bottom (`V001`) are all still reported.
 
@@ -324,7 +324,7 @@ Case `148` pins `clear-comments`: every comment line above a node comes off, a g
 
 Case `149` pins `banner on`: an old info block in the footer comes off, found by its version line, not its links, and so does a bare version stamp from `migrate`. A `##` comment set off by a blank line stays. A second `banner on` changes nothing. Its `write-bad.ops` refuses a value other than `on` or `off`.
 
-Case `150` pins the save that keeps lines on a file kept by hand: four-space indents, padded values, a quoted value and capital letters in names. A changed value goes into its own line with the spacing and comment around it left alone, a new child takes its siblings' indent, a removed field takes its lines with it, and a rewritten raw block keeps the name's spelling. A stacked list given new values comes back in brackets, the way an array setter writes one.
+Case `150` pins the save that keeps lines on a file kept by hand: four-space indents, padded values, a quoted value and capital letters in names. A changed value goes into its own line with the spacing and comment around it left alone, a new child takes its siblings' indent, a removed field takes its lines with it, and a rewritten raw block keeps the name's spelling. A stacked list given new values stays stacked, as an overwrite keeps quotes.
 
 Case `151` pins the edges of a file: a byte-order mark, CRLF line ends and no newline at the end all stay, and a new line gets CRLF too.
 
@@ -332,7 +332,7 @@ Case `152` pins two edits that give the canonical form: a child added under flat
 
 Case `153` pins a comment above a flat dotted line and above a selector line. The canonical form writes each comment inside the block the line makes, and the save keeps both as written. A changed value on either line goes into the line.
 
-Case `154` pins a child under a stacked list. Kept stacked, the list would reload with `E001`, so the save gives the canonical form. There the list goes in brackets, and a malformed line kept among its items moves above it.
+Case `154` pins an array setter over a list written stacked: the list stays stacked, as an overwrite keeps quotes, and a malformed line kept among its items moves above it. A setter that would put a field under a list is refused, since that is `E028` on a reload.
 
 Case `155` pins a selector that puts a child under an earlier block. The canonical order differs from the file's, so an edit anywhere gives the canonical form.
 
@@ -382,7 +382,7 @@ Case `177` pins the `duration` and `size` schema types: `unit`, `decimal`, and `
 
 Case `178` pins a misplaced line kept as written that turned into a comment, once from the load under a line skipped for an escape in its name, since as written it would bind, and once from a setter that unstacks the list it sat in. `clear-comments` takes the real comment above it and leaves it, and `comments` does not list it.
 
-Case `179` pins a merge onto a list the lower layer writes stacked: the higher layer's `x: [2]` is the same list, and the kept line it brings is written under the merged list.
+Case `179` pins that a merge writes every list in brackets, whatever form its layers used, so a merge of the merged text gives the same text. A line kept among the items and a comment on one go above the list.
 
 Case `180` pins `banner on` with an info block above the first field's first child. A dotted first line hangs a block at the top of the file on its last name, and a saved file writes that name as the first field's first child, so the two cannot be told apart after a save. The block stays, and the new one goes at the end.
 
@@ -420,7 +420,7 @@ Case `196` pins bracket arrays and the read table in the value syntax doc: `80` 
 
 Case `197` pins the malformed array (`E019`): text after the `]`, a nested `[`, an empty element in three places, and no closing `]`. A bare comma is `E026`, and each element follows the value rules (`E025`, `E017`, `E023`). Every line is kept as written with nothing lost, and the lines under one still load under the field with no value.
 
-Case `198` pins the stacked list's `- ` marker: `fmt` keeps the list stacked, a one-item list is still an array, an old `*` line is `E013` and kept among the items that still load, `- name:` is `E027` while `- "name:"`, `- localhost:8080` and `- -5` are items, a nested array is `E019`, an item with a space is `E025`, and `-x: y` is a field line (`E014`) that holds its level. Its write ops pin that an array setter writes a stacked list in brackets.
+Case `198` pins the stacked list's `- ` marker: `fmt` keeps the list stacked, a one-item list is still an array, an old `*` line is `E013` and kept among the items that still load, `- name:` is `E027` while `- "name:"`, `- localhost:8080` and `- -5` are items, a nested array is `E019`, an item with a space is `E025`, and `-x: y` is a field line (`E014`) that holds its level. Its write ops pin that an array setter keeps a stacked list stacked.
 
 Beyond the fixed corpus, the differential harness (`cicd/utility/crosscheck.bash`) also derives accessor coverage over the fuzz set: the reference's fuzz dump writes a `<name>.reads.tsv` beside each dumped input (paths it knows exist, cycling type and strictness), which the `--extra` replay runs through the same row machinery. Every scalar read row - corpus and fuzz-derived - is additionally replayed under `--on-bad=error` (an exit-code differential) and `--default=<x>` (a stdout differential), so the on-bad/default policy surface is pinned cross-binding too. It also runs three `set` edits (a changed value, a new child, a removal) on the first paths of every input, corpus and fuzz alike, so the save that keeps lines is compared well past the goldens. The reference's line-ending fuzz dumps up to 100 more inputs, each mixing LF and CRLF with its edits as a write-ops script, into an `eol/` folder beside the rest. Each goes through `set --write` in every binding, and the files left on disk must match byte for byte.
 

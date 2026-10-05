@@ -1377,14 +1377,39 @@ fn raw_refusal(content: &str) -> &'static str {
 	}
 }
 
+/// A field with lines under it takes one plain value or none (E028): an
+/// array there, or a field made under an array, is refused for where it goes.
+fn array_refusal(doc: &Document, path: &str, array: bool) -> Option<&'static str> {
+	if array && !doc.children(path).is_empty() {
+		return Some("a field with lines under it takes one plain value or none");
+	}
+	let mut tok = shcl::Tokens::default();
+	tokenize(path, b'=', true, Rules::Current, &mut tok);
+	for next in tok.segments.iter().skip(1) {
+		let quoted = usize::from(next.name.quote != Quote::None);
+		let up = path[..next.name.start - quoted].trim_end_matches('.');
+		let r = doc.read_string(up);
+		// Brackets on a value that reads unquoted are an array's.
+		if r.status == shcl::Status::Good && !r.quoted && r.value.starts_with('[') {
+			return Some("an array takes no lines under it");
+		}
+	}
+	None
+}
+
 /// The per-binding wording behind a setter's bare `false`.
 /// Why a write was refused. When the path itself is fine what failed is the
 /// text, and only the caller knows which half of the op that was, so it names
 /// it: a setter refused for its value used to report the sentence written for
 /// `set_literal` whatever the op.
-fn describe_refusal(doc: &Document, path: &str, unwritable: &'static str) -> &'static str {
+fn describe_refusal(
+	doc: &Document,
+	path: &str,
+	array: bool,
+	unwritable: &'static str,
+) -> &'static str {
 	match doc.write_reason(path) {
-		shcl::WriteReason::Writable => unwritable,
+		shcl::WriteReason::Writable => array_refusal(doc, path, array).unwrap_or(unwritable),
 		shcl::WriteReason::BadPath => "not a usable path",
 		shcl::WriteReason::ValueInPath => "a path with a value part cannot be written",
 		shcl::WriteReason::Wildcard => "a wildcard path cannot be written",
@@ -1499,7 +1524,12 @@ fn load_layered_from(
 				"{}: cannot write {}: {}",
 				s.opt(),
 				s.path,
-				describe_refusal(&doc, &s.path, "the value text is not one value")
+				describe_refusal(
+					&doc,
+					&s.path,
+					s.kind != SetKind::Data && s.value.trim_start().starts_with('['),
+					"the value text is not one value"
+				)
 			);
 			return Err(1);
 		}
@@ -2791,7 +2821,13 @@ fn apply_op(doc: &mut Document, line: &str) -> Result<(), String> {
 		return Err(format!(
 			"cannot write {}: {}",
 			path,
-			describe_refusal(doc, path, unwritable)
+			describe_refusal(
+				doc,
+				path,
+				f[0].contains("array")
+					|| (f[0].starts_with("literal") && val().trim_start().starts_with('[')),
+				unwritable
+			)
 		));
 	}
 	Ok(())

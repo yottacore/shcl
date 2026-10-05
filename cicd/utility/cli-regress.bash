@@ -632,12 +632,11 @@ rows=(
 	## The line under bracket text loads now (2026100115403384), so these two
 	## no longer hold: no E018, nothing lost, and the write goes through.
 	#'Ep3QaNm|sugar-check|check %W%|-|6|line 1: Error: E019\nline 2: Error: E018\nfailed: 2 diagnostic(s), 2 error(s)\n|-'
-	## The sugar reads as a one-element array now, with the line under it its
-	## child, so these load clean until an array on a field with lines under it
-	## is E028.
-	'Ep3QaNn|sugar-check-strict|check --strictness=strict %W%|-|0|-|-'
+	## The sugar is an array on a field with a line under it now (E028): the
+	## line is kept, and the line under it loads under the field with no value.
+	'Ep3QaNn|sugar-check-strict|check --strictness=strict %W%|-|6|-|-'
 	#'EpFkZy8|sugar-write-refused|fmt --write %W%|-|7|-|would delete 1 line'
-	'ErUmRRa|sugar-check-block|check %W%|-|0|ok (0 diagnostic(s))\n|-'
+	'ErUmRRa|sugar-check-block|check %W%|-|6|line 1: Error: E028\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E028 an array on a field with lines under it; the field takes one plain value or none$'
 	'ErUmRRb|sugar-block-read|get %W% base.lat|-|0|42\n|-'
 	'ErUmRRc|sugar-write-kept|fmt --write %W%|-|0||-'
 	'Era9kPy|kept-under-kept-fmt|fmt -|a: [1\n\tb: [2\n|0|a: [1\n\tb: [2\n|-'
