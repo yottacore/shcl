@@ -1527,6 +1527,32 @@ func TestTokenizeValueTakesANegativeOffsetAsZero(t *testing.T) {
 	}
 }
 
+func TestABadUTF8ByteKeepsItsClosingQuote(t *testing.T) {
+	defer testID(t, "ErryPpd")
+	// A stray continuation byte or a cut-short sequence stepped over the
+	// closing quote, so the line was E017 (2026100511212359). The value comes
+	// back with the byte in it. Same fixture in the C runner.
+	values := []string{"a b \x80 c", "\x80", "a\x80 b", "a b \xff c", "x\xe9", "\xf0\x9f\x98", "\xc3", "é"}
+	for _, v := range values {
+		for _, q := range []string{`"`, "'"} {
+			d := Parse("v: " + q + v + q + "\n")
+			for _, g := range d.Diagnostics() {
+				t.Errorf("%q: %s %s", v, g.Code, g.Message)
+			}
+			if got, st := d.GetString("v"); st != Good || got != v {
+				t.Errorf("%q quoted with %s: got %q, %v", v, q, got, st)
+			}
+		}
+	}
+	// A cut-short sequence ending the line must not step past its end.
+	for _, v := range []string{"x\xf0", "x\xe9\x80", "\xdf"} {
+		d := Parse("v: " + v)
+		if got, st := d.GetString("v"); st != Good || got != v {
+			t.Errorf("bare %q at the end: got %q, %v", v, got, st)
+		}
+	}
+}
+
 func TestMergeOntoItselfLeavesItAlone(t *testing.T) {
 	defer testID(t, "EqLqxgm")
 	// A document merged onto itself is left as it is (20260918b item 19). The
