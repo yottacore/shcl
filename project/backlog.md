@@ -163,7 +163,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Verified: 20261004, the four suites, cli-regress over the four CLIs, crosscheck with a fresh fuzz dump, check-docs, clippy for the host and windows, go vet and staticcheck, ruff and mypy, cppcheck, shellcheck, the test ID check, markdownlint, and the 2,000,000 release fuzz. Each new test failed with the fix taken out. The Rust and C windows paths ran under wine and wrote the offset.
 	- Verified: 20261004, create case: the four suites, cli-regress over the four CLIs, crosscheck with a fresh fuzz dump and again over 1274 dumped edits that write a setter's comment, sanitize-c, those 1274 through the C CLI under ASan and UBSan, check-docs, check-abnf, check-veneer, shell-regress, clippy for the host and windows, go vet and staticcheck for both modules and windows, ruff and mypy, cppcheck exhaustive, shellcheck, the test ID check, markdownlint, and the 2,000,000 release fuzz. Each new test failed with the fix taken out.
 	- Branch: `removekept`, `setkept`, `setcreate`
-	- Commit: `46e6176a`, `80d64922`
+	- Commit: `46e6176a`, `80d64922`, `14609e9b`
 	- Test case: `ErgToax` (Rust), `ErgToef` (Go), `ErgToiG` (Python), `ErgTom6` (C); cli-regress `ErgTonu`; corpus 187; fuzz `EreT6dh`. Setter: `ErleUnO` and `ErleV68` (Rust), `Erlf124` and `Erlf14o` (Go), `Erlf17j` and `Erlf1AN` (Python), `Erlf1DT` and `Erlf1GC` (C); cli-regress `Erlf1Is`. Create case: `ErmXhmZ` (Rust), `ErmXhpm` (Go), `ErmXhtL` (Python), `ErmXhwI` (C); cli-regress `ErmXhyt`.
 	- Acceptance signoff: Self-closed 20261004: built as answered, and its tests and the fuzz runs pass.
 	- Closed: 20261004-190620
