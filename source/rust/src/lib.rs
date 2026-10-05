@@ -4869,9 +4869,9 @@ impl Document {
 	/// File tier, save half: write this document's canonical text to PATH
 	/// through a temp file in the same directory plus a rename, so an
 	/// interrupted save can never truncate the config it rewrites - the same
-	/// mechanics the CLI's `--write` uses. Refuses when parsing lost content
-	/// that a save would silently delete (see lost_count); save_file_lossy
-	/// writes anyway. The Err tells the two apart without matching on prose:
+	/// mechanics the CLI's `--write` uses. Refuses when the write would delete
+	/// content from the file (see lost_count); save_file_lossy writes
+	/// anyway. The Err tells the two apart without matching on prose:
 	/// SaveError::Refused is the gate, SaveError::Io is the write failing.
 	pub fn save_file(&self, path: &str) -> Result<(), SaveError> {
 		let lost = self.lost_count();
@@ -4884,8 +4884,8 @@ impl Document {
 		write_file_atomic(path, &self.to_canonical()).map_err(SaveError::Io)
 	}
 
-	/// save_file without the lost-content gate: writes even when parsing
-	/// dropped lines this save deletes. The caller owns that choice. Only ever
+	/// save_file without the lost-content gate: writes even when the
+	/// write deletes content from the file. The caller owns that choice. Only ever
 	/// Errs with SaveError::Io - the gate is the one thing it skips.
 	pub fn save_file_lossy(&self, path: &str) -> Result<(), SaveError> {
 		write_file_atomic(path, &self.to_canonical()).map_err(SaveError::Io)

@@ -11147,8 +11147,8 @@ shcl_doc *shcl_load_file_keep_lines(const char *path, shcl_strictness s, shcl_fi
 }
 
 // File tier, save half: write the document's canonical text to PATH through
-// shcl_write_file_atomic. SHCL_SAVE_OK on success. Refuses when parsing lost
-// content that a save would silently delete (shcl_lost_count) - that is
+// shcl_write_file_atomic. SHCL_SAVE_OK on success. Refuses when the write
+// would delete content from the file (shcl_lost_count) - that is
 // SHCL_SAVE_REFUSED, distinct from SHCL_SAVE_FAILED so the caller need not
 // guess which happened; shcl_save_file_lossy writes anyway.
 shcl_save_result shcl_save_file(shcl_doc *d, const char *path) {
@@ -11157,8 +11157,8 @@ shcl_save_result shcl_save_file(shcl_doc *d, const char *path) {
 	return shcl_write_file_atomic(path, c.p, c.n) ? SHCL_SAVE_OK : SHCL_SAVE_FAILED;
 }
 
-// shcl_save_file without the lost-content gate: writes even when parsing
-// dropped lines this save deletes. The caller owns that choice. Never returns
+// shcl_save_file without the lost-content gate: writes even when the
+// write deletes content from the file. The caller owns that choice. Never returns
 // SHCL_SAVE_REFUSED - the gate is the one thing it skips.
 shcl_save_result shcl_save_file_lossy(shcl_doc *d, const char *path) {
 	ShclStr c = emit_canonical(d);
