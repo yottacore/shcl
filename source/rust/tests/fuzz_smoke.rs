@@ -1099,11 +1099,6 @@ fn edits_and_merges_match_a_reload() {
 			let v = format!("v{}", rng.below(3));
 			let op = rng.below(12);
 			let layer = structural(&mut rng);
-			// A kept line the settle turned into a comment is still the user's
-			// line and survives clear_comments, and a remove beside it. The
-			// canonical text writes it as a comment, so on the reload it is
-			// one, and the two cannot agree (20260926 item 2).
-			let settled = (op == 4 || op == 10) && live.comments(&path) != back.comments(&path);
 			for d in [&mut live, &mut back] {
 				let _ = match op {
 					0 | 1 => {
@@ -1129,12 +1124,75 @@ fn edits_and_merges_match_a_reload() {
 				0 | 1 => format!("merge:\n{layer}"),
 				_ => format!("op {op} at {path:?}\n"),
 			});
+			let (a, b) = (
+				unstamped(&live.to_canonical()),
+				unstamped(&back.to_canonical()),
+			);
 			assert!(
-				settled || unstamped(&live.to_canonical()) == unstamped(&back.to_canonical()),
+				a == b || ((op == 4 || op == 10) && reload_took_only_comments(&a, &b)),
 				"a step on the document and on its reload differ at iteration {i}:\n{log}"
 			);
 		}
 	}
+}
+
+/// A kept line the settle turned into a comment is still the user's line, so
+/// clear_comments and a remove beside it leave it (design.md, Kept lines under
+/// edits). The canonical text writes it as a comment, and the reload takes it
+/// like one, so the two cannot agree (20260926 item 2). True when that is all
+/// that differs: the reload's comment lines are some of the document's, in
+/// order, and without comment and blank lines the two load as one document.
+/// A comment the reload took can also take a blank with it, step the
+/// comments after it back a level, or leave a kept line heading the block
+/// below, so the rest is compared as documents. A check of the target's
+/// comments missed one below the target (2026100506223902).
+fn reload_took_only_comments(live: &str, back: &str) -> bool {
+	let comment = |l: &&str| l.trim_start_matches('\t').starts_with('#');
+	let mut have = live
+		.lines()
+		.filter(comment)
+		.map(|l| l.trim_start_matches('\t'));
+	let mut took = back
+		.lines()
+		.filter(comment)
+		.map(|l| l.trim_start_matches('\t'));
+	if !took.all(|c| have.any(|h| h == c)) {
+		return false;
+	}
+	let bare = |text: &str| {
+		let rest: String = text
+			.lines()
+			.filter(|l| !l.is_empty() && !comment(l))
+			.flat_map(|l| [l, "\n"])
+			.collect();
+		Document::parse(&rest).to_canonical()
+	};
+	bare(live) == bare(back)
+}
+
+/// The issue's steps, which the fuzz reached with the value syntax: the
+/// setter comments out `a: [1` and makes `a` with the lines under it, and the
+/// new `c` goes between the kept line and the settled one, so the settled
+/// line sits below it. The remove leaves it there. The reload reads a plain
+/// comment and takes it with the field.
+#[test]
+fn a_remove_keeps_a_settled_line_below_it() {
+	let _id = test_id("ErpmA09");
+	let mut live = Document::parse("a: [1\n\t\t\": \n\t d-: 2\n\te: 3\n");
+	assert_eq!(live.clear_comments("a.d"), 0);
+	assert!(live.set_empty("a.c"));
+	assert!(live.set_raw("b.c", "body", "v0"));
+	let mut back = Document::parse(&live.to_canonical());
+	assert_eq!(live.remove("a.c"), 1);
+	assert_eq!(back.remove("a.c"), 1);
+	let (a, b) = (
+		unstamped(&live.to_canonical()),
+		unstamped(&back.to_canonical()),
+	);
+	assert!(a.contains("\n\t\":\n\t# d-: 2\n\nb:\n"), "{a}");
+	assert!(b.contains("\n\t\":\n\nb:\n"), "{b}");
+	assert!(reload_took_only_comments(&a, &b));
+	assert!(!reload_took_only_comments(&b, &a));
 }
 
 /// A config the way people write one: a steady indent of tabs or spaces,
