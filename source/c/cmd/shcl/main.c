@@ -455,6 +455,12 @@ static const char *CODES =
 	"  The schema had error diagnostics of its own; they are printed above this\n"
 	"  with their own line numbers. Line 0.\n";
 
+/* Codes no load reports any more: CODE|severity it had|replacement, with the
+   replacement empty when nothing took its rule. An old log can still name one,
+   so explain says where it went rather than calling it unknown. */
+static const char *RETIRED =
+	"H004|hint|E024\n";
+
 static void outln(const char *p, size_t n) { fwrite(p, 1, n, stdout); fputc('\n', stdout); }
 
 /* A value for a one-per-line listing. `instances` promises one line per
@@ -2599,6 +2605,37 @@ static void code_line(const char *head) {
 	       (int)(bar2 - bar1 - 1), bar1 + 1, (int)(end - bar2 - 1), bar2 + 1);
 }
 
+// Prints the explain entry for a retired code and returns 1, or prints
+// nothing and returns 0 when the code was never one.
+static int retired_entry(const char *code) {
+	size_t cl = strlen(code);
+	for (const char *p = RETIRED; *p;) {
+		const char *e = strchr(p, '\n');
+		const char *bar1 = strchr(p, '|');
+		const char *bar2 = bar1 ? strchr(bar1 + 1, '|') : NULL;
+		if (!e || !bar2 || bar2 > e) break;
+		if ((size_t)(bar1 - p) == cl && !strncmp(p, code, cl)) {
+			int sevn = (int)(bar2 - bar1 - 1), byn = (int)(e - bar2 - 1);
+			const char *sev = bar1 + 1, *by = bar2 + 1;
+			char head[160];
+			putchar('\n');
+			if (byn == 0) {
+				snprintf(head, sizeof head, "%s|retired|%.*s, with no replacement\n", code, sevn, sev);
+				code_line(head);
+				printf("  Loads no longer report %s, and no other code took its rule.\n", code);
+			} else {
+				snprintf(head, sizeof head, "%s|retired|%.*s, replaced by %.*s\n", code, sevn, sev, byn, by);
+				code_line(head);
+				printf("  Loads no longer report %s. 'shcl explain %.*s' has the rule now.\n", code, byn, by);
+			}
+			putchar('\n');
+			return 1;
+		}
+		p = e + 1;
+	}
+	return 0;
+}
+
 static int do_explain(const Opts *o) {
 	if (o->nargs == 0) {
 		printf("\nDiagnostic codes:\n\n");
@@ -2629,6 +2666,10 @@ static int do_explain(const Opts *o) {
 		if (*p != ' ' && !strncmp(p, code, cl) && p[cl] == '|') { head = p; break; }
 		if (!e) break;
 		p = e + 1;
+	}
+	if (!head && retired_entry(code)) {
+		free(code);
+		return 0;
 	}
 	if (!head) {
 		const char *names[64];

@@ -208,6 +208,16 @@ else
 		if [[ -n "${code}" ]]; then fBad "spec.md has a row for ${code}, which explain does not list"; fi
 	done < <(LC_ALL=C comm -13 <(printf '%s\n' "${explainCodes}") <(printf '%s\n' "${specCodes}"))
 fi
+##	A retired code is one no load reports, so it has no live entry or spec row,
+##	and the spec still says it was retired.
+retiredCodes="$(sed -n '/^const RETIRED: &str = "/,/^";$/p' "${mainRs}" | grep -oE '^[EHV][0-9]{3}' || true)"
+[[ -n "${retiredCodes}" ]] || fBad "the retired code check found no RETIRED table in ${mainRs##*/}"
+while IFS= read -r code; do
+	[[ -n "${code}" ]] || continue
+	if grep -qx "${code}" <<<"${explainCodes}"; then fBad "${code} is both retired and listed by explain"; fi
+	if grep -qx "${code}" <<<"${specCodes}"; then fBad "${code} is retired and still has a spec.md table row"; fi
+	if ! grep -qF "\`${code}\` is retired" "${repoDir}/project/spec.md"; then fBad "spec.md does not say ${code} is retired"; fi
+done <<<"${retiredCodes}"
 
 fTest EoXE67k no-shared-library-claim
 ##	The documents list five integration modes, two of which are a shared library.

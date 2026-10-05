@@ -80,6 +80,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `shcl explain [CODE]` gives the rule behind a diagnostic code, or lists every code.
 
+- `shcl explain` on a retired code, such as `H004`, says it was retired and names the code that replaced it.
+
 - `shcl help CMD` and `CMD --help` show one subcommand's help.
 
 - A mistyped command, option or code gets a did-you-mean.

@@ -433,6 +433,13 @@ V099|error|schema failed to load
   with their own line numbers. Line 0.
 `
 
+// retired is the codes no load reports any more: `CODE|severity it had|
+// replacement`, with the replacement empty when nothing took its rule. An old
+// log can still name one, so explain says where it went rather than calling
+// it unknown.
+const retired = `H004|hint|E024
+`
+
 func statusCode(st shcl.Status) int {
 	switch st {
 	case shcl.Good:
@@ -2249,6 +2256,27 @@ func codeHeads() []string {
 	return heads
 }
 
+// retiredEntry is the explain entry for a retired code, and false when the
+// code was never one.
+func retiredEntry(code string) (string, bool) {
+	for _, l := range strings.Split(strings.TrimSuffix(retired, "\n"), "\n") {
+		f := strings.SplitN(l, "|", 3)
+		for len(f) < 3 {
+			f = append(f, "")
+		}
+		if f[0] != code {
+			continue
+		}
+		if f[2] == "" {
+			return fmt.Sprintf("%s\n  Loads no longer report %s, and no other code took its rule.\n",
+				codeLine(code+"|retired|"+f[1]+", with no replacement"), code), true
+		}
+		return fmt.Sprintf("%s\n  Loads no longer report %s. 'shcl explain %s' has the rule now.\n",
+			codeLine(code+"|retired|"+f[1]+", replaced by "+f[2]), code, f[2]), true
+	}
+	return "", false
+}
+
 func doExplain(o *opts) int {
 	if len(o.args) == 0 {
 		var body strings.Builder
@@ -2285,6 +2313,10 @@ func doExplain(o *opts) int {
 		}
 	}
 	if !found {
+		if entry, ok := retiredEntry(code); ok {
+			outf("\n%s\n", entry)
+			return 0
+		}
 		var names []string
 		for _, h := range codeHeads() {
 			names = append(names, strings.SplitN(h, "|", 2)[0])
