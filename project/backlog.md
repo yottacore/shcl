@@ -37,9 +37,9 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- ID: 2026100207032800
 	- Type: Enhancement
 	- Status: Started
+	- Priority: Critical
 	- Needs local test suite run?: Y
 	- Needs external testing: Y
-	- Priority: Critical
 	- Opened: 20261002-070407
 	- Opened by: JC
 	- Assigned to:
@@ -142,6 +142,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Priority: High
 	- Opened: 20261003-134616
 	- Opened by: JC
+	- Prereq IDs: 2026100207032800
 	- Related IDs: 2026100313461650, 2026092709243678, 2026100115403385, 2026100207032800
 	- Problem description:
 		- When a client program's shcl upgrade breaks compatibility with an existing file(s).
@@ -163,6 +164,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261003: the version in the name is the old file's format, so `format-v2` for a 2.x file.
 		- 20261003: the fresh file gets the info block, as `init` writes it. This call is the one library write that does.
 		- 20261003: it covers beta-stamped Format 3 files too, when they can be told apart. This reopens the scope of 2026100115403385.
+	- Note: 20261005, waits on 2026100207032800, since its rewrite goes through `migrate`, which that item's chunk C changes. Work it right after chunk C.
 	- Estimated effort: High
 
 - A CICD test that makes old shcl files and checks the automatic conversion
@@ -306,6 +308,23 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- A merge or an edit can leave that shape. The fuzz properties skip it (`list_after_empty` in `fuzz_smoke.rs`).
 		- Question: should a field line under stacked items stop binding (`E001` kept, not bound)? That would remove the shape, but reverses the uniform-or-nothing rule cases 010 and 128 pin.
 	- Test case: none yet; the fuzz skip names the shape.
+
+- A quoted value holding an invalid UTF-8 byte can lose its closing quote and fail as `E017`
+	- ID: 2026100511212359
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261005-112123
+	- Opened by: convert-base-v2 feedback
+	- Version and build: dev at `0d1a491c`
+	- Steps to reproduce:
+		- Go `Parse` on `base:`, then a tab and `symbols: "a b \x80 c"`, with a real `\x80` byte.
+		- The same with `"\x80"`, `"a\x80 b"` or `"a b \xff c"`.
+	- Incorrect behavior: `line 2: E017 unterminated quote in value`. `"\xff a b c"` and `"a b \xe9 c"` parse fine.
+	- Expected behavior: the closing quote is found, and the program reading the value decides what to do with the byte. Or an error that names the bad byte.
+	- Reproduced: 20261005, Go binding at `0d1a491c`. C has the same helper, read but not run. Python and Rust take text, so they can't be handed the byte.
+	- Possible cause: `utf8Len` returns 4 for any byte that isn't a lead byte, continuation bytes included. `quoteClose` and the piece scan then step up to 3 bytes past it, and step over the quote when it's that close. C `utf8_len` is the same.
+	- Note: a rough edge. The file is still refused, only with the wrong message. convert-base-v2 hit it with a config base holding a bad digit, and refuses that digit itself once the line parses.
 
 - Build and test on FreeBSD
 	- ID: 2026100413052101
