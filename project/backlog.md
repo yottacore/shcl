@@ -278,7 +278,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - The library `save_file` doc comments still say the save refuses over what the load dropped
 	- ID: 2026100414480001
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261004-144800
 	- Opened by: 2026100313174973's sweep
@@ -287,6 +287,13 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Incorrect behavior: the doc comment on `save_file` in all four says it "Refuses when parsing lost content that a save would silently delete". Since 2026100307310000 the count also has kept lines an edit lost. Go's `SaveFile`, Python's `save_file`, Rust's `save_file`, and C's `shcl_save_file` in `shcl.h`.
 	- Expected behavior: they say the save refuses when the write would delete content from the file, like the save result comments.
 	- Estimated effort: Low
+	- Actual fix [Bug]: the `save_file` comments in all four say the save refuses when the write would delete content from the file, as the save result comments do.
+	- Swept: the `save_file_lossy` comments in all four, which said "writes even when parsing dropped lines this save deletes", now say it writes even when the write deletes content from the file. `shcl.hpp` had neither wording. The migrate refusal messages in the CLIs stay, since they are about a fresh load of the migrated text. changelog.md is history and stays.
+	- Branch: `savedoc`
+	- Commit: `115811c9`
+	- Test case: none, comments only.
+	- Acceptance signoff: Self-closed: mechanical.
+	- Closed: 20261004-172341
 
 - A crosscheck run aborted the Python CLI with exit 134 under load
 	- ID: 2026100313174976
