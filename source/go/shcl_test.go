@@ -2987,11 +2987,6 @@ func TestEditsAndMergesMatchAReload(t *testing.T) {
 			v := "v" + strconv.Itoa(g.below(3))
 			op := g.below(11)
 			layer := g.doc()
-			// A kept line the settle turned into a comment is still the user's
-			// line and survives ClearComments, and a remove beside it. The
-			// canonical text writes it as a comment, so on the reload it is one,
-			// and the two cannot agree (20260926 item 2).
-			settled := (op == 4 || op == 9) && !reflect.DeepEqual(live.Comments(path), back.Comments(path))
 			for _, d := range []*Document{live, back} {
 				switch op {
 				case 0, 1:
@@ -3021,7 +3016,7 @@ func TestEditsAndMergesMatchAReload(t *testing.T) {
 			} else {
 				log += fmt.Sprintf("op %d at %q\n", op, path)
 			}
-			if a, b := live.ToCanonical(), back.ToCanonical(); a != b && !settled {
+			if a, b := live.ToCanonical(), back.ToCanonical(); a != b && !((op == 4 || op == 9) && reloadTookOnlyComments(a, b)) {
 				t.Fatalf("a step on the document and on its reload differ at iteration %d:\n%s--- live\n%s--- reload\n%s", i, log, a, b)
 			}
 			// The save that keeps lines reloads as the document with no error
@@ -3038,6 +3033,79 @@ func TestEditsAndMergesMatchAReload(t *testing.T) {
 				t.Fatalf("a save that kept no lines is not canonical at iteration %d:\n%s", i, log)
 			}
 		}
+	}
+}
+
+// reloadTookOnlyComments: a kept line the settle turned into a comment is
+// still the user's line, so ClearComments and a remove beside it leave it
+// (design.md, Kept lines under edits). The canonical text writes it as a
+// comment, and the reload takes it like one, so the two cannot agree
+// (20260926 item 2). True when that is all that differs: the reload's comment
+// lines are some of the document's, in order, and without comment and blank
+// lines the two load as one document. A comment the reload took can also
+// take a blank with it, step the comments after it back a level, or leave a
+// kept line heading the block below, so the rest is compared as documents. A
+// check of the target's comments missed one below the target
+// (2026100506223902).
+func reloadTookOnlyComments(live, back string) bool {
+	comment := func(l string) bool { return strings.HasPrefix(strings.TrimLeft(l, "\t"), "#") }
+	var have []string
+	for _, l := range strings.Split(live, "\n") {
+		if comment(l) {
+			have = append(have, strings.TrimLeft(l, "\t"))
+		}
+	}
+	for _, l := range strings.Split(back, "\n") {
+		if !comment(l) {
+			continue
+		}
+		for len(have) > 0 && have[0] != strings.TrimLeft(l, "\t") {
+			have = have[1:]
+		}
+		if len(have) == 0 {
+			return false
+		}
+		have = have[1:]
+	}
+	bare := func(text string) string {
+		var rest strings.Builder
+		for _, l := range strings.Split(text, "\n") {
+			if l != "" && !comment(l) {
+				rest.WriteString(l + "\n")
+			}
+		}
+		return Parse(rest.String()).ToCanonical()
+	}
+	return bare(live) == bare(back)
+}
+
+// The issue's steps, which the fuzz reached with the value syntax: the setter
+// comments out `a: [1` and makes `a` with the lines under it, and the new `c`
+// goes between the kept line and the settled one, so the settled line sits
+// below it. The remove leaves it there. The reload reads a plain comment and
+// takes it with the field.
+func TestARemoveKeepsASettledLineBelowIt(t *testing.T) {
+	defer testID(t, "ErpmA2G")
+	live := Parse("a: [1\n\t\t\": \n\t d-: 2\n\te: 3\n")
+	if n := live.ClearComments("a.d"); n != 0 {
+		t.Fatalf("cleared %d", n)
+	}
+	if !live.SetEmpty("a.c") || !live.SetRaw("b.c", "body", "v0") {
+		t.Fatalf("a setter refused")
+	}
+	back := Parse(live.ToCanonical())
+	if live.Remove("a.c") != 1 || back.Remove("a.c") != 1 {
+		t.Fatalf("a remove missed")
+	}
+	a, b := live.ToCanonical(), back.ToCanonical()
+	if !strings.Contains(a, "\n\t\":\n\t# d-: 2\n\nb:\n") {
+		t.Fatalf("the document wrote %q", a)
+	}
+	if !strings.Contains(b, "\n\t\":\n\nb:\n") {
+		t.Fatalf("the reload wrote %q", b)
+	}
+	if !reloadTookOnlyComments(a, b) || reloadTookOnlyComments(b, a) {
+		t.Fatalf("reloadTookOnlyComments got it wrong:\n%s---\n%s", a, b)
 	}
 }
 

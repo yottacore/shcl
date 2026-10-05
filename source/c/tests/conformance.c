@@ -753,6 +753,66 @@ static int keeps_every_line(const char *base, size_t n) {
 	return ok;
 }
 
+static int seq_comment(const char *p, size_t n) {
+	size_t k = 0;
+	while (k < n && p[k] == '\t') k++;
+	return k < n && p[k] == '#';
+}
+
+/* The canonical form of the text's lines that are neither blank nor a
+   comment, into out. */
+static void seq_bare(const char *p, size_t n, SeqBuf *out) {
+	out->n = 0; seq_put(out, "", 0);
+	for (size_t at = 0; at < n;) {
+		size_t e = at;
+		while (e < n && p[e] != '\n') e++;
+		if (e > at && !seq_comment(p + at, e - at)) { seq_put(out, p + at, e - at); seq_puts(out, "\n"); }
+		at = e + 1;
+	}
+	shcl_doc *d = shcl_parse(out->p, out->n);
+	shcl_str c = shcl_to_canonical(d);
+	out->n = 0; seq_put(out, c.p, c.n);
+	shcl_free(d);
+}
+
+/* A kept line the settle turned into a comment is still the user's line, so
+   shcl_clear_comments and a remove beside it leave it (design.md, Kept lines
+   under edits). The canonical text writes it as a comment, and the reload
+   takes it like one, so the two cannot agree (20260926 item 2). True when
+   that is all that differs: the reload's comment lines are some of the
+   document's, in order, and without comment and blank lines the two load as
+   one document. A comment the reload took can also take a blank with it, step
+   the comments after it back a level, or leave a kept line heading the block
+   below, so the rest is compared as documents. A check of the target's
+   comments missed one below the target (2026100506223902). */
+static int reload_took_only_comments(const char *lp, size_t ln, const char *bp, size_t bn) {
+	size_t li = 0;
+	for (size_t bi = 0; bi < bn;) {
+		size_t be = bi;
+		while (be < bn && bp[be] != '\n') be++;
+		if (seq_comment(bp + bi, be - bi)) {
+			size_t bt = bi;
+			while (bt < be && bp[bt] == '\t') bt++;
+			int found = 0;
+			while (!found && li < ln) {
+				size_t le = li, lt = li;
+				while (le < ln && lp[le] != '\n') le++;
+				while (lt < le && lp[lt] == '\t') lt++;
+				found = seq_comment(lp + li, le - li) && le - lt == be - bt && memcmp(lp + lt, bp + bt, be - bt) == 0;
+				li = le + 1;
+			}
+			if (!found) return 0;
+		}
+		bi = be + 1;
+	}
+	SeqBuf x = {0}, y = {0};
+	seq_bare(lp, ln, &x);
+	seq_bare(bp, bn, &y);
+	int same = x.n == y.n && memcmp(x.p, y.p, x.n) == 0;
+	free(x.p); free(y.p);
+	return same;
+}
+
 /* A merge or an edit leaves the document its own saved text reloads as,
    comments included, so the next step comes out the same whether or not the file
    was saved in between. Comments were filed one way by a load and another by a
@@ -788,17 +848,6 @@ static void edits_and_merges_match_a_reload(void) {
 			char v[24]; snprintf(v, sizeof v, "v%zu", seq_below(3)); /* room for any size_t, or -Os warns */
 			size_t op = seq_below(11);
 			seq_doc(&layer);
-			/* A kept line the settle turned into a comment is still the user's
-			   line and survives shcl_clear_comments, and a remove beside it.
-			   The canonical text writes it as a comment, so on the reload it is
-			   one, and the two cannot agree (20260926 item 2). */
-			int settled = 0;
-			if (op == 4 || op == 9) {
-				shcl_str *lc, *bc;
-				size_t nl = shcl_comments(live, path.p, path.n, &lc);
-				settled = nl != shcl_comments(back, path.p, path.n, &bc);
-				for (size_t k = 0; !settled && k < nl; k++) settled = lc[k].n != bc[k].n || memcmp(lc[k].p, bc[k].p, lc[k].n) != 0;
-			}
 			shcl_doc *docs[2] = {live, back};
 			int applied = 0;
 			for (int k = 0; k < 2; k++) {
@@ -821,7 +870,7 @@ static void edits_and_merges_match_a_reload(void) {
 			else { seq_puts(&log, "op "); seq_num(&log, op); seq_puts(&log, " at "); seq_put(&log, path.p, path.n); seq_puts(&log, "\n"); }
 			t = shcl_to_canonical(live); a.n = 0; seq_put(&a, t.p, t.n);
 			t = shcl_to_canonical(back); b.n = 0; seq_put(&b, t.p, t.n);
-			if (!settled && (a.n != b.n || memcmp(a.p, b.p, a.n) != 0)) {
+			if ((a.n != b.n || memcmp(a.p, b.p, a.n) != 0) && !((op == 4 || op == 9) && reload_took_only_comments(a.p, a.n, b.p, b.n))) {
 				fprintf(stderr, "FAIL edits_and_merges: a step on the document and on its reload differ at iteration %d:\n%s--- live\n%s--- reload\n%s", i, log.p, a.p, b.p);
 				nfail++; bad = 1;
 			}
@@ -2965,6 +3014,30 @@ int main(int argc, char **argv) {
 	}
 	test_id("EonWXt2", "edits_and_merges_match_a_reload");
 	edits_and_merges_match_a_reload();
+	test_id("ErpmA6K", "a_remove_keeps_a_settled_line_below_it");
+	/* The issue's steps, which the fuzz reached with the value syntax: the
+	   setter comments out `a: [1` and makes `a` with the lines under it, and
+	   the new `c` goes between the kept line and the settled one, so the
+	   settled line sits below it. The remove leaves it there. The reload
+	   reads a plain comment and takes it with the field. */
+	{
+		const char *st = "a: [1\n\t\t\": \n\t d-: 2\n\te: 3\n";
+		shcl_doc *sl = shcl_parse(st, strlen(st));
+		if (shcl_clear_comments(sl, "a.d", 3) != 0) fail("settled_below", "clear_comments took a line at a.d");
+		if (!shcl_set_empty(sl, "a.c", 3) || !shcl_set_raw(sl, "b.c", 3, "body", 4, "v0", 2)) fail("settled_below", "a setter refused");
+		shcl_str sc = shcl_to_canonical(sl);
+		shcl_doc *sb = shcl_parse(sc.p, sc.n);
+		if (shcl_remove(sl, "a.c", 3) != 1 || shcl_remove(sb, "a.c", 3) != 1) fail("settled_below", "a remove missed");
+		SeqBuf sa = {0}, sr = {0};
+		sc = shcl_to_canonical(sl); seq_put(&sa, sc.p, sc.n);
+		sc = shcl_to_canonical(sb); seq_put(&sr, sc.p, sc.n);
+		if (!strstr(sa.p, "\n\t\":\n\t# d-: 2\n\nb:\n")) fail("settled_below", "the document did not keep its settled line");
+		if (!strstr(sr.p, "\n\t\":\n\nb:\n")) fail("settled_below", "the reload kept the comment");
+		if (!reload_took_only_comments(sa.p, sa.n, sr.p, sr.n) || reload_took_only_comments(sr.p, sr.n, sa.p, sa.n))
+			fail("settled_below", "reload_took_only_comments got it wrong");
+		free(sa.p); free(sr.p);
+		shcl_free(sl); shcl_free(sb);
+	}
 	test_id("Er7o9rQ", "compact_keeps_generation_faults");
 	{
 		/* shcl_generate drops the faults of an earlier call first, and it tells

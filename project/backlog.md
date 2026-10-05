@@ -33,65 +33,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
-- `explain` on a retired code could name the code that replaced it
-	- ID: 2026100307163917
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Needs local test suite run?: The exhaustive cppcheck over the C CLI, at the next full `--ci`. It timed out at 10 minutes here; the normal level found nothing.
-	- Priority: Low
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 idea 1
-	- Version and build: dev at `6e8b7f89`
-	- Problem description:
-		- `shcl explain H004` answers "did you mean 'E004'?" at exit 1 in all four. H004 became E024, so a reader with an old log is sent to an unrelated code.
-	- Requirements:
-		- `explain` on a retired code says what replaced it, in all four CLIs.
-	- Progress log:
-		- H004 is the only retired code. Checked spec.md, design.md, the changelog, conformance README, cli-regress and the four code tables. value-syntax.md plans to retire E024 and H003 later.
-		- Each CLI has a `RETIRED` table beside its code table, one `CODE|old severity|replacement` line per code. An empty replacement prints the no-replacement form.
-		- Exit 0 on stdout, framed like any known code, since the code is one `explain` knows. The listing leaves retired codes out.
-		- `shcl explain H004` prints, between blank lines: `H004  retired     hint, replaced by E024` then `  Loads no longer report H004. 'shcl explain E024' has the rule now.`
-		- With no replacement it would print `CODE  retired     error, with no replacement` then `  Loads no longer report CODE, and no other code took its rule.` Checked byte-identical in all four with a test entry that was not committed.
-		- Open for signoff: the wording, exit 0, and leaving retired codes out of the listing.
-		- H003's plan names two codes, `E025` and `E027`, and the table holds one replacement. When it retires it goes in with none, unless the table learns two. Noted in value-syntax.md.
-		- When E024 retires, H004's line should lose its replacement too, or it points at a retired code.
-	- Decisions:
-		- The retired list is not a spec table row. spec.md says which codes are retired in prose, and check-docs holds each binding's table to that.
-	- Verified: cli-regress (2063 checks), crosscheck (15540 comparisons, now including each retired code), check-docs, the four conformance suites, cargo test, go test, clippy, go vet and staticcheck, ruff and mypy, shellcheck, markdownlint, test-ids check, shell-regress, and a gcc-15 `_FORTIFY_SOURCE` build of the C CLI.
-		- check-docs' new lines fail on a code both retired and live, and on spec.md not saying a code is retired. crosscheck fails on a changed retired entry in one binding. Both watched red.
-	- Branch: `retired`
-	- Commit: `99e5668b`
-	- Test case: cli-regress `Ern4qLa` and `Ern4qOc`, both failed before the fix in all four and pass after. crosscheck's usage check and cli-regress `Eq9yPCQ` read the retired list from the reference.
-
-- Called from a session, an unquoted `-x:y` argument loses its `-x:` on the way through either PowerShell script
-	- ID: 2026100408550401
-	- Type: Bug
-	- Status: Waiting for testing
-	- Needs external testing: the hosted windows job. Its win-runners row `ErkQHTh` now also calls both scripts from a session under 5.1 and 7.
-	- Severity: Low
-	- Opened: 20261004-085504
-	- Opened by: found while working 2026100307163905
-	- Related IDs: 2026100307163905, 2026100307163908
-	- Version and build: dev at `2533bbbb`
-	- Steps to reproduce:
-		- `. ./shcl.ps1; shcl get f.shcl -x:y`, or `& ./shcl.ps1 get f.shcl -x:y`, or the same through `dogfood_shcl.ps1`.
-	- Incorrect behavior: the binary gets `get`, `f.shcl` and `y`, and answers for `y`. Under Legacy argument passing it gets `-x:` and `y` as two arguments. The binary called directly gets `-x:y`.
-	- Expected behavior: the binary gets `-x:y`, or the header says to quote it, as it does for `--` and a comma.
-	- Reproduced: 20261004, pwsh 7.6 on Linux. A double-dash spelling such as `--x:y` and a quoted `'-x:y'` go through.
-	- Possible cause: PowerShell splits a single-dash `-x:y` into a parameter token and a value in `$args`, and splatting that token to a native command drops it. Rejoining needs the hidden parameter mark, and `-x: y` with a space looks the same in `$args` while a direct call keeps it as two arguments.
-	- Actual cause [Bug]: in `$args`, `-x:y` and `-x: y` are both a `-x:` string with PowerShell's parameter-name mark, then `y`. A splat to a native command drops a marked `-x:` that has a value after it. Nothing in `$args` tells the two spellings apart; only the calling line does.
-	- Estimated effort: Low
-	- Progress log:
-		- 20261004: fixed in both scripts. Both shell-regress tests below failed before the fix and pass after, on pwsh 7.6. The win-runners addition has not run yet.
-		- 20261004: the fix leans on the parameter mark, the call stack's positions and the parser, which 5.1 should have too. Unverified there; the win-runners row covers it.
-		- 20261004: when a caller's own function took one of the colon parameters off the same line, as in `w -q:1 -x: y` with `w` passing its `$args` on, no command matches and `-x: y` goes on as `-x:y`. Left as is; it needs a wrapper with its own colon-style parameter, and `-x:` alone is not something shcl takes.
-	- Actual fix [Bug]: `shcl.ps1` and `dogfood_shcl.ps1` rejoin a marked `-x:` with its value before the native call. The call stack is searched for the command whose colon parameters have the same names in order, and where its line has a space after the colon the two stay apart. With no match they are joined. An array value is joined with commas, as a direct call does. The results are plain strings, so later splats keep them whole. The `-File` path from 2026100307163905 is unchanged.
-	- Swept: `shcl.ps1` (the `shcl` function, so the typed helpers, `& shcl.ps1` and a user's own wrapper all go through it), `dogfood_shcl.ps1`, and the launchers `utility/dogfood_shcl` and `dogfood_shcl.cmd`, which start by `-File` and never see a marked argument. `install.ps1`, `shclpath.ps1`, `winpath-regress.ps1` and `winpath-sandbox.ps1` have param blocks and pass nothing through. The header's two quoting notes still hold; neither README nor design.md mentions `-x:`.
-	- Verified: shell-regress (148 ok; without the fix only `Ermwgw4` and `ErmwiJ3` failed), check-docs, PSScriptAnalyzer on both scripts, shellcheck on both gate scripts, `test-ids.py check`. The win-runners session lines ran on Linux against the real binary, with and without the fix.
-	- Branch: `psargs`
-	- Commit: `a63bb9d6`
-	- Test case: shell-regress `Ermwgw4` (`shcl.ps1` dot-sourced, a typed helper, `& shcl.ps1`, a user's wrapper, piped input, a statement over two lines, the fallback, and Legacy mode) and `ErmwiJ3` (`dogfood_shcl.ps1` called with `&`); win-runners `ErkQHTh` under 5.1 and 7.
-
 - No '\' escapes
 	- ID: 2026100207032800
 	- Type: Enhancement
@@ -510,6 +451,34 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: left for signoff: the new `migrate` refusal and no-stamp rule, which go past the item, and the `EreT6dh` trim change.
 	- Acceptance signoff: 20261003, signed off. The `migrate` refusal at 7 was OK'd. The no-stamp rule is the one design.md already had, now checked under both rule sets, and the `EreT6dh` change is a fix to the test, so neither needed a call.
 	- Closed: 20261003-162005
+
+- A remove next to a settled kept line gives one answer on the document and another on its reload
+	- ID: 2026100506223902
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: N. The 2,000,000 release fuzz runs the 200,000 debug run's inputs and more, and passed on dev and on `valsyn`.
+	- Severity: High
+	- Opened: 20261005-062239
+	- Opened by: found while working 2026100207032800
+	- Related IDs: 2026100207032800, 2026100307163901, 2026092620255202, 2026100117214802
+	- Version and build: `vslex` off `valsyn`
+	- Steps to reproduce:
+		- Load `a: [1]` / `\t\t": ` / `\t d-: 2` / `\te: 3`, then `clear_comments` on `a.d`, `set_empty` on `a.c`, `set_raw` on `b.c`, and save. Remove `a.c` from that document, and from a reload of the saved text.
+	- Incorrect behavior: the document keeps `\t# d-: 2`, a misplaced line the settle wrote as a comment, and the reload drops it with the removed field's comments. Fuzz `Eqk24nZ` fails on it.
+	- Expected behavior: the same text either way.
+	- Reproduced: 20261005, Rust, on dev's code with the line above, and on `vslex` with `a:` and a line separator in place of `a: [1]`. The 2,000,000 release fuzz on `vslex` finds 6 such inputs, the first at iteration 9285, so the 200,000 debug fuzz in `--ci` fails too. Dev's seed set never reached one. The value syntax keeps far more lines, so it reaches this often now.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Actual cause [Bug]: the libraries follow design.md's table. A remove leaves a kept line beside its target, and a line the settle wrote as a comment counts as kept. The reload of the canonical text reads that line as a plain comment, so its remove takes it. The two cannot agree, as 2026100307163901 recorded, so `Eqk24nZ` excuses that step. It excused it only when the target's comments above it differed, which misses a settled line below the target. One sits there when a new field goes between a block's last kept line and a settled line after it, where 2026100117214802 puts it. A setter making a field from a kept line moves the lines under it into the new block, and the value syntax keeps far more such lines.
+	- Note: the table settles which side is wrong. It says the document keeps the line, and that a reload reads it as a plain comment. Making the two agree would mean a remove takes the line, as a merge already does for a replaced leaf. That drops the user's line and reverses the table's note, so it was not done. The fix is in the tests only, so it is easy to undo if that call changes.
+	- Actual fix [Bug]: no library change. The excuse in `Eqk24nZ` and its Go, Python and C twins now checks what differs, wherever it sits. The reload's comment lines must be some of the document's, in order, and with comment and blank lines left out the two must load as one document. Before, any difference in the target's comments excused the whole step.
+	- Swept: the reload property in all four, Rust and Python `edits_and_merges_match_a_reload`, Go `TestEditsAndMergesMatchAReload`, C `edits_and_merges_match_a_reload`. No other test excuses a step by its comments. `EreT6dh` already expects a line beside a removed target to stay.
+	- Verified: `Eqk24nZ` at 2,000,000 in release, on dev and on `valsyn` with the Rust change alone. On `valsyn` it failed at iteration 9285 before. On dev, every step the old excuse let through, 11,726 of them, passes the new check, and no other step needed it. The new fixture fails in all four with the check forced either way, and in Rust when the remove takes the settled line. The four conformance suites, cargo test, go test, clippy, cargo fmt, cli-regress, crosscheck, check-docs and the test ID check pass.
+	- Test case: `a_remove_keeps_a_settled_line_below_it`, the issue's steps with `a: [1`, which stays a refused value under the value syntax, as `ErpmA09` (Rust), `ErpmA2G` (Go), `ErpmA4L` (Python) and `ErpmA6K` (C); fuzz `Eqk24nZ` at 2,000,000.
+	- Branch: `settledrm`
+	- Commit: `002b821f`
+	- Acceptance signoff: Self-closed: the fuzz failed before and passes after on `valsyn`, and the table settles which side keeps the line.
+	- Closed: 20261005-071935
 
 - Started with `pwsh -File`, the PowerShell wrapper splits an argument at its first colon, and the answer is wrong at exit 0
 	- ID: 2026100307163905
@@ -1463,6 +1432,36 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `pathhint`
 	- Commit: `1a12c02`
 	- Test case: corpus `171-windows-path-hint`, cli-regress `path-hint-*` rows. The read and strict rows and case 171 fail with the hint off, and `path-hint-set` shows a write is unaffected. The migrate goldens of cases 118, 122 and 170 now list the hint.
+
+- Called from a session, an unquoted `-x:y` argument loses its `-x:` on the way through either PowerShell script
+	- ID: 2026100408550401
+	- Type: Bug
+	- Status: Done
+	- Needs external testing: Ran. Hosted run 37317758758 on `68f40e78` passed, with `ErkQHTh` ok on the windows job under 5.1 and 7.
+	- Severity: Low
+	- Opened: 20261004-085504
+	- Opened by: found while working 2026100307163905
+	- Related IDs: 2026100307163905, 2026100307163908
+	- Version and build: dev at `2533bbbb`
+	- Steps to reproduce:
+		- `. ./shcl.ps1; shcl get f.shcl -x:y`, or `& ./shcl.ps1 get f.shcl -x:y`, or the same through `dogfood_shcl.ps1`.
+	- Incorrect behavior: the binary gets `get`, `f.shcl` and `y`, and answers for `y`. Under Legacy argument passing it gets `-x:` and `y` as two arguments. The binary called directly gets `-x:y`.
+	- Expected behavior: the binary gets `-x:y`, or the header says to quote it, as it does for `--` and a comma.
+	- Reproduced: 20261004, pwsh 7.6 on Linux. A double-dash spelling such as `--x:y` and a quoted `'-x:y'` go through.
+	- Possible cause: PowerShell splits a single-dash `-x:y` into a parameter token and a value in `$args`, and splatting that token to a native command drops it. Rejoining needs the hidden parameter mark, and `-x: y` with a space looks the same in `$args` while a direct call keeps it as two arguments.
+	- Actual cause [Bug]: in `$args`, `-x:y` and `-x: y` are both a `-x:` string with PowerShell's parameter-name mark, then `y`. A splat to a native command drops a marked `-x:` that has a value after it. Nothing in `$args` tells the two spellings apart; only the calling line does.
+	- Estimated effort: Low
+	- Progress log:
+		- 20261004: fixed in both scripts. Both shell-regress tests below failed before the fix and pass after, on pwsh 7.6. The win-runners addition has not run yet.
+		- 20261004: the fix leans on the parameter mark, the call stack's positions and the parser, which 5.1 should have too. Unverified there; the win-runners row covers it.
+		- 20261004: when a caller's own function took one of the colon parameters off the same line, as in `w -q:1 -x: y` with `w` passing its `$args` on, no command matches and `-x: y` goes on as `-x:y`. Left as is; it needs a wrapper with its own colon-style parameter, and `-x:` alone is not something shcl takes.
+	- Actual fix [Bug]: `shcl.ps1` and `dogfood_shcl.ps1` rejoin a marked `-x:` with its value before the native call. The call stack is searched for the command whose colon parameters have the same names in order, and where its line has a space after the colon the two stay apart. With no match they are joined. An array value is joined with commas, as a direct call does. The results are plain strings, so later splats keep them whole. The `-File` path from 2026100307163905 is unchanged.
+	- Swept: `shcl.ps1` (the `shcl` function, so the typed helpers, `& shcl.ps1` and a user's own wrapper all go through it), `dogfood_shcl.ps1`, and the launchers `utility/dogfood_shcl` and `dogfood_shcl.cmd`, which start by `-File` and never see a marked argument. `install.ps1`, `shclpath.ps1`, `winpath-regress.ps1` and `winpath-sandbox.ps1` have param blocks and pass nothing through. The header's two quoting notes still hold; neither README nor design.md mentions `-x:`.
+	- Verified: shell-regress (148 ok; without the fix only `Ermwgw4` and `ErmwiJ3` failed), check-docs, PSScriptAnalyzer on both scripts, shellcheck on both gate scripts, `test-ids.py check`. The win-runners session lines ran on Linux against the real binary, with and without the fix.
+	- Branch: `psargs`
+	- Commit: `a63bb9d6`
+	- Test case: shell-regress `Ermwgw4` (`shcl.ps1` dot-sourced, a typed helper, `& shcl.ps1`, a user's wrapper, piped input, a statement over two lines, the fallback, and Legacy mode) and `ErmwiJ3` (`dogfood_shcl.ps1` called with `&`); win-runners `ErkQHTh` under 5.1 and 7.
+	- Closed: 20261005-151500
 
 - A crosscheck run aborted the Python CLI with exit 134 under load
 	- ID: 2026100313174976
@@ -2737,6 +2736,38 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Test case: corpus `186-kept-line-first-blank`, a kept line that turns into a comment above the first list, merged under a one-line layer.
 	- Acceptance signoff: Self-closed: reproduced, its test failed before the fix and passes after in all four.
 	- Closed: 20260930-080144
+
+- `explain` on a retired code could name the code that replaced it
+	- ID: 2026100307163917
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: Ran. The full `--ci` on dev at `68f40e78` passed, exhaustive cppcheck included.
+	- Priority: Low
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 idea 1
+	- Version and build: dev at `6e8b7f89`
+	- Problem description:
+		- `shcl explain H004` answers "did you mean 'E004'?" at exit 1 in all four. H004 became E024, so a reader with an old log is sent to an unrelated code.
+	- Requirements:
+		- `explain` on a retired code says what replaced it, in all four CLIs.
+	- Progress log:
+		- H004 is the only retired code. Checked spec.md, design.md, the changelog, conformance README, cli-regress and the four code tables. value-syntax.md plans to retire E024 and H003 later.
+		- Each CLI has a `RETIRED` table beside its code table, one `CODE|old severity|replacement` line per code. An empty replacement prints the no-replacement form.
+		- Exit 0 on stdout, framed like any known code, since the code is one `explain` knows. The listing leaves retired codes out.
+		- `shcl explain H004` prints, between blank lines: `H004  retired     hint, replaced by E024` then `  Loads no longer report H004. 'shcl explain E024' has the rule now.`
+		- With no replacement it would print `CODE  retired     error, with no replacement` then `  Loads no longer report CODE, and no other code took its rule.` Checked byte-identical in all four with a test entry that was not committed.
+		- Open for signoff: the wording, exit 0, and leaving retired codes out of the listing.
+		- H003's plan names two codes, `E025` and `E027`, and the table holds one replacement. When it retires it goes in with none, unless the table learns two. Noted in value-syntax.md.
+		- When E024 retires, H004's line should lose its replacement too, or it points at a retired code.
+	- Decisions:
+		- The retired list is not a spec table row. spec.md says which codes are retired in prose, and check-docs holds each binding's table to that.
+	- Verified: cli-regress (2063 checks), crosscheck (15540 comparisons, now including each retired code), check-docs, the four conformance suites, cargo test, go test, clippy, go vet and staticcheck, ruff and mypy, shellcheck, markdownlint, test-ids check, shell-regress, and a gcc-15 `_FORTIFY_SOURCE` build of the C CLI.
+		- check-docs' new lines fail on a code both retired and live, and on spec.md not saying a code is retired. crosscheck fails on a changed retired entry in one binding. Both watched red.
+	- Branch: `retired`
+	- Commit: `99e5668b`
+	- Test case: cli-regress `Ern4qLa` and `Ern4qOc`, both failed before the fix in all four and pass after. crosscheck's usage check and cli-regress `Eq9yPCQ` read the retired list from the reference.
+	- Acceptance signoff: 20261005, the wording, exit 0 and leaving retired codes out of the listing.
+	- Closed: 20261005-151500
 
 - The kept-line property's merge step has two loose ends
 	- ID: 2026100313174977
