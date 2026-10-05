@@ -7084,7 +7084,7 @@ func (e *SaveRefused) Error() string {
 // SaveFile is the file tier's save half: write this document's canonical text
 // to path through WriteFileAtomic, so an interrupted save can never truncate
 // the config it rewrites - the same mechanics the CLI's `--write` uses.
-// Refuses when parsing lost content that a save would silently delete (see
+// Refuses when the write would delete content from the file (see
 // LostCount); SaveFileLossy writes anyway. A refusal comes back as
 // *SaveRefused, a write failure as the wrapped i/o error.
 func (d *Document) SaveFile(path string) error {
@@ -7095,7 +7095,7 @@ func (d *Document) SaveFile(path string) error {
 }
 
 // SaveFileLossy is SaveFile without the lost-content gate: writes even when
-// parsing dropped lines this save deletes. The caller owns that choice. It
+// the write deletes content from the file. The caller owns that choice. It
 // never returns *SaveRefused - the gate is the one thing it skips.
 func (d *Document) SaveFileLossy(path string) error {
 	return WriteFileAtomic(path, d.ToCanonical())

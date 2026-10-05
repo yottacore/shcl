@@ -4791,8 +4791,8 @@ class Document:
 		"""File tier, save half: write this document's canonical text to path
 		through a temp file in the same directory plus a rename, so an
 		interrupted save can never truncate the config it rewrites - the same
-		mechanics the CLI's --write uses. Refuses when parsing lost content that
-		a save would silently delete (see lost_count); save_file_lossy writes
+		mechanics the CLI's --write uses. Refuses when the write would delete
+		content from the file (see lost_count); save_file_lossy writes
 		anyway. Raises SaveRefused for the gate and SaveFailed for a failed
 		write: returning the message instead would let the obvious spelling -
 		the call on a line of its own - report success while doing nothing."""
@@ -4804,8 +4804,8 @@ class Document:
 			raise SaveFailed(err)
 
 	def save_file_lossy(self, path: str | os.PathLike[str]) -> None:
-		"""save_file without the lost-content gate: writes even when parsing
-		dropped lines this save deletes. The caller owns that choice. Never
+		"""save_file without the lost-content gate: writes even when the
+		write deletes content from the file. The caller owns that choice. Never
 		raises SaveRefused - the gate is the one thing it skips."""
 		err = write_file_atomic(path, self.to_canonical())
 		if err is not None:
