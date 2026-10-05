@@ -1,3 +1,3 @@
-listen: '"0.0.0.0:443'  # note
-tags: '"a', b
+listen: "0.0.0.0:443  # note
+tags: "a, b
 ok: 1

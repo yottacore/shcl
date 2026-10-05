@@ -1,2 +1,4 @@
-literal	bad	"C:\temp"
-literal	bad	x, "\\srv\new"
+# Each line below was refused for a backslash escape. A backslash is text
+# since the value syntax (2026100207032800), so each one is written now.
+# literal	bad	"C:\temp"
+# literal	bad	x, "\\srv\new"

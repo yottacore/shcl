@@ -4,7 +4,7 @@ x:
 x: 'a"b, c'
 x[a"b, c]:
 	* d
-x["a\"b, c"].tag: hit
+x['a"b, c'].tag: hit
 y: 'p, q'
 y["p, r"].tag: made
 z: m, n

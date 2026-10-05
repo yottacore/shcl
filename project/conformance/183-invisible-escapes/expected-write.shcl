@@ -1,42 +1,42 @@
 # Default-ignorable characters come out as escapes, except where text needs them
-soft: "Silben\u00ADtrennung"
-ends: "\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B\u180F\u200B\u200E\u200F\u2028\u202E\u2060\u206F\u3164\uFE00\uFE0F\uFEFF\uFFA0\uFFF0\uFFFB\U0001BCA0\U0001BCA3\U0001D173\U0001D17A\U000E0000\U000E0FFF"
+soft: "Silben◉U+00AD◉trennung"
+ends: "◉U+00AD◉◉U+034F◉◉U+061C◉◉U+115F◉◉U+1160◉◉U+17B4◉◉U+17B5◉◉U+180B◉◉U+180F◉◉U+200B◉◉U+200E◉◉U+200F◉◉U+2028◉◉U+202E◉◉U+2060◉◉U+206F◉◉U+3164◉◉U+FE00◉◉U+FE0F◉◉U+FEFF◉◉U+FFA0◉◉U+FFF0◉◉U+FFFB◉◉U+1BCA0◉◉U+1BCA3◉◉U+1D173◉◉U+1D17A◉◉U+E0000◉◉U+E0FFF◉"
 neighbors: "¬®͎͐؛؝ᅞᅡឳា᠊᠐ ‐‧  ⁰ㅣㅥ﷿︐﻾＀ﾟﾡ￯￼𛲟𛲤𝅲𝅻󟿿󡀀"
-joiners: "a\u200B‌‍\u200Eb"
-annotation: "\uFFF9base\uFFFAruby\uFFFB"
-hangul: "\u3164", "\uFFA0", x
-hidden: "ok\U000E0068\U000E0069"
-language: "\U000E0001\U000E0065\U000E006E"
+joiners: "a◉U+200B◉‌‍◉U+200E◉b"
+annotation: "◉U+FFF9◉base◉U+FFFA◉ruby◉U+FFFB◉"
+hangul: "◉U+3164◉", "◉U+FFA0◉", x
+hidden: "ok◉U+E0068◉◉U+E0069◉"
+language: "◉U+E0001◉◉U+E0065◉◉U+E006E◉"
 flag: "🏴󠁧󠁢󠁳󠁣󠁴󠁿"
 flag-bare: 🏴󠁧󠁢󠁷󠁬󠁳󠁿
 flag-three: 🏴󠁧󠁢󠁸󠁿
 flag-seven: 🏴󠁵󠁳󠁣󠁡󠀱󠀲󠀳󠁿
-flag-short: "🏴\U000E0067\U000E0062\U000E007F"
-flag-long: "🏴\U000E0067\U000E0062\U000E0065\U000E006E\U000E0067\U000E0061\U000E0062\U000E0063\U000E007F"
-flag-upper: "🏴\U000E0047\U000E0042\U000E0045\U000E004E\U000E0047\U000E007F"
-flag-open: "🏴\U000E0067\U000E0062\U000E0065\U000E006E\U000E0067"
-flag-no-base: "x\U000E0067\U000E0062\U000E0065\U000E006E\U000E0067\U000E007F"
+flag-short: "🏴◉U+E0067◉◉U+E0062◉◉U+E007F◉"
+flag-long: "🏴◉U+E0067◉◉U+E0062◉◉U+E0065◉◉U+E006E◉◉U+E0067◉◉U+E0061◉◉U+E0062◉◉U+E0063◉◉U+E007F◉"
+flag-upper: "🏴◉U+E0047◉◉U+E0042◉◉U+E0045◉◉U+E004E◉◉U+E0047◉◉U+E007F◉"
+flag-open: "🏴◉U+E0067◉◉U+E0062◉◉U+E0065◉◉U+E006E◉◉U+E0067◉"
+flag-no-base: "x◉U+E0067◉◉U+E0062◉◉U+E0065◉◉U+E006E◉◉U+E0067◉◉U+E007F◉"
 flag-twice: 🏴󠁧󠁢󠁳󠁣󠁴󠁿🏴󠁧󠁢󠁥󠁮󠁧󠁿
 heart: "❤️"
 heart-bare: ❤️, ❤︎
 ideograph: "葛󠄀"
 mongolian: "ᠠ᠋"
-lead: "\uFE0F"
-run: "a️\uFE0F"
-after-space: "a \uFE0Fb"
-after-joiner: "a‍\uFE0F"
-after-escape: "\u00AD\uFE0F"
-after-flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿\uFE0F"
+lead: "◉U+FE0F◉"
+run: "a️◉U+FE0F◉"
+after-space: "a ◉U+FE0F◉b"
+after-joiner: "a‍◉U+FE0F◉"
+after-escape: "◉U+00AD◉◉U+FE0F◉"
+after-flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿◉U+FE0F◉"
 family: 👨‍👩‍👧
-list: a️, "\uFE0Fb"
-"name\u00AD": 2
-"\uFE0F": 2
+list: a️, "◉U+FE0F◉b"
+"name◉U+00AD◉": 2
+"◉U+FE0F◉": 2
 "n️": 3
 
-made-hidden: "ok\U000E0068\U000E0069"
+made-hidden: "ok◉U+E0068◉◉U+E0069◉"
 
 made-flag: 🏴󠁧󠁢󠁳󠁣󠁴󠁿
 
-made-run: "a️\uFE0F"
+made-run: "a️◉U+FE0F◉"
 
-made-soft: "a\u00ADb"
+made-soft: "a◉U+00AD◉b"

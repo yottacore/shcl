@@ -1,4 +1,4 @@
-field: "a.\"b.c\""
+field: 'a."b.c"'
 	repeat: 2
 field: x
 	repeat: 0x2

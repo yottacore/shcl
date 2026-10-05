@@ -1,5 +1,1 @@
-line 14: Error: E023
-line 15: Error: E023
-line 16: Error: E023
-line 17: Error: E023
-failed: 4 diagnostic(s), 4 error(s)
+ok (0 diagnostic(s))

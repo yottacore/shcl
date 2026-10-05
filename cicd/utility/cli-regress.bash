@@ -105,10 +105,12 @@ printf 'field: ns\n\ttype: int-array\n\tmax: 10\nfield: fs\n\ttype: float-array\
 printf 'ns: 5, 20, 3\nfs: 2.0, 0.5, 4.0\n' > "${tmpDir}/outofrange.shcl"
 printf '"x.y": 1\n' > "${tmpDir}/dotname.shcl"
 ## Schema paths and a type with a line break. Every code that names schema
-## text printed it raw, so one diagnostic arrived as two stderr lines.
-printf 'field: "a.\\"x\\ny\\""\n\trequired: yes\nfield: "b.\\"x\\ny\\""\n\ttype: int\n\tmin: 5\n\tmax: 6\n\tallowed: 5, 6, 1\n\trepeat: 3\nfield: "c.\\"x\\ny\\""\n\ttype: bool\n' > "${tmpDir}/nlschema.shcl"
-printf 'b:\n\t"x\\ny": 9\n\t"x\\ny": 1\nc:\n\t"x\\ny": maybe\n' > "${tmpDir}/nldoc.shcl"
-printf 'field: k\n\ttype: "in\\nt"\nfield: "d.\\"x\\ny\\"."\n' > "${tmpDir}/nlfault.shcl"
+## text printed it raw, so one diagnostic arrived as two stderr lines. The
+## break is the value's NEWLINE escape, so the path text holds a real one.
+mark=$'\xe2\x97\x89'
+printf "field: 'a.\"x%sNEWLINE%sy\"'\n\trequired: yes\nfield: 'b.\"x%sNEWLINE%sy\"'\n\ttype: int\n\tmin: 5\n\tmax: 6\n\tallowed: 5, 6, 1\n\trepeat: 3\nfield: 'c.\"x%sNEWLINE%sy\"'\n\ttype: bool\n" "${mark}" "${mark}" "${mark}" "${mark}" "${mark}" "${mark}" > "${tmpDir}/nlschema.shcl"
+printf 'b:\n\t"x%sNEWLINE%sy": 9\n\t"x%sNEWLINE%sy": 1\nc:\n\t"x%sNEWLINE%sy": maybe\n' "${mark}" "${mark}" "${mark}" "${mark}" "${mark}" "${mark}" > "${tmpDir}/nldoc.shcl"
+printf "field: k\n\ttype: \"in%sNEWLINE%st\"\nfield: 'd.\"x%sNEWLINE%sy\".'\n" "${mark}" "${mark}" "${mark}" "${mark}" > "${tmpDir}/nlfault.shcl"
 printf 'field: x.y\n\ttype: int\n' > "${tmpDir}/dotschema.shcl"
 ## A directory a write cannot create a temp file in. The phase is worth naming -
 ## it is the difference between "fix the file" and "fix its directory" - and the
@@ -158,7 +160,7 @@ printf 'field: a\n\ttype: int\n\trequired: yes\nfield: b\n\ttype: nope\n' > "${t
 printf 'x[a=b]:\n\tc: 0\n' > "${tmpDir}/sel.shcl"
 ## An instance whose discriminator holds an apostrophe: ordinary text in a bare
 ## selector, which the split used to read as an open quote.
-printf "srv[O'Brien]:\n\tport: 0\n" > "${tmpDir}/quote.shcl"
+printf "srv[\"O'Brien\"]:\n\tport: 0\n" > "${tmpDir}/quote.shcl"
 ## A name a path cannot hold bare, for the traversal commands: enumerating keys
 ## is only useful if what comes back can be read straight back.
 printf 'db:\n\thost: h\n\t"odd.key": 2\nweb:\n\tport: 1\n' > "${tmpDir}/tree.shcl"
@@ -254,7 +256,7 @@ printf 'field: zz\n\trequired: yes\n' > "${tmpDir}/missreq.shcl"
 ## Two instances whose values hold a real line break, and one plain value, so a
 ## listing that spans lines can be told from one that does not. Then an array
 ## and a scalar each holding one, for get.
-printf 'srv: "a\\nb"\nsrv: "c\\nd"\nplain: x.y\narr: "a\\nb", c\none: "x\\ny"\n' > "${tmpDir}/nlvalue.shcl"
+printf 'srv: "a%sNEWLINE%sb"\nsrv: "c%sNEWLINE%sd"\nplain: x.y\narr: "a%sNEWLINE%sb", c\none: "x%sNEWLINE%sy"\n' "${mark}" "${mark}" "${mark}" "${mark}" "${mark}" "${mark}" "${mark}" "${mark}" > "${tmpDir}/nlvalue.shcl"
 printf 'field: "a[b]"\n\trequired: yes\n\tdefault: b\n' > "${tmpDir}/seldefok.shcl"
 ## An optional field's line is commented, so the self-check never read its
 ## default. The second schema must still pass, since each line works alone;
@@ -321,7 +323,7 @@ printf '%s\n' 'p: "C:\\a\nb", "D:\\c\nd"' 'q: [1, 2]' > "${tmpDir}/miglost2.shcl
 printf 'field: a\n\tbogus: 1\n' > "${tmpDir}/unkey.shcl"
 ## A file and a name that both start with a dash, so only `--` makes them data.
 ## The row that names it runs from inside the temp dir.
-printf -- '-h: 7\n' > "${tmpDir}/-dash.shcl"
+printf -- '"-h": 7\n' > "${tmpDir}/-dash.shcl"
 ## A value outside ASCII, for a stdout whose locale cannot write it.
 printf 'n: "caf\303\251 \342\202\254"\n' > "${tmpDir}/nonascii.shcl"
 ## Seventy of each: the C CLI once held these in fixed arrays of 64.
@@ -416,7 +418,7 @@ rows=(
 	'EoTHA7W|ops-line-cr|set %F%|int\tx\t1\r|0|a: 1\n\nx: 1\n|-'
 	'EoTHA7X|ops-lone-cr|set %F%|int\tx\t1\n\r|0|a: 1\n\nx: 1\n|-'
 	## 20260908: one CR comes off an ops line, not two - the second is the value's.
-	'EpGigIR|ops-double-cr|set %F%|string\tx\tv\r\r\n|0|a: 1\n\nx: "v\\u000D"\n|-'
+	'EpGigIR|ops-double-cr|set %F%|string\tx\tv\r\r\n|0|a: 1\n\nx: "v\xe2\x97\x89CR\xe2\x97\x89"\n|-'
 	## 20260924 item 7: Windows PowerShell 5.1 puts a BOM, or more than one, in
 	## front of text it pipes to a program, and the first op read as unknown.
 	'Er83b6G|ops-leading-bom|set %F%|\xef\xbb\xbf\xef\xbb\xbfint\tx\t1\n|0|a: 1\n\nx: 1\n|-'
@@ -563,8 +565,8 @@ rows=(
 	## 20260905 item 3: a quote anywhere in the path was read as opening a quoted
 	## piece, so an apostrophe in a bare selector left every later '=' looking
 	## quoted and the option was refused while get on the same path worked.
-	"Ep3OILK|set-quote-in-selector|set --set=srv[O'Brien].port=9 %Q%|-|0|srv[O'Brien]:\n\tport: 9\n|-"
-	"Ep3OILL|set-default-quote-in-selector|set --set-default=srv[O'Brien].port=9 %Q%|-|0|srv[O'Brien]:\n\tport: 0\n|-"
+	"Ep3OILK|set-quote-in-selector|set --set=srv[O'Brien].port=9 %Q%|-|0|srv[\"O'Brien\"]:\n\tport: 9\n|-"
+	"Ep3OILL|set-default-quote-in-selector|set --set-default=srv[O'Brien].port=9 %Q%|-|0|srv[\"O'Brien\"]:\n\tport: 0\n|-"
 	"Ep3OILM|set-quoted-selector-eq|set --set=x[\"k]=v\"].d=2 %X%|-|0|x[a=b]:\n\tc: 0\n\nx: \"k]=v\"\n\td: 2\n|-"
 	## set writes back the lines its edits leave alone, printing or in place,
 	## where fmt writes the canonical form.
@@ -611,7 +613,7 @@ rows=(
 	## The value half of the same rule: the H001 hint splices the repeated
 	## values into its suggestion, and a value with a line break used to go
 	## in raw, so the hint arrived as four stderr lines.
-	'EqTPxzc|diag-value-line-break|check %NV%|-|0|line 2: Hint: H001\nok (1 diagnostic(s))\n|^line 2: Hint: H001 .srv. repeats as a bare leaf - did you mean .srv: "a\\nb", "c\\nd".\?$'
+	'EqTPxzc|diag-value-line-break|check %NV%|-|0|line 2: Hint: H001\nok (1 diagnostic(s))\n|^line 2: Hint: H001 .srv. repeats as a bare leaf - did you mean .srv: "a.NEWLINE.b", "c.NEWLINE.d".\?$'
 	'Eq4AfLW|diag-name-dotted|check --schema=%SN% %DN%|-|6|line 1: Error: V001\nfailed: 1 diagnostic(s), 1 error(s)\n|unknown field ."x\.y".'
 	## 20260918 item 14: the same for schema text, which every code below printed raw.
 	'EqGaO1w|schema-text-v002|check --schema=%SL% %DL%|-|6|-|V002 required path missing: a\."x\\ny"$'
@@ -652,65 +654,88 @@ rows=(
 	'Erls2v1|set-new-block-space-step|set --set=d.e.f=1 -|a:\n  x: 1\nb:\n    y: 1\nc:\n    z: 1\n|0|a:\n  x: 1\nb:\n    y: 1\nc:\n    z: 1\n\nd:\n    e:\n        f: 1\n|-'
 	'EpFkZy9|sugar-migrate|migrate %W%|-|0|base: Boston\n\tlat: 42\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	'EpFkZyA|sugar-migrate-write|migrate --write %W%|-|0||-'
-	## An unknown escape in double quotes is refused and kept as written, not
-	## read with the pair kept after its `\n` already turned into a newline.
-	'Er1adAn|escape-unknown-check|check -|a: "C:\\work\\new"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 unknown escape .\\w. in double quotes; write a backslash as .\\\\. or use single quotes$'
-	'Er1adAo|escape-unknown-read|get - a|a: "C:\\work"\n|3|\n|no value at that path'
-	'Er1adAp|escape-unknown-literal|set %F2%|literal\tx\t"C:\\work"\n|1||^op line 1: cannot write x'
+	## An unknown escape in double quotes was refused and kept as written, not
+	## read with the pair kept after its `\n` already turned into a newline. A
+	## backslash is text since 2026100207032800, so these three read clean and
+	## the rows after them pin the escape mark instead.
+	#'Er1adAn|escape-unknown-check|check -|a: "C:\\work\\new"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 unknown escape .\\w. in double quotes; write a backslash as .\\\\. or use single quotes$'
+	#'Er1adAo|escape-unknown-read|get - a|a: "C:\\work"\n|3|\n|no value at that path'
+	#'Er1adAp|escape-unknown-literal|set %F2%|literal\tx\t"C:\\work"\n|1||^op line 1: cannot write x'
+	'ErpZsUX|escape-mark-unknown-check|check -|a: "say \xe2\x97\x89HELLO\xe2\x97\x89"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 unknown escape'
+	'ErpZsUY|escape-mark-unknown-read|get - a|a: "\xe2\x97\x89NOPE\xe2\x97\x89"\n|3|\n|no value at that path'
+	'ErpZsUZ|escape-mark-unknown-literal|set %F2%|literal\tx\t"\xe2\x97\x89NOPE\xe2\x97\x89"\n|1||^op line 1: cannot write x'
+	'ErpZsUa|backslash-is-text-read|get - a|a: "C:\\work\\new"\n|0|C:\\work\\new\n|-'
 	'Er1adAq|escape-unknown-path|get - "a\w"|"a\\\\w": 1\n|3|\n|no value at that path'
 	'Er1adAr|escape-doubled-path|get - "a\\w"|"a\\\\w": 1\n|0|1\n|-'
-	## \u and \U name a character by its code point, and one that names none is
-	## E023. Canonical output writes an invisible character as one. 2.x kept the
-	## pair as written, so migrate needs to be told which rules wrote the file.
+	## \u and \U named a character by its code point, and one that named none
+	## was E023. 2.x kept the pair as written, so migrate needed to be told
+	## which rules wrote the file. Since 2026100207032800 a backslash is text,
+	## the code point escape is U+XXXX between two marks, and the two rule sets
+	## read the pair alike. Canonical output writes an invisible character as
+	## a code point escape.
 	## Raw UTF-8 bytes rather than \u in the printf text: msys bash leaves a \u
 	## as written under the windows runner's locale.
-	'Er2qNPd|escape-unicode-read|get - a|a: "caf\\u00E9 \\U0001F600"\n|0|caf\xc3\xa9 \xf0\x9f\x98\x80\n|-'
-	'Er2qNPe|escape-unicode-bad|check -|a: "\\uD800"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 bad escape .\\u. in double quotes'
-	'Er2qNPf|escape-unicode-fmt|fmt -|a: x\xe2\x80\x8by\n|0|a: "x\\u200By"\n|-'
-	'Er2qNPg|escape-unicode-name|paths -|"a\\u202Eb": 1\n|0|"a\\u202Eb"\n|-'
-	'Er2qNPh|escape-unicode-migrate-refused|migrate -|q: "\\u0041"\n|7|q: "\\u0041"\n|does not say which it was written for'
-	'Er2qNPi|escape-unicode-migrate-2x|migrate --from-2x -|q: "\\u0041"\n|0|q: "\\\\u0041"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
-	## Every default-ignorable character is escaped, and one past U+FFFF takes
-	## \U, since \u reads four digits. A variation selector after a visible
-	## character stays, and so do a subdivision flag's tags.
-	'ErEBHU3|escape-ignorable-fmt|fmt -|a: soft\xc2\xadhyphen\n|0|a: "soft\\u00ADhyphen"\n|-'
-	'ErEBHU4|escape-tags-fmt|fmt -|a: ok\xf3\xa0\x81\xa8\xf3\xa0\x81\xa9\n|0|a: "ok\\U000E0068\\U000E0069"\n|-'
-	'ErEBHU5|escape-tags-set|set -|string\ta\tok\xf3\xa0\x81\xa8\xf3\xa0\x81\xa9\n|0|a: "ok\\U000E0068\\U000E0069"\n|-'
+	#'Er2qNPd|escape-unicode-read|get - a|a: "caf\\u00E9 \\U0001F600"\n|0|caf\xc3\xa9 \xf0\x9f\x98\x80\n|-'
+	#'Er2qNPe|escape-unicode-bad|check -|a: "\\uD800"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 bad escape .\\u. in double quotes'
+	'Er2qNPf|escape-unicode-fmt|fmt -|a: x\xe2\x80\x8by\n|0|a: "x\xe2\x97\x89U+200B\xe2\x97\x89y"\n|-'
+	#'Er2qNPg|escape-unicode-name|paths -|"a\\u202Eb": 1\n|0|"a\\u202Eb"\n|-'
+	#'Er2qNPh|escape-unicode-migrate-refused|migrate -|q: "\\u0041"\n|7|q: "\\u0041"\n|does not say which it was written for'
+	#'Er2qNPi|escape-unicode-migrate-2x|migrate --from-2x -|q: "\\u0041"\n|0|q: "\\\\u0041"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'ErpZsUb|escape-mark-code-read|get - a|a: "caf\xe2\x97\x89U+00E9\xe2\x97\x89 \xe2\x97\x89u+1f600\xe2\x97\x89"\n|0|caf\xc3\xa9 \xf0\x9f\x98\x80\n|-'
+	'ErpZsUc|escape-mark-surrogate|check -|a: "\xe2\x97\x89U+D800\xe2\x97\x89"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 escape .* names no Unicode character'
+	'ErpZsUd|escape-mark-code-name|paths -|"a\xe2\x97\x89U+202E\xe2\x97\x89b": 1\n|0|"a\xe2\x97\x89U+202E\xe2\x97\x89b"\n|-'
+	'ErpZsUe|backslash-u-migrate|migrate -|q: "\\u0041"\n|0|q: "\\u0041"\n##    Format   3\n|-'
+	## Every default-ignorable character is escaped, by its code point with at
+	## least four digits. A variation selector after a visible character
+	## stays, and so do a subdivision flag's tags.
+	'ErEBHU3|escape-ignorable-fmt|fmt -|a: soft\xc2\xadhyphen\n|0|a: "soft\xe2\x97\x89U+00AD\xe2\x97\x89hyphen"\n|-'
+	'ErEBHU4|escape-tags-fmt|fmt -|a: ok\xf3\xa0\x81\xa8\xf3\xa0\x81\xa9\n|0|a: "ok\xe2\x97\x89U+E0068\xe2\x97\x89\xe2\x97\x89U+E0069\xe2\x97\x89"\n|-'
+	'ErEBHU5|escape-tags-set|set -|string\ta\tok\xf3\xa0\x81\xa8\xf3\xa0\x81\xa9\n|0|a: "ok\xe2\x97\x89U+E0068\xe2\x97\x89\xe2\x97\x89U+E0069\xe2\x97\x89"\n|-'
 	'ErEBHU6|escape-flag-kept|fmt -|a: \xf0\x9f\x8f\xb4\xf3\xa0\x81\xa7\xf3\xa0\x81\xa2\xf3\xa0\x81\xa5\xf3\xa0\x81\xae\xf3\xa0\x81\xa7\xf3\xa0\x81\xbf\n|0|a: \xf0\x9f\x8f\xb4\xf3\xa0\x81\xa7\xf3\xa0\x81\xa2\xf3\xa0\x81\xa5\xf3\xa0\x81\xae\xf3\xa0\x81\xa7\xf3\xa0\x81\xbf\n|-'
 	'ErEBHU7|escape-selector-kept|fmt -|a: \xe2\x9d\xa4\xef\xb8\x8f\n|0|a: \xe2\x9d\xa4\xef\xb8\x8f\n|-'
-	'ErEBHU8|escape-selector-run|fmt -|a: x\xef\xb8\x8f\xef\xb8\x8f\n|0|a: "x\xef\xb8\x8f\\uFE0F"\n|-'
+	'ErEBHU8|escape-selector-run|fmt -|a: x\xef\xb8\x8f\xef\xb8\x8f\n|0|a: "x\xef\xb8\x8f\xe2\x97\x89U+FE0F\xe2\x97\x89"\n|-'
 	## A path in double quotes with a \t or \n escape was a hint, H004, and
 	## reads, loads strict and saves as written. It is E024 now
 	## (2026100115323227), so these three no longer hold.
 	#'Er1iG7N|path-hint-read|get - a|a: "C:\\temp"\n|0|C:\temp\n|H004 value looks like a Windows path'
 	#'Er1iG7O|path-hint-strict|check --strictness=strict -|a: "C:\\temp"\n|0|line 1: Hint: H004\nok (1 diagnostic(s))\n|-'
 	#'Er1iG7P|path-hint-set|set - --set b=1|a: "C:\\temp"\n|0|a: "C:\\temp"\n\nb: 1\n|-'
-	## It is refused like E023: kept as written, read as nothing, and the
-	## lines under it still load. A tab or line break a setter writes into
-	## such a value goes out as a \u escape, and SetLiteral text holding one
-	## is refused.
-	'ErUmRRd|path-escape-read|get - a|a: "C:\\temp"\n|3|\n|E024 value starts like a Windows path'
-	'ErUmRRe|path-escape-strict|check -|a: "C:\\temp"\n|6|line 1: Error: E024\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
+	## It was refused like E023: kept as written, read as nothing, and the
+	## lines under it still load. A tab or line break a setter wrote into such
+	## a value went out as a \u escape, and SetLiteral text holding one was
+	## refused. E024 is retired since 2026100207032800: the path is text, and
+	## a tab goes out as the TAB escape.
+	#'ErUmRRd|path-escape-read|get - a|a: "C:\\temp"\n|3|\n|E024 value starts like a Windows path'
+	#'ErUmRRe|path-escape-strict|check -|a: "C:\\temp"\n|6|line 1: Error: E024\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
 	'ErUmRRf|path-escape-block|get - a.b|a: "C:\\temp"\n\tb: 1\n|0|1\n|-'
-	'ErUmRRg|path-escape-set|set -|string\ta\tC:\\temp\n|0|a: "C:\\u0009emp"\n|-'
-	'ErUmRRh|path-escape-literal|set %F2%|literal\tx\t"C:\\temp"\n|1||^op line 1: cannot write x'
-	'ErUmRRi|path-escape-migrate-lost|migrate -|q: "\\\\\\\\srv\\new"\n|7|-|line break in a Windows path'
-	'Er1adAs|escape-unknown-migrate|migrate -|q: "C:\\work"\n|0|q: "C:\\\\work"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	#'ErUmRRg|path-escape-set|set -|string\ta\tC:\\temp\n|0|a: "C:\\u0009emp"\n|-'
+	#'ErUmRRh|path-escape-literal|set %F2%|literal\tx\t"C:\\temp"\n|1||^op line 1: cannot write x'
+	#'ErUmRRi|path-escape-migrate-lost|migrate -|q: "\\\\\\\\srv\\new"\n|7|-|line break in a Windows path'
+	#'Er1adAs|escape-unknown-migrate|migrate -|q: "C:\\work"\n|0|q: "C:\\\\work"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'ErpZsUf|path-text-read|get - a|a: "C:\\temp"\n|0|C:\\temp\n|-'
+	'ErpZsUg|path-tab-set|set -|string\ta\tC:\\temp\n|0|a: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n|-'
+	'ErpZsUh|path-text-literal|set -|literal\tx\t"C:\\temp"\n|0|x: "C:\\temp"\n|-'
+	'ErpZsUi|backslash-migrate-same|migrate -|q: "C:\\work"\n|0|q: "C:\\work"\n##    Format   3\n|-'
 	## 2026100307163914: a field line kept for its value alone reads NotFound with
 	## nothing under it and Empty once a line under it loads, and explain says so.
 	'Erlr8eZ|kept-value-e019-empty|get - a|a: [1]\n\tb: 1\n|2|\n|E019'
-	'Erlr8gU|kept-value-e023-empty|get - a|a: "x\\q"\n\tb: 1\n|2|\n|E023'
-	'Erlr8iQ|kept-value-e024-empty|get - a|a: "C:\\temp"\n\tb: 1\n|2|\n|E024'
+	'Erlr8gU|kept-value-e023-empty|get - a|a: "x\xe2\x97\x89Q\xe2\x97\x89"\n\tb: 1\n|2|\n|E023'
+	## E024 is retired; a bare value with a space is the common case now.
+	#Erlr8iQ|kept-value-e024-empty|get - a|a: "C:\\temp"\n\tb: 1\n|2|\n|E024'
+	'ErpZsUj|kept-value-e025-empty|get - a|a: My App\n\tb: 1\n|2|\n|E025'
 	'Erlr21T|explain-e019-read|explain E019|-|0|\nE019  error       a value beginning with \x27[\x27, the way JSON and YAML write arrays\n  An array is comma-separated and written without brackets: ports: 80, 443.\n  A \x27[\x27 after the colon is never a selector, and reading the text without\n  its brackets would bake a changed value in, so the line is kept verbatim:\n  it binds nothing and nothing counts as lost. The lines under it still\n  load, under the field with no value, so a read on the field is Empty when\n  one of them loads and NotFound when none does.\n\n|-'
-	'Erlr23g|explain-e023-read|explain E023|-|0|\nE023  error       a bad escape in double quotes\n  Only \\t, \\n, \\\\, \\", \\\x27, \\uXXXX and \\UXXXXXXXX are escapes there, and a\n  \\u or \\U escape must name a character. A Windows path typed in double\n  quotes is the usual cause, and its \\n would already be a newline, so the\n  line is kept verbatim: it binds nothing and a read on it is NotFound. Use\n  single quotes or no quotes, or double each backslash. When only the value\n  is wrong, the lines under it still load, under the field with no value,\n  and a read on the field is Empty once one of them loads. When the name\n  is, a raw block the line opens is kept with it.\n\n|-'
-	'Erlr25Z|explain-e024-read|explain E024|-|0|\nE024  error       a Windows path in double quotes with a \\t or \\n escape\n  "C:\\temp" would read as C:, a tab, then emp, which a path almost never\n  means. The line is kept verbatim like E023: it binds nothing, and the\n  lines under it still load. A read on the field is Empty when one of them\n  loads and NotFound when none does. Use single quotes or no quotes, or\n  double each backslash.\n\n|-'
+	'Erlr23g|explain-e023-read|explain E023|-|0|\nE023  error       a bad escape\n  An escape is a name from the escape list between two U+25C9 marks, such as\n  TAB, NEWLINE or U+200B, and a real U+25C9 is the name ESCAPE_CHAR. Anything\n  else between two marks is an error, and so is a mark with no partner. A\n  backslash is plain text. The line is kept verbatim: it binds nothing and a\n  read on it is NotFound. When only the value is wrong, the lines under it\n  still load, under the field with no value, and a read on the field is Empty\n  once one of them loads. When the name is, a raw block the line opens is kept\n  with it.\n\n|-'
+	## E024 is retired (2026100207032800), so explain says so.
+	#'Erlr25Z|explain-e024-read|explain E024|-|0|\nE024  error       a Windows path in double quotes with a \\t or \\n escape\n  "C:\\temp" would read as C:, a tab, then emp, which a path almost never\n  means. The line is kept verbatim like E023: it binds nothing, and the\n  lines under it still load. A read on the field is Empty when one of them\n  loads and NotFound when none does. Use single quotes or no quotes, or\n  double each backslash.\n\n|-'
+	'ErpaTy1|explain-e024-retired|explain E024|-|0|\nE024  retired     error, with no replacement\n  Loads no longer report E024, and no other code took its rule.\n\n|-'
+	'ErpaTy2|explain-h003-retired|explain H003|-|0|\nH003  retired     hint, with no replacement\n  Loads no longer report H003, and no other code took its rule.\n\n|-'
 	## 20260909 item 4: a 3.0 file writes a backslash value the same way a 2.x
 	## one does, so migrating on a guess changed a correct file at exit 0. The
 	## file has to say which rules wrote it, or the caller has to.
 	## Durations and sizes print whole milliseconds and bytes. --unit gives a bare
 	## number its unit, --decimal makes KB to TB powers of 1000, and each is
 	## refused where it cannot mean anything.
-	'Er35Y6E|duration-read|get --duration - t|t: 1h 30m\n|0|5400000\n|-'
+	'Er35Y6E|duration-read|get --duration - t|t: "1h 30m"\n|0|5400000\n|-'
 	'Er35Y6F|duration-name-unit|get --duration - wait-ms|wait-ms: 250\n|0|250\n|-'
 	'Er35Y6G|duration-bare|get --duration - t|t: 90\n|4|0\n|not a valid duration'
 	'Er35Y6H|duration-unit|get --duration --unit=s - t|t: 90\n|0|90000\n|-'
@@ -749,9 +774,10 @@ rows=(
 	'Eq4Rkv2|migrate-ambiguous-refused|migrate %BS%|-|7|-|does not say which it was written for'
 	"Eq4Rkv3|migrate-ambiguous-kept|migrate %BS%|-|7|p: 'C:\\\\temp'\n|-"
 	'Eq4Rkv4|migrate-ambiguous-write-refused|migrate --write %BS%|-|7|-|refusing to rewrite'
-	## The 2.x tab now goes in as it is, since "C:\temp" is E024 (2026100115323227).
+	## The 2.x tab went in as it was, since "C:\temp" was E024 (2026100115323227).
+	## It is the TAB escape since 2026100207032800.
 	#'Eq4Rkv5|migrate-from-2x|migrate --from-2x %BS%|-|0|p: "C:\\temp"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
-	'ErUn2Bt|migrate-from-2x-tab|migrate --from-2x %BS%|-|0|p: "C:\temp"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'ErUn2Bt|migrate-from-2x-tab|migrate --from-2x %BS%|-|0|p: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	## A file that names its format has nothing to migrate, which is what stops
 	## the second run from rewriting the first run's output.
 	'Eq4Rkv6|migrate-stamped-noop|migrate %V3%|-|0|p: 1\n##    Format   3\n|nothing to migrate'
@@ -775,7 +801,11 @@ rows=(
 	'Eq4Rkv8|migrate-lost-write-refused|migrate --write %BW%|-|7|-|refusing to rewrite'
 	'Eq4Rkv9|migrate-lost-write-lossy|migrate --write --lossy %BW%|-|0|-|bound a value under 2.x'
 	## 2026100410055748: the count was values, so this said 3 line(s).
-	'Erkljp5|migrate-lost-counts-lines|migrate --from-2x %MV%|-|7|-|: 2 line\(s\) bound a value under 2\.x'
+	## A line break in a Windows path has a spelling since 2026100207032800, so
+	## only the bracket line is lost and the count can no longer tell lines
+	## from values.
+	#'Erkljp5|migrate-lost-counts-lines|migrate --from-2x %MV%|-|7|-|: 2 line\(s\) bound a value under 2\.x'
+	'ErpaTy3|migrate-lost-one-line|migrate --from-2x %MV%|-|7|-|: 1 line\(s\) bound a value under 2\.x'
 	## 20260909 item 41: telling a file that needs migrating from one that does
 	## not took a diff of the output, and --write said nothing either way.
 	'Eq4wD3Y|migrate-check-names|migrate --check %W%|-|6||w\.shcl:1: migrate would rewrite this line'
@@ -836,13 +866,13 @@ rows=(
 	'Er1zoZF|write-layer-fmt|fmt --write --layer=%F% %K%|-|1||^--write cannot be combined with --layer \(see --help\)$|# note\nName:   "x"   # c\nblock:\n    a: 1\n'
 	'Er1zoZG|write-layer-set|set --write --layer=%F% --set=b=2 %K%|-|1||^--write cannot be combined with --layer \(see --help\)$|# note\nName:   "x"   # c\nblock:\n    a: 1\n'
 	'EpFkZyC|tokens-line|tokens %F%|-|0|1:0 name=0-1 sep=1 value=3-4 elem=3-4\n|-'
-	'EpFkZyD|tokens-fault|tokens %B%|-|0|1:0 name=0-1 sep=1 value=3-4 elem=3-4\n2:2 name=0-3\n3:0 name=0-1 fault=2:unexpected character after the path\n|-'
+	'EpFkZyD|tokens-fault|tokens %B%|-|0|1:0 name=0-1 sep=1 value=3-4 elem=3-4\n2:2 name=0-3\n3:0 name=0-3\n|-'
 	## 20260923 item 20: the help and man page say each line is read on its own,
 	## so a raw body line comes out as a field line.
 	## 20260923 item 12: a `*` with only a blank after it is an empty element
 	## to the parser (E009), and tokens called it a name fault.
 	'Er84S7X|tokens-star-trailing-blank|tokens -|a:\n\t* \n\t*\t\n\t*\n|0|1:0 name=0-1 sep=1 value=2-2 elem=2-2\n2:1 star value=1-1 elem=1-1\n3:1 star value=1-1 elem=1-1\n4:1 fault=0:expected a field name\n|-'
-	'EqjsQiv|tokens-raw-body|tokens %R%|-|0|1:0 name=0-1 sep=1 value=2-2 elem=2-2\n2:1 fence value=0-3 elem=0-3\n3:1 name=0-4 fault=5:unexpected character after the path\n4:1 name=0-4 fault=5:unexpected character after the path\n5:1 fence value=0-3 elem=0-3\n|-'
+	'EqjsQiv|tokens-raw-body|tokens %R%|-|0|1:0 name=0-1 sep=1 value=2-2 elem=2-2\n2:1 fence value=0-3 elem=0-3\n3:1 name=0-8\n4:1 name=0-8\n5:1 fence value=0-3 elem=0-3\n|-'
 	## 20260830b item 18: a read below strict returned the value and said nothing
 	## about a line the load had dropped, so a damaged file read clean at exit 0.
 	'EoXBb4q|get-diags|get %B% a|-|0|1\n|E015 missing colon'
@@ -913,7 +943,7 @@ rows=(
 	'Eon9YY5|single-file-diags-unnamed|fmt %B%|-|0|-|^line 3: Error: E014'
 	## 20260909 item 34: E014 says where on the line the path went wrong, as
 	## a byte column, which the tokenizer computed and the message dropped.
-	'Eq8GC80|e014-column|check %B%|-|6|-|^line 3: Error: E014 malformed line skipped: unexpected character after the path, at column 3$'
+	'Eq8GC80|e014-column|check -|a: 1\n  bad\nab]\n|6|-|^line 3: Error: E014 malformed line skipped: unexpected character after the path, at column 3$'
 	'Eq8GC81|e014-column-bytes|check %CB%|-|6|-|^line 2: Error: E014 malformed line skipped: unexpected character after the path, at column 7$'
 	## 20260918 item 15: the blank run between the indent and the text counts.
 	'EqGawtE|e014-column-cr-lead|check %CR%|-|6|-|E014 .*, at column 5$'
@@ -969,7 +999,7 @@ rows=(
 	## 20260716 item 22: the error mode printed a bare BadType, with no value, type
 	## or file. 20260830 item 34: C printed a raw body as it stood, so the one
 	## line ran over three, and the four CLIs each quoted the value their own way.
-	'Er1zoZH|onbad-error-names-value|get --int --on-bad=error - a|a: 12 cats\n|4||^cannot read a as int: value "12 cats" is not a valid int \(in -\)$'
+	'Er1zoZH|onbad-error-names-value|get --int --on-bad=error - a|a: 12cats\n|4||^cannot read a as int: value "12cats" is not a valid int \(in -\)$'
 	'Er1zoZI|bad-int-raw-one-line|get --int %R% b|-|4|0\n|^cannot read b as int: value "line one\\nline two" is not a valid int \(in [^)]*rawval\.shcl\)$'
 	'EqSNyFl|default-clash|get --int --default=7 --default=8 %F% nope|-|1|-|^--default=7 cannot be combined with --default=8 \(see --help\)$'
 	'EqSNyFm|default-repeat-ok|get --int --default=7 --default=7 %F% nope|-|0|7\n|-'
@@ -1028,9 +1058,10 @@ rows=(
 	'Eq9yPCG|explain-no-options|explain --strictness=strict E019|-|1|-|not valid for explain'
 	## Review 20261003 idea 1: a retired code was an unknown one, and H004
 	## suggested the unrelated E004. It says it was retired and what replaced
-	## it, at exit 0 on stdout like any code explain knows.
-	'Ern4qLa|explain-retired|explain H004|-|0|\nH004  retired     hint, replaced by E024\n  Loads no longer report H004. \x27shcl explain E024\x27 has the rule now.\n\n|='
-	'Ern4qOc|explain-retired-lower|explain h004|-|0|\nH004  retired     hint, replaced by E024\n  Loads no longer report H004. \x27shcl explain E024\x27 has the rule now.\n\n|-'
+	## it, at exit 0 on stdout like any code explain knows. E024, which had
+	## replaced it, is retired too since 2026100207032800.
+	'Ern4qLa|explain-retired|explain H004|-|0|\nH004  retired     hint, with no replacement\n  Loads no longer report H004, and no other code took its rule.\n\n|='
+	'Ern4qOc|explain-retired-lower|explain h004|-|0|\nH004  retired     hint, with no replacement\n  Loads no longer report H004, and no other code took its rule.\n\n|-'
 	## 20260909 item 43: a near miss on a command, an option or a code says what
 	## was probably meant. A word nothing is near says nothing.
 	'Eq9yPCH|suggest-command|frmt %F%|-|1|-|did you mean .fmt.'

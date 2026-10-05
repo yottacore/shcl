@@ -5,7 +5,7 @@ field: timeout
 	max: 5m
 	required: yes
 	default: 30
-	desc: How long to wait
+	desc: "How long to wait"
 field: hold-ms
 	type: duration
 	max: 2s

@@ -1,3 +1,5 @@
 literal	q	"open
 literal	q2	a, "b
 literal	open	[80
+# Refused since the value syntax: a space in a bare value is E025.
+literal	plain	no quotes here

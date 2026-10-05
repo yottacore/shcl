@@ -10,7 +10,7 @@ code:
 	print("hi")
 	```
 
-tricky: "tab\there quote \" and backslash \\ end"
+tricky: 'tab◉TAB◉here quote " and backslash \ end'
 
 fence: "```not a real fence```"
 

@@ -1,0 +1,22 @@
+# A backtick value is raw: no escapes, and a hash, comma or quote is text.
+color: `#FF8800`  # a comment after it
+esc: "has ` tick"
+ctab: `\t`
+apos: `'`
+dq: `"`
+comma: `a, b`
+mark: `◉TAB◉`
+spaced: ` padded `
+empty: ``
+list: `a`, b, `c, d`
+num: `81`
+over: `new value`
+oversq: 'new value'
+overdq: "new value"
+open: `never closed
+	kid: 1
+mid: a`b
+sel[`x`]: 1
+last: 1
+
+lit: `#00FF00`

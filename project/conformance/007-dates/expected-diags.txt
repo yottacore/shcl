@@ -1,1 +1,2 @@
-ok (0 diagnostic(s))
+line 31: Error: E025
+failed: 1 diagnostic(s), 1 error(s)

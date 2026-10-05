@@ -1,4 +1,6 @@
-literal	bad	"\u12"
-literal	bad	"\uD800"
-literal	bad	"\U00110000"
-int	"x\uZZZZ"	1
+# Each line below was refused for a backslash escape. A backslash is text
+# since the value syntax (2026100207032800), so each one is written now.
+# literal	bad	"\u12"
+# literal	bad	"\uD800"
+# literal	bad	"\U00110000"
+# int	"x\uZZZZ"	1

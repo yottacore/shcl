@@ -1,24 +1,24 @@
-path: "C:\\temp"
-tab: "a\\tb"
-bare: "a\\tb"
-pair: "a\\", b
-shield: "a\\, b"
-tail: x, "a\\"
-noted: "a\\" # note
-real-tab: "C:	emp"
-real-newline: "a\nb"
-users: "C:\\Users\\me"
-open: "\"00:30\\"
+path: "C:\temp"
+tab: "a\tb"
+bare: a\tb
+pair: a\, b
+shield: "a\, b"
+tail: x, a\
+noted: a\ # note
+real-tab: "C:◉TAB◉emp"
+real-newline: "a◉NEWLINE◉b"
+users: "C:\Users\me"
+open: '"00:30\'
 quote: "it's"
-end: "x\\"
-"n\\tm": 1
-"n\tm": 2
-k["a\\tb"].v: 1
-j["a\\tb"].v: 1
-srv["a\\tb"].name: 1
+end: "x\"
+"n\tm": 1
+"n◉TAB◉m": 2
+k["a\tb"].v: 1
+j["a\tb"].v: 1
+srv["a\tb"].name: 1
 list:
-	* "a\\tb"
-	* "c\\d"
+	* a\tb
+	* "c\d"
 last: 1
 ##    Format   3
 ##    Migrated from SHCL 2.x.

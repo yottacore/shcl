@@ -23,7 +23,7 @@ star: "*"
 star["*"].leaf:
 
 ## any, required
-"a\nb": v
+"a◉NEWLINE◉b": v
 
 ##
 ## This config file format is SHCL.

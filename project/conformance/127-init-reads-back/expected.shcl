@@ -24,12 +24,6 @@ srv: 20000000000000000000
 
 	## any, required
 	port: 2
-
-## any, required
-tags: "a, b", c
-
-	## any, required
-	x: 3
 repo: "org/name#123"
 
 	## any, required

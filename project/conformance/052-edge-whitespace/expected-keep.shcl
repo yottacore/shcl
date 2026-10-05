@@ -1,21 +1,21 @@
 base: 0
 kept: "x "
-inner: a b
+inner: "a b"
 
 nbsp_end: "x "
 
 nbsp_start: " x"
 
-vtab: "y\u000B"
+vtab: "y◉VT◉"
 
-formfeed: "y\u000C"
+formfeed: "y◉FF◉"
 
 ideographic: "z　"
 
-nel: "w\u0085"
+nel: "w◉U+0085◉"
 
 enquad: "v "
 
-interior: a b
+interior: "a b"
 
 plain: "keep me"

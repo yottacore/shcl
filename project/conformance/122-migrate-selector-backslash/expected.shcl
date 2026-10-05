@@ -1,6 +1,6 @@
-path: 'C:\'
-	file: 'C:\temp'
-nested: 'C:\'
+path: C:\
+	file: C:\temp
+nested: C:\
 	name: a\tb
 quoted-sel: a\tb
 	v: 1

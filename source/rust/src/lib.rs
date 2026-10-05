@@ -154,7 +154,9 @@ pub enum WriteReason {
 /// when the read's single scalar element was quoted in the source - the escape
 /// hatch that lets a downstream language reserve `@null` while `"@null"` stays
 /// a plain string. Arrays, raw blocks, and empties leave it false. A written
-/// value counts as quoted when a save would quote it.
+/// value counts as quoted when a save would quote it. `backtick` is true when
+/// that element was a backtick value: raw text the program decodes itself,
+/// which SHCL hands back as written. A backtick value counts as quoted too.
 #[derive(Debug, Clone)]
 pub struct Read<T> {
 	pub value: T,
@@ -163,6 +165,7 @@ pub struct Read<T> {
 	pub slots: Vec<Status>,
 	pub line: usize,
 	pub quoted: bool,
+	pub backtick: bool,
 }
 
 impl<T> Read<T> {
@@ -174,6 +177,7 @@ impl<T> Read<T> {
 			slots: Vec::new(),
 			line: 0,
 			quoted: false,
+			backtick: false,
 		}
 	}
 	fn with_slots(value: T, status: Status, raw: Option<String>, slots: Vec<Status>) -> Read<T> {
@@ -184,11 +188,13 @@ impl<T> Read<T> {
 			slots,
 			line: 0,
 			quoted: false,
+			backtick: false,
 		}
 	}
-	fn at(mut self, line: usize, quoted: bool) -> Read<T> {
+	fn at(mut self, line: usize, element: Option<&Element>) -> Read<T> {
 		self.line = line;
-		self.quoted = quoted;
+		self.quoted = element.is_some_and(Element::quoted);
+		self.backtick = element.is_some_and(|e| e.mark == Mark::Backtick);
 		self
 	}
 	/// Whether the author addressed this field at all: `Good` or `Empty`. Note
@@ -347,7 +353,23 @@ impl std::fmt::Display for ShclDateTime {
 #[derive(Debug, Clone, PartialEq)]
 struct Element {
 	text: String, // the logical string: quotes stripped, escapes resolved
-	quoted: bool,
+	mark: Mark,
+}
+
+/// How an element was written. The writer keeps the author's quote kind
+/// where the text allows it, and a backtick value stays in backticks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mark {
+	Bare,
+	Single,
+	Double,
+	Backtick,
+}
+
+impl Element {
+	fn quoted(&self) -> bool {
+		self.mark != Mark::Bare
+	}
 }
 
 /// One whole-line comment held as trivia, plus whether a blank line preceded
@@ -745,9 +767,10 @@ const DEAD: usize = usize::MAX;
 // level a sibling can bind at, but deeper lines are still under it. It sits
 // on top of the levels open before it without closing any of them.
 const UNOPENED: usize = usize::MAX - 1;
-// Stack entry for a field line refused for its value alone (E019, E023,
-// E024): it binds nothing, but its path is fine, so the first line that
-// binds under it opens the path as `name:` would and binds there.
+// Stack entry for a field line refused for its value alone (E017, E019,
+// E023, E025) or for a bare name that still reads (E014): it binds nothing,
+// but its path is fine, so the first line that binds under it opens the path
+// as `name:` would and binds there.
 const LAZY: usize = usize::MAX - 2;
 
 /// A LAZY level's line, for opening it: the stack entry it sits at, its
@@ -928,18 +951,23 @@ const TMP_NAME_BYTES: usize = 64;
 //
 // - A piece (a name, a selector body, a value element) is quoted only when
 //   its first character is a quote and the next matching quote is the last
-//   thing before the piece ends; inside double quotes a backslash escapes the
-//   next character, inside single quotes nothing does. Anywhere else a quote
-//   is an ordinary character, and a piece that began with one it never closed
-//   is kept literally and reported (`E017`).
-// - Escapes are processed inside double quotes only; bare text and single
-//   quotes never process a backslash.
-// - `#` outside quotes opens a comment, wherever it sits.
+//   thing before the piece ends. A backtick quotes a value element the same
+//   way, as a raw value. A backslash is plain text everywhere. A piece that
+//   began with a quote it never closed is kept literally, and the parser
+//   refuses its line (`E017`).
+// - `◉NAME◉` escapes are read in bare and quoted value text, quoted names
+//   and selector bodies, never in a backtick value, a bare name, a comment
+//   or a raw block (`resolve_marks`).
+// - `#` outside quotes and backticks opens a comment, wherever it sits.
 // - A space, a tab and a carriage return are blanks: trimmed at a piece's
-//   edge, content in the middle of one.
-// - A bare name is ASCII letters, digits, `-` and `_`; a `[` right after a
-//   name opens a selector, whose bare body runs to the first `]`; a `[` after
-//   the separator starts the value, which the parser refuses (`E019`).
+//   edge. In the middle of a bare piece they are whitespace, which the
+//   parser refuses (`E025`).
+// - A bare name is an ASCII letter, then ASCII letters, digits, `-` and `_`.
+//   A file line's name that breaks only that rule still reads, up to the
+//   separator, a dot, a bracket or a comment, and is marked `misspelled`
+//   (`E014`). A `[` right after a name opens a selector, whose bare body
+//   runs to the first `]`; a `[` after the separator starts the value,
+//   which the parser refuses (`E019`).
 // - A value is split on unquoted commas, each piece trimmed.
 //
 // Under `Rules::V2` the tokenizer reads the 2.x spellings instead, for
@@ -950,12 +978,14 @@ const TMP_NAME_BYTES: usize = 64;
 
 /// How a piece was quoted. `Open` is a piece that began with a quote and
 /// never closed with the matching quote as its last character: the whole
-/// piece is kept literally, quotes and all.
+/// piece is kept literally, quotes and all. `Backtick` is a raw value, read
+/// as written: value elements only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Quote {
 	None,
 	Single,
 	Double,
+	Backtick,
 	Open,
 }
 
@@ -995,6 +1025,9 @@ pub struct Tokens {
 	/// Where the path stopped making sense, and why. A faulted line is
 	/// malformed as a whole (`E014`).
 	pub fault: Option<(usize, &'static str)>,
+	/// Offset of the first bare name that breaks the spelling rule but still
+	/// reads, such as `404` or `user name` (`E014`, with the level held open).
+	pub misspelled: Option<usize>,
 	/// The caller's element cap (0 = none): the scan stops as soon as the
 	/// value holds more elements than this, so a capped parse never builds
 	/// the array it is going to refuse. Kept across `tokenize` calls.
@@ -1011,6 +1044,7 @@ impl Tokens {
 		self.elements.clear();
 		self.comment = None;
 		self.fault = None;
+		self.misspelled = None;
 		self.capped = false;
 	}
 	/// How many elements the value holds: a quoted piece counts even when
@@ -1038,17 +1072,6 @@ fn is_wsp_byte(b: u8) -> bool {
 	b == b' ' || b == b'\t' || b == b'\r'
 }
 
-/// `* name: value` is the YAML habit for a list of objects. Here it is one
-/// string element, so the parser says so (H003): the text up to its first
-/// colon has no blank, and the colon ends the text or a blank follows it.
-fn looks_like_binding(s: &str) -> bool {
-	let b = s.as_bytes();
-	let Some(i) = b.iter().position(|&c| c == b':') else {
-		return false;
-	};
-	i > 0 && !b[..i].iter().any(|&c| is_wsp_byte(c)) && b.get(i + 1).is_none_or(|&c| is_wsp_byte(c))
-}
-
 fn is_bare_name_byte(b: u8) -> bool {
 	b.is_ascii_alphanumeric() || b == b'-' || b == b'_'
 }
@@ -1072,10 +1095,20 @@ fn utf8_len(b: u8) -> usize {
 	}
 }
 
-/// Offset of the quote that closes the one at `pos`, or None.
+/// Where a file line's bare name that breaks the spelling rule stops.
+fn name_stop(b: u8, sep: u8) -> bool {
+	b == sep
+		|| matches!(
+			b,
+			b'.' | b'[' | b']' | b'#' | b',' | b'"' | b'\'' | b'`' | b'\n'
+		)
+}
+
+/// Offset of the quote that closes the one at `pos`, or None. 2.x read a
+/// backslash as an escape inside quotes; now it is text.
 fn quote_close(s: &[u8], pos: usize, rules: Rules) -> Option<usize> {
 	let q = s[pos];
-	let escapes = q == b'"' || rules == Rules::V2;
+	let escapes = rules == Rules::V2;
 	let mut i = pos + 1;
 	while i < s.len() {
 		if escapes && s[i] == b'\\' && i + 1 < s.len() {
@@ -1105,7 +1138,11 @@ fn scan_piece(s: &[u8], mut pos: usize, term: u8, rules: Rules, comments: bool) 
 	skip_wsp(s, &mut pos);
 	let start = pos;
 	let mut quote = Quote::None;
-	if pos < s.len() && (s[pos] == b'"' || s[pos] == b'\'') {
+	// A backtick quotes a raw value element. 2.x had none, a selector body
+	// takes none, and a run of three opens a raw block instead.
+	let tick =
+		rules == Rules::Current && term == b',' && !s[pos.min(s.len())..].starts_with(b"```");
+	if pos < s.len() && (s[pos] == b'"' || s[pos] == b'\'' || (tick && s[pos] == b'`')) {
 		match quote_close(s, pos, rules) {
 			Some(close) => {
 				// A value piece may also end at a comment or the line end;
@@ -1118,10 +1155,10 @@ fn scan_piece(s: &[u8], mut pos: usize, term: u8, rules: Rules, comments: bool) 
 					term == b','
 				};
 				if ended {
-					let q = if s[pos] == b'"' {
-						Quote::Double
-					} else {
-						Quote::Single
+					let q = match s[pos] {
+						b'"' => Quote::Double,
+						b'`' => Quote::Backtick,
+						_ => Quote::Single,
 					};
 					return (
 						Piece {
@@ -1155,6 +1192,7 @@ fn scan_piece(s: &[u8], mut pos: usize, term: u8, rules: Rules, comments: bool) 
 	}
 	// 2.x shielded a backslash in value text only. A bare selector body ran to
 	// its first `]`, the same as now, so shielding one here would hide the `]`.
+	// Now a backslash is text.
 	let shield = rules == Rules::V2 && term == b',';
 	let mut content_end = start;
 	while pos < s.len() {
@@ -1252,7 +1290,7 @@ fn scan_value(text: &str, from: usize, rules: Rules, out: &mut Tokens) {
 	}
 	out.value = (a.min(b), b);
 	if let Some(last) = out.elements.last_mut()
-		&& !matches!(last.quote, Quote::Single | Quote::Double)
+		&& !matches!(last.quote, Quote::Single | Quote::Double | Quote::Backtick)
 		&& last.end > b
 	{
 		last.end = b.max(last.start);
@@ -1304,6 +1342,33 @@ pub fn tokenize(text: &str, sep: u8, path: bool, rules: Rules, out: &mut Tokens)
 			let start = pos;
 			while pos < s.len() && is_bare_name_byte(s[pos]) {
 				pos += 1;
+			}
+			// A file line's name that breaks only the spelling rule still
+			// reads, so the lines under it can load under it (E014). A lookup
+			// path takes the old bare run, any first character. A name led by
+			// a byte order mark does not read: at the start of a file the
+			// load strips the mark, so the line would bind as something else.
+			// One led by a `*` is a list item's line, which never gets here.
+			if !path
+				&& rules == Rules::Current
+				&& !s[start..].starts_with("\u{feff}".as_bytes())
+				&& s[start] != b'*'
+			{
+				let mut end = pos;
+				while pos < s.len() && !name_stop(s[pos], sep) {
+					let b = s[pos];
+					pos = (pos + utf8_len(b)).min(s.len());
+					if !is_wsp_byte(b) {
+						end = pos;
+					}
+				}
+				pos = end;
+				if end > start
+					&& (!s[start].is_ascii_alphabetic()
+						|| !s[start..end].iter().all(|&b| is_bare_name_byte(b)))
+				{
+					out.misspelled.get_or_insert(start);
+				}
 			}
 			if pos == start {
 				out.fault = Some((pos, "expected a field name"));
@@ -1374,12 +1439,19 @@ pub fn tokenize(text: &str, sep: u8, path: bool, rules: Rules, out: &mut Tokens)
 	}
 }
 
-/// The text of a piece as the reader sees it: escapes applied inside double
-/// quotes, everything else as written.
+/// Whether a piece's `◉` escapes are read: bare and quoted text. A backtick
+/// value is raw, and an open piece is refused before anything reads it.
+fn decodes(p: &Piece) -> bool {
+	matches!(p.quote, Quote::None | Quote::Single | Quote::Double)
+}
+
+/// The text of a piece as the reader sees it: escapes applied, except in a
+/// backtick value, which is as written. A bare field name takes no escapes
+/// either; `path_of` reads those.
 fn piece_text(p: &Piece, text: &str) -> String {
 	let raw = &text[p.start..p.end];
-	if p.quote == Quote::Double && raw.contains('\\') {
-		apply_escapes(raw)
+	if decodes(p) && raw.contains(ESCAPE_MARK) {
+		resolve_marks(raw).unwrap_or_else(|_| raw.to_string())
 	} else {
 		raw.to_string()
 	}
@@ -1388,8 +1460,8 @@ fn piece_text(p: &Piece, text: &str) -> String {
 /// True when a piece reads as this exact text, without building it.
 fn piece_is(p: &Piece, text: &str, want: &str) -> bool {
 	let raw = &text[p.start..p.end];
-	if p.quote == Quote::Double && raw.contains('\\') {
-		apply_escapes(raw) == want
+	if decodes(p) && raw.contains(ESCAPE_MARK) {
+		resolve_marks(raw).is_ok_and(|t| t == want)
 	} else {
 		raw == want
 	}
@@ -1403,7 +1475,12 @@ fn element_of(p: &Piece, text: &str) -> Option<Element> {
 	}
 	Some(Element {
 		text: piece_text(p, text),
-		quoted: matches!(p.quote, Quote::Single | Quote::Double),
+		mark: match p.quote {
+			Quote::Single => Mark::Single,
+			Quote::Double => Mark::Double,
+			Quote::Backtick => Mark::Backtick,
+			Quote::None | Quote::Open => Mark::Bare,
+		},
 	})
 }
 
@@ -1460,19 +1537,9 @@ fn schema_text(s: &str) -> String {
 	s.replace('\n', "\\n")
 }
 
-/// Escape processing (string reads): \t \n \\ \" \' \uXXXX \UXXXXXXXX. An
-/// unknown pair stays literal, which only 2.x text still reaches: the current
-/// rules refuse one (`E023`) before anything is read.
-fn apply_escapes(s: &str) -> String {
-	resolve_escapes(s, Rules::Current)
-}
-
-/// The 2.x reading, for `migrate`: no `\u`, so 2.x kept `\u0041` as written.
+/// The 2.x escape reading, for `migrate`: `\t`, `\n`, `\\`, `\"` and `\'`,
+/// with any other pair kept as written.
 fn apply_escapes_v2(s: &str) -> String {
-	resolve_escapes(s, Rules::V2)
-}
-
-fn resolve_escapes(s: &str, rules: Rules) -> String {
 	let mut out = String::with_capacity(s.len());
 	let mut it = s.chars();
 	while let Some(c) = it.next() {
@@ -1486,13 +1553,6 @@ fn resolve_escapes(s: &str, rules: Rules) -> String {
 			Some('\\') => out.push('\\'),
 			Some('"') => out.push('"'),
 			Some('\'') => out.push('\''),
-			Some(k @ ('u' | 'U'))
-				if rules == Rules::Current && unicode_escape(k, it.as_str()).is_some() =>
-			{
-				let (ch, len) = unicode_escape(k, it.as_str()).unwrap_or_default();
-				out.push(ch);
-				it = it.as_str()[len..].chars();
-			}
 			Some(other) => {
 				out.push('\\');
 				out.push(other);
@@ -1503,17 +1563,72 @@ fn resolve_escapes(s: &str, rules: Rules) -> String {
 	out
 }
 
-/// The character a `\u` or `\U` escape names, and how many hex digits it
-/// takes: four after `u`, eight after `U`, as in TOML. None for a short run,
-/// a surrogate or a value past U+10FFFF.
-fn unicode_escape(kind: char, after: &str) -> Option<(char, usize)> {
-	let len = if kind == 'u' { 4 } else { 8 };
-	let digits = after.get(..len)?;
-	if !digits.bytes().all(|b| b.is_ascii_hexdigit()) {
-		return None;
+/// The text of a piece with its `◉NAME◉` escapes resolved. The marks pair up
+/// left to right, and the text between each pair must be a name on the list
+/// or a code point. Err is the message for the first one that is not
+/// (`E023`).
+fn resolve_marks(raw: &str) -> Result<String, String> {
+	let mut out = String::with_capacity(raw.len());
+	let mut rest = raw;
+	while let Some(at) = rest.find(ESCAPE_MARK) {
+		out.push_str(&rest[..at]);
+		let after = &rest[at + ESCAPE_MARK.len_utf8()..];
+		let Some(close) = after.find(ESCAPE_MARK) else {
+			return Err(format!(
+				"a '{m}' with no partner; an escape is {m}NAME{m}, and a real {m} is {m}ESCAPE_CHAR{m}",
+				m = ESCAPE_MARK
+			));
+		};
+		let name = &after[..close];
+		match escape_text(name) {
+			Ok(t) => out.push_str(&t),
+			Err(why) => return Err(why),
+		}
+		rest = &after[close + ESCAPE_MARK.len_utf8()..];
 	}
-	let ch = char::from_u32(u32::from_str_radix(digits, 16).ok()?)?;
-	Some((ch, len))
+	out.push_str(rest);
+	Ok(out)
+}
+
+/// The text one escape name stands for: a name from the list, either case,
+/// or a code point prefix and one to six hex digits.
+fn escape_text(name: &str) -> Result<std::borrow::Cow<'static, str>, String> {
+	let shown = || format!("{m}{}{m}", one_line(name), m = ESCAPE_MARK);
+	if !name.is_empty()
+		&& name
+			.bytes()
+			.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'+'))
+	{
+		if let Some((_, text)) = ESCAPE_NAMES
+			.iter()
+			.find(|(n, _)| n.eq_ignore_ascii_case(name))
+		{
+			return Ok(std::borrow::Cow::Borrowed(text));
+		}
+		for prefix in CODE_PREFIXES {
+			let Some(head) = name.get(..prefix.len()) else {
+				continue;
+			};
+			let digits = &name[prefix.len()..];
+			if !head.eq_ignore_ascii_case(prefix)
+				|| digits.is_empty()
+				|| digits.len() > 6
+				|| !digits.bytes().all(|b| b.is_ascii_hexdigit())
+			{
+				continue;
+			}
+			return u32::from_str_radix(digits, 16)
+				.ok()
+				.and_then(char::from_u32)
+				.map(|c| std::borrow::Cow::Owned(c.to_string()))
+				.ok_or_else(|| format!("escape '{}' names no Unicode character", shown()));
+		}
+	}
+	Err(format!(
+		"unknown escape '{}'; an escape is a name from the escape list, and a real {m} is {m}ESCAPE_CHAR{m}",
+		shown(),
+		m = ESCAPE_MARK
+	))
 }
 
 // gen-escapes.py: begin
@@ -1549,10 +1664,87 @@ const SELECTORS: [(u32, u32); 4] = [
 	(0xFE00, 0xFE0F),
 	(0xE0100, 0xE01EF),
 ];
+#[rustfmt::skip]
+const WHITE_SPACE: [(u32, u32); 10] = [
+	(0x0009, 0x000D),
+	(0x0020, 0x0020),
+	(0x0085, 0x0085),
+	(0x00A0, 0x00A0),
+	(0x1680, 0x1680),
+	(0x2000, 0x200A),
+	(0x2028, 0x2029),
+	(0x202F, 0x202F),
+	(0x205F, 0x205F),
+	(0x3000, 0x3000),
+];
+const ESCAPE_MARK: char = '\u{25C9}';
+#[rustfmt::skip]
+const ESCAPE_NAMES: [(&str, &str); 44] = [
+	("NUL", "\u{0}"),
+	("NULL", "\u{0}"),
+	("BEL", "\u{7}"),
+	("BELL", "\u{7}"),
+	("BACKSPACE", "\u{8}"),
+	("BS", "\u{8}"),
+	("TAB", "\u{9}"),
+	("HT", "\u{9}"),
+	("HORIZONTAL_TAB", "\u{9}"),
+	("NEWLINE", "\u{A}"),
+	("LF", "\u{A}"),
+	("LINEFEED", "\u{A}"),
+	("LINE_FEED", "\u{A}"),
+	("NEW_LINE", "\u{A}"),
+	("VT", "\u{B}"),
+	("VERTICAL_TAB", "\u{B}"),
+	("VERTICALTAB", "\u{B}"),
+	("FF", "\u{C}"),
+	("FORM_FEED", "\u{C}"),
+	("FORMFEED", "\u{C}"),
+	("CR", "\u{D}"),
+	("CARRIAGERETURN", "\u{D}"),
+	("CARRIAGE_RETURN", "\u{D}"),
+	("CRLF", "\u{D}\u{A}"),
+	("CARRIAGERETURN_LINEFEED", "\u{D}\u{A}"),
+	("CARRIAGE_RETURN_LINE_FEED", "\u{D}\u{A}"),
+	("ESC", "\u{1B}"),
+	("ESCAPE", "\u{1B}"),
+	("DEL", "\u{7F}"),
+	("DELETE", "\u{7F}"),
+	("SPACE", "\u{20}"),
+	("SINGLE_QUOTE", "\u{27}"),
+	("SQUOTE", "\u{27}"),
+	("S_QUOTE", "\u{27}"),
+	("SINGLEQUOTE", "\u{27}"),
+	("DOUBLE_QUOTE", "\u{22}"),
+	("DQUOTE", "\u{22}"),
+	("D_QUOTE", "\u{22}"),
+	("DOUBLEQUOTE", "\u{22}"),
+	("BACK_TICK", "\u{60}"),
+	("BACKTICK", "\u{60}"),
+	("TICK", "\u{60}"),
+	("ESCAPE_CHAR", "\u{25C9}"),
+	("FISHEYE", "\u{25C9}"),
+];
+#[rustfmt::skip]
+const CODE_PREFIXES: [&str; 8] = [
+	"U+",
+	"UNICODE+",
+	"UNICODE-",
+	"UNICODE_",
+	"UNICODE",
+	"U-",
+	"U_",
+	"U",
+];
 // gen-escapes.py: end
 
-/// Characters canonical output writes as a `\u` escape, so a reader of the
-/// file sees every character that is there: controls with no short escape,
+/// Unicode's White_Space, which a bare value or selector body cannot hold.
+fn white_space(c: char) -> bool {
+	in_ranges(&WHITE_SPACE, c)
+}
+
+/// Characters canonical output writes as an escape, so a reader of the
+/// file sees every character that is there: the controls,
 /// the line and paragraph separators, the interlinear annotation marks, and
 /// what Unicode calls default-ignorable, such as zero-width spaces, direction
 /// marks and tag characters. The zero-width joiner and non-joiner are not in
@@ -1567,10 +1759,9 @@ fn in_ranges(ranges: &[(u32, u32)], c: char) -> bool {
 	ranges.iter().take_while(|r| r.0 <= c).any(|r| c <= r.1)
 }
 
-/// Whether `c`, the character at byte `i` of `t`, is written as a `\u`
-/// escape. A variation selector stays as written directly after a visible
-/// character, and the tags of a subdivision flag stay too; anywhere else they
-/// hide text.
+/// Whether `c`, the character at byte `i` of `t`, is written as an escape. A
+/// variation selector stays as written directly after a visible character,
+/// and the tags of a subdivision flag stay too; anywhere else they hide text.
 fn invisible_at(t: &str, i: usize, c: char) -> bool {
 	if !invisible(c) {
 		return false;
@@ -1624,19 +1815,20 @@ fn flag_tag(t: &str, i: usize) -> bool {
 	false
 }
 
-/// Whether the text holds a character `invisible_at` escapes.
-fn has_invisible(t: &str) -> bool {
-	t.char_indices().any(|(i, c)| invisible_at(t, i, c))
-}
-
-/// `\u` takes four digits, so a character past U+FFFF is written with `\U`.
-fn push_unicode_escape(out: &mut String, c: char) {
+/// A character the writer escapes: by its first name when the list has one,
+/// otherwise as a code point with at least four hex digits.
+fn push_escape(out: &mut String, c: char) {
 	use std::fmt::Write;
-	let _ = if (c as u32) > 0xFFFF {
-		write!(out, "\\U{:08X}", c as u32)
-	} else {
-		write!(out, "\\u{:04X}", c as u32)
-	};
+	let mut buf = [0u8; 4];
+	let one: &str = c.encode_utf8(&mut buf);
+	out.push(ESCAPE_MARK);
+	match ESCAPE_NAMES.iter().find(|(_, text)| *text == one) {
+		Some((name, _)) => out.push_str(name),
+		None => {
+			let _ = write!(out, "{}{:04X}", CODE_PREFIXES[0], c as u32);
+		}
+	}
+	out.push(ESCAPE_MARK);
 }
 
 /// The predicate a `[value]` selector matches with: the display form, which
@@ -1933,8 +2125,7 @@ pub struct Migration {
 	/// between, left as written. Always 0 when the caller said the file is 2.x.
 	pub ambiguous: usize,
 	/// Lines 2.x bound a value on that nothing binds now: bracket text after
-	/// the colon, or a line break in a value that starts like a Windows path,
-	/// neither of which has a 3.0 spelling to move to.
+	/// the colon, which has no 3.0 spelling to move to.
 	pub lost: usize,
 }
 
@@ -2092,13 +2283,13 @@ fn opens_raw(rest: &str, tok: &mut Tokens) -> Option<(u8, usize)> {
 
 /// Rewrite a document written under the 2.x rules so this parser reads the
 /// same tree. Each line is read with the 2.x tokenizer and rewritten only
-/// where the two rule sets disagree: a bare or single-quoted piece whose
-/// backslash meant an escape is double-quoted with that escape; a piece
-/// that opened a quote it never closed is quoted whole; the `name:[disc]`
+/// where the two rule sets disagree: a piece whose backslash meant an escape
+/// is written the way the writer writes the text 2.x read; a piece that
+/// opened a quote it never closed is quoted whole; the `name:[disc]`
 /// selector sugar loses its colon, and on a last segment becomes `name: disc`,
-/// with `disc` written the way the formatter writes a value. A rewritten
-/// piece holding a backslash is double-quoted, so the result reads the same
-/// under 2.x and a second run changes nothing.
+/// with `disc` written the way the formatter writes a value. The value
+/// syntax's other rewrites, such as quoting a bare value with a space, are
+/// not done yet (2026100207032800).
 /// Everything else - comments, blank lines, raw bodies, layout, a line 2.x
 /// could not read - comes through as written. One shape has no spelling
 /// here at all: a fence label holding a `#`, which 2.x ran to the end of the
@@ -2241,25 +2432,17 @@ fn reads_same(spelling: &str, quoted: bool, logical: &str) -> bool {
 	tok.elements.len() == 1
 		&& tok.value == (0, spelling.len())
 		&& matches!(tok.elements[0].quote, Quote::Single | Quote::Double) == quoted
-		&& tok.elements[0].quote != Quote::Open
-		&& bad_escape(&tok, spelling, true).is_none()
-		&& !path_like(&tok.elements[0], spelling)
+		&& piece_fault(&tok.elements[0], spelling, "value").is_none()
 		&& piece_text(&tok.elements[0], spelling) == logical
 }
 
-/// How a changed piece is written. 2.x read a backslash in bare and
-/// single-quoted text as an escape too, and double quotes are where both rule
-/// sets read one alike. No `\u` goes in, since 2.x would keep it as written.
-/// So the migrated file reads the same under 2.x, and a second run changes
-/// nothing. A line break in a value that starts like a Windows path has no
-/// such spelling: written this way it is E024, so the caller counts it lost.
+/// How a changed piece is written: the way the writer writes the text 2.x
+/// read, so a backslash is text and a tab or line break is an escape.
 fn migrate_spelling(logical: &str, bare: bool) -> String {
-	if logical.contains('\\') {
-		quote_double_as(logical, Rules::V2)
-	} else if bare && !needs_quotes(logical) {
+	if bare && !needs_quotes(logical) {
 		logical.to_string()
 	} else {
-		quote_text_as(logical, Rules::V2)
+		quote_text(logical)
 	}
 }
 
@@ -2295,22 +2478,12 @@ fn value_edits(text: &str, tok: &Tokens, edits: &mut Vec<Edit>, st: &mut Migrati
 		// A resolved escape is the one edit that turns on which rule set wrote
 		// the file: these bytes say one thing under 2.x and another here. An
 		// open quote or an empty slot reads alike either way, so it still goes,
-		// and so does an unknown pair in double quotes, which both kept. A `\u`
-		// in double quotes is a character now and was text in 2.x.
-		let differs = if p.quote == Quote::Double {
-			unicode_pair_differs(raw)
-		} else {
-			logical != raw
-		};
-		if differs && !st.from_v2 {
+		// and so does a pair 2.x kept as written.
+		if logical != raw && !st.from_v2 {
 			st.ambiguous += 1;
 			continue;
 		}
 		let spelling = migrate_spelling(&logical, !(quoted || p.quote == Quote::Open));
-		// Written the way 2.x read it, the line is E024 and binds nothing.
-		if spelling.starts_with('"') && spells_path_escape(&spelling) {
-			st.lost += 1;
-		}
 		edits.push((a, b, spelling));
 	}
 }
@@ -2345,26 +2518,15 @@ fn migrate_line(
 		let last = tok.segments.len() - 1;
 		for (i, seg) in tok.segments.iter().enumerate() {
 			let name = &rest[seg.name.start..seg.name.end];
-			// An unknown pair in double quotes read the same in 2.x, and is
-			// E023 now, so its backslash is doubled whichever wrote the file.
-			// A `\u` pair is a character now, so that one needs `--from-2x`.
-			if seg.name.quote == Quote::Double && v2_kept_escape(name) {
-				if unicode_pair_differs(name) && !st.from_v2 {
-					st.ambiguous += 1;
-				} else {
-					edits.push((
-						seg.name.start - 1,
-						seg.name.end + 1,
-						escape_name_as(&apply_escapes_v2(name), Rules::V2).into_owned(),
-					));
-				}
-			}
-			if seg.name.quote == Quote::Single && apply_escapes_v2(name) != name {
+			// A backslash pair 2.x resolved in a quoted name is text now.
+			if matches!(seg.name.quote, Quote::Single | Quote::Double)
+				&& apply_escapes_v2(name) != name
+			{
 				if st.from_v2 {
 					edits.push((
 						seg.name.start - 1,
 						seg.name.end + 1,
-						escape_name_as(&apply_escapes_v2(name), Rules::V2).into_owned(),
+						escape_name(&apply_escapes_v2(name)).into_owned(),
 					));
 				} else {
 					st.ambiguous += 1;
@@ -2394,7 +2556,6 @@ fn migrate_line(
 			}
 			let body = &rest[sel.start..sel.end];
 			let logical = apply_escapes_v2(body);
-			let unknown = sel.quote == Quote::Double && v2_kept_escape(body);
 			if i == last && tok.sep.is_none() {
 				if let Some(c) = colon {
 					// `name:[disc]` with nothing after it: 2.x read it as
@@ -2419,20 +2580,13 @@ fn migrate_line(
 						st.ambiguous += 1;
 						continue;
 					}
-					let mut spelling = if logical != body {
+					let spelling = if logical != body {
 						migrate_spelling(&logical, false)
-					} else if quoted && !unknown {
+					} else if quoted {
 						rest[open + 1..close].trim_matches(is_wsp).to_string()
 					} else {
 						migrate_spelling(&logical, true)
 					};
-					// As a value, a path holding a `\t` or `\n` is E024.
-					if spelling.starts_with('"') && spells_path_escape(&spelling) {
-						spelling = migrate_spelling(&logical, false);
-						if spelling.starts_with('"') && spells_path_escape(&spelling) {
-							st.lost += 1;
-						}
-					}
 					edits.push((c, close + 1, format!(": {}", spelling)));
 					continue;
 				}
@@ -2442,17 +2596,8 @@ fn migrate_line(
 				let spaced = c > 0 && is_wsp_byte(s[c - 1]) && is_wsp_byte(s[c + 1]);
 				edits.push((c, c + 1 + usize::from(spaced), String::new()));
 			}
-			// Double quotes already read alike on both sides, so only the other
-			// spellings turn on which rule set wrote the file.
-			if unknown && unicode_pair_differs(body) && !st.from_v2 {
-				st.ambiguous += 1;
-			} else if unknown {
-				edits.push((
-					sel.start - 1,
-					sel.end + 1,
-					migrate_spelling(&logical, false),
-				));
-			} else if logical != body && sel.quote != Quote::Double {
+			// A backslash pair 2.x resolved is text now.
+			if logical != body {
 				if st.from_v2 {
 					let (a, b) = if quoted {
 						(sel.start - 1, sel.end + 1)
@@ -2551,139 +2696,119 @@ fn selector_of(p: &Piece, text: &str) -> Selector {
 	}
 }
 
-/// Whether any segment's selector opens a quote it never closes. The
-/// tokenizer records it; `selector_of` reads the body bare either way, so
-/// only the diagnostic depends on this.
-fn selector_open_quote(tok: &Tokens) -> bool {
-	tok.segments
-		.iter()
-		.any(|s| s.selector.is_some_and(|p| p.quote == Quote::Open))
+/// Why a line is refused, and whether its name still reads: then the line
+/// holds its level open, so what is written under it loads under that name.
+#[derive(Debug)]
+struct Fault {
+	code: &'static str,
+	msg: String,
+	opens: bool,
 }
 
-/// The character after the first backslash in `raw` that starts no escape,
-/// or the `u` or `U` of one that names no character. Only meaningful for a
-/// double-quoted piece.
-fn unknown_escape(raw: &str) -> Option<char> {
-	if !raw.contains('\\') {
-		return None;
+impl Fault {
+	fn new(code: &'static str, msg: impl Into<String>, opens: bool) -> Fault {
+		Fault {
+			code,
+			msg: msg.into(),
+			opens,
+		}
 	}
-	let mut it = raw.chars();
-	while let Some(c) = it.next() {
-		if c == '\\' {
-			match it.next() {
-				Some('t' | 'n' | '\\' | '"' | '\'') => {}
-				Some(k @ ('u' | 'U')) if unicode_escape(k, it.as_str()).is_some() => {}
-				// A double-quoted piece cannot end on a lone backslash: it
-				// would have escaped the closing quote.
-				other => return other,
-			}
+}
+
+/// Whitespace or a quote in a bare piece (`E025`), named for the message.
+fn bare_trouble(raw: &str) -> Option<&'static str> {
+	for c in raw.chars() {
+		if white_space(c) {
+			return Some("whitespace");
+		}
+		if matches!(c, '\'' | '"' | '`') {
+			return Some("a quote");
 		}
 	}
 	None
 }
 
-/// `unknown_escape` by the 2.x rules, which had no `\u`: a pair 2.x kept as
-/// written, so `migrate` doubles its backslash.
-fn v2_kept_escape(raw: &str) -> bool {
-	let mut it = raw.chars();
-	while let Some(c) = it.next() {
-		if c == '\\' && !matches!(it.next(), Some('t' | 'n' | '\\' | '"' | '\'')) {
-			return true;
-		}
-	}
-	false
-}
-
-/// A 2.x pair that is a real `\u` escape now: 2.x read the text as written
-/// and the current rules read a character, so only `--from-2x` can say which.
-fn unicode_pair_differs(raw: &str) -> bool {
-	v2_kept_escape(raw) && unknown_escape(raw).is_none()
-}
-
-/// The first unknown escape in a double-quoted name, selector body or, when
-/// `values` is set, value element (`E023`). `"C:\work\new"` is the usual
-/// way to get one, and by then its `\n` is already a newline, so the line is
-/// refused rather than read with the pair kept. A raw block's info string is
-/// not escape text, so a fence line passes `values` false.
-fn bad_escape(tok: &Tokens, text: &str, values: bool) -> Option<char> {
-	let dq = |p: &Piece| {
-		if p.quote == Quote::Double {
-			unknown_escape(&text[p.start..p.end])
-		} else {
+/// What is wrong with one piece of value text: an open quote (`E017`), a bad
+/// escape (`E023`), or whitespace or a quote in bare text (`E025`). `what`
+/// names the piece for the message. A backtick value is raw, so only an open
+/// one is wrong.
+fn piece_fault(p: &Piece, text: &str, what: &str) -> Option<(&'static str, String)> {
+	let raw = &text[p.start..p.end];
+	match p.quote {
+		Quote::Open => Some(("E017", format!("unterminated quote in {}", what))),
+		Quote::Backtick => None,
+		Quote::None | Quote::Single | Quote::Double => {
+			if raw.contains(ESCAPE_MARK)
+				&& let Err(msg) = resolve_marks(raw)
+			{
+				return Some(("E023", msg));
+			}
+			if p.quote == Quote::None
+				&& let Some(trouble) = bare_trouble(raw)
+			{
+				return Some(("E025", format!("{} in a bare {}; quote it", trouble, what)));
+			}
 			None
 		}
-	};
-	for seg in &tok.segments {
-		if let Some(c) = dq(&seg.name).or_else(|| seg.selector.as_ref().and_then(dq)) {
-			return Some(c);
-		}
 	}
-	if values {
-		return tok.elements.iter().find_map(dq);
+}
+
+/// The first fault in a value's pieces. Only the value is wrong, so the
+/// name still reads.
+fn value_fault(pieces: &[Piece], text: &str) -> Option<Fault> {
+	pieces
+		.iter()
+		.find_map(|p| piece_fault(p, text, "value"))
+		.map(|(code, msg)| Fault::new(code, msg, true))
+}
+
+/// A fault in a path that leaves its name unread: a bad escape in a quoted
+/// name, or anything a value could have wrong in a selector body. The line
+/// takes its block with it, since there is no name to hold open.
+fn path_fault(tok: &Tokens, text: &str) -> Option<Fault> {
+	for seg in &tok.segments {
+		let name = &seg.name;
+		if matches!(name.quote, Quote::Single | Quote::Double)
+			&& let Err(msg) = resolve_marks(&text[name.start..name.end])
+		{
+			return Some(Fault::new("E023", msg, false));
+		}
+		if let Some(sel) = &seg.selector
+			&& let Some((code, msg)) = piece_fault(sel, text, "selector")
+		{
+			return Some(Fault::new(code, msg, false));
+		}
 	}
 	None
 }
 
-/// A double-quoted value that starts like a Windows path, a drive (`C:\`) or
-/// a share (`\\`), and holds a `\t` or `\n` escape (`E024`). `"C:\temp"`
-/// would read as `C:`, a tab and `emp`, which a path almost never means. Any
-/// other pair made the line `E023` before this is asked.
-fn path_like(p: &Piece, text: &str) -> bool {
-	if p.quote != Quote::Double {
-		return false;
+/// Why a field line that scanned is refused, before the element cap: a path
+/// that does not read, a bare name that breaks the spelling rule, bracket
+/// text, or a value with an open quote, a bad escape, or whitespace or a
+/// quote in bare text. A raw block's info string is not value text, so a
+/// fence line's value is not judged.
+fn line_fault(tok: &Tokens, text: &str) -> Option<Fault> {
+	if let Some(f) = path_fault(tok, text) {
+		return Some(f);
 	}
-	let raw = &text.as_bytes()[p.start..p.end];
-	let drive = raw.len() >= 3 && raw[0].is_ascii_alphabetic() && raw[1] == b':' && raw[2] == b'\\';
-	if !drive && !raw.starts_with(b"\\\\") {
-		return false;
-	}
-	let mut i = 0;
-	while i + 1 < raw.len() {
-		if raw[i] != b'\\' {
-			i += 1;
-			continue;
-		}
-		if raw[i + 1] == b't' || raw[i + 1] == b'n' {
-			return true;
-		}
-		i += 2;
-	}
-	false
-}
-
-const PATH_MSG: &str = "value starts like a Windows path, and its \\t or \\n would read as a tab or newline; write a backslash as '\\\\' or use single quotes";
-
-fn escape_msg(c: char) -> String {
-	if c == 'u' || c == 'U' {
-		return format!(
-			"bad escape '\\{}' in double quotes; \\u takes 4 hex digits and \\U takes 8, naming a Unicode character; write a backslash as '\\\\' or use single quotes",
-			c
-		);
-	}
-	format!(
-		"unknown escape '\\{}' in double quotes; write a backslash as '\\\\' or use single quotes",
-		one_line(&c.to_string())
-	)
-}
-
-/// Why a field line that scanned is refused for its value, before the
-/// element cap: bracket text, a bad escape, or a value that starts like a
-/// Windows path and holds a `\t` or `\n` escape.
-fn line_fault(tok: &Tokens, text: &str) -> Option<(&'static str, String)> {
-	if bracket_text(tok, text) {
-		return Some((
-			"E019",
-			"bracket array syntax; an array is comma-separated, without brackets".to_string(),
+	if tok.misspelled.is_some() {
+		return Some(Fault::new(
+			"E014",
+			"field name needs quotes; a bare name is a letter, then letters, digits, '-' and '_'",
+			true,
 		));
 	}
-	let values = line_fence(tok, text).is_none();
-	if let Some(c) = bad_escape(tok, text, values) {
-		return Some(("E023", escape_msg(c)));
+	if bracket_text(tok, text) {
+		return Some(Fault::new(
+			"E019",
+			"bracket array syntax; an array is comma-separated, without brackets",
+			true,
+		));
 	}
-	if values && tok.elements.iter().any(|p| path_like(p, text)) {
-		return Some(("E024", PATH_MSG.to_string()));
+	if line_fence(tok, text).is_some() {
+		return None;
 	}
-	None
+	value_fault(&tok.elements, text)
 }
 
 /// A path segment a LAZY level can open: no index or wildcard selector,
@@ -2693,7 +2818,8 @@ fn opens_as_written(seg: &Segment) -> bool {
 }
 
 /// True when a reload holds this kept line's level open (LAZY): a field
-/// line refused for its value alone, with a path that opens.
+/// line refused for its value alone, or for a bare name that still reads,
+/// with a path that opens.
 fn opens_later(text: &str) -> bool {
 	if text.starts_with(['#', '*']) {
 		return false;
@@ -2703,9 +2829,7 @@ fn opens_later(text: &str) -> bool {
 	let Ok(scan) = path_of(&tok, text) else {
 		return false;
 	};
-	bad_escape(&tok, text, false).is_none()
-		&& scan.segments.iter().all(opens_as_written)
-		&& line_fault(&tok, text).is_some()
+	scan.segments.iter().all(opens_as_written) && line_fault(&tok, text).is_some_and(|f| f.opens)
 }
 
 /// Bracket text (`E019`): a `[` first after the colon. Read off the first
@@ -2736,15 +2860,19 @@ fn path_of(tok: &Tokens, text: &str) -> Result<PathScan, String> {
 		// own resolved, folded spelling, so the source text becomes the name
 		// and nothing else is allocated. That is nearly every name in a
 		// document, and this runs once per segment per line.
-		let plain = (seg.name.quote != Quote::Double || !raw.contains('\\'))
-			&& !raw.bytes().any(|b| b.is_ascii_uppercase());
+		// A bare name takes no escapes, so only a quoted one resolves them.
+		let quoted = matches!(seg.name.quote, Quote::Single | Quote::Double);
+		let plain =
+			(!quoted || !raw.contains(ESCAPE_MARK)) && !raw.bytes().any(|b| b.is_ascii_uppercase());
 		let (name, name_src) = if plain {
 			(raw.to_string(), String::new())
-		} else {
+		} else if quoted {
 			(
 				fold_name(&piece_text(&seg.name, text)).into_owned(),
 				raw.to_string(),
 			)
+		} else {
+			(fold_name(raw).into_owned(), raw.to_string())
 		};
 		segments.push(Segment {
 			name,
@@ -2766,8 +2894,10 @@ fn path_of(tok: &Tokens, text: &str) -> Result<PathScan, String> {
 fn scan_lookup(input: &str) -> Result<PathScan, String> {
 	let mut tok = Tokens::default();
 	tokenize(input, b':', true, Rules::Current, &mut tok);
-	if bad_escape(&tok, input, false).is_some() {
-		return Err("unknown escape in double quotes".to_string());
+	if let Some(f) = path_fault(&tok, input)
+		&& f.code == "E023"
+	{
+		return Err(f.msg);
 	}
 	path_of(&tok, input)
 }
@@ -3979,10 +4109,6 @@ impl<'a> Parser<'a> {
 			self.refuse(line, "E009", "empty list element", Outcome::Dropped, indent);
 			return false;
 		};
-		if piece.quote == Quote::Open {
-			self.err(line, "E017", "unterminated quote in value");
-		}
-		let binding_like = !el.quoted && looks_like_binding(&el.text);
 		let clash = unit_clash(&self.arena[parent].name, &el.text);
 		// Element cap: each element line past it is refused on its own, the way
 		// any other bad element line is. Only a line that would join the list:
@@ -4037,15 +4163,6 @@ impl<'a> Parser<'a> {
 				indent,
 			);
 			return false;
-		}
-		if binding_like {
-			self.diag(Diagnostic {
-				line,
-				severity: Severity::Hint,
-				message: "list element looks like a field binding; it is read as a string (quote it to say so)"
-					.to_string(),
-				code: "H003",
-			});
 		}
 		if let Some(m) = clash {
 			self.diag(Diagnostic {
@@ -4333,18 +4450,11 @@ impl<'a> Parser<'a> {
 						continue;
 					}
 					tokenize_value(rest, 1, Rules::Current, &mut tok);
-					let fault = if let Some(c) = bad_escape(&tok, rest, true) {
-						Some(("E023", escape_msg(c)))
-					} else if tok.elements.iter().any(|p| path_like(p, rest)) {
-						Some(("E024", PATH_MSG.to_string()))
-					} else {
-						None
-					};
-					if let Some((code, msg)) = fault {
+					if let Some(f) = value_fault(&tok.elements, rest) {
 						self.refuse(
 							lineno,
-							code,
-							msg,
+							f.code,
+							f.msg,
 							Outcome::Retained {
 								text: trim_wsp_end(rest).to_string(),
 								blank_before: had_blank,
@@ -4463,32 +4573,26 @@ impl<'a> Parser<'a> {
 				}
 			};
 			let mut next = i + 1;
-			// A selector body takes the same open-quote rule as a value
-			// element, and the same code: the body is read bare, quotes and
-			// all, so the line still binds - somewhere the author did not mean.
-			if selector_open_quote(&tok) {
-				self.err(lineno, "E017", "unterminated quote in selector");
-			}
-			// A value written the way JSON, TOML and YAML write an array, or
-			// an escape that cannot be read as written or as an escape without
-			// guessing. The brackets are not a selector after the colon, and
-			// reading the text without them would bake a changed value in, so
-			// the line is kept verbatim. Judged before the cap and from the
-			// first piece, which the cap keeps: a cap refuses only a line that
-			// would bind. Only the value is wrong, so the lines under it still
-			// load, under the path opened empty.
-			if let Some((code, msg)) = line_fault(&tok, rest) {
+			// A line that reads only one way, or no way, is kept verbatim
+			// rather than read with a guess: a value written the way JSON,
+			// TOML and YAML write an array, an open quote, a bad escape, bare
+			// whitespace or a quote, or a bare name that breaks the spelling
+			// rule. Judged before the cap and from the first piece, which the
+			// cap keeps: a cap refuses only a line that would bind. When the
+			// name still reads, the lines under it still load, under the path
+			// opened empty.
+			if let Some(f) = line_fault(&tok, rest) {
 				self.refuse(
 					lineno,
-					code,
-					msg,
+					f.code,
+					f.msg,
 					Outcome::Retained {
 						text: trim_wsp_end(rest).to_string(),
 						blank_before: had_blank,
 					},
 					indent,
 				);
-				if bad_escape(&tok, rest, false).is_none() {
+				if f.opens {
 					self.hold_open(parent, scan.segments, lineno, indent);
 				}
 				// Only a fault in the name leaves a fence to read here.
@@ -4533,9 +4637,6 @@ impl<'a> Parser<'a> {
 						next = n;
 						val
 					} else {
-						if tok.elements.iter().any(|p| p.quote == Quote::Open) {
-							self.err(lineno, "E017", "unterminated quote in value");
-						}
 						src_text = Some(v);
 						cell_of_tokens(&tok, rest)
 					}
@@ -5528,10 +5629,12 @@ fn kept_naming(l: &Lead, name: &str) -> Option<(&'static str, String)> {
 	let [seg] = scan.segments.as_slice() else {
 		return None;
 	};
-	if seg.selector.is_some() || seg.name != name || bad_escape(&tok, &l.text, false).is_some() {
+	if seg.selector.is_some() || seg.name != name {
 		return None;
 	}
 	line_fault(&tok, &l.text)
+		.filter(|f| f.opens)
+		.map(|f| (f.code, f.msg))
 }
 
 /// A kept line a setter writes as a comment, with the note giving why and
@@ -6643,37 +6746,15 @@ fn push_trailing(out: &mut String, trailing: &str) {
 }
 
 /// Emit a stored (escape-resolved) name in a spelling that reads back as the
-/// same name: bare when it can be, else quoted with the escapes `apply_escapes`
-/// undoes. This is a true inverse of the name parse, which `quote_text` is not -
-/// that one picks a quote style to AVOID escaping and never escapes a
-/// backslash, which is right for a value (stored in its escaped spelling) and
-/// wrong for a name (stored resolved).
+/// same name: bare when the spelling rule allows it, else quoted the way a
+/// value is, escapes and all.
 fn escape_name(name: &str) -> std::borrow::Cow<'_, str> {
-	escape_name_as(name, Rules::Current)
-}
-
-/// `escape_name` for a reader of `rules`: under 2.x an invisible character is
-/// written as it is, since 2.x kept a `\u` as written.
-fn escape_name_as(name: &str, rules: Rules) -> std::borrow::Cow<'_, str> {
-	if !name.is_empty() && name.bytes().all(is_bare_name_byte) {
+	if name.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
+		&& name.bytes().all(is_bare_name_byte)
+	{
 		return std::borrow::Cow::Borrowed(name);
 	}
-	let mut out = String::with_capacity(name.len() + 2);
-	out.push('"');
-	for (i, c) in name.char_indices() {
-		match c {
-			'\\' => out.push_str("\\\\"),
-			'"' => out.push_str("\\\""),
-			'\t' => out.push_str("\\t"),
-			'\n' => out.push_str("\\n"),
-			c if rules == Rules::Current && invisible_at(name, i, c) => {
-				push_unicode_escape(&mut out, c)
-			}
-			_ => out.push(c),
-		}
-	}
-	out.push('"');
-	std::borrow::Cow::Owned(out)
+	std::borrow::Cow::Owned(quote_text(name))
 }
 
 fn emit_name(name: &str) -> std::borrow::Cow<'_, str> {
@@ -7829,48 +7910,59 @@ pub fn suppress_declared_reopens(schema: &Document, diags: &mut Vec<Diagnostic>)
 	diags.retain(|d| d.code != "H002" || !heads.iter().any(|h| d.message.starts_with(h.as_str())));
 }
 
-/// Minimal quoting: bare unless a reserved character (or lookalike hazard) forces it.
+/// Minimal quoting (value-syntax.md, Canonical output): bare only when the
+/// text has no whitespace, none of the characters that end, open or escape a
+/// piece, needs no escape, and does not end in a colon, which a list item
+/// would read as a name. A colon inside is text: `2:30PM` stays bare.
 fn needs_quotes(t: &str) -> bool {
-	// Edge whitespace still has to force quotes, for the carriage return: it is
-	// a blank, so a piece ending in one loses it to the reload. Space and tab
-	// are already in the list above. The test is the whole Unicode whitespace
-	// set rather than those three, which only ever adds quoting - the parser
-	// itself trims no wider than is_wsp, so a leading no-break space is
-	// content. Edges only: interior whitespace is never trimmed and quoting it
-	// would move bytes.
 	t.is_empty()
+		|| t.ends_with(':')
 		|| t.char_indices().any(|(i, c)| {
-			matches!(
-				c,
-				' ' | '\t' | '\n' | ',' | ':' | '#' | '"' | '\'' | '[' | ']'
-			) || invisible_at(t, i, c)
-		}) || t.starts_with(char::is_whitespace)
-		|| t.ends_with(char::is_whitespace)
-		|| fence_open(t).is_some()
+			white_space(c)
+				|| matches!(c, ',' | '#' | '"' | '\'' | '`' | '[' | ']' | ESCAPE_MARK)
+				|| invisible_at(t, i, c)
+		}) || fence_open(t).is_some()
 }
 
-/// One addition to minimal quoting: an author-quoted element keeps its quotes unless
-/// the text reads as one of SHCL's own data formats - quoting those is just spelling
-/// (readers type the value either way), but quoting a plain string is the escape and
-/// must survive canonicalization. This clause only ever adds quoting, so a bare emit
-/// stays safe.
+/// The element as written: bare when it can be, else in the author's quote
+/// kind when the text allows it, else the quotes the writer picks. A quoted
+/// plain string keeps its quotes, since quoting it is how a file says it is
+/// text; a quoted data format loses them, since readers type the value
+/// either way. A backtick value stays in backticks whatever it holds.
 fn emit_element(e: &Element) -> std::borrow::Cow<'_, str> {
 	let t = &e.text;
-	let needs = needs_quotes(t) || (e.quoted && !is_data_format(e));
-	if needs {
-		std::borrow::Cow::Owned(quote_text(t))
-	} else {
-		std::borrow::Cow::Borrowed(t)
+	if e.mark == Mark::Backtick && backtick_holds(t) {
+		return std::borrow::Cow::Owned(format!("`{}`", t));
 	}
+	if !needs_quotes(t) && (!e.quoted() || is_data_format(e)) {
+		return std::borrow::Cow::Borrowed(t);
+	}
+	std::borrow::Cow::Owned(match e.mark {
+		Mark::Single if !t.contains('\'') => quote_with(t, '\''),
+		Mark::Double if !t.contains('"') => quote_with(t, '"'),
+		_ => quote_text(t),
+	})
+}
+
+/// Whether text can be a backtick value: no backtick, which would end it,
+/// and nothing the writer would have to escape, since a backtick value has
+/// no escapes.
+fn backtick_holds(t: &str) -> bool {
+	!t.char_indices()
+		.any(|(i, c)| c == '`' || c == '\n' || c == '\r' || invisible_at(t, i, c))
 }
 
 /// An element no source wrote. It counts as quoted when canonical output will
 /// quote it, so a read gives the same answer before a save as after one.
 fn new_element(text: String) -> Element {
-	Element {
-		quoted: needs_quotes(&text),
-		text,
-	}
+	let mark = if !needs_quotes(&text) {
+		Mark::Bare
+	} else if picks_single(&text) {
+		Mark::Single
+	} else {
+		Mark::Double
+	};
+	Element { text, mark }
 }
 
 /// True when the text reads as an int, float, bool, or datetime at standard
@@ -7900,66 +7992,40 @@ fn leading_zero(t: &str) -> bool {
 	b.len() > 1 && b[0] == b'0' && b[1].is_ascii_digit()
 }
 
-/// Quote a logical string so the tokenizer reads it back as the same string.
-/// Single quotes are literal, so they are the spelling for text holding a
-/// double quote or a backslash; double quotes have the escapes, so they are
-/// the spelling for a line break, a tab, an invisible character, or text
-/// holding both quote kinds.
+/// The quotes the writer picks: double, or single when the text has a `"`
+/// and no `'`. A backslash plays no part.
+fn picks_single(t: &str) -> bool {
+	t.contains('"') && !t.contains('\'')
+}
+
+/// Quote a logical string so the tokenizer reads it back as the same string,
+/// in the quotes the writer picks.
 fn quote_text(t: &str) -> String {
-	quote_text_as(t, Rules::Current)
+	quote_with(t, if picks_single(t) { '\'' } else { '"' })
 }
 
-/// `quote_text` for a reader of `rules`, as in `quote_double_as`.
-fn quote_text_as(t: &str, rules: Rules) -> String {
-	let control = t.contains(['\n', '\t']) || (rules == Rules::Current && has_invisible(t));
-	if !control && !t.contains('\'') && (t.contains('"') || t.contains('\\')) {
-		return format!("'{}'", t);
-	}
-	quote_double_as(t, rules)
-}
-
-/// The double-quoted spelling for a reader of `rules`. The two read it alike,
-/// except a `\u` escape, which 2.x kept as written, so for 2.x an invisible
-/// character goes in as it is.
-fn quote_double_as(t: &str, rules: Rules) -> String {
-	let out = quote_double_with(t, rules, false);
-	// Written `\t` or `\n`, a path is E024 on the reload, and a `\u` escape
-	// reads the same. 2.x kept one as written, so for 2.x a tab goes in as it
-	// is, and a line break has no spelling: migrate counts that one lost.
-	if spells_path_escape(&out) {
-		return quote_double_with(t, rules, true);
-	}
-	out
-}
-
-/// True when a double-quoted spelling would be E024.
-fn spells_path_escape(quoted: &str) -> bool {
-	let piece = Piece {
-		start: 1,
-		end: quoted.len() - 1,
-		quote: Quote::Double,
-	};
-	path_like(&piece, quoted)
-}
-
-fn quote_double_with(t: &str, rules: Rules, path: bool) -> String {
+/// The text in quote `q`, with every character a reader could not see or
+/// that would end the piece written as an escape: a line break, a carriage
+/// return or the pair of them, a tab, the other controls on the list by
+/// name, a hidden character by code point, a real escape mark, and `q`
+/// itself.
+fn quote_with(t: &str, q: char) -> String {
 	let mut out = String::with_capacity(t.len() + 2);
-	out.push('"');
-	for (i, c) in t.char_indices() {
-		match c {
-			'\\' => out.push_str("\\\\"),
-			'"' => out.push_str("\\\""),
-			'\t' if path && rules != Rules::Current => out.push(c),
-			'\n' | '\t' if path && rules == Rules::Current => push_unicode_escape(&mut out, c),
-			'\n' => out.push_str("\\n"),
-			'\t' => out.push_str("\\t"),
-			c if rules == Rules::Current && invisible_at(t, i, c) => {
-				push_unicode_escape(&mut out, c)
-			}
-			_ => out.push(c),
+	out.push(q);
+	let mut it = t.char_indices().peekable();
+	while let Some((i, c)) = it.next() {
+		if c == '\r' && it.peek().is_some_and(|&(_, n)| n == '\n') {
+			it.next();
+			out.push(ESCAPE_MARK);
+			out.push_str("CRLF");
+			out.push(ESCAPE_MARK);
+		} else if c == q || c == ESCAPE_MARK || c == '\t' || c == '\n' || invisible_at(t, i, c) {
+			push_escape(&mut out, c);
+		} else {
+			out.push(c);
 		}
 	}
-	out.push('"');
+	out.push(q);
 	out
 }
 
@@ -8434,25 +8500,60 @@ impl Document {
 /// what gets stored, so a trailing blank comes off and a `#` outside quotes
 /// ends the value exactly as they would in a file. What is refused is what
 /// a file reports as an error, since a setter has no diagnostic to report it
-/// with: a line break, which no file line can hold, an unterminated quote
-/// (E017), bracket text (E019, the line kept verbatim - writing it as a
-/// two-element array holding `[1` and `2]` would be a different wrong answer),
-/// an unknown escape in double quotes (E023), and a Windows path in double
-/// quotes holding a `\t` or `\n` escape (E024).
+/// with: a line break, which no file line can hold, bracket text (E019, the
+/// line kept verbatim - writing it as a two-element array holding `[1` and
+/// `2]` would be a different wrong answer), and whatever a value is refused
+/// for on a line: an unterminated quote (E017), a bad escape (E023), or
+/// whitespace or a quote in bare text (E025).
 fn literal_value(text: &str) -> Option<Value> {
 	if text.contains('\n') {
 		return None;
 	}
 	let mut tok = Tokens::default();
 	let line = value_half(text, &mut tok);
-	if tok.elements.iter().any(|p| p.quote == Quote::Open)
-		|| line[tok.value.0..].starts_with('[')
-		|| bad_escape(&tok, &line, true).is_some()
-		|| tok.elements.iter().any(|p| path_like(p, &line))
+	// A fence opener has no body here, so it is stored as the text it is,
+	// as before backtick values.
+	let fence = fence_open(&line[tok.value.0..tok.value.1]).is_some();
+	if line[tok.value.0..].starts_with('[')
+		|| (!fence && value_fault(&tok.elements, &line).is_some())
 	{
 		return None;
 	}
 	Some(cell_of_tokens(&tok, &line))
+}
+
+/// An overwrite keeps the quote kind the old value was written in, when the
+/// new text can be written that way (value-syntax.md, Canonical output). The
+/// kind is the one a save writes, so the answer is the same after a reload:
+/// a quoted data format is written bare.
+fn keep_mark(old: &Value, new: &mut Value) {
+	let (Value::Cell(was), Value::Cell(now)) = (old, &mut *new) else {
+		return;
+	};
+	let ([was], [now]) = (was.as_slice(), now.as_mut_slice()) else {
+		return;
+	};
+	let written = match emit_element(was).as_bytes().first() {
+		Some(b'\'') => Mark::Single,
+		Some(b'"') => Mark::Double,
+		Some(b'`') if was.mark == Mark::Backtick => Mark::Backtick,
+		_ => Mark::Bare,
+	};
+	let fits = match written {
+		Mark::Bare => return,
+		Mark::Single => !now.text.contains('\''),
+		Mark::Double => !now.text.contains('"'),
+		Mark::Backtick => backtick_holds(&now.text),
+	};
+	if fits {
+		let before = now.mark;
+		now.mark = written;
+		if !value_reads_back(new)
+			&& let Value::Cell(els) = new
+		{
+			els[0].mark = before;
+		}
+	}
 }
 
 fn cell_of(text: String) -> Value {
@@ -8685,6 +8786,12 @@ impl Document {
 	}
 
 	fn set_value(&mut self, path: &str, value: Value) -> bool {
+		self.set_value_as(path, value, true)
+	}
+
+	/// set_value(), saying whether an overwrite keeps the old value's quote
+	/// kind. A literal says its own quotes, so it does not.
+	fn set_value_as(&mut self, path: &str, mut value: Value, keep_quotes: bool) -> bool {
 		if !value_reads_back(&value) {
 			return false;
 		}
@@ -8698,6 +8805,9 @@ impl Document {
 				if node < fresh && self.kept_owed > 0 {
 					let (parent, name) = (self.arena[node].parent, self.arena[node].name.clone());
 					self.comment_out_kept(parent, &name, path, false);
+				}
+				if keep_quotes {
+					keep_mark(&self.arena[node].value, &mut value);
 				}
 				self.arena[node].value = value;
 				self.arena[node].src = None; // written value has no source spelling
@@ -9476,7 +9586,7 @@ impl Document {
 	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
 	pub fn set_literal(&mut self, path: &str, text: &str) -> bool {
 		match literal_value(text) {
-			Some(v) => self.set_value(path, v),
+			Some(v) => self.set_value_as(path, v, false),
 			None => false,
 		}
 	}
@@ -9939,7 +10049,7 @@ fn parse_int_text(e: &Element, level: Strictness) -> Option<i64> {
 		};
 	}
 	// Thousands separators, only inside quotes (bare commas are reserved).
-	if e.quoted && t.contains(',') {
+	if e.quoted() && t.contains(',') {
 		let sign_body = t.strip_prefix(['+', '-']).unwrap_or(t);
 		let groups: Vec<&str> = sign_body.split(',').collect();
 		let well_formed = groups.len() > 1
@@ -10034,7 +10144,7 @@ fn parse_float_text(e: &Element, level: Strictness) -> Option<f64> {
 		// An integer is a valid float on read (incl. hex, octal, binary and quoted thousands).
 		let el = Element {
 			text: t.to_string(),
-			quoted: e.quoted,
+			mark: e.mark,
 		};
 		match parse_int_text_no_loose(&el) {
 			Some(i) => i as f64,
@@ -10065,7 +10175,7 @@ fn parse_int_text_wide(e: &Element) -> Option<f64> {
 		digits.bytes().fold(0.0f64, |v, b| {
 			v * f64::from(radix) + f64::from(char::from(b).to_digit(radix).unwrap_or(0))
 		})
-	} else if e.quoted && body.contains(',') {
+	} else if e.quoted() && body.contains(',') {
 		let groups: Vec<&str> = body.split(',').collect();
 		let well_formed = groups.len() > 1
 			&& !groups[0].is_empty()
@@ -10727,10 +10837,10 @@ impl Document {
 		let line = self.arena[node].line;
 		match self.scalar_element(value) {
 			Ok(el) => match coerce(el) {
-				Some(v) => Read::new(v, Status::Good, raw).at(line, el.quoted),
-				None => Read::new(T::default(), Status::BadType, raw).at(line, el.quoted),
+				Some(v) => Read::new(v, Status::Good, raw).at(line, Some(el)),
+				None => Read::new(T::default(), Status::BadType, raw).at(line, Some(el)),
 			},
-			Err(st) => Read::new(T::default(), st, raw).at(line, false),
+			Err(st) => Read::new(T::default(), st, raw).at(line, None),
 		}
 	}
 
@@ -10810,14 +10920,14 @@ impl Document {
 		let raw = Some(self.raw_of(node));
 		let line = self.arena[node].line;
 		match value {
-			Value::Empty => Read::new(String::new(), Status::Empty, raw).at(line, false),
-			Value::Raw(r) => Read::new(r.content.clone(), Status::Good, raw).at(line, false),
+			Value::Empty => Read::new(String::new(), Status::Empty, raw).at(line, None),
+			Value::Raw(r) => Read::new(r.content.clone(), Status::Good, raw).at(line, None),
 			Value::Cell(els) if els.len() == 1 => {
-				Read::new(els[0].text.clone(), Status::Good, raw).at(line, els[0].quoted)
+				Read::new(els[0].text.clone(), Status::Good, raw).at(line, Some(&els[0]))
 			}
 			// Canonical inline form (quoting + escapes intact), so the string
 			// re-parses to the same array - not the bare display join.
-			Value::Cell(els) => Read::new(emit_cell(els), Status::Good, raw).at(line, false),
+			Value::Cell(els) => Read::new(emit_cell(els), Status::Good, raw).at(line, None),
 		}
 	}
 
@@ -10831,9 +10941,9 @@ impl Document {
 		let raw = Some(self.raw_of(node));
 		let line = self.arena[node].line;
 		match value {
-			Value::Raw(r) => Read::new(r.content.clone(), Status::Good, raw).at(line, false),
-			Value::Empty => Read::new(String::new(), Status::Empty, raw).at(line, false),
-			Value::Cell(_) => Read::new(String::new(), Status::BadType, raw).at(line, false),
+			Value::Raw(r) => Read::new(r.content.clone(), Status::Good, raw).at(line, None),
+			Value::Empty => Read::new(String::new(), Status::Empty, raw).at(line, None),
+			Value::Cell(_) => Read::new(String::new(), Status::BadType, raw).at(line, None),
 		}
 	}
 
@@ -10847,9 +10957,9 @@ impl Document {
 		let line = self.arena[node].line;
 		// An empty binding has no block, so no info string: `Empty`, the same as a `read_raw` on it. Only a value that is there and is not a block is a type mismatch.
 		match &self.arena[node].value {
-			Value::Raw(r) => Read::new(r.info.clone(), Status::Good, raw).at(line, false),
-			Value::Empty => Read::new(String::new(), Status::Empty, raw).at(line, false),
-			Value::Cell(_) => Read::new(String::new(), Status::BadType, raw).at(line, false),
+			Value::Raw(r) => Read::new(r.info.clone(), Status::Good, raw).at(line, None),
+			Value::Empty => Read::new(String::new(), Status::Empty, raw).at(line, None),
+			Value::Cell(_) => Read::new(String::new(), Status::BadType, raw).at(line, None),
 		}
 	}
 
@@ -10901,10 +11011,8 @@ impl Document {
 				let raw = Some(self.raw_of(n));
 				let line = self.arena[n].line;
 				match value {
-					Value::Empty => Read::new(Vec::new(), Status::Empty, raw).at(line, false),
-					Value::Raw { .. } => {
-						Read::new(Vec::new(), Status::BadType, raw).at(line, false)
-					}
+					Value::Empty => Read::new(Vec::new(), Status::Empty, raw).at(line, None),
+					Value::Raw { .. } => Read::new(Vec::new(), Status::BadType, raw).at(line, None),
 					Value::Cell(els) => {
 						let mut out = Vec::with_capacity(els.len());
 						let mut sts = Vec::with_capacity(els.len());
@@ -10917,8 +11025,12 @@ impl Document {
 						// A one-element cell has a single scalar element, so
 						// the flag means the same thing here as on the scalar
 						// read of the same node.
-						let quoted = els.len() == 1 && els[0].quoted;
-						Read::with_slots(out, status, raw, sts).at(line, quoted)
+						let only = if let [el] = els.as_slice() {
+							Some(el)
+						} else {
+							None
+						};
+						Read::with_slots(out, status, raw, sts).at(line, only)
 					}
 				}
 			}
@@ -11928,18 +12040,7 @@ fn gen_default_text(v: &str) -> String {
 	if !v.contains('\n') {
 		return v.to_string();
 	}
-	let mut s = String::from("\"");
-	for ch in v.chars() {
-		match ch {
-			'\\' => s.push_str("\\\\"),
-			'"' => s.push_str("\\\""),
-			'\n' => s.push_str("\\n"),
-			'\t' => s.push_str("\\t"),
-			c => s.push(c),
-		}
-	}
-	s.push('"');
-	s
+	quote_text(v)
 }
 
 /// Whether a V007 from the self-check is the sanctioned kind: its message
@@ -12542,7 +12643,7 @@ fn selector_reads_back(body: &str, text: &str, quoted: bool) -> bool {
 	}
 	let mut tok = Tokens::default();
 	tokenize(&line, b':', false, Rules::Current, &mut tok);
-	if selector_open_quote(&tok) || tok.comment.is_some() {
+	if tok.comment.is_some() || tok.misspelled.is_some() || path_fault(&tok, &line).is_some() {
 		return false;
 	}
 	path_of(&tok, &line).is_ok_and(|p| {
@@ -12564,7 +12665,7 @@ fn path_reads_back(path: &str, segs: &[Segment]) -> bool {
 	}
 	let mut tok = Tokens::default();
 	tokenize(&line, b':', false, Rules::Current, &mut tok);
-	if selector_open_quote(&tok) || tok.comment.is_some() {
+	if tok.comment.is_some() || tok.misspelled.is_some() || path_fault(&tok, &line).is_some() {
 		return false;
 	}
 	path_of(&tok, &line).is_ok_and(|p| {
@@ -13654,20 +13755,36 @@ mod kept_gate {
 				"a: 5\n\tb: 2\ny: 3\n",
 			),
 			(
-				"o:\n\ta: \"x\\q\"\n\t\tb: 2\n",
+				"o:\n\ta: \"x◉Q◉\"\n\t\tb: 2\n",
 				"o.a",
 				"o:\n",
-				"\t# a: \"x\\q\"",
-				"E023 unknown escape '\\q' in double quotes",
+				"\t# a: \"x◉Q◉\"",
+				"E023 unknown escape '◉Q◉'",
 				"\ta: 5\n\t\tb: 2\n",
 			),
 			(
-				"p: \"C:\\temp\\new\"\n\tq: 1\n",
+				"p: C:\\Program Files\n\tq: 1\n",
 				"p",
 				"",
-				"# p: \"C:\\temp\\new\"",
-				"E024 value starts like a Windows path, and its \\t or \\n would read as a tab or newline",
+				"# p: C:\\Program Files",
+				"E025 whitespace in a bare value",
 				"p: 5\n\tq: 1\n",
+			),
+			(
+				"r: \"open\n\tq: 1\n",
+				"r",
+				"",
+				"# r: \"open",
+				"E017 unterminated quote in value",
+				"r: 5\n\tq: 1\n",
+			),
+			(
+				"404: x\n\tq: 1\n",
+				"\"404\"",
+				"",
+				"# 404: x",
+				"E014 field name needs quotes",
+				"\"404\": 5\n\tq: 1\n",
 			),
 		] {
 			let mut doc = Document::parse_keep_lines(text, Strictness::Standard)

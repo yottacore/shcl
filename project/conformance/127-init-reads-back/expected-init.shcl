@@ -26,12 +26,6 @@ srv: 20000000000000000000
 srv["20000000000000000000"].port: 2
 
 ## any, required
-tags: "a, b", c
-
-## any, required
-tags[a, b, c].x: 3
-
-## any, required
 repo["org/name#123"].branch: main
 
 ## any

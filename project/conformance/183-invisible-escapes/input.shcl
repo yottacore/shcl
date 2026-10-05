@@ -1,13 +1,13 @@
 # Default-ignorable characters come out as escapes, except where text needs them
-soft: "Silben\u00ADtrennung"
-ends: "\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B\u180F\u200B\u200E\u200F\u2028\u202E\u2060\u206F\u3164\uFE00\uFE0F\uFEFF\uFFA0\uFFF0\uFFFB\U0001BCA0\U0001BCA3\U0001D173\U0001D17A\U000E0000\U000E0FFF"
-neighbors: "\u00AC\u00AE\u034E\u0350\u061B\u061D\u115E\u1161\u17B3\u17B6\u180A\u1810\u200A\u2010\u2027\u202F\u205F\u2070\u3163\u3165\uFDFF\uFE10\uFEFE\uFF00\uFF9F\uFFA1\uFFEF\uFFFC\U0001BC9F\U0001BCA4\U0001D172\U0001D17B\U000DFFFF\U000E1000"
-joiners: "a\u200B\u200C\u200D\u200Eb"
-annotation: "\uFFF9base\uFFFAruby\uFFFB"
-hangul: "\u3164", "\uFFA0", x
-hidden: "ok\U000E0068\U000E0069"
-language: "\U000E0001\U000E0065\U000E006E"
-flag: "\U0001F3F4\U000E0067\U000E0062\U000E0073\U000E0063\U000E0074\U000E007F"
+soft: "Silben◉U+00AD◉trennung"
+ends: "◉U+00AD◉◉U+034F◉◉U+061C◉◉U+115F◉◉U+1160◉◉U+17B4◉◉U+17B5◉◉U+180B◉◉U+180F◉◉U+200B◉◉U+200E◉◉U+200F◉◉U+2028◉◉U+202E◉◉U+2060◉◉U+206F◉◉U+3164◉◉U+FE00◉◉U+FE0F◉◉U+FEFF◉◉U+FFA0◉◉U+FFF0◉◉U+FFFB◉◉U+1BCA0◉◉U+1BCA3◉◉U+1D173◉◉U+1D17A◉◉U+E0000◉◉U+E0FFF◉"
+neighbors: "◉U+00AC◉◉U+00AE◉◉U+034E◉◉U+0350◉◉U+061B◉◉U+061D◉◉U+115E◉◉U+1161◉◉U+17B3◉◉U+17B6◉◉U+180A◉◉U+1810◉◉U+200A◉◉U+2010◉◉U+2027◉◉U+202F◉◉U+205F◉◉U+2070◉◉U+3163◉◉U+3165◉◉U+FDFF◉◉U+FE10◉◉U+FEFE◉◉U+FF00◉◉U+FF9F◉◉U+FFA1◉◉U+FFEF◉◉U+FFFC◉◉U+1BC9F◉◉U+1BCA4◉◉U+1D172◉◉U+1D17B◉◉U+DFFFF◉◉U+E1000◉"
+joiners: "a◉U+200B◉◉U+200C◉◉U+200D◉◉U+200E◉b"
+annotation: "◉U+FFF9◉base◉U+FFFA◉ruby◉U+FFFB◉"
+hangul: "◉U+3164◉", "◉U+FFA0◉", x
+hidden: "ok◉U+E0068◉◉U+E0069◉"
+language: "◉U+E0001◉◉U+E0065◉◉U+E006E◉"
+flag: "◉U+1F3F4◉◉U+E0067◉◉U+E0062◉◉U+E0073◉◉U+E0063◉◉U+E0074◉◉U+E007F◉"
 flag-bare: 🏴󠁧󠁢󠁷󠁬󠁳󠁿
 flag-three: 🏴󠁧󠁢󠁸󠁿
 flag-seven: 🏴󠁵󠁳󠁣󠁡󠀱󠀲󠀳󠁿
@@ -17,18 +17,18 @@ flag-upper: 🏴󠁇󠁂󠁅󠁎󠁇󠁿
 flag-open: 🏴󠁧󠁢󠁥󠁮󠁧
 flag-no-base: x󠁧󠁢󠁥󠁮󠁧󠁿
 flag-twice: 🏴󠁧󠁢󠁳󠁣󠁴󠁿🏴󠁧󠁢󠁥󠁮󠁧󠁿
-heart: "\u2764\uFE0F"
+heart: "◉U+2764◉◉U+FE0F◉"
 heart-bare: ❤️, ❤︎
-ideograph: "\u845B\U000E0100"
-mongolian: "\u1820\u180B"
-lead: "\uFE0F"
-run: "a\uFE0F\uFE0F"
-after-space: "a \uFE0Fb"
-after-joiner: "a\u200D\uFE0F"
-after-escape: "\u00AD\uFE0F"
-after-flag: "\U0001F3F4\U000E0067\U000E0062\U000E0065\U000E006E\U000E0067\U000E007F\uFE0F"
+ideograph: "◉U+845B◉◉U+E0100◉"
+mongolian: "◉U+1820◉◉U+180B◉"
+lead: "◉U+FE0F◉"
+run: "a◉U+FE0F◉◉U+FE0F◉"
+after-space: "a ◉U+FE0F◉b"
+after-joiner: "a◉U+200D◉◉U+FE0F◉"
+after-escape: "◉U+00AD◉◉U+FE0F◉"
+after-flag: "◉U+1F3F4◉◉U+E0067◉◉U+E0062◉◉U+E0065◉◉U+E006E◉◉U+E0067◉◉U+E007F◉◉U+FE0F◉"
 family: 👨‍👩‍👧
-list: a️, "\uFE0Fb"
-"name\u00AD": 1
-"\uFE0F": 2
-"n\uFE0F": 3
+list: a️, "◉U+FE0F◉b"
+"name◉U+00AD◉": 1
+"◉U+FE0F◉": 2
+"n◉U+FE0F◉": 3

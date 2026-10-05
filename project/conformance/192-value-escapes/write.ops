@@ -1,0 +1,11 @@
+string	made	tab\there
+string	made-nl	one\ntwo
+string	made-mark	a◉b
+string	made-ctl	abcde
+string	made-cr	ab
+literal	made-crlf	"a◉CRLF◉b"
+string	made-zwsp	a​b
+string	made-both	it's "x"
+string	made-quote	say "hi"
+int	"x◉TAB◉y"	1
+literal	lit	"◉DQUOTE◉q◉DQUOTE◉"

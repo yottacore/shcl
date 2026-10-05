@@ -17,10 +17,11 @@ past: "\U00110000"
 nothex: "\uZZZZ"
 list: "\u0041", b
 tier: A
-tier["\u0041"].port: 81
+	port: 81
+tier["\u0041"].port: 80
 
-made: "x\u200By"
+made: "x◉U+200B◉y"
 
-flip: "q\u202Er"
+flip: "q◉U+202E◉r"
 
-lit: "é"
+lit: "\u00E9"

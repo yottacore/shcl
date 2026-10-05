@@ -6,7 +6,7 @@ tools:
 	run: rm -rf /tmp/x
 	~~~
 	port: 8080
-"a\w": ```
+"a◉W◉": ```
 x: 1
 ```
 deep:

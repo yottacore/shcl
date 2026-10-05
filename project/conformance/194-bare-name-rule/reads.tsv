@@ -1,0 +1,20 @@
+query	type	expected	status	level
+-	load	ok	-
+-	load	fail	-	strict
+-	lost	1	-
+ok-name_1	int	1	Good
+enabled	string	-	Empty
+"404"	string	-	Multiple
+"404"[#1]	string	found	Good
+"404".page	string	x	Good
+"404"	count	2	Good
+"-x"	string	-	NotFound
+"_id".sub	int	8	Good
+"user name"	string	-	Multiple
+"user name"[#1]	string	bob	Good
+"user name".role	string	admin	Good
+"Straße"	int	-	NotFound
+a."9b".c	int	3	Good
+"no colon here".kid	int	4	Good
+last	int	1	Good
+-	paths	ok-name_1|enabled|"404"|"404".page|"_id"|"_id".sub|"user name"|"user name".role|a|a."9b"|a."9b".c|"no colon here"|"no colon here".kid|last	-
