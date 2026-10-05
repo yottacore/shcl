@@ -1026,6 +1026,11 @@ rows=(
 	'Eq9yPCE|explain-unknown|explain E999|-|1|-|unknown diagnostic code: E999'
 	'Eq9yPCF|explain-two|explain E019 E020|-|1|-|usage: shcl explain'
 	'Eq9yPCG|explain-no-options|explain --strictness=strict E019|-|1|-|not valid for explain'
+	## Review 20261003 idea 1: a retired code was an unknown one, and H004
+	## suggested the unrelated E004. It says it was retired and what replaced
+	## it, at exit 0 on stdout like any code explain knows.
+	'Ern4qLa|explain-retired|explain H004|-|0|\nH004  retired     hint, replaced by E024\n  Loads no longer report H004. \x27shcl explain E024\x27 has the rule now.\n\n|='
+	'Ern4qOc|explain-retired-lower|explain h004|-|0|\nH004  retired     hint, replaced by E024\n  Loads no longer report H004. \x27shcl explain E024\x27 has the rule now.\n\n|-'
 	## 20260909 item 43: a near miss on a command, an option or a code says what
 	## was probably meant. A word nothing is near says nothing.
 	'Eq9yPCH|suggest-command|frmt %F%|-|1|-|did you mean .fmt.'
@@ -1955,6 +1960,10 @@ for b in "${bindings[@]}"; do
 	while read -r code; do
 		[[ -n "${code}" ]] && checks+=("explain ${code}")
 	done < <("${cli}" explain 2>/dev/null </dev/null | { grep -oE '^[EHV][0-9]+' || true ;})
+	## Retired codes are not in the listing; the reference's table names them.
+	while read -r code; do
+		[[ -n "${code}" ]] && checks+=("explain ${code}")
+	done < <(sed -n '/^const RETIRED: &str = "/,/^";$/p' "${repoDir}/source/rust/src/main.rs" | { grep -oE '^[EHV][0-9]+' || true ;})
 	for cmd in "${checks[@]}"; do
 		read -r -a cmdArgv <<<"${cmd}"
 		text="$("${cli}" "${cmdArgv[@]}" 2>/dev/null </dev/null || true)"

@@ -494,6 +494,11 @@ fUsage(){
 	while read -r code; do
 		fCompare "usage explain ${code}" explain "${code}"
 	done < <("$refCli" explain | { grep -oE '^[EHV][0-9]+' || true ;})
+	# The listing leaves retired codes out, so those come from the reference's
+	# own table.
+	while read -r code; do
+		fCompare "usage explain retired ${code}" explain "${code}"
+	done < <(sed -n '/^const RETIRED: &str = "/,/^";$/p' "$(dirname -- "${BASH_SOURCE[0]}")/../../source/rust/src/main.rs" | { grep -oE '^[EHV][0-9]+' || true ;})
 	while read -r cmd; do
 		fCompare "usage help ${cmd}" help "${cmd}"
 		fCompare "usage ${cmd} --help" "${cmd}" --help

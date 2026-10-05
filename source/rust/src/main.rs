@@ -430,6 +430,13 @@ V099|error|schema failed to load
   with their own line numbers. Line 0.
 ";
 
+/// Codes no load reports any more: `CODE|severity it had|replacement`, with
+/// the replacement empty when nothing took its rule. An old log can still
+/// name one, so `explain` says where it went rather than calling it unknown.
+const RETIRED: &str = "\
+H004|hint|E024
+";
+
 fn status_code(st: Status) -> u8 {
 	match st {
 		Status::Good => 0,
@@ -2401,6 +2408,30 @@ fn code_heads() -> impl Iterator<Item = &'static str> {
 	CODES.lines().filter(|l| !l.starts_with(' '))
 }
 
+/// The explain entry for a retired code, or None when the code was never one.
+fn retired_entry(code: &str) -> Option<String> {
+	let line = RETIRED
+		.lines()
+		.find(|l| l.split('|').next() == Some(code))?;
+	let mut f = line.split('|').skip(1);
+	let sev = f.next().unwrap_or("");
+	let by = f.next().unwrap_or("");
+	Some(if by.is_empty() {
+		format!(
+			"{}\n  Loads no longer report {}, and no other code took its rule.\n",
+			code_line(&format!("{}|retired|{}, with no replacement", code, sev)),
+			code
+		)
+	} else {
+		format!(
+			"{}\n  Loads no longer report {}. 'shcl explain {}' has the rule now.\n",
+			code_line(&format!("{}|retired|{}, replaced by {}", code, sev, by)),
+			code,
+			by
+		)
+	})
+}
+
 fn do_explain(o: &Opts) -> u8 {
 	let code = match o.args.as_slice() {
 		[] => {
@@ -2441,6 +2472,10 @@ fn do_explain(o: &Opts) -> u8 {
 		}
 	}
 	if !found {
+		if let Some(entry) = retired_entry(&code) {
+			out!("\n{}\n", entry);
+			return 0;
+		}
 		let names: Vec<&str> = code_heads()
 			.map(|h| h.split('|').next().unwrap_or(""))
 			.collect();

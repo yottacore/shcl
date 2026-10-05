@@ -419,6 +419,12 @@ V099|error|schema failed to load
   with their own line numbers. Line 0.
 """
 
+# Codes no load reports any more: CODE|severity it had|replacement, with the
+# replacement empty when nothing took its rule. An old log can still name one,
+# so explain says where it went rather than calling it unknown.
+RETIRED = """H004|hint|E024
+"""
+
 
 def status_code(st):
 	return st.value
@@ -1727,6 +1733,24 @@ def code_heads():
 	return [line for line in CODES.split("\n") if line and not line.startswith(" ")]
 
 
+def retired_entry(code):
+	# The explain entry for a retired code, or None when the code was never one.
+	for line in RETIRED.rstrip("\n").split("\n"):
+		f = (line.split("|", 2) + ["", ""])[:3]
+		if f[0] != code:
+			continue
+		if not f[2]:
+			return (
+				code_line(f"{code}|retired|{f[1]}, with no replacement")
+				+ f"\n  Loads no longer report {code}, and no other code took its rule.\n"
+			)
+		return (
+			code_line(f"{code}|retired|{f[1]}, replaced by {f[2]}")
+			+ f"\n  Loads no longer report {code}. 'shcl explain {f[2]}' has the rule now.\n"
+		)
+	return None
+
+
 def do_explain(o):
 	if not o.args:
 		heads = "".join(code_line(h) + "\n" for h in code_heads())
@@ -1751,6 +1775,10 @@ def do_explain(o):
 		if found:
 			body.append(line)
 	if not found:
+		entry = retired_entry(code)
+		if entry is not None:
+			sys.stdout.write("\n" + entry + "\n")
+			return 0
 		names = [h.split("|", 1)[0] for h in code_heads()]
 		sys.stderr.write(
 			f"unknown diagnostic code: {code}{suggest(names, code)} (shcl explain lists them all)\n"

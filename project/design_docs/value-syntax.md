@@ -627,6 +627,7 @@ What the build has today, and what replaces it.
 - Backslash escapes inside double quotes: `\t`, `\n`, `\\`, `\"`, `\'`, `\uXXXX` and `\UXXXXXXXX`. Replaced by `◉` escapes.
 	- `E023` meant a bad backslash escape. It means a bad `◉` escape now.
 	- `E024`, a Windows path in double quotes with `\t` or `\n` in it, goes. It replaced the hint `H004`, and both are retired. Item 2026100115323227.
+		- Each CLI's retired-code table then lists both with no replacement, so `shcl explain` says nothing took their rule. `H003` joins it the same way, unless the table learns to name two codes, `E025` and `E027`. Item 2026100307163917.
 	- The writer's `\u0009` and `\u000A` spelling for such a path goes with it.
 	- Writing a value with a backslash in single quotes, or in double quotes with each backslash doubled, is no longer needed. Items 2026100115323216 and 2026100115323222.
 
