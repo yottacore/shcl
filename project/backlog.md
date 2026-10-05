@@ -275,26 +275,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Decisions:
 		- 20261002: recheck after 2026100207032800 is built, since it removes most of those checks. No perf work before 3.0.0 otherwise.
 
-- The library `save_file` doc comments still say the save refuses over what the load dropped
-	- ID: 2026100414480001
-	- Type: Bug
-	- Status: Done
-	- Severity: Low
-	- Opened: 20261004-144800
-	- Opened by: 2026100313174973's sweep
-	- Parent ID: 2026100307310000
-	- Version and build: dev at `c3eb6db7`
-	- Incorrect behavior: the doc comment on `save_file` in all four says it "Refuses when parsing lost content that a save would silently delete". Since 2026100307310000 the count also has kept lines an edit lost. Go's `SaveFile`, Python's `save_file`, Rust's `save_file`, and C's `shcl_save_file` in `shcl.h`.
-	- Expected behavior: they say the save refuses when the write would delete content from the file, like the save result comments.
-	- Estimated effort: Low
-	- Actual fix [Bug]: the `save_file` comments in all four say the save refuses when the write would delete content from the file, as the save result comments do.
-	- Swept: the `save_file_lossy` comments in all four, which said "writes even when parsing dropped lines this save deletes", now say it writes even when the write deletes content from the file. `shcl.hpp` had neither wording. The migrate refusal messages in the CLIs stay, since they are about a fresh load of the migrated text. changelog.md is history and stays.
-	- Branch: `savedoc`
-	- Commit: `115811c9`
-	- Test case: none, comments only.
-	- Acceptance signoff: Self-closed: mechanical.
-	- Closed: 20261004-172341
-
 - A crosscheck run aborted the Python CLI with exit 134 under load
 	- ID: 2026100313174976
 	- Type: Bug
@@ -1407,6 +1387,26 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `pathhint`
 	- Commit: `1a12c02`
 	- Test case: corpus `171-windows-path-hint`, cli-regress `path-hint-*` rows. The read and strict rows and case 171 fail with the hint off, and `path-hint-set` shows a write is unaffected. The migrate goldens of cases 118, 122 and 170 now list the hint.
+
+- The library `save_file` doc comments still say the save refuses over what the load dropped
+	- ID: 2026100414480001
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261004-144800
+	- Opened by: 2026100313174973's sweep
+	- Parent ID: 2026100307310000
+	- Version and build: dev at `c3eb6db7`
+	- Incorrect behavior: the doc comment on `save_file` in all four says it "Refuses when parsing lost content that a save would silently delete". Since 2026100307310000 the count also has kept lines an edit lost. Go's `SaveFile`, Python's `save_file`, Rust's `save_file`, and C's `shcl_save_file` in `shcl.h`.
+	- Expected behavior: they say the save refuses when the write would delete content from the file, like the save result comments.
+	- Estimated effort: Low
+	- Actual fix [Bug]: the `save_file` comments in all four say the save refuses when the write would delete content from the file, as the save result comments do.
+	- Swept: the `save_file_lossy` comments in all four, which said "writes even when parsing dropped lines this save deletes", now say it writes even when the write deletes content from the file. `shcl.hpp` had neither wording. The migrate refusal messages in the CLIs stay, since they are about a fresh load of the migrated text. changelog.md is history and stays.
+	- Branch: `savedoc`
+	- Commit: `115811c9`
+	- Test case: none, comments only.
+	- Acceptance signoff: Self-closed: mechanical.
+	- Closed: 20261004-172341
 
 - The zsh completion still says `set` prints the canonical form
 	- ID: 2026100307163915
