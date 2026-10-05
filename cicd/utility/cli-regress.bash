@@ -684,8 +684,8 @@ rows=(
 	## An array setter keeps a stacked list stacked, as an overwrite keeps
 	## quotes, and a backtick value goes in through --set-literal.
 	'ErrQs1j|set-stacked-stays-stacked|set --set-literal=l=[1,2] -|l:\n\t- a\n|0|l:\n\t- 1\n\t- 2\n|-'
-	'ErrQs1k|set-literal-backtick|set --set-literal=c=`#FF8800` -|c: 1\n|0|c: `#FF8800`\n|-'
-	'ErrQs1l|set-keeps-backtick-kind|set --set=c=y -|c: `x`\n|0|c: `y`\n|-'
+	"ErrQs1k|set-literal-backtick|set --set-literal=c=\`#FF8800\` -|c: 1\n|0|c: \`#FF8800\`\n|-"
+	"ErrQs1l|set-keeps-backtick-kind|set --set=c=y -|c: \`x\`\n|0|c: \`y\`\n|-"
 	## A setter that would put a field under an array, or an array over
 	## fields, is refused (E028 on a reload).
 	'ErrQs1m|set-field-under-array-refused|set --set=l.c=1 -|l: [a]\n|1||^--set: cannot write l.c: an array takes no lines under it$'
