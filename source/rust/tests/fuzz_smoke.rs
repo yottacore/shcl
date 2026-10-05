@@ -1756,14 +1756,162 @@ fn setter_comments(before: &str, after: &str, path: &str) -> Vec<String> {
 	out
 }
 
+/// Where a setter on `path` may write kept lines as comments by design.md's
+/// table, as 0-based positions in canonical text: the lines at the level of
+/// the target's parent's block. A block written under a repeated header is
+/// that block too. A path from the document has every parent, but under a
+/// parent with two instances the setter may pick one that lacks the rest,
+/// and a field made on the way does the same at its own level.
+fn setter_reach(canon: &str, path: &str) -> std::collections::BTreeSet<usize> {
+	let doc = Document::parse(canon);
+	let lines: Vec<&str> = canon.lines().collect();
+	let tabs = |l: &str| l.len() - l.trim_start_matches('\t').len();
+	// A misplaced line has no level, and no setter writes one as a comment.
+	let level = |l: &str| {
+		!l.trim_matches(BLANKS).is_empty()
+			&& !l[..l.len() - l.trim_start_matches([' ', '\t']).len()].contains(' ')
+	};
+	let mut chain: Vec<String> = doc
+		.paths()
+		.into_iter()
+		.filter(|p| path.starts_with(&format!("{p}.")))
+		.collect();
+	chain.sort_by_key(String::len);
+	let made = chain
+		.iter()
+		.position(|p| doc.count(p) > 1)
+		.map_or(chain.len(), |d| d + 1);
+	let mut reach = std::collections::BTreeSet::new();
+	let mut blocks = vec![(0, lines.len())];
+	for depth in 0..=chain.len() {
+		if depth >= made {
+			reach.extend(
+				blocks
+					.iter()
+					.flat_map(|&(from, to)| from..to)
+					.filter(|&k| level(lines[k]) && tabs(lines[k]) == depth),
+			);
+		}
+		let Some(p) = chain.get(depth) else {
+			break;
+		};
+		let heads: std::collections::HashSet<&str> = doc
+			.lines(p)
+			.into_iter()
+			.filter(|&n| n > 0 && n <= lines.len())
+			.map(|n| lines[n - 1])
+			.collect();
+		let mut next = Vec::new();
+		for &(from, to) in &blocks {
+			for k in from..to {
+				// A field made on the way can go under any kept line there,
+				// and takes the lines under it.
+				if !level(lines[k])
+					|| tabs(lines[k]) != depth
+					|| (depth < made && !heads.contains(lines[k]))
+				{
+					continue;
+				}
+				let end = (k + 1..to)
+					.find(|&j| level(lines[j]) && tabs(lines[j]) <= depth)
+					.unwrap_or(to);
+				next.push((k + 1, end));
+			}
+		}
+		blocks = next;
+	}
+	reach
+}
+
+/// A line without the note a setter puts on it, and whether it had one.
+fn noteless(l: &str) -> (&str, bool) {
+	let t = l.trim_matches(BLANKS);
+	match t
+		.strip_prefix("# ")
+		.and_then(|c| c.split_once("  ## commented out by shcl when setting "))
+	{
+		Some((line, _)) => (line.trim_matches(BLANKS), true),
+		None => (unsettled(t), false),
+	}
+}
+
+/// The lines of `listed` a setter on `path` wrote as comments outside its
+/// reach, or dropped. Each copy outside its reach is still in the same
+/// stretch without a note, and no copy is gone. A count by text cannot tell
+/// a copy in the target's block from one in another. A copy in reach may
+/// move, since a setter that folds two fields of the name into one moves
+/// the lines with the field. No line from the target's first line to the
+/// end of its last block is a bound.
+fn setter_left_behind(before: &str, after: &str, path: &str, listed: &[String]) -> Vec<String> {
+	if listed.is_empty() {
+		return Vec::new();
+	}
+	let reach = setter_reach(before, path);
+	let had: Vec<(&str, bool)> = before.lines().map(noteless).collect();
+	let now: Vec<(&str, bool)> = after.lines().map(noteless).collect();
+	let had_text: Vec<&str> = had.iter().map(|l| l.0).collect();
+	let now_text: Vec<&str> = now.iter().map(|l| l.0).collect();
+	let listed = |t: &str| listed.iter().any(|s| s == t);
+	// A stacked list's kept lines move above the target's own line, and a
+	// setter that folds two instances of it into one moves what is between.
+	let lines: Vec<&str> = before.lines().collect();
+	let tabs = |l: &str| l.len() - l.trim_start_matches('\t').len();
+	let (mut first, mut last) = (usize::MAX, 0);
+	for n in Document::parse(before).lines(path) {
+		if n == 0 || n > lines.len() {
+			continue;
+		}
+		let depth = tabs(lines[n - 1]);
+		let end = (n..lines.len())
+			.find(|&j| {
+				let l = lines[j];
+				!l.trim_matches(BLANKS).is_empty()
+					&& !l[..l.len() - l.trim_start_matches([' ', '\t']).len()].contains(' ')
+					&& tabs(l) <= depth
+			})
+			.unwrap_or(lines.len());
+		(first, last) = (first.min(n - 1), last.max(end));
+	}
+	let own = first..last;
+	let mut out: Vec<String> = Vec::new();
+	for (from, to) in stretches(&had_text, &now_text, |k| {
+		!listed(had_text[k]) && !own.contains(&k)
+	}) {
+		let mut texts: Vec<&str> = from
+			.clone()
+			.map(|k| had[k].0)
+			.filter(|t| listed(t))
+			.collect();
+		texts.sort_unstable();
+		texts.dedup();
+		for t in texts {
+			let away = from
+				.clone()
+				.filter(|&k| !reach.contains(&k) && had[k] == (t, false))
+				.count();
+			let still = now[to.clone()].iter().filter(|l| **l == (t, false)).count();
+			if still < away {
+				out.push(t.to_string());
+			}
+		}
+	}
+	for t in had_text.iter().filter(|t| listed(t)) {
+		let count = |lines: &[&str]| lines.iter().filter(|l| *l == t).count();
+		if count(&now_text) < count(&had_text) && !out.iter().any(|o| o == t) {
+			out.push((*t).to_string());
+		}
+	}
+	out
+}
+
 /// The lines of canonical text a remove of `path` takes by design.md's
 /// table: each line the path names, which is the field's own line or the kept
 /// line written in its place, and every line after it written deeper, up to
 /// the first that is not. A misplaced line keeps its own indent, with a space
 /// in it, and belongs with the next line written with tabs, so it is taken
 /// only when that one is. Read from the text, so the oracle is not the code
-/// that drops.
-fn taken_lines(canon: &str, path: &str) -> Vec<String> {
+/// that drops. Each line comes with where it sat, as a 0-based position.
+fn taken_lines(canon: &str, path: &str) -> Vec<(usize, String)> {
 	let lines: Vec<&str> = canon.lines().collect();
 	let tabs = |l: &str| l.len() - l.trim_start_matches('\t').len();
 	let mut out = Vec::new();
@@ -1772,22 +1920,22 @@ fn taken_lines(canon: &str, path: &str) -> Vec<String> {
 			continue;
 		}
 		let depth = tabs(lines[n - 1]);
-		out.push(lines[n - 1].trim_matches(BLANKS).to_string());
+		out.push((n - 1, lines[n - 1].trim_matches(BLANKS).to_string()));
 		let mut waiting = Vec::new();
-		for l in &lines[n..] {
+		for (k, l) in lines.iter().enumerate().skip(n) {
 			// Blank as the load reads it: a kept line can be all other space.
 			if l.trim_matches([' ', '\t', '\r']).is_empty() {
 				continue;
 			}
 			if l[..l.len() - l.trim_start_matches([' ', '\t']).len()].contains(' ') {
-				waiting.push(l.trim_matches(BLANKS).to_string());
+				waiting.push((k, l.trim_matches(BLANKS).to_string()));
 				continue;
 			}
 			if tabs(l) <= depth {
 				break;
 			}
 			out.append(&mut waiting);
-			out.push(l.trim_matches(BLANKS).to_string());
+			out.push((k, l.trim_matches(BLANKS).to_string()));
 		}
 	}
 	out
@@ -2029,24 +2177,40 @@ fn left_behind(cut: &LeafCut, merged: &str) -> Vec<String> {
 			&& listed(had[k])
 			&& (raw[k].trim_matches(BLANKS).starts_with('#') || kept.contains(&k))
 	};
+	let mut out = Vec::new();
+	for (from, to) in stretches(&had, &now, |k| !cut.near.contains(&k) && !listed(had[k])) {
+		let mut need: Vec<&str> = from.filter(|&k| copy(k)).map(|k| had[k]).collect();
+		for l in &now[to] {
+			if let Some(k) = need.iter().position(|t| t == l) {
+				need.remove(k);
+			}
+		}
+		out.extend(need.into_iter().map(str::to_string));
+	}
+	out
+}
+
+/// Two texts cut into the same stretches, as half-open ranges of each. A
+/// bound is a line `bound` allows that each text writes once, and the
+/// stretches are cut at the longest run of bounds in the same order in both.
+/// The lines between two bounds may move among themselves.
+fn stretches(
+	had: &[&str],
+	now: &[&str],
+	bound: impl Fn(usize) -> bool,
+) -> Vec<(std::ops::Range<usize>, std::ops::Range<usize>)> {
 	let mut seen: std::collections::HashMap<&str, (usize, usize)> =
 		std::collections::HashMap::new();
-	for l in &had {
+	for l in had {
 		seen.entry(l).or_default().0 += 1;
 	}
-	for l in &now {
+	for l in now {
 		seen.entry(l).or_default().1 += 1;
 	}
 	let pairs: Vec<(usize, usize)> = (0..had.len())
-		.filter(|&k| {
-			!had[k].is_empty()
-				&& !cut.near.contains(&k)
-				&& !listed(had[k])
-				&& seen[had[k]] == (1, 1)
-		})
+		.filter(|&k| !had[k].is_empty() && bound(k) && seen[had[k]] == (1, 1))
 		.filter_map(|k| now.iter().position(|l| *l == had[k]).map(|j| (k, j)))
 		.collect();
-	// The longest run of those in the same order in both.
 	let mut best = vec![(1usize, usize::MAX); pairs.len()];
 	for x in 0..pairs.len() {
 		for y in 0..x {
@@ -2062,18 +2226,91 @@ fn left_behind(cut: &LeafCut, merged: &str) -> Vec<String> {
 		at = (best[x].1 != usize::MAX).then_some(best[x].1);
 	}
 	run.reverse();
-	// Each stretch as half-open ranges of both texts.
 	let mut edges = vec![(0, 0)];
 	edges.extend(run.iter().map(|&(k, j)| (k + 1, j + 1)));
 	edges.push((had.len() + 1, now.len() + 1));
+	edges
+		.windows(2)
+		.map(|w| (w[0].0..w[1].0 - 1, w[0].1..w[1].1 - 1))
+		.collect()
+}
+
+/// The copies of a line a remove took, by text, that sat away from it and
+/// are missing from the same stretch of `after`. A count by text cannot tell
+/// the taken copy from another. `taken` is where the taken lines sat, as
+/// 0-based positions in `before`. The comments right above and below them
+/// may go with the target, so they are neither copies nor bounds. Nothing
+/// from the target to the next field line is a bound, and no misplaced line
+/// is, since one beside the target moves down to just above that field line.
+fn remove_left_behind(
+	before: &str,
+	after: &str,
+	taken: &[usize],
+	listed: &[String],
+) -> Vec<String> {
+	if listed.is_empty() {
+		return Vec::new();
+	}
+	let raw: Vec<&str> = before.lines().collect();
+	let had: Vec<&str> = raw
+		.iter()
+		.map(|l| unsettled(l.trim_matches(BLANKS)))
+		.collect();
+	let now: Vec<&str> = after
+		.lines()
+		.map(|l| unsettled(l.trim_matches(BLANKS)))
+		.collect();
+	let doc = Document::parse(before);
+	let fields: std::collections::BTreeSet<usize> = doc
+		.paths()
+		.iter()
+		.flat_map(|p| doc.lines(p))
+		.filter(|&n| n > 0)
+		.map(|n| n - 1)
+		.collect();
+	let mut gone: std::collections::BTreeSet<usize> = taken.iter().copied().collect();
+	let note = |k: usize| raw[k].trim_matches(BLANKS).starts_with('#');
+	let blank = |k: usize| raw[k].trim_matches(BLANKS).is_empty();
+	let mut near = gone.clone();
+	for &k in &gone {
+		let to = fields
+			.range(k + 1..)
+			.find(|f| !gone.contains(f))
+			.copied()
+			.unwrap_or(raw.len());
+		near.extend(k..to);
+	}
+	// A settled line and a comment of one text are one line of canonical
+	// text, so the comments either side may be the target's own.
+	let mut theirs = Vec::new();
+	for &k in &gone {
+		let mut up = k;
+		while up > 0 && !gone.contains(&(up - 1)) && (note(up - 1) || blank(up - 1)) {
+			up -= 1;
+			theirs.push(up);
+		}
+		let mut down = k + 1;
+		while down < raw.len() && !gone.contains(&down) && (note(down) || blank(down)) {
+			theirs.push(down);
+			down += 1;
+		}
+	}
+	near.extend(theirs.iter().copied());
+	gone.extend(theirs);
+	let kept: std::collections::HashSet<usize> =
+		kept_text(before).lines.iter().map(|l| l.0 - 1).collect();
+	let listed = |t: &str| listed.iter().any(|s| s == t);
+	let copy = |k: usize| !gone.contains(&k) && listed(had[k]) && (note(k) || kept.contains(&k));
+	// A misplaced line beside the target moves down, past lines that stay.
+	let misplaced = |k: usize| {
+		raw[k][..raw[k].len() - raw[k].trim_start_matches([' ', '\t']).len()].contains(' ')
+	};
 	let mut out = Vec::new();
-	for w in edges.windows(2) {
-		let (from, to) = ((w[0].0, w[1].0 - 1), (w[0].1, w[1].1 - 1));
-		let mut need: Vec<&str> = (from.0..from.1)
-			.filter(|&k| copy(k))
-			.map(|k| had[k])
-			.collect();
-		for l in &now[to.0..to.1] {
+	for (from, to) in stretches(&had, &now, |k| {
+		!near.contains(&k) && !listed(had[k]) && !misplaced(k)
+	}) {
+		let mut need: Vec<&str> = from.filter(|&k| copy(k)).map(|k| had[k]).collect();
+		for l in &now[to] {
 			if let Some(k) = need.iter().position(|t| t == l) {
 				need.remove(k);
 			}
@@ -2163,10 +2400,59 @@ fn merge_exceptions_go_by_position() {
 	);
 }
 
+// The property's remove and setter steps also go by where a line sits. Each
+// case is the library's answer, then the same lines with the wrong copy taken,
+// which a count by text passes.
+#[test]
+fn remove_and_setter_exceptions_go_by_position() {
+	let _id = test_id("ErqSBCw");
+	let base = "x: 0\na: [1\ny: 1\na: [1\n\tb: 2\nz: 3\n";
+	let mut doc =
+		Document::parse_keep_lines(base, Strictness::Standard).unwrap_or_else(|e| e.document);
+	let before = doc.to_canonical();
+	let taken = taken_lines(&before, "a");
+	assert_eq!(taken, [(3, "a: [1".to_string()), (4, "b: 2".to_string())]);
+	assert_eq!(doc.remove("a"), 1);
+	let after = doc.to_canonical();
+	assert_eq!(after, "x: 0\na: [1\ny: 1\nz: 3\n");
+	let listed = ["a: [1".to_string()];
+	assert!(remove_left_behind(&before, &after, &[3, 4], &listed).is_empty());
+	let swapped = "x: 0\ny: 1\na: [1\nz: 3\n";
+	assert!(missing_kept(swapped, &listed).is_empty());
+	assert_eq!(
+		remove_left_behind(&before, swapped, &[3, 4], &listed),
+		listed
+	);
+	// A setter writes only its own block's kept lines as comments.
+	let base = "x:\n\ta: [1\n\tq: 0\ny:\n\ta: [1\n\tq: 0\n";
+	let mut doc =
+		Document::parse_keep_lines(base, Strictness::Standard).unwrap_or_else(|e| e.document);
+	let before = doc.to_canonical();
+	assert_eq!(setter_reach(&before, "x.a"), [1, 2].into_iter().collect());
+	assert!(doc.set_int("x.a", 7));
+	let after = doc.to_canonical();
+	let note = "  ## commented out by shcl when setting x.a, STAMP: E019 bracket array syntax";
+	assert_eq!(
+		unstamped(&after),
+		format!("x:\n\t# a: [1{note}\n\ta: 7\n\tq: 0\ny:\n\ta: [1\n\tq: 0\n")
+	);
+	let listed = setter_comments(&before, &after, "x.a");
+	assert_eq!(listed, ["a: [1"]);
+	assert!(setter_left_behind(&before, &after, "x.a", &listed).is_empty());
+	let swapped = format!("x:\n\ta: [1\n\ta: 7\n\tq: 0\ny:\n\t# a: [1{note}\n\tq: 0\n");
+	assert_eq!(setter_comments(&before, &swapped, "x.a"), listed);
+	assert!(missing_kept(&swapped, &listed).is_empty());
+	assert_eq!(
+		setter_left_behind(&before, &swapped, "x.a", &listed),
+		listed
+	);
+}
+
 /// After any edits, every kept line no edit's target took is in the saved
 /// text, or the save refuses (design.md, Kept lines under edits). Also: an
 /// edit raises the lost count only where the table says, and a remove adds
-/// no line.
+/// no line. What a merge, a remove or a setter takes is held by where it sat,
+/// since a count by text passes one that took the wrong copy.
 #[test]
 fn kept_lines_survive_edits() {
 	let _id = test_id("EreT6dh");
@@ -2295,7 +2581,10 @@ fn kept_lines_survive_edits() {
 					let n = doc.remove(&path);
 					if n > 0 {
 						removes_near += usize::from(near);
-						for t in &taken {
+						// Each taken line comes off the expected lines once, by
+						// text, so the other copies are held to their places.
+						let mut listed = Vec::new();
+						for (_, t) in &taken {
 							// As written first: a kept line can start with a `#`
 							// behind some other blank.
 							let at = want
@@ -2304,9 +2593,17 @@ fn kept_lines_survive_edits() {
 								.or_else(|| want.iter().position(|w| w == unsettled(t)));
 							if let Some(k) = at {
 								want.remove(k);
+								listed.push(unsettled(t).to_string());
 							}
 							spans.retain(|s| s.0 != *t && s.0 != unsettled(t));
 						}
+						let after = doc.to_canonical();
+						let at: Vec<usize> = taken.iter().map(|l| l.0).collect();
+						let moved = remove_left_behind(&before, &after, &at, &listed);
+						assert!(
+							moved.is_empty(),
+							"iteration {i}: removing {path:?} moved or dropped {moved:?}, a copy of a line it took:\n{log}--- before\n{before}--- after\n{after}"
+						);
 					}
 					(n > 0, format!("remove\t{path}"))
 				}
@@ -2319,11 +2616,18 @@ fn kept_lines_survive_edits() {
 			// with a note naming the path, and it is a comment from then on.
 			if took && matches!(op, 0 | 1 | 2 | 5 | 6 | 9) {
 				let after = doc.to_canonical();
+				let mut listed = Vec::new();
 				for w in setter_comments(&before, &after, &path) {
 					if let Some(k) = want.iter().position(|x| *x == w) {
 						want.remove(k);
+						listed.push(w);
 					}
 				}
+				let moved = setter_left_behind(&before, &after, &path, &listed);
+				assert!(
+					moved.is_empty(),
+					"iteration {i}: setting {path:?} commented out or dropped {moved:?} away from its block:\n{log}op {op} at {path:?}\n--- before\n{before}--- after\n{after}"
+				);
 			}
 			log.push_str(&format!("op {op} at {path:?}\n"));
 			// (b) Only the table's own losses: none outside a merge's.
