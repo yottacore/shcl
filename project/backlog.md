@@ -33,6 +33,36 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
+- `explain` on a retired code could name the code that replaced it
+	- ID: 2026100307163917
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Needs local test suite run?: The exhaustive cppcheck over the C CLI, at the next full `--ci`. It timed out at 10 minutes here; the normal level found nothing.
+	- Priority: Low
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 idea 1
+	- Version and build: dev at `6e8b7f89`
+	- Problem description:
+		- `shcl explain H004` answers "did you mean 'E004'?" at exit 1 in all four. H004 became E024, so a reader with an old log is sent to an unrelated code.
+	- Requirements:
+		- `explain` on a retired code says what replaced it, in all four CLIs.
+	- Progress log:
+		- H004 is the only retired code. Checked spec.md, design.md, the changelog, conformance README, cli-regress and the four code tables. value-syntax.md plans to retire E024 and H003 later.
+		- Each CLI has a `RETIRED` table beside its code table, one `CODE|old severity|replacement` line per code. An empty replacement prints the no-replacement form.
+		- Exit 0 on stdout, framed like any known code, since the code is one `explain` knows. The listing leaves retired codes out.
+		- `shcl explain H004` prints, between blank lines: `H004  retired     hint, replaced by E024` then `  Loads no longer report H004. 'shcl explain E024' has the rule now.`
+		- With no replacement it would print `CODE  retired     error, with no replacement` then `  Loads no longer report CODE, and no other code took its rule.` Checked byte-identical in all four with a test entry that was not committed.
+		- Open for signoff: the wording, exit 0, and leaving retired codes out of the listing.
+		- H003's plan names two codes, `E025` and `E027`, and the table holds one replacement. When it retires it goes in with none, unless the table learns two. Noted in value-syntax.md.
+		- When E024 retires, H004's line should lose its replacement too, or it points at a retired code.
+	- Decisions:
+		- The retired list is not a spec table row. spec.md says which codes are retired in prose, and check-docs holds each binding's table to that.
+	- Verified: cli-regress (2063 checks), crosscheck (15540 comparisons, now including each retired code), check-docs, the four conformance suites, cargo test, go test, clippy, go vet and staticcheck, ruff and mypy, shellcheck, markdownlint, test-ids check, shell-regress, and a gcc-15 `_FORTIFY_SOURCE` build of the C CLI.
+		- check-docs' new lines fail on a code both retired and live, and on spec.md not saying a code is retired. crosscheck fails on a changed retired entry in one binding. Both watched red.
+	- Branch: `retired`
+	- Commit: `99e5668b`
+	- Test case: cli-regress `Ern4qLa` and `Ern4qOc`, both failed before the fix in all four and pass after. crosscheck's usage check and cli-regress `Eq9yPCQ` read the retired list from the reference.
+
 - Called from a session, an unquoted `-x:y` argument loses its `-x:` on the way through either PowerShell script
 	- ID: 2026100408550401
 	- Type: Bug
@@ -282,36 +312,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: 20261004, prebuilt FreeBSD x86_64 binaries came in with 2026100413191500, and the release binary passed the corpus `fmt` and `check` there. This item still owes the crate install and the other three bindings.
 	- Note: 20261004, the gate scripts are bash and assume GNU tools, so some may need `gsed` or the like. Fixing the product comes first. Porting the gates only matters if a BSD job is wanted.
 	- Estimated effort: Avg
-
-- `explain` on a retired code could name the code that replaced it
-	- ID: 2026100307163917
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Needs local test suite run?: The exhaustive cppcheck over the C CLI, at the next full `--ci`. It timed out at 10 minutes here; the normal level found nothing.
-	- Priority: Low
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 idea 1
-	- Version and build: dev at `6e8b7f89`
-	- Problem description:
-		- `shcl explain H004` answers "did you mean 'E004'?" at exit 1 in all four. H004 became E024, so a reader with an old log is sent to an unrelated code.
-	- Requirements:
-		- `explain` on a retired code says what replaced it, in all four CLIs.
-	- Progress log:
-		- H004 is the only retired code. Checked spec.md, design.md, the changelog, conformance README, cli-regress and the four code tables. value-syntax.md plans to retire E024 and H003 later.
-		- Each CLI has a `RETIRED` table beside its code table, one `CODE|old severity|replacement` line per code. An empty replacement prints the no-replacement form.
-		- Exit 0 on stdout, framed like any known code, since the code is one `explain` knows. The listing leaves retired codes out.
-		- `shcl explain H004` prints, between blank lines: `H004  retired     hint, replaced by E024` then `  Loads no longer report H004. 'shcl explain E024' has the rule now.`
-		- With no replacement it would print `CODE  retired     error, with no replacement` then `  Loads no longer report CODE, and no other code took its rule.` Checked byte-identical in all four with a test entry that was not committed.
-		- Open for signoff: the wording, exit 0, and leaving retired codes out of the listing.
-		- H003's plan names two codes, `E025` and `E027`, and the table holds one replacement. When it retires it goes in with none, unless the table learns two. Noted in value-syntax.md.
-		- When E024 retires, H004's line should lose its replacement too, or it points at a retired code.
-	- Decisions:
-		- The retired list is not a spec table row. spec.md says which codes are retired in prose, and check-docs holds each binding's table to that.
-	- Verified: cli-regress (2063 checks), crosscheck (15540 comparisons, now including each retired code), check-docs, the four conformance suites, cargo test, go test, clippy, go vet and staticcheck, ruff and mypy, shellcheck, markdownlint, test-ids check, shell-regress, and a gcc-15 `_FORTIFY_SOURCE` build of the C CLI.
-		- check-docs' new lines fail on a code both retired and live, and on spec.md not saying a code is retired. crosscheck fails on a changed retired entry in one binding. Both watched red.
-	- Branch: `retired`
-	- Commit: `99e5668b`
-	- Test case: cli-regress `Ern4qLa` and `Ern4qOc`, both failed before the fix in all four and pass after. crosscheck's usage check and cli-regress `Eq9yPCQ` read the retired list from the reference.
 
 - The kept-line property's merge step has two loose ends
 	- ID: 2026100313174977
