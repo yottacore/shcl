@@ -837,6 +837,55 @@ def keeps_every_line(base):
 	return not kept or all(any(t == ln for t in rest) for ln in base.split("\n") if ln.strip())
 
 
+def reload_took_only_comments(live: str, back: str) -> bool:
+	"""A kept line the settle turned into a comment is still the user's line,
+	so clear_comments and a remove beside it leave it (design.md, Kept lines
+	under edits). The canonical text writes it as a comment, and the reload
+	takes it like one, so the two cannot agree (20260926 item 2). True when
+	that is all that differs: the reload's comment lines are some of the
+	document's, in order, and without comment and blank lines the two load as
+	one document. A comment the reload took can also take a blank with it,
+	step the comments after it back a level, or leave a kept line heading the
+	block below, so the rest is compared as documents. A check of the
+	target's comments missed one below the target (2026100506223902)."""
+
+	def comment(line: str) -> bool:
+		return line.lstrip("\t").startswith("#")
+
+	have = iter(ln.lstrip("\t") for ln in live.split("\n") if comment(ln))
+	if not all(any(h == ln.lstrip("\t") for h in have) for ln in back.split("\n") if comment(ln)):
+		return False
+
+	def bare(text: str) -> str:
+		rest = "".join(ln + "\n" for ln in text.split("\n") if ln and not comment(ln))
+		return shcl.Document.parse(rest).to_canonical()
+
+	return bare(live) == bare(back)
+
+
+def a_remove_keeps_a_settled_line_below_it():
+	# The issue's steps, which the fuzz reached with the value syntax: the
+	# setter comments out `a: [1` and makes `a` with the lines under it, and
+	# the new `c` goes between the kept line and the settled one, so the
+	# settled line sits below it. The remove leaves it there. The reload reads
+	# a plain comment and takes it with the field.
+	live = shcl.Document.parse("a: [1\n\t\t\": \n\t d-: 2\n\te: 3\n")
+	if live.clear_comments("a.d") != 0:
+		raise SystemExit("clear_comments took a line at a.d")
+	if not live.set_empty("a.c") or not live.set_raw("b.c", "body", "v0"):
+		raise SystemExit("a setter refused")
+	back = shcl.Document.parse(live.to_canonical())
+	if live.remove("a.c") != 1 or back.remove("a.c") != 1:
+		raise SystemExit("a remove missed")
+	a, b = live.to_canonical(), back.to_canonical()
+	if "\n\t\":\n\t# d-: 2\n\nb:\n" not in a:
+		raise SystemExit(f"the document wrote {a!r}")
+	if "\n\t\":\n\nb:\n" not in b:
+		raise SystemExit(f"the reload wrote {b!r}")
+	if not reload_took_only_comments(a, b) or reload_took_only_comments(b, a):
+		raise SystemExit(f"reload_took_only_comments got it wrong:\n{a}---\n{b}")
+
+
 def edits_and_merges_match_a_reload():
 	# A merge or an edit leaves the document its own saved text reloads as,
 	# comments included, so the next step comes out the same whether or not the file
@@ -863,11 +912,6 @@ def edits_and_merges_match_a_reload():
 			v = f"v{g.below(3)}"
 			op = g.below(11)
 			layer = g.doc()
-			# A kept line the settle turned into a comment is still the user's
-			# line and survives clear_comments, and a remove beside it. The
-			# canonical text writes it as a comment, so on the reload it is one,
-			# and the two cannot agree (20260926 item 2).
-			settled = op in (4, 9) and live.comments(path) != back.comments(path)
 			for d in (live, back):
 				if op <= 1:
 					d.merge(shcl.Document.parse(layer))
@@ -891,7 +935,7 @@ def edits_and_merges_match_a_reload():
 					d.set_banner(v != "v0")
 			log += f"merge:\n{layer}" if op <= 1 else f"op {op} at {path!r}\n"
 			a, b = live.to_canonical(), back.to_canonical()
-			if a != b and not settled:
+			if a != b and not (op in (4, 9) and reload_took_only_comments(a, b)):
 				raise SystemExit(f"a step on the document and on its reload differ at iteration {i}:\n{log}--- live\n{a}--- reload\n{b}")
 			t, kept = live.to_text_keep_lines()
 			if kept and shcl.Document.parse(t).to_canonical() != a:
@@ -2634,6 +2678,8 @@ def main():
 	setters_write_only_what_reads_back()
 	test_id("Eqk24nb", "edits_and_merges_match_a_reload")
 	edits_and_merges_match_a_reload()
+	test_id("ErpmA4L", "a_remove_keeps_a_settled_line_below_it")
+	a_remove_keeps_a_settled_line_below_it()
 
 	test_id("EqAaU1A", "repr_names_the_fields")
 	# Python-only: Diagnostic and Read used to print as object addresses, where
