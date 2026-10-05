@@ -119,55 +119,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: 20261003, `check-migrate.bash` already builds 2.x from pinned `7be348d` and compares reads after `migrate`. This would extend it to the backup and rewrite in 2026100313461649, and to beta-stamped Format 3 files once 2026100207032800 is in.
 	- Estimated effort: Avg
 
-- Removing the only line under a lazily opened field leaves a bare `name:`, and the field later reads as Multiple
-	- ID: 2026100307163907
-	- Type: Bug
-	- Status: Done
-	- Severity: Avg
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 item 7
-	- Related IDs: 2026100213205957
-	- Version and build: dev at `6e8b7f89`
-	- Steps to reproduce:
-		- `printf 'a: [1]\n\tb: 2\ny: 3\n' > f.shcl`
-		- `shcl set f.shcl --remove a.b --write`, then fix the first line to `a: 1, 2` as E019 asks.
-	- Incorrect behavior: the save writes `a: [1]`, `a:`, `y: 3` at exit 0. After the fix `get a` exits 5 and `count a` is 2, so a read with a default quietly gets the default.
-	- Expected behavior: a field opened only by the lines under it goes away with the last of them, as the escblock decision says.
-	- Reproduced: 20261003, all four.
-	- Possible cause: the lazily opened node outlives its last child, and `heads_block` needs at least one child, so the writer puts out the kept line and then a bare `a:`.
-	- Origin: `3ef0bc8c` (escblock), new since the last round. Not the trigger of 2026100213205957, which is the load; this one is an edit. Confirmed.
-	- Note: 20261003, `set f.shcl --set a=5` on the same file writes a second line, `a: 5`, after the kept `a: [1]`, with `b` under the new one. Once the first line is fixed, `a` reads as Multiple the same way. Same class, found while designing 2026100307310000. Confirmed on dev at `1e2e4210`, Rust CLI.
-	- Note: 20261003, from 2026100307310000. The kept-lines property `EreT6dh` skips this class through its row keyed by this ID, and the fix takes the row out.
-	- Estimated effort: Low
-	- Actual cause [Bug]: as above. The node a kept line opened outlived its last child.
-	- Progress log:
-		- 20261003: fixed in all four, with 2026100307163901. After a remove, a field opened from a kept line with nothing left under it goes too, and its lines stay where it stood. A field above it opened the same way follows. Corpus 187's two goldens had the bare `inner:` line from this bug; both now end that block at `inner: [x]`.
-		- 20261003: the `--set a=5` note is left as design.md's table has it: a setter keeps the kept line heading its target. The set writes `a: 5` under the kept `a: [1]` and reads 5. Once line 1 is fixed by hand, `a` reads as Multiple and `check` says nothing.
-		- Question: should a setter on a field opened from a kept line keep the table's rule, or do something else, such as refuse, or write the kept line as a comment?
-		- 20261004, answered: a setter writes the kept line as a comment, says why and when, and the set then goes ahead, so the file has one `a`. The example given was `# a: [1]  ## Invalid original value commented out by shcl on 'set' command, YYYY-mm-DD HH:MM:SS.`, to be made exact.
-		- Proposed text, OK'd 20261004: `# a: [1]  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 bracket array syntax`. It names the path, since library setters do this too and not only `set`. It names the code and message the load gave, since that is the actual reason.
-		- The time is local, with the zone's short name, or its offset such as `UTC-07:00` when no short name is known (the user, 20261004). Windows gives only long names like "Pacific Daylight Time", so it writes the offset. Tests pin the clock and zone through an override.
-		- Rust has no crates to lean on here. Local time comes from `localtime_r` on POSIX and the Win32 time zone calls on Windows, declared by hand like the existing `ReplaceFile` ones.
-		- 20261004: setter half fixed in all four. A setter on a field opened from a kept line writes that line as the OK'd comment, then sets. The line is a plain comment from then on, as a reload reads it, so `ClearComments` and a remove of the field take it. `SHCL_TEST_CLOCK` pins the time for tests, and cli-regress and crosscheck set it. design.md's setter row, spec.md and the changelog say so.
-		- 20261004: `EreT6dh` had no row left for this item, since the remove half took it out. It now counts a setter's comment, by its note, as the line it was. A 300,000 run reached that path 8,516 times.
-		- Question: a setter that creates a field leaves a kept line naming it beside the new one, as the table's beside column says. From `a: [1]` and `y: 3`, `set a=5` writes `a: 5` at the end, and once line 1 is fixed `a` reads as Multiple. `--remove a.b --set a=1` on the item's file ends the same way. Should a setter comment that line out too?
-		- 20261004, answered: do what happens with two valid lines of one name. There a setter changes the first one. The setter made a second `a` only because the load could not read `a: [1]`, so the document had no `a` to change.
-		- So a setter that would create a field takes the first kept line of that name in the block as the field. It writes that line as the comment with its note, and the new line goes right under it. If a field of that name already loaded, the setter changes it and the kept line stays, as a second valid line would.
-		- 20261004, changed: a kept line beside a loaded field of the same name would read as Multiple once fixed, so it goes too. A setter writing `a` writes every kept line named `a` in that block as the noted comment. It then changes the loaded `a` in place, or with none, puts the new line right under the first of those comments. Two valid lines of one name stay as they are.
-		- 20261004: create case fixed in all four. A setter writing `a` writes every kept `a` line in that block as the noted comment, the one heading the field included. It changes a loaded `a` in place, or puts the new line right under the first comment. The lines written under that kept line go under the new field. A field made on the way to the target does the same, since `set a.c=1` beside a kept `a: [1]` gave Multiple the same way.
-		- 20261004: two kinds of kept line are left as they were. One has a kept line under it and is not where the new field goes; as a comment it would leave that line under the field above. The other has a misplaced line under it, which does not move with it. Both came up in the fuzz runs.
-		- 20261004: a line the load dropped right after the kept line a new field goes under is not placed by the line-keeping save. So `set --write` refuses at 7 there, where it appended at exit 0 before. Nothing is lost, and `--lossy` writes it. Left as is.
-		- 20261004: `Eqk24nZ` failed once in a 2,000,000 run and passed on the rerun. It sets the same field on a document and on its reload, and each reads the clock, so a second can tick between the two. It now leaves the note's time out when it compares.
-	- Actual fix [Bug]: `remove` drops such a field once its last child goes, in all four. A setter on such a field writes its kept line as a comment with a note, then sets, in all four. A setter writing a field writes every kept line of its name in the block as that comment, and a new field goes right under the first, in all four.
-	- Swept: as 2026100307163901. Setter half: every setter in all four goes through one `set_value`. The other value writes are the parser's own fills and merge, whose row is 2026100313174974. Create case: a field is created through one `place` in all four, which the setters and `SetComment` share; only the setters comment out, as design.md's table says for `SetComment`.
-	- Verified: 20261004, the four suites, cli-regress over the four CLIs, crosscheck with a fresh fuzz dump, check-docs, clippy for the host and windows, go vet and staticcheck, ruff and mypy, cppcheck, shellcheck, the test ID check, markdownlint, and the 2,000,000 release fuzz. Each new test failed with the fix taken out. The Rust and C windows paths ran under wine and wrote the offset.
-	- Verified: 20261004, create case: the four suites, cli-regress over the four CLIs, crosscheck with a fresh fuzz dump and again over 1274 dumped edits that write a setter's comment, sanitize-c, those 1274 through the C CLI under ASan and UBSan, check-docs, check-abnf, check-veneer, shell-regress, clippy for the host and windows, go vet and staticcheck for both modules and windows, ruff and mypy, cppcheck exhaustive, shellcheck, the test ID check, markdownlint, and the 2,000,000 release fuzz. Each new test failed with the fix taken out.
-	- Branch: `removekept`, `setkept`, `setcreate`
-	- Commit: `46e6176a`, `80d64922`, `14609e9b`
-	- Test case: `ErgToax` (Rust), `ErgToef` (Go), `ErgToiG` (Python), `ErgTom6` (C); cli-regress `ErgTonu`; corpus 187; fuzz `EreT6dh`. Setter: `ErleUnO` and `ErleV68` (Rust), `Erlf124` and `Erlf14o` (Go), `Erlf17j` and `Erlf1AN` (Python), `Erlf1DT` and `Erlf1GC` (C); cli-regress `Erlf1Is`. Create case: `ErmXhmZ` (Rust), `ErmXhpm` (Go), `ErmXhtL` (Python), `ErmXhwI` (C); cli-regress `ErmXhyt`.
-	- Acceptance signoff: Self-closed 20261004: built as answered, and its tests and the fuzz runs pass.
-	- Closed: 20261004-190620
-
 - Group a release's downloads in a table, with the CPU architecture in columns and the target OS in rows
 	- ID: 2026100411093274
 	- Type: Feature
@@ -750,6 +701,55 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Test case: `EreT6dh` (`kept_lines_survive_edits`, fuzz_smoke.rs); per binding `kept_gate` tests `EreRyr7`, `EreUeCs`, `EreRysn` (Rust), `EreUzvf`, `EreUzxY`, `EreUzzO` (Go), `EreVRei`, `EreVRgk`, `EreVRis` (Python), `EreWlg6`, `EreWli7`, `EreWlk5`, `EreZ0ar` (C); the merge's two exceptions `ErfGoMI`, `ErfGoMJ` (Rust), `ErfGoMK`, `ErfGoML` (Go), `ErfGoMM`, `ErfGoMN` (Python), `ErfGoMO`, `ErfGoMP` (C); cli-regress `EreYYXK`; crosscheck `EreXO4J`.
 	- Acceptance signoff: 20261004, signed off. Its tests cover it and the full run passed.
 	- Closed: 20261004-110932
+
+- Removing the only line under a lazily opened field leaves a bare `name:`, and the field later reads as Multiple
+	- ID: 2026100307163907
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 7
+	- Related IDs: 2026100213205957
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- `printf 'a: [1]\n\tb: 2\ny: 3\n' > f.shcl`
+		- `shcl set f.shcl --remove a.b --write`, then fix the first line to `a: 1, 2` as E019 asks.
+	- Incorrect behavior: the save writes `a: [1]`, `a:`, `y: 3` at exit 0. After the fix `get a` exits 5 and `count a` is 2, so a read with a default quietly gets the default.
+	- Expected behavior: a field opened only by the lines under it goes away with the last of them, as the escblock decision says.
+	- Reproduced: 20261003, all four.
+	- Possible cause: the lazily opened node outlives its last child, and `heads_block` needs at least one child, so the writer puts out the kept line and then a bare `a:`.
+	- Origin: `3ef0bc8c` (escblock), new since the last round. Not the trigger of 2026100213205957, which is the load; this one is an edit. Confirmed.
+	- Note: 20261003, `set f.shcl --set a=5` on the same file writes a second line, `a: 5`, after the kept `a: [1]`, with `b` under the new one. Once the first line is fixed, `a` reads as Multiple the same way. Same class, found while designing 2026100307310000. Confirmed on dev at `1e2e4210`, Rust CLI.
+	- Note: 20261003, from 2026100307310000. The kept-lines property `EreT6dh` skips this class through its row keyed by this ID, and the fix takes the row out.
+	- Estimated effort: Low
+	- Actual cause [Bug]: as above. The node a kept line opened outlived its last child.
+	- Progress log:
+		- 20261003: fixed in all four, with 2026100307163901. After a remove, a field opened from a kept line with nothing left under it goes too, and its lines stay where it stood. A field above it opened the same way follows. Corpus 187's two goldens had the bare `inner:` line from this bug; both now end that block at `inner: [x]`.
+		- 20261003: the `--set a=5` note is left as design.md's table has it: a setter keeps the kept line heading its target. The set writes `a: 5` under the kept `a: [1]` and reads 5. Once line 1 is fixed by hand, `a` reads as Multiple and `check` says nothing.
+		- Question: should a setter on a field opened from a kept line keep the table's rule, or do something else, such as refuse, or write the kept line as a comment?
+		- 20261004, answered: a setter writes the kept line as a comment, says why and when, and the set then goes ahead, so the file has one `a`. The example given was `# a: [1]  ## Invalid original value commented out by shcl on 'set' command, YYYY-mm-DD HH:MM:SS.`, to be made exact.
+		- Proposed text, OK'd 20261004: `# a: [1]  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 bracket array syntax`. It names the path, since library setters do this too and not only `set`. It names the code and message the load gave, since that is the actual reason.
+		- The time is local, with the zone's short name, or its offset such as `UTC-07:00` when no short name is known (the user, 20261004). Windows gives only long names like "Pacific Daylight Time", so it writes the offset. Tests pin the clock and zone through an override.
+		- Rust has no crates to lean on here. Local time comes from `localtime_r` on POSIX and the Win32 time zone calls on Windows, declared by hand like the existing `ReplaceFile` ones.
+		- 20261004: setter half fixed in all four. A setter on a field opened from a kept line writes that line as the OK'd comment, then sets. The line is a plain comment from then on, as a reload reads it, so `ClearComments` and a remove of the field take it. `SHCL_TEST_CLOCK` pins the time for tests, and cli-regress and crosscheck set it. design.md's setter row, spec.md and the changelog say so.
+		- 20261004: `EreT6dh` had no row left for this item, since the remove half took it out. It now counts a setter's comment, by its note, as the line it was. A 300,000 run reached that path 8,516 times.
+		- Question: a setter that creates a field leaves a kept line naming it beside the new one, as the table's beside column says. From `a: [1]` and `y: 3`, `set a=5` writes `a: 5` at the end, and once line 1 is fixed `a` reads as Multiple. `--remove a.b --set a=1` on the item's file ends the same way. Should a setter comment that line out too?
+		- 20261004, answered: do what happens with two valid lines of one name. There a setter changes the first one. The setter made a second `a` only because the load could not read `a: [1]`, so the document had no `a` to change.
+		- So a setter that would create a field takes the first kept line of that name in the block as the field. It writes that line as the comment with its note, and the new line goes right under it. If a field of that name already loaded, the setter changes it and the kept line stays, as a second valid line would.
+		- 20261004, changed: a kept line beside a loaded field of the same name would read as Multiple once fixed, so it goes too. A setter writing `a` writes every kept line named `a` in that block as the noted comment. It then changes the loaded `a` in place, or with none, puts the new line right under the first of those comments. Two valid lines of one name stay as they are.
+		- 20261004: create case fixed in all four. A setter writing `a` writes every kept `a` line in that block as the noted comment, the one heading the field included. It changes a loaded `a` in place, or puts the new line right under the first comment. The lines written under that kept line go under the new field. A field made on the way to the target does the same, since `set a.c=1` beside a kept `a: [1]` gave Multiple the same way.
+		- 20261004: two kinds of kept line are left as they were. One has a kept line under it and is not where the new field goes; as a comment it would leave that line under the field above. The other has a misplaced line under it, which does not move with it. Both came up in the fuzz runs.
+		- 20261004: a line the load dropped right after the kept line a new field goes under is not placed by the line-keeping save. So `set --write` refuses at 7 there, where it appended at exit 0 before. Nothing is lost, and `--lossy` writes it. Left as is.
+		- 20261004: `Eqk24nZ` failed once in a 2,000,000 run and passed on the rerun. It sets the same field on a document and on its reload, and each reads the clock, so a second can tick between the two. It now leaves the note's time out when it compares.
+	- Actual fix [Bug]: `remove` drops such a field once its last child goes, in all four. A setter on such a field writes its kept line as a comment with a note, then sets, in all four. A setter writing a field writes every kept line of its name in the block as that comment, and a new field goes right under the first, in all four.
+	- Swept: as 2026100307163901. Setter half: every setter in all four goes through one `set_value`. The other value writes are the parser's own fills and merge, whose row is 2026100313174974. Create case: a field is created through one `place` in all four, which the setters and `SetComment` share; only the setters comment out, as design.md's table says for `SetComment`.
+	- Verified: 20261004, the four suites, cli-regress over the four CLIs, crosscheck with a fresh fuzz dump, check-docs, clippy for the host and windows, go vet and staticcheck, ruff and mypy, cppcheck, shellcheck, the test ID check, markdownlint, and the 2,000,000 release fuzz. Each new test failed with the fix taken out. The Rust and C windows paths ran under wine and wrote the offset.
+	- Verified: 20261004, create case: the four suites, cli-regress over the four CLIs, crosscheck with a fresh fuzz dump and again over 1274 dumped edits that write a setter's comment, sanitize-c, those 1274 through the C CLI under ASan and UBSan, check-docs, check-abnf, check-veneer, shell-regress, clippy for the host and windows, go vet and staticcheck for both modules and windows, ruff and mypy, cppcheck exhaustive, shellcheck, the test ID check, markdownlint, and the 2,000,000 release fuzz. Each new test failed with the fix taken out.
+	- Branch: `removekept`, `setkept`, `setcreate`
+	- Commit: `46e6176a`, `80d64922`, `14609e9b`
+	- Test case: `ErgToax` (Rust), `ErgToef` (Go), `ErgToiG` (Python), `ErgTom6` (C); cli-regress `ErgTonu`; corpus 187; fuzz `EreT6dh`. Setter: `ErleUnO` and `ErleV68` (Rust), `Erlf124` and `Erlf14o` (Go), `Erlf17j` and `Erlf1AN` (Python), `Erlf1DT` and `Erlf1GC` (C); cli-regress `Erlf1Is`. Create case: `ErmXhmZ` (Rust), `ErmXhpm` (Go), `ErmXhtL` (Python), `ErmXhwI` (C); cli-regress `ErmXhyt`.
+	- Acceptance signoff: Self-closed 20261004: built as answered, and its tests and the fuzz runs pass.
+	- Closed: 20261004-190620
 
 - The dogfood runner drops quotes and empty arguments under Windows PowerShell 5.1
 	- ID: 2026100307163908
