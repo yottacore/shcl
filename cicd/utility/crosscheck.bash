@@ -71,17 +71,19 @@ done
 refName="${bindings[0]%%|*}"; refCli="${bindings[0]#*|}"
 declare -i nCompared=0 nBad=0
 
-##	Run one CLI invocation, leaving "<code>\n<stdout>" in runOut. stderr is
-##	dropped: diagnostics wording is per-binding voice, not contract. stdout goes
-##	through a file and a builtin read rather than $(...): a substitution strips
-##	trailing newlines, so a dropped or doubled final one would be invisible, and
-##	it would cost two more forks per launch on top of the CLI's own - there are
-##	about eight thousand launches in a run.
+##	Run one CLI invocation, leaving "<code>\n<stdout>" in runOut. stderr is not
+##	compared: diagnostics wording is per-binding voice, not contract. It goes to
+##	runErr, the reference's to its own file, so a divergence can show it. stdout
+##	goes through a file and a builtin read rather than $(...): a substitution
+##	strips trailing newlines, so a dropped or doubled final one would be
+##	invisible, and it would cost two more forks per launch on top of the CLI's
+##	own - there are about eight thousand launches in a run.
 runOut=""
+runErr=run.err
 fRun(){
 	local cli="$1"; shift
 	local rc=0
-	"$cli" "$@" >"${tmpDir}/run.out" 2>/dev/null || rc=$?
+	"$cli" "$@" >"${tmpDir}/run.out" 2>"${tmpDir}/${runErr}" || rc=$?
 	fReadOut "$rc"
 }
 
@@ -89,8 +91,31 @@ fRun(){
 fRunStdin(){
 	local cli="$1" stdinFile="$2"; shift 2
 	local rc=0
-	"$cli" "$@" <"$stdinFile" >"${tmpDir}/run.out" 2>/dev/null || rc=$?
+	"$cli" "$@" <"$stdinFile" >"${tmpDir}/run.out" 2>"${tmpDir}/${runErr}" || rc=$?
 	fReadOut "$rc"
+}
+
+##	Under a divergence, a run killed by a signal is named as such, with the
+##	first lines of its stderr. A Python CLI that aborted under load once left
+##	only its exit code. The other side's stderr shows too when it was the one
+##	that died.
+fShowErr(){
+	local name="$1" got="$2" want="$3"
+	fShowOneErr "$name" "${got%%$'\n'*}" run.err
+	if [[ "${want%%$'\n'*}" =~ ^[0-9]+$ ]] && ((${want%%$'\n'*} > 128)); then
+		fShowOneErr "$refName" "${want%%$'\n'*}" ref.err
+	fi
+}
+fShowOneErr(){
+	local name="$1" rc="$2" errFile="${tmpDir}/$3" line
+	local -a lines=()
+	if [[ "$rc" =~ ^[0-9]+$ ]] && ((rc > 128)); then
+		echo "  ${name} was killed by signal $((rc - 128)) (SIG$(kill -l "$((rc - 128))" 2>/dev/null || echo '?'), exit ${rc})"
+	fi
+	[[ -s "$errFile" ]] || return 0
+	mapfile -t -n 12 lines <"$errFile"
+	echo "  ${name} stderr:"
+	for line in "${lines[@]}"; do echo "    | ${line}"; done
 }
 
 ##	read -d '' takes the file whole, trailing newlines included, and returns 1
@@ -106,7 +131,7 @@ fReadOut(){
 fCompareStdin(){
 	local what="$1" stdinFile="$2"; shift 2
 	local want got b name cli
-	fRunStdin "$refCli" "$stdinFile" "$@"; want="${runOut}"
+	runErr=ref.err; fRunStdin "$refCli" "$stdinFile" "$@"; want="${runOut}"; runErr=run.err
 	for b in "${bindings[@]:1}"; do
 		name="${b%%|*}"; cli="${b#*|}"
 		fRunStdin "$cli" "$stdinFile" "$@"; got="${runOut}"
@@ -115,6 +140,7 @@ fCompareStdin(){
 			nBad+=1
 			echo "DIVERGE ${what}: ${name} vs ${refName} (shcl $* <${stdinFile})"
 			diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") | head -12 || true
+			fShowErr "$name" "$got" "$want"
 		fi
 	done
 }
@@ -123,7 +149,7 @@ fCompareStdin(){
 fCompare(){
 	local what="$1"; shift
 	local want got b name cli
-	fRun "$refCli" "$@"; want="${runOut}"
+	runErr=ref.err; fRun "$refCli" "$@"; want="${runOut}"; runErr=run.err
 	for b in "${bindings[@]:1}"; do
 		name="${b%%|*}"; cli="${b#*|}"
 		fRun "$cli" "$@"; got="${runOut}"
@@ -132,6 +158,7 @@ fCompare(){
 			nBad+=1
 			echo "DIVERGE ${what}: ${name} vs ${refName} (shcl $*)"
 			diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") | head -12 || true
+			fShowErr "$name" "$got" "$want"
 		fi
 	done
 }
@@ -191,7 +218,8 @@ fCompareWrite(){
 	"$fixture" "${roots[0]}"
 	# The exit code rides along: a write that refuses leaves the tree alone, so
 	# the state compare alone cannot tell a refusal from a no-op success.
-	fRunWrite "$refCli" "$@" "$fixTarget"; fWriteState "${roots[0]}"; want="${runOut}${writeState}"
+	runErr=ref.err; fRunWrite "$refCli" "$@" "$fixTarget"; runErr=run.err
+	fWriteState "${roots[0]}"; want="${runOut}${writeState}"
 	for b in "${bindings[@]:1}"; do
 		name="${b%%|*}"; cli="${b#*|}"; i=$((i + 1))
 		"$fixture" "${roots[i]}"
@@ -201,6 +229,7 @@ fCompareWrite(){
 			nBad+=1
 			echo "DIVERGE ${what}: ${name} vs ${refName} (shcl $* <fixture>)"
 			diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") | head -12 || true
+			fShowErr "$name" "$got" "$want"
 		fi
 	done
 }
@@ -214,7 +243,7 @@ fCompareWrite(){
 ##	itself is removed before comparing, since its name holds a per-run pid.
 fPlantRun(){
 	local root="$1" cli="$2"; shift 2
-	bash -c 'r="$1"; c="$2"; shift 2; ln -sfn "${r}/stolen" "${r}/.c.shcl.tmp$$.0"; exec "$c" "$@"' _ "$root" "$cli" "$@" >/dev/null 2>&1 || true
+	bash -c 'r="$1"; c="$2"; shift 2; ln -sfn "${r}/stolen" "${r}/.c.shcl.tmp$$.0"; exec "$c" "$@"' _ "$root" "$cli" "$@" >/dev/null 2>"${tmpDir}/${runErr}" || true
 	find "$root" -maxdepth 1 -type l -name '.c.shcl.tmp*' -delete
 }
 
@@ -223,7 +252,7 @@ fComparePlant(){
 	local want got b name cli i=0
 	fMakeRoots plant
 	fFixMode "${roots[0]}"
-	fPlantRun "${roots[0]}" "$refCli" "$@" "$fixTarget"
+	runErr=ref.err; fPlantRun "${roots[0]}" "$refCli" "$@" "$fixTarget"; runErr=run.err
 	fWriteState "${roots[0]}"; want="${writeState}"
 	for b in "${bindings[@]:1}"; do
 		name="${b%%|*}"; cli="${b#*|}"; i=$((i + 1))
@@ -235,6 +264,7 @@ fComparePlant(){
 			nBad+=1
 			echo "DIVERGE ${what}: ${name} vs ${refName} (shcl $* <fixture>)"
 			diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") | head -12 || true
+			fShowErr "$name" "$got" "$want"
 		fi
 	done
 }
@@ -730,3 +760,5 @@ echo "crosscheck: ${#bindings[@]} bindings agree on ${nCompared} comparison(s)"
 ##		               in every binding.
 ##		- 20261004: An --extra dump with no eol/ or kept/ fails a strict run,
 ##		               and is noted in SHCL_GATE_SKIPS otherwise.
+##		- 20261004: A divergence shows the binding's stderr, and names a run
+##		               killed by a signal.
