@@ -236,7 +236,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - A crosscheck run aborted the Python CLI with exit 134 under load
 	- ID: 2026100313174976
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: Low
 	- Opened: 20261003-131749
 	- Opened by: found while working 2026100307310000
@@ -246,8 +246,21 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- `crosscheck.bash` over the conformance corpus while cppcheck runs beside it, load about 20.
 	- Incorrect behavior: 8 Python reads failed with the Python CLI exiting 134. A rerun at `CPU_CAP=4` was green.
 	- Expected behavior: no abort, or a clear error the crosscheck reports as such.
-	- Reproduced: No. Seen once; its stderr was not kept.
-	- Possible cause: a fatal interpreter error under memory pressure rather than shcl code. Unconfirmed.
+	- Reproduced: Yes, 20261004, at load 45 to 55: crosscheck with the fuzz dump at `CPU_CAP=16` beside `stress --cpu 12 --vm 6 --vm-bytes 3G`. Two of the three runs each had one Python launch die of SIGSEGV (exit 139), out of about 40,000 Python launches in all. Three runs beside cppcheck at load 26 were clean.
+	- Actual cause: the Python interpreter itself crashes, not shcl code and not the harness.
+		- The system log has 7 Python crashes from the first run, 20261003 09:19, two SIGABRT and five SIGSEGV, each a general protection fault at a different address inside `python3.13`, on unrelated commands. No core was kept.
+		- Both new ones kept a core. Each died in the interpreter's garbage collector at shutdown. One failed before any shcl code ran: `import signal` in `main.py` raised `No module named 'reprlib'` from inside the standard library, then crashed.
+		- crosscheck starts the CLI directly, with no timeout, ulimit or signal of its own, so exit 134 or 139 is the process's own death.
+		- The Linux path of the Python binding is pure Python; its only native calls are Windows-only.
+		- The same box shows other crashes in the same span: cppcheck SIGSEGV three times on 20261003, and an unrelated Python script SIGSEGV and SIGBUS on 20261004. Installed Python files verify clean against the package.
+		- Likely a host fault under heavy memory pressure. This box runs zswap with a swap file on btrfs, 12.8 GB of 16 in use, and has a known kernel page-cache fault. Unconfirmed.
+	- Progress log:
+		- 20261004: plain `python3 -c 'import ...'` and a looped shcl `get`, 24,000 and 12,800 launches under the same stress, did not crash. At the rate seen in crosscheck that count is too small to say much.
+		- Open question: close this as a host fault outside shcl, or keep it open until the host is looked at? The crosscheck change stands either way.
+	- Actual fix: none in shcl. crosscheck now keeps each run's stderr, and a divergence shows the binding's stderr and names a run killed by a signal, so the next one can be told apart from a shcl defect at a glance.
+	- Swept: all four DIVERGE sites in crosscheck (stdout, stdin-fed, in-place write, planted temp) show stderr; the reference's shows when it is the one that died.
+	- Test case: shell-regress `Ern198f`, a stub binding that exits 134 with text on stderr. Red on the old crosscheck, green on the new.
+	- Branch: `pyabort`
 	- Estimated effort: Low
 
 - Called from a session, an unquoted `-x:y` argument loses its `-x:` on the way through either PowerShell script

@@ -3446,6 +3446,8 @@ cat > "${xcDir}/ref" <<'EOF'
 line=""; for a in "$@"; do line+="${a##*/} "; done
 case "${0##*/}:${line}" in
 	two:version\ |two:about\ ) echo "other" ;;
+	abrt:version\ ) echo "Fatal Python error: stub abort" >&2; exit 134 ;;
+	abrt:about\ ) echo "stub about refused" >&2; exit 3 ;;
 	nonl:version\ ) printf '%s' "${line}" ;;
 	tsv:count\ *zz\ ) echo "other" ;;
 	crlf:set\ --write\ c.shcl\ ) sed 's/$/\r/' >>"${@: -1}" ;;
@@ -3454,7 +3456,7 @@ case "${0##*/}:${line}" in
 esac
 EOF
 chmod +x "${xcDir}/ref"
-for m in two nonl tsv crlf; do cp "${xcDir}/ref" "${xcDir}/${m}"; done
+for m in two nonl tsv crlf abrt; do cp "${xcDir}/ref" "${xcDir}/${m}"; done
 printf 'a: 1\n' > "${xcDir}/corpus/001-a/input.shcl"
 printf 'query\ttype\texpected\tstatus\na\tint\t1\tok\nzz\tcount\t0\tok' > "${xcDir}/corpus/001-a/reads.tsv"
 ## The run's strict flag and skip list stay out, since these dumps leave out
@@ -3525,6 +3527,16 @@ fCrosscheck --corpus "${xcDir}/corpus" --extra "${xcDir}/noeol" "ref|${xcDir}/re
 [[ "${xcRc}" == 0 && "${xcOut}" == *"skip ErUF4nK "* && "${xcOut}" == *"ok   EreXO4J "* && "$(cat "${xcDir}/skips")" == "crosscheck eol" ]] \
 	|| fBad "crosscheck did not note a dump with no eol/ as a skip (exit ${xcRc}, skips $(cat "${xcDir}/skips")): ${xcOut@Q}"
 xcEnv=()
+fTest Ern198f 2026100313174976-crosscheck-shows-a-crash
+##	2026100313174976: a Python CLI killed by SIGABRT under load showed only as
+##	exit 134 in the diff, and its stderr was thrown away. The stub exits 134
+##	rather than raising the signal, since crosscheck sees only the status and a
+##	real abort would leave a core behind on every run.
+fCrosscheck --corpus "${xcDir}/corpus" "ref|${xcDir}/ref" "abrt|${xcDir}/abrt"
+[[ "${xcRc}" == 1 && "${xcOut}" == *"abrt was killed by signal 6 (SIGABRT, exit 134)"* && "${xcOut}" == *"| Fatal Python error: stub abort"* \
+	&& "${xcOut}" == *"| stub about refused"* ]] || fBad "crosscheck did not show a crashed binding's signal and stderr (exit ${xcRc}): ${xcOut@Q}"
+fCrosscheck --corpus "${xcDir}/corpus" "ref|${xcDir}/ref" "two|${xcDir}/two"
+[[ "${xcRc}" == 1 && "${xcOut}" != *"stderr:"* && "${xcOut}" != *"killed by signal"* ]] || fBad "crosscheck showed stderr or a signal for a binding that had neither (exit ${xcRc}): ${xcOut@Q}"
 
 fTestEnd
 
