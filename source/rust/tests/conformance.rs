@@ -1089,20 +1089,21 @@ fn parse_limited_caps() {
 		1
 	);
 	assert_eq!(doc.get_int_array("arr"), Ok(vec![1, 2]));
-	// A cap refuses only a line that would bind: a malformed array stays E019
-	// and kept, and an element under a field with a value stays E011.
-	let doc = Document::parse_limited(
-		"arr: [1,, 2, 3]\nk: x\n\t- 1\n",
-		Strictness::Standard,
-		0,
-		1,
-		0,
-	)
-	.unwrap();
-	let codes: Vec<_> = doc.diagnostics().iter().map(|d| (d.line, d.code)).collect();
-	assert_eq!(codes, vec![(1, "E019"), (3, "E011")]);
-	assert_eq!(doc.lost_count(), 1);
-	assert!(doc.to_canonical().contains("arr: [1,, 2, 3]"));
+	// A malformed array past the cap stayed E019 and kept. Since 2026-10-05
+	// the cap wins over a broken value, so this is E021 now: see
+	// a_cap_wins_over_a_broken_value.
+	// let doc = Document::parse_limited(
+	// 	"arr: [1,, 2, 3]\nk: x\n\t- 1\n",
+	// 	Strictness::Standard,
+	// 	0,
+	// 	1,
+	// 	0,
+	// )
+	// .unwrap();
+	// let codes: Vec<_> = doc.diagnostics().iter().map(|d| (d.line, d.code)).collect();
+	// assert_eq!(codes, vec![(1, "E019"), (3, "E011")]);
+	// assert_eq!(doc.lost_count(), 1);
+	// assert!(doc.to_canonical().contains("arr: [1,, 2, 3]"));
 	// The count the cap judges is the count the array reads back as, spelling
 	// by spelling: quoted commas, a backslash (a character, so it shields
 	// nothing), the empty array, a quoted Unicode blank (content: only a space
@@ -1138,14 +1139,13 @@ fn parse_limited_caps() {
 			assert_eq!(doc.lost_count(), 1, "{spelling:?} at cap {}", n - 1);
 		}
 	}
-	// An open quote is judged before the cap, like any value fault, from the
-	// pieces the capped scan kept: the line is kept as written, so the cap,
-	// which refuses only a line that would bind, says nothing.
-	let doc =
-		Document::parse_limited("v: [a, \"open, b]\n", Strictness::Standard, 0, 1, 0).unwrap();
-	let codes: Vec<&str> = doc.diagnostics().iter().map(|d| d.code).collect();
-	assert_eq!(codes, ["E017"]);
-	assert_eq!(doc.lost_count(), 0);
+	// An open quote was judged before the cap and kept the line. Since
+	// 2026-10-05 the cap wins: see a_cap_wins_over_a_broken_value.
+	// let doc =
+	// 	Document::parse_limited("v: [a, \"open, b]\n", Strictness::Standard, 0, 1, 0).unwrap();
+	// let codes: Vec<&str> = doc.diagnostics().iter().map(|d| d.code).collect();
+	// assert_eq!(codes, ["E017"]);
+	// assert_eq!(doc.lost_count(), 0);
 	// A fence whose info string splits past the cap is refused with its block,
 	// in both spellings, so the body never reads as live lines. Same fixture in
 	// every runner.
@@ -1163,10 +1163,11 @@ fn parse_limited_caps() {
 	// Diagnostic cap: the first N are listed and one E022 tail counts the
 	// rest. Its severity is Error when any unlisted one was, so a scan of the
 	// list for errors still finds one and error_count stays nonzero.
+	// A line with no colon is E015 whatever its name, since 2026-10-05.
 	let bad = "no colon\n".repeat(50);
 	let doc = Document::parse_limited(&bad, Strictness::Standard, 0, 0, 10).unwrap();
 	assert_eq!(doc.diagnostics().len(), 11);
-	assert!(doc.diagnostics()[..10].iter().all(|d| d.code == "E014"));
+	assert!(doc.diagnostics()[..10].iter().all(|d| d.code == "E015"));
 	let tail = &doc.diagnostics()[10];
 	assert_eq!(
 		(tail.code, tail.severity, tail.line),
@@ -1209,6 +1210,56 @@ fn parse_limited_caps() {
 	assert_eq!(err.document.get_int("a"), Ok(1));
 }
 
+/// An item or a line past the caller's element cap is E021 and dropped, even
+/// when its value is broken: the cap wins over a value fault. A fault in the
+/// path or the name still comes first, and a broken item within the cap is
+/// still kept. Same fixture in every runner.
+#[test]
+fn a_cap_wins_over_a_broken_value() {
+	let _id = test_id("Ers2oCr");
+	use shcl::Strictness;
+	let codes = |text: &str, cap: usize| {
+		let doc = Document::parse_limited(text, Strictness::Standard, 0, cap, 0).unwrap();
+		let c: Vec<(usize, &'static str)> =
+			doc.diagnostics().iter().map(|d| (d.line, d.code)).collect();
+		(c, doc.lost_count(), doc.to_canonical())
+	};
+	// Bracket arrays: an empty slot, an open quote, no closing bracket, text
+	// after it. Each is E021 at a cap below its length, and its own code at a
+	// cap that fits.
+	for (text, own) in [
+		("arr: [1,, 2, 3]\n", "E019"),
+		("arr: [a, \"open, b]\n", "E017"),
+		("arr: [a, b, c\n", "E019"),
+		("arr: [a, b] c\n", "E019"),
+		("arr: [a, b c, d]\n", "E025"),
+	] {
+		let (c, lost, out) = codes(text, 1);
+		assert_eq!(c, vec![(1, "E021")], "{text:?}");
+		assert_eq!(lost, 1, "{text:?}");
+		assert!(!out.contains("arr"), "{text:?}");
+		let (c, lost, _) = codes(text, 9);
+		assert_eq!(c, vec![(1, own)], "{text:?} under the cap");
+		assert_eq!(lost, 0, "{text:?} under the cap");
+	}
+	// A bare comma outside brackets counts its pieces the same way.
+	assert_eq!(codes("a: x, y, z\n", 2).0, vec![(1, "E021")]);
+	assert_eq!(codes("a: x, y, z\n", 3).0, vec![(1, "E026")]);
+	// A stacked item past the cap is dropped whatever it holds; within the
+	// cap a broken one is kept and the list loads around it.
+	let (c, lost, out) = codes("x:\n\t- a\n\t- b\n\t- \"open\n\t- c d\nz: 1\n", 2);
+	assert_eq!(c, vec![(4, "E021"), (5, "E021")]);
+	assert_eq!(lost, 2);
+	assert_eq!(out, "x:\n\t- a\n\t- b\nz: 1\n");
+	let (c, lost, out) = codes("x:\n\t- a\n\t- \"open\n\t- b\n", 2);
+	assert_eq!(c, vec![(3, "E017")]);
+	assert_eq!(lost, 0);
+	assert!(out.contains("- \"open"), "{out:?}");
+	// An element under a field with a value is E011, cap or not.
+	assert_eq!(codes("k: x\n\t- 1\n", 1).0, vec![(2, "E011")]);
+	// The path and the name are judged first.
+	assert_eq!(codes("404: [a, b, c]\n", 1).0, vec![(1, "E014")]);
+}
 #[test]
 fn write_bad_ops_are_rejected() {
 	let _id = test_id("El5Gcy6");
@@ -2075,6 +2126,60 @@ fn standard_trait_surface() {
 	let _: shcl::DateTime = shcl::ShclDateTime::default();
 }
 
+/// A list with a field under it (E001) after an empty binding of its name
+/// that has fields: no text loads it back, since a reload joins the list's
+/// header to that binding and drops its items (E008). The load is left as
+/// it is; a save that would write it refuses (2026100511210900). An edit and
+/// a merge can each leave one. Same fixture in every runner.
+#[test]
+fn a_list_no_text_loads_back_refuses_to_save() {
+	let _id = test_id("Ers2oF1");
+	let src = "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n";
+	let mut doc = Document::parse_keep_lines(src, Strictness::Standard).unwrap();
+	assert_eq!(doc.lost_count(), 0);
+	assert!(doc.set_empty("x[v]"));
+	let text = doc.to_canonical();
+	assert_eq!(text, "x:\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n");
+	assert_eq!(
+		Document::parse(&text).lost_count(),
+		2,
+		"the reload drops both items"
+	);
+	assert_eq!(doc.lost_count(), 2);
+	assert!(
+		!doc.to_text_keep_lines().1,
+		"the source was canonical, and still no lines are kept"
+	);
+	let dir = std::env::temp_dir().join(format!("shcl-unloadable-{}", std::process::id()));
+	std::fs::create_dir_all(&dir).unwrap();
+	let f = dir.join("t.shcl");
+	let fs = f.to_str().unwrap();
+	std::fs::write(&f, src).unwrap();
+	assert!(matches!(
+		doc.save_file(fs),
+		Err(shcl::SaveError::Refused { lost: 2, .. })
+	));
+	assert!(matches!(
+		doc.save_file_keep_lines(fs),
+		Err(shcl::SaveError::Refused { lost: 2, .. })
+	));
+	assert_eq!(std::fs::read_to_string(&f).unwrap(), src);
+	assert!(doc.save_file_lossy(fs).is_ok());
+	std::fs::remove_dir_all(&dir).unwrap();
+	// The same through a merge: the list arrives over an empty binding.
+	let mut merged = Document::parse("x:\n\tf: 1\n");
+	merged.merge(&Document::parse("x:\n\t- a\n\t- b\n\tg: 2\n"));
+	assert_eq!(merged.lost_count(), 2, "{:?}", merged.to_canonical());
+	// An empty binding with no fields takes the list in, so nothing is lost,
+	// and a list with no field under it goes in brackets.
+	let mut doc = Document::parse("x: v\nx:\n\t- a\n\tg: 2\n");
+	assert!(doc.set_empty("x[v]"));
+	assert_eq!(doc.lost_count(), 0, "{:?}", doc.to_canonical());
+	let mut doc = Document::parse("x: v\n\tf: 1\nx:\n\t- a\n\t- b\n");
+	assert!(doc.set_empty("x[v]"));
+	assert_eq!(doc.lost_count(), 0, "{:?}", doc.to_canonical());
+}
+
 #[test]
 fn lost_and_save_gate() {
 	let _id = test_id("EnEclpx");
@@ -2082,9 +2187,11 @@ fn lost_and_save_gate() {
 	// survives a save); position-dependent drops count as lost and make
 	// save_file refuse until the caller opts into save_file_lossy. Same
 	// fixture in every runner.
-	let kept = Document::parse("a: 1\nsquare-miles 300\nb: 2\n");
+	// A line with no colon is repaired (E015) since 2026-10-05, so the
+	// malformed line is bare whitespace in a value (E025).
+	let kept = Document::parse("a: 1\nsquare-miles: 300 mi\nb: 2\n");
 	assert_eq!(kept.lost_count(), 0);
-	assert!(kept.to_canonical().contains("square-miles 300\n"));
+	assert!(kept.to_canonical().contains("square-miles: 300 mi\n"));
 	// An indent matching no level is kept as written when it holds a space,
 	// which no level the emitter writes can equal, and lost when it is tabs.
 	let spaced = Document::parse("a:\n\tb: 1\n  c: 2\n\td: 3\n");
@@ -2098,7 +2205,7 @@ fn lost_and_save_gate() {
 	let fs = f.to_str().unwrap();
 	assert!(kept.save_file(fs).is_ok());
 	let (back, _) = Document::load_file(fs);
-	assert!(back.to_canonical().contains("square-miles 300\n"));
+	assert!(back.to_canonical().contains("square-miles: 300 mi\n"));
 	assert!(lost.save_file(fs).is_err());
 	assert!(lost.save_file_lossy(fs).is_ok());
 	// A refusal and a failed write are separate values, not two spellings of one

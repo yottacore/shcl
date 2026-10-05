@@ -364,14 +364,14 @@ E022|error/hint|the diagnostics list was cut at the caller-supplied cap
   any unlisted one was, so a scan for errors still finds one; a hint
   otherwise.
 E023|error|a bad escape
-  An escape is a name from the escape list between two U+25C9 marks, such as
-  TAB, NEWLINE or U+200B, and a real U+25C9 is the name ESCAPE_CHAR. Anything
-  else between two marks is an error, and so is a mark with no partner. A
-  backslash is plain text. The line is kept verbatim: it binds nothing and a
-  read on it is NotFound. When only the value is wrong, the lines under it
-  still load, under the field with no value, and a read on the field is Empty
-  once one of them loads. When the name is, a raw block the line opens is kept
-  with it.
+  An escape is a name from the escape list between two ◉ marks, such as
+  ◉TAB◉, ◉NEWLINE◉ or ◉U+200B◉, and a real ◉ is written ◉ESCAPE_CHAR◉.
+  Anything else between two marks is an error, and so is a mark with no
+  partner. A backslash is plain text. The line is kept verbatim: it binds
+  nothing and a read on it is NotFound. When only the value is wrong, the
+  lines under it still load, under the field with no value, and a read on the
+  field is Empty once one of them loads. When the name is, a raw block the
+  line opens is kept with it.
 E025|error|whitespace or a quote in a bare value or selector body
   title: My App and name: O'Brien are both errors. Quote the value:
   title: \"My App\" and name: \"O'Brien\". Whitespace at either end is

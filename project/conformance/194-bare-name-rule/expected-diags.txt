@@ -5,7 +5,7 @@ line 8: Error: E014
 line 10: Error: E014
 line 12: Error: E014
 line 15: Error: E014
-line 17: Error: E014
+line 17: Error: E015
 line 19: Error: E014
 line 20: Error: E018
 failed: 10 diagnostic(s), 10 error(s)

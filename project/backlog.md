@@ -122,6 +122,18 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 			- A list with a field under it (`E001`) stays stacked, since in brackets it is `E028`, and so does one after a remove takes such a field. A merge leaves it stacked too.
 			- A stacked list with fields under it after an empty binding of its name that has none joins that binding, as a reload would. A kept array line an edit leaves with nothing under it is written as a comment.
 			- A selector matches a scalar only, so `x[hi]` no longer finds a raw block holding `hi` (case 070).
+		- 20261005: the rework from the 20261005 answers done on `vsfix`, off `valsyn`, Rust only. Not in the design doc yet; chunk C writes it there.
+			- A line with no colon is `E015` whatever its name, and binds the name it reads as. `404`, `-x` and `user name` alone now repair to `"404":` and the rest. That reaches lines with a space too: `square-miles 300` and `this is ! not parseable` were `E014` and kept as written, and now repair to a quoted name at exit 0. Cases 004, 013, 049, 091 and 194 moved with it, and the `b 2` and `also bad` lines in the cli-regress fixtures.
+			- A line or a stacked item past the caller's element cap is `E021` and dropped, whatever its value. The path and the name are still judged first, and a broken item within the cap is still kept.
+			- `migrate` leaves every 2.x backslash as written, `\"` and `\'` included, and it reads as text. A piece is written another way only where these rules would read its text as something else, so `"say \"hi\""` becomes `'say \"hi\"'`. A backslash no longer makes a file ambiguous, so without `--from-2x` only a raw block the two rule sets split still refuses at 7. Goldens 118, 119, 122, 124 and 170 moved.
+			- check-migrate lets an element read differ from the 2.x one only where a backslash pair 2.x read as an escape is text now, line for line. A path that held a line break is no longer required to refuse at 7, so `ErUuq8D` and `ErkiUcu` are commented out. The gate is still red on valsyn until chunk C: 246 divergences over 652 documents, down from 293.
+			- `explain E023` prints `◉` itself. cli-regress `help-width` takes the mark as one column in `explain` output, and anything else outside ASCII still fails it. check-docs has no rule on help text.
+			- Tests: conformance `Ers2oCr` (the cap) and `Ers2oF1` (2026100511210900). `parse_limited_caps` has two asserts commented out with the reason, and `EqKhPQO` now checks the new cap rule. cli-regress: 12 new rows, 6 edited in place, 8 commented out with the reason, and the `%RF2%` fixture moved so `EqGUXeC` still tests what it was for. Each new or changed test and row was seen to fail on the code before.
+			- The raw block oracle in `fuzz_smoke.rs` took a `- ` item for a line that can open a block. It now skips items, as the parser does.
+			- Left for chunk C: these answers in value-syntax.md, spec.md and design.md; the migration table rows for `\\`, `\t`, `\n`, `\"` and `\'`; the README `E014` transcript, which prints `E015` now; and the `migrate` refusal, which still says "value(s)" though only raw block lines count now.
+			- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, shellcheck on both scripts. check-docs and shell-regress fail on the same tests as on `valsyn`.
+			- The 2,000,000 release fuzz still fails `EreT6dh` and `Eqk24nZ`, now at 1632940 and 1618034. The library changes move the random stream, so the numbers do not compare. Both reproduce on the code before this rework. `Eqk24nZ` cuts down to `b: x`, `b: y z`, then `- 3` and `k: 1` indented under it: after `set_empty("b")`, a read of `b.k` is NotFound, and Good after a reload. `EreT6dh`: a remove of the field beside a misplaced `a:` line moves other kept lines above it.
+			- Question: should a line with no colon whose name has a space, such as `square-miles 300`, repair like `404`, or stay `E014` and kept as written, as before chunk A? Built as the first, since the answer said always. The second is a small change.
 	- Decisions:
 		- 20261002: idea 3, with the changes listed in the design doc. Open points and their proposed answers are under its Roadmap.
 		- 20261002: a quote anywhere in a bare value is an error, and a bare field name starts with a letter. Dates, times, durations and sizes without spaces stay bare.
@@ -131,8 +143,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261005: chunk A and B calls kept as built: `fmt` keeps the author's quote kind; a typed read reads a backtick value's text; only a space, a tab and a CR trim at a value's ends; one error per line, path then name then brackets then value; `- a, b` is `E026` with the line kept; an array setter keeps a `- ` list stacked; a comment on an item stays on its item.
 		- 20261005: changed from what chunk A built. A line with no colon is `E015` even when its name breaks the bare name rule, so `404` alone is `E015`. An item past the caller's array cap is `E021` and dropped, even when its value is broken. `migrate` leaves a 2.x backslash as written and it reads literally, with no escape added; check-migrate compares reads, so it has to allow for that. `explain E023` prints the mark itself, not `U+25C9`.
 		- 20261005: these go into the design doc with chunk C.
-	- Branch: `valsyn` (chunk A on `vslex`, chunk B part 1 on `vsarr`, part 2 on `vssel`)
-	- Commit: `6355ba10` (chunk A), `7c90c42d` and `f228c3e9` (chunk B part 2)
+	- Branch: `valsyn` (chunk A on `vslex`, chunk B part 1 on `vsarr`, part 2 on `vssel`, the 20261005 rework on `vsfix`)
+	- Commit: `6355ba10` (chunk A), `7c90c42d` and `f228c3e9` (chunk B part 2), `11b069fe` (the 20261005 rework)
 	- Test case:
 	- Acceptance signoff:
 	- Superseded by ID:
@@ -297,22 +309,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Possible cause: the per-line fault checks added with the escape errors. `_line_fault` and the extra `any` calls account for most of the gap.
 	- Decisions:
 		- 20261002: recheck after 2026100207032800 is built, since it removes most of those checks. No perf work before 3.0.0 otherwise.
-
-- A merge can leave a list with a field under it after an empty binding of its name that has fields, which no text reloads as
-	- ID: 2026100511210900
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261005-112109
-	- Opened by: the work on 2026100207032800
-	- Related IDs: 2026100207032800
-	- Problem description:
-		- A list with a field under it (`E001`) has to be written stacked, since in brackets it is `E028`. After an empty binding of its name, a reload joins its header to that binding, and when that binding has fields the items are dropped (`E008`).
-		- A merge or an edit can leave that shape. The fuzz properties skip it (`list_after_empty` in `fuzz_smoke.rs`).
-		- Question: should a field line under stacked items stop binding (`E001` kept, not bound)? That would remove the shape, but reverses the uniform-or-nothing rule cases 010 and 128 pin.
-	- Decisions:
-		- 20261005: the load stays as is, so the `E001` line still binds. A save that would write this case refuses at exit 7.
-	- Test case: none yet; the fuzz skip names the shape.
 
 - A quoted value holding an invalid UTF-8 byte can lose its closing quote and fail as `E017`
 	- ID: 2026100511212359
@@ -1475,6 +1471,29 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `pathhint`
 	- Commit: `1a12c02`
 	- Test case: corpus `171-windows-path-hint`, cli-regress `path-hint-*` rows. The read and strict rows and case 171 fail with the hint off, and `path-hint-set` shows a write is unaffected. The migrate goldens of cases 118, 122 and 170 now list the hint.
+
+- A merge can leave a list with a field under it after an empty binding of its name that has fields, which no text reloads as
+	- ID: 2026100511210900
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261005-112109
+	- Opened by: the work on 2026100207032800
+	- Related IDs: 2026100207032800
+	- Problem description:
+		- A list with a field under it (`E001`) has to be written stacked, since in brackets it is `E028`. After an empty binding of its name, a reload joins its header to that binding, and when that binding has fields the items are dropped (`E008`).
+		- A merge or an edit can leave that shape. The fuzz properties skip it (`list_after_empty` in `fuzz_smoke.rs`).
+		- Question: should a field line under stacked items stop binding (`E001` kept, not bound)? That would remove the shape, but reverses the uniform-or-nothing rule cases 010 and 128 pin.
+	- Decisions:
+		- 20261005: the load stays as is, so the `E001` line still binds. A save that would write this case refuses at exit 7.
+	- Actual fix: the lost count takes in the items of such a list, so `save_file`, the line-keeping save and every `--write` refuse at 7, and `--lossy` writes. The line-keeping save skipped its reload check when the loaded text was canonical, so it falls back to the gate here too. Rust only; the ports take it with 2026100207032800.
+	- Swept: `save_file`, `save_file_keep_lines`, the CLI's write path, a merge and an edit. The three fuzz properties that skipped the case now check the save refuses it, and `EreT6dh` stops its steps there.
+	- Verified: cli-regress `Ers2pP0` exits 0 and loses both items on the code before, and refuses at 7 with the file unchanged after.
+	- Branch: `vsfix`
+	- Commit: `11b069fe`
+	- Test case: conformance `Ers2oF1`; cli-regress `Ers2pP0` and `Ers2pP1`.
+	- Acceptance signoff: Self-closed: does what the 20261005 decision asked, and its tests fail before and pass after.
+	- Closed: 20261005-164930
 
 - Called from a session, an unquoted `-x:y` argument loses its `-x:` on the way through either PowerShell script
 	- ID: 2026100408550401
