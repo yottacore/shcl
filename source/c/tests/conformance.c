@@ -945,6 +945,31 @@ int main(int argc, char **argv) {
 	}
 	test_id_end();
 
+	// A stray continuation byte or a cut-short sequence stepped over the
+	// closing quote, so the line was E017 (2026100511212359). Same fixture in
+	// the Go tests.
+	test_id("ErryPsK", "a_bad_utf8_byte_keeps_its_closing_quote");
+	{
+		static const char *const vals[] = {"a b \x80 c", "\x80", "a\x80 b", "a b \xff c", "x\xe9", "\xf0\x9f\x98", "\xc3", "\xc3\xa9"};
+		static const char *const bare[] = {"x\xf0", "x\xe9\x80", "\xdf"};
+		char line[64];
+		for (size_t vi = 0; vi < sizeof vals / sizeof *vals + sizeof bare / sizeof *bare; vi++) {
+			const int is_bare = vi >= sizeof vals / sizeof *vals;
+			const char *v = is_bare ? bare[vi - sizeof vals / sizeof *vals] : vals[vi];
+			for (int qi = 0; qi < (is_bare ? 1 : 2); qi++) {
+				const char *q = is_bare ? "" : qi ? "'" : "\"";
+				int ln = snprintf(line, sizeof line, "v: %s%s%s%s", q, v, q, is_bare ? "" : "\n");
+				if (ln < 0 || (size_t)ln >= sizeof line) { fail("bad_utf8", "fixture too long"); continue; }
+				shcl_doc *bd = shcl_parse(line, (size_t)ln);
+				if (shcl_diag_count(bd) != 0) fail("bad_utf8", shcl_diag_code(bd, 0));
+				shcl_read_str r = shcl_read_string(bd, "v", 1);
+				if (r.status != SHCL_GOOD || r.value.n != strlen(v) || memcmp(r.value.p, v, r.value.n) != 0) fail("bad_utf8", "value not read back with its byte");
+				shcl_free(bd);
+			}
+		}
+	}
+	test_id_end();
+
 	// Every dimension of a case runs in this one pass, so its line is failed by
 	// anything charged while it ran.
 	for (size_t ci = 0; ci < nn; ci++) {
