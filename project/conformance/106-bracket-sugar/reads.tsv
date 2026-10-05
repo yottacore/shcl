@@ -1,7 +1,7 @@
 query	type	expected	status	level
 -	load	ok	-	
 -	load	fail	-	strict
-base	string	[Boston]	Good	
+base	string		Empty	
 base.lat	int	42	Good	
 base[Boston].lat	int	-	NotFound	
 tags	string	[prod]	Good	

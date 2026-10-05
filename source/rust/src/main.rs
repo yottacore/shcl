@@ -196,8 +196,10 @@ Options (the subcommands each belongs to are in parentheses):
                                          TEXT goes in as value
                                          syntax the way a file writes it, so
                                          'ports=[80, 443]' writes a two-element
-                                         array. A # outside quotes ends the
-                                         value; text spanning lines is rejected
+                                         array, 'title=\"My App\"' a string and
+                                         'color=`#FF8800`' a backtick value. A
+                                         # outside quotes ends the value; text
+                                         spanning lines is rejected
   --set-default=PATH=VALUE               (same) as --set, but only when nothing
   --set-literal-default=PATH=TEXT        is at the path yet - the write-out-
                                          defaults half of the writer
@@ -309,9 +311,6 @@ E008|error|stacked '- ' list item under a parent with field children
   The parent already holds named children, so the item is dropped.
 E009|error|empty stacked '- ' list item
   A '-' with nothing after it has no value to add.
-E010|error|bare comma in a stacked '- ' list item
-  The stacked form is one item per line. Quote the comma, or write the
-  whole array on the field's own line: ports: [80, 443].
 E011|error|stacked '- ' item for a field that already has a value
   The field's value is kept and the item is ignored. A field is written
   one way or the other, not both.
@@ -381,11 +380,19 @@ E025|error|whitespace or a quote in a bare value or selector body
 E026|error|a bare comma outside brackets and quotes
   ports: 80, 443 is an error. Write the array in brackets, ports: [80, 443],
   or quote text that has a comma. The line is kept verbatim and binds
-  nothing. The lines under it still load, under the field with no value.
+  nothing. The lines under it still load, under the field with no value. A
+  list item with a bare comma, - a, b, is kept the same way, and the other
+  items still load.
 E027|error|a list item that is a bare name ending in ':', as in - name:
   That is how YAML starts an object in a list, and SHCL writes one as an
   instance. Quote the item if it is text: - \"name:\". The line is kept as
   written, and the other items still load.
+E028|error|an array on a field with lines under it
+  A field with fields under it takes one plain value or none, so
+  route: [GET, POST] with lines under it is an error. Give the field one
+  value and put the list in a field under it: methods: [GET, POST]. The line
+  is kept verbatim, and the lines under it load under the field with no
+  value.
 H001|hint|repeated bare leaf (an array written as repeated lines)
   Repeated leaves are legal - that is how instances are written - but
   'tags: red' twice and 'tags: [red, blue]' look alike, so the parser says
@@ -446,6 +453,7 @@ V099|error|schema failed to load
 /// the replacement empty when nothing took its rule. An old log can still
 /// name one, so `explain` says where it went rather than calling it unknown.
 const RETIRED: &str = "\
+E010|error|E026
 E024|error|
 H003|hint|
 H004|hint|
@@ -1377,14 +1385,39 @@ fn raw_refusal(content: &str) -> &'static str {
 	}
 }
 
+/// A field with lines under it takes one plain value or none (E028): an
+/// array there, or a field made under an array, is refused for where it goes.
+fn array_refusal(doc: &Document, path: &str, array: bool) -> Option<&'static str> {
+	if array && !doc.children(path).is_empty() {
+		return Some("a field with lines under it takes one plain value or none");
+	}
+	let mut tok = shcl::Tokens::default();
+	tokenize(path, b'=', true, Rules::Current, &mut tok);
+	for next in tok.segments.iter().skip(1) {
+		let quoted = usize::from(next.name.quote != Quote::None);
+		let up = path[..next.name.start - quoted].trim_end_matches('.');
+		let r = doc.read_string(up);
+		// Brackets on a value that reads unquoted are an array's.
+		if r.status == shcl::Status::Good && !r.quoted && r.value.starts_with('[') {
+			return Some("an array takes no lines under it");
+		}
+	}
+	None
+}
+
 /// The per-binding wording behind a setter's bare `false`.
 /// Why a write was refused. When the path itself is fine what failed is the
 /// text, and only the caller knows which half of the op that was, so it names
 /// it: a setter refused for its value used to report the sentence written for
 /// `set_literal` whatever the op.
-fn describe_refusal(doc: &Document, path: &str, unwritable: &'static str) -> &'static str {
+fn describe_refusal(
+	doc: &Document,
+	path: &str,
+	array: bool,
+	unwritable: &'static str,
+) -> &'static str {
 	match doc.write_reason(path) {
-		shcl::WriteReason::Writable => unwritable,
+		shcl::WriteReason::Writable => array_refusal(doc, path, array).unwrap_or(unwritable),
 		shcl::WriteReason::BadPath => "not a usable path",
 		shcl::WriteReason::ValueInPath => "a path with a value part cannot be written",
 		shcl::WriteReason::Wildcard => "a wildcard path cannot be written",
@@ -1499,7 +1532,12 @@ fn load_layered_from(
 				"{}: cannot write {}: {}",
 				s.opt(),
 				s.path,
-				describe_refusal(&doc, &s.path, "the value text is not one value")
+				describe_refusal(
+					&doc,
+					&s.path,
+					s.kind != SetKind::Data && s.value.trim_start().starts_with('['),
+					"the value text is not one value"
+				)
 			);
 			return Err(1);
 		}
@@ -2791,7 +2829,13 @@ fn apply_op(doc: &mut Document, line: &str) -> Result<(), String> {
 		return Err(format!(
 			"cannot write {}: {}",
 			path,
-			describe_refusal(doc, path, unwritable)
+			describe_refusal(
+				doc,
+				path,
+				f[0].contains("array")
+					|| (f[0].starts_with("literal") && val().trim_start().starts_with('[')),
+				unwritable
+			)
 		));
 	}
 	Ok(())

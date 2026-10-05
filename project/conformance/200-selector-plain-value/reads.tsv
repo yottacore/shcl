@@ -1,0 +1,13 @@
+query	type	expected	status	level
+-	load	ok	-
+-	load	fail	-	strict
+-	lost	1	-
+srv	count	4	-
+srv[a]	count	1	-
+srv[a].port	int	1	Good
+srv[a].tls	bool	true	Good
+srv["a"].tls	bool	true	Good
+srv["b c"].port	int	2	Good
+srv[b c].port	int	0	NotFound
+base	count	0	-
+last	int	1	Good

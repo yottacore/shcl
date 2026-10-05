@@ -567,8 +567,13 @@ rows=(
 	## 20260905 item 3: a quote anywhere in the path was read as opening a quoted
 	## piece, so an apostrophe in a bare selector left every later '=' looking
 	## quoted and the option was refused while get on the same path worked.
-	"Ep3OILK|set-quote-in-selector|set --set=srv[O'Brien].port=9 %Q%|-|0|srv[\"O'Brien\"]:\n\tport: 9\n|-"
-	"Ep3OILL|set-default-quote-in-selector|set --set-default=srv[O'Brien].port=9 %Q%|-|0|srv[\"O'Brien\"]:\n\tport: 0\n|-"
+	## A quote in a bare selector body is E025 now (2026100207032800), so these
+	## two are refused; the quoted rows below take their place.
+	#"Ep3OILK|set-quote-in-selector|set --set=srv[O'Brien].port=9 %Q%|-|0|srv[\"O'Brien\"]:\n\tport: 9\n|-"
+	#"Ep3OILL|set-default-quote-in-selector|set --set-default=srv[O'Brien].port=9 %Q%|-|0|srv[\"O'Brien\"]:\n\tport: 0\n|-"
+	"ErrQs1W|set-quoted-quote-in-selector|set --set=srv[\"O'Brien\"].port=9 %Q%|-|0|srv[\"O'Brien\"]:\n\tport: 9\n|-"
+	"ErrQs1X|set-default-quoted-quote-in-selector|set --set-default=srv[\"O'Brien\"].port=9 %Q%|-|0|srv[\"O'Brien\"]:\n\tport: 0\n|-"
+	"ErrQs1Y|set-bare-quote-in-selector-refused|set --set=srv[O'Brien].port=9 %Q%|-|1||not a usable path"
 	"Ep3OILM|set-quoted-selector-eq|set --set=x[\"k]=v\"].d=2 %X%|-|0|x[a=b]:\n\tc: 0\n\nx: \"k]=v\"\n\td: 2\n|-"
 	## set writes back the lines its edits leave alone, printing or in place,
 	## where fmt writes the canonical form.
@@ -632,12 +637,11 @@ rows=(
 	## The line under bracket text loads now (2026100115403384), so these two
 	## no longer hold: no E018, nothing lost, and the write goes through.
 	#'Ep3QaNm|sugar-check|check %W%|-|6|line 1: Error: E019\nline 2: Error: E018\nfailed: 2 diagnostic(s), 2 error(s)\n|-'
-	## The sugar reads as a one-element array now, with the line under it its
-	## child, so these load clean until an array on a field with lines under it
-	## is E028.
-	'Ep3QaNn|sugar-check-strict|check --strictness=strict %W%|-|0|-|-'
+	## The sugar is an array on a field with a line under it now (E028): the
+	## line is kept, and the line under it loads under the field with no value.
+	'Ep3QaNn|sugar-check-strict|check --strictness=strict %W%|-|6|-|-'
 	#'EpFkZy8|sugar-write-refused|fmt --write %W%|-|7|-|would delete 1 line'
-	'ErUmRRa|sugar-check-block|check %W%|-|0|ok (0 diagnostic(s))\n|-'
+	'ErUmRRa|sugar-check-block|check %W%|-|6|line 1: Error: E028\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E028 an array on a field with lines under it; the field takes one plain value or none$'
 	'ErUmRRb|sugar-block-read|get %W% base.lat|-|0|42\n|-'
 	'ErUmRRc|sugar-write-kept|fmt --write %W%|-|0||-'
 	'Era9kPy|kept-under-kept-fmt|fmt -|a: [1\n\tb: [2\n|0|a: [1\n\tb: [2\n|-'
@@ -661,6 +665,36 @@ rows=(
 	'ErqYSbM|list-e019-nested|check -|a:\n\t- [x]\n|6|line 2: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E019 a list item is one value; arrays do not nest$'
 	'ErqYSbQ|h001-suggests-brackets|check -|x: a\nx: b\n|0|line 2: Hint: H001\nok (1 diagnostic(s))\n|did you mean .x: \[a, b\].\?$'
 	'ErqYSbR|fmt-keeps-stacked|fmt -|a:\n  - x\n  - "y z"\nb: [1,2]\n|0|a:\n\t- x\n\t- "y z"\nb: [1, 2]\n|-'
+	## An array on a field with fields under it is E028: the line is kept and
+	## written in place of the field's, and the fields under it load under the
+	## field with no value. One that joined an earlier binding of its value
+	## leaves that one its value.
+	'ErrQs1b|array-e028-check|check -|route: [GET, POST]\n\tpath: /x\n|6|line 1: Error: E028\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E028 an array on a field with lines under it; the field takes one plain value or none$'
+	'ErrQs1c|array-e028-read-under|get - route.path|route: [GET, POST]\n\tpath: /x\n|0|/x\n|-'
+	'ErrQs1d|array-e028-read-field|get - route|route: [GET, POST]\n\tpath: /x\n|2|\n|-'
+	'ErrQs1e|array-e028-fmt-kept|fmt -|route:   [GET, POST]\n  path: /x\n|0|route:   [GET, POST]\n\tpath: /x\n|-'
+	'ErrQs1f|array-e028-joined-binding|fmt -|c: [v2]\nc:[v2]\n\tq: 1\n|0|c: [v2]\nc:[v2]\n\tq: 1\n|^line 2: Error: E028'
+	## A list item with a bare comma is E026, kept among the items (it was
+	## E010 and dropped).
+	'ErrQs1g|list-e026-item-check|check -|a:\n\t- x, y\n\t- z\n|6|line 2: Error: E026\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E026 bare comma in a list item; an item is one value, and text with a comma is quoted$'
+	'ErrQs1h|list-e026-item-kept|fmt -|a:\n\t- x, y\n\t- z\n|0|a:\n\t- x, y\n\t- z\n|-'
+	## A comment on a stacked item stays on it, and one among the items stays
+	## among them.
+	'ErrQs1i|list-item-comment-fmt|fmt -|l:\n\t# first\n\t- a  # one\n\t- b\n|0|l:\n\t# first\n\t- a  # one\n\t- b\n|-'
+	## An array setter keeps a stacked list stacked, as an overwrite keeps
+	## quotes, and a backtick value goes in through --set-literal.
+	'ErrQs1j|set-stacked-stays-stacked|set --set-literal=l=[1,2] -|l:\n\t- a\n|0|l:\n\t- 1\n\t- 2\n|-'
+	"ErrQs1k|set-literal-backtick|set --set-literal=c=\`#FF8800\` -|c: 1\n|0|c: \`#FF8800\`\n|-"
+	"ErrQs1l|set-keeps-backtick-kind|set --set=c=y -|c: \`x\`\n|0|c: \`y\`\n|-"
+	## A setter that would put a field under an array, or an array over
+	## fields, is refused (E028 on a reload).
+	'ErrQs1m|set-field-under-array-refused|set --set=l.c=1 -|l: [a]\n|1||^--set: cannot write l.c: an array takes no lines under it$'
+	'ErrQs1n|set-array-over-fields-refused|set --set-literal=c=[1,2] -|c: 1\n\tk: 2\n|1||^--set-literal: cannot write c: a field with lines under it takes one plain value or none$'
+	## A selector matches one plain value. A bare body with a space or a quote
+	## is E025 in a lookup too, and an array value is never selected.
+	'ErrQs1o|get-bare-space-selector|get - base[New◉SPACE◉York].lat|base: "New York"\n\tlat: 1\n|0|1\n|-'
+	'ErrQs1p|count-selector-skips-array|count - x[a]|x: [a]\nx: a\n|0|1\n|-'
+	"ErrQs1q|get-bare-quote-selector-refused|get %Q% srv[O'Brien].port|-|3|\n|no value at that path"
 	'ErqYSbS|tokens-array|tokens -|p: [a, b] # c\nq: [x\n- y\n|0|1:0 name=0-1 sep=1 value=3-9 array=3 elem=4-5 elem=7-8 comment=10\n2:0 name=0-1 sep=1 value=3-5 array=3 array-fault=3:no closing \x27]\x27 on the line elem=4-5\n3:0 item value=2-3 elem=2-3\n|-'
 	'ErqYWEx|get-one-element-string|get - p|p: [80]\n|0|[80]\n|-'
 	'ErqYWEy|get-one-element-int|get --int - p|p: [80]\n|0|80\n|-'
@@ -747,7 +781,9 @@ rows=(
 	'ErpZsUj|kept-value-e025-empty|get - a|a: My App\n\tb: 1\n|2|\n|E025'
 	'Erlr21T|explain-e019-read|explain E019|-|0|\nE019  error       a bracket array that is not well formed\n  An array is one line, ports: [80, 443], and [] is the empty array. Text\n  after the closing \x27]\x27, a bare \x27[\x27 or \x27]\x27 inside, an empty element, or no\n  closing \x27]\x27 on the line is malformed. Quote the value if it is text:\n  log: "[INFO] started". A list item that is an array is E019 too, since\n  arrays do not nest. The line is kept verbatim: it binds nothing and\n  nothing counts as lost. The lines under it still load, under the field\n  with no value, so a read on the field is Empty when one of them loads and\n  NotFound when none does.\n\n|-'
 	'ErqYSbN|explain-e013|explain E013|-|0|\nE013  error       a line starting with \x27*\x27, the old list item marker\n  A list item is written \x27- value\x27 now. The line is kept as written and\n  binds nothing, and the other items still load. What is written under it\n  goes with it.\n\n|-'
-	'ErqYSbO|explain-e026|explain E026|-|0|\nE026  error       a bare comma outside brackets and quotes\n  ports: 80, 443 is an error. Write the array in brackets, ports: [80, 443],\n  or quote text that has a comma. The line is kept verbatim and binds\n  nothing. The lines under it still load, under the field with no value.\n\n|-'
+	'ErqYSbO|explain-e026|explain E026|-|0|\nE026  error       a bare comma outside brackets and quotes\n  ports: 80, 443 is an error. Write the array in brackets, ports: [80, 443],\n  or quote text that has a comma. The line is kept verbatim and binds\n  nothing. The lines under it still load, under the field with no value. A\n  list item with a bare comma, - a, b, is kept the same way, and the other\n  items still load.\n\n|-'
+	'ErrQs1Z|explain-e028|explain E028|-|0|\nE028  error       an array on a field with lines under it\n  A field with fields under it takes one plain value or none, so\n  route: [GET, POST] with lines under it is an error. Give the field one\n  value and put the list in a field under it: methods: [GET, POST]. The line\n  is kept verbatim, and the lines under it load under the field with no\n  value.\n\n|-'
+	'ErrQs1a|explain-e010-retired|explain E010|-|0|\nE010  retired     error, replaced by E026\n  Loads no longer report E010. \x27shcl explain E026\x27 has the rule now.\n\n|-'
 	'ErqYSbP|explain-e027|explain E027|-|0|\nE027  error       a list item that is a bare name ending in \x27:\x27, as in - name:\n  That is how YAML starts an object in a list, and SHCL writes one as an\n  instance. Quote the item if it is text: - "name:". The line is kept as\n  written, and the other items still load.\n\n|-'
 	'Erlr23g|explain-e023-read|explain E023|-|0|\nE023  error       a bad escape\n  An escape is a name from the escape list between two U+25C9 marks, such as\n  TAB, NEWLINE or U+200B, and a real U+25C9 is the name ESCAPE_CHAR. Anything\n  else between two marks is an error, and so is a mark with no partner. A\n  backslash is plain text. The line is kept verbatim: it binds nothing and a\n  read on it is NotFound. When only the value is wrong, the lines under it\n  still load, under the field with no value, and a read on the field is Empty\n  once one of them loads. When the name is, a raw block the line opens is kept\n  with it.\n\n|-'
 	## E024 is retired (2026100207032800), so explain says so.

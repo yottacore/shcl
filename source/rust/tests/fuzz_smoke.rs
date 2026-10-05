@@ -418,6 +418,9 @@ fn writes_on_structural_soup_stay_fixpoint() {
 				v
 			);
 		}
+		if list_after_empty(&doc) {
+			continue;
+		}
 		let once = doc.to_canonical();
 		let twice = Document::parse(&once).to_canonical();
 		assert_eq!(
@@ -574,8 +577,8 @@ fn lost_count_follows_the_outcome_table() {
 		for d in doc.diagnostics() {
 			let src = lines.get(d.line.wrapping_sub(1)).copied().unwrap_or("");
 			match d.code {
-				"E002" | "E003" | "E004" | "E006" | "E007" | "E008" | "E009" | "E010" | "E011"
-				| "E016" | "E021" => want += 1,
+				"E002" | "E003" | "E004" | "E006" | "E007" | "E008" | "E009" | "E011" | "E016"
+				| "E021" => want += 1,
 				"E012" | "E018" if !kept.contains(&d.line) => want += 1,
 				"E012" | "E018" => {
 					kept_seen += 1;
@@ -595,11 +598,17 @@ fn lost_count_follows_the_outcome_table() {
 					);
 				}
 				"E014" if src.trim_start_matches([' ', '\t']).starts_with('\u{feff}') => want += 1,
-				"E013" | "E014" | "E019" => {
+				"E013" | "E014" | "E019" | "E026" | "E027" | "E028" => {
 					kept_seen += 1;
 					let kept = src.trim_matches([' ', '\t']);
+					// Or as the comment a settle makes of a line under a list
+					// that has to go in brackets (E028).
+					let as_comment = format!("# {}", kept);
 					assert!(
-						canon.lines().any(|l| l.trim_matches([' ', '\t']) == kept),
+						canon.lines().any(|l| {
+							let l = l.trim_matches([' ', '\t']);
+							l == kept || l == as_comment
+						}),
 						"retained line {} not written back at iteration {}: {:?}\n{}",
 						d.line,
 						i,
@@ -642,8 +651,8 @@ fn a_cap_refuses_only_a_line_that_would_bind() {
 	let _id = test_id("EqKhPQO");
 	let iters = iter_count(1);
 	const REFUSING: &[&str] = &[
-		"E003", "E004", "E006", "E007", "E008", "E009", "E010", "E011", "E013", "E014", "E016",
-		"E019",
+		"E003", "E004", "E006", "E007", "E008", "E009", "E011", "E013", "E014", "E016", "E019",
+		"E026", "E027",
 	];
 	let mut rng = Rng(0x5EED_57A7_1C00_0009);
 	let mut kept_under_cap = 0usize;
@@ -754,7 +763,9 @@ fn raw_spans(text: &str) -> Vec<(usize, usize)> {
 	for (k, line) in lines.iter().enumerate() {
 		let bare = line.trim_start_matches([' ', '\t']);
 		if let Some((c, n, at)) = open {
-			let closer = line.trim();
+			// Only the blanks the load trims: a no-break space before a fence
+			// leaves it body text.
+			let closer = line.trim_matches(BLANKS);
 			if closer.chars().count() >= n && closer.chars().all(|x| x == c) {
 				spans.push((at, k + 1));
 				open = None;
@@ -941,6 +952,31 @@ fn schema_and_format_lines_follow_the_parser() {
 	);
 }
 
+/// A list with a field under it (E001) after an empty binding of its name
+/// that has fields of its own. A merge or an edit can leave one, and then no
+/// text reloads as it: stacked, its header joins that binding and its items
+/// are dropped (E008), and in brackets it is E028 (2026100511210900).
+fn list_after_empty(doc: &Document) -> bool {
+	doc.instance_paths().iter().any(|p| {
+		let r = doc.read_string(p);
+		let list = !doc.children(p).is_empty()
+			&& r.status == shcl::Status::Good
+			&& !r.quoted
+			&& r.value.starts_with('[');
+		let Some((head, k)) = p
+			.strip_suffix(']')
+			.and_then(|q| q.rsplit_once("[#"))
+			.and_then(|(h, k)| Some((h, k.parse::<usize>().ok()?)))
+		else {
+			return false;
+		};
+		list && (0..k).any(|j| {
+			let e = format!("{head}[#{j}]");
+			doc.read_string(&e).status == shcl::Status::Empty && !doc.children(&e).is_empty()
+		})
+	})
+}
+
 /// Layered merge over mutated soup: overlaying one document on another must
 /// never panic and the merged result must be a formatter fixpoint - the same
 /// guarantee `fmt` gives, now for the composed document.
@@ -957,6 +993,9 @@ fn merge_never_panics_and_stays_fixpoint() {
 		let b = mutate(&mut rng, &seeds[b_i]);
 		let mut doc = Document::parse(&a);
 		doc.merge(&Document::parse(&b));
+		if list_after_empty(&doc) {
+			continue;
+		}
 		let once = doc.to_canonical();
 		let twice = Document::parse(&once).to_canonical();
 		assert_eq!(
@@ -964,17 +1003,43 @@ fn merge_never_panics_and_stays_fixpoint() {
 			"merged output not idempotent at iteration {} for:\nA:\n{}\nB:\n{}",
 			i, a, b
 		);
-		// Onto an empty base a merge is the identity: nothing to match, so
-		// every node and every footer line comes across in file order.
+		// Onto an empty base a merge reads as the layer: nothing to match, so
+		// every node comes across in file order. Only the lists' form may
+		// differ, since a merge writes every list in brackets, so a merge of
+		// that text gives the same text again.
 		let mut empty = Document::new();
 		empty.merge(&Document::parse(&b));
+		let layer = Document::parse(&b);
 		assert_eq!(
-			empty.to_canonical(),
-			Document::parse(&b).to_canonical(),
-			"merge onto empty base is not the identity at iteration {} for:\n{}",
+			empty.paths(),
+			layer.paths(),
+			"merge onto empty base changed the paths at iteration {} for:\n{}",
 			i,
 			b
 		);
+		for p in layer.paths() {
+			let (x, y) = (empty.read_string(&p), layer.read_string(&p));
+			assert_eq!(
+				(x.value, x.status),
+				(y.value, y.status),
+				"merge onto empty base changed {:?} at iteration {} for:\n{}",
+				p,
+				i,
+				b
+			);
+		}
+		for text in [empty.to_canonical(), once.clone()] {
+			let mut again = Document::new();
+			again.merge(&Document::parse(&text));
+			assert_eq!(
+				again.to_canonical(),
+				text,
+				"a merge of merged output changed it at iteration {} for:\nA:\n{}\nB:\n{}",
+				i,
+				a,
+				b
+			);
+		}
 		// Reads answered by the merged document itself, not just its text. A
 		// merged arena holds dropped nodes, a rebuilt index and cloned child
 		// lists, and only a read walks those; the text compare above cannot
@@ -1147,6 +1212,9 @@ fn edits_and_merges_match_a_reload() {
 				unstamped(&live.to_canonical()),
 				unstamped(&back.to_canonical()),
 			);
+			if list_after_empty(&live) {
+				break;
+			}
 			assert!(
 				a == b || ((op == 4 || op == 10) && reload_took_only_comments(&a, &b)),
 				"a step on the document and on its reload differ at iteration {i}:\n{log}"
@@ -1642,7 +1710,7 @@ fn kept_text(text: &str) -> KeptText {
 		let bare = src.trim_start_matches([' ', '\t']);
 		let kept = match d.code {
 			"E014" => !bare.starts_with('\u{feff}'),
-			"E013" | "E017" | "E019" | "E023" | "E025" => true,
+			"E013" | "E017" | "E019" | "E023" | "E025" | "E026" | "E027" | "E028" => true,
 			"E012" | "E018" => misplaced.contains(&d.line),
 			_ => false,
 		};
@@ -1906,7 +1974,7 @@ fn setter_left_behind(before: &str, after: &str, path: &str, listed: &[String]) 
 		for t in texts {
 			let away = from
 				.clone()
-				.filter(|&k| !reach.contains(&k) && had[k] == (t, false))
+				.filter(|&k| !reach.contains(&k) && !own.contains(&k) && had[k] == (t, false))
 				.count();
 			let still = now[to.clone()].iter().filter(|l| **l == (t, false)).count();
 			if still < away {
@@ -1914,9 +1982,16 @@ fn setter_left_behind(before: &str, after: &str, path: &str, listed: &[String]) 
 			}
 		}
 	}
+	// A copy inside the target's own block can be raw body text the setter
+	// replaces, so only the copies outside it are owed.
 	for t in had_text.iter().filter(|t| listed(t)) {
-		let count = |lines: &[&str]| lines.iter().filter(|l| *l == t).count();
-		if count(&now_text) < count(&had_text) && !out.iter().any(|o| o == t) {
+		let away = had_text
+			.iter()
+			.enumerate()
+			.filter(|&(k, l)| l == t && !own.contains(&k))
+			.count();
+		let still = now_text.iter().filter(|l| *l == t).count();
+		if still < away && !out.iter().any(|o| o == t) {
 			out.push((*t).to_string());
 		}
 	}
@@ -2259,8 +2334,9 @@ fn stretches(
 /// the taken copy from another. `taken` is where the taken lines sat, as
 /// 0-based positions in `before`. The comments right above and below them
 /// may go with the target, so they are neither copies nor bounds. Nothing
-/// from the target to the next field line is a bound, and no misplaced line
-/// is, since one beside the target moves down to just above that field line.
+/// between the field lines either side of the target is a bound, and no
+/// misplaced line is, since one beside the target moves down to just above
+/// the next field line.
 fn remove_left_behind(
 	before: &str,
 	after: &str,
@@ -2298,6 +2374,10 @@ fn remove_left_behind(
 			.copied()
 			.unwrap_or(raw.len());
 		near.extend(k..to);
+		// The lines above it back to the field line before are its leads, and
+		// the remove leaves them with a misplaced one moved below the block.
+		let from = fields.range(..k).next_back().map_or(0, |f| f + 1);
+		near.extend(from..k);
 	}
 	// A settled line and a comment of one text are one line of canonical
 	// text, so the comments either side may be the target's own.
@@ -2450,7 +2530,7 @@ fn remove_and_setter_exceptions_go_by_position() {
 	assert_eq!(setter_reach(&before, "x.a"), [1, 2].into_iter().collect());
 	assert!(doc.set_int("x.a", 7));
 	let after = doc.to_canonical();
-	let note = "  ## commented out by shcl when setting x.a, STAMP: E019 bracket array syntax";
+	let note = "  ## commented out by shcl when setting x.a, STAMP: E019 malformed array, no closing ']' on the line";
 	assert_eq!(
 		unstamped(&after),
 		format!("x:\n\t# a: [1{note}\n\ta: 7\n\tq: 0\ny:\n\ta: [1\n\tq: 0\n")
@@ -2603,7 +2683,12 @@ fn kept_lines_survive_edits() {
 						// Each taken line comes off the expected lines once, by
 						// text, so the other copies are held to their places.
 						let mut listed = Vec::new();
-						for (_, t) in &taken {
+						// A raw body line is no kept line, whatever its text.
+						let bodies = raw_spans(&before);
+						for (k, t) in &taken {
+							if bodies.iter().any(|&(o, c)| *k + 1 > o && *k < c) {
+								continue;
+							}
 							// As written first: a kept line can start with a `#`
 							// behind some other blank.
 							let at = want

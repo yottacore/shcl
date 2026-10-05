@@ -1,4 +1,4 @@
-base: [Boston]
+base:[Boston]
 	lat: 42
 tags: [prod]
 note: ["a, b"]

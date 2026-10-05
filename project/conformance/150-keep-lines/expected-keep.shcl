@@ -5,7 +5,9 @@ Server:
     # public name
     Host:   api.example.com
     Port:   9443     # behind the proxy
-    Paths: [/v1, /v3]
+    Paths:
+        - /v1
+        - /v3
 
     TLS:
         enabled: false

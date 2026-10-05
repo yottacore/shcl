@@ -9,11 +9,11 @@ app: demo  # name
 server:
 	host: example.com  # public
 	port: 8080
-# first element
 
-items:  # second
+items:
+	# first element
 	- one
-	- two
+	- two  # second
 # note between header and fence
 
 logs:

@@ -1,0 +1,15 @@
+# A selector matches one plain value, quoted or not. An array or a raw block
+# is never selected by its value, and a bare selector body with a space or a
+# quote is E025, which takes the block under it.
+srv: a
+	port: 1
+	tls: on
+srv: [a]
+srv:
+	~~~
+	a
+	~~~
+srv: "b c"
+	port: 2
+base[New York]:
+last: 1

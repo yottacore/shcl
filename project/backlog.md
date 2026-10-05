@@ -104,14 +104,32 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 			- A string or untyped field's `allowed` set sees an array's bracket text. A typed scalar field reads `[80]` as 80 for `allowed`, `min` and `max`.
 			- `H001` suggests the bracket form, `x: [a, b]`. `tokens` prints `item` for a `- ` line, and `array=` and `array-fault=` for a bracket array.
 			- A trailing comment on a stacked item still rides the field, so `fmt` moves it to the header line. Lists stay stacked now, so that shows more often. Not filed.
+		- 20261005: chunk B part 2 done on `vssel`, off `valsyn`, Rust only.
+			- In: `E028`, found when a field binds under an array line, not by looking ahead. The line is kept, written in place of the field's own, and the field opens with no value. A kept line under an array binds nothing, so the array stands. Setters refuse an array over fields and a field under an array, and the CLI says which.
+			- Selectors match one plain value, quoted or not, never an array or a raw block. A lookup path with a bad selector body (`E025`, `E017`, `E023`) finds nothing.
+			- A merge writes every list in brackets. A bare comma in a list item is `E026`, kept among the items; `E010` is retired with `E026` as its replacement. An array setter keeps a stacked list stacked. A comment on a stacked item stays on it, and a whole-line comment among the items stays among them.
+			- `--set-literal` help and man page show a quoted string and a backtick value. Backtick values and kept quote kinds already worked from A and B1; rows now pin them.
+			- Fuzz: the `ErqSBCw` fixture took the new `E019` text. `EreT6dh` had three oracle faults, no library defect: a setter's raw body counted as copies of a kept line, a remove's raw body lines matched a kept line by text, and fence closers were trimmed of more than the load trims. A remove also leaves the leads above its target alone.
+			- Corpus: 179 rewritten for merge brackets, new 199 (`E028`) and 200 (selectors), about 20 cases updated. cli-regress: 21 new rows, each but the pinning ones seen to fail on the code before; `Ep3OILK` and `Ep3OILL` commented out, since a quote in a bare selector is `E025` now.
+			- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, shellcheck. The 2,000,000 release fuzz passed all 20 before cases 199 and 200 went in; with them, `EreT6dh` (iteration 991183, a merge footer dedup over a `- name:` line) and `Eqk24nZ` (iteration 1814916) fail. Left for later, not cut down.
+			- Left for later: those two fuzz failures, and 2026100511210900.
+		- 20261005: calls made in chunk B part 2. Each is easy to reverse.
+			- A bare comma in a list item is `E026`, value only, and the line is kept among the items.
+			- An array setter over a list written with `- ` keeps it stacked. Kept lines and comments among the old items go above the field.
+			- A comment trailing a stacked item stays on its item, and a whole-line comment among the items stays among them. When the list goes to brackets they go above it.
+			- `[]` with fields under it is `E028` too. A dotted array line with fields under it, such as `a.b: [1]`, cannot head its block, so `fmt` writes it as a comment.
+			- A setter never writes a field under an array or an array over fields; it refuses, where B1 put the list in brackets.
+			- A list with a field under it (`E001`) stays stacked, since in brackets it is `E028`, and so does one after a remove takes such a field. A merge leaves it stacked too.
+			- A stacked list with fields under it after an empty binding of its name that has none joins that binding, as a reload would. A kept array line an edit leaves with nothing under it is written as a comment.
+			- A selector matches a scalar only, so `x[hi]` no longer finds a raw block holding `hi` (case 070).
 	- Decisions:
 		- 20261002: idea 3, with the changes listed in the design doc. Open points and their proposed answers are under its Roadmap.
 		- 20261002: a quote anywhere in a bare value is an error, and a bare field name starts with a letter. Dates, times, durations and sizes without spaces stay bare.
 		- 20261002: no new error throws out good lines. A bad bare name that can still be read keeps its block, as a value-only refusal does. The writer quotes a value with `:` only when it ends in one.
 		- 20261002: pre-release Format 3 files are on their own. `fmt` keeps a `- ` list stacked. Setters get no new options, and an overwrite keeps the old quote kind when it can.
 		- 20261003: a merge writes every list in brackets, whatever form its layers used. The error code table in the design doc is final.
-	- Branch: `valsyn` (chunk A on `vslex`, chunk B part 1 on `vsarr`)
-	- Commit: `6355ba10` (chunk A)
+	- Branch: `valsyn` (chunk A on `vslex`, chunk B part 1 on `vsarr`, part 2 on `vssel`)
+	- Commit: `6355ba10` (chunk A), `7c90c42d` and `f228c3e9` (chunk B part 2)
 	- Test case:
 	- Acceptance signoff:
 	- Superseded by ID:
@@ -274,6 +292,20 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Possible cause: the per-line fault checks added with the escape errors. `_line_fault` and the extra `any` calls account for most of the gap.
 	- Decisions:
 		- 20261002: recheck after 2026100207032800 is built, since it removes most of those checks. No perf work before 3.0.0 otherwise.
+
+- A merge can leave a list with a field under it after an empty binding of its name that has fields, which no text reloads as
+	- ID: 2026100511210900
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261005-112109
+	- Opened by: the work on 2026100207032800
+	- Related IDs: 2026100207032800
+	- Problem description:
+		- A list with a field under it (`E001`) has to be written stacked, since in brackets it is `E028`. After an empty binding of its name, a reload joins its header to that binding, and when that binding has fields the items are dropped (`E008`).
+		- A merge or an edit can leave that shape. The fuzz properties skip it (`list_after_empty` in `fuzz_smoke.rs`).
+		- Question: should a field line under stacked items stop binding (`E001` kept, not bound)? That would remove the shape, but reverses the uniform-or-nothing rule cases 010 and 128 pin.
+	- Test case: none yet; the fuzz skip names the shape.
 
 - Build and test on FreeBSD
 	- ID: 2026100413052101

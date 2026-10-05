@@ -5,6 +5,6 @@ y	count	2	Good
 z	count	2	Good
 x['a"b, c']	string	a"b, c	Good
 x['a"b, c'].tag	string	hit	Good
-x[a"b, c]	string[]	-	Good
+x[a"b, c]	string[]	-	NotFound
 y["p, r"].tag	string	made	Good
 z["m, n"].tag	string	fresh	Good
