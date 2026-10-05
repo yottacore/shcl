@@ -122,6 +122,12 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Estimated effort: High
 	- Actual effort:
 	- Progress log:
+		- 20261005: built in chunks on the `valsyn` branch, which merges to dev only when all four bindings and the corpus agree. Until then the bindings not yet ported are expected to fail there.
+			- A: Rust reading and writing of values. Backslash as text, `◉` escapes from one generated table, `E023`, `E025`, the new `E014` rule, `E017` as value only, `E024` and `H003` retired, backtick values.
+			- B: Rust arrays and lists. Brackets, `- ` items, `E013`, `E019`, `E026` to `E028`, selectors, merge output, `SetLiteral` and `--set-literal`.
+			- C: Rust `migrate`, then spec.md, grammar.abnf, design.md, the changelog and the rest of the corpus.
+			- D, E and F: the Go, Python and C ports, with the C++ veneer.
+			- G: crosscheck, cli-regress, shell-regress, check-docs and the 2,000,000 release fuzz on the merged branch, then the merge to dev.
 	- Decisions:
 		- 20261002: idea 3, with the changes listed in the design doc. Open points and their proposed answers are under its Roadmap.
 		- 20261002: a quote anywhere in a bare value is an error, and a bare field name starts with a letter. Dates, times, durations and sizes without spaces stay bare.
