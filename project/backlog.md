@@ -330,6 +330,25 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- A repeated parent either gets its own rule in the property, or a test shows the merge leaves its kept lines alone.
 	- Estimated effort: Low
 
+- The owed full gate and the hosted run on dev were red on two test fixtures
+	- ID: 2026100514300000
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261005-143000
+	- Opened by: the owed full `--ci` and hosted run 37308154902, on dev at `7517627e`
+	- Related IDs: 2026100307310000
+	- Incorrect behavior:
+		- gcc 13 and 14 at `-O3` refuse `keep_text` in `shcl.h` with `-Wclobbered`, for a local of the inlined `keep_lines`. check-c-compilers failed 6 of 120 builds here, and the hosted ci job failed the same way.
+		- On the hosted windows job, cli-regress `Erls2v0` set a value of `/bin/bash`, and msys turned it into a Windows path before the CLI saw it.
+	- Actual cause [Bug]: the save gate's kept-line count (`253a397b`) and later edits changed what gcc inlines into `keep_text`. The row's value only had to be a plain word; a leading `/` was never the point.
+	- Actual fix [Bug]: `keep_text` gets the same scoped `-Wclobbered` pragma as `do_parse`, since its recovery path reads only the volatile `own`. The row now sets `bash`.
+	- Swept: every other `SHCL_SETJMP` site built clean in all 120 builds. No other cli-regress row passes a `--set` value starting with `/`.
+	- Verified: check-c-compilers (120 builds over gcc 12 to 15 and clang) failed before and passes after; `gcc-14 -O3` on `mem_bounds.c` builds. cli-regress against Rust passes. The windows row runs at the next hosted run.
+	- Branch: `cifix`
+	- Test case: check-c-compilers `EoezJiE` and `EoaFuVN`; cli-regress `Erls2v0` on the hosted windows job.
+	- Closed: 20261005-143000
+
 - A canonical save after a merge and a raw set loses kept lines, found by the kept-lines fuzz
 	- ID: 2026100316012486
 	- Type: Bug

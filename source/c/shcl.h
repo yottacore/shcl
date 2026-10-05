@@ -8674,7 +8674,13 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 
 /* The text a keep-lines save writes, and whether it kept the lines: the
    canonical form when there is no source or the lines would not reload the
-   same. *out lives in d's scratch or arena, until the next call on d. */
+   same. *out lives in d's scratch or arena, until the next call on d.
+   The recovery path reads only the volatile own, so -Wclobbered's guess at
+   keep_lines' inlined locals is wrong here too. gcc 13 and 14 at -O3 make it. */
+#if defined(__GNUC__) && !defined(__clang__)
+	#pragma GCC diagnostic push
+	#pragma GCC diagnostic ignored "-Wclobbered"
+#endif
 static int keep_text(shcl_doc *d, ShclStr *out) {
 	/* The reparse check cannot see a kept line gone from both the tree and the
 	   text, so falling back leaves it to the lost-count gate. */
@@ -8697,6 +8703,9 @@ static int keep_text(shcl_doc *d, ShclStr *out) {
 	if (!kept) *out = emit_canonical(d);
 	return kept;
 }
+#if defined(__GNUC__) && !defined(__clang__)
+	#pragma GCC diagnostic pop
+#endif
 
 shcl_str shcl_to_text_keep_lines(shcl_doc *d, int *kept) {
 	ShclStr t;
