@@ -418,7 +418,13 @@ fn writes_on_structural_soup_stay_fixpoint() {
 				v
 			);
 		}
+		// No text loads that case back, so a save refuses it rather than
+		// writing it; only the unsaved text is not a fixpoint.
 		if list_after_empty(&doc) {
+			assert!(
+				doc.lost_count() > 0,
+				"a list no text loads back saves at iteration {i} (op {op}, path {path:?}, value {v:?}):\n{text}"
+			);
 			continue;
 		}
 		let once = doc.to_canonical();
@@ -640,22 +646,24 @@ fn lost_count_follows_the_outcome_table() {
 	);
 }
 
-/// An element cap refuses only a line that would otherwise bind. A line the
-/// uncapped parse refuses or keeps verbatim reads the same under a cap, since
-/// a code judged after the cap check used to lose to it: bracket text under a
-/// cap came out `E021` and lost, where uncapped it is `E019` and kept. `E012`
-/// and `E018` are left out on both sides: they judge where a line sits, and a
-/// capped line above holds its level, so the lines under it move.
+/// An element cap refuses a line past it whatever its value, and nothing else
+/// about a line changes under one. A line the uncapped parse refuses for its
+/// path, its name or its shape reads the same under a cap. A line it refuses
+/// for its value (`E019`, `E026`, `E027` and the rest) is the same code under
+/// a cap, or `E021` when it is past it: since 2026-10-05 the cap wins over a
+/// broken value, where it used to lose to one. `E012` and `E018` are left out
+/// on both sides: they judge where a line sits, and a capped line above holds
+/// its level, so the lines under it move.
 #[test]
 fn a_cap_refuses_only_a_line_that_would_bind() {
 	let _id = test_id("EqKhPQO");
 	let iters = iter_count(1);
 	const REFUSING: &[&str] = &[
-		"E003", "E004", "E006", "E007", "E008", "E009", "E011", "E013", "E014", "E016", "E019",
-		"E026", "E027",
+		"E003", "E004", "E006", "E007", "E008", "E009", "E011", "E013", "E014", "E016",
 	];
 	let mut rng = Rng(0x5EED_57A7_1C00_0009);
 	let mut kept_under_cap = 0usize;
+	let mut capped_broken = 0usize;
 	for i in 0..iters {
 		let text = structural(&mut rng);
 		let open = Document::parse(&text);
@@ -699,9 +707,13 @@ fn a_cap_refuses_only_a_line_that_would_bind() {
 			if d.line > first_capped || on(&capped, d.line, "E012") || on(&capped, d.line, "E018") {
 				continue;
 			}
+			if on(&capped, d.line, "E021") {
+				capped_broken += 1;
+				continue;
+			}
 			assert!(
 				on(&capped, d.line, "E019"),
-				"bracket text on line {} is not E019 under a cap, at iteration {}:\n{}",
+				"bracket text on line {} is neither E019 nor E021 under a cap, at iteration {}:\n{}",
 				d.line,
 				i,
 				text
@@ -710,9 +722,10 @@ fn a_cap_refuses_only_a_line_that_would_bind() {
 		}
 	}
 	assert!(
-		kept_under_cap > iters / 8,
-		"the soup checked only {} bracket lines under a cap",
-		kept_under_cap
+		kept_under_cap > iters / 16 && capped_broken > iters / 16,
+		"the soup checked only {} bracket lines kept and {} refused under a cap",
+		kept_under_cap,
+		capped_broken
 	);
 }
 
@@ -774,8 +787,16 @@ fn raw_spans(text: &str) -> Vec<(usize, usize)> {
 		}
 		// The block spelling: the fence is the whole line. The same-line
 		// spelling: it is the value. A `*` is no field name, so such a line
-		// has no value and opens nothing, and a comment has none either.
+		// has no value and opens nothing, and a comment has none either. Nor
+		// does a `- ` item, which is one value and never opens a block.
 		if bare.starts_with(['*', '#']) {
+			continue;
+		}
+		let item = bare.trim_start_matches(BLANKS);
+		if item
+			.strip_prefix('-')
+			.is_some_and(|after| after.is_empty() || after.starts_with(BLANKS))
+		{
 			continue;
 		}
 		let opens = fence_run(bare).or_else(|| {
@@ -955,7 +976,9 @@ fn schema_and_format_lines_follow_the_parser() {
 /// A list with a field under it (E001) after an empty binding of its name
 /// that has fields of its own. A merge or an edit can leave one, and then no
 /// text reloads as it: stacked, its header joins that binding and its items
-/// are dropped (E008), and in brackets it is E028 (2026100511210900).
+/// are dropped (E008), and in brackets it is E028 (2026100511210900). The
+/// save gate counts its items lost, so it is never written; the properties
+/// that compare written text check that and skip the rest.
 fn list_after_empty(doc: &Document) -> bool {
 	doc.instance_paths().iter().any(|p| {
 		let r = doc.read_string(p);
@@ -994,6 +1017,10 @@ fn merge_never_panics_and_stays_fixpoint() {
 		let mut doc = Document::parse(&a);
 		doc.merge(&Document::parse(&b));
 		if list_after_empty(&doc) {
+			assert!(
+				doc.lost_count() > 0,
+				"a merged list no text loads back saves at iteration {i}:\nA:\n{a}\nB:\n{b}"
+			);
 			continue;
 		}
 		let once = doc.to_canonical();
@@ -1213,6 +1240,10 @@ fn edits_and_merges_match_a_reload() {
 				unstamped(&back.to_canonical()),
 			);
 			if list_after_empty(&live) {
+				assert!(
+					live.lost_count() > 0,
+					"a list no text loads back saves at iteration {i}:\n{log}"
+				);
 				break;
 			}
 			assert!(
@@ -2734,6 +2765,16 @@ fn kept_lines_survive_edits() {
 				);
 			}
 			log.push_str(&format!("op {op} at {path:?}\n"));
+			// A list no text loads back counts its items lost, so the save
+			// refuses it (2026100511210900), and the steps after it go
+			// unchecked.
+			if list_after_empty(&doc) {
+				assert!(
+					doc.lost_count() > lost,
+					"iteration {i}: a list no text loads back saves:\n{log}"
+				);
+				break;
+			}
 			// (b) Only the table's own losses: none outside a merge's.
 			assert_eq!(
 				doc.lost_count(),

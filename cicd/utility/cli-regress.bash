@@ -177,9 +177,9 @@ printf 'ports: [80, 443]\n' > "${tmpDir}/brarray.shcl"
 printf 'srv["1,000"].port: 1\n' > "${tmpDir}/selcomma.shcl"
 printf 'base:[Boston]\n\tlat: 42\n' > "${tmpDir}/sugar.shcl"
 ## A value the two rule sets read differently: 2.x resolved the backslash and
-## these rules do not, and the bytes are the same either way, so a rewrite that
-## guesses damages whichever file it guessed wrong about. Copied fresh for the
-## rows that rewrite, the way the sugar file is.
+## these rules do not. migrate leaves it as written, so it reads as text
+## (2026-10-05). Copied fresh for the rows that rewrite, the way the sugar
+## file is.
 printf 'p: %s\n' "'C:\temp'" > "${tmpDir}/bsrc.shcl"
 ## An escaped comma 2.x folded into one element, so migrate rewrites the line,
 ## plus a tab-indented line at no open level, which the load drops. The rewrite
@@ -196,7 +196,10 @@ printf 'p: 1\n##    Format   3\n' > "${tmpDir}/stamped.shcl"
 ## file's, the first made a current file look like 2.x and rewrote it at exit
 ## 0, and the second made any file look current.
 #  shellcheck disable=2016  ## the backticks are the fence the fixture needs.
-printf 'p: %s\nnote:\n\t```\n##    Format   2\n\t```\n' "'C:\temp'" > "${tmpDir}/rawfmt2.shcl"
+## The first has a raw block the two rule sets split differently beside it
+## (2026-10-05), since a backslash in a value no longer reads two ways. Taken
+## as 2.x, it would refuse over that block never closing instead.
+printf 'note:\n\t```\n##    Format   2\n\t```\n%s: ~~~\n\tx\n\t~~~\n' "'C:\\'" > "${tmpDir}/rawfmt2.shcl"
 #  shellcheck disable=2016
 printf 'p: %s\nnote:\n\t```\n##    Format   3\n\t```\n' "'C:\temp'" > "${tmpDir}/rawfmt3.shcl"
 ## A stamped file behind a BOM, whose value 2.x would have read another way.
@@ -314,6 +317,9 @@ printf 'base:[Boston]\r\n\tlat: 42\n' > "${tmpDir}/migtie.shcl"
 ## No final newline: a CRLF file, and a last line ending in a lone CR in an LF
 ## file and in a CRLF one. The stamp ends that line, and that is no rewrite.
 printf 'a: 1\r\nb: 2\r\nc: 3' > "${tmpDir}/mignofinal.shcl"
+## A list with a field under it after an instance an edit empties, which has
+## fields: no text loads that back (2026100511210900).
+printf 'x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n' > "${tmpDir}/listempty.shcl"
 printf 'a: 1\nb: 2\r' > "${tmpDir}/miglonecr.shcl"
 printf 'a: 1\r\nb: 2\r\nc: 3\r' > "${tmpDir}/miglonecrcrlf.shcl"
 ## A 2.x file whose raw block never closes, so the Format line has nowhere to go.
@@ -370,9 +376,10 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	ends in a lone CR, in an LF file and a CRLF one, %MR% a 2.x file whose raw
 ##	block never closes, and %MNW%/%MXW%/%MRW% fresh copies of the first, second
 ##	and fourth at the path %C% names, %MV% two lost values on one line and a
-##	bracket array on the next,
+##	bracket array on the next, %LEW% a fresh copy at that path of a stacked
+##	list with a field under it, after an instance of its name with fields,
 ##	%W% a fresh copy of the selector-sugar file, %BS% a fresh copy of a file
-##	whose value reads differently under the two rule sets, %BW% a fresh copy of
+##	holding a backslash 2.x read as an escape, %BW% a fresh copy of
 ##	the bracket array, %V3% a file that already names its format,
 ##	%V3B% the same behind a BOM, %V03% an older Format line and then the
 ##	current one, %BN% an info block with the file's own comments under it, %FB% a Format line of five thousand digits, %RF2%/%RF3% a raw body holding a Format line, %RFQ% one opened by a name ending in a backslash,
@@ -447,11 +454,11 @@ rows=(
 	'EoTHA7c|strict-load-list|fmt --strictness=strict %B%|-|6|-|strict load failed: 2 error diagnostic'
 	## 20260918 item 21: the spec named two summary spellings for check and a
 	## strict one prints a third.
-	'EqGg9jN|check-strict-summary|check --strictness=strict %B%|-|6|line 2: Error: E015\nline 3: Error: E014\nstrict load failed: 2 diagnostic(s)\n|-'
+	'EqGg9jN|check-strict-summary|check --strictness=strict %B%|-|6|line 2: Error: E015\nline 3: Error: E015\nstrict load failed: 2 diagnostic(s)\n|-'
 	## 20260920b item 7: a strict load still hands back the document it
 	## recovered, so check --schema validates it. Without this the V-codes were
 	## dropped and a user got less out of check at strict than at standard.
-	'EqT42DA|check-strict-schema-validates|check --strictness=strict --schema=%SV% %B%|-|6|line 2: Error: E015\nline 3: Error: E014\nline 0: Error: V002\nline 1: Error: V001\nstrict load failed: 4 diagnostic(s)\n|-'
+	'EqT42DA|check-strict-schema-validates|check --strictness=strict --schema=%SV% %B%|-|6|line 2: Error: E015\nline 3: Error: E015\nline 0: Error: V002\nline 1: Error: V001\nline 3: Error: V001\nstrict load failed: 5 diagnostic(s)\n|-'
 	## 20260830 round: an unknown command is judged before its options.
 	'EoTHA7d|unknown-cmd-before-opts|bogus --nope %F%|-|1|-|unknown command: bogus'
 	## 20260909 item 59: a real option in front of the subcommand was called
@@ -785,7 +792,9 @@ rows=(
 	'ErrQs1Z|explain-e028|explain E028|-|0|\nE028  error       an array on a field with lines under it\n  A field with fields under it takes one plain value or none, so\n  route: [GET, POST] with lines under it is an error. Give the field one\n  value and put the list in a field under it: methods: [GET, POST]. The line\n  is kept verbatim, and the lines under it load under the field with no\n  value.\n\n|-'
 	'ErrQs1a|explain-e010-retired|explain E010|-|0|\nE010  retired     error, replaced by E026\n  Loads no longer report E010. \x27shcl explain E026\x27 has the rule now.\n\n|-'
 	'ErqYSbP|explain-e027|explain E027|-|0|\nE027  error       a list item that is a bare name ending in \x27:\x27, as in - name:\n  That is how YAML starts an object in a list, and SHCL writes one as an\n  instance. Quote the item if it is text: - "name:". The line is kept as\n  written, and the other items still load.\n\n|-'
-	'Erlr23g|explain-e023-read|explain E023|-|0|\nE023  error       a bad escape\n  An escape is a name from the escape list between two U+25C9 marks, such as\n  TAB, NEWLINE or U+200B, and a real U+25C9 is the name ESCAPE_CHAR. Anything\n  else between two marks is an error, and so is a mark with no partner. A\n  backslash is plain text. The line is kept verbatim: it binds nothing and a\n  read on it is NotFound. When only the value is wrong, the lines under it\n  still load, under the field with no value, and a read on the field is Empty\n  once one of them loads. When the name is, a raw block the line opens is kept\n  with it.\n\n|-'
+	## 2026-10-05: explain E023 prints the mark itself, not the text U+25C9.
+	#'Erlr23g|explain-e023-read|explain E023|-|0|\nE023  error       a bad escape\n  An escape is a name from the escape list between two U+25C9 marks, such as\n  TAB, NEWLINE or U+200B, and a real U+25C9 is the name ESCAPE_CHAR. Anything\n  else between two marks is an error, and so is a mark with no partner. A\n  backslash is plain text. The line is kept verbatim: it binds nothing and a\n  read on it is NotFound. When only the value is wrong, the lines under it\n  still load, under the field with no value, and a read on the field is Empty\n  once one of them loads. When the name is, a raw block the line opens is kept\n  with it.\n\n|-'
+	'Ers2pOq|explain-e023-mark|explain E023|-|0|\nE023  error       a bad escape\n  An escape is a name from the escape list between two \xe2\x97\x89 marks, such as\n  \xe2\x97\x89TAB\xe2\x97\x89, \xe2\x97\x89NEWLINE\xe2\x97\x89 or \xe2\x97\x89U+200B\xe2\x97\x89, and a real \xe2\x97\x89 is written \xe2\x97\x89ESCAPE_CHAR\xe2\x97\x89.\n  Anything else between two marks is an error, and so is a mark with no\n  partner. A backslash is plain text. The line is kept verbatim: it binds\n  nothing and a read on it is NotFound. When only the value is wrong, the\n  lines under it still load, under the field with no value, and a read on the\n  field is Empty once one of them loads. When the name is, a raw block the\n  line opens is kept with it.\n\n|-'
 	## E024 is retired (2026100207032800), so explain says so.
 	#'Erlr25Z|explain-e024-read|explain E024|-|0|\nE024  error       a Windows path in double quotes with a \\t or \\n escape\n  "C:\\temp" would read as C:, a tab, then emp, which a path almost never\n  means. The line is kept verbatim like E023: it binds nothing, and the\n  lines under it still load. A read on the field is Empty when one of them\n  loads and NotFound when none does. Use single quotes or no quotes, or\n  double each backslash.\n\n|-'
 	'ErpaTy1|explain-e024-retired|explain E024|-|0|\nE024  retired     error, with no replacement\n  Loads no longer report E024, and no other code took its rule.\n\n|-'
@@ -832,20 +841,31 @@ rows=(
 	'ErTZaL4|schema-line-over-cap|check %SPO%|-|8||too large for a schema'
 	## 20261003 item 3: the walk read raw blocks the 2.x way.
 	'ErfuRh7|schema-line-raw-after-backslash|check %SPR%|-|6|line 5: Error: V003\nline 1: Error: V001\nfailed: 2 diagnostic(s), 2 error(s)\n|-'
-	'Eq4Rkv2|migrate-ambiguous-refused|migrate %BS%|-|7|-|does not say which it was written for'
-	"Eq4Rkv3|migrate-ambiguous-kept|migrate %BS%|-|7|p: 'C:\\\\temp'\n|-"
-	'Eq4Rkv4|migrate-ambiguous-write-refused|migrate --write %BS%|-|7|-|refusing to rewrite'
+	## 2026-10-05: migrate leaves a 2.x backslash as written, and it reads as
+	## text under these rules, so this file reads one way and nothing is left
+	## to refuse over.
+	#'Eq4Rkv2|migrate-ambiguous-refused|migrate %BS%|-|7|-|does not say which it was written for'
+	#"Eq4Rkv3|migrate-ambiguous-kept|migrate %BS%|-|7|p: 'C:\\\\temp'\n|-"
+	#'Eq4Rkv4|migrate-ambiguous-write-refused|migrate --write %BS%|-|7|-|refusing to rewrite'
+	'Ers2pOu|migrate-backslash-as-text|migrate %BS%|-|0|p: \x27C:\\temp\x27\n##    Format   3\n|!.'
+	'Ers2pOv|migrate-backslash-write|migrate --write %BS%|-|0|-|migrated, 0 line\(s\) rewritten'
+	'Ers2pOw|migrate-backslash-pairs|migrate -|a: "C:\\\\work"\nb: "say \\"hi\\""\nc: C:\\new\n|0|a: "C:\\\\work"\nb: \x27say \\"hi\\"\x27\nc: C:\\new\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	## The 2.x tab went in as it was, since "C:\temp" was E024 (2026100115323227).
 	## It is the TAB escape since 2026100207032800.
 	#'Eq4Rkv5|migrate-from-2x|migrate --from-2x %BS%|-|0|p: "C:\\temp"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
-	'ErUn2Bt|migrate-from-2x-tab|migrate --from-2x %BS%|-|0|p: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	## 2026-10-05: the backslash stays, and reads as text.
+	#'ErUn2Bt|migrate-from-2x-tab|migrate --from-2x %BS%|-|0|p: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'Ers2pOx|migrate-from-2x-backslash|migrate --from-2x %BS%|-|0|p: \x27C:\\temp\x27\n##    Format   3\n|-'
 	## A file that names its format has nothing to migrate, which is what stops
 	## the second run from rewriting the first run's output.
 	'Eq4Rkv6|migrate-stamped-noop|migrate %V3%|-|0|p: 1\n##    Format   3\n|nothing to migrate'
 	"ErCkXtw|migrate-indented-stamp-noop|migrate %V3I%|-|0|p: 'C:\\\\temp'\nsrv:\n\t##    Format   3\n\tx: 1\n|nothing to migrate"
 	## 20260918 item 1: the version scan read raw bodies the rewrite skips.
 	'EqGUXeC|migrate-format-in-raw-old|migrate %RF2%|-|7|-|does not say which it was written for'
-	'EqGUXeD|migrate-format-in-raw-new|migrate %RF3%|-|7|-|does not say which it was written for'
+	## The value beside it is no longer read two ways (2026-10-05), so this
+	## pins the scan by the stamp migrate adds; ErfuRj5 holds the refusal.
+	#'EqGUXeD|migrate-format-in-raw-new|migrate %RF3%|-|7|-|does not say which it was written for'
+	'Ers2pOy|migrate-format-in-raw-stamps|migrate %RF3%|-|0|p: \x27C:\\temp\x27\nnote:\n\t\x60\x60\x60\n##    Format   3\n\t\x60\x60\x60\n##    Format   3\n|!nothing to migrate'
 	'ErfuRj5|migrate-format-in-raw-after-backslash|migrate %RFQ%|-|7|-|does not say which it was written for'
 	## 20260918 item 2: C looked for the version line before taking off a BOM.
 	'EqGUXeE|migrate-bom-stamped|migrate %V3B%|-|0|-|nothing to migrate'
@@ -889,8 +909,10 @@ rows=(
 	'ErUn2Bv|write-existing-quiet-kept|fmt --write %W%|-|0|-|!created'
 	'Eq4wD3Z|migrate-check-clean|migrate --check %F%|-|0||!.'
 	'Eq4wD3a|migrate-check-stamped|migrate --check %V3%|-|0||nothing to migrate'
-	'Eq4wD3b|migrate-check-ambiguous|migrate --check %BS%|-|7||does not say which it was written for'
-	'Eq4wD3c|migrate-check-from-2x|migrate --check --from-2x %BS%|-|6||bs\.shcl:1: migrate would rewrite'
+	## 2026-10-05: nothing in the backslash file is rewritten now.
+	#'Eq4wD3b|migrate-check-ambiguous|migrate --check %BS%|-|7||does not say which it was written for'
+	#'Eq4wD3c|migrate-check-from-2x|migrate --check --from-2x %BS%|-|6||bs\.shcl:1: migrate would rewrite'
+	'Ers2pOz|migrate-check-backslash|migrate --check --from-2x %BS%|-|0||!.'
 	'Eq4wD3d|migrate-check-write|migrate --check --write %W%|-|1|-|--check cannot be combined with --write'
 	'Eq4wD3e|migrate-write-says|migrate --write %W%|-|0||migrated, 1 line\(s\) rewritten'
 	## The Format and Migrated lines end the way most of the file's lines do.
@@ -998,10 +1020,19 @@ rows=(
 	'EonKleq|diag-value-one-line|check --schema=%SA% %R%|-|6|-|not allowed at .b.: line one.nline two'
 	## 20260901b item 24: two layers with a bad line 2 printed the same thing
 	## twice, with nothing to say which file each came from.
-	'Eon9YY4|layer-diags-named|fmt --layer=%B% %B2%|-|0|-|bad2.shcl line 2: Error: E014'
+	'Eon9YY4|layer-diags-named|fmt --layer=%B% %B2%|-|0|-|bad2.shcl line 2: Error: E015'
 	## 20260918b item 14: `set` kept its own copy of the fold and missed it.
-	'EqLcx3w|layer-diags-named-set|set --set=q=1 --layer=%B% %B2%|-|0|-|bad2.shcl line 2: Error: E014'
-	'Eon9YY5|single-file-diags-unnamed|fmt %B%|-|0|-|^line 3: Error: E014'
+	'EqLcx3w|layer-diags-named-set|set --set=q=1 --layer=%B% %B2%|-|0|-|bad2.shcl line 2: Error: E015'
+	## 2026100511210900: emptying an instance left a list after it that the
+	## reload drops, and the write went through at exit 0.
+	'Ers2pP0|list-after-empty-refused|set --write %LEW%|empty\tx[v]\n|7|-|would delete 2 line|x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n'
+	'Ers2pP1|list-after-empty-lossy|set --write --lossy %LEW%|empty\tx[v]\n|0|-|rewritten in the canonical form|x:\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n'
+	'Eon9YY5|single-file-diags-unnamed|fmt %B%|-|0|-|^line 3: Error: E015'
+	## 2026-10-05: a line with no colon is E015 whatever its name, and binds
+	## the name it reads as. With a colon, the name rule still holds.
+	'Ers2pOr|no-colon-bad-name-e015|check -|404\n-x\nuser name\n|6|line 1: Error: E015\nline 2: Error: E015\nline 3: Error: E015\nfailed: 3 diagnostic(s), 3 error(s)\n|-'
+	'Ers2pOs|no-colon-bad-name-repaired|fmt -|404\n-x\nuser name\n|0|"404":\n"-x":\n"user name":\n|-'
+	'Ers2pOt|colon-bad-name-e014|check -|404: x\n|6|line 1: Error: E014\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
 	## 20260909 item 34: E014 says where on the line the path went wrong, as
 	## a byte column, which the tokenizer computed and the message dropped.
 	'Eq8GC80|e014-column|check -|a: 1\n  bad\nab]\n|6|-|^line 3: Error: E014 malformed line skipped: unexpected character after the path, at column 3$'
@@ -1083,7 +1114,7 @@ rows=(
 	'Eolhrw1|full-stdout-check|check %F%|@fullout|8|-|-'
 	'Eolhrw2|full-stdout-get|get %F% a|@fullout|8|-|-'
 	'Eolhrw3|full-stdout-set|set --set=a=2 %F%|@fullout|8|-|-'
-	'Eolhrw4|full-stderr-keeps-stdout|fmt %B%|@fullerr|0|a: 1\n\tbad:\nb 2\n|-'
+	'Eolhrw4|full-stderr-keeps-stdout|fmt %B%|@fullerr|0|a: 1\n\tbad:\n"b 2":\n|-'
 	## Found working 20260830b item 18: a merge does not keep diagnostics, so
 	## reading them off the merged doc reported the lowest layer and stayed
 	## silent about FILE - the one file the caller actually named.
@@ -1366,6 +1397,9 @@ for row in "${rows[@]}"; do
 	elif [[ "${argv}" == *%MRW%* ]]; then
 		freshMigSrc=migraw
 		argv="${argv//%MRW%/${tmpDir}/created.shcl}"
+	elif [[ "${argv}" == *%LEW%* ]]; then
+		freshMigSrc=listempty
+		argv="${argv//%LEW%/${tmpDir}/created.shcl}"
 	fi
 	freshCreate=0
 	if [[ "${argv}" == *%C%* ]]; then
@@ -2063,6 +2097,10 @@ for b in "${bindings[@]}"; do
 		read -r -a cmdArgv <<<"${cmd}"
 		text="$("${cli}" "${cmdArgv[@]}" 2>/dev/null </dev/null || true)"
 		nRun+=1
+		## explain E023 shows the escape mark, U+25C9, which is one column wide.
+		## It stands in as one ASCII byte, so anything else outside ASCII still
+		## fails.
+		if [[ "${cmd}" == explain* ]]; then text="${text//$'\xe2\x97\x89'/@}"; fi
 		if [[ -z "${text}" ]]; then
 			echo "cli-regress: help-width [${name}]: ${cmd} printed nothing" >&2; nBad+=1; continue
 		fi

@@ -1,8 +1,8 @@
 # A path typed in double quotes
-win: "C:\work◉NEWLINE◉ew"
-ok-single: "C:\work◉NEWLINE◉ew"
-ok-bare: "C:\work◉NEWLINE◉ew"
-ok-doubled: "C:\work\new"
+win: "C:\work\new"
+ok-single: 'C:\work\new'
+ok-bare: C:\work\new
+ok-doubled: "C:\\work\\new"
 regex: "\d+"
 "n\ame": 1
 srv["a\b"].port: 80
@@ -15,4 +15,3 @@ body
 ```
 last: 1
 ##    Format   3
-##    Migrated from SHCL 2.x.
