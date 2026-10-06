@@ -64,6 +64,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Actual effort:
 	- Progress log:
 		- 20261005: worked on the `valsyn` branch, which merges to dev once all four bindings agree. Its progress log is in valsyn's copy of this file. Chunks A and B are in, Rust only.
+		- 20261005: the answered A and B changes are in, Rust only, and the 2,000,000 release fuzz passes on valsyn again. Chunk C is next.
 	- Decisions:
 		- 20261002: idea 3, with the changes listed in the design doc. Open points and their proposed answers are under its Roadmap.
 		- 20261002: a quote anywhere in a bare value is an error, and a bare field name starts with a letter. Dates, times, durations and sizes without spaces stay bare.
