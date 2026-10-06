@@ -125,6 +125,27 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: 20261003, `check-migrate.bash` already builds 2.x from pinned `7be348d` and compares reads after `migrate`. This would extend it to the backup and rewrite in 2026100313461649, and to beta-stamped Format 3 files once 2026100207032800 is in.
 	- Estimated effort: Avg
 
+- Don't allow the `[#N]` index selector
+	- ID: 2026100609552447
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261006-095524
+	- Opened by: JC
+	- Related IDs: 2026100207032800
+	- Problem description:
+		- `[#2]` and `[2]` do the same thing in all four bindings. The `#` adds nothing, and quoting already forces a value match.
+		- It only works on a lookup path. In a file the `#` opens a comment, so `a[#2].b: 1` is a broken line.
+		- `InstancePaths()` writes `[#i]`, so its paths can't be used in a file.
+	- Requirements:
+		- A selector body starting with `#` is refused on a lookup path, a setter path, `--set` and a schema path. It must not fall through to a value match on `#2`.
+		- `InstancePaths()` writes `[i]`.
+		- Drop it from spec.md, design.md, value-syntax.md, the README, the man page, CLI help and completions, and the C++ interface.
+		- Move every test and corpus case that uses it to `[N]`.
+		- Add a changelog line, since it breaks callers that use it.
+	- Note: 20261006, 2026100207032800 changes the selector code on `valsyn`. Do this there or after it merges, not on dev alongside.
+	- Estimated effort: Avg
+
 - Make sure the demo GIF is still accurate and current
 	- ID: 2026100306315606
 	- Type: Task
