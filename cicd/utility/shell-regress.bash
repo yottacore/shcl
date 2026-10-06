@@ -1457,6 +1457,59 @@ else
 	fTestSkipBlock
 fi
 
+fTest ErsrmzS 2026100411093274-release-table-from-names
+##	2026100411093274: the downloads table for a release's notes. OS rows in a
+##	fixed order, arch columns, an empty cell where nothing was built, one
+##	universal macOS build in both columns, and anything else under the table.
+rtUrl="https://github.com/yottacore/shcl/releases/download/v3.0.0-beta1"
+rtOut="$(printf '%s\n' shcl-3.0.0-beta1-windows-x86_64-setup.exe shcl-3.0.0-beta1-linux-x86_64.rpm \
+	shcl-3.0.0-beta1-linux-x86_64 shcl-3.0.0-beta1-linux-x86_64.deb shcl-3.0.0-beta1-windows-x86_64.exe \
+	shcl-3.0.0-beta1-freebsd-x86_64 shcl-3.0.0-beta1-macos-universal shcl-3.0.0-beta1-linux-arm64 \
+	shcl-3.0.0-beta1-sha256sums.txt shcl-3.0.0-beta1-sha256sums.txt.sig shcl-3.0.0-beta1-plan9-x86_64 '' \
+	| bash "${repoDir}/cicd/utility/release-table.bash" v3.0.0-beta1 --names - 2>&1 || true)"
+rtWant="$(cat <<EOF
+| OS      | x86_64                                                                     | arm64
+| :---    | :---                                                                       | :---
+| Linux   | [binary][linux-x86_64], [.deb][linux-x86_64.deb], [.rpm][linux-x86_64.rpm] | [binary][linux-arm64]
+| Windows | [binary][windows-x86_64.exe], [installer][windows-x86_64-setup.exe]        |
+| macOS   | [binary][macos-universal]                                                  | [binary][macos-universal]
+| FreeBSD | [binary][freebsd-x86_64]                                                   |
+
+Other files: [shcl-3.0.0-beta1-sha256sums.txt], [shcl-3.0.0-beta1-sha256sums.txt.sig], [shcl-3.0.0-beta1-plan9-x86_64]
+
+[windows-x86_64-setup.exe]: ${rtUrl}/shcl-3.0.0-beta1-windows-x86_64-setup.exe
+[linux-x86_64.rpm]: ${rtUrl}/shcl-3.0.0-beta1-linux-x86_64.rpm
+[linux-x86_64]: ${rtUrl}/shcl-3.0.0-beta1-linux-x86_64
+[linux-x86_64.deb]: ${rtUrl}/shcl-3.0.0-beta1-linux-x86_64.deb
+[windows-x86_64.exe]: ${rtUrl}/shcl-3.0.0-beta1-windows-x86_64.exe
+[freebsd-x86_64]: ${rtUrl}/shcl-3.0.0-beta1-freebsd-x86_64
+[macos-universal]: ${rtUrl}/shcl-3.0.0-beta1-macos-universal
+[linux-arm64]: ${rtUrl}/shcl-3.0.0-beta1-linux-arm64
+[shcl-3.0.0-beta1-sha256sums.txt]: ${rtUrl}/shcl-3.0.0-beta1-sha256sums.txt
+[shcl-3.0.0-beta1-sha256sums.txt.sig]: ${rtUrl}/shcl-3.0.0-beta1-sha256sums.txt.sig
+[shcl-3.0.0-beta1-plan9-x86_64]: ${rtUrl}/shcl-3.0.0-beta1-plan9-x86_64
+EOF
+)"
+[[ "${rtOut}" == "${rtWant}" ]] || fBad "release-table.bash table differs from the fixture: $(diff <(printf '%s\n' "${rtWant}") <(printf '%s\n' "${rtOut}") || true)"
+
+fTest Ersrn1M 2026100411093274-release-table-upload-names
+##	A local name with a character GitHub rewrites links to the name the upload
+##	gets. Two names that upload as one, a list with no platform build, and a
+##	missing tag are refused.
+mkdir -p "${tmpDir}/rt1" "${tmpDir}/rt2"
+: > "${tmpDir}/rt1/shcl-3.0.0+b1-linux-x86_64"; : > "${tmpDir}/rt1/shcl-3.0.0+b1-sha256sums.txt"
+rtOut="$(bash "${repoDir}/cicd/utility/release-table.bash" 'v3.0.0+b1' --dir "${tmpDir}/rt1" 2>&1 || true)"
+[[ "${rtOut}" == *"[linux-x86_64]: https://github.com/yottacore/shcl/releases/download/v3.0.0+b1/shcl-3.0.0.b1-linux-x86_64"* ]] \
+	|| fBad "release-table.bash did not link a rewritten local name as uploaded: ${rtOut@Q}"
+[[ "${rtOut}" == *"Other files: [shcl-3.0.0.b1-sha256sums.txt]"* ]] || fBad "release-table.bash left the sums file out: ${rtOut@Q}"
+: > "${tmpDir}/rt2/shcl-3.0.0-linux-x86_64"; : > "${tmpDir}/rt2/shcl-3.0.0-linux-x86_64~"; : > "${tmpDir}/rt2/shcl-3.0.0-linux-x86_64+"
+rtRc=0; rtOut="$(bash "${repoDir}/cicd/utility/release-table.bash" v3.0.0 --dir "${tmpDir}/rt2" 2>&1)" || rtRc=$?
+[[ "${rtRc}" == "1" && "${rtOut}" == *"two assets upload as shcl-3.0.0-linux-x86_64."* ]] || fBad "release-table.bash took two names that upload as one (rc ${rtRc}): ${rtOut@Q}"
+rtRc=0; rtOut="$(printf 'shcl-3.0.0-sha256sums.txt\n' | bash "${repoDir}/cicd/utility/release-table.bash" v3.0.0 --names - 2>&1)" || rtRc=$?
+[[ "${rtRc}" == "1" && "${rtOut}" == *"no platform downloads"* ]] || fBad "release-table.bash wrote a table with no platform build (rc ${rtRc}): ${rtOut@Q}"
+rtRc=0; rtOut="$(bash "${repoDir}/cicd/utility/release-table.bash" --names /dev/null 2>&1)" || rtRc=$?
+[[ "${rtRc}" == "2" ]] || fBad "release-table.bash ran with no tag (rc ${rtRc}): ${rtOut@Q}"
+
 fTest EojuRVQ 20260901b-20-flame-report-partial-graphs
 ##	20260901b item 20: flame-report.py took any file with a sample count and one
 ##	frame for a whole flamegraph, so a profile cut off mid-write reported a
