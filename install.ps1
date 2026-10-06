@@ -86,7 +86,7 @@ param(
 	Set-StrictMode -Version Latest
 	$ErrorActionPreference = 'Stop'
 
-	$installerVersion = '1.1.6'
+	$installerVersion = '1.1.7'
 
 	## Every run opens with a blank line and ends with one, errors included.
 	Write-Output ''
@@ -367,9 +367,9 @@ installed.
 		[PSCustomObject]@{ Stuck = $stuck.ToArray(); Foreign = $foreign }
 	}
 
-	## Windows only; elsewhere install.bash (Linux) or build from source.
+	## Windows only; elsewhere install.bash (Linux, macOS, FreeBSD) or build from source.
 	if (($PSVersionTable.PSVersion.Major -ge 6) -and -not $IsWindows) {
-		Exit-Install 'this installer is for Windows - on Linux or FreeBSD use install.bash, elsewhere build from source (see README.md)'
+		Exit-Install 'this installer is for Windows - on Linux, macOS or FreeBSD use install.bash, elsewhere build from source (see README.md)'
 	}
 
 	## Destinations. A system install writes under Program Files and the machine

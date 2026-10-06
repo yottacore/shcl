@@ -43,10 +43,11 @@ testWhere="check-pins"; testCounter="nBad"; nBad=0
 # shellcheck source-path=SCRIPTDIR
 source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
 
-## Not pinned in the hosted gate, which builds no cross targets and no release
-## packages. It installs apt's nsis for the shell-regress rows that compile
-## the setup script, whose output is read and thrown away.
-notInCi=(cargo-zigbuild makensis)
+## Not pinned in the hosted gate, which builds no release packages. It installs
+## apt's nsis for the shell-regress rows that compile the setup script, whose
+## output is read and thrown away. cargo-zigbuild is pinned there, for the
+## macOS job's universal build.
+notInCi=(makensis)
 
 ## Does ci.yml name tool $1 at version $2 as one token? The name is bounded on
 ## the left, then the joiner ci.yml uses (==, @, -, /, setup-go's `-version: "`,
@@ -121,12 +122,20 @@ goNames="$(grep -oE -- 'go install [^[:space:]]+@[^[:space:]]+' "${ciFile}" \
 ## PowerShell modules.
 psNames="$(grep -oE -- 'Install-Module [A-Za-z][A-Za-z0-9_.-]* -RequiredVersion' "${ciFile}" \
 	| sed -E 's/Install-Module ([^ ]+).*/\1/' || true)"
-## A family whose install line is there and whose pattern read no name from it
-## has gone blind, which is this check's own failure rather than a pass.
-for fam in "pip install|${pipNames}" "npm install|${npmNames}" "go install|${goNames}" "Install-Module|${psNames}"; do
-	if grep -qF -- "${fam%%|*}" <<<"${liveLines}" && [[ -z "${fam#*|}" ]]; then
-		echo "check-pins: ci.yml has a ${fam%%|*} line and no pinned name was read from it" >&2; nBad=$((nBad + 1))
-	fi
+## An install line whose pattern reads no name from it has gone blind, which
+## is this check's own failure rather than a pass. Line by line, since one
+## family can have several: the macOS job has its own pip line, and a family
+## that read a name anywhere said nothing about a line it could not read.
+for fam in "pip install" "npm install" "go install" "Install-Module"; do
+	while IFS= read -r famLine; do
+		[[ -n "${famLine}" ]] || continue
+		case "${fam}" in
+			"go install")     famName="$(grep -oE -- 'go install [^[:space:]]+@[^[:space:]]+' <<<"${famLine}" || true)" ;;
+			"Install-Module") famName="$(grep -oE -- 'Install-Module [A-Za-z][A-Za-z0-9_.-]* -RequiredVersion' <<<"${famLine}" || true)" ;;
+			*)                famName="$(grep -oE -- "${fam}[^|;]*" <<<"${famLine}" | grep -oE -- '[A-Za-z][A-Za-z0-9_.-]*(==|@)[0-9]' || true)" ;;
+		esac
+		[[ -n "${famName}" ]] || { echo "check-pins: ci.yml has a ${fam} line and no pinned name was read from it" >&2; nBad=$((nBad + 1)); }
+	done < <(grep -F -- "${fam}" <<<"${liveLines}" || true)
 done
 while IFS= read -r named; do
 	found=0
