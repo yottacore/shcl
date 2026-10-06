@@ -1,13 +1,13 @@
 query	type	expected	status
-base[Chicago].metrics.population	int	30200	Good
-base["Cleveland, OH"].metrics.population	int	700	Good
-base[Boston].metrics.population	int	0	Empty
-base[Philly].metrics.population	int	1024	Good
-base[chicago].metrics.population	int	-	NotFound
-base[0].metrics.population	int	30200	Good
-base[#2].metrics.population	int	0	Empty
+base(Chicago).metrics.population	int	30200	Good
+base("Cleveland, OH").metrics.population	int	700	Good
+base(Boston).metrics.population	int	0	Empty
+base(Philly).metrics.population	int	1024	Good
+base(chicago).metrics.population	int	-	NotFound
+base(0).metrics.population	int	30200	Good
+base(2).metrics.population	int	0	Empty
 base.metrics.population	int	-	Multiple
-base[Chicago].metrics.weather	string[]	Hot|Cold|Lousy|All around not that great	Good
-base[Chicago].metrics.square-miles	int	300	Good
+base(Chicago).metrics.weather	string[]	Hot|Cold|Lousy|All around not that great	Good
+base(Chicago).metrics.square-miles	int	300	Good
 base	count	4	Good
 base	instances	Chicago|Cleveland, OH|Boston|Philly	Good

@@ -6,7 +6,7 @@ db:
 web:
 	roots: [/srv, /var]
 	"a b": yes
-server[main]:
+server(main):
 	bind: 0.0.0.0
-server[alt]:
+server(alt):
 	bind: 127.0.0.1

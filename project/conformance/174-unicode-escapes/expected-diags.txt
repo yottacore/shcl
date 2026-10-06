@@ -1,2 +1,3 @@
 line 18: Error: E026
-failed: 1 diagnostic(s), 1 error(s)
+line 20: Error: E029
+failed: 2 diagnostic(s), 2 error(s)

@@ -16,4 +16,4 @@ surrogate	string	-	Good
 past	string	-	Good
 nothex	string	-	Good
 list	string[]		NotFound
-tier["\u0041"].port	int	80	Good
+tier("\u0041").port	int	-	NotFound

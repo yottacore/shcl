@@ -12,8 +12,8 @@ controls	string[]	-	Good
 hidden	string	a​b	Good
 "name◉TAB◉x"	int	1	Good
 "name◉ht◉x"	int	1	Good
-srv["a b"].port	int	80	Good
-srv["a◉SPACE◉b"].port	int	80	Good
+srv("a b").port	int	80	Good
+srv("a◉SPACE◉b").port	int	80	Good
 list	string[]	one\n|two three	Good
 raw	raw	◉ body ◉◉	Good
 raw	rawinfo	◉info◉	Good

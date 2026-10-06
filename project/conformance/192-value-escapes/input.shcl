@@ -10,7 +10,7 @@ controls: "◉NUL◉◉BEL◉◉BS◉◉VT◉◉FF◉◉ESC◉◉DEL◉"
 hidden: "a◉U+200B◉b"
 "name◉TAB◉x": 1
 srv: "a b"
-srv["a◉SPACE◉b"].port: 80
+srv("a◉SPACE◉b").port: 80
 list:
 	- "one◉NEWLINE◉"
 	- two◉SPACE◉three
@@ -29,7 +29,7 @@ empty: "◉◉"
 spaced: "◉NEW LINE◉"
 "bad◉NAME◉": 1
 	gone: 1
-sel["x◉NOPE◉"]: 1
+sel("x◉NOPE◉"): 1
 stack:
 	- "◉NOPE◉"
 	- fine

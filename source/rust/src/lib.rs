@@ -140,7 +140,7 @@ pub enum WriteReason {
 	BadPath,     // empty path, or the scanner rejected it
 	ValueInPath, // the path has a `: value` part; writes take values separately
 	Wildcard,    // wildcard selectors are query-only
-	NoSuchIndex, // a `[#k]` instance that does not (and can never) exist
+	NoSuchIndex, // a `(k)` instance that does not (and can never) exist
 	TooDeep,     // deeper than the nesting cap; the writer never creates past it
 }
 
@@ -255,7 +255,7 @@ pub type DateTime = ShclDateTime;
 /// Two datetimes name the same moment, whatever the spelling. The struct
 /// mirrors what was written, so `12:00:00Z` and `12:00:00+00:00` are different
 /// values field by field while naming one time, and `12:00:00` and
-/// `12:00:00.0` differ only in written precision. A `[value]` selector matches
+/// `12:00:00.0` differ only in written precision. A `(value)` selector matches
 /// on text, but an `allowed` set is about the value, so it compares here. An
 /// absent zone is local and matches no zone at all - that is the one spelling
 /// difference that is a real difference.
@@ -1037,8 +1037,9 @@ const TMP_NAME_BYTES: usize = 64;
 // - A bare name is an ASCII letter, then ASCII letters, digits, `-` and `_`.
 //   A file line's name that breaks only that rule still reads, up to the
 //   separator, a dot, a bracket or a comment, and is marked `misspelled`
-//   (`E014`). A `[` right after a name opens a selector, whose bare body
-//   runs to the first `]`.
+//   (`E014`). A `(` right after a name opens a selector, whose bare body
+//   runs to the first `)`. A `[` there is the old selector spelling: read
+//   the same way, to its `]`, and noted, so the parser refuses it (`E029`).
 // - A value is split on unquoted commas with a blank, a comment or the end
 //   after them, each piece trimmed; any other comma is text (`rw,noatime`).
 //   More than one piece outside brackets is a bare comma, which the parser
@@ -1077,7 +1078,7 @@ pub struct Piece {
 	pub quote: Quote,
 }
 
-/// One path segment: its name, an optional `[selector]` body, and whether
+/// One path segment: its name, an optional `(selector)` body, and whether
 /// the name was the bare `*` wildcard (lookups only).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SegTok {
@@ -1111,6 +1112,9 @@ pub struct Tokens {
 	/// Offset of the first bare name that breaks the spelling rule but still
 	/// reads, such as `404` or `user name` (`E014`, with the level held open).
 	pub misspelled: Option<usize>,
+	/// Offset of the first selector written in brackets, `x[a]`, the old
+	/// spelling (`E029`). Its body is read as a selector all the same.
+	pub bracket_selector: Option<usize>,
 	/// The caller's element cap (0 = none): the scan stops as soon as the
 	/// value holds more elements than this, so a capped parse never builds
 	/// the array it is going to refuse. Kept across `tokenize` calls.
@@ -1130,6 +1134,7 @@ impl Tokens {
 		self.comment = None;
 		self.fault = None;
 		self.misspelled = None;
+		self.bracket_selector = None;
 		self.capped = false;
 	}
 	/// How many elements the value holds: a quoted piece counts even when
@@ -1185,7 +1190,7 @@ fn name_stop(b: u8, sep: u8) -> bool {
 	b == sep
 		|| matches!(
 			b,
-			b'.' | b'[' | b']' | b'#' | b',' | b'"' | b'\'' | b'`' | b'\n'
+			b'.' | b'(' | b')' | b'[' | b']' | b'#' | b',' | b'"' | b'\'' | b'`' | b'\n'
 		)
 }
 
@@ -1221,10 +1226,10 @@ fn loose_comma(s: &[u8], at: usize) -> bool {
 }
 
 /// One piece from `pos`: a value element up to an unquoted comma or comment,
-/// or a selector body up to an unquoted `]` (`term`). Returns the trimmed
-/// piece and the offset of what ended it: the terminator, a comment's `#`,
-/// or the end of the text. `comments` is false only for a selector body in a
-/// lookup path, where `[#N]` is the index spelling. In a bracket array
+/// or a selector body up to an unquoted `)` or `]` (`term`). Returns the
+/// trimmed piece and the offset of what ended it: the terminator, a comment's
+/// `#`, or the end of the text. `comments` is false only for a selector body
+/// in a lookup path, where a `#` opens nothing. In a bracket array
 /// (`array`) the `]` that closes it ends a value element too, and every comma
 /// does; elsewhere only a loose one does, 2.x aside.
 fn scan_piece(
@@ -1490,8 +1495,8 @@ fn scan_array(text: &str, from: usize, open: usize, out: &mut Tokens) {
 }
 
 /// Tokenize one line (`sep` = `b':'`) or one lookup path (`path`: the bare
-/// `*` name wildcard is admitted, and a `#` in a selector body is the `[#N]`
-/// index rather than a comment); the CLI's `--set` passes `b'='`. `out` is
+/// `*` name wildcard is admitted, and a `#` in a selector body opens no
+/// comment); the CLI's `--set` passes `b'='`. `out` is
 /// cleared and reused, so a parse allocates once per document rather than
 /// once per line. `text` is the line after its indent, or the path.
 pub fn tokenize(text: &str, sep: u8, path: bool, rules: Rules, out: &mut Tokens) {
@@ -1574,21 +1579,32 @@ pub fn tokenize(text: &str, sep: u8, path: bool, rules: Rules, out: &mut Tokens)
 		};
 		skip_wsp(s, &mut pos);
 		let mut selector = None;
-		let mut open = (pos < s.len() && s[pos] == b'[').then_some(pos);
+		// 2.x wrote a selector in brackets only. Now it is parens, and a
+		// bracket one still reads, to its `]`, so the parser can say why.
+		let mut open = match s.get(pos) {
+			Some(b'(') if rules == Rules::Current => Some((pos, b')')),
+			Some(b'[') => {
+				if rules == Rules::Current {
+					out.bracket_selector.get_or_insert(pos);
+				}
+				Some((pos, b']'))
+			}
+			_ => None,
+		};
 		if open.is_none() && rules == Rules::V2 && pos < s.len() && s[pos] == sep {
 			let mut q = pos + 1;
 			skip_wsp(s, &mut q);
 			if q < s.len() && s[q] == b'[' {
-				open = Some(q);
+				open = Some((q, b']'));
 			}
 		}
-		if let Some(at) = open {
+		if let Some((at, close)) = open {
 			if star {
 				out.fault = Some((at, "selector on a name wildcard"));
 				return;
 			}
-			let (piece, stop) = scan_piece(s, at + 1, b']', rules, !path, false);
-			if stop >= s.len() || s[stop] != b']' {
+			let (piece, stop) = scan_piece(s, at + 1, close, rules, !path, false);
+			if stop >= s.len() || s[stop] != close {
 				out.fault = Some((at, "unterminated selector"));
 				return;
 			}
@@ -2004,8 +2020,8 @@ fn push_escape(out: &mut String, c: char) {
 	out.push(ESCAPE_MARK);
 }
 
-/// The predicate a `[value]` selector matches with: the display form, which
-/// is built from logical strings, so `["q\"uote"]` finds `'q"uote'` - a
+/// The predicate a `(value)` selector matches with: the display form, which
+/// is built from logical strings, so `("q◉DQUOTE◉uote")` finds `'q"uote'` - a
 /// logical-string match, not spelling against spelling.
 fn disp_key(v: &Value) -> String {
 	v.display()
@@ -2079,7 +2095,7 @@ type U64Map<V> = HashMap<u64, V, BuildHasherDefault<PreHashed>>;
 /// length-prefixed so the sequence is injective - a bare NUL separator lets
 /// `[a, b]` collide with the single element "a\0b". Elements are the resolved
 /// strings, so two spellings of one string are one instance: names have
-/// followed that rule since 2.0, and a `[value]` selector matches on the
+/// followed that rule since 2.0, and a `(value)` selector matches on the
 /// resolved text already. Info-string is part of identity (a `sql` and a
 /// `python` block are different values even with equal bodies); fence style
 /// is not.
@@ -2137,7 +2153,7 @@ fn merge_eq(name_a: &str, va: &Value, name_b: &str, vb: &Value) -> bool {
 	}
 }
 
-/// Hash of the (name, display) pair a `[value]` selector matches with - what
+/// Hash of the (name, display) pair a `(value)` selector matches with - what
 /// disp_key would give, streamed instead of built. Elements hold the logical
 /// string, so the bytes feed straight in.
 fn disp_hash(name: &str, v: &Value) -> u64 {
@@ -2999,8 +3015,9 @@ struct PathScan {
 	value: Option<(usize, usize)>, // span of the text after the separator colon, before any comment, trimmed
 }
 
-/// The spelling of an index selector - an optional `#`, an optional `+`, then
-/// digits - whatever its size. The grammar says `1*DIGIT`, with no upper bound.
+/// The spelling of an index selector - an optional `+`, then digits - whatever
+/// its size. The grammar says `1*DIGIT`, with no upper bound. The optional `#`
+/// is 2.x's `[#N]`, which `migrate` still reads.
 fn index_shape(body: &str) -> bool {
 	let b = body.strip_prefix('#').unwrap_or(body);
 	let b = b.strip_prefix('+').unwrap_or(b);
@@ -3028,13 +3045,10 @@ fn selector_of(p: &Piece, text: &str) -> Selector {
 	if body == "*" {
 		return Selector::Wildcard;
 	}
-	if let Some(n) = body.strip_prefix('#').and_then(|d| d.parse::<u64>().ok()) {
-		return Selector::ByIndex(n);
-	}
 	if let Ok(n) = body.parse::<u64>() {
 		return Selector::ByIndex(n);
 	}
-	if index_shape(&body) {
+	if !body.starts_with('#') && index_shape(&body) {
 		// All digits but past u64: an index no instance can have, not a
 		// value selector that would create one on a write.
 		return Selector::ByIndex(u64::MAX);
@@ -3078,7 +3092,8 @@ enum Bare {
 	Item,
 	/// An element in `[]`: no whitespace, and every comma splits.
 	Element,
-	/// A selector body: no whitespace, colon, comma or bracket either.
+	/// A selector body: no whitespace, colon, comma, bracket or paren either,
+	/// and no `#` to start it.
 	Selector,
 }
 
@@ -3104,10 +3119,19 @@ fn loose_colon(raw: &str, i: usize) -> bool {
 fn bare_trouble(raw: &str, kind: Bare) -> Option<String> {
 	let what = kind.what();
 	let strict = matches!(kind, Bare::Element | Bare::Selector);
+	// The old `[#N]` index. A file line reads that `#` as a comment, so only
+	// a lookup path gets here with one.
+	if kind == Bare::Selector && raw.starts_with('#') {
+		return Some(
+			"a '#' at the start of a bare selector; an index is a bare number, x(0), and a value starting with '#' is quoted"
+				.to_string(),
+		);
+	}
 	for (i, c) in raw.char_indices() {
 		let trouble = match c {
 			'\'' | '"' | '`' => "a quote",
 			'[' | ']' => "a bracket",
+			'(' | ')' if kind == Bare::Selector => "a paren",
 			'\t' if !strict => "a tab",
 			' ' if strict => "a space",
 			c if white_space(c) && strict => "whitespace",
@@ -3267,8 +3291,20 @@ fn line_fault(tok: &Tokens, text: &str) -> Option<Fault> {
 /// name. A line with no colon that is one name or path, `404` included, is
 /// the missing colon (`E015`), so the name rule asks only of a line that has
 /// one. A blank in a bare name with no colon could be a name and a value, so
-/// that line is not guessed at (spec.md, Error handling philosophy).
+/// that line is not guessed at (spec.md, Error handling philosophy). A
+/// selector in brackets comes first, since it is what most often makes the
+/// rest look wrong. Its line is kept, and holds its level open as the path it
+/// would read as in parens, when that reads.
 fn name_fault(tok: &Tokens, text: &str) -> Option<Fault> {
+	if let Some(at) = tok.bracket_selector {
+		let mut f = Fault::new(
+			"E029",
+			"selector in brackets; write it in parens, name(value), since brackets are only for arrays",
+			path_fault(tok, text).is_none(),
+		);
+		f.at = Some(at);
+		return Some(f);
+	}
 	if let Some(f) = path_fault(tok, text) {
 		return Some(f);
 	}
@@ -3387,16 +3423,22 @@ fn path_of(tok: &Tokens, text: &str) -> Result<PathScan, String> {
 	})
 }
 
-/// Scan a lookup path `a . b [sel] . c`: the document-line spelling plus
+/// Why a lookup path with a selector in brackets is refused.
+const BRACKET_LOOKUP: &str = "selector in brackets; write it in parens, name(value)";
+
+/// Scan a lookup path `a . b (sel) . c`: the document-line spelling plus
 /// the bare `*` segment (the name wildcard - any child name), which document
 /// lines never take; only lookups (reads, the writer probe, schema paths)
-/// do. Whitespace around dots, colons and brackets is insignificant. A path
-/// a file line could not hold is refused the same: a bad escape, or a bare
-/// selector body with whitespace, a quote, a colon, a comma or a bracket in
-/// it (`E025`).
+/// do. Whitespace around dots, colons and parens is insignificant. A path
+/// a file line could not hold is refused the same: a selector in brackets
+/// (`E029`), a bad escape, or a bare selector body with whitespace, a quote,
+/// a colon, a comma, a bracket, a paren or a leading `#` in it (`E025`).
 fn scan_lookup(input: &str) -> Result<PathScan, String> {
 	let mut tok = Tokens::default();
 	tokenize(input, b':', true, Rules::Current, &mut tok);
+	if tok.bracket_selector.is_some() {
+		return Err(BRACKET_LOOKUP.to_string());
+	}
 	if let Some(f) = path_fault(&tok, input) {
 		return Err(f.msg);
 	}
@@ -3419,7 +3461,7 @@ struct Parser<'a> {
 	// The box is the point: an inline Option<HashMap> costs 48 bytes per node.
 	#[allow(clippy::box_collection)]
 	child_map: Vec<Option<Box<U64Map<Slot>>>>,
-	// Per-node hash-of-(name, display) -> first matching child: the `[value]`
+	// Per-node hash-of-(name, display) -> first matching child: the `(value)`
 	// selector accelerator (its predicate is display(), a different and
 	// non-injective key from child_map's). Same first-wins discipline, same
 	// mutation sites; ownership is by hash, and a query verifies its hit.
@@ -4448,7 +4490,7 @@ impl<'a> Parser<'a> {
 						}
 					};
 					if is_last && value.as_ref().is_some_and(|v| !v.is_empty()) {
-						// `a.b[X]: v` - the discriminator is the value; a second
+						// `a.b(X): v` - the discriminator is the value; a second
 						// value has nowhere unambiguous to go.
 						self.refuse(
 							line,
@@ -9063,7 +9105,7 @@ impl Document {
 				}
 			}
 			if seg.star {
-				// Name wildcard: same per-slot split as `[*]`, over every child.
+				// Name wildcard: same per-slot split as `(*)`, over every child.
 				let rest = &segs[i + 1..];
 				let mut slots: Vec<Result<usize, Status>> = Vec::new();
 				for inst in next {
@@ -9264,7 +9306,7 @@ impl Document {
 	}
 
 	/// paths() one instance at a time: every binding's path in file order,
-	/// with `[#i]` on each segment whose name repeats under its parent, so
+	/// with `(i)` on each segment whose name repeats under its parent, so
 	/// each path reads exactly one node and a repeated block is walked
 	/// instance by instance. Segments are written as paths() writes them.
 	pub fn instance_paths(&self) -> Vec<String> {
@@ -9290,7 +9332,7 @@ impl Document {
 				};
 				if total[name] > 1 {
 					let i = at.entry(name).or_insert(0);
-					path.push_str(&format!("[#{}]", i));
+					path.push_str(&format!("({})", i));
 					*i += 1;
 				}
 				paths.push((c, path));
@@ -9493,7 +9535,7 @@ impl Document {
 			return WriteReason::TooDeep;
 		}
 		// The probe walk place() validates with: once it falls off the existing
-		// tree, a later `[#k]` can never match (fresh intermediates are created
+		// tree, a later `(k)` can never match (fresh intermediates are created
 		// childless), so an index segment past that point is unresolvable.
 		let mut probe = Some(ROOT);
 		for seg in &scan.segments {
@@ -9550,7 +9592,7 @@ impl Document {
 
 	/// Walk (creating as needed) to the node a write targets. A trailing name
 	/// with no selector hits the first same-named instance (or a new one); a
-	/// `[value]` selector selects the matching instance or creates it; `[#k]`
+	/// `(value)` selector selects the matching instance or creates it; `(k)`
 	/// must already exist. None = path unusable for a write (write_reason()
 	/// says why). Validation runs first, so a doomed path leaves no
 	/// half-created intermediates behind. A `setter` creating a field deals
@@ -12451,6 +12493,15 @@ fn parse_field(schema: &Document, f: usize, faults: &mut Vec<Diagnostic>) -> Opt
 	};
 	let segs = match scan_lookup(&path) {
 		Ok(s) if s.value.is_none() => s.segments,
+		Err(why) if why == BRACKET_LOOKUP => {
+			vdiag(
+				faults,
+				node.line,
+				"V093",
+				format!("bad schema path: {}; {}", schema_text(&path), why),
+			);
+			return None;
+		}
 		_ => {
 			vdiag(
 				faults,
@@ -12990,10 +13041,10 @@ fn v007_sanctioned(message: &str) -> bool {
 /// ordinary comments to the language, and nothing reads them back. A must-exist wildcard path whose
 /// parent gets materialized by another live line is generated too, in dotted
 /// form - otherwise the file would fail the very schema that produced it -
-/// and remaining wildcard or `[#N]` paths (which cannot be materialized) are
+/// and remaining wildcard or index paths (which cannot be materialized) are
 /// listed in a trailing comment block. A path whose last segment selects by
 /// value is written without that selector when it has a `default`, since a
-/// value after the selector would be ignored: `env[prod]` with `default: prod`
+/// value after the selector would be ignored: `env(prod)` with `default: prod`
 /// is `env: prod`. The output always loads clean and
 /// validates clean against its schema, except a repeat lower bound of 2+
 /// (identical generated lines would merge, so the shortfall is reported).
@@ -13029,8 +13080,8 @@ pub fn generate(schema: &Document, no_banner: bool) -> Result<String, Vec<Diagno
 			.iter()
 			.any(|s| matches!(s.selector, Some(Selector::Wildcard)))
 	};
-	// `[#N]` needs a pre-existing instance and its `#` would start a comment on
-	// a binding line. A path deeper than a document may nest cannot be generated
+	// An index selector needs a pre-existing instance, which a starter config
+	// has none of. A path deeper than a document may nest cannot be generated
 	// either: the line would draw E016 on the way back in. A newline in a name
 	// or a by-value selector is writable, since both are written escaped.
 	// The reason doubles as the predicate, so the refusal below can never name a
@@ -13041,7 +13092,7 @@ pub fn generate(schema: &Document, no_banner: bool) -> Result<String, Vec<Diagno
 		}
 		for s in &c.segs {
 			if matches!(s.selector, Some(Selector::ByIndex(_))) {
-				return "a [#N] selector needs an instance that does not exist yet";
+				return "an index selector needs an instance that does not exist yet";
 			}
 			if s.star {
 				return "a * name segment has no name to write";
@@ -13094,7 +13145,7 @@ pub fn generate(schema: &Document, no_banner: bool) -> Result<String, Vec<Diagno
 	// and a dotted child names the empty-valued instance instead - so `srv:
 	// web` followed by `srv.port:` is two `srv` nodes, and the child never
 	// ends up where the schema looks. Any line under such a parent selects it
-	// by its value: `srv[web].port:`.
+	// by its value: `srv(web).port:`.
 	// A filled wildcard emits a valued line of its own, so it belongs here too.
 	// First wins, as the line it selects does: of two lines on one path the
 	// first spelling is the one written, and its value is the instance.
@@ -13150,10 +13201,10 @@ pub fn generate(schema: &Document, no_banner: bool) -> Result<String, Vec<Diagno
 		return Err(blocked);
 	}
 	let mut wild: Vec<(String, String)> = Vec::new();
-	// Dropping a trailing `[*]` can render the same line a concrete sibling
-	// already wrote; the first spelling wins. A line from a dropped `[value]`
+	// Dropping a trailing `(*)` can render the same line a concrete sibling
+	// already wrote; the first spelling wins. A line from a dropped `(value)`
 	// selector is its own instance, so two of them with different values are
-	// both written: `env[prod]` and `env[dev]` are two `env` lines. Each path
+	// both written: `env(prod)` and `env(dev)` are two `env` lines. Each path
 	// maps to None once a plain line wrote it, or to the values written so far.
 	let mut emitted: HashMap<String, Option<HashSet<String>>> = HashMap::new();
 	// A child whose valued parent has no selector spelling cannot be written.
@@ -13494,9 +13545,9 @@ fn gen_path_text(segs: &[Segment], parent_values: &HashMap<Vec<&str>, &str>) -> 
 			&& !matches!(s.selector, Some(Selector::ByValue { .. }))
 			&& let Some(v) = parent_values.get(&names_of(&segs[..=i]))
 		{
-			out.push('[');
+			out.push('(');
 			out.push_str(&gen_selector_text(v)?);
-			out.push(']');
+			out.push(')');
 			continue;
 		}
 		match &s.selector {
@@ -13511,12 +13562,12 @@ fn gen_path_text(segs: &[Segment], parent_values: &HashMap<Vec<&str>, &str>) -> 
 				} else {
 					return None;
 				};
-				out.push('[');
+				out.push('(');
 				out.push_str(&body);
-				out.push(']');
+				out.push(')');
 			}
 			Some(Selector::ByIndex(k)) => {
-				out.push_str(&format!("[#{}]", k));
+				out.push_str(&format!("({})", k));
 			}
 			Some(Selector::Wildcard) | None => {}
 		}
@@ -13525,43 +13576,40 @@ fn gen_path_text(segs: &[Segment], parent_values: &HashMap<Vec<&str>, &str>) -> 
 }
 
 /// The selector body that picks out the instance a line `name: v` makes, or
-/// None when no body can. It is built from the elements the reader takes out
+/// None when no body can. It is built from the element the reader takes out
 /// of that line's value, and each candidate is scanned back the way a file
 /// line is scanned, so none of the scanner's rules is copied here to go stale.
 /// That copy was the cause twice: an all-digit body past 64 bits, and a
-/// quoted array element written as the body. One element tries the spelling
-/// it was written in first; an array has only the bare body, since a quoted
-/// selector matches one element only, and a bare one the elements joined.
+/// quoted array element written as the body. The spelling the value was
+/// written in goes first. A selector matches one plain value, never an
+/// array, so an array has no body.
 fn gen_selector_text(v: &str) -> Option<String> {
 	let spelled = gen_default_text(v);
 	let mut tok = Tokens::default();
 	tokenize_value(&spelled, 0, Rules::Current, &mut tok);
-	let els: Vec<String> = tok
-		.elements
-		.iter()
-		.map(|p| piece_text(p, &spelled))
-		.collect();
-	let display = els.join(", ");
-	let mut tries: Vec<(String, &str, bool)> = Vec::new();
-	if let [only] = tok.elements.as_slice() {
-		if matches!(only.quote, Quote::Single | Quote::Double) {
-			tries.push((spelled[tok.value.0..tok.value.1].to_string(), &els[0], true));
-		}
-		tries.push((display.clone(), &display, false));
-		tries.push((quote_text(&els[0]), &els[0], true));
-	} else {
-		tries.push((display.clone(), &display, false));
+	let [only] = tok.elements.as_slice() else {
+		return None;
+	};
+	if tok.array.is_some() {
+		return None;
 	}
+	let text = piece_text(only, &spelled);
+	let mut tries: Vec<(String, bool)> = Vec::new();
+	if matches!(only.quote, Quote::Single | Quote::Double) {
+		tries.push((spelled[tok.value.0..tok.value.1].to_string(), true));
+	}
+	tries.push((text.clone(), false));
+	tries.push((quote_text(&text), true));
 	tries
 		.into_iter()
-		.find(|(body, text, quoted)| selector_reads_back(body, text, *quoted))
-		.map(|(body, _, _)| body)
+		.find(|(body, quoted)| selector_reads_back(body, &text, *quoted))
+		.map(|(body, _)| body)
 }
 
-/// Whether `body` between brackets on a file line reads back as a value
+/// Whether `body` between parens on a file line reads back as a value
 /// selector for `text`, quoted or bare as asked.
 fn selector_reads_back(body: &str, text: &str, quoted: bool) -> bool {
-	let line = format!("x[{}]:", body);
+	let line = format!("x({}):", body);
 	// The tokenizer reads one line and never sees a line end, so text with a
 	// real line break would read back here and then be written across two lines,
 	// which is not the same path. A file line cannot hold one, so refuse and let
@@ -13729,7 +13777,7 @@ impl Document {
 
 	// Resolution contexts: the whole document for a plain path; each enclosing
 	// instance for the part of a path after a wildcard. required/repeat evaluate
-	// per context (anchor line 0 = document scope), so `server[*].port` +
+	// per context (anchor line 0 = document scope), so `server(*).port` +
 	// required means a port under EACH server - vacuously true with no servers.
 	fn v_contexts(
 		&self,
@@ -13749,7 +13797,7 @@ impl Document {
 				}
 			}
 			if seg.star {
-				// Name wildcard: same per-instance split as `[*]`, any child name.
+				// Name wildcard: same per-instance split as `(*)`, any child name.
 				let rest = &segs[i + 1..];
 				if rest.is_empty() {
 					out.push((anchor, next));
@@ -14959,17 +15007,17 @@ mod kept_gate {
 	#[test]
 	fn a_replaced_leaf_leaves_the_lines_beside_it() {
 		let _id = test_id("ErkSy71");
-		let mut doc = Document::parse("    srv: a\n  srv[x]: [3\nb[x]: [4\n# mine\nq: c\n");
+		let mut doc = Document::parse("    srv: a\n  srv(x): [3\nb(x): [4\n# mine\nq: c\n");
 		assert_eq!(
 			doc.to_canonical(),
-			"srv: a\n# srv[x]: [3\nb[x]: [4\n# mine\nq: c\n"
+			"srv: a\n# srv(x): [3\nb(x): [4\n# mine\nq: c\n"
 		);
 		doc.merge(&Document::parse("q: 9\n"));
-		assert_eq!(doc.to_canonical(), "srv: a\n# srv[x]: [3\nb[x]: [4\nq: 9\n");
+		assert_eq!(doc.to_canonical(), "srv: a\n# srv(x): [3\nb(x): [4\nq: 9\n");
 		assert_eq!(doc.lost_count(), 0);
-		let mut doc = Document::parse("p:\n\tq: c\n\t# mine\n\tb[x]: [4\n\t# n\n");
+		let mut doc = Document::parse("p:\n\tq: c\n\t# mine\n\tb(x): [4\n\t# n\n");
 		doc.merge(&Document::parse("p:\n\tq: 9\n"));
-		assert_eq!(doc.to_canonical(), "p:\n\tb[x]: [4\n\t# n\n\tq: 9\n");
+		assert_eq!(doc.to_canonical(), "p:\n\tb(x): [4\n\t# n\n\tq: 9\n");
 		assert_eq!(doc.lost_count(), 0);
 	}
 }

@@ -17,5 +17,4 @@ past: "\U00110000"
 nothex: "\uZZZZ"
 list: "\u0041", b
 tier: A
-tier: \u0041
-	port: 80
+tier["\u0041"].port: 80

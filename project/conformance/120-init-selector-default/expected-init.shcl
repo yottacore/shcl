@@ -9,16 +9,16 @@ env: prod
 tier: gold
 
 ## int, required
-tier[gold].limit: 10
+tier(gold).limit: 10
 
 ## any, required
 srv: web
 
 ## any, required
-srv[web].zone: eu
+srv(web).zone: eu
 
 ## any, required
-flag[on]:
+flag(on):
 
 ## any
 # mode: fast

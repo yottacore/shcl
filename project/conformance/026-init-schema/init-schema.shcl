@@ -22,7 +22,7 @@ field: features
 	type: string-array
 	desc: "Enabled feature flags."
 
-field: "server[*].host"
+field: "server(*).host"
 	type: string
 	required: yes
 	desc: "Hostname per server."

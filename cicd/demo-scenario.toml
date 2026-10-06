@@ -22,8 +22,8 @@ scrollrate = 320                # a long listing; the read time is the pause, no
 pause = 3.0
 
 [[step]]
-show  = "{prog} get --int app.shcl 'servers[web1].port'"
-run   = "{bin} get --int cicd/demo/app.shcl 'servers[web1].port'"
+show  = "{prog} get --int app.shcl 'servers(web1).port'"
+run   = "{bin} get --int cicd/demo/app.shcl 'servers(web1).port'"
 pause = 1.2
 
 [[step]]

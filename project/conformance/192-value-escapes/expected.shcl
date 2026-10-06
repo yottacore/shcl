@@ -29,7 +29,7 @@ long: "◉U+0000041◉"
 empty: "◉◉"
 spaced: "◉NEW LINE◉"
 "bad◉NAME◉": 1
-sel["x◉NOPE◉"]: 1
+sel("x◉NOPE◉"): 1
 stack:
 	- "◉NOPE◉"
 	- fine

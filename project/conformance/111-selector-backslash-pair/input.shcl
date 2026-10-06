@@ -1,4 +1,4 @@
 p: '\\srv\temp'
-p[\\srv\temp].q: 1
+p(\\srv\temp).q: 1
 r: a\nb
-r[a\nb].s: 2
+r(a\nb).s: 2

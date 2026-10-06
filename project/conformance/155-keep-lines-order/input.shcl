@@ -2,5 +2,5 @@
 # gives the canonical form.
 env: prod
 env: dev
-env[prod].url: u
+env(prod).url: u
 port: 1

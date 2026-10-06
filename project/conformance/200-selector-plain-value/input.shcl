@@ -8,8 +8,8 @@ srv:
 	~~~
 	a
 	~~~
-srv[a].tls: on
-srv["b c"].port: 2
-base[New York]:
+srv(a).tls: on
+srv("b c").port: 2
+base(New York):
 	lat: 1
 last: 1

@@ -5,13 +5,13 @@ a:
 a.b: bee
 
 ## any, required
-a.b[bee].c:
+a.b(bee).c:
 
 ## any, required
 num: 8
 
 ## any, required
-num["8"].v:
+num("8").v:
 
 ## any, required
 w: v
@@ -20,7 +20,7 @@ w: v
 star: "*"
 
 ## any, required
-star["*"].leaf:
+star("*").leaf:
 
 ## any, required
 "a◉NEWLINE◉b": v

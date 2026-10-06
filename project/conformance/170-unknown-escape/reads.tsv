@@ -9,9 +9,9 @@ ok-doubled	string	C:\\work\\new	Good
 regex	string	\d+	Good
 "n\ame"	int	1	Good
 "n\\ame"	int	-	NotFound
-srv.port	int	80	Good
+srv.port	int	-	NotFound
 list	string[]		Empty
 fence	rawinfo	"C:\x"	Good
 fence	raw	body	Good
 last	int	1	Good
--	paths	win|ok-single|ok-bare|ok-doubled|regex|"n\ame"|srv|srv.port|list|fence|last	-
+-	paths	win|ok-single|ok-bare|ok-doubled|regex|"n\ame"|list|fence|last	-

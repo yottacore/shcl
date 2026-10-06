@@ -20,5 +20,5 @@ open	string	-	Empty
 open.kid	int	2	Good
 stack	string[]	one|two three|four	Good
 srv	count	1	Good
-srv["New York"].port	int	2	Good
+srv("New York").port	int	2	Good
 last	int	1	Good

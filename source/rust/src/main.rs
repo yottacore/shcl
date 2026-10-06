@@ -116,7 +116,7 @@ option holds the edits, an empty base when the ops script has stdin instead.
 With --write, a FILE that does not exist yet is created. Lines the edits leave
 alone come back as they were written; with --layer, or where the edited text
 would not load back the same, the whole document comes out canonical, the way
-fmt writes it. PATH ends at the first '=' outside quotes and brackets, so a
+fmt writes it. PATH ends at the first '=' outside quotes and parens, so a
 selector may hold one. Ops:
   int|float|bool|string|datetime<TAB>PATH<TAB>VALUE       set a scalar
   <type>-array<TAB>PATH<TAB>V1<TAB>V2...                  set an inline array
@@ -290,13 +290,13 @@ const CODES: &str = "\
 E001|error|field line under a parent holding stacked '- ' list items
   A parent holds list items or named children, not both. The field line
   is kept and the items stay.
-E002|error|value after a last-segment selector (a.b[X]: v)
+E002|error|value after a last-segment selector (a.b(X): v)
   The selector already says which instance, so the value has nowhere to go
   and is ignored. Put the value on the line that creates the instance.
 E003|error|selector names an instance that does not exist
-  a[5].b where there is one a. An index selects an existing instance by
+  a(5).b where there is one a. An index selects an existing instance by
   position and never creates one, so a binding line should select by value
-  instead. In a file the index is the bare [5], since a # opens a comment.
+  instead.
 E004|error|wildcard selector on a binding line
   Wildcards read every instance, so there is no single one to write to.
   They are query-only.
@@ -378,9 +378,9 @@ E025|error|a tab, a quote, a bracket or a loose colon in bare text
   it is an error: host: a.com port: 80 is two fields on one line. Put each
   field on its own line, or quote the value: name: \"O'Brien\". An array
   element or a selector body takes no whitespace, and a selector body no
-  colon or comma either. Whitespace at either end is trimmed first. The line
-  is kept verbatim and binds nothing. In a value, the lines under it still
-  load, under the field with no value.
+  colon, comma or paren either. Whitespace at either end is trimmed first.
+  The line is kept verbatim and binds nothing. In a value, the lines under
+  it still load, under the field with no value.
 E026|error|a bare comma with a space or the end after it
   ports: 80, 443 is an error. Write the array in brackets, ports: [80, 443],
   or quote text that has a comma. A comma with text right after it is text,
@@ -399,6 +399,12 @@ E028|error|an array on a field with lines under it
   value and put the list in a field under it: methods: [GET, POST]. The line
   is kept verbatim, and the lines under it load under the field with no
   value.
+E029|error|a selector in brackets, the old spelling
+  Selectors are written in parens: person(Bucky).city, person(\"New York\"),
+  person(0) and person(*). Brackets are only for arrays. The line is kept
+  as written and binds nothing. When it selects by value, the lines under
+  it still load, under the instance it names. On a command line, quote the
+  path, since a bare ( is a syntax error in most shells.
 H001|hint|repeated bare leaf (an array written as repeated lines)
   Repeated leaves are legal - that is how instances are written - but
   'tags: red' twice and 'tags: [red, blue]' look alike, so the parser says
@@ -449,7 +455,7 @@ V097|error|generated output does not load, or fails its own schema
   init checks its own output before returning it, so a starter config that
   would fail its first check is a fault instead. A default outside its
   field's constraints is one cause. A required path nothing can generate is
-  the other, such as one with a [#N] selector or a * name. Line 0.
+  the other, such as one with an index selector, a(0), or a * name. Line 0.
 V099|error|schema failed to load
   The schema had error diagnostics of its own; they are printed above this
   with their own line numbers. Line 0.
@@ -693,11 +699,6 @@ const INFO_FLAGS: [&str; 7] = [
 	"--donate",
 ];
 
-/// PATH=VALUE at the first `=` outside quotes and brackets, so a selector
-/// holding one (`x[a=b].c=1`) still addresses its instance. The tokenizer
-/// reads the path half with `=` as its separator, so quotes and brackets
-/// mean here exactly what they mean in a file; an argument whose path half
-/// is not a path at all has no `=` to split at.
 /// A path no document can hold, which a remove would take as a miss and
 /// exit 0: one the scanner rejects, or one with a value part. A missing path
 /// or a wildcard is still fine.
@@ -708,6 +709,30 @@ fn unusable_path(doc: &Document, path: &str) -> bool {
 	)
 }
 
+/// A path with a selector in brackets, the old spelling (E029). A 2.x habit
+/// still types it, so a refusal names it.
+fn bracket_path(path: &str) -> bool {
+	let mut tok = Tokens::default();
+	tokenize(path, b':', true, Rules::Current, &mut tok);
+	tok.bracket_selector.is_some()
+}
+
+const BRACKET_PATH: &str = "a selector is written in parens now, name(value)";
+
+/// What a path the scanner refused is called.
+fn bad_path(path: &str) -> &'static str {
+	if bracket_path(path) {
+		BRACKET_PATH
+	} else {
+		"not a usable path"
+	}
+}
+
+/// PATH=VALUE at the first `=` outside quotes and parens, so a selector
+/// holding one (`x(a=b).c=1`) still addresses its instance. The tokenizer
+/// reads the path half with `=` as its separator, so quotes and parens
+/// mean here exactly what they mean in a file; an argument whose path half
+/// is not a path at all has no `=` to split at.
 fn split_set(arg: &str) -> Option<(&str, &str)> {
 	let mut tok = Tokens::default();
 	tokenize(arg, b'=', true, Rules::Current, &mut tok);
@@ -1020,7 +1045,8 @@ fn set_value_opt(o: &mut Opts, name: &str, v: &str) -> Result<(), String> {
 			}
 			if unusable_path(&Document::new(), v) {
 				return Err(format!(
-					"bad --remove value (not a usable path): {} (see --help)",
+					"bad --remove value ({}): {} (see --help)",
+					bad_path(v),
 					v
 				));
 			}
@@ -1034,7 +1060,7 @@ fn set_value_opt(o: &mut Opts, name: &str, v: &str) -> Result<(), String> {
 		"--set" | "--set-literal" | "--set-default" | "--set-literal-default" => {
 			let (p, val) = split_set(v).filter(|(p, _)| !p.is_empty()).ok_or_else(|| {
 				format!(
-					"bad {} value (want PATH=VALUE, quotes and brackets balanced): {} (see --help)",
+					"bad {} value (want PATH=VALUE, quotes and parens balanced): {} (see --help)",
 					name, v
 				)
 			})?;
@@ -1424,7 +1450,7 @@ fn describe_refusal(
 ) -> &'static str {
 	match doc.write_reason(path) {
 		shcl::WriteReason::Writable => array_refusal(doc, path, array).unwrap_or(unwritable),
-		shcl::WriteReason::BadPath => "not a usable path",
+		shcl::WriteReason::BadPath => bad_path(path),
 		shcl::WriteReason::ValueInPath => "a path with a value part cannot be written",
 		shcl::WriteReason::Wildcard => "a wildcard path cannot be written",
 		shcl::WriteReason::NoSuchIndex => "no instance at that index",
@@ -1929,6 +1955,7 @@ fn do_get(o: &Opts) -> u8 {
 				Some(raw) => format!("value {} is not a valid {}", quoted(&raw), type_name),
 				None => format!("value is not a valid {}", type_name),
 			},
+			Status::NotFound if bracket_path(path) => BRACKET_PATH.to_string(),
 			Status::NotFound => "no value at that path".to_string(),
 			Status::Empty => "the value is empty".to_string(),
 			Status::Multiple => "the path matches multiple instances".to_string(),
@@ -2803,7 +2830,7 @@ fn apply_op(doc: &mut Document, line: &str) -> Result<(), String> {
 		"empty" => doc.set_empty(path),
 		"comment" => doc.set_comment(path, &unescape_ops(val())),
 		"remove" | "clear-comments" if unusable_path(doc, path) => {
-			return Err(format!("cannot {} {}: not a usable path", f[0], path));
+			return Err(format!("cannot {} {}: {}", f[0], path, bad_path(path)));
 		}
 		"remove" => {
 			doc.remove(path);

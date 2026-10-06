@@ -3,5 +3,5 @@ x:
 	hi
 	```
 x: hi
-x[hi].k: 1
-x["hi"].m: 2
+x(hi).k: 1
+x("hi").m: 2

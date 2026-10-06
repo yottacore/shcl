@@ -1,7 +1,7 @@
 # A carriage return is a blank outside a raw body: trimmed at every edge of
 # a piece and content in the middle of one.
 name: 1
-srv[web].port: 2
+srv(web).port: 2
 list: [a, b, c]
 mid: ab
 note: v#c

@@ -2,7 +2,7 @@ query	type	expected	status
 -	load	ok	-
 -	load	fail	-	strict
 name	int	1	Good
-srv[web].port	int	2	Good
+srv(web).port	int	2	Good
 list	string[]	a|b|c	Good
 note	string	v	Good
 stack	string[]	one|two	Good

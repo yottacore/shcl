@@ -173,14 +173,16 @@ fn structural(rng: &mut Rng) -> String {
 		let unit = if rng.below(6) == 0 { " " } else { "\t" };
 		let indent = unit.repeat(depth);
 		let name = NAMES[rng.below(NAMES.len())];
-		let sel = match rng.below(6) {
-			0 => "[x]",
-			1 => "[*]",
-			2 => "[#1]",
+		// `[x]` is the old selector spelling, refused and kept (E029).
+		let sel = match rng.below(7) {
+			0 => "(x)",
+			1 => "(*)",
+			2 => "(1)",
+			3 => "[x]",
 			_ => "",
 		};
 		// Shapes 11 to 13 have a `# k` comment behind a selector holding a
-		// quote, a backslash or a quoted `]`; see comments_behind_selectors.
+		// quote, a backslash or a quoted `)`; see comments_behind_selectors.
 		let line = match rng.below(29) {
 			0 => format!("{indent}# comment {}", rng.below(3)),
 			1 => String::new(),
@@ -195,9 +197,9 @@ fn structural(rng: &mut Rng) -> String {
 			8 => format!("{indent}{name}: \"open"),
 			9 => format!("{indent}{name}: 1, , 2 # trailing"),
 			10 => format!("{indent}\u{feff}{name}: 1"),
-			11 => format!("{indent}{name}[O'x].{name}: {}  # k", rng.below(9)),
-			12 => format!("{indent}{name}[C:\\].{name}: it's  # k"),
-			13 => format!("{indent}{name}[ \"q]v\" ].{name}: {}  # k", rng.below(9)),
+			11 => format!("{indent}{name}(O'x).{name}: {}  # k", rng.below(9)),
+			12 => format!("{indent}{name}(C:\\).{name}: it's  # k"),
+			13 => format!("{indent}{name}( \"q)v\" ).{name}: {}  # k", rng.below(9)),
 			// A one-element array, glued to the colon or not, which 2.x read
 			// as a selector.
 			14 => format!(
@@ -205,15 +207,15 @@ fn structural(rng: &mut Rng) -> String {
 				if rng.below(2) == 0 { " " } else { "" },
 				rng.below(3)
 			),
-			// The 3.0 shapes: a `#` glued to a value, an index selector a
-			// comment cuts off, bare and single-quoted backslashes, a comment
-			// right after the colon, a quote that closes with text after it.
+			// The 3.0 shapes: a `#` glued to a value, a selector body a comment
+			// cuts off, bare and single-quoted backslashes, a comment right
+			// after the colon, a quote that closes with text after it.
 			15 => format!("{indent}{name}: x#y  # k"),
-			16 => format!("{indent}{name}[#{}].{name}: {}", rng.below(2), rng.below(9)),
+			16 => format!("{indent}{name}(#{}).{name}: {}", rng.below(2), rng.below(9)),
 			17 => format!("{indent}{name}: C:\\dir, a\\tb, 'it\\'s'"),
 			18 => format!("{indent}{name}:#x"),
 			19 => format!("{indent}{name}: \"a\" b, c  # k"),
-			20 => format!("{indent}{name}['x].{name}: {}  # k", rng.below(9)),
+			20 => format!("{indent}{name}('x).{name}: {}  # k", rng.below(9)),
 			// The array and list shapes: the old marker, a malformed array two
 			// ways, with its fault past an element cap of one, and an item
 			// that is a name or text with a space.
@@ -338,14 +340,23 @@ fn mutated_inputs_never_panic_and_format_is_fixpoint() {
 				text
 			);
 		}
-		// The formatter must be a fixpoint on its own output.
-		let once = doc.to_canonical();
-		let twice = Document::parse(&once).to_canonical();
-		assert_eq!(
-			twice, once,
-			"formatter not idempotent at iteration {} for mutated input:\n{}",
-			i, text
-		);
+		// The formatter must be a fixpoint on its own output. A load can build a
+		// list no text loads back, under a kept array line (2026100511210900).
+		// A save refuses it, so only that unsaved text is not a fixpoint.
+		if list_after_empty(&doc) {
+			assert!(
+				doc.lost_count() > 0,
+				"a list no text loads back saves at iteration {i}:\n{text}"
+			);
+		} else {
+			let once = doc.to_canonical();
+			let twice = Document::parse(&once).to_canonical();
+			assert_eq!(
+				twice, once,
+				"formatter not idempotent at iteration {} for mutated input:\n{}",
+				i, text
+			);
+		}
 		// Both answers to "was this file written for 2.x" have their own set of
 		// rewrites, and each has to settle after one pass. An unstamped output
 		// is written in the value syntax, which a second pass reads as 2.x
@@ -453,10 +464,10 @@ fn comments_behind_selectors_stay_comments() {
 	// and all four of the shapes this property is named for could have stopped
 	// generating without a word.
 	for one in [
-		"a[O'x].b: 5  # k",
-		"a[C:\\].b: it's  # k",
-		"a[ \"q]v\" ].b: 5  # k",
-		"a['x].b: 5  # k",
+		"a(O'x).b: 5  # k",
+		"a(C:\\).b: it's  # k",
+		"a( \"q)v\" ).b: 5  # k",
+		"a('x).b: 5  # k",
 	] {
 		let doc = Document::parse(one);
 		let canon = doc.to_canonical();
@@ -1014,17 +1025,27 @@ fn list_after_empty(doc: &Document) -> bool {
 			&& !r.quoted
 			&& r.value.starts_with('[');
 		let Some((head, k)) = p
-			.strip_suffix(']')
-			.and_then(|q| q.rsplit_once("[#"))
+			.strip_suffix(')')
+			.and_then(|q| q.rsplit_once('('))
 			.and_then(|(h, k)| Some((h, k.parse::<usize>().ok()?)))
 		else {
 			return false;
 		};
 		list && (0..k).any(|j| {
-			let e = format!("{head}[#{j}]");
+			let e = format!("{head}({j})");
 			doc.read_string(&e).status == shcl::Status::Empty && !doc.children(&e).is_empty()
 		})
 	})
+}
+
+/// The fmt property's case: a kept array line (E028) with a wildcard line
+/// under it builds a list no text loads back, and the save refuses it.
+#[test]
+fn a_kept_array_line_can_build_the_list_no_text_loads_back() {
+	let _id = test_id("Erxfmqc");
+	let doc = Document::parse("srv.srv: 2\nsrv: [v1]\n\tq(*): 7\n\t- 0\n\tc: 1\n");
+	assert!(list_after_empty(&doc), "{}", doc.to_canonical());
+	assert!(doc.lost_count() > 0);
 }
 
 /// Layered merge over mutated soup: overlaying one document on another must
@@ -1575,7 +1596,7 @@ fn common(a: &[(usize, String)], b: &[(usize, String)]) -> Vec<(usize, String)> 
 		.collect()
 }
 
-/// An instance path with its `[#i]` selectors taken out: a save may write
+/// An instance path with its `(i)` selectors taken out: a save may write
 /// a repeated block as one, or one as two.
 fn without_instances(path: &str) -> String {
 	let mut out = String::with_capacity(path.len());
@@ -1583,8 +1604,8 @@ fn without_instances(path: &str) -> String {
 	let mut rest = path;
 	while let Some(c) = rest.chars().next() {
 		if quoted.is_none()
-			&& let Some(tail) = rest.strip_prefix("[#")
-			&& let Some(end) = tail.find(']')
+			&& let Some(tail) = rest.strip_prefix('(')
+			&& let Some(end) = tail.find(')')
 			&& end > 0
 			&& tail[..end].bytes().all(|b| b.is_ascii_digit())
 		{
@@ -1621,7 +1642,7 @@ fn kept_soup(rng: &mut Rng) -> String {
 			4 => format!("{ind}- {n}"),
 			5 => format!("{ind}{name}: \"a◉Q◉b\""),
 			6 => format!("{ind}{name}: C:\\Program Files"),
-			7 => format!("{ind}{name}[x]: [{n}"),
+			7 => format!("{ind}{name}(x): [{n}"),
 			8 => format!("{ind}{name}: {n}, {n}"),
 			9 => format!("{ind}- name:"),
 			_ => format!("{ind}{name}: [{n}"),
@@ -2184,7 +2205,7 @@ fn fences_joined(canon: &str) -> Vec<String> {
 }
 
 /// The leaves of `base` a merge of `over` replaces, each as a path that names
-/// every parent by its instance, `a[#0].b[#2].c`. A layer's instance merges
+/// every parent by its instance, `a(0).b(2).c`. A layer's instance merges
 /// into the base instance with the same name and value, so a parent counts
 /// only when exactly one base instance reads the same. A name the layer has
 /// only as leaves, where the base has it with no children, is replaced. Read
@@ -2212,10 +2233,10 @@ fn replaced_leaves(base: &Document, over: &Document, at: (&str, &str), out: &mut
 			continue;
 		}
 		for i in 0..over.count(&on) {
-			let oi = format!("{on}[#{i}]");
+			let oi = format!("{on}({i})");
 			let o = over.read_string(&oi);
 			let hits: Vec<String> = (0..instances)
-				.map(|k| format!("{bn}[#{k}]"))
+				.map(|k| format!("{bn}({k})"))
 				.filter(|b| {
 					let r = base.read_string(b);
 					r.status == o.status && r.value == o.value && r.raw == o.raw
@@ -2564,7 +2585,7 @@ fn a_misplaced_tail_line_is_no_skipped_copy() {
 fn merge_exceptions_go_by_position() {
 	let _id = test_id("ErpR2rr");
 	let mut doc = Document::parse("s: u\n\tb: 1\ns: v\n\tx: 0\n\t\tc: 2\n\t  a: 5\n\tb: 1\n");
-	assert_eq!(doc.remove("s[v].x.c"), 1);
+	assert_eq!(doc.remove("s(v).x.c"), 1);
 	let before = doc.to_canonical();
 	let leaf = replaced_leaf_lines(&before, "s: v\n\tb: 9\n");
 	assert_eq!(leaf.settled, ["a: 5"]);
@@ -3274,7 +3295,7 @@ impl LineGen {
 	/// A bare piece for a value or a selector body: no bracket, no leading
 	/// quote, no `#`, no edge blank, and in a value no comma but one with a
 	/// letter after it, which is text. `open` makes it start with a quote it
-	/// never closes the quoted way. No `]` at all, and no quote as a bare piece's last
+	/// never closes the quoted way. No `]` or `)` at all, and no quote as a bare piece's last
 	/// character: a quote that opens a piece closes at the next matching
 	/// quote when that one sits right before the piece's terminator,
 	/// wherever on the line it is, so those two shapes would hand an open
@@ -3283,7 +3304,7 @@ impl LineGen {
 	fn bare(&mut self, rng: &mut Rng, term: char, open: bool) -> Piece {
 		let start = self.text.len();
 		let mut set: Vec<&str> = vec![
-			"a", "Z", "-", "_", ".", ":", "\\", "\u{e9}", "'", "\"", "`", "[",
+			"a", "Z", "-", "_", ".", ":", "\\", "\u{e9}", "'", "\"", "`", "[", "(",
 		];
 		set.retain(|c| !c.starts_with(term));
 		if open {
@@ -3343,15 +3364,23 @@ impl LineGen {
 		let mut selector = None;
 		if rng.below(2) == 0 {
 			self.wsp(rng);
-			self.text.push('[');
+			// Now and then the old spelling in brackets, which reads the same
+			// and is noted (E029).
+			let (open, close) = if rng.below(4) == 0 {
+				self.want.bracket_selector.get_or_insert(self.text.len());
+				('[', ']')
+			} else {
+				('(', ')')
+			};
+			self.text.push(open);
 			self.wsp(rng);
 			let body = match rng.below(4) {
 				0 => self.quoted(rng, false),
-				1 => self.bare(rng, ']', true),
-				_ => self.bare(rng, ']', false),
+				1 => self.bare(rng, close, true),
+				_ => self.bare(rng, close, false),
 			};
 			self.wsp(rng);
-			self.text.push(']');
+			self.text.push(close);
 			selector = Some(body);
 		}
 		SegTok {
@@ -3519,24 +3548,24 @@ fn generated_starters_load_and_validate_clean() {
 	const PATHS: &[&str] = &[
 		"a",
 		"a.b",
-		"a[b]",
-		"a[b].c",
-		"a[*].c",
-		"a[*]",
+		"a(b)",
+		"a(b).c",
+		"a(*).c",
+		"a(*)",
 		"\"x:y\"",
 		"\"x#y\"",
 		"\"x y\"",
 		"\"x.y\"",
-		"a['#']",
-		"a[\"b c\"]",
-		"a[\" b\"]",
-		"a[b#c]",
-		"a.b[c].d",
-		"\"a b\"[c]",
-		"a[~~~]",
-		"a.b[c]",
-		"a[*].b[c]",
-		"a[\"b\"]",
+		"a('#')",
+		"a(\"b c\")",
+		"a(\" b\")",
+		"a(b#c)",
+		"a.b(c).d",
+		"\"a b\"(c)",
+		"a(~~~)",
+		"a.b(c)",
+		"a(*).b(c)",
+		"a(\"b\")",
 	];
 	const DEFAULTS: &[Option<&str>] = &[
 		None,
@@ -3559,7 +3588,7 @@ fn generated_starters_load_and_validate_clean() {
 	];
 	const REQUIRED: &str = "\trequired: yes\n";
 	const KINDS: &[&str] = &[REQUIRED, "\trepeat: 1\n", ""];
-	const CHILDREN: &[&str] = &["a.c", "a[*].c", "a[b].c", "a.c[d]", "a[*]", "a[b]"];
+	const CHILDREN: &[&str] = &["a.c", "a(*).c", "a(b).c", "a.c(d)", "a(*)", "a(b)"];
 	const CHILD_DEFAULTS: &[Option<&str>] =
 		&[None, Some("v"), Some("b"), Some("d"), Some("\"~~~y\"")];
 	fn field(path: &str, default: Option<&str>, kind: &str) -> String {
@@ -3623,11 +3652,11 @@ fn generated_starters_load_and_validate_clean() {
 	);
 
 	assert_eq!(
-		generate_checked("field: \"a[b]\"\n\trequired: yes\n\tdefault: b\n").as_deref(),
+		generate_checked("field: \"a(b)\"\n\trequired: yes\n\tdefault: b\n").as_deref(),
 		Some("## any, required\na: b\n"),
 		"a default naming the selected instance must generate"
 	);
-	let spaced = generate_checked("field: '\"a b\"[c]'\n\trequired: yes\n\tdefault: c\n")
+	let spaced = generate_checked("field: '\"a b\"(c)'\n\trequired: yes\n\tdefault: c\n")
 		.expect("a quoted name with a selector default must generate");
 	assert!(
 		spaced.lines().any(|l| l == "\"a b\": c"),

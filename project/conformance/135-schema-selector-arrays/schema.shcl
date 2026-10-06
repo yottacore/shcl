@@ -1,10 +1,10 @@
 field: srv
 	repeat: [1, 4]
-field: "srv[web1].port"
+field: "srv(web1).port"
 	type: int
 	max: 1000
-field: "srv[*].flags"
+field: "srv(*).flags"
 	type: bool-array
-field: "srv[*].when"
+field: "srv(*).when"
 	type: datetime-array
 	required: yes

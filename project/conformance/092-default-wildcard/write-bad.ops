@@ -1,5 +1,5 @@
-int-default	srv[*].port	99
-string-default	srv[*].host	x
-int-array-default	srv[*].ports	1	2
-literal-default	srv[*].tag	v
-int-default	srv[*].port	80
+int-default	srv(*).port	99
+string-default	srv(*).host	x
+int-array-default	srv(*).ports	1	2
+literal-default	srv(*).tag	v
+int-default	srv(*).port	80

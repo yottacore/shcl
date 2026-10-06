@@ -1,0 +1,14 @@
+# A selector is written in parens. One in brackets is E029, kept as written.
+srv: web
+	port: 80
+srv[web]:
+	host: h
+srv[db].port: 5432
+item[0]:
+	x: 1
+"404"[x]: 2
+pick(a(b).c: 1
+pick(a(b)).c: 2
+pick("a(b)").c: 3
+tags: [a, b]
+last: 1

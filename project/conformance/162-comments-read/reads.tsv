@@ -5,5 +5,5 @@ b	comments	# mine|# indented note	-
 c	comments		-
 c.d	comments	# inner	-
 e	comments	# first e|# second e	-
-e[#1]	comments	# second e	-
+e(1)	comments	# second e	-
 nope	comments		-

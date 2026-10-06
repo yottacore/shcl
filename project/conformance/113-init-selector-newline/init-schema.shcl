@@ -1,13 +1,13 @@
 # A newline in a name and in a by-value selector are both spelled escaped,
 # whether the schema wrote it escaped or as a real line break.
-field: 'srv["a◉ESCAPE_CHAR◉NEWLINE◉ESCAPE_CHAR◉b"].port'
+field: 'srv("a◉ESCAPE_CHAR◉NEWLINE◉ESCAPE_CHAR◉b").port'
 	type: int
 	required: yes
 	default: 8080
 field: '"top◉ESCAPE_CHAR◉NEWLINE◉ESCAPE_CHAR◉line"'
 	required: yes
 	default: v
-field: 'lit["c◉NEWLINE◉d"].port'
+field: 'lit("c◉NEWLINE◉d").port'
 	type: int
 	required: yes
 	default: 9090
