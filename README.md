@@ -288,7 +288,7 @@ log-level: warn
 site: example.com
 	root: /srv/www/example
 	Max-Upload-MB : 50
-	methods: GET, POST, HEAD
+	methods: [GET, POST, HEAD]
 	tls:
 		cert: /etc/ssl/example.pem
 		hsts: on
@@ -939,7 +939,7 @@ log-level: warn
 site: example.com
 	root: /srv/www/example
 	max-upload-mb: 50
-	methods: GET, POST, HEAD
+	methods: [GET, POST, HEAD]
 	tls:
 		cert: /etc/ssl/example.pem
 		hsts: true
