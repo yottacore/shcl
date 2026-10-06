@@ -1,9 +1,9 @@
 path: 'C:\\temp'
 tab: 'a\\tb'
 bare: a\\tb
-pair: a\\, b
+pair: [a\\, b]
 shield: "a\, b"
-tail: x, a\\
+tail: [x, a\\]
 noted: a\\ # note
 real-tab: 'C:\temp'
 real-newline: a\nb

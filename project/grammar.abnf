@@ -69,16 +69,15 @@ index-sel       = "#" [ "+" ] 1*DIGIT         ; explicit index; a query spelling
                 ; a leading "+" is accepted either way (list[+1] = list[1]);
                 ; "-" is not an index sign - [-1] is a value selector.
 value-sel       = quoted / bare-sel           ; non-numeric bare, or quoted (forces value)
-bare-sel        = 1*( sel-char / escape )
-sel-char        = bare-text / ":" / "["
-                ; a bare selector's scan runs to the first "]", so ".", ":" and
-                ; "[" pass through (base[St.Paul].p resolves). It follows the
-                ; bare value rules otherwise: whitespace or a quote in it is
+bare-sel        = 1*( bare-text / escape )
+                ; a bare selector's scan runs to the first "]", so a "." passes
+                ; through (base[St.Paul].p resolves). It is stricter than a
+                ; value: whitespace, a quote, a ":", a "," or a "[" in it is
                 ; E025, a quote that opens it and never closes is E017, and a
                 ; "#" opens a comment, which leaves the selector unterminated
-                ; (E014). To embed a "]" or a blank, quote the discriminator:
-                ; base["a]b"], base["New York"]. A selector matches one plain
-                ; value, never an array or a raw block.
+                ; (E014). To embed any of those, quote the discriminator:
+                ; base["a]b"], base["New York"], host["a:b"]. A selector
+                ; matches one plain value, never an array or a raw block.
 
 field-name      = quoted / bare-name
 bare-name       = ALPHA *name-char
@@ -102,8 +101,11 @@ array           = "[" *blank [ element *( *blank "," *blank element ) *blank ] "
                 ; inside) is the empty array. Text after the "]", a bare "[" or
                 ; "]" inside, an empty element ([a,, b], [a, ]) or no closing
                 ; "]" is E019.
-element         = quoted / backticked / 1*( elem-char / escape )
-elem-char       = bare-text / ":"
+element         = quoted / backticked / bare-elem
+bare-elem       = *":" bare-unit *( *":" bare-unit )
+                ; every "," splits inside the brackets, with or without a blank
+                ; after it, so [a,b] is 2 elements. A bare element holds no
+                ; whitespace and does not end in ":" (E025).
 scalar          = quoted / backticked / bareword
 
 quoted          = dquoted / squoted
@@ -126,16 +128,20 @@ btchar          = %x00-09 / %x0B-5F / %x61-10FFFF
                 ; back as written, with a flag saying it was backticked. A
                 ; value or an array element only, never a name or a selector.
 
-bareword        = bare-lead *bare-unit
-bare-lead       = bare-text / ":" / "]" / escape
-bare-unit       = bare-text / ":" / "[" / "]" / escape
+bareword        = bare-run *( 1*SP bare-run )
+bare-run        = *bare-punct bare-unit *( *bare-punct bare-unit )
+bare-punct      = ":" / ","
+bare-unit       = bare-text / escape
                 ; what the PARSER takes. Everything after the ":" up to an
                 ; unquoted "#" is the value, trimmed at both edges of a SP,
-                ; HTAB or CR only. A bare piece holds no whitespace (any
-                ; White_Space character, E025) and no quote or backtick (E025),
-                ; so "q: needs no quotes" and "k: it's" are errors. A bare ","
-                ; is E026, since an array is written in brackets. ":" "[" and
-                ; "]" are text inside (t: 12:30, a: x[y], k: a]b), and only a
+                ; HTAB or CR only. Spaces inside are kept as typed, so
+                ; "q: needs no quotes" is fine. Any other whitespace (a tab or
+                ; another White_Space character), a quote, a backtick, a "["
+                ; or a "]" is E025, so "k: it's" is an error. A ":" or ","
+                ; needs a character other than whitespace right after it:
+                ; t: 12:30, d: :0 and o: rw,noatime are text. A ":" before a
+                ; blank or the end is E025 (h: a.com port: 80), and a "," there
+                ; is E026, since an array is written in brackets. Only a
                 ; leading "[" opens an array.
 
 ;-----------------------------------------------------------------------------
@@ -152,14 +158,16 @@ code-point      = code-prefix 1*6HEXDIG
                 ; backtick values, fence labels or raw bodies. The writer uses
                 ; the first name of each and U+ with at least four digits.
 
-fmt-bareword    = *( fmt-unit / ":" ) fmt-unit
+fmt-bareword    = *fmt-punct fmt-unit *( *fmt-punct fmt-unit )
+fmt-punct       = ":" / ","
 fmt-unit        = fmt-bare-char [ variation-sel ] / %x200C-200D / subdivision-flag
                 ; the minimally-quoted shape the FORMATTER emits, reached from
                 ; nothing above. A value holding anything outside this class,
-                ; ending in ":", or a run that would read as a fence comes
-                ; back quoted. A ":" inside it stays bare (2:30PM,
-                ; localhost:8080); one at the end is quoted, since as a list
-                ; item it would read as "- name:".
+                ; ending in ":" or ",", or a run that would read as a fence
+                ; comes back quoted. The writer quotes a value with a space,
+                ; though the parser takes one bare. A ":" or "," inside stays
+                ; bare (2:30PM, localhost:8080, rw,noatime). An array element
+                ; with a "," is quoted, since there it splits.
 subdivision-flag= %x1F3F4 3*7flag-tag %xE007F
 flag-tag        = %xE0030-E0039 / %xE0061-E007A
 ; gen-escapes.py: begin
@@ -210,7 +218,7 @@ code-prefix     = "U+" / "UNICODE+" / "UNICODE-" / "UNICODE_"
 ; "Arrays"):
 ;   - opens only under a field-line whose inline value is EMPTY;
 ;   - uniform-or-nothing: at that child indent every line is an item or none;
-;   - one item per line; a bare comma on the line is E026, not a split;
+;   - one item per line; a "," before a blank or the end is E026, not a split;
 ;   - scalars only: an item has no "field: value" children, and an item that
 ;     is an array is E019.
 ; "-" is not a name-char that can start a bare name, and the blank after it
@@ -218,12 +226,11 @@ code-prefix     = "U+" / "UNICODE+" / "UNICODE-" / "UNICODE_"
 ; old marker, is E013.
 
 list-item-line  = indent "-" 1*blank list-item *blank [ comment ]
-list-item       = quoted / backticked / item-bare
-item-bare       = bare-text / "]" / escape / bare-lead *bare-unit item-last
-item-last       = bare-text / "[" / "]" / escape
-                ; a bare item ending in ":" is E027 (- name:), since that is
-                ; how YAML starts an object in a list. - "name:" is the text,
-                ; and - localhost:8080 is fine.
+list-item       = quoted / backticked / bareword
+                ; a bare item takes spaces as a value does. A ":" before a
+                ; blank or the end is E027 (- name:, - name: value), since that
+                ; is how YAML starts an object in a list. - "name:" is the
+                ; text, and - localhost:8080 is fine.
 
 ;-----------------------------------------------------------------------------
 ; Raw (fenced) blocks

@@ -372,21 +372,27 @@ E023|error|a bad escape
   lines under it still load, under the field with no value, and a read on the
   field is Empty once one of them loads. When the name is, a raw block the
   line opens is kept with it.
-E025|error|whitespace or a quote in a bare value or selector body
-  title: My App and name: O'Brien are both errors. Quote the value:
-  title: \"My App\" and name: \"O'Brien\". Whitespace at either end is
-  trimmed first. The line is kept verbatim and binds nothing. In a value,
-  the lines under it still load, under the field with no value.
-E026|error|a bare comma outside brackets and quotes
+E025|error|a tab, a quote, a bracket or a loose colon in bare text
+  A bare value or list item may hold spaces, kept as typed. A tab or other
+  whitespace, a quote, a bracket, or a colon with a space or the end after
+  it is an error: host: a.com port: 80 is two fields on one line. Put each
+  field on its own line, or quote the value: name: \"O'Brien\". An array
+  element or a selector body takes no whitespace, and a selector body no
+  colon or comma either. Whitespace at either end is trimmed first. The line
+  is kept verbatim and binds nothing. In a value, the lines under it still
+  load, under the field with no value.
+E026|error|a bare comma with a space or the end after it
   ports: 80, 443 is an error. Write the array in brackets, ports: [80, 443],
-  or quote text that has a comma. The line is kept verbatim and binds
+  or quote text that has a comma. A comma with text right after it is text,
+  so opts: rw,noatime is one string. The line is kept verbatim and binds
   nothing. The lines under it still load, under the field with no value. A
   list item with a bare comma, - a, b, is kept the same way, and the other
   items still load.
-E027|error|a list item that is a bare name ending in ':', as in - name:
-  That is how YAML starts an object in a list, and SHCL writes one as an
-  instance. Quote the item if it is text: - \"name:\". The line is kept as
-  written, and the other items still load.
+E027|error|a list item like - name: or - name: value
+  A colon with a space or the end after it is how YAML starts an object in
+  a list, and SHCL writes one as an instance. A colon with text after it is
+  fine, as in - localhost:8080. Quote the item if it is text: - \"name: a\".
+  The line is kept as written, and the other items still load.
 E028|error|an array on a field with lines under it
   A field with fields under it takes one plain value or none, so
   route: [GET, POST] with lines under it is an error. Give the field one

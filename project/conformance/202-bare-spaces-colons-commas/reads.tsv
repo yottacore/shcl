@@ -1,0 +1,24 @@
+query	type	expected	status	level
+-	load	ok	-
+-	load	fail	-	strict
+-	lost	0	-
+title	string	My  App	Good
+when	datetime	2026-07-12	Good
+opts	string	rw,noatime	Good
+display	string	:0	Good
+url	string	https://example.com:8080/a?b=c,d	Good
+ports	string	80,443	Good
+ports	int	-	BadType
+ports	int[]	-	BadType
+qty	int	1000	Good
+host	string	-	Empty
+host.under	int	1	Good
+x	string	-	NotFound
+done	string	-	NotFound
+tab	string	-	NotFound
+br	string	-	NotFound
+tags	string	-	NotFound
+ab	string[]	a|b	Good
+el	string[]	rw|noatime	Good
+items	string[]	New York|rw,noatime|:0	Good
+last	int	1	Good

@@ -6,7 +6,7 @@ wallpaper: "C:◉USERS◉x.png"
 	opacity: 0.2
 ports: [80, 443 # kept
 	tls: on
-path: C:\Program Files
+path: C:\Users\O'Brien
 path:
 	- one
 	- two

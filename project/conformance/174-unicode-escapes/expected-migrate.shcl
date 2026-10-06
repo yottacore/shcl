@@ -15,7 +15,8 @@ short: "\u12"
 surrogate: "\uD800"
 past: "\U00110000"
 nothex: "\uZZZZ"
-list: "\u0041", b
+list: ["\u0041", b]
 tier: A
 tier["\u0041"].port: 80
 ##    Format   3
+##    Migrated from SHCL 2.x.

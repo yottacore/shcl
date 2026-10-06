@@ -9,9 +9,9 @@ mod common;
 
 use common::test_id;
 use shcl::{
-	Document, DurationUnit, FORMAT_LINE, FORMAT_LINE_HEAD, FORMAT_MAJOR, MIGRATED_LINE, SizeUnit,
-	Strictness, format_version, generate, migrate, migrate_unstamped, parse_datetime,
-	quote_segment, schema_ref,
+	Document, DurationUnit, FORMAT_LINE, FORMAT_LINE_HEAD, FORMAT_MAJOR, MIGRATED_LINE, Rules,
+	SizeUnit, Strictness, Tokens, format_version, generate, migrate, migrate_unstamped,
+	parse_datetime, quote_segment, schema_ref, tokenize,
 };
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -1148,10 +1148,10 @@ fn parse_limited_caps() {
 	// assert_eq!(doc.lost_count(), 0);
 	// A fence whose info string splits past the cap is refused with its block,
 	// in both spellings, so the body never reads as live lines. Same fixture in
-	// every runner.
+	// every runner. Only a comma with a blank after it splits since 20261006.
 	for text in [
-		"secrets:\n\t```a,b,c,d\n\tpassword: hunter2\n\t```\nafter: 1\n",
-		"secrets: ```a,b,c,d\n\tpassword: hunter2\n\t```\nafter: 1\n",
+		"secrets:\n\t```a, b, c, d\n\tpassword: hunter2\n\t```\nafter: 1\n",
+		"secrets: ```a, b, c, d\n\tpassword: hunter2\n\t```\nafter: 1\n",
 	] {
 		let doc = Document::parse_limited(text, Strictness::Standard, 0, 3, 0).unwrap();
 		let codes: Vec<&str> = doc.diagnostics().iter().map(|d| d.code).collect();
@@ -2771,4 +2771,152 @@ fn setters_write_only_what_reads_back() {
 		"every accepted write together changed on a save and load"
 	);
 	std::fs::remove_dir_all(&dir).unwrap();
+}
+
+// A comma splits a value outside brackets only with a blank, a comment or
+// the end after it; inside brackets every one does (value-syntax.md,
+// 20261006). 2.x split on every comma, which migrate still reads.
+#[test]
+fn a_comma_splits_a_bare_value_only_before_a_blank() {
+	let _id = test_id("Ervn567");
+	let mut tok = Tokens::default();
+	for (line, pieces) in [
+		("x: rw,noatime", 1),
+		("x: ,a", 1),
+		("x: a,,b", 1),
+		("x: a, b", 2),
+		("x: a,", 2),
+		("x: a,# c", 2),
+		("x: a,\tb", 2),
+		("x: [a,b]", 2),
+		("x: [rw,noatime, c]", 3),
+	] {
+		tokenize(line, b':', false, Rules::Current, &mut tok);
+		assert_eq!(tok.elements.len(), pieces, "{line:?}");
+	}
+	tokenize("x: a,b", b':', false, Rules::V2, &mut tok);
+	assert_eq!(tok.elements.len(), 2);
+}
+
+// Spaces in a bare value or item are fine. A tab, a bracket, a quote, or a
+// colon or comma with a blank or the end after it is one error, and its
+// message says what to do.
+#[test]
+fn bare_spaces_colons_and_commas() {
+	let _id = test_id("Ervn568");
+	for (text, code, fix) in [
+		(
+			"x: host: a.com port: 80\n",
+			"E025",
+			"put each field on its own line",
+		),
+		("x: done:\n", "E025", "quote it"),
+		("x: a\tb\n", "E025", "quote it"),
+		("x: a[b]c\n", "E025", "quote it"),
+		("x: [New York, Boston]\n", "E025", "quote it"),
+		("x: [a:, b]\n", "E025", "quote it"),
+		("x: a,\n", "E026", "write an array in brackets"),
+		("x: 80, 443\n", "E026", "write an array in brackets"),
+		("x: a: b, c\n", "E025", "put each field on its own line"),
+		("x:\n\t- name: value\n", "E027", "as instances"),
+		("x:\n\t- name:\n", "E027", "as instances"),
+		("x:\n\t- a, b\n", "E026", "quote the text"),
+		("x:\n\t- a\tb\n", "E025", "quote it"),
+		("x:\n\t- [a]\n", "E019", "quote the item"),
+		("x[a:b].y: 1\n", "E025", "quote it"),
+		("x[a,b].y: 1\n", "E025", "quote it"),
+		("x[a[b].y: 1\n", "E025", "quote it"),
+	] {
+		let doc = Document::parse(text);
+		let d = doc.diagnostics();
+		assert_eq!(d.len(), 1, "{text:?}: {d:?}");
+		assert_eq!(d[0].code, code, "{text:?}");
+		assert!(d[0].message.contains(fix), "{text:?}: {}", d[0].message);
+	}
+	for (text, path, want) in [
+		("x: My  App\n", "x", "My  App"),
+		("x: rw,noatime\n", "x", "rw,noatime"),
+		("x: :0\n", "x", ":0"),
+		(
+			"x: https://a.com:8080/p?q=1,2\n",
+			"x",
+			"https://a.com:8080/p?q=1,2",
+		),
+		("x: Jul 12 2026  # c\n", "x", "Jul 12 2026"),
+		("x:\n\t- New  York\n\t- :0\n", "x", "[\"New  York\", :0]"),
+	] {
+		let doc = Document::parse(text);
+		assert!(
+			doc.diagnostics().is_empty(),
+			"{text:?}: {:?}",
+			doc.diagnostics()
+		);
+		assert_eq!(doc.get_string(path).as_deref(), Ok(want), "{text:?}");
+	}
+	assert!(Document::parse("x: 80,443\n").get_int("x").is_err());
+}
+
+// The writer leaves a colon or comma bare where the reader takes it as
+// text, quotes one at the end, and quotes an array element with a comma,
+// since there it splits. A quoted thousands comma keeps its quotes, since
+// only a quoted number reads one.
+#[test]
+fn the_writer_quotes_a_comma_by_where_it_sits() {
+	let _id = test_id("Ervn569");
+	let mut doc = Document::new();
+	assert!(doc.set_string("opts", "rw,noatime"));
+	assert!(doc.set_string("display", ":0"));
+	assert!(doc.set_string("end", "a,"));
+	assert!(doc.set_string("title", "My App"));
+	assert!(doc.set_string_array("tags", &["rw,noatime", "b"]));
+	let out = doc.to_canonical();
+	for want in [
+		"opts: rw,noatime\n",
+		"display: :0\n",
+		"end: \"a,\"\n",
+		"title: \"My App\"\n",
+		"tags: [\"rw,noatime\", b]\n",
+	] {
+		assert!(out.contains(want), "{want:?} not in {out:?}");
+	}
+	let back = Document::parse(&out);
+	assert_eq!(back.to_canonical(), out);
+	assert_eq!(
+		back.get_string_array("tags"),
+		Ok(vec!["rw,noatime".to_string(), "b".to_string()])
+	);
+	let doc = Document::parse("n: \"1,000\"\n");
+	assert_eq!(doc.to_canonical(), "n: \"1,000\"\n");
+	assert_eq!(doc.get_int("n"), Ok(1000));
+	let doc = Document::parse("t: a,b\nt: c\n");
+	let hint = &doc.diagnostics()[0];
+	assert_eq!(hint.code, "H001");
+	assert!(hint.message.contains("t: [\"a,b\", c]"), "{}", hint.message);
+}
+
+// migrate writes a 2.x comma list in brackets, with or without a blank
+// after the comma, since 2.x read both as arrays. In a file that does not
+// say it is 2.x, `a,b` is a string under these rules, so it is left and
+// counted; `a, b` is an error here, so it converts either way. A lone bare
+// value these rules refuse is quoted.
+#[test]
+fn migrate_brackets_a_2x_comma_list() {
+	let _id = test_id("Ervn56A");
+	let m = migrate(
+		"x: a, b\ny: a,b\nz: \"q\", r\nw: New York,,b\nv: done:\nu: rw,noatime\n",
+		true,
+	);
+	assert_eq!(m.ambiguous, 0);
+	assert!(
+		m.text.starts_with(
+			"x: [a, b]\ny: [a, b]\nz: [\"q\", r]\nw: [\"New York\", b]\nv: \"done:\"\nu: [rw, noatime]\n"
+		),
+		"{:?}",
+		m.text
+	);
+	let back = Document::parse(&m.text);
+	assert!(back.diagnostics().is_empty(), "{:?}", back.diagnostics());
+	let m = migrate("x: a, b\ny: a,b\n", false);
+	assert_eq!(m.ambiguous, 1);
+	assert!(m.text.starts_with("x: [a, b]\ny: a,b\n"), "{:?}", m.text);
 }

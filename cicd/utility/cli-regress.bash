@@ -272,7 +272,7 @@ printf 'field: srv\n\trepeat: [0, 1]\n\tdefault: web\nfield: srv.port\n\ttype: i
 ## selects. Its line is commented, so the check only looked at the value.
 ## The second schema is the optdefok one with `a[b]` defaulting to `b`, which
 ## is what that one now has to say to pass.
-printf 'field: env[prod]\n\tdefault: staging\n' > "${tmpDir}/optselbad.shcl"
+printf 'field: "env[prod]"\n\tdefault: staging\n' > "${tmpDir}/optselbad.shcl"
 printf 'field: srv\n\trepeat: [0, 1]\n\tdefault: web\nfield: srv.port\n\ttype: int\n\tdefault: 80\nfield: "a[b]"\n\tdefault: b\n' > "${tmpDir}/optdefok2.shcl"
 ## An optional line with no default was never read back, so a selector whose
 ## value breaks the field's type went out commented at exit 0. And a valued
@@ -666,10 +666,10 @@ rows=(
 	'ErqYSbG|array-e019-nested|check -|n: [[1, 2], 3]\n|6|line 1: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E019 malformed array, a .\[. inside an array; quote the value if it is text$'
 	'ErqYSbH|array-e019-empty-element|check -|g: [a,, b]\n|6|line 1: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E019 malformed array, an empty element; quote the value if it is text$'
 	'ErqYSbI|array-e019-unclosed|check -|o: [a, b\n|6|line 1: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E019 malformed array, no closing .\]. on the line; quote the value if it is text$'
-	'ErqYSbJ|array-e026-bare-comma|check -|ports: 80, 443\n|6|line 1: Error: E026\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E026 bare comma; an array is written in brackets, \[a, b\], and text with a comma is quoted$'
+	'ErqYSbJ|array-e026-bare-comma|check -|ports: 80, 443\n|6|line 1: Error: E026\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E026 a comma then a space or the end in a bare value; write an array in brackets, \[a, b\], or quote the text$'
 	'ErqYSbK|list-e013-old-marker|check -|a:\n\t* x\n|6|line 2: Error: E013\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E013 a list item is written .- . now, not .\*.$'
-	'ErqYSbL|list-e027-name|check -|a:\n\t- name:\n|6|line 2: Error: E027\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E027 a list item that is a name ending in .:.; a list of objects is written as instances, and text ending in .:. is quoted$'
-	'ErqYSbM|list-e019-nested|check -|a:\n\t- [x]\n|6|line 2: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E019 a list item is one value; arrays do not nest$'
+	'ErqYSbL|list-e027-name|check -|a:\n\t- name:\n|6|line 2: Error: E027\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E027 a list item with a colon then a space or the end; write a list of objects as instances, or quote the item if it is text$'
+	'ErqYSbM|list-e019-nested|check -|a:\n\t- [x]\n|6|line 2: Error: E019\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E019 a list item is one value, and arrays do not nest; quote the item if it is text$'
 	'ErqYSbQ|h001-suggests-brackets|check -|x: a\nx: b\n|0|line 2: Hint: H001\nok (1 diagnostic(s))\n|did you mean .x: \[a, b\].\?$'
 	'ErqYSbR|fmt-keeps-stacked|fmt -|a:\n  - x\n  - "y z"\nb: [1,2]\n|0|a:\n\t- x\n\t- "y z"\nb: [1, 2]\n|-'
 	## An array on a field with fields under it is E028: the line is kept and
@@ -683,8 +683,24 @@ rows=(
 	'ErrQs1f|array-e028-joined-binding|fmt -|c: [v2]\nc:[v2]\n\tq: 1\n|0|c: [v2]\nc:[v2]\n\tq: 1\n|^line 2: Error: E028'
 	## A list item with a bare comma is E026, kept among the items (it was
 	## E010 and dropped).
-	'ErrQs1g|list-e026-item-check|check -|a:\n\t- x, y\n\t- z\n|6|line 2: Error: E026\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E026 bare comma in a list item; an item is one value, and text with a comma is quoted$'
+	'ErrQs1g|list-e026-item-check|check -|a:\n\t- x, y\n\t- z\n|6|line 2: Error: E026\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E026 a comma then a space or the end in a list item; an item is one value, so quote the text$'
 	'ErrQs1h|list-e026-item-kept|fmt -|a:\n\t- x, y\n\t- z\n|0|a:\n\t- x, y\n\t- z\n|-'
+	## A bare value or list item may hold spaces, and a colon or comma with
+	## text right after it is text. One with a blank or the end after it is an
+	## error that says what to do (2026100207032800, 20261006).
+	'ErvnzpS|bare-spaces-read|get - t|t: My  App  # c\n|0|My  App\n|-'
+	'ErvnzpT|bare-spaces-fmt|fmt -|t: My  App\nl:\n\t- New York\n|0|t: "My  App"\nl:\n\t- "New York"\n|-'
+	'ErvnzpU|bare-comma-text-read|get - o|o: rw,noatime\n|0|rw,noatime\n|-'
+	'ErvnzpV|bare-colon-text-fmt|fmt -|d: :0\nu: http://h:80/p\n|0|d: :0\nu: http://h:80/p\n|-'
+	'ErvnzpW|e025-loose-colon-check|check -|host: a.com port: 80\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a colon then a space in a bare value; put each field on its own line, or quote the value$'
+	'ErvnzpX|e025-tab-check|check -|t: a\tb\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a tab in a bare value; quote it$'
+	'ErvnzpY|e026-trailing-comma-check|check -|x: a,\n|6|line 1: Error: E026\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E026 a comma then a space or the end in a bare value'
+	'ErvnzpZ|e027-name-value-check|check -|a:\n\t- name: value\n\t- b\n|6|line 2: Error: E027\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E027 a list item with a colon then a space or the end'
+	'Ervnzpa|e025-selector-colon-check|check -|srv[a:b].p: 1\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a colon in a bare selector; quote it$'
+	'Ervnzpb|array-tight-comma-splits|set --set-literal=t=[a,b] -|t: 1\n|0|t: [a, b]\n|-'
+	'Ervnzpc|set-literal-comma-text|set --set-literal=o=rw,noatime --set=e=a, -|o: 1\n|0|o: rw,noatime\n\ne: "a,"\n|-'
+	'Ervnzpd|migrate-comma-list|migrate --from-2x -|x: a,b\ny: a, b\n|0|x: [a, b]\ny: [a, b]\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
+	'Ervnzpe|migrate-comma-ambiguous|migrate -|y: a,b\n|7|y: a,b\n|read one way under 2.x and another'
 	## A comment on a stacked item stays on it, and one among the items stays
 	## among them.
 	'ErrQs1i|list-item-comment-fmt|fmt -|l:\n\t# first\n\t- a  # one\n\t- b\n|0|l:\n\t# first\n\t- a  # one\n\t- b\n|-'
@@ -785,13 +801,16 @@ rows=(
 	'Erlr8gU|kept-value-e023-empty|get - a|a: "x\xe2\x97\x89Q\xe2\x97\x89"\n\tb: 1\n|2|\n|E023'
 	## E024 is retired; a bare value with a space is the common case now.
 	#Erlr8iQ|kept-value-e024-empty|get - a|a: "C:\\temp"\n\tb: 1\n|2|\n|E024'
-	'ErpZsUj|kept-value-e025-empty|get - a|a: My App\n\tb: 1\n|2|\n|E025'
+	## A bare value may hold spaces since 20261006, so this line binds now.
+	#ErpZsUj|kept-value-e025-empty|get - a|a: My App\n\tb: 1\n|2|\n|E025'
+	'ErvnzpR|kept-value-e025-colon-empty|get - a|a: host: a.com port: 80\n\tb: 1\n|2|\n|E025'
 	'Erlr21T|explain-e019-read|explain E019|-|0|\nE019  error       a bracket array that is not well formed\n  An array is one line, ports: [80, 443], and [] is the empty array. Text\n  after the closing \x27]\x27, a bare \x27[\x27 or \x27]\x27 inside, an empty element, or no\n  closing \x27]\x27 on the line is malformed. Quote the value if it is text:\n  log: "[INFO] started". A list item that is an array is E019 too, since\n  arrays do not nest. The line is kept verbatim: it binds nothing and\n  nothing counts as lost. The lines under it still load, under the field\n  with no value, so a read on the field is Empty when one of them loads and\n  NotFound when none does.\n\n|-'
 	'ErqYSbN|explain-e013|explain E013|-|0|\nE013  error       a line starting with \x27*\x27, the old list item marker\n  A list item is written \x27- value\x27 now. The line is kept as written and\n  binds nothing, and the other items still load. What is written under it\n  goes with it.\n\n|-'
-	'ErqYSbO|explain-e026|explain E026|-|0|\nE026  error       a bare comma outside brackets and quotes\n  ports: 80, 443 is an error. Write the array in brackets, ports: [80, 443],\n  or quote text that has a comma. The line is kept verbatim and binds\n  nothing. The lines under it still load, under the field with no value. A\n  list item with a bare comma, - a, b, is kept the same way, and the other\n  items still load.\n\n|-'
+	'ErqYSbO|explain-e026|explain E026|-|0|\nE026  error       a bare comma with a space or the end after it\n  ports: 80, 443 is an error. Write the array in brackets, ports: [80, 443],\n  or quote text that has a comma. A comma with text right after it is text,\n  so opts: rw,noatime is one string. The line is kept verbatim and binds\n  nothing. The lines under it still load, under the field with no value. A\n  list item with a bare comma, - a, b, is kept the same way, and the other\n  items still load.\n\n|-'
 	'ErrQs1Z|explain-e028|explain E028|-|0|\nE028  error       an array on a field with lines under it\n  A field with fields under it takes one plain value or none, so\n  route: [GET, POST] with lines under it is an error. Give the field one\n  value and put the list in a field under it: methods: [GET, POST]. The line\n  is kept verbatim, and the lines under it load under the field with no\n  value.\n\n|-'
 	'ErrQs1a|explain-e010-retired|explain E010|-|0|\nE010  retired     error, replaced by E026\n  Loads no longer report E010. \x27shcl explain E026\x27 has the rule now.\n\n|-'
-	'ErqYSbP|explain-e027|explain E027|-|0|\nE027  error       a list item that is a bare name ending in \x27:\x27, as in - name:\n  That is how YAML starts an object in a list, and SHCL writes one as an\n  instance. Quote the item if it is text: - "name:". The line is kept as\n  written, and the other items still load.\n\n|-'
+	'ErqYSbP|explain-e027|explain E027|-|0|\nE027  error       a list item like - name: or - name: value\n  A colon with a space or the end after it is how YAML starts an object in\n  a list, and SHCL writes one as an instance. A colon with text after it is\n  fine, as in - localhost:8080. Quote the item if it is text: - "name: a".\n  The line is kept as written, and the other items still load.\n\n|-'
+	'Ervo6BP|explain-e025|explain E025|-|0|\nE025  error       a tab, a quote, a bracket or a loose colon in bare text\n  A bare value or list item may hold spaces, kept as typed. A tab or other\n  whitespace, a quote, a bracket, or a colon with a space or the end after\n  it is an error: host: a.com port: 80 is two fields on one line. Put each\n  field on its own line, or quote the value: name: "O\x27Brien". An array\n  element or a selector body takes no whitespace, and a selector body no\n  colon or comma either. Whitespace at either end is trimmed first. The line\n  is kept verbatim and binds nothing. In a value, the lines under it still\n  load, under the field with no value.\n\n|-'
 	## 2026-10-05: explain E023 prints the mark itself, not the text U+25C9.
 	#'Erlr23g|explain-e023-read|explain E023|-|0|\nE023  error       a bad escape\n  An escape is a name from the escape list between two U+25C9 marks, such as\n  TAB, NEWLINE or U+200B, and a real U+25C9 is the name ESCAPE_CHAR. Anything\n  else between two marks is an error, and so is a mark with no partner. A\n  backslash is plain text. The line is kept verbatim: it binds nothing and a\n  read on it is NotFound. When only the value is wrong, the lines under it\n  still load, under the field with no value, and a read on the field is Empty\n  once one of them loads. When the name is, a raw block the line opens is kept\n  with it.\n\n|-'
 	'Ers2pOq|explain-e023-mark|explain E023|-|0|\nE023  error       a bad escape\n  An escape is a name from the escape list between two \xe2\x97\x89 marks, such as\n  \xe2\x97\x89TAB\xe2\x97\x89, \xe2\x97\x89NEWLINE\xe2\x97\x89 or \xe2\x97\x89U+200B\xe2\x97\x89, and a real \xe2\x97\x89 is written \xe2\x97\x89ESCAPE_CHAR\xe2\x97\x89.\n  Anything else between two marks is an error, and so is a mark with no\n  partner. A backslash is plain text. The line is kept verbatim: it binds\n  nothing and a read on it is NotFound. When only the value is wrong, the\n  lines under it still load, under the field with no value, and a read on the\n  field is Empty once one of them loads. When the name is, a raw block the\n  line opens is kept with it.\n\n|-'

@@ -50,7 +50,7 @@ Case `004` pins load behavior per level: a malformed line is skipped with a diag
 
 Case `005` pins raw-block binding: a fence is a value line for its parent field - both spellings (same-line and the canonical child-indent) bind as the field's value; a fence under an already-valued field creates a new instance, addressed with the normal `[0]`/`[#N]` selectors.
 
-Case `006` pins comma edges: a bare comma outside brackets is `E026`, and an empty element inside them is `E019`, leading, doubled or trailing. Each line is kept as written and nothing is lost. Spacing inside brackets is not kept, and a `""`-quoted element is the one way to write an empty one.
+Case `006` pins comma edges: a bare comma with a space or the end after it, outside brackets, is `E026`, and an empty element inside them is `E019`, leading, doubled or trailing. Each line is kept as written and nothing is lost. Spacing inside brackets is not kept, and a `""`-quoted element is the one way to write an empty one.
 
 Case `007` also pins that a multibyte char inside a time-shaped value's zone tail is a plain `BadType`, never a crash.
 
@@ -222,7 +222,7 @@ Cases `096` and `097` pin a raw block that never closes, with and without a fina
 
 Case `098` pins a comment added to a node that already has one, with a blank line above the node: the new comment goes under the old one, and the blank moves above both.
 
-Case `099` pins `literal` on text that only looks like syntax: a fence opener is stored as a quoted string, while a spaced bare string (`E025`), an unclosed quote in the first or a later piece and a leading `[` are refused.
+Case `099` pins `literal` on text that only looks like syntax: a fence opener is stored as a quoted string, while a bare string with a colon then a space (`E025`), an unclosed quote in the first or a later piece and a leading `[` are refused.
 
 Case `100` pins integers past the i64 range: hex, decimal and quoted-thousands spellings read as floats and are `BadType` as ints.
 
@@ -246,7 +246,7 @@ Case `109` pins a `#` in a bare selector body on a file line: it opens a comment
 
 Case `110` pins `init` for a schema listed out of tree order, a parent after its child with another field between: the output keeps tree order and loads with no diagnostics, hints included.
 
-Case `111` pins a backslash in a bare selector body as a character: `p[C:\temp]` and `r[a\nb]` select the instances already there rather than creating second ones.
+Case `111` pins a backslash in a bare selector body as a character: `p[\\srv\temp]` and `r[a\nb]` select the instances already there rather than creating second ones.
 
 Case `112` pins three setters through the tokenizer: a comment's trailing blanks come off, a raw info string keeps its leading blank, and a quoted `#` given to `literal` stays in the value. A comment holding a line break is refused.
 
@@ -312,7 +312,7 @@ Case `142` pins a comment left above a block's later instance. `# c` follows `p`
 
 Case `143` pins where comments go once a merge or a write changes a block, which must be where a reload of the saved text puts them. Three layers merged at once keep `# inside` right after `c`, above the top layer's `d`, as merging two and then the third from saved text does. Two children written into `k`, whose only line is a comment, get the comment between them, as two separate runs of `set` do. And a raw block after an empty `b` has its trailing comment written on the line above it, which a reload files as a leading comment, so it stays there once the empty `b` is set to 5.
 
-Case `144` pinned the `H003` hint, now retired. A stacked item written `name: value` is `E025` for its space and kept as written, `- flag:` is `E027` and kept, text with a colon and no blank reads as a plain item, and the list stays stacked around the kept lines.
+Case `144` pinned the `H003` hint, now retired. A stacked item written `name: value` is `E027` and kept as written, so is `- flag:`, text with a colon and no blank reads as a plain item, and the list stays stacked around the kept lines.
 
 Case `145` pins which misplaced lines a save keeps. An `E012` line whose indent holds a space is written back as it was, and so is an `E018` line under it. An `E012` line indented with tabs alone would bind on a reload, so it is lost. A kept line that a re-opened block moves up to the top of the file would bind there as written, so it is written as a comment instead.
 
@@ -410,7 +410,7 @@ Case `191` pins a field line refused for its name (`E014`, `E023` in a name) who
 
 Case `192` pins the escape mark: names from the list in any case, aliases, every code point prefix, escapes in bare, single- and double-quoted values, a quoted name, a selector body and a stacked item, and the mark as text in a comment and a raw block. An unknown name, a lone mark, a surrogate, a code point past U+10FFFF or with seven digits, an empty pair and a name with a space are `E023`, kept as written; one in a value keeps its block, one in a name or selector takes it. Its write ops pin the writer's escapes: `TAB`, `NEWLINE`, `CR`, `CRLF`, `ESCAPE_CHAR`, the named controls, a code point for the rest, and `DOUBLE_QUOTE` in text holding both quotes.
 
-Case `193` pins `E025`: whitespace or a quote in a bare value, an array element, a stacked item or a bare selector body. Whitespace at the edges is trimmed first, and a colon inside a value is text, so a time, a URL and a dash-separated date stay bare. A line refused for its value keeps its block, and so does an open quote (`E017`); a refused selector takes it. Its write ops store spaced text as data, and the writer quotes a value only when it ends in a colon.
+Case `193` pins `E025`: a tab, a quote or whitespace other than a space in a bare value, and any whitespace in an array element or a bare selector body. A bare value or stacked item may hold spaces, edge whitespace is trimmed first, and a colon inside a value is text, so a time, a URL and a dash-separated date stay bare. `x, y z` is `E026` for its comma. A line refused for its value keeps its block, and so does an open quote (`E017`); a refused selector takes it. Its write ops store spaced text as data, and the writer still quotes a value with a space and one that ends in a colon.
 
 Case `194` pins the bare name rule (`E014`): a name not led by an ASCII letter, or holding a space or a non-ASCII letter, still reads, so its line is kept and the lines under it load under that name, a dotted segment included. A line with no colon reads that way too, and a clean name alone is `E015`. A name that cannot be read takes its block with it.
 
@@ -420,13 +420,15 @@ Case `196` pins bracket arrays and the read table in the value syntax doc: `80` 
 
 Case `197` pins the malformed array (`E019`): text after the `]`, a nested `[`, an empty element in three places, and no closing `]`. A bare comma is `E026`, and each element follows the value rules (`E025`, `E017`, `E023`). Every line is kept as written with nothing lost, and the lines under one still load under the field with no value.
 
-Case `198` pins the stacked list's `- ` marker: `fmt` keeps the list stacked, a one-item list is still an array, an old `*` line is `E013` and kept among the items that still load, `- name:` is `E027` while `- "name:"`, `- localhost:8080` and `- -5` are items, a nested array is `E019`, an item with a space is `E025`, and `-x: y` is a field line (`E014`) that holds its level. Its write ops pin that an array setter keeps a stacked list stacked.
+Case `198` pins the stacked list's `- ` marker: `fmt` keeps the list stacked, a one-item list is still an array, an old `*` line is `E013` and kept among the items that still load, `- name:` is `E027` while `- "name:"`, `- localhost:8080` and `- -5` are items, `- name: value` is `E027` too, a nested array is `E019`, an item with a space is fine, and `-x: y` is a field line (`E014`) that holds its level. Its write ops pin that an array setter keeps a stacked list stacked.
 
 Case `199` pins `E028`: an array on a field with fields under it is kept as written, in place of the field's own line, and the fields under it load under the field with no value, a trailing comment and `[]` included. A kept line under an array binds nothing, so the array stands. An array line that joined an earlier binding of its value leaves that one its value and opens a field of its own. Its write ops pin that a field opened this way takes new fields.
 
 Case `200` pins that a selector matches one plain value, quoted or not: `srv[a]` and `srv["a"]` find the scalar `a` and never the array `[a]` or a raw block holding `a`. A bare selector body with a space is `E025` on a file line, which takes the block under it, and in a lookup it finds nothing.
 
 Case `201` pins a list with a field under it that a merge adds after an empty binding of its name in a lower layer, with a comment and a kept line between the two. A reload of the merged text joins the list to the binding and puts the two lines above it, so the merge does the same.
+
+Case `202` pins spaces, colons and commas in bare text. A bare value or stacked item keeps its spaces as typed, and canonical output quotes it. A colon or comma with something other than a blank after it is text, so `rw,noatime`, `:0`, a URL and `80,443` stay bare, and the last is a string that a typed int read refuses. A colon then a space or the end is `E025` in a value and `E027` in an item, and a comma then a space or the end is `E026`. A tab or a bracket in a bare value and a space in an array element are `E025`. Inside brackets every comma splits, and the writer quotes an element with a comma.
 
 Beyond the fixed corpus, the differential harness (`cicd/utility/crosscheck.bash`) also derives accessor coverage over the fuzz set: the reference's fuzz dump writes a `<name>.reads.tsv` beside each dumped input (paths it knows exist, cycling type and strictness), which the `--extra` replay runs through the same row machinery. Every scalar read row - corpus and fuzz-derived - is additionally replayed under `--on-bad=error` (an exit-code differential) and `--default=<x>` (a stdout differential), so the on-bad/default policy surface is pinned cross-binding too. It also runs three `set` edits (a changed value, a new child, a removal) on the first paths of every input, corpus and fuzz alike, so the save that keeps lines is compared well past the goldens. The reference's line-ending fuzz dumps up to 100 more inputs, each mixing LF and CRLF with its edits as a write-ops script, into an `eol/` folder beside the rest. Each goes through `set --write` in every binding, and the files left on disk must match byte for byte.
 

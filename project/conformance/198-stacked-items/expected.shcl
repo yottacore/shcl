@@ -18,7 +18,7 @@ odd:
 	- name: value
 	- -5
 	- [a, b]
-	- extra large
+	- "extra large"
 	- `raw, text`
 -x: y
 	under: 1

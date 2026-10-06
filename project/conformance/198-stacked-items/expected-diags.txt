@@ -1,8 +1,7 @@
 line 10: Error: E013
 line 12: Error: E013
 line 15: Error: E027
-line 18: Error: E025
+line 18: Error: E027
 line 20: Error: E019
-line 21: Error: E025
 line 23: Error: E014
-failed: 7 diagnostic(s), 7 error(s)
+failed: 6 diagnostic(s), 6 error(s)
