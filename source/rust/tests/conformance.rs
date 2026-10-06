@@ -1163,11 +1163,10 @@ fn parse_limited_caps() {
 	// Diagnostic cap: the first N are listed and one E022 tail counts the
 	// rest. Its severity is Error when any unlisted one was, so a scan of the
 	// list for errors still finds one and error_count stays nonzero.
-	// A line with no colon is E015 whatever its name, since 2026-10-05.
 	let bad = "no colon\n".repeat(50);
 	let doc = Document::parse_limited(&bad, Strictness::Standard, 0, 0, 10).unwrap();
 	assert_eq!(doc.diagnostics().len(), 11);
-	assert!(doc.diagnostics()[..10].iter().all(|d| d.code == "E015"));
+	assert!(doc.diagnostics()[..10].iter().all(|d| d.code == "E014"));
 	let tail = &doc.diagnostics()[10];
 	assert_eq!(
 		(tail.code, tail.severity, tail.line),
@@ -1260,6 +1259,49 @@ fn a_cap_wins_over_a_broken_value() {
 	// The path and the name are judged first.
 	assert_eq!(codes("404: [a, b, c]\n", 1).0, vec![(1, "E014")]);
 }
+
+#[test]
+fn no_colon_repair_stays_narrow() {
+	let _id = test_id("ErsrQZC");
+	// Only one clean name or path with no colon is repaired (E015), a bad
+	// bare name like 404 included. Anything with a blank in a bare name could
+	// be a name or a name and a value, so it is E014 and kept as written.
+	for (line, quoted) in [
+		("square-miles 300", "\"square-miles 300\""),
+		("this is ! not parseable", "\"this is ! not parseable\""),
+		("user name", "\"user name\""),
+		("user\tname", "\"user◉TAB◉name\""),
+		("a.b c", "a.\"b c\""),
+	] {
+		let doc = Document::parse(&format!("k: 1\n{line}\nz: 2\n"));
+		let codes: Vec<&str> = doc.diagnostics().iter().map(|d| d.code).collect();
+		assert_eq!(codes, ["E014"], "{line:?}");
+		assert_eq!(doc.lost_count(), 0, "{line:?}");
+		assert_eq!(
+			doc.to_canonical(),
+			format!("k: 1\n{line}\nz: 2\n"),
+			"{line:?}"
+		);
+		assert!(!doc.exists(quoted), "{line:?}");
+	}
+	// The message names where the second word starts, as before chunk A.
+	let doc = Document::parse("a:\n\t  square-miles 300\n");
+	assert_eq!(
+		doc.diagnostics()[0].message,
+		"malformed line skipped: unexpected character after the path, at column 17"
+	);
+	for (line, out) in [
+		("404", "\"404\":"),
+		("-x", "\"-x\":"),
+		("a.9b", "a:\n\t\"9b\":"),
+	] {
+		let doc = Document::parse(&format!("{line}\n"));
+		let codes: Vec<&str> = doc.diagnostics().iter().map(|d| d.code).collect();
+		assert_eq!(codes, ["E015"], "{line:?}");
+		assert_eq!(doc.to_canonical(), format!("{out}\n"), "{line:?}");
+	}
+}
+
 #[test]
 fn write_bad_ops_are_rejected() {
 	let _id = test_id("El5Gcy6");
@@ -2233,11 +2275,9 @@ fn lost_and_save_gate() {
 	// survives a save); position-dependent drops count as lost and make
 	// save_file refuse until the caller opts into save_file_lossy. Same
 	// fixture in every runner.
-	// A line with no colon is repaired (E015) since 2026-10-05, so the
-	// malformed line is bare whitespace in a value (E025).
-	let kept = Document::parse("a: 1\nsquare-miles: 300 mi\nb: 2\n");
+	let kept = Document::parse("a: 1\nsquare-miles 300\nb: 2\n");
 	assert_eq!(kept.lost_count(), 0);
-	assert!(kept.to_canonical().contains("square-miles: 300 mi\n"));
+	assert!(kept.to_canonical().contains("square-miles 300\n"));
 	// An indent matching no level is kept as written when it holds a space,
 	// which no level the emitter writes can equal, and lost when it is tabs.
 	let spaced = Document::parse("a:\n\tb: 1\n  c: 2\n\td: 3\n");
@@ -2251,7 +2291,7 @@ fn lost_and_save_gate() {
 	let fs = f.to_str().unwrap();
 	assert!(kept.save_file(fs).is_ok());
 	let (back, _) = Document::load_file(fs);
-	assert!(back.to_canonical().contains("square-miles: 300 mi\n"));
+	assert!(back.to_canonical().contains("square-miles 300\n"));
 	assert!(lost.save_file(fs).is_err());
 	assert!(lost.save_file_lossy(fs).is_ok());
 	// A refusal and a failed write are separate values, not two spellings of one

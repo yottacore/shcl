@@ -1,4 +1,4 @@
 # One malformed line (no colon, not a clean path) among good ones.
 name: demo
-"square-miles 300":
+square-miles 300
 port: 8080

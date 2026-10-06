@@ -21,7 +21,7 @@ logs:
 	# not a comment, content
 	~~~
 
-"this is ! not parseable":
+this is ! not parseable
 # after a skipped line
 flag: on
 app:

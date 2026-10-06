@@ -1,4 +1,4 @@
-line 3: Error: E015
-line 4: Error: E015
+line 3: Error: E014
+line 4: Error: E014
 line 6: Error: E013
 failed: 3 diagnostic(s), 3 error(s)

@@ -782,8 +782,9 @@ fn raw_spans(text: &str) -> Vec<(usize, usize)> {
 		let bare = line.trim_start_matches([' ', '\t']);
 		if let Some((c, n, at)) = open {
 			// Only the blanks the load trims: a no-break space before a fence
-			// leaves it body text.
-			let closer = line.trim_matches(BLANKS);
+			// leaves it body text. A body keeps its carriage returns but the
+			// line's trailing run, so one after the indent does too.
+			let closer = line.trim_end_matches('\r').trim_matches([' ', '\t']);
 			if closer.chars().count() >= n && closer.chars().all(|x| x == c) {
 				spans.push((at, k + 1));
 				open = None;
@@ -825,6 +826,17 @@ fn a_bom_hides_no_star_from_the_raw_spans() {
 	assert!(raw_spans(base).is_empty());
 	assert!(kept_text(base).spans.is_empty());
 	assert_eq!(raw_spans("\u{feff}aw: ```sql\nbody\n"), [(1, 2)]);
+}
+
+// A carriage return after a fence line's indent leaves it body text, as the
+// load reads it. A trailing run is still trimmed.
+#[test]
+fn a_cr_after_the_indent_closes_no_raw_span() {
+	let _id = test_id("ErsrQev");
+	let base = "a: ~~~\n\t\r~~~\nb\n~~~\n";
+	assert_eq!(raw_spans(base), [(1, 4)]);
+	assert!(Document::parse(base).diagnostics().is_empty());
+	assert_eq!(raw_spans("a: ~~~\n\t~~~\r\r\nb: 1\n"), [(1, 2)]);
 }
 
 /// A raw body is content, whatever becomes of the line that opened it. A

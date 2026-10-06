@@ -1,6 +1,6 @@
 server:
 	host: h1
-	"prot 8080":
-	"tls on off":
+	prot 8080
+	tls on off
 count: 2
 *bad

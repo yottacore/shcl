@@ -1,4 +1,4 @@
 line 11: Hint: H002
-line 24: Error: E015
+line 24: Error: E014
 line 28: Error: E015
 failed: 3 diagnostic(s), 2 error(s)

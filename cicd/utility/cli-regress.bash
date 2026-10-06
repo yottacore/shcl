@@ -454,11 +454,11 @@ rows=(
 	'EoTHA7c|strict-load-list|fmt --strictness=strict %B%|-|6|-|strict load failed: 2 error diagnostic'
 	## 20260918 item 21: the spec named two summary spellings for check and a
 	## strict one prints a third.
-	'EqGg9jN|check-strict-summary|check --strictness=strict %B%|-|6|line 2: Error: E015\nline 3: Error: E015\nstrict load failed: 2 diagnostic(s)\n|-'
+	'EqGg9jN|check-strict-summary|check --strictness=strict %B%|-|6|line 2: Error: E015\nline 3: Error: E014\nstrict load failed: 2 diagnostic(s)\n|-'
 	## 20260920b item 7: a strict load still hands back the document it
 	## recovered, so check --schema validates it. Without this the V-codes were
 	## dropped and a user got less out of check at strict than at standard.
-	'EqT42DA|check-strict-schema-validates|check --strictness=strict --schema=%SV% %B%|-|6|line 2: Error: E015\nline 3: Error: E015\nline 0: Error: V002\nline 1: Error: V001\nline 3: Error: V001\nstrict load failed: 5 diagnostic(s)\n|-'
+	'EqT42DA|check-strict-schema-validates|check --strictness=strict --schema=%SV% %B%|-|6|line 2: Error: E015\nline 3: Error: E014\nline 0: Error: V002\nline 1: Error: V001\nstrict load failed: 4 diagnostic(s)\n|-'
 	## 20260830 round: an unknown command is judged before its options.
 	'EoTHA7d|unknown-cmd-before-opts|bogus --nope %F%|-|1|-|unknown command: bogus'
 	## 20260909 item 59: a real option in front of the subcommand was called
@@ -1020,18 +1020,23 @@ rows=(
 	'EonKleq|diag-value-one-line|check --schema=%SA% %R%|-|6|-|not allowed at .b.: line one.nline two'
 	## 20260901b item 24: two layers with a bad line 2 printed the same thing
 	## twice, with nothing to say which file each came from.
-	'Eon9YY4|layer-diags-named|fmt --layer=%B% %B2%|-|0|-|bad2.shcl line 2: Error: E015'
+	'Eon9YY4|layer-diags-named|fmt --layer=%B% %B2%|-|0|-|bad2.shcl line 2: Error: E014'
 	## 20260918b item 14: `set` kept its own copy of the fold and missed it.
-	'EqLcx3w|layer-diags-named-set|set --set=q=1 --layer=%B% %B2%|-|0|-|bad2.shcl line 2: Error: E015'
+	'EqLcx3w|layer-diags-named-set|set --set=q=1 --layer=%B% %B2%|-|0|-|bad2.shcl line 2: Error: E014'
 	## 2026100511210900: emptying an instance left a list after it that the
 	## reload drops, and the write went through at exit 0.
 	'Ers2pP0|list-after-empty-refused|set --write %LEW%|empty\tx[v]\n|7|-|would delete 2 line|x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n'
 	'Ers2pP1|list-after-empty-lossy|set --write --lossy %LEW%|empty\tx[v]\n|0|-|rewritten in the canonical form|x:\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n'
-	'Eon9YY5|single-file-diags-unnamed|fmt %B%|-|0|-|^line 3: Error: E015'
-	## 2026-10-05: a line with no colon is E015 whatever its name, and binds
-	## the name it reads as. With a colon, the name rule still holds.
-	'Ers2pOr|no-colon-bad-name-e015|check -|404\n-x\nuser name\n|6|line 1: Error: E015\nline 2: Error: E015\nline 3: Error: E015\nfailed: 3 diagnostic(s), 3 error(s)\n|-'
-	'Ers2pOs|no-colon-bad-name-repaired|fmt -|404\n-x\nuser name\n|0|"404":\n"-x":\n"user name":\n|-'
+	'Eon9YY5|single-file-diags-unnamed|fmt %B%|-|0|-|^line 3: Error: E014'
+	## 2026-10-05: a line with no colon that is one name is E015 whatever its
+	## name, and binds the name it reads as. With a colon, the name rule still
+	## holds.
+	## A blank in the name is E014 again, kept as written (2026-10-05), so the
+	## user name line in these two moved to ErsrQb6 and ErsrQd5.
+	#'Ers2pOr|no-colon-bad-name-e015|check -|404\n-x\nuser name\n|6|line 1: Error: E015\nline 2: Error: E015\nline 3: Error: E015\nfailed: 3 diagnostic(s), 3 error(s)\n|-'
+	#'Ers2pOs|no-colon-bad-name-repaired|fmt -|404\n-x\nuser name\n|0|"404":\n"-x":\n"user name":\n|-'
+	'ErsrQb6|no-colon-bad-name-narrow|check -|404\n-x\nuser name\nsquare-miles 300\n|6|line 1: Error: E015\nline 2: Error: E015\nline 3: Error: E014\nline 4: Error: E014\nfailed: 4 diagnostic(s), 4 error(s)\n|-'
+	'ErsrQd5|no-colon-bad-name-narrow-fmt|fmt -|404\n-x\nuser name\nsquare-miles 300\n|0|"404":\n"-x":\nuser name\nsquare-miles 300\n|-'
 	'Ers2pOt|colon-bad-name-e014|check -|404: x\n|6|line 1: Error: E014\nfailed: 1 diagnostic(s), 1 error(s)\n|-'
 	## 20260909 item 34: E014 says where on the line the path went wrong, as
 	## a byte column, which the tokenizer computed and the message dropped.
@@ -1114,7 +1119,7 @@ rows=(
 	'Eolhrw1|full-stdout-check|check %F%|@fullout|8|-|-'
 	'Eolhrw2|full-stdout-get|get %F% a|@fullout|8|-|-'
 	'Eolhrw3|full-stdout-set|set --set=a=2 %F%|@fullout|8|-|-'
-	'Eolhrw4|full-stderr-keeps-stdout|fmt %B%|@fullerr|0|a: 1\n\tbad:\n"b 2":\n|-'
+	'Eolhrw4|full-stderr-keeps-stdout|fmt %B%|@fullerr|0|a: 1\n\tbad:\nb 2\n|-'
 	## Found working 20260830b item 18: a merge does not keep diagnostics, so
 	## reading them off the merged doc reported the lowest layer and stayed
 	## silent about FILE - the one file the caller actually named.
