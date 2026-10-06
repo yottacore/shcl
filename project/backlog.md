@@ -170,7 +170,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - A merge after an empty field writes a list that a reload joins to it
 	- ID: 2026100520243961
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Critical
 	- Opened: 20261005-202439
 	- Opened by: JC
@@ -183,6 +183,16 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: 20261005, on `valsyn` before `vsnarrow`, in Rust. Release fuzz `Eqk24nZ` at iteration 1814886 after `vsnarrow`.
 	- Note: likely the same join the `vsfuzz` fix gave a setter (`ErsETML`), missing on the merge path. Rust only for now; the other ports have no list join yet.
 	- Estimated effort: Avg
+	- Cause: the merge's settle looked for the join before it moved the lines after each child down to the next one. A comment or kept line still sitting after the empty binding made it refuse the join, and only then did the line move above the list. The setter's twin never sees such a line, since a load has already moved it. A remove had no join at all: one taking the last field of an empty binding left a list of its name after it unjoined, and one taking a list's last field left it stacked there, which a reload joins and drops.
+	- Fix: the settle tries the join again once the lines have moved. A remove that leaves a block with no fields settles its name the way a setter does, so the list joins the binding, or goes in brackets when the binding still has fields.
+	- Test case: `Ert70BF` (merge, with a comment, a kept line and a sibling in the gap), `Ert70DM` (both remove cases), and corpus 201 (`Ert9PEK`). All 3 failed on the code before and pass now.
+	- Swept: the setter's twin (`set_empty` past a comment or kept line, at and below the binding's level, already matched a reload), the writer's fold and the new child settle (both go through the same settle), and remove (fixed here). `clear_comments` and `set_comment` cannot leave a line after a binding that is not its last child.
+	- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust. The 2,000,000 release fuzz passes all 24, on the old seed set and with corpus 201 added.
+	- Note: the Go, Python and C ports need this with their list join.
+	- Acceptance signoff: Self-closed: reproduced, test failed before and passes after.
+	- Branch: `vsjoin`
+	- Commit: `95727823`
+	- Closed: 20261005-205600
 
 - Back up and rewrite a config file when a program's shcl upgrade breaks it
 	- ID: 2026100313461649
