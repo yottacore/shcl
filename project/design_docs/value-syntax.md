@@ -59,6 +59,8 @@ Scope: escapes, quoting, bare values and field names, arrays, list items and sel
 
 - Arrays are written in brackets, `ports: [80, 443]`, or one item per line with `- `.
 
+- A selector is written in parens, `base(Boston).population: 700`. Brackets are only for arrays.
+
 - Backticks wrap a raw value the program decodes itself, such as `` `#FF8800` `` or `` `\x7F` ``. SHCL hands back the text between the backticks as is.
 
 - Every mistake is a loud error on its own line. The rest of the file still loads, and a save keeps the bad line as written. Lines under a bad line still load wherever its name can be read.
@@ -115,7 +117,7 @@ The rules in short. The reasons are under [Design](#design).
 
 - A field with lines under it takes one plain value or none. An array there is `E028`.
 
-- A selector matches one plain value. `base[Boston]` and `base["New York"]` work, and there is no way to select by an array value.
+- A selector is written in parens. `base(Boston)` and `base("New York")` match one plain value, and there is no way to select by an array value. `base(0)` is an index and `base(*)` the wildcard, as before.
 
 | Text                           | `◉` escapes | Whitespace inside | Notes
 | :---                           | :---        | :---              | :---
@@ -125,7 +127,7 @@ The rules in short. The reasons are under [Design](#design).
 | Backtick value                 | no          | yes               | Values and array elements only
 | Bare field name                | no          | no                | A letter, then letters, digits, `-` and `_`
 | Quoted field name              | yes         | yes               | `"user name"`, `"Straße"`, `"404"`. The same field as any other spelling of it
-| Selector body                  | yes         | quoted only       | Bare text has no `:`, `,` or brackets
+| Selector body                  | yes         | quoted only       | Bare text has no `:`, `,`, brackets or parens
 | Comment                        | no          | yes               | A `◉` is plain text
 | Raw block body and fence label | no          | yes               | A `◉` is plain text
 
@@ -452,11 +454,19 @@ Two older codes change scope:
 
 - A field with lines under it takes one plain value or none.
 	- `route: [GET, POST]` with lines under it is `E028`.
-	- A list as an instance's value was always rare, and other spellings cover it: a string, `route: "GET POST"`; a position, `route[#1]`; or a one-word value with the list in a child field, `route: api` with `methods: [GET, POST]` under it.
+	- A list as an instance's value was always rare, and other spellings cover it: a string, `route: "GET POST"`; a position, `route(1)`; or a one-word value with the list in a child field, `route: api` with `methods: [GET, POST]` under it.
 
-- A selector matches one plain value: `base[Boston]`, `base["New York"]`.
+- Every selector is written in parens: `person(Bucky).city`, `person("New York")`, `person(0)`, `person(*)`. Brackets after a name are an error, so brackets on a line are always an array. Answered 2026-10-06, item 2026100610073400.
+	- This goes for files, lookup paths, setter paths, `--set` and schema paths, and for every path the library writes.
+	- With arrays in brackets, `base[Boston].ports: [80, 443]` used one bracket for two things. In a lookup path, `dogs[1]` would look like the second element of an array, when it's the second `dogs` instance.
+	- A bare number is still an index and a quoted one a value: `year(2020)` vs `year("2020")`.
+	- `[#N]` goes with the brackets. A body starting with `#` is refused, never read as a value.
+	- Which code covers brackets after a name is open.
+
+- A selector matches one plain value: `base(Boston)`, `base("New York")`.
 	- The old match by display form, where `base[Boston, MA]` found the array value `Boston, MA`, is gone.
-	- A bare selector body is stricter than a value: no whitespace, colon, comma, quote or bracket. `base[New York]`, `srv[O'Brien]` and `host[a:b]` are `E025`. A selector is often typed on a command line, where those need quoting anyway.
+	- A bare selector body is stricter than a value: no whitespace, colon, comma, quote, bracket or paren. `base(New York)`, `srv(O'Brien)` and `host(a:b)` are `E025`. A selector is often typed on a command line, where those need quoting anyway.
+	- An unquoted `(` fails in bash, PowerShell and fish, so CLI examples quote the path.
 
 ### Errors and kept lines
 
@@ -682,6 +692,12 @@ Not looked at in any depth:
 
 - Banning every bare colon and comma. That would put quotes on URLs, `host:port`, times, `:0` and `mount` options.
 
+- Keeping brackets for selectors. It costs nothing to build, and XPath and JSONPath do the same. But a line would use one bracket for two things.
+
+- Parens for a value match, with an index and the wildcard left in brackets, `base(Boston)` and `base[0]`. Two spellings for one thing was too confusing.
+
+- Braces for selectors, `base{Boston}`. PowerShell splits an unquoted `person{Bucky}.city` into 2 arguments with no error, and readers coming from JSON or HCL take braces as an object.
+
 ### Superseded
 
 What the build has today, and what replaces it.
@@ -734,6 +750,7 @@ What the build has today, and what replaces it.
 	- CLI help showing the quoted form for `--set-literal`: `--set-literal 'title="My App"'`. Done.
 	- Comments nesting under kept lines, 2026100218185700. Done.
 	- Spaces in bare values and `- ` items, and the colon and comma rules, answered 2026-10-06. Done in Rust, `spec.md` and `grammar.abnf`, with `migrate` writing a 2.x comma list in brackets. The ports build them from the start.
+	- Selectors in parens, answered 2026-10-06, 2026100610073400. Not built yet, so `spec.md`, the grammar and the code still use brackets. Do it after chunk C's Rust part and before the ports, so they get written once. `migrate` rewrites 2.x selector lines.
 
 2. Then cut `v3.0.0-beta1`.
 
@@ -752,3 +769,5 @@ What the build has today, and what replaces it.
 | 2026100117214801 | A bad escape in the name of a line that opens a raw block leaves the body to be read as lines | Stays. Its repro changes.
 | 2026100117214802 | `set` on a file ending in a kept line writes the new key above it                             | Stays. Its repro changes.
 | 2026100511210900 | A merge can leave a list with a field under it after an empty binding of its name             | Fixed: the save refuses
+| 2026100610073400 | Selectors use `()`, and `[]` is for arrays only                                               | Answered, not built
+| 2026100609552447 | Don't allow the `[#N]` index selector                                                         | Moot, folded into 2026100610073400
