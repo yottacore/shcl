@@ -55,7 +55,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Requirements:
 		- A backslash is plain text everywhere.
 		- An escape is `◉NAME◉`, from a closed list. Anything else between two `◉` is an error.
-		- A bare value with whitespace or a quote is an error. Quote it.
+		- A bare value or `- ` item may contain spaces. A tab, a quote, a bracket, or a colon or comma with whitespace or the end after it is an error. Quote it. Inside `[]` and in a selector, any whitespace needs quotes too.
 		- A bare field name starts with a letter.
 		- Arrays are `[a, b]`, or one `- ` item per line.
 		- A backtick value is raw. The program decodes it.
@@ -157,6 +157,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 			- README: the sample's `methods` line is in brackets, in the file and in the canonical output example. The man page date.
 			- Verified: check-docs passes, where it failed 16 before (`Er1z2hW`, `EqWax3I`, `Eom0qpm`, `EqL29qS`). check-abnf, gen-escapes, test-ids check, markdownlint, ruff check and shellcheck pass. A hand edit to the spec's escape table fails gen-escapes.
 			- Left: design.md, the changelog, `migrate` and its table, check-migrate, the ports. value-syntax.md's migration table rows for backslash pairs and spec.md's Migrating from 2.x section still describe the old `migrate`, `E024` included. check-readme `EqGg9jM` still fails on the README schema sample, a bare `desc` with spaces and `allowed` with a bare comma. spec.md's design goal that the user is never made to satisfy the machine is superseded for bare whitespace, per value-syntax.md, and left as written.
+		- 20261006: the design doc has the 20261006 spacing, colon and comma answer. Rust, spec.md, grammar.abnf, check-abnf and the corpus still have the old no-space rule.
 	- Decisions:
 		- 20261002: idea 3, with the changes listed in the design doc. Open points and their proposed answers are under its Roadmap.
 		- 20261002: a quote anywhere in a bare value is an error, and a bare field name starts with a letter. Dates, times, durations and sizes without spaces stay bare.
@@ -168,6 +169,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261005: these go into the design doc with chunk C.
 		- 20261005: the `E015` answer was only about which code a one-word bad name with no colon gets (`404`). A no-colon line that isn't one clean name or path, such as `square-miles 300`, stays `E014`, kept as written, per spec.md's narrow repair rule. The `vsfix` rework read it too widely and needs narrowing back. A quoted name can be any text, spaces and a leading digit included. Every field line keeps its colon, a header with lines under it too.
 		- 20261005: kept as built: the line-keeping save writes a file whose load left a stacked list after an empty binding of its name, so `set --write` saves an unrelated edit while `fmt --write` refuses at 7.
+		- 20261006: spaces are allowed in a bare field value and a bare `- ` item, kept as typed, and the writer still quotes them. Not inside `[]` or a selector. A bare colon or comma needs a character other than whitespace after it, so `rw,noatime`, `:0` and URLs stay bare and `ports: 80, 443` is `E026`. Inside `[]` a comma always separates. A selector body also takes no bare colon, comma or bracket. Full rules in the design doc. spec.md's "never made to satisfy the machine" goal stays as written.
 	- Branch: `valsyn` (chunk A on `vslex`, chunk B part 1 on `vsarr`, part 2 on `vssel`, the 20261005 rework on `vsfix`, the fuzz fixes on `vsfuzz`, the no-colon narrowing on `vsnarrow`, chunk C docs on `vsspec`)
 	- Commit: `6355ba10` (chunk A), `7c90c42d` and `f228c3e9` (chunk B part 2), `11b069fe` (the 20261005 rework), `c67b89d7` (the fuzz fixes), `0b57d0d2` (the no-colon narrowing)
 	- Test case:
