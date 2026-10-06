@@ -2243,6 +2243,55 @@ fn a_list_joining_an_emptied_field_keeps_its_fields_found() {
 	}
 }
 
+/// A merge adds a list with a field under it as a new instance after an
+/// empty binding of its name. A comment or kept line left after the binding
+/// held the join off, though a reload joins the two (2026100520243961).
+#[test]
+fn a_merged_list_joins_an_empty_field_past_a_comment() {
+	let _id = test_id("Ert70BF");
+	let layer = Document::parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n");
+	for base in [
+		"p:\n\ts:\n\t# c\n",
+		"p:\n\ts:\n\tk: [1\n",
+		"p:\n\ts:\n\t# c\n\t\t# d\n",
+		"p:\n\ts:\n\t# c\n\tt: 2\n",
+	] {
+		let mut doc = Document::parse(base);
+		doc.merge(&layer);
+		let text = doc.to_canonical();
+		let back = Document::parse(&text);
+		assert_eq!(back.to_canonical(), text, "{base:?}");
+		assert_eq!(doc.paths(), back.paths(), "{base:?}");
+		assert_eq!(doc.get_string("p.s.c").as_deref(), Ok("1"), "{base:?}");
+		assert_eq!(back.get_string("p.s.c").as_deref(), Ok("1"), "{base:?}");
+		assert_eq!(doc.instances("p.s").len(), 1, "{base:?}");
+	}
+}
+
+/// The remove twin: the merge without the gap builds the list no text loads
+/// back, after a binding with a field. A remove that takes that field joins
+/// the list, and one that takes the list's field puts it in brackets, as a
+/// reload reads each.
+#[test]
+fn a_remove_settles_a_list_after_an_empty_field() {
+	let _id = test_id("Ert70DM");
+	for (path, want) in [
+		("p.s.x", "p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"),
+		("p.s.c", "p:\n\ts:\n\t\tx: 1\n\ts: [0]\n"),
+	] {
+		let mut doc = Document::parse("p:\n\ts:\n\t\tx: 1\n");
+		doc.merge(&Document::parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"));
+		assert!(doc.lost_count() > 0, "the list no text loads back");
+		assert_eq!(doc.remove(path), 1);
+		let text = doc.to_canonical();
+		assert_eq!(text, want, "{path}");
+		let back = Document::parse(&text);
+		assert_eq!(back.to_canonical(), text, "{path}");
+		assert_eq!(doc.paths(), back.paths(), "{path}");
+		assert_eq!(doc.lost_count(), 0, "{path}");
+	}
+}
+
 /// A load can build that list too, under a kept array line (E028). The
 /// canonical text writes the line as a comment and cannot load the list
 /// back, so that save refuses. The source text does, so with no edits the

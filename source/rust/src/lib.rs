@@ -831,7 +831,14 @@ fn fold_node_into(arena: &mut [NodeData], survivor: usize, loser: usize) {
 /// joined an empty binding, which moves fields under another parent, so a
 /// caller holding the name index has to drop it.
 fn settle_block(arena: &mut [NodeData], n: usize, from: usize) -> bool {
-	let joined = from <= 1 && settle_fence_trailing(arena, n);
+	let mut joined = from <= 1 && settle_fence_trailing(arena, n);
+	settle_pairs(arena, n, from);
+	// A line the pass above moved off an empty binding no longer holds its
+	// join off, and a reload joins it (2026100520243961).
+	if from <= 1 && settle_fence_trailing(arena, n) {
+		joined = true;
+		settle_pairs(arena, n, 1);
+	}
 	// After the join, which can take the last child.
 	let Some(&kid) = arena[n].children.last() else {
 		return joined;
@@ -842,6 +849,12 @@ fn settle_block(arena: &mut [NodeData], n: usize, from: usize) -> bool {
 		let moved = std::mem::take(&mut t.inside);
 		arena[kid].triv_mut().after.extend(moved);
 	}
+	joined
+}
+
+/// A child's comments at its own level go above the next sibling, from
+/// child `from` on.
+fn settle_pairs(arena: &mut [NodeData], n: usize, from: usize) {
 	for i in from.max(1)..arena[n].children.len() {
 		let (prev, next) = (arena[n].children[i - 1], arena[n].children[i]);
 		let Some(t) = arena[prev].trivia.as_deref_mut() else {
@@ -855,7 +868,6 @@ fn settle_block(arena: &mut [NodeData], n: usize, from: usize) -> bool {
 		moved.append(&mut nt.leading);
 		nt.leading = moved;
 	}
-	joined
 }
 
 /// A raw block after an empty binding of its name is written with the fence on
@@ -9748,6 +9760,7 @@ impl Document {
 		// A field opened only by the lines under it goes with the last of
 		// them, and its own kept line stays where it was (escblock).
 		let mut open: Vec<usize> = pairs.iter().map(|&(_, p)| p).collect();
+		let mut emptied = open.clone();
 		while let Some(p) = open.pop() {
 			if p == ROOT
 				|| !self.arena[p].children.is_empty()
@@ -9782,6 +9795,22 @@ impl Document {
 				None => self.leave_last(pp, left),
 			}
 			open.push(pp);
+			emptied.push(pp);
+		}
+		// An empty binding that lost its last field takes a stacked list of
+		// its name after it, and a list that lost its last field goes in
+		// brackets there, as a reload reads them (2026100520243961).
+		emptied.sort_unstable();
+		emptied.dedup();
+		for p in emptied {
+			if p != ROOT
+				&& self.arena[p].children.is_empty()
+				&& matches!(self.arena[p].value, Value::Empty | Value::Array(_))
+				&& self.live(p)
+			{
+				let name = self.arena[p].name.clone();
+				self.settle_fence_name(self.arena[p].parent, &name);
+			}
 		}
 		settle_first_blank(&mut self.arena, &mut self.orphans);
 		self.resettle_kept();
