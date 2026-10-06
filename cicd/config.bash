@@ -191,6 +191,7 @@ SHELLCHECK_TARGETS=(
 	cicd/utility/libtest-quiet.bash
 	cicd/utility/lint-report.bash
 	cicd/utility/perf-gate.bash
+	cicd/utility/release-table.bash
 	cicd/utility/shell-regress.bash
 	cicd/utility/n8git_backup-and-publish
 	cicd/utility/package.bash
