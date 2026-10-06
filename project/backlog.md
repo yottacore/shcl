@@ -45,7 +45,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Assigned to:
 	- Parent ID:
 	- Prereq IDs:
-	- Related IDs: 2026100213205957, 2026100218185700, 2026100115403384, 2026100115323227, 2026100115323216, 2026100115323222, 2026100115403385, 2026100117214801, 2026100117214802
+	- Related IDs: 2026100213205957, 2026100218185700, 2026100115403384, 2026100115323227, 2026100115323216, 2026100115323222, 2026100115403385, 2026100117214801, 2026100117214802, 2026100610073400
 	- Target OS:
 	- Test environment:
 	- Version and build:
@@ -79,6 +79,34 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Acceptance signoff:
 	- Superseded by ID:
 	- Closed:
+
+- Selectors use `()`, and `[]` is for arrays only
+	- ID: 2026100610073400
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261006-100734
+	- Opened by: JC
+	- Prereq IDs: 2026100207032800
+	- Related IDs: 2026100207032800, 2026100609552447
+	- Problem description:
+		- After 2026100207032800, brackets mean two things on one line. `base[Boston].ports: [80, 443]` has a selector and an array.
+		- In a lookup path, `dogs[1]` looks like the second element of an array. It's the second `dogs` instance.
+	- Requirements:
+		- Every selector is written in parens: `person(Bucky)`, `person("New York")`, `person(0)`, `person(*)`. That goes for files, lookup paths, setter paths, `--set` and schema paths.
+		- Brackets after a name are an error. Brackets are only arrays. Which code is open.
+		- A bare number is an index and a quoted one is a value, as now: `year(2020)` vs `year("2020")`.
+		- `[#N]` goes too, from 2026100609552447. A body starting with `#` is refused, not read as a value.
+		- Every path the library writes uses parens: `InstancePaths()`, `Paths()`, `QuoteSegment`, the starter config.
+		- `migrate` rewrites 2.x selector lines.
+		- spec.md, design.md, value-syntax.md, the grammar, README, man page, CLI help, completions and the C++ interface. CLI examples quote the path, since an unquoted `(` is a syntax error in bash.
+		- Corpus cases and cli-regress rows with selectors. 32 corpus inputs have them.
+		- A changelog line.
+	- Reason: one meaning per bracket. Format 3 isn't cut yet, so this is the cheapest it gets.
+	- Decisions:
+		- 20261006: parens for every selector, brackets only for arrays. Parens for values with brackets for index and wildcard was too confusing, 2 forms for one thing. Braces were weighed too, but PowerShell silently splits `person{Bucky}` into 2 arguments.
+	- Note: 20261006, do it on `valsyn` after chunk C's Rust part and before the Go, Python and C ports, so the ports get written once.
+	- Estimated effort: High
 
 - Back up and rewrite a config file when a program's shcl upgrade breaks it
 	- ID: 2026100313461649
@@ -123,27 +151,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Requirements:
 		- Write a test as part of CICD that creates old shcl file versions, and tests the automatic conversion.
 	- Note: 20261003, `check-migrate.bash` already builds 2.x from pinned `7be348d` and compares reads after `migrate`. This would extend it to the backup and rewrite in 2026100313461649, and to beta-stamped Format 3 files once 2026100207032800 is in.
-	- Estimated effort: Avg
-
-- Don't allow the `[#N]` index selector
-	- ID: 2026100609552447
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Opened: 20261006-095524
-	- Opened by: JC
-	- Related IDs: 2026100207032800
-	- Problem description:
-		- `[#2]` and `[2]` do the same thing in all four bindings. The `#` adds nothing, and quoting already forces a value match.
-		- It only works on a lookup path. In a file the `#` opens a comment, so `a[#2].b: 1` is a broken line.
-		- `InstancePaths()` writes `[#i]`, so its paths can't be used in a file.
-	- Requirements:
-		- A selector body starting with `#` is refused on a lookup path, a setter path, `--set` and a schema path. It must not fall through to a value match on `#2`.
-		- `InstancePaths()` writes `[i]`.
-		- Drop it from spec.md, design.md, value-syntax.md, the README, the man page, CLI help and completions, and the C++ interface.
-		- Move every test and corpus case that uses it to `[N]`.
-		- Add a changelog line, since it breaks callers that use it.
-	- Note: 20261006, 2026100207032800 changes the selector code on `valsyn`. Do this there or after it merges, not on dev alongside.
 	- Estimated effort: Avg
 
 - Make sure the demo GIF is still accurate and current
@@ -3321,6 +3328,31 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261001, from the answer on 2026100115323216: single quotes are the go-to for stopping escapes, when the string holds no `'`.
 		- 20261002: closed as Moot. No setter options. A setter that overwrites a value keeps its quote kind when it can, and `SetLiteral` takes any quotes as written.
 	- Closed: 20261002-184515
+
+- Don't allow the `[#N]` index selector
+	- ID: 2026100609552447
+	- Type: Enhancement
+	- Status: Moot
+	- Priority: High
+	- Note: 20261006, superseded by 2026100610073400. Every selector moves to parens there, so `[#N]` goes with the rest of the bracket forms. Its requirements moved there too.
+	- Superseded by ID: 2026100610073400
+	- Test case: none. Nothing is built for it; the tests are under 2026100610073400.
+	- Opened: 20261006-095524
+	- Opened by: JC
+	- Related IDs: 2026100207032800
+	- Problem description:
+		- `[#2]` and `[2]` do the same thing in all four bindings. The `#` adds nothing, and quoting already forces a value match.
+		- It only works on a lookup path. In a file the `#` opens a comment, so `a[#2].b: 1` is a broken line.
+		- `InstancePaths()` writes `[#i]`, so its paths can't be used in a file.
+	- Requirements:
+		- A selector body starting with `#` is refused on a lookup path, a setter path, `--set` and a schema path. It must not fall through to a value match on `#2`.
+		- `InstancePaths()` writes `[i]`.
+		- Drop it from spec.md, design.md, value-syntax.md, the README, the man page, CLI help and completions, and the C++ interface.
+		- Move every test and corpus case that uses it to `[N]`.
+		- Add a changelog line, since it breaks callers that use it.
+	- Note: 20261006, 2026100207032800 changes the selector code on `valsyn`. Do this there or after it merges, not on dev alongside.
+	- Estimated effort: Avg
+	- Closed: 20261006-100734
 
 ## Old format
 
