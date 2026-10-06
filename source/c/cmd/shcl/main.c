@@ -793,8 +793,9 @@ static int load_layered_from(Opts *o, const char *file, char *given, size_t give
 		else t = read_input(fname, &lens[i]);
 		if (!t) { free(given); free(lens); layered_free(out); return EXIT_IO; }
 		layered_push_text(out, t);
+		// Here, not after the loop: gcc -O3 can't rule out a loop that never ran.
+		if (i == o->nlayers) out->base_len = lens[i];
 	}
-	out->base_len = lens[o->nlayers];
 	for (int i = 0; i <= o->nlayers; i++) {
 		const char *t = out->texts[i];
 		// Only a document with no layers under it keeps its lines: a merge drops them.

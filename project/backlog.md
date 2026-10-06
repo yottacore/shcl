@@ -242,7 +242,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - The C CLI does not build at `-O3` with gcc 14 or 15
 	- ID: 2026100516162200
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261005-161622
 	- Opened by: found while working 2026100511212359
@@ -251,6 +251,14 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- `gcc -std=c11 -O3 -Wall -Wextra -Wshadow -Wvla -Werror -Isource/c source/c/cmd/shcl/main.c -lm`, same with `gcc-15`.
 	- Incorrect behavior: `-Wmaybe-uninitialized` on `lens[o->nlayers]` in `load_layered_from`, so `-Werror` stops the build. -O0 to -O2 build clean.
 	- Possible cause: a false positive after inlining, since the loop before it fills every slot or returns. check-c-compilers builds `main.c` at -O2 only, so the gate never sees it.
+	- Actual cause [Bug]: a false positive. gcc can't rule out a negative layer count, where the fill loop never runs and the read after it finds nothing. The count is never negative, and every slot up to it is filled or the load returns.
+	- Actual fix [Bug]: the base length is taken inside the loop, on its last pass, so there is no read after it. No pragma. check-c-compilers now builds `main.c` at all five levels, which costs 20 more builds: 57 to 71 seconds here, and about a quarter more CPU time.
+	- Swept: no other array in `main.c` or `shcl.h` is read at a count after the loop that fills it. The 140 builds cover both files at every level on gcc 12 to 15 and clang.
+	- Verified: check-c-compilers failed on the old code (gcc-14 and gcc-15 at -O3, `EoXhawq`) and passes after. `main.c` builds at -O0, -O1, -O2, -O3 and -Os with gcc, gcc-15 and clang. C conformance 191 cases, and cli-regress against the C CLI built at -O3 with gcc, gcc-15 and clang, pass.
+	- Branch: `o3warn`
+	- Test case: check-c-compilers `EoXhawq`.
+	- Acceptance signoff: Self-closed: the build fix does what the item asked, and its gate failed before and passes after.
+	- Closed: 20261005-171000
 
 - Build and test on FreeBSD
 	- ID: 2026100413052101
