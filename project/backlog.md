@@ -126,7 +126,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - Group a release's downloads in a table, with the CPU architecture in columns and the target OS in rows
 	- ID: 2026100411093274
 	- Type: Feature
-	- Status: Queued
+	- Status: Done
 	- Priority: Avg
 	- Opened: 20261004-110932
 	- Opened by: JC
@@ -137,6 +137,21 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- CPU architecture in columns, target OS in rows.
 		- An empty cell where there is no build for that pair.
 	- Note: releases are cut by hand from the recipe in details.md, so the table goes in the recipe's notes step, or in a script that writes it from the asset list.
+	- Done:
+		- `cicd/utility/release-table.bash TAG` writes the table from the published release, a local artifact dir (`--dir`) or a list of names (`--names`). It only reads.
+		- A cell lists every download for its pair: the binary, the Windows installer, the .deb and .rpm. A macOS universal build would fill both columns.
+		- The sums file, its signature and the drop-ins tarball go in an "Other files" line under the table.
+		- Links are by reference, so the padded table stays readable in the notes source.
+		- A local name with a character GitHub rewrites is linked by its uploaded name.
+		- The release recipe has a step for it, after signing, plus a second run against the live release to diff.
+	- Verified: the table for the published v2.0.0 renders right through GitHub's markdown API. Both tests failed with a fault put in the script and pass on the fix. shellcheck over the lint list and `test-ids.py check` pass, and so does the whole `shell-regress.bash`.
+	- Progress log:
+		- 20261005: done on `dltable`. The heading and its place in the notes are a best guess, and are in the private recipe only, so easy to move.
+	- Branch: `dltable`
+	- Commit: `e6a75d0c`
+	- Test case: shell-regress `ErsrmzS` (fixture names to the expected table) and `Ersrn1M` (upload names, and the refusals).
+	- Acceptance signoff: Self-closed: the change does what the item asked, and its tests pass.
+	- Closed: 20261005-193533
 
 - Make sure the demo GIF is still accurate and current
 	- ID: 2026100306315606
