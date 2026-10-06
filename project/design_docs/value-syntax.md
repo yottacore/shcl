@@ -98,7 +98,7 @@ The rules in short. The reasons are under [Design](#design).
 	- A comma followed by whitespace, or one at the end, is `E026`. `ports: 80, 443` and `x: a,` are errors.
 	- Inside `[]` a comma always separates elements, with or without a space after it, so `[a,b]` is 2 elements. A comma inside an element needs quotes: `["rw,noatime"]`.
 
-- A bare selector body is stricter than a value: whitespace, a colon, a comma, a quote or a bracket in it is `E025`. Quote it.
+- A bare selector body is stricter than a value: whitespace, a colon, a comma, a quote, a bracket or a paren in it is `E025`. Quote it.
 
 - A bare field name starts with an ASCII letter, then has only ASCII letters, digits, `-` and `_`. Anything else is `E014`. A quoted name can be any text, spaces and a leading digit included.
 	- A name that breaks only these spelling rules, such as `404`, `-x`, `user name` or `Straße`, can still be read. Its line is kept, and the lines under it load under the name it reads as.
@@ -176,6 +176,7 @@ The writer always uses the first name. The others are read as aliases.
 | `E026` | A bare comma with whitespace or the end after it, such as `ports: 80, 443`         | Retained, value only
 | `E027` | A list item with a colon before whitespace or the end, such as `- name: value`     | Retained. The other items still load.
 | `E028` | An array value on a field that has lines under it                                  | Retained, value only
+| `E029` | A selector in brackets, `base[Boston].pop: 1`. Selectors are in parens             | Retained. Value selectors hold their level open.
 | `H003` | Retired. The case it hinted at is `E025` or `E027` now                             | None
 
 A malformed bracket array is any of these:
@@ -461,7 +462,7 @@ Two older codes change scope:
 	- With arrays in brackets, `base[Boston].ports: [80, 443]` used one bracket for two things. In a lookup path, `dogs[1]` would look like the second element of an array, when it's the second `dogs` instance.
 	- A bare number is still an index and a quoted one a value: `year(2020)` vs `year("2020")`.
 	- `[#N]` goes with the brackets. A body starting with `#` is refused, never read as a value.
-	- Which code covers brackets after a name is open.
+	- Brackets after a name are `E029`, answered 2026-10-06. The line is kept as written. When it selects by value, the lines under it still load under that instance. `shcl explain E029` says selectors moved to parens.
 
 - A selector matches one plain value: `base(Boston)`, `base("New York")`.
 	- The old match by display form, where `base[Boston, MA]` found the array value `Boston, MA`, is gone.
@@ -570,7 +571,8 @@ Moved from `design.md`, with the escape spelling changed to `◉U+XXXX◉`.
 | A bare value with a tab or other whitespace     | The same text, quoted, a tab as `◉TAB◉`
 | A bare value with a quote                       | The same text, quoted
 | A bare name not led by a letter                 | The same name, quoted, so `-x: y` doesn't start a list item
-| A bare selector body with a quote or whitespace | The same body, quoted
+| `x[sel]`, a 2.x selector                        | `x(sel)`
+| A bare selector body with a quote or whitespace | The same body, quoted, so `srv[New York]` is `srv("New York")`. A paren in it is quoted too
 | `a, b` or `a,b`                                 | `[a, b]`, since 2.x read both as arrays
 | `x: ,`, only empty slots                        | `x:`, empty, as 2.x read it
 | `* item`                                        | `- item`
@@ -580,6 +582,8 @@ Moved from `design.md`, with the escape spelling changed to `◉U+XXXX◉`.
 - A 2.x backslash is left as written, and reads literally. No escape is added for it (answered 2026-10-05).
 	- A piece is written another way only where these rules would read its text as something else, so `"say \"hi\""` becomes `'say \"hi\"'`.
 	- `check-migrate.bash` compares reads with 2.x, so it allows an element or a quoted name to differ where a backslash pair 2.x read as an escape is text now.
+
+- A selector in brackets is `E029` now, so its line never reads clean under these rules. In a file that does not say it is 2.x, a line these rules refuse is rewritten, so the selector goes to parens there too, at exit 0 (2026-10-06).
 
 - Some lines 2.x bound have no spelling here, so they are counted lost. That is exit 7, and `--lossy` overrides it.
 	- Bracket text after a colon, as before.
@@ -755,7 +759,7 @@ What the build has today, and what replaces it.
 	- CLI help showing the quoted form for `--set-literal`: `--set-literal 'title="My App"'`. Done.
 	- Comments nesting under kept lines, 2026100218185700. Done.
 	- Spaces in bare values and `- ` items, and the colon and comma rules, answered 2026-10-06. Done in Rust, `spec.md` and `grammar.abnf`, with `migrate` writing a 2.x comma list in brackets. The ports build them from the start.
-	- Selectors in parens, answered 2026-10-06, 2026100610073400. Not built yet, so `spec.md`, the grammar and the code still use brackets. Do it after chunk C's Rust part and before the ports, so they get written once. `migrate` rewrites 2.x selector lines.
+	- Selectors in parens, answered 2026-10-06, 2026100610073400. Done in Rust, `migrate` included, and in `spec.md`, the grammar, `design.md`, the README and the man page. The ports build it from the start.
 
 2. Then cut `v3.0.0-beta1`.
 
@@ -774,5 +778,5 @@ What the build has today, and what replaces it.
 | 2026100117214801 | A bad escape in the name of a line that opens a raw block leaves the body to be read as lines | Stays. Its repro changes.
 | 2026100117214802 | `set` on a file ending in a kept line writes the new key above it                             | Stays. Its repro changes.
 | 2026100511210900 | A merge can leave a list with a field under it after an empty binding of its name             | Fixed: the save refuses
-| 2026100610073400 | Selectors use `()`, and `[]` is for arrays only                                               | Answered, not built
+| 2026100610073400 | Selectors use `()`, and `[]` is for arrays only                                               | Done in Rust and the docs. The ports remain
 | 2026100609552447 | Don't allow the `[#N]` index selector                                                         | Moot, folded into 2026100610073400

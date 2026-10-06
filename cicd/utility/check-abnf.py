@@ -61,7 +61,16 @@ SAMPLES: list[tuple[str, str, bool]] = [
 	("info-string", "a # b", False),
 	("fence-line", "```c# note", True),
 	("fence-line", "\t~~~~ sql:pg", True),
-	("field-line", "srv[web].port: 80", True),
+	("field-line", "srv(web).port: 80", True),
+	## A selector is written in parens since 2026100610073400, and one in
+	## brackets is E029. A bare body ends at the first ")" and holds no "(".
+	("field-line", "srv[web].port: 80", False),
+	("field-line", "srv (web) . port: 80", True),
+	("field-line", 'srv("a)b").p: 1', True),
+	("field-line", "srv(a(b)).p: 1", False),
+	("field-line", "srv(a(b).p: 1", False),
+	("field-line", "srv(St.Paul).p: 1", True),
+	("field-line", "k: f(x)", True),
 	("field-line", "db: ```sql # the label is sql", True),
 	## 20260920 item 5: the bare-value class was the formatter's minimal shape,
 	## so the grammar derived none of these. Since the value syntax change
@@ -85,8 +94,8 @@ SAMPLES: list[tuple[str, str, bool]] = [
 	("field-line", "k: [a,b]", True),
 	("field-line", "k: [a b]", False),
 	("field-line", "k: [a:, b]", False),
-	("field-line", "srv[a:b].p: 1", False),
-	("field-line", 'srv["a:b"].p: 1', True),
+	("field-line", "srv(a:b).p: 1", False),
+	("field-line", 'srv("a:b").p: 1', True),
 	("field-line", "\tk: trailing  ", True),
 	("field-line", 'q: "needs quotes"', True),
 	("field-line", "k: [one, two]", True),
@@ -162,9 +171,9 @@ SAMPLES: list[tuple[str, str, bool]] = [
 	("list-item-line", "- a, b", False),
 	("list-item-line", "-x", False),
 	## 20260803 item 32: the parser takes a leading plus on an index, and "-"
-	## is no sign, so [-1] is a value selector.
+	## is no sign, so (-1) is a value selector. The old "#" index is gone.
 	("index-sel", "+1", True),
-	("index-sel", "#+1", True),
+	("index-sel", "#+1", False),
 	("index-sel", "-1", False),
 	## The formatter's own shape, which nothing on the parse side reaches.
 	("fmt-bareword", "plain", True),
@@ -517,7 +526,7 @@ def fTie(cli: Path, work: Path, rule: str, text: str) -> bool:
 	if rule == "index-sel":
 		## Index 1 is the second instance; a value selector finds neither.
 		fWrite(work, "srv: a\n\tport: 1\nsrv: b\n\tport: 2\n")
-		rc, out = fRun(cli, ["get", "s.shcl", f"srv[{text}].port"], work)
+		rc, out = fRun(cli, ["get", "s.shcl", f"srv({text}).port"], work)
 		return rc == 0 and out == ["2"]
 	if rule == "fmt-bareword":
 		## The formatter's class, so the formatter is what answers: the value
@@ -673,3 +682,4 @@ if __name__ == "__main__":
 ##		2026-09-26  The newline rule takes a whole CR run.
 ##		2026-10-05  The value syntax: brackets, "- " items, escape names and
 ##		            the bare rules.
+##		2026-10-06  Selectors in parens.

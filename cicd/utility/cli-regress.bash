@@ -927,6 +927,9 @@ rows=(
 	## spelling now, so both are lost, not rewritten at exit 0.
 	'Erwf3oC|migrate-lost-array-selector|migrate --from-2x -|a[x, y].b: 1\n|7|-|: 1 line\(s\) bound a value under 2\.x'
 	'Erwf3oD|migrate-lost-list-over-lines|migrate --from-2x -|a: 1, 2\n\tb: 1\n|7|-|: 1 line\(s\) bound a value under 2\.x'
+	## 2026100610073400: a selector goes in parens. One in brackets is E029, so
+	## the line is rewritten without --from-2x too.
+	'Erxvsaw|migrate-selector-parens|migrate -|a[x].k: 1\nb[New York].k: 2\n|0|a(x).k: 1\nb("New York").k: 2\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	## 20260909 item 41: telling a file that needs migrating from one that does
 	## not took a diff of the output, and --write said nothing either way.
 	'Eq4wD3Y|migrate-check-names|migrate --check %W%|-|6||w\.shcl:1: migrate would rewrite this line'

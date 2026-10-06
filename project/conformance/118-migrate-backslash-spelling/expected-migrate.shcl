@@ -13,9 +13,9 @@ quote: "it\'s"
 end: 'x\\'
 'n\\tm': 1
 'n\tm': 2
-k['a\\tb'].v: 1
-j[a\\tb].v: 1
-srv['a\\tb'].name: 1
+k('a\\tb').v: 1
+j(a\\tb).v: 1
+srv('a\\tb').name: 1
 list:
 	- a\\tb
 	- 'c\\d'

@@ -5,7 +5,7 @@ ok-bare: C:\work\new
 ok-doubled: "C:\\work\\new"
 regex: "\d+"
 "n\ame": 1
-srv["a\b"].port: 80
+srv("a\b").port: 80
 list:
 	- one
 	- "tw\o"

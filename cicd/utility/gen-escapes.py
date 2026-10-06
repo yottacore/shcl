@@ -224,10 +224,13 @@ def fAbnf() -> list[str]:
 	## fmt-bareword places them itself.
 	bare = fSubtract([(0x21, 0x10FFFF)], [(c, c) for c in RESERVED] + WHITE_SPACE + INVISIBLE + JOINERS + SELECTORS)
 	text = fSubtract([(0x00, 0x10FFFF)], [(c, c) for c in RESERVED] + WHITE_SPACE)
+	## A bare selector body ends at its ")", and holds no "(" either.
+	sel = fSubtract(text, [(0x28, 0x29)])
 	## ABNF strings ignore case, as escape names do.
 	names = fAbnfWords("escape-name", [n for n, _ in ESCAPE_NAMES]) + ["                / code-point"]
 	return ([f"; {HEAD}"] + fAbnfAlts("fmt-bare-char", bare) + fAbnfAlts("variation-sel", SELECTORS)
-		+ fAbnfAlts("bare-text", text) + names + fAbnfWords("code-prefix", CODE_PREFIXES))
+		+ fAbnfAlts("bare-text", text) + fAbnfAlts("sel-text", sel) + names
+		+ fAbnfWords("code-prefix", CODE_PREFIXES))
 
 
 def fSpec() -> list[str]:
@@ -297,3 +300,4 @@ if __name__ == "__main__":
 ##		            the value syntax. Rust only so far.
 ##		2026-10-05  The grammar takes the escape names, the bare text class
 ##		            and White_Space too, and spec.md the escape table.
+##		2026-10-06  A selector text class, the bare one without parens.

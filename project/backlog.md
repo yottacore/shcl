@@ -222,6 +222,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 			- The lost message names all 3 kinds.
 		- 20261006: chunk C's design.md and changelog piece on `vsdoc`, off `valsyn`. Docs only. design.md's Lexical edges and Load outcomes tables, the 3.0 and `migrate` notes, the `--set-literal` example, the setter note example and the generation row match the built rules, and the `H003`, bracket text and display-form selector entries are marked superseded. value-syntax.md's Roadmap marks design.md done. The changelog's old backslash, `E024` and `H003` entries are replaced by the value syntax changes. Verified: check-docs before and after staging, check-readme, markdownlint. Left: 2026100610073400 changes design.md's selector text again; changelog Fixed entries about `*` items and `SetLiteral` refusing bracket text are left as written.
 		- 20261006: selectors in parens, the Rust part, on `vspar` (2026100610073400). `migrate`, the docs and the ports still write or read brackets.
+		- 20261006: selectors in parens, `migrate` and the docs, on `vsmig2` (2026100610073400). Rust and the docs are done; the Go, Python and C ports remain.
 	- Decisions:
 		- 20261002: idea 3, with the changes listed in the design doc. Open points and their proposed answers are under its Roadmap.
 		- 20261002: a quote anywhere in a bare value is an error, and a bare field name starts with a letter. Dates, times, durations and sizes without spaces stay bare.
@@ -287,10 +288,26 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 			- `migrate` still writes brackets. So `migrate_matches_expected` (118, 122, 170, 174), `migrate_escapes_a_real_mark`, `migrate_quotes_a_bare_selector_these_rules_refuse` and `migrate_leaves_what_reads_clean_now` fail, and check-migrate is at 579 divergences, partly because its read loop builds `[#i]` paths.
 			- check-docs fails `Er1z2hW` (no `E029` row in spec.md), `EqWax3I` (4 bracket samples in check-abnf) and `Eom0qpm`, and check-readme fails `EqRTWFg`, both on the README sample's bracket selector.
 			- spec.md, grammar.abnf, check-abnf, design.md, value-syntax.md, README, the man page (its `--set` text and the `site[*]` example), the changelog, then the Go, Python and C ports.
-	- Branch: `vspar`
-	- Commit: `c4da140e`
-	- Test case: corpus 203 (`ErxfmqL`), conformance `Erxfmqa` and `Erxfmqb`, fuzz `Erxfmqc`, cli-regress `ErxfmqM` to `ErxfmqZ`. Each failed on the code before but `ErxfmqU`, a pinning row.
+		- 20261006: `migrate` and the docs on `vsmig2`, off `valsyn`. Rust and docs only.
+			- In: `migrate` writes a 2.x selector in parens, `x[sel]` as `x(sel)`, an index and the wildcard included. A bare body these rules refuse, such as one with a space, a quote or a paren, is quoted. The `name:[disc]` sugar before the last segment loses its colon and goes in parens too.
+			- A file that does not say it is 2.x: a selector in brackets is `E029` now, so its line never reads clean. By the `vsmig` rule for a line these rules already refuse, it is rewritten, at exit 0. The rest of that line gets the 2.x rewrites with it.
+			- check-migrate is green: 638 documents, 28 lost counts. Its read loop asks for `(N)` on the current side and `[#N]` on the 2.x side. The corpus spells selectors in parens now, which 2.x refuses, so each corpus input with one is also compared with its paren pairs swapped back to brackets, 29 more documents. An input that names format 3 gets no copy, since `migrate` leaves it as written.
+			- check-migrate's exceptions are the ones it already had: lines 2.x refused, a fence label holding a `#`, a mid-line carriage return, an indent no level matches, a raw block that never closes, the two lost kinds (a selector with a comma, a comma list over lines), a backslash pair 2.x read as an escape, and the empty info-string read.
+			- Docs: spec.md (an `E029` row, the selector rules, lookup and schema paths, `init`, Migrating from 2.x), grammar.abnf (selectors in parens, no `#` index, and a `sel-text` class that `gen-escapes.py` writes), check-abnf samples, design.md, value-syntax.md (Roadmap, migration table, `E029`), README and the two binding READMEs, the man page, the changelog.
+			- Changelog `## Unreleased`: the `*` item lines now say `- `, the `SetLiteral` line says what it refuses now, and the `tokens` line is dropped, since `tokens` is new in 3.0.
+		- 20261006: calls made in the `migrate` and docs piece. Each is easy to reverse.
+			- In a file that does not say it is 2.x, a line with a selector in brackets gets every 2.x rewrite, not only the parens.
+			- A selector body with no spelling in parens is counted lost rather than written. None was found.
+			- A schema path with a selector is documented as fine bare, `field: server(*).host`, since the writer writes it that way.
+			- The README's Go, Python, C, C++ and Zig examples use parens too. So check-readme fails at its C example until the ports, where it failed at the Rust one before.
+			- The man page's migrate text still named `E024` and the old lost forms. It now matches spec.md, in short.
+		- 20261006: Rust and the docs are in. Status stays Started only because the Go, Python and C ports, with the C++ veneer, remain.
+	- Branch: `vspar`, `vsmig2`
+	- Commit: `c4da140e`, `df0eab64`
+	- Test case: corpus 203 (`ErxfmqL`), conformance `Erxfmqa` and `Erxfmqb`, fuzz `Erxfmqc`, cli-regress `ErxfmqM` to `ErxfmqZ`. Each failed on the code before but `ErxfmqU`, a pinning row. `vsmig2`: conformance `ErxqQLy`, cli-regress `Erxvsaw`, and check-migrate `Eq5YPgP` with the bracket copies. Each failed on the code before; check-migrate had 35 divergences there.
 	- Verified: cargo test but the 4 `migrate` tests above, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, shellcheck, markdownlint. shell-regress fails the same 2 as on `valsyn`. The 2,000,000 release fuzz passes all 25.
+		- `vsmig2`: cargo test with all 4 `migrate` tests, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, check-migrate, check-abnf, gen-escapes, markdownlint, shellcheck, ruff and mypy. check-docs passes but `EpHGoa0`, which fails because dev's installers are not on main yet. check-readme's Rust example and transcripts pass; its C, C++, Go and Python examples fail until the ports. shell-regress fails the same 2. The 2,000,000 release fuzz passes all 25.
+	- Swept: every `x[...]` selector and `[#N]` in spec.md, grammar.abnf, design.md, value-syntax.md, README.md, the binding READMEs, the man page and the changelog's `## Unreleased`. What is left in brackets is the `E029` text, the 2.x side of the migration rows, and design.md's history entries.
 
 - Back up and rewrite a config file when a program's shcl upgrade breaks it
 	- ID: 2026100313461649
