@@ -3272,7 +3272,8 @@ fn path_of(tok: &Tokens, text: &str) -> Result<PathScan, String> {
 /// lines never take; only lookups (reads, the writer probe, schema paths)
 /// do. Whitespace around dots, colons and brackets is insignificant. A path
 /// a file line could not hold is refused the same: a bad escape, or a bare
-/// selector body with whitespace or a quote in it (`E025`).
+/// selector body with whitespace, a quote, a colon, a comma or a bracket in
+/// it (`E025`).
 fn scan_lookup(input: &str) -> Result<PathScan, String> {
 	let mut tok = Tokens::default();
 	tokenize(input, b':', true, Rules::Current, &mut tok);
@@ -5063,8 +5064,8 @@ impl<'a> Parser<'a> {
 			let mut next = i + 1;
 			// A line that reads only one way, or no way, is kept verbatim
 			// rather than read with a guess: a value written the way JSON,
-			// TOML and YAML write an array, an open quote, a bad escape, bare
-			// whitespace or a quote, or a bare name that breaks the spelling
+			// TOML and YAML write an array, an open quote, a bad escape, a tab,
+			// a quote or a loose colon, or a bare name that breaks the spelling
 			// rule. The path and the name are judged before the cap, and the
 			// value after it, so a line past the cap is E021 whatever its
 			// value. When the name still reads, the lines under it still load,
@@ -9212,9 +9213,9 @@ impl Document {
 /// ends the value exactly as they would in a file. What is refused is what
 /// a file reports as an error, since a setter has no diagnostic to report it
 /// with: a line break, which no file line can hold, a malformed bracket
-/// array (E019), and whatever a value is refused for on a line: a bare comma
-/// (E026), an unterminated quote (E017), a bad escape (E023), or whitespace
-/// or a quote in bare text (E025). A bracket array is stored as an array.
+/// array (E019), and whatever a value is refused for on a line: a loose comma
+/// (E026), an unterminated quote (E017), a bad escape (E023), or what bare
+/// text may not hold (E025). A bracket array is stored as an array.
 fn literal_value(text: &str) -> Option<Value> {
 	if text.contains('\n') {
 		return None;
@@ -10839,7 +10840,7 @@ fn parse_int_text(e: &Element, level: Strictness) -> Option<i64> {
 			None
 		};
 	}
-	// Thousands separators, only inside quotes (bare commas are reserved).
+	// Thousands separators, only inside quotes: bare, `80,443` is text.
 	if e.quoted() && t.contains(',') {
 		let sign_body = t.strip_prefix(['+', '-']).unwrap_or(t);
 		let groups: Vec<&str> = sign_body.split(',').collect();
