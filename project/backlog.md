@@ -100,6 +100,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261005: on valsyn, the no-colon rule is narrowed back (`square-miles 300` is `E014` again), a merge list join is fixed (2026100520243961, filed and closed there), and chunk C's spec half is in: spec.md, grammar.abnf and value-syntax.md. check-docs and check-abnf pass there. Next: design.md, the changelog, `migrate`, then the Go, Python and C ports.
 		- 20261006: answered: spaces are allowed in a bare value and a `- ` item, but not inside `[]` or a selector. A bare colon or comma needs a character after it, so `rw,noatime` and `:0` stay bare and `ports: 80, 443` is an error. Built in Rust on valsyn, with spec.md and the grammar. The 2M fuzz passes there. Next: the rest of chunk C, then the Go, Python and C ports.
 		- 20261006: on valsyn, `migrate` follows the new rules, and check-migrate passes there. Next: design.md and the changelog, then 2026100610073400, then the Go, Python and C ports.
+		- 20261006: on valsyn, design.md and the changelog caught up, and 2026100610073400 is in for Rust and the docs. Next: the Go, Python and C ports.
 	- Decisions:
 		- 20261002: idea 3, with the changes listed in the design doc. Open points and their proposed answers are under its Roadmap.
 		- 20261002: a quote anywhere in a bare value is an error, and a bare field name starts with a letter. Dates, times, durations and sizes without spaces stay bare.
@@ -116,7 +117,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - Selectors use `()`, and `[]` is for arrays only
 	- ID: 2026100610073400
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Started
 	- Priority: High
 	- Opened: 20261006-100734
 	- Opened by: JC
@@ -140,6 +141,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261006: parens for every selector, brackets only for arrays. Parens for values with brackets for index and wildcard was too confusing, 2 forms for one thing. Braces were weighed too, but PowerShell silently splits `person{Bucky}` into 2 arguments.
 		- 20261006: brackets after a name get a new code, `E029`, so `explain E029` can say selectors moved to parens. The line is kept as written.
 	- Note: 20261006, do it on `valsyn` after chunk C's Rust part and before the Go, Python and C ports, so the ports get written once.
+	- Progress log:
+		- 20261006: on valsyn, Rust and the docs are in, `migrate` included (`vspar`, `vsmig2`). Valsyn's copy of this file has the details. The Go, Python and C ports are left, with 2026100207032800's.
 	- Estimated effort: High
 
 - Back up and rewrite a config file when a program's shcl upgrade breaks it
