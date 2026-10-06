@@ -33,6 +33,38 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
+- A macOS universal binary for amd64 and ARM
+	- ID: 2026100313461652
+	- Type: Feature
+	- Status: Waiting for testing
+	- Needs local test suite run?: N. The stage 6 command was run as stage 6 runs it, and the gates it touches pass.
+	- Needs external testing: b26, under the host lock: the universal binary's `fmt` and `check` output over the corpus against Linux's, cli-regress if b26 has a bash 4 or later, and `install.bash` end to end in macOS's own bash 3.2 against a local stand-in release (plan, install, `man shcl`, the system target, uninstall). Then the hosted `macos` job on macos-14, which builds it with the stage 6 command and runs the arm64 half.
+	- Priority: Avg
+	- Opened: 20261003-134616
+	- Opened by: JC
+	- Target OS: macOS
+	- Test environment: b26 (Intel), hosted macos-14 (Apple silicon).
+	- Requirements:
+		- MacOS gets a universal binary for both amd64 and ARM, if appropriate.
+	- Note: 20261003, no macOS binary is built yet. `cicd/config.bash` defers it for lack of an Apple SDK on the build box, and `install.bash` sends macOS users to build from source. A hosted macOS runner can build both Rust targets and join them with `lipo`. The installers and the release asset names would need a macOS entry too.
+	- Note: 20261003, b26 is an Intel Mac that other projects already use, booked through a lock like the Windows boxes. It can build and test the amd64 half and run `lipo`. The ARM half can be cross-built there but not run, so a hosted ARM runner would still have to test it.
+	- Note: 20261006, the installer changes need a docs-only sync to main once this is on dev (`install.bash` 1.3.0, `install.ps1` 1.1.7). check-docs fails until then. The README stays off main until the cut.
+	- Decisions:
+		- 20261005: cross-build both halves here with zigbuild, run the amd64 half on b26 under the lock, and add a hosted macos-14 job that runs the corpus and cli-regress on ARM.
+	- Prereq IDs: 2026100314005369
+	- Estimated effort: Avg
+	- Progress log:
+		- 20261006: stage 6 builds `macos-universal` with cargo-zigbuild's `universal2-apple-darwin` target, which joins the halves itself, so there is no `lipo` step. No Apple SDK is needed. zig has its own libSystem stubs, and the CLI links nothing else.
+		- 20261006: zig's default put the floor at macOS 13. The build now names 13.0 itself, so a zig upgrade cannot move it. The linker signs the arm64 half ad hoc, which Apple silicon requires.
+		- 20261006: the binary's UUID took in the object file paths, so its bytes changed with the checkout path. Linking without the debug map fixed that. Release strips that map anyway.
+		- 20261006: `install.bash` maps Darwin to the universal binary on both arches, and names the macOS 13 floor when the binary will not start. The release table already took `macos-universal`.
+		- 20261006: the hosted `macos` job runs crosscheck over the corpus against a debug build, cli-regress, and the Rust tests. It is not strict, so rows needing `/dev/full` or strace skip there. ci.yml now pins cargo-zigbuild, and check-pins reads each install line on its own, since the new pip line hid an unreadable one.
+		- 20261006: no dogfood dest for macOS until the binary has run on a Mac.
+	- Verified: the stage 6 command gave the same bytes from 2 target dirs and from another checkout. Both halves are for macOS 13 and link only libSystem, and every page hash in the arm64 signature matches. shell-regress, check-pins, check-docs, check-readme, test-ids, markdownlint and shellcheck pass. A Linux release build passes cli-regress and crosscheck the way the job runs them. Nothing has run on a Mac yet.
+	- Swept: the FreeBSD target's sites. Stage 6, the toolchain targets, both installers and their comments, README, design.md, the changelog, the release table and the dogfood note.
+	- Branch: `macbin`
+	- Test case: shell-regress `ErxeImS` (macOS plan on both arches), `ErxeImT` (install of the universal binary), `ErxeImU` (the macOS floor), `ErxeImV` (every stage 6 binary gets a table cell). `Er1zTEe` has the new install.ps1 text, and `EqL4rtp` holds the per-line pip read. Each failed with its change taken out.
+
 - No '\' escapes
 	- ID: 2026100207032800
 	- Type: Enhancement
@@ -335,42 +367,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Use the "newline" escape as an example, windows paths, and unicode escapes.
 	- Note: 20261003, the escape names come from `project/design_docs/value-syntax.md`: `◉NEWLINE◉`, `◉U+XXXX◉`, and a backslash is plain text, so `C:\temp` needs no doubling.
 	- Estimated effort: Low
-
-- A macOS universal binary for amd64 and ARM
-	- ID: 2026100313461652
-	- Type: Feature
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261003-134616
-	- Opened by: JC
-	- Requirements:
-		- MacOS gets a universal binary for both amd64 and ARM, if appropriate.
-	- Note: 20261003, no macOS binary is built yet. `cicd/config.bash` defers it for lack of an Apple SDK on the build box, and `install.bash` sends macOS users to build from source. A hosted macOS runner can build both Rust targets and join them with `lipo`. The installers and the release asset names would need a macOS entry too.
-	- Note: 20261003, b26 is an Intel Mac that other projects already use, booked through a lock like the Windows boxes. It can build and test the amd64 half and run `lipo`. The ARM half can be cross-built there but not run, so a hosted ARM runner would still have to test it.
-	- Decisions:
-		- 20261005: cross-build both halves here with zigbuild, run the amd64 half on b26 under the lock, and add a hosted macos-14 job that runs the corpus and cli-regress on ARM.
-	- Prereq IDs: 2026100314005369
-	- Estimated effort: Avg
-
-- Run the Linux ARM64 release binary on real ARM64 hardware
-	- ID: 2026100413052100
-	- Type: Task
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261004-130521
-	- Opened by: JC
-	- Related IDs: 2026100413052101
-	- Target OS: Linux ARM64
-	- Test environment: vmDebARM64, booked through the host lock.
-	- Problem description:
-		- Stage 6 cross-builds `linux-arm64` with zig and the release ships it, but nothing ever runs it. No gate uses qemu, and the hosted jobs are all x86_64.
-	- Requirements:
-		- Run the release binary on vmDebARM64 against the conformance corpus and cli-regress.
-		- Build and run the four bindings' suites there natively, to catch anything the cross build hides.
-		- Check the installer picks the arm64 asset and its glibc floor message (2.30).
-	- Note: 20261004, vmDebARM64 has no setup notes yet. Ask how it is set up before the first visit. Answered 20261004: a test user with normal rights and no password, and `root` by ssh with b23's key.
-	- Note: 20261005, vmDebARM64 has Wine installed, so the `windows-arm64` release binary might run there too, if slowly. Try the corpus and cli-regress through `wine` on the same visit.
-	- Estimated effort: Avg
 
 - A file stamped Format 3 during the beta is never migrated
 	- ID: 2026100115403385
@@ -1279,6 +1275,45 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Test case: fuzz `ErZx5Et` (`kept_lines_keep_their_path`); corpus `188-kept-line-keeps-parent`; cli-regress `kept-under-kept-fmt`, `kept-before-dotted-fmt`, `set-write-keeps-dropped-gap`, `set-write-gap-fallback-refused`.
 	- Acceptance signoff: 20261003, closed without a hand check: the fuzz property, corpus 188 and the cli-regress rows cover what a hand test would, and the open question on the item went to 2026100218185700.
 	- Closed: 20261003-113243
+
+- Run the Linux ARM64 release binary on real ARM64 hardware
+	- ID: 2026100413052100
+	- Type: Task
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20261004-130521
+	- Opened by: JC
+	- Related IDs: 2026100413052101
+	- Target OS: Linux ARM64
+	- Test environment: vmDebARM64, booked through the host lock.
+	- Version and build: dev at `9afc08f1`, cross-built the way stage 6 does (`cargo zigbuild --release`, build stamp `ddk3m`).
+	- Problem description:
+		- Stage 6 cross-builds `linux-arm64` with zig and the release ships it, but nothing ever runs it. No gate uses qemu, and the hosted jobs are all x86_64.
+	- Requirements:
+		- Run the release binary on vmDebARM64 against the conformance corpus and cli-regress.
+		- Build and run the four bindings' suites there natively, to catch anything the cross build hides.
+		- Check the installer picks the arm64 asset and its glibc floor message (2.30).
+	- Note: 20261004, vmDebARM64 has no setup notes yet. Ask how it is set up before the first visit. Answered 20261004: a test user with normal rights and no password, and `root` by ssh with b23's key.
+	- Note: 20261005, vmDebARM64 has Wine installed, so the `windows-arm64` release binary might run there too, if slowly. Try the corpus and cli-regress through `wine` on the same visit.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Progress log:
+		- 20261006: ran on vmDebARM64 (Debian 13.7, glibc 2.41, 8 vCPUs emulated). The test user is `tester`. Nothing was installed there. Go 1.26.8, gcc 14 and Python 3.13 were already present. There is no cargo and no g++, so the Rust suite and the C++ veneer smoke did not run natively. Two Debian images were pulled for the glibc check and removed after.
+		- 20261006: nothing broke, so nothing was filed.
+	- Verified:
+		- The `linux-arm64` binary: the corpus goldens through the CLI (`fmt`, `check`, `check --schema`, `init`, `migrate --from-2x`, merge, `set`), 494 of 495. The one miss is case 182's `check`, which follows the file's Schema line to a missing file, and the x86_64 release does the same. cli-regress passes, 372 rows. Its 3 extra skips are host gaps: no strace, no second group.
+		- Native suites: Go (255 ok), Python (253 ok, 191 cases) and C (191 cases, plus `oom_hook`, `oom_recover` and `mem_bounds`) all pass, the same counts as on x86_64.
+		- crosscheck over the corpus, with the arm64 release CLI as reference and natively built Go, Python and C CLIs: 15537 of 15540 agree. The 3 are the `--about` build stamp only the release has, and x86_64 shows the same 3.
+		- cli-regress over the native Go, Python and C CLIs passes, 372 rows.
+		- Installer: `install.bash` 1.2.0 as `tester` picked `shcl-2.0.0-linux-arm64`, checked the signed sums, installed and ran it, and `--uninstall` removed it.
+		- glibc floor: the binary asks for `GLIBC_2.30` at most and no libgcc_s. The installer's smoke check on glibc 2.28 (Debian 10) prints the loader's `GLIBC_2.30' not found` line and then the 2.30 message. On glibc 2.31 (Debian 11) it passes.
+		- `windows-arm64` under Wine 10.0: `--version` runs, and the corpus goldens pass 493 of 495. One is case 182, as above. The other was case 130's `set` failing once. It passed 6 reruns after, and a second pass over all 50 `set` cases. cli-regress through Wine was not run. Each call takes about 9 seconds there, so a run would be well over an hour.
+		- 20261006: no item for cli-regress under Wine. The corpus pass is enough.
+	- Branch: `arm64run`
+	- Commit: `2f7d592d`
+	- Test case: corpus goldens, cli-regress and crosscheck against the arm64 binary. The Go, Python and C conformance suites run natively. A one-off run on a test host, so no new CI test.
+	- Acceptance signoff: Self-closed: test task, every run passed.
+	- Closed: 20261006-132324
 
 - Group a release's downloads in a table, with the CPU architecture in columns and the target OS in rows
 	- ID: 2026100411093274

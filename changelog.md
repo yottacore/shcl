@@ -64,6 +64,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### New
 
+- A prebuilt macOS binary, one universal file for Intel and Apple silicon, for macOS 13 and later. `install.bash` installs it.
+
 - A prebuilt FreeBSD x86_64 binary. `install.bash` installs it, and names a release that has no binary for the platform it runs on.
 
 - `parse_keep_lines()`, `load_file_keep_lines()`, `to_text_keep_lines()` and `save_file_keep_lines()` in every binding save a file with the lines no edit touched left as they were, dropped lines included, and fall back to the canonical form when that would not load back the same.

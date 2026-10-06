@@ -194,3 +194,60 @@ jobs:
             source/rust/target
           key: ci-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'source/rust/Cargo.lock') }}
       - run: bash cicd/utility/win-runners.bash
+
+  ## The macOS binary is cross-built on Linux in stage 6, where it cannot run,
+  ## and the Mac on hand is Intel. So this builds it on Apple silicon with the
+  ## stage 6 command itself, read out of config.bash, and runs its arm64 half:
+  ## cli-regress, and crosscheck over the corpus against a plain debug build.
+  ## The Rust tests run the corpus against the library here as well.
+  ##
+  ## Not under --ci, so a row this host has no device or tool for (/dev/full,
+  ## strace, the page map) is skipped out loud rather than failed. GNU
+  ## coreutils go first on PATH, since the gate scripts use timeout and
+  ## stat -c. cargo-zigbuild is installed without its ziglang dependency, which
+  ## it would take over the pinned zig below.
+  macos:
+    runs-on: macos-14
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+      - run: |
+          brew install coreutils
+          echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"
+          pip install --no-deps cargo-zigbuild==0.23.0
+      ## A step of its own, so the sha256sum below is the GNU one added above.
+      - run: |
+          curl -fsSL --proto '=https' --tlsv1.2 -o /tmp/zig-aarch64-macos-0.16.0.tar.xz \
+            "https://ziglang.org/download/0.16.0/zig-aarch64-macos-0.16.0.tar.xz"
+          echo "b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489  /tmp/zig-aarch64-macos-0.16.0.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/zig-aarch64-macos-0.16.0.tar.xz -C /tmp
+          echo "/tmp/zig-aarch64-macos-0.16.0" >> "$GITHUB_PATH"
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            source/rust/target
+          key: ci-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'source/rust/Cargo.lock') }}
+      - run: |
+          CPU_CAP="$(nproc)"
+          export CPU_CAP
+          cargo test --manifest-path source/rust/Cargo.toml
+          cargo build --manifest-path source/rust/Cargo.toml
+          art=""
+          # shellcheck source=/dev/null
+          source cicd/config.bash
+          for t in "${CROSS_TARGETS[@]}"; do
+            [[ "${t}" == *"|macos-universal|"* ]] || continue
+            rest="${t#*|}"; rest="${rest#*|}"; art="${rest%%|*}"
+            eval "${rest#*|}"
+          done
+          [[ -n "${art}" && -f "${art}" ]] || { echo "no macOS binary built: ${art}" >&2; exit 1; }
+          lipo -archs "${art}"
+          bash cicd/utility/crosscheck.bash --corpus project/conformance "rust|source/rust/target/debug/shcl" "macos|${art}"
+          bash cicd/utility/cli-regress.bash "macos|${art}"
