@@ -9,12 +9,12 @@
 ##		emitters write a value differently on purpose (single quotes for a
 ##		backslash, no `\'`), so the trees are compared through the reads - the
 ##		path list, the instance count at every path, and each instance's
-##		string array, raw body and info string. The 2.x side is a build of the
-##		last pre-cut dev commit, pinned below by hash and built into its own
-##		gitignored target the way the pre-push gate builds, so the comparison
-##		never rests on whatever `shcl` is on PATH. The 2.x build also reads the
-##		migrated text, which has to give the tree it read from the original: a
-##		spelling 2.x reads differently is what makes a second run change a file.
+##		string array, raw body and info string. A path is compared by its
+##		names, each read back by the rules of the CLI that printed it. The
+##		2.x side is a build of the last pre-cut dev commit, pinned below by
+##		hash and built into its own gitignored target the way the pre-push
+##		gate builds, so the comparison never rests on whatever `shcl` is on
+##		PATH.
 ##
 ##		Compared is what 2.x read cleanly. A line it kept as malformed may read
 ##		as a binding now, which is a gain, not a migration; a bracket array it
@@ -27,16 +27,18 @@
 ##		as content and which is a blank at a piece's edge now. These are found
 ##		in the 2.x text, never in migrate's output. Each is asserted on a
 ##		corpus case, so the list cannot rot. A backslash pair 2.x read as an
-##		escape stays as written and reads as text now, so an element read may
-##		differ from the 2.x one in that way alone (fBackslashText).
+##		escape stays as written and reads as text now, so an element read or
+##		a quoted name may differ from the 2.x one in that way alone
+##		(fBackslashText).
 ##
 ##		A compared document also has to migrate at exit 0, unless 2.x read a
 ##		raw block that never closes: the Format line would be more of its body,
-##		so migrate refuses that file at 7, and has to. A document whose only
-##		unclean lines are bracket arrays has to be refused over exactly that
-##		many lost lines. The corpus half has its own floor, since the fuzz
-##		dump alone can meet the overall one, and so does the fuzz half, since the
-##		corpus alone can meet it too.
+##		so migrate refuses that file at 7, and has to. Some lines 2.x read
+##		cleanly have no spelling now either (fLostNow), and come out too. A
+##		document whose only unclean lines are those or bracket arrays has to
+##		be refused over exactly that many lost lines. The corpus half has its
+##		own floor, since the fuzz dump alone can meet the overall one, and so
+##		does the fuzz half, since the corpus alone can meet it too.
 ##	Syntax:
 ##		check-migrate.bash [--corpus DIR] [--iters N] [--min N] [--min-corpus N] [--min-fuzz N]
 ##		  --corpus DIR  conformance corpus root (default project/conformance)
@@ -140,46 +142,99 @@ fOneLine2x(){ awk '
 	{ v = v "\n" $0 }
 	END { put() }'; }
 
-##	A quoted name as the current CLI writes it: an invisible character is a
-##	\u escape now, and 2.x wrote it as it is. The name is the same either way,
-##	so only the 2.x side's paths are rewritten: each quoted name is read with
-##	2.x's escapes and written again by the Python binding's own emitter, so
-##	no copy of its list lives here.
-fSpellNames2x(){ PYTHONPATH="${root}/source/python" python3 -c '
-import re, sys
-import shcl
-text = sys.stdin.buffer.read().decode("utf-8", "surrogateescape")
+##	The two CLIs spell a quoted name each by its own rules: 2.x with
+##	backslash escapes, the current one with `◉` escapes and either quote. So
+##	each path is read back to its names, by the rules of the CLI that printed
+##	it, and written one way for both: a bare name as it is, any other in
+##	guillemets, with a character that would not show as %HEX;. fReadTree
+##	marks the lines that hold a path, \x01P before a path line and \x01C
+##	before a count line's path, then a tab and the rest. The escape names
+##	come from gen-escapes.py, so no copy of the list lives here.
+fLogicalPaths(){ python3 -c '
+import importlib.util, re, sys
+side = sys.argv[1]
+spec = importlib.util.spec_from_file_location("gen_escapes", sys.argv[2])
+gen = importlib.util.module_from_spec(spec); spec.loader.exec_module(gen)
+names = {n.upper(): v for n, v in gen.ESCAPE_NAMES}
+mark = chr(gen.ESCAPE_MARK)
+def mark_name(m):
+	n = m.group(1).upper()
+	if n in names:
+		return names[n]
+	for pre in gen.CODE_PREFIXES:
+		if n.startswith(pre) and re.fullmatch(r"[0-9A-F]{1,6}", n[len(pre):]):
+			return chr(int(n[len(pre):], 16))
+	return m.group(0)
 unescape = {"t": "\t", "n": "\n"}
-def respell(m):
-	name = re.sub(r"\\(.)", lambda e: unescape.get(e.group(1), e.group(1)), m.group(1), flags=re.S)
-	return shcl._escape_name(name)
-sys.stdout.buffer.write(re.sub(r"\"((?:[^\"\\]|\\.)*)\"", respell, text, flags=re.S).encode("utf-8", "surrogateescape"))
-'; }
+def read_name(s, i):
+	q = s[i]
+	if side == "2x":
+		j, out = i + 1, []
+		while j < len(s) and s[j] != q:
+			if s[j] == "\\" and j + 1 < len(s):
+				out.append(unescape.get(s[j + 1], s[j + 1])); j += 2
+			else:
+				out.append(s[j]); j += 1
+		return "".join(out), j + 1
+	j = s.find(q, i + 1)
+	j = len(s) if j < 0 else j
+	return re.sub(mark + r"([^" + mark + r"]*)" + mark, mark_name, s[i + 1:j]), j + 1
+def show(name):
+	if re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", name):
+		return name
+	return "\u00ab" + "".join(c if c.isprintable() and c not in "%\u00ab\u00bb" else "%%%X;" % ord(c) for c in name) + "\u00bb"
+def logical(path):
+	out, i = [], 0
+	while i < len(path):
+		if path[i] in "\"\x27":
+			name, i = read_name(path, i)
+			out.append(show(name))
+		elif path[i] in ".[":
+			k = path.find("]", i) + 1 if path[i] == "[" else i + 1
+			k = len(path) if k <= i else k
+			out.append(path[i:k]); i = k
+		else:
+			k = i
+			while k < len(path) and path[k] not in ".[":
+				k += 1
+			out.append(show(path[i:k])); i = k
+	return "".join(out)
+for line in sys.stdin.buffer.read().decode("utf-8", "surrogateescape").split("\n"):
+	if line.startswith("\x01P\t"):
+		line = logical(line[3:])
+	elif line.startswith("\x01C\t"):
+		path, _, n = line[3:].partition("\t")
+		line = "count " + logical(path) + " = " + n
+	sys.stdout.buffer.write((line + "\n").encode("utf-8", "surrogateescape"))
+' "$1" "${meDir}/gen-escapes.py"; }
 
 ##	Everything a tree is, read through one CLI: the paths, the count at each,
 ##	and per instance the string array, the raw body and the info string, with
 ##	the exit codes, one line per read. A path holding a tab cannot ride the
-##	loop; those are left to the native runners.
+##	loop; those are left to the native runners. A path goes after `--`, since
+##	one led by `-` would read as an option.
 fReadTree(){
-	local cli="$1" doc="$2" p n i q rc spell=cat
-	if [[ "${cli}" == "${oldCli}" ]]; then spell=fSpellNames2x; fi
-	rc=0; "${cli}" paths "${doc}" > "${tmpDir}/paths" 2>/dev/null || rc=$?
-	"${spell}" < "${tmpDir}/paths"
-	((rc == 0)) || echo "paths exit ${rc}"
-	while IFS= read -r p; do
-		[[ -n "${p}" && "${p}" != *$'\t'* ]] || continue
-		n="$("${cli}" count "${doc}" "${p}" 2>/dev/null || true)"
-		echo "count $("${spell}" <<<"${p}") = ${n}"
-		[[ "${n}" =~ ^[0-9]+$ ]] || continue
-		for ((i = 0; i < n; i++)); do
-			q="${p}[#${i}]"
-			rc=0; "${cli}" get --string --array --slots "${doc}" "${q}" > "${tmpDir}/array" 2>/dev/null || rc=$?
-			if [[ "${cli}" == "${oldCli}" ]]; then fOneLine2x < "${tmpDir}/array"; else cat "${tmpDir}/array"; fi
-			[[ "${rc}" == 0 ]] || echo "string exit ${rc}"
-			"${cli}" get --raw "${doc}" "${q}" 2>/dev/null || echo "raw exit $?"
-			"${cli}" get --rawinfo "${doc}" "${q}" 2>/dev/null || echo "rawinfo exit $?"
-		done
-	done < <("${cli}" paths "${doc}" 2>/dev/null || true)
+	local cli="$1" doc="$2" p n i q rc side=now
+	if [[ "${cli}" == "${oldCli}" ]]; then side=2x; fi
+	{
+		rc=0; "${cli}" paths "${doc}" > "${tmpDir}/paths" 2>/dev/null || rc=$?
+		sed $'s/^/\x01P\t/' "${tmpDir}/paths"
+		((rc == 0)) || echo "paths exit ${rc}"
+		while IFS= read -r p; do
+			[[ -n "${p}" && "${p}" != *$'\t'* ]] || continue
+			n="$("${cli}" count "${doc}" -- "${p}" 2>/dev/null || true)"
+			printf '\x01C\t%s\t%s\n' "${p}" "${n}"
+			[[ "${n}" =~ ^[0-9]+$ ]] || continue
+			for ((i = 0; i < n; i++)); do
+				q="${p}[#${i}]"
+				rc=0; "${cli}" get --string --array --slots "${doc}" -- "${q}" > "${tmpDir}/array" 2>/dev/null || rc=$?
+				if [[ "${side}" == 2x ]]; then fOneLine2x < "${tmpDir}/array"; else cat "${tmpDir}/array"; fi
+				[[ "${rc}" == 0 ]] || echo "string exit ${rc}"
+				"${cli}" get --raw "${doc}" -- "${q}" 2>/dev/null || echo "raw exit $?"
+				"${cli}" get --rawinfo "${doc}" -- "${q}" 2>/dev/null || echo "rawinfo exit $?"
+			done
+		done < "${tmpDir}/paths"
+	} | fLogicalPaths "${side}"
 }
 
 ##	One read answers differently by decision rather than by migration: the info
@@ -210,12 +265,13 @@ fCrMidLine(){ grep -q $'\r[^\r]' "$1"; }
 ##	A backslash pair 2.x read as an escape stays as written, and reads as text
 ##	now (2026-10-05). So a value read differs from the 2.x one in exactly that
 ##	way and no other: read with the 2.x escapes, the current value gives the
-##	2.x one, spelled the way fOneLine2x spells it. Only an element line that
-##	holds a backslash is let through, matched by position, and only when both
-##	sides have the same number of lines. Prints the current reads with each
-##	such line given the 2.x spelling, so the diff after it shows the rest.
+##	2.x one, spelled the way fOneLine2x spells it. The same goes for a quoted
+##	name in a path, as fLogicalPaths writes it. Only an element or path line
+##	that holds a backslash is let through, matched by position, and only when
+##	both sides have the same number of lines. Prints the current reads with
+##	each such line given the 2.x spelling, so the diff after it shows the rest.
 fBackslashText(){ python3 -c '
-import sys
+import re, sys
 want = open(sys.argv[1], "rb").read().decode("utf-8", "surrogateescape").split("\n")
 got = open(sys.argv[2], "rb").read().decode("utf-8", "surrogateescape").split("\n")
 esc = {"t": "\t", "n": "\n", "\\": "\\", "\"": "\"", "\x27": "\x27"}
@@ -233,13 +289,23 @@ def one_line(v):
 	for a, b in (("\\", "\\\\"), ("\"", "\\\""), ("\n", "\\n"), ("\r", "\\r"), ("\t", "\\t")):
 		v = v.replace(a, b)
 	return "\"" + v + "\""
+def show(name):
+	if re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", name):
+		return name
+	return "\u00ab" + "".join(c if c.isprintable() and c not in "%\u00ab\u00bb" else "%%%X;" % ord(c) for c in name) + "\u00bb"
+def decode_names(line):
+	return re.sub("\u00ab([^\u00bb]*)\u00bb", lambda m: show(decode(re.sub(r"%([0-9A-F]+);", lambda h: chr(int(h.group(1), 16)), m.group(1)))), line)
 status = ("Good\t", "Empty\t", "BadType\t", "Multiple\t", "NotFound\t")
 if len(want) == len(got):
 	for k, (w, g) in enumerate(zip(want, got)):
-		if w != g and "\\" in g and g.startswith(status):
+		if w == g or "\\" not in g:
+			continue
+		if g.startswith(status):
 			head, value = g.split("\t", 1)
 			if head + "\t" + one_line(decode(value)) == w:
 				got[k] = w
+		elif "\u00ab" in g and decode_names(g) == w:
+			got[k] = w
 sys.stdout.buffer.write("\n".join(got).encode("utf-8", "surrogateescape"))
 ' "$1" "$2"; }
 
@@ -259,6 +325,67 @@ fUnplaced(){
 	{ "${newCli}" check "$1" 2>/dev/null || true; } | awk '$1 == "line" && $4 == "E012" { sub(/:$/, "", $2); print $2 }'
 }
 
+##	Lines 2.x read cleanly that nothing spells now, so migrate counts them
+##	lost and refuses: a selector holding a bare comma, which 2.x matched
+##	against an array value by its display form; and a comma list on a field
+##	with lines under it, which is E028 in brackets and another value as one
+##	string. The first is found in the 2.x text, read the way 2.x reads a
+##	path: a backslash shields the next character, and `name:[x]` is a
+##	selector too. A raw body is passed over, its block opened by a fence run
+##	after the path's colon or at the start of a line. The second is asked of
+##	the current parser on migrate's output, and kept only where the 2.x line
+##	has a comma.
+fLostNow(){
+	python3 -c '
+import re, sys
+text = open(sys.argv[1], "rb").read().decode("utf-8", "surrogateescape")
+fence = None
+def opens(v):
+	m = re.match(r"(`{3,}|~{3,})", v.lstrip(" \t"))
+	return (m.group(1)[0], len(m.group(1))) if m else None
+for n, line in enumerate(text.split("\n"), 1):
+	s, i = line.strip(" \t\r"), 0
+	if fence:
+		if len(s) >= fence[1] and s == fence[0] * len(s):
+			fence = None
+		continue
+	fence = opens(s)
+	while not fence and i < len(s):
+		if s[i] in "\"\x27":
+			q, i = s[i], i + 1
+			while i < len(s) and s[i] != q:
+				i += 2 if s[i] == "\\" else 1
+			i += 1
+		else:
+			m = re.match(r"[A-Za-z0-9_-]+", s[i:])
+			if not m:
+				break
+			i += m.end()
+		m = re.match(r"[ \t]*:?[ \t]*\[", s[i:])
+		if m:
+			i += m.end()
+			body = re.match(r"[ \t]*[^\"\x27 \t\]]", s[i:])
+			commas = 0
+			while i < len(s) and s[i] != "]":
+				commas += s[i] == ","
+				i += 2 if s[i] == "\\" else 1
+			if body and commas and i < len(s):
+				print(n)
+				break
+			i += 1
+		m = re.match(r"[ \t]*\.[ \t]*", s[i:])
+		if not m:
+			rest = s[i:].lstrip(" \t")
+			if rest.startswith(":"):
+				fence = opens(rest[1:])
+			break
+		i += m.end()
+' "$1"
+	{ "${newCli}" migrate --from-2x "$1" 2>/dev/null || true; } | { "${newCli}" check - 2>/dev/null || true; } \
+		| awk '$1 == "line" && $4 == "E028" { sub(/:$/, "", $2); print $2 }' \
+		| awk 'NR == FNR { if (index($0, ",")) comma[FNR] = 1; next } comma[$1]' "$1" -
+}
+
 ##	Takes out every line above, until 2.x reads what is left cleanly. Fails
 ##	when nothing is left, or when taking lines out keeps turning up more. The
 ##	first round has the same bytes as the source, so it takes the source's
@@ -270,6 +397,7 @@ fTrim(){
 		((round == 1)) || check2x="$(fCheck2x "${dst}")"
 		lines="$( { fUnclean2x <<<"${check2x}"
 			fUnplaced "${dst}"
+			fLostNow "${dst}"
 			grep -anE '(```|~~~)[^#]*#' "${dst}" | cut -d: -f1
 			grep -an $'\r[^\r]' "${dst}" | cut -d: -f1; } | sort -un)"
 		if [[ -z "${lines}" ]]; then [[ -s "${dst}" ]]; return; fi
@@ -288,11 +416,17 @@ for f in "${corpus}"/*/input.shcl "${dump}"/*.shcl; do
 	## Every document here is a 2.x file by construction, which is exactly what
 	## migrate cannot read off the text: without the flag it leaves the pieces
 	## the two rule sets disagree on and refuses.
-	## When the one thing wrong with the file under 2.x is bracket arrays,
-	## migrate has to refuse over each of them and nothing else.
+	## When the one thing wrong with the file under 2.x is bracket arrays and
+	## lines nothing spells now, migrate has to refuse over each of them and
+	## nothing else.
 	check2x="$(fCheck2x "${f}")"
-	unclean="$(fUnclean2x <<<"${check2x}" | sort -un)"
-	arrays="$(awk '$1 == "line" && $3 == "Error:" && $4 == "E019" { sub(/:$/, "", $2); print $2 }' <<<"${check2x}" | sort -un)"
+	e019="$(awk '$1 == "line" && $3 == "Error:" && $4 == "E019" { sub(/:$/, "", $2); print $2 }' <<<"${check2x}" | sort -u)"
+	## A line 2.x already refused for anything but a bracket array is not
+	## one of these.
+	refused="$(comm -23 <(fUnclean2x <<<"${check2x}" | sort -u) <(printf '%s\n' "${e019}"))"
+	lostNow="$(awk 'NR == FNR { bad[$1] = 1; next } !bad[$1]' <(printf '%s\n' "${refused}") <(fLostNow "${f}"))"
+	unclean="$( { fUnclean2x <<<"${check2x}"; printf '%s\n' "${lostNow}"; } | grep . | sort -un || true)"
+	arrays="$(printf '%s\n' "${e019}" "${lostNow}" | grep . | sort -un || true)"
 	if [[ -n "${unclean}" && "${unclean}" == "${arrays}" ]]; then
 		lostRc=0; lostOut="$("${newCli}" migrate --from-2x "${f}" 2>&1 >/dev/null)" || lostRc=$?
 		if ((lostRc != 7)); then
@@ -304,7 +438,7 @@ for f in "${corpus}"/*/input.shcl "${dump}"/*.shcl; do
 		nLostChecked+=1
 		if [[ "${gotLost:-0}" != "${wantLost}" ]]; then
 			nBad+=1
-			echo "check-migrate: DIVERGE ${name}: 2.x read ${wantLost} line(s) as bracket arrays, migrate counted ${gotLost:-0} lost"
+			echo "check-migrate: DIVERGE ${name}: 2.x read ${wantLost} line(s) nothing spells now, migrate counted ${gotLost:-0} lost"
 		fi
 	fi
 	if ! fTrim "${f}" "${tmpDir}/original.shcl" "${check2x}"; then nSkipped+=1; continue; fi
@@ -335,12 +469,15 @@ for f in "${corpus}"/*/input.shcl "${dump}"/*.shcl; do
 		echo "check-migrate: DIVERGE ${name}: the 2.x reads of the original and the current reads of the migrated text differ"
 		diff <(printf '%s\n' "${want}") <(printf '%s\n' "${got}") | head -12 || true
 	fi
-	old2="$(fReadTree "${oldCli}" "${tmpDir}/migrated.shcl")"
-	if [[ "${old}" != "${old2}" ]]; then
-		nBad+=1
-		echo "check-migrate: DIVERGE ${name}: the 2.x reads of the original and of the migrated text differ"
-		diff <(printf '%s\n' "${old}") <(printf '%s\n' "${old2}") | head -12 || true
-	fi
+	## 2026-10-06: the 2.x build no longer reads the migrated text. The output is
+	## written in the new syntax, brackets, `- ` items and `◉` escapes, which 2.x
+	## reads as something else, and the Format line is what stops a second run.
+	# old2="$(fReadTree "${oldCli}" "${tmpDir}/migrated.shcl")"
+	# if [[ "${old}" != "${old2}" ]]; then
+	# 	nBad+=1
+	# 	echo "check-migrate: DIVERGE ${name}: the 2.x reads of the original and of the migrated text differ"
+	# 	diff <(printf '%s\n' "${old}") <(printf '%s\n' "${old2}") | head -12 || true
+	# fi
 done
 ##	The floors are this test's, or its line read ok on a run that then refused
 ##	for comparing too little. The exit below still says which floor.
@@ -413,3 +550,7 @@ echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, 
 ##		2026-10-05  A backslash 2.x read as an escape reads as text now, so an
 ##		            element read may differ in that way alone, and a path that
 ##		            held a line break is no longer refused.
+##		2026-10-06  The 2.x build no longer reads the migrated text, which is
+##		            in the new syntax. Paths are compared by name, a quoted
+##		            name may differ by a backslash pair too, and a selector
+##		            with a comma or a comma list over lines counts as lost.

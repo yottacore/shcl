@@ -7,11 +7,12 @@ regex: "\d+"
 "n\ame": 1
 srv["a\b"].port: 80
 list:
-	* one
-	* "tw\o"
-	* three
+	- one
+	- "tw\o"
+	- three
 fence: ```"C:\x"
 body
 ```
 last: 1
 ##    Format   3
+##    Migrated from SHCL 2.x.

@@ -1,3 +1,1 @@
-line 20: Error: E013
-line 21: Error: E013
-failed: 2 diagnostic(s), 2 error(s)
+ok (0 diagnostic(s))

@@ -171,6 +171,23 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 			- `migrate` without `--from-2x` leaves `a,b` as written and counts it as reading two ways (exit 7), since it is a string under these rules. `a, b` is converted either way. A lone bare 2.x value these rules refuse, such as `done:` or `O'Brien`, is quoted, so a correct 2.x file keeps its value.
 			- `- [a]` stays `E019`, and its message now says to quote the item. The `E017` message is unchanged.
 			- A fence label splits the same way as a value against the element cap, so `a,b` is one piece there.
+		- 20261006: chunk C's `migrate` piece on `vsmig`, off `valsyn`, Rust only.
+			- In: a `*` item is written `- `, and quoted where these rules would read it as something else, so `* key: value` is `- "key: value"`. That was not in before: a 2.x list came out `E013` at exit 0. A bare name not led by a letter is quoted, so `-x: y` and `- :0` stay fields. A real `◉` in a name, a bare value or a selector body becomes `◉ESCAPE_CHAR◉`. A bare selector body with a quote or a space is quoted. `x: ,` is an empty value, as 2.x read it.
+			- Counted lost, so exit 7: a selector holding a comma, which 2.x matched against an array value, and a comma list on a field with lines under it, which is `E028` in brackets.
+			- A file that does not say it is 2.x: a piece both rule sets read cleanly and differently, such as an escape, a backtick value, `[a]` or a `- ` item, is left and counted (exit 7), unless these rules already refuse its line. Before, `migrate` rewrote escapes and `[a]` there at exit 0, which changed a correct 3.0 file.
+			- check-migrate is green: 654 documents, 33 lost counts. The 2.x build no longer reads the migrated text, since the output is in the new syntax and the Format line is what stops a second run. Paths are compared by name, each read back by its own CLI's rules, in place of the Python binding's old writer. A quoted name may differ by a backslash pair, like an element. A path goes after `--`, since `-x` read as an option. The two lost kinds are taken out like the other exceptions. Each new piece failed on an injected fault.
+			- Docs: value-syntax.md's migration table (the backslash rows, `\uXXXX`, whitespace, new rows, the lost list) and spec.md's Migrating from 2.x, with `E024` and the doubled backslash gone.
+			- cli-regress: the save rows' `base:[Boston]` fixture got a line under it, since alone it reads clean as an array now and is left without `--from-2x`. That includes the 3 windows-only rows.
+			- Tests: `Erwed4A` to `Erwed4F`, cli-regress `Erwf3oC` and `Erwf3oD`, each seen to fail on the code before. Goldens 118 and 170 moved.
+			- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, check-migrate, check-docs, check-abnf, markdownlint, shellcheck. shell-regress fails the same 2 as on `valsyn`. Not run: the windows-only rows, which need the hosted run, and the 2,000,000 release fuzz, since the tokenizer and trivia did not change.
+		- 20261006: calls made in the `migrate` piece that the doc does not settle. Each is easy to reverse.
+			- `x: ,`, only empty slots, is written `x:`, not `x: []`.
+			- A 2.x line `-` with no colon, which 2.x bound as a field named `-`, is written `"-"`.
+			- A selector holding a comma and a comma list over lines are counted lost rather than rewritten.
+			- In a file that does not say it is 2.x, a line these rules already refuse is rewritten. One they read clean keeps any piece that reads two ways, and it is counted. A `[a, b]` there is still counted lost, as before.
+			- check-migrate's 2.x reread is commented out, not replaced.
+			- value-syntax.md's `\uXXXX` row changed too: 2.x read it as text, so it stays as written.
+			- The lost message names all 3 kinds.
 	- Decisions:
 		- 20261002: idea 3, with the changes listed in the design doc. Open points and their proposed answers are under its Roadmap.
 		- 20261002: a quote anywhere in a bare value is an error, and a bare field name starts with a letter. Dates, times, durations and sizes without spaces stay bare.
@@ -183,8 +200,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261005: the `E015` answer was only about which code a one-word bad name with no colon gets (`404`). A no-colon line that isn't one clean name or path, such as `square-miles 300`, stays `E014`, kept as written, per spec.md's narrow repair rule. The `vsfix` rework read it too widely and needs narrowing back. A quoted name can be any text, spaces and a leading digit included. Every field line keeps its colon, a header with lines under it too.
 		- 20261005: kept as built: the line-keeping save writes a file whose load left a stacked list after an empty binding of its name, so `set --write` saves an unrelated edit while `fmt --write` refuses at 7.
 		- 20261006: spaces are allowed in a bare field value and a bare `- ` item, kept as typed, and the writer still quotes them. Not inside `[]` or a selector. A bare colon or comma needs a character other than whitespace after it, so `rw,noatime`, `:0` and URLs stay bare and `ports: 80, 443` is `E026`. Inside `[]` a comma always separates. A selector body also takes no bare colon, comma or bracket. Full rules in the design doc. spec.md's "never made to satisfy the machine" goal stays as written.
-	- Branch: `valsyn` (chunk A on `vslex`, chunk B part 1 on `vsarr`, part 2 on `vssel`, the 20261005 rework on `vsfix`, the fuzz fixes on `vsfuzz`, the no-colon narrowing on `vsnarrow`, chunk C docs on `vsspec`, the 20261006 spacing answer on `vsspace2`)
-	- Commit: `6355ba10` (chunk A), `7c90c42d` and `f228c3e9` (chunk B part 2), `11b069fe` (the 20261005 rework), `c67b89d7` (the fuzz fixes), `0b57d0d2` (the no-colon narrowing), `7075fb4d` (the 20261006 spacing answer)
+	- Branch: `valsyn` (chunk A on `vslex`, chunk B part 1 on `vsarr`, part 2 on `vssel`, the 20261005 rework on `vsfix`, the fuzz fixes on `vsfuzz`, the no-colon narrowing on `vsnarrow`, chunk C docs on `vsspec`, the 20261006 spacing answer on `vsspace2`, chunk C's `migrate` on `vsmig`)
+	- Commit: `6355ba10` (chunk A), `7c90c42d` and `f228c3e9` (chunk B part 2), `11b069fe` (the 20261005 rework), `c67b89d7` (the fuzz fixes), `0b57d0d2` (the no-colon narrowing), `7075fb4d` (the 20261006 spacing answer), `e3695acf` (chunk C's `migrate`)
 	- Test case:
 	- Acceptance signoff:
 	- Superseded by ID:
@@ -3441,6 +3458,31 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Test case: none. The reload-parity fuzz and fixtures pin the behavior as it stands.
 	- Closed: 20260927-223316
 
+- Don't allow the `[#N]` index selector
+	- ID: 2026100609552447
+	- Type: Enhancement
+	- Status: Moot
+	- Priority: High
+	- Note: 20261006, superseded by 2026100610073400. Every selector moves to parens there, so `[#N]` goes with the rest of the bracket forms. Its requirements moved there too.
+	- Superseded by ID: 2026100610073400
+	- Test case: none. Nothing is built for it; the tests are under 2026100610073400.
+	- Opened: 20261006-095524
+	- Opened by: JC
+	- Related IDs: 2026100207032800
+	- Problem description:
+		- `[#2]` and `[2]` do the same thing in all four bindings. The `#` adds nothing, and quoting already forces a value match.
+		- It only works on a lookup path. In a file the `#` opens a comment, so `a[#2].b: 1` is a broken line.
+		- `InstancePaths()` writes `[#i]`, so its paths can't be used in a file.
+	- Requirements:
+		- A selector body starting with `#` is refused on a lookup path, a setter path, `--set` and a schema path. It must not fall through to a value match on `#2`.
+		- `InstancePaths()` writes `[i]`.
+		- Drop it from spec.md, design.md, value-syntax.md, the README, the man page, CLI help and completions, and the C++ interface.
+		- Move every test and corpus case that uses it to `[N]`.
+		- Add a changelog line, since it breaks callers that use it.
+	- Note: 20261006, 2026100207032800 changes the selector code on `valsyn`. Do this there or after it merges, not on dev alongside.
+	- Estimated effort: Avg
+	- Closed: 20261006-100734
+
 - Windows paths are written three different ways
 	- ID: 2026100115323216
 	- Type: Enhancement
@@ -3488,31 +3530,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261001, from the answer on 2026100115323216: single quotes are the go-to for stopping escapes, when the string holds no `'`.
 		- 20261002: closed as Moot. No setter options. A setter that overwrites a value keeps its quote kind when it can, and `SetLiteral` takes any quotes as written.
 	- Closed: 20261002-184515
-
-- Don't allow the `[#N]` index selector
-	- ID: 2026100609552447
-	- Type: Enhancement
-	- Status: Moot
-	- Priority: High
-	- Note: 20261006, superseded by 2026100610073400. Every selector moves to parens there, so `[#N]` goes with the rest of the bracket forms. Its requirements moved there too.
-	- Superseded by ID: 2026100610073400
-	- Test case: none. Nothing is built for it; the tests are under 2026100610073400.
-	- Opened: 20261006-095524
-	- Opened by: JC
-	- Related IDs: 2026100207032800
-	- Problem description:
-		- `[#2]` and `[2]` do the same thing in all four bindings. The `#` adds nothing, and quoting already forces a value match.
-		- It only works on a lookup path. In a file the `#` opens a comment, so `a[#2].b: 1` is a broken line.
-		- `InstancePaths()` writes `[#i]`, so its paths can't be used in a file.
-	- Requirements:
-		- A selector body starting with `#` is refused on a lookup path, a setter path, `--set` and a schema path. It must not fall through to a value match on `#2`.
-		- `InstancePaths()` writes `[i]`.
-		- Drop it from spec.md, design.md, value-syntax.md, the README, the man page, CLI help and completions, and the C++ interface.
-		- Move every test and corpus case that uses it to `[N]`.
-		- Add a changelog line, since it breaks callers that use it.
-	- Note: 20261006, 2026100207032800 changes the selector code on `valsyn`. Do this there or after it merges, not on dev alongside.
-	- Estimated effort: Avg
-	- Closed: 20261006-100734
 
 ## Old format
 

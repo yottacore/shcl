@@ -2295,13 +2295,16 @@ pub struct Migration {
 	/// The file already names its format, so there was nothing to migrate and
 	/// `text` is the input.
 	pub current: bool,
-	/// Runs of lines one rule set reads as a raw body and the other as fields,
-	/// which nothing can decide between, left as written. Always 0 when the
-	/// caller said the file is 2.x. A backslash is not one of them: it stays
-	/// as written either way.
+	/// Pieces both rule sets read cleanly and differently, such as `a,b` or
+	/// an escape, and runs of lines one rule set reads as a raw body and the
+	/// other as fields, which nothing can decide between, left as written.
+	/// Always 0 when the caller said the file is 2.x. A backslash is not one
+	/// of them: it stays as written either way.
 	pub ambiguous: usize,
-	/// Lines 2.x bound a value on that nothing binds now: bracket text after
-	/// the colon, which has no 3.0 spelling to move to.
+	/// Lines 2.x bound a value on that nothing binds now, since there is no
+	/// 3.0 spelling to move to: bracket text after the colon, a selector
+	/// holding a comma, which matched an array value, and a comma list with
+	/// lines under it (`E028` in brackets).
 	pub lost: usize,
 }
 
@@ -2310,6 +2313,11 @@ struct Migrating {
 	from_v2: bool,
 	ambiguous: usize,
 	lost: usize,
+	// The line just rewritten put a 2.x comma list in brackets.
+	bracketed: bool,
+	// These rules refuse the line about to be rewritten, so it is not a
+	// correct 3.0 line, whatever the file is.
+	refused_now: bool,
 }
 
 /// The format major a document's `##    Format   N` line names, read the way
@@ -2411,6 +2419,8 @@ impl RawLines {
 				from_v2: true,
 				ambiguous: 0,
 				lost: 0,
+				bracketed: false,
+				refused_now: false,
 			},
 		}
 	}
@@ -2459,26 +2469,29 @@ fn opens_raw(rest: &str, tok: &mut Tokens) -> Option<(u8, usize)> {
 
 /// Rewrite a document written under the 2.x rules so this parser reads the
 /// same tree. Each line is read with the 2.x tokenizer and rewritten only
-/// where the two rule sets disagree: a piece whose backslash meant an escape
-/// is written the way the writer writes the text 2.x read; a piece that
-/// opened a quote it never closed is quoted whole; the `name:[disc]`
-/// selector sugar loses its colon, and on a last segment becomes `name: disc`,
-/// with `disc` written the way the formatter writes a value. The value
-/// syntax's other rewrites, such as quoting a bare value with a space, are
-/// not done yet (2026100207032800).
+/// where the two rule sets disagree (value-syntax.md, Migration). A
+/// backslash stays as written and reads as text, so a piece is written
+/// another way only where these rules would read its text as something
+/// else: a quote it shielded, a real `◉`, a quote, tab or bracket in bare
+/// text, an open quote, which is quoted whole. A comma list goes in
+/// brackets, a `*` item becomes `- `, and a bare name not led by a letter
+/// is quoted. The `name:[disc]` selector sugar loses its colon, and on a
+/// last segment becomes `name: disc`, with `disc` written the way the
+/// formatter writes a value.
 /// Everything else - comments, blank lines, raw bodies, layout, a line 2.x
 /// could not read - comes through as written. One shape has no spelling
 /// here at all: a fence label holding a `#`, which 2.x ran to the end of the
 /// line and which now ends at the `#`.
 ///
-/// Which file this is cannot be read off the text: `p: 'C:\temp'` is one value
-/// under 2.x and another under these rules, so rewriting a 3.0 file changes
-/// what it says. So the version line decides. A file that names this format is
-/// returned untouched; one that names an older format, or a caller passing
-/// `from_v2`, gets the backslash re-spellings; anything else gets every other
-/// rewrite and leaves those pieces alone, counted in `ambiguous` for the caller
-/// to refuse over. A rewritten file is stamped with the version line, so the
-/// second run has an answer the first one did not.
+/// Which file this is cannot always be read off the text: `p: a,b` is an
+/// array under 2.x and one string under these rules, and a raw block can
+/// open where only one rule set sees it, so rewriting a 3.0 file changes
+/// what it says. So the version line decides. A file that names this format
+/// is returned untouched; one that names an older format, or a caller passing
+/// `from_v2`, gets every rewrite. Anything else leaves those pieces alone
+/// where these rules read the line cleanly, counted in `ambiguous` for the
+/// caller to refuse over. A rewritten file is stamped with the version line,
+/// so the second run has an answer the first one did not.
 pub fn migrate(text: &str, from_v2: bool) -> Migration {
 	migrate_text(text, from_v2, true)
 }
@@ -2515,7 +2528,22 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool) -> Migration {
 		from_v2: from_v2 || version.is_some(),
 		ambiguous: 0,
 		lost: 0,
+		bracketed: false,
+		refused_now: false,
 	};
+	let mut bracketed: Vec<usize> = Vec::new();
+	// Where a file that does not say it is 2.x might be a 3.0 one, the lines
+	// these rules already refuse are safe to rewrite.
+	let mut refused: Vec<usize> = Vec::new();
+	if !st.from_v2 {
+		refused = Document::parse(body_text)
+			.diagnostics()
+			.iter()
+			.filter(|d| d.severity == Severity::Error)
+			.map(|d| d.line)
+			.collect();
+		refused.sort_unstable();
+	}
 	let mut out = String::with_capacity(body_text.len() + 96);
 	out.push_str(bom);
 	let mut tok = Tokens::default();
@@ -2543,8 +2571,13 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool) -> Migration {
 			let rest = trim_wsp_end(rest_full);
 			// `lost` counts lines, and one line can lose several values.
 			let lost_before = st.lost;
+			st.bracketed = false;
+			st.refused_now = refused.binary_search(&(i + 1)).is_ok();
 			let migrated = migrate_line(rest, &mut tok, &mut fence, &mut st);
 			st.lost = lost_before + usize::from(st.lost > lost_before);
+			if st.bracketed {
+				bracketed.push(i + 1);
+			}
 			changed |= migrated != rest;
 			out.push_str(indent);
 			out.push_str(&migrated);
@@ -2558,6 +2591,16 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool) -> Migration {
 			st.ambiguous += 1;
 		}
 		split = differs;
+	}
+	// 2.x let a comma list head lines of its own, and nothing spells that
+	// now: in brackets it is E028, and as one string it reads as another
+	// value.
+	if !bracketed.is_empty() {
+		st.lost += Document::parse(&out)
+			.diagnostics()
+			.iter()
+			.filter(|d| d.code == "E028" && bracketed.binary_search(&d.line).is_ok())
+			.count();
 	}
 	// Stamping a file whose ambiguous pieces were left alone would claim a
 	// migration that did not finish, and the next run would then skip it. A
@@ -2648,6 +2691,7 @@ fn value_edits(text: &str, tok: &Tokens, edits: &mut Vec<Edit>) {
 		};
 		if p.quote == Quote::None
 			&& !raw.contains('\\')
+			&& !raw.contains(ESCAPE_MARK)
 			&& !raw.is_empty()
 			&& bare_trouble(raw, Bare::Value).is_none()
 		{
@@ -2697,17 +2741,33 @@ fn reads_clean_now(text: &str, from: usize) -> bool {
 	tok.array.is_none() && tok.elements.len() == 1 && value_fault(&tok, text).is_none()
 }
 
-/// True when a quoted field name, quotes included, reads under the current
-/// rules as one name with exactly this text.
-fn quoted_name_reads(spelled: &str, name: &str) -> bool {
+/// The name a quoted field name, quotes included, reads as under the
+/// current rules, or None when it does not read as one clean name.
+fn quoted_name_now(spelled: &str) -> Option<String> {
 	let line = format!("{spelled}:");
 	let mut tok = Tokens::default();
 	tokenize(&line, b':', false, Rules::Current, &mut tok);
-	tok.fault.is_none()
-		&& tok.misspelled.is_none()
-		&& matches!(tok.segments.as_slice(), [seg] if seg.selector.is_none()
-			&& matches!(seg.name.quote, Quote::Single | Quote::Double)
-			&& resolve_marks(&line[seg.name.start..seg.name.end]).is_ok_and(|t| t == name))
+	if tok.fault.is_some() || tok.misspelled.is_some() {
+		return None;
+	}
+	match tok.segments.as_slice() {
+		[seg]
+			if seg.selector.is_none()
+				&& matches!(seg.name.quote, Quote::Single | Quote::Double) =>
+		{
+			resolve_marks(&line[seg.name.start..seg.name.end]).ok()
+		}
+		_ => None,
+	}
+}
+
+/// True when a selector, brackets left off, reads under the current rules
+/// with no fault, whatever it matches.
+fn selector_clean_now(spelled: &str) -> bool {
+	let line = format!("x[{}]:", spelled);
+	let mut tok = Tokens::default();
+	tokenize(&line, b':', false, Rules::Current, &mut tok);
+	tok.comment.is_none() && tok.misspelled.is_none() && path_fault(&tok, &line).is_none()
 }
 
 fn migrate_line(
@@ -2727,8 +2787,11 @@ fn migrate_line(
 	let s = rest.as_bytes();
 	let mut edits: Vec<Edit> = Vec::new();
 	if rest.starts_with('*') && s.get(1).is_some_and(|&b| is_wsp_byte(b)) {
+		edits.push((0, 1, "-".to_string()));
 		tokenize_value(rest, 1, Rules::V2, tok);
 		// A bare comma was refused (E010), so there is nothing to convert.
+		// A value's rules are an item's, and stricter about a colon, so
+		// what reads clean as one reads clean as the other.
 		if tok.elements.len() == 1 {
 			value_edits(rest, tok, &mut edits);
 		}
@@ -2741,17 +2804,33 @@ fn migrate_line(
 		for (i, seg) in tok.segments.iter().enumerate() {
 			let name = &rest[seg.name.start..seg.name.end];
 			// A backslash in a quoted name is text now, and stays. Only a
-			// quote it shielded needs another spelling.
+			// quote it shielded, or a real escape mark, needs another
+			// spelling. A bare name not led by a letter goes in quotes, since
+			// `-` then a blank would start a list item now.
 			let spelled = || &rest[seg.name.start - 1..seg.name.end + 1];
-			if matches!(seg.name.quote, Quote::Single | Quote::Double)
-				&& name.contains('\\')
-				&& !quoted_name_reads(spelled(), name)
-			{
-				edits.push((
-					seg.name.start - 1,
-					seg.name.end + 1,
-					escape_name(name).into_owned(),
-				));
+			// A file that does not say it is 2.x could be a 3.0 one. Where it
+			// reads clean under these rules as well, it is left and counted.
+			let (respell, clean_now) = if matches!(seg.name.quote, Quote::Single | Quote::Double) {
+				let now = (name.contains('\\') || name.contains(ESCAPE_MARK))
+					.then(|| quoted_name_now(spelled()));
+				(
+					now.as_ref().is_some_and(|n| n.as_deref() != Some(name)),
+					now.is_some_and(|n| n.is_some()),
+				)
+			} else {
+				// `-` then a blank is a list item now.
+				let item = name == "-" && s.get(seg.name.end).is_none_or(|&b| is_wsp_byte(b));
+				(!name.as_bytes()[0].is_ascii_alphabetic(), item)
+			};
+			if respell && clean_now && !st.from_v2 && !st.refused_now {
+				st.ambiguous += 1;
+			} else if respell {
+				let (a, b) = if seg.name.quote == Quote::None {
+					(seg.name.start, seg.name.end)
+				} else {
+					(seg.name.start - 1, seg.name.end + 1)
+				};
+				edits.push((a, b, escape_name(name).into_owned()));
 			}
 			let Some(sel) = seg.selector else {
 				continue;
@@ -2789,17 +2868,29 @@ fn migrate_line(
 					// one - and an index or the wildcard was refused as a
 					// selector, so those stay as written. A bare body moves
 					// into a value, where a fence run opens a raw block and a
-					// leading `[` is bracket text, so the emitter writes it.
+					// leading `[` opens an array, so the emitter writes it.
 					if !quoted && (index_shape(body) || body == "*") {
 						return rest.to_string();
 					}
 					// 2.x bound the bracket array, as one folded string. There
-					// is no spelling to move that to - a value beginning with
-					// `[` is bracket text now - so the binding goes, and the
+					// is no spelling to move that to - in brackets it is an
+					// array of several now - so the binding goes, and the
 					// caller hears about it rather than reading exit 0.
 					if !quoted && v2_bracket_array(body) {
 						st.lost += 1;
 						return rest.to_string();
+					}
+					// `[a]` is a one-element array now.
+					if !st.from_v2 && !st.refused_now {
+						let mut now = Tokens::default();
+						tokenize_value(rest, c + 1, Rules::Current, &mut now);
+						if now.array.is_some()
+							&& now.array_fault.is_none()
+							&& value_fault(&now, rest).is_none()
+						{
+							st.ambiguous += 1;
+							return rest.to_string();
+						}
 					}
 					let spelling = if !quoted {
 						migrate_spelling(body, true)
@@ -2817,9 +2908,21 @@ fn migrate_line(
 				let spaced = c > 0 && is_wsp_byte(s[c - 1]) && is_wsp_byte(s[c + 1]);
 				edits.push((c, c + 1 + usize::from(spaced), String::new()));
 			}
+			let index = !quoted && (index_shape(body) || body == "*");
+			// 2.x matched an array value by its display form, and a selector
+			// matches one plain value now, so nothing spells this.
+			if !index && !quoted && v2_bracket_array(body) {
+				st.lost += 1;
+				return rest.to_string();
+			}
 			// A backslash is text now, and stays. Only a quote or a blank it
-			// shielded needs another spelling.
-			if body.contains('\\') && !selector_reads_back(spelled, body, quoted) {
+			// shielded, or one the body has bare, or a real escape mark, needs
+			// another spelling.
+			if !index && !selector_reads_back(spelled, body, quoted) {
+				if !st.from_v2 && !st.refused_now && selector_clean_now(spelled) {
+					st.ambiguous += 1;
+					continue;
+				}
 				let (a, b) = if quoted {
 					(sel.start - 1, sel.end + 1)
 				} else {
@@ -2839,12 +2942,29 @@ fn migrate_line(
 					// A file that does not say it is 2.x could be a 3.0 one, where
 					// `a,b` is a string. `a, b` is an error there, so it is safe.
 					if st.from_v2 || !reads_clean_now(rest, sep + 1) {
-						edits.push((tok.value.0, tok.value.1, v2_array_text(rest, tok)));
+						// Only empty slots, which 2.x dropped: an empty value.
+						if tok.element_count() == 0 {
+							edits.push((sep + 1, tok.value.1, String::new()));
+						} else {
+							st.bracketed = true;
+							edits.push((tok.value.0, tok.value.1, v2_array_text(rest, tok)));
+						}
 					} else {
 						st.ambiguous += 1;
 					}
 				}
-				_ => value_edits(rest, tok, &mut edits),
+				Some(sep) => {
+					let before = edits.len();
+					value_edits(rest, tok, &mut edits);
+					if !st.from_v2
+						&& !st.refused_now && edits.len() > before
+						&& reads_clean_now(rest, sep + 1)
+					{
+						edits.truncate(before);
+						st.ambiguous += 1;
+					}
+				}
+				None => {}
 			}
 		}
 	}

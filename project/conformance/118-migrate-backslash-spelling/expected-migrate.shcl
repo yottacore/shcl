@@ -17,8 +17,8 @@ k['a\\tb'].v: 1
 j[a\\tb].v: 1
 srv['a\\tb'].name: 1
 list:
-	* a\\tb
-	* 'c\\d'
+	- a\\tb
+	- 'c\\d'
 last: 1
 ##    Format   3
 ##    Migrated from SHCL 2.x.

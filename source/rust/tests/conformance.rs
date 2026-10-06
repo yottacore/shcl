@@ -2920,3 +2920,125 @@ fn migrate_brackets_a_2x_comma_list() {
 	assert_eq!(m.ambiguous, 1);
 	assert!(m.text.starts_with("x: [a, b]\ny: a,b\n"), "{:?}", m.text);
 }
+
+// A 2.x `*` item becomes `- `, and an item these rules would read as
+// something else is quoted, such as one that looks like `- name: value`.
+#[test]
+fn migrate_writes_star_items_as_dashes() {
+	let _id = test_id("Erwed4A");
+	let m = migrate("list:\n\t* a\n\t* key: value\n\t* 'c'\n\t* O'Brien\n", true);
+	assert!(
+		m.text
+			.starts_with("list:\n\t- a\n\t- \"key: value\"\n\t- 'c'\n\t- \"O'Brien\"\n"),
+		"{:?}",
+		m.text
+	);
+	let back = Document::parse(&m.text);
+	assert!(back.diagnostics().is_empty(), "{:?}", back.diagnostics());
+	assert_eq!(
+		back.get_string_array("list").unwrap(),
+		["a", "key: value", "c", "O'Brien"]
+	);
+}
+
+// A bare 2.x name not led by a letter is quoted, so `-x: y` and `- :0` stay
+// fields rather than reading as list items, and `404` stays a name.
+#[test]
+fn migrate_quotes_a_name_not_led_by_a_letter() {
+	let _id = test_id("Erwed4B");
+	let m = migrate("404: a\n-x: y\nl:\n\t- :0\na.9b: 2\n_id: 7\n", true);
+	assert!(
+		m.text
+			.starts_with("\"404\": a\n\"-x\": y\nl:\n\t\"-\" :0\na.\"9b\": 2\n\"_id\": 7\n"),
+		"{:?}",
+		m.text
+	);
+	let back = Document::parse(&m.text);
+	assert!(back.diagnostics().is_empty(), "{:?}", back.diagnostics());
+	assert_eq!(back.get_string("\"-x\"").unwrap(), "y");
+	assert_eq!(back.get_string("l.\"-\"").unwrap(), "0");
+	assert_eq!(back.get_int("a.\"9b\"").unwrap(), 2);
+}
+
+// 2.x read a `◉` as text. A name, a bare value and a selector body holding
+// one get the escape for a real mark, so they still read as that text.
+#[test]
+fn migrate_escapes_a_real_mark() {
+	let _id = test_id("Erwed4C");
+	let m = migrate(
+		"\"a\u{25C9}q\u{25C9}\": 1\nbare: My\u{25C9}SPACE\u{25C9}App\ns[x\u{25C9}y].p: 2\n",
+		true,
+	);
+	let back = Document::parse(&m.text);
+	assert!(
+		back.diagnostics().is_empty(),
+		"{:?}\n{}",
+		back.diagnostics(),
+		m.text
+	);
+	assert_eq!(
+		back.paths()[..2],
+		[
+			"\"a\u{25C9}ESCAPE_CHAR\u{25C9}q\u{25C9}ESCAPE_CHAR\u{25C9}\"",
+			"bare"
+		],
+		"{}",
+		m.text
+	);
+	assert_eq!(
+		back.get_string("bare").unwrap(),
+		"My\u{25C9}SPACE\u{25C9}App"
+	);
+	assert_eq!(back.count("s"), 1);
+	assert_eq!(back.get_string("s[#0]").unwrap(), "x\u{25C9}y");
+}
+
+// A bare 2.x selector body these rules refuse, such as one with a quote or
+// a space, is quoted, so its block still loads.
+#[test]
+fn migrate_quotes_a_bare_selector_these_rules_refuse() {
+	let _id = test_id("Erwed4D");
+	let m = migrate("srv[O'Brien].port: 1\nsrv[New York].port: 2\n", true);
+	assert!(
+		m.text
+			.starts_with("srv[\"O'Brien\"].port: 1\nsrv[\"New York\"].port: 2\n"),
+		"{:?}",
+		m.text
+	);
+	let back = Document::parse(&m.text);
+	assert!(back.diagnostics().is_empty(), "{:?}", back.diagnostics());
+	assert_eq!(back.count("srv"), 2);
+}
+
+// What 2.x bound and nothing spells now is counted lost, so the CLI
+// refuses at 7: a selector with a comma, which matched an array value, adn
+// a comma list with lines under it. A list of only empty slots, which 2.x
+// read as empty, is an empty value.
+#[test]
+fn migrate_counts_what_nothing_spells() {
+	let _id = test_id("Erwed4E");
+	let m = migrate("a[x, y].b: 1\n", true);
+	assert_eq!(m.lost, 1);
+	let m = migrate("a: 1, 2\n\tb: 1\nc: 3, 4\n", true);
+	assert_eq!(m.lost, 1, "{}", m.text);
+	let m = migrate("e: ,\nf: , # c\n", true);
+	assert_eq!(m.lost, 0);
+	assert!(m.text.starts_with("e:\nf: # c\n"), "{:?}", m.text);
+	let back = Document::parse(&m.text);
+	assert!(back.diagnostics().is_empty(), "{:?}", back.diagnostics());
+	assert_eq!(back.get_string("e"), Err(shcl::Status::Empty));
+}
+
+// A file that does not say it is 2.x could be a 3.0 one. A piece that reads
+// clean under these rules too, such as an escape, a backtick value, `[a]` or
+// a `- ` item, is left as written and counted, so the CLI asks for
+// --from-2x rather than changing a correct file at exit 0.
+#[test]
+fn migrate_leaves_what_reads_clean_now() {
+	let _id = test_id("Erwed4F");
+	let text = "x: \"a\u{25C9}TAB\u{25C9}b\"\n\"n\u{25C9}TAB\u{25C9}\": 1\nl:\n\t- :0\ns[\"\u{25C9}TAB\u{25C9}\"].p: 1\nb: `abc`\nc: [a]\n";
+	let m = migrate(text, false);
+	assert_eq!(m.ambiguous, 6, "{}", m.text);
+	assert_eq!(m.text, text);
+	assert!(migrate(text, true).text.contains("ESCAPE_CHAR"));
+}
