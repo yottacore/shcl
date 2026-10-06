@@ -188,6 +188,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 			- check-migrate's 2.x reread is commented out, not replaced.
 			- value-syntax.md's `\uXXXX` row changed too: 2.x read it as text, so it stays as written.
 			- The lost message names all 3 kinds.
+		- 20261006: chunk C's design.md and changelog piece on `vsdoc`, off `valsyn`. Docs only. design.md's Lexical edges and Load outcomes tables, the 3.0 and `migrate` notes, the `--set-literal` example, the setter note example and the generation row match the built rules, and the `H003`, bracket text and display-form selector entries are marked superseded. value-syntax.md's Roadmap marks design.md done. The changelog's old backslash, `E024` and `H003` entries are replaced by the value syntax changes. Verified: check-docs before and after staging, check-readme, markdownlint. Left: 2026100610073400 changes design.md's selector text again; changelog Fixed entries about `*` items and `SetLiteral` refusing bracket text are left as written.
 	- Decisions:
 		- 20261002: idea 3, with the changes listed in the design doc. Open points and their proposed answers are under its Roadmap.
 		- 20261002: a quote anywhere in a bare value is an error, and a bare field name starts with a letter. Dates, times, durations and sizes without spaces stay bare.
