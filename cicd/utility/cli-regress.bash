@@ -906,6 +906,11 @@ rows=(
 	## from values.
 	#'Erkljp5|migrate-lost-counts-lines|migrate --from-2x %MV%|-|7|-|: 2 line\(s\) bound a value under 2\.x'
 	'ErpaTy3|migrate-lost-one-line|migrate --from-2x %MV%|-|7|-|: 1 line\(s\) bound a value under 2\.x'
+	## 2026100207032800: 2.x matched a selector with a comma against an array
+	## value, and let a comma list head lines of its own. Neither has a
+	## spelling now, so both are lost, not rewritten at exit 0.
+	'Erwf3oC|migrate-lost-array-selector|migrate --from-2x -|a[x, y].b: 1\n|7|-|: 1 line\(s\) bound a value under 2\.x'
+	'Erwf3oD|migrate-lost-list-over-lines|migrate --from-2x -|a: 1, 2\n\tb: 1\n|7|-|: 1 line\(s\) bound a value under 2\.x'
 	## 20260909 item 41: telling a file that needs migrating from one that does
 	## not took a diff of the output, and --write said nothing either way.
 	'Eq4wD3Y|migrate-check-names|migrate --check %W%|-|6||w\.shcl:1: migrate would rewrite this line'
@@ -1721,7 +1726,7 @@ if [[ "${onWindows}" == 1 ]]; then
 	for b in "${bindings[@]}"; do
 		name="${b%%|*}"; cli="$(realpath -- "${b#*|}")"
 		rm -rf "${aclDir}"; mkdir -p "${aclDir}"
-		printf 'base:[Boston]\n' > "${aclDir}/f.shcl"
+		printf 'base:[Boston]\n\tlat: 42\n' > "${aclDir}/f.shcl"
 		winDir="$(cygpath -w "${aclDir}")"
 		MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' icacls "${winDir}" /grant '*S-1-5-32-545:(OI)(CI)(R)' >/dev/null
 		MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' icacls "${winDir}\\f.shcl" /inheritance:r /grant:r "${USERNAME}:(F)" >/dev/null
@@ -1746,7 +1751,7 @@ if [[ "${onWindows}" == 1 ]]; then
 	for b in "${bindings[@]}"; do
 		name="${b%%|*}"; cli="$(realpath -- "${b#*|}")"
 		rm -rf "${roDir}"; mkdir -p "${roDir}"
-		printf 'base:[Boston]\n' > "${roDir}/f.shcl"
+		printf 'base:[Boston]\n\tlat: 42\n' > "${roDir}/f.shcl"
 		winDir="$(cygpath -w "${roDir}")"
 		MSYS_NO_PATHCONV=1 attrib +r "${winDir}\\f.shcl" >/dev/null
 		rc=0; (cd "${roDir}" && timeout "${rowSecs}" "${cli}" migrate --write f.shcl >/dev/null 2>"${tmpDir}/err" </dev/null) || rc=$?
@@ -1771,7 +1776,7 @@ if [[ "${onWindows}" == 1 ]]; then
 	for b in "${bindings[@]}"; do
 		name="${b%%|*}"; cli="$(realpath -- "${b#*|}")"
 		rm -rf "${drelDir}"; mkdir -p "${drelDir}"
-		printf 'base:[Boston]\n' > "${drelDir}/.shclrc"
+		printf 'base:[Boston]\n\tlat: 42\n' > "${drelDir}/.shclrc"
 		drive="$(cygpath -w "${drelDir}")"; drive="${drive:0:2}"
 		rc=0; (cd "${drelDir}" && MSYS2_ARG_CONV_EXCL="${drive}" timeout "${rowSecs}" "${cli}" migrate --write "${drive}.shclrc" >/dev/null 2>"${tmpDir}/err" </dev/null) || rc=$?
 		nRun+=1
@@ -1922,19 +1927,22 @@ fSaveSetup() {
 		dir)      mkdir f.shcl ;;
 		fifo*)    mkfifo f.shcl ;;
 		device)   ln -s /dev/null f.shcl ;;
+		## `base:[Boston]` alone reads clean as a one-element array now, so a
+		## file that does not say it is 2.x keeps it (exit 7). A line under it
+		## makes it E028 here, so these rewrite at exit 0 as they did.
 		migrate)  printf 'base:[Boston]\n\tlat: 42\n' > f.shcl; chmod 0640 f.shcl ;;
-		migrate-taken) printf 'base:[Boston]\n' > f.shcl; printf 'x\n' > f_old_v2.shcl ;;
+		migrate-taken) printf 'base:[Boston]\n\tlat: 42\n' > f.shcl; printf 'x\n' > f_old_v2.shcl ;;
 		migrate-stamp) printf 'a: 1\n' > f.shcl ;;
 		kept-remove) printf 'x: 1\nr: [1, 2\ny: 3\n' > f.shcl ;;
 		kept-lazy) printf 'a: [1\n\tb: 2\ny: 3\n' > f.shcl ;;
 		kept-set)  printf 'a: [1\n\tb: 2\ny: 3\n' > f.shcl ;;
 		kept-create) printf 'x: 1\na: [1\ny: 3\na: [2\n' > f.shcl ;;
-		migrate-dotname) printf 'base:[Boston]\n' > .f ;;
-		migrate-dotdir) mkdir d.x; printf 'base:[Boston]\n' > d.x/f ;;
-		migrate-link) mkdir real; printf 'base:[Boston]\n' > real/c.shcl; ln -s real/c.shcl f.shcl ;;
-		migrate-setgid) mkdir sg; chgrp "${altGroup}" sg; chmod 2775 sg; printf 'base:[Boston]\n' > sg/f.shcl; chgrp "$(id -gn)" sg/f.shcl; chmod 0640 sg/f.shcl ;;
-		migrate-setid) printf 'base:[Boston]\n' > f.shcl; chmod 6755 f.shcl ;;
-		migrate-rodir) mkdir ro; printf 'base:[Boston]\n' > ro/g.shcl; chmod 0555 ro ;;
+		migrate-dotname) printf 'base:[Boston]\n\tlat: 42\n' > .f ;;
+		migrate-dotdir) mkdir d.x; printf 'base:[Boston]\n\tlat: 42\n' > d.x/f ;;
+		migrate-link) mkdir real; printf 'base:[Boston]\n\tlat: 42\n' > real/c.shcl; ln -s real/c.shcl f.shcl ;;
+		migrate-setgid) mkdir sg; chgrp "${altGroup}" sg; chmod 2775 sg; printf 'base:[Boston]\n\tlat: 42\n' > sg/f.shcl; chgrp "$(id -gn)" sg/f.shcl; chmod 0640 sg/f.shcl ;;
+		migrate-setid) printf 'base:[Boston]\n\tlat: 42\n' > f.shcl; chmod 6755 f.shcl ;;
+		migrate-rodir) mkdir ro; printf 'base:[Boston]\n\tlat: 42\n' > ro/g.shcl; chmod 0555 ro ;;
 	esac
 }
 ## id | argv | exit | what must hold afterwards, as a bash test run in the directory
@@ -2076,7 +2084,7 @@ if [[ "${onWindows}" == 1 ]]; then
 else
 	failDir="${tmpDir}/migfail"
 	pad="$(printf '#%.0s' {1..980})"
-	printf 'base:[Boston]\n%s\n' "${pad}" > "${tmpDir}/migfail.src"
+	printf 'base:[Boston]\n\tlat: 42\n%s\n' "${pad}" > "${tmpDir}/migfail.src"
 	for b in "${bindings[@]}"; do
 		name="${b%%|*}"; cli="${b#*|}"
 		rm -rf "${failDir}"; mkdir -p "${failDir}"

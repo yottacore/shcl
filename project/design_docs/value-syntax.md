@@ -558,28 +558,33 @@ Moved from `design.md`, with the escape spelling changed to `◉U+XXXX◉`.
 
 ### Migration
 
-- `migrate` rewrites a 2.x file into the new rules. It writes each value the way 2.x read it.
+- `migrate` rewrites a 2.x file into the new rules. It keeps each value 2.x read, except that a backslash pair 2.x read as an escape reads as written now.
 
-| Before                          | After
-| :---                            | :---
-| `"C:\\work"`                    | `"C:\work"`
-| `\t` and `\n` escapes           | `◉TAB◉` and `◉NEWLINE◉`
-| `\"` and `\'`                   | The other quote kind, or `◉DOUBLE_QUOTE◉` and `◉SINGLE_QUOTE◉`
-| `\uXXXX`                        | The character, or `◉U+XXXX◉` when it is hidden
-| A bare value with whitespace    | The same text, quoted
-| A bare value with a quote       | The same text, quoted
-| A bare name not led by a letter | The same name, quoted
-| `a, b` or `a,b`                 | `[a, b]`, since 2.x read both as arrays
-| `* item`                        | `- item`
-| `* key: value`                  | `- "key: value"`
-| A real `◉`                      | `◉ESCAPE_CHAR◉`
+| Before                                          | After
+| :---                                            | :---
+| `"C:\\work"`                                    | As written. It reads as `C:\\work` now
+| `\t` and `\n` escapes                           | As written. Each reads as a backslash and a letter
+| `\"` and `\'`                                   | As written, in the other quote kind where the old one would end the piece: `'say \"hi\"'`
+| `\uXXXX`                                        | As written. 2.x read it as text too
+| A bare value with spaces                        | As written, since spaces are fine bare now
+| A bare value with a tab or other whitespace     | The same text, quoted, a tab as `◉TAB◉`
+| A bare value with a quote                       | The same text, quoted
+| A bare name not led by a letter                 | The same name, quoted, so `-x: y` doesn't start a list item
+| A bare selector body with a quote or whitespace | The same body, quoted
+| `a, b` or `a,b`                                 | `[a, b]`, since 2.x read both as arrays
+| `x: ,`, only empty slots                        | `x:`, empty, as 2.x read it
+| `* item`                                        | `- item`
+| `* key: value`                                  | `- "key: value"`
+| A real `◉`                                      | `◉ESCAPE_CHAR◉`, in a name and a selector too
 
 - A 2.x backslash is left as written, and reads literally. No escape is added for it (answered 2026-10-05).
 	- A piece is written another way only where these rules would read its text as something else, so `"say \"hi\""` becomes `'say \"hi\"'`.
-	- `check-migrate.bash` compares reads with 2.x, so it allows an element to differ where a backslash pair 2.x read as an escape is text now.
-	- The table's rows for `\\`, `\t`, `\n`, `\"` and `\'` are from before this answer, and change with the `migrate` work.
+	- `check-migrate.bash` compares reads with 2.x, so it allows an element or a quoted name to differ where a backslash pair 2.x read as an escape is text now.
 
-- Bracket text after a colon in a 2.x file is still counted lost, as now. That is exit 7, and `--lossy` overrides it.
+- Some lines 2.x bound have no spelling here, so they are counted lost. That is exit 7, and `--lossy` overrides it.
+	- Bracket text after a colon, as before.
+	- A selector holding a comma, such as `base[Boston, MA].pop: 700`. 2.x matched it against an array value, and a selector matches one plain value now.
+	- A comma list on a field with lines under it. In brackets that is `E028`, and as one string it reads as another value.
 
 - The standing rule for 2.x still applies: on a hard edge case, refuse with an error rather than build machinery, and never damage a correct file at exit 0.
 
@@ -743,10 +748,10 @@ What the build has today, and what replaces it.
 
 1. Build it, reference first, then the other bindings.
 	- Rust, then Go, Python and C, then the C++ veneer. Rust is done. The ports are next.
-	- The tokenizer, the writer, `SetLiteral` and `--set-literal`, and `migrate`. `--set` and the typed setters take data, not syntax, so `--set 'title=My App'` still works. Done in Rust, except `migrate` past the backslash answer.
+	- The tokenizer, the writer, `SetLiteral` and `--set-literal`, and `migrate`. `--set` and the typed setters take data, not syntax, so `--set 'title=My App'` still works. Done in Rust.
 	- One generated table for the escape names and aliases and the whitespace list, beside the hidden-character list. Done, in `cicd/utility/gen-escapes.py`. It also writes the grammar's escape names and the escape table in `spec.md`.
 	- `spec.md`, `grammar.abnf`, and `design.md` under Lexical edges and Load outcomes. `spec.md` and `grammar.abnf` are done. `design.md` is still open.
-	- Corpus cases and goldens. Most goldens change, since arrays and quoting change. Done for Rust, but for the `migrate` cases.
+	- Corpus cases and goldens. Most goldens change, since arrays and quoting change. Done for Rust.
 	- CLI help showing the quoted form for `--set-literal`: `--set-literal 'title="My App"'`. Done.
 	- Comments nesting under kept lines, 2026100218185700. Done.
 	- Spaces in bare values and `- ` items, and the colon and comma rules, answered 2026-10-06. Done in Rust, `spec.md` and `grammar.abnf`, with `migrate` writing a 2.x comma list in brackets. The ports build them from the start.

@@ -2326,7 +2326,7 @@ fn do_migrate(o: &Opts) -> u8 {
 	}
 	if m.lost != 0 {
 		errln!(
-			"{}: {} line(s) bound a value under 2.x that nothing binds now: bracket text after the colon, which has no spelling here (--lossy overrides)",
+			"{}: {} line(s) bound a value under 2.x that nothing binds now: bracket text after the colon, a selector holding a comma, or a comma list with lines under it, which have no spelling here (--lossy overrides)",
 			file,
 			m.lost
 		);
