@@ -769,7 +769,12 @@ fn fence_run(text: &str) -> Option<(char, usize)> {
 /// body is. A skipped field line takes its body with it, which is the whole
 /// point of the property below.
 fn raw_spans(text: &str) -> Vec<(usize, usize)> {
-	let lines: Vec<&str> = text.lines().collect();
+	// The load strips a file-start BOM, so it cannot hide a `*` or a `- `.
+	let lines: Vec<&str> = text
+		.strip_prefix('\u{feff}')
+		.unwrap_or(text)
+		.lines()
+		.collect();
 	let mut spans = Vec::new();
 	let mut open: Option<(char, usize, usize)> = None;
 	let mut tok = Tokens::default();
@@ -810,6 +815,16 @@ fn raw_spans(text: &str) -> Vec<(usize, usize)> {
 		spans.push((at, lines.len()));
 	}
 	spans
+}
+
+// A `*` line opens no block, with a file-start BOM in front of it too.
+#[test]
+fn a_bom_hides_no_star_from_the_raw_spans() {
+	let _id = test_id("ErsMtSw");
+	let base = "\u{feff}*aw: ```sql\nbody\n";
+	assert!(raw_spans(base).is_empty());
+	assert!(kept_text(base).spans.is_empty());
+	assert_eq!(raw_spans("\u{feff}aw: ```sql\nbody\n"), [(1, 2)]);
 }
 
 /// A raw body is content, whatever becomes of the line that opened it. A
@@ -2367,7 +2382,7 @@ fn stretches(
 /// may go with the target, so they are neither copies nor bounds. Nothing
 /// between the field lines either side of the target is a bound, and no
 /// misplaced line is, since one beside the target moves down to just above
-/// the next field line.
+/// the next field line. A misplaced copy may move down the same way.
 fn remove_left_behind(
 	before: &str,
 	after: &str,
@@ -2436,18 +2451,50 @@ fn remove_left_behind(
 		raw[k][..raw[k].len() - raw[k].trim_start_matches([' ', '\t']).len()].contains(' ')
 	};
 	let mut out = Vec::new();
+	// A misplaced copy can go down past its stretch, to where a reload files
+	// it, so it is looked for from there to the end, each line found once.
+	let mut found = vec![false; now.len()];
 	for (from, to) in stretches(&had, &now, |k| {
 		!near.contains(&k) && !listed(had[k]) && !misplaced(k)
 	}) {
-		let mut need: Vec<&str> = from.filter(|&k| copy(k)).map(|k| had[k]).collect();
-		for l in &now[to] {
-			if let Some(k) = need.iter().position(|t| t == l) {
+		let (low, mut need): (Vec<usize>, Vec<usize>) =
+			from.filter(|&k| copy(k)).partition(|&k| misplaced(k));
+		for l in &now[to.clone()] {
+			if let Some(k) = need.iter().position(|&t| had[t] == *l) {
 				need.remove(k);
 			}
 		}
-		out.extend(need.into_iter().map(str::to_string));
+		for k in low {
+			match (to.start..now.len()).find(|&j| !found[j] && now[j] == had[k]) {
+				Some(j) => found[j] = true,
+				None => need.push(k),
+			}
+		}
+		out.extend(need.into_iter().map(|k| had[k].to_string()));
 	}
 	out
+}
+
+/// The misplaced lines between canonical text's last field line and its
+/// footer, trimmed. No binding line follows them, so the load keeps them as
+/// the document's own lines too, and a merge can write one after the base's
+/// footer, where the settle makes a comment of it.
+fn misplaced_tail(canon: &str) -> Vec<&str> {
+	let doc = Document::parse(canon);
+	let lines: Vec<&str> = canon.lines().collect();
+	let last = doc
+		.paths()
+		.iter()
+		.flat_map(|p| doc.lines(p))
+		.max()
+		.unwrap_or(0);
+	let bodies = raw_spans(canon);
+	(last + 1..footer_start(canon).min(lines.len() + 1))
+		.filter(|&n| !bodies.iter().any(|&(o, c)| n > o && n <= c))
+		.map(|n| lines[n - 1])
+		.filter(|l| l[..l.len() - l.trim_start_matches([' ', '\t']).len()].contains(' '))
+		.map(|l| l.trim_matches(BLANKS))
+		.collect()
 }
 
 /// The footer lines the dedup skipped that `merged` wrote anyway, beyond what
@@ -2457,10 +2504,15 @@ fn remove_left_behind(
 fn footer_piled(before: &str, layer: &str, merged: &str, skipped: &[String]) -> Vec<String> {
 	let canon = Document::parse(layer).to_canonical();
 	let count = |text: &str, t: &str| {
-		footer(text)
+		let foot = footer(text)
 			.iter()
 			.filter(|l| unsettled(l.1.trim_matches(BLANKS)) == t)
-			.count()
+			.count();
+		let tail = misplaced_tail(text)
+			.iter()
+			.filter(|l| unsettled(l) == t)
+			.count();
+		foot + tail
 	};
 	let mut out: Vec<String> = Vec::new();
 	for t in skipped {
@@ -2473,6 +2525,25 @@ fn footer_piled(before: &str, layer: &str, merged: &str, skipped: &[String]) -> 
 		}
 	}
 	out
+}
+
+// A misplaced line past the layer's last field comes in after the base's
+// footer as a comment. It is the layer's own line, not a copy of the footer
+// line the dedup skipped.
+#[test]
+fn a_misplaced_tail_line_is_no_skipped_copy() {
+	let _id = test_id("ErsPRww");
+	let (base, layer) = ("a: 1\n- name:\n", "q:\n\t- 5\n    - name:\n- name:\n");
+	let mut doc = Document::parse(base);
+	let before = doc.to_canonical();
+	let skipped = footer_skips(&before, layer);
+	assert_eq!(skipped, ["- name:"]);
+	doc.merge(&Document::parse(layer));
+	let after = doc.to_canonical();
+	assert_eq!(after, "a: 1\nq: [5]\n- name:\n# - name:\n");
+	assert!(footer_piled(&before, layer, &after, &skipped).is_empty());
+	let piled = "a: 1\nq: [5]\n- name:\n# - name:\n- name:\n";
+	assert_eq!(footer_piled(&before, layer, piled, &skipped), skipped);
 }
 
 // The two merge exceptions in the property go by where a line sits, and a
@@ -2576,6 +2647,33 @@ fn remove_and_setter_exceptions_go_by_position() {
 		setter_left_behind(&before, &swapped, "x.a", &listed),
 		listed
 	);
+}
+
+// A misplaced line beside a removed field goes down past the kept lines
+// that stay, as a reload files it, and the property allows that for a copy
+// of the field's own line too. It still finds one that went up or is gone.
+#[test]
+fn a_misplaced_copy_moves_down() {
+	let _id = test_id("ErsETOT");
+	let base = "k:\n\tj: 1\n  a:\n\tb: [8] x\n\t\ta:\n";
+	let mut doc =
+		Document::parse_keep_lines(base, Strictness::Standard).unwrap_or_else(|e| e.document);
+	let before = doc.to_canonical();
+	assert_eq!(before, base);
+	let taken = taken_lines(&before, "k.b.a");
+	assert_eq!(taken, [(4, "a:".to_string())]);
+	assert_eq!(doc.remove("k.b.a"), 1);
+	let after = doc.to_canonical();
+	assert_eq!(after, "k:\n\tj: 1\n\tb: [8] x\n  a:\n");
+	assert_eq!(
+		Document::parse("k:\n\tj: 1\n  a:\n\tb: [8] x\n").to_canonical(),
+		after
+	);
+	let listed = ["a:".to_string()];
+	assert!(remove_left_behind(&before, &after, &[4], &listed).is_empty());
+	for wrong in ["  a:\nk:\n\tj: 1\n\tb: [8] x\n", "k:\n\tj: 1\n\tb: [8] x\n"] {
+		assert_eq!(remove_left_behind(&before, wrong, &[4], &listed), listed);
+	}
 }
 
 /// After any edits, every kept line no edit's target took is in the saved

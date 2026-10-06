@@ -2180,6 +2180,52 @@ fn a_list_no_text_loads_back_refuses_to_save() {
 	assert_eq!(doc.lost_count(), 0, "{:?}", doc.to_canonical());
 }
 
+/// A setter that empties a field joins the stacked list after it, fields
+/// and all, as a reload would. A read made before the write has the lookup
+/// built, and the fields that moved still have to be found through it.
+#[test]
+fn a_list_joining_an_emptied_field_keeps_its_fields_found() {
+	let _id = test_id("ErsETML");
+	for (src, path, field, want) in [
+		("b: x\nb:\n\t- 3\n\tk: 1\n", "b", "b.k", "1"),
+		("b: x\nb: y z\n\t- 3\n\tk: 1\n", "b", "b.k", "1"),
+		("x: v\nx:\n\t- a\n\tg: 2\n", "x[v]", "x.g", "2"),
+	] {
+		let mut doc = Document::parse(src);
+		assert!(doc.get_string(field).is_ok(), "{src:?}");
+		assert!(doc.set_empty(path), "{src:?}");
+		let back = Document::parse(&doc.to_canonical());
+		assert_eq!(back.get_string(field).as_deref(), Ok(want), "{src:?}");
+		assert_eq!(doc.get_string(field).as_deref(), Ok(want), "{src:?}");
+		assert_eq!(doc.paths(), back.paths(), "{src:?}");
+	}
+}
+
+/// A load can build that list too, under a kept array line (E028). The
+/// canonical text writes the line as a comment and cannot load the list
+/// back, so that save refuses. The source text does, so with no edits the
+/// save that keeps lines writes it as it was.
+#[test]
+fn a_list_the_source_loads_back_keeps_its_lines() {
+	let _id = test_id("ErsWiow");
+	let src = "c:\n\ts: 1\nc: [1]\n\tb[*]: 1\n\t- 3\n\ta: 2\n";
+	let doc = Document::parse_keep_lines(src, Strictness::Standard).unwrap();
+	assert_eq!(doc.lost_count(), 2, "the wildcard line and the item");
+	assert_eq!(doc.to_text_keep_lines(), (src.to_string(), true));
+	let dir = std::env::temp_dir().join(format!("shcl-sourcelist-{}", std::process::id()));
+	std::fs::create_dir_all(&dir).unwrap();
+	let f = dir.join("t.shcl");
+	let fs = f.to_str().unwrap();
+	std::fs::write(&f, src).unwrap();
+	assert!(matches!(
+		doc.save_file(fs),
+		Err(shcl::SaveError::Refused { lost: 2, .. })
+	));
+	assert!(matches!(doc.save_file_keep_lines(fs), Ok(true)));
+	assert_eq!(std::fs::read_to_string(&f).unwrap(), src);
+	std::fs::remove_dir_all(&dir).unwrap();
+}
+
 #[test]
 fn lost_and_save_gate() {
 	let _id = test_id("EnEclpx");
