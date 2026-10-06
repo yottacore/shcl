@@ -203,13 +203,14 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - Run the Linux ARM64 release binary on real ARM64 hardware
 	- ID: 2026100413052100
 	- Type: Task
-	- Status: Queued
+	- Status: Done
 	- Priority: Avg
 	- Opened: 20261004-130521
 	- Opened by: JC
 	- Related IDs: 2026100413052101
 	- Target OS: Linux ARM64
 	- Test environment: vmDebARM64, booked through the host lock.
+	- Version and build: dev at `9afc08f1`, cross-built the way stage 6 does (`cargo zigbuild --release`, build stamp `ddk3m`).
 	- Problem description:
 		- Stage 6 cross-builds `linux-arm64` with zig and the release ships it, but nothing ever runs it. No gate uses qemu, and the hosted jobs are all x86_64.
 	- Requirements:
@@ -219,6 +220,22 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: 20261004, vmDebARM64 has no setup notes yet. Ask how it is set up before the first visit. Answered 20261004: a test user with normal rights and no password, and `root` by ssh with b23's key.
 	- Note: 20261005, vmDebARM64 has Wine installed, so the `windows-arm64` release binary might run there too, if slowly. Try the corpus and cli-regress through `wine` on the same visit.
 	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Progress log:
+		- 20261006: ran on vmDebARM64 (Debian 13.7, glibc 2.41, 8 vCPUs emulated). The test user is `tester`. Nothing was installed there. Go 1.26.8, gcc 14 and Python 3.13 were already present. There is no cargo and no g++, so the Rust suite and the C++ veneer smoke did not run natively. Two Debian images were pulled for the glibc check and removed after.
+		- 20261006: nothing broke, so nothing was filed.
+	- Verified:
+		- The `linux-arm64` binary: the corpus goldens through the CLI (`fmt`, `check`, `check --schema`, `init`, `migrate --from-2x`, merge, `set`), 494 of 495. The one miss is case 182's `check`, which follows the file's Schema line to a missing file, and the x86_64 release does the same. cli-regress passes, 372 rows. Its 3 extra skips are host gaps: no strace, no second group.
+		- Native suites: Go (255 ok), Python (253 ok, 191 cases) and C (191 cases, plus `oom_hook`, `oom_recover` and `mem_bounds`) all pass, the same counts as on x86_64.
+		- crosscheck over the corpus, with the arm64 release CLI as reference and natively built Go, Python and C CLIs: 15537 of 15540 agree. The 3 are the `--about` build stamp only the release has, and x86_64 shows the same 3.
+		- cli-regress over the native Go, Python and C CLIs passes, 372 rows.
+		- Installer: `install.bash` 1.2.0 as `tester` picked `shcl-2.0.0-linux-arm64`, checked the signed sums, installed and ran it, and `--uninstall` removed it.
+		- glibc floor: the binary asks for `GLIBC_2.30` at most and no libgcc_s. The installer's smoke check on glibc 2.28 (Debian 10) prints the loader's `GLIBC_2.30' not found` line and then the 2.30 message. On glibc 2.31 (Debian 11) it passes.
+		- `windows-arm64` under Wine 10.0: `--version` runs, and the corpus goldens pass 493 of 495. One is case 182, as above. The other was case 130's `set` failing once, and it did not come back in 56 reruns. cli-regress through Wine was not run. Each call takes about 9 seconds there, so a run would be well over an hour.
+	- Branch: `arm64run`
+	- Test case: corpus goldens, cli-regress and crosscheck against the arm64 binary. The Go, Python and C conformance suites run natively. A one-off run on a test host, so no new CI test.
+	- Acceptance signoff: Self-closed: test task, every run passed.
+	- Closed: 20261006-132324
 
 - A file stamped Format 3 during the beta is never migrated
 	- ID: 2026100115403385
