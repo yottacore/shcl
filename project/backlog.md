@@ -66,6 +66,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261005: worked on the `valsyn` branch, which merges to dev once all four bindings agree. Its progress log is in valsyn's copy of this file. Chunks A and B are in, Rust only.
 		- 20261005: the answered A and B changes are in, Rust only, and the 2,000,000 release fuzz passes on valsyn again. Chunk C is next.
 		- 20261005: on valsyn, the no-colon rule is narrowed back (`square-miles 300` is `E014` again), a merge list join is fixed (2026100520243961, filed and closed there), and chunk C's spec half is in: spec.md, grammar.abnf and value-syntax.md. check-docs and check-abnf pass there. Next: design.md, the changelog, `migrate`, then the Go, Python and C ports.
+		- 20261006: answered: spaces are allowed in a bare value and a `- ` item, but not inside `[]` or a selector. A bare colon or comma needs a character after it, so `rw,noatime` and `:0` stay bare and `ports: 80, 443` is an error. Built in Rust on valsyn, with spec.md and the grammar. The 2M fuzz passes there. Next: the rest of chunk C, then the Go, Python and C ports.
 	- Decisions:
 		- 20261002: idea 3, with the changes listed in the design doc. Open points and their proposed answers are under its Roadmap.
 		- 20261002: a quote anywhere in a bare value is an error, and a bare field name starts with a letter. Dates, times, durations and sizes without spaces stay bare.
