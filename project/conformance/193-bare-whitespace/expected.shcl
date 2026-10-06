@@ -1,6 +1,6 @@
-# A bare value has no whitespace and no quote; quote it instead.
+# A bare value may hold spaces, but no other whitespace and no quote; quote it instead.
 port: 80  # trimmed at the edges, so this is fine
-title: My App
+title: "My App"
 	sub: 1
 quoted: "My App"
 name: O'Brien
@@ -20,7 +20,7 @@ open: "never closed
 	kid: 2
 stack:
 	- one
-	- two three
+	- "two three"
 	- four
 srv[New York].port: 1
 srv: "New York"

@@ -1,4 +1,4 @@
-line 2: Error: E025
-line 6: Error: E025
+line 2: Error: E027
+line 6: Error: E027
 line 7: Error: E027
 failed: 3 diagnostic(s), 3 error(s)

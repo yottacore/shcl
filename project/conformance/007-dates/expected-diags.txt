@@ -1,2 +1,2 @@
-line 31: Error: E025
+line 31: Error: E026
 failed: 1 diagnostic(s), 1 error(s)

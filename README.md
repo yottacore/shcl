@@ -518,7 +518,7 @@ field: workers
 field: log-level
 	type: string
 	desc: How chatty the log is.
-	allowed: debug, info, warn, error
+	allowed: [debug, info, warn, error]
 	default: warn
 ~~~
 

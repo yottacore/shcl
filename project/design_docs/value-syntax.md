@@ -733,7 +733,7 @@ What the build has today, and what replaces it.
 	- Corpus cases and goldens. Most goldens change, since arrays and quoting change. Done for Rust, but for the `migrate` cases.
 	- CLI help showing the quoted form for `--set-literal`: `--set-literal 'title="My App"'`. Done.
 	- Comments nesting under kept lines, 2026100218185700. Done.
-	- Spaces in bare values and `- ` items, and the colon and comma rules, answered 2026-10-06. Open in Rust, `spec.md` and `grammar.abnf`. The ports build them from the start.
+	- Spaces in bare values and `- ` items, and the colon and comma rules, answered 2026-10-06. Done in Rust, `spec.md` and `grammar.abnf`, with `migrate` writing a 2.x comma list in brackets. The ports build them from the start.
 
 2. Then cut `v3.0.0-beta1`.
 

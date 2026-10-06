@@ -1030,26 +1030,29 @@ const TMP_NAME_BYTES: usize = 64;
 //   or a raw block (`resolve_marks`).
 // - `#` outside quotes and backticks opens a comment, wherever it sits.
 // - A space, a tab and a carriage return are blanks: trimmed at a piece's
-//   edge. In the middle of a bare piece they are whitespace, which the
-//   parser refuses (`E025`).
+//   edge. A bare value or list item may hold spaces; any other whitespace in
+//   it, and any at all in an array element or selector body, the parser
+//   refuses (`E025`), along with a quote, a bracket, and a colon with a blank
+//   or the end after it (`E027` in a list item).
 // - A bare name is an ASCII letter, then ASCII letters, digits, `-` and `_`.
 //   A file line's name that breaks only that rule still reads, up to the
 //   separator, a dot, a bracket or a comment, and is marked `misspelled`
 //   (`E014`). A `[` right after a name opens a selector, whose bare body
 //   runs to the first `]`.
-// - A value is split on unquoted commas, each piece trimmed. More than one
-//   piece outside brackets is a bare comma, which the parser refuses
-//   (`E026`).
+// - A value is split on unquoted commas with a blank, a comment or the end
+//   after them, each piece trimmed; any other comma is text (`rw,noatime`).
+//   More than one piece outside brackets is a bare comma, which the parser
+//   refuses (`E026`). Inside brackets every comma splits.
 // - A value that starts with `[` is a bracket array: its pieces run to the
 //   `]` that closes it, and nothing but a comment may follow. A bare `[` or
 //   `]` inside, an empty piece, or no `]` on the line is malformed, which the
 //   parser refuses (`E019`). `[]` is the empty array.
 //
 // Under `Rules::V2` the tokenizer reads the 2.x spellings instead, for
-// `migrate`: a backslash shields the next character in bare and single-quoted
-// value text, a bare selector body still runs to its first `]`, a separator
-// followed by `[` is the selector sugar, and an open quote swallows the rest
-// of the line.
+// `migrate`: every comma splits, a backslash shields the next character in
+// bare and single-quoted value text, a bare selector body still runs to its
+// first `]`, a separator followed by `[` is the selector sugar, and an open
+// quote swallows the rest of the line.
 
 /// How a piece was quoted. `Open` is a piece that began with a quote and
 /// never closed with the matching quote as its last character: the whole
@@ -1211,12 +1214,19 @@ fn comment_at(s: &[u8], i: usize) -> bool {
 	s[i] == b'#'
 }
 
+/// A comma at `at` with a blank, a comment or the end after it. Only that
+/// one splits a value outside brackets; `rw,noatime` is one piece.
+fn loose_comma(s: &[u8], at: usize) -> bool {
+	s.get(at + 1).is_none_or(|&b| is_wsp_byte(b) || b == b'#')
+}
+
 /// One piece from `pos`: a value element up to an unquoted comma or comment,
 /// or a selector body up to an unquoted `]` (`term`). Returns the trimmed
 /// piece and the offset of what ended it: the terminator, a comment's `#`,
 /// or the end of the text. `comments` is false only for a selector body in a
 /// lookup path, where `[#N]` is the index spelling. In a bracket array
-/// (`array`) the `]` that closes it ends a value element too.
+/// (`array`) the `]` that closes it ends a value element too, and every comma
+/// does; elsewhere only a loose one does, 2.x aside.
 fn scan_piece(
 	s: &[u8],
 	mut pos: usize,
@@ -1228,6 +1238,8 @@ fn scan_piece(
 	skip_wsp(s, &mut pos);
 	let start = pos;
 	let mut quote = Quote::None;
+	let every_comma = term != b',' || array || rules == Rules::V2;
+	let ends_at = |s: &[u8], i: usize| s[i] == term && (every_comma || loose_comma(s, i));
 	// A backtick quotes a raw value element. 2.x had none, a selector body
 	// takes none, and a run of three opens a raw block instead.
 	let tick =
@@ -1240,7 +1252,7 @@ fn scan_piece(
 				let mut i = close + 1;
 				skip_wsp(s, &mut i);
 				let ended = if i < s.len() {
-					s[i] == term || (array && s[i] == b']') || (term == b',' && comment_at(s, i))
+					ends_at(s, i) || (array && s[i] == b']') || (term == b',' && comment_at(s, i))
 				} else {
 					term == b','
 				};
@@ -1292,7 +1304,7 @@ fn scan_piece(
 			content_end = pos.min(s.len());
 			continue;
 		}
-		if b == term || (array && b == b']') || (comments && comment_at(s, pos)) {
+		if ends_at(s, pos) || (array && b == b']') || (comments && comment_at(s, pos)) {
 			break;
 		}
 		pos += utf8_len(b);
@@ -2596,7 +2608,7 @@ fn reads_same(spelling: &str, quoted: bool, logical: &str) -> bool {
 	tok.elements.len() == 1
 		&& tok.value == (0, spelling.len())
 		&& matches!(tok.elements[0].quote, Quote::Single | Quote::Double) == quoted
-		&& piece_fault(&tok.elements[0], spelling, "value").is_none()
+		&& piece_fault(&tok.elements[0], spelling, Bare::Value).is_none()
 		&& piece_text(&tok.elements[0], spelling) == logical
 }
 
@@ -2634,7 +2646,11 @@ fn value_edits(text: &str, tok: &Tokens, edits: &mut Vec<Edit>) {
 		} else {
 			(p.start, p.end)
 		};
-		if p.quote == Quote::None && !raw.contains('\\') && !raw.is_empty() {
+		if p.quote == Quote::None
+			&& !raw.contains('\\')
+			&& !raw.is_empty()
+			&& bare_trouble(raw, Bare::Value).is_none()
+		{
 			continue;
 		}
 		if reads_same(&text[a..b], quoted, raw) {
@@ -2643,6 +2659,42 @@ fn value_edits(text: &str, tok: &Tokens, edits: &mut Vec<Edit>) {
 		let spelling = migrate_spelling(raw, !(quoted || p.quote == Quote::Open));
 		edits.push((a, b, spelling));
 	}
+}
+
+/// A 2.x value with a comma in brackets, since 2.x read every comma as an
+/// array. Its empty elements go, as 2.x dropped them. Each element is
+/// written the way the writer writes one inside `[]`, unless its quoted
+/// spelling already reads the same.
+fn v2_array_text(text: &str, tok: &Tokens) -> String {
+	let mut out = String::from("[");
+	for p in tok
+		.elements
+		.iter()
+		.filter(|p| p.quote != Quote::None || p.end > p.start)
+	{
+		if out.len() > 1 {
+			out.push_str(", ");
+		}
+		let raw = &text[p.start..p.end];
+		let quoted = matches!(p.quote, Quote::Single | Quote::Double);
+		if quoted && reads_same(&text[p.start - 1..p.end + 1], true, raw) {
+			out.push_str(&text[p.start - 1..p.end + 1]);
+		} else if p.quote == Quote::None && !element_needs_quotes(raw) {
+			out.push_str(raw);
+		} else {
+			out.push_str(&quote_text(raw));
+		}
+	}
+	out.push(']');
+	out
+}
+
+/// True when the current rules read a value with no fault, as one piece:
+/// then `a,b` is a string now and was an array under 2.x.
+fn reads_clean_now(text: &str, from: usize) -> bool {
+	let mut tok = Tokens::default();
+	tokenize_value(text, from, Rules::Current, &mut tok);
+	tok.array.is_none() && tok.elements.len() == 1 && value_fault(&tok, text).is_none()
 }
 
 /// True when a quoted field name, quotes included, reads under the current
@@ -2782,7 +2834,18 @@ fn migrate_line(
 				*fence = Some((ch, len));
 				return splice(rest, edits);
 			}
-			value_edits(rest, tok, &mut edits);
+			match tok.sep {
+				Some(sep) if tok.elements.len() > 1 => {
+					// A file that does not say it is 2.x could be a 3.0 one, where
+					// `a,b` is a string. `a, b` is an error there, so it is safe.
+					if st.from_v2 || !reads_clean_now(rest, sep + 1) {
+						edits.push((tok.value.0, tok.value.1, v2_array_text(rest, tok)));
+					} else {
+						st.ambiguous += 1;
+					}
+				}
+				_ => value_edits(rest, tok, &mut edits),
+			}
 		}
 	}
 	splice(rest, edits)
@@ -2885,27 +2948,79 @@ impl Fault {
 	}
 }
 
-/// Whitespace or a quote in a bare piece (`E025`), named for the message.
-fn bare_trouble(raw: &str) -> Option<&'static str> {
-	for c in raw.chars() {
-		if white_space(c) {
-			return Some("whitespace");
+/// Where a bare piece sits, which sets what it may hold (value-syntax.md,
+/// Specification).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Bare {
+	/// A field value: spaces are fine, and a loose comma splits it.
+	Value,
+	/// A `- ` item: as a value, but a loose colon is `E027`, judged later.
+	Item,
+	/// An element in `[]`: no whitespace, and every comma splits.
+	Element,
+	/// A selector body: no whitespace, colon, comma or bracket either.
+	Selector,
+}
+
+impl Bare {
+	fn what(self) -> &'static str {
+		match self {
+			Bare::Value => "value",
+			Bare::Item => "list item",
+			Bare::Element => "array element",
+			Bare::Selector => "selector",
 		}
-		if matches!(c, '\'' | '"' | '`') {
-			return Some("a quote");
-		}
+	}
+}
+
+/// A colon at `i` of `raw` with whitespace or the end after it: what a
+/// field line run into the one before it looks like.
+fn loose_colon(raw: &str, i: usize) -> bool {
+	raw[i..].starts_with(':') && raw[i + 1..].chars().next().is_none_or(white_space)
+}
+
+/// What a bare piece may not hold (`E025`): the first such character, named
+/// with the fix for the message.
+fn bare_trouble(raw: &str, kind: Bare) -> Option<String> {
+	let what = kind.what();
+	let strict = matches!(kind, Bare::Element | Bare::Selector);
+	for (i, c) in raw.char_indices() {
+		let trouble = match c {
+			'\'' | '"' | '`' => "a quote",
+			'[' | ']' => "a bracket",
+			'\t' if !strict => "a tab",
+			' ' if strict => "a space",
+			c if white_space(c) && strict => "whitespace",
+			c if white_space(c) && c != ' ' => "whitespace other than a space",
+			':' | ',' if kind == Bare::Selector => {
+				return Some(format!(
+					"{} in a bare selector; quote it",
+					if c == ':' { "a colon" } else { "a comma" }
+				));
+			}
+			':' if kind != Bare::Item && loose_colon(raw, i) => {
+				return Some(if i + 1 == raw.len() {
+					format!("a colon at the end of a bare {}; quote it", what)
+				} else if kind == Bare::Value {
+					"a colon then a space in a bare value; put each field on its own line, or quote the value".to_string()
+				} else {
+					format!("a colon then a space in a bare {}; quote it", what)
+				});
+			}
+			_ => continue,
+		};
+		return Some(format!("{} in a bare {}; quote it", trouble, what));
 	}
 	None
 }
 
 /// What is wrong with one piece of value text: an open quote (`E017`), a bad
-/// escape (`E023`), or whitespace or a quote in bare text (`E025`). `what`
-/// names the piece for the message. A backtick value is raw, so only an open
-/// one is wrong.
-fn piece_fault(p: &Piece, text: &str, what: &str) -> Option<(&'static str, String)> {
+/// escape (`E023`), or what a bare piece of its kind may not hold (`E025`).
+/// A backtick value is raw, so only an open one is wrong.
+fn piece_fault(p: &Piece, text: &str, kind: Bare) -> Option<(&'static str, String)> {
 	let raw = &text[p.start..p.end];
 	match p.quote {
-		Quote::Open => Some(("E017", format!("unterminated quote in {}", what))),
+		Quote::Open => Some(("E017", format!("unterminated quote in {}", kind.what()))),
 		Quote::Backtick => None,
 		Quote::None | Quote::Single | Quote::Double => {
 			if raw.contains(ESCAPE_MARK)
@@ -2914,9 +3029,9 @@ fn piece_fault(p: &Piece, text: &str, what: &str) -> Option<(&'static str, Strin
 				return Some(("E023", msg));
 			}
 			if p.quote == Quote::None
-				&& let Some(trouble) = bare_trouble(raw)
+				&& let Some(msg) = bare_trouble(raw, kind)
 			{
-				return Some(("E025", format!("{} in a bare {}; quote it", trouble, what)));
+				return Some(("E025", msg));
 			}
 			None
 		}
@@ -2935,60 +3050,66 @@ fn array_fault(tok: &Tokens) -> Option<Fault> {
 	})
 }
 
-/// The first fault in a value: one of its pieces, then a bare comma outside
+/// The first fault in a value: one of its pieces, then a loose comma outside
 /// brackets (`E026`). A piece first, since an open quote or a space is what
 /// a comma beside it most often means. Only the value is wrong, so the name
 /// still reads.
 fn value_fault(tok: &Tokens, text: &str) -> Option<Fault> {
-	let what = if tok.array.is_some() {
-		"array element"
+	let kind = if tok.array.is_some() {
+		Bare::Element
 	} else {
-		"value"
+		Bare::Value
 	};
-	if let Some((code, msg)) = tok.elements.iter().find_map(|p| piece_fault(p, text, what)) {
+	if let Some((code, msg)) = tok.elements.iter().find_map(|p| piece_fault(p, text, kind)) {
 		return Some(Fault::new(code, msg, true));
 	}
 	(tok.array.is_none() && tok.elements.len() > 1).then(|| {
 		Fault::new(
 			"E026",
-			"bare comma; an array is written in brackets, [a, b], and text with a comma is quoted",
+			"a comma then a space or the end in a bare value; write an array in brackets, [a, b], or quote the text",
 			true,
 		)
 	})
 }
 
 /// Why a stacked item's value is refused: an array, since arrays do not
-/// nest (`E019`), what a value is refused for, a bare comma (`E026`), or a
-/// bare name ending in a colon, the way YAML starts an object in a list
-/// (`E027`).
+/// nest (`E019`), what a value is refused for, a loose comma (`E026`), or a
+/// colon with whitespace or the end after it, the way YAML starts an object
+/// in a list (`E027`).
 fn item_fault(tok: &Tokens, text: &str) -> Option<Fault> {
 	if tok.array.is_some() {
 		return Some(Fault::new(
 			"E019",
-			"a list item is one value; arrays do not nest",
+			"a list item is one value, and arrays do not nest; quote the item if it is text",
 			true,
 		));
 	}
 	if let Some((code, msg)) = tok
 		.elements
 		.iter()
-		.find_map(|p| piece_fault(p, text, "list item"))
+		.find_map(|p| piece_fault(p, text, Bare::Item))
 	{
 		return Some(Fault::new(code, msg, true));
 	}
 	if tok.elements.len() > 1 {
 		return Some(Fault::new(
 			"E026",
-			"bare comma in a list item; an item is one value, and text with a comma is quoted",
+			"a comma then a space or the end in a list item; an item is one value, so quote the text",
 			true,
 		));
 	}
 	match tok.elements.as_slice() {
-		[p] if p.quote == Quote::None && text[p.start..p.end].ends_with(':') => Some(Fault::new(
-			"E027",
-			"a list item that is a name ending in ':'; a list of objects is written as instances, and text ending in ':' is quoted",
-			true,
-		)),
+		[p] if p.quote == Quote::None && {
+			let raw = &text[p.start..p.end];
+			raw.char_indices().any(|(i, _)| loose_colon(raw, i))
+		} =>
+		{
+			Some(Fault::new(
+				"E027",
+				"a list item with a colon then a space or the end; write a list of objects as instances, or quote the item if it is text",
+				true,
+			))
+		}
 		_ => None,
 	}
 }
@@ -3005,7 +3126,7 @@ fn path_fault(tok: &Tokens, text: &str) -> Option<Fault> {
 			return Some(Fault::new("E023", msg, false));
 		}
 		if let Some(sel) = &seg.selector
-			&& let Some((code, msg)) = piece_fault(sel, text, "selector")
+			&& let Some((code, msg)) = piece_fault(sel, text, Bare::Selector)
 		{
 			return Some(Fault::new(code, msg, false));
 		}
@@ -7299,10 +7420,10 @@ fn diag_name(name: &str) -> String {
 }
 
 /// One element of a value, written for a diagnostic message: the emitter's
-/// inline spelling, so a value with a line break cannot split one
-/// diagnostic across two.
+/// spelling inside `[]`, the only place a message puts one, so a value with
+/// a line break cannot split one diagnostic across two.
 fn diag_element(e: &Element) -> String {
-	emit_element(e).into_owned()
+	emit_array_element(e).into_owned()
 }
 
 /// A value for a diagnostic message. Only a scalar reaches this today, from
@@ -8439,31 +8560,49 @@ pub fn suppress_declared_reopens(schema: &Document, diags: &mut Vec<Diagnostic>)
 	diags.retain(|d| d.code != "H002" || !heads.iter().any(|h| d.message.starts_with(h.as_str())));
 }
 
-/// Minimal quoting (value-syntax.md, Canonical output): bare only when the
-/// text has no whitespace, none of the characters that end, open or escape a
-/// piece, needs no escape, and does not end in a colon, which a list item
-/// would read as a name. A colon inside is text: `2:30PM` stays bare.
+/// Minimal quoting for a value or list item (value-syntax.md, Canonical
+/// output): bare only when the text has no whitespace, none of the
+/// characters that open or escape a piece, needs no escape, and does not end
+/// in a colon or comma, which would read as another field or an array. A
+/// colon or comma inside is text: `2:30PM` and `rw,noatime` stay bare. The
+/// reader takes spaces bare, but the writer still quotes them.
 fn needs_quotes(t: &str) -> bool {
 	t.is_empty()
-		|| t.ends_with(':')
+		|| t.ends_with([':', ','])
 		|| t.char_indices().any(|(i, c)| {
 			white_space(c)
-				|| matches!(c, ',' | '#' | '"' | '\'' | '`' | '[' | ']' | ESCAPE_MARK)
+				|| matches!(c, '#' | '"' | '\'' | '`' | '[' | ']' | ESCAPE_MARK)
 				|| invisible_at(t, i, c)
 		}) || fence_open(t).is_some()
+}
+
+/// The same for an array element, where any comma splits.
+fn element_needs_quotes(t: &str) -> bool {
+	needs_quotes(t) || t.contains(',')
+}
+
+/// A value or list item as written. See emit_piece.
+fn emit_element(e: &Element) -> std::borrow::Cow<'_, str> {
+	emit_piece(e, needs_quotes(&e.text))
+}
+
+/// An element inside `[]` as written. See emit_piece.
+fn emit_array_element(e: &Element) -> std::borrow::Cow<'_, str> {
+	emit_piece(e, element_needs_quotes(&e.text))
 }
 
 /// The element as written: bare when it can be, else in the author's quote
 /// kind when the text allows it, else the quotes the writer picks. A quoted
 /// plain string keeps its quotes, since quoting it is how a file says it is
 /// text; a quoted data format loses them, since readers type the value
-/// either way. A backtick value stays in backticks whatever it holds.
-fn emit_element(e: &Element) -> std::borrow::Cow<'_, str> {
+/// either way. One with a comma keeps them, since only a quoted number reads
+/// a thousands comma. A backtick value stays in backticks whatever it holds.
+fn emit_piece(e: &Element, quote: bool) -> std::borrow::Cow<'_, str> {
 	let t = &e.text;
 	if e.mark == Mark::Backtick && backtick_holds(t) {
 		return std::borrow::Cow::Owned(format!("`{}`", t));
 	}
-	if !needs_quotes(t) && (!e.quoted() || is_data_format(e)) {
+	if !quote && (!e.quoted() || (is_data_format(e) && !t.contains(','))) {
 		return std::borrow::Cow::Borrowed(t);
 	}
 	std::borrow::Cow::Owned(match e.mark {
@@ -8482,9 +8621,29 @@ fn backtick_holds(t: &str) -> bool {
 }
 
 /// An element no source wrote. It counts as quoted when canonical output will
-/// quote it, so a read gives the same answer before a save as after one.
+/// quote it, so a read gives the same answer before a save as after one. A
+/// thousands comma reads only in quotes, so `1,000` from a setter keeps them
+/// and still reads as 1000.
 fn new_element(text: String) -> Element {
-	let mark = if !needs_quotes(&text) {
+	let quote = needs_quotes(&text);
+	let mut e = new_element_as(text, quote);
+	if !quote && e.text.contains(',') {
+		e.mark = Mark::Double;
+		if !is_data_format(&e) {
+			e.mark = Mark::Bare;
+		}
+	}
+	e
+}
+
+/// new_element for an element inside `[]`.
+fn new_array_element(text: String) -> Element {
+	let quote = element_needs_quotes(&text);
+	new_element_as(text, quote)
+}
+
+fn new_element_as(text: String, quote: bool) -> Element {
+	let mark = if !quote {
 		Mark::Bare
 	} else if picks_single(&text) {
 		Mark::Single
@@ -8584,7 +8743,7 @@ fn emit_array_into(out: &mut String, els: &[Element]) {
 		if i > 0 {
 			out.push_str(", ");
 		}
-		out.push_str(&emit_element(e));
+		out.push_str(&emit_array_element(e));
 	}
 	out.push(']');
 }
@@ -9124,7 +9283,7 @@ fn choose_fence(content: &str) -> (u8, usize) {
 /// An array setter's value: written in brackets whatever its length, so
 /// one element is `[80]` and none is `[]`.
 fn array_cell(texts: Vec<String>) -> Value {
-	Value::Array(texts.into_iter().map(new_element).collect())
+	Value::Array(texts.into_iter().map(new_array_element).collect())
 }
 
 impl Document {
@@ -14425,11 +14584,11 @@ mod kept_gate {
 				"\ta: 5\n\t\tb: 2\n",
 			),
 			(
-				"p: C:\\Program Files\n\tq: 1\n",
+				"p: host: a.com\n\tq: 1\n",
 				"p",
 				"",
-				"# p: C:\\Program Files",
-				"E025 whitespace in a bare value",
+				"# p: host: a.com",
+				"E025 a colon then a space in a bare value",
 				"p: 5\n\tq: 1\n",
 			),
 			(

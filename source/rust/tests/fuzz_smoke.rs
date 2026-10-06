@@ -3230,6 +3230,11 @@ impl LineGen {
 		self.text
 			.push_str(["", " ", "\t", "  ", "\r", " \r\t"][rng.below(6)]);
 	}
+	/// At least one blank: what makes a comma split a value.
+	fn blank(&mut self, rng: &mut Rng) {
+		self.text
+			.push_str([" ", "\t", "  ", "\r", " \r\t"][rng.below(5)]);
+	}
 	fn pick(&mut self, rng: &mut Rng, set: &[&str], n: usize) {
 		for _ in 0..n {
 			self.text.push_str(set[rng.below(set.len())]);
@@ -3266,9 +3271,10 @@ impl LineGen {
 		self.text.push(q);
 		Piece { start, end, quote }
 	}
-	/// A bare piece for a value or a selector body: no comma, no bracket,
-	/// no leading quote, no `#`, no edge blank. `open` makes it start with a quote it never closes the
-	/// quoted way. No `]` at all, and no quote as a bare piece's last
+	/// A bare piece for a value or a selector body: no bracket, no leading
+	/// quote, no `#`, no edge blank, and in a value no comma but one with a
+	/// letter after it, which is text. `open` makes it start with a quote it
+	/// never closes the quoted way. No `]` at all, and no quote as a bare piece's last
 	/// character: a quote that opens a piece closes at the next matching
 	/// quote when that one sits right before the piece's terminator,
 	/// wherever on the line it is, so those two shapes would hand an open
@@ -3303,6 +3309,9 @@ impl LineGen {
 				}
 				let c = set[rng.below(set.len())];
 				self.text.push_str(c);
+				if term == ',' && rng.below(6) == 0 {
+					self.text.push_str(",a");
+				}
 			}
 		}
 		if self.text.ends_with(['\'', '"', '`']) {
@@ -3393,8 +3402,10 @@ fn grammar_line(rng: &mut Rng) -> (String, Tokens) {
 				if j > 0 {
 					g.wsp(rng);
 					g.text.push(',');
+					g.blank(rng);
+				} else {
+					g.wsp(rng);
 				}
-				g.wsp(rng);
 				let piece = match rng.below(5) {
 					0 => {
 						let at = g.text.len();

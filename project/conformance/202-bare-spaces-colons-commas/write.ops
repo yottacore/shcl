@@ -1,0 +1,6 @@
+string-array	tags2	rw,noatime	b
+string	opts2	rw,noatime
+string	title2	My  App
+string	end2	a,
+literal	lit	a,b
+literal	lit2	[a,b]
