@@ -431,9 +431,9 @@ python3 "${repoDir}/cicd/utility/check-abnf.py" "${repoDir}/project/grammar.abnf
 	|| fBad "project/grammar.abnf failed check-abnf.py (run it for the detail)"
 
 fTest ErEBrlo escape-tables-match
-##	The characters written as a \u escape are one list, copied into the four
-##	bindings and the grammar. gen-escapes.py writes the copies and says which
-##	one differs.
+##	The characters written as an escape and the escape names are one list,
+##	copied into the four bindings, the grammar and the spec. gen-escapes.py
+##	writes the copies and says which one differs.
 python3 "${repoDir}/cicd/utility/gen-escapes.py" \
 	|| fBad "an escape table differs from cicd/utility/gen-escapes.py (run it with --write)"
 

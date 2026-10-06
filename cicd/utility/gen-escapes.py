@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
 ##	Purpose: The characters canonical output writes as an escape, the escape
-##		names and the whitespace list, written into the four bindings and the
-##		grammar from the one list below. The copies were kept in step by hand,
-##		which is how a table drifts. Each copy sits between
+##		names and the whitespace list, written into the four bindings, the
+##		grammar and the spec from the one list below. The copies were kept in
+##		step by hand, which is how a table drifts. Each copy sits between
 ##		"gen-escapes.py: begin" and "gen-escapes.py: end".
 ##	Syntax:
 ##		gen-escapes.py           check every copy matches the list
@@ -61,9 +61,10 @@ JOINERS = [(0x200C, 0x200D)]
 ## Variation selectors, which stay as written directly after a visible character.
 SELECTORS = [(0x180B, 0x180D), (0x180F, 0x180F), (0xFE00, 0xFE0F), (0xE0100, 0xE01EF)]
 
-## What a bare value can never hold, besides the escaped characters: a blank,
-## a line break and the characters that end or open a piece.
-RESERVED = {0x09, 0x0A, 0x0D, 0x20, 0x22, 0x23, 0x27, 0x2C, 0x3A, 0x5B, 0x5D}
+## Besides whitespace, what a bare piece can't hold as text: the characters
+## that end, open or quote one, and the escape mark. ":" "[" and "]" are text
+## in some pieces and not others, so the grammar adds them back rule by rule.
+RESERVED = {0x22, 0x23, 0x27, 0x2C, 0x3A, 0x5B, 0x5D, 0x60, 0x25C9}
 
 
 def fMerge(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
@@ -205,11 +206,45 @@ def fAbnfAlts(rule: str, ranges: list[tuple[int, int]]) -> list[str]:
 	return lines + [line]
 
 
+def fAbnfWords(rule: str, words: list[str]) -> list[str]:
+	alts = [f'"{w}"' for w in words]
+	lines: list[str] = []
+	line = f"{rule:<15} = {alts[0]}"
+	for alt in alts[1:]:
+		if len(line) + len(alt) + 3 > 72:
+			lines.append(line)
+			line = " " * 16 + "/ " + alt
+		else:
+			line += " / " + alt
+	return lines + [line]
+
+
 def fAbnf() -> list[str]:
 	## The bare class leaves out the joiners and selectors too, since
 	## fmt-bareword places them itself.
-	bare = fSubtract([(0x21, 0x10FFFF)], [(c, c) for c in RESERVED] + INVISIBLE + JOINERS + SELECTORS)
-	return [f"; {HEAD}"] + fAbnfAlts("fmt-bare-char", bare) + fAbnfAlts("variation-sel", SELECTORS)
+	bare = fSubtract([(0x21, 0x10FFFF)], [(c, c) for c in RESERVED] + WHITE_SPACE + INVISIBLE + JOINERS + SELECTORS)
+	text = fSubtract([(0x00, 0x10FFFF)], [(c, c) for c in RESERVED] + WHITE_SPACE)
+	## ABNF strings ignore case, as escape names do.
+	names = fAbnfWords("escape-name", [n for n, _ in ESCAPE_NAMES]) + ["                / code-point"]
+	return ([f"; {HEAD}"] + fAbnfAlts("fmt-bare-char", bare) + fAbnfAlts("variation-sel", SELECTORS)
+		+ fAbnfAlts("bare-text", text) + names + fAbnfWords("code-prefix", CODE_PREFIXES))
+
+
+def fSpec() -> list[str]:
+	rows: list[list[str]] = []
+	for name, text in ESCAPE_NAMES:
+		if rows and rows[-1][3] == text:
+			rows[-1][1] += (", " if rows[-1][1] else "") + f"`\u25c9{name}\u25c9`"
+			continue
+		rows.append([f"`\u25c9{name}\u25c9`", "", " ".join(f"U+{ord(c):04X}" for c in text), text])
+	prefixes = ", ".join(f"`{p}`" for p in CODE_PREFIXES[1:])
+	table = [["Escape", "Aliases", "Character"], [":---", ":---", ":---"]]
+	table += [[r[0], r[1] or "none", r[2]] for r in rows]
+	table += [["`\u25c9U+XXXX\u25c9`", f"{prefixes} in place of `U+`", "The character at that hex code point"]]
+	widths = [max(len(r[i]) for r in table) for i in range(2)]
+	out = [f"<!-- {HEAD} -->", ""]
+	out += [f"| {r[0]:<{widths[0]}} | {r[1]:<{widths[1]}} | {r[2]}" for r in table]
+	return out + [""]
 
 
 TARGETS = [
@@ -218,6 +253,7 @@ TARGETS = [
 	("source/python/shcl.py", "# ", fPython),
 	("source/c/shcl.h", "// ", fC),
 	("project/grammar.abnf", "; ", fAbnf),
+	("project/spec.md", "<!-- ", fSpec),
 ]
 
 
@@ -232,7 +268,8 @@ def main() -> int:
 		path = root / rel
 		text = path.read_text(encoding="utf-8")
 		lines = text.split("\n")
-		begin, end = f"{lead}gen-escapes.py: begin", f"{lead}gen-escapes.py: end"
+		tail = " -->" if lead == "<!-- " else ""
+		begin, end = f"{lead}gen-escapes.py: begin{tail}", f"{lead}gen-escapes.py: end{tail}"
 		if lines.count(begin) != 1 or lines.count(end) != 1 or lines.index(begin) > lines.index(end):
 			print(f"gen-escapes: {rel}: needs one '{begin}' line and one '{end}' line after it", file=sys.stderr)
 			return 2
@@ -258,3 +295,5 @@ if __name__ == "__main__":
 ##		            Default_Ignorable_Code_Point list.
 ##		2026-10-05  Escape names, code point prefixes and White_Space, for
 ##		            the value syntax. Rust only so far.
+##		2026-10-05  The grammar takes the escape names, the bare text class
+##		            and White_Space too, and spec.md the escape table.

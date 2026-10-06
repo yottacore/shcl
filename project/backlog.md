@@ -149,6 +149,14 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 			- The release fuzz `EreT6dh` then found an oracle fault: its raw block check closed a block at a fence line with a carriage return after the indent, which the load reads as body text. Fixed, test `ErsrQev`.
 			- Open: the release fuzz `Eqk24nZ` fails at 1814886 on an older library class, reproduced on `valsyn` before this change with any kept line or comment in the gap. A merge adds a list with a field under it as a new instance after an empty one of its name, and a reload joins the two. Cut down: `p:`, `\ts:`, `\t# c`, merged with `p:`, `\ts:`, `\t\t- 0`, `\t\tc:`. Filed as 2026100520243961.
 			- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, shellcheck. The 2,000,000 release fuzz passes 23 of 24. check-docs (16) and shell-regress (2) fail on the same checks as on `valsyn`, and the README `E014` check now fails only on the sample's bare comma. check-migrate is at 246 divergences, unchanged.
+		- 20261005: chunk C docs, part 1, on `vsspec`, off `valsyn`. Docs and doc gates only, no library change.
+			- value-syntax.md: the 20261005 answers and the kept chunk A and B calls are written in: the no-colon rule, the cap, edge trimming, one error per line, the quote kind, backtick reads, `- a, b`, comments on items, 2026100511210900, `explain E023` and the `migrate` backslash answer. `E010` joins the retired rows. The Roadmap marks what is done.
+			- spec.md: the value rules, escapes, quoting, backtick values, arrays and `- ` lists, selectors, the bare name rule and the narrow no-colon repair as built, and the code table, with `E010`, `E024`, `H003` and `H004` retired.
+			- gen-escapes.py now also writes the spec's escape table and the grammar's escape names, bare text class and White_Space-free formatter class, so `escape-tables-match` holds them to the one list.
+			- grammar.abnf: brackets, `- ` items, escapes, backtick values and the bare rules. check-abnf's samples moved with it: 10 flipped and 49 new, each tied to the CLI.
+			- README: the sample's `methods` line is in brackets, in the file and in the canonical output example. The man page date.
+			- Verified: check-docs passes, where it failed 16 before (`Er1z2hW`, `EqWax3I`, `Eom0qpm`, `EqL29qS`). check-abnf, gen-escapes, test-ids check, markdownlint, ruff check and shellcheck pass. A hand edit to the spec's escape table fails gen-escapes.
+			- Left: design.md, the changelog, `migrate` and its table, check-migrate, the ports. value-syntax.md's migration table rows for backslash pairs and spec.md's Migrating from 2.x section still describe the old `migrate`, `E024` included. check-readme `EqGg9jM` still fails on the README schema sample, a bare `desc` with spaces and `allowed` with a bare comma. spec.md's design goal that the user is never made to satisfy the machine is superseded for bare whitespace, per value-syntax.md, and left as written.
 	- Decisions:
 		- 20261002: idea 3, with the changes listed in the design doc. Open points and their proposed answers are under its Roadmap.
 		- 20261002: a quote anywhere in a bare value is an error, and a bare field name starts with a letter. Dates, times, durations and sizes without spaces stay bare.
@@ -160,7 +168,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261005: these go into the design doc with chunk C.
 		- 20261005: the `E015` answer was only about which code a one-word bad name with no colon gets (`404`). A no-colon line that isn't one clean name or path, such as `square-miles 300`, stays `E014`, kept as written, per spec.md's narrow repair rule. The `vsfix` rework read it too widely and needs narrowing back. A quoted name can be any text, spaces and a leading digit included. Every field line keeps its colon, a header with lines under it too.
 		- 20261005: kept as built: the line-keeping save writes a file whose load left a stacked list after an empty binding of its name, so `set --write` saves an unrelated edit while `fmt --write` refuses at 7.
-	- Branch: `valsyn` (chunk A on `vslex`, chunk B part 1 on `vsarr`, part 2 on `vssel`, the 20261005 rework on `vsfix`, the fuzz fixes on `vsfuzz`, the no-colon narrowing on `vsnarrow`)
+	- Branch: `valsyn` (chunk A on `vslex`, chunk B part 1 on `vsarr`, part 2 on `vssel`, the 20261005 rework on `vsfix`, the fuzz fixes on `vsfuzz`, the no-colon narrowing on `vsnarrow`, chunk C docs on `vsspec`)
 	- Commit: `6355ba10` (chunk A), `7c90c42d` and `f228c3e9` (chunk B part 2), `11b069fe` (the 20261005 rework), `c67b89d7` (the fuzz fixes), `0b57d0d2` (the no-colon narrowing)
 	- Test case:
 	- Acceptance signoff:
