@@ -147,7 +147,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 			- Moved back: corpus 004, 013, 049, 091 and 194, the `b 2` and `also bad` cli-regress rows, and the 2 Rust test fixtures `vsfix` changed. `Ers2pOr` and `Ers2pOs` are commented out, since their `user name` line is `E014` now. `ErsrQb6` and `ErsrQd5` replace them.
 			- Test: `ErsrQZC`. It failed on the code before and passes now, and so did `ErsrQb6`, `ErsrQd5` and the 6 moved-back rows.
 			- The release fuzz `EreT6dh` then found an oracle fault: its raw block check closed a block at a fence line with a carriage return after the indent, which the load reads as body text. Fixed, test `ErsrQev`.
-			- Open: the release fuzz `Eqk24nZ` fails at 1814886 on an older library class, reproduced on `valsyn` before this change with any kept line or comment in the gap. A merge adds a list with a field under it as a new instance after an empty one of its name, and a reload joins the two. Cut down: `p:`, `\ts:`, `\t# c`, merged with `p:`, `\ts:`, `\t\t- 0`, `\t\tc:`. Not filed yet.
+			- Open: the release fuzz `Eqk24nZ` fails at 1814886 on an older library class, reproduced on `valsyn` before this change with any kept line or comment in the gap. A merge adds a list with a field under it as a new instance after an empty one of its name, and a reload joins the two. Cut down: `p:`, `\ts:`, `\t# c`, merged with `p:`, `\ts:`, `\t\t- 0`, `\t\tc:`. Filed as 2026100520243961.
 			- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, shellcheck. The 2,000,000 release fuzz passes 23 of 24. check-docs (16) and shell-regress (2) fail on the same checks as on `valsyn`, and the README `E014` check now fails only on the sample's bare comma. check-migrate is at 246 divergences, unchanged.
 	- Decisions:
 		- 20261002: idea 3, with the changes listed in the design doc. Open points and their proposed answers are under its Roadmap.
@@ -166,6 +166,23 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Acceptance signoff:
 	- Superseded by ID:
 	- Closed:
+
+- A merge after an empty field writes a list that a reload joins to it
+	- ID: 2026100520243961
+	- Type: Bug
+	- Status: Queued
+	- Severity: Critical
+	- Opened: 20261005-202439
+	- Opened by: JC
+	- Parent ID: 2026100207032800
+	- Steps to reproduce:
+		- Merge a layer holding `p:`, `\ts:`, `\t# c` with a layer holding `p:`, `\ts:`, `\t\t- 0`, `\t\tc:`.
+		- Read `p.s.c`, then save, reload and read it again.
+	- Incorrect behavior: the merge adds the list, with its field, as a new instance after the empty `s`. A reload joins the two, so the merged document and its reload differ. Any kept line or comment in the gap does it.
+	- Expected behavior: the merged document is the one its saved text loads back to.
+	- Reproduced: 20261005, on `valsyn` before `vsnarrow`, in Rust. Release fuzz `Eqk24nZ` at iteration 1814886 after `vsnarrow`.
+	- Note: likely the same join the `vsfuzz` fix gave a setter (`ErsETML`), missing on the merge path. Rust only for now; the other ports have no list join yet.
+	- Estimated effort: Avg
 
 - Back up and rewrite a config file when a program's shcl upgrade breaks it
 	- ID: 2026100313461649
