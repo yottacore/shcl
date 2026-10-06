@@ -141,6 +141,14 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 			- Call made: the save that keeps lines checks for that list only when the source was canonical. Any other source is held to its own reload check, so a file that loads one keeps its text on a `set --write`. `fmt --write` still refuses it at 7, since canonical text writes the kept array line as a comment and the list then joins the binding above it. Writing that line in place of the list's `name:` line would load back. Not done.
 			- The Go, Python and C ports have no list join yet. They need the index move and the keep gate change when they get it.
 			- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust. Each new test failed on the code before. The 2,000,000 release fuzz passes all 23 on the committed seeds and on the 2 other seed sets.
+		- 20261005: the no-colon rule narrowed back on `vsnarrow`, off `valsyn`, Rust only. `vsfix` read the `E015` answer too widely.
+			- A line with no colon that is one name or path is `E015` and binds, `404` and `-x` included, and a quoted name with a space too. One whose bare name has a blank in it, such as `square-miles 300`, `user name` or `this is ! not parseable`, is `E014` again and kept as written, per spec.md's narrow repair rule. The lines under it still load under it, as in chunk A.
+			- Call made: that `E014` takes the message it had before chunk A, "unexpected character after the path", with the column of the second word. So the README `E014` transcript line matches the CLI again.
+			- Moved back: corpus 004, 013, 049, 091 and 194, the `b 2` and `also bad` cli-regress rows, and the 2 Rust test fixtures `vsfix` changed. `Ers2pOr` and `Ers2pOs` are commented out, since their `user name` line is `E014` now. `ErsrQb6` and `ErsrQd5` replace them.
+			- Test: `ErsrQZC`. It failed on the code before and passes now, and so did `ErsrQb6`, `ErsrQd5` and the 6 moved-back rows.
+			- The release fuzz `EreT6dh` then found an oracle fault: its raw block check closed a block at a fence line with a carriage return after the indent, which the load reads as body text. Fixed, test `ErsrQev`.
+			- Open: the release fuzz `Eqk24nZ` fails at 1814886 on an older library class, reproduced on `valsyn` before this change with any kept line or comment in the gap. A merge adds a list with a field under it as a new instance after an empty one of its name, and a reload joins the two. Cut down: `p:`, `\ts:`, `\t# c`, merged with `p:`, `\ts:`, `\t\t- 0`, `\t\tc:`. Not filed yet.
+			- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, shellcheck. The 2,000,000 release fuzz passes 23 of 24. check-docs (16) and shell-regress (2) fail on the same checks as on `valsyn`, and the README `E014` check now fails only on the sample's bare comma. check-migrate is at 246 divergences, unchanged.
 	- Decisions:
 		- 20261002: idea 3, with the changes listed in the design doc. Open points and their proposed answers are under its Roadmap.
 		- 20261002: a quote anywhere in a bare value is an error, and a bare field name starts with a letter. Dates, times, durations and sizes without spaces stay bare.
@@ -152,8 +160,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261005: these go into the design doc with chunk C.
 		- 20261005: the `E015` answer was only about which code a one-word bad name with no colon gets (`404`). A no-colon line that isn't one clean name or path, such as `square-miles 300`, stays `E014`, kept as written, per spec.md's narrow repair rule. The `vsfix` rework read it too widely and needs narrowing back. A quoted name can be any text, spaces and a leading digit included. Every field line keeps its colon, a header with lines under it too.
 		- 20261005: kept as built: the line-keeping save writes a file whose load left a stacked list after an empty binding of its name, so `set --write` saves an unrelated edit while `fmt --write` refuses at 7.
-	- Branch: `valsyn` (chunk A on `vslex`, chunk B part 1 on `vsarr`, part 2 on `vssel`, the 20261005 rework on `vsfix`, the fuzz fixes on `vsfuzz`)
-	- Commit: `6355ba10` (chunk A), `7c90c42d` and `f228c3e9` (chunk B part 2), `11b069fe` (the 20261005 rework), `c67b89d7` (the fuzz fixes)
+	- Branch: `valsyn` (chunk A on `vslex`, chunk B part 1 on `vsarr`, part 2 on `vssel`, the 20261005 rework on `vsfix`, the fuzz fixes on `vsfuzz`, the no-colon narrowing on `vsnarrow`)
+	- Commit: `6355ba10` (chunk A), `7c90c42d` and `f228c3e9` (chunk B part 2), `11b069fe` (the 20261005 rework), `c67b89d7` (the fuzz fixes), `0b57d0d2` (the no-colon narrowing)
 	- Test case:
 	- Acceptance signoff:
 	- Superseded by ID:
