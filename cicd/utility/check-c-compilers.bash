@@ -137,14 +137,12 @@ EOF
 ## Same flags the build and test stages use, so a disagreement here is a
 ## disagreement there.
 for cc in "${compilers[@]}"; do
-	## The test sources get every level too: gcc's format-truncation warning
-	## fires at -Os only, which kept a runner from building there (20260926
-	## item 14).
+	## Every level, since gcc warns per level: format-truncation at -Os only
+	## kept a runner from building the tests (20260926 item 14), and the CLI
+	## once built at -O2 and failed maybe-uninitialized at -O3.
 	for src in source/c/cmd/shcl/main.c source/c/tests/conformance.c source/c/tests/mem_bounds.c; do
 		kind="${src##*/}"
-		opts=(-O2)
-		[[ "${src}" == */tests/* ]] && opts=(-O0 -O1 -O2 -Os -O3)
-		for opt in "${opts[@]}"; do
+		for opt in -O0 -O1 -O2 -Os -O3; do
 			fJob fBuild "${cc}" "${opt}" "${src}"
 		done
 	done
@@ -221,3 +219,4 @@ echo "check-c-compilers: OK: ${nRun} build(s) across ${#compilers[@]} compiler(s
 ##		            system header, which has to name include order.
 ##		2026-09-21  Builds run in parallel, up to CPU_CAP at a time, and a name
 ##		            that resolves to a compiler already listed is built once.
+##		2026-10-05  main.c builds at every level, not just -O2.
