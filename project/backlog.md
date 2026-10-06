@@ -33,6 +33,38 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
+- A macOS universal binary for amd64 and ARM
+	- ID: 2026100313461652
+	- Type: Feature
+	- Status: Waiting for testing
+	- Needs local test suite run?: N. The stage 6 command was run as stage 6 runs it, and the gates it touches pass.
+	- Needs external testing: b26, under the host lock: the universal binary's `fmt` and `check` output over the corpus against Linux's, cli-regress if b26 has a bash 4 or later, and `install.bash` end to end in macOS's own bash 3.2 against a local stand-in release (plan, install, `man shcl`, the system target, uninstall). Then the hosted `macos` job on macos-14, which builds it with the stage 6 command and runs the arm64 half.
+	- Priority: Avg
+	- Opened: 20261003-134616
+	- Opened by: JC
+	- Target OS: macOS
+	- Test environment: b26 (Intel), hosted macos-14 (Apple silicon).
+	- Requirements:
+		- MacOS gets a universal binary for both amd64 and ARM, if appropriate.
+	- Note: 20261003, no macOS binary is built yet. `cicd/config.bash` defers it for lack of an Apple SDK on the build box, and `install.bash` sends macOS users to build from source. A hosted macOS runner can build both Rust targets and join them with `lipo`. The installers and the release asset names would need a macOS entry too.
+	- Note: 20261003, b26 is an Intel Mac that other projects already use, booked through a lock like the Windows boxes. It can build and test the amd64 half and run `lipo`. The ARM half can be cross-built there but not run, so a hosted ARM runner would still have to test it.
+	- Note: 20261006, the installer changes need a docs-only sync to main once this is on dev (`install.bash` 1.3.0, `install.ps1` 1.1.7). check-docs fails until then. The README stays off main until the cut.
+	- Decisions:
+		- 20261005: cross-build both halves here with zigbuild, run the amd64 half on b26 under the lock, and add a hosted macos-14 job that runs the corpus and cli-regress on ARM.
+	- Prereq IDs: 2026100314005369
+	- Estimated effort: Avg
+	- Progress log:
+		- 20261006: stage 6 builds `macos-universal` with cargo-zigbuild's `universal2-apple-darwin` target, which joins the halves itself, so there is no `lipo` step. No Apple SDK is needed. zig has its own libSystem stubs, and the CLI links nothing else.
+		- 20261006: zig's default put the floor at macOS 13. The build now names 13.0 itself, so a zig upgrade cannot move it. The linker signs the arm64 half ad hoc, which Apple silicon requires.
+		- 20261006: the binary's UUID took in the object file paths, so its bytes changed with the checkout path. Linking without the debug map fixed that. Release strips that map anyway.
+		- 20261006: `install.bash` maps Darwin to the universal binary on both arches, and names the macOS 13 floor when the binary will not start. The release table already took `macos-universal`.
+		- 20261006: the hosted `macos` job runs crosscheck over the corpus against a debug build, cli-regress, and the Rust tests. It is not strict, so rows needing `/dev/full` or strace skip there. ci.yml now pins cargo-zigbuild, and check-pins reads each install line on its own, since the new pip line hid an unreadable one.
+		- 20261006: no dogfood dest for macOS until the binary has run on a Mac.
+	- Verified: the stage 6 command gave the same bytes from 2 target dirs and from another checkout. Both halves are for macOS 13 and link only libSystem, and every page hash in the arm64 signature matches. shell-regress, check-pins, check-docs, check-readme, test-ids, markdownlint and shellcheck pass. A Linux release build passes cli-regress and crosscheck the way the job runs them. Nothing has run on a Mac yet.
+	- Swept: the FreeBSD target's sites. Stage 6, the toolchain targets, both installers and their comments, README, design.md, the changelog, the release table and the dogfood note.
+	- Branch: `macbin`
+	- Test case: shell-regress `ErxeImS` (macOS plan on both arches), `ErxeImT` (install of the universal binary), `ErxeImU` (the macOS floor), `ErxeImV` (every stage 6 binary gets a table cell). `Er1zTEe` has the new install.ps1 text, and `EqL4rtp` holds the per-line pip read. Each failed with its change taken out.
+
 - No '\' escapes
 	- ID: 2026100207032800
 	- Type: Enhancement
@@ -185,38 +217,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Use the "newline" escape as an example, windows paths, and unicode escapes.
 	- Note: 20261003, the escape names come from `project/design_docs/value-syntax.md`: `◉NEWLINE◉`, `◉U+XXXX◉`, and a backslash is plain text, so `C:\temp` needs no doubling.
 	- Estimated effort: Low
-
-- A macOS universal binary for amd64 and ARM
-	- ID: 2026100313461652
-	- Type: Feature
-	- Status: Waiting for testing
-	- Needs local test suite run?: N. The stage 6 command was run as stage 6 runs it, and the gates it touches pass.
-	- Needs external testing: b26, under the host lock: the universal binary's `fmt` and `check` output over the corpus against Linux's, cli-regress if b26 has a bash 4 or later, and `install.bash` end to end in macOS's own bash 3.2 against a local stand-in release (plan, install, `man shcl`, the system target, uninstall). Then the hosted `macos` job on macos-14, which builds it with the stage 6 command and runs the arm64 half.
-	- Priority: Avg
-	- Opened: 20261003-134616
-	- Opened by: JC
-	- Target OS: macOS
-	- Test environment: b26 (Intel), hosted macos-14 (Apple silicon).
-	- Requirements:
-		- MacOS gets a universal binary for both amd64 and ARM, if appropriate.
-	- Note: 20261003, no macOS binary is built yet. `cicd/config.bash` defers it for lack of an Apple SDK on the build box, and `install.bash` sends macOS users to build from source. A hosted macOS runner can build both Rust targets and join them with `lipo`. The installers and the release asset names would need a macOS entry too.
-	- Note: 20261003, b26 is an Intel Mac that other projects already use, booked through a lock like the Windows boxes. It can build and test the amd64 half and run `lipo`. The ARM half can be cross-built there but not run, so a hosted ARM runner would still have to test it.
-	- Note: 20261006, the installer changes need a docs-only sync to main once this is on dev (`install.bash` 1.3.0, `install.ps1` 1.1.7). check-docs fails until then. The README stays off main until the cut.
-	- Decisions:
-		- 20261005: cross-build both halves here with zigbuild, run the amd64 half on b26 under the lock, and add a hosted macos-14 job that runs the corpus and cli-regress on ARM.
-	- Prereq IDs: 2026100314005369
-	- Estimated effort: Avg
-	- Progress log:
-		- 20261006: stage 6 builds `macos-universal` with cargo-zigbuild's `universal2-apple-darwin` target, which joins the halves itself, so there is no `lipo` step. No Apple SDK is needed. zig has its own libSystem stubs, and the CLI links nothing else.
-		- 20261006: zig's default put the floor at macOS 13. The build now names 13.0 itself, so a zig upgrade cannot move it. The linker signs the arm64 half ad hoc, which Apple silicon requires.
-		- 20261006: the binary's UUID took in the object file paths, so its bytes changed with the checkout path. Linking without the debug map fixed that. Release strips that map anyway.
-		- 20261006: `install.bash` maps Darwin to the universal binary on both arches, and names the macOS 13 floor when the binary will not start. The release table already took `macos-universal`.
-		- 20261006: the hosted `macos` job runs crosscheck over the corpus against a debug build, cli-regress, and the Rust tests. It is not strict, so rows needing `/dev/full` or strace skip there. ci.yml now pins cargo-zigbuild, and check-pins reads each install line on its own, since the new pip line hid an unreadable one.
-		- 20261006: no dogfood dest for macOS until the binary has run on a Mac.
-	- Verified: the stage 6 command gave the same bytes from 2 target dirs and from another checkout. Both halves are for macOS 13 and link only libSystem, and every page hash in the arm64 signature matches. shell-regress, check-pins, check-docs, check-readme, test-ids, markdownlint and shellcheck pass. A Linux release build passes cli-regress and crosscheck the way the job runs them. Nothing has run on a Mac yet.
-	- Swept: the FreeBSD target's sites. Stage 6, the toolchain targets, both installers and their comments, README, design.md, the changelog, the release table and the dogfood note.
-	- Branch: `macbin`
-	- Test case: shell-regress `ErxeImS` (macOS plan on both arches), `ErxeImT` (install of the universal binary), `ErxeImU` (the macOS floor), `ErxeImV` (every stage 6 binary gets a table cell). `Er1zTEe` has the new install.ps1 text, and `EqL4rtp` holds the per-line pip read. Each failed with its change taken out.
 
 - A file stamped Format 3 during the beta is never migrated
 	- ID: 2026100115403385
