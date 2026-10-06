@@ -1,4 +1,4 @@
 query	type	expected	status
 port	int	9090	Good
-server[web1].host	string	h1	Good
+server(web1).host	string	h1	Good
 -	load	ok	-

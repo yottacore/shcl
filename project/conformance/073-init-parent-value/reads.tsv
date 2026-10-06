@@ -1,7 +1,7 @@
 query	type	expected	status
 -	load	ok	-
 srv	string	web	Good
-srv[web].host	string	a b	Good
+srv(web).host	string	a b	Good
 srv	count	1	Good
 odd.under	int	0	Empty
 bare.leaf	int	0	Empty

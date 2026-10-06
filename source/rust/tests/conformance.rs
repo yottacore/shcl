@@ -1388,13 +1388,13 @@ fn write_reason_names_the_failure() {
 	let doc = Document::parse("a:\n\tb: 1\n");
 	use shcl::WriteReason::*;
 	assert_eq!(doc.write_reason("a.b"), Writable);
-	assert_eq!(doc.write_reason("a.new[Boston].x"), Writable); // creatable
+	assert_eq!(doc.write_reason("a.new(Boston).x"), Writable); // creatable
 	assert_eq!(doc.write_reason(""), BadPath);
 	assert_eq!(doc.write_reason("a..b"), BadPath);
 	assert_eq!(doc.write_reason("a.b: 2"), ValueInPath);
-	assert_eq!(doc.write_reason("a[*].b"), Wildcard);
-	assert_eq!(doc.write_reason("a[#5].b"), NoSuchIndex);
-	assert_eq!(doc.write_reason("nope[#0].b"), NoSuchIndex);
+	assert_eq!(doc.write_reason("a(*).b"), Wildcard);
+	assert_eq!(doc.write_reason("a(5).b"), NoSuchIndex);
+	assert_eq!(doc.write_reason("nope(0).b"), NoSuchIndex);
 	let deep = vec!["d"; 513].join(".");
 	assert_eq!(doc.write_reason(&deep), TooDeep);
 	// A literal line break is writable wherever a path can have one: a name
@@ -1403,7 +1403,7 @@ fn write_reason_names_the_failure() {
 	// selector was refused while the value emitter still wrote elements in
 	// their source spelling and had nothing to escape with. Not corpus-pinnable
 	// - an ops line cannot contain a raw newline.
-	assert_eq!(doc.write_reason("a[\"p\nq\"].b"), Writable);
+	assert_eq!(doc.write_reason("a(\"p\nq\").b"), Writable);
 	assert_eq!(doc.write_reason("\"x\ny\".b"), Writable);
 	assert_eq!(doc.write_reason("\"x\\ny\".b"), Writable);
 	// The probe never creates: the doc is unchanged after all of the above.
@@ -1518,13 +1518,13 @@ fn a_line_break_in_a_path_writes_and_reads_back() {
 	// was refused while elements were stored in their source spelling and the
 	// emitter had nothing to escape with. Same fixture in every runner.
 	let mut doc = Document::parse("z: 0\n");
-	assert!(doc.set_int("x[\"p\nq\"].c", 1));
+	assert!(doc.set_int("x(\"p\nq\").c", 1));
 	assert!(doc.set_int("\"a\nb\".c", 1));
 	let text = doc.to_canonical();
 	let back = Document::parse(&text);
 	assert_eq!(back.error_count(), 0);
 	assert_eq!(back.to_canonical(), text);
-	assert_eq!(back.read_int("x[\"p◉NEWLINE◉q\"].c").value, 1);
+	assert_eq!(back.read_int("x(\"p◉NEWLINE◉q\").c").value, 1);
 	assert_eq!(back.read_int("\"a◉NEWLINE◉b\".c").value, 1);
 	assert_eq!(back.read_int("\"a\nb\".c").value, 1);
 }
@@ -1550,20 +1550,20 @@ fn children_and_instance_paths_walk_a_repeated_key() {
 	// walk had to know to index each instance.
 	let doc =
 		Document::parse("account: w\n\temail: e@x\n\t\tsshkey: k1\n\temail: f@x\n\t\tsshkey: k2\n");
-	assert_eq!(doc.children("account[#0].email"), vec!["sshkey", "sshkey"]);
-	assert_eq!(doc.children("account.email[#1]"), vec!["sshkey"]);
+	assert_eq!(doc.children("account(0).email"), vec!["sshkey", "sshkey"]);
+	assert_eq!(doc.children("account.email(1)"), vec!["sshkey"]);
 	assert_eq!(
 		doc.instance_paths(),
 		vec![
 			"account",
-			"account.email[#0]",
-			"account.email[#0].sshkey",
-			"account.email[#1]",
-			"account.email[#1].sshkey",
+			"account.email(0)",
+			"account.email(0).sshkey",
+			"account.email(1)",
+			"account.email(1).sshkey",
 		]
 	);
 	assert_eq!(
-		doc.get_string("account.email[#1].sshkey"),
+		doc.get_string("account.email(1).sshkey"),
 		Ok("k2".to_string())
 	);
 }
@@ -1600,8 +1600,8 @@ fn read_surface_line_quoted_children() {
 	assert_eq!(doc.lines("code.hook"), vec![4, 5]);
 	assert_eq!(doc.lines("code.done"), vec![6]);
 	assert_eq!(doc.lines("a"), vec![1]);
-	assert_eq!(doc.lines("code[*].done"), vec![6]);
-	assert_eq!(doc.lines("code[*].nope"), vec![0]);
+	assert_eq!(doc.lines("code(*).done"), vec![6]);
+	assert_eq!(doc.lines("code(*).nope"), vec![0]);
 	assert!(doc.lines("missing").is_empty());
 	assert_eq!(doc.children("code"), vec!["hook", "hook", "done"]);
 	assert_eq!(doc.children(""), vec!["a", "b", "code"]);
@@ -2179,7 +2179,7 @@ fn a_list_no_text_loads_back_refuses_to_save() {
 	let src = "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n";
 	let mut doc = Document::parse_keep_lines(src, Strictness::Standard).unwrap();
 	assert_eq!(doc.lost_count(), 0);
-	assert!(doc.set_empty("x[v]"));
+	assert!(doc.set_empty("x(v)"));
 	let text = doc.to_canonical();
 	assert_eq!(text, "x:\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n");
 	assert_eq!(
@@ -2215,10 +2215,10 @@ fn a_list_no_text_loads_back_refuses_to_save() {
 	// An empty binding with no fields takes the list in, so nothing is lost,
 	// and a list with no field under it goes in brackets.
 	let mut doc = Document::parse("x: v\nx:\n\t- a\n\tg: 2\n");
-	assert!(doc.set_empty("x[v]"));
+	assert!(doc.set_empty("x(v)"));
 	assert_eq!(doc.lost_count(), 0, "{:?}", doc.to_canonical());
 	let mut doc = Document::parse("x: v\n\tf: 1\nx:\n\t- a\n\t- b\n");
-	assert!(doc.set_empty("x[v]"));
+	assert!(doc.set_empty("x(v)"));
 	assert_eq!(doc.lost_count(), 0, "{:?}", doc.to_canonical());
 }
 
@@ -2231,7 +2231,7 @@ fn a_list_joining_an_emptied_field_keeps_its_fields_found() {
 	for (src, path, field, want) in [
 		("b: x\nb:\n\t- 3\n\tk: 1\n", "b", "b.k", "1"),
 		("b: x\nb: y z\n\t- 3\n\tk: 1\n", "b", "b.k", "1"),
-		("x: v\nx:\n\t- a\n\tg: 2\n", "x[v]", "x.g", "2"),
+		("x: v\nx:\n\t- a\n\tg: 2\n", "x(v)", "x.g", "2"),
 	] {
 		let mut doc = Document::parse(src);
 		assert!(doc.get_string(field).is_ok(), "{src:?}");
@@ -2299,7 +2299,7 @@ fn a_remove_settles_a_list_after_an_empty_field() {
 #[test]
 fn a_list_the_source_loads_back_keeps_its_lines() {
 	let _id = test_id("ErsWiow");
-	let src = "c:\n\ts: 1\nc: [1]\n\tb[*]: 1\n\t- 3\n\ta: 2\n";
+	let src = "c:\n\ts: 1\nc: [1]\n\tb(*): 1\n\t- 3\n\ta: 2\n";
 	let doc = Document::parse_keep_lines(src, Strictness::Standard).unwrap();
 	assert_eq!(doc.lost_count(), 2, "the wildcard line and the item");
 	assert_eq!(doc.to_text_keep_lines(), (src.to_string(), true));
@@ -2404,11 +2404,11 @@ fn raw_is_source_text() {
 	// A written value has no source spelling; raw falls back to display. The
 	// selector's escaped spelling must reach the existing instance.
 	let mut doc2 = Document::parse("who: 'q\"uote'\n");
-	assert!(doc2.set_int("who[\"q◉DQUOTE◉uote\"].n", 5));
+	assert!(doc2.set_int("who(\"q◉DQUOTE◉uote\").n", 5));
 	assert_eq!(doc2.count("who"), 1);
-	let r = doc2.read_int("who['q\"uote'].n");
+	let r = doc2.read_int("who('q\"uote').n");
 	assert_eq!((r.value, r.status), (5, shcl::Status::Good));
-	assert_eq!(doc2.read_int("who['q\"uote'].n").raw.as_deref(), Some("5"));
+	assert_eq!(doc2.read_int("who('q\"uote').n").raw.as_deref(), Some("5"));
 }
 
 #[test]
@@ -2551,23 +2551,75 @@ fn huge_selector_index_is_not_found() {
 	// An index at or past 2^32 must report not-found on every target width,
 	// never wrap into a live element (pins the contract; 64-bit passes either way).
 	let doc = Document::parse("a: 1\na: 2\n");
+	assert_eq!(doc.read_int("a(4294967296)").status, shcl::Status::NotFound);
 	assert_eq!(
-		doc.read_int("a[#4294967296]").status,
+		doc.read_int("a(18446744073709551615)").status,
 		shcl::Status::NotFound
 	);
+	assert_eq!(doc.count("a(4294967296)"), 0);
 	assert_eq!(
-		doc.read_int("a[#18446744073709551615]").status,
-		shcl::Status::NotFound
-	);
-	assert_eq!(doc.count("a[#4294967296]"), 0);
-	assert_eq!(
-		doc.write_reason("a[#4294967296]"),
+		doc.write_reason("a(4294967296)"),
 		shcl::WriteReason::NoSuchIndex
 	);
 	let mut w = Document::parse("a: 1\na: 2\n");
-	assert!(!w.set_int("a[#4294967296]", 9));
+	assert!(!w.set_int("a(4294967296)", 9));
 	// In-range still works.
-	assert_eq!(doc.read_int("a[#1]").value, 2);
+	assert_eq!(doc.read_int("a(1)").value, 2);
+}
+
+// A selector is written in parens. One in brackets is the old spelling: a
+// file line is E029 and kept, and a lookup, a setter or a schema path in
+// brackets is refused. A body starting with `#`, the old index, is refused
+// too. Same fixture in every runner.
+#[test]
+fn bracket_selectors_are_the_old_spelling() {
+	let _id = test_id("Erxfmqa");
+	let mut doc = Document::parse("srv: web\n\tport: 80\nsrv[web]:\n\thost: h\n");
+	let d = doc.diagnostics();
+	assert_eq!((d.len(), d[0].code, d[0].line), (1, "E029", 3), "{d:?}");
+	assert_eq!(doc.lost_count(), 0);
+	assert_eq!(doc.read_string("srv(web).host").value, "h");
+	assert_eq!(doc.count("srv"), 1);
+	assert_eq!(
+		doc.read_string("srv[web].host").status,
+		shcl::Status::NotFound
+	);
+	assert_eq!(doc.count("srv[web]"), 0);
+	assert_eq!(doc.write_reason("srv[web].x"), shcl::WriteReason::BadPath);
+	assert_eq!(doc.write_reason("srv(#0).x"), shcl::WriteReason::BadPath);
+	assert_eq!(doc.write_reason("srv(0).x"), shcl::WriteReason::Writable);
+	assert!(!doc.set_int("srv[web].x", 1));
+	assert!(doc.set_int("srv(web).x", 1));
+	assert!(doc.to_canonical().starts_with("srv[web]:\nsrv: web\n"));
+	let mut tok = Tokens::default();
+	tokenize("a(x).b[y].c: 1", b':', false, Rules::Current, &mut tok);
+	assert_eq!(tok.bracket_selector, Some(6));
+	tokenize("a(x).b(y).c: 1", b':', false, Rules::Current, &mut tok);
+	assert_eq!(tok.bracket_selector, None);
+	let schema = Document::parse("field: \"srv[*].port\"\n");
+	let v = Document::parse("srv: a\n").validate(&schema);
+	assert!(
+		v.iter()
+			.any(|d| d.code == "V093" && d.message.contains("parens")),
+		"{v:?}"
+	);
+}
+
+// A parent whose default is an array has no selector a child line can use,
+// since a selector matches one plain value. Generation refuses it rather
+// than write a child that makes another instance.
+#[test]
+fn init_refuses_a_child_of_an_array_parent() {
+	let _id = test_id("Erxfmqb");
+	let schema = Document::parse(
+		"field: tags\n\trequired: yes\n\tdefault: [a]\nfield: tags.k\n\trequired: yes\n",
+	);
+	let err = generate(&schema, true).expect_err("a child of an array parent generated");
+	assert!(
+		err.iter()
+			.any(|d| d.code == "V097" && d.message.contains("no selector spelling")),
+		"{err:?}"
+	);
 }
 
 #[test]
@@ -2823,9 +2875,10 @@ fn bare_spaces_colons_and_commas() {
 		("x:\n\t- a, b\n", "E026", "quote the text"),
 		("x:\n\t- a\tb\n", "E025", "quote it"),
 		("x:\n\t- [a]\n", "E019", "quote the item"),
-		("x[a:b].y: 1\n", "E025", "quote it"),
-		("x[a,b].y: 1\n", "E025", "quote it"),
-		("x[a[b].y: 1\n", "E025", "quote it"),
+		("x(a:b).y: 1\n", "E025", "quote it"),
+		("x(a,b).y: 1\n", "E025", "quote it"),
+		("x(a[b).y: 1\n", "E025", "quote it"),
+		("x(a(b).y: 1\n", "E025", "quote it"),
 	] {
 		let doc = Document::parse(text);
 		let d = doc.diagnostics();
@@ -2990,7 +3043,7 @@ fn migrate_escapes_a_real_mark() {
 		"My\u{25C9}SPACE\u{25C9}App"
 	);
 	assert_eq!(back.count("s"), 1);
-	assert_eq!(back.get_string("s[#0]").unwrap(), "x\u{25C9}y");
+	assert_eq!(back.get_string("s(0)").unwrap(), "x\u{25C9}y");
 }
 
 // A bare 2.x selector body these rules refuse, such as one with a quote or

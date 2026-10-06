@@ -8,7 +8,7 @@ field: workers
 	frobnicate: 1
 field:
 	required: yes
-field: "server[*"
+field: "server(*"
 	type: int
 field: motd
 	type: raw

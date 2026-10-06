@@ -13,7 +13,7 @@ path:
 nested: "◉Q◉"
 	inner: [x
 		deep: 1
-sel[web]: "◉Q◉"
+sel(web): "◉Q◉"
 sel: web
 	port: 8
 empty: "◉Q◉"

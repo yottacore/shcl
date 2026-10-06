@@ -1,7 +1,7 @@
 query	type	expected	status	level	slots
 -	load	ok	-
 srv	count	3	-
-srv[*].port	count	3	-
-srv[*].port	int[]	8080|0|0	Multiple	standard	Good|NotFound|Multiple
-srv[web3].port	count	2	-
+srv(*).port	count	3	-
+srv(*).port	int[]	8080|0|0	Multiple	standard	Good|NotFound|Multiple
+srv(web3).port	count	2	-
 -	lost	0	-

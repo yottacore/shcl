@@ -1,4 +1,4 @@
 query	type	expected	status
 -	load	ok	-
-srv[web].port	int	80	Good
+srv(web).port	int	80	Good
 -	lost	0	-

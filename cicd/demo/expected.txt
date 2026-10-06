@@ -15,7 +15,7 @@ motd:
         Scheduled maintenance tonight.
         Expect brief downtime.
         ~~~
-$ shcl get --int app.shcl 'servers[web1].port'
+$ shcl get --int app.shcl 'servers(web1).port'
 line 9: Error: E014 malformed line skipped: unexpected character after the path, at column 9
 8080
 $ shcl check app.shcl

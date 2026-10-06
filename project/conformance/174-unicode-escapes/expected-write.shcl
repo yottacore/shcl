@@ -18,8 +18,7 @@ nothex: "\uZZZZ"
 list: "\u0041", b
 tier: A
 	port: 81
-tier: \u0041
-	port: 80
+tier["\u0041"].port: 80
 
 made: "x◉U+200B◉y"
 

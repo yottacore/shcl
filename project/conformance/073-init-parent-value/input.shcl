@@ -2,13 +2,13 @@
 srv: web
 
 ## int, repeat 1
-srv[web].port:
+srv(web).port:
 
 ## string, required
-srv[web].host: "a b"
+srv(web).host: "a b"
 
 ## string, required
-srv[web].host["a b"].zone:
+srv(web).host("a b").zone:
 
 ## string
 # opt: x
@@ -20,7 +20,7 @@ opt.child:
 odd: "a]b"
 
 ## int, required
-odd["a]b"].under:
+odd("a]b").under:
 
 ## string, required
 bare:

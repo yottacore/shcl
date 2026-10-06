@@ -4,5 +4,5 @@ fragment: unit
 		required: yes
 field: srv
 	inherits: unit
-field: "srv[*]"
+field: "srv(*)"
 	inherits: unit

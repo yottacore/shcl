@@ -1,5 +1,5 @@
 query	type	expected	status
 -	load	ok	-
 a.b	int	1	Good
-a[#9223372036854775808].b	int	-	NotFound
-a[#9223372036854775808].b	count	0	-
+a(9223372036854775808).b	int	-	NotFound
+a(9223372036854775808).b	count	0	-

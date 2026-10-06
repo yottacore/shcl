@@ -5,17 +5,17 @@ field: launched
 	type: datetime
 field: server
 	repeat: [1, 4]
-field: "server[*].port"
+field: "server(*).port"
 	type: int
 	required: yes
 	min: 1
 	max: 65535
-field: "server[*].host"
+field: "server(*).host"
 	type: string
 	required: yes
-field: "server[*].region"
+field: "server(*).region"
 	type: string-array
-field: "server[*].region"
+field: "server(*).region"
 	allowed: [us, eu, apac]
 field: timeouts
 	type: int-array

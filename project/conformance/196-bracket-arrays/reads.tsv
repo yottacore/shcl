@@ -25,5 +25,5 @@ texts	string[]	[a]|b, c|#1	Good
 glued	int	7	Good
 x	count	2	-
 x	instances	80|[80]	-
-x[#1]	int	80	Good
-x[#1]	string	[80]	Good
+x(1)	int	80	Good
+x(1)	string	[80]	Good

@@ -148,20 +148,20 @@ printf 'field: a\n\tallowed: x\nfield: a\n\tallowed: y\n' > "${tmpDir}/hintschem
 ## instance that is not there, and a path past the nesting cap would draw E016
 ## on the way back in. Either way the fault names the path rather than reporting
 ## the generated config as missing it.
-printf 'field: "srv[#1].port"\n\trequired: yes\n' > "${tmpDir}/idxreq.shcl"
+printf 'field: "srv(1).port"\n\trequired: yes\n' > "${tmpDir}/idxreq.shcl"
 ## Two must-exist paths nothing can generate, either side of a field that
 ## generates fine: the refusal used to stop at the first, so fixing one only
 ## bought the next one's message.
-printf 'field: "srv[#1].port"\n\trequired: yes\nfield: "*"\n\ttype: int\n\trepeat: 1\nfield: ok\n\ttype: int\n' > "${tmpDir}/twoblocked.shcl"
+printf 'field: "srv(1).port"\n\trequired: yes\nfield: "*"\n\ttype: int\n\trepeat: 1\nfield: ok\n\ttype: int\n' > "${tmpDir}/twoblocked.shcl"
 ## A schema that does not build: the report is the build faults alone, not the
 ## faults plus what an empty document would owe the schema.
 printf 'field: a\n\ttype: int\n\trequired: yes\nfield: b\n\ttype: nope\n' > "${tmpDir}/nobuild.shcl"
 ## An instance whose discriminator holds an '=', which is what made --set's own
 ## split ambiguous.
-printf 'x[a=b]:\n\tc: 0\n' > "${tmpDir}/sel.shcl"
+printf 'x(a=b):\n\tc: 0\n' > "${tmpDir}/sel.shcl"
 ## An instance whose discriminator holds an apostrophe: ordinary text in a bare
 ## selector, which the split used to read as an open quote.
-printf "srv[\"O'Brien\"]:\n\tport: 0\n" > "${tmpDir}/quote.shcl"
+printf "srv(\"O'Brien\"):\n\tport: 0\n" > "${tmpDir}/quote.shcl"
 ## A name a path cannot hold bare, for the traversal commands: enumerating keys
 ## is only useful if what comes back can be read straight back.
 printf 'db:\n\thost: h\n\t"odd.key": 2\nweb:\n\tport: 1\n' > "${tmpDir}/tree.shcl"
@@ -174,7 +174,7 @@ printf 'a: 1\nb: 2\n' > "${tmpDir}/two.shcl"
 ## file saves as written too. The sugar file is copied fresh for every run of a row
 ## that names %W%, since a rewrite is the thing being tested.
 printf 'ports: [80, 443]\n' > "${tmpDir}/brarray.shcl"
-printf 'srv["1,000"].port: 1\n' > "${tmpDir}/selcomma.shcl"
+printf 'srv("1,000").port: 1\n' > "${tmpDir}/selcomma.shcl"
 printf 'base:[Boston]\n\tlat: 42\n' > "${tmpDir}/sugar.shcl"
 ## A value the two rule sets read differently: 2.x resolved the backslash and
 ## these rules do not. migrate leaves it as written, so it reads as text
@@ -254,7 +254,7 @@ printf 'port: 1\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchi
 ## A default on a path whose last segment selects by value. A value after that
 ## selector is ignored, so generation used to write a line that failed its own
 ## check. One default contradicts the selector and one names it.
-printf 'field: "a[b]"\n\trequired: yes\n\tdefault: hello\n' > "${tmpDir}/seldefbad.shcl"
+printf 'field: "a(b)"\n\trequired: yes\n\tdefault: hello\n' > "${tmpDir}/seldefbad.shcl"
 ## A schema naming a path the two-error file does not have, so validation has
 ## something to say that the parse does not.
 printf 'field: zz\n\trequired: yes\n' > "${tmpDir}/missreq.shcl"
@@ -262,22 +262,22 @@ printf 'field: zz\n\trequired: yes\n' > "${tmpDir}/missreq.shcl"
 ## listing that spans lines can be told from one that does not. Then an array
 ## and a scalar each holding one, for get.
 printf 'srv: "a%sNEWLINE%sb"\nsrv: "c%sNEWLINE%sd"\nplain: x.y\narr: ["a%sNEWLINE%sb", c]\none: "x%sNEWLINE%sy"\n' "${mark}" "${mark}" "${mark}" "${mark}" "${mark}" "${mark}" "${mark}" "${mark}" > "${tmpDir}/nlvalue.shcl"
-printf 'field: "a[b]"\n\trequired: yes\n\tdefault: b\n' > "${tmpDir}/seldefok.shcl"
+printf 'field: "a(b)"\n\trequired: yes\n\tdefault: b\n' > "${tmpDir}/seldefok.shcl"
 ## An optional field's line is commented, so the self-check never read its
 ## default. The second schema must still pass, since each line works alone;
 ## checked all at once, srv and srv.port make two srv against a repeat of 1.
 printf 'field: port\n\ttype: int\n\tmax: 10\n\tdefault: 99\n' > "${tmpDir}/optdefbad.shcl"
-printf 'field: srv\n\trepeat: [0, 1]\n\tdefault: web\nfield: srv.port\n\ttype: int\n\tdefault: 80\nfield: "a[b]"\n\tdefault: c\n' > "${tmpDir}/optdefok.shcl"
+printf 'field: srv\n\trepeat: [0, 1]\n\tdefault: web\nfield: srv.port\n\ttype: int\n\tdefault: 80\nfield: "a(b)"\n\tdefault: c\n' > "${tmpDir}/optdefok.shcl"
 ## An optional field whose default names another instance than its path
 ## selects. Its line is commented, so the check only looked at the value.
-## The second schema is the optdefok one with `a[b]` defaulting to `b`, which
+## The second schema is the optdefok one with `a(b)` defaulting to `b`, which
 ## is what that one now has to say to pass.
-printf 'field: "env[prod]"\n\tdefault: staging\n' > "${tmpDir}/optselbad.shcl"
-printf 'field: srv\n\trepeat: [0, 1]\n\tdefault: web\nfield: srv.port\n\ttype: int\n\tdefault: 80\nfield: "a[b]"\n\tdefault: b\n' > "${tmpDir}/optdefok2.shcl"
+printf 'field: "env(prod)"\n\tdefault: staging\n' > "${tmpDir}/optselbad.shcl"
+printf 'field: srv\n\trepeat: [0, 1]\n\tdefault: web\nfield: srv.port\n\ttype: int\n\tdefault: 80\nfield: "a(b)"\n\tdefault: b\n' > "${tmpDir}/optdefok2.shcl"
 ## An optional line with no default was never read back, so a selector whose
 ## value breaks the field's type went out commented at exit 0. And a valued
 ## parent whose array default holds a `]` has no selector a child can use.
-printf 'field: "flag[on]"\n\ttype: int\n' > "${tmpDir}/optnodef.shcl"
+printf 'field: "flag(on)"\n\ttype: int\n' > "${tmpDir}/optnodef.shcl"
 printf 'field: tags\n\trequired: yes\n\tdefault: ["a]", c]\nfield: tags.x\n\trequired: yes\n' > "${tmpDir}/nosel.shcl"
 
 ## A 250-character basename. The temp file used to take the whole name plus
@@ -300,7 +300,7 @@ printf 'font:\n\tsize: 12\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n' > "${t
 printf 'val: 1\n\t- e\nz: 2\n' > "${tmpDir}/keepelem.shcl"
 ## A wildcard selector keeps the line under a malformed array dropped: the
 ## path could not open, where a plain one now does (2026100115403384).
-printf 'x[*]: [1, 2\n x:\nx.a: 2\n' > "${tmpDir}/keepgap.shcl"
+printf 'x(*): [1, 2\n x:\nx.a: 2\n' > "${tmpDir}/keepgap.shcl"
 printf 'a:\n\tx: 1\nb:   2\na:\n\ty: 1\n' > "${tmpDir}/keepfold.shcl"
 ## Mixed line ends, the first line the odd one out either way.
 printf 'a: 1\nb: 2\r\nc: 3\r\n' > "${tmpDir}/keepcrlf.shcl"
@@ -485,11 +485,11 @@ rows=(
 	## 20260902 item 19: an index selector or a path past the cap got the
 	## self-check's "required path missing", which points at the config rather
 	## than at the schema line nothing can generate.
-	'Eolv8m8|init-index-required|init --schema=%S4%|-|6||V097 required path cannot be generated: srv\[#1\].port \(a \[#N\] selector needs an instance'
+	'Eolv8m8|init-index-required|init --schema=%S4%|-|6||V097 required path cannot be generated: srv\(1\).port \(an index selector needs an instance'
 	## 20260909 item 49: one unwritable path took the whole schema with it and
 	## the message said only which path, so the reason and the other blockers
 	## were both left to guesswork.
-	'EqAwaj2|init-blocked-first|init --schema=%SF%|-|6||V097 required path cannot be generated: srv\[#1\].port \(a \[#N\] selector needs an instance'
+	'EqAwaj2|init-blocked-first|init --schema=%SF%|-|6||V097 required path cannot be generated: srv\(1\).port \(an index selector needs an instance'
 	'EqAwaj3|init-blocked-second|init --schema=%SF%|-|6||V097 required path cannot be generated: \* \(a \* name segment has no name to write\)'
 	## 20260902 item 20: V096 fired at exactly the ceiling, on a schema with no
 	## fragments, saying the schema expands past it.
@@ -505,13 +505,13 @@ rows=(
 	'Eof5nNU|init-build-fault-only|init --schema=%S3%|-|6||!V002'
 	## 20260909 item 5: a value after a last-segment selector is ignored, so a
 	## default there generated a line that failed check at exit 6.
-	'EptVfIP|init-selector-default-contradicts|init --schema=%SB%|-|6||V097 generated value fails the schema that produced it: required path missing: a\[b\]'
+	'EptVfIP|init-selector-default-contradicts|init --schema=%SB%|-|6||V097 generated value fails the schema that produced it: required path missing: a\(b\)'
 	'EptVfIQ|init-selector-default-consistent|init --no-banner --schema=%SC%|-|0|## any, required\na: b\n|-'
 	## Loose bug from 20260909 item 5: an optional field's bad default went out
 	## commented at exit 0.
 	'EpxsEn2|init-optional-bad-default|init --schema=%SD%|-|6||V097 generated value fails the schema that produced it: value above max 10 at .port.: 99'
 	## 20260918 item 4: the same for a default that names another instance.
-	'EqGXrwW|init-optional-selector-default|init --schema=%SH%|-|6||V097 generated value fails the schema that produced it: default does not name the instance its path selects: env\[prod\]$'
+	'EqGXrwW|init-optional-selector-default|init --schema=%SH%|-|6||V097 generated value fails the schema that produced it: default does not name the instance its path selects: env\(prod\)$'
 	## Retired 2026-09-17: a commented child of a commented valued parent now
 	## selects the parent's default, so the dotted `srv.port` this row expected
 	## became two instances once both lines were uncommented. The row below is
@@ -522,11 +522,11 @@ rows=(
 	## that fails generation for an optional field too. The row below is the
 	## same schema with the default naming `b`.
 	# 'init-optional-defaults-ok|init --no-banner --schema=%SE%|-|0|## any, repeat 0-1\n# srv: web\n\n## int\n# srv[web].port: 80\n\n## any\n# a: c\n|-'
-	'EqGXrwX|init-optional-defaults-ok-named|init --no-banner --schema=%SI%|-|0|## any, repeat 0-1\n# srv: web\n\n## int\n# srv[web].port: 80\n\n## any\n# a: b\n|-'
+	'EqGXrwX|init-optional-defaults-ok-named|init --no-banner --schema=%SI%|-|0|## any, repeat 0-1\n# srv: web\n\n## int\n# srv(web).port: 80\n\n## any\n# a: b\n|-'
 	## 20260918b item 26: every commented line is read back, not only one
 	## with a default. Item 27: no selector spelling is a refusal, not a
 	## child under another instance.
-	'EqLiw1w|init-optional-no-default-read-back|init --schema=%SJ%|-|6||V097 generated value fails the schema that produced it: wrong type at .flag\[on\].'
+	'EqLiw1w|init-optional-no-default-read-back|init --schema=%SJ%|-|6||V097 generated value fails the schema that produced it: wrong type at .flag\(on\).'
 	'EqLiw1x|init-no-selector-spelling|init --schema=%SK%|-|6||V097 required path cannot be generated: tags.x \(its parent.s value has no selector spelling\)'
 	## 20260918 item 9: an empty topic is an unknown command, as in the
 	## reference; the ports read it as no topic and printed the help at exit 0.
@@ -554,8 +554,8 @@ rows=(
 	'EqGgRwQ|init-strictness-see-help|init --strictness=1 --schema=%S2%|-|1||^option --strictness not valid for init: .*\(see --help\)$'
 	## 20260918 items 19 and 20: explain gave a file spelling that is a comment,
 	## and left out the V097 a user meets most.
-	'EqGfmq1|explain-e003|explain E003|-|0|\nE003  error       selector names an instance that does not exist\n  a[5].b where there is one a. An index selects an existing instance by\n  position and never creates one, so a binding line should select by value\n  instead. In a file the index is the bare [5], since a # opens a comment.\n\n|-'
-	'EqGfmq2|explain-v097|explain V097|-|0|\nV097  error       generated output does not load, or fails its own schema\n  init checks its own output before returning it, so a starter config that\n  would fail its first check is a fault instead. A default outside its\n  field'"'"'s constraints is one cause. A required path nothing can generate is\n  the other, such as one with a [#N] selector or a * name. Line 0.\n\n|-'
+	'EqGfmq1|explain-e003|explain E003|-|0|\nE003  error       selector names an instance that does not exist\n  a(5).b where there is one a. An index selects an existing instance by\n  position and never creates one, so a binding line should select by value\n  instead.\n\n|-'
+	'EqGfmq2|explain-v097|explain V097|-|0|\nV097  error       generated output does not load, or fails its own schema\n  init checks its own output before returning it, so a starter config that\n  would fail its first check is a fault instead. A default outside its\n  field'"'"'s constraints is one cause. A required path nothing can generate is\n  the other, such as one with an index selector, a(0), or a * name. Line 0.\n\n|-'
 	## 20260830 item 35: -h and --help after FILE were an unknown option, though
 	## every other option is read there.
 	'EoUxXlV|help-after-file|get %F% -h|-|0|-|-'
@@ -570,7 +570,7 @@ rows=(
 	'Er1zoZE|set-option-skips-stdin|set --set=a=2 %F%|int\tx\t7\n|0|a: 2\n|-'
 	## 20260829 item 6: --set split PATH from VALUE at the first '=' anywhere, so
 	## a selector holding one could not be addressed at all.
-	'EoUxXlZ|set-eq-in-selector|set --set=x[a=b].c=1 %X%|-|0|x[a=b]:\n\tc: 1\n|-'
+	'EoUxXlZ|set-eq-in-selector|set --set=x(a=b).c=1 %X%|-|0|x(a=b):\n\tc: 1\n|-'
 	## 20260905 item 3: a quote anywhere in the path was read as opening a quoted
 	## piece, so an apostrophe in a bare selector left every later '=' looking
 	## quoted and the option was refused while get on the same path worked.
@@ -578,10 +578,10 @@ rows=(
 	## two are refused; the quoted rows below take their place.
 	#"Ep3OILK|set-quote-in-selector|set --set=srv[O'Brien].port=9 %Q%|-|0|srv[\"O'Brien\"]:\n\tport: 9\n|-"
 	#"Ep3OILL|set-default-quote-in-selector|set --set-default=srv[O'Brien].port=9 %Q%|-|0|srv[\"O'Brien\"]:\n\tport: 0\n|-"
-	"ErrQs1W|set-quoted-quote-in-selector|set --set=srv[\"O'Brien\"].port=9 %Q%|-|0|srv[\"O'Brien\"]:\n\tport: 9\n|-"
-	"ErrQs1X|set-default-quoted-quote-in-selector|set --set-default=srv[\"O'Brien\"].port=9 %Q%|-|0|srv[\"O'Brien\"]:\n\tport: 0\n|-"
-	"ErrQs1Y|set-bare-quote-in-selector-refused|set --set=srv[O'Brien].port=9 %Q%|-|1||not a usable path"
-	"Ep3OILM|set-quoted-selector-eq|set --set=x[\"k]=v\"].d=2 %X%|-|0|x[a=b]:\n\tc: 0\n\nx: \"k]=v\"\n\td: 2\n|-"
+	"ErrQs1W|set-quoted-quote-in-selector|set --set=srv(\"O'Brien\").port=9 %Q%|-|0|srv(\"O'Brien\"):\n\tport: 9\n|-"
+	"ErrQs1X|set-default-quoted-quote-in-selector|set --set-default=srv(\"O'Brien\").port=9 %Q%|-|0|srv(\"O'Brien\"):\n\tport: 0\n|-"
+	"ErrQs1Y|set-bare-quote-in-selector-refused|set --set=srv(O'Brien).port=9 %Q%|-|1||not a usable path"
+	"Ep3OILM|set-quoted-selector-eq|set --set=x(\"k)=v\").d=2 %X%|-|0|x(a=b):\n\tc: 0\n\nx: k)=v\n\td: 2\n|-"
 	## set writes back the lines its edits leave alone, printing or in place,
 	## where fmt writes the canonical form.
 	'EqutO7J|set-keeps-lines|set %K% --set=block.a=2|-|0|# note\nName:   "x"   # c\nblock:\n    a: 2\n|-'
@@ -609,13 +609,13 @@ rows=(
 	## The kept line before a dotted line now sits level with its first name
 	## (2026100213205957), so this save keeps its lines, the dropped one too.
 	#'Er7gihi|set-write-keeps-dropped-between|set --write %KG% --set=x=v|-|7|-|would delete 1 line|x[*]: [1, 2\n x:\nx.a: 2\n'
-	'EraAIXa|set-write-keeps-dropped-gap|set --write %KG% --set=x=v|-|0|-|-|x[*]: [1, 2\n x:\nx: v\n a: 2\n'
-	'EraAIXb|set-write-gap-fallback-refused|set --write %KG% --set=x.b=1|-|7|-|would delete 1 line|x[*]: [1, 2\n x:\nx.a: 2\n'
-	"Ep3OILN|set-open-quote-refused|set --set=a[\"open=1 %X%|-|1|-|bad --set value"
+	'EraAIXa|set-write-keeps-dropped-gap|set --write %KG% --set=x=v|-|0|-|-|x(*): [1, 2\n x:\nx: v\n a: 2\n'
+	'EraAIXb|set-write-gap-fallback-refused|set --write %KG% --set=x.b=1|-|7|-|would delete 1 line|x(*): [1, 2\n x:\nx.a: 2\n'
+	"Ep3OILN|set-open-quote-refused|set --set=a(\"open=1 %X%|-|1|-|bad --set value"
 	## 20260909 item 13: a value built by a setter or a selector read as
 	## unquoted, so quoted thousands were BadType until a save and reload.
 	'EpykNRw|set-quoted-thousands|get --int --set=a=1,000 %F% a|-|0|1000\n|-'
-	"EpykNRx|set-selector-thousands|get --int --set=x[\"1,000\"].y=1 %F% x|-|0|1000\n|-"
+	"EpykNRx|set-selector-thousands|get --int --set=x(\"1,000\").y=1 %F% x|-|0|1000\n|-"
 	'EpykNRy|selector-thousands|get --int %SQ% srv|-|0|1000\n|-'
 	## 3.0: bracket text after the colon is one outcome, kept verbatim. The
 	## 2.x selector sugar is that shape now too, and migrate is what brings
@@ -696,7 +696,7 @@ rows=(
 	'ErvnzpX|e025-tab-check|check -|t: a\tb\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a tab in a bare value; quote it$'
 	'ErvnzpY|e026-trailing-comma-check|check -|x: a,\n|6|line 1: Error: E026\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E026 a comma then a space or the end in a bare value'
 	'ErvnzpZ|e027-name-value-check|check -|a:\n\t- name: value\n\t- b\n|6|line 2: Error: E027\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E027 a list item with a colon then a space or the end'
-	'Ervnzpa|e025-selector-colon-check|check -|srv[a:b].p: 1\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a colon in a bare selector; quote it$'
+	'Ervnzpa|e025-selector-colon-check|check -|srv(a:b).p: 1\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a colon in a bare selector; quote it$'
 	'Ervnzpb|array-tight-comma-splits|set --set-literal=t=[a,b] -|t: 1\n|0|t: [a, b]\n|-'
 	'Ervnzpc|set-literal-comma-text|set --set-literal=o=rw,noatime --set=e=a, -|o: 1\n|0|o: rw,noatime\n\ne: "a,"\n|-'
 	'Ervnzpd|migrate-comma-list|migrate --from-2x -|x: a,b\ny: a, b\n|0|x: [a, b]\ny: [a, b]\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
@@ -715,9 +715,25 @@ rows=(
 	'ErrQs1n|set-array-over-fields-refused|set --set-literal=c=[1,2] -|c: 1\n\tk: 2\n|1||^--set-literal: cannot write c: a field with lines under it takes one plain value or none$'
 	## A selector matches one plain value. A bare body with a space or a quote
 	## is E025 in a lookup too, and an array value is never selected.
-	'ErrQs1o|get-bare-space-selector|get - base[New◉SPACE◉York].lat|base: "New York"\n\tlat: 1\n|0|1\n|-'
-	'ErrQs1p|count-selector-skips-array|count - x[a]|x: [a]\nx: a\n|0|1\n|-'
-	"ErrQs1q|get-bare-quote-selector-refused|get %Q% srv[O'Brien].port|-|3|\n|no value at that path"
+	'ErrQs1o|get-bare-space-selector|get - base(New◉SPACE◉York).lat|base: "New York"\n\tlat: 1\n|0|1\n|-'
+	'ErrQs1p|count-selector-skips-array|count - x(a)|x: [a]\nx: a\n|0|1\n|-'
+	"ErrQs1q|get-bare-quote-selector-refused|get %Q% srv(O'Brien).port|-|3|\n|no value at that path"
+	## 2026100610073400: a selector is written in parens. One in brackets is
+	## E029, kept as written, and a path in brackets is refused with a reason.
+	'ErxfmqM|e029-check|check -|a[x].b: 1\n|6|line 1: Error: E029\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E029 selector in brackets; write it in parens, name\(value\), since brackets are only for arrays, at column 2$'
+	'ErxfmqN|e029-lines-under-load|get - srv(web).host|srv: web\n\tport: 80\nsrv[web]:\n\thost: h\n|0|h\n|E029'
+	'ErxfmqO|e029-fmt-keeps-line|fmt -|srv: web\n\tport: 80\nsrv[web]:\n\thost: h\n|0|srv[web]:\nsrv: web\n\tport: 80\n\thost: h\n|E029'
+	'ErxfmqP|get-bracket-path-named|get %F% a[0]|-|3|\n|a selector is written in parens now, name\(value\)'
+	'ErxfmqQ|set-bracket-path-named|set --set=a[0].b=1 %F%|-|1||^--set: cannot write a\[0\]\.b: a selector is written in parens now, name\(value\)$'
+	'ErxfmqR|remove-bracket-path-named|set --remove=a[0] %F2%|-|1||^bad --remove value \(a selector is written in parens now, name\(value\)\): a\[0\] \(see --help\)$'
+	'ErxfmqS|ops-remove-bracket-path-named|set %F2%|remove\ta[0]\n|1||^op line 1: cannot remove a\[0\]: a selector is written in parens now, name\(value\)$'
+	'ErxfmqT|schema-bracket-path-named|check --schema=- %F%|field: "a[*].b"\n|6|line 1: Error: V093\nfailed: 1 diagnostic(s), 1 error(s)\n|V093 bad schema path: a\[\*\]\.b; selector in brackets; write it in parens'
+	'ErxfmqU|get-hash-index-refused|get %F% a(#0)|-|3|\n|no value at that path'
+	'ErxfmqZ|set-hash-index-refused|set --set=a(#0)=2 %F%|-|1||not a usable path'
+	'ErxfmqV|get-paren-index|get %F% a(0)|-|0|1\n|-'
+	'ErxfmqW|e025-paren-in-selector|check -|a(x(y).b: 1\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a paren in a bare selector; quote it$'
+	'ErxfmqX|get-quoted-paren-selector|get - a("x)y")|a: "x)y"\n|0|x)y\n|-'
+	'ErxfmqY|explain-e029|explain E029|-|0|\nE029  error       a selector in brackets, the old spelling\n  Selectors are written in parens: person(Bucky).city, person("New York"),\n  person(0) and person(*). Brackets are only for arrays. The line is kept\n  as written and binds nothing. When it selects by value, the lines under\n  it still load, under the instance it names. On a command line, quote the\n  path, since a bare ( is a syntax error in most shells.\n\n|-'
 	'ErqYSbS|tokens-array|tokens -|p: [a, b] # c\nq: [x\n- y\n|0|1:0 name=0-1 sep=1 value=3-9 array=3 elem=4-5 elem=7-8 comment=10\n2:0 name=0-1 sep=1 value=3-5 array=3 array-fault=3:no closing \x27]\x27 on the line elem=4-5\n3:0 item value=2-3 elem=2-3\n|-'
 	'ErqYWEx|get-one-element-string|get - p|p: [80]\n|0|[80]\n|-'
 	'ErqYWEy|get-one-element-int|get --int - p|p: [80]\n|0|80\n|-'
@@ -725,7 +741,7 @@ rows=(
 	## A repeat header the load folded away goes with the last line under it,
 	## blank line and all, and stays with its blank line while anything under
 	## it does (2026100115323232).
-	'Erls2uy|remove-emptied-repeat-header|set --remove=account[#0].name -|account: w\n\temail: a@x\n\naccount: w\n\tname: W\n\nz: 1\n|0|account: w\n\temail: a@x\n\nz: 1\n|-'
+	'Erls2uy|remove-emptied-repeat-header|set --remove=account(0).name -|account: w\n\temail: a@x\n\naccount: w\n\tname: W\n\nz: 1\n|0|account: w\n\temail: a@x\n\nz: 1\n|-'
 	'Erls2uz|set-keeps-blank-above-repeat|set --set=s.a=5 -|s:\n\ta: 1\n\ns:\n\tb: 2\n|0|s:\n\ta: 5\n\ns:\n\tb: 2\n|-'
 	## New lines take the indent step most blocks use, not the first block's
 	## (2026100115403386).
@@ -810,7 +826,7 @@ rows=(
 	'ErrQs1Z|explain-e028|explain E028|-|0|\nE028  error       an array on a field with lines under it\n  A field with fields under it takes one plain value or none, so\n  route: [GET, POST] with lines under it is an error. Give the field one\n  value and put the list in a field under it: methods: [GET, POST]. The line\n  is kept verbatim, and the lines under it load under the field with no\n  value.\n\n|-'
 	'ErrQs1a|explain-e010-retired|explain E010|-|0|\nE010  retired     error, replaced by E026\n  Loads no longer report E010. \x27shcl explain E026\x27 has the rule now.\n\n|-'
 	'ErqYSbP|explain-e027|explain E027|-|0|\nE027  error       a list item like - name: or - name: value\n  A colon with a space or the end after it is how YAML starts an object in\n  a list, and SHCL writes one as an instance. A colon with text after it is\n  fine, as in - localhost:8080. Quote the item if it is text: - "name: a".\n  The line is kept as written, and the other items still load.\n\n|-'
-	'Ervo6BP|explain-e025|explain E025|-|0|\nE025  error       a tab, a quote, a bracket or a loose colon in bare text\n  A bare value or list item may hold spaces, kept as typed. A tab or other\n  whitespace, a quote, a bracket, or a colon with a space or the end after\n  it is an error: host: a.com port: 80 is two fields on one line. Put each\n  field on its own line, or quote the value: name: "O\x27Brien". An array\n  element or a selector body takes no whitespace, and a selector body no\n  colon or comma either. Whitespace at either end is trimmed first. The line\n  is kept verbatim and binds nothing. In a value, the lines under it still\n  load, under the field with no value.\n\n|-'
+	'Ervo6BP|explain-e025|explain E025|-|0|\nE025  error       a tab, a quote, a bracket or a loose colon in bare text\n  A bare value or list item may hold spaces, kept as typed. A tab or other\n  whitespace, a quote, a bracket, or a colon with a space or the end after\n  it is an error: host: a.com port: 80 is two fields on one line. Put each\n  field on its own line, or quote the value: name: "O\x27Brien". An array\n  element or a selector body takes no whitespace, and a selector body no\n  colon, comma or paren either. Whitespace at either end is trimmed first.\n  The line is kept verbatim and binds nothing. In a value, the lines under\n  it still load, under the field with no value.\n\n|-'
 	## 2026-10-05: explain E023 prints the mark itself, not the text U+25C9.
 	#'Erlr23g|explain-e023-read|explain E023|-|0|\nE023  error       a bad escape\n  An escape is a name from the escape list between two U+25C9 marks, such as\n  TAB, NEWLINE or U+200B, and a real U+25C9 is the name ESCAPE_CHAR. Anything\n  else between two marks is an error, and so is a mark with no partner. A\n  backslash is plain text. The line is kept verbatim: it binds nothing and a\n  read on it is NotFound. When only the value is wrong, the lines under it\n  still load, under the field with no value, and a read on the field is Empty\n  once one of them loads. When the name is, a raw block the line opens is kept\n  with it.\n\n|-'
 	'Ers2pOq|explain-e023-mark|explain E023|-|0|\nE023  error       a bad escape\n  An escape is a name from the escape list between two \xe2\x97\x89 marks, such as\n  \xe2\x97\x89TAB\xe2\x97\x89, \xe2\x97\x89NEWLINE\xe2\x97\x89 or \xe2\x97\x89U+200B\xe2\x97\x89, and a real \xe2\x97\x89 is written \xe2\x97\x89ESCAPE_CHAR\xe2\x97\x89.\n  Anything else between two marks is an error, and so is a mark with no\n  partner. A backslash is plain text. The line is kept verbatim: it binds\n  nothing and a read on it is NotFound. When only the value is wrong, the\n  lines under it still load, under the field with no value, and a read on the\n  field is Empty once one of them loads. When the name is, a raw block the\n  line opens is kept with it.\n\n|-'
@@ -1010,7 +1026,7 @@ rows=(
 	'EoXIc2c|io-missing-check|check %M%|-|8|-|-'
 	'EoXIc2d|io-missing-schema|init --schema=%M%|-|8|-|-'
 	'EoXIc2e|usage-unknown-option|get --nope %F% a|-|1|-|unknown option'
-	'EoXIc2f|usage-bad-write-path|set --set=a[*]=1 %F%|-|1|-|wildcard path cannot be written'
+	'EoXIc2f|usage-bad-write-path|set --set=a(*)=1 %F%|-|1|-|wildcard path cannot be written'
 	## 20260830b item 21: removal and the set-if-absent family had no option
 	## form, so a one-key edit meant a printf with a literal tab piped into set.
 	## The five spellings share one ordered list, so the last one on a path wins.
@@ -1026,12 +1042,12 @@ rows=(
 	##	exited 0. It is refused now, while a missing path or a wildcard still
 	##	removes nothing at exit 0. The ops script's remove and clear-comments
 	##	refuse the same way.
-	'EqvZOh6|remove-bad-path|set --remove=b[ %F2%|-|1||^bad --remove value \(not a usable path\): b\[ \(see --help\)$'
+	'EqvZOh6|remove-bad-path|set --remove=b( %F2%|-|1||^bad --remove value \(not a usable path\): b\( \(see --help\)$'
 	'EqvZOh7|remove-value-in-path|set --remove=a:1 %F2%|-|1||^bad --remove value \(not a usable path\): a:1 \(see --help\)$'
 	'EqvZOh8|remove-bad-path-on-get|get --remove=a..b %F2% a|-|1||^bad --remove value \(not a usable path\)'
 	'EqvZOh9|remove-missing-ok|set --remove=nope %F2%|-|0|a: 1\nb: 2\n|-'
 	'EqvZOhA|remove-wildcard-ok|set --remove=a.* %F2%|-|0|a: 1\nb: 2\n|-'
-	'EqvZOhB|ops-remove-bad-path|set %F2%|remove\tb[|1||^op line 1: cannot remove b\[: not a usable path$'
+	'EqvZOhB|ops-remove-bad-path|set %F2%|remove\tb(|1||^op line 1: cannot remove b\(: not a usable path$'
 	'EqvZOhC|ops-clear-comments-bad-path|set %F2%|clear-comments\ta..b|1||^op line 1: cannot clear-comments a\.\.b: not a usable path$'
 	## 20260830b item 19: a script could read an open section's values but never
 	## learn its keys, so the only route was parsing fmt output in shell. A name
@@ -1049,8 +1065,8 @@ rows=(
 	'EqLcx3w|layer-diags-named-set|set --set=q=1 --layer=%B% %B2%|-|0|-|bad2.shcl line 2: Error: E014'
 	## 2026100511210900: emptying an instance left a list after it that the
 	## reload drops, and the write went through at exit 0.
-	'Ers2pP0|list-after-empty-refused|set --write %LEW%|empty\tx[v]\n|7|-|would delete 2 line|x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n'
-	'Ers2pP1|list-after-empty-lossy|set --write --lossy %LEW%|empty\tx[v]\n|0|-|rewritten in the canonical form|x:\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n'
+	'Ers2pP0|list-after-empty-refused|set --write %LEW%|empty\tx(v)\n|7|-|would delete 2 line|x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n'
+	'Ers2pP1|list-after-empty-lossy|set --write --lossy %LEW%|empty\tx(v)\n|0|-|rewritten in the canonical form|x:\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n'
 	'Eon9YY5|single-file-diags-unnamed|fmt %B%|-|0|-|^line 3: Error: E014'
 	## 2026-10-05: a line with no colon that is one name is E015 whatever its
 	## name, and binds the name it reads as. With a colon, the name rule still
@@ -1132,8 +1148,8 @@ rows=(
 	'EqSNyFp|set-repeats-last-wins|get --int --set=a=1 --set=a=2 %F% a|-|0|2\n|-'
 	## 20260902 item 15: a refused edit returned before the load's diagnostics
 	## were printed, so a damaged file said nothing about the damage.
-	'EoloRK4|refused-set-still-reports|get --set=a[*]=1 %B% a|-|1|-|E015 missing colon'
-	'EoloRK5|refused-op-still-reports|set %B%|int\ta[*]\t1\n|1|-|E015 missing colon'
+	'EoloRK4|refused-set-still-reports|get --set=a(*)=1 %B% a|-|1|-|E015 missing colon'
+	'EoloRK5|refused-op-still-reports|set %B%|int\ta(*)\t1\n|1|-|E015 missing colon'
 	## 20260902 item 14: Go read a non-UTF-8 ops script as a usage error.
 	'EolmgK0|ops-not-utf8|set %F%|\xff\n|8|-|-'
 	## 20260902 items 8 and 9: a stdout that could not be written was reported

@@ -3,10 +3,10 @@ field: srv
 	required: yes
 	default: web
 
-field: "srv[ * ].port"
+field: "srv( * ).port"
 	required: yes
 	default: 80
 
-field: "srv[  *].tls[* ].on"
+field: "srv(  *).tls(* ).on"
 	required: yes
 	type: bool

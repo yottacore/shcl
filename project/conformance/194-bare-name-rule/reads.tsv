@@ -5,13 +5,13 @@ query	type	expected	status	level
 ok-name_1	int	1	Good
 enabled	string	-	Empty
 "404"	string	-	Multiple
-"404"[#1]	string	found	Good
+"404"(1)	string	found	Good
 "404".page	string	x	Good
 "404"	count	2	Good
 "-x"	string	-	NotFound
 "_id".sub	int	8	Good
 "user name"	string	-	Multiple
-"user name"[#1]	string	bob	Good
+"user name"(1)	string	bob	Good
 "user name".role	string	admin	Good
 "Straße"	int	-	NotFound
 a."9b".c	int	3	Good

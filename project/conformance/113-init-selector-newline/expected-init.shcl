@@ -1,11 +1,11 @@
 ## int, required
-srv["a◉NEWLINE◉b"].port: 8080
+srv("a◉NEWLINE◉b").port: 8080
 
 ## any, required
 "top◉NEWLINE◉line": v
 
 ## int, required
-lit["c◉NEWLINE◉d"].port: 9090
+lit("c◉NEWLINE◉d").port: 9090
 
 ## any, required
 "raw◉NEWLINE◉name": w

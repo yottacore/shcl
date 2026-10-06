@@ -16,7 +16,7 @@ overdq: "new value"
 open: `never closed
 	kid: 1
 mid: a`b
-sel[`x`]: 1
+sel(`x`): 1
 last: 1
 
 lit: `#00FF00`

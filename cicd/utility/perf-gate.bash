@@ -116,13 +116,13 @@ mountSchema="${tmpDir}/mount-schema.shcl"; mountDoc="${tmpDir}/mount.shcl"
 awk 'BEGIN{ print "fragment: f"; print "\tfield: leaf"
 	for (i = 0; i < 16000; i++) printf "field: m%d\n\tinherits: f\n", i }' > "${mountSchema}"
 awk 'BEGIN{ for (i = 12000; i < 16000; i++) printf "m%d.leaf: 1\n", i; print "zz: 1" }' > "${mountDoc}"
-## A quoted `[value]` selector per line, each naming a new instance. On a miss
+## A quoted `(value)` selector per line, each naming a new instance. On a miss
 ## the parser scanned every same-name sibling before the keyed create lookup
 ## answered the same question, so the quoted spelling was quadratic in siblings
 ## where the bare one and the block form were not (20260918b item 9). Half the
 ## key count keeps the old code's run under two minutes in the slowest binding.
 selDoc="${tmpDir}/sel.shcl"
-awk -v n="$((keys / 2))" 'BEGIN{ for (i = 0; i < n; i++) printf "srv[\"host %d\"].port: %d\n", i, i }' > "${selDoc}"
+awk -v n="$((keys / 2))" 'BEGIN{ for (i = 0; i < n; i++) printf "srv(\"host %d\").port: %d\n", i, i }' > "${selDoc}"
 ## Every document name unknown and none close to a schema name, the case the
 ## did-you-mean exists for. Each unknown field was compared with every sibling,
 ## and the list held one copy per schema field, so the section's 4000 fields

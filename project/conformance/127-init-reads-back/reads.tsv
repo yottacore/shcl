@@ -2,13 +2,13 @@ query	type	expected	status
 -	load	ok	-
 -	lost	0	-
 a	count	1	Good
-a[x].port	int	1	Good
+a(x).port	int	1	Good
 env	count	2	Good
-env[prod].url	string	u	Good
+env(prod).url	string	u	Good
 stage	count	2	Good
 srv	count	1	Good
-srv["20000000000000000000"].port	int	2	Good
+srv("20000000000000000000").port	int	2	Good
 tags	count	0	Good
-tags[a, b, c].x	int	-	NotFound
+tags(a, b, c).x	int	-	NotFound
 repo	count	1	Good
-repo["org/name#123"].branch	string	main	Good
+repo("org/name#123").branch	string	main	Good

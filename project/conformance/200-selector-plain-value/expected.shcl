@@ -11,5 +11,5 @@ srv:
 	~~~
 srv: "b c"
 	port: 2
-base[New York]:
+base(New York):
 last: 1

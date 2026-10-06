@@ -2,10 +2,10 @@
 srv: web
 
 ## int
-srv[web].port: 80
+srv(web).port: 80
 
 ## string
-srv[web].note:
+srv(web).note:
 
 ##
 ## This config file format is SHCL.

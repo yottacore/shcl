@@ -4,7 +4,7 @@
 
 # Two lines on one path: the first is written, and its value is the instance
 # a child selects.
-field: "a[*]"
+field: "a(*)"
 	required: yes
 	default: x
 field: a
@@ -15,18 +15,18 @@ field: a.port
 	default: 1
 
 # Two by-value fields with different values are two instances.
-field: "env[prod]"
+field: "env(prod)"
 	required: yes
 	default: prod
-field: "env[dev]"
+field: "env(dev)"
 	required: yes
 	default: dev
 field: env.url
 	required: yes
 	default: u
-field: "stage[prod]"
+field: "stage(prod)"
 	default: prod
-field: "stage[dev]"
+field: "stage(dev)"
 	default: dev
 
 # Digits past 64 bits read as an index, so the child quotes the body.
@@ -48,10 +48,10 @@ field: srv.port
 # 	default: 3
 
 # A `#` in a selector body is fine in a lookup and a comment on a file line.
-field: "repo[org/name#123].branch"
+field: "repo(org/name#123).branch"
 	required: yes
 	default: main
-field: "gh[org/name#9].ref"
+field: "gh(org/name#9).ref"
 
 # A fragment name holding a line break stays inside the trailing block.
 field: m

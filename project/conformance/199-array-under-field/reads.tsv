@@ -7,8 +7,8 @@ route.path	string	/api	Good
 route.methods	string[]	GET|POST	Good
 plain	string[]	a|b	Good
 dup	count	2	-
-dup[#0]	string[]	v	Good
-dup[#1]	string		Empty
-dup[#1].q	int	1	Good
+dup(0)	string[]	v	Good
+dup(1)	string		Empty
+dup(1).q	int	1	Good
 none	string		Empty
 none.x	int	1	Good

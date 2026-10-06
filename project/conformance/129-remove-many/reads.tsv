@@ -4,7 +4,7 @@ grp	children	a|b|a	-
 grp.*	count	3	-
 grp.b.deep	int	3	Good
 srv	count	2	-
-srv[*].port	int[]	1|2	Good
+srv(*).port	int[]	1|2	Good
 keep.a	int	9	Good
 zz	int	1	Good
 -	lost	0	-

@@ -1,1 +1,1 @@
-remove	server[*].*
+remove	server(*).*

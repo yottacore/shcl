@@ -1,3 +1,3 @@
 query	type	expected	status
 db.host	string	localhost	Good
-repo["org/name"].branch	string	main	Good
+repo("org/name").branch	string	main	Good

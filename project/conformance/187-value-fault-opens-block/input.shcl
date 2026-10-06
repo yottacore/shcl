@@ -12,7 +12,7 @@ path: C:\Users\O'Brien
 nested: "◉Q◉"
 	inner: [x
 		deep: 1
-sel[web]: "◉Q◉"
+sel(web): "◉Q◉"
 	port: 8
 empty: "◉Q◉"
 "bad◉Q◉": 1

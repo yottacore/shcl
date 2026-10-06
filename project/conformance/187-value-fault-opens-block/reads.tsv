@@ -8,7 +8,7 @@ ports.tls	string	on	Good
 path	count	1	-	
 path	string	[one, two]	Good	
 nested.inner.deep	int	1	Good	
-sel[web].port	int	8	Good	
+sel(web).port	int	8	Good	
 empty	string	-	NotFound	
 gone	count	0	-	
 -	paths	wallpaper|wallpaper.rotate|wallpaper.rotate.enabled|wallpaper.opacity|ports|ports.tls|path|nested|nested.inner|nested.inner.deep|sel|sel.port|last	-	

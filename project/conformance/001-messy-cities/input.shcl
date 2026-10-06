@@ -5,9 +5,9 @@ base               : Chicago
 		Weather    : [Hot,Cold, Lousy , "All around not that great"]
 
 # Inline style
-base["Cleveland, OH"].metrics.population: 700  # Why only 700?
-base[Boston].metrics.population                # Empty value
-base [ Philly ] . metrics.population: 1024
+base("Cleveland, OH").metrics.population: 700  # Why only 700?
+base(Boston).metrics.population                # Empty value
+base ( Philly ) . metrics.population: 1024
 
 # Redundant path (collapses into Chicago)
 base               : Chicago
