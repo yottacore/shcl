@@ -151,6 +151,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261005: changed from what chunk A built. A line with no colon is `E015` even when its name breaks the bare name rule, so `404` alone is `E015`. An item past the caller's array cap is `E021` and dropped, even when its value is broken. `migrate` leaves a 2.x backslash as written and it reads literally, with no escape added; check-migrate compares reads, so it has to allow for that. `explain E023` prints the mark itself, not `U+25C9`.
 		- 20261005: these go into the design doc with chunk C.
 		- 20261005: the `E015` answer was only about which code a one-word bad name with no colon gets (`404`). A no-colon line that isn't one clean name or path, such as `square-miles 300`, stays `E014`, kept as written, per spec.md's narrow repair rule. The `vsfix` rework read it too widely and needs narrowing back. A quoted name can be any text, spaces and a leading digit included. Every field line keeps its colon, a header with lines under it too.
+		- 20261005: kept as built: the line-keeping save writes a file whose load left a stacked list after an empty binding of its name, so `set --write` saves an unrelated edit while `fmt --write` refuses at 7.
 	- Branch: `valsyn` (chunk A on `vslex`, chunk B part 1 on `vsarr`, part 2 on `vssel`, the 20261005 rework on `vsfix`, the fuzz fixes on `vsfuzz`)
 	- Commit: `6355ba10` (chunk A), `7c90c42d` and `f228c3e9` (chunk B part 2), `11b069fe` (the 20261005 rework), `c67b89d7` (the fuzz fixes)
 	- Test case:
