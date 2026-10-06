@@ -360,8 +360,17 @@ PROFILE_TIMED=(
 
 ## Stage 6: native release + cross targets. One per line:
 ## "label|os-arch|artifact|command...". os-arch feeds the versioned artifact name
-## (<exe>-<version>-<os-arch>[.exe]). macOS is deferred (no Apple SDK on this box).
+## (<exe>-<version>-<os-arch>[.exe]).
 ## FreeBSD is x86_64 only: Rust ships no prebuilt std for it on arm64.
+## macOS is one universal binary, x86_64 and arm64 in one file, joined by
+## cargo-zigbuild. No Apple SDK is needed, since zig has its own libSystem stubs
+## and the CLI links nothing else; rustc still warns that xcrun is missing.
+## zig sets the macOS floor from its own default unless the target names one,
+## and cargo-zigbuild names none, so a second -target pins it (the last one
+## wins). -Wl,-S keeps object paths out of the UUID zig computes, or the bytes
+## move with the checkout path. Release strips that debug map anyway.
+MACOS_FLOOR="13.0"
+macLink="-Clink-arg=-Wl,-S -Clink-arg=-target -Clink-arg="
 RELEASE_NATIVE_CMD=(cargo build --release -j "${CPU_CAP}" --manifest-path "${MANIFEST}")
 RELEASE_NATIVE_BIN="source/rust/target/release/${EXE_NAME}"
 RELEASE_NATIVE_OSARCH="linux-x86_64"
@@ -370,6 +379,7 @@ CROSS_TARGETS=(
 	"Linux ARM64 (zig)|linux-arm64|source/rust/target/aarch64-unknown-linux-gnu/release/${EXE_NAME}|cargo zigbuild --release -j \${CPU_CAP} --manifest-path ${MANIFEST} --target aarch64-unknown-linux-gnu"
 	"Windows ARM64 (zig)|windows-arm64|source/rust/target/aarch64-pc-windows-gnullvm/release/${EXE_NAME}.exe|cargo zigbuild --release -j \${CPU_CAP} --manifest-path ${MANIFEST} --target aarch64-pc-windows-gnullvm"
 	"FreeBSD x86_64 (zig)|freebsd-x86_64|source/rust/target/x86_64-unknown-freebsd/release/${EXE_NAME}|cargo zigbuild --release -j \${CPU_CAP} --manifest-path ${MANIFEST} --target x86_64-unknown-freebsd"
+	"macOS universal (zig)|macos-universal|source/rust/target/universal2-apple-darwin/release/${EXE_NAME}|CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS='${macLink}x86_64-macos.${MACOS_FLOOR}-none' CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS='${macLink}aarch64-macos.${MACOS_FLOOR}-none' cargo zigbuild --release -j \${CPU_CAP} --manifest-path ${MANIFEST} --target universal2-apple-darwin"
 )
 ## Cross-compile checks that ship nothing: they exist so the non-Rust bindings'
 ## platform branches are compiled somewhere. The C header's Windows path had
@@ -424,9 +434,9 @@ DOGFOOD_WRAPPER_DESTS_ps1=(
 )
 ## Cross-built binaries install too, into a dest keyed by their CROSS_TARGETS
 ## os-arch label with '-' written as '_'. Same first-existing-and-writable rule; an
-## os-arch with no list here just isn't installed. No macOS entry because nothing
-## builds a macOS binary yet, and none for either arm64 because the synced tree has
-## no arm64 dir to put one in.
+## os-arch with no list here just isn't installed. No macOS entry until the
+## universal binary has run on a Mac, and none for either arm64 because the
+## synced tree has no arm64 dir to put one in.
 DOGFOOD_CROSS_DESTS_windows_x86_64=(
 	"${HOME}/synced/0-0/common/exec/util/mswin/cli/by-self/win64"
 )

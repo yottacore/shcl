@@ -626,7 +626,7 @@ PSEOF
 	[[ "$(tail -c 2 "${tmpDir}/ps.out" | od -An -c | tr -d ' ')" == '\n\n' ]] || fBad "install.ps1 -Help does not end on a blank line"
 	rc=0; fPs1 -Target user -Yes || rc=$?
 	if ! { [[ "${rc}" == 1 ]] && cmp -s "${tmpDir}/ps.out" <(printf '\n') \
-		&& cmp -s "${tmpDir}/ps.err" <(printf 'install.ps1: this installer is for Windows - on Linux or FreeBSD use install.bash, elsewhere build from source (see README.md)\n\n'); }; then
+		&& cmp -s "${tmpDir}/ps.err" <(printf 'install.ps1: this installer is for Windows - on Linux, macOS or FreeBSD use install.bash, elsewhere build from source (see README.md)\n\n'); }; then
 		fBad "install.ps1 does not open and end a refusal on a blank line (exit ${rc}): $(od -c "${tmpDir}/ps.out" "${tmpDir}/ps.err" | head -n 5)"
 	fi
 
@@ -1072,6 +1072,14 @@ if [[ -z "${smokeLine}" || -z "${layLine}" ]] || ((smokeLine >= layLine)); then
 	fBad "install.bash does not run the binary before laying it down"
 fi
 
+fTest ErxeImU 2026100313461652-install-bash-macos-floor
+##	The universal binary is built for macOS 13 and up, and dyld refuses it
+##	below that with a raw abort. The lifted smoke step names that floor.
+out="$(fSmoke 134 universal macos)"
+line="$(grep -F 'does not run here' <<<"${out}" || true)"
+[[ "${line}" == *"macos-universal binary"*"macOS 13 or newer"* && "${line}" != *glibc* && "${line}" != *musl* && "${out}" != *"smoke passed"* ]] \
+	|| fBad "install.bash does not name the macOS floor for the macOS binary: ${out@Q}"
+
 fTest EqzwPFI 20260829-19-uninstall-hint-under-one-liner
 ##	20260829 item 19: the uninstall hint printed $0, which under the one-liner
 ##	is a descriptor or `bash`. The three lifted lines, run each way a script
@@ -1510,6 +1518,25 @@ rtRc=0; rtOut="$(printf 'shcl-3.0.0-sha256sums.txt\n' | bash "${repoDir}/cicd/ut
 rtRc=0; rtOut="$(bash "${repoDir}/cicd/utility/release-table.bash" --names /dev/null 2>&1)" || rtRc=$?
 [[ "${rtRc}" == "2" ]] || fBad "release-table.bash ran with no tag (rc ${rtRc}): ${rtOut@Q}"
 
+fTest ErxeImV 2026100313461652-release-table-stage6-names
+##	Every binary stage 6 builds gets a cell, named the way stage 6 names it,
+##	so a new target cannot drop to the "Other files" line unnoticed. macOS is
+##	the universal binary, in both columns.
+# shellcheck disable=SC2016  ## the inner shell's own variables
+rtNames="$(CPU_CAP=1 bash -c 'set +u; source "$1"
+	printf "shcl-3.0.0-%s\n" "${RELEASE_NATIVE_OSARCH}"
+	for t in "${CROSS_TARGETS[@]}"; do
+		rest="${t#*|}"; osarch="${rest%%|*}"; rest="${rest#*|}"; art="${rest%%|*}"
+		ext=""; [[ "${art}" == *.exe ]] && ext=".exe"
+		printf "shcl-3.0.0-%s%s\n" "${osarch}" "${ext}"
+	done' _ "${repoDir}/cicd/config.bash")"
+rtOut="$(bash "${repoDir}/cicd/utility/release-table.bash" v3.0.0 --names - <<<"${rtNames}" 2>&1 || true)"
+[[ "$(grep -c . <<<"${rtNames}")" -ge 6 ]] || fBad "stage 6 lists fewer targets than it did: ${rtNames@Q}"
+[[ "${rtOut}" != *"Other files"* ]] || fBad "release-table.bash left a stage 6 binary out of the table: ${rtOut@Q}"
+macRow="$(grep -F '| macOS ' <<<"${rtOut}" || true)"
+[[ "${macRow}" == "| macOS "*"| [binary][macos-universal] "*"| [binary][macos-universal]" ]] \
+	|| fBad "release-table.bash has no macOS row with the universal binary in both columns: ${rtOut@Q}"
+
 fTest EojuRVQ 20260901b-20-flame-report-partial-graphs
 ##	20260901b item 20: flame-report.py took any file with a sample count and one
 ##	frame for a whole flamegraph, so a profile cut off mid-write reported a
@@ -1853,6 +1880,71 @@ if fHave setsid && fHave openssl; then
 			[[ "${out}" == *"no prebuilt FreeBSD arm64 binary"* && "${out}" != *"shcl 3.0.0"* ]] || fBad "install.bash on FreeBSD arm64 got past the platform gate: ${out@Q}"
 		fi
 	done
+else
+	fTestSkip
+fi
+
+fTest ErxeImS 2026100313461652-install-bash-macos-plan
+##	macOS has one universal binary, so a Darwin uname plans that asset on an
+##	Intel Mac and on Apple silicon alike, never a per-arch one. Same run as the
+##	plan-page row.
+if fHave setsid && fHave openssl; then
+	mkdir -p "${tmpDir}/macbin" "${tmpDir}/machome"
+	cp "${tmpDir}/apibin/curl" "${tmpDir}/macbin/curl"
+	for macArch in x86_64 arm64; do
+		# shellcheck disable=SC2016  ## the stub's own $1
+		printf '#!/bin/sh\ncase "$1" in -s) echo Darwin ;; -m) echo %s ;; *) echo Darwin ;; esac\n' "${macArch}" > "${tmpDir}/macbin/uname"
+		chmod 755 "${tmpDir}/macbin/uname"
+		# shellcheck disable=SC2031  ## the gate's own PATH, which no subshell above changed for this one
+		out="$(HOME="${tmpDir}/machome" PATH="${tmpDir}/macbin:${PATH}" setsid -w bash "${repoDir}/install.bash" --release dev </dev/null 2>&1 || true)"
+		[[ "${out}" == *"shcl 3.0.0-beta1 (dev, macos-universal)"* ]] || fBad "install.bash on macOS ${macArch} does not plan the macos-universal binary: ${out@Q}"
+	done
+else
+	fTestSkip
+fi
+
+fTest ErxeImT 2026100313461652-install-bash-macos-install
+##	The whole install on a Darwin uname, from a stand-in release: the signed
+##	sums are read, the universal binary is the one fetched and checked, and it
+##	is what the user target gets. openssl verifies nothing here, since the
+##	real signing key is not here, and also does the checksums for real.
+if fHave setsid && fHave openssl; then
+	mi="${tmpDir}/macinst"
+	mkdir -p "${mi}/bin" "${mi}/home" "${mi}/rel"
+	realOpenssl="$(command -v openssl)"
+	printf '[{"tag_name":"v3.0.0-beta1","prerelease":true,"draft":false}]\n' > "${mi}/rel.json"
+	printf '#!/bin/sh\necho "shcl v3.0.0-beta1"\n' > "${mi}/rel/shcl-3.0.0-beta1-macos-universal"
+	printf '#!/bin/sh\nexit 9\n' > "${mi}/rel/shcl-3.0.0-beta1-linux-x86_64"
+	( cd "${mi}/rel" && sha256sum shcl-3.0.0-beta1-linux-x86_64 shcl-3.0.0-beta1-macos-universal > "${mi}/sums" )
+	: > "${mi}/fetched"
+	cat > "${mi}/bin/curl" <<-STUB
+		#!/bin/sh
+		out=""; url=""
+		while [ \$# -gt 0 ]; do case "\$1" in -o) out="\$2"; shift 2 ;; -*) shift ;; *) url="\$1"; shift ;; esac; done
+		echo "\${url}" >> '${mi}/fetched'
+		case "\${url}" in
+			https://api.github.com/repos/yottacore/shcl/releases*) cp '${mi}/rel.json' "\${out}" ;;
+			*/shcl-3.0.0-beta1-sha256sums.txt) cp '${mi}/sums' "\${out}" ;;
+			*/shcl-3.0.0-beta1-sha256sums.txt.sig) : > "\${out}" ;;
+			*/shcl-3.0.0-beta1-macos-universal) cp '${mi}/rel/shcl-3.0.0-beta1-macos-universal' "\${out}" ;;
+			*) exit 22 ;;
+		esac
+	STUB
+	cat > "${mi}/bin/openssl" <<-STUB
+		#!/bin/sh
+		for a in "\$@"; do [ "\${a}" = -verify ] && exit 0; done
+		exec '${realOpenssl}' "\$@"
+	STUB
+	# shellcheck disable=SC2016  ## the stub's own $1
+	printf '#!/bin/sh\ncase "$1" in -s) echo Darwin ;; -m) echo arm64 ;; *) echo Darwin ;; esac\n' > "${mi}/bin/uname"
+	chmod 755 "${mi}/bin/curl" "${mi}/bin/openssl" "${mi}/bin/uname"
+	# shellcheck disable=SC2031  ## the gate's own PATH, which no subshell above changed for this one
+	out="$(HOME="${mi}/home" PATH="${mi}/bin:${PATH}" setsid -w bash "${repoDir}/install.bash" --release dev --yes </dev/null 2>&1 || true)"
+	[[ "${out}" == *"installed shcl 3.0.0-beta1"* ]] || fBad "install.bash on macOS did not install the universal binary: ${out@Q}"
+	cmp -s "${mi}/home/.local/share/shcl/shcl" "${mi}/rel/shcl-3.0.0-beta1-macos-universal" \
+		|| fBad "install.bash on macOS laid down something other than the universal binary"
+	grep -q 'macos-universal$' "${mi}/fetched" || fBad "install.bash on macOS never fetched the universal binary: $(cat "${mi}/fetched")"
+	grep -qE -- '-(x86_64|arm64)$' "${mi}/fetched" && fBad "install.bash on macOS fetched a per-arch binary: $(cat "${mi}/fetched")"
 else
 	fTestSkip
 fi
