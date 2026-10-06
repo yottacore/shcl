@@ -141,7 +141,7 @@ When you do want zero-tolerance rigor: schema validation, plus a strict mode tha
 | Bad lines don't break the whole thing | ✅                          | 🚫               | 🚫                                         | 🚫                              | 🚫
 | Who decides a value's type            | Your code, at read time    | The file        | The parser guesses                        | The file                       | Your code
 | Deep nesting                          | Indent or dot paths, mixed | Brace pyramids  | Indent, whitespace-fragile                | `[a.b.c]` headers get old fast | Tag soup
-| Nested arrays                         | 🚫                          | ✅               | ✅                                         | ✅                              | Repeated child tags
+| Nested arrays                         | Repeated child fields      | ✅               | ✅                                         | ✅                              | Repeated child tags
 | Nested object definitions             | ✅                          | ✅               | ✅                                         | ✅                              | ✅
 | Multi-line verbatim blocks            | Fenced, like Markdown      | Escaped strings | Block scalars, with rules to memorize     | Multi-line strings             | CDATA
 | Hand-editable by a non-programmer     | ✅                          | Risky           | Risky                                     | ✅ Mostly                       | 🚫
