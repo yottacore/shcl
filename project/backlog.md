@@ -232,6 +232,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reason: one meaning per bracket. Format 3 isn't cut yet, so this is the cheapest it gets.
 	- Decisions:
 		- 20261006: parens for every selector, brackets only for arrays. Parens for values with brackets for index and wildcard was too confusing, 2 forms for one thing. Braces were weighed too, but PowerShell silently splits `person{Bucky}` into 2 arguments.
+		- 20261006: brackets after a name get a new code, `E029`, so `explain E029` can say selectors moved to parens. The line is kept as written.
 	- Note: 20261006, do it on `valsyn` after chunk C's Rust part and before the Go, Python and C ports, so the ports get written once.
 	- Estimated effort: High
 
