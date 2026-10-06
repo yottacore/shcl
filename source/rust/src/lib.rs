@@ -827,14 +827,15 @@ fn fold_node_into(arena: &mut [NodeData], survivor: usize, loser: usize) {
 /// comes out differently depending on whether the file was saved in between. The
 /// text does not move. `from` is the first child whose leading list may
 /// gain, so a new last child costs one pair; it cannot put a fence after an
-/// empty binding either, so only a full pass looks for one.
-fn settle_block(arena: &mut [NodeData], n: usize, from: usize) {
+/// empty binding either, so only a full pass looks for one. True when a list
+/// joined an empty binding, which moves fields under another parent, so a
+/// caller holding the name index has to drop it.
+fn settle_block(arena: &mut [NodeData], n: usize, from: usize) -> bool {
+	let joined = from <= 1 && settle_fence_trailing(arena, n);
+	// After the join, which can take the last child.
 	let Some(&kid) = arena[n].children.last() else {
-		return;
+		return joined;
 	};
-	if from <= 1 {
-		settle_fence_trailing(arena, n);
-	}
 	if let Some(t) = arena[n].trivia.as_deref_mut()
 		&& !t.inside.is_empty()
 	{
@@ -854,20 +855,22 @@ fn settle_block(arena: &mut [NodeData], n: usize, from: usize) {
 		moved.append(&mut nt.leading);
 		nt.leading = moved;
 	}
+	joined
 }
 
 /// A raw block after an empty binding of its name is written with the fence on
 /// the binding's line, where no comment can follow it, so the emitter writes
 /// its trailing comment on a line of its own above, after the node's blank. A
-/// reload files that line as a leading comment, so file it there now.
-fn settle_fence_trailing(arena: &mut [NodeData], n: usize) {
+/// reload files that line as a leading comment, so file it there now. True
+/// when a list joined an empty binding.
+fn settle_fence_trailing(arena: &mut [NodeData], n: usize) -> bool {
 	let fenced = |nd: &NodeData| matches!(nd.value, Value::Raw(_)) && !nd.trailing().is_empty();
 	if !arena[n]
 		.children
 		.iter()
 		.any(|&c| fenced(&arena[c]) || stacks(&arena[c]))
 	{
-		return;
+		return false;
 	}
 	let mut empties: HashMap<String, usize> = HashMap::new();
 	let mut folded = Vec::new();
@@ -886,9 +889,11 @@ fn settle_fence_trailing(arena: &mut [NodeData], n: usize) {
 			empties.entry(nd.name.clone()).or_insert(c);
 		}
 	}
-	if !folded.is_empty() {
-		arena[n].children.retain(|c| !folded.contains(c));
+	if folded.is_empty() {
+		return false;
 	}
+	arena[n].children.retain(|c| !folded.contains(c));
+	true
 }
 
 /// A list after an empty binding of its name, which a stacked header would
@@ -5207,8 +5212,10 @@ impl Document {
 	/// Items of a list no text loads back: one with a field under it (E001),
 	/// so written stacked, after an empty binding of its name that has
 	/// fields. A reload joins its bare header to that binding and drops the
-	/// items (E008), so a save refuses (2026100511210900). A load never
-	/// builds one; an edit or a merge can.
+	/// items (E008), so a save refuses (2026100511210900). An edit or a merge
+	/// can build one, and so can a load, where a kept array line (E028)
+	/// heads the list. Then the source text loads it back, so the save that
+	/// keeps lines still writes it.
 	fn unloadable_items(&self) -> usize {
 		let mut n = 0;
 		let mut stack = vec![ROOT];
@@ -5435,10 +5442,11 @@ impl Document {
 		// The reparse check below cannot see a kept line gone from both the
 		// tree and the text, so falling back leaves it to the lost-count gate.
 		// A source that was canonical skips that check, so a list no text
-		// loads back falls back to it too.
+		// loads back falls back to it too. Any other source is held to the
+		// check, and one that loads such a list back is kept.
 		if let Some(src) = &self.source
 			&& self.kept_shortfall() == 0
-			&& self.unloadable_items() == 0
+			&& (!src.is_empty() || self.unloadable_items() == 0)
 			&& let Some(t) = keep_lines(src, self)
 		{
 			return (t, true);
@@ -9139,7 +9147,7 @@ impl Document {
 			self.arena[idx].triv_mut().leading = lines;
 		}
 		let last = self.arena[parent].children.len() - 1;
-		settle_block(&mut self.arena, parent, last);
+		self.settle(parent, last);
 		idx
 	}
 
@@ -9506,8 +9514,16 @@ impl Document {
 		if let Some(ix) = self.index.get_mut() {
 			ix.append(name_key(parent, name), idx);
 		}
-		settle_block(&mut self.arena, parent, pos);
+		self.settle(parent, pos);
 		idx
+	}
+
+	/// settle_block(), dropping the name index when a list joined an empty
+	/// binding, since that moves fields to another parent.
+	fn settle(&mut self, n: usize, from: usize) {
+		if settle_block(&mut self.arena, n, from) {
+			self.index.take();
+		}
 	}
 
 	/// A written value may now collide with a same-named sibling under the
@@ -9543,7 +9559,7 @@ impl Document {
 		let kept = self.arena[survivor].children.len();
 		fold_node_into(&mut self.arena, survivor, loser);
 		self.arena[parent].children.retain(|&c| c != loser);
-		settle_block(&mut self.arena, parent, 1);
+		self.settle(parent, 1);
 		if let Some(ix) = self.index.get_mut() {
 			ix.unlink(name_key(parent, &self.arena[loser].name), loser);
 			for &k in &self.arena[survivor].children[kept..] {
@@ -9569,6 +9585,12 @@ impl Document {
 					self.arena[parent].children.retain(|&k| k != c);
 					if let Some(ix) = self.index.get_mut() {
 						ix.unlink(name_key(parent, name), c);
+						// The binding had no fields, so all of them came over.
+						for &k in &self.arena[e].children {
+							let name = &self.arena[k].name;
+							ix.unlink(name_key(c, name), k);
+							ix.append(name_key(e, name), k);
+						}
 					}
 				}
 			} else if nd.value.is_empty() && empty.is_none() {
@@ -9623,7 +9645,7 @@ impl Document {
 				}
 			}
 			self.arena[parent].children = keep;
-			settle_block(&mut self.arena, parent, 1);
+			self.settle(parent, 1);
 		}
 	}
 
@@ -10225,7 +10247,7 @@ impl Document {
 		let mut touched = Vec::new();
 		self.overlay(ROOT, over, ROOT, &mut touched);
 		for n in touched {
-			settle_block(&mut self.arena, n, 1);
+			self.settle(n, 1);
 		}
 		// Layers commonly share a footer; keeping one copy of each keeps a
 		// stack of files from repeating it once per layer. Only the lines
