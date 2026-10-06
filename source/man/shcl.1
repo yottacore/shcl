@@ -3,7 +3,7 @@
 .\"
 .\" Has no version string on purpose: the release bump touches eight files
 .\" and this is not one of them. Keep it in step with HELP in the four CLIs.
-.TH SHCL 1 2026-10-05 shcl "User Commands"
+.TH SHCL 1 2026-10-06 shcl "User Commands"
 .SH NAME
 shcl \- read, edit, validate and format Simple Hierarchical Config Language files
 .SH SYNOPSIS
@@ -207,8 +207,10 @@ with
 .BR \-\-write ,
 through the same gate as
 .BR fmt ).
-Only what the two rule sets read differently is touched: a backslash 2.x read
-as an escape outside double quotes, a quote that never closed, and the
+Only what the two rule sets read differently is touched, such as a comma
+list, a
+.B *
+item, a selector in brackets, a quote that never closed and the
 .B name:[disc]
 selector sugar. Comments, blank lines, raw bodies and layout come through as
 written. The migrated text's diagnostics are printed, so a line the new rules
@@ -479,7 +481,7 @@ is an int, but a comma or a quote in it is content rather than syntax.
 .I PATH
 ends at the first
 .B =
-outside quotes and brackets, so a selector may hold one.
+outside quotes and parens, so a selector may hold one.
 .TP
 .BI \-\-set\-literal= PATH = TEXT
 .RB ( get ", " fmt ", " count ", " instances ", " children ", " paths ", " set )
@@ -689,12 +691,33 @@ Most of the change is loud: a quote that never closes is
 .BR E017 ,
 bracket text after a colon is
 .BR E019 ,
-an unknown escape in double quotes is
+a bad escape is
 .BR E023 ,
-a Windows path in double quotes with a \et or \en escape is
-.BR E024 ,
+a quote, a tab or a bracket in a bare value is
+.BR E025 ,
+a bare comma before a blank is
+.BR E026 ,
+a
+.B *
+item is
+.BR E013 ,
+a selector in brackets is
+.BR E029 ,
 and a line the current rules cannot read at all is a malformed line. A file
 with one of those says so the first time it loads.
+.B migrate
+quotes such a value, writes a
+.B *
+item as a
+.B \-
+item, and writes a selector in parens, so
+.B base[Boston]
+becomes
+.BR base(Boston) .
+.PP
+One change is quiet: a backslash pair was an escape in 2.x and is text now.
+.B migrate
+leaves every backslash as written.
 .PP
 The comment rule did not change: a
 .B #
@@ -702,25 +725,27 @@ outside quotes opened a comment in 2.x and still does.
 .PP
 Which file it is looking at is the one thing
 .B migrate
-cannot read off the text: a backslash value is written the same way under both
-rule sets and means two different things, so rewriting a 3.0 file would change
-what it says. The info block has a
+cannot read off the text:
+.B p: a,b
+is written the same way under both rule sets and means two different things,
+so rewriting a 3.0 file would change what it says. The info block has a
 .B Format
 line naming the format's major, and that decides. A file with it has
 nothing to migrate. A file without it keeps those spellings as written and
 exits 7, unless
 .B \-\-from\-2x
-says it really is 2.x. A file
+says it really is 2.x. A line the current rules already refuse, such as one
+with a selector in brackets, is rewritten either way. A file
 .B migrate
 rewrites is stamped with the line, so a second run has the answer the first
 one did not. A raw block that never closes leaves the line nowhere to go, so
 .B migrate
 exits 7 and writes nothing until the block is closed.
 .PP
-Bracket text after the colon, and a line break in a value that starts like a
-Windows path, are what 2.x bound that nothing binds now.
+Bracket text after the colon, a selector holding a comma and a comma list on
+a field with lines under it are what 2.x bound that nothing binds now.
 .B migrate
-exits 7 on either rather than reporting success;
+exits 7 on any of them rather than reporting success;
 .B \-\-lossy
 accepts the loss on a rewrite.
 .PP
@@ -795,7 +820,7 @@ Count repeated fields, then fan one read across every instance:
 .RS
 .nf
 shcl count server.shcl site
-shcl get \-\-array \-\-slots server.shcl 'site[*].tls.hsts'
+shcl get \-\-array \-\-slots server.shcl 'site(*).tls.hsts'
 .fi
 .RE
 .PP

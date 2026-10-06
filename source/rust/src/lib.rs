@@ -2490,10 +2490,11 @@ fn opens_raw(rest: &str, tok: &mut Tokens) -> Option<(u8, usize)> {
 /// another way only where these rules would read its text as something
 /// else: a quote it shielded, a real `◉`, a quote, tab or bracket in bare
 /// text, an open quote, which is quoted whole. A comma list goes in
-/// brackets, a `*` item becomes `- `, and a bare name not led by a letter
-/// is quoted. The `name:[disc]` selector sugar loses its colon, and on a
-/// last segment becomes `name: disc`, with `disc` written the way the
-/// formatter writes a value.
+/// brackets, a `*` item becomes `- `, a bare name not led by a letter is
+/// quoted, and a selector goes from brackets to parens, its body quoted
+/// where these rules would refuse it bare. The `name:[disc]` selector sugar
+/// loses its colon, and on a last segment becomes `name: disc`, with `disc`
+/// written the way the formatter writes a value.
 /// Everything else - comments, blank lines, raw bodies, layout, a line 2.x
 /// could not read - comes through as written. One shape has no spelling
 /// here at all: a fence label holding a `#`, which 2.x ran to the end of the
@@ -2777,15 +2778,6 @@ fn quoted_name_now(spelled: &str) -> Option<String> {
 	}
 }
 
-/// True when a selector, brackets left off, reads under the current rules
-/// with no fault, whatever it matches.
-fn selector_clean_now(spelled: &str) -> bool {
-	let line = format!("x[{}]:", spelled);
-	let mut tok = Tokens::default();
-	tokenize(&line, b':', false, Rules::Current, &mut tok);
-	tok.comment.is_none() && tok.misspelled.is_none() && path_fault(&tok, &line).is_none()
-}
-
 fn migrate_line(
 	rest: &str,
 	tok: &mut Tokens,
@@ -2817,6 +2809,14 @@ fn migrate_line(
 			return rest.to_string();
 		}
 		let last = tok.segments.len() - 1;
+		// A selector in brackets is E029 now, so its line never reads clean
+		// and is rewritten whatever the file says it is. Only `name:[disc]`
+		// ending the line is a value here.
+		st.refused_now |= tok
+			.segments
+			.iter()
+			.enumerate()
+			.any(|(i, seg)| seg.selector.is_some() && !(i == last && tok.sep.is_none()));
 		for (i, seg) in tok.segments.iter().enumerate() {
 			let name = &rest[seg.name.start..seg.name.end];
 			// A backslash in a quoted name is text now, and stays. Only a
@@ -2920,7 +2920,7 @@ fn migrate_line(
 				}
 			} else if let Some(c) = colon {
 				// The colon goes, and one space after it when the author
-				// spaced both sides, so `base : [x]` comes out `base [x]`.
+				// spaced both sides, so `base : [x]` comes out `base (x)`.
 				let spaced = c > 0 && is_wsp_byte(s[c - 1]) && is_wsp_byte(s[c + 1]);
 				edits.push((c, c + 1 + usize::from(spaced), String::new()));
 			}
@@ -2931,20 +2931,25 @@ fn migrate_line(
 				st.lost += 1;
 				return rest.to_string();
 			}
+			edits.push((open, open + 1, "(".to_string()));
+			edits.push((close, close + 1, ")".to_string()));
 			// A backslash is text now, and stays. Only a quote or a blank it
-			// shielded, or one the body has bare, or a real escape mark, needs
-			// another spelling.
+			// shielded, or one the body has bare, a paren, or a real escape
+			// mark, needs another spelling.
 			if !index && !selector_reads_back(spelled, body, quoted) {
-				if !st.from_v2 && !st.refused_now && selector_clean_now(spelled) {
-					st.ambiguous += 1;
-					continue;
+				let spelling = migrate_spelling(body, false);
+				// Nothing reads back as that body, so there is no way to
+				// write it in parens.
+				if !selector_reads_back(&spelling, body, true) {
+					st.lost += 1;
+					return rest.to_string();
 				}
 				let (a, b) = if quoted {
 					(sel.start - 1, sel.end + 1)
 				} else {
 					(sel.start, sel.end)
 				};
-				edits.push((a, b, migrate_spelling(body, false)));
+				edits.push((a, b, spelling));
 			}
 		}
 		if tok.sep.is_some() {
@@ -3016,11 +3021,9 @@ struct PathScan {
 }
 
 /// The spelling of an index selector - an optional `+`, then digits - whatever
-/// its size. The grammar says `1*DIGIT`, with no upper bound. The optional `#`
-/// is 2.x's `[#N]`, which `migrate` still reads.
+/// its size. The grammar says `1*DIGIT`, with no upper bound.
 fn index_shape(body: &str) -> bool {
-	let b = body.strip_prefix('#').unwrap_or(body);
-	let b = b.strip_prefix('+').unwrap_or(b);
+	let b = body.strip_prefix('+').unwrap_or(body);
 	!b.is_empty() && b.bytes().all(|c| c.is_ascii_digit())
 }
 
@@ -3048,7 +3051,7 @@ fn selector_of(p: &Piece, text: &str) -> Selector {
 	if let Ok(n) = body.parse::<u64>() {
 		return Selector::ByIndex(n);
 	}
-	if !body.starts_with('#') && index_shape(&body) {
+	if index_shape(&body) {
 		// All digits but past u64: an index no instance can have, not a
 		// value selector that would create one on a write.
 		return Selector::ByIndex(u64::MAX);

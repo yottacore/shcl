@@ -119,6 +119,24 @@ dump="${tmpDir}/dump"; mkdir -p "${dump}"
 nDumped="$(find "${dump}" -maxdepth 1 -name '*.shcl' | wc -l)"
 ((nDumped > 0)) || { echo "check-migrate: the fuzz dump wrote no documents" >&2; exit 2; }
 
+##	The corpus spells a selector in parens now, which 2.x refuses, so each
+##	input that has one is also compared as 2.x wrote it, in brackets. Any
+##	text will do as a 2.x document, so a paren pair is swapped wherever it
+##	follows a name, raw bodies and values included. An input that names
+##	format 3 is current to migrate, which leaves it as written, so it gets no
+##	copy.
+brackets="${tmpDir}/brackets"; mkdir -p "${brackets}"
+python3 -c '
+import os, re, sys
+out = sys.argv[1]
+for f in sys.argv[2:]:
+	text = open(f, "rb").read().decode("utf-8", "surrogateescape")
+	swapped = re.sub(r"(?<=[A-Za-z0-9_\x27\"-])\(([^()\r\n]*)\)", r"[\1]", text)
+	if swapped != text and not re.search(r"^##[ \t]+Format[ \t]+[3-9]", text, re.M):
+		name = os.path.basename(os.path.dirname(f))
+		open(os.path.join(out, "brackets_" + name + ".shcl"), "wb").write(swapped.encode("utf-8", "surrogateescape"))
+' "${brackets}" "${corpus}"/*/input.shcl
+
 ##	The lines 2.x did not read cleanly, by number. A line is clean when every
 ##	code 2.x reports on it binds the line: E001 (field kept), E005 (fence
 ##	unterminated, body kept), E015 (repaired), E017 (kept literally), the two
@@ -212,7 +230,8 @@ for line in sys.stdin.buffer.read().decode("utf-8", "surrogateescape").split("\n
 ##	and per instance the string array, the raw body and the info string, with
 ##	the exit codes, one line per read. A path holding a tab cannot ride the
 ##	loop; those are left to the native runners. A path goes after `--`, since
-##	one led by `-` would read as an option.
+##	one led by `-` would read as an option. An instance is `[#N]` to 2.x and
+##	`(N)` now.
 fReadTree(){
 	local cli="$1" doc="$2" p n i q rc side=now
 	if [[ "${cli}" == "${oldCli}" ]]; then side=2x; fi
@@ -226,7 +245,7 @@ fReadTree(){
 			printf '\x01C\t%s\t%s\n' "${p}" "${n}"
 			[[ "${n}" =~ ^[0-9]+$ ]] || continue
 			for ((i = 0; i < n; i++)); do
-				q="${p}[#${i}]"
+				if [[ "${side}" == 2x ]]; then q="${p}[#${i}]"; else q="${p}(${i})"; fi
 				rc=0; "${cli}" get --string --array --slots "${doc}" -- "${q}" > "${tmpDir}/array" 2>/dev/null || rc=$?
 				if [[ "${side}" == 2x ]]; then fOneLine2x < "${tmpDir}/array"; else cat "${tmpDir}/array"; fi
 				[[ "${rc}" == 0 ]] || echo "string exit ${rc}"
@@ -409,9 +428,9 @@ fTrim(){
 
 declare -i nCompared=0 nCorpus=0 nTrimmed=0 nSkipped=0 nBad=0 nLostChecked=0 nRawOpen=0
 fTest Eq5YPgP corpus and fuzz documents migrate to the tree 2.x read
-for f in "${corpus}"/*/input.shcl "${dump}"/*.shcl; do
+for f in "${corpus}"/*/input.shcl "${brackets}"/*.shcl "${dump}"/*.shcl; do
 	[[ -f "${f}" ]] || continue
-	name="${f%/input.shcl}"; name="${name##*/}"
+	name="${f%/input.shcl}"; name="${name##*/}"; name="${name%.shcl}"
 	if fHasNul "${f}"; then nSkipped+=1; continue; fi
 	## Every document here is a 2.x file by construction, which is exactly what
 	## migrate cannot read off the text: without the flag it leaves the pieces
@@ -554,3 +573,5 @@ echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, 
 ##		            in the new syntax. Paths are compared by name, a quoted
 ##		            name may differ by a backslash pair too, and a selector
 ##		            with a comma or a comma list over lines counts as lost.
+##		2026-10-06  An instance is read as (N) on the current side, and the
+##		            corpus inputs with a selector are compared in brackets too.

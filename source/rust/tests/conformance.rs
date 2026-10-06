@@ -3046,21 +3046,43 @@ fn migrate_escapes_a_real_mark() {
 	assert_eq!(back.get_string("s(0)").unwrap(), "x\u{25C9}y");
 }
 
-// A bare 2.x selector body these rules refuse, such as one with a quote or
-// a space, is quoted, so its block still loads.
+// A 2.x selector goes in parens, and a bare body these rules refuse, such
+// as one with a quote or a space, is quoted, so its block still loads.
 #[test]
 fn migrate_quotes_a_bare_selector_these_rules_refuse() {
 	let _id = test_id("Erwed4D");
 	let m = migrate("srv[O'Brien].port: 1\nsrv[New York].port: 2\n", true);
 	assert!(
 		m.text
-			.starts_with("srv[\"O'Brien\"].port: 1\nsrv[\"New York\"].port: 2\n"),
+			.starts_with("srv(\"O'Brien\").port: 1\nsrv(\"New York\").port: 2\n"),
 		"{:?}",
 		m.text
 	);
 	let back = Document::parse(&m.text);
 	assert!(back.diagnostics().is_empty(), "{:?}", back.diagnostics());
 	assert_eq!(back.count("srv"), 2);
+}
+
+// Every 2.x selector goes in parens: an index, a value, the sugar on a
+// segment before the last, and a body with a paren in it, quoted. A selector
+// in brackets is `E029` under these rules, so a file that does not say it is
+// 2.x gets the same rewrite, with nothing counted.
+#[test]
+fn migrate_writes_selectors_in_parens() {
+	let _id = test_id("ErxqQLy");
+	let text = "a[x].k: 1\nb: y\nb[0].k: 2\nc[a(b)].k: 3\ne:[f].g: 4\nr[\"x\"]:\n\ts: 1\n";
+	let want = "a(x).k: 1\nb: y\nb(0).k: 2\nc(\"a(b)\").k: 3\ne(f).g: 4\nr(\"x\"):\n\ts: 1\n";
+	for from_v2 in [true, false] {
+		let m = migrate(text, from_v2);
+		assert_eq!((m.ambiguous, m.lost), (0, 0), "{}", m.text);
+		assert!(m.text.starts_with(want), "{:?}", m.text);
+	}
+	let back = Document::parse(&migrate(text, true).text);
+	assert!(back.diagnostics().is_empty(), "{:?}", back.diagnostics());
+	assert_eq!(back.get_int("c(\"a(b)\").k").unwrap(), 3);
+	assert_eq!(back.get_int("e(f).g").unwrap(), 4);
+	assert_eq!(back.get_int("b(y).k").unwrap(), 2);
+	assert_eq!(back.get_int("r(x).s").unwrap(), 1);
 }
 
 // What 2.x bound and nothing spells now is counted lost, so the CLI
@@ -3085,13 +3107,20 @@ fn migrate_counts_what_nothing_spells() {
 // A file that does not say it is 2.x could be a 3.0 one. A piece that reads
 // clean under these rules too, such as an escape, a backtick value, `[a]` or
 // a `- ` item, is left as written and counted, so the CLI asks for
-// --from-2x rather than changing a correct file at exit 0.
+// --from-2x rather than changing a correct file at exit 0. A selector in
+// brackets is `E029` now, so its line is rewritten the 2.x way.
 #[test]
 fn migrate_leaves_what_reads_clean_now() {
 	let _id = test_id("Erwed4F");
 	let text = "x: \"a\u{25C9}TAB\u{25C9}b\"\n\"n\u{25C9}TAB\u{25C9}\": 1\nl:\n\t- :0\ns[\"\u{25C9}TAB\u{25C9}\"].p: 1\nb: `abc`\nc: [a]\n";
 	let m = migrate(text, false);
-	assert_eq!(m.ambiguous, 6, "{}", m.text);
-	assert_eq!(m.text, text);
+	assert_eq!(m.ambiguous, 5, "{}", m.text);
+	assert_eq!(
+		m.text,
+		text.replace(
+			"s[\"\u{25C9}TAB\u{25C9}\"]",
+			"s(\"\u{25C9}ESCAPE_CHAR\u{25C9}TAB\u{25C9}ESCAPE_CHAR\u{25C9}\")"
+		)
+	);
 	assert!(migrate(text, true).text.contains("ESCAPE_CHAR"));
 }

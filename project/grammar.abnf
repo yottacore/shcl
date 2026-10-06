@@ -39,10 +39,10 @@ field-line      = indent path *blank ":" *blank [ value ] *blank [ comment ]
                 / indent path *blank ":" *blank fence-open *blank [ comment ]   ; raw block, same-line spelling
                 ; Semantic (not expressible in ABNF): a selector on the LAST path
                 ; segment already supplies that instance's value, so a trailing
-                ; value (field[disc]: value) is grammar-legal but not a valid
+                ; value (field(disc): value) is grammar-legal but not a valid
                 ; binding - the instance is created from the discriminator and the
                 ; value is reported (Error) and dropped. See spec.md "Selectors".
-                ; Semantic likewise: the wildcard selector [*] is query-only. On
+                ; Semantic likewise: the wildcard selector (*) is query-only. On
                 ; a binding line it is grammar-legal but reported (Error,
                 ; "wildcard selector is query-only") and the whole line skipped.
                 ; An index-sel on a binding line selects an existing instance
@@ -57,27 +57,29 @@ indent          = *( SP / HTAB )              ; one kind per subtree (see spec)
 
 path            = segment *( *blank "." *blank segment )
 segment         = field-name *blank [ selector ]
-                ; a "[" right after the name (blank allowed) is a selector; a "["
+                ; a "(" right after the name (blank allowed) is a selector; a "["
                 ; after the ":" starts the value, an array. The same path syntax
                 ; is the query syntax, so a file line and a Get() read
-                ; identically.
-selector        = "[" *blank sel-body *blank "]"
+                ; identically. A "[" right after the name is the old selector
+                ; spelling: E029, kept as written, and refused in a query.
+selector        = "(" *blank sel-body *blank ")"
 sel-body        = index-sel / value-sel
-index-sel       = "#" [ "+" ] 1*DIGIT         ; explicit index; a query spelling only, since
-                                              ; on a file line the "#" opens a comment
-                / [ "+" ] 1*DIGIT              ; bare integer = index
-                ; a leading "+" is accepted either way (list[+1] = list[1]);
-                ; "-" is not an index sign - [-1] is a value selector.
+index-sel       = [ "+" ] 1*DIGIT              ; bare integer = index
+                ; a leading "+" is accepted (list(+1) = list(1)); "-" is not
+                ; an index sign - (-1) is a value selector. The old "[#N]"
+                ; index is gone: a bare body that starts with "#" opens a
+                ; comment on a file line and finds nothing in a query.
 value-sel       = quoted / bare-sel           ; non-numeric bare, or quoted (forces value)
-bare-sel        = 1*( bare-text / escape )
-                ; a bare selector's scan runs to the first "]", so a "." passes
-                ; through (base[St.Paul].p resolves). It is stricter than a
-                ; value: whitespace, a quote, a ":", a "," or a "[" in it is
-                ; E025, a quote that opens it and never closes is E017, and a
-                ; "#" opens a comment, which leaves the selector unterminated
-                ; (E014). To embed any of those, quote the discriminator:
-                ; base["a]b"], base["New York"], host["a:b"]. A selector
-                ; matches one plain value, never an array or a raw block.
+bare-sel        = 1*( sel-text / escape )
+                ; a bare selector's scan runs to the first ")", so a "." passes
+                ; through (base(St.Paul).p resolves). It is stricter than a
+                ; value: whitespace, a quote, a ":", a ",", a bracket or a
+                ; paren in it is E025, a quote that opens it and never closes
+                ; is E017, and a "#" opens a comment, which leaves the
+                ; selector unterminated (E014). To embed any of those, quote
+                ; the discriminator: base("a)b"), base("New York"),
+                ; host("a:b"). A selector matches one plain value, never an
+                ; array or a raw block.
 
 field-name      = quoted / bare-name
 bare-name       = ALPHA *name-char
@@ -181,6 +183,11 @@ fmt-bare-char   = %x21 / %x24-26 / %x28-2B / %x2D-39 / %x3B-5A / %x5C
                 / %x1BCA4-1D172 / %x1D17B-DFFFF / %xE1000-10FFFF
 variation-sel   = %x180B-180D / %x180F / %xFE00-FE0F / %xE0100-E01EF
 bare-text       = %x0-8 / %xE-1F / %x21 / %x24-26 / %x28-2B / %x2D-39
+                / %x3B-5A / %x5C / %x5E-5F / %x61-84 / %x86-9F
+                / %xA1-167F / %x1681-1FFF / %x200B-2027 / %x202A-202E
+                / %x2030-205E / %x2060-25C8 / %x25CA-2FFF
+                / %x3001-10FFFF
+sel-text        = %x0-8 / %xE-1F / %x21 / %x24-26 / %x2A-2B / %x2D-39
                 / %x3B-5A / %x5C / %x5E-5F / %x61-84 / %x86-9F
                 / %xA1-167F / %x1681-1FFF / %x200B-2027 / %x202A-202E
                 / %x2030-205E / %x2060-25C8 / %x25CA-2FFF

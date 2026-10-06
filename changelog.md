@@ -34,11 +34,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `fmt` keeps a plain string in the quotes it was written in.
 
-- The `field:[disc]` selector form is gone. `field[disc]` is the one spelling.
+- A selector is written in parens, `site(example.com).root`, and brackets are only for arrays. A selector in brackets is `E029`, and a path in brackets is refused. The `field:[disc]` form and the `[#N]` index are gone; an index is `site(0)`. Quote a path with a paren on a command line.
 
 - `fmt` and every canonical save keep the quotes on a number with a leading zero, such as `zip: "02134"`, where they took them off.
 
-- `shcl migrate FILE --from-2x` rewrites a 2.x file for these rules and leaves comments and layout alone. It writes comma lists in brackets and `*` items as `- `, quotes what would now read differently, and leaves a backslash as written. With `--write` the original is kept beside it, as `config_old_v2.shcl` for `config.shcl`.
+- `shcl migrate FILE --from-2x` rewrites a 2.x file for these rules and leaves comments and layout alone. It writes comma lists in brackets, `*` items as `- ` and selectors in parens, quotes what would now read differently, and leaves a backslash as written. With `--write` the original is kept beside it, as `config_old_v2.shcl` for `config.shcl`.
 
 - Exit 1 is a usage error only. A save-gate refusal is 7, and a file or stream that cannot be read or written is 8.
 
@@ -70,7 +70,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `parse_keep_lines()`, `load_file_keep_lines()`, `to_text_keep_lines()` and `save_file_keep_lines()` in every binding save a file with the lines no edit touched left as they were, dropped lines included, and fall back to the canonical form when that would not load back the same.
 
-- `instance_paths()` in every binding walks a file one instance at a time, with `[#i]` on each repeated name.
+- `instance_paths()` in every binding walks a file one instance at a time, with `(i)` on each repeated name.
 
 - `format_version()` and `migrate_unstamped()` in every binding, for a program that writes its own info block.
 
@@ -130,7 +130,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Parsing
 
-- A line indented under a skipped line is skipped with it (`E018`) instead of moving up a level. That now holds under `E006`, `E012`, `E013` and a dropped `*` element as well.
+- A line indented under a skipped line is skipped with it (`E018`) instead of moving up a level. That now holds under `E006`, `E012`, `E013` and a dropped `- ` item as well.
 
 - A skipped line that opens a raw block takes the block with it.
 
@@ -156,13 +156,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A quote in the middle of a bare value or a selector no longer swallows the rest of the line.
 
-- A value after an index selector (`a[0]: 2`) is `E002` and counts as lost.
+- A value after an index selector (`a(0): 2`) is `E002` and counts as lost.
 
 - A colon inside a name or selector no longer hides a bracket array from `E019`.
 
-- A `*` followed by only a space is an empty element (`E009`).
+- A `- ` with nothing after it is an empty item (`E009`).
 
-- A trailing comment on a top-level `*` line is kept.
+- A trailing comment on a top-level `- ` line is kept.
 
 - A comment or malformed line under a stacked list that folds into an earlier instance is no longer dropped.
 
@@ -210,7 +210,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `SetFloat` refuses infinity and NaN, and `SetDateTime` refuses a date that cannot exist.
 
-- `SetLiteral` refuses bracket text.
+- `SetLiteral` refuses text a file line would refuse, such as a malformed array or a bad escape.
 
 - `SetComment` refuses text with a line break, trims the way the load does, and puts the blank separator line above the comment.
 
@@ -254,7 +254,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `init` writes lines in tree order.
 
-- `init` selects a valued parent's instance by its value (`srv[web].port:`), on live and commented lines alike.
+- `init` selects a valued parent's instance by its value (`srv(web).port:`), on live and commented lines alike.
 
 - `init` names a required path it cannot generate.
 
@@ -294,7 +294,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `-` may be named only once across FILE, `--layer` and `--schema`.
 
-- `--set` splits at the first `=` outside quotes and brackets.
+- `--set` splits at the first `=` outside quotes and parens.
 
 - `--default` with `--on-bad=error` is a usage error.
 
@@ -317,8 +317,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `set` skips a byte order mark at the start of its ops, which Windows PowerShell 5.1 adds to piped text.
 
 - `set --write` says when it had to save the canonical form instead of keeping the lines.
-
-- `tokens` reads a `*` with only a blank after it as an empty element, as the parser does.
 
 - The Go and Python CLIs report a file that will not open as the file name and the system's message.
 

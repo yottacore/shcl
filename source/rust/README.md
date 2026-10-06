@@ -32,23 +32,23 @@ if file_status == FileStatus::NotFound {
 }
 
 // One call, a typed value, a visible fallback at the call site.
-let limit = doc.get_int("site[example.com].max-upload-mb").unwrap_or(10);
+let limit = doc.get_int("site(example.com).max-upload-mb").unwrap_or(10);
 
 // Or ask why a read failed: Good, Empty, NotFound, BadType, Multiple.
-let r = doc.read_int("site[example.com].max-upload-mb");
+let r = doc.read_int("site(example.com).max-upload-mb");
 if !r.ok() {
 	eprintln!("{:?} (raw text was {:?})", r.status, r.raw);
 }
 
 // Wildcards read across instances, with a status per slot.
-let roots = doc.read_string_array("site[*].root");
+let roots = doc.read_string_array("site(*).root");
 
 // Writes through a temp file and a rename, so an interrupted save cannot
 // truncate the config - and refuses if the load dropped a line this write
 // would delete (save_file_lossy is the override).
 // Setters are #[must_use]: a path that cannot be written writes nothing at
 // all, and write_reason names which of the five reasons it hit.
-let path = "site[example.com].max-upload-mb";
+let path = "site(example.com).max-upload-mb";
 if !doc.set_int(path, limit * 2) {
 	eprintln!("not written: {:?}", doc.write_reason(path));
 }

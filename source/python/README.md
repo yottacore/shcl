@@ -25,23 +25,23 @@ if file_status is FileStatus.NotFound:
 	print("no config yet - using defaults")
 
 # One call, a typed value, a visible fallback at the call site.
-limit = doc.get_int("site[example.com].max-upload-mb", default=10)
+limit = doc.get_int("site(example.com).max-upload-mb", default=10)
 
 # Or ask why a read failed: Good, Empty, NotFound, BadType, Multiple.
-r = doc.read_int("site[example.com].max-upload-mb")
+r = doc.read_int("site(example.com).max-upload-mb")
 if r.status is not Status.Good:
 	print(r.status, r.raw)
 
 # Wildcards read across instances, with a status per slot.
-roots = doc.read_string_array("site[*].root")
+roots = doc.read_string_array("site(*).root")
 
 # Writes through a temp file and a rename, so an interrupted save cannot
 # truncate the config - and raises SaveRefused if the load dropped a line this
 # write would delete (save_file_lossy is the override).
 # A setter reports whether the write applied: a path that cannot be written
 # writes nothing at all, and write_reason names which of the five reasons.
-if not doc.set_int("site[example.com].max-upload-mb", limit * 2):
-	print(doc.write_reason("site[example.com].max-upload-mb"))
+if not doc.set_int("site(example.com).max-upload-mb", limit * 2):
+	print(doc.write_reason("site(example.com).max-upload-mb"))
 doc.save_file("server.shcl")
 ~~~
 
