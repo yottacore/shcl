@@ -189,6 +189,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 			- value-syntax.md's `\uXXXX` row changed too: 2.x read it as text, so it stays as written.
 			- The lost message names all 3 kinds.
 		- 20261006: chunk C's design.md and changelog piece on `vsdoc`, off `valsyn`. Docs only. design.md's Lexical edges and Load outcomes tables, the 3.0 and `migrate` notes, the `--set-literal` example, the setter note example and the generation row match the built rules, and the `H003`, bracket text and display-form selector entries are marked superseded. value-syntax.md's Roadmap marks design.md done. The changelog's old backslash, `E024` and `H003` entries are replaced by the value syntax changes. Verified: check-docs before and after staging, check-readme, markdownlint. Left: 2026100610073400 changes design.md's selector text again; changelog Fixed entries about `*` items and `SetLiteral` refusing bracket text are left as written.
+		- 20261006: selectors in parens, the Rust part, on `vspar` (2026100610073400). `migrate`, the docs and the ports still write or read brackets.
 	- Decisions:
 		- 20261002: idea 3, with the changes listed in the design doc. Open points and their proposed answers are under its Roadmap.
 		- 20261002: a quote anywhere in a bare value is an error, and a bare field name starts with a letter. Dates, times, durations and sizes without spaces stay bare.
@@ -211,7 +212,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - Selectors use `()`, and `[]` is for arrays only
 	- ID: 2026100610073400
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Started
 	- Priority: High
 	- Opened: 20261006-100734
 	- Opened by: JC
@@ -236,6 +237,28 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261006: brackets after a name get a new code, `E029`, so `explain E029` can say selectors moved to parens. The line is kept as written.
 	- Note: 20261006, do it on `valsyn` after chunk C's Rust part and before the Go, Python and C ports, so the ports get written once.
 	- Estimated effort: High
+	- Progress log:
+		- 20261006: the Rust part on `vspar`, off `valsyn`, library and CLI, `migrate` aside.
+			- In: a selector reads in parens in files, lookups, setters, `--set` and schema paths. One in brackets is `E029`, kept as written. When it selects by value, the lines under it load under that instance. A path in brackets is refused, and the CLI and `V093` say why. `[#N]` is gone: a bare body that starts with `#` is `E025`, and so is a paren in a bare body. `explain E029` is new.
+			- Writer: `InstancePaths()`, `init`'s lines and the CLI help write parens. `Paths()` and `QuoteSegment` already quote a name with a paren in it. The stale `gen_selector_text` doc comment is fixed.
+			- Corpus: 75 cases moved to parens, new case 203. The migrate cases 118, 122, 170 and 174 keep their 2.x inputs, so loaded as they are their selector lines are `E029` now, and their reads moved with that.
+			- cli-regress: 14 new rows, 30 edited in place. perf-gate's selector workload, check-docs' lookups into the comparison results and the demo's `get` step use parens.
+			- The 2,000,000 release fuzz found the fmt fixpoint property missing the excuse the setter property has for 2026100511210900's list, which a kept array line can build. Older than this change. Fixed in the property, test `Erxfmqc`.
+		- 20261006: calls made in the Rust part that the doc does not settle. Each is easy to reverse.
+			- `E029` comes before every other fault in the path and the name, so `base[New York]:` says brackets first. Its level opens only when the body reads clean as a value. An index or a wildcard in brackets opens nothing, so the lines under `item[0]:` are `E018`, as under `item(0):`.
+			- A nested pair, `x(a(b))`, is `E014`, since the body ends at the first `)`, as `x[a[b]]` did. Only a lone `(` in a bare body is `E025`.
+			- A lookup body that starts with `#` finds nothing, like any bad body. The CLI names a path in brackets in its `get`, `--set`, `--remove` and ops errors: "a selector is written in parens now".
+			- The tokenizer still reads a bracket selector, to its `]`, and notes it. `tokens` shows it as `sel=` and prints no new field.
+			- `init` refuses a child of a parent whose default is an array (`V097`), since a selector matches one plain value. It used to write `tags[a].k`, which made a second `tags`.
+			- A value with a paren is written bare.
+		- 20261006: left for the next pieces.
+			- `migrate` still writes brackets. So `migrate_matches_expected` (118, 122, 170, 174), `migrate_escapes_a_real_mark`, `migrate_quotes_a_bare_selector_these_rules_refuse` and `migrate_leaves_what_reads_clean_now` fail, and check-migrate is at 579 divergences, partly because its read loop builds `[#i]` paths.
+			- check-docs fails `Er1z2hW` (no `E029` row in spec.md), `EqWax3I` (4 bracket samples in check-abnf) and `Eom0qpm`, and check-readme fails `EqRTWFg`, both on the README sample's bracket selector.
+			- spec.md, grammar.abnf, check-abnf, design.md, value-syntax.md, README, the man page (its `--set` text and the `site[*]` example), the changelog, then the Go, Python and C ports.
+	- Branch: `vspar`
+	- Commit: `c4da140e`
+	- Test case: corpus 203 (`ErxfmqL`), conformance `Erxfmqa` and `Erxfmqb`, fuzz `Erxfmqc`, cli-regress `ErxfmqM` to `ErxfmqZ`. Each failed on the code before but `ErxfmqU`, a pinning row.
+	- Verified: cargo test but the 4 `migrate` tests above, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, shellcheck, markdownlint. shell-regress fails the same 2 as on `valsyn`. The 2,000,000 release fuzz passes all 25.
 
 - Back up and rewrite a config file when a program's shcl upgrade breaks it
 	- ID: 2026100313461649
