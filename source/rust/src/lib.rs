@@ -2857,6 +2857,9 @@ struct Fault {
 	code: &'static str,
 	msg: String,
 	opens: bool,
+	/// Where on the line it went wrong, as a byte offset into the text after
+	/// the indent, for a message that names the column.
+	at: Option<usize>,
 }
 
 impl Fault {
@@ -2865,6 +2868,7 @@ impl Fault {
 			code,
 			msg: msg.into(),
 			opens,
+			at: None,
 		}
 	}
 }
@@ -3007,20 +3011,35 @@ fn line_fault(tok: &Tokens, text: &str) -> Option<Fault> {
 }
 
 /// The half of line_fault judged before the element cap: the path and the
-/// name. A line with no colon is the missing colon whatever its name
-/// (`E015`), so the name rule asks only of a line that has one.
+/// name. A line with no colon that is one name or path, `404` included, is
+/// the missing colon (`E015`), so the name rule asks only of a line that has
+/// one. A blank in a bare name with no colon could be a name and a value, so
+/// that line is not guessed at (spec.md, Error handling philosophy).
 fn name_fault(tok: &Tokens, text: &str) -> Option<Fault> {
 	if let Some(f) = path_fault(tok, text) {
 		return Some(f);
 	}
-	if tok.misspelled.is_some() && tok.sep.is_some() {
+	tok.misspelled?;
+	if tok.sep.is_some() {
 		return Some(Fault::new(
 			"E014",
 			"field name needs quotes; a bare name is a letter, then letters, digits, '-' and '_'",
 			true,
 		));
 	}
-	None
+	let s = text.as_bytes();
+	let blank = tok
+		.segments
+		.iter()
+		.filter(|seg| seg.name.quote == Quote::None)
+		.find_map(|seg| (seg.name.start..seg.name.end).find(|&k| is_wsp_byte(s[k])))?;
+	let mut f = Fault::new(
+		"E014",
+		"malformed line skipped: unexpected character after the path",
+		true,
+	);
+	f.at = (blank..s.len()).find(|&k| !is_wsp_byte(s[k]));
+	Some(f)
 }
 
 /// The half of line_fault judged after the element cap: the value. A line
@@ -4923,10 +4942,14 @@ impl<'a> Parser<'a> {
 				named => named,
 			};
 			if let Some(f) = fault {
+				let msg = match f.at {
+					Some(at) => format!("{}, at column {}", f.msg, indent.len() + lead + at + 1),
+					None => f.msg,
+				};
 				self.refuse(
 					lineno,
 					f.code,
-					f.msg,
+					msg,
 					Outcome::Retained {
 						text: trim_wsp_end(rest).to_string(),
 						blank_before: had_blank,
