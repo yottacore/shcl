@@ -1115,6 +1115,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Installer: `install.bash` 1.2.0 as `tester` picked `shcl-2.0.0-linux-arm64`, checked the signed sums, installed and ran it, and `--uninstall` removed it.
 		- glibc floor: the binary asks for `GLIBC_2.30` at most and no libgcc_s. The installer's smoke check on glibc 2.28 (Debian 10) prints the loader's `GLIBC_2.30' not found` line and then the 2.30 message. On glibc 2.31 (Debian 11) it passes.
 		- `windows-arm64` under Wine 10.0: `--version` runs, and the corpus goldens pass 493 of 495. One is case 182, as above. The other was case 130's `set` failing once. It passed 6 reruns after, and a second pass over all 50 `set` cases. cli-regress through Wine was not run. Each call takes about 9 seconds there, so a run would be well over an hour.
+		- 20261006: no item for cli-regress under Wine. The corpus pass is enough.
 	- Branch: `arm64run`
 	- Commit: `2f7d592d`
 	- Test case: corpus goldens, cli-regress and crosscheck against the arm64 binary. The Go, Python and C conformance suites run natively. A one-off run on a test host, so no new CI test.
