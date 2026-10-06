@@ -82,8 +82,9 @@ elif [[ -n "${namesFile}" ]]; then
 	if [[ "${namesFile}" == "-" ]]; then mapfile -t names; else mapfile -t names < "${namesFile}"; fi
 else
 	command -v gh >/dev/null || fDie "need gh, or pass --dir or --names" 2
-	mapfile -t names < <(gh release view "${tag}" --repo "${repo}" --json assets -q '.assets[].name') \
+	ghNames="$(gh release view "${tag}" --repo "${repo}" --json assets -q '.assets[].name')" \
 		|| fDie "gh could not read release ${tag} on ${repo}"
+	mapfile -t names <<<"${ghNames}"
 fi
 
 ver="$(fUploadName "${tag#v}")"
