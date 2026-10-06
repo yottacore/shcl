@@ -750,7 +750,7 @@ What the build has today, and what replaces it.
 	- Rust, then Go, Python and C, then the C++ veneer. Rust is done. The ports are next.
 	- The tokenizer, the writer, `SetLiteral` and `--set-literal`, and `migrate`. `--set` and the typed setters take data, not syntax, so `--set 'title=My App'` still works. Done in Rust.
 	- One generated table for the escape names and aliases and the whitespace list, beside the hidden-character list. Done, in `cicd/utility/gen-escapes.py`. It also writes the grammar's escape names and the escape table in `spec.md`.
-	- `spec.md`, `grammar.abnf`, and `design.md` under Lexical edges and Load outcomes. `spec.md` and `grammar.abnf` are done. `design.md` is still open.
+	- `spec.md`, `grammar.abnf`, and `design.md` under Lexical edges and Load outcomes. All 3 are done.
 	- Corpus cases and goldens. Most goldens change, since arrays and quoting change. Done for Rust.
 	- CLI help showing the quoted form for `--set-literal`: `--set-literal 'title="My App"'`. Done.
 	- Comments nesting under kept lines, 2026100218185700. Done.

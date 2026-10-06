@@ -8,27 +8,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `children` on a path with several instances lists each one's children, where it listed nothing.
 
-- Escapes are read inside double quotes only. Single quotes are literal, and a backslash in bare text is a plain character, so `path: C:\dir\new` reads as written.
+- A backslash is plain text everywhere, bare or in either quote, so `path: "C:\temp\new"` reads as written. `\n`, `\t`, `\\`, `\"`, `\uXXXX` and the rest are not escapes any more, and `\,` and `\#` no longer protect a comma or a `#`.
 
-- `\,` and `\#` no longer protect a comma or a `#` in bare text. Quote the value instead.
+- An escape is a name between two `◉` marks, from a fixed list: `◉NEWLINE◉`, `◉TAB◉`, `◉U+200B◉`, and `◉ESCAPE_CHAR◉` for the mark itself. Anything else between two marks is `E023`.
+
+- `fmt` and every save write a line break, a tab in quotes and each invisible character as a `◉` escape. A zero-width space or a direction mark comes out as `◉U+XXXX◉`. The joiners stay as written, and so do a variation selector after a visible character and the tags of a subdivision flag.
+
+- A value in backticks, such as `` `#FF8800` `` or `` `\x7F` ``, is raw. A read returns the text as written, with a `backtick` flag, for the program to decode.
+
+- An array is written in brackets, `ports: [80, 443]`, or one `- ` item per line. `[]` is empty. A malformed one is `E019`.
+
+- A bare value may hold spaces, as in `title: My App`, but not a quote, a tab or a bracket (`E025`). A colon or comma needs a character other than whitespace right after it, so `rw,noatime` and `localhost:8080` stay bare, `host: a.com port: 80` is `E025` and `ports: 80, 443` is `E026`.
+
+- A bare field name starts with a letter. Quote any other name, as in `"404": x`, or it is `E014`.
+
+- `*` is no longer a list marker (`E013`). `- name: value` is `E027`, and an array on a field with lines under it is `E028`.
+
+- A quote or backtick that never closes is `E017`.
+
+- Each of these errors keeps its line as written. When the name reads, the lines under it still load.
+
+- `E010`, `E024`, `H003` and `H004` are retired.
+
+- A selector matches one plain value, never an array.
+
+- `fmt` keeps a plain string in the quotes it was written in.
 
 - The `field:[disc]` selector form is gone. `field[disc]` is the one spelling.
 
-- Bracket text after a colon, such as `ports: [80, 443]`, is `E019`. The line is kept as written and binds nothing, and the lines under it still load.
-
-- An escape in double quotes other than `\t`, `\n`, `\\`, `\"` and `\'` is `E023`, so `"C:\work\new"` no longer loads with a newline in it. The line is kept as written and binds nothing. When the pair is in the value, the lines under it still load. `migrate` doubles the backslash.
-
-- `\uXXXX` and `\UXXXXXXXX` in double quotes name a character, as in TOML. 2.x kept them as written, so `migrate --from-2x` doubles the backslash. One that names no character is `E023`.
-
-- `fmt` and every save write an invisible character in a name or value as a `\u` escape, or `\U` past U+FFFF: a control, a line or paragraph separator, and each character Unicode lists as default-ignorable, such as a zero-width space, a direction mark or override, a soft hyphen, the byte order mark or a tag character. The joiners stay as written, and so do a variation selector after a visible character and the tags of a subdivision flag. A carriage return inside a value comes out as `\u000D`.
-
-- A double-quoted value that starts like a Windows path and holds a `\t` or `\n` escape, such as `"C:\temp"`, is `E024`. The line is kept as written and binds nothing, and the lines under it still load. It was the hint `H004` before this release, and `H004` is retired. A tab or line break written into such a value goes out as `\u0009` or `\u000A`. `migrate` writes a 2.x tab there as it is, and counts a 2.x line break there as a binding nothing reads now.
-
 - `fmt` and every canonical save keep the quotes on a number with a leading zero, such as `zip: "02134"`, where they took them off.
 
-- A quote opens a quoted piece only as its first character. One that never closes is read as text and reported as `E017`.
-
-- `shcl migrate FILE --from-2x` rewrites a 2.x file for these rules and leaves comments and layout alone. With `--write` the original is kept beside it, as `config_old_v2.shcl` for `config.shcl`.
+- `shcl migrate FILE --from-2x` rewrites a 2.x file for these rules and leaves comments and layout alone. It writes comma lists in brackets and `*` items as `- `, quotes what would now read differently, and leaves a backslash as written. With `--write` the original is kept beside it, as `config_old_v2.shcl` for `config.shcl`.
 
 - Exit 1 is a usage error only. A save-gate refusal is 7, and a file or stream that cannot be read or written is 8.
 
@@ -103,8 +113,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `get_raw_info` and `get_raw_info_or` in Rust, Go and Python.
 
 - A `DateTime` alias beside `Datetime` in Rust and Python.
-
-- `H003`, a hint for a `* key: value` element, which reads as one string.
 
 - `V097`: `init` checks its own output against the schema before returning it.
 
