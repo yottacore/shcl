@@ -143,6 +143,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261006: on valsyn, `migrate` follows the new rules, and check-migrate passes there. Next: design.md and the changelog, then 2026100610073400, then the Go, Python and C ports.
 		- 20261006: on valsyn, design.md and the changelog caught up, and 2026100610073400 is in for Rust and the docs. Next: the Go, Python and C ports.
 		- 20261006: on valsyn, the Go port's parts 1 and 2 (values, lists) and the Python port's part 1 (values) are in. Go fails only parens, `E029` and `migrate` cases now. Next: Go part 3, Python parts 2 and 3, then C.
+		- 20261006: on valsyn, the Go port is done and passes the whole corpus with no crosscheck divergences. Python's lists and parens are in, so it fails only `migrate`. C's part 1 (values) is in. Next: Python `migrate`, then C parts 2 and 3 with the C++ interface.
 	- Decisions:
 		- 20261002: idea 3, with the changes listed in the design doc. Open points and their proposed answers are under its Roadmap.
 		- 20261002: a quote anywhere in a bare value is an error, and a bare field name starts with a letter. Dates, times, durations and sizes without spaces stay bare.
@@ -185,6 +186,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: 20261006, do it on `valsyn` after chunk C's Rust part and before the Go, Python and C ports, so the ports get written once.
 	- Progress log:
 		- 20261006: on valsyn, Rust and the docs are in, `migrate` included (`vspar`, `vsmig2`). Valsyn's copy of this file has the details. The Go, Python and C ports are left, with 2026100207032800's.
+		- 20261006: on valsyn, Go is done, `migrate` included. Python is in but for `migrate`. C is left.
 	- Estimated effort: High
 
 - Back up and rewrite a config file when a program's shcl upgrade breaks it
