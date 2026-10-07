@@ -1,14 +1,14 @@
 # A carriage return is a blank outside a raw body: trimmed at every edge of
 # a piece and content in the middle of one.
 name: 1
-srv[web].port: 2
-list: a, b, c
+srv(web).port: 2
+list: [a, b, c]
 mid: ab
 note: v#c
 # a whole-line comment behind a carriage return
 stack:
-	*one
-	* two
+	-one
+	- two
 raw: ```sql  # label
 body
 ```

@@ -807,7 +807,7 @@ class SeqGen:
 			elif shape == 7:
 				out.append(f"{ind} {name}: {self.below(3)}")
 			elif shape == 8:
-				out.append(f"{ind}{name}:\n{ind}\t* 1\n{ind} x: 1\n{ind}\t* 2")
+				out.append(f"{ind}{name}:\n{ind}\t- 1\n{ind} x: 1\n{ind}\t- 2")
 			else:
 				out.append(f"{ind}\t# deep")
 		return "".join(line + "\n" for line in out)
@@ -835,6 +835,33 @@ def keeps_every_line(base):
 	text, kept = doc.to_text_keep_lines()
 	rest = iter(text.split("\n"))
 	return not kept or all(any(t == ln for t in rest) for ln in base.split("\n") if ln.strip())
+
+
+def list_after_empty(doc) -> bool:
+	"""A list with a field under it (E001) after an empty binding of its name
+	that has fields of its own. A merge or an edit can leave one, and then no
+	text reloads as it: stacked, its header joins that binding and its items
+	are dropped (E008), and in brackets it is E028 (2026100511210900). The save
+	gate counts its items lost, so it is never written; the fixture checks that
+	and skips the rest."""
+	for p in doc.instance_paths():
+		r = doc.read_string(p)
+		if not doc.children(p) or r.status != shcl.Status.Good or r.quoted or not r.value.startswith("["):
+			continue
+		if not p.endswith(")"):
+			continue
+		at = p.rfind("(")
+		if at < 0:
+			continue
+		try:
+			k = int(p[at + 1:-1])
+		except ValueError:
+			continue
+		for j in range(k):
+			e = f"{p[:at]}({j})"
+			if doc.read_string(e).status == shcl.Status.Empty and doc.children(e):
+				return True
+	return False
 
 
 def reload_took_only_comments(live: str, back: str) -> bool:
@@ -934,6 +961,10 @@ def edits_and_merges_match_a_reload():
 				else:
 					d.set_banner(v != "v0")
 			log += f"merge:\n{layer}" if op <= 1 else f"op {op} at {path!r}\n"
+			if list_after_empty(live):
+				if live.lost_count() == 0:
+					raise SystemExit(f"a list no text loads back saves at iteration {i}:\n{log}")
+				break
 			a, b = live.to_canonical(), back.to_canonical()
 			if a != b and not (op in (4, 9) and reload_took_only_comments(a, b)):
 				raise SystemExit(f"a step on the document and on its reload differ at iteration {i}:\n{log}--- live\n{a}--- reload\n{b}")
@@ -1399,13 +1430,13 @@ def main():
 	wdoc = shcl.Document.parse("a:\n\tb: 1\n")
 	for wpath, wwant in (
 		("a.b", shcl.WriteReason.Writable),
-		("a.new[Boston].x", shcl.WriteReason.Writable),   # creatable
+		("a.new(Boston).x", shcl.WriteReason.Writable),   # creatable
 		("", shcl.WriteReason.BadPath),
 		("a..b", shcl.WriteReason.BadPath),
 		("a.b: 2", shcl.WriteReason.ValueInPath),
-		("a[*].b", shcl.WriteReason.Wildcard),
-		("a[#5].b", shcl.WriteReason.NoSuchIndex),
-		("nope[#0].b", shcl.WriteReason.NoSuchIndex),
+		("a(*).b", shcl.WriteReason.Wildcard),
+		("a(5).b", shcl.WriteReason.NoSuchIndex),
+		("nope(0).b", shcl.WriteReason.NoSuchIndex),
 		(".".join(["d"] * 513), shcl.WriteReason.TooDeep),
 		# A literal line break is writable wherever a path can have one: a name
 		# emits through the name escaper and a selector value through the value
@@ -1413,7 +1444,7 @@ def main():
 		# selector was refused while the value emitter still wrote elements in
 		# their source spelling and had nothing to escape with. Not
 		# corpus-pinnable - an ops line cannot contain a raw newline.
-		('a["p\nq"].b', shcl.WriteReason.Writable),
+		('a("p\nq").b', shcl.WriteReason.Writable),
 		('"x\ny".b', shcl.WriteReason.Writable),
 		('"x\\ny".b', shcl.WriteReason.Writable),
 	):
@@ -1462,8 +1493,35 @@ def main():
 	ok_dt = DT(date=(2026, 1, 2), time=(3, 4, 5), frac="60", zone=("offset", -90))
 	if not sdoc.set_datetime("d", ok_dt) or str(sdoc.get_datetime("d")) != str(ok_dt):
 		raise SystemExit("a valid datetime was refused or read back differently")
-	if sdoc.to_canonical() != 'z: 0\n\nf: 2.5\n\nd: "2026-01-02T03:04:05.60-01:30"\n':
+	if sdoc.to_canonical() != "z: 0\n\nf: 2.5\n\nd: 2026-01-02T03:04:05.60-01:30\n":
 		raise SystemExit(f"document after the refusals: {sdoc.to_canonical()!r}")
+	test_id("EryEqlx", "a_backtick_value_reads_raw_with_its_flag")
+	# A backtick value is raw text the program decodes itself: read as
+	# written, with its own flag beside .quoted. A setter keeps the backticks
+	# when the new text fits in them, and the writer picks quotes when it does
+	# not. Same fixture in every runner.
+	bdoc = shcl.Document.parse("c: `#FF8800`\nq: \"x\"\nb: x\na: [`1`, b]\nn: `7`\n")
+	br = bdoc.read_string("c")
+	if (br.value, br.quoted, br.backtick) != ("#FF8800", True, True):
+		raise SystemExit(f"backtick c: {br!r}")
+	br = bdoc.read_string("q")
+	if (br.quoted, br.backtick) != (True, False):
+		raise SystemExit(f"backtick q: {br!r}")
+	br = bdoc.read_string("b")
+	if (br.quoted, br.backtick) != (False, False):
+		raise SystemExit(f"backtick b: {br!r}")
+	bra = bdoc.read_string_array("a")
+	if (len(bra.value), bra.quoted, bra.backtick) != (2, False, False):
+		raise SystemExit(f"backtick a: {bra!r}")
+	bri = bdoc.read_int("n")
+	if (bri.value, bri.backtick) != (7, True):
+		raise SystemExit(f"backtick n: {bri!r}")
+	if not bdoc.set_string("c", "#00FF00") or not bdoc.read_string("c").backtick:
+		raise SystemExit("an overwrite lost the backticks")
+	if not bdoc.set_string("c", "a`b") or bdoc.read_string("c").backtick:
+		raise SystemExit("a backtick value holding a backtick")
+	if not bdoc.to_canonical().startswith('c: "a`b"\n'):
+		raise SystemExit(f"backtick fixture wrote {bdoc.to_canonical()!r}")
 	test_id("EnLyQsX", "raw_block_line_endings_normalize_and_round_trip")
 	# A raw body is the only content kept untrimmed, so it is the only place a
 	# trailing CR survives the load - and one written back becomes CRLF, which
@@ -1480,20 +1538,20 @@ def main():
 	# gitsby's report: children() on a repeated key answered nothing, and a
 	# walk had to know to index each instance.
 	gdoc = shcl.Document.parse("account: w\n\temail: e@x\n\t\tsshkey: k1\n\temail: f@x\n\t\tsshkey: k2\n")
-	if gdoc.children("account[#0].email") != ["sshkey", "sshkey"]:
-		raise SystemExit(f"children across instances got {gdoc.children('account[#0].email')}")
-	if gdoc.children("account.email[#1]") != ["sshkey"]:
-		raise SystemExit(f"children of one instance got {gdoc.children('account.email[#1]')}")
+	if gdoc.children("account(0).email") != ["sshkey", "sshkey"]:
+		raise SystemExit(f"children across instances got {gdoc.children('account(0).email')}")
+	if gdoc.children("account.email(1)") != ["sshkey"]:
+		raise SystemExit(f"children of one instance got {gdoc.children('account.email(1)')}")
 	want_paths = [
 		"account",
-		"account.email[#0]",
-		"account.email[#0].sshkey",
-		"account.email[#1]",
-		"account.email[#1].sshkey",
+		"account.email(0)",
+		"account.email(0).sshkey",
+		"account.email(1)",
+		"account.email(1).sshkey",
 	]
 	if gdoc.instance_paths() != want_paths:
 		raise SystemExit(f"instance_paths() got {gdoc.instance_paths()}")
-	if gdoc.get_string("account.email[#1].sshkey") != "k2":
+	if gdoc.get_string("account.email(1).sshkey") != "k2":
 		raise SystemExit("an instance path did not read its node")
 	test_id("EoM2uEi", "read_surface_line_quoted_children")
 	# line/quoted on the read result, line(path), children(path). Same
@@ -1526,10 +1584,10 @@ def main():
 		raise SystemExit(f"lines() single got {ldoc.lines('code.done')}")
 	if ldoc.lines("a") != [1]:
 		raise SystemExit(f"lines() top-level got {ldoc.lines('a')}")
-	if ldoc.lines("code[*].done") != [6]:
-		raise SystemExit(f"lines() wildcard got {ldoc.lines('code[*].done')}")
-	if ldoc.lines("code[*].nope") != [0]:
-		raise SystemExit(f"lines() unresolved slot got {ldoc.lines('code[*].nope')}")
+	if ldoc.lines("code(*).done") != [6]:
+		raise SystemExit(f"lines() wildcard got {ldoc.lines('code(*).done')}")
+	if ldoc.lines("code(*).nope") != [0]:
+		raise SystemExit(f"lines() unresolved slot got {ldoc.lines('code(*).nope')}")
 	if ldoc.lines("missing"):
 		raise SystemExit("lines() on missing path not empty")
 	if ldoc.children("code") != ["hook", "hook", "done"]:
@@ -1555,17 +1613,17 @@ def main():
 	# Escapes ARE resolved on a name, so both spellings of the path find the same
 	# node - while authored_name still hands back the source spelling, which is
 	# the one thing it is for. Same fixture in every runner.
-	sdoc3 = shcl.Document.parse('"Ab\\tCd": 2\n')
-	esc_name = sdoc3.authored_name('"ab\\tcd"')
-	if esc_name != "Ab\\tCd":
+	sdoc3 = shcl.Document.parse('"Ab◉TAB◉Cd": 2\n')
+	esc_name = sdoc3.authored_name('"ab◉tab◉cd"')
+	if esc_name != "Ab◉TAB◉Cd":
 		raise SystemExit(f"authored_name escaped got {esc_name!r}")
 	lit_name = sdoc3.authored_name('"ab\tcd"')
-	if lit_name != "Ab\\tCd":
+	if lit_name != "Ab◉TAB◉Cd":
 		raise SystemExit(f"authored_name via the literal spelling got {lit_name!r}")
 	if sdoc3.read_int('"ab\tcd"').value != 2:
 		raise SystemExit("read via the literal spelling failed")
 	# Canonical output folds the case, as it always has, and escapes the tab.
-	if sdoc3.to_canonical() != '"ab\\tcd": 2\n':
+	if sdoc3.to_canonical() != '"ab◉TAB◉cd": 2\n':
 		raise SystemExit(f"canonical name spelling got {sdoc3.to_canonical()!r}")
 	# An array read of a one-element cell answers the same as the scalar read of
 	# the same node: there is a single scalar element, which is what the flag is
@@ -1576,7 +1634,7 @@ def main():
 		raise SystemExit("a one-element quoted cell reads unquoted as an array")
 	if qdoc.read_string_array("a").quoted:
 		raise SystemExit("a one-element bare cell reads quoted as an array")
-	if shcl.Document.parse('m: "x", "y"\n').read_string_array("m").quoted:
+	if shcl.Document.parse('m: ["x", "y"]\n').read_string_array("m").quoted:
 		raise SystemExit("a two-element cell reported a single element's quoting")
 	test_id("EomvfCu", "save_refuses_a_directory_shaped_path")
 	# A path that names a directory - it ends in a separator, or its last
@@ -1620,7 +1678,7 @@ def main():
 		except TypeError:
 			pass
 	gen = (x for x in [1, 2, 3])   # not a list on purpose: that is the fixture
-	if not gdoc.set_int_array("k", gen) or gdoc.to_canonical() != "k: 1, 2, 3\n":  # type: ignore[arg-type]
+	if not gdoc.set_int_array("k", gen) or gdoc.to_canonical() != "k: [1, 2, 3]\n":  # type: ignore[arg-type]
 		raise SystemExit(f"a generator wrote {gdoc.to_canonical()!r}")
 	test_id("EommtF5", "written_spelling_matches_its_reload")
 	# A written value with both quote kinds is stored the way its own reload
@@ -1726,7 +1784,7 @@ def main():
 	# The save gate on kept lines, from inside: once the edits that lose one
 	# are fixed, no public call reaches the gate, so this takes a line out by
 	# hand. Same fixture in every runner.
-	kbase = "x: 1\nr: [1, 2]\ny: 3\n"
+	kbase = "x: 1\nr: [1, 2\ny: 3\n"
 
 	def kept_child(doc, name):
 		return next(c for c in doc.arena[shcl.ROOT].children if doc.arena[c].name == name)
@@ -1761,7 +1819,7 @@ def main():
 	test_id("EreVRgk", "a_remove_takes_the_kept_line_heading_its_field")
 	# design.md's table: a remove takes the kept line written as the field's
 	# own line, and nothing beside it.
-	kdoc = shcl.Document.parse("a: [1]\n\tb: 2\ny: 3\n")
+	kdoc = shcl.Document.parse("a: [1\n\tb: 2\ny: 3\n")
 	if kdoc.remove("a") != 1 or kdoc.lost_count() != 0 or kdoc.to_canonical() != "y: 3\n":
 		fails.append(f"kept gate: removing a field opened from a kept line lost {kdoc.lost_count()} and wrote {kdoc.to_canonical()!r}")
 
@@ -1779,23 +1837,23 @@ def main():
 	# design.md's table: a remove leaves the kept lines beside its target,
 	# above or below it, with the comments above them (2026100307163901).
 	check_removes([
-		(kbase, "y", "x: 1\nr: [1, 2]\n"),
+		(kbase, "y", "x: 1\nr: [1, 2\n"),
 		("x: 1\nbad name: 1\ny: 3\n", "y", "x: 1\nbad name: 1\n"),
-		("j:\n\tr: [1]\n\tq: 1\nz: 2\n", "j.q", "j:\n\tr: [1]\nz: 2\n"),
-		("j:\n\tq: 1\n\tr: [1]\nz: 2\n", "j.q", "j:\n\tr: [1]\nz: 2\n"),
-		("j:\n\tq: 1\n\tr: [1]\n\tw: 3\nz: 2\n", "j.q", "j:\n\tr: [1]\n\tw: 3\nz: 2\n"),
-		("# on r\nr: [1]\n# on y\ny: 3\nz: 1\n", "y", "# on r\nr: [1]\nz: 1\n"),
+		("j:\n\tr: [1\n\tq: 1\nz: 2\n", "j.q", "j:\n\tr: [1\nz: 2\n"),
+		("j:\n\tq: 1\n\tr: [1\nz: 2\n", "j.q", "j:\n\tr: [1\nz: 2\n"),
+		("j:\n\tq: 1\n\tr: [1\n\tw: 3\nz: 2\n", "j.q", "j:\n\tr: [1\n\tw: 3\nz: 2\n"),
+		("# on r\nr: [1\n# on y\ny: 3\nz: 1\n", "y", "# on r\nr: [1\nz: 1\n"),
 	])
 
 	test_id("ErgToiG", "a_field_opened_by_a_kept_line_goes_with_its_last_line")
 	# A field opened only by the lines under it goes with the last of them,
 	# and its kept line stays (escblock; 2026100307163907).
 	check_removes([
-		("a: [1]\n\tb: 2\ny: 3\n", "a.b", "a: [1]\ny: 3\n"),
-		("a: [1]\n\tb: 2\n\tc: 3\ny: 3\n", "a.b", "a: [1]\n\tc: 3\ny: 3\n"),
-		("a: [1]\n\tb: 2\n\tr: [3]\ny: 3\n", "a.b", "a: [1]\n\tr: [3]\ny: 3\n"),
-		("o: [9]\n\ta: [1]\n\t\tb: 2\ny: 3\n", "o.a.b", "o: [9]\n\ta: [1]\ny: 3\n"),
-		("o:\n\ta: [1]\n\t\tb: 2\n", "o.a.b", "o:\n\ta: [1]\n"),
+		("a: [1\n\tb: 2\ny: 3\n", "a.b", "a: [1\ny: 3\n"),
+		("a: [1\n\tb: 2\n\tc: 3\ny: 3\n", "a.b", "a: [1\n\tc: 3\ny: 3\n"),
+		("a: [1\n\tb: 2\n\tr: [3\ny: 3\n", "a.b", "a: [1\n\tr: [3\ny: 3\n"),
+		("o: [9\n\ta: [1\n\t\tb: 2\ny: 3\n", "o.a.b", "o: [9\n\ta: [1\ny: 3\n"),
+		("o:\n\ta: [1\n\t\tb: 2\n", "o.a.b", "o:\n\ta: [1\n"),
 	])
 
 	test_id("Erlf17j", "a_setter_comments_out_the_kept_line_heading_its_target")
@@ -1804,12 +1862,16 @@ def main():
 	held_clock = os.environ.get("SHCL_TEST_CLOCK")
 	os.environ["SHCL_TEST_CLOCK"] = "2026-10-04 00:15:00 -420 PDT"
 	for text, set_path, set_want in [
-		("a: [1]\n\tb: 2\ny: 3\n", "a",
-			"# a: [1]  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 bracket array syntax\na: 5\n\tb: 2\ny: 3\n"),
-		("o:\n\ta: \"x\\q\"\n\t\tb: 2\n", "o.a",
-			"o:\n\t# a: \"x\\q\"  ## commented out by shcl when setting o.a, 2026-10-04 00:15:00 PDT: E023 unknown escape '\\q' in double quotes\n\ta: 5\n\t\tb: 2\n"),
-		("p: \"C:\\temp\\new\"\n\tq: 1\n", "p",
-			"# p: \"C:\\temp\\new\"  ## commented out by shcl when setting p, 2026-10-04 00:15:00 PDT: E024 value starts like a Windows path, and its \\t or \\n would read as a tab or newline\np: 5\n\tq: 1\n"),
+		("a: [1\n\tb: 2\ny: 3\n", "a",
+			"# a: [1  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing ']' on the line\na: 5\n\tb: 2\ny: 3\n"),
+		("o:\n\ta: \"x◉Q◉\"\n\t\tb: 2\n", "o.a",
+			"o:\n\t# a: \"x◉Q◉\"  ## commented out by shcl when setting o.a, 2026-10-04 00:15:00 PDT: E023 unknown escape '◉Q◉'\n\ta: 5\n\t\tb: 2\n"),
+		("p: host: a.com\n\tq: 1\n", "p",
+			"# p: host: a.com  ## commented out by shcl when setting p, 2026-10-04 00:15:00 PDT: E025 a colon then a space in a bare value\np: 5\n\tq: 1\n"),
+		("r: \"open\n\tq: 1\n", "r",
+			"# r: \"open  ## commented out by shcl when setting r, 2026-10-04 00:15:00 PDT: E017 unterminated quote in value\nr: 5\n\tq: 1\n"),
+		("404: x\n\tq: 1\n", "\"404\"",
+			"# 404: x  ## commented out by shcl when setting \"404\", 2026-10-04 00:15:00 PDT: E014 field name needs quotes\n\"404\": 5\n\tq: 1\n"),
 	]:
 		kdoc = shcl.Document.parse_keep_lines(text, shcl.Strictness.Standard)
 		took = kdoc.set_int(set_path, 5)
@@ -1828,8 +1890,8 @@ def main():
 		os.environ["SHCL_TEST_CLOCK"] = held_clock
 	# Only the field the kept line opened: a child of it, or a field beside a
 	# kept line, leaves the line as it was.
-	for set_path, set_want in [("a.c", "a: [1]\n\tb: 2\n\tc: 5\n"), ("z", "a: [1]\n\tb: 2\n\nz: 5\n")]:
-		kdoc = shcl.Document.parse("a: [1]\n\tb: 2\n")
+	for set_path, set_want in [("a.c", "a: [1\n\tb: 2\n\tc: 5\n"), ("z", "a: [1\n\tb: 2\n\nz: 5\n")]:
+		kdoc = shcl.Document.parse("a: [1\n\tb: 2\n")
 		if not kdoc.set_int(set_path, 5) or kdoc.to_canonical() != set_want:
 			fails.append(f"kept gate: setting {set_path} beside a kept line wrote {kdoc.to_canonical()!r}")
 
@@ -1839,24 +1901,24 @@ def main():
 	# them, so a later hand fix never gives Multiple (2026100307163907).
 	held_clock = os.environ.get("SHCL_TEST_CLOCK")
 	os.environ["SHCL_TEST_CLOCK"] = "2026-10-04 00:15:00 -420 PDT"
-	na, noa, nac = (f"  ## commented out by shcl when setting {p}, 2026-10-04 00:15:00 PDT: E019 bracket array syntax" for p in ("a", "o.a", "a.c"))
+	na, noa, nac = (f"  ## commented out by shcl when setting {p}, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing ']' on the line" for p in ("a", "o.a", "a.c"))
 	for text, set_path, set_want, set_count in [
 		# No loaded `a`: the new line goes under the first comment.
-		("a: [1]\ny: 3\n", "a", f"# a: [1]{na}\na: 5\ny: 3\n", 1),
-		("x: 1\na: [1]\ny: 3\na: [2]\n", "a", f"x: 1\n# a: [1]{na}\na: 5\ny: 3\n# a: [2]{na}\n", 1),
+		("a: [1\ny: 3\n", "a", f"# a: [1{na}\na: 5\ny: 3\n", 1),
+		("x: 1\na: [1\ny: 3\na: [2\n", "a", f"x: 1\n# a: [1{na}\na: 5\ny: 3\n# a: [2{na}\n", 1),
 		# What was under the line goes under the new one.
-		("a: [1]\n\t# under\n\tb: [2]\ny: 3\n", "a", f"# a: [1]{na}\na: 5\n\t# under\n\tb: [2]\ny: 3\n", 1),
+		("a: [1\n\t# under\n\tb: [2\ny: 3\n", "a", f"# a: [1{na}\na: 5\n\t# under\n\tb: [2\ny: 3\n", 1),
 		# At the end of a block.
-		("o:\n\tx: 1\n\ta: [1]\n", "o.a", f"o:\n\tx: 1\n\t# a: [1]{noa}\n\ta: 5\n", 1),
+		("o:\n\tx: 1\n\ta: [1\n", "o.a", f"o:\n\tx: 1\n\t# a: [1{noa}\n\ta: 5\n", 1),
 		# A field made on the way writes its line too.
-		("a: [1]\ny: 3\n", "a.c", f"# a: [1]{nac}\na:\n\tc: 5\ny: 3\n", 1),
+		("a: [1\ny: 3\n", "a.c", f"# a: [1{nac}\na:\n\tc: 5\ny: 3\n", 1),
 		# A loaded `a` changes in place.
-		("a: 1\nb: [1]\na: [2]\n", "a", f"a: 5\nb: [1]\n# a: [2]{na}\n", 1),
+		("a: 1\nb: [1\na: [2\n", "a", f"a: 5\nb: [1\n# a: [2{na}\n", 1),
 		# Two valid lines stay as they are, and so does a kept line with a
 		# kept line under it, which as a comment would leave that line under
 		# the field above.
 		("a: 1\na: 2\n", "a", "a: 5\na: 2\n", 2),
-		("a: 1\na: [2]\n\tc: [3]\n", "a", "a: 5\na: [2]\n\tc: [3]\n", 1),
+		("a: 1\na: [2\n\tc: [3\n", "a", "a: 5\na: [2\n\tc: [3\n", 1),
 	]:
 		kdoc = shcl.Document.parse_keep_lines(text, shcl.Strictness.Standard)
 		took = kdoc.set_int(set_path, 5)
@@ -1874,8 +1936,8 @@ def main():
 	else:
 		os.environ["SHCL_TEST_CLOCK"] = held_clock
 	# set_comment makes the field without touching the line.
-	kdoc = shcl.Document.parse("a: [1]\ny: 3\n")
-	if not kdoc.set_comment("a", "n") or kdoc.to_canonical() != "a: [1]\ny: 3\n\n# n\na:\n":
+	kdoc = shcl.Document.parse("a: [1\ny: 3\n")
+	if not kdoc.set_comment("a", "n") or kdoc.to_canonical() != "a: [1\ny: 3\n\n# n\na:\n":
 		fails.append(f"kept gate: set_comment beside a kept line wrote {kdoc.to_canonical()!r}")
 
 	test_id("Erlf1AN", "a_note_names_the_zone_or_its_offset")
@@ -1902,7 +1964,7 @@ def main():
 	test_id("EreVRis", "a_merged_layer_owes_its_kept_lines")
 	kdoc = shcl.Document.parse("a: 1\n")
 	kdoc.merge(shcl.Document.parse(kbase))
-	if kdoc.lost_count() != 0 or "r: [1, 2]\n" not in kdoc.to_canonical():
+	if kdoc.lost_count() != 0 or "r: [1, 2\n" not in kdoc.to_canonical():
 		fails.append("kept gate: a merged layer's kept line counted as lost or went missing")
 	# Owed, not just present: taking it out again is a loss.
 	kdoc.arena[kept_child(kdoc, "y")]._triv().leading.pop()
@@ -1931,15 +1993,15 @@ def main():
 	# design.md's table: a replaced leaf takes only its own comments, the ones
 	# a remove would take. A settled line or a comment past a kept line beside
 	# it stays with that line.
-	kdoc = shcl.Document.parse("    srv: a\n  srv[x]: [3]\nb[x]: [4]\n# mine\nq: c\n")
-	if kdoc.to_canonical() != "srv: a\n# srv[x]: [3]\nb[x]: [4]\n# mine\nq: c\n":
+	kdoc = shcl.Document.parse("    srv: a\n  srv(x): [3\nb(x): [4\n# mine\nq: c\n")
+	if kdoc.to_canonical() != "srv: a\n# srv(x): [3\nb(x): [4\n# mine\nq: c\n":
 		fails.append(f"kept gate: the beside fixture loaded as {kdoc.to_canonical()!r}")
 	kdoc.merge(shcl.Document.parse("q: 9\n"))
-	if kdoc.lost_count() != 0 or kdoc.to_canonical() != "srv: a\n# srv[x]: [3]\nb[x]: [4]\nq: 9\n":
+	if kdoc.lost_count() != 0 or kdoc.to_canonical() != "srv: a\n# srv(x): [3\nb(x): [4\nq: 9\n":
 		fails.append(f"kept gate: a replaced leaf's neighbors lost {kdoc.lost_count()} and wrote {kdoc.to_canonical()!r}")
-	kdoc = shcl.Document.parse("p:\n\tq: c\n\t# mine\n\tb[x]: [4]\n\t# n\n")
+	kdoc = shcl.Document.parse("p:\n\tq: c\n\t# mine\n\tb(x): [4\n\t# n\n")
 	kdoc.merge(shcl.Document.parse("p:\n\tq: 9\n"))
-	if kdoc.lost_count() != 0 or kdoc.to_canonical() != "p:\n\tb[x]: [4]\n\t# n\n\tq: 9\n":
+	if kdoc.lost_count() != 0 or kdoc.to_canonical() != "p:\n\tb(x): [4\n\t# n\n\tq: 9\n":
 		fails.append(f"kept gate: a replaced leaf's lines below lost {kdoc.lost_count()} and wrote {kdoc.to_canonical()!r}")
 	# The failure report above has run already, so these end the run here.
 	if fails:
@@ -1983,28 +2045,32 @@ def main():
 	ldoc = shcl.Document.parse_limited(ltext, shcl.Strictness.Standard, 0, 0)
 	if ldoc.diagnostics():
 		raise SystemExit("uncapped parse_limited must match parse_with")
-	ldoc = shcl.Document.parse_limited("arr: 1, 2, 3\nok: 5\n", shcl.Strictness.Standard, 0, 2)
+	ldoc = shcl.Document.parse_limited("arr: [1, 2, 3]\nok: 5\n", shcl.Strictness.Standard, 0, 2)
 	lcaps = [g for g in ldoc.diagnostics() if g.code == "E021"]
 	if len(lcaps) != 1 or lcaps[0].line != 1 or ldoc.exists("arr") or ldoc.get_int("ok") != 5 or ldoc.lost_count() != 1:
 		raise SystemExit("element cap: the whole line is refused, the rest untouched")
-	ldoc = shcl.Document.parse_limited("arr:\n\t* 1\n\t* 2\n\t* 3\n", shcl.Strictness.Standard, 0, 2)
+	ldoc = shcl.Document.parse_limited("arr:\n\t- 1\n\t- 2\n\t- 3\n", shcl.Strictness.Standard, 0, 2)
 	if sum(1 for g in ldoc.diagnostics() if g.code == "E021") != 1 or ldoc.get_int_array("arr") != [1, 2]:
 		raise SystemExit("element cap: a stacked array keeps what fit")
-	# A cap refuses only a line that would bind: bracket text stays E019 and
-	# kept, and an element under a field with a value stays E011.
-	ldoc = shcl.Document.parse_limited("arr: [1, 2, 3]\nk: x\n\t* 1\n", shcl.Strictness.Standard, 0, 1)
-	lgot = [(g.line, g.code) for g in ldoc.diagnostics()]
-	if lgot != [(1, "E019"), (3, "E011")] or ldoc.lost_count() != 1 or "arr: [1, 2, 3]" not in ldoc.to_canonical():
-		raise SystemExit(f"element cap over a refused line: {lgot} lost {ldoc.lost_count()}")
+	# A malformed array past the cap stayed E019 and kept. Since 2026-10-05
+	# the cap wins over a broken value, so this is E021 now: see
+	# a_cap_wins_over_a_broken_value.
+	# ldoc = shcl.Document.parse_limited("arr: [1,, 2, 3]\nk: x\n\t- 1\n", shcl.Strictness.Standard, 0, 1)
+	# lgot = [(g.line, g.code) for g in ldoc.diagnostics()]
+	# if lgot != [(1, "E019"), (3, "E011")] or ldoc.lost_count() != 1 or "arr: [1,, 2, 3]" not in ldoc.to_canonical():
+	# 	raise SystemExit(f"element cap over a refused line: {lgot} lost {ldoc.lost_count()}")
 	# The count the cap judges is the count the array reads back as, spelling
 	# by spelling: quoted commas, a backslash (a character, so it shields
-	# nothing), empty and blank slots, a Unicode blank (content: only a space
-	# or a tab is blank), a quote that never closes (a character too, so the
-	# comma after it splits). Refused at one under, kept at exact.
+	# nothing), the empty array, a quoted Unicode blank (content: only a space
+	# or a tab is blank, and bare it is E025). Refused at one under, kept at
+	# exact. A quote that never closes made the comma after it split before
+	# the value syntax; that line is E017 now and binds nothing. An empty slot
+	# is E019 now, and a bare comma E026.
 	counts = [
-		("1, 2, 3", 3), ('"a, b", c', 2), ("a\\, b, c", 3), ("a,,b", 2),
-		("a, , b", 2), (" a ", 1), ("\"\", ''", 2), ("'a\", b'", 1),
-		('"open, b', 2), ("\\", 1), ("x,\u3000", 2), ("x, \u00a0y", 2), (", , ,", 0),
+		("[1, 2, 3]", 3), ('["a, b", c]', 2), ("[a\\, b, c]", 3), ("[]", 0),
+		("[ ]", 0), (" a ", 1), ("[\"\", '']", 2), ("'a\", b'", 1),
+		# ('"open, b', 2),
+		("\\", 1), ('[x,"\u3000"]', 2), ('[x, "\u00a0y"]', 2), ("[80]", 1),
 	]
 	for spelling, n in counts:
 		text = f"v: {spelling}\n"
@@ -2013,7 +2079,7 @@ def main():
 			raise SystemExit(f"{spelling!r} at cap {n}: E021")
 		r = ldoc.read_string_array("v")
 		if n == 0:
-			if not ldoc.exists("v") or r.status == shcl.Status.Good:
+			if r.status != shcl.Status.Good or r.value:
 				raise SystemExit(f"{spelling!r}: want empty, got {r.status}")
 		elif r.status != shcl.Status.Good or len(r.value) != n:
 			raise SystemExit(f"{spelling!r}: want {n} elements, got {r.value} {r.status}")
@@ -2021,17 +2087,17 @@ def main():
 			ldoc = shcl.Document.parse_limited(text, shcl.Strictness.Standard, 0, n - 1)
 			if ldoc.lost_count() != 1:
 				raise SystemExit(f"{spelling!r} at cap {n - 1}: not refused")
-	# A refused line reports the cap alone: the quote check runs after it, so
-	# it never splits a value the cap already turned away.
-	ldoc = shcl.Document.parse_limited('v: a, "open, b\n', shcl.Strictness.Standard, 0, 1)
-	if [g.code for g in ldoc.diagnostics()] != ["E021"]:
-		raise SystemExit("refused line must report the cap alone")
+	# An open quote was judged before the cap and kept the line. Since
+	# 2026-10-05 the cap wins: see a_cap_wins_over_a_broken_value.
+	# ldoc = shcl.Document.parse_limited('v: [a, "open, b]\n', shcl.Strictness.Standard, 0, 1)
+	# if [g.code for g in ldoc.diagnostics()] != ["E017"] or ldoc.lost_count() != 0:
+	# 	raise SystemExit("refused line must report the cap alone")
 	# A fence whose info string splits past the cap is refused with its block,
 	# in both spellings, so the body never reads as live lines. Same fixture in
-	# every runner.
+	# every runner. Only a comma with a blank after it splits since 20261006.
 	for ftext in (
-		"secrets:\n\t```a,b,c,d\n\tpassword: hunter2\n\t```\nafter: 1\n",
-		"secrets: ```a,b,c,d\n\tpassword: hunter2\n\t```\nafter: 1\n",
+		"secrets:\n\t```a, b, c, d\n\tpassword: hunter2\n\t```\nafter: 1\n",
+		"secrets: ```a, b, c, d\n\tpassword: hunter2\n\t```\nafter: 1\n",
 	):
 		ldoc = shcl.Document.parse_limited(ftext, shcl.Strictness.Standard, 0, 3)
 		if (
@@ -2043,7 +2109,7 @@ def main():
 			raise SystemExit(f"{ftext!r}: a capped fence must go with its block")
 	# What a capped parse holds is the text and its lines. The refused line
 	# used to be built in full first (38x the text), so the cap saved nothing.
-	btext = "arr: " + "1, " * 200000 + "\nok: 5\n"
+	btext = "arr: [" + "1, " * 200000 + "1]\nok: 5\n"
 	tracemalloc.start()
 	ldoc = shcl.Document.parse_limited(btext, shcl.Strictness.Standard, 0, 8)
 	lpeak = tracemalloc.get_traced_memory()[1]
@@ -2087,7 +2153,7 @@ def main():
 	# and every refusal is a diagnostic: with the element cap alone, 200k
 	# refused lines cost more than the elements they refused. The diagnostic
 	# cap is what bounds that.
-	btext = "arr:\n" + "\t* 1\n" * 200000
+	btext = "arr:\n" + "\t- 1\n" * 200000
 	tracemalloc.start()
 	ldoc = shcl.Document.parse_limited(btext, shcl.Strictness.Standard, 0, 8, 100)
 	lpeak = tracemalloc.get_traced_memory()[1]
@@ -2104,6 +2170,82 @@ def main():
 	except shcl.LoadError as ex:
 		if ex.document is None or ex.document.get_int("a") != 1:
 			raise SystemExit("failed strict doc must stay readable") from None
+	test_id("EryEqnz", "a_cap_wins_over_a_broken_value")
+	# An item or a line past the caller's element cap is E021 and dropped,
+	# even when its value is broken: the cap wins over a value fault. A fault
+	# in the path or the name still comes first, and a broken item within the
+	# cap is still kept. Same fixture in every runner.
+
+	def cap_codes(text, cap):
+		cdoc = shcl.Document.parse_limited(text, shcl.Strictness.Standard, 0, cap)
+		return [(g.line, g.code) for g in cdoc.diagnostics()], cdoc.lost_count(), cdoc.to_canonical()
+
+	# Bracket arrays: an empty slot, an open quote, no closing bracket, text
+	# after it. Each is E021 at a cap below its length, and its own code at a
+	# cap that fits.
+	for ctext, own in (
+		("arr: [1,, 2, 3]\n", "E019"),
+		('arr: [a, "open, b]\n', "E017"),
+		("arr: [a, b, c\n", "E019"),
+		("arr: [a, b] c\n", "E019"),
+		("arr: [a, b c, d]\n", "E025"),
+	):
+		got, lost, out = cap_codes(ctext, 1)
+		if got != [(1, "E021")] or lost != 1 or "arr" in out:
+			raise SystemExit(f"{ctext!r} at cap 1: {got} lost {lost} out {out!r}")
+		got, lost, _ = cap_codes(ctext, 9)
+		if got != [(1, own)] or lost != 0:
+			raise SystemExit(f"{ctext!r} under the cap: {got} lost {lost}")
+	# A bare comma outside brackets counts its pieces the same way.
+	if cap_codes("a: x, y, z\n", 2)[0] != [(1, "E021")]:
+		raise SystemExit(f"bare comma past the cap: {cap_codes('a: x, y, z', 2)[0]}")
+	if cap_codes("a: x, y, z\n", 3)[0] != [(1, "E026")]:
+		raise SystemExit(f"bare comma within the cap: {cap_codes('a: x, y, z', 3)[0]}")
+	# A stacked item past the cap is dropped whatever it holds; within the
+	# cap a broken one is kept and the list loads around it.
+	got, lost, out = cap_codes("x:\n\t- a\n\t- b\n\t- \"open\n\t- c d\nz: 1\n", 2)
+	if got != [(4, "E021"), (5, "E021")] or lost != 2 or out != "x:\n\t- a\n\t- b\nz: 1\n":
+		raise SystemExit(f"items past the cap: {got} lost {lost} out {out!r}")
+	got, lost, out = cap_codes("x:\n\t- a\n\t- \"open\n\t- b\n", 2)
+	if got != [(3, "E017")] or lost != 0 or '- "open' not in out:
+		raise SystemExit(f"a broken item within the cap: {got} lost {lost} out {out!r}")
+	# An element under a field with a value is E011, cap or not.
+	if cap_codes("k: x\n\t- 1\n", 1)[0] != [(2, "E011")]:
+		raise SystemExit("item under a value")
+	# The path and the name are judged first.
+	if cap_codes("404: [a, b, c]\n", 1)[0] != [(1, "E014")]:
+		raise SystemExit(f"a bad name past the cap: {cap_codes('404: [a, b, c]', 1)[0]}")
+
+	test_id("EryEqq5", "no_colon_repair_stays_narrow")
+	# Only one clean name or path with no colon is repaired (E015), a bad bare
+	# name like 404 included. Anything with a blank in a bare name could be a
+	# name or a name and a value, so it is E014 and kept as written.
+	for nline, nquoted in (
+		("square-miles 300", '"square-miles 300"'),
+		("this is ! not parseable", '"this is ! not parseable"'),
+		("user name", '"user name"'),
+		("user\tname", '"user◉TAB◉name"'),
+		("a.b c", 'a."b c"'),
+	):
+		ndoc = shcl.Document.parse(f"k: 1\n{nline}\nz: 2\n")
+		if [g.code for g in ndoc.diagnostics()] != ["E014"]:
+			raise SystemExit(f"{nline!r}: {ndoc.diagnostics()}")
+		if ndoc.lost_count() != 0:
+			raise SystemExit(f"{nline!r}: lost_count {ndoc.lost_count()}")
+		if ndoc.to_canonical() != f"k: 1\n{nline}\nz: 2\n":
+			raise SystemExit(f"{nline!r} wrote {ndoc.to_canonical()!r}")
+		if ndoc.exists(nquoted):
+			raise SystemExit(f"{nline!r} bound {nquoted}")
+	# The message names where the second word starts, as before chunk A.
+	ndoc = shcl.Document.parse("a:\n\t  square-miles 300\n")
+	if ndoc.diagnostics()[0].message != "malformed line skipped: unexpected character after the path, at column 17":
+		raise SystemExit(f"message {ndoc.diagnostics()[0].message!r}")
+	for nline, nout in (("404", '"404":'), ("-x", '"-x":'), ("a.9b", 'a:\n\t"9b":')):
+		ndoc = shcl.Document.parse(f"{nline}\n")
+		if [g.code for g in ndoc.diagnostics()] != ["E015"]:
+			raise SystemExit(f"{nline!r}: {ndoc.diagnostics()}")
+		if ndoc.to_canonical() != f"{nout}\n":
+			raise SystemExit(f"{nline!r} wrote {ndoc.to_canonical()!r}")
 	test_id("EnKYjpg", "set_int_refuses_past_64_bits")
 	# Also python-only: an int outside the 64-bit range the other three
 	# bindings use writes text every reader calls bad-type, so the setter
@@ -2523,22 +2665,23 @@ def main():
 		if "; line " not in str(le):
 			raise SystemExit("LoadError message lacks diagnostics: " + str(le)) from None
 	test_id("ElonRnP", "raw_is_source_text")
-	# raw: the verbatim value span from the source line - not the display
-	# join, which rewrites `{2,3}` to `{2, 3}`. Same fixture in every runner
-	# whose read result exposes raw (the C read structs deliberately do not).
-	rdoc = shcl.Document.parse('regex: ^\\d{2,3}$\nlist: a,  "b c"\n')
-	if rdoc.read_string("regex").raw != "^\\d{2,3}$":
+	# raw: the verbatim value span from the source line, quotes and all - not
+	# the canonical form, which rewrites `[a,  "b c"]` to `[a, "b c"]`. Same
+	# fixture in every runner whose read result exposes raw (the C read
+	# structs deliberately do not).
+	rdoc = shcl.Document.parse('regex: "^\\d{2,3}$"\nlist: [a,  "b c"]\n')
+	if rdoc.read_string("regex").raw != '"^\\d{2,3}$"':
 		raise SystemExit(f"raw fixture mismatch: {rdoc.read_string('regex').raw!r}")
-	if rdoc.read_string_array("list").raw != 'a,  "b c"':
+	if rdoc.read_string_array("list").raw != '[a,  "b c"]':
 		raise SystemExit(f"raw fixture mismatch: {rdoc.read_string_array('list').raw!r}")
 	# A written value has no source spelling; raw falls back to display. The
 	# selector's escaped spelling must reach the existing instance.
 	rdoc2 = shcl.Document.parse("who: 'q\"uote'\n")
-	if not rdoc2.set_int('who["q\\"uote"].n', 5):
+	if not rdoc2.set_int('who("q◉DQUOTE◉uote").n', 5):
 		raise SystemExit("escaped selector write failed")
 	if rdoc2.count("who") != 1:
 		raise SystemExit("escaped selector created a second instance")
-	rr = rdoc2.read_int('who[\'q"uote\'].n')
+	rr = rdoc2.read_int('who(\'q"uote\').n')
 	if (rr.value, rr.status) != (5, shcl.Status.Good):
 		raise SystemExit("escaped selector read failed")
 	if rr.raw != "5":
@@ -2549,7 +2692,7 @@ def main():
 	# cross-binding spelling for it, so a routine ported between two bindings
 	# cannot keep the call name while changing which tier it uses. Same
 	# fixture in every runner.
-	cdoc = shcl.Document.parse("a: 42\nb: not-a-number\ne:\narr: 1, 2, 3\nblk:\n\t```html\n\thi\n\t```\n")
+	cdoc = shcl.Document.parse("a: 42\nb: not-a-number\ne:\narr: [1, 2, 3]\nblk:\n\t```html\n\thi\n\t```\n")
 	if cdoc.get_int_or("a", 9) != 42:
 		raise SystemExit(f"get_int_or Good got {cdoc.get_int_or('a', 9)}")
 	for p in ("b", "e", "missing"):
@@ -2722,7 +2865,7 @@ def main():
 	# selector was refused while elements were stored in their source spelling
 	# and the emitter had nothing to escape with. Same fixture in every runner.
 	nldoc = shcl.Document.parse("z: 0\n")
-	if not nldoc.set_int('x["p\nq"].c', 1) or not nldoc.set_int('"a\nb".c', 1):
+	if not nldoc.set_int('x("p\nq").c', 1) or not nldoc.set_int('"a\nb".c', 1):
 		raise SystemExit("a line break in a path was refused")
 	nltext = nldoc.to_canonical()
 	nlback = shcl.Document.parse(nltext)
@@ -2730,7 +2873,7 @@ def main():
 		raise SystemExit(f"the reload has {nlback.error_count()} error(s):\n{nltext}")
 	if nlback.to_canonical() != nltext:
 		raise SystemExit(f"a line break in a path is not a fixpoint:\n{nltext}")
-	for nlpath in ('x["p\\nq"].c', '"a\\nb".c', '"a\nb".c'):
+	for nlpath in ('x("p◉NEWLINE◉q").c', '"a◉NEWLINE◉b".c', '"a\nb".c'):
 		if nlback.read_int(nlpath).value != 1:
 			raise SystemExit(f"read {nlpath!r} got {nlback.read_int(nlpath).value}")
 
@@ -2747,14 +2890,14 @@ def main():
 			_CountingList.iters += 1
 			return list.__iter__(self)
 
-	pdoc = shcl.Document.parse("one: a\ntwo: a, b\n")
+	pdoc = shcl.Document.parse("one: a\ntwo: [a, b]\n")
 	for pnode in pdoc.arena:
-		if pnode.value.kind == "cell":
+		if pnode.value.kind in ("cell", "array"):
 			pnode.value.els = _CountingList(pnode.value.els)
 	for want_len, want_iters in ((1, 0), (2, 2)):
 		_CountingList.iters = 0
 		for pnode in pdoc.arena:
-			if pnode.value.kind == "cell" and len(pnode.value.els) == want_len:
+			if pnode.value.kind in ("cell", "array") and len(pnode.value.els) == want_len:
 				pnode.value.display()
 				shcl._merge_key(pnode.name, pnode.value)
 		if _CountingList.iters != want_iters:
@@ -2785,6 +2928,16 @@ def main():
 	nbspans = [(p.start, p.end) for p in nbtok.elements]
 	if nbspans != [(1, 3)]:
 		raise SystemExit(f"tokenize_value from a mid-character offset gave {nbspans}, want [(1, 3)]")
+	# A comma splits only with a blank or the end after it, on the fast path
+	# as in the loop. A `#` after the value sends the same text down the loop.
+	for fv in ("a,b", "a, b", "a,", "a ,b", ",a", "a,,b", "a, ,b", " a , b", "x,\t,y", "rw,noatime, c"):
+		ftok, ltok = shcl.Tokens(), shcl.Tokens()
+		shcl.tokenize_value(fv, 0, shcl.Rules.CURRENT, ftok)
+		shcl.tokenize_value(fv + "#c", 0, shcl.Rules.CURRENT, ltok)
+		fspans = [(p.start, p.end) for p in ftok.elements]
+		lspans = [(p.start, p.end) for p in ltok.elements]
+		if fspans != lspans or ftok.value != ltok.value:
+			raise SystemExit(f"{fv!r}: the fast path gave {fspans} {ftok.value}, the loop {lspans} {ltok.value}")
 
 	test_id("Er7vwKQ", "format_version_caps_at_32_bits")
 	# Digits past 32 bits are not a 2.x file either, so they read as the
@@ -2801,6 +2954,454 @@ def main():
 		inner = [c.co_name for c in fn.__code__.co_consts if isinstance(c, types.CodeType)]
 		if inner:
 			raise SystemExit(f"{fn.__name__} rebuilds {inner} on every call")
+
+	test_id("EryEqsA", "a_comma_splits_a_bare_value_only_before_a_blank")
+	# A comma splits a value outside brackets only with a blank, a comment or
+	# the end after it; inside brackets every one does (value-syntax.md,
+	# 20261006). 2.x split on every comma, which migrate still reads.
+	ctok = shcl.Tokens()
+	for cline, cpieces in (
+		("x: rw,noatime", 1),
+		("x: ,a", 1),
+		("x: a,,b", 1),
+		("x: a, b", 2),
+		("x: a,", 2),
+		("x: a,# c", 2),
+		("x: a,\tb", 2),
+		("x: [a,b]", 2),
+		("x: [rw,noatime, c]", 3),
+	):
+		shcl.tokenize(cline, ":", False, shcl.Rules.CURRENT, ctok)
+		if len(ctok.elements) != cpieces:
+			raise SystemExit(f"{cline!r}: {len(ctok.elements)} pieces, want {cpieces}")
+	shcl.tokenize("x: a,b", ":", False, shcl.Rules.V2, ctok)
+	if len(ctok.elements) != 2:
+		raise SystemExit(f"2.x: {len(ctok.elements)} pieces")
+
+	test_id("EryEquE", "bare_spaces_colons_and_commas")
+	# Spaces in a bare value or item are fine. A tab, a bracket, a quote, or a
+	# colon or comma with a blank or the end after it is one error, and its
+	# message says what to do.
+	for btext, bcode, bfix in (
+		("x: host: a.com port: 80\n", "E025", "put each field on its own line"),
+		("x: done:\n", "E025", "quote it"),
+		("x: a\tb\n", "E025", "quote it"),
+		("x: a[b]c\n", "E025", "quote it"),
+		("x: [New York, Boston]\n", "E025", "quote it"),
+		("x: [a:, b]\n", "E025", "quote it"),
+		("x: a,\n", "E026", "write an array in brackets"),
+		("x: 80, 443\n", "E026", "write an array in brackets"),
+		("x: a: b, c\n", "E025", "put each field on its own line"),
+		("x:\n\t- name: value\n", "E027", "as instances"),
+		("x:\n\t- name:\n", "E027", "as instances"),
+		("x:\n\t- a, b\n", "E026", "quote the text"),
+		("x:\n\t- a\tb\n", "E025", "quote it"),
+		("x:\n\t- [a]\n", "E019", "quote the item"),
+		("x(a:b).y: 1\n", "E025", "quote it"),
+		("x(a,b).y: 1\n", "E025", "quote it"),
+		("x(a[b).y: 1\n", "E025", "quote it"),
+		("x(a(b).y: 1\n", "E025", "quote it"),
+	):
+		bds = shcl.Document.parse(btext).diagnostics()
+		if len(bds) != 1 or bds[0].code != bcode or bfix not in bds[0].message:
+			raise SystemExit(f"{btext!r}: {bds}")
+	for btext, bpath, bwant in (
+		("x: My  App\n", "x", "My  App"),
+		("x: rw,noatime\n", "x", "rw,noatime"),
+		("x: :0\n", "x", ":0"),
+		("x: https://a.com:8080/p?q=1,2\n", "x", "https://a.com:8080/p?q=1,2"),
+		("x: Jul 12 2026  # c\n", "x", "Jul 12 2026"),
+		("x:\n\t- New  York\n\t- :0\n", "x", '["New  York", :0]'),
+	):
+		bdoc = shcl.Document.parse(btext)
+		if bdoc.diagnostics():
+			raise SystemExit(f"{btext!r}: {bdoc.diagnostics()}")
+		if bdoc.get_string(bpath, None) != bwant:
+			raise SystemExit(f"{btext!r}: {bdoc.read_string(bpath)!r}")
+	if shcl.Document.parse("x: 80,443\n").read_int("x").status == shcl.Status.Good:
+		raise SystemExit("80,443 read as a number")
+
+	test_id("EryEqwF", "the_writer_quotes_a_comma_by_where_it_sits")
+	# The writer leaves a colon or comma bare where the reader takes it as
+	# text, quotes one at the end, and quotes an array element with a comma,
+	# since there it splits. A quoted thousands comma keeps its quotes, since
+	# only a quoted number reads one.
+	qcdoc = shcl.Document.new()
+	if not (qcdoc.set_string("opts", "rw,noatime") and qcdoc.set_string("display", ":0") and qcdoc.set_string("end", "a,")
+			and qcdoc.set_string("title", "My App") and qcdoc.set_string_array("tags", ["rw,noatime", "b"])):
+		raise SystemExit("a setter refused")
+	qcout = qcdoc.to_canonical()
+	for qcwant in ("opts: rw,noatime\n", "display: :0\n", 'end: "a,"\n', 'title: "My App"\n', 'tags: ["rw,noatime", b]\n'):
+		if qcwant not in qcout:
+			raise SystemExit(f"{qcwant!r} not in {qcout!r}")
+	qcback = shcl.Document.parse(qcout)
+	if qcback.to_canonical() != qcout:
+		raise SystemExit(f"reload wrote {qcback.to_canonical()!r}")
+	if qcback.get_string_array("tags", None) != ["rw,noatime", "b"]:
+		raise SystemExit(f"tags: {qcback.read_string_array('tags')!r}")
+	qcdoc = shcl.Document.parse('n: "1,000"\n')
+	if qcdoc.to_canonical() != 'n: "1,000"\n':
+		raise SystemExit(f"wrote {qcdoc.to_canonical()!r}")
+	if qcdoc.get_int("n", None) != 1000:
+		raise SystemExit(f"n: {qcdoc.read_int('n')!r}")
+	qchint = shcl.Document.parse("t: a,b\nt: c\n").diagnostics()[0]
+	if qchint.code != "H001" or 't: ["a,b", c]' not in qchint.message:
+		raise SystemExit(f"hint {qchint!r}")
+
+	test_id("ErylLpa", "a_list_no_text_loads_back_refuses_to_save")
+	# A list with a field under it (E001) after an empty binding of its name
+	# that has fields: no text loads it back, since a reload joins the list's
+	# header to that binding and drops its items (E008). The load is left as
+	# it is; a save that would write it refuses (2026100511210900). An edit
+	# and a merge can each leave one. Same fixture in every runner.
+	lsrc = "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n"
+	ldoc = shcl.Document.parse_keep_lines(lsrc, shcl.Strictness.Standard)
+	if ldoc.lost_count() != 0:
+		raise SystemExit(f"load lost {ldoc.lost_count()}")
+	if not ldoc.set_empty("x(v)"):
+		raise SystemExit("set empty refused")
+	ltext = ldoc.to_canonical()
+	if ltext != "x:\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n":
+		raise SystemExit(f"canonical {ltext!r}")
+	if shcl.Document.parse(ltext).lost_count() != 2:
+		raise SystemExit(f"the reload drops both items: {shcl.Document.parse(ltext).lost_count()}")
+	if ldoc.lost_count() != 2:
+		raise SystemExit(f"lost {ldoc.lost_count()}")
+	if ldoc.to_text_keep_lines()[1]:
+		raise SystemExit("the source was canonical, and still no lines are kept")
+	with tempfile.TemporaryDirectory() as ld:
+		lf = os.path.join(ld, "t.shcl")
+		Path(lf).write_bytes(lsrc.encode())
+		for lsave in (ldoc.save_file, ldoc.save_file_keep_lines):
+			try:
+				lsave(lf)
+				raise SystemExit(f"{lsave.__name__} went through")
+			except shcl.SaveRefused as e:
+				if e.lost != 2:
+					raise SystemExit(f"{lsave.__name__}: lost {e.lost}") from None
+		if Path(lf).read_bytes() != lsrc.encode():
+			raise SystemExit(f"file changed: {Path(lf).read_bytes()!r}")
+		ldoc.save_file_lossy(lf)
+	# The same through a merge: the list arrives over an empty binding.
+	lmerged = shcl.Document.parse("x:\n\tf: 1\n")
+	lmerged.merge(shcl.Document.parse("x:\n\t- a\n\t- b\n\tg: 2\n"))
+	if lmerged.lost_count() != 2:
+		raise SystemExit(f"merge lost {lmerged.lost_count()}: {lmerged.to_canonical()!r}")
+	# An empty binding with no fields takes the list in, so nothing is lost,
+	# and a list with no field under it goes in brackets.
+	for lsrc in ("x: v\nx:\n\t- a\n\tg: 2\n", "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n"):
+		ldoc = shcl.Document.parse(lsrc)
+		if not ldoc.set_empty("x(v)") or ldoc.lost_count() != 0:
+			raise SystemExit(f"{lsrc!r}: lost {ldoc.lost_count()}: {ldoc.to_canonical()!r}")
+
+	test_id("ErylLpb", "a_list_joining_an_emptied_field_keeps_its_fields_found")
+	# A setter that empties a field joins the stacked list after it, fields
+	# and all, as a reload would. A read made before the write has the lookup
+	# built, and the fields that moved still have to be found through it.
+	for jsrc, jpath, jfield, jwant in (
+		("b: x\nb:\n\t- 3\n\tk: 1\n", "b", "b.k", "1"),
+		("b: x\nb: y z\n\t- 3\n\tk: 1\n", "b", "b.k", "1"),
+		("x: v\nx:\n\t- a\n\tg: 2\n", "x(v)", "x.g", "2"),
+	):
+		jdoc = shcl.Document.parse(jsrc)
+		if jdoc.read_string(jfield).status != shcl.Status.Good:
+			raise SystemExit(f"{jsrc!r}: before: {jdoc.read_string(jfield)!r}")
+		if not jdoc.set_empty(jpath):
+			raise SystemExit(f"{jsrc!r}: set empty refused")
+		jback = shcl.Document.parse(jdoc.to_canonical())
+		for jd, jwhich in ((jback, "reload"), (jdoc, "live")):
+			jr = jd.read_string(jfield)
+			if jr.status != shcl.Status.Good or jr.value != jwant:
+				raise SystemExit(f"{jsrc!r}: {jwhich}: {jr!r}")
+		if jdoc.paths() != jback.paths():
+			raise SystemExit(f"{jsrc!r}: paths {jdoc.paths()} vs {jback.paths()}")
+
+	test_id("ErylLpc", "a_list_the_source_loads_back_keeps_its_lines")
+	# A load can build that list too, under a kept array line (E028). The
+	# canonical text writes the line as a comment and cannot load the list
+	# back, so that save refuses. The source text does, so with no edits the
+	# save that keeps lines writes it as it was.
+	ksrc = "c:\n\ts: 1\nc: [1]\n\tb(*): 1\n\t- 3\n\ta: 2\n"
+	kdoc = shcl.Document.parse_keep_lines(ksrc, shcl.Strictness.Standard)
+	if kdoc.lost_count() != 2:
+		raise SystemExit(f"the wildcard line and the item: lost {kdoc.lost_count()}")
+	if kdoc.to_text_keep_lines() != (ksrc, True):
+		raise SystemExit(f"keep: {kdoc.to_text_keep_lines()!r}")
+	with tempfile.TemporaryDirectory() as kd:
+		kpath = os.path.join(kd, "t.shcl")
+		Path(kpath).write_bytes(ksrc.encode())
+		try:
+			kdoc.save_file(kpath)
+			raise SystemExit("save went through")
+		except shcl.SaveRefused as e:
+			if e.lost != 2:
+				raise SystemExit(f"save: lost {e.lost}") from None
+		if not kdoc.save_file_keep_lines(kpath):
+			raise SystemExit("the keep save kept no lines")
+		if Path(kpath).read_bytes() != ksrc.encode():
+			raise SystemExit(f"file changed: {Path(kpath).read_bytes()!r}")
+
+	test_id("ErylLpd", "a_merged_list_joins_an_empty_field_past_a_comment")
+	# A merge adds a list with a field under it as a new instance after an
+	# empty binding of its name. A comment or kept line left after the
+	# binding held the join off, though a reload joins the two
+	# (2026100520243961).
+	for mbase in (
+		"p:\n\ts:\n\t# c\n",
+		"p:\n\ts:\n\tk: [1\n",
+		"p:\n\ts:\n\t# c\n\t\t# d\n",
+		"p:\n\ts:\n\t# c\n\tt: 2\n",
+	):
+		mdoc = shcl.Document.parse(mbase)
+		mdoc.merge(shcl.Document.parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"))
+		mtext = mdoc.to_canonical()
+		mback = shcl.Document.parse(mtext)
+		if mback.to_canonical() != mtext:
+			raise SystemExit(f"{mbase!r}: not a fixpoint: {mtext!r}")
+		if mdoc.paths() != mback.paths():
+			raise SystemExit(f"{mbase!r}: paths {mdoc.paths()} vs {mback.paths()}")
+		for md in (mdoc, mback):
+			mr = md.read_string("p.s.c")
+			if mr.status != shcl.Status.Good or mr.value != "1":
+				raise SystemExit(f"{mbase!r}: p.s.c {mr!r}")
+		if len(mdoc.instances("p.s")) != 1:
+			raise SystemExit(f"{mbase!r}: {len(mdoc.instances('p.s'))} instances")
+
+	test_id("ErylLpe", "a_remove_settles_a_list_after_an_empty_field")
+	# The remove twin: the merge without the gap builds the list no text loads
+	# back, after a binding with a field. A remove that takes that field joins
+	# the list, and one that takes the list's field puts it in brackets, as a
+	# reload reads each.
+	for rpath, rwant in (
+		("p.s.x", "p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"),
+		("p.s.c", "p:\n\ts:\n\t\tx: 1\n\ts: [0]\n"),
+	):
+		rdoc = shcl.Document.parse("p:\n\ts:\n\t\tx: 1\n")
+		rdoc.merge(shcl.Document.parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"))
+		if rdoc.lost_count() == 0:
+			raise SystemExit(f"{rpath}: the list no text loads back")
+		if rdoc.remove(rpath) != 1:
+			raise SystemExit(f"{rpath}: remove missed")
+		rtext = rdoc.to_canonical()
+		if rtext != rwant:
+			raise SystemExit(f"{rpath}: {rtext!r}")
+		rback = shcl.Document.parse(rtext)
+		if rback.to_canonical() != rtext or rdoc.paths() != rback.paths():
+			raise SystemExit(f"{rpath}: reload differs")
+		if rdoc.lost_count() != 0:
+			raise SystemExit(f"{rpath}: lost {rdoc.lost_count()}")
+
+	test_id("ErylLpf", "a_setter_keeps_fields_and_arrays_apart")
+	# A field with lines under it takes one plain value or none (E028), so a
+	# setter puts no field under an array and no array over fields. Each used
+	# to write text that reloads as E028.
+	asrc = "l: [a]\nc: 1\n\tk: 2\n"
+	adoc = shcl.Document.parse(asrc)
+	if adoc.set_int("l.c", 1):
+		raise SystemExit(f"a field under an array: {adoc.to_canonical()!r}")
+	if adoc.set_literal("c", "[1, 2]") or adoc.set_string_array("c", ["1"]):
+		raise SystemExit(f"an array over fields: {adoc.to_canonical()!r}")
+	if adoc.to_canonical() != asrc:
+		raise SystemExit(f"changed: {adoc.to_canonical()!r}")
+	# An array with nothing under it takes a new one, and a stacked list
+	# written with '- ' stays stacked.
+	adoc = shcl.Document.parse("l: [a]\nz:\n\t- a\n\t- b\n")
+	if not adoc.set_string_array("l", ["b", "c"]) or not adoc.set_string_array("z", ["x"]):
+		raise SystemExit("an array setter refused")
+	if adoc.to_canonical() != "l: [b, c]\nz:\n\t- x\n":
+		raise SystemExit(f"got {adoc.to_canonical()!r}")
+
+	test_id("ErysKPJ", "bracket_selectors_are_the_old_spelling")
+	# A selector is written in parens. One in brackets is the old spelling: a
+	# file line is E029 and kept, and a lookup, a setter or a schema path in
+	# brackets is refused. A body starting with `#`, the old index, is refused
+	# too. Same fixture in every runner.
+	odoc = shcl.Document.parse("srv: web\n\tport: 80\nsrv[web]:\n\thost: h\n")
+	ods = odoc.diagnostics()
+	if len(ods) != 1 or ods[0].code != "E029" or ods[0].line != 3:
+		raise SystemExit(f"diagnostics {ods}")
+	if odoc.lost_count() != 0:
+		raise SystemExit(f"lost {odoc.lost_count()}")
+	if odoc.read_string("srv(web).host").value != "h":
+		raise SystemExit(f"srv(web).host = {odoc.read_string('srv(web).host')!r}")
+	if odoc.count("srv") != 1:
+		raise SystemExit(f"srv count {odoc.count('srv')}")
+	if odoc.read_string("srv[web].host").status != shcl.Status.NotFound:
+		raise SystemExit(f"srv[web].host {odoc.read_string('srv[web].host')!r}")
+	if odoc.count("srv[web]") != 0:
+		raise SystemExit(f"srv[web] count {odoc.count('srv[web]')}")
+	for opath, owant in (
+		("srv[web].x", shcl.WriteReason.BadPath),
+		("srv(#0).x", shcl.WriteReason.BadPath),
+		("srv(0).x", shcl.WriteReason.Writable),
+	):
+		if odoc.write_reason(opath) != owant:
+			raise SystemExit(f"write_reason({opath!r}) = {odoc.write_reason(opath)}, want {owant}")
+	if odoc.set_int("srv[web].x", 1):
+		raise SystemExit("a setter took a path in brackets")
+	if not odoc.set_int("srv(web).x", 1):
+		raise SystemExit("a setter refused srv(web).x")
+	if not odoc.to_canonical().startswith("srv[web]:\nsrv: web\n"):
+		raise SystemExit(f"got {odoc.to_canonical()!r}")
+	otok = shcl.Tokens()
+	shcl.tokenize("a(x).b[y].c: 1", ":", False, shcl.Rules.CURRENT, otok)
+	if otok.bracket_selector != 6:
+		raise SystemExit(f"bracket_selector {otok.bracket_selector}, want 6")
+	shcl.tokenize("a(x).b(y).c: 1", ":", False, shcl.Rules.CURRENT, otok)
+	if otok.bracket_selector is not None:
+		raise SystemExit(f"bracket_selector {otok.bracket_selector}, want None")
+	oschema = shcl.Document.parse('field: "srv[*].port"\n')
+	if not any(v.code == "V093" and "parens" in v.message for v in shcl.Document.parse("srv: a\n").validate(oschema)):
+		raise SystemExit("no V093 naming parens")
+
+	test_id("ErysKS0", "init_refuses_a_child_of_an_array_parent")
+	# A parent whose default is an array has no selector a child line can use,
+	# since a selector matches one plain value. Generation refuses it rather
+	# than write a child that makes another instance.
+	aschema = shcl.Document.parse("field: tags\n\trequired: yes\n\tdefault: [a]\nfield: tags.k\n\trequired: yes\n")
+	atext, afaults = shcl.generate(aschema, True)
+	if not any(d.code == "V097" and "no selector spelling" in d.message for d in afaults):
+		raise SystemExit(f"a child of an array parent generated: {atext!r} {afaults}")
+
+	test_id("Es1eIOp", "migrate_brackets_a_2x_comma_list")
+	# migrate writes a 2.x comma list in brackets, with or without a blank
+	# after the comma, since 2.x read both as arrays. In a file that does not
+	# say it is 2.x, `a,b` is a string under these rules, so it is left and
+	# counted; `a, b` is an error here, so it converts either way. A lone bare
+	# value these rules refuse is quoted.
+	mm = shcl.migrate("x: a, b\ny: a,b\nz: \"q\", r\nw: New York,,b\nv: done:\nu: rw,noatime\n", True)
+	if mm.ambiguous != 0:
+		raise SystemExit(f"ambiguous {mm.ambiguous}")
+	if not mm.text.startswith("x: [a, b]\ny: [a, b]\nz: [\"q\", r]\nw: [\"New York\", b]\nv: \"done:\"\nu: [rw, noatime]\n"):
+		raise SystemExit(repr(mm.text))
+	if shcl.Document.parse(mm.text).diagnostics():
+		raise SystemExit(f"{shcl.Document.parse(mm.text).diagnostics()}")
+	mm = shcl.migrate("x: a, b\ny: a,b\n", False)
+	if mm.ambiguous != 1:
+		raise SystemExit(f"ambiguous {mm.ambiguous}")
+	if not mm.text.startswith("x: [a, b]\ny: a,b\n"):
+		raise SystemExit(repr(mm.text))
+
+	test_id("Es1eIOq", "migrate_writes_star_items_as_dashes")
+	# A 2.x `*` item becomes `- `, and an item these rules would read as
+	# something else is quoted, such as one that looks like `- name: value`.
+	mm = shcl.migrate("list:\n\t* a\n\t* key: value\n\t* 'c'\n\t* O'Brien\n", True)
+	if not mm.text.startswith("list:\n\t- a\n\t- \"key: value\"\n\t- 'c'\n\t- \"O'Brien\"\n"):
+		raise SystemExit(repr(mm.text))
+	mback = shcl.Document.parse(mm.text)
+	if mback.diagnostics():
+		raise SystemExit(f"{mback.diagnostics()}")
+	mread = mback.read_string_array("list")
+	if mread.status != shcl.Status.Good or mread.value != ["a", "key: value", "c", "O'Brien"]:
+		raise SystemExit(f"list: {mread.value!r} {mread.status}")
+
+	test_id("Es1eIOr", "migrate_quotes_a_name_not_led_by_a_letter")
+	# A bare 2.x name not led by a letter is quoted, so `-x: y` and `- :0`
+	# stay fields rather than reading as list items, and `404` stays a name.
+	mm = shcl.migrate("404: a\n-x: y\nl:\n\t- :0\na.9b: 2\n_id: 7\n", True)
+	if not mm.text.startswith("\"404\": a\n\"-x\": y\nl:\n\t\"-\" :0\na.\"9b\": 2\n\"_id\": 7\n"):
+		raise SystemExit(repr(mm.text))
+	mback = shcl.Document.parse(mm.text)
+	if mback.diagnostics():
+		raise SystemExit(f"{mback.diagnostics()}")
+	for mpath, mwant in (("\"-x\"", "y"), ("l.\"-\"", "0")):
+		mread = mback.read_string(mpath)
+		if mread.status != shcl.Status.Good or mread.value != mwant:
+			raise SystemExit(f"{mpath}: {mread.value!r} {mread.status}")
+	mint = mback.read_int("a.\"9b\"")
+	if mint.status != shcl.Status.Good or mint.value != 2:
+		raise SystemExit(f"a.9b: {mint.value!r} {mint.status}")
+
+	test_id("Es1eIOs", "migrate_escapes_a_real_mark")
+	# 2.x read a `◉` as text. A name, a bare value and a selector body
+	# holding one get the escape for a real mark, so they still read as that
+	# text.
+	mm = shcl.migrate("\"a\u25c9q\u25c9\": 1\nbare: My\u25c9SPACE\u25c9App\ns[x\u25c9y].p: 2\n", True)
+	mback = shcl.Document.parse(mm.text)
+	if mback.diagnostics():
+		raise SystemExit(f"{mback.diagnostics()}\n{mm.text}")
+	mpaths = mback.paths()
+	if len(mpaths) < 2 or mpaths[0] != "\"a\u25c9ESCAPE_CHAR\u25c9q\u25c9ESCAPE_CHAR\u25c9\"" or mpaths[1] != "bare":
+		raise SystemExit(f"{mpaths!r}\n{mm.text}")
+	mread = mback.read_string("bare")
+	if mread.status != shcl.Status.Good or mread.value != "My\u25c9SPACE\u25c9App":
+		raise SystemExit(f"bare: {mread.value!r} {mread.status}")
+	if mback.count("s") != 1:
+		raise SystemExit(f"count s {mback.count('s')}")
+	mread = mback.read_string("s(0)")
+	if mread.status != shcl.Status.Good or mread.value != "x\u25c9y":
+		raise SystemExit(f"s(0): {mread.value!r} {mread.status}")
+
+	test_id("Es1eIOt", "migrate_quotes_a_bare_selector_these_rules_refuse")
+	# A 2.x selector goes in parens, and a bare body these rules refuse, such
+	# as one with a quote or a space, is quoted, so its block still loads.
+	mm = shcl.migrate("srv[O'Brien].port: 1\nsrv[New York].port: 2\n", True)
+	if not mm.text.startswith("srv(\"O'Brien\").port: 1\nsrv(\"New York\").port: 2\n"):
+		raise SystemExit(repr(mm.text))
+	mback = shcl.Document.parse(mm.text)
+	if mback.diagnostics():
+		raise SystemExit(f"{mback.diagnostics()}")
+	if mback.count("srv") != 2:
+		raise SystemExit(f"count srv {mback.count('srv')}")
+
+	test_id("Es1eIOu", "migrate_writes_selectors_in_parens")
+	# Every 2.x selector goes in parens: an index, a value, the sugar on a
+	# segment before the last, and a body with a paren in it, quoted. A
+	# selector in brackets is E029 under these rules, so a file that does not
+	# say it is 2.x gets the same rewrite, with nothing counted.
+	mtext = "a[x].k: 1\nb: y\nb[0].k: 2\nc[a(b)].k: 3\ne:[f].g: 4\nr[\"x\"]:\n\ts: 1\n"
+	mwant_text = "a(x).k: 1\nb: y\nb(0).k: 2\nc(\"a(b)\").k: 3\ne(f).g: 4\nr(\"x\"):\n\ts: 1\n"
+	for mfrom in (True, False):
+		mm = shcl.migrate(mtext, mfrom)
+		if mm.ambiguous != 0 or mm.lost != 0:
+			raise SystemExit(f"from_v2 {mfrom}: ambiguous {mm.ambiguous}, lost {mm.lost}\n{mm.text}")
+		if not mm.text.startswith(mwant_text):
+			raise SystemExit(f"from_v2 {mfrom}: {mm.text!r}")
+	mback = shcl.Document.parse(shcl.migrate(mtext, True).text)
+	if mback.diagnostics():
+		raise SystemExit(f"{mback.diagnostics()}")
+	for mpath, mwant_int in (("c(\"a(b)\").k", 3), ("e(f).g", 4), ("b(y).k", 2), ("r(x).s", 1)):
+		mint = mback.read_int(mpath)
+		if mint.status != shcl.Status.Good or mint.value != mwant_int:
+			raise SystemExit(f"{mpath}: {mint.value!r} {mint.status}")
+
+	test_id("Es1eIOv", "migrate_counts_what_nothing_spells")
+	# What 2.x bound and nothing spells now is counted lost, so the CLI
+	# refuses at 7: a selector with a comma, which matched an array value, and
+	# a comma list with lines under it. A list of only empty slots, which 2.x
+	# read as empty, is an empty value.
+	mm = shcl.migrate("a[x, y].b: 1\n", True)
+	if mm.lost != 1:
+		raise SystemExit(f"lost {mm.lost}")
+	mm = shcl.migrate("a: 1, 2\n\tb: 1\nc: 3, 4\n", True)
+	if mm.lost != 1:
+		raise SystemExit(f"lost {mm.lost}\n{mm.text}")
+	mm = shcl.migrate("e: ,\nf: , # c\n", True)
+	if mm.lost != 0:
+		raise SystemExit(f"lost {mm.lost}")
+	if not mm.text.startswith("e:\nf: # c\n"):
+		raise SystemExit(repr(mm.text))
+	mback = shcl.Document.parse(mm.text)
+	if mback.diagnostics():
+		raise SystemExit(f"{mback.diagnostics()}")
+	if mback.read_string("e").status != shcl.Status.Empty:
+		raise SystemExit(f"e: {mback.read_string('e').status}")
+
+	test_id("Es1eIOw", "migrate_leaves_what_reads_clean_now")
+	# A file that does not say it is 2.x could be a 3.0 one. A piece that
+	# reads clean under these rules too, such as an escape, a backtick value,
+	# `[a]` or a `- ` item, is left as written and counted, so the CLI asks
+	# for --from-2x rather than changing a correct file at exit 0. A selector
+	# in brackets is E029 now, so its line is rewritten the 2.x way.
+	mtext = "x: \"a\u25c9TAB\u25c9b\"\n\"n\u25c9TAB\u25c9\": 1\nl:\n\t- :0\ns[\"\u25c9TAB\u25c9\"].p: 1\nb: `abc`\nc: [a]\n"
+	mm = shcl.migrate(mtext, False)
+	if mm.ambiguous != 5:
+		raise SystemExit(f"ambiguous {mm.ambiguous}\n{mm.text}")
+	mwant_text = mtext.replace("s[\"\u25c9TAB\u25c9\"]", "s(\"\u25c9ESCAPE_CHAR\u25c9TAB\u25c9ESCAPE_CHAR\u25c9\")", 1)
+	if mm.text != mwant_text:
+		raise SystemExit(f"got {mm.text!r}\nwant {mwant_text!r}")
+	if "ESCAPE_CHAR" not in shcl.migrate(mtext, True).text:
+		raise SystemExit("no ESCAPE_CHAR with from_v2")
 
 	test_id_end()
 	print(f"conformance: {len(cases)} case(s) pass")

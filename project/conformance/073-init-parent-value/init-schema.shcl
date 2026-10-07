@@ -6,7 +6,7 @@ field: srv
 	required: yes
 	default: web
 
-field: "srv[*].port"
+field: "srv(*).port"
 	type: int
 	repeat: 1
 
@@ -15,7 +15,7 @@ field: srv.host
 	required: yes
 	default: "a b"
 
-field: "srv.host[*].zone"
+field: "srv.host(*).zone"
 	type: string
 	required: yes
 

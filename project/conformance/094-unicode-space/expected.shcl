@@ -1,10 +1,10 @@
 # Only a space, a tab or a carriage return is trimmed off a piece: anything
 # else at the edge of a bare value is content.
-nbsp: "val "
-lsep: "val\u2028"
-vt: "val\u000B"
-ff: "val\u000C"
-lead: " val"
+nbsp: val 
+lsep: val 
+vt: val
+ff: val
+lead:  val
 tail: val
-list: "a ", b
-cr: x, y
+list: [a , b]
+cr: [x, y]

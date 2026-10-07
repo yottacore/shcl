@@ -15,6 +15,6 @@ body
 ```
 last: 2
 
-added: 'C:\x'
+added: "C:\\x"
 
-s2: 'C:\work'
+s2: C:\work

@@ -1,0 +1,36 @@
+# Escapes are names between two ◉ marks, in any case, aliases included.
+nl: "line one◉NEWLINE◉two"
+tab: 'a◉TAB◉b'
+bare: "My App"
+alias: "◉NEWLINE◉◉TAB◉◉CR◉◉CRLF◉"
+quotes: "◉DOUBLE_QUOTE◉hi'`"
+mark: "◉ESCAPE_CHAR◉ and ◉ESCAPE_CHAR◉"
+codes: "◉ESCAPE_CHAR◉ABCDEFG😀"
+controls: "◉NUL◉◉BEL◉◉BACKSPACE◉◉VT◉◉FF◉◉ESC◉◉DEL◉"
+hidden: "a◉U+200B◉b"
+"name◉TAB◉x": 1
+srv: "a b"
+	port: 80
+list:
+	- "one◉NEWLINE◉"
+	- "two three"
+# ◉ in a comment is text, odd count and all
+raw:
+	```◉info◉
+	◉ body ◉◉
+	```
+# Bad escapes: each line is kept, and only a fault in the value keeps its block.
+unknown: "say ◉HELLO◉"
+	under: 1
+odd: "a ◉ b"
+surrogate: "◉U+D800◉"
+past: "◉U+110000◉"
+long: "◉U+0000041◉"
+empty: "◉◉"
+spaced: "◉NEW LINE◉"
+"bad◉NAME◉": 1
+sel("x◉NOPE◉"): 1
+stack:
+	- "◉NOPE◉"
+	- fine
+last: 1

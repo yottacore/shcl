@@ -1,7 +1,7 @@
 query	type	expected	status	level
 ok	int	1	Good
-listen	string	"0.0.0.0:443	Good
-tags	string[]	"a|b	Good
+listen	string	-	NotFound
+tags	string[]	-	NotFound
 -	load	ok	-
 -	load	fail	-	strict
 -	lost	0	-

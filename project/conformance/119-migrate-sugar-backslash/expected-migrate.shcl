@@ -1,7 +1,7 @@
-sugar-quoted: "a\\tb"
-sugar-bare: "a\\tb"
-sugar-path: "C:\\Users"
-sugar-escaped: "C:\\x"
+sugar-quoted: 'a\\tb'
+sugar-bare: a\\tb
+sugar-path: C:\Users
+sugar-escaped: 'C:\\x'
 sugar-inner:['C':\x']
 last: 1
 ##    Format   3

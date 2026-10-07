@@ -1,8 +1,8 @@
 # A path typed in double quotes
 win: "C:\work\new"
 ok-single: 'C:\work\new'
-ok-bare: 'C:\work\new'
-ok-doubled: 'C:\work\new'
+ok-bare: C:\work\new
+ok-doubled: "C:\\work\\new"
 regex: "\d+"
 "n\ame": 1
 srv["a\b"].port: 80
@@ -16,6 +16,6 @@ fence:
 	```
 last: 2
 
-added: 'C:\x'
+added: "C:\\x"
 
-s2: 'C:\work'
+s2: C:\work

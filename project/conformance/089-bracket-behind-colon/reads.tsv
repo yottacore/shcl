@@ -1,6 +1,8 @@
 query	type	expected	status
 -	load	ok	-
-"a:b"	string	-	NotFound
-srv[db:5432].ports	string	-	NotFound
-srv	string	-	NotFound
+"a:b"	int[]	80|443	Good
+srv("db:5432").ports	string	[80, 443]	Good
+srv	string	db:5432	Good
+plain	int[]	1|2	Good
+x	string	-	NotFound
 -	lost	0	-

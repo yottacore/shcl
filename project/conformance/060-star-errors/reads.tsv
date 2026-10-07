@@ -3,4 +3,4 @@ query	type	expected	status
 -	load	fail	-	strict
 list	string[]	a|d	Good
 val	int	1	Good
--	lost	4	-
+-	lost	3	-

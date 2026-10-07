@@ -1,6 +1,6 @@
 # Schema and Format lines in a raw body are the block's, even after a name
 # ending in a backslash, which 2.x read as an escaped quote
-"c:\\":
+"c:\":
 	~~~
 	##    Schema   ./lax.shcl
 	##    Format   3

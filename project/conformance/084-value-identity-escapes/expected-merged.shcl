@@ -3,7 +3,7 @@ a: 'q"uote'
 	z: 9
 	p: 1
 	q: 2
-b: "tab\there"
+b: "tab◉TAB◉here"
 	r: 3
 c: nobs
 	s: 4

@@ -1,4 +1,4 @@
 query	type	expected	status
 -	load	ok	-
 b	count	2	-
-b[#1].a.x	int	1	Good
+b(1).a.x	int	1	Good

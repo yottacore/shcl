@@ -61,56 +61,135 @@ SAMPLES: list[tuple[str, str, bool]] = [
 	("info-string", "a # b", False),
 	("fence-line", "```c# note", True),
 	("fence-line", "\t~~~~ sql:pg", True),
-	("field-line", "srv[web].port: 80", True),
+	("field-line", "srv(web).port: 80", True),
+	## A selector is written in parens since 2026100610073400, and one in
+	## brackets is E029. A bare body ends at the first ")" and holds no "(".
+	("field-line", "srv[web].port: 80", False),
+	("field-line", "srv (web) . port: 80", True),
+	("field-line", 'srv("a)b").p: 1', True),
+	("field-line", "srv(a(b)).p: 1", False),
+	("field-line", "srv(a(b).p: 1", False),
+	("field-line", "srv(St.Paul).p: 1", True),
+	("field-line", "k: f(x)", True),
 	("field-line", "db: ```sql # the label is sql", True),
 	## 20260920 item 5: the bare-value class was the formatter's minimal shape,
-	## so the grammar derived none of these, and every one of them loads at exit
-	## 0 with no diagnostics. Three are the spec's own examples.
+	## so the grammar derived none of these. Since the value syntax change
+	## (2026100207032800) a quote, a bracket, or a comma or colon before a
+	## blank in a bare value is an error. Spaces are fine again since 20261006.
 	("field-line", "q: needs no quotes", True),
-	("field-line", 'c: say "hi" there', True),
+	("field-line", 'c: say "hi" there', False),
 	("field-line", "p: C:\\dir\\file", True),
 	("field-line", "url: http://h/#frag", True),
-	("field-line", "a: x[y]", True),
+	("field-line", "a: x[y]", False),
 	("field-line", "t: 12:30", True),
-	("field-line", "k: it's fine", True),
-	("field-line", "k: a]b", True),
-	("field-line", "k: one, two", True),
+	("field-line", "k: it's fine", False),
+	("field-line", "k: a]b", False),
+	("field-line", "k: one, two", False),
+	("field-line", "o: rw,noatime", True),
+	("field-line", "d: :0", True),
+	("field-line", "h: a.com port: 80", False),
+	("field-line", "x: a,", False),
+	("field-line", "x: done:", False),
+	("field-line", "t: a\tb", False),
+	("field-line", "k: [a,b]", True),
+	("field-line", "k: [a b]", False),
+	("field-line", "k: [a:, b]", False),
+	("field-line", "srv(a:b).p: 1", False),
+	("field-line", 'srv("a:b").p: 1', True),
 	("field-line", "\tk: trailing  ", True),
-	## Only seven escapes exist in double quotes, and any other pair is E023.
-	## An info string is not escape text, so the same pair passes there.
-	("field-line", 'p: "C:\\work"', False),
+	("field-line", 'q: "needs quotes"', True),
+	("field-line", "k: [one, two]", True),
+	("field-line", "k: []", True),
+	("field-line", "k: [ ]", True),
+	("field-line", 'k: [a, "b c", `d`]', True),
+	("field-line", "k: [a,, b]", False),
+	("field-line", "k: [a, ]", False),
+	("field-line", "k: [[a], b]", False),
+	("field-line", "log: [INFO] started", False),
+	("field-line", "k: [a", False),
+	("field-line", "k: x\u2003y", False),
+	("field-line", "k: x\u00a0", False),
+	("field-line", "k: `#FF8800`", True),
+	("field-line", "k: `a\"b`", True),
+	("field-line", "k: `x`y", False),
+	("field-line", '"404": x', True),
+	("field-line", "404: x", False),
+	("field-line", "-x: y", False),
+	## A backslash is text everywhere, so every pair that was an escape or an
+	## E023 reads as itself now. An info string never was escape text.
+	("field-line", 'p: "C:\\work"', True),
 	("field-line", 'p: "C:\\\\work"', True),
 	("field-line", "p: 'C:\\work'", True),
 	("info-string", '"C:\\x"', True),
 	("field-line", 'p: "\\u00E9"', True),
 	("field-line", 'p: "\\U0001F600"', True),
-	("field-line", 'p: "\\u12"', False),
-	("field-line", 'p: "\\uZZZZ"', False),
-	## A leading quote opens a quoted piece and a leading "[" is the refused
-	## bracket-array spelling, so neither is a bare value.
+	("field-line", 'p: "\\u12"', True),
+	("field-line", 'p: "\\uZZZZ"', True),
+	## An escape is a name from the closed list between two marks, in any case.
+	("field-line", 'p: "a\u25c9TAB\u25c9b"', True),
+	("field-line", "p: My\u25c9SPACE\u25c9App", True),
+	("field-line", "p: \u25c9tab\u25c9", True),
+	("field-line", "p: \u25c9U+1F600\u25c9", True),
+	("field-line", "p: \u25c9U_41\u25c9", True),
+	("field-line", 'p: "say \u25c9HELLO\u25c9"', False),
+	("field-line", "p: x\u25c9", False),
+	("field-line", "p: \u25c9U+0000041\u25c9", False),
+	("field-line", "p: `\u25c9`", True),
+	("field-line", "p: x  # \u25c9", True),
+	## A leading quote opens a quoted piece and a leading "[" opens an array,
+	## so neither is a bare value.
 	("bareword", '"q"', False),
 	("bareword", "[80, 443]", False),
 	("bareword", " lead", False),
 	("bareword", "trail ", False),
-	("bareword", "a,b", False),
+	("bareword", "a,b", True),
+	("bareword", "a, b", False),
+	("bareword", "a:", False),
 	("bareword", "a#b", False),
-	## The same three lines from the True direction, as values rather than as
-	## whole lines, so the tie below has both answers to check for this rule.
-	("bareword", "a]b", True),
+	## Three of the field lines above as values rather than whole lines, so the
+	## tie below has both answers to check for this rule.
+	("bareword", "a]b", False),
 	("bareword", "C:\\dir\\file", True),
-	("bareword", "it's fine", True),
-	("array-elem-line", "* Bond James", True),
+	("bareword", "it's fine", False),
+	("bareword", "it's", False),
+	("bareword", "12:30", True),
+	("bareword", ":x", True),
+	("bareword", "a b", True),
+	("bareword", "My  App", True),
+	("list-item-line", "* Bond James", False),
+	("list-item-line", "- Bond James", True),
+	("list-item-line", "- name: value", False),
+	("list-item-line", "- rw,noatime", True),
+	("list-item-line", '- "Bond, James"', True),
+	("list-item-line", "- `x`", True),
+	("list-item-line", "- -5", True),
+	("list-item-line", "-\tx", True),
+	("list-item-line", "- localhost:8080", True),
+	("list-item-line", "- name:", False),
+	("list-item-line", '- "name:"', True),
+	("list-item-line", "- [a]", False),
+	("list-item-line", "- a, b", False),
+	("list-item-line", "-x", False),
 	## 20260803 item 32: the parser takes a leading plus on an index, and "-"
-	## is no sign, so [-1] is a value selector.
+	## is no sign, so (-1) is a value selector. The old "#" index is gone.
 	("index-sel", "+1", True),
-	("index-sel", "#+1", True),
+	("index-sel", "#+1", False),
 	("index-sel", "-1", False),
 	## The formatter's own shape, which nothing on the parse side reaches.
 	("fmt-bareword", "plain", True),
-	("fmt-bareword", "C:\\dir", False),
+	("fmt-bareword", "C:\\dir", True),
 	("fmt-bareword", "a]b", False),
 	("fmt-bareword", "it's", False),
 	("fmt-bareword", "back\\slash", True),
+	("fmt-bareword", "localhost:8080", True),
+	("fmt-bareword", "a:", False),
+	("fmt-bareword", "rw,noatime", True),
+	("fmt-bareword", "a,", False),
+	("fmt-bareword", ":0", True),
+	("fmt-bareword", "a`b", False),
+	("fmt-bareword", "x\u25c9y", False),
+	("fmt-bareword", "a\u00a0b", False),
+	("fmt-bareword", "a b", False),
 	## A character nobody can see is escaped, so it needs quotes. A variation
 	## selector after a visible character and a subdivision flag's tags stay.
 	("fmt-bareword", "soft­hyphen", False),
@@ -368,7 +447,7 @@ class Matcher:
 ##	no indent of its own - the rule's own indent is *(SP / HTAB), so that stays
 ##	inside it.
 
-LINE_RULES = ("field-line", "fence-line", "array-elem-line")
+LINE_RULES = ("field-line", "fence-line", "list-item-line")
 
 
 def fCli() -> Path | None:
@@ -447,7 +526,7 @@ def fTie(cli: Path, work: Path, rule: str, text: str) -> bool:
 	if rule == "index-sel":
 		## Index 1 is the second instance; a value selector finds neither.
 		fWrite(work, "srv: a\n\tport: 1\nsrv: b\n\tport: 2\n")
-		rc, out = fRun(cli, ["get", "s.shcl", f"srv[{text}].port"], work)
+		rc, out = fRun(cli, ["get", "s.shcl", f"srv({text}).port"], work)
 		return rc == 0 and out == ["2"]
 	if rule == "fmt-bareword":
 		## The formatter's class, so the formatter is what answers: the value
@@ -463,7 +542,7 @@ def fTie(cli: Path, work: Path, rule: str, text: str) -> bool:
 		return rc == 0 and any(ln.startswith("p.") for ln in out)
 	if rule == "fence-line":
 		return fRun(cli, ["get", "--raw", "s.shcl", "p"], work)[0] == 0
-	## array-elem-line: the parent has the element and no child field.
+	## list-item-line: the parent has the item and no child field.
 	return fRun(cli, ["get", "s.shcl", "p"], work)[0] == 0 and fRun(cli, ["children", "s.shcl", "p"], work)[1] == []
 
 
@@ -601,3 +680,6 @@ if __name__ == "__main__":
 ##		2026-09-21  Every sample is also read by the real CLI, so the rows
 ##		            cannot drift away from the parser and the formatter.
 ##		2026-09-26  The newline rule takes a whole CR run.
+##		2026-10-05  The value syntax: brackets, "- " items, escape names and
+##		            the bare rules.
+##		2026-10-06  Selectors in parens.

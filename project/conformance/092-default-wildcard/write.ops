@@ -1,2 +1,2 @@
-int-default	srv[web].port	99
-string-default	srv[web].host	h1
+int-default	srv(web).port	99
+string-default	srv(web).host	h1

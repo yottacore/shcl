@@ -1,11 +1,13 @@
 outer:
-	list: a, b
+	list:
+		- a
+		- b
 		# c
 	y: 2
 other:
 	list:
-		* a
+		- a
 		*bad
-		* b
+		- b
 		# c
 	y: 2

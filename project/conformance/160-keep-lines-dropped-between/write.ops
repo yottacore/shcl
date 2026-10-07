@@ -1,1 +1,1 @@
-string	account[#1].email	c@x
+string	account(1).email	c@x

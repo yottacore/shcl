@@ -1,4 +1,4 @@
 query	type	expected	status
 server	count	3	Good
-server[web1].port	int	-	NotFound
+server(web1).port	int	-	NotFound
 -	load	ok	-

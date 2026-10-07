@@ -2,7 +2,7 @@ query	type	expected	status
 -	load	ok	-
 a	count	1	-
 c	count	1	-
-a["q\"uote"].p	int	1	Good
-a['q"uote'].q	int	2	Good
-b["tab\there"].r	int	3	Good
+a("q◉DOUBLE_QUOTE◉uote").p	int	1	Good
+a('q"uote').q	int	2	Good
+b("tab◉TAB◉here").r	int	3	Good
 -	lost	0	-

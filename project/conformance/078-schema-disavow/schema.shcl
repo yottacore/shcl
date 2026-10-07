@@ -1,9 +1,9 @@
-field: "a.\"b.c\""
+field: 'a."b.c"'
 	repeat: 2
 field: x
 	repeat: 0x2
 field: y
-	repeat: 1, 2, 3
+	repeat: [1, 2, 3]
 field: z
 	reopen: yes
 field: z.p

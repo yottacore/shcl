@@ -1,6 +1,5 @@
-line 2: Error: E023
-line 6: Error: E023
-line 7: Error: E023
-line 8: Error: E023
-line 11: Error: E023
-failed: 5 diagnostic(s), 5 error(s)
+line 8: Error: E029
+line 10: Error: E013
+line 11: Error: E013
+line 12: Error: E013
+failed: 4 diagnostic(s), 4 error(s)

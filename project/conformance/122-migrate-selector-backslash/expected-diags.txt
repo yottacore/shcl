@@ -1,1 +1,4 @@
-ok (0 diagnostic(s))
+line 1: Error: E029
+line 2: Error: E029
+line 3: Error: E029
+failed: 3 diagnostic(s), 3 error(s)

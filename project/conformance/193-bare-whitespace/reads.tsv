@@ -1,0 +1,24 @@
+query	type	expected	status	level
+-	load	ok	-
+-	load	fail	-	strict
+-	lost	1	-
+port	int	80	Good
+title	string	My App	Good
+title.sub	int	1	Good
+quoted	string	My App	Good
+name	string	-	NotFound
+fixed	string	O'Brien	Good
+mid	string	-	NotFound
+tab	string	-	NotFound
+nbsp	string	-	NotFound
+pair	string[]	-	NotFound
+when	datetime	2026-07-12	Good
+time	datetime	14:30	Good
+url	string	http://host:8080/path	Good
+ends	string	ready:	Good
+open	string	-	Empty
+open.kid	int	2	Good
+stack	string[]	one|two three|four	Good
+srv	count	1	Good
+srv("New York").port	int	2	Good
+last	int	1	Good

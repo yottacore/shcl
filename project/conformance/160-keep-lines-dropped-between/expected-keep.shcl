@@ -2,6 +2,6 @@
 # after it keeps it as written.
 account: w
 	email: a@x
-* stray
+- stray
 account: v
 	email: c@x

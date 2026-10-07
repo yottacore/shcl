@@ -6,7 +6,7 @@
 <!-- TOC ignore:true -->
 # Value syntax
 
-Status: draft, not built yet. Target: format 3, before the `v3.0.0-beta1` cut. Until it is built, `spec.md` describes what the code does today, and this document wins wherever the two disagree about where the format is going.
+Status: built in the Rust reference, with the Go, Python and C ports still to come. Target: format 3, before the `v3.0.0-beta1` cut. `spec.md` and `grammar.abnf` now describe the rules as built, and this document wins wherever the two disagree about where the format is going.
 
 Scope: escapes, quoting, bare values and field names, arrays, list items and selectors. Between them they decide how nearly every line in a file is read.
 
@@ -51,11 +51,15 @@ Scope: escapes, quoting, bare values and field names, arrays, list items and sel
 
 - An escape is a name between two `◉` characters, from a short fixed list under [escape list](#escape-list), such as `◉NEWLINE◉`, `◉TAB◉`, `◉U+200B◉`. Anything between `◉` but not in [escape list](#escape-list) is an error.
 
-- A bare value can't contain whitespace or a quote. `title: My App` and `name: O'Brien` are errors, and `title: "My App"` and `name: "O'Brien"` are the fix.
+- A bare value can contain spaces, but not a quote. `title: My App` is fine. `name: O'Brien` is an error, and `name: "O'Brien"` is the fix.
+
+- A colon or comma in a bare value needs something other than whitespace right after it. `opts: rw,noatime` and `display: :0` are fine, and `ports: 80, 443` is an error.
 
 - A bare field name starts with a letter. Any other name is quoted.
 
 - Arrays are written in brackets, `ports: [80, 443]`, or one item per line with `- `.
+
+- A selector is written in parens, `base(Boston).population: 700`. Brackets are only for arrays.
 
 - Backticks wrap a raw value the program decodes itself, such as `` `#FF8800` `` or `` `\x7F` ``. SHCL hands back the text between the backticks as is.
 
@@ -77,33 +81,53 @@ The rules in short. The reasons are under [Design](#design).
 	- A piece is one bare value or array element, one quoted string, one quoted field name or one selector body.
 	- A real `◉` is written `◉ESCAPE_CHAR◉`.
 
-- Whitespace or a quote in a bare value, a bare array element or a bare selector body is `E025`.
-	- Whitespace means a space, a tab, a carriage return, and every other character Unicode lists as `White_Space`.
-	- Whitespace at the start and end is trimmed first, so `port: 80   # main` is fine.
-	- A quote means `'`, `"` or a backtick, anywhere in the piece.
+- A bare field value and a bare `- ` item may contain spaces. Each run of spaces is kept as typed.
+	- A space here means U+0020 only. A tab, a carriage return inside the piece, and every other character Unicode lists as `White_Space` are `E025`.
+	- A space, a tab and a carriage return at the start and end are trimmed first, so `port: 80   # main` is fine. Any other whitespace at an edge stays in the piece, so it is `E025`.
 
-- A bare field name starts with an ASCII letter, then has only ASCII letters, digits, `-` and `_`. Anything else is `E014`. A quoted name can be any text.
+- A bare element inside `[]` and a bare selector body can't contain any whitespace. That is `E025`.
+
+- A quote anywhere in a bare piece is `E025`. A quote means `'`, `"` or a backtick.
+
+- A `[` or `]` in a bare piece is `E025`, unless the whole field value is a bracket array. A `- ` item that starts with `[` is `E019`, since arrays don't nest.
+
+- A colon in a bare piece must have a character other than whitespace right after it. `localhost:8080`, `https://example.com`, `2:30PM` and `:0` are fine.
+	- A colon followed by whitespace, or one at the end, is `E025` in a field value or a `[]` element, and `E027` in a `- ` item. `host: example.com port: 80` and `x: done:` are errors.
+
+- A comma in a bare field value or `- ` item must have a character other than whitespace right after it. `rw,noatime,nodev` is one string.
+	- A comma followed by whitespace, or one at the end, is `E026`. `ports: 80, 443` and `x: a,` are errors.
+	- Inside `[]` a comma always separates elements, with or without a space after it, so `[a,b]` is 2 elements. A comma inside an element needs quotes: `["rw,noatime"]`.
+
+- A bare selector body is stricter than a value: whitespace, a colon, a comma, a quote, a bracket or a paren in it is `E025`. Quote it.
+
+- A bare field name starts with an ASCII letter, then has only ASCII letters, digits, `-` and `_`. Anything else is `E014`. A quoted name can be any text, spaces and a leading digit included.
 	- A name that breaks only these spelling rules, such as `404`, `-x`, `user name` or `Straße`, can still be read. Its line is kept, and the lines under it load under the name it reads as.
 	- A name that can't be read at all, such as one with a bad escape, still takes its block with it, as today.
+	- Every field line keeps its colon, a header with lines under it too. A colon-less header was weighed and dropped, since `example.com` under `host:` would then bind silently.
+	- A line with no colon that is one clean name or path, quoted or bare, is `E015` and binds that path with no value. That covers a name breaking only the spelling rules, so `404` and `-x` alone are `E015` and `fmt` writes `"404":`. A quoted name with a space, `"user name"`, is `E015` too.
+	- A line with no colon whose bare name has a blank in it, such as `square-miles 300` or `user name`, is `E014` and kept as written, per `spec.md`'s narrow repair rule. The lines under it still load under it.
+
+- A line gets one diagnostic. A fault in the path comes first, then the name rule, then bracket text, then the value.
 
 - Single and double quotes work the same way. Each one can contain the other kind of quote as plain text.
 
-- A backtick value is raw. It has no escapes, can't contain a backtick, and is allowed only as a value or an array element.
+- A backtick value is raw. It has no escapes, can't contain a backtick, and is allowed only as a value or an array element. It counts as quoted, and a typed read still reads its text.
 
 - An array is `[a, b, c]`. A field can also take one item per line, each line `- ` then the item.
 
 - A field with lines under it takes one plain value or none. An array there is `E028`.
 
-- A selector matches one plain value. `base[Boston]` and `base["New York"]` work, and there is no way to select by an array value.
+- A selector is written in parens. `base(Boston)` and `base("New York")` match one plain value, and there is no way to select by an array value. `base(0)` is an index and `base(*)` the wildcard, as before.
 
 | Text                           | `◉` escapes | Whitespace inside | Notes
 | :---                           | :---        | :---              | :---
-| Bare value or array element    | yes         | no                | `E025` on whitespace or a quote
+| Bare value or `- ` item        | yes         | spaces only       | `E025` on a tab, a quote or a bracket
+| Bare element in `[]`           | yes         | no                | `E025` on whitespace, a quote or a bracket
 | Single or double quoted string | yes         | yes               | Either quote can contain the other
 | Backtick value                 | no          | yes               | Values and array elements only
 | Bare field name                | no          | no                | A letter, then letters, digits, `-` and `_`
 | Quoted field name              | yes         | yes               | `"user name"`, `"Straße"`, `"404"`. The same field as any other spelling of it
-| Selector body                  | yes         | quoted only       | Same rules as a value
+| Selector body                  | yes         | quoted only       | Bare text has no `:`, `,`, brackets or parens
 | Comment                        | no          | yes               | A `◉` is plain text
 | Raw block body and fence label | no          | yes               | A `◉` is plain text
 
@@ -141,16 +165,18 @@ The writer always uses the first name. The others are read as aliases.
 
 | Code   | Meaning                                                                            | Outcome
 | :---   | :---                                                                               | :---
+| `E010` | Retired. A bare comma in a stacked item, `- a, b`, is `E026` now                   | None
 | `E013` | A line starting with `*`. A list item is `- ` now                                  | Retained. The other items still load.
 | `E014` | A bare field name that breaks the spelling rules, such as `-x: y` or `404: x`      | Retained. Holds its level open, which is new.
 | `E017` | A quote or backtick that opens a piece and does not close it as its last character | Retained, value only. It used to bind, read bare.
 | `E019` | A bracket array that is not well formed                                            | Retained, value only
 | `E023` | A bad `◉` escape                                                                   | Retained. Value only when it sits in the value.
 | `E024` | Retired. A Windows path with `\t` or `\n` in it is just text now                   | None
-| `E025` | Whitespace or a quote in a bare value, bare array element or bare selector body    | Retained. Value only when it sits in the value.
-| `E026` | A bare comma outside brackets and quotes, such as `ports: 80, 443`                 | Retained, value only
-| `E027` | A list item that is a bare name ending in `:`, such as `- name:`                   | Retained. The other items still load.
+| `E025` | A tab, a quote, a bracket or a loose colon in a bare piece. See the rules above    | Retained. Value only when it sits in the value.
+| `E026` | A bare comma with whitespace or the end after it, such as `ports: 80, 443`         | Retained, value only
+| `E027` | A list item with a colon before whitespace or the end, such as `- name: value`     | Retained. The other items still load.
 | `E028` | An array value on a field that has lines under it                                  | Retained, value only
+| `E029` | A selector in brackets, `base[Boston].pop: 1`. Selectors are in parens             | Retained. Value selectors hold their level open.
 | `H003` | Retired. The case it hinted at is `E025` or `E027` now                             | None
 
 A malformed bracket array is any of these:
@@ -165,14 +191,27 @@ A malformed bracket array is any of these:
 
 Quoted text inside an array is just a string, so `["[a]", "b"]` is two strings.
 
+Two older codes change scope:
+
+- `E015`, missing colon, now covers a bare name that breaks the spelling rules when it is the whole line, such as `404` or `-x`. See the bare field name rule above.
+
+- `E021`, past the caller's element cap, now covers a bracket array or a stacked item past the cap whatever its value, so a broken value past the cap is dropped, where within the cap it would be kept. The path and the name are still judged first.
+
+`shcl explain E023` shows the `◉` mark itself, not `U+25C9`, so its text matches what a file has.
+
 ### Examples
 
 | Line                          | Reads as                         | Why
 | :---                          | :---                             | :---
 | `path: C:\temp\new`           | `C:\temp\new`                    | A backslash is text
 | `path: "C:\temp\new"`         | `C:\temp\new`                    | Quotes don't change that
-| `title: My App`               | `E025`                           | Bare whitespace
+| `title: My App`               | `My App`                         | Spaces are fine bare
 | `title: "My App"`             | `My App`                         | Quoted
+| `opts: rw,noatime`            | `rw,noatime`                     | A comma with no space after it
+| `display: :0`                 | `:0`                             | A colon with a character after it
+| `host: a.com port: 80`        | `E025`                           | A colon then a space
+| `x: a,`                       | `E026`                           | A comma at the end
+| `tags: [New York, Boston]`    | `E025`                           | No bare spaces in brackets
 | `title: My◉SPACE◉App`         | `My App`                         | An escape works bare too
 | `msg: "line one◉NEWLINE◉two"` | two lines                        | An escape in quotes
 | `msg: "say ◉HELLO◉"`          | `E023`                           | Not on the list
@@ -292,32 +331,39 @@ Quoted text inside an array is just a string, so `["[a]", "b"]` is two strings.
 
 ### Strings and quoting
 
-- A bare value is one run of text with no whitespace in it.
-	- It ends at a comment, at the end of the line, or at a bracket or comma where those mean something.
-	- Whitespace inside it is `E025`.
-	- The fix the error suggests is to quote the value.
+- A bare field value or `- ` item runs to a comment or the end of the line, and may contain spaces.
+	- A tab or any other whitespace inside it is `E025`, since it can't be told from spaces by eye.
+	- Only a space, a tab and a carriage return trim at its ends, the same three as before. A no-break space or any other whitespace at an edge stays in the piece, so it is `E025` rather than quietly dropped.
 
-- Why no bare whitespace: a value then has one reading.
-	- `say "hi" there`, a value starting with a quote it never closes, and `Jul 12, 2026` splitting at its comma were all edge rules that four bindings had to agree on.
-	- The writer already quoted any value with whitespace, so a file `fmt` wrote is already legal.
-	- This reverses "Quotes are optional" in `spec.md`. A hand-typed `title: My App` is now an error, accepted as the price of one reading per line.
+- Why spaces are allowed there: the other rules already give such a value one reading (answered 2026-10-06).
+	- A quote inside is an error by the quote rule, a comma then a space by the comma rule, and `#` always opens a comment. With those, `title: My App` can only mean `My App`.
+	- `title: My App` is the most common hand-typed line in any config, and YAML takes it.
+	- A missed line break shows up as a colon then a space, `host: example.com port: 80`, which is an error.
+
+- Why no spaces inside `[]`: `[a b, c]` would then silently be 2 elements where 3 were meant.
+
+- Why a colon or comma needs a character after it: that keeps real text bare while catching what looks like another field or an array missing its brackets.
+	- `rw,noatime,nodev` for `mount`, `:0` for a display, URLs, `host:port` and times all stay bare.
+	- Text before the colon is not required, so `:0` works.
+	- `ports: 80,443` reads as the string `80,443`, not 2 ports. A typed int or array read of it fails, so a program expecting numbers notices. That was accepted, since options joined by commas are common.
 
 - A quote anywhere in a bare value is `E025` too: `O'Brien` and `a"b` are errors, and `"O'Brien"` and `'a"b'` are the fix.
 	- A quote mid-value used to be text, which left a person guessing whether it opened a string.
 	- The same goes for a backtick.
 
-- A piece that starts with a quote must end with the matching quote. Otherwise it is `E017`, and the line is now refused instead of read bare, since a bare reading would break the whitespace rule.
+- A piece that starts with a quote must end with the matching quote. Otherwise it is `E017`, and the line is now refused instead of read bare, since a bare reading would break the quote rule.
 
 - Single and double quotes differ only in which quote each can contain.
 	- `'He said "hi"'` and `"it's"` need no escapes.
 	- A string with both should use `◉DOUBLE_QUOTE◉` and/or `◉SINGLE_QUOTE◉`.
 
-- Dates, times, durations and sizes with spaces need quotes now: `"Jul 12 2026"`, `"2:30 PM"`, `"1h 30m"`, `"1.5 GiB"`. Without the spaces they stay bare: `Jul-12-2026`, `2:30PM`, `1h30m`, `1.5GiB`. Typed reads don't care about the quotes, as before.
+- Dates, times, durations and sizes with spaces stay bare in a field value: `Jul 12 2026`, `2:30 PM`, `1h 30m`, `1.5 GiB`. `Jul 12, 2026` needs quotes for its comma, and so does any of them inside `[]`. Typed reads don't care about the quotes, as before.
 
 - A bare field name starts with an ASCII letter.
 	- That is the usual rule for names in programming languages, and it keeps a name from being read as a number or a list item.
 	- `-x: y`, `404: x` and `_id: 7` are `E014`. Quote them: `"404": x`. The lines under them still load meanwhile.
 	- A name that starts with a letter is unchanged.
+	- With no colon, one clean name or path is `E015` and binds, whatever its spelling, so `404` alone becomes `"404":`. A bare name with a blank in it, such as `square-miles 300`, is `E014` and kept as written, since `300` could be a value or the rest of a name.
 
 - Quoted field names follow the same rules as quoted values, and resolve `◉` escapes, so `"a◉DOUBLE_QUOTE◉b"` and `'a"b'` name the same field.
 
@@ -332,6 +378,8 @@ Quoted text inside an array is just a string, so `["[a]", "b"]` is two strings.
 	- `` `'` ``, `` `"` ``, `` `$` ``
 
 - SHCL never decodes the text inside backticks. A read returns exactly what is between the backticks, plus a flag saying it was backticked, the way the `quoted` flag works today. The program decides what `\x7F` means.
+	- A backtick value counts as quoted too, so the `quoted` flag is set as well.
+	- A typed read still reads its text, so `` n: `42` `` reads as the int 42.
 
 - Single and double quotes are not aliases for backticks. `"\x7F"` is the four characters `\`, `x`, `7`, `F`, and so is `` `\x7F` ``. Only the flag differs.
 
@@ -346,11 +394,11 @@ Quoted text inside an array is just a string, so `["[a]", "b"]` is two strings.
 ### Arrays
 
 - `[a, b, c]` is the array spelling, and the canonical one.
-	- Spaces after the commas are only separators. Each element follows the value rules, so `[New York, Boston]` is `E025` and `["New York", Boston]` is fine.
+	- A comma always separates, and spaces after it are only separators. Each element follows the element rules, so `[New York, Boston]` is `E025` and `["New York", Boston]` is fine.
 	- `[]` is the empty array. `x: []` and `x:` both read as an empty array. A plain read of `x:` still gives its Empty status, and a string read of `x: []` gives `[]`.
 	- `[80]` is a one-element array.
 
-- A bare comma outside brackets and quotes is `E026`. `ports: 80, 443` clearly means an array, so the error says to add the brackets, and `migrate` adds them.
+- A bare comma with whitespace or the end after it, outside brackets and quotes, is `E026`. `ports: 80, 443` clearly means an array, so the error says to add the brackets, and `migrate` adds them. `rw,noatime` is one string.
 
 - A malformed array is `E019`. See [Error codes](#error-codes) for the cases.
 
@@ -384,28 +432,42 @@ Quoted text inside an array is just a string, so `["[a]", "b"]` is two strings.
 	- `-x: y` is `E014`, since a bare name starts with a letter.
 	- `-5` alone on a line has no colon, so it was never a legal line. `- -5` is the item `-5`.
 
-- Each item is one value and follows the value rules. `- extra large` is `E025`.
+- Each item is one value and follows the value rules. `- extra large` is fine, and `- a, b` is `E026`. A bad line is kept among the items, and the other items still load.
 
-- `- name:` is `E027`. That is how YAML starts an object in a list, and SHCL does that with instances. The line is kept, and the other items still load.
+- `- name:` and `- name: value` are `E027`. That is how YAML starts an object in a list, and SHCL does that with instances. The line is kept, and the other items still load.
 	- `- "name:"` is the item `name:`.
-	- `- name: value` is already `E025`, for the space.
-	- `- localhost:8080` is fine. The rule is a bare name ending in a colon, not any colon.
+	- `- localhost:8080` is fine. The rule is a colon followed by whitespace or the end, not any colon.
 
 - The old marker, `*`, is `E013`, and the message says to use `- `. `migrate` converts it.
 
 - Every line at the item column is an item, or none is, as today. The field opening the list has no value of its own.
 
 - `fmt` and the writer keep a list written this way stacked. See [Canonical output](#canonical-output).
+	- A comment trailing an item stays on its item, and a whole-line comment among the items stays among them. When a merge puts the list in brackets, they go above it.
+
+- A list with a field under it (`E001`) after an empty binding of its name is a case no text loads back, since a reload joins its header to that binding. A merge or an edit can leave it.
+	- The load stays as it is, so the `E001` field still binds.
+	- A save that would write the case refuses at exit 7, so `fmt --write` refuses.
+	- The line-keeping save holds such a file to its own reload instead, so `set --write` keeps its text and saves an unrelated edit.
+	- Item 2026100511210900.
 
 ### Selectors and discriminators
 
 - A field with lines under it takes one plain value or none.
 	- `route: [GET, POST]` with lines under it is `E028`.
-	- A list as an instance's value was always rare, and other spellings cover it: a string, `route: "GET POST"`; a position, `route[#1]`; or a one-word value with the list in a child field, `route: api` with `methods: [GET, POST]` under it.
+	- A list as an instance's value was always rare, and other spellings cover it: a string, `route: "GET POST"`; a position, `route(1)`; or a one-word value with the list in a child field, `route: api` with `methods: [GET, POST]` under it.
 
-- A selector matches one plain value: `base[Boston]`, `base["New York"]`.
+- Every selector is written in parens: `person(Bucky).city`, `person("New York")`, `person(0)`, `person(*)`. Brackets after a name are an error, so brackets on a line are always an array. Answered 2026-10-06, item 2026100610073400.
+	- This goes for files, lookup paths, setter paths, `--set` and schema paths, and for every path the library writes.
+	- With arrays in brackets, `base[Boston].ports: [80, 443]` used one bracket for two things. In a lookup path, `dogs[1]` would look like the second element of an array, when it's the second `dogs` instance.
+	- A bare number is still an index and a quoted one a value: `year(2020)` vs `year("2020")`.
+	- `[#N]` goes with the brackets. A body starting with `#` is refused, never read as a value.
+	- Brackets after a name are `E029`, answered 2026-10-06. The line is kept as written. When it selects by value, the lines under it still load under that instance. `shcl explain E029` says selectors moved to parens.
+
+- A selector matches one plain value: `base(Boston)`, `base("New York")`.
 	- The old match by display form, where `base[Boston, MA]` found the array value `Boston, MA`, is gone.
-	- A bare selector body follows the bare value rules, so `base[New York]` and `srv[O'Brien]` are `E025`.
+	- A bare selector body is stricter than a value: no whitespace, colon, comma, quote, bracket or paren. `base(New York)`, `srv(O'Brien)` and `host(a:b)` are `E025`. A selector is often typed on a command line, where those need quoting anyway.
+	- An unquoted `(` fails in bash, PowerShell and fish, so CLI examples quote the path.
 
 ### Errors and kept lines
 
@@ -431,23 +493,24 @@ Quoted text inside an array is just a string, so `["[a]", "b"]` is two strings.
 	- Since nothing binds, `a` never exists, and the save used to write `b: x y` at column 0. Once the quotes were added, `b` read as a top-level field, not `a.b`.
 	- The save now writes `b` back under `a`, where it was.
 	- A fuzz property holds it: a kept line reloads at the same path, under the same parent lines, after both a canonical and a line-keeping save.
-	- A comment between the two is still written at column 0. It should nest too, under 2026100218185700.
+	- A comment between the two nests too, since 2026100218185700.
 
-- These errors become far more common than `E023` and `E024` were, since a bare value with a space is a very common hand-typed line. That makes the kept-line rules and the bug above more important, not less.
+- These errors are more common than `E023` and `E024` were, since a quote or a comma then a space in a bare value is a common hand-typed line. That makes the kept-line rules and the bug above more important, not less.
 
 ### Canonical output
 
 What the writer and `fmt` produce. The line-keeping save still writes unchanged lines as they were.
 
-- A value is written bare when it has no whitespace, none of `,` `#` `"` `'` `` ` `` `[` `]` `◉`, doesn't end in `:`, and needs no escape. Otherwise it is quoted.
-	- A `:` inside a value is text, so `2:30PM` and `localhost:8080` stay bare.
-	- A value ending in `:` is quoted, since as a list item it would read as `- name:`.
+- A value is written bare when it has no whitespace, none of `#` `"` `'` `` ` `` `[` `]` `◉`, no colon or comma with whitespace or the end after it, and needs no escape. Otherwise it is quoted.
+	- So `2:30PM`, `localhost:8080`, `:0` and `rw,noatime` stay bare.
+	- The writer still quotes any value with a space, though the reader takes one bare. A file `fmt` wrote before reads and writes the same, and only hand-typed lines get the leeway.
+	- An array element with a comma is quoted, since there the comma separates.
 
-- The user's quotes on a plain string are kept, as today.
+- The author's quote kind on a plain string is kept: single, double or backtick. `fmt` keeps it too, not only a setter's overwrite, so `'abc'` stays single quoted.
 	- Quoting used to be pure spelling, normalized away, which silently took the quotes off values a downstream language treats as special, such as `"@null"` or a quoted function name. The `quoted` read flag exists for that case.
 	- `ver: "8"` still becomes `ver: 8`, since readers type the value either way.
 	- A number with a leading zero keeps its quotes, as today: `zip: "02134"`. The quotes don't stop a typed read, so a program that reads `zip` as an int gets 2134. Knowing a zip code isn't a number is up to the program.
-	- A data value whose bare spelling would break the whitespace rule keeps its quotes: `"Jul 12 2026"`, `"1h 30m"`.
+	- A data value with a space keeps its quotes: `"Jul 12 2026"`, `"1h 30m"`.
 
 - Quote choice when the writer picks: double quotes, or single quotes when the text has a `"` and no `'`. Text with both goes in double quotes with `◉DOUBLE_QUOTE◉`. A backslash plays no part in the choice any more.
 
@@ -471,6 +534,7 @@ What the writer and `fmt` produce. The line-keeping save still writes unchanged 
 - Setters get no new options.
 	- A backtick value goes in through `SetLiteral` or `--set-literal`, written as the file would have it.
 	- An array setter writes brackets even for one element, so `SetIntArray` gives `port: [80]` and `SetInt` gives `port: 80`.
+	- An array setter over a list written with `- ` keeps it stacked.
 	- A setter that overwrites a value keeps its quote kind, backtick, single or double, when the new text can be written that way. Otherwise the writer picks.
 
 - The quoting rule runs at standard strictness, fixed, so canonical form can't vary with how strictly the file was loaded.
@@ -495,23 +559,36 @@ Moved from `design.md`, with the escape spelling changed to `◉U+XXXX◉`.
 
 ### Migration
 
-- `migrate` rewrites a 2.x file into the new rules. It writes each value the way 2.x read it.
+- `migrate` rewrites a 2.x file into the new rules. It keeps each value 2.x read, except that a backslash pair 2.x read as an escape reads as written now.
 
-| Before                          | After
-| :---                            | :---
-| `"C:\\work"`                    | `"C:\work"`
-| `\t` and `\n` escapes           | `◉TAB◉` and `◉NEWLINE◉`
-| `\"` and `\'`                   | The other quote kind, or `◉DOUBLE_QUOTE◉` and `◉SINGLE_QUOTE◉`
-| `\uXXXX`                        | The character, or `◉U+XXXX◉` when it is hidden
-| A bare value with whitespace    | The same text, quoted
-| A bare value with a quote       | The same text, quoted
-| A bare name not led by a letter | The same name, quoted
-| `a, b`                          | `[a, b]`
-| `* item`                        | `- item`
-| `* key: value`                  | `- "key: value"`
-| A real `◉`                      | `◉ESCAPE_CHAR◉`
+| Before                                          | After
+| :---                                            | :---
+| `"C:\\work"`                                    | As written. It reads as `C:\\work` now
+| `\t` and `\n` escapes                           | As written. Each reads as a backslash and a letter
+| `\"` and `\'`                                   | As written, in the other quote kind where the old one would end the piece: `'say \"hi\"'`
+| `\uXXXX`                                        | As written. 2.x read it as text too
+| A bare value with spaces                        | As written, since spaces are fine bare now
+| A bare value with a tab or other whitespace     | The same text, quoted, a tab as `◉TAB◉`
+| A bare value with a quote                       | The same text, quoted
+| A bare name not led by a letter                 | The same name, quoted, so `-x: y` doesn't start a list item
+| `x[sel]`, a 2.x selector                        | `x(sel)`
+| A bare selector body with a quote or whitespace | The same body, quoted, so `srv[New York]` is `srv("New York")`. A paren in it is quoted too
+| `a, b` or `a,b`                                 | `[a, b]`, since 2.x read both as arrays
+| `x: ,`, only empty slots                        | `x:`, empty, as 2.x read it
+| `* item`                                        | `- item`
+| `* key: value`                                  | `- "key: value"`
+| A real `◉`                                      | `◉ESCAPE_CHAR◉`, in a name and a selector too
 
-- Bracket text after a colon in a 2.x file is still counted lost, as now. That is exit 7, and `--lossy` overrides it.
+- A 2.x backslash is left as written, and reads literally. No escape is added for it (answered 2026-10-05).
+	- A piece is written another way only where these rules would read its text as something else, so `"say \"hi\""` becomes `'say \"hi\"'`.
+	- `check-migrate.bash` compares reads with 2.x, so it allows an element or a quoted name to differ where a backslash pair 2.x read as an escape is text now.
+
+- A selector in brackets is `E029` now, so its line never reads clean under these rules. In a file that does not say it is 2.x, a line these rules refuse is rewritten, so the selector goes to parens there too, at exit 0 (2026-10-06).
+
+- Some lines 2.x bound have no spelling here, so they are counted lost. That is exit 7, and `--lossy` overrides it.
+	- Bracket text after a colon, as before.
+	- A selector holding a comma, such as `base[Boston, MA].pop: 700`. 2.x matched it against an array value, and a selector matches one plain value now.
+	- A comma list on a field with lines under it. In brackets that is `E028`, and as one string it reads as another value.
 
 - The standing rule for 2.x still applies: on a hard edge case, refuse with an error rather than build machinery, and never damage a correct file at exit 0.
 
@@ -620,6 +697,16 @@ Not looked at in any depth:
 
 - A merge writing a list in the form of the last layer that sets it. Brackets every time is simpler, and needs no rule for which layer counts.
 
+- No whitespace in any bare value, `E025` on `title: My App`. Settled 2026-10-02 and built in Rust on valsyn, then dropped 2026-10-06. The quote, comma and comment rules already give such a value one reading, and the ban made the most common hand-typed line an error.
+
+- Banning every bare colon and comma. That would put quotes on URLs, `host:port`, times, `:0` and `mount` options.
+
+- Keeping brackets for selectors. It costs nothing to build, and XPath and JSONPath do the same. But a line would use one bracket for two things.
+
+- Parens for a value match, with an index and the wildcard left in brackets, `base(Boston)` and `base[0]`. Two spellings for one thing was too confusing.
+
+- Braces for selectors, `base{Boston}`. PowerShell splits an unquoted `person{Bucky}.city` into 2 arguments with no error, and readers coming from JSON or HCL take braces as an object.
+
 ### Superseded
 
 What the build has today, and what replaces it.
@@ -631,7 +718,7 @@ What the build has today, and what replaces it.
 	- The writer's `\u0009` and `\u000A` spelling for such a path goes with it.
 	- Writing a value with a backslash in single quotes, or in double quotes with each backslash doubled, is no longer needed. Items 2026100115323216 and 2026100115323222.
 
-- "Quotes are optional" (`spec.md`, Whitespace, quoting, and reserved characters), and for this case the principle that the user is never made to satisfy the machine. A bare value with whitespace is an error now.
+- "Quotes are optional" (`spec.md`, Whitespace, quoting, and reserved characters), for a quote, a bracket, or a colon or comma then a space in a bare value, and for whitespace inside `[]` or a selector. Each of those needs quotes now.
 
 - The inline comma array, `tags: red, green, blue`, and its leniency: empty elements dropped, and a value of only commas read as the empty array. Replaced by brackets, where an empty element is an error.
 
@@ -664,13 +751,15 @@ What the build has today, and what replaces it.
 ## Roadmap
 
 1. Build it, reference first, then the other bindings.
-	- Rust, then Go, Python and C, then the C++ veneer.
-	- The tokenizer, the writer, `SetLiteral` and `--set-literal`, and `migrate`. `--set` and the typed setters take data, not syntax, so `--set 'title=My App'` still works.
-	- One generated table for the escape names and aliases and the whitespace list, beside the hidden-character list.
-	- `spec.md`, `grammar.abnf`, and `design.md` under Lexical edges and Load outcomes.
-	- Corpus cases and goldens. Most goldens change, since arrays and quoting change.
-	- CLI help showing the quoted form for `--set-literal`: `--set-literal 'title="My App"'`.
-	- Comments nesting under kept lines, 2026100218185700.
+	- Rust, then Go, Python and C, then the C++ veneer. Rust is done. The ports are next.
+	- The tokenizer, the writer, `SetLiteral` and `--set-literal`, and `migrate`. `--set` and the typed setters take data, not syntax, so `--set 'title=My App'` still works. Done in Rust.
+	- One generated table for the escape names and aliases and the whitespace list, beside the hidden-character list. Done, in `cicd/utility/gen-escapes.py`. It also writes the grammar's escape names and the escape table in `spec.md`.
+	- `spec.md`, `grammar.abnf`, and `design.md` under Lexical edges and Load outcomes. All 3 are done.
+	- Corpus cases and goldens. Most goldens change, since arrays and quoting change. Done for Rust.
+	- CLI help showing the quoted form for `--set-literal`: `--set-literal 'title="My App"'`. Done.
+	- Comments nesting under kept lines, 2026100218185700. Done.
+	- Spaces in bare values and `- ` items, and the colon and comma rules, answered 2026-10-06. Done in Rust, `spec.md` and `grammar.abnf`, with `migrate` writing a 2.x comma list in brackets. The ports build them from the start.
+	- Selectors in parens, answered 2026-10-06, 2026100610073400. Done in Rust, `migrate` included, and in `spec.md`, the grammar, `design.md`, the README and the man page. The ports build it from the start.
 
 2. Then cut `v3.0.0-beta1`.
 
@@ -680,7 +769,7 @@ What the build has today, and what replaces it.
 | :---             | :---                                                                                          | :---
 | 2026100207032800 | No '\' escapes                                                                                | This design
 | 2026100213205957 | A kept line under a kept value-only line is saved at column 0                                 | Fixed
-| 2026100218185700 | A comment between nested kept lines is written at column 0                                    | Open bug, fixed with this
+| 2026100218185700 | A comment between nested kept lines is written at column 0                                    | Fixed
 | 2026100115403384 | A bad escape on a line that opens a block drops the whole block                               | The lazy level. Stays.
 | 2026100115323227 | `"C:\temp"` loads with a tab and only a hint says so                                          | Superseded. `E024` goes.
 | 2026100115323216 | Windows paths are written three different ways                                                | Moot
@@ -688,3 +777,6 @@ What the build has today, and what replaces it.
 | 2026100115403385 | A file stamped Format 3 during the beta is never migrated                                     | Answered: on their own
 | 2026100117214801 | A bad escape in the name of a line that opens a raw block leaves the body to be read as lines | Stays. Its repro changes.
 | 2026100117214802 | `set` on a file ending in a kept line writes the new key above it                             | Stays. Its repro changes.
+| 2026100511210900 | A merge can leave a list with a field under it after an empty binding of its name             | Fixed: the save refuses
+| 2026100610073400 | Selectors use `()`, and `[]` is for arrays only                                               | Done in Rust and the docs. The ports remain
+| 2026100609552447 | Don't allow the `[#N]` index selector                                                         | Moot, folded into 2026100610073400

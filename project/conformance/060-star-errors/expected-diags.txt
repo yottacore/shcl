@@ -1,5 +1,5 @@
 line 1: Error: E007
 line 4: Error: E009
-line 5: Error: E010
+line 5: Error: E026
 line 8: Error: E011
 failed: 4 diagnostic(s), 4 error(s)

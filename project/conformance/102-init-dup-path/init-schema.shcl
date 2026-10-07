@@ -3,6 +3,6 @@ field: w
 	required: yes
 	default: v
 
-field: "w[*]"
+field: "w(*)"
 	required: yes
 	default: v

@@ -2,11 +2,11 @@ outer:
 	x: 1
 	list:
 		*first
-		* a
+		- a
 		*bad
 
 		q: [x
   kept: 1
-		* b
+		- b
 		*end
 	y: 2

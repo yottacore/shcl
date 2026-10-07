@@ -2,7 +2,7 @@ script: ```sh
 	echo hi
 ```
 city: Boston
-path: "C:\\temp"
+path: C:\\temp
 last: 1
 ##    Format   3
 ##    Migrated from SHCL 2.x.

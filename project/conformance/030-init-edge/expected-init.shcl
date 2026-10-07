@@ -2,8 +2,8 @@
 mode: "x\ny"
 
 ## Paths needing an instance name (not generated):
-##   a[#2]   int
-##   w[*].x   int
+##   a(2)   int
+##   w(*).x   int
 
 ##
 ## This config file format is SHCL.

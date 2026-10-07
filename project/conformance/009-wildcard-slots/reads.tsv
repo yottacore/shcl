@@ -1,8 +1,8 @@
 query	type	expected	status
-base[*].pop	int[]	1|0|0	BadType	standard	Good|NotFound|BadType
-base[*].pop	string[]	1||	BadType	standard	Good|NotFound|BadType
-base[*].pop	count	3	Good
-base[*].pop	instances	1||two, words	Good
+base(*).pop	int[]	1|0|0	BadType	standard	Good|NotFound|BadType
+base(*).pop	string[]	1||	BadType	standard	Good|NotFound|BadType
+base(*).pop	count	3	Good
+base(*).pop	instances	1||[two, words]	Good
 base	count	3	Good
 base	instances	Boston|Philly|Chicago	Good
-base[*]	string[]	Boston|Philly|Chicago	Good	standard	Good|Good|Good
+base(*)	string[]	Boston|Philly|Chicago	Good	standard	Good|Good|Good

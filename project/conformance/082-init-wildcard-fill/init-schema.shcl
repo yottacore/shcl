@@ -3,21 +3,21 @@
 field: a
 	required: yes
 
-field: "a[*].b"
+field: "a(*).b"
 	required: yes
 	default: bee
 
-field: "a[*].b[*].c"
+field: "a(*).b(*).c"
 	required: yes
 
 field: num
 	required: yes
 	default: 8
 
-field: "num[*].v"
+field: "num(*).v"
 	required: yes
 
-field: "w[*]"
+field: "w(*)"
 	required: yes
 	default: v
 
@@ -25,9 +25,9 @@ field: star
 	required: yes
 	default: "*"
 
-field: "star[*].leaf"
+field: "star(*).leaf"
 	required: yes
 
-field: "\"a\\nb\""
+field: '"a◉NEWLINE◉b"'
 	required: yes
 	default: v

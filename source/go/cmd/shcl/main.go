@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"unicode"
 	"unicode/utf8"
 
 	shcl "github.com/yottacore/shcl/source/go/v2"
@@ -133,7 +134,7 @@ option holds the edits, an empty base when the ops script has stdin instead.
 With --write, a FILE that does not exist yet is created. Lines the edits leave
 alone come back as they were written; with --layer, or where the edited text
 would not load back the same, the whole document comes out canonical, the way
-fmt writes it. PATH ends at the first '=' outside quotes and brackets, so a
+fmt writes it. PATH ends at the first '=' outside quotes and parens, so a
 selector may hold one. Ops:
   int|float|bool|string|datetime<TAB>PATH<TAB>VALUE       set a scalar
   <type>-array<TAB>PATH<TAB>V1<TAB>V2...                  set an inline array
@@ -212,9 +213,11 @@ Options (the subcommands each belongs to are in parentheses):
   --set-literal=PATH=TEXT                (same subcommands) as --set, except
                                          TEXT goes in as value
                                          syntax the way a file writes it, so
-                                         'ports=80, 443' writes a two-element
-                                         array. A # outside quotes ends the
-                                         value; text spanning lines is rejected
+                                         'ports=[80, 443]' writes a two-element
+                                         array, 'title="My App"' a string and
+                                         'color=` + "`#FF8800`" + `' a backtick value. A
+                                         # outside quotes ends the value; text
+                                         spanning lines is rejected
   --set-default=PATH=VALUE               (same) as --set, but only when nothing
   --set-literal-default=PATH=TEXT        is at the path yet - the write-out-
                                          defaults half of the writer
@@ -288,16 +291,16 @@ are worth just as much.
 // spec.md's diagnostic tables are the long form; this is the same rules cut to
 // what a terminal shows. Like the help text it is byte-for-byte across the
 // bindings, and crosscheck compares every code.
-const codes = `E001|error|field line under a parent holding stacked '*' list elements
-  A parent holds list elements or named children, not both. The field line
-  is kept and the elements stay.
-E002|error|value after a last-segment selector (a.b[X]: v)
+const codes = `E001|error|field line under a parent holding stacked '- ' list items
+  A parent holds list items or named children, not both. The field line
+  is kept and the items stay.
+E002|error|value after a last-segment selector (a.b(X): v)
   The selector already says which instance, so the value has nowhere to go
   and is ignored. Put the value on the line that creates the instance.
 E003|error|selector names an instance that does not exist
-  a[5].b where there is one a. An index selects an existing instance by
+  a(5).b where there is one a. An index selects an existing instance by
   position and never creates one, so a binding line should select by value
-  instead. In a file the index is the bare [5], since a # opens a comment.
+  instead.
 E004|error|wildcard selector on a binding line
   Wildcards read every instance, so there is no single one to write to.
   They are query-only.
@@ -306,48 +309,54 @@ E005|error|unterminated raw block (closing fence never found)
   opening fence's indent.
 E006|error|raw-block fence with no parent field to bind to
   A raw block is a field's value, so a fence needs a field line above it.
-E007|error|stacked '*' list element with no parent field
-  A '* value' line is an element of the field above it.
-E008|error|stacked '*' list element under a parent with field children
-  The parent already holds named children, so the element is dropped.
-E009|error|empty stacked '*' list element
-  A '*' with nothing after it has no value to add.
-E010|error|bare comma in a stacked '*' list element
-  The stacked form is one element per line. Quote the comma, or write the
-  whole array on the field's own line.
-E011|error|stacked '*' element for a field that already has a value
-  The field's value is kept and the element is ignored. A field is written
+E007|error|stacked '- ' list item with no parent field
+  A '- value' line is an item of the field above it.
+E008|error|stacked '- ' list item under a parent with field children
+  The parent already holds named children, so the item is dropped.
+E009|error|empty stacked '- ' list item
+  A '-' with nothing after it has no value to add.
+E011|error|stacked '- ' item for a field that already has a value
+  The field's value is kept and the item is ignored. A field is written
   one way or the other, not both.
 E012|error|indentation matches no open level
   The line is skipped, and anything written deeper is skipped with it
   (E018). A save writes them back as they were when the indent holds a
   space. One indented with tabs alone would bind there, so it is lost.
   Indent to a column some open parent already uses.
-E013|error|malformed '*' line ('*' not followed by a space)
-  The line is skipped, and what is written under it goes with it.
-E014|error|malformed line skipped (the message names the reason)
-  The reason and the byte column the line went wrong at are in the prose.
-  A quote that never closes in a field name arrives here too. A raw block
-  the line opens is kept with it.
+E013|error|a line starting with '*', the old list item marker
+  A list item is written '- value' now. The line is kept as written and
+  binds nothing, and the other items still load. What is written under it
+  goes with it.
+E014|error|malformed line, or a bare field name that needs quotes
+  A bare name is a letter, then letters, digits, '-' and '_'. One that
+  breaks only that rule, such as 404 or user name, still reads: the line is
+  kept, and the lines under it load under that name. Quote the name to fix
+  it. Any other malformed line is kept as written and the lines under it go
+  with it; the prose names the reason and the byte column. A quote that
+  never closes in a field name arrives here too. A raw block the line opens
+  is kept with it.
 E015|error|missing colon (repaired as an empty value)
   The name binds with no value rather than the line being dropped.
 E016|error|nesting deeper than the 512-level cap (line skipped)
   The cap is what makes any loadable document safe to format, merge and
   copy in every binding.
-E017|error|a quote that never closes with the matching quote last
-  In a value element or a selector body. The piece is read bare, quotes and
-  all, and a comma or comment after it still ends it. The same typo in a
-  field name is E014.
+E017|error|an open quote or backtick in a value or selector body
+  A piece that starts with a quote must end with the matching one. The line
+  is kept verbatim and binds nothing. In a value, the lines under it still
+  load, under the field with no value. The same typo in a field name is
+  E014.
 E018|error|line written under a line that was skipped
   It is skipped with it, so a skipped line's block never re-parents one
   level up. Fix the line above and this one comes back with it.
-E019|error|a value beginning with '[', the way JSON and YAML write arrays
-  An array is comma-separated and written without brackets: ports: 80, 443.
-  A '[' after the colon is never a selector, and reading the text without
-  its brackets would bake a changed value in, so the line is kept verbatim:
-  it binds nothing and nothing counts as lost. The lines under it still
-  load, under the field with no value, so a read on the field is Empty when
-  one of them loads and NotFound when none does.
+E019|error|a bracket array that is not well formed
+  An array is one line, ports: [80, 443], and [] is the empty array. Text
+  after the closing ']', a bare '[' or ']' inside, an empty element, or no
+  closing ']' on the line is malformed. Quote the value if it is text:
+  log: "[INFO] started". A list item that is an array is E019 too, since
+  arrays do not nest. The line is kept verbatim: it binds nothing and
+  nothing counts as lost. The lines under it still load, under the field
+  with no value, so a read on the field is Empty when one of them loads and
+  NotFound when none does.
 E020|error|node cap exceeded (fires only under a caller-supplied cap)
   The parse stopped there and the unparsed remainder counts as lost, so a
   later save refuses rather than writing a truncated file.
@@ -358,33 +367,56 @@ E022|error/hint|the diagnostics list was cut at the caller-supplied cap
   This entry ends the list and counts what was not listed. An error when
   any unlisted one was, so a scan for errors still finds one; a hint
   otherwise.
-E023|error|a bad escape in double quotes
-  Only \t, \n, \\, \", \', \uXXXX and \UXXXXXXXX are escapes there, and a
-  \u or \U escape must name a character. A Windows path typed in double
-  quotes is the usual cause, and its \n would already be a newline, so the
-  line is kept verbatim: it binds nothing and a read on it is NotFound. Use
-  single quotes or no quotes, or double each backslash. When only the value
-  is wrong, the lines under it still load, under the field with no value,
-  and a read on the field is Empty once one of them loads. When the name
-  is, a raw block the line opens is kept with it.
-E024|error|a Windows path in double quotes with a \t or \n escape
-  "C:\temp" would read as C:, a tab, then emp, which a path almost never
-  means. The line is kept verbatim like E023: it binds nothing, and the
-  lines under it still load. A read on the field is Empty when one of them
-  loads and NotFound when none does. Use single quotes or no quotes, or
-  double each backslash.
+E023|error|a bad escape
+  An escape is a name from the escape list between two ◉ marks, such as
+  ◉TAB◉, ◉NEWLINE◉ or ◉U+200B◉, and a real ◉ is written ◉ESCAPE_CHAR◉.
+  Anything else between two marks is an error, and so is a mark with no
+  partner. A backslash is plain text. The line is kept verbatim: it binds
+  nothing and a read on it is NotFound. When only the value is wrong, the
+  lines under it still load, under the field with no value, and a read on the
+  field is Empty once one of them loads. When the name is, a raw block the
+  line opens is kept with it.
+E025|error|a tab, a quote, a bracket or a loose colon in bare text
+  A bare value or list item may hold spaces, kept as typed. A tab or other
+  whitespace, a quote, a bracket, or a colon with a space or the end after
+  it is an error: host: a.com port: 80 is two fields on one line. Put each
+  field on its own line, or quote the value: name: "O'Brien". An array
+  element or a selector body takes no whitespace, and a selector body no
+  colon, comma or paren either. Whitespace at either end is trimmed first.
+  The line is kept verbatim and binds nothing. In a value, the lines under
+  it still load, under the field with no value.
+E026|error|a bare comma with a space or the end after it
+  ports: 80, 443 is an error. Write the array in brackets, ports: [80, 443],
+  or quote text that has a comma. A comma with text right after it is text,
+  so opts: rw,noatime is one string. The line is kept verbatim and binds
+  nothing. The lines under it still load, under the field with no value. A
+  list item with a bare comma, - a, b, is kept the same way, and the other
+  items still load.
+E027|error|a list item like - name: or - name: value
+  A colon with a space or the end after it is how YAML starts an object in
+  a list, and SHCL writes one as an instance. A colon with text after it is
+  fine, as in - localhost:8080. Quote the item if it is text: - "name: a".
+  The line is kept as written, and the other items still load.
+E028|error|an array on a field with lines under it
+  A field with fields under it takes one plain value or none, so
+  route: [GET, POST] with lines under it is an error. Give the field one
+  value and put the list in a field under it: methods: [GET, POST]. The line
+  is kept verbatim, and the lines under it load under the field with no
+  value.
+E029|error|a selector in brackets, the old spelling
+  Selectors are written in parens: person(Bucky).city, person("New York"),
+  person(0) and person(*). Brackets are only for arrays. The line is kept
+  as written and binds nothing. When it selects by value, the lines under
+  it still load, under the instance it names. On a command line, quote the
+  path, since a bare ( is a syntax error in most shells.
 H001|hint|repeated bare leaf (an array written as repeated lines)
   Repeated leaves are legal - that is how instances are written - but
-  'tags: red' twice and 'tags: red, blue' look alike, so the parser says
+  'tags: red' twice and 'tags: [red, blue]' look alike, so the parser says
   which one it read. A schema's repeat bound above 1 disavows it.
 H002|hint|a binding merged with a non-adjacent earlier one
   Same name and value, so the two combine. Legal, and only the parser can
   see it happened. The prose names the earlier line, and a schema can
   disavow it per section with 'reopen: true'.
-H003|hint|a stacked '*' element written like a field binding
-  '* name: value' is the YAML habit for a list of objects. Here it is one
-  string element, the text 'name: value'. Quote it to keep the string; a
-  list of objects is written as instances of a field.
 H005|hint|a value in another unit than its field name ends in
   timeout-ms: 5s reads as 5000 milliseconds, since a unit in the value
   wins over the one the name gives a bare number. Legal, and often a slip.
@@ -427,7 +459,7 @@ V097|error|generated output does not load, or fails its own schema
   init checks its own output before returning it, so a starter config that
   would fail its first check is a fault instead. A default outside its
   field's constraints is one cause. A required path nothing can generate is
-  the other, such as one with a [#N] selector or a * name. Line 0.
+  the other, such as one with an index selector, a(0), or a * name. Line 0.
 V099|error|schema failed to load
   The schema had error diagnostics of its own; they are printed above this
   with their own line numbers. Line 0.
@@ -437,7 +469,10 @@ V099|error|schema failed to load
 // replacement`, with the replacement empty when nothing took its rule. An old
 // log can still name one, so explain says where it went rather than calling
 // it unknown.
-const retired = `H004|hint|E024
+const retired = `E010|error|E026
+E024|error|
+H003|hint|
+H004|hint|
 `
 
 func statusCode(st shcl.Status) int {
@@ -718,10 +753,28 @@ func unusablePath(doc *shcl.Document, path string) bool {
 	return r == shcl.BadPath || r == shcl.ValueInPath
 }
 
-// splitSet: PATH=VALUE at the first `=` outside quotes and brackets, so a
-// selector holding one (`x[a=b].c=1`) still addresses its instance. The
+// bracketPath: a path with a selector in brackets, the old spelling (E029).
+// A 2.x habit still types it, so a refusal names it.
+func bracketPath(path string) bool {
+	var tok shcl.Tokens
+	shcl.Tokenize(path, ':', true, shcl.RulesCurrent, &tok)
+	return tok.BracketSelector >= 0
+}
+
+const bracketPathMsg = "a selector is written in parens now, name(value)"
+
+// badPath is what a path the scanner refused is called.
+func badPath(path string) string {
+	if bracketPath(path) {
+		return bracketPathMsg
+	}
+	return "not a usable path"
+}
+
+// splitSet: PATH=VALUE at the first `=` outside quotes and parens, so a
+// selector holding one (`x(a=b).c=1`) still addresses its instance. The
 // tokenizer reads the path half with `=` as its separator, so quotes and
-// brackets mean here exactly what they mean in a file; an argument whose
+// parens mean here exactly what they mean in a file; an argument whose
 // path half is not a path at all has no `=` to split at.
 func splitSet(arg string) (string, string, bool) {
 	var tok shcl.Tokens
@@ -834,14 +887,14 @@ func setValueOpt(o *opts, name, v string) error {
 			return fmt.Errorf("bad --remove value (want PATH) (see --help)")
 		}
 		if unusablePath(shcl.New(), v) {
-			return fmt.Errorf("bad --remove value (not a usable path): %s (see --help)", v)
+			return fmt.Errorf("bad --remove value (%s): %s (see --help)", badPath(v), v)
 		}
 		o.sets = append(o.sets, setOpt{path: v, kind: setRemove})
 		o.seen = append(o.seen, "--remove")
 	case "--set", "--set-literal", "--set-default", "--set-literal-default":
 		p, val, ok := splitSet(v)
 		if !ok || p == "" {
-			return fmt.Errorf("bad %s value (want PATH=VALUE, quotes and brackets balanced): %s (see --help)", name, v)
+			return fmt.Errorf("bad %s value (want PATH=VALUE, quotes and parens balanced): %s (see --help)", name, v)
 		}
 		k := setData
 		switch name {
@@ -1403,14 +1456,42 @@ func checkOpts(cmd string, o *opts) int {
 	return 0
 }
 
+// arrayRefusal: a field with lines under it takes one plain value or none
+// (E028), so an array there, or a field made under an array, is refused for
+// where it goes.
+func arrayRefusal(doc *shcl.Document, path string, array bool) (string, bool) {
+	if array && len(doc.Children(path)) != 0 {
+		return "a field with lines under it takes one plain value or none", true
+	}
+	var tok shcl.Tokens
+	shcl.Tokenize(path, '=', true, shcl.RulesCurrent, &tok)
+	for i := 1; i < len(tok.Segments); i++ {
+		next := &tok.Segments[i]
+		quoted := 0
+		if next.Name.Quote != shcl.QuoteNone {
+			quoted = 1
+		}
+		up := strings.TrimRight(path[:next.Name.Start-quoted], ".")
+		r := doc.ReadString(up)
+		// Brackets on a value that reads unquoted are an array's.
+		if r.Status == shcl.Good && !r.Quoted && strings.HasPrefix(r.Value, "[") {
+			return "an array takes no lines under it", true
+		}
+	}
+	return "", false
+}
+
 // describeRefusal is the per-binding wording behind a setter's bare false: why
 // a write was refused. When the path itself is fine what failed is the text,
 // and only the caller knows which half of the op that was, so it names it: a
 // setter refused for its value used to report the sentence written for
 // SetLiteral whatever the op.
-func describeRefusal(doc *shcl.Document, path, unwritable string) string {
+func describeRefusal(doc *shcl.Document, path string, array bool, unwritable string) string {
 	switch doc.WriteReason(path) {
 	case shcl.Writable:
+		if why, ok := arrayRefusal(doc, path, array); ok {
+			return why
+		}
 		return unwritable
 	case shcl.ValueInPath:
 		return "a path with a value part cannot be written"
@@ -1421,7 +1502,7 @@ func describeRefusal(doc *shcl.Document, path, unwritable string) string {
 	case shcl.TooDeep:
 		return "deeper than the nesting cap"
 	}
-	return "not a usable path" // BadPath
+	return badPath(path) // BadPath
 }
 
 // sayDiagnostics prints the load's diagnostics, one line each, in the shape
@@ -1714,7 +1795,7 @@ func loadLayeredFrom(o *opts, file string, given *string, keep bool) (*shcl.Docu
 	}
 	for _, s := range o.sets {
 		if !s.apply(doc) {
-			fmt.Fprintf(os.Stderr, "%s: cannot write %s: %s\n", s.opt(), s.path, describeRefusal(doc, s.path, "the value text is not one value"))
+			fmt.Fprintf(os.Stderr, "%s: cannot write %s: %s\n", s.opt(), s.path, describeRefusal(doc, s.path, s.kind != setData && strings.HasPrefix(strings.TrimLeftFunc(s.value, unicode.IsSpace), "["), "the value text is not one value"))
 			return nil, "", 1
 		}
 	}
@@ -1860,6 +1941,9 @@ func doGet(o *opts) int {
 			}
 		case shcl.NotFound:
 			reason = "no value at that path"
+			if bracketPath(path) {
+				reason = bracketPathMsg
+			}
 		case shcl.Empty:
 			reason = "the value is empty"
 		case shcl.Multiple:
@@ -2136,7 +2220,8 @@ func doMigrate(o *opts) int {
 	}
 	if m.Lost != 0 {
 		fmt.Fprintf(os.Stderr, "%s: %d line(s) bound a value under 2.x that nothing binds now: bracket text "+
-			"after the colon or a line break in a Windows path, which have no spelling here (--lossy overrides)\n", file, m.Lost)
+			"after the colon, a selector holding a comma, or a comma list with lines under it, which have no "+
+			"spelling here (--lossy overrides)\n", file, m.Lost)
 		if !o.lossy {
 			rc = 7
 		}
@@ -2331,10 +2416,10 @@ func doExplain(o *opts) int {
 
 // doTokens prints every line's spans, one line of output per input line: the
 // indent length, then each token as kind=start-end with a mark for how it
-// was quoted (', ", or ? for a quote that never closed), offsets counted
-// from the first character after the indent. A blank line and a comment
-// line say so; every other line is tokenized on its own, raw bodies
-// included, since this is the lexical view and not the parse.
+// was quoted (', ", a backtick, or ? for a quote that never closed),
+// offsets counted from the first character after the indent. A blank line
+// and a comment line say so; every other line is tokenized on its own, raw
+// bodies included, since this is the lexical view and not the parse.
 func doTokens(o *opts) int {
 	if len(o.args) != 1 {
 		fmt.Fprintln(os.Stderr, "usage: shcl tokens FILE (see --help)")
@@ -2360,6 +2445,8 @@ func doTokens(o *opts) int {
 			mark = "'"
 		case shcl.QuoteDouble:
 			mark = "\""
+		case shcl.QuoteBacktick:
+			mark = "`"
 		case shcl.QuoteOpen:
 			mark = "?"
 		}
@@ -2385,24 +2472,25 @@ func doTokens(o *opts) int {
 			out.WriteString(" comment\n")
 			continue
 		}
-		// A stacked element and a fence line are value halves on their own. A
-		// `*` is an element when a blank follows it, trailing or not, which only
-		// the untrimmed line still shows (20260923 item 12).
+		// A list item and a fence line are value halves on their own. A `-` is
+		// an item when a blank follows it, trailing or not, which only the
+		// untrimmed line still shows (20260923 item 12).
 		after := ilen + lead + 1
-		star := strings.HasPrefix(body, "*") && after < len(line) && (line[after] == ' ' || line[after] == '\t' || line[after] == '\r')
+		item := strings.HasPrefix(body, "-") && after < len(line) && (line[after] == ' ' || line[after] == '\t' || line[after] == '\r')
 		fence := strings.HasPrefix(body, "```") || strings.HasPrefix(body, "~~~")
-		if star || fence {
+		if item || fence {
 			from := lead
-			if star {
+			if item {
 				from = lead + 1
 			}
 			shcl.TokenizeValue(rest, from, shcl.RulesCurrent, &tok)
-			if star {
-				out.WriteString(" star")
+			if item {
+				out.WriteString(" item")
 			} else {
 				out.WriteString(" fence")
 			}
 			fmt.Fprintf(&out, " value=%d-%d", tok.Value[0], tok.Value[1])
+			pushArray(&out, &tok)
 			for k := range tok.Elements {
 				fmt.Fprintf(&out, " elem=%s", span(&tok.Elements[k]))
 			}
@@ -2426,6 +2514,7 @@ func doTokens(o *opts) int {
 		}
 		if tok.Sep >= 0 {
 			fmt.Fprintf(&out, " sep=%d value=%d-%d", tok.Sep, tok.Value[0], tok.Value[1])
+			pushArray(&out, &tok)
 			for k := range tok.Elements {
 				fmt.Fprintf(&out, " elem=%s", span(&tok.Elements[k]))
 			}
@@ -2440,6 +2529,17 @@ func doTokens(o *opts) int {
 	}
 	outs(out.String())
 	return 0
+}
+
+// pushArray writes a bracket array's `[` and, when it is malformed, where and
+// why.
+func pushArray(out *strings.Builder, tok *shcl.Tokens) {
+	if tok.Array >= 0 {
+		fmt.Fprintf(out, " array=%d", tok.Array)
+	}
+	if tok.ArrayFault >= 0 {
+		fmt.Fprintf(out, " array-fault=%d:%s", tok.ArrayFault, tok.ArrayFaultReason)
+	}
 }
 
 // intGrammar matches the reference's i64 FromStr: optional single sign, then
@@ -2779,7 +2879,7 @@ func applyOp(doc *shcl.Document, line string) error {
 		wrote = doc.SetComment(path, unescapeOps(v))
 	case "remove", "clear-comments":
 		if unusablePath(doc, path) {
-			return fmt.Errorf("cannot %s %s: not a usable path", f[0], path)
+			return fmt.Errorf("cannot %s %s: %s", f[0], path, badPath(path))
 		}
 		if f[0] == "remove" {
 			doc.Remove(path)
@@ -2809,7 +2909,8 @@ func applyOp(doc *shcl.Document, line string) error {
 		case "raw", "raw-default":
 			unwritable = rawRefusal(unescapeOps(get(3)))
 		}
-		return fmt.Errorf("cannot write %s: %s", path, describeRefusal(doc, path, unwritable))
+		array := strings.Contains(f[0], "array") || (strings.HasPrefix(f[0], "literal") && strings.HasPrefix(strings.TrimLeftFunc(v, unicode.IsSpace), "["))
+		return fmt.Errorf("cannot write %s: %s", path, describeRefusal(doc, path, array, unwritable))
 	}
 	return nil
 }

@@ -6,6 +6,10 @@
 ; (see "Structure & hierarchy" and "Raw blocks"). This grammar covers the
 ; line-level and value-level syntax. Where a rule depends on runtime context
 ; (current indent stack, active fence), that dependency is noted inline.
+;
+; The escape mark is U+25C9, written %x25C9 below. The escape names, the bare
+; text class and the formatter's bare class are generated from one list by
+; cicd/utility/gen-escapes.py, in the block near the end.
 
 ;-----------------------------------------------------------------------------
 ; File
@@ -13,14 +17,16 @@
 
 file            = *line [ line-body ]           ; the last line may lack a newline
 line            = line-body newline
-line-body       = blank-line / comment-line / field-line / array-elem-line / fence-line / raw-content-line
+line-body       = blank-line / comment-line / field-line / list-item-line / fence-line / raw-content-line
                 ; raw-content-line only occurs while a fence is open (context).
 
 blank-line      = *blank [ comment ]
 comment-line    = *blank comment
-comment         = "#" *non-newline           ; to end of line; any "#" outside quotes and
-                                              ; outside a raw body opens one, wherever it
-                                              ; sits (x#y is x and a comment)
+comment         = "#" *non-newline           ; to end of line; any "#" outside quotes,
+                                              ; backticks and a raw body opens one,
+                                              ; wherever it sits (x#y is x and a
+                                              ; comment). An escape mark in a comment
+                                              ; is plain text.
 
 ;-----------------------------------------------------------------------------
 ; Field lines
@@ -33,10 +39,10 @@ field-line      = indent path *blank ":" *blank [ value ] *blank [ comment ]
                 / indent path *blank ":" *blank fence-open *blank [ comment ]   ; raw block, same-line spelling
                 ; Semantic (not expressible in ABNF): a selector on the LAST path
                 ; segment already supplies that instance's value, so a trailing
-                ; value (field[disc]: value) is grammar-legal but not a valid
+                ; value (field(disc): value) is grammar-legal but not a valid
                 ; binding - the instance is created from the discriminator and the
                 ; value is reported (Error) and dropped. See spec.md "Selectors".
-                ; Semantic likewise: the wildcard selector [*] is query-only. On
+                ; Semantic likewise: the wildcard selector (*) is query-only. On
                 ; a binding line it is grammar-legal but reported (Error,
                 ; "wildcard selector is query-only") and the whole line skipped.
                 ; An index-sel on a binding line selects an existing instance
@@ -44,141 +50,194 @@ field-line      = indent path *blank ":" *blank [ value ] *blank [ comment ]
                 ; line is reported (Error E003) and dropped, since a file names
                 ; an instance by its value, not by a position the next edit
                 ; could move.
+                ; Semantic too: a field with lines under it takes a scalar or
+                ; nothing. An array there is E028.
 
 indent          = *( SP / HTAB )              ; one kind per subtree (see spec)
 
 path            = segment *( *blank "." *blank segment )
 segment         = field-name *blank [ selector ]
-                ; a "[" right after the name (blank allowed) is a selector; a "["
-                ; after the ":" starts the value, which the parser refuses as
-                ; bracket-array spelling (E019). The same path syntax is the
-                ; query syntax, so a file line and a Get() read identically.
-selector        = "[" *blank sel-body *blank "]"
+                ; a "(" right after the name (blank allowed) is a selector; a "["
+                ; after the ":" starts the value, an array. The same path syntax
+                ; is the query syntax, so a file line and a Get() read
+                ; identically. A "[" right after the name is the old selector
+                ; spelling: E029, kept as written, and refused in a query.
+selector        = "(" *blank sel-body *blank ")"
 sel-body        = index-sel / value-sel
-index-sel       = "#" [ "+" ] 1*DIGIT         ; explicit index; a query spelling only, since
-                                              ; on a file line the "#" opens a comment
-                / [ "+" ] 1*DIGIT              ; bare integer = index
-                ; a leading "+" is accepted either way (list[+1] = list[1]);
-                ; "-" is not an index sign - [-1] is a value selector.
+index-sel       = [ "+" ] 1*DIGIT              ; bare integer = index
+                ; a leading "+" is accepted (list(+1) = list(1)); "-" is not
+                ; an index sign - (-1) is a value selector. The old "[#N]"
+                ; index is gone: a bare body that starts with "#" opens a
+                ; comment on a file line and finds nothing in a query.
 value-sel       = quoted / bare-sel           ; non-numeric bare, or quoted (forces value)
-bare-sel        = 1*sel-char
-sel-char        = %x00-09 / %x0B-5C / %x5E-10FFFF
-                ; any char but "]" - a bare selector's scan runs to the first
-                ; "]", so ".", ":", "\", quotes mid-text (base[O'Brien]) and
-                ; non-ASCII all pass through verbatim (base[St.Paul].p
-                ; resolves). A "#" opens a comment here as anywhere, which
-                ; leaves the selector unterminated (E014). A quote is a
-                ; quote only as the body's first char, closing at the next
-                ; matching one, which must be last before the "]"; a body that
-                ; opens one and never closes it that way is kept as text and
-                ; reported (E017). To embed a "]", quote the discriminator:
-                ; base["a]b"].
+bare-sel        = 1*( sel-text / escape )
+                ; a bare selector's scan runs to the first ")", so a "." passes
+                ; through (base(St.Paul).p resolves). It is stricter than a
+                ; value: whitespace, a quote, a ":", a ",", a bracket or a
+                ; paren in it is E025, a quote that opens it and never closes
+                ; is E017, and a "#" opens a comment, which leaves the
+                ; selector unterminated (E014). To embed any of those, quote
+                ; the discriminator: base("a)b"), base("New York"),
+                ; host("a:b"). A selector matches one plain value, never an
+                ; array or a raw block.
 
 field-name      = quoted / bare-name
-bare-name       = 1*name-char
+bare-name       = ALPHA *name-char
 name-char       = ALPHA / DIGIT / "-" / "_"
+                ; a bare name starts with an ASCII letter. One that breaks only
+                ; that spelling rule (404, -x, _id, a non-ASCII letter) is E014;
+                ; it still reads, so the lines under it load under that name.
+                ; A quoted name can be any text, and resolves escapes.
 
 ;-----------------------------------------------------------------------------
 ; Values
 ;-----------------------------------------------------------------------------
 ; Type is NOT encoded in syntax; every value is stored as raw text and typed
-; on read by the consumer (accessor-driven). "array" is the only value-level
-; structural distinction (comma-separated). Numbers/bools/dates are recognized
-; only at read time by the coercion rules in spec.md.
+; on read by the consumer (accessor-driven). An array is the only value-level
+; structural distinction. Numbers/bools/dates are recognized only at read time
+; by the coercion rules in spec.md. A backslash is plain text everywhere.
 
 value           = array / scalar
-array           = [ scalar ] *( *blank "," *blank [ scalar ] )   ; empty slots (leading/doubled/trailing comma) parse then drop on read; all-comma or empty = empty array; quote "" for a real empty element (spec.md, Arrays)
-scalar          = quoted / bareword
+array           = "[" *blank [ element *( *blank "," *blank element ) *blank ] "]"
+                ; one line, no nesting, no empty element. "[]" (blanks allowed
+                ; inside) is the empty array. Text after the "]", a bare "[" or
+                ; "]" inside, an empty element ([a,, b], [a, ]) or no closing
+                ; "]" is E019.
+element         = quoted / backticked / bare-elem
+bare-elem       = *":" bare-unit *( *":" bare-unit )
+                ; every "," splits inside the brackets, with or without a blank
+                ; after it, so [a,b] is 2 elements. A bare element holds no
+                ; whitespace and does not end in ":" (E025).
+scalar          = quoted / backticked / bareword
 
 quoted          = dquoted / squoted
-dquoted         = DQUOTE *dqchar DQUOTE
-squoted         = SQUOTE *sqchar SQUOTE
-dqchar          = escape / ( %x00-21 / %x23-5B / %x5D-10FFFF )  ; not '"' unescaped
-sqchar          = %x00-26 / %x28-10FFFF       ; anything but "'": single quotes are literal,
-                                              ; a "\" inside them is a character
-                ; A quoted piece is quoted only when its first char is the quote
-                ; and the matching quote that closes it is the last thing before
-                ; the piece ends (a ",", a "]", a comment or the line end).
-                ; Anywhere else a quote is a bare-char; a piece that opens one
-                ; and never closes it that way is read bare, quotes and all, and
-                ; reported (E017).
+dquoted         = DQUOTE *( escape / dqchar ) DQUOTE
+squoted         = SQUOTE *( escape / sqchar ) SQUOTE
+dqchar          = %x00-09 / %x0B-21 / %x23-25C8 / %x25CA-10FFFF
+                ; anything but LF, DQUOTE and the escape mark
+sqchar          = %x00-09 / %x0B-26 / %x28-25C8 / %x25CA-10FFFF
+                ; anything but LF, "'" and the escape mark
+                ; The two quotes differ only in which one each can hold as
+                ; text. A quoted piece is quoted only when its first char is
+                ; the quote and the matching quote that closes it is the last
+                ; thing before the piece ends (a ",", a "]", a comment or the
+                ; line end). A piece that opens one and never closes it that
+                ; way is E017: the line is kept as written and binds nothing.
+backticked      = "`" *btchar "`"
+btchar          = %x00-09 / %x0B-5F / %x61-10FFFF
+                ; anything but LF and a backtick. Raw: no escapes, and an
+                ; escape mark, "#", ",", "[" and whitespace are all text. Read
+                ; back as written, with a flag saying it was backticked. A
+                ; value or an array element only, never a name or a selector.
 
-bareword        = bare-first [ *bare-char bare-last ]
+bareword        = bare-run *( 1*SP bare-run )
+bare-run        = *bare-punct bare-unit *( *bare-punct bare-unit )
+bare-punct      = ":" / ","
+bare-unit       = bare-text / escape
                 ; what the PARSER takes. Everything after the ":" up to an
-                ; unquoted "#" is the value, split on unquoted commas, each
-                ; piece trimmed at both edges. So a bare piece keeps mid-text
-                ; spaces, ":", "'", "]", "[", "\", even '"', verbatim:
-                ; "q: needs no quotes", "p: C:\dir\file", "t: 12:30" and
-                ; "a: x[y]" all load clean. Only four things keep a meaning
-                ; bare - "#" (comment), "," (element split), a leading quote
-                ; and a leading "[" (bracket-array spelling, refused E019) -
-                ; and the first two are out of bare-char while the last two are
-                ; out of bare-first. A piece that opens a quote and never
-                ; closes it is read bare too, quotes and all, and reported
-                ; (E017); that one is not derived here.
-bare-char       = %x00-09 / %x0B-22 / %x24-2B / %x2D-10FFFF
-                ; any char but LF, "#" (0x23) and "," (0x2C).
-bare-last       = %x00-08 / %x0B-0C / %x0E-1F / %x21-22 / %x24-2B / %x2D-10FFFF
-                ; bare-char with no blank: the piece is trimmed, so neither end
-                ; is SP, HTAB or CR.
-bare-first      = %x00-08 / %x0B-0C / %x0E-1F / %x21 / %x24-26 / %x28-2B
-                / %x2D-5A / %x5C-10FFFF
-                ; bare-last without DQUOTE (0x22), "'" (0x27) and "[" (0x5B):
-                ; a quote in first position opens a quoted piece, and a "["
-                ; there is the bracket-array spelling.
+                ; unquoted "#" is the value, trimmed at both edges of a SP,
+                ; HTAB or CR only. Spaces inside are kept as typed, so
+                ; "q: needs no quotes" is fine. Any other whitespace (a tab or
+                ; another White_Space character), a quote, a backtick, a "["
+                ; or a "]" is E025, so "k: it's" is an error. A ":" or ","
+                ; needs a character other than whitespace right after it:
+                ; t: 12:30, d: :0 and o: rw,noatime are text. A ":" before a
+                ; blank or the end is E025 (h: a.com port: 80), and a "," there
+                ; is E026, since an array is written in brackets. Only a
+                ; leading "[" opens an array.
 
-fmt-bareword    = 1*( fmt-bare-char [ variation-sel ] / %x200C-200D
-                / subdivision-flag )
+;-----------------------------------------------------------------------------
+; Escapes
+;-----------------------------------------------------------------------------
+
+escape          = %x25C9 escape-name %x25C9
+code-point      = code-prefix 1*6HEXDIG
+                ; Names are a closed list and ignore case. Anything else
+                ; between two marks, and a mark with no partner, is E023, and
+                ; so is a code point naming a surrogate (D800-DFFF) or a value
+                ; past 10FFFF. Escapes work in names, values, array elements
+                ; and selector bodies, bare or quoted, but not in comments,
+                ; backtick values, fence labels or raw bodies. The writer uses
+                ; the first name of each and U+ with at least four digits.
+
+fmt-bareword    = *fmt-punct fmt-unit *( *fmt-punct fmt-unit )
+fmt-punct       = ":" / ","
+fmt-unit        = fmt-bare-char [ variation-sel ] / %x200C-200D / subdivision-flag
                 ; the minimally-quoted shape the FORMATTER emits, reached from
                 ; nothing above. A value holding anything outside this class,
-                ; or whitespace at either edge, or a run that would read as a
-                ; fence, comes back quoted. It is written down because the two
-                ; shapes keep getting confused: this class WAS the parse-side
-                ; rule until 2026-09-20, which left the grammar unable to
-                ; derive "q: needs no quotes" - the most ordinary line there is.
+                ; ending in ":" or ",", or a run that would read as a fence
+                ; comes back quoted. The writer quotes a value with a space,
+                ; though the parser takes one bare. A ":" or "," inside stays
+                ; bare (2:30PM, localhost:8080, rw,noatime). An array element
+                ; with a "," is quoted, since there it splits.
 subdivision-flag= %x1F3F4 3*7flag-tag %xE007F
 flag-tag        = %xE0030-E0039 / %xE0061-E007A
 ; gen-escapes.py: begin
 ; Generated from Unicode 18.0 by cicd/utility/gen-escapes.py. Edit the script, not this block.
 fmt-bare-char   = %x21 / %x24-26 / %x28-2B / %x2D-39 / %x3B-5A / %x5C
-                / %x5E-7E / %xA0-AC / %xAE-34E / %x350-61B / %x61D-115E
-                / %x1161-17B3 / %x17B6-180A / %x1810-200A / %x2010-2027
-                / %x202F-205F / %x2070-3163 / %x3165-FDFF / %xFE10-FEFE
+                / %x5E-5F / %x61-7E / %xA1-AC / %xAE-34E / %x350-61B
+                / %x61D-115E / %x1161-167F / %x1681-17B3 / %x17B6-180A
+                / %x1810-1FFF / %x2010-2027 / %x2030-205E / %x2070-25C8
+                / %x25CA-2FFF / %x3001-3163 / %x3165-FDFF / %xFE10-FEFE
                 / %xFF00-FF9F / %xFFA1-FFEF / %xFFFC-1BC9F
                 / %x1BCA4-1D172 / %x1D17B-DFFFF / %xE1000-10FFFF
 variation-sel   = %x180B-180D / %x180F / %xFE00-FE0F / %xE0100-E01EF
+bare-text       = %x0-8 / %xE-1F / %x21 / %x24-26 / %x28-2B / %x2D-39
+                / %x3B-5A / %x5C / %x5E-5F / %x61-84 / %x86-9F
+                / %xA1-167F / %x1681-1FFF / %x200B-2027 / %x202A-202E
+                / %x2030-205E / %x2060-25C8 / %x25CA-2FFF
+                / %x3001-10FFFF
+sel-text        = %x0-8 / %xE-1F / %x21 / %x24-26 / %x2A-2B / %x2D-39
+                / %x3B-5A / %x5C / %x5E-5F / %x61-84 / %x86-9F
+                / %xA1-167F / %x1681-1FFF / %x200B-2027 / %x202A-202E
+                / %x2030-205E / %x2060-25C8 / %x25CA-2FFF
+                / %x3001-10FFFF
+escape-name     = "NUL" / "NULL" / "BEL" / "BELL" / "BACKSPACE" / "BS"
+                / "TAB" / "HT" / "HORIZONTAL_TAB" / "NEWLINE" / "LF"
+                / "LINEFEED" / "LINE_FEED" / "NEW_LINE" / "VT"
+                / "VERTICAL_TAB" / "VERTICALTAB" / "FF" / "FORM_FEED"
+                / "FORMFEED" / "CR" / "CARRIAGERETURN"
+                / "CARRIAGE_RETURN" / "CRLF" / "CARRIAGERETURN_LINEFEED"
+                / "CARRIAGE_RETURN_LINE_FEED" / "ESC" / "ESCAPE" / "DEL"
+                / "DELETE" / "SPACE" / "SINGLE_QUOTE" / "SQUOTE"
+                / "S_QUOTE" / "SINGLEQUOTE" / "DOUBLE_QUOTE" / "DQUOTE"
+                / "D_QUOTE" / "DOUBLEQUOTE" / "BACK_TICK" / "BACKTICK"
+                / "TICK" / "ESCAPE_CHAR" / "FISHEYE"
+                / code-point
+code-prefix     = "U+" / "UNICODE+" / "UNICODE-" / "UNICODE_"
+                / "UNICODE" / "U-" / "U_" / "U"
 ; gen-escapes.py: end
-                ; fmt-bare-char excludes a blank, LF, "," ":" "#" DQUOTE "'"
-                ; "[" "]" (0x20 0x09 0x0D 0x0A 0x2C 0x3A 0x23 0x22 0x27 0x5B
-                ; 0x5D), and each character the formatter writes as a \u
-                ; escape (spec.md, "Escapes"). "\" (0x5C) is in: the formatter
-                ; leaves a backslash bare. The joiners, a variation selector
-                ; after a visible character and the tags of a subdivision flag
-                ; are written as they are, so fmt-bareword places them.
-
-escape          = "\" ( %s"t" / %s"n" / "\" / DQUOTE / "'"
-                / %s"u" 4HEXDIG / %s"U" 8HEXDIG )
-                ; inside double quotes only, and decoded on read. Any other
-                ; pair is E023: the line is kept as written and binds nothing.
-                ; So is a \u or \U naming a surrogate (D800-DFFF) or a value
-                ; past 10FFFF. Single quotes and bare text never process a
-                ; backslash.
+                ; fmt-bare-char excludes whitespace, "," ":" "#" DQUOTE "'"
+                ; "[" "]" a backtick and the escape mark, and each character
+                ; the formatter writes as an escape (spec.md, "Escapes"). "\"
+                ; is in: the formatter leaves a backslash bare. The joiners, a
+                ; variation selector after a visible character and the tags of
+                ; a subdivision flag are written as they are, so fmt-bareword
+                ; places them. bare-text is every character but White_Space
+                ; and the same reserved set.
 
 ;-----------------------------------------------------------------------------
-; Block arrays (stacked list form)
+; Stacked lists
 ;-----------------------------------------------------------------------------
-; Sugar for the inline comma array (above): an empty-valued field whose child
-; lines are all "* element" is identical to that field with the inline
-; array of the same elements. Context-sensitive (indentation), enforced in
-; prose (spec.md, "Arrays"):
+; The other spelling of an array: an empty-valued field whose child lines are
+; all "- item" is identical to that field with the bracket array of the same
+; items. Context-sensitive (indentation), enforced in prose (spec.md,
+; "Arrays"):
 ;   - opens only under a field-line whose inline value is EMPTY;
-;   - uniform-or-nothing: at that child indent every line is an element or none;
-;   - one element per line; a bare comma on the line is an error, not a split;
-;   - scalars only (an element has no "field: value" children).
-; The colon-less "* " head is what tells an element from a field: "*" is not a
-; name-char, so it can never begin a field-line.
+;   - uniform-or-nothing: at that child indent every line is an item or none;
+;   - one item per line; a "," before a blank or the end is E026, not a split;
+;   - scalars only: an item has no "field: value" children, and an item that
+;     is an array is E019.
+; "-" is not a name-char that can start a bare name, and the blank after it
+; is required, so an item never reads as a field line. A line led by "*", the
+; old marker, is E013.
 
-array-elem-line = indent "*" 1*blank scalar *blank [ comment ]
+list-item-line  = indent "-" 1*blank list-item *blank [ comment ]
+list-item       = quoted / backticked / bareword
+                ; a bare item takes spaces as a value does. A ":" before a
+                ; blank or the end is E027 (- name:, - name: value), since that
+                ; is how YAML starts an object in a list. - "name:" is the
+                ; text, and - localhost:8080 is fine.
 
 ;-----------------------------------------------------------------------------
 ; Raw (fenced) blocks
@@ -200,8 +259,9 @@ info-string     = *blank 1*info-char *( *blank 1*info-char )
                                                ; so ```c# labels the block c
 info-char       = %x00-08 / %x0B-0C / %x0E-1F / %x21-22 / %x24-10FFFF
                 ; any char but a blank, LF and "#". Wider than fmt-bare-char
-                ; on purpose: ":", ",", quotes and "[" are plain text in a label
-                ; (```sql:pg, "v" [x] reads back as written, and SetRaw writes it).
+                ; on purpose: ":", ",", quotes, "[" and the escape mark are
+                ; plain text in a label (```sql:pg, "v" [x] reads back as
+                ; written, and SetRaw writes it).
 raw-content-line= *non-newline                 ; verbatim; only while a fence is open
 ; fence-close (context): indent (N*"`" / N*"~") *blank   where char matches opener
 ;                        and length >= opener length.

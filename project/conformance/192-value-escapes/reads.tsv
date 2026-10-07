@@ -1,0 +1,26 @@
+query	type	expected	status	level
+-	load	ok	-
+-	load	fail	-	strict
+-	lost	1	-
+nl	string	line one\ntwo	Good
+tab	string	a\tb	Good
+bare	string	My App	Good
+quotes	string	"hi'`	Good
+mark	string	◉ and ◉	Good
+codes	string	◉ABCDEFG😀	Good
+controls	string[]	-	Good
+hidden	string	a​b	Good
+"name◉TAB◉x"	int	1	Good
+"name◉ht◉x"	int	1	Good
+srv("a b").port	int	80	Good
+srv("a◉SPACE◉b").port	int	80	Good
+list	string[]	one\n|two three	Good
+raw	raw	◉ body ◉◉	Good
+raw	rawinfo	◉info◉	Good
+unknown	string	-	Empty
+unknown.under	int	1	Good
+odd	string	-	NotFound
+surrogate	string	-	NotFound
+"bad◉NAME◉"	int	-	NotFound
+stack	string[]	fine	Good
+last	int	1	Good

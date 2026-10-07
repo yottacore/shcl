@@ -3,4 +3,4 @@
 db.host: localhost
 db.port: 5432
 srv: a
-srv[a].port: 80
+srv(a).port: 80

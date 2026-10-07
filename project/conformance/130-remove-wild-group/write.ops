@@ -1,1 +1,1 @@
-remove	srv[*].port
+remove	srv(*).port

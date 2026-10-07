@@ -1,0 +1,25 @@
+# A list item is `- ` then one value. `fmt` keeps a list written this way.
+sizes:
+	- small
+	- "extra large"
+	- "Bond, James"
+same: [small, "extra large", "Bond, James"]
+one:
+	- 80
+old:
+	* one
+	- two
+	*three
+	- four
+odd:
+	- name:
+	- "name:"
+	- localhost:8080
+	- name: value
+	- -5
+	- [a, b]
+	- "extra large"
+	- `raw, text`
+-x: y
+	under: 1
+last: 1

@@ -1,13 +1,13 @@
 scalar: 1
 kept: hello
 
-ports: 80, 443
+ports: [80, 443]
 
 one: 7
 
-quoted: "a, b", c
+quoted: ["a, b", c]
 
-trimmed: x, y
+trimmed: [x, y]
 
 commented: v
 
@@ -19,4 +19,4 @@ tailhash: x
 
 empty:
 
-fresh: 1, 2
+fresh: [1, 2]

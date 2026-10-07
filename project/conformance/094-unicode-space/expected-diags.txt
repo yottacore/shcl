@@ -1,1 +1,7 @@
-ok (0 diagnostic(s))
+line 3: Error: E025
+line 4: Error: E025
+line 5: Error: E025
+line 6: Error: E025
+line 7: Error: E025
+line 9: Error: E025
+failed: 6 diagnostic(s), 6 error(s)

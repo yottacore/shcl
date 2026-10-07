@@ -3,8 +3,8 @@ query	type	expected	status
 x	count	2	Good
 y	count	2	Good
 z	count	2	Good
-x["a\"b, c"]	string	a"b, c	Good
-x["a\"b, c"].tag	string	hit	Good
-x[a"b, c, d]	string[]	a"b|c|d	Good
-y["p, r"].tag	string	made	Good
-z["m, n"].tag	string	fresh	Good
+x('a"b, c')	string	a"b, c	Good
+x('a"b, c').tag	string	hit	Good
+x(a"b, c)	string[]	-	NotFound
+y("p, r").tag	string	made	Good
+z("m, n").tag	string	fresh	Good

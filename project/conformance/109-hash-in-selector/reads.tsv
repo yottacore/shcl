@@ -2,7 +2,7 @@ query	type	expected	status
 -	load	ok	-
 -	load	fail	-	strict
 a	string	-	NotFound
-a[x#y].b	int	-	NotFound
-b[#5].c	string	-	NotFound
+a(x#y).b	int	-	NotFound
+b(#5).c	string	-	NotFound
 ok	int	2	Good
 -	lost	0	-

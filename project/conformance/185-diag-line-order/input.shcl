@@ -1,12 +1,12 @@
 # A hint found after the parse's pass, from a late fold (H002) or a repeated
 # leaf (H001), is listed with its own line rather than after every other
 # diagnostic. Two on one line keep the order they were found in.
-x: [y]
-a: 1, 2
+x: [y
+a: [1, 2]
 b: 0
 a:
-	* 1
-	* 2
+	- 1
+	- 2
 wait-ms: 1
 wait-ms: 5s
-c: [x]
+c: [x

@@ -1,2 +1,2 @@
-int	a.c	2
-int	b.c	3
+int-array	a	1	2
+string-array	b	m n

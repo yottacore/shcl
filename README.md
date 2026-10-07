@@ -233,11 +233,11 @@ Your config never needs a debugger, and a non-programmer can still edit it.
 
 Beyond the list at the top:
 
-- Hierarchy by indentation or dot paths (`site[blog.example.com].tls.hsts: off`), freely mixed. Both give the same tree.
+- Hierarchy by indentation or dot paths (`site(blog.example.com).tls.hsts: off`), freely mixed. Both give the same tree.
 
 - Reads come as int, float, bool, datetime, string, raw block, or an array of any of them.
 
-- Repeated fields are queryable as a set. Count them, list them, or fan one read across all of them with `site[*].root` and get a status per slot.
+- Repeated fields are queryable as a set. Count them, list them, or fan one read across all of them with `site(*).root` and get a status per slot.
 
 - Raw fenced blocks embed anything verbatim: SQL, code, templates, Markdown-style.
 
@@ -290,7 +290,7 @@ log-level: warn
 site: example.com
 	root: /srv/www/example
 	Max-Upload-MB : 50
-	methods: GET, POST, HEAD
+	methods: [GET, POST, HEAD]
 	tls:
 		cert: /etc/ssl/example.pem
 		hsts: on
@@ -301,7 +301,7 @@ site: blog.example.com
 	root: /srv/www/blog
 
 # Dotted paths give the same tree; add to any instance from anywhere
-site[blog.example.com].tls.hsts: off
+site(blog.example.com).tls.hsts: off
 
 # Multi-line content goes in a fenced block, kept verbatim
 maintenance-page:
@@ -457,11 +457,11 @@ $ shcl get --int server.shcl workers
 $ shcl get --int --default=8 server.shcl thread-pool     # absent from the file
 8
 
-$ shcl get server.shcl 'site[example.com].tls.cert'
+$ shcl get server.shcl 'site(example.com).tls.cert'
 /etc/ssl/example.pem
 ~~~
 
-Repeated fields are queryable as a set, and `[*]` fans one read across every instance:
+Repeated fields are queryable as a set, and `(*)` fans one read across every instance:
 
 ~~~console
 $ shcl count server.shcl site
@@ -471,7 +471,7 @@ $ shcl instances server.shcl site
 example.com
 blog.example.com
 
-$ shcl get --array --slots server.shcl 'site[*].tls.hsts'
+$ shcl get --array --slots server.shcl 'site(*).tls.hsts'
 Good	on
 Good	off
 ~~~
@@ -487,7 +487,7 @@ site
 site
 maintenance-page
 
-$ shcl children server.shcl 'site[example.com]'
+$ shcl children server.shcl 'site(example.com)'
 root
 max-upload-mb
 methods
@@ -524,7 +524,7 @@ field: workers
 field: log-level
 	type: string
 	desc: How chatty the log is.
-	allowed: debug, info, warn, error
+	allowed: [debug, info, warn, error]
 	default: warn
 ~~~
 
@@ -612,11 +612,11 @@ if file_status == FileStatus::NotFound {
 
 // Typed read, with a fallback if the path is missing
 let workers = doc.get_int("workers").unwrap_or(4);
-let root = doc.get_string("site[example.com].root").unwrap_or_default();
+let root = doc.get_string("site(example.com).root").unwrap_or_default();
 println!("serving from {root}");
 
 // Or ask why a read failed, when the difference matters
-match doc.get_int("site[example.com].max-upload-mb") {
+match doc.get_int("site(example.com).max-upload-mb") {
 	Ok(mb) => println!("{mb} MB"),
 	Err(Status::NotFound) => println!("not configured"),
 	Err(other) => println!("unusable: {other:?}"),
@@ -629,11 +629,11 @@ match doc.get_int("site[example.com].max-upload-mb") {
 if !doc.set_int("workers", workers * 2) {
 	eprintln!("workers: {:?}", doc.write_reason("workers"));
 }
-if !doc.set_bool("site[example.com].tls.hsts", true) {
-	eprintln!("hsts: {:?}", doc.write_reason("site[example.com].tls.hsts"));
+if !doc.set_bool("site(example.com).tls.hsts", true) {
+	eprintln!("hsts: {:?}", doc.write_reason("site(example.com).tls.hsts"));
 }
-if !doc.set_string("site[blog.example.com].root", "/srv/www/blog") {
-	eprintln!("blog root: {:?}", doc.write_reason("site[blog.example.com].root"));
+if !doc.set_string("site(blog.example.com).root", "/srv/www/blog") {
+	eprintln!("blog root: {:?}", doc.write_reason("site(blog.example.com).root"));
 }
 
 // Refuses if this write would delete lines or values from the file; see
@@ -659,10 +659,10 @@ if fileStatus == shcl.FileNotFound {
 }
 
 workers := doc.GetIntOr("workers", 4)
-root := doc.GetStringOr("site[example.com].root", "")
+root := doc.GetStringOr("site(example.com).root", "")
 fmt.Println("serving from", root)
 
-if mb, st := doc.GetInt("site[example.com].max-upload-mb"); st == shcl.Good {
+if mb, st := doc.GetInt("site(example.com).max-upload-mb"); st == shcl.Good {
 	fmt.Println(mb, "MB")
 } else {
 	fmt.Println("unusable:", st)
@@ -674,11 +674,11 @@ if mb, st := doc.GetInt("site[example.com].max-upload-mb"); st == shcl.Good {
 if !doc.SetInt("workers", workers*2) {
 	fmt.Println("workers:", doc.WriteReason("workers"))
 }
-if !doc.SetBool("site[example.com].tls.hsts", true) {
-	fmt.Println("hsts:", doc.WriteReason("site[example.com].tls.hsts"))
+if !doc.SetBool("site(example.com).tls.hsts", true) {
+	fmt.Println("hsts:", doc.WriteReason("site(example.com).tls.hsts"))
 }
-if !doc.SetString("site[blog.example.com].root", "/srv/www/blog") {
-	fmt.Println("blog root:", doc.WriteReason("site[blog.example.com].root"))
+if !doc.SetString("site(blog.example.com).root", "/srv/www/blog") {
+	fmt.Println("blog root:", doc.WriteReason("site(blog.example.com).root"))
 }
 
 // Refuses if this write would delete lines or values from the file; see
@@ -705,9 +705,9 @@ if file_status is shcl.FileStatus.NotFound:
 	print("no config yet - starting from defaults")
 
 workers = doc.get_int("workers", default=4)
-root = doc.get_string("site[example.com].root", default="")
+root = doc.get_string("site(example.com).root", default="")
 
-read = doc.read_int("site[example.com].max-upload-mb")
+read = doc.read_int("site(example.com).max-upload-mb")
 if read.status is not shcl.Status.Good:
 	print("unusable:", read.status)
 
@@ -716,10 +716,10 @@ if read.status is not shcl.Status.Good:
 # the five reasons it hit.
 if not doc.set_int("workers", workers * 2):
 	print("workers:", doc.write_reason("workers"))
-if not doc.set_bool("site[example.com].tls.hsts", True):
-	print("hsts:", doc.write_reason("site[example.com].tls.hsts"))
-if not doc.set_string("site[blog.example.com].root", "/srv/www/blog"):
-	print("blog root:", doc.write_reason("site[blog.example.com].root"))
+if not doc.set_bool("site(example.com).tls.hsts", True):
+	print("hsts:", doc.write_reason("site(example.com).tls.hsts"))
+if not doc.set_string("site(blog.example.com).root", "/srv/www/blog"):
+	print("blog root:", doc.write_reason("site(blog.example.com).root"))
 
 # Raises SaveRefused if this write would delete lines or values from the
 # file; see "What saving does" below (save_file_lossy is the override).
@@ -758,13 +758,13 @@ defer c.shcl_free(doc);
 
 const workers = getInt(doc, "workers", 4);
 
-const root = readString(doc, "site[example.com].root");
+const root = readString(doc, "site(example.com).root");
 if (root.status == c.SHCL_GOOD)
 	std.debug.print("{s}\n", .{root.value.p[0..root.value.n]});
 
 _ = setInt(doc, "workers", workers * 2);
-_ = setBool(doc, "site[example.com].tls.hsts", true);
-_ = setString(doc, "site[blog.example.com].root", "/srv/www/blog");
+_ = setBool(doc, "site(example.com).tls.hsts", true);
+_ = setString(doc, "site(blog.example.com).root", "/srv/www/blog");
 
 _ = c.shcl_save_file(doc, "server.shcl");
 ~~~
@@ -799,7 +799,7 @@ if (st == SHCL_FILE_NOT_FOUND)
 int64_t workers = shcl_get_int(doc, P("workers"), 4);
 
 // Strings keep the status tier, so missing and empty stay distinguishable
-shcl_read_str root = shcl_read_string(doc, P("site[example.com].root"));
+shcl_read_str root = shcl_read_string(doc, P("site(example.com).root"));
 if (root.status == SHCL_GOOD)
 	printf("%.*s\n", (int)root.value.n, root.value.p);
 
@@ -808,10 +808,10 @@ if (root.status == SHCL_GOOD)
 // which of the five reasons it hit (SHCL_W_WILDCARD here, say).
 if (!shcl_set_int(doc, P("workers"), workers * 2))
 	printf("workers: %d\n", shcl_write_reason_(doc, P("workers")));
-if (!shcl_set_bool(doc, P("site[example.com].tls.hsts"), 1))
-	printf("hsts: %d\n", shcl_write_reason_(doc, P("site[example.com].tls.hsts")));
-if (!shcl_set_string(doc, P("site[blog.example.com].root"), P("/srv/www/blog")))
-	fprintf(stderr, "blog root: reason %d\n", shcl_write_reason_(doc, P("site[blog.example.com].root")));
+if (!shcl_set_bool(doc, P("site(example.com).tls.hsts"), 1))
+	printf("hsts: %d\n", shcl_write_reason_(doc, P("site(example.com).tls.hsts")));
+if (!shcl_set_string(doc, P("site(blog.example.com).root"), P("/srv/www/blog")))
+	fprintf(stderr, "blog root: reason %d\n", shcl_write_reason_(doc, P("site(blog.example.com).root")));
 
 // SHCL_SAVE_REFUSED means this write would delete lines or values from the
 // file; see "What saving does" below (shcl_save_file_lossy is the override).
@@ -845,17 +845,17 @@ if (st == shcl::FileStatus::NotFound)
 auto workers = doc.get_or<std::int64_t>("workers", 4);
 
 // Strings keep the status tier, so missing and empty stay distinguishable
-auto root = doc.read_string("site[example.com].root");
+auto root = doc.read_string("site(example.com).root");
 if (root.status == shcl::Status::Good)
 	std::printf("%s\n", root.value.c_str());
 
 // A setter reports whether the write applied, and write_reason() says why not
 if (!doc.set_int("workers", workers * 2))
 	std::printf("workers: %d\n", static_cast<int>(doc.write_reason("workers")));
-if (!doc.set_bool("site[example.com].tls.hsts", true))
-	std::printf("hsts: %d\n", static_cast<int>(doc.write_reason("site[example.com].tls.hsts")));
-if (!doc.set_string("site[blog.example.com].root", "/srv/www/blog"))
-	std::fprintf(stderr, "blog root: reason %d\n", static_cast<int>(doc.write_reason("site[blog.example.com].root")));
+if (!doc.set_bool("site(example.com).tls.hsts", true))
+	std::printf("hsts: %d\n", static_cast<int>(doc.write_reason("site(example.com).tls.hsts")));
+if (!doc.set_string("site(blog.example.com).root", "/srv/www/blog"))
+	std::fprintf(stderr, "blog root: reason %d\n", static_cast<int>(doc.write_reason("site(blog.example.com).root")));
 
 // Refused means this write would delete lines or values from the file; see
 // "What saving does" below (save_file_lossy is the override).
@@ -877,13 +877,13 @@ The shell wrappers are not parsers; they wrap the CLI, which is why they inherit
 source shcl.bash
 
 workers=$(shcl_int --default=4 server.shcl workers)
-root=$(shcl_get --default='' server.shcl 'site[example.com].root')
-maxUpload=$(shcl_size server.shcl 'site[example.com].Max-Upload-MB')   # 52428800, in bytes
+root=$(shcl_get --default='' server.shcl 'site(example.com).root')
+maxUpload=$(shcl_size server.shcl 'site(example.com).Max-Upload-MB')   # 52428800, in bytes
 
 # Repeatable, applied in order; --write rewrites the file in place.
 shcl set --write server.shcl \
     --set "workers=$((workers * 2))" \
-    --set 'site[example.com].tls.hsts=true' \
+    --set 'site(example.com).tls.hsts=true' \
     --set-literal 'cluster.hosts=a.example.com, b.example.com'
 ~~~
 
@@ -893,7 +893,7 @@ Removal and set-only-if-absent have option forms too - `--remove=PATH`, `--set-d
 
 ~~~bash
 shcl set --write server.shcl <<OPS
-remove	site[old.example.com]
+remove	site(old.example.com)
 raw	motd		Welcome.
 OPS
 ~~~
@@ -906,12 +906,12 @@ Dot-source it for the same helper names:
 . ./shcl.ps1
 
 $workers   = [int](shcl_int --default=4 server.shcl workers)
-$root      = shcl_get --default='' server.shcl 'site[example.com].root'
-$maxUpload = [long](shcl_size server.shcl 'site[example.com].Max-Upload-MB')
+$root      = shcl_get --default='' server.shcl 'site(example.com).root'
+$maxUpload = [long](shcl_size server.shcl 'site(example.com).Max-Upload-MB')
 
 shcl set --write server.shcl `
          --set "workers=$($workers * 2)" `
-         --set 'site[example.com].tls.hsts=true' `
+         --set 'site(example.com).tls.hsts=true' `
          --set-literal 'cluster.hosts=a.example.com, b.example.com'
 ~~~
 
@@ -933,7 +933,7 @@ Three behaviors of the write half are easy to miss, and they are the same in eve
 
 Setters build whatever is missing along the path, so the `tls.hsts` and `blog.example.com` lines in the examples above arrive as a nested block and a new site instance without you assembling either.
 
-And saving rewrites the file in canonical form: spacing normalized, field names lowercased, the dotted `site[blog.example.com].tls.hsts` line folded into the block form it was always spelling. **Your comments stay attached** to whatever they documented, including the one that travels with that folded line:
+And saving rewrites the file in canonical form: spacing normalized, field names lowercased, the dotted `site(blog.example.com).tls.hsts` line folded into the block form it was always spelling. **Your comments stay attached** to whatever they documented, including the one that travels with that folded line:
 
 ~~~~text
 # Flat, TOML-style settings
@@ -945,7 +945,7 @@ log-level: warn
 site: example.com
 	root: /srv/www/example
 	max-upload-mb: 50
-	methods: GET, POST, HEAD
+	methods: [GET, POST, HEAD]
 	tls:
 		cert: /etc/ssl/example.pem
 		hsts: true

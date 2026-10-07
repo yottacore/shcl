@@ -10,7 +10,7 @@
 cat app.shcl
 	@ pause 3 seconds - a screenful to read
 
-shcl get --int app.shcl 'servers[web1].port'
+shcl get --int app.shcl 'servers(web1).port'
 	@ pause 1.2 seconds
 
 # Bad lines: skipped, not fatal

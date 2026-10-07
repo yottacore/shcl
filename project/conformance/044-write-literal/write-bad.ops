@@ -1,3 +1,6 @@
 literal	bad	"unterminated
 literal	bad	'unterminated
-literal	bad[*]	1
+literal	bad(*)	1
+literal	bad	80, 443
+literal	bad	[1, 2
+literal	bad	[INFO] up

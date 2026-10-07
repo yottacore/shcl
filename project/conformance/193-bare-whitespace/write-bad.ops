@@ -1,0 +1,6 @@
+# Accepted since 20261006: a bare value may hold spaces.
+# literal	bad	My App
+literal	bad	host: a.com port: 80
+literal	bad	O'Brien
+literal	bad	a, b c
+literal	bad	"open

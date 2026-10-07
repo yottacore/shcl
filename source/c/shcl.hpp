@@ -139,8 +139,9 @@ std::optional<DateTime> parse_datetime(std::string_view s);
 std::string quote_segment(std::string_view name);
 
 // The tokenizer's view of one line or one lookup path, as `shcl tokens` prints
-// it. Every offset is into the text that was tokenized.
-enum class Quote { None, Single, Double, Open };
+// it. Every offset is into the text that was tokenized. Backtick is a raw
+// value, read as written: value elements only.
+enum class Quote { None, Single, Double, Backtick, Open };
 enum class Rules { Current, V2 };
 struct Piece { std::size_t start{}; std::size_t end{}; Quote quote{}; };
 struct SegTok { Piece name{}; std::optional<Piece> selector{}; bool star{}; };
@@ -149,11 +150,23 @@ struct Tokens {
 	std::optional<std::size_t> sep{};
 	std::size_t value_start{};
 	std::size_t value_end{};
+	// For a bracket array, the pieces between the brackets.
 	std::vector<Piece> elements{};
+	// The `[` that opens a bracket array, when the value is one.
+	std::optional<std::size_t> array{};
+	// Where a bracket array stops being well formed, and why (E019). Static text.
+	std::optional<std::size_t> array_fault_at{};
+	const char *array_fault_why = nullptr;
 	std::optional<std::size_t> comment{};
 	// Where the path stopped making sense, and why. The reason is static text.
 	std::optional<std::size_t> fault_at{};
 	const char *fault_why = nullptr;
+	// The first bare name that breaks the spelling rule but still reads, such
+	// as 404 or `user name` (E014).
+	std::optional<std::size_t> misspelled{};
+	// The first selector written in brackets, x[a], the old spelling (E029).
+	// Its body is read as a selector all the same.
+	std::optional<std::size_t> bracket_selector{};
 	// The caller's element cap (0 = none), kept across calls. capped says it
 	// stopped the scan, and elements is then incomplete.
 	std::size_t cap{};
@@ -165,8 +178,8 @@ struct Tokens {
 };
 
 // Tokenize one line (sep ':') or one lookup path (path: the bare `*` name
-// wildcard is admitted, and a `#` in a selector body is the [#N] index, not a
-// comment). text is the line after its indent, or the path. out.cap is read
+// wildcard is admitted, and a `#` in a selector body opens no comment). text
+// is the line after its indent, or the path. out.cap is read
 // and every other field is replaced.
 void tokenize(std::string_view text, char sep, bool path, Rules rules, Tokens &out);
 // The value half alone: everything from `from` on, split into pieces, with the
@@ -174,9 +187,9 @@ void tokenize(std::string_view text, char sep, bool path, Rules rules, Tokens &o
 void tokenize_value(std::string_view text, std::size_t from, Rules rules, Tokens &out);
 
 // What migrate produced, and what it could not keep: current when the
-// file already names its format, ambiguous for pieces the two rule sets read
-// differently and nothing can decide between, lost for lines 2.x bound a value
-// on that nothing binds now.
+// file already names its format, ambiguous for pieces both rule sets read
+// cleanly and differently and nothing can decide between, lost for lines 2.x
+// bound a value on that nothing binds now.
 struct Migration {
 	std::string text;
 	bool current = false;
@@ -326,7 +339,7 @@ public:
 	// Every field path, file order, deduplicated. A segment that is not
 	// bare-name-safe comes back quoted, so each path reads back as a lookup.
 	std::vector<std::string> paths() const;
-	// paths() one instance at a time: every binding's path, with [#i] on each
+	// paths() one instance at a time: every binding's path, with (i) on each
 	// segment whose name its parent repeats, so each path reads one node.
 	std::vector<std::string> instance_paths() const;
 	// The comment lines above the node(s) at a path, the ones clear_comments
@@ -350,6 +363,9 @@ public:
 	// spell a reserved one. False for anything that is not one scalar element.
 	// A written value counts as quoted when a save would quote it.
 	bool quoted(std::string_view path) const;
+	// Whether that value was a backtick value: raw text the program decodes
+	// itself, handed back as written. A backtick value counts as quoted too.
+	bool backtick(std::string_view path) const;
 	// Whether a path resolves to at least one node.
 	bool exists(std::string_view path) const;
 	// The field name at a path exactly as the author wrote it (case
@@ -377,17 +393,20 @@ public:
 	// An empty value, which is not the empty string.
 	[[nodiscard]] bool set_empty(std::string_view path);
 
-	// Inline arrays, one per call.
+	// Arrays, one per call, written in brackets: one element is [80] and none
+	// is [].
 	[[nodiscard]] bool set_int_array(std::string_view path, const std::vector<std::int64_t> &v);
 	[[nodiscard]] bool set_float_array(std::string_view path, const std::vector<double> &v);
 	[[nodiscard]] bool set_bool_array(std::string_view path, const std::vector<bool> &v);
 	[[nodiscard]] bool set_string_array(std::string_view path, const std::vector<std::string> &v);
 	[[nodiscard]] bool set_datetime_array(std::string_view path, const std::vector<DateTime> &v);
 
-	// Text bound as value syntax rather than as data, so "80, 443" is a
+	// Text bound as value syntax rather than as data, so "[80, 443]" is a
 	// two-element array where set_string would store one string. False for text
-	// no single line could hold: a line break, or a quote that never closes. A
-	// `#` outside quotes ends the value as it would in a file.
+	// no single line could hold, a line break, or what a file line is refused
+	// for in a value: a malformed array, a bare comma, a quote that never
+	// closes, a bad escape, or what bare text may not hold. A `#` outside quotes
+	// ends the value as it would in a file.
 	[[nodiscard]] bool set_literal(std::string_view path, std::string_view text);
 
 	// Only-if-absent forms of the setters above. Each writes only where nothing
@@ -513,7 +532,8 @@ static_assert(static_cast<int>(WriteReason::Writable) == SHCL_W_WRITABLE && stat
 	&& static_cast<int>(WriteReason::ValueInPath) == SHCL_W_VALUE_IN_PATH && static_cast<int>(WriteReason::Wildcard) == SHCL_W_WILDCARD
 	&& static_cast<int>(WriteReason::NoSuchIndex) == SHCL_W_NO_SUCH_INDEX && static_cast<int>(WriteReason::TooDeep) == SHCL_W_TOO_DEEP, "WriteReason drifted from shcl_write_reason");
 static_assert(static_cast<int>(Quote::None) == SHCL_QUOTE_NONE && static_cast<int>(Quote::Single) == SHCL_QUOTE_SINGLE
-	&& static_cast<int>(Quote::Double) == SHCL_QUOTE_DOUBLE && static_cast<int>(Quote::Open) == SHCL_QUOTE_OPEN, "Quote drifted from shcl_quote");
+	&& static_cast<int>(Quote::Double) == SHCL_QUOTE_DOUBLE && static_cast<int>(Quote::Backtick) == SHCL_QUOTE_BACKTICK
+	&& static_cast<int>(Quote::Open) == SHCL_QUOTE_OPEN, "Quote drifted from shcl_quote");
 static_assert(static_cast<int>(Rules::Current) == SHCL_RULES_CURRENT && static_cast<int>(Rules::V2) == SHCL_RULES_V2, "Rules drifted from shcl_rules");
 // The C enums put NONE first, so each unit sits one past its C value.
 static_assert(static_cast<int>(DurationUnit::Millis) + 1 == SHCL_DURATION_MS && static_cast<int>(DurationUnit::Days) + 1 == SHCL_DURATION_D, "DurationUnit drifted from shcl_duration_unit");
@@ -619,9 +639,14 @@ static void copy_tokens(const shcl_tokens &t, Tokens &out) {
 	out.elements.clear();
 	out.elements.reserve(t.nelem);
 	for (std::size_t i = 0; i < t.nelem; i++) out.elements.push_back(piece(t.elements[i]));
+	out.array = t.has_array ? std::optional<std::size_t>(t.array) : std::nullopt;
+	out.array_fault_at = t.has_array_fault ? std::optional<std::size_t>(t.array_fault_at) : std::nullopt;
+	out.array_fault_why = t.has_array_fault ? t.array_fault_why : nullptr;
 	out.comment = t.has_comment ? std::optional<std::size_t>(t.comment) : std::nullopt;
 	out.fault_at = t.has_fault ? std::optional<std::size_t>(t.fault_at) : std::nullopt;
 	out.fault_why = t.has_fault ? t.fault_why : nullptr;
+	out.misspelled = t.has_misspelled ? std::optional<std::size_t>(t.misspelled) : std::nullopt;
+	out.bracket_selector = t.has_bracket_selector ? std::optional<std::size_t>(t.bracket_selector) : std::nullopt;
 	out.capped = t.capped != 0;
 }
 
@@ -857,6 +882,7 @@ std::vector<std::size_t> Document::lines(std::string_view path) const {
 	return std::vector<std::size_t>(a, a + n);
 }
 bool Document::quoted(std::string_view path) const { return shcl_quoted(detail::held(*this), path.data(), path.size()) != 0; }
+bool Document::backtick(std::string_view path) const { return shcl_backtick(detail::held(*this), path.data(), path.size()) != 0; }
 bool Document::exists(std::string_view path) const { return shcl_exists(detail::held(*this), path.data(), path.size()) != 0; }
 std::string Document::authored_name(std::string_view path) const { return detail::str(shcl_authored_name(detail::held(*this), path.data(), path.size())); }
 WriteReason Document::write_reason(std::string_view path) const { return static_cast<WriteReason>(shcl_write_reason_(detail::held(*this), path.data(), path.size())); }

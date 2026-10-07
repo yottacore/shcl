@@ -4,7 +4,7 @@
 base: Chicago
 	metrics:
 		population: 30200
-		weather: Hot, Cold, Lousy, "All around not that great"
+		weather: [Hot, Cold, Lousy, "All around not that great"]
 		square-miles: 300
 base: "Cleveland, OH"
 	metrics:

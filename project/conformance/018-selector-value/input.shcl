@@ -1,2 +1,2 @@
 city: Portland
-city[Boston]: 700
+city(Boston): 700

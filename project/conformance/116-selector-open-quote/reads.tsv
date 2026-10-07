@@ -1,8 +1,8 @@
 query	type	expected	status
 -	load	ok	-
 -	load	fail	-	strict
-srv["prod].host	string	example.com	Good
-srv[prod].host	string	-	NotFound
-a.b['c].d	int	1	Good
-e["f].g	string	"h	Good
+srv("prod).host	string	-	NotFound
+srv(prod).host	string	-	NotFound
+a.b('c).d	int	-	NotFound
+e("f).g	string	-	NotFound
 -	lost	0	-

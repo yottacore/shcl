@@ -1,4 +1,6 @@
 query	type	expected	status
 -	load	ok	-
-ports	string	-	NotFound
+ports	string	[80, 443]	Good
+ports	int[]	80|443	Good
+ports	int	0	BadType
 -	lost	0	-

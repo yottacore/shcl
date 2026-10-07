@@ -33,124 +33,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
-- cli-regress fails 3 rows on macOS's own tools
-	- ID: 2026100617010925
-	- Type: Bug
-	- Status: Waiting for testing
-	- Needs local test suite run?: N. cli-regress, check-migrate, shell-regress, test-ids and shellcheck pass on Linux.
-	- Needs external testing: a cli-regress run on b26 with stock macOS tools plus a `timeout`, Hosted is done: run 37637035207 on dev `9300b1be`, 20261007, passed all 4 jobs, and the macos job passed all 3 rows, `man-width` through `mandoc`.
-	- Severity: Low
-	- Opened: 20261006-170109
-	- Opened by: the b26 run for 2026100313461652
-	- Related IDs: 2026100313461652, 2026100413052101
-	- Target OS: macOS, FreeBSD
-	- Test environment: b26 (macOS 15.8.1), bash 5.2, no GNU coreutils.
-	- Steps to reproduce:
-		- On a Mac without GNU coreutils, with a `timeout` on PATH, run `cicd/utility/cli-regress.bash "macos|PATH-TO-SHCL"` under bash 4 or later.
-	- Incorrect behavior: 3 rows fail on the script's own tools, not on the CLI. `broken-pipe` calls `env --default-signal`, which BSD `env` lacks. `save-migrate-taken` compares `ls -A | wc -l` to `2`, and BSD `wc` pads the count with spaces. `man-width` calls `man --nh --nj -l`, which only man-db takes, so the page renders to nothing.
-	- Expected behavior: the 3 rows pass on BSD tools, as they do on Linux.
-	- Reproduced: 20261006 on b26. Run by hand there, the CLI does what each row wants: 141 with nothing on stderr, exit 8 with both files left, and the page at 80 columns under `mandoc`.
-	- Actual cause: GNU-only forms. The hosted macos job puts GNU coreutils first on PATH, so it never meets them.
-	- Note: 20261006, the hosted macos job does meet `man-width`: GNU coreutils has no `man`, and the runner's is not man-db. It is the only row that job fails (run 37550690633), so it keeps 2026100313461652 open and turns the job red on a main push.
-	- Note: 20261006, `macb26` already fixed the first two forms found (`head -c -1` and `stat -c`) and made a missing `timeout` an exit 2 with a message. Stock macOS still has no `timeout`.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Actual fix: each row keeps the GNU form where it works and falls back otherwise.
-		- `broken-pipe` puts the default SIGPIPE back with perl where `env` has no `--default-signal`. With neither, it runs the CLI as is when SIGPIPE is not ignored, and skips with a message when it is.
-		- `save-migrate-taken` strips the spaces from the `wc -l` count before comparing. Same fix in check-migrate `EqRiIDx`, the only other string compare of a `wc` count.
-		- `man-width` uses man-db when `man --version` says it is man-db, else `mandoc -T ascii -O width=80`, else the old skip. The overstrike strip no longer needs GNU sed's `\x08`.
-	- Verified: on Linux with GNU tools, cli-regress passes all 3 rows on the Rust debug CLI, and check-migrate, shell-regress, test-ids and shellcheck pass. With a padding `wc`, an `env` without `--default-signal`, a `man` that is not man-db and Debian's `mandoc` 1.14.6 first on PATH, the old script fails all 3 rows and the new one passes them. It also passes with no perl, and with perl and SIGPIPE ignored. With no perl and SIGPIPE ignored, `broken-pipe` skips. With no mandoc, `man-width` skips as before. A 90-column line put in the page fails `man-width` through mandoc, and a CLI that does not die of SIGPIPE still fails `broken-pipe`.
-	- Not verified, only reasoned: real BSD `env`, `wc`, `perl` and macOS's `man` and `mandoc`, and the windows job, where `broken-pipe` skips as before and `man-width` takes the same path it did.
-	- Swept: every `env --default-signal`, `\x08` in sed, `man --nh` and string compare of a `wc` count under `cicd/`. Other `wc` counts are read as numbers, which takes the padding.
-	- Branch: `bsdrows`
-	- Commit: f0170ca5
-	- Test case: cli-regress `EqzuLW3` (broken-pipe), `Er5ivub` (save-migrate-taken), `EpHH7ZQ` (man-width), and check-migrate `EqRiIDx`. The 3 cli-regress rows fail on the old script with the BSD-style tools and pass on the new one.
-
-- No '\' escapes
-	- ID: 2026100207032800
-	- Type: Enhancement
-	- Status: Started
-	- Priority: Critical
-	- Needs local test suite run?: Y
-	- Needs external testing: Y
-	- Opened: 20261002-070407
-	- Opened by: JC
-	- Assigned to:
-	- Parent ID:
-	- Prereq IDs:
-	- Related IDs: 2026100213205957, 2026100218185700, 2026100115403384, 2026100115323227, 2026100115323216, 2026100115323222, 2026100115403385, 2026100117214801, 2026100117214802, 2026100610073400
-	- Target OS:
-	- Test environment:
-	- Version and build:
-	- Problem description:
-		- Most bug/fix/bug/fix churn is being caused by escapes. For example: "C:\shouldn't\be\tab\or\newline"
-		- The full problem description, ideas 1 to 3 and the settled rules are in the design doc, `project/design_docs/value-syntax.md`. The doc is the source of truth for this item.
-	- Requirements:
-		- A backslash is plain text everywhere.
-		- An escape is `◉NAME◉`, from a closed list. Anything else between two `◉` is an error.
-		- A bare value with whitespace or a quote is an error. Quote it.
-		- A bare field name starts with a letter.
-		- Arrays are `[a, b]`, or one `- ` item per line.
-		- A backtick value is raw. The program decodes it.
-		- Ideas 1 and 2 were ruled out. Their text is under Rejected in the design doc.
-	- Estimated effort: High
-	- Actual effort:
-	- Progress log:
-		- 20261005: worked on the `valsyn` branch, which merges to dev once all four bindings agree. Its progress log is in valsyn's copy of this file. Chunks A and B are in, Rust only.
-		- 20261005: the answered A and B changes are in, Rust only, and the 2,000,000 release fuzz passes on valsyn again. Chunk C is next.
-		- 20261005: on valsyn, the no-colon rule is narrowed back (`square-miles 300` is `E014` again), a merge list join is fixed (2026100520243961, filed and closed there), and chunk C's spec half is in: spec.md, grammar.abnf and value-syntax.md. check-docs and check-abnf pass there. Next: design.md, the changelog, `migrate`, then the Go, Python and C ports.
-		- 20261006: answered: spaces are allowed in a bare value and a `- ` item, but not inside `[]` or a selector. A bare colon or comma needs a character after it, so `rw,noatime` and `:0` stay bare and `ports: 80, 443` is an error. Built in Rust on valsyn, with spec.md and the grammar. The 2M fuzz passes there. Next: the rest of chunk C, then the Go, Python and C ports.
-		- 20261006: on valsyn, `migrate` follows the new rules, and check-migrate passes there. Next: design.md and the changelog, then 2026100610073400, then the Go, Python and C ports.
-		- 20261006: on valsyn, design.md and the changelog caught up, and 2026100610073400 is in for Rust and the docs. Next: the Go, Python and C ports.
-		- 20261006: on valsyn, the Go port's parts 1 and 2 (values, lists) and the Python port's part 1 (values) are in. Go fails only parens, `E029` and `migrate` cases now. Next: Go part 3, Python parts 2 and 3, then C.
-		- 20261006: on valsyn, the Go port is done and passes the whole corpus with no crosscheck divergences. Python's lists and parens are in, so it fails only `migrate`. C's part 1 (values) is in. Next: Python `migrate`, then C parts 2 and 3 with the C++ interface.
-		- 20261007: on valsyn, all four ports are done. Every binding passes the whole corpus, cli-regress, and a check-migrate copy, and crosscheck finds no divergences over the corpus and a fuzz dump. Next: the full gates on valsyn, then its merge to dev.
-	- Decisions:
-		- 20261002: idea 3, with the changes listed in the design doc. Open points and their proposed answers are under its Roadmap.
-		- 20261002: a quote anywhere in a bare value is an error, and a bare field name starts with a letter. Dates, times, durations and sizes without spaces stay bare.
-		- 20261002: no new error throws out good lines. A bad bare name that can still be read keeps its block, as a value-only refusal does. The writer quotes a value with `:` only when it ends in one.
-		- 20261002: pre-release Format 3 files are on their own. `fmt` keeps a `- ` list stacked. Setters get no new options, and an overwrite keeps the old quote kind when it can.
-		- 20261003: a merge writes every list in brackets, whatever form its layers used. The error code table in the design doc is final.
-	- Branch:
-	- Commit:
-	- Test case:
-	- Acceptance signoff:
-	- Superseded by ID:
-	- Closed:
-
-- Selectors use `()`, and `[]` is for arrays only
-	- ID: 2026100610073400
-	- Type: Enhancement
-	- Status: Started
-	- Priority: High
-	- Opened: 20261006-100734
-	- Opened by: JC
-	- Prereq IDs: 2026100207032800
-	- Related IDs: 2026100207032800, 2026100609552447
-	- Problem description:
-		- After 2026100207032800, brackets mean two things on one line. `base[Boston].ports: [80, 443]` has a selector and an array.
-		- In a lookup path, `dogs[1]` looks like the second element of an array. It's the second `dogs` instance.
-	- Requirements:
-		- Every selector is written in parens: `person(Bucky)`, `person("New York")`, `person(0)`, `person(*)`. That goes for files, lookup paths, setter paths, `--set` and schema paths.
-		- Brackets after a name are an error. Brackets are only arrays. Which code is open.
-		- A bare number is an index and a quoted one is a value, as now: `year(2020)` vs `year("2020")`.
-		- `[#N]` goes too, from 2026100609552447. A body starting with `#` is refused, not read as a value.
-		- Every path the library writes uses parens: `InstancePaths()`, `Paths()`, `QuoteSegment`, the starter config.
-		- `migrate` rewrites 2.x selector lines.
-		- spec.md, design.md, value-syntax.md, the grammar, README, man page, CLI help, completions and the C++ interface. CLI examples quote the path, since an unquoted `(` is a syntax error in bash.
-		- Corpus cases and cli-regress rows with selectors. 32 corpus inputs have them.
-		- A changelog line.
-	- Reason: one meaning per bracket. Format 3 isn't cut yet, so this is the cheapest it gets.
-	- Decisions:
-		- 20261006: parens for every selector, brackets only for arrays. Parens for values with brackets for index and wildcard was too confusing, 2 forms for one thing. Braces were weighed too, but PowerShell silently splits `person{Bucky}` into 2 arguments.
-		- 20261006: brackets after a name get a new code, `E029`, so `explain E029` can say selectors moved to parens. The line is kept as written.
-	- Note: 20261006, do it on `valsyn` after chunk C's Rust part and before the Go, Python and C ports, so the ports get written once.
-	- Progress log:
-		- 20261006: on valsyn, Rust and the docs are in, `migrate` included (`vspar`, `vsmig2`). Valsyn's copy of this file has the details. The Go, Python and C ports are left, with 2026100207032800's.
-		- 20261006: on valsyn, Go is done, `migrate` included. Python is in but for `migrate`. C is left.
-		- 20261007: on valsyn, Python and C are done too, `migrate` included. Next: the full gates, then the merge to dev.
-	- Estimated effort: High
-
 - Back up and rewrite a config file when a program's shcl upgrade breaks it
 	- ID: 2026100313461649
 	- Type: Feature
@@ -196,22 +78,22 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: 20261003, `check-migrate.bash` already builds 2.x from pinned `7be348d` and compares reads after `migrate`. This would extend it to the backup and rewrite in 2026100313461649, and to beta-stamped Format 3 files once 2026100207032800 is in.
 	- Estimated effort: Avg
 
-- Make sure the demo GIF is still accurate and current
-	- ID: 2026100306315606
-	- Type: Task
+- The comparison tool writes its SHCL documents in the old value syntax
+	- ID: 2026100711403568
+	- Type: Bug
 	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261003-063156
-	- Opened by: JC
-	- Prereq IDs: 2026100207032800
-	- Version and build: dev at `34ceede2`
-	- Problem description:
-		- `assets/demo.gif` was last made on 2026-09-19. The parser and CLI output have changed a lot since.
-		- The demo file's `tags: fast, "eu, west", cheap` line is a bare value with spaces and quotes, which is an error under 2026100207032800. That item has to go in first.
-	- Requirements:
-		- The demo file, `cicd/demo/script.txt` and `cicd/demo-scenario.toml` use current syntax.
-		- Each step's output in the GIF matches what the current release binary prints.
-		- Regenerate it with the cicd gif stage and check `cicd/demo/expected.txt` still matches.
+	- Severity: Avg
+	- Opened: 20261007-114035
+	- Opened by: found while working 2026100711350582
+	- Related IDs: 2026100207032800, 2026100221215300, 2026100219565400
+	- Version and build: valsyn at `c4c6273c`
+	- Steps to reproduce:
+		- Read `shcl_scalar` and `shcl_string` in `cicd/utility/comparison/src/model.rs`.
+	- Incorrect behavior: an array is written `a, b` with no brackets, which is `E026` now. A quote or backslash in a string is written `\"` or `\\`, and a backslash is plain text now. So the benchmark documents would load with errors once valsyn is in dev.
+	- Expected behavior: arrays in brackets, and strings quoted the way the writer quotes them.
+	- Reproduced: No. Read only; the comparison tool was not built or run.
+	- Note: needed before the Python perf recheck (2026100221215300) and the next benchmark run. The document sizes will move a little.
+	- Estimated effort: Low
 
 - README note on how escapes work, and why
 	- ID: 2026100313461651
@@ -261,6 +143,33 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Possible cause: the per-line fault checks added with the escape errors. `_line_fault` and the extra `any` calls account for most of the gap.
 	- Decisions:
 		- 20261002: recheck after 2026100207032800 is built, since it removes most of those checks. No perf work before 3.0.0 otherwise.
+
+- A merge after an empty field writes a list that a reload joins to it
+	- ID: 2026100520243961
+	- Type: Bug
+	- Status: Done
+	- Severity: Critical
+	- Opened: 20261005-202439
+	- Opened by: JC
+	- Parent ID: 2026100207032800
+	- Steps to reproduce:
+		- Merge a layer holding `p:`, `\ts:`, `\t# c` with a layer holding `p:`, `\ts:`, `\t\t- 0`, `\t\tc:`.
+		- Read `p.s.c`, then save, reload and read it again.
+	- Incorrect behavior: the merge adds the list, with its field, as a new instance after the empty `s`. A reload joins the two, so the merged document and its reload differ. Any kept line or comment in the gap does it.
+	- Expected behavior: the merged document is the one its saved text loads back to.
+	- Reproduced: 20261005, on `valsyn` before `vsnarrow`, in Rust. Release fuzz `Eqk24nZ` at iteration 1814886 after `vsnarrow`.
+	- Note: likely the same join the `vsfuzz` fix gave a setter (`ErsETML`), missing on the merge path. Rust only for now; the other ports have no list join yet.
+	- Estimated effort: Avg
+	- Cause: the merge's settle looked for the join before it moved the lines after each child down to the next one. A comment or kept line still sitting after the empty binding made it refuse the join, and only then did the line move above the list. The setter's twin never sees such a line, since a load has already moved it. A remove had no join at all: one taking the last field of an empty binding left a list of its name after it unjoined, and one taking a list's last field left it stacked there, which a reload joins and drops.
+	- Fix: the settle tries the join again once the lines have moved. A remove that leaves a block with no fields settles its name the way a setter does, so the list joins the binding, or goes in brackets when the binding still has fields.
+	- Test case: `Ert70BF` (merge, with a comment, a kept line and a sibling in the gap), `Ert70DM` (both remove cases), and corpus 201 (`Ert9PEK`). All 3 failed on the code before and pass now.
+	- Swept: the setter's twin (`set_empty` past a comment or kept line, at and below the binding's level, already matched a reload), the writer's fold and the new child settle (both go through the same settle), and remove (fixed here). `clear_comments` and `set_comment` cannot leave a line after a binding that is not its last child.
+	- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust. The 2,000,000 release fuzz passes all 24, on the old seed set and with corpus 201 added.
+	- Note: the Go, Python and C ports need this with their list join.
+	- Acceptance signoff: Self-closed: reproduced, test failed before and passes after.
+	- Branch: `vsjoin`
+	- Commit: `95727823`
+	- Closed: 20261005-205600
 
 - A canonical save after a merge and a raw set loses kept lines, found by the kept-lines fuzz
 	- ID: 2026100316012486
@@ -404,6 +313,341 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: left for signoff: the new `migrate` refusal and no-stamp rule, which go past the item, and the `EreT6dh` trim change.
 	- Acceptance signoff: 20261003, signed off. The `migrate` refusal at 7 was OK'd. The no-stamp rule is the one design.md already had, now checked under both rule sets, and the `EreT6dh` change is a fix to the test, so neither needed a call.
 	- Closed: 20261003-162005
+
+- No '\' escapes
+	- ID: 2026100207032800
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Critical
+	- Needs local test suite run?: Y
+	- Needs external testing: Y
+	- Opened: 20261002-070407
+	- Opened by: JC
+	- Assigned to:
+	- Parent ID:
+	- Prereq IDs:
+	- Related IDs: 2026100213205957, 2026100218185700, 2026100115403384, 2026100115323227, 2026100115323216, 2026100115323222, 2026100115403385, 2026100117214801, 2026100117214802, 2026100610073400
+	- Target OS:
+	- Test environment:
+	- Version and build:
+	- Problem description:
+		- Most bug/fix/bug/fix churn is being caused by escapes. For example: "C:\shouldn't\be\tab\or\newline"
+		- The full problem description, ideas 1 to 3 and the settled rules are in the design doc, `project/design_docs/value-syntax.md`. The doc is the source of truth for this item.
+	- Requirements:
+		- A backslash is plain text everywhere.
+		- An escape is `◉NAME◉`, from a closed list. Anything else between two `◉` is an error.
+		- A bare value or `- ` item may contain spaces. A tab, a quote, a bracket, or a colon or comma with whitespace or the end after it is an error. Quote it. Inside `[]` and in a selector, any whitespace needs quotes too.
+		- A bare field name starts with a letter.
+		- Arrays are `[a, b]`, or one `- ` item per line.
+		- A backtick value is raw. The program decodes it.
+		- Ideas 1 and 2 were ruled out. Their text is under Rejected in the design doc.
+	- Estimated effort: High
+	- Actual effort:
+	- Progress log:
+		- 20261005: built in chunks on the `valsyn` branch, which merges to dev only when all four bindings and the corpus agree. Until then the bindings not yet ported are expected to fail there.
+			- A: Rust reading and writing of values. Backslash as text, `◉` escapes from one generated table, `E023`, `E025`, the new `E014` rule, `E017` as value only, `E024` and `H003` retired, backtick values.
+			- B: Rust arrays and lists. Brackets, `- ` items, `E013`, `E019`, `E026` to `E028`, selectors, merge output, `SetLiteral` and `--set-literal`.
+			- C: Rust `migrate`, then spec.md, grammar.abnf, design.md, the changelog and the rest of the corpus.
+			- D, E and F: the Go, Python and C ports, with the C++ veneer.
+			- G: crosscheck, cli-regress, shell-regress, check-docs and the 2,000,000 release fuzz on the merged branch, then the merge to dev.
+		- 20261005: chunk A done on `vslex`, off `valsyn`.
+			- In: a backslash is text; escapes from one generated table (names, aliases, code points, `White_Space`) in `gen-escapes.py`; `E023` for a bad escape, `E025`, the bare name rule as `E014` that keeps its block when the name reads; `E017` value only; backtick values with a `backtick` read flag; `E024` and `H003` retired, and `H004` lost its replacement; the writer's quoting and escapes.
+			- Corpus: about 60 cases changed, mostly goldens. Cases whose escapes were the point now use the new spelling. 170, 171 and 174 keep their backslash text and now pin it as text, with their bad ops commented out. New cases 192 to 195.
+			- cli-regress: 19 rows edited in place, the fixtures under 16 more, 17 commented out with the reason, 16 new. The other bindings fail those until their ports.
+			- Left for B: brackets, `- ` lists, selectors (a lookup path still takes the old bare rules), merge output, the `--set-literal` message.
+			- Left for C: `migrate` beyond the backslash re-spelling, spec.md, grammar.abnf, design.md, README. check-docs fails on the spec code table, check-abnf and the README `E014` transcript until then.
+			- Left for D to F: the other bindings' table copies and the same-fixture tests changed in the Rust runner.
+			- The 2,000,000 release fuzz fails `Eqk24nZ` on a class older than this, now reached far more often. Filed as 2026100506223902.
+		- 20261005: calls made in chunk A that the doc does not settle. Each is easy to reverse.
+			- An author's quote kind is kept by `fmt` too, not only on an overwrite: `'abc'` stays single quoted. A quoted data format still goes bare.
+			- A backtick value counts as quoted as well, and typed reads still read its text.
+			- Edge trimming is still a space, a tab and a carriage return. Any other whitespace at an edge stays in the piece, so it is `E025`.
+			- A readable bare name runs to the colon, a dot, a bracket, a `#`, a comma or a quote. A line with no colon whose name breaks the rule is `E014`, not `E015`.
+			- One diagnostic per line: a fault in the path first, then the name rule, then bracket text, then the value.
+			- A value fault is judged before the element cap, as `E019` and `E023` were, so an open quote past the cap is `E017` and kept.
+			- `migrate` writes a re-spelled piece with the new writer, so its output reads right under the new rules. The fuzz check that `migrate` changes nothing on its own output now holds only stamped output.
+			- `explain E023` says "U+25C9" instead of the mark, since the help text is ASCII.
+		- 20261005: chunk B part 1 done on `vsarr`, off `valsyn`, Rust only.
+			- In: bracket arrays, with `[]` and a bare `x:` both the empty array, the doc's read table, a string read in bracket form, `[80]` kept in brackets, and array setters writing brackets for one element and for none. `E019` for a malformed array, `E026` for a bare comma. Stacked lists with `- `, `E013` for a `*` line, `E027` for `- name:`, and `fmt` and the writer keeping a `- ` list stacked. Schemas take `allowed: [a, b]` and `repeat: [1, 3]`.
+			- Corpus: 85 cases changed. Inputs moved to brackets and `- ` where the array was the point, goldens elsewhere. New cases 196 to 198. The migrate cases' goldens show `E013` and `E026` in the migrated text until chunk C.
+			- cli-regress: about 30 rows or their fixtures edited in place, 19 new, each seen to fail on the code before. shell-regress: the pwsh comma row uses brackets.
+			- Left for part 2: selectors (an array's display is its bracket form now, so a bare selector body never matches one), `E028` (cases 106, 154 and 196 and two sugar rows load an array with lines under it clean until then), merge output (case 179 still merges stacked), and `SetLiteral` and `--set-literal` beyond refusing `E019` and `E026` and storing a bracket array. The help and man page example reads `ports=[80, 443]` now.
+			- The 2,000,000 release fuzz passes all 19 properties on the new seed set.
+		- 20261005: calls made in chunk B part 1 that the doc does not settle. Each is easy to reverse.
+			- An array read of a bare `x:` is still Empty, and of `x: []` it is Good with no elements. A scalar read of `[]` is Empty.
+			- `[ ]` with only blanks inside is `[]`. Spacing inside brackets is not kept.
+			- In a value, a fault in a piece (`E017`, `E023`, `E025`) comes before a bare comma (`E026`), so `"open, b` is `E017` and `Jul 12, 2026` is `E025`. A malformed array (`E019`) comes before both, and of its faults, no closing `]` wins.
+			- A malformed array is judged past the element cap. The scan runs on without keeping pieces, so the cap still refuses only a line that would bind.
+			- A list item that is an array, `- [a]` or `- []`, is `E019` and kept. A bare comma in an item stays `E010` and dropped, since the code table did not retire it.
+			- `E027` is any bare item ending in `:`. Every line led by `*` is `E013`, `* x` and `*x` alike.
+			- An array setter over a stacked list writes brackets, and one with no elements writes `[]` where it used to write an empty value.
+			- A stacked list read from a file stays stacked with a field line under it (`E001`). A writer that adds a child still puts the list in brackets.
+			- A string or untyped field's `allowed` set sees an array's bracket text. A typed scalar field reads `[80]` as 80 for `allowed`, `min` and `max`.
+			- `H001` suggests the bracket form, `x: [a, b]`. `tokens` prints `item` for a `- ` line, and `array=` and `array-fault=` for a bracket array.
+			- A trailing comment on a stacked item still rides the field, so `fmt` moves it to the header line. Lists stay stacked now, so that shows more often. Not filed.
+		- 20261005: chunk B part 2 done on `vssel`, off `valsyn`, Rust only.
+			- In: `E028`, found when a field binds under an array line, not by looking ahead. The line is kept, written in place of the field's own, and the field opens with no value. A kept line under an array binds nothing, so the array stands. Setters refuse an array over fields and a field under an array, and the CLI says which.
+			- Selectors match one plain value, quoted or not, never an array or a raw block. A lookup path with a bad selector body (`E025`, `E017`, `E023`) finds nothing.
+			- A merge writes every list in brackets. A bare comma in a list item is `E026`, kept among the items; `E010` is retired with `E026` as its replacement. An array setter keeps a stacked list stacked. A comment on a stacked item stays on it, and a whole-line comment among the items stays among them.
+			- `--set-literal` help and man page show a quoted string and a backtick value. Backtick values and kept quote kinds already worked from A and B1; rows now pin them.
+			- Fuzz: the `ErqSBCw` fixture took the new `E019` text. `EreT6dh` had three oracle faults, no library defect: a setter's raw body counted as copies of a kept line, a remove's raw body lines matched a kept line by text, and fence closers were trimmed of more than the load trims. A remove also leaves the leads above its target alone.
+			- Corpus: 179 rewritten for merge brackets, new 199 (`E028`) and 200 (selectors), about 20 cases updated. cli-regress: 21 new rows, each but the pinning ones seen to fail on the code before; `Ep3OILK` and `Ep3OILL` commented out, since a quote in a bare selector is `E025` now.
+			- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, shellcheck. The 2,000,000 release fuzz passed all 20 before cases 199 and 200 went in; with them, `EreT6dh` (iteration 991183, a merge footer dedup over a `- name:` line) and `Eqk24nZ` (iteration 1814916) fail. Left for later, not cut down.
+			- Left for later: those two fuzz failures, and 2026100511210900.
+		- 20261005: calls made in chunk B part 2. Each is easy to reverse.
+			- A bare comma in a list item is `E026`, value only, and the line is kept among the items.
+			- An array setter over a list written with `- ` keeps it stacked. Kept lines and comments among the old items go above the field.
+			- A comment trailing a stacked item stays on its item, and a whole-line comment among the items stays among them. When the list goes to brackets they go above it.
+			- `[]` with fields under it is `E028` too. A dotted array line with fields under it, such as `a.b: [1]`, cannot head its block, so `fmt` writes it as a comment.
+			- A setter never writes a field under an array or an array over fields; it refuses, where B1 put the list in brackets.
+			- A list with a field under it (`E001`) stays stacked, since in brackets it is `E028`, and so does one after a remove takes such a field. A merge leaves it stacked too.
+			- A stacked list with fields under it after an empty binding of its name that has none joins that binding, as a reload would. A kept array line an edit leaves with nothing under it is written as a comment.
+			- A selector matches a scalar only, so `x[hi]` no longer finds a raw block holding `hi` (case 070).
+		- 20261005: the rework from the 20261005 answers done on `vsfix`, off `valsyn`, Rust only. Not in the design doc yet; chunk C writes it there.
+			- A line with no colon is `E015` whatever its name, and binds the name it reads as. `404`, `-x` and `user name` alone now repair to `"404":` and the rest. That reaches lines with a space too: `square-miles 300` and `this is ! not parseable` were `E014` and kept as written, and now repair to a quoted name at exit 0. Cases 004, 013, 049, 091 and 194 moved with it, and the `b 2` and `also bad` lines in the cli-regress fixtures.
+			- A line or a stacked item past the caller's element cap is `E021` and dropped, whatever its value. The path and the name are still judged first, and a broken item within the cap is still kept.
+			- `migrate` leaves every 2.x backslash as written, `\"` and `\'` included, and it reads as text. A piece is written another way only where these rules would read its text as something else, so `"say \"hi\""` becomes `'say \"hi\"'`. A backslash no longer makes a file ambiguous, so without `--from-2x` only a raw block the two rule sets split still refuses at 7. Goldens 118, 119, 122, 124 and 170 moved.
+			- check-migrate lets an element read differ from the 2.x one only where a backslash pair 2.x read as an escape is text now, line for line. A path that held a line break is no longer required to refuse at 7, so `ErUuq8D` and `ErkiUcu` are commented out. The gate is still red on valsyn until chunk C: 246 divergences over 652 documents, down from 293.
+			- `explain E023` prints `◉` itself. cli-regress `help-width` takes the mark as one column in `explain` output, and anything else outside ASCII still fails it. check-docs has no rule on help text.
+			- Tests: conformance `Ers2oCr` (the cap) and `Ers2oF1` (2026100511210900). `parse_limited_caps` has two asserts commented out with the reason, and `EqKhPQO` now checks the new cap rule. cli-regress: 12 new rows, 6 edited in place, 8 commented out with the reason, and the `%RF2%` fixture moved so `EqGUXeC` still tests what it was for. Each new or changed test and row was seen to fail on the code before.
+			- The raw block oracle in `fuzz_smoke.rs` took a `- ` item for a line that can open a block. It now skips items, as the parser does.
+			- Left for chunk C: these answers in value-syntax.md, spec.md and design.md; the migration table rows for `\\`, `\t`, `\n`, `\"` and `\'`; the README `E014` transcript, which prints `E015` now; and the `migrate` refusal, which still says "value(s)" though only raw block lines count now.
+			- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, shellcheck on both scripts. check-docs and shell-regress fail on the same tests as on `valsyn`.
+			- The 2,000,000 release fuzz still fails `EreT6dh` and `Eqk24nZ`, now at 1632940 and 1618034. The library changes move the random stream, so the numbers do not compare. Both reproduce on the code before this rework. `Eqk24nZ` cuts down to `b: x`, `b: y z`, then `- 3` and `k: 1` indented under it: after `set_empty("b")`, a read of `b.k` is NotFound, and Good after a reload. `EreT6dh`: a remove of the field beside a misplaced `a:` line moves other kept lines above it.
+			- Question: should a line with no colon whose name has a space, such as `square-miles 300`, repair like `404`, or stay `E014` and kept as written, as before chunk A? Built as the first, since the answer said always. The second is a small change.
+		- 20261005: the two 2,000,000 release fuzz failures, on `vsfuzz`, Rust only.
+			- `Eqk24nZ` was the library. A setter that empties a field joins a stacked list after it, fields and all, as a reload does. The name index still filed the moved fields under the list's node, so a read after the write found nothing. The join now moves them in the index, and a settle that joins one drops the index. Test `ErsETML`.
+			- `EreT6dh` at 1632940 was the property. A misplaced line beside a removed field goes down past the kept lines that stay, as design.md's table says and a reload does. The property let such a line move as a bound, but not as a copy of the removed field's own line. Test `ErsETOT`.
+			- 2 more seed sets, run by changing the seeds by hand since the harness has no offset, found 3 more. 2 were the property: a file-start BOM hid a `*` line from its raw block check (`ErsMtSw`), and a misplaced line past a layer's last field counted as a copy of a footer line the merge dedup skipped (`ErsPRww`). That second one is likely the 991183 report's class; not reproduced on the old seeds. 1 was the library, in `EqutO7I`: a load can build the list no text loads back (2026100511210900) under a kept array line (`E028`), and the save that keeps lines then fell back to canonical with no edits. Test `ErsWiow`.
+			- Call made: the save that keeps lines checks for that list only when the source was canonical. Any other source is held to its own reload check, so a file that loads one keeps its text on a `set --write`. `fmt --write` still refuses it at 7, since canonical text writes the kept array line as a comment and the list then joins the binding above it. Writing that line in place of the list's `name:` line would load back. Not done.
+			- The Go, Python and C ports have no list join yet. They need the index move and the keep gate change when they get it.
+			- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust. Each new test failed on the code before. The 2,000,000 release fuzz passes all 23 on the committed seeds and on the 2 other seed sets.
+		- 20261005: the no-colon rule narrowed back on `vsnarrow`, off `valsyn`, Rust only. `vsfix` read the `E015` answer too widely.
+			- A line with no colon that is one name or path is `E015` and binds, `404` and `-x` included, and a quoted name with a space too. One whose bare name has a blank in it, such as `square-miles 300`, `user name` or `this is ! not parseable`, is `E014` again and kept as written, per spec.md's narrow repair rule. The lines under it still load under it, as in chunk A.
+			- Call made: that `E014` takes the message it had before chunk A, "unexpected character after the path", with the column of the second word. So the README `E014` transcript line matches the CLI again.
+			- Moved back: corpus 004, 013, 049, 091 and 194, the `b 2` and `also bad` cli-regress rows, and the 2 Rust test fixtures `vsfix` changed. `Ers2pOr` and `Ers2pOs` are commented out, since their `user name` line is `E014` now. `ErsrQb6` and `ErsrQd5` replace them.
+			- Test: `ErsrQZC`. It failed on the code before and passes now, and so did `ErsrQb6`, `ErsrQd5` and the 6 moved-back rows.
+			- The release fuzz `EreT6dh` then found an oracle fault: its raw block check closed a block at a fence line with a carriage return after the indent, which the load reads as body text. Fixed, test `ErsrQev`.
+			- Open: the release fuzz `Eqk24nZ` fails at 1814886 on an older library class, reproduced on `valsyn` before this change with any kept line or comment in the gap. A merge adds a list with a field under it as a new instance after an empty one of its name, and a reload joins the two. Cut down: `p:`, `\ts:`, `\t# c`, merged with `p:`, `\ts:`, `\t\t- 0`, `\t\tc:`. Filed as 2026100520243961.
+			- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, shellcheck. The 2,000,000 release fuzz passes 23 of 24. check-docs (16) and shell-regress (2) fail on the same checks as on `valsyn`, and the README `E014` check now fails only on the sample's bare comma. check-migrate is at 246 divergences, unchanged.
+		- 20261005: chunk C docs, part 1, on `vsspec`, off `valsyn`. Docs and doc gates only, no library change.
+			- value-syntax.md: the 20261005 answers and the kept chunk A and B calls are written in: the no-colon rule, the cap, edge trimming, one error per line, the quote kind, backtick reads, `- a, b`, comments on items, 2026100511210900, `explain E023` and the `migrate` backslash answer. `E010` joins the retired rows. The Roadmap marks what is done.
+			- spec.md: the value rules, escapes, quoting, backtick values, arrays and `- ` lists, selectors, the bare name rule and the narrow no-colon repair as built, and the code table, with `E010`, `E024`, `H003` and `H004` retired.
+			- gen-escapes.py now also writes the spec's escape table and the grammar's escape names, bare text class and White_Space-free formatter class, so `escape-tables-match` holds them to the one list.
+			- grammar.abnf: brackets, `- ` items, escapes, backtick values and the bare rules. check-abnf's samples moved with it: 10 flipped and 49 new, each tied to the CLI.
+			- README: the sample's `methods` line is in brackets, in the file and in the canonical output example. The man page date.
+			- Verified: check-docs passes, where it failed 16 before (`Er1z2hW`, `EqWax3I`, `Eom0qpm`, `EqL29qS`). check-abnf, gen-escapes, test-ids check, markdownlint, ruff check and shellcheck pass. A hand edit to the spec's escape table fails gen-escapes.
+			- Left: design.md, the changelog, `migrate` and its table, check-migrate, the ports. value-syntax.md's migration table rows for backslash pairs and spec.md's Migrating from 2.x section still describe the old `migrate`, `E024` included. check-readme `EqGg9jM` still fails on the README schema sample, a bare `desc` with spaces and `allowed` with a bare comma. spec.md's design goal that the user is never made to satisfy the machine is superseded for bare whitespace, per value-syntax.md, and left as written.
+		- 20261006: the design doc has the 20261006 spacing, colon and comma answer. Rust, spec.md, grammar.abnf, check-abnf and the corpus still have the old no-space rule.
+		- 20261006: the spacing, colon and comma answer built on `vsspace2`, off `valsyn`, Rust only.
+			- In: a bare value or `- ` item keeps its spaces. A tab, other whitespace, a bracket, or a colon before a blank or the end is `E025`, and `E027` in an item. A comma splits a value only before a blank, a comment or the end; any other comma is text. Inside `[]` every comma splits. A bare selector body takes no colon, comma or bracket. Each message says what to do.
+			- Writer: `rw,noatime` and `:0` stay bare, a trailing `:` or `,` is quoted, and so is an array element with a comma. `migrate` writes a 2.x comma list in brackets.
+			- Docs: spec.md, grammar.abnf, check-abnf (7 samples flipped, 20 new), value-syntax.md's Roadmap, and the README schema sample's `allowed` in brackets. design.md does not state the no-space rule, so it is unchanged.
+			- Corpus: new case 202. 13 cases moved; 089, 111, 187 and 188 changed input to keep their point, and 099 and 193 each had a bad op commented out and replaced.
+			- Tests: `Ervn567`, `Ervn568`, `Ervn569`, `Ervn56A` and corpus `ErvmhRG`. cli-regress: 14 new rows, 6 edited in place, `ErpZsUj` commented out with the reason. Each new test and row failed on the code before, except the pinning rows `ErvnzpR`, `ErvnzpV` and `Ervnzpb`. The `parse_limited_caps` fence fixture now spells `a, b, c, d`; the other runners need the same.
+			- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, check-docs, check-abnf, check-readme and markdownlint. check-readme `EqGg9jM` passes now: the `desc` lines read clean under the new rule, and `allowed` needed brackets. shell-regress fails the same 2 as before this change (`Ep19Ax8`, `EqM7a7s`). The 2,000,000 release fuzz passes all 24.
+		- 20261006: calls made that the doc does not settle. Each is easy to reverse.
+			- A comma right before a `#` counts as one at the end, so `x: a,# c` is `E026`.
+			- A setter's `1,000` keeps its quotes, so it still reads as 1000, as before. Bare `1,000` in a file is text, so `80,443` never reads as a number. A quoted value with a comma keeps its quotes through `fmt` for the same reason.
+			- `migrate` without `--from-2x` leaves `a,b` as written and counts it as reading two ways (exit 7), since it is a string under these rules. `a, b` is converted either way. A lone bare 2.x value these rules refuse, such as `done:` or `O'Brien`, is quoted, so a correct 2.x file keeps its value.
+			- `- [a]` stays `E019`, and its message now says to quote the item. The `E017` message is unchanged.
+			- A fence label splits the same way as a value against the element cap, so `a,b` is one piece there.
+		- 20261006: chunk C's `migrate` piece on `vsmig`, off `valsyn`, Rust only.
+			- In: a `*` item is written `- `, and quoted where these rules would read it as something else, so `* key: value` is `- "key: value"`. That was not in before: a 2.x list came out `E013` at exit 0. A bare name not led by a letter is quoted, so `-x: y` and `- :0` stay fields. A real `◉` in a name, a bare value or a selector body becomes `◉ESCAPE_CHAR◉`. A bare selector body with a quote or a space is quoted. `x: ,` is an empty value, as 2.x read it.
+			- Counted lost, so exit 7: a selector holding a comma, which 2.x matched against an array value, and a comma list on a field with lines under it, which is `E028` in brackets.
+			- A file that does not say it is 2.x: a piece both rule sets read cleanly and differently, such as an escape, a backtick value, `[a]` or a `- ` item, is left and counted (exit 7), unless these rules already refuse its line. Before, `migrate` rewrote escapes and `[a]` there at exit 0, which changed a correct 3.0 file.
+			- check-migrate is green: 654 documents, 33 lost counts. The 2.x build no longer reads the migrated text, since the output is in the new syntax and the Format line is what stops a second run. Paths are compared by name, each read back by its own CLI's rules, in place of the Python binding's old writer. A quoted name may differ by a backslash pair, like an element. A path goes after `--`, since `-x` read as an option. The two lost kinds are taken out like the other exceptions. Each new piece failed on an injected fault.
+			- Docs: value-syntax.md's migration table (the backslash rows, `\uXXXX`, whitespace, new rows, the lost list) and spec.md's Migrating from 2.x, with `E024` and the doubled backslash gone.
+			- cli-regress: the save rows' `base:[Boston]` fixture got a line under it, since alone it reads clean as an array now and is left without `--from-2x`. That includes the 3 windows-only rows.
+			- Tests: `Erwed4A` to `Erwed4F`, cli-regress `Erwf3oC` and `Erwf3oD`, each seen to fail on the code before. Goldens 118 and 170 moved.
+			- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, check-migrate, check-docs, check-abnf, markdownlint, shellcheck. shell-regress fails the same 2 as on `valsyn`. Not run: the windows-only rows, which need the hosted run, and the 2,000,000 release fuzz, since the tokenizer and trivia did not change.
+		- 20261006: calls made in the `migrate` piece that the doc does not settle. Each is easy to reverse.
+			- `x: ,`, only empty slots, is written `x:`, not `x: []`.
+			- A 2.x line `-` with no colon, which 2.x bound as a field named `-`, is written `"-"`.
+			- A selector holding a comma and a comma list over lines are counted lost rather than rewritten.
+			- In a file that does not say it is 2.x, a line these rules already refuse is rewritten. One they read clean keeps any piece that reads two ways, and it is counted. A `[a, b]` there is still counted lost, as before.
+			- check-migrate's 2.x reread is commented out, not replaced.
+			- value-syntax.md's `\uXXXX` row changed too: 2.x read it as text, so it stays as written.
+			- The lost message names all 3 kinds.
+		- 20261006: chunk C's design.md and changelog piece on `vsdoc`, off `valsyn`. Docs only. design.md's Lexical edges and Load outcomes tables, the 3.0 and `migrate` notes, the `--set-literal` example, the setter note example and the generation row match the built rules, and the `H003`, bracket text and display-form selector entries are marked superseded. value-syntax.md's Roadmap marks design.md done. The changelog's old backslash, `E024` and `H003` entries are replaced by the value syntax changes. Verified: check-docs before and after staging, check-readme, markdownlint. Left: 2026100610073400 changes design.md's selector text again; changelog Fixed entries about `*` items and `SetLiteral` refusing bracket text are left as written.
+		- 20261006: selectors in parens, the Rust part, on `vspar` (2026100610073400). `migrate`, the docs and the ports still write or read brackets.
+		- 20261006: selectors in parens, `migrate` and the docs, on `vsmig2` (2026100610073400). Rust and the docs are done; the Go, Python and C ports remain.
+		- 20261006: chunk D part 1, Go values, on `vsgo1`, off `valsyn`. Library and CLI.
+			- In: a backslash is text; `◉` escapes from the generated table, which `gen-escapes.py` now writes for Go too; `E023`; backtick values with a `Backtick` read flag; the writer's quoting, kept quote kind and escapes. The bare value rules: spaces, `E025`, `E026`, the loose colon. The bare name rule, `E014` kept and held open, with the narrow `E015` repair. `E017` value only, the cap judged before the value (`E021`), `E024` and `H003` retired. `explain` text for these, the `tokens` backtick mark and array spans, and the `--set-literal` help lines.
+			- Ported early, since part 1 needs them: bracket arrays (read, `E019` malformed, written `[a, b]` and `[]`), the array value kind, string reads in bracket form, array setters writing brackets, `SetLiteral`'s value check, schema `allowed` and `repeat` in brackets, and a selector matching one plain value. Without brackets the writer's old `a, b` reloads as `E026`.
+			- Calls made: the `*` item marker stays until part 2 moves it to `- `. A `*` item takes the value rules (`E017`, `E023`, `E025`) and an array there is `E019`, while a bare comma in one stays `E010`. A selector body takes the whitespace, quote, bracket, colon and comma rules, but not the paren and `#` ones, which come with parens. The 2.x helpers stay for `migrate` until part 3.
+			- Corpus: 64 of 203 passed before, 103 after. The 100 left all need part 2 or 3: 67 use paren selectors, 25 `- ` items and 8 `migrate`.
+			- Crosscheck with Rust over the corpus: 1831 of 5952 comparisons diverged before, 1106 after. cli-regress for Go: 147 rows failed before, 74 after. Each divergence and failing row sampled uses parens, `- ` items, `E028`, `E029`, `migrate` or help text about them. Value lines alone match Rust on `fmt`, `check` and `tokens` but for `E028`: the corpus with paren and item lines taken out, and 423 hand-made value and name lines.
+			- Tests: 6 new Go tests matching the Rust ones, `Ery85QC` to `Ery85QH`, with their list and paren rows commented out until parts 2 and 3. Fixtures moved as in the Rust runner: `parse_limited_caps` (the fence label is `a, b, c, d`, two asserts commented out with the reason), the kept-line gate fixtures, read surface, raw text, the convenience tier and the setter refusals.
+			- Verified: `go test -count=1` (unit tests pass, corpus as above), `go vet` and staticcheck in both modules and for windows, gofmt, test-ids check, gen-escapes, ruff and mypy. check-docs fails only `EpHGoa0`, as on `valsyn`.
+			- Left for part 2: `- ` items, `E013`, `E026` in items with `E010` retired, `E027`, `E028` (a Go setter can still put a field under an array, which reloads as `E028`), merge output, stacked lists kept stacked, comments on items, the list join and index move, and 2026100511210900's save refusal. Part 3: parens, `E029`, `migrate`, dropping `[#N]`.
+		- 20261006: chunk D part 2, Go lists, on `vsgo2`, off `valsyn`. Library and CLI.
+			- In: a setter refuses a field under an array and an array over fields (`E028`), and the CLI says which. Before, a Go setter wrote a field under an array, which reloads as `E028`. `- ` items, `E013` for a `*` line, `E026` for a bare comma in an item, kept among the items, with `E010` retired, and `E027`. `E028` when a field binds under an array line, the line kept and written in place of the field's own. `fmt` and the writer keep a `- ` list stacked, and a comment on an item stays on its item. A merge writes every list in brackets. An array setter keeps a stacked list stacked, and kept lines and comments among the old items go above the field.
+			- Also in: the list join, with the moved fields refiled in the name index. The settle moves the gap's lines before the join, and `remove` joins too. 2026100511210900's save refusal; the keep-lines save checks for that list only when the source was canonical, so `fmt --write` refuses at 7 and `set --write` keeps the source. The cap rule for items past the cap was in from part 1, and its rows are back on. `explain` for these codes, and `tokens` prints `item`.
+			- Corpus: 103 of 203 passed before, 130 after. The 73 left: 7 fail on `migrate`, and the rest use parens or `E029`.
+			- Crosscheck with Rust over the corpus: 1106 of 5952 comparisons diverged before, 713 after. cli-regress for Go: 74 rows failed before, 51 after. Every divergence and failing row left uses parens, a bracket selector, `migrate`, or help text about them. Over a fuzz dump of 500 inputs plus its line-ending and kept-line sets, every divergence is on an input with parens, a bracket selector or `migrate`.
+			- Calls made: the fixture holding edits and merges to a reload (`Eqk24na`) wrote its list with `*`, which is `E013` now, so it wrote no list. It writes `- ` now, so it builds the list no text loads back, and like Rust's `Eqk24nZ` it stops that run and checks the save refuses. The Python and C runners still write `*` there and need the same change. `EryDg1D` pins the setter refusal in Go; Rust has only the cli-regress rows for it. The new Go tests spell a selector in brackets until part 3.
+			- Tests: `EryDfqr`, `EryDfsy`, `EryDfv3`, `EryDfx5` and `EryDfzB` match Rust's `Ers2oF1`, `ErsETML`, `ErsWiow`, `Ert70BF` and `Ert70DM`, and `EryDg1D` is new. `EryDfqr`, `EryDfv3`, `EryDfzB` and `EryDg1D` fail on the code before. The other two pass there too, since that code never joined a list. Part 1's commented list rows are back on, and the cap and memory fixtures write `- `.
+			- Verified: `go test -count=1` (unit tests pass, corpus as above), `go vet` and staticcheck in both modules and for windows, gofmt, test-ids check.
+			- Left for part 3: parens, `E029`, dropping `[#N]`, `migrate`, the help text's "quotes and parens", `explain` for E002, E003, E029 and V097. cli-regress `Ers2pP0` and `Ers2pP1` fail only on their `x(v)` path; the same edit with brackets refuses at 7 and saves with `--lossy`.
+		- 20261006: chunk E part 1, Python values, on `vspy1`, off `valsyn`. Library and CLI.
+			- In: what Go's part 1 has. A backslash is text; `◉` escapes from the generated table, which `gen-escapes.py` now writes for Python too; `E023`; backtick values with a `backtick` read flag; the writer's quoting, kept quote kind and escapes. The bare value rules: spaces, `E025`, `E026`, the loose colon. The bare name rule, `E014` kept and held open, with the narrow `E015` repair. `E017` value only, the cap judged before the value (`E021`), `E024` and `H003` retired. `explain` text, the `tokens` backtick mark and array spans, and the `--set-literal` help lines.
+			- Bracket arrays came with it, as for Go: the array value kind, `E019`, string reads in bracket form, array setters writing brackets, `set_literal`'s value check, schema `allowed` and `repeat` in brackets, and a selector matching one plain value.
+			- Calls made: Go's part 1 calls, so the two ports match. `*` items stay, take the value rules, are `E019` for an array and `E010` for a bare comma. A selector body takes the whitespace, quote, bracket, colon and comma rules, not the paren and `#` ones. The 2.x helpers stay for `migrate`.
+			- Python only: the value fast path splits only on a loose comma now, and its test compares it with the byte loop on 10 more values. The array quoted-flag fixture reads `m: ["x", "y"]`, since `m: "x", "y"` is `E026` now and the check passed without testing anything. Go's twin of it still has the old text.
+			- Corpus: 64 of 203 passed before, 103 after, the same 100 failing as Go. Each uses paren selectors, `- ` items or `migrate`. The runner stops at the first write op it cannot apply (015, a paren selector) before and after, so these counts come from a copy that notes that and goes on.
+			- Crosscheck with Rust over the corpus: 1831 of 5952 comparisons diverged before, 1106 after, as for Go. Python and Go agree on all 5917. cli-regress for Python: 147 rows failed before, 74 after, the same rows as Go.
+			- 302 hand-made value and name documents through `fmt`, `check` and `tokens` differ from Rust only on `E028`, selectors in brackets and `*` items, and match Go on all 906 runs. `--set` and `--set-literal` match Rust on 448 writes. Ops-script array writes match Rust but for the `E028` refusals and `*` lists, and match Go on all 105.
+			- Tests: 6 new Python tests matching the Rust ones, `EryEqlx` to `EryEqwF`, each seen to fail on the code before, with their list and paren rows commented out until parts 2 and 3. Fixtures moved as in the Rust runner: `parse_limited_caps` (the fence label is `a, b, c, d`, 2 asserts commented out with the reason), the capped-parse memory text, the kept-line gate fixtures, the read surface, raw text, the convenience tier, the line break in a path and the setter refusals.
+			- Verified: the Python runner (unit tests pass, corpus as above), ruff, mypy, gen-escapes, test-ids check. check-docs fails only `EpHGoa0`, as on `valsyn`.
+			- Parse of the comparison's `ddl.shcl`, for 2026100221215300: 232 to 242 ms before and 241 to 250 ms after on the same file, which now draws 109 `E026` for its `a, b` lines, and 241 to 244 ms with those lines in brackets. No real change either way.
+			- Left for part 2: `- ` items, `E013`, `E026` in items with `E010` retired, `E027`, `E028` (a Python setter can still put a field under an array), merge output, stacked lists kept stacked, comments on items, the list join and index move, and 2026100511210900's save refusal. Part 3: parens, `E029`, `migrate`, dropping `[#N]`.
+			- Noted, not changed: the `set_literal` doc comment gives `80, 443` as its two-element example in Rust and Python, and that is `E026` now.
+		- 20261006: hosted run 37548389438 on valsyn `9b241d3f`: the 3 windows-only cli-regress migrate rows `vsmig` edited pass (`ErMwKp1`, `ErMwwHF`, `ErMwwZ1`). The run is red elsewhere, on the bindings not yet ported.
+		- 20261006: chunk D part 3a, Go selectors in parens (2026100610073400), on `vsgo3`, off `valsyn`. Library and CLI, `migrate` aside.
+			- In: what Rust's `vspar` has. A selector reads in parens in files, lookups, setters, `--set` and schema paths. One in brackets is `E029`, kept as written and judged first on its line, and the lines under it load under the instance it names. A lookup, setter or schema path in brackets is refused, and `V093` says why. `[#N]` is gone: a bare body that starts with `#` is `E025`, and so is a paren in a bare body. `x(a(b))` is `E014`. `InstancePaths()`, `init`'s lines and the package doc example write parens, and `init` refuses a child of a parent whose default is an array (`V097`). `explain` for E002, E003, E029 and V097, the help text's "quotes and parens", and the CLI's "a selector is written in parens now" in `get`, `--set`, `--remove` and ops errors.
+			- Also in: the `SetLiteral` doc comment's example is `[80, 443]` in Go and in Rust's reference. The quoted-flag fixture reads `m: ["x", "y"]` in Go, and in Rust too, which had the same old text. Python's and C's doc comments still say `80, 443`.
+			- Corpus: 130 of 203 passed before, 196 after. The 7 left fail only on `migrate`: 118, 119, 122, 123, 124, 170 and 174.
+			- Crosscheck with Rust over the corpus: 671 comparisons diverged before, 68 of 5952 after, every one a `migrate` run. Over a fuzz dump of 500 inputs plus its line-ending and kept-line sets, every divergence is a `migrate` run, and the line-ending and kept-line checks agree. 840 hand-made selector lines through `fmt`, `check`, `tokens` and `paths`, and 23 paths through the read commands, the three `--set` forms, `--remove` and ops, match Rust on all 3590 runs. `--help`, every `help CMD` and all 46 `explain` texts match.
+			- cli-regress for Go: 51 rows failed before, 12 after, all `migrate`: `Ervnzpd`, `Ervnzpe`, `Ers2pOu` to `Ers2pOz`, `ErpaTy3`, `Erwf3oC`, `Erwf3oD` and `Erxvsaw`.
+			- Tests: `Eryg0ZB` and `Eryg0bK` match Rust's `Erxfmqa` and `Erxfmqb`. `Eryg0ZB` fails on the code before, with its tokenizer lines taken out since the field is new. `Eryg0bK` passes there, since part 1 already gave an array no selector body; it fails with that check taken out. Rust's `Erxfmqc` is a fuzz property with no Go twin. Part 1's 4 commented paren rows are back on and fail on the code before. Parts 1 and 2's fixtures and `listAfterEmpty` now use parens.
+			- Verified: `go test -count=1` (unit tests pass, corpus as above), `go vet` and staticcheck in both modules and for windows, gofmt, test-ids check, check-docs, check-readme's Go example, cargo fmt and the Rust conformance tests.
+			- Left for part 3b: `migrate`, which still writes brackets, with its 7 corpus cases and 12 cli-regress rows. Go has no twins of Rust's `migrate` tests yet.
+		- 20261006: chunk D part 3b, Go `migrate` (2026100610073400's `migrate` half too), on `vsgo3b`, off `valsyn`. Library and CLI.
+			- In: what Rust's `vsmig` and `vsmig2` have. A backslash stays as written, a 2.x comma list goes in brackets, a `*` item becomes `- `, a bare name not led by a letter is quoted, a real `◉` gets its escape, and a selector goes in parens, its body quoted where these rules refuse it bare. A selector holding a comma and a comma list over lines are counted lost, and the CLI's lost message names all 3 kinds. In a file that does not say it is 2.x, a piece that reads clean both ways is left and counted, and a line these rules already refuse is rewritten.
+			- Removed: the 2.x escape reading and quoting helpers part 1 left for `migrate`, dead now, as they went in Rust. The `lazy` doc comment names the codes Rust's does.
+			- Corpus: 196 of 203 passed before, 203 after.
+			- Crosscheck with Rust over the corpus: 68 of 5952 comparisons diverged before, none after. With a fuzz dump of 500 inputs added, none of 10129 diverge.
+			- cli-regress for Go: 12 rows failed before, none after. Go and Rust both pass every row.
+			- check-migrate drives only the Rust CLI. Pointed at the Go CLI it passes the same way (638 documents, 28 lost counts), and it has 192 divergences on the Go CLI before.
+			- Tests: `ErykhtD` to `ErykhtK` match Rust's `Ervn56A`, `Erwed4A` to `Erwed4F` and `ErxqQLy`. Each failed on the code before.
+			- Verified: `go test -count=1`, `go vet` and staticcheck in both modules and for windows, gofmt, test-ids check, check-docs, crosscheck, cli-regress for Go and Rust, check-migrate.
+			- No new calls. The Go port is done. The Python and C ports, with the C++ veneer, remain.
+		- 20261006: chunk E part 2, Python lists, on `vspy2`, off `valsyn` (`9addd72e`). Library and CLI.
+			- In: what Go's part 2 has. A setter refuses a field under an array and an array over fields (`E028`), and the CLI says which. `- ` items, `E013` for a `*` line, `E026` for a bare comma in an item, kept among the items, with `E010` retired, and `E027`. `E028` when a field binds under an array line, the line kept and written in place of the field's own. `fmt` and the writer keep a `- ` list stacked, and a comment on an item stays on its item. A merge writes every list in brackets. An array setter keeps a stacked list stacked.
+			- Also in: the list join, with the moved fields refiled in the name index, the settle moving the gap's lines before the join, and `remove` joining too. 2026100511210900's save refusal, with the keep-lines save checking for that list only when the source was canonical. `explain` for these codes, and `tokens` prints `item`. The `set_literal` doc comment's example is `[80, 443]`.
+			- Calls made: the fixture holding edits and merges to a reload is `Eqk24nb` in Python. It writes `- ` now and, like Go's `Eqk24na`, stops a run that builds the list no text loads back and checks the save refuses; that happens 20 times in its 3000 runs. Python's merge walks its levels from a stack, so a matched instance goes in brackets once its own level is done, not after its whole subtree. Only its own child list counts, so the result is the same. The new tests spell a selector in brackets until part 3.
+			- Corpus: 103 of 203 passed before, 130 after, the same 73 failing as Go after its part 2. 7 fail on `migrate`, 1 on `E029` alone, and 65 use parens. Counted with a copy of the runner that goes on past a failed case.
+			- Crosscheck with Rust over the corpus: 1106 of 5952 comparisons diverged before, 713 after, the same comparisons Go diverged on after its part 2. Over a fuzz dump of 500 inputs plus its line-ending and kept-line sets, every divergence is a `migrate` run or on an input with a selector. cli-regress for Python: 74 rows failed before, 51 after, the same rows as Go after its part 2.
+			- 330 hand-made list documents through `fmt`, `check`, `tokens` and `paths`, a merge of each with another, and 10 setter ops on each match Rust on all 4950 runs but for one document with a bracket selector (`E029`). The sampled `E028` refusal messages match too.
+			- Tests: `ErylLpa` to `ErylLpe` match Rust's `Ers2oF1`, `ErsETML`, `ErsWiow`, `Ert70BF` and `Ert70DM`, and `ErylLpf` matches Go's `EryDg1D`. `ErylLpa`, `ErylLpc`, `ErylLpe` and `ErylLpf` fail on the code before. `ErylLpb` and `ErylLpd` pass there, as Go's twins did, since that code never joined a list; each fails with its fix taken out (the index move, the second join pass). Part 1's commented list rows are back on, and the cap and memory fixtures write `- `.
+			- Verified: the Python runner (unit tests pass, corpus as above), ruff, mypy, test-ids check, gen-escapes. perf-gate passes but for `selectors`, whose document uses parens.
+			- Left for part 3: parens, `E029`, dropping `[#N]`, `migrate`, the help text's "quotes and parens", `explain` for E002, E003, E029 and V097. cli-regress `Ers2pP0` and `Ers2pP1` fail only on their `x(v)` path; the same edit with brackets refuses at 7 and saves with `--lossy`.
+		- 20261006: chunk E part 3a, Python selectors in parens (2026100610073400), on `vspy3`, off `valsyn`. Library and CLI, `migrate` aside.
+			- In: what Go's part 3a has. A selector reads in parens in files, lookups, setters, `--set` and schema paths. One in brackets is `E029`, kept as written and judged first on its line, and the lines under it load under the instance it names. A lookup, setter or schema path in brackets is refused, and `V093` says why. `[#N]` is gone: a bare body that starts with `#` is `E025`, and so is a paren in a bare body. `x(a(b))` is `E014`. `instance_paths()` and `init`'s lines write parens, and `init` refuses a child of a parent whose default is an array (`V097`). `explain` for E002, E003, E029 and V097, the help text's "quotes and parens", and the CLI's "a selector is written in parens now" in `get`, `--set`, `--remove` and ops errors.
+			- Calls made: none new. `Tokens.bracket_selector` is None when there is none, as `misspelled` is. As in Rust, `_index_shape` still takes 2.x's `#` for `migrate`.
+			- Corpus: 130 of 203 passed before, 196 after. The 7 left fail only on `migrate`: 118, 119, 122, 123, 124, 170 and 174.
+			- Crosscheck with Rust over the corpus: 713 of 5952 comparisons diverged before, 68 after, every one a `migrate` run. With the part 2 fuzz dump of 500 inputs plus its line-ending and kept-line sets added, 1061 of 13945 diverge, all `migrate` runs, and the line-ending and kept-line checks agree. 4680 hand-made selector documents through `fmt`, `check`, `tokens` and `paths`, and 30 paths through the read commands, the four `--set` forms, `--remove` and 5 ops, match Rust on all 18720 and 450 runs, stderr included. `--help`, every `help CMD` and all 46 `explain` texts match.
+			- cli-regress for Python: 51 rows failed before, 12 after, all `migrate`: `Ervnzpd`, `Ervnzpe`, `Ers2pOu` to `Ers2pOz`, `ErpaTy3`, `Erwf3oC`, `Erwf3oD` and `Erxvsaw`.
+			- Tests: `ErysKPJ` and `ErysKS0` match Go's `Eryg0ZB` and `Eryg0bK`. `ErysKPJ` fails on the code before. `ErysKS0` passes there, as Go's twin did, since part 1 already gave an array no selector body; it fails with that check taken out. Part 1's 4 commented paren rows in `EryEquE` are back on and fail on the code before. Parts 1 and 2's fixtures and `list_after_empty` now use parens.
+			- Verified: the Python runner (unit tests pass, corpus as above), ruff, mypy, test-ids check, check-docs, check-readme's Python example, perf-gate (`selectors` included).
+			- Left for part 3b: `migrate`, which still writes brackets, with its 7 corpus cases and 12 cli-regress rows.
+		- 20261007: chunk E part 3b, Python `migrate` (2026100610073400's `migrate` half too), on `vspy3b`, off `valsyn`. Library and CLI.
+			- In: what Go's part 3b has. A backslash stays as written, a 2.x comma list goes in brackets, a `*` item becomes `- `, a bare name not led by a letter is quoted, a real `◉` gets its escape, and a selector goes in parens, its body quoted where these rules refuse it bare. A selector holding a comma and a comma list over lines are counted lost, and the CLI's lost message names all 3 kinds. In a file that does not say it is 2.x, a piece that reads clean both ways is left and counted, and a line these rules already refuse is rewritten.
+			- Removed: the 2.x escape reading and quoting helpers part 1 left for `migrate`, dead now, as they went in Go and Rust. `_index_shape` no longer takes 2.x's `#`, which Rust dropped in `vsmig2`; part 3a's note had that wrong.
+			- Corpus: 196 of 203 passed before, 203 after.
+			- Crosscheck with Rust over the corpus: 68 of 5952 comparisons diverged before, none after. With a fresh fuzz dump of 500 inputs plus its line-ending and kept-line sets added, none of 13945 diverge.
+			- cli-regress for Python: 12 rows failed before, none after. Python and Rust both pass every row.
+			- check-migrate pointed at the Python CLI passes the same way it does for Go (638 documents, 28 lost counts), and it has 192 divergences on the Python CLI before.
+			- Tests: `Es1eIOp` to `Es1eIOw` match Go's `ErykhtD` to `ErykhtK`. Each failed on the code before.
+			- Verified: the Python runner (unit tests pass, corpus 203 of 203), ruff, mypy, test-ids check, check-docs, crosscheck, cli-regress for Python and Rust, check-migrate against the Python CLI.
+			- No new calls. The Python port is done. The C port, with the C++ veneer, remains.
+		- 20261006: chunk F part 1, C values, on `vsc1`, off `valsyn`. Library, CLI and the C++ interface.
+			- In: what Go's and Python's part 1 have. A backslash is text; `◉` escapes from the generated table, which `gen-escapes.py` now writes for C too; `E023`; backtick values, with a `shcl_backtick` read call beside `shcl_quoted`; the writer's quoting, kept quote kind and escapes. The bare value rules: spaces, `E025`, `E026`, the loose colon. The bare name rule, `E014` kept and held open, with the narrow `E015` repair. `E017` value only, the cap judged before the value (`E021`), `E024` and `H003` retired. `explain` text, the `tokens` backtick mark and array spans, and the `--set-literal` help lines.
+			- Bracket arrays came with it, as for Go and Python: the array value kind, `E019`, string reads in bracket form, array setters writing brackets, `shcl_set_literal`'s value check, schema `allowed` and `repeat` in brackets, and a selector matching one plain value. The `shcl_set_literal` doc comment's example is `[80, 443]`.
+			- C++ interface: `Document::backtick` wraps the new call, `Quote` has `Backtick`, and `Tokens` has `array`, `array_fault_at`, `array_fault_why` and `misspelled`, as `shcl_tokens` does now.
+			- Calls made: Go's and Python's part 1 calls, so the three ports match. `*` items stay, take the value rules, are `E019` for an array and `E010` for a bare comma. A selector body takes the whitespace, quote, bracket, colon and comma rules, not the paren and `#` ones. The 2.x helpers stay for `migrate`. `shcl_quoted` and `shcl_backtick` on a one-element array give its element's flag, as a scalar read of it does in the other bindings.
+			- Corpus: 64 of 203 passed before, 103 after, the same 100 failing as Go and Python after their part 1. Each uses paren selectors, `- ` items or `migrate`.
+			- Crosscheck with Rust over the corpus: 1831 of 5952 comparisons diverged before, 1106 after, as for Go and Python. C and Go's part 1 CLI agree on all 5917. cli-regress for C: 147 rows failed before, 74 after, the same rows as Go's part 1.
+			- 462 hand-made value and name documents through `fmt`, `check`, `tokens`, `paths` and reads match Go's part 1 CLI on all 8778 runs. `--set`, `--set-literal` and `--set-default` over 6 starting documents match it on all 918 writes.
+			- Tests: 6 new C tests, `EryvVQj` to `EryvVbF`, match Python's `EryEqlx` to `EryEqwF`. Each failed on the code before, with their list and paren rows commented out until parts 2 and 3. Fixtures moved as in the Python runner: `parse_limited_caps` (the fence label is `a, b, c, d`, 2 asserts commented out with the reason), the kept-line gate fixtures, authored names, the line break in a path and the setter refusals, plus the C-only array read and copy-out fixtures. `mem_bounds.c` and `veneer_smoke.cpp` moved to brackets too, and `veneer_smoke.cpp` checks the backtick flag and the new token fields.
+			- `mem_bounds.c` parsed a 24-byte schema with a length of 25, so its NUL made a third line. That line now binds as a misspelled name and broke the generation loop; the length is 24.
+			- Verified: the C runner (unit tests pass, corpus as above), the same for the windows build under wine, sanitize-c (no sanitizer report; the corpus runner fails only its 100 cases), check-c-compilers (140 builds, gcc 12 to 15 and clang, all five levels), cppcheck at the normal check level, check-veneer, veneer_smoke, mem_bounds, oom_hook, oom_recover, test-ids check, gen-escapes, check-docs. shell-regress fails the same 2 as on `valsyn`. Not run: cppcheck at the exhaustive level, left for the full run.
+			- Left for part 2: `- ` items, `E013`, `E026` in items with `E010` retired, `E027`, `E028` (a C setter can still put a field under an array), merge output, stacked lists kept stacked, comments on items, the list join and index move, and 2026100511210900's save refusal. Part 3: parens, `E029`, `migrate`, dropping `[#N]`, and the 2.x helpers left for it.
+		- 20261007: chunk F part 2, C lists, on `vsc2`, off `valsyn`. Library and CLI.
+			- In: what Go's and Python's part 2 have. A setter refuses a field under an array and an array over fields (`E028`), and the CLI says which. `- ` items, `E013` for a `*` line, `E026` for a bare comma in an item, kept among the items, with `E010` retired, and `E027`. `E028` when a field binds under an array line, the line kept and written in place of the field's own. `fmt` and the writer keep a `- ` list stacked, and a comment on an item stays on its item. A merge writes every list in brackets. An array setter keeps a stacked list stacked.
+			- Also in: the list join, with the moved fields refiled in the name index, the settle moving the gap's lines before the join, and `remove` joining too. 2026100511210900's save refusal, with the keep-lines save checking for that list only when the source was canonical. `explain` for these codes, `explain E010` pointing to `E026`, and `tokens` printing `item`.
+			- C++ interface: no new public C call, so nothing new to wrap.
+			- Calls made: the fixture holding edits and merges to a reload is `EonWXt2` in C. It writes `- ` now and, like Go's `Eqk24na` and Python's `Eqk24nb`, stops a run that builds the list no text loads back and checks the save refuses; that happens 20 times in its 3000 runs, as in Python. `shcl_quoted` gives a one-element array its element's flag (part 1's call), so the CLI's "an array takes no lines under it" check and that fixture tell an array from a quoted `"[x]"` by its element read. That matches the other bindings, where a string read of an array is never quoted. `shcl_compact` copies the tree without putting lists in brackets; only a merge's copies do. The new tests spell a selector in brackets until part 3.
+			- Corpus: 103 of 203 passed before, 130 after, the same 73 failing as Go and Python after their part 2.
+			- Crosscheck with Rust over the corpus: 1106 of 5952 comparisons diverged before, 713 after, the same comparisons Go's part 2 CLI diverged on. With a fuzz dump of 500 inputs plus its line-ending and kept-line sets added, C and Go's part 2 CLI diverge from Rust on the same 2897 of 13945. cli-regress for C: 74 rows failed before, 51 after, the same rows as Go after its part 2.
+			- 700 hand-made list documents through `fmt`, `check`, `tokens` and `paths`, a merge each way with another, and 98 setter ops each match Go's part 2 CLI on all 72800 runs, stderr and exit code included, but for 1 that differs by the clock second in a setter's note. The first 400 match the Rust CLI the same way on 41600 runs. The first pass found 134 refusal messages that differed, which is the `"[x]"` call above.
+			- Tests: `Es1gWRs` to `Es1gWRx` match Python's `ErylLpa` to `ErylLpf`. `Es1gWRs`, `Es1gWRu`, `Es1gWRw` and `Es1gWRx` fail on the code before. `Es1gWRt` and `Es1gWRv` pass there, as their twins did, since that code never joined a list; each fails with its fix taken out (the index move, the second join pass). Part 1's commented list rows are back on, and the cap and memory fixtures write `- `.
+			- Verified: the C runner (unit tests pass, corpus as above), the same for the windows build under wine, sanitize-c (no sanitizer report; the corpus runner fails only its 73 cases), check-c-compilers (140 builds, gcc 12 to 15 and clang, all five levels), cppcheck at the normal check level, check-veneer, veneer_smoke, mem_bounds, test-ids check. perf-gate passes but for `selectors`, whose document uses parens. Not run: cppcheck at the exhaustive level, left for the full run.
+			- Left for part 3: parens, `E029`, `migrate`, dropping `[#N]`, the 2.x helpers left for it, the help text's "quotes and parens", and `explain` for E002, E003, E029 and V097.
+		- 20261007: chunk F part 3a, C selectors in parens (2026100610073400), on `vsc3`, off `valsyn`. Library, CLI and the C++ interface, `migrate` aside.
+			- In: what Go's and Python's part 3a have. A selector reads in parens in files, lookups, setters, `--set` and schema paths. One in brackets is `E029`, kept as written and judged first on its line, and the lines under it load under the instance it names. A lookup, setter or schema path in brackets is refused, and `V093` says why. `[#N]` is gone: a bare body that starts with `#` is `E025`, and so is a paren in a bare body. `x(a(b))` is `E014`. `shcl_instance_paths` and `init`'s lines write parens, and `init` refuses a child of a parent whose default is an array (`V097`). `explain` for E002, E003, E029 and V097, the help text's "quotes and parens", and the CLI's "a selector is written in parens now" in `get`, `--set`, `--remove` and ops errors.
+			- C++ interface: `Tokens` has `bracket_selector`, as `shcl_tokens` has `has_bracket_selector` and `bracket_selector`. No new public C call, so nothing new to wrap. `veneer_smoke.cpp` uses parens and checks the new field.
+			- Calls made: none new. As in Python's part 3a, `index_shape` still takes 2.x's `#` for `migrate`.
+			- Corpus: 130 of 203 passed before, 196 after. The 7 left fail only on `migrate`: 118, 119, 122, 123, 124, 170 and 174.
+			- Crosscheck with Rust over the corpus: 713 of 5952 comparisons diverged before, 68 after, every one a `migrate` run. 198 hand-made selector documents through `fmt`, `check`, `tokens` and `paths`, and 48 paths through the read commands, the four `--set` forms, `--remove` and 5 ops, match Rust on all 2232 runs, stderr and exit code included; 1608 differed before. 9 schemas with selector paths match it through `check --schema` and `init`. `--help`, every `help CMD` and all 46 `explain` texts match.
+			- cli-regress for C: 51 rows failed before, 12 after, all `migrate`: `Ervnzpd`, `Ervnzpe`, `Ers2pOu` to `Ers2pOz`, `ErpaTy3`, `Erwf3oC`, `Erwf3oD` and `Erxvsaw`.
+			- Tests: `Es1qzv8` and `Es1qzxJ` match Python's `ErysKPJ` and `ErysKS0`. `Es1qzv8` fails on the code before, with its tokenizer lines taken out since the field is new. `Es1qzxJ` passes there, as its twins did, since part 1 already gave an array no selector body; it fails with that check taken out. Part 1's 4 commented paren rows in `bare_text` are back on and fail on the code before. Parts 1 and 2's fixtures and `list_after_empty` now use parens, and so do `mem_bounds.c`'s wildcard writes.
+			- Verified: the C runner (unit tests pass, corpus as above), the same for the windows build under wine, sanitize-c (no sanitizer report; the corpus runner fails only its 7 `migrate` cases), check-c-compilers (140 builds, gcc 12 to 15 and clang, all five levels), cppcheck at the normal check level, check-veneer, veneer_smoke, mem_bounds, oom_hook, oom_recover, test-ids check, check-docs, perf-gate (`selectors` included), and check-readme in full, the C and C++ examples included. shell-regress fails the same 2 as on `valsyn`. Not run: cppcheck at the exhaustive level, left for the full run.
+			- Left for part 3b: `migrate`, which still writes brackets, with its 7 corpus cases and 12 cli-regress rows, and the 2.x helpers left for it.
+		- 20261007: chunk F part 3b, C `migrate` (2026100610073400's `migrate` half too), on `vsc3b`, off `valsyn`. Library and CLI.
+			- In: what Go's and Python's part 3b have. A backslash stays as written, a 2.x comma list goes in brackets, a `*` item becomes `- `, a bare name not led by a letter is quoted, a real `◉` gets its escape, and a selector goes in parens, its body quoted where these rules refuse it bare. A selector holding a comma and a comma list over lines are counted lost, and the CLI's lost message names all 3 kinds. In a file that does not say it is 2.x, a piece that reads clean both ways is left and counted, and a line these rules already refuse is rewritten.
+			- Removed: the 2.x escape reading and quoting helpers part 1 left for `migrate`, dead now, as in the other three. `index_shape` no longer takes 2.x's `#`.
+			- C++ interface: no public C call changed, so nothing new to wrap. The `Migration` comment says what `ambiguous` counts now, and also `veneer_smoke.cpp`'s migrate fixture moved from a backslash, which stays as written now, to a comma list.
+			- Corpus: 196 of 203 passed before, 203 after, and the same for the windows build under wine.
+			- Crosscheck with Rust over the corpus: 68 of 5952 comparisons diverged before, none after. All four bindings over the corpus plus a fresh fuzz dump of 500 inputs with its line-ending and kept-line sets: none of 41835 diverge.
+			- cli-regress for C: 12 rows failed before, none after. C and Rust both pass every row.
+			- check-migrate pointed at the C CLI passes the same way it does for Go and Python (638 documents, 28 lost counts), and it has 192 divergences on the C CLI before.
+			- Tests: `Es1ySon` to `Es1ySou` match Python's `Es1eIOp` to `Es1eIOw`. Each failed on the code before.
+			- Verified: the C runner (unit tests pass, corpus 203 of 203), the same for the windows build under wine, sanitize-c (no sanitizer report, its runner green), check-c-compilers (140 builds, gcc 12 to 15 and clang, all five levels), cppcheck at the normal check level, check-veneer, veneer_smoke and its windows build under wine, mem_bounds, oom_hook, oom_recover, test-ids check, check-docs, check-readme, crosscheck, cli-regress for C and Rust, check-migrate against the C CLI. Not run: cppcheck at the exhaustive level, left for the full run.
+			- No new calls. The C port is done, and with it the ports: Go, Python and C all follow the Rust reference now.
+	- Decisions:
+		- 20261002: idea 3, with the changes listed in the design doc. Open points and their proposed answers are under its Roadmap.
+		- 20261002: a quote anywhere in a bare value is an error, and a bare field name starts with a letter. Dates, times, durations and sizes without spaces stay bare.
+		- 20261002: no new error throws out good lines. A bad bare name that can still be read keeps its block, as a value-only refusal does. The writer quotes a value with `:` only when it ends in one.
+		- 20261002: pre-release Format 3 files are on their own. `fmt` keeps a `- ` list stacked. Setters get no new options, and an overwrite keeps the old quote kind when it can.
+		- 20261003: a merge writes every list in brackets, whatever form its layers used. The error code table in the design doc is final.
+		- 20261005: chunk A and B calls kept as built: `fmt` keeps the author's quote kind; a typed read reads a backtick value's text; only a space, a tab and a CR trim at a value's ends; one error per line, path then name then brackets then value; `- a, b` is `E026` with the line kept; an array setter keeps a `- ` list stacked; a comment on an item stays on its item.
+		- 20261005: changed from what chunk A built. A line with no colon is `E015` even when its name breaks the bare name rule, so `404` alone is `E015`. An item past the caller's array cap is `E021` and dropped, even when its value is broken. `migrate` leaves a 2.x backslash as written and it reads literally, with no escape added; check-migrate compares reads, so it has to allow for that. `explain E023` prints the mark itself, not `U+25C9`.
+		- 20261005: these go into the design doc with chunk C.
+		- 20261005: the `E015` answer was only about which code a one-word bad name with no colon gets (`404`). A no-colon line that isn't one clean name or path, such as `square-miles 300`, stays `E014`, kept as written, per spec.md's narrow repair rule. The `vsfix` rework read it too widely and needs narrowing back. A quoted name can be any text, spaces and a leading digit included. Every field line keeps its colon, a header with lines under it too.
+		- 20261005: kept as built: the line-keeping save writes a file whose load left a stacked list after an empty binding of its name, so `set --write` saves an unrelated edit while `fmt --write` refuses at 7.
+		- 20261006: spaces are allowed in a bare field value and a bare `- ` item, kept as typed, and the writer still quotes them. Not inside `[]` or a selector. A bare colon or comma needs a character other than whitespace after it, so `rw,noatime`, `:0` and URLs stay bare and `ports: 80, 443` is `E026`. Inside `[]` a comma always separates. A selector body also takes no bare colon, comma or bracket. Full rules in the design doc. spec.md's "never made to satisfy the machine" goal stays as written.
+	- Branch: `valsyn` (chunk A on `vslex`, chunk B part 1 on `vsarr`, part 2 on `vssel`, the 20261005 rework on `vsfix`, the fuzz fixes on `vsfuzz`, the no-colon narrowing on `vsnarrow`, chunk C docs on `vsspec`, the 20261006 spacing answer on `vsspace2`, chunk C's `migrate` on `vsmig`, the Go port's part 1 on `vsgo1`, part 2 on `vsgo2`, part 3a on `vsgo3`, part 3b on `vsgo3b`, the Python port's part 1 on `vspy1`, part 2 on `vspy2`, part 3a on `vspy3`, part 3b on `vspy3b`, the C port's part 1 on `vsc1`, part 2 on `vsc2`, part 3a on `vsc3`, part 3b on `vsc3b`)
+	- Commit: `6355ba10` (chunk A), `7c90c42d` and `f228c3e9` (chunk B part 2), `11b069fe` (the 20261005 rework), `c67b89d7` (the fuzz fixes), `0b57d0d2` (the no-colon narrowing), `7075fb4d` (the 20261006 spacing answer), `e3695acf` (chunk C's `migrate`), `bd7061ad` (the Go port's part 1), `fd0cf5c8` (the Go port's part 2), `dfb108ad` (the Go port's part 3a), `1fd8a1f1` (part 3b), `f2b97394` (the Python port's part 1), `9addd72e` (part 2), `a3a87c98` (part 3a), `26ad66ec` (part 3b), `ba5c4503` (the C port's part 1), `41cfe0a0` (part 2), `63e19b96` (part 3a), `2afe3638` (part 3b)
+	- Test case: corpus cases 192 to 203 and the reworked goldens, plus the conformance, fuzz and cli-regress tests named per chunk in the progress log.
+	- Verified: 20261007, on valsyn `aec9959b` with all four bindings: the full `--ci` (1989 ok, 0 FAIL, tree recorded), the 2,000,000 release fuzz (all 25 pass) and hosted run 37668959888 (ci, windows, macos and go-floor all green).
+	- Acceptance signoff: Self-closed: every rule the design doc settles is built in all four bindings, and the full gate and hosted run pass.
+	- Superseded by ID:
+	- Closed: 20261007-130000
+
+- Gate fixtures and a generator still in the old value syntax
+	- ID: 2026100711350582
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Opened: 20261007-113505
+	- Opened by: the full `--ci` on valsyn at `c4c6273c` and hosted run 37659235658
+	- Parent ID: 2026100207032800
+	- Related IDs: 2026100610073400, 2026100306315606
+	- Version and build: valsyn at `c4c6273c`
+	- Steps to reproduce:
+		- Run the full `--ci` on valsyn, or a hosted run.
+	- Incorrect behavior: 3 gate rows fail on the test, not the CLI, and block the valsyn merge to dev.
+		- shell-regress `Ep19Ax8`: its fixture's field `-dash` is `E014` now, so the quoted `--` row reads nothing.
+		- shell-regress `Ep1BXPn`: largedoc's generated document writes `tags: a, b` and `* ` items. At 1 MiB it loads with 35230 errors and its long array reads back 0 of 20000.
+		- cli-regress `EqTPxzc`, on the hosted windows job only: its stderr regex has a `.` for each `◉`, which is 3 bytes. msys bash runs grep in a byte locale, so a `.` matches 1 byte there.
+	- Expected behavior: the rows test what they were written for.
+	- Reproduced: 20261007. Both shell-regress rows fail as in the gate log. `EqTPxzc` fails under `LC_ALL=C` and passes under UTF-8.
+	- Actual cause: fixtures and a generator written for the old syntax, and a regex that only works in a UTF-8 locale.
+	- Actual fix:
+		- `Ep19Ax8` writes the field as `"-dash": 5`, so the row still checks that a quoted `--` gets a dot-sourced pwsh `shcl` to a name starting with `-`. `EpHNNhw`'s `dash-arg` row had the same fixture and passed only because the binary and the wrappers gave the same `E014`. It is quoted too.
+		- largedoc's generator writes `tags: [fast, "eu, west", cheapN]` and `- ` items for `burst` and `wide`. Its other lines were already fine.
+		- `EqTPxzc` has the `◉` mark itself in the regex, which matches in either locale.
+	- Note: the profiler workload is the same generator at 4 MiB. It loaded with errors on valsyn and loads clean now, so its numbers may move.
+	- Swept: cli-regress for all four CLIs under `LC_ALL=C` fails only `EqTPxzc`. Of the regex rows whose stderr has a non-ASCII byte (7), only `EqTPxzc` used `.` for the mark. A grep over `cicd/` and `.github/` for a regex `.` beside an escape name, `©` or other non-ASCII text found no others. cli-regress's own `-h` field fixture (`EqzuLVq`) was already quoted.
+	- Verified: shell-regress passes, with `Ep19Ax8`, `EpHNNhw` and `Ep1BXPn` ok. largedoc at 1 MiB passes all 5 of its tests for the four CLIs, where before it failed `Eojtm8u` and `EnPl0qI`. cli-regress passes for all four CLIs under UTF-8 and under `LC_ALL=C`. test-ids check and shellcheck pass.
+	- Not verified: the hosted windows job. The next hosted run covers it.
+	- Test case: shell-regress `Ep19Ax8` and `Ep1BXPn`, cli-regress `EqTPxzc`. Each failed before and passes now, `EqTPxzc` under `LC_ALL=C`.
+	- Acceptance signoff: Self-closed: mechanical fixture fixes, and the tests failed before and pass after.
+	- Branch: `vsgate`
+	- Commit: `ad9c8510`
+	- Closed: 20261007-114200
 
 - A remove next to a settled kept line gives one answer on the document and another on its reload
 	- ID: 2026100506223902
@@ -631,6 +875,83 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Swept: every test for a leading `#` on a comment line in all four. The merge's replaced-leaf rule is the one other site, filed as 2026092718195400.
 	- Branch: `keepdrop`
 	- Test case: corpus `178-clear-comments-kept-line`, both routes, with `comments` reads. It fails on the old code.
+
+- Selectors use `()`, and `[]` is for arrays only
+	- ID: 2026100610073400
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261006-100734
+	- Opened by: JC
+	- Prereq IDs: 2026100207032800
+	- Related IDs: 2026100207032800, 2026100609552447
+	- Problem description:
+		- After 2026100207032800, brackets mean two things on one line. `base[Boston].ports: [80, 443]` has a selector and an array.
+		- In a lookup path, `dogs[1]` looks like the second element of an array. It's the second `dogs` instance.
+	- Requirements:
+		- Every selector is written in parens: `person(Bucky)`, `person("New York")`, `person(0)`, `person(*)`. That goes for files, lookup paths, setter paths, `--set` and schema paths.
+		- Brackets after a name are an error. Brackets are only arrays. Which code is open.
+		- A bare number is an index and a quoted one is a value, as now: `year(2020)` vs `year("2020")`.
+		- `[#N]` goes too, from 2026100609552447. A body starting with `#` is refused, not read as a value.
+		- Every path the library writes uses parens: `InstancePaths()`, `Paths()`, `QuoteSegment`, the starter config.
+		- `migrate` rewrites 2.x selector lines.
+		- spec.md, design.md, value-syntax.md, the grammar, README, man page, CLI help, completions and the C++ interface. CLI examples quote the path, since an unquoted `(` is a syntax error in bash.
+		- Corpus cases and cli-regress rows with selectors. 32 corpus inputs have them.
+		- A changelog line.
+	- Reason: one meaning per bracket. Format 3 isn't cut yet, so this is the cheapest it gets.
+	- Decisions:
+		- 20261006: parens for every selector, brackets only for arrays. Parens for values with brackets for index and wildcard was too confusing, 2 forms for one thing. Braces were weighed too, but PowerShell silently splits `person{Bucky}` into 2 arguments.
+		- 20261006: brackets after a name get a new code, `E029`, so `explain E029` can say selectors moved to parens. The line is kept as written.
+	- Note: 20261006, do it on `valsyn` after chunk C's Rust part and before the Go, Python and C ports, so the ports get written once.
+	- Estimated effort: High
+	- Progress log:
+		- 20261006: the Rust part on `vspar`, off `valsyn`, library and CLI, `migrate` aside.
+			- In: a selector reads in parens in files, lookups, setters, `--set` and schema paths. One in brackets is `E029`, kept as written. When it selects by value, the lines under it load under that instance. A path in brackets is refused, and the CLI and `V093` say why. `[#N]` is gone: a bare body that starts with `#` is `E025`, and so is a paren in a bare body. `explain E029` is new.
+			- Writer: `InstancePaths()`, `init`'s lines and the CLI help write parens. `Paths()` and `QuoteSegment` already quote a name with a paren in it. The stale `gen_selector_text` doc comment is fixed.
+			- Corpus: 75 cases moved to parens, new case 203. The migrate cases 118, 122, 170 and 174 keep their 2.x inputs, so loaded as they are their selector lines are `E029` now, and their reads moved with that.
+			- cli-regress: 14 new rows, 30 edited in place. perf-gate's selector workload, check-docs' lookups into the comparison results and the demo's `get` step use parens.
+			- The 2,000,000 release fuzz found the fmt fixpoint property missing the excuse the setter property has for 2026100511210900's list, which a kept array line can build. Older than this change. Fixed in the property, test `Erxfmqc`.
+		- 20261006: calls made in the Rust part that the doc does not settle. Each is easy to reverse.
+			- `E029` comes before every other fault in the path and the name, so `base[New York]:` says brackets first. Its level opens only when the body reads clean as a value. An index or a wildcard in brackets opens nothing, so the lines under `item[0]:` are `E018`, as under `item(0):`.
+			- A nested pair, `x(a(b))`, is `E014`, since the body ends at the first `)`, as `x[a[b]]` did. Only a lone `(` in a bare body is `E025`.
+			- A lookup body that starts with `#` finds nothing, like any bad body. The CLI names a path in brackets in its `get`, `--set`, `--remove` and ops errors: "a selector is written in parens now".
+			- The tokenizer still reads a bracket selector, to its `]`, and notes it. `tokens` shows it as `sel=` and prints no new field.
+			- `init` refuses a child of a parent whose default is an array (`V097`), since a selector matches one plain value. It used to write `tags[a].k`, which made a second `tags`.
+			- A value with a paren is written bare.
+		- 20261006: left for the next pieces.
+			- `migrate` still writes brackets. So `migrate_matches_expected` (118, 122, 170, 174), `migrate_escapes_a_real_mark`, `migrate_quotes_a_bare_selector_these_rules_refuse` and `migrate_leaves_what_reads_clean_now` fail, and check-migrate is at 579 divergences, partly because its read loop builds `[#i]` paths.
+			- check-docs fails `Er1z2hW` (no `E029` row in spec.md), `EqWax3I` (4 bracket samples in check-abnf) and `Eom0qpm`, and check-readme fails `EqRTWFg`, both on the README sample's bracket selector.
+			- spec.md, grammar.abnf, check-abnf, design.md, value-syntax.md, README, the man page (its `--set` text and the `site[*]` example), the changelog, then the Go, Python and C ports.
+		- 20261006: `migrate` and the docs on `vsmig2`, off `valsyn`. Rust and docs only.
+			- In: `migrate` writes a 2.x selector in parens, `x[sel]` as `x(sel)`, an index and the wildcard included. A bare body these rules refuse, such as one with a space, a quote or a paren, is quoted. The `name:[disc]` sugar before the last segment loses its colon and goes in parens too.
+			- A file that does not say it is 2.x: a selector in brackets is `E029` now, so its line never reads clean. By the `vsmig` rule for a line these rules already refuse, it is rewritten, at exit 0. The rest of that line gets the 2.x rewrites with it.
+			- check-migrate is green: 638 documents, 28 lost counts. Its read loop asks for `(N)` on the current side and `[#N]` on the 2.x side. The corpus spells selectors in parens now, which 2.x refuses, so each corpus input with one is also compared with its paren pairs swapped back to brackets, 29 more documents. An input that names format 3 gets no copy, since `migrate` leaves it as written.
+			- check-migrate's exceptions are the ones it already had: lines 2.x refused, a fence label holding a `#`, a mid-line carriage return, an indent no level matches, a raw block that never closes, the two lost kinds (a selector with a comma, a comma list over lines), a backslash pair 2.x read as an escape, and the empty info-string read.
+			- Docs: spec.md (an `E029` row, the selector rules, lookup and schema paths, `init`, Migrating from 2.x), grammar.abnf (selectors in parens, no `#` index, and a `sel-text` class that `gen-escapes.py` writes), check-abnf samples, design.md, value-syntax.md (Roadmap, migration table, `E029`), README and the two binding READMEs, the man page, the changelog.
+			- Changelog `## Unreleased`: the `*` item lines now say `- `, the `SetLiteral` line says what it refuses now, and the `tokens` line is dropped, since `tokens` is new in 3.0.
+		- 20261006: calls made in the `migrate` and docs piece. Each is easy to reverse.
+			- In a file that does not say it is 2.x, a line with a selector in brackets gets every 2.x rewrite, not only the parens.
+			- A selector body with no spelling in parens is counted lost rather than written. None was found.
+			- A schema path with a selector is documented as fine bare, `field: server(*).host`, since the writer writes it that way.
+			- The README's Go, Python, C, C++ and Zig examples use parens too. So check-readme fails at its C example until the ports, where it failed at the Rust one before.
+			- The man page's migrate text still named `E024` and the old lost forms. It now matches spec.md, in short.
+		- 20261006: Rust and the docs are in. Status stays Started only because the Go, Python and C ports, with the C++ veneer, remain.
+		- 20261006: the Go port, `migrate` aside, on `vsgo3` with 2026100207032800's Go part 3a. Details there. The Go corpus fails only its 7 `migrate` cases, and crosscheck with Rust diverges only on `migrate`. Go tests `Eryg0ZB` and `Eryg0bK` match `Erxfmqa` and `Erxfmqb`.
+			- No new calls. `Tokens.BracketSelector` is -1 when there is none, as `Misspelled` is. Go's `migrate`, then the Python and C ports with the C++ veneer, remain.
+		- 20261006: Go's `migrate` writes selectors in parens, on `vsgo3b` with 2026100207032800's Go part 3b. Go test `ErykhtI` matches `ErxqQLy`; the Python and C ports remain.
+		- 20261006: the Python port, `migrate` aside, on `vspy3` with 2026100207032800's Python part 3a. The Python corpus fails only its 7 `migrate` cases, and crosscheck with Rust diverges only on `migrate`. Python tests `ErysKPJ` and `ErysKS0` match `Eryg0ZB` and `Eryg0bK`.
+		- 20261007: Python's `migrate` writes selectors in parens, on `vspy3b` with 2026100207032800's Python part 3b. Python test `Es1eIOu` matches `ErxqQLy`; the C port remains.
+		- 20261007: the C port, `migrate` aside, on `vsc3` with 2026100207032800's C part 3a. The C corpus fails only its 7 `migrate` cases, and crosscheck with Rust diverges only on `migrate`. C tests `Es1qzv8` and `Es1qzxJ` match `ErysKPJ` and `ErysKS0`.
+		- 20261007: C's `migrate` writes selectors in parens, on `vsc3b` with 2026100207032800's C part 3b. C test `Es1ySos` matches `ErxqQLy`. The ports are done.
+	- Branch: `vspar`, `vsmig2`, `vsgo3`, `vsgo3b`, `vspy3`, `vspy3b`, `vsc3`, `vsc3b`
+	- Commit: `c4da140e`, `df0eab64`, `dfb108ad`, `1fd8a1f1`, `a3a87c98`, `26ad66ec`, `63e19b96`, `2afe3638`
+	- Test case: corpus 203 (`ErxfmqL`), conformance `Erxfmqa` and `Erxfmqb`, fuzz `Erxfmqc`, cli-regress `ErxfmqM` to `ErxfmqZ`. Each failed on the code before but `ErxfmqU`, a pinning row. `vsmig2`: conformance `ErxqQLy`, cli-regress `Erxvsaw`, and check-migrate `Eq5YPgP` with the bracket copies. Each failed on the code before; check-migrate had 35 divergences there.
+	- Verified: cargo test but the 4 `migrate` tests above, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, shellcheck, markdownlint. shell-regress fails the same 2 as on `valsyn`. The 2,000,000 release fuzz passes all 25.
+		- `vsmig2`: cargo test with all 4 `migrate` tests, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, check-migrate, check-abnf, gen-escapes, markdownlint, shellcheck, ruff and mypy. check-docs passes but `EpHGoa0`, which fails because dev's installers are not on main yet. check-readme's Rust example and transcripts pass; its C, C++, Go and Python examples fail until the ports. shell-regress fails the same 2. The 2,000,000 release fuzz passes all 25.
+	- Swept: every `x[...]` selector and `[#N]` in spec.md, grammar.abnf, design.md, value-syntax.md, README.md, the binding READMEs, the man page and the changelog's `## Unreleased`. What is left in brackets is the `E029` text, the 2.x side of the migration rows, and design.md's history entries.
+	- Verified: 20261007, on valsyn `aec9959b` with all four bindings: the full `--ci` (1989 ok, 0 FAIL, tree recorded), the 2,000,000 release fuzz (all 25 pass) and hosted run 37668959888 (ci, windows, macos and go-floor all green).
+	- Acceptance signoff: Self-closed: built in all four bindings with the docs, and the full gate and hosted run pass.
+	- Closed: 20261007-130000
 
 - A fuzz property and a save-gate check for kept lines, so edits stop losing them one site at a time
 	- ID: 2026100307310000
@@ -1087,6 +1408,32 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Acceptance signoff: 20261003, closed without a hand check: the fuzz property, corpus 188 and the cli-regress rows cover what a hand test would, and the open question on the item went to 2026100218185700.
 	- Closed: 20261003-113243
 
+- Make sure the demo GIF is still accurate and current
+	- ID: 2026100306315606
+	- Type: Task
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20261003-063156
+	- Opened by: JC
+	- Prereq IDs: 2026100207032800
+	- Version and build: dev at `34ceede2`
+	- Problem description:
+		- `assets/demo.gif` was last made on 2026-09-19. The parser and CLI output have changed a lot since.
+		- The demo file's `tags: fast, "eu, west", cheap` line is a bare value with spaces and quotes, which is an error under 2026100207032800. That item has to go in first.
+	- Requirements:
+		- The demo file, `cicd/demo/script.txt` and `cicd/demo-scenario.toml` use current syntax.
+		- Each step's output in the GIF matches what the current release binary prints.
+		- Regenerate it with the cicd gif stage and check `cicd/demo/expected.txt` still matches.
+	- Actual effort: Low
+	- Done: 20261007, the demo file's `tags` line is a bracket array now. `script.txt` and `demo-scenario.toml` already used current syntax, the parens selector included. `assets/demo.gif` was rendered again from the release binary, and `cicd/demo/expected.txt` refreshed. The GIF shows what the CLI prints now at each step.
+	- Note: `fmt` now writes the demo file back unchanged, since `window` stays bare. The fmt step still shows the kept `retries 5` line and its `E014`.
+	- Verified: shell-regress passes, `EqM7a7s` and the demo output order rows included.
+	- Test case: shell-regress `EqM7a7s` (demo matches the gif). It failed before and passes now.
+	- Acceptance signoff: Self-closed: the change does what the item asked and its test passes.
+	- Branch: `vsgate`
+	- Commit: `493552b9`
+	- Closed: 20261007-114200
+
 - A macOS universal binary for amd64 and ARM
 	- ID: 2026100313461652
 	- Type: Feature
@@ -1496,6 +1843,65 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `pathhint`
 	- Commit: `1a12c02`
 	- Test case: corpus `171-windows-path-hint`, cli-regress `path-hint-*` rows. The read and strict rows and case 171 fail with the hint off, and `path-hint-set` shows a write is unaffected. The migrate goldens of cases 118, 122 and 170 now list the hint.
+
+- cli-regress fails 3 rows on macOS's own tools
+	- ID: 2026100617010925
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: N. cli-regress, check-migrate, shell-regress, test-ids and shellcheck pass on Linux.
+	- Needs external testing: a cli-regress run on b26 with stock macOS tools plus a `timeout`, Hosted is done: run 37637035207 on dev `9300b1be`, 20261007, passed all 4 jobs, and the macos job passed all 3 rows, `man-width` through `mandoc`.
+	- Severity: Low
+	- Opened: 20261006-170109
+	- Opened by: the b26 run for 2026100313461652
+	- Related IDs: 2026100313461652, 2026100413052101
+	- Target OS: macOS, FreeBSD
+	- Test environment: b26 (macOS 15.8.1), bash 5.2, no GNU coreutils.
+	- Steps to reproduce:
+		- On a Mac without GNU coreutils, with a `timeout` on PATH, run `cicd/utility/cli-regress.bash "macos|PATH-TO-SHCL"` under bash 4 or later.
+	- Incorrect behavior: 3 rows fail on the script's own tools, not on the CLI. `broken-pipe` calls `env --default-signal`, which BSD `env` lacks. `save-migrate-taken` compares `ls -A | wc -l` to `2`, and BSD `wc` pads the count with spaces. `man-width` calls `man --nh --nj -l`, which only man-db takes, so the page renders to nothing.
+	- Expected behavior: the 3 rows pass on BSD tools, as they do on Linux.
+	- Reproduced: 20261006 on b26. Run by hand there, the CLI does what each row wants: 141 with nothing on stderr, exit 8 with both files left, and the page at 80 columns under `mandoc`.
+	- Actual cause: GNU-only forms. The hosted macos job puts GNU coreutils first on PATH, so it never meets them.
+	- Note: 20261006, the hosted macos job does meet `man-width`: GNU coreutils has no `man`, and the runner's is not man-db. It is the only row that job fails (run 37550690633), so it keeps 2026100313461652 open and turns the job red on a main push.
+	- Note: 20261006, `macb26` already fixed the first two forms found (`head -c -1` and `stat -c`) and made a missing `timeout` an exit 2 with a message. Stock macOS still has no `timeout`.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: each row keeps the GNU form where it works and falls back otherwise.
+		- `broken-pipe` puts the default SIGPIPE back with perl where `env` has no `--default-signal`. With neither, it runs the CLI as is when SIGPIPE is not ignored, and skips with a message when it is.
+		- `save-migrate-taken` strips the spaces from the `wc -l` count before comparing. Same fix in check-migrate `EqRiIDx`, the only other string compare of a `wc` count.
+		- `man-width` uses man-db when `man --version` says it is man-db, else `mandoc -T ascii -O width=80`, else the old skip. The overstrike strip no longer needs GNU sed's `\x08`.
+	- Verified: on Linux with GNU tools, cli-regress passes all 3 rows on the Rust debug CLI, and check-migrate, shell-regress, test-ids and shellcheck pass. With a padding `wc`, an `env` without `--default-signal`, a `man` that is not man-db and Debian's `mandoc` 1.14.6 first on PATH, the old script fails all 3 rows and the new one passes them. It also passes with no perl, and with perl and SIGPIPE ignored. With no perl and SIGPIPE ignored, `broken-pipe` skips. With no mandoc, `man-width` skips as before. A 90-column line put in the page fails `man-width` through mandoc, and a CLI that does not die of SIGPIPE still fails `broken-pipe`.
+	- Not verified, only reasoned: real BSD `env`, `wc`, `perl` and macOS's `man` and `mandoc`, and the windows job, where `broken-pipe` skips as before and `man-width` takes the same path it did.
+	- Swept: every `env --default-signal`, `\x08` in sed, `man --nh` and string compare of a `wc` count under `cicd/`. Other `wc` counts are read as numbers, which takes the padding.
+	- Branch: `bsdrows`
+	- Commit: f0170ca5
+	- Test case: cli-regress `EqzuLW3` (broken-pipe), `Er5ivub` (save-migrate-taken), `EpHH7ZQ` (man-width), and check-migrate `EqRiIDx`. The 3 cli-regress rows fail on the old script with the BSD-style tools and pass on the new one.
+	- Verified: 20261007, cli-regress on b26 (macOS 15.8.1, Intel) as `mactest`, under Homebrew bash 5.2 with only `/usr/bin` and `/bin` tools and a perl stand-in for `timeout`, against the stage 6 universal binary from dev `9300b1be`. 372 rows ok, all 3 included, and 14 skipped for no `/dev/full`, `/proc` or strace and the Windows rows.
+	- Acceptance signoff: Self-closed: the 3 rows pass on real BSD tools and in the hosted macos job.
+	- Closed: 20261007-102000
+
+- A merge can leave a list with a field under it after an empty binding of its name that has fields, which no text reloads as
+	- ID: 2026100511210900
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261005-112109
+	- Opened by: the work on 2026100207032800
+	- Related IDs: 2026100207032800
+	- Problem description:
+		- A list with a field under it (`E001`) has to be written stacked, since in brackets it is `E028`. After an empty binding of its name, a reload joins its header to that binding, and when that binding has fields the items are dropped (`E008`).
+		- A merge or an edit can leave that shape. The fuzz properties skip it (`list_after_empty` in `fuzz_smoke.rs`).
+		- Question: should a field line under stacked items stop binding (`E001` kept, not bound)? That would remove the shape, but reverses the uniform-or-nothing rule cases 010 and 128 pin.
+	- Decisions:
+		- 20261005: the load stays as is, so the `E001` line still binds. A save that would write this case refuses at exit 7.
+	- Actual fix: the lost count takes in the items of such a list, so `save_file`, the line-keeping save and every `--write` refuse at 7, and `--lossy` writes. The line-keeping save skipped its reload check when the loaded text was canonical, so it falls back to the gate here too. Rust only; the ports take it with 2026100207032800.
+	- Swept: `save_file`, `save_file_keep_lines`, the CLI's write path, a merge and an edit. The three fuzz properties that skipped the case now check the save refuses it, and `EreT6dh` stops its steps there.
+	- Verified: cli-regress `Ers2pP0` exits 0 and loses both items on the code before, and refuses at 7 with the file unchanged after.
+	- Branch: `vsfix`
+	- Commit: `11b069fe`
+	- Test case: conformance `Ers2oF1`; cli-regress `Ers2pP0` and `Ers2pP1`.
+	- Acceptance signoff: Self-closed: does what the 20261005 decision asked, and its tests fail before and pass after.
+	- Closed: 20261005-164930
 
 - The macOS cross build warns twice that xcrun found no Apple SDK
 	- ID: 2026100708240546

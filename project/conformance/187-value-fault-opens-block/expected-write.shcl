@@ -1,18 +1,20 @@
 # A line refused for its value alone binds nothing, and what is written
 # under it still loads, under the field with no value.
-wallpaper: "C:\Users\x.png"
+wallpaper: "C:◉USERS◉x.png"
 	rotate:
 		enabled: false
 	opacity: 0.5
-ports: [80, 443] # kept
+ports: [80, 443 # kept
 	tls: on
-path: "C:\temp"
-path: one, two
-nested: "\q"
-	inner: [x]
-sel[web]: "\q"
+path: C:\Users\O'Brien
+path:
+	- one
+	- two
+nested: "◉Q◉"
+	inner: [x
+sel(web): "◉Q◉"
 sel: web
 	port: 8
-empty: "\q"
-"bad\q": 1
+empty: "◉Q◉"
+"bad◉Q◉": 1
 last: 2

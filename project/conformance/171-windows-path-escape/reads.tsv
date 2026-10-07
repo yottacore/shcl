@@ -1,13 +1,13 @@
 query	type	expected	status
 -	load	ok	-
--	load	fail	-	strict
+-	load	ok	-	strict
 -	lost	0	-
-doubled	string	C:\ok\fine	Good
+doubled	string	C:\\ok\\fine	Good
 single	string	C:\temp	Good
 message	count	1	-
-temp	string	-	NotFound
-mixed	count	0	-
-share	count	0	-
-pair	count	0	-
-list	string	one	Good
+temp	string	C:\temp	Good
+mixed	count	1	-
+share	count	1	-
+pair	count	1	-
+list	string	[one, "E:\new"]	Good
 last	int	1	Good

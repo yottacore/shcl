@@ -1,0 +1,6 @@
+query	type	expected	status
+-	load	ok	-
+-	load	fail	-	strict
+p.s.c	int	1	Good
+p.s	int[]	0	Good
+-	lost	0	-

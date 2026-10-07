@@ -2,7 +2,7 @@
 a: x
 
 ## any, required
-a[x].port: 1
+a(x).port: 1
 
 ## any, required
 env: prod
@@ -11,7 +11,7 @@ env: prod
 env: dev
 
 ## any, required
-env[prod].url: u
+env(prod).url: u
 
 ## any
 # stage: prod
@@ -23,19 +23,13 @@ env[prod].url: u
 srv: 20000000000000000000
 
 ## any, required
-srv["20000000000000000000"].port: 2
+srv("20000000000000000000").port: 2
 
 ## any, required
-tags: "a, b", c
-
-## any, required
-tags[a, b, c].x: 3
-
-## any, required
-repo["org/name#123"].branch: main
+repo("org/name#123").branch: main
 
 ## any
-# gh["org/name#9"].ref:
+# gh("org/name#9").ref:
 
 ## any
 # m:

@@ -1,4 +1,4 @@
 query	type	expected	status	level
 -	load	ok	-
-table[users].col[#1]	string	email	Good
-table[users].meta.note	string	a	Good
+table(users).col(1)	string	email	Good
+table(users).meta.note	string	a	Good

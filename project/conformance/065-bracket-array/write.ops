@@ -1,1 +1,6 @@
 literal	q	"[80, 443]"
+literal	ports	[80, 8080]
+literal	p2	[1]
+literal-default	p3	[a, b]
+literal	p4	 [x] # c
+literal	p5	[]

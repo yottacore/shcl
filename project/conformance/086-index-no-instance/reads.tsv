@@ -1,5 +1,5 @@
 query	type	expected	status
 -	load	ok	-
 a	int	1	Good
-c[1].d	int	3	Good
+c(1).d	int	3	Good
 -	lost	1	-

@@ -131,7 +131,7 @@ class WriteReason(Enum):
 	BadPath = 1       # empty path, or the scanner rejected it
 	ValueInPath = 2   # the path has a `: value` part; writes take values separately
 	Wildcard = 3      # wildcard selectors are query-only
-	NoSuchIndex = 4   # a `[#k]` instance that does not (and can never) exist
+	NoSuchIndex = 4   # a `(k)` instance that does not (and can never) exist
 	TooDeep = 5       # deeper than the nesting cap; the writer never creates past it
 
 
@@ -166,14 +166,17 @@ class Read(Generic[T]):
 	when the read's single scalar element was quoted in the source - the escape
 	hatch that lets a downstream language reserve @null while "@null" stays a
 	plain string. Arrays, raw blocks, and empties leave it False. A written
-	value counts as quoted when a save would quote it."""
-	__slots__ = ("value", "status", "raw", "slots", "line", "quoted")
+	value counts as quoted when a save would quote it. .backtick is True when
+	that element was a backtick value: raw text the program decodes itself,
+	which SHCL hands back as written. A backtick value counts as quoted too."""
+	__slots__ = ("value", "status", "raw", "slots", "line", "quoted", "backtick")
 	value: T
 	status: Status
 	raw: str | None
 	slots: list[Status]
 	line: int
 	quoted: bool
+	backtick: bool
 
 	def __init__(self, value: T, status: Status, raw: str | None, slots: list[Status] | None = None):
 		self.value = value
@@ -182,6 +185,7 @@ class Read(Generic[T]):
 		self.slots = slots if slots is not None else []
 		self.line = 0
 		self.quoted = False
+		self.backtick = False
 
 	# The reference derives Debug. Enum members are written with str(), since a
 	# list's repr would print the slots as <Status.Good: 0> beside a plain
@@ -189,11 +193,12 @@ class Read(Generic[T]):
 	def __repr__(self) -> str:
 		slots = ", ".join(str(x) for x in self.slots)
 		return (f"Read(value={self.value!r}, status={self.status}, raw={self.raw!r}, "
-			f"slots=[{slots}], line={self.line}, quoted={self.quoted})")
+			f"slots=[{slots}], line={self.line}, quoted={self.quoted}, backtick={self.backtick})")
 
-	def _at(self, line: int, quoted: bool) -> Read[T]:
+	def _at(self, line: int, el: _Element | None) -> Read[T]:
 		self.line = line
-		self.quoted = quoted
+		self.quoted = el is not None and el.quoted
+		self.backtick = el is not None and el.mark is _Mark.BACKTICK
 		return self
 
 	def ok(self) -> bool:
@@ -333,17 +338,30 @@ def format_float(v: float) -> str:
 # merge when (name, value) matches; empty values merge into the wrapper node.
 
 
+class _Mark(Enum):
+	"""How an element was written. The writer keeps the author's quote kind
+	where the text allows it, and a backtick value stays in backticks."""
+	BARE = 0
+	SINGLE = 1
+	DOUBLE = 2
+	BACKTICK = 3
+
+
 class _Element:
-	__slots__ = ("text", "quoted")   # text: the logical string - quotes stripped, escapes resolved
+	__slots__ = ("text", "mark")   # text: the logical string - quotes stripped, escapes resolved
 	# Declared, not assigned - __slots__ forbids class attributes. The point is
 	# the type gate: without a type here every field is Any and the checker has
 	# nothing to check.
 	text: str
-	quoted: bool
+	mark: _Mark
 
-	def __init__(self, text, quoted):
+	def __init__(self, text, mark):
 		self.text = text
-		self.quoted = quoted
+		self.mark = mark
+
+	@property
+	def quoted(self) -> bool:
+		return self.mark is not _Mark.BARE
 
 
 class _Lead:
@@ -440,17 +458,19 @@ class _Pend:
 		self.line = line
 
 
-# Shared empty element list for the kinds that have none: only "cell" ever
+# Shared empty element list for the kinds that have none: only "array" ever
 # mutates els (the stacked-list append checks kind first), so "empty" and
 # "raw" values all point at this one tuple instead of a list each.
 _EMPTY_ELS: tuple = ()
 
 
 class _Value:
-	# kind: "empty" | "cell" (els) | "raw" (content/info/fence_char/fence_len)
+	# kind: "empty" | "cell" (one scalar, in els[0]) | "array" (els: `[a, b]`
+	# or a stacked list; `[]` is the empty array) | "raw"
+	# (content/info/fence_char/fence_len)
 	__slots__ = ("kind", "els", "content", "info", "fence_char", "fence_len")
 	kind: str
-	els: list     # _EMPTY_ELS when the kind has no elements; list only for "cell"
+	els: list     # _EMPTY_ELS when the kind has no elements; a list for "cell" and "array"
 	content: str
 	info: str
 	fence_char: str
@@ -474,8 +494,8 @@ class _Value:
 		"""Independent copy, element list included - a clone or a merged-in value
 		has to survive the document it came from being released."""
 		v = _Value(self.kind)
-		if self.kind == "cell":
-			v.els = [_Element(e.text, e.quoted) for e in self.els]
+		if self.kind == "cell" or self.kind == "array":
+			v.els = [_Element(e.text, e.mark) for e in self.els]
 		v.content = self.content
 		v.info = self.info
 		v.fence_char = self.fence_char
@@ -483,15 +503,15 @@ class _Value:
 		return v
 
 	def display(self):
-		"""Human/display form; also what selectors match against (case-sensitive)."""
+		"""Human/display form; also what selectors match against (case-sensitive).
+		An array is its canonical bracket form, so `x: 80` and `x: [80]` never
+		display alike."""
 		if self.kind == "empty":
 			return ""
 		if self.kind == "cell":
-			# One element is the overwhelming case (every scalar field), and the
-			# join plus generator cost more than the string it produces.
-			if len(self.els) == 1:
-				return self.els[0].text
-			return ", ".join(e.text for e in self.els)
+			return self.els[0].text
+		if self.kind == "array":
+			return _emit_array(self.els)
 		return self.content
 
 
@@ -501,6 +521,12 @@ def _empty():
 
 def _cell(els):
 	v = _Value("cell")
+	v.els = els
+	return v
+
+
+def _array(els):
+	v = _Value("array")
 	v.els = els
 	return v
 
@@ -520,20 +546,49 @@ def _literal_value(text):
 	# what gets stored, so a trailing blank comes off and a `#` outside quotes
 	# ends the value exactly as they would in a file. What is refused is what a
 	# file reports as an error, since a setter has no diagnostic to
-	# report it with: a line break, which no file line can hold, an unterminated
-	# quote (E017), bracket text (E019, the line kept verbatim - writing it as
-	# a two-element array holding `[1` and `2]` would be a different wrong
-	# answer), an unknown escape in double quotes (E023), and a Windows path in
-	# double quotes holding a `\t` or `\n` escape (E024).
+	# report it with: a line break, which no file line can hold, a malformed
+	# bracket array (E019), and whatever a value is refused for on a line: a
+	# loose comma (E026), an unterminated quote (E017), a bad escape (E023), or
+	# what bare text may not hold (E025). A bracket array is stored as an array.
 	if "\n" in text:
 		return None
 	tok = Tokens()
 	s = _value_half(text, tok)
-	if any(p.quote is Quote.OPEN for p in tok.elements) or s[tok.value[0]:tok.value[0] + 1] == b"[":
-		return None
-	if _bad_escape(tok, True) is not None or any(_path_like(p, s) for p in tok.elements):
+	# A fence opener has no body here, so it is stored as the text it is, as
+	# before backtick values.
+	fence = _fence_open(s[tok.value[0]:tok.value[1]].decode("utf-8", "surrogatepass")) is not None
+	if (_array_fault(tok) is not None
+			or (len(tok.elements) > 1 and tok.array is None)
+			or (not fence and _value_fault(tok, s) is not None)):
 		return None
 	return _cell_of_tokens(tok, s)
+
+
+def _keep_mark(old, new):
+	# An overwrite keeps the quote kind the old value was written in, when the
+	# new text can be written that way (value-syntax.md, Canonical output). The
+	# kind is the one a save writes, so the answer is the same after a reload:
+	# a quoted data format is written bare.
+	if old.kind != "cell" or new.kind != "cell":
+		return
+	was, now = old.els[0], new.els[0]
+	first = _emit_element(was)[:1]
+	if first == "'":
+		written = _Mark.SINGLE
+		fits = "'" not in now.text
+	elif first == '"':
+		written = _Mark.DOUBLE
+		fits = '"' not in now.text
+	elif first == "`" and was.mark is _Mark.BACKTICK:
+		written = _Mark.BACKTICK
+		fits = _backtick_holds(now.text)
+	else:
+		return
+	if fits:
+		before = now.mark
+		now.mark = written
+		if not _value_reads_back(new):
+			now.mark = before
 
 
 def _fits_i64(v):
@@ -591,10 +646,9 @@ def _as_float(v):
 
 
 def _array_cell(texts):
-	# Inline-array value; the empty array is an empty value (reads back Empty).
-	if not texts:
-		return _empty()
-	return _cell([_new_element(t) for t in texts])
+	# An array setter's value: written in brackets whatever its length, so one
+	# element is `[80]` and none is `[]`.
+	return _array([_new_array_element(t) for t in texts])
 
 
 def _choose_fence(content):
@@ -613,7 +667,7 @@ class _Trivia:
 	of line. Never part of identity or reads; merged instances concatenate
 	leading, first trailing wins (later ones demote to leading - a canonical
 	line has room for one)."""
-	__slots__ = ("leading", "trailing", "after", "inside", "among")
+	__slots__ = ("leading", "trailing", "after", "inside", "among", "notes")
 
 	def __init__(self):
 		self.leading = []
@@ -632,6 +686,9 @@ class _Trivia:
 		# with the number of elements before it. They keep the list stacked on
 		# output, so a line fixed by hand is still inside the list.
 		self.among = []
+		# The comment trailing a stacked list item, with the item's index.
+		# Like the lines among the items, they keep the list stacked on output.
+		self.notes = []
 
 
 class _Node:
@@ -654,8 +711,8 @@ class _Node:
 		self.children: list[int] = []
 		self.parent = parent
 		self.line = line
-		self.star_list = False    # value built from stacked "* " lines
-		self.star_mixed = False   # mix of "* " and field children already diagnosed
+		self.star_list = False    # value built from stacked "- " lines, and written that way
+		self.star_mixed = False   # mix of "- " and field children already diagnosed
 		# Comment trivia sidecar (_Trivia): None until the first write, so the
 		# common comment-free node never allocates the four containers.
 		self.trivia = None
@@ -694,6 +751,10 @@ class _Node:
 		t = self.trivia
 		return t.among if t is not None else ()
 
+	def notes(self):
+		t = self.trivia
+		return t.notes if t is not None else ()
+
 	def _triv(self):
 		t = self.trivia
 		if t is None:
@@ -711,9 +772,10 @@ DEAD = sys.maxsize
 # level a sibling can bind at, but deeper lines are still under it. It sits
 # on top of the levels open before it without closing any of them.
 UNOPENED = sys.maxsize - 1
-# Stack entry for a field line refused for its value alone (E019, E023,
-# E024): it binds nothing, but its path is fine, so the first line that binds
-# under it opens the path as `name:` would and binds there.
+# Stack entry for a field line refused for its value alone (E017, E019,
+# E023, E025) or for a bare name that still reads (E014): it binds nothing,
+# but its path is fine, so the first line that binds under it opens the path
+# as `name:` would and binds there.
 LAZY = sys.maxsize - 2
 # Ends a name-index chain (see _NameIndex).
 NIL = sys.maxsize
@@ -745,6 +807,8 @@ def _fold_node_into(arena, survivor, loser):
 		st.inside.extend(lt.inside)
 		st.among.extend(lt.among)
 		st.among.sort(key=lambda a: a[0])
+		st.notes.extend(lt.notes)
+		st.notes.sort(key=lambda a: a[0])
 
 
 def _settle_block(arena, n, start):
@@ -758,16 +822,31 @@ def _settle_block(arena, n, start):
 	depending on whether the file was saved in between. The text does not move.
 	start is the first child whose leading list may gain, so a new last child
 	costs one pair; it cannot put a fence after an empty binding either, so only
-	a full pass looks for one."""
+	a full pass looks for one. True when a list joined an empty binding, which
+	moves fields under another parent, so a caller holding the name index has
+	to drop it."""
+	joined = start <= 1 and _settle_fence_trailing(arena, n)
+	_settle_pairs(arena, n, start)
+	# A line the pass above moved off an empty binding no longer holds its
+	# join off, and a reload joins it (2026100520243961).
+	if start <= 1 and _settle_fence_trailing(arena, n):
+		joined = True
+		_settle_pairs(arena, n, 1)
+	# After the join, which can take the last child.
 	kids = arena[n].children
 	if not kids:
-		return
-	if start <= 1:
-		_settle_fence_trailing(arena, n)
+		return joined
 	t = arena[n].trivia
 	if t is not None and t.inside:
 		arena[kids[-1]]._triv().after.extend(t.inside)
 		t.inside = []
+	return joined
+
+
+def _settle_pairs(arena, n, start):
+	"""A child's comments at its own level go above the next sibling, from
+	child start on."""
+	kids = arena[n].children
 	for i in range(max(start, 1), len(kids)):
 		t = arena[kids[i - 1]].trivia
 		if t is None:
@@ -784,41 +863,86 @@ def _settle_fence_trailing(arena, n):
 	"""A raw block after an empty binding of its name is written with the fence
 	on the binding's line, where no comment can follow it, so the emitter writes
 	its trailing comment on a line of its own above, after the node's blank. A
-	reload files that line as a leading comment, so file it there now."""
+	reload files that line as a leading comment, so file it there now. True when
+	a list joined an empty binding."""
 	kids = arena[n].children
 	if not any((arena[c].value.kind == "raw" and arena[c].trivia is not None and arena[c].trivia.trailing)
 			or _stacks(arena[c]) for c in kids):
-		return
-	empties = set()
+		return False
+	empties: dict[str, int] = {}
+	folded = set()
 	for c in kids:
 		nd = arena[c]
 		t = nd.trivia
-		if nd.value.kind == "raw" and t is not None and t.trailing and nd.name in empties:
+		e = empties.get(nd.name)
+		if nd.value.kind == "raw" and t is not None and t.trailing and e is not None:
 			_trailing_to_leading(nd)
-		elif _stacks(nd) and nd.name in empties:
-			_unstack(nd)
+		elif _stacks(nd) and e is not None:
+			if _fold_list_into_empty(arena, e, c):
+				folded.add(c)
 		elif nd.value.is_empty():
-			empties.add(nd.name)
+			if e is None:
+				empties[nd.name] = c
+	if not folded:
+		return False
+	arena[n].children = [c for c in kids if c not in folded]
+	return True
+
+
+def _fold_list_into_empty(arena, empty, lst):
+	"""A list after an empty binding of its name, which a stacked header would
+	join on a reload. In brackets when it can be. A list with fields under it
+	cannot, so it joins that binding here, as a reload joins it, when that
+	binding has no field the items would land after. True when it joined, and
+	the caller drops it from its parent's children."""
+	_unstack(arena[lst])
+	e = arena[empty]
+	if not _stacks(arena[lst]) or not e.value.is_empty() or e.children or e.after():
+		return False
+	e.value = arena[lst].value
+	arena[lst].value = _empty()
+	e.star_list = True
+	_fold_node_into(arena, empty, lst)
+	return True
 
 
 def _stacks(nd):
-	"""Written stacked: a list holding a kept line among its elements or after
-	its last one."""
-	t = nd.trivia
-	return (t is not None and nd.value.kind == "cell"
-		and (bool(t.among) or (nd.star_list and any(not c.text.startswith("#") for c in t.inside))))
+	"""Written stacked: a list the file wrote one `- ` item per line, kept that
+	way like an author's quotes, or one holding a kept line among its items, a
+	comment on one, or a field under it (E001), which in brackets would make
+	the array E028."""
+	if nd.value.kind != "array" or not nd.value.els:
+		return False
+	return nd.star_list or bool(nd.among()) or bool(nd.notes()) or bool(nd.children)
 
 
 def _unstack(nd):
 	"""A list after an empty binding of its name cannot be written stacked: its
-	bare header would merge into that binding on a reload. It goes inline, and
-	the lines among its elements go above it, where a reload files what sits
-	there."""
+	bare header would merge into that binding on a reload. It goes in brackets,
+	and the lines among its elements and the comments on them go above it, in
+	order, where a reload files what sits there."""
 	nd.star_list = False
 	t = nd.trivia
-	if t is not None and t.among:
-		t.leading.extend(a[1] for a in t.among)
-		t.among = []
+	if t is None:
+		return
+	notes = t.notes
+	k = 0
+	for before, lead in t.among:
+		while k < len(notes) and notes[k][0] < before:
+			t.leading.append(_Lead(notes[k][1], False))
+			k += 1
+		t.leading.append(lead)
+	for _, text in notes[k:]:
+		t.leading.append(_Lead(text, False))
+	t.among = []
+	t.notes = []
+
+
+def _bracket(nd):
+	"""A merge writes a list in brackets. One with a field under it stays
+	stacked (E001), since in brackets it is E028."""
+	if not nd.children and (nd.star_list or nd.trivia is not None):
+		_unstack(nd)
 
 
 def _trailing_to_leading(nd):
@@ -870,24 +994,39 @@ TMP_NAME_BYTES = 64
 #
 # - A piece (a name, a selector body, a value element) is quoted only when
 #   its first character is a quote and the next matching quote is the last
-#   thing before the piece ends; inside double quotes a backslash escapes the
-#   next character, inside single quotes nothing does. Anywhere else a quote
-#   is an ordinary character, and a piece that began with one it never closed
-#   is kept literally and reported (E017).
-# - Escapes are processed inside double quotes only; bare text and single
-#   quotes never process a backslash.
-# - `#` outside quotes opens a comment, wherever it sits.
+#   thing before the piece ends. A backtick quotes a value element the same
+#   way, as a raw value. A backslash is plain text everywhere. A piece that
+#   began with a quote it never closed is kept literally, and the parser
+#   refuses its line (E017).
+# - `◉NAME◉` escapes are read in bare and quoted value text, quoted names
+#   and selector bodies, never in a backtick value, a bare name, a comment
+#   or a raw block (_resolve_marks).
+# - `#` outside quotes and backticks opens a comment, wherever it sits.
 # - A space, a tab and a carriage return are blanks: trimmed at a piece's
-#   edge, content in the middle of one.
-# - A bare name is ASCII letters, digits, `-` and `_`; a `[` right after a
-#   name opens a selector, whose bare body runs to the first `]`; a `[` after
-#   the separator starts the value, which the parser refuses (E019).
-# - A value is split on unquoted commas, each piece trimmed.
+#   edge. A bare value or list item may hold spaces; any other whitespace in
+#   it, and any at all in an array element or selector body, the parser
+#   refuses (E025), along with a quote, a bracket, and a colon with a blank
+#   or the end after it.
+# - A bare name is an ASCII letter, then ASCII letters, digits, `-` and `_`.
+#   A file line's name that breaks only that rule still reads, up to the
+#   separator, a dot, a bracket or a comment, and is marked `misspelled`
+#   (E014). A `(` right after a name opens a selector, whose bare body runs
+#   to the first `)`. A `[` there is the old selector spelling: read the
+#   same way, to its `]`, and noted, so the parser refuses it (E029).
+# - A value is split on unquoted commas with a blank, a comment or the end
+#   after them, each piece trimmed; any other comma is text (`rw,noatime`).
+#   More than one piece outside brackets is a bare comma, which the parser
+#   refuses (E026). Inside brackets every comma splits.
+# - A value that starts with `[` is a bracket array: its pieces run to the
+#   `]` that closes it, and nothing but a comment may follow. A bare `[` or
+#   `]` inside, an empty piece, or no `]` on the line is malformed, which the
+#   parser refuses (E019). `[]` is the empty array.
 #
 # Under Rules.V2 the tokenizer reads the 2.x spellings instead, for migrate:
-# a backslash shields the next character in bare and single-quoted value text,
-# a bare selector body still runs to its first `]`, a separator followed by `[`
-# is the selector sugar, and an open quote swallows the rest of the line.
+# every comma splits, a backslash shields the next character in bare and
+# single-quoted value text, a bare selector body still runs to its first `]`,
+# a separator followed by `[` is the selector sugar, and an open quote
+# swallows the rest of the line.
 #
 # The scan runs over the UTF-8 bytes of the text, so every offset it records
 # is a byte offset - the offsets the other bindings record, and what the
@@ -983,11 +1122,13 @@ _BARE_NAME_CHARS = frozenset(
 class Quote(Enum):
 	"""How a piece was quoted. OPEN is a piece that began with a quote and
 	never closed with the matching quote as its last character: the whole
-	piece is kept literally, quotes and all."""
+	piece is kept literally, quotes and all. BACKTICK is a raw value, read as
+	written: value elements only."""
 	NONE = 0
 	SINGLE = 1
 	DOUBLE = 2
-	OPEN = 3
+	BACKTICK = 3
+	OPEN = 4
 
 
 class Piece:
@@ -1040,7 +1181,10 @@ class Tokens:
 	"""The spans of one line, or of one lookup path. Nothing is copied: every
 	field is a byte offset into `src`, the UTF-8 bytes of the text that was
 	tokenized."""
-	__slots__ = ("segments", "sep", "value", "elements", "comment", "fault", "cap", "capped", "src")
+	__slots__ = (
+		"segments", "sep", "value", "elements", "array", "array_fault", "comment", "fault", "misspelled",
+		"bracket_selector", "cap", "capped", "src",
+	)
 	segments: list[SegTok]
 	# Offset of the separator (`:` on a line, `=` in --set); None when the
 	# path ran to the end of the text or into a comment.
@@ -1048,12 +1192,23 @@ class Tokens:
 	# The value: everything after the separator up to the comment, trimmed.
 	value: tuple[int, int]
 	# The value's comma-separated pieces, empty ones included, each trimmed.
+	# For a bracket array, the pieces between the brackets.
 	elements: list[Piece]
+	# Offset of the `[` that opens a bracket array, when the value is one.
+	array: int | None
+	# Where a bracket array stops being well formed, and why (E019).
+	array_fault: tuple[int, str] | None
 	# Offset of the `#` that opens a trailing comment.
 	comment: int | None
 	# Where the path stopped making sense, and why. A faulted line is
 	# malformed as a whole (E014).
 	fault: tuple[int, str] | None
+	# Offset of the first bare name that breaks the spelling rule but still
+	# reads, such as `404` or `user name` (E014, with the level held open).
+	misspelled: int | None
+	# Offset of the first selector written in brackets, `x[a]`, the old
+	# spelling (E029). Its body is read as a selector all the same.
+	bracket_selector: int | None
 	# The caller's element cap (0 = none): the scan stops as soon as the
 	# value holds more elements than this, so a capped parse never builds the
 	# array it is going to refuse. Kept across tokenize calls.
@@ -1067,8 +1222,12 @@ class Tokens:
 		self.sep = None
 		self.value = (0, 0)
 		self.elements = []
+		self.array = None
+		self.array_fault = None
 		self.comment = None
 		self.fault = None
+		self.misspelled = None
+		self.bracket_selector = None
 		self.cap = cap
 		self.capped = False
 		self.src = b""
@@ -1078,8 +1237,12 @@ class Tokens:
 		self.sep = None
 		self.value = (0, 0)
 		self.elements = []
+		self.array = None
+		self.array_fault = None
 		self.comment = None
 		self.fault = None
+		self.misspelled = None
+		self.bracket_selector = None
 		self.capped = False
 
 	def element_count(self) -> int:
@@ -1096,27 +1259,24 @@ _B_SPACE = 0x20
 _B_DQUOTE = 0x22
 _B_HASH = 0x23
 _B_SQUOTE = 0x27
+_B_LPAREN = 0x28
+_B_RPAREN = 0x29
 _B_STAR = 0x2A
 _B_COMMA = 0x2C
 _B_DOT = 0x2E
 _B_LBRACKET = 0x5B
 _B_BACKSLASH = 0x5C
 _B_RBRACKET = 0x5D
+_B_BACKTICK = 0x60
 _B_COMMA_BYTES = b","
 _WSP_BYTES = b" \t\r"
+_BOM_BYTES = "\ufeff".encode()
 _BARE_NAME_RUN = re.compile(rb"[A-Za-z0-9_-]*")
-# A byte the value fast path cannot take: a quote, or a `#`.
-_VALUE_SLOW = re.compile(rb"[\"'#]")
-
-
-def _looks_like_binding(s):
-	"""`* name: value` is the YAML habit for a list of objects. Here it is one
-	string element, so the parser says so (H003): the text up to its first colon
-	has no blank, and the colon ends the text or a blank follows it."""
-	i = s.find(":")
-	if i <= 0 or any(c in _WSP for c in s[:i]):
-		return False
-	return i + 1 == len(s) or s[i + 1] in _WSP
+# A byte the value fast path cannot take: a quote, a backtick, or a `#`.
+_VALUE_SLOW = re.compile(rb"[\"'`#]")
+# The bytes a file line's misspelled bare name stops at, besides the
+# separator (_name_stop).
+_NAME_STOPS = frozenset(b".()[]#,\"'`\n")
 
 
 def _is_wsp_byte(b):
@@ -1146,10 +1306,16 @@ def _utf8_len(b):
 	return 4
 
 
+def _name_stop(b, sep):
+	"""Where a file line's bare name that breaks the spelling rule stops."""
+	return b == sep or b in _NAME_STOPS
+
+
 def _quote_close(s, pos, rules):
-	"""Offset of the quote that closes the one at pos, or None."""
+	"""Offset of the quote that closes the one at pos, or None. 2.x read a
+	backslash as an escape inside quotes; now it is text."""
 	q = s[pos]
-	escapes = q == _B_DQUOTE or rules is Rules.V2
+	escapes = rules is Rules.V2
 	i = pos + 1
 	n = len(s)
 	while i < n:
@@ -1168,28 +1334,48 @@ def _comment_at(s, i):
 	return s[i] == _B_HASH
 
 
-def _scan_piece(s, pos, term, rules, comments):
+def _loose_comma(s, at):
+	"""A comma at `at` with a blank, a comment or the end after it. Only that
+	one splits a value outside brackets; `rw,noatime` is one piece."""
+	return at + 1 >= len(s) or s[at + 1] in (_B_SPACE, _B_TAB, _B_CR, _B_HASH)
+
+
+def _scan_piece(s, pos, term, rules, comments, array=False):
 	"""One piece from pos: a value element up to an unquoted comma or comment,
-	or a selector body up to an unquoted `]` (term). Returns the trimmed piece
-	and the offset of what ended it: the terminator, a comment's `#`, or the
-	end of the text. comments is False only for a selector body in a lookup
-	path, where `[#N]` is the index spelling."""
+	or a selector body up to an unquoted `)` or `]` (term). Returns the
+	trimmed piece and the offset of what ended it: the terminator, a comment's
+	`#`, or the end of the text. comments is False only for a selector body in
+	a lookup path, where a `#` opens nothing. In a bracket array (array) the
+	`]` that closes it ends a value element too, and every comma does;
+	elsewhere only a loose one does, 2.x aside."""
 	n = len(s)
 	pos = _skip_wsp(s, pos)
 	start = pos
 	quote = Quote.NONE
-	if pos < n and (s[pos] == _B_DQUOTE or s[pos] == _B_SQUOTE):
+	every_comma = term != _B_COMMA or array or rules is Rules.V2
+	# A backtick quotes a raw value element. 2.x had none, a selector body
+	# takes none, and a run of three opens a raw block instead.
+	tick = rules is Rules.CURRENT and term == _B_COMMA and not s.startswith(b"```", min(pos, n))
+	if pos < n and (s[pos] == _B_DQUOTE or s[pos] == _B_SQUOTE or (tick and s[pos] == _B_BACKTICK)):
 		close = _quote_close(s, pos, rules)
 		if close is not None:
 			# A value piece may also end at a comment or the line end; a
 			# selector body ends at its bracket and nowhere else.
 			i = _skip_wsp(s, close + 1)
 			if i < n:
-				ended = s[i] == term or (term == _B_COMMA and _comment_at(s, i))
+				c = s[i]
+				ended = ((c == term and (every_comma or _loose_comma(s, i)))
+					or (array and c == _B_RBRACKET)
+					or (term == _B_COMMA and _comment_at(s, i)))
 			else:
 				ended = term == _B_COMMA
 			if ended:
-				q = Quote.DOUBLE if s[pos] == _B_DQUOTE else Quote.SINGLE
+				if s[pos] == _B_DQUOTE:
+					q = Quote.DOUBLE
+				elif s[pos] == _B_BACKTICK:
+					q = Quote.BACKTICK
+				else:
+					q = Quote.SINGLE
 				return Piece(pos + 1, close, q), i
 			# Text after the closing quote: the quote was a character after
 			# all, and the scan restarts at it. 2.x went on from the close
@@ -1207,6 +1393,7 @@ def _scan_piece(s, pos, term, rules, comments):
 				return Piece(start, end, quote), n
 	# 2.x shielded a backslash in value text only. A bare selector body ran to
 	# its first `]`, the same as now, so shielding one here would hide the `]`.
+	# Now a backslash is text.
 	shield = rules is Rules.V2 and term == _B_COMMA
 	content_end = start
 	# The text came off str.encode, so it is valid UTF-8 and a whole-character
@@ -1218,7 +1405,10 @@ def _scan_piece(s, pos, term, rules, comments):
 			pos += 1 + _utf8_len(s[pos + 1])
 			content_end = pos
 			continue
-		if b == term or (comments and b == _B_HASH):
+		if b == term:
+			if every_comma or _loose_comma(s, pos):
+				break
+		elif (array and b == _B_RBRACKET) or (comments and b == _B_HASH):
 			break
 		pos += 1 if b < 0x80 else _utf8_len(b)
 		if b != _B_SPACE and b != _B_TAB and b != _B_CR:
@@ -1258,21 +1448,31 @@ def tokenize_value(text: str, from_: int, rules: Rules, out: Tokens) -> None:
 
 def _scan_value(s, from_, rules, out):
 	n = len(s)
+	if rules is Rules.CURRENT:
+		pos = _skip_wsp(s, from_)
+		if pos < n and s[pos] == _B_LBRACKET:
+			_scan_array(s, from_, pos, out)
+			return
 	# A from_ that is not a character boundary is not a place the byte loop
 	# would ever stop: it strides whole characters, so a comma inside a stride
 	# never splits there, while bytes.find would split on it. No in-tree caller
 	# does that, but tokenize_value is public, so fall through to the loop.
 	if rules is Rules.CURRENT and (from_ >= n or s[from_] & 0xC0 != 0x80) and not _VALUE_SLOW.search(s, from_):
-		# Fast path: with no quote and no `#` after the separator, every comma
-		# splits and every piece is bare, so the scan would only ever trim.
-		# bytes.find and strip run at C speed; the byte loop is the cost, and
-		# such values dominate real documents. Same pieces, same cap, same
-		# spans as the loop below - one piece at a time, so a capped parse
-		# stops where the loop would and never holds the array it refuses.
+		# Fast path: with no quote, no backtick and no `#` after the
+		# separator, every piece is bare and a comma splits when a blank or
+		# the end follows it, so the scan would only ever trim. bytes.find
+		# and strip run at C speed; the byte loop is the cost, and such values
+		# dominate real documents. Same pieces, same cap, same spans as the
+		# loop below - one piece at a time, so a capped parse stops where the
+		# loop would and never holds the array it refuses.
 		count = 0
 		at = from_
+		look = at
 		while True:
-			cut = s.find(_B_COMMA_BYTES, at)
+			cut = s.find(_B_COMMA_BYTES, look)
+			if cut >= 0 and not _loose_comma(s, cut):
+				look = cut + 1
+				continue
 			chunk = s[at:n if cut < 0 else cut]
 			a = at + len(chunk) - len(chunk.lstrip(_WSP_BYTES))
 			b = a + len(chunk.strip(_WSP_BYTES))
@@ -1285,7 +1485,7 @@ def _scan_value(s, from_, rules, out):
 					return
 			if cut < 0:
 				break
-			at = cut + 1
+			at = look = cut + 1
 		_end_value(s, from_, n, out)
 		return
 	pos = from_
@@ -1317,14 +1517,79 @@ def _end_value(s: bytes, from_: int, stop_at: int, out: Tokens) -> None:
 	out.value = (min(a, b), b)
 	if out.elements:
 		last = out.elements[-1]
-		if last.quote is not Quote.SINGLE and last.quote is not Quote.DOUBLE and last.end > b:
+		if last.quote is not Quote.SINGLE and last.quote is not Quote.DOUBLE and last.quote is not Quote.BACKTICK and last.end > b:
 			out.elements[-1] = Piece(last.start, max(b, last.start), last.quote)
+
+
+def _scan_array(s, from_, open_at, out):
+	"""A bracket array from the `[` at open_at: its pieces, each up to an
+	unquoted comma or the `]` that closes it, then nothing but a comment. A
+	fault is noted and the scan goes on, so the comment is still found. Past
+	the element cap the scan stops, as a bare value's does: the line is
+	refused for that whatever else is wrong with it."""
+	n = len(s)
+	out.array = open_at
+	pos = open_at + 1
+	count = 0
+	close = None
+	while True:
+		piece, stop = _scan_piece(s, pos, _B_COMMA, Rules.CURRENT, True, True)
+		out.elements.append(piece)
+		if piece.quote is Quote.NONE and piece.end == piece.start:
+			# `[]`, blanks or not, is the empty array; any other empty piece
+			# is a slip.
+			only = len(out.elements) == 1 and stop < n and s[stop] == _B_RBRACKET
+			if not only and out.array_fault is None:
+				out.array_fault = (piece.start, "an empty element")
+		else:
+			count += 1
+			if out.cap and count > out.cap:
+				out.capped = True
+				out.value = (from_, from_)
+				return
+			if piece.quote is Quote.NONE and out.array_fault is None:
+				k = s.find(b"[", piece.start, piece.end)
+				if k >= 0:
+					out.array_fault = (k, "a '[' inside an array")
+		if stop < n and s[stop] == _B_COMMA:
+			pos = stop + 1
+			continue
+		if stop < n and s[stop] == _B_RBRACKET:
+			close = stop
+		stop_at = stop
+		break
+	end = stop_at
+	if close is not None:
+		after = _skip_wsp(s, close + 1)
+		end = after
+		if after < n and not _comment_at(s, after):
+			if out.array_fault is None:
+				out.array_fault = (after, "text after ']'")
+			# The comment past the stray text, found the way a value finds it.
+			while True:
+				_, stop = _scan_piece(s, after, _B_COMMA, Rules.CURRENT, True)
+				if stop < n and s[stop] == _B_COMMA:
+					after = stop + 1
+					continue
+				end = stop
+				break
+	else:
+		# The one fault a reader can see from the outside, so it wins.
+		out.array_fault = (open_at, "no closing ']' on the line")
+	if end < n:
+		out.comment = end
+	if len(out.elements) == 1 and out.elements[0].quote is Quote.NONE and out.elements[0].end == out.elements[0].start:
+		out.elements = []
+	b = end
+	while b > open_at and _is_wsp_byte(s[b - 1]):
+		b -= 1
+	out.value = (open_at, b)
 
 
 def tokenize(text: str, sep: str, path: bool, rules: Rules, out: Tokens) -> None:
 	"""Tokenize one line (sep = ":") or one lookup path (path: the bare `*`
-	name wildcard is admitted, and a `#` in a selector body is the `[#N]` index
-	rather than a comment); the CLI's --set passes "=". out is cleared and
+	name wildcard is admitted, and a `#` in a selector body opens no comment);
+	the CLI's --set passes "=". out is cleared and
 	reused, so a parse allocates once per document rather than once per line.
 	text is the line after its indent, or the path."""
 	out._clear()
@@ -1358,13 +1623,40 @@ def tokenize(text: str, sep: str, path: bool, rules: Rules, out: Tokens) -> None
 			# always matches, so the None arm only satisfies the type gate.
 			m = _BARE_NAME_RUN.match(s, pos)
 			pos = m.end() if m is not None else start
+			# A file line's name that breaks only the spelling rule still
+			# reads, so the lines under it can load under it (E014). A lookup
+			# path takes the old bare run, any first character. A name led by
+			# a byte order mark does not read: at the start of a file the
+			# load strips the mark, so the line would bind as something else.
+			# One led by a `*` is a list item's line, which never gets here.
+			if not path and rules is Rules.CURRENT and s[start] != _B_STAR and not s.startswith(_BOM_BYTES, start):
+				run = pos
+				end = pos
+				while pos < n and not _name_stop(s[pos], sep_b):
+					b = s[pos]
+					pos += 1 if b < 0x80 else _utf8_len(b)
+					if b != _B_SPACE and b != _B_TAB and b != _B_CR:
+						end = min(pos, n)
+				pos = end
+				if end > start and out.misspelled is None and (run < end or not (0x41 <= s[start] <= 0x5A or 0x61 <= s[start] <= 0x7A)):
+					out.misspelled = start
 			if pos == start:
 				out.fault = (pos, "expected a field name")
 				return
 			name = Piece(start, pos, Quote.NONE)
 		pos = _skip_wsp(s, pos)
 		selector = None
-		open_at = pos if pos < n and s[pos] == _B_LBRACKET else None
+		# 2.x wrote a selector in brackets only. Now it is parens, and a
+		# bracket one still reads, to its `]`, so the parser can say why.
+		open_at = None
+		close_b = _B_RBRACKET
+		if pos < n:
+			if s[pos] == _B_LPAREN and rules is Rules.CURRENT:
+				open_at, close_b = pos, _B_RPAREN
+			elif s[pos] == _B_LBRACKET:
+				if rules is Rules.CURRENT and out.bracket_selector is None:
+					out.bracket_selector = pos
+				open_at = pos
 		if open_at is None and rules is Rules.V2 and pos < n and s[pos] == sep_b:
 			q = _skip_wsp(s, pos + 1)
 			if q < n and s[q] == _B_LBRACKET:
@@ -1373,8 +1665,8 @@ def tokenize(text: str, sep: str, path: bool, rules: Rules, out: Tokens) -> None
 			if star:
 				out.fault = (open_at, "selector on a name wildcard")
 				return
-			piece, stop = _scan_piece(s, open_at + 1, _B_RBRACKET, rules, not path)
-			if stop >= n or s[stop] != _B_RBRACKET:
+			piece, stop = _scan_piece(s, open_at + 1, close_b, rules, not path)
+			if stop >= n or s[stop] != close_b:
 				out.fault = (open_at, "unterminated selector")
 				return
 			if piece.end == piece.start and piece.quote is Quote.NONE:
@@ -1403,20 +1695,37 @@ def tokenize(text: str, sep: str, path: bool, rules: Rules, out: Tokens) -> None
 		return
 
 
+# The quote kinds whose `◉` escapes are read (the reference's decodes()):
+# bare and quoted text. A backtick value is raw, and an open piece is refused
+# before anything reads it.
+_DECODES = frozenset((Quote.NONE, Quote.SINGLE, Quote.DOUBLE))
+_MARK_BYTES = "\u25c9".encode()
+_MARK_OF = {
+	Quote.NONE: _Mark.BARE,
+	Quote.SINGLE: _Mark.SINGLE,
+	Quote.DOUBLE: _Mark.DOUBLE,
+	Quote.BACKTICK: _Mark.BACKTICK,
+	Quote.OPEN: _Mark.BARE,
+}
+
+
 def _piece_text(p, s):
-	"""The text of a piece as the reader sees it: escapes applied inside double
-	quotes, everything else as written. s is the tokenized text's bytes."""
+	"""The text of a piece as the reader sees it: escapes applied, except in a
+	backtick value, which is as written. A bare field name takes no escapes
+	either; _path_of reads those. s is the tokenized text's bytes."""
 	raw = s[p.start:p.end].decode("utf-8", "surrogatepass")
-	if p.quote is Quote.DOUBLE and "\\" in raw:
-		return _apply_escapes(raw)
+	if p.quote in _DECODES and _ESCAPE_MARK in raw:
+		text, _ = _resolve_marks(raw)
+		return raw if text is None else text
 	return raw
 
 
 def _piece_is(p, s, want):
 	"""True when a piece reads as this exact text, without building it."""
 	raw = s[p.start:p.end]
-	if p.quote is Quote.DOUBLE and _B_BACKSLASH in raw:
-		return _apply_escapes(raw.decode("utf-8", "surrogatepass")) == want
+	if p.quote in _DECODES and _MARK_BYTES in raw:
+		text, _ = _resolve_marks(raw.decode("utf-8", "surrogatepass"))
+		return text == want
 	return raw == want.encode("utf-8", "surrogatepass")
 
 
@@ -1425,17 +1734,25 @@ def _element_of(p, s):
 	(dropped, never an error)."""
 	if p.quote is Quote.NONE and p.end == p.start:
 		return None
-	return _Element(_piece_text(p, s), p.quote is Quote.SINGLE or p.quote is Quote.DOUBLE)
+	return _Element(_piece_text(p, s), _MARK_OF[p.quote])
 
 
 def _cell_of_tokens(tok, s):
-	"""The value the tokenized pieces give."""
-	els = []
+	"""The value the tokenized pieces give: an array for a bracket array, else
+	the one element, or Empty. A second piece outside brackets is a bare comma,
+	which every caller refuses first (E026)."""
+	if tok.array is not None:
+		els = []
+		for p in tok.elements:
+			e = _element_of(p, s)
+			if e is not None:
+				els.append(e)
+		return _array(els)
 	for p in tok.elements:
 		e = _element_of(p, s)
 		if e is not None:
-			els.append(e)
-	return _cell(els) if els else _empty()
+			return _cell([e])
+	return _empty()
 
 
 def _one_line(s):
@@ -1462,74 +1779,59 @@ def _first_where(xs, pred):
 	return -1
 
 
-def _apply_escapes(s):
-	"""Escape processing (string reads): \\t \\n \\\\ \\" \\' \\uXXXX
-	\\UXXXXXXXX. An unknown pair stays literal, which only 2.x text still
-	reaches: the current rules refuse one (E023) before anything is read."""
-	return _resolve_escapes(s, Rules.CURRENT)
-
-
-def _apply_escapes_v2(s):
-	"""The 2.x reading, for migrate: no \\u, so 2.x kept \\u0041 as written."""
-	return _resolve_escapes(s, Rules.V2)
-
-
-def _resolve_escapes(s, rules):
-	# Fast path: every non-backslash char passes through verbatim, so with no
-	# backslash the output is s itself. Hot at parse time too (_disp_key runs
-	# per node insert), and backslash-free text dominates.
-	if "\\" not in s:
-		return s
+def _resolve_marks(raw):
+	"""The text of a piece with its `◉NAME◉` escapes resolved, as (text, None).
+	The marks pair up left to right, and the text between each pair must be a
+	name on the list or a code point. (None, message) for the first one that
+	is not (E023)."""
+	m = _ESCAPE_MARK
 	out = []
-	i = 0
-	n = len(s)
-	while i < n:
-		c = s[i]
-		i += 1
-		if c != "\\":
-			out.append(c)
-			continue
-		nxt = s[i] if i < n else None
-		i += 1
-		if nxt in ("u", "U") and rules is Rules.CURRENT:
-			ue = _unicode_escape(nxt, s[i:i + 8])
-			if ue is not None:
-				out.append(ue[0])
-				i += ue[1]
+	rest = raw
+	at = rest.find(m)
+	while at >= 0:
+		out.append(rest[:at])
+		after = rest[at + 1:]
+		close = after.find(m)
+		if close < 0:
+			return None, f"a '{m}' with no partner; an escape is {m}NAME{m}, and a real {m} is {m}ESCAPE_CHAR{m}"
+		text, why = _escape_text(after[:close])
+		if text is None:
+			return None, why
+		out.append(text)
+		rest = after[close + 1:]
+		at = rest.find(m)
+	out.append(rest)
+	return "".join(out), None
+
+
+# What an escape name may be spelled with.
+_ESCAPE_NAME_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-+")
+
+
+def _escape_text(name):
+	"""The text one escape name stands for, as (text, None): a name from the
+	list, either case, or a code point prefix and one to six hex digits.
+	(None, message) when it is neither."""
+	m = _ESCAPE_MARK
+	shown = f"{m}{_one_line(name)}{m}"
+	if name and _ESCAPE_NAME_CHARS.issuperset(name):
+		upper = name.upper()
+		for n, text in _ESCAPE_NAMES:
+			if n == upper:
+				return text, None
+		for prefix in _CODE_PREFIXES:
+			digits = name[len(prefix):]
+			if (upper[:len(prefix)] != prefix or not digits or len(digits) > 6
+					or not _HEX_CHARS.issuperset(digits)):
 				continue
-		if nxt == "t":
-			out.append("\t")
-		elif nxt == "n":
-			out.append("\n")
-		elif nxt == "\\":
-			out.append("\\")
-		elif nxt == '"':
-			out.append('"')
-		elif nxt == "'":
-			out.append("'")
-		elif nxt is None:
-			out.append("\\")
-		else:
-			out.append("\\")
-			out.append(nxt)
-	return "".join(out)
+			v = int(digits, 16)
+			if v > 0x10FFFF or 0xD800 <= v <= 0xDFFF:
+				return None, f"escape '{shown}' names no Unicode character"
+			return chr(v), None
+	return None, f"unknown escape '{shown}'; an escape is a name from the escape list, and a real {m} is {m}ESCAPE_CHAR{m}"
 
 
 _HEX_CHARS = frozenset("0123456789abcdefABCDEF")
-
-
-def _unicode_escape(kind, after):
-	"""The character a \\u or \\U escape names, and how many hex digits it
-	takes: four after u, eight after U, as in TOML. None for a short run, a
-	surrogate or a value past U+10FFFF."""
-	n = 4 if kind == "u" else 8
-	digits = after[:n]
-	if len(digits) < n or not _HEX_CHARS.issuperset(digits):
-		return None
-	v = int(digits, 16)
-	if v > 0x10FFFF or 0xD800 <= v <= 0xDFFF:
-		return None
-	return chr(v), n
 
 
 # gen-escapes.py: begin
@@ -1563,12 +1865,89 @@ _SELECTOR_RANGES = (
 	(0xFE00, 0xFE0F),
 	(0xE0100, 0xE01EF),
 )
+_WHITE_SPACE_RANGES = (
+	(0x0009, 0x000D),
+	(0x0020, 0x0020),
+	(0x0085, 0x0085),
+	(0x00A0, 0x00A0),
+	(0x1680, 0x1680),
+	(0x2000, 0x200A),
+	(0x2028, 0x2029),
+	(0x202F, 0x202F),
+	(0x205F, 0x205F),
+	(0x3000, 0x3000),
+)
+_ESCAPE_MARK = "\u25C9"
+_ESCAPE_NAMES = (
+	("NUL", "\u0000"),
+	("NULL", "\u0000"),
+	("BEL", "\u0007"),
+	("BELL", "\u0007"),
+	("BACKSPACE", "\u0008"),
+	("BS", "\u0008"),
+	("TAB", "\u0009"),
+	("HT", "\u0009"),
+	("HORIZONTAL_TAB", "\u0009"),
+	("NEWLINE", "\u000A"),
+	("LF", "\u000A"),
+	("LINEFEED", "\u000A"),
+	("LINE_FEED", "\u000A"),
+	("NEW_LINE", "\u000A"),
+	("VT", "\u000B"),
+	("VERTICAL_TAB", "\u000B"),
+	("VERTICALTAB", "\u000B"),
+	("FF", "\u000C"),
+	("FORM_FEED", "\u000C"),
+	("FORMFEED", "\u000C"),
+	("CR", "\u000D"),
+	("CARRIAGERETURN", "\u000D"),
+	("CARRIAGE_RETURN", "\u000D"),
+	("CRLF", "\u000D\u000A"),
+	("CARRIAGERETURN_LINEFEED", "\u000D\u000A"),
+	("CARRIAGE_RETURN_LINE_FEED", "\u000D\u000A"),
+	("ESC", "\u001B"),
+	("ESCAPE", "\u001B"),
+	("DEL", "\u007F"),
+	("DELETE", "\u007F"),
+	("SPACE", "\u0020"),
+	("SINGLE_QUOTE", "\u0027"),
+	("SQUOTE", "\u0027"),
+	("S_QUOTE", "\u0027"),
+	("SINGLEQUOTE", "\u0027"),
+	("DOUBLE_QUOTE", "\u0022"),
+	("DQUOTE", "\u0022"),
+	("D_QUOTE", "\u0022"),
+	("DOUBLEQUOTE", "\u0022"),
+	("BACK_TICK", "\u0060"),
+	("BACKTICK", "\u0060"),
+	("TICK", "\u0060"),
+	("ESCAPE_CHAR", "\u25C9"),
+	("FISHEYE", "\u25C9"),
+)
+_CODE_PREFIXES = (
+	"U+",
+	"UNICODE+",
+	"UNICODE-",
+	"UNICODE_",
+	"UNICODE",
+	"U-",
+	"U_",
+	"U",
+)
 # gen-escapes.py: end
 
-# Characters canonical output writes as a \u escape, so a reader of the file
-# sees every character that is there: controls with no short escape, the line
-# and paragraph separators, the interlinear annotation marks, and what Unicode
-# calls default-ignorable, such as zero-width spaces, direction marks and tag
+_WHITE_SPACE = frozenset(chr(c) for lo, hi in _WHITE_SPACE_RANGES for c in range(lo, hi + 1))
+
+
+def _white_space(c):
+	"""Unicode's White_Space, which a bare value or selector body cannot hold."""
+	return c in _WHITE_SPACE
+
+
+# Characters canonical output writes as an escape, so a reader of the file
+# sees every character that is there: the controls, the line and paragraph
+# separators, the interlinear annotation marks, and what Unicode calls
+# default-ignorable, such as zero-width spaces, direction marks and tag
 # characters. The zero-width joiner and non-joiner are not in the list, since
 # emoji and several scripts need them, and _invisible_at keeps two more kinds
 # where text needs them.
@@ -1577,7 +1956,7 @@ _SELECTORS = frozenset(chr(c) for lo, hi in _SELECTOR_RANGES for c in range(lo, 
 
 
 def _invisible_at(t, i):
-	"""Whether t[i] is written as a \\u escape. A variation selector stays as
+	"""Whether t[i] is written as an escape. A variation selector stays as
 	written directly after a visible character, and the tags of a subdivision
 	flag stay too; anywhere else they hide text."""
 	c = t[i]
@@ -1625,24 +2004,30 @@ def _has_invisible(t):
 	return not _INVISIBLE.isdisjoint(t) and any(_invisible_at(t, i) for i, c in enumerate(t) if c in _INVISIBLE)
 
 
-def _unicode_escape_text(c):
-	# \u takes four digits, so a character past U+FFFF is written with \U.
-	if ord(c) > 0xFFFF:
-		return f"\\U{ord(c):08X}"
-	return f"\\u{ord(c):04X}"
+# The name the writer uses for each text: the first one listed, so the walk
+# goes backward and an earlier name overwrites a later one.
+_ESCAPE_NAME_OF = {text: name for name, text in reversed(_ESCAPE_NAMES)}
+
+
+def _escape_of(c):
+	"""A character the writer escapes: by its first name when the list has
+	one, otherwise as a code point with at least four hex digits."""
+	name = _ESCAPE_NAME_OF.get(c)
+	if name is None:
+		name = f"{_CODE_PREFIXES[0]}{ord(c):04X}"
+	return f"{_ESCAPE_MARK}{name}{_ESCAPE_MARK}"
 
 
 def _single_scalar(v):
-	"""The restriction a QUOTED [value] selector adds on top of the display
-	match: quoting selects the scalar spelling only, so the scalar "a, b" and
-	the list a, b stop meeting the same selector."""
-	return v.kind == "cell" and v.els is not None and len(v.els) == 1
+	"""A selector matches one plain value, quoted or not, never an array or a
+	raw block (value-syntax.md, Selectors and discriminators)."""
+	return v.kind == "cell"
 
 
 def _disp_key(v):
-	"""The predicate a `[value]` selector matches with: the display form, which
-	is built from logical strings, so `["q\\"uote"]` finds `'q"uote'` - a
-	logical-string match, not spelling against spelling."""
+	"""The predicate a `(value)` selector matches with: the display form, which
+	is built from logical strings, so `("q◉DQUOTE◉uote")` finds `'q"uote'` -
+	a logical-string match, not spelling against spelling."""
 	return v.display()
 
 
@@ -1657,10 +2042,10 @@ def _merge_key(name, v):
 	here is C-speed, a hand-rolled hash loop is not."""
 	k = v.kind
 	if k == "cell":
-		els = v.els
-		if len(els) == 1:
-			return (name, "c", (els[0].text,))
-		return (name, "c", tuple(e.text for e in els))
+		return (name, "c", v.els[0].text)
+	# Brackets are part of the value, so `[80]` is not the scalar 80.
+	if k == "array":
+		return (name, "a", tuple(e.text for e in v.els))
 	if k == "empty":
 		return (name, "e")
 	return (name, "r", v.info, v.content)
@@ -1765,11 +2150,15 @@ class Migration:
 	"""What migrate produced, and what it could not keep.
 
 	current: the file already names its format, so there was nothing to migrate
-	and text is the input. ambiguous: pieces the two rule sets read differently
-	and nothing can decide between, left as written; always 0 when the caller
-	said the file is 2.x. lost: lines 2.x bound a value on that nothing binds
-	now - bracket text after the colon, or a line break in a value that starts
-	like a Windows path, neither of which has a spelling here."""
+	and text is the input. ambiguous: pieces both rule sets read cleanly and
+	differently, such as `a,b` or an escape, and runs of lines one rule set
+	reads as a raw body and the other as fields, which nothing can decide
+	between, left as written; always 0 when the caller said the file is 2.x.
+	A backslash is not one of them: it stays as written either way. lost:
+	lines 2.x bound a value on that nothing binds now, since there is no 3.0
+	spelling to move to: bracket text after the colon, a selector holding a
+	comma, which matched an array value, and a comma list with lines under it
+	(E028 in brackets)."""
 
 	__slots__ = ("text", "current", "ambiguous", "lost")
 
@@ -1783,12 +2172,17 @@ class Migration:
 class _Migrating:
 	"""The counters a line rewrite reports back, and the one thing it asks."""
 
-	__slots__ = ("from_v2", "ambiguous", "lost")
+	__slots__ = ("from_v2", "ambiguous", "lost", "bracketed", "refused_now")
 
 	def __init__(self, from_v2):
 		self.from_v2 = from_v2
 		self.ambiguous = 0
 		self.lost = 0
+		# The line just rewritten put a 2.x comma list in brackets.
+		self.bracketed = False
+		# These rules refuse the line about to be rewritten, so it is not a
+		# correct 3.0 line, whatever the file is.
+		self.refused_now = False
 
 
 def format_version(text: str) -> int | None:
@@ -1900,7 +2294,7 @@ def _opens_raw(rest: str, tok: Tokens) -> tuple[str, int] | None:
 	rest = rest.lstrip(_WSP)
 	if rest[0] == "`" or rest[0] == "~":
 		fence = _child_fence(rest, tok)
-	elif rest[0] == "#" or rest[0] == "*":
+	elif not _is_field_text(rest):
 		fence = None
 	else:
 		tokenize(rest, ":", False, Rules.CURRENT, tok)
@@ -1911,25 +2305,29 @@ def _opens_raw(rest: str, tok: Tokens) -> tuple[str, int] | None:
 def migrate(text: str, from_v2: bool) -> Migration:
 	"""Rewrite a document written under the 2.x rules so this parser reads the
 	same tree. Each line is read with the 2.x tokenizer and rewritten only
-	where the two rule sets disagree: a bare or single-quoted piece whose
-	backslash meant an escape is double-quoted with that escape; a piece that
-	opened a quote it never closed is quoted whole; the `name:[disc]` selector
-	sugar loses its colon, and on a last segment becomes `name: disc`, with
-	`disc` written the way the formatter writes a value. A rewritten piece
-	holding a backslash is double-quoted, so the result reads the same under
-	2.x and a second run changes nothing.
+	where the two rule sets disagree (value-syntax.md, Migration). A
+	backslash stays as written and reads as text, so a piece is written
+	another way only where these rules would read its text as something
+	else: a quote it shielded, a real `◉`, a quote, tab or bracket in bare
+	text, an open quote, which is quoted whole. A comma list goes in
+	brackets, a `*` item becomes `- `, a bare name not led by a letter is
+	quoted, and a selector goes from brackets to parens, its body quoted
+	where these rules would refuse it bare. The `name:[disc]` selector sugar
+	loses its colon, and on a last segment becomes `name: disc`, with `disc`
+	written the way the formatter writes a value.
 	Everything else - comments, blank lines, raw bodies, layout, a line 2.x
 	could not read - comes through as written. One shape has no spelling
 	here at all: a fence label holding a `#`, which 2.x ran to the end of the
 	line and which now ends at the `#`.
 
-	Which file this is cannot be read off the text: `p: 'C:\\temp'` is one value
-	under 2.x and another under these rules, so rewriting a 3.0 file changes
-	what it says. So the version line decides. A file that names this format is
+	Which file this is cannot always be read off the text: `p: a,b` is an
+	array under 2.x and one string under these rules, and a raw block can open
+	where only one rule set sees it, so rewriting a 3.0 file changes what it
+	says. So the version line decides. A file that names this format is
 	returned untouched; one that names an older format, or a caller passing
-	from_v2, gets the backslash re-spellings; anything else gets every other
-	rewrite and leaves those pieces alone, counted in ambiguous for the caller
-	to refuse over. A rewritten file is stamped with the version line, so the
+	from_v2, gets every rewrite. Anything else leaves those pieces alone where
+	these rules read the line cleanly, counted in ambiguous for the caller to
+	refuse over. A rewritten file is stamped with the version line, so the
 	second run has an answer the first one did not."""
 	return _migrate_text(text, from_v2, True)
 
@@ -1958,6 +2356,12 @@ def _migrate_text(text, from_v2, stamp):
 	if version is not None and version >= FORMAT_MAJOR:
 		return Migration(whole, current=True)
 	st = _Migrating(from_v2 or version is not None)
+	bracketed = []
+	# Where a file that does not say it is 2.x might be a 3.0 one, the lines
+	# these rules already refuse are safe to rewrite.
+	refused: set[int] = set()
+	if not st.from_v2:
+		refused = {d.line for d in Document.parse(text).diagnostics() if d.severity is Severity.Error}
 	out = [bom]
 	tok = Tokens()
 	fence = None
@@ -1981,8 +2385,12 @@ def _migrate_text(text, from_v2, stamp):
 			rest = _trim_wsp_end(rest_full)
 			# lost counts lines, and one line can lose several values.
 			lost_before = st.lost
+			st.bracketed = False
+			st.refused_now = i + 1 in refused
 			migrated, fence = _migrate_line(rest, tok, fence, st)
 			st.lost = min(st.lost, lost_before + 1)
+			if st.bracketed:
+				bracketed.append(i + 1)
 			if migrated != rest:
 				changed = True
 			line_out = indent + migrated + rest_full[len(rest):] + cr
@@ -1993,6 +2401,12 @@ def _migrate_text(text, from_v2, stamp):
 		if differs and not split and not st.from_v2:
 			st.ambiguous += 1
 		split = differs
+	# 2.x let a comma list head lines of its own, and nothing spells that
+	# now: in brackets it is E028, and as one string it reads as another
+	# value.
+	if bracketed:
+		heads = set(bracketed)
+		st.lost += sum(1 for d in Document.parse("".join(out)).diagnostics() if d.code == "E028" and d.line in heads)
 	# Stamping a file whose ambiguous pieces were left alone would claim a
 	# migration that did not finish, and the next run would then skip it. A
 	# document that never closes its raw block has nowhere to put the line
@@ -2034,25 +2448,18 @@ def _reads_same(spelling, quoted, logical):
 	p = tok.elements[0]
 	return (
 		(p.quote is Quote.SINGLE or p.quote is Quote.DOUBLE) == quoted
-		and p.quote is not Quote.OPEN
-		and _bad_escape(tok, True) is None
-		and not _path_like(p, tok.src)
+		and _piece_fault(p, tok.src, _BARE_VALUE) is None
 		and _piece_text(p, tok.src) == logical
 	)
 
 
 def _migrate_spelling(logical, bare):
-	"""How a changed piece is written. 2.x read a backslash in bare and
-	single-quoted text as an escape too, and double quotes are where both rule
-	sets read one alike. No \\u goes in, since 2.x would keep it as written.
-	So the migrated file reads the same under 2.x, and a second run changes
-	nothing. A line break in a value that starts like a Windows path has no
-	such spelling: written this way it is E024, so the caller counts it lost."""
-	if "\\" in logical:
-		return _quote_double_as(logical, Rules.V2)
+	"""How a changed piece is written: the way the writer writes its text, so
+	it reads back as that text. A backslash pair 2.x resolved is not resolved
+	here: it stays as written and reads as text now, with no escape added."""
 	if bare and not _needs_quotes(logical):
 		return logical
-	return _quote_text_as(logical, Rules.V2)
+	return _quote_text(logical)
 
 
 def _v2_bracket_array(body):
@@ -2064,11 +2471,12 @@ def _v2_bracket_array(body):
 	return len(tok.elements) > 1
 
 
-def _value_edits(s, tok, edits, st):
-	"""The re-spellings a value's pieces need. Each piece is read the 2.x way
-	(escapes everywhere, an open quote kept whole, a quote at both ends making
-	it quoted) and rewritten only where the current rules would read the
-	same text as something else."""
+def _value_edits(s, tok, edits):
+	"""The re-spellings a value's pieces need. Each piece is cut the 2.x way
+	(a backslash shields the next character, an open quote is kept whole, a
+	quote at both ends makes it quoted) and rewritten only where the current
+	rules would read its text as something else. Its text is as 2.x wrote it,
+	a backslash pair included, so the same bytes mean the same either way."""
 	for p in tok.elements:
 		raw = s[p.start:p.end].decode("utf-8", "surrogatepass")
 		quoted = p.quote is Quote.SINGLE or p.quote is Quote.DOUBLE
@@ -2076,28 +2484,64 @@ def _value_edits(s, tok, edits, st):
 			a, b = p.start - 1, p.end + 1
 		else:
 			a, b = p.start, p.end
-		if p.quote is Quote.NONE and "\\" not in raw and raw:
+		if (
+			p.quote is Quote.NONE
+			and "\\" not in raw
+			and _ESCAPE_MARK not in raw
+			and raw
+			and _bare_trouble(raw, _BARE_VALUE) is None
+		):
 			continue
-		logical = _apply_escapes_v2(raw)
-		if _reads_same(s[a:b].decode("utf-8", "surrogatepass"), quoted, logical):
+		if _reads_same(s[a:b].decode("utf-8", "surrogatepass"), quoted, raw):
 			continue
-		# A resolved escape is the one edit that turns on which rule set wrote
-		# the file: these bytes say one thing under 2.x and another here. An
-		# open quote or an empty slot reads alike either way, so it still goes,
-		# and so does an unknown pair in double quotes, which both kept. A \u
-		# in double quotes is a character now and was text in 2.x.
-		if p.quote is Quote.DOUBLE:
-			differs = _unicode_pair_differs(s[p.start:p.end])
-		else:
-			differs = logical != raw
-		if differs and not st.from_v2:
-			st.ambiguous += 1
-			continue
-		spelling = _migrate_spelling(logical, not (quoted or p.quote is Quote.OPEN))
-		# Written the way 2.x read it, the line is E024 and binds nothing.
-		if spelling.startswith('"') and _spells_path_escape(spelling):
-			st.lost += 1
+		spelling = _migrate_spelling(raw, not (quoted or p.quote is Quote.OPEN))
 		edits.append((a, b, spelling.encode("utf-8", "surrogatepass")))
+
+
+def _v2_array_text(s, tok):
+	"""A 2.x value with a comma in brackets, since 2.x read every comma as an
+	array. Its empty elements go, as 2.x dropped them. Each element is written
+	the way the writer writes one inside `[]`, unless its quoted spelling
+	already reads the same."""
+	out = ["["]
+	for p in tok.elements:
+		if p.quote is Quote.NONE and p.end <= p.start:
+			continue
+		if len(out) > 1:
+			out.append(", ")
+		raw = s[p.start:p.end].decode("utf-8", "surrogatepass")
+		quoted = p.quote is Quote.SINGLE or p.quote is Quote.DOUBLE
+		if quoted and _reads_same(s[p.start - 1:p.end + 1].decode("utf-8", "surrogatepass"), True, raw):
+			out.append(s[p.start - 1:p.end + 1].decode("utf-8", "surrogatepass"))
+		elif p.quote is Quote.NONE and not _element_needs_quotes(raw):
+			out.append(raw)
+		else:
+			out.append(_quote_text(raw))
+	out.append("]")
+	return "".join(out)
+
+
+def _reads_clean_now(text, from_):
+	"""True when the current rules read a value with no fault, as one piece:
+	then `a,b` is a string now and was an array under 2.x."""
+	tok = Tokens()
+	tokenize_value(text, from_, Rules.CURRENT, tok)
+	return tok.array is None and len(tok.elements) == 1 and _value_fault(tok, tok.src) is None
+
+
+def _quoted_name_now(spelled):
+	"""The name a quoted field name, quotes included, reads as under the
+	current rules, or None when it does not read as one clean name."""
+	line = spelled + ":"
+	tok = Tokens()
+	tokenize(line, ":", False, Rules.CURRENT, tok)
+	if tok.fault is not None or tok.misspelled is not None or len(tok.segments) != 1:
+		return None
+	seg = tok.segments[0]
+	if seg.selector is not None or not (seg.name.quote is Quote.SINGLE or seg.name.quote is Quote.DOUBLE):
+		return None
+	name, _ = _resolve_marks(tok.src[seg.name.start:seg.name.end].decode("utf-8", "surrogatepass"))
+	return name
 
 
 def _migrate_line(rest, tok, fence, st):
@@ -2112,31 +2556,50 @@ def _migrate_line(rest, tok, fence, st):
 	edits: list = []
 	s = rest.encode("utf-8", "surrogatepass")
 	if rest.startswith("*") and len(s) > 1 and _is_wsp_byte(s[1]):
+		edits.append((0, 1, b"-"))
 		tokenize_value(rest, 1, Rules.V2, tok)
 		# A bare comma was refused (E010), so there is nothing to convert.
+		# A value's rules are an item's, and stricter about a colon, so
+		# what reads clean as one reads clean as the other.
 		if len(tok.elements) == 1:
-			_value_edits(s, tok, edits, st)
+			_value_edits(s, tok, edits)
 	else:
 		tokenize(rest, ":", False, Rules.V2, tok)
 		if tok.fault is not None:
 			return rest, fence
 		last = len(tok.segments) - 1
+		# A selector in brackets is E029 now, so its line never reads clean
+		# and is rewritten whatever the file says it is. Only `name:[disc]`
+		# ending the line is a value here.
+		if any(seg.selector is not None and not (i == last and tok.sep is None) for i, seg in enumerate(tok.segments)):
+			st.refused_now = True
 		for i, seg in enumerate(tok.segments):
 			name = s[seg.name.start:seg.name.end].decode("utf-8", "surrogatepass")
-			# An unknown pair in double quotes read the same in 2.x, and is
-			# E023 now, so its backslash is doubled whichever wrote the file.
-			# A \u pair is a character now, so that one needs --from-2x.
-			name_raw = s[seg.name.start:seg.name.end]
-			if seg.name.quote is Quote.DOUBLE and _v2_kept_escape(name_raw):
-				if _unicode_pair_differs(name_raw) and not st.from_v2:
-					st.ambiguous += 1
+			# A backslash in a quoted name is text now, and stays. Only a
+			# quote it shielded, or a real escape mark, needs another
+			# spelling. A bare name not led by a letter goes in quotes, since
+			# `-` then a blank would start a list item now.
+			# A file that does not say it is 2.x could be a 3.0 one. Where it
+			# reads clean under these rules as well, it is left and counted.
+			respell = clean_now = False
+			if seg.name.quote is Quote.SINGLE or seg.name.quote is Quote.DOUBLE:
+				if "\\" in name or _ESCAPE_MARK in name:
+					now = _quoted_name_now(s[seg.name.start - 1:seg.name.end + 1].decode("utf-8", "surrogatepass"))
+					respell = now != name
+					clean_now = now is not None
+			else:
+				# `-` then a blank is a list item now.
+				clean_now = name == "-" and (seg.name.end >= len(s) or _is_wsp_byte(s[seg.name.end]))
+				lead = name[:1]
+				respell = not ("a" <= lead <= "z" or "A" <= lead <= "Z")
+			if respell and clean_now and not st.from_v2 and not st.refused_now:
+				st.ambiguous += 1
+			elif respell:
+				if seg.name.quote is Quote.NONE:
+					a, b = seg.name.start, seg.name.end
 				else:
-					edits.append((seg.name.start - 1, seg.name.end + 1, _escape_name_as(_apply_escapes_v2(name), Rules.V2).encode("utf-8", "surrogatepass")))
-			if seg.name.quote is Quote.SINGLE and _apply_escapes_v2(name) != name:
-				if st.from_v2:
-					edits.append((seg.name.start - 1, seg.name.end + 1, _escape_name_as(_apply_escapes_v2(name), Rules.V2).encode("utf-8", "surrogatepass")))
-				else:
-					st.ambiguous += 1
+					a, b = seg.name.start - 1, seg.name.end + 1
+				edits.append((a, b, _escape_name(name).encode("utf-8", "surrogatepass")))
 			sel = seg.selector
 			if sel is None:
 				continue
@@ -2156,8 +2619,7 @@ def _migrate_line(rest, tok, fence, st):
 			if k > 0 and s[k - 1] == 0x3A:
 				colon = k - 1
 			body = s[sel.start:sel.end].decode("utf-8", "surrogatepass")
-			logical = _apply_escapes_v2(body)
-			unknown = sel.quote is Quote.DOUBLE and _v2_kept_escape(s[sel.start:sel.end])
+			spelled = s[sel.start - 1:sel.end + 1].decode("utf-8", "surrogatepass") if quoted else body
 			if i == last and tok.sep is None:
 				if colon is not None:
 					# `name:[disc]` with nothing after it: 2.x read it as
@@ -2166,58 +2628,83 @@ def _migrate_line(rest, tok, fence, st):
 					# one - and an index or the wildcard was refused as a
 					# selector, so those stay as written. A bare body moves
 					# into a value, where a fence run opens a raw block and a
-					# leading `[` is bracket text, so the emitter writes it.
+					# leading `[` opens an array, so the emitter writes it.
 					if not quoted and (_index_shape(body) or body == "*"):
 						return rest, fence
 					# 2.x bound the bracket array, as one folded string. There
-					# is no spelling to move that to - a value beginning with
-					# `[` is bracket text now - so the binding goes, and the
+					# is no spelling to move that to - in brackets it is an
+					# array of several now - so the binding goes, and the
 					# caller hears about it rather than reading exit 0.
 					if not quoted and _v2_bracket_array(body):
 						st.lost += 1
 						return rest, fence
-					if logical != body and not st.from_v2:
-						st.ambiguous += 1
-						continue
-					if logical != body:
-						spelling = _migrate_spelling(logical, False)
-					elif quoted and not unknown:
-						spelling = _trim_wsp(s[open_at + 1:close].decode("utf-8", "surrogatepass"))
+					# `[a]` is a one-element array now.
+					if not st.from_v2 and not st.refused_now:
+						now_tok = Tokens()
+						tokenize_value(rest, colon + 1, Rules.CURRENT, now_tok)
+						if now_tok.array is not None and now_tok.array_fault is None and _value_fault(now_tok, now_tok.src) is None:
+							st.ambiguous += 1
+							return rest, fence
+					if not quoted:
+						spelling = _migrate_spelling(body, True)
+					elif _reads_same(spelled, True, body):
+						spelling = spelled
 					else:
-						spelling = _migrate_spelling(logical, True)
-					# As a value, a path holding a `\\t` or `\\n` is E024.
-					if spelling.startswith('"') and _spells_path_escape(spelling):
-						spelling = _migrate_spelling(logical, False)
-						if spelling.startswith('"') and _spells_path_escape(spelling):
-							st.lost += 1
+						spelling = _migrate_spelling(body, False)
 					edits.append((colon, close + 1, (": " + spelling).encode("utf-8", "surrogatepass")))
 					continue
 			elif colon is not None:
 				# The colon goes, and one space after it when the author
-				# spaced both sides, so `base : [x]` comes out `base [x]`.
+				# spaced both sides, so `base : [x]` comes out `base (x)`.
 				spaced = colon > 0 and _is_wsp_byte(s[colon - 1]) and _is_wsp_byte(s[colon + 1])
 				edits.append((colon, colon + 1 + int(spaced), b""))
-			# Double quotes already read alike on both sides, so only the other
-			# spellings turn on which rule set wrote the file.
-			if unknown and _unicode_pair_differs(s[sel.start:sel.end]) and not st.from_v2:
-				st.ambiguous += 1
-			elif unknown:
-				edits.append((sel.start - 1, sel.end + 1, _migrate_spelling(logical, False).encode("utf-8", "surrogatepass")))
-			elif logical != body and sel.quote is not Quote.DOUBLE:
-				if st.from_v2:
-					if quoted:
-						a, b = sel.start - 1, sel.end + 1
-					else:
-						a, b = sel.start, sel.end
-					edits.append((a, b, _migrate_spelling(logical, False).encode("utf-8", "surrogatepass")))
+			index = not quoted and (_index_shape(body) or body == "*")
+			# 2.x matched an array value by its display form, and a selector
+			# matches one plain value now, so nothing spells this.
+			if not index and not quoted and _v2_bracket_array(body):
+				st.lost += 1
+				return rest, fence
+			edits.append((open_at, open_at + 1, b"("))
+			edits.append((close, close + 1, b")"))
+			# A backslash is text now, and stays. Only a quote or a blank it
+			# shielded, or one the body has bare, a paren, or a real escape
+			# mark, needs another spelling.
+			if not index and not _selector_reads_back(spelled, body, quoted):
+				spelling = _migrate_spelling(body, False)
+				# Nothing reads back as that body, so there is no way to
+				# write it in parens.
+				if not _selector_reads_back(spelling, body, True):
+					st.lost += 1
+					return rest, fence
+				if quoted:
+					a, b = sel.start - 1, sel.end + 1
 				else:
-					st.ambiguous += 1
+					a, b = sel.start, sel.end
+				edits.append((a, b, spelling.encode("utf-8", "surrogatepass")))
 		if tok.sep is not None:
 			# A same-line fence: the info string ran to the end of the line.
 			fo = _fence_open(s[tok.value[0]:].decode("utf-8", "surrogatepass"))
 			if fo is not None:
 				return _splice(s, edits).decode("utf-8", "surrogatepass"), (fo[0], fo[1])
-			_value_edits(s, tok, edits, st)
+			sep = tok.sep
+			if len(tok.elements) > 1:
+				# A file that does not say it is 2.x could be a 3.0 one, where
+				# `a,b` is a string. `a, b` is an error there, so it is safe.
+				if st.from_v2 or not _reads_clean_now(rest, sep + 1):
+					# Only empty slots, which 2.x dropped: an empty value.
+					if tok.element_count() == 0:
+						edits.append((sep + 1, tok.value[1], b""))
+					else:
+						st.bracketed = True
+						edits.append((tok.value[0], tok.value[1], _v2_array_text(s, tok).encode("utf-8", "surrogatepass")))
+				else:
+					st.ambiguous += 1
+			else:
+				before = len(edits)
+				_value_edits(s, tok, edits)
+				if not st.from_v2 and not st.refused_now and len(edits) > before and _reads_clean_now(rest, sep + 1):
+					del edits[before:]
+					st.ambiguous += 1
 	return _splice(s, edits).decode("utf-8", "surrogatepass"), fence
 
 
@@ -2249,10 +2736,9 @@ class _PathError(Exception):
 
 
 def _index_shape(body):
-	# The spelling of an index selector - an optional `#`, an optional `+`, then
-	# digits - whatever its size. The grammar says 1*DIGIT, with no upper bound.
-	b = body[1:] if body[:1] == "#" else body
-	b = b[1:] if b[:1] == "+" else b
+	# The spelling of an index selector - an optional `+`, then digits - whatever
+	# its size. The grammar says 1*DIGIT, with no upper bound.
+	b = body[1:] if body[:1] == "+" else body
 	return bool(b) and _all_ascii_digits(b)
 
 
@@ -2283,10 +2769,6 @@ def _selector_of(p, s):
 		return ("val", body, True)
 	if body == "*":
 		return ("wild", None)
-	if body.startswith("#"):
-		n = _parse_uint(body[1:])
-		if n is not None:
-			return ("idx", n)
 	n = _parse_uint(body)
 	if n is not None:
 		return ("idx", n)
@@ -2297,118 +2779,211 @@ def _selector_of(p, s):
 	return ("val", body, False)
 
 
-def _selector_open_quote(tok):
-	"""Whether any segment's selector opens a quote it never closes. The
-	tokenizer records it; `_selector_of` reads the body bare either way, so
-	only the diagnostic depends on this."""
-	return any(seg.selector is not None and seg.selector.quote is Quote.OPEN for seg in tok.segments)
+class _Fault:
+	"""Why a line is refused, and whether its name still reads (opens): then
+	the line holds its level open, so what is written under it loads under
+	that name. `at` is where on the line it went wrong, as a byte offset into
+	the text after the indent, for a message that names the column."""
+	__slots__ = ("code", "msg", "opens", "at")
+
+	def __init__(self, code, msg, opens):
+		self.code = code
+		self.msg = msg
+		self.opens = opens
+		self.at = None
 
 
-def _unknown_escape(raw):
-	"""The character after the first backslash in raw (bytes) that starts no
-	escape, or the u or U of one that names no character. Only meaningful for
-	a double-quoted piece."""
-	i = raw.find(b"\\")
-	while i >= 0:
-		# A double-quoted piece cannot end on a lone backslash: it would have
-		# escaped the closing quote.
-		if i + 1 >= len(raw):
-			return None
-		k = raw[i + 1]
-		if k in b"uU":
-			if _unicode_escape(chr(k), raw[i + 2:i + 10].decode("latin-1")) is None:
-				return chr(k)
-		elif k not in b"tn\\\"'":
-			return raw[i + 1:].decode("utf-8", "surrogatepass")[0]
-		i = raw.find(b"\\", i + 2)
-	return None
+# Where a bare piece sits, which sets what it may hold (value-syntax.md,
+# Specification). A field value: spaces are fine, and a loose comma splits
+# it. A list item: as a value, but a loose colon is judged later. An element
+# in `[]`: no whitespace, and every comma splits. A selector body: no
+# whitespace, colon, comma, bracket or paren either, and no `#` to start it.
+_BARE_VALUE = "value"
+_BARE_ITEM = "list item"
+_BARE_ELEMENT = "array element"
+_BARE_SELECTOR = "selector"
 
 
-def _v2_kept_escape(raw):
-	"""_unknown_escape by the 2.x rules, which had no \\u: a pair 2.x kept as
-	written, so migrate doubles its backslash. Takes bytes."""
-	i = raw.find(b"\\")
-	while i >= 0:
-		if i + 1 >= len(raw):
-			return False
-		if raw[i + 1] not in b"tn\\\"'":
-			return True
-		i = raw.find(b"\\", i + 2)
-	return False
+def _loose_colon(raw, i):
+	"""A colon at i of raw with whitespace or the end after it: what a field
+	line run into the one before it looks like."""
+	return raw[i] == ":" and (i + 1 == len(raw) or raw[i + 1] in _WHITE_SPACE)
 
 
-def _unicode_pair_differs(raw):
-	"""A 2.x pair that is a real \\u escape now: 2.x read the text as written
-	and the current rules read a character, so only --from-2x can say which.
-	Takes bytes."""
-	return _v2_kept_escape(raw) and _unknown_escape(raw) is None
-
-
-def _bad_escape(tok, values):
-	"""The first unknown escape in a double-quoted name, selector body or,
-	when values is set, value element (E023). `"C:\\work\\new"` is the usual
-	way to get one, and by then its `\\n` is already a newline, so the line is
-	refused rather than read with the pair kept. A raw block's info string is
-	not escape text, so a fence line passes values False."""
-	pieces = []
-	for seg in tok.segments:
-		pieces.append(seg.name)
-		if seg.selector is not None:
-			pieces.append(seg.selector)
-	if values:
-		pieces.extend(tok.elements)
-	for p in pieces:
-		if p.quote is Quote.DOUBLE:
-			c = _unknown_escape(tok.src[p.start:p.end])
-			if c is not None:
-				return c
-	return None
-
-
-def _path_like(p, src):
-	"""A double-quoted value that starts like a Windows path, a drive (`C:\\`)
-	or a share (`\\\\`), and holds a `\\t` or `\\n` escape (E024).
-	`"C:\\temp"` would read as `C:`, a tab and `emp`, which a path almost
-	never means. Any other pair made the line E023 before this is asked."""
-	if p.quote is not Quote.DOUBLE:
-		return False
-	raw = src[p.start:p.end]
-	drive = len(raw) >= 3 and raw[:1].isalpha() and raw[1:3] == b":\\"
-	if not drive and not raw.startswith(b"\\\\"):
-		return False
-	i = 0
-	while i + 1 < len(raw):
-		if raw[i] != 0x5C:
-			i += 1
+def _bare_trouble(raw, kind):
+	"""What a bare piece may not hold (E025): the first such character, named
+	with the fix for the message, or None."""
+	strict = kind in (_BARE_ELEMENT, _BARE_SELECTOR)
+	# The old `[#N]` index. A file line reads that `#` as a comment, so only
+	# a lookup path gets here with one.
+	if kind == _BARE_SELECTOR and raw.startswith("#"):
+		return "a '#' at the start of a bare selector; an index is a bare number, x(0), and a value starting with '#' is quoted"
+	for i, c in enumerate(raw):
+		if c == "'" or c == '"' or c == "`":
+			trouble = "a quote"
+		elif c == "[" or c == "]":
+			trouble = "a bracket"
+		elif (c == "(" or c == ")") and kind == _BARE_SELECTOR:
+			trouble = "a paren"
+		elif c == "\t" and not strict:
+			trouble = "a tab"
+		elif c == " " and strict:
+			trouble = "a space"
+		elif c in _WHITE_SPACE and strict:
+			trouble = "whitespace"
+		elif c in _WHITE_SPACE and c != " ":
+			trouble = "whitespace other than a space"
+		elif (c == ":" or c == ",") and kind == _BARE_SELECTOR:
+			return f"{'a colon' if c == ':' else 'a comma'} in a bare selector; quote it"
+		elif c == ":" and kind != _BARE_ITEM and _loose_colon(raw, i):
+			if i + 1 == len(raw):
+				return f"a colon at the end of a bare {kind}; quote it"
+			if kind == _BARE_VALUE:
+				return "a colon then a space in a bare value; put each field on its own line, or quote the value"
+			return f"a colon then a space in a bare {kind}; quote it"
+		else:
 			continue
-		if raw[i + 1] in b"tn":
-			return True
-		i += 2
-	return False
+		return f"{trouble} in a bare {kind}; quote it"
+	return None
 
 
-_PATH_MSG = "value starts like a Windows path, and its \\t or \\n would read as a tab or newline; write a backslash as '\\\\' or use single quotes"
+def _piece_fault(p, s, kind):
+	"""What is wrong with one piece of value text, as (code, message): an open
+	quote (E017), a bad escape (E023), or what a bare piece of its kind may not
+	hold (E025). A backtick value is raw, so only an open one is wrong."""
+	if p.quote is Quote.OPEN:
+		return ("E017", f"unterminated quote in {kind}")
+	if p.quote is Quote.BACKTICK:
+		return None
+	raw = s[p.start:p.end].decode("utf-8", "surrogatepass")
+	if _ESCAPE_MARK in raw:
+		_, why = _resolve_marks(raw)
+		if why is not None:
+			return ("E023", why)
+	if p.quote is Quote.NONE:
+		why = _bare_trouble(raw, kind)
+		if why is not None:
+			return ("E025", why)
+	return None
 
 
-def _escape_msg(c):
-	if c in ("u", "U"):
-		return "bad escape '\\" + c + "' in double quotes; \\u takes 4 hex digits and \\U takes 8, naming a Unicode character; write a backslash as '\\\\' or use single quotes"
-	return "unknown escape '\\" + _one_line(c) + "' in double quotes; write a backslash as '\\\\' or use single quotes"
+def _array_fault(tok):
+	"""A malformed bracket array (E019). Only the value is wrong, so the name
+	still reads."""
+	if tok.array_fault is None:
+		return None
+	return _Fault("E019", f"malformed array, {tok.array_fault[1]}; quote the value if it is text", True)
+
+
+def _value_fault(tok, s):
+	"""The first fault in a value: one of its pieces, then a loose comma
+	outside brackets (E026). A piece first, since an open quote or a space is
+	what a comma beside it most often means. Only the value is wrong, so the
+	name still reads."""
+	kind = _BARE_VALUE if tok.array is None else _BARE_ELEMENT
+	for p in tok.elements:
+		f = _piece_fault(p, s, kind)
+		if f is not None:
+			return _Fault(f[0], f[1], True)
+	if tok.array is None and len(tok.elements) > 1:
+		return _Fault("E026", "a comma then a space or the end in a bare value; write an array in brackets, [a, b], or quote the text", True)
+	return None
+
+
+def _item_fault(tok, s):
+	"""Why a stacked item's value is refused: an array, since arrays do not
+	nest (E019), what a value is refused for, a loose comma (E026), or a colon
+	with whitespace or the end after it, the way YAML starts an object in a
+	list (E027)."""
+	if tok.array is not None:
+		return _Fault("E019", "a list item is one value, and arrays do not nest; quote the item if it is text", True)
+	for p in tok.elements:
+		f = _piece_fault(p, s, _BARE_ITEM)
+		if f is not None:
+			return _Fault(f[0], f[1], True)
+	if len(tok.elements) > 1:
+		return _Fault("E026", "a comma then a space or the end in a list item; an item is one value, so quote the text", True)
+	if len(tok.elements) == 1 and tok.elements[0].quote is Quote.NONE:
+		p = tok.elements[0]
+		raw = s[p.start:p.end].decode("utf-8", "surrogatepass")
+		if any(_loose_colon(raw, i) for i in range(len(raw))):
+			return _Fault("E027", "a list item with a colon then a space or the end; write a list of objects as instances, or quote the item if it is text", True)
+	return None
+
+
+def _path_fault(tok, s):
+	"""A fault in a path that leaves its name unread: a bad escape in a quoted
+	name, or anything a value could have wrong in a selector body. The line
+	takes its block with it, since there is no name to hold open."""
+	for seg in tok.segments:
+		name = seg.name
+		if name.quote is Quote.SINGLE or name.quote is Quote.DOUBLE:
+			raw = s[name.start:name.end]
+			if _MARK_BYTES in raw:
+				_, why = _resolve_marks(raw.decode("utf-8", "surrogatepass"))
+				if why is not None:
+					return _Fault("E023", why, False)
+		if seg.selector is not None:
+			f = _piece_fault(seg.selector, s, _BARE_SELECTOR)
+			if f is not None:
+				return _Fault(f[0], f[1], False)
+	return None
 
 
 def _line_fault(tok):
-	"""Why a field line that scanned is refused for its value, before
-	the element cap, as (code, message): bracket text, a bad escape, or a
-	value that starts like a Windows path and holds a `\\t` or `\\n` escape."""
-	if _bracket_text(tok):
-		return ("E019", "bracket array syntax; an array is comma-separated, without brackets")
-	values = _line_fence(tok) is None
-	c = _bad_escape(tok, values)
-	if c is not None:
-		return ("E023", _escape_msg(c))
-	if values and any(_path_like(p, tok.src) for p in tok.elements):
-		return ("E024", _PATH_MSG)
-	return None
+	"""Why a field line that scanned is refused: a path that does not read, a
+	bare name that breaks the spelling rule, a malformed bracket array, a bare
+	comma, or a value with an open quote, a bad escape, or whitespace or a
+	quote in bare text. A raw block's info string is not value text, so a
+	fence line's value is not judged."""
+	f = _name_fault(tok)
+	return f if f is not None else _value_side_fault(tok)
+
+
+def _name_fault(tok):
+	"""The half of _line_fault judged before the element cap: the path and
+	the name. A line with no colon that is one name or path, `404` included,
+	is the missing colon (E015), so the name rule asks only of a line that has
+	one. A blank in a bare name with no colon could be a name and a value, so
+	that line is not guessed at (spec.md, Error handling philosophy). A
+	selector in brackets comes first, since it is what most often makes the
+	rest look wrong. Its line is kept, and holds its level open as the path it
+	would read as in parens, when that reads."""
+	s = tok.src
+	if tok.bracket_selector is not None:
+		f = _Fault("E029", "selector in brackets; write it in parens, name(value), since brackets are only for arrays", _path_fault(tok, s) is None)
+		f.at = tok.bracket_selector
+		return f
+	f = _path_fault(tok, s)
+	if f is not None:
+		return f
+	if tok.misspelled is None:
+		return None
+	if tok.sep is not None:
+		return _Fault("E014", "field name needs quotes; a bare name is a letter, then letters, digits, '-' and '_'", True)
+	blank = None
+	for seg in tok.segments:
+		if seg.name.quote is not Quote.NONE:
+			continue
+		blank = next((k for k in range(seg.name.start, seg.name.end) if _is_wsp_byte(s[k])), None)
+		if blank is not None:
+			break
+	if blank is None:
+		return None
+	f = _Fault("E014", "malformed line skipped: unexpected character after the path", True)
+	f.at = next((k for k in range(blank, len(s)) if not _is_wsp_byte(s[k])), None)
+	return f
+
+
+def _value_side_fault(tok):
+	"""The half of _line_fault judged after the element cap: the value. A
+	line past the cap is refused for that whatever its value (E021)."""
+	f = _array_fault(tok)
+	if f is not None:
+		return f
+	if _line_fence(tok) is not None:
+		return None
+	return _value_fault(tok, tok.src)
 
 
 def _opens_as_written(seg):
@@ -2419,8 +2994,9 @@ def _opens_as_written(seg):
 
 def _opens_later(text):
 	"""True when a reload holds this kept line's level open (LAZY): a field
-	line refused for its value alone, with a path that opens."""
-	if text.startswith(("#", "*")):
+	line refused for its value alone, or a bare name that still reads, with a
+	path that opens."""
+	if not _is_field_text(text):
 		return False
 	tok = Tokens()
 	tokenize(text, ":", False, Rules.CURRENT, tok)
@@ -2428,17 +3004,22 @@ def _opens_later(text):
 		segments, _ = _path_of(tok, tok.src)
 	except _PathError:
 		return False
-	return _bad_escape(tok, False) is None and all(_opens_as_written(g) for g in segments) and _line_fault(tok) is not None
-
-
-def _bracket_text(tok):
-	"""Bracket text (E019): a `[` first after the colon. Read off the first
-	piece rather than the value span, since a capped scan empties the span
-	and keeps the pieces it built."""
-	if tok.sep is None or not tok.elements:
+	if not all(_opens_as_written(g) for g in segments):
 		return False
-	p = tok.elements[0]
-	return p.quote is Quote.NONE and p.end > p.start and tok.src[p.start] == 0x5B
+	f = _line_fault(tok)
+	return f.opens if f is not None else tok.array is not None
+
+
+def _is_item(text):
+	"""A stacked list item's line: `-` then a blank. The blank is what keeps
+	`-x: y` a field line (E014) and `- -5` the item `-5`."""
+	return len(text) > 1 and text[0] == "-" and text[1] in _WSP
+
+
+def _is_field_text(text):
+	"""A line's text after its indent that is read as a field line: not a
+	comment, a list item, or an old `*` item (E013)."""
+	return not text.startswith(("#", "*")) and not _is_item(text)
 
 
 def _path_of(tok, s):
@@ -2458,8 +3039,9 @@ def _path_of(tok, s):
 		# A name with nothing to resolve and no upper case is already its own
 		# resolved, folded spelling, so the source text becomes the name and
 		# nothing else is built. That is nearly every name in a document, and
-		# this runs once per segment per line.
-		if seg.name.quote is Quote.DOUBLE and "\\" in raw:
+		# this runs once per segment per line. A bare name takes no escapes,
+		# so only a quoted one resolves them.
+		if (seg.name.quote is Quote.SINGLE or seg.name.quote is Quote.DOUBLE) and _ESCAPE_MARK in raw:
 			name = _fold_name(_piece_text(seg.name, s))
 		else:
 			name = _fold_name(raw)
@@ -2470,15 +3052,25 @@ def _path_of(tok, s):
 	return segments, s[tok.value[0]:tok.value[1]].decode("utf-8", "surrogatepass")
 
 
+# Why a lookup path with a selector in brackets is refused.
+_BRACKET_LOOKUP = "selector in brackets; write it in parens, name(value)"
+
+
 def _scan_lookup(inp):
-	"""Scan a lookup path `a . b [sel] . c`: the document-line spelling plus
+	"""Scan a lookup path `a . b (sel) . c`: the document-line spelling plus
 	the bare `*` segment (the name wildcard - any child name), which document
 	lines never take; only lookups (reads, the writer probe, schema paths)
-	do. Whitespace around dots, colons and brackets is insignificant."""
+	do. Whitespace around dots, colons and parens is insignificant. A path
+	a file line could not hold is refused the same: a selector in brackets
+	(E029), a bad escape, or a bare selector body with whitespace, a quote, a
+	colon, a comma, a bracket, a paren or a leading `#` in it (E025)."""
 	tok = Tokens()
 	tokenize(inp, ":", True, Rules.CURRENT, tok)
-	if _bad_escape(tok, False) is not None:
-		raise _PathError("unknown escape in double quotes")
+	if tok.bracket_selector is not None:
+		raise _PathError(_BRACKET_LOOKUP)
+	f = _path_fault(tok, tok.src)
+	if f is not None:
+		raise _PathError(f.msg)
 	return _path_of(tok, tok.src)
 
 
@@ -2562,7 +3154,7 @@ class _Parser:
 		# Pure lookup accelerator for _select_or_create; children keeps the
 		# order. Keys are _merge_key tuples, so no key text is built or stored.
 		self.child_map: list = [None]
-		# Per-node (name, display) -> first matching child: the `[value]` selector
+		# Per-node (name, display) -> first matching child: the `(value)` selector
 		# accelerator (its predicate is display(), a different and non-injective
 		# key from child_map's). Same first-wins discipline, same mutation sites,
 		# same lazy allocation.
@@ -2599,6 +3191,12 @@ class _Parser:
 		# it sit under it; those are E018 and are kept as written too.
 		self.kept_hold = None
 		self.kept_any = False
+		self.kept_arrays = False
+		# The text's lines, and the last array line each node's level was
+		# opened by, for one found to have a field under it after it bound
+		# (E028): (line, leading line count, had a trailing comment, blank).
+		self.src: list[str] = []
+		self.array_lines: dict[int, tuple[int, int, bool, bool]] = {}
 		# parse_limited's caps, 0 = uncapped: nodes counted against the arena
 		# (root excluded), elements against a single value's cell, diagnostics
 		# against the list. Past the diagnostic cap nothing is listed, only
@@ -2632,6 +3230,62 @@ class _Parser:
 				self.unlisted_hints += 1
 			return
 		self.diags.append(d)
+
+	def _array_under(self, node):
+		"""A field binds under an array line, which a field with lines under it
+		cannot take (E028). The line is kept as written, written in place of
+		the field's own, and the field is open with no value, as a line refused
+		for its value alone opens it. When the line joined an earlier binding of
+		the same value, that one keeps its value and the field opens on its
+		own. Returns the field, which takes the level."""
+		mark = self.array_lines.pop(node, None)
+		line = mark[0] if mark is not None else self.arena[node].line
+		if line < 1 or line > len(self.src):
+			return node
+		text = _trim_wsp_end(self.src[line - 1]).lstrip(_WSP)
+		self._err(line, "E028", "an array on a field with lines under it; the field takes one plain value or none")
+		self.kept_owed += 1
+		self.kept_arrays = True
+		if mark is not None and mark[0] != self.arena[node].line:
+			_, leads, trailing, blank = mark
+			nd = self.arena[node]
+			name, name_src, up = nd.name, nd.name_src, nd.parent
+			# The lines this one brought to the binding it joined go with it,
+			# and so do its blank and its comment, which its kept text has.
+			blank_before = nd.blank_before and not blank
+			nd.blank_before = blank
+			t = nd._triv()
+			at = min(leads, len(t.leading))
+			moved = t.leading[at:]
+			del t.leading[at:]
+			if not trailing:
+				t.trailing = ""
+			else:
+				ttok = Tokens()
+				tokenize(text, ":", False, Rules.CURRENT, ttok)
+				if ttok.comment is not None and moved:
+					moved.pop()
+			opened = self._select_or_create(up, name, name_src, _empty(), line)
+			moved.append(_Lead(text, blank_before, 0, line))
+			self.arena[opened]._triv().leading.extend(moved)
+			for k in range(len(self.stack) - 1, -1, -1):
+				if self.stack[k][1] == node:
+					self.stack[k] = (self.stack[k][0], opened)
+					break
+			return opened
+		nd = self.arena[node]
+		old_key = _merge_key(nd.name, nd.value)
+		old_disp = (nd.name, _disp_key(nd.value))
+		nd.value = _empty()
+		nd.src = None
+		nd.src_set = False
+		blank_before = nd.blank_before
+		nd.blank_before = False
+		t = nd._triv()
+		t.trailing = ""
+		t.leading.append(_Lead(text, blank_before, 0, line))
+		self._remap_child(node, old_key, old_disp)
+		return node
 
 	def _select_or_create(self, parent, name, name_src, value, line):
 		"""Find (or create by merge rule) the child of `parent` with this (name, value)."""
@@ -3050,6 +3704,8 @@ class _Parser:
 		"""Walk path segments under `parent`, select-or-creating; returns the node
 		for the last segment with `value`. None aborts the line (diagnosed)."""
 		self._star_flush()
+		if parent != ROOT and not self.arena[parent].star_list and self.arena[parent].value.kind == "array":
+			parent = self._array_under(parent)
 		# Field child under a stacked list: diagnose the mix once, keep the field.
 		pnode = self.arena[parent]
 		if pnode.star_list and not pnode.star_mixed:
@@ -3082,14 +3738,14 @@ class _Parser:
 				# selector takes whatever the accelerator holds and does not scan,
 				# so it can bind a raw block where a quoted selector picks the
 				# scalar sibling.
-				found = self._find_by_value(cur, seg.name, sel[1], sel[2])
+				found = self._find_by_value(cur, seg.name, sel[1])
 				if found is not None:
 					cur = found
 				else:
 					disc = _cell([_new_element(sel[1])])
 					cur = self._select_or_create(cur, seg.name, seg.name_src, disc, line)
 				if is_last and not value.is_empty():
-					# `a.b[X]: v` - the discriminator is the value; a second
+					# `a.b(X): v` - the discriminator is the value; a second
 					# value has nowhere unambiguous to go.
 					self._refuse(line, "E002", f"value after selector on '{_diag_name(seg.name)}' ignored", OUT_VALUE_DROPPED, indent)
 			elif sel is not None and sel[0] == "idx":
@@ -3141,20 +3797,20 @@ class _Parser:
 						self.reentered[cur] = line
 		return cur
 
-	def _find_by_value(self, cur, name, text, quoted):
-		"""The child of `cur` named `name` whose display form is the selector text
-		(escapes applied), or None. Quoted selectors only match a single scalar."""
+	def _find_by_value(self, cur, name, text):
+		"""The child of `cur` named `name` whose one plain value is the selector
+		text (escapes applied), or None."""
 		want = text
 		dmap = self.disp_map[cur]
 		found = dmap.get((name, want)) if dmap is not None else None
-		if found is not None and quoted and not _single_scalar(self.arena[found].value):
+		if found is not None and not _single_scalar(self.arena[found].value):
 			found = None
-		if found is None and quoted:
+		if found is None:
 			# The display map keeps only the first same-display child, which may
-			# be an array where a quoted selector wants the scalar. A scalar
-			# child with this text is exactly the one-element value the merge
-			# map is keyed on, so ask that map: a scan of every sibling was the
-			# same answer, quadratic on the create path.
+			# be a raw block where the selector wants the scalar. A scalar child
+			# with this text is exactly the one-element value the merge map is
+			# keyed on, so ask that map: a scan of every sibling was the same
+			# answer, quadratic on the create path.
 			cmap = self.child_map[cur]
 			if cmap is not None:
 				return cmap.get(_merge_key(name, _cell([_new_element(want)])))
@@ -3204,8 +3860,21 @@ class _Parser:
 		grandparent = self.arena[parent].parent
 		return self._select_or_create(grandparent, name, name_src, value, line)
 
+	def _list_full(self, parent):
+		"""True when the parent's stacked list already holds as many items as
+		the caller's element cap allows, so another item line is refused
+		(E021)."""
+		# A held-open level has no node yet, and its index is past the arena.
+		if not self.max_elements or parent == ROOT or parent >= len(self.arena):
+			return False
+		nd = self.arena[parent]
+		return not nd.children and nd.star_list and nd.value.kind == "array" and len(nd.value.els) >= self.max_elements
+
+	def _refuse_capped(self, line, indent):
+		self._refuse(line, "E021", f"array longer than {self.max_elements} elements; line skipped", OUT_DROPPED, indent)
+
 	def _add_star_element(self, parent, tok, s, line, indent):
-		"""One stacked-list element (`* scalar`) appends to the parent's array.
+		"""One stacked-list item (`- scalar`) appends to the parent's array.
 		True when it joined the list."""
 		if parent == ROOT:
 			self._refuse(line, "E007", "list element with no parent field", OUT_DROPPED, indent)
@@ -3214,35 +3883,23 @@ class _Parser:
 		if self.arena[parent].children:
 			self._refuse(line, "E008", "list element mixed with field children; ignored", OUT_DROPPED, indent)
 			return False
-		# One scalar per line; a bare comma is an error, not a second element.
-		if len(tok.elements) > 1:
-			self._refuse(line, "E010", "bare comma in list element (one element per line)", OUT_DROPPED, indent)
-			return False
 		piece = tok.elements[0]
 		el = _element_of(piece, s)
 		if el is None:
 			self._refuse(line, "E009", "empty list element", OUT_DROPPED, indent)
 			return False
-		if piece.quote is Quote.OPEN:
-			self._err(line, "E017", "unterminated quote in value")
-		binding_like = not el.quoted and _looks_like_binding(el.text)
 		clash = _unit_clash(self.arena[parent].name, el.text)
 		# Element cap: each element line past it is refused on its own, the way
 		# any other bad element line is. Only a line that would join the list:
 		# under a field that already has a value it is E011, cap or not.
-		if (
-			self.max_elements
-			and self.arena[parent].star_list
-			and self.arena[parent].value.kind == "cell"
-			and len(self.arena[parent].value.els) >= self.max_elements
-		):
-			self._refuse(line, "E021", f"array longer than {self.max_elements} elements; line skipped", OUT_DROPPED, indent)
+		if self._list_full(parent):
+			self._refuse_capped(line, indent)
 			return False
 		node = self.arena[parent]
 		if node.value.kind == "empty":
 			old_key = _merge_key(node.name, node.value)
 			old_disp = (node.name, _disp_key(node.value))
-			node.value = _cell([el])
+			node.value = _array([el])
 			node.star_list = True
 			# First element: remap now (Empty -> cell changes both keys), then
 			# open the deferral window with the current keys. Rebuilding the
@@ -3252,7 +3909,7 @@ class _Parser:
 			k = _merge_key(node.name, node.value)
 			d = (node.name, _disp_key(node.value))
 			self.star_open = (parent, k, d)
-		elif node.value.kind == "cell" and node.star_list:
+		elif node.value.kind == "array" and node.star_list:
 			if self.star_open is None or self.star_open[0] != parent:
 				self._star_flush()
 				old_key = _merge_key(node.name, node.value)
@@ -3262,8 +3919,6 @@ class _Parser:
 		else:
 			self._refuse(line, "E011", "field already has a value; list element ignored", OUT_DROPPED, indent)
 			return False
-		if binding_like:
-			self._diag(Diagnostic(line, Severity.Hint, "list element looks like a field binding; it is read as a string (quote it to say so)", "H003"))
 		if clash is not None:
 			self._diag(Diagnostic(line, Severity.Hint, clash, "H005"))
 		# A kept element holds its column as a dropped one does, with the field
@@ -3275,25 +3930,20 @@ class _Parser:
 		return True
 
 	def _keep_among(self, parent, indent):
-		"""Kept lines waiting for the list element that just joined sat among
-		the list's elements, so they stay there; comments still ride the
-		field."""
-		if not any(not p.text.startswith("#") for p in self.pending):
+		"""Lines waiting for the list item that just joined sat among the
+		list's items, so they stay there, comments and kept lines alike."""
+		if not self.pending:
 			return
 		node = self.arena[parent]
-		if node.value.kind != "cell":
+		if node.value.kind != "array":
 			return
 		before = len(node.value.els) - 1
-		rest = []
 		among = node._triv().among
 		chain: list[tuple[str, int]] = []
 		held: list[tuple[str, int]] = []
 		for p in self.pending:
-			if p.text.startswith("#"):
-				rest.append(p)
-			else:
-				among.append((before, _Lead(p.text, p.blank_before, _comment_depth(chain, held, indent, p.text, p.indent))))
-		self.pending = rest
+			among.append((before, _Lead(p.text, p.blank_before, _comment_depth(chain, held, indent, p.text, p.indent))))
+		self.pending = []
 		self.pend_marks = []
 
 	def _emit_repeated_leaf_hints(self):
@@ -3327,13 +3977,12 @@ class _Parser:
 				all_scalar_leaves = all(
 					not self.arena[c].children
 					and self.arena[c].value.kind == "cell"
-					and not self.arena[c].star_list
 					for c in group
 				)
 				if all_scalar_leaves:
 					line = max(self.arena[c].line for c in group)
 					joined = ", ".join(_diag_value(self.arena[c].value) for c in group)
-					hints.append((line, f"{_h001_head(name)}{joined}'?"))
+					hints.append((line, f"{_h001_head(name)}[{joined}]'?"))
 		for line, message in hints:
 			self._diag(Diagnostic(line, Severity.Hint, message, "H001"))
 
@@ -3351,6 +4000,7 @@ class _Parser:
 		# which the grammar says are one document.
 		if text.endswith("\n"):
 			lines.pop()
+		self.src = lines
 		i = 0
 		nlines = len(lines)
 		node_capped = False
@@ -3441,17 +4091,19 @@ class _Parser:
 						self._attach_trivia(node, indent, comment)
 				i = nxt
 				continue
-			# Stacked-list element: colon-less by construction ('*' can't begin a name).
-			if rest.startswith("*"):
+			# Stacked-list item: `-` then a blank. A bare name starts with a
+			# letter, so no field line starts that way. A `-` alone after the
+			# trim is an empty item only when a blank followed it, and only the
+			# untrimmed line still knows; with none it is a field line (E014).
+			item = False
+			if rest.startswith("-"):
 				after = rest[1:]
-				# A `*` alone after the trim: whether a space followed it
-				# decides between an empty element and a malformed line, and
-				# only the untrimmed line still knows.
-				spaced = after.startswith((" ", "\t", "\r"))
+				item = after.startswith((" ", "\t", "\r"))
 				if not after:
 					at = len(indent) + lead + 1
-					spaced = lines[i][at:at + 1] in (" ", "\t", "\r")
-				if spaced:
+					item = lines[i][at:at + 1] in (" ", "\t", "\r")
+			if item or rest.startswith("*"):
+				if item:
 					parent = self._resolve_parent(indent, found)
 					if parent is None:
 						self._misplaced(lineno, "E012", indent, rest, had_blank, False)
@@ -3462,14 +4114,14 @@ class _Parser:
 						i += 1
 						continue
 					tokenize_value(rest, 1, Rules.CURRENT, tok)
-					c = _bad_escape(tok, True)
-					fault = None
-					if c is not None:
-						fault = ("E023", _escape_msg(c))
-					elif any(_path_like(p, tok.src) for p in tok.elements):
-						fault = ("E024", _PATH_MSG)
-					if fault is not None:
-						self._refuse(lineno, fault[0], fault[1], _out_retained(_trim_wsp_end(rest), had_blank), indent)
+					# An item past the cap is refused for that, whatever its
+					# value. A good one finds out where it would join.
+					f = _item_fault(tok, tok.src)
+					if f is not None:
+						if self._list_full(parent):
+							self._refuse_capped(lineno, indent)
+						else:
+							self._refuse(lineno, f.code, f.msg, _out_retained(_trim_wsp_end(rest), had_blank), indent)
 						i += 1
 						continue
 					parent = self._open_lazy(parent)
@@ -3480,6 +4132,10 @@ class _Parser:
 					if parent != ROOT:
 						if self._add_star_element(parent, tok, tok.src, lineno, indent):
 							self._keep_among(parent, indent)
+							# A comment on an item stays on its item.
+							if comment and self.arena[parent].value.kind == "array":
+								self.arena[parent]._triv().notes.append((len(self.arena[parent].value.els) - 1, comment))
+								comment = ""
 						head = self.arena[parent].line
 						if self.ends and self.ends[-1][0] == head:
 							self.ends[-1] = (head, lineno)
@@ -3501,10 +4157,11 @@ class _Parser:
 					self._misplaced(lineno, "E018", indent, rest, had_blank, False)
 					i += 1
 					continue
-				# Content-malformed at any position, so safe to retain. The BOM
+				# The old item marker. Content-malformed at any position, so safe
+				# to retain, and the items around it still load. The BOM
 				# exception the field arm makes cannot apply here: this line
 				# starts with the '*' that brought us in.
-				self._refuse(lineno, "E013", "malformed line: '*' must be followed by a space", _out_retained(_trim_wsp_end(rest), had_blank), indent)
+				self._refuse(lineno, "E013", "a list item is written '- ' now, not '*'", _out_retained(_trim_wsp_end(rest), had_blank), indent)
 				i += 1
 				continue
 			# Field line.
@@ -3537,23 +4194,20 @@ class _Parser:
 				i = self._skip_field_line(lines, i, indent, tok) if bom else self._keep_body(lines, i, indent, tok)
 				continue
 			nxt = i + 1
-			# A selector body takes the same open-quote rule as a value
-			# element, and the same code: the body is read bare, quotes and
-			# all, so the line still binds - somewhere the author did not mean.
-			if _selector_open_quote(tok):
-				self._err(lineno, "E017", "unterminated quote in selector")
-			# A value written the way JSON, TOML and YAML write an array, or an
-			# escape that cannot be read as written or as an escape without
-			# guessing. The brackets are not a selector after the colon, and
-			# reading the text without them would bake a changed value in, so
-			# the line is kept verbatim. Judged before the cap and from the
-			# first piece, which the cap keeps: a cap refuses only a line that
-			# would bind. Only the value is wrong, so the lines under it still
-			# load, under the path opened empty.
-			fault = _line_fault(tok)
-			if fault is not None:
-				self._refuse(lineno, fault[0], fault[1], _out_retained(_trim_wsp_end(rest), had_blank), indent)
-				if _bad_escape(tok, False) is None:
+			# A line that reads only one way, or no way, is kept verbatim
+			# rather than read with a guess: a malformed array, an open quote, a
+			# bad escape, a tab, a quote or a loose colon, a bare comma, or a
+			# bare name that breaks the spelling rule. The path and the name are
+			# judged before the cap, and the value after it, so a line past the
+			# cap is E021 whatever its value. When the name still reads, the
+			# lines under it still load, under the path opened empty.
+			f = _name_fault(tok)
+			if f is None and not tok.capped:
+				f = _value_side_fault(tok)
+			if f is not None:
+				msg = f.msg if f.at is None else f"{f.msg}, at column {len(indent) + lead + f.at + 1}"
+				self._refuse(lineno, f.code, msg, _out_retained(_trim_wsp_end(rest), had_blank), indent)
+				if f.opens:
 					self._hold_open(parent, segments, lineno, indent)
 				# Only a fault in the name leaves a fence to read here.
 				i = self._keep_body(lines, i, indent, tok)
@@ -3583,8 +4237,6 @@ class _Parser:
 					# Same-line fence spelling.
 					value, nxt = self._consume_raw(lines, i + 1, lineno, indent, fence)
 				else:
-					if any(p.quote is Quote.OPEN for p in tok.elements):
-						self._err(lineno, "E017", "unterminated quote in value")
 					src_text = value_text
 					value = _cell_of_tokens(tok, s)
 			# Record only when the bound node holds exactly this line's value
@@ -3611,6 +4263,9 @@ class _Parser:
 					self.arena[node].src_set = True
 					if not _src_matches_display(self.arena[node].value, src_text):
 						self.arena[node].src = src_text
+				# What the node had before this line, for an array line that
+				# turns out to have a field under it.
+				mark = (lineno, len(self.arena[node].leading()), self.arena[node].trailing() != "", self.arena[node].blank_before)
 				if had_blank:
 					self.arena[node].blank_before = True
 				if nxt > i + 1:
@@ -3624,6 +4279,8 @@ class _Parser:
 						self._give_pending(self._head_of(node, nsegs), indent, k + 1, False)
 				self._attach_trivia(node, indent, comment)
 				self.stack.append((indent, node))
+				if tok.array is not None:
+					self.array_lines[node] = mark
 			i = nxt
 		# A cap crossed on the document's last line still reports, with nothing
 		# left to skip.
@@ -3661,6 +4318,7 @@ class _Parser:
 		doc._ends = self.ends
 		doc._dropped = self.dropped
 		doc._kept = self.kept_any
+		doc._arrays = self.kept_arrays
 		doc._kept_owed = self.kept_owed
 		doc._settle_kept()
 		return doc
@@ -3875,6 +4533,43 @@ def _commented(text):
 	return "# " + text[len(_leading_ws(text)):]
 
 
+def _settle_array_run(run, heads):
+	"""Comment out each kept array line in a run but one written in place of
+	the line of a field with fields under it, the run's last when heads says
+	so. Anywhere else no field binds under it on a reload, so it would bind
+	itself. What sat under it goes the same way, since a comment holds no
+	level."""
+	settled = False
+	for k, lead in enumerate(run):
+		if not lead.text or lead.text[0] in "# \t" or not _array_kept(lead.text) or (heads and k + 1 == len(run)):
+			continue
+		depth = lead.depth
+		end = next((e for e in range(k + 1, len(run)) if not run[e].text.startswith("#") and run[e].depth <= depth), len(run))
+		for x in range(k, end):
+			if not run[x].text.startswith("#"):
+				run[x].text = _commented(run[x].text)
+				run[x].kept = True
+		settled = True
+	if settled:
+		_restep(run)
+
+
+def _array_kept(text):
+	"""A field line kept only for the lines under it: a whole array, and
+	nothing else wrong with it (E028)."""
+	if not _is_field(text) or not _is_field_text(text):
+		return False
+	tok = Tokens()
+	tokenize(text, ":", False, Rules.CURRENT, tok)
+	if tok.array is None:
+		return False
+	try:
+		_path_of(tok, tok.src)
+	except _PathError:
+		return False
+	return _line_fault(tok) is None
+
+
 def _note_text(s):
 	"""A path in a note, kept to one line."""
 	return s.replace("\n", "\\n").replace("\r", "\\r")
@@ -3885,7 +4580,7 @@ def _kept_naming(lead, name):
 	at the level of the block it sits in: a field line refused for its value
 	alone, which a reload would read as another `name` once fixed by hand. A
 	line with a raw body could not be commented out as one line."""
-	if lead.depth != 0 or lead.text.startswith(("#", "*", " ", "\t")) or "\n" in lead.text:
+	if lead.depth != 0 or not _is_field_text(lead.text) or lead.text.startswith((" ", "\t")) or "\n" in lead.text:
 		return None
 	tok = Tokens()
 	tokenize(lead.text, ":", False, Rules.CURRENT, tok)
@@ -3895,9 +4590,8 @@ def _kept_naming(lead, name):
 		return None
 	if len(segments) != 1 or segments[0].selector is not None or segments[0].name != name:
 		return None
-	if _bad_escape(tok, False) is not None:
-		return None
-	return _line_fault(tok)
+	f = _line_fault(tok)
+	return (f.code, f.msg) if f is not None and f.opens else None
 
 
 def _note_lead(lead, path, code, msg):
@@ -4251,7 +4945,7 @@ def _authored_head(src, canon):
 	tok = Tokens()
 	cut = []
 	for text in (rest, c):
-		if text.startswith(("#", "*")):
+		if not _is_field_text(text):
 			return None
 		tokenize(text, ":", False, Rules.CURRENT, tok)
 		if len(tok.segments) != 1 or tok.segments[0].selector is not None or tok.fault is not None:
@@ -4287,7 +4981,7 @@ def _splice_value(line, was, w, now, u):
 	ilen = len(t) - len(t.lstrip(" \t"))
 	rest = t[ilen:].lstrip(_WSP)
 	head = len(t) - len(rest)
-	if rest.startswith(("#", "*")):
+	if not _is_field_text(rest):
 		return None
 	tok = Tokens()
 	tokenize(rest, ":", False, Rules.CURRENT, tok)
@@ -4296,7 +4990,7 @@ def _splice_value(line, was, w, now, u):
 		return None
 	a, b = tok.value
 	sb = tok.src
-	if _fence_open(sb[a:b].decode("utf-8", "surrogatepass")) is not None or _bracket_text(tok):
+	if _fence_open(sb[a:b].decode("utf-8", "surrogatepass")) is not None or tok.array_fault is not None:
 		return None
 	# The blanks after the colon stay as they were when there was a value and
 	# still is one; the canonical value comes with one space.
@@ -4713,7 +5407,7 @@ def _errors_within(d, of):
 
 class Document:
 	"""A parsed SHCL document: the tree, its diagnostics, and its strictness level."""
-	__slots__ = ("arena", "diags", "_strictness", "orphans", "_lost", "_kept_owed", "_index", "_probe", "_probe_doc", "_kept", "_kept_near", "_kept_sum", "_ends", "_dropped", "_source")
+	__slots__ = ("arena", "diags", "_strictness", "orphans", "_lost", "_kept_owed", "_index", "_probe", "_probe_doc", "_kept", "_arrays", "_bracketed", "_kept_near", "_kept_sum", "_ends", "_dropped", "_source")
 
 	def __init__(
 		self,
@@ -4749,6 +5443,12 @@ class Document:
 		self._probe_doc: Document | None = None
 		# Holds a misplaced line kept as written, so edits have to settle it.
 		self._kept = False
+		# Holds an array line kept for the lines under it (E028), which an
+		# edit can leave with none.
+		self._arrays = False
+		# Every list has been put in brackets by a merge, so the next one only
+		# has the nodes it brings or visits to do.
+		self._bracketed = False
 		# What the last settle's kept lines were modeled through, and a sum of
 		# it, so an edit that changes none of it skips the settle. Removing a
 		# block above all of it goes unseen, which leaves _kept set with no
@@ -4871,8 +5571,36 @@ class Document:
 		content, so save_file refuses then (save_file_lossy overrides), and
 		save_file_keep_lines does when it cannot keep the lines. It also counts
 		lines the load kept as written that an edit took and design.md's
-		kept-lines table does not let it take."""
-		return self._lost + self._kept_shortfall()
+		kept-lines table does not let it take, and list items the saved text
+		could not load back (see _unloadable_items)."""
+		return self._lost + self._kept_shortfall() + self._unloadable_items()
+
+	def _unloadable_items(self) -> int:
+		"""The items of a list no text loads back: one with a field under it
+		(E001), so written stacked, after an empty binding of its name that has
+		fields. A reload joins its bare header to that binding and drops the
+		items (E008), so a save refuses (2026100511210900). An edit or a merge
+		can build one, and so can a load, where a kept array line (E028) heads
+		the list. Then the source text loads it back, so the save that keeps
+		lines still writes it."""
+		n = 0
+		stack = [ROOT]
+		arena = self.arena
+		while stack:
+			kids = arena[stack.pop()].children
+			for k, c in enumerate(kids):
+				nd = arena[c]
+				if nd.value.kind != "array" or not nd.children or not _stacks(nd):
+					continue
+				# The first empty one is the one a reload joins it to.
+				for e in kids[:k]:
+					en = arena[e]
+					if en.name == nd.name and en.value.is_empty():
+						if en.children:
+							n += len(nd.value.els)
+						break
+			stack.extend(kids)
+		return n
 
 	def _kept_shortfall(self) -> int:
 		"""Kept lines the document owes and no longer holds. Free on a
@@ -4990,8 +5718,11 @@ class Document:
 		an edit took a kept line it should not have, this is to_canonical()
 		and False."""
 		# The reparse check cannot see a kept line gone from both the tree and
-		# the text, so falling back leaves it to the lost-count gate.
-		if self._source is not None and self._kept_shortfall() == 0:
+		# the text, so falling back leaves it to the lost-count gate. A source
+		# that was canonical skips that check, so a list no text loads back
+		# falls back to it too. Any other source is held to the check, and one
+		# that loads such a list back is kept.
+		if self._source is not None and self._kept_shortfall() == 0 and (self._source != "" or self._unloadable_items() == 0):
 			t = _keep_lines(self._source, self)
 			if t is not None:
 				return t, True
@@ -5060,12 +5791,46 @@ class Document:
 		either way. One among a list's elements goes above the list, as a
 		reload files a comment there. Runs after a load and after each edit,
 		and only while the document holds such a line."""
+		self._settle_arrays()
 		# A line moved out of a list can leave it written inline, which changes
 		# what the lines after it sit under, so go again until nothing moves.
+		was = self._kept
 		while self._kept and self._settle_kept_once():
 			pass
 		if self._kept:
 			self._kept_sum = self._near_sum()
+		# One of those may have been the line under a kept array.
+		if was:
+			self._settle_arrays()
+
+	def _settle_arrays(self):
+		"""A kept array line stays kept only while it heads a field with fields
+		under it (E028). One a merge or an edit leaves anywhere else would bind
+		on a reload, so it is written as a comment, the way the settle writes a
+		misplaced line that would read differently."""
+		if not self._arrays:
+			return
+		arena = self.arena
+		stack = list(arena[ROOT].children)
+		while stack:
+			n = stack.pop()
+			stack.extend(arena[n].children)
+			heads = _heads_block(arena[n])
+			t = arena[n].trivia
+			if t is None:
+				continue
+			_settle_array_run(t.leading, heads)
+			_settle_array_run(t.inside, False)
+			_settle_array_run(t.after, False)
+			start = 0
+			while start < len(t.among):
+				at = t.among[start][0]
+				end = start
+				while end < len(t.among) and t.among[end][0] == at:
+					end += 1
+				_settle_array_run([a[1] for a in t.among[start:end]], False)
+				start = end
+		_settle_array_run(self.orphans, False)
 
 	def _resettle_kept(self):
 		"""After an edit. A kept line binds or not by the lines between it and
@@ -5074,6 +5839,8 @@ class Document:
 		(20260924d item 2)."""
 		if self._kept and self._near_sum() != self._kept_sum:
 			self._settle_kept()
+		else:
+			self._settle_arrays()
 
 	def _near_sum(self):
 		"""Everything the emit model reads from the nodes in `_kept_near`: each
@@ -5093,7 +5860,7 @@ class Document:
 			t = nd.trivia
 			parts.append((
 				n, len(nd.children), pos < len(kids) and kids[pos] == n, _stacks(nd),
-				v.kind, len(v.els) if v.kind == "cell" else 0,
+				v.kind, len(v.els) if v.kind == "array" else 0,
 				None if t is None else (
 					tuple((c.depth, c.text) for c in t.leading),
 					tuple((c.depth, c.text) for c in t.inside),
@@ -5208,13 +5975,14 @@ class Document:
 				out.append("  ")
 				out.append(trailing)
 			out.append("\n")
-		elif v.kind == "cell" and node.trivia is not None and _stacks(node):
+		elif v.kind == "array" and _stacks(node):
 			# Stacked, with the kept lines where they sat.
 			if trailing:
 				out.append("  ")
 				out.append(trailing)
 			out.append("\n")
-			among = node.trivia.among
+			among = node.among()
+			notes = node.notes()
 			column = "\t" * (depth + 1)
 			nxt = 0
 			for i, el in enumerate(v.els):
@@ -5222,8 +5990,12 @@ class Document:
 					_push_leads(e, (among[nxt][1],), depth + 1, (idx, "among", nxt))
 					nxt += 1
 				out.append(column)
-				out.append("* ")
+				out.append("- ")
 				out.append(_emit_element(el))
+				for at, note in notes:
+					if at == i:
+						out.append("  ")
+						out.append(note)
 				out.append("\n")
 				e.placed(column)
 			while nxt < len(among):
@@ -5232,7 +6004,16 @@ class Document:
 		elif v.kind == "cell":
 			at = len(out)
 			out.append(" ")
-			out.append(_emit_cell(v.els))
+			out.append(_emit_element(v.els[0]))
+			e.span(at)
+			if trailing:
+				out.append("  ")
+				out.append(trailing)
+			out.append("\n")
+		elif v.kind == "array":
+			at = len(out)
+			out.append(" ")
+			out.append(_emit_array(v.els))
 			e.span(at)
 			if trailing:
 				out.append("  ")
@@ -5322,7 +6103,7 @@ class Document:
 				else:
 					nxt.extend(self._children_named(node, seg.name))
 			if seg.star:
-				# Name wildcard: same per-slot split as `[*]`, over every child.
+				# Name wildcard: same per-slot split as `(*)`, over every child.
 				rest = segs[i + 1:]
 				slots = []
 				for inst in nxt:
@@ -5336,7 +6117,7 @@ class Document:
 				cur = nxt
 			elif sel[0] == "val":
 				want = sel[1]
-				cur = [c for c in nxt if _disp_key(self.arena[c].value) == want and (not sel[2] or _single_scalar(self.arena[c].value))]
+				cur = [c for c in nxt if _single_scalar(self.arena[c].value) and _disp_key(self.arena[c].value) == want]
 			elif sel[0] == "idx":
 				k = sel[1]
 				cur = [nxt[k]] if k < len(nxt) else []
@@ -5390,7 +6171,7 @@ class Document:
 					cur = nxt
 				elif sel[0] == "val":
 					want = sel[1]
-					cur = [c for c in nxt if _disp_key(self.arena[c].value) == want and (not sel[2] or _single_scalar(self.arena[c].value))]
+					cur = [c for c in nxt if _single_scalar(self.arena[c].value) and _disp_key(self.arena[c].value) == want]
 				else:
 					k = sel[1]
 					cur = [nxt[k]] if k < len(nxt) else []
@@ -5512,7 +6293,7 @@ class Document:
 
 	def instance_paths(self) -> list[str]:
 		"""paths() one instance at a time: every binding's path in file order,
-		with `[#i]` on each segment whose name repeats under its parent, so
+		with `(i)` on each segment whose name repeats under its parent, so
 		each path reads exactly one node and a repeated block is walked
 		instance by instance. Segments are written as paths() writes them."""
 		out: list[str] = []
@@ -5534,7 +6315,7 @@ class Document:
 				path = seg if not prefix else prefix + "." + seg
 				if total[name] > 1:
 					i = at.get(name, 0)
-					path += f"[#{i}]"
+					path += f"({i})"
 					at[name] = i + 1
 				paths.append((c, path))
 			stack.extend(reversed(paths))
@@ -5594,7 +6375,7 @@ class Document:
 			node._triv().leading = tail[:k + 1]
 			del tail[:k + 1]
 			_restep(tail)
-		_settle_block(self.arena, parent, len(self.arena[parent].children) - 1)
+		self._settle(parent, len(self.arena[parent].children) - 1)
 		return idx
 
 	def write_reason(self, path: str) -> WriteReason:
@@ -5620,7 +6401,7 @@ class Document:
 		if len(segments) > MAX_DEPTH:
 			return (WriteReason.TooDeep, None)
 		# The probe walk _place() validates with: once it falls off the existing
-		# tree, a later `[#k]` can never match (fresh intermediates are created
+		# tree, a later `(k)` can never match (fresh intermediates are created
 		# childless), so an index segment past that point is unresolvable.
 		probe = ROOT
 		for seg in segments:
@@ -5641,7 +6422,7 @@ class Document:
 					want = sel[1]
 					found = None
 					for c in self._children_named(probe, seg.name):
-						if _disp_key(self.arena[c].value) == want and (not sel[2] or _single_scalar(self.arena[c].value)):
+						if _single_scalar(self.arena[c].value) and _disp_key(self.arena[c].value) == want:
 							found = c
 							break
 					probe = found
@@ -5653,10 +6434,21 @@ class Document:
 				trail.append(probe)
 		return (WriteReason.Writable, trail)
 
+	def _write_target(self, path):
+		"""The node a write at this path lands on when it is already there."""
+		try:
+			segments, value_text = _scan_lookup(path)
+		except _PathError:
+			return None
+		trail: list = []
+		if self._probe_write(segments, value_text, trail)[0] != WriteReason.Writable or not trail or trail[-1] is None:
+			return None
+		return trail[-1]
+
 	def _place(self, path, setter):
 		"""Walk (creating as needed) to the node a write targets. A trailing
 		name with no selector hits the first same-named instance (or a new one);
-		a `[value]` selector selects the matching instance or creates it; `[#k]`
+		a `(value)` selector selects the matching instance or creates it; `(k)`
 		must already exist. None = path unusable for a write (write_reason()
 		says why). Validation runs first, so a doomed path leaves no
 		half-created intermediates behind. A setter creating a field deals
@@ -5670,10 +6462,13 @@ class Document:
 			return None
 		# Nothing is created until every segment the write would create is known
 		# to read back: the name through the name escaper, an instance selector
-		# as the value it binds.
+		# as the value it binds, and the first under a field that takes a field
+		# under it, which an array does not (E028).
 		for i, seg in enumerate(segments):
 			if trail[i] is not None:
 				continue
+			if i > 0 and trail[i - 1] is not None and self.arena[trail[i - 1]].value.kind == "array":
+				return None
 			if not _name_reads_back(seg.name):
 				return None
 			sel = seg.selector
@@ -5713,21 +6508,37 @@ class Document:
 		return self._new_child(parent, name, name_src, value)
 
 	def _set_value(self, path: str, value) -> bool:
+		return self._set_value_as(path, value, True)
+
+	def _set_value_as(self, path, value, keep_quotes):
+		"""_set_value(), saying whether an overwrite keeps the old value's
+		quote kind. A literal says its own quotes, so it does not."""
 		if not _value_reads_back(value):
 			return False
 		if self._probe:
 			return True
 		fresh = len(self.arena)
+		# A field with lines under it takes one plain value or none (E028).
+		if value.kind == "array":
+			n = self._write_target(path)
+			if n is not None and self.arena[n].children:
+				return False
 		idx = self._place(path, True)
 		if idx is None:
 			return False
 		# _place() has already done it for a field it created.
 		if idx < fresh and self._kept_owed > 0:
 			self._comment_out_kept(self.arena[idx].parent, self.arena[idx].name, path, False)
+		if keep_quotes:
+			_keep_mark(self.arena[idx].value, value)
+		# A list written stacked stays stacked, as an overwrite keeps quotes,
+		# unless there is nothing left to stack.
+		stacked = _stacks(self.arena[idx]) and value.kind == "array" and bool(value.els)
 		self.arena[idx].value = value
 		self.arena[idx].src = None   # written value has no source spelling
 		# No longer the list the lines among its elements sat in.
 		_unstack(self.arena[idx])
+		self.arena[idx].star_list = stacked
 		# An empty binding or a raw block can put a fence after an empty
 		# sibling of its name.
 		fence_side = value.kind == "raw" or value.is_empty()
@@ -5828,7 +6639,7 @@ class Document:
 		# No other field of this name, so the index order holds.
 		if self._index is not None:
 			self._index.append(_name_key(parent, name), idx)
-		_settle_block(self.arena, parent, pos)
+		self._settle(parent, pos)
 		return idx
 
 	def _collapse_dup(self, node):
@@ -5855,7 +6666,7 @@ class Document:
 		moved = list(self.arena[loser].children)
 		_fold_node_into(self.arena, survivor, loser)
 		self.arena[parent].children = [c for c in self.arena[parent].children if c != loser]
-		_settle_block(self.arena, parent, 1)
+		self._settle(parent, 1)
 		ix = self._index
 		if ix is not None:
 			ix.unlink(_name_key(parent, self.arena[loser].name), loser)
@@ -5869,16 +6680,32 @@ class Document:
 		"""The write-side twin of _settle_fence_trailing: only the written name's
 		instances can change, and walking them off the index keeps a write off
 		the rest of the block."""
-		seen_empty = False
+		empty = -1
 		for c in self._children_named(parent, name):
 			nd = self.arena[c]
 			t = nd.trivia
-			if seen_empty and nd.value.kind == "raw" and t is not None and t.trailing:
+			if empty >= 0 and nd.value.kind == "raw" and t is not None and t.trailing:
 				_trailing_to_leading(nd)
-			elif seen_empty and _stacks(nd):
-				_unstack(nd)
-			elif nd.value.is_empty():
-				seen_empty = True
+			elif empty >= 0 and _stacks(nd):
+				if not _fold_list_into_empty(self.arena, empty, c):
+					continue
+				self.arena[parent].children = [k for k in self.arena[parent].children if k != c]
+				ix = self._index
+				if ix is not None:
+					ix.unlink(_name_key(parent, name), c)
+					# The binding had no fields, so all of them came over.
+					for k in self.arena[empty].children:
+						kn = self.arena[k].name
+						ix.unlink(_name_key(c, kn), k)
+						ix.append(_name_key(empty, kn), k)
+			elif nd.value.is_empty() and empty < 0:
+				empty = c
+
+	def _settle(self, n, start):
+		"""_settle_block, dropping the name index when a list joined an empty
+		binding, since that moves fields to another parent."""
+		if _settle_block(self.arena, n, start):
+			self._index = None
 
 	def _fold_dups_below(self, start):
 		"""Folding moves the loser's children up a level, where they can collide
@@ -5908,7 +6735,7 @@ class Document:
 					first[key] = c
 					keep.append(c)
 			self.arena[parent].children = keep
-			_settle_block(self.arena, parent, 1)
+			self._settle(parent, 1)
 
 	def exists(self, path: str) -> bool:
 		"""True when the path resolves to at least one real node."""
@@ -5960,6 +6787,9 @@ class Document:
 		for t, p in pairs:
 			if self.arena[t].parent != DEAD:
 				continue
+			# A list written stacked for the fields under it stays stacked: a
+			# remove only takes lines away.
+			stacked = _stacks(self.arena[p])
 			keep: list[int] = []
 			left: list[_Lead] = []
 			for c in self.arena[p].children:
@@ -5972,11 +6802,15 @@ class Document:
 						left = []
 					keep.append(c)
 			self.arena[p].children = keep
+			self.arena[p].star_list = self.arena[p].star_list or stacked
+			# The next merge has a stacked list to put in brackets.
+			self._bracketed = self._bracketed and not stacked
 			if left:
 				self._leave_last(p, left)
 		# A field opened only by the lines under it goes with the last of
 		# them, and its own kept line stays where it was (escblock).
 		open_ = [p for _, p in pairs]
+		emptied = list(open_)
 		while open_:
 			p = open_.pop()
 			if p == ROOT or self.arena[p].children or not _opened_by_kept(self.arena[p]) or not self._live(p):
@@ -5993,12 +6827,23 @@ class Document:
 				self._index.unlink(_name_key(pp, self.arena[p].name), p)
 			kids = self.arena[pp].children
 			at = kids.index(p)
+			stacked = _stacks(self.arena[pp])
 			del kids[at]
+			self.arena[pp].star_list = self.arena[pp].star_list or stacked
+			self._bracketed = self._bracketed and not stacked
 			if at < len(kids):
 				self._leave_above(kids[at], left)
 			else:
 				self._leave_last(pp, left)
 			open_.append(pp)
+			emptied.append(pp)
+		# An empty binding that lost its last field takes a stacked list of its
+		# name after it, and a list that lost its last field goes in brackets
+		# there, as a reload reads them (2026100520243961).
+		for p in sorted(set(emptied)):
+			nd = self.arena[p]
+			if p != ROOT and not nd.children and nd.value.kind in ("empty", "array") and self._live(p):
+				self._settle_fence_name(nd.parent, nd.name)
 		_settle_first_blank(self.arena, self.orphans)
 		self._resettle_kept()
 		return len(targets)
@@ -6325,7 +7170,7 @@ class Document:
 	def set_literal(self, path: str, text: str) -> bool:
 		"""Bind text at path as value syntax rather than as data.
 
-		"80, 443" becomes a two-element array where set_string would store one
+		"[80, 443]" becomes a two-element array where set_string would store one
 		string that has to be quoted. This is how a caller holding value text -
 		a config line, a user's --set argument - writes it without knowing its
 		shape first. Returns False on text that could not be one line's value.
@@ -6334,7 +7179,7 @@ class Document:
 		v = _literal_value(text)
 		if v is None:
 			return False
-		return self._set_value(path, v)
+		return self._set_value_as(path, v, False)
 
 	def set_literal_default(self, path: str, text: str) -> bool:
 		return self._set_default(path, lambda d, p: d.set_literal(p, text))
@@ -6401,12 +7246,20 @@ class Document:
 		# The layer's own kept lines were modeled against its own tree.
 		fresh = over._kept
 		self._kept = self._kept or over._kept
+		self._arrays = self._arrays or over._arrays
 		# Only a block the overlay visited can have a changed child list or
 		# comments; the rest was settled when it was built. Settling the whole
 		# tree made every merge cost the document (20260924 item 6). A block's
 		# settle writes only below it, so the order does not matter.
+		# Every list goes in brackets, whatever form its layers used, so a merge
+		# of the merged text gives the same text. After the first, only what the
+		# overlay brings or visits can be stacked.
+		if not self._bracketed:
+			for n in range(1, len(self.arena)):
+				_bracket(self.arena[n])
+			self._bracketed = True
 		for n in self._overlay(ROOT, over, ROOT):
-			_settle_block(self.arena, n, 1)
+			self._settle(n, 1)
 		# Layers commonly share a footer; keeping one copy of each keeps a
 		# stack of files from repeating it once per layer. Only the lines
 		# already here count: a layer's own repeats are its content.
@@ -6464,6 +7317,8 @@ class Document:
 		bt.inside.extend(_Lead(c.text, c.blank_before, c.depth, kept=c.kept) for c in st.inside)
 		bt.among.extend((pos, _Lead(c.text, c.blank_before, c.depth, kept=c.kept)) for pos, c in st.among)
 		bt.among.sort(key=lambda a: a[0])
+		bt.notes.extend(st.notes)
+		bt.notes.sort(key=lambda a: a[0])
 
 	def _overlay(self, base_parent, over, over_parent):
 		"""Explicit stack rather than recursion, for the same reason _clone_subtree
@@ -6476,6 +7331,9 @@ class Document:
 			bp, op = stack.pop()
 			touched.append(bp)
 			stack.extend(reversed(self._overlay_level(bp, over, op)))
+			# Its child list is final once its own level is done.
+			if bp != base_parent:
+				_bracket(self.arena[bp])
 		return touched
 
 	def _overlay_level(self, base_parent, over, over_parent):
@@ -6578,12 +7436,7 @@ class Document:
 							by_key.setdefault(okey, hit)
 							b = hit
 					if b is not None:
-						# A stacked spelling no kept line holds is gone on a
-						# reload, so it may not decide how the lines the other
-						# layer brings are written (20260926 item 4).
-						stacked = _stacks(self.arena[b]) or _stacks(over.arena[ok])
 						self._adopt_trivia(b, over, ok)
-						self.arena[b].star_list = stacked
 						# A name that reaches here is never in `replace`, so `b`
 						# survives the rebuild below and can wait for it.
 						pending.append((b, ok))
@@ -6627,6 +7480,8 @@ class Document:
 				self.arena[di].children.append(ci)
 				kids.append((ok, ci))
 			stack.extend(reversed(kids))
+			# A merge writes a list in brackets.
+			_bracket(self.arena[di])
 		return root
 
 	def _clone_node(self, over, oi, parent):
@@ -6646,6 +7501,7 @@ class Document:
 			t.after = [_Lead(c.text, c.blank_before, c.depth, kept=c.kept) for c in st.after]
 			t.inside = [_Lead(c.text, c.blank_before, c.depth, kept=c.kept) for c in st.inside]
 			t.among = [(pos, _Lead(c.text, c.blank_before, c.depth, kept=c.kept)) for pos, c in st.among]
+			t.notes = list(st.notes)
 		node.blank_before = src.blank_before
 		node.src_set = src.src_set
 		node.src = src.src
@@ -6675,14 +7531,18 @@ class Document:
 		return src if src is not None else self.arena[n].value.display()
 
 	def _scalar_element(self, v):
-		# Returns ("ok", element) or ("err", Status).
+		# Returns ("ok", element) or ("err", Status). The one element a scalar
+		# read takes: `[80]` reads as 80 and `[]` as empty, while two elements
+		# are not one scalar.
 		if v.kind == "empty":
 			return ("err", Status.Empty)
 		if v.kind == "raw":
 			return ("err", Status.BadType)
 		if len(v.els) == 1:
 			return ("ok", v.els[0])
-		return ("err", Status.BadType)   # an array is not one scalar
+		if not v.els:
+			return ("err", Status.Empty)
+		return ("err", Status.BadType)
 
 	def _read_scalar(self, path: str, coerce: Callable[[Any], T | None], default: T) -> Read[T]:
 		na = self._node_at(path)
@@ -6693,11 +7553,11 @@ class Document:
 		line = self.arena[na[1]].line
 		se = self._scalar_element(value)
 		if se[0] == "err":
-			return Read(default, se[1], raw)._at(line, False)
+			return Read(default, se[1], raw)._at(line, None)
 		v = coerce(se[1])
 		if v is None:
-			return Read(default, Status.BadType, raw)._at(line, se[1].quoted)
-		return Read(v, Status.Good, raw)._at(line, se[1].quoted)
+			return Read(default, Status.BadType, raw)._at(line, se[1])
+		return Read(v, Status.Good, raw)._at(line, se[1])
 
 	def read_int(self, path: str) -> Read[int]:
 		lvl = self._strictness
@@ -6750,7 +7610,7 @@ class Document:
 
 	def read_string(self, path: str) -> Read[str]:
 		"""Any value reads as a string: a raw block yields its content, an array its
-		canonical inline text. Escapes are applied."""
+		canonical bracket form. Escapes are applied."""
 		na = self._node_at(path)
 		if na[0] == "err":
 			return Read("", na[1], None)
@@ -6758,14 +7618,14 @@ class Document:
 		raw = self._raw_of(na[1])
 		line = self.arena[na[1]].line
 		if value.kind == "empty":
-			return Read("", Status.Empty, raw)._at(line, False)
+			return Read("", Status.Empty, raw)._at(line, None)
 		if value.kind == "raw":
-			return Read(value.content, Status.Good, raw)._at(line, False)
-		if len(value.els) == 1:
-			return Read(value.els[0].text, Status.Good, raw)._at(line, value.els[0].quoted)
-		# Canonical inline form (quoting + escapes intact), so the string
-		# re-parses to the same array - not the bare display join.
-		return Read(", ".join(_emit_element(e) for e in value.els), Status.Good, raw)._at(line, False)
+			return Read(value.content, Status.Good, raw)._at(line, None)
+		if value.kind == "cell":
+			return Read(value.els[0].text, Status.Good, raw)._at(line, value.els[0])
+		# Canonical bracket form (quoting + escapes intact), so the string
+		# re-parses to the same array, and `[80]` never reads as `80`.
+		return Read(_emit_array(value.els), Status.Good, raw)._at(line, None)
 
 	def read_raw(self, path: str) -> Read[str]:
 		"""Raw-block content (verbatim). Non-block values are BadType."""
@@ -6776,10 +7636,10 @@ class Document:
 		raw = self._raw_of(na[1])
 		line = self.arena[na[1]].line
 		if value.kind == "raw":
-			return Read(value.content, Status.Good, raw)._at(line, False)
+			return Read(value.content, Status.Good, raw)._at(line, None)
 		if value.kind == "empty":
-			return Read("", Status.Empty, raw)._at(line, False)
-		return Read("", Status.BadType, raw)._at(line, False)
+			return Read("", Status.Empty, raw)._at(line, None)
+		return Read("", Status.BadType, raw)._at(line, None)
 
 	def read_raw_info(self, path: str) -> Read[str]:
 		"""The advisory info-string of a raw block ("" when absent)."""
@@ -6791,10 +7651,10 @@ class Document:
 		value = self.arena[na[1]].value
 		# An empty binding has no block, so no info string: `Empty`, the same as a `read_raw` on it. Only a value that is there and is not a block is a type mismatch.
 		if value.kind == "raw":
-			return Read(value.info, Status.Good, raw)._at(line, False)
+			return Read(value.info, Status.Good, raw)._at(line, None)
 		if value.kind == "empty":
-			return Read("", Status.Empty, raw)._at(line, False)
-		return Read("", Status.BadType, raw)._at(line, False)
+			return Read("", Status.Empty, raw)._at(line, None)
+		return Read("", Status.BadType, raw)._at(line, None)
 
 	def _read_array(self, path: str, coerce: Callable[[Any], T | None], default: T) -> Read[list[T]]:
 		r = self._resolve(path)
@@ -6833,9 +7693,9 @@ class Document:
 		line = self.arena[r[1]].line
 		nothing: list[T] = []
 		if value.kind == "empty":
-			return Read(nothing, Status.Empty, raw)._at(line, False)
+			return Read(nothing, Status.Empty, raw)._at(line, None)
 		if value.kind == "raw":
-			return Read(nothing, Status.BadType, raw)._at(line, False)
+			return Read(nothing, Status.BadType, raw)._at(line, None)
 		out = []
 		sts = []
 		for el in value.els:
@@ -6843,10 +7703,10 @@ class Document:
 			out.append(v)
 			sts.append(st)
 		status = max(sts, key=lambda s: s.value) if sts else Status.Good
-		# A one-element cell has a single scalar element, so the flag means the
-		# same thing here as on the scalar read of the same node.
-		quoted = len(value.els) == 1 and value.els[0].quoted
-		return Read(out, status, raw, sts)._at(line, quoted)
+		# A one-element value has a single scalar element, so the flag means
+		# the same thing here as on the scalar read of the same node. `[]` is an
+		# empty array, which is Good, where an empty value is Empty.
+		return Read(out, status, raw, sts)._at(line, value.els[0] if len(value.els) == 1 else None)
 
 	def read_int_array(self, path: str) -> Read[list[int]]:
 		lvl = self._strictness
@@ -7008,7 +7868,7 @@ class Document:
 		# Resolution contexts: the whole document for a plain path; each
 		# enclosing instance for the part of a path after a wildcard. required/
 		# repeat evaluate per context (anchor line 0 = document scope), so
-		# `server[*].port` + required means a port under EACH server -
+		# `server(*).port` + required means a port under EACH server -
 		# vacuously true with no servers.
 		# Explicit stack of (start, segment offset, anchor), children pushed in
 		# reverse so contexts come out in the recursive order: one frame per
@@ -7040,7 +7900,7 @@ class Document:
 					cur = nxt
 				elif sel[0] == "val":
 					want = sel[1]
-					cur = [c for c in nxt if _disp_key(self.arena[c].value) == want and (not sel[2] or _single_scalar(self.arena[c].value))]
+					cur = [c for c in nxt if _single_scalar(self.arena[c].value) and _disp_key(self.arena[c].value) == want]
 				else:
 					cur = [nxt[sel[1]]] if sel[1] < len(nxt) else []
 			if not done:
@@ -7117,9 +7977,16 @@ class Document:
 		if base == "raw":
 			wrong()
 			return
+		# A string read of an array is its bracket form, so that is the text
+		# the allowed set sees: `x: 80` and `x: [80]` are two values.
+		if not is_array and (base == "string" or base is None) and node.value.kind == "array":
+			text = node.value.display()
+			if c.allowed is not None and c.allowed[0] == "strings" and text not in c.allowed[1]:
+				_vdiag(out, line, "V004", f"value not allowed at '{_schema_text(c.path)}': {_one_line(text)}")
+			return
 		# A scalar kind on a multi-element value is the array-where-one-scalar-
-		# expected miss - except string, which reads arrays.
-		if c.ty is not None and not is_array and base != "string" and len(els) > 1:
+		# expected miss.
+		if not is_array and len(els) > 1:
 			wrong()
 			return
 		# Each typed kind parses every element and bails on the first miss.
@@ -7286,37 +8153,13 @@ class StatusError(Exception):
 
 def _escape_name(name: str) -> str:
 	"""Emit a stored (escape-resolved) name in a spelling that reads back as the
-	same name: bare when it can be, else quoted with the escapes _apply_escapes
-	undoes. This is a true inverse of the name parse, which _quote_text is not -
-	that one picks a quote style to AVOID escaping and never escapes a
-	backslash, which is right for a value (stored in its escaped spelling) and
-	wrong for a name (stored resolved)."""
-	return _escape_name_as(name, Rules.CURRENT)
-
-
-def _escape_name_as(name, rules):
-	"""_escape_name for a reader of rules: under 2.x an invisible character is
-	written as it is, since 2.x kept a \\u as written."""
+	same name: bare when the spelling rule allows it, else quoted the way a
+	value is, escapes and all."""
 	# issuperset iterates the name in C; the generator this replaced made one
 	# Python call per character of every name emitted.
-	if name and _BARE_NAME_CHARS.issuperset(name):
+	if name and ("a" <= name[0] <= "z" or "A" <= name[0] <= "Z") and _BARE_NAME_CHARS.issuperset(name):
 		return name
-	out = ['"']
-	for i, c in enumerate(name):
-		if c == "\\":
-			out.append("\\\\")
-		elif c == '"':
-			out.append('\\"')
-		elif c == "\t":
-			out.append("\\t")
-		elif c == "\n":
-			out.append("\\n")
-		elif c in _INVISIBLE and rules is Rules.CURRENT and _invisible_at(name, i):
-			out.append(_unicode_escape_text(c))
-		else:
-			out.append(c)
-	out.append('"')
-	return "".join(out)
+	return _quote_text(name)
 
 
 def _emit_name(name: str) -> str:
@@ -7333,17 +8176,17 @@ def _diag_name(name):
 
 def _diag_element(e):
 	# One element of a value, written for a diagnostic message: the emitter's
-	# inline spelling, so a value with a line break cannot split one
-	# diagnostic across two.
-	return _emit_element(e)
+	# spelling inside `[]`, the only place a message puts one, so a value with
+	# a line break cannot split one diagnostic across two.
+	return _emit_array_element(e)
 
 
 def _diag_value(v):
-	# A value for a diagnostic message. Only a cell reaches this today, from the
-	# H001 hint; a raw block has no one-line form worth suggesting.
+	# A value for a diagnostic message. Only a scalar reaches this today, from
+	# the H001 hint; a raw block has no one-line form worth suggesting.
 	if v.kind != "cell":
 		return v.display()
-	return ", ".join(_diag_element(e) for e in v.els)
+	return _diag_element(v.els[0])
 
 
 def quote_segment(name: str) -> str:
@@ -7967,42 +8810,96 @@ def suppress_declared_reopens(schema: Document, diags: list[Diagnostic]) -> None
 	diags[:] = kept
 
 
-_RESERVED = frozenset(" \t\n,:#\"'[]")
+# What the writer always quotes, besides whitespace: the characters that
+# open, quote or escape a piece.
+_QUOTE_CHARS = frozenset("#\"'`[]\u25c9")
 
 
 def _needs_quotes(t):
-	"""Minimal quoting: bare unless a reserved character (or lookalike hazard) forces it."""
+	"""Minimal quoting for a value or list item (value-syntax.md, Canonical
+	output): bare only when the text has no whitespace, none of the characters
+	that open or escape a piece, needs no escape, and does not end in a colon
+	or comma, which would read as another field or an array. A colon or comma
+	inside is text: `2:30PM` and `rw,noatime` stay bare. The reader takes
+	spaces bare, but the writer still quotes them."""
 	# isdisjoint iterates the text in C and stops at the first hit; the generator
 	# it replaced made one Python call per character of every element emitted.
-	needs = (not t) or not _RESERVED.isdisjoint(t) or _has_invisible(t) or (_fence_open(t) is not None)
-	# Edge whitespace still has to force quotes, for the carriage return: it is
-	# a blank, so a piece ending in one loses it to the reload. Space and tab
-	# are already in the list above. The test is the whole Unicode whitespace
-	# set rather than those three, which only ever adds quoting - the parser
-	# itself trims no wider than is_wsp, so a leading no-break space is
-	# content. Edges only: interior whitespace is never trimmed and quoting it
-	# would move bytes.
-	if not needs and t and (t[0] in _WS_SET or t[-1] in _WS_SET):
-		needs = True
-	return needs
+	return (
+		not t
+		or t[-1] == ":"
+		or t[-1] == ","
+		or not _QUOTE_CHARS.isdisjoint(t)
+		or not _WHITE_SPACE.isdisjoint(t)
+		or _has_invisible(t)
+		or _fence_open(t) is not None
+	)
+
+
+def _element_needs_quotes(t):
+	"""The same for an array element, where any comma splits."""
+	return _needs_quotes(t) or "," in t
 
 
 def _emit_element(e):
-	"""One addition to minimal quoting: an author-quoted element keeps its quotes unless
-	the text reads as one of SHCL's own data formats - quoting those is just spelling
-	(readers type the value either way), but quoting a plain string is the escape and
-	must survive canonicalization. This clause only ever adds quoting, so a bare emit
-	stays safe.
-	"""
+	"""A value or list item as written. See _emit_piece."""
+	return _emit_piece(e, _needs_quotes(e.text))
+
+
+def _emit_array_element(e):
+	"""An element inside `[]` as written. See _emit_piece."""
+	return _emit_piece(e, _element_needs_quotes(e.text))
+
+
+def _emit_piece(e, quote):
+	"""The element as written: bare when it can be, else in the author's quote
+	kind when the text allows it, else the quotes the writer picks. A quoted
+	plain string keeps its quotes, since quoting it is how a file says it is
+	text; a quoted data format loses them, since readers type the value either
+	way. One with a comma keeps them, since only a quoted number reads a
+	thousands comma. A backtick value stays in backticks whatever it holds."""
 	t = e.text
-	needs = _needs_quotes(t) or (e.quoted and not _is_data_format(e))
-	return _quote_text(t) if needs else t
+	mark = e.mark
+	if mark is _Mark.BACKTICK and _backtick_holds(t):
+		return "`" + t + "`"
+	if not quote and (mark is _Mark.BARE or ("," not in t and _is_data_format(e))):
+		return t
+	if mark is _Mark.SINGLE and "'" not in t:
+		return _quote_with(t, "'")
+	if mark is _Mark.DOUBLE and '"' not in t:
+		return _quote_with(t, '"')
+	return _quote_text(t)
+
+
+def _backtick_holds(t):
+	"""Whether text can be a backtick value: no backtick, which would end it,
+	and nothing the writer would have to escape, since a backtick value has no
+	escapes."""
+	return "`" not in t and "\n" not in t and "\r" not in t and not _has_invisible(t)
 
 
 def _new_element(text):
 	"""An element no source wrote. It counts as quoted when canonical output will
-	quote it, so a read gives the same answer before a save as after one."""
-	return _Element(text, _needs_quotes(text))
+	quote it, so a read gives the same answer before a save as after one. A
+	thousands comma reads only in quotes, so `1,000` from a setter keeps them
+	and still reads as 1000."""
+	quote = _needs_quotes(text)
+	e = _new_element_as(text, quote)
+	if not quote and "," in text:
+		e.mark = _Mark.DOUBLE
+		if not _is_data_format(e):
+			e.mark = _Mark.BARE
+	return e
+
+
+def _new_array_element(text):
+	"""_new_element for an element inside `[]`."""
+	return _new_element_as(text, _element_needs_quotes(text))
+
+
+def _new_element_as(text, quote):
+	if not quote:
+		return _Element(text, _Mark.BARE)
+	return _Element(text, _Mark.SINGLE if _picks_single(text) else _Mark.DOUBLE)
 
 
 def _is_data_format(e):
@@ -8036,62 +8933,44 @@ def _leading_zero(t):
 	return len(t) > 1 and t[0] == "0" and t[1] in _ASCII_DIGITS
 
 
+def _picks_single(t):
+	"""The quotes the writer picks: double, or single when the text has a `"`
+	and no `'`. A backslash plays no part."""
+	return '"' in t and "'" not in t
+
+
 def _quote_text(t):
 	"""Quote a logical string so the tokenizer reads it back as the same
-	string. Single quotes are literal, so they are the spelling for text
-	holding a double quote or a backslash; double quotes have the escapes, so
-	they are the spelling for a line break, a tab, an invisible character, or
-	text holding both quote kinds."""
-	return _quote_text_as(t, Rules.CURRENT)
+	string, in the quotes the writer picks."""
+	return _quote_with(t, "'" if _picks_single(t) else '"')
 
 
-def _quote_text_as(t, rules):
-	"""_quote_text for a reader of rules, as in _quote_double_as."""
-	control = "\n" in t or "\t" in t or (rules is Rules.CURRENT and _has_invisible(t))
-	if not control and "'" not in t and ('"' in t or "\\" in t):
-		return "'" + t + "'"
-	return _quote_double_as(t, rules)
-
-
-def _quote_double_as(t, rules):
-	"""The double-quoted spelling for a reader of rules. The two read it alike,
-	except a \\u escape, which 2.x kept as written, so for 2.x an invisible
-	character goes in as it is."""
-	out = _quote_double_with(t, rules, False)
-	# Written `\\t` or `\\n`, a path is E024 on the reload, and a `\\u`
-	# escape reads the same. 2.x kept one as written, so for 2.x a tab goes in
-	# as it is, and a line break has no spelling: migrate counts that one lost.
-	if _spells_path_escape(out):
-		return _quote_double_with(t, rules, True)
-	return out
-
-
-def _spells_path_escape(quoted):
-	"""True when a double-quoted spelling would be E024."""
-	src = quoted.encode("utf-8", "surrogatepass")
-	return _path_like(Piece(1, len(src) - 1, Quote.DOUBLE), src)
-
-
-def _quote_double_with(t, rules, path):
-	out = ['"']
-	for i, c in enumerate(t):
-		if c == "\\":
-			out.append("\\\\")
-		elif c == '"':
-			out.append('\\"')
-		elif c in "\n\t" and path and rules is Rules.CURRENT:
-			out.append(_unicode_escape_text(c))
-		elif c == "\t" and path:
-			out.append(c)
-		elif c == "\n":
-			out.append("\\n")
-		elif c == "\t":
-			out.append("\\t")
-		elif c in _INVISIBLE and rules is Rules.CURRENT and _invisible_at(t, i):
-			out.append(_unicode_escape_text(c))
+def _quote_with(t, q):
+	"""The text in quote q, with every character a reader could not see or
+	that would end the piece written as an escape: a line break, a carriage
+	return or the pair of them, a tab, the other controls on the list by
+	name, a hidden character by code point, a real escape mark, and q
+	itself."""
+	m = _ESCAPE_MARK
+	# Nearly every quoted string needs none of that, and the walk below is a
+	# Python call per character.
+	if q not in t and m not in t and "\t" not in t and "\n" not in t and not _has_invisible(t):
+		return q + t + q
+	out = [q]
+	i = 0
+	n = len(t)
+	while i < n:
+		c = t[i]
+		if c == "\r" and i + 1 < n and t[i + 1] == "\n":
+			out.append(f"{m}CRLF{m}")
+			i += 2
+			continue
+		if c in (q, m, "\t", "\n") or (c in _INVISIBLE and _invisible_at(t, i)):
+			out.append(_escape_of(c))
 		else:
 			out.append(c)
-	out.append('"')
+		i += 1
+	out.append(q)
 	return "".join(out)
 
 
@@ -8121,9 +9000,19 @@ def _encodable(text):
 	return True
 
 
-def _emit_cell(els):
-	"""The value half of a binding line, the way _emit_line writes it."""
-	return ", ".join(_emit_element(e) for e in els)
+def _emit_array(els):
+	"""An array the way _emit_line writes it: `[a, b]`, and `[]` for none."""
+	return "[" + ", ".join(_emit_array_element(e) for e in els) + "]"
+
+
+def _emit_value_text(v):
+	"""The value half of a binding line, the way _emit_line writes it, or None
+	for a value with no one-line form."""
+	if v.kind == "cell":
+		return _emit_element(v.els[0])
+	if v.kind == "array":
+		return _emit_array(v.els)
+	return None
 
 
 def _emit_fence_line(v):
@@ -8148,15 +9037,18 @@ def _value_reads_back(v):
 	"""True when a value comes back off the page as itself."""
 	if v.kind == "empty":
 		return True
-	if v.kind == "cell":
-		text = _emit_cell(v.els)
+	if v.kind == "cell" or v.kind == "array":
+		text = _emit_value_text(v)
 		if "\n" in text:
 			return False
 		if not _encodable(text):
 			return True
 		tok = Tokens()
-		_value_half(text, tok)
-		if tok.comment is not None:
+		s = _value_half(text, tok)
+		if (tok.comment is not None
+				or (tok.array is not None) != (v.kind == "array")
+				or _array_fault(tok) is not None
+				or _value_fault(tok, s) is not None):
 			return False
 		# Compared against the pieces rather than against a rebuilt value: a
 		# bulk write runs this per set, and the text is right there.
@@ -8290,7 +9182,7 @@ def _parse_int_text(e, level):
 		if mag > (_I64_MAX + 1 if neg else _I64_MAX):
 			return None
 		return -mag if neg else mag
-	# Thousands separators, only inside quotes (bare commas are reserved).
+	# Thousands separators, only inside quotes: bare, `80,443` is text.
 	if e.quoted and "," in t:
 		sign_body = t[1:] if t[:1] in ("+", "-") else t
 		groups = sign_body.split(",")
@@ -8366,11 +9258,11 @@ def _parse_float_text(e, level):
 			return None
 	else:
 		# An integer is a valid float on read (incl. hex, octal, binary and quoted thousands).
-		iv = _parse_int_text_no_loose(_Element(t, e.quoted))
+		iv = _parse_int_text_no_loose(_Element(t, e.mark))
 		if iv is not None:
 			v = float(iv)
 		else:
-			w = _parse_int_text_wide(_Element(t, e.quoted))
+			w = _parse_int_text_wide(_Element(t, e.mark))
 			if w is None:
 				return None
 			v = w
@@ -9058,16 +9950,23 @@ def _vdiag(out, line, code, msg):
 
 def _single_text(v):
 	# One scalar constraint value (escapes applied), or None for anything else.
-	if v.kind == "cell" and len(v.els) == 1:
+	if v.kind == "cell":
 		return v.els[0].text
 	return None
+
+
+def _elements_of(v):
+	# A schema value's elements: a scalar's one, or an array's.
+	if v.kind == "cell" or v.kind == "array":
+		return v.els
+	return _EMPTY_ELS
 
 
 def _same_moment(a, b):
 	# Two datetimes naming the same moment, whatever the spelling. The struct
 	# mirrors what was written, so 12:00:00Z and 12:00:00+00:00 are different
 	# values field by field while naming one time, and 12:00:00 and 12:00:00.0
-	# differ only in written precision. A [value] selector matches on text, but
+	# differ only in written precision. A (value) selector matches on text, but
 	# an allowed set is about the value, so it compares here. An absent zone is
 	# local and matches no zone at all - that is the one spelling difference
 	# that is a real difference.
@@ -9172,7 +10071,10 @@ def _parse_field(schema, f, faults):
 		return None
 	try:
 		segs, value_text = _scan_lookup(path)
-	except _PathError:
+	except _PathError as e:
+		if e.args[0] == _BRACKET_LOOKUP:
+			_vdiag(faults, node.line, "V093", f"bad schema path: {_schema_text(path)}; {_BRACKET_LOOKUP}")
+			return None
 		segs, value_text = None, None
 	if segs is None or value_text is not None:
 		_vdiag(faults, node.line, "V093", f"bad schema path: {_schema_text(path)}")
@@ -9223,22 +10125,22 @@ def _parse_field(schema, f, faults):
 			else:
 				_vdiag(faults, kid.line, "V092", "bad schema constraint 'reopen'")
 		elif kid.name == "allowed":
-			if kid.value.kind == "cell" and allowed_at is None:
+			if (kid.value.kind == "cell" or (kid.value.kind == "array" and kid.value.els)) and allowed_at is None:
 				allowed_at = k
 			else:
 				_vdiag(faults, kid.line, "V092", "bad schema constraint 'allowed'")
 		elif kid.name == "min":
-			if kid.value.kind == "cell" and len(kid.value.els) == 1 and min_at is None:
+			if kid.value.kind == "cell" and min_at is None:
 				min_at = k
 			else:
 				_vdiag(faults, kid.line, "V092", "bad schema constraint 'min'")
 		elif kid.name == "max":
-			if kid.value.kind == "cell" and len(kid.value.els) == 1 and max_at is None:
+			if kid.value.kind == "cell" and max_at is None:
 				max_at = k
 			else:
 				_vdiag(faults, kid.line, "V092", "bad schema constraint 'max'")
 		elif kid.name == "unit":
-			if kid.value.kind == "cell" and len(kid.value.els) == 1 and unit_at is None:
+			if kid.value.kind == "cell" and unit_at is None:
 				unit_at = k
 			else:
 				_vdiag(faults, kid.line, "V092", "bad schema constraint 'unit'")
@@ -9251,9 +10153,10 @@ def _parse_field(schema, f, faults):
 			else:
 				_vdiag(faults, kid.line, "V092", "bad schema constraint 'decimal'")
 		elif kid.name == "repeat":
-			if kid.value.kind == "cell" and c.repeat is None and len(kid.value.els) in (1, 2):
-				lo = _parse_uint(kid.value.els[0].text)
-				hi = _parse_uint(kid.value.els[-1].text)
+			els = _elements_of(kid.value)
+			if c.repeat is None and len(els) in (1, 2):
+				lo = _parse_uint(els[0].text)
+				hi = _parse_uint(els[-1].text)
 				if lo is not None and hi is not None and lo <= hi:
 					c.repeat = (lo, hi)
 				else:
@@ -9269,9 +10172,9 @@ def _parse_field(schema, f, faults):
 				_vdiag(faults, kid.line, "V092", "bad schema constraint 'inherits'")
 		elif kid.name == "desc":
 			# Generator-only (`shcl init`); validation ignores it. First wins.
-			# A comma in a sentence makes the value several elements, and the
-			# comment is prose: take them all, kept as written.
-			if c.desc is None and kid.value.kind == "cell":
+			# The comment is prose, so an array's elements are all taken, kept
+			# as written.
+			if c.desc is None and (kid.value.kind == "cell" or kid.value.kind == "array"):
 				c.desc = ", ".join(e.text for e in kid.value.els)
 		elif kid.name == "default":
 			if c.default_text is None:
@@ -9405,11 +10308,9 @@ def _parse_field(schema, f, faults):
 
 def _emit_value_inline(v):
 	# Re-emit a schema `default`/`allowed` value as an inline value (minimal
-	# quoting, array elements joined by ", "). None for empty or raw - neither has
-	# a usable one-line form. Used by the generator, not the validator.
-	if v.kind != "cell":
-		return None
-	return _emit_cell(v.els)
+	# quoting, an array in brackets). None for empty or raw - neither has a
+	# usable one-line form. Used by the generator, not the validator.
+	return _emit_value_text(v)
 
 
 def _allowed_join(a):
@@ -9473,20 +10374,7 @@ def _gen_default_text(v):
 	# quoted escaped spelling reads back to the same string.
 	if "\n" not in v:
 		return v
-	s = ['"']
-	for ch in v:
-		if ch == "\\":
-			s.append("\\\\")
-		elif ch == '"':
-			s.append('\\"')
-		elif ch == "\n":
-			s.append("\\n")
-		elif ch == "\t":
-			s.append("\\t")
-		else:
-			s.append(ch)
-	s.append('"')
-	return "".join(s)
+	return _quote_text(v)
 
 
 def generate(schema: Document, no_banner: bool = False) -> tuple[str, list[Diagnostic]]:
@@ -9499,10 +10387,10 @@ def generate(schema: Document, no_banner: bool = False) -> tuple[str, list[Diagn
 	must-exist wildcard path
 	whose parent gets materialized by another live line is generated too, in
 	dotted form - otherwise the file would fail the very schema that produced
-	it - and remaining wildcard or `[#N]` paths (which cannot be materialized)
+	it - and remaining wildcard or index paths (which cannot be materialized)
 	are listed in a trailing comment block. A path whose last segment selects by
 	value is written without that selector when it has a `default`, since a
-	value after the selector would be ignored: `env[prod]` with `default: prod`
+	value after the selector would be ignored: `env(prod)` with `default: prod`
 	is `env: prod`. The output always loads clean and
 	validates clean against its schema, except a repeat lower bound of 2+
 	(identical generated lines would merge, so the shortfall is reported). The
@@ -9531,8 +10419,8 @@ def generate(schema: Document, no_banner: bool = False) -> tuple[str, list[Diagn
 	def has_wild(c):
 		return any(s.selector is not None and s.selector[0] == "wild" for s in c.segs)
 
-	# `[#N]` needs a pre-existing instance and its `#` would start a comment on a
-	# binding line. A path deeper than a document may nest cannot be generated
+	# An index selector needs a pre-existing instance, which a starter config
+	# has none of. A path deeper than a document may nest cannot be generated
 	# either: the line would draw E016 on the way back in. A newline in a name or
 	# a by-value selector is writable, since both are written escaped.
 	# The reason doubles as the predicate, so the refusal below can never name a
@@ -9542,7 +10430,7 @@ def generate(schema: Document, no_banner: bool = False) -> tuple[str, list[Diagn
 			return "nests past the depth cap"
 		for s in c.segs:
 			if s.selector is not None and s.selector[0] == "idx":
-				return "a [#N] selector needs an instance that does not exist yet"
+				return "an index selector needs an instance that does not exist yet"
 			if s.star:
 				return "a * name segment has no name to write"
 		return ""
@@ -9577,7 +10465,7 @@ def generate(schema: Document, no_banner: bool = False) -> tuple[str, list[Diagn
 	# and a dotted child names the empty-valued instance instead - so `srv:
 	# web` followed by `srv.port:` is two `srv` nodes, and the child never
 	# ends up where the schema looks. Any line under such a parent selects it by
-	# its value: `srv[web].port:`.
+	# its value: `srv(web).port:`.
 	# A filled wildcard emits a valued line of its own, so it belongs here too.
 	# First wins, as the line it selects does: of two lines on one path the
 	# first spelling is the one written, and its value is the instance.
@@ -9619,10 +10507,10 @@ def generate(schema: Document, no_banner: bool = False) -> tuple[str, list[Diagn
 		return "", blocked
 	out = []
 	wild = []
-	# Dropping a trailing `[*]` can render the same line a concrete sibling
-	# already wrote; the first spelling wins. A line from a dropped `[value]`
+	# Dropping a trailing `(*)` can render the same line a concrete sibling
+	# already wrote; the first spelling wins. A line from a dropped `(value)`
 	# selector is its own instance, so two of them with different values are
-	# both written: `env[prod]` and `env[dev]` are two `env` lines. Each path
+	# both written: `env(prod)` and `env(dev)` are two `env` lines. Each path
 	# maps to None once a plain line wrote it, or to the values written so far.
 	emitted: dict = {}
 	# A child whose valued parent has no selector spelling cannot be written.
@@ -9852,44 +10740,43 @@ def _v007_sanctioned(message):
 
 def _gen_selector_text(v):
 	"""The selector body that picks out the instance a line `name: v` makes, or
-	None when no body can. It is built from the elements the reader takes out
+	None when no body can. It is built from the element the reader takes out
 	of that line's value, and each candidate is scanned back the way a file
 	line is scanned, so none of the scanner's rules is copied here to go stale.
 	That copy was the cause twice: an all-digit body past 64 bits, and a
-	quoted array element written as the body. One element tries the spelling
-	it was written in first; an array has only the bare body, since a quoted
-	selector matches one element only, and a bare one the elements joined."""
+	quoted array element written as the body. The spelling the value was
+	written in goes first. A selector matches one plain value, never an array,
+	so an array has no body."""
 	spelled = _gen_default_text(v)
 	tok = Tokens()
 	tokenize_value(spelled, 0, Rules.CURRENT, tok)
-	els = [_piece_text(p, tok.src) for p in tok.elements]
-	display = ", ".join(els)
-	if len(els) == 1:
-		tries = []
-		if tok.elements[0].quote is Quote.SINGLE or tok.elements[0].quote is Quote.DOUBLE:
-			tries.append((tok.src[tok.value[0]:tok.value[1]].decode("utf-8", "surrogatepass"), els[0], True))
-		tries += [(display, display, False), (_quote_text(els[0]), els[0], True)]
-	else:
-		tries = [(display, display, False)]
-	for body, text, quoted in tries:
+	if len(tok.elements) != 1 or tok.array is not None:
+		return None
+	only = tok.elements[0]
+	text = _piece_text(only, tok.src)
+	tries = []
+	if only.quote is Quote.SINGLE or only.quote is Quote.DOUBLE:
+		tries.append((tok.src[tok.value[0]:tok.value[1]].decode("utf-8", "surrogatepass"), True))
+	tries += [(text, False), (_quote_text(text), True)]
+	for body, quoted in tries:
 		if _selector_reads_back(body, text, quoted):
 			return body
 	return None
 
 
 def _selector_reads_back(body, text, quoted):
-	"""Whether body between brackets on a file line reads back as a value
+	"""Whether body between parens on a file line reads back as a value
 	selector for text, quoted or bare as asked."""
 	# The tokenizer reads one line and never sees a line end, so text with a
 	# real line break would read back here and then be written across two lines,
 	# which is not the same path. A file line cannot hold one, so refuse and let
 	# the escaped spelling be tried instead.
-	line = f"x[{body}]:"
+	line = f"x({body}):"
 	if "\n" in line or "\r" in line:
 		return False
 	tok = Tokens()
 	tokenize(line, ":", False, Rules.CURRENT, tok)
-	if _selector_open_quote(tok) or tok.comment is not None:
+	if tok.comment is not None or tok.misspelled is not None or _path_fault(tok, tok.src) is not None:
 		return False
 	try:
 		segs, _ = _path_of(tok, tok.src)
@@ -9910,7 +10797,7 @@ def _path_reads_back(path, segs):
 		return False
 	tok = Tokens()
 	tokenize(line, ":", False, Rules.CURRENT, tok)
-	if _selector_open_quote(tok) or tok.comment is not None:
+	if tok.comment is not None or tok.misspelled is not None or _path_fault(tok, tok.src) is not None:
 		return False
 	try:
 		got, _ = _path_of(tok, tok.src)
@@ -9943,7 +10830,7 @@ def _gen_path_text(segs, parent_values):
 			body = _gen_selector_text(v)
 			if body is None:
 				return None
-			out.append(f"[{body}]")
+			out.append(f"({body})")
 			continue
 		if s.selector is not None:
 			if s.selector[0] == "val":
@@ -9952,13 +10839,13 @@ def _gen_path_text(segs, parent_values):
 				text = s.selector[1]
 				quoted_body = _quote_text(text)
 				if not s.selector[2] and _selector_reads_back(text, text, False):
-					out.append(f"[{text}]")
+					out.append(f"({text})")
 				elif _selector_reads_back(quoted_body, text, True):
-					out.append(f"[{quoted_body}]")
+					out.append(f"({quoted_body})")
 				else:
 					return None
 			elif s.selector[0] == "idx":
-				out.append(f"[#{s.selector[1]}]")
+				out.append(f"({s.selector[1]})")
 			# a wildcard selector is dropped
 	return "".join(out)
 

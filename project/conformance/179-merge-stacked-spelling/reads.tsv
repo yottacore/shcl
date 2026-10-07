@@ -1,5 +1,7 @@
 query	type	expected	status
 -	load	ok	-
 -	load	fail	-	strict
-x[#1]	int	2	Good
+x	int[]	2|3	Good
+z	string[]	p|q	Good
+w	string	[5]	Good
 -	lost	0	-

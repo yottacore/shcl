@@ -9,9 +9,9 @@ mod common;
 
 use common::test_id;
 use shcl::{
-	Document, DurationUnit, FORMAT_LINE, FORMAT_LINE_HEAD, FORMAT_MAJOR, MIGRATED_LINE, SizeUnit,
-	Strictness, format_version, generate, migrate, migrate_unstamped, parse_datetime,
-	quote_segment, schema_ref,
+	Document, DurationUnit, FORMAT_LINE, FORMAT_LINE_HEAD, FORMAT_MAJOR, MIGRATED_LINE, Rules,
+	SizeUnit, Strictness, Tokens, format_version, generate, migrate, migrate_unstamped,
+	parse_datetime, quote_segment, schema_ref, tokenize,
 };
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -436,8 +436,9 @@ fn convenience_tier_falls_back_only_on_good() {
 	// The get-tier value survives only on Good; Empty/BadType/NotFound all fall
 	// back to the call-site default, so a real zero can't be faked. This pins the
 	// semantic every port's *Or/get_*(default=) mirrors.
-	let doc =
-		Document::parse("a: 42\nb: not-a-number\ne:\narr: 1, 2, 3\nblk:\n\t```html\n\thi\n\t```\n");
+	let doc = Document::parse(
+		"a: 42\nb: not-a-number\ne:\narr: [1, 2, 3]\nblk:\n\t```html\n\thi\n\t```\n",
+	);
 	assert_eq!(doc.get_int("a").unwrap_or(9), 42); // Good
 	assert_eq!(doc.get_int("b").unwrap_or(9), 9); // BadType
 	assert_eq!(doc.get_int("e").unwrap_or(9), 9); // Empty still falls back
@@ -1062,10 +1063,10 @@ fn parse_limited_caps() {
 	// 0 is no cap: identical to parse_with.
 	let doc = Document::parse_limited(text, Strictness::Standard, 0, 0, 0).unwrap();
 	assert!(doc.diagnostics().is_empty());
-	// Element cap, inline spelling: the whole line is refused, the rest of the
-	// document is untouched.
+	// Element cap, bracket spelling: the whole line is refused, the rest of
+	// the document is untouched.
 	let doc =
-		Document::parse_limited("arr: 1, 2, 3\nok: 5\n", Strictness::Standard, 0, 2, 0).unwrap();
+		Document::parse_limited("arr: [1, 2, 3]\nok: 5\n", Strictness::Standard, 0, 2, 0).unwrap();
 	let e021: Vec<_> = doc
 		.diagnostics()
 		.iter()
@@ -1078,7 +1079,7 @@ fn parse_limited_caps() {
 	assert_eq!(doc.lost_count(), 1);
 	// Element cap, stacked spelling: each element line past the cap is refused
 	// on its own; the array keeps what fit.
-	let doc = Document::parse_limited("arr:\n\t* 1\n\t* 2\n\t* 3\n", Strictness::Standard, 0, 2, 0)
+	let doc = Document::parse_limited("arr:\n\t- 1\n\t- 2\n\t- 3\n", Strictness::Standard, 0, 2, 0)
 		.unwrap();
 	assert_eq!(
 		doc.diagnostics()
@@ -1088,30 +1089,34 @@ fn parse_limited_caps() {
 		1
 	);
 	assert_eq!(doc.get_int_array("arr"), Ok(vec![1, 2]));
-	// A cap refuses only a line that would bind: bracket text stays E019 and
-	// kept, and an element under a field with a value stays E011.
-	let doc = Document::parse_limited(
-		"arr: [1, 2, 3]\nk: x\n\t* 1\n",
-		Strictness::Standard,
-		0,
-		1,
-		0,
-	)
-	.unwrap();
-	let codes: Vec<_> = doc.diagnostics().iter().map(|d| (d.line, d.code)).collect();
-	assert_eq!(codes, vec![(1, "E019"), (3, "E011")]);
-	assert_eq!(doc.lost_count(), 1);
-	assert!(doc.to_canonical().contains("arr: [1, 2, 3]"));
+	// A malformed array past the cap stayed E019 and kept. Since 2026-10-05
+	// the cap wins over a broken value, so this is E021 now: see
+	// a_cap_wins_over_a_broken_value.
+	// let doc = Document::parse_limited(
+	// 	"arr: [1,, 2, 3]\nk: x\n\t- 1\n",
+	// 	Strictness::Standard,
+	// 	0,
+	// 	1,
+	// 	0,
+	// )
+	// .unwrap();
+	// let codes: Vec<_> = doc.diagnostics().iter().map(|d| (d.line, d.code)).collect();
+	// assert_eq!(codes, vec![(1, "E019"), (3, "E011")]);
+	// assert_eq!(doc.lost_count(), 1);
+	// assert!(doc.to_canonical().contains("arr: [1,, 2, 3]"));
 	// The count the cap judges is the count the array reads back as, spelling
 	// by spelling: quoted commas, a backslash (a character, so it shields
-	// nothing), empty and blank slots, a Unicode blank (content: only a space
-	// or a tab is blank), a quote that never closes (a character too, so the
-	// comma after it splits). Refused at one under, kept at exact.
+	// nothing), the empty array, a quoted Unicode blank (content: only a space
+	// or a tab is blank, and bare it is E025). Refused at one under, kept at
+	// exact. A quote that never closes made the comma after it split before
+	// the value syntax; that line is E017 now and binds nothing. An empty slot
+	// is E019 now, and a bare comma E026.
 	#[rustfmt::skip]
 	let counts: &[(&str, usize)] = &[
-		("1, 2, 3", 3), ("\"a, b\", c", 2), ("a\\, b, c", 3), ("a,,b", 2),
-		("a, , b", 2), (" a ", 1), ("\"\", ''", 2), ("'a\", b'", 1),
-		("\"open, b", 2), ("\\", 1), ("x,\u{3000}", 2), ("x, \u{a0}y", 2), (", , ,", 0),
+		("[1, 2, 3]", 3), ("[\"a, b\", c]", 2), ("[a\\, b, c]", 3), ("[]", 0),
+		("[ ]", 0), (" a ", 1), ("[\"\", '']", 2), ("'a\", b'", 1),
+		// ("\"open, b", 2),
+		("\\", 1), ("[x,\"\u{3000}\"]", 2), ("[x, \"\u{a0}y\"]", 2), ("[80]", 1),
 	];
 	for &(spelling, n) in counts {
 		let text = format!("v: {spelling}\n");
@@ -1121,10 +1126,7 @@ fn parse_limited_caps() {
 			"{spelling:?} at cap {n}"
 		);
 		if n == 0 {
-			assert!(
-				doc.exists("v") && doc.get_string_array("v").is_err(),
-				"{spelling:?} empty"
-			);
+			assert_eq!(doc.get_string_array("v"), Ok(vec![]), "{spelling:?} empty");
 		} else {
 			assert_eq!(
 				doc.get_string_array("v").map(|a| a.len()),
@@ -1137,17 +1139,19 @@ fn parse_limited_caps() {
 			assert_eq!(doc.lost_count(), 1, "{spelling:?} at cap {}", n - 1);
 		}
 	}
-	// A refused line reports the cap alone: the quote check runs after it, so
-	// it never splits a value the cap already turned away.
-	let doc = Document::parse_limited("v: a, \"open, b\n", Strictness::Standard, 0, 1, 0).unwrap();
-	let codes: Vec<&str> = doc.diagnostics().iter().map(|d| d.code).collect();
-	assert_eq!(codes, ["E021"]);
+	// An open quote was judged before the cap and kept the line. Since
+	// 2026-10-05 the cap wins: see a_cap_wins_over_a_broken_value.
+	// let doc =
+	// 	Document::parse_limited("v: [a, \"open, b]\n", Strictness::Standard, 0, 1, 0).unwrap();
+	// let codes: Vec<&str> = doc.diagnostics().iter().map(|d| d.code).collect();
+	// assert_eq!(codes, ["E017"]);
+	// assert_eq!(doc.lost_count(), 0);
 	// A fence whose info string splits past the cap is refused with its block,
 	// in both spellings, so the body never reads as live lines. Same fixture in
-	// every runner.
+	// every runner. Only a comma with a blank after it splits since 20261006.
 	for text in [
-		"secrets:\n\t```a,b,c,d\n\tpassword: hunter2\n\t```\nafter: 1\n",
-		"secrets: ```a,b,c,d\n\tpassword: hunter2\n\t```\nafter: 1\n",
+		"secrets:\n\t```a, b, c, d\n\tpassword: hunter2\n\t```\nafter: 1\n",
+		"secrets: ```a, b, c, d\n\tpassword: hunter2\n\t```\nafter: 1\n",
 	] {
 		let doc = Document::parse_limited(text, Strictness::Standard, 0, 3, 0).unwrap();
 		let codes: Vec<&str> = doc.diagnostics().iter().map(|d| d.code).collect();
@@ -1203,6 +1207,99 @@ fn parse_limited_caps() {
 	// parsed part still on the error.
 	let err = Document::parse_limited(text, Strictness::Strict, 2, 0, 0).unwrap_err();
 	assert_eq!(err.document.get_int("a"), Ok(1));
+}
+
+/// An item or a line past the caller's element cap is E021 and dropped, even
+/// when its value is broken: the cap wins over a value fault. A fault in the
+/// path or the name still comes first, and a broken item within the cap is
+/// still kept. Same fixture in every runner.
+#[test]
+fn a_cap_wins_over_a_broken_value() {
+	let _id = test_id("Ers2oCr");
+	use shcl::Strictness;
+	let codes = |text: &str, cap: usize| {
+		let doc = Document::parse_limited(text, Strictness::Standard, 0, cap, 0).unwrap();
+		let c: Vec<(usize, &'static str)> =
+			doc.diagnostics().iter().map(|d| (d.line, d.code)).collect();
+		(c, doc.lost_count(), doc.to_canonical())
+	};
+	// Bracket arrays: an empty slot, an open quote, no closing bracket, text
+	// after it. Each is E021 at a cap below its length, and its own code at a
+	// cap that fits.
+	for (text, own) in [
+		("arr: [1,, 2, 3]\n", "E019"),
+		("arr: [a, \"open, b]\n", "E017"),
+		("arr: [a, b, c\n", "E019"),
+		("arr: [a, b] c\n", "E019"),
+		("arr: [a, b c, d]\n", "E025"),
+	] {
+		let (c, lost, out) = codes(text, 1);
+		assert_eq!(c, vec![(1, "E021")], "{text:?}");
+		assert_eq!(lost, 1, "{text:?}");
+		assert!(!out.contains("arr"), "{text:?}");
+		let (c, lost, _) = codes(text, 9);
+		assert_eq!(c, vec![(1, own)], "{text:?} under the cap");
+		assert_eq!(lost, 0, "{text:?} under the cap");
+	}
+	// A bare comma outside brackets counts its pieces the same way.
+	assert_eq!(codes("a: x, y, z\n", 2).0, vec![(1, "E021")]);
+	assert_eq!(codes("a: x, y, z\n", 3).0, vec![(1, "E026")]);
+	// A stacked item past the cap is dropped whatever it holds; within the
+	// cap a broken one is kept and the list loads around it.
+	let (c, lost, out) = codes("x:\n\t- a\n\t- b\n\t- \"open\n\t- c d\nz: 1\n", 2);
+	assert_eq!(c, vec![(4, "E021"), (5, "E021")]);
+	assert_eq!(lost, 2);
+	assert_eq!(out, "x:\n\t- a\n\t- b\nz: 1\n");
+	let (c, lost, out) = codes("x:\n\t- a\n\t- \"open\n\t- b\n", 2);
+	assert_eq!(c, vec![(3, "E017")]);
+	assert_eq!(lost, 0);
+	assert!(out.contains("- \"open"), "{out:?}");
+	// An element under a field with a value is E011, cap or not.
+	assert_eq!(codes("k: x\n\t- 1\n", 1).0, vec![(2, "E011")]);
+	// The path and the name are judged first.
+	assert_eq!(codes("404: [a, b, c]\n", 1).0, vec![(1, "E014")]);
+}
+
+#[test]
+fn no_colon_repair_stays_narrow() {
+	let _id = test_id("ErsrQZC");
+	// Only one clean name or path with no colon is repaired (E015), a bad
+	// bare name like 404 included. Anything with a blank in a bare name could
+	// be a name or a name and a value, so it is E014 and kept as written.
+	for (line, quoted) in [
+		("square-miles 300", "\"square-miles 300\""),
+		("this is ! not parseable", "\"this is ! not parseable\""),
+		("user name", "\"user name\""),
+		("user\tname", "\"user◉TAB◉name\""),
+		("a.b c", "a.\"b c\""),
+	] {
+		let doc = Document::parse(&format!("k: 1\n{line}\nz: 2\n"));
+		let codes: Vec<&str> = doc.diagnostics().iter().map(|d| d.code).collect();
+		assert_eq!(codes, ["E014"], "{line:?}");
+		assert_eq!(doc.lost_count(), 0, "{line:?}");
+		assert_eq!(
+			doc.to_canonical(),
+			format!("k: 1\n{line}\nz: 2\n"),
+			"{line:?}"
+		);
+		assert!(!doc.exists(quoted), "{line:?}");
+	}
+	// The message names where the second word starts, as before chunk A.
+	let doc = Document::parse("a:\n\t  square-miles 300\n");
+	assert_eq!(
+		doc.diagnostics()[0].message,
+		"malformed line skipped: unexpected character after the path, at column 17"
+	);
+	for (line, out) in [
+		("404", "\"404\":"),
+		("-x", "\"-x\":"),
+		("a.9b", "a:\n\t\"9b\":"),
+	] {
+		let doc = Document::parse(&format!("{line}\n"));
+		let codes: Vec<&str> = doc.diagnostics().iter().map(|d| d.code).collect();
+		assert_eq!(codes, ["E015"], "{line:?}");
+		assert_eq!(doc.to_canonical(), format!("{out}\n"), "{line:?}");
+	}
 }
 
 #[test]
@@ -1291,13 +1388,13 @@ fn write_reason_names_the_failure() {
 	let doc = Document::parse("a:\n\tb: 1\n");
 	use shcl::WriteReason::*;
 	assert_eq!(doc.write_reason("a.b"), Writable);
-	assert_eq!(doc.write_reason("a.new[Boston].x"), Writable); // creatable
+	assert_eq!(doc.write_reason("a.new(Boston).x"), Writable); // creatable
 	assert_eq!(doc.write_reason(""), BadPath);
 	assert_eq!(doc.write_reason("a..b"), BadPath);
 	assert_eq!(doc.write_reason("a.b: 2"), ValueInPath);
-	assert_eq!(doc.write_reason("a[*].b"), Wildcard);
-	assert_eq!(doc.write_reason("a[#5].b"), NoSuchIndex);
-	assert_eq!(doc.write_reason("nope[#0].b"), NoSuchIndex);
+	assert_eq!(doc.write_reason("a(*).b"), Wildcard);
+	assert_eq!(doc.write_reason("a(5).b"), NoSuchIndex);
+	assert_eq!(doc.write_reason("nope(0).b"), NoSuchIndex);
 	let deep = vec!["d"; 513].join(".");
 	assert_eq!(doc.write_reason(&deep), TooDeep);
 	// A literal line break is writable wherever a path can have one: a name
@@ -1306,7 +1403,7 @@ fn write_reason_names_the_failure() {
 	// selector was refused while the value emitter still wrote elements in
 	// their source spelling and had nothing to escape with. Not corpus-pinnable
 	// - an ops line cannot contain a raw newline.
-	assert_eq!(doc.write_reason("a[\"p\nq\"].b"), Writable);
+	assert_eq!(doc.write_reason("a(\"p\nq\").b"), Writable);
 	assert_eq!(doc.write_reason("\"x\ny\".b"), Writable);
 	assert_eq!(doc.write_reason("\"x\\ny\".b"), Writable);
 	// The probe never creates: the doc is unchanged after all of the above.
@@ -1382,26 +1479,53 @@ fn setters_refuse_a_value_the_reader_refuses() {
 	assert_eq!(doc.get_datetime("d"), Ok(ok));
 	assert_eq!(
 		doc.to_canonical(),
-		"z: 0\n\nf: 2.5\n\nd: \"2026-01-02T03:04:05.60-01:30\"\n"
+		"z: 0\n\nf: 2.5\n\nd: 2026-01-02T03:04:05.60-01:30\n"
 	);
+}
+
+// A backtick value is raw text the program decodes itself: read as written,
+// with its own flag beside `quoted`. A setter keeps the backticks when the new
+// text fits in them, and the writer picks quotes when it does not.
+#[test]
+fn a_backtick_value_reads_raw_with_its_flag() {
+	let _id = test_id("ErpVwnh");
+	let mut doc = Document::parse("c: `#FF8800`\nq: \"x\"\nb: x\na: [`1`, b]\nn: `7`\n");
+	let r = doc.read_string("c");
+	assert_eq!(
+		(r.value.as_str(), r.quoted, r.backtick),
+		("#FF8800", true, true)
+	);
+	let r = doc.read_string("q");
+	assert_eq!((r.quoted, r.backtick), (true, false));
+	let r = doc.read_string("b");
+	assert_eq!((r.quoted, r.backtick), (false, false));
+	let r = doc.read_string_array("a");
+	assert_eq!((r.value.len(), r.quoted, r.backtick), (2, false, false));
+	let r = doc.read_int("n");
+	assert_eq!((r.value, r.backtick), (7, true));
+	assert!(doc.set_string("c", "#00FF00"));
+	assert!(doc.read_string("c").backtick);
+	assert!(doc.set_string("c", "a`b"));
+	assert!(!doc.read_string("c").backtick);
+	assert!(doc.to_canonical().starts_with("c: \"a`b\"\n"));
 }
 
 #[test]
 fn a_line_break_in_a_path_writes_and_reads_back() {
 	let _id = test_id("EpGigIK");
-	// Both halves of a path can contain one and write it `\n`: a name through the
+	// Both halves of a path can contain one and write it `◉NEWLINE◉`: a name through the
 	// name escaper, a selector value through the value emitter. The selector
 	// was refused while elements were stored in their source spelling and the
 	// emitter had nothing to escape with. Same fixture in every runner.
 	let mut doc = Document::parse("z: 0\n");
-	assert!(doc.set_int("x[\"p\nq\"].c", 1));
+	assert!(doc.set_int("x(\"p\nq\").c", 1));
 	assert!(doc.set_int("\"a\nb\".c", 1));
 	let text = doc.to_canonical();
 	let back = Document::parse(&text);
 	assert_eq!(back.error_count(), 0);
 	assert_eq!(back.to_canonical(), text);
-	assert_eq!(back.read_int("x[\"p\\nq\"].c").value, 1);
-	assert_eq!(back.read_int("\"a\\nb\".c").value, 1);
+	assert_eq!(back.read_int("x(\"p◉NEWLINE◉q\").c").value, 1);
+	assert_eq!(back.read_int("\"a◉NEWLINE◉b\".c").value, 1);
 	assert_eq!(back.read_int("\"a\nb\".c").value, 1);
 }
 
@@ -1426,20 +1550,20 @@ fn children_and_instance_paths_walk_a_repeated_key() {
 	// walk had to know to index each instance.
 	let doc =
 		Document::parse("account: w\n\temail: e@x\n\t\tsshkey: k1\n\temail: f@x\n\t\tsshkey: k2\n");
-	assert_eq!(doc.children("account[#0].email"), vec!["sshkey", "sshkey"]);
-	assert_eq!(doc.children("account.email[#1]"), vec!["sshkey"]);
+	assert_eq!(doc.children("account(0).email"), vec!["sshkey", "sshkey"]);
+	assert_eq!(doc.children("account.email(1)"), vec!["sshkey"]);
 	assert_eq!(
 		doc.instance_paths(),
 		vec![
 			"account",
-			"account.email[#0]",
-			"account.email[#0].sshkey",
-			"account.email[#1]",
-			"account.email[#1].sshkey",
+			"account.email(0)",
+			"account.email(0).sshkey",
+			"account.email(1)",
+			"account.email(1).sshkey",
 		]
 	);
 	assert_eq!(
-		doc.get_string("account.email[#1].sshkey"),
+		doc.get_string("account.email(1).sshkey"),
 		Ok("k2".to_string())
 	);
 }
@@ -1462,7 +1586,7 @@ fn read_surface_line_quoted_children() {
 	assert!(doc.read_string_array("b").quoted);
 	assert!(!doc.read_string_array("a").quoted);
 	assert!(
-		!Document::parse("m: \"x\", \"y\"\n")
+		!Document::parse("m: [\"x\", \"y\"]\n")
 			.read_string_array("m")
 			.quoted
 	);
@@ -1476,8 +1600,8 @@ fn read_surface_line_quoted_children() {
 	assert_eq!(doc.lines("code.hook"), vec![4, 5]);
 	assert_eq!(doc.lines("code.done"), vec![6]);
 	assert_eq!(doc.lines("a"), vec![1]);
-	assert_eq!(doc.lines("code[*].done"), vec![6]);
-	assert_eq!(doc.lines("code[*].nope"), vec![0]);
+	assert_eq!(doc.lines("code(*).done"), vec![6]);
+	assert_eq!(doc.lines("code(*).nope"), vec![0]);
 	assert!(doc.lines("missing").is_empty());
 	assert_eq!(doc.children("code"), vec!["hook", "hook", "done"]);
 	assert_eq!(doc.children(""), vec!["a", "b", "code"]);
@@ -1496,12 +1620,12 @@ fn read_surface_line_quoted_children() {
 	// Escapes ARE resolved on a name, so both spellings of the path find the
 	// same node - while authored_name still hands back the source spelling,
 	// which is the one thing it is for. Same fixture in every runner.
-	let d3 = Document::parse("\"Ab\\tCd\": 2\n");
-	assert_eq!(d3.authored_name("\"ab\\tcd\""), "Ab\\tCd");
-	assert_eq!(d3.authored_name("\"ab\tcd\""), "Ab\\tCd");
+	let d3 = Document::parse("\"Ab◉TAB◉Cd\": 2\n");
+	assert_eq!(d3.authored_name("\"ab◉tab◉cd\""), "Ab◉TAB◉Cd");
+	assert_eq!(d3.authored_name("\"ab\tcd\""), "Ab◉TAB◉Cd");
 	assert_eq!(d3.read_int("\"ab\tcd\"").value, 2);
 	// Canonical output folds the case, as it always has, and escapes the tab.
-	assert_eq!(d3.to_canonical(), "\"ab\\tcd\": 2\n");
+	assert_eq!(d3.to_canonical(), "\"ab◉TAB◉cd\": 2\n");
 }
 
 #[test]
@@ -2050,6 +2174,155 @@ fn standard_trait_surface() {
 	let _: shcl::DateTime = shcl::ShclDateTime::default();
 }
 
+/// A list with a field under it (E001) after an empty binding of its name
+/// that has fields: no text loads it back, since a reload joins the list's
+/// header to that binding and drops its items (E008). The load is left as
+/// it is; a save that would write it refuses (2026100511210900). An edit and
+/// a merge can each leave one. Same fixture in every runner.
+#[test]
+fn a_list_no_text_loads_back_refuses_to_save() {
+	let _id = test_id("Ers2oF1");
+	let src = "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n";
+	let mut doc = Document::parse_keep_lines(src, Strictness::Standard).unwrap();
+	assert_eq!(doc.lost_count(), 0);
+	assert!(doc.set_empty("x(v)"));
+	let text = doc.to_canonical();
+	assert_eq!(text, "x:\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n");
+	assert_eq!(
+		Document::parse(&text).lost_count(),
+		2,
+		"the reload drops both items"
+	);
+	assert_eq!(doc.lost_count(), 2);
+	assert!(
+		!doc.to_text_keep_lines().1,
+		"the source was canonical, and still no lines are kept"
+	);
+	let dir = std::env::temp_dir().join(format!("shcl-unloadable-{}", std::process::id()));
+	std::fs::create_dir_all(&dir).unwrap();
+	let f = dir.join("t.shcl");
+	let fs = f.to_str().unwrap();
+	std::fs::write(&f, src).unwrap();
+	assert!(matches!(
+		doc.save_file(fs),
+		Err(shcl::SaveError::Refused { lost: 2, .. })
+	));
+	assert!(matches!(
+		doc.save_file_keep_lines(fs),
+		Err(shcl::SaveError::Refused { lost: 2, .. })
+	));
+	assert_eq!(std::fs::read_to_string(&f).unwrap(), src);
+	assert!(doc.save_file_lossy(fs).is_ok());
+	std::fs::remove_dir_all(&dir).unwrap();
+	// The same through a merge: the list arrives over an empty binding.
+	let mut merged = Document::parse("x:\n\tf: 1\n");
+	merged.merge(&Document::parse("x:\n\t- a\n\t- b\n\tg: 2\n"));
+	assert_eq!(merged.lost_count(), 2, "{:?}", merged.to_canonical());
+	// An empty binding with no fields takes the list in, so nothing is lost,
+	// and a list with no field under it goes in brackets.
+	let mut doc = Document::parse("x: v\nx:\n\t- a\n\tg: 2\n");
+	assert!(doc.set_empty("x(v)"));
+	assert_eq!(doc.lost_count(), 0, "{:?}", doc.to_canonical());
+	let mut doc = Document::parse("x: v\n\tf: 1\nx:\n\t- a\n\t- b\n");
+	assert!(doc.set_empty("x(v)"));
+	assert_eq!(doc.lost_count(), 0, "{:?}", doc.to_canonical());
+}
+
+/// A setter that empties a field joins the stacked list after it, fields
+/// and all, as a reload would. A read made before the write has the lookup
+/// built, and the fields that moved still have to be found through it.
+#[test]
+fn a_list_joining_an_emptied_field_keeps_its_fields_found() {
+	let _id = test_id("ErsETML");
+	for (src, path, field, want) in [
+		("b: x\nb:\n\t- 3\n\tk: 1\n", "b", "b.k", "1"),
+		("b: x\nb: y z\n\t- 3\n\tk: 1\n", "b", "b.k", "1"),
+		("x: v\nx:\n\t- a\n\tg: 2\n", "x(v)", "x.g", "2"),
+	] {
+		let mut doc = Document::parse(src);
+		assert!(doc.get_string(field).is_ok(), "{src:?}");
+		assert!(doc.set_empty(path), "{src:?}");
+		let back = Document::parse(&doc.to_canonical());
+		assert_eq!(back.get_string(field).as_deref(), Ok(want), "{src:?}");
+		assert_eq!(doc.get_string(field).as_deref(), Ok(want), "{src:?}");
+		assert_eq!(doc.paths(), back.paths(), "{src:?}");
+	}
+}
+
+/// A merge adds a list with a field under it as a new instance after an
+/// empty binding of its name. A comment or kept line left after the binding
+/// held the join off, though a reload joins the two (2026100520243961).
+#[test]
+fn a_merged_list_joins_an_empty_field_past_a_comment() {
+	let _id = test_id("Ert70BF");
+	let layer = Document::parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n");
+	for base in [
+		"p:\n\ts:\n\t# c\n",
+		"p:\n\ts:\n\tk: [1\n",
+		"p:\n\ts:\n\t# c\n\t\t# d\n",
+		"p:\n\ts:\n\t# c\n\tt: 2\n",
+	] {
+		let mut doc = Document::parse(base);
+		doc.merge(&layer);
+		let text = doc.to_canonical();
+		let back = Document::parse(&text);
+		assert_eq!(back.to_canonical(), text, "{base:?}");
+		assert_eq!(doc.paths(), back.paths(), "{base:?}");
+		assert_eq!(doc.get_string("p.s.c").as_deref(), Ok("1"), "{base:?}");
+		assert_eq!(back.get_string("p.s.c").as_deref(), Ok("1"), "{base:?}");
+		assert_eq!(doc.instances("p.s").len(), 1, "{base:?}");
+	}
+}
+
+/// The remove twin: the merge without the gap builds the list no text loads
+/// back, after a binding with a field. A remove that takes that field joins
+/// the list, and one that takes the list's field puts it in brackets, as a
+/// reload reads each.
+#[test]
+fn a_remove_settles_a_list_after_an_empty_field() {
+	let _id = test_id("Ert70DM");
+	for (path, want) in [
+		("p.s.x", "p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"),
+		("p.s.c", "p:\n\ts:\n\t\tx: 1\n\ts: [0]\n"),
+	] {
+		let mut doc = Document::parse("p:\n\ts:\n\t\tx: 1\n");
+		doc.merge(&Document::parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"));
+		assert!(doc.lost_count() > 0, "the list no text loads back");
+		assert_eq!(doc.remove(path), 1);
+		let text = doc.to_canonical();
+		assert_eq!(text, want, "{path}");
+		let back = Document::parse(&text);
+		assert_eq!(back.to_canonical(), text, "{path}");
+		assert_eq!(doc.paths(), back.paths(), "{path}");
+		assert_eq!(doc.lost_count(), 0, "{path}");
+	}
+}
+
+/// A load can build that list too, under a kept array line (E028). The
+/// canonical text writes the line as a comment and cannot load the list
+/// back, so that save refuses. The source text does, so with no edits the
+/// save that keeps lines writes it as it was.
+#[test]
+fn a_list_the_source_loads_back_keeps_its_lines() {
+	let _id = test_id("ErsWiow");
+	let src = "c:\n\ts: 1\nc: [1]\n\tb(*): 1\n\t- 3\n\ta: 2\n";
+	let doc = Document::parse_keep_lines(src, Strictness::Standard).unwrap();
+	assert_eq!(doc.lost_count(), 2, "the wildcard line and the item");
+	assert_eq!(doc.to_text_keep_lines(), (src.to_string(), true));
+	let dir = std::env::temp_dir().join(format!("shcl-sourcelist-{}", std::process::id()));
+	std::fs::create_dir_all(&dir).unwrap();
+	let f = dir.join("t.shcl");
+	let fs = f.to_str().unwrap();
+	std::fs::write(&f, src).unwrap();
+	assert!(matches!(
+		doc.save_file(fs),
+		Err(shcl::SaveError::Refused { lost: 2, .. })
+	));
+	assert!(matches!(doc.save_file_keep_lines(fs), Ok(true)));
+	assert_eq!(std::fs::read_to_string(&f).unwrap(), src);
+	std::fs::remove_dir_all(&dir).unwrap();
+}
+
 #[test]
 fn lost_and_save_gate() {
 	let _id = test_id("EnEclpx");
@@ -2121,23 +2394,27 @@ fn strict_failure_carries_document() {
 #[test]
 fn raw_is_source_text() {
 	let _id = test_id("ElonRnN");
-	// raw: the verbatim value span from the source line - not the display
-	// join, which rewrites `{2,3}` to `{2, 3}`. Same fixture in every runner
-	// whose read result exposes raw (the C read structs deliberately do not).
-	let doc = Document::parse("regex: ^\\d{2,3}$\nlist: a,  \"b c\"\n");
-	assert_eq!(doc.read_string("regex").raw.as_deref(), Some("^\\d{2,3}$"));
+	// raw: the verbatim value span from the source line, quotes and all - not
+	// the canonical form, which rewrites `[a,  "b c"]` to `[a, "b c"]`. Same
+	// fixture in every runner whose read result exposes raw (the C read
+	// structs deliberately do not).
+	let doc = Document::parse("regex: \"^\\d{2,3}$\"\nlist: [a,  \"b c\"]\n");
+	assert_eq!(
+		doc.read_string("regex").raw.as_deref(),
+		Some("\"^\\d{2,3}$\"")
+	);
 	assert_eq!(
 		doc.read_string_array("list").raw.as_deref(),
-		Some("a,  \"b c\"")
+		Some("[a,  \"b c\"]")
 	);
 	// A written value has no source spelling; raw falls back to display. The
 	// selector's escaped spelling must reach the existing instance.
 	let mut doc2 = Document::parse("who: 'q\"uote'\n");
-	assert!(doc2.set_int("who[\"q\\\"uote\"].n", 5));
+	assert!(doc2.set_int("who(\"q◉DQUOTE◉uote\").n", 5));
 	assert_eq!(doc2.count("who"), 1);
-	let r = doc2.read_int("who['q\"uote'].n");
+	let r = doc2.read_int("who('q\"uote').n");
 	assert_eq!((r.value, r.status), (5, shcl::Status::Good));
-	assert_eq!(doc2.read_int("who['q\"uote'].n").raw.as_deref(), Some("5"));
+	assert_eq!(doc2.read_int("who('q\"uote').n").raw.as_deref(), Some("5"));
 }
 
 #[test]
@@ -2256,7 +2533,7 @@ fn repeat_suppression_uses_parsed_leaf() {
 	let _id = test_id("Elv59bd");
 	// A quoted last segment with a dot must not disavow an unrelated field
 	// that happens to have the split-off text.
-	let schema = Document::parse("field: a.\"b.c\"\n\trepeat: 0, 5\nfield: c\n");
+	let schema = Document::parse("field: 'a.\"b.c\"'\n\trepeat: [0, 5]\nfield: c\n");
 	let doc = Document::parse("c: 1\nc: 2\n");
 	let mut diags = doc.diagnostics().to_vec();
 	assert_eq!(diags.iter().filter(|d| d.code == "H001").count(), 1);
@@ -2280,23 +2557,75 @@ fn huge_selector_index_is_not_found() {
 	// An index at or past 2^32 must report not-found on every target width,
 	// never wrap into a live element (pins the contract; 64-bit passes either way).
 	let doc = Document::parse("a: 1\na: 2\n");
+	assert_eq!(doc.read_int("a(4294967296)").status, shcl::Status::NotFound);
 	assert_eq!(
-		doc.read_int("a[#4294967296]").status,
+		doc.read_int("a(18446744073709551615)").status,
 		shcl::Status::NotFound
 	);
+	assert_eq!(doc.count("a(4294967296)"), 0);
 	assert_eq!(
-		doc.read_int("a[#18446744073709551615]").status,
-		shcl::Status::NotFound
-	);
-	assert_eq!(doc.count("a[#4294967296]"), 0);
-	assert_eq!(
-		doc.write_reason("a[#4294967296]"),
+		doc.write_reason("a(4294967296)"),
 		shcl::WriteReason::NoSuchIndex
 	);
 	let mut w = Document::parse("a: 1\na: 2\n");
-	assert!(!w.set_int("a[#4294967296]", 9));
+	assert!(!w.set_int("a(4294967296)", 9));
 	// In-range still works.
-	assert_eq!(doc.read_int("a[#1]").value, 2);
+	assert_eq!(doc.read_int("a(1)").value, 2);
+}
+
+// A selector is written in parens. One in brackets is the old spelling: a
+// file line is E029 and kept, and a lookup, a setter or a schema path in
+// brackets is refused. A body starting with `#`, the old index, is refused
+// too. Same fixture in every runner.
+#[test]
+fn bracket_selectors_are_the_old_spelling() {
+	let _id = test_id("Erxfmqa");
+	let mut doc = Document::parse("srv: web\n\tport: 80\nsrv[web]:\n\thost: h\n");
+	let d = doc.diagnostics();
+	assert_eq!((d.len(), d[0].code, d[0].line), (1, "E029", 3), "{d:?}");
+	assert_eq!(doc.lost_count(), 0);
+	assert_eq!(doc.read_string("srv(web).host").value, "h");
+	assert_eq!(doc.count("srv"), 1);
+	assert_eq!(
+		doc.read_string("srv[web].host").status,
+		shcl::Status::NotFound
+	);
+	assert_eq!(doc.count("srv[web]"), 0);
+	assert_eq!(doc.write_reason("srv[web].x"), shcl::WriteReason::BadPath);
+	assert_eq!(doc.write_reason("srv(#0).x"), shcl::WriteReason::BadPath);
+	assert_eq!(doc.write_reason("srv(0).x"), shcl::WriteReason::Writable);
+	assert!(!doc.set_int("srv[web].x", 1));
+	assert!(doc.set_int("srv(web).x", 1));
+	assert!(doc.to_canonical().starts_with("srv[web]:\nsrv: web\n"));
+	let mut tok = Tokens::default();
+	tokenize("a(x).b[y].c: 1", b':', false, Rules::Current, &mut tok);
+	assert_eq!(tok.bracket_selector, Some(6));
+	tokenize("a(x).b(y).c: 1", b':', false, Rules::Current, &mut tok);
+	assert_eq!(tok.bracket_selector, None);
+	let schema = Document::parse("field: \"srv[*].port\"\n");
+	let v = Document::parse("srv: a\n").validate(&schema);
+	assert!(
+		v.iter()
+			.any(|d| d.code == "V093" && d.message.contains("parens")),
+		"{v:?}"
+	);
+}
+
+// A parent whose default is an array has no selector a child line can use,
+// since a selector matches one plain value. Generation refuses it rather
+// than write a child that makes another instance.
+#[test]
+fn init_refuses_a_child_of_an_array_parent() {
+	let _id = test_id("Erxfmqb");
+	let schema = Document::parse(
+		"field: tags\n\trequired: yes\n\tdefault: [a]\nfield: tags.k\n\trequired: yes\n",
+	);
+	let err = generate(&schema, true).expect_err("a child of an array parent generated");
+	assert!(
+		err.iter()
+			.any(|d| d.code == "V097" && d.message.contains("no selector spelling")),
+		"{err:?}"
+	);
 }
 
 #[test]
@@ -2500,4 +2829,304 @@ fn setters_write_only_what_reads_back() {
 		"every accepted write together changed on a save and load"
 	);
 	std::fs::remove_dir_all(&dir).unwrap();
+}
+
+// A comma splits a value outside brackets only with a blank, a comment or
+// the end after it; inside brackets every one does (value-syntax.md,
+// 20261006). 2.x split on every comma, which migrate still reads.
+#[test]
+fn a_comma_splits_a_bare_value_only_before_a_blank() {
+	let _id = test_id("Ervn567");
+	let mut tok = Tokens::default();
+	for (line, pieces) in [
+		("x: rw,noatime", 1),
+		("x: ,a", 1),
+		("x: a,,b", 1),
+		("x: a, b", 2),
+		("x: a,", 2),
+		("x: a,# c", 2),
+		("x: a,\tb", 2),
+		("x: [a,b]", 2),
+		("x: [rw,noatime, c]", 3),
+	] {
+		tokenize(line, b':', false, Rules::Current, &mut tok);
+		assert_eq!(tok.elements.len(), pieces, "{line:?}");
+	}
+	tokenize("x: a,b", b':', false, Rules::V2, &mut tok);
+	assert_eq!(tok.elements.len(), 2);
+}
+
+// Spaces in a bare value or item are fine. A tab, a bracket, a quote, or a
+// colon or comma with a blank or the end after it is one error, and its
+// message says what to do.
+#[test]
+fn bare_spaces_colons_and_commas() {
+	let _id = test_id("Ervn568");
+	for (text, code, fix) in [
+		(
+			"x: host: a.com port: 80\n",
+			"E025",
+			"put each field on its own line",
+		),
+		("x: done:\n", "E025", "quote it"),
+		("x: a\tb\n", "E025", "quote it"),
+		("x: a[b]c\n", "E025", "quote it"),
+		("x: [New York, Boston]\n", "E025", "quote it"),
+		("x: [a:, b]\n", "E025", "quote it"),
+		("x: a,\n", "E026", "write an array in brackets"),
+		("x: 80, 443\n", "E026", "write an array in brackets"),
+		("x: a: b, c\n", "E025", "put each field on its own line"),
+		("x:\n\t- name: value\n", "E027", "as instances"),
+		("x:\n\t- name:\n", "E027", "as instances"),
+		("x:\n\t- a, b\n", "E026", "quote the text"),
+		("x:\n\t- a\tb\n", "E025", "quote it"),
+		("x:\n\t- [a]\n", "E019", "quote the item"),
+		("x(a:b).y: 1\n", "E025", "quote it"),
+		("x(a,b).y: 1\n", "E025", "quote it"),
+		("x(a[b).y: 1\n", "E025", "quote it"),
+		("x(a(b).y: 1\n", "E025", "quote it"),
+	] {
+		let doc = Document::parse(text);
+		let d = doc.diagnostics();
+		assert_eq!(d.len(), 1, "{text:?}: {d:?}");
+		assert_eq!(d[0].code, code, "{text:?}");
+		assert!(d[0].message.contains(fix), "{text:?}: {}", d[0].message);
+	}
+	for (text, path, want) in [
+		("x: My  App\n", "x", "My  App"),
+		("x: rw,noatime\n", "x", "rw,noatime"),
+		("x: :0\n", "x", ":0"),
+		(
+			"x: https://a.com:8080/p?q=1,2\n",
+			"x",
+			"https://a.com:8080/p?q=1,2",
+		),
+		("x: Jul 12 2026  # c\n", "x", "Jul 12 2026"),
+		("x:\n\t- New  York\n\t- :0\n", "x", "[\"New  York\", :0]"),
+	] {
+		let doc = Document::parse(text);
+		assert!(
+			doc.diagnostics().is_empty(),
+			"{text:?}: {:?}",
+			doc.diagnostics()
+		);
+		assert_eq!(doc.get_string(path).as_deref(), Ok(want), "{text:?}");
+	}
+	assert!(Document::parse("x: 80,443\n").get_int("x").is_err());
+}
+
+// The writer leaves a colon or comma bare where the reader takes it as
+// text, quotes one at the end, and quotes an array element with a comma,
+// since there it splits. A quoted thousands comma keeps its quotes, since
+// only a quoted number reads one.
+#[test]
+fn the_writer_quotes_a_comma_by_where_it_sits() {
+	let _id = test_id("Ervn569");
+	let mut doc = Document::new();
+	assert!(doc.set_string("opts", "rw,noatime"));
+	assert!(doc.set_string("display", ":0"));
+	assert!(doc.set_string("end", "a,"));
+	assert!(doc.set_string("title", "My App"));
+	assert!(doc.set_string_array("tags", &["rw,noatime", "b"]));
+	let out = doc.to_canonical();
+	for want in [
+		"opts: rw,noatime\n",
+		"display: :0\n",
+		"end: \"a,\"\n",
+		"title: \"My App\"\n",
+		"tags: [\"rw,noatime\", b]\n",
+	] {
+		assert!(out.contains(want), "{want:?} not in {out:?}");
+	}
+	let back = Document::parse(&out);
+	assert_eq!(back.to_canonical(), out);
+	assert_eq!(
+		back.get_string_array("tags"),
+		Ok(vec!["rw,noatime".to_string(), "b".to_string()])
+	);
+	let doc = Document::parse("n: \"1,000\"\n");
+	assert_eq!(doc.to_canonical(), "n: \"1,000\"\n");
+	assert_eq!(doc.get_int("n"), Ok(1000));
+	let doc = Document::parse("t: a,b\nt: c\n");
+	let hint = &doc.diagnostics()[0];
+	assert_eq!(hint.code, "H001");
+	assert!(hint.message.contains("t: [\"a,b\", c]"), "{}", hint.message);
+}
+
+// migrate writes a 2.x comma list in brackets, with or without a blank
+// after the comma, since 2.x read both as arrays. In a file that does not
+// say it is 2.x, `a,b` is a string under these rules, so it is left and
+// counted; `a, b` is an error here, so it converts either way. A lone bare
+// value these rules refuse is quoted.
+#[test]
+fn migrate_brackets_a_2x_comma_list() {
+	let _id = test_id("Ervn56A");
+	let m = migrate(
+		"x: a, b\ny: a,b\nz: \"q\", r\nw: New York,,b\nv: done:\nu: rw,noatime\n",
+		true,
+	);
+	assert_eq!(m.ambiguous, 0);
+	assert!(
+		m.text.starts_with(
+			"x: [a, b]\ny: [a, b]\nz: [\"q\", r]\nw: [\"New York\", b]\nv: \"done:\"\nu: [rw, noatime]\n"
+		),
+		"{:?}",
+		m.text
+	);
+	let back = Document::parse(&m.text);
+	assert!(back.diagnostics().is_empty(), "{:?}", back.diagnostics());
+	let m = migrate("x: a, b\ny: a,b\n", false);
+	assert_eq!(m.ambiguous, 1);
+	assert!(m.text.starts_with("x: [a, b]\ny: a,b\n"), "{:?}", m.text);
+}
+
+// A 2.x `*` item becomes `- `, and an item these rules would read as
+// something else is quoted, such as one that looks like `- name: value`.
+#[test]
+fn migrate_writes_star_items_as_dashes() {
+	let _id = test_id("Erwed4A");
+	let m = migrate("list:\n\t* a\n\t* key: value\n\t* 'c'\n\t* O'Brien\n", true);
+	assert!(
+		m.text
+			.starts_with("list:\n\t- a\n\t- \"key: value\"\n\t- 'c'\n\t- \"O'Brien\"\n"),
+		"{:?}",
+		m.text
+	);
+	let back = Document::parse(&m.text);
+	assert!(back.diagnostics().is_empty(), "{:?}", back.diagnostics());
+	assert_eq!(
+		back.get_string_array("list").unwrap(),
+		["a", "key: value", "c", "O'Brien"]
+	);
+}
+
+// A bare 2.x name not led by a letter is quoted, so `-x: y` and `- :0` stay
+// fields rather than reading as list items, and `404` stays a name.
+#[test]
+fn migrate_quotes_a_name_not_led_by_a_letter() {
+	let _id = test_id("Erwed4B");
+	let m = migrate("404: a\n-x: y\nl:\n\t- :0\na.9b: 2\n_id: 7\n", true);
+	assert!(
+		m.text
+			.starts_with("\"404\": a\n\"-x\": y\nl:\n\t\"-\" :0\na.\"9b\": 2\n\"_id\": 7\n"),
+		"{:?}",
+		m.text
+	);
+	let back = Document::parse(&m.text);
+	assert!(back.diagnostics().is_empty(), "{:?}", back.diagnostics());
+	assert_eq!(back.get_string("\"-x\"").unwrap(), "y");
+	assert_eq!(back.get_string("l.\"-\"").unwrap(), "0");
+	assert_eq!(back.get_int("a.\"9b\"").unwrap(), 2);
+}
+
+// 2.x read a `◉` as text. A name, a bare value and a selector body holding
+// one get the escape for a real mark, so they still read as that text.
+#[test]
+fn migrate_escapes_a_real_mark() {
+	let _id = test_id("Erwed4C");
+	let m = migrate(
+		"\"a\u{25C9}q\u{25C9}\": 1\nbare: My\u{25C9}SPACE\u{25C9}App\ns[x\u{25C9}y].p: 2\n",
+		true,
+	);
+	let back = Document::parse(&m.text);
+	assert!(
+		back.diagnostics().is_empty(),
+		"{:?}\n{}",
+		back.diagnostics(),
+		m.text
+	);
+	assert_eq!(
+		back.paths()[..2],
+		[
+			"\"a\u{25C9}ESCAPE_CHAR\u{25C9}q\u{25C9}ESCAPE_CHAR\u{25C9}\"",
+			"bare"
+		],
+		"{}",
+		m.text
+	);
+	assert_eq!(
+		back.get_string("bare").unwrap(),
+		"My\u{25C9}SPACE\u{25C9}App"
+	);
+	assert_eq!(back.count("s"), 1);
+	assert_eq!(back.get_string("s(0)").unwrap(), "x\u{25C9}y");
+}
+
+// A 2.x selector goes in parens, and a bare body these rules refuse, such
+// as one with a quote or a space, is quoted, so its block still loads.
+#[test]
+fn migrate_quotes_a_bare_selector_these_rules_refuse() {
+	let _id = test_id("Erwed4D");
+	let m = migrate("srv[O'Brien].port: 1\nsrv[New York].port: 2\n", true);
+	assert!(
+		m.text
+			.starts_with("srv(\"O'Brien\").port: 1\nsrv(\"New York\").port: 2\n"),
+		"{:?}",
+		m.text
+	);
+	let back = Document::parse(&m.text);
+	assert!(back.diagnostics().is_empty(), "{:?}", back.diagnostics());
+	assert_eq!(back.count("srv"), 2);
+}
+
+// Every 2.x selector goes in parens: an index, a value, the sugar on a
+// segment before the last, and a body with a paren in it, quoted. A selector
+// in brackets is `E029` under these rules, so a file that does not say it is
+// 2.x gets the same rewrite, with nothing counted.
+#[test]
+fn migrate_writes_selectors_in_parens() {
+	let _id = test_id("ErxqQLy");
+	let text = "a[x].k: 1\nb: y\nb[0].k: 2\nc[a(b)].k: 3\ne:[f].g: 4\nr[\"x\"]:\n\ts: 1\n";
+	let want = "a(x).k: 1\nb: y\nb(0).k: 2\nc(\"a(b)\").k: 3\ne(f).g: 4\nr(\"x\"):\n\ts: 1\n";
+	for from_v2 in [true, false] {
+		let m = migrate(text, from_v2);
+		assert_eq!((m.ambiguous, m.lost), (0, 0), "{}", m.text);
+		assert!(m.text.starts_with(want), "{:?}", m.text);
+	}
+	let back = Document::parse(&migrate(text, true).text);
+	assert!(back.diagnostics().is_empty(), "{:?}", back.diagnostics());
+	assert_eq!(back.get_int("c(\"a(b)\").k").unwrap(), 3);
+	assert_eq!(back.get_int("e(f).g").unwrap(), 4);
+	assert_eq!(back.get_int("b(y).k").unwrap(), 2);
+	assert_eq!(back.get_int("r(x).s").unwrap(), 1);
+}
+
+// What 2.x bound and nothing spells now is counted lost, so the CLI
+// refuses at 7: a selector with a comma, which matched an array value, adn
+// a comma list with lines under it. A list of only empty slots, which 2.x
+// read as empty, is an empty value.
+#[test]
+fn migrate_counts_what_nothing_spells() {
+	let _id = test_id("Erwed4E");
+	let m = migrate("a[x, y].b: 1\n", true);
+	assert_eq!(m.lost, 1);
+	let m = migrate("a: 1, 2\n\tb: 1\nc: 3, 4\n", true);
+	assert_eq!(m.lost, 1, "{}", m.text);
+	let m = migrate("e: ,\nf: , # c\n", true);
+	assert_eq!(m.lost, 0);
+	assert!(m.text.starts_with("e:\nf: # c\n"), "{:?}", m.text);
+	let back = Document::parse(&m.text);
+	assert!(back.diagnostics().is_empty(), "{:?}", back.diagnostics());
+	assert_eq!(back.get_string("e"), Err(shcl::Status::Empty));
+}
+
+// A file that does not say it is 2.x could be a 3.0 one. A piece that reads
+// clean under these rules too, such as an escape, a backtick value, `[a]` or
+// a `- ` item, is left as written and counted, so the CLI asks for
+// --from-2x rather than changing a correct file at exit 0. A selector in
+// brackets is `E029` now, so its line is rewritten the 2.x way.
+#[test]
+fn migrate_leaves_what_reads_clean_now() {
+	let _id = test_id("Erwed4F");
+	let text = "x: \"a\u{25C9}TAB\u{25C9}b\"\n\"n\u{25C9}TAB\u{25C9}\": 1\nl:\n\t- :0\ns[\"\u{25C9}TAB\u{25C9}\"].p: 1\nb: `abc`\nc: [a]\n";
+	let m = migrate(text, false);
+	assert_eq!(m.ambiguous, 5, "{}", m.text);
+	assert_eq!(
+		m.text,
+		text.replace(
+			"s[\"\u{25C9}TAB\u{25C9}\"]",
+			"s(\"\u{25C9}ESCAPE_CHAR\u{25C9}TAB\u{25C9}ESCAPE_CHAR\u{25C9}\")"
+		)
+	);
+	assert!(migrate(text, true).text.contains("ESCAPE_CHAR"));
 }

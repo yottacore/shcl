@@ -1,1 +1,7 @@
-servers: "name: web", "14:30", "port: 80", "http://example.com", "note to self: x", "flag:"
+servers:
+	- name: web
+	- 14:30
+	- "port: 80"
+	- http://example.com
+	- note to self: x
+	- flag:

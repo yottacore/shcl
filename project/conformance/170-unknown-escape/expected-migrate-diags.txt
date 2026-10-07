@@ -1,4 +1,1 @@
-line 2: Error: E024
-line 3: Error: E024
-line 4: Error: E024
-failed: 3 diagnostic(s), 3 error(s)
+ok (0 diagnostic(s))

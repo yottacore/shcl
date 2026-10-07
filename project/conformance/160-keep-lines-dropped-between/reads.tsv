@@ -3,4 +3,4 @@ query	type	expected	status
 -	load	fail	-	strict
 -	lost	1	-
 account	count	2	Good
-account[#1].email	string	v@x	Good
+account(1).email	string	v@x	Good

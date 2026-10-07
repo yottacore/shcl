@@ -2,11 +2,11 @@
 # written, and a setter that unstacks a list moves one above it. Either way it
 # is still the line the file had: clear_comments and comments pass over it.
 top: 1
-"a\q": 1
+"a◉Q◉": 1
 # d: 2
 # about e
 e: 1
 m:
-	* 1
+	- 1
  x: 1
-	* 2
+	- 2

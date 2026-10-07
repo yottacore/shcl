@@ -1,14 +1,14 @@
 ## int, required
-srv["a\nb"].port: 8080
+srv("a◉NEWLINE◉b").port: 8080
 
 ## any, required
-"top\nline": v
+"top◉NEWLINE◉line": v
 
 ## int, required
-lit["c\nd"].port: 9090
+lit("c◉NEWLINE◉d").port: 9090
 
 ## any, required
-"raw\nname": w
+"raw◉NEWLINE◉name": w
 
 ##
 ## This config file format is SHCL.

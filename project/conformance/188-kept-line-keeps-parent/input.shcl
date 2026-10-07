@@ -1,25 +1,25 @@
 # A line kept for its value sits under the line it was written under, kept
 # or not, so it reads at the same path once its value is fixed.
-a: [1]
-	b: [2]
-		c: "x\qy"
-	d: "C:\temp"
-k: [3]
+a: [1
+	b: [2
+		c: "x◉Q◉y"
+	d: C:\Users\O'Brien
+k: [3
 m.n: 2
 x:
 	y: 1
 # between
-	z: [4]
+	z: [4
 w: 1
 r:
 	v: 1
-	q: [5]
+	q: [5
 	~~~
 	body
 	~~~
 l:
-	* 1
-	e: [6]
-		f: [7]
-	* 2
+	- 1
+	e: [6
+		f: [7
+	- 2
 end: 1

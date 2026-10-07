@@ -104,7 +104,7 @@ static const char *HELP =
 	"With --write, a FILE that does not exist yet is created. Lines the edits leave\n"
 	"alone come back as they were written; with --layer, or where the edited text\n"
 	"would not load back the same, the whole document comes out canonical, the way\n"
-	"fmt writes it. PATH ends at the first '=' outside quotes and brackets, so a\n"
+	"fmt writes it. PATH ends at the first '=' outside quotes and parens, so a\n"
 	"selector may hold one. Ops:\n"
 	"  int|float|bool|string|datetime<TAB>PATH<TAB>VALUE       set a scalar\n"
 	"  <type>-array<TAB>PATH<TAB>V1<TAB>V2...                  set an inline array\n"
@@ -183,9 +183,11 @@ static const char *HELP =
 	"  --set-literal=PATH=TEXT                (same subcommands) as --set, except\n"
 	"                                         TEXT goes in as value\n"
 	"                                         syntax the way a file writes it, so\n"
-	"                                         'ports=80, 443' writes a two-element\n"
-	"                                         array. A # outside quotes ends the\n"
-	"                                         value; text spanning lines is rejected\n"
+	"                                         'ports=[80, 443]' writes a two-element\n"
+	"                                         array, 'title=\"My App\"' a string and\n"
+	"                                         'color=`#FF8800`' a backtick value. A\n"
+	"                                         # outside quotes ends the value; text\n"
+	"                                         spanning lines is rejected\n"
 	"  --set-default=PATH=VALUE               (same) as --set, but only when nothing\n"
 	"  --set-literal-default=PATH=TEXT        is at the path yet - the write-out-\n"
 	"                                         defaults half of the writer\n"
@@ -311,16 +313,16 @@ typedef struct {
 // what a terminal shows. Like the help text it is byte-for-byte across the
 // bindings, and crosscheck compares every code.
 static const char *CODES =
-	"E001|error|field line under a parent holding stacked '*' list elements\n"
-	"  A parent holds list elements or named children, not both. The field line\n"
-	"  is kept and the elements stay.\n"
-	"E002|error|value after a last-segment selector (a.b[X]: v)\n"
+	"E001|error|field line under a parent holding stacked '- ' list items\n"
+	"  A parent holds list items or named children, not both. The field line\n"
+	"  is kept and the items stay.\n"
+	"E002|error|value after a last-segment selector (a.b(X): v)\n"
 	"  The selector already says which instance, so the value has nowhere to go\n"
 	"  and is ignored. Put the value on the line that creates the instance.\n"
 	"E003|error|selector names an instance that does not exist\n"
-	"  a[5].b where there is one a. An index selects an existing instance by\n"
+	"  a(5).b where there is one a. An index selects an existing instance by\n"
 	"  position and never creates one, so a binding line should select by value\n"
-	"  instead. In a file the index is the bare [5], since a # opens a comment.\n"
+	"  instead.\n"
 	"E004|error|wildcard selector on a binding line\n"
 	"  Wildcards read every instance, so there is no single one to write to.\n"
 	"  They are query-only.\n"
@@ -329,48 +331,54 @@ static const char *CODES =
 	"  opening fence's indent.\n"
 	"E006|error|raw-block fence with no parent field to bind to\n"
 	"  A raw block is a field's value, so a fence needs a field line above it.\n"
-	"E007|error|stacked '*' list element with no parent field\n"
-	"  A '* value' line is an element of the field above it.\n"
-	"E008|error|stacked '*' list element under a parent with field children\n"
-	"  The parent already holds named children, so the element is dropped.\n"
-	"E009|error|empty stacked '*' list element\n"
-	"  A '*' with nothing after it has no value to add.\n"
-	"E010|error|bare comma in a stacked '*' list element\n"
-	"  The stacked form is one element per line. Quote the comma, or write the\n"
-	"  whole array on the field's own line.\n"
-	"E011|error|stacked '*' element for a field that already has a value\n"
-	"  The field's value is kept and the element is ignored. A field is written\n"
+	"E007|error|stacked '- ' list item with no parent field\n"
+	"  A '- value' line is an item of the field above it.\n"
+	"E008|error|stacked '- ' list item under a parent with field children\n"
+	"  The parent already holds named children, so the item is dropped.\n"
+	"E009|error|empty stacked '- ' list item\n"
+	"  A '-' with nothing after it has no value to add.\n"
+	"E011|error|stacked '- ' item for a field that already has a value\n"
+	"  The field's value is kept and the item is ignored. A field is written\n"
 	"  one way or the other, not both.\n"
 	"E012|error|indentation matches no open level\n"
 	"  The line is skipped, and anything written deeper is skipped with it\n"
 	"  (E018). A save writes them back as they were when the indent holds a\n"
 	"  space. One indented with tabs alone would bind there, so it is lost.\n"
 	"  Indent to a column some open parent already uses.\n"
-	"E013|error|malformed '*' line ('*' not followed by a space)\n"
-	"  The line is skipped, and what is written under it goes with it.\n"
-	"E014|error|malformed line skipped (the message names the reason)\n"
-	"  The reason and the byte column the line went wrong at are in the prose.\n"
-	"  A quote that never closes in a field name arrives here too. A raw block\n"
-	"  the line opens is kept with it.\n"
+	"E013|error|a line starting with '*', the old list item marker\n"
+	"  A list item is written '- value' now. The line is kept as written and\n"
+	"  binds nothing, and the other items still load. What is written under it\n"
+	"  goes with it.\n"
+	"E014|error|malformed line, or a bare field name that needs quotes\n"
+	"  A bare name is a letter, then letters, digits, '-' and '_'. One that\n"
+	"  breaks only that rule, such as 404 or user name, still reads: the line is\n"
+	"  kept, and the lines under it load under that name. Quote the name to fix\n"
+	"  it. Any other malformed line is kept as written and the lines under it go\n"
+	"  with it; the prose names the reason and the byte column. A quote that\n"
+	"  never closes in a field name arrives here too. A raw block the line opens\n"
+	"  is kept with it.\n"
 	"E015|error|missing colon (repaired as an empty value)\n"
 	"  The name binds with no value rather than the line being dropped.\n"
 	"E016|error|nesting deeper than the 512-level cap (line skipped)\n"
 	"  The cap is what makes any loadable document safe to format, merge and\n"
 	"  copy in every binding.\n"
-	"E017|error|a quote that never closes with the matching quote last\n"
-	"  In a value element or a selector body. The piece is read bare, quotes and\n"
-	"  all, and a comma or comment after it still ends it. The same typo in a\n"
-	"  field name is E014.\n"
+	"E017|error|an open quote or backtick in a value or selector body\n"
+	"  A piece that starts with a quote must end with the matching one. The line\n"
+	"  is kept verbatim and binds nothing. In a value, the lines under it still\n"
+	"  load, under the field with no value. The same typo in a field name is\n"
+	"  E014.\n"
 	"E018|error|line written under a line that was skipped\n"
 	"  It is skipped with it, so a skipped line's block never re-parents one\n"
 	"  level up. Fix the line above and this one comes back with it.\n"
-	"E019|error|a value beginning with '[', the way JSON and YAML write arrays\n"
-	"  An array is comma-separated and written without brackets: ports: 80, 443.\n"
-	"  A '[' after the colon is never a selector, and reading the text without\n"
-	"  its brackets would bake a changed value in, so the line is kept verbatim:\n"
-	"  it binds nothing and nothing counts as lost. The lines under it still\n"
-	"  load, under the field with no value, so a read on the field is Empty when\n"
-	"  one of them loads and NotFound when none does.\n"
+	"E019|error|a bracket array that is not well formed\n"
+	"  An array is one line, ports: [80, 443], and [] is the empty array. Text\n"
+	"  after the closing ']', a bare '[' or ']' inside, an empty element, or no\n"
+	"  closing ']' on the line is malformed. Quote the value if it is text:\n"
+	"  log: \"[INFO] started\". A list item that is an array is E019 too, since\n"
+	"  arrays do not nest. The line is kept verbatim: it binds nothing and\n"
+	"  nothing counts as lost. The lines under it still load, under the field\n"
+	"  with no value, so a read on the field is Empty when one of them loads and\n"
+	"  NotFound when none does.\n"
 	"E020|error|node cap exceeded (fires only under a caller-supplied cap)\n"
 	"  The parse stopped there and the unparsed remainder counts as lost, so a\n"
 	"  later save refuses rather than writing a truncated file.\n"
@@ -381,33 +389,56 @@ static const char *CODES =
 	"  This entry ends the list and counts what was not listed. An error when\n"
 	"  any unlisted one was, so a scan for errors still finds one; a hint\n"
 	"  otherwise.\n"
-	"E023|error|a bad escape in double quotes\n"
-	"  Only \\t, \\n, \\\\, \\\", \\', \\uXXXX and \\UXXXXXXXX are escapes there, and a\n"
-	"  \\u or \\U escape must name a character. A Windows path typed in double\n"
-	"  quotes is the usual cause, and its \\n would already be a newline, so the\n"
-	"  line is kept verbatim: it binds nothing and a read on it is NotFound. Use\n"
-	"  single quotes or no quotes, or double each backslash. When only the value\n"
-	"  is wrong, the lines under it still load, under the field with no value,\n"
-	"  and a read on the field is Empty once one of them loads. When the name\n"
-	"  is, a raw block the line opens is kept with it.\n"
-	"E024|error|a Windows path in double quotes with a \\t or \\n escape\n"
-	"  \"C:\\temp\" would read as C:, a tab, then emp, which a path almost never\n"
-	"  means. The line is kept verbatim like E023: it binds nothing, and the\n"
-	"  lines under it still load. A read on the field is Empty when one of them\n"
-	"  loads and NotFound when none does. Use single quotes or no quotes, or\n"
-	"  double each backslash.\n"
+	"E023|error|a bad escape\n"
+	"  An escape is a name from the escape list between two ◉ marks, such as\n"
+	"  ◉TAB◉, ◉NEWLINE◉ or ◉U+200B◉, and a real ◉ is written ◉ESCAPE_CHAR◉.\n"
+	"  Anything else between two marks is an error, and so is a mark with no\n"
+	"  partner. A backslash is plain text. The line is kept verbatim: it binds\n"
+	"  nothing and a read on it is NotFound. When only the value is wrong, the\n"
+	"  lines under it still load, under the field with no value, and a read on the\n"
+	"  field is Empty once one of them loads. When the name is, a raw block the\n"
+	"  line opens is kept with it.\n"
+	"E025|error|a tab, a quote, a bracket or a loose colon in bare text\n"
+	"  A bare value or list item may hold spaces, kept as typed. A tab or other\n"
+	"  whitespace, a quote, a bracket, or a colon with a space or the end after\n"
+	"  it is an error: host: a.com port: 80 is two fields on one line. Put each\n"
+	"  field on its own line, or quote the value: name: \"O'Brien\". An array\n"
+	"  element or a selector body takes no whitespace, and a selector body no\n"
+	"  colon, comma or paren either. Whitespace at either end is trimmed first.\n"
+	"  The line is kept verbatim and binds nothing. In a value, the lines under\n"
+	"  it still load, under the field with no value.\n"
+	"E026|error|a bare comma with a space or the end after it\n"
+	"  ports: 80, 443 is an error. Write the array in brackets, ports: [80, 443],\n"
+	"  or quote text that has a comma. A comma with text right after it is text,\n"
+	"  so opts: rw,noatime is one string. The line is kept verbatim and binds\n"
+	"  nothing. The lines under it still load, under the field with no value. A\n"
+	"  list item with a bare comma, - a, b, is kept the same way, and the other\n"
+	"  items still load.\n"
+	"E027|error|a list item like - name: or - name: value\n"
+	"  A colon with a space or the end after it is how YAML starts an object in\n"
+	"  a list, and SHCL writes one as an instance. A colon with text after it is\n"
+	"  fine, as in - localhost:8080. Quote the item if it is text: - \"name: a\".\n"
+	"  The line is kept as written, and the other items still load.\n"
+	"E028|error|an array on a field with lines under it\n"
+	"  A field with fields under it takes one plain value or none, so\n"
+	"  route: [GET, POST] with lines under it is an error. Give the field one\n"
+	"  value and put the list in a field under it: methods: [GET, POST]. The line\n"
+	"  is kept verbatim, and the lines under it load under the field with no\n"
+	"  value.\n"
+	"E029|error|a selector in brackets, the old spelling\n"
+	"  Selectors are written in parens: person(Bucky).city, person(\"New York\"),\n"
+	"  person(0) and person(*). Brackets are only for arrays. The line is kept\n"
+	"  as written and binds nothing. When it selects by value, the lines under\n"
+	"  it still load, under the instance it names. On a command line, quote the\n"
+	"  path, since a bare ( is a syntax error in most shells.\n"
 	"H001|hint|repeated bare leaf (an array written as repeated lines)\n"
 	"  Repeated leaves are legal - that is how instances are written - but\n"
-	"  'tags: red' twice and 'tags: red, blue' look alike, so the parser says\n"
+	"  'tags: red' twice and 'tags: [red, blue]' look alike, so the parser says\n"
 	"  which one it read. A schema's repeat bound above 1 disavows it.\n"
 	"H002|hint|a binding merged with a non-adjacent earlier one\n"
 	"  Same name and value, so the two combine. Legal, and only the parser can\n"
 	"  see it happened. The prose names the earlier line, and a schema can\n"
 	"  disavow it per section with 'reopen: true'.\n"
-	"H003|hint|a stacked '*' element written like a field binding\n"
-	"  '* name: value' is the YAML habit for a list of objects. Here it is one\n"
-	"  string element, the text 'name: value'. Quote it to keep the string; a\n"
-	"  list of objects is written as instances of a field.\n"
 	"H005|hint|a value in another unit than its field name ends in\n"
 	"  timeout-ms: 5s reads as 5000 milliseconds, since a unit in the value\n"
 	"  wins over the one the name gives a bare number. Legal, and often a slip.\n"
@@ -450,7 +481,7 @@ static const char *CODES =
 	"  init checks its own output before returning it, so a starter config that\n"
 	"  would fail its first check is a fault instead. A default outside its\n"
 	"  field's constraints is one cause. A required path nothing can generate is\n"
-	"  the other, such as one with a [#N] selector or a * name. Line 0.\n"
+	"  the other, such as one with an index selector, a(0), or a * name. Line 0.\n"
 	"V099|error|schema failed to load\n"
 	"  The schema had error diagnostics of its own; they are printed above this\n"
 	"  with their own line numbers. Line 0.\n";
@@ -459,7 +490,10 @@ static const char *CODES =
    replacement empty when nothing took its rule. An old log can still name one,
    so explain says where it went rather than calling it unknown. */
 static const char *RETIRED =
-	"H004|hint|E024\n";
+	"E010|error|E026\n"
+	"E024|error|\n"
+	"H003|hint|\n"
+	"H004|hint|\n";
 
 static void outln(const char *p, size_t n) { fwrite(p, 1, n, stdout); fputc('\n', stdout); }
 
@@ -621,15 +655,57 @@ static char *read_stream(FILE *f, const char *who, size_t max, size_t *len) {
 	*len = n; return buf;
 }
 
+// A string read at the path that comes back unquoted and in brackets. A read
+// of an array is never quoted, though shcl_quoted gives a one-element array
+// its element's flag; an array's element never reads as the array's own
+// bracket text, which is how one is told from a quoted "[x]".
+static int reads_bracketed(shcl_doc *d, const char *path, size_t plen) {
+	shcl_read_str r = shcl_read_string(d, path, plen);
+	if (r.status != SHCL_GOOD || !r.value.n || r.value.p[0] != '[') return 0;
+	if (!shcl_quoted(d, path, plen)) return 1;
+	shcl_read_str_arr sa = shcl_read_string_array(d, path, plen);
+	return sa.status == SHCL_GOOD && (sa.n != 1 || sa.values[0].n != r.value.n || memcmp(sa.values[0].p, r.value.p, r.value.n) != 0);
+}
+
+// A field with lines under it takes one plain value or none (E028), so an
+// array there, or a field made under an array, is refused for where it goes.
+// NULL when neither is why.
+static const char *array_refusal(shcl_doc *d, const char *path, size_t plen, int array) {
+	shcl_str *kids;
+	if (array && shcl_children(d, path, plen, &kids)) return "a field with lines under it takes one plain value or none";
+	ShclArena a; memset(&a, 0, sizeof a);
+	ShclTokens tok; memset(&tok, 0, sizeof tok);
+	ShclStr p; p.p = path; p.n = plen;
+	tokenize(&a, p, '=', 1, SHCL_RULES_CURRENT, &tok);
+	const char *why = NULL;
+	for (size_t k = 1; k < tok.nseg && !why; k++) {
+		size_t quoted = tok.segments[k].name.quote != SHCL_QUOTE_NONE;
+		size_t up = tok.segments[k].name.start - quoted;
+		while (up > 0 && path[up - 1] == '.') up--;
+		// Brackets on a value that reads unquoted are an array's.
+		if (reads_bracketed(d, path, up)) why = "an array takes no lines under it";
+	}
+	arena_free(&a);
+	return why;
+}
+
+// Value text that starts an array, past any leading whitespace.
+static int array_text(const char *v, size_t n) {
+	size_t i = 0;
+	while (i < n && v[i] && strchr(" \t\r\n\v\f", v[i])) i++;
+	return i < n && v[i] == '[';
+}
+
 // The per-binding wording behind a setter's bare 0.
 // Why a write was refused. When the path itself is fine what failed is the
 // text, and only the caller knows which half of the op that was, so it names
 // it: a setter refused for its value used to report the sentence written for
 // shcl_set_literal whatever the op.
-static const char *describe_refusal(shcl_doc *d, const char *path, size_t plen, const char *unwritable) {
+static const char *bad_path(const char *path, size_t plen); // beside split_set
+static const char *describe_refusal(shcl_doc *d, const char *path, size_t plen, int array, const char *unwritable) {
 	switch (shcl_write_reason_(d, path, plen)) {
-	case SHCL_W_WRITABLE: return unwritable;
-	case SHCL_W_BAD_PATH: return "not a usable path";
+	case SHCL_W_WRITABLE: { const char *why = array_refusal(d, path, plen, array); return why ? why : unwritable; }
+	case SHCL_W_BAD_PATH: return bad_path(path, plen);
 	case SHCL_W_VALUE_IN_PATH: return "a path with a value part cannot be written";
 	case SHCL_W_WILDCARD: return "a wildcard path cannot be written";
 	case SHCL_W_NO_SUCH_INDEX: return "no instance at that index";
@@ -734,9 +810,28 @@ static int unusable_path(shcl_doc *d, const char *path, size_t plen) {
 	return r == SHCL_W_BAD_PATH || r == SHCL_W_VALUE_IN_PATH;
 }
 
-// PATH=VALUE at the first `=` outside quotes and brackets, so a selector
-// holding one (`x[a=b].c=1`) still addresses its instance. The tokenizer reads
-// the path half with `=` as its separator, so quotes and brackets mean here
+// A path with a selector in brackets, the old spelling (E029). A 2.x habit
+// still types it, so a refusal names it.
+static int bracket_path(const char *path, size_t plen) {
+	ShclArena a; memset(&a, 0, sizeof a);
+	ShclTokens tok; memset(&tok, 0, sizeof tok);
+	ShclStr ps; ps.p = path; ps.n = plen;
+	tokenize(&a, ps, ':', 1, SHCL_RULES_CURRENT, &tok);
+	int has = tok.has_bracket_selector;
+	arena_free(&a);
+	return has;
+}
+
+#define BRACKET_PATH "a selector is written in parens now, name(value)"
+
+// What a path the scanner refused is called.
+static const char *bad_path(const char *path, size_t plen) {
+	return bracket_path(path, plen) ? BRACKET_PATH : "not a usable path";
+}
+
+// PATH=VALUE at the first `=` outside quotes and parens, so a selector
+// holding one (`x(a=b).c=1`) still addresses its instance. The tokenizer reads
+// the path half with `=` as its separator, so quotes and parens mean here
 // exactly what they mean in a file; an argument whose path half is not a path
 // at all has no `=` to split at. Returns 0 then.
 static int split_set(const char *arg, size_t *plen, const char **val) {
@@ -764,7 +859,7 @@ static int set_apply(shcl_doc *d, const SetOpt *s) {
 	else if (!strcmp(s->opt, "--set-default")) ok = shcl_set_string_default(d, s->path, s->plen, s->value, vlen);
 	else if (!strcmp(s->opt, "--set-literal-default")) ok = shcl_set_literal_default(d, s->path, s->plen, s->value, vlen);
 	else ok = shcl_set_string(d, s->path, s->plen, s->value, vlen);
-	if (!ok) fprintf(stderr, "%s: cannot write %.*s: %s\n", s->opt, (int)s->plen, s->path, describe_refusal(d, s->path, s->plen, "the value text is not one value"));
+	if (!ok) fprintf(stderr, "%s: cannot write %.*s: %s\n", s->opt, (int)s->plen, s->path, describe_refusal(d, s->path, s->plen, strcmp(s->opt, "--set") && array_text(s->value, vlen), "the value text is not one value"));
 	return ok;
 }
 
@@ -913,7 +1008,7 @@ static int do_get(Opts *o) {
 			} else
 				fprintf(stderr, "cannot read %s as %s: value is not a valid %s (in %s)\n", path, tbuf, tbuf, file);
 		} else if (status == SHCL_NOT_FOUND) {
-			fprintf(stderr, "cannot read %s as %s: no value at that path (in %s)\n", path, tbuf, file);
+			fprintf(stderr, "cannot read %s as %s: %s (in %s)\n", path, tbuf, bracket_path(path, plen) ? BRACKET_PATH : "no value at that path", file);
 		} else if (status == SHCL_EMPTY) {
 			fprintf(stderr, "cannot read %s as %s: the value is empty (in %s)\n", path, tbuf, file);
 		} else {
@@ -1289,7 +1384,7 @@ static int do_migrate(const Opts *o) {
 		rc = 7;
 	}
 	if (m.lost) {
-		fprintf(stderr, "%s: %zu line(s) bound a value under 2.x that nothing binds now: bracket text after the colon or a line break in a Windows path, which have no spelling here (--lossy overrides)\n", file, m.lost);
+		fprintf(stderr, "%s: %zu line(s) bound a value under 2.x that nothing binds now: bracket text after the colon, a selector holding a comma, or a comma list with lines under it, which have no spelling here (--lossy overrides)\n", file, m.lost);
 		if (!o->lossy) rc = 7;
 	}
 	// With nothing ambiguous, the stamp is left off only when a raw block runs
@@ -1371,10 +1466,16 @@ static int do_migrate(const Opts *o) {
 }
 
 // One piece's span for `tokens`: start-end plus a mark for how it was quoted
-// (`'`, `"`, or `?` for a quote that never closed).
+// (`'`, `"`, a backtick, or `?` for a quote that never closed).
 static void say_span(const shcl_piece *p) {
-	const char *mark = p->quote == SHCL_QUOTE_SINGLE ? "'" : p->quote == SHCL_QUOTE_DOUBLE ? "\"" : p->quote == SHCL_QUOTE_OPEN ? "?" : "";
+	const char *mark = p->quote == SHCL_QUOTE_SINGLE ? "'" : p->quote == SHCL_QUOTE_DOUBLE ? "\"" : p->quote == SHCL_QUOTE_BACKTICK ? "`" : p->quote == SHCL_QUOTE_OPEN ? "?" : "";
 	printf("%zu-%zu%s", p->start, p->end, mark);
+}
+
+// A bracket array's `[` and, when it is malformed, where and why.
+static void say_array(const ShclTokens *tok) {
+	if (tok->has_array) printf(" array=%zu", tok->array);
+	if (tok->has_array_fault) printf(" array-fault=%zu:%s", tok->array_fault_at, tok->array_fault_why);
 }
 
 // Every line's spans, one line of output per input line: the indent length,
@@ -1409,16 +1510,17 @@ static int do_tokens(const Opts *o) {
 		ShclStr body = trim_wsp_start(rest);
 		size_t lead = rest.n - body.n;
 		if (body.n && body.p[0] == '#') { printf(" comment\n"); continue; }
-		// A stacked element and a fence line are value halves on their own. A
-		// `*` is an element when a blank follows it, trailing or not, which only
-		// the untrimmed line still shows (20260923 item 12).
+		// A list item and a fence line are value halves on their own. A `-` is
+		// an item when a blank follows it, trailing or not, which only the
+		// untrimmed line still shows (20260923 item 12).
 		size_t after = ilen + lead + 1;
-		int star = body.n && body.p[0] == '*' && after < line.n && (line.p[after] == ' ' || line.p[after] == '\t' || line.p[after] == '\r');
+		int item = body.n && body.p[0] == '-' && after < line.n && (line.p[after] == ' ' || line.p[after] == '\t' || line.p[after] == '\r');
 		int fence = s_starts(body, "```") || s_starts(body, "~~~");
-		if (star || fence) {
-			tokenize_value(&a, rest, lead + (star ? 1 : 0), SHCL_RULES_CURRENT, &tok);
-			printf(star ? " star" : " fence");
+		if (item || fence) {
+			tokenize_value(&a, rest, lead + (item ? 1 : 0), SHCL_RULES_CURRENT, &tok);
+			printf(item ? " item" : " fence");
 			printf(" value=%zu-%zu", tok.value_start, tok.value_end);
+			say_array(&tok);
 			for (size_t k = 0; k < tok.nelem; k++) { printf(" elem="); say_span(&tok.elements[k]); }
 			if (tok.has_comment) printf(" comment=%zu", tok.comment);
 			printf("\n");
@@ -1431,6 +1533,7 @@ static int do_tokens(const Opts *o) {
 		}
 		if (tok.has_sep) {
 			printf(" sep=%zu value=%zu-%zu", tok.sep, tok.value_start, tok.value_end);
+			say_array(&tok);
 			for (size_t k = 0; k < tok.nelem; k++) { printf(" elem="); say_span(&tok.elements[k]); }
 		}
 		if (tok.has_comment) printf(" comment=%zu", tok.comment);
@@ -1626,7 +1729,7 @@ static int apply_op(shcl_doc *d, const char *line, size_t linelen, size_t lineno
 	else if (OP("empty") && !only_absent) wrote = shcl_set_empty(d, path, plen);
 	else if (OP("comment") && !only_absent) { char *b = (char *)xrealloc(NULL, vn ? vn : 1); size_t m = unescape_ops(v, vn, b); wrote = shcl_set_comment(d, path, plen, b, m); free(b); }
 	else if ((OP("remove") || OP("clear-comments")) && !only_absent && unusable_path(d, path, plen)) {
-		op_err(lineno, "cannot %.*s %.*s: not a usable path", (int)fn[0], fp[0], (int)plen, path); rc = 1;
+		op_err(lineno, "cannot %.*s %.*s: %s", (int)fn[0], fp[0], (int)plen, path, bad_path(path, plen)); rc = 1;
 	}
 	else if (OP("remove") && !only_absent) shcl_remove(d, path, plen);
 	else if (OP("clear-comments") && !only_absent) shcl_clear_comments(d, path, plen);
@@ -1644,7 +1747,8 @@ static int apply_op(shcl_doc *d, const char *line, size_t linelen, size_t lineno
 		if (OP("literal")) unwritable = "the value text is not one value";
 		else if (OP("comment")) unwritable = "the comment text is not one line";
 		else if (OP("raw")) unwritable = raw_refusal(nf > 3 ? fp[3] : "", nf > 3 ? fn[3] : 0);
-		op_err(lineno, "cannot write %.*s: %s", (int)plen, path, describe_refusal(d, path, plen, unwritable));
+		int array = (fn[0] > 6 && memcmp(fp[0] + fn[0] - 6, "-array", 6) == 0) || (OP("literal") && array_text(v, vn));
+		op_err(lineno, "cannot write %.*s: %s", (int)plen, path, describe_refusal(d, path, plen, array, unwritable));
 		rc = 1;
 	}
 	#undef SET
@@ -2087,12 +2191,12 @@ static int set_value_opt(Opts *o, const char *name, const char *v) {
 		shcl_doc *empty = shcl_parse("", 0);
 		int unusable = unusable_path(empty, v, strlen(v));
 		shcl_free(empty);
-		if (unusable) { fprintf(stderr, "bad --remove value (not a usable path): %s (see --help)\n", v); return 1; }
+		if (unusable) { fprintf(stderr, "bad --remove value (%s): %s (see --help)\n", bad_path(v, strlen(v)), v); return 1; }
 		set_push(o, v, strlen(v), "", "--remove"); opt_seen(o, "--remove");
 	} else if (!strcmp(name, "--set") || !strcmp(name, "--set-literal")
 	           || !strcmp(name, "--set-default") || !strcmp(name, "--set-literal-default")) {
 		size_t plen; const char *val;
-		if (!split_set(v, &plen, &val) || plen == 0) { fprintf(stderr, "bad %s value (want PATH=VALUE, quotes and brackets balanced): %s (see --help)\n", name, v); return 1; }
+		if (!split_set(v, &plen, &val) || plen == 0) { fprintf(stderr, "bad %s value (want PATH=VALUE, quotes and parens balanced): %s (see --help)\n", name, v); return 1; }
 		set_push(o, v, plen, val, name); opt_seen(o, name);
 	}
 	return 0;

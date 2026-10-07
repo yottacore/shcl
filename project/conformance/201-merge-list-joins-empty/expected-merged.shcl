@@ -1,0 +1,9 @@
+# A merge adds this list, with the field under it, after the empty s in
+# the layer below. A reload joins the two past the comment and the kept
+# line between them, so the merge does too.
+p:
+	# c
+	k: [1
+	s:
+		- 0
+		c: 1

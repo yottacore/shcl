@@ -1,6 +1,6 @@
-path[C:\].file: "C:	emp"
-nested[C:\].name: "a\tb"
-quoted-sel["a\tb"].v: 1
+path("C:\").file: C:\temp
+nested("C:\").name: a\tb
+quoted-sel('a\tb').v: 1
 last: 1
 ##    Format   3
 ##    Migrated from SHCL 2.x.

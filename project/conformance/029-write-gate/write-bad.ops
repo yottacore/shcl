@@ -11,8 +11,8 @@ float	k	0x10p2
 float	k	.
 float	k	5..5
 datetime	k	notadate
-string	server[*].x	v
-int	server[#9].x	1
+string	server(*).x	v
+int	server(9).x	1
 bool	k	yes
 float	k	1e400
 float	k	INF

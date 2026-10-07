@@ -1,5 +1,5 @@
 # An all-digit selector past u64 is an index that names no instance, not a value.
 a: 1
 a: 2
-a[99999999999999999999].b: 3
+a(99999999999999999999).b: 3
 c: x

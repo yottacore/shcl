@@ -3,4 +3,4 @@ db.host: localhost
 port: 1
 
 # the branch
-repo["org/name"].branch: main
+repo("org/name").branch: main

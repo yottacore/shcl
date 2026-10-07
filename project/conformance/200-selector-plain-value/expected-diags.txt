@@ -1,0 +1,3 @@
+line 13: Error: E025
+line 14: Error: E018
+failed: 2 diagnostic(s), 2 error(s)

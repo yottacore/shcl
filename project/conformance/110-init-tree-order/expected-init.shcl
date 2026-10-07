@@ -2,7 +2,7 @@
 a: x
 
 ## any, required
-a[x].host.srv:
+a(x).host.srv:
 
 ## any, required
 zed:

@@ -431,9 +431,9 @@ python3 "${repoDir}/cicd/utility/check-abnf.py" "${repoDir}/project/grammar.abnf
 	|| fBad "project/grammar.abnf failed check-abnf.py (run it for the detail)"
 
 fTest ErEBrlo escape-tables-match
-##	The characters written as a \u escape are one list, copied into the four
-##	bindings and the grammar. gen-escapes.py writes the copies and says which
-##	one differs.
+##	The characters written as an escape and the escape names are one list,
+##	copied into the four bindings, the grammar and the spec. gen-escapes.py
+##	writes the copies and says which one differs.
 python3 "${repoDir}/cicd/utility/gen-escapes.py" \
 	|| fBad "an escape table differs from cicd/utility/gen-escapes.py (run it with --write)"
 
@@ -489,8 +489,8 @@ if [[ -f "${cmpResults}" && -f "${designDoc}" ]]; then
 	if [[ -x "${cmpBin}" && -n "${newestStamp}" ]]; then
 		fRatio(){  ## fRatio TIER: shcl's parse time over that tier's toml reader, one decimal
 			local tier="$1" mine theirs
-			mine="$("${cmpBin}" get --float "${cmpResults}" "run[${newestStamp}].tier[${tier}].library[shcl].rank-parse-secs" 2>/dev/null || true)"
-			theirs="$("${cmpBin}" get --float "${cmpResults}" "run[${newestStamp}].tier[${tier}].library[toml].rank-parse-secs" 2>/dev/null || true)"
+			mine="$("${cmpBin}" get --float "${cmpResults}" "run(${newestStamp}).tier(${tier}).library(shcl).rank-parse-secs" 2>/dev/null || true)"
+			theirs="$("${cmpBin}" get --float "${cmpResults}" "run(${newestStamp}).tier(${tier}).library(toml).rank-parse-secs" 2>/dev/null || true)"
 			awk -v a="${mine}" -v b="${theirs}" 'BEGIN { if (b + 0 > 0) printf "%.1f", a / b }'
 		}
 		pyRatio="$(fRatio python)"; rustRatio="$(fRatio rust)"
@@ -511,15 +511,15 @@ if [[ -f "${cmpResults}" && -f "${designDoc}" ]]; then
 		##	they cite - SHCL's place in each tier, how close its gzipped file
 		##	comes to the smallest, and the schema shape's read time and sizes.
 		fRead(){  ## fRead TYPE PATH: every value at PATH under the newest run, one per line
-			"${cmpBin}" get "--$1" --array "${cmpResults}" "run[${newestStamp}].$2" 2>/dev/null || true
+			"${cmpBin}" get "--$1" --array "${cmpResults}" "run(${newestStamp}).$2" 2>/dev/null || true
 		}
 		fPlace(){  ## fPlace TIER: shcl's place by rank-parse-secs, as the documents word it
-			awk -v m="$(fRead float "tier[$1].library[shcl].rank-parse-secs")" '
+			awk -v m="$(fRead float "tier($1).library(shcl).rank-parse-secs")" '
 				BEGIN { split("first second third fourth fifth sixth seventh eighth ninth tenth", ord, " ")
 					split("one two three four five six seven eight nine ten", num, " ") }
 				{ n++; if ($1 + 0 < m + 0) p++ }
 				END { p++; if (m == "" || n < 2 || n > 10) exit; print (p == n) ? "last" : ord[p] " of " num[n] }' \
-				<<<"$(fRead float "tier[$1].library[*].rank-parse-secs")"
+				<<<"$(fRead float "tier($1).library(*).rank-parse-secs")"
 		}
 		rustPlace="$(fPlace rust)"; pyPlace="$(fPlace python)"
 		if [[ -z "${rustPlace}" || -z "${pyPlace}" ]]; then
@@ -535,12 +535,12 @@ if [[ -f "${cmpResults}" && -f "${designDoc}" ]]; then
 		gzSpread=""
 		while IFS= read -r shape; do
 			[[ -n "${shape}" ]] || continue
-			gzSpread="$(awk -v m="$(fRead int "tier[rust].shape[${shape}].library[shcl].gzip-bytes")" -v w="${gzSpread:-0}" '
+			gzSpread="$(awk -v m="$(fRead int "tier(rust).shape(${shape}).library(shcl).gzip-bytes")" -v w="${gzSpread:-0}" '
 				NR == 1 || $1 + 0 < lo { lo = $1 + 0 }
 				END { if (m == "" || lo <= 0) exit; s = (m / lo - 1) * 100; if (s < w) s = w; print s }' \
-				<<<"$(fRead int "tier[rust].shape[${shape}].library[*].gzip-bytes")")"
+				<<<"$(fRead int "tier(rust).shape(${shape}).library(*).gzip-bytes")")"
 			[[ -n "${gzSpread}" ]] || break
-		done < <("${cmpBin}" instances "${cmpResults}" "run[${newestStamp}].tier[rust].shape" 2>/dev/null || true)
+		done < <("${cmpBin}" instances "${cmpResults}" "run(${newestStamp}).tier(rust).shape" 2>/dev/null || true)
 		if [[ -z "${gzSpread}" ]]; then
 			fBad "could not read the newest comparison run's gzip sizes out of results.shcl"
 		else
@@ -550,8 +550,8 @@ if [[ -f "${cmpResults}" && -f "${designDoc}" ]]; then
 		fi
 		##	The README's schema section: SHCL's size against JSON and XML, and a
 		##	read time given as a fraction of a second, which has to be true.
-		ddlSecs="$(fRead float "tier[rust].shape[ddl].library[shcl].parse-secs")"
-		ddlSizes="$(fRead int "tier[rust].shape[ddl].library[shcl].bytes") $(fRead int "tier[rust].shape[ddl].library[json].bytes") $(fRead int "tier[rust].shape[ddl].library[xml].bytes")"
+		ddlSecs="$(fRead float "tier(rust).shape(ddl).library(shcl).parse-secs")"
+		ddlSizes="$(fRead int "tier(rust).shape(ddl).library(shcl).bytes") $(fRead int "tier(rust).shape(ddl).library(json).bytes") $(fRead int "tier(rust).shape(ddl).library(xml).bytes")"
 		read -r ddlShcl ddlJson ddlXml <<<"${ddlSizes}"
 		if [[ -z "${ddlSecs}" || -z "${ddlXml:-}" ]]; then
 			fBad "could not read the newest comparison run's schema shape out of results.shcl"

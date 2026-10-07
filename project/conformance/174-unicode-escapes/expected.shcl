@@ -1,20 +1,20 @@
 # \u and \U escapes in double quotes
-accent: "café"
-smile: "😀"
-lower: "é"
+accent: "caf\u00E9"
+smile: "\U0001F600"
+lower: "\u00e9"
 zwsp: "a\u200Bb"
 override: "x\u202Ey"
-joiner: "a‍b"
+joiner: "a\u200Db"
 nul: "a\u0000b"
-tab: "a\tb"
-"keyé": 1
-bare: "a\u200Bb"
+tab: "a\u0009b"
+"key\u00e9": 1
+bare: "a◉U+200B◉b"
 single: 'raw\u0041'
-path: 'C:\users'
+path: C:\users
 short: "\u12"
 surrogate: "\uD800"
 past: "\U00110000"
 nothex: "\uZZZZ"
-list: "A", b
+list: "\u0041", b
 tier: A
-	port: 80
+tier["\u0041"].port: 80

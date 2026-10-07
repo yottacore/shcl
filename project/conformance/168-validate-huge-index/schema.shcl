@@ -1,8 +1,8 @@
 # An index past every int width finds nothing; it must not wrap.
-field: "a[#9223372036854775808].b"
+field: "a(9223372036854775808).b"
 	required: yes
 
-field: "a[#18446744073709551615].b"
+field: "a(18446744073709551615).b"
 	type: int
 
 field: a.b

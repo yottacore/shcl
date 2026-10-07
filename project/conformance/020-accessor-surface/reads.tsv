@@ -2,11 +2,11 @@ query	type	expected	status	level
 -	load	ok	-
 server	count	2	-
 server	instances	web1|web2	-
-server[*].port	int[]	8080|8081	Good	standard	Good|Good
-server[*].region	string[]	us-east|	NotFound	standard	Good|NotFound
+server(*).port	int[]	8080|8081	Good	standard	Good|Good
+server(*).region	string[]	us-east|	NotFound	standard	Good|NotFound
 query	rawinfo	sql	Good
 query	raw	SELECT count(*) FROM t;	Good
-server[web1].port	int	8080	Good
-server[web1].region	string	us-east	Good
-server[web2].region	string	-	NotFound
+server(web1).port	int	8080	Good
+server(web1).region	string	us-east	Good
+server(web2).region	string	-	NotFound
 port	int	-	NotFound

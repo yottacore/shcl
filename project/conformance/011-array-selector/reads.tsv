@@ -1,8 +1,8 @@
 query	type	expected	status	level	slots
 -	load	ok	-
 base	count	2	Good
-base	instances	Boston, MA|Philly	Good
-base[Boston, MA].pop	int	700	Good
-base[Philly].zip	int	19019	Good
-tags	string	red, "Bond, James", "it's"	Good
+base	instances	[Boston, MA]|Philly	Good
+base(Boston, MA).pop	int	-	NotFound
+base(Philly).zip	int	19019	Good
+tags	string	[red, "Bond, James", "it's"]	Good
 tags	string[]	red|Bond, James|it's	Good	standard	Good|Good|Good
