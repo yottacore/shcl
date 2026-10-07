@@ -39,6 +39,12 @@
 ##		be refused over exactly that many lost lines. The corpus half has its
 ##		own floor, since the fuzz dump alone can meet the overall one, and so
 ##		does the fuzz half, since the corpus alone can meet it too.
+##
+##		Each compared document also goes through `upgrade --write`, with and
+##		without --from-2x. A rewrite leaves the original bytes under the dated
+##		backup name, and a fresh file that loads clean, has the info block
+##		once, reads as the migrated text, and is left alone by a second run.
+##		A file left alone keeps its bytes, and one naming format 3 always is.
 ##	Syntax:
 ##		check-migrate.bash [--corpus DIR] [--iters N] [--min N] [--min-corpus N] [--min-fuzz N]
 ##		  --corpus DIR  conformance corpus root (default project/conformance)
@@ -426,6 +432,105 @@ fTrim(){
 	return 1
 }
 
+##	`upgrade --write`, the way a program calls it at start, on each compared
+##	document. The backup's name has the test clock's time in it.
+upDir="${tmpDir}/up"; upClock="2026-10-04 00:15:00 -420 PDT"
+upBackup="cfg_backup_20261004-001500_format-v2.shcl"
+declare -i nUpBad=0 nUpRewritten=0 nUpCleanRewritten=0 nUpCurrent=0 nUpPlain=0 nUpAmbiguous=0
+
+##	Errors the current rules find on a load. Hints don't count; `upgrade`
+##	leaves a file with only those alone.
+fErrors(){ { "${newCli}" check "$1" 2>/dev/null || true; } | awk '$1 == "line" && $3 == "Error:" && $4 ~ /^E/ { n++ } END { print n + 0 }'; }
+
+##	Whether `migrate --from-2x` changed anything but the stamp. It adds the
+##	migrated line only then; a refused file gets no stamp, so its text is
+##	compared whole.
+fMigrateChanged(){
+	local last
+	last="$(tail -n 1 "$2")"; last="${last%$'\r'}"
+	[[ "${last}" == "##    Migrated from SHCL 2.x." ]] && return 0
+	[[ "${last}" == "##    Format   "* ]] && return 1
+	! cmp -s "$1" "$2"
+}
+
+##	A fresh dir holding only the document as cfg.shcl, run through `upgrade
+##	--write` and any options given. The exit code is left in upRc.
+fUpgradeRun(){
+	local src="$1"; shift
+	rm -rf "${upDir}"; mkdir -p "${upDir}"; cp "${src}" "${upDir}/cfg.shcl"
+	fUpgradeAgain "$@"
+}
+fUpgradeAgain(){
+	upRc=0
+	SHCL_TEST_CLOCK="${upClock}" "${newCli}" upgrade --write "$@" "${upDir}/cfg.shcl" >/dev/null 2>"${tmpDir}/upgrade.err" || upRc=$?
+}
+fUpBad(){ nUpBad+=1; echo "check-migrate: UPGRADE ${upName}: $*"; }
+fUpEntries(){ find "${upDir}" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' '; }
+
+##	Left alone: exit 0, the same bytes, and no backup.
+fUpUntouched(){
+	((upRc == 0)) || fUpBad "$1: exit ${upRc}, not 0"
+	cmp -s "${upSrc}" "${upDir}/cfg.shcl" || fUpBad "$1: the file was changed"
+	[[ "$(fUpEntries)" == 1 ]] || fUpBad "$1: something was written beside the file"
+}
+
+##	Rewritten: the backup has the original bytes under the dated name, the
+##	fresh file loads clean, has the info block once, and a second run, with
+##	or without --from-2x, leaves it alone.
+fUpRewritten(){
+	local how="$1" fresh="${upDir}/cfg.shcl" n opt
+	((upRc == 0)) || fUpBad "${how}: exit ${upRc}, not 0"
+	cmp -s "${upSrc}" "${upDir}/${upBackup}" || fUpBad "${how}: no backup ${upBackup} with the original bytes"
+	[[ "$(fUpEntries)" == 2 ]] || fUpBad "${how}: $(fUpEntries) entries, not the file and its backup"
+	n="$(fErrors "${fresh}")"; ((n == 0)) || fUpBad "${how}: the fresh file loads with ${n} error(s)"
+	n="$(grep -c 'This config file format is SHCL\.' "${fresh}" || true)"
+	[[ "${n}" == 1 ]] || fUpBad "${how}: the info block is there ${n} time(s)"
+	cp "${fresh}" "${tmpDir}/fresh.again"
+	for opt in --from-2x ""; do
+		fUpgradeAgain ${opt:+"${opt}"}
+		((upRc == 0)) && cmp -s "${tmpDir}/fresh.again" "${fresh}" && [[ "$(fUpEntries)" == 2 ]] \
+			|| fUpBad "${how}: a second upgrade ${opt:-without --from-2x} did not leave it alone (exit ${upRc})"
+	done
+}
+
+##	With --from-2x a file is rewritten when it loads with an error, or when
+##	it loads clean and `migrate` would still change it (`p: a,b`); its reads
+##	are the migrated text's. Without, a clean file is current, and one with
+##	an error is either the same fresh file or refused at 7 for text that
+##	reads two ways, as `migrate` refuses it.
+fUpgradeCheck(){
+	upName="$1"; upSrc="$2"
+	local migrated="$3" migReads="$4" errs changed=0 reads
+	errs="$(fErrors "${upSrc}")"
+	fMigrateChanged "${upSrc}" "${migrated}" && changed=1
+	fUpgradeRun "${upSrc}" --from-2x
+	if ((errs || changed)); then
+		nUpRewritten+=1; ((errs)) || nUpCleanRewritten+=1
+		fUpRewritten "--from-2x"
+		reads="$(fReadTree "${newCli}" "${upDir}/cfg.shcl")"
+		if [[ "${reads}" != "${migReads}" ]]; then
+			fUpBad "--from-2x: the fresh file and the migrated text read differently"
+			diff <(printf '%s\n' "${migReads}") <(printf '%s\n' "${reads}") | head -12 || true
+		fi
+		cp "${upDir}/cfg.shcl" "${tmpDir}/fresh.shcl"
+	else
+		nUpCurrent+=1
+		fUpUntouched "--from-2x, a clean file migrate leaves as it is"
+	fi
+	fUpgradeRun "${upSrc}"
+	if ((errs == 0)); then
+		fUpUntouched "a clean file without --from-2x"
+	elif ((upRc == 7)); then
+		nUpAmbiguous+=1; upRc=0
+		fUpUntouched "a refusal at 7"
+		if "${newCli}" migrate "${upSrc}" >/dev/null 2>&1; then fUpBad "refused at 7, and migrate without --from-2x did not refuse"; fi
+	else
+		nUpPlain+=1
+		fUpRewritten "without --from-2x"
+		cmp -s "${tmpDir}/fresh.shcl" "${upDir}/cfg.shcl" || fUpBad "without --from-2x: a fresh file other than the --from-2x one"
+	fi
+}
+
 declare -i nCompared=0 nCorpus=0 nTrimmed=0 nSkipped=0 nBad=0 nLostChecked=0 nRawOpen=0
 fTest Eq5YPgP corpus and fuzz documents migrate to the tree 2.x read
 for f in "${corpus}"/*/input.shcl "${brackets}"/*.shcl "${dump}"/*.shcl; do
@@ -478,6 +583,7 @@ for f in "${corpus}"/*/input.shcl "${brackets}"/*.shcl "${dump}"/*.shcl; do
 	old="$(fReadTree "${oldCli}" "${f}")"
 	want="$(fAge2xReads <<<"${old}")"
 	got="$(fReadTree "${newCli}" "${tmpDir}/migrated.shcl")"
+	fUpgradeCheck "${name}" "${f}" "${tmpDir}/migrated.shcl" "${got}"
 	if [[ "${want}" != "${got}" && "${got}" == *\\* ]]; then
 		printf '%s' "${want}" > "${tmpDir}/want.reads"; printf '%s' "${got}" > "${tmpDir}/got.reads"
 		got="$(fBackslashText "${tmpDir}/want.reads" "${tmpDir}/got.reads")"
@@ -501,6 +607,29 @@ done
 ##	The floors are this test's, or its line read ok on a run that then refused
 ##	for comparing too little. The exit below still says which floor.
 if ((nCompared < minCompared || nCorpus < minCorpus || nCompared - nCorpus < minFuzz)); then nBad+=1; fi
+
+fTest Es34DZj compared documents upgrade to a fresh file beside a backup of the original
+nBad+=nUpBad
+##	Each way through fUpgradeCheck has to be taken by some document, or one of
+##	its branches checked nothing.
+if ((nUpRewritten == 0 || nUpCleanRewritten == 0 || nUpCurrent == 0 || nUpPlain == 0 || nUpAmbiguous == 0)); then
+	nBad+=1
+	echo "check-migrate: an upgrade case no document reached: ${nUpRewritten} rewritten with --from-2x, ${nUpCleanRewritten} of them clean, ${nUpCurrent} current, ${nUpPlain} rewritten without it, ${nUpAmbiguous} refused at 7" >&2
+fi
+
+##	A file naming format 3 is never touched, even one that loads with an
+##	error.
+fTest Es34DZk a file naming format 3 is never upgraded
+printf 'a: 1\n  bad\nb 2\n\n##    Format   3\n' > "${tmpDir}/format3-bad.shcl"
+declare -i nFormat3=0; nUpBad=0
+for f in "${corpus}"/*/input.shcl "${tmpDir}/format3-bad.shcl"; do
+	grep -qE '^##[[:space:]]+Format[[:space:]]+[3-9]' "${f}" || continue
+	upName="${f%/input.shcl}"; upName="${upName##*/}"; upSrc="${f}"; nFormat3+=1
+	fUpgradeRun "${f}" --from-2x; fUpUntouched "format 3, with --from-2x"
+	fUpgradeRun "${f}";           fUpUntouched "format 3, without --from-2x"
+done
+nBad+=nUpBad
+((nFormat3 > 1)) || { echo "check-migrate: no corpus input names format 3" >&2; nBad+=1; }
 
 ##	Each named case has to keep its shape, or the exception is stale.
 fTest EpUIoZd 068 still has a fence label holding a hash
@@ -550,7 +679,7 @@ if ((nBad)); then
 	echo "check-migrate: ${nBad} divergence(s) over ${nCompared} document(s) (${nSkipped} skipped)" >&2
 	exit 1
 fi
-echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, ${nCorpus} corpus cases, $((nCompared - nCorpus)) fuzz-dumped and ${nTrimmed} with lines taken out first; ${nLostChecked} lost count(s) match; ${nRawOpen} refused for an open raw block; ${nSkipped} skipped"
+echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, ${nCorpus} corpus cases, $((nCompared - nCorpus)) fuzz-dumped and ${nTrimmed} with lines taken out first; ${nLostChecked} lost count(s) match; ${nRawOpen} refused for an open raw block; ${nSkipped} skipped; upgrade rewrote ${nUpRewritten} with --from-2x (${nUpCleanRewritten} that loaded clean) and ${nUpPlain} without, left ${nUpCurrent} and ${nFormat3} naming format 3, refused ${nUpAmbiguous} at 7"
 
 ##	History:
 ##		2026-09-08  Created with the 3.0 lexical cut, pinned on the funnel merge.
@@ -575,3 +704,5 @@ echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, 
 ##		            with a comma or a comma list over lines counts as lost.
 ##		2026-10-06  An instance is read as (N) on the current side, and the
 ##		            corpus inputs with a selector are compared in brackets too.
+##		2026-10-07  Each compared document goes through `upgrade --write` too,
+##		            and a file naming format 3 is never upgraded.
