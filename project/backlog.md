@@ -260,27 +260,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Decisions:
 		- 20261002: recheck after 2026100207032800 is built, since it removes most of those checks. No perf work before 3.0.0 otherwise.
 
-- Build and test on FreeBSD
-	- ID: 2026100413052101
-	- Type: Task
-	- Status: Queued
-	- Priority: Low
-	- Opened: 20261004-130521
-	- Opened by: JC
-	- Related IDs: 2026100413052100
-	- Target OS: FreeBSD
-	- Test environment: vmFreeBSD (FreeBSD 15.1), booked through the host lock.
-	- Problem description:
-		- The README and `install.bash` point BSD users at `cargo install shcl` or a source build, but neither has been tried on a BSD.
-	- Requirements:
-		- `cargo install shcl` from the crate works, and the CLI passes the corpus and cli-regress.
-		- The C binding builds with the system cc, which is clang, and passes its runner.
-		- Go and Python suites pass, where their packages are easy to install.
-		- File what breaks.
-	- Note: 20261004, prebuilt FreeBSD x86_64 binaries came in with 2026100413191500, and the release binary passed the corpus `fmt` and `check` there. This item still owes the crate install and the other three bindings.
-	- Note: 20261004, the gate scripts are bash and assume GNU tools, so some may need `gsed` or the like. Fixing the product comes first. Porting the gates only matters if a BSD job is wanted.
-	- Estimated effort: Avg
-
 - A canonical save after a merge and a raw set loses kept lines, found by the kept-lines fuzz
 	- ID: 2026100316012486
 	- Type: Bug
@@ -2894,6 +2873,53 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Test case: corpus `186-kept-line-first-blank`, a kept line that turns into a comment above the first list, merged under a one-line layer.
 	- Acceptance signoff: Self-closed: reproduced, its test failed before the fix and passes after in all four.
 	- Closed: 20260930-080144
+
+- Build and test on FreeBSD
+	- ID: 2026100413052101
+	- Type: Task
+	- Status: Done
+	- Priority: Low
+	- Opened: 20261004-130521
+	- Opened by: JC
+	- Related IDs: 2026100413052100, 2026100413191500, 2026100617010925
+	- Target OS: FreeBSD
+	- Test environment: vmFreeBSD (FreeBSD 15.1), booked through the host lock.
+	- Version and build: dev at `ad118da3`, then branch `bsdtest` with the fixes below. The crate is dev's own `cargo package` output, since the published crate is still 2.0.0.
+	- Problem description:
+		- The README and `install.bash` point BSD users at `cargo install shcl` or a source build, but neither has been tried on a BSD.
+	- Requirements:
+		- `cargo install shcl` from the crate works, and the CLI passes the corpus and cli-regress.
+		- The C binding builds with the system cc, which is clang, and passes its runner.
+		- Go and Python suites pass, where their packages are easy to install.
+		- File what breaks.
+	- Note: 20261004, prebuilt FreeBSD x86_64 binaries came in with 2026100413191500, and the release binary passed the corpus `fmt` and `check` there. This item still owes the crate install and the other three bindings.
+	- Note: 20261004, the gate scripts are bash and assume GNU tools, so some may need `gsed` or the like. Fixing the product comes first. Porting the gates only matters if a BSD job is wanted.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Progress log:
+		- 20261007: ran on vmFreeBSD as `bsdtest`, with clang 19.1.7, Rust 1.96.1, Go 1.25.14 and Python 3.12.14. Installed with `pkg`: `rust` and `findutils`. Go, Python, bash, git, perl and curl were already there.
+		- 20261007: no product defect found, so nothing new was filed. What broke was in the tests and 2 gate rows, all fixed on this branch.
+	- Found and fixed:
+		- The set-id fixture in the Rust, Go and Python file-tier tests died on `chmod 6750` with EPERM. BSD gives a new file the directory's group, here `/tmp`'s `wheel`, and refuses setgid on a file whose group the caller is not in. C took the failed `chmod` as a skip, so on FreeBSD no binding tested set-id bits at all. All 4 now give the file the caller's own group first, so the fixture runs there and checks the save's group step too.
+		- The C runner segfaulted in `validate_fits_a_small_stack`. FreeBSD's smallest thread stack is 2 KB, and the loader's lazy binding alone overflows it. 4 KB fails too, 8 KB works. The stack is now at least 16 KB, the size of the old array the test was written against.
+		- cli-regress stopped at `save-migrate-setid` for the same `chmod 6755` reason. The fixture now sets its own group first, as `migrate-setgid` already did.
+		- cli-regress `out-of-memory-huge` and `out-of-memory-big` got 139 from the C CLI. Under a 12 MiB address cap even FreeBSD's `/bin/echo` segfaults before `main`. The cap is 16 MiB on FreeBSD only. Both rows give 70 and the message there from 16 to 32 MiB.
+	- GNU-only forms, not ported:
+		- crosscheck's write-state compare uses `find -printf`. BSD `find` prints `%P is unimplemented` and the run still passes, with the write, keep-save and kept-line dimensions comparing only stdout and exit code. The run below had GNU `find` first on PATH.
+		- cli-regress skips `schema-line-pagemap` (no `/proc/self/pagemap`) and `schema-line-fifo-swap` (no strace). Those are host gaps, not GNU forms.
+		- The other gate scripts were not run there.
+	- Verified:
+		- `cargo install --locked --path` on the packaged dev crate builds and installs in 27 s. The published 2.0.0 crate also installs with a plain `cargo install shcl`.
+		- The installed CLI's `fmt` and `check` output, stderr and exit codes over all 191 corpus cases match dev's Linux build byte for byte.
+		- cli-regress over the crate CLI and the Go, Python and C CLIs: 372 rows, 415 ok, 7 skips (4 windows-only, plus the 3 above). Before the fixes it stopped at `save-migrate-setid` with the 2 OOM rows failed.
+		- crosscheck over the corpus plus a 500-input fuzz dump, crate CLI as reference: 40659 comparisons agree, with GNU `find` on PATH.
+		- `cargo test` (fuzz at 20000): 272 ok. Go: 255 ok, and the cmd module. Python: 253 ok, 191 cases. C with the system cc: the CLI at all 5 `-O` levels, the runner (191 cases), `oom_hook`, `oom_recover`, `mem_bounds`, the no-file-I/O build, and the C++ veneer smoke with the system c++. On dev, Rust, Go and Python each failed the set-id fixture and C segfaulted.
+		- On Linux after the change: the 4 file-tier fixtures pass (C with gcc 14, gcc 15 and clang, and gcc with `_FORTIFY_SOURCE`), cli-regress, shell-regress, shellcheck, test-ids, rustfmt, clippy, gofmt and ruff pass.
+	- Branch: `bsdtest`
+	- Commit: aa2f80ff
+	- Test case: a one-off run on vmFreeBSD, not CI. Rust `EnEYHTs`, Go `EnEYHTt`, Python `EoTHZsG` and the C file-tier block, C `EoXPDVh`, and cli-regress `ErCrqz4`, `EqzuLW4` and `EqzuLW5` each failed there on dev and pass with the fix.
+	- Acceptance signoff: Self-closed: test task, every requirement ran and passed.
+	- Closed: 20261007-092637
 
 - `explain` on a retired code could name the code that replaced it
 	- ID: 2026100307163917

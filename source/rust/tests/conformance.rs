@@ -1591,8 +1591,14 @@ fn file_tier_load_save() {
 		// lets the kernel clear them on the write.
 		let id_of =
 			|p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o7777;
-		std::fs::set_permissions(&born, std::fs::Permissions::from_mode(0o6750)).unwrap();
-		if id_of(&born) == 0o6750 {
+		// BSD gives a new file the directory's group, and refuses setgid on a
+		// file whose group the caller is not in. Its own group fixes both.
+		unsafe extern "C" {
+			fn getegid() -> u32;
+		}
+		let _ = std::os::unix::fs::chown(&born, None, Some(unsafe { getegid() }));
+		let set = std::fs::set_permissions(&born, std::fs::Permissions::from_mode(0o6750));
+		if set.is_ok() && id_of(&born) == 0o6750 {
 			fdoc.save_file(born.to_str().unwrap()).unwrap();
 			assert_eq!(id_of(&born), 0o6750, "save dropped a set-id bit");
 		} else {

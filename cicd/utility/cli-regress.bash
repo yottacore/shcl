@@ -1661,13 +1661,16 @@ fi
 ## the pipe document above, which reads in about a megabyte and parses in over
 ## twenty, which is the library handing back NULL. The first is sparse and costs
 ## no disk. Only the C CLI makes this promise, and ulimit -v is POSIX.
+## FreeBSD's own echo segfaults under 12 MiB, before main.
+oomCapKb=12288
+[[ "$(uname -s)" == FreeBSD ]] && oomCapKb=16384
 fOom(){
 	local doc="$1"
 	for b in "${bindings[@]}"; do
 		name="${b%%|*}"; cli="${b#*|}"
 		[[ "${name}" == c ]] || continue
 		rc=0
-		(ulimit -v 12288; exec "${cli}" fmt "${tmpDir}/${doc}.shcl" >/dev/null 2>"${tmpDir}/err" </dev/null) || rc=$?
+		(ulimit -v "${oomCapKb}"; exec "${cli}" fmt "${tmpDir}/${doc}.shcl" >/dev/null 2>"${tmpDir}/err" </dev/null) || rc=$?
 		nRun+=1
 		gotErr=""; IFS= read -r -d '' gotErr <"${tmpDir}/err" || true
 		if [[ "${rc}" != 70 || "${gotErr}" != $'shcl: out of memory\n' ]]; then
@@ -1805,7 +1808,9 @@ fSaveSetup() {
 		migrate-dotdir) mkdir d.x; printf 'base:[Boston]\n' > d.x/f ;;
 		migrate-link) mkdir real; printf 'base:[Boston]\n' > real/c.shcl; ln -s real/c.shcl f.shcl ;;
 		migrate-setgid) mkdir sg; chgrp "${altGroup}" sg; chmod 2775 sg; printf 'base:[Boston]\n' > sg/f.shcl; chgrp "$(id -gn)" sg/f.shcl; chmod 0640 sg/f.shcl ;;
-		migrate-setid) printf 'base:[Boston]\n' > f.shcl; chmod 6755 f.shcl ;;
+		## BSD gives a new file the directory's group, and refuses setgid on a
+		## file whose group the caller is not in.
+		migrate-setid) printf 'base:[Boston]\n' > f.shcl; chgrp "$(id -gn)" f.shcl; chmod 6755 f.shcl ;;
 		migrate-rodir) mkdir ro; printf 'base:[Boston]\n' > ro/g.shcl; chmod 0555 ro ;;
 	esac
 }
