@@ -206,12 +206,24 @@ def fPython() -> list[str]:
 	return lines
 
 
+def fCText(text: str) -> str:
+	## Every byte as a hex escape, so a NUL or a byte past ASCII needs no care.
+	return '"' + "".join(f"\\x{b:02X}" for b in text.encode("utf-8")) + '"'
+
+
 def fC() -> list[str]:
 	lines = [f"/* {HEAD} */"]
-	for name, ranges in (("invisible_ranges", INVISIBLE), ("selector_ranges", SELECTORS)):
+	for name, ranges in (("invisible_ranges", INVISIBLE), ("selector_ranges", SELECTORS), ("white_space_ranges", WHITE_SPACE)):
 		lines += [f"static const uint32_t {name}[][2] = {{"]
 		lines += [f"\t{{{fHex(lo)}, {fHex(hi)}}}," for lo, hi in ranges]
 		lines += ["};"]
+	lines += [f"static const char escape_mark[] = {fCText(chr(ESCAPE_MARK))};"]
+	lines += ["static const struct { const char *name; const char *text; size_t len; } escape_names[] = {"]
+	lines += [f'\t{{"{name}", {fCText(text)}, {len(text.encode("utf-8"))}}},' for name, text in ESCAPE_NAMES]
+	lines += ["};"]
+	lines += ["static const char *const code_prefixes[] = {"]
+	lines += [f'\t"{p}",' for p in CODE_PREFIXES]
+	lines += ["};"]
 	return lines
 
 
@@ -326,3 +338,4 @@ if __name__ == "__main__":
 ##		2026-10-06  Go takes the escape names, code point prefixes and
 ##		            White_Space.
 ##		2026-10-06  Python takes them too.
+##		2026-10-06  C takes them too.

@@ -183,9 +183,11 @@ static const char *HELP =
 	"  --set-literal=PATH=TEXT                (same subcommands) as --set, except\n"
 	"                                         TEXT goes in as value\n"
 	"                                         syntax the way a file writes it, so\n"
-	"                                         'ports=80, 443' writes a two-element\n"
-	"                                         array. A # outside quotes ends the\n"
-	"                                         value; text spanning lines is rejected\n"
+	"                                         'ports=[80, 443]' writes a two-element\n"
+	"                                         array, 'title=\"My App\"' a string and\n"
+	"                                         'color=`#FF8800`' a backtick value. A\n"
+	"                                         # outside quotes ends the value; text\n"
+	"                                         spanning lines is rejected\n"
 	"  --set-default=PATH=VALUE               (same) as --set, but only when nothing\n"
 	"  --set-literal-default=PATH=TEXT        is at the path yet - the write-out-\n"
 	"                                         defaults half of the writer\n"
@@ -348,29 +350,36 @@ static const char *CODES =
 	"  Indent to a column some open parent already uses.\n"
 	"E013|error|malformed '*' line ('*' not followed by a space)\n"
 	"  The line is skipped, and what is written under it goes with it.\n"
-	"E014|error|malformed line skipped (the message names the reason)\n"
-	"  The reason and the byte column the line went wrong at are in the prose.\n"
-	"  A quote that never closes in a field name arrives here too. A raw block\n"
-	"  the line opens is kept with it.\n"
+	"E014|error|malformed line, or a bare field name that needs quotes\n"
+	"  A bare name is a letter, then letters, digits, '-' and '_'. One that\n"
+	"  breaks only that rule, such as 404 or user name, still reads: the line is\n"
+	"  kept, and the lines under it load under that name. Quote the name to fix\n"
+	"  it. Any other malformed line is kept as written and the lines under it go\n"
+	"  with it; the prose names the reason and the byte column. A quote that\n"
+	"  never closes in a field name arrives here too. A raw block the line opens\n"
+	"  is kept with it.\n"
 	"E015|error|missing colon (repaired as an empty value)\n"
 	"  The name binds with no value rather than the line being dropped.\n"
 	"E016|error|nesting deeper than the 512-level cap (line skipped)\n"
 	"  The cap is what makes any loadable document safe to format, merge and\n"
 	"  copy in every binding.\n"
-	"E017|error|a quote that never closes with the matching quote last\n"
-	"  In a value element or a selector body. The piece is read bare, quotes and\n"
-	"  all, and a comma or comment after it still ends it. The same typo in a\n"
-	"  field name is E014.\n"
+	"E017|error|an open quote or backtick in a value or selector body\n"
+	"  A piece that starts with a quote must end with the matching one. The line\n"
+	"  is kept verbatim and binds nothing. In a value, the lines under it still\n"
+	"  load, under the field with no value. The same typo in a field name is\n"
+	"  E014.\n"
 	"E018|error|line written under a line that was skipped\n"
 	"  It is skipped with it, so a skipped line's block never re-parents one\n"
 	"  level up. Fix the line above and this one comes back with it.\n"
-	"E019|error|a value beginning with '[', the way JSON and YAML write arrays\n"
-	"  An array is comma-separated and written without brackets: ports: 80, 443.\n"
-	"  A '[' after the colon is never a selector, and reading the text without\n"
-	"  its brackets would bake a changed value in, so the line is kept verbatim:\n"
-	"  it binds nothing and nothing counts as lost. The lines under it still\n"
-	"  load, under the field with no value, so a read on the field is Empty when\n"
-	"  one of them loads and NotFound when none does.\n"
+	"E019|error|a bracket array that is not well formed\n"
+	"  An array is one line, ports: [80, 443], and [] is the empty array. Text\n"
+	"  after the closing ']', a bare '[' or ']' inside, an empty element, or no\n"
+	"  closing ']' on the line is malformed. Quote the value if it is text:\n"
+	"  log: \"[INFO] started\". A list item that is an array is E019 too, since\n"
+	"  arrays do not nest. The line is kept verbatim: it binds nothing and\n"
+	"  nothing counts as lost. The lines under it still load, under the field\n"
+	"  with no value, so a read on the field is Empty when one of them loads and\n"
+	"  NotFound when none does.\n"
 	"E020|error|node cap exceeded (fires only under a caller-supplied cap)\n"
 	"  The parse stopped there and the unparsed remainder counts as lost, so a\n"
 	"  later save refuses rather than writing a truncated file.\n"
@@ -381,33 +390,39 @@ static const char *CODES =
 	"  This entry ends the list and counts what was not listed. An error when\n"
 	"  any unlisted one was, so a scan for errors still finds one; a hint\n"
 	"  otherwise.\n"
-	"E023|error|a bad escape in double quotes\n"
-	"  Only \\t, \\n, \\\\, \\\", \\', \\uXXXX and \\UXXXXXXXX are escapes there, and a\n"
-	"  \\u or \\U escape must name a character. A Windows path typed in double\n"
-	"  quotes is the usual cause, and its \\n would already be a newline, so the\n"
-	"  line is kept verbatim: it binds nothing and a read on it is NotFound. Use\n"
-	"  single quotes or no quotes, or double each backslash. When only the value\n"
-	"  is wrong, the lines under it still load, under the field with no value,\n"
-	"  and a read on the field is Empty once one of them loads. When the name\n"
-	"  is, a raw block the line opens is kept with it.\n"
-	"E024|error|a Windows path in double quotes with a \\t or \\n escape\n"
-	"  \"C:\\temp\" would read as C:, a tab, then emp, which a path almost never\n"
-	"  means. The line is kept verbatim like E023: it binds nothing, and the\n"
-	"  lines under it still load. A read on the field is Empty when one of them\n"
-	"  loads and NotFound when none does. Use single quotes or no quotes, or\n"
-	"  double each backslash.\n"
+	"E023|error|a bad escape\n"
+	"  An escape is a name from the escape list between two ◉ marks, such as\n"
+	"  ◉TAB◉, ◉NEWLINE◉ or ◉U+200B◉, and a real ◉ is written ◉ESCAPE_CHAR◉.\n"
+	"  Anything else between two marks is an error, and so is a mark with no\n"
+	"  partner. A backslash is plain text. The line is kept verbatim: it binds\n"
+	"  nothing and a read on it is NotFound. When only the value is wrong, the\n"
+	"  lines under it still load, under the field with no value, and a read on the\n"
+	"  field is Empty once one of them loads. When the name is, a raw block the\n"
+	"  line opens is kept with it.\n"
+	"E025|error|a tab, a quote, a bracket or a loose colon in bare text\n"
+	"  A bare value or list item may hold spaces, kept as typed. A tab or other\n"
+	"  whitespace, a quote, a bracket, or a colon with a space or the end after\n"
+	"  it is an error: host: a.com port: 80 is two fields on one line. Put each\n"
+	"  field on its own line, or quote the value: name: \"O'Brien\". An array\n"
+	"  element or a selector body takes no whitespace, and a selector body no\n"
+	"  colon, comma or paren either. Whitespace at either end is trimmed first.\n"
+	"  The line is kept verbatim and binds nothing. In a value, the lines under\n"
+	"  it still load, under the field with no value.\n"
+	"E026|error|a bare comma with a space or the end after it\n"
+	"  ports: 80, 443 is an error. Write the array in brackets, ports: [80, 443],\n"
+	"  or quote text that has a comma. A comma with text right after it is text,\n"
+	"  so opts: rw,noatime is one string. The line is kept verbatim and binds\n"
+	"  nothing. The lines under it still load, under the field with no value. A\n"
+	"  list item with a bare comma, - a, b, is kept the same way, and the other\n"
+	"  items still load.\n"
 	"H001|hint|repeated bare leaf (an array written as repeated lines)\n"
 	"  Repeated leaves are legal - that is how instances are written - but\n"
-	"  'tags: red' twice and 'tags: red, blue' look alike, so the parser says\n"
+	"  'tags: red' twice and 'tags: [red, blue]' look alike, so the parser says\n"
 	"  which one it read. A schema's repeat bound above 1 disavows it.\n"
 	"H002|hint|a binding merged with a non-adjacent earlier one\n"
 	"  Same name and value, so the two combine. Legal, and only the parser can\n"
 	"  see it happened. The prose names the earlier line, and a schema can\n"
 	"  disavow it per section with 'reopen: true'.\n"
-	"H003|hint|a stacked '*' element written like a field binding\n"
-	"  '* name: value' is the YAML habit for a list of objects. Here it is one\n"
-	"  string element, the text 'name: value'. Quote it to keep the string; a\n"
-	"  list of objects is written as instances of a field.\n"
 	"H005|hint|a value in another unit than its field name ends in\n"
 	"  timeout-ms: 5s reads as 5000 milliseconds, since a unit in the value\n"
 	"  wins over the one the name gives a bare number. Legal, and often a slip.\n"
@@ -459,7 +474,9 @@ static const char *CODES =
    replacement empty when nothing took its rule. An old log can still name one,
    so explain says where it went rather than calling it unknown. */
 static const char *RETIRED =
-	"H004|hint|E024\n";
+	"E024|error|\n"
+	"H003|hint|\n"
+	"H004|hint|\n";
 
 static void outln(const char *p, size_t n) { fwrite(p, 1, n, stdout); fputc('\n', stdout); }
 
@@ -1371,10 +1388,16 @@ static int do_migrate(const Opts *o) {
 }
 
 // One piece's span for `tokens`: start-end plus a mark for how it was quoted
-// (`'`, `"`, or `?` for a quote that never closed).
+// (`'`, `"`, a backtick, or `?` for a quote that never closed).
 static void say_span(const shcl_piece *p) {
-	const char *mark = p->quote == SHCL_QUOTE_SINGLE ? "'" : p->quote == SHCL_QUOTE_DOUBLE ? "\"" : p->quote == SHCL_QUOTE_OPEN ? "?" : "";
+	const char *mark = p->quote == SHCL_QUOTE_SINGLE ? "'" : p->quote == SHCL_QUOTE_DOUBLE ? "\"" : p->quote == SHCL_QUOTE_BACKTICK ? "`" : p->quote == SHCL_QUOTE_OPEN ? "?" : "";
 	printf("%zu-%zu%s", p->start, p->end, mark);
+}
+
+// A bracket array's `[` and, when it is malformed, where and why.
+static void say_array(const ShclTokens *tok) {
+	if (tok->has_array) printf(" array=%zu", tok->array);
+	if (tok->has_array_fault) printf(" array-fault=%zu:%s", tok->array_fault_at, tok->array_fault_why);
 }
 
 // Every line's spans, one line of output per input line: the indent length,
@@ -1419,6 +1442,7 @@ static int do_tokens(const Opts *o) {
 			tokenize_value(&a, rest, lead + (star ? 1 : 0), SHCL_RULES_CURRENT, &tok);
 			printf(star ? " star" : " fence");
 			printf(" value=%zu-%zu", tok.value_start, tok.value_end);
+			say_array(&tok);
 			for (size_t k = 0; k < tok.nelem; k++) { printf(" elem="); say_span(&tok.elements[k]); }
 			if (tok.has_comment) printf(" comment=%zu", tok.comment);
 			printf("\n");
@@ -1431,6 +1455,7 @@ static int do_tokens(const Opts *o) {
 		}
 		if (tok.has_sep) {
 			printf(" sep=%zu value=%zu-%zu", tok.sep, tok.value_start, tok.value_end);
+			say_array(&tok);
 			for (size_t k = 0; k < tok.nelem; k++) { printf(" elem="); say_span(&tok.elements[k]); }
 		}
 		if (tok.has_comment) printf(" comment=%zu", tok.comment);

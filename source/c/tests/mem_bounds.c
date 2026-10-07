@@ -94,11 +94,11 @@ int main(void) {
 	test_id("EoezJiG", "mem_bounds");
 	// Element cap: 200k elements on one line, refused at a cap of 8. The
 	// refused line used to be built in full first, so the cap saved nothing.
-	size_t reps = 200000, tlen = 5 + reps * 3 + 7;
+	size_t reps = 200000, tlen = 6 + reps * 3 + 9;
 	char *text = (char *)malloc(tlen + 1);
-	memcpy(text, "arr: ", 5);
-	for (size_t i = 0; i < reps; i++) memcpy(text + 5 + i * 3, "1, ", 3);
-	memcpy(text + 5 + reps * 3, "\nok: 5\n", 8);
+	memcpy(text, "arr: [", 6);
+	for (size_t i = 0; i < reps; i++) memcpy(text + 6 + i * 3, "1, ", 3);
+	memcpy(text + 6 + reps * 3, "1]\nok: 5\n", 10);
 	size_t before = allocated;
 	shcl_doc *d = shcl_parse_limited(text, tlen, SHCL_STANDARD, 0, 8, 0);
 	size_t capped = allocated - before;
@@ -108,7 +108,7 @@ int main(void) {
 	d = shcl_parse_limited(text, tlen, SHCL_STANDARD, 0, 0, 0);
 	size_t uncapped = allocated - before;
 	shcl_read_i64_arr ra = shcl_read_int_array(d, "arr", 3);
-	if (ra.status != SHCL_GOOD || ra.n != reps) fail("uncapped parse: wrong result");
+	if (ra.status != SHCL_GOOD || ra.n != reps + 1) fail("uncapped parse: wrong result");
 	shcl_free(d);
 	printf("mem_bounds: element cap: capped %zu, uncapped %zu, text %zu\n", capped, uncapped, tlen);
 	if (capped > tlen * 8) fail("a capped parse held the array it refused");
@@ -152,7 +152,7 @@ int main(void) {
 	// take no path and so never pass through the path lookup's scratch reset.
 	// shcl_paths grew the document 11 KB per call before the reset.
 	ShclSB sb = {0}; ShclArena tmp = {0};
-	for (int i = 0; i < 60; i++) { char line[48]; snprintf(line, sizeof line, "group%d:\n\ta: 1\n\tb: x, y\n", i); sb_puts(&tmp, &sb, line); }
+	for (int i = 0; i < 60; i++) { char line[48]; snprintf(line, sizeof line, "group%d:\n\ta: 1\n\tb: [x, y]\n", i); sb_puts(&tmp, &sb, line); }
 	d = shcl_parse(sb.data, sb.len);
 	arena_free(&tmp);
 	if (!d) { fail("document for the read loop did not parse"); return test_id_end(failures); }
@@ -183,7 +183,7 @@ int main(void) {
 	// resets, so a long-running reader grew without bound where the int read
 	// stayed flat. One read per loop, for the same reason as above.
 	{
-		const char *dtext = "t: 2026-01-02 03:04:05.123456 +01:30\nts: Jan 02 2026, 2026-01-03T04:05:06.5Z, 20260104\n";
+		const char *dtext = "t: 2026-01-02 03:04:05.123456 +01:30\nts: [\"Jan 02 2026\", 2026-01-03T04:05:06.5Z, 20260104]\n";
 		d = shcl_parse(dtext, strlen(dtext));
 		if (!d) { fail("document for the datetime loop did not parse"); return test_id_end(failures); }
 		for (int which = 0; which < 2; which++) {
@@ -267,7 +267,7 @@ int main(void) {
 	// The hint filters build the schema they read, and used to build it in the
 	// schema's own arena, so a program holding one schema grew it per call.
 	{
-		const char *hschema = "field: item\n\trepeat: 0, 5\nfield: sect\n\treopen: true\n";
+		const char *hschema = "field: item\n\trepeat: [0, 5]\nfield: sect\n\treopen: true\n";
 		const char *htext = "item: a\nsect:\n\tk: 1\nother: 1\nitem: b\nsect:\n\tj: 2\n";
 		shcl_doc *hs = shcl_parse(hschema, strlen(hschema));
 		size_t sheld = arena_bytes(&hs->arena), dgrew = 0;
@@ -285,7 +285,7 @@ int main(void) {
 		if (arena_bytes(&hs->arena) != sheld || dgrew != 0) fail("a hint filter kept its working set in a document it does not own");
 		shcl_free(hs);
 	}
-	d = shcl_parse("field: a\n\trequired: yes\n", 25);
+	d = shcl_parse("field: a\n\trequired: yes\n", 24);
 	held = arena_bytes(&d->arena);
 	for (int i = 0; i < 200; i++) { shcl_str t = shcl_generate(d, 1, &gok); if (!gok || !t.n) fail("generation failed"); shcl_reads_release(d); }
 	printf("mem_bounds: released generation: arena %zu -> %zu\n", held, arena_bytes(&d->arena));

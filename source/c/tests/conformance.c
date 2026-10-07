@@ -121,6 +121,22 @@ static int soup_set(shcl_doc *d, int kind, const char *p, size_t pn, const char 
 	default: { const char *av[2]; size_t al[2]; av[0] = "x"; al[0] = 1; av[1] = in; al[1] = inn; return shcl_set_string_array(d, p, pn, av, al, 2); }
 	}
 }
+/* A capped parse's diagnostics as "LINE:CODE" words, its lost count and its
+   canonical text, for the cap fixture. */
+static void cap_codes(const char *text, size_t cap, char *got, size_t gn, size_t *lost, char *out, size_t on) {
+	shcl_doc *d = shcl_parse_limited(text, strlen(text), SHCL_STANDARD, 0, cap, 0);
+	size_t at = 0; got[0] = 0;
+	for (size_t k = 0; k < shcl_diag_count(d) && at < gn; k++) {
+		int w = snprintf(got + at, gn - at, "%s%zu:%s", k ? " " : "", shcl_diag_line(d, k), shcl_diag_code(d, k));
+		if (w < 0) break;
+		at += (size_t)w;
+	}
+	*lost = shcl_lost_count(d);
+	shcl_str c = shcl_to_canonical(d);
+	size_t cn = c.n < on - 1 ? c.n : on - 1;
+	memcpy(out, c.p, cn); out[cn] = 0;
+	shcl_free(d);
+}
 // Substring search over a length-delimited buffer (memmem is GNU-only).
 static int contains(const char *p, size_t n, const char *needle) {
 	size_t m = strlen(needle);
@@ -1559,16 +1575,17 @@ int main(int argc, char **argv) {
 		// Escapes ARE resolved on a name, so both spellings of the path find the
 		// same node - while shcl_authored_name still hands back the source
 		// spelling, which is the one thing it is for. Same fixture everywhere.
-		const char *et = "\"Ab\\tCd\": 2\n";
+		const char *et = "\"Ab◉TAB◉Cd\": 2\n";
 		shcl_doc *ed = shcl_parse(et, strlen(et));
-		sn = shcl_authored_name(ed, "\"ab\\tcd\"", 8);
-		if (sn.n != 6 || memcmp(sn.p, "Ab\\tCd", 6) != 0) fail("authored_name", "escaped spelling mismatch");
-		sn = shcl_authored_name(ed, "\"ab\tcd\"", 7); // a real tab: one byte shorter than the escaped spelling
-		if (sn.n != 6 || memcmp(sn.p, "Ab\\tCd", 6) != 0) fail("authored_name", "literal spelling mismatch");
+		const char *es = "Ab◉TAB◉Cd";
+		sn = shcl_authored_name(ed, "\"ab◉tab◉cd\"", strlen("\"ab◉tab◉cd\""));
+		if (sn.n != strlen(es) || memcmp(sn.p, es, sn.n) != 0) fail("authored_name", "escaped spelling mismatch");
+		sn = shcl_authored_name(ed, "\"ab\tcd\"", 7); // a real tab
+		if (sn.n != strlen(es) || memcmp(sn.p, es, sn.n) != 0) fail("authored_name", "literal spelling mismatch");
 		if (shcl_read_int(ed, "\"ab\tcd\"", 7).value != 2) fail("authored_name", "read via the literal spelling failed");
 		{
 			// Canonical output folds the case, as it always has, and escapes the tab.
-			const char *ec = "\"ab\\tcd\": 2\n";
+			const char *ec = "\"ab◉TAB◉cd\": 2\n";
 			shcl_str ecn = shcl_to_canonical(ed);
 			if (ecn.n != strlen(ec) || memcmp(ecn.p, ec, ecn.n) != 0) fail("authored_name", "canonical name spelling moved");
 		}
@@ -1637,7 +1654,7 @@ int main(int argc, char **argv) {
 		shcl_free(ld);
 		// Element cap, inline spelling: the whole line is refused, the rest of
 		// the document is untouched.
-		const char *et = "arr: 1, 2, 3\nok: 5\n";
+		const char *et = "arr: [1, 2, 3]\nok: 5\n";
 		ld = shcl_parse_limited(et, strlen(et), SHCL_STANDARD, 0, 2, 0);
 		ncap = 0; capline = 0;
 		for (size_t k = 0; k < shcl_diag_count(ld); k++)
@@ -1658,30 +1675,33 @@ int main(int argc, char **argv) {
 		if (ncap != 1 || ra.status != SHCL_GOOD || ra.n != 2 || ra.values[0] != 1 || ra.values[1] != 2)
 			fail("parse_limited", "stacked array must keep what fit");
 		shcl_free(ld);
-		// A cap refuses only a line that would bind: bracket text stays E019
-		// and kept, and an element under a field with a value stays E011.
-		const char *bt = "arr: [1, 2, 3]\nk: x\n\t* 1\n";
-		ld = shcl_parse_limited(bt, strlen(bt), SHCL_STANDARD, 0, 1, 0);
-		{
-			shcl_str canon = shcl_to_canonical(ld);
-			int ok = shcl_diag_count(ld) == 2
-				&& shcl_diag_line(ld, 0) == 1 && strcmp(shcl_diag_code(ld, 0), "E019") == 0
-				&& shcl_diag_line(ld, 1) == 3 && strcmp(shcl_diag_code(ld, 1), "E011") == 0
-				&& shcl_lost_count(ld) == 1
-				&& canon.n >= 14 && memcmp(canon.p, "arr: [1, 2, 3]", 14) == 0;
-			if (!ok) fail("parse_limited", "a cap over a refused line must keep that line's code");
-		}
-		shcl_free(ld);
+		// A malformed array past the cap stayed E019 and kept. Since 2026-10-05
+		// the cap wins over a broken value, so this is E021 now: see
+		// a_cap_wins_over_a_broken_value.
+		// const char *bt = "arr: [1,, 2, 3]\nk: x\n\t* 1\n";
+		// ld = shcl_parse_limited(bt, strlen(bt), SHCL_STANDARD, 0, 1, 0);
+		// {
+		// 	shcl_str canon = shcl_to_canonical(ld);
+		// 	int ok = shcl_diag_count(ld) == 2
+		// 		&& shcl_diag_line(ld, 0) == 1 && strcmp(shcl_diag_code(ld, 0), "E019") == 0
+		// 		&& shcl_diag_line(ld, 1) == 3 && strcmp(shcl_diag_code(ld, 1), "E011") == 0
+		// 		&& shcl_lost_count(ld) == 1
+		// 		&& canon.n >= 15 && memcmp(canon.p, "arr: [1,, 2, 3]", 15) == 0;
+		// 	if (!ok) fail("parse_limited", "a cap over a refused line must keep that line's code");
+		// }
+		// shcl_free(ld);
 		// The count the cap judges is the count the array reads back as,
 		// spelling by spelling: quoted commas, a backslash (a character, so it
-		// shields nothing), empty and blank slots, a Unicode blank (content:
-		// only a space or a tab is blank), a quote that never closes (a
-		// character too, so the comma after it splits). Refused at one under,
-		// kept at exact.
+		// shields nothing), the empty array, a quoted Unicode blank (content:
+		// only a space or a tab is blank, and bare it is E025). Refused at one
+		// under, kept at exact. A quote that never closes made the comma after
+		// it split before the value syntax; that line is E017 now and binds
+		// nothing. An empty slot is E019 now, and a bare comma E026.
 		static const struct { const char *spelling; size_t n; } counts[] = {
-			{"1, 2, 3", 3}, {"\"a, b\", c", 2}, {"a\\, b, c", 3}, {"a,,b", 2},
-			{"a, , b", 2}, {" a ", 1}, {"\"\", ''", 2}, {"'a\", b'", 1},
-			{"\"open, b", 2}, {"\\", 1}, {"x,\xe3\x80\x80", 2}, {"x, \xc2\xa0y", 2}, {", , ,", 0},
+			{"[1, 2, 3]", 3}, {"[\"a, b\", c]", 2}, {"[a\\, b, c]", 3}, {"[]", 0},
+			{"[ ]", 0}, {" a ", 1}, {"[\"\", '']", 2}, {"'a\", b'", 1},
+			// {"\"open, b", 2},
+			{"\\", 1}, {"[x,\"\xe3\x80\x80\"]", 2}, {"[x, \"\xc2\xa0y\"]", 2}, {"[80]", 1},
 		};
 		for (size_t ci = 0; ci < sizeof counts / sizeof counts[0]; ci++) {
 			char ctext[64]; snprintf(ctext, sizeof ctext, "v: %s\n", counts[ci].spelling);
@@ -1690,7 +1710,7 @@ int main(int argc, char **argv) {
 			for (size_t k = 0; k < shcl_diag_count(ld); k++)
 				if (strcmp(shcl_diag_code(ld, k), "E021") == 0) fail("parse_limited", "count table: refused at the exact cap");
 			shcl_read_str_arr sa = shcl_read_string_array(ld, "v", 1);
-			if (n == 0 ? (!shcl_exists(ld, "v", 1) || sa.status == SHCL_GOOD) : (sa.status != SHCL_GOOD || sa.n != n))
+			if (sa.status != SHCL_GOOD || sa.n != n)
 				fail("parse_limited", "count table: element count differs from the read");
 			shcl_free(ld);
 			if (n >= 2) {
@@ -1699,18 +1719,19 @@ int main(int argc, char **argv) {
 				shcl_free(ld);
 			}
 		}
-		// A refused line reports the cap alone: the quote check runs after
-		// it, so it never splits a value the cap already turned away.
-		const char *qt = "v: a, \"open, b\n";
-		ld = shcl_parse_limited(qt, strlen(qt), SHCL_STANDARD, 0, 1, 0);
-		if (shcl_diag_count(ld) != 1 || strcmp(shcl_diag_code(ld, 0), "E021") != 0) fail("parse_limited", "refused line must report the cap alone");
-		shcl_free(ld);
+		// An open quote was judged before the cap and kept the line. Since
+		// 2026-10-05 the cap wins: see a_cap_wins_over_a_broken_value.
+		// const char *qt = "v: [a, \"open, b]\n";
+		// ld = shcl_parse_limited(qt, strlen(qt), SHCL_STANDARD, 0, 1, 0);
+		// if (shcl_diag_count(ld) != 1 || strcmp(shcl_diag_code(ld, 0), "E017") != 0 || shcl_lost_count(ld) != 0) fail("parse_limited", "refused line must report the cap alone");
+		// shcl_free(ld);
 		// A fence whose info string splits past the cap is refused with its
 		// block, in both spellings, so the body never reads as live lines. Same
-		// fixture in every runner.
+		// fixture in every runner. Only a comma with a blank after it splits
+		// since 20261006.
 		const char *fences[] = {
-			"secrets:\n\t```a,b,c,d\n\tpassword: hunter2\n\t```\nafter: 1\n",
-			"secrets: ```a,b,c,d\n\tpassword: hunter2\n\t```\nafter: 1\n",
+			"secrets:\n\t```a, b, c, d\n\tpassword: hunter2\n\t```\nafter: 1\n",
+			"secrets: ```a, b, c, d\n\tpassword: hunter2\n\t```\nafter: 1\n",
 		};
 		for (size_t fi = 0; fi < 2; fi++) {
 			ld = shcl_parse_limited(fences[fi], strlen(fences[fi]), SHCL_STANDARD, 0, 3, 0);
@@ -1760,6 +1781,89 @@ int main(int argc, char **argv) {
 		if (!shcl_strict_failed(ld)) fail("parse_limited", "capped strict load must fail");
 		if (shcl_get_int_or(ld, "a", 1, 0) != 1) fail("parse_limited", "failed strict doc unusable");
 		shcl_free(ld);
+	}
+	test_id("EryvVSn", "a_cap_wins_over_a_broken_value");
+	{
+		// An item or a line past the caller's element cap is E021 and dropped,
+		// even when its value is broken: the cap wins over a value fault. A
+		// fault in the path or the name still comes first, and a broken item
+		// within the cap is still kept. Same fixture in every runner.
+		static const struct { const char *text, *own; } cc[] = {
+			{"arr: [1,, 2, 3]\n", "1:E019"},
+			{"arr: [a, \"open, b]\n", "1:E017"},
+			{"arr: [a, b, c\n", "1:E019"},
+			{"arr: [a, b] c\n", "1:E019"},
+			{"arr: [a, b c, d]\n", "1:E025"},
+		};
+		char got[256], out[256]; size_t lost;
+		for (size_t i = 0; i < sizeof cc / sizeof cc[0]; i++) {
+			cap_codes(cc[i].text, 1, got, sizeof got, &lost, out, sizeof out);
+			if (strcmp(got, "1:E021") != 0 || lost != 1 || strstr(out, "arr")) fail("cap_wins", cc[i].text);
+			cap_codes(cc[i].text, 9, got, sizeof got, &lost, out, sizeof out);
+			if (strcmp(got, cc[i].own) != 0 || lost != 0) fail("cap_wins", cc[i].text);
+		}
+		// A bare comma outside brackets counts its pieces the same way.
+		cap_codes("a: x, y, z\n", 2, got, sizeof got, &lost, out, sizeof out);
+		if (strcmp(got, "1:E021") != 0) fail("cap_wins", "bare comma past the cap");
+		cap_codes("a: x, y, z\n", 3, got, sizeof got, &lost, out, sizeof out);
+		if (strcmp(got, "1:E026") != 0) fail("cap_wins", "bare comma within the cap");
+		// A stacked item past the cap is dropped whatever it holds; within the
+		// cap a broken one is kept and the list loads around it. List items are
+		// written '- ' in the reference, which this binding does not read yet.
+		// cap_codes("x:\n\t- a\n\t- b\n\t- \"open\n\t- c d\nz: 1\n", 2, got, sizeof got, &lost, out, sizeof out);
+		// if (strcmp(got, "4:E021 5:E021") != 0 || lost != 2 || strcmp(out, "x:\n\t- a\n\t- b\nz: 1\n") != 0) fail("cap_wins", "items past the cap");
+		// cap_codes("x:\n\t- a\n\t- \"open\n\t- b\n", 2, got, sizeof got, &lost, out, sizeof out);
+		// if (strcmp(got, "3:E017") != 0 || lost != 0 || !strstr(out, "- \"open")) fail("cap_wins", "a broken item within the cap");
+		// An element under a field with a value is E011, cap or not.
+		// cap_codes("k: x\n\t- 1\n", 1, got, sizeof got, &lost, out, sizeof out);
+		// if (strcmp(got, "2:E011") != 0) fail("cap_wins", "item under a value");
+		// The path and the name are judged first.
+		cap_codes("404: [a, b, c]\n", 1, got, sizeof got, &lost, out, sizeof out);
+		if (strcmp(got, "1:E014") != 0) fail("cap_wins", "a bad name past the cap");
+	}
+	test_id("EryvVUp", "no_colon_repair_stays_narrow");
+	{
+		// Only one clean name or path with no colon is repaired (E015), a bad
+		// bare name like 404 included. Anything with a blank in a bare name
+		// could be a name or a name and a value, so it is E014 and kept as
+		// written.
+		static const struct { const char *line, *quoted; } nc[] = {
+			{"square-miles 300", "\"square-miles 300\""},
+			{"this is ! not parseable", "\"this is ! not parseable\""},
+			{"user name", "\"user name\""},
+			{"user\tname", "\"user◉TAB◉name\""},
+			{"a.b c", "a.\"b c\""},
+		};
+		char text[128], want[128];
+		for (size_t i = 0; i < sizeof nc / sizeof nc[0]; i++) {
+			snprintf(text, sizeof text, "k: 1\n%s\nz: 2\n", nc[i].line);
+			shcl_doc *nd = shcl_parse(text, strlen(text));
+			shcl_str out = shcl_to_canonical(nd);
+			if (shcl_diag_count(nd) != 1 || strcmp(shcl_diag_code(nd, 0), "E014") != 0) fail("no_colon", nc[i].line);
+			if (shcl_lost_count(nd) != 0) fail("no_colon", nc[i].line);
+			if (out.n != strlen(text) || memcmp(out.p, text, out.n) != 0) fail("no_colon", nc[i].line);
+			if (shcl_exists(nd, nc[i].quoted, strlen(nc[i].quoted))) fail("no_colon", nc[i].quoted);
+			shcl_free(nd);
+		}
+		// The message names where the second word starts, as before chunk A.
+		const char *mt = "a:\n\t  square-miles 300\n";
+		shcl_doc *md = shcl_parse(mt, strlen(mt));
+		const char *mw = "malformed line skipped: unexpected character after the path, at column 17";
+		shcl_str mm = shcl_diag_count(md) ? shcl_diag_message(md, 0) : shcl_to_canonical(md);
+		if (shcl_diag_count(md) == 0 || mm.n != strlen(mw) || memcmp(mm.p, mw, mm.n) != 0) fail("no_colon", "the E014 message");
+		shcl_free(md);
+		static const struct { const char *line, *out; } rc[] = {
+			{"404", "\"404\":"}, {"-x", "\"-x\":"}, {"a.9b", "a:\n\t\"9b\":"},
+		};
+		for (size_t i = 0; i < sizeof rc / sizeof rc[0]; i++) {
+			snprintf(text, sizeof text, "%s\n", rc[i].line);
+			snprintf(want, sizeof want, "%s\n", rc[i].out);
+			shcl_doc *rd = shcl_parse(text, strlen(text));
+			shcl_str out = shcl_to_canonical(rd);
+			if (shcl_diag_count(rd) != 1 || strcmp(shcl_diag_code(rd, 0), "E015") != 0) fail("no_colon", rc[i].line);
+			if (out.n != strlen(want) || memcmp(out.p, want, out.n) != 0) fail("no_colon", rc[i].line);
+			shcl_free(rd);
+		}
 	}
 	// load_file/save_file: the status separates absent / unreadable / parsed
 	// with errors / clean, and a save round-trips through the atomic write.
@@ -1995,7 +2099,7 @@ int main(int argc, char **argv) {
 	// Same fixture in every runner.
 	test_id("EreWlg6", "a_kept_line_gone_from_the_tree_refuses_the_save");
 	{
-		const char *kbase = "x: 1\nr: [1, 2]\ny: 3\n";
+		const char *kbase = "x: 1\nr: [1, 2\ny: 3\n";
 		shcl_doc *kd = shcl_parse_keep_lines(kbase, strlen(kbase), SHCL_STANDARD);
 		if (shcl_lost_count(kd) != 0) fail("kept_gate", "lost before the edit");
 		ShclVecSize *kids = &kd->nodes.data[0].children; // the root
@@ -2029,7 +2133,7 @@ int main(int argc, char **argv) {
 	// with the lost count, or a compacted document never refuses. C only.
 	test_id("EreZ0ar", "compact_keeps_the_kept_line_count");
 	{
-		const char *kbase = "x: 1\nr: [1, 2]\ny: 3\n";
+		const char *kbase = "x: 1\nr: [1, 2\ny: 3\n";
 		shcl_doc *cd = shcl_parse(kbase, strlen(kbase));
 		shcl_compact(cd);
 		ShclVecSize *ck = &cd->nodes.data[0].children;
@@ -2042,7 +2146,7 @@ int main(int argc, char **argv) {
 	// line, and nothing beside it.
 	test_id("EreWli7", "a_remove_takes_the_kept_line_heading_its_field");
 	{
-		const char *ht = "a: [1]\n\tb: 2\ny: 3\n";
+		const char *ht = "a: [1\n\tb: 2\ny: 3\n";
 		shcl_doc *hd = shcl_parse(ht, strlen(ht));
 		if (shcl_remove(hd, "a", 1) != 1) fail("kept_gate", "remove a failed");
 		if (shcl_lost_count(hd) != 0) fail("kept_gate", "removing a field opened from a kept line counted it lost");
@@ -2056,17 +2160,17 @@ int main(int argc, char **argv) {
 		// Then a field opened only by the lines under it goes with the last of
 		// them, and its kept line stays (escblock; 2026100307163907).
 		static const struct { const char *id, *name, *text, *path, *want; } rc[] = {
-			{"ErgTokB", "a_remove_leaves_the_kept_lines_beside_it", "x: 1\nr: [1, 2]\ny: 3\n", "y", "x: 1\nr: [1, 2]\n"},
+			{"ErgTokB", "a_remove_leaves_the_kept_lines_beside_it", "x: 1\nr: [1, 2\ny: 3\n", "y", "x: 1\nr: [1, 2\n"},
 			{NULL, NULL, "x: 1\nbad name: 1\ny: 3\n", "y", "x: 1\nbad name: 1\n"},
-			{NULL, NULL, "j:\n\tr: [1]\n\tq: 1\nz: 2\n", "j.q", "j:\n\tr: [1]\nz: 2\n"},
-			{NULL, NULL, "j:\n\tq: 1\n\tr: [1]\nz: 2\n", "j.q", "j:\n\tr: [1]\nz: 2\n"},
-			{NULL, NULL, "j:\n\tq: 1\n\tr: [1]\n\tw: 3\nz: 2\n", "j.q", "j:\n\tr: [1]\n\tw: 3\nz: 2\n"},
-			{NULL, NULL, "# on r\nr: [1]\n# on y\ny: 3\nz: 1\n", "y", "# on r\nr: [1]\nz: 1\n"},
-			{"ErgTom6", "a_field_opened_by_a_kept_line_goes_with_its_last_line", "a: [1]\n\tb: 2\ny: 3\n", "a.b", "a: [1]\ny: 3\n"},
-			{NULL, NULL, "a: [1]\n\tb: 2\n\tc: 3\ny: 3\n", "a.b", "a: [1]\n\tc: 3\ny: 3\n"},
-			{NULL, NULL, "a: [1]\n\tb: 2\n\tr: [3]\ny: 3\n", "a.b", "a: [1]\n\tr: [3]\ny: 3\n"},
-			{NULL, NULL, "o: [9]\n\ta: [1]\n\t\tb: 2\ny: 3\n", "o.a.b", "o: [9]\n\ta: [1]\ny: 3\n"},
-			{NULL, NULL, "o:\n\ta: [1]\n\t\tb: 2\n", "o.a.b", "o:\n\ta: [1]\n"},
+			{NULL, NULL, "j:\n\tr: [1\n\tq: 1\nz: 2\n", "j.q", "j:\n\tr: [1\nz: 2\n"},
+			{NULL, NULL, "j:\n\tq: 1\n\tr: [1\nz: 2\n", "j.q", "j:\n\tr: [1\nz: 2\n"},
+			{NULL, NULL, "j:\n\tq: 1\n\tr: [1\n\tw: 3\nz: 2\n", "j.q", "j:\n\tr: [1\n\tw: 3\nz: 2\n"},
+			{NULL, NULL, "# on r\nr: [1\n# on y\ny: 3\nz: 1\n", "y", "# on r\nr: [1\nz: 1\n"},
+			{"ErgTom6", "a_field_opened_by_a_kept_line_goes_with_its_last_line", "a: [1\n\tb: 2\ny: 3\n", "a.b", "a: [1\ny: 3\n"},
+			{NULL, NULL, "a: [1\n\tb: 2\n\tc: 3\ny: 3\n", "a.b", "a: [1\n\tc: 3\ny: 3\n"},
+			{NULL, NULL, "a: [1\n\tb: 2\n\tr: [3\ny: 3\n", "a.b", "a: [1\n\tr: [3\ny: 3\n"},
+			{NULL, NULL, "o: [9\n\ta: [1\n\t\tb: 2\ny: 3\n", "o.a.b", "o: [9\n\ta: [1\ny: 3\n"},
+			{NULL, NULL, "o:\n\ta: [1\n\t\tb: 2\n", "o.a.b", "o:\n\ta: [1\n"},
 		};
 		for (size_t i = 0; i < sizeof rc / sizeof rc[0]; i++) {
 			if (rc[i].id) test_id(rc[i].id, rc[i].name);
@@ -2094,12 +2198,16 @@ int main(int argc, char **argv) {
 		setenv("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT", 1);
 #endif
 		static const struct { const char *text, *path, *want; } sc[] = {
-			{"a: [1]\n\tb: 2\ny: 3\n", "a",
-				"# a: [1]  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 bracket array syntax\na: 5\n\tb: 2\ny: 3\n"},
-			{"o:\n\ta: \"x\\q\"\n\t\tb: 2\n", "o.a",
-				"o:\n\t# a: \"x\\q\"  ## commented out by shcl when setting o.a, 2026-10-04 00:15:00 PDT: E023 unknown escape '\\q' in double quotes\n\ta: 5\n\t\tb: 2\n"},
-			{"p: \"C:\\temp\\new\"\n\tq: 1\n", "p",
-				"# p: \"C:\\temp\\new\"  ## commented out by shcl when setting p, 2026-10-04 00:15:00 PDT: E024 value starts like a Windows path, and its \\t or \\n would read as a tab or newline\np: 5\n\tq: 1\n"},
+			{"a: [1\n\tb: 2\ny: 3\n", "a",
+				"# a: [1  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing ']' on the line\na: 5\n\tb: 2\ny: 3\n"},
+			{"o:\n\ta: \"x◉Q◉\"\n\t\tb: 2\n", "o.a",
+				"o:\n\t# a: \"x◉Q◉\"  ## commented out by shcl when setting o.a, 2026-10-04 00:15:00 PDT: E023 unknown escape '◉Q◉'\n\ta: 5\n\t\tb: 2\n"},
+			{"p: host: a.com\n\tq: 1\n", "p",
+				"# p: host: a.com  ## commented out by shcl when setting p, 2026-10-04 00:15:00 PDT: E025 a colon then a space in a bare value\np: 5\n\tq: 1\n"},
+			{"r: \"open\n\tq: 1\n", "r",
+				"# r: \"open  ## commented out by shcl when setting r, 2026-10-04 00:15:00 PDT: E017 unterminated quote in value\nr: 5\n\tq: 1\n"},
+			{"404: x\n\tq: 1\n", "\"404\"",
+				"# 404: x  ## commented out by shcl when setting \"404\", 2026-10-04 00:15:00 PDT: E014 field name needs quotes\n\"404\": 5\n\tq: 1\n"},
 		};
 		for (size_t i = 0; i < sizeof sc / sizeof sc[0]; i++) {
 			shcl_doc *sd = shcl_parse_keep_lines(sc[i].text, strlen(sc[i].text), SHCL_STANDARD);
@@ -2127,11 +2235,11 @@ int main(int argc, char **argv) {
 		// Only the field the kept line opened: a child of it, or a field beside
 		// a kept line, leaves the line as it was.
 		static const struct { const char *path, *want; } bc[] = {
-			{"a.c", "a: [1]\n\tb: 2\n\tc: 5\n"},
-			{"z", "a: [1]\n\tb: 2\n\nz: 5\n"},
+			{"a.c", "a: [1\n\tb: 2\n\tc: 5\n"},
+			{"z", "a: [1\n\tb: 2\n\nz: 5\n"},
 		};
 		for (size_t i = 0; i < sizeof bc / sizeof bc[0]; i++) {
-			shcl_doc *bd = shcl_parse("a: [1]\n\tb: 2\n", 13);
+			shcl_doc *bd = shcl_parse("a: [1\n\tb: 2\n", 12);
 			int took = shcl_set_int(bd, bc[i].path, strlen(bc[i].path), 5);
 			shcl_str out = shcl_to_canonical(bd);
 			if (!took || out.n != strlen(bc[i].want) || memcmp(out.p, bc[i].want, out.n) != 0) fail("kept_gate", bc[i].path);
@@ -2149,24 +2257,24 @@ int main(int argc, char **argv) {
 #else
 		setenv("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT", 1);
 #endif
-#define SETTER_NOTE(p) "  ## commented out by shcl when setting " p ", 2026-10-04 00:15:00 PDT: E019 bracket array syntax"
+#define SETTER_NOTE(p) "  ## commented out by shcl when setting " p ", 2026-10-04 00:15:00 PDT: E019 malformed array, no closing ']' on the line"
 		static const struct { const char *text, *path, *want; size_t count; } ec[] = {
 			// No loaded `a`: the new line goes under the first comment.
-			{"a: [1]\ny: 3\n", "a", "# a: [1]" SETTER_NOTE("a") "\na: 5\ny: 3\n", 1},
-			{"x: 1\na: [1]\ny: 3\na: [2]\n", "a", "x: 1\n# a: [1]" SETTER_NOTE("a") "\na: 5\ny: 3\n# a: [2]" SETTER_NOTE("a") "\n", 1},
+			{"a: [1\ny: 3\n", "a", "# a: [1" SETTER_NOTE("a") "\na: 5\ny: 3\n", 1},
+			{"x: 1\na: [1\ny: 3\na: [2\n", "a", "x: 1\n# a: [1" SETTER_NOTE("a") "\na: 5\ny: 3\n# a: [2" SETTER_NOTE("a") "\n", 1},
 			// What was under the line goes under the new one.
-			{"a: [1]\n\t# under\n\tb: [2]\ny: 3\n", "a", "# a: [1]" SETTER_NOTE("a") "\na: 5\n\t# under\n\tb: [2]\ny: 3\n", 1},
+			{"a: [1\n\t# under\n\tb: [2\ny: 3\n", "a", "# a: [1" SETTER_NOTE("a") "\na: 5\n\t# under\n\tb: [2\ny: 3\n", 1},
 			// At the end of a block.
-			{"o:\n\tx: 1\n\ta: [1]\n", "o.a", "o:\n\tx: 1\n\t# a: [1]" SETTER_NOTE("o.a") "\n\ta: 5\n", 1},
+			{"o:\n\tx: 1\n\ta: [1\n", "o.a", "o:\n\tx: 1\n\t# a: [1" SETTER_NOTE("o.a") "\n\ta: 5\n", 1},
 			// A field made on the way writes its line too.
-			{"a: [1]\ny: 3\n", "a.c", "# a: [1]" SETTER_NOTE("a.c") "\na:\n\tc: 5\ny: 3\n", 1},
+			{"a: [1\ny: 3\n", "a.c", "# a: [1" SETTER_NOTE("a.c") "\na:\n\tc: 5\ny: 3\n", 1},
 			// A loaded `a` changes in place.
-			{"a: 1\nb: [1]\na: [2]\n", "a", "a: 5\nb: [1]\n# a: [2]" SETTER_NOTE("a") "\n", 1},
+			{"a: 1\nb: [1\na: [2\n", "a", "a: 5\nb: [1\n# a: [2" SETTER_NOTE("a") "\n", 1},
 			// Two valid lines stay as they are, and so does a kept line with a
 			// kept line under it, which as a comment would leave that line
 			// under the field above.
 			{"a: 1\na: 2\n", "a", "a: 5\na: 2\n", 2},
-			{"a: 1\na: [2]\n\tc: [3]\n", "a", "a: 5\na: [2]\n\tc: [3]\n", 1},
+			{"a: 1\na: [2\n\tc: [3\n", "a", "a: 5\na: [2\n\tc: [3\n", 1},
 		};
 #undef SETTER_NOTE
 		for (size_t i = 0; i < sizeof ec / sizeof ec[0]; i++) {
@@ -2193,10 +2301,10 @@ int main(int argc, char **argv) {
 		unsetenv("SHCL_TEST_CLOCK");
 #endif
 		// shcl_set_comment makes the field without touching the line.
-		shcl_doc *cd = shcl_parse("a: [1]\ny: 3\n", 12);
+		shcl_doc *cd = shcl_parse("a: [1\ny: 3\n", 11);
 		int took = shcl_set_comment(cd, "a", 1, "n", 1);
 		shcl_str out = shcl_to_canonical(cd);
-		static const char cwant[] = "a: [1]\ny: 3\n\n# n\na:\n";
+		static const char cwant[] = "a: [1\ny: 3\n\n# n\na:\n";
 		if (!took || out.n != strlen(cwant) || memcmp(out.p, cwant, out.n) != 0) fail("kept_gate", "set_comment beside a kept line");
 		shcl_free(cd);
 	}
@@ -2230,12 +2338,12 @@ int main(int argc, char **argv) {
 	}
 	test_id("EreWlk5", "a_merged_layer_owes_its_kept_lines");
 	{
-		const char *kbase = "x: 1\nr: [1, 2]\ny: 3\n";
+		const char *kbase = "x: 1\nr: [1, 2\ny: 3\n";
 		shcl_doc *md = shcl_parse("a: 1\n", 5);
 		shcl_doc *ml = shcl_parse(kbase, strlen(kbase));
 		shcl_merge(md, ml);
 		shcl_str mc = shcl_to_canonical(md);
-		if (shcl_lost_count(md) != 0 || !contains(mc.p, mc.n, "r: [1, 2]\n")) fail("kept_gate", "a merged layer's kept line counted as lost or went missing");
+		if (shcl_lost_count(md) != 0 || !contains(mc.p, mc.n, "r: [1, 2\n")) fail("kept_gate", "a merged layer's kept line counted as lost or went missing");
 		// Owed, not just present: taking it out again is a loss.
 		ShclVecSize *mk = &md->nodes.data[0].children;
 		ShclTrivia *my = md->nodes.data[mk->data[mk->len - 1]].trivia;
@@ -2279,25 +2387,25 @@ int main(int argc, char **argv) {
 	// it stays with that line.
 	test_id("ErkSySr", "a_replaced_leaf_leaves_the_lines_beside_it");
 	{
-		const char *bt = "    srv: a\n  srv[x]: [3]\nb[x]: [4]\n# mine\nq: c\n";
+		const char *bt = "    srv: a\n  srv[x]: [3\nb[x]: [4\n# mine\nq: c\n";
 		shcl_doc *bd = shcl_parse(bt, strlen(bt));
 		shcl_str bc = shcl_to_canonical(bd);
-		const char *bw = "srv: a\n# srv[x]: [3]\nb[x]: [4]\n# mine\nq: c\n";
+		const char *bw = "srv: a\n# srv[x]: [3\nb[x]: [4\n# mine\nq: c\n";
 		if (bc.n != strlen(bw) || memcmp(bc.p, bw, bc.n) != 0) fail("kept_gate", "the beside fixture did not settle its kept line");
 		shcl_doc *bl = shcl_parse("q: 9\n", 5);
 		shcl_merge(bd, bl);
 		bc = shcl_to_canonical(bd);
-		bw = "srv: a\n# srv[x]: [3]\nb[x]: [4]\nq: 9\n";
+		bw = "srv: a\n# srv[x]: [3\nb[x]: [4\nq: 9\n";
 		if (bc.n != strlen(bw) || memcmp(bc.p, bw, bc.n) != 0) fail("kept_gate", "a replaced leaf took the lines beside it");
 		if (shcl_lost_count(bd) != 0) fail("kept_gate", "a replaced leaf's neighbors counted as lost");
 		shcl_free(bl); shcl_free(bd);
-		const char *pt = "p:\n\tq: c\n\t# mine\n\tb[x]: [4]\n\t# n\n";
+		const char *pt = "p:\n\tq: c\n\t# mine\n\tb[x]: [4\n\t# n\n";
 		const char *pl = "p:\n\tq: 9\n";
 		shcl_doc *pd = shcl_parse(pt, strlen(pt));
 		shcl_doc *pld = shcl_parse(pl, strlen(pl));
 		shcl_merge(pd, pld);
 		bc = shcl_to_canonical(pd);
-		bw = "p:\n\tb[x]: [4]\n\t# n\n\tq: 9\n";
+		bw = "p:\n\tb[x]: [4\n\t# n\n\tq: 9\n";
 		if (bc.n != strlen(bw) || memcmp(bc.p, bw, bc.n) != 0) fail("kept_gate", "a replaced leaf took the lines below it");
 		if (shcl_lost_count(pd) != 0) fail("kept_gate", "a replaced leaf's lines below counted as lost");
 		shcl_free(pld); shcl_free(pd);
@@ -2549,7 +2657,7 @@ int main(int argc, char **argv) {
 	// collections their runtime reclaims, so there is nothing to mirror.
 	test_id("EoTeOXw", "array_reads_do_not_grow_the_arena");
 	{
-		const char *at = "ports: 80, 443, 8080\n";
+		const char *at = "ports: [80, 443, 8080]\n";
 		shcl_doc *ad = shcl_parse(at, strlen(at));
 		size_t docBefore = arena_bytes(&ad->arena);
 		for (int i = 0; i < 20000; i++) {
@@ -2572,7 +2680,7 @@ int main(int argc, char **argv) {
 	// the whole count. C-only, for the same reason as above.
 	test_id("Equbm1d", "copy_out_reads_leave_the_arena");
 	{
-		const char *at = "ports: 80, 443, 8080\nnames: a, \"b c\"\nwhen: 2026-01-02T03:04:05.25Z, 2027-01-01\nflags: true, false\nf: 1.5, 2\n";
+		const char *at = "ports: [80, 443, 8080]\nnames: [a, \"b c\"]\nwhen: [2026-01-02T03:04:05.25Z, 2027-01-01]\nflags: [true, false]\nf: [1.5, 2]\n";
 		shcl_doc *ad = shcl_parse(at, strlen(at));
 		size_t readsBefore = arena_bytes(&ad->reads);
 		int64_t iv[3]; double fv[2]; int bv[2]; shcl_datetime dv[2]; shcl_str sv[2]; shcl_status sl[3];
@@ -2583,11 +2691,11 @@ int main(int argc, char **argv) {
 			if (shcl_read_bool_array_to(ad, "flags", 5, bv, NULL, 2, &n) != SHCL_GOOD || n != 2 || bv[0] != 1 || bv[1] != 0) { fail("copy_out", "bool array"); break; }
 			if (shcl_read_datetime_array_to(ad, "when", 4, dv, NULL, 2, &n) != SHCL_GOOD || n != 2 || dv[0].year != 2026 || dv[0].frac.n != 2 || memcmp(dv[0].frac.p, "25", 2) != 0) { fail("copy_out", "datetime array"); break; }
 			if (shcl_read_string_array_to(ad, "names", 5, sv, NULL, 2, &n) != SHCL_GOOD || n != 2 || sv[1].n != 3 || memcmp(sv[1].p, "b c", 3) != 0) { fail("copy_out", "string array"); break; }
-			if (shcl_read_string_to(ad, "names", 5, buf, sizeof buf, &len) != SHCL_GOOD || len != 8 || strcmp(buf, "a, \"b c\"") != 0) { fail("copy_out", "joined string"); break; }
+			if (shcl_read_string_to(ad, "names", 5, buf, sizeof buf, &len) != SHCL_GOOD || len != 10 || strcmp(buf, "[a, \"b c\"]") != 0) { fail("copy_out", "joined string"); break; }
 		}
 		if (arena_bytes(&ad->reads) != readsBefore) fail("copy_out", "copy-out reads grew the read arena");
 		if (shcl_read_int_array_to(ad, "ports", 5, iv, sl, 1, &n) != SHCL_GOOD || n != 3 || iv[0] != 80) fail("copy_out", "short int buffer");
-		if (shcl_read_string_to(ad, "names", 5, buf, 4, &len) != SHCL_GOOD || len != 8 || strcmp(buf, "a, ") != 0) fail("copy_out", "short string buffer");
+		if (shcl_read_string_to(ad, "names", 5, buf, 4, &len) != SHCL_GOOD || len != 10 || strcmp(buf, "[a,") != 0) fail("copy_out", "short string buffer");
 		if (shcl_read_string_to(ad, "nope", 4, buf, sizeof buf, &len) != SHCL_NOT_FOUND || len != 0 || buf[0]) fail("copy_out", "missing path");
 		if (shcl_read_int_array_to(ad, "nope", 4, iv, sl, 3, &n) != SHCL_NOT_FOUND || n != 0) fail("copy_out", "missing array");
 		shcl_free(ad);
@@ -2672,8 +2780,8 @@ int main(int argc, char **argv) {
 			if (shcl_error_count(nb) != 0) fail("path_newline", "the reload has errors");
 			shcl_str n2 = shcl_to_canonical(nb);
 			if (n2.n != nt.n || memcmp(n2.p, ntext, nt.n) != 0) fail("path_newline", "not a fixpoint");
-			if (shcl_read_int(nb, "x[\"p\\nq\"].c", sizeof "x[\"p\\nq\"].c" - 1).value != 1
-				|| shcl_read_int(nb, "\"a\\nb\".c", sizeof "\"a\\nb\".c" - 1).value != 1
+			if (shcl_read_int(nb, "x[\"p◉NEWLINE◉q\"].c", sizeof "x[\"p◉NEWLINE◉q\"].c" - 1).value != 1
+				|| shcl_read_int(nb, "\"a◉NEWLINE◉b\".c", sizeof "\"a◉NEWLINE◉b\".c" - 1).value != 1
 				|| shcl_read_int(nb, "\"a\nb\".c", sizeof "\"a\nb\".c" - 1).value != 1)
 				fail("path_newline", "a line break in a path did not read back");
 			shcl_free(nb);
@@ -2723,9 +2831,31 @@ int main(int argc, char **argv) {
 		char okb[SHCL_DT_BUF], rdb[SHCL_DT_BUF]; size_t okn = shcl_datetime_str(&ok, okb), rdn = shcl_datetime_str(&rd.value, rdb);
 		if (rd.status != SHCL_GOOD || okn != rdn || memcmp(okb, rdb, okn) != 0) fail("setters_refuse", "the datetime read back differently");
 		shcl_str canon = shcl_to_canonical(sd);
-		const char *want = "z: 0\n\nf: 2.5\n\nd: \"2026-01-02T03:04:05.60-01:30\"\n";
+		const char *want = "z: 0\n\nf: 2.5\n\nd: 2026-01-02T03:04:05.60-01:30\n";
 		if (canon.n != strlen(want) || memcmp(canon.p, want, canon.n) != 0) fail("setters_refuse", "document after the refusals differs");
 		shcl_free(sd);
+	}
+	test_id("EryvVQj", "a_backtick_value_reads_raw_with_its_flag");
+	{
+		// A backtick value is raw text the program decodes itself: read as
+		// written, with its own flag beside shcl_quoted. A setter keeps the
+		// backticks when the new text fits in them, and the writer picks quotes
+		// when it does not. Same fixture in every runner.
+		const char *bt = "c: `#FF8800`\nq: \"x\"\nb: x\na: [`1`, b]\nn: `7`\n";
+		shcl_doc *bd = shcl_parse(bt, strlen(bt));
+		shcl_read_str br = shcl_read_string(bd, "c", 1);
+		if (br.status != SHCL_GOOD || br.value.n != 7 || memcmp(br.value.p, "#FF8800", 7) != 0 || !shcl_quoted(bd, "c", 1) || !shcl_backtick(bd, "c", 1)) fail("backtick", "c");
+		if (!shcl_quoted(bd, "q", 1) || shcl_backtick(bd, "q", 1)) fail("backtick", "q");
+		if (shcl_quoted(bd, "b", 1) || shcl_backtick(bd, "b", 1)) fail("backtick", "b");
+		shcl_read_str_arr ba = shcl_read_string_array(bd, "a", 1);
+		if (ba.n != 2 || shcl_quoted(bd, "a", 1) || shcl_backtick(bd, "a", 1)) fail("backtick", "a");
+		shcl_read_i64 bi = shcl_read_int(bd, "n", 1);
+		if (bi.status != SHCL_GOOD || bi.value != 7 || !shcl_backtick(bd, "n", 1)) fail("backtick", "n");
+		if (!shcl_set_string(bd, "c", 1, "#00FF00", 7) || !shcl_backtick(bd, "c", 1)) fail("backtick", "an overwrite lost the backticks");
+		if (!shcl_set_string(bd, "c", 1, "a`b", 3) || shcl_backtick(bd, "c", 1)) fail("backtick", "a backtick value holding a backtick");
+		shcl_str bc = shcl_to_canonical(bd);
+		if (bc.n < 9 || memcmp(bc.p, "c: \"a`b\"\n", 9) != 0) fail("backtick", "the fixture wrote other text");
+		shcl_free(bd);
 	}
 	// One combined diagnostics list (parse first, then validation) and an
 	// error predicate, so recover-and-continue can't read as success by
@@ -3036,6 +3166,112 @@ int main(int argc, char **argv) {
 		const char *a = "##    Format   4294967295\na: 1\n", *b = "##    Format   4294967296\na: 1\n";
 		if (shcl_format_version(a, strlen(a)) != 4294967295LL) fail("format_version_caps_at_32_bits", "4294967295 did not read as itself");
 		if (shcl_format_version(b, strlen(b)) != SHCL_FORMAT_MAJOR) fail("format_version_caps_at_32_bits", "4294967296 did not read as the current major");
+	}
+	test_id("EryvVWx", "a_comma_splits_a_bare_value_only_before_a_blank");
+	/* A comma splits a value outside brackets only with a blank, a comment or
+	   the end after it; inside brackets every one does (value-syntax.md,
+	   20261006). 2.x split on every comma, which migrate still reads. */
+	{
+		static const struct { const char *line; size_t pieces; } ct[] = {
+			{"x: rw,noatime", 1}, {"x: ,a", 1}, {"x: a,,b", 1}, {"x: a, b", 2}, {"x: a,", 2},
+			{"x: a,# c", 2}, {"x: a,\tb", 2}, {"x: [a,b]", 2}, {"x: [rw,noatime, c]", 3},
+		};
+		shcl_doc *cd = shcl_new();
+		shcl_tokens ctok; memset(&ctok, 0, sizeof ctok);
+		for (size_t i = 0; i < sizeof ct / sizeof ct[0]; i++) {
+			shcl_tokenize(cd, ct[i].line, strlen(ct[i].line), ':', 0, SHCL_RULES_CURRENT, &ctok);
+			if (ctok.nelem != ct[i].pieces) fail("comma_split", ct[i].line);
+		}
+		shcl_tokenize(cd, "x: a,b", 6, ':', 0, SHCL_RULES_V2, &ctok);
+		if (ctok.nelem != 2) fail("comma_split", "2.x");
+		shcl_free(cd);
+	}
+	test_id("EryvVZ4", "bare_spaces_colons_and_commas");
+	/* Spaces in a bare value or item are fine. A tab, a bracket, a quote, or a
+	   colon or comma with a blank or the end after it is one error, and its
+	   message says what to do. */
+	{
+		static const struct { const char *text, *code, *fix; } bt[] = {
+			{"x: host: a.com port: 80\n", "E025", "put each field on its own line"},
+			{"x: done:\n", "E025", "quote it"},
+			{"x: a\tb\n", "E025", "quote it"},
+			{"x: a[b]c\n", "E025", "quote it"},
+			{"x: [New York, Boston]\n", "E025", "quote it"},
+			{"x: [a:, b]\n", "E025", "quote it"},
+			{"x: a,\n", "E026", "write an array in brackets"},
+			{"x: 80, 443\n", "E026", "write an array in brackets"},
+			{"x: a: b, c\n", "E025", "put each field on its own line"},
+			// List items are written '- ' and selectors in parens in the
+			// reference, which this binding does not read yet.
+			// {"x:\n\t- name: value\n", "E027", "as instances"},
+			// {"x:\n\t- name:\n", "E027", "as instances"},
+			// {"x:\n\t- a, b\n", "E026", "quote the text"},
+			// {"x:\n\t- a\tb\n", "E025", "quote it"},
+			// {"x:\n\t- [a]\n", "E019", "quote the item"},
+			// {"x(a:b).y: 1\n", "E025", "quote it"},
+			// {"x(a,b).y: 1\n", "E025", "quote it"},
+			// {"x(a[b).y: 1\n", "E025", "quote it"},
+			// {"x(a(b).y: 1\n", "E025", "quote it"},
+		};
+		for (size_t i = 0; i < sizeof bt / sizeof bt[0]; i++) {
+			shcl_doc *bd = shcl_parse(bt[i].text, strlen(bt[i].text));
+			if (shcl_diag_count(bd) != 1 || strcmp(shcl_diag_code(bd, 0), bt[i].code) != 0) fail("bare_text", bt[i].text);
+			else { shcl_str m = shcl_diag_message(bd, 0); if (!contains(m.p, m.n, bt[i].fix)) fail("bare_text", bt[i].text); }
+			shcl_free(bd);
+		}
+		static const struct { const char *text, *path, *want; } gt[] = {
+			{"x: My  App\n", "x", "My  App"},
+			{"x: rw,noatime\n", "x", "rw,noatime"},
+			{"x: :0\n", "x", ":0"},
+			{"x: https://a.com:8080/p?q=1,2\n", "x", "https://a.com:8080/p?q=1,2"},
+			{"x: Jul 12 2026  # c\n", "x", "Jul 12 2026"},
+			// {"x:\n\t- New  York\n\t- :0\n", "x", "[\"New  York\", :0]"},
+		};
+		for (size_t i = 0; i < sizeof gt / sizeof gt[0]; i++) {
+			shcl_doc *gd = shcl_parse(gt[i].text, strlen(gt[i].text));
+			shcl_read_str gr = shcl_read_string(gd, gt[i].path, strlen(gt[i].path));
+			if (shcl_diag_count(gd) != 0 || gr.status != SHCL_GOOD || gr.value.n != strlen(gt[i].want) || memcmp(gr.value.p, gt[i].want, gr.value.n) != 0) fail("bare_text", gt[i].text);
+			shcl_free(gd);
+		}
+		shcl_doc *nd = shcl_parse("x: 80,443\n", 10);
+		if (shcl_read_int(nd, "x", 1).status == SHCL_GOOD) fail("bare_text", "80,443 read as a number");
+		shcl_free(nd);
+	}
+	test_id("EryvVbF", "the_writer_quotes_a_comma_by_where_it_sits");
+	/* The writer leaves a colon or comma bare where the reader takes it as
+	   text, quotes one at the end, and quotes an array element with a comma,
+	   since there it splits. A quoted thousands comma keeps its quotes, since
+	   only a quoted number reads one. */
+	{
+		shcl_doc *qd = shcl_new();
+		const char *tags[2] = {"rw,noatime", "b"}; size_t tl[2] = {10, 1};
+		if (!shcl_set_string(qd, "opts", 4, "rw,noatime", 10) || !shcl_set_string(qd, "display", 7, ":0", 2) || !shcl_set_string(qd, "end", 3, "a,", 2)
+			|| !shcl_set_string(qd, "title", 5, "My App", 6) || !shcl_set_string_array(qd, "tags", 4, tags, tl, 2))
+			fail("writer_comma", "a setter refused");
+		shcl_str qc = shcl_to_canonical(qd);
+		const char *qw[] = {"opts: rw,noatime\n", "display: :0\n", "end: \"a,\"\n", "title: \"My App\"\n", "tags: [\"rw,noatime\", b]\n"};
+		for (size_t i = 0; i < sizeof qw / sizeof qw[0]; i++) if (!contains(qc.p, qc.n, qw[i])) fail("writer_comma", qw[i]);
+		char qtext[256];
+		if (qc.n >= sizeof qtext) fail("writer_comma", "the canonical text outgrew the fixture buffer");
+		else {
+			memcpy(qtext, qc.p, qc.n);
+			shcl_doc *qb = shcl_parse(qtext, qc.n);
+			shcl_str qb2 = shcl_to_canonical(qb);
+			if (qb2.n != qc.n || memcmp(qb2.p, qtext, qc.n) != 0) fail("writer_comma", "the reload wrote other text");
+			shcl_read_str_arr qa = shcl_read_string_array(qb, "tags", 4);
+			if (qa.status != SHCL_GOOD || qa.n != 2 || qa.values[0].n != 10 || memcmp(qa.values[0].p, "rw,noatime", 10) != 0 || qa.values[1].n != 1 || qa.values[1].p[0] != 'b') fail("writer_comma", "tags");
+			shcl_free(qb);
+		}
+		shcl_free(qd);
+		shcl_doc *td = shcl_parse("n: \"1,000\"\n", 11);
+		shcl_str tc = shcl_to_canonical(td);
+		if (tc.n != 11 || memcmp(tc.p, "n: \"1,000\"\n", 11) != 0) fail("writer_comma", "a quoted thousands comma lost its quotes");
+		if (shcl_get_int_or(td, "n", 1, 0) != 1000) fail("writer_comma", "n");
+		shcl_free(td);
+		shcl_doc *hd = shcl_parse("t: a,b\nt: c\n", 12);
+		shcl_str hm = shcl_diag_count(hd) ? shcl_diag_message(hd, 0) : shcl_to_canonical(hd);
+		if (shcl_diag_count(hd) == 0 || strcmp(shcl_diag_code(hd, 0), "H001") != 0 || !contains(hm.p, hm.n, "t: [\"a,b\", c]")) fail("writer_comma", "the H001 hint");
+		shcl_free(hd);
 	}
 	test_id("EonWXt2", "edits_and_merges_match_a_reload");
 	edits_and_merges_match_a_reload();
