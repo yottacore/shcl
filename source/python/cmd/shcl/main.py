@@ -276,9 +276,9 @@ are worth just as much.
 # spec.md's diagnostic tables are the long form; this is the same rules cut to
 # what a terminal shows. Like the help text it is byte-for-byte across the
 # bindings, and crosscheck compares every code.
-CODES = """E001|error|field line under a parent holding stacked '*' list elements
-  A parent holds list elements or named children, not both. The field line
-  is kept and the elements stay.
+CODES = """E001|error|field line under a parent holding stacked '- ' list items
+  A parent holds list items or named children, not both. The field line
+  is kept and the items stay.
 E002|error|value after a last-segment selector (a.b[X]: v)
   The selector already says which instance, so the value has nowhere to go
   and is ignored. Put the value on the line that creates the instance.
@@ -294,25 +294,24 @@ E005|error|unterminated raw block (closing fence never found)
   opening fence's indent.
 E006|error|raw-block fence with no parent field to bind to
   A raw block is a field's value, so a fence needs a field line above it.
-E007|error|stacked '*' list element with no parent field
-  A '* value' line is an element of the field above it.
-E008|error|stacked '*' list element under a parent with field children
-  The parent already holds named children, so the element is dropped.
-E009|error|empty stacked '*' list element
-  A '*' with nothing after it has no value to add.
-E010|error|bare comma in a stacked '*' list element
-  The stacked form is one element per line. Quote the comma, or write the
-  whole array on the field's own line.
-E011|error|stacked '*' element for a field that already has a value
-  The field's value is kept and the element is ignored. A field is written
+E007|error|stacked '- ' list item with no parent field
+  A '- value' line is an item of the field above it.
+E008|error|stacked '- ' list item under a parent with field children
+  The parent already holds named children, so the item is dropped.
+E009|error|empty stacked '- ' list item
+  A '-' with nothing after it has no value to add.
+E011|error|stacked '- ' item for a field that already has a value
+  The field's value is kept and the item is ignored. A field is written
   one way or the other, not both.
 E012|error|indentation matches no open level
   The line is skipped, and anything written deeper is skipped with it
   (E018). A save writes them back as they were when the indent holds a
   space. One indented with tabs alone would bind there, so it is lost.
   Indent to a column some open parent already uses.
-E013|error|malformed '*' line ('*' not followed by a space)
-  The line is skipped, and what is written under it goes with it.
+E013|error|a line starting with '*', the old list item marker
+  A list item is written '- value' now. The line is kept as written and
+  binds nothing, and the other items still load. What is written under it
+  goes with it.
 E014|error|malformed line, or a bare field name that needs quotes
   A bare name is a letter, then letters, digits, '-' and '_'. One that
   breaks only that rule, such as 404 or user name, still reads: the line is
@@ -378,6 +377,17 @@ E026|error|a bare comma with a space or the end after it
   nothing. The lines under it still load, under the field with no value. A
   list item with a bare comma, - a, b, is kept the same way, and the other
   items still load.
+E027|error|a list item like - name: or - name: value
+  A colon with a space or the end after it is how YAML starts an object in
+  a list, and SHCL writes one as an instance. A colon with text after it is
+  fine, as in - localhost:8080. Quote the item if it is text: - "name: a".
+  The line is kept as written, and the other items still load.
+E028|error|an array on a field with lines under it
+  A field with fields under it takes one plain value or none, so
+  route: [GET, POST] with lines under it is an error. Give the field one
+  value and put the list in a field under it: methods: [GET, POST]. The line
+  is kept verbatim, and the lines under it load under the field with no
+  value.
 H001|hint|repeated bare leaf (an array written as repeated lines)
   Repeated leaves are legal - that is how instances are written - but
   'tags: red' twice and 'tags: [red, blue]' look alike, so the parser says
@@ -437,7 +447,8 @@ V099|error|schema failed to load
 # Codes no load reports any more: CODE|severity it had|replacement, with the
 # replacement empty when nothing took its rule. An old log can still name one,
 # so explain says where it went rather than calling it unknown.
-RETIRED = """E024|error|
+RETIRED = """E010|error|E026
+E024|error|
 H003|hint|
 H004|hint|
 """
@@ -1036,7 +1047,7 @@ def load_layered_from(o, file, given, keep):
 		doc.merge(over)
 	for st in o.sets:
 		if not st.apply(doc):
-			why = describe_refusal(doc, st.path, "the value text is not one value")
+			why = describe_refusal(doc, st.path, st.kind != "--set" and st.value.lstrip().startswith("["), "the value text is not one value")
 			sys.stderr.write(f"{st.opt()}: cannot write {st.path}: {why}\n")
 			return None, "", 1
 	return doc, texts[-1], None
@@ -1227,14 +1238,33 @@ def check_opts(cmd, o):
 	return None
 
 
-def describe_refusal(doc, path, unwritable):
+def array_refusal(doc, path, array):
+	# A field with lines under it takes one plain value or none (E028), so an
+	# array there, or a field made under an array, is refused for where it
+	# goes.
+	if array and doc.children(path):
+		return "a field with lines under it takes one plain value or none"
+	tok = shcl.Tokens()
+	shcl.tokenize(path, "=", True, shcl.RULES_CURRENT, tok)
+	for nxt in tok.segments[1:]:
+		quoted = int(nxt.name.quote is not shcl.Quote.NONE)
+		up = tok.src[:nxt.name.start - quoted].decode("utf-8", "surrogatepass").rstrip(".")
+		r = doc.read_string(up)
+		# Brackets on a value that reads unquoted are an array's.
+		if r.status == shcl.Status.Good and not r.quoted and r.value.startswith("["):
+			return "an array takes no lines under it"
+	return None
+
+
+def describe_refusal(doc, path, array, unwritable):
 	# The per-binding wording behind a setter's bare False. When the path itself
 	# is fine what failed is the text, and only the caller knows which half of
 	# the op that was, so it names it: a setter refused for its value used to
 	# report the sentence written for set_literal whatever the op.
 	reason = doc.write_reason(path)
 	if reason == shcl.WriteReason.Writable:
-		return unwritable
+		why = array_refusal(doc, path, array)
+		return why if why is not None else unwritable
 	if reason == shcl.WriteReason.BadPath:
 		return "not a usable path"
 	if reason == shcl.WriteReason.ValueInPath:
@@ -1849,15 +1879,15 @@ def do_tokens(o):
 		if body.startswith("#"):
 			out.append(" comment\n")
 			continue
-		# A stacked element and a fence line are value halves on their own. A
-		# `*` is an element when a blank follows it, trailing or not, which only
-		# the untrimmed line still shows (20260923 item 12).
+		# A list item and a fence line are value halves on their own. A `-` is
+		# an item when a blank follows it, trailing or not, which only the
+		# untrimmed line still shows (20260923 item 12).
 		after = ilen + lead + 1
-		star = body.startswith("*") and line[after:after + 1] in (" ", "\t", "\r")
+		item = body.startswith("-") and line[after:after + 1] in (" ", "\t", "\r")
 		fence = body.startswith("```") or body.startswith("~~~")
-		if star or fence:
-			shcl.tokenize_value(rest, lead + int(star), shcl.RULES_CURRENT, tok)
-			out.append(" star" if star else " fence")
+		if item or fence:
+			shcl.tokenize_value(rest, lead + int(item), shcl.RULES_CURRENT, tok)
+			out.append(" item" if item else " fence")
 			out.append(f" value={tok.value[0]}-{tok.value[1]}")
 			_push_array(out, tok)
 			out.extend(f" elem={_span(p)}" for p in tok.elements)
@@ -2090,7 +2120,8 @@ def apply_op(doc, line):
 			unwritable = _raw_refusal(_unescape_ops(get(3)))
 		else:
 			unwritable = "the value has no spelling that reads back"
-		raise ValueError(f"cannot write {path}: {describe_refusal(doc, path, unwritable)}")
+		array = "array" in op or (op.startswith("literal") and v.lstrip().startswith("["))
+		raise ValueError(f"cannot write {path}: {describe_refusal(doc, path, array, unwritable)}")
 
 
 def _raw_refusal(content):
