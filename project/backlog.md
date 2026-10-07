@@ -1516,6 +1516,33 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Commit: `1a12c02`
 	- Test case: corpus `171-windows-path-hint`, cli-regress `path-hint-*` rows. The read and strict rows and case 171 fail with the hint off, and `path-hint-set` shows a write is unaffected. The migrate goldens of cases 118, 122 and 170 now list the hint.
 
+- The macOS cross build warns twice that xcrun found no Apple SDK
+	- ID: 2026100708240546
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261007-082405
+	- Opened by: the full cicd run 20261007-054904
+	- Related IDs: 2026100313461652
+	- Target OS: macOS
+	- Test environment: b23, cargo-zigbuild 0.23.0, zig 0.16.0, rustc 1.96.0, no Xcode.
+	- Steps to reproduce:
+		- Run the full cicd, or stage 6's `macos-universal` command on its own, on a box with no `xcrun`.
+	- Incorrect behavior: rustc prints `warning: invoking "xcrun" "--sdk" "macosx" "--show-sdk-path" to find MacOSX.sdk failed`, once per half, and `lint-report.bash --check` reports both as new.
+	- Expected behavior: no warning. The build box has no Apple SDK on purpose, per 2026100313461652.
+	- Reproduced: 20261007, the stage 6 command gives both warnings on dev.
+	- Actual cause: rustc looks up the SDK for every Apple link. It takes `SDKROOT` when that names an existing dir, else asks `xcrun`, and warns when that fails. zig links from its own libSystem stubs and never reads `SDKROOT`.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: the macOS command sets `SDKROOT` to zig's darwin stubs, read from `zig env`, when there is no `xcrun`. Where `xcrun` exists, as in the hosted macos job, it stays empty, which rustc and cargo-zigbuild both treat as unset. A `SDKROOT` already set is kept. No lint-report ignore.
+	- Verified: the stage 6 command gave the same sha256 before and after, from 2 target dirs each and from the default one, with no warning after. Both halves are still macOS 13 and link only libSystem. shellcheck, shell-regress, test-ids and check-docs pass.
+	- Not verified: the hosted macos job with this change. It takes the empty `SDKROOT` path, so its build should not change.
+	- Branch: `xcrun`
+	- Commit: 5650cffb
+	- Test case: shell-regress `Es1rCr5`. It fails on the old config and passes on the new one.
+	- Acceptance signoff: Self-closed: the warning is gone, the binary is byte for byte the same, and the test failed before and passes after.
+	- Closed: 20261007-083039
+
 - The C CLI does not build at `-O3` with gcc 14 or 15
 	- ID: 2026100516162200
 	- Type: Bug

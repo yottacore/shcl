@@ -364,13 +364,25 @@ PROFILE_TIMED=(
 ## FreeBSD is x86_64 only: Rust ships no prebuilt std for it on arm64.
 ## macOS is one universal binary, x86_64 and arm64 in one file, joined by
 ## cargo-zigbuild. No Apple SDK is needed, since zig has its own libSystem stubs
-## and the CLI links nothing else; rustc still warns that xcrun is missing.
+## and the CLI links nothing else.
+## rustc asks xcrun for the SDK anyway and warns when there is none, unless
+## SDKROOT names a dir. fMacSdk points it at zig's stubs, the SDK in use. zig
+## never reads SDKROOT, so the bytes don't change. Where xcrun exists (the hosted
+## macos job) it stays empty, which rustc and cargo-zigbuild treat as unset.
 ## zig sets the macOS floor from its own default unless the target names one,
 ## and cargo-zigbuild names none, so a second -target pins it (the last one
 ## wins). -Wl,-S keeps object paths out of the UUID zig computes, or the bytes
 ## move with the checkout path. Release strips that debug map anyway.
 MACOS_FLOOR="13.0"
 macLink="-Clink-arg=-Wl,-S -Clink-arg=-target -Clink-arg="
+fMacSdk(){
+	[[ -n "${SDKROOT:-}" ]] && { printf '%s' "${SDKROOT}"; return 0; }
+	command -v xcrun >/dev/null 2>&1 && return 0
+	local zigEnv re='lib_dir"?[[:space:]]*[=:][[:space:]]*"([^"]+)"'
+	zigEnv="$(zig env 2>/dev/null || true)"
+	[[ "${zigEnv}" =~ ${re} ]] && printf '%s/libc/darwin' "${BASH_REMATCH[1]}"
+	return 0
+}
 RELEASE_NATIVE_CMD=(cargo build --release -j "${CPU_CAP}" --manifest-path "${MANIFEST}")
 RELEASE_NATIVE_BIN="source/rust/target/release/${EXE_NAME}"
 RELEASE_NATIVE_OSARCH="linux-x86_64"
@@ -379,7 +391,7 @@ CROSS_TARGETS=(
 	"Linux ARM64 (zig)|linux-arm64|source/rust/target/aarch64-unknown-linux-gnu/release/${EXE_NAME}|cargo zigbuild --release -j \${CPU_CAP} --manifest-path ${MANIFEST} --target aarch64-unknown-linux-gnu"
 	"Windows ARM64 (zig)|windows-arm64|source/rust/target/aarch64-pc-windows-gnullvm/release/${EXE_NAME}.exe|cargo zigbuild --release -j \${CPU_CAP} --manifest-path ${MANIFEST} --target aarch64-pc-windows-gnullvm"
 	"FreeBSD x86_64 (zig)|freebsd-x86_64|source/rust/target/x86_64-unknown-freebsd/release/${EXE_NAME}|cargo zigbuild --release -j \${CPU_CAP} --manifest-path ${MANIFEST} --target x86_64-unknown-freebsd"
-	"macOS universal (zig)|macos-universal|source/rust/target/universal2-apple-darwin/release/${EXE_NAME}|CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS='${macLink}x86_64-macos.${MACOS_FLOOR}-none' CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS='${macLink}aarch64-macos.${MACOS_FLOOR}-none' cargo zigbuild --release -j \${CPU_CAP} --manifest-path ${MANIFEST} --target universal2-apple-darwin"
+	"macOS universal (zig)|macos-universal|source/rust/target/universal2-apple-darwin/release/${EXE_NAME}|SDKROOT=\"\$(fMacSdk)\" CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS='${macLink}x86_64-macos.${MACOS_FLOOR}-none' CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS='${macLink}aarch64-macos.${MACOS_FLOOR}-none' cargo zigbuild --release -j \${CPU_CAP} --manifest-path ${MANIFEST} --target universal2-apple-darwin"
 )
 ## Cross-compile checks that ship nothing: they exist so the non-Rust bindings'
 ## platform branches are compiled somewhere. The C header's Windows path had
