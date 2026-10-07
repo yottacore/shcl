@@ -62,6 +62,7 @@
 - [More features](#more-features)
 - [SHCL is used by multiple projects](#shcl-is-used-by-multiple-projects)
 - [What a .shcl file looks like](#what-a-shcl-file-looks-like)
+- [Escapes](#escapes)
 - [Installation](#installation)
 	- [Language packages](#language-packages)
 		- [Cargo](#cargo)
@@ -312,27 +313,27 @@ maintenance-page:
 
 Field names are case-insensitive. Repeated paths merge. `site` here is not one key but a set of instances (example.com, blog.example.com), each with its own children - arrays of objects without inventing syntax for them.
 
-Escapes work differently from most formats. A backslash is plain text everywhere, so a Windows path goes in as typed, quoted or not. JSON, YAML and TOML all read the `\t` and `\n` in `"C:\temp\new"` as a tab and a line break, and the path quietly breaks.
+## Escapes
 
-This traditional "Escape Problem" is a curse as old as computer text - a "solution" that causes more problems than it solves, for something rarely needed by most end-users. It is ultimately caused by:
+Escapes work differently than in most formats, and more consistently. A backslash is plain text everywhere, so a Windows path goes in as typed, quoted or not. JSON, YAML and TOML all read the `\t` and `\n` in `"C:\temp\new"` as a tab and a line break, and the path quietly breaks.
 
-1. The decision at some point to use, by convention, a common keyboard character to start escape sequences that are rarely needed in most contexts.
+This "escape problem" is as old as computer text. It's a fix that causes more problems than it solves, for something most people rarely need. It comes from 3 things:
 
-2. Having no escape terminator. (Which either limits what can be escaped to a single keyboard character - that has to also carry meaning; or makes it ambiguous - even to code - where the escaped encoding ends.)
+1. A common keyboard character starts escape sequences, even though most text doesn't need them.
 
-3. Having no clear, unifrom, obvious way to escape the escape character itself. (Then we end up with things like `\\\\\\` to escape two sequential literal backslashes.)
+2. There's no escape terminator. So either an escape is one character after the backslash, and that character has to mean something too, or it's hard to tell where the escape ends. In C, `"\x41BC"` is one escape, not `A` followed by `BC`.
 
-So SHCL just avoids the whole problem. With SHCL, there are three easy ways to encode problematic characters. Context can usually suggest which one to use:
+3. There's no clear, uniform way to escape the escape character itself. Matching 2 backslashes with a regex in a string literal takes `\\\\\\\\`.
 
-1. Fenced blocks for values, common in many languages. Anything in them is passed as-is, such as tabs and newlines.
+SHCL avoids the whole problem. It has 3 easy ways to write a problem character, and context usually suggests which one to use:
 
-2. Strings between tickmarks (ala Markdown) for values, is also treated literally and not escaped. The only difference between tickmarks and quotes, is that the SHCL string escape character `◉` itself is just another character within tickmarks. (And is also a handy way to signal to the user that the reading program - not SHCL - is going to be doing the interpretation.)
+1. A fenced block, as in Markdown. Everything in it is passed as-is, tabs and line breaks included.
 
-3. The SHCL escape character `◉` can be used to encode problematic characters within regular strings.
+2. A value in backticks, also as in Markdown. It's never decoded, and unlike quotes, `◉` is a plain character inside it. It's also a handy signal that the program reading the value does the interpreting, not SHCL.
 
-Examples:
+3. The SHCL escape mark `◉`, which names a character inside any other value.
 
-~~~text
+~~~~text
 backup-dir: C:\temp\new
 
 motd: "Back soon.◉NEWLINE◉◉TAB◉Sorry for the wait."
@@ -340,16 +341,16 @@ motd: "Back soon.◉NEWLINE◉◉TAB◉Sorry for the wait."
 label: "a◉U+200B◉b"
 
 help-text:
-	\~~~
+	~~~
 	The system may need one or more of:
 		- A reboot
 		- Some refreshing water
-	\~~~
+	~~~
 
 color: `\x1b[31m`
-~~~
+~~~~
 
-In that example, `◉NEWLINE◉` gets automatically expanded to a line break when read back, and `◉U+200B◉` names a character by its Unicode code point, here a zero-width space. `fmt` writes any character a reader couldn't see that way, so a value can't hide one. A name not on the list is an error on its line, never a guess. The `◉` isn't on a keyboard, so nobody types it by accident. Programs write it, and people copy it from a comment or the docs. A value in backticks is never decoded, so the program gets `\x1b[31m` as written. Multi-line text goes in a fenced block. The full list is in [the spec](project/spec.md#escapes).
+`backup-dir` reads back exactly as typed. `◉NEWLINE◉` turns into a line break on read, and `◉U+200B◉` names a character by its Unicode code point, here a zero-width space. `fmt` writes any character a reader couldn't see that way, so a value can't hide one. A name not on the list is an error on its line, never a guess. The `◉` isn't on a keyboard, so nobody types it by accident. Programs write it, and people copy it from a comment or the docs. The program gets `color` as `\x1b[31m`, as written. The full list is in [the spec](project/spec.md#escapes).
 
 ## Installation
 
