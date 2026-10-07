@@ -501,7 +501,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Test case: Rust `tests/upgrade.rs`, `Es2R4RP` to `Es2R4ch` and `Es2a1Jt`; cli-regress `Es2Rg1E` to `Es2Rg1P`, `Es2RuBA`, `Es2a1Ju` and `Es2a1Jv`. `Es2R4RP`, `Es2R4TW` and `Es2R4ch` each fail with their part of the change taken out. `Es2a1Jt` failed on `60d0196c` and passes after. `Es2R4RP` now checks the clean file without `from_v2`, since the from_v2 call changed that case.
 	- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, the upgrade tests on windows-gnu under wine, cli-regress for Rust, check-migrate, check-docs, check-completions, test-ids check, shellcheck, markdownlint, and the 2,000,000 release fuzz (all 25). shell-regress fails the same 2 as on `valsyn`. Over the 203 corpus inputs, `upgrade --from-2x` rewrote 71, each one a fixpoint of `upgrade` and of `fmt`, with the same paths as `migrate --from-2x`.
 	- Branch: `upgbak`
-	- Commit: `60d0196c`
+	- Commit: `60d0196c`, `019400ad`
 
 - A CICD test that makes old shcl files and checks the automatic conversion
 	- ID: 2026100313461650
