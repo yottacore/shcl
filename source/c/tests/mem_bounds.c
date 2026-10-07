@@ -122,7 +122,7 @@ int main(void) {
 	tlen = 5 + reps * 5;
 	text = (char *)malloc(tlen + 1);
 	memcpy(text, "arr:\n", 5);
-	for (size_t i = 0; i < reps; i++) memcpy(text + 5 + i * 5, "\t* 1\n", 5);
+	for (size_t i = 0; i < reps; i++) memcpy(text + 5 + i * 5, "\t- 1\n", 5);
 	before = allocated;
 	d = shcl_parse_limited(text, tlen, SHCL_STANDARD, 0, 8, 100);
 	size_t dcapped = allocated - before;

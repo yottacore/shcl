@@ -1133,11 +1133,15 @@ static int lead_is_comment(const ShclLead *l) { return l->text.n && l->text.p[0]
    (design.md, Kept lines under edits). */
 static int lead_is_kept_line(const ShclLead *l) { return l->kept || !(l->text.n && l->text.p[0] == '#'); }
 static size_t kept_shortfall(const shcl_doc *d);
+static size_t unloadable_items(const shcl_doc *d);
 static size_t kept_taken(shcl_doc *d, size_t node);
 /* A kept line among a stacked list's elements, with how many elements come
    before it. */
 typedef struct { size_t before; ShclLead lead; } ShclAmong;
 DEFINE_VEC(ShclVecAmong, ShclAmong)
+/* The comment trailing a stacked list item, and the item's index. */
+typedef struct { size_t at; ShclStr text; } ShclNote;
+DEFINE_VEC(ShclVecNote, ShclNote)
 
 /* Comment trivia, verbatim from `#` to end of line. Never part of identity
    or reads; merged instances concatenate leading, first trailing wins
@@ -1158,6 +1162,9 @@ typedef struct {
 	   the list stacked on output, so a line fixed by hand is still inside the
 	   list. */
 	ShclVecAmong among;
+	/* The comment trailing a stacked list item, with the item's index. Like
+	   the lines among the items, they keep the list stacked on output. */
+	ShclVecNote notes;
 } ShclTrivia;
 
 typedef struct {
@@ -1175,8 +1182,8 @@ typedef struct {
 	/* Comment trivia, hung off to the side: most nodes have none, and the
 	   four empty containers were a third of every node. NULL = none. */
 	ShclTrivia *trivia;
-	int star_list;  /* value built from stacked "* " lines */
-	int star_mixed; /* mix of "* " and field children already diagnosed */
+	int star_list;  /* value built from stacked "- " lines, and written that way */
+	int star_mixed; /* mix of "- " and field children already diagnosed */
 	/* Blank-line grouping is the other half of hand-authored layout: set when
 	   a blank line preceded this node's binding line (runs collapse to one). */
 	int blank_before;
@@ -1250,6 +1257,12 @@ struct shcl_doc {
 	int probe;
 	/* Holds a misplaced line kept as written, so edits have to settle it. */
 	int kept;
+	/* Holds an array line kept for the lines under it (E028), which an edit
+	   can leave with none. */
+	int arrays;
+	/* Every list has been put in brackets by a merge, so the next one only
+	   has the nodes it brings or visits to do. */
+	int bracketed;
 	/* What the last settle's kept lines were modeled through, as node and
 	   place-in-parent pairs, and a sum of it, so an edit that changes none of
 	   it skips the settle. Removing a block above all of it goes unseen, which
@@ -1321,6 +1334,7 @@ static ShclStr triv_trailing(const ShclNode *n) { return n->trivia ? n->trivia->
 static ShclVecLead triv_after(const ShclNode *n) { if (n->trivia) return n->trivia->after; ShclVecLead v; memset(&v, 0, sizeof v); return v; }
 static ShclVecLead triv_inside(const ShclNode *n) { if (n->trivia) return n->trivia->inside; ShclVecLead v; memset(&v, 0, sizeof v); return v; }
 static ShclVecAmong triv_among(const ShclNode *n) { if (n->trivia) return n->trivia->among; ShclVecAmong v; memset(&v, 0, sizeof v); return v; }
+static ShclVecNote triv_notes(const ShclNode *n) { if (n->trivia) return n->trivia->notes; ShclVecNote v; memset(&v, 0, sizeof v); return v; }
 static ShclTrivia *triv_mut(ShclArena *a, ShclNode *n) {
 	if (!n->trivia) { n->trivia = (ShclTrivia *)arena_alloc(a, sizeof(ShclTrivia)); memset(n->trivia, 0, sizeof(ShclTrivia)); }
 	return n->trivia;
@@ -1341,6 +1355,14 @@ static void among_sort(ShclVecAmong *v) {
 		ShclAmong x = v->data[i];
 		size_t j = i;
 		while (j > 0 && v->data[j - 1].before > x.before) { v->data[j] = v->data[j - 1]; j--; }
+		v->data[j] = x;
+	}
+}
+static void notes_sort(ShclVecNote *v) {
+	for (size_t i = 1; i < v->len; i++) {
+		ShclNote x = v->data[i];
+		size_t j = i;
+		while (j > 0 && v->data[j - 1].at > x.at) { v->data[j] = v->data[j - 1]; j--; }
 		v->data[j] = x;
 	}
 }
@@ -1374,6 +1396,9 @@ static void fold_node_into(shcl_doc *d, size_t survivor, size_t loser) {
 		for (size_t k = 0; k < lt->among.len; k++)
 			ShclVecAmong_push(a, &st->among, lt->among.data[k]);
 		among_sort(&st->among);
+		for (size_t k = 0; k < lt->notes.len; k++)
+			ShclVecNote_push(a, &st->notes, lt->notes.data[k]);
+		notes_sort(&st->notes);
 	}
 }
 
@@ -2548,12 +2573,20 @@ static int value_fault(ShclArena *a, const ShclTokens *tok, ShclStr s, ShclFault
 }
 
 /* Why a stacked item's value is refused: an array, since arrays do not nest
-   (E019), or what a value is refused for. */
+   (E019), what a value is refused for, a loose comma (E026), or a colon with
+   whitespace or the end after it, the way YAML starts an object in a list
+   (E027). */
 static int item_fault(ShclArena *a, const ShclTokens *tok, ShclStr s, ShclFault *f) {
 	if (tok->has_array) return fault_set(f, "E019", s_lit("a list item is one value, and arrays do not nest; quote the item if it is text"), 1);
 	for (size_t i = 0; i < tok->nelem; i++) {
 		const char *code; ShclStr msg;
 		if (piece_fault(a, &tok->elements[i], s, BARE_ITEM, &code, &msg)) return fault_set(f, code, msg, 1);
+	}
+	if (tok->nelem > 1) return fault_set(f, "E026", s_lit("a comma then a space or the end in a list item; an item is one value, so quote the text"), 1);
+	if (tok->nelem == 1 && tok->elements[0].quote == SHCL_QUOTE_NONE) {
+		ShclStr raw = s_slice(s, tok->elements[0].start, tok->elements[0].end);
+		for (size_t i = 0; i < raw.n; i++)
+			if (loose_colon(raw, i)) return fault_set(f, "E027", s_lit("a list item with a colon then a space or the end; write a list of objects as instances, or quote the item if it is text"), 1);
 	}
 	return 0;
 }
@@ -2600,9 +2633,13 @@ static int name_fault(ShclArena *a, const ShclTokens *tok, ShclStr s, ShclFault 
 	return 1;
 }
 
-/* A line's text after its indent that is read as a field line: not a comment
-   or an old `*` item. */
-static int is_field_text(ShclStr text) { return !(text.n && (text.p[0] == '#' || text.p[0] == '*')); }
+/* A stacked list item's line: `-` then a blank. The blank is what keeps
+   `-x: y` a field line (E014) and `- -5` the item `-5`. */
+static int is_item(ShclStr text) { return text.n > 1 && text.p[0] == '-' && is_wsp((unsigned char)text.p[1]); }
+
+/* A line's text after its indent that is read as a field line: not a comment,
+   a list item, or an old `*` item (E013). */
+static int is_field_text(ShclStr text) { return !(text.n && (text.p[0] == '#' || text.p[0] == '*')) && !is_item(text); }
 
 /* A selector matches one plain value, quoted or not, never an array or a raw
    block (value-syntax.md, Selectors and discriminators). */
@@ -3956,6 +3993,12 @@ DEFINE_VEC(ShclVecPendMark, ShclPendMark)
 typedef struct { size_t at; ShclSegment *segs; size_t nsegs; size_t line; ShclStr indent; size_t pend; size_t depth; } ShclLazy;
 DEFINE_VEC(ShclVecLazy, ShclLazy)
 
+/* An array line a node's level was opened by, and what the node had before
+   it: its leading line count, whether it had a trailing comment, and its
+   blank. */
+typedef struct { size_t node, line, leads; int trailing, blank; } ShclArrayMark;
+DEFINE_VEC(ShclVecArrayMark, ShclArrayMark)
+
 /* What a parse owns outright and has to give back, on the heap rather than in
    do_parse's frame: the recovery path is reached by longjmp, which leaves a
    local the parse has written to indeterminate. */
@@ -4004,7 +4047,13 @@ typedef struct { shcl_doc *d; ShclArena *tmp; ShclArena *line; ShclArena *hints;
 	   sit under it; those are E018 and are kept as written too. */
 	int has_kept_hold; ShclStr kept_hold;
 	int kept_any;
-	ShclVecLazy lazies; } ShclParser;
+	ShclVecLazy lazies;
+	/* The text's lines, and the last array line each node's level was opened
+	   by, for one found to have a field under it after it bound (E028):
+	   array_at maps a node to its entry in array_marks. */
+	int kept_arrays;
+	ShclVecS src_lines;
+	ShclVecArrayMark array_marks; ShclCMap array_at; } ShclParser;
 
 static void push_diag(shcl_doc *d, size_t line, shcl_severity sev, const char *code, ShclStr msg) {
 	ShclDiag dg; dg.line = line; dg.sev = sev; dg.message = msg; dg.code = code; dg.generated = 0;
@@ -4087,55 +4136,94 @@ static void trailing_to_leading(shcl_doc *d, ShclNode *nd) {
 	nd->blank_before = 0;
 }
 
-/* Written stacked: a list holding a kept line among its elements or after
-   its last one. */
+/* Written stacked: a list the file wrote one `- ` item per line, kept that
+   way like an author's quotes, or one holding a kept line among its items, a
+   comment on one, or a field under it (E001), which in brackets would make
+   the array E028. */
 static int stacks(const ShclNode *nd) {
-	if (nd->value.kind != V_ARRAY || !nd->trivia) return 0;
-	if (nd->trivia->among.len) return 1;
-	if (!nd->star_list) return 0;
-	for (size_t k = 0; k < nd->trivia->inside.len; k++)
-		if (!(nd->trivia->inside.data[k].text.n && nd->trivia->inside.data[k].text.p[0] == '#')) return 1;
-	return 0;
+	if (nd->value.kind != V_ARRAY || !nd->value.nels) return 0;
+	return nd->star_list || triv_among(nd).len || triv_notes(nd).len || nd->children.len;
 }
 
 /* A list after an empty binding of its name cannot be written stacked: its
-   bare header would merge into that binding on a reload. It goes inline, and
-   the lines among its elements go above it, where a reload files what sits
-   there. */
+   bare header would merge into that binding on a reload. It goes in
+   brackets, and the lines among its elements and the comments on them go
+   above it, in order, where a reload files what sits there. */
 static void unstack(shcl_doc *d, ShclNode *nd) {
 	nd->star_list = 0;
-	if (!nd->trivia) return;
-	for (size_t k = 0; k < nd->trivia->among.len; k++)
-		ShclVecLead_push(&d->arena, &nd->trivia->leading, nd->trivia->among.data[k].lead);
-	nd->trivia->among.len = 0;
+	ShclTrivia *t = nd->trivia;
+	if (!t) return;
+	ShclArena *a = &d->arena;
+	size_t k = 0;
+	for (size_t i = 0; i < t->among.len; i++) {
+		for (; k < t->notes.len && t->notes.data[k].at < t->among.data[i].before; k++)
+			ShclVecLead_push(a, &t->leading, lead_plain(t->notes.data[k].text));
+		ShclVecLead_push(a, &t->leading, t->among.data[i].lead);
+	}
+	for (; k < t->notes.len; k++) ShclVecLead_push(a, &t->leading, lead_plain(t->notes.data[k].text));
+	t->among.len = 0;
+	t->notes.len = 0;
+}
+
+/* A merge writes a list in brackets. One with a field under it stays stacked
+   (E001), since in brackets it is E028. */
+static void bracket(shcl_doc *d, ShclNode *nd) {
+	if (!nd->children.len && (nd->star_list || nd->trivia)) unstack(d, nd);
+}
+
+/* A list after an empty binding of its name, which a stacked header would
+   join on a reload. In brackets when it can be. A list with fields under it
+   cannot, so it joins that binding here, as a reload joins it, when that
+   binding has no field the items would land after. True when it joined, and
+   the caller drops it from its parent's children. */
+static int fold_list_into_empty(shcl_doc *d, size_t empty, size_t list) {
+	unstack(d, &NODE(d, list));
+	const ShclNode *e = &NODE(d, empty);
+	if (!stacks(&NODE(d, list)) || !v_is_empty(&e->value) || e->children.len || triv_after(e).len) return 0;
+	NODE(d, empty).value = NODE(d, list).value;
+	NODE(d, list).value = v_empty();
+	NODE(d, empty).star_list = 1;
+	fold_node_into(d, empty, list);
+	return 1;
 }
 
 /* A raw block after an empty binding of its name is written with the fence on
    the binding's line, where no comment can follow it, so the emitter writes its
    trailing comment on a line of its own above, after the node's blank. A
    reload files that line as a leading comment, so file it there now. The
-   empties map lives in scratch, like the emitter's. */
-static void settle_fence_trailing(shcl_doc *d, size_t n) {
+   empties map lives in scratch, like the emitter's. True when a list joined
+   an empty binding. */
+static int settle_fence_trailing(shcl_doc *d, size_t n) {
 	ShclVecSize kids = NODE(d, n).children;
 	size_t k = 0;
 	while (k < kids.len && !(NODE(d, kids.data[k]).value.kind == V_RAW && triv_trailing(&NODE(d, kids.data[k])).n) && !stacks(&NODE(d, kids.data[k]))) k++;
-	if (k == kids.len) return;
+	if (k == kids.len) return 0;
 	ShclCMap empties; memset(&empties, 0, sizeof empties);
+	size_t folded = 0;
 	for (size_t i = 0; i < kids.len; i++) {
 		size_t c = kids.data[i];
 		ShclNode *nd = &NODE(d, c);
 		uint64_t h = cmap_hash(nd->name, s_empty());
-		int seen = 0; /* entries name the empty sibling, so a hit verifies */
+		size_t empty = NIL; /* entries name the empty sibling, so a hit verifies */
 		for (ShclCMapEnt *e = cmap_first(&empties, h); e; e = cmap_next(e, h))
-			if (s_eq(NODE(d, e->val).name, nd->name)) { seen = 1; break; }
-		if (nd->value.kind == V_RAW && seen && nd->trivia && nd->trivia->trailing.n) {
+			if (s_eq(NODE(d, e->val).name, nd->name)) { empty = e->val; break; }
+		if (nd->value.kind == V_RAW && empty != NIL && nd->trivia && nd->trivia->trailing.n) {
 			trailing_to_leading(d, nd);
-		} else if (seen && stacks(nd)) {
-			unstack(d, nd);
-		} else if (v_is_empty(&nd->value) && !seen) {
+		} else if (empty != NIL && stacks(nd)) {
+			/* A join leaves the node with no value, and a dropped child is
+			   marked by its parent link. */
+			if (fold_list_into_empty(d, empty, c)) { NODE(d, c).parent = DEAD; folded++; }
+		} else if (v_is_empty(&nd->value) && empty == NIL) {
 			cmap_put(&d->scratch, &empties, h, c);
 		}
 	}
+	if (!folded) return 0;
+	ShclVecSize *ch = &NODE(d, n).children;
+	size_t w = 0;
+	for (size_t i = 0; i < ch->len; i++)
+		if (NODE(d, ch->data[i]).parent != DEAD) ch->data[w++] = ch->data[i];
+	ch->len = w;
+	return 1;
 }
 
 /* File a block's comments where a reload does, in place. A block's inside
@@ -4149,16 +4237,33 @@ static void settle_fence_trailing(shcl_doc *d, size_t n) {
    `from` is the first child whose leading list may gain, so a new last child
    costs one pair; it cannot put a fence after an empty binding either, so
    only a full pass looks for one. */
-static void settle_block(shcl_doc *d, size_t n, size_t from) {
+static void settle_pairs(shcl_doc *d, size_t n, size_t from);
+static int settle_block(shcl_doc *d, size_t n, size_t from) {
 	ShclArena *a = &d->arena;
-	if (!NODE(d, n).children.len) return;
-	if (from <= 1) settle_fence_trailing(d, n);
+	if (!NODE(d, n).children.len) return 0;
+	int joined = from <= 1 && settle_fence_trailing(d, n);
+	settle_pairs(d, n, from);
+	/* A line the pass above moved off an empty binding no longer holds its
+	   join off, and a reload joins it (2026100520243961). */
+	if (from <= 1 && settle_fence_trailing(d, n)) {
+		joined = 1;
+		settle_pairs(d, n, 1);
+	}
+	/* After the join, which can take the last child. */
 	ShclNode *nd = &NODE(d, n);
+	if (!nd->children.len) return joined;
 	if (nd->trivia && nd->trivia->inside.len) {
 		ShclTrivia *kt = triv_mut(a, &NODE(d, nd->children.data[nd->children.len - 1]));
 		for (size_t k = 0; k < nd->trivia->inside.len; k++) ShclVecLead_push(a, &kt->after, nd->trivia->inside.data[k]);
 		nd->trivia->inside.len = 0;
 	}
+	return joined;
+}
+
+/* A child's comments at its own level go above the next sibling, from child
+   `from` on. */
+static void settle_pairs(shcl_doc *d, size_t n, size_t from) {
+	ShclArena *a = &d->arena;
 	ShclVecSize *kids = &NODE(d, n).children;
 	for (size_t i = from ? from : 1; i < kids->len; i++) {
 		ShclTrivia *t = NODE(d, kids->data[i - 1]).trivia;
@@ -4200,6 +4305,10 @@ static void settle_first_blank(shcl_doc *d) {
    a fold hands the survivor more children and the order they arrive in
    decides whose trailing comment wins; folding keeps depths. Grouping
    temporaries live in scratch (dead before the first resolve resets it). */
+static int size_cmp(const void *pa, const void *pb) {
+	size_t x = *(const size_t *)pa, y = *(const size_t *)pb;
+	return x < y ? -1 : x > y;
+}
 typedef struct { size_t depth, node; } ShclLateDup;
 static int late_dup_cmp(const void *pa, const void *pb) {
 	const ShclLateDup *a = (const ShclLateDup *)pa, *b = (const ShclLateDup *)pb;
@@ -4620,10 +4729,83 @@ static void hint_fold(ShclParser *P, size_t parent, size_t kept, size_t gone, in
 		reent_set(P, kept, line);
 	}
 }
+static uint64_t array_mark_hash(size_t node) { return fnv_dec(14695981039346656037ull, node); }
+static void array_mark_set(ShclParser *P, ShclArrayMark mark) {
+	uint64_t h = array_mark_hash(mark.node);
+	for (ShclCMapEnt *e = cmap_first(&P->array_at, h); e; e = cmap_next(e, h))
+		if (P->array_marks.data[e->val].node == mark.node) { P->array_marks.data[e->val] = mark; return; }
+	cmap_put(P->tmp, &P->array_at, h, P->array_marks.len);
+	ShclVecArrayMark_push(P->tmp, &P->array_marks, mark);
+}
+/* The node's mark, taken out of the map. */
+static int array_mark_pop(ShclParser *P, size_t node, ShclArrayMark *mark) {
+	uint64_t h = array_mark_hash(node);
+	for (ShclCMapEnt *e = cmap_first(&P->array_at, h); e; e = cmap_next(e, h))
+		if (P->array_marks.data[e->val].node == node) { *mark = P->array_marks.data[e->val]; cmap_del(&P->array_at, h, e->val); return 1; }
+	return 0;
+}
+
+/* A field binds under an array line, which a field with lines under it
+   cannot take (E028). The line is kept as written, written in place of the
+   field's own, and the field is open with no value, as a line refused for its
+   value alone opens it. When the line joined an earlier binding of the same
+   value, that one keeps its value and the field opens on its own. Returns the
+   field, which takes the level. */
+static size_t array_under(ShclParser *P, size_t node) {
+	shcl_doc *d = P->d;
+	ShclArena *a = &d->arena;
+	ShclArrayMark mark; memset(&mark, 0, sizeof mark);
+	int marked = array_mark_pop(P, node, &mark);
+	size_t line = marked ? mark.line : NODE(d, node).line;
+	if (line < 1 || line > P->src_lines.len) return node;
+	ShclStr text = trim_wsp_start(trim_wsp_end(P->src_lines.data[line - 1]));
+	p_err(P, line, "E028", s_lit("an array on a field with lines under it; the field takes one plain value or none"));
+	d->kept_owed++;
+	P->kept_arrays = 1;
+	if (marked && mark.line != NODE(d, node).line) {
+		ShclStr name = NODE(d, node).name, name_src = node_authored(&NODE(d, node));
+		size_t up = NODE(d, node).parent;
+		/* The lines this one brought to the binding it joined go with it, and
+		   so do its blank and its comment, which its kept text has. */
+		int blank_before = NODE(d, node).blank_before && !mark.blank;
+		NODE(d, node).blank_before = mark.blank;
+		ShclTrivia *t = triv_mut(a, &NODE(d, node));
+		size_t at = min_sz(mark.leads, t->leading.len);
+		ShclVecLead moved = {0};
+		for (size_t k = at; k < t->leading.len; k++) ShclVecLead_push(P->tmp, &moved, t->leading.data[k]);
+		t->leading.len = at;
+		if (!mark.trailing) t->trailing = s_empty();
+		else {
+			ShclTokens ttok; memset(&ttok, 0, sizeof ttok);
+			tokenize(P->line, text, ':', 0, SHCL_RULES_CURRENT, &ttok);
+			if (ttok.has_comment && moved.len) moved.len--;
+		}
+		size_t opened = select_or_create(P, up, name, name_src, v_empty(), line);
+		ShclVecLead_push(P->tmp, &moved, lead_at(text, blank_before, 0, line));
+		ShclTrivia *ot = triv_mut(a, &NODE(d, opened));
+		for (size_t k = 0; k < moved.len; k++) ShclVecLead_push(a, &ot->leading, moved.data[k]);
+		for (size_t k = P->stack.len; k-- > 0;)
+			if (P->stack.data[k].node == node) { P->stack.data[k].node = opened; break; }
+		return opened;
+	}
+	ShclNode *nd = &NODE(d, node);
+	uint64_t old_key = merge_hash(nd->name, &nd->value);
+	uint64_t old_disp = disp_hash(nd->name, &nd->value);
+	nd->value = v_empty();
+	int blank_before = nd->blank_before;
+	nd->blank_before = 0;
+	ShclTrivia *t = triv_mut(a, nd);
+	t->trailing = s_empty();
+	ShclVecLead_push(a, &t->leading, lead_at(text, blank_before, 0, line));
+	remap_child(P, node, old_key, old_disp);
+	return node;
+}
+
 static int attach_path(ShclParser *P, size_t parent, ShclSegment *segs, size_t nsegs, ShclValue value, size_t line, ShclStr indent, size_t *out) {
 	ShclArena *a = &P->d->arena;
 	/* Field child under a stacked list: diagnose the mix once, keep the field. */
 	star_flush(P);
+	if (parent != ROOT && !NODE(P->d, parent).star_list && NODE(P->d, parent).value.kind == V_ARRAY) parent = array_under(P, parent);
 	if (NODE(P->d, parent).star_list && !NODE(P->d, parent).star_mixed) {
 		NODE(P->d, parent).star_mixed = 1;
 		p_err(P, line, "E001", s_lit("field mixed with list elements"));
@@ -4974,14 +5156,12 @@ static void refuse_capped(ShclParser *P, size_t line, ShclStr indent) {
 	p_refuse(P, line, "E021", sb_S(&m), out_kind(OUT_DROPPED), indent);
 }
 
-/* One stacked-list element (`* scalar`) appends to the parent's array. */
+/* One stacked-list item (`- scalar`) appends to the parent's array. */
 static int add_star_element(ShclParser *P, size_t parent, const ShclTokens *tok, ShclStr text, size_t line, ShclStr indent) {
 	ShclArena *a = &P->d->arena;
 	if (parent == ROOT) { p_refuse(P, line, "E007", s_lit("list element with no parent field"), out_kind(OUT_DROPPED), indent); return 0; }
 	/* Uniform-or-nothing (spec): a mix with field children is not a block array. */
 	if (NODE(P->d, parent).children.len != 0) { p_refuse(P, line, "E008", s_lit("list element mixed with field children; ignored"), out_kind(OUT_DROPPED), indent); return 0; }
-	/* One scalar per line; a bare comma is an error, not a second element. */
-	if (tok->nelem > 1) { p_refuse(P, line, "E010", s_lit("bare comma in list element (one element per line)"), out_kind(OUT_DROPPED), indent); return 0; }
 	ShclPiece piece = tok->elements[0];
 	ShclElement el;
 	if (!element_of(a, &piece, text, &el)) { p_refuse(P, line, "E009", s_lit("empty list element"), out_kind(OUT_DROPPED), indent); return 0; }
@@ -5030,25 +5210,21 @@ static int add_star_element(ShclParser *P, size_t parent, const ShclTokens *tok,
 	return 1;
 }
 
-/* Kept lines waiting for the list element that just joined sat among the
-   list's elements, so they stay there; comments still ride the field. */
+/* Lines waiting for the list item that just joined sat among the list's
+   items, so they stay there, comments and kept lines alike. */
 static void keep_among(ShclParser *P, size_t parent, ShclStr indent) {
-	size_t k = 0;
-	while (k < P->pending.len && P->pending.data[k].text.n && P->pending.data[k].text.p[0] == '#') k++;
-	if (k == P->pending.len) return;
+	if (!P->pending.len) return;
 	if (NODE(P->d, parent).value.kind != V_ARRAY) return;
 	size_t before = NODE(P->d, parent).value.nels - 1;
 	ShclArena *a = &P->d->arena;
-	size_t w = 0;
 	P->depth_chain.len = 0;
 	P->held_chain.len = 0;
 	for (size_t r = 0; r < P->pending.len; r++) {
 		ShclPend pd = P->pending.data[r];
-		if (pd.text.n && pd.text.p[0] == '#') { P->pending.data[w++] = pd; continue; }
 		ShclAmong am; am.before = before; am.lead = lead_make(pd.text, pd.blank_before, comment_depth(P, indent, pd.text, pd.indent));
 		ShclVecAmong_push(a, &triv_mut(a, &NODE(P->d, parent))->among, am);
 	}
-	P->pending.len = w;
+	P->pending.len = 0;
 	P->pend_marks.len = 0;
 }
 
@@ -5166,6 +5342,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 	P.star_open = 0; P.star_node = 0; P.star_key = 0; P.star_disp = 0; P.saw_blank = 0;
 	P.max_nodes = max_nodes; P.max_elements = max_elements; P.max_diags = max_diags; P.unlisted_errors = 0; P.unlisted_hints = 0;
 	P.has_kept_hold = 0; P.kept_hold = s_empty(); P.kept_any = 0; memset(&P.lazies, 0, sizeof P.lazies);
+	P.kept_arrays = 0; memset(&P.src_lines, 0, sizeof P.src_lines); memset(&P.array_marks, 0, sizeof P.array_marks); memset(&P.array_at, 0, sizeof P.array_at);
 	memset(&P.reent_node, 0, sizeof P.reent_node); memset(&P.reent_line, 0, sizeof P.reent_line); memset(&P.late_dups, 0, sizeof P.late_dups);
 	ShclStackEnt e0; e0.indent = s_empty(); e0.node = ROOT; ShclVecStack_push(P.tmp, &P.stack, e0);
 	maps_push(d->panic, P.cmaps, NULL);
@@ -5202,6 +5379,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 			}
 		}
 	}
+	P.src_lines = lines;
 	size_t i = 0;
 	int node_capped = 0;
 	while (i < lines.len) {
@@ -5293,14 +5471,18 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 			}
 			i = next; continue;
 		}
-		if (rest.n >= 1 && rest.p[0] == '*') {
+		/* Stacked-list item: `-` then a blank. A bare name starts with a
+		   letter, so no field line starts that way. A `-` alone after the trim
+		   is an empty item only when a blank followed it, and only the
+		   untrimmed line still knows; with none it is a field line (E014). */
+		int item = 0;
+		if (rest.p[0] == '-') {
 			ShclStr after = s_slice(rest, 1, rest.n);
-			/* A `*` alone after the trim: whether a space followed it decides
-			   between an empty element and a malformed line, and only the
-			   untrimmed line still knows. */
-			int spaced = after.n >= 1 && is_wsp((unsigned char)after.p[0]);
-			if (after.n == 0 && lines.data[i].n > indent.n + lead + 1) spaced = is_wsp((unsigned char)lines.data[i].p[indent.n + lead + 1]);
-			if (spaced) {
+			item = after.n >= 1 && is_wsp((unsigned char)after.p[0]);
+			if (after.n == 0 && lines.data[i].n > indent.n + lead + 1) item = is_wsp((unsigned char)lines.data[i].p[indent.n + lead + 1]);
+		}
+		if (item || rest.p[0] == '*') {
+			if (item) {
 				size_t parent;
 				if (!resolve_parent(&P, indent, found, &parent)) { misplaced(&P, lineno, "E012", indent, rest, had_blank, 0); i++; continue; }
 				if (parent == DEAD) { misplaced(&P, lineno, "E018", indent, rest, had_blank, 0); i++; continue; }
@@ -5319,7 +5501,15 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 				   root there is no field (E007), so the comment rides the document
 				   like any other pending one. */
 				if (parent != ROOT) {
-					if (add_star_element(&P, parent, &tok, rest, lineno, indent)) keep_among(&P, parent, indent);
+					if (add_star_element(&P, parent, &tok, rest, lineno, indent)) {
+						keep_among(&P, parent, indent);
+						/* A comment on an item stays on its item. */
+						if (ecomment.n && NODE(d, parent).value.kind == V_ARRAY) {
+							ShclNote nt; nt.at = NODE(d, parent).value.nels - 1; nt.text = ecomment;
+							ShclVecNote_push(a, &triv_mut(a, &NODE(d, parent))->notes, nt);
+							ecomment = s_empty();
+						}
+					}
 					size_t head = NODE(d, parent).line;
 					if (d->ends.len && d->ends.data[d->ends.len - 2] == head) d->ends.data[d->ends.len - 1] = lineno;
 					else { ShclVecSize_push(a, &d->ends, head); ShclVecSize_push(a, &d->ends, lineno); }
@@ -5335,10 +5525,11 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 				if (!resolve_parent(&P, indent, found, &parent)) { misplaced(&P, lineno, "E012", indent, rest, had_blank, 0); i++; continue; }
 				if (parent == DEAD) { misplaced(&P, lineno, "E018", indent, rest, had_blank, 0); i++; continue; }
 			}
-			/* Content-malformed at any position, so safe to retain. The BOM
-			   exception the field arm makes cannot apply here: this line
-			   starts with the '*' that brought us in. */
-			p_refuse(&P, lineno, "E013", s_lit("malformed line: '*' must be followed by a space"), out_retained(trim_wsp_end(rest), had_blank), indent);
+			/* The old item marker. Content-malformed at any position, so safe
+			   to retain, and the items around it still load. The BOM exception
+			   the field arm makes cannot apply here: this line starts with the
+			   '*' that brought us in. */
+			p_refuse(&P, lineno, "E013", s_lit("a list item is written '- ' now, not '*'"), out_retained(trim_wsp_end(rest), had_blank), indent);
 			i++; continue;
 		}
 		/* Field line. */
@@ -5416,11 +5607,16 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 		size_t node = 0; /* attach_path fills it; the init quiets gcc's inlining-dependent maybe-uninitialized */
 		parent = open_lazy(&P, parent);
 		size_t nsegs = scan.segs.len;
+		int arrayed = tok.has_array;
 		if (attach_path(&P, parent, scan.segs.data, scan.segs.len, value, lineno, indent, &node)) {
 			for (size_t k = 0; celled && unit_named(NODE(d, node).name) && k < tok.nelem; k++) {
 				ShclStr clash;
 				if (unit_clash(P.tmp, NODE(d, node).name, piece_text(P.tmp, &tok.elements[k], rest), &clash)) { p_diag(&P, lineno, SHCL_SEV_HINT, "H005", clash); break; }
 			}
+			/* What the node had before this line, for an array line that
+			   turns out to have a field under it. */
+			ShclArrayMark mark; mark.node = node; mark.line = lineno; mark.leads = triv_leading(&NODE(d, node)).len;
+			mark.trailing = triv_trailing(&NODE(d, node)).n != 0; mark.blank = NODE(d, node).blank_before;
 			if (had_blank) NODE(d, node).blank_before = 1;
 			if (next > i + 1) { ShclVecSize_push(a, &d->ends, lineno); ShclVecSize_push(a, &d->ends, next); }
 			/* A kept line before a dotted line sits level with its first
@@ -5433,6 +5629,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 			}
 			attach_trivia(&P, node, indent, comment);
 			ShclStackEnt se; se.indent = indent; se.node = node; ShclVecStack_push(P.tmp, &P.stack, se);
+			if (arrayed) array_mark_set(&P, mark);
 		}
 		i = next;
 	}
@@ -5470,6 +5667,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 	}
 	/* The parser's scratch is dead by now, and the settle builds in it. */
 	d->kept = P.kept_any;
+	d->arrays = P.kept_arrays;
 	settle_kept(d);
 }
 
@@ -6067,6 +6265,13 @@ static ShclValue w_array(ShclArena *a, const ShclStr *texts, size_t n) {
 }
 
 static void restep(ShclVecLead *v);
+static void index_drop(shcl_doc *d);
+/* settle_block, dropping the name index when a list joined an empty binding,
+   since that moves fields to another parent. */
+static void w_settle(shcl_doc *d, size_t n, size_t from) {
+	if (settle_block(d, n, from)) index_drop(d);
+}
+
 static size_t w_new_child(shcl_doc *d, size_t parent, ShclStr name, ShclStr name_src, ShclValue value) {
 	/* A list written stacked would get the child after its elements, which
 	   reloads as E001, so it goes inline. */
@@ -6096,7 +6301,7 @@ static size_t w_new_child(shcl_doc *d, size_t parent, ShclStr name, ShclStr name
 		restep(tail);
 		triv_mut(a, &NODE(d, idx))->leading = lines;
 	}
-	settle_block(d, parent, NODE(d, parent).children.len - 1);
+	w_settle(d, parent, NODE(d, parent).children.len - 1);
 	return idx;
 }
 
@@ -6153,6 +6358,16 @@ static shcl_write_reason w_write_reason(shcl_doc *d, ShclArena *a, ShclStr path)
 
 static size_t w_set_child(shcl_doc *d, size_t parent, ShclStr name, ShclStr name_src, ShclValue value, ShclStr path);
 
+/* The node a write at this path lands on when it is already there. */
+static int w_write_target(shcl_doc *d, ShclStr path, size_t *out) {
+	ShclArena *t = &d->scratch;
+	ShclPathScan ps = scan_lookup(t, path);
+	size_t *trail = (size_t *)arena_alloc(t, (ps.segs.len ? ps.segs.len : 1) * sizeof(size_t));
+	if (w_probe_write(d, t, &ps, trail) != SHCL_W_WRITABLE || !ps.segs.len || trail[ps.segs.len - 1] == (size_t)-1) return 0;
+	*out = trail[ps.segs.len - 1];
+	return 1;
+}
+
 // Walk (creating as needed) to the node a write targets. Returns 1 + *out, or 0
 // if the path is unusable for a write (w_write_reason says why). Validation
 // runs first, so a doomed path leaves no half-created intermediates behind. A
@@ -6171,10 +6386,12 @@ static int w_place(shcl_doc *d, ShclStr path, int setter, size_t *out) {
 	if (w_probe_write(d, t, &ps, trail) != SHCL_W_WRITABLE) return 0;
 	/* Nothing is created until every segment the write would create is known
 	   to read back: the name through the name escaper, an instance selector
-	   as the value it binds. */
+	   as the value it binds, and the first under a field that takes a field
+	   under it, which an array does not (E028). */
 	for (size_t i = 0; i < ps.segs.len; i++) {
 		const ShclSegment *seg = &ps.segs.data[i];
 		if (trail[i] != (size_t)-1) continue;
+		if (i > 0 && trail[i - 1] != (size_t)-1 && NODE(d, trail[i - 1]).value.kind == V_ARRAY) return 0;
 		if (!name_reads_back(t, seg->name)) return 0;
 		if (seg->sel.tag == SEL_VALUE) {
 			ShclValue sv = w_cell1(t, seg->sel.value);
@@ -6204,12 +6421,29 @@ static int w_place(shcl_doc *d, ShclStr path, int setter, size_t *out) {
 static void w_settle_fence_name(shcl_doc *d, size_t parent, ShclStr name) {
 	ShclVecSize cands = {0};
 	children_named(d, &d->scratch, parent, name, &cands);
-	int seen_empty = 0;
+	size_t empty = NIL;
 	for (size_t k = 0; k < cands.len; k++) {
-		ShclNode *nd = &NODE(d, cands.data[k]);
-		if (seen_empty && nd->value.kind == V_RAW && nd->trivia && nd->trivia->trailing.n) trailing_to_leading(d, nd);
-		else if (seen_empty && stacks(nd)) unstack(d, nd);
-		else if (v_is_empty(&nd->value)) seen_empty = 1;
+		size_t c = cands.data[k];
+		ShclNode *nd = &NODE(d, c);
+		if (empty != NIL && nd->value.kind == V_RAW && nd->trivia && nd->trivia->trailing.n) trailing_to_leading(d, nd);
+		else if (empty != NIL && stacks(nd)) {
+			if (!fold_list_into_empty(d, empty, c)) continue;
+			ShclVecSize *pk = &NODE(d, parent).children;
+			size_t w = 0;
+			for (size_t j = 0; j < pk->len; j++) if (pk->data[j] != c) pk->data[w++] = pk->data[j];
+			pk->len = w;
+			if (d->index_built == 1) {
+				index_unlink(d, name_key(parent, name), c);
+				/* The binding had no fields, so all of them came over. */
+				ShclVecSize moved = NODE(d, empty).children;
+				for (size_t m = 0; m < moved.len; m++) {
+					ShclStr nm = NODE(d, moved.data[m]).name;
+					index_unlink(d, name_key(c, nm), moved.data[m]);
+					index_append(d, name_key(empty, nm), moved.data[m]);
+				}
+			}
+		}
+		else if (v_is_empty(&nd->value) && empty == NIL) empty = c;
 	}
 }
 
@@ -6250,7 +6484,7 @@ static void w_fold_dups_below(shcl_doc *d, size_t start) {
 			}
 		}
 		ch->len = w;
-		settle_block(d, parent, 1);
+		w_settle(d, parent, 1);
 	}
 }
 
@@ -6283,7 +6517,7 @@ static void w_collapse_dup(shcl_doc *d, size_t node) {
 	size_t w = 0;
 	for (size_t k = 0; k < pk->len; k++) if (pk->data[k] != loser) pk->data[w++] = pk->data[k];
 	pk->len = w;
-	settle_block(d, parent, 1);
+	w_settle(d, parent, 1);
 	if (d->index_built == 1) {
 		index_unlink(d, name_key(parent, NODE(d, loser).name), loser);
 		for (size_t k = 0; k < moved.len; k++) {
@@ -6334,13 +6568,22 @@ static int w_set_marked_as(shcl_doc *d, ShclStr path, ShclValue v, ShclMark m, i
 	if (!value_reads_back(&d->scratch, &v)) { arena_release(&d->arena, m); arena_reset(&d->scratch); return 0; }
 	if (d->probe) { arena_release(&d->arena, m); arena_reset_smallest(&d->scratch); return 1; }
 	size_t fresh = d->nodes.len;
+	/* A field with lines under it takes one plain value or none (E028). */
+	if (v.kind == V_ARRAY) {
+		size_t n;
+		if (w_write_target(d, path, &n) && NODE(d, n).children.len) { arena_release(&d->arena, m); return 0; }
+	}
 	if (!w_place(d, path, 1, &idx)) { arena_release(&d->arena, m); return 0; }
 	/* w_place has already done it for a field it created. */
 	if (idx < fresh && d->kept_owed > 0) comment_out_kept(d, NODE(d, idx).parent, NODE(d, idx).name, path, 0, NULL);
 	if (keep_quotes) keep_mark(&d->scratch, &NODE(d, idx).value, &v);
+	/* A list written stacked stays stacked, as an overwrite keeps quotes,
+	   unless there is nothing left to stack. */
+	int stacked = stacks(&NODE(d, idx)) && v.kind == V_ARRAY && v.nels;
 	NODE(d, idx).value = v;
 	/* No longer the list the lines among its elements sat in. */
 	unstack(d, &NODE(d, idx));
+	NODE(d, idx).star_list = stacked;
 	/* An empty binding or a raw block can put a fence after an empty sibling
 	   of its name. */
 	int fence_side = v.kind == V_EMPTY || v.kind == V_RAW;
@@ -6516,6 +6759,9 @@ size_t shcl_remove(shcl_doc *d, const char *path, size_t plen) {
 	for (size_t i = 0; i < marked.len; i++) {
 		if (NODE(d, marked.data[i]).parent != DEAD) continue;
 		size_t pn = parents.data[i];
+		/* A list written stacked for the fields under it stays stacked: a
+		   remove only takes lines away. */
+		int stacked = stacks(&NODE(d, pn));
 		ShclVecSize *kids = &NODE(d, pn).children;
 		ShclVecLead left = {0};
 		size_t w = 0;
@@ -6530,12 +6776,15 @@ size_t shcl_remove(shcl_doc *d, const char *path, size_t plen) {
 			}
 		}
 		kids->len = w;
+		NODE(d, pn).star_list = NODE(d, pn).star_list || stacked;
+		/* The next merge has a stacked list to put in brackets. */
+		d->bracketed = d->bracketed && !stacked;
 		if (left.len) leave_last(d, pn, &left);
 	}
 	/* A field opened only by the lines under it goes with the last of them,
 	   and its own kept line stays where it was (escblock). */
-	ShclVecSize open = {0};
-	for (size_t i = 0; i < parents.len; i++) ShclVecSize_push(a, &open, parents.data[i]);
+	ShclVecSize open = {0}, emptied = {0};
+	for (size_t i = 0; i < parents.len; i++) { ShclVecSize_push(a, &open, parents.data[i]); ShclVecSize_push(a, &emptied, parents.data[i]); }
 	while (open.len) {
 		size_t pn = open.data[--open.len];
 		if (pn == ROOT || NODE(d, pn).children.len || !opened_by_kept(&d->scratch, &NODE(d, pn)) || !node_live(d, pn)) continue;
@@ -6556,11 +6805,26 @@ size_t shcl_remove(shcl_doc *d, const char *path, size_t plen) {
 		size_t at = 0;
 		while (at < kids->len && kids->data[at] != pn) at++;
 		if (at == kids->len) continue;
+		int stacked = stacks(&NODE(d, pp));
 		memmove(kids->data + at, kids->data + at + 1, (kids->len - at - 1) * sizeof *kids->data);
 		kids->len--;
+		NODE(d, pp).star_list = NODE(d, pp).star_list || stacked;
+		d->bracketed = d->bracketed && !stacked;
 		if (at < kids->len) leave_above(d, kids->data[at], &left);
 		else leave_last(d, pp, &left);
 		ShclVecSize_push(a, &open, pp);
+		ShclVecSize_push(a, &emptied, pp);
+	}
+	/* An empty binding that lost its last field takes a stacked list of its
+	   name after it, and a list that lost its last field goes in brackets
+	   there, as a reload reads them (2026100520243961). */
+	if (emptied.len) qsort(emptied.data, emptied.len, sizeof *emptied.data, size_cmp);
+	for (size_t k = 0; k < emptied.len; k++) {
+		size_t pn = emptied.data[k];
+		if (k > 0 && emptied.data[k - 1] == pn) continue;
+		const ShclNode *nd = &NODE(d, pn);
+		if (pn != ROOT && !nd->children.len && (nd->value.kind == V_EMPTY || nd->value.kind == V_ARRAY) && node_live(d, pn))
+			w_settle_fence_name(d, nd->parent, nd->name);
 	}
 	settle_first_blank(d);
 	resettle_kept(d);
@@ -6917,9 +7181,14 @@ static ShclTrivia *w_clone_trivia(ShclArena *a, const ShclTrivia *st) {
 		am.lead = lead_copy(a, &st->among.data[i].lead);
 		ShclVecAmong_push(a, &nt->among, am);
 	}
+	for (size_t i = 0; i < st->notes.len; i++) {
+		ShclNote no; no.at = st->notes.data[i].at; no.text = s_dup(a, st->notes.data[i].text);
+		ShclVecNote_push(a, &nt->notes, no);
+	}
 	return nt;
 }
-static size_t w_clone_subtree(shcl_doc *d, const shcl_doc *over, size_t oi, size_t parent) {
+/* merged: the copy is a merge's, which writes every list in brackets. */
+static size_t w_clone_subtree(shcl_doc *d, const shcl_doc *over, size_t oi, size_t parent, int merged) {
 	ShclArena *a = &d->arena;
 	const ShclNode *src = &over->nodes.data[oi];
 	ShclNode n; memset(&n, 0, sizeof n);
@@ -6938,9 +7207,10 @@ static size_t w_clone_subtree(shcl_doc *d, const shcl_doc *over, size_t oi, size
 	size_t nk = over->nodes.data[oi].children.len;
 	for (size_t i = 0; i < nk; i++) {
 		size_t ok = over->nodes.data[oi].children.data[i];
-		size_t c = w_clone_subtree(d, over, ok, idx);
+		size_t c = w_clone_subtree(d, over, ok, idx, merged);
 		ShclVecSize_push(a, &NODE(d, idx).children, c);
 	}
+	if (merged) bracket(d, &NODE(d, idx));
 	return idx;
 }
 
@@ -6969,6 +7239,11 @@ static void adopt_trivia(shcl_doc *d, size_t base, const shcl_doc *over, size_t 
 		ShclVecAmong_push(a, &bt->among, am);
 	}
 	among_sort(&bt->among);
+	for (size_t i = 0; i < st->notes.len; i++) {
+		ShclNote no; no.at = st->notes.data[i].at; no.text = s_dup(a, st->notes.data[i].text);
+		ShclVecNote_push(a, &bt->notes, no);
+	}
+	notes_sort(&bt->notes);
 }
 
 // One grouping pass over each side, then a single children rebuild: the old
@@ -7066,7 +7341,7 @@ static void w_overlay(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, S
 		if (over_leafy && !bc) {
 			for (size_t i = 0; i < grp.len; i++) {
 				size_t pos = grp.data[i];
-				size_t c = w_clone_subtree(d, over, okids.data[pos], bp);
+				size_t c = w_clone_subtree(d, over, okids.data[pos], bp, 1);
 				if (inb) ShclVecSize_push(t, &rep[gi], c);
 				else { app_at[pos] = c; nappended++; }
 			}
@@ -7151,15 +7426,13 @@ static void w_overlay(shcl_doc *d, size_t bp, const shcl_doc *over, size_t op, S
 					}
 				}
 				if (b != (size_t)-1) {
-					/* A stacked spelling no kept line holds is gone on a
-					   reload, so it may not decide how the lines the other
-					   layer brings are written (20260926 item 4). */
-					int stacked = stacks(&NODE(d, b)) || stacks(&over->nodes.data[ok]);
 					adopt_trivia(d, b, over, ok);
-					NODE(d, b).star_list = stacked;
 					w_overlay(d, b, over, ok, touched);
+					/* A merge writes a list in brackets, once its child list
+					   is final. */
+					bracket(d, &NODE(d, b));
 				}
-				else { app_at[pos] = w_clone_subtree(d, over, ok, bp); nappended++; }
+				else { app_at[pos] = w_clone_subtree(d, over, ok, bp, 1); nappended++; }
 			}
 		}
 	}
@@ -7216,15 +7489,23 @@ void shcl_merge(shcl_doc *d, const shcl_doc *over) {
 	/* The layer's own kept lines were modeled against its own tree. */
 	int fresh = over->kept;
 	d->kept |= over->kept;
+	d->arrays |= over->arrays;
 	ShclArena *a = &d->arena;
 	arena_reset(&d->scratch); // merge temporaries (compare keys, clone lists) die here
 	/* Only a block the overlay visited can have a changed child list or
 	   comments; the rest was settled when it was built. Settling the whole tree
 	   made every merge cost the document (20260924 item 6). A block's settle
 	   writes only below it, so the order does not matter. */
+	/* Every list goes in brackets, whatever form its layers used, so a merge of
+	   the merged text gives the same text. After the first, only what the
+	   overlay brings or visits can be stacked. */
+	if (!d->bracketed) {
+		for (size_t n = 1; n < d->nodes.len; n++) bracket(d, &NODE(d, n));
+		d->bracketed = 1;
+	}
 	ShclVecSize touched = {0};
 	w_overlay(d, ROOT, over, ROOT, &touched);
-	for (size_t k = 0; k < touched.len; k++) settle_block(d, touched.data[k], 1);
+	for (size_t k = 0; k < touched.len; k++) w_settle(d, touched.data[k], 1);
 	// Layers commonly share a footer; keeping one copy of each keeps a stack
 	// of files from repeating it once per layer. Only the lines already here
 	// count: a layer's own repeats are its content.
@@ -8236,7 +8517,7 @@ static size_t w_new_child_under(shcl_doc *d, size_t parent, ShclStr name, ShclSt
 	kids->data[pos] = idx;
 	/* No other field of this name, so the index order holds. */
 	if (d->index_built == 1) index_append(d, name_key(parent, name), idx);
-	settle_block(d, parent, pos);
+	w_settle(d, parent, pos);
 	return idx;
 }
 
@@ -8425,8 +8706,11 @@ static void emit_line(shcl_doc *d, size_t idx, size_t pos, size_t depth, int wou
 			for (size_t j = from; j < next; j++) push_leads(e, &am.data[j].lead, 1, depth + 1, idx, SITE_AMONG, j);
 			ShclStr column = emit_tabs(e, depth + 1);
 			sb_putS(a, out, column);
-			sb_puts(a, out, "* ");
+			sb_puts(a, out, "- ");
 			sb_putS(a, out, emit_element(a, &v->els[i]));
+			ShclVecNote notes = triv_notes(node);
+			for (size_t k = 0; k < notes.len; k++)
+				if (notes.data[k].at == i) emit_trailing(a, out, notes.data[k].text);
 			sb_putc(a, out, '\n');
 			emit_placed(e, column);
 		}
@@ -8598,9 +8882,82 @@ static uint64_t near_sum(const shcl_doc *d) {
 	return h;
 }
 
+/* A field line kept only for the lines under it: a whole array, and nothing
+   else wrong with it (E028). */
+static int array_kept(ShclArena *t, ShclStr text) {
+	if (!is_field(text) || !is_field_text(text)) return 0;
+	ShclTokens tok; memset(&tok, 0, sizeof tok);
+	tokenize(t, text, ':', 0, SHCL_RULES_CURRENT, &tok);
+	if (!tok.has_array) return 0;
+	if (!path_of(t, &tok, text).ok) return 0;
+	ShclFault f;
+	return !line_fault(t, &tok, text, &f);
+}
+
+/* Comment out each kept array line in a run but one written in place of the
+   line of a field with fields under it, the run's last when heads says so.
+   Anywhere else no field binds under it on a reload, so it would bind
+   itself. What sat under it goes the same way, since a comment holds no
+   level. */
+static void settle_array_run(shcl_doc *d, ShclVecLead *run, int heads) {
+	int settled = 0;
+	for (size_t k = 0; k < run->len; k++) {
+		ShclLead *l = &run->data[k];
+		if (!l->text.n || l->text.p[0] == '#' || l->text.p[0] == ' ' || l->text.p[0] == '\t' || !array_kept(&d->scratch, l->text) || (heads && k + 1 == run->len)) continue;
+		size_t depth = l->depth, end = run->len;
+		for (size_t e = k + 1; e < run->len; e++)
+			if (!s_starts(run->data[e].text, "#") && run->data[e].depth <= depth) { end = e; break; }
+		for (size_t x = k; x < end; x++) {
+			if (!s_starts(run->data[x].text, "#")) {
+				run->data[x].text = commented(&d->arena, run->data[x].text);
+				run->data[x].kept = 1;
+			}
+		}
+		settled = 1;
+	}
+	if (settled) restep(run);
+}
+
+/* A kept array line stays kept only while it heads a field with fields under
+   it (E028). One a merge or an edit leaves anywhere else would bind on a
+   reload, so it is written as a comment, the way the settle writes a
+   misplaced line that would read differently. */
+static void settle_arrays(shcl_doc *d) {
+	if (!d->arrays) return;
+	ShclArena *t = &d->scratch;
+	ShclVecSize stack = {0};
+	for (size_t k = 0; k < NODE(d, ROOT).children.len; k++) ShclVecSize_push(t, &stack, NODE(d, ROOT).children.data[k]);
+	while (stack.len) {
+		size_t n = stack.data[--stack.len];
+		for (size_t k = 0; k < NODE(d, n).children.len; k++) ShclVecSize_push(t, &stack, NODE(d, n).children.data[k]);
+		int heads = heads_block(t, &NODE(d, n));
+		ShclTrivia *tr = NODE(d, n).trivia;
+		if (!tr) continue;
+		settle_array_run(d, &tr->leading, heads);
+		settle_array_run(d, &tr->inside, 0);
+		settle_array_run(d, &tr->after, 0);
+		for (size_t from = 0; from < tr->among.len;) {
+			size_t at = tr->among.data[from].before, to = from;
+			while (to < tr->among.len && tr->among.data[to].before == at) to++;
+			ShclVecLead run = {0};
+			for (size_t k = from; k < to; k++) ShclVecLead_push(t, &run, tr->among.data[k].lead);
+			settle_array_run(d, &run, 0);
+			for (size_t k = 0; k < run.len; k++) tr->among.data[from + k].lead = run.data[k];
+			from = to;
+		}
+	}
+	settle_array_run(d, &d->orphans, 0);
+}
+
 static void settle_kept(shcl_doc *d) {
+	settle_arrays(d);
+	/* A line moved out of a list can leave it written inline, which changes
+	   what the lines after it sit under, so go again until nothing moves. */
+	int was = d->kept;
 	while (d->kept && settle_kept_once(d)) {}
 	if (d->kept) d->kept_sum = near_sum(d);
+	/* One of those may have been the line under a kept array. */
+	if (was) settle_arrays(d);
 }
 
 /* After an edit. A kept line binds or not by the lines between it and the
@@ -8609,6 +8966,7 @@ static void settle_kept(shcl_doc *d) {
    item 2). */
 static void resettle_kept(shcl_doc *d) {
 	if (d->kept && near_sum(d) != d->kept_sum) settle_kept(d);
+	else settle_arrays(d);
 }
 
 shcl_str shcl_to_canonical(shcl_doc *d) {
@@ -9250,8 +9608,11 @@ static int keep_lines(shcl_doc *d, ShclKeepOwn *own, jmp_buf *panic, ShclStr *ou
 #endif
 static int keep_text(shcl_doc *d, ShclStr *out) {
 	/* The reparse check cannot see a kept line gone from both the tree and the
-	   text, so falling back leaves it to the lost-count gate. */
-	if (!d->has_source || kept_shortfall(d) > 0) { *out = emit_canonical(d); return 0; }
+	   text, so falling back leaves it to the lost-count gate. A source that was
+	   canonical skips that check, so a list no text loads back falls back to it
+	   too. Any other source is held to the check, and one that loads such a
+	   list back is kept. */
+	if (!d->has_source || kept_shortfall(d) > 0 || (d->source.n == 0 && unloadable_items(d) > 0)) { *out = emit_canonical(d); return 0; }
 	ShclKeepOwn *volatile own = (ShclKeepOwn *)calloc(1, sizeof *own);
 	if (!own) { SHCL_OOM(); abort(); }
 	jmp_buf panic;
@@ -9546,7 +9907,7 @@ void shcl_compact(shcl_doc *d) {
 	NODE(n, ROOT).blank_before = root->blank_before;
 	if (root->trivia) NODE(n, ROOT).trivia = w_clone_trivia(a, root->trivia);
 	for (size_t i = 0; i < root->children.len; i++) {
-		size_t c = w_clone_subtree(n, d, root->children.data[i], ROOT);
+		size_t c = w_clone_subtree(n, d, root->children.data[i], ROOT, 0);
 		ShclVecSize_push(a, &NODE(n, ROOT).children, c);
 	}
 	/* Whole, so a generation fault stays one and the next shcl_generate still
@@ -9564,6 +9925,8 @@ void shcl_compact(shcl_doc *d) {
 	n->lost = d->lost;
 	n->kept_owed = d->kept_owed;
 	n->kept = d->kept;
+	n->arrays = d->arrays;
+	n->bracketed = d->bracketed;
 	n->probe_doc = d->probe_doc;
 	/* Every node has a new number, so what the last settle recorded names
 	   the wrong ones. The copy already cost the document. Before the swap,
@@ -11047,7 +11410,38 @@ static size_t kept_taken(shcl_doc *d, size_t node) {
 	return n;
 }
 
-size_t shcl_lost_count(const shcl_doc *d) { return d->lost + kept_shortfall(d); }
+/* The items of a list no text loads back: one with a field under it (E001),
+   so written stacked, after an empty binding of its name that has fields. A
+   reload joins its bare header to that binding and drops the items (E008), so
+   a save refuses (2026100511210900). An edit or a merge can build one, and so
+   can a load, where a kept array line (E028) heads the list. Then the source
+   text loads it back, so the save that keeps lines still writes it. */
+static size_t unloadable_items(const shcl_doc *d) {
+	size_t n = 0;
+	size_t *stack = kept_stack(d);
+	size_t len = 0;
+	stack[len++] = ROOT;
+	while (len) {
+		ShclVecSize kids = NODE(d, stack[--len]).children;
+		for (size_t k = 0; k < kids.len; k++) {
+			const ShclNode *nd = &NODE(d, kids.data[k]);
+			stack[len++] = kids.data[k];
+			if (nd->value.kind != V_ARRAY || !nd->children.len || !stacks(nd)) continue;
+			/* The first empty one is the one a reload joins it to. */
+			for (size_t j = 0; j < k; j++) {
+				const ShclNode *en = &NODE(d, kids.data[j]);
+				if (s_eq(en->name, nd->name) && v_is_empty(&en->value)) {
+					if (en->children.len) n += nd->value.nels;
+					break;
+				}
+			}
+		}
+	}
+	free(stack);
+	return n;
+}
+
+size_t shcl_lost_count(const shcl_doc *d) { return d->lost + kept_shortfall(d) + unloadable_items(d); }
 
 size_t shcl_error_count(const shcl_doc *d) {
 	size_t n = 0;

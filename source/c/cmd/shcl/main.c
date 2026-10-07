@@ -313,9 +313,9 @@ typedef struct {
 // what a terminal shows. Like the help text it is byte-for-byte across the
 // bindings, and crosscheck compares every code.
 static const char *CODES =
-	"E001|error|field line under a parent holding stacked '*' list elements\n"
-	"  A parent holds list elements or named children, not both. The field line\n"
-	"  is kept and the elements stay.\n"
+	"E001|error|field line under a parent holding stacked '- ' list items\n"
+	"  A parent holds list items or named children, not both. The field line\n"
+	"  is kept and the items stay.\n"
 	"E002|error|value after a last-segment selector (a.b[X]: v)\n"
 	"  The selector already says which instance, so the value has nowhere to go\n"
 	"  and is ignored. Put the value on the line that creates the instance.\n"
@@ -331,25 +331,24 @@ static const char *CODES =
 	"  opening fence's indent.\n"
 	"E006|error|raw-block fence with no parent field to bind to\n"
 	"  A raw block is a field's value, so a fence needs a field line above it.\n"
-	"E007|error|stacked '*' list element with no parent field\n"
-	"  A '* value' line is an element of the field above it.\n"
-	"E008|error|stacked '*' list element under a parent with field children\n"
-	"  The parent already holds named children, so the element is dropped.\n"
-	"E009|error|empty stacked '*' list element\n"
-	"  A '*' with nothing after it has no value to add.\n"
-	"E010|error|bare comma in a stacked '*' list element\n"
-	"  The stacked form is one element per line. Quote the comma, or write the\n"
-	"  whole array on the field's own line.\n"
-	"E011|error|stacked '*' element for a field that already has a value\n"
-	"  The field's value is kept and the element is ignored. A field is written\n"
+	"E007|error|stacked '- ' list item with no parent field\n"
+	"  A '- value' line is an item of the field above it.\n"
+	"E008|error|stacked '- ' list item under a parent with field children\n"
+	"  The parent already holds named children, so the item is dropped.\n"
+	"E009|error|empty stacked '- ' list item\n"
+	"  A '-' with nothing after it has no value to add.\n"
+	"E011|error|stacked '- ' item for a field that already has a value\n"
+	"  The field's value is kept and the item is ignored. A field is written\n"
 	"  one way or the other, not both.\n"
 	"E012|error|indentation matches no open level\n"
 	"  The line is skipped, and anything written deeper is skipped with it\n"
 	"  (E018). A save writes them back as they were when the indent holds a\n"
 	"  space. One indented with tabs alone would bind there, so it is lost.\n"
 	"  Indent to a column some open parent already uses.\n"
-	"E013|error|malformed '*' line ('*' not followed by a space)\n"
-	"  The line is skipped, and what is written under it goes with it.\n"
+	"E013|error|a line starting with '*', the old list item marker\n"
+	"  A list item is written '- value' now. The line is kept as written and\n"
+	"  binds nothing, and the other items still load. What is written under it\n"
+	"  goes with it.\n"
 	"E014|error|malformed line, or a bare field name that needs quotes\n"
 	"  A bare name is a letter, then letters, digits, '-' and '_'. One that\n"
 	"  breaks only that rule, such as 404 or user name, still reads: the line is\n"
@@ -415,6 +414,17 @@ static const char *CODES =
 	"  nothing. The lines under it still load, under the field with no value. A\n"
 	"  list item with a bare comma, - a, b, is kept the same way, and the other\n"
 	"  items still load.\n"
+	"E027|error|a list item like - name: or - name: value\n"
+	"  A colon with a space or the end after it is how YAML starts an object in\n"
+	"  a list, and SHCL writes one as an instance. A colon with text after it is\n"
+	"  fine, as in - localhost:8080. Quote the item if it is text: - \"name: a\".\n"
+	"  The line is kept as written, and the other items still load.\n"
+	"E028|error|an array on a field with lines under it\n"
+	"  A field with fields under it takes one plain value or none, so\n"
+	"  route: [GET, POST] with lines under it is an error. Give the field one\n"
+	"  value and put the list in a field under it: methods: [GET, POST]. The line\n"
+	"  is kept verbatim, and the lines under it load under the field with no\n"
+	"  value.\n"
 	"H001|hint|repeated bare leaf (an array written as repeated lines)\n"
 	"  Repeated leaves are legal - that is how instances are written - but\n"
 	"  'tags: red' twice and 'tags: [red, blue]' look alike, so the parser says\n"
@@ -474,6 +484,7 @@ static const char *CODES =
    replacement empty when nothing took its rule. An old log can still name one,
    so explain says where it went rather than calling it unknown. */
 static const char *RETIRED =
+	"E010|error|E026\n"
 	"E024|error|\n"
 	"H003|hint|\n"
 	"H004|hint|\n";
@@ -638,14 +649,55 @@ static char *read_stream(FILE *f, const char *who, size_t max, size_t *len) {
 	*len = n; return buf;
 }
 
+// A string read at the path that comes back unquoted and in brackets. A read
+// of an array is never quoted, though shcl_quoted gives a one-element array
+// its element's flag; an array's element never reads as the array's own
+// bracket text, which is how one is told from a quoted "[x]".
+static int reads_bracketed(shcl_doc *d, const char *path, size_t plen) {
+	shcl_read_str r = shcl_read_string(d, path, plen);
+	if (r.status != SHCL_GOOD || !r.value.n || r.value.p[0] != '[') return 0;
+	if (!shcl_quoted(d, path, plen)) return 1;
+	shcl_read_str_arr sa = shcl_read_string_array(d, path, plen);
+	return sa.status == SHCL_GOOD && (sa.n != 1 || sa.values[0].n != r.value.n || memcmp(sa.values[0].p, r.value.p, r.value.n) != 0);
+}
+
+// A field with lines under it takes one plain value or none (E028), so an
+// array there, or a field made under an array, is refused for where it goes.
+// NULL when neither is why.
+static const char *array_refusal(shcl_doc *d, const char *path, size_t plen, int array) {
+	shcl_str *kids;
+	if (array && shcl_children(d, path, plen, &kids)) return "a field with lines under it takes one plain value or none";
+	ShclArena a; memset(&a, 0, sizeof a);
+	ShclTokens tok; memset(&tok, 0, sizeof tok);
+	ShclStr p; p.p = path; p.n = plen;
+	tokenize(&a, p, '=', 1, SHCL_RULES_CURRENT, &tok);
+	const char *why = NULL;
+	for (size_t k = 1; k < tok.nseg && !why; k++) {
+		size_t quoted = tok.segments[k].name.quote != SHCL_QUOTE_NONE;
+		size_t up = tok.segments[k].name.start - quoted;
+		while (up > 0 && path[up - 1] == '.') up--;
+		// Brackets on a value that reads unquoted are an array's.
+		if (reads_bracketed(d, path, up)) why = "an array takes no lines under it";
+	}
+	arena_free(&a);
+	return why;
+}
+
+// Value text that starts an array, past any leading whitespace.
+static int array_text(const char *v, size_t n) {
+	size_t i = 0;
+	while (i < n && v[i] && strchr(" \t\r\n\v\f", v[i])) i++;
+	return i < n && v[i] == '[';
+}
+
 // The per-binding wording behind a setter's bare 0.
 // Why a write was refused. When the path itself is fine what failed is the
 // text, and only the caller knows which half of the op that was, so it names
 // it: a setter refused for its value used to report the sentence written for
 // shcl_set_literal whatever the op.
-static const char *describe_refusal(shcl_doc *d, const char *path, size_t plen, const char *unwritable) {
+static const char *describe_refusal(shcl_doc *d, const char *path, size_t plen, int array, const char *unwritable) {
 	switch (shcl_write_reason_(d, path, plen)) {
-	case SHCL_W_WRITABLE: return unwritable;
+	case SHCL_W_WRITABLE: { const char *why = array_refusal(d, path, plen, array); return why ? why : unwritable; }
 	case SHCL_W_BAD_PATH: return "not a usable path";
 	case SHCL_W_VALUE_IN_PATH: return "a path with a value part cannot be written";
 	case SHCL_W_WILDCARD: return "a wildcard path cannot be written";
@@ -781,7 +833,7 @@ static int set_apply(shcl_doc *d, const SetOpt *s) {
 	else if (!strcmp(s->opt, "--set-default")) ok = shcl_set_string_default(d, s->path, s->plen, s->value, vlen);
 	else if (!strcmp(s->opt, "--set-literal-default")) ok = shcl_set_literal_default(d, s->path, s->plen, s->value, vlen);
 	else ok = shcl_set_string(d, s->path, s->plen, s->value, vlen);
-	if (!ok) fprintf(stderr, "%s: cannot write %.*s: %s\n", s->opt, (int)s->plen, s->path, describe_refusal(d, s->path, s->plen, "the value text is not one value"));
+	if (!ok) fprintf(stderr, "%s: cannot write %.*s: %s\n", s->opt, (int)s->plen, s->path, describe_refusal(d, s->path, s->plen, strcmp(s->opt, "--set") && array_text(s->value, vlen), "the value text is not one value"));
 	return ok;
 }
 
@@ -1432,15 +1484,15 @@ static int do_tokens(const Opts *o) {
 		ShclStr body = trim_wsp_start(rest);
 		size_t lead = rest.n - body.n;
 		if (body.n && body.p[0] == '#') { printf(" comment\n"); continue; }
-		// A stacked element and a fence line are value halves on their own. A
-		// `*` is an element when a blank follows it, trailing or not, which only
-		// the untrimmed line still shows (20260923 item 12).
+		// A list item and a fence line are value halves on their own. A `-` is
+		// an item when a blank follows it, trailing or not, which only the
+		// untrimmed line still shows (20260923 item 12).
 		size_t after = ilen + lead + 1;
-		int star = body.n && body.p[0] == '*' && after < line.n && (line.p[after] == ' ' || line.p[after] == '\t' || line.p[after] == '\r');
+		int item = body.n && body.p[0] == '-' && after < line.n && (line.p[after] == ' ' || line.p[after] == '\t' || line.p[after] == '\r');
 		int fence = s_starts(body, "```") || s_starts(body, "~~~");
-		if (star || fence) {
-			tokenize_value(&a, rest, lead + (star ? 1 : 0), SHCL_RULES_CURRENT, &tok);
-			printf(star ? " star" : " fence");
+		if (item || fence) {
+			tokenize_value(&a, rest, lead + (item ? 1 : 0), SHCL_RULES_CURRENT, &tok);
+			printf(item ? " item" : " fence");
 			printf(" value=%zu-%zu", tok.value_start, tok.value_end);
 			say_array(&tok);
 			for (size_t k = 0; k < tok.nelem; k++) { printf(" elem="); say_span(&tok.elements[k]); }
@@ -1669,7 +1721,8 @@ static int apply_op(shcl_doc *d, const char *line, size_t linelen, size_t lineno
 		if (OP("literal")) unwritable = "the value text is not one value";
 		else if (OP("comment")) unwritable = "the comment text is not one line";
 		else if (OP("raw")) unwritable = raw_refusal(nf > 3 ? fp[3] : "", nf > 3 ? fn[3] : 0);
-		op_err(lineno, "cannot write %.*s: %s", (int)plen, path, describe_refusal(d, path, plen, unwritable));
+		int array = (fn[0] > 6 && memcmp(fp[0] + fn[0] - 6, "-array", 6) == 0) || (OP("literal") && array_text(v, vn));
+		op_err(lineno, "cannot write %.*s: %s", (int)plen, path, describe_refusal(d, path, plen, array, unwritable));
 		rc = 1;
 	}
 	#undef SET
