@@ -67,37 +67,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: Yes, 20261001, Rust at `b10c2009`.
 	- Note: a rough edge. Only programs that shipped a beta build of 3.0 to users are hit. SilkTerm's dogfood builds did; none of its releases did.
 
-- The Python binding parses about 25% slower than on 2026-09-19
-	- ID: 2026100221215300
-	- Type: Bug
-	- Status: Deferred
-	- Severity: Low
-	- Opened: 20261002-212153
-	- Opened by: benchmark rerun, 2026100219565400
-	- Related IDs: 2026100219565400, 2026100207032800
-	- Version and build: dev at `7e81cd87`
-	- Steps to reproduce:
-		- Time `shcl.Document.parse` on the comparison's `ddl.shcl` with `shcl.py` from `efcc7dd8`, then from dev.
-	- Incorrect behavior: 186 ms before, 228 ms now, back to back on the same box. The comparison run shows 20% to 30% on every shape. Rust got faster over the same span.
-	- Possible cause: the per-line fault checks added with the escape errors. `_line_fault` and the extra `any` calls account for most of the gap.
-	- Decisions:
-		- 20261002: recheck after 2026100207032800 is built, since it removes most of those checks. No perf work before 3.0.0 otherwise.
-	- Progress log:
-		- 20261007: rechecked on dev `55785cca`, after 2026100207032800. The gap is wider, not gone. Parse times, median of 5 back-to-back rounds on one run, box load 13 to 23:
-			- `ddl` (256 KiB): 213 ms at `efcc7dd8`, 250 ms at `7e81cd87`, 287 ms on dev. Up 35%.
-			- `flat` (1 MiB): 946, 1135, 1248 ms. Up 32%.
-			- `deep` (1 MiB): 1243, 1451, 1723 ms. Up 39%.
-			- `text` (1 MiB): 45, 55, 57 ms. Up 25%.
-			- `config`: 1.0, 1.3, 1.6 ms.
-			- `flat`, `deep` and `text` are the same file for all three, read clean by each. `ddl` and `config` are each version's own syntax, from the comparison tool at `efcc7dd8` and on dev, read clean by the version timed. Every version reads the other syntax with diagnostics, so those runs were left out.
-		- Part of the gap predates the redesign and part came with it. The split varies by shape.
-	- Actual cause: added cost per line. No wrong check was found.
-		- The unit-clash hint (H005, added after `efcc7dd8`) runs on every field whose name has a `-` or `_`, and walks both unit tables for each. On `flat`, where every name has a `-`, skipping it saved about 165 ms of the 255 ms gap in the quietest round.
-		- The value checks the redesign added (`_value_side_fault`) saved about 140 ms on `flat` when skipped, and are about half the gap on `ddl` by profile. The tokenizer is a little slower too.
-		- These splits are rough. The box was loaded and the later rounds were too noisy to use.
-	- Test case: none. A clock-based check would be noise on this box, and the perf gate takes counts, not times.
-	- Note: deferred to after 3.0.0, per the decision above. Recheck with the same three versions when it's picked up.
-
 - A merge after an empty field writes a list that a reload joins to it
 	- ID: 2026100520243961
 	- Type: Bug
@@ -3864,6 +3833,37 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: the 2,000,000-iteration fuzz now fails `merge_never_panics_and_stays_fixpoint`. Case 185 moves the seed set onto a shared merge defect: a layer and its canonical form merge one blank line apart, above a comment. dev's code fails the same way with the case added and passes without it. Filed as 2026092918110222.
 	- Acceptance signoff: Self-closed: the sort by line asked for, and its tests fail on dev.
 	- Closed: 20260930-073042
+
+- The Python binding parses about 25% slower than on 2026-09-19
+	- ID: 2026100221215300
+	- Type: Bug
+	- Status: Deferred
+	- Severity: Low
+	- Opened: 20261002-212153
+	- Opened by: benchmark rerun, 2026100219565400
+	- Related IDs: 2026100219565400, 2026100207032800
+	- Version and build: dev at `7e81cd87`
+	- Steps to reproduce:
+		- Time `shcl.Document.parse` on the comparison's `ddl.shcl` with `shcl.py` from `efcc7dd8`, then from dev.
+	- Incorrect behavior: 186 ms before, 228 ms now, back to back on the same box. The comparison run shows 20% to 30% on every shape. Rust got faster over the same span.
+	- Possible cause: the per-line fault checks added with the escape errors. `_line_fault` and the extra `any` calls account for most of the gap.
+	- Decisions:
+		- 20261002: recheck after 2026100207032800 is built, since it removes most of those checks. No perf work before 3.0.0 otherwise.
+	- Progress log:
+		- 20261007: rechecked on dev `55785cca`, after 2026100207032800. The gap is wider, not gone. Parse times, median of 5 back-to-back rounds on one run, box load 13 to 23:
+			- `ddl` (256 KiB): 213 ms at `efcc7dd8`, 250 ms at `7e81cd87`, 287 ms on dev. Up 35%.
+			- `flat` (1 MiB): 946, 1135, 1248 ms. Up 32%.
+			- `deep` (1 MiB): 1243, 1451, 1723 ms. Up 39%.
+			- `text` (1 MiB): 45, 55, 57 ms. Up 25%.
+			- `config`: 1.0, 1.3, 1.6 ms.
+			- `flat`, `deep` and `text` are the same file for all three, read clean by each. `ddl` and `config` are each version's own syntax, from the comparison tool at `efcc7dd8` and on dev, read clean by the version timed. Every version reads the other syntax with diagnostics, so those runs were left out.
+		- Part of the gap predates the redesign and part came with it. The split varies by shape.
+	- Actual cause: added cost per line. No wrong check was found.
+		- The unit-clash hint (H005, added after `efcc7dd8`) runs on every field whose name has a `-` or `_`, and walks both unit tables for each. On `flat`, where every name has a `-`, skipping it saved about 165 ms of the 255 ms gap in the quietest round.
+		- The value checks the redesign added (`_value_side_fault`) saved about 140 ms on `flat` when skipped, and are about half the gap on `ddl` by profile. The tokenizer is a little slower too.
+		- These splits are rough. The box was loaded and the later rounds were too noisy to use.
+	- Test case: none. A clock-based check would be noise on this box, and the perf gate takes counts, not times.
+	- Note: deferred to after 3.0.0, per the decision above. Recheck with the same three versions when it's picked up.
 
 - Reads, sets and removes by selector cost time in the number of instances
 	- ID: 2026100307163919
