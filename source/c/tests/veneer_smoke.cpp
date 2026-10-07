@@ -248,6 +248,14 @@ int main() {
 	auto unst = shcl::migrate_unstamped("base:[Boston]\n\tlat: 42\nnote: a,b\n", true);
 	CHECK(unst.text == "base: Boston\n\tlat: 42\nnote: [a, b]\n" && !unst.current);
 	CHECK(shcl::format_version(mig.text) == 3u && !shcl::format_version(unst.text));
+	// upgrade makes over text that does not load clean, with the info block,
+	// and leaves the result alone the next time.
+	auto up = shcl::upgrade("tags: a, b\n", false);
+	CHECK(!up.current && up.format == 2u && up.lost == 0 && up.backup.empty());
+	CHECK(up.text == "tags: [a, b]\n\n" + std::string(shcl::GEN_BANNER));
+	CHECK(up.diagnostics.size() == 1 && up.diagnostics[0].code == "E026");
+	CHECK(shcl::upgrade(up.text, false).current && shcl::upgrade(up.text, false).diagnostics.empty());
+	CHECK(shcl::upgrade("a: x,y\nb: \"q\n", false).ambiguous == 1);
 	// Durations and sizes: the name's unit, the caller's, and base 10.
 	{
 		shcl::Document ds = shcl::Document::parse("timeout-ms: 1.5s\nwait: 90\ncache-mb: 2\nraw: 64\n");
@@ -472,6 +480,32 @@ int main() {
 		CHECK(shcl::write_file_atomic(f, "not: a save\n") && shcl::read_file(f).first == "not: a save\n");
 		CHECK(shcl::write_file_atomic(f, "") && shcl::read_file(f) == std::make_pair(std::string(), shcl::FileStatus::Clean));
 		CHECK(!shcl::write_file_atomic(dir + "/nope/t.shcl", "x"));
+		// upgrade_file keeps the original under the timestamped name and
+		// writes the fresh text; the name is never written over.
+#ifdef _WIN32
+		_putenv_s("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT");
+#else
+		setenv("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT", 1);
+#endif
+		CHECK(shcl::write_file_atomic(f, "tags: a, b\n"));
+		std::string bk = dir + "/t_backup_20261004-001500_format-v2.shcl";
+		CHECK(shcl::backup_file_name(f, 2) == bk);
+		auto [upf, upErr] = shcl::upgrade_file(f, false);
+		CHECK(!upErr && upf.backup == bk && shcl::read_file(bk).first == "tags: a, b\n" && shcl::read_file(f).first == upf.text);
+		auto [upAgain, upAgainErr] = shcl::upgrade_file(f, false);
+		CHECK(!upAgainErr && upAgain.current && upAgain.backup.empty());
+		auto [taken, takenErr] = shcl::write_backup(f, "x\n", 2);
+		CHECK(taken.empty() && takenErr && takenErr->kind == shcl::UpgradeErrorKind::BackupTaken && takenErr->message.rfind(bk, 0) == 0);
+		CHECK(shcl::upgrade_file(dir + "/none.shcl", false).second->kind == shcl::UpgradeErrorKind::NotFound);
+		CHECK(shcl::write_file_atomic(f, "a: x,y\nb: \"q\n"));
+		auto [amb2, amb2Err] = shcl::upgrade_file(f, false);
+		CHECK(amb2Err && amb2Err->kind == shcl::UpgradeErrorKind::Ambiguous && amb2Err->count == 1 && amb2.text.empty());
+#ifdef _WIN32
+		_putenv_s("SHCL_TEST_CLOCK", "");
+#else
+		unsetenv("SHCL_TEST_CLOCK");
+#endif
+		std::remove(bk.c_str());
 		std::remove(f.c_str());
 		rmdir(dir.c_str());
 	}

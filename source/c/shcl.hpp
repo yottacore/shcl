@@ -212,6 +212,38 @@ std::optional<std::uint32_t> format_version(std::string_view text);
 // line names one. The first such line wins, and a relative path is the
 // caller's to resolve, from the config file's directory.
 std::optional<std::string> schema_ref(std::string_view text);
+
+// What upgrade() made of a document, and upgrade_file() of a file. text is
+// the fresh file's text, or the input when current or ambiguous. current: the
+// input loads with no error under these rules and, with from_v2, migrates to
+// the same text, or it names this format, so it is left as it is; a beta
+// build of 3.0 stamped the same Format line as a release, so a beta file is
+// current here too. format: the format the input was written for, which goes
+// in the backup's name. ambiguous as Migration's: nonzero means nothing is
+// written. lost: lines and values the fresh text does not carry over, which
+// the backup still has. diagnostics: what loading the input found, empty when
+// current. backup: where upgrade_file() put the original, empty from
+// upgrade() and when nothing was written.
+struct Upgrade {
+	std::string text;
+	bool current = false;
+	std::uint32_t format = 2;
+	std::size_t ambiguous = 0;
+	std::size_t lost = 0;
+	std::vector<Diagnostic> diagnostics;
+	std::string backup;
+};
+// A config file written for an older format, made over for this one: migrated
+// without the stamp, written the way fmt writes it, with any old info block
+// swapped for the one init writes. A file that names this format, or loads
+// with no error under these rules, comes back current and untouched. With
+// from_v2, which says the file can only be 2.x, a clean file is still made
+// over when migrate would change it, as it would `p: a,b`.
+Upgrade upgrade(std::string_view text, bool from_v2);
+// The name a config file's backup gets:
+// NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT, in local time, with N the format
+// the file was written for. SHCL_TEST_CLOCK stands in for the clock.
+std::string backup_file_name(const std::string &file, std::uint32_t format);
 // The unit a value spelling names (ms s m h d; B KB kB MB GB TB KiB MiB GiB
 // TiB, letter case read), and the spelling back.
 std::optional<DurationUnit> duration_unit_from_spelling(std::string_view s);
@@ -236,6 +268,26 @@ std::pair<std::string, FileStatus> read_file(const std::string &path, std::size_
 // The temp-file-and-rename write the saves go through, for bytes that are not
 // a document. False when it failed, with errno saying why.
 bool write_file_atomic(const std::string &path, std::string_view data);
+// Why upgrade_file or write_backup wrote nothing, or not all of it. message
+// is worded as the other bindings word the error; count is
+// Upgrade::ambiguous, for Ambiguous.
+enum class UpgradeErrorKind { NotFound, Ambiguous, BackupTaken, Io };
+struct UpgradeError {
+	UpgradeErrorKind kind{};
+	std::string message{};
+	std::size_t count{};
+};
+// Keep text, the bytes last read from file, under backup_file_name, before
+// something replaces them. The create is exclusive, so nothing at the name is
+// ever written over. The copy is born private, then given the original's
+// group and mode (on windows its DACL). The backup's name, or the error.
+std::pair<std::string, std::optional<UpgradeError>> write_backup(const std::string &file, std::string_view text, std::uint32_t format);
+// upgrade() on a file, for a program to call when it starts, before its
+// load. A file that needs it is backed up by write_backup, then the fresh
+// text replaces it through write_file_atomic, so the path always holds one or
+// the other. A current file is not written at all, and neither is one that
+// changed after it was read or that reads two ways.
+std::pair<Upgrade, std::optional<UpgradeError>> upgrade_file(const std::string &path, bool from_v2);
 #endif
 
 // A parsed document. Its const members may be called on one Document from
@@ -544,6 +596,9 @@ static_assert(static_cast<int>(FileStatus::Clean) == SHCL_FILE_CLEAN && static_c
 	&& static_cast<int>(FileStatus::NotFound) == SHCL_FILE_NOT_FOUND && static_cast<int>(FileStatus::Unreadable) == SHCL_FILE_UNREADABLE, "FileStatus drifted from shcl_file_status");
 static_assert(static_cast<int>(SaveResult::Ok) == SHCL_SAVE_OK && static_cast<int>(SaveResult::Refused) == SHCL_SAVE_REFUSED
 	&& static_cast<int>(SaveResult::Failed) == SHCL_SAVE_FAILED, "SaveResult drifted from shcl_save_result");
+// The C enum puts OK first, so each kind sits one past its C value.
+static_assert(static_cast<int>(UpgradeErrorKind::NotFound) + 1 == SHCL_UPGRADE_NOT_FOUND && static_cast<int>(UpgradeErrorKind::Ambiguous) + 1 == SHCL_UPGRADE_AMBIGUOUS
+	&& static_cast<int>(UpgradeErrorKind::BackupTaken) + 1 == SHCL_UPGRADE_BACKUP_TAKEN && static_cast<int>(UpgradeErrorKind::Io) + 1 == SHCL_UPGRADE_IO, "UpgradeErrorKind drifted from shcl_upgrade_error");
 #endif
 static_assert(MAX_DEPTH == SHCL_MAX_DEPTH && FORMAT_MAJOR == SHCL_FORMAT_MAJOR, "a constant drifted from shcl.h");
 
@@ -698,6 +753,34 @@ static Migration migration(shcl_migration m) {
 	return Migration{std::string(p.get(), m.len), m.current != 0, m.ambiguous, m.lost};
 }
 
+static std::vector<Diagnostic> diags(const shcl_doc *d) {
+	std::vector<Diagnostic> v; std::size_t n = shcl_diag_count(d);
+	v.reserve(n);
+	for (std::size_t i = 0; i < n; i++)
+		v.push_back({shcl_diag_line(d, i), static_cast<Severity>(shcl_diag_severity(d, i)), str(shcl_diag_message(d, i)), shcl_diag_code(d, i)});
+	return v;
+}
+
+// Owned from the call on, the same way, and freed whatever happens.
+struct UpgradedOwn {
+	shcl_upgraded c{};
+	UpgradedOwn() = default;
+	UpgradedOwn(const UpgradedOwn &) = delete;
+	UpgradedOwn &operator=(const UpgradedOwn &) = delete;
+	~UpgradedOwn() { shcl_upgraded_free(&c); }
+};
+static Upgrade upgraded(const shcl_upgraded &c) {
+	Upgrade u;
+	if (c.text) u.text.assign(c.text, c.len);
+	u.current = c.current != 0;
+	u.format = c.format;
+	u.ambiguous = c.ambiguous;
+	u.lost = c.lost;
+	if (c.diagnostics) u.diagnostics = diags(c.diagnostics);
+	if (c.backup) u.backup = c.backup;
+	return u;
+}
+
 } // namespace detail
 
 using detail::Access;
@@ -777,6 +860,17 @@ std::optional<std::string> schema_ref(std::string_view text) {
 	return std::string(r, n);
 }
 
+Upgrade upgrade(std::string_view text, bool from_v2) {
+	detail::UpgradedOwn own;
+	own.c = shcl_upgrade(text.data(), text.size(), from_v2 ? 1 : 0);
+	return detail::upgraded(own.c);
+}
+
+std::string backup_file_name(const std::string &file, std::uint32_t format) {
+	std::unique_ptr<char, void (*)(void *)> p(shcl_backup_file_name(file.c_str(), format), &std::free);
+	return std::string(p.get());
+}
+
 #ifndef SHCL_NO_FILE_IO
 const char *to_string(FileStatus s) { return shcl_file_status_name(static_cast<shcl_file_status>(s)); }
 
@@ -790,6 +884,23 @@ std::pair<std::string, FileStatus> read_file(const std::string &path, std::size_
 }
 
 bool write_file_atomic(const std::string &path, std::string_view data) { return shcl_write_file_atomic(path.c_str(), data.data(), data.size()) != 0; }
+
+std::pair<std::string, std::optional<UpgradeError>> write_backup(const std::string &file, std::string_view text, std::uint32_t format) {
+	char *name = nullptr, *why = nullptr;
+	shcl_upgrade_error e = shcl_write_backup(file.c_str(), text.data(), text.size(), format, &name, &why);
+	std::unique_ptr<char, void (*)(void *)> n(name, &std::free), w(why, &std::free);
+	if (e != SHCL_UPGRADE_OK) return {std::string(), UpgradeError{static_cast<UpgradeErrorKind>(static_cast<int>(e) - 1), w ? std::string(w.get()) : std::string(), 0}};
+	return {std::string(n.get()), std::nullopt};
+}
+
+std::pair<Upgrade, std::optional<UpgradeError>> upgrade_file(const std::string &path, bool from_v2) {
+	detail::UpgradedOwn own;
+	char *why = nullptr;
+	shcl_upgrade_error e = shcl_upgrade_file(path.c_str(), from_v2 ? 1 : 0, &own.c, &why);
+	std::unique_ptr<char, void (*)(void *)> w(why, &std::free);
+	if (e != SHCL_UPGRADE_OK) return {Upgrade{}, UpgradeError{static_cast<UpgradeErrorKind>(static_cast<int>(e) - 1), w ? std::string(w.get()) : std::string(), own.c.ambiguous}};
+	return {detail::upgraded(own.c), std::nullopt};
+}
 #endif
 
 void Document::Free::operator()(Handle *h) const noexcept { shcl_free(reinterpret_cast<shcl_doc *>(h)); }
@@ -844,11 +955,7 @@ std::pair<std::string, bool> Document::to_text_keep_lines() const {
 
 std::vector<Diagnostic> Document::diagnostics() const {
 	auto d = detail::held(*this);
-	std::vector<Diagnostic> v; std::size_t n = shcl_diag_count(d);
-	v.reserve(n);
-	for (std::size_t i = 0; i < n; i++)
-		v.push_back({shcl_diag_line(d, i), static_cast<Severity>(shcl_diag_severity(d, i)), detail::str(shcl_diag_message(d, i)), shcl_diag_code(d, i)});
-	return v;
+	return detail::diags(d);
 }
 std::size_t Document::error_count() const { return shcl_error_count(detail::held(*this)); }
 std::size_t Document::lost_count() const { return shcl_lost_count(detail::held(*this)); }

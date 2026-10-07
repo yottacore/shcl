@@ -606,6 +606,86 @@ int64_t shcl_format_version(const char *text, size_t len);
 // relative path is the caller's to resolve, from the config file's directory.
 const char *shcl_schema_ref(const char *text, size_t len, size_t *ref_len);
 
+// What shcl_upgrade made of a document, and shcl_upgrade_file of a file.
+// shcl_upgraded_free gives back all of it. text is malloc'd and
+// NUL-terminated, len its length: the fresh file's text, or the input when
+// current or ambiguous. current: the input loads with no error under these
+// rules and, with from_v2, migrates to the same text, or it names this
+// format, so it is left as it is. A beta build of 3.0 stamped the same Format
+// line as a release, so a beta file is current here too. format: the format
+// the input was written for, which goes in the backup's name: what its Format
+// line names, else 2. ambiguous: as shcl_migration's; nonzero means the text
+// reads two ways and nothing is written. lost: lines and values of the input
+// the fresh text does not carry over, the ones 2.x bound that nothing binds
+// now and the ones the load of the migrated text drops. The backup still has
+// them. diagnostics: the input's load, whose shcl_diag_* calls give what it
+// found, which is why it needed the upgrade unless it loaded clean and
+// from_v2 said it reads as 2.x; NULL when current. backup: where
+// shcl_upgrade_file put the original, malloc'd; NULL from shcl_upgrade, and
+// when nothing was written.
+typedef struct {
+	char *text; size_t len;
+	int current;
+	uint32_t format;
+	size_t ambiguous;
+	size_t lost;
+	shcl_doc *diagnostics;
+	char *backup;
+} shcl_upgraded;
+// A config file written for an older format, made over for this one: the
+// input run through shcl_migrate_unstamped, then written the way `fmt` writes
+// it, with any old info block swapped for the one `init` writes. This is the
+// one library call that writes the block. A file that names this format comes
+// back current and untouched, and so does one that loads with no error under
+// these rules, since a program calling this on every start must never rewrite
+// a good file. from_v2 is shcl_migrate's: the file can only have been written
+// for 2.x. Then a file that loads clean is still made over when migrate would
+// change it, as it would `p: a,b`, an array under 2.x and one string now.
+shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2);
+// Frees what an shcl_upgraded holds and zeroes it, so a second call is
+// harmless.
+void shcl_upgraded_free(shcl_upgraded *up);
+// The name a config file's backup gets:
+// `NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT`, in local time, with N the
+// format the file was written for. The tag goes before the last dot of the
+// file name, or on the end when it has none, and a leading dot is part of the
+// name. SHCL_TEST_CLOCK stands in for the clock, as in a setter's note.
+// malloc'd; the caller frees it.
+char *shcl_backup_file_name(const char *file, uint32_t format);
+#ifndef SHCL_NO_FILE_IO
+// Why shcl_upgrade_file or shcl_write_backup wrote nothing, or not all of it.
+// Each failure also hands back a message, malloc'd, worded as the other
+// bindings word the error.
+typedef enum {
+	SHCL_UPGRADE_OK,
+	SHCL_UPGRADE_NOT_FOUND,    // nothing at the path
+	SHCL_UPGRADE_AMBIGUOUS,    // the file does not say which rules it was written for, and some of it reads two ways; from_v2 settles it
+	SHCL_UPGRADE_BACKUP_TAKEN, // something is already at the backup's name; it is never written over
+	SHCL_UPGRADE_IO            // a read or write failed; the message names the file and why
+} shcl_upgrade_error;
+// Keep text, the bytes last read from file, under shcl_backup_file_name,
+// before something replaces them. The create is exclusive, so an earlier
+// backup or anything else at the name is never written over, and the copy is
+// synced before this returns. It is born private, then given the original's
+// group and mode (on windows its DACL), so a private config never has a
+// readable copy. *name gets the backup's name, malloc'd, on success; on a
+// failure *message (when not NULL) gets why. The caller frees both.
+shcl_upgrade_error shcl_write_backup(const char *file, const char *text, size_t len, uint32_t format, char **name, char **message);
+// shcl_upgrade on a file, for a program to call when it starts, before its
+// load. A file that needs it is kept under shcl_backup_file_name by
+// shcl_write_backup, then the fresh text replaces it through
+// shcl_write_file_atomic, so the path always holds one or the other. A file
+// shcl_upgrade finds current is not written at all, and also neither is one
+// that changed after it was read or that reads two ways. Opt-in on purpose: a
+// program that keeps its own backups has no need of it. On success *out is
+// filled, its backup naming the copy when one was made, and its text is what
+// the path now holds. On a failure *out is left empty but for ambiguous,
+// which has the count for SHCL_UPGRADE_AMBIGUOUS, and *message (when not
+// NULL) gets why. Either way shcl_upgraded_free(out) is safe, and the caller
+// frees the message.
+shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, shcl_upgraded *out, char **message);
+#endif
+
 // --- Writer: typed emit, defaults, comments, structural edits ---------------
 // The reverse of the reads. Each setter builds the canonical stored text for a
 // typed value and places it at a path (creating intermediate nodes). New values
@@ -3255,10 +3335,12 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
    and which now ends at the `#`.
    The output and the reused tokens live in `a`; the per-line temporaries go
    to `sc`, reset per line, so a large document costs its own size and not
-   every line's scratch on top. */
-static shcl_migration migrate_text(const char *text, size_t len, int from_v2, int stamp) {
+   every line's scratch on top. An allocation failure goes to outer when it is
+   not NULL, the recovery point of a call that holds memory of its own around
+   this one, else to SHCL_OOM. */
+static shcl_migration migrate_text(const char *text, size_t len, int from_v2, int stamp, jmp_buf *outer) {
 	ShclMigrateOwn *volatile own = (ShclMigrateOwn *)calloc(1, sizeof *own);
-	if (!own) { SHCL_OOM(); abort(); }
+	if (!own) arena_panic(outer);
 	jmp_buf panic;
 	if (SHCL_SETJMP(panic)) {
 		/* An allocation failed below. Drop what the two arenas hold - about two
@@ -3266,8 +3348,7 @@ static shcl_migration migrate_text(const char *text, size_t len, int from_v2, in
 		   still failed, so the hook gets its say with nothing left behind. */
 		ShclMigrateOwn *bad = own;
 		shcl_free(bad->doc); arena_free(&bad->a); arena_free(&bad->sc); free(bad);
-		SHCL_OOM();
-		abort();
+		arena_panic(outer);
 	}
 	arena_guard(&own->a, &panic); arena_guard(&own->sc, &panic);
 	ShclStr in; in.p = text ? text : ""; in.n = len;
@@ -3279,7 +3360,7 @@ static shcl_migration migrate_text(const char *text, size_t len, int from_v2, in
 	if (!m.text) {
 		ShclMigrateOwn *bad = own;
 		arena_free(&bad->a); arena_free(&bad->sc); free(bad);
-		SHCL_OOM(); abort();
+		arena_panic(outer);
 	}
 	memcpy(m.text, r.p, r.n); m.text[r.n] = 0;
 	/* The recovery point is this frame's; the arenas go with it, so nothing is
@@ -3290,11 +3371,79 @@ static shcl_migration migrate_text(const char *text, size_t len, int from_v2, in
 }
 
 shcl_migration shcl_migrate(const char *text, size_t len, int from_v2) {
-	return migrate_text(text, len, from_v2, 1);
+	return migrate_text(text, len, from_v2, 1, NULL);
 }
 
 shcl_migration shcl_migrate_unstamped(const char *text, size_t len, int from_v2) {
-	return migrate_text(text, len, from_v2, 0);
+	return migrate_text(text, len, from_v2, 0, NULL);
+}
+
+static size_t swap_banner(shcl_doc *d, int on, int v2);
+
+/* What shcl_upgrade holds while it works, off the frame for the same reason
+   as ShclMigrateOwn. */
+typedef struct { shcl_doc *before, *fresh; char *migrated, *text; } ShclUpgradeOwn;
+
+static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, size_t len, int from_v2, int64_t version, shcl_upgraded *up) {
+	if (!text) { text = ""; len = 0; }
+	up->current = 1;
+	up->format = version < 0 ? 2 : (uint32_t)version;
+	shcl_str keep; keep.p = text; keep.n = len;
+	if (version < SHCL_FORMAT_MAJOR) {
+		own->before = shcl_parse(text, len);
+		if (!own->before) longjmp(*panic, 1);
+		int clean = shcl_error_count(own->before) == 0;
+		shcl_migration m; memset(&m, 0, sizeof m);
+		if (!clean || from_v2) {
+			m = migrate_text(text, len, from_v2, 0, panic);
+			own->migrated = m.text;
+			/* A 2.x file can load clean and still read differently now, as
+			   `a,b` does. One migrate leaves as it was has nothing to do. */
+			if (!clean || m.len != len || (len && memcmp(m.text, text, len) != 0)) {
+				up->current = 0;
+				up->ambiguous = m.ambiguous;
+			}
+		}
+		if (!up->current && !up->ambiguous) {
+			own->fresh = shcl_parse(m.text, m.len);
+			if (!own->fresh) longjmp(*panic, 1);
+			doc_guard(own->fresh, panic);
+			up->lost = m.lost + shcl_lost_count(own->fresh);
+			swap_banner(own->fresh, 1, 1);
+			keep = shcl_to_canonical(own->fresh);
+		}
+	}
+	own->text = (char *)malloc(keep.n + 1);
+	if (!own->text) longjmp(*panic, 1);
+	if (keep.n) memcpy(own->text, keep.p, keep.n);
+	own->text[keep.n] = 0;
+	up->text = own->text; up->len = keep.n;
+	own->text = NULL;
+	if (!up->current) { up->diagnostics = own->before; own->before = NULL; }
+}
+
+shcl_upgraded shcl_upgrade(const char *text, size_t len, int from_v2) {
+	int64_t version = shcl_format_version(text, len);
+	shcl_upgraded up; memset(&up, 0, sizeof up);
+	ShclUpgradeOwn *volatile own = (ShclUpgradeOwn *)calloc(1, sizeof *own);
+	if (!own) { SHCL_OOM(); abort(); }
+	jmp_buf panic;
+	if (SHCL_SETJMP(panic)) {
+		ShclUpgradeOwn *bad = own;
+		shcl_free(bad->before); shcl_free(bad->fresh); free(bad->migrated); free(bad->text); free(bad);
+		SHCL_OOM();
+		abort();
+	}
+	upgrade_into(own, &panic, text, len, from_v2, version, &up);
+	ShclUpgradeOwn *done = own;
+	shcl_free(done->before); shcl_free(done->fresh); free(done->migrated); free(done);
+	return up;
+}
+
+void shcl_upgraded_free(shcl_upgraded *up) {
+	if (!up) return;
+	free(up->text); shcl_free(up->diagnostics); free(up->backup);
+	memset(up, 0, sizeof *up);
 }
 
 int64_t shcl_format_version(const char *text, size_t len) {
@@ -6958,7 +7107,7 @@ size_t shcl_clear_comments(shcl_doc *d, const char *path, size_t plen) {
 static const char banner_title[] = "## This config file format is SHCL.";
 static const char banner_name[] = "## \"Simple Hierarchical Config Language\"";
 
-static int banner_in_run(const ShclLead *l) { return s_starts(l->text, "##") && !l->blank_before; }
+static int banner_in_run(const ShclLead *l, const char *mark) { return s_starts(l->text, mark) && !l->blank_before; }
 
 /* Take the info block out of v, from the lone "##" above its "This config
    file format is SHCL." line to the next lone "##", and each version line
@@ -6966,27 +7115,33 @@ static int banner_in_run(const ShclLead *l) { return s_starts(l->text, "##") && 
    ends after its last line written the block's way. A Schema line in a block
    stays, and so does any other comment around one, even written right against
    it. Returns how many came off; *owed says whether the last one had a blank
-   above it with no line after it to take that blank. */
-static size_t drop_banners(ShclVecLead *v, int *owed) {
+   above it with no line after it to take that blank. A mark of "#" takes
+   2.x's block instead, which had no version line. */
+static size_t drop_banners(ShclVecLead *v, const char *mark, int *owed) {
+	char title[64], name[64], field[16];
+	snprintf(title, sizeof title, "%s%s", mark, banner_title + 2);
+	snprintf(name, sizeof name, "%s%s", mark, banner_name + 2);
+	snprintf(field, sizeof field, "%s    ", mark);
+	int v3 = !strcmp(mark, "##");
 	size_t w = 0, removed = 0, i = 0;
 	int prev_kept = 0;
 	*owed = 0;
 	while (i < v->len) {
 		size_t start = i, end = i + 1;
-		if (s_eq(v->data[i].text, s_lit(banner_title))) {
-			if (prev_kept && !v->data[i].blank_before && s_eq(v->data[w - 1].text, s_lit("##"))) {
+		if (s_eq(v->data[i].text, s_lit(title))) {
+			if (prev_kept && !v->data[i].blank_before && s_eq(v->data[w - 1].text, s_lit(mark))) {
 				w--;
 				start = i - 1;
 			}
 			size_t close = end;
-			while (close < v->len && banner_in_run(&v->data[close]) && !s_eq(v->data[close].text, s_lit("##"))) close++;
-			if (close < v->len && banner_in_run(&v->data[close])) end = close + 1;
+			while (close < v->len && banner_in_run(&v->data[close], mark) && !s_eq(v->data[close].text, s_lit(mark))) close++;
+			if (close < v->len && banner_in_run(&v->data[close], mark)) end = close + 1;
 			else
-				while (end < v->len && banner_in_run(&v->data[end]) &&
-				       (s_starts(v->data[end].text, "##    ") || s_eq(v->data[end].text, s_lit(banner_name))))
+				while (end < v->len && banner_in_run(&v->data[end], mark) &&
+				       (s_starts(v->data[end].text, field) || s_eq(v->data[end].text, s_lit(name))))
 					end++;
-		} else if (s_starts(v->data[i].text, SHCL_FORMAT_LINE_HEAD)) {
-			if (end < v->len && banner_in_run(&v->data[end]) && s_eq(v->data[end].text, s_lit(SHCL_MIGRATED_LINE))) end++;
+		} else if (v3 && s_starts(v->data[i].text, SHCL_FORMAT_LINE_HEAD)) {
+			if (end < v->len && banner_in_run(&v->data[end], mark) && s_eq(v->data[end].text, s_lit(SHCL_MIGRATED_LINE))) end++;
 		} else {
 			v->data[w++] = v->data[i++];
 			prev_kept = 1;
@@ -7012,7 +7167,14 @@ static size_t drop_banners(ShclVecLead *v, int *owed) {
 	return removed;
 }
 
-size_t shcl_set_banner(shcl_doc *d, int on) {
+size_t shcl_set_banner(shcl_doc *d, int on) { return swap_banner(d, on, 0); }
+
+/* shcl_set_banner, and with v2 the block 2.x's `init` wrote, in `#`
+   comments, comes off too. Only shcl_upgrade asks for that: under these rules
+   the old block is a comment of the file's own. */
+static size_t swap_banner(shcl_doc *d, int on, int v2) {
+	static const char *const marks[] = { "##", "#" };
+	size_t nmarks = v2 ? 2 : 1;
 	ShclArena *t = &d->scratch;
 	arena_reset(t);
 	size_t removed = 0;
@@ -7031,15 +7193,18 @@ size_t shcl_set_banner(shcl_doc *d, int on) {
 		for (size_t i = 0; i < NODE(d, n).children.len; i++) ShclVecSize_push(t, &stack, NODE(d, n).children.data[i]);
 		int at_top = 0;
 		for (size_t i = 0; i < top.len && !at_top; i++) at_top = top.data[i] == n;
-		if (at_top || !NODE(d, n).trivia) continue;
-		size_t gone = drop_banners(&NODE(d, n).trivia->leading, &owed);
-		if (gone) {
-			removed += gone;
-			NODE(d, n).blank_before |= owed;
+		if (at_top) continue;
+		for (size_t k = 0; k < nmarks; k++) {
+			if (!NODE(d, n).trivia) continue;
+			size_t gone = drop_banners(&NODE(d, n).trivia->leading, marks[k], &owed);
+			if (gone) {
+				removed += gone;
+				NODE(d, n).blank_before |= owed;
+			}
 		}
 	}
 	ShclVecLead *o = &d->orphans;
-	removed += drop_banners(o, &owed);
+	for (size_t k = 0; k < nmarks; k++) removed += drop_banners(o, marks[k], &owed);
 	if (on) {
 		int open = o->len || NODE(d, ROOT).children.len;
 		/* The lines point into the literal, which outlives any document. */
@@ -8273,6 +8438,7 @@ static void clock_fields(const struct tm *local, const struct tm *utc, char when
 /* The local time as "YYYY-mm-DD HH:MM:SS", its offset from UTC in minutes,
    and the zone's short name, or "" when there is none. With the file tier. */
 static void local_clock(char when[32], int *offset, char name[64]);
+static void clock_now(char when[32], int *offset, char name[64]);
 
 /* SHCL_TEST_CLOCK's "YYYY-mm-DD HH:MM:SS OFFSET_MINUTES [NAME]". */
 static int test_clock(const char *spec, char when[32], int *offset, char name[64]) {
@@ -8309,9 +8475,56 @@ static void zone_label(int offset, const char *name, char out[64]) {
 static void note_stamp(ShclArena *a, ShclSB *b) {
 	char when[32], name[64], label[64];
 	int offset = 0;
-	if (!test_clock(getenv("SHCL_TEST_CLOCK"), when, &offset, name)) local_clock(when, &offset, name);
+	clock_now(when, &offset, name);
 	zone_label(offset, name, label);
 	sb_puts(a, b, when); sb_putc(a, b, ' '); sb_puts(a, b, label);
+}
+
+/* The local time, its offset and zone name, or SHCL_TEST_CLOCK's. */
+static void clock_now(char when[32], int *offset, char name[64]) {
+	if (!test_clock(getenv("SHCL_TEST_CLOCK"), when, offset, name)) local_clock(when, offset, name);
+}
+
+/* Where the file name starts in a path: after the last separator, or on
+   windows after a drive with no separator (C:cfg.shcl). A backslash is a
+   separator only on windows. */
+static size_t file_name_start(const char *file) {
+	size_t start = 0;
+	for (size_t i = 0; file[i]; i++) {
+#ifdef _WIN32
+		if (file[i] == '/' || file[i] == '\\') start = i + 1;
+#else
+		if (file[i] == '/') start = i + 1;
+#endif
+	}
+#ifdef _WIN32
+	unsigned char c = (unsigned char)file[0];
+	if (start == 0 && (c | 0x20) >= 'a' && (c | 0x20) <= 'z' && file[1] == ':') start = 2;
+#endif
+	return start;
+}
+
+char *shcl_backup_file_name(const char *file, uint32_t format) {
+	char when[32], name[64], stamp[32], tag[64];
+	int offset = 0;
+	clock_now(when, &offset, name);
+	size_t k = 0;
+	for (const char *c = when; *c && k + 1 < sizeof stamp; c++) {
+		if (*c == '-' || *c == ':') continue;
+		stamp[k++] = *c == ' ' ? '-' : *c;
+	}
+	stamp[k] = 0;
+	int tn = snprintf(tag, sizeof tag, "_backup_%s_format-v%" PRIu32, stamp, format);
+	if (tn < 0 || (size_t)tn >= sizeof tag) tn = 0;
+	size_t n = strlen(file), start = file_name_start(file);
+	const char *dot = strrchr(file + start, '.');
+	size_t at = dot && dot > file + start ? (size_t)(dot - file) : n;
+	char *out = (char *)malloc(n + (size_t)tn + 1);
+	if (!out) { SHCL_OOM(); abort(); }
+	memcpy(out, file, at);
+	memcpy(out + at, tag, (size_t)tn);
+	memcpy(out + at + (size_t)tn, file + at, n - at + 1);
+	return out;
 }
 
 /* The code the load gave a kept line that names just `name`, at the level of
@@ -11476,6 +11689,7 @@ shcl_doc *shcl_load_and_validate(const char *text, size_t len, const char *schem
 #ifndef SHCL_NO_FILE_IO
 #include <errno.h>
 #include <fcntl.h>
+#include <stdarg.h>
 #ifdef _WIN32
 	#include <windows.h>
 	// The save's temp-file create reads and sets DACLs. mingw links advapi32
@@ -12272,6 +12486,153 @@ shcl_save_result shcl_save_file_keep_lines(shcl_doc *d, const char *path, int *k
 	if (!k && shcl_lost_count(d) > 0) return SHCL_SAVE_REFUSED;
 	if (kept) *kept = k;
 	return shcl_write_file_atomic(path, t.p, t.n) ? SHCL_SAVE_OK : SHCL_SAVE_FAILED;
+}
+
+/* An upgrade's failure message, malloc'd into *out when the caller asked for
+   one, and the error handed back. */
+static shcl_upgrade_error upgrade_fail(char **out, shcl_upgrade_error e, const char *fmt, ...) {
+	if (!out) return e;
+	va_list ap;
+	va_start(ap, fmt);
+	int n = vsnprintf(NULL, 0, fmt, ap);
+	va_end(ap);
+	char *m = (char *)malloc(n > 0 ? (size_t)n + 1 : 1);
+	if (!m) { SHCL_OOM(); abort(); }
+	m[0] = 0;
+	va_start(ap, fmt);
+	if (n > 0) vsnprintf(m, (size_t)n + 1, fmt, ap);
+	va_end(ap);
+	*out = m;
+	return e;
+}
+
+/* The file still holds the bytes last read from it. */
+static int upgrade_holds(const char *path, const char *text, size_t len) {
+	size_t n = 0;
+	char *now = shcl_read_file(path, 0, &n, NULL);
+	int same = now && n == len && (len == 0 || memcmp(now, text, len) == 0);
+	free(now);
+	return same;
+}
+
+static void upgrade_remove(const char *name) {
+#ifdef _WIN32
+	wchar_t *w = shcl_widen(name);
+	if (w) _wremove(w);
+	free(w);
+#else
+	(void)remove(name);
+#endif
+}
+
+shcl_upgrade_error shcl_write_backup(const char *file, const char *text, size_t len, uint32_t format, char **name, char **message) {
+	if (name) *name = NULL;
+	if (message) *message = NULL;
+	char *bk = shcl_backup_file_name(file, format);
+#ifdef _WIN32
+	/* A new file takes the directory's ACL, so the backup is born with the
+	   original's DACL instead (shcl_create_like). */
+	wchar_t *wfile = shcl_widen(file), *wbk = shcl_widen(bk);
+	int fd = wfile && wbk ? shcl_create_like(wfile, wbk) : -1;
+	int e = errno;
+	free(wfile); free(wbk);
+	errno = e;
+#else
+	int fd = open(bk, O_WRONLY | O_CREAT | O_EXCL, 0600);
+#endif
+	if (fd < 0) {
+		shcl_upgrade_error r = errno == EEXIST
+			? upgrade_fail(message, SHCL_UPGRADE_BACKUP_TAKEN, "%s: already exists; the original would be kept there, so nothing was written", bk)
+			: upgrade_fail(message, SHCL_UPGRADE_IO, "%s: %s", bk, strerror(errno));
+		free(bk);
+		return r;
+	}
+	FILE *f = fdopen(fd, "wb");
+	int ok = f != NULL;
+	if (!f) close(fd);
+	ok = ok && (len == 0 || fwrite(text, 1, len, f) == len) && fflush(f) == 0;
+#ifdef _WIN32
+	ok = ok && _commit(_fileno(f)) == 0;
+#else
+	/* The group first, since a chown clears setuid/setgid. Best effort, the
+	   way the save keeps both; fchown is warn_unused_result, and a cast does
+	   not silence that everywhere. */
+	struct stat st;
+	if (ok && stat(file, &st) == 0) {
+		int chown_rc = fchown(fileno(f), (uid_t)-1, st.st_gid);
+		(void)chown_rc;
+		(void)fchmod(fileno(f), st.st_mode & 07777);
+	}
+	ok = ok && fsync(fileno(f)) == 0;
+#endif
+	int e2 = errno;
+	if (f) ok = (fclose(f) == 0) && ok;
+	if (!ok) {
+		upgrade_remove(bk);
+		upgrade_fail(message, SHCL_UPGRADE_IO, "%s: %s", bk, strerror(e2));
+		free(bk);
+		return SHCL_UPGRADE_IO;
+	}
+	if (name) *name = bk;
+	else free(bk);
+	return SHCL_UPGRADE_OK;
+}
+
+shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, shcl_upgraded *out, char **message) {
+	if (message) *message = NULL;
+	memset(out, 0, sizeof *out);
+	/* A FIFO or a device would block the read or be replaced by a file. */
+#ifdef _WIN32
+	wchar_t *w = shcl_widen(path);
+	DWORD attrs = w ? GetFileAttributesW(w) : INVALID_FILE_ATTRIBUTES;
+	free(w);
+	if ((attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY)) || shcl_not_a_disk_file(path))
+		return upgrade_fail(message, SHCL_UPGRADE_IO, "%s: not a regular file", path);
+#else
+	struct stat st;
+	if (stat(path, &st) == 0) {
+		if (!S_ISREG(st.st_mode)) return upgrade_fail(message, SHCL_UPGRADE_IO, "%s: not a regular file", path);
+	} else if (errno == ENOENT) {
+		return upgrade_fail(message, SHCL_UPGRADE_NOT_FOUND, "%s: no such file", path);
+	}
+#endif
+	size_t len = 0;
+	shcl_file_status fst = SHCL_FILE_UNREADABLE;
+	char *text = shcl_read_file(path, 0, &len, &fst);
+	if (!text) {
+		if (fst == SHCL_FILE_NOT_FOUND) return upgrade_fail(message, SHCL_UPGRADE_NOT_FOUND, "%s: no such file", path);
+		return upgrade_fail(message, SHCL_UPGRADE_IO, "%s: cannot be read as UTF-8 text", path);
+	}
+	shcl_upgraded up = shcl_upgrade(text, len, from_v2);
+	shcl_upgrade_error r = SHCL_UPGRADE_OK;
+	if (up.current) {
+		*out = up;
+	} else if (up.ambiguous != 0) {
+		r = upgrade_fail(message, SHCL_UPGRADE_AMBIGUOUS, "%s: %zu value(s) read one way under 2.x and another under these rules, and the file does not say which it was written for; nothing written", path, up.ambiguous);
+		out->ambiguous = up.ambiguous;
+		shcl_upgraded_free(&up);
+	} else if (!upgrade_holds(path, text, len)) {
+		r = upgrade_fail(message, SHCL_UPGRADE_IO, "%s: changed since it was read; nothing written", path);
+		shcl_upgraded_free(&up);
+	} else if ((r = shcl_write_backup(path, text, len, up.format, &up.backup, message)) != SHCL_UPGRADE_OK) {
+		shcl_upgraded_free(&up);
+	} else if (!shcl_write_file_atomic(path, up.text, up.len)) {
+		int e = errno;
+		/* With the original still in place the backup would only stand in the
+		   way of the next run. A replace that fails part way on windows can
+		   leave nothing at the path, and then the backup is all there is. */
+		if (upgrade_holds(path, text, len)) {
+			upgrade_remove(up.backup);
+			r = upgrade_fail(message, SHCL_UPGRADE_IO, "%s: %s", path, strerror(e));
+		} else {
+			r = upgrade_fail(message, SHCL_UPGRADE_IO, "%s: %s; the original is %s", path, strerror(e), up.backup);
+		}
+		shcl_upgraded_free(&up);
+	} else {
+		*out = up;
+	}
+	free(text);
+	return r;
 }
 
 #ifdef _WIN32

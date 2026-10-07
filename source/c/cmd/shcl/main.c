@@ -78,10 +78,16 @@ static const char *HELP =
 	"                                         per line\n"
 	"  shcl migrate [options] FILE            rewrite a 2.x file for the current\n"
 	"                                         rules (print it, rewrite FILE with\n"
-	"                                         --write or -w, keeping the original\n"
-	"                                         as NAME_old_v2.EXT beside it, or name\n"
-	"                                         the lines it would change with\n"
-	"                                         --check)\n"
+	"                                         --write or -w, keeping a backup of\n"
+	"                                         the original beside it, or name the\n"
+	"                                         lines it would change with --check)\n"
+	"  shcl upgrade [options] FILE            when FILE does not load clean, or\n"
+	"                                         with --from-2x reads differently once\n"
+	"                                         migrated, print it migrated and made\n"
+	"                                         over the way fmt writes it, with the\n"
+	"                                         info block (or back it up and rewrite\n"
+	"                                         it with --write); anything else is\n"
+	"                                         left alone\n"
 	"  shcl tokens FILE                       each line's lexical spans, for seeing\n"
 	"                                         why the parser read a line as it did\n"
 	"                                         (every line on its own, raw bodies\n"
@@ -143,19 +149,19 @@ static const char *HELP =
 	"  --no-banner                            (init, and set --write when it creates\n"
 	"                                         FILE) leave out the info block naming\n"
 	"                                         the format and pointing at its spec\n"
-	"  --write                                (fmt/set/migrate) rewrite FILE in\n"
-	"                                         place, written -w too, through a\n"
-	"                                         temp file and a rename; refused\n"
-	"                                         with a FILE of '-'\n"
+	"  --write                                (fmt/set/migrate/upgrade) rewrite\n"
+	"                                         FILE in place, written -w too,\n"
+	"                                         through a temp file and a rename;\n"
+	"                                         refused with a FILE of '-'\n"
 	"  --lossy                                (fmt/set/migrate) with --write, rewrite\n"
 	"                                         even when this write would delete lines\n"
 	"                                         or values from the file; without it the\n"
 	"                                         write refuses and nothing is changed\n"
-	"  --from-2x                              (migrate) the file was written for\n"
-	"                                         2.x, so rewrite the spellings the two\n"
-	"                                         rule sets read differently; without\n"
-	"                                         it those are left alone and migrate\n"
-	"                                         exits 7\n"
+	"  --from-2x                              (migrate/upgrade) the file was\n"
+	"                                         written for 2.x, so rewrite the\n"
+	"                                         spellings the two rule sets read\n"
+	"                                         differently; without it those are\n"
+	"                                         left alone and the command exits 7\n"
 	"  --check                                (fmt/migrate) print nothing and exit 6\n"
 	"                                         when fmt would change the file or\n"
 	"                                         migrate would rewrite a line (named on\n"
@@ -219,7 +225,12 @@ static const char *HELP =
 	"in-place write also refuses when the rewrite would delete lines or values\n"
 	"from the file (--lossy overrides). migrate refuses a file that does not say\n"
 	"which rules it was written for, when the two readings differ (--from-2x says\n"
-	"it is 2.x), and reports a 2.x binding it cannot convert.\n"
+	"it is 2.x), and reports a 2.x binding it cannot convert. With --write, migrate\n"
+	"and upgrade keep the original beside FILE as\n"
+	"NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT, in local time, where N is the format\n"
+	"it was written for, and write nothing when that name is taken. An upgrade\n"
+	"writes even when the fresh file drops lines or values, since the backup keeps\n"
+	"them.\n"
 	"FILE may be '-' for stdin. With --layer, FILE is the highest file layer and\n"
 	"each --layer is merged under it in order; --set applies last. 'fmt' with\n"
 	"layers prints the merged canonical document.\n"
@@ -227,8 +238,8 @@ static const char *HELP =
 	"Exit codes: 0 good, 1 usage error, 2 empty, 3 not found, 4 bad type,\n"
 	"5 multiple instances, 6 check failed, strict load failed, init's schema has\n"
 	"faults, or --check found a rewrite to make, 7 in-place write refused\n"
-	"(--lossy overrides) or migrate left something behind, 8 a file or stream could\n"
-	"not be read or written.\n";
+	"(--lossy overrides) or migrate or upgrade left something behind, 8 a file or\n"
+	"stream could not be read or written.\n";
 
 // About and donate are stdout, so they are byte-for-byte contracts across the
 // bindings the same way the help text and the init banner are. The version
@@ -1234,125 +1245,6 @@ static size_t name_start(const char *file) {
 	return sep ? (size_t)(sep - file) + 1 : 0;
 }
 
-// Where migrate --write keeps the file it replaces: _old_v2 before the last
-// dot of the file name, or on the end when it has none. A leading dot is part
-// of the name, not an extension.
-static char *old_copy_name(const char *file) {
-	const char *name = file + name_start(file);
-	const char *dot = strrchr(name, '.');
-	size_t n = strlen(file);
-	size_t at = dot && dot > name ? (size_t)(dot - file) : n;
-	char *old = xrealloc(NULL, n + sizeof "_old_v2");
-	memcpy(old, file, at);
-	memcpy(old + at, "_old_v2", 7);
-	memcpy(old + at + 7, file + at, n - at + 1);
-	return old;
-}
-
-#ifdef _WIN32
-// The exclusive create of the old copy. A new file takes the directory's ACL,
-// while the save keeps the original's on the migrated file, so a private
-// config got a backup others could read. The copy is born with the original's
-// DACL instead. Best effort: when that cannot be read, the directory's it is.
-// -1 with errno set when the copy cannot be made.
-static int create_copy(const char *file, const wchar_t *wold) {
-	PSECURITY_DESCRIPTOR sd = NULL;
-	wchar_t *wfile = shcl_widen(file);
-	if (wfile) {
-		DWORD need = 0;
-		GetFileSecurityW(wfile, DACL_SECURITY_INFORMATION, NULL, 0, &need);
-		if (need > 0 && (sd = malloc(need)) != NULL && !GetFileSecurityW(wfile, DACL_SECURITY_INFORMATION, sd, need, &need)) {
-			free(sd);
-			sd = NULL;
-		}
-		free(wfile);
-	}
-	SECURITY_ATTRIBUTES sa = { sizeof sa, sd, FALSE };
-	HANDLE h = CreateFileW(wold, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, sd ? &sa : NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
-	if (h == INVALID_HANDLE_VALUE) {
-		errno = shcl_errno_from_win32(GetLastError());
-		free(sd);
-		return -1;
-	}
-	// A create takes the ACEs but drops the auto-inherited mark, and without it
-	// a later change to the directory's ACL is not passed down to the copy.
-	// Setting the same DACL again with the request bit puts it back.
-	SECURITY_DESCRIPTOR_CONTROL control = 0;
-	DWORD revision = 0;
-	if (sd && GetSecurityDescriptorControl(sd, &control, &revision) && (control & SE_DACL_AUTO_INHERITED)
-		&& SetSecurityDescriptorControl(sd, SE_DACL_AUTO_INHERIT_REQ, SE_DACL_AUTO_INHERIT_REQ))
-		(void)SetFileSecurityW(wold, DACL_SECURITY_INFORMATION, sd);
-	free(sd);
-	int fd = _open_osfhandle((intptr_t)h, _O_WRONLY | _O_BINARY);
-	if (fd < 0) {
-		int e = errno;
-		CloseHandle(h);
-		DeleteFileW(wold);
-		errno = e;
-	}
-	return fd;
-}
-#endif
-
-// The original bytes, at the old-copy name, before the migrated text replaces
-// them. The create is exclusive, so an earlier copy is never replaced, and the
-// copy is synced before the save starts. NULL, with the reason printed, when
-// it could not be made.
-static char *keep_original(const char *file, const char *text, size_t len) {
-	char *old = old_copy_name(file);
-#ifdef _WIN32
-	wchar_t *w = shcl_widen(old);
-	int fd = w ? create_copy(file, w) : -1;
-#else
-	int fd = open(old, O_WRONLY | O_CREAT | O_EXCL, 0600);
-#endif
-	if (fd < 0) {
-		if (errno == EEXIST) fprintf(stderr, "%s: already exists; migrate keeps the original file there, so nothing was written\n", old);
-		else fprintf(stderr, "%s: %s\n", old, strerror(errno));
-#ifdef _WIN32
-		free(w);
-#endif
-		free(old);
-		return NULL;
-	}
-	FILE *f = fdopen(fd, "wb");
-	int ok = f != NULL;
-	if (!f) close(fd);
-	ok = ok && (len == 0 || fwrite(text, 1, len, f) == len) && fflush(f) == 0;
-#ifdef _WIN32
-	ok = ok && _commit(_fileno(f)) == 0;
-#else
-	// Born private, then given the original's group and bits, so a 600 config
-	// never has a readable copy, and one in a setgid directory does not go to
-	// the directory's group. The group first, since a chown clears
-	// setuid/setgid. Best effort, the way the save keeps both; fchown is
-	// warn_unused_result, and a cast does not silence that everywhere.
-	struct stat st;
-	if (ok && stat(file, &st) == 0) {
-		int chown_rc = fchown(fileno(f), (uid_t)-1, st.st_gid);
-		(void)chown_rc;
-		(void)fchmod(fileno(f), st.st_mode & 07777);
-	}
-	ok = ok && fsync(fileno(f)) == 0;
-#endif
-	int e = errno;
-	if (f) ok = (fclose(f) == 0) && ok;
-	if (!ok) {
-		fprintf(stderr, "%s: %s\n", old, strerror(e));
-#ifdef _WIN32
-		_wunlink(w);
-#else
-		unlink(old);
-#endif
-		free(old);
-		old = NULL;
-	}
-#ifdef _WIN32
-	free(w);
-#endif
-	return old;
-}
-
 // A 2.x file rewritten for the current rules. The rewrite is text to text;
 // the load after it is for the diagnostics and the save gate, the same gate
 // `fmt --write` goes through.
@@ -1430,8 +1322,11 @@ static int do_migrate(const Opts *o) {
 			// Only a rewrite leaves a 2.x original to keep. A file that just
 			// gains the Format line reads the same either way, and may be a
 			// 3.0 file with no stamp.
-			char *old = rewritten ? keep_original(file, text, len) : NULL;
-			if (rewritten && !old) {
+			char *old = NULL, *why = NULL;
+			int64_t version = shcl_format_version(text, len);
+			if (rewritten && shcl_write_backup(file, text, len, version < 0 ? 2u : (uint32_t)version, &old, &why) != SHCL_UPGRADE_OK) {
+				fprintf(stderr, "%s\n", why);
+				free(why);
 				rc = EXIT_IO;
 			} else if (!shcl_write_file_atomic(file, m.text, m.len)) {
 				int e = errno;
@@ -1442,13 +1337,7 @@ static int do_migrate(const Opts *o) {
 				// windows can leave nothing at FILE, and then the copy is all
 				// there is.
 				if (old && holds_bytes(file, text, len)) {
-#ifdef _WIN32
-					wchar_t *w = shcl_widen(old);
-					if (w) _wunlink(w);
-					free(w);
-#else
-					unlink(old);
-#endif
+					upgrade_remove(old);
 				} else if (old) {
 					fprintf(stderr, "%s: the original is %s\n", file, old);
 				}
@@ -1463,6 +1352,54 @@ static int do_migrate(const Opts *o) {
 	} else fwrite(m.text, 1, m.len, stdout);
 	shcl_free(d); free(m.text); free(text);
 	return rc;
+}
+
+// A file this shcl cannot load clean, backed up and written fresh: the
+// library's shcl_upgrade_file with --write, and its text half without, which
+// prints the fresh text and touches nothing.
+static int do_upgrade(const Opts *o) {
+	if (o->nargs != 1) { fprintf(stderr, "usage: shcl upgrade [options] FILE (see --help)\n"); return 1; }
+	const char *file = o->args[0];
+	if (o->write && strcmp(file, "-") == 0) {
+		fprintf(stderr, "upgrade --write cannot rewrite stdin; drop --write to print, or pass a FILE\n");
+		return 1;
+	}
+	if (o->write && !write_target_ok(file)) return EXIT_IO;
+	shcl_upgraded up;
+	if (o->write) {
+		char *why = NULL;
+		shcl_upgrade_error e = shcl_upgrade_file(file, o->from_2x, &up, &why);
+		if (e != SHCL_UPGRADE_OK) {
+			if (e == SHCL_UPGRADE_AMBIGUOUS) fprintf(stderr, "%s (--from-2x rewrites them)\n", why);
+			else fprintf(stderr, "%s\n", why);
+			free(why);
+			shcl_upgraded_free(&up);
+			return e == SHCL_UPGRADE_AMBIGUOUS ? 7 : EXIT_IO;
+		}
+	} else {
+		size_t len; char *text = read_input(file, &len);
+		if (!text) return EXIT_IO;
+		up = shcl_upgrade(text, len, o->from_2x);
+		free(text);
+	}
+	if (up.current) {
+		fprintf(stderr, "%s: nothing to upgrade: it loads clean or names its format\n", file);
+		if (!o->write) fwrite(up.text, 1, up.len, stdout);
+		shcl_upgraded_free(&up);
+		return 0;
+	}
+	say_diagnostics_from("", up.diagnostics);
+	if (up.ambiguous != 0) {
+		fprintf(stderr, "%s: %zu value(s) read one way under 2.x and another under these rules, and the file does not say which it was written for; nothing written (--from-2x rewrites them)\n", file, up.ambiguous);
+		shcl_upgraded_free(&up);
+		return 7;
+	}
+	if (up.lost != 0)
+		fprintf(stderr, "%s: %zu line(s)/value(s) do not carry over to the fresh file%s\n", file, up.lost, o->write ? "; the backup keeps them" : "");
+	if (o->write) fprintf(stderr, "%s: upgraded; the original is %s\n", file, up.backup);
+	else fwrite(up.text, 1, up.len, stdout);
+	shcl_upgraded_free(&up);
+	return 0;
 }
 
 // One piece's span for `tokens`: start-end plus a mark for how it was quoted
@@ -2328,6 +2265,7 @@ static const char *const *allowed_opts(const char *cmd) {
 	static const char *check_ok[] = { "--strictness", "--schema", NULL };
 	static const char *init_ok[] = { "--schema", "--no-banner", NULL };
 	static const char *migrate_ok[] = { "--write", "--lossy", "--from-2x", "--check", NULL };
+	static const char *upgrade_ok[] = { "--write", "--from-2x", NULL };
 	static const char *enum_ok[] = { "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove", NULL };
 	static const char *none_ok[] = { NULL };
 	const char *const *allowed = none_ok;
@@ -2337,6 +2275,7 @@ static const char *const *allowed_opts(const char *cmd) {
 	else if (!strcmp(cmd, "check")) allowed = check_ok;
 	else if (!strcmp(cmd, "init")) allowed = init_ok;
 	else if (!strcmp(cmd, "migrate")) allowed = migrate_ok;
+	else if (!strcmp(cmd, "upgrade")) allowed = upgrade_ok;
 	else if (!strcmp(cmd, "count") || !strcmp(cmd, "instances")
 	         || !strcmp(cmd, "children") || !strcmp(cmd, "paths")) allowed = enum_ok;
 	return allowed;
@@ -2483,7 +2422,7 @@ static int is_info_flag(const char *a) {
 		|| !strcmp(a, "--version") || !strcmp(a, "--about") || !strcmp(a, "--donate");
 }
 
-static const char *const COMMANDS[] = { "get", "set", "fmt", "check", "init", "count", "instances", "children", "paths", "migrate", "tokens", "explain" };
+static const char *const COMMANDS[] = { "get", "set", "fmt", "check", "init", "count", "instances", "children", "paths", "migrate", "upgrade", "tokens", "explain" };
 static int is_command(const char *cmd) {
 	for (size_t i = 0; i < sizeof COMMANDS / sizeof COMMANDS[0]; i++)
 		if (!strcmp(cmd, COMMANDS[i])) return 1;
@@ -2950,6 +2889,7 @@ static int cli_main(int argc, char **argv) {
 	else if (!strcmp(cmd, "children")) rc = do_children(&o);
 	else if (!strcmp(cmd, "paths")) rc = do_paths(&o);
 	else if (!strcmp(cmd, "migrate")) rc = do_migrate(&o);
+	else if (!strcmp(cmd, "upgrade")) rc = do_upgrade(&o);
 	else if (!strcmp(cmd, "tokens")) rc = do_tokens(&o);
 	else if (!strcmp(cmd, "explain")) rc = do_explain(&o);
 	// A refusal rather than a fall-through: with one, adding a name to COMMANDS

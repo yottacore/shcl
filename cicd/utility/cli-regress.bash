@@ -1570,7 +1570,6 @@ for row in "${rows[@]}"; do
 		name="${b%%|*}"; cli="${b#*|}"
 		## migrate and upgrade --write keep the original beside the file, and
 		## refuse when a backup from the last binding's run is still there.
-		rm -f "${tmpDir}/w_old_v2.shcl" "${tmpDir}/bs_old_v2.shcl" "${tmpDir}/bw_old_v2.shcl" "${tmpDir}/created_old_v2.shcl"
 		rm -f "${tmpDir}"/{w,bs,bw,created}_backup_*
 		((freshCopy)) && cp "${tmpDir}/sugar.shcl" "${tmpDir}/w.shcl"
 		((freshBs)) && cp "${tmpDir}/bsrc.shcl" "${tmpDir}/bs.shcl"
