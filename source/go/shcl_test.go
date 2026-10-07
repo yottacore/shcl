@@ -1063,8 +1063,40 @@ func TestSettersRefuseAValueTheReaderRefuses(t *testing.T) {
 	if got, st := doc.GetDateTime("d"); st != Good || got.String() != ok.String() {
 		t.Fatalf("datetime read back as %q %v", got.String(), st)
 	}
-	if got := doc.ToCanonical(); got != "z: 0\n\nf: 2.5\n\nd: \"2026-01-02T03:04:05.60-01:30\"\n" {
+	if got := doc.ToCanonical(); got != "z: 0\n\nf: 2.5\n\nd: 2026-01-02T03:04:05.60-01:30\n" {
 		t.Fatalf("document after the refusals: %q", got)
+	}
+}
+
+// A backtick value is raw text the program decodes itself: read as written,
+// with its own flag beside Quoted. A setter keeps the backticks when the new
+// text can be written that way. Same fixture in every runner.
+func TestABacktickValueReadsRawWithItsFlag(t *testing.T) {
+	defer testID(t, "Ery85QE")
+	doc := Parse("c: `#FF8800`\nq: \"x\"\nb: x\na: [`1`, b]\nn: `7`\n")
+	if r := doc.ReadString("c"); r.Value != "#FF8800" || !r.Quoted || !r.Backtick {
+		t.Fatalf("c: %q %v %v", r.Value, r.Quoted, r.Backtick)
+	}
+	if r := doc.ReadString("q"); !r.Quoted || r.Backtick {
+		t.Fatalf("q: %v %v", r.Quoted, r.Backtick)
+	}
+	if r := doc.ReadString("b"); r.Quoted || r.Backtick {
+		t.Fatalf("b: %v %v", r.Quoted, r.Backtick)
+	}
+	if r := doc.ReadStringArray("a"); len(r.Value) != 2 || r.Quoted || r.Backtick {
+		t.Fatalf("a: %v %v %v", r.Value, r.Quoted, r.Backtick)
+	}
+	if r := doc.ReadInt("n"); r.Value != 7 || !r.Backtick {
+		t.Fatalf("n: %d %v", r.Value, r.Backtick)
+	}
+	if !doc.SetString("c", "#00FF00") || !doc.ReadString("c").Backtick {
+		t.Fatal("an overwrite lost the backticks")
+	}
+	if !doc.SetString("c", "a`b") || doc.ReadString("c").Backtick {
+		t.Fatal("a backtick value holding a backtick")
+	}
+	if got := doc.ToCanonical(); !strings.HasPrefix(got, "c: \"a`b\"\n") {
+		t.Fatalf("wrote %q", got)
 	}
 }
 
@@ -1202,18 +1234,18 @@ func TestReadSurfaceLineQuotedChildren(t *testing.T) {
 	// Escapes ARE resolved on a name, so both spellings of the path find the
 	// same node - while AuthoredName still hands back the source spelling,
 	// which is the one thing it is for. Same fixture in every runner.
-	d3 := Parse("\"Ab\\tCd\": 2\n")
-	if got := d3.AuthoredName("\"ab\tcd\""); got != "Ab\\tCd" {
+	d3 := Parse("\"Ab◉TAB◉Cd\": 2\n")
+	if got := d3.AuthoredName("\"ab\tcd\""); got != "Ab◉TAB◉Cd" {
 		t.Errorf("AuthoredName via the literal spelling: got %q", got)
 	}
 	if got := d3.ReadInt("\"ab\tcd\"").Value; got != 2 {
 		t.Errorf("read via the literal spelling: got %d", got)
 	}
 	// Canonical output folds the case, as it always has, and escapes the tab.
-	if got := d3.ToCanonical(); got != "\"ab\\tcd\": 2\n" {
+	if got := d3.ToCanonical(); got != "\"ab◉TAB◉cd\": 2\n" {
 		t.Errorf("canonical name spelling: got %q", got)
 	}
-	if got := d3.AuthoredName("\"ab\\tcd\""); got != "Ab\\tCd" {
+	if got := d3.AuthoredName("\"ab◉tab◉cd\""); got != "Ab◉TAB◉Cd" {
 		t.Errorf("AuthoredName escaped: got %q", got)
 	}
 }
@@ -1705,7 +1737,7 @@ func TestALineBreakInAPathWritesAndReadsBack(t *testing.T) {
 	if got := back.ToCanonical(); got != text {
 		t.Errorf("not a fixpoint:\n%s", text)
 	}
-	for _, p := range []string{"x[\"p\\nq\"].c", "\"a\\nb\".c", "\"a\nb\".c"} {
+	for _, p := range []string{"x[\"p◉NEWLINE◉q\"].c", "\"a◉NEWLINE◉b\".c", "\"a\nb\".c"} {
 		if r := back.ReadInt(p); r.Value != 1 {
 			t.Errorf("read %q got %d", p, r.Value)
 		}
@@ -2078,9 +2110,9 @@ func TestParseLimitedCaps(t *testing.T) {
 			t.Fatalf("%d lines under cap %d reserve %d, want %d", c.lines, c.capAt, w, c.want)
 		}
 	}
-	// Element cap, inline spelling: the whole line is refused, the rest of
+	// Element cap, bracket spelling: the whole line is refused, the rest of
 	// the document is untouched.
-	doc, _ = ParseLimited("arr: 1, 2, 3\nok: 5\n", Standard, 0, 2, 0)
+	doc, _ = ParseLimited("arr: [1, 2, 3]\nok: 5\n", Standard, 0, 2, 0)
 	if n, line := codeCount(doc, "E021"); n != 1 || line != 1 {
 		t.Fatalf("want one E021 at line 1, got %d at %d", n, line)
 	}
@@ -2102,28 +2134,32 @@ func TestParseLimitedCaps(t *testing.T) {
 	if v, st := doc.GetIntArray("arr"); st != Good || !reflect.DeepEqual(v, []int64{1, 2}) {
 		t.Fatalf("star array: %v %v", v, st)
 	}
-	// A cap refuses only a line that would bind: bracket text stays E019 and
-	// kept, and an element under a field with a value stays E011.
-	doc, _ = ParseLimited("arr: [1, 2, 3]\nk: x\n\t* 1\n", Standard, 0, 1, 0)
-	got := ""
-	for _, d := range doc.Diagnostics() {
-		got += fmt.Sprintf("%d %s;", d.Line, d.Code)
-	}
-	if got != "1 E019;3 E011;" || doc.LostCount() != 1 || !strings.Contains(doc.ToCanonical(), "arr: [1, 2, 3]") {
-		t.Fatalf("cap over a refused line: %q lost %d", got, doc.LostCount())
-	}
+	// A malformed array past the cap stayed E019 and kept. Since 2026-10-05
+	// the cap wins over a broken value, so this is E021 now: see
+	// TestACapWinsOverABrokenValue.
+	// doc, _ = ParseLimited("arr: [1,, 2, 3]\nk: x\n\t* 1\n", Standard, 0, 1, 0)
+	// got := ""
+	// for _, d := range doc.Diagnostics() {
+	// 	got += fmt.Sprintf("%d %s;", d.Line, d.Code)
+	// }
+	// if got != "1 E019;3 E011;" || doc.LostCount() != 1 || !strings.Contains(doc.ToCanonical(), "arr: [1,, 2, 3]") {
+	// 	t.Fatalf("cap over a refused line: %q lost %d", got, doc.LostCount())
+	// }
 	// The count the cap judges is the count the array reads back as, spelling
 	// by spelling: quoted commas, a backslash (a character, so it shields
-	// nothing), empty and blank slots, a Unicode blank (content: only a space
-	// or a tab is blank), a quote that never closes (a character too, so the
-	// comma after it splits). Refused at one under, kept at exact.
+	// nothing), the empty array, a quoted Unicode blank (content: only a space
+	// or a tab is blank, and bare it is E025). Refused at one under, kept at
+	// exact. A quote that never closes made the comma after it split before
+	// the value syntax; that line is E017 now and binds nothing. An empty slot
+	// is E019 now, and a bare comma E026.
 	counts := []struct {
 		spelling string
 		n        int
 	}{
-		{"1, 2, 3", 3}, {"\"a, b\", c", 2}, {"a\\, b, c", 3}, {"a,,b", 2},
-		{"a, , b", 2}, {" a ", 1}, {"\"\", ''", 2}, {"'a\", b'", 1},
-		{"\"open, b", 2}, {"\\", 1}, {"x,\u3000", 2}, {"x, \u00a0y", 2}, {", , ,", 0},
+		{"[1, 2, 3]", 3}, {"[\"a, b\", c]", 2}, {"[a\\, b, c]", 3}, {"[]", 0},
+		{"[ ]", 0}, {" a ", 1}, {"[\"\", '']", 2}, {"'a\", b'", 1},
+		// {"\"open, b", 2},
+		{"\\", 1}, {"[x,\"\u3000\"]", 2}, {"[x, \"\u00a0y\"]", 2}, {"[80]", 1},
 	}
 	for _, c := range counts {
 		text := "v: " + c.spelling + "\n"
@@ -2136,7 +2172,7 @@ func TestParseLimitedCaps(t *testing.T) {
 			t.Fatalf("%q at cap %d: E021", c.spelling, c.n)
 		}
 		if v, st := doc.GetStringArray("v"); c.n == 0 {
-			if !doc.Exists("v") || st == Good {
+			if st != Good || len(v) != 0 {
 				t.Fatalf("%q: want empty, got %v %v", c.spelling, v, st)
 			}
 		} else if st != Good || len(v) != c.n {
@@ -2149,18 +2185,18 @@ func TestParseLimitedCaps(t *testing.T) {
 			}
 		}
 	}
-	// A refused line reports the cap alone: the quote check runs after it, so
-	// it never splits a value the cap already turned away.
-	doc, _ = ParseLimited("v: a, \"open, b\n", Standard, 0, 1, 0)
-	if len(doc.Diagnostics()) != 1 || doc.Diagnostics()[0].Code != "E021" {
-		t.Fatalf("refused line: %v", doc.Diagnostics())
-	}
+	// An open quote was judged before the cap and kept the line. Since
+	// 2026-10-05 the cap wins: see TestACapWinsOverABrokenValue.
+	// doc, _ = ParseLimited("v: [a, \"open, b]\n", Standard, 0, 1, 0)
+	// if len(doc.Diagnostics()) != 1 || doc.Diagnostics()[0].Code != "E017" || doc.LostCount() != 0 {
+	// 	t.Fatalf("refused line: %v", doc.Diagnostics())
+	// }
 	// A fence whose info string splits past the cap is refused with its block,
 	// in both spellings, so the body never reads as live lines. Same fixture in
-	// every runner.
+	// every runner. Only a comma with a blank after it splits since 20261006.
 	for _, text := range []string{
-		"secrets:\n\t```a,b,c,d\n\tpassword: hunter2\n\t```\nafter: 1\n",
-		"secrets: ```a,b,c,d\n\tpassword: hunter2\n\t```\nafter: 1\n",
+		"secrets:\n\t```a, b, c, d\n\tpassword: hunter2\n\t```\nafter: 1\n",
+		"secrets: ```a, b, c, d\n\tpassword: hunter2\n\t```\nafter: 1\n",
 	} {
 		doc, _ = ParseLimited(text, Standard, 0, 3, 0)
 		if len(doc.Diagnostics()) != 1 || doc.Diagnostics()[0].Code != "E021" {
@@ -2225,22 +2261,130 @@ func TestParseLimitedCaps(t *testing.T) {
 	}
 }
 
+// An item or a line past the caller's element cap is E021 and dropped, even
+// when its value is broken: the cap wins over a value fault. A fault in the
+// path or the name still comes first, and a broken item within the cap is
+// still kept. Same fixture in every runner.
+func TestACapWinsOverABrokenValue(t *testing.T) {
+	defer testID(t, "Ery85QC")
+	codes := func(text string, capAt int) (string, int, string) {
+		doc, _ := ParseLimited(text, Standard, 0, capAt, 0)
+		got := ""
+		for _, d := range doc.Diagnostics() {
+			got += fmt.Sprintf("%d %s;", d.Line, d.Code)
+		}
+		return got, doc.LostCount(), doc.ToCanonical()
+	}
+	// Bracket arrays: an empty slot, an open quote, no closing bracket, text
+	// after it. Each is E021 at a cap below its length, and its own code at a
+	// cap that fits.
+	for _, c := range []struct{ text, own string }{
+		{"arr: [1,, 2, 3]\n", "E019"},
+		{"arr: [a, \"open, b]\n", "E017"},
+		{"arr: [a, b, c\n", "E019"},
+		{"arr: [a, b] c\n", "E019"},
+		{"arr: [a, b c, d]\n", "E025"},
+	} {
+		got, lost, out := codes(c.text, 1)
+		if got != "1 E021;" || lost != 1 || strings.Contains(out, "arr") {
+			t.Fatalf("%q at cap 1: %q lost %d out %q", c.text, got, lost, out)
+		}
+		got, lost, _ = codes(c.text, 9)
+		if got != "1 "+c.own+";" || lost != 0 {
+			t.Fatalf("%q under the cap: %q lost %d", c.text, got, lost)
+		}
+	}
+	// A bare comma outside brackets counts its pieces the same way.
+	if got, _, _ := codes("a: x, y, z\n", 2); got != "1 E021;" {
+		t.Fatalf("bare comma past the cap: %q", got)
+	}
+	if got, _, _ := codes("a: x, y, z\n", 3); got != "1 E026;" {
+		t.Fatalf("bare comma within the cap: %q", got)
+	}
+	// A stacked item past the cap is dropped whatever it holds; within the
+	// cap a broken one is kept and the list loads around it. List items are
+	// written '- ' in the reference, which this binding does not read yet.
+	// got, lost, out := codes("x:\n\t- a\n\t- b\n\t- \"open\n\t- c d\nz: 1\n", 2)
+	// if got != "4 E021;5 E021;" || lost != 2 || out != "x:\n\t- a\n\t- b\nz: 1\n" {
+	// 	t.Fatalf("items past the cap: %q lost %d out %q", got, lost, out)
+	// }
+	// got, lost, out = codes("x:\n\t- a\n\t- \"open\n\t- b\n", 2)
+	// if got != "3 E017;" || lost != 0 || !strings.Contains(out, "- \"open") {
+	// 	t.Fatalf("a broken item within the cap: %q lost %d out %q", got, lost, out)
+	// }
+	// An element under a field with a value is E011, cap or not.
+	// if got, _, _ := codes("k: x\n\t- 1\n", 1); got != "2 E011;" {
+	// 	t.Fatalf("item under a value: %q", got)
+	// }
+	// The path and the name are judged first.
+	if got, _, _ := codes("404: [a, b, c]\n", 1); got != "1 E014;" {
+		t.Fatalf("a bad name past the cap: %q", got)
+	}
+}
+
+func TestNoColonRepairStaysNarrow(t *testing.T) {
+	defer testID(t, "Ery85QD")
+	// Only one clean name or path with no colon is repaired (E015), a bad
+	// bare name like 404 included. Anything with a blank in a bare name could
+	// be a name or a name and a value, so it is E014 and kept as written.
+	for _, c := range []struct{ line, quoted string }{
+		{"square-miles 300", "\"square-miles 300\""},
+		{"this is ! not parseable", "\"this is ! not parseable\""},
+		{"user name", "\"user name\""},
+		{"user\tname", "\"user◉TAB◉name\""},
+		{"a.b c", "a.\"b c\""},
+	} {
+		doc := Parse("k: 1\n" + c.line + "\nz: 2\n")
+		d := doc.Diagnostics()
+		if len(d) != 1 || d[0].Code != "E014" {
+			t.Fatalf("%q: %v", c.line, d)
+		}
+		if n := doc.LostCount(); n != 0 {
+			t.Fatalf("%q: LostCount %d", c.line, n)
+		}
+		if got := doc.ToCanonical(); got != "k: 1\n"+c.line+"\nz: 2\n" {
+			t.Fatalf("%q wrote %q", c.line, got)
+		}
+		if doc.Exists(c.quoted) {
+			t.Fatalf("%q bound %s", c.line, c.quoted)
+		}
+	}
+	doc := Parse("a:\n\t  square-miles 300\n")
+	if got := doc.Diagnostics()[0].Message; got != "malformed line skipped: unexpected character after the path, at column 17" {
+		t.Fatalf("message %q", got)
+	}
+	for _, c := range []struct{ line, out string }{
+		{"404", "\"404\":"},
+		{"-x", "\"-x\":"},
+		{"a.9b", "a:\n\t\"9b\":"},
+	} {
+		doc := Parse(c.line + "\n")
+		d := doc.Diagnostics()
+		if len(d) != 1 || d[0].Code != "E015" {
+			t.Fatalf("%q: %v", c.line, d)
+		}
+		if got := doc.ToCanonical(); got != c.out+"\n" {
+			t.Fatalf("%q wrote %q", c.line, got)
+		}
+	}
+}
+
 func TestRawIsSourceText(t *testing.T) {
 	defer testID(t, "ElonRnO")
 	// Raw: the verbatim value span from the source line - not the display
 	// join, which rewrites `{2,3}` to `{2, 3}`. Same fixture in every runner
 	// whose read result exposes raw (the C read structs deliberately do not).
-	doc := Parse("regex: ^\\d{2,3}$\nlist: a,  \"b c\"\n")
-	if r := doc.ReadString("regex"); r.Raw == nil || *r.Raw != "^\\d{2,3}$" {
+	doc := Parse("regex: \"^\\d{2,3}$\"\nlist: [a,  \"b c\"]\n")
+	if r := doc.ReadString("regex"); r.Raw == nil || *r.Raw != "\"^\\d{2,3}$\"" {
 		t.Errorf("regex raw: got %v", r.Raw)
 	}
-	if r := doc.ReadStringArray("list"); r.Raw == nil || *r.Raw != "a,  \"b c\"" {
+	if r := doc.ReadStringArray("list"); r.Raw == nil || *r.Raw != "[a,  \"b c\"]" {
 		t.Errorf("list raw: got %v", r.Raw)
 	}
 	// A written value has no source spelling; raw falls back to display. The
 	// selector's escaped spelling must reach the existing instance.
 	doc2 := Parse("who: 'q\"uote'\n")
-	if !doc2.SetInt("who[\"q\\\"uote\"].n", 5) {
+	if !doc2.SetInt("who[\"q◉DQUOTE◉uote\"].n", 5) {
 		t.Fatal("SetInt with escaped selector failed")
 	}
 	if n := doc2.Count("who"); n != 1 {
@@ -2390,7 +2534,7 @@ func TestSuppressLeavesTheCallersDiagnosticsAlone(t *testing.T) {
 	// duplicated. The reference takes its list by reference, so the mutation is
 	// expected there and not here.
 	doc := Parse("unique: a\nunique: b\nnote: x\nnote: y\n")
-	schema := Parse("field: unique\n\ttype: string\n\trepeat: 1, 9\nfield: note\n\ttype: string\n")
+	schema := Parse("field: unique\n\ttype: string\n\trepeat: [1, 9]\nfield: note\n\ttype: string\n")
 	diags := doc.Diagnostics()
 	if len(diags) < 2 {
 		t.Fatalf("want two H001 hints to filter, got %d diagnostic(s)", len(diags))
@@ -2439,7 +2583,7 @@ func TestConvenienceTierFallsBackOnlyOnGood(t *testing.T) {
 	defer testID(t, "EkgmpQf")
 	// Mirror of the reference: the *Or value survives only on Good; Empty,
 	// BadType, and NotFound all yield the call-site fallback.
-	d := Parse("a: 42\nb: not-a-number\ne:\narr: 1, 2, 3\nblk:\n\t```html\n\thi\n\t```\n")
+	d := Parse("a: 42\nb: not-a-number\ne:\narr: [1, 2, 3]\nblk:\n\t```html\n\thi\n\t```\n")
 	if got := d.GetIntOr("a", 9); got != 42 {
 		t.Fatalf("GetIntOr Good = %d, want 42", got)
 	}
@@ -3137,7 +3281,7 @@ func TestARemoveKeepsASettledLineBelowIt(t *testing.T) {
 
 // The save gate on kept lines, from inside: once the edits that lose one are
 // fixed, no public call reaches the gate, so these take a line out by hand.
-const keptGateBase = "x: 1\nr: [1, 2]\ny: 3\n"
+const keptGateBase = "x: 1\nr: [1, 2\ny: 3\n"
 
 func childNamed(d *Document, name string) int {
 	for _, c := range d.arena[root].children {
@@ -3192,7 +3336,7 @@ func TestAKeptLineGoneFromTheTreeRefusesTheSave(t *testing.T) {
 // line, and nothing beside it.
 func TestARemoveTakesTheKeptLineHeadingItsField(t *testing.T) {
 	defer testID(t, "EreUzxY")
-	doc := Parse("a: [1]\n\tb: 2\ny: 3\n")
+	doc := Parse("a: [1\n\tb: 2\ny: 3\n")
 	if n := doc.Remove("a"); n != 1 {
 		t.Fatalf("removed %d", n)
 	}
@@ -3231,12 +3375,12 @@ func checkRemoves(t *testing.T, cases []removeCase) {
 func TestARemoveLeavesTheKeptLinesBesideIt(t *testing.T) {
 	defer testID(t, "ErgTocq")
 	checkRemoves(t, []removeCase{
-		{keptGateBase, "y", "x: 1\nr: [1, 2]\n"},
+		{keptGateBase, "y", "x: 1\nr: [1, 2\n"},
 		{"x: 1\nbad name: 1\ny: 3\n", "y", "x: 1\nbad name: 1\n"},
-		{"j:\n\tr: [1]\n\tq: 1\nz: 2\n", "j.q", "j:\n\tr: [1]\nz: 2\n"},
-		{"j:\n\tq: 1\n\tr: [1]\nz: 2\n", "j.q", "j:\n\tr: [1]\nz: 2\n"},
-		{"j:\n\tq: 1\n\tr: [1]\n\tw: 3\nz: 2\n", "j.q", "j:\n\tr: [1]\n\tw: 3\nz: 2\n"},
-		{"# on r\nr: [1]\n# on y\ny: 3\nz: 1\n", "y", "# on r\nr: [1]\nz: 1\n"},
+		{"j:\n\tr: [1\n\tq: 1\nz: 2\n", "j.q", "j:\n\tr: [1\nz: 2\n"},
+		{"j:\n\tq: 1\n\tr: [1\nz: 2\n", "j.q", "j:\n\tr: [1\nz: 2\n"},
+		{"j:\n\tq: 1\n\tr: [1\n\tw: 3\nz: 2\n", "j.q", "j:\n\tr: [1\n\tw: 3\nz: 2\n"},
+		{"# on r\nr: [1\n# on y\ny: 3\nz: 1\n", "y", "# on r\nr: [1\nz: 1\n"},
 	})
 }
 
@@ -3245,11 +3389,11 @@ func TestARemoveLeavesTheKeptLinesBesideIt(t *testing.T) {
 func TestAFieldOpenedByAKeptLineGoesWithItsLastLine(t *testing.T) {
 	defer testID(t, "ErgToef")
 	checkRemoves(t, []removeCase{
-		{"a: [1]\n\tb: 2\ny: 3\n", "a.b", "a: [1]\ny: 3\n"},
-		{"a: [1]\n\tb: 2\n\tc: 3\ny: 3\n", "a.b", "a: [1]\n\tc: 3\ny: 3\n"},
-		{"a: [1]\n\tb: 2\n\tr: [3]\ny: 3\n", "a.b", "a: [1]\n\tr: [3]\ny: 3\n"},
-		{"o: [9]\n\ta: [1]\n\t\tb: 2\ny: 3\n", "o.a.b", "o: [9]\n\ta: [1]\ny: 3\n"},
-		{"o:\n\ta: [1]\n\t\tb: 2\n", "o.a.b", "o:\n\ta: [1]\n"},
+		{"a: [1\n\tb: 2\ny: 3\n", "a.b", "a: [1\ny: 3\n"},
+		{"a: [1\n\tb: 2\n\tc: 3\ny: 3\n", "a.b", "a: [1\n\tc: 3\ny: 3\n"},
+		{"a: [1\n\tb: 2\n\tr: [3\ny: 3\n", "a.b", "a: [1\n\tr: [3\ny: 3\n"},
+		{"o: [9\n\ta: [1\n\t\tb: 2\ny: 3\n", "o.a.b", "o: [9\n\ta: [1\ny: 3\n"},
+		{"o:\n\ta: [1\n\t\tb: 2\n", "o.a.b", "o:\n\ta: [1\n"},
 	})
 }
 
@@ -3259,12 +3403,16 @@ func TestASetterCommentsOutTheKeptLineHeadingItsTarget(t *testing.T) {
 	defer testID(t, "Erlf124")
 	t.Setenv("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT")
 	for _, c := range []struct{ text, path, want string }{
-		{"a: [1]\n\tb: 2\ny: 3\n", "a",
-			"# a: [1]  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 bracket array syntax\na: 5\n\tb: 2\ny: 3\n"},
-		{"o:\n\ta: \"x\\q\"\n\t\tb: 2\n", "o.a",
-			"o:\n\t# a: \"x\\q\"  ## commented out by shcl when setting o.a, 2026-10-04 00:15:00 PDT: E023 unknown escape '\\q' in double quotes\n\ta: 5\n\t\tb: 2\n"},
-		{"p: \"C:\\temp\\new\"\n\tq: 1\n", "p",
-			"# p: \"C:\\temp\\new\"  ## commented out by shcl when setting p, 2026-10-04 00:15:00 PDT: E024 value starts like a Windows path, and its \\t or \\n would read as a tab or newline\np: 5\n\tq: 1\n"},
+		{"a: [1\n\tb: 2\ny: 3\n", "a",
+			"# a: [1  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing ']' on the line\na: 5\n\tb: 2\ny: 3\n"},
+		{"o:\n\ta: \"x◉Q◉\"\n\t\tb: 2\n", "o.a",
+			"o:\n\t# a: \"x◉Q◉\"  ## commented out by shcl when setting o.a, 2026-10-04 00:15:00 PDT: E023 unknown escape '◉Q◉'\n\ta: 5\n\t\tb: 2\n"},
+		{"p: host: a.com\n\tq: 1\n", "p",
+			"# p: host: a.com  ## commented out by shcl when setting p, 2026-10-04 00:15:00 PDT: E025 a colon then a space in a bare value\np: 5\n\tq: 1\n"},
+		{"r: \"open\n\tq: 1\n", "r",
+			"# r: \"open  ## commented out by shcl when setting r, 2026-10-04 00:15:00 PDT: E017 unterminated quote in value\nr: 5\n\tq: 1\n"},
+		{"404: x\n\tq: 1\n", "\"404\"",
+			"# 404: x  ## commented out by shcl when setting \"404\", 2026-10-04 00:15:00 PDT: E014 field name needs quotes\n\"404\": 5\n\tq: 1\n"},
 	} {
 		doc, _ := ParseKeepLines(c.text, Standard)
 		if !doc.SetInt(c.path, 5) {
@@ -3288,10 +3436,10 @@ func TestASetterCommentsOutTheKeptLineHeadingItsTarget(t *testing.T) {
 	// Only the field the kept line opened: a child of it, or a field beside
 	// a kept line, leaves the line as it was.
 	for _, c := range []struct{ path, want string }{
-		{"a.c", "a: [1]\n\tb: 2\n\tc: 5\n"},
-		{"z", "a: [1]\n\tb: 2\n\nz: 5\n"},
+		{"a.c", "a: [1\n\tb: 2\n\tc: 5\n"},
+		{"z", "a: [1\n\tb: 2\n\nz: 5\n"},
 	} {
-		doc := Parse("a: [1]\n\tb: 2\n")
+		doc := Parse("a: [1\n\tb: 2\n")
 		if !doc.SetInt(c.path, 5) || doc.ToCanonical() != c.want {
 			t.Fatalf("%s: wrote %q", c.path, doc.ToCanonical())
 		}
@@ -3305,7 +3453,7 @@ func TestASetterCommentsOutEveryKeptLineOfItsName(t *testing.T) {
 	defer testID(t, "ErmXhpm")
 	t.Setenv("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT")
 	note := func(path string) string {
-		return "  ## commented out by shcl when setting " + path + ", 2026-10-04 00:15:00 PDT: E019 bracket array syntax"
+		return "  ## commented out by shcl when setting " + path + ", 2026-10-04 00:15:00 PDT: E019 malformed array, no closing ']' on the line"
 	}
 	na, noa, nac := note("a"), note("o.a"), note("a.c")
 	for _, c := range []struct {
@@ -3313,21 +3461,21 @@ func TestASetterCommentsOutEveryKeptLineOfItsName(t *testing.T) {
 		count            int
 	}{
 		// No loaded `a`: the new line goes under the first comment.
-		{"a: [1]\ny: 3\n", "a", "# a: [1]" + na + "\na: 5\ny: 3\n", 1},
-		{"x: 1\na: [1]\ny: 3\na: [2]\n", "a", "x: 1\n# a: [1]" + na + "\na: 5\ny: 3\n# a: [2]" + na + "\n", 1},
+		{"a: [1\ny: 3\n", "a", "# a: [1" + na + "\na: 5\ny: 3\n", 1},
+		{"x: 1\na: [1\ny: 3\na: [2\n", "a", "x: 1\n# a: [1" + na + "\na: 5\ny: 3\n# a: [2" + na + "\n", 1},
 		// What was under the line goes under the new one.
-		{"a: [1]\n\t# under\n\tb: [2]\ny: 3\n", "a", "# a: [1]" + na + "\na: 5\n\t# under\n\tb: [2]\ny: 3\n", 1},
+		{"a: [1\n\t# under\n\tb: [2\ny: 3\n", "a", "# a: [1" + na + "\na: 5\n\t# under\n\tb: [2\ny: 3\n", 1},
 		// At the end of a block.
-		{"o:\n\tx: 1\n\ta: [1]\n", "o.a", "o:\n\tx: 1\n\t# a: [1]" + noa + "\n\ta: 5\n", 1},
+		{"o:\n\tx: 1\n\ta: [1\n", "o.a", "o:\n\tx: 1\n\t# a: [1" + noa + "\n\ta: 5\n", 1},
 		// A field made on the way writes its line too.
-		{"a: [1]\ny: 3\n", "a.c", "# a: [1]" + nac + "\na:\n\tc: 5\ny: 3\n", 1},
+		{"a: [1\ny: 3\n", "a.c", "# a: [1" + nac + "\na:\n\tc: 5\ny: 3\n", 1},
 		// A loaded `a` changes in place.
-		{"a: 1\nb: [1]\na: [2]\n", "a", "a: 5\nb: [1]\n# a: [2]" + na + "\n", 1},
+		{"a: 1\nb: [1\na: [2\n", "a", "a: 5\nb: [1\n# a: [2" + na + "\n", 1},
 		// Two valid lines stay as they are, and so does a kept line with a
 		// kept line under it, which as a comment would leave that line under
 		// the field above.
 		{"a: 1\na: 2\n", "a", "a: 5\na: 2\n", 2},
-		{"a: 1\na: [2]\n\tc: [3]\n", "a", "a: 5\na: [2]\n\tc: [3]\n", 1},
+		{"a: 1\na: [2\n\tc: [3\n", "a", "a: 5\na: [2\n\tc: [3\n", 1},
 	} {
 		doc, _ := ParseKeepLines(c.text, Standard)
 		if !doc.SetInt(c.path, 5) {
@@ -3349,8 +3497,8 @@ func TestASetterCommentsOutEveryKeptLineOfItsName(t *testing.T) {
 		}
 	}
 	// SetComment makes the field without touching the line.
-	doc := Parse("a: [1]\ny: 3\n")
-	if !doc.SetComment("a", "n") || doc.ToCanonical() != "a: [1]\ny: 3\n\n# n\na:\n" {
+	doc := Parse("a: [1\ny: 3\n")
+	if !doc.SetComment("a", "n") || doc.ToCanonical() != "a: [1\ny: 3\n\n# n\na:\n" {
 		t.Fatalf("SetComment wrote %q", doc.ToCanonical())
 	}
 }
@@ -3399,7 +3547,7 @@ func TestAMergedLayerOwesItsKeptLines(t *testing.T) {
 	if n := doc.LostCount(); n != 0 {
 		t.Fatalf("LostCount %d after the merge", n)
 	}
-	if !strings.Contains(doc.ToCanonical(), "r: [1, 2]\n") {
+	if !strings.Contains(doc.ToCanonical(), "r: [1, 2\n") {
 		t.Fatalf("merged line missing:\n%s", doc.ToCanonical())
 	}
 	// Owed, not just present: taking it out again is a loss.
@@ -3449,23 +3597,150 @@ func TestAFooterLineTheBaseHasIsNotOwedTwice(t *testing.T) {
 // stays with that line.
 func TestAReplacedLeafLeavesTheLinesBesideIt(t *testing.T) {
 	defer testID(t, "ErkSyFW")
-	doc := Parse("    srv: a\n  srv[x]: [3]\nb[x]: [4]\n# mine\nq: c\n")
-	if got := doc.ToCanonical(); got != "srv: a\n# srv[x]: [3]\nb[x]: [4]\n# mine\nq: c\n" {
+	doc := Parse("    srv: a\n  srv[x]: [3\nb[x]: [4\n# mine\nq: c\n")
+	if got := doc.ToCanonical(); got != "srv: a\n# srv[x]: [3\nb[x]: [4\n# mine\nq: c\n" {
 		t.Fatalf("loaded %q", got)
 	}
 	doc.Merge(Parse("q: 9\n"))
-	if got := doc.ToCanonical(); got != "srv: a\n# srv[x]: [3]\nb[x]: [4]\nq: 9\n" {
+	if got := doc.ToCanonical(); got != "srv: a\n# srv[x]: [3\nb[x]: [4\nq: 9\n" {
 		t.Fatalf("after the merge %q", got)
 	}
 	if n := doc.LostCount(); n != 0 {
 		t.Fatalf("LostCount %d, want 0", n)
 	}
-	doc = Parse("p:\n\tq: c\n\t# mine\n\tb[x]: [4]\n\t# n\n")
+	doc = Parse("p:\n\tq: c\n\t# mine\n\tb[x]: [4\n\t# n\n")
 	doc.Merge(Parse("p:\n\tq: 9\n"))
-	if got := doc.ToCanonical(); got != "p:\n\tb[x]: [4]\n\t# n\n\tq: 9\n" {
+	if got := doc.ToCanonical(); got != "p:\n\tb[x]: [4\n\t# n\n\tq: 9\n" {
 		t.Fatalf("after the block merge %q", got)
 	}
 	if n := doc.LostCount(); n != 0 {
 		t.Fatalf("block LostCount %d, want 0", n)
+	}
+}
+
+// A comma splits a value outside brackets only with a blank, a comment or
+// the end after it; inside brackets every one does (value-syntax.md,
+// 20261006). 2.x split on every comma, which migrate still reads.
+func TestACommaSplitsABareValueOnlyBeforeABlank(t *testing.T) {
+	defer testID(t, "Ery85QF")
+	var tok Tokens
+	for _, c := range []struct {
+		line   string
+		pieces int
+	}{
+		{"x: rw,noatime", 1},
+		{"x: ,a", 1},
+		{"x: a,,b", 1},
+		{"x: a, b", 2},
+		{"x: a,", 2},
+		{"x: a,# c", 2},
+		{"x: a,\tb", 2},
+		{"x: [a,b]", 2},
+		{"x: [rw,noatime, c]", 3},
+	} {
+		Tokenize(c.line, ':', false, RulesCurrent, &tok)
+		if len(tok.Elements) != c.pieces {
+			t.Fatalf("%q: %d pieces, want %d", c.line, len(tok.Elements), c.pieces)
+		}
+	}
+	Tokenize("x: a,b", ':', false, RulesV2, &tok)
+	if len(tok.Elements) != 2 {
+		t.Fatalf("2.x: %d pieces", len(tok.Elements))
+	}
+}
+
+// Spaces in a bare value or item are fine. A tab, a bracket, a quote, or a
+// colon or comma with a blank or the end after it is one error, and its
+// message says what to do.
+func TestBareSpacesColonsAndCommas(t *testing.T) {
+	defer testID(t, "Ery85QG")
+	for _, c := range []struct{ text, code, fix string }{
+		{"x: host: a.com port: 80\n", "E025", "put each field on its own line"},
+		{"x: done:\n", "E025", "quote it"},
+		{"x: a\tb\n", "E025", "quote it"},
+		{"x: a[b]c\n", "E025", "quote it"},
+		{"x: [New York, Boston]\n", "E025", "quote it"},
+		{"x: [a:, b]\n", "E025", "quote it"},
+		{"x: a,\n", "E026", "write an array in brackets"},
+		{"x: 80, 443\n", "E026", "write an array in brackets"},
+		{"x: a: b, c\n", "E025", "put each field on its own line"},
+		// List items are written '- ' and selectors in parens in the
+		// reference, which this binding does not read yet.
+		// {"x:\n\t- name: value\n", "E027", "as instances"},
+		// {"x:\n\t- name:\n", "E027", "as instances"},
+		// {"x:\n\t- a, b\n", "E026", "quote the text"},
+		// {"x:\n\t- a\tb\n", "E025", "quote it"},
+		// {"x:\n\t- [a]\n", "E019", "quote the item"},
+		// {"x(a:b).y: 1\n", "E025", "quote it"},
+		// {"x(a,b).y: 1\n", "E025", "quote it"},
+		// {"x(a[b).y: 1\n", "E025", "quote it"},
+		// {"x(a(b).y: 1\n", "E025", "quote it"},
+	} {
+		d := Parse(c.text).Diagnostics()
+		if len(d) != 1 || d[0].Code != c.code || !strings.Contains(d[0].Message, c.fix) {
+			t.Fatalf("%q: %v", c.text, d)
+		}
+	}
+	for _, c := range []struct{ text, path, want string }{
+		{"x: My  App\n", "x", "My  App"},
+		{"x: rw,noatime\n", "x", "rw,noatime"},
+		{"x: :0\n", "x", ":0"},
+		{"x: https://a.com:8080/p?q=1,2\n", "x", "https://a.com:8080/p?q=1,2"},
+		{"x: Jul 12 2026  # c\n", "x", "Jul 12 2026"},
+		// {"x:\n\t- New  York\n\t- :0\n", "x", "[\"New  York\", :0]"},
+	} {
+		doc := Parse(c.text)
+		if d := doc.Diagnostics(); len(d) != 0 {
+			t.Fatalf("%q: %v", c.text, d)
+		}
+		if got, st := doc.GetString(c.path); st != Good || got != c.want {
+			t.Fatalf("%q: %q %v", c.text, got, st)
+		}
+	}
+	if _, st := Parse("x: 80,443\n").GetInt("x"); st == Good {
+		t.Fatal("80,443 read as a number")
+	}
+}
+
+// The writer leaves a colon or comma bare where the reader takes it as
+// text, quotes one at the end, and quotes an array element with a comma,
+// since there it splits. A quoted thousands comma keeps its quotes, since
+// only a quoted number reads one.
+func TestTheWriterQuotesACommaByWhereItSits(t *testing.T) {
+	defer testID(t, "Ery85QH")
+	doc := New()
+	if !doc.SetString("opts", "rw,noatime") || !doc.SetString("display", ":0") || !doc.SetString("end", "a,") ||
+		!doc.SetString("title", "My App") || !doc.SetStringArray("tags", []string{"rw,noatime", "b"}) {
+		t.Fatal("a setter refused")
+	}
+	out := doc.ToCanonical()
+	for _, want := range []string{
+		"opts: rw,noatime\n",
+		"display: :0\n",
+		"end: \"a,\"\n",
+		"title: \"My App\"\n",
+		"tags: [\"rw,noatime\", b]\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("%q not in %q", want, out)
+		}
+	}
+	back := Parse(out)
+	if got := back.ToCanonical(); got != out {
+		t.Fatalf("reload wrote %q", got)
+	}
+	if v, st := back.GetStringArray("tags"); st != Good || !reflect.DeepEqual(v, []string{"rw,noatime", "b"}) {
+		t.Fatalf("tags: %v %v", v, st)
+	}
+	doc = Parse("n: \"1,000\"\n")
+	if got := doc.ToCanonical(); got != "n: \"1,000\"\n" {
+		t.Fatalf("wrote %q", got)
+	}
+	if v, st := doc.GetInt("n"); st != Good || v != 1000 {
+		t.Fatalf("n: %d %v", v, st)
+	}
+	hint := Parse("t: a,b\nt: c\n").Diagnostics()[0]
+	if hint.Code != "H001" || !strings.Contains(hint.Message, "t: [\"a,b\", c]") {
+		t.Fatalf("hint %v", hint)
 	}
 }
