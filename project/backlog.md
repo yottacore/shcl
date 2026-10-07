@@ -36,7 +36,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - Back up and rewrite a config file when a program's shcl upgrade breaks it
 	- ID: 2026100313461649
 	- Type: Feature
-	- Status: Queued
+	- Status: Waiting for testing
+	- Note: 20261007, built on `upgbak`, off the value syntax branch, in all four bindings with the C++ interface. `shcl upgrade FILE [--write] [--from-2x]`, and `migrate --write` takes the same backup name. Beta-stamped Format 3 files can't be told apart, so they're left out. Waits on the full `--ci` and a hosted run before `upgbak` merges to dev. Details are in `upgbak`'s copy of this file.
 	- Priority: High
 	- Opened: 20261003-134616
 	- Opened by: JC
