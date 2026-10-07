@@ -118,7 +118,7 @@ option holds the edits, an empty base when the ops script has stdin instead.
 With --write, a FILE that does not exist yet is created. Lines the edits leave
 alone come back as they were written; with --layer, or where the edited text
 would not load back the same, the whole document comes out canonical, the way
-fmt writes it. PATH ends at the first '=' outside quotes and brackets, so a
+fmt writes it. PATH ends at the first '=' outside quotes and parens, so a
 selector may hold one. Ops:
   int|float|bool|string|datetime<TAB>PATH<TAB>VALUE       set a scalar
   <type>-array<TAB>PATH<TAB>V1<TAB>V2...                  set an inline array
@@ -279,13 +279,13 @@ are worth just as much.
 CODES = """E001|error|field line under a parent holding stacked '- ' list items
   A parent holds list items or named children, not both. The field line
   is kept and the items stay.
-E002|error|value after a last-segment selector (a.b[X]: v)
+E002|error|value after a last-segment selector (a.b(X): v)
   The selector already says which instance, so the value has nowhere to go
   and is ignored. Put the value on the line that creates the instance.
 E003|error|selector names an instance that does not exist
-  a[5].b where there is one a. An index selects an existing instance by
+  a(5).b where there is one a. An index selects an existing instance by
   position and never creates one, so a binding line should select by value
-  instead. In a file the index is the bare [5], since a # opens a comment.
+  instead.
 E004|error|wildcard selector on a binding line
   Wildcards read every instance, so there is no single one to write to.
   They are query-only.
@@ -388,6 +388,12 @@ E028|error|an array on a field with lines under it
   value and put the list in a field under it: methods: [GET, POST]. The line
   is kept verbatim, and the lines under it load under the field with no
   value.
+E029|error|a selector in brackets, the old spelling
+  Selectors are written in parens: person(Bucky).city, person("New York"),
+  person(0) and person(*). Brackets are only for arrays. The line is kept
+  as written and binds nothing. When it selects by value, the lines under
+  it still load, under the instance it names. On a command line, quote the
+  path, since a bare ( is a syntax error in most shells.
 H001|hint|repeated bare leaf (an array written as repeated lines)
   Repeated leaves are legal - that is how instances are written - but
   'tags: red' twice and 'tags: [red, blue]' look alike, so the parser says
@@ -438,7 +444,7 @@ V097|error|generated output does not load, or fails its own schema
   init checks its own output before returning it, so a starter config that
   would fail its first check is a fault instead. A default outside its
   field's constraints is one cause. A required path nothing can generate is
-  the other, such as one with a [#N] selector or a * name. Line 0.
+  the other, such as one with an index selector, a(0), or a * name. Line 0.
 V099|error|schema failed to load
   The schema had error diagnostics of its own; they are printed above this
   with their own line numbers. Line 0.
@@ -602,13 +608,13 @@ def _set_value_opt(o, name, v):
 		if v == "":
 			raise ValueError("bad --remove value (want PATH) (see --help)")
 		if unusable_path(shcl.Document.parse(""), v):
-			raise ValueError(f"bad --remove value (not a usable path): {v} (see --help)")
+			raise ValueError(f"bad --remove value ({bad_path(v)}): {v} (see --help)")
 		o.sets.append(_SetOpt(v, "", "--remove"))
 		o.seen.append("--remove")
 	elif name in ("--set", "--set-literal", "--set-default", "--set-literal-default"):
 		ps = split_set(v)
 		if ps is None or ps[0] == "":
-			raise ValueError(f"bad {name} value (want PATH=VALUE, quotes and brackets balanced): {v} (see --help)")
+			raise ValueError(f"bad {name} value (want PATH=VALUE, quotes and parens balanced): {v} (see --help)")
 		o.sets.append(_SetOpt(ps[0], ps[1], name))
 		o.seen.append(name)
 
@@ -620,10 +626,26 @@ def unusable_path(doc, path):
 	return doc.write_reason(path) in (shcl.WriteReason.BadPath, shcl.WriteReason.ValueInPath)
 
 
+def bracket_path(path):
+	# A path with a selector in brackets, the old spelling (E029). A 2.x habit
+	# still types it, so a refusal names it.
+	tok = shcl.Tokens()
+	shcl.tokenize(path, ":", True, shcl.RULES_CURRENT, tok)
+	return tok.bracket_selector is not None
+
+
+BRACKET_PATH = "a selector is written in parens now, name(value)"
+
+
+def bad_path(path):
+	# What a path the scanner refused is called.
+	return BRACKET_PATH if bracket_path(path) else "not a usable path"
+
+
 def split_set(arg):
-	# PATH=VALUE at the first `=` outside quotes and brackets, so a selector
-	# holding one (`x[a=b].c=1`) still addresses its instance. The tokenizer
-	# reads the path half with `=` as its separator, so quotes and brackets
+	# PATH=VALUE at the first `=` outside quotes and parens, so a selector
+	# holding one (`x(a=b).c=1`) still addresses its instance. The tokenizer
+	# reads the path half with `=` as its separator, so quotes and parens
 	# mean here exactly what they mean in a file; an argument whose path half
 	# is not a path at all has no `=` to split at. The offset is a byte
 	# offset, so the split is made on the bytes.
@@ -1266,7 +1288,7 @@ def describe_refusal(doc, path, array, unwritable):
 		why = array_refusal(doc, path, array)
 		return why if why is not None else unwritable
 	if reason == shcl.WriteReason.BadPath:
-		return "not a usable path"
+		return bad_path(path)
 	if reason == shcl.WriteReason.ValueInPath:
 		return "a path with a value part cannot be written"
 	if reason == shcl.WriteReason.Wildcard:
@@ -1404,7 +1426,7 @@ def do_get(o):
 				else f"value is not a valid {type_name}"
 			)
 		elif status == shcl.Status.NotFound:
-			reason = "no value at that path"
+			reason = BRACKET_PATH if bracket_path(path) else "no value at that path"
 		elif status == shcl.Status.Empty:
 			reason = "the value is empty"
 		else:
@@ -2094,7 +2116,7 @@ def apply_op(doc, line):
 	elif op == "comment":
 		wrote = doc.set_comment(path, _unescape_ops(v))
 	elif op in ("remove", "clear-comments") and unusable_path(doc, path):
-		raise ValueError(f"cannot {op} {path}: not a usable path")
+		raise ValueError(f"cannot {op} {path}: {bad_path(path)}")
 	elif op == "remove":
 		doc.remove(path)
 		wrote = True

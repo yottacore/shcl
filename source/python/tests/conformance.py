@@ -848,17 +848,17 @@ def list_after_empty(doc) -> bool:
 		r = doc.read_string(p)
 		if not doc.children(p) or r.status != shcl.Status.Good or r.quoted or not r.value.startswith("["):
 			continue
-		if not p.endswith("]"):
+		if not p.endswith(")"):
 			continue
-		at = p.rfind("[#")
+		at = p.rfind("(")
 		if at < 0:
 			continue
 		try:
-			k = int(p[at + 2:-1])
+			k = int(p[at + 1:-1])
 		except ValueError:
 			continue
 		for j in range(k):
-			e = f"{p[:at]}[#{j}]"
+			e = f"{p[:at]}({j})"
 			if doc.read_string(e).status == shcl.Status.Empty and doc.children(e):
 				return True
 	return False
@@ -1430,13 +1430,13 @@ def main():
 	wdoc = shcl.Document.parse("a:\n\tb: 1\n")
 	for wpath, wwant in (
 		("a.b", shcl.WriteReason.Writable),
-		("a.new[Boston].x", shcl.WriteReason.Writable),   # creatable
+		("a.new(Boston).x", shcl.WriteReason.Writable),   # creatable
 		("", shcl.WriteReason.BadPath),
 		("a..b", shcl.WriteReason.BadPath),
 		("a.b: 2", shcl.WriteReason.ValueInPath),
-		("a[*].b", shcl.WriteReason.Wildcard),
-		("a[#5].b", shcl.WriteReason.NoSuchIndex),
-		("nope[#0].b", shcl.WriteReason.NoSuchIndex),
+		("a(*).b", shcl.WriteReason.Wildcard),
+		("a(5).b", shcl.WriteReason.NoSuchIndex),
+		("nope(0).b", shcl.WriteReason.NoSuchIndex),
 		(".".join(["d"] * 513), shcl.WriteReason.TooDeep),
 		# A literal line break is writable wherever a path can have one: a name
 		# emits through the name escaper and a selector value through the value
@@ -1444,7 +1444,7 @@ def main():
 		# selector was refused while the value emitter still wrote elements in
 		# their source spelling and had nothing to escape with. Not
 		# corpus-pinnable - an ops line cannot contain a raw newline.
-		('a["p\nq"].b', shcl.WriteReason.Writable),
+		('a("p\nq").b', shcl.WriteReason.Writable),
 		('"x\ny".b', shcl.WriteReason.Writable),
 		('"x\\ny".b', shcl.WriteReason.Writable),
 	):
@@ -1538,20 +1538,20 @@ def main():
 	# gitsby's report: children() on a repeated key answered nothing, and a
 	# walk had to know to index each instance.
 	gdoc = shcl.Document.parse("account: w\n\temail: e@x\n\t\tsshkey: k1\n\temail: f@x\n\t\tsshkey: k2\n")
-	if gdoc.children("account[#0].email") != ["sshkey", "sshkey"]:
-		raise SystemExit(f"children across instances got {gdoc.children('account[#0].email')}")
-	if gdoc.children("account.email[#1]") != ["sshkey"]:
-		raise SystemExit(f"children of one instance got {gdoc.children('account.email[#1]')}")
+	if gdoc.children("account(0).email") != ["sshkey", "sshkey"]:
+		raise SystemExit(f"children across instances got {gdoc.children('account(0).email')}")
+	if gdoc.children("account.email(1)") != ["sshkey"]:
+		raise SystemExit(f"children of one instance got {gdoc.children('account.email(1)')}")
 	want_paths = [
 		"account",
-		"account.email[#0]",
-		"account.email[#0].sshkey",
-		"account.email[#1]",
-		"account.email[#1].sshkey",
+		"account.email(0)",
+		"account.email(0).sshkey",
+		"account.email(1)",
+		"account.email(1).sshkey",
 	]
 	if gdoc.instance_paths() != want_paths:
 		raise SystemExit(f"instance_paths() got {gdoc.instance_paths()}")
-	if gdoc.get_string("account.email[#1].sshkey") != "k2":
+	if gdoc.get_string("account.email(1).sshkey") != "k2":
 		raise SystemExit("an instance path did not read its node")
 	test_id("EoM2uEi", "read_surface_line_quoted_children")
 	# line/quoted on the read result, line(path), children(path). Same
@@ -1584,10 +1584,10 @@ def main():
 		raise SystemExit(f"lines() single got {ldoc.lines('code.done')}")
 	if ldoc.lines("a") != [1]:
 		raise SystemExit(f"lines() top-level got {ldoc.lines('a')}")
-	if ldoc.lines("code[*].done") != [6]:
-		raise SystemExit(f"lines() wildcard got {ldoc.lines('code[*].done')}")
-	if ldoc.lines("code[*].nope") != [0]:
-		raise SystemExit(f"lines() unresolved slot got {ldoc.lines('code[*].nope')}")
+	if ldoc.lines("code(*).done") != [6]:
+		raise SystemExit(f"lines() wildcard got {ldoc.lines('code(*).done')}")
+	if ldoc.lines("code(*).nope") != [0]:
+		raise SystemExit(f"lines() unresolved slot got {ldoc.lines('code(*).nope')}")
 	if ldoc.lines("missing"):
 		raise SystemExit("lines() on missing path not empty")
 	if ldoc.children("code") != ["hook", "hook", "done"]:
@@ -1993,15 +1993,15 @@ def main():
 	# design.md's table: a replaced leaf takes only its own comments, the ones
 	# a remove would take. A settled line or a comment past a kept line beside
 	# it stays with that line.
-	kdoc = shcl.Document.parse("    srv: a\n  srv[x]: [3\nb[x]: [4\n# mine\nq: c\n")
-	if kdoc.to_canonical() != "srv: a\n# srv[x]: [3\nb[x]: [4\n# mine\nq: c\n":
+	kdoc = shcl.Document.parse("    srv: a\n  srv(x): [3\nb(x): [4\n# mine\nq: c\n")
+	if kdoc.to_canonical() != "srv: a\n# srv(x): [3\nb(x): [4\n# mine\nq: c\n":
 		fails.append(f"kept gate: the beside fixture loaded as {kdoc.to_canonical()!r}")
 	kdoc.merge(shcl.Document.parse("q: 9\n"))
-	if kdoc.lost_count() != 0 or kdoc.to_canonical() != "srv: a\n# srv[x]: [3\nb[x]: [4\nq: 9\n":
+	if kdoc.lost_count() != 0 or kdoc.to_canonical() != "srv: a\n# srv(x): [3\nb(x): [4\nq: 9\n":
 		fails.append(f"kept gate: a replaced leaf's neighbors lost {kdoc.lost_count()} and wrote {kdoc.to_canonical()!r}")
-	kdoc = shcl.Document.parse("p:\n\tq: c\n\t# mine\n\tb[x]: [4\n\t# n\n")
+	kdoc = shcl.Document.parse("p:\n\tq: c\n\t# mine\n\tb(x): [4\n\t# n\n")
 	kdoc.merge(shcl.Document.parse("p:\n\tq: 9\n"))
-	if kdoc.lost_count() != 0 or kdoc.to_canonical() != "p:\n\tb[x]: [4\n\t# n\n\tq: 9\n":
+	if kdoc.lost_count() != 0 or kdoc.to_canonical() != "p:\n\tb(x): [4\n\t# n\n\tq: 9\n":
 		fails.append(f"kept gate: a replaced leaf's lines below lost {kdoc.lost_count()} and wrote {kdoc.to_canonical()!r}")
 	# The failure report above has run already, so these end the run here.
 	if fails:
@@ -2671,11 +2671,11 @@ def main():
 	# A written value has no source spelling; raw falls back to display. The
 	# selector's escaped spelling must reach the existing instance.
 	rdoc2 = shcl.Document.parse("who: 'q\"uote'\n")
-	if not rdoc2.set_int('who["q◉DQUOTE◉uote"].n', 5):
+	if not rdoc2.set_int('who("q◉DQUOTE◉uote").n', 5):
 		raise SystemExit("escaped selector write failed")
 	if rdoc2.count("who") != 1:
 		raise SystemExit("escaped selector created a second instance")
-	rr = rdoc2.read_int('who[\'q"uote\'].n')
+	rr = rdoc2.read_int('who(\'q"uote\').n')
 	if (rr.value, rr.status) != (5, shcl.Status.Good):
 		raise SystemExit("escaped selector read failed")
 	if rr.raw != "5":
@@ -2859,7 +2859,7 @@ def main():
 	# selector was refused while elements were stored in their source spelling
 	# and the emitter had nothing to escape with. Same fixture in every runner.
 	nldoc = shcl.Document.parse("z: 0\n")
-	if not nldoc.set_int('x["p\nq"].c', 1) or not nldoc.set_int('"a\nb".c', 1):
+	if not nldoc.set_int('x("p\nq").c', 1) or not nldoc.set_int('"a\nb".c', 1):
 		raise SystemExit("a line break in a path was refused")
 	nltext = nldoc.to_canonical()
 	nlback = shcl.Document.parse(nltext)
@@ -2867,7 +2867,7 @@ def main():
 		raise SystemExit(f"the reload has {nlback.error_count()} error(s):\n{nltext}")
 	if nlback.to_canonical() != nltext:
 		raise SystemExit(f"a line break in a path is not a fixpoint:\n{nltext}")
-	for nlpath in ('x["p◉NEWLINE◉q"].c', '"a◉NEWLINE◉b".c', '"a\nb".c'):
+	for nlpath in ('x("p◉NEWLINE◉q").c', '"a◉NEWLINE◉b".c', '"a\nb".c'):
 		if nlback.read_int(nlpath).value != 1:
 			raise SystemExit(f"read {nlpath!r} got {nlback.read_int(nlpath).value}")
 
@@ -2991,12 +2991,10 @@ def main():
 		("x:\n\t- a, b\n", "E026", "quote the text"),
 		("x:\n\t- a\tb\n", "E025", "quote it"),
 		("x:\n\t- [a]\n", "E019", "quote the item"),
-		# Selectors are written in parens in the reference, which this
-		# binding does not read yet.
-		# ("x(a:b).y: 1\n", "E025", "quote it"),
-		# ("x(a,b).y: 1\n", "E025", "quote it"),
-		# ("x(a[b).y: 1\n", "E025", "quote it"),
-		# ("x(a(b).y: 1\n", "E025", "quote it"),
+		("x(a:b).y: 1\n", "E025", "quote it"),
+		("x(a,b).y: 1\n", "E025", "quote it"),
+		("x(a[b).y: 1\n", "E025", "quote it"),
+		("x(a(b).y: 1\n", "E025", "quote it"),
 	):
 		bds = shcl.Document.parse(btext).diagnostics()
 		if len(bds) != 1 or bds[0].code != bcode or bfix not in bds[0].message:
@@ -3049,13 +3047,12 @@ def main():
 	# that has fields: no text loads it back, since a reload joins the list's
 	# header to that binding and drops its items (E008). The load is left as
 	# it is; a save that would write it refuses (2026100511210900). An edit
-	# and a merge can each leave one. Same fixture in every runner. Selectors
-	# are in brackets here until this binding reads them in parens.
+	# and a merge can each leave one. Same fixture in every runner.
 	lsrc = "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n"
 	ldoc = shcl.Document.parse_keep_lines(lsrc, shcl.Strictness.Standard)
 	if ldoc.lost_count() != 0:
 		raise SystemExit(f"load lost {ldoc.lost_count()}")
-	if not ldoc.set_empty("x[v]"):
+	if not ldoc.set_empty("x(v)"):
 		raise SystemExit("set empty refused")
 	ltext = ldoc.to_canonical()
 	if ltext != "x:\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n":
@@ -3088,7 +3085,7 @@ def main():
 	# and a list with no field under it goes in brackets.
 	for lsrc in ("x: v\nx:\n\t- a\n\tg: 2\n", "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n"):
 		ldoc = shcl.Document.parse(lsrc)
-		if not ldoc.set_empty("x[v]") or ldoc.lost_count() != 0:
+		if not ldoc.set_empty("x(v)") or ldoc.lost_count() != 0:
 			raise SystemExit(f"{lsrc!r}: lost {ldoc.lost_count()}: {ldoc.to_canonical()!r}")
 
 	test_id("ErylLpb", "a_list_joining_an_emptied_field_keeps_its_fields_found")
@@ -3098,7 +3095,7 @@ def main():
 	for jsrc, jpath, jfield, jwant in (
 		("b: x\nb:\n\t- 3\n\tk: 1\n", "b", "b.k", "1"),
 		("b: x\nb: y z\n\t- 3\n\tk: 1\n", "b", "b.k", "1"),
-		("x: v\nx:\n\t- a\n\tg: 2\n", "x[v]", "x.g", "2"),
+		("x: v\nx:\n\t- a\n\tg: 2\n", "x(v)", "x.g", "2"),
 	):
 		jdoc = shcl.Document.parse(jsrc)
 		if jdoc.read_string(jfield).status != shcl.Status.Good:
@@ -3118,7 +3115,7 @@ def main():
 	# canonical text writes the line as a comment and cannot load the list
 	# back, so that save refuses. The source text does, so with no edits the
 	# save that keeps lines writes it as it was.
-	ksrc = "c:\n\ts: 1\nc: [1]\n\tb[*]: 1\n\t- 3\n\ta: 2\n"
+	ksrc = "c:\n\ts: 1\nc: [1]\n\tb(*): 1\n\t- 3\n\ta: 2\n"
 	kdoc = shcl.Document.parse_keep_lines(ksrc, shcl.Strictness.Standard)
 	if kdoc.lost_count() != 2:
 		raise SystemExit(f"the wildcard line and the item: lost {kdoc.lost_count()}")
@@ -3207,6 +3204,58 @@ def main():
 		raise SystemExit("an array setter refused")
 	if adoc.to_canonical() != "l: [b, c]\nz:\n\t- x\n":
 		raise SystemExit(f"got {adoc.to_canonical()!r}")
+
+	test_id("ErysKPJ", "bracket_selectors_are_the_old_spelling")
+	# A selector is written in parens. One in brackets is the old spelling: a
+	# file line is E029 and kept, and a lookup, a setter or a schema path in
+	# brackets is refused. A body starting with `#`, the old index, is refused
+	# too. Same fixture in every runner.
+	odoc = shcl.Document.parse("srv: web\n\tport: 80\nsrv[web]:\n\thost: h\n")
+	ods = odoc.diagnostics()
+	if len(ods) != 1 or ods[0].code != "E029" or ods[0].line != 3:
+		raise SystemExit(f"diagnostics {ods}")
+	if odoc.lost_count() != 0:
+		raise SystemExit(f"lost {odoc.lost_count()}")
+	if odoc.read_string("srv(web).host").value != "h":
+		raise SystemExit(f"srv(web).host = {odoc.read_string('srv(web).host')!r}")
+	if odoc.count("srv") != 1:
+		raise SystemExit(f"srv count {odoc.count('srv')}")
+	if odoc.read_string("srv[web].host").status != shcl.Status.NotFound:
+		raise SystemExit(f"srv[web].host {odoc.read_string('srv[web].host')!r}")
+	if odoc.count("srv[web]") != 0:
+		raise SystemExit(f"srv[web] count {odoc.count('srv[web]')}")
+	for opath, owant in (
+		("srv[web].x", shcl.WriteReason.BadPath),
+		("srv(#0).x", shcl.WriteReason.BadPath),
+		("srv(0).x", shcl.WriteReason.Writable),
+	):
+		if odoc.write_reason(opath) != owant:
+			raise SystemExit(f"write_reason({opath!r}) = {odoc.write_reason(opath)}, want {owant}")
+	if odoc.set_int("srv[web].x", 1):
+		raise SystemExit("a setter took a path in brackets")
+	if not odoc.set_int("srv(web).x", 1):
+		raise SystemExit("a setter refused srv(web).x")
+	if not odoc.to_canonical().startswith("srv[web]:\nsrv: web\n"):
+		raise SystemExit(f"got {odoc.to_canonical()!r}")
+	otok = shcl.Tokens()
+	shcl.tokenize("a(x).b[y].c: 1", ":", False, shcl.Rules.CURRENT, otok)
+	if otok.bracket_selector != 6:
+		raise SystemExit(f"bracket_selector {otok.bracket_selector}, want 6")
+	shcl.tokenize("a(x).b(y).c: 1", ":", False, shcl.Rules.CURRENT, otok)
+	if otok.bracket_selector is not None:
+		raise SystemExit(f"bracket_selector {otok.bracket_selector}, want None")
+	oschema = shcl.Document.parse('field: "srv[*].port"\n')
+	if not any(v.code == "V093" and "parens" in v.message for v in shcl.Document.parse("srv: a\n").validate(oschema)):
+		raise SystemExit("no V093 naming parens")
+
+	test_id("ErysKS0", "init_refuses_a_child_of_an_array_parent")
+	# A parent whose default is an array has no selector a child line can use,
+	# since a selector matches one plain value. Generation refuses it rather
+	# than write a child that makes another instance.
+	aschema = shcl.Document.parse("field: tags\n\trequired: yes\n\tdefault: [a]\nfield: tags.k\n\trequired: yes\n")
+	atext, afaults = shcl.generate(aschema, True)
+	if not any(d.code == "V097" and "no selector spelling" in d.message for d in afaults):
+		raise SystemExit(f"a child of an array parent generated: {atext!r} {afaults}")
 
 	test_id_end()
 	print(f"conformance: {len(cases)} case(s) pass")

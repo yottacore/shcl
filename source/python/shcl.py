@@ -131,7 +131,7 @@ class WriteReason(Enum):
 	BadPath = 1       # empty path, or the scanner rejected it
 	ValueInPath = 2   # the path has a `: value` part; writes take values separately
 	Wildcard = 3      # wildcard selectors are query-only
-	NoSuchIndex = 4   # a `[#k]` instance that does not (and can never) exist
+	NoSuchIndex = 4   # a `(k)` instance that does not (and can never) exist
 	TooDeep = 5       # deeper than the nesting cap; the writer never creates past it
 
 
@@ -1010,8 +1010,9 @@ TMP_NAME_BYTES = 64
 # - A bare name is an ASCII letter, then ASCII letters, digits, `-` and `_`.
 #   A file line's name that breaks only that rule still reads, up to the
 #   separator, a dot, a bracket or a comment, and is marked `misspelled`
-#   (E014). A `[` right after a name opens a selector, whose bare body runs
-#   to the first `]`.
+#   (E014). A `(` right after a name opens a selector, whose bare body runs
+#   to the first `)`. A `[` there is the old selector spelling: read the
+#   same way, to its `]`, and noted, so the parser refuses it (E029).
 # - A value is split on unquoted commas with a blank, a comment or the end
 #   after them, each piece trimmed; any other comma is text (`rw,noatime`).
 #   More than one piece outside brackets is a bare comma, which the parser
@@ -1182,7 +1183,7 @@ class Tokens:
 	tokenized."""
 	__slots__ = (
 		"segments", "sep", "value", "elements", "array", "array_fault", "comment", "fault", "misspelled",
-		"cap", "capped", "src",
+		"bracket_selector", "cap", "capped", "src",
 	)
 	segments: list[SegTok]
 	# Offset of the separator (`:` on a line, `=` in --set); None when the
@@ -1205,6 +1206,9 @@ class Tokens:
 	# Offset of the first bare name that breaks the spelling rule but still
 	# reads, such as `404` or `user name` (E014, with the level held open).
 	misspelled: int | None
+	# Offset of the first selector written in brackets, `x[a]`, the old
+	# spelling (E029). Its body is read as a selector all the same.
+	bracket_selector: int | None
 	# The caller's element cap (0 = none): the scan stops as soon as the
 	# value holds more elements than this, so a capped parse never builds the
 	# array it is going to refuse. Kept across tokenize calls.
@@ -1223,6 +1227,7 @@ class Tokens:
 		self.comment = None
 		self.fault = None
 		self.misspelled = None
+		self.bracket_selector = None
 		self.cap = cap
 		self.capped = False
 		self.src = b""
@@ -1237,6 +1242,7 @@ class Tokens:
 		self.comment = None
 		self.fault = None
 		self.misspelled = None
+		self.bracket_selector = None
 		self.capped = False
 
 	def element_count(self) -> int:
@@ -1253,6 +1259,8 @@ _B_SPACE = 0x20
 _B_DQUOTE = 0x22
 _B_HASH = 0x23
 _B_SQUOTE = 0x27
+_B_LPAREN = 0x28
+_B_RPAREN = 0x29
 _B_STAR = 0x2A
 _B_COMMA = 0x2C
 _B_DOT = 0x2E
@@ -1334,10 +1342,10 @@ def _loose_comma(s, at):
 
 def _scan_piece(s, pos, term, rules, comments, array=False):
 	"""One piece from pos: a value element up to an unquoted comma or comment,
-	or a selector body up to an unquoted `]` (term). Returns the trimmed piece
-	and the offset of what ended it: the terminator, a comment's `#`, or the
-	end of the text. comments is False only for a selector body in a lookup
-	path, where `[#N]` is the index spelling. In a bracket array (array) the
+	or a selector body up to an unquoted `)` or `]` (term). Returns the
+	trimmed piece and the offset of what ended it: the terminator, a comment's
+	`#`, or the end of the text. comments is False only for a selector body in
+	a lookup path, where a `#` opens nothing. In a bracket array (array) the
 	`]` that closes it ends a value element too, and every comma does;
 	elsewhere only a loose one does, 2.x aside."""
 	n = len(s)
@@ -1580,8 +1588,8 @@ def _scan_array(s, from_, open_at, out):
 
 def tokenize(text: str, sep: str, path: bool, rules: Rules, out: Tokens) -> None:
 	"""Tokenize one line (sep = ":") or one lookup path (path: the bare `*`
-	name wildcard is admitted, and a `#` in a selector body is the `[#N]` index
-	rather than a comment); the CLI's --set passes "=". out is cleared and
+	name wildcard is admitted, and a `#` in a selector body opens no comment);
+	the CLI's --set passes "=". out is cleared and
 	reused, so a parse allocates once per document rather than once per line.
 	text is the line after its indent, or the path."""
 	out._clear()
@@ -1638,7 +1646,17 @@ def tokenize(text: str, sep: str, path: bool, rules: Rules, out: Tokens) -> None
 			name = Piece(start, pos, Quote.NONE)
 		pos = _skip_wsp(s, pos)
 		selector = None
-		open_at = pos if pos < n and s[pos] == _B_LBRACKET else None
+		# 2.x wrote a selector in brackets only. Now it is parens, and a
+		# bracket one still reads, to its `]`, so the parser can say why.
+		open_at = None
+		close_b = _B_RBRACKET
+		if pos < n:
+			if s[pos] == _B_LPAREN and rules is Rules.CURRENT:
+				open_at, close_b = pos, _B_RPAREN
+			elif s[pos] == _B_LBRACKET:
+				if rules is Rules.CURRENT and out.bracket_selector is None:
+					out.bracket_selector = pos
+				open_at = pos
 		if open_at is None and rules is Rules.V2 and pos < n and s[pos] == sep_b:
 			q = _skip_wsp(s, pos + 1)
 			if q < n and s[q] == _B_LBRACKET:
@@ -1647,8 +1665,8 @@ def tokenize(text: str, sep: str, path: bool, rules: Rules, out: Tokens) -> None
 			if star:
 				out.fault = (open_at, "selector on a name wildcard")
 				return
-			piece, stop = _scan_piece(s, open_at + 1, _B_RBRACKET, rules, not path)
-			if stop >= n or s[stop] != _B_RBRACKET:
+			piece, stop = _scan_piece(s, open_at + 1, close_b, rules, not path)
+			if stop >= n or s[stop] != close_b:
 				out.fault = (open_at, "unterminated selector")
 				return
 			if piece.end == piece.start and piece.quote is Quote.NONE:
@@ -2075,8 +2093,8 @@ def _single_scalar(v):
 
 
 def _disp_key(v):
-	"""The predicate a `[value]` selector matches with: the display form, which
-	is built from logical strings, so `["q◉DQUOTE◉uote"]` finds `'q"uote'` -
+	"""The predicate a `(value)` selector matches with: the display form, which
+	is built from logical strings, so `("q◉DQUOTE◉uote")` finds `'q"uote'` -
 	a logical-string match, not spelling against spelling."""
 	return v.display()
 
@@ -2682,8 +2700,9 @@ class _PathError(Exception):
 
 
 def _index_shape(body):
-	# The spelling of an index selector - an optional `#`, an optional `+`, then
-	# digits - whatever its size. The grammar says 1*DIGIT, with no upper bound.
+	# The spelling of an index selector - an optional `+`, then digits - whatever
+	# its size. The grammar says 1*DIGIT, with no upper bound. The optional `#`
+	# is 2.x's `[#N]`, which migrate still reads.
 	b = body[1:] if body[:1] == "#" else body
 	b = b[1:] if b[:1] == "+" else b
 	return bool(b) and _all_ascii_digits(b)
@@ -2716,14 +2735,10 @@ def _selector_of(p, s):
 		return ("val", body, True)
 	if body == "*":
 		return ("wild", None)
-	if body.startswith("#"):
-		n = _parse_uint(body[1:])
-		if n is not None:
-			return ("idx", n)
 	n = _parse_uint(body)
 	if n is not None:
 		return ("idx", n)
-	if _index_shape(body):
+	if not body.startswith("#") and _index_shape(body):
 		# All digits but past u64: an index no instance can have, not a
 		# value selector that would create one on a write.
 		return ("idx", 2**64 - 1)
@@ -2810,7 +2825,7 @@ class _Fault:
 # Specification). A field value: spaces are fine, and a loose comma splits
 # it. A list item: as a value, but a loose colon is judged later. An element
 # in `[]`: no whitespace, and every comma splits. A selector body: no
-# whitespace, colon, comma or bracket either.
+# whitespace, colon, comma, bracket or paren either, and no `#` to start it.
 _BARE_VALUE = "value"
 _BARE_ITEM = "list item"
 _BARE_ELEMENT = "array element"
@@ -2827,11 +2842,17 @@ def _bare_trouble(raw, kind):
 	"""What a bare piece may not hold (E025): the first such character, named
 	with the fix for the message, or None."""
 	strict = kind in (_BARE_ELEMENT, _BARE_SELECTOR)
+	# The old `[#N]` index. A file line reads that `#` as a comment, so only
+	# a lookup path gets here with one.
+	if kind == _BARE_SELECTOR and raw.startswith("#"):
+		return "a '#' at the start of a bare selector; an index is a bare number, x(0), and a value starting with '#' is quoted"
 	for i, c in enumerate(raw):
 		if c == "'" or c == '"' or c == "`":
 			trouble = "a quote"
 		elif c == "[" or c == "]":
 			trouble = "a bracket"
+		elif (c == "(" or c == ")") and kind == _BARE_SELECTOR:
+			trouble = "a paren"
 		elif c == "\t" and not strict:
 			trouble = "a tab"
 		elif c == " " and strict:
@@ -2952,8 +2973,15 @@ def _name_fault(tok):
 	the name. A line with no colon that is one name or path, `404` included,
 	is the missing colon (E015), so the name rule asks only of a line that has
 	one. A blank in a bare name with no colon could be a name and a value, so
-	that line is not guessed at (spec.md, Error handling philosophy)."""
+	that line is not guessed at (spec.md, Error handling philosophy). A
+	selector in brackets comes first, since it is what most often makes the
+	rest look wrong. Its line is kept, and holds its level open as the path it
+	would read as in parens, when that reads."""
 	s = tok.src
+	if tok.bracket_selector is not None:
+		f = _Fault("E029", "selector in brackets; write it in parens, name(value), since brackets are only for arrays", _path_fault(tok, s) is None)
+		f.at = tok.bracket_selector
+		return f
 	f = _path_fault(tok, s)
 	if f is not None:
 		return f
@@ -3052,16 +3080,22 @@ def _path_of(tok, s):
 	return segments, s[tok.value[0]:tok.value[1]].decode("utf-8", "surrogatepass")
 
 
+# Why a lookup path with a selector in brackets is refused.
+_BRACKET_LOOKUP = "selector in brackets; write it in parens, name(value)"
+
+
 def _scan_lookup(inp):
-	"""Scan a lookup path `a . b [sel] . c`: the document-line spelling plus
+	"""Scan a lookup path `a . b (sel) . c`: the document-line spelling plus
 	the bare `*` segment (the name wildcard - any child name), which document
 	lines never take; only lookups (reads, the writer probe, schema paths)
-	do. Whitespace around dots, colons and brackets is insignificant. A path
-	a file line could not hold is refused the same: a bad escape, or a bare
-	selector body with whitespace, a quote, a colon, a comma or a bracket in it
-	(E025)."""
+	do. Whitespace around dots, colons and parens is insignificant. A path
+	a file line could not hold is refused the same: a selector in brackets
+	(E029), a bad escape, or a bare selector body with whitespace, a quote, a
+	colon, a comma, a bracket, a paren or a leading `#` in it (E025)."""
 	tok = Tokens()
 	tokenize(inp, ":", True, Rules.CURRENT, tok)
+	if tok.bracket_selector is not None:
+		raise _PathError(_BRACKET_LOOKUP)
 	f = _path_fault(tok, tok.src)
 	if f is not None:
 		raise _PathError(f.msg)
@@ -3148,7 +3182,7 @@ class _Parser:
 		# Pure lookup accelerator for _select_or_create; children keeps the
 		# order. Keys are _merge_key tuples, so no key text is built or stored.
 		self.child_map: list = [None]
-		# Per-node (name, display) -> first matching child: the `[value]` selector
+		# Per-node (name, display) -> first matching child: the `(value)` selector
 		# accelerator (its predicate is display(), a different and non-injective
 		# key from child_map's). Same first-wins discipline, same mutation sites,
 		# same lazy allocation.
@@ -3739,7 +3773,7 @@ class _Parser:
 					disc = _cell([_new_element(sel[1])])
 					cur = self._select_or_create(cur, seg.name, seg.name_src, disc, line)
 				if is_last and not value.is_empty():
-					# `a.b[X]: v` - the discriminator is the value; a second
+					# `a.b(X): v` - the discriminator is the value; a second
 					# value has nowhere unambiguous to go.
 					self._refuse(line, "E002", f"value after selector on '{_diag_name(seg.name)}' ignored", OUT_VALUE_DROPPED, indent)
 			elif sel is not None and sel[0] == "idx":
@@ -6097,7 +6131,7 @@ class Document:
 				else:
 					nxt.extend(self._children_named(node, seg.name))
 			if seg.star:
-				# Name wildcard: same per-slot split as `[*]`, over every child.
+				# Name wildcard: same per-slot split as `(*)`, over every child.
 				rest = segs[i + 1:]
 				slots = []
 				for inst in nxt:
@@ -6287,7 +6321,7 @@ class Document:
 
 	def instance_paths(self) -> list[str]:
 		"""paths() one instance at a time: every binding's path in file order,
-		with `[#i]` on each segment whose name repeats under its parent, so
+		with `(i)` on each segment whose name repeats under its parent, so
 		each path reads exactly one node and a repeated block is walked
 		instance by instance. Segments are written as paths() writes them."""
 		out: list[str] = []
@@ -6309,7 +6343,7 @@ class Document:
 				path = seg if not prefix else prefix + "." + seg
 				if total[name] > 1:
 					i = at.get(name, 0)
-					path += f"[#{i}]"
+					path += f"({i})"
 					at[name] = i + 1
 				paths.append((c, path))
 			stack.extend(reversed(paths))
@@ -6395,7 +6429,7 @@ class Document:
 		if len(segments) > MAX_DEPTH:
 			return (WriteReason.TooDeep, None)
 		# The probe walk _place() validates with: once it falls off the existing
-		# tree, a later `[#k]` can never match (fresh intermediates are created
+		# tree, a later `(k)` can never match (fresh intermediates are created
 		# childless), so an index segment past that point is unresolvable.
 		probe = ROOT
 		for seg in segments:
@@ -6442,7 +6476,7 @@ class Document:
 	def _place(self, path, setter):
 		"""Walk (creating as needed) to the node a write targets. A trailing
 		name with no selector hits the first same-named instance (or a new one);
-		a `[value]` selector selects the matching instance or creates it; `[#k]`
+		a `(value)` selector selects the matching instance or creates it; `(k)`
 		must already exist. None = path unusable for a write (write_reason()
 		says why). Validation runs first, so a doomed path leaves no
 		half-created intermediates behind. A setter creating a field deals
@@ -7862,7 +7896,7 @@ class Document:
 		# Resolution contexts: the whole document for a plain path; each
 		# enclosing instance for the part of a path after a wildcard. required/
 		# repeat evaluate per context (anchor line 0 = document scope), so
-		# `server[*].port` + required means a port under EACH server -
+		# `server(*).port` + required means a port under EACH server -
 		# vacuously true with no servers.
 		# Explicit stack of (start, segment offset, anchor), children pushed in
 		# reverse so contexts come out in the recursive order: one frame per
@@ -10035,7 +10069,7 @@ def _same_moment(a, b):
 	# Two datetimes naming the same moment, whatever the spelling. The struct
 	# mirrors what was written, so 12:00:00Z and 12:00:00+00:00 are different
 	# values field by field while naming one time, and 12:00:00 and 12:00:00.0
-	# differ only in written precision. A [value] selector matches on text, but
+	# differ only in written precision. A (value) selector matches on text, but
 	# an allowed set is about the value, so it compares here. An absent zone is
 	# local and matches no zone at all - that is the one spelling difference
 	# that is a real difference.
@@ -10140,7 +10174,10 @@ def _parse_field(schema, f, faults):
 		return None
 	try:
 		segs, value_text = _scan_lookup(path)
-	except _PathError:
+	except _PathError as e:
+		if e.args[0] == _BRACKET_LOOKUP:
+			_vdiag(faults, node.line, "V093", f"bad schema path: {_schema_text(path)}; {_BRACKET_LOOKUP}")
+			return None
 		segs, value_text = None, None
 	if segs is None or value_text is not None:
 		_vdiag(faults, node.line, "V093", f"bad schema path: {_schema_text(path)}")
@@ -10453,10 +10490,10 @@ def generate(schema: Document, no_banner: bool = False) -> tuple[str, list[Diagn
 	must-exist wildcard path
 	whose parent gets materialized by another live line is generated too, in
 	dotted form - otherwise the file would fail the very schema that produced
-	it - and remaining wildcard or `[#N]` paths (which cannot be materialized)
+	it - and remaining wildcard or index paths (which cannot be materialized)
 	are listed in a trailing comment block. A path whose last segment selects by
 	value is written without that selector when it has a `default`, since a
-	value after the selector would be ignored: `env[prod]` with `default: prod`
+	value after the selector would be ignored: `env(prod)` with `default: prod`
 	is `env: prod`. The output always loads clean and
 	validates clean against its schema, except a repeat lower bound of 2+
 	(identical generated lines would merge, so the shortfall is reported). The
@@ -10485,8 +10522,8 @@ def generate(schema: Document, no_banner: bool = False) -> tuple[str, list[Diagn
 	def has_wild(c):
 		return any(s.selector is not None and s.selector[0] == "wild" for s in c.segs)
 
-	# `[#N]` needs a pre-existing instance and its `#` would start a comment on a
-	# binding line. A path deeper than a document may nest cannot be generated
+	# An index selector needs a pre-existing instance, which a starter config
+	# has none of. A path deeper than a document may nest cannot be generated
 	# either: the line would draw E016 on the way back in. A newline in a name or
 	# a by-value selector is writable, since both are written escaped.
 	# The reason doubles as the predicate, so the refusal below can never name a
@@ -10496,7 +10533,7 @@ def generate(schema: Document, no_banner: bool = False) -> tuple[str, list[Diagn
 			return "nests past the depth cap"
 		for s in c.segs:
 			if s.selector is not None and s.selector[0] == "idx":
-				return "a [#N] selector needs an instance that does not exist yet"
+				return "an index selector needs an instance that does not exist yet"
 			if s.star:
 				return "a * name segment has no name to write"
 		return ""
@@ -10531,7 +10568,7 @@ def generate(schema: Document, no_banner: bool = False) -> tuple[str, list[Diagn
 	# and a dotted child names the empty-valued instance instead - so `srv:
 	# web` followed by `srv.port:` is two `srv` nodes, and the child never
 	# ends up where the schema looks. Any line under such a parent selects it by
-	# its value: `srv[web].port:`.
+	# its value: `srv(web).port:`.
 	# A filled wildcard emits a valued line of its own, so it belongs here too.
 	# First wins, as the line it selects does: of two lines on one path the
 	# first spelling is the one written, and its value is the instance.
@@ -10573,10 +10610,10 @@ def generate(schema: Document, no_banner: bool = False) -> tuple[str, list[Diagn
 		return "", blocked
 	out = []
 	wild = []
-	# Dropping a trailing `[*]` can render the same line a concrete sibling
-	# already wrote; the first spelling wins. A line from a dropped `[value]`
+	# Dropping a trailing `(*)` can render the same line a concrete sibling
+	# already wrote; the first spelling wins. A line from a dropped `(value)`
 	# selector is its own instance, so two of them with different values are
-	# both written: `env[prod]` and `env[dev]` are two `env` lines. Each path
+	# both written: `env(prod)` and `env(dev)` are two `env` lines. Each path
 	# maps to None once a plain line wrote it, or to the values written so far.
 	emitted: dict = {}
 	# A child whose valued parent has no selector spelling cannot be written.
@@ -10831,13 +10868,13 @@ def _gen_selector_text(v):
 
 
 def _selector_reads_back(body, text, quoted):
-	"""Whether body between brackets on a file line reads back as a value
+	"""Whether body between parens on a file line reads back as a value
 	selector for text, quoted or bare as asked."""
 	# The tokenizer reads one line and never sees a line end, so text with a
 	# real line break would read back here and then be written across two lines,
 	# which is not the same path. A file line cannot hold one, so refuse and let
 	# the escaped spelling be tried instead.
-	line = f"x[{body}]:"
+	line = f"x({body}):"
 	if "\n" in line or "\r" in line:
 		return False
 	tok = Tokens()
@@ -10896,7 +10933,7 @@ def _gen_path_text(segs, parent_values):
 			body = _gen_selector_text(v)
 			if body is None:
 				return None
-			out.append(f"[{body}]")
+			out.append(f"({body})")
 			continue
 		if s.selector is not None:
 			if s.selector[0] == "val":
@@ -10905,13 +10942,13 @@ def _gen_path_text(segs, parent_values):
 				text = s.selector[1]
 				quoted_body = _quote_text(text)
 				if not s.selector[2] and _selector_reads_back(text, text, False):
-					out.append(f"[{text}]")
+					out.append(f"({text})")
 				elif _selector_reads_back(quoted_body, text, True):
-					out.append(f"[{quoted_body}]")
+					out.append(f"({quoted_body})")
 				else:
 					return None
 			elif s.selector[0] == "idx":
-				out.append(f"[#{s.selector[1]}]")
+				out.append(f"({s.selector[1]})")
 			# a wildcard selector is dropped
 	return "".join(out)
 
