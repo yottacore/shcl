@@ -444,7 +444,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - Back up and rewrite a config file when a program's shcl upgrade breaks it
 	- ID: 2026100313461649
 	- Type: Feature
-	- Status: Queued
+	- Status: Started
+	- Needs local test suite run?: the full `--ci`, and a hosted run for the 3 windows migrate rows and the backup's DACL, once the ports are in.
 	- Priority: High
 	- Opened: 20261003-134616
 	- Opened by: JC
@@ -472,6 +473,33 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261003: it covers beta-stamped Format 3 files too, when they can be told apart. This reopens the scope of 2026100115403385.
 	- Note: 20261005, waits on 2026100207032800, since its rewrite goes through `migrate`, which that item's chunk C changes. Work it right after chunk C.
 	- Estimated effort: High
+	- Progress log:
+		- 20261007: split by binding. The Rust reference first, on `upgbak` off `valsyn`: library call, CLI, docs and cli-regress rows. Then Go, Python, and C with the C++ interface, one worker each, off `upgbak`.
+		- 20261007: the Rust part is in.
+			- `upgrade_file(path, from_v2)` backs up and rewrites a file that does not load clean. `upgrade(text, from_v2)` is the text half. `backup_file_name(file, format)` and `write_backup(file, text, format)` are the backup half, public so a program that writes its own new text can use the same name. `UpgradeError` has `NotFound`, `Ambiguous`, `BackupTaken` and `Io`.
+			- `shcl upgrade FILE [--write] [--from-2x]`. Without `--write` it prints the fresh text. Exit 7 for text that reads two ways, 8 for a taken backup name or a failed read or write.
+			- `migrate --write` uses the same backup name now. `SHCL_TEST_CLOCK` stands in for the clock, as in the setter note.
+			- Beta-stamped Format 3 files are left out, since they can't be told apart. A beta wrote the same Format line as a release, and from 20260924 on the same info block byte for byte. A file `migrate` stamped has only the Format line. Guessing from the content would rewrite a current file with a typo, and `a,b` would become an array. So a file naming Format 3 is never touched. Noted on 2026100115403385.
+		- Calls made, all reversible:
+			- Names: `upgrade_file`, `upgrade`, `backup_file_name`, `write_backup`, and the CLI's `upgrade`. `backup_name` was taken by a private windows helper.
+			- "Loads clean" is no error diagnostics; hints are fine. A file whose Format line names an older format is left alone too when it loads clean. Nothing writes such a line yet, but at Format 4 it needs a look.
+			- A file with no Format line gets `format-v2` in the backup name, even when it is an unstamped 3.0 file with a typo.
+			- The fresh file is the `fmt` form of the migrated text, with the block `init` writes. 2.x's own `#` block comes off, so there is only one.
+			- Lines and values the fresh file can't hold don't stop the write, since the backup keeps them. They are counted and printed. `migrate --write` still refuses at 7.
+			- The backup is an exclusive-create copy, not a rename, since a rename on POSIX replaces whatever is at the new name. The original stays at the path until the save's temp file and rename replace it. A file that changed since it was read is not written.
+			- Without `--write`, a current file is printed back, as `migrate` does. A missing file is exit 8; the library returns `NotFound`.
+		- Left for the ports:
+			- Mirror `upgrade`, `upgrade_file`, `backup_file_name`, `write_backup`, the error type and the CLI subcommand. The help text is byte-identical across the CLIs, so copy it from `main.rs`.
+			- `drop_banners` takes a mark, `#` for 2.x's block, and `set_banner` goes through `swap_banner(on, v2)`. The clock is `clock_now()`, beside `note_stamp()`.
+			- Each CLI's `migrate --write` drops `_old_v2` for `backup_file_name`.
+			- cli-regress `Er5qICu`, the `migrate-*` save cases, the 3 windows migrate rows and `Er5qICw` expect the new name, so Go, Python and C fail them until ported. The per-binding clear in cli-regress and the one in sanitize-c remove both names. Drop `_old_v2` from both once all four have moved.
+			- Rows `Es2Rg1E` to `Es2Rg1P` and `Es2RuBA` run against every binding. Each port gets its own twins of the 6 Rust tests in `tests/upgrade.rs`.
+			- The changelog line doesn't say "in every binding" yet. Add that with the last port.
+			- The C++ interface wraps the new C calls (`check-veneer.bash`).
+	- Test case: Rust `tests/upgrade.rs`, `Es2R4RP` to `Es2R4ch`; cli-regress `Es2Rg1E` to `Es2Rg1P` and `Es2RuBA`. `Es2R4RP`, `Es2R4TW` and `Es2R4ch` each fail with their part of the change taken out.
+	- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, the upgrade tests on windows-gnu under wine, cli-regress for Rust, check-migrate, check-docs, check-completions, test-ids check, shellcheck, markdownlint, and the 2,000,000 release fuzz (all 25). shell-regress fails the same 2 as on `valsyn`. Over the 203 corpus inputs, `upgrade --from-2x` rewrote 71, each one a fixpoint of `upgrade` and of `fmt`, with the same paths as `migrate --from-2x`.
+	- Branch: `upgbak`
+	- Commit: `60d0196c`
 
 - A CICD test that makes old shcl files and checks the automatic conversion
 	- ID: 2026100313461650
@@ -525,6 +553,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: 20261002, an open point in the design for 2026100207032800, which changes much more of format 3. Proposed there: pre-release files are on their own, per the 2.x low-stakes rule. Design: `project/design_docs/value-syntax.md`.
 	- Note: 20261002, the proposal was OK'd. What is left is saying so in the docs.
 	- Note: 20261003, 2026100313461649 now brings beta-stamped files forward when they can be told apart. This item waits on it.
+	- Note: 20261007, they can't be told apart. A beta wrote the same Format line as a release, and from 20260924 on the same info block. So 2026100313461649 leaves a file naming Format 3 alone, and what is left here is saying so in the docs.
 	- Opened: 20261001-154033
 	- Opened by: silkterm feedback
 	- Related IDs: 2026100115323227
