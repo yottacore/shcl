@@ -109,6 +109,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261006: answered: spaces are allowed in a bare value and a `- ` item, but not inside `[]` or a selector. A bare colon or comma needs a character after it, so `rw,noatime` and `:0` stay bare and `ports: 80, 443` is an error. Built in Rust on valsyn, with spec.md and the grammar. The 2M fuzz passes there. Next: the rest of chunk C, then the Go, Python and C ports.
 		- 20261006: on valsyn, `migrate` follows the new rules, and check-migrate passes there. Next: design.md and the changelog, then 2026100610073400, then the Go, Python and C ports.
 		- 20261006: on valsyn, design.md and the changelog caught up, and 2026100610073400 is in for Rust and the docs. Next: the Go, Python and C ports.
+		- 20261006: on valsyn, the Go port's parts 1 and 2 (values, lists) and the Python port's part 1 (values) are in. Go fails only parens, `E029` and `migrate` cases now. Next: Go part 3, Python parts 2 and 3, then C.
 	- Decisions:
 		- 20261002: idea 3, with the changes listed in the design doc. Open points and their proposed answers are under its Roadmap.
 		- 20261002: a quote anywhere in a bare value is an error, and a bare field name starts with a letter. Dates, times, durations and sizes without spaces stay bare.
