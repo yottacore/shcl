@@ -1707,7 +1707,7 @@ def do_migrate(o):
 		sys.stderr.write(f"{file}: {m.ambiguous} value(s) read one way under 2.x and another under these rules, and the file does not say which it was written for; left as written (--from-2x rewrites them)\n")
 		rc = 7
 	if m.lost != 0:
-		sys.stderr.write(f"{file}: {m.lost} line(s) bound a value under 2.x that nothing binds now: bracket text after the colon or a line break in a Windows path, which have no spelling here (--lossy overrides)\n")
+		sys.stderr.write(f"{file}: {m.lost} line(s) bound a value under 2.x that nothing binds now: bracket text after the colon, a selector holding a comma, or a comma list with lines under it, which have no spelling here (--lossy overrides)\n")
 		if not o.lossy:
 			rc = 7
 	# With nothing ambiguous, the stamp is left off only when a raw block runs
