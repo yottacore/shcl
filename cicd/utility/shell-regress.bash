@@ -209,7 +209,7 @@ fTest EpHNNhw 20260904-39-wrappers-match-the-binary
 ##	code - across four ways of calling them. Item 16 (the script form ending the
 ##	caller's shell) lived in that gap for a release.
 {
-	printf 'a: 1\nname: two words\nblk:\n\t~~~txt\n\tbody\n\n\t~~~\n-dash: 5\n' > "${tmpDir}/w.shcl"
+	printf 'a: 1\nname: two words\nblk:\n\t~~~txt\n\tbody\n\n\t~~~\n"-dash": 5\n' > "${tmpDir}/w.shcl"
 	##	Dot-sourcing through a file, and splatting real argv into the function,
 	##	so bash's quoting never has to survive a PowerShell -Command string.
 	#  shellcheck disable=2016  ## PowerShell's own $variables.
@@ -457,7 +457,7 @@ if fHave pwsh; then
 	##	it before a dot-sourced function sees its arguments; the quoted spelling
 	##	is the documented way through. Both halves are pinned, so a PowerShell
 	##	release that changes either shows up here.
-	printf -- '-dash: 5\n' > "${tmpDir}/dash.shcl"
+	printf -- '"-dash": 5\n' > "${tmpDir}/dash.shcl"
 	out="$(pwsh -NoProfile -Command ". '${repoDir}/source/powershell/shcl.ps1'; \$env:SHCL_BIN = '${cli}'; shcl get -- '${tmpDir}/dash.shcl' '-dash'" 2>&1 || true)"
 	[[ "${out}" == *"unknown option"* ]] || fBad "pwsh now hands a bare -- to the sourced function; the wrapper note is stale: ${out@Q}"
 	out="$(pwsh -NoProfile -Command ". '${repoDir}/source/powershell/shcl.ps1'; \$env:SHCL_BIN = '${cli}'; shcl get '--' '${tmpDir}/dash.shcl' '-dash'" 2>&1 || true)"
