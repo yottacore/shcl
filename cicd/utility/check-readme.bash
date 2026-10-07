@@ -294,6 +294,18 @@ fi
 ((nTxBad == 0)) || exit 1
 fTestEnd
 echo "check-readme: the ${nCases} transcript command(s) print what the README shows"
+
+##	The Escapes sample went in with a bad escape that nothing read.
+fTest Es3cEBF escapes-sample
+awk '/^## Escapes/ { f = 1 } f && /^~~~+text$/ { b = 1; next } b && /^~~~+$/ { exit } b' "${readme}" > "${tmpDir}/escapes.shcl"
+[[ -s "${tmpDir}/escapes.shcl" ]] || { echo "check-readme: the Escapes sample is gone from ${readme}" >&2; exit 1 ;}
+escOut="$("${cli}" check "${tmpDir}/escapes.shcl" 2>&1 || true)"
+if [[ "${escOut}" != "ok (0 diagnostic(s))" ]]; then
+	echo "check-readme: the Escapes sample does not load clean:" >&2
+	printf '%s\n' "${escOut}" | sed 's/^/	/' >&2
+	exit 1
+fi
+fTestEnd
 echo "check-readme: OK"
 
 ##	History:
@@ -309,3 +321,4 @@ echo "check-readme: OK"
 ##		2026-09-20  The Rust and Python examples build too, and all four that
 ##		            save are run and their file compared with the README's.
 ##		2026-09-26  The C++ example, built apart from its implementation file.
+##		2026-10-07  The Escapes sample has to load clean.

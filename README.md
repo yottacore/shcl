@@ -315,7 +315,7 @@ Field names are case-insensitive. Repeated paths merge. `site` here is not one k
 
 ## Escapes
 
-Escapes work differently than in most formats, and more predictablye. A backslash is plain text everywhere, so a Windows path goes in as typed, quoted or not. (JSON, YAML and TOML all read the `\t` and `\n` in `"C:\temp\new"` as a tab and a line break, and the path quietly breaks.)
+Escapes work differently than in most formats, and more predictably. A backslash is plain text everywhere, so a Windows path goes in as typed, quoted or not. (JSON, YAML and TOML all read the `\t` and `\n` in `"C:\temp\new"` as a tab and a line break, and the path quietly breaks.)
 
 This "escape problem" is as old as computer text. It's a fix to a problem that eventually caused more problems than it solved - for something most people rarely need. It has three main causes:
 
@@ -333,6 +333,8 @@ SHCL avoids the whole problem. It has 3 easy ways to write a problem character, 
 
 3. The SHCL escape mark `◉`, which begins and ends a finite list of escaped characters (including itself).
 
+Examples:
+
 ~~~~text
 # No surprise escapes here.
 backup-dir: C:\temp\new
@@ -342,8 +344,8 @@ motd: "Back soon.◉NEWLINE◉◉TAB◉Sorry for the wait."
 
 demo-escapes:
 	# As before, these values here are returned by SHCL with the escapes properly interpreted.
-	emoji:  "This is a smiley emoji: ◉U+U+1F600◉."
-	escape: "This is the SHCL escape character: ◉ESCAPE◉"
+	emoji:  "This is a smiley emoji: ◉U+1F600◉."
+	escape: "This is the SHCL escape character: ◉ESCAPE_CHAR◉"
 
 help-text:
 	# This text between the fenced block is given to the program without interpretation.
@@ -356,6 +358,8 @@ help-text:
 # This is returned as a literal string for the calling program to deal with, as it requested.
 color: `\x1b[31m`
 ~~~~
+
+The full list of escapes is in [the spec](project/spec.md#escapes).
 
 ## Installation
 
