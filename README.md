@@ -315,42 +315,47 @@ Field names are case-insensitive. Repeated paths merge. `site` here is not one k
 
 ## Escapes
 
-Escapes work differently than in most formats, and more consistently. A backslash is plain text everywhere, so a Windows path goes in as typed, quoted or not. JSON, YAML and TOML all read the `\t` and `\n` in `"C:\temp\new"` as a tab and a line break, and the path quietly breaks.
+Escapes work differently than in most formats, and more predictablye. A backslash is plain text everywhere, so a Windows path goes in as typed, quoted or not. (JSON, YAML and TOML all read the `\t` and `\n` in `"C:\temp\new"` as a tab and a line break, and the path quietly breaks.)
 
-This "escape problem" is as old as computer text. It's a fix that causes more problems than it solves, for something most people rarely need. It comes from 3 things:
+This "escape problem" is as old as computer text. It's a fix to a problem that eventually caused more problems than it solved - for something most people rarely need. It has three main causes:
 
-1. A common keyboard character starts escape sequences, even though most text doesn't need them.
+1. A common keyboard character starts escape sequences, even though overwhelmingly most text doesn't need to be escaped.
 
-2. There's no escape terminator. So either an escape is one character after the backslash, and that character has to mean something too, or it's hard to tell where the escape ends. In C, `"\x41BC"` is one escape, not `A` followed by `BC`.
+2. There's no escape terminator. So either an escape is limited to one character after the backslash - and it has to be meaningful somehow - or it's hard to tell where the escape ends. (For example in C, `"\x41BC"` is one escape, not an encoded `A` followed by `BC`.)
 
-3. There's no clear, uniform way to escape the escape character itself. Matching 2 backslashes with a regex in a string literal takes `\\\\\\\\`.
+3. There's no clear, uniform way to escape the escape character itself. (For example, matching 2 backslashes with a regex in a string literal requires `\\\\\\\\`.)
 
-SHCL avoids the whole problem. It has 3 easy ways to write a problem character, and context usually suggests which one to use:
+SHCL avoids the whole problem. It has 3 easy ways to write a problem character, and context suggests the easiest one to use:
 
 1. A fenced block, as in Markdown. Everything in it is passed as-is, tabs and line breaks included.
 
-2. A value in backticks, also as in Markdown. It's never decoded, and unlike quotes, `◉` is a plain character inside it. It's also a handy signal that the program reading the value does the interpreting, not SHCL.
+2. A value in backticks, also as in Markdown. It's never decoded, and unlike quotes, `◉` is a plain character inside it. It's also a handy signal to readers that the program reading the value does the interpreting, not SHCL.
 
-3. The SHCL escape mark `◉`, which names a character inside any other value.
+3. The SHCL escape mark `◉`, which begins and ends a finite list of escaped characters (including itself).
 
 ~~~~text
+# No surprise escapes here.
 backup-dir: C:\temp\new
 
+# Deliberate and obvious escapes, if you don't want to use a fenced block
 motd: "Back soon.◉NEWLINE◉◉TAB◉Sorry for the wait."
 
-label: "a◉U+200B◉b"
+demo-escapes:
+	# As before, these values here are returned by SHCL with the escapes properly interpreted.
+	emoji:  "This is a smiley emoji: ◉U+U+1F600◉."
+	escape: "This is the SHCL escape character: ◉ESCAPE◉"
 
 help-text:
+	# This text between the fenced block is given to the program without interpretation.
 	~~~
 	The system may need one or more of:
 		- A reboot
 		- Some refreshing water
 	~~~
 
+# This is returned as a literal string for the calling program to deal with, as it requested.
 color: `\x1b[31m`
 ~~~~
-
-`backup-dir` reads back exactly as typed. `◉NEWLINE◉` turns into a line break on read, and `◉U+200B◉` names a character by its Unicode code point, here a zero-width space. `fmt` writes any character a reader couldn't see that way, so a value can't hide one. A name not on the list is an error on its line, never a guess. The `◉` isn't on a keyboard, so nobody types it by accident. Programs write it, and people copy it from a comment or the docs. The program gets `color` as `\x1b[31m`, as written. The full list is in [the spec](project/spec.md#escapes).
 
 ## Installation
 
