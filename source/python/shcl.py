@@ -71,7 +71,14 @@ __all__ = [
 	"StatusError",
 	"Strictness",
 	"Tokens",
+	"Upgrade",
+	"UpgradeAmbiguous",
+	"UpgradeBackupTaken",
+	"UpgradeError",
+	"UpgradeFailed",
+	"UpgradeNotFound",
 	"WriteReason",
+	"backup_file_name",
 	"format_float",
 	"format_version",
 	"generate",
@@ -85,6 +92,9 @@ __all__ = [
 	"suppress_declared_repeats",
 	"tokenize",
 	"tokenize_value",
+	"upgrade",
+	"upgrade_file",
+	"write_backup",
 	"write_file_atomic",
 ]
 
@@ -2425,6 +2435,72 @@ def _migrate_text(text, from_v2, stamp):
 	return Migration("".join(out), ambiguous=st.ambiguous, lost=st.lost)
 
 
+class Upgrade:
+	"""What upgrade() made of a document, and upgrade_file() of a file.
+
+	text: the fresh file's text, or the input when current or ambiguous.
+	current: the input loads with no error under these rules and, with
+	from_v2, migrates to the same text, or it names this format, so it is left
+	as it is. A beta build of 3.0 stamped the same Format line as a release,
+	so a beta file is current here too. format: the format the input was
+	written for, which goes in the backup's name: what its Format line names,
+	else 2. ambiguous: as Migration.ambiguous; nonzero means the text reads
+	two ways and nothing is written. lost: lines and values of the input the
+	fresh text does not carry over, the ones 2.x bound that nothing binds now
+	and the ones the load of the migrated text drops. The backup still has
+	them. diagnostics: what loading the input found, which is why it needed
+	the upgrade unless it loaded clean and from_v2 said it reads as 2.x; empty
+	when current. backup: where upgrade_file() put the original; empty from
+	upgrade(), and when nothing was written."""
+
+	__slots__ = ("text", "current", "format", "ambiguous", "lost", "diagnostics", "backup")
+
+	def __init__(self, text: str, current: bool, format: int) -> None:
+		self.text = text
+		self.current = current
+		self.format = format
+		self.ambiguous = 0
+		self.lost = 0
+		self.diagnostics: list[Diagnostic] = []
+		self.backup = ""
+
+
+def upgrade(text: str, from_v2: bool) -> Upgrade:
+	"""A config file written for an older format, made over for this one: the
+	input run through migrate_unstamped(), then written the way `fmt` writes
+	it, with any old info block swapped for the one `init` writes. This is
+	the one library call that writes the block. A file that names this format
+	comes back current and untouched, and so does one that loads with no
+	error under these rules, since a program calling this on every start must
+	never rewrite a good file. from_v2 is migrate's: the file can only have
+	been written for 2.x. Then a file that loads clean is still made over
+	when migrate would change it, as it would `p: a,b`, an array under 2.x and
+	one string now."""
+	version = format_version(text)
+	up = Upgrade(text, True, version if version is not None else 2)
+	if version is not None and version >= FORMAT_MAJOR:
+		return up
+	before = Document.parse(text)
+	clean = before.error_count() == 0
+	if clean and not from_v2:
+		return up
+	m = _migrate_text(text, from_v2, False)
+	# A 2.x file can load clean and still read differently now, as `a,b`
+	# does. One migrate leaves as it was has nothing to do.
+	if clean and m.text == text:
+		return up
+	up.current = False
+	up.diagnostics = before.diagnostics()
+	up.ambiguous = m.ambiguous
+	if m.ambiguous != 0:
+		return up
+	fresh = Document.parse(m.text)
+	up.lost = m.lost + fresh.lost_count()
+	fresh._swap_banner(True, True)
+	up.text = fresh.to_canonical()
+	return up
+
+
 def _splice(s, edits):
 	"""Apply edits, each (start, end, replacement) in bytes, to the line's
 	bytes."""
@@ -4624,9 +4700,14 @@ def _note_stamp():
 	"""Local time to the second, with the zone, for a setter's note on a line
 	it commented out. SHCL_TEST_CLOCK stands in for the system clock and zone,
 	so tests can pin the text: "YYYY-mm-DD HH:MM:SS OFFSET_MINUTES [NAME]"."""
-	clock = _test_clock(os.environ.get("SHCL_TEST_CLOCK", ""))
-	when, offset, name = clock if clock is not None else _local_clock()
+	when, offset, name = _clock_now()
 	return f"{when} {_zone_label(offset, name)}"
+
+
+def _clock_now():
+	"""The local time, its offset and zone name, or SHCL_TEST_CLOCK's."""
+	clock = _test_clock(os.environ.get("SHCL_TEST_CLOCK", ""))
+	return clock if clock is not None else _local_clock()
 
 
 def _test_clock(spec):
@@ -5328,28 +5409,32 @@ def _keep_lines(src, doc):
 	return None
 
 
-def _drop_banners(leads):
+def _drop_banners(leads, mark):
 	"""Take the info block out of `leads`, from the lone "##" above its "This
 	config file format is SHCL." line to the next lone "##", and each version
 	line migrate stamped, with the note under it. A block with no closing "##"
 	ends after its last line written the block's way. A Schema line in a block
 	stays, and so does any other comment around one, even written right against
 	it. Returns how many came off, whether the last one had a blank above it
-	with no line after it to take that blank, and the lines left."""
+	with no line after it to take that blank, and the lines left. A `mark` of
+	"#" takes 2.x's block instead, which had no version line."""
 	def in_run(c):
-		return c.text.startswith("##") and not c.blank_before
+		return c.text.startswith(mark) and not c.blank_before
 
+	title = mark + _BANNER_TITLE[2:]
+	name = mark + _BANNER_NAME[2:]
+	field = mark + "    "
 	keep: list[_Lead] = []
 	removed, owed, prev_kept = 0, False, False
 	i = 0
 	while i < len(leads):
 		start, end = i, i + 1
-		if leads[i].text == _BANNER_TITLE:
-			if prev_kept and not leads[i].blank_before and leads[i - 1].text == "##":
+		if leads[i].text == title:
+			if prev_kept and not leads[i].blank_before and leads[i - 1].text == mark:
 				keep.pop()
 				start = i - 1
 			close = end
-			while close < len(leads) and in_run(leads[close]) and leads[close].text != "##":
+			while close < len(leads) and in_run(leads[close]) and leads[close].text != mark:
 				close += 1
 			if close < len(leads) and in_run(leads[close]):
 				end = close + 1
@@ -5357,10 +5442,10 @@ def _drop_banners(leads):
 				while (
 					end < len(leads)
 					and in_run(leads[end])
-					and (leads[end].text.startswith("##    ") or leads[end].text == _BANNER_NAME)
+					and (leads[end].text.startswith(field) or leads[end].text == name)
 				):
 					end += 1
-		elif leads[i].text.startswith(FORMAT_LINE_HEAD):
+		elif mark == "##" and leads[i].text.startswith(FORMAT_LINE_HEAD):
 			if end < len(leads) and in_run(leads[end]) and leads[end].text == MIGRATED_LINE:
 				end += 1
 		else:
@@ -7021,6 +7106,13 @@ class Document:
 		itself; this is for a program that wants it in a file it writes.
 		Returns how many old blocks came off."""
 		_want("set_banner", on, "bool")
+		return self._swap_banner(on, False)
+
+	def _swap_banner(self, on, v2):
+		"""set_banner(), and with v2 the block 2.x's `init` wrote, in `#`
+		comments, comes off too. Only upgrade() asks for that: under these
+		rules the old block is a comment of the file's own."""
+		marks = ("##", "#") if v2 else ("##",)
 		removed = 0
 		# The first line's comments are the top of the file, on the first node
 		# down, as a dotted line puts them on its last name.
@@ -7034,19 +7126,22 @@ class Document:
 			n = stack.pop()
 			nd = self.arena[n]
 			stack.extend(nd.children)
-			if n in top or nd.trivia is None:
+			if n in top:
 				continue
-			gone, blank, nd.trivia.leading = _drop_banners(nd.trivia.leading)
-			if gone:
-				removed += gone
-				nd.blank_before = nd.blank_before or blank
-		gone, _, keep = _drop_banners(self.orphans)
-		removed += gone
-		self.orphans = keep
+			for mark in marks:
+				if nd.trivia is None:
+					continue
+				gone, blank, nd.trivia.leading = _drop_banners(nd.trivia.leading, mark)
+				if gone:
+					removed += gone
+					nd.blank_before = nd.blank_before or blank
+		for mark in marks:
+			gone, _, self.orphans = _drop_banners(self.orphans, mark)
+			removed += gone
 		if on:
-			open_ = bool(keep) or bool(self.arena[ROOT].children)
+			open_ = bool(self.orphans) or bool(self.arena[ROOT].children)
 			for n, line in enumerate(GEN_BANNER.rstrip("\n").split("\n")):
-				keep.append(_Lead(line, n == 0 and open_))
+				self.orphans.append(_Lead(line, n == 0 and open_))
 		_settle_first_blank(self.arena, self.orphans)
 		self._resettle_kept()
 		return removed
@@ -8715,6 +8810,183 @@ def write_file_atomic(file: str | os.PathLike[str], data: str) -> str | None:
 		_set_read_only(target, True)
 	_sync_dir(d)
 	return None
+
+
+class UpgradeError(Exception):
+	"""Why upgrade_file() or write_backup() wrote nothing, or not all of it.
+	One subclass per case, so a caller can tell them apart with `except`."""
+
+
+class UpgradeNotFound(UpgradeError):
+	"""Nothing at the path."""
+	path: str
+
+	def __init__(self, path: str):
+		self.path = path
+		super().__init__(f"{path}: no such file")
+
+
+class UpgradeAmbiguous(UpgradeError):
+	"""The file does not say which rules it was written for, and some of it
+	reads two ways (Upgrade.ambiguous); from_v2 settles it."""
+	path: str
+	count: int
+
+	def __init__(self, path: str, count: int):
+		self.path = path
+		self.count = count
+		super().__init__(f"{path}: {count} value(s) read one way under 2.x and another under these rules, and the file does not say which it was written for; nothing written")
+
+
+class UpgradeBackupTaken(UpgradeError):
+	"""Something is already at the backup's name. It is never written over."""
+	name: str
+
+	def __init__(self, name: str):
+		self.name = name
+		super().__init__(f"{name}: already exists; the original would be kept there, so nothing was written")
+
+
+class UpgradeFailed(UpgradeError):
+	"""A read or write failed; the message is what was reported."""
+
+
+def backup_file_name(file: str, format: int) -> str:
+	"""The name a config file's backup gets:
+	`NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT`, in local time, with N the
+	format the file was written for. The tag goes before the last dot of the
+	file name, or on the end when it has none, and a leading dot is part of
+	the name. SHCL_TEST_CLOCK stands in for the clock, as in a setter's
+	note."""
+	stamp = "".join("-" if c == " " else c for c in _clock_now()[0] if c not in "-:")
+	tag = f"_backup_{stamp}_format-v{format}"
+	start = _file_name_start(file)
+	dot = file.rfind(".", start)
+	if dot > start:
+		return file[:dot] + tag + file[dot:]
+	return file + tag
+
+
+def _file_name_start(file):
+	"""Where the file name starts in a path: after the last separator, or on
+	windows after a drive with no separator (C:cfg.shcl). A backslash is a
+	separator only on windows."""
+	start = file.rfind("/") + 1
+	if os.name != "nt":
+		return start
+	start = max(start, file.rfind("\\") + 1)
+	if start == 0 and len(file) >= 2 and file[1] == ":" and file[0].isascii() and file[0].isalpha():
+		start = 2
+	return start
+
+
+def write_backup(file: str, text: str, format: int) -> str:
+	"""Keep `text`, the bytes last read from `file`, under backup_file_name(),
+	before something replaces them. The create is exclusive, so an earlier
+	backup or anything else at the name is never written over, and the copy is
+	synced before this returns. It is born private, then given the original's
+	group and mode (on windows its DACL), so a private config never has a
+	readable copy. Returns the backup's name; raises UpgradeBackupTaken or
+	UpgradeFailed."""
+	name = backup_file_name(file, format)
+	try:
+		fd = _create_backup(file, name)
+	except FileExistsError:
+		raise UpgradeBackupTaken(name) from None
+	except (OSError, ValueError) as e:
+		raise UpgradeFailed(f"{name}: {getattr(e, 'strerror', None) or e}") from None
+	try:
+		with os.fdopen(fd, "wb") as fh:
+			fh.write(text.encode("utf-8"))
+			# Out before the mode goes on, since a write clears setuid/setgid.
+			fh.flush()
+			# The group first, since a chown clears setuid/setgid. Best effort,
+			# the way the save keeps both. The mode is POSIX only: a 3.13 fchmod
+			# on windows would set the read-only bit, and a failed write could
+			# not remove the copy.
+			if os.name != "nt" and hasattr(os, "fchmod"):
+				try:
+					st = os.stat(file)
+					if hasattr(os, "fchown"):
+						try:
+							os.fchown(fh.fileno(), -1, st.st_gid)
+						except OSError:
+							pass
+					os.fchmod(fh.fileno(), stat.S_IMODE(st.st_mode))
+				except (OSError, ValueError):
+					pass
+			os.fsync(fh.fileno())
+	# ValueError alongside: a lone surrogate in the text fails the encode.
+	except (OSError, ValueError) as e:
+		_remove_quietly(name)
+		raise UpgradeFailed(f"{name}: {getattr(e, 'strerror', None) or e}") from None
+	return name
+
+
+def _create_backup(file, name):
+	# The exclusive create, born private. On windows a new file takes the
+	# directory's ACL, so the backup is born with the original's DACL instead
+	# (_create_like).
+	if os.name != "nt":
+		return os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
+	# A NUL would end the name early there, where os.open refuses it.
+	if "\0" in name:
+		raise ValueError("embedded null character in path")
+	return _create_like(file, name)
+
+
+def upgrade_file(path: str | os.PathLike[str], from_v2: bool) -> Upgrade:
+	"""upgrade() on a file, for a program to call when it starts, before its
+	load. A file that needs it is kept under backup_file_name() by
+	write_backup(), then the fresh text replaces it through
+	write_file_atomic(), so the path always holds one or the other. A file
+	upgrade() finds current is not written at all, and also neither is one
+	that changed after it was read or that reads two ways. Opt-in on purpose:
+	a program that keeps its own backups has no need of it. On success backup
+	names the copy when one was made, and text is what the path now holds.
+	Raises an UpgradeError subclass for what it could not do."""
+	path = os.fspath(path)   # an int is a TypeError here, not a descriptor (see read_file)
+	# A FIFO or a device would block the read or be replaced by a file.
+	try:
+		st = os.stat(path)
+	except FileNotFoundError:
+		raise UpgradeNotFound(path) from None
+	except (OSError, ValueError):
+		st = None
+	if st is not None and not stat.S_ISREG(st.st_mode):
+		raise UpgradeFailed(f"{path}: not a regular file")
+	text, status = read_file(path, 0)
+	if status == FileStatus.NotFound:
+		raise UpgradeNotFound(path)
+	if text is None:
+		raise UpgradeFailed(f"{path}: cannot be read as UTF-8 text")
+	up = upgrade(text, from_v2)
+	if up.current:
+		return up
+	if up.ambiguous != 0:
+		raise UpgradeAmbiguous(path, up.ambiguous)
+	raw = text.encode("utf-8")
+
+	def same():
+		try:
+			with open(path, "rb") as f:
+				return f.read() == raw
+		except (OSError, ValueError):
+			return False
+
+	if not same():
+		raise UpgradeFailed(f"{path}: changed since it was read; nothing written")
+	up.backup = write_backup(path, text, up.format)
+	err = write_file_atomic(path, up.text)
+	if err is not None:
+		# With the original still in place the backup would only stand in the
+		# way of the next run. A replace that fails part way on windows can
+		# leave nothing at the path, and then the backup is all there is.
+		if same():
+			_remove_quietly(up.backup)
+			raise UpgradeFailed(err)
+		raise UpgradeFailed(f"{err}; the original is {up.backup}")
+	return up
 
 
 def _names_a_directory(path):
