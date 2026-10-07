@@ -197,9 +197,11 @@ Options (the subcommands each belongs to are in parentheses):
   --set-literal=PATH=TEXT                (same subcommands) as --set, except
                                          TEXT goes in as value
                                          syntax the way a file writes it, so
-                                         'ports=80, 443' writes a two-element
-                                         array. A # outside quotes ends the
-                                         value; text spanning lines is rejected
+                                         'ports=[80, 443]' writes a two-element
+                                         array, 'title="My App"' a string and
+                                         'color=`#FF8800`' a backtick value. A
+                                         # outside quotes ends the value; text
+                                         spanning lines is rejected
   --set-default=PATH=VALUE               (same) as --set, but only when nothing
   --set-literal-default=PATH=TEXT        is at the path yet - the write-out-
                                          defaults half of the writer
@@ -311,29 +313,36 @@ E012|error|indentation matches no open level
   Indent to a column some open parent already uses.
 E013|error|malformed '*' line ('*' not followed by a space)
   The line is skipped, and what is written under it goes with it.
-E014|error|malformed line skipped (the message names the reason)
-  The reason and the byte column the line went wrong at are in the prose.
-  A quote that never closes in a field name arrives here too. A raw block
-  the line opens is kept with it.
+E014|error|malformed line, or a bare field name that needs quotes
+  A bare name is a letter, then letters, digits, '-' and '_'. One that
+  breaks only that rule, such as 404 or user name, still reads: the line is
+  kept, and the lines under it load under that name. Quote the name to fix
+  it. Any other malformed line is kept as written and the lines under it go
+  with it; the prose names the reason and the byte column. A quote that
+  never closes in a field name arrives here too. A raw block the line opens
+  is kept with it.
 E015|error|missing colon (repaired as an empty value)
   The name binds with no value rather than the line being dropped.
 E016|error|nesting deeper than the 512-level cap (line skipped)
   The cap is what makes any loadable document safe to format, merge and
   copy in every binding.
-E017|error|a quote that never closes with the matching quote last
-  In a value element or a selector body. The piece is read bare, quotes and
-  all, and a comma or comment after it still ends it. The same typo in a
-  field name is E014.
+E017|error|an open quote or backtick in a value or selector body
+  A piece that starts with a quote must end with the matching one. The line
+  is kept verbatim and binds nothing. In a value, the lines under it still
+  load, under the field with no value. The same typo in a field name is
+  E014.
 E018|error|line written under a line that was skipped
   It is skipped with it, so a skipped line's block never re-parents one
   level up. Fix the line above and this one comes back with it.
-E019|error|a value beginning with '[', the way JSON and YAML write arrays
-  An array is comma-separated and written without brackets: ports: 80, 443.
-  A '[' after the colon is never a selector, and reading the text without
-  its brackets would bake a changed value in, so the line is kept verbatim:
-  it binds nothing and nothing counts as lost. The lines under it still
-  load, under the field with no value, so a read on the field is Empty when
-  one of them loads and NotFound when none does.
+E019|error|a bracket array that is not well formed
+  An array is one line, ports: [80, 443], and [] is the empty array. Text
+  after the closing ']', a bare '[' or ']' inside, an empty element, or no
+  closing ']' on the line is malformed. Quote the value if it is text:
+  log: "[INFO] started". A list item that is an array is E019 too, since
+  arrays do not nest. The line is kept verbatim: it binds nothing and
+  nothing counts as lost. The lines under it still load, under the field
+  with no value, so a read on the field is Empty when one of them loads and
+  NotFound when none does.
 E020|error|node cap exceeded (fires only under a caller-supplied cap)
   The parse stopped there and the unparsed remainder counts as lost, so a
   later save refuses rather than writing a truncated file.
@@ -344,33 +353,39 @@ E022|error/hint|the diagnostics list was cut at the caller-supplied cap
   This entry ends the list and counts what was not listed. An error when
   any unlisted one was, so a scan for errors still finds one; a hint
   otherwise.
-E023|error|a bad escape in double quotes
-  Only \\t, \\n, \\\\, \\", \\', \\uXXXX and \\UXXXXXXXX are escapes there, and a
-  \\u or \\U escape must name a character. A Windows path typed in double
-  quotes is the usual cause, and its \\n would already be a newline, so the
-  line is kept verbatim: it binds nothing and a read on it is NotFound. Use
-  single quotes or no quotes, or double each backslash. When only the value
-  is wrong, the lines under it still load, under the field with no value,
-  and a read on the field is Empty once one of them loads. When the name
-  is, a raw block the line opens is kept with it.
-E024|error|a Windows path in double quotes with a \\t or \\n escape
-  "C:\\temp" would read as C:, a tab, then emp, which a path almost never
-  means. The line is kept verbatim like E023: it binds nothing, and the
-  lines under it still load. A read on the field is Empty when one of them
-  loads and NotFound when none does. Use single quotes or no quotes, or
-  double each backslash.
+E023|error|a bad escape
+  An escape is a name from the escape list between two ◉ marks, such as
+  ◉TAB◉, ◉NEWLINE◉ or ◉U+200B◉, and a real ◉ is written ◉ESCAPE_CHAR◉.
+  Anything else between two marks is an error, and so is a mark with no
+  partner. A backslash is plain text. The line is kept verbatim: it binds
+  nothing and a read on it is NotFound. When only the value is wrong, the
+  lines under it still load, under the field with no value, and a read on the
+  field is Empty once one of them loads. When the name is, a raw block the
+  line opens is kept with it.
+E025|error|a tab, a quote, a bracket or a loose colon in bare text
+  A bare value or list item may hold spaces, kept as typed. A tab or other
+  whitespace, a quote, a bracket, or a colon with a space or the end after
+  it is an error: host: a.com port: 80 is two fields on one line. Put each
+  field on its own line, or quote the value: name: "O'Brien". An array
+  element or a selector body takes no whitespace, and a selector body no
+  colon, comma or paren either. Whitespace at either end is trimmed first.
+  The line is kept verbatim and binds nothing. In a value, the lines under
+  it still load, under the field with no value.
+E026|error|a bare comma with a space or the end after it
+  ports: 80, 443 is an error. Write the array in brackets, ports: [80, 443],
+  or quote text that has a comma. A comma with text right after it is text,
+  so opts: rw,noatime is one string. The line is kept verbatim and binds
+  nothing. The lines under it still load, under the field with no value. A
+  list item with a bare comma, - a, b, is kept the same way, and the other
+  items still load.
 H001|hint|repeated bare leaf (an array written as repeated lines)
   Repeated leaves are legal - that is how instances are written - but
-  'tags: red' twice and 'tags: red, blue' look alike, so the parser says
+  'tags: red' twice and 'tags: [red, blue]' look alike, so the parser says
   which one it read. A schema's repeat bound above 1 disavows it.
 H002|hint|a binding merged with a non-adjacent earlier one
   Same name and value, so the two combine. Legal, and only the parser can
   see it happened. The prose names the earlier line, and a schema can
   disavow it per section with 'reopen: true'.
-H003|hint|a stacked '*' element written like a field binding
-  '* name: value' is the YAML habit for a list of objects. Here it is one
-  string element, the text 'name: value'. Quote it to keep the string; a
-  list of objects is written as instances of a field.
 H005|hint|a value in another unit than its field name ends in
   timeout-ms: 5s reads as 5000 milliseconds, since a unit in the value
   wins over the one the name gives a bare number. Legal, and often a slip.
@@ -422,7 +437,9 @@ V099|error|schema failed to load
 # Codes no load reports any more: CODE|severity it had|replacement, with the
 # replacement empty when nothing took its rule. An old log can still name one,
 # so explain says where it went rather than calling it unknown.
-RETIRED = """H004|hint|E024
+RETIRED = """E024|error|
+H003|hint|
+H004|hint|
 """
 
 
@@ -1718,8 +1735,16 @@ def do_migrate(o):
 
 
 def _span(p):
-	mark = {shcl.Quote.NONE: "", shcl.Quote.SINGLE: "'", shcl.Quote.DOUBLE: '"', shcl.Quote.OPEN: "?"}[p.quote]
+	mark = {shcl.Quote.NONE: "", shcl.Quote.SINGLE: "'", shcl.Quote.DOUBLE: '"', shcl.Quote.BACKTICK: "`", shcl.Quote.OPEN: "?"}[p.quote]
 	return f"{p.start}-{p.end}{mark}"
+
+
+def _push_array(out, tok):
+	# A bracket array's `[` and, when it is malformed, where and why.
+	if tok.array is not None:
+		out.append(f" array={tok.array}")
+	if tok.array_fault is not None:
+		out.append(f" array-fault={tok.array_fault[0]}:{tok.array_fault[1]}")
 
 
 def code_line(head):
@@ -1791,9 +1816,9 @@ def do_explain(o):
 def do_tokens(o):
 	# Every line's spans, one line of output per input line: the indent
 	# length, then each token as kind=start-end with a mark for how it was
-	# quoted (', ", or ? for a quote that never closed), offsets counted in
-	# bytes from the first character after the indent. A blank line and a
-	# comment line say so; every other line is tokenized on its own, raw
+	# quoted (', ", a backtick, or ? for a quote that never closed), offsets
+	# counted in bytes from the first character after the indent. A blank line
+	# and a comment line say so; every other line is tokenized on its own, raw
 	# bodies included, since this is the lexical view and not the parse.
 	if len(o.args) != 1:
 		sys.stderr.write("usage: shcl tokens FILE (see --help)\n")
@@ -1834,6 +1859,7 @@ def do_tokens(o):
 			shcl.tokenize_value(rest, lead + int(star), shcl.RULES_CURRENT, tok)
 			out.append(" star" if star else " fence")
 			out.append(f" value={tok.value[0]}-{tok.value[1]}")
+			_push_array(out, tok)
 			out.extend(f" elem={_span(p)}" for p in tok.elements)
 			if tok.comment is not None:
 				out.append(f" comment={tok.comment}")
@@ -1846,6 +1872,7 @@ def do_tokens(o):
 				out.append(f" sel={_span(seg.selector)}")
 		if tok.sep is not None:
 			out.append(f" sep={tok.sep} value={tok.value[0]}-{tok.value[1]}")
+			_push_array(out, tok)
 			out.extend(f" elem={_span(p)}" for p in tok.elements)
 		if tok.comment is not None:
 			out.append(f" comment={tok.comment}")
