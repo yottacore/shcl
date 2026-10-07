@@ -711,8 +711,8 @@ static void seq_doc(SeqBuf *b) {
 		case 7: seq_puts(b, ind); seq_puts(b, " "); seq_puts(b, name); seq_puts(b, ": "); seq_num(b, seq_below(3)); break;
 		case 8:
 			seq_puts(b, ind); seq_puts(b, name); seq_puts(b, ":\n");
-			seq_puts(b, ind); seq_puts(b, "\t* 1\n"); seq_puts(b, ind); seq_puts(b, " x: 1\n");
-			seq_puts(b, ind); seq_puts(b, "\t* 2");
+			seq_puts(b, ind); seq_puts(b, "\t- 1\n"); seq_puts(b, ind); seq_puts(b, " x: 1\n");
+			seq_puts(b, ind); seq_puts(b, "\t- 2");
 			break;
 		default: seq_puts(b, ind); seq_puts(b, "\t# deep"); break;
 		}
@@ -829,6 +829,51 @@ static int reload_took_only_comments(const char *lp, size_t ln, const char *bp, 
 	return same;
 }
 
+/* A list with a field under it (E001) after an empty binding of its name that
+   has fields of its own. A merge or an edit can leave one, and then no text
+   reloads as it: stacked, its header joins that binding and its items are
+   dropped (E008), and in brackets it is E028 (2026100511210900). The save
+   gate counts its items lost, so it is never written; the fixture checks
+   that and skips the rest. */
+/* A string read at the path that comes back unquoted and in brackets. A read
+   of an array is never quoted, though shcl_quoted gives a one-element array
+   its element's flag; an array's element never reads as the array's own
+   bracket text, which is how one is told from a quoted "[x]". */
+static int reads_bracketed(shcl_doc *d, const char *path, size_t plen) {
+	shcl_read_str r = shcl_read_string(d, path, plen);
+	if (r.status != SHCL_GOOD || !r.value.n || r.value.p[0] != '[') return 0;
+	if (!shcl_quoted(d, path, plen)) return 1;
+	shcl_read_str_arr sa = shcl_read_string_array(d, path, plen);
+	return sa.status == SHCL_GOOD && (sa.n != 1 || sa.values[0].n != r.value.n || memcmp(sa.values[0].p, r.value.p, r.value.n) != 0);
+}
+
+static int list_after_empty(shcl_doc *d) {
+	shcl_str *ips; size_t ni = shcl_instance_paths(d, &ips);
+	for (size_t i = 0; i < ni; i++) {
+		shcl_str p = ips[i];
+		shcl_str *kids;
+		if (!shcl_children(d, p.p, p.n, &kids) || !reads_bracketed(d, p.p, p.n)) continue;
+		if (!p.n || p.p[p.n - 1] != ']') continue;
+		size_t at = p.n;
+		while (at > 1 && !(p.p[at - 2] == '[' && p.p[at - 1] == '#')) at--;
+		if (at <= 1) continue;
+		size_t k = 0;
+		int digits = 0;
+		for (size_t j = at; j + 1 < p.n; j++) {
+			if (p.p[j] < '0' || p.p[j] > '9') { digits = 0; break; }
+			k = k * 10 + (size_t)(p.p[j] - '0'); digits = 1;
+		}
+		if (!digits) continue;
+		for (size_t j = 0; j < k; j++) {
+			char e[512];
+			int n = snprintf(e, sizeof e, "%.*s%zu]", (int)at, p.p, j);
+			if (n < 0 || (size_t)n >= sizeof e) continue;
+			if (shcl_read_string(d, e, (size_t)n).status == SHCL_EMPTY && shcl_children(d, e, (size_t)n, &kids)) return 1;
+		}
+	}
+	return 0;
+}
+
 /* A merge or an edit leaves the document its own saved text reloads as,
    comments included, so the next step comes out the same whether or not the file
    was saved in between. Comments were filed one way by a load and another by a
@@ -884,6 +929,14 @@ static void edits_and_merges_match_a_reload(void) {
 			(void)applied;
 			if (op <= 1) { seq_puts(&log, "merge:\n"); seq_put(&log, layer.p, layer.n); }
 			else { seq_puts(&log, "op "); seq_num(&log, op); seq_puts(&log, " at "); seq_put(&log, path.p, path.n); seq_puts(&log, "\n"); }
+			if (list_after_empty(live)) {
+				if (shcl_lost_count(live) == 0) {
+					fprintf(stderr, "FAIL edits_and_merges: a list no text loads back saves at iteration %d:\n%s", i, log.p);
+					nfail++; bad = 1;
+				}
+				shcl_free(back);
+				break;
+			}
 			t = shcl_to_canonical(live); a.n = 0; seq_put(&a, t.p, t.n);
 			t = shcl_to_canonical(back); b.n = 0; seq_put(&b, t.p, t.n);
 			if ((a.n != b.n || memcmp(a.p, b.p, a.n) != 0) && !((op == 4 || op == 9) && reload_took_only_comments(a.p, a.n, b.p, b.n))) {
@@ -921,6 +974,33 @@ static void edits_and_merges_match_a_reload(void) {
 		shcl_free(live);
 	}
 	free(base.p); free(layer.p); free(log.p); free(path.p); free(a.p); free(b.p);
+}
+
+/* The bytes of s are exactly w. */
+static int str_is(shcl_str s, const char *w) { return s.n == strlen(w) && memcmp(s.p, w, s.n) == 0; }
+
+/* Both documents list the same paths in the same order. */
+static int same_paths(shcl_doc *x, shcl_doc *y) {
+	shcl_str *px, *py;
+	size_t nx = shcl_paths(x, &px), ny = shcl_paths(y, &py);
+	if (nx != ny) return 0;
+	for (size_t i = 0; i < nx; i++) if (px[i].n != py[i].n || memcmp(px[i].p, py[i].p, px[i].n) != 0) return 0;
+	return 1;
+}
+
+/* A file holding exactly text, and whether it still does. */
+static void put_file(const char *path, const char *text) {
+	FILE *f = fopen(path, "wb");
+	if (!f) { fail("put_file", path); return; }
+	fwrite(text, 1, strlen(text), f);
+	fclose(f);
+}
+static int file_is(const char *path, const char *text) {
+	size_t n = 0; shcl_file_status st;
+	char *t = shcl_read_file(path, 0, &n, &st);
+	int ok = t && n == strlen(text) && memcmp(t, text, n) == 0;
+	free(t);
+	return ok;
 }
 
 int main(int argc, char **argv) {
@@ -1666,7 +1746,7 @@ int main(int argc, char **argv) {
 		shcl_free(ld);
 		// Element cap, stacked spelling: each element line past the cap is
 		// refused on its own; the array keeps what fit.
-		const char *st2 = "arr:\n\t* 1\n\t* 2\n\t* 3\n";
+		const char *st2 = "arr:\n\t- 1\n\t- 2\n\t- 3\n";
 		ld = shcl_parse_limited(st2, strlen(st2), SHCL_STANDARD, 0, 2, 0);
 		ncap = 0;
 		for (size_t k = 0; k < shcl_diag_count(ld); k++)
@@ -1678,7 +1758,7 @@ int main(int argc, char **argv) {
 		// A malformed array past the cap stayed E019 and kept. Since 2026-10-05
 		// the cap wins over a broken value, so this is E021 now: see
 		// a_cap_wins_over_a_broken_value.
-		// const char *bt = "arr: [1,, 2, 3]\nk: x\n\t* 1\n";
+		// const char *bt = "arr: [1,, 2, 3]\nk: x\n\t- 1\n";
 		// ld = shcl_parse_limited(bt, strlen(bt), SHCL_STANDARD, 0, 1, 0);
 		// {
 		// 	shcl_str canon = shcl_to_canonical(ld);
@@ -1808,15 +1888,14 @@ int main(int argc, char **argv) {
 		cap_codes("a: x, y, z\n", 3, got, sizeof got, &lost, out, sizeof out);
 		if (strcmp(got, "1:E026") != 0) fail("cap_wins", "bare comma within the cap");
 		// A stacked item past the cap is dropped whatever it holds; within the
-		// cap a broken one is kept and the list loads around it. List items are
-		// written '- ' in the reference, which this binding does not read yet.
-		// cap_codes("x:\n\t- a\n\t- b\n\t- \"open\n\t- c d\nz: 1\n", 2, got, sizeof got, &lost, out, sizeof out);
-		// if (strcmp(got, "4:E021 5:E021") != 0 || lost != 2 || strcmp(out, "x:\n\t- a\n\t- b\nz: 1\n") != 0) fail("cap_wins", "items past the cap");
-		// cap_codes("x:\n\t- a\n\t- \"open\n\t- b\n", 2, got, sizeof got, &lost, out, sizeof out);
-		// if (strcmp(got, "3:E017") != 0 || lost != 0 || !strstr(out, "- \"open")) fail("cap_wins", "a broken item within the cap");
+		// cap a broken one is kept and the list loads around it.
+		cap_codes("x:\n\t- a\n\t- b\n\t- \"open\n\t- c d\nz: 1\n", 2, got, sizeof got, &lost, out, sizeof out);
+		if (strcmp(got, "4:E021 5:E021") != 0 || lost != 2 || strcmp(out, "x:\n\t- a\n\t- b\nz: 1\n") != 0) fail("cap_wins", "items past the cap");
+		cap_codes("x:\n\t- a\n\t- \"open\n\t- b\n", 2, got, sizeof got, &lost, out, sizeof out);
+		if (strcmp(got, "3:E017") != 0 || lost != 0 || !strstr(out, "- \"open")) fail("cap_wins", "a broken item within the cap");
 		// An element under a field with a value is E011, cap or not.
-		// cap_codes("k: x\n\t- 1\n", 1, got, sizeof got, &lost, out, sizeof out);
-		// if (strcmp(got, "2:E011") != 0) fail("cap_wins", "item under a value");
+		cap_codes("k: x\n\t- 1\n", 1, got, sizeof got, &lost, out, sizeof out);
+		if (strcmp(got, "2:E011") != 0) fail("cap_wins", "item under a value");
 		// The path and the name are judged first.
 		cap_codes("404: [a, b, c]\n", 1, got, sizeof got, &lost, out, sizeof out);
 		if (strcmp(got, "1:E014") != 0) fail("cap_wins", "a bad name past the cap");
@@ -3201,13 +3280,13 @@ int main(int argc, char **argv) {
 			{"x: a,\n", "E026", "write an array in brackets"},
 			{"x: 80, 443\n", "E026", "write an array in brackets"},
 			{"x: a: b, c\n", "E025", "put each field on its own line"},
-			// List items are written '- ' and selectors in parens in the
-			// reference, which this binding does not read yet.
-			// {"x:\n\t- name: value\n", "E027", "as instances"},
-			// {"x:\n\t- name:\n", "E027", "as instances"},
-			// {"x:\n\t- a, b\n", "E026", "quote the text"},
-			// {"x:\n\t- a\tb\n", "E025", "quote it"},
-			// {"x:\n\t- [a]\n", "E019", "quote the item"},
+			{"x:\n\t- name: value\n", "E027", "as instances"},
+			{"x:\n\t- name:\n", "E027", "as instances"},
+			{"x:\n\t- a, b\n", "E026", "quote the text"},
+			{"x:\n\t- a\tb\n", "E025", "quote it"},
+			{"x:\n\t- [a]\n", "E019", "quote the item"},
+			// Selectors are written in parens in the reference, which this
+			// binding does not read yet.
 			// {"x(a:b).y: 1\n", "E025", "quote it"},
 			// {"x(a,b).y: 1\n", "E025", "quote it"},
 			// {"x(a[b).y: 1\n", "E025", "quote it"},
@@ -3225,7 +3304,7 @@ int main(int argc, char **argv) {
 			{"x: :0\n", "x", ":0"},
 			{"x: https://a.com:8080/p?q=1,2\n", "x", "https://a.com:8080/p?q=1,2"},
 			{"x: Jul 12 2026  # c\n", "x", "Jul 12 2026"},
-			// {"x:\n\t- New  York\n\t- :0\n", "x", "[\"New  York\", :0]"},
+			{"x:\n\t- New  York\n\t- :0\n", "x", "[\"New  York\", :0]"},
 		};
 		for (size_t i = 0; i < sizeof gt / sizeof gt[0]; i++) {
 			shcl_doc *gd = shcl_parse(gt[i].text, strlen(gt[i].text));
@@ -3272,6 +3351,191 @@ int main(int argc, char **argv) {
 		shcl_str hm = shcl_diag_count(hd) ? shcl_diag_message(hd, 0) : shcl_to_canonical(hd);
 		if (shcl_diag_count(hd) == 0 || strcmp(shcl_diag_code(hd, 0), "H001") != 0 || !contains(hm.p, hm.n, "t: [\"a,b\", c]")) fail("writer_comma", "the H001 hint");
 		shcl_free(hd);
+	}
+	test_id("Es1gWRs", "a_list_no_text_loads_back_refuses_to_save");
+	/* A list with a field under it (E001) after an empty binding of its name
+	   that has fields: no text loads it back, since a reload joins the list's
+	   header to that binding and drops its items (E008). The load is left as
+	   it is; a save that would write it refuses (2026100511210900). An edit
+	   and a merge can each leave one. Same fixture in every runner. Selectors
+	   are in brackets here until this binding reads them in parens. */
+	{
+		const char *lsrc = "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n";
+		shcl_doc *ld = shcl_parse_keep_lines(lsrc, strlen(lsrc), SHCL_STANDARD);
+		if (shcl_lost_count(ld) != 0) fail("list_no_text", "the load lost a line");
+		if (!shcl_set_empty(ld, "x[v]", 4)) fail("list_no_text", "set empty refused");
+		shcl_str lt = shcl_to_canonical(ld);
+		if (!str_is(lt, "x:\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n")) fail("list_no_text", "canonical");
+		shcl_doc *lb = shcl_parse(lt.p, lt.n);
+		if (shcl_lost_count(lb) != 2) fail("list_no_text", "the reload drops both items");
+		shcl_free(lb);
+		if (shcl_lost_count(ld) != 2) fail("list_no_text", "lost");
+		int kept = 1;
+		(void)shcl_to_text_keep_lines(ld, &kept);
+		if (kept) fail("list_no_text", "the source was canonical, and still no lines are kept");
+		char ldir[256], lfile[288];
+		snprintf(ldir, sizeof ldir, "%s/shcl-listsave-%ld", tmp_root(), (long)getpid());
+#ifdef _WIN32
+		if (_mkdir(ldir) != 0) fail("list_no_text", "mkdir failed");
+#else
+		if (mkdir(ldir, 0700) != 0) fail("list_no_text", "mkdir failed");
+#endif
+		snprintf(lfile, sizeof lfile, "%s/t.shcl", ldir);
+		put_file(lfile, lsrc);
+		if (shcl_save_file(ld, lfile) != SHCL_SAVE_REFUSED) fail("list_no_text", "save went through");
+		int lk = 0;
+		if (shcl_save_file_keep_lines(ld, lfile, &lk) != SHCL_SAVE_REFUSED) fail("list_no_text", "the keep save went through");
+		if (!file_is(lfile, lsrc)) fail("list_no_text", "file changed");
+		if (shcl_save_file_lossy(ld, lfile) != SHCL_SAVE_OK) fail("list_no_text", "lossy save failed");
+		remove(lfile); rmdir(ldir);
+		shcl_free(ld);
+		/* The same through a merge: the list arrives over an empty binding. */
+		shcl_doc *lm = shcl_parse("x:\n\tf: 1\n", 9);
+		shcl_doc *lo = shcl_parse("x:\n\t- a\n\t- b\n\tg: 2\n", 19);
+		shcl_merge(lm, lo);
+		if (shcl_lost_count(lm) != 2) fail("list_no_text", "merge");
+		shcl_free(lo); shcl_free(lm);
+		/* An empty binding with no fields takes the list in, so nothing is
+		   lost, and a list with no field under it goes in brackets. */
+		const char *ok_src[] = {"x: v\nx:\n\t- a\n\tg: 2\n", "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n"};
+		for (size_t i = 0; i < 2; i++) {
+			shcl_doc *od = shcl_parse(ok_src[i], strlen(ok_src[i]));
+			if (!shcl_set_empty(od, "x[v]", 4) || shcl_lost_count(od) != 0) fail("list_no_text", ok_src[i]);
+			shcl_free(od);
+		}
+	}
+	test_id("Es1gWRt", "a_list_joining_an_emptied_field_keeps_its_fields_found");
+	/* A setter that empties a field joins the stacked list after it, fields
+	   and all, as a reload would. A read made before the write has the lookup
+	   built, and the fields that moved still have to be found through it. */
+	{
+		static const struct { const char *src, *path, *field, *want; } jc[] = {
+			{"b: x\nb:\n\t- 3\n\tk: 1\n", "b", "b.k", "1"},
+			{"b: x\nb: y z\n\t- 3\n\tk: 1\n", "b", "b.k", "1"},
+			{"x: v\nx:\n\t- a\n\tg: 2\n", "x[v]", "x.g", "2"},
+		};
+		for (size_t i = 0; i < sizeof jc / sizeof jc[0]; i++) {
+			shcl_doc *jd = shcl_parse(jc[i].src, strlen(jc[i].src));
+			if (shcl_read_string(jd, jc[i].field, strlen(jc[i].field)).status != SHCL_GOOD) fail("list_join_found", jc[i].src);
+			if (!shcl_set_empty(jd, jc[i].path, strlen(jc[i].path))) fail("list_join_found", jc[i].src);
+			shcl_str jt = shcl_to_canonical(jd);
+			shcl_doc *jb = shcl_parse(jt.p, jt.n);
+			shcl_doc *both[2] = {jb, jd};
+			for (int k = 0; k < 2; k++) {
+				shcl_read_str jr = shcl_read_string(both[k], jc[i].field, strlen(jc[i].field));
+				if (jr.status != SHCL_GOOD || !str_is(jr.value, jc[i].want)) fail("list_join_found", k ? "live" : "reload");
+			}
+			if (!same_paths(jd, jb)) fail("list_join_found", "paths");
+			shcl_free(jb); shcl_free(jd);
+		}
+	}
+	test_id("Es1gWRu", "a_list_the_source_loads_back_keeps_its_lines");
+	/* A load can build that list too, under a kept array line (E028). The
+	   canonical text writes the line as a comment and cannot load the list
+	   back, so that save refuses. The source text does, so with no edits the
+	   save that keeps lines writes it as it was. */
+	{
+		const char *ksrc = "c:\n\ts: 1\nc: [1]\n\tb[*]: 1\n\t- 3\n\ta: 2\n";
+		shcl_doc *kd = shcl_parse_keep_lines(ksrc, strlen(ksrc), SHCL_STANDARD);
+		if (shcl_lost_count(kd) != 2) fail("list_source", "the wildcard line and the item");
+		int kept = 0;
+		shcl_str kt = shcl_to_text_keep_lines(kd, &kept);
+		if (!kept || !str_is(kt, ksrc)) fail("list_source", "keep");
+		char kdir[256], kfile[288];
+		snprintf(kdir, sizeof kdir, "%s/shcl-listsrc-%ld", tmp_root(), (long)getpid());
+#ifdef _WIN32
+		if (_mkdir(kdir) != 0) fail("list_source", "mkdir failed");
+#else
+		if (mkdir(kdir, 0700) != 0) fail("list_source", "mkdir failed");
+#endif
+		snprintf(kfile, sizeof kfile, "%s/t.shcl", kdir);
+		put_file(kfile, ksrc);
+		if (shcl_save_file(kd, kfile) != SHCL_SAVE_REFUSED) fail("list_source", "save went through");
+		int kk = 0;
+		if (shcl_save_file_keep_lines(kd, kfile, &kk) != SHCL_SAVE_OK || !kk) fail("list_source", "the keep save kept no lines");
+		if (!file_is(kfile, ksrc)) fail("list_source", "file changed");
+		remove(kfile); rmdir(kdir);
+		shcl_free(kd);
+	}
+	test_id("Es1gWRv", "a_merged_list_joins_an_empty_field_past_a_comment");
+	/* A merge adds a list with a field under it as a new instance after an
+	   empty binding of its name. A comment or kept line left after the
+	   binding held the join off, though a reload joins the two
+	   (2026100520243961). */
+	{
+		static const char *mbase[] = {
+			"p:\n\ts:\n\t# c\n",
+			"p:\n\ts:\n\tk: [1\n",
+			"p:\n\ts:\n\t# c\n\t\t# d\n",
+			"p:\n\ts:\n\t# c\n\tt: 2\n",
+		};
+		const char *mover = "p:\n\ts:\n\t\t- 0\n\t\tc: 1\n";
+		for (size_t i = 0; i < sizeof mbase / sizeof mbase[0]; i++) {
+			shcl_doc *md = shcl_parse(mbase[i], strlen(mbase[i]));
+			shcl_doc *mo = shcl_parse(mover, strlen(mover));
+			shcl_merge(md, mo);
+			shcl_free(mo);
+			shcl_str mt = shcl_to_canonical(md);
+			shcl_doc *mb = shcl_parse(mt.p, mt.n);
+			shcl_str mbt = shcl_to_canonical(mb);
+			if (mbt.n != mt.n || memcmp(mbt.p, mt.p, mt.n) != 0) fail("merged_list_join", mbase[i]);
+			if (!same_paths(md, mb)) fail("merged_list_join", "paths");
+			shcl_doc *both[2] = {md, mb};
+			for (int k = 0; k < 2; k++) {
+				shcl_read_str mr = shcl_read_string(both[k], "p.s.c", 5);
+				if (mr.status != SHCL_GOOD || !str_is(mr.value, "1")) fail("merged_list_join", "p.s.c");
+			}
+			if (shcl_count(md, "p.s", 3) != 1) fail("merged_list_join", "instances");
+			shcl_free(mb); shcl_free(md);
+		}
+	}
+	test_id("Es1gWRw", "a_remove_settles_a_list_after_an_empty_field");
+	/* The remove twin: the merge without the gap builds the list no text loads
+	   back, after a binding with a field. A remove that takes that field joins
+	   the list, and one that takes the list's field puts it in brackets, as a
+	   reload reads each. */
+	{
+		static const struct { const char *path, *want; } rc[] = {
+			{"p.s.x", "p:\n\ts:\n\t\t- 0\n\t\tc: 1\n"},
+			{"p.s.c", "p:\n\ts:\n\t\tx: 1\n\ts: [0]\n"},
+		};
+		for (size_t i = 0; i < sizeof rc / sizeof rc[0]; i++) {
+			shcl_doc *rd = shcl_parse("p:\n\ts:\n\t\tx: 1\n", 14);
+			shcl_doc *ro = shcl_parse("p:\n\ts:\n\t\t- 0\n\t\tc: 1\n", 20);
+			shcl_merge(rd, ro);
+			shcl_free(ro);
+			if (shcl_lost_count(rd) == 0) fail("remove_list_join", "the list no text loads back");
+			if (shcl_remove(rd, rc[i].path, strlen(rc[i].path)) != 1) fail("remove_list_join", "remove missed");
+			shcl_str rt = shcl_to_canonical(rd);
+			if (!str_is(rt, rc[i].want)) fail("remove_list_join", rc[i].path);
+			shcl_doc *rb = shcl_parse(rt.p, rt.n);
+			shcl_str rbt = shcl_to_canonical(rb);
+			if (rbt.n != rt.n || memcmp(rbt.p, rt.p, rt.n) != 0 || !same_paths(rd, rb)) fail("remove_list_join", "reload differs");
+			if (shcl_lost_count(rd) != 0) fail("remove_list_join", "lost");
+			shcl_free(rb); shcl_free(rd);
+		}
+	}
+	test_id("Es1gWRx", "a_setter_keeps_fields_and_arrays_apart");
+	/* A field with lines under it takes one plain value or none (E028), so a
+	   setter puts no field under an array and no array over fields. Each used
+	   to write text that reloads as E028. */
+	{
+		const char *asrc = "l: [a]\nc: 1\n\tk: 2\n";
+		shcl_doc *ad = shcl_parse(asrc, strlen(asrc));
+		if (shcl_set_int(ad, "l.c", 3, 1)) fail("setter_apart", "a field under an array");
+		const char *one[1] = {"1"}; size_t onel[1] = {1};
+		if (shcl_set_literal(ad, "c", 1, "[1, 2]", 6) || shcl_set_string_array(ad, "c", 1, one, onel, 1)) fail("setter_apart", "an array over fields");
+		if (!str_is(shcl_to_canonical(ad), asrc)) fail("setter_apart", "changed");
+		shcl_free(ad);
+		/* An array with nothing under it takes a new one, and a stacked list
+		   written with '- ' stays stacked. */
+		const char *asrc2 = "l: [a]\nz:\n\t- a\n\t- b\n";
+		ad = shcl_parse(asrc2, strlen(asrc2));
+		const char *bc[2] = {"b", "c"}; size_t bcl[2] = {1, 1};
+		const char *x1[1] = {"x"}; size_t x1l[1] = {1};
+		if (!shcl_set_string_array(ad, "l", 1, bc, bcl, 2) || !shcl_set_string_array(ad, "z", 1, x1, x1l, 1)) fail("setter_apart", "an array setter refused");
+		if (!str_is(shcl_to_canonical(ad), "l: [b, c]\nz:\n\t- x\n")) fail("setter_apart", "stacked");
+		shcl_free(ad);
 	}
 	test_id("EonWXt2", "edits_and_merges_match_a_reload");
 	edits_and_merges_match_a_reload();
