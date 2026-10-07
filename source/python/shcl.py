@@ -667,7 +667,7 @@ class _Trivia:
 	of line. Never part of identity or reads; merged instances concatenate
 	leading, first trailing wins (later ones demote to leading - a canonical
 	line has room for one)."""
-	__slots__ = ("leading", "trailing", "after", "inside", "among")
+	__slots__ = ("leading", "trailing", "after", "inside", "among", "notes")
 
 	def __init__(self):
 		self.leading = []
@@ -686,6 +686,9 @@ class _Trivia:
 		# with the number of elements before it. They keep the list stacked on
 		# output, so a line fixed by hand is still inside the list.
 		self.among = []
+		# The comment trailing a stacked list item, with the item's index.
+		# Like the lines among the items, they keep the list stacked on output.
+		self.notes = []
 
 
 class _Node:
@@ -708,8 +711,8 @@ class _Node:
 		self.children: list[int] = []
 		self.parent = parent
 		self.line = line
-		self.star_list = False    # value built from stacked "* " lines
-		self.star_mixed = False   # mix of "* " and field children already diagnosed
+		self.star_list = False    # value built from stacked "- " lines, and written that way
+		self.star_mixed = False   # mix of "- " and field children already diagnosed
 		# Comment trivia sidecar (_Trivia): None until the first write, so the
 		# common comment-free node never allocates the four containers.
 		self.trivia = None
@@ -747,6 +750,10 @@ class _Node:
 	def among(self):
 		t = self.trivia
 		return t.among if t is not None else ()
+
+	def notes(self):
+		t = self.trivia
+		return t.notes if t is not None else ()
 
 	def _triv(self):
 		t = self.trivia
@@ -800,6 +807,8 @@ def _fold_node_into(arena, survivor, loser):
 		st.inside.extend(lt.inside)
 		st.among.extend(lt.among)
 		st.among.sort(key=lambda a: a[0])
+		st.notes.extend(lt.notes)
+		st.notes.sort(key=lambda a: a[0])
 
 
 def _settle_block(arena, n, start):
@@ -813,16 +822,31 @@ def _settle_block(arena, n, start):
 	depending on whether the file was saved in between. The text does not move.
 	start is the first child whose leading list may gain, so a new last child
 	costs one pair; it cannot put a fence after an empty binding either, so only
-	a full pass looks for one."""
+	a full pass looks for one. True when a list joined an empty binding, which
+	moves fields under another parent, so a caller holding the name index has
+	to drop it."""
+	joined = start <= 1 and _settle_fence_trailing(arena, n)
+	_settle_pairs(arena, n, start)
+	# A line the pass above moved off an empty binding no longer holds its
+	# join off, and a reload joins it (2026100520243961).
+	if start <= 1 and _settle_fence_trailing(arena, n):
+		joined = True
+		_settle_pairs(arena, n, 1)
+	# After the join, which can take the last child.
 	kids = arena[n].children
 	if not kids:
-		return
-	if start <= 1:
-		_settle_fence_trailing(arena, n)
+		return joined
 	t = arena[n].trivia
 	if t is not None and t.inside:
 		arena[kids[-1]]._triv().after.extend(t.inside)
 		t.inside = []
+	return joined
+
+
+def _settle_pairs(arena, n, start):
+	"""A child's comments at its own level go above the next sibling, from
+	child start on."""
+	kids = arena[n].children
 	for i in range(max(start, 1), len(kids)):
 		t = arena[kids[i - 1]].trivia
 		if t is None:
@@ -839,41 +863,86 @@ def _settle_fence_trailing(arena, n):
 	"""A raw block after an empty binding of its name is written with the fence
 	on the binding's line, where no comment can follow it, so the emitter writes
 	its trailing comment on a line of its own above, after the node's blank. A
-	reload files that line as a leading comment, so file it there now."""
+	reload files that line as a leading comment, so file it there now. True when
+	a list joined an empty binding."""
 	kids = arena[n].children
 	if not any((arena[c].value.kind == "raw" and arena[c].trivia is not None and arena[c].trivia.trailing)
 			or _stacks(arena[c]) for c in kids):
-		return
-	empties = set()
+		return False
+	empties: dict[str, int] = {}
+	folded = set()
 	for c in kids:
 		nd = arena[c]
 		t = nd.trivia
-		if nd.value.kind == "raw" and t is not None and t.trailing and nd.name in empties:
+		e = empties.get(nd.name)
+		if nd.value.kind == "raw" and t is not None and t.trailing and e is not None:
 			_trailing_to_leading(nd)
-		elif _stacks(nd) and nd.name in empties:
-			_unstack(nd)
+		elif _stacks(nd) and e is not None:
+			if _fold_list_into_empty(arena, e, c):
+				folded.add(c)
 		elif nd.value.is_empty():
-			empties.add(nd.name)
+			if e is None:
+				empties[nd.name] = c
+	if not folded:
+		return False
+	arena[n].children = [c for c in kids if c not in folded]
+	return True
+
+
+def _fold_list_into_empty(arena, empty, lst):
+	"""A list after an empty binding of its name, which a stacked header would
+	join on a reload. In brackets when it can be. A list with fields under it
+	cannot, so it joins that binding here, as a reload joins it, when that
+	binding has no field the items would land after. True when it joined, and
+	the caller drops it from its parent's children."""
+	_unstack(arena[lst])
+	e = arena[empty]
+	if not _stacks(arena[lst]) or not e.value.is_empty() or e.children or e.after():
+		return False
+	e.value = arena[lst].value
+	arena[lst].value = _empty()
+	e.star_list = True
+	_fold_node_into(arena, empty, lst)
+	return True
 
 
 def _stacks(nd):
-	"""Written stacked: a list holding a kept line among its elements or after
-	its last one."""
-	t = nd.trivia
-	return (t is not None and nd.value.kind == "array"
-		and (bool(t.among) or (nd.star_list and any(not c.text.startswith("#") for c in t.inside))))
+	"""Written stacked: a list the file wrote one `- ` item per line, kept that
+	way like an author's quotes, or one holding a kept line among its items, a
+	comment on one, or a field under it (E001), which in brackets would make
+	the array E028."""
+	if nd.value.kind != "array" or not nd.value.els:
+		return False
+	return nd.star_list or bool(nd.among()) or bool(nd.notes()) or bool(nd.children)
 
 
 def _unstack(nd):
 	"""A list after an empty binding of its name cannot be written stacked: its
-	bare header would merge into that binding on a reload. It goes inline, and
-	the lines among its elements go above it, where a reload files what sits
-	there."""
+	bare header would merge into that binding on a reload. It goes in brackets,
+	and the lines among its elements and the comments on them go above it, in
+	order, where a reload files what sits there."""
 	nd.star_list = False
 	t = nd.trivia
-	if t is not None and t.among:
-		t.leading.extend(a[1] for a in t.among)
-		t.among = []
+	if t is None:
+		return
+	notes = t.notes
+	k = 0
+	for before, lead in t.among:
+		while k < len(notes) and notes[k][0] < before:
+			t.leading.append(_Lead(notes[k][1], False))
+			k += 1
+		t.leading.append(lead)
+	for _, text in notes[k:]:
+		t.leading.append(_Lead(text, False))
+	t.among = []
+	t.notes = []
+
+
+def _bracket(nd):
+	"""A merge writes a list in brackets. One with a field under it stays
+	stacked (E001), since in brackets it is E028."""
+	if not nd.children and (nd.star_list or nd.trivia is not None):
+		_unstack(nd)
 
 
 def _trailing_to_leading(nd):
@@ -2830,13 +2899,22 @@ def _value_fault(tok, s):
 
 def _item_fault(tok, s):
 	"""Why a stacked item's value is refused: an array, since arrays do not
-	nest (E019), or what a value is refused for."""
+	nest (E019), what a value is refused for, a loose comma (E026), or a colon
+	with whitespace or the end after it, the way YAML starts an object in a
+	list (E027)."""
 	if tok.array is not None:
 		return _Fault("E019", "a list item is one value, and arrays do not nest; quote the item if it is text", True)
 	for p in tok.elements:
 		f = _piece_fault(p, s, _BARE_ITEM)
 		if f is not None:
 			return _Fault(f[0], f[1], True)
+	if len(tok.elements) > 1:
+		return _Fault("E026", "a comma then a space or the end in a list item; an item is one value, so quote the text", True)
+	if len(tok.elements) == 1 and tok.elements[0].quote is Quote.NONE:
+		p = tok.elements[0]
+		raw = s[p.start:p.end].decode("utf-8", "surrogatepass")
+		if any(_loose_colon(raw, i) for i in range(len(raw))):
+			return _Fault("E027", "a list item with a colon then a space or the end; write a list of objects as instances, or quote the item if it is text", True)
 	return None
 
 
@@ -2932,10 +3010,16 @@ def _opens_later(text):
 	return f.opens if f is not None else tok.array is not None
 
 
+def _is_item(text):
+	"""A stacked list item's line: `-` then a blank. The blank is what keeps
+	`-x: y` a field line (E014) and `- -5` the item `-5`."""
+	return len(text) > 1 and text[0] == "-" and text[1] in _WSP
+
+
 def _is_field_text(text):
 	"""A line's text after its indent that is read as a field line: not a
-	comment or an old `*` item."""
-	return not text.startswith(("#", "*"))
+	comment, a list item, or an old `*` item (E013)."""
+	return not text.startswith(("#", "*")) and not _is_item(text)
 
 
 def _path_of(tok, s):
@@ -3101,6 +3185,12 @@ class _Parser:
 		# it sit under it; those are E018 and are kept as written too.
 		self.kept_hold = None
 		self.kept_any = False
+		self.kept_arrays = False
+		# The text's lines, and the last array line each node's level was
+		# opened by, for one found to have a field under it after it bound
+		# (E028): (line, leading line count, had a trailing comment, blank).
+		self.src: list[str] = []
+		self.array_lines: dict[int, tuple[int, int, bool, bool]] = {}
 		# parse_limited's caps, 0 = uncapped: nodes counted against the arena
 		# (root excluded), elements against a single value's cell, diagnostics
 		# against the list. Past the diagnostic cap nothing is listed, only
@@ -3134,6 +3224,62 @@ class _Parser:
 				self.unlisted_hints += 1
 			return
 		self.diags.append(d)
+
+	def _array_under(self, node):
+		"""A field binds under an array line, which a field with lines under it
+		cannot take (E028). The line is kept as written, written in place of
+		the field's own, and the field is open with no value, as a line refused
+		for its value alone opens it. When the line joined an earlier binding of
+		the same value, that one keeps its value and the field opens on its
+		own. Returns the field, which takes the level."""
+		mark = self.array_lines.pop(node, None)
+		line = mark[0] if mark is not None else self.arena[node].line
+		if line < 1 or line > len(self.src):
+			return node
+		text = _trim_wsp_end(self.src[line - 1]).lstrip(_WSP)
+		self._err(line, "E028", "an array on a field with lines under it; the field takes one plain value or none")
+		self.kept_owed += 1
+		self.kept_arrays = True
+		if mark is not None and mark[0] != self.arena[node].line:
+			_, leads, trailing, blank = mark
+			nd = self.arena[node]
+			name, name_src, up = nd.name, nd.name_src, nd.parent
+			# The lines this one brought to the binding it joined go with it,
+			# and so do its blank and its comment, which its kept text has.
+			blank_before = nd.blank_before and not blank
+			nd.blank_before = blank
+			t = nd._triv()
+			at = min(leads, len(t.leading))
+			moved = t.leading[at:]
+			del t.leading[at:]
+			if not trailing:
+				t.trailing = ""
+			else:
+				ttok = Tokens()
+				tokenize(text, ":", False, Rules.CURRENT, ttok)
+				if ttok.comment is not None and moved:
+					moved.pop()
+			opened = self._select_or_create(up, name, name_src, _empty(), line)
+			moved.append(_Lead(text, blank_before, 0, line))
+			self.arena[opened]._triv().leading.extend(moved)
+			for k in range(len(self.stack) - 1, -1, -1):
+				if self.stack[k][1] == node:
+					self.stack[k] = (self.stack[k][0], opened)
+					break
+			return opened
+		nd = self.arena[node]
+		old_key = _merge_key(nd.name, nd.value)
+		old_disp = (nd.name, _disp_key(nd.value))
+		nd.value = _empty()
+		nd.src = None
+		nd.src_set = False
+		blank_before = nd.blank_before
+		nd.blank_before = False
+		t = nd._triv()
+		t.trailing = ""
+		t.leading.append(_Lead(text, blank_before, 0, line))
+		self._remap_child(node, old_key, old_disp)
+		return node
 
 	def _select_or_create(self, parent, name, name_src, value, line):
 		"""Find (or create by merge rule) the child of `parent` with this (name, value)."""
@@ -3552,6 +3698,8 @@ class _Parser:
 		"""Walk path segments under `parent`, select-or-creating; returns the node
 		for the last segment with `value`. None aborts the line (diagnosed)."""
 		self._star_flush()
+		if parent != ROOT and not self.arena[parent].star_list and self.arena[parent].value.kind == "array":
+			parent = self._array_under(parent)
 		# Field child under a stacked list: diagnose the mix once, keep the field.
 		pnode = self.arena[parent]
 		if pnode.star_list and not pnode.star_mixed:
@@ -3720,7 +3868,7 @@ class _Parser:
 		self._refuse(line, "E021", f"array longer than {self.max_elements} elements; line skipped", OUT_DROPPED, indent)
 
 	def _add_star_element(self, parent, tok, s, line, indent):
-		"""One stacked-list element (`* scalar`) appends to the parent's array.
+		"""One stacked-list item (`- scalar`) appends to the parent's array.
 		True when it joined the list."""
 		if parent == ROOT:
 			self._refuse(line, "E007", "list element with no parent field", OUT_DROPPED, indent)
@@ -3728,10 +3876,6 @@ class _Parser:
 		# Uniform-or-nothing (spec): a mix with field children is not a block array.
 		if self.arena[parent].children:
 			self._refuse(line, "E008", "list element mixed with field children; ignored", OUT_DROPPED, indent)
-			return False
-		# One scalar per line; a bare comma is an error, not a second element.
-		if len(tok.elements) > 1:
-			self._refuse(line, "E010", "bare comma in list element (one element per line)", OUT_DROPPED, indent)
 			return False
 		piece = tok.elements[0]
 		el = _element_of(piece, s)
@@ -3780,25 +3924,20 @@ class _Parser:
 		return True
 
 	def _keep_among(self, parent, indent):
-		"""Kept lines waiting for the list element that just joined sat among
-		the list's elements, so they stay there; comments still ride the
-		field."""
-		if not any(not p.text.startswith("#") for p in self.pending):
+		"""Lines waiting for the list item that just joined sat among the
+		list's items, so they stay there, comments and kept lines alike."""
+		if not self.pending:
 			return
 		node = self.arena[parent]
 		if node.value.kind != "array":
 			return
 		before = len(node.value.els) - 1
-		rest = []
 		among = node._triv().among
 		chain: list[tuple[str, int]] = []
 		held: list[tuple[str, int]] = []
 		for p in self.pending:
-			if p.text.startswith("#"):
-				rest.append(p)
-			else:
-				among.append((before, _Lead(p.text, p.blank_before, _comment_depth(chain, held, indent, p.text, p.indent))))
-		self.pending = rest
+			among.append((before, _Lead(p.text, p.blank_before, _comment_depth(chain, held, indent, p.text, p.indent))))
+		self.pending = []
 		self.pend_marks = []
 
 	def _emit_repeated_leaf_hints(self):
@@ -3855,6 +3994,7 @@ class _Parser:
 		# which the grammar says are one document.
 		if text.endswith("\n"):
 			lines.pop()
+		self.src = lines
 		i = 0
 		nlines = len(lines)
 		node_capped = False
@@ -3945,17 +4085,19 @@ class _Parser:
 						self._attach_trivia(node, indent, comment)
 				i = nxt
 				continue
-			# Stacked-list element: colon-less by construction ('*' can't begin a name).
-			if rest.startswith("*"):
+			# Stacked-list item: `-` then a blank. A bare name starts with a
+			# letter, so no field line starts that way. A `-` alone after the
+			# trim is an empty item only when a blank followed it, and only the
+			# untrimmed line still knows; with none it is a field line (E014).
+			item = False
+			if rest.startswith("-"):
 				after = rest[1:]
-				# A `*` alone after the trim: whether a space followed it
-				# decides between an empty element and a malformed line, and
-				# only the untrimmed line still knows.
-				spaced = after.startswith((" ", "\t", "\r"))
+				item = after.startswith((" ", "\t", "\r"))
 				if not after:
 					at = len(indent) + lead + 1
-					spaced = lines[i][at:at + 1] in (" ", "\t", "\r")
-				if spaced:
+					item = lines[i][at:at + 1] in (" ", "\t", "\r")
+			if item or rest.startswith("*"):
+				if item:
 					parent = self._resolve_parent(indent, found)
 					if parent is None:
 						self._misplaced(lineno, "E012", indent, rest, had_blank, False)
@@ -3984,6 +4126,10 @@ class _Parser:
 					if parent != ROOT:
 						if self._add_star_element(parent, tok, tok.src, lineno, indent):
 							self._keep_among(parent, indent)
+							# A comment on an item stays on its item.
+							if comment and self.arena[parent].value.kind == "array":
+								self.arena[parent]._triv().notes.append((len(self.arena[parent].value.els) - 1, comment))
+								comment = ""
 						head = self.arena[parent].line
 						if self.ends and self.ends[-1][0] == head:
 							self.ends[-1] = (head, lineno)
@@ -4005,10 +4151,11 @@ class _Parser:
 					self._misplaced(lineno, "E018", indent, rest, had_blank, False)
 					i += 1
 					continue
-				# Content-malformed at any position, so safe to retain. The BOM
+				# The old item marker. Content-malformed at any position, so safe
+				# to retain, and the items around it still load. The BOM
 				# exception the field arm makes cannot apply here: this line
 				# starts with the '*' that brought us in.
-				self._refuse(lineno, "E013", "malformed line: '*' must be followed by a space", _out_retained(_trim_wsp_end(rest), had_blank), indent)
+				self._refuse(lineno, "E013", "a list item is written '- ' now, not '*'", _out_retained(_trim_wsp_end(rest), had_blank), indent)
 				i += 1
 				continue
 			# Field line.
@@ -4110,6 +4257,9 @@ class _Parser:
 					self.arena[node].src_set = True
 					if not _src_matches_display(self.arena[node].value, src_text):
 						self.arena[node].src = src_text
+				# What the node had before this line, for an array line that
+				# turns out to have a field under it.
+				mark = (lineno, len(self.arena[node].leading()), self.arena[node].trailing() != "", self.arena[node].blank_before)
 				if had_blank:
 					self.arena[node].blank_before = True
 				if nxt > i + 1:
@@ -4123,6 +4273,8 @@ class _Parser:
 						self._give_pending(self._head_of(node, nsegs), indent, k + 1, False)
 				self._attach_trivia(node, indent, comment)
 				self.stack.append((indent, node))
+				if tok.array is not None:
+					self.array_lines[node] = mark
 			i = nxt
 		# A cap crossed on the document's last line still reports, with nothing
 		# left to skip.
@@ -4160,6 +4312,7 @@ class _Parser:
 		doc._ends = self.ends
 		doc._dropped = self.dropped
 		doc._kept = self.kept_any
+		doc._arrays = self.kept_arrays
 		doc._kept_owed = self.kept_owed
 		doc._settle_kept()
 		return doc
@@ -4372,6 +4525,43 @@ def _opened_by_kept(node):
 def _commented(text):
 	"""A misplaced line's text as the comment it falls back to."""
 	return "# " + text[len(_leading_ws(text)):]
+
+
+def _settle_array_run(run, heads):
+	"""Comment out each kept array line in a run but one written in place of
+	the line of a field with fields under it, the run's last when heads says
+	so. Anywhere else no field binds under it on a reload, so it would bind
+	itself. What sat under it goes the same way, since a comment holds no
+	level."""
+	settled = False
+	for k, lead in enumerate(run):
+		if not lead.text or lead.text[0] in "# \t" or not _array_kept(lead.text) or (heads and k + 1 == len(run)):
+			continue
+		depth = lead.depth
+		end = next((e for e in range(k + 1, len(run)) if not run[e].text.startswith("#") and run[e].depth <= depth), len(run))
+		for x in range(k, end):
+			if not run[x].text.startswith("#"):
+				run[x].text = _commented(run[x].text)
+				run[x].kept = True
+		settled = True
+	if settled:
+		_restep(run)
+
+
+def _array_kept(text):
+	"""A field line kept only for the lines under it: a whole array, and
+	nothing else wrong with it (E028)."""
+	if not _is_field(text) or not _is_field_text(text):
+		return False
+	tok = Tokens()
+	tokenize(text, ":", False, Rules.CURRENT, tok)
+	if tok.array is None:
+		return False
+	try:
+		_path_of(tok, tok.src)
+	except _PathError:
+		return False
+	return _line_fault(tok) is None
 
 
 def _note_text(s):
@@ -5211,7 +5401,7 @@ def _errors_within(d, of):
 
 class Document:
 	"""A parsed SHCL document: the tree, its diagnostics, and its strictness level."""
-	__slots__ = ("arena", "diags", "_strictness", "orphans", "_lost", "_kept_owed", "_index", "_probe", "_probe_doc", "_kept", "_kept_near", "_kept_sum", "_ends", "_dropped", "_source")
+	__slots__ = ("arena", "diags", "_strictness", "orphans", "_lost", "_kept_owed", "_index", "_probe", "_probe_doc", "_kept", "_arrays", "_bracketed", "_kept_near", "_kept_sum", "_ends", "_dropped", "_source")
 
 	def __init__(
 		self,
@@ -5247,6 +5437,12 @@ class Document:
 		self._probe_doc: Document | None = None
 		# Holds a misplaced line kept as written, so edits have to settle it.
 		self._kept = False
+		# Holds an array line kept for the lines under it (E028), which an
+		# edit can leave with none.
+		self._arrays = False
+		# Every list has been put in brackets by a merge, so the next one only
+		# has the nodes it brings or visits to do.
+		self._bracketed = False
 		# What the last settle's kept lines were modeled through, and a sum of
 		# it, so an edit that changes none of it skips the settle. Removing a
 		# block above all of it goes unseen, which leaves _kept set with no
@@ -5369,8 +5565,36 @@ class Document:
 		content, so save_file refuses then (save_file_lossy overrides), and
 		save_file_keep_lines does when it cannot keep the lines. It also counts
 		lines the load kept as written that an edit took and design.md's
-		kept-lines table does not let it take."""
-		return self._lost + self._kept_shortfall()
+		kept-lines table does not let it take, and list items the saved text
+		could not load back (see _unloadable_items)."""
+		return self._lost + self._kept_shortfall() + self._unloadable_items()
+
+	def _unloadable_items(self) -> int:
+		"""The items of a list no text loads back: one with a field under it
+		(E001), so written stacked, after an empty binding of its name that has
+		fields. A reload joins its bare header to that binding and drops the
+		items (E008), so a save refuses (2026100511210900). An edit or a merge
+		can build one, and so can a load, where a kept array line (E028) heads
+		the list. Then the source text loads it back, so the save that keeps
+		lines still writes it."""
+		n = 0
+		stack = [ROOT]
+		arena = self.arena
+		while stack:
+			kids = arena[stack.pop()].children
+			for k, c in enumerate(kids):
+				nd = arena[c]
+				if nd.value.kind != "array" or not nd.children or not _stacks(nd):
+					continue
+				# The first empty one is the one a reload joins it to.
+				for e in kids[:k]:
+					en = arena[e]
+					if en.name == nd.name and en.value.is_empty():
+						if en.children:
+							n += len(nd.value.els)
+						break
+			stack.extend(kids)
+		return n
 
 	def _kept_shortfall(self) -> int:
 		"""Kept lines the document owes and no longer holds. Free on a
@@ -5488,8 +5712,11 @@ class Document:
 		an edit took a kept line it should not have, this is to_canonical()
 		and False."""
 		# The reparse check cannot see a kept line gone from both the tree and
-		# the text, so falling back leaves it to the lost-count gate.
-		if self._source is not None and self._kept_shortfall() == 0:
+		# the text, so falling back leaves it to the lost-count gate. A source
+		# that was canonical skips that check, so a list no text loads back
+		# falls back to it too. Any other source is held to the check, and one
+		# that loads such a list back is kept.
+		if self._source is not None and self._kept_shortfall() == 0 and (self._source != "" or self._unloadable_items() == 0):
 			t = _keep_lines(self._source, self)
 			if t is not None:
 				return t, True
@@ -5558,12 +5785,46 @@ class Document:
 		either way. One among a list's elements goes above the list, as a
 		reload files a comment there. Runs after a load and after each edit,
 		and only while the document holds such a line."""
+		self._settle_arrays()
 		# A line moved out of a list can leave it written inline, which changes
 		# what the lines after it sit under, so go again until nothing moves.
+		was = self._kept
 		while self._kept and self._settle_kept_once():
 			pass
 		if self._kept:
 			self._kept_sum = self._near_sum()
+		# One of those may have been the line under a kept array.
+		if was:
+			self._settle_arrays()
+
+	def _settle_arrays(self):
+		"""A kept array line stays kept only while it heads a field with fields
+		under it (E028). One a merge or an edit leaves anywhere else would bind
+		on a reload, so it is written as a comment, the way the settle writes a
+		misplaced line that would read differently."""
+		if not self._arrays:
+			return
+		arena = self.arena
+		stack = list(arena[ROOT].children)
+		while stack:
+			n = stack.pop()
+			stack.extend(arena[n].children)
+			heads = _heads_block(arena[n])
+			t = arena[n].trivia
+			if t is None:
+				continue
+			_settle_array_run(t.leading, heads)
+			_settle_array_run(t.inside, False)
+			_settle_array_run(t.after, False)
+			start = 0
+			while start < len(t.among):
+				at = t.among[start][0]
+				end = start
+				while end < len(t.among) and t.among[end][0] == at:
+					end += 1
+				_settle_array_run([a[1] for a in t.among[start:end]], False)
+				start = end
+		_settle_array_run(self.orphans, False)
 
 	def _resettle_kept(self):
 		"""After an edit. A kept line binds or not by the lines between it and
@@ -5572,6 +5833,8 @@ class Document:
 		(20260924d item 2)."""
 		if self._kept and self._near_sum() != self._kept_sum:
 			self._settle_kept()
+		else:
+			self._settle_arrays()
 
 	def _near_sum(self):
 		"""Everything the emit model reads from the nodes in `_kept_near`: each
@@ -5706,13 +5969,14 @@ class Document:
 				out.append("  ")
 				out.append(trailing)
 			out.append("\n")
-		elif v.kind == "array" and node.trivia is not None and _stacks(node):
+		elif v.kind == "array" and _stacks(node):
 			# Stacked, with the kept lines where they sat.
 			if trailing:
 				out.append("  ")
 				out.append(trailing)
 			out.append("\n")
-			among = node.trivia.among
+			among = node.among()
+			notes = node.notes()
 			column = "\t" * (depth + 1)
 			nxt = 0
 			for i, el in enumerate(v.els):
@@ -5720,8 +5984,12 @@ class Document:
 					_push_leads(e, (among[nxt][1],), depth + 1, (idx, "among", nxt))
 					nxt += 1
 				out.append(column)
-				out.append("* ")
+				out.append("- ")
 				out.append(_emit_element(el))
+				for at, note in notes:
+					if at == i:
+						out.append("  ")
+						out.append(note)
 				out.append("\n")
 				e.placed(column)
 			while nxt < len(among):
@@ -6101,7 +6369,7 @@ class Document:
 			node._triv().leading = tail[:k + 1]
 			del tail[:k + 1]
 			_restep(tail)
-		_settle_block(self.arena, parent, len(self.arena[parent].children) - 1)
+		self._settle(parent, len(self.arena[parent].children) - 1)
 		return idx
 
 	def write_reason(self, path: str) -> WriteReason:
@@ -6160,6 +6428,17 @@ class Document:
 				trail.append(probe)
 		return (WriteReason.Writable, trail)
 
+	def _write_target(self, path):
+		"""The node a write at this path lands on when it is already there."""
+		try:
+			segments, value_text = _scan_lookup(path)
+		except _PathError:
+			return None
+		trail: list = []
+		if self._probe_write(segments, value_text, trail)[0] != WriteReason.Writable or not trail or trail[-1] is None:
+			return None
+		return trail[-1]
+
 	def _place(self, path, setter):
 		"""Walk (creating as needed) to the node a write targets. A trailing
 		name with no selector hits the first same-named instance (or a new one);
@@ -6177,10 +6456,13 @@ class Document:
 			return None
 		# Nothing is created until every segment the write would create is known
 		# to read back: the name through the name escaper, an instance selector
-		# as the value it binds.
+		# as the value it binds, and the first under a field that takes a field
+		# under it, which an array does not (E028).
 		for i, seg in enumerate(segments):
 			if trail[i] is not None:
 				continue
+			if i > 0 and trail[i - 1] is not None and self.arena[trail[i - 1]].value.kind == "array":
+				return None
 			if not _name_reads_back(seg.name):
 				return None
 			sel = seg.selector
@@ -6230,6 +6512,11 @@ class Document:
 		if self._probe:
 			return True
 		fresh = len(self.arena)
+		# A field with lines under it takes one plain value or none (E028).
+		if value.kind == "array":
+			n = self._write_target(path)
+			if n is not None and self.arena[n].children:
+				return False
 		idx = self._place(path, True)
 		if idx is None:
 			return False
@@ -6238,10 +6525,14 @@ class Document:
 			self._comment_out_kept(self.arena[idx].parent, self.arena[idx].name, path, False)
 		if keep_quotes:
 			_keep_mark(self.arena[idx].value, value)
+		# A list written stacked stays stacked, as an overwrite keeps quotes,
+		# unless there is nothing left to stack.
+		stacked = _stacks(self.arena[idx]) and value.kind == "array" and bool(value.els)
 		self.arena[idx].value = value
 		self.arena[idx].src = None   # written value has no source spelling
 		# No longer the list the lines among its elements sat in.
 		_unstack(self.arena[idx])
+		self.arena[idx].star_list = stacked
 		# An empty binding or a raw block can put a fence after an empty
 		# sibling of its name.
 		fence_side = value.kind == "raw" or value.is_empty()
@@ -6342,7 +6633,7 @@ class Document:
 		# No other field of this name, so the index order holds.
 		if self._index is not None:
 			self._index.append(_name_key(parent, name), idx)
-		_settle_block(self.arena, parent, pos)
+		self._settle(parent, pos)
 		return idx
 
 	def _collapse_dup(self, node):
@@ -6369,7 +6660,7 @@ class Document:
 		moved = list(self.arena[loser].children)
 		_fold_node_into(self.arena, survivor, loser)
 		self.arena[parent].children = [c for c in self.arena[parent].children if c != loser]
-		_settle_block(self.arena, parent, 1)
+		self._settle(parent, 1)
 		ix = self._index
 		if ix is not None:
 			ix.unlink(_name_key(parent, self.arena[loser].name), loser)
@@ -6383,16 +6674,32 @@ class Document:
 		"""The write-side twin of _settle_fence_trailing: only the written name's
 		instances can change, and walking them off the index keeps a write off
 		the rest of the block."""
-		seen_empty = False
+		empty = -1
 		for c in self._children_named(parent, name):
 			nd = self.arena[c]
 			t = nd.trivia
-			if seen_empty and nd.value.kind == "raw" and t is not None and t.trailing:
+			if empty >= 0 and nd.value.kind == "raw" and t is not None and t.trailing:
 				_trailing_to_leading(nd)
-			elif seen_empty and _stacks(nd):
-				_unstack(nd)
-			elif nd.value.is_empty():
-				seen_empty = True
+			elif empty >= 0 and _stacks(nd):
+				if not _fold_list_into_empty(self.arena, empty, c):
+					continue
+				self.arena[parent].children = [k for k in self.arena[parent].children if k != c]
+				ix = self._index
+				if ix is not None:
+					ix.unlink(_name_key(parent, name), c)
+					# The binding had no fields, so all of them came over.
+					for k in self.arena[empty].children:
+						kn = self.arena[k].name
+						ix.unlink(_name_key(c, kn), k)
+						ix.append(_name_key(empty, kn), k)
+			elif nd.value.is_empty() and empty < 0:
+				empty = c
+
+	def _settle(self, n, start):
+		"""_settle_block, dropping the name index when a list joined an empty
+		binding, since that moves fields to another parent."""
+		if _settle_block(self.arena, n, start):
+			self._index = None
 
 	def _fold_dups_below(self, start):
 		"""Folding moves the loser's children up a level, where they can collide
@@ -6422,7 +6729,7 @@ class Document:
 					first[key] = c
 					keep.append(c)
 			self.arena[parent].children = keep
-			_settle_block(self.arena, parent, 1)
+			self._settle(parent, 1)
 
 	def exists(self, path: str) -> bool:
 		"""True when the path resolves to at least one real node."""
@@ -6474,6 +6781,9 @@ class Document:
 		for t, p in pairs:
 			if self.arena[t].parent != DEAD:
 				continue
+			# A list written stacked for the fields under it stays stacked: a
+			# remove only takes lines away.
+			stacked = _stacks(self.arena[p])
 			keep: list[int] = []
 			left: list[_Lead] = []
 			for c in self.arena[p].children:
@@ -6486,11 +6796,15 @@ class Document:
 						left = []
 					keep.append(c)
 			self.arena[p].children = keep
+			self.arena[p].star_list = self.arena[p].star_list or stacked
+			# The next merge has a stacked list to put in brackets.
+			self._bracketed = self._bracketed and not stacked
 			if left:
 				self._leave_last(p, left)
 		# A field opened only by the lines under it goes with the last of
 		# them, and its own kept line stays where it was (escblock).
 		open_ = [p for _, p in pairs]
+		emptied = list(open_)
 		while open_:
 			p = open_.pop()
 			if p == ROOT or self.arena[p].children or not _opened_by_kept(self.arena[p]) or not self._live(p):
@@ -6507,12 +6821,23 @@ class Document:
 				self._index.unlink(_name_key(pp, self.arena[p].name), p)
 			kids = self.arena[pp].children
 			at = kids.index(p)
+			stacked = _stacks(self.arena[pp])
 			del kids[at]
+			self.arena[pp].star_list = self.arena[pp].star_list or stacked
+			self._bracketed = self._bracketed and not stacked
 			if at < len(kids):
 				self._leave_above(kids[at], left)
 			else:
 				self._leave_last(pp, left)
 			open_.append(pp)
+			emptied.append(pp)
+		# An empty binding that lost its last field takes a stacked list of its
+		# name after it, and a list that lost its last field goes in brackets
+		# there, as a reload reads them (2026100520243961).
+		for p in sorted(set(emptied)):
+			nd = self.arena[p]
+			if p != ROOT and not nd.children and nd.value.kind in ("empty", "array") and self._live(p):
+				self._settle_fence_name(nd.parent, nd.name)
 		_settle_first_blank(self.arena, self.orphans)
 		self._resettle_kept()
 		return len(targets)
@@ -6839,7 +7164,7 @@ class Document:
 	def set_literal(self, path: str, text: str) -> bool:
 		"""Bind text at path as value syntax rather than as data.
 
-		"80, 443" becomes a two-element array where set_string would store one
+		"[80, 443]" becomes a two-element array where set_string would store one
 		string that has to be quoted. This is how a caller holding value text -
 		a config line, a user's --set argument - writes it without knowing its
 		shape first. Returns False on text that could not be one line's value.
@@ -6915,12 +7240,20 @@ class Document:
 		# The layer's own kept lines were modeled against its own tree.
 		fresh = over._kept
 		self._kept = self._kept or over._kept
+		self._arrays = self._arrays or over._arrays
 		# Only a block the overlay visited can have a changed child list or
 		# comments; the rest was settled when it was built. Settling the whole
 		# tree made every merge cost the document (20260924 item 6). A block's
 		# settle writes only below it, so the order does not matter.
+		# Every list goes in brackets, whatever form its layers used, so a merge
+		# of the merged text gives the same text. After the first, only what the
+		# overlay brings or visits can be stacked.
+		if not self._bracketed:
+			for n in range(1, len(self.arena)):
+				_bracket(self.arena[n])
+			self._bracketed = True
 		for n in self._overlay(ROOT, over, ROOT):
-			_settle_block(self.arena, n, 1)
+			self._settle(n, 1)
 		# Layers commonly share a footer; keeping one copy of each keeps a
 		# stack of files from repeating it once per layer. Only the lines
 		# already here count: a layer's own repeats are its content.
@@ -6978,6 +7311,8 @@ class Document:
 		bt.inside.extend(_Lead(c.text, c.blank_before, c.depth, kept=c.kept) for c in st.inside)
 		bt.among.extend((pos, _Lead(c.text, c.blank_before, c.depth, kept=c.kept)) for pos, c in st.among)
 		bt.among.sort(key=lambda a: a[0])
+		bt.notes.extend(st.notes)
+		bt.notes.sort(key=lambda a: a[0])
 
 	def _overlay(self, base_parent, over, over_parent):
 		"""Explicit stack rather than recursion, for the same reason _clone_subtree
@@ -6990,6 +7325,9 @@ class Document:
 			bp, op = stack.pop()
 			touched.append(bp)
 			stack.extend(reversed(self._overlay_level(bp, over, op)))
+			# Its child list is final once its own level is done.
+			if bp != base_parent:
+				_bracket(self.arena[bp])
 		return touched
 
 	def _overlay_level(self, base_parent, over, over_parent):
@@ -7092,12 +7430,7 @@ class Document:
 							by_key.setdefault(okey, hit)
 							b = hit
 					if b is not None:
-						# A stacked spelling no kept line holds is gone on a
-						# reload, so it may not decide how the lines the other
-						# layer brings are written (20260926 item 4).
-						stacked = _stacks(self.arena[b]) or _stacks(over.arena[ok])
 						self._adopt_trivia(b, over, ok)
-						self.arena[b].star_list = stacked
 						# A name that reaches here is never in `replace`, so `b`
 						# survives the rebuild below and can wait for it.
 						pending.append((b, ok))
@@ -7141,6 +7474,8 @@ class Document:
 				self.arena[di].children.append(ci)
 				kids.append((ok, ci))
 			stack.extend(reversed(kids))
+			# A merge writes a list in brackets.
+			_bracket(self.arena[di])
 		return root
 
 	def _clone_node(self, over, oi, parent):
@@ -7160,6 +7495,7 @@ class Document:
 			t.after = [_Lead(c.text, c.blank_before, c.depth, kept=c.kept) for c in st.after]
 			t.inside = [_Lead(c.text, c.blank_before, c.depth, kept=c.kept) for c in st.inside]
 			t.among = [(pos, _Lead(c.text, c.blank_before, c.depth, kept=c.kept)) for pos, c in st.among]
+			t.notes = list(st.notes)
 		node.blank_before = src.blank_before
 		node.src_set = src.src_set
 		node.src = src.src
