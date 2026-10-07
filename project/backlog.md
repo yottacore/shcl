@@ -36,7 +36,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - README note on how escapes work, and why
 	- ID: 2026100313461651
 	- Type: Task
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Priority: Avg
 	- Opened: 20261003-134616
 	- Opened by: JC
@@ -46,26 +46,12 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Use the "newline" escape as an example, windows paths, and unicode escapes.
 	- Note: 20261003, the escape names come from `project/design_docs/value-syntax.md`: `◉NEWLINE◉`, `◉U+XXXX◉`, and a backslash is plain text, so `C:\temp` needs no doubling.
 	- Estimated effort: Low
-
-- A file stamped Format 3 during the beta is never migrated
-	- ID: 2026100115403385
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Note: 20261002, an open point in the design for 2026100207032800, which changes much more of format 3. Proposed there: pre-release files are on their own, per the 2.x low-stakes rule. Design: `project/design_docs/value-syntax.md`.
-	- Note: 20261002, the proposal was OK'd. What is left is saying so in the docs.
-	- Note: 20261003, 2026100313461649 now brings beta-stamped files forward when they can be told apart. This item waits on it.
-	- Note: 20261007, they can't be told apart. A beta wrote the same Format line as a release, and from 20260924 on the same info block. So 2026100313461649 leaves a file naming Format 3 alone, and what is left here is saying so in the docs.
-	- Opened: 20261001-154033
-	- Opened by: silkterm feedback
-	- Related IDs: 2026100115323227
-	- Version and build: dev at `b10c2009`
-	- Steps to reproduce:
-		- `migrate(text, false)`, `migrate(text, true)` and `migrate_unstamped(text, true)` on a file ending in `GEN_BANNER` and holding `image: "C:\Users\x.png"`.
-	- Incorrect behavior: all three return `current: true` and the text unchanged. Under `b10c2009` the line is `E023` and sets nothing. At `f2a8ad2`, which wrote the same `Format 3` line, it read as written.
-	- Expected behavior: some way to bring such a file forward, or a stated choice that pre-release files are on their own.
-	- Reproduced: Yes, 20261001, Rust at `b10c2009`.
-	- Note: a rough edge. Only programs that shipped a beta build of 3.0 to users are hit. SilkTerm's dogfood builds did; none of its releases did.
+	- Done: a paragraph and sample under "What a .shcl file looks like": a backslash is text, so a Windows path goes in as typed; `◉NEWLINE◉`, `◉U+200B◉`, a backtick value, and why a non-keyboard mark. Links to the spec's escape table.
+	- Test case: none for the wording. The sample's reads were checked with the CLI, and check-readme and check-docs pass.
+	- Verified: `shcl check` on the sample is clean, and `get` returns the path as typed, a real line break, a zero-width space and the backtick text as written. `fmt` leaves it as is.
+	- Acceptance signoff: README text, so it waits on a read of the wording.
+	- Branch: `escnote`
+	- Commit: `8c216fa7`
 
 - The Python binding parses about 25% slower than on 2026-09-19
 	- ID: 2026100221215300
@@ -1905,6 +1891,33 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `pathhint`
 	- Commit: `1a12c02`
 	- Test case: corpus `171-windows-path-hint`, cli-regress `path-hint-*` rows. The read and strict rows and case 171 fail with the hint off, and `path-hint-set` shows a write is unaffected. The migrate goldens of cases 118, 122 and 170 now list the hint.
+
+- A file stamped Format 3 during the beta is never migrated
+	- ID: 2026100115403385
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Note: 20261002, an open point in the design for 2026100207032800, which changes much more of format 3. Proposed there: pre-release files are on their own, per the 2.x low-stakes rule. Design: `project/design_docs/value-syntax.md`.
+	- Note: 20261002, the proposal was OK'd. What is left is saying so in the docs.
+	- Note: 20261003, 2026100313461649 now brings beta-stamped files forward when they can be told apart. This item waits on it.
+	- Note: 20261007, they can't be told apart. A beta wrote the same Format line as a release, and from 20260924 on the same info block. So 2026100313461649 leaves a file naming Format 3 alone, and what is left here is saying so in the docs.
+	- Opened: 20261001-154033
+	- Opened by: silkterm feedback
+	- Related IDs: 2026100115323227
+	- Version and build: dev at `b10c2009`
+	- Steps to reproduce:
+		- `migrate(text, false)`, `migrate(text, true)` and `migrate_unstamped(text, true)` on a file ending in `GEN_BANNER` and holding `image: "C:\Users\x.png"`.
+	- Incorrect behavior: all three return `current: true` and the text unchanged. Under `b10c2009` the line is `E023` and sets nothing. At `f2a8ad2`, which wrote the same `Format 3` line, it read as written.
+	- Expected behavior: some way to bring such a file forward, or a stated choice that pre-release files are on their own.
+	- Reproduced: Yes, 20261001, Rust at `b10c2009`.
+	- Note: a rough edge. Only programs that shipped a beta build of 3.0 to users are hit. SilkTerm's dogfood builds did; none of its releases did.
+	- Done: spec.md's "Migrating from 2.x" and the changelog say a file a pre-release build stamped `Format 3` is on its own, and `migrate` and `upgrade` leave it alone. README's migrating paragraph doesn't cover stamped files, so it stays as is.
+	- Test case: no code change. check-migrate `Es34DZk` already holds that `upgrade` leaves a file naming format 3 alone.
+	- Verified: `migrate`, `migrate --check`, `upgrade` and `upgrade --write` on a Format 3 file with an `E023` line all exit 0 and leave it as is.
+	- Acceptance signoff: Self-closed: docs only, the call was OK'd 20261002.
+	- Branch: `escnote`
+	- Commit: `8c216fa7`
+	- Closed: 20261007-143147
 
 - cli-regress fails 3 rows on macOS's own tools
 	- ID: 2026100617010925

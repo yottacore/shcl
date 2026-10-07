@@ -312,6 +312,17 @@ maintenance-page:
 
 Field names are case-insensitive. Repeated paths merge. `site` here is not one key but a set of instances (example.com, blog.example.com), each with its own children - arrays of objects without inventing syntax for them.
 
+Escapes work differently from most formats. A backslash is plain text everywhere, so a Windows path goes in as typed, quoted or not. JSON, YAML and TOML all read `\t` and `\n` in `"C:\temp\new"` as a tab and a line break, and the path quietly becomes something else. Using a common keyboard character to start an escape is what causes that, so SHCL doesn't. An escape here is a name from a short, fixed list, between two `◉` marks:
+
+~~~text
+backup-dir: C:\temp\new
+motd: "Back soon.◉NEWLINE◉Sorry for the wait."
+label: "a◉U+200B◉b"
+color: `\x1b[31m`
+~~~
+
+`◉NEWLINE◉` is a line break, and `◉U+200B◉` names a character by its hex code point, here a zero-width space. `fmt` writes any character a reader couldn't see that way, so a value can't hide one. A name not on the list is an error on its line, never a guess. The `◉` isn't on a keyboard, so nobody types it by accident. Programs write it, and people copy it from a comment or the docs. A value in backticks is never decoded, so the program gets `\x1b[31m` as written. Multi-line text goes in a fenced block. The full list is in [the spec](project/spec.md#escapes).
+
 ## Installation
 
 The latest release, `v2.0.0`, has packages, prebuilt CLI binaries, and a checksums file on the [releases page](https://github.com/yottacore/shcl/releases).
