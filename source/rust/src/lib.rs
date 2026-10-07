@@ -10523,7 +10523,7 @@ impl Document {
 	pub fn set_string_default(&mut self, path: &str, v: &str) -> bool {
 		self.set_default(path, |d, p| d.set_string(p, v))
 	}
-	/// Write TEXT as value syntax rather than as data: `80, 443` becomes a
+	/// Write TEXT as value syntax rather than as data: `[80, 443]` becomes a
 	/// two-element array where `set_string` would store one string that has to
 	/// be quoted. This is how a caller holding value text - a config line, a
 	/// user's `--set` argument - writes it without knowing its shape first.

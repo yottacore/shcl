@@ -960,8 +960,8 @@ func TestWriteReasonNamesTheFailure(t *testing.T) {
 	if got := doc.WriteReason("a.b"); got != Writable {
 		t.Errorf("a.b: got %v, want Writable", got)
 	}
-	if got := doc.WriteReason("a.new[Boston].x"); got != Writable { // creatable
-		t.Errorf("a.new[Boston].x: got %v, want Writable", got)
+	if got := doc.WriteReason("a.new(Boston).x"); got != Writable { // creatable
+		t.Errorf("a.new(Boston).x: got %v, want Writable", got)
 	}
 	if got := doc.WriteReason(""); got != BadPath {
 		t.Errorf("empty path: got %v, want BadPath", got)
@@ -972,14 +972,14 @@ func TestWriteReasonNamesTheFailure(t *testing.T) {
 	if got := doc.WriteReason("a.b: 2"); got != ValueInPath {
 		t.Errorf("a.b: 2: got %v, want ValueInPath", got)
 	}
-	if got := doc.WriteReason("a[*].b"); got != Wildcard {
-		t.Errorf("a[*].b: got %v, want Wildcard", got)
+	if got := doc.WriteReason("a(*).b"); got != Wildcard {
+		t.Errorf("a(*).b: got %v, want Wildcard", got)
 	}
-	if got := doc.WriteReason("a[#5].b"); got != NoSuchIndex {
-		t.Errorf("a[#5].b: got %v, want NoSuchIndex", got)
+	if got := doc.WriteReason("a(5).b"); got != NoSuchIndex {
+		t.Errorf("a(5).b: got %v, want NoSuchIndex", got)
 	}
-	if got := doc.WriteReason("nope[#0].b"); got != NoSuchIndex {
-		t.Errorf("nope[#0].b: got %v, want NoSuchIndex", got)
+	if got := doc.WriteReason("nope(0).b"); got != NoSuchIndex {
+		t.Errorf("nope(0).b: got %v, want NoSuchIndex", got)
 	}
 	deep := strings.TrimSuffix(strings.Repeat("d.", 513), ".")
 	if got := doc.WriteReason(deep); got != TooDeep {
@@ -991,7 +991,7 @@ func TestWriteReasonNamesTheFailure(t *testing.T) {
 	// was refused while the value emitter still wrote elements in their source
 	// spelling and had nothing to escape with. Not corpus-pinnable - an ops
 	// line cannot contain a raw newline.
-	if got := doc.WriteReason("a[\"p\nq\"].b"); got != Writable {
+	if got := doc.WriteReason("a(\"p\nq\").b"); got != Writable {
 		t.Errorf("newline in selector: got %v, want Writable", got)
 	}
 	if got := doc.WriteReason("\"x\ny\".b"); got != Writable {
@@ -1122,17 +1122,17 @@ func TestChildrenAndInstancePathsWalkARepeatedKey(t *testing.T) {
 	// gitsby's report: Children() on a repeated key answered nothing, and a
 	// walk had to know to index each instance.
 	doc := Parse("account: w\n\temail: e@x\n\t\tsshkey: k1\n\temail: f@x\n\t\tsshkey: k2\n")
-	if got := strings.Join(doc.Children("account[#0].email"), "|"); got != "sshkey|sshkey" {
+	if got := strings.Join(doc.Children("account(0).email"), "|"); got != "sshkey|sshkey" {
 		t.Errorf("children across instances: got %q", got)
 	}
-	if got := strings.Join(doc.Children("account.email[#1]"), "|"); got != "sshkey" {
+	if got := strings.Join(doc.Children("account.email(1)"), "|"); got != "sshkey" {
 		t.Errorf("children of one instance: got %q", got)
 	}
-	want := "account|account.email[#0]|account.email[#0].sshkey|account.email[#1]|account.email[#1].sshkey"
+	want := "account|account.email(0)|account.email(0).sshkey|account.email(1)|account.email(1).sshkey"
 	if got := strings.Join(doc.InstancePaths(), "|"); got != want {
 		t.Errorf("instance paths: got %q want %q", got, want)
 	}
-	if v, st := doc.GetString("account.email[#1].sshkey"); st != Good || v != "k2" {
+	if v, st := doc.GetString("account.email(1).sshkey"); st != Good || v != "k2" {
 		t.Errorf("read through an instance path: %q %v", v, st)
 	}
 }
@@ -1162,7 +1162,7 @@ func TestReadSurfaceLineQuotedChildren(t *testing.T) {
 	if doc.ReadStringArray("a").Quoted {
 		t.Error("a one-element bare cell reads quoted as an array")
 	}
-	if Parse("m: \"x\", \"y\"\n").ReadStringArray("m").Quoted {
+	if Parse("m: [\"x\", \"y\"]\n").ReadStringArray("m").Quoted {
 		t.Error("a two-element cell reports a single element's quoting")
 	}
 	if doc.ReadString("missing").Quoted {
@@ -1194,11 +1194,11 @@ func TestReadSurfaceLineQuotedChildren(t *testing.T) {
 	if got := doc.Lines("a"); fmt.Sprint(got) != "[1]" {
 		t.Errorf("a lines: got %v", got)
 	}
-	if got := doc.Lines("code[*].done"); fmt.Sprint(got) != "[6]" {
-		t.Errorf("code[*].done lines: got %v", got)
+	if got := doc.Lines("code(*).done"); fmt.Sprint(got) != "[6]" {
+		t.Errorf("code(*).done lines: got %v", got)
 	}
-	if got := doc.Lines("code[*].nope"); fmt.Sprint(got) != "[0]" {
-		t.Errorf("code[*].nope lines: got %v", got)
+	if got := doc.Lines("code(*).nope"); fmt.Sprint(got) != "[0]" {
+		t.Errorf("code(*).nope lines: got %v", got)
 	}
 	if got := doc.Lines("missing"); len(got) != 0 {
 		t.Errorf("missing lines: got %v", got)
@@ -1726,7 +1726,7 @@ func TestSaveRefusesADirectoryShapedPath(t *testing.T) {
 func TestALineBreakInAPathWritesAndReadsBack(t *testing.T) {
 	defer testID(t, "EpGigIL")
 	doc := Parse("z: 0\n")
-	if !doc.SetInt("x[\"p\nq\"].c", 1) || !doc.SetInt("\"a\nb\".c", 1) {
+	if !doc.SetInt("x(\"p\nq\").c", 1) || !doc.SetInt("\"a\nb\".c", 1) {
 		t.Fatal("a line break in a path was refused")
 	}
 	text := doc.ToCanonical()
@@ -1737,7 +1737,7 @@ func TestALineBreakInAPathWritesAndReadsBack(t *testing.T) {
 	if got := back.ToCanonical(); got != text {
 		t.Errorf("not a fixpoint:\n%s", text)
 	}
-	for _, p := range []string{"x[\"p◉NEWLINE◉q\"].c", "\"a◉NEWLINE◉b\".c", "\"a\nb\".c"} {
+	for _, p := range []string{"x(\"p◉NEWLINE◉q\").c", "\"a◉NEWLINE◉b\".c", "\"a\nb\".c"} {
 		if r := back.ReadInt(p); r.Value != 1 {
 			t.Errorf("read %q got %d", p, r.Value)
 		}
@@ -1767,7 +1767,7 @@ func TestSetStringRefusesInvalidUTF8(t *testing.T) {
 		"SetStringDefault":  func() bool { return d.SetStringDefault("k", bad) },
 		"a name":            func() bool { return d.SetInt(bad, 1) },
 		"a quoted name":     func() bool { return d.SetInt(`"`+bad+`"`, 1) },
-		"a selector":        func() bool { return d.SetInt("s["+bad+"].x", 1) },
+		"a selector":        func() bool { return d.SetInt("s("+bad+").x", 1) },
 	} {
 		if set() {
 			t.Errorf("%s accepted text that is not UTF-8", name)
@@ -2383,13 +2383,13 @@ func TestRawIsSourceText(t *testing.T) {
 	// A written value has no source spelling; raw falls back to display. The
 	// selector's escaped spelling must reach the existing instance.
 	doc2 := Parse("who: 'q\"uote'\n")
-	if !doc2.SetInt("who[\"q◉DQUOTE◉uote\"].n", 5) {
+	if !doc2.SetInt("who(\"q◉DQUOTE◉uote\").n", 5) {
 		t.Fatal("SetInt with escaped selector failed")
 	}
 	if n := doc2.Count("who"); n != 1 {
 		t.Errorf("who count: got %d, want 1", n)
 	}
-	r := doc2.ReadInt("who['q\"uote'].n")
+	r := doc2.ReadInt("who('q\"uote').n")
 	if r.Value != 5 || r.Status != Good {
 		t.Errorf("read back: got (%d, %v), want (5, Good)", r.Value, r.Status)
 	}
@@ -3223,19 +3223,19 @@ func listAfterEmpty(doc *Document) bool {
 		if len(doc.Children(p)) == 0 || r.Status != Good || r.Quoted || !strings.HasPrefix(r.Value, "[") {
 			continue
 		}
-		if !strings.HasSuffix(p, "]") {
+		if !strings.HasSuffix(p, ")") {
 			continue
 		}
-		open := strings.LastIndex(p, "[#")
+		open := strings.LastIndex(p, "(")
 		if open < 0 {
 			continue
 		}
-		k, err := strconv.Atoi(p[open+2 : len(p)-1])
+		k, err := strconv.Atoi(p[open+1 : len(p)-1])
 		if err != nil {
 			continue
 		}
 		for j := 0; j < k; j++ {
-			e := p[:open] + "[#" + strconv.Itoa(j) + "]"
+			e := p[:open] + "(" + strconv.Itoa(j) + ")"
 			if doc.ReadString(e).Status == Empty && len(doc.Children(e)) != 0 {
 				return true
 			}
@@ -3635,20 +3635,20 @@ func TestAFooterLineTheBaseHasIsNotOwedTwice(t *testing.T) {
 // stays with that line.
 func TestAReplacedLeafLeavesTheLinesBesideIt(t *testing.T) {
 	defer testID(t, "ErkSyFW")
-	doc := Parse("    srv: a\n  srv[x]: [3\nb[x]: [4\n# mine\nq: c\n")
-	if got := doc.ToCanonical(); got != "srv: a\n# srv[x]: [3\nb[x]: [4\n# mine\nq: c\n" {
+	doc := Parse("    srv: a\n  srv(x): [3\nb(x): [4\n# mine\nq: c\n")
+	if got := doc.ToCanonical(); got != "srv: a\n# srv(x): [3\nb(x): [4\n# mine\nq: c\n" {
 		t.Fatalf("loaded %q", got)
 	}
 	doc.Merge(Parse("q: 9\n"))
-	if got := doc.ToCanonical(); got != "srv: a\n# srv[x]: [3\nb[x]: [4\nq: 9\n" {
+	if got := doc.ToCanonical(); got != "srv: a\n# srv(x): [3\nb(x): [4\nq: 9\n" {
 		t.Fatalf("after the merge %q", got)
 	}
 	if n := doc.LostCount(); n != 0 {
 		t.Fatalf("LostCount %d, want 0", n)
 	}
-	doc = Parse("p:\n\tq: c\n\t# mine\n\tb[x]: [4\n\t# n\n")
+	doc = Parse("p:\n\tq: c\n\t# mine\n\tb(x): [4\n\t# n\n")
 	doc.Merge(Parse("p:\n\tq: 9\n"))
-	if got := doc.ToCanonical(); got != "p:\n\tb[x]: [4\n\t# n\n\tq: 9\n" {
+	if got := doc.ToCanonical(); got != "p:\n\tb(x): [4\n\t# n\n\tq: 9\n" {
 		t.Fatalf("after the block merge %q", got)
 	}
 	if n := doc.LostCount(); n != 0 {
@@ -3707,12 +3707,10 @@ func TestBareSpacesColonsAndCommas(t *testing.T) {
 		{"x:\n\t- a, b\n", "E026", "quote the text"},
 		{"x:\n\t- a\tb\n", "E025", "quote it"},
 		{"x:\n\t- [a]\n", "E019", "quote the item"},
-		// Selectors are written in parens in the reference, which this
-		// binding does not read yet.
-		// {"x(a:b).y: 1\n", "E025", "quote it"},
-		// {"x(a,b).y: 1\n", "E025", "quote it"},
-		// {"x(a[b).y: 1\n", "E025", "quote it"},
-		// {"x(a(b).y: 1\n", "E025", "quote it"},
+		{"x(a:b).y: 1\n", "E025", "quote it"},
+		{"x(a,b).y: 1\n", "E025", "quote it"},
+		{"x(a[b).y: 1\n", "E025", "quote it"},
+		{"x(a(b).y: 1\n", "E025", "quote it"},
 	} {
 		d := Parse(c.text).Diagnostics()
 		if len(d) != 1 || d[0].Code != c.code || !strings.Contains(d[0].Message, c.fix) {
@@ -3787,8 +3785,7 @@ func TestTheWriterQuotesACommaByWhereItSits(t *testing.T) {
 // that has fields: no text loads it back, since a reload joins the list's
 // header to that binding and drops its items (E008). The load is left as it
 // is; a save that would write it refuses (2026100511210900). An edit and a
-// merge can each leave one. Same fixture in every runner. Selectors are in
-// brackets here until this binding reads them in parens.
+// merge can each leave one. Same fixture in every runner.
 func TestAListNoTextLoadsBackRefusesToSave(t *testing.T) {
 	defer testID(t, "EryDfqr")
 	src := "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n"
@@ -3796,7 +3793,7 @@ func TestAListNoTextLoadsBackRefusesToSave(t *testing.T) {
 	if doc.LostCount() != 0 {
 		t.Fatalf("load lost %d", doc.LostCount())
 	}
-	if !doc.SetEmpty("x[v]") {
+	if !doc.SetEmpty("x(v)") {
 		t.Fatal("set empty refused")
 	}
 	text := doc.ToCanonical()
@@ -3839,7 +3836,7 @@ func TestAListNoTextLoadsBackRefusesToSave(t *testing.T) {
 	// and a list with no field under it goes in brackets.
 	for _, src := range []string{"x: v\nx:\n\t- a\n\tg: 2\n", "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n"} {
 		doc := Parse(src)
-		if !doc.SetEmpty("x[v]") || doc.LostCount() != 0 {
+		if !doc.SetEmpty("x(v)") || doc.LostCount() != 0 {
 			t.Fatalf("%q: lost %d: %q", src, doc.LostCount(), doc.ToCanonical())
 		}
 	}
@@ -3853,7 +3850,7 @@ func TestAListJoiningAnEmptiedFieldKeepsItsFieldsFound(t *testing.T) {
 	for _, c := range []struct{ src, path, field, want string }{
 		{"b: x\nb:\n\t- 3\n\tk: 1\n", "b", "b.k", "1"},
 		{"b: x\nb: y z\n\t- 3\n\tk: 1\n", "b", "b.k", "1"},
-		{"x: v\nx:\n\t- a\n\tg: 2\n", "x[v]", "x.g", "2"},
+		{"x: v\nx:\n\t- a\n\tg: 2\n", "x(v)", "x.g", "2"},
 	} {
 		doc := Parse(c.src)
 		if _, st := doc.GetString(c.field); st != Good {
@@ -3881,7 +3878,7 @@ func TestAListJoiningAnEmptiedFieldKeepsItsFieldsFound(t *testing.T) {
 // keeps lines writes it as it was.
 func TestAListTheSourceLoadsBackKeepsItsLines(t *testing.T) {
 	defer testID(t, "EryDfv3")
-	src := "c:\n\ts: 1\nc: [1]\n\tb[*]: 1\n\t- 3\n\ta: 2\n"
+	src := "c:\n\ts: 1\nc: [1]\n\tb(*): 1\n\t- 3\n\ta: 2\n"
 	doc, _ := ParseKeepLines(src, Standard)
 	if doc.LostCount() != 2 {
 		t.Fatalf("the wildcard line and the item: lost %d", doc.LostCount())
@@ -3994,5 +3991,84 @@ func TestASetterKeepsFieldsAndArraysApart(t *testing.T) {
 	}
 	if got := doc.ToCanonical(); got != "l: [b, c]\nz:\n\t- x\n" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+// A selector is written in parens. One in brackets is the old spelling: a
+// file line is E029 and kept, and a lookup, a setter or a schema path in
+// brackets is refused. A body starting with `#`, the old index, is refused
+// too. Same fixture in every runner.
+func TestBracketSelectorsAreTheOldSpelling(t *testing.T) {
+	defer testID(t, "Eryg0ZB")
+	doc := Parse("srv: web\n\tport: 80\nsrv[web]:\n\thost: h\n")
+	d := doc.Diagnostics()
+	if len(d) != 1 || d[0].Code != "E029" || d[0].Line != 3 {
+		t.Fatalf("diagnostics %v", d)
+	}
+	if n := doc.LostCount(); n != 0 {
+		t.Fatalf("LostCount %d", n)
+	}
+	if v := doc.ReadString("srv(web).host").Value; v != "h" {
+		t.Fatalf("srv(web).host = %q", v)
+	}
+	if n := doc.Count("srv"); n != 1 {
+		t.Fatalf("srv count %d", n)
+	}
+	if st := doc.ReadString("srv[web].host").Status; st != NotFound {
+		t.Fatalf("srv[web].host status %v", st)
+	}
+	if n := doc.Count("srv[web]"); n != 0 {
+		t.Fatalf("srv[web] count %d", n)
+	}
+	for path, want := range map[string]WriteReason{"srv[web].x": BadPath, "srv(#0).x": BadPath, "srv(0).x": Writable} {
+		if got := doc.WriteReason(path); got != want {
+			t.Errorf("WriteReason(%q) = %v, want %v", path, got, want)
+		}
+	}
+	if doc.SetInt("srv[web].x", 1) {
+		t.Fatal("a setter took a path in brackets")
+	}
+	if !doc.SetInt("srv(web).x", 1) {
+		t.Fatal("a setter refused srv(web).x")
+	}
+	if got := doc.ToCanonical(); !strings.HasPrefix(got, "srv[web]:\nsrv: web\n") {
+		t.Fatalf("got %q", got)
+	}
+	var tok Tokens
+	Tokenize("a(x).b[y].c: 1", ':', false, RulesCurrent, &tok)
+	if tok.BracketSelector != 6 {
+		t.Fatalf("BracketSelector %d, want 6", tok.BracketSelector)
+	}
+	Tokenize("a(x).b(y).c: 1", ':', false, RulesCurrent, &tok)
+	if tok.BracketSelector != -1 {
+		t.Fatalf("BracketSelector %d, want -1", tok.BracketSelector)
+	}
+	schema := Parse("field: \"srv[*].port\"\n")
+	found := false
+	for _, v := range Parse("srv: a\n").Validate(schema) {
+		if v.Code == "V093" && strings.Contains(v.Message, "parens") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("no V093 naming parens")
+	}
+}
+
+// A parent whose default is an array has no selector a child line can use,
+// since a selector matches one plain value. Generation refuses it rather
+// than write a child that makes another instance.
+func TestInitRefusesAChildOfAnArrayParent(t *testing.T) {
+	defer testID(t, "Eryg0bK")
+	schema := Parse("field: tags\n\trequired: yes\n\tdefault: [a]\nfield: tags.k\n\trequired: yes\n")
+	text, faults := Generate(schema, true)
+	found := false
+	for _, d := range faults {
+		if d.Code == "V097" && strings.Contains(d.Message, "no selector spelling") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("a child of an array parent generated: %q %v", text, faults)
 	}
 }
