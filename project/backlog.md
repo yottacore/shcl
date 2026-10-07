@@ -299,7 +299,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 			- Corpus: 196 of 203 passed before, 203 after.
 			- Crosscheck with Rust over the corpus: 68 of 5952 comparisons diverged before, none after. With a fresh fuzz dump of 500 inputs plus its line-ending and kept-line sets added, none of 13945 diverge.
 			- cli-regress for Python: 12 rows failed before, none after. Python and Rust both pass every row.
-			- check-migrate pointed at the Python CLI passes the same way it does for Go (638 documents, 28 lost counts).
+			- check-migrate pointed at the Python CLI passes the same way it does for Go (638 documents, 28 lost counts), and it has 192 divergences on the Python CLI before.
 			- Tests: `Es1eIOp` to `Es1eIOw` match Go's `ErykhtD` to `ErykhtK`. Each failed on the code before.
 			- Verified: the Python runner (unit tests pass, corpus 203 of 203), ruff, mypy, test-ids check, check-docs, crosscheck, cli-regress for Python and Rust, check-migrate against the Python CLI.
 			- No new calls. The Python port is done. The C port, with the C++ veneer, remains.
