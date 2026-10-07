@@ -3257,6 +3257,146 @@ def main():
 	if not any(d.code == "V097" and "no selector spelling" in d.message for d in afaults):
 		raise SystemExit(f"a child of an array parent generated: {atext!r} {afaults}")
 
+	test_id("Es1eIOp", "migrate_brackets_a_2x_comma_list")
+	# migrate writes a 2.x comma list in brackets, with or without a blank
+	# after the comma, since 2.x read both as arrays. In a file that does not
+	# say it is 2.x, `a,b` is a string under these rules, so it is left and
+	# counted; `a, b` is an error here, so it converts either way. A lone bare
+	# value these rules refuse is quoted.
+	mm = shcl.migrate("x: a, b\ny: a,b\nz: \"q\", r\nw: New York,,b\nv: done:\nu: rw,noatime\n", True)
+	if mm.ambiguous != 0:
+		raise SystemExit(f"ambiguous {mm.ambiguous}")
+	if not mm.text.startswith("x: [a, b]\ny: [a, b]\nz: [\"q\", r]\nw: [\"New York\", b]\nv: \"done:\"\nu: [rw, noatime]\n"):
+		raise SystemExit(repr(mm.text))
+	if shcl.Document.parse(mm.text).diagnostics():
+		raise SystemExit(f"{shcl.Document.parse(mm.text).diagnostics()}")
+	mm = shcl.migrate("x: a, b\ny: a,b\n", False)
+	if mm.ambiguous != 1:
+		raise SystemExit(f"ambiguous {mm.ambiguous}")
+	if not mm.text.startswith("x: [a, b]\ny: a,b\n"):
+		raise SystemExit(repr(mm.text))
+
+	test_id("Es1eIOq", "migrate_writes_star_items_as_dashes")
+	# A 2.x `*` item becomes `- `, and an item these rules would read as
+	# something else is quoted, such as one that looks like `- name: value`.
+	mm = shcl.migrate("list:\n\t* a\n\t* key: value\n\t* 'c'\n\t* O'Brien\n", True)
+	if not mm.text.startswith("list:\n\t- a\n\t- \"key: value\"\n\t- 'c'\n\t- \"O'Brien\"\n"):
+		raise SystemExit(repr(mm.text))
+	mback = shcl.Document.parse(mm.text)
+	if mback.diagnostics():
+		raise SystemExit(f"{mback.diagnostics()}")
+	mread = mback.read_string_array("list")
+	if mread.status != shcl.Status.Good or mread.value != ["a", "key: value", "c", "O'Brien"]:
+		raise SystemExit(f"list: {mread.value!r} {mread.status}")
+
+	test_id("Es1eIOr", "migrate_quotes_a_name_not_led_by_a_letter")
+	# A bare 2.x name not led by a letter is quoted, so `-x: y` and `- :0`
+	# stay fields rather than reading as list items, and `404` stays a name.
+	mm = shcl.migrate("404: a\n-x: y\nl:\n\t- :0\na.9b: 2\n_id: 7\n", True)
+	if not mm.text.startswith("\"404\": a\n\"-x\": y\nl:\n\t\"-\" :0\na.\"9b\": 2\n\"_id\": 7\n"):
+		raise SystemExit(repr(mm.text))
+	mback = shcl.Document.parse(mm.text)
+	if mback.diagnostics():
+		raise SystemExit(f"{mback.diagnostics()}")
+	for mpath, mwant in (("\"-x\"", "y"), ("l.\"-\"", "0")):
+		mread = mback.read_string(mpath)
+		if mread.status != shcl.Status.Good or mread.value != mwant:
+			raise SystemExit(f"{mpath}: {mread.value!r} {mread.status}")
+	mint = mback.read_int("a.\"9b\"")
+	if mint.status != shcl.Status.Good or mint.value != 2:
+		raise SystemExit(f"a.9b: {mint.value!r} {mint.status}")
+
+	test_id("Es1eIOs", "migrate_escapes_a_real_mark")
+	# 2.x read a `◉` as text. A name, a bare value and a selector body
+	# holding one get the escape for a real mark, so they still read as that
+	# text.
+	mm = shcl.migrate("\"a\u25c9q\u25c9\": 1\nbare: My\u25c9SPACE\u25c9App\ns[x\u25c9y].p: 2\n", True)
+	mback = shcl.Document.parse(mm.text)
+	if mback.diagnostics():
+		raise SystemExit(f"{mback.diagnostics()}\n{mm.text}")
+	mpaths = mback.paths()
+	if len(mpaths) < 2 or mpaths[0] != "\"a\u25c9ESCAPE_CHAR\u25c9q\u25c9ESCAPE_CHAR\u25c9\"" or mpaths[1] != "bare":
+		raise SystemExit(f"{mpaths!r}\n{mm.text}")
+	mread = mback.read_string("bare")
+	if mread.status != shcl.Status.Good or mread.value != "My\u25c9SPACE\u25c9App":
+		raise SystemExit(f"bare: {mread.value!r} {mread.status}")
+	if mback.count("s") != 1:
+		raise SystemExit(f"count s {mback.count('s')}")
+	mread = mback.read_string("s(0)")
+	if mread.status != shcl.Status.Good or mread.value != "x\u25c9y":
+		raise SystemExit(f"s(0): {mread.value!r} {mread.status}")
+
+	test_id("Es1eIOt", "migrate_quotes_a_bare_selector_these_rules_refuse")
+	# A 2.x selector goes in parens, and a bare body these rules refuse, such
+	# as one with a quote or a space, is quoted, so its block still loads.
+	mm = shcl.migrate("srv[O'Brien].port: 1\nsrv[New York].port: 2\n", True)
+	if not mm.text.startswith("srv(\"O'Brien\").port: 1\nsrv(\"New York\").port: 2\n"):
+		raise SystemExit(repr(mm.text))
+	mback = shcl.Document.parse(mm.text)
+	if mback.diagnostics():
+		raise SystemExit(f"{mback.diagnostics()}")
+	if mback.count("srv") != 2:
+		raise SystemExit(f"count srv {mback.count('srv')}")
+
+	test_id("Es1eIOu", "migrate_writes_selectors_in_parens")
+	# Every 2.x selector goes in parens: an index, a value, the sugar on a
+	# segment before the last, and a body with a paren in it, quoted. A
+	# selector in brackets is E029 under these rules, so a file that does not
+	# say it is 2.x gets the same rewrite, with nothing counted.
+	mtext = "a[x].k: 1\nb: y\nb[0].k: 2\nc[a(b)].k: 3\ne:[f].g: 4\nr[\"x\"]:\n\ts: 1\n"
+	mwant_text = "a(x).k: 1\nb: y\nb(0).k: 2\nc(\"a(b)\").k: 3\ne(f).g: 4\nr(\"x\"):\n\ts: 1\n"
+	for mfrom in (True, False):
+		mm = shcl.migrate(mtext, mfrom)
+		if mm.ambiguous != 0 or mm.lost != 0:
+			raise SystemExit(f"from_v2 {mfrom}: ambiguous {mm.ambiguous}, lost {mm.lost}\n{mm.text}")
+		if not mm.text.startswith(mwant_text):
+			raise SystemExit(f"from_v2 {mfrom}: {mm.text!r}")
+	mback = shcl.Document.parse(shcl.migrate(mtext, True).text)
+	if mback.diagnostics():
+		raise SystemExit(f"{mback.diagnostics()}")
+	for mpath, mwant_int in (("c(\"a(b)\").k", 3), ("e(f).g", 4), ("b(y).k", 2), ("r(x).s", 1)):
+		mint = mback.read_int(mpath)
+		if mint.status != shcl.Status.Good or mint.value != mwant_int:
+			raise SystemExit(f"{mpath}: {mint.value!r} {mint.status}")
+
+	test_id("Es1eIOv", "migrate_counts_what_nothing_spells")
+	# What 2.x bound and nothing spells now is counted lost, so the CLI
+	# refuses at 7: a selector with a comma, which matched an array value, and
+	# a comma list with lines under it. A list of only empty slots, which 2.x
+	# read as empty, is an empty value.
+	mm = shcl.migrate("a[x, y].b: 1\n", True)
+	if mm.lost != 1:
+		raise SystemExit(f"lost {mm.lost}")
+	mm = shcl.migrate("a: 1, 2\n\tb: 1\nc: 3, 4\n", True)
+	if mm.lost != 1:
+		raise SystemExit(f"lost {mm.lost}\n{mm.text}")
+	mm = shcl.migrate("e: ,\nf: , # c\n", True)
+	if mm.lost != 0:
+		raise SystemExit(f"lost {mm.lost}")
+	if not mm.text.startswith("e:\nf: # c\n"):
+		raise SystemExit(repr(mm.text))
+	mback = shcl.Document.parse(mm.text)
+	if mback.diagnostics():
+		raise SystemExit(f"{mback.diagnostics()}")
+	if mback.read_string("e").status != shcl.Status.Empty:
+		raise SystemExit(f"e: {mback.read_string('e').status}")
+
+	test_id("Es1eIOw", "migrate_leaves_what_reads_clean_now")
+	# A file that does not say it is 2.x could be a 3.0 one. A piece that
+	# reads clean under these rules too, such as an escape, a backtick value,
+	# `[a]` or a `- ` item, is left as written and counted, so the CLI asks
+	# for --from-2x rather than changing a correct file at exit 0. A selector
+	# in brackets is E029 now, so its line is rewritten the 2.x way.
+	mtext = "x: \"a\u25c9TAB\u25c9b\"\n\"n\u25c9TAB\u25c9\": 1\nl:\n\t- :0\ns[\"\u25c9TAB\u25c9\"].p: 1\nb: `abc`\nc: [a]\n"
+	mm = shcl.migrate(mtext, False)
+	if mm.ambiguous != 5:
+		raise SystemExit(f"ambiguous {mm.ambiguous}\n{mm.text}")
+	mwant_text = mtext.replace("s[\"\u25c9TAB\u25c9\"]", "s(\"\u25c9ESCAPE_CHAR\u25c9TAB\u25c9ESCAPE_CHAR\u25c9\")", 1)
+	if mm.text != mwant_text:
+		raise SystemExit(f"got {mm.text!r}\nwant {mwant_text!r}")
+	if "ESCAPE_CHAR" not in shcl.migrate(mtext, True).text:
+		raise SystemExit("no ESCAPE_CHAR with from_v2")
+
 	test_id_end()
 	print(f"conformance: {len(cases)} case(s) pass")
 	return 0

@@ -293,6 +293,16 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 			- Tests: `ErysKPJ` and `ErysKS0` match Go's `Eryg0ZB` and `Eryg0bK`. `ErysKPJ` fails on the code before. `ErysKS0` passes there, as Go's twin did, since part 1 already gave an array no selector body; it fails with that check taken out. Part 1's 4 commented paren rows in `EryEquE` are back on and fail on the code before. Parts 1 and 2's fixtures and `list_after_empty` now use parens.
 			- Verified: the Python runner (unit tests pass, corpus as above), ruff, mypy, test-ids check, check-docs, check-readme's Python example, perf-gate (`selectors` included).
 			- Left for part 3b: `migrate`, which still writes brackets, with its 7 corpus cases and 12 cli-regress rows.
+		- 20261007: chunk E part 3b, Python `migrate` (2026100610073400's `migrate` half too), on `vspy3b`, off `valsyn`. Library and CLI.
+			- In: what Go's part 3b has. A backslash stays as written, a 2.x comma list goes in brackets, a `*` item becomes `- `, a bare name not led by a letter is quoted, a real `◉` gets its escape, and a selector goes in parens, its body quoted where these rules refuse it bare. A selector holding a comma and a comma list over lines are counted lost, and the CLI's lost message names all 3 kinds. In a file that does not say it is 2.x, a piece that reads clean both ways is left and counted, and a line these rules already refuse is rewritten.
+			- Removed: the 2.x escape reading and quoting helpers part 1 left for `migrate`, dead now, as they went in Go and Rust. `_index_shape` no longer takes 2.x's `#`, which Rust dropped in `vsmig2`; part 3a's note had that wrong.
+			- Corpus: 196 of 203 passed before, 203 after.
+			- Crosscheck with Rust over the corpus: 68 of 5952 comparisons diverged before, none after. With a fresh fuzz dump of 500 inputs plus its line-ending and kept-line sets added, none of 13945 diverge.
+			- cli-regress for Python: 12 rows failed before, none after. Python and Rust both pass every row.
+			- check-migrate pointed at the Python CLI passes the same way it does for Go (638 documents, 28 lost counts).
+			- Tests: `Es1eIOp` to `Es1eIOw` match Go's `ErykhtD` to `ErykhtK`. Each failed on the code before.
+			- Verified: the Python runner (unit tests pass, corpus 203 of 203), ruff, mypy, test-ids check, check-docs, crosscheck, cli-regress for Python and Rust, check-migrate against the Python CLI.
+			- No new calls. The Python port is done. The C port, with the C++ veneer, remains.
 		- 20261006: chunk F part 1, C values, on `vsc1`, off `valsyn`. Library, CLI and the C++ interface.
 			- In: what Go's and Python's part 1 have. A backslash is text; `◉` escapes from the generated table, which `gen-escapes.py` now writes for C too; `E023`; backtick values, with a `shcl_backtick` read call beside `shcl_quoted`; the writer's quoting, kept quote kind and escapes. The bare value rules: spaces, `E025`, `E026`, the loose colon. The bare name rule, `E014` kept and held open, with the narrow `E015` repair. `E017` value only, the cap judged before the value (`E021`), `E024` and `H003` retired. `explain` text, the `tokens` backtick mark and array spans, and the `--set-literal` help lines.
 			- Bracket arrays came with it, as for Go and Python: the array value kind, `E019`, string reads in bracket form, array setters writing brackets, `shcl_set_literal`'s value check, schema `allowed` and `repeat` in brackets, and a selector matching one plain value. The `shcl_set_literal` doc comment's example is `[80, 443]`.
@@ -388,6 +398,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 			- No new calls. `Tokens.BracketSelector` is -1 when there is none, as `Misspelled` is. Go's `migrate`, then the Python and C ports with the C++ veneer, remain.
 		- 20261006: Go's `migrate` writes selectors in parens, on `vsgo3b` with 2026100207032800's Go part 3b. Go test `ErykhtI` matches `ErxqQLy`; the Python and C ports remain.
 		- 20261006: the Python port, `migrate` aside, on `vspy3` with 2026100207032800's Python part 3a. The Python corpus fails only its 7 `migrate` cases, and crosscheck with Rust diverges only on `migrate`. Python tests `ErysKPJ` and `ErysKS0` match `Eryg0ZB` and `Eryg0bK`.
+		- 20261007: Python's `migrate` writes selectors in parens, on `vspy3b` with 2026100207032800's Python part 3b. Python test `Es1eIOu` matches `ErxqQLy`; the C port remains.
 	- Branch: `vspar`, `vsmig2`, `vsgo3`, `vsgo3b`, `vspy3`
 	- Commit: `c4da140e`, `df0eab64`, `dfb108ad`, `1fd8a1f1`, `a3a87c98`
 	- Test case: corpus 203 (`ErxfmqL`), conformance `Erxfmqa` and `Erxfmqb`, fuzz `Erxfmqc`, cli-regress `ErxfmqM` to `ErxfmqZ`. Each failed on the code before but `ErxfmqU`, a pinning row. `vsmig2`: conformance `ErxqQLy`, cli-regress `Erxvsaw`, and check-migrate `Eq5YPgP` with the bracket copies. Each failed on the code before; check-migrate had 35 divergences there.

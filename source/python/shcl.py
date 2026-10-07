@@ -1831,67 +1831,7 @@ def _escape_text(name):
 	return None, f"unknown escape '{shown}'; an escape is a name from the escape list, and a real {m} is {m}ESCAPE_CHAR{m}"
 
 
-def _apply_escapes_v2(s):
-	"""The 2.x reading, for migrate: no \\u, so 2.x kept \\u0041 as written."""
-	return _resolve_escapes(s, Rules.V2)
-
-
-def _resolve_escapes(s, rules):
-	# Fast path: every non-backslash char passes through verbatim, so with no
-	# backslash the output is s itself. Hot at parse time too (_disp_key runs
-	# per node insert), and backslash-free text dominates.
-	if "\\" not in s:
-		return s
-	out = []
-	i = 0
-	n = len(s)
-	while i < n:
-		c = s[i]
-		i += 1
-		if c != "\\":
-			out.append(c)
-			continue
-		nxt = s[i] if i < n else None
-		i += 1
-		if nxt in ("u", "U") and rules is Rules.CURRENT:
-			ue = _unicode_escape(nxt, s[i:i + 8])
-			if ue is not None:
-				out.append(ue[0])
-				i += ue[1]
-				continue
-		if nxt == "t":
-			out.append("\t")
-		elif nxt == "n":
-			out.append("\n")
-		elif nxt == "\\":
-			out.append("\\")
-		elif nxt == '"':
-			out.append('"')
-		elif nxt == "'":
-			out.append("'")
-		elif nxt is None:
-			out.append("\\")
-		else:
-			out.append("\\")
-			out.append(nxt)
-	return "".join(out)
-
-
 _HEX_CHARS = frozenset("0123456789abcdefABCDEF")
-
-
-def _unicode_escape(kind, after):
-	"""The character a \\u or \\U escape names, and how many hex digits it
-	takes: four after u, eight after U, as in TOML. None for a short run, a
-	surrogate or a value past U+10FFFF."""
-	n = 4 if kind == "u" else 8
-	digits = after[:n]
-	if len(digits) < n or not _HEX_CHARS.issuperset(digits):
-		return None
-	v = int(digits, 16)
-	if v > 0x10FFFF or 0xD800 <= v <= 0xDFFF:
-		return None
-	return chr(v), n
 
 
 # gen-escapes.py: begin
@@ -2064,14 +2004,6 @@ def _has_invisible(t):
 	return not _INVISIBLE.isdisjoint(t) and any(_invisible_at(t, i) for i, c in enumerate(t) if c in _INVISIBLE)
 
 
-def _unicode_escape_text(c):
-	# \u takes four digits, so a character past U+FFFF is written with \U.
-	# Only the 2.x writer for migrate takes it.
-	if ord(c) > 0xFFFF:
-		return f"\\U{ord(c):08X}"
-	return f"\\u{ord(c):04X}"
-
-
 # The name the writer uses for each text: the first one listed, so the walk
 # goes backward and an earlier name overwrites a later one.
 _ESCAPE_NAME_OF = {text: name for name, text in reversed(_ESCAPE_NAMES)}
@@ -2218,11 +2150,15 @@ class Migration:
 	"""What migrate produced, and what it could not keep.
 
 	current: the file already names its format, so there was nothing to migrate
-	and text is the input. ambiguous: pieces the two rule sets read differently
-	and nothing can decide between, left as written; always 0 when the caller
-	said the file is 2.x. lost: lines 2.x bound a value on that nothing binds
-	now - bracket text after the colon, or a line break in a value that starts
-	like a Windows path, neither of which has a spelling here."""
+	and text is the input. ambiguous: pieces both rule sets read cleanly and
+	differently, such as `a,b` or an escape, and runs of lines one rule set
+	reads as a raw body and the other as fields, which nothing can decide
+	between, left as written; always 0 when the caller said the file is 2.x.
+	A backslash is not one of them: it stays as written either way. lost:
+	lines 2.x bound a value on that nothing binds now, since there is no 3.0
+	spelling to move to: bracket text after the colon, a selector holding a
+	comma, which matched an array value, and a comma list with lines under it
+	(E028 in brackets)."""
 
 	__slots__ = ("text", "current", "ambiguous", "lost")
 
@@ -2236,12 +2172,17 @@ class Migration:
 class _Migrating:
 	"""The counters a line rewrite reports back, and the one thing it asks."""
 
-	__slots__ = ("from_v2", "ambiguous", "lost")
+	__slots__ = ("from_v2", "ambiguous", "lost", "bracketed", "refused_now")
 
 	def __init__(self, from_v2):
 		self.from_v2 = from_v2
 		self.ambiguous = 0
 		self.lost = 0
+		# The line just rewritten put a 2.x comma list in brackets.
+		self.bracketed = False
+		# These rules refuse the line about to be rewritten, so it is not a
+		# correct 3.0 line, whatever the file is.
+		self.refused_now = False
 
 
 def format_version(text: str) -> int | None:
@@ -2364,25 +2305,29 @@ def _opens_raw(rest: str, tok: Tokens) -> tuple[str, int] | None:
 def migrate(text: str, from_v2: bool) -> Migration:
 	"""Rewrite a document written under the 2.x rules so this parser reads the
 	same tree. Each line is read with the 2.x tokenizer and rewritten only
-	where the two rule sets disagree: a bare or single-quoted piece whose
-	backslash meant an escape is double-quoted with that escape; a piece that
-	opened a quote it never closed is quoted whole; the `name:[disc]` selector
-	sugar loses its colon, and on a last segment becomes `name: disc`, with
-	`disc` written the way the formatter writes a value. A rewritten piece
-	holding a backslash is double-quoted, so the result reads the same under
-	2.x and a second run changes nothing.
+	where the two rule sets disagree (value-syntax.md, Migration). A
+	backslash stays as written and reads as text, so a piece is written
+	another way only where these rules would read its text as something
+	else: a quote it shielded, a real `◉`, a quote, tab or bracket in bare
+	text, an open quote, which is quoted whole. A comma list goes in
+	brackets, a `*` item becomes `- `, a bare name not led by a letter is
+	quoted, and a selector goes from brackets to parens, its body quoted
+	where these rules would refuse it bare. The `name:[disc]` selector sugar
+	loses its colon, and on a last segment becomes `name: disc`, with `disc`
+	written the way the formatter writes a value.
 	Everything else - comments, blank lines, raw bodies, layout, a line 2.x
 	could not read - comes through as written. One shape has no spelling
 	here at all: a fence label holding a `#`, which 2.x ran to the end of the
 	line and which now ends at the `#`.
 
-	Which file this is cannot be read off the text: `p: 'C:\\temp'` is one value
-	under 2.x and another under these rules, so rewriting a 3.0 file changes
-	what it says. So the version line decides. A file that names this format is
+	Which file this is cannot always be read off the text: `p: a,b` is an
+	array under 2.x and one string under these rules, and a raw block can open
+	where only one rule set sees it, so rewriting a 3.0 file changes what it
+	says. So the version line decides. A file that names this format is
 	returned untouched; one that names an older format, or a caller passing
-	from_v2, gets the backslash re-spellings; anything else gets every other
-	rewrite and leaves those pieces alone, counted in ambiguous for the caller
-	to refuse over. A rewritten file is stamped with the version line, so the
+	from_v2, gets every rewrite. Anything else leaves those pieces alone where
+	these rules read the line cleanly, counted in ambiguous for the caller to
+	refuse over. A rewritten file is stamped with the version line, so the
 	second run has an answer the first one did not."""
 	return _migrate_text(text, from_v2, True)
 
@@ -2411,6 +2356,12 @@ def _migrate_text(text, from_v2, stamp):
 	if version is not None and version >= FORMAT_MAJOR:
 		return Migration(whole, current=True)
 	st = _Migrating(from_v2 or version is not None)
+	bracketed = []
+	# Where a file that does not say it is 2.x might be a 3.0 one, the lines
+	# these rules already refuse are safe to rewrite.
+	refused: set[int] = set()
+	if not st.from_v2:
+		refused = {d.line for d in Document.parse(text).diagnostics() if d.severity is Severity.Error}
 	out = [bom]
 	tok = Tokens()
 	fence = None
@@ -2434,8 +2385,12 @@ def _migrate_text(text, from_v2, stamp):
 			rest = _trim_wsp_end(rest_full)
 			# lost counts lines, and one line can lose several values.
 			lost_before = st.lost
+			st.bracketed = False
+			st.refused_now = i + 1 in refused
 			migrated, fence = _migrate_line(rest, tok, fence, st)
 			st.lost = min(st.lost, lost_before + 1)
+			if st.bracketed:
+				bracketed.append(i + 1)
 			if migrated != rest:
 				changed = True
 			line_out = indent + migrated + rest_full[len(rest):] + cr
@@ -2446,6 +2401,12 @@ def _migrate_text(text, from_v2, stamp):
 		if differs and not split and not st.from_v2:
 			st.ambiguous += 1
 		split = differs
+	# 2.x let a comma list head lines of its own, and nothing spells that
+	# now: in brackets it is E028, and as one string it reads as another
+	# value.
+	if bracketed:
+		heads = set(bracketed)
+		st.lost += sum(1 for d in Document.parse("".join(out)).diagnostics() if d.code == "E028" and d.line in heads)
 	# Stamping a file whose ambiguous pieces were left alone would claim a
 	# migration that did not finish, and the next run would then skip it. A
 	# document that never closes its raw block has nowhere to put the line
@@ -2493,17 +2454,12 @@ def _reads_same(spelling, quoted, logical):
 
 
 def _migrate_spelling(logical, bare):
-	"""How a changed piece is written. 2.x read a backslash in bare and
-	single-quoted text as an escape too, and double quotes are where both rule
-	sets read one alike. No \\u goes in, since 2.x would keep it as written.
-	So the migrated file reads the same under 2.x, and a second run changes
-	nothing. A line break in a value that starts like a Windows path has no
-	such spelling: written this way it is E024, so the caller counts it lost."""
-	if "\\" in logical:
-		return _quote_double_as(logical, Rules.V2)
+	"""How a changed piece is written: the way the writer writes its text, so
+	it reads back as that text. A backslash pair 2.x resolved is not resolved
+	here: it stays as written and reads as text now, with no escape added."""
 	if bare and not _needs_quotes(logical):
 		return logical
-	return _quote_text_as(logical, Rules.V2)
+	return _quote_text(logical)
 
 
 def _v2_bracket_array(body):
@@ -2515,11 +2471,12 @@ def _v2_bracket_array(body):
 	return len(tok.elements) > 1
 
 
-def _value_edits(s, tok, edits, st):
-	"""The re-spellings a value's pieces need. Each piece is read the 2.x way
-	(escapes everywhere, an open quote kept whole, a quote at both ends making
-	it quoted) and rewritten only where the current rules would read the
-	same text as something else."""
+def _value_edits(s, tok, edits):
+	"""The re-spellings a value's pieces need. Each piece is cut the 2.x way
+	(a backslash shields the next character, an open quote is kept whole, a
+	quote at both ends makes it quoted) and rewritten only where the current
+	rules would read its text as something else. Its text is as 2.x wrote it,
+	a backslash pair included, so the same bytes mean the same either way."""
 	for p in tok.elements:
 		raw = s[p.start:p.end].decode("utf-8", "surrogatepass")
 		quoted = p.quote is Quote.SINGLE or p.quote is Quote.DOUBLE
@@ -2527,28 +2484,64 @@ def _value_edits(s, tok, edits, st):
 			a, b = p.start - 1, p.end + 1
 		else:
 			a, b = p.start, p.end
-		if p.quote is Quote.NONE and "\\" not in raw and raw:
+		if (
+			p.quote is Quote.NONE
+			and "\\" not in raw
+			and _ESCAPE_MARK not in raw
+			and raw
+			and _bare_trouble(raw, _BARE_VALUE) is None
+		):
 			continue
-		logical = _apply_escapes_v2(raw)
-		if _reads_same(s[a:b].decode("utf-8", "surrogatepass"), quoted, logical):
+		if _reads_same(s[a:b].decode("utf-8", "surrogatepass"), quoted, raw):
 			continue
-		# A resolved escape is the one edit that turns on which rule set wrote
-		# the file: these bytes say one thing under 2.x and another here. An
-		# open quote or an empty slot reads alike either way, so it still goes,
-		# and so does an unknown pair in double quotes, which both kept. A \u
-		# in double quotes is a character now and was text in 2.x.
-		if p.quote is Quote.DOUBLE:
-			differs = _unicode_pair_differs(s[p.start:p.end])
-		else:
-			differs = logical != raw
-		if differs and not st.from_v2:
-			st.ambiguous += 1
-			continue
-		spelling = _migrate_spelling(logical, not (quoted or p.quote is Quote.OPEN))
-		# Written the way 2.x read it, the line is E024 and binds nothing.
-		if spelling.startswith('"') and _spells_path_escape(spelling):
-			st.lost += 1
+		spelling = _migrate_spelling(raw, not (quoted or p.quote is Quote.OPEN))
 		edits.append((a, b, spelling.encode("utf-8", "surrogatepass")))
+
+
+def _v2_array_text(s, tok):
+	"""A 2.x value with a comma in brackets, since 2.x read every comma as an
+	array. Its empty elements go, as 2.x dropped them. Each element is written
+	the way the writer writes one inside `[]`, unless its quoted spelling
+	already reads the same."""
+	out = ["["]
+	for p in tok.elements:
+		if p.quote is Quote.NONE and p.end <= p.start:
+			continue
+		if len(out) > 1:
+			out.append(", ")
+		raw = s[p.start:p.end].decode("utf-8", "surrogatepass")
+		quoted = p.quote is Quote.SINGLE or p.quote is Quote.DOUBLE
+		if quoted and _reads_same(s[p.start - 1:p.end + 1].decode("utf-8", "surrogatepass"), True, raw):
+			out.append(s[p.start - 1:p.end + 1].decode("utf-8", "surrogatepass"))
+		elif p.quote is Quote.NONE and not _element_needs_quotes(raw):
+			out.append(raw)
+		else:
+			out.append(_quote_text(raw))
+	out.append("]")
+	return "".join(out)
+
+
+def _reads_clean_now(text, from_):
+	"""True when the current rules read a value with no fault, as one piece:
+	then `a,b` is a string now and was an array under 2.x."""
+	tok = Tokens()
+	tokenize_value(text, from_, Rules.CURRENT, tok)
+	return tok.array is None and len(tok.elements) == 1 and _value_fault(tok, tok.src) is None
+
+
+def _quoted_name_now(spelled):
+	"""The name a quoted field name, quotes included, reads as under the
+	current rules, or None when it does not read as one clean name."""
+	line = spelled + ":"
+	tok = Tokens()
+	tokenize(line, ":", False, Rules.CURRENT, tok)
+	if tok.fault is not None or tok.misspelled is not None or len(tok.segments) != 1:
+		return None
+	seg = tok.segments[0]
+	if seg.selector is not None or not (seg.name.quote is Quote.SINGLE or seg.name.quote is Quote.DOUBLE):
+		return None
+	name, _ = _resolve_marks(tok.src[seg.name.start:seg.name.end].decode("utf-8", "surrogatepass"))
+	return name
 
 
 def _migrate_line(rest, tok, fence, st):
@@ -2563,31 +2556,50 @@ def _migrate_line(rest, tok, fence, st):
 	edits: list = []
 	s = rest.encode("utf-8", "surrogatepass")
 	if rest.startswith("*") and len(s) > 1 and _is_wsp_byte(s[1]):
+		edits.append((0, 1, b"-"))
 		tokenize_value(rest, 1, Rules.V2, tok)
 		# A bare comma was refused (E010), so there is nothing to convert.
+		# A value's rules are an item's, and stricter about a colon, so
+		# what reads clean as one reads clean as the other.
 		if len(tok.elements) == 1:
-			_value_edits(s, tok, edits, st)
+			_value_edits(s, tok, edits)
 	else:
 		tokenize(rest, ":", False, Rules.V2, tok)
 		if tok.fault is not None:
 			return rest, fence
 		last = len(tok.segments) - 1
+		# A selector in brackets is E029 now, so its line never reads clean
+		# and is rewritten whatever the file says it is. Only `name:[disc]`
+		# ending the line is a value here.
+		if any(seg.selector is not None and not (i == last and tok.sep is None) for i, seg in enumerate(tok.segments)):
+			st.refused_now = True
 		for i, seg in enumerate(tok.segments):
 			name = s[seg.name.start:seg.name.end].decode("utf-8", "surrogatepass")
-			# An unknown pair in double quotes read the same in 2.x, and is
-			# E023 now, so its backslash is doubled whichever wrote the file.
-			# A \u pair is a character now, so that one needs --from-2x.
-			name_raw = s[seg.name.start:seg.name.end]
-			if seg.name.quote is Quote.DOUBLE and _v2_kept_escape(name_raw):
-				if _unicode_pair_differs(name_raw) and not st.from_v2:
-					st.ambiguous += 1
+			# A backslash in a quoted name is text now, and stays. Only a
+			# quote it shielded, or a real escape mark, needs another
+			# spelling. A bare name not led by a letter goes in quotes, since
+			# `-` then a blank would start a list item now.
+			# A file that does not say it is 2.x could be a 3.0 one. Where it
+			# reads clean under these rules as well, it is left and counted.
+			respell = clean_now = False
+			if seg.name.quote is Quote.SINGLE or seg.name.quote is Quote.DOUBLE:
+				if "\\" in name or _ESCAPE_MARK in name:
+					now = _quoted_name_now(s[seg.name.start - 1:seg.name.end + 1].decode("utf-8", "surrogatepass"))
+					respell = now != name
+					clean_now = now is not None
+			else:
+				# `-` then a blank is a list item now.
+				clean_now = name == "-" and (seg.name.end >= len(s) or _is_wsp_byte(s[seg.name.end]))
+				lead = name[:1]
+				respell = not ("a" <= lead <= "z" or "A" <= lead <= "Z")
+			if respell and clean_now and not st.from_v2 and not st.refused_now:
+				st.ambiguous += 1
+			elif respell:
+				if seg.name.quote is Quote.NONE:
+					a, b = seg.name.start, seg.name.end
 				else:
-					edits.append((seg.name.start - 1, seg.name.end + 1, _escape_name_as(_apply_escapes_v2(name), Rules.V2).encode("utf-8", "surrogatepass")))
-			if seg.name.quote is Quote.SINGLE and _apply_escapes_v2(name) != name:
-				if st.from_v2:
-					edits.append((seg.name.start - 1, seg.name.end + 1, _escape_name_as(_apply_escapes_v2(name), Rules.V2).encode("utf-8", "surrogatepass")))
-				else:
-					st.ambiguous += 1
+					a, b = seg.name.start - 1, seg.name.end + 1
+				edits.append((a, b, _escape_name(name).encode("utf-8", "surrogatepass")))
 			sel = seg.selector
 			if sel is None:
 				continue
@@ -2607,8 +2619,7 @@ def _migrate_line(rest, tok, fence, st):
 			if k > 0 and s[k - 1] == 0x3A:
 				colon = k - 1
 			body = s[sel.start:sel.end].decode("utf-8", "surrogatepass")
-			logical = _apply_escapes_v2(body)
-			unknown = sel.quote is Quote.DOUBLE and _v2_kept_escape(s[sel.start:sel.end])
+			spelled = s[sel.start - 1:sel.end + 1].decode("utf-8", "surrogatepass") if quoted else body
 			if i == last and tok.sep is None:
 				if colon is not None:
 					# `name:[disc]` with nothing after it: 2.x read it as
@@ -2617,58 +2628,83 @@ def _migrate_line(rest, tok, fence, st):
 					# one - and an index or the wildcard was refused as a
 					# selector, so those stay as written. A bare body moves
 					# into a value, where a fence run opens a raw block and a
-					# leading `[` is bracket text, so the emitter writes it.
+					# leading `[` opens an array, so the emitter writes it.
 					if not quoted and (_index_shape(body) or body == "*"):
 						return rest, fence
 					# 2.x bound the bracket array, as one folded string. There
-					# is no spelling to move that to - a value beginning with
-					# `[` is bracket text now - so the binding goes, and the
+					# is no spelling to move that to - in brackets it is an
+					# array of several now - so the binding goes, and the
 					# caller hears about it rather than reading exit 0.
 					if not quoted and _v2_bracket_array(body):
 						st.lost += 1
 						return rest, fence
-					if logical != body and not st.from_v2:
-						st.ambiguous += 1
-						continue
-					if logical != body:
-						spelling = _migrate_spelling(logical, False)
-					elif quoted and not unknown:
-						spelling = _trim_wsp(s[open_at + 1:close].decode("utf-8", "surrogatepass"))
+					# `[a]` is a one-element array now.
+					if not st.from_v2 and not st.refused_now:
+						now_tok = Tokens()
+						tokenize_value(rest, colon + 1, Rules.CURRENT, now_tok)
+						if now_tok.array is not None and now_tok.array_fault is None and _value_fault(now_tok, now_tok.src) is None:
+							st.ambiguous += 1
+							return rest, fence
+					if not quoted:
+						spelling = _migrate_spelling(body, True)
+					elif _reads_same(spelled, True, body):
+						spelling = spelled
 					else:
-						spelling = _migrate_spelling(logical, True)
-					# As a value, a path holding a `\\t` or `\\n` is E024.
-					if spelling.startswith('"') and _spells_path_escape(spelling):
-						spelling = _migrate_spelling(logical, False)
-						if spelling.startswith('"') and _spells_path_escape(spelling):
-							st.lost += 1
+						spelling = _migrate_spelling(body, False)
 					edits.append((colon, close + 1, (": " + spelling).encode("utf-8", "surrogatepass")))
 					continue
 			elif colon is not None:
 				# The colon goes, and one space after it when the author
-				# spaced both sides, so `base : [x]` comes out `base [x]`.
+				# spaced both sides, so `base : [x]` comes out `base (x)`.
 				spaced = colon > 0 and _is_wsp_byte(s[colon - 1]) and _is_wsp_byte(s[colon + 1])
 				edits.append((colon, colon + 1 + int(spaced), b""))
-			# Double quotes already read alike on both sides, so only the other
-			# spellings turn on which rule set wrote the file.
-			if unknown and _unicode_pair_differs(s[sel.start:sel.end]) and not st.from_v2:
-				st.ambiguous += 1
-			elif unknown:
-				edits.append((sel.start - 1, sel.end + 1, _migrate_spelling(logical, False).encode("utf-8", "surrogatepass")))
-			elif logical != body and sel.quote is not Quote.DOUBLE:
-				if st.from_v2:
-					if quoted:
-						a, b = sel.start - 1, sel.end + 1
-					else:
-						a, b = sel.start, sel.end
-					edits.append((a, b, _migrate_spelling(logical, False).encode("utf-8", "surrogatepass")))
+			index = not quoted and (_index_shape(body) or body == "*")
+			# 2.x matched an array value by its display form, and a selector
+			# matches one plain value now, so nothing spells this.
+			if not index and not quoted and _v2_bracket_array(body):
+				st.lost += 1
+				return rest, fence
+			edits.append((open_at, open_at + 1, b"("))
+			edits.append((close, close + 1, b")"))
+			# A backslash is text now, and stays. Only a quote or a blank it
+			# shielded, or one the body has bare, a paren, or a real escape
+			# mark, needs another spelling.
+			if not index and not _selector_reads_back(spelled, body, quoted):
+				spelling = _migrate_spelling(body, False)
+				# Nothing reads back as that body, so there is no way to
+				# write it in parens.
+				if not _selector_reads_back(spelling, body, True):
+					st.lost += 1
+					return rest, fence
+				if quoted:
+					a, b = sel.start - 1, sel.end + 1
 				else:
-					st.ambiguous += 1
+					a, b = sel.start, sel.end
+				edits.append((a, b, spelling.encode("utf-8", "surrogatepass")))
 		if tok.sep is not None:
 			# A same-line fence: the info string ran to the end of the line.
 			fo = _fence_open(s[tok.value[0]:].decode("utf-8", "surrogatepass"))
 			if fo is not None:
 				return _splice(s, edits).decode("utf-8", "surrogatepass"), (fo[0], fo[1])
-			_value_edits(s, tok, edits, st)
+			sep = tok.sep
+			if len(tok.elements) > 1:
+				# A file that does not say it is 2.x could be a 3.0 one, where
+				# `a,b` is a string. `a, b` is an error there, so it is safe.
+				if st.from_v2 or not _reads_clean_now(rest, sep + 1):
+					# Only empty slots, which 2.x dropped: an empty value.
+					if tok.element_count() == 0:
+						edits.append((sep + 1, tok.value[1], b""))
+					else:
+						st.bracketed = True
+						edits.append((tok.value[0], tok.value[1], _v2_array_text(s, tok).encode("utf-8", "surrogatepass")))
+				else:
+					st.ambiguous += 1
+			else:
+				before = len(edits)
+				_value_edits(s, tok, edits)
+				if not st.from_v2 and not st.refused_now and len(edits) > before and _reads_clean_now(rest, sep + 1):
+					del edits[before:]
+					st.ambiguous += 1
 	return _splice(s, edits).decode("utf-8", "surrogatepass"), fence
 
 
@@ -2701,10 +2737,8 @@ class _PathError(Exception):
 
 def _index_shape(body):
 	# The spelling of an index selector - an optional `+`, then digits - whatever
-	# its size. The grammar says 1*DIGIT, with no upper bound. The optional `#`
-	# is 2.x's `[#N]`, which migrate still reads.
-	b = body[1:] if body[:1] == "#" else body
-	b = b[1:] if b[:1] == "+" else b
+	# its size. The grammar says 1*DIGIT, with no upper bound.
+	b = body[1:] if body[:1] == "+" else body
 	return bool(b) and _all_ascii_digits(b)
 
 
@@ -2738,73 +2772,11 @@ def _selector_of(p, s):
 	n = _parse_uint(body)
 	if n is not None:
 		return ("idx", n)
-	if not body.startswith("#") and _index_shape(body):
+	if _index_shape(body):
 		# All digits but past u64: an index no instance can have, not a
 		# value selector that would create one on a write.
 		return ("idx", 2**64 - 1)
 	return ("val", body, False)
-
-
-def _unknown_escape(raw):
-	"""The character after the first backslash in raw (bytes) that starts no
-	escape, or the u or U of one that names no character. Only meaningful for
-	a double-quoted piece."""
-	i = raw.find(b"\\")
-	while i >= 0:
-		# A double-quoted piece cannot end on a lone backslash: it would have
-		# escaped the closing quote.
-		if i + 1 >= len(raw):
-			return None
-		k = raw[i + 1]
-		if k in b"uU":
-			if _unicode_escape(chr(k), raw[i + 2:i + 10].decode("latin-1")) is None:
-				return chr(k)
-		elif k not in b"tn\\\"'":
-			return raw[i + 1:].decode("utf-8", "surrogatepass")[0]
-		i = raw.find(b"\\", i + 2)
-	return None
-
-
-def _v2_kept_escape(raw):
-	"""_unknown_escape by the 2.x rules, which had no \\u: a pair 2.x kept as
-	written, so migrate doubles its backslash. Takes bytes."""
-	i = raw.find(b"\\")
-	while i >= 0:
-		if i + 1 >= len(raw):
-			return False
-		if raw[i + 1] not in b"tn\\\"'":
-			return True
-		i = raw.find(b"\\", i + 2)
-	return False
-
-
-def _unicode_pair_differs(raw):
-	"""A 2.x pair that is a real \\u escape now: 2.x read the text as written
-	and the current rules read a character, so only --from-2x can say which.
-	Takes bytes."""
-	return _v2_kept_escape(raw) and _unknown_escape(raw) is None
-
-
-def _path_like(p, src):
-	"""A double-quoted value that starts like a Windows path, a drive (`C:\\`)
-	or a share (`\\\\`), and holds a `\\t` or `\\n` escape (E024).
-	`"C:\\temp"` would read as `C:`, a tab and `emp`, which a path almost
-	never means. Any other pair made the line E023 before this is asked."""
-	if p.quote is not Quote.DOUBLE:
-		return False
-	raw = src[p.start:p.end]
-	drive = len(raw) >= 3 and raw[:1].isalpha() and raw[1:3] == b":\\"
-	if not drive and not raw.startswith(b"\\\\"):
-		return False
-	i = 0
-	while i + 1 < len(raw):
-		if raw[i] != 0x5C:
-			i += 1
-			continue
-		if raw[i + 1] in b"tn":
-			return True
-		i += 2
-	return False
 
 
 class _Fault:
@@ -8190,28 +8162,6 @@ def _escape_name(name: str) -> str:
 	return _quote_text(name)
 
 
-def _escape_name_as(name, rules):
-	"""The name spelling 2.x read back, for migrate: its backslash escapes,
-	with an invisible character written as it is, since 2.x kept a \\u as
-	written."""
-	if name and _BARE_NAME_CHARS.issuperset(name):
-		return name
-	out = ['"']
-	for c in name:
-		if c == "\\":
-			out.append("\\\\")
-		elif c == '"':
-			out.append('\\"')
-		elif c == "\t":
-			out.append("\\t")
-		elif c == "\n":
-			out.append("\\n")
-		else:
-			out.append(c)
-	out.append('"')
-	return "".join(out)
-
-
 def _emit_name(name: str) -> str:
 	return _escape_name(name)
 
@@ -9021,59 +8971,6 @@ def _quote_with(t, q):
 			out.append(c)
 		i += 1
 	out.append(q)
-	return "".join(out)
-
-
-# The 2.x spellings below are for migrate only.
-
-
-def _quote_text_as(t, rules):
-	"""_quote_text for a reader of rules, as in _quote_double_as."""
-	control = "\n" in t or "\t" in t or (rules is Rules.CURRENT and _has_invisible(t))
-	if not control and "'" not in t and ('"' in t or "\\" in t):
-		return "'" + t + "'"
-	return _quote_double_as(t, rules)
-
-
-def _quote_double_as(t, rules):
-	"""The double-quoted spelling for a reader of rules. The two read it alike,
-	except a \\u escape, which 2.x kept as written, so for 2.x an invisible
-	character goes in as it is."""
-	out = _quote_double_with(t, rules, False)
-	# Written `\\t` or `\\n`, a path is E024 on the reload, and a `\\u`
-	# escape reads the same. 2.x kept one as written, so for 2.x a tab goes in
-	# as it is, and a line break has no spelling: migrate counts that one lost.
-	if _spells_path_escape(out):
-		return _quote_double_with(t, rules, True)
-	return out
-
-
-def _spells_path_escape(quoted):
-	"""True when a double-quoted spelling would be E024."""
-	src = quoted.encode("utf-8", "surrogatepass")
-	return _path_like(Piece(1, len(src) - 1, Quote.DOUBLE), src)
-
-
-def _quote_double_with(t, rules, path):
-	out = ['"']
-	for i, c in enumerate(t):
-		if c == "\\":
-			out.append("\\\\")
-		elif c == '"':
-			out.append('\\"')
-		elif c in "\n\t" and path and rules is Rules.CURRENT:
-			out.append(_unicode_escape_text(c))
-		elif c == "\t" and path:
-			out.append(c)
-		elif c == "\n":
-			out.append("\\n")
-		elif c == "\t":
-			out.append("\\t")
-		elif c in _INVISIBLE and rules is Rules.CURRENT and _invisible_at(t, i):
-			out.append(_unicode_escape_text(c))
-		else:
-			out.append(c)
-	out.append('"')
 	return "".join(out)
 
 
