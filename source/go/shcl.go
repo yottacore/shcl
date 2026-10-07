@@ -515,8 +515,8 @@ type nodeData struct {
 	children  []int
 	parent    int
 	line      int
-	starList  bool // value built from stacked "* " lines
-	starMixed bool // mix of "* " and field children already diagnosed
+	starList  bool // value built from stacked "- " lines, and written that way
+	starMixed bool // mix of "- " and field children already diagnosed
 	// Blank-line grouping is the other half of hand-authored layout: set when
 	// a blank line preceded this node's binding line (runs collapse to one).
 	blankBefore bool
@@ -557,12 +557,21 @@ type trivia struct {
 	// the number of elements before it. They keep the list stacked on output,
 	// so a line fixed by hand is still inside the list.
 	among []amongLead
+	// The comment trailing a stacked list item, with the item's index. Like
+	// the lines among the items, they keep the list stacked on output.
+	notes []itemNote
 }
 
 // amongLead is a kept line among a list's elements: how many came before it.
 type amongLead struct {
 	before int
 	lead   lead
+}
+
+// itemNote is the comment trailing a stacked list item, and the item's index.
+type itemNote struct {
+	at   int
+	text string
 }
 
 func (n *nodeData) leading() []lead {
@@ -598,6 +607,13 @@ func (n *nodeData) among() []amongLead {
 		return nil
 	}
 	return n.trivia.among
+}
+
+func (n *nodeData) notes() []itemNote {
+	if n.trivia == nil {
+		return nil
+	}
+	return n.trivia.notes
 }
 
 func (n *nodeData) trivMut() *trivia {
@@ -670,6 +686,12 @@ type Document struct {
 	probeDoc *Document
 	// kept: holds a misplaced line kept as written, so edits have to settle it.
 	kept bool
+	// arrays: holds an array line kept for the lines under it (E028), which
+	// an edit can leave with none.
+	arrays bool
+	// bracketed: every list has been put in brackets by a merge, so the next
+	// one only has the nodes it brings or visits to do.
+	bracketed bool
 	// What the last settle's kept lines were modeled through, and a sum of
 	// it, so an edit that changes none of it skips the settle. Removing a
 	// block above all of it goes unseen, which leaves kept set with no such
@@ -808,6 +830,8 @@ func foldNodeInto(arena []nodeData, survivor, loser int) {
 		st.inside = append(st.inside, lt.inside...)
 		st.among = append(st.among, lt.among...)
 		sort.SliceStable(st.among, func(i, j int) bool { return st.among[i].before < st.among[j].before })
+		st.notes = append(st.notes, lt.notes...)
+		sort.SliceStable(st.notes, func(i, j int) bool { return st.notes[i].at < st.notes[j].at })
 	}
 }
 
@@ -821,20 +845,35 @@ func foldNodeInto(arena []nodeData, survivor, loser int) {
 // differently depending on whether the file was saved in between. The text
 // does not move. from is the first child whose leading list may gain, so a new
 // last child costs one pair; it cannot put a fence after an empty binding
-// either, so only a full pass looks for one.
-func settleBlock(arena []nodeData, n, from int) {
+// either, so only a full pass looks for one. True when a list joined an empty
+// binding, which moves fields under another parent, so a caller holding the
+// name index has to drop it.
+func settleBlock(arena []nodeData, n, from int) bool {
+	joined := from <= 1 && settleFenceTrailing(arena, n)
+	settlePairs(arena, n, from)
+	// A line the pass above moved off an empty binding no longer holds its
+	// join off, and a reload joins it (2026100520243961).
+	if from <= 1 && settleFenceTrailing(arena, n) {
+		joined = true
+		settlePairs(arena, n, 1)
+	}
+	// After the join, which can take the last child.
 	kids := arena[n].children
 	if len(kids) == 0 {
-		return
-	}
-	if from <= 1 {
-		settleFenceTrailing(arena, n)
+		return joined
 	}
 	if t := arena[n].trivia; t != nil && len(t.inside) > 0 {
 		kt := arena[kids[len(kids)-1]].trivMut()
 		kt.after = append(kt.after, t.inside...)
 		t.inside = nil
 	}
+	return joined
+}
+
+// settlePairs: a child's comments at its own level go above the next
+// sibling, from child from on.
+func settlePairs(arena []nodeData, n, from int) {
+	kids := arena[n].children
 	if from < 1 {
 		from = 1
 	}
@@ -861,8 +900,8 @@ func settleBlock(arena []nodeData, n, from int) {
 // written with the fence on the binding's line, where no comment can follow
 // it, so the emitter writes its trailing comment on a line of its own above,
 // after the node's blank. A reload files that line as a leading comment, so
-// file it there now.
-func settleFenceTrailing(arena []nodeData, n int) {
+// file it there now. True when a list joined an empty binding.
+func settleFenceTrailing(arena []nodeData, n int) bool {
 	fenced := func(nd *nodeData) bool { return nd.value.kind == vRaw && nd.trailing() != "" }
 	hit := false
 	for _, c := range arena[n].children {
@@ -872,51 +911,99 @@ func settleFenceTrailing(arena []nodeData, n int) {
 		}
 	}
 	if !hit {
-		return
-	}
-	empties := map[string]bool{}
-	for _, c := range arena[n].children {
-		nd := &arena[c]
-		if fenced(nd) && empties[nd.name] {
-			trailingToLeading(nd)
-		} else if stacks(nd) && empties[nd.name] {
-			unstack(nd)
-		} else if nd.value.isEmpty() {
-			empties[nd.name] = true
-		}
-	}
-}
-
-// stacks: written stacked, a list holding a kept line among its elements or
-// after its last one.
-func stacks(nd *nodeData) bool {
-	if nd.value.kind != vArray {
 		return false
 	}
-	if len(nd.among()) > 0 {
-		return true
-	}
-	if nd.starList {
-		for _, c := range nd.inside() {
-			if !strings.HasPrefix(c.text, "#") {
-				return true
+	empties := map[string]int{}
+	var folded []int
+	for _, c := range arena[n].children {
+		nd := &arena[c]
+		e, seen := empties[nd.name]
+		switch {
+		case fenced(nd) && seen:
+			trailingToLeading(nd)
+		case stacks(nd) && seen:
+			if foldListIntoEmpty(arena, e, c) {
+				folded = append(folded, c)
+			}
+		case nd.value.isEmpty():
+			if !seen {
+				empties[nd.name] = c
 			}
 		}
 	}
-	return false
+	if len(folded) == 0 {
+		return false
+	}
+	keep := arena[n].children[:0]
+	for _, c := range arena[n].children {
+		if !hasNode(folded, c) {
+			keep = append(keep, c)
+		}
+	}
+	arena[n].children = keep
+	return true
+}
+
+// foldListIntoEmpty: a list after an empty binding of its name, which a
+// stacked header would join on a reload. In brackets when it can be. A list
+// with fields under it cannot, so it joins that binding here, as a reload
+// joins it, when that binding has no field the items would land after. True
+// when it joined, and the caller drops it from its parent's children.
+func foldListIntoEmpty(arena []nodeData, empty, list int) bool {
+	unstack(&arena[list])
+	e := &arena[empty]
+	if !stacks(&arena[list]) || !e.value.isEmpty() || len(e.children) != 0 || len(e.after()) != 0 {
+		return false
+	}
+	arena[empty].value = arena[list].value
+	arena[list].value = value{}
+	arena[empty].starList = true
+	foldNodeInto(arena, empty, list)
+	return true
+}
+
+// stacks: written stacked, a list the file wrote one `- ` item per line, kept
+// that way like an author's quotes, or one holding a kept line among its
+// items, a comment on one, or a field under it (E001), which in brackets would
+// make the array E028.
+func stacks(nd *nodeData) bool {
+	if nd.value.kind != vArray || len(nd.value.els) == 0 {
+		return false
+	}
+	return nd.starList || len(nd.among()) > 0 || len(nd.notes()) > 0 || len(nd.children) > 0
 }
 
 // unstack: a list after an empty binding of its name cannot be written
 // stacked, since its bare header would merge into that binding on a reload.
-// It goes inline, and the lines among its elements go above it, where a
-// reload files what sits there.
+// It goes in brackets, and the lines among its elements and the comments on
+// them go above it, in order, where a reload files what sits there.
 func unstack(nd *nodeData) {
 	nd.starList = false
-	if t := nd.trivia; t != nil {
-		for _, a := range t.among {
-			t.leading = append(t.leading, a.lead)
+	t := nd.trivia
+	if t == nil {
+		return
+	}
+	notes := t.notes
+	k := 0
+	for _, a := range t.among {
+		for k < len(notes) && notes[k].at < a.before {
+			t.leading = append(t.leading, plainLead(notes[k].text))
+			k++
 		}
-		t.among = nil
+		t.leading = append(t.leading, a.lead)
+	}
+	for ; k < len(notes); k++ {
+		t.leading = append(t.leading, plainLead(notes[k].text))
+	}
+	t.among = nil
+	t.notes = nil
+}
+
+// bracket: a merge writes a list in brackets. One with a field under it stays
+// stacked (E001), since in brackets it is E028.
+func bracket(nd *nodeData) {
+	if len(nd.children) == 0 && (nd.starList || nd.trivia != nil) {
+		unstack(nd)
 	}
 }
 
@@ -2573,7 +2660,7 @@ func opensRaw(rest string, tok *Tokens) openFence {
 	switch {
 	case rest[0] == '`' || rest[0] == '~':
 		ch, length, _, ok = childFence(rest, tok)
-	case rest[0] == '#' || rest[0] == '*':
+	case !isFieldText(rest):
 	default:
 		Tokenize(rest, ':', false, RulesCurrent, tok)
 		ch, length, _, ok = lineFence(tok, rest)
@@ -3331,7 +3418,9 @@ func valueFault(tok *Tokens, text string) *fault {
 }
 
 // itemFault is why a stacked item's value is refused: an array, since arrays
-// do not nest (E019), or what a value is refused for.
+// do not nest (E019), what a value is refused for, a loose comma (E026), or a
+// colon with whitespace or the end after it, the way YAML starts an object in
+// a list (E027).
 func itemFault(tok *Tokens, text string) *fault {
 	if tok.Array >= 0 {
 		return newFault("E019", "a list item is one value, and arrays do not nest; quote the item if it is text", true)
@@ -3339,6 +3428,18 @@ func itemFault(tok *Tokens, text string) *fault {
 	for i := range tok.Elements {
 		if code, msg, bad := pieceFault(&tok.Elements[i], text, bareItem); bad {
 			return newFault(code, msg, true)
+		}
+	}
+	if len(tok.Elements) > 1 {
+		return newFault("E026", "a comma then a space or the end in a list item; an item is one value, so quote the text", true)
+	}
+	if len(tok.Elements) == 1 && tok.Elements[0].Quote == QuoteNone {
+		p := &tok.Elements[0]
+		raw := text[p.Start:p.End]
+		for i := range raw {
+			if looseColon(raw, i) {
+				return newFault("E027", "a list item with a colon then a space or the end; write a list of objects as instances, or quote the item if it is text", true)
+			}
 		}
 	}
 	return nil
@@ -3462,10 +3563,16 @@ func opensLater(text string) bool {
 	return tok.Array >= 0
 }
 
+// isItem reports a stacked list item's line: `-` then a blank. The blank is
+// what keeps `-x: y` a field line (E014) and `- -5` the item `-5`.
+func isItem(text string) bool {
+	return len(text) > 1 && text[0] == '-' && isWspByte(text[1])
+}
+
 // isFieldText reports a line's text after its indent that is read as a field
-// line: not a comment or an old `*` item.
+// line: not a comment, a list item, or an old `*` item (E013).
 func isFieldText(text string) bool {
-	return !strings.HasPrefix(text, "#") && !strings.HasPrefix(text, "*")
+	return !strings.HasPrefix(text, "#") && !strings.HasPrefix(text, "*") && !isItem(text)
 }
 
 // pathOf is the path the tokens give. An error is the tokenizer's fault:
@@ -3558,6 +3665,16 @@ type stackEnt struct {
 	node   int
 }
 
+// arrayLine is the last array line a node's level was opened by, and what the
+// node had before it: its leading line count, whether it had a trailing
+// comment, and its blank.
+type arrayLine struct {
+	line     int
+	leads    int
+	trailing bool
+	blank    bool
+}
+
 type parser struct {
 	arena []nodeData
 	diags []Diagnostic
@@ -3604,9 +3721,14 @@ type parser struct {
 	keptOwed  int // lines kept as written, one per Retained outcome
 	// Indent of the last E012 line kept as written, while the lines after it
 	// sit under it; those are E018 and are kept as written too.
-	keptHold string
-	keptHeld bool
-	keptAny  bool
+	keptHold   string
+	keptHeld   bool
+	keptAny    bool
+	keptArrays bool
+	// The text's lines, and the last array line each node's level was opened
+	// by, for one found to have a field under it after it bound (E028).
+	src        []string
+	arrayLines map[int]arrayLine
 	// ParseLimited's caps, 0 = uncapped: nodes counted against the arena
 	// (root excluded), elements against a single value's cell, diagnostics
 	// against the list. Past the diagnostic cap nothing is listed, only
@@ -3628,11 +3750,12 @@ type parser struct {
 
 func newParser() *parser {
 	return &parser{
-		arena:     []nodeData{{}},
-		stack:     []stackEnt{{}},
-		childMap:  []map[uint64]slot{nil},
-		dispMap:   []map[uint64]int{nil},
-		reentered: map[int]int{},
+		arena:      []nodeData{{}},
+		stack:      []stackEnt{{}},
+		childMap:   []map[uint64]slot{nil},
+		dispMap:    []map[uint64]int{nil},
+		reentered:  map[int]int{},
+		arrayLines: map[int]arrayLine{},
 	}
 }
 
@@ -3651,6 +3774,76 @@ func (p *parser) diag(d Diagnostic) {
 		return
 	}
 	p.diags = append(p.diags, d)
+}
+
+// arrayUnder: a field binds under an array line, which a field with lines
+// under it cannot take (E028). The line is kept as written, written in place
+// of the field's own, and the field is open with no value, as a line refused
+// for its value alone opens it. When the line joined an earlier binding of
+// the same value, that one keeps its value and the field opens on its own.
+// Returns the field, which takes the level.
+func (p *parser) arrayUnder(node int) int {
+	mark, marked := p.arrayLines[node]
+	delete(p.arrayLines, node)
+	line := p.arena[node].line
+	if marked {
+		line = mark.line
+	}
+	if line < 1 || line > len(p.src) {
+		return node
+	}
+	text := strings.TrimLeftFunc(trimEndWS(p.src[line-1]), isWsp)
+	p.err(line, "E028", "an array on a field with lines under it; the field takes one plain value or none")
+	p.keptOwed++
+	p.keptArrays = true
+	if marked && mark.line != p.arena[node].line {
+		name, nameSrc, up := p.arena[node].name, p.arena[node].authored(), p.arena[node].parent
+		// The lines this one brought to the binding it joined go with it, and
+		// so do its blank and its comment, which its kept text has.
+		nd := &p.arena[node]
+		blankBefore := nd.blankBefore && !mark.blank
+		nd.blankBefore = mark.blank
+		t := nd.trivMut()
+		at := mark.leads
+		if at > len(t.leading) {
+			at = len(t.leading)
+		}
+		moved := append([]lead(nil), t.leading[at:]...)
+		t.leading = t.leading[:at:at]
+		if !mark.trailing {
+			t.trailing = ""
+		} else {
+			var tok Tokens
+			Tokenize(text, ':', false, RulesCurrent, &tok)
+			if tok.Comment >= 0 && len(moved) > 0 {
+				moved = moved[:len(moved)-1]
+			}
+		}
+		open := p.selectOrCreate(up, name, nameSrc, value{}, line)
+		moved = append(moved, lead{text: text, blankBefore: blankBefore, line: line})
+		ot := p.arena[open].trivMut()
+		ot.leading = append(ot.leading, moved...)
+		for k := len(p.stack) - 1; k >= 0; k-- {
+			if p.stack[k].node == node {
+				p.stack[k].node = open
+				break
+			}
+		}
+		return open
+	}
+	oldKey := mergeHash(p.arena[node].name, &p.arena[node].value)
+	oldDisp := dispHash(p.arena[node].name, &p.arena[node].value)
+	nd := &p.arena[node]
+	nd.value = value{}
+	nd.src = nil
+	nd.srcSet = false
+	blankBefore := nd.blankBefore
+	nd.blankBefore = false
+	t := nd.trivMut()
+	t.trailing = ""
+	t.leading = append(t.leading, lead{text: text, blankBefore: blankBefore, line: line})
+	p.remapChild(node, oldKey, oldDisp)
+	return node
 }
 
 // selectOrCreate finds (or creates by merge rule) the child of parent with
@@ -4369,6 +4562,9 @@ func lineFence(tok *Tokens, rest string) (ch byte, length int, info string, ok b
 // node for the last segment with v. ok=false aborts the line (diagnosed).
 func (p *parser) attachPath(parent int, segs []segment, v value, line int, indent string) (int, bool) {
 	p.starFlush()
+	if parent != root && !p.arena[parent].starList && p.arena[parent].value.kind == vArray {
+		parent = p.arrayUnder(parent)
+	}
 	// Field child under a stacked list: diagnose the mix once, keep the field.
 	if p.arena[parent].starList && !p.arena[parent].starMixed {
 		p.arena[parent].starMixed = true
@@ -4569,8 +4765,8 @@ func (p *parser) refuseCapped(line int, indent string) {
 	p.refuse(line, "E021", fmt.Sprintf("array longer than %d elements; line skipped", p.maxElements), outDropped, indent)
 }
 
-// addStarElement: one stacked-list element (`* scalar`) appends to the
-// parent's array.
+// addStarElement: one stacked-list item (`- scalar`) appends to the parent's
+// array.
 func (p *parser) addStarElement(parent int, tok *Tokens, text string, line int, indent string) bool {
 	if parent == root {
 		p.refuse(line, "E007", "list element with no parent field", outDropped, indent)
@@ -4579,11 +4775,6 @@ func (p *parser) addStarElement(parent int, tok *Tokens, text string, line int, 
 	// Uniform-or-nothing (spec): a mix with field children is not a block array.
 	if len(p.arena[parent].children) != 0 {
 		p.refuse(line, "E008", "list element mixed with field children; ignored", outDropped, indent)
-		return false
-	}
-	// One scalar per line; a bare comma is an error, not a second element.
-	if len(tok.Elements) > 1 {
-		p.refuse(line, "E010", "bare comma in list element (one element per line)", outDropped, indent)
 		return false
 	}
 	piece := tok.Elements[0]
@@ -4639,32 +4830,19 @@ func (p *parser) addStarElement(parent int, tok *Tokens, text string, line int, 
 	return true
 }
 
-// keepAmong: kept lines waiting for the list element that just joined sat
-// among the list's elements, so they stay there; comments still ride the
-// field.
+// keepAmong: lines waiting for the list item that just joined sat among the
+// list's items, so they stay there, comments and kept lines alike.
 func (p *parser) keepAmong(parent int, indent string) {
-	anyKept := false
-	for _, pn := range p.pending {
-		if !strings.HasPrefix(pn.text, "#") {
-			anyKept = true
-			break
-		}
-	}
-	if !anyKept || p.arena[parent].value.kind != vArray {
+	if len(p.pending) == 0 || p.arena[parent].value.kind != vArray {
 		return
 	}
 	before := len(p.arena[parent].value.els) - 1
-	rest := make([]pend, 0, len(p.pending))
 	var chain, held []depthEnt
 	for _, pn := range p.pending {
-		if strings.HasPrefix(pn.text, "#") {
-			rest = append(rest, pn)
-			continue
-		}
 		t := p.arena[parent].trivMut()
 		t.among = append(t.among, amongLead{before: before, lead: lead{text: pn.text, blankBefore: pn.blankBefore, depth: commentDepth(&chain, &held, indent, pn.text, pn.indent)}})
 	}
-	p.pending = rest
+	p.pending = p.pending[:0]
 	p.pendMarks = p.pendMarks[:0]
 }
 
@@ -4750,7 +4928,7 @@ func trimCountingNodeLines(lines []string) int {
 			continue
 		}
 		t := strings.TrimLeft(l, " \t")
-		if t == "" || t[0] == '#' || t[0] == '*' {
+		if t == "" || !isFieldText(t) {
 			continue
 		}
 		n++
@@ -4794,6 +4972,7 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 	if strings.HasSuffix(text, "\n") {
 		lines = lines[:len(lines)-1]
 	}
+	p.src = lines
 	// Growing the arena by append cost about an eighth of fmt on a large
 	// file, and more than that in peak memory.
 	want := arenaWant(nodeLines, p.maxNodes)
@@ -4915,17 +5094,20 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 				continue
 			}
 		}
-		// Stacked-list element: colon-less by construction ('*' can't begin a name).
-		if strings.HasPrefix(rest, "*") {
+		// Stacked-list item: `-` then a blank. A bare name starts with a
+		// letter, so no field line starts that way. A `-` alone after the
+		// trim is an empty item only when a blank followed it, and only the
+		// untrimmed line still knows; with none it is a field line (E014).
+		item := false
+		if strings.HasPrefix(rest, "-") {
 			after := rest[1:]
-			// A `*` alone after the trim: whether a space followed it decides
-			// between an empty element and a malformed line, and only the
-			// untrimmed line still knows.
-			spaced := after != "" && isWspByte(after[0])
+			item = after != "" && isWspByte(after[0])
 			if after == "" && len(lines[i]) > len(indent)+lead+1 {
-				spaced = isWspByte(lines[i][len(indent)+lead+1])
+				item = isWspByte(lines[i][len(indent)+lead+1])
 			}
-			if spaced {
+		}
+		if item || strings.HasPrefix(rest, "*") {
+			if item {
 				parent, okp := p.resolveParent(indent, found)
 				if !okp {
 					p.misplaced(lineno, "E012", indent, rest, hadBlank, false)
@@ -4960,6 +5142,12 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 				if parent != root {
 					if p.addStarElement(parent, &tok, rest, lineno, indent) {
 						p.keepAmong(parent, indent)
+						// A comment on an item stays on its item.
+						if comment != "" && p.arena[parent].value.kind == vArray {
+							t := p.arena[parent].trivMut()
+							t.notes = append(t.notes, itemNote{at: len(p.arena[parent].value.els) - 1, text: comment})
+							comment = ""
+						}
 					}
 					head := p.arena[parent].line
 					if n := len(p.ends); n > 0 && p.ends[n-1][0] == head {
@@ -4988,10 +5176,11 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 				i++
 				continue
 			}
-			// Content-malformed at any position, so safe to retain. The BOM
+			// The old item marker. Content-malformed at any position, so safe
+			// to retain, and the items around it still load. The BOM
 			// exception the field arm makes cannot apply here: this line
 			// starts with the '*' that brought us in.
-			p.refuse(lineno, "E013", "malformed line: '*' must be followed by a space", outRetained(trimEndWS(rest), hadBlank), indent)
+			p.refuse(lineno, "E013", "a list item is written '- ' now, not '*'", outRetained(trimEndWS(rest), hadBlank), indent)
 			i++
 			continue
 		}
@@ -5116,6 +5305,14 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 					p.arena[node].src = &s
 				}
 			}
+			// What the node had before this line, for an array line that
+			// turns out to have a field under it.
+			mark := arrayLine{
+				line:     lineno,
+				leads:    len(p.arena[node].leading()),
+				trailing: p.arena[node].trailing() != "",
+				blank:    p.arena[node].blankBefore,
+			}
 			if hadBlank {
 				p.arena[node].blankBefore = true
 			}
@@ -5135,6 +5332,9 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 			}
 			p.attachTrivia(node, indent, comment)
 			p.stack = append(p.stack, stackEnt{indent: indent, node: node})
+			if tok.Array >= 0 {
+				p.arrayLines[node] = mark
+			}
 		}
 		i = next
 	}
@@ -5185,7 +5385,7 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 	if 2*len(p.arena) < cap(p.arena) {
 		p.arena = append([]nodeData(nil), p.arena...)
 	}
-	doc := &Document{arena: p.arena, diags: p.diags, strictness: strictness, orphans: orphans, lost: p.lost, keptOwed: p.keptOwed, kept: p.keptAny, ends: p.ends, dropped: p.dropped}
+	doc := &Document{arena: p.arena, diags: p.diags, strictness: strictness, orphans: orphans, lost: p.lost, keptOwed: p.keptOwed, kept: p.keptAny, arrays: p.keptArrays, ends: p.ends, dropped: p.dropped}
 	doc.settleKept()
 	return doc
 }
@@ -5263,9 +5463,45 @@ func (d *Document) Diagnostics() []Diagnostic {
 // hand-written content, so SaveFile refuses then (SaveFileLossy overrides),
 // and SaveFileKeepLines does when it cannot keep the lines. It also counts
 // lines the load kept as written that an edit took and design.md's
-// kept-lines table does not let it take.
+// kept-lines table does not let it take, and list items the saved text could
+// not load back (see unloadableItems).
 func (d *Document) LostCount() int {
-	return d.lost + d.keptShortfall()
+	return d.lost + d.keptShortfall() + d.unloadableItems()
+}
+
+// unloadableItems is the items of a list no text loads back: one with a field
+// under it (E001), so written stacked, after an empty binding of its name that
+// has fields. A reload joins its bare header to that binding and drops the
+// items (E008), so a save refuses (2026100511210900). An edit or a merge can
+// build one, and so can a load, where a kept array line (E028) heads the
+// list. Then the source text loads it back, so the save that keeps lines
+// still writes it.
+func (d *Document) unloadableItems() int {
+	n := 0
+	stack := []int{root}
+	for len(stack) > 0 {
+		i := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		kids := d.arena[i].children
+		for k, c := range kids {
+			nd := &d.arena[c]
+			if nd.value.kind != vArray || len(nd.children) == 0 || !stacks(nd) {
+				continue
+			}
+			// The first empty one is the one a reload joins it to.
+			for _, e := range kids[:k] {
+				en := &d.arena[e]
+				if en.name == nd.name && en.value.isEmpty() {
+					if len(en.children) != 0 {
+						n += len(nd.value.els)
+					}
+					break
+				}
+			}
+		}
+		stack = append(stack, kids...)
+	}
+	return n
 }
 
 // keptShortfall is the kept lines the document owes and no longer holds. Free
@@ -5499,8 +5735,11 @@ func LoadFileKeepLines(path string, level Strictness) (*Document, FileStatus) {
 // kept line it should not have, this is ToCanonical() and false.
 func (d *Document) ToTextKeepLines() (string, bool) {
 	// The reparse check cannot see a kept line gone from both the tree and
-	// the text, so falling back leaves it to the lost-count gate.
-	if d.source != nil && d.keptShortfall() == 0 {
+	// the text, so falling back leaves it to the lost-count gate. A source
+	// that was canonical skips that check, so a list no text loads back falls
+	// back to it too. Any other source is held to the check, and one that
+	// loads such a list back is kept.
+	if d.source != nil && d.keptShortfall() == 0 && (*d.source != "" || d.unloadableItems() == 0) {
 		if t, ok := keepLines(*d.source, d); ok {
 			return t, true
 		}
@@ -5544,13 +5783,60 @@ func (d *Document) emitAll(e *emit) {
 // files a comment there. Runs after a load and after each edit, and only
 // while the document holds such a line.
 func (d *Document) settleKept() {
+	d.settleArrays()
 	// A line moved out of a list can leave it written inline, which changes
 	// what the lines after it sit under, so go again until nothing moves.
+	was := d.kept
 	for d.kept && d.settleKeptOnce() {
 	}
 	if d.kept {
 		d.keptSum = d.nearSum()
 	}
+	// One of those may have been the line under a kept array.
+	if was {
+		d.settleArrays()
+	}
+}
+
+// settleArrays: a kept array line stays kept only while it heads a field
+// with fields under it (E028). One a merge or an edit leaves anywhere else
+// would bind on a reload, so it is written as a comment, the way the settle
+// writes a misplaced line that would read differently.
+func (d *Document) settleArrays() {
+	if !d.arrays {
+		return
+	}
+	stack := append([]int(nil), d.arena[root].children...)
+	for len(stack) > 0 {
+		n := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		stack = append(stack, d.arena[n].children...)
+		heads := headsBlock(&d.arena[n])
+		t := d.arena[n].trivia
+		if t == nil {
+			continue
+		}
+		settleArrayRun(t.leading, heads)
+		settleArrayRun(t.inside, false)
+		settleArrayRun(t.after, false)
+		for from := 0; from < len(t.among); {
+			at := t.among[from].before
+			to := from
+			for to < len(t.among) && t.among[to].before == at {
+				to++
+			}
+			run := make([]lead, 0, to-from)
+			for _, a := range t.among[from:to] {
+				run = append(run, a.lead)
+			}
+			settleArrayRun(run, false)
+			for k := range run {
+				t.among[from+k].lead = run[k]
+			}
+			from = to
+		}
+	}
+	settleArrayRun(d.orphans, false)
 }
 
 // resettleKept runs after an edit. A kept line binds or not by the lines
@@ -5560,6 +5846,8 @@ func (d *Document) settleKept() {
 func (d *Document) resettleKept() {
 	if d.kept && d.nearSum() != d.keptSum {
 		d.settleKept()
+	} else {
+		d.settleArrays()
 	}
 }
 
@@ -5864,6 +6152,56 @@ func commented(text string) string {
 	return "# " + text[len(leadingWS(text)):]
 }
 
+// settleArrayRun comments out each kept array line in a run but one written
+// in place of the line of a field with fields under it, the run's last when
+// heads says so. Anywhere else no field binds under it on a reload, so it
+// would bind itself. What sat under it goes the same way, since a comment
+// holds no level.
+func settleArrayRun(run []lead, heads bool) {
+	settled := false
+	for k := range run {
+		l := &run[k]
+		if l.text == "" || strings.IndexByte("# \t", l.text[0]) >= 0 || !arrayKept(l.text) || (heads && k+1 == len(run)) {
+			continue
+		}
+		depth := l.depth
+		end := len(run)
+		for e := k + 1; e < len(run); e++ {
+			if !strings.HasPrefix(run[e].text, "#") && run[e].depth <= depth {
+				end = e
+				break
+			}
+		}
+		for x := k; x < end; x++ {
+			if !strings.HasPrefix(run[x].text, "#") {
+				run[x].text = commented(run[x].text)
+				run[x].kept = true
+			}
+		}
+		settled = true
+	}
+	if settled {
+		restep(run)
+	}
+}
+
+// arrayKept reports a field line kept only for the lines under it: a whole
+// array, and nothing else wrong with it (E028).
+func arrayKept(text string) bool {
+	if !isField(text) || !isFieldText(text) {
+		return false
+	}
+	var tok Tokens
+	Tokenize(text, ':', false, RulesCurrent, &tok)
+	if tok.Array < 0 {
+		return false
+	}
+	if _, err := pathOf(&tok, text); err != nil {
+		return false
+	}
+	return lineFault(&tok, text) == nil
+}
+
 // noteText is a path in a note, kept to one line.
 func noteText(s string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(s, "\n", `\n`), "\r", `\r`)
@@ -5874,7 +6212,7 @@ func noteText(s string) string {
 // its value alone, which a reload would read as another `name` once fixed by
 // hand. A line with a raw body could not be commented out as one line.
 func keptNaming(l *lead, name string) (code, msg string, ok bool) {
-	if l.depth != 0 || l.text != "" && strings.IndexByte("#* \t", l.text[0]) >= 0 || strings.Contains(l.text, "\n") {
+	if l.depth != 0 || !isFieldText(l.text) || l.text != "" && (l.text[0] == ' ' || l.text[0] == '\t') || strings.Contains(l.text, "\n") {
 		return "", "", false
 	}
 	var tok Tokens
@@ -6293,7 +6631,7 @@ func authoredHead(src, canon string) (string, bool) {
 	var tok Tokens
 	var sep [2]int
 	for k, text := range []string{rest, c} {
-		if strings.HasPrefix(text, "#") || strings.HasPrefix(text, "*") {
+		if !isFieldText(text) {
 			return "", false
 		}
 		Tokenize(text, ':', false, RulesCurrent, &tok)
@@ -6332,7 +6670,7 @@ func spliceValue(line string, was *emit, t0 string, w unit, now *emit, t1 string
 	ilen := len(leadingWS(t))
 	rest := strings.TrimLeftFunc(t[ilen:], isWsp)
 	head := len(t) - len(rest)
-	if strings.HasPrefix(rest, "#") || strings.HasPrefix(rest, "*") {
+	if !isFieldText(rest) {
 		return "", false
 	}
 	var tok Tokens
@@ -7029,8 +7367,13 @@ func (d *Document) emitLine(idx, pos, depth int, wouldMerge bool, e *emit) {
 			}
 			column := pad + "\t"
 			out.WriteString(column)
-			out.WriteString("* ")
+			out.WriteString("- ")
 			out.WriteString(emitElement(&node.value.els[i]))
+			for _, n := range node.notes() {
+				if n.at == i {
+					writeTrailing(out, n.text)
+				}
+			}
 			out.WriteByte('\n')
 			e.placed(column)
 		}
@@ -8790,7 +9133,7 @@ func (d *Document) newChild(parent int, name, nameSrc string, v value) int {
 			d.arena[idx].trivMut().leading = lines
 		}
 	}
-	settleBlock(d.arena, parent, len(d.arena[parent].children)-1)
+	d.settle(parent, len(d.arena[parent].children)-1)
 	return idx
 }
 
@@ -8872,6 +9215,20 @@ func (d *Document) probeWrite(scan pathScan) (WriteReason, []int) {
 	return Writable, trail
 }
 
+// writeTarget is the node a write at this path lands on when it is already
+// there.
+func (d *Document) writeTarget(path string) (int, bool) {
+	scan, err := scanLookup(path)
+	if err != nil {
+		return 0, false
+	}
+	reason, trail := d.probeWrite(scan)
+	if reason != Writable || len(trail) == 0 || trail[len(trail)-1] < 0 {
+		return 0, false
+	}
+	return trail[len(trail)-1], true
+}
+
 // place walks (creating as needed) to the node a write targets. A trailing name
 // with no selector hits the first same-named instance (or a new one); a [value]
 // selector selects the matching instance or creates it; [#k] must already
@@ -8890,10 +9247,14 @@ func (d *Document) place(path string, setter bool) (int, bool) {
 	}
 	// Nothing is created until every segment the write would create is known
 	// to read back: the name through the name escaper, an instance selector
-	// as the value it binds.
+	// as the value it binds, and the first under a field that takes a field
+	// under it, which an array does not (E028).
 	for i := range scan.segments {
 		if trail[i] >= 0 {
 			continue
+		}
+		if i > 0 && trail[i-1] >= 0 && d.arena[trail[i-1]].value.kind == vArray {
+			return 0, false
 		}
 		seg := &scan.segments[i]
 		if !nameReadsBack(seg.name) {
@@ -8960,6 +9321,12 @@ func (d *Document) setValueAs(path string, v value, keepQuotes bool) bool {
 		return true
 	}
 	fresh := len(d.arena)
+	// A field with lines under it takes one plain value or none (E028).
+	if v.kind == vArray {
+		if n, ok := d.writeTarget(path); ok && len(d.arena[n].children) != 0 {
+			return false
+		}
+	}
 	idx, ok := d.place(path, true)
 	if !ok {
 		return false
@@ -8971,10 +9338,14 @@ func (d *Document) setValueAs(path string, v value, keepQuotes bool) bool {
 	if keepQuotes {
 		keepMark(&d.arena[idx].value, &v)
 	}
+	// A list written stacked stays stacked, as an overwrite keeps quotes,
+	// unless there is nothing left to stack.
+	stacked := stacks(&d.arena[idx]) && v.kind == vArray && len(v.els) != 0
 	d.arena[idx].value = v
 	d.arena[idx].src = nil // written value has no source spelling
 	// No longer the list the lines among its elements sat in.
 	unstack(&d.arena[idx])
+	d.arena[idx].starList = stacked
 	// An empty binding or a raw block can put a fence after an empty sibling
 	// of its name.
 	fenceSide := v.kind == vEmpty || v.kind == vRaw
@@ -9141,7 +9512,7 @@ func (d *Document) newChildUnder(parent int, name, nameSrc string, v value, at k
 	if ix := d.index.Load(); ix != nil {
 		ix.append(nameKey(parent, name), idx)
 	}
-	settleBlock(d.arena, parent, pos)
+	d.settle(parent, pos)
 	return idx
 }
 
@@ -9184,7 +9555,7 @@ func (d *Document) collapseDup(node int) {
 		}
 	}
 	d.arena[parent].children = keep
-	settleBlock(d.arena, parent, 1)
+	d.settle(parent, 1)
 	if ix := d.index.Load(); ix != nil {
 		ix.unlink(nameKey(parent, d.arena[loser].name), loser)
 		for _, k := range moved {
@@ -9200,16 +9571,43 @@ func (d *Document) collapseDup(node int) {
 // written name's instances can change, and walking them off the index keeps a
 // write off the rest of the block.
 func (d *Document) settleFenceName(parent int, name string) {
-	seenEmpty := false
+	empty := -1
 	for _, c := range d.childrenNamed(parent, name) {
 		nd := &d.arena[c]
-		if seenEmpty && nd.value.kind == vRaw && nd.trailing() != "" {
+		switch {
+		case empty >= 0 && nd.value.kind == vRaw && nd.trailing() != "":
 			trailingToLeading(nd)
-		} else if seenEmpty && stacks(nd) {
-			unstack(nd)
-		} else if nd.value.isEmpty() {
-			seenEmpty = true
+		case empty >= 0 && stacks(nd):
+			if !foldListIntoEmpty(d.arena, empty, c) {
+				continue
+			}
+			keep := d.arena[parent].children[:0]
+			for _, k := range d.arena[parent].children {
+				if k != c {
+					keep = append(keep, k)
+				}
+			}
+			d.arena[parent].children = keep
+			if ix := d.index.Load(); ix != nil {
+				ix.unlink(nameKey(parent, name), c)
+				// The binding had no fields, so all of them came over.
+				for _, k := range d.arena[empty].children {
+					kn := d.arena[k].name
+					ix.unlink(nameKey(c, kn), k)
+					ix.append(nameKey(empty, kn), k)
+				}
+			}
+		case nd.value.isEmpty() && empty < 0:
+			empty = c
 		}
+	}
+}
+
+// settle is settleBlock, dropping the name index when a list joined an empty
+// binding, since that moves fields to another parent.
+func (d *Document) settle(n, from int) {
+	if settleBlock(d.arena, n, from) {
+		d.index.Store(nil)
 	}
 }
 
@@ -9247,7 +9645,7 @@ func (d *Document) foldDupsBelow(start int) {
 			}
 		}
 		d.arena[parent].children = keep
-		settleBlock(d.arena, parent, 1)
+		d.settle(parent, 1)
 	}
 }
 
@@ -9323,6 +9721,9 @@ func (d *Document) Remove(path string) int {
 		if d.arena[pr.node].parent != dead {
 			continue
 		}
+		// A list written stacked for the fields under it stays stacked: a
+		// remove only takes lines away.
+		stacked := stacks(&d.arena[pr.parent])
 		kids := d.arena[pr.parent].children[:0]
 		var left []lead
 		for _, c := range d.arena[pr.parent].children {
@@ -9338,6 +9739,9 @@ func (d *Document) Remove(path string) int {
 			}
 		}
 		d.arena[pr.parent].children = kids
+		d.arena[pr.parent].starList = d.arena[pr.parent].starList || stacked
+		// The next merge has a stacked list to put in brackets.
+		d.bracketed = d.bracketed && !stacked
 		if len(left) > 0 {
 			d.leaveLast(pr.parent, left)
 		}
@@ -9348,6 +9752,7 @@ func (d *Document) Remove(path string) int {
 	for _, pr := range pairs {
 		open = append(open, pr.parent)
 	}
+	emptied := append([]int(nil), open...)
 	for len(open) > 0 {
 		p := open[len(open)-1]
 		open = open[:len(open)-1]
@@ -9374,13 +9779,29 @@ func (d *Document) Remove(path string) int {
 				break
 			}
 		}
+		stacked := stacks(&d.arena[pp])
 		d.arena[pp].children = append(kids[:at:at], kids[at+1:]...)
+		d.arena[pp].starList = d.arena[pp].starList || stacked
+		d.bracketed = d.bracketed && !stacked
 		if at < len(d.arena[pp].children) {
 			d.leaveAbove(d.arena[pp].children[at], left)
 		} else {
 			d.leaveLast(pp, left)
 		}
 		open = append(open, pp)
+		emptied = append(emptied, pp)
+	}
+	// An empty binding that lost its last field takes a stacked list of its
+	// name after it, and a list that lost its last field goes in brackets
+	// there, as a reload reads them (2026100520243961).
+	sort.Ints(emptied)
+	for k, p := range emptied {
+		if k > 0 && emptied[k-1] == p {
+			continue
+		}
+		if p != root && len(d.arena[p].children) == 0 && (d.arena[p].value.kind == vEmpty || d.arena[p].value.kind == vArray) && d.live(p) {
+			d.settleFenceName(d.arena[p].parent, d.arena[p].name)
+		}
 	}
 	settleFirstBlank(d.arena, d.orphans)
 	d.resettleKept()
@@ -9913,14 +10334,24 @@ func (d *Document) Merge(over *Document) {
 	// The layer's own kept lines were modeled against its own tree.
 	fresh := over.kept
 	d.kept = d.kept || over.kept
+	d.arrays = d.arrays || over.arrays
 	// Only a block the overlay visited can have a changed child list or
 	// comments; the rest was settled when it was built. Settling the whole
 	// tree made every merge cost the document (20260924 item 6). A block's
 	// settle writes only below it, so the order does not matter.
+	// Every list goes in brackets, whatever form its layers used, so a merge
+	// of the merged text gives the same text. After the first, only what the
+	// overlay brings or visits can be stacked.
+	if !d.bracketed {
+		for n := 1; n < len(d.arena); n++ {
+			bracket(&d.arena[n])
+		}
+		d.bracketed = true
+	}
 	var touched []int
 	d.overlay(root, over, root, &touched)
 	for _, n := range touched {
-		settleBlock(d.arena, n, 1)
+		d.settle(n, 1)
 	}
 	// Layers commonly share a footer; keeping one copy of each keeps a
 	// stack of files from repeating it once per layer. Only the lines
@@ -10011,6 +10442,8 @@ func (d *Document) adoptTrivia(base int, over *Document, ok int) {
 	bt.inside = append(bt.inside, st.inside...)
 	bt.among = append(bt.among, st.among...)
 	sort.SliceStable(bt.among, func(i, j int) bool { return bt.among[i].before < bt.among[j].before })
+	bt.notes = append(bt.notes, st.notes...)
+	sort.SliceStable(bt.notes, func(i, j int) bool { return bt.notes[i].at < bt.notes[j].at })
 }
 
 func (d *Document) overlay(baseParent int, over *Document, overParent int, touched *[]int) {
@@ -10165,10 +10598,9 @@ func (d *Document) overlay(baseParent int, over *Document, overParent int, touch
 					// A stacked spelling no kept line holds is gone on a reload,
 					// so it may not decide how the lines the other layer brings
 					// are written (20260926 item 4).
-					stacked := stacks(&d.arena[target]) || stacks(&over.arena[ok])
 					d.adoptTrivia(target, over, ok)
-					d.arena[target].starList = stacked
 					d.overlay(target, over, ok, touched)
+					bracket(&d.arena[target])
 				} else {
 					c := d.cloneSubtree(over, ok, baseParent)
 					appended = append(appended, overKid{k.pos, c})
@@ -10226,6 +10658,7 @@ func cloneTrivia(t *trivia) *trivia {
 		after:    append([]lead(nil), t.after...),
 		inside:   append([]lead(nil), t.inside...),
 		among:    append([]amongLead(nil), t.among...),
+		notes:    append([]itemNote(nil), t.notes...),
 	}
 	return &c
 }
@@ -10258,6 +10691,7 @@ func (d *Document) cloneSubtree(over *Document, oi, parent int) int {
 		c := d.cloneSubtree(over, ok, idx)
 		d.arena[idx].children = append(d.arena[idx].children, c)
 	}
+	bracket(&d.arena[idx])
 	return idx
 }
 
@@ -13622,6 +14056,15 @@ func (d *Document) vNode(c *constraint, n int, out *[]Diagnostic) {
 			}
 		}
 	}
+}
+
+func hasNode(xs []int, v int) bool {
+	for _, x := range xs {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
 
 func containsInt(xs []int64, v int64) bool {
