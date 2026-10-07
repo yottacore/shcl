@@ -1353,10 +1353,10 @@ func TestFileTierLoadSave(t *testing.T) {
 			return st.Mode() & (os.ModePerm | os.ModeSetuid | os.ModeSetgid)
 		}
 		wantID := os.FileMode(0o750) | os.ModeSetuid | os.ModeSetgid
-		if cerr := os.Chmod(born, wantID); cerr != nil {
-			t.Fatal(cerr)
-		}
-		if idOf(born) == wantID {
+		// BSD gives a new file the directory's group, and refuses setgid on a
+		// file whose group the caller is not in. Its own group fixes both.
+		_ = os.Chown(born, -1, os.Getegid())
+		if cerr := os.Chmod(born, wantID); cerr == nil && idOf(born) == wantID {
 			if serr := fdoc.SaveFile(born); serr != nil {
 				t.Fatal(serr)
 			}

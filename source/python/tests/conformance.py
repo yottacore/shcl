@@ -2274,7 +2274,13 @@ def main():
 			test_id("EoTHZsG", "save_keeps_set_id_bits")
 			# setuid and setgid come over too: applying the mode before the
 			# data lets the kernel clear them on the write.
-			os.chmod(born, 0o6750)
+			# BSD gives a new file the directory's group, and refuses setgid on
+			# a file whose group the caller is not in. Its own group fixes both.
+			try:
+				os.chown(born, -1, os.getegid())
+				os.chmod(born, 0o6750)
+			except PermissionError:
+				pass
 			if os.stat(born).st_mode & 0o7777 == 0o6750:
 				ndoc.save_file(born)
 				if os.stat(born).st_mode & 0o7777 != 0o6750:
