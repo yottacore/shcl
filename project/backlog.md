@@ -79,37 +79,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: 20261003, `check-migrate.bash` already builds 2.x from pinned `7be348d` and compares reads after `migrate`. This would extend it to the backup and rewrite in 2026100313461649, and to beta-stamped Format 3 files once 2026100207032800 is in.
 	- Estimated effort: Avg
 
-- The comparison tool writes its SHCL documents in the old value syntax
-	- ID: 2026100711403568
-	- Type: Bug
-	- Status: Done
-	- Severity: Avg
-	- Opened: 20261007-114035
-	- Opened by: found while working 2026100711350582
-	- Related IDs: 2026100207032800, 2026100221215300, 2026100219565400
-	- Version and build: valsyn at `c4c6273c`
-	- Steps to reproduce:
-		- Read `shcl_scalar` and `shcl_string` in `cicd/utility/comparison/src/model.rs`.
-	- Incorrect behavior: an array is written `a, b` with no brackets, which is `E026` now. A quote or backslash in a string is written `\"` or `\\`, and a backslash is plain text now. So the benchmark documents would load with errors once valsyn is in dev.
-	- Expected behavior: arrays in brackets, and strings quoted the way the writer quotes them.
-	- Reproduced: 20261007, on dev at `64e52ff1`. The tool's own pre-flight check fails records, config and ddl. At 1 MiB, `shcl check` gives `E026` on 10 lines of config.shcl, 218 of ddl.shcl and 18984 of records.shcl. Flat, deep and text load clean.
-	- Note: needed before the Python perf recheck (2026100221215300) and the next benchmark run. The document sizes will move a little.
-	- Estimated effort: Low
-	- Actual cause: the tool kept its own copy of the old quoting rules and wrote arrays with no brackets. It also built its result and walk paths with `[]` selectors, which the reader refuses now. So the next run would have saved results.shcl with the new run missing, since the setters' answers were thrown away.
-	- Actual fix:
-		- Every SHCL scalar and array is spelled by the library's own setters and canonical writer, so the tool has no quoting rules of its own.
-		- Selectors are in parens in the results paths, the prune, and both scalar walks (Rust and Python).
-		- Recording fails when the run can't be read back before the save.
-	- Note: only config, ddl and records change. Arrays get brackets, and a 1-item list is `[id]`. `https://...`, `host:port` and `numeric(14,2)` lose their quotes. At 1 MiB a records unit is about 0.9% bigger, a ddl table 0.6%, and config 2 bytes. Flat, deep and text are byte-identical. A sized shape gets about 1% fewer records units for the same target, so the other formats' records files shrink about as much. Rendering SHCL takes about 6 s per 64 MiB shape, up from under 1 s, outside the timed part.
-	- Note: to regenerate the documents, run `cicd/utility/comparison/compare.bash --work DIR --keep`, with `--no-record` to leave results.shcl alone. Put DIR on ZFS or the ext4 temp root.
-	- Swept: a grep over `cicd/utility/comparison/` for `[` selectors and `", "` joins found main.rs (record, prune), bench.rs (walk) and pyworker.py (walk). check-docs already reads results.shcl with parens. The other four encoders are unchanged. The committed results.shcl loads clean.
-	- Verified: the tool at 1 MiB, both tiers. Its pre-flight check agrees across 13 libraries for all 6 shapes. All 6 SHCL documents and the results file pass `shcl check` with 0 diagnostics. A run recorded into a copy of results.shcl reads back by the paths check-docs uses. With the old quoting back, the new test fails on `E026`. With `[]` back, the walk gives 200 scalars against 3200 and recording stops with "nothing recorded". ruff passes; clippy shows only an older warning in main.rs.
-	- Test case: `shcl_documents_load_clean_and_read_back` in the comparison crate, plus its `memory_figure_holds_one_document`. Both failed before and pass after. Run with `cargo test --manifest-path cicd/utility/comparison/Cargo.toml`. No test IDs, since that crate is outside the gate.
-	- Acceptance signoff: Self-closed: syntax fix in a dev tool, tests failed before and pass after.
-	- Branch: `cmpsyn`
-	- Commit: `42e6e85f`
-	- Closed: 20261007-132734
-
 - README note on how escapes work, and why
 	- ID: 2026100313461651
 	- Type: Task
@@ -996,6 +965,37 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Test case: `EreT6dh` (`kept_lines_survive_edits`, fuzz_smoke.rs); per binding `kept_gate` tests `EreRyr7`, `EreUeCs`, `EreRysn` (Rust), `EreUzvf`, `EreUzxY`, `EreUzzO` (Go), `EreVRei`, `EreVRgk`, `EreVRis` (Python), `EreWlg6`, `EreWli7`, `EreWlk5`, `EreZ0ar` (C); the merge's two exceptions `ErfGoMI`, `ErfGoMJ` (Rust), `ErfGoMK`, `ErfGoML` (Go), `ErfGoMM`, `ErfGoMN` (Python), `ErfGoMO`, `ErfGoMP` (C); cli-regress `EreYYXK`; crosscheck `EreXO4J`.
 	- Acceptance signoff: 20261004, signed off. Its tests cover it and the full run passed.
 	- Closed: 20261004-110932
+
+- The comparison tool writes its SHCL documents in the old value syntax
+	- ID: 2026100711403568
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261007-114035
+	- Opened by: found while working 2026100711350582
+	- Related IDs: 2026100207032800, 2026100221215300, 2026100219565400
+	- Version and build: valsyn at `c4c6273c`
+	- Steps to reproduce:
+		- Read `shcl_scalar` and `shcl_string` in `cicd/utility/comparison/src/model.rs`.
+	- Incorrect behavior: an array is written `a, b` with no brackets, which is `E026` now. A quote or backslash in a string is written `\"` or `\\`, and a backslash is plain text now. So the benchmark documents would load with errors once valsyn is in dev.
+	- Expected behavior: arrays in brackets, and strings quoted the way the writer quotes them.
+	- Reproduced: 20261007, on dev at `64e52ff1`. The tool's own pre-flight check fails records, config and ddl. At 1 MiB, `shcl check` gives `E026` on 10 lines of config.shcl, 218 of ddl.shcl and 18984 of records.shcl. Flat, deep and text load clean.
+	- Note: needed before the Python perf recheck (2026100221215300) and the next benchmark run. The document sizes will move a little.
+	- Estimated effort: Low
+	- Actual cause: the tool kept its own copy of the old quoting rules and wrote arrays with no brackets. It also built its result and walk paths with `[]` selectors, which the reader refuses now. So the next run would have saved results.shcl with the new run missing, since the setters' answers were thrown away.
+	- Actual fix:
+		- Every SHCL scalar and array is spelled by the library's own setters and canonical writer, so the tool has no quoting rules of its own.
+		- Selectors are in parens in the results paths, the prune, and both scalar walks (Rust and Python).
+		- Recording fails when the run can't be read back before the save.
+	- Note: only config, ddl and records change. Arrays get brackets, and a 1-item list is `[id]`. `https://...`, `host:port` and `numeric(14,2)` lose their quotes. At 1 MiB a records unit is about 0.9% bigger, a ddl table 0.6%, and config 2 bytes. Flat, deep and text are byte-identical. A sized shape gets about 1% fewer records units for the same target, so the other formats' records files shrink about as much. Rendering SHCL takes about 6 s per 64 MiB shape, up from under 1 s, outside the timed part.
+	- Note: to regenerate the documents, run `cicd/utility/comparison/compare.bash --work DIR --keep`, with `--no-record` to leave results.shcl alone. Put DIR on ZFS or the ext4 temp root.
+	- Swept: a grep over `cicd/utility/comparison/` for `[` selectors and `", "` joins found main.rs (record, prune), bench.rs (walk) and pyworker.py (walk). check-docs already reads results.shcl with parens. The other four encoders are unchanged. The committed results.shcl loads clean.
+	- Verified: the tool at 1 MiB, both tiers. Its pre-flight check agrees across 13 libraries for all 6 shapes. All 6 SHCL documents and the results file pass `shcl check` with 0 diagnostics. A run recorded into a copy of results.shcl reads back by the paths check-docs uses. With the old quoting back, the new test fails on `E026`. With `[]` back, the walk gives 200 scalars against 3200 and recording stops with "nothing recorded". ruff passes; clippy shows only an older warning in main.rs.
+	- Test case: `shcl_documents_load_clean_and_read_back` in the comparison crate, plus its `memory_figure_holds_one_document`. Both failed before and pass after. Run with `cargo test --manifest-path cicd/utility/comparison/Cargo.toml`. No test IDs, since that crate is outside the gate.
+	- Acceptance signoff: Self-closed: syntax fix in a dev tool, tests failed before and pass after.
+	- Branch: `cmpsyn`
+	- Commit: `42e6e85f`
+	- Closed: 20261007-132734
 
 - The owed full gate and the hosted run on dev were red on two test fixtures
 	- ID: 2026100514300000
