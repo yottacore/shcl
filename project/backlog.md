@@ -36,7 +36,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - README note on how escapes work, and why
 	- ID: 2026100313461651
 	- Type: Task
-	- Status: Queued
+	- Status: Done
 	- Priority: Avg
 	- Opened: 20261003-134616
 	- Opened by: JC
@@ -46,11 +46,18 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Use the "newline" escape as an example, windows paths, and unicode escapes.
 	- Note: 20261003, the escape names come from `project/design_docs/value-syntax.md`: `◉NEWLINE◉`, `◉U+XXXX◉`, and a backslash is plain text, so `C:\temp` needs no doubling.
 	- Estimated effort: Low
+	- Done: a paragraph and sample under "What a .shcl file looks like": a backslash is text, so a Windows path goes in as typed; `◉NEWLINE◉`, `◉U+200B◉`, a backtick value, and why a non-keyboard mark. Links to the spec's escape table.
+	- Test case: none for the wording. The sample's reads were checked with the CLI, and check-readme and check-docs pass.
+	- Verified: `shcl check` on the sample is clean, and `get` returns the path as typed, a real line break, a zero-width space and the backtick text as written. `fmt` leaves it as is.
+	- Acceptance signoff: Self-closed: docs only, does what the item asked.
+	- Branch: `escnote`
+	- Commit: `8c216fa7`
+	- Closed: 20261007-143147
 
 - A file stamped Format 3 during the beta is never migrated
 	- ID: 2026100115403385
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Note: 20261002, an open point in the design for 2026100207032800, which changes much more of format 3. Proposed there: pre-release files are on their own, per the 2.x low-stakes rule. Design: `project/design_docs/value-syntax.md`.
 	- Note: 20261002, the proposal was OK'd. What is left is saying so in the docs.
@@ -66,6 +73,13 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Expected behavior: some way to bring such a file forward, or a stated choice that pre-release files are on their own.
 	- Reproduced: Yes, 20261001, Rust at `b10c2009`.
 	- Note: a rough edge. Only programs that shipped a beta build of 3.0 to users are hit. SilkTerm's dogfood builds did; none of its releases did.
+	- Done: spec.md's "Migrating from 2.x" and the changelog say a file a pre-release build stamped `Format 3` is on its own, and `migrate` and `upgrade` leave it alone. README's migrating paragraph doesn't cover stamped files, so it stays as is.
+	- Test case: no code change. check-migrate `Es34DZk` already holds that `upgrade` leaves a file naming format 3 alone.
+	- Verified: `migrate`, `migrate --check`, `upgrade` and `upgrade --write` on a Format 3 file with an `E023` line all exit 0 and leave it as is.
+	- Acceptance signoff: Self-closed: docs only, the call was OK'd 20261002.
+	- Branch: `escnote`
+	- Commit: `8c216fa7`
+	- Closed: 20261007-143147
 
 - The Python binding parses about 25% slower than on 2026-09-19
 	- ID: 2026100221215300
