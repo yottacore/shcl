@@ -2,8 +2,8 @@
 #••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 ## install.bash
 ##
-##	Release installer for shcl (Simple Hierarchical Config Language) on Linux
-##	and FreeBSD.
+##	Release installer for shcl (Simple Hierarchical Config Language) on Linux,
+##	macOS and FreeBSD.
 ##	Downloads the latest release from GitHub, checks the sha256sums file against
 ##	the release signing key before trusting a checksum out of it, and lays out
 ##	the binary plus the drop-in source files and shell wrappers. Idempotent:
@@ -41,8 +41,8 @@
 ##		completions/ bash and zsh completions, enabled by hand (see the note the
 ##		             install prints - the .deb/.rpm put these in place for you)
 ##
-##	macOS and the other BSDs have no prebuilt binaries yet - build from source
-##	or use a drop-in file (see README.md).
+##	NetBSD and OpenBSD have no prebuilt binaries yet - build from source or use
+##	a drop-in file (see README.md).
 #••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 
 ##	Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
@@ -52,7 +52,7 @@
 
 set -euo pipefail
 
-installer_version="1.2.0"
+installer_version="1.3.0"
 REPO="yottacore/shcl"
 release="stable"
 target="user"
@@ -86,7 +86,7 @@ fDie() { printf 'install.bash: %s\n\n' "$*" >&2; exit 1; }
 ## file (or a stray one named "bash" in the cwd).
 fUsage() {
 	cat <<EOF
-install.bash ${installer_version} - release installer for shcl on Linux and FreeBSD
+install.bash ${installer_version} - release installer for shcl on Linux, macOS and FreeBSD
 
 Downloads the latest release from GitHub, checks the sha256sums file against the
 release signing key before trusting a checksum out of it, and lays out the binary
@@ -149,11 +149,12 @@ done
 case "${release}" in dev|development) release="dev" ;; stable) ;; *) fDie "--release must be dev or stable" ;; esac
 case "${target}" in user|system) ;; *) fDie "--target must be user or system" ;; esac
 
-## Platform gate: prebuilt binaries exist for Linux x86_64/arm64 and FreeBSD
-## x86_64 only. Rust has no prebuilt std for FreeBSD on arm64.
+## Platform gate: prebuilt binaries exist for Linux x86_64/arm64, macOS on
+## both, and FreeBSD x86_64 only. Rust has no prebuilt std for FreeBSD on arm64.
 os="$(uname -s)"
 case "${os}" in
 	Linux)   osname="linux" ;;
+	Darwin)  osname="macos" ;;
 	FreeBSD) osname="freebsd" ;;
 	*) fDie "no prebuilt ${os} binaries yet - build from source or use a drop-in file (see README.md)" ;;
 esac
@@ -163,6 +164,9 @@ case "$(uname -m)" in
 	*) fDie "no prebuilt binary for $(uname -m)" ;;
 esac
 [[ "${osname}-${arch}" == freebsd-arm64 ]] && fDie "no prebuilt FreeBSD arm64 binary - build from source: cargo install shcl"
+## macOS has one binary for both, so a shell running under Rosetta gets the
+## same file as a native one.
+[[ "${osname}" == macos ]] && arch="universal"
 
 ## curl or wget, whichever is present. https is pinned through redirects and
 ## TLS floored at 1.2, so a bounced download can't silently downgrade.
@@ -447,6 +451,7 @@ chmod 755 "${tmp}/shcl"
 case "${osname}-${arch}" in
 	linux-x86_64)  needs="glibc 2.34 or newer (Ubuntu 22.04, Debian 12, RHEL 9, or later) plus libgcc_s.so.1, and does not run on musl" ;;
 	linux-*)       needs="glibc 2.30 or newer (Ubuntu 20.04, Debian 11, RHEL 9, or later), and does not run on musl" ;;
+	macos-*)       needs="macOS 13 or newer" ;;
 	freebsd-*)     needs="FreeBSD 14 or newer" ;;
 esac
 smoke_status=0
