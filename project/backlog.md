@@ -254,6 +254,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 			- Parse of the comparison's `ddl.shcl`, for 2026100221215300: 232 to 242 ms before and 241 to 250 ms after on the same file, which now draws 109 `E026` for its `a, b` lines, and 241 to 244 ms with those lines in brackets. No real change either way.
 			- Left for part 2: `- ` items, `E013`, `E026` in items with `E010` retired, `E027`, `E028` (a Python setter can still put a field under an array), merge output, stacked lists kept stacked, comments on items, the list join and index move, and 2026100511210900's save refusal. Part 3: parens, `E029`, `migrate`, dropping `[#N]`.
 			- Noted, not changed: the `set_literal` doc comment gives `80, 443` as its two-element example in Rust and Python, and that is `E026` now.
+		- 20261006: hosted run 37548389438 on valsyn `9b241d3f`: the 3 windows-only cli-regress migrate rows `vsmig` edited pass (`ErMwKp1`, `ErMwwHF`, `ErMwwZ1`). The run is red elsewhere, on the bindings not yet ported.
 	- Decisions:
 		- 20261002: idea 3, with the changes listed in the design doc. Open points and their proposed answers are under its Roadmap.
 		- 20261002: a quote anywhere in a bare value is an error, and a bare field name starts with a letter. Dates, times, durations and sizes without spaces stay bare.
