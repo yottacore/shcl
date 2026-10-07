@@ -186,12 +186,23 @@ def fGo() -> list[str]:
 	return lines + [""]
 
 
+def fPyText(text: str) -> str:
+	return '"' + "".join(f"\\u{ord(c):04X}" for c in text) + '"'
+
+
 def fPython() -> list[str]:
 	lines = [f"# {HEAD}"]
-	for name, ranges in (("_INVISIBLE_RANGES", INVISIBLE), ("_SELECTOR_RANGES", SELECTORS)):
+	for name, ranges in (("_INVISIBLE_RANGES", INVISIBLE), ("_SELECTOR_RANGES", SELECTORS), ("_WHITE_SPACE_RANGES", WHITE_SPACE)):
 		lines += [f"{name} = ("]
 		lines += [f"\t({fHex(lo)}, {fHex(hi)})," for lo, hi in ranges]
 		lines += [")"]
+	lines += [f'_ESCAPE_MARK = "\\u{ESCAPE_MARK:04X}"']
+	lines += ["_ESCAPE_NAMES = ("]
+	lines += [f'\t("{name}", {fPyText(text)}),' for name, text in ESCAPE_NAMES]
+	lines += [")"]
+	lines += ["_CODE_PREFIXES = ("]
+	lines += [f'\t"{p}",' for p in CODE_PREFIXES]
+	lines += [")"]
 	return lines
 
 
@@ -314,3 +325,4 @@ if __name__ == "__main__":
 ##		2026-10-06  A selector text class, the bare one without parens.
 ##		2026-10-06  Go takes the escape names, code point prefixes and
 ##		            White_Space.
+##		2026-10-06  Python takes them too.
