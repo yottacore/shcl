@@ -69,7 +69,7 @@ func TestDiagnosticCapBoundsTheParse(t *testing.T) {
 	// and every refusal is a diagnostic: with the element cap alone, 200k
 	// refused lines cost more than the elements they refused. The diagnostic
 	// cap is what bounds that.
-	text := "arr:\n" + strings.Repeat("\t* 1\n", 200000)
+	text := "arr:\n" + strings.Repeat("\t- 1\n", 200000)
 	capped := heldBy(func() any {
 		doc, _ := ParseLimited(text, Standard, 0, 8, 100) // only Strict returns an error
 		if len(doc.Diagnostics()) != 101 || doc.LostCount() != 200000-8 {
@@ -127,7 +127,7 @@ func TestArenaSizedToTheDocument(t *testing.T) {
 	if len(doc.arena) != 50001 || cap(doc.arena) != len(doc.arena) {
 		t.Fatalf("flat: %d nodes in an arena of %d", len(doc.arena), cap(doc.arena))
 	}
-	sparse := "a: 1\n" + strings.Repeat("# note\n\n", 20000) + "arr:\n" + strings.Repeat("\t* 1\n", 20000)
+	sparse := "a: 1\n" + strings.Repeat("# note\n\n", 20000) + "arr:\n" + strings.Repeat("\t- 1\n", 20000)
 	doc = Parse(sparse)
 	if cap(doc.arena) > 2*len(doc.arena) {
 		t.Fatalf("sparse: %d nodes in an arena of %d", len(doc.arena), cap(doc.arena))
