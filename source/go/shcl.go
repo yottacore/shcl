@@ -2800,6 +2800,77 @@ func migrateText(text string, fromV2, stamp bool) Migration {
 	return Migration{Text: out.String(), Ambiguous: st.ambiguous, Lost: st.lost}
 }
 
+// Upgraded is what Upgrade made of a document, and UpgradeFile of a file.
+type Upgraded struct {
+	// Text is the fresh file's text, or the input when Current or Ambiguous.
+	Text string
+	// Current: the input loads with no error under these rules and, with
+	// fromV2, migrates to the same text, or it names this format, so it is
+	// left as it is. A beta build of 3.0 stamped the same Format line as a
+	// release, so a beta file is current here too.
+	Current bool
+	// Format is the format the input was written for, which goes in the
+	// backup's name: what its Format line names, else 2.
+	Format int
+	// Ambiguous is as Migration's. Nonzero means the text reads two ways and
+	// nothing is written.
+	Ambiguous int
+	// Lost counts lines and values of the input the fresh text does not
+	// carry over: the ones 2.x bound that nothing binds now, and the ones the
+	// load of the migrated text drops. The backup still has them.
+	Lost int
+	// Diagnostics is what loading the input found, which is why it needed the
+	// upgrade unless it loaded clean and fromV2 said it reads as 2.x. Empty
+	// when Current.
+	Diagnostics []Diagnostic
+	// Backup is where UpgradeFile put the original. Empty from Upgrade, and
+	// when nothing was written.
+	Backup string
+}
+
+// Upgrade is a config file written for an older format, made over for this
+// one: the input run through MigrateUnstamped, then written the way `fmt`
+// writes it, with any old info block swapped for the one `init` writes. This
+// is the one library call that writes the block. A file that names this
+// format comes back Current and untouched, and so does one that loads with no
+// error under these rules, since a program calling this on every start must
+// never rewrite a good file. fromV2 is Migrate's: the file can only have been
+// written for 2.x. Then a file that loads clean is still made over when
+// Migrate would change it, as it would `p: a,b`, an array under 2.x and one
+// string now.
+func Upgrade(text string, fromV2 bool) Upgraded {
+	version, hasVersion := FormatVersion(text)
+	up := Upgraded{Text: text, Current: true, Format: 2}
+	if hasVersion {
+		up.Format = version
+	}
+	if hasVersion && version >= FormatMajor {
+		return up
+	}
+	before := Parse(text)
+	clean := before.ErrorCount() == 0
+	if clean && !fromV2 {
+		return up
+	}
+	m := migrateText(text, fromV2, false)
+	// A 2.x file can load clean and still read differently now, as `a,b`
+	// does. One migrate leaves as it was has nothing to do.
+	if clean && m.Text == text {
+		return up
+	}
+	up.Current = false
+	up.Diagnostics = before.diags
+	up.Ambiguous = m.Ambiguous
+	if m.Ambiguous != 0 {
+		return up
+	}
+	fresh := Parse(m.Text)
+	up.Lost = m.Lost + fresh.LostCount()
+	fresh.swapBanner(true, true)
+	up.Text = fresh.ToCanonical()
+	return up
+}
+
 // sortedHas is true when the ascending list holds n.
 func sortedHas(list []int, n int) bool {
 	k := sort.SearchInts(list, n)
@@ -6242,11 +6313,17 @@ func runUnder(leads []lead, k int) int {
 // clock and zone, so tests can pin the text: "YYYY-mm-DD HH:MM:SS
 // OFFSET_MINUTES [NAME]".
 func noteStamp() string {
+	when, offset, name := clockNow()
+	return when + " " + zoneLabel(offset, name)
+}
+
+// clockNow is the local time, its offset and zone name, or SHCL_TEST_CLOCK's.
+func clockNow() (string, int, string) {
 	when, offset, name, ok := testClock(os.Getenv("SHCL_TEST_CLOCK"))
 	if !ok {
-		when, offset, name = localClock()
+		return localClock()
 	}
-	return when + " " + zoneLabel(offset, name)
+	return when, offset, name
 }
 
 func testClock(spec string) (string, int, string, bool) {
@@ -7168,32 +7245,36 @@ func keepLines(src string, doc *Document) (string, bool) {
 // closing "##" ends after its last line written the block's way. A Schema line
 // in a block stays, and so does any other comment around one, even written
 // right against it. It returns how many came off, and whether the last one
-// had a blank above it with no line after it to take that blank.
-func dropBanners(leads *[]lead) (int, bool) {
+// had a blank above it with no line after it to take that blank. A mark of
+// "#" takes 2.x's block instead, which had no version line.
+func dropBanners(leads *[]lead, mark string) (int, bool) {
 	ls := *leads
-	inRun := func(l lead) bool { return strings.HasPrefix(l.text, "##") && !l.blankBefore }
+	inRun := func(l lead) bool { return strings.HasPrefix(l.text, mark) && !l.blankBefore }
+	title := mark + bannerTitle[2:]
+	name := mark + bannerName[2:]
+	field := mark + "    "
 	keep := make([]lead, 0, len(ls))
 	removed, owed, prevKept := 0, false, false
 	for i := 0; i < len(ls); {
 		start, end := i, i+1
 		switch {
-		case ls[i].text == bannerTitle:
-			if prevKept && !ls[i].blankBefore && ls[i-1].text == "##" {
+		case ls[i].text == title:
+			if prevKept && !ls[i].blankBefore && ls[i-1].text == mark {
 				keep = keep[:len(keep)-1]
 				start = i - 1
 			}
 			closed := false
 			for k := end; k < len(ls) && inRun(ls[k]); k++ {
-				if ls[k].text == "##" {
+				if ls[k].text == mark {
 					end, closed = k+1, true
 					break
 				}
 			}
 			for !closed && end < len(ls) && inRun(ls[end]) &&
-				(strings.HasPrefix(ls[end].text, "##    ") || ls[end].text == bannerName) {
+				(strings.HasPrefix(ls[end].text, field) || ls[end].text == name) {
 				end++
 			}
-		case strings.HasPrefix(ls[i].text, FormatLineHead):
+		case mark == "##" && strings.HasPrefix(ls[i].text, FormatLineHead):
 			if end < len(ls) && inRun(ls[end]) && ls[end].text == MigratedLine {
 				end++
 			}
@@ -7702,6 +7783,199 @@ func WriteFileAtomic(file, data string) error {
 	}
 	syncDir(dir)
 	return nil
+}
+
+// UpgradeErrorKind says why UpgradeFile or WriteBackup wrote nothing, or not
+// all of it.
+type UpgradeErrorKind int
+
+const (
+	// UpgradeNotFound: nothing at the path.
+	UpgradeNotFound UpgradeErrorKind = iota
+	// UpgradeAmbiguous: the file does not say which rules it was written for,
+	// and some of it reads two ways (Upgraded.Ambiguous); fromV2 settles it.
+	UpgradeAmbiguous
+	// UpgradeBackupTaken: something is already at the backup's name. It is
+	// never written over.
+	UpgradeBackupTaken
+	// UpgradeIO: a read or write failed; Err has it.
+	UpgradeIO
+)
+
+// UpgradeError is the error UpgradeFile and WriteBackup return, so a caller
+// can tell the cases apart with errors.As rather than by the message.
+type UpgradeError struct {
+	Kind UpgradeErrorKind
+	// Path is the file for UpgradeNotFound and UpgradeAmbiguous, and the
+	// backup's name for UpgradeBackupTaken.
+	Path string
+	// Count is Upgraded.Ambiguous, for UpgradeAmbiguous.
+	Count int
+	// Err is the failure for UpgradeIO, with the path in its message.
+	Err error
+}
+
+// Error says what went wrong and that nothing was written over.
+func (e *UpgradeError) Error() string {
+	switch e.Kind {
+	case UpgradeNotFound:
+		return e.Path + ": no such file"
+	case UpgradeAmbiguous:
+		return fmt.Sprintf("%s: %d value(s) read one way under 2.x and another under these rules, and "+
+			"the file does not say which it was written for; nothing written", e.Path, e.Count)
+	case UpgradeBackupTaken:
+		return e.Path + ": already exists; the original would be kept there, so nothing was written"
+	}
+	return e.Err.Error()
+}
+
+// Unwrap gives the i/o failure behind UpgradeIO, for errors.Is.
+func (e *UpgradeError) Unwrap() error { return e.Err }
+
+// BackupFileName is the name a config file's backup gets:
+// `NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT`, in local time, with N the
+// format the file was written for. The tag goes before the last dot of the
+// file name, or on the end when it has none, and a leading dot is part of the
+// name. SHCL_TEST_CLOCK stands in for the clock, as in a setter's note.
+func BackupFileName(file string, format int) string {
+	when, _, _ := clockNow()
+	stamp := strings.Map(func(r rune) rune {
+		switch r {
+		case '-', ':':
+			return -1
+		case ' ':
+			return '-'
+		}
+		return r
+	}, when)
+	tag := "_backup_" + stamp + "_format-v" + strconv.Itoa(format)
+	start := fileNameStart(file)
+	if dot := strings.LastIndex(file[start:], "."); dot > 0 {
+		at := start + dot
+		return file[:at] + tag + file[at:]
+	}
+	return file + tag
+}
+
+// fileNameStart says where the file name starts in a path: after the last
+// separator, or on windows after a drive with no separator (`C:cfg.shcl`). A
+// backslash is a separator only on windows.
+func fileNameStart(file string) int {
+	start := strings.LastIndex(file, "/") + 1
+	if runtime.GOOS != "windows" {
+		return start
+	}
+	if bs := strings.LastIndex(file, "\\") + 1; bs > start {
+		start = bs
+	}
+	if start == 0 && len(file) >= 2 && file[1] == ':' && (file[0]|0x20) >= 'a' && (file[0]|0x20) <= 'z' {
+		start = 2
+	}
+	return start
+}
+
+// WriteBackup keeps text, the bytes last read from file, under
+// BackupFileName, before something replaces them. The create is exclusive, so
+// an earlier backup or anything else at the name is never written over, and
+// the copy is synced before this returns. It is born private, then given the
+// original's group and mode (on windows its DACL), so a private config never
+// has a readable copy. Returns the backup's name; a failure is an
+// *UpgradeError.
+func WriteBackup(file, text string, format int) (string, error) {
+	name := BackupFileName(file, format)
+	// NAME: and the system's own message, as the CLI says it. The path error
+	// would name the call and the path a second time.
+	failed := func(err error) error {
+		var pe *os.PathError
+		if errors.As(err, &pe) {
+			err = pe.Err
+		}
+		return &UpgradeError{Kind: UpgradeIO, Err: fmt.Errorf("%s: %w", name, err)}
+	}
+	// On windows the backup is born with the original's DACL, since a new file
+	// takes the directory's ACL (createTemp).
+	f, err := createTemp(file, name, 0o600)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return "", &UpgradeError{Kind: UpgradeBackupTaken, Path: name}
+		}
+		return "", failed(err)
+	}
+	_, err = f.WriteString(text)
+	// The group first, since a chown clears setuid/setgid. Best effort, the
+	// way the save keeps both.
+	if fi, serr := os.Stat(file); err == nil && serr == nil && runtime.GOOS != "windows" {
+		if gid, ok := statGID(fi); ok {
+			_ = f.Chown(-1, gid)
+		}
+		_ = f.Chmod(fi.Mode())
+	}
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(name) // the write error is the one to report
+		return "", failed(err)
+	}
+	return name, nil
+}
+
+// UpgradeFile is Upgrade on a file, for a program to call when it starts,
+// before its load. A file that needs it is kept under BackupFileName by
+// WriteBackup, then the fresh text replaces it through WriteFileAtomic, so the
+// path always holds one or the other. A file Upgrade finds Current is not
+// written at all, and also neither is one that changed after it was read or
+// that reads two ways. Opt-in on purpose: a program that keeps its own backups
+// has no need of it. On success Backup names the copy when one was made, and
+// Text is what the path now holds. A failure is an *UpgradeError.
+func UpgradeFile(path string, fromV2 bool) (Upgraded, error) {
+	// A FIFO or a device would block the read or be replaced by a file.
+	fi, err := os.Stat(path)
+	switch {
+	case err == nil && !fi.Mode().IsRegular():
+		return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: fmt.Errorf("%s: not a regular file", path)}
+	case errors.Is(err, os.ErrNotExist):
+		return Upgraded{}, &UpgradeError{Kind: UpgradeNotFound, Path: path}
+	}
+	text, status := ReadFile(path, 0)
+	switch status {
+	case FileClean:
+	case FileNotFound:
+		return Upgraded{}, &UpgradeError{Kind: UpgradeNotFound, Path: path}
+	default:
+		return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: fmt.Errorf("%s: cannot be read as UTF-8 text", path)}
+	}
+	up := Upgrade(text, fromV2)
+	if up.Current {
+		return up, nil
+	}
+	if up.Ambiguous != 0 {
+		return Upgraded{}, &UpgradeError{Kind: UpgradeAmbiguous, Path: path, Count: up.Ambiguous}
+	}
+	same := func() bool {
+		now, rerr := os.ReadFile(path)
+		return rerr == nil && string(now) == text
+	}
+	if !same() {
+		return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: fmt.Errorf("%s: changed since it was read; nothing written", path)}
+	}
+	if up.Backup, err = WriteBackup(path, text, up.Format); err != nil {
+		return Upgraded{}, err
+	}
+	if werr := WriteFileAtomic(path, up.Text); werr != nil {
+		// With the original still in place the backup would only stand in the
+		// way of the next run. A replace that fails part way on windows can
+		// leave nothing at the path, and then the backup is all there is.
+		if same() {
+			_ = os.Remove(up.Backup)
+			return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: werr}
+		}
+		return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: fmt.Errorf("%w; the original is %s", werr, up.Backup)}
+	}
+	return up, nil
 }
 
 // namesADirectory reports a path that names a directory rather than a file: it
@@ -9927,6 +10201,17 @@ func (d *Document) ClearComments(path string) int {
 // is for a program that wants it in a file it writes. Returns how many old
 // blocks came off.
 func (d *Document) SetBanner(on bool) int {
+	return d.swapBanner(on, false)
+}
+
+// swapBanner is SetBanner, and with v2 the block 2.x's `init` wrote, in `#`
+// comments, comes off too. Only Upgrade asks for that: under these rules the
+// old block is a comment of the file's own.
+func (d *Document) swapBanner(on, v2 bool) int {
+	marks := []string{"##"}
+	if v2 {
+		marks = append(marks, "#")
+	}
 	removed := 0
 	// The first line's comments are the top of the file, on the first node
 	// down, as a dotted line puts them on its last name.
@@ -9947,14 +10232,18 @@ func (d *Document) SetBanner(on bool) int {
 		if first || tr == nil {
 			continue
 		}
-		gone, blank := dropBanners(&tr.leading)
-		if gone > 0 {
-			removed += gone
-			d.arena[n].blankBefore = d.arena[n].blankBefore || blank
+		for _, mark := range marks {
+			gone, blank := dropBanners(&tr.leading, mark)
+			if gone > 0 {
+				removed += gone
+				d.arena[n].blankBefore = d.arena[n].blankBefore || blank
+			}
 		}
 	}
-	gone, _ := dropBanners(&d.orphans)
-	removed += gone
+	for _, mark := range marks {
+		gone, _ := dropBanners(&d.orphans, mark)
+		removed += gone
+	}
 	if on {
 		open := len(d.orphans) > 0 || len(d.arena[root].children) > 0
 		for n, line := range strings.Split(strings.TrimSuffix(GenBanner, "\n"), "\n") {

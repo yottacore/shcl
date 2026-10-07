@@ -13,7 +13,6 @@ import (
 	"io/fs"
 	"math"
 	"os"
-	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -108,10 +107,16 @@ Usage:
                                          per line
   shcl migrate [options] FILE            rewrite a 2.x file for the current
                                          rules (print it, rewrite FILE with
-                                         --write or -w, keeping the original
-                                         as NAME_old_v2.EXT beside it, or name
-                                         the lines it would change with
-                                         --check)
+                                         --write or -w, keeping a backup of
+                                         the original beside it, or name the
+                                         lines it would change with --check)
+  shcl upgrade [options] FILE            when FILE does not load clean, or
+                                         with --from-2x reads differently once
+                                         migrated, print it migrated and made
+                                         over the way fmt writes it, with the
+                                         info block (or back it up and rewrite
+                                         it with --write); anything else is
+                                         left alone
   shcl tokens FILE                       each line's lexical spans, for seeing
                                          why the parser read a line as it did
                                          (every line on its own, raw bodies
@@ -173,19 +178,19 @@ Options (the subcommands each belongs to are in parentheses):
   --no-banner                            (init, and set --write when it creates
                                          FILE) leave out the info block naming
                                          the format and pointing at its spec
-  --write                                (fmt/set/migrate) rewrite FILE in
-                                         place, written -w too, through a
-                                         temp file and a rename; refused
-                                         with a FILE of '-'
+  --write                                (fmt/set/migrate/upgrade) rewrite
+                                         FILE in place, written -w too,
+                                         through a temp file and a rename;
+                                         refused with a FILE of '-'
   --lossy                                (fmt/set/migrate) with --write, rewrite
                                          even when this write would delete lines
                                          or values from the file; without it the
                                          write refuses and nothing is changed
-  --from-2x                              (migrate) the file was written for
-                                         2.x, so rewrite the spellings the two
-                                         rule sets read differently; without
-                                         it those are left alone and migrate
-                                         exits 7
+  --from-2x                              (migrate/upgrade) the file was
+                                         written for 2.x, so rewrite the
+                                         spellings the two rule sets read
+                                         differently; without it those are
+                                         left alone and the command exits 7
   --check                                (fmt/migrate) print nothing and exit 6
                                          when fmt would change the file or
                                          migrate would rewrite a line (named on
@@ -249,7 +254,12 @@ once per run; 'shcl explain CODE' gives the rule behind one of their codes. An
 in-place write also refuses when the rewrite would delete lines or values
 from the file (--lossy overrides). migrate refuses a file that does not say
 which rules it was written for, when the two readings differ (--from-2x says
-it is 2.x), and reports a 2.x binding it cannot convert.
+it is 2.x), and reports a 2.x binding it cannot convert. With --write, migrate
+and upgrade keep the original beside FILE as
+NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT, in local time, where N is the format
+it was written for, and write nothing when that name is taken. An upgrade
+writes even when the fresh file drops lines or values, since the backup keeps
+them.
 FILE may be '-' for stdin. With --layer, FILE is the highest file layer and
 each --layer is merged under it in order; --set applies last. 'fmt' with
 layers prints the merged canonical document.
@@ -257,8 +267,8 @@ layers prints the merged canonical document.
 Exit codes: 0 good, 1 usage error, 2 empty, 3 not found, 4 bad type,
 5 multiple instances, 6 check failed, strict load failed, init's schema has
 faults, or --check found a rewrite to make, 7 in-place write refused
-(--lossy overrides) or migrate left something behind, 8 a file or stream could
-not be read or written.
+(--lossy overrides) or migrate or upgrade left something behind, 8 a file or
+stream could not be read or written.
 `
 
 // About and donate are stdout, so they are byte-for-byte contracts across the
@@ -1171,6 +1181,8 @@ func allowedOpts(cmd string) []string {
 		allowed = []string{"--schema", "--no-banner"}
 	case "migrate":
 		allowed = []string{"--write", "--lossy", "--from-2x", "--check"}
+	case "upgrade":
+		allowed = []string{"--write", "--from-2x"}
 	case "tokens", "explain":
 		allowed = []string{}
 	case "count", "instances", "children", "paths":
@@ -2075,18 +2087,6 @@ func rewrittenLines(before, after string) []int {
 	return lines
 }
 
-// oldCopyName is where `migrate --write` keeps the file it replaces:
-// `_old_v2` before the last dot of the file name, or on the end when it has
-// none. A leading dot is part of the name, not an extension.
-func oldCopyName(file string) string {
-	start := nameStart(file)
-	if dot := strings.LastIndex(file[start:], "."); dot > 0 {
-		at := start + dot
-		return file[:at] + "_old_v2" + file[at:]
-	}
-	return file + "_old_v2"
-}
-
 // nameStart says where the file name starts in a path: after the last
 // separator, or on windows after a drive with no separator (C:cfg.shcl). A
 // backslash is a separator only on windows.
@@ -2102,78 +2102,6 @@ func nameStart(file string) int {
 		start = 2
 	}
 	return start
-}
-
-// createCopy is the exclusive create of the old copy, born private. The
-// windows build swaps in one that gives the copy the original's DACL
-// (main_windows.go).
-var createCopy = func(_, old string) (*os.File, error) {
-	return os.OpenFile(old, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-}
-
-// keepOriginal writes the original bytes to the old-copy name before the
-// migrated text replaces them. The create is exclusive, so an earlier copy is
-// never replaced, and the copy is synced before the save starts.
-func keepOriginal(file, text string) (string, error) {
-	old := oldCopyName(file)
-	// FILE: and the system's own message, as the UI guide has it. The path
-	// error would name the call and the path a second time.
-	bare := func(err error) error {
-		var pe *fs.PathError
-		if errors.As(err, &pe) {
-			return pe.Err
-		}
-		return err
-	}
-	f, err := createCopy(file, old)
-	if err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return "", fmt.Errorf("%s: already exists; migrate keeps the original file there, so nothing was written", old)
-		}
-		return "", fmt.Errorf("%s: %w", old, bare(err))
-	}
-	_, err = f.WriteString(text)
-	// Born private, then given the original's group and bits, so a 600 config
-	// never has a readable copy, and one in a setgid directory does not go to
-	// the directory's group. The group first, since a chown clears
-	// setuid/setgid. Best effort, the way the save keeps both.
-	if fi, serr := os.Stat(file); err == nil && serr == nil && runtime.GOOS != "windows" {
-		if gid, ok := statGID(fi); ok {
-			_ = f.Chown(-1, gid)
-		}
-		_ = f.Chmod(fi.Mode())
-	}
-	if err == nil {
-		err = f.Sync()
-	}
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		_ = os.Remove(old)
-		return "", fmt.Errorf("%s: %w", old, bare(err))
-	}
-	return old, nil
-}
-
-// statGID reads the group off a stat result, the way the library does it.
-// syscall.Stat_t does not exist on windows, and this file compiles there too.
-func statGID(fi os.FileInfo) (int, bool) {
-	v := reflect.ValueOf(fi.Sys())
-	if v.Kind() == reflect.Ptr {
-		if v.IsNil() {
-			return 0, false
-		}
-		v = v.Elem()
-	}
-	if v.Kind() != reflect.Struct {
-		return 0, false
-	}
-	g := v.FieldByName("Gid")
-	if !g.IsValid() || !g.CanUint() {
-		return 0, false
-	}
-	return int(g.Uint()), true
 }
 
 // doMigrate: a 2.x file rewritten for the current rules. The rewrite is text
@@ -2289,7 +2217,11 @@ func doMigrate(o *opts) int {
 		old := ""
 		if len(rewritten) != 0 {
 			var err error
-			if old, err = keepOriginal(file, text); err != nil {
+			v, ok := shcl.FormatVersion(text)
+			if !ok {
+				v = 2
+			}
+			if old, err = shcl.WriteBackup(file, text, v); err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				return exitIO
 			}
@@ -2318,6 +2250,70 @@ func doMigrate(o *opts) int {
 	}
 	outs(m.Text)
 	return rc
+}
+
+// doUpgrade: a file this shcl cannot load clean, backed up and written fresh:
+// the library's UpgradeFile with --write, and its text half without, which
+// prints the fresh text and touches nothing.
+func doUpgrade(o *opts) int {
+	if len(o.args) != 1 {
+		fmt.Fprintln(os.Stderr, "usage: shcl upgrade [options] FILE (see --help)")
+		return 1
+	}
+	file := o.args[0]
+	if o.write && file == "-" {
+		fmt.Fprintln(os.Stderr, "upgrade --write cannot rewrite stdin; drop --write to print, or pass a FILE")
+		return 1
+	}
+	if o.write && !writeTargetOK(file) {
+		return exitIO
+	}
+	var up shcl.Upgraded
+	if o.write {
+		var err error
+		if up, err = shcl.UpgradeFile(file, o.from2x); err != nil {
+			var ue *shcl.UpgradeError
+			if errors.As(err, &ue) && ue.Kind == shcl.UpgradeAmbiguous {
+				fmt.Fprintf(os.Stderr, "%v (--from-2x rewrites them)\n", err)
+				return 7
+			}
+			fmt.Fprintln(os.Stderr, err)
+			return exitIO
+		}
+	} else {
+		text, err := readInput(file)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return exitIO
+		}
+		up = shcl.Upgrade(text, o.from2x)
+	}
+	if up.Current {
+		fmt.Fprintf(os.Stderr, "%s: nothing to upgrade: it loads clean or names its format\n", file)
+		if !o.write {
+			outs(up.Text)
+		}
+		return 0
+	}
+	sayDiagnosticsFrom("", up.Diagnostics)
+	if up.Ambiguous != 0 {
+		err := &shcl.UpgradeError{Kind: shcl.UpgradeAmbiguous, Path: file, Count: up.Ambiguous}
+		fmt.Fprintf(os.Stderr, "%v (--from-2x rewrites them)\n", err)
+		return 7
+	}
+	if up.Lost != 0 {
+		kept := ""
+		if o.write {
+			kept = "; the backup keeps them"
+		}
+		fmt.Fprintf(os.Stderr, "%s: %d line(s)/value(s) do not carry over to the fresh file%s\n", file, up.Lost, kept)
+	}
+	if o.write {
+		fmt.Fprintf(os.Stderr, "%s: upgraded; the original is %s\n", file, up.Backup)
+	} else {
+		outs(up.Text)
+	}
+	return 0
 }
 
 // codeLine is `CODE  severity  summary` - the one line both explain forms lead
@@ -3377,7 +3373,7 @@ func doPaths(o *opts) int {
 	return 0
 }
 
-var commands = [...]string{"get", "set", "fmt", "check", "init", "count", "instances", "children", "paths", "migrate", "tokens", "explain"}
+var commands = [...]string{"get", "set", "fmt", "check", "init", "count", "instances", "children", "paths", "migrate", "upgrade", "tokens", "explain"}
 
 func run() int {
 	argv := os.Args[1:]
@@ -3503,6 +3499,8 @@ func run() int {
 		return doPaths(o)
 	case "migrate":
 		return doMigrate(o)
+	case "upgrade":
+		return doUpgrade(o)
 	case "tokens":
 		return doTokens(o)
 	case "explain":
