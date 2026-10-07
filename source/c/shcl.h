@@ -352,11 +352,16 @@ size_t shcl_line(shcl_doc *d, const char *path, size_t plen);
 // 1 when the single scalar value at a path was quoted in the source, so a
 // consumer can tell a quoted plain string from a bare word that happens to
 // spell a reserved one - `mode: "on"` against `mode: on`. 0 for anything that
-// is not one scalar element (empty, a raw block, an array, an unresolved or
-// ambiguous path). A written value counts as quoted when a save would quote
-// it. Sits beside shcl_line rather than in the read structs for the same
-// reason the raw text does: C keeps those two fields wide.
+// is not one scalar element (empty, a raw block, an array of other than one
+// element, an unresolved or ambiguous path). A written value counts as quoted
+// when a save would quote it. Sits beside shcl_line rather than in the read
+// structs for the same reason the raw text does: C keeps those two fields
+// wide.
 int shcl_quoted(shcl_doc *d, const char *path, size_t plen);
+// 1 when that single scalar value was a backtick value: raw text the program
+// decodes itself, which SHCL hands back as written. A backtick value counts as
+// quoted too. 0 for anything shcl_quoted gives 0.
+int shcl_backtick(shcl_doc *d, const char *path, size_t plen);
 
 // The field name at a path exactly as the author wrote it (case unfolded,
 // outer quotes stripped), so a message can echo SYMBOLS when the file said
@@ -503,8 +508,9 @@ int     shcl_get_bool_or(shcl_doc *d, const char *path, size_t plen, int def);
 // that was tokenized; nothing is copied. A piece is quoted only when its first
 // character is a quote and the matching quote is the last thing before the
 // piece ends; SHCL_QUOTE_OPEN is a piece that began with a quote it never
-// closed, kept literally, quotes and all.
-typedef enum { SHCL_QUOTE_NONE, SHCL_QUOTE_SINGLE, SHCL_QUOTE_DOUBLE, SHCL_QUOTE_OPEN } shcl_quote;
+// closed, kept literally, quotes and all. SHCL_QUOTE_BACKTICK is a raw value,
+// read as written: value elements only.
+typedef enum { SHCL_QUOTE_NONE, SHCL_QUOTE_SINGLE, SHCL_QUOTE_DOUBLE, SHCL_QUOTE_BACKTICK, SHCL_QUOTE_OPEN } shcl_quote;
 // One piece of the text: byte offsets of its content. For a quoted piece the
 // quotes sit just outside the span; for an open or bare piece the span is
 // the trimmed text itself.
@@ -523,9 +529,12 @@ typedef struct {
 	shcl_seg_tok *segments; size_t nseg;
 	int has_sep; size_t sep;          // the separator (`:` on a line, `=` in --set); none when the path ran to the end or into a comment
 	size_t value_start, value_end;    // everything after the separator up to the comment, trimmed
-	shcl_piece *elements; size_t nelem; // the value's comma-separated pieces, empty ones included, each trimmed
+	shcl_piece *elements; size_t nelem; // the value's comma-separated pieces, empty ones included, each trimmed; for a bracket array, the pieces between the brackets
+	int has_array; size_t array;      // the `[` that opens a bracket array, when the value is one
+	int has_array_fault; size_t array_fault_at; const char *array_fault_why; // where a bracket array stops being well formed, and why (E019)
 	int has_comment; size_t comment;  // the `#` that opens a trailing comment
 	int has_fault; size_t fault_at; const char *fault_why; // where the path stopped making sense, and why (E014 as a whole)
+	int has_misspelled; size_t misspelled; // the first bare name that breaks the spelling rule but still reads, such as `404` or `user name` (E014, level held open)
 	size_t cap; int capped;
 	size_t seg_cap, elem_cap;         // storage bookkeeping
 	const void *arena;                // the read arena the two arrays live in
@@ -650,19 +659,22 @@ int shcl_set_string(shcl_doc *d, const char *path, size_t plen, const char *s, s
 int shcl_set_datetime(shcl_doc *d, const char *path, size_t plen, const shcl_datetime *dt);
 int shcl_set_raw(shcl_doc *d, const char *path, size_t plen, const char *content, size_t clen, const char *info, size_t ilen);
 
-// Inline arrays, one per call.
+// Arrays, one per call, written in brackets: one element is [80] and none is
+// [].
 int shcl_set_int_array(shcl_doc *d, const char *path, size_t plen, const int64_t *v, size_t n);
 int shcl_set_float_array(shcl_doc *d, const char *path, size_t plen, const double *v, size_t n);
 int shcl_set_bool_array(shcl_doc *d, const char *path, size_t plen, const int *v, size_t n);
 int shcl_set_string_array(shcl_doc *d, const char *path, size_t plen, const char *const *v, const size_t *lens, size_t n);
 int shcl_set_datetime_array(shcl_doc *d, const char *path, size_t plen, const shcl_datetime *v, size_t n);
 
-// Binds text as value syntax rather than as data: "80, 443" becomes a
+// Binds text as value syntax rather than as data: "[80, 443]" becomes a
 // two-element array where shcl_set_string would store one string that has to be
 // quoted. For a caller holding value text - a config line, a user's --set
 // argument - that has to be written without knowing its shape first. Returns 0
-// for text that could not be one line's value (a line break, or a quote that
-// never closes); a # outside quotes ends the value as it would in a file.
+// for text that could not be one line's value: a line break, or what a file
+// line is refused for in a value (a malformed array, a bare comma, a quote
+// that never closes, a bad escape, or what bare text may not hold). A # outside
+// quotes ends the value as it would in a file.
 int shcl_set_literal(shcl_doc *d, const char *path, size_t plen, const char *text, size_t tlen);
 
 // Default (only-if-absent) forms - the "emit defaults" half of the Writer.
@@ -1060,11 +1072,12 @@ static ShclStr ascii_lower(ShclArena *a, ShclStr s) {
 }
 static ShclStr fold_name(ShclArena *a, ShclStr s) { return ascii_lower(a, s); }
 /* True when folding and escape resolution cannot change a name's spelling:
-   no A-Z (fold identity), and no backslash inside double quotes, the one
-   place a backslash resolves. Then the stored name can be the source slice
-   itself. */
+   no A-Z (fold identity), and no escape mark inside quotes, the one place an
+   escape resolves. A bare name takes no escapes. Then the stored name can be
+   the source slice itself. */
+static int has_mark(ShclStr s);
 static int name_plain(ShclStr s, shcl_quote q) {
-	if (q == SHCL_QUOTE_DOUBLE && s.n && memchr(s.p, '\\', s.n)) return 0;
+	if ((q == SHCL_QUOTE_SINGLE || q == SHCL_QUOTE_DOUBLE) && has_mark(s)) return 0;
 	for (size_t i = 0; i < s.n; i++) {
 		unsigned char c = (unsigned char)s.p[i];
 		if (c >= 'A' && c <= 'Z') return 0;
@@ -1074,14 +1087,20 @@ static int name_plain(ShclStr s, shcl_quote q) {
 
 // --- in-memory model ---------------------------------------------------------
 
-typedef struct { ShclStr text; int quoted; } ShclElement; // text: the logical string - quotes stripped, escapes resolved
+/* How an element was written. The writer keeps the author's quote kind where
+   the text allows it, and a backtick value stays in backticks. */
+typedef enum { MARK_BARE, MARK_SINGLE, MARK_DOUBLE, MARK_BACKTICK } ShclElMark;
+typedef struct { ShclStr text; ShclElMark mark; } ShclElement; // text: the logical string - quotes stripped, escapes resolved
 DEFINE_VEC(ShclVecEl, ShclElement)
+static int el_quoted(const ShclElement *e) { return e->mark != MARK_BARE; }
 
-typedef enum { V_EMPTY, V_CELL, V_RAW } ShclVKind;
+/* V_CELL is one scalar, in els[0]. V_ARRAY is `[a, b]` or a stacked list, and
+   `[]` is the empty array. */
+typedef enum { V_EMPTY, V_CELL, V_RAW, V_ARRAY } ShclVKind;
 typedef struct { ShclStr content; ShclStr info; unsigned char fence_char; size_t fence_len; } ShclRawVal;
 typedef struct {
 	ShclVKind kind;
-	ShclElement *els; size_t nels;                 // V_CELL
+	ShclElement *els; size_t nels;                 // V_CELL (one) and V_ARRAY
 	size_t cap_els;                            // stacked-list growth only (0 elsewhere)
 	ShclRawVal *raw;                               // V_RAW only, else NULL: inline, the four fields sat in every node
 } ShclValue;
@@ -1273,9 +1292,10 @@ static void doc_guard(shcl_doc *d, jmp_buf *panic) {
    level a sibling can bind at, but deeper lines are still under it. It sits on
    top of the levels open before it without closing any of them. */
 #define UNOPENED ((size_t)-2)
-/* Stack entry for a field line refused for its value alone (E019, E023,
-   E024): it binds nothing, but its path is fine, so the first line that binds
-   under it opens the path as `name:` would and binds there. */
+/* Stack entry for a field line refused for its value alone (E017, E019,
+   E023, E025, E026) or for a bare name that still reads (E014): it binds
+   nothing, but its path is fine, so the first line that binds under it opens
+   the path as `name:` would and binds there. */
 #define LAZY ((size_t)-3)
 
 /* The node vector lives in malloc storage, not the bump arena: the arena
@@ -1360,12 +1380,15 @@ static void fold_node_into(shcl_doc *d, size_t survivor, size_t loser) {
 static ShclValue v_empty(void) { ShclValue v; memset(&v, 0, sizeof v); v.kind = V_EMPTY; return v; }
 static int v_is_empty(const ShclValue *v) { return v->kind == V_EMPTY; }
 
+static ShclStr emit_array(ShclArena *a, const ShclElement *els, size_t n);
+/* Human/display form; also what selectors match against (case-sensitive). An
+   array is its canonical bracket form, so `x: 80` and `x: [80]` never display
+   alike. */
 static ShclStr value_display(ShclArena *a, const ShclValue *v) {
 	if (v->kind == V_EMPTY) return s_empty();
 	if (v->kind == V_RAW) return v->raw->content;
-	ShclSB s = {0};
-	for (size_t i = 0; i < v->nels; i++) { if (i) sb_puts(a, &s, ", "); sb_putS(a, &s, v->els[i].text); }
-	return sb_S(&s);
+	if (v->kind == V_CELL) return v->els[0].text;
+	return emit_array(a, v->els, v->nels);
 }
 
 // --- Tokenizer - the one place the lexical rules live ------------------------
@@ -1379,25 +1402,38 @@ static ShclStr value_display(ShclArena *a, const ShclValue *v) {
 //
 // - A piece (a name, a selector body, a value element) is quoted only when
 //   its first character is a quote and the next matching quote is the last
-//   thing before the piece ends; inside double quotes a backslash escapes the
-//   next character, inside single quotes nothing does. Anywhere else a quote
-//   is an ordinary character, and a piece that began with one it never closed
-//   is kept literally and reported (E017).
-// - Escapes are processed inside double quotes only; bare text and single
-//   quotes never process a backslash.
-// - `#` outside quotes opens a comment, wherever it sits.
+//   thing before the piece ends. A backtick quotes a value element the same
+//   way, as a raw value. A backslash is plain text everywhere. A piece that
+//   began with a quote it never closed is kept literally, and the parser
+//   refuses its line (E017).
+// - `◉NAME◉` escapes are read in bare and quoted value text, quoted
+//   names and selector bodies, never in a backtick value, a bare name, a
+//   comment or a raw block (resolve_marks).
+// - `#` outside quotes and backticks opens a comment, wherever it sits.
 // - A space, a tab and a carriage return are blanks: trimmed at a piece's
-//   edge, content in the middle of one.
-// - A bare name is ASCII letters, digits, `-` and `_`; a `[` right after a
-//   name opens a selector, whose bare body runs to the first `]`; a `[` after
-//   the separator starts the value, which the parser refuses (E019).
-// - A value is split on unquoted commas, each piece trimmed.
+//   edge. A bare value or list item may hold spaces; any other whitespace in
+//   it, and any at all in an array element or selector body, the parser
+//   refuses (E025), along with a quote, a bracket, and a colon with a blank
+//   or the end after it.
+// - A bare name is an ASCII letter, then ASCII letters, digits, `-` and `_`.
+//   A file line's name that breaks only that rule still reads, up to the
+//   separator, a dot, a bracket or a comment, and is marked misspelled
+//   (E014). A `[` right after a name opens a selector, whose bare body runs
+//   to the first `]`.
+// - A value is split on unquoted commas with a blank, a comment or the end
+//   after them, each piece trimmed; any other comma is text (`rw,noatime`).
+//   More than one piece outside brackets is a bare comma, which the parser
+//   refuses (E026). Inside brackets every comma splits.
+// - A value that starts with `[` is a bracket array: its pieces run to the
+//   `]` that closes it, and nothing but a comment may follow. A bare `[` or
+//   `]` inside, an empty piece, or no `]` on the line is malformed, which the
+//   parser refuses (E019). `[]` is the empty array.
 //
 // Under SHCL_RULES_V2 the tokenizer reads the 2.x spellings instead, for
-// shcl_migrate: a backslash shields the next character in bare and
-// single-quoted value text, a bare selector body still runs to its first `]`,
-// a separator followed by `[` is the selector sugar, and an open quote
-// swallows the rest of the line.
+// shcl_migrate: every comma splits, a backslash shields the next character in
+// bare and single-quoted value text, a bare selector body still runs to its
+// first `]`, a separator followed by `[` is the selector sugar, and an open
+// quote swallows the rest of the line.
 //
 // The two span vectors grow in whatever arena the caller hands over - the
 // parser's scratch for a parse, the read arena for the public entry points -
@@ -1406,12 +1442,13 @@ static ShclStr value_display(ShclArena *a, const ShclValue *v) {
 
 typedef shcl_quote ShclQuote; typedef shcl_piece ShclPiece; typedef shcl_seg_tok ShclSegTok;
 typedef shcl_tokens ShclTokens; typedef shcl_rules ShclRules;
-static ShclStr apply_escapes(ShclArena *a, ShclStr s);
 static ShclStr apply_escapes_v2(ShclArena *a, ShclStr s);
 
 static void tok_clear(ShclTokens *t) {
 	t->nseg = 0; t->has_sep = 0; t->sep = 0; t->value_start = 0; t->value_end = 0; t->nelem = 0;
+	t->has_array = 0; t->array = 0; t->has_array_fault = 0; t->array_fault_at = 0; t->array_fault_why = NULL;
 	t->has_comment = 0; t->comment = 0; t->has_fault = 0; t->fault_at = 0; t->fault_why = NULL; t->capped = 0;
+	t->has_misspelled = 0; t->misspelled = 0;
 }
 static void tok_push_seg(ShclArena *a, ShclTokens *t, ShclSegTok s) {
 	if (t->nseg == t->seg_cap) { size_t nc = t->seg_cap ? t->seg_cap * 2 : 8; t->segments = (ShclSegTok *)arena_grow(a, t->segments, t->seg_cap, nc, sizeof(ShclSegTok)); t->seg_cap = nc; }
@@ -1422,6 +1459,7 @@ static void tok_push_elem(ShclArena *a, ShclTokens *t, ShclPiece p) {
 	t->elements[t->nelem++] = p;
 }
 static void tok_fault(ShclTokens *t, size_t at, const char *why) { t->has_fault = 1; t->fault_at = at; t->fault_why = why; }
+static void tok_array_fault(ShclTokens *t, size_t at, const char *why) { t->has_array_fault = 1; t->array_fault_at = at; t->array_fault_why = why; }
 static int piece_quoted(ShclQuote q) { return q == SHCL_QUOTE_SINGLE || q == SHCL_QUOTE_DOUBLE; }
 static size_t min_sz(size_t a, size_t b) { return a < b ? a : b; }
 
@@ -1447,10 +1485,19 @@ static size_t utf8_len(ShclStr s, size_t i) {
 	return n;
 }
 
-/* Offset of the quote that closes the one at pos; 0 when there is none. */
+/* Where a file line's bare name that breaks the spelling rule stops. */
+static int name_stop(unsigned char b, char sep) {
+	switch (b) {
+	case '.': case '(': case ')': case '[': case ']': case '#': case ',': case '"': case '\'': case '`': case '\n': return 1;
+	default: return b == (unsigned char)sep;
+	}
+}
+
+/* Offset of the quote that closes the one at pos; 0 when there is none. 2.x
+   read a backslash as an escape inside quotes; now it is text. */
 static int quote_close(ShclStr s, size_t pos, ShclRules rules, size_t *close) {
 	char q = s.p[pos];
-	int escapes = q == '"' || rules == SHCL_RULES_V2;
+	int escapes = rules == SHCL_RULES_V2;
 	size_t i = pos + 1;
 	while (i < s.n) {
 		if (escapes && s.p[i] == '\\' && i + 1 < s.n) { i += 1 + utf8_len(s, i + 1); continue; }
@@ -1466,26 +1513,44 @@ static int comment_at(ShclStr s, size_t i) {
 	return s.p[i] == '#';
 }
 
+/* A comma at `at` with a blank, a comment or the end after it. Only that one
+   splits a value outside brackets; `rw,noatime` is one piece. */
+static int loose_comma(ShclStr s, size_t at) {
+	if (at + 1 >= s.n) return 1;
+	char c = s.p[at + 1];
+	return c == ' ' || c == '\t' || c == '\r' || c == '#';
+}
+
 /* One piece from pos: a value element up to an unquoted comma or comment, or
    a selector body up to an unquoted `]` (term). Fills the trimmed piece and
    returns the offset of what ended it: the terminator, a comment's `#`, or
    the end of the text. comments is 0 only for a selector body in a lookup
-   path, where `[#N]` is the index spelling. */
-static size_t scan_piece(ShclStr s, size_t pos, char term, ShclRules rules, int comments, ShclPiece *out) {
+   path, where `[#N]` is the index spelling. In a bracket array (array) the
+   `]` that closes it ends a value element too, and every comma does;
+   elsewhere only a loose one does, 2.x aside. */
+static size_t scan_piece(ShclStr s, size_t pos, char term, ShclRules rules, int comments, int array, ShclPiece *out) {
 	skip_wsp(s, &pos);
 	size_t start = pos;
 	ShclQuote quote = SHCL_QUOTE_NONE;
-	if (pos < s.n && (s.p[pos] == '"' || s.p[pos] == '\'')) {
+	int every_comma = term != ',' || array || rules == SHCL_RULES_V2;
+	/* A backtick quotes a raw value element. 2.x had none, a selector body
+	   takes none, and a run of three opens a raw block instead. */
+	int tick = rules == SHCL_RULES_CURRENT && term == ',' && !(pos + 3 <= s.n && memcmp(s.p + pos, "```", 3) == 0);
+	if (pos < s.n && (s.p[pos] == '"' || s.p[pos] == '\'' || (tick && s.p[pos] == '`'))) {
 		size_t close;
 		if (quote_close(s, pos, rules, &close)) {
 			/* A value piece may also end at a comment or the line end; a
 			   selector body ends at its bracket and nowhere else. */
 			size_t i = close + 1;
 			skip_wsp(s, &i);
-			int ended = i < s.n ? (s.p[i] == term || (term == ',' && comment_at(s, i))) : term == ',';
+			int ended;
+			if (i < s.n) {
+				char c = s.p[i];
+				ended = (c == term && (every_comma || loose_comma(s, i))) || (array && c == ']') || (term == ',' && comment_at(s, i));
+			} else ended = term == ',';
 			if (ended) {
 				out->start = pos + 1; out->end = close;
-				out->quote = s.p[pos] == '"' ? SHCL_QUOTE_DOUBLE : SHCL_QUOTE_SINGLE;
+				out->quote = s.p[pos] == '"' ? SHCL_QUOTE_DOUBLE : s.p[pos] == '`' ? SHCL_QUOTE_BACKTICK : SHCL_QUOTE_SINGLE;
 				return i;
 			}
 			/* Text after the closing quote: the quote was a character after
@@ -1505,13 +1570,16 @@ static size_t scan_piece(ShclStr s, size_t pos, char term, ShclRules rules, int 
 		}
 	}
 	/* 2.x shielded a backslash in value text only. A bare selector body ran to
-	   its first `]`, the same as now, so shielding one here would hide the `]`. */
+	   its first `]`, the same as now, so shielding one here would hide the `]`.
+	   Now a backslash is text. */
 	int shield = rules == SHCL_RULES_V2 && term == ',';
 	size_t content_end = start;
 	while (pos < s.n) {
 		unsigned char b = (unsigned char)s.p[pos];
 		if (shield && b == '\\' && pos + 1 < s.n) { pos += 1 + utf8_len(s, pos + 1); content_end = min_sz(pos, s.n); continue; }
-		if (b == (unsigned char)term || (comments && comment_at(s, pos))) break;
+		if (b == (unsigned char)term) {
+			if (every_comma || loose_comma(s, pos)) break;
+		} else if ((array && b == ']') || (comments && comment_at(s, pos))) break;
 		pos += utf8_len(s, pos);
 		if (!is_wsp(b)) content_end = min_sz(pos, s.n);
 	}
@@ -1531,12 +1599,18 @@ static size_t scan_piece(ShclStr s, size_t pos, char term, ShclRules rules, int 
 	return min_sz(pos, s.n);
 }
 
+static void scan_array(ShclArena *a, ShclStr text, size_t from, size_t open_at, ShclTokens *out);
+
 /* The value half: everything from `from` on, split into pieces, with the
    comment found on the way. */
 static void scan_value(ShclArena *a, ShclStr text, size_t from, ShclRules rules, ShclTokens *out) {
+	if (rules == SHCL_RULES_CURRENT) {
+		size_t at = from; skip_wsp(text, &at);
+		if (at < text.n && text.p[at] == '[') { scan_array(a, text, from, at, out); return; }
+	}
 	size_t pos = from, stop_at, count = 0;
 	for (;;) {
-		ShclPiece piece; size_t stop = scan_piece(text, pos, ',', rules, 1, &piece);
+		ShclPiece piece; size_t stop = scan_piece(text, pos, ',', rules, 1, 0, &piece);
 		tok_push_elem(a, out, piece);
 		if (piece.quote != SHCL_QUOTE_NONE || piece.end > piece.start) {
 			count++;
@@ -1553,9 +1627,64 @@ static void scan_value(ShclArena *a, ShclStr text, size_t from, ShclRules rules,
 	out->value_start = min_sz(va, vb); out->value_end = vb;
 	if (out->nelem) {
 		ShclPiece *last = &out->elements[out->nelem - 1];
-		if (last->quote != SHCL_QUOTE_SINGLE && last->quote != SHCL_QUOTE_DOUBLE && last->end > vb)
+		if (last->quote != SHCL_QUOTE_SINGLE && last->quote != SHCL_QUOTE_DOUBLE && last->quote != SHCL_QUOTE_BACKTICK && last->end > vb)
 			last->end = vb > last->start ? vb : last->start;
 	}
+}
+
+/* A bracket array from the `[` at open_at: its pieces, each up to an unquoted
+   comma or the `]` that closes it, then nothing but a comment. A fault is
+   noted and the scan goes on, so the comment is still found. Past the element
+   cap the scan stops, as a bare value's does: the line is refused for that
+   whatever else is wrong with it. */
+static void scan_array(ShclArena *a, ShclStr s, size_t from, size_t open_at, ShclTokens *out) {
+	out->has_array = 1; out->array = open_at;
+	size_t pos = open_at + 1, count = 0, stop_at;
+	int closed = 0; size_t close = 0;
+	for (;;) {
+		ShclPiece piece; size_t stop = scan_piece(s, pos, ',', SHCL_RULES_CURRENT, 1, 1, &piece);
+		tok_push_elem(a, out, piece);
+		if (piece.quote == SHCL_QUOTE_NONE && piece.end == piece.start) {
+			/* `[]`, blanks or not, is the empty array; any other empty piece
+			   is a slip. */
+			int only = out->nelem == 1 && stop < s.n && s.p[stop] == ']';
+			if (!only && !out->has_array_fault) tok_array_fault(out, piece.start, "an empty element");
+		} else {
+			count++;
+			if (out->cap && count > out->cap) { out->capped = 1; out->value_start = from; out->value_end = from; return; }
+			if (piece.quote == SHCL_QUOTE_NONE && !out->has_array_fault) {
+				const char *k = (const char *)memchr(s.p + piece.start, '[', piece.end - piece.start);
+				if (k) tok_array_fault(out, (size_t)(k - s.p), "a '[' inside an array");
+			}
+		}
+		if (stop < s.n && s.p[stop] == ',') { pos = stop + 1; continue; }
+		if (stop < s.n && s.p[stop] == ']') { closed = 1; close = stop; }
+		stop_at = stop;
+		break;
+	}
+	size_t end = stop_at;
+	if (closed) {
+		size_t after = close + 1; skip_wsp(s, &after);
+		end = after;
+		if (after < s.n && !comment_at(s, after)) {
+			if (!out->has_array_fault) tok_array_fault(out, after, "text after ']'");
+			/* The comment past the stray text, found the way a value finds it. */
+			for (;;) {
+				ShclPiece ignored; size_t stop = scan_piece(s, after, ',', SHCL_RULES_CURRENT, 1, 0, &ignored);
+				if (stop < s.n && s.p[stop] == ',') { after = stop + 1; continue; }
+				end = stop;
+				break;
+			}
+		}
+	} else {
+		/* The one fault a reader can see from the outside, so it wins. */
+		tok_array_fault(out, open_at, "no closing ']' on the line");
+	}
+	if (end < s.n) { out->has_comment = 1; out->comment = end; }
+	if (out->nelem == 1 && out->elements[0].quote == SHCL_QUOTE_NONE && out->elements[0].end == out->elements[0].start) out->nelem = 0;
+	size_t b = end;
+	while (b > open_at && is_wsp((unsigned char)s.p[b - 1])) b--;
+	out->value_start = open_at; out->value_end = b;
 }
 static void tokenize_value(ShclArena *a, ShclStr text, size_t from, ShclRules rules, ShclTokens *out) {
 	tok_clear(out);
@@ -1587,6 +1716,25 @@ static void tokenize(ShclArena *a, ShclStr text, char sep, int path, ShclRules r
 		} else {
 			size_t start = pos;
 			while (pos < s.n && is_bare_name_char((unsigned char)s.p[pos])) pos++;
+			/* A file line's name that breaks only the spelling rule still
+			   reads, so the lines under it can load under it (E014). A lookup
+			   path takes the old bare run, any first character. A name led by
+			   a byte order mark does not read: at the start of a file the load
+			   strips the mark, so the line would bind as something else. One
+			   led by a `*` is a list item's line, which never gets here. */
+			int bom = start + 3 <= s.n && (unsigned char)s.p[start] == 0xEF && (unsigned char)s.p[start + 1] == 0xBB && (unsigned char)s.p[start + 2] == 0xBF;
+			if (!path && rules == SHCL_RULES_CURRENT && s.p[start] != '*' && !bom) {
+				size_t run = pos, end = pos;
+				while (pos < s.n && !name_stop((unsigned char)s.p[pos], sep)) {
+					unsigned char b = (unsigned char)s.p[pos];
+					pos += utf8_len(s, pos);
+					if (!is_wsp(b)) end = min_sz(pos, s.n);
+				}
+				pos = end;
+				unsigned char c0 = (unsigned char)s.p[start];
+				int letter = (c0 >= 'A' && c0 <= 'Z') || (c0 >= 'a' && c0 <= 'z');
+				if (end > start && !out->has_misspelled && (run < end || !letter)) { out->has_misspelled = 1; out->misspelled = start; }
+			}
 			if (pos == start) { tok_fault(out, pos, "expected a field name"); return; }
 			seg.name.start = start; seg.name.end = pos; seg.name.quote = SHCL_QUOTE_NONE;
 		}
@@ -1599,7 +1747,7 @@ static void tokenize(ShclArena *a, ShclStr text, char sep, int path, ShclRules r
 		}
 		if (have_open) {
 			if (seg.star) { tok_fault(out, open, "selector on a name wildcard"); return; }
-			ShclPiece piece; size_t stop = scan_piece(s, open + 1, ']', rules, !path, &piece);
+			ShclPiece piece; size_t stop = scan_piece(s, open + 1, ']', rules, !path, 0, &piece);
 			if (stop >= s.n || s.p[stop] != ']') { tok_fault(out, open, "unterminated selector"); return; }
 			if (piece.end == piece.start && piece.quote == SHCL_QUOTE_NONE) { tok_fault(out, open, "empty selector"); return; }
 			if (piece.quote == SHCL_QUOTE_OPEN && rules == SHCL_RULES_V2) { tok_fault(out, open, "unterminated quote in a selector"); return; }
@@ -1641,12 +1789,30 @@ void shcl_tokenize_value(shcl_doc *d, const char *text, size_t len, size_t from,
 	tokenize_value(&d->reads, s, from, rules, out);
 }
 
-/* The text of a piece as the reader sees it: escapes applied inside double
-   quotes, everything else the slice it came in as - the store sites own the
-   copy question (s_keep, or an explicit dup). */
+/* Whether a piece's escapes are read: bare and quoted text. A backtick value
+   is raw, and an open piece is refused before anything reads it. */
+static int decodes(ShclQuote q) { return q == SHCL_QUOTE_NONE || q == SHCL_QUOTE_SINGLE || q == SHCL_QUOTE_DOUBLE; }
+static int resolve_marks(ShclArena *a, ShclStr raw, ShclStr *out, ShclStr *why);
+
+/* The text of a piece as the reader sees it: escapes applied, except in a
+   backtick value, which is as written - the slice it came in as when there
+   is nothing to resolve, so the store sites own the copy question (s_keep,
+   or an explicit dup). A bare field name takes no escapes either; path_of
+   reads those. */
 static ShclStr piece_text(ShclArena *a, const ShclPiece *p, ShclStr text) {
 	ShclStr raw = s_slice(text, p->start, p->end);
-	return p->quote == SHCL_QUOTE_DOUBLE ? apply_escapes(a, raw) : raw;
+	if (!decodes(p->quote) || !has_mark(raw)) return raw;
+	ShclStr out, why;
+	return resolve_marks(a, raw, &out, &why) ? out : raw;
+}
+
+static ShclElMark mark_of(ShclQuote q) {
+	switch (q) {
+	case SHCL_QUOTE_SINGLE: return MARK_SINGLE;
+	case SHCL_QUOTE_DOUBLE: return MARK_DOUBLE;
+	case SHCL_QUOTE_BACKTICK: return MARK_BACKTICK;
+	default: return MARK_BARE;
+	}
 }
 
 /* The element a value piece makes; 0 for an empty bare slot (dropped, never
@@ -1654,24 +1820,36 @@ static ShclStr piece_text(ShclArena *a, const ShclPiece *p, ShclStr text) {
 static int element_of(ShclArena *a, const ShclPiece *p, ShclStr text, ShclElement *out) {
 	if (p->quote == SHCL_QUOTE_NONE && p->end == p->start) return 0;
 	out->text = piece_text(a, p, text);
-	out->quoted = piece_quoted(p->quote);
+	out->mark = mark_of(p->quote);
 	return 1;
 }
 
-// The value the tokenized pieces give. Element texts go into `a` (only when
-// built - see piece_text); the growing element vector is a per-call temporary
-// and goes to `tmp`, so only the exact-size final array reaches the document
-// arena.
+// The value the tokenized pieces give: an array for a bracket array, else the
+// one element, or Empty. A second piece outside brackets is a bare comma,
+// which every caller refuses first (E026). Element texts go into `a` (only
+// when built - see piece_text); the growing element vector is a per-call
+// temporary and goes to `tmp`, so only the exact-size final array reaches the
+// document arena.
 static ShclValue cell_of_tokens(ShclArena *a, ShclArena *tmp, const ShclTokens *tok, ShclStr text) {
+	if (!tok->has_array) {
+		for (size_t i = 0; i < tok->nelem; i++) {
+			ShclElement e;
+			if (!element_of(a, &tok->elements[i], text, &e)) continue;
+			ShclValue v; memset(&v, 0, sizeof v); v.kind = V_CELL;
+			v.els = (ShclElement *)arena_alloc(a, sizeof(ShclElement));
+			v.els[0] = e; v.nels = 1;
+			return v;
+		}
+		return v_empty();
+	}
 	ShclVecEl els = {0};
 	for (size_t i = 0; i < tok->nelem; i++) {
 		ShclElement e;
 		if (element_of(a, &tok->elements[i], text, &e)) ShclVecEl_push(tmp, &els, e);
 	}
-	if (els.len == 0) return v_empty();
-	ShclValue v; memset(&v, 0, sizeof v); v.kind = V_CELL;
-	v.els = (ShclElement *)arena_alloc(a, els.len * sizeof(ShclElement));
-	memcpy(v.els, els.data, els.len * sizeof(ShclElement));
+	ShclValue v; memset(&v, 0, sizeof v); v.kind = V_ARRAY;
+	v.els = (ShclElement *)arena_alloc(a, (els.len ? els.len : 1) * sizeof(ShclElement));
+	if (els.len) memcpy(v.els, els.data, els.len * sizeof(ShclElement));
 	v.nels = els.len;
 	return v;
 }
@@ -1728,14 +1906,179 @@ static const uint32_t selector_ranges[][2] = {
 	{0xFE00, 0xFE0F},
 	{0xE0100, 0xE01EF},
 };
+static const uint32_t white_space_ranges[][2] = {
+	{0x0009, 0x000D},
+	{0x0020, 0x0020},
+	{0x0085, 0x0085},
+	{0x00A0, 0x00A0},
+	{0x1680, 0x1680},
+	{0x2000, 0x200A},
+	{0x2028, 0x2029},
+	{0x202F, 0x202F},
+	{0x205F, 0x205F},
+	{0x3000, 0x3000},
+};
+static const char escape_mark[] = "\xE2\x97\x89";
+static const struct { const char *name; const char *text; size_t len; } escape_names[] = {
+	{"NUL", "\x00", 1},
+	{"NULL", "\x00", 1},
+	{"BEL", "\x07", 1},
+	{"BELL", "\x07", 1},
+	{"BACKSPACE", "\x08", 1},
+	{"BS", "\x08", 1},
+	{"TAB", "\x09", 1},
+	{"HT", "\x09", 1},
+	{"HORIZONTAL_TAB", "\x09", 1},
+	{"NEWLINE", "\x0A", 1},
+	{"LF", "\x0A", 1},
+	{"LINEFEED", "\x0A", 1},
+	{"LINE_FEED", "\x0A", 1},
+	{"NEW_LINE", "\x0A", 1},
+	{"VT", "\x0B", 1},
+	{"VERTICAL_TAB", "\x0B", 1},
+	{"VERTICALTAB", "\x0B", 1},
+	{"FF", "\x0C", 1},
+	{"FORM_FEED", "\x0C", 1},
+	{"FORMFEED", "\x0C", 1},
+	{"CR", "\x0D", 1},
+	{"CARRIAGERETURN", "\x0D", 1},
+	{"CARRIAGE_RETURN", "\x0D", 1},
+	{"CRLF", "\x0D\x0A", 2},
+	{"CARRIAGERETURN_LINEFEED", "\x0D\x0A", 2},
+	{"CARRIAGE_RETURN_LINE_FEED", "\x0D\x0A", 2},
+	{"ESC", "\x1B", 1},
+	{"ESCAPE", "\x1B", 1},
+	{"DEL", "\x7F", 1},
+	{"DELETE", "\x7F", 1},
+	{"SPACE", "\x20", 1},
+	{"SINGLE_QUOTE", "\x27", 1},
+	{"SQUOTE", "\x27", 1},
+	{"S_QUOTE", "\x27", 1},
+	{"SINGLEQUOTE", "\x27", 1},
+	{"DOUBLE_QUOTE", "\x22", 1},
+	{"DQUOTE", "\x22", 1},
+	{"D_QUOTE", "\x22", 1},
+	{"DOUBLEQUOTE", "\x22", 1},
+	{"BACK_TICK", "\x60", 1},
+	{"BACKTICK", "\x60", 1},
+	{"TICK", "\x60", 1},
+	{"ESCAPE_CHAR", "\xE2\x97\x89", 3},
+	{"FISHEYE", "\xE2\x97\x89", 3},
+};
+static const char *const code_prefixes[] = {
+	"U+",
+	"UNICODE+",
+	"UNICODE-",
+	"UNICODE_",
+	"UNICODE",
+	"U-",
+	"U_",
+	"U",
+};
 // gen-escapes.py: end
 static int in_ranges(const uint32_t (*ranges)[2], size_t n, uint32_t c) {
 	for (size_t k = 0; k < n && ranges[k][0] <= c; k++) if (c <= ranges[k][1]) return 1;
 	return 0;
 }
-/* Characters canonical output writes as a \u escape, so a reader of the file
-   sees every character that is there: controls with no short escape, the line
-   and paragraph separators, the interlinear annotation marks, and what Unicode
+/* Unicode's White_Space, which a bare value or selector body cannot hold. */
+static int white_space(uint32_t c) { return in_ranges(white_space_ranges, sizeof white_space_ranges / sizeof *white_space_ranges, c); }
+
+#define ESCAPE_MARK_LEN (sizeof escape_mark - 1)
+static const char *find_mark(ShclStr s, size_t from) {
+	for (size_t i = from; i + ESCAPE_MARK_LEN <= s.n; i++)
+		if (memcmp(s.p + i, escape_mark, ESCAPE_MARK_LEN) == 0) return s.p + i;
+	return NULL;
+}
+static int has_mark(ShclStr s) { return find_mark(s, 0) != NULL; }
+
+static ShclStr v_one_line(ShclArena *a, ShclStr t);
+static int ascii_ieq(ShclStr a, const char *b, size_t n) {
+	if (a.n != n) return 0;
+	for (size_t i = 0; i < n; i++) {
+		unsigned char x = (unsigned char)a.p[i], y = (unsigned char)b[i];
+		if (x >= 'a' && x <= 'z') x = (unsigned char)(x - 32);
+		if (y >= 'a' && y <= 'z') y = (unsigned char)(y - 32);
+		if (x != y) return 0;
+	}
+	return 1;
+}
+static void sb_put_mark_note(ShclArena *a, ShclSB *m) {
+	sb_puts(a, m, ", and a real "); sb_puts(a, m, escape_mark); sb_puts(a, m, " is ");
+	sb_puts(a, m, escape_mark); sb_puts(a, m, "ESCAPE_CHAR"); sb_puts(a, m, escape_mark);
+}
+
+/* The text one escape name stands for: a name from the list, either case, or
+   a code point prefix and one to six hex digits. 0 and the message when it is
+   neither. */
+static int escape_text(ShclArena *a, ShclStr name, ShclSB *out, ShclStr *why) {
+	int spelled_ok = name.n > 0;
+	for (size_t i = 0; i < name.n && spelled_ok; i++) {
+		unsigned char b = (unsigned char)name.p[i];
+		spelled_ok = is_aalnum(b) || b == '_' || b == '-' || b == '+';
+	}
+	if (spelled_ok) {
+		for (size_t k = 0; k < sizeof escape_names / sizeof *escape_names; k++)
+			if (ascii_ieq(name, escape_names[k].name, strlen(escape_names[k].name))) { sb_put(a, out, escape_names[k].text, escape_names[k].len); return 1; }
+		for (size_t k = 0; k < sizeof code_prefixes / sizeof *code_prefixes; k++) {
+			size_t pl = strlen(code_prefixes[k]);
+			if (name.n < pl || !ascii_ieq(s_slice(name, 0, pl), code_prefixes[k], pl)) continue;
+			ShclStr digits = s_slice(name, pl, name.n);
+			if (digits.n == 0 || digits.n > 6) continue;
+			uint32_t v = 0; int hex = 1;
+			for (size_t i = 0; i < digits.n; i++) {
+				unsigned char h = (unsigned char)digits.p[i];
+				if (h >= '0' && h <= '9') v = v << 4 | (uint32_t)(h - '0');
+				else if ((h | 0x20) >= 'a' && (h | 0x20) <= 'f') v = v << 4 | (uint32_t)((h | 0x20) - 'a' + 10);
+				else { hex = 0; break; }
+			}
+			if (!hex) continue;
+			if (v > 0x10FFFF || (v >= 0xD800 && v <= 0xDFFF)) {
+				ShclSB m = {0};
+				sb_puts(a, &m, "escape '"); sb_puts(a, &m, escape_mark); sb_putS(a, &m, v_one_line(a, name)); sb_puts(a, &m, escape_mark);
+				sb_puts(a, &m, "' names no Unicode character");
+				*why = sb_S(&m); return 0;
+			}
+			sb_put_cp(a, out, v); return 1;
+		}
+	}
+	ShclSB m = {0};
+	sb_puts(a, &m, "unknown escape '"); sb_puts(a, &m, escape_mark); sb_putS(a, &m, v_one_line(a, name)); sb_puts(a, &m, escape_mark);
+	sb_puts(a, &m, "'; an escape is a name from the escape list"); sb_put_mark_note(a, &m);
+	*why = sb_S(&m); return 0;
+}
+
+/* The text of a piece with its escapes resolved. The marks pair up left to
+   right, and the text between each pair must be a name on the list or a code
+   point. 0 and the message for the first one that is not (E023). Text with
+   no mark comes back as the slice it came in as - nearly every piece, and a
+   copy per piece would be most of a parse's memory. */
+static int resolve_marks(ShclArena *a, ShclStr raw, ShclStr *out, ShclStr *why) {
+	const char *at = find_mark(raw, 0);
+	if (!at) { *out = raw; return 1; }
+	ShclSB o = {0};
+	size_t rest = 0;
+	while (at) {
+		size_t open = (size_t)(at - raw.p);
+		sb_putS(a, &o, s_slice(raw, rest, open));
+		const char *close = find_mark(raw, open + ESCAPE_MARK_LEN);
+		if (!close) {
+			ShclSB m = {0};
+			sb_puts(a, &m, "a '"); sb_puts(a, &m, escape_mark); sb_puts(a, &m, "' with no partner; an escape is ");
+			sb_puts(a, &m, escape_mark); sb_puts(a, &m, "NAME"); sb_puts(a, &m, escape_mark); sb_put_mark_note(a, &m);
+			*why = sb_S(&m); return 0;
+		}
+		size_t c = (size_t)(close - raw.p);
+		if (!escape_text(a, s_slice(raw, open + ESCAPE_MARK_LEN, c), &o, why)) return 0;
+		rest = c + ESCAPE_MARK_LEN;
+		at = find_mark(raw, rest);
+	}
+	sb_putS(a, &o, s_slice(raw, rest, raw.n));
+	*out = sb_S(&o);
+	return 1;
+}
+/* Characters canonical output writes as an escape, so a reader of the file
+   sees every character that is there: the controls, the line and paragraph
+   separators, the interlinear annotation marks, and what Unicode
    calls default-ignorable, such as zero-width spaces, direction marks and tag
    characters. The zero-width joiner and non-joiner are not in the list, since
    emoji and several scripts need them, and invisible_at keeps two more kinds
@@ -1768,7 +2111,7 @@ static int flag_tag(ShclStr t, size_t i) {
 	}
 	return 0;
 }
-/* The width of the character at t[i] when it is written as a \u escape, else
+/* The width of the character at t[i] when it is written as an escape, else
    0. A variation selector stays as written directly after a visible
    character, and the tags of a subdivision flag stay too; anywhere else they
    hide text. A byte that is not UTF-8 is never escaped. */
@@ -1783,7 +2126,8 @@ static size_t invisible_at(ShclStr t, size_t i, uint32_t *cp) {
 	if (*cp >= 0xE0020 && *cp <= 0xE007F) return flag_tag(t, i) ? 0 : l;
 	return l;
 }
-/* \u takes four digits, so a character past U+FFFF is written with \U. */
+/* \u takes four digits, so a character past U+FFFF is written with \U. Only
+   the 2.x writer for migrate takes it. */
 static void sb_put_unicode_escape(ShclArena *a, ShclSB *s, uint32_t cp) {
 	static const char hex[] = "0123456789ABCDEF";
 	int digits = cp > 0xFFFF ? 8 : 4;
@@ -1792,11 +2136,9 @@ static void sb_put_unicode_escape(ShclArena *a, ShclSB *s, uint32_t cp) {
 	sb_put(a, s, b, (size_t)(2 + digits));
 }
 
-// Escape processing (a double-quoted piece): \t \n \\ \" \' \uXXXX
-// \UXXXXXXXX. An unknown pair stays literal, which only 2.x text still
-// reaches: the current rules refuse one (E023) before anything is read. Text
-// with no backslash comes back as the slice it came in as - nearly every
-// piece, and a copy per piece would be most of a parse's memory.
+// 2.x escape processing, for migrate: \t \n \\ \" \' in double quotes, and
+// in bare and single-quoted text too. An unknown pair stays literal. Text with
+// no backslash comes back as the slice it came in as.
 static ShclStr resolve_escapes(ShclArena *a, ShclStr s, shcl_rules rules) {
 	if (!s.n || !memchr(s.p, '\\', s.n)) return s;
 	ShclSB out = {0};
@@ -1823,7 +2165,6 @@ static ShclStr resolve_escapes(ShclArena *a, ShclStr s, shcl_rules rules) {
 	}
 	return sb_S(&out);
 }
-static ShclStr apply_escapes(ShclArena *a, ShclStr s) { return resolve_escapes(a, s, SHCL_RULES_CURRENT); }
 /* The 2.x reading, for migrate: no \u, so 2.x kept \u0041 as written. */
 static ShclStr apply_escapes_v2(ShclArena *a, ShclStr s) { return resolve_escapes(a, s, SHCL_RULES_V2); }
 
@@ -1869,23 +2210,6 @@ static int v2_kept_escape(ShclStr raw) {
 static int unicode_pair_differs(ShclStr raw) {
 	uint32_t uc;
 	return v2_kept_escape(raw) && !unknown_escape(raw, &uc);
-}
-
-/* The first unknown escape in a double-quoted name, selector body or, when
-   values is set, value element (E023). "C:\work\new" is the usual way to get
-   one, and by then its \n is already a newline, so the line is refused rather
-   than read with the pair kept. A raw block's info string is not escape text,
-   so a fence line passes values 0. */
-static int bad_escape(const ShclTokens *tok, ShclStr text, int values, uint32_t *c) {
-	for (size_t i = 0; i < tok->nseg; i++) {
-		const ShclSegTok *seg = &tok->segments[i];
-		if (seg->name.quote == SHCL_QUOTE_DOUBLE && unknown_escape(s_slice(text, seg->name.start, seg->name.end), c)) return 1;
-		if (seg->has_selector && seg->selector.quote == SHCL_QUOTE_DOUBLE && unknown_escape(s_slice(text, seg->selector.start, seg->selector.end), c)) return 1;
-	}
-	if (values)
-		for (size_t i = 0; i < tok->nelem; i++)
-			if (tok->elements[i].quote == SHCL_QUOTE_DOUBLE && unknown_escape(s_slice(text, tok->elements[i].start, tok->elements[i].end), c)) return 1;
-	return 0;
 }
 
 /* A double-quoted value that starts like a Windows path, a drive (C:\) or a
@@ -2114,37 +2438,178 @@ static int unit_clash(ShclArena *a, ShclStr name, ShclStr text, ShclStr *msg) {
 	*msg = sb_S(&m); return 1;
 }
 
-static const char path_msg[] = "value starts like a Windows path, and its \\t or \\n would read as a tab or newline; write a backslash as '\\\\' or use single quotes";
+/* Why a line is refused, and whether its name still reads (opens): then the
+   line holds its level open, so what is written under it loads under that
+   name. at is where on the line it went wrong, as a byte offset into the text
+   after the indent, for a message that names the column. */
+typedef struct { const char *code; ShclStr msg; int opens; int has_at; size_t at; } ShclFault;
+static int fault_set(ShclFault *f, const char *code, ShclStr msg, int opens) {
+	f->code = code; f->msg = msg; f->opens = opens; f->has_at = 0; f->at = 0;
+	return 1;
+}
 
-static int any_path_like(const ShclTokens *tok, ShclStr text) {
-	for (size_t k = 0; k < tok->nelem; k++)
-		if (path_like(&tok->elements[k], text)) return 1;
+/* Where a bare piece sits, which sets what it may hold (value-syntax.md,
+   Specification). A field value: spaces are fine, and a loose comma splits
+   it. A list item: as a value, but a loose colon is judged later. An element
+   in `[]`: no whitespace, and every comma splits. A selector body: no
+   whitespace, colon, comma or bracket either. */
+typedef enum { BARE_VALUE, BARE_ITEM, BARE_ELEMENT, BARE_SELECTOR } ShclBare;
+static const char *bare_name(ShclBare kind) {
+	switch (kind) {
+	case BARE_VALUE: return "value";
+	case BARE_ITEM: return "list item";
+	case BARE_ELEMENT: return "array element";
+	default: return "selector";
+	}
+}
+
+/* A colon at i of raw with whitespace or the end after it: what a field line
+   run into the one before it looks like. */
+static int loose_colon(ShclStr raw, size_t i) {
+	if (raw.p[i] != ':') return 0;
+	if (i + 1 >= raw.n) return 1;
+	uint32_t c; utf8_decode(raw.p, raw.n, i + 1, &c);
+	return white_space(c);
+}
+
+/* What a bare piece may not hold (E025): the first such character, named with
+   the fix for the message. 0 when there is none. */
+static int bare_trouble(ShclArena *a, ShclStr raw, ShclBare kind, ShclStr *why) {
+	int strict = kind == BARE_ELEMENT || kind == BARE_SELECTOR;
+	const char *kn = bare_name(kind);
+	for (size_t i = 0; i < raw.n;) {
+		uint32_t c; size_t l = utf8_decode(raw.p, raw.n, i, &c);
+		const char *trouble = NULL;
+		ShclSB m = {0};
+		if (c == '\'' || c == '"' || c == '`') trouble = "a quote";
+		else if (c == '[' || c == ']') trouble = "a bracket";
+		else if (c == '\t' && !strict) trouble = "a tab";
+		else if (c == ' ' && strict) trouble = "a space";
+		else if (white_space(c) && strict) trouble = "whitespace";
+		else if (white_space(c) && c != ' ') trouble = "whitespace other than a space";
+		else if ((c == ':' || c == ',') && kind == BARE_SELECTOR) {
+			sb_puts(a, &m, c == ':' ? "a colon" : "a comma"); sb_puts(a, &m, " in a bare selector; quote it");
+			*why = sb_S(&m); return 1;
+		} else if (c == ':' && kind != BARE_ITEM && loose_colon(raw, i)) {
+			if (i + 1 == raw.n) { sb_puts(a, &m, "a colon at the end of a bare "); sb_puts(a, &m, kn); sb_puts(a, &m, "; quote it"); }
+			else if (kind == BARE_VALUE) sb_puts(a, &m, "a colon then a space in a bare value; put each field on its own line, or quote the value");
+			else { sb_puts(a, &m, "a colon then a space in a bare "); sb_puts(a, &m, kn); sb_puts(a, &m, "; quote it"); }
+			*why = sb_S(&m); return 1;
+		}
+		if (trouble) {
+			sb_puts(a, &m, trouble); sb_puts(a, &m, " in a bare "); sb_puts(a, &m, kn); sb_puts(a, &m, "; quote it");
+			*why = sb_S(&m); return 1;
+		}
+		i += l;
+	}
 	return 0;
 }
 
-static ShclStr escape_msg(ShclArena *a, uint32_t c) {
-	ShclSB m = {0};
-	if (c == 'u' || c == 'U') {
-		sb_puts(a, &m, "bad escape '\\"); sb_putc(a, &m, (char)c);
-		sb_puts(a, &m, "' in double quotes; \\u takes 4 hex digits and \\U takes 8, naming a Unicode character; write a backslash as '\\\\' or use single quotes");
-		return sb_S(&m);
+/* What is wrong with one piece of value text: an open quote (E017), a bad
+   escape (E023), or what a bare piece of its kind may not hold (E025). A
+   backtick value is raw, so only an open one is wrong. */
+static int piece_fault(ShclArena *a, const ShclPiece *p, ShclStr s, ShclBare kind, const char **code, ShclStr *msg) {
+	if (p->quote == SHCL_QUOTE_OPEN) {
+		ShclSB m = {0}; sb_puts(a, &m, "unterminated quote in "); sb_puts(a, &m, bare_name(kind));
+		*code = "E017"; *msg = sb_S(&m); return 1;
 	}
-	sb_puts(a, &m, "unknown escape '\\");
-	if (c == '\n') sb_puts(a, &m, "\\n");
-	else if (c == '\r') sb_puts(a, &m, "\\r");
-	else if (c == '\t') sb_puts(a, &m, "\\t");
-	else sb_put_cp(a, &m, c);
-	sb_puts(a, &m, "' in double quotes; write a backslash as '\\\\' or use single quotes");
-	return sb_S(&m);
+	if (p->quote == SHCL_QUOTE_BACKTICK) return 0;
+	ShclStr raw = s_slice(s, p->start, p->end);
+	if (has_mark(raw)) {
+		ShclStr out, why;
+		if (!resolve_marks(a, raw, &out, &why)) { *code = "E023"; *msg = why; return 1; }
+	}
+	if (p->quote == SHCL_QUOTE_NONE && bare_trouble(a, raw, kind, msg)) { *code = "E025"; return 1; }
+	return 0;
 }
 
-/* The restriction a QUOTED [value] selector adds on top of the display
-   match: quoting selects the scalar spelling only, so the scalar "a, b" and
-   the list a, b stop meeting the same selector. */
-static int single_scalar(const ShclValue *v) { return v->kind == V_CELL && v->nels == 1; }
+/* A malformed bracket array (E019). Only the value is wrong, so the name
+   still reads. */
+static int array_fault(ShclArena *a, const ShclTokens *tok, ShclFault *f) {
+	if (!tok->has_array_fault) return 0;
+	ShclSB m = {0};
+	sb_puts(a, &m, "malformed array, "); sb_puts(a, &m, tok->array_fault_why); sb_puts(a, &m, "; quote the value if it is text");
+	return fault_set(f, "E019", sb_S(&m), 1);
+}
+
+/* The first fault in a value: one of its pieces, then a loose comma outside
+   brackets (E026). A piece first, since an open quote or a space is what a
+   comma beside it most often means. Only the value is wrong, so the name
+   still reads. */
+static int value_fault(ShclArena *a, const ShclTokens *tok, ShclStr s, ShclFault *f) {
+	ShclBare kind = tok->has_array ? BARE_ELEMENT : BARE_VALUE;
+	for (size_t i = 0; i < tok->nelem; i++) {
+		const char *code; ShclStr msg;
+		if (piece_fault(a, &tok->elements[i], s, kind, &code, &msg)) return fault_set(f, code, msg, 1);
+	}
+	if (!tok->has_array && tok->nelem > 1)
+		return fault_set(f, "E026", s_lit("a comma then a space or the end in a bare value; write an array in brackets, [a, b], or quote the text"), 1);
+	return 0;
+}
+
+/* Why a stacked item's value is refused: an array, since arrays do not nest
+   (E019), or what a value is refused for. */
+static int item_fault(ShclArena *a, const ShclTokens *tok, ShclStr s, ShclFault *f) {
+	if (tok->has_array) return fault_set(f, "E019", s_lit("a list item is one value, and arrays do not nest; quote the item if it is text"), 1);
+	for (size_t i = 0; i < tok->nelem; i++) {
+		const char *code; ShclStr msg;
+		if (piece_fault(a, &tok->elements[i], s, BARE_ITEM, &code, &msg)) return fault_set(f, code, msg, 1);
+	}
+	return 0;
+}
+
+/* A fault in a path that leaves its name unread: a bad escape in a quoted
+   name, or anything a value could have wrong in a selector body. The line
+   takes its block with it, since there is no name to hold open. */
+static int path_fault(ShclArena *a, const ShclTokens *tok, ShclStr s, ShclFault *f) {
+	for (size_t i = 0; i < tok->nseg; i++) {
+		const ShclSegTok *seg = &tok->segments[i];
+		if (seg->name.quote == SHCL_QUOTE_SINGLE || seg->name.quote == SHCL_QUOTE_DOUBLE) {
+			ShclStr raw = s_slice(s, seg->name.start, seg->name.end);
+			ShclStr out, why;
+			if (has_mark(raw) && !resolve_marks(a, raw, &out, &why)) return fault_set(f, "E023", why, 0);
+		}
+		if (seg->has_selector) {
+			const char *code; ShclStr msg;
+			if (piece_fault(a, &seg->selector, s, BARE_SELECTOR, &code, &msg)) return fault_set(f, code, msg, 0);
+		}
+	}
+	return 0;
+}
+
+/* The half of line_fault judged before the element cap: the path and the
+   name. A line with no colon that is one name or path, `404` included, is the
+   missing colon (E015), so the name rule asks only of a line that has one. A
+   blank in a bare name with no colon could be a name and a value, so that line
+   is not guessed at (spec.md, Error handling philosophy). */
+static int name_fault(ShclArena *a, const ShclTokens *tok, ShclStr s, ShclFault *f) {
+	if (path_fault(a, tok, s, f)) return 1;
+	if (!tok->has_misspelled) return 0;
+	if (tok->has_sep) return fault_set(f, "E014", s_lit("field name needs quotes; a bare name is a letter, then letters, digits, '-' and '_'"), 1);
+	size_t blank = 0; int found = 0;
+	for (size_t i = 0; i < tok->nseg && !found; i++) {
+		const ShclPiece *nm = &tok->segments[i].name;
+		if (nm->quote != SHCL_QUOTE_NONE) continue;
+		for (size_t k = nm->start; k < nm->end; k++) if (is_wsp((unsigned char)s.p[k])) { blank = k; found = 1; break; }
+	}
+	if (!found) return 0;
+	fault_set(f, "E014", s_lit("malformed line skipped: unexpected character after the path"), 1);
+	size_t k = blank;
+	while (k < s.n && is_wsp((unsigned char)s.p[k])) k++;
+	if (k < s.n) { f->has_at = 1; f->at = k; }
+	return 1;
+}
+
+/* A line's text after its indent that is read as a field line: not a comment
+   or an old `*` item. */
+static int is_field_text(ShclStr text) { return !(text.n && (text.p[0] == '#' || text.p[0] == '*')); }
+
+/* A selector matches one plain value, quoted or not, never an array or a raw
+   block (value-syntax.md, Selectors and discriminators). */
+static int single_scalar(const ShclValue *v) { return v->kind == V_CELL; }
 
 /* The predicate a `[value]` selector matches with: the display form, which is
-   built from logical strings, so `["q\"uote"]` finds `'q"uote'` - a
+   built from logical strings, so `["q◉DQUOTE◉uote"]` finds `'q"uote'` - a
    logical-string match, not spelling against spelling. */
 static ShclStr disp_key(ShclArena *a, const ShclValue *v) {
 	return value_display(a, v);
@@ -2181,18 +2646,19 @@ static uint64_t name_key(size_t parent, ShclStr name) {
 }
 
 /* Hash of the (name, merge-key) pair, spelling the merge-key byte sequence -
-   'e', or each cell element (and the raw info-string) length-prefixed so the
-   sequence is injective - without building it as a string. Elements are the
-   logical strings, so two spellings of one string are one instance: names
-   have followed that rule since 2.0, and a `[value]` selector matches on the
-   logical text already. */
+   'e', or each cell or array element (and the raw info-string)
+   length-prefixed so the sequence is injective - without building it as a
+   string. Elements are the logical strings, so two spellings of one string are
+   one instance: names have followed that rule since 2.0, and a `[value]`
+   selector matches on the logical text already. Brackets are part of the
+   value, so `[80]` is not the scalar 80. */
 static uint64_t merge_hash(ShclStr name, const ShclValue *v) {
 	uint64_t h = 1469598103934665603ull;
 	h = fnv_str(h, name);
 	h = fnv_byte(h, 0xFFu);
 	if (v->kind == V_EMPTY) return fnv_byte(h, 'e');
-	if (v->kind == V_CELL) {
-		h = fnv_byte(h, 'c'); h = fnv_byte(h, ':');
+	if (v->kind == V_CELL || v->kind == V_ARRAY) {
+		h = fnv_byte(h, v->kind == V_CELL ? 'c' : 'a'); h = fnv_byte(h, ':');
 		for (size_t i = 0; i < v->nels; i++) {
 			h = fnv_dec(h, v->els[i].text.n);
 			h = fnv_byte(h, ':');
@@ -2215,7 +2681,7 @@ static uint64_t merge_hash(ShclStr name, const ShclValue *v) {
 static int value_eq(const ShclValue *a, const ShclValue *b) {
 	if (a->kind != b->kind) return 0;
 	if (a->kind == V_EMPTY) return 1;
-	if (a->kind == V_CELL) {
+	if (a->kind == V_CELL || a->kind == V_ARRAY) {
 		if (a->nels != b->nels) return 0;
 		for (size_t i = 0; i < a->nels; i++)
 			if (!s_eq(a->els[i].text, b->els[i].text)) return 0;
@@ -2229,16 +2695,17 @@ static int merge_eq(ShclStr name_a, const ShclValue *va, ShclStr name_b, const S
 
 
 /* Hash of the (name, display) pair a `[value]` selector matches with - what
-   disp_key gives, streamed instead of built. */
+   disp_key gives, streamed instead of built. A selector never matches an
+   array, so an array only has to hash the same way every time. */
 static uint64_t disp_hash(ShclStr name, const ShclValue *v) {
 	uint64_t h = 1469598103934665603ull;
 	h = fnv_str(h, name);
 	h = fnv_byte(h, 0xFFu);
 	if (v->kind == V_CELL) {
-		for (size_t i = 0; i < v->nels; i++) {
-			if (i) { h = fnv_byte(h, ','); h = fnv_byte(h, ' '); }
-			h = fnv_str(h, v->els[i].text);
-		}
+		h = fnv_str(h, v->els[0].text);
+	} else if (v->kind == V_ARRAY) {
+		h = fnv_byte(h, 0xFEu);
+		for (size_t i = 0; i < v->nels; i++) { h = fnv_dec(h, v->els[i].text.n); h = fnv_byte(h, ':'); h = fnv_str(h, v->els[i].text); }
 	} else if (v->kind == V_RAW) {
 		h = fnv_str(h, v->raw->content);
 	}
@@ -2361,13 +2828,11 @@ static ShclStr s_splice(ShclArena *a, ShclStr text, ShclVecEdit *edits) {
 static int reads_same(ShclArena *a, ShclStr spelling, int quoted, ShclStr logical) {
 	ShclTokens tok; memset(&tok, 0, sizeof tok);
 	tokenize_value(a, spelling, 0, SHCL_RULES_CURRENT, &tok);
-	uint32_t c;
+	const char *code; ShclStr msg;
 	return tok.nelem == 1
 		&& tok.value_start == 0 && tok.value_end == spelling.n
 		&& piece_quoted(tok.elements[0].quote) == quoted
-		&& tok.elements[0].quote != SHCL_QUOTE_OPEN
-		&& !bad_escape(&tok, spelling, 1, &c)
-		&& !path_like(&tok.elements[0], spelling)
+		&& !piece_fault(a, &tok.elements[0], spelling, BARE_VALUE, &code, &msg)
 		&& s_eq(piece_text(a, &tok.elements[0], spelling), logical);
 }
 
@@ -2548,7 +3013,7 @@ static void raw_lines_init(ShclRawLines *w, ShclRules rules) {
 static ShclFence opens_raw(ShclArena *ta, ShclStr rest, ShclTokens *tok) {
 	rest = trim_wsp_start(rest);
 	if (rest.p[0] == '`' || rest.p[0] == '~') return child_fence(ta, rest, tok);
-	if (rest.p[0] == '#' || rest.p[0] == '*') return fence_open(s_empty());
+	if (!is_field_text(rest)) return fence_open(s_empty());
 	tokenize(ta, rest, ':', 0, SHCL_RULES_CURRENT, tok);
 	return line_fence(ta, tok, rest);
 }
@@ -2902,24 +3367,6 @@ static ShclSelector selector_of(ShclArena *a, const ShclPiece *p, ShclStr text) 
 	sel.tag = SEL_VALUE; sel.value = body; return sel;
 }
 
-/* Whether any segment's selector opens a quote it never closes. The tokenizer
-   records it; selector_of reads the body bare either way, so only the
-   diagnostic depends on this. */
-static int selector_open_quote(const ShclTokens *tok) {
-	for (size_t i = 0; i < tok->nseg; i++)
-		if (tok->segments[i].has_selector && tok->segments[i].selector.quote == SHCL_QUOTE_OPEN) return 1;
-	return 0;
-}
-
-/* Bracket text (E019): a `[` first after the colon. Read off the first piece
-   rather than the value span, since a capped scan empties the span and keeps
-   the pieces it built. */
-static int bracket_text(const ShclTokens *tok, ShclStr text) {
-	if (!tok->has_sep || tok->nelem == 0) return 0;
-	ShclPiece p = tok->elements[0];
-	return p.quote == SHCL_QUOTE_NONE && p.end > p.start && p.start < text.n && text.p[p.start] == '[';
-}
-
 /* The path the tokens give. ok == 0 with err is the tokenizer's fault: input
    that is not a path at all, which the caller skips with a diagnostic. */
 static ShclPathScan path_of(ShclArena *a, const ShclTokens *tok, ShclStr text) {
@@ -2934,9 +3381,10 @@ static ShclPathScan path_of(ShclArena *a, const ShclTokens *tok, ShclStr text) {
 		   A name with nothing to resolve and no upper case is already its own
 		   resolved, folded spelling, so the source slice becomes the name and
 		   nothing is allocated. That is nearly every name in a document, and
-		   this runs once per segment per line. */
+		   this runs once per segment per line. A bare name takes no escapes,
+		   so only a quoted one resolves them. */
 		ShclSegment seg;
-		seg.name = name_plain(raw, st->name.quote) ? raw : fold_name(a, piece_text(a, &st->name, text));
+		seg.name = name_plain(raw, st->name.quote) ? raw : fold_name(a, piece_quoted(st->name.quote) ? piece_text(a, &st->name, text) : raw);
 		seg.name_src = raw; seg.star = st->star;
 		if (st->has_selector) seg.sel = selector_of(a, &st->selector, text);
 		else { seg.sel.tag = SEL_NONE; seg.sel.value = s_empty(); seg.sel.index = 0; seg.sel.quoted = 0; }
@@ -2950,13 +3398,15 @@ static ShclPathScan path_of(ShclArena *a, const ShclTokens *tok, ShclStr text) {
 /* Scan a lookup path `a . b [sel] . c`: the document-line spelling plus the
    bare `*` segment (the name wildcard - any child name), which document lines
    never take; only lookups (reads, the writer probe, schema paths) do.
-   Whitespace around dots, colons and brackets is insignificant. */
+   Whitespace around dots, colons and brackets is insignificant. A path a file
+   line could not hold is refused the same: a bad escape, or a bare selector
+   body with whitespace, a quote, a colon, a comma or a bracket in it (E025). */
 static ShclPathScan scan_lookup(ShclArena *a, ShclStr input) {
 	ShclTokens tok; memset(&tok, 0, sizeof tok);
 	tokenize(a, input, ':', 1, SHCL_RULES_CURRENT, &tok);
-	uint32_t c;
-	if (bad_escape(&tok, input, 0, &c)) {
-		ShclPathScan ps; ps.ok = 0; memset(&ps.segs, 0, sizeof ps.segs); ps.has_value = 0; ps.value_text = s_empty(); ps.err = s_lit("unknown escape in double quotes");
+	ShclFault f;
+	if (path_fault(a, &tok, input, &f)) {
+		ShclPathScan ps; ps.ok = 0; memset(&ps.segs, 0, sizeof ps.segs); ps.has_value = 0; ps.value_text = s_empty(); ps.err = f.msg;
 		return ps;
 	}
 	return path_of(a, &tok, input);
@@ -3104,7 +3554,7 @@ static int parse_float_text(ShclArena *a, const ShclElement *e, shcl_strictness 
 	if (float_shape_ok(t)) {
 		if (!strtod_full(a, t, &v)) return 0;
 	} else {
-		ShclElement el; el.text = t; el.quoted = e->quoted;
+		ShclElement el; el.text = t; el.mark = e->mark;
 		int64_t iv;
 		if (parse_int_text(a, &el, SHCL_STANDARD, &iv)) v = (double)iv;
 		else if (!parse_int_text_wide(a, &el, &v)) return 0;
@@ -3126,7 +3576,7 @@ static int parse_int_text_wide(ShclArena *a, const ShclElement *e, double *out) 
 	if (radix_body(body, &radix, &digits)) {
 		for (size_t i = 0; i < digits.n; i++)
 			v = v * (double)radix + (double)radix_digit((unsigned char)digits.p[i]);
-	} else if (e->quoted && s_contains_char(body, ',')) {
+	} else if (el_quoted(e) && s_contains_char(body, ',')) {
 		ShclVecS groups = {0}; split_byte(a, body, ',', &groups);
 		int wf = groups.len > 1 && groups.data[0].n > 0 && groups.data[0].n <= 3 && all_adigit0(groups.data[0]);
 		if (wf) for (size_t k = 1; k < groups.len; k++)
@@ -3162,7 +3612,8 @@ static int parse_int_text(ShclArena *a, const ShclElement *e, shcl_strictness le
 		}
 		return 1;
 	}
-	if (e->quoted && s_contains_char(t, ',')) {
+	/* Thousands separators, only inside quotes: bare, `80,443` is text. */
+	if (el_quoted(e) && s_contains_char(t, ',')) {
 		ShclStr sign_body = t;
 		if (sign_body.n > 0 && (sign_body.p[0] == '+' || sign_body.p[0] == '-')) sign_body = s_slice(sign_body, 1, sign_body.n);
 		ShclVecS groups = {0}; split_byte(a, sign_body, ',', &groups);
@@ -3578,7 +4029,7 @@ static void p_diag(ShclParser *P, size_t line, shcl_severity sev, const char *co
 static void p_err(ShclParser *P, size_t line, const char *code, ShclStr msg) { p_diag(P, line, SHCL_SEV_ERROR, code, msg); }
 
 static void remap_child(ShclParser *P, size_t node, uint64_t old_key, uint64_t old_disp);
-static size_t find_by_value(ShclParser *P, size_t cur, ShclStr name, ShclStr text, int quoted);
+static size_t find_by_value(ShclParser *P, size_t cur, ShclStr name, ShclStr text);
 
 /* Apply a stacked list's deferred merge-key remap. Runs before any map lookup
    (and at end of parse), so the map is always fresh when queried. */
@@ -3639,7 +4090,7 @@ static void trailing_to_leading(shcl_doc *d, ShclNode *nd) {
 /* Written stacked: a list holding a kept line among its elements or after
    its last one. */
 static int stacks(const ShclNode *nd) {
-	if (nd->value.kind != V_CELL || !nd->trivia) return 0;
+	if (nd->value.kind != V_ARRAY || !nd->trivia) return 0;
 	if (nd->trivia->among.len) return 1;
 	if (!nd->star_list) return 0;
 	for (size_t k = 0; k < nd->trivia->inside.len; k++)
@@ -4197,7 +4648,7 @@ static int attach_path(ShclParser *P, size_t parent, ShclSegment *segs, size_t n
 			   creating a spurious second one - via the dmaps accelerator (the
 			   inline spelling was quadratic in siblings without it). Create
 			   only when nothing matches. */
-			size_t found = find_by_value(P, cur, seg->name, seg->sel.value, seg->sel.quoted);
+			size_t found = find_by_value(P, cur, seg->name, seg->sel.value);
 			if (found != (size_t)-1) {
 				cur = found;
 			} else {
@@ -4269,9 +4720,9 @@ static int attach_path(ShclParser *P, size_t parent, ShclSegment *segs, size_t n
 	*out = cur; return 1;
 }
 
-/* The child of `cur` named `name` whose display form is the selector text,
-   or (size_t)-1. Quoted selectors only match a single scalar. */
-static size_t find_by_value(ShclParser *P, size_t cur, ShclStr name, ShclStr text, int quoted) {
+/* The child of `cur` named `name` whose one plain value is the selector text
+   (escapes applied), or (size_t)-1. */
+static size_t find_by_value(ShclParser *P, size_t cur, ShclStr name, ShclStr text) {
 	ShclStr want = text;
 	uint64_t hd = disp_hash_text(name, want);
 	size_t found = (size_t)-1;
@@ -4283,19 +4734,16 @@ static size_t find_by_value(ShclParser *P, size_t cur, ShclStr name, ShclStr tex
 			&& s_eq(disp_key(P->line, &NODE(P->d, e->val).value), want))
 			found = e->val;
 	}
-	/* A quoted selector is scalar-only, so it is the one that needs the
-	   fallback scan: the accelerator keeps just the first same-display
-	   child, which may be the non-scalar one. An unquoted selector takes
-	   whatever the accelerator holds and does not scan, so it can bind a raw
-	   block where a quoted selector picks the scalar sibling. */
-	if (found != (size_t)-1 && quoted && !single_scalar(&NODE(P->d, found).value)) {
+	/* The accelerator keeps just the first same-display child, which may be
+	   a raw block where the selector wants the scalar. */
+	if (found != (size_t)-1 && !single_scalar(&NODE(P->d, found).value)) {
 		found = (size_t)-1;
 	}
 	/* A scalar child with this text is exactly the one-element value the
 	   merge map is keyed on, so ask that map: a scan of every sibling was the
 	   same answer, quadratic on the create path. Nothing here is kept, so
 	   the probe value lives on the stack. */
-	if (found == (size_t)-1 && quoted) {
+	if (found == (size_t)-1) {
 		ShclElement el = new_element(want);
 		ShclValue disc; memset(&disc, 0, sizeof disc);
 		disc.kind = V_CELL; disc.els = &el; disc.nels = 1;
@@ -4339,16 +4787,21 @@ static ShclValue consume_raw(ShclParser *P, const ShclStr *lines, size_t nlines,
 	return v;
 }
 
-/* Why a field line that scanned is refused for its value, before the
-   element cap: bracket text, a bad escape, or a value that starts like a
-   Windows path and holds a \t or \n escape. The code, or NULL. */
-static const char *line_fault(ShclArena *a, const ShclTokens *tok, ShclStr text, ShclStr *msg) {
-	if (bracket_text(tok, text)) { *msg = s_lit("bracket array syntax; an array is comma-separated, without brackets"); return "E019"; }
-	int values = !line_fence(a, tok, text).ok;
-	uint32_t esc;
-	if (bad_escape(tok, text, values, &esc)) { *msg = escape_msg(a, esc); return "E023"; }
-	if (values && any_path_like(tok, text)) { *msg = s_lit(path_msg); return "E024"; }
-	return NULL;
+/* The half of line_fault judged after the element cap: the value. A line
+   past the cap is refused for that whatever its value (E021). A raw block's
+   info string is not value text, so a fence line's value is not judged. */
+static int value_side_fault(ShclArena *a, const ShclTokens *tok, ShclStr text, ShclFault *f) {
+	if (array_fault(a, tok, f)) return 1;
+	if (line_fence(a, tok, text).ok) return 0;
+	return value_fault(a, tok, text, f);
+}
+
+/* Why a field line that scanned is refused: a path that does not read, a bare
+   name that breaks the spelling rule, a malformed bracket array, a bare comma,
+   or a value with an open quote, a bad escape, or whitespace or a quote in
+   bare text. */
+static int line_fault(ShclArena *a, const ShclTokens *tok, ShclStr text, ShclFault *f) {
+	return name_fault(a, tok, text, f) || value_side_fault(a, tok, text, f);
 }
 
 /* A path segment a LAZY level can open: no index or wildcard selector, which
@@ -4356,19 +4809,18 @@ static const char *line_fault(ShclArena *a, const ShclTokens *tok, ShclStr text,
 static int opens_as_written(const ShclSegment *seg) { return seg->sel.tag == SEL_NONE || seg->sel.tag == SEL_VALUE; }
 
 /* True when a reload holds this kept line's level open (LAZY): a field line
-   refused for its value alone, with a path that opens. */
+   refused for its value alone, or a bare name that still reads, with a path
+   that opens. */
 static int opens_later(ShclArena *a, ShclStr text) {
-	if (text.n && (text.p[0] == '#' || text.p[0] == '*')) return 0;
+	if (!is_field_text(text)) return 0;
 	ShclTokens tok; memset(&tok, 0, sizeof tok);
 	tokenize(a, text, ':', 0, SHCL_RULES_CURRENT, &tok);
 	ShclPathScan scan = path_of(a, &tok, text);
 	if (!scan.ok) return 0;
-	uint32_t esc;
-	if (bad_escape(&tok, text, 0, &esc)) return 0;
 	for (size_t k = 0; k < scan.segs.len; k++)
 		if (!opens_as_written(&scan.segs.data[k])) return 0;
-	ShclStr msg;
-	return line_fault(a, &tok, text, &msg) != NULL;
+	ShclFault f;
+	return line_fault(a, &tok, text, &f) ? f.opens : tok.has_array;
 }
 
 /* A field line refused for its value alone holds its level open for what is
@@ -4509,17 +4961,17 @@ static size_t bind_block(ShclParser *P, size_t parent, ShclValue value, size_t l
 	return select_or_create(P, gp, name, name_src, value, line);
 }
 
-/* `* name: value` is the YAML habit for a list of objects. Here it is one
-   string element, so the parser says so (H003): the text up to its first colon
-   has no blank, and the colon ends the text or a blank follows it. */
-static int looks_like_binding(ShclStr s) {
-	size_t i = 0;
-	while (i < s.n && s.p[i] != ':') {
-		if (is_wsp((unsigned char)s.p[i])) return 0;
-		i++;
-	}
-	if (i == 0 || i == s.n) return 0;
-	return i + 1 == s.n || is_wsp((unsigned char)s.p[i + 1]);
+/* True when the parent's stacked list already holds as many items as the
+   caller's element cap allows, so another item line is refused (E021). */
+static int list_full(ShclParser *P, size_t parent) {
+	/* A held-open level has no node yet, and LAZY is past the node vector. */
+	if (!P->max_elements || parent == ROOT || parent >= P->d->nodes.len) return 0;
+	const ShclNode *nd = &NODE(P->d, parent);
+	return nd->children.len == 0 && nd->star_list && nd->value.kind == V_ARRAY && nd->value.nels >= P->max_elements;
+}
+static void refuse_capped(ShclParser *P, size_t line, ShclStr indent) {
+	ShclSB m = {0}; sb_puts(P->line, &m, "array longer than "); sb_put_u64(P->line, &m, P->max_elements); sb_puts(P->line, &m, " elements; line skipped");
+	p_refuse(P, line, "E021", sb_S(&m), out_kind(OUT_DROPPED), indent);
 }
 
 /* One stacked-list element (`* scalar`) appends to the parent's array. */
@@ -4533,18 +4985,12 @@ static int add_star_element(ShclParser *P, size_t parent, const ShclTokens *tok,
 	ShclPiece piece = tok->elements[0];
 	ShclElement el;
 	if (!element_of(a, &piece, text, &el)) { p_refuse(P, line, "E009", s_lit("empty list element"), out_kind(OUT_DROPPED), indent); return 0; }
-	if (piece.quote == SHCL_QUOTE_OPEN) p_err(P, line, "E017", s_lit("unterminated quote in value"));
-	int binding_like = !el.quoted && looks_like_binding(el.text);
 	ShclStr clash;
 	int clashed = unit_clash(P->tmp, NODE(P->d, parent).name, el.text, &clash);
 	/* Element cap: each element line past it is refused on its own, the way
 	   any other bad element line is. Only a line that would join the list:
 	   under a field that already has a value it is E011, cap or not. */
-	if (P->max_elements && NODE(P->d, parent).star_list && NODE(P->d, parent).value.kind == V_CELL && NODE(P->d, parent).value.nels >= P->max_elements) {
-		ShclSB m = {0}; sb_puts(P->line, &m, "array longer than "); sb_put_u64(P->line, &m, P->max_elements); sb_puts(P->line, &m, " elements; line skipped");
-		p_refuse(P, line, "E021", sb_S(&m), out_kind(OUT_DROPPED), indent);
-		return 0;
-	}
+	if (list_full(P, parent)) { refuse_capped(P, line, indent); return 0; }
 	ShclNode *node = &NODE(P->d, parent);
 	if (node->value.kind == V_EMPTY) {
 		uint64_t old_key = merge_hash(node->name, &node->value);
@@ -4552,14 +4998,14 @@ static int add_star_element(ShclParser *P, size_t parent, const ShclTokens *tok,
 		/* Seed capacity for geometric growth: a fresh full-size copy per `* `
 		   line kept every discarded copy in the arena - quadratic memory. */
 		ShclElement *arr = (ShclElement *)arena_alloc(a, 4 * sizeof(ShclElement)); arr[0] = el;
-		node->value.kind = V_CELL; node->value.els = arr; node->value.nels = 1; node->value.cap_els = 4;
+		node->value.kind = V_ARRAY; node->value.els = arr; node->value.nels = 1; node->value.cap_els = 4;
 		node->star_list = 1;
 		remap_child(P, parent, old_key, old_disp);
 		/* Defer further remaps until the list closes; the map entry made above
 		   stays valid because nothing can look this node up until a non-star
 		   line binds (which flushes first). */
 		P->star_open = 1; P->star_node = parent; P->star_key = merge_hash(node->name, &node->value); P->star_disp = disp_hash(node->name, &node->value);
-	} else if (node->value.kind == V_CELL && node->star_list) {
+	} else if (node->value.kind == V_ARRAY && node->star_list) {
 		if (!P->star_open || P->star_node != parent) {
 			star_flush(P);
 			P->star_open = 1; P->star_node = parent; P->star_key = merge_hash(node->name, &node->value); P->star_disp = disp_hash(node->name, &node->value);
@@ -4575,7 +5021,6 @@ static int add_star_element(ShclParser *P, size_t parent, const ShclTokens *tok,
 		p_refuse(P, line, "E011", s_lit("field already has a value; list element ignored"), out_kind(OUT_DROPPED), indent);
 		return 0;
 	}
-	if (binding_like) p_diag(P, line, SHCL_SEV_HINT, "H003", s_lit("list element looks like a field binding; it is read as a string (quote it to say so)"));
 	if (clashed) p_diag(P, line, SHCL_SEV_HINT, "H005", clash);
 	/* A kept element holds its column as a dropped one does, with the field as
 	   that level's node: a line written deeper binds where it always did, and a
@@ -4591,7 +5036,7 @@ static void keep_among(ShclParser *P, size_t parent, ShclStr indent) {
 	size_t k = 0;
 	while (k < P->pending.len && P->pending.data[k].text.n && P->pending.data[k].text.p[0] == '#') k++;
 	if (k == P->pending.len) return;
-	if (NODE(P->d, parent).value.kind != V_CELL) return;
+	if (NODE(P->d, parent).value.kind != V_ARRAY) return;
 	size_t before = NODE(P->d, parent).value.nels - 1;
 	ShclArena *a = &P->d->arena;
 	size_t w = 0;
@@ -4691,13 +5136,13 @@ static void emit_repeated_leaf_hints(ShclParser *P) {
 			int all_scalar = 1; size_t maxline = 0;
 			for (size_t k = 0; k < grp.len; k++) {
 				size_t c = grp.data[k];
-				if (!(NODE(P->d, c).children.len == 0 && NODE(P->d, c).value.kind == V_CELL && !NODE(P->d, c).star_list)) { all_scalar = 0; break; }
+				if (!(NODE(P->d, c).children.len == 0 && NODE(P->d, c).value.kind == V_CELL)) { all_scalar = 0; break; }
 				if (NODE(P->d, c).line > maxline) maxline = NODE(P->d, c).line;
 			}
 			if (!all_scalar) continue;
 			ShclSB joined = {0};
 			for (size_t k = 0; k < grp.len; k++) { if (k) sb_puts(tmp, &joined, ", "); sb_putS(tmp, &joined, diag_value(tmp, &NODE(P->d, grp.data[k]).value)); }
-			ShclSB m = {0}; sb_putS(tmp, &m, h001_head(tmp, names.data[gi])); sb_putS(tmp, &m, sb_S(&joined)); sb_puts(tmp, &m, "'?");
+			ShclSB m = {0}; sb_putS(tmp, &m, h001_head(tmp, names.data[gi])); sb_putc(tmp, &m, '['); sb_putS(tmp, &m, sb_S(&joined)); sb_puts(tmp, &m, "]'?");
 			p_diag(P, maxline, SHCL_SEV_HINT, "H001", sb_S(&m));
 		}
 	}
@@ -4860,12 +5305,12 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 				if (!resolve_parent(&P, indent, found, &parent)) { misplaced(&P, lineno, "E012", indent, rest, had_blank, 0); i++; continue; }
 				if (parent == DEAD) { misplaced(&P, lineno, "E018", indent, rest, had_blank, 0); i++; continue; }
 				tokenize_value(P.tmp, rest, 1, SHCL_RULES_CURRENT, &tok);
-				uint32_t esc;
-				const char *fault = NULL; ShclStr fmsg = s_empty();
-				if (bad_escape(&tok, rest, 1, &esc)) { fault = "E023"; fmsg = escape_msg(P.line, esc); }
-				else if (any_path_like(&tok, rest)) { fault = "E024"; fmsg = s_lit(path_msg); }
-				if (fault) {
-					p_refuse(&P, lineno, fault, fmsg, out_retained(trim_wsp_end(rest), had_blank), indent);
+				/* An item past the cap is refused for that, whatever its value.
+				   A good one finds out where it would join. */
+				ShclFault fault;
+				if (item_fault(P.line, &tok, rest, &fault)) {
+					if (list_full(&P, parent)) refuse_capped(&P, lineno, indent);
+					else p_refuse(&P, lineno, fault.code, fault.msg, out_retained(trim_wsp_end(rest), had_blank), indent);
 					i++; continue;
 				}
 				parent = open_lazy(&P, parent);
@@ -4917,25 +5362,26 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 			continue;
 		}
 		size_t next = i + 1;
-		/* A selector body takes the same open-quote rule as a value element,
-		   and the same code: the body is read bare, quotes and all, so the line
-		   still binds - somewhere the author did not mean. */
-		if (selector_open_quote(&tok)) p_err(&P, lineno, "E017", s_lit("unterminated quote in selector"));
-		/* A value written the way JSON, TOML and YAML write an array, or an
-		   escape that cannot be read as written or as an escape without
-		   guessing. The brackets are not a selector after the colon, and
-		   reading the text without them would bake a changed value in, so the
-		   line is kept verbatim. Judged before the cap and from the first
-		   piece, which the cap keeps: a cap refuses only a line that would
-		   bind. Only the value is wrong, so the lines under it still load,
-		   under the path opened empty. */
+		/* A line that reads only one way, or no way, is kept verbatim rather
+		   than read with a guess: a malformed array, an open quote, a bad
+		   escape, a tab, a quote or a loose colon, a bare comma, or a bare name
+		   that breaks the spelling rule. The path and the name are judged
+		   before the cap, and the value after it, so a line past the cap is
+		   E021 whatever its value. When the name still reads, the lines under
+		   it still load, under the path opened empty. */
 		{
-			ShclStr fmsg;
-			const char *fault = line_fault(P.line, &tok, rest, &fmsg);
-			if (fault) {
-				p_refuse(&P, lineno, fault, fmsg, out_retained(trim_wsp_end(rest), had_blank), indent);
-				uint32_t esc;
-				if (!bad_escape(&tok, rest, 0, &esc)) hold_open(&P, parent, scan.segs.data, scan.segs.len, lineno, indent);
+			ShclFault fault;
+			int faulted = name_fault(P.line, &tok, rest, &fault);
+			if (!faulted && !tok.capped) faulted = value_side_fault(P.line, &tok, rest, &fault);
+			if (faulted) {
+				ShclStr fmsg = fault.msg;
+				if (fault.has_at) {
+					ShclSB m = {0}; sb_putS(P.line, &m, fault.msg);
+					sb_puts(P.line, &m, ", at column "); sb_put_u64(P.line, &m, (uint64_t)(indent.n + lead + fault.at + 1));
+					fmsg = sb_S(&m);
+				}
+				p_refuse(&P, lineno, fault.code, fmsg, out_retained(trim_wsp_end(rest), had_blank), indent);
+				if (fault.opens) hold_open(&P, parent, scan.segs.data, scan.segs.len, lineno, indent);
 				/* Only a fault in the name leaves a fence to read here. */
 				i = keep_body(&P, lines.data, lines.len, i, indent, &tok, rest); continue;
 			}
@@ -4963,9 +5409,6 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 			ShclFence vf = fence_open(scan.value_text);
 			if (vf.ok) value = consume_raw(&P, lines.data, lines.len, i + 1, lineno, indent, vf, &next);
 			else {
-				int open = 0;
-				for (size_t k = 0; k < tok.nelem; k++) if (tok.elements[k].quote == SHCL_QUOTE_OPEN) open = 1;
-				if (open) p_err(&P, lineno, "E017", s_lit("unterminated quote in value"));
 				value = cell_of_tokens(a, &own->line, &tok, rest);
 				celled = 1;
 			}
@@ -5230,7 +5673,7 @@ static ShclResolved resolve_from(shcl_doc *d, const size_t *start, size_t nstart
 		case SEL_VALUE: {
 			ShclVecSize f = {0};
 			ShclStr want = seg->sel.value;
-			for (size_t k = 0; k < next.len; k++) if (s_eq(disp_key(a, &NODE(d, next.data[k]).value), want) && (!seg->sel.quoted || single_scalar(&NODE(d, next.data[k]).value))) ShclVecSize_push(a, &f, next.data[k]);
+			for (size_t k = 0; k < next.len; k++) if (single_scalar(&NODE(d, next.data[k]).value) && s_eq(disp_key(a, &NODE(d, next.data[k]).value), want)) ShclVecSize_push(a, &f, next.data[k]);
 			cur = f; break;
 		}
 		case SEL_INDEX: {
@@ -5295,13 +5738,19 @@ static shcl_status value_at(shcl_doc *d, ShclStr path, ShclValue **out) {
 	if (r.kind == R_MANY || r.kind == R_SLOTS) return SHCL_MULTIPLE;
 	*out = &NODE(d, r.one).value; return SHCL_GOOD;
 }
+/* The one element a scalar read takes: `[80]` reads as 80 and `[]` as
+   empty, while two elements are not one scalar. */
+static shcl_status scalar_element(ShclValue *v, ShclElement **el) {
+	*el = NULL;
+	if (v->kind == V_EMPTY) return SHCL_EMPTY;
+	if (v->kind == V_RAW) return SHCL_BAD_TYPE;
+	if (v->nels == 1) { *el = &v->els[0]; return SHCL_GOOD; }
+	return v->nels == 0 ? SHCL_EMPTY : SHCL_BAD_TYPE;
+}
 static shcl_status scalar_at(shcl_doc *d, ShclStr path, ShclElement **el) {
 	ShclValue *v; shcl_status st = value_at(d, path, &v);
 	if (st != SHCL_GOOD) { *el = NULL; return st; }
-	if (v->kind == V_EMPTY) { *el = NULL; return SHCL_EMPTY; }
-	if (v->kind == V_RAW) { *el = NULL; return SHCL_BAD_TYPE; }
-	if (v->nels == 1) { *el = &v->els[0]; return SHCL_GOOD; }
-	*el = NULL; return SHCL_BAD_TYPE;
+	return scalar_element(v, el);
 }
 
 // ShclElement list for array reads plus a per-slot pre-status: NULL entry => the
@@ -5321,10 +5770,7 @@ static shcl_status array_elements(shcl_doc *d, ShclArena *a, ShclStr path, ShclE
 		for (size_t i = 0; i < m; i++) {
 			arr[i] = NULL;
 			if (!r.slots.data[i].present) { st[i] = r.slots.data[i].miss; continue; }
-			ShclValue *v = &NODE(d, r.slots.data[i].idx).value;
-			if (v->kind == V_EMPTY) st[i] = SHCL_EMPTY;
-			else if (v->kind == V_CELL && v->nels == 1) { arr[i] = &v->els[0]; st[i] = SHCL_GOOD; }
-			else st[i] = SHCL_BAD_TYPE; // raw block, or an array is not one scalar
+			st[i] = scalar_element(&NODE(d, r.slots.data[i].idx).value, &arr[i]);
 		}
 		// No slots at all means the wildcard's parent is not there, so the
 		// path did not resolve - Empty is for a node that is.
@@ -5491,7 +5937,13 @@ size_t shcl_line(shcl_doc *d, const char *path, size_t plen) {
 int shcl_quoted(shcl_doc *d, const char *path, size_t plen) {
 	ShclStr p; p.p = path; p.n = plen; ShclElement *el;
 	if (scalar_at(d, p, &el) != SHCL_GOOD) return 0;
-	return el->quoted;
+	return el_quoted(el);
+}
+
+int shcl_backtick(shcl_doc *d, const char *path, size_t plen) {
+	ShclStr p; p.p = path; p.n = plen; ShclElement *el;
+	if (scalar_at(d, p, &el) != SHCL_GOOD) return 0;
+	return el->mark == MARK_BACKTICK;
 }
 
 shcl_str shcl_authored_name(shcl_doc *d, const char *path, size_t plen) {
@@ -5598,17 +6050,19 @@ static void w_choose_fence(ShclStr content, unsigned char *fc, size_t *fl) {
 	*fc = '`'; *fl = maxrun + 1 < 3 ? 3 : maxrun + 1;
 }
 
+static ShclElement new_array_element(ShclStr text);
+static int backtick_holds(ShclStr t);
 static ShclValue w_cell1(ShclArena *a, ShclStr text) {
 	ShclValue v; memset(&v, 0, sizeof v); v.kind = V_CELL;
 	ShclElement *e = (ShclElement *)arena_alloc(a, sizeof(ShclElement)); *e = new_element(text);
 	v.els = e; v.nels = 1; return v;
 }
-// Inline-array value; the empty array is an empty value (reads back Empty).
+// An array setter's value: written in brackets whatever its length, so one
+// element is `[80]` and none is `[]`.
 static ShclValue w_array(ShclArena *a, const ShclStr *texts, size_t n) {
-	if (n == 0) return v_empty();
-	ShclValue v; memset(&v, 0, sizeof v); v.kind = V_CELL;
-	ShclElement *els = (ShclElement *)arena_alloc(a, n * sizeof(ShclElement));
-	for (size_t i = 0; i < n; i++) els[i] = new_element(texts[i]);
+	ShclValue v; memset(&v, 0, sizeof v); v.kind = V_ARRAY;
+	ShclElement *els = (ShclElement *)arena_alloc(a, (n ? n : 1) * sizeof(ShclElement));
+	for (size_t i = 0; i < n; i++) els[i] = new_array_element(texts[i]);
 	v.els = els; v.nels = n; return v;
 }
 
@@ -5679,7 +6133,7 @@ static shcl_write_reason w_probe_write(shcl_doc *d, ShclArena *a, const ShclPath
 			children_named(d, a, pr, seg->name, &cands);
 			for (size_t k = 0; k < cands.len; k++) {
 				size_t c = cands.data[k];
-				if (seg->sel.tag == SEL_VALUE && !(s_eq(disp_key(a, &NODE(d, c).value), want) && (!seg->sel.quoted || single_scalar(&NODE(d, c).value)))) continue;
+				if (seg->sel.tag == SEL_VALUE && !(single_scalar(&NODE(d, c).value) && s_eq(disp_key(a, &NODE(d, c).value), want))) continue;
 				found = c; break;
 			}
 			if (found == (size_t)-1) off = 1; else pr = found;
@@ -5853,7 +6307,29 @@ typedef enum { SITE_LEADING, SITE_INSIDE, SITE_AFTER, SITE_AMONG, SITE_ORPHANS }
 /* Where a lead sits: its list, the node that list is on, and its place in it. */
 typedef struct { ShclSite site; size_t owner, k; } ShclKeptAt;
 static int comment_out_kept(shcl_doc *d, size_t parent, ShclStr name, ShclStr path, int anchor, ShclKeptAt *first);
-static int w_set_marked(shcl_doc *d, ShclStr path, ShclValue v, ShclMark m) {
+/* An overwrite keeps the quote kind the old value was written in, when the
+   new text can be written that way (value-syntax.md, Canonical output). The
+   kind is the one a save writes, so the answer is the same after a reload: a
+   quoted data format is written bare. */
+static void keep_mark(ShclArena *a, const ShclValue *old, ShclValue *now) {
+	if (old->kind != V_CELL || now->kind != V_CELL) return;
+	const ShclElement *was = &old->els[0];
+	ShclElement *el = &now->els[0];
+	ShclStr written = emit_element(a, was);
+	ShclElMark mark; int fits;
+	if (written.n && written.p[0] == '\'') { mark = MARK_SINGLE; fits = !memchr(el->text.p, '\'', el->text.n); }
+	else if (written.n && written.p[0] == '"') { mark = MARK_DOUBLE; fits = !memchr(el->text.p, '"', el->text.n); }
+	else if (written.n && written.p[0] == '`' && was->mark == MARK_BACKTICK) { mark = MARK_BACKTICK; fits = backtick_holds(el->text); }
+	else return;
+	if (!fits) return;
+	ShclElMark before = el->mark;
+	el->mark = mark;
+	if (!value_reads_back(a, now)) el->mark = before;
+}
+
+/* keep_quotes: whether an overwrite keeps the old value's quote kind. A
+   literal says its own quotes, so it does not. */
+static int w_set_marked_as(shcl_doc *d, ShclStr path, ShclValue v, ShclMark m, int keep_quotes) {
 	size_t idx;
 	if (!value_reads_back(&d->scratch, &v)) { arena_release(&d->arena, m); arena_reset(&d->scratch); return 0; }
 	if (d->probe) { arena_release(&d->arena, m); arena_reset_smallest(&d->scratch); return 1; }
@@ -5861,6 +6337,7 @@ static int w_set_marked(shcl_doc *d, ShclStr path, ShclValue v, ShclMark m) {
 	if (!w_place(d, path, 1, &idx)) { arena_release(&d->arena, m); return 0; }
 	/* w_place has already done it for a field it created. */
 	if (idx < fresh && d->kept_owed > 0) comment_out_kept(d, NODE(d, idx).parent, NODE(d, idx).name, path, 0, NULL);
+	if (keep_quotes) keep_mark(&d->scratch, &NODE(d, idx).value, &v);
 	NODE(d, idx).value = v;
 	/* No longer the list the lines among its elements sat in. */
 	unstack(d, &NODE(d, idx));
@@ -5875,6 +6352,7 @@ static int w_set_marked(shcl_doc *d, ShclStr path, ShclValue v, ShclMark m) {
 	resettle_kept(d);
 	return 1;
 }
+static int w_set_marked(shcl_doc *d, ShclStr path, ShclValue v, ShclMark m) { return w_set_marked_as(d, path, v, m, 1); }
 
 shcl_doc *shcl_new(void) { return shcl_parse("", 0); }
 
@@ -6303,21 +6781,21 @@ int shcl_set_string(shcl_doc *d, const char *path, size_t plen, const char *s, s
    gets stored, so a trailing blank comes off and a `#` outside quotes ends
    the value exactly as they would in a file. What is refused is what a
    file reports as an error, since a setter has no diagnostic to report it
-   with: a line break, which no file line can hold, an unterminated quote
-   (E017), bracket text (E019, the line kept verbatim - writing it as a
-   two-element array holding `[1` and `2]` would be a different wrong answer),
-   an unknown escape in double quotes (E023), and a Windows path in double
-   quotes holding a \t or \n escape (E024). */
+   with: a line break, which no file line can hold, a malformed bracket array
+   (E019), and whatever a value is refused for on a line: a loose comma
+   (E026), an unterminated quote (E017), a bad escape (E023), or what bare
+   text may not hold (E025). A bracket array is stored as an array. */
 static int literal_value(ShclArena *a, ShclArena *tmp, ShclStr text, ShclValue *out) {
 	for (size_t i = 0; i < text.n; i++) { if (text.p[i] == '\n') return 0; }
 	/* One copy of the value text up front: the elements slice it, and the
 	   caller's buffer need not outlive the call (the setter contract). */
 	ShclTokens tok; memset(&tok, 0, sizeof tok);
 	ShclStr line = value_half(a, tmp, text, &tok);
-	for (size_t i = 0; i < tok.nelem; i++) if (tok.elements[i].quote == SHCL_QUOTE_OPEN) return 0;
-	if (tok.value_start < line.n && line.p[tok.value_start] == '[') return 0;
-	uint32_t c;
-	if (bad_escape(&tok, line, 1, &c) || any_path_like(&tok, line)) return 0;
+	/* A fence opener has no body here, so it is stored as the text it is, as
+	   before backtick values. */
+	int fence = fence_open(s_slice(line, tok.value_start, tok.value_end)).ok;
+	ShclFault f;
+	if (array_fault(tmp, &tok, &f) || (tok.nelem > 1 && !tok.has_array) || (!fence && value_fault(tmp, &tok, line, &f))) return 0;
 	*out = cell_of_tokens(a, tmp, &tok, line);
 	return 1;
 }
@@ -6327,7 +6805,7 @@ int shcl_set_literal(shcl_doc *d, const char *path, size_t plen, const char *tex
 	ShclValue v;
 	ShclMark m = arena_mark(a);
 	if (!literal_value(a, &d->scratch, in, &v)) { arena_release(a, m); arena_reset(&d->scratch); return 0; }
-	return w_set_marked(d, p, v, m);
+	return w_set_marked_as(d, p, v, m, 0);
 }
 int shcl_set_datetime(shcl_doc *d, const char *path, size_t plen, const shcl_datetime *dt) { if (!dt_reads_back(&d->scratch, dt)) { arena_reset(&d->scratch); return 0; } ShclArena *a = &d->arena; ShclStr p; p.p = path; p.n = plen; ShclMark m = arena_mark(a); return w_set_marked(d, p, w_cell1(a, w_dt_text(a, dt)), m); }
 // Bind a raw block at a path, picking a fence longer than any content line.
@@ -6413,10 +6891,10 @@ int shcl_set_datetime_array_default(shcl_doc *d, const char *path, size_t plen, 
 // self-contained (over may be freed after the merge).
 static ShclValue w_dup_value(ShclArena *a, const ShclValue *v) {
 	ShclValue r; memset(&r, 0, sizeof r); r.kind = v->kind;
-	if (v->kind == V_CELL) {
+	if (v->kind == V_CELL || v->kind == V_ARRAY) {
 		r.nels = v->nels;
 		r.els = (ShclElement *)arena_alloc(a, (v->nels ? v->nels : 1) * sizeof(ShclElement));
-		for (size_t i = 0; i < v->nels; i++) { r.els[i].text = s_dup(a, v->els[i].text); r.els[i].quoted = v->els[i].quoted; }
+		for (size_t i = 0; i < v->nels; i++) { r.els[i].text = s_dup(a, v->els[i].text); r.els[i].mark = v->els[i].mark; }
 	} else if (v->kind == V_RAW) {
 		r.raw = (ShclRawVal *)arena_alloc(a, sizeof(ShclRawVal));
 		r.raw->content = s_dup(a, v->raw->content); r.raw->info = s_dup(a, v->raw->info);
@@ -6843,11 +7321,8 @@ static shcl_status scalar_named_at(shcl_doc *d, ShclStr path, ShclElement **el, 
 	*el = NULL;
 	if (!resolve(d, path, &r) || r.kind == R_NONE) return SHCL_NOT_FOUND;
 	if (r.kind == R_MANY || r.kind == R_SLOTS) return SHCL_MULTIPLE;
-	ShclValue *v = &NODE(d, r.one).value;
 	*name = NODE(d, r.one).name;
-	if (v->kind == V_EMPTY) return SHCL_EMPTY;
-	if (v->kind == V_RAW || v->nels != 1) return SHCL_BAD_TYPE;
-	*el = &v->els[0]; return SHCL_GOOD;
+	return scalar_element(&NODE(d, r.one).value, el);
 }
 shcl_read_i64 shcl_read_duration(shcl_doc *d, const char *path, size_t plen, shcl_duration_unit unit) {
 	shcl_read_i64 R; ShclStr p; p.p = path; p.n = plen; ShclElement *el; ShclStr name = s_empty();
@@ -6878,21 +7353,16 @@ int64_t shcl_get_duration_or(shcl_doc *d, const char *path, size_t plen, shcl_du
 int64_t shcl_get_size_or(shcl_doc *d, const char *path, size_t plen, shcl_size_unit unit, int decimal, int64_t def) {
 	shcl_read_i64 r = shcl_read_size(d, path, plen, unit, decimal); return r.status == SHCL_GOOD ? r.value : def;
 }
-static ShclStr emit_element(ShclArena *a, const ShclElement *e);
-
+/* Any value reads as a string: a raw block yields its content, an array its
+   canonical bracket form (quoting and escapes intact), so the string re-parses
+   to the same array, and `[80]` never reads as `80`. Escapes are applied. */
 shcl_read_str shcl_read_string(shcl_doc *d, const char *path, size_t plen) {
 	shcl_read_str R; ShclStr p; p.p = path; p.n = plen; ShclValue *v; shcl_status st = value_at(d, p, &v);
 	if (st != SHCL_GOOD) { R.value = s_empty(); R.status = st; return R; }
 	if (v->kind == V_EMPTY) { R.value = s_empty(); R.status = SHCL_EMPTY; }
 	else if (v->kind == V_RAW) { R.value = v->raw->content; R.status = SHCL_GOOD; }
-	else if (v->nels == 1) { R.value = v->els[0].text; R.status = SHCL_GOOD; }
-	else {
-		/* Canonical inline form (quoting + escapes intact), so the string
-		   re-parses to the same array - not the bare display join. */
-		ShclArena *a = &d->reads; ShclSB s = {0};
-		for (size_t i = 0; i < v->nels; i++) { if (i) sb_puts(a, &s, ", "); sb_putS(a, &s, emit_element(a, &v->els[i])); }
-		R.value = sb_S(&s); R.status = SHCL_GOOD;
-	}
+	else if (v->kind == V_CELL) { R.value = v->els[0].text; R.status = SHCL_GOOD; }
+	else { R.value = emit_array(&d->reads, v->els, v->nels); R.status = SHCL_GOOD; }
 	return R;
 }
 shcl_read_str shcl_read_raw(shcl_doc *d, const char *path, size_t plen) {
@@ -6902,7 +7372,7 @@ shcl_read_str shcl_read_raw(shcl_doc *d, const char *path, size_t plen) {
 	switch (v->kind) {
 	case V_RAW: R.value = v->raw->content; break;
 	case V_EMPTY: R.status = SHCL_EMPTY; break;
-	case V_CELL: R.status = SHCL_BAD_TYPE; break;
+	case V_CELL: case V_ARRAY: R.status = SHCL_BAD_TYPE; break;
 	}
 	return R;
 }
@@ -7010,12 +7480,50 @@ shcl_status shcl_read_string_array_to(shcl_doc *d, const char *path, size_t plen
 
 // --- formatter (canonical output) -------------------------------------------
 
-/* Quote a logical string so the tokenizer reads it back as the same string.
-   Single quotes are literal, so they are the spelling for text holding a
-   double quote or a backslash; double quotes have the escapes, so they are
-   the spelling for a line break, a tab, an invisible character, or text
-   holding both quote kinds. */
-static ShclStr quote_text(ShclArena *a, ShclStr t) { return quote_text_as(a, t, SHCL_RULES_CURRENT); }
+/* The quotes the writer picks: double, or single when the text has a `"` and
+   no `'`. A backslash plays no part. */
+static int picks_single(ShclStr t) { return memchr(t.p, '"', t.n) && !memchr(t.p, '\'', t.n); }
+
+/* A character the writer escapes: by its first name when the list has one,
+   otherwise as a code point with at least four hex digits. */
+static void sb_put_escape(ShclArena *a, ShclSB *s, ShclStr one) {
+	sb_puts(a, s, escape_mark);
+	for (size_t k = 0; k < sizeof escape_names / sizeof *escape_names; k++)
+		if (escape_names[k].len == one.n && memcmp(escape_names[k].text, one.p, one.n) == 0) { sb_puts(a, s, escape_names[k].name); sb_puts(a, s, escape_mark); return; }
+	uint32_t cp; utf8_decode(one.p, one.n, 0, &cp);
+	char b[16]; int n = snprintf(b, sizeof b, "%s%04" PRIX32, code_prefixes[0], cp);
+	if (n > 0) sb_put(a, s, b, (size_t)n < sizeof b ? (size_t)n : sizeof b - 1);
+	sb_puts(a, s, escape_mark);
+}
+
+/* The text in quote q, with every character a reader could not see or that
+   would end the piece written as an escape: a line break, a carriage return
+   or the pair of them, a tab, the other controls on the list by name, a
+   hidden character by code point, a real escape mark, and q itself. */
+static ShclStr quote_with(ShclArena *a, ShclStr t, char q) {
+	ShclSB s = {0};
+	sb_reserve(a, &s, t.n + 2);
+	sb_putc(a, &s, q);
+	for (size_t i = 0; i < t.n;) {
+		if (t.p[i] == '\r' && i + 1 < t.n && t.p[i + 1] == '\n') {
+			sb_puts(a, &s, escape_mark); sb_puts(a, &s, "CRLF"); sb_puts(a, &s, escape_mark);
+			i += 2; continue;
+		}
+		uint32_t cp; size_t l = utf8_decode(t.p, t.n, i, &cp);
+		if (cp == (unsigned char)q || cp == '\t' || cp == '\n' || cp == 0x25C9 || invisible_at(t, i, &cp)) sb_put_escape(a, &s, s_slice(t, i, i + l));
+		else sb_put(a, &s, t.p + i, l);
+		i += l;
+	}
+	sb_putc(a, &s, q);
+	return sb_S(&s);
+}
+
+/* Quote a logical string so the tokenizer reads it back as the same string,
+   in the quotes the writer picks. */
+static ShclStr quote_text(ShclArena *a, ShclStr t) { return quote_with(a, t, picks_single(t) ? '\'' : '"'); }
+
+// The 2.x spellings below are for migrate only.
+
 /* quote_text for a reader of rules, as in quote_double_as. */
 static ShclStr quote_text_as(ShclArena *a, ShclStr t, shcl_rules rules) {
 	int control = memchr(t.p, '\n', t.n) || memchr(t.p, '\t', t.n);
@@ -7090,51 +7598,97 @@ static int is_data_format(ShclArena *a, const ShclElement *e) {
 	if (parse_datetime(a, e->text, &dv)) return 1;
 	return 0;
 }
-// Minimal quoting: bare unless a reserved character (or lookalike hazard) forces it.
+/* Minimal quoting for a value or list item (value-syntax.md, Canonical
+   output): bare only when the text has no whitespace, none of the characters
+   that open or escape a piece, needs no escape, and does not end in a colon or
+   comma, which would read as another field or an array. A colon or comma
+   inside is text: `2:30PM` and `rw,noatime` stay bare. The reader takes spaces
+   bare, but the writer still quotes them. */
 static int needs_quotes(ShclStr t) {
-	int needs = (t.n == 0);
-	if (!needs) {
-		size_t i = 0;
-		while (i < t.n) { uint32_t c; size_t l = utf8_decode(t.p, t.n, i, &c);
-			if (c == ' ' || c == '\t' || c == '\n' || c == ',' || c == ':' || c == '#' || c == '"' || c == '\'' || c == '[' || c == ']') { needs = 1; break; }
-			if (invisible_at(t, i, &c)) { needs = 1; break; }
-			i += l; }
+	if (t.n == 0 || t.p[t.n - 1] == ':' || t.p[t.n - 1] == ',') return 1;
+	for (size_t i = 0; i < t.n;) {
+		uint32_t c; size_t l = utf8_decode(t.p, t.n, i, &c);
+		if (white_space(c) || c == '#' || c == '"' || c == '\'' || c == '`' || c == '[' || c == ']' || c == 0x25C9) return 1;
+		if (invisible_at(t, i, &c)) return 1;
+		i += l;
 	}
-	/* Edge whitespace still has to force quotes, for the carriage return: it is
-	   a blank, so a piece ending in one loses it to the reload. Space and tab
-	   are already in the list above. The test is the whole Unicode whitespace
-	   set rather than those three, which only ever adds quoting - the parser
-	   itself trims no wider than is_wsp, so a leading no-break space is
-	   content. Edges only: interior whitespace is never trimmed and quoting it
-	   would move bytes. */
-	if (!needs && t.n) {
-		uint32_t f, l; utf8_decode(t.p, t.n, 0, &f); utf8_last(t, &l);
-		if (is_ws(f) || is_ws(l)) needs = 1;
-	}
-	if (!needs) { ShclFence f = fence_open(t); if (f.ok) needs = 1; }
-	return needs;
+	return fence_open(t).ok;
 }
-// One addition to minimal quoting: an author-quoted element keeps its quotes unless
-// the text reads as one of SHCL's own data formats - quoting those is just spelling
-// (readers type the value either way), but quoting a plain string is the escape and
-// must survive canonicalization. This clause only ever adds quoting, so a bare emit
-// stays safe.
-static ShclStr emit_element(ShclArena *a, const ShclElement *e) {
+/* The same for an array element, where any comma splits. */
+static int element_needs_quotes(ShclStr t) { return needs_quotes(t) || memchr(t.p, ',', t.n) != NULL; }
+
+/* Whether text can be a backtick value: no backtick, which would end it, and
+   nothing the writer would have to escape, since a backtick value has no
+   escapes. */
+static int backtick_holds(ShclStr t) {
+	for (size_t i = 0; i < t.n;) {
+		uint32_t c; size_t l = utf8_decode(t.p, t.n, i, &c);
+		if (c == '`' || c == '\n' || c == '\r' || invisible_at(t, i, &c)) return 0;
+		i += l;
+	}
+	return 1;
+}
+
+/* The element as written: bare when it can be, else in the author's quote
+   kind when the text allows it, else the quotes the writer picks. A quoted
+   plain string keeps its quotes, since quoting it is how a file says it is
+   text; a quoted data format loses them, since readers type the value either
+   way. One with a comma keeps them, since only a quoted number reads a
+   thousands comma. A backtick value stays in backticks whatever it holds. */
+static ShclStr emit_piece(ShclArena *a, const ShclElement *e, int quote) {
 	ShclStr t = e->text;
-	int needs = needs_quotes(t) || (e->quoted && !is_data_format(a, e));
-	return needs ? quote_text(a, t) : t;
+	if (e->mark == MARK_BACKTICK && backtick_holds(t)) {
+		ShclSB s = {0}; sb_reserve(a, &s, t.n + 2);
+		sb_putc(a, &s, '`'); sb_putS(a, &s, t); sb_putc(a, &s, '`');
+		return sb_S(&s);
+	}
+	if (!quote && (e->mark == MARK_BARE || (!memchr(t.p, ',', t.n) && is_data_format(a, e)))) return t;
+	if (e->mark == MARK_SINGLE && !memchr(t.p, '\'', t.n)) return quote_with(a, t, '\'');
+	if (e->mark == MARK_DOUBLE && !memchr(t.p, '"', t.n)) return quote_with(a, t, '"');
+	return quote_text(a, t);
+}
+/* A value or list item as written. See emit_piece. */
+static ShclStr emit_element(ShclArena *a, const ShclElement *e) { return emit_piece(a, e, needs_quotes(e->text)); }
+/* An element inside `[]` as written. See emit_piece. */
+static ShclStr emit_array_element(ShclArena *a, const ShclElement *e) { return emit_piece(a, e, element_needs_quotes(e->text)); }
+
+static ShclElement new_element_as(ShclStr text, int quote) {
+	ShclElement e; e.text = text;
+	e.mark = !quote ? MARK_BARE : picks_single(text) ? MARK_SINGLE : MARK_DOUBLE;
+	return e;
 }
 // An element no source wrote. It counts as quoted when canonical output will
-// quote it, so a read gives the same answer before a save as after one.
+// quote it, so a read gives the same answer before a save as after one. A
+// thousands comma reads only in quotes, so `1,000` from a setter keeps them and
+// still reads as 1000.
 static ShclElement new_element(ShclStr text) {
-	ShclElement e; e.text = text; e.quoted = needs_quotes(text); return e;
+	int quote = needs_quotes(text);
+	ShclElement e = new_element_as(text, quote);
+	if (!quote && memchr(text.p, ',', text.n)) {
+		e.mark = MARK_DOUBLE;
+		ShclArena tmp; memset(&tmp, 0, sizeof tmp);
+		if (!is_data_format(&tmp, &e)) e.mark = MARK_BARE;
+		arena_free(&tmp);
+	}
+	return e;
 }
+/* new_element for an element inside `[]`. */
+static ShclElement new_array_element(ShclStr text) { return new_element_as(text, element_needs_quotes(text)); }
+
 /* Emit a stored (escape-resolved) name in a spelling that reads back as the
-   same name: bare when it can be, else double-quoted with the escapes
-   apply_escapes undoes. */
-static ShclStr escape_name(ShclArena *a, ShclStr name) { return escape_name_as(a, name, SHCL_RULES_CURRENT); }
-/* escape_name for a reader of rules: under 2.x an invisible character is
-   written as it is, since 2.x kept a \u as written. */
+   same name: bare when the spelling rule allows it, else quoted the way a
+   value is, escapes and all. */
+static ShclStr escape_name(ShclArena *a, ShclStr name) {
+	if (name.n > 0 && ((name.p[0] >= 'a' && name.p[0] <= 'z') || (name.p[0] >= 'A' && name.p[0] <= 'Z'))) {
+		size_t i = 0;
+		while (i < name.n && is_bare_name_char((unsigned char)name.p[i])) i++;
+		if (i == name.n) return name;
+	}
+	return quote_text(a, name);
+}
+/* The name spelling 2.x read back, for migrate: its backslash escapes, with
+   an invisible character written as it is, since 2.x kept a \u as
+   written. */
 static ShclStr escape_name_as(ShclArena *a, ShclStr name, shcl_rules rules) {
 	if (name.n > 0) {
 		int allbare = 1; size_t i = 0;
@@ -7162,16 +7716,14 @@ static ShclStr emit_name(ShclArena *a, ShclStr name) { return escape_name(a, nam
    raw line break splits one diagnostic across two. */
 static ShclStr diag_name(ShclArena *a, ShclStr name) { return escape_name(a, name); }
 /* One element of a value, written for a diagnostic message: the emitter's
-   inline spelling, so a value with a line break cannot split one
-   diagnostic across two. */
-static ShclStr diag_element(ShclArena *a, const ShclElement *e) { return emit_element(a, e); }
-/* A value for a diagnostic message. Only a cell reaches this today, from the
-   H001 hint; a raw block has no one-line form worth suggesting. */
+   spelling inside `[]`, the only place a message puts one, so a value with a
+   line break cannot split one diagnostic across two. */
+static ShclStr diag_element(ShclArena *a, const ShclElement *e) { return emit_array_element(a, e); }
+/* A value for a diagnostic message. Only a scalar reaches this today, from
+   the H001 hint; a raw block has no one-line form worth suggesting. */
 static ShclStr diag_value(ShclArena *a, const ShclValue *v) {
 	if (v->kind != V_CELL) return value_display(a, v);
-	ShclSB b = {0};
-	for (size_t i = 0; i < v->nels; i++) { if (i) sb_puts(a, &b, ", "); sb_putS(a, &b, diag_element(a, &v->els[i])); }
-	return sb_S(&b);
+	return diag_element(a, &v->els[0]);
 }
 
 // --- The write side's one rule: what is written has to read back ------------
@@ -7186,11 +7738,20 @@ static ShclStr diag_value(ShclArena *a, const ShclValue *v) {
 // the same text. Every check builds in the arena it is handed - scratch at
 // each call site, dead by the time the setter returns.
 
-/* The value half of a binding line, the way emit_line writes it. */
-static ShclStr emit_cell(ShclArena *a, const ShclElement *els, size_t n) {
+/* An array the way emit_line writes it: `[a, b]`, and `[]` for none. */
+static ShclStr emit_array(ShclArena *a, const ShclElement *els, size_t n) {
 	ShclSB out = {0, 0, 0};
-	for (size_t i = 0; i < n; i++) { if (i) sb_puts(a, &out, ", "); sb_putS(a, &out, emit_element(a, &els[i])); }
+	sb_putc(a, &out, '[');
+	for (size_t i = 0; i < n; i++) { if (i) sb_puts(a, &out, ", "); sb_putS(a, &out, emit_array_element(a, &els[i])); }
+	sb_putc(a, &out, ']');
 	return sb_S(&out);
+}
+/* The value half of a binding line, the way emit_line writes it, or empty
+   with 0 for a value with no one-line form. */
+static int emit_value_text(ShclArena *a, const ShclValue *v, ShclStr *out) {
+	if (v->kind == V_CELL) { *out = emit_element(a, &v->els[0]); return 1; }
+	if (v->kind == V_ARRAY) { *out = emit_array(a, v->els, v->nels); return 1; }
+	*out = s_empty(); return 0;
 }
 
 /* The opening fence line of a raw block: the fence run, then the info string
@@ -7208,7 +7769,7 @@ static ShclStr emit_fence_line(ShclArena *a, const ShclRawVal *r) {
 /* True when a piece reads as this exact text, without building it. */
 static int piece_is(ShclArena *a, const ShclPiece *p, ShclStr text, ShclStr want) {
 	ShclStr raw = s_slice(text, p->start, p->end);
-	if (p->quote == SHCL_QUOTE_DOUBLE && raw.n && memchr(raw.p, '\\', raw.n)) return s_eq(apply_escapes(a, raw), want);
+	if (decodes(p->quote) && has_mark(raw)) { ShclStr out, why; return resolve_marks(a, raw, &out, &why) && s_eq(out, want); }
 	return s_eq(raw, want);
 }
 
@@ -7228,11 +7789,12 @@ static ShclStr value_half(ShclArena *a, ShclArena *tmp, ShclStr text, ShclTokens
 static int value_reads_back(ShclArena *a, const ShclValue *v) {
 	ShclTokens tok; memset(&tok, 0, sizeof tok);
 	if (v->kind == V_EMPTY) return 1;
-	if (v->kind == V_CELL) {
-		ShclStr text = emit_cell(a, v->els, v->nels);
+	if (v->kind == V_CELL || v->kind == V_ARRAY) {
+		ShclStr text; emit_value_text(a, v, &text);
 		if (text.n && memchr(text.p, '\n', text.n)) return 0;
 		ShclStr line = value_half(a, a, text, &tok);
-		if (tok.has_comment) return 0;
+		ShclFault f;
+		if (tok.has_comment || tok.has_array != (v->kind == V_ARRAY) || array_fault(a, &tok, &f) || value_fault(a, &tok, line, &f)) return 0;
 		/* Compared against the pieces rather than against a rebuilt value: a
 		   bulk write runs this per set, and the text is right there. */
 		size_t k = 0;
@@ -7520,14 +8082,15 @@ static void note_stamp(ShclArena *a, ShclSB *b) {
    commented out as one line. */
 static const char *kept_naming(ShclArena *a, const ShclLead *l, ShclStr name, ShclStr *msg) {
 	char c = l->text.n ? l->text.p[0] : 0;
-	if (l->depth != 0 || c == '#' || c == '*' || c == ' ' || c == '\t' || (l->text.n && memchr(l->text.p, '\n', l->text.n))) return NULL;
+	if (l->depth != 0 || !is_field_text(l->text) || c == ' ' || c == '\t' || (l->text.n && memchr(l->text.p, '\n', l->text.n))) return NULL;
 	ShclTokens tok; memset(&tok, 0, sizeof tok);
 	tokenize(a, l->text, ':', 0, SHCL_RULES_CURRENT, &tok);
 	ShclPathScan scan = path_of(a, &tok, l->text);
 	if (!scan.ok || scan.segs.len != 1 || scan.segs.data[0].sel.tag != SEL_NONE || !s_eq(scan.segs.data[0].name, name)) return NULL;
-	uint32_t esc;
-	if (bad_escape(&tok, l->text, 0, &esc)) return NULL;
-	return line_fault(a, &tok, l->text, msg);
+	ShclFault f;
+	if (!line_fault(a, &tok, l->text, &f) || !f.opens) return NULL;
+	*msg = f.msg;
+	return f.code;
 }
 
 /* A kept line a setter writes as a comment, with the note giving why and
@@ -7850,7 +8413,7 @@ static void emit_line(shcl_doc *d, size_t idx, size_t pos, size_t depth, int wou
 	emit_bound(e, depth);
 	emit_near(e, idx, pos);
 	if (v->kind == V_EMPTY) { emit_span(e, out->len); emit_trailing(a, out, trailing); sb_putc(a, out, '\n'); }
-	else if (v->kind == V_CELL && stacks(node)) {
+	else if (v->kind == V_ARRAY && stacks(node)) {
 		/* Stacked, with the kept lines where they sat. */
 		emit_trailing(a, out, trailing);
 		sb_putc(a, out, '\n');
@@ -7869,10 +8432,11 @@ static void emit_line(shcl_doc *d, size_t idx, size_t pos, size_t depth, int wou
 		}
 		for (size_t j = next; j < am.len; j++) push_leads(e, &am.data[j].lead, 1, depth + 1, idx, SITE_AMONG, j);
 	}
-	else if (v->kind == V_CELL) {
+	else if (v->kind == V_CELL || v->kind == V_ARRAY) {
 		size_t at = out->len;
 		sb_putc(a, out, ' ');
-		sb_putS(a, out, emit_cell(a, v->els, v->nels));
+		ShclStr text; emit_value_text(a, v, &text);
+		sb_putS(a, out, text);
 		emit_span(e, at);
 		emit_trailing(a, out, trailing);
 		sb_putc(a, out, '\n');
@@ -8017,8 +8581,8 @@ static uint64_t near_sum(const shcl_doc *d) {
 		int linked = nd->parent < d->nodes.len && pos < NODE(d, nd->parent).children.len && NODE(d, nd->parent).children.data[pos] == n;
 		h = fnv_byte(h, (unsigned char)linked);
 		h = fnv_byte(h, (unsigned char)stacks(nd));
-		h = fnv_byte(h, nd->value.kind == V_EMPTY ? 0u : nd->value.kind == V_CELL ? 1u : 2u);
-		if (nd->value.kind == V_CELL) h = fnv_dec(h, nd->value.nels);
+		h = fnv_byte(h, (unsigned char)nd->value.kind);
+		if (nd->value.kind == V_ARRAY) h = fnv_dec(h, nd->value.nels);
 		if (!nd->trivia) { h = fnv_byte(h, 0u); continue; }
 		const ShclVecLead *lists[3] = { &nd->trivia->leading, &nd->trivia->inside, &nd->trivia->after };
 		for (size_t j = 0; j < 3; j++) {
@@ -8247,7 +8811,7 @@ static int authored_head(ShclArena *a, ShclStr src, ShclStr canon, ShclStr *out)
 	size_t sep[2];
 	for (size_t k = 0; k < 2; k++) {
 		ShclStr text = texts[k];
-		if (text.n && (text.p[0] == '#' || text.p[0] == '*')) return 0;
+		if (!is_field_text(text)) return 0;
 		ShclTokens tok; memset(&tok, 0, sizeof tok);
 		tokenize(a, text, ':', 0, SHCL_RULES_CURRENT, &tok);
 		if (tok.nseg != 1 || tok.segments[0].has_selector || tok.has_fault || !tok.has_sep) return 0;
@@ -8277,12 +8841,12 @@ static int splice_value(ShclArena *a, ShclStr line, ShclEmit *was, const ShclUni
 	if (!s_eq(s_slice(t0, p0, w->end), s_slice(t1, p1, u->end))) return 0;
 	ShclStr value = s_slice(t1, s1[2 * (n1 - 1)], s1[2 * (n1 - 1) + 1]);
 	ShclSrcLine sl = src_line(line);
-	if (sl.rest.n && (sl.rest.p[0] == '#' || sl.rest.p[0] == '*')) return 0;
+	if (!is_field_text(sl.rest)) return 0;
 	ShclTokens tok; memset(&tok, 0, sizeof tok);
 	tokenize(a, sl.rest, ':', 0, SHCL_RULES_CURRENT, &tok);
 	if (!tok.has_sep || tok.has_fault) return 0;
 	size_t colon = tok.sep, vs = tok.value_start, ve = tok.value_end;
-	if (fence_open(s_slice(sl.rest, vs, ve)).ok || bracket_text(&tok, sl.rest)) return 0;
+	if (fence_open(s_slice(sl.rest, vs, ve)).ok || tok.has_array_fault) return 0;
 	/* The blanks after the colon stay as they were when there was a value and
 	   still is one; the canonical value comes with one space. */
 	size_t from = vs == ve ? colon + 1 : ve;
@@ -9127,7 +9691,7 @@ static ShclStr v_msg_key(ShclArena *a, const char *key) {
 
 // One scalar constraint value, or 0.
 static int v_single_text(const ShclValue *v, ShclStr *out) {
-	if (v->kind != V_CELL || v->nels != 1) return 0;
+	if (v->kind != V_CELL) return 0;
 	*out = v->els[0].text;
 	return 1;
 }
@@ -9237,16 +9801,16 @@ static int v_parse_field(ShclArena *a, shcl_doc *schema, size_t f, ShclVecDiag *
 			if (ok && !reopen_seen) { reopen_seen = 1; c.reopen = b; }
 			else v_diag(a, faults, kid->line, "V092", v_msg_key(a, "reopen"));
 		} else if (s_eq(kid->name, s_lit("allowed"))) {
-			if (kid->value.kind == V_CELL && allowed_at == (size_t)-1) allowed_at = kids.data[ki];
+			if ((kid->value.kind == V_CELL || (kid->value.kind == V_ARRAY && kid->value.nels)) && allowed_at == (size_t)-1) allowed_at = kids.data[ki];
 			else v_diag(a, faults, kid->line, "V092", v_msg_key(a, "allowed"));
 		} else if (s_eq(kid->name, s_lit("min"))) {
-			if (kid->value.kind == V_CELL && kid->value.nels == 1 && min_at == (size_t)-1) min_at = kids.data[ki];
+			if (kid->value.kind == V_CELL && min_at == (size_t)-1) min_at = kids.data[ki];
 			else v_diag(a, faults, kid->line, "V092", v_msg_key(a, "min"));
 		} else if (s_eq(kid->name, s_lit("max"))) {
-			if (kid->value.kind == V_CELL && kid->value.nels == 1 && max_at == (size_t)-1) max_at = kids.data[ki];
+			if (kid->value.kind == V_CELL && max_at == (size_t)-1) max_at = kids.data[ki];
 			else v_diag(a, faults, kid->line, "V092", v_msg_key(a, "max"));
 		} else if (s_eq(kid->name, s_lit("unit"))) {
-			if (kid->value.kind == V_CELL && kid->value.nels == 1 && unit_at == (size_t)-1) unit_at = kids.data[ki];
+			if (kid->value.kind == V_CELL && unit_at == (size_t)-1) unit_at = kids.data[ki];
 			else v_diag(a, faults, kid->line, "V092", v_msg_key(a, "unit"));
 		} else if (s_eq(kid->name, s_lit("decimal"))) {
 			ShclStr t; int b = 0;
@@ -9254,7 +9818,9 @@ static int v_parse_field(ShclArena *a, shcl_doc *schema, size_t f, ShclVecDiag *
 			if (ok && decimal_key_at == (size_t)-1) { decimal_key_at = kids.data[ki]; c.decimal = b; }
 			else v_diag(a, faults, kid->line, "V092", v_msg_key(a, "decimal"));
 		} else if (s_eq(kid->name, s_lit("repeat"))) {
-			if (kid->value.kind == V_CELL && !c.has_repeat && (kid->value.nels == 1 || kid->value.nels == 2)) {
+			/* A schema value's elements: a scalar's one, or an array's. */
+			int listed = kid->value.kind == V_CELL || kid->value.kind == V_ARRAY;
+			if (listed && !c.has_repeat && (kid->value.nels == 1 || kid->value.nels == 2)) {
 				uint64_t lo, hi;
 				if (parse_u64(kid->value.els[0].text, &lo) && parse_u64(kid->value.els[kid->value.nels - 1].text, &hi) && lo <= hi) {
 					c.has_repeat = 1; c.rep_lo = lo; c.rep_hi = hi;
@@ -9273,17 +9839,17 @@ static int v_parse_field(ShclArena *a, shcl_doc *schema, size_t f, ShclVecDiag *
 			}
 		} else if (s_eq(kid->name, s_lit("desc"))) {
 			// Generator-only (`shcl init`); validation ignores it. First wins.
-			// A comma in a sentence makes the value several elements, and the
-			// comment is prose: take them all, kept as written.
-			if (!c.has_desc && kid->value.kind == V_CELL) {
+			// The comment is prose, so an array's elements are all taken, kept
+			// as written.
+			if (!c.has_desc && (kid->value.kind == V_CELL || kid->value.kind == V_ARRAY)) {
 				ShclSB s = {0, 0, 0};
 				for (size_t x = 0; x < kid->value.nels; x++) { if (x) sb_puts(a, &s, ", "); sb_putS(a, &s, kid->value.els[x].text); }
 				c.has_desc = 1; c.desc = sb_S(&s);
 			}
 		} else if (s_eq(kid->name, s_lit("default"))) {
 			if (!c.has_default) {
-				if (kid->value.kind == V_CELL) {
-					c.has_default = 1; c.default_text = emit_cell(a, kid->value.els, kid->value.nels);
+				if (kid->value.kind == V_CELL || kid->value.kind == V_ARRAY) {
+					c.has_default = 1; emit_value_text(a, &kid->value, &c.default_text);
 				}
 				default_at = kids.data[ki];
 			}
@@ -9707,7 +10273,7 @@ static void v_contexts(ShclArena *a, shcl_doc *d, const size_t *start, size_t ns
 		case SEL_VALUE: {
 			ShclVecSize f = {0};
 			ShclStr want = seg->sel.value;
-			for (size_t k = 0; k < next.len; k++) if (s_eq(disp_key(a, &NODE(d, next.data[k]).value), want) && (!seg->sel.quoted || single_scalar(&NODE(d, next.data[k]).value))) ShclVecSize_push(a, &f, next.data[k]);
+			for (size_t k = 0; k < next.len; k++) if (single_scalar(&NODE(d, next.data[k]).value) && s_eq(disp_key(a, &NODE(d, next.data[k]).value), want)) ShclVecSize_push(a, &f, next.data[k]);
 			cur = f; break;
 		}
 		case SEL_INDEX: {
@@ -9800,9 +10366,20 @@ static void v_node(ShclArena *a, ShclArena *lv, shcl_doc *d, const ShclVCons *c,
 	}
 	ShclElement *els = node->value.els; size_t nels = node->value.nels;
 	if (V_BASE_IS("raw")) { v_wrong_type(a, out, line, c); return; }
+	// A string read of an array is its bracket form, so that is the text the
+	// allowed set sees: `x: 80` and `x: [80]` are two values.
+	if (!is_array && (!ty || V_BASE_IS("string")) && node->value.kind == V_ARRAY) {
+		ShclStr text = value_display(lv, &node->value);
+		if (c->has_allowed && c->akind == ALLOW_STRINGS) {
+			int found = 0;
+			for (size_t x = 0; x < c->a_n; x++) if (s_eq(c->a_strs[x], text)) { found = 1; break; }
+			if (!found) v_not_allowed(a, out, line, c, text);
+		}
+		return;
+	}
 	// A scalar kind on a multi-element value is the array-where-one-scalar-
-	// expected miss - except string, which reads arrays.
-	if (ty && !is_array && !V_BASE_IS("string") && nels > 1) { v_wrong_type(a, out, line, c); return; }
+	// expected miss.
+	if (!is_array && nels > 1) { v_wrong_type(a, out, line, c); return; }
 	if (V_BASE_IS("int")) {
 		int64_t *vals = (int64_t *)arena_alloc(lv, (nels ? nels : 1) * sizeof(int64_t));
 		for (size_t x = 0; x < nels; x++)
@@ -11493,18 +12070,7 @@ static ShclStr g_default_text(ShclArena *a, ShclStr v) {
 	int has = 0;
 	for (size_t k = 0; k < v.n; k++) if (v.p[k] == '\n') { has = 1; break; }
 	if (!has) return v;
-	ShclSB b = {0, 0, 0};
-	sb_putc(a, &b, '"');
-	for (size_t k = 0; k < v.n; k++) {
-		char ch = v.p[k];
-		if (ch == '\\') sb_puts(a, &b, "\\\\");
-		else if (ch == '"') sb_puts(a, &b, "\\\"");
-		else if (ch == '\n') sb_puts(a, &b, "\\n");
-		else if (ch == '\t') sb_puts(a, &b, "\\t");
-		else sb_putc(a, &b, ch);
-	}
-	sb_putc(a, &b, '"');
-	return sb_S(&b);
+	return quote_text(a, v);
 }
 
 // Ceiling on how many fields one schema may expand to. Fragments that mount
@@ -11552,7 +12118,8 @@ static int selector_reads_back(ShclArena *a, ShclStr body, ShclStr text, int quo
 	for (size_t k = 0; k < line.n; k++) if (line.p[k] == '\n' || line.p[k] == '\r') return 0;
 	ShclTokens tok; memset(&tok, 0, sizeof tok);
 	tokenize(a, line, ':', 0, SHCL_RULES_CURRENT, &tok);
-	if (selector_open_quote(&tok) || tok.has_comment) return 0;
+	ShclFault f;
+	if (tok.has_comment || tok.has_misspelled || path_fault(a, &tok, line, &f)) return 0;
 	ShclPathScan ps = path_of(a, &tok, line);
 	if (!ps.ok || ps.segs.len != 1) return 0;
 	const ShclSelector *sel = &ps.segs.data[0].sel;
@@ -11572,7 +12139,8 @@ static int path_reads_back(ShclArena *a, ShclStr path, const ShclVecSeg *segs) {
 	for (size_t k = 0; k < line.n; k++) if (line.p[k] == '\n' || line.p[k] == '\r') return 0;
 	ShclTokens tok; memset(&tok, 0, sizeof tok);
 	tokenize(a, line, ':', 0, SHCL_RULES_CURRENT, &tok);
-	if (selector_open_quote(&tok) || tok.has_comment) return 0;
+	ShclFault f;
+	if (tok.has_comment || tok.has_misspelled || path_fault(a, &tok, line, &f)) return 0;
 	ShclPathScan ps = path_of(a, &tok, line);
 	if (!ps.ok || ps.segs.len != segs->len) return 0;
 	for (size_t k = 0; k < segs->len; k++) {
@@ -11585,39 +12153,26 @@ static int path_reads_back(ShclArena *a, ShclStr path, const ShclVecSeg *segs) {
 }
 
 /* The selector body that picks out the instance a line `name: v` makes, in
-   *OUT, or 0 when no body can. It is built from the elements the reader takes
+   *OUT, or 0 when no body can. It is built from the element the reader takes
    out of that line's value, and each candidate is scanned back the way a file
    line is scanned, so none of the scanner's rules is copied here to go stale.
    That copy was the cause twice: an all-digit body past 64 bits, and a quoted
-   array element written as the body. One element tries the spelling it was
-   written in first; an array has only the bare body, since a quoted selector
-   matches one element only, and a bare one the elements joined. */
+   array element written as the body. The spelling the value was written in
+   goes first. A selector matches one plain value, never an array, so an array
+   has no body. */
 static int gen_selector_text(ShclArena *a, ShclStr v, ShclStr *out) {
 	ShclStr spelled = g_default_text(a, v);
 	ShclTokens tok; memset(&tok, 0, sizeof tok);
 	tokenize_value(a, spelled, 0, SHCL_RULES_CURRENT, &tok);
-	ShclSB d = {0, 0, 0};
-	ShclStr first = s_empty();
-	for (size_t k = 0; k < tok.nelem; k++) {
-		ShclStr e = piece_text(a, &tok.elements[k], spelled);
-		if (k == 0) first = e;
-		else sb_puts(a, &d, ", ");
-		sb_putS(a, &d, e);
-	}
-	ShclStr display = tok.nelem ? sb_S(&d) : s_empty();
-	ShclStr body[3], text[3];
+	if (tok.nelem != 1 || tok.has_array) return 0;
+	ShclStr text = piece_text(a, &tok.elements[0], spelled);
+	ShclStr body[3];
 	int quoted[3], n = 0;
-	if (tok.nelem == 1) {
-		if (piece_quoted(tok.elements[0].quote)) {
-			body[n] = s_slice(spelled, tok.value_start, tok.value_end); text[n] = first; quoted[n++] = 1;
-		}
-		body[n] = display; text[n] = display; quoted[n++] = 0;
-		body[n] = quote_text(a, first); text[n] = first; quoted[n++] = 1;
-	} else {
-		body[n] = display; text[n] = display; quoted[n++] = 0;
-	}
+	if (piece_quoted(tok.elements[0].quote)) { body[n] = s_slice(spelled, tok.value_start, tok.value_end); quoted[n++] = 1; }
+	body[n] = text; quoted[n++] = 0;
+	body[n] = quote_text(a, text); quoted[n++] = 1;
 	for (int k = 0; k < n; k++) {
-		if (selector_reads_back(a, body[k], text[k], quoted[k])) { *out = body[k]; return 1; }
+		if (selector_reads_back(a, body[k], text, quoted[k])) { *out = body[k]; return 1; }
 	}
 	return 0;
 }

@@ -38,7 +38,7 @@ int main() {
 		"port: 8080\n"
 		"ratio: 3.5\n"
 		"on: yes\n"
-		"tags: red, green, blue\n"
+		"tags: [red, green, blue]\n"
 		"city: Chicago\n"
 		"city: Boston\n";
 
@@ -103,8 +103,9 @@ int main() {
 
 	// The rest of the read surface the veneer used to be missing: the quoted
 	// flag, existence, per-slot array statuses, and the datetime array.
-	auto qd = shcl::Document::parse("a: @null\nb: \"@null\"\nnums: 1, x, 3\nwhen: 2026-08-02, nope\n");
+	auto qd = shcl::Document::parse("a: @null\nb: \"@null\"\nnums: [1, x, 3]\nwhen: [2026-08-02, nope]\nc: `#FF8800`\n");
 	CHECK(!qd.quoted("a") && qd.quoted("b") && !qd.quoted("nope"));
+	CHECK(qd.quoted("c") && qd.backtick("c") && !qd.backtick("b") && qd.read_string("c").value == "#FF8800");
 	CHECK(qd.exists("a") && !qd.exists("nope"));
 	auto nums = qd.read_int_array("nums");
 	CHECK(nums.slots.size() == 3 && nums.slots[0] == shcl::Status::Good && nums.slots[1] == shcl::Status::BadType);
@@ -171,7 +172,7 @@ int main() {
 	CHECK(rawDoc.read_raw("missing").status == shcl::Status::NotFound);
 	auto fa = qd.read_float_array("nums");
 	CHECK(fa.slots.size() == 3 && fa.slots[1] == shcl::Status::BadType && fa.value[2] == 3.0);
-	auto ba = shcl::Document::parse("flags: true, false, x\n").read_bool_array("flags");
+	auto ba = shcl::Document::parse("flags: [true, false, x]\n").read_bool_array("flags");
 	CHECK(ba.value.size() == 3 && ba.value[0] && !ba.value[1] && ba.slots[2] == shcl::Status::BadType);
 	CHECK(doc.get<double>("ratio").value == 3.5);
 	CHECK(doc.get<bool>("on").value == true);
@@ -185,7 +186,7 @@ int main() {
 	CHECK(doc.get_or<std::vector<int64_t>>("tags", {7}) == std::vector<int64_t>({7}));
 	CHECK(qd.get_or<std::vector<double>>("nums", {}).empty()); // a bad slot is not Good
 	CHECK(doc.get_or<std::vector<bool>>("nope", {true}) == std::vector<bool>({true}));
-	auto oneDay = shcl::Document::parse("d: 2026-08-02\nds: 2026-08-02, 2026-08-03\n");
+	auto oneDay = shcl::Document::parse("d: 2026-08-02\nds: [2026-08-02, 2026-08-03]\n");
 	auto fallbackDay = oneDay.read_datetime("d").value;
 	CHECK(oneDay.get_or<shcl::DateTime>("d", shcl::DateTime()).str() == "2026-08-02");
 	CHECK(oneDay.get_or<shcl::DateTime>("nope", fallbackDay).str() == "2026-08-02");
@@ -329,9 +330,10 @@ int main() {
 		CHECK(w.set_float_array("fs", {1.5, 2}) && w.read_float_array("fs").value == std::vector<double>({1.5, 2}));
 		CHECK(w.set_bool_array("flags", {true, false, true}) && w.read_bool_array("flags").value == std::vector<bool>({true, false, true}));
 		CHECK(w.set_string_array("tags", {"red", "a,b", ""}) && w.read_string_array("tags").value == std::vector<std::string>({"red", "a,b", ""}));
-		CHECK(w.set_literal("lit", "80, 443 # two") && w.read_int_array("lit").value == std::vector<int64_t>({80, 443}));
+		CHECK(w.set_literal("lit", "[80, 443] # two") && w.read_int_array("lit").value == std::vector<int64_t>({80, 443}));
+		CHECK(!w.set_literal("lit3", "80, 443") && !w.exists("lit3"));
 		CHECK(!w.set_literal("lit2", "\"open") && !w.exists("lit2"));
-		auto stamps = shcl::Document::parse("t: 2026-08-02T10:20:30.5Z, 2026-09-01\n").read_datetime_array("t");
+		auto stamps = shcl::Document::parse("t: [2026-08-02T10:20:30.5Z, 2026-09-01]\n").read_datetime_array("t");
 		CHECK(stamps.ok() && stamps.value.size() == 2);
 		CHECK(w.set_datetime("when", stamps.value[0]) && w.read_datetime_str("when").value == "2026-08-02T10:20:30.5Z");
 		CHECK(w.set_datetime_array("whens", stamps.value) && w.read_datetime_array_str("whens").value == std::vector<std::string>({"2026-08-02T10:20:30.5Z", "2026-09-01"}));
@@ -357,7 +359,7 @@ int main() {
 		CHECK(w.set_int_default("port", 1) && w.get_or<int64_t>("port", 0) == 9090);
 		CHECK(!w.set_float_default("ratio", std::numeric_limits<double>::infinity()) && w.get_or<double>("ratio", 0) == 0.25);
 		CHECK(w.set_int_default("d.i", 1) && w.set_float_default("d.f", 0.5) && w.set_bool_default("d.b", false));
-		CHECK(w.set_string_default("d.s", "x") && w.set_literal_default("d.l", "1, 2") && w.set_raw_default("d.r", "body", ""));
+		CHECK(w.set_string_default("d.s", "x") && w.set_literal_default("d.l", "[1, 2]") && w.set_raw_default("d.r", "body", ""));
 		CHECK(w.set_datetime_default("d.t", stamps.value[1]) && w.set_int_array_default("d.ia", {1}) && w.set_float_array_default("d.fa", {1.5}));
 		CHECK(w.set_bool_array_default("d.ba", {true}) && w.set_string_array_default("d.sa", {"s"}) && w.set_datetime_array_default("d.ta", stamps.value));
 		CHECK(w.set_string_default("d.s", "y") && w.get_or<std::string>("d.s", "") == "x");
@@ -394,6 +396,13 @@ int main() {
 		tok.cap = 1;
 		shcl::tokenize("a: 1, 2, 3", ':', false, shcl::Rules::Current, tok);
 		CHECK(tok.capped && tok.cap == 1 && !tok.fault_at && tok.fault_why == nullptr);
+		tok.cap = 0;
+		// A bracket array, a backtick value, and a bare name that needs quotes.
+		shcl::tokenize("a: [1, `b`", ':', false, shcl::Rules::Current, tok);
+		CHECK(tok.array && *tok.array == 3 && tok.array_fault_at && std::string(tok.array_fault_why) == "no closing ']' on the line");
+		CHECK(tok.elements.size() == 2 && tok.elements[1].quote == shcl::Quote::Backtick && !tok.misspelled);
+		shcl::tokenize("404: x", ':', false, shcl::Rules::Current, tok);
+		CHECK(tok.misspelled && *tok.misspelled == 0 && !tok.array && !tok.array_fault_at);
 	}
 
 	// The hints a schema disavows, dropped from a parsed document by hand.
@@ -401,7 +410,7 @@ int main() {
 		auto reps = shcl::Document::parse("host: a\nhost: b\n");
 		auto count = [](const shcl::Document &d, const char *code) { std::size_t n = 0; for (const auto &g : d.diagnostics()) if (g.code == code) n++; return n; };
 		CHECK(count(reps, "H001") == 1);
-		shcl::suppress_declared_repeats(shcl::Document::parse("field: host\n\trepeat: 0, 5\n"), reps);
+		shcl::suppress_declared_repeats(shcl::Document::parse("field: host\n\trepeat: [0, 5]\n"), reps);
 		CHECK(count(reps, "H001") == 0);
 		auto parts = shcl::Document::parse("s: a\n\tx: 1\nt: 1\ns: a\n\ty: 2\n");
 		CHECK(count(parts, "H002") == 1);
@@ -467,7 +476,7 @@ int main() {
 	// loop on one long-lived Document stays flat instead of climbing until the
 	// Document is destroyed.
 	{
-		auto held = shcl::Document::parse("ports: 80, 443, 8080\n");
+		auto held = shcl::Document::parse("ports: [80, 443, 8080]\n");
 		for (int i = 0; i < 20000; i++) {
 			auto r = held.read_int_array("ports");
 			CHECK(r.status == shcl::Status::Good && r.value.size() == 3);
