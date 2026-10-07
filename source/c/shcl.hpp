@@ -164,6 +164,9 @@ struct Tokens {
 	// The first bare name that breaks the spelling rule but still reads, such
 	// as 404 or `user name` (E014).
 	std::optional<std::size_t> misspelled{};
+	// The first selector written in brackets, x[a], the old spelling (E029).
+	// Its body is read as a selector all the same.
+	std::optional<std::size_t> bracket_selector{};
 	// The caller's element cap (0 = none), kept across calls. capped says it
 	// stopped the scan, and elements is then incomplete.
 	std::size_t cap{};
@@ -175,8 +178,8 @@ struct Tokens {
 };
 
 // Tokenize one line (sep ':') or one lookup path (path: the bare `*` name
-// wildcard is admitted, and a `#` in a selector body is the [#N] index, not a
-// comment). text is the line after its indent, or the path. out.cap is read
+// wildcard is admitted, and a `#` in a selector body opens no comment). text
+// is the line after its indent, or the path. out.cap is read
 // and every other field is replaced.
 void tokenize(std::string_view text, char sep, bool path, Rules rules, Tokens &out);
 // The value half alone: everything from `from` on, split into pieces, with the
@@ -336,7 +339,7 @@ public:
 	// Every field path, file order, deduplicated. A segment that is not
 	// bare-name-safe comes back quoted, so each path reads back as a lookup.
 	std::vector<std::string> paths() const;
-	// paths() one instance at a time: every binding's path, with [#i] on each
+	// paths() one instance at a time: every binding's path, with (i) on each
 	// segment whose name its parent repeats, so each path reads one node.
 	std::vector<std::string> instance_paths() const;
 	// The comment lines above the node(s) at a path, the ones clear_comments
@@ -643,6 +646,7 @@ static void copy_tokens(const shcl_tokens &t, Tokens &out) {
 	out.fault_at = t.has_fault ? std::optional<std::size_t>(t.fault_at) : std::nullopt;
 	out.fault_why = t.has_fault ? t.fault_why : nullptr;
 	out.misspelled = t.has_misspelled ? std::optional<std::size_t>(t.misspelled) : std::nullopt;
+	out.bracket_selector = t.has_bracket_selector ? std::optional<std::size_t>(t.bracket_selector) : std::nullopt;
 	out.capped = t.capped != 0;
 }
 

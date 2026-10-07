@@ -104,7 +104,7 @@ static const char *HELP =
 	"With --write, a FILE that does not exist yet is created. Lines the edits leave\n"
 	"alone come back as they were written; with --layer, or where the edited text\n"
 	"would not load back the same, the whole document comes out canonical, the way\n"
-	"fmt writes it. PATH ends at the first '=' outside quotes and brackets, so a\n"
+	"fmt writes it. PATH ends at the first '=' outside quotes and parens, so a\n"
 	"selector may hold one. Ops:\n"
 	"  int|float|bool|string|datetime<TAB>PATH<TAB>VALUE       set a scalar\n"
 	"  <type>-array<TAB>PATH<TAB>V1<TAB>V2...                  set an inline array\n"
@@ -316,13 +316,13 @@ static const char *CODES =
 	"E001|error|field line under a parent holding stacked '- ' list items\n"
 	"  A parent holds list items or named children, not both. The field line\n"
 	"  is kept and the items stay.\n"
-	"E002|error|value after a last-segment selector (a.b[X]: v)\n"
+	"E002|error|value after a last-segment selector (a.b(X): v)\n"
 	"  The selector already says which instance, so the value has nowhere to go\n"
 	"  and is ignored. Put the value on the line that creates the instance.\n"
 	"E003|error|selector names an instance that does not exist\n"
-	"  a[5].b where there is one a. An index selects an existing instance by\n"
+	"  a(5).b where there is one a. An index selects an existing instance by\n"
 	"  position and never creates one, so a binding line should select by value\n"
-	"  instead. In a file the index is the bare [5], since a # opens a comment.\n"
+	"  instead.\n"
 	"E004|error|wildcard selector on a binding line\n"
 	"  Wildcards read every instance, so there is no single one to write to.\n"
 	"  They are query-only.\n"
@@ -425,6 +425,12 @@ static const char *CODES =
 	"  value and put the list in a field under it: methods: [GET, POST]. The line\n"
 	"  is kept verbatim, and the lines under it load under the field with no\n"
 	"  value.\n"
+	"E029|error|a selector in brackets, the old spelling\n"
+	"  Selectors are written in parens: person(Bucky).city, person(\"New York\"),\n"
+	"  person(0) and person(*). Brackets are only for arrays. The line is kept\n"
+	"  as written and binds nothing. When it selects by value, the lines under\n"
+	"  it still load, under the instance it names. On a command line, quote the\n"
+	"  path, since a bare ( is a syntax error in most shells.\n"
 	"H001|hint|repeated bare leaf (an array written as repeated lines)\n"
 	"  Repeated leaves are legal - that is how instances are written - but\n"
 	"  'tags: red' twice and 'tags: [red, blue]' look alike, so the parser says\n"
@@ -475,7 +481,7 @@ static const char *CODES =
 	"  init checks its own output before returning it, so a starter config that\n"
 	"  would fail its first check is a fault instead. A default outside its\n"
 	"  field's constraints is one cause. A required path nothing can generate is\n"
-	"  the other, such as one with a [#N] selector or a * name. Line 0.\n"
+	"  the other, such as one with an index selector, a(0), or a * name. Line 0.\n"
 	"V099|error|schema failed to load\n"
 	"  The schema had error diagnostics of its own; they are printed above this\n"
 	"  with their own line numbers. Line 0.\n";
@@ -695,10 +701,11 @@ static int array_text(const char *v, size_t n) {
 // text, and only the caller knows which half of the op that was, so it names
 // it: a setter refused for its value used to report the sentence written for
 // shcl_set_literal whatever the op.
+static const char *bad_path(const char *path, size_t plen); // beside split_set
 static const char *describe_refusal(shcl_doc *d, const char *path, size_t plen, int array, const char *unwritable) {
 	switch (shcl_write_reason_(d, path, plen)) {
 	case SHCL_W_WRITABLE: { const char *why = array_refusal(d, path, plen, array); return why ? why : unwritable; }
-	case SHCL_W_BAD_PATH: return "not a usable path";
+	case SHCL_W_BAD_PATH: return bad_path(path, plen);
 	case SHCL_W_VALUE_IN_PATH: return "a path with a value part cannot be written";
 	case SHCL_W_WILDCARD: return "a wildcard path cannot be written";
 	case SHCL_W_NO_SUCH_INDEX: return "no instance at that index";
@@ -803,9 +810,28 @@ static int unusable_path(shcl_doc *d, const char *path, size_t plen) {
 	return r == SHCL_W_BAD_PATH || r == SHCL_W_VALUE_IN_PATH;
 }
 
-// PATH=VALUE at the first `=` outside quotes and brackets, so a selector
-// holding one (`x[a=b].c=1`) still addresses its instance. The tokenizer reads
-// the path half with `=` as its separator, so quotes and brackets mean here
+// A path with a selector in brackets, the old spelling (E029). A 2.x habit
+// still types it, so a refusal names it.
+static int bracket_path(const char *path, size_t plen) {
+	ShclArena a; memset(&a, 0, sizeof a);
+	ShclTokens tok; memset(&tok, 0, sizeof tok);
+	ShclStr ps; ps.p = path; ps.n = plen;
+	tokenize(&a, ps, ':', 1, SHCL_RULES_CURRENT, &tok);
+	int has = tok.has_bracket_selector;
+	arena_free(&a);
+	return has;
+}
+
+#define BRACKET_PATH "a selector is written in parens now, name(value)"
+
+// What a path the scanner refused is called.
+static const char *bad_path(const char *path, size_t plen) {
+	return bracket_path(path, plen) ? BRACKET_PATH : "not a usable path";
+}
+
+// PATH=VALUE at the first `=` outside quotes and parens, so a selector
+// holding one (`x(a=b).c=1`) still addresses its instance. The tokenizer reads
+// the path half with `=` as its separator, so quotes and parens mean here
 // exactly what they mean in a file; an argument whose path half is not a path
 // at all has no `=` to split at. Returns 0 then.
 static int split_set(const char *arg, size_t *plen, const char **val) {
@@ -982,7 +1008,7 @@ static int do_get(Opts *o) {
 			} else
 				fprintf(stderr, "cannot read %s as %s: value is not a valid %s (in %s)\n", path, tbuf, tbuf, file);
 		} else if (status == SHCL_NOT_FOUND) {
-			fprintf(stderr, "cannot read %s as %s: no value at that path (in %s)\n", path, tbuf, file);
+			fprintf(stderr, "cannot read %s as %s: %s (in %s)\n", path, tbuf, bracket_path(path, plen) ? BRACKET_PATH : "no value at that path", file);
 		} else if (status == SHCL_EMPTY) {
 			fprintf(stderr, "cannot read %s as %s: the value is empty (in %s)\n", path, tbuf, file);
 		} else {
@@ -1703,7 +1729,7 @@ static int apply_op(shcl_doc *d, const char *line, size_t linelen, size_t lineno
 	else if (OP("empty") && !only_absent) wrote = shcl_set_empty(d, path, plen);
 	else if (OP("comment") && !only_absent) { char *b = (char *)xrealloc(NULL, vn ? vn : 1); size_t m = unescape_ops(v, vn, b); wrote = shcl_set_comment(d, path, plen, b, m); free(b); }
 	else if ((OP("remove") || OP("clear-comments")) && !only_absent && unusable_path(d, path, plen)) {
-		op_err(lineno, "cannot %.*s %.*s: not a usable path", (int)fn[0], fp[0], (int)plen, path); rc = 1;
+		op_err(lineno, "cannot %.*s %.*s: %s", (int)fn[0], fp[0], (int)plen, path, bad_path(path, plen)); rc = 1;
 	}
 	else if (OP("remove") && !only_absent) shcl_remove(d, path, plen);
 	else if (OP("clear-comments") && !only_absent) shcl_clear_comments(d, path, plen);
@@ -2165,12 +2191,12 @@ static int set_value_opt(Opts *o, const char *name, const char *v) {
 		shcl_doc *empty = shcl_parse("", 0);
 		int unusable = unusable_path(empty, v, strlen(v));
 		shcl_free(empty);
-		if (unusable) { fprintf(stderr, "bad --remove value (not a usable path): %s (see --help)\n", v); return 1; }
+		if (unusable) { fprintf(stderr, "bad --remove value (%s): %s (see --help)\n", bad_path(v, strlen(v)), v); return 1; }
 		set_push(o, v, strlen(v), "", "--remove"); opt_seen(o, "--remove");
 	} else if (!strcmp(name, "--set") || !strcmp(name, "--set-literal")
 	           || !strcmp(name, "--set-default") || !strcmp(name, "--set-literal-default")) {
 		size_t plen; const char *val;
-		if (!split_set(v, &plen, &val) || plen == 0) { fprintf(stderr, "bad %s value (want PATH=VALUE, quotes and brackets balanced): %s (see --help)\n", name, v); return 1; }
+		if (!split_set(v, &plen, &val) || plen == 0) { fprintf(stderr, "bad %s value (want PATH=VALUE, quotes and parens balanced): %s (see --help)\n", name, v); return 1; }
 		set_push(o, v, plen, val, name); opt_seen(o, name);
 	}
 	return 0;

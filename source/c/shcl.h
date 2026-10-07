@@ -98,7 +98,7 @@ typedef enum {
 	SHCL_W_BAD_PATH,      // empty path, or the scanner rejected it
 	SHCL_W_VALUE_IN_PATH, // the path has a `: value` part; writes take values separately
 	SHCL_W_WILDCARD,      // wildcard selectors are query-only
-	SHCL_W_NO_SUCH_INDEX, // a `[#k]` instance that does not (and can never) exist
+	SHCL_W_NO_SUCH_INDEX, // a `(k)` instance that does not (and can never) exist
 	SHCL_W_TOO_DEEP       // deeper than the nesting cap; the writer never creates past it
 } shcl_write_reason;
 
@@ -292,7 +292,7 @@ shcl_save_result shcl_save_file_keep_lines(shcl_doc *d, const char *path, int *k
 // setting is `# `, so the two read apart; both are ordinary comments to the
 // language, and nothing reads them back. A path whose last segment selects by
 // value is written without that selector when it has a `default`, since a value
-// after the selector would be ignored: `env[prod]` with `default: prod` is
+// after the selector would be ignored: `env(prod)` with `default: prod` is
 // `env: prod`. The output loads clean and validates clean against the
 // schema that produced it, both checked against the finished text, so a line
 // that does not load, or a schema whose own `default` breaks its field's
@@ -395,7 +395,7 @@ size_t shcl_children(shcl_doc *d, const char *path, size_t plen, shcl_str **out)
 // count; *out stays valid until shcl_free, or until shcl_reads_release.
 size_t shcl_paths(shcl_doc *d, shcl_str **out);
 // shcl_paths one instance at a time: every binding's path in file order, with
-// `[#i]` on each segment whose name repeats under its parent, so each path
+// `(i)` on each segment whose name repeats under its parent, so each path
 // reads exactly one node and a repeated block is walked instance by instance.
 // Segments are written as shcl_paths writes them. Returns the count; *out
 // stays valid until shcl_free, or until shcl_reads_release.
@@ -535,6 +535,7 @@ typedef struct {
 	int has_comment; size_t comment;  // the `#` that opens a trailing comment
 	int has_fault; size_t fault_at; const char *fault_why; // where the path stopped making sense, and why (E014 as a whole)
 	int has_misspelled; size_t misspelled; // the first bare name that breaks the spelling rule but still reads, such as `404` or `user name` (E014, level held open)
+	int has_bracket_selector; size_t bracket_selector; // the first selector written in brackets, `x[a]`, the old spelling (E029); its body is read as a selector all the same
 	size_t cap; int capped;
 	size_t seg_cap, elem_cap;         // storage bookkeeping
 	const void *arena;                // the read arena the two arrays live in
@@ -543,8 +544,8 @@ typedef struct {
 // shcl_migrate only.
 typedef enum { SHCL_RULES_CURRENT, SHCL_RULES_V2 } shcl_rules;
 // Tokenize one line (sep ':') or one lookup path (path: the bare `*` name
-// wildcard is admitted, and a `#` in a selector body is the `[#N]` index
-// rather than a comment); text is the line after its indent, or the path.
+// wildcard is admitted, and a `#` in a selector body opens no comment); text
+// is the line after its indent, or the path.
 void shcl_tokenize(shcl_doc *d, const char *text, size_t len, char sep, int path, shcl_rules rules, shcl_tokens *out);
 // The value half alone: everything from `from` on, split into pieces, with
 // the comment found on the way.
@@ -606,7 +607,7 @@ const char *shcl_schema_ref(const char *text, size_t len, size_t *ref_len);
 // typed value and places it at a path (creating intermediate nodes). New values
 // are copied into the arena, so the caller's buffers need not outlive the call.
 // Setters return 1 when the write applied, 0 when the path is unusable
-// (wildcard, missing [#N] instance, a value part, or past the depth cap) or
+// (wildcard, missing (N) instance, a value part, or past the depth cap) or
 // the value has no spelling the reader accepts (a non-finite float, a datetime
 // the reader would refuse, a raw info-string holding a `#`) - nothing is
 // created on failure. _default forms return 1 when already present.
@@ -1443,8 +1444,9 @@ static ShclStr value_display(ShclArena *a, const ShclValue *v) {
 // - A bare name is an ASCII letter, then ASCII letters, digits, `-` and `_`.
 //   A file line's name that breaks only that rule still reads, up to the
 //   separator, a dot, a bracket or a comment, and is marked misspelled
-//   (E014). A `[` right after a name opens a selector, whose bare body runs
-//   to the first `]`.
+//   (E014). A `(` right after a name opens a selector, whose bare body runs
+//   to the first `)`. A `[` there is the old selector spelling: read the
+//   same way, to its `]`, and noted, so the parser refuses it (E029).
 // - A value is split on unquoted commas with a blank, a comment or the end
 //   after them, each piece trimmed; any other comma is text (`rw,noatime`).
 //   More than one piece outside brackets is a bare comma, which the parser
@@ -1473,7 +1475,7 @@ static void tok_clear(ShclTokens *t) {
 	t->nseg = 0; t->has_sep = 0; t->sep = 0; t->value_start = 0; t->value_end = 0; t->nelem = 0;
 	t->has_array = 0; t->array = 0; t->has_array_fault = 0; t->array_fault_at = 0; t->array_fault_why = NULL;
 	t->has_comment = 0; t->comment = 0; t->has_fault = 0; t->fault_at = 0; t->fault_why = NULL; t->capped = 0;
-	t->has_misspelled = 0; t->misspelled = 0;
+	t->has_misspelled = 0; t->misspelled = 0; t->has_bracket_selector = 0; t->bracket_selector = 0;
 }
 static void tok_push_seg(ShclArena *a, ShclTokens *t, ShclSegTok s) {
 	if (t->nseg == t->seg_cap) { size_t nc = t->seg_cap ? t->seg_cap * 2 : 8; t->segments = (ShclSegTok *)arena_grow(a, t->segments, t->seg_cap, nc, sizeof(ShclSegTok)); t->seg_cap = nc; }
@@ -1547,10 +1549,10 @@ static int loose_comma(ShclStr s, size_t at) {
 }
 
 /* One piece from pos: a value element up to an unquoted comma or comment, or
-   a selector body up to an unquoted `]` (term). Fills the trimmed piece and
-   returns the offset of what ended it: the terminator, a comment's `#`, or
-   the end of the text. comments is 0 only for a selector body in a lookup
-   path, where `[#N]` is the index spelling. In a bracket array (array) the
+   a selector body up to an unquoted `)` or `]` (term). Fills the trimmed
+   piece and returns the offset of what ended it: the terminator, a comment's
+   `#`, or the end of the text. comments is 0 only for a selector body in a
+   lookup path, where a `#` opens nothing. In a bracket array (array) the
    `]` that closes it ends a value element too, and every comma does;
    elsewhere only a loose one does, 2.x aside. */
 static size_t scan_piece(ShclStr s, size_t pos, char term, ShclRules rules, int comments, int array, ShclPiece *out) {
@@ -1717,10 +1719,10 @@ static void tokenize_value(ShclArena *a, ShclStr text, size_t from, ShclRules ru
 }
 
 /* Tokenize one line (sep = ':') or one lookup path (path: the bare `*` name
-   wildcard is admitted, and a `#` in a selector body is the `[#N]` index
-   rather than a comment); the CLI's --set passes '='. out is cleared and
-   reused, so a parse allocates once per document rather than once per line.
-   text is the line after its indent, or the path. */
+   wildcard is admitted, and a `#` in a selector body opens no comment); the
+   CLI's --set passes '='. out is cleared and reused, so a parse allocates
+   once per document rather than once per line. text is the line after its
+   indent, or the path. */
 static void tokenize(ShclArena *a, ShclStr text, char sep, int path, ShclRules rules, ShclTokens *out) {
 	tok_clear(out);
 	ShclStr s = text;
@@ -1764,16 +1766,22 @@ static void tokenize(ShclArena *a, ShclStr text, char sep, int path, ShclRules r
 			seg.name.start = start; seg.name.end = pos; seg.name.quote = SHCL_QUOTE_NONE;
 		}
 		skip_wsp(s, &pos);
-		int have_open = 0; size_t open = 0;
-		if (pos < s.n && s.p[pos] == '[') { have_open = 1; open = pos; }
+		/* 2.x wrote a selector in brackets only. Now it is parens, and a
+		   bracket one still reads, to its `]`, so the parser can say why. */
+		int have_open = 0; size_t open = 0; char close = ']';
+		if (pos < s.n && s.p[pos] == '(' && rules == SHCL_RULES_CURRENT) { have_open = 1; open = pos; close = ')'; }
+		else if (pos < s.n && s.p[pos] == '[') {
+			if (rules == SHCL_RULES_CURRENT && !out->has_bracket_selector) { out->has_bracket_selector = 1; out->bracket_selector = pos; }
+			have_open = 1; open = pos;
+		}
 		if (!have_open && rules == SHCL_RULES_V2 && pos < s.n && s.p[pos] == sep) {
 			size_t q = pos + 1; skip_wsp(s, &q);
 			if (q < s.n && s.p[q] == '[') { have_open = 1; open = q; }
 		}
 		if (have_open) {
 			if (seg.star) { tok_fault(out, open, "selector on a name wildcard"); return; }
-			ShclPiece piece; size_t stop = scan_piece(s, open + 1, ']', rules, !path, 0, &piece);
-			if (stop >= s.n || s.p[stop] != ']') { tok_fault(out, open, "unterminated selector"); return; }
+			ShclPiece piece; size_t stop = scan_piece(s, open + 1, close, rules, !path, 0, &piece);
+			if (stop >= s.n || s.p[stop] != close) { tok_fault(out, open, "unterminated selector"); return; }
 			if (piece.end == piece.start && piece.quote == SHCL_QUOTE_NONE) { tok_fault(out, open, "empty selector"); return; }
 			if (piece.quote == SHCL_QUOTE_OPEN && rules == SHCL_RULES_V2) { tok_fault(out, open, "unterminated quote in a selector"); return; }
 			seg.selector = piece; seg.has_selector = 1;
@@ -2477,7 +2485,7 @@ static int fault_set(ShclFault *f, const char *code, ShclStr msg, int opens) {
    Specification). A field value: spaces are fine, and a loose comma splits
    it. A list item: as a value, but a loose colon is judged later. An element
    in `[]`: no whitespace, and every comma splits. A selector body: no
-   whitespace, colon, comma or bracket either. */
+   whitespace, colon, comma, bracket or paren either, and no `#` to start it. */
 typedef enum { BARE_VALUE, BARE_ITEM, BARE_ELEMENT, BARE_SELECTOR } ShclBare;
 static const char *bare_name(ShclBare kind) {
 	switch (kind) {
@@ -2502,12 +2510,19 @@ static int loose_colon(ShclStr raw, size_t i) {
 static int bare_trouble(ShclArena *a, ShclStr raw, ShclBare kind, ShclStr *why) {
 	int strict = kind == BARE_ELEMENT || kind == BARE_SELECTOR;
 	const char *kn = bare_name(kind);
+	/* The old `[#N]` index. A file line reads that `#` as a comment, so only
+	   a lookup path gets here with one. */
+	if (kind == BARE_SELECTOR && raw.n && raw.p[0] == '#') {
+		*why = s_lit("a '#' at the start of a bare selector; an index is a bare number, x(0), and a value starting with '#' is quoted");
+		return 1;
+	}
 	for (size_t i = 0; i < raw.n;) {
 		uint32_t c; size_t l = utf8_decode(raw.p, raw.n, i, &c);
 		const char *trouble = NULL;
 		ShclSB m = {0};
 		if (c == '\'' || c == '"' || c == '`') trouble = "a quote";
 		else if (c == '[' || c == ']') trouble = "a bracket";
+		else if ((c == '(' || c == ')') && kind == BARE_SELECTOR) trouble = "a paren";
 		else if (c == '\t' && !strict) trouble = "a tab";
 		else if (c == ' ' && strict) trouble = "a space";
 		else if (white_space(c) && strict) trouble = "whitespace";
@@ -2614,8 +2629,18 @@ static int path_fault(ShclArena *a, const ShclTokens *tok, ShclStr s, ShclFault 
    name. A line with no colon that is one name or path, `404` included, is the
    missing colon (E015), so the name rule asks only of a line that has one. A
    blank in a bare name with no colon could be a name and a value, so that line
-   is not guessed at (spec.md, Error handling philosophy). */
+   is not guessed at (spec.md, Error handling philosophy). A selector in
+   brackets comes first, since it is what most often makes the rest look
+   wrong. Its line is kept, and holds its level open as the path it would read
+   as in parens, when that reads. */
 static int name_fault(ShclArena *a, const ShclTokens *tok, ShclStr s, ShclFault *f) {
+	if (tok->has_bracket_selector) {
+		ShclFault pf;
+		int opens = !path_fault(a, tok, s, &pf);
+		fault_set(f, "E029", s_lit("selector in brackets; write it in parens, name(value), since brackets are only for arrays"), opens);
+		f->has_at = 1; f->at = tok->bracket_selector;
+		return 1;
+	}
 	if (path_fault(a, tok, s, f)) return 1;
 	if (!tok->has_misspelled) return 0;
 	if (tok->has_sep) return fault_set(f, "E014", s_lit("field name needs quotes; a bare name is a letter, then letters, digits, '-' and '_'"), 1);
@@ -2645,8 +2670,8 @@ static int is_field_text(ShclStr text) { return !(text.n && (text.p[0] == '#' ||
    block (value-syntax.md, Selectors and discriminators). */
 static int single_scalar(const ShclValue *v) { return v->kind == V_CELL; }
 
-/* The predicate a `[value]` selector matches with: the display form, which is
-   built from logical strings, so `["q◉DQUOTE◉uote"]` finds `'q"uote'` - a
+/* The predicate a `(value)` selector matches with: the display form, which is
+   built from logical strings, so `("q◉DQUOTE◉uote")` finds `'q"uote'` - a
    logical-string match, not spelling against spelling. */
 static ShclStr disp_key(ShclArena *a, const ShclValue *v) {
 	return value_display(a, v);
@@ -2686,7 +2711,7 @@ static uint64_t name_key(size_t parent, ShclStr name) {
    'e', or each cell or array element (and the raw info-string)
    length-prefixed so the sequence is injective - without building it as a
    string. Elements are the logical strings, so two spellings of one string are
-   one instance: names have followed that rule since 2.0, and a `[value]`
+   one instance: names have followed that rule since 2.0, and a `(value)`
    selector matches on the logical text already. Brackets are part of the
    value, so `[80]` is not the scalar 80. */
 static uint64_t merge_hash(ShclStr name, const ShclValue *v) {
@@ -2731,7 +2756,7 @@ static int merge_eq(ShclStr name_a, const ShclValue *va, ShclStr name_b, const S
 }
 
 
-/* Hash of the (name, display) pair a `[value]` selector matches with - what
+/* Hash of the (name, display) pair a `(value)` selector matches with - what
    disp_key gives, streamed instead of built. A selector never matches an
    array, so an array only has to hash the same way every time. */
 static uint64_t disp_hash(ShclStr name, const ShclValue *v) {
@@ -3358,8 +3383,9 @@ typedef struct { ShclStr name; ShclStr name_src; ShclSelector sel; int star; } S
 DEFINE_VEC(ShclVecSeg, ShclSegment)
 typedef struct { int ok; ShclVecSeg segs; int has_value; ShclStr value_text; ShclStr err; } ShclPathScan; // value_text: after the separator colon, before any comment, trimmed
 
-/* The spelling of an index selector - an optional `#`, an optional `+`, then
-   digits - whatever its size. The grammar says 1*DIGIT, with no upper bound. */
+/* The spelling of an index selector - an optional `+`, then digits - whatever
+   its size. The grammar says 1*DIGIT, with no upper bound. The optional `#`
+   is 2.x's `[#N]`, which migrate still reads. */
 static int index_shape(ShclStr body) {
 	size_t i = 0;
 	if (i < body.n && body.p[i] == '#') i++;
@@ -3394,9 +3420,8 @@ static ShclSelector selector_of(ShclArena *a, const ShclPiece *p, ShclStr text) 
 		sel.tag = SEL_VALUE; sel.value = body; sel.quoted = 1; return sel;
 	}
 	if (body.n == 1 && body.p[0] == '*') { sel.tag = SEL_WILDCARD; return sel; }
-	if (body.n >= 1 && body.p[0] == '#' && parse_u64(s_slice(body, 1, body.n), &idx)) { sel.tag = SEL_INDEX; sel.index = idx; return sel; }
 	if (parse_u64(body, &idx)) { sel.tag = SEL_INDEX; sel.index = idx; return sel; }
-	if (index_shape(body)) {
+	if (!(body.n && body.p[0] == '#') && index_shape(body)) {
 		/* All digits but past u64: an index no instance can have, not a
 		   value selector that would create one on a write. */
 		sel.tag = SEL_INDEX; sel.index = UINT64_MAX; return sel;
@@ -3432,16 +3457,24 @@ static ShclPathScan path_of(ShclArena *a, const ShclTokens *tok, ShclStr text) {
 	return ps;
 }
 
-/* Scan a lookup path `a . b [sel] . c`: the document-line spelling plus the
+/* Why a lookup path with a selector in brackets is refused. */
+#define BRACKET_LOOKUP "selector in brackets; write it in parens, name(value)"
+
+/* Scan a lookup path `a . b (sel) . c`: the document-line spelling plus the
    bare `*` segment (the name wildcard - any child name), which document lines
    never take; only lookups (reads, the writer probe, schema paths) do.
-   Whitespace around dots, colons and brackets is insignificant. A path a file
-   line could not hold is refused the same: a bad escape, or a bare selector
-   body with whitespace, a quote, a colon, a comma or a bracket in it (E025). */
+   Whitespace around dots, colons and parens is insignificant. A path a file
+   line could not hold is refused the same: a selector in brackets (E029), a
+   bad escape, or a bare selector body with whitespace, a quote, a colon, a
+   comma, a bracket, a paren or a leading `#` in it (E025). */
 static ShclPathScan scan_lookup(ShclArena *a, ShclStr input) {
 	ShclTokens tok; memset(&tok, 0, sizeof tok);
 	tokenize(a, input, ':', 1, SHCL_RULES_CURRENT, &tok);
 	ShclFault f;
+	if (tok.has_bracket_selector) {
+		ShclPathScan ps; ps.ok = 0; memset(&ps.segs, 0, sizeof ps.segs); ps.has_value = 0; ps.value_text = s_empty(); ps.err = s_lit(BRACKET_LOOKUP);
+		return ps;
+	}
 	if (path_fault(a, &tok, input, &f)) {
 		ShclPathScan ps; ps.ok = 0; memset(&ps.segs, 0, sizeof ps.segs); ps.has_value = 0; ps.value_text = s_empty(); ps.err = f.msg;
 		return ps;
@@ -4016,7 +4049,7 @@ typedef struct { ShclArena line, hints; ShclVecMapPtr cmaps, dmaps; } ShclParseO
    hash) at deferral start, and the deferred remap flushes before any other
    map lookup. */
 /* dmaps: per-node hash-of-(name, display) -> first matching child - the
-   `[value]` selector accelerator (display is a different, non-injective
+   `(value)` selector accelerator (display is a different, non-injective
    predicate from cmaps' merge key). Ownership is by hash alone and a query
    verifies its hit against the arena; same first-wins discipline, same
    mutation sites. */
@@ -5839,7 +5872,7 @@ static ShclResolved resolve_from(shcl_doc *d, const size_t *start, size_t nstart
 			}
 		}
 		if (seg->star) {
-			// Name wildcard: same per-slot split as `[*]`, over every child.
+			// Name wildcard: same per-slot split as `(*)`, over every child.
 			ShclSegment *rest = segs + si + 1; size_t nrest = nsegs - si - 1;
 			ShclVecSlot slots = {0};
 			for (size_t k = 0; k < next.len; k++) {
@@ -6080,7 +6113,7 @@ size_t shcl_instance_paths(shcl_doc *d, shcl_str **out) {
 			sb_putS(a, &b, seg);
 			NCount *c = &counts[which[i]];
 			if (c->total > 1) {
-				char ix[32]; int len = snprintf(ix, sizeof ix, "[#%llu]", (unsigned long long)c->at++);
+				char ix[32]; int len = snprintf(ix, sizeof ix, "(%llu)", (unsigned long long)c->at++);
 				ShclStr ixs; ixs.p = ix; ixs.n = (size_t)len;
 				sb_putS(a, &b, ixs);
 			}
@@ -6317,7 +6350,7 @@ static shcl_write_reason w_probe_write(shcl_doc *d, ShclArena *a, const ShclPath
 	if (ps.segs.len == 0) return SHCL_W_BAD_PATH;
 	/* Writer side of the load-time nesting cap: never create deeper. */
 	if (ps.segs.len > SHCL_MAX_DEPTH) return SHCL_W_TOO_DEEP;
-	/* Once this probe falls off the existing tree, a later `[#k]` can never
+	/* Once this probe falls off the existing tree, a later `(k)` can never
 	   match (fresh intermediates are created childless), so an index segment
 	   past that point is unresolvable. */
 	int off = 0; size_t pr = ROOT;
@@ -10062,7 +10095,7 @@ static int v_single_text(const ShclValue *v, ShclStr *out) {
 /* Two datetimes naming the same moment, whatever the spelling. The struct
    mirrors what was written, so 12:00:00Z and 12:00:00+00:00 are different values
    field by field while naming one time, and 12:00:00 and 12:00:00.0 differ only
-   in written precision. A [value] selector matches on text, but an allowed set
+   in written precision. A (value) selector matches on text, but an allowed set
    is about the value, so it compares here. An absent zone is local and matches
    no zone at all - that is the one spelling difference that is a real
    difference. */
@@ -10118,6 +10151,10 @@ static int v_parse_field(ShclArena *a, shcl_doc *schema, size_t f, ShclVecDiag *
 		return 0;
 	}
 	ShclPathScan ps = scan_lookup(a, path);
+	if (!ps.ok && s_eq(ps.err, s_lit(BRACKET_LOOKUP))) {
+		v_diag(a, faults, node->line, "V093", v_msg3(a, "bad schema path: ", schema_text(a, path), "; " BRACKET_LOOKUP));
+		return 0;
+	}
 	if (!ps.ok || ps.has_value) {
 		v_diag(a, faults, node->line, "V093", v_msg3(a, "bad schema path: ", schema_text(a, path), ""));
 		return 0;
@@ -10598,7 +10635,7 @@ static void v_suggest(ShclArena *a, ShclArena *tmp, ShclSuggestNames *sn, ShclSt
 
 // Resolution contexts: the whole document for a plain path; each enclosing
 // instance for the part of a path after a wildcard. required/repeat evaluate
-// per context (anchor line 0 = document scope), so `server[*].port` + required
+// per context (anchor line 0 = document scope), so `server(*).port` + required
 // means a port under EACH server - vacuously true with no servers.
 typedef struct { size_t anchor; ShclVecSize found; } ShclVCtx;
 DEFINE_VEC(ShclVecVCtx, ShclVCtx)
@@ -10619,7 +10656,7 @@ static void v_contexts(ShclArena *a, shcl_doc *d, const size_t *start, size_t ns
 			}
 		}
 		if (seg->star) {
-			// Name wildcard: same per-instance split as `[*]`, any child name.
+			// Name wildcard: same per-instance split as `(*)`, any child name.
 			ShclSegment *rest = segs + si + 1; size_t nrest = nsegs - si - 1;
 			if (nrest == 0) {
 				ShclVCtx ctx; ctx.anchor = anchor; ctx.found = next; ShclVecVCtx_push(a, out, ctx);
@@ -12439,8 +12476,8 @@ static int g_has_wild(const ShclVCons *c) {
 	for (size_t si = 0; si < c->segs.len; si++) if (c->segs.data[si].sel.tag == SEL_WILDCARD) return 1;
 	return 0;
 }
-// `[#N]` needs a pre-existing instance and its `#` would start a comment on a
-// binding line. A path deeper than a document may nest cannot be generated
+// An index selector needs a pre-existing instance, which a starter config has
+// none of. A path deeper than a document may nest cannot be generated
 // either: the line would draw E016 on the way back in. A newline in a name or a
 // by-value selector is writable, since both are written escaped.
 // The reason doubles as the predicate, so the refusal cannot name a path for a
@@ -12449,7 +12486,7 @@ static const char *g_why_unwritable(const ShclVCons *c) {
 	if (c->segs.len > SHCL_MAX_DEPTH) return "nests past the depth cap";
 	for (size_t si = 0; si < c->segs.len; si++) {
 		const ShclSegment *sg = &c->segs.data[si];
-		if (sg->sel.tag == SEL_INDEX) return "a [#N] selector needs an instance that does not exist yet";
+		if (sg->sel.tag == SEL_INDEX) return "an index selector needs an instance that does not exist yet";
 		if (sg->star) return "a * name segment has no name to write";
 	}
 	return "";
@@ -12499,11 +12536,11 @@ static const ShclStr *parent_value_for(const ShclParentValues *pv, const ShclVec
 	return NULL;
 }
 
-/* Whether BODY between brackets on a file line reads back as a value selector
+/* Whether BODY between parens on a file line reads back as a value selector
    for TEXT, quoted or bare as asked. */
 static int selector_reads_back(ShclArena *a, ShclStr body, ShclStr text, int quoted) {
 	ShclSB l = {0, 0, 0};
-	sb_puts(a, &l, "x["); sb_putS(a, &l, body); sb_puts(a, &l, "]:");
+	sb_puts(a, &l, "x("); sb_putS(a, &l, body); sb_puts(a, &l, "):");
 	ShclStr line = sb_S(&l);
 	/* The tokenizer reads one line and never sees a line end, so text with a
 	   real line break would read back here and then be written across two lines,
@@ -12589,7 +12626,7 @@ static int gen_path_text(ShclArena *a, const ShclVecSeg *segs, const ShclParentV
 		if (v) {
 			ShclStr body;
 			if (!gen_selector_text(a, *v, &body)) return 0;
-			sb_putc(a, &out, '['); sb_putS(a, &out, body); sb_putc(a, &out, ']');
+			sb_putc(a, &out, '('); sb_putS(a, &out, body); sb_putc(a, &out, ')');
 			continue;
 		}
 		switch (s->sel.tag) {
@@ -12600,9 +12637,9 @@ static int gen_path_text(ShclArena *a, const ShclVecSeg *segs, const ShclParentV
 			if (!s->sel.quoted && selector_reads_back(a, s->sel.value, s->sel.value, 0)) body = s->sel.value;
 			else if (selector_reads_back(a, qb, s->sel.value, 1)) body = qb;
 			else return 0;
-			sb_putc(a, &out, '['); sb_putS(a, &out, body); sb_putc(a, &out, ']'); break;
+			sb_putc(a, &out, '('); sb_putS(a, &out, body); sb_putc(a, &out, ')'); break;
 		}
-		case SEL_INDEX: { int nn = snprintf(nb, sizeof nb, "[#%" PRIu64 "]", s->sel.index); sb_put(a, &out, nb, (size_t)nn); break; }
+		case SEL_INDEX: { int nn = snprintf(nb, sizeof nb, "(%" PRIu64 ")", s->sel.index); sb_put(a, &out, nb, (size_t)nn); break; }
 		case SEL_WILDCARD: case SEL_NONE: break;
 		}
 	}
@@ -12754,7 +12791,7 @@ static shcl_str generate_in(shcl_doc *schema, int no_banner, int *ok, ShclGenOwn
 	   and a dotted child names the empty-valued instance instead - so `srv:
 	   web` followed by `srv.port:` is two `srv` nodes, and the child never
 	   ends up where the schema looks. Any line under such a parent selects it
-	   by its value: `srv[web].port:`. */
+	   by its value: `srv(web).port:`. */
 	ShclParentValues pv; pv.len = 0;
 	pv.data = (ShclParentValue *)arena_alloc(a, (cons.len ? cons.len : 1) * sizeof *pv.data);
 	for (size_t i = 0; i < cons.len; i++) {
@@ -12799,10 +12836,10 @@ static shcl_str generate_in(shcl_doc *schema, int no_banner, int *ok, ShclGenOwn
 	}
 	ShclSB out = {0, 0, 0};
 	ShclVecS wild_path = {0, 0, 0}, wild_type = {0, 0, 0};
-	/* Dropping a trailing `[*]` can render the same line a concrete sibling
-	   already wrote; the first spelling wins. A line from a dropped `[value]`
+	/* Dropping a trailing `(*)` can render the same line a concrete sibling
+	   already wrote; the first spelling wins. A line from a dropped `(value)`
 	   selector is its own instance, so two of them with different values are
-	   both written: `env[prod]` and `env[dev]` are two `env` lines. A plain
+	   both written: `env(prod)` and `env(dev)` are two `env` lines. A plain
 	   line blocks its path; a by-value line blocks only its own value. Hash
 	   first, bytes only on a hash hit, so the scan stays cheap at the field
 	   cap. */
