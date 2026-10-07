@@ -38,7 +38,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Type: Feature
 	- Status: Waiting for testing
 	- Needs local test suite run?: N. The stage 6 command was run as stage 6 runs it, and the gates it touches pass.
-	- Needs external testing: b26 is done (20261006): the x86_64 half passed the corpus, cli-regress and an `install.bash` run, details in the progress log. Still to run: the hosted `macos` job on macos-14 (run 37548387357), which builds it with the stage 6 command and runs the arm64 half.
+	- Needs external testing: b26 is done (20261006): the x86_64 half passed the corpus, cli-regress and an `install.bash` run, details in the progress log. Hosted, 20261006: run 37548387357 died in crosscheck on the runner's `/bin/bash` 3.2, fixed by installing Homebrew bash in the job. Run 37550690633 on `macb26`: the build, the Rust tests and crosscheck pass on arm64, and cli-regress fails only `man-width` (2026100617010925). Still to run: the job once that bug is fixed.
 	- Priority: Avg
 	- Opened: 20261003-134616
 	- Opened by: JC
@@ -280,6 +280,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Expected behavior: the 3 rows pass on BSD tools, as they do on Linux.
 	- Reproduced: 20261006 on b26. Run by hand there, the CLI does what each row wants: 141 with nothing on stderr, exit 8 with both files left, and the page at 80 columns under `mandoc`.
 	- Actual cause: GNU-only forms. The hosted macos job puts GNU coreutils first on PATH, so it never meets them.
+	- Note: 20261006, the hosted macos job does meet `man-width`: GNU coreutils has no `man`, and the runner's is not man-db. It is the only row that job fails (run 37550690633), so it keeps 2026100313461652 open and turns the job red on a main push.
 	- Note: 20261006, `macb26` already fixed the first two forms found (`head -c -1` and `stat -c`) and made a missing `timeout` an exit 2 with a message. Stock macOS still has no `timeout`.
 	- Estimated effort: Low
 
