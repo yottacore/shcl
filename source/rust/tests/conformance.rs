@@ -1586,7 +1586,7 @@ fn read_surface_line_quoted_children() {
 	assert!(doc.read_string_array("b").quoted);
 	assert!(!doc.read_string_array("a").quoted);
 	assert!(
-		!Document::parse("m: \"x\", \"y\"\n")
+		!Document::parse("m: [\"x\", \"y\"]\n")
 			.read_string_array("m")
 			.quoted
 	);
