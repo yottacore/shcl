@@ -44,6 +44,19 @@ for b in "${bindings[@]}"; do
 done
 
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) onWindows=1 ;; *) onWindows=0 ;; esac
+## Stock macOS has no timeout, adn every row then failed at 127.
+command -v timeout >/dev/null 2>&1 || { echo "cli-regress: needs timeout (GNU coreutils on macOS)" >&2; exit 2; }
+## GNU stat on Linux and msys, BSD stat on macOS and FreeBSD. %a is the mode as
+## GNU writes it, special bits included and no leading zero.
+if stat -c %i / >/dev/null 2>&1; then gnuStat=1; else gnuStat=0; fi
+fStat(){   ## fStat i|G|a FILE
+	if [[ "${gnuStat}" == 1 ]]; then stat -c "%$1" "$2"; return; fi
+	case "$1" in
+		i) stat -f %i "$2" ;;
+		G) stat -f %Sg "$2" ;;
+		a) printf '%o\n' "$(( 0$(stat -f %p "$2") & 07777 ))" ;;
+	esac
+}
 startDir="${PWD}"
 ## A setter's note on a kept line it comments out has the local time in it.
 export SHCL_TEST_CLOCK="2026-10-04 00:15:00 -420 PDT"
@@ -1650,7 +1663,9 @@ for b in "${bindings[@]}"; do
 	"${cli}" --donate >"${tmpDir}/d" 2>/dev/null </dev/null || true
 	"${cli}" help get >"${tmpDir}/g" 2>/dev/null </dev/null || true
 	{ printf '\n'; cat "${tmpDir}/v" "${tmpDir}/d"; } >"${tmpDir}/want1"
-	{ head -c -1 "${tmpDir}/g"; cat "${tmpDir}/d"; } >"${tmpDir}/want2"
+	## Help less its last byte. BSD head has no -c -1.
+	g="$(cat "${tmpDir}/g"; echo .)"
+	{ printf '%s' "${g%?.}"; cat "${tmpDir}/d"; } >"${tmpDir}/want2"
 	for pair in "--version --donate|want1" "help get --donate|want2" "get --help --donate|want2"; do
 		IFS='|' read -r argv want <<<"${pair}"
 		read -r -a args <<<"${argv}"
@@ -1695,16 +1710,26 @@ done
 ## the default goes back on first. Not a closed stdout: that is EBADF, and the
 ## closed-stdout row above already pins it.
 awk 'BEGIN{ for (i = 0; i < 40000; i++) printf "k%d: %d\n", i, i }' > "${tmpDir}/big.shcl"
+## BSD env has no --default-signal, so perl puts the default back there. With
+## neither, a SIGPIPE nobody ignored needs nothing put back; yes shows which.
+pipeDfl=()
+#  shellcheck disable=2016  ## perl's own variables.
+if env --default-signal=PIPE true 2>/dev/null; then pipeDfl=(env --default-signal=PIPE)
+elif command -v perl >/dev/null 2>&1; then pipeDfl=(perl -e '$SIG{PIPE} = "DEFAULT"; exec { $ARGV[0] } @ARGV or exit 127')
+else yesRc="$( { { yes 2>/dev/null; echo "$?" >&3; } | head -c1 >/dev/null; } 3>&1 || true)"; fi
 fTest EqzuLW3 broken-pipe
 if [[ "${onWindows}" == 1 ]]; then
 	echo "cli-regress: skipping broken-pipe (POSIX signal; not judged on windows)"
+	fTestSkip
+elif [[ -n "${yesRc:-}" && "${yesRc}" != 141 ]]; then
+	echo "cli-regress: skipping broken-pipe (SIGPIPE is ignored here, with no env --default-signal or perl to undo it)"
 	fTestSkip
 else
 	for b in "${bindings[@]}"; do
 		name="${b%%|*}"; cli="${b#*|}"
 		##	The status is kept from inside the pipeline: under pipefail a 141 there
 		##	would end this script, and the || that stops that also resets PIPESTATUS.
-		{ rc=0; env --default-signal=PIPE "${cli}" fmt "${tmpDir}/big.shcl" 2>"${tmpDir}/err" </dev/null || rc=$?; echo "${rc}" >"${tmpDir}/rc"; } | head -c1 >/dev/null
+		{ rc=0; "${pipeDfl[@]}" "${cli}" fmt "${tmpDir}/big.shcl" 2>"${tmpDir}/err" </dev/null || rc=$?; echo "${rc}" >"${tmpDir}/rc"; } | head -c1 >/dev/null
 		rc="$(<"${tmpDir}/rc")"; nRun+=1
 		gotErr=""; IFS= read -r -d '' gotErr <"${tmpDir}/err" || true
 		if [[ "${rc}" != 141 || -n "${gotErr}" ]]; then
@@ -1813,13 +1838,16 @@ fi
 ## the pipe document above, which reads in about a megabyte and parses in over
 ## twenty, which is the library handing back NULL. The first is sparse and costs
 ## no disk. Only the C CLI makes this promise, and ulimit -v is POSIX.
+## FreeBSD's own echo segfaults under 12 MiB, before main.
+oomCapKb=12288
+[[ "$(uname -s)" == FreeBSD ]] && oomCapKb=16384
 fOom(){
 	local doc="$1"
 	for b in "${bindings[@]}"; do
 		name="${b%%|*}"; cli="${b#*|}"
 		[[ "${name}" == c ]] || continue
 		rc=0
-		(ulimit -v 12288; exec "${cli}" fmt "${tmpDir}/${doc}.shcl" >/dev/null 2>"${tmpDir}/err" </dev/null) || rc=$?
+		(ulimit -v "${oomCapKb}"; exec "${cli}" fmt "${tmpDir}/${doc}.shcl" >/dev/null 2>"${tmpDir}/err" </dev/null) || rc=$?
 		nRun+=1
 		gotErr=""; IFS= read -r -d '' gotErr <"${tmpDir}/err" || true
 		if [[ "${rc}" != 70 || "${gotErr}" != $'shcl: out of memory\n' ]]; then
@@ -1933,8 +1961,8 @@ altGroup="$(id -Gn | tr ' ' '\n' | grep -vx "$(id -gn)" | head -1 || true)"
 fSaveSetup() {
 	case "$1" in
 		regular)  printf 'a: 1\n' > f.shcl ;;
-		same)     printf 'a: 1\n' > f.shcl; stat -c %i f.shcl > ino ;;
-		differs)  printf 'a:   1\n' > f.shcl; stat -c %i f.shcl > ino ;;
+		same)     printf 'a: 1\n' > f.shcl; fStat i f.shcl > ino ;;
+		differs)  printf 'a:   1\n' > f.shcl; fStat i f.shcl > ino ;;
 		group)    printf 'a:   1\n' > f.shcl; chgrp "${altGroup}" f.shcl; chmod 0640 f.shcl ;;
 		nothing|missdir) : ;;
 		link)     printf 'a: 1\n' > real.shcl; ln -s real.shcl f.shcl ;;
@@ -1960,7 +1988,9 @@ fSaveSetup() {
 		migrate-dotdir) mkdir d.x; printf 'base:[Boston]\n\tlat: 42\n' > d.x/f ;;
 		migrate-link) mkdir real; printf 'base:[Boston]\n\tlat: 42\n' > real/c.shcl; ln -s real/c.shcl f.shcl ;;
 		migrate-setgid) mkdir sg; chgrp "${altGroup}" sg; chmod 2775 sg; printf 'base:[Boston]\n\tlat: 42\n' > sg/f.shcl; chgrp "$(id -gn)" sg/f.shcl; chmod 0640 sg/f.shcl ;;
-		migrate-setid) printf 'base:[Boston]\n\tlat: 42\n' > f.shcl; chmod 6755 f.shcl ;;
+		## BSD gives a new file the directory's group, and refuses setgid on a
+		## file whose group the caller is not in.
+		migrate-setid) printf 'base:[Boston]\n\tlat: 42\n' > f.shcl; chgrp "$(id -gn)" f.shcl; chmod 6755 f.shcl ;;
 		migrate-rodir) mkdir ro; printf 'base:[Boston]\n\tlat: 42\n' > ro/g.shcl; chmod 0555 ro ;;
 	esac
 }
@@ -1985,16 +2015,16 @@ saveCases=(
 	'EqLbKeL|device|set --write --set b=2 f.shcl|8|[[ -L f.shcl && -c /dev/null ]]'
 	## 20260918b item 56: a write with nothing to write leaves the file alone,
 	## inode and all, and one with something to write still replaces it.
-	'EqMO8f8|same|fmt --write f.shcl|0|[[ "$(stat -c %i f.shcl)" == "$(cat ino)" ]]'
-	'EqMO8f9|differs|fmt --write f.shcl|0|[[ "$(stat -c %i f.shcl)" != "$(cat ino)" ]] && grep -qx "a: 1" f.shcl'
+	'EqMO8f8|same|fmt --write f.shcl|0|[[ "$(fStat i f.shcl)" == "$(cat ino)" ]]'
+	'EqMO8f9|differs|fmt --write f.shcl|0|[[ "$(fStat i f.shcl)" != "$(cat ino)" ]] && grep -qx "a: 1" f.shcl'
 	## 20260918b item 57: the group comes over with the mode, so a config a
 	## service reads by group keeps that read.
-	'EqMO8fA|group|fmt --write f.shcl|0|[[ "$(stat -c %G f.shcl)" == "${altGroup}" && "$(stat -c %a f.shcl)" == 640 ]]'
+	'EqMO8fA|group|fmt --write f.shcl|0|[[ "$(fStat G f.shcl)" == "${altGroup}" && "$(fStat a f.shcl)" == 640 ]]'
 	## migrate --write ends with the new file and the original beside it, at the
 	## original's mode. An earlier copy is never written over, and a file that
 	## only gains the Format line gets no copy.
-	'Er5ivua|migrate|migrate --write f.shcl|0|grep -qx "base: Boston" f.shcl && cmp -s f_old_v2.shcl <(printf "base:[Boston]\n\tlat: 42\n") && [[ "$(stat -c %a f_old_v2.shcl)" == 640 ]]'
-	'Er5ivub|migrate-taken|migrate --write f.shcl|8|grep -qx "base:\[Boston\]" f.shcl && [[ "$(cat f_old_v2.shcl)" == x && "$(ls -A | wc -l)" == 2 ]]'
+	'Er5ivua|migrate|migrate --write f.shcl|0|grep -qx "base: Boston" f.shcl && cmp -s f_old_v2.shcl <(printf "base:[Boston]\n\tlat: 42\n") && [[ "$(fStat a f_old_v2.shcl)" == 640 ]]'
+	'Er5ivub|migrate-taken|migrate --write f.shcl|8|grep -qx "base:\[Boston\]" f.shcl && [[ "$(cat f_old_v2.shcl)" == x && "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
 	'Er5ivuc|migrate-stamp|migrate --write f.shcl|0|[[ "$(ls -A)" == f.shcl ]]'
 	'Er5ivud|migrate-dotname|migrate --write .f|0|[[ -f .f_old_v2 ]]'
 	'Er5ivue|migrate-dotdir|migrate --write d.x/f|0|[[ -f d.x/f_old_v2 ]]'
@@ -2004,8 +2034,8 @@ saveCases=(
 	## 20260928 items 3, 6 and 11: in a setgid directory the copy takes the
 	## original's group, not the directory's. Setuid, setgid and sticky come
 	## over too. A copy that cannot be made names its path once.
-	'ErCrqxU|migrate-setgid|migrate --write sg/f.shcl|0|[[ "$(stat -c %G sg/f_old_v2.shcl)" == "$(id -gn)" && "$(stat -c %a sg/f_old_v2.shcl)" == 640 ]]'
-	'ErCrqz4|migrate-setid|migrate --write f.shcl|0|[[ "$(stat -c %a f_old_v2.shcl)" == 6755 ]]'
+	'ErCrqxU|migrate-setgid|migrate --write sg/f.shcl|0|[[ "$(fStat G sg/f_old_v2.shcl)" == "$(id -gn)" && "$(fStat a sg/f_old_v2.shcl)" == 640 ]]'
+	'ErCrqz4|migrate-setid|migrate --write f.shcl|0|[[ "$(fStat a f_old_v2.shcl)" == 6755 ]]'
 	## A remove leaves the kept line beside its target (2026100307163901). Until
 	## that fix the save gate refused this at 7 and left the file alone.
 	'EreYYXK|kept-remove|set --write --remove y f.shcl|0|cmp -s f.shcl <(printf "x: 1\nr: [1, 2\n") && ! grep -q "refusing" "${tmpDir}/err"'
@@ -2260,10 +2290,15 @@ done
 ## block nroff does not fill. Rendered rather than read, because the source's
 ## line lengths are not the page's. The overstrike sequences nroff writes for
 ## bold come off first, or every emphasized line reads as double its width.
+## Only man-db's man takes a file and these options. macOS and the BSDs have
+## mandoc instead, and its width option means the same.
 manPage="${repoDir}/source/man/shcl.1"
+if [[ "$(man --version 2>/dev/null || true)" == "man "[0-9]* ]]; then manCmd=(env MANWIDTH=80 MAN_KEEP_FORMATTING='' man --nh --nj -l)
+elif command -v mandoc >/dev/null 2>&1; then manCmd=(mandoc -T ascii -O width=80)
+else manCmd=(); fi
 fTest EpHH7ZQ man-width
-if [[ -f "${manPage}" ]] && command -v man >/dev/null 2>&1; then
-	rendered="$(MANWIDTH=80 MAN_KEEP_FORMATTING='' man --nh --nj -l "${manPage}" 2>/dev/null | sed 's/.\x08//g' || true)"
+if [[ -f "${manPage}" ]] && ((${#manCmd[@]})); then
+	rendered="$("${manCmd[@]}" "${manPage}" 2>/dev/null | sed $'s/.\b//g' || true)"
 	nRun+=1
 	if [[ -z "${rendered}" ]]; then
 		echo "cli-regress: man-width: the page rendered to nothing" >&2; nBad+=1
@@ -2277,9 +2312,9 @@ else
 	##	is the only check holding the page to 80 columns. Git Bash on windows has
 	##	no man, which is a fact of the platform rather than a missing tool.
 	if [[ -n "${SHCL_GATE_STRICT:-}" && "${onWindows}" == 0 ]]; then
-		echo "cli-regress: man-width: no man here and the gate requires it" >&2; nBad+=1
+		echo "cli-regress: man-width: no man-db or mandoc here and the gate requires it" >&2; nBad+=1
 	fi
-	echo "cli-regress: skipping the man page width check (no man here)"
+	echo "cli-regress: skipping the man page width check (no man-db or mandoc here)"
 	fTestSkip
 	echo "cli-regress man-width" >> "${SHCL_GATE_SKIPS:-/dev/null}"
 fi
@@ -2299,3 +2334,6 @@ echo "cli-regress: OK: ${#rows[@]} row(s) across ${#bindings[@]} binding(s), ${n
 ##		2026-09-08  Man page width, rendered at 80, after the page next to that
 ##		            help was found with an 81-column example line.
 ##		2026-09-29  Exact stderr ('=' field), for diagnostic order.
+##		2026-10-06  Takes BSD stat and head, and stops with a message when there
+##		            is no timeout.
+##		2026-10-06  broken-pipe, migrate-taken and man-width run on BSD tools.

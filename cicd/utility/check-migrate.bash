@@ -534,7 +534,7 @@ fTest EqRiIDw the loose-indent exception fires on a space before a tab
 [[ "$(fUnplaced "${tmpDir}/indent.shcl")" == 3 ]] \
 	|| { echo "check-migrate: the loose-indent exception no longer fires on a space before a tab" >&2; nBad+=1; }
 fTest EqRiIDx 2.x reads both elements of the loose-indent document
-[[ "$("${oldCli}" get --string --array "${tmpDir}/indent.shcl" list 2>/dev/null | wc -l)" == 2 ]] \
+[[ "$("${oldCli}" get --string --array "${tmpDir}/indent.shcl" list 2>/dev/null | wc -l | tr -d " ")" == 2 ]] \
 	|| { echo "check-migrate: 2.x no longer reads both elements of the loose-indent document" >&2; nBad+=1; }
 fTest EqRiIDy a rewrite of the loose-indent document is refused at 7
 indentRc=0

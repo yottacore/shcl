@@ -33,37 +33,38 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
-- A macOS universal binary for amd64 and ARM
-	- ID: 2026100313461652
-	- Type: Feature
+- cli-regress fails 3 rows on macOS's own tools
+	- ID: 2026100617010925
+	- Type: Bug
 	- Status: Waiting for testing
-	- Needs local test suite run?: N. The stage 6 command was run as stage 6 runs it, and the gates it touches pass.
-	- Needs external testing: b26, under the host lock: the universal binary's `fmt` and `check` output over the corpus against Linux's, cli-regress if b26 has a bash 4 or later, and `install.bash` end to end in macOS's own bash 3.2 against a local stand-in release (plan, install, `man shcl`, the system target, uninstall). Then the hosted `macos` job on macos-14, which builds it with the stage 6 command and runs the arm64 half.
-	- Priority: Avg
-	- Opened: 20261003-134616
-	- Opened by: JC
-	- Target OS: macOS
-	- Test environment: b26 (Intel), hosted macos-14 (Apple silicon).
-	- Requirements:
-		- MacOS gets a universal binary for both amd64 and ARM, if appropriate.
-	- Note: 20261003, no macOS binary is built yet. `cicd/config.bash` defers it for lack of an Apple SDK on the build box, and `install.bash` sends macOS users to build from source. A hosted macOS runner can build both Rust targets and join them with `lipo`. The installers and the release asset names would need a macOS entry too.
-	- Note: 20261003, b26 is an Intel Mac that other projects already use, booked through a lock like the Windows boxes. It can build and test the amd64 half and run `lipo`. The ARM half can be cross-built there but not run, so a hosted ARM runner would still have to test it.
-	- Note: 20261006, the installer changes need a docs-only sync to main once this is on dev (`install.bash` 1.3.0, `install.ps1` 1.1.7). check-docs fails until then. The README stays off main until the cut.
-	- Decisions:
-		- 20261005: cross-build both halves here with zigbuild, run the amd64 half on b26 under the lock, and add a hosted macos-14 job that runs the corpus and cli-regress on ARM.
-	- Prereq IDs: 2026100314005369
-	- Estimated effort: Avg
-	- Progress log:
-		- 20261006: stage 6 builds `macos-universal` with cargo-zigbuild's `universal2-apple-darwin` target, which joins the halves itself, so there is no `lipo` step. No Apple SDK is needed. zig has its own libSystem stubs, and the CLI links nothing else.
-		- 20261006: zig's default put the floor at macOS 13. The build now names 13.0 itself, so a zig upgrade cannot move it. The linker signs the arm64 half ad hoc, which Apple silicon requires.
-		- 20261006: the binary's UUID took in the object file paths, so its bytes changed with the checkout path. Linking without the debug map fixed that. Release strips that map anyway.
-		- 20261006: `install.bash` maps Darwin to the universal binary on both arches, and names the macOS 13 floor when the binary will not start. The release table already took `macos-universal`.
-		- 20261006: the hosted `macos` job runs crosscheck over the corpus against a debug build, cli-regress, and the Rust tests. It is not strict, so rows needing `/dev/full` or strace skip there. ci.yml now pins cargo-zigbuild, and check-pins reads each install line on its own, since the new pip line hid an unreadable one.
-		- 20261006: no dogfood dest for macOS until the binary has run on a Mac.
-	- Verified: the stage 6 command gave the same bytes from 2 target dirs and from another checkout. Both halves are for macOS 13 and link only libSystem, and every page hash in the arm64 signature matches. shell-regress, check-pins, check-docs, check-readme, test-ids, markdownlint and shellcheck pass. A Linux release build passes cli-regress and crosscheck the way the job runs them. Nothing has run on a Mac yet.
-	- Swept: the FreeBSD target's sites. Stage 6, the toolchain targets, both installers and their comments, README, design.md, the changelog, the release table and the dogfood note.
-	- Branch: `macbin`
-	- Test case: shell-regress `ErxeImS` (macOS plan on both arches), `ErxeImT` (install of the universal binary), `ErxeImU` (the macOS floor), `ErxeImV` (every stage 6 binary gets a table cell). `Er1zTEe` has the new install.ps1 text, and `EqL4rtp` holds the per-line pip read. Each failed with its change taken out.
+	- Needs local test suite run?: N. cli-regress, check-migrate, shell-regress, test-ids and shellcheck pass on Linux.
+	- Needs external testing: a cli-regress run on b26 with stock macOS tools plus a `timeout`, Hosted is done: run 37637035207 on dev `9300b1be`, 20261007, passed all 4 jobs, and the macos job passed all 3 rows, `man-width` through `mandoc`.
+	- Severity: Low
+	- Opened: 20261006-170109
+	- Opened by: the b26 run for 2026100313461652
+	- Related IDs: 2026100313461652, 2026100413052101
+	- Target OS: macOS, FreeBSD
+	- Test environment: b26 (macOS 15.8.1), bash 5.2, no GNU coreutils.
+	- Steps to reproduce:
+		- On a Mac without GNU coreutils, with a `timeout` on PATH, run `cicd/utility/cli-regress.bash "macos|PATH-TO-SHCL"` under bash 4 or later.
+	- Incorrect behavior: 3 rows fail on the script's own tools, not on the CLI. `broken-pipe` calls `env --default-signal`, which BSD `env` lacks. `save-migrate-taken` compares `ls -A | wc -l` to `2`, and BSD `wc` pads the count with spaces. `man-width` calls `man --nh --nj -l`, which only man-db takes, so the page renders to nothing.
+	- Expected behavior: the 3 rows pass on BSD tools, as they do on Linux.
+	- Reproduced: 20261006 on b26. Run by hand there, the CLI does what each row wants: 141 with nothing on stderr, exit 8 with both files left, and the page at 80 columns under `mandoc`.
+	- Actual cause: GNU-only forms. The hosted macos job puts GNU coreutils first on PATH, so it never meets them.
+	- Note: 20261006, the hosted macos job does meet `man-width`: GNU coreutils has no `man`, and the runner's is not man-db. It is the only row that job fails (run 37550690633), so it keeps 2026100313461652 open and turns the job red on a main push.
+	- Note: 20261006, `macb26` already fixed the first two forms found (`head -c -1` and `stat -c`) and made a missing `timeout` an exit 2 with a message. Stock macOS still has no `timeout`.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: each row keeps the GNU form where it works and falls back otherwise.
+		- `broken-pipe` puts the default SIGPIPE back with perl where `env` has no `--default-signal`. With neither, it runs the CLI as is when SIGPIPE is not ignored, and skips with a message when it is.
+		- `save-migrate-taken` strips the spaces from the `wc -l` count before comparing. Same fix in check-migrate `EqRiIDx`, the only other string compare of a `wc` count.
+		- `man-width` uses man-db when `man --version` says it is man-db, else `mandoc -T ascii -O width=80`, else the old skip. The overstrike strip no longer needs GNU sed's `\x08`.
+	- Verified: on Linux with GNU tools, cli-regress passes all 3 rows on the Rust debug CLI, and check-migrate, shell-regress, test-ids and shellcheck pass. With a padding `wc`, an `env` without `--default-signal`, a `man` that is not man-db and Debian's `mandoc` 1.14.6 first on PATH, the old script fails all 3 rows and the new one passes them. It also passes with no perl, and with perl and SIGPIPE ignored. With no perl and SIGPIPE ignored, `broken-pipe` skips. With no mandoc, `man-width` skips as before. A 90-column line put in the page fails `man-width` through mandoc, and a CLI that does not die of SIGPIPE still fails `broken-pipe`.
+	- Not verified, only reasoned: real BSD `env`, `wc`, `perl` and macOS's `man` and `mandoc`, and the windows job, where `broken-pipe` skips as before and `man-width` takes the same path it did.
+	- Swept: every `env --default-signal`, `\x08` in sed, `man --nh` and string compare of a `wc` count under `cicd/`. Other `wc` counts are read as numbers, which takes the padding.
+	- Branch: `bsdrows`
+	- Commit: f0170ca5
+	- Test case: cli-regress `EqzuLW3` (broken-pipe), `Er5ivub` (save-migrate-taken), `EpHH7ZQ` (man-width), and check-migrate `EqRiIDx`. The 3 cli-regress rows fail on the old script with the BSD-style tools and pass on the new one.
 
 - No '\' escapes
 	- ID: 2026100207032800
@@ -550,27 +551,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Possible cause: the per-line fault checks added with the escape errors. `_line_fault` and the extra `any` calls account for most of the gap.
 	- Decisions:
 		- 20261002: recheck after 2026100207032800 is built, since it removes most of those checks. No perf work before 3.0.0 otherwise.
-
-- Build and test on FreeBSD
-	- ID: 2026100413052101
-	- Type: Task
-	- Status: Queued
-	- Priority: Low
-	- Opened: 20261004-130521
-	- Opened by: JC
-	- Related IDs: 2026100413052100
-	- Target OS: FreeBSD
-	- Test environment: vmFreeBSD (FreeBSD 15.1), booked through the host lock.
-	- Problem description:
-		- The README and `install.bash` point BSD users at `cargo install shcl` or a source build, but neither has been tried on a BSD.
-	- Requirements:
-		- `cargo install shcl` from the crate works, and the CLI passes the corpus and cli-regress.
-		- The C binding builds with the system cc, which is clang, and passes its runner.
-		- Go and Python suites pass, where their packages are easy to install.
-		- File what breaks.
-	- Note: 20261004, prebuilt FreeBSD x86_64 binaries came in with 2026100413191500, and the release binary passed the corpus `fmt` and `check` there. This item still owes the crate install and the other three bindings.
-	- Note: 20261004, the gate scripts are bash and assume GNU tools, so some may need `gsed` or the like. Fixing the product comes first. Porting the gates only matters if a BSD job is wanted.
-	- Estimated effort: Avg
 
 - A merge after an empty field writes a list that a reload joins to it
 	- ID: 2026100520243961
@@ -1424,6 +1404,48 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Acceptance signoff: 20261003, closed without a hand check: the fuzz property, corpus 188 and the cli-regress rows cover what a hand test would, and the open question on the item went to 2026100218185700.
 	- Closed: 20261003-113243
 
+- A macOS universal binary for amd64 and ARM
+	- ID: 2026100313461652
+	- Type: Feature
+	- Status: Done
+	- Needs local test suite run?: N. The stage 6 command was run as stage 6 runs it, and the gates it touches pass.
+	- Needs external testing: b26 is done (20261006): the x86_64 half passed the corpus, cli-regress and an `install.bash` run, details in the progress log. Hosted, 20261006: run 37548387357 died in crosscheck on the runner's `/bin/bash` 3.2, fixed by installing Homebrew bash in the job. Run 37550690633 on `macb26`: the build, the Rust tests and crosscheck pass on arm64, and cli-regress fails only `man-width` (2026100617010925). Still to run: the job once that bug is fixed. Run 37637035207 on dev `9300b1be`, 20261007: the macos job passed, `man-width` included.
+	- Priority: Avg
+	- Opened: 20261003-134616
+	- Opened by: JC
+	- Target OS: macOS
+	- Test environment: b26 (Intel), hosted macos-14 (Apple silicon).
+	- Requirements:
+		- MacOS gets a universal binary for both amd64 and ARM, if appropriate.
+	- Note: 20261003, no macOS binary is built yet. `cicd/config.bash` defers it for lack of an Apple SDK on the build box, and `install.bash` sends macOS users to build from source. A hosted macOS runner can build both Rust targets and join them with `lipo`. The installers and the release asset names would need a macOS entry too.
+	- Note: 20261003, b26 is an Intel Mac that other projects already use, booked through a lock like the Windows boxes. It can build and test the amd64 half and run `lipo`. The ARM half can be cross-built there but not run, so a hosted ARM runner would still have to test it.
+	- Note: 20261006, the installer changes need a docs-only sync to main once this is on dev (`install.bash` 1.3.0, `install.ps1` 1.1.7). check-docs fails until then. The README stays off main until the cut.
+	- Decisions:
+		- 20261005: cross-build both halves here with zigbuild, run the amd64 half on b26 under the lock, and add a hosted macos-14 job that runs the corpus and cli-regress on ARM.
+		- 20261006: keep the macOS 13 floor.
+		- 20261006: stage 7 copies the macOS binary into the synced util dirs once it runs on b26.
+	- Prereq IDs: 2026100314005369
+	- Estimated effort: Avg
+	- Progress log:
+		- 20261006: stage 6 builds `macos-universal` with cargo-zigbuild's `universal2-apple-darwin` target, which joins the halves itself, so there is no `lipo` step. No Apple SDK is needed. zig has its own libSystem stubs, and the CLI links nothing else.
+		- 20261006: zig's default put the floor at macOS 13. The build now names 13.0 itself, so a zig upgrade cannot move it. The linker signs the arm64 half ad hoc, which Apple silicon requires.
+		- 20261006: the binary's UUID took in the object file paths, so its bytes changed with the checkout path. Linking without the debug map fixed that. Release strips that map anyway.
+		- 20261006: `install.bash` maps Darwin to the universal binary on both arches, and names the macOS 13 floor when the binary will not start. The release table already took `macos-universal`.
+		- 20261006: the hosted `macos` job runs crosscheck over the corpus against a debug build, cli-regress, and the Rust tests. It is not strict, so rows needing `/dev/full` or strace skip there. ci.yml now pins cargo-zigbuild, and check-pins reads each install line on its own, since the new pip line hid an unreadable one.
+		- 20261006: no dogfood dest for macOS until the binary has run on a Mac.
+		- 20261006: b26 run, macOS 15.8.1 on Intel. `--version` and `--about` work, under `arch -x86_64` too. `fmt`, `check`, and `check --schema` where a case has one, over all 191 corpus cases match the Linux release byte for byte, exit codes and stderr included.
+		- 20261006: cli-regress on b26 under bash 5.2. Stock macOS has no `timeout`, and the script also stopped at a GNU-only `head -c -1`. Fixed on `macb26`: it now exits 2 and says so with no `timeout`, and takes BSD `stat` and `head`. The retest ran all 422 rows: 407 ok, 12 skipped (no `/dev/full`, `/proc` or strace, and the Windows rows), 3 failed on GNU-only forms in the script itself. Run by hand on b26, the CLI does what those 3 rows want. Filed as 2026100617010925.
+		- 20261006: `install.bash` end to end on b26 in macOS's own bash 3.2, with LibreSSL and BSD `sort -V`, against a local stand-in release signed with a test key. Stable picked v2.0.0 over v2.0.0-rc1, v1.10.0 and `vnext`, and dev picked v3.0.0-beta1. The signature check passed, and a tampered sums file was refused with the install left alone. The user install, a rerun as an update, both one-liner forms, `man shcl`, the uninstall, and the system target into `/opt/shcl` with its uninstall all worked. b26 was left as it was found.
+		- 20261006: stage 7 copies the universal binary to the synced `util/macos/bin`. That is where `dogfood_shcl.ps1` already looks on a Mac, and where another project's universal binary sits.
+	- Verified: the stage 6 command gave the same bytes from 2 target dirs and from another checkout. Both halves are for macOS 13 and link only libSystem, and every page hash in the arm64 signature matches. shell-regress, check-pins, check-docs, check-readme, test-ids, markdownlint and shellcheck pass. A Linux release build passes cli-regress and crosscheck the way the job runs them. The b26 run in the progress log passed. Stage 7's cross loop puts the universal binary in `util/macos/bin` under a scratch HOME.
+	- Swept: the FreeBSD target's sites. Stage 6, the toolchain targets, both installers and their comments, README, design.md, the changelog, the release table and the dogfood note. For stage 7: the runner's macOS dir list, and the stage 7 cross loop's key for `macos-universal`.
+	- Branch: `macbin`, `macb26`
+	- Test case: shell-regress `ErxeImS` (macOS plan on both arches), `ErxeImT` (install of the universal binary), `ErxeImU` (the macOS floor), `ErxeImV` (every stage 6 binary gets a table cell). `Er1zTEe` has the new install.ps1 text, and `EqL4rtp` holds the per-line pip read. Each failed with its change taken out.
+		- b26, 20261006, not CI: the corpus `fmt` and `check` against Linux, cli-regress, and `install.bash` against a stand-in release.
+		- Hosted: the `macos` job, run 37637035207.
+	- Acceptance signoff: 20261007, the b26 run and the hosted macos job both passed, with the gates in Verified.
+	- Closed: 20261007-075500
+
 - Run the Linux ARM64 release binary on real ARM64 hardware
 	- ID: 2026100413052100
 	- Type: Task
@@ -1814,6 +1836,33 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Test case: conformance `Ers2oF1`; cli-regress `Ers2pP0` and `Ers2pP1`.
 	- Acceptance signoff: Self-closed: does what the 20261005 decision asked, and its tests fail before and pass after.
 	- Closed: 20261005-164930
+
+- The macOS cross build warns twice that xcrun found no Apple SDK
+	- ID: 2026100708240546
+	- Type: Bug
+	- Status: Done
+	- Severity: Low
+	- Opened: 20261007-082405
+	- Opened by: the full cicd run 20261007-054904
+	- Related IDs: 2026100313461652
+	- Target OS: macOS
+	- Test environment: b23, cargo-zigbuild 0.23.0, zig 0.16.0, rustc 1.96.0, no Xcode.
+	- Steps to reproduce:
+		- Run the full cicd, or stage 6's `macos-universal` command on its own, on a box with no `xcrun`.
+	- Incorrect behavior: rustc prints `warning: invoking "xcrun" "--sdk" "macosx" "--show-sdk-path" to find MacOSX.sdk failed`, once per half, and `lint-report.bash --check` reports both as new.
+	- Expected behavior: no warning. The build box has no Apple SDK on purpose, per 2026100313461652.
+	- Reproduced: 20261007, the stage 6 command gives both warnings on dev.
+	- Actual cause: rustc looks up the SDK for every Apple link. It takes `SDKROOT` when that names an existing dir, else asks `xcrun`, and warns when that fails. zig links from its own libSystem stubs and never reads `SDKROOT`.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: the macOS command sets `SDKROOT` to zig's darwin stubs, read from `zig env`, when there is no `xcrun`. Where `xcrun` exists, as in the hosted macos job, it stays empty, which rustc and cargo-zigbuild both treat as unset. A `SDKROOT` already set is kept. No lint-report ignore.
+	- Verified: the stage 6 command gave the same sha256 before and after, from 2 target dirs each and from the default one, with no warning after. Both halves are still macOS 13 and link only libSystem. shellcheck, shell-regress, test-ids and check-docs pass.
+	- Not verified: the hosted macos job with this change. It takes the empty `SDKROOT` path, so its build should not change.
+	- Branch: `xcrun`
+	- Commit: 5650cffb
+	- Test case: shell-regress `Es1rCr5`. It fails on the old config and passes on the new one.
+	- Acceptance signoff: Self-closed: the warning is gone, the binary is byte for byte the same, and the test failed before and passes after.
+	- Closed: 20261007-083039
 
 - The C CLI does not build at `-O3` with gcc 14 or 15
 	- ID: 2026100516162200
@@ -3166,6 +3215,53 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Test case: corpus `186-kept-line-first-blank`, a kept line that turns into a comment above the first list, merged under a one-line layer.
 	- Acceptance signoff: Self-closed: reproduced, its test failed before the fix and passes after in all four.
 	- Closed: 20260930-080144
+
+- Build and test on FreeBSD
+	- ID: 2026100413052101
+	- Type: Task
+	- Status: Done
+	- Priority: Low
+	- Opened: 20261004-130521
+	- Opened by: JC
+	- Related IDs: 2026100413052100, 2026100413191500, 2026100617010925
+	- Target OS: FreeBSD
+	- Test environment: vmFreeBSD (FreeBSD 15.1), booked through the host lock.
+	- Version and build: dev at `ad118da3`, then branch `bsdtest` with the fixes below. The crate is dev's own `cargo package` output, since the published crate is still 2.0.0.
+	- Problem description:
+		- The README and `install.bash` point BSD users at `cargo install shcl` or a source build, but neither has been tried on a BSD.
+	- Requirements:
+		- `cargo install shcl` from the crate works, and the CLI passes the corpus and cli-regress.
+		- The C binding builds with the system cc, which is clang, and passes its runner.
+		- Go and Python suites pass, where their packages are easy to install.
+		- File what breaks.
+	- Note: 20261004, prebuilt FreeBSD x86_64 binaries came in with 2026100413191500, and the release binary passed the corpus `fmt` and `check` there. This item still owes the crate install and the other three bindings.
+	- Note: 20261004, the gate scripts are bash and assume GNU tools, so some may need `gsed` or the like. Fixing the product comes first. Porting the gates only matters if a BSD job is wanted.
+	- Estimated effort: Avg
+	- Actual effort: Avg
+	- Progress log:
+		- 20261007: ran on vmFreeBSD as `bsdtest`, with clang 19.1.7, Rust 1.96.1, Go 1.25.14 and Python 3.12.14. Installed with `pkg`: `rust` and `findutils`. Go, Python, bash, git, perl and curl were already there.
+		- 20261007: no product defect found, so nothing new was filed. What broke was in the tests and 2 gate rows, all fixed on this branch.
+	- Found and fixed:
+		- The set-id fixture in the Rust, Go and Python file-tier tests died on `chmod 6750` with EPERM. BSD gives a new file the directory's group, here `/tmp`'s `wheel`, and refuses setgid on a file whose group the caller is not in. C took the failed `chmod` as a skip, so on FreeBSD no binding tested set-id bits at all. All 4 now give the file the caller's own group first, so the fixture runs there and checks the save's group step too.
+		- The C runner segfaulted in `validate_fits_a_small_stack`. FreeBSD's smallest thread stack is 2 KB, and the loader's lazy binding alone overflows it. 4 KB fails too, 8 KB works. The stack is now at least 16 KB, the size of the old array the test was written against.
+		- cli-regress stopped at `save-migrate-setid` for the same `chmod 6755` reason. The fixture now sets its own group first, as `migrate-setgid` already did.
+		- cli-regress `out-of-memory-huge` and `out-of-memory-big` got 139 from the C CLI. Under a 12 MiB address cap even FreeBSD's `/bin/echo` segfaults before `main`. The cap is 16 MiB on FreeBSD only. Both rows give 70 and the message there from 16 to 32 MiB.
+	- GNU-only forms, not ported:
+		- crosscheck's write-state compare uses `find -printf`. BSD `find` prints `%P is unimplemented` and the run still passes, with the write, keep-save and kept-line dimensions comparing only stdout and exit code. The run below had GNU `find` first on PATH.
+		- cli-regress skips `schema-line-pagemap` (no `/proc/self/pagemap`) and `schema-line-fifo-swap` (no strace). Those are host gaps, not GNU forms.
+		- The other gate scripts were not run there.
+	- Verified:
+		- `cargo install --locked --path` on the packaged dev crate builds and installs in 27 s. The published 2.0.0 crate also installs with a plain `cargo install shcl`.
+		- The installed CLI's `fmt` and `check` output, stderr and exit codes over all 191 corpus cases match dev's Linux build byte for byte.
+		- cli-regress over the crate CLI and the Go, Python and C CLIs: 372 rows, 415 ok, 7 skips (4 windows-only, plus the 3 above). Before the fixes it stopped at `save-migrate-setid` with the 2 OOM rows failed.
+		- crosscheck over the corpus plus a 500-input fuzz dump, crate CLI as reference: 40659 comparisons agree, with GNU `find` on PATH.
+		- `cargo test` (fuzz at 20000): 272 ok. Go: 255 ok, and the cmd module. Python: 253 ok, 191 cases. C with the system cc: the CLI at all 5 `-O` levels, the runner (191 cases), `oom_hook`, `oom_recover`, `mem_bounds`, the no-file-I/O build, and the C++ veneer smoke with the system c++. On dev, Rust, Go and Python each failed the set-id fixture and C segfaulted.
+		- On Linux after the change: the 4 file-tier fixtures pass (C with gcc 14, gcc 15 and clang, and gcc with `_FORTIFY_SOURCE`), cli-regress, shell-regress, shellcheck, test-ids, rustfmt, clippy, gofmt and ruff pass.
+	- Branch: `bsdtest`
+	- Commit: aa2f80ff
+	- Test case: a one-off run on vmFreeBSD, not CI. Rust `EnEYHTs`, Go `EnEYHTt`, Python `EoTHZsG` and the C file-tier block, C `EoXPDVh`, and cli-regress `ErCrqz4`, `EqzuLW4` and `EqzuLW5` each failed there on dev and pass with the fix.
+	- Acceptance signoff: Self-closed: test task, every requirement ran and passed.
+	- Closed: 20261007-092637
 
 - `explain` on a retired code could name the code that replaced it
 	- ID: 2026100307163917

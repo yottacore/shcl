@@ -2072,6 +2072,9 @@ int main(int argc, char **argv) {
 				if ((ns.st_mode & 0777) != 0640) fail("file_tier", "existing file mode");
 				// setuid and setgid come over too: applying the mode before
 				// the data lets the kernel clear them on the write.
+				// BSD gives a new file the directory's group, and refuses
+				// setgid on a file whose group the caller is not in.
+				if (chown(born, (uid_t)-1, getegid()) != 0) { /* the chmod below says */ }
 				if (chmod(born, 06750) == 0 && stat(born, &ns) == 0 && (ns.st_mode & 07777) == 06750) {
 					if (shcl_save_file(nd, born) != SHCL_SAVE_OK) fail("file_tier", "set-id save failed");
 					if (stat(born, &ns) != 0) fail("file_tier", "set-id stat failed");
@@ -3068,6 +3071,9 @@ int main(int argc, char **argv) {
 		pthread_t th;
 		long floorBytes = sysconf(_SC_THREAD_STACK_MIN);
 		size_t small = floorBytes > 0 ? (size_t)floorBytes : (size_t)16384;
+		// FreeBSD allows 2 KB, too small for the loader's own lazy binding.
+		// The old array was 16 KB, so that size still catches it.
+		if (small < 16384) small = 16384;
 		if (pthread_attr_init(&at) != 0 || pthread_attr_setstacksize(&at, small) != 0) {
 			fail("small-stack", "cannot make a 32 KB thread attribute");
 		} else if (pthread_create(&th, &at, validate_on_small_stack, NULL) != 0) {

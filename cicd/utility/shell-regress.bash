@@ -1537,6 +1537,29 @@ macRow="$(grep -F '| macOS ' <<<"${rtOut}" || true)"
 [[ "${macRow}" == "| macOS "*"| [binary][macos-universal] "*"| [binary][macos-universal]" ]] \
 	|| fBad "release-table.bash has no macOS row with the universal binary in both columns: ${rtOut@Q}"
 
+fTest Es1rCr5 2026100708240546-macos-build-names-the-sdk
+##	2026100708240546: with no xcrun, rustc warned once per half that it found
+##	no Apple SDK. The macOS command now hands it zig's darwin stubs through
+##	SDKROOT, leaves it empty where xcrun exists, and keeps one already set.
+##	cargo is a stub here that prints the SDKROOT it was given.
+mkdir -p "${tmpDir}/macsdk/bin" "${tmpDir}/macsdk/xc"
+cat > "${tmpDir}/macsdk/bin/zig" <<'EOF'
+#!/bin/sh
+echo '.{'
+echo '    .lib_dir = "/zz/lib",'
+EOF
+printf '#!/bin/sh\nexit 0\n' > "${tmpDir}/macsdk/xc/xcrun"
+chmod +x "${tmpDir}/macsdk/bin/zig" "${tmpDir}/macsdk/xc/xcrun"
+# shellcheck disable=SC2016  ## the inner shell's own variables
+macSdkRun='set +u; source "$1"; cargo(){ printf "[%s]" "${SDKROOT:-}"; }
+	for t in "${CROSS_TARGETS[@]}"; do [[ "${t}" == *"|macos-universal|"* ]] || continue; eval "${t#*|*|*|}"; done'
+macSdkOut="$(env -u SDKROOT PATH="${tmpDir}/macsdk/bin" CPU_CAP=1 "${BASH}" -c "${macSdkRun}" _ "${repoDir}/cicd/config.bash" 2>&1 || true)"
+[[ "${macSdkOut}" == "[/zz/lib/libc/darwin]" ]] || fBad "the macOS build did not name zig's darwin stubs as SDKROOT with no xcrun: ${macSdkOut@Q}"
+macSdkOut="$(env -u SDKROOT PATH="${tmpDir}/macsdk/bin:${tmpDir}/macsdk/xc" CPU_CAP=1 "${BASH}" -c "${macSdkRun}" _ "${repoDir}/cicd/config.bash" 2>&1 || true)"
+[[ "${macSdkOut}" == "[]" ]] || fBad "the macOS build set SDKROOT where xcrun exists: ${macSdkOut@Q}"
+macSdkOut="$(SDKROOT=/my/sdk PATH="${tmpDir}/macsdk/bin" CPU_CAP=1 "${BASH}" -c "${macSdkRun}" _ "${repoDir}/cicd/config.bash" 2>&1 || true)"
+[[ "${macSdkOut}" == "[/my/sdk]" ]] || fBad "the macOS build dropped an SDKROOT already set: ${macSdkOut@Q}"
+
 fTest EojuRVQ 20260901b-20-flame-report-partial-graphs
 ##	20260901b item 20: flame-report.py took any file with a sample count and one
 ##	frame for a whole flamegraph, so a profile cut off mid-write reported a
