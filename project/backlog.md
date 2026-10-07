@@ -120,6 +120,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Verified: check-migrate passes (638 compared, 288 rewritten with `--from-2x`, 22 of them clean, 234 without, 350 left alone, 32 refused at 7, 7 naming Format 3), shellcheck, test-ids check, check-docs. A one-off copy pointed at the Go, C and Python CLIs passed too.
 	- Acceptance signoff: Self-closed: the item's intent was clear, the gate passes and each new check was seen to fail.
 	- Branch: `upgtest`
+	- Commit: `2fd2b410`
+	- Closed: 20261007-142313
 
 - The comparison tool writes its SHCL documents in the old value syntax
 	- ID: 2026100711403568
