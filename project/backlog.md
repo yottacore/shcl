@@ -33,10 +33,291 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
+- Back up and rewrite a config file when a program's shcl upgrade breaks it
+	- ID: 2026100313461649
+	- Type: Feature
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261003-134616
+	- Opened by: JC
+	- Prereq IDs: 2026100207032800
+	- Related IDs: 2026100313461650, 2026092709243678, 2026100115403385, 2026100207032800
+	- Problem description:
+		- When a client program's shcl upgrade breaks compatibility with an existing file(s).
+		- Three programs so far are now configured to do this themselves. So just be careful not to race, conflict, or trample what the client program is doing.
+	- Requirements:
+		- Check if the new shcl version has breaking changes with the existing doc. If so:
+			- Rename the latest config file `[origname]_backup_YYYYmmDD-HHMMSS_format-v[shcl version].shcl`.
+				- In local time.
+			- Have the program write a new config file with the same previous path and name, from scratch, using whatever settings and conversions shcl can handle.
+		- Explore ideas like providing a "backup and upgrade config" function, that starts with a nice clean fresh config file, but with previous settings correctly carried over.
+	- Reason: just below "critical" importance as a feature.
+	- Note: 20261003, open points to settle before building.
+		- `migrate --write` already keeps the original as `NAME_old_v2.EXT` (2026092709243678). The two names should probably become one.
+		- Which version goes in the name: the file's format or the shcl library version.
+		- The info block comes only from `init` and a creating `set --write`, never from the library save. A fresh rewrite through the library would need an exception.
+		- 2026100115403385 says beta-stamped Format 3 files are on their own. This item would cover them, if the check can tell a beta file apart.
+	- Decisions:
+		- 20261003: one backup name. `migrate --write` moves from `NAME_old_v2.EXT` to the same timestamped name.
+		- 20261003: the version in the name is the old file's format, so `format-v2` for a 2.x file.
+		- 20261003: the fresh file gets the info block, as `init` writes it. This call is the one library write that does.
+		- 20261003: it covers beta-stamped Format 3 files too, when they can be told apart. This reopens the scope of 2026100115403385.
+	- Note: 20261005, waits on 2026100207032800, since its rewrite goes through `migrate`, which that item's chunk C changes. Work it right after chunk C.
+	- Estimated effort: High
+
+- A CICD test that makes old shcl files and checks the automatic conversion
+	- ID: 2026100313461650
+	- Type: Task
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261003-134616
+	- Opened by: JC
+	- Related IDs: 2026100313461649, 2026100307163909
+	- Requirements:
+		- Write a test as part of CICD that creates old shcl file versions, and tests the automatic conversion.
+	- Note: 20261003, `check-migrate.bash` already builds 2.x from pinned `7be348d` and compares reads after `migrate`. This would extend it to the backup and rewrite in 2026100313461649, and to beta-stamped Format 3 files once 2026100207032800 is in.
+	- Estimated effort: Avg
+
+- The comparison tool writes its SHCL documents in the old value syntax
+	- ID: 2026100711403568
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261007-114035
+	- Opened by: found while working 2026100711350582
+	- Related IDs: 2026100207032800, 2026100221215300, 2026100219565400
+	- Version and build: valsyn at `c4c6273c`
+	- Steps to reproduce:
+		- Read `shcl_scalar` and `shcl_string` in `cicd/utility/comparison/src/model.rs`.
+	- Incorrect behavior: an array is written `a, b` with no brackets, which is `E026` now. A quote or backslash in a string is written `\"` or `\\`, and a backslash is plain text now. So the benchmark documents would load with errors once valsyn is in dev.
+	- Expected behavior: arrays in brackets, and strings quoted the way the writer quotes them.
+	- Reproduced: No. Read only; the comparison tool was not built or run.
+	- Note: needed before the Python perf recheck (2026100221215300) and the next benchmark run. The document sizes will move a little.
+	- Estimated effort: Low
+
+- README note on how escapes work, and why
+	- ID: 2026100313461651
+	- Type: Task
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261003-134616
+	- Opened by: JC
+	- Prereq IDs: 2026100207032800
+	- Requirements:
+		- Briefly note in README our different way of handling escapes, and why.
+		- Use the "newline" escape as an example, windows paths, and unicode escapes.
+	- Note: 20261003, the escape names come from `project/design_docs/value-syntax.md`: `◉NEWLINE◉`, `◉U+XXXX◉`, and a backslash is plain text, so `C:\temp` needs no doubling.
+	- Estimated effort: Low
+
+- A file stamped Format 3 during the beta is never migrated
+	- ID: 2026100115403385
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Note: 20261002, an open point in the design for 2026100207032800, which changes much more of format 3. Proposed there: pre-release files are on their own, per the 2.x low-stakes rule. Design: `project/design_docs/value-syntax.md`.
+	- Note: 20261002, the proposal was OK'd. What is left is saying so in the docs.
+	- Note: 20261003, 2026100313461649 now brings beta-stamped files forward when they can be told apart. This item waits on it.
+	- Opened: 20261001-154033
+	- Opened by: silkterm feedback
+	- Related IDs: 2026100115323227
+	- Version and build: dev at `b10c2009`
+	- Steps to reproduce:
+		- `migrate(text, false)`, `migrate(text, true)` and `migrate_unstamped(text, true)` on a file ending in `GEN_BANNER` and holding `image: "C:\Users\x.png"`.
+	- Incorrect behavior: all three return `current: true` and the text unchanged. Under `b10c2009` the line is `E023` and sets nothing. At `f2a8ad2`, which wrote the same `Format 3` line, it read as written.
+	- Expected behavior: some way to bring such a file forward, or a stated choice that pre-release files are on their own.
+	- Reproduced: Yes, 20261001, Rust at `b10c2009`.
+	- Note: a rough edge. Only programs that shipped a beta build of 3.0 to users are hit. SilkTerm's dogfood builds did; none of its releases did.
+
+- The Python binding parses about 25% slower than on 2026-09-19
+	- ID: 2026100221215300
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261002-212153
+	- Opened by: benchmark rerun, 2026100219565400
+	- Related IDs: 2026100219565400, 2026100207032800
+	- Version and build: dev at `7e81cd87`
+	- Steps to reproduce:
+		- Time `shcl.Document.parse` on the comparison's `ddl.shcl` with `shcl.py` from `efcc7dd8`, then from dev.
+	- Incorrect behavior: 186 ms before, 228 ms now, back to back on the same box. The comparison run shows 20% to 30% on every shape. Rust got faster over the same span.
+	- Possible cause: the per-line fault checks added with the escape errors. `_line_fault` and the extra `any` calls account for most of the gap.
+	- Decisions:
+		- 20261002: recheck after 2026100207032800 is built, since it removes most of those checks. No perf work before 3.0.0 otherwise.
+
+- A merge after an empty field writes a list that a reload joins to it
+	- ID: 2026100520243961
+	- Type: Bug
+	- Status: Done
+	- Severity: Critical
+	- Opened: 20261005-202439
+	- Opened by: JC
+	- Parent ID: 2026100207032800
+	- Steps to reproduce:
+		- Merge a layer holding `p:`, `\ts:`, `\t# c` with a layer holding `p:`, `\ts:`, `\t\t- 0`, `\t\tc:`.
+		- Read `p.s.c`, then save, reload and read it again.
+	- Incorrect behavior: the merge adds the list, with its field, as a new instance after the empty `s`. A reload joins the two, so the merged document and its reload differ. Any kept line or comment in the gap does it.
+	- Expected behavior: the merged document is the one its saved text loads back to.
+	- Reproduced: 20261005, on `valsyn` before `vsnarrow`, in Rust. Release fuzz `Eqk24nZ` at iteration 1814886 after `vsnarrow`.
+	- Note: likely the same join the `vsfuzz` fix gave a setter (`ErsETML`), missing on the merge path. Rust only for now; the other ports have no list join yet.
+	- Estimated effort: Avg
+	- Cause: the merge's settle looked for the join before it moved the lines after each child down to the next one. A comment or kept line still sitting after the empty binding made it refuse the join, and only then did the line move above the list. The setter's twin never sees such a line, since a load has already moved it. A remove had no join at all: one taking the last field of an empty binding left a list of its name after it unjoined, and one taking a list's last field left it stacked there, which a reload joins and drops.
+	- Fix: the settle tries the join again once the lines have moved. A remove that leaves a block with no fields settles its name the way a setter does, so the list joins the binding, or goes in brackets when the binding still has fields.
+	- Test case: `Ert70BF` (merge, with a comment, a kept line and a sibling in the gap), `Ert70DM` (both remove cases), and corpus 201 (`Ert9PEK`). All 3 failed on the code before and pass now.
+	- Swept: the setter's twin (`set_empty` past a comment or kept line, at and below the binding's level, already matched a reload), the writer's fold and the new child settle (both go through the same settle), and remove (fixed here). `clear_comments` and `set_comment` cannot leave a line after a binding that is not its last child.
+	- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust. The 2,000,000 release fuzz passes all 24, on the old seed set and with corpus 201 added.
+	- Note: the Go, Python and C ports need this with their list join.
+	- Acceptance signoff: Self-closed: reproduced, test failed before and passes after.
+	- Branch: `vsjoin`
+	- Commit: `95727823`
+	- Closed: 20261005-205600
+
+- A canonical save after a merge and a raw set loses kept lines, found by the kept-lines fuzz
+	- ID: 2026100316012486
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: Y, the full `--ci`. cppcheck's exhaustive pass over the changed header did not finish in 10 minutes here.
+	- Severity: Critical
+	- Opened: 20261003-160124
+	- Opened by: found while working 2026100307163904
+	- Related IDs: 2026100307310000, 2026100307163902
+	- Version and build: dev at `e9e4a6cc`
+	- Steps to reproduce:
+		- `SHCL_FUZZ_ITERS=2000000` release fuzz, with the `EreT6dh` excuse for 2026100307163902 widened from `E014` to `E012` so it gets past iteration 558881.
+	- Incorrect behavior: `EreT6dh` fails at iteration 1061439. A canonical save after a merge and a raw set loses kept lines. Dev's code fails the same way, so the banner fix did not cause it.
+	- Expected behavior: every kept line outside the edit's target is in the saved text, or the save refuses.
+	- Reproduced: 20261003, Rust fuzz only, with the widened excuse made locally and not committed. Not cut down to a small file yet, and not checked by hand in the other three bindings.
+	- Note: filed Critical on the release bar, since the property fails only when the save goes through. Lower it if the cut-down case shows the save refused.
+	- Note: 20261003, found while working 2026100307163901. With the known rows excused, the 2,000,000 release fuzz fails `EreT6dh` at iteration 960275 on a merge with no raw set that loses the kept line `b: 4` at exit 0. Dev does the same. Likely a second repro of this item.
+	- Note: 20261003, found while working 2026100307163902. After that fix, the 2,000,000 release fuzz fails `EreT6dh` first at iteration 749492: a merge loses the kept line `srv[x]: [3]`, with no raw block in the input. With merges excused, nothing else fails up to 2,000,000.
+	- Reproduced: 20261004, cut down to `    srv: a` / `  srv[x]: [3]` / `b[x]: [4]` / `q: c` merged with `q: 9`. The load settles `srv[x]: [3]` as a comment, and the merge writes `srv: a` / `b[x]: [4]` / `q: 9` at a lost count of 0, so the save goes through. All four bindings did the same. The 960275 report is the same class: on the seed set from before corpus 191, the old code fails at 959829 losing `b: 4` the same way. The raw set in the title had no part in it.
+	- Actual cause:
+		- A merge that replaces a leaf dropped every comment held on it, settled lines included, and kept only its plain kept lines. Lines above a kept line beside the leaf are held on the leaf too, so a settled line there went with it. By design.md's table only the leaf's own comments go, and a remove already reads those as the ones after its last kept line.
+	- Actual fix: a replaced leaf takes only its own comments, the ones a remove would take, with a settled line read as the comment a reload makes of it. The rest stay, with the comment run restepped where they join the new leaf's lines. All four bindings. design.md's kept-lines section says so.
+	- Against: the 2026-09-28 decision (a settled line on a replaced leaf goes with the leaf's comments). It still holds. This only says which comments are the leaf's, which the decision did not spell out.
+	- Note: corpus 091's merged golden moved. Its top comment sits above a kept line, so it now stays. A comment of the leaf's own was added to its layer so the case still shows one going.
+	- Swept: the replace path in each binding's merge is the only site that drops a settled line (grep for the kept-owed decrements: remove, the footer dedup and this one). The property was right; 2026100313174977 is not the cause and was left alone.
+	- Verified: the 2,000,000 release fuzz passes with no excuses, all 17 properties, and `EreT6dh` passes on the seed set from before corpus 191. The four conformance suites, cli-regress, crosscheck over the corpus plus a fuzz dump, check-docs, shell-regress, clippy for both targets, rustfmt, go vet, staticcheck, ruff and mypy pass.
+	- Estimated effort: Avg
+	- Progress log:
+		- 20261004: fixed and tested. Waits on the full `--ci`, then signoff on the comment placement, since a merge now keeps a plain comment it used to drop.
+		- 20261004: hosted run 37223480776 on dev at `3e9b1a31` passed, the full `--ci` included, with the four new tests and `EreT6dh` green. A merge now keeps a plain comment it used to drop, as design.md's table says.
+	- Branch: `mergekept`
+	- Commit: `5d31a47d`
+	- Test case: `ErkSy71` (Rust), `ErkSyFW` (Go), `ErkSyPf` (Python), `ErkSySr` (C), `a_replaced_leaf_leaves_the_lines_beside_it`; each fails on the old code. Corpus 091. `EreT6dh` at 2,000,000.
+	- Acceptance signoff: 20261004, signed off. Its tests cover it and the hosted run passed.
+	- Closed: 20261004-114043
+
+- `remove` deletes kept lines next to the field it removes, at exit 0
+	- ID: 2026100307163901
+	- Type: Bug
+	- Status: Done
+	- Severity: Critical
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 1
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- `printf 'x: 1\nr: [1, 2]\ny: 3\n' > f.shcl`
+		- `shcl set f.shcl --remove y --write`
+	- Incorrect behavior: exit 0, and the file is just `x: 1`. The kept `r: [1, 2]` line went with `y`.
+	- Expected behavior: a kept line stays where it was written. The spec says a hand typo survives a load, edit and save.
+	- Reproduced: 20261003, all four CLIs and the Rust, Go and Python libraries. Same with `r: "C:\temp"` (E024), `r: "a\qb"` (E023), `bad name: 1` (E014), `*x` and `"r: 1`. Inside a block, `--remove j.q` takes a kept `j.r` whether it sits above or below `q`.
+	- Possible cause: a kept line is held as trivia on the next binding's node, and `remove` drops the node with its trivia. `clear_comments` already skips kept lines; `remove` does not. The save gate does not count kept lines, so `--write` goes through.
+	- Origin: kept lines as trivia came with `b216ad2b` (funnel, 2026-09-07), and rs-base does the same. For the `"C:\temp"` spelling it is a regression from `3ef0bc8c` (escblock): base kept that line as an H004 hint and the remove left it. Not seen by an earlier round. Backlog item 2026092620255202 is the same class for `clear-comments`. Confirmed.
+	- Note: 2026100207032800 makes more lines kept, a bare value with spaces among them, so this gets wider once that goes in.
+	- Sweep: every edit that drops or moves a node's trivia in all four: `remove`, the merge's replaced leaf, the setters that replace a node.
+	- Note: 20261003, from 2026100307310000. The save gate now counts kept lines, so the repro exits 7 and leaves the file alone, in all four. cli-regress `EreYYXK` (`save-kept-remove`) pins that; this fix turns it into exit 0 with `r: [1, 2]` kept. The kept-lines property `EreT6dh` skips this class through its row keyed by this ID, and the fix takes the row out. Up to 2,000,000 runs, only `remove` hit it; no setter or merge did.
+	- Estimated effort: Avg
+	- Actual cause [Bug]: a kept line sits in the next field's leading lines, or in a block's trailing ones, and `remove` dropped those lines with the field.
+	- Progress log:
+		- 20261003: fixed in all four, with 2026100307163907. A remove leaves the kept lines beside its target where they were, with the comments above them. A comment written right against the target goes with it. When the target was the last field in its block, its kept lines stay at the end of the block, and a misplaced line among them moves down to just above the next field line, where a reload files it.
+		- 20261003: tests whose expectation moved. cli-regress `EreYYXK` now expects exit 0 with `r: [1, 2]` kept, where it pinned the refusal at 7. `EreT6dh` lost this item's open row, and its check that a remove writes no new line now reads a raw block's fence moved to its own line as the same line. The reload property `Eqk24nZ` and its Go, Python and C twins now excuse a remove beside a settled kept line, as they already did for `clear_comments` (20260926 item 2). The document keeps that line, and the reload of its canonical text sees a plain comment.
+		- 20261003: left for signoff: which comments go with the target. The fix takes those between the target and the nearest kept line, and keeps the rest.
+		- 20261004: the full local run passed on dev at `063df7f2`, cppcheck exhaustive included.
+	- Actual fix [Bug]: `remove` puts what stays above the next field, or at the end of the block, in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`. design.md's "Kept lines under edits" has three new bullets for it. No table cell changed.
+	- Swept: `remove` in all four. The merge's replaced leaf already moves its kept lines onto the replacement. Every setter goes through `set_value` or its twin, which changes the value in place and keeps the node's lines, and `collapse_dup` folds them into the survivor. `clear_comments` already skipped kept lines. No other edit unlinks a node.
+	- Verified: the Rust, Go, Python and C suites, cli-regress, crosscheck, shell-regress, sanitize-c, check-veneer, clippy, staticcheck, ruff and mypy. Each new test failed with the fix taken out. The 2,000,000 release fuzz is green but for `EreT6dh`, which still fails on the open row of 2026100307163902 first.
+	- Note: 20261003, the 2,000,000 release fuzz, run on past known rows with local excuses only. A merge loses a kept line at exit 0 with dev's library as well, at iteration 960275 (`set_int`, banner on, merge; no raw set). An `E019` line ending in a fence has its body read as fields, the same class as 2026100307163902 and 2026100117214801; dev never reached it, since this item's row excused the step first. Nothing else failed.
+	- Branch: `removekept`
+	- Commit: `46e6176a`
+	- Test case: `ErgToYw` (Rust), `ErgTocq` (Go), `ErgTogT` (Python), `ErgTokB` (C); cli-regress `EreYYXK`; fuzz `EreT6dh`.
+	- Acceptance signoff: 20261004, signed off. Its tests cover it and the full run passed.
+	- Closed: 20261004-110932
+
+- A field line refused for its name that opens a raw block has its body read as fields, and `fmt --write` scrambles the file at exit 0
+	- ID: 2026100307163902
+	- Type: Bug
+	- Status: Done
+	- Severity: Critical
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 2
+	- Related IDs: 2026100117214801
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- A file holding `tools:`, then tab-indented `my script: ~~~sh`, `echo hi`, `run: rm -rf /tmp/x`, `~~~` and `port: 8080`.
+		- `shcl get f.shcl tools.run`, then `shcl fmt --write f.shcl`.
+	- Incorrect behavior: `get` prints `rm -rf /tmp/x` at exit 0 and `tools.port` is NotFound. `fmt --write` exits 0 and writes a raw block holding `port: 8080`, with `run: "rm -rf /tmp/x"` as a live field. `set -w --set tools.port=9090` exits 0 too and adds a second `port`.
+	- Expected behavior: the body goes with its line, as the E018 row in the spec says for every skipped field line, and a save never rewrites body text as fields.
+	- Reproduced: 20261003, all four CLIs. With the body one level deeper, the closing fence opens a block that runs to the end of the file; the save then refuses at 7 but every later field reads NotFound.
+	- Possible cause: the E014 arm moves on one line without taking the block, and the `line_fault` arm, which takes E023 in a name, does the same. `skip_field_line` does not help as written, since `line_fence` returns nothing on a faulted token list.
+	- Origin: older than the range. The 20260918 and 20260918b rounds declined the E014 fence run on the belief that the closing fence hides the rest of the file at E005, so a save refuses. This repro saves at exit 0, and the 2026-10-02 rule that an error never throws out good lines came after. Item 2026100117214801 is the E023 half of the same class. Confirmed.
+	- Note: a fix wants the whole class from 20260918b: a kept or refused line on which the tokenizer can still see a fence run takes its body. 801 would close with it.
+	- Note: 20261003, found while working 2026100307163904. The 2,000,000 release fuzz fails `EreT6dh` at iteration 558881 on dev too: a misplaced `E012` line opens a raw block and its body is read as fields. The property excuses this only for `E014`, so `E012` is the same class and this fix should cover it.
+	- Note: 20261003, from 2026100307310000. The kept-lines property `EreT6dh` skips this class through its row keyed by this ID, and the fix takes the row out. The save gate counts one kept line per retained outcome, so whatever the body becomes, the load must still hold one kept line for each, or a plain `fmt --write` refuses.
+	- Note: 20261003, found while working 2026100307163901. Past the known rows, the 2,000,000 release fuzz fails `EreT6dh` at iteration 1818622 on an `E019` line ending in a fence, with its body read as fields. Same class, so this fix should cover `E019` too.
+	- Estimated effort: Avg
+	- Actual cause [Bug]: two arms moved on one line after keeping it: the `E014` arm, and the arm for a bad escape in a name. `line_fence` saw no fence on a line that did not tokenize, so the misplaced arms let such a body through too, which is the `E012` case at fuzz iteration 555233. The `E019` report at iteration 1818622 was the property's own guess at the value: `a_:[0]:` followed by a three-backtick fence is bracket text, whose value starts with `[`, so it opens no block.
+	- Progress log:
+		- 20261003: fixed in all four. A kept line whose value is a fence keeps the body and closing fence with it, as one kept line, so the save gate's count holds. A line that does not tokenize opens a block when a fence follows its first colon past where reading stopped, with no `#` before that colon. Canonical output writes the body one level under the line, as for a field's block, and a block that never closed gets its closing fence. A misplaced line that opens a block still takes it and is lost, as the `E012` row says.
+		- 20261003: the property's two oracles read a line's value with the tokenizer now, rather than splitting at the first `: `. That guess made the `E019` report above.
+		- 20261003: the 2,000,000 release fuzz is green but for `EreT6dh` on a merge, which is 2026100316012486. The new corpus case moved the seeds, and it now fails first at iteration 749492, a kept line lost after a merge with no raw block in the input. With merges excused locally, nothing else fails up to 2,000,000.
+		- 20261003: left for signoff: canonical output moves a kept body one level under its line, and `fmt` adds the closing fence to a kept block that never closed. Both change what `fmt --write` writes.
+		- 20261004: the full local run passed on dev at `063df7f2`, cppcheck exhaustive included.
+	- Actual fix [Bug]: `line_fence` sees a fence past a fault, and the `E014` and line-fault arms keep the body on the kept line's text (`keep_body`), in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`. The emitter writes it one level under the line (`push_kept`). Spec, design.md (Load outcomes, Lexical edges, Kept lines under edits), `explain E014` and `E023` in the four CLIs, and the changelog say so.
+	- Swept: every arm that refuses a line and moves on, in all four. Field lines: `E012`, `E018` and `E021` go through `skip_field_line`, which now sees past a fault; `E014`, `E019`, `E023` and `E024` through `keep_body`. A child fence line already took its body. A `*` element line (`E012`, `E018`, `E013`, `E023`, `E024`) has no value that can open a block. The Schema and Format line walk (`opens_raw`) reads through the same `line_fence`, so it agrees with the parser. No `E025` arm exists yet; 2026100207032800 adds them. No C++ veneer call changed.
+	- Verified: the four conformance suites, cli-regress, crosscheck over the corpus and a 2,000-input fuzz dump, shell-regress, check-veneer, sanitize-c, check-migrate, check-docs, check-abnf, test-ids, markdownlint, clippy, go vet, staticcheck, ruff, mypy, gcc 15 with `_FORTIFY_SOURCE=3` and the mingw C build. Corpus 191 fails on dev in all four, and `EreT6dh` fails on dev at iteration 25 with its row out. Both pass with the fix.
+	- Branch: `rawkept`
+	- Commit: `0a6d1bb5`
+	- Test case: corpus 191 (`Ergr8Z4`) in all four; fuzz `EreT6dh` (open row taken out) and `EqGWdij` (its `E014` excuse taken out).
+	- Acceptance signoff: 20261004, signed off. Its tests cover it and the full run passed.
+	- Closed: 20261004-110932
+
+- `check` can take its Schema line from inside a raw block and validate against the wrong schema at exit 0
+	- ID: 2026100307163903
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: Y, the full `--ci`. cppcheck's exhaustive pass over the changed header did not finish in 10 minutes here.
+	- Severity: Critical
+	- Opened: 20261003-071639
+	- Opened by: Code review 20261003 item 3
+	- Version and build: dev at `6e8b7f89`
+	- Steps to reproduce:
+		- A file holding `'C:\': ~~~`, a tab-indented `##    Schema   ./lax.shcl`, a tab-indented `~~~`, then `##    Schema   ./strict.shcl` and `port: abc`. `strict.shcl` makes `port` an int.
+		- `shcl check f.shcl`
+	- Incorrect behavior: `ok (0 diagnostic(s))` at exit 0 in all four. It used `lax.shcl`, the line inside the raw body.
+	- Expected behavior: V003 at exit 6, as `check --schema=strict.shcl` gives.
+	- Reproduced: 20261003, all four CLIs. Same cause in `migrate`: a file whose only `##    Format   3` line is inside such a body comes back untouched at exit 0 instead of refusing at 7.
+	- Possible cause: `schema_ref` and `format_line_version` find raw blocks through `migrate_line`, which reads with the 2.x tokenizer. In 2.x a backslash escapes inside single quotes too, so `'C:\'` never closes there and the fence is missed. A 2M-line fuzz against the parser found no other class.
+	- Origin: `2c528a23` (schema line, 2026-09-26) and `27d73efb` (schema line fixes, 2026-09-28). The 20260928 decided-against list says the tracker differs from the parser only on an E023 fence name, in a file that already fails `check`. This file loads clean, so that premise does not hold. Confirmed.
+	- Sweep: `schema_ref` and `format_line_version` in all four, and anything else that walks lines with `migrate_line`.
+	- Estimated effort: Low
+	- Actual cause: as above. Both walks found raw blocks with the 2.x tokenizer, in all four.
+	- Actual fix: one line walk that knows which rules it reads by. The Schema line is new in format 3, so `schema_ref` finds blocks the way the parser does, through the parser's own tokenizer and fence tests (`child_fence`, `line_fence`). A Format line counts by the rules it names: one naming format 3 counts outside the parser's blocks, and an older one outside the blocks 2.x found. `migrate` on a file that names no format also counts lines one rule set reads as a raw body and the other does not as reading two ways, so it refuses at 7 unless `--from-2x` says the file is 2.x. It does not stamp a file whose output ends inside a raw block under either rule set. Spec and design say so.
+	- Note: a line refused for its text (E014, E019, E023, E024) can still read its body as lines in the parser while the walk takes the body. That file fails `check` anyway, and 2026100307163902 and 2026100117214801 move the parser to the walk's answer.
+	- Note: with `--from-2x`, 2.x's reading stands. A 2.x line that 2.x refused and that now opens a block is left as written, per the low-stakes rule for 2.x.
+	- Note: the new corpus case moved the fuzz seeds, and `EreT6dh` then failed on a remove whose kept line starts with a next-line character. Rust's `trim` takes that character and the format does not, so a settled comment compared unequal to its line. The property now trims the format's blanks only. Not a library defect.
+	- Swept: `schema_ref` and `format_line_version` in Rust, Go, Python and C now read through one walker (`RawLines`, `rawLines`, `_RawLines`, `ShclRawLines`), and the parser's child-fence test is the shared `child_fence`. The only other caller of `migrate_line` is the rewrite loop in `migrate`, which reads 2.x on purpose and now checks its output against the parser's blocks. The C++ veneer only wraps the two C calls, and no script reads either line.
+	- Verified: the repro gives V003 at exit 6 and the `migrate` repro exits 7, in all four CLIs. The four conformance suites, `cli-regress.bash` (344 rows), `crosscheck.bash` over the corpus and a 2,000-input fuzz dump, `check-migrate.bash`, `shell-regress.bash`, `check-docs.bash`, markdownlint, `test-ids.py check`, clippy (host and windows), go vet and staticcheck (also windows), ruff, mypy, gcc 15 with `_FORTIFY_SOURCE=3`, the mingw C build and the C runner under ASan and UBSan pass. The release fuzz at 2,000,000 passes.
+	- Branch: `schemaraw`
+	- Commit: 4fcfec0b, 55d4777d
+	- Test case: corpus `189-schema-line-raw-after-backslash` (`ErfuRcU`, all four runners), cli-regress `ErfuRh7` and `ErfuRj5`, fuzz property `ErfuRfE`. Each fails on the old code and passes on the new.
+	- Note: left for signoff: the new `migrate` refusal and no-stamp rule, which go past the item, and the `EreT6dh` trim change.
+	- Acceptance signoff: 20261003, signed off. The `migrate` refusal at 7 was OK'd. The no-stamp rule is the one design.md already had, now checked under both rule sets, and the `EreT6dh` change is a fix to the test, so neither needed a call.
+	- Closed: 20261003-162005
+
 - No '\' escapes
 	- ID: 2026100207032800
 	- Type: Enhancement
-	- Status: Started
+	- Status: Done
 	- Priority: Critical
 	- Needs local test suite run?: Y
 	- Needs external testing: Y
@@ -329,365 +610,11 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261006: spaces are allowed in a bare field value and a bare `- ` item, kept as typed, and the writer still quotes them. Not inside `[]` or a selector. A bare colon or comma needs a character other than whitespace after it, so `rw,noatime`, `:0` and URLs stay bare and `ports: 80, 443` is `E026`. Inside `[]` a comma always separates. A selector body also takes no bare colon, comma or bracket. Full rules in the design doc. spec.md's "never made to satisfy the machine" goal stays as written.
 	- Branch: `valsyn` (chunk A on `vslex`, chunk B part 1 on `vsarr`, part 2 on `vssel`, the 20261005 rework on `vsfix`, the fuzz fixes on `vsfuzz`, the no-colon narrowing on `vsnarrow`, chunk C docs on `vsspec`, the 20261006 spacing answer on `vsspace2`, chunk C's `migrate` on `vsmig`, the Go port's part 1 on `vsgo1`, part 2 on `vsgo2`, part 3a on `vsgo3`, part 3b on `vsgo3b`, the Python port's part 1 on `vspy1`, part 2 on `vspy2`, part 3a on `vspy3`, part 3b on `vspy3b`, the C port's part 1 on `vsc1`, part 2 on `vsc2`, part 3a on `vsc3`, part 3b on `vsc3b`)
 	- Commit: `6355ba10` (chunk A), `7c90c42d` and `f228c3e9` (chunk B part 2), `11b069fe` (the 20261005 rework), `c67b89d7` (the fuzz fixes), `0b57d0d2` (the no-colon narrowing), `7075fb4d` (the 20261006 spacing answer), `e3695acf` (chunk C's `migrate`), `bd7061ad` (the Go port's part 1), `fd0cf5c8` (the Go port's part 2), `dfb108ad` (the Go port's part 3a), `1fd8a1f1` (part 3b), `f2b97394` (the Python port's part 1), `9addd72e` (part 2), `a3a87c98` (part 3a), `26ad66ec` (part 3b), `ba5c4503` (the C port's part 1), `41cfe0a0` (part 2), `63e19b96` (part 3a), `2afe3638` (part 3b)
-	- Test case:
-	- Acceptance signoff:
+	- Test case: corpus cases 192 to 203 and the reworked goldens, plus the conformance, fuzz and cli-regress tests named per chunk in the progress log.
+	- Verified: 20261007, on valsyn `aec9959b` with all four bindings: the full `--ci` (1989 ok, 0 FAIL, tree recorded), the 2,000,000 release fuzz (all 25 pass) and hosted run 37668959888 (ci, windows, macos and go-floor all green).
+	- Acceptance signoff: Self-closed: every rule the design doc settles is built in all four bindings, and the full gate and hosted run pass.
 	- Superseded by ID:
-	- Closed:
-
-- Selectors use `()`, and `[]` is for arrays only
-	- ID: 2026100610073400
-	- Type: Enhancement
-	- Status: Started
-	- Priority: High
-	- Opened: 20261006-100734
-	- Opened by: JC
-	- Prereq IDs: 2026100207032800
-	- Related IDs: 2026100207032800, 2026100609552447
-	- Problem description:
-		- After 2026100207032800, brackets mean two things on one line. `base[Boston].ports: [80, 443]` has a selector and an array.
-		- In a lookup path, `dogs[1]` looks like the second element of an array. It's the second `dogs` instance.
-	- Requirements:
-		- Every selector is written in parens: `person(Bucky)`, `person("New York")`, `person(0)`, `person(*)`. That goes for files, lookup paths, setter paths, `--set` and schema paths.
-		- Brackets after a name are an error. Brackets are only arrays. Which code is open.
-		- A bare number is an index and a quoted one is a value, as now: `year(2020)` vs `year("2020")`.
-		- `[#N]` goes too, from 2026100609552447. A body starting with `#` is refused, not read as a value.
-		- Every path the library writes uses parens: `InstancePaths()`, `Paths()`, `QuoteSegment`, the starter config.
-		- `migrate` rewrites 2.x selector lines.
-		- spec.md, design.md, value-syntax.md, the grammar, README, man page, CLI help, completions and the C++ interface. CLI examples quote the path, since an unquoted `(` is a syntax error in bash.
-		- Corpus cases and cli-regress rows with selectors. 32 corpus inputs have them.
-		- A changelog line.
-	- Reason: one meaning per bracket. Format 3 isn't cut yet, so this is the cheapest it gets.
-	- Decisions:
-		- 20261006: parens for every selector, brackets only for arrays. Parens for values with brackets for index and wildcard was too confusing, 2 forms for one thing. Braces were weighed too, but PowerShell silently splits `person{Bucky}` into 2 arguments.
-		- 20261006: brackets after a name get a new code, `E029`, so `explain E029` can say selectors moved to parens. The line is kept as written.
-	- Note: 20261006, do it on `valsyn` after chunk C's Rust part and before the Go, Python and C ports, so the ports get written once.
-	- Estimated effort: High
-	- Progress log:
-		- 20261006: the Rust part on `vspar`, off `valsyn`, library and CLI, `migrate` aside.
-			- In: a selector reads in parens in files, lookups, setters, `--set` and schema paths. One in brackets is `E029`, kept as written. When it selects by value, the lines under it load under that instance. A path in brackets is refused, and the CLI and `V093` say why. `[#N]` is gone: a bare body that starts with `#` is `E025`, and so is a paren in a bare body. `explain E029` is new.
-			- Writer: `InstancePaths()`, `init`'s lines and the CLI help write parens. `Paths()` and `QuoteSegment` already quote a name with a paren in it. The stale `gen_selector_text` doc comment is fixed.
-			- Corpus: 75 cases moved to parens, new case 203. The migrate cases 118, 122, 170 and 174 keep their 2.x inputs, so loaded as they are their selector lines are `E029` now, and their reads moved with that.
-			- cli-regress: 14 new rows, 30 edited in place. perf-gate's selector workload, check-docs' lookups into the comparison results and the demo's `get` step use parens.
-			- The 2,000,000 release fuzz found the fmt fixpoint property missing the excuse the setter property has for 2026100511210900's list, which a kept array line can build. Older than this change. Fixed in the property, test `Erxfmqc`.
-		- 20261006: calls made in the Rust part that the doc does not settle. Each is easy to reverse.
-			- `E029` comes before every other fault in the path and the name, so `base[New York]:` says brackets first. Its level opens only when the body reads clean as a value. An index or a wildcard in brackets opens nothing, so the lines under `item[0]:` are `E018`, as under `item(0):`.
-			- A nested pair, `x(a(b))`, is `E014`, since the body ends at the first `)`, as `x[a[b]]` did. Only a lone `(` in a bare body is `E025`.
-			- A lookup body that starts with `#` finds nothing, like any bad body. The CLI names a path in brackets in its `get`, `--set`, `--remove` and ops errors: "a selector is written in parens now".
-			- The tokenizer still reads a bracket selector, to its `]`, and notes it. `tokens` shows it as `sel=` and prints no new field.
-			- `init` refuses a child of a parent whose default is an array (`V097`), since a selector matches one plain value. It used to write `tags[a].k`, which made a second `tags`.
-			- A value with a paren is written bare.
-		- 20261006: left for the next pieces.
-			- `migrate` still writes brackets. So `migrate_matches_expected` (118, 122, 170, 174), `migrate_escapes_a_real_mark`, `migrate_quotes_a_bare_selector_these_rules_refuse` and `migrate_leaves_what_reads_clean_now` fail, and check-migrate is at 579 divergences, partly because its read loop builds `[#i]` paths.
-			- check-docs fails `Er1z2hW` (no `E029` row in spec.md), `EqWax3I` (4 bracket samples in check-abnf) and `Eom0qpm`, and check-readme fails `EqRTWFg`, both on the README sample's bracket selector.
-			- spec.md, grammar.abnf, check-abnf, design.md, value-syntax.md, README, the man page (its `--set` text and the `site[*]` example), the changelog, then the Go, Python and C ports.
-		- 20261006: `migrate` and the docs on `vsmig2`, off `valsyn`. Rust and docs only.
-			- In: `migrate` writes a 2.x selector in parens, `x[sel]` as `x(sel)`, an index and the wildcard included. A bare body these rules refuse, such as one with a space, a quote or a paren, is quoted. The `name:[disc]` sugar before the last segment loses its colon and goes in parens too.
-			- A file that does not say it is 2.x: a selector in brackets is `E029` now, so its line never reads clean. By the `vsmig` rule for a line these rules already refuse, it is rewritten, at exit 0. The rest of that line gets the 2.x rewrites with it.
-			- check-migrate is green: 638 documents, 28 lost counts. Its read loop asks for `(N)` on the current side and `[#N]` on the 2.x side. The corpus spells selectors in parens now, which 2.x refuses, so each corpus input with one is also compared with its paren pairs swapped back to brackets, 29 more documents. An input that names format 3 gets no copy, since `migrate` leaves it as written.
-			- check-migrate's exceptions are the ones it already had: lines 2.x refused, a fence label holding a `#`, a mid-line carriage return, an indent no level matches, a raw block that never closes, the two lost kinds (a selector with a comma, a comma list over lines), a backslash pair 2.x read as an escape, and the empty info-string read.
-			- Docs: spec.md (an `E029` row, the selector rules, lookup and schema paths, `init`, Migrating from 2.x), grammar.abnf (selectors in parens, no `#` index, and a `sel-text` class that `gen-escapes.py` writes), check-abnf samples, design.md, value-syntax.md (Roadmap, migration table, `E029`), README and the two binding READMEs, the man page, the changelog.
-			- Changelog `## Unreleased`: the `*` item lines now say `- `, the `SetLiteral` line says what it refuses now, and the `tokens` line is dropped, since `tokens` is new in 3.0.
-		- 20261006: calls made in the `migrate` and docs piece. Each is easy to reverse.
-			- In a file that does not say it is 2.x, a line with a selector in brackets gets every 2.x rewrite, not only the parens.
-			- A selector body with no spelling in parens is counted lost rather than written. None was found.
-			- A schema path with a selector is documented as fine bare, `field: server(*).host`, since the writer writes it that way.
-			- The README's Go, Python, C, C++ and Zig examples use parens too. So check-readme fails at its C example until the ports, where it failed at the Rust one before.
-			- The man page's migrate text still named `E024` and the old lost forms. It now matches spec.md, in short.
-		- 20261006: Rust and the docs are in. Status stays Started only because the Go, Python and C ports, with the C++ veneer, remain.
-		- 20261006: the Go port, `migrate` aside, on `vsgo3` with 2026100207032800's Go part 3a. Details there. The Go corpus fails only its 7 `migrate` cases, and crosscheck with Rust diverges only on `migrate`. Go tests `Eryg0ZB` and `Eryg0bK` match `Erxfmqa` and `Erxfmqb`.
-			- No new calls. `Tokens.BracketSelector` is -1 when there is none, as `Misspelled` is. Go's `migrate`, then the Python and C ports with the C++ veneer, remain.
-		- 20261006: Go's `migrate` writes selectors in parens, on `vsgo3b` with 2026100207032800's Go part 3b. Go test `ErykhtI` matches `ErxqQLy`; the Python and C ports remain.
-		- 20261006: the Python port, `migrate` aside, on `vspy3` with 2026100207032800's Python part 3a. The Python corpus fails only its 7 `migrate` cases, and crosscheck with Rust diverges only on `migrate`. Python tests `ErysKPJ` and `ErysKS0` match `Eryg0ZB` and `Eryg0bK`.
-		- 20261007: Python's `migrate` writes selectors in parens, on `vspy3b` with 2026100207032800's Python part 3b. Python test `Es1eIOu` matches `ErxqQLy`; the C port remains.
-		- 20261007: the C port, `migrate` aside, on `vsc3` with 2026100207032800's C part 3a. The C corpus fails only its 7 `migrate` cases, and crosscheck with Rust diverges only on `migrate`. C tests `Es1qzv8` and `Es1qzxJ` match `ErysKPJ` and `ErysKS0`.
-		- 20261007: C's `migrate` writes selectors in parens, on `vsc3b` with 2026100207032800's C part 3b. C test `Es1ySos` matches `ErxqQLy`. The ports are done.
-	- Branch: `vspar`, `vsmig2`, `vsgo3`, `vsgo3b`, `vspy3`, `vspy3b`, `vsc3`, `vsc3b`
-	- Commit: `c4da140e`, `df0eab64`, `dfb108ad`, `1fd8a1f1`, `a3a87c98`, `26ad66ec`, `63e19b96`, `2afe3638`
-	- Test case: corpus 203 (`ErxfmqL`), conformance `Erxfmqa` and `Erxfmqb`, fuzz `Erxfmqc`, cli-regress `ErxfmqM` to `ErxfmqZ`. Each failed on the code before but `ErxfmqU`, a pinning row. `vsmig2`: conformance `ErxqQLy`, cli-regress `Erxvsaw`, and check-migrate `Eq5YPgP` with the bracket copies. Each failed on the code before; check-migrate had 35 divergences there.
-	- Verified: cargo test but the 4 `migrate` tests above, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, shellcheck, markdownlint. shell-regress fails the same 2 as on `valsyn`. The 2,000,000 release fuzz passes all 25.
-		- `vsmig2`: cargo test with all 4 `migrate` tests, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, check-migrate, check-abnf, gen-escapes, markdownlint, shellcheck, ruff and mypy. check-docs passes but `EpHGoa0`, which fails because dev's installers are not on main yet. check-readme's Rust example and transcripts pass; its C, C++, Go and Python examples fail until the ports. shell-regress fails the same 2. The 2,000,000 release fuzz passes all 25.
-	- Swept: every `x[...]` selector and `[#N]` in spec.md, grammar.abnf, design.md, value-syntax.md, README.md, the binding READMEs, the man page and the changelog's `## Unreleased`. What is left in brackets is the `E029` text, the 2.x side of the migration rows, and design.md's history entries.
-
-- Back up and rewrite a config file when a program's shcl upgrade breaks it
-	- ID: 2026100313461649
-	- Type: Feature
-	- Status: Queued
-	- Priority: High
-	- Opened: 20261003-134616
-	- Opened by: JC
-	- Prereq IDs: 2026100207032800
-	- Related IDs: 2026100313461650, 2026092709243678, 2026100115403385, 2026100207032800
-	- Problem description:
-		- When a client program's shcl upgrade breaks compatibility with an existing file(s).
-		- Three programs so far are now configured to do this themselves. So just be careful not to race, conflict, or trample what the client program is doing.
-	- Requirements:
-		- Check if the new shcl version has breaking changes with the existing doc. If so:
-			- Rename the latest config file `[origname]_backup_YYYYmmDD-HHMMSS_format-v[shcl version].shcl`.
-				- In local time.
-			- Have the program write a new config file with the same previous path and name, from scratch, using whatever settings and conversions shcl can handle.
-		- Explore ideas like providing a "backup and upgrade config" function, that starts with a nice clean fresh config file, but with previous settings correctly carried over.
-	- Reason: just below "critical" importance as a feature.
-	- Note: 20261003, open points to settle before building.
-		- `migrate --write` already keeps the original as `NAME_old_v2.EXT` (2026092709243678). The two names should probably become one.
-		- Which version goes in the name: the file's format or the shcl library version.
-		- The info block comes only from `init` and a creating `set --write`, never from the library save. A fresh rewrite through the library would need an exception.
-		- 2026100115403385 says beta-stamped Format 3 files are on their own. This item would cover them, if the check can tell a beta file apart.
-	- Decisions:
-		- 20261003: one backup name. `migrate --write` moves from `NAME_old_v2.EXT` to the same timestamped name.
-		- 20261003: the version in the name is the old file's format, so `format-v2` for a 2.x file.
-		- 20261003: the fresh file gets the info block, as `init` writes it. This call is the one library write that does.
-		- 20261003: it covers beta-stamped Format 3 files too, when they can be told apart. This reopens the scope of 2026100115403385.
-	- Note: 20261005, waits on 2026100207032800, since its rewrite goes through `migrate`, which that item's chunk C changes. Work it right after chunk C.
-	- Estimated effort: High
-
-- A CICD test that makes old shcl files and checks the automatic conversion
-	- ID: 2026100313461650
-	- Type: Task
-	- Status: Queued
-	- Priority: High
-	- Opened: 20261003-134616
-	- Opened by: JC
-	- Related IDs: 2026100313461649, 2026100307163909
-	- Requirements:
-		- Write a test as part of CICD that creates old shcl file versions, and tests the automatic conversion.
-	- Note: 20261003, `check-migrate.bash` already builds 2.x from pinned `7be348d` and compares reads after `migrate`. This would extend it to the backup and rewrite in 2026100313461649, and to beta-stamped Format 3 files once 2026100207032800 is in.
-	- Estimated effort: Avg
-
-- The comparison tool writes its SHCL documents in the old value syntax
-	- ID: 2026100711403568
-	- Type: Bug
-	- Status: Queued
-	- Severity: Avg
-	- Opened: 20261007-114035
-	- Opened by: found while working 2026100711350582
-	- Related IDs: 2026100207032800, 2026100221215300, 2026100219565400
-	- Version and build: valsyn at `c4c6273c`
-	- Steps to reproduce:
-		- Read `shcl_scalar` and `shcl_string` in `cicd/utility/comparison/src/model.rs`.
-	- Incorrect behavior: an array is written `a, b` with no brackets, which is `E026` now. A quote or backslash in a string is written `\"` or `\\`, and a backslash is plain text now. So the benchmark documents would load with errors once valsyn is in dev.
-	- Expected behavior: arrays in brackets, and strings quoted the way the writer quotes them.
-	- Reproduced: No. Read only; the comparison tool was not built or run.
-	- Note: needed before the Python perf recheck (2026100221215300) and the next benchmark run. The document sizes will move a little.
-	- Estimated effort: Low
-
-- README note on how escapes work, and why
-	- ID: 2026100313461651
-	- Type: Task
-	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261003-134616
-	- Opened by: JC
-	- Prereq IDs: 2026100207032800
-	- Requirements:
-		- Briefly note in README our different way of handling escapes, and why.
-		- Use the "newline" escape as an example, windows paths, and unicode escapes.
-	- Note: 20261003, the escape names come from `project/design_docs/value-syntax.md`: `◉NEWLINE◉`, `◉U+XXXX◉`, and a backslash is plain text, so `C:\temp` needs no doubling.
-	- Estimated effort: Low
-
-- A file stamped Format 3 during the beta is never migrated
-	- ID: 2026100115403385
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Note: 20261002, an open point in the design for 2026100207032800, which changes much more of format 3. Proposed there: pre-release files are on their own, per the 2.x low-stakes rule. Design: `project/design_docs/value-syntax.md`.
-	- Note: 20261002, the proposal was OK'd. What is left is saying so in the docs.
-	- Note: 20261003, 2026100313461649 now brings beta-stamped files forward when they can be told apart. This item waits on it.
-	- Opened: 20261001-154033
-	- Opened by: silkterm feedback
-	- Related IDs: 2026100115323227
-	- Version and build: dev at `b10c2009`
-	- Steps to reproduce:
-		- `migrate(text, false)`, `migrate(text, true)` and `migrate_unstamped(text, true)` on a file ending in `GEN_BANNER` and holding `image: "C:\Users\x.png"`.
-	- Incorrect behavior: all three return `current: true` and the text unchanged. Under `b10c2009` the line is `E023` and sets nothing. At `f2a8ad2`, which wrote the same `Format 3` line, it read as written.
-	- Expected behavior: some way to bring such a file forward, or a stated choice that pre-release files are on their own.
-	- Reproduced: Yes, 20261001, Rust at `b10c2009`.
-	- Note: a rough edge. Only programs that shipped a beta build of 3.0 to users are hit. SilkTerm's dogfood builds did; none of its releases did.
-
-- The Python binding parses about 25% slower than on 2026-09-19
-	- ID: 2026100221215300
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261002-212153
-	- Opened by: benchmark rerun, 2026100219565400
-	- Related IDs: 2026100219565400, 2026100207032800
-	- Version and build: dev at `7e81cd87`
-	- Steps to reproduce:
-		- Time `shcl.Document.parse` on the comparison's `ddl.shcl` with `shcl.py` from `efcc7dd8`, then from dev.
-	- Incorrect behavior: 186 ms before, 228 ms now, back to back on the same box. The comparison run shows 20% to 30% on every shape. Rust got faster over the same span.
-	- Possible cause: the per-line fault checks added with the escape errors. `_line_fault` and the extra `any` calls account for most of the gap.
-	- Decisions:
-		- 20261002: recheck after 2026100207032800 is built, since it removes most of those checks. No perf work before 3.0.0 otherwise.
-
-- A merge after an empty field writes a list that a reload joins to it
-	- ID: 2026100520243961
-	- Type: Bug
-	- Status: Done
-	- Severity: Critical
-	- Opened: 20261005-202439
-	- Opened by: JC
-	- Parent ID: 2026100207032800
-	- Steps to reproduce:
-		- Merge a layer holding `p:`, `\ts:`, `\t# c` with a layer holding `p:`, `\ts:`, `\t\t- 0`, `\t\tc:`.
-		- Read `p.s.c`, then save, reload and read it again.
-	- Incorrect behavior: the merge adds the list, with its field, as a new instance after the empty `s`. A reload joins the two, so the merged document and its reload differ. Any kept line or comment in the gap does it.
-	- Expected behavior: the merged document is the one its saved text loads back to.
-	- Reproduced: 20261005, on `valsyn` before `vsnarrow`, in Rust. Release fuzz `Eqk24nZ` at iteration 1814886 after `vsnarrow`.
-	- Note: likely the same join the `vsfuzz` fix gave a setter (`ErsETML`), missing on the merge path. Rust only for now; the other ports have no list join yet.
-	- Estimated effort: Avg
-	- Cause: the merge's settle looked for the join before it moved the lines after each child down to the next one. A comment or kept line still sitting after the empty binding made it refuse the join, and only then did the line move above the list. The setter's twin never sees such a line, since a load has already moved it. A remove had no join at all: one taking the last field of an empty binding left a list of its name after it unjoined, and one taking a list's last field left it stacked there, which a reload joins and drops.
-	- Fix: the settle tries the join again once the lines have moved. A remove that leaves a block with no fields settles its name the way a setter does, so the list joins the binding, or goes in brackets when the binding still has fields.
-	- Test case: `Ert70BF` (merge, with a comment, a kept line and a sibling in the gap), `Ert70DM` (both remove cases), and corpus 201 (`Ert9PEK`). All 3 failed on the code before and pass now.
-	- Swept: the setter's twin (`set_empty` past a comment or kept line, at and below the binding's level, already matched a reload), the writer's fold and the new child settle (both go through the same settle), and remove (fixed here). `clear_comments` and `set_comment` cannot leave a line after a binding that is not its last child.
-	- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust. The 2,000,000 release fuzz passes all 24, on the old seed set and with corpus 201 added.
-	- Note: the Go, Python and C ports need this with their list join.
-	- Acceptance signoff: Self-closed: reproduced, test failed before and passes after.
-	- Branch: `vsjoin`
-	- Commit: `95727823`
-	- Closed: 20261005-205600
-
-- A canonical save after a merge and a raw set loses kept lines, found by the kept-lines fuzz
-	- ID: 2026100316012486
-	- Type: Bug
-	- Status: Done
-	- Needs local test suite run?: Y, the full `--ci`. cppcheck's exhaustive pass over the changed header did not finish in 10 minutes here.
-	- Severity: Critical
-	- Opened: 20261003-160124
-	- Opened by: found while working 2026100307163904
-	- Related IDs: 2026100307310000, 2026100307163902
-	- Version and build: dev at `e9e4a6cc`
-	- Steps to reproduce:
-		- `SHCL_FUZZ_ITERS=2000000` release fuzz, with the `EreT6dh` excuse for 2026100307163902 widened from `E014` to `E012` so it gets past iteration 558881.
-	- Incorrect behavior: `EreT6dh` fails at iteration 1061439. A canonical save after a merge and a raw set loses kept lines. Dev's code fails the same way, so the banner fix did not cause it.
-	- Expected behavior: every kept line outside the edit's target is in the saved text, or the save refuses.
-	- Reproduced: 20261003, Rust fuzz only, with the widened excuse made locally and not committed. Not cut down to a small file yet, and not checked by hand in the other three bindings.
-	- Note: filed Critical on the release bar, since the property fails only when the save goes through. Lower it if the cut-down case shows the save refused.
-	- Note: 20261003, found while working 2026100307163901. With the known rows excused, the 2,000,000 release fuzz fails `EreT6dh` at iteration 960275 on a merge with no raw set that loses the kept line `b: 4` at exit 0. Dev does the same. Likely a second repro of this item.
-	- Note: 20261003, found while working 2026100307163902. After that fix, the 2,000,000 release fuzz fails `EreT6dh` first at iteration 749492: a merge loses the kept line `srv[x]: [3]`, with no raw block in the input. With merges excused, nothing else fails up to 2,000,000.
-	- Reproduced: 20261004, cut down to `    srv: a` / `  srv[x]: [3]` / `b[x]: [4]` / `q: c` merged with `q: 9`. The load settles `srv[x]: [3]` as a comment, and the merge writes `srv: a` / `b[x]: [4]` / `q: 9` at a lost count of 0, so the save goes through. All four bindings did the same. The 960275 report is the same class: on the seed set from before corpus 191, the old code fails at 959829 losing `b: 4` the same way. The raw set in the title had no part in it.
-	- Actual cause:
-		- A merge that replaces a leaf dropped every comment held on it, settled lines included, and kept only its plain kept lines. Lines above a kept line beside the leaf are held on the leaf too, so a settled line there went with it. By design.md's table only the leaf's own comments go, and a remove already reads those as the ones after its last kept line.
-	- Actual fix: a replaced leaf takes only its own comments, the ones a remove would take, with a settled line read as the comment a reload makes of it. The rest stay, with the comment run restepped where they join the new leaf's lines. All four bindings. design.md's kept-lines section says so.
-	- Against: the 2026-09-28 decision (a settled line on a replaced leaf goes with the leaf's comments). It still holds. This only says which comments are the leaf's, which the decision did not spell out.
-	- Note: corpus 091's merged golden moved. Its top comment sits above a kept line, so it now stays. A comment of the leaf's own was added to its layer so the case still shows one going.
-	- Swept: the replace path in each binding's merge is the only site that drops a settled line (grep for the kept-owed decrements: remove, the footer dedup and this one). The property was right; 2026100313174977 is not the cause and was left alone.
-	- Verified: the 2,000,000 release fuzz passes with no excuses, all 17 properties, and `EreT6dh` passes on the seed set from before corpus 191. The four conformance suites, cli-regress, crosscheck over the corpus plus a fuzz dump, check-docs, shell-regress, clippy for both targets, rustfmt, go vet, staticcheck, ruff and mypy pass.
-	- Estimated effort: Avg
-	- Progress log:
-		- 20261004: fixed and tested. Waits on the full `--ci`, then signoff on the comment placement, since a merge now keeps a plain comment it used to drop.
-		- 20261004: hosted run 37223480776 on dev at `3e9b1a31` passed, the full `--ci` included, with the four new tests and `EreT6dh` green. A merge now keeps a plain comment it used to drop, as design.md's table says.
-	- Branch: `mergekept`
-	- Commit: `5d31a47d`
-	- Test case: `ErkSy71` (Rust), `ErkSyFW` (Go), `ErkSyPf` (Python), `ErkSySr` (C), `a_replaced_leaf_leaves_the_lines_beside_it`; each fails on the old code. Corpus 091. `EreT6dh` at 2,000,000.
-	- Acceptance signoff: 20261004, signed off. Its tests cover it and the hosted run passed.
-	- Closed: 20261004-114043
-
-- `remove` deletes kept lines next to the field it removes, at exit 0
-	- ID: 2026100307163901
-	- Type: Bug
-	- Status: Done
-	- Severity: Critical
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 item 1
-	- Version and build: dev at `6e8b7f89`
-	- Steps to reproduce:
-		- `printf 'x: 1\nr: [1, 2]\ny: 3\n' > f.shcl`
-		- `shcl set f.shcl --remove y --write`
-	- Incorrect behavior: exit 0, and the file is just `x: 1`. The kept `r: [1, 2]` line went with `y`.
-	- Expected behavior: a kept line stays where it was written. The spec says a hand typo survives a load, edit and save.
-	- Reproduced: 20261003, all four CLIs and the Rust, Go and Python libraries. Same with `r: "C:\temp"` (E024), `r: "a\qb"` (E023), `bad name: 1` (E014), `*x` and `"r: 1`. Inside a block, `--remove j.q` takes a kept `j.r` whether it sits above or below `q`.
-	- Possible cause: a kept line is held as trivia on the next binding's node, and `remove` drops the node with its trivia. `clear_comments` already skips kept lines; `remove` does not. The save gate does not count kept lines, so `--write` goes through.
-	- Origin: kept lines as trivia came with `b216ad2b` (funnel, 2026-09-07), and rs-base does the same. For the `"C:\temp"` spelling it is a regression from `3ef0bc8c` (escblock): base kept that line as an H004 hint and the remove left it. Not seen by an earlier round. Backlog item 2026092620255202 is the same class for `clear-comments`. Confirmed.
-	- Note: 2026100207032800 makes more lines kept, a bare value with spaces among them, so this gets wider once that goes in.
-	- Sweep: every edit that drops or moves a node's trivia in all four: `remove`, the merge's replaced leaf, the setters that replace a node.
-	- Note: 20261003, from 2026100307310000. The save gate now counts kept lines, so the repro exits 7 and leaves the file alone, in all four. cli-regress `EreYYXK` (`save-kept-remove`) pins that; this fix turns it into exit 0 with `r: [1, 2]` kept. The kept-lines property `EreT6dh` skips this class through its row keyed by this ID, and the fix takes the row out. Up to 2,000,000 runs, only `remove` hit it; no setter or merge did.
-	- Estimated effort: Avg
-	- Actual cause [Bug]: a kept line sits in the next field's leading lines, or in a block's trailing ones, and `remove` dropped those lines with the field.
-	- Progress log:
-		- 20261003: fixed in all four, with 2026100307163907. A remove leaves the kept lines beside its target where they were, with the comments above them. A comment written right against the target goes with it. When the target was the last field in its block, its kept lines stay at the end of the block, and a misplaced line among them moves down to just above the next field line, where a reload files it.
-		- 20261003: tests whose expectation moved. cli-regress `EreYYXK` now expects exit 0 with `r: [1, 2]` kept, where it pinned the refusal at 7. `EreT6dh` lost this item's open row, and its check that a remove writes no new line now reads a raw block's fence moved to its own line as the same line. The reload property `Eqk24nZ` and its Go, Python and C twins now excuse a remove beside a settled kept line, as they already did for `clear_comments` (20260926 item 2). The document keeps that line, and the reload of its canonical text sees a plain comment.
-		- 20261003: left for signoff: which comments go with the target. The fix takes those between the target and the nearest kept line, and keeps the rest.
-		- 20261004: the full local run passed on dev at `063df7f2`, cppcheck exhaustive included.
-	- Actual fix [Bug]: `remove` puts what stays above the next field, or at the end of the block, in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`. design.md's "Kept lines under edits" has three new bullets for it. No table cell changed.
-	- Swept: `remove` in all four. The merge's replaced leaf already moves its kept lines onto the replacement. Every setter goes through `set_value` or its twin, which changes the value in place and keeps the node's lines, and `collapse_dup` folds them into the survivor. `clear_comments` already skipped kept lines. No other edit unlinks a node.
-	- Verified: the Rust, Go, Python and C suites, cli-regress, crosscheck, shell-regress, sanitize-c, check-veneer, clippy, staticcheck, ruff and mypy. Each new test failed with the fix taken out. The 2,000,000 release fuzz is green but for `EreT6dh`, which still fails on the open row of 2026100307163902 first.
-	- Note: 20261003, the 2,000,000 release fuzz, run on past known rows with local excuses only. A merge loses a kept line at exit 0 with dev's library as well, at iteration 960275 (`set_int`, banner on, merge; no raw set). An `E019` line ending in a fence has its body read as fields, the same class as 2026100307163902 and 2026100117214801; dev never reached it, since this item's row excused the step first. Nothing else failed.
-	- Branch: `removekept`
-	- Commit: `46e6176a`
-	- Test case: `ErgToYw` (Rust), `ErgTocq` (Go), `ErgTogT` (Python), `ErgTokB` (C); cli-regress `EreYYXK`; fuzz `EreT6dh`.
-	- Acceptance signoff: 20261004, signed off. Its tests cover it and the full run passed.
-	- Closed: 20261004-110932
-
-- A field line refused for its name that opens a raw block has its body read as fields, and `fmt --write` scrambles the file at exit 0
-	- ID: 2026100307163902
-	- Type: Bug
-	- Status: Done
-	- Severity: Critical
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 item 2
-	- Related IDs: 2026100117214801
-	- Version and build: dev at `6e8b7f89`
-	- Steps to reproduce:
-		- A file holding `tools:`, then tab-indented `my script: ~~~sh`, `echo hi`, `run: rm -rf /tmp/x`, `~~~` and `port: 8080`.
-		- `shcl get f.shcl tools.run`, then `shcl fmt --write f.shcl`.
-	- Incorrect behavior: `get` prints `rm -rf /tmp/x` at exit 0 and `tools.port` is NotFound. `fmt --write` exits 0 and writes a raw block holding `port: 8080`, with `run: "rm -rf /tmp/x"` as a live field. `set -w --set tools.port=9090` exits 0 too and adds a second `port`.
-	- Expected behavior: the body goes with its line, as the E018 row in the spec says for every skipped field line, and a save never rewrites body text as fields.
-	- Reproduced: 20261003, all four CLIs. With the body one level deeper, the closing fence opens a block that runs to the end of the file; the save then refuses at 7 but every later field reads NotFound.
-	- Possible cause: the E014 arm moves on one line without taking the block, and the `line_fault` arm, which takes E023 in a name, does the same. `skip_field_line` does not help as written, since `line_fence` returns nothing on a faulted token list.
-	- Origin: older than the range. The 20260918 and 20260918b rounds declined the E014 fence run on the belief that the closing fence hides the rest of the file at E005, so a save refuses. This repro saves at exit 0, and the 2026-10-02 rule that an error never throws out good lines came after. Item 2026100117214801 is the E023 half of the same class. Confirmed.
-	- Note: a fix wants the whole class from 20260918b: a kept or refused line on which the tokenizer can still see a fence run takes its body. 801 would close with it.
-	- Note: 20261003, found while working 2026100307163904. The 2,000,000 release fuzz fails `EreT6dh` at iteration 558881 on dev too: a misplaced `E012` line opens a raw block and its body is read as fields. The property excuses this only for `E014`, so `E012` is the same class and this fix should cover it.
-	- Note: 20261003, from 2026100307310000. The kept-lines property `EreT6dh` skips this class through its row keyed by this ID, and the fix takes the row out. The save gate counts one kept line per retained outcome, so whatever the body becomes, the load must still hold one kept line for each, or a plain `fmt --write` refuses.
-	- Note: 20261003, found while working 2026100307163901. Past the known rows, the 2,000,000 release fuzz fails `EreT6dh` at iteration 1818622 on an `E019` line ending in a fence, with its body read as fields. Same class, so this fix should cover `E019` too.
-	- Estimated effort: Avg
-	- Actual cause [Bug]: two arms moved on one line after keeping it: the `E014` arm, and the arm for a bad escape in a name. `line_fence` saw no fence on a line that did not tokenize, so the misplaced arms let such a body through too, which is the `E012` case at fuzz iteration 555233. The `E019` report at iteration 1818622 was the property's own guess at the value: `a_:[0]:` followed by a three-backtick fence is bracket text, whose value starts with `[`, so it opens no block.
-	- Progress log:
-		- 20261003: fixed in all four. A kept line whose value is a fence keeps the body and closing fence with it, as one kept line, so the save gate's count holds. A line that does not tokenize opens a block when a fence follows its first colon past where reading stopped, with no `#` before that colon. Canonical output writes the body one level under the line, as for a field's block, and a block that never closed gets its closing fence. A misplaced line that opens a block still takes it and is lost, as the `E012` row says.
-		- 20261003: the property's two oracles read a line's value with the tokenizer now, rather than splitting at the first `: `. That guess made the `E019` report above.
-		- 20261003: the 2,000,000 release fuzz is green but for `EreT6dh` on a merge, which is 2026100316012486. The new corpus case moved the seeds, and it now fails first at iteration 749492, a kept line lost after a merge with no raw block in the input. With merges excused locally, nothing else fails up to 2,000,000.
-		- 20261003: left for signoff: canonical output moves a kept body one level under its line, and `fmt` adds the closing fence to a kept block that never closed. Both change what `fmt --write` writes.
-		- 20261004: the full local run passed on dev at `063df7f2`, cppcheck exhaustive included.
-	- Actual fix [Bug]: `line_fence` sees a fence past a fault, and the `E014` and line-fault arms keep the body on the kept line's text (`keep_body`), in `lib.rs`, `shcl.go`, `shcl.py` and `shcl.h`. The emitter writes it one level under the line (`push_kept`). Spec, design.md (Load outcomes, Lexical edges, Kept lines under edits), `explain E014` and `E023` in the four CLIs, and the changelog say so.
-	- Swept: every arm that refuses a line and moves on, in all four. Field lines: `E012`, `E018` and `E021` go through `skip_field_line`, which now sees past a fault; `E014`, `E019`, `E023` and `E024` through `keep_body`. A child fence line already took its body. A `*` element line (`E012`, `E018`, `E013`, `E023`, `E024`) has no value that can open a block. The Schema and Format line walk (`opens_raw`) reads through the same `line_fence`, so it agrees with the parser. No `E025` arm exists yet; 2026100207032800 adds them. No C++ veneer call changed.
-	- Verified: the four conformance suites, cli-regress, crosscheck over the corpus and a 2,000-input fuzz dump, shell-regress, check-veneer, sanitize-c, check-migrate, check-docs, check-abnf, test-ids, markdownlint, clippy, go vet, staticcheck, ruff, mypy, gcc 15 with `_FORTIFY_SOURCE=3` and the mingw C build. Corpus 191 fails on dev in all four, and `EreT6dh` fails on dev at iteration 25 with its row out. Both pass with the fix.
-	- Branch: `rawkept`
-	- Commit: `0a6d1bb5`
-	- Test case: corpus 191 (`Ergr8Z4`) in all four; fuzz `EreT6dh` (open row taken out) and `EqGWdij` (its `E014` excuse taken out).
-	- Acceptance signoff: 20261004, signed off. Its tests cover it and the full run passed.
-	- Closed: 20261004-110932
-
-- `check` can take its Schema line from inside a raw block and validate against the wrong schema at exit 0
-	- ID: 2026100307163903
-	- Type: Bug
-	- Status: Done
-	- Needs local test suite run?: Y, the full `--ci`. cppcheck's exhaustive pass over the changed header did not finish in 10 minutes here.
-	- Severity: Critical
-	- Opened: 20261003-071639
-	- Opened by: Code review 20261003 item 3
-	- Version and build: dev at `6e8b7f89`
-	- Steps to reproduce:
-		- A file holding `'C:\': ~~~`, a tab-indented `##    Schema   ./lax.shcl`, a tab-indented `~~~`, then `##    Schema   ./strict.shcl` and `port: abc`. `strict.shcl` makes `port` an int.
-		- `shcl check f.shcl`
-	- Incorrect behavior: `ok (0 diagnostic(s))` at exit 0 in all four. It used `lax.shcl`, the line inside the raw body.
-	- Expected behavior: V003 at exit 6, as `check --schema=strict.shcl` gives.
-	- Reproduced: 20261003, all four CLIs. Same cause in `migrate`: a file whose only `##    Format   3` line is inside such a body comes back untouched at exit 0 instead of refusing at 7.
-	- Possible cause: `schema_ref` and `format_line_version` find raw blocks through `migrate_line`, which reads with the 2.x tokenizer. In 2.x a backslash escapes inside single quotes too, so `'C:\'` never closes there and the fence is missed. A 2M-line fuzz against the parser found no other class.
-	- Origin: `2c528a23` (schema line, 2026-09-26) and `27d73efb` (schema line fixes, 2026-09-28). The 20260928 decided-against list says the tracker differs from the parser only on an E023 fence name, in a file that already fails `check`. This file loads clean, so that premise does not hold. Confirmed.
-	- Sweep: `schema_ref` and `format_line_version` in all four, and anything else that walks lines with `migrate_line`.
-	- Estimated effort: Low
-	- Actual cause: as above. Both walks found raw blocks with the 2.x tokenizer, in all four.
-	- Actual fix: one line walk that knows which rules it reads by. The Schema line is new in format 3, so `schema_ref` finds blocks the way the parser does, through the parser's own tokenizer and fence tests (`child_fence`, `line_fence`). A Format line counts by the rules it names: one naming format 3 counts outside the parser's blocks, and an older one outside the blocks 2.x found. `migrate` on a file that names no format also counts lines one rule set reads as a raw body and the other does not as reading two ways, so it refuses at 7 unless `--from-2x` says the file is 2.x. It does not stamp a file whose output ends inside a raw block under either rule set. Spec and design say so.
-	- Note: a line refused for its text (E014, E019, E023, E024) can still read its body as lines in the parser while the walk takes the body. That file fails `check` anyway, and 2026100307163902 and 2026100117214801 move the parser to the walk's answer.
-	- Note: with `--from-2x`, 2.x's reading stands. A 2.x line that 2.x refused and that now opens a block is left as written, per the low-stakes rule for 2.x.
-	- Note: the new corpus case moved the fuzz seeds, and `EreT6dh` then failed on a remove whose kept line starts with a next-line character. Rust's `trim` takes that character and the format does not, so a settled comment compared unequal to its line. The property now trims the format's blanks only. Not a library defect.
-	- Swept: `schema_ref` and `format_line_version` in Rust, Go, Python and C now read through one walker (`RawLines`, `rawLines`, `_RawLines`, `ShclRawLines`), and the parser's child-fence test is the shared `child_fence`. The only other caller of `migrate_line` is the rewrite loop in `migrate`, which reads 2.x on purpose and now checks its output against the parser's blocks. The C++ veneer only wraps the two C calls, and no script reads either line.
-	- Verified: the repro gives V003 at exit 6 and the `migrate` repro exits 7, in all four CLIs. The four conformance suites, `cli-regress.bash` (344 rows), `crosscheck.bash` over the corpus and a 2,000-input fuzz dump, `check-migrate.bash`, `shell-regress.bash`, `check-docs.bash`, markdownlint, `test-ids.py check`, clippy (host and windows), go vet and staticcheck (also windows), ruff, mypy, gcc 15 with `_FORTIFY_SOURCE=3`, the mingw C build and the C runner under ASan and UBSan pass. The release fuzz at 2,000,000 passes.
-	- Branch: `schemaraw`
-	- Commit: 4fcfec0b, 55d4777d
-	- Test case: corpus `189-schema-line-raw-after-backslash` (`ErfuRcU`, all four runners), cli-regress `ErfuRh7` and `ErfuRj5`, fuzz property `ErfuRfE`. Each fails on the old code and passes on the new.
-	- Note: left for signoff: the new `migrate` refusal and no-stamp rule, which go past the item, and the `EreT6dh` trim change.
-	- Acceptance signoff: 20261003, signed off. The `migrate` refusal at 7 was OK'd. The no-stamp rule is the one design.md already had, now checked under both rule sets, and the `EreT6dh` change is a fix to the test, so neither needed a call.
-	- Closed: 20261003-162005
+	- Closed: 20261007-130000
 
 - Gate fixtures and a generator still in the old value syntax
 	- ID: 2026100711350582
@@ -948,6 +875,83 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Swept: every test for a leading `#` on a comment line in all four. The merge's replaced-leaf rule is the one other site, filed as 2026092718195400.
 	- Branch: `keepdrop`
 	- Test case: corpus `178-clear-comments-kept-line`, both routes, with `comments` reads. It fails on the old code.
+
+- Selectors use `()`, and `[]` is for arrays only
+	- ID: 2026100610073400
+	- Type: Enhancement
+	- Status: Done
+	- Priority: High
+	- Opened: 20261006-100734
+	- Opened by: JC
+	- Prereq IDs: 2026100207032800
+	- Related IDs: 2026100207032800, 2026100609552447
+	- Problem description:
+		- After 2026100207032800, brackets mean two things on one line. `base[Boston].ports: [80, 443]` has a selector and an array.
+		- In a lookup path, `dogs[1]` looks like the second element of an array. It's the second `dogs` instance.
+	- Requirements:
+		- Every selector is written in parens: `person(Bucky)`, `person("New York")`, `person(0)`, `person(*)`. That goes for files, lookup paths, setter paths, `--set` and schema paths.
+		- Brackets after a name are an error. Brackets are only arrays. Which code is open.
+		- A bare number is an index and a quoted one is a value, as now: `year(2020)` vs `year("2020")`.
+		- `[#N]` goes too, from 2026100609552447. A body starting with `#` is refused, not read as a value.
+		- Every path the library writes uses parens: `InstancePaths()`, `Paths()`, `QuoteSegment`, the starter config.
+		- `migrate` rewrites 2.x selector lines.
+		- spec.md, design.md, value-syntax.md, the grammar, README, man page, CLI help, completions and the C++ interface. CLI examples quote the path, since an unquoted `(` is a syntax error in bash.
+		- Corpus cases and cli-regress rows with selectors. 32 corpus inputs have them.
+		- A changelog line.
+	- Reason: one meaning per bracket. Format 3 isn't cut yet, so this is the cheapest it gets.
+	- Decisions:
+		- 20261006: parens for every selector, brackets only for arrays. Parens for values with brackets for index and wildcard was too confusing, 2 forms for one thing. Braces were weighed too, but PowerShell silently splits `person{Bucky}` into 2 arguments.
+		- 20261006: brackets after a name get a new code, `E029`, so `explain E029` can say selectors moved to parens. The line is kept as written.
+	- Note: 20261006, do it on `valsyn` after chunk C's Rust part and before the Go, Python and C ports, so the ports get written once.
+	- Estimated effort: High
+	- Progress log:
+		- 20261006: the Rust part on `vspar`, off `valsyn`, library and CLI, `migrate` aside.
+			- In: a selector reads in parens in files, lookups, setters, `--set` and schema paths. One in brackets is `E029`, kept as written. When it selects by value, the lines under it load under that instance. A path in brackets is refused, and the CLI and `V093` say why. `[#N]` is gone: a bare body that starts with `#` is `E025`, and so is a paren in a bare body. `explain E029` is new.
+			- Writer: `InstancePaths()`, `init`'s lines and the CLI help write parens. `Paths()` and `QuoteSegment` already quote a name with a paren in it. The stale `gen_selector_text` doc comment is fixed.
+			- Corpus: 75 cases moved to parens, new case 203. The migrate cases 118, 122, 170 and 174 keep their 2.x inputs, so loaded as they are their selector lines are `E029` now, and their reads moved with that.
+			- cli-regress: 14 new rows, 30 edited in place. perf-gate's selector workload, check-docs' lookups into the comparison results and the demo's `get` step use parens.
+			- The 2,000,000 release fuzz found the fmt fixpoint property missing the excuse the setter property has for 2026100511210900's list, which a kept array line can build. Older than this change. Fixed in the property, test `Erxfmqc`.
+		- 20261006: calls made in the Rust part that the doc does not settle. Each is easy to reverse.
+			- `E029` comes before every other fault in the path and the name, so `base[New York]:` says brackets first. Its level opens only when the body reads clean as a value. An index or a wildcard in brackets opens nothing, so the lines under `item[0]:` are `E018`, as under `item(0):`.
+			- A nested pair, `x(a(b))`, is `E014`, since the body ends at the first `)`, as `x[a[b]]` did. Only a lone `(` in a bare body is `E025`.
+			- A lookup body that starts with `#` finds nothing, like any bad body. The CLI names a path in brackets in its `get`, `--set`, `--remove` and ops errors: "a selector is written in parens now".
+			- The tokenizer still reads a bracket selector, to its `]`, and notes it. `tokens` shows it as `sel=` and prints no new field.
+			- `init` refuses a child of a parent whose default is an array (`V097`), since a selector matches one plain value. It used to write `tags[a].k`, which made a second `tags`.
+			- A value with a paren is written bare.
+		- 20261006: left for the next pieces.
+			- `migrate` still writes brackets. So `migrate_matches_expected` (118, 122, 170, 174), `migrate_escapes_a_real_mark`, `migrate_quotes_a_bare_selector_these_rules_refuse` and `migrate_leaves_what_reads_clean_now` fail, and check-migrate is at 579 divergences, partly because its read loop builds `[#i]` paths.
+			- check-docs fails `Er1z2hW` (no `E029` row in spec.md), `EqWax3I` (4 bracket samples in check-abnf) and `Eom0qpm`, and check-readme fails `EqRTWFg`, both on the README sample's bracket selector.
+			- spec.md, grammar.abnf, check-abnf, design.md, value-syntax.md, README, the man page (its `--set` text and the `site[*]` example), the changelog, then the Go, Python and C ports.
+		- 20261006: `migrate` and the docs on `vsmig2`, off `valsyn`. Rust and docs only.
+			- In: `migrate` writes a 2.x selector in parens, `x[sel]` as `x(sel)`, an index and the wildcard included. A bare body these rules refuse, such as one with a space, a quote or a paren, is quoted. The `name:[disc]` sugar before the last segment loses its colon and goes in parens too.
+			- A file that does not say it is 2.x: a selector in brackets is `E029` now, so its line never reads clean. By the `vsmig` rule for a line these rules already refuse, it is rewritten, at exit 0. The rest of that line gets the 2.x rewrites with it.
+			- check-migrate is green: 638 documents, 28 lost counts. Its read loop asks for `(N)` on the current side and `[#N]` on the 2.x side. The corpus spells selectors in parens now, which 2.x refuses, so each corpus input with one is also compared with its paren pairs swapped back to brackets, 29 more documents. An input that names format 3 gets no copy, since `migrate` leaves it as written.
+			- check-migrate's exceptions are the ones it already had: lines 2.x refused, a fence label holding a `#`, a mid-line carriage return, an indent no level matches, a raw block that never closes, the two lost kinds (a selector with a comma, a comma list over lines), a backslash pair 2.x read as an escape, and the empty info-string read.
+			- Docs: spec.md (an `E029` row, the selector rules, lookup and schema paths, `init`, Migrating from 2.x), grammar.abnf (selectors in parens, no `#` index, and a `sel-text` class that `gen-escapes.py` writes), check-abnf samples, design.md, value-syntax.md (Roadmap, migration table, `E029`), README and the two binding READMEs, the man page, the changelog.
+			- Changelog `## Unreleased`: the `*` item lines now say `- `, the `SetLiteral` line says what it refuses now, and the `tokens` line is dropped, since `tokens` is new in 3.0.
+		- 20261006: calls made in the `migrate` and docs piece. Each is easy to reverse.
+			- In a file that does not say it is 2.x, a line with a selector in brackets gets every 2.x rewrite, not only the parens.
+			- A selector body with no spelling in parens is counted lost rather than written. None was found.
+			- A schema path with a selector is documented as fine bare, `field: server(*).host`, since the writer writes it that way.
+			- The README's Go, Python, C, C++ and Zig examples use parens too. So check-readme fails at its C example until the ports, where it failed at the Rust one before.
+			- The man page's migrate text still named `E024` and the old lost forms. It now matches spec.md, in short.
+		- 20261006: Rust and the docs are in. Status stays Started only because the Go, Python and C ports, with the C++ veneer, remain.
+		- 20261006: the Go port, `migrate` aside, on `vsgo3` with 2026100207032800's Go part 3a. Details there. The Go corpus fails only its 7 `migrate` cases, and crosscheck with Rust diverges only on `migrate`. Go tests `Eryg0ZB` and `Eryg0bK` match `Erxfmqa` and `Erxfmqb`.
+			- No new calls. `Tokens.BracketSelector` is -1 when there is none, as `Misspelled` is. Go's `migrate`, then the Python and C ports with the C++ veneer, remain.
+		- 20261006: Go's `migrate` writes selectors in parens, on `vsgo3b` with 2026100207032800's Go part 3b. Go test `ErykhtI` matches `ErxqQLy`; the Python and C ports remain.
+		- 20261006: the Python port, `migrate` aside, on `vspy3` with 2026100207032800's Python part 3a. The Python corpus fails only its 7 `migrate` cases, and crosscheck with Rust diverges only on `migrate`. Python tests `ErysKPJ` and `ErysKS0` match `Eryg0ZB` and `Eryg0bK`.
+		- 20261007: Python's `migrate` writes selectors in parens, on `vspy3b` with 2026100207032800's Python part 3b. Python test `Es1eIOu` matches `ErxqQLy`; the C port remains.
+		- 20261007: the C port, `migrate` aside, on `vsc3` with 2026100207032800's C part 3a. The C corpus fails only its 7 `migrate` cases, and crosscheck with Rust diverges only on `migrate`. C tests `Es1qzv8` and `Es1qzxJ` match `ErysKPJ` and `ErysKS0`.
+		- 20261007: C's `migrate` writes selectors in parens, on `vsc3b` with 2026100207032800's C part 3b. C test `Es1ySos` matches `ErxqQLy`. The ports are done.
+	- Branch: `vspar`, `vsmig2`, `vsgo3`, `vsgo3b`, `vspy3`, `vspy3b`, `vsc3`, `vsc3b`
+	- Commit: `c4da140e`, `df0eab64`, `dfb108ad`, `1fd8a1f1`, `a3a87c98`, `26ad66ec`, `63e19b96`, `2afe3638`
+	- Test case: corpus 203 (`ErxfmqL`), conformance `Erxfmqa` and `Erxfmqb`, fuzz `Erxfmqc`, cli-regress `ErxfmqM` to `ErxfmqZ`. Each failed on the code before but `ErxfmqU`, a pinning row. `vsmig2`: conformance `ErxqQLy`, cli-regress `Erxvsaw`, and check-migrate `Eq5YPgP` with the bracket copies. Each failed on the code before; check-migrate had 35 divergences there.
+	- Verified: cargo test but the 4 `migrate` tests above, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, shellcheck, markdownlint. shell-regress fails the same 2 as on `valsyn`. The 2,000,000 release fuzz passes all 25.
+		- `vsmig2`: cargo test with all 4 `migrate` tests, cargo fmt, clippy `-D warnings` on the host and windows-gnu, test-ids check, cli-regress for Rust, check-migrate, check-abnf, gen-escapes, markdownlint, shellcheck, ruff and mypy. check-docs passes but `EpHGoa0`, which fails because dev's installers are not on main yet. check-readme's Rust example and transcripts pass; its C, C++, Go and Python examples fail until the ports. shell-regress fails the same 2. The 2,000,000 release fuzz passes all 25.
+	- Swept: every `x[...]` selector and `[#N]` in spec.md, grammar.abnf, design.md, value-syntax.md, README.md, the binding READMEs, the man page and the changelog's `## Unreleased`. What is left in brackets is the `E029` text, the 2.x side of the migration rows, and design.md's history entries.
+	- Verified: 20261007, on valsyn `aec9959b` with all four bindings: the full `--ci` (1989 ok, 0 FAIL, tree recorded), the 2,000,000 release fuzz (all 25 pass) and hosted run 37668959888 (ci, windows, macos and go-floor all green).
+	- Acceptance signoff: Self-closed: built in all four bindings with the docs, and the full gate and hosted run pass.
+	- Closed: 20261007-130000
 
 - A fuzz property and a save-gate check for kept lines, so edits stop losing them one site at a time
 	- ID: 2026100307310000
