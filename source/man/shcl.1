@@ -3,7 +3,7 @@
 .\"
 .\" Has no version string on purpose: the release bump touches eight files
 .\" and this is not one of them. Keep it in step with HELP in the four CLIs.
-.TH SHCL 1 2026-10-06 shcl "User Commands"
+.TH SHCL 1 2026-10-07 shcl "User Commands"
 .SH NAME
 shcl \- read, edit, validate and format Simple Hierarchical Config Language files
 .SH SYNOPSIS
@@ -55,6 +55,12 @@ shcl \- read, edit, validate and format Simple Hierarchical Config Language file
 .B migrate
 .RB [ \-\-write | \-w | \-\-check ]
 .RB [ \-\-lossy ]
+.RB [ \-\-from\-2x ]
+.I FILE
+.YS
+.SY shcl
+.B upgrade
+.RB [ \-\-write | \-w ]
 .RB [ \-\-from\-2x ]
 .I FILE
 .YS
@@ -225,16 +231,41 @@ says it really is 2.x. A rewritten file is stamped with that line, and
 says how many lines it rewrote.
 Before it saves a file with a rewritten line,
 .B \-\-write
-copies the original beside it, with
-.B _old_v2
-before the extension:
+copies the original beside it, with a backup tag before the extension:
 .B config.shcl
 keeps its old bytes in
-.BR config_old_v2.shcl .
+.BR config_backup_ YYYYmmDD - HHMMSS _format\-v2.shcl ,
+in local time, the number being the format the file was written for.
 It refuses at exit 8 and writes nothing when that name is taken. A file that
 only gains the Format line gets no copy.
 .B \-\-check
 prints nothing and names each line a rewrite would change.
+.TP
+.B upgrade
+For a program's config file that this shcl cannot load clean: run it through
+.BR migrate ,
+write the result the way
+.B fmt
+does, with the info block
+.B init
+writes in place of any older one, and print it (or with
+.BR \-\-write ,
+keep the original under the backup name
+.B migrate \-\-write
+uses and rewrite
+.IR FILE ).
+A file that loads with no error, or whose
+.B Format
+line names this format, is left alone at exit 0, so it is safe to run on
+every start. That includes a file a beta build of 3.0 wrote, since it has the
+same Format line. Values that read two ways, as for
+.BR migrate ,
+are exit 7 unless
+.B \-\-from\-2x
+says the file is 2.x, and nothing is written. Unlike
+.BR migrate ,
+a value or line the fresh file cannot hold does not stop the write, since the
+backup keeps it; it is counted on stderr. A taken backup name is exit 8.
 .TP
 .B tokens
 Print each line's lexical spans, one line of output per input line: the indent
@@ -378,7 +409,7 @@ read KB to TB as powers of 1000 rather than 1024. KiB to TiB are always 1024.
 Leave out the info block naming the format and pointing at its spec.
 .TP
 .BR \-\-write ", " \-w
-.RB ( fmt ", " set ", " migrate )
+.RB ( fmt ", " set ", " migrate ", " upgrade )
 Rewrite
 .I FILE
 in place instead of printing to stdout. The write goes through a temp file and
@@ -387,12 +418,15 @@ a rename, so an interrupted run cannot truncate the config. On
 a
 .I FILE
 that does not exist yet is created;
-.B fmt
-and
+.BR fmt ,
 .B migrate
+and
+.B upgrade
 have nothing to read and report it missing.
 .B migrate
-also keeps the original file; see above.
+and
+.B upgrade
+also keep the original file; see above.
 .TP
 .B \-\-lossy
 .RB ( fmt ", " set ", " migrate )
@@ -402,10 +436,9 @@ rewrite even when this write would delete lines or values from the file.
 Without it the write refuses and nothing is changed.
 .TP
 .B \-\-from\-2x
-.RB ( migrate )
+.RB ( migrate ", " upgrade )
 The file really was written for 2.x, so rewrite the spellings the two rule
-sets read differently. Without it those are left as written and
-.B migrate
+sets read differently. Without it those are left as written and the command
 exits 7, because the same bytes mean one thing under each rule set and
 nothing in the file says which one wrote it.
 .TP
@@ -801,6 +834,8 @@ left something behind: values it cannot decide between the two rule sets
 .RB ( \-\-from\-2x
 decides them), a 2.x binding with no spelling here, a line whose indent
 matches no open level, or a raw block that never closes.
+.B upgrade
+exits 7 on the first of those.
 .TP
 .B 8
 A file or stream could not be read or written \- it is missing, unreadable,

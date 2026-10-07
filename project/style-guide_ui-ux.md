@@ -10,7 +10,7 @@ There are four CLIs, one per binding. Only the Rust one is distributed. The Go, 
 
 ## Commands
 
-- The first argument is the subcommand. Each is one lower-case word: `get`, `set`, `fmt`, `check`, `init`, `count`, `instances`, `children`, `paths`, `migrate`, `tokens`, `explain`.
+- The first argument is the subcommand. Each is one lower-case word: `get`, `set`, `fmt`, `check`, `init`, `count`, `instances`, `children`, `paths`, `migrate`, `upgrade`, `tokens`, `explain`.
 
 - `help`, `version`, `about` and `donate` also work as options: `--help` and `-h`, `--version`, `-v` and `-V`, `--about`, `--donate`. `shcl help CMD` and `shcl CMD --help` print that subcommand's part of the help.
 
@@ -87,7 +87,7 @@ There are four CLIs, one per binding. Only the Rust one is distributed. The Go, 
 | 4    | The value is the wrong type.
 | 5    | The path matches more than one instance.
 | 6    | `check` found an error, a strict load failed, `init`'s schema has faults, or a `--check` found a rewrite to make.
-| 7    | An in-place write was refused, or `migrate` left something behind. A `--check` reports the refusal with the same code.
+| 7    | An in-place write was refused, or `migrate` or `upgrade` left something behind. A `--check` reports the refusal with the same code.
 | 8    | A file or stream could not be read or written.
 
 A new failure reuses one of these where one fits.

@@ -38,7 +38,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `fmt` and every canonical save keep the quotes on a number with a leading zero, such as `zip: "02134"`, where they took them off.
 
-- `shcl migrate FILE --from-2x` rewrites a 2.x file for these rules and leaves comments and layout alone. It writes comma lists in brackets, `*` items as `- ` and selectors in parens, quotes what would now read differently, and leaves a backslash as written. With `--write` the original is kept beside it, as `config_old_v2.shcl` for `config.shcl`.
+- `shcl migrate FILE --from-2x` rewrites a 2.x file for these rules and leaves comments and layout alone. It writes comma lists in brackets, `*` items as `- ` and selectors in parens, quotes what would now read differently, and leaves a backslash as written. With `--write` the original is kept beside it, as `config_backup_20261007-091500_format-v2.shcl` for `config.shcl`, in local time.
 
 - Exit 1 is a usage error only. A save-gate refusal is 7, and a file or stream that cannot be read or written is 8.
 
@@ -73,6 +73,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `instance_paths()` in every binding walks a file one instance at a time, with `(i)` on each repeated name.
 
 - `format_version()` and `migrate_unstamped()` in every binding, for a program that writes its own info block.
+
+- `upgrade_file()`, for a program to call on start: a config file it cannot load clean is kept under a timestamped backup name and written fresh, with whatever settings carry over and the info block. A file that loads clean is never touched. `upgrade()` is the text half, and `backup_file_name()` and `write_backup()` the backup half. `shcl upgrade FILE` does the same, printing or with `--write`.
 
 - `set_banner()` in every binding, and the `banner` op, put the info block at the end of a file and take an old one off first. The file's own comments next to the old one stay.
 

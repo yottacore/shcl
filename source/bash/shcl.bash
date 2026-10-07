@@ -34,7 +34,7 @@
 ##		                     read one typed value
 ##		shcl_array           read an array (pass a --type, else --string)
 ##		shcl_fmt shcl_check shcl_count shcl_instances shcl_children shcl_paths
-##		shcl_migrate shcl_tokens
+##		shcl_migrate shcl_upgrade shcl_tokens
 ##		                     the matching subcommands
 ##
 ##	Finding the binary (first hit wins):
@@ -46,8 +46,8 @@
 ##	Exit codes (straight from the binary): 0 good, 1 usage error, 2 empty,
 ##	3 not found, 4 bad type, 5 multiple instances, 6 check failed, strict
 ##	load failure, a faulty init schema, or --check found a rewrite to make,
-##	7 in-place write refused (--lossy overrides) or migrate left something
-##	behind, 8 a file or stream could not be read or written.
+##	7 in-place write refused (--lossy overrides) or migrate or upgrade left
+##	something behind, 8 a file or stream could not be read or written.
 #••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 
 ##	Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]
@@ -135,6 +135,7 @@ shcl_instances() { shcl instances "$@"      ; }
 shcl_children()  { shcl children "$@"       ; }
 shcl_paths()     { shcl paths "$@"          ; }
 shcl_migrate()   { shcl migrate "$@"        ; }
+shcl_upgrade()   { shcl upgrade "$@"        ; }
 shcl_tokens()    { shcl tokens "$@"         ; }
 
 #••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••

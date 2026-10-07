@@ -16,7 +16,7 @@
 ##	SPDX-License-Identifier: MIT
 
 ## Subcommands. The CLI takes exactly one, and always as the first word.
-_shcl_subcommands='get set fmt check init count instances children paths migrate tokens explain help'
+_shcl_subcommands='get set fmt check init count instances children paths migrate upgrade tokens explain help'
 
 ## Type options, valid on `get` only. The table below lists them as the single
 ## token --<type>, exactly as the CLI's own table does.
@@ -36,6 +36,7 @@ _shcl_opts() {
 		check)           echo '--strictness --schema' ;;
 		init)            echo '--schema --no-banner' ;;
 		migrate)         echo '--write --lossy --from-2x --check' ;;
+		upgrade)         echo '--write --from-2x' ;;
 		tokens|explain)  echo '' ;;
 		count|instances|children|paths) echo '--strictness --layer --set --set-literal --set-default --set-literal-default --remove' ;;
 		*)               echo '' ;;
@@ -48,7 +49,7 @@ _shcl_opts() {
 ## filenames that would always be wrong.
 _shcl_fileslot() {
 	case "$1" in
-		get|set|fmt|check|count|instances|children|paths|migrate|tokens) echo 1 ;;
+		get|set|fmt|check|count|instances|children|paths|migrate|upgrade|tokens) echo 1 ;;
 		*)                                 echo 0 ;;
 	esac
 }

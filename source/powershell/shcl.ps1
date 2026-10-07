@@ -41,7 +41,7 @@
 ##		                     read one typed value
 ##		shcl_array           read an array (pass a --type, else --string)
 ##		shcl_fmt shcl_check shcl_count shcl_instances shcl_children shcl_paths
-##		shcl_migrate shcl_tokens
+##		shcl_migrate shcl_upgrade shcl_tokens
 ##		                     the matching subcommands
 ##
 ##	Finding the binary (first hit wins):
@@ -53,11 +53,11 @@
 ##	Exit codes (straight from the binary): 0 good, 1 usage error, 2 empty,
 ##	3 not found, 4 bad type, 5 multiple instances, 6 check failed, strict
 ##	load failure, a faulty init schema, or --check found a rewrite to make,
-##	7 in-place write refused (--lossy overrides) or migrate left something
-##	behind, 8 a file or stream could not be read or written. A nonzero code is
-##	not an error to PowerShell - unless $PSNativeCommandUseErrorActionPreference
-##	is on under an ErrorActionPreference of Stop, where a not-found read throws
-##	instead of returning 3.
+##	7 in-place write refused (--lossy overrides) or migrate or upgrade left
+##	something behind, 8 a file or stream could not be read or written. A nonzero
+##	code is not an error to PowerShell - unless
+##	$PSNativeCommandUseErrorActionPreference is on under an ErrorActionPreference
+##	of Stop, where a not-found read throws instead of returning 3.
 ##
 ##	Runs on Windows PowerShell 5.1 and PowerShell 7 on Windows; elsewhere it
 ##	needs PowerShell 7.3 or newer (the execute-bit check reads UnixFileMode).
@@ -279,6 +279,7 @@ function shcl_instances { if ($MyInvocation.ExpectingInput) { $input | shcl inst
 function shcl_children { if ($MyInvocation.ExpectingInput) { $input | shcl children @args } else { shcl children @args } }
 function shcl_paths { if ($MyInvocation.ExpectingInput) { $input | shcl paths @args } else { shcl paths @args } }
 function shcl_migrate { if ($MyInvocation.ExpectingInput) { $input | shcl migrate @args } else { shcl migrate @args } }
+function shcl_upgrade { if ($MyInvocation.ExpectingInput) { $input | shcl upgrade @args } else { shcl upgrade @args } }
 function shcl_tokens { if ($MyInvocation.ExpectingInput) { $input | shcl tokens @args } else { shcl tokens @args } }
 
 #==============================================================================

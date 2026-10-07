@@ -2644,6 +2644,73 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool) -> Migration {
 	}
 }
 
+/// What `upgrade` made of a document, and `upgrade_file` of a file.
+#[derive(Debug, Clone)]
+pub struct Upgrade {
+	/// The fresh file's text, or the input when `current` or `ambiguous`.
+	pub text: String,
+	/// The input loads with no error under these rules, or names this
+	/// format, so it is left as it is. A beta build of 3.0 stamped the same
+	/// Format line as a release, so a beta file is current here too.
+	pub current: bool,
+	/// The format the input was written for, which goes in the backup's
+	/// name: what its Format line names, else 2.
+	pub format: u32,
+	/// As `Migration::ambiguous`. Nonzero means the text reads two ways and
+	/// nothing is written.
+	pub ambiguous: usize,
+	/// Lines and values of the input the fresh text does not carry over:
+	/// the ones 2.x bound that nothing binds now, and the ones the load of
+	/// the migrated text drops. The backup still has them.
+	pub lost: usize,
+	/// What loading the input found, which is why it needed the upgrade.
+	/// Empty when `current`.
+	pub diagnostics: Vec<Diagnostic>,
+	/// Where `upgrade_file` put the original. Empty from `upgrade`, and when
+	/// nothing was written.
+	pub backup: String,
+}
+
+/// A config file written for an older format, made over for this one: the
+/// input run through `migrate_unstamped`, then written the way `fmt` writes
+/// it, with any old info block swapped for the one `init` writes. This is
+/// the one library call that writes the block. A file that loads with no
+/// error under these rules, or that names this format, comes back
+/// `current` and untouched, since a program calling this on every start
+/// must never rewrite a good file. `from_v2` is migrate's: the file can only
+/// have been written for 2.x.
+pub fn upgrade(text: &str, from_v2: bool) -> Upgrade {
+	let version = format_version(text);
+	let mut up = Upgrade {
+		text: text.to_string(),
+		current: true,
+		format: version.unwrap_or(2),
+		ambiguous: 0,
+		lost: 0,
+		diagnostics: Vec::new(),
+		backup: String::new(),
+	};
+	if version.is_some_and(|v| v >= FORMAT_MAJOR) {
+		return up;
+	}
+	let before = Document::parse(text);
+	if before.error_count() == 0 {
+		return up;
+	}
+	up.current = false;
+	up.diagnostics = before.diags;
+	let m = migrate_text(text, from_v2, false);
+	up.ambiguous = m.ambiguous;
+	if m.ambiguous != 0 {
+		return up;
+	}
+	let mut fresh = Document::parse(&m.text);
+	up.lost = m.lost + fresh.lost_count();
+	fresh.swap_banner(true, true);
+	up.text = fresh.to_canonical();
+	up
+}
+
 /// One edit to a line: replace `start..end` with the text.
 type Edit = (usize, usize, String);
 
@@ -6489,11 +6556,16 @@ fn run_under(leads: &[Lead], k: usize) -> usize {
 /// commented out. SHCL_TEST_CLOCK stands in for the system clock and zone, so
 /// tests can pin the text: "YYYY-mm-DD HH:MM:SS OFFSET_MINUTES [NAME]".
 fn note_stamp() -> String {
-	let (when, offset, name) = std::env::var("SHCL_TEST_CLOCK")
+	let (when, offset, name) = clock_now();
+	format!("{when} {}", zone_label(offset, &name))
+}
+
+/// The local time, its offset and zone name, or SHCL_TEST_CLOCK's.
+fn clock_now() -> (String, i32, String) {
+	std::env::var("SHCL_TEST_CLOCK")
 		.ok()
 		.and_then(|s| test_clock(&s))
-		.unwrap_or_else(local_clock);
-	format!("{when} {}", zone_label(offset, &name))
+		.unwrap_or_else(local_clock)
 }
 
 fn test_clock(spec: &str) -> Option<(String, i32, String)> {
@@ -7458,35 +7530,39 @@ fn keep_lines(src: &str, doc: &Document) -> Option<String> {
 /// closing `##` ends after its last line written the block's way. A Schema
 /// line in a block stays, and so does any other comment around one, even
 /// written right against it. Returns how many came off, and whether the last
-/// one had a blank above it with no line after it to take that blank.
-fn drop_banners(leads: &mut Vec<Lead>) -> (usize, bool) {
-	let in_run = |l: &Lead| l.text.starts_with("##") && !l.blank_before;
+/// one had a blank above it with no line after it to take that blank. A
+/// `mark` of `#` takes 2.x's block instead, which had no version line.
+fn drop_banners(leads: &mut Vec<Lead>, mark: &str) -> (usize, bool) {
+	let in_run = |l: &Lead| l.text.starts_with(mark) && !l.blank_before;
+	let title = format!("{mark}{}", &BANNER_TITLE[2..]);
+	let name = format!("{mark}{}", &BANNER_NAME[2..]);
+	let field = format!("{mark}    ");
 	let mut keep: Vec<Lead> = Vec::with_capacity(leads.len());
 	let (mut removed, mut owed, mut prev_kept) = (0, false, false);
 	let mut i = 0;
 	while i < leads.len() {
 		let mut start = i;
 		let mut end = i + 1;
-		if leads[i].text == BANNER_TITLE {
-			if prev_kept && !leads[i].blank_before && leads[i - 1].text == "##" {
+		if leads[i].text == title {
+			if prev_kept && !leads[i].blank_before && leads[i - 1].text == mark {
 				keep.pop();
 				start = i - 1;
 			}
 			match (end..leads.len())
 				.take_while(|&k| in_run(&leads[k]))
-				.find(|&k| leads[k].text == "##")
+				.find(|&k| leads[k].text == mark)
 			{
 				Some(close) => end = close + 1,
 				None => {
 					while end < leads.len()
 						&& in_run(&leads[end])
-						&& (leads[end].text.starts_with("##    ") || leads[end].text == BANNER_NAME)
+						&& (leads[end].text.starts_with(&field) || leads[end].text == name)
 					{
 						end += 1;
 					}
 				}
 			}
-		} else if leads[i].text.starts_with(FORMAT_LINE_HEAD) {
+		} else if mark == "##" && leads[i].text.starts_with(FORMAT_LINE_HEAD) {
 			if end < leads.len() && in_run(&leads[end]) && leads[end].text == MIGRATED_LINE {
 				end += 1;
 			}
@@ -7857,6 +7933,207 @@ pub fn write_file_atomic(file: &str, data: &str) -> Result<(), String> {
 	published.map_err(|e| format!("{}: {}", file, e))?;
 	sync_dir(dir);
 	Ok(())
+}
+
+/// Why `upgrade_file` or `write_backup` wrote nothing, or not all of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpgradeError {
+	/// Nothing at the path.
+	NotFound(String),
+	/// The file does not say which rules it was written for, and some of it
+	/// reads two ways (`Upgrade::ambiguous`); `from_v2` settles it.
+	Ambiguous { path: String, count: usize },
+	/// Something is already at the backup's name. It is never written over.
+	BackupTaken(String),
+	/// A read or write failed; has the reported message.
+	Io(String),
+}
+
+impl std::fmt::Display for UpgradeError {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			UpgradeError::NotFound(path) => write!(f, "{}: no such file", path),
+			UpgradeError::Ambiguous { path, count } => write!(
+				f,
+				"{}: {} value(s) read one way under 2.x and another under these rules, and the file does not say which it was written for; nothing written",
+				path, count
+			),
+			UpgradeError::BackupTaken(name) => write!(
+				f,
+				"{}: already exists; the original would be kept there, so nothing was written",
+				name
+			),
+			UpgradeError::Io(m) => f.write_str(m),
+		}
+	}
+}
+
+impl std::error::Error for UpgradeError {}
+
+/// The name a config file's backup gets:
+/// `NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT`, in local time, wiht N the
+/// format the file was written for. The tag goes before the last dot of the
+/// file name, or on the end when it has none, and a leading dot is part of
+/// the name. SHCL_TEST_CLOCK stands in for the clock, as in a setter's note.
+#[must_use]
+pub fn backup_file_name(file: &str, format: u32) -> String {
+	let stamp: String = clock_now()
+		.0
+		.chars()
+		.filter_map(|c| match c {
+			'-' | ':' => None,
+			' ' => Some('-'),
+			c => Some(c),
+		})
+		.collect();
+	let tag = format!("_backup_{stamp}_format-v{format}");
+	let start = file_name_start(file);
+	match file[start..].rfind('.') {
+		Some(dot) if dot > 0 => {
+			let at = start + dot;
+			format!("{}{}{}", &file[..at], tag, &file[at..])
+		}
+		_ => format!("{}{}", file, tag),
+	}
+}
+
+/// Where the file name starts in a path: after the last separator, or on
+/// windows after a drive with no separator (`C:cfg.shcl`). A backslash is a
+/// separator only on windows.
+fn file_name_start(file: &str) -> usize {
+	let seps: &[char] = if cfg!(windows) { &['/', '\\'] } else { &['/'] };
+	let b = file.as_bytes();
+	let drive = if cfg!(windows) && b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':' {
+		2
+	} else {
+		0
+	};
+	file.rfind(seps).map_or(drive, |i| (i + 1).max(drive))
+}
+
+/// Keep `text`, the bytes last read from `file`, under `backup_file_name`, before
+/// something replaces them. The create is exclusive, so an earlier backup or
+/// anything else at the name is never written over, and the copy is synced
+/// before this returns. It is born private, then given the original's group
+/// and mode (on windows its DACL), so a private config never has a readable
+/// copy. Returns the backup's name.
+pub fn write_backup(file: &str, text: &str, format: u32) -> Result<String, UpgradeError> {
+	use std::io::Write;
+	let name = backup_file_name(file, format);
+	let mut f = create_backup(file, &name).map_err(|e| {
+		if e.kind() == std::io::ErrorKind::AlreadyExists {
+			UpgradeError::BackupTaken(name.clone())
+		} else {
+			UpgradeError::Io(format!("{}: {}", name, e))
+		}
+	})?;
+	let res = (|| -> std::io::Result<()> {
+		f.write_all(text.as_bytes())?;
+		// The group first, since a chown clears setuid/setgid. Best effort,
+		// the way the save keeps both.
+		#[cfg(unix)]
+		if let Ok(m) = std::fs::metadata(file) {
+			use std::os::unix::fs::MetadataExt;
+			let _ = std::os::unix::fs::fchown(&f, None, Some(m.gid()));
+			let _ = f.set_permissions(m.permissions());
+		}
+		f.sync_all()
+	})();
+	if let Err(e) = res {
+		drop(f);
+		let _ = std::fs::remove_file(&name);
+		return Err(UpgradeError::Io(format!("{}: {}", name, e)));
+	}
+	Ok(name)
+}
+
+#[cfg(not(windows))]
+fn create_backup(_file: &str, name: &str) -> std::io::Result<std::fs::File> {
+	let mut opts = std::fs::OpenOptions::new();
+	opts.write(true).create_new(true);
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::OpenOptionsExt;
+		opts.mode(0o600);
+	}
+	opts.open(name)
+}
+
+/// A new file takes the directory's ACL, so the backup is born with the
+/// original's DACL instead (create_like).
+#[cfg(windows)]
+fn create_backup(file: &str, name: &str) -> std::io::Result<std::fs::File> {
+	// A NUL would end the name early there, where std refuses it.
+	if name.contains('\0') {
+		return Err(std::io::Error::new(
+			std::io::ErrorKind::InvalidInput,
+			"file name contained an unexpected NUL byte",
+		));
+	}
+	create_like(std::path::Path::new(file), std::path::Path::new(name))
+}
+
+/// `upgrade` on a file, for a program to call when it starts, before its
+/// load. A file that needs it is kept under `backup_file_name` by `write_backup`,
+/// then the fresh text replaces it through `write_file_atomic`, so the path
+/// always holds one or the other. A file that loads clean, or names this
+/// format, is not written at all, and also neither is one that changed after it
+/// was read or that reads two ways. Opt-in on purpose: a program that keeps
+/// its own backups has no need of it. On success `backup` names the copy
+/// when one was made, and `text` is what the path now holds.
+pub fn upgrade_file(path: &str, from_v2: bool) -> Result<Upgrade, UpgradeError> {
+	// A FIFO or a device would block the read or be replaced by a file.
+	match std::fs::metadata(path) {
+		Ok(m) if !m.is_file() => {
+			return Err(UpgradeError::Io(format!("{}: not a regular file", path)));
+		}
+		Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+			return Err(UpgradeError::NotFound(path.to_string()));
+		}
+		_ => {}
+	}
+	let text = match read_file(path, 0) {
+		Ok(t) => t,
+		Err(FileStatus::NotFound) => return Err(UpgradeError::NotFound(path.to_string())),
+		Err(_) => {
+			return Err(UpgradeError::Io(format!(
+				"{}: cannot be read as UTF-8 text",
+				path
+			)));
+		}
+	};
+	let mut up = upgrade(&text, from_v2);
+	if up.current {
+		return Ok(up);
+	}
+	if up.ambiguous != 0 {
+		return Err(UpgradeError::Ambiguous {
+			path: path.to_string(),
+			count: up.ambiguous,
+		});
+	}
+	let same = |now: Vec<u8>| now == text.as_bytes();
+	if !std::fs::read(path).is_ok_and(same) {
+		return Err(UpgradeError::Io(format!(
+			"{}: changed since it was read; nothing written",
+			path
+		)));
+	}
+	up.backup = write_backup(path, &text, up.format)?;
+	if let Err(e) = write_file_atomic(path, &up.text) {
+		// With the original still in place the backup would only stand in the
+		// way of the next run. A replace that fails part way on windows can
+		// leave nothing at the path, and then the backup is all there is.
+		if std::fs::read(path).is_ok_and(same) {
+			let _ = std::fs::remove_file(&up.backup);
+			return Err(UpgradeError::Io(e));
+		}
+		return Err(UpgradeError::Io(format!(
+			"{}; the original is {}",
+			e, up.backup
+		)));
+	}
+	Ok(up)
 }
 
 /// A path that names a directory rather than a file: it ends in a separator, or
@@ -10338,6 +10615,14 @@ impl Document {
 	/// block by itself; this is for a program that wants it in a file it
 	/// writes. Returns how many old blocks came off.
 	pub fn set_banner(&mut self, on: bool) -> usize {
+		self.swap_banner(on, false)
+	}
+
+	/// set_banner(), and with `v2` the block 2.x's `init` wrote, in `#`
+	/// comments, comes off too. Only `upgrade` asks for that: under these
+	/// rules the old block is a comment of the file's own.
+	fn swap_banner(&mut self, on: bool, v2: bool) -> usize {
+		let marks: &[&str] = if v2 { &["##", "#"] } else { &["##"] };
 		let mut removed = 0;
 		// The first line's comments are the top of the file, on the first
 		// node down, as a dotted line puts them on its last name.
@@ -10353,16 +10638,20 @@ impl Document {
 			if top.contains(&n) {
 				continue;
 			}
-			let Some(tr) = self.arena[n].trivia.as_deref_mut() else {
-				continue;
-			};
-			let (gone, blank) = drop_banners(&mut tr.leading);
-			if gone > 0 {
-				removed += gone;
-				self.arena[n].blank_before |= blank;
+			for mark in marks {
+				let Some(tr) = self.arena[n].trivia.as_deref_mut() else {
+					continue;
+				};
+				let (gone, blank) = drop_banners(&mut tr.leading, mark);
+				if gone > 0 {
+					removed += gone;
+					self.arena[n].blank_before |= blank;
+				}
 			}
 		}
-		removed += drop_banners(&mut self.orphans).0;
+		for mark in marks {
+			removed += drop_banners(&mut self.orphans, mark).0;
+		}
 		if on {
 			let open = !self.orphans.is_empty() || !self.arena[ROOT].children.is_empty();
 			for (n, line) in GEN_BANNER.lines().enumerate() {

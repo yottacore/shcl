@@ -6,9 +6,9 @@
 
 use shcl::{
 	Diagnostic, Document, DurationUnit, FORMAT_MAJOR, GEN_BANNER, Piece, Quote, Rules, SaveError,
-	Severity, SizeUnit, Status, Strictness, Tokens, format_float, format_version, generate,
-	migrate, parse_datetime, schema_ref, suppress_declared_reopens, suppress_declared_repeats,
-	tokenize, write_file_atomic,
+	Severity, SizeUnit, Status, Strictness, Tokens, UpgradeError, format_float, format_version,
+	generate, migrate, parse_datetime, schema_ref, suppress_declared_reopens,
+	suppress_declared_repeats, tokenize, upgrade, upgrade_file, write_backup, write_file_atomic,
 };
 use std::fmt::Write as _;
 use std::process::ExitCode;
@@ -90,10 +90,14 @@ Usage:
                                          per line
   shcl migrate [options] FILE            rewrite a 2.x file for the current
                                          rules (print it, rewrite FILE with
-                                         --write or -w, keeping the original
-                                         as NAME_old_v2.EXT beside it, or name
-                                         the lines it would change with
-                                         --check)
+                                         --write or -w, keeping a backup of
+                                         the original beside it, or name the
+                                         lines it would change with --check)
+  shcl upgrade [options] FILE            when FILE does not load clean, print
+                                         it migrated and made over the way fmt
+                                         writes it, with the info block (or
+                                         back it up and rewrite it with
+                                         --write); a clean file is left alone
   shcl tokens FILE                       each line's lexical spans, for seeing
                                          why the parser read a line as it did
                                          (every line on its own, raw bodies
@@ -155,19 +159,19 @@ Options (the subcommands each belongs to are in parentheses):
   --no-banner                            (init, and set --write when it creates
                                          FILE) leave out the info block naming
                                          the format and pointing at its spec
-  --write                                (fmt/set/migrate) rewrite FILE in
-                                         place, written -w too, through a
-                                         temp file and a rename; refused
-                                         with a FILE of '-'
+  --write                                (fmt/set/migrate/upgrade) rewrite
+                                         FILE in place, written -w too,
+                                         through a temp file and a rename;
+                                         refused with a FILE of '-'
   --lossy                                (fmt/set/migrate) with --write, rewrite
                                          even when this write would delete lines
                                          or values from the file; without it the
                                          write refuses and nothing is changed
-  --from-2x                              (migrate) the file was written for
-                                         2.x, so rewrite the spellings the two
-                                         rule sets read differently; without
-                                         it those are left alone and migrate
-                                         exits 7
+  --from-2x                              (migrate/upgrade) the file was
+                                         written for 2.x, so rewrite the
+                                         spellings the two rule sets read
+                                         differently; without it those are
+                                         left alone and the command exits 7
   --check                                (fmt/migrate) print nothing and exit 6
                                          when fmt would change the file or
                                          migrate would rewrite a line (named on
@@ -231,7 +235,12 @@ once per run; 'shcl explain CODE' gives the rule behind one of their codes. An
 in-place write also refuses when the rewrite would delete lines or values
 from the file (--lossy overrides). migrate refuses a file that does not say
 which rules it was written for, when the two readings differ (--from-2x says
-it is 2.x), and reports a 2.x binding it cannot convert.
+it is 2.x), and reports a 2.x binding it cannot convert. With --write, migrate
+and upgrade keep the original beside FILE as
+NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT, in local time, where N is the format
+it was written for, and write nothing when that name is taken. An upgrade
+writes even when the fresh file drops lines or values, since the backup keeps
+them.
 FILE may be '-' for stdin. With --layer, FILE is the highest file layer and
 each --layer is merged under it in order; --set applies last. 'fmt' with
 layers prints the merged canonical document.
@@ -239,8 +248,8 @@ layers prints the merged canonical document.
 Exit codes: 0 good, 1 usage error, 2 empty, 3 not found, 4 bad type,
 5 multiple instances, 6 check failed, strict load failed, init's schema has
 faults, or --check found a rewrite to make, 7 in-place write refused
-(--lossy overrides) or migrate left something behind, 8 a file or stream could
-not be read or written.
+(--lossy overrides) or migrate or upgrade left something behind, 8 a file or
+stream could not be read or written.
 ";
 
 // About and donate are stdout, so they are byte-for-byte contracts across the
@@ -1131,6 +1140,7 @@ fn allowed_opts(cmd: &str) -> &'static [&'static str] {
 
 		"init" => &["--schema", "--no-banner"],
 		"migrate" => &["--write", "--lossy", "--from-2x", "--check"],
+		"upgrade" => &["--write", "--from-2x"],
 		"tokens" | "explain" => &[],
 		"count" | "instances" | "children" | "paths" => &[
 			"--strictness",
@@ -2111,197 +2121,6 @@ fn name_start(file: &str) -> usize {
 	file.rfind(seps).map_or(drive, |i| (i + 1).max(drive))
 }
 
-/// Where `migrate --write` keeps the file it replaces: `_old_v2` before the
-/// last dot of the file name, or on the end when it has none. A leading dot
-/// is part of the name, not an extension.
-fn old_copy_name(file: &str) -> String {
-	let start = name_start(file);
-	match file[start..].rfind('.') {
-		Some(dot) if dot > 0 => {
-			let at = start + dot;
-			format!("{}_old_v2{}", &file[..at], &file[at..])
-		}
-		_ => format!("{}_old_v2", file),
-	}
-}
-
-/// The exclusive create of the old copy, born private.
-#[cfg(not(windows))]
-fn create_copy(_file: &str, old: &str) -> std::io::Result<std::fs::File> {
-	let mut opts = std::fs::OpenOptions::new();
-	opts.write(true).create_new(true);
-	#[cfg(unix)]
-	{
-		use std::os::unix::fs::OpenOptionsExt;
-		opts.mode(0o600);
-	}
-	opts.open(old)
-}
-
-/// The exclusive create of the old copy. A new file takes the directory's
-/// ACL, while the save keeps the original's on the migrated file, so a private
-/// config got a backup others could read. The copy is born with the original's
-/// DACL instead. Best effort: when that cannot be read, the directory's it is.
-#[cfg(windows)]
-fn create_copy(file: &str, old: &str) -> std::io::Result<std::fs::File> {
-	use std::os::windows::ffi::OsStrExt;
-	use std::os::windows::io::FromRawHandle;
-	#[repr(C)]
-	struct SecurityAttributes {
-		length: u32,
-		descriptor: *mut u64,
-		inherit: i32,
-	}
-	#[link(name = "advapi32")]
-	unsafe extern "system" {
-		fn GetFileSecurityW(
-			name: *const u16,
-			info: u32,
-			sd: *mut u64,
-			len: u32,
-			need: *mut u32,
-		) -> i32;
-		fn SetFileSecurityW(name: *const u16, info: u32, sd: *mut u64) -> i32;
-		fn GetSecurityDescriptorControl(sd: *mut u64, control: *mut u16, revision: *mut u32)
-		-> i32;
-		fn SetSecurityDescriptorControl(sd: *mut u64, mask: u16, bits: u16) -> i32;
-	}
-	#[link(name = "kernel32")]
-	unsafe extern "system" {
-		fn CreateFileW(
-			name: *const u16,
-			access: u32,
-			share: u32,
-			sa: *const u8,
-			disp: u32,
-			flags: u32,
-			tmpl: isize,
-		) -> isize;
-	}
-	const DACL_SECURITY_INFORMATION: u32 = 0x4;
-	const SE_DACL_AUTO_INHERIT_REQ: u16 = 0x0100;
-	const SE_DACL_AUTO_INHERITED: u16 = 0x0400;
-	const GENERIC_WRITE: u32 = 0x4000_0000;
-	const FILE_SHARE_ALL: u32 = 0x7;
-	const CREATE_NEW: u32 = 1;
-	const FILE_ATTRIBUTE_NORMAL: u32 = 0x80;
-	let wide = |s: &str| -> Vec<u16> {
-		std::ffi::OsStr::new(s)
-			.encode_wide()
-			.chain(std::iter::once(0))
-			.collect()
-	};
-	// A NUL would end the name early here, where std refuses it.
-	if old.contains('\0') {
-		return Err(std::io::Error::new(
-			std::io::ErrorKind::InvalidInput,
-			"file name contained an unexpected NUL byte",
-		));
-	}
-	let (src, dst) = (wide(file), wide(old));
-	// u64 words, since a security descriptor wants more than byte alignment.
-	let mut sd: Vec<u64> = Vec::new();
-	let mut need = 0u32;
-	unsafe {
-		GetFileSecurityW(
-			src.as_ptr(),
-			DACL_SECURITY_INFORMATION,
-			std::ptr::null_mut(),
-			0,
-			&mut need,
-		);
-		if need > 0 {
-			sd.resize((need as usize).div_ceil(8), 0);
-			let len = (sd.len() * 8) as u32;
-			if GetFileSecurityW(
-				src.as_ptr(),
-				DACL_SECURITY_INFORMATION,
-				sd.as_mut_ptr(),
-				len,
-				&mut need,
-			) == 0
-			{
-				sd.clear();
-			}
-		}
-		let sa = SecurityAttributes {
-			length: std::mem::size_of::<SecurityAttributes>() as u32,
-			descriptor: sd.as_mut_ptr(),
-			inherit: 0,
-		};
-		let handle = CreateFileW(
-			dst.as_ptr(),
-			GENERIC_WRITE,
-			FILE_SHARE_ALL,
-			if sd.is_empty() {
-				std::ptr::null()
-			} else {
-				(&raw const sa).cast()
-			},
-			CREATE_NEW,
-			FILE_ATTRIBUTE_NORMAL,
-			0,
-		);
-		if handle == -1 {
-			return Err(std::io::Error::last_os_error());
-		}
-		// A create takes the ACEs but drops the auto-inherited mark, and without
-		// it a later change to the directory's ACL is not passed down to the
-		// copy. Setting the same DACL again with the request bit puts it back.
-		let (mut control, mut revision) = (0u16, 0u32);
-		if !sd.is_empty()
-			&& GetSecurityDescriptorControl(sd.as_mut_ptr(), &mut control, &mut revision) != 0
-			&& control & SE_DACL_AUTO_INHERITED != 0
-			&& SetSecurityDescriptorControl(
-				sd.as_mut_ptr(),
-				SE_DACL_AUTO_INHERIT_REQ,
-				SE_DACL_AUTO_INHERIT_REQ,
-			) != 0
-		{
-			SetFileSecurityW(dst.as_ptr(), DACL_SECURITY_INFORMATION, sd.as_mut_ptr());
-		}
-		Ok(std::fs::File::from_raw_handle(handle as _))
-	}
-}
-
-/// Writes the original bytes to the old-copy name before the migrated text
-/// replaces them. The create is exclusive, so an earlier copy is never
-/// replaced, and the copy is synced before the save starts.
-fn keep_original(file: &str, text: &str) -> Result<String, String> {
-	use std::io::Write;
-	let old = old_copy_name(file);
-	let mut f = create_copy(file, &old).map_err(|e| {
-		if e.kind() == std::io::ErrorKind::AlreadyExists {
-			format!(
-				"{}: already exists; migrate keeps the original file there, so nothing was written",
-				old
-			)
-		} else {
-			format!("{}: {}", old, e)
-		}
-	})?;
-	let res = (|| -> std::io::Result<()> {
-		f.write_all(text.as_bytes())?;
-		// Born private, then given the original's group and bits, so a 600
-		// config never has a readable copy, and one in a setgid directory does
-		// not go to the directory's group. The group first, since a chown
-		// clears setuid/setgid. Best effort, the way the save keeps both.
-		#[cfg(unix)]
-		if let Ok(m) = std::fs::metadata(file) {
-			use std::os::unix::fs::MetadataExt;
-			let _ = std::os::unix::fs::fchown(&f, None, Some(m.gid()));
-			let _ = f.set_permissions(m.permissions());
-		}
-		f.sync_all()
-	})();
-	if let Err(e) = res {
-		drop(f);
-		let _ = std::fs::remove_file(&old);
-		return Err(format!("{}: {}", old, e));
-	}
-	Ok(old)
-}
-
 /// A 2.x file rewritten for the current rules. The rewrite is text to text;
 /// the load after it is for the diagnostics and the save gate, the same gate
 /// `fmt --write` goes through.
@@ -2437,7 +2256,7 @@ fn do_migrate(o: &Opts) -> u8 {
 		let old = if rewritten.is_empty() {
 			None
 		} else {
-			match keep_original(file, &text) {
+			match write_backup(file, &text, format_version(&text).unwrap_or(2)) {
 				Ok(old) => Some(old),
 				Err(e) => {
 					errln!("{}", e);
@@ -2477,6 +2296,84 @@ fn do_migrate(o: &Opts) -> u8 {
 	}
 	out!("{}", m.text);
 	rc
+}
+
+/// A file this shcl cannot load clean, backed up and written fresh: the
+/// library's `upgrade_file` with --write, and its text half without, which
+/// prints the fresh text and touches nothing.
+fn do_upgrade(o: &Opts) -> u8 {
+	let [file] = o.args.as_slice() else {
+		errln!("usage: shcl upgrade [options] FILE (see --help)");
+		return 1;
+	};
+	if o.write && file == "-" {
+		errln!("upgrade --write cannot rewrite stdin; drop --write to print, or pass a FILE");
+		return 1;
+	}
+	if o.write && !write_target_ok(file) {
+		return EXIT_IO;
+	}
+	let up = if o.write {
+		match upgrade_file(file, o.from_2x) {
+			Ok(up) => up,
+			Err(e @ UpgradeError::Ambiguous { .. }) => {
+				errln!("{} (--from-2x rewrites them)", e);
+				return 7;
+			}
+			Err(e) => {
+				errln!("{}", e);
+				return EXIT_IO;
+			}
+		}
+	} else {
+		let text = match read_input(file) {
+			Ok(t) => t,
+			Err(e) => {
+				errln!("{}", e);
+				return EXIT_IO;
+			}
+		};
+		upgrade(&text, o.from_2x)
+	};
+	if up.current {
+		errln!(
+			"{}: nothing to upgrade: it loads clean or names its format",
+			file
+		);
+		if !o.write {
+			out!("{}", up.text);
+		}
+		return 0;
+	}
+	say_diagnostics_from("", &up.diagnostics);
+	if up.ambiguous != 0 {
+		errln!(
+			"{} (--from-2x rewrites them)",
+			UpgradeError::Ambiguous {
+				path: file.clone(),
+				count: up.ambiguous
+			}
+		);
+		return 7;
+	}
+	if up.lost != 0 {
+		errln!(
+			"{}: {} line(s)/value(s) do not carry over to the fresh file{}",
+			file,
+			up.lost,
+			if o.write {
+				"; the backup keeps them"
+			} else {
+				""
+			}
+		);
+	}
+	if o.write {
+		errln!("{}: upgraded; the original is {}", file, up.backup);
+	} else {
+		out!("{}", up.text);
+	}
+	0
 }
 
 /// `CODE  severity  summary` - the one line both explain forms lead with.
@@ -3362,7 +3259,7 @@ fn do_paths(o: &Opts) -> u8 {
 	0
 }
 
-const COMMANDS: [&str; 12] = [
+const COMMANDS: [&str; 13] = [
 	"get",
 	"set",
 	"fmt",
@@ -3373,6 +3270,7 @@ const COMMANDS: [&str; 12] = [
 	"children",
 	"paths",
 	"migrate",
+	"upgrade",
 	"tokens",
 	"explain",
 ];
@@ -3414,6 +3312,7 @@ fn run(cmd: &str, o: &Opts) -> u8 {
 		"children" => do_children(o),
 		"paths" => do_paths(o),
 		"migrate" => do_migrate(o),
+		"upgrade" => do_upgrade(o),
 		"tokens" => do_tokens(o),
 		"explain" => do_explain(o),
 		other => {

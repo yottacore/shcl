@@ -3176,7 +3176,7 @@ for name in ("shcl.bash", "_shcl"):
     row = TAB * 2 + "count|instances|children|paths) echo '--strictness"
     c = sub(c, row, TAB * 2 + "ping)            echo '' ;;" + NL + row, name + ": the option row for count")
     if name == "shcl.bash":
-        c = sub(c, "paths migrate tokens explain help", "paths migrate tokens explain ping help", name + ": the command list")
+        c = sub(c, "paths migrate upgrade tokens explain help", "paths migrate upgrade tokens explain ping help", name + ": the command list")
     else:
         pl = TAB * 2 + "'paths:every field path in the document'"
         c = sub(c, pl, pl + NL + TAB * 2 + "'ping:say nothing'", name + ": the paths description")
