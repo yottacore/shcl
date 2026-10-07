@@ -186,14 +186,17 @@ func (r WriteReason) String() string {
 // when the read's single scalar element was quoted in the source - the escape
 // hatch that lets a downstream language reserve `@null` while `"@null"` stays
 // a plain string. Arrays, raw blocks, and empties leave it false. A written
-// value counts as quoted when a save would quote it.
+// value counts as quoted when a save would quote it. Backtick is true when
+// that element was a backtick value: raw text the program decodes itself,
+// which SHCL hands back as written. A backtick value counts as quoted too.
 type Read[T any] struct {
-	Value  T
-	Status Status
-	Raw    *string
-	Slots  []Status
-	Line   int
-	Quoted bool
+	Value    T
+	Status   Status
+	Raw      *string
+	Slots    []Status
+	Line     int
+	Quoted   bool
+	Backtick bool
 }
 
 // Ok reports whether the author addressed this field at all: Good or Empty.
@@ -203,9 +206,10 @@ type Read[T any] struct {
 // field is the case where those two diverge.
 func (r Read[T]) Ok() bool { return r.Status == Good || r.Status == Empty }
 
-func (r Read[T]) at(line int, quoted bool) Read[T] {
+func (r Read[T]) at(line int, el *element) Read[T] {
 	r.Line = line
-	r.Quoted = quoted
+	r.Quoted = el != nil && el.quoted()
+	r.Backtick = el != nil && el.mark == markBacktick
 	return r
 }
 
@@ -325,8 +329,23 @@ func FormatFloat(v float64) string {
 // merge when (name, value) matches; empty values merge into the wrapper node.
 
 type element struct {
-	text   string // the logical string: quotes stripped, escapes resolved
-	quoted bool
+	text string // the logical string: quotes stripped, escapes resolved
+	mark mark
+}
+
+// mark is how an element was written. The writer keeps the author's quote
+// kind where the text allows it, and a backtick value stays in backticks.
+type mark int
+
+const (
+	markBare mark = iota
+	markSingle
+	markDouble
+	markBacktick
+)
+
+func (e *element) quoted() bool {
+	return e.mark != markBare
 }
 
 // lead is one whole-line comment held as trivia, plus whether a blank line
@@ -453,7 +472,8 @@ type valueKind int
 
 const (
 	vEmpty valueKind = iota
-	vCell            // one element = scalar, more = inline array
+	vCell            // one scalar, in els[0]
+	vArray           // `[a, b]` or a stacked list; `[]` is the empty array
 	vRaw
 )
 
@@ -470,17 +490,17 @@ type value struct {
 	raw  *rawValue // behind a pointer: inline, its four fields would ride on every node
 }
 
-// display is the spelled-out form; also what selectors match against (case-sensitive).
+// display is the spelled-out form; also what selectors match against
+// (case-sensitive). An array is its canonical bracket form, so `x: 80` and
+// `x: [80]` never display alike.
 func (v *value) display() string {
 	switch v.kind {
 	case vEmpty:
 		return ""
 	case vCell:
-		parts := make([]string, len(v.els))
-		for i, e := range v.els {
-			parts[i] = e.text
-		}
-		return strings.Join(parts, ", ")
+		return v.els[0].text
+	case vArray:
+		return emitArray(v.els)
 	}
 	return v.raw.content
 }
@@ -613,22 +633,10 @@ func srcMatchesDisplay(v *value, s string) bool {
 		return s == ""
 	case vRaw:
 		return s == v.raw.content
+	case vCell:
+		return s == v.els[0].text
 	}
-	rest := s
-	for i := range v.els {
-		var ok bool
-		if i > 0 {
-			rest, ok = strings.CutPrefix(rest, ", ")
-			if !ok {
-				return false
-			}
-		}
-		rest, ok = strings.CutPrefix(rest, v.els[i].text)
-		if !ok {
-			return false
-		}
-	}
-	return rest == ""
+	return s == v.display()
 }
 
 // Document is a parsed SHCL document: the tree, its diagnostics, and its
@@ -882,7 +890,7 @@ func settleFenceTrailing(arena []nodeData, n int) {
 // stacks: written stacked, a list holding a kept line among its elements or
 // after its last one.
 func stacks(nd *nodeData) bool {
-	if nd.value.kind != vCell {
+	if nd.value.kind != vArray {
 		return false
 	}
 	if len(nd.among()) > 0 {
@@ -961,34 +969,50 @@ const tmpNameBytes = 64
 //
 //   - A piece (a name, a selector body, a value element) is quoted only when
 //     its first character is a quote and the next matching quote is the last
-//     thing before the piece ends; inside double quotes a backslash escapes the
-//     next character, inside single quotes nothing does. Anywhere else a quote
-//     is an ordinary character, and a piece that began with one it never closed
-//     is kept literally and reported (E017).
-//   - Escapes are processed inside double quotes only; bare text and single
-//     quotes never process a backslash.
-//   - `#` outside quotes opens a comment, wherever it sits.
+//     thing before the piece ends. A backtick quotes a value element the same
+//     way, as a raw value. A backslash is plain text everywhere. A piece that
+//     began with a quote it never closed is kept literally, and the parser
+//     refuses its line (E017).
+//   - `◉NAME◉` escapes are read in bare and quoted value text, quoted names
+//     and selector bodies, never in a backtick value, a bare name, a comment
+//     or a raw block (resolveMarks).
+//   - `#` outside quotes and backticks opens a comment, wherever it sits.
 //   - A space, a tab and a carriage return are blanks: trimmed at a piece's
-//     edge, content in the middle of one.
-//   - A bare name is ASCII letters, digits, `-` and `_`; a `[` right after a
-//     name opens a selector, whose bare body runs to the first `]`; a `[` after
-//     the separator starts the value, which the parser refuses (E019).
-//   - A value is split on unquoted commas, each piece trimmed.
+//     edge. A bare value or list item may hold spaces; any other whitespace in
+//     it, and any at all in an array element or selector body, the parser
+//     refuses (E025), along with a quote, a bracket, and a colon with a blank
+//     or the end after it.
+//   - A bare name is an ASCII letter, then ASCII letters, digits, `-` and `_`.
+//     A file line's name that breaks only that rule still reads, up to the
+//     separator, a dot, a bracket or a comment, and is marked Misspelled
+//     (E014). A `[` right after a name opens a selector, whose bare body runs
+//     to the first `]`.
+//   - A value is split on unquoted commas with a blank, a comment or the end
+//     after them, each piece trimmed; any other comma is text (`rw,noatime`).
+//     More than one piece outside brackets is a bare comma, which the parser
+//     refuses (E026). Inside brackets every comma splits.
+//   - A value that starts with `[` is a bracket array: its pieces run to the
+//     `]` that closes it, and nothing but a comment may follow. A bare `[` or
+//     `]` inside, an empty piece, or no `]` on the line is malformed, which the
+//     parser refuses (E019). `[]` is the empty array.
 //
-// Under RulesV2 the tokenizer reads the 2.x spellings instead, for Migrate: a
-// backslash shields the next character in bare and single-quoted value text, a
-// bare selector body still runs to its first `]`, a separator followed by `[`
-// is the selector sugar, and an open quote swallows the rest of the line.
+// Under RulesV2 the tokenizer reads the 2.x spellings instead, for Migrate:
+// every comma splits, a backslash shields the next character in bare and
+// single-quoted value text, a bare selector body still runs to its first `]`,
+// a separator followed by `[` is the selector sugar, and an open quote
+// swallows the rest of the line.
 
 // Quote is how a piece was quoted. QuoteOpen is a piece that began with a
 // quote and never closed with the matching quote as its last character: the
-// whole piece is kept literally, quotes and all.
+// whole piece is kept literally, quotes and all. QuoteBacktick is a raw
+// value, read as written: value elements only.
 type Quote int
 
 const (
 	QuoteNone Quote = iota
 	QuoteSingle
 	QuoteDouble
+	QuoteBacktick
 	QuoteOpen
 )
 
@@ -1020,8 +1044,15 @@ type Tokens struct {
 	// Value is everything after the separator up to the comment, trimmed.
 	Value [2]int
 	// Elements are the value's comma-separated pieces, empty ones included,
-	// each trimmed.
+	// each trimmed. For a bracket array, the pieces between the brackets.
 	Elements []Piece
+	// Array is the offset of the `[` that opens a bracket array, when the
+	// value is one; -1 when it is not.
+	Array int
+	// ArrayFault is where a bracket array stops being well formed (-1 when
+	// it does not), and ArrayFaultReason says why (E019).
+	ArrayFault       int
+	ArrayFaultReason string
 	// Comment is the offset of the `#` that opens a trailing comment; -1
 	// when there is none.
 	Comment int
@@ -1029,6 +1060,10 @@ type Tokens struct {
 	// FaultReason says why. A faulted line is malformed as a whole (E014).
 	Fault       int
 	FaultReason string
+	// Misspelled is the offset of the first bare name that breaks the
+	// spelling rule but still reads, such as `404` or `user name` (E014, with
+	// the level held open); -1 when there is none.
+	Misspelled int
 	// Cap is the caller's element cap (0 = none): the scan stops as soon as
 	// the value holds more elements than this, so a capped parse never builds
 	// the array it is going to refuse. Kept across Tokenize calls.
@@ -1043,9 +1078,13 @@ func (t *Tokens) clear() {
 	t.Sep = -1
 	t.Value = [2]int{0, 0}
 	t.Elements = t.Elements[:0]
+	t.Array = -1
+	t.ArrayFault = -1
+	t.ArrayFaultReason = ""
 	t.Comment = -1
 	t.Fault = -1
 	t.FaultReason = ""
+	t.Misspelled = -1
 	t.Capped = false
 }
 
@@ -1075,23 +1114,6 @@ const (
 // wherever a blank is and content in the middle of a piece.
 func isWspByte(b byte) bool {
 	return b == ' ' || b == '\t' || b == '\r'
-}
-
-// looksLikeBinding: `* name: value` is the YAML habit for a list of objects.
-// Here it is one string element, so the parser says so (H003): the text up to
-// its first colon has no blank, and the colon ends the text or a blank follows
-// it.
-func looksLikeBinding(s string) bool {
-	i := strings.IndexByte(s, ':')
-	if i <= 0 {
-		return false
-	}
-	for j := 0; j < i; j++ {
-		if isWspByte(s[j]) {
-			return false
-		}
-	}
-	return i+1 == len(s) || isWspByte(s[i+1])
 }
 
 func isBareNameByte(b byte) bool {
@@ -1129,10 +1151,21 @@ func utf8Len(s string, i int) int {
 	return n
 }
 
+// nameStop is where a file line's bare name that breaks the spelling rule
+// stops.
+func nameStop(b, sep byte) bool {
+	switch b {
+	case sep, '.', '(', ')', '[', ']', '#', ',', '"', '\'', '`', '\n':
+		return true
+	}
+	return false
+}
+
 // quoteClose is the offset of the quote that closes the one at pos, or -1.
+// 2.x read a backslash as an escape inside quotes; now it is text.
 func quoteClose(s string, pos int, rules Rules) int {
 	q := s[pos]
-	escapes := q == '"' || rules == RulesV2
+	escapes := rules == RulesV2
 	i := pos + 1
 	for i < len(s) {
 		if escapes && s[i] == '\\' && i+1 < len(s) {
@@ -1153,12 +1186,20 @@ func commentAt(s string, i int) bool {
 	return s[i] == '#'
 }
 
+// looseComma: a comma at `at` with a blank, a comment or the end after it.
+// Only that one splits a value outside brackets; `rw,noatime` is one piece.
+func looseComma(s string, at int) bool {
+	return at+1 >= len(s) || isWspByte(s[at+1]) || s[at+1] == '#'
+}
+
 // scanPiece reads one piece from pos: a value element up to an unquoted comma
 // or comment, or a selector body up to an unquoted `]` (term). Returns the
 // trimmed piece and the offset of what ended it: the terminator, a comment's
 // `#`, or the end of the text. comments is false only for a selector body in
-// a lookup path, where `[#N]` is the index spelling.
-func scanPiece(s string, pos int, term byte, rules Rules, comments bool) (Piece, int) {
+// a lookup path, where a `#` opens nothing. In a bracket array (array) the
+// `]` that closes it ends a value element too, and every comma does;
+// elsewhere only a loose one does, 2.x aside.
+func scanPiece(s string, pos int, term byte, rules Rules, comments, array bool) (Piece, int) {
 	clamp := func(i int) int {
 		if i > len(s) {
 			return len(s)
@@ -1168,21 +1209,31 @@ func scanPiece(s string, pos int, term byte, rules Rules, comments bool) (Piece,
 	pos = skipWsp(s, pos)
 	start := pos
 	quote := QuoteNone
-	if pos < len(s) && (s[pos] == '"' || s[pos] == '\'') {
+	everyComma := term != ',' || array || rules == RulesV2
+	endsAt := func(i int) bool {
+		return s[i] == term && (everyComma || looseComma(s, i))
+	}
+	// A backtick quotes a raw value element. 2.x had none, a selector body
+	// takes none, and a run of three opens a raw block instead.
+	tick := rules == RulesCurrent && term == ',' && !strings.HasPrefix(s[clamp(pos):], "```")
+	if pos < len(s) && (s[pos] == '"' || s[pos] == '\'' || (tick && s[pos] == '`')) {
 		if close := quoteClose(s, pos, rules); close >= 0 {
 			// A value piece may also end at a comment or the line end;
 			// a selector body ends at its bracket and nowhere else.
 			i := skipWsp(s, close+1)
 			var ended bool
 			if i < len(s) {
-				ended = s[i] == term || (term == ',' && commentAt(s, i))
+				ended = endsAt(i) || (array && s[i] == ']') || (term == ',' && commentAt(s, i))
 			} else {
 				ended = term == ','
 			}
 			if ended {
 				q := QuoteSingle
-				if s[pos] == '"' {
+				switch s[pos] {
+				case '"':
 					q = QuoteDouble
+				case '`':
+					q = QuoteBacktick
 				}
 				return Piece{Start: pos + 1, End: close, Quote: q}, i
 			}
@@ -1207,6 +1258,7 @@ func scanPiece(s string, pos int, term byte, rules Rules, comments bool) (Piece,
 	}
 	// 2.x shielded a backslash in value text only. A bare selector body ran to
 	// its first `]`, the same as now, so shielding one here would hide the `]`.
+	// Now a backslash is text.
 	shield := rules == RulesV2 && term == ','
 	contentEnd := start
 	for pos < len(s) {
@@ -1216,7 +1268,7 @@ func scanPiece(s string, pos int, term byte, rules Rules, comments bool) (Piece,
 			contentEnd = clamp(pos)
 			continue
 		}
-		if b == term || (comments && commentAt(s, pos)) {
+		if endsAt(pos) || (array && b == ']') || (comments && commentAt(s, pos)) {
 			break
 		}
 		pos += utf8Len(s, pos)
@@ -1257,11 +1309,16 @@ func TokenizeValue(text string, from int, rules Rules, out *Tokens) {
 
 func scanValue(text string, from int, rules Rules, out *Tokens) {
 	s := text
-	pos := from
+	pos := skipWsp(s, from)
+	if rules == RulesCurrent && pos < len(s) && s[pos] == '[' {
+		scanArray(text, from, pos, out)
+		return
+	}
+	pos = from
 	var stopAt int
 	count := 0
 	for {
-		piece, stop := scanPiece(s, pos, ',', rules, true)
+		piece, stop := scanPiece(s, pos, ',', rules, true, false)
 		out.Elements = append(out.Elements, piece)
 		if piece.Quote != QuoteNone || piece.End > piece.Start {
 			count++
@@ -1292,13 +1349,97 @@ func scanValue(text string, from int, rules Rules, out *Tokens) {
 	out.Value = [2]int{a, b}
 	if n := len(out.Elements); n > 0 {
 		last := &out.Elements[n-1]
-		if last.Quote != QuoteSingle && last.Quote != QuoteDouble && last.End > b {
+		if last.Quote != QuoteSingle && last.Quote != QuoteDouble && last.Quote != QuoteBacktick && last.End > b {
 			last.End = b
 			if last.End < last.Start {
 				last.End = last.Start
 			}
 		}
 	}
+}
+
+// scanArray reads a bracket array from the `[` at open: its pieces, each up
+// to an unquoted comma or the `]` that closes it, then nothing but a comment.
+// A fault is noted and the scan goes on, so the comment is still found. Past
+// the element cap the scan stops, as a bare value's does: the line is refused
+// for that whatever else is wrong with it.
+func scanArray(text string, from, open int, out *Tokens) {
+	s := text
+	out.Array = open
+	noteFault := func(at int, why string) {
+		if out.ArrayFault < 0 {
+			out.ArrayFault, out.ArrayFaultReason = at, why
+		}
+	}
+	pos := open + 1
+	count := 0
+	closeAt := -1
+	var stopAt int
+	for {
+		piece, stop := scanPiece(s, pos, ',', RulesCurrent, true, true)
+		out.Elements = append(out.Elements, piece)
+		if piece.Quote == QuoteNone && piece.End == piece.Start {
+			// `[]`, blanks or not, is the empty array; any other empty piece
+			// is a slip.
+			only := len(out.Elements) == 1 && stop < len(s) && s[stop] == ']'
+			if !only {
+				noteFault(piece.Start, "an empty element")
+			}
+		} else {
+			count++
+			if out.Cap != 0 && count > out.Cap {
+				out.Capped = true
+				out.Value = [2]int{from, from}
+				return
+			}
+			if piece.Quote == QuoteNone {
+				if k := strings.IndexByte(s[piece.Start:piece.End], '['); k >= 0 {
+					noteFault(piece.Start+k, "a '[' inside an array")
+				}
+			}
+		}
+		if stop < len(s) && s[stop] == ',' {
+			pos = stop + 1
+			continue
+		}
+		if stop < len(s) && s[stop] == ']' {
+			closeAt = stop
+		}
+		stopAt = stop
+		break
+	}
+	end := stopAt
+	if closeAt >= 0 {
+		after := skipWsp(s, closeAt+1)
+		end = after
+		if after < len(s) && !commentAt(s, after) {
+			noteFault(after, "text after ']'")
+			// The comment past the stray text, found the way a value finds it.
+			for {
+				_, stop := scanPiece(s, after, ',', RulesCurrent, true, false)
+				if stop < len(s) && s[stop] == ',' {
+					after = stop + 1
+					continue
+				}
+				end = stop
+				break
+			}
+		}
+	} else {
+		// The one fault a reader can see from the outside, so it wins.
+		out.ArrayFault, out.ArrayFaultReason = open, "no closing ']' on the line"
+	}
+	if end < len(s) {
+		out.Comment = end
+	}
+	if len(out.Elements) == 1 && out.Elements[0].Quote == QuoteNone && out.Elements[0].End == out.Elements[0].Start {
+		out.Elements = out.Elements[:0]
+	}
+	b := end
+	for b > open && isWspByte(s[b-1]) {
+		b--
+	}
+	out.Value = [2]int{open, b}
 }
 
 // Tokenize reads one line (sep = ':') or one lookup path (path: the bare `*`
@@ -1339,6 +1480,26 @@ func Tokenize(text string, sep byte, path bool, rules Rules, out *Tokens) {
 			for pos < len(s) && isBareNameByte(s[pos]) {
 				pos++
 			}
+			// A file line's name that breaks only the spelling rule still
+			// reads, so the lines under it can load under it (E014). A lookup
+			// path takes the old bare run, any first character. A name led by
+			// a byte order mark does not read: at the start of a file the
+			// load strips the mark, so the line would bind as something else.
+			// One led by a `*` is a list item's line, which never gets here.
+			if !path && rules == RulesCurrent && !strings.HasPrefix(s[start:], "\uFEFF") && s[start] != '*' {
+				end := pos
+				for pos < len(s) && !nameStop(s[pos], sep) {
+					b := s[pos]
+					pos += utf8Len(s, pos)
+					if !isWspByte(b) {
+						end = pos
+					}
+				}
+				pos = end
+				if end > start && (!isASCIIAlpha(s[start]) || !allBareNameBytes(s[start:end])) && out.Misspelled < 0 {
+					out.Misspelled = start
+				}
+			}
 			if pos == start {
 				out.Fault, out.FaultReason = pos, "expected a field name"
 				return
@@ -1362,7 +1523,7 @@ func Tokenize(text string, sep byte, path bool, rules Rules, out *Tokens) {
 				out.Fault, out.FaultReason = open, "selector on a name wildcard"
 				return
 			}
-			piece, stop := scanPiece(s, open+1, ']', rules, !path)
+			piece, stop := scanPiece(s, open+1, ']', rules, !path, false)
 			if stop >= len(s) || s[stop] != ']' {
 				out.Fault, out.FaultReason = open, "unterminated selector"
 				return
@@ -1401,12 +1562,32 @@ func Tokenize(text string, sep byte, path bool, rules Rules, out *Tokens) {
 	}
 }
 
-// pieceText is the text of a piece as the reader sees it: escapes applied
-// inside double quotes, everything else as written.
+// allBareNameBytes is true when every byte is one a bare name may hold.
+func allBareNameBytes(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if !isBareNameByte(s[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// decodes is whether a piece's `◉` escapes are read: bare and quoted text. A
+// backtick value is raw, and an open piece is refused before anything reads
+// it.
+func decodes(p *Piece) bool {
+	return p.Quote == QuoteNone || p.Quote == QuoteSingle || p.Quote == QuoteDouble
+}
+
+// pieceText is the text of a piece as the reader sees it: escapes applied,
+// except in a backtick value, which is as written. A bare field name takes no
+// escapes either; pathOf reads those.
 func pieceText(p *Piece, text string) string {
 	raw := text[p.Start:p.End]
-	if p.Quote == QuoteDouble && strings.Contains(raw, "\\") {
-		return applyEscapes(raw)
+	if decodes(p) && strings.ContainsRune(raw, escapeMark) {
+		if t, err := resolveMarks(raw); err == nil {
+			return t
+		}
 	}
 	return raw
 }
@@ -1414,8 +1595,9 @@ func pieceText(p *Piece, text string) string {
 // pieceIs is true when a piece reads as this exact text, without building it.
 func pieceIs(p *Piece, text, want string) bool {
 	raw := text[p.Start:p.End]
-	if p.Quote == QuoteDouble && strings.Contains(raw, "\\") {
-		return applyEscapes(raw) == want
+	if decodes(p) && strings.ContainsRune(raw, escapeMark) {
+		t, err := resolveMarks(raw)
+		return err == nil && t == want
 	}
 	return raw == want
 }
@@ -1426,21 +1608,37 @@ func elementOf(p *Piece, text string) (element, bool) {
 	if p.Quote == QuoteNone && p.End == p.Start {
 		return element{}, false
 	}
-	return element{text: pieceText(p, text), quoted: p.Quote == QuoteSingle || p.Quote == QuoteDouble}, true
+	m := markBare
+	switch p.Quote {
+	case QuoteSingle:
+		m = markSingle
+	case QuoteDouble:
+		m = markDouble
+	case QuoteBacktick:
+		m = markBacktick
+	}
+	return element{text: pieceText(p, text), mark: m}, true
 }
 
-// cellOfTokens is the value the tokenized pieces give.
+// cellOfTokens is the value the tokenized pieces give: an array for a bracket
+// array, else the one element, or Empty. A second piece outside brackets is a
+// bare comma, which every caller refuses first (E026).
 func cellOfTokens(tok *Tokens, text string) value {
-	els := make([]element, 0, len(tok.Elements))
+	if tok.Array >= 0 {
+		els := make([]element, 0, len(tok.Elements))
+		for i := range tok.Elements {
+			if e, ok := elementOf(&tok.Elements[i], text); ok {
+				els = append(els, e)
+			}
+		}
+		return value{kind: vArray, els: els}
+	}
 	for i := range tok.Elements {
 		if e, ok := elementOf(&tok.Elements[i], text); ok {
-			els = append(els, e)
+			return value{kind: vCell, els: []element{e}}
 		}
 	}
-	if len(els) == 0 {
-		return value{kind: vEmpty}
-	}
-	return value{kind: vCell, els: els}
+	return value{kind: vEmpty}
 }
 
 // asciiLower folds A-Z only; non-ASCII passes through untouched. Nearly every
@@ -1532,11 +1730,79 @@ func schemaText(s string) string {
 	return strings.ReplaceAll(s, "\n", "\\n")
 }
 
-// applyEscapes handles string reads: \t \n \\ \" \' \uXXXX \UXXXXXXXX. An
-// unknown pair stays literal, which only 2.x text still reaches: the current
-// rules refuse one (E023) before anything is read.
-func applyEscapes(s string) string {
-	return resolveEscapes(s, RulesCurrent)
+// resolveMarks is the text of a piece with its `◉NAME◉` escapes resolved.
+// The marks pair up left to right, and the text between each pair must be a
+// name on the list or a code point. The error is the message for the first
+// one that is not (E023).
+func resolveMarks(raw string) (string, error) {
+	var out strings.Builder
+	out.Grow(len(raw))
+	rest := raw
+	const ml = len(string(escapeMark))
+	for {
+		at := strings.IndexRune(rest, escapeMark)
+		if at < 0 {
+			break
+		}
+		out.WriteString(rest[:at])
+		after := rest[at+ml:]
+		close := strings.IndexRune(after, escapeMark)
+		if close < 0 {
+			m := string(escapeMark)
+			return "", errors.New("a '" + m + "' with no partner; an escape is " + m + "NAME" + m + ", and a real " + m + " is " + m + "ESCAPE_CHAR" + m)
+		}
+		t, err := escapeText(after[:close])
+		if err != nil {
+			return "", err
+		}
+		out.WriteString(t)
+		rest = after[close+ml:]
+	}
+	out.WriteString(rest)
+	return out.String(), nil
+}
+
+// escapeText is the text one escape name stands for: a name from the list,
+// either case, or a code point prefix and one to six hex digits.
+func escapeText(name string) (string, error) {
+	m := string(escapeMark)
+	shown := m + oneLine(name) + m
+	nameChars := name != ""
+	for i := 0; i < len(name) && nameChars; i++ {
+		b := name[i]
+		nameChars = isASCIIAlpha(b) || isASCIIDigit(b) || b == '_' || b == '-' || b == '+'
+	}
+	if nameChars {
+		for _, e := range escapeNames {
+			if strings.EqualFold(e.name, name) {
+				return e.text, nil
+			}
+		}
+		for _, prefix := range codePrefixes {
+			if len(name) < len(prefix) || !strings.EqualFold(name[:len(prefix)], prefix) {
+				continue
+			}
+			digits := name[len(prefix):]
+			if digits == "" || len(digits) > 6 {
+				continue
+			}
+			var v uint32
+			hex := true
+			for i := 0; i < len(digits) && hex; i++ {
+				d := hexDigit(digits[i])
+				hex = d >= 0
+				v = v<<4 | uint32(d)
+			}
+			if !hex {
+				continue
+			}
+			if v > unicode.MaxRune || (v >= 0xD800 && v <= 0xDFFF) {
+				return "", errors.New("escape '" + shown + "' names no Unicode character")
+			}
+			return string(rune(v)), nil
+		}
+	}
+	return "", errors.New("unknown escape '" + shown + "'; an escape is a name from the escape list, and a real " + m + " is " + m + "ESCAPE_CHAR" + m)
 }
 
 // applyEscapesV2 is the 2.x reading, for migrate: no \u, so 2.x kept
@@ -1646,12 +1912,89 @@ var selectorRanges = [][2]rune{
 	{0xFE00, 0xFE0F},
 	{0xE0100, 0xE01EF},
 }
+var whiteSpaceRanges = [][2]rune{
+	{0x0009, 0x000D},
+	{0x0020, 0x0020},
+	{0x0085, 0x0085},
+	{0x00A0, 0x00A0},
+	{0x1680, 0x1680},
+	{0x2000, 0x200A},
+	{0x2028, 0x2029},
+	{0x202F, 0x202F},
+	{0x205F, 0x205F},
+	{0x3000, 0x3000},
+}
+
+const escapeMark = '\u25C9'
+
+var escapeNames = [44]struct{ name, text string }{
+	{"NUL", "\u0000"},
+	{"NULL", "\u0000"},
+	{"BEL", "\u0007"},
+	{"BELL", "\u0007"},
+	{"BACKSPACE", "\u0008"},
+	{"BS", "\u0008"},
+	{"TAB", "\u0009"},
+	{"HT", "\u0009"},
+	{"HORIZONTAL_TAB", "\u0009"},
+	{"NEWLINE", "\u000A"},
+	{"LF", "\u000A"},
+	{"LINEFEED", "\u000A"},
+	{"LINE_FEED", "\u000A"},
+	{"NEW_LINE", "\u000A"},
+	{"VT", "\u000B"},
+	{"VERTICAL_TAB", "\u000B"},
+	{"VERTICALTAB", "\u000B"},
+	{"FF", "\u000C"},
+	{"FORM_FEED", "\u000C"},
+	{"FORMFEED", "\u000C"},
+	{"CR", "\u000D"},
+	{"CARRIAGERETURN", "\u000D"},
+	{"CARRIAGE_RETURN", "\u000D"},
+	{"CRLF", "\u000D\u000A"},
+	{"CARRIAGERETURN_LINEFEED", "\u000D\u000A"},
+	{"CARRIAGE_RETURN_LINE_FEED", "\u000D\u000A"},
+	{"ESC", "\u001B"},
+	{"ESCAPE", "\u001B"},
+	{"DEL", "\u007F"},
+	{"DELETE", "\u007F"},
+	{"SPACE", "\u0020"},
+	{"SINGLE_QUOTE", "\u0027"},
+	{"SQUOTE", "\u0027"},
+	{"S_QUOTE", "\u0027"},
+	{"SINGLEQUOTE", "\u0027"},
+	{"DOUBLE_QUOTE", "\u0022"},
+	{"DQUOTE", "\u0022"},
+	{"D_QUOTE", "\u0022"},
+	{"DOUBLEQUOTE", "\u0022"},
+	{"BACK_TICK", "\u0060"},
+	{"BACKTICK", "\u0060"},
+	{"TICK", "\u0060"},
+	{"ESCAPE_CHAR", "\u25C9"},
+	{"FISHEYE", "\u25C9"},
+}
+var codePrefixes = [8]string{
+	"U+",
+	"UNICODE+",
+	"UNICODE-",
+	"UNICODE_",
+	"UNICODE",
+	"U-",
+	"U_",
+	"U",
+}
 
 // gen-escapes.py: end
 
-// invisible reports a character canonical output writes as a \u escape, so a
-// reader of the file sees every character that is there: controls with no
-// short escape, the line and paragraph separators, the interlinear annotation
+// whiteSpace is Unicode's White_Space, which a bare value or selector body
+// cannot hold.
+func whiteSpace(r rune) bool {
+	return inRanges(whiteSpaceRanges, r)
+}
+
+// invisible reports a character canonical output writes as an escape, so a
+// reader of the file sees every character that is there: the controls,
+// the line and paragraph separators, the interlinear annotation
 // marks, and what Unicode calls default-ignorable, such as zero-width spaces,
 // direction marks and tag characters. The zero-width joiner and non-joiner are
 // not in the list, since emoji and several scripts need them, and invisibleAt
@@ -1673,7 +2016,7 @@ func inRanges(ranges [][2]rune, r rune) bool {
 }
 
 // invisibleAt decodes the character at t[i] with its width in bytes, and
-// reports whether it is written as a \u escape. A variation selector stays as
+// reports whether it is written as an escape. A variation selector stays as
 // written directly after a visible character, and the tags of a subdivision
 // flag stay too; anywhere else they hide text. Bytes that are not UTF-8 are
 // never escaped.
@@ -1752,7 +2095,7 @@ func hasInvisible(t string) bool {
 }
 
 // writeUnicodeEscape writes r as \u with four digits, or as \U with eight
-// past U+FFFF, since \u takes four.
+// past U+FFFF, since \u takes four. Only the 2.x writer for migrate takes it.
 func writeUnicodeEscape(out *strings.Builder, r rune) {
 	if r > 0xFFFF {
 		fmt.Fprintf(out, "\\U%08X", r)
@@ -1761,16 +2104,34 @@ func writeUnicodeEscape(out *strings.Builder, r rune) {
 	fmt.Fprintf(out, "\\u%04X", r)
 }
 
-// singleScalar is the restriction a QUOTED [value] selector adds on top of
-// the display match: quoting selects the scalar spelling only, so the scalar
-// "a, b" and the list a, b stop meeting the same selector.
+// pushEscape writes a character the writer escapes: by its first name when
+// the list has one, otherwise as a code point with at least four hex digits.
+func pushEscape(out *strings.Builder, r rune) {
+	out.WriteRune(escapeMark)
+	one := string(r)
+	named := false
+	for _, e := range escapeNames {
+		if e.text == one {
+			out.WriteString(e.name)
+			named = true
+			break
+		}
+	}
+	if !named {
+		fmt.Fprintf(out, "%s%04X", codePrefixes[0], r)
+	}
+	out.WriteRune(escapeMark)
+}
+
+// singleScalar: a selector matches one plain value, quoted or not, never an
+// array or a raw block (value-syntax.md, Selectors and discriminators).
 func singleScalar(v *value) bool {
-	return v.kind == vCell && len(v.els) == 1
+	return v.kind == vCell
 }
 
 // dispKey is the predicate a [value] selector matches with: the display form,
-// which is built from logical strings, so ["q\"uote"] finds 'q"uote' - a
-// logical-string match, not spelling against spelling.
+// which is built from logical strings, so ["q◉DQUOTE◉uote"] finds 'q"uote' -
+// a logical-string match, not spelling against spelling.
 func dispKey(v *value) string {
 	return v.display()
 }
@@ -1829,6 +2190,12 @@ func mergeHash(name string, v *value) uint64 {
 		f.byte('e')
 	case vCell:
 		f.bytes("c:")
+		f.dec(len(v.els[0].text))
+		f.byte(':')
+		f.bytes(v.els[0].text)
+	// Brackets are part of the value, so `[80]` is not the scalar 80.
+	case vArray:
+		f.bytes("a:")
 		for i := range v.els {
 			f.dec(len(v.els[i].text))
 			f.byte(':')
@@ -1859,6 +2226,8 @@ func mergeEq(nameA string, va *value, nameB string, vb *value) bool {
 	case vEmpty:
 		return true
 	case vCell:
+		return va.els[0].text == vb.els[0].text
+	case vArray:
 		if len(va.els) != len(vb.els) {
 			return false
 		}
@@ -1882,12 +2251,9 @@ func dispHash(name string, v *value) uint64 {
 	switch v.kind {
 	case vEmpty:
 	case vCell:
-		for i := range v.els {
-			if i > 0 {
-				f.bytes(", ")
-			}
-			f.bytes(v.els[i].text)
-		}
+		f.bytes(v.els[0].text)
+	case vArray:
+		f.bytes(v.display())
 	default:
 		f.bytes(v.raw.content)
 	}
@@ -2422,12 +2788,9 @@ func readsSame(spelling string, quoted bool, logical string) bool {
 	if len(tok.Elements) != 1 || tok.Value != [2]int{0, len(spelling)} {
 		return false
 	}
-	if _, bad := badEscape(&tok, spelling, true); bad {
-		return false
-	}
 	p := &tok.Elements[0]
-	return (p.Quote == QuoteSingle || p.Quote == QuoteDouble) == quoted &&
-		p.Quote != QuoteOpen && !pathLike(p, spelling) && pieceText(p, spelling) == logical
+	_, _, bad := pieceFault(p, spelling, bareValue)
+	return (p.Quote == QuoteSingle || p.Quote == QuoteDouble) == quoted && !bad && pieceText(p, spelling) == logical
 }
 
 // migrateSpelling is how a changed piece is written. 2.x read a backslash
@@ -2732,18 +3095,6 @@ func selectorOf(p *Piece, text string) selector {
 	return selector{kind: selByValue, value: body}
 }
 
-// selectorOpenQuote reports whether any segment's selector opens a quote it
-// never closes. The tokenizer records it; selectorOf reads the body bare
-// either way, so only the diagnostic depends on this.
-func selectorOpenQuote(tok *Tokens) bool {
-	for i := range tok.Segments {
-		if sel := tok.Segments[i].Selector; sel != nil && sel.Quote == QuoteOpen {
-			return true
-		}
-	}
-	return false
-}
-
 // unknownEscape is the character after the first backslash in raw that starts
 // no escape, or the u or U of one that names no character. Only meaningful for
 // a double-quoted piece.
@@ -2803,36 +3154,6 @@ func unicodePairDiffers(raw string) bool {
 	return v2KeptEscape(raw) && !bad
 }
 
-// badEscape finds the first unknown escape in a double-quoted name, selector
-// body or, when values is set, value element (E023). `"C:\work\new"` is the
-// usual way to get one, and by then its `\n` is already a newline, so the line
-// is refused rather than read with the pair kept. A raw block's info string is
-// not escape text, so a fence line passes values false.
-func badEscape(tok *Tokens, text string, values bool) (rune, bool) {
-	dq := func(p *Piece) (rune, bool) {
-		if p == nil || p.Quote != QuoteDouble {
-			return 0, false
-		}
-		return unknownEscape(text[p.Start:p.End])
-	}
-	for i := range tok.Segments {
-		if r, ok := dq(&tok.Segments[i].Name); ok {
-			return r, true
-		}
-		if r, ok := dq(tok.Segments[i].Selector); ok {
-			return r, true
-		}
-	}
-	if values {
-		for i := range tok.Elements {
-			if r, ok := dq(&tok.Elements[i]); ok {
-				return r, true
-			}
-		}
-	}
-	return 0, false
-}
-
 // pathLike reports a double-quoted value that starts like a Windows path, a
 // drive (`C:\`) or a share (`\\`), and holds a `\t` or `\n` escape (E024).
 // `"C:\temp"` would read as `C:`, a tab and `emp`, which a path almost never
@@ -2859,40 +3180,256 @@ func pathLike(p *Piece, text string) bool {
 	return false
 }
 
-const pathMsg = "value starts like a Windows path, and its \\t or \\n would read as a tab or newline; write a backslash as '\\\\' or use single quotes"
+// fault is why a line is refused, and whether its name still reads (opens):
+// then the line holds its level open, so what is written under it loads under
+// that name. at is where on the line it went wrong, as a byte offset into the
+// text after the indent, for a message that names the column; -1 when none.
+type fault struct {
+	code  string
+	msg   string
+	opens bool
+	at    int
+}
 
-// anyPathLike reports a value element pathLike holds for.
-func anyPathLike(tok *Tokens, text string) bool {
-	for i := range tok.Elements {
-		if pathLike(&tok.Elements[i], text) {
-			return true
+func newFault(code, msg string, opens bool) *fault {
+	return &fault{code: code, msg: msg, opens: opens, at: -1}
+}
+
+// bareKind is where a bare piece sits, which sets what it may hold
+// (value-syntax.md, Specification).
+type bareKind int
+
+const (
+	// bareValue is a field value: spaces are fine, and a loose comma splits it.
+	bareValue bareKind = iota
+	// bareItem is a list item: as a value, but a loose colon is judged later.
+	bareItem
+	// bareElement is an element in `[]`: no whitespace, and every comma splits.
+	bareElement
+	// bareSelector is a selector body: no whitespace, colon, comma or bracket
+	// either.
+	bareSelector
+)
+
+func (k bareKind) what() string {
+	switch k {
+	case bareItem:
+		return "list item"
+	case bareElement:
+		return "array element"
+	case bareSelector:
+		return "selector"
+	}
+	return "value"
+}
+
+// looseColon: a colon at i of raw with whitespace or the end after it, what a
+// field line run into the one before it looks like.
+func looseColon(raw string, i int) bool {
+	if raw[i] != ':' {
+		return false
+	}
+	if i+1 >= len(raw) {
+		return true
+	}
+	r, _ := utf8.DecodeRuneInString(raw[i+1:])
+	return whiteSpace(r)
+}
+
+// bareTrouble is what a bare piece may not hold (E025): the first such
+// character, named with the fix for the message.
+func bareTrouble(raw string, kind bareKind) (string, bool) {
+	what := kind.what()
+	strict := kind == bareElement || kind == bareSelector
+	for i, c := range raw {
+		var trouble string
+		switch {
+		case c == '\'' || c == '"' || c == '`':
+			trouble = "a quote"
+		case c == '[' || c == ']':
+			trouble = "a bracket"
+		case c == '\t' && !strict:
+			trouble = "a tab"
+		case c == ' ' && strict:
+			trouble = "a space"
+		case whiteSpace(c) && strict:
+			trouble = "whitespace"
+		case whiteSpace(c) && c != ' ':
+			trouble = "whitespace other than a space"
+		case (c == ':' || c == ',') && kind == bareSelector:
+			if c == ':' {
+				return "a colon in a bare selector; quote it", true
+			}
+			return "a comma in a bare selector; quote it", true
+		case c == ':' && kind != bareItem && looseColon(raw, i):
+			if i+1 == len(raw) {
+				return "a colon at the end of a bare " + what + "; quote it", true
+			}
+			if kind == bareValue {
+				return "a colon then a space in a bare value; put each field on its own line, or quote the value", true
+			}
+			return "a colon then a space in a bare " + what + "; quote it", true
+		default:
+			continue
+		}
+		return trouble + " in a bare " + what + "; quote it", true
+	}
+	return "", false
+}
+
+// pieceFault is what is wrong with one piece of value text: an open quote
+// (E017), a bad escape (E023), or what a bare piece of its kind may not hold
+// (E025). A backtick value is raw, so only an open one is wrong.
+func pieceFault(p *Piece, text string, kind bareKind) (code, msg string, bad bool) {
+	raw := text[p.Start:p.End]
+	switch p.Quote {
+	case QuoteOpen:
+		return "E017", "unterminated quote in " + kind.what(), true
+	case QuoteBacktick:
+		return "", "", false
+	}
+	if strings.ContainsRune(raw, escapeMark) {
+		if _, err := resolveMarks(raw); err != nil {
+			return "E023", err.Error(), true
 		}
 	}
-	return false
-}
-
-func escapeMsg(r rune) string {
-	if r == 'u' || r == 'U' {
-		return "bad escape '\\" + string(r) + "' in double quotes; \\u takes 4 hex digits and \\U takes 8, naming a Unicode character; write a backslash as '\\\\' or use single quotes"
-	}
-	return "unknown escape '\\" + oneLine(string(r)) + "' in double quotes; write a backslash as '\\\\' or use single quotes"
-}
-
-// lineFault is why a field line that scanned is refused for its value,
-// before the element cap: bracket text, a bad escape, or a value that starts
-// like a Windows path and holds a `\t` or `\n` escape.
-func lineFault(tok *Tokens, text string) (code, msg string, bad bool) {
-	if bracketText(tok, text) {
-		return "E019", "bracket array syntax; an array is comma-separated, without brackets", true
-	}
-	_, _, _, fenced := lineFence(tok, text)
-	if r, ok := badEscape(tok, text, !fenced); ok {
-		return "E023", escapeMsg(r), true
-	}
-	if !fenced && anyPathLike(tok, text) {
-		return "E024", pathMsg, true
+	if p.Quote == QuoteNone {
+		if m, ok := bareTrouble(raw, kind); ok {
+			return "E025", m, true
+		}
 	}
 	return "", "", false
+}
+
+// arrayFault is a malformed bracket array (E019). Only the value is wrong, so
+// the name still reads.
+func arrayFault(tok *Tokens) *fault {
+	if tok.ArrayFault < 0 {
+		return nil
+	}
+	return newFault("E019", "malformed array, "+tok.ArrayFaultReason+"; quote the value if it is text", true)
+}
+
+// valueFault is the first fault in a value: one of its pieces, then a loose
+// comma outside brackets (E026). A piece first, since an open quote or a
+// space is what a comma beside it most often means. Only the value is wrong,
+// so the name still reads.
+func valueFault(tok *Tokens, text string) *fault {
+	kind := bareValue
+	if tok.Array >= 0 {
+		kind = bareElement
+	}
+	for i := range tok.Elements {
+		if code, msg, bad := pieceFault(&tok.Elements[i], text, kind); bad {
+			return newFault(code, msg, true)
+		}
+	}
+	if tok.Array < 0 && len(tok.Elements) > 1 {
+		return newFault("E026", "a comma then a space or the end in a bare value; write an array in brackets, [a, b], or quote the text", true)
+	}
+	return nil
+}
+
+// itemFault is why a stacked item's value is refused: an array, since arrays
+// do not nest (E019), or what a value is refused for.
+func itemFault(tok *Tokens, text string) *fault {
+	if tok.Array >= 0 {
+		return newFault("E019", "a list item is one value, and arrays do not nest; quote the item if it is text", true)
+	}
+	for i := range tok.Elements {
+		if code, msg, bad := pieceFault(&tok.Elements[i], text, bareItem); bad {
+			return newFault(code, msg, true)
+		}
+	}
+	return nil
+}
+
+// pathFault is a fault in a path that leaves its name unread: a bad escape in
+// a quoted name, or anything a value could have wrong in a selector body. The
+// line takes its block with it, since there is no name to hold open.
+func pathFault(tok *Tokens, text string) *fault {
+	for i := range tok.Segments {
+		name := &tok.Segments[i].Name
+		if name.Quote == QuoteSingle || name.Quote == QuoteDouble {
+			if _, err := resolveMarks(text[name.Start:name.End]); err != nil {
+				return newFault("E023", err.Error(), false)
+			}
+		}
+		if sel := tok.Segments[i].Selector; sel != nil {
+			if code, msg, bad := pieceFault(sel, text, bareSelector); bad {
+				return newFault(code, msg, false)
+			}
+		}
+	}
+	return nil
+}
+
+// lineFault is why a field line that scanned is refused: a path that does
+// not read, a bare name that breaks the spelling rule, a malformed bracket
+// array, a bare comma, or a value with an open quote, a bad escape, or
+// whitespace or a quote in bare text. A raw block's info string is not value
+// text, so a fence line's value is not judged.
+func lineFault(tok *Tokens, text string) *fault {
+	if f := nameFault(tok, text); f != nil {
+		return f
+	}
+	return valueSideFault(tok, text)
+}
+
+// nameFault is the half of lineFault judged before the element cap: the path
+// and the name. A line with no colon that is one name or path, `404`
+// included, is the missing colon (E015), so the name rule asks only of a line
+// that has one. A blank in a bare name with no colon could be a name and a
+// value, so that line is not guessed at (spec.md, Error handling philosophy).
+func nameFault(tok *Tokens, text string) *fault {
+	if f := pathFault(tok, text); f != nil {
+		return f
+	}
+	if tok.Misspelled < 0 {
+		return nil
+	}
+	if tok.Sep >= 0 {
+		return newFault("E014", "field name needs quotes; a bare name is a letter, then letters, digits, '-' and '_'", true)
+	}
+	blank := -1
+	for i := range tok.Segments {
+		seg := &tok.Segments[i]
+		if seg.Name.Quote != QuoteNone {
+			continue
+		}
+		for k := seg.Name.Start; k < seg.Name.End; k++ {
+			if isWspByte(text[k]) {
+				blank = k
+				break
+			}
+		}
+		if blank >= 0 {
+			break
+		}
+	}
+	if blank < 0 {
+		return nil
+	}
+	f := newFault("E014", "malformed line skipped: unexpected character after the path", true)
+	for k := blank; k < len(text); k++ {
+		if !isWspByte(text[k]) {
+			f.at = k
+			break
+		}
+	}
+	return f
+}
+
+// valueSideFault is the half of lineFault judged after the element cap: the
+// value. A line past the cap is refused for that whatever its value (E021).
+func valueSideFault(tok *Tokens, text string) *fault {
+	if f := arrayFault(tok); f != nil {
+		return f
+	}
+	if _, _, _, fenced := lineFence(tok, text); fenced {
+		return nil
+	}
+	return valueFault(tok, text)
 }
 
 // opensAsWritten reports a path segment a lazy level can open: no index or
@@ -2902,9 +3439,10 @@ func opensAsWritten(seg *segment) bool {
 }
 
 // opensLater reports a kept line whose level a reload holds open (lazy): a
-// field line refused for its value alone, with a path that opens.
+// field line refused for its value alone, an array kept for the lines under
+// it, or a bare name that still reads, with a path that opens.
 func opensLater(text string) bool {
-	if strings.HasPrefix(text, "#") || strings.HasPrefix(text, "*") {
+	if !isFieldText(text) {
 		return false
 	}
 	var tok Tokens
@@ -2913,27 +3451,21 @@ func opensLater(text string) bool {
 	if err != nil {
 		return false
 	}
-	if _, inPath := badEscape(&tok, text, false); inPath {
-		return false
-	}
 	for i := range scan.segments {
 		if !opensAsWritten(&scan.segments[i]) {
 			return false
 		}
 	}
-	_, _, bad := lineFault(&tok, text)
-	return bad
+	if f := lineFault(&tok, text); f != nil {
+		return f.opens
+	}
+	return tok.Array >= 0
 }
 
-// bracketText reports bracket text (E019): a `[` first after the colon. Read
-// off the first piece rather than the value span, since a capped scan
-// empties the span and keeps the pieces it built.
-func bracketText(tok *Tokens, text string) bool {
-	if tok.Sep < 0 || len(tok.Elements) == 0 {
-		return false
-	}
-	p := tok.Elements[0]
-	return p.Quote == QuoteNone && p.End > p.Start && text[p.Start] == '['
+// isFieldText reports a line's text after its indent that is read as a field
+// line: not a comment or an old `*` item.
+func isFieldText(text string) bool {
+	return !strings.HasPrefix(text, "#") && !strings.HasPrefix(text, "*")
 }
 
 // pathOf is the path the tokens give. An error is the tokenizer's fault:
@@ -2962,10 +3494,14 @@ func pathOf(tok *Tokens, text string) (pathScan, error) {
 				break
 			}
 		}
-		plain := (seg.Name.Quote != QuoteDouble || !strings.Contains(raw, "\\")) && !upper
+		// A bare name takes no escapes, so only a quoted one resolves them.
+		quoted := seg.Name.Quote == QuoteSingle || seg.Name.Quote == QuoteDouble
+		plain := (!quoted || !strings.ContainsRune(raw, escapeMark)) && !upper
 		name, nameSrc := raw, ""
-		if !plain {
+		if !plain && quoted {
 			name, nameSrc = asciiLower(pieceText(&seg.Name, text)), raw
+		} else if !plain {
+			name, nameSrc = asciiLower(raw), raw
 		}
 		var sel *selector
 		if seg.Selector != nil {
@@ -2985,12 +3521,14 @@ func pathOf(tok *Tokens, text string) (pathScan, error) {
 // spelling plus the bare `*` segment (the name wildcard - any child name),
 // which document lines never take; only lookups (reads, the writer probe,
 // schema paths) do. Whitespace around dots, colons and brackets is
-// insignificant.
+// insignificant. A path a file line could not hold is refused the same: a
+// bad escape, or a bare selector body with whitespace, a quote, a colon, a
+// comma or a bracket in it (E025).
 func scanLookup(input string) (pathScan, error) {
 	var tok Tokens
 	Tokenize(input, ':', true, RulesCurrent, &tok)
-	if _, bad := badEscape(&tok, input, false); bad {
-		return pathScan{}, errors.New("unknown escape in double quotes")
+	if f := pathFault(&tok, input); f != nil {
+		return pathScan{}, errors.New(f.msg)
 	}
 	return pathOf(&tok, input)
 }
@@ -3862,7 +4400,7 @@ func (p *parser) attachPath(parent int, segs []segment, v value, line int, inden
 			// child, which may be the non-scalar one. An unquoted selector takes
 			// whatever the accelerator holds and does not scan, so it can bind a
 			// raw block where a quoted selector picks the scalar sibling.
-			if found, ok := p.findByValue(cur, seg.name, seg.sel.value, seg.sel.quoted); ok {
+			if found, ok := p.findByValue(cur, seg.name, seg.sel.value); ok {
 				cur = found
 			} else {
 				disc := value{kind: vCell, els: []element{newElement(seg.sel.value)}}
@@ -3934,10 +4472,9 @@ func (p *parser) attachPath(parent int, segs []segment, v value, line int, inden
 	return cur, true
 }
 
-// findByValue: the child of cur named name whose display form is the selector
-// text (escapes applied), or ok=false. Quoted selectors only match a single
-// scalar.
-func (p *parser) findByValue(cur int, name, text string, quoted bool) (int, bool) {
+// findByValue: the child of cur named name whose one plain value is the
+// selector text (escapes applied), or ok=false.
+func (p *parser) findByValue(cur int, name, text string) (int, bool) {
 	want := text
 	found, ok := 0, false
 	if m := p.dispMap[cur]; m != nil {
@@ -3945,12 +4482,12 @@ func (p *parser) findByValue(cur int, name, text string, quoted bool) (int, bool
 			found, ok = c, true
 		}
 	}
-	if ok && quoted && !singleScalar(&p.arena[found].value) {
+	if ok && !singleScalar(&p.arena[found].value) {
 		ok = false
 	}
-	if !ok && quoted {
+	if !ok {
 		// The display map keeps only the first same-display child, which may
-		// be an array where a quoted selector wants the scalar. A scalar child
+		// be a raw block where the selector wants the scalar. A scalar child
 		// with this text is exactly the one-element value the merge map is
 		// keyed on, so ask that map: a scan of every sibling was the same
 		// answer, quadratic on the create path.
@@ -4017,6 +4554,21 @@ func (p *parser) bindBlock(parent int, v value, line int, indent string) int {
 	return p.selectOrCreate(grand, name, nameSrc, v, line)
 }
 
+// listFull reports a parent whose stacked list already holds as many items
+// as the caller's element cap allows, so another item line is refused (E021).
+func (p *parser) listFull(parent int) bool {
+	// A held-open level has no node yet, and its index is past the arena.
+	if p.maxElements == 0 || parent == root || parent < 0 || parent >= len(p.arena) {
+		return false
+	}
+	nd := &p.arena[parent]
+	return len(nd.children) == 0 && nd.starList && nd.value.kind == vArray && len(nd.value.els) >= p.maxElements
+}
+
+func (p *parser) refuseCapped(line int, indent string) {
+	p.refuse(line, "E021", fmt.Sprintf("array longer than %d elements; line skipped", p.maxElements), outDropped, indent)
+}
+
 // addStarElement: one stacked-list element (`* scalar`) appends to the
 // parent's array.
 func (p *parser) addStarElement(parent int, tok *Tokens, text string, line int, indent string) bool {
@@ -4040,23 +4592,19 @@ func (p *parser) addStarElement(parent int, tok *Tokens, text string, line int, 
 		p.refuse(line, "E009", "empty list element", outDropped, indent)
 		return false
 	}
-	if piece.Quote == QuoteOpen {
-		p.err(line, "E017", "unterminated quote in value")
-	}
-	bindingLike := !el.quoted && looksLikeBinding(el.text)
 	clash, clashed := unitClash(p.arena[parent].name, el.text)
 	// Element cap: each element line past it is refused on its own, the way
 	// any other bad element line is. Only a line that would join the list:
 	// under a field that already has a value it is E011, cap or not.
-	if p.maxElements != 0 && p.arena[parent].starList && p.arena[parent].value.kind == vCell && len(p.arena[parent].value.els) >= p.maxElements {
-		p.refuse(line, "E021", fmt.Sprintf("array longer than %d elements; line skipped", p.maxElements), outDropped, indent)
+	if p.listFull(parent) {
+		p.refuseCapped(line, indent)
 		return false
 	}
 	switch {
 	case p.arena[parent].value.isEmpty():
 		oldKey := mergeHash(p.arena[parent].name, &p.arena[parent].value)
 		oldDisp := dispHash(p.arena[parent].name, &p.arena[parent].value)
-		p.arena[parent].value = value{kind: vCell, els: []element{el}}
+		p.arena[parent].value = value{kind: vArray, els: []element{el}}
 		p.arena[parent].starList = true
 		// First element: remap now (Empty -> cell changes both keys), then
 		// open the deferral window with the current keys. Rebuilding the
@@ -4067,7 +4615,7 @@ func (p *parser) addStarElement(parent int, tok *Tokens, text string, line int, 
 		p.starNode = parent
 		p.starKey = mergeHash(p.arena[parent].name, &p.arena[parent].value)
 		p.starDisp = dispHash(p.arena[parent].name, &p.arena[parent].value)
-	case p.arena[parent].value.kind == vCell && p.arena[parent].starList:
+	case p.arena[parent].value.kind == vArray && p.arena[parent].starList:
 		if !(p.starOpen && p.starNode == parent) {
 			p.starFlush()
 			p.starOpen = true
@@ -4079,14 +4627,6 @@ func (p *parser) addStarElement(parent int, tok *Tokens, text string, line int, 
 	default:
 		p.refuse(line, "E011", "field already has a value; list element ignored", outDropped, indent)
 		return false
-	}
-	if bindingLike {
-		p.diag(Diagnostic{
-			Line:     line,
-			Severity: SeverityHint,
-			Message:  "list element looks like a field binding; it is read as a string (quote it to say so)",
-			Code:     "H003",
-		})
 	}
 	if clashed {
 		p.diag(Diagnostic{Line: line, Severity: SeverityHint, Message: clash, Code: "H005"})
@@ -4110,7 +4650,7 @@ func (p *parser) keepAmong(parent int, indent string) {
 			break
 		}
 	}
-	if !anyKept || p.arena[parent].value.kind != vCell {
+	if !anyKept || p.arena[parent].value.kind != vArray {
 		return
 	}
 	before := len(p.arena[parent].value.els) - 1
@@ -4166,7 +4706,7 @@ func (p *parser) emitRepeatedLeafHints() {
 			allScalarLeaves := true
 			for _, c := range g.nodes {
 				n := &p.arena[c]
-				if len(n.children) != 0 || n.value.kind != vCell || n.starList {
+				if len(n.children) != 0 || n.value.kind != vCell {
 					allScalarLeaves = false
 					break
 				}
@@ -4185,7 +4725,7 @@ func (p *parser) emitRepeatedLeafHints() {
 			p.diag(Diagnostic{
 				Line:     line,
 				Severity: SeverityHint,
-				Message:  fmt.Sprintf("%s%s'?", h001Head(g.name), strings.Join(vals, ", ")),
+				Message:  fmt.Sprintf("%s[%s]'?", h001Head(g.name), strings.Join(vals, ", ")),
 				Code:     "H001",
 			})
 		}
@@ -4398,14 +4938,14 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 					continue
 				}
 				TokenizeValue(rest, 1, RulesCurrent, &tok)
-				code, msg := "", ""
-				if r, bad := badEscape(&tok, rest, true); bad {
-					code, msg = "E023", escapeMsg(r)
-				} else if anyPathLike(&tok, rest) {
-					code, msg = "E024", pathMsg
-				}
-				if code != "" {
-					p.refuse(lineno, code, msg, outRetained(trimEndWS(rest), hadBlank), indent)
+				// An item past the cap is refused for that, whatever its
+				// value. A good one finds out where it would join.
+				if f := itemFault(&tok, rest); f != nil {
+					if p.listFull(parent) {
+						p.refuseCapped(lineno, indent)
+					} else {
+						p.refuse(lineno, f.code, f.msg, outRetained(trimEndWS(rest), hadBlank), indent)
+					}
 					i++
 					continue
 				}
@@ -4496,23 +5036,24 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 			continue
 		}
 		next := i + 1
-		// A selector body takes the same open-quote rule as a value element,
-		// and the same code: the body is read bare, quotes and all, so the
-		// line still binds - somewhere the author did not mean.
-		if selectorOpenQuote(&tok) {
-			p.err(lineno, "E017", "unterminated quote in selector")
+		// A line that reads only one way, or no way, is kept verbatim rather
+		// than read with a guess: a malformed array, an open quote, a bad
+		// escape, a tab, a quote or a loose colon, a bare comma, or a bare
+		// name that breaks the spelling rule. The path and the name are judged
+		// before the cap, and the value after it, so a line past the cap is
+		// E021 whatever its value. When the name still reads, the lines under
+		// it still load, under the path opened empty.
+		f := nameFault(&tok, rest)
+		if f == nil && !tok.Capped {
+			f = valueSideFault(&tok, rest)
 		}
-		// A value written the way JSON, TOML and YAML write an array, or an
-		// escape that cannot be read as written or as an escape without
-		// guessing. The brackets are not a selector after the colon, and
-		// reading the text without them would bake a changed value in, so the
-		// line is kept verbatim. Judged before the cap and from the first
-		// piece, which the cap keeps: a cap refuses only a line that would
-		// bind. Only the value is wrong, so the lines under it still load,
-		// under the path opened empty.
-		if code, msg, bad := lineFault(&tok, rest); bad {
-			p.refuse(lineno, code, msg, outRetained(trimEndWS(rest), hadBlank), indent)
-			if _, inPath := badEscape(&tok, rest, false); !inPath {
+		if f != nil {
+			msg := f.msg
+			if f.at >= 0 {
+				msg = fmt.Sprintf("%s, at column %d", f.msg, len(indent)+lead+f.at+1)
+			}
+			p.refuse(lineno, f.code, msg, outRetained(trimEndWS(rest), hadBlank), indent)
+			if f.opens {
 				p.holdOpen(parent, scan.segments, lineno, indent)
 			}
 			// Only a fault in the name leaves a fence to read here.
@@ -4546,12 +5087,6 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 				// Same-line fence spelling.
 				v, next = p.consumeRaw(lines, i+1, lineno, indent, ch, length, info)
 			} else {
-				for k := range tok.Elements {
-					if tok.Elements[k].Quote == QuoteOpen {
-						p.err(lineno, "E017", "unterminated quote in value")
-						break
-					}
-				}
 				srcText, haveSrc = scan.valueText, true
 				v = cellOfTokens(&tok, rest)
 			}
@@ -5068,6 +5603,8 @@ func (d *Document) nearSum() uint64 {
 			h.byte(0)
 		case vCell:
 			h.byte(1)
+		case vArray:
+			h.byte(3)
 			h.dec(len(nd.value.els))
 		default:
 			h.byte(2)
@@ -5350,10 +5887,10 @@ func keptNaming(l *lead, name string) (code, msg string, ok bool) {
 	if seg.sel != nil || seg.name != name {
 		return "", "", false
 	}
-	if _, bad := badEscape(&tok, l.text, false); bad {
-		return "", "", false
+	if f := lineFault(&tok, l.text); f != nil && f.opens {
+		return f.code, f.msg, true
 	}
-	return lineFault(&tok, l.text)
+	return "", "", false
 }
 
 // noteLead writes a kept line as a comment, with the note giving why and
@@ -5809,7 +6346,7 @@ func spliceValue(line string, was *emit, t0 string, w unit, now *emit, t1 string
 		return "", false
 	}
 	a, b := tok.Value[0], tok.Value[1]
-	if _, _, _, ok := fenceOpen(rest[a:b]); ok || bracketText(&tok, rest) {
+	if _, _, _, ok := fenceOpen(rest[a:b]); ok || tok.ArrayFault >= 0 {
 		return "", false
 	}
 	// The blanks after the colon stay as they were when there was a value and
@@ -6476,7 +7013,7 @@ func (d *Document) emitLine(idx, pos, depth int, wouldMerge bool, e *emit) {
 		e.span(out.Len())
 		writeTrailing(out, node.trailing())
 		out.WriteByte('\n')
-	case node.value.kind == vCell && stacks(node):
+	case node.value.kind == vArray && stacks(node):
 		// Stacked, with the kept lines where they sat.
 		writeTrailing(out, node.trailing())
 		out.WriteByte('\n')
@@ -6503,7 +7040,14 @@ func (d *Document) emitLine(idx, pos, depth int, wouldMerge bool, e *emit) {
 	case node.value.kind == vCell:
 		at := out.Len()
 		out.WriteByte(' ')
-		out.WriteString(emitCell(node.value.els))
+		out.WriteString(emitElement(&node.value.els[0]))
+		e.span(at)
+		writeTrailing(out, node.trailing())
+		out.WriteByte('\n')
+	case node.value.kind == vArray:
+		at := out.Len()
+		out.WriteByte(' ')
+		emitArrayInto(out, node.value.els)
 		e.span(at)
 		writeTrailing(out, node.trailing())
 		out.WriteByte('\n')
@@ -6548,17 +7092,18 @@ func (d *Document) emitLine(idx, pos, depth int, wouldMerge bool, e *emit) {
 }
 
 // escapeName emits a stored (escape-resolved) name in a spelling that reads
-// back as the same name: bare when it can be, else quoted with the escapes
-// applyEscapes undoes. This is a true inverse of the name parse, which quoteText
-// is not - that one picks a quote style to AVOID escaping and never escapes a
-// backslash, which is right for a value (stored in its escaped spelling) and
-// wrong for a name (stored resolved).
+// back as the same name: bare when the spelling rule allows it, else quoted
+// the way a value is, escapes and all.
 func escapeName(name string) string {
-	return escapeNameAs(name, RulesCurrent)
+	if name != "" && isASCIIAlpha(name[0]) && allBareNameBytes(name) {
+		return name
+	}
+	return quoteText(name)
 }
 
-// escapeNameAs is escapeName for a reader of rules: under 2.x an invisible
-// character is written as it is, since 2.x kept a \u as written.
+// escapeNameAs is the name spelling 2.x read back, for migrate: its
+// backslash escapes, with an invisible character written as it is, since 2.x
+// kept a \u as written.
 func escapeNameAs(name string, rules Rules) string {
 	if name != "" {
 		bare := true
@@ -6585,12 +7130,7 @@ func escapeNameAs(name string, rules Rules) string {
 		case '\n':
 			out.WriteString(`\n`)
 		default:
-			if r, n, ok := invisibleAt(name, i); ok && rules == RulesCurrent {
-				writeUnicodeEscape(&out, r)
-				i += n - 1
-			} else {
-				out.WriteByte(name[i])
-			}
+			out.WriteByte(name[i])
 		}
 	}
 	out.WriteByte('"')
@@ -6619,24 +7159,20 @@ func diagName(name string) string {
 }
 
 // diagElement is one element of a value, written for a diagnostic message:
-// the emitter's inline spelling, so a value with a line break cannot split
-// one diagnostic across two.
+// the emitter's spelling inside `[]`, the only place a message puts one, so a
+// value with a line break cannot split one diagnostic across two.
 func diagElement(e *element) string {
-	return emitElement(e)
+	return emitArrayElement(e)
 }
 
-// diagValue is a value for a diagnostic message. Only a cell reaches this
+// diagValue is a value for a diagnostic message. Only a scalar reaches this
 // today, from the H001 hint; a raw block has no one-line form worth
 // suggesting.
 func diagValue(v *value) string {
 	if v.kind != vCell {
 		return v.display()
 	}
-	parts := make([]string, len(v.els))
-	for i := range v.els {
-		parts[i] = diagElement(&v.els[i])
-	}
-	return strings.Join(parts, ", ")
+	return diagElement(&v.els[0])
 }
 
 // h001Head is the single H001 wording site: the hint builder and the schema
@@ -7228,63 +7764,118 @@ func SuppressDeclaredReopens(schema *Document, diags []Diagnostic) []Diagnostic 
 	return kept
 }
 
-// needsQuotes reports minimal quoting: bare unless a reserved character (or
-// lookalike hazard) forces it.
+// needsQuotes is minimal quoting for a value or list item (value-syntax.md,
+// Canonical output): bare only when the text has no whitespace, none of the
+// characters that open or escape a piece, needs no escape, and does not end
+// in a colon or comma, which would read as another field or an array. A colon
+// or comma inside is text: `2:30PM` and `rw,noatime` stay bare. The reader
+// takes spaces bare, but the writer still quotes them.
 func needsQuotes(t string) bool {
-	needs := t == ""
-	if !needs {
-		for i, c := range t {
-			switch c {
-			case ' ', '\t', '\n', ',', ':', '#', '"', '\'', '[', ']':
-				needs = true
-			default:
-				_, _, needs = invisibleAt(t, i)
-			}
-			if needs {
-				break
-			}
+	if t == "" || strings.HasSuffix(t, ":") || strings.HasSuffix(t, ",") {
+		return true
+	}
+	for i, c := range t {
+		switch c {
+		case '#', '"', '\'', '`', '[', ']', escapeMark:
+			return true
+		}
+		if whiteSpace(c) {
+			return true
+		}
+		if _, _, ok := invisibleAt(t, i); ok {
+			return true
 		}
 	}
-	// Edge whitespace still has to force quotes, for the carriage return: it is
-	// a blank, so a piece ending in one loses it to the reload. Space and tab
-	// are already in the list above. The test is the whole Unicode whitespace
-	// set rather than those three, which only ever adds quoting - the parser
-	// itself trims no wider than is_wsp, so a leading no-break space is
-	// content. Edges only: interior whitespace is never trimmed and quoting it
-	// would move bytes.
-	if !needs && t != "" {
-		r, _ := utf8.DecodeRuneInString(t)
-		l, _ := utf8.DecodeLastRuneInString(t)
-		if unicode.IsSpace(r) || unicode.IsSpace(l) {
-			needs = true
-		}
-	}
-	if !needs {
-		if _, _, _, ok := fenceOpen(t); ok {
-			needs = true
-		}
-	}
-	return needs
+	_, _, _, ok := fenceOpen(t)
+	return ok
 }
 
-// emitElement adds one thing to minimal quoting: an author-quoted element keeps
-// its quotes unless the text reads as one of SHCL's own data formats - quoting
-// those is just spelling (readers type the value either way), but quoting a
-// plain string is the escape and must survive canonicalization. This clause
-// only ever adds quoting, so a bare emit stays safe.
+// elementNeedsQuotes is needsQuotes for an array element, where any comma
+// splits.
+func elementNeedsQuotes(t string) bool {
+	return needsQuotes(t) || strings.Contains(t, ",")
+}
+
+// emitElement is a value or list item as written. See emitPiece.
 func emitElement(e *element) string {
+	return emitPiece(e, needsQuotes(e.text))
+}
+
+// emitArrayElement is an element inside `[]` as written. See emitPiece.
+func emitArrayElement(e *element) string {
+	return emitPiece(e, elementNeedsQuotes(e.text))
+}
+
+// emitPiece is the element as written: bare when it can be, else in the
+// author's quote kind when the text allows it, else the quotes the writer
+// picks. A quoted plain string keeps its quotes, since quoting it is how a
+// file says it is text; a quoted data format loses them, since readers type
+// the value either way. One with a comma keeps them, since only a quoted
+// number reads a thousands comma. A backtick value stays in backticks
+// whatever it holds.
+func emitPiece(e *element, quote bool) string {
 	t := e.text
-	if needsQuotes(t) || (e.quoted && !isDataFormat(e)) {
-		return quoteText(t)
+	if e.mark == markBacktick && backtickHolds(t) {
+		return "`" + t + "`"
 	}
-	return t
+	if !quote && (!e.quoted() || (isDataFormat(e) && !strings.Contains(t, ","))) {
+		return t
+	}
+	switch {
+	case e.mark == markSingle && !strings.Contains(t, "'"):
+		return quoteWith(t, '\'')
+	case e.mark == markDouble && !strings.Contains(t, "\""):
+		return quoteWith(t, '"')
+	}
+	return quoteText(t)
+}
+
+// backtickHolds reports text that can be a backtick value: no backtick, which
+// would end it, and nothing the writer would have to escape, since a backtick
+// value has no escapes.
+func backtickHolds(t string) bool {
+	for i := 0; i < len(t); i++ {
+		if t[i] == '`' || t[i] == '\n' || t[i] == '\r' {
+			return false
+		}
+		if _, _, ok := invisibleAt(t, i); ok {
+			return false
+		}
+	}
+	return true
 }
 
 // newElement builds an element no source wrote. It counts as quoted when
 // canonical output will quote it, so a read gives the same answer before a
-// save as after one.
+// save as after one. A thousands comma reads only in quotes, so `1,000` from a
+// setter keeps them and still reads as 1000.
 func newElement(text string) element {
-	return element{text: text, quoted: needsQuotes(text)}
+	quote := needsQuotes(text)
+	e := newElementAs(text, quote)
+	if !quote && strings.Contains(e.text, ",") {
+		e.mark = markDouble
+		if !isDataFormat(&e) {
+			e.mark = markBare
+		}
+	}
+	return e
+}
+
+// newArrayElement is newElement for an element inside `[]`.
+func newArrayElement(text string) element {
+	return newElementAs(text, elementNeedsQuotes(text))
+}
+
+func newElementAs(text string, quote bool) element {
+	m := markBare
+	switch {
+	case !quote:
+	case picksSingle(text):
+		m = markSingle
+	default:
+		m = markDouble
+	}
+	return element{text: text, mark: m}
 }
 
 // isDataFormat reports whether the text reads as an int, float, bool, or
@@ -7338,14 +7929,60 @@ func leadingZero(t string) bool {
 	return len(t) > 1 && t[0] == '0' && t[1] >= '0' && t[1] <= '9'
 }
 
-// quoteText quotes a logical string so the tokenizer reads it back as the
-// same string. Single quotes are literal, so they are the spelling for text
-// holding a double quote or a backslash; double quotes have the escapes, so
-// they are the spelling for a line break, a tab, an invisible character, or
-// text holding both quote kinds.
-func quoteText(t string) string {
-	return quoteTextAs(t, RulesCurrent)
+// picksSingle is the quotes the writer picks: double, or single when the
+// text has a `"` and no `'`. A backslash plays no part.
+func picksSingle(t string) bool {
+	return strings.Contains(t, "\"") && !strings.Contains(t, "'")
 }
+
+// quoteText quotes a logical string so the tokenizer reads it back as the
+// same string, in the quotes the writer picks.
+func quoteText(t string) string {
+	if picksSingle(t) {
+		return quoteWith(t, '\'')
+	}
+	return quoteWith(t, '"')
+}
+
+// quoteWith is the text in quote q, with every character a reader could not
+// see or that would end the piece written as an escape: a line break, a
+// carriage return or the pair of them, a tab, the other controls on the list
+// by name, a hidden character by code point, a real escape mark, and q
+// itself.
+func quoteWith(t string, q byte) string {
+	// Bytes: every escape written here is ASCII or the mark, and a
+	// continuation byte is none of them, so the rest of the text copies
+	// through untouched. A character invisibleAt names is decoded first.
+	var out strings.Builder
+	out.Grow(len(t) + 2)
+	out.WriteByte(q)
+	for i := 0; i < len(t); i++ {
+		c := t[i]
+		switch {
+		case c == '\r' && i+1 < len(t) && t[i+1] == '\n':
+			out.WriteRune(escapeMark)
+			out.WriteString("CRLF")
+			out.WriteRune(escapeMark)
+			i++
+		case c == q || c == '\t' || c == '\n':
+			pushEscape(&out, rune(c))
+		case strings.HasPrefix(t[i:], string(escapeMark)):
+			pushEscape(&out, escapeMark)
+			i += len(string(escapeMark)) - 1
+		default:
+			if r, n, ok := invisibleAt(t, i); ok {
+				pushEscape(&out, r)
+				i += n - 1
+			} else {
+				out.WriteByte(c)
+			}
+		}
+	}
+	out.WriteByte(q)
+	return out.String()
+}
+
+// The 2.x spellings below are for migrate only.
 
 // quoteTextAs is quoteText for a reader of rules, as in quoteDoubleAs.
 func quoteTextAs(t string, rules Rules) string {
@@ -7425,16 +8062,35 @@ func quoteDoubleWith(t string, rules Rules, path bool) string {
 // since a float or a datetime has to read back as that type and not merely as
 // the same text.
 
-// emitCell is the value half of a binding line, the way emitLine writes it.
-func emitCell(els []element) string {
+// emitArray is an array the way emitLine writes it: `[a, b]`, and `[]` for
+// none.
+func emitArray(els []element) string {
 	var out strings.Builder
+	emitArrayInto(&out, els)
+	return out.String()
+}
+
+func emitArrayInto(out *strings.Builder, els []element) {
+	out.WriteByte('[')
 	for i := range els {
 		if i > 0 {
 			out.WriteString(", ")
 		}
-		out.WriteString(emitElement(&els[i]))
+		out.WriteString(emitArrayElement(&els[i]))
 	}
-	return out.String()
+	out.WriteByte(']')
+}
+
+// emitValueText is the value half of a binding line, the way emitLine writes
+// it, or ok=false for a value with no one-line form.
+func emitValueText(v *value) (string, bool) {
+	switch v.kind {
+	case vCell:
+		return emitElement(&v.els[0]), true
+	case vArray:
+		return emitArray(v.els), true
+	}
+	return "", false
 }
 
 // emitFenceLine is the opening fence line of a raw block: the fence run, then
@@ -7480,14 +8136,14 @@ func valueReadsBack(v *value) bool {
 	switch v.kind {
 	case vEmpty:
 		return true
-	case vCell:
-		text := emitCell(v.els)
+	case vCell, vArray:
+		text, _ := emitValueText(v)
 		if strings.Contains(text, "\n") || !utf8.ValidString(text) {
 			return false
 		}
 		var tok Tokens
 		line := valueHalf(text, &tok)
-		if tok.Comment >= 0 {
+		if tok.Comment >= 0 || (tok.Array >= 0) != (v.kind == vArray) || arrayFault(&tok) != nil || valueFault(&tok, line) != nil {
 			return false
 		}
 		// Compared against the pieces rather than against a rebuilt value: a
@@ -7684,7 +8340,7 @@ func (d *Document) resolveFrom(start []int, segs []segment, group bool) resolved
 			want := seg.sel.value
 			var filtered []int
 			for _, c := range next {
-				if dispKey(&d.arena[c].value) == want && (!seg.sel.quoted || singleScalar(&d.arena[c].value)) {
+				if singleScalar(&d.arena[c].value) && dispKey(&d.arena[c].value) == want {
 					filtered = append(filtered, c)
 				}
 			}
@@ -8001,32 +8657,63 @@ func boolText(v bool) string {
 // text is what gets stored, so a trailing blank comes off and a # outside
 // quotes ends the value exactly as they would in a file. What is refused is
 // what a file reports as an error, since a setter has no diagnostic to report
-// it with: a line break, which no file line can hold, an unterminated quote
-// (E017), bracket text (E019, the line kept verbatim - writing it as a
-// two-element array holding `[1` and `2]` would be a different wrong answer),
-// an unknown escape in double quotes (E023), and a Windows path in double
-// quotes holding a `\t` or `\n` escape (E024).
+// it with: a line break, which no file line can hold, a malformed bracket
+// array (E019), and whatever a value is refused for on a line: a loose comma
+// (E026), an unterminated quote (E017), a bad escape (E023), or what bare
+// text may not hold (E025). A bracket array is stored as an array.
 func literalValue(text string) (value, bool) {
 	if strings.Contains(text, "\n") {
 		return value{}, false
 	}
 	var tok Tokens
 	line := valueHalf(text, &tok)
-	for i := range tok.Elements {
-		if tok.Elements[i].Quote == QuoteOpen {
-			return value{}, false
-		}
-	}
-	if strings.HasPrefix(line[tok.Value[0]:], "[") {
-		return value{}, false
-	}
-	if _, bad := badEscape(&tok, line, true); bad {
-		return value{}, false
-	}
-	if anyPathLike(&tok, line) {
+	// A fence opener has no body here, so it is stored as the text it is, as
+	// before backtick values.
+	_, _, _, fence := fenceOpen(line[tok.Value[0]:tok.Value[1]])
+	if arrayFault(&tok) != nil || (len(tok.Elements) > 1 && tok.Array < 0) || (!fence && valueFault(&tok, line) != nil) {
 		return value{}, false
 	}
 	return cellOfTokens(&tok, line), true
+}
+
+// keepMark: an overwrite keeps the quote kind the old value was written in,
+// when the new text can be written that way (value-syntax.md, Canonical
+// output). The kind is the one a save writes, so the answer is the same after
+// a reload: a quoted data format is written bare.
+func keepMark(old, now *value) {
+	if old.kind != vCell || now.kind != vCell {
+		return
+	}
+	was, el := &old.els[0], &now.els[0]
+	written := markBare
+	if t := emitElement(was); t != "" {
+		switch {
+		case t[0] == '\'':
+			written = markSingle
+		case t[0] == '"':
+			written = markDouble
+		case t[0] == '`' && was.mark == markBacktick:
+			written = markBacktick
+		}
+	}
+	var fits bool
+	switch written {
+	case markBare:
+		return
+	case markSingle:
+		fits = !strings.Contains(el.text, "'")
+	case markDouble:
+		fits = !strings.Contains(el.text, "\"")
+	default:
+		fits = backtickHolds(el.text)
+	}
+	if fits {
+		before := el.mark
+		el.mark = written
+		if !valueReadsBack(now) {
+			el.mark = before
+		}
+	}
 }
 
 func cellOf(text string) value {
@@ -8048,16 +8735,14 @@ func chooseFence(content string) (byte, int) {
 	return '`', maxrun + 1
 }
 
-// arrayCell builds an inline-array value; the empty array is an empty value.
+// arrayCell is an array setter's value: written in brackets whatever its
+// length, so one element is `[80]` and none is `[]`.
 func arrayCell(texts []string) value {
-	if len(texts) == 0 {
-		return value{kind: vEmpty}
-	}
 	els := make([]element, len(texts))
 	for i, t := range texts {
-		els[i] = newElement(t)
+		els[i] = newArrayElement(t)
 	}
-	return value{kind: vCell, els: els}
+	return value{kind: vArray, els: els}
 }
 
 // New returns a fresh document with no bindings - the start point for
@@ -8160,7 +8845,7 @@ func (d *Document) probeWrite(scan pathScan) (WriteReason, []int) {
 				want := seg.sel.value
 				alive = false
 				for _, c := range d.childrenNamed(probe, seg.name) {
-					if dispKey(&d.arena[c].value) == want && (!seg.sel.quoted || singleScalar(&d.arena[c].value)) {
+					if singleScalar(&d.arena[c].value) && dispKey(&d.arena[c].value) == want {
 						probe, alive = c, true
 						break
 					}
@@ -8262,6 +8947,12 @@ func (d *Document) setChild(parent int, name, nameSrc string, v value, path stri
 }
 
 func (d *Document) setValue(path string, v value) bool {
+	return d.setValueAs(path, v, true)
+}
+
+// setValueAs is setValue, saying whether an overwrite keeps the old value's
+// quote kind. A literal says its own quotes, so it does not.
+func (d *Document) setValueAs(path string, v value, keepQuotes bool) bool {
 	if !valueReadsBack(&v) {
 		return false
 	}
@@ -8276,6 +8967,9 @@ func (d *Document) setValue(path string, v value) bool {
 	// place has already done it for a field it created.
 	if idx < fresh && d.keptOwed > 0 {
 		d.commentOutKept(d.arena[idx].parent, d.arena[idx].name, path, false)
+	}
+	if keepQuotes {
+		keepMark(&d.arena[idx].value, &v)
 	}
 	d.arena[idx].value = v
 	d.arena[idx].src = nil // written value has no source spelling
@@ -9138,7 +9832,7 @@ func (d *Document) SetLiteral(path, text string) bool {
 	if !ok {
 		return false
 	}
-	return d.setValue(path, v)
+	return d.setValueAs(path, v, false)
 }
 
 // SetLiteralDefault is SetLiteral only when path has no node yet.
@@ -9632,7 +10326,7 @@ func parseIntText(e *element, level Strictness) (int64, bool) {
 		return 0, false
 	}
 	// Thousands separators, only inside quotes (bare commas are reserved).
-	if e.quoted && strings.Contains(t, ",") {
+	if e.quoted() && strings.Contains(t, ",") {
 		signBody := stripSign(t)
 		groups := strings.Split(signBody, ",")
 		wellFormed := len(groups) > 1 && groups[0] != "" && len(groups[0]) <= 3 && allDigits(groups[0])
@@ -9711,7 +10405,7 @@ func parseFloatText(e *element, level Strictness) (float64, bool) {
 		v = f
 	} else {
 		// An integer is a valid float on read (incl. hex, octal, binary and quoted thousands).
-		el := element{text: t, quoted: e.quoted}
+		el := element{text: t, mark: e.mark}
 		if n, ok := parseIntTextNoLoose(&el); ok {
 			v = float64(n)
 		} else if w, ok := parseIntTextWide(&el); ok {
@@ -9779,7 +10473,7 @@ func parseIntTextWide(e *element) (float64, bool) {
 		for i := 0; i < len(digits); i++ {
 			v = v*float64(radix) + float64(hexDigit(digits[i]))
 		}
-	} else if e.quoted && strings.Contains(body, ",") {
+	} else if e.quoted() && strings.Contains(body, ",") {
 		groups := strings.Split(body, ",")
 		wellFormed := len(groups) > 1 && groups[0] != "" && len(groups[0]) <= 3 && allDigits(groups[0])
 		if wellFormed {
@@ -10590,6 +11284,8 @@ func (d *Document) rawOf(n int) string {
 	return d.arena[n].value.display()
 }
 
+// scalarElement is the one element a scalar read takes: `[80]` reads as 80
+// and `[]` as empty, while two elements are not one scalar.
 func scalarElement(v *value) (*element, Status) {
 	switch {
 	case v.kind == vEmpty:
@@ -10598,6 +11294,8 @@ func scalarElement(v *value) (*element, Status) {
 		return nil, BadType
 	case len(v.els) == 1:
 		return &v.els[0], Good
+	case len(v.els) == 0:
+		return nil, Empty
 	}
 	return nil, BadType // an array is not one scalar
 }
@@ -10613,12 +11311,12 @@ func readScalar[T any](d *Document, path string, coerce func(*element) (T, bool)
 	line := d.arena[n].line
 	el, est := scalarElement(v)
 	if el == nil {
-		return Read[T]{Value: zero, Status: est, Raw: &raw}.at(line, false)
+		return Read[T]{Value: zero, Status: est, Raw: &raw}.at(line, nil)
 	}
 	if val, ok := coerce(el); ok {
-		return Read[T]{Value: val, Status: Good, Raw: &raw}.at(line, el.quoted)
+		return Read[T]{Value: val, Status: Good, Raw: &raw}.at(line, el)
 	}
-	return Read[T]{Value: zero, Status: BadType, Raw: &raw}.at(line, el.quoted)
+	return Read[T]{Value: zero, Status: BadType, Raw: &raw}.at(line, el)
 }
 
 // ReadInt is the full-tier integer read at path, coerced per the document's strictness.
@@ -10686,7 +11384,7 @@ func (d *Document) ReadSize(path string, unit SizeUnit, decimal bool) Read[int64
 }
 
 // ReadString reads any value as a string: a raw block yields its content, an
-// array its canonical inline text. Escapes are applied.
+// array its canonical bracket form. Escapes are applied.
 func (d *Document) ReadString(path string) Read[string] {
 	n, st := d.nodeAt(path)
 	if n < 0 {
@@ -10695,21 +11393,17 @@ func (d *Document) ReadString(path string) Read[string] {
 	v := &d.arena[n].value
 	raw := d.rawOf(n)
 	line := d.arena[n].line
-	switch {
-	case v.kind == vEmpty:
-		return Read[string]{Status: Empty, Raw: &raw}.at(line, false)
-	case v.kind == vRaw:
-		return Read[string]{Value: v.raw.content, Status: Good, Raw: &raw}.at(line, false)
-	case len(v.els) == 1:
-		return Read[string]{Value: v.els[0].text, Status: Good, Raw: &raw}.at(line, v.els[0].quoted)
+	switch v.kind {
+	case vEmpty:
+		return Read[string]{Status: Empty, Raw: &raw}.at(line, nil)
+	case vRaw:
+		return Read[string]{Value: v.raw.content, Status: Good, Raw: &raw}.at(line, nil)
+	case vCell:
+		return Read[string]{Value: v.els[0].text, Status: Good, Raw: &raw}.at(line, &v.els[0])
 	}
-	// Canonical inline form (quoting + escapes intact), so the string
-	// re-parses to the same array - not the bare display join.
-	parts := make([]string, len(v.els))
-	for k := range v.els {
-		parts[k] = emitElement(&v.els[k])
-	}
-	return Read[string]{Value: strings.Join(parts, ", "), Status: Good, Raw: &raw}.at(line, false)
+	// Canonical bracket form (quoting + escapes intact), so the string
+	// re-parses to the same array, and `[80]` never reads as `80`.
+	return Read[string]{Value: emitArray(v.els), Status: Good, Raw: &raw}.at(line, nil)
 }
 
 // ReadRaw reads raw-block content verbatim. Non-block values are BadType.
@@ -10723,11 +11417,11 @@ func (d *Document) ReadRaw(path string) Read[string] {
 	line := d.arena[n].line
 	switch v.kind {
 	case vRaw:
-		return Read[string]{Value: v.raw.content, Status: Good, Raw: &raw}.at(line, false)
+		return Read[string]{Value: v.raw.content, Status: Good, Raw: &raw}.at(line, nil)
 	case vEmpty:
-		return Read[string]{Status: Empty, Raw: &raw}.at(line, false)
+		return Read[string]{Status: Empty, Raw: &raw}.at(line, nil)
 	}
-	return Read[string]{Status: BadType, Raw: &raw}.at(line, false)
+	return Read[string]{Status: BadType, Raw: &raw}.at(line, nil)
 }
 
 // ReadRawInfo reads the advisory info-string of a raw block ("" when absent).
@@ -10741,12 +11435,12 @@ func (d *Document) ReadRawInfo(path string) Read[string] {
 	line := d.arena[n].line
 	// An empty binding has no block, so no info string: `Empty`, the same as a `read_raw` on it. Only a value that is there and is not a block is a type mismatch.
 	if v.kind == vRaw {
-		return Read[string]{Value: v.raw.info, Status: Good, Raw: &raw}.at(line, false)
+		return Read[string]{Value: v.raw.info, Status: Good, Raw: &raw}.at(line, nil)
 	}
 	if v.kind == vEmpty {
-		return Read[string]{Status: Empty, Raw: &raw}.at(line, false)
+		return Read[string]{Status: Empty, Raw: &raw}.at(line, nil)
 	}
-	return Read[string]{Status: BadType, Raw: &raw}.at(line, false)
+	return Read[string]{Status: BadType, Raw: &raw}.at(line, nil)
 }
 
 func readArray[T any](d *Document, path string, coerce func(*element) (T, bool)) Read[[]T] {
@@ -10805,9 +11499,9 @@ func readArray[T any](d *Document, path string, coerce func(*element) (T, bool))
 	line := d.arena[r.one].line
 	switch v.kind {
 	case vEmpty:
-		return Read[[]T]{Value: []T{}, Status: Empty, Raw: &raw}.at(line, false)
+		return Read[[]T]{Value: []T{}, Status: Empty, Raw: &raw}.at(line, nil)
 	case vRaw:
-		return Read[[]T]{Value: []T{}, Status: BadType, Raw: &raw}.at(line, false)
+		return Read[[]T]{Value: []T{}, Status: BadType, Raw: &raw}.at(line, nil)
 	}
 	out := make([]T, 0, len(v.els))
 	sts := make([]Status, 0, len(v.els))
@@ -10820,9 +11514,14 @@ func readArray[T any](d *Document, path string, coerce func(*element) (T, bool))
 			status = cst
 		}
 	}
-	// A one-element cell has a single scalar element, so the flag means the
-	// same thing here as on the scalar read of the same node.
-	return Read[[]T]{Value: out, Status: status, Raw: &raw, Slots: sts}.at(line, len(v.els) == 1 && v.els[0].quoted)
+	// A one-element value has a single scalar element, so the flag means the
+	// same thing here as on the scalar read of the same node. `[]` is an empty
+	// array, which is Good, where an empty value is Empty.
+	var only *element
+	if len(v.els) == 1 {
+		only = &v.els[0]
+	}
+	return Read[[]T]{Value: out, Status: status, Raw: &raw, Slots: sts}.at(line, only)
 }
 
 // ReadIntArray is the full-tier integer-array read at path (per-slot statuses in Slots).
@@ -11167,10 +11866,18 @@ func vdiag(out *[]Diagnostic, line int, code, msg string) {
 
 // singleText is one scalar constraint value (escapes applied), or not.
 func singleText(v *value) (string, bool) {
-	if v.kind == vCell && len(v.els) == 1 {
+	if v.kind == vCell {
 		return v.els[0].text, true
 	}
 	return "", false
+}
+
+// elementsOf is a schema value's elements: a scalar's one, or an array's.
+func elementsOf(v *value) []element {
+	if v.kind == vCell || v.kind == vArray {
+		return v.els
+	}
+	return nil
 }
 
 // sameMoment reports two datetimes naming the same moment, whatever the
@@ -11381,25 +12088,25 @@ func parseField(schema *Document, f int, faults *[]Diagnostic) (constraint, bool
 				vdiag(faults, kid.line, "V092", "bad schema constraint 'reopen'")
 			}
 		case "allowed":
-			if kid.value.kind == vCell && allowedAt < 0 {
+			if (kid.value.kind == vCell || (kid.value.kind == vArray && len(kid.value.els) > 0)) && allowedAt < 0 {
 				allowedAt = k
 			} else {
 				vdiag(faults, kid.line, "V092", "bad schema constraint 'allowed'")
 			}
 		case "min":
-			if kid.value.kind == vCell && len(kid.value.els) == 1 && minAt < 0 {
+			if kid.value.kind == vCell && minAt < 0 {
 				minAt = k
 			} else {
 				vdiag(faults, kid.line, "V092", "bad schema constraint 'min'")
 			}
 		case "max":
-			if kid.value.kind == vCell && len(kid.value.els) == 1 && maxAt < 0 {
+			if kid.value.kind == vCell && maxAt < 0 {
 				maxAt = k
 			} else {
 				vdiag(faults, kid.line, "V092", "bad schema constraint 'max'")
 			}
 		case "unit":
-			if kid.value.kind == vCell && len(kid.value.els) == 1 && unitAt < 0 {
+			if kid.value.kind == vCell && unitAt < 0 {
 				unitAt = k
 			} else {
 				vdiag(faults, kid.line, "V092", "bad schema constraint 'unit'")
@@ -11417,9 +12124,9 @@ func parseField(schema *Document, f int, faults *[]Diagnostic) (constraint, bool
 				vdiag(faults, kid.line, "V092", "bad schema constraint 'decimal'")
 			}
 		case "repeat":
-			if kid.value.kind == vCell && c.repeat == nil && (len(kid.value.els) == 1 || len(kid.value.els) == 2) {
-				lo, okLo := parseIndex(kid.value.els[0].text)
-				hi, okHi := parseIndex(kid.value.els[len(kid.value.els)-1].text)
+			if els := elementsOf(&kid.value); c.repeat == nil && (len(els) == 1 || len(els) == 2) {
+				lo, okLo := parseIndex(els[0].text)
+				hi, okHi := parseIndex(els[len(els)-1].text)
 				if okLo && okHi && lo <= hi {
 					c.repeat = &[2]uint64{lo, hi}
 				} else {
@@ -11439,12 +12146,13 @@ func parseField(schema *Document, f int, faults *[]Diagnostic) (constraint, bool
 		// Generator-only (`shcl init`); validation ignores both. First
 		// occurrence wins (a merged schema could have two).
 		case "desc":
-			// A comma in a sentence makes the value several elements, and the
-			// comment is prose: take them all, kept as written.
-			if c.desc == nil && kid.value.kind == vCell {
-				parts := make([]string, len(kid.value.els))
-				for i := range kid.value.els {
-					parts[i] = kid.value.els[i].text
+			// The comment is prose, so an array's elements are all taken,
+			// kept as written.
+			if c.desc == nil && (kid.value.kind == vCell || kid.value.kind == vArray) {
+				els := elementsOf(&kid.value)
+				parts := make([]string, len(els))
+				for i := range els {
+					parts[i] = els[i].text
 				}
 				t := strings.Join(parts, ", ")
 				c.desc = &t
@@ -11666,13 +12374,10 @@ func containsString(xs []string, s string) bool {
 }
 
 // emitValueInline re-emits a schema `default`/`allowed` value as an inline value
-// (minimal quoting, array elements joined by ", "). ok=false for empty or raw -
-// neither has a usable one-line form. Used by the generator, not the validator.
+// (minimal quoting, an array in brackets). ok=false for empty or raw - neither
+// has a usable one-line form. Used by the generator, not the validator.
 func emitValueInline(v *value) (string, bool) {
-	if v.kind != vCell {
-		return "", false
-	}
-	return emitCell(v.els), true
+	return emitValueText(v)
 }
 
 // ---------------------------------------------------------------------------
@@ -11773,24 +12478,7 @@ func genDefaultText(v string) string {
 	if !strings.Contains(v, "\n") {
 		return v
 	}
-	var s strings.Builder
-	s.WriteByte('"')
-	for _, ch := range v {
-		switch ch {
-		case '\\':
-			s.WriteString("\\\\")
-		case '"':
-			s.WriteString("\\\"")
-		case '\n':
-			s.WriteString("\\n")
-		case '\t':
-			s.WriteString("\\t")
-		default:
-			s.WriteRune(ch)
-		}
-	}
-	s.WriteByte('"')
-	return s.String()
+	return quoteText(v)
 }
 
 // Generate emits a commented, typed starter config from a schema (`shcl init
@@ -12310,38 +12998,33 @@ func namesKey(names []string) string {
 }
 
 // genSelectorText is the selector body that picks out the instance a line
-// `name: v` makes, or false when no body can. It is built from the elements
+// `name: v` makes, or false when no body can. It is built from the element
 // the reader takes out of that line's value, and each candidate is scanned
 // back the way a file line is scanned, so none of the scanner's rules is
 // copied here to go stale. That copy was the cause twice: an all-digit body
-// past 64 bits, and a quoted array element written as the body. One element
-// tries the spelling it was written in first; an array has only the bare
-// body, since a quoted selector matches one element only, and a bare one the
-// elements joined.
+// past 64 bits, and a quoted array element written as the body. The spelling
+// the value was written in goes first. A selector matches one plain value,
+// never an array, so an array has no body.
 func genSelectorText(v string) (string, bool) {
 	spelled := genDefaultText(v)
 	var tok Tokens
 	TokenizeValue(spelled, 0, RulesCurrent, &tok)
-	els := make([]string, len(tok.Elements))
-	for k := range tok.Elements {
-		els[k] = pieceText(&tok.Elements[k], spelled)
+	if len(tok.Elements) != 1 || tok.Array >= 0 {
+		return "", false
 	}
-	display := strings.Join(els, ", ")
+	only := &tok.Elements[0]
+	text := pieceText(only, spelled)
 	type try struct {
-		body, text string
-		quoted     bool
+		body   string
+		quoted bool
 	}
 	var tries []try
-	if len(els) == 1 {
-		if q := tok.Elements[0].Quote; q == QuoteSingle || q == QuoteDouble {
-			tries = append(tries, try{spelled[tok.Value[0]:tok.Value[1]], els[0], true})
-		}
-		tries = append(tries, try{display, display, false}, try{quoteText(els[0]), els[0], true})
-	} else {
-		tries = append(tries, try{display, display, false})
+	if only.Quote == QuoteSingle || only.Quote == QuoteDouble {
+		tries = append(tries, try{spelled[tok.Value[0]:tok.Value[1]], true})
 	}
+	tries = append(tries, try{text, false}, try{quoteText(text), true})
 	for _, t := range tries {
-		if selectorReadsBack(t.body, t.text, t.quoted) {
+		if selectorReadsBack(t.body, text, t.quoted) {
 			return t.body, true
 		}
 	}
@@ -12361,7 +13044,7 @@ func selectorReadsBack(body, text string, quoted bool) bool {
 	}
 	var tok Tokens
 	Tokenize(line, ':', false, RulesCurrent, &tok)
-	if selectorOpenQuote(&tok) || tok.Comment >= 0 {
+	if tok.Comment >= 0 || tok.Misspelled >= 0 || pathFault(&tok, line) != nil {
 		return false
 	}
 	ps, err := pathOf(&tok, line)
@@ -12386,7 +13069,7 @@ func pathReadsBack(path string, segs []segment) bool {
 	}
 	var tok Tokens
 	Tokenize(line, ':', false, RulesCurrent, &tok)
-	if selectorOpenQuote(&tok) || tok.Comment >= 0 {
+	if tok.Comment >= 0 || tok.Misspelled >= 0 || pathFault(&tok, line) != nil {
 		return false
 	}
 	ps, err := pathOf(&tok, line)
@@ -12662,7 +13345,7 @@ func (d *Document) vContexts(start []int, segs []segment, anchor int, out *[]vCo
 			want := seg.sel.value
 			cur = nil
 			for _, c := range next {
-				if dispKey(&d.arena[c].value) == want && (!seg.sel.quoted || singleScalar(&d.arena[c].value)) {
+				if singleScalar(&d.arena[c].value) && dispKey(&d.arena[c].value) == want {
 					cur = append(cur, c)
 				}
 			}
@@ -12761,15 +13444,24 @@ func (d *Document) vNode(c *constraint, n int, out *[]Diagnostic) {
 				vdiag(out, line, "V004", fmt.Sprintf("value not allowed at '%s': %s", schemaText(c.path), oneLine(node.value.raw.content)))
 			}
 		}
-	case vCell:
+	case vCell, vArray:
 		els := node.value.els
 		if base == "raw" {
 			wrong()
 			return
 		}
+		// A string read of an array is its bracket form, so that is the text
+		// the allowed set sees: `x: 80` and `x: [80]` are two values.
+		if !isArray && (base == "string" || base == "") && node.value.kind == vArray {
+			text := node.value.display()
+			if c.allowed != nil && c.allowed.kind == allowStrings && !containsString(c.allowed.strs, text) {
+				vdiag(out, line, "V004", fmt.Sprintf("value not allowed at '%s': %s", schemaText(c.path), oneLine(text)))
+			}
+			return
+		}
 		// A scalar kind on a multi-element value is the array-where-one-scalar-
-		// expected miss - except string, which reads arrays.
-		if c.ty != "" && !isArray && base != "string" && len(els) > 1 {
+		// expected miss.
+		if !isArray && len(els) > 1 {
 			wrong()
 			return
 		}

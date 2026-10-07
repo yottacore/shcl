@@ -165,12 +165,23 @@ def fRust() -> list[str]:
 	return lines
 
 
+def fGoText(text: str) -> str:
+	return '"' + "".join(f"\\u{ord(c):04X}" for c in text) + '"'
+
+
 def fGo() -> list[str]:
 	lines = [f"// {HEAD}"]
-	for name, ranges in (("invisibleRanges", INVISIBLE), ("selectorRanges", SELECTORS)):
+	for name, ranges in (("invisibleRanges", INVISIBLE), ("selectorRanges", SELECTORS), ("whiteSpaceRanges", WHITE_SPACE)):
 		lines += [f"var {name} = [][2]rune{{"]
 		lines += [f"\t{{{fHex(lo)}, {fHex(hi)}}}," for lo, hi in ranges]
 		lines += ["}"]
+	lines += ["", f"const escapeMark = '\\u{ESCAPE_MARK:04X}'", ""]
+	lines += [f"var escapeNames = [{len(ESCAPE_NAMES)}]struct{{ name, text string }}{{"]
+	lines += [f'\t{{"{name}", {fGoText(text)}}},' for name, text in ESCAPE_NAMES]
+	lines += ["}"]
+	lines += [f"var codePrefixes = [{len(CODE_PREFIXES)}]string{{"]
+	lines += [f'\t"{p}",' for p in CODE_PREFIXES]
+	lines += ["}"]
 	## gofmt wants a blank line between the closing brace and the end marker.
 	return lines + [""]
 
@@ -301,3 +312,5 @@ if __name__ == "__main__":
 ##		2026-10-05  The grammar takes the escape names, the bare text class
 ##		            and White_Space too, and spec.md the escape table.
 ##		2026-10-06  A selector text class, the bare one without parens.
+##		2026-10-06  Go takes the escape names, code point prefixes and
+##		            White_Space.
