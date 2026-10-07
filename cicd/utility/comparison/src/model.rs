@@ -738,40 +738,44 @@ fn shcl_node(o: &mut String, key: &str, n: &Node, depth: usize) {
 	}
 }
 
+/// The value half of a `v: VALUE` line, spelled by the library's own writer so
+/// the quoting and array rules live in one place (value-syntax.md). A string the
+/// canonical emitter would leave bare stays bare here too: quoting more would
+/// inflate SHCL's size against itself.
 fn shcl_scalar(v: &Val) -> String {
-	match v {
-		Val::Str(s) => shcl_string(s),
-		Val::Int(i) => i.to_string(),
-		Val::Float(f) => shcl::format_float(*f),
-		Val::Bool(b) => b.to_string(),
-		Val::Arr(items) => items.iter().map(shcl_scalar).collect::<Vec<_>>().join(", "),
+	let mut d = shcl::Document::new();
+	let took = match v {
+		Val::Str(s) => d.set_string("v", s),
+		Val::Int(i) => d.set_int("v", *i),
+		Val::Float(f) => d.set_float("v", *f),
+		Val::Bool(b) => d.set_bool("v", *b),
+		Val::Arr(items) => {
+			let texts: Vec<String> = items.iter().map(shcl_element).collect();
+			let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
+			d.set_string_array("v", &refs)
+		}
 		Val::Text(_) => unreachable!("text is fenced, not inline"),
+	};
+	// A refusal means the model holds a value no file can carry; that is a bug
+	// in the model, and a document missing it would compare different data.
+	assert!(took, "the SHCL writer refused a generated value");
+	let line = d.to_canonical();
+	match line.strip_prefix("v: ").and_then(|l| l.strip_suffix('\n')) {
+		Some(text) => text.to_string(),
+		None => unreachable!("one field writes one line: {line:?}"),
 	}
 }
 
-/// Matches what the canonical emitter itself quotes - the separator, the comment
-/// mark, a quote of its own, a colon, or any whitespace. Quoting less would make
-/// the round-trip column report the generator's spacing rather than the format's;
-/// quoting more would inflate SHCL's own size against itself.
-fn shcl_string(s: &str) -> String {
-	let needs = s.is_empty()
-		|| s.contains([',', '#', '"', ':'])
-		|| s.contains(char::is_whitespace)
-		|| s.starts_with('\'');
-	if !needs {
-		return s.to_string();
+/// An array element's text before quoting. The writer quotes by text alone,
+/// so an int element spelled out comes back the same as from a typed setter.
+fn shcl_element(v: &Val) -> String {
+	match v {
+		Val::Str(s) => s.clone(),
+		Val::Int(i) => i.to_string(),
+		Val::Float(f) => shcl::format_float(*f),
+		Val::Bool(b) => b.to_string(),
+		Val::Arr(_) | Val::Text(_) => unreachable!("arrays hold scalars"),
 	}
-	let mut out = String::with_capacity(s.len() + 2);
-	out.push('"');
-	for c in s.chars() {
-		match c {
-			'"' => out.push_str("\\\""),
-			'\\' => out.push_str("\\\\"),
-			_ => out.push(c),
-		}
-	}
-	out.push('"');
-	out
 }
 
 // JSON
@@ -991,4 +995,100 @@ fn xml_text(s: &str) -> String {
 		}
 	}
 	out
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn join(path: &str, name: &str) -> String {
+		let seg = shcl::quote_segment(name);
+		if path.is_empty() {
+			seg
+		} else {
+			format!("{path}.{seg}")
+		}
+	}
+
+	/// Every leaf under PATH reads back as the model meant. Returns how many
+	/// were checked, so an empty walk can't pass.
+	fn reads_back(d: &shcl::Document, path: &str, n: &Node, bad: &mut Vec<String>) -> usize {
+		let v = match n {
+			Node::Map(kids) => {
+				return kids
+					.iter()
+					.map(|(k, v)| reads_back(d, &join(path, k), v, bad))
+					.sum();
+			}
+			Node::Leaf(v) => v,
+		};
+		let same = match v {
+			Val::Str(s) => d.read_string(path).value == *s,
+			Val::Int(i) => d.read_int(path).value == *i,
+			Val::Float(f) => d.read_float(path).value == *f,
+			Val::Bool(b) => d.read_bool(path).value == *b,
+			// A raw block is the lines between its fences, so no final line break.
+			Val::Text(t) => d.read_raw(path).value == t.strip_suffix('\n').unwrap_or(t),
+			Val::Arr(items) => {
+				d.read_string_array(path).value
+					== items.iter().map(shcl_element).collect::<Vec<_>>()
+			}
+		};
+		if !same {
+			bad.push(format!("{path}: reads {:?}", d.read_string(path).value));
+		}
+		1
+	}
+
+	#[test]
+	fn shcl_documents_load_clean_and_read_back() {
+		for shape in Shape::all() {
+			let units = shape.verify_units(40);
+			let (text, _) = crate::render(shape, Fmt::Shcl, units, None);
+			let d = shcl::Document::parse(&text);
+			let diags: Vec<String> = d
+				.diagnostics()
+				.iter()
+				.take(5)
+				.map(|g| format!("line {}: {} {}", g.line, g.code, g.message))
+				.collect();
+			assert!(diags.is_empty(), "{}:\n{}", shape.name(), diags.join("\n"));
+
+			let mut bad = Vec::new();
+			let mut checked = 0;
+			for i in 0..units {
+				match shape.list_key() {
+					Some(key) => {
+						let (name, fields) = match shape {
+							Shape::Records => record_unit(i),
+							_ => ddl_unit(i),
+						};
+						let at = format!("{key}({})", shcl::quote_segment(&name));
+						if d.read_string(&at).value != name {
+							bad.push(format!("{at}: no such instance"));
+						}
+						for (k, v) in &fields {
+							checked += reads_back(&d, &join(&at, k), v, &mut bad);
+						}
+					}
+					None => {
+						let (k, n) = match shape {
+							Shape::Flat => flat_unit(i),
+							Shape::Deep => deep_unit(i),
+							Shape::Text => text_unit(i),
+							_ => config_unit(i),
+						};
+						checked += reads_back(&d, &join("", &k), &n, &mut bad);
+					}
+				}
+			}
+			assert!(
+				checked >= units,
+				"{}: only {checked} leaves checked",
+				shape.name()
+			);
+			bad.truncate(5);
+			assert!(bad.is_empty(), "{}:\n{}", shape.name(), bad.join("\n"));
+		}
+	}
 }

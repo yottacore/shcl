@@ -819,7 +819,7 @@ fn record(
 
 	let id = run_id();
 	let vers = lock_versions();
-	let run = format!("run[{id}]");
+	let run = format!("run({id})");
 	macro_rules! set {
 		($path:expr, $v:expr) => {
 			let _ = doc.set_string(&$path, $v);
@@ -853,7 +853,7 @@ libraries ordered by geometric-mean parse time, fastest first; tiers are separat
 	// longer and no more informative.
 	let order = rank(rows);
 	for l in libs {
-		let about = format!("{run}.tier[{}].library[{}]", l.tier.name(), l.key);
+		let about = format!("{run}.tier({}).library({})", l.tier.name(), l.key);
 		set!(format!("{about}.format"), &l.format);
 		set!(format!("{about}.library"), &l.library);
 		set!(format!("{about}.version"), &l.version);
@@ -867,7 +867,7 @@ libraries ordered by geometric-mean parse time, fastest first; tiers are separat
 	}
 
 	for r in rows {
-		let sh = format!("{run}.tier[{}].shape[{}]", r.tier.name(), r.shape.name());
+		let sh = format!("{run}.tier({}).shape({})", r.tier.name(), r.shape.name());
 		let _ = doc.set_int(
 			&format!("{sh}.units"),
 			*units.get(r.shape.name()).unwrap_or(&0) as i64,
@@ -876,7 +876,7 @@ libraries ordered by geometric-mean parse time, fastest first; tiers are separat
 			&format!("{sh}.iterations"),
 			*iters.get(r.shape.name()).unwrap_or(&0) as i64,
 		);
-		let lib = format!("{sh}.library[{}]", r.key);
+		let lib = format!("{sh}.library({})", r.key);
 		if let Some(f) = &r.m.failed {
 			set!(format!("{lib}.failed"), f);
 			continue;
@@ -912,6 +912,11 @@ libraries ordered by geometric-mean parse time, fastest first; tiers are separat
 		);
 	}
 
+	// The setters above drop a refused path without a word, and a path the
+	// reader stops taking would save a file with the run missing.
+	if doc.read_string(&format!("{run}.tool")).status != shcl::Status::Good {
+		return Err(format!("nothing recorded under {run}"));
+	}
 	prune(&mut doc, o.keep_runs);
 	doc.save_file(&o.out).map_err(|e| e.to_string())?;
 	Ok(id)
@@ -929,7 +934,7 @@ fn prune(doc: &mut shcl::Document, keep: usize) {
 	}
 	ids.sort();
 	for id in &ids[..ids.len() - keep] {
-		doc.remove(&format!("run[{id}]"));
+		doc.remove(&format!("run({id})"));
 	}
 }
 
