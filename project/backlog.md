@@ -36,7 +36,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - README note on how escapes work, and why
 	- ID: 2026100313461651
 	- Type: Task
-	- Status: Waiting on signoff
+	- Status: Done
 	- Priority: Avg
 	- Opened: 20261003-134616
 	- Opened by: JC
@@ -49,9 +49,11 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Done: a paragraph and sample under "What a .shcl file looks like": a backslash is text, so a Windows path goes in as typed; `◉NEWLINE◉`, `◉U+200B◉`, a backtick value, and why a non-keyboard mark. Links to the spec's escape table.
 	- Test case: none for the wording. The sample's reads were checked with the CLI, and check-readme and check-docs pass.
 	- Verified: `shcl check` on the sample is clean, and `get` returns the path as typed, a real line break, a zero-width space and the backtick text as written. `fmt` leaves it as is.
-	- Acceptance signoff: README text, so it waits on a read of the wording.
-	- Branch: `escnote`
+	- Note: 20261007, rewritten to say why the usual escapes go wrong, and the 3 ways SHCL writes a problem character, then moved to its own `## Escapes` section after the sample. Same sample, with a 4-tilde fence so the inner fence shows as typed.
+	- Acceptance signoff: the wording was reworked by JC, 20261007.
+	- Branch: `escnote`, `escsect`
 	- Commit: `8c216fa7`
+	- Closed: 20261007-153000
 
 - A merge after an empty field writes a list that a reload joins to it
 	- ID: 2026100520243961
