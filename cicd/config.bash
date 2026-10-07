@@ -434,11 +434,14 @@ DOGFOOD_WRAPPER_DESTS_ps1=(
 )
 ## Cross-built binaries install too, into a dest keyed by their CROSS_TARGETS
 ## os-arch label with '-' written as '_'. Same first-existing-and-writable rule; an
-## os-arch with no list here just isn't installed. No macOS entry until the
-## universal binary has run on a Mac, and none for either arm64 because the
-## synced tree has no arm64 dir to put one in.
+## os-arch with no list here just isn't installed. None for either arm64,
+## because the synced tree has no arm64 dir to put one in. The macOS dir is where
+## dogfood_shcl.ps1 looks on a Mac.
 DOGFOOD_CROSS_DESTS_windows_x86_64=(
 	"${HOME}/synced/0-0/common/exec/util/mswin/cli/by-self/win64"
+)
+DOGFOOD_CROSS_DESTS_macos_universal=(
+	"${HOME}/synced/0-0/common/exec/util/macos/bin"
 )
 ## The dogfood runner and its launchers, name kept, into every listed dir that
 ## exists. One per line: "source|dir|dir...". The bash launcher serves Linux and
