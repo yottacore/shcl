@@ -444,8 +444,9 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - Back up and rewrite a config file when a program's shcl upgrade breaks it
 	- ID: 2026100313461649
 	- Type: Feature
-	- Status: Started
-	- Needs local test suite run?: the full `--ci`, and a hosted run for the 3 windows migrate rows and the backup's DACL, once the ports are in.
+	- Status: Waiting for testing
+	- Needs local test suite run?: the full `--ci`.
+	- Needs external testing: the hosted windows run, for the backup's DACL in all four (`windows-migrate-acl`) and the 3 windows migrate rows.
 	- Priority: High
 	- Opened: 20261003-134616
 	- Opened by: JC
@@ -500,6 +501,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 			- The C++ interface wraps the new C calls (`check-veneer.bash`).
 		- 20261007: the Go part is in (`upgo`), CLI and `migrate --write` included. Its result type is `Upgraded`, since Go can't name a type and a call both `Upgrade` (noted in the style guide). Go tests `Es2fwnG` to `Es2fx19` twin the 7 Rust ones, and each fails with its part taken out. Verified: go test, go vet and staticcheck, cli-regress and crosscheck for Rust and Go, check-migrate on the Go CLI, help at 80 columns, test-ids check.
 		- 20261007: the Python port, on `uppy`. Python tests `Es2k1AZ` to `Es2k1Qn` match `Es2R4RP`, `Es2a1Jt`, `Es2R4TW`, `Es2R4Vy`, `Es2R4YD`, `Es2R4aS` and `Es2R4ch`, and each failed before it. Python raises `UpgradeNotFound`, `UpgradeAmbiguous`, `UpgradeBackupTaken` or `UpgradeFailed`, all under `UpgradeError`, as a save raises `SaveRefused` or `SaveFailed`. cli-regress, crosscheck and check-migrate pass for the Python CLI.
+		- 20261007: the C port, with the C++ interface, on `upc`. It was the last one, so the changelog line says "in every binding" now, and cli-regress and sanitize-c no longer clear `_old_v2`, since nothing writes that name. C names the result `shcl_upgraded`, beside its `shcl_upgrade` call (noted in the style guide), and `shcl_upgrade_error` is an enum with the message handed back beside it. C tests `Es2qPd0` to `Es2qPd6` twin the 7 Rust ones, and each fails with its part taken out. 24 cli-regress migrate and upgrade rows failed on the C CLI before. Verified: the C runner (203 of 203) and its windows build under wine, sanitize-c, check-c-compilers (all 5 levels), cppcheck at the normal level, check-veneer, veneer_smoke and its windows build under wine, cli-regress for C and Rust, crosscheck (no divergences), check-migrate on the C CLI, help at 80 columns, test-ids check, check-docs, check-readme. Over the 203 corpus inputs, `upgrade` with and without `--from-2x`, printed and with `--write`, matches Rust byte for byte under ASan and UBSan.
 	- Test case: Rust `tests/upgrade.rs`, `Es2R4RP` to `Es2R4ch` and `Es2a1Jt`; cli-regress `Es2Rg1E` to `Es2Rg1P`, `Es2RuBA`, `Es2a1Ju` and `Es2a1Jv`. `Es2R4RP`, `Es2R4TW` and `Es2R4ch` each fail with their part of the change taken out. `Es2a1Jt` failed on `60d0196c` and passes after. `Es2R4RP` now checks the clean file without `from_v2`, since the from_v2 call changed that case.
 	- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, the upgrade tests on windows-gnu under wine, cli-regress for Rust, check-migrate, check-docs, check-completions, test-ids check, shellcheck, markdownlint, and the 2,000,000 release fuzz (all 25). shell-regress fails the same 2 as on `valsyn`. Over the 203 corpus inputs, `upgrade --from-2x` rewrote 71, each one a fixpoint of `upgrade` and of `fmt`, with the same paths as `migrate --from-2x`.
 	- Branch: `upgbak`
