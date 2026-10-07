@@ -1384,7 +1384,7 @@ static int do_migrate(const Opts *o) {
 		rc = 7;
 	}
 	if (m.lost) {
-		fprintf(stderr, "%s: %zu line(s) bound a value under 2.x that nothing binds now: bracket text after the colon or a line break in a Windows path, which have no spelling here (--lossy overrides)\n", file, m.lost);
+		fprintf(stderr, "%s: %zu line(s) bound a value under 2.x that nothing binds now: bracket text after the colon, a selector holding a comma, or a comma list with lines under it, which have no spelling here (--lossy overrides)\n", file, m.lost);
 		if (!o->lossy) rc = 7;
 	}
 	// With nothing ambiguous, the stamp is left off only when a raw block runs

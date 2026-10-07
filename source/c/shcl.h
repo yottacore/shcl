@@ -569,11 +569,15 @@ size_t shcl_tokens_element_count(const shcl_tokens *t);
 // What shcl_migrate produced, and what it could not keep. text is
 // malloc'd and NUL-terminated, the caller frees it, len is its length, and it
 // may hold NUL if the input did. current: the file already names its format,
-// so there was nothing to migrate and text is the input. ambiguous: pieces the
-// two rule sets read differently and nothing can decide between, left as
-// written; always 0 when from_v2 said the file is 2.x. lost: lines 2.x bound a
-// value on that nothing binds now - bracket text after the colon, or a line
-// break in a value that starts like a Windows path.
+// so there was nothing to migrate and text is the input. ambiguous: pieces
+// both rule sets read cleanly and differently, such as `a,b` or an escape, and
+// runs of lines one rule set reads as a raw body and the other as fields,
+// which nothing can decide between, left as written; always 0 when from_v2
+// said the file is 2.x. A backslash is not one of them: it stays as written
+// either way. lost: lines 2.x bound a value on that nothing binds now, since
+// there is no 3.0 spelling to move to: bracket text after the colon, a
+// selector holding a comma, which matched an array value, and a comma list
+// with lines under it (E028 in brackets).
 typedef struct { char *text; size_t len; int current; size_t ambiguous; size_t lost; } shcl_migration;
 
 // Rewrite a document written under the 2.x lexical rules so this parser reads
@@ -1469,7 +1473,6 @@ static ShclStr value_display(ShclArena *a, const ShclValue *v) {
 
 typedef shcl_quote ShclQuote; typedef shcl_piece ShclPiece; typedef shcl_seg_tok ShclSegTok;
 typedef shcl_tokens ShclTokens; typedef shcl_rules ShclRules;
-static ShclStr apply_escapes_v2(ShclArena *a, ShclStr s);
 
 static void tok_clear(ShclTokens *t) {
 	t->nseg = 0; t->has_sep = 0; t->sep = 0; t->value_start = 0; t->value_end = 0; t->nelem = 0;
@@ -1890,24 +1893,6 @@ static ShclValue cell_of_tokens(ShclArena *a, ShclArena *tmp, const ShclTokens *
 // Reads text as the value half of a line - see shcl_set_literal.
 static int literal_value(ShclArena *a, ShclArena *tmp, ShclStr text, ShclValue *out);
 
-/* The character a \u or \U escape names, from the hex digits in after: four
-   after u, eight after U, as in TOML. Returns how many digits it takes, or 0
-   for a short run, a surrogate or a value past U+10FFFF. */
-static size_t unicode_escape(unsigned char kind, ShclStr after, uint32_t *cp) {
-	size_t n = kind == 'u' ? 4 : 8;
-	if (after.n < n) return 0;
-	uint32_t v = 0;
-	for (size_t i = 0; i < n; i++) {
-		unsigned char h = (unsigned char)after.p[i]; uint32_t d;
-		if (h >= '0' && h <= '9') d = (uint32_t)(h - '0');
-		else if (h >= 'a' && h <= 'f') d = (uint32_t)(h - 'a' + 10);
-		else if (h >= 'A' && h <= 'F') d = (uint32_t)(h - 'A' + 10);
-		else return 0;
-		v = v << 4 | d;
-	}
-	if (v > 0x10FFFF || (v >= 0xD800 && v <= 0xDFFF)) return 0;
-	*cp = v; return n;
-}
 // gen-escapes.py: begin
 /* Generated from Unicode 18.0 by cicd/utility/gen-escapes.py. Edit the script, not this block. */
 static const uint32_t invisible_ranges[][2] = {
@@ -2158,115 +2143,6 @@ static size_t invisible_at(ShclStr t, size_t i, uint32_t *cp) {
 	}
 	if (*cp >= 0xE0020 && *cp <= 0xE007F) return flag_tag(t, i) ? 0 : l;
 	return l;
-}
-/* \u takes four digits, so a character past U+FFFF is written with \U. Only
-   the 2.x writer for migrate takes it. */
-static void sb_put_unicode_escape(ShclArena *a, ShclSB *s, uint32_t cp) {
-	static const char hex[] = "0123456789ABCDEF";
-	int digits = cp > 0xFFFF ? 8 : 4;
-	char b[10] = {'\\', cp > 0xFFFF ? 'U' : 'u'};
-	for (int k = 0; k < digits; k++) b[2 + k] = hex[(cp >> (4 * (digits - 1 - k))) & 0xF];
-	sb_put(a, s, b, (size_t)(2 + digits));
-}
-
-// 2.x escape processing, for migrate: \t \n \\ \" \' in double quotes, and
-// in bare and single-quoted text too. An unknown pair stays literal. Text with
-// no backslash comes back as the slice it came in as.
-static ShclStr resolve_escapes(ShclArena *a, ShclStr s, shcl_rules rules) {
-	if (!s.n || !memchr(s.p, '\\', s.n)) return s;
-	ShclSB out = {0};
-	size_t i = 0;
-	while (i < s.n) {
-		uint32_t c; size_t l = utf8_decode(s.p, s.n, i, &c); i += l;
-		if (c != '\\') { sb_put_cp(a, &out, c); continue; }
-		if (i >= s.n) { sb_putc(a, &out, '\\'); break; }
-		uint32_t d; size_t l2 = utf8_decode(s.p, s.n, i, &d); i += l2;
-		switch (d) {
-		case 't': sb_putc(a, &out, '\t'); break;
-		case 'n': sb_putc(a, &out, '\n'); break;
-		case '\\': sb_putc(a, &out, '\\'); break;
-		case '"': sb_putc(a, &out, '"'); break;
-		case '\'': sb_putc(a, &out, '\''); break;
-		case 'u': case 'U': {
-			uint32_t cp; size_t n = rules == SHCL_RULES_CURRENT ? unicode_escape((unsigned char)d, s_slice(s, i, s.n), &cp) : 0;
-			if (n) { sb_put_cp(a, &out, cp); i += n; }
-			else { sb_putc(a, &out, '\\'); sb_put_cp(a, &out, d); }
-			break;
-		}
-		default: sb_putc(a, &out, '\\'); sb_put_cp(a, &out, d); break;
-		}
-	}
-	return sb_S(&out);
-}
-/* The 2.x reading, for migrate: no \u, so 2.x kept \u0041 as written. */
-static ShclStr apply_escapes_v2(ShclArena *a, ShclStr s) { return resolve_escapes(a, s, SHCL_RULES_V2); }
-
-/* The character after the first backslash in raw that starts no escape, or
-   the u or U of one that names no character. Only meaningful for a
-   double-quoted piece. */
-static int unknown_escape(ShclStr raw, uint32_t *c) {
-	if (!raw.n || !memchr(raw.p, '\\', raw.n)) return 0;
-	for (size_t i = 0; i < raw.n; i++) {
-		if (raw.p[i] != '\\') continue;
-		/* A double-quoted piece cannot end on a lone backslash: it would have
-		   escaped the closing quote. */
-		if (i + 1 >= raw.n) return 0;
-		i++;
-		switch (raw.p[i]) {
-		case 't': case 'n': case '\\': case '"': case '\'': break;
-		case 'u': case 'U': {
-			uint32_t cp;
-			if (!unicode_escape((unsigned char)raw.p[i], s_slice(raw, i + 1, raw.n), &cp)) { *c = (unsigned char)raw.p[i]; return 1; }
-			break;
-		}
-		default: utf8_decode(raw.p, raw.n, i, c); return 1;
-		}
-	}
-	return 0;
-}
-/* unknown_escape by the 2.x rules, which had no \u: a pair 2.x kept as
-   written, so migrate doubles its backslash. */
-static int v2_kept_escape(ShclStr raw) {
-	for (size_t i = 0; i < raw.n; i++) {
-		if (raw.p[i] != '\\') continue;
-		if (i + 1 >= raw.n) return 0;
-		i++;
-		switch (raw.p[i]) {
-		case 't': case 'n': case '\\': case '"': case '\'': break;
-		default: return 1;
-		}
-	}
-	return 0;
-}
-/* A 2.x pair that is a real \u escape now: 2.x read the text as written and
-   the current rules read a character, so only --from-2x can say which. */
-static int unicode_pair_differs(ShclStr raw) {
-	uint32_t uc;
-	return v2_kept_escape(raw) && !unknown_escape(raw, &uc);
-}
-
-/* A double-quoted value that starts like a Windows path, a drive (C:\) or a
-   share (\\), and holds a \t or \n escape (E024). "C:\temp" would read as C:,
-   a tab and emp, which a path almost never means. Any other pair made the line
-   E023 before this is asked. */
-static int path_like(const ShclPiece *p, ShclStr text) {
-	if (p->quote != SHCL_QUOTE_DOUBLE) return 0;
-	ShclStr raw = s_slice(text, p->start, p->end);
-	int drive = raw.n >= 3 && ((raw.p[0] | 0x20) >= 'a' && (raw.p[0] | 0x20) <= 'z') && raw.p[1] == ':' && raw.p[2] == '\\';
-	if (!drive && !(raw.n >= 2 && raw.p[0] == '\\' && raw.p[1] == '\\')) return 0;
-	for (size_t i = 0; i + 1 < raw.n;) {
-		if (raw.p[i] != '\\') { i++; continue; }
-		if (raw.p[i + 1] == 't' || raw.p[i + 1] == 'n') return 1;
-		i += 2;
-	}
-	return 0;
-}
-
-/* True when a double-quoted spelling would be E024. */
-static int spells_path_escape(ShclStr quoted) {
-	if (quoted.n < 2 || quoted.p[0] != '"') return 0;
-	ShclPiece p; p.start = 1; p.end = quoted.n - 1; p.quote = SHCL_QUOTE_DOUBLE;
-	return path_like(&p, quoted);
 }
 
 // --- Durations and sizes ---------------------------------------------------
@@ -2848,16 +2724,16 @@ static ShclStr strip_common(ShclStr line, ShclStr common) {
 
 // --- Migration: a 2.x document rewritten for the current lexical rules -------
 
-static ShclStr quote_text_as(ShclArena *a, ShclStr t, shcl_rules rules);
-static ShclStr quote_double_as(ShclArena *a, ShclStr t, shcl_rules rules);
+static ShclStr quote_text(ShclArena *a, ShclStr t);
 static int needs_quotes(ShclStr t);
+static int element_needs_quotes(ShclStr t);
 static ShclStr emit_element(ShclArena *a, const ShclElement *e);
 static ShclElement new_element(ShclStr text);
 static ShclStr escape_name(ShclArena *a, ShclStr name);
-static ShclStr escape_name_as(ShclArena *a, ShclStr name, shcl_rules rules);
 static ShclStr diag_name(ShclArena *a, ShclStr name);
 static ShclStr diag_value(ShclArena *a, const ShclValue *v);
 static int index_shape(ShclStr body);
+static int selector_reads_back(ShclArena *a, ShclStr body, ShclStr text, int quoted);
 
 /* One edit to a line: replace start..end with the text. */
 typedef struct { size_t start, end; ShclStr with; } ShclEdit;
@@ -2898,16 +2774,12 @@ static int reads_same(ShclArena *a, ShclStr spelling, int quoted, ShclStr logica
 		&& s_eq(piece_text(a, &tok.elements[0], spelling), logical);
 }
 
-/* How a changed piece is written. 2.x read a backslash in bare and
-   single-quoted text as an escape too, and double quotes are where both rule
-   sets read one alike. No \u goes in, since 2.x would keep it as written.
-   So the migrated file reads the same under 2.x, and a second run changes
-   nothing. A line break in a value that starts like a Windows path has no
-   such spelling: written this way it is E024, so the caller counts it lost. */
+/* How a changed piece is written: the way the writer writes its text, so it
+   reads back as that text. A backslash pair 2.x resolved is not resolved
+   here: it stays as written and reads as text now, with no escape added. */
 static ShclStr migrate_spelling(ShclArena *a, ShclStr logical, int bare) {
-	if (memchr(logical.p, '\\', logical.n)) return quote_double_as(a, logical, SHCL_RULES_V2);
 	if (bare && !needs_quotes(logical)) return logical;
-	return quote_text_as(a, logical, SHCL_RULES_V2);
+	return quote_text(a, logical);
 }
 
 /* True when 2.x read this bare `[...]` body as the JSON-habit array rather
@@ -2919,34 +2791,72 @@ static int v2_bracket_array(ShclArena *a, ShclStr body) {
 	return tok.nelem > 1;
 }
 
-/* The counters a line rewrite reports back, and the one thing it asks. */
-typedef struct { int from_v2; size_t ambiguous; size_t lost; } ShclMigrating;
+/* The counters a line rewrite reports back, and the one thing it asks.
+   bracketed: the line just rewritten put a 2.x comma list in brackets.
+   refused_now: these rules refuse the line about to be rewritten, so it is
+   not a correct 3.0 line, whatever the file is. */
+typedef struct { int from_v2; size_t ambiguous; size_t lost; int bracketed; int refused_now; } ShclMigrating;
 
-/* The re-spellings a value's pieces need. Each piece is read the 2.x way
-   (escapes everywhere, an open quote kept whole, a quote at both ends making
-   it quoted) and rewritten only where the current rules would read the same
-   text as something else. */
-static void value_edits(ShclArena *a, ShclStr text, const ShclTokens *tok, ShclVecEdit *edits, ShclMigrating *st) {
+/* The re-spellings a value's pieces need. Each piece is cut the 2.x way (a
+   backslash shields the next character, an open quote is kept whole, a quote
+   at both ends makes it quoted) and rewritten only where the current rules
+   would read its text as something else. Its text is as 2.x wrote it, a
+   backslash pair included, so the same bytes mean the same either way. */
+static void value_edits(ShclArena *a, ShclStr text, const ShclTokens *tok, ShclVecEdit *edits) {
 	for (size_t i = 0; i < tok->nelem; i++) {
 		const ShclPiece *p = &tok->elements[i];
-		ShclStr raw = s_slice(text, p->start, p->end);
+		ShclStr raw = s_slice(text, p->start, p->end), why;
 		int quoted = piece_quoted(p->quote);
 		size_t ea = quoted ? p->start - 1 : p->start, eb = quoted ? p->end + 1 : p->end;
-		if (p->quote == SHCL_QUOTE_NONE && !memchr(raw.p, '\\', raw.n) && raw.n) continue;
-		ShclStr logical = apply_escapes_v2(a, raw);
-		if (reads_same(a, s_slice(text, ea, eb), quoted, logical)) continue;
-		/* A resolved escape is the one edit that turns on which rule set wrote
-		   the file: these bytes say one thing under 2.x and another here. An
-		   open quote or an empty slot reads alike either way, so it still goes,
-		   and so does an unknown pair in double quotes, which both kept. A \u
-		   in double quotes is a character now and was text in 2.x. */
-		int differs = p->quote == SHCL_QUOTE_DOUBLE ? unicode_pair_differs(raw) : !s_eq(logical, raw);
-		if (differs && !st->from_v2) { st->ambiguous++; continue; }
-		ShclStr spelling = migrate_spelling(a, logical, !(quoted || p->quote == SHCL_QUOTE_OPEN));
-		/* Written the way 2.x read it, the line is E024 and binds nothing. */
-		if (spells_path_escape(spelling)) st->lost++;
-		edit_push(a, edits, ea, eb, spelling);
+		if (p->quote == SHCL_QUOTE_NONE && !memchr(raw.p, '\\', raw.n) && !has_mark(raw) && raw.n && !bare_trouble(a, raw, BARE_VALUE, &why)) continue;
+		if (reads_same(a, s_slice(text, ea, eb), quoted, raw)) continue;
+		edit_push(a, edits, ea, eb, migrate_spelling(a, raw, !(quoted || p->quote == SHCL_QUOTE_OPEN)));
 	}
+}
+
+/* A 2.x value with a comma in brackets, since 2.x read every comma as an
+   array. Its empty elements go, as 2.x dropped them. Each element is written
+   the way the writer writes one inside `[]`, unless its quoted spelling
+   already reads the same. */
+static ShclStr v2_array_text(ShclArena *a, ShclStr text, const ShclTokens *tok) {
+	ShclSB out = {0};
+	sb_putc(a, &out, '[');
+	for (size_t i = 0; i < tok->nelem; i++) {
+		const ShclPiece *p = &tok->elements[i];
+		if (p->quote == SHCL_QUOTE_NONE && p->end <= p->start) continue;
+		if (out.len > 1) sb_puts(a, &out, ", ");
+		ShclStr raw = s_slice(text, p->start, p->end);
+		int quoted = piece_quoted(p->quote);
+		if (quoted && reads_same(a, s_slice(text, p->start - 1, p->end + 1), 1, raw)) sb_putS(a, &out, s_slice(text, p->start - 1, p->end + 1));
+		else if (p->quote == SHCL_QUOTE_NONE && !element_needs_quotes(raw)) sb_putS(a, &out, raw);
+		else sb_putS(a, &out, quote_text(a, raw));
+	}
+	sb_putc(a, &out, ']');
+	return sb_S(&out);
+}
+
+/* True when the current rules read a value with no fault, as one piece:
+   then `a,b` is a string now and was an array under 2.x. */
+static int reads_clean_now(ShclArena *a, ShclStr text, size_t from) {
+	ShclTokens tok; memset(&tok, 0, sizeof tok);
+	tokenize_value(a, text, from, SHCL_RULES_CURRENT, &tok);
+	ShclFault f;
+	return !tok.has_array && tok.nelem == 1 && !value_fault(a, &tok, text, &f);
+}
+
+/* The name a quoted field name, quotes included, reads as under the current
+   rules, in *out; 0 when it does not read as one clean name. */
+static int quoted_name_now(ShclArena *a, ShclStr spelled, ShclStr *out) {
+	ShclSB l = {0};
+	sb_putS(a, &l, spelled); sb_putc(a, &l, ':');
+	ShclStr line = sb_S(&l);
+	ShclTokens tok; memset(&tok, 0, sizeof tok);
+	tokenize(a, line, ':', 0, SHCL_RULES_CURRENT, &tok);
+	if (tok.has_fault || tok.has_misspelled || tok.nseg != 1) return 0;
+	const ShclSegTok *seg = &tok.segments[0];
+	if (seg->has_selector || !piece_quoted(seg->name.quote)) return 0;
+	ShclStr why;
+	return resolve_marks(a, s_slice(line, seg->name.start, seg->name.end), out, &why);
 }
 
 /* fence_on/ch/len: the block a child-indent or same-line fence opened, which
@@ -2958,26 +2868,46 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 	if (f.ok) { *fence_on = 1; *fence_ch = f.ch; *fence_len = f.len; return rest; }
 	ShclVecEdit edits = {0};
 	if (rest.p[0] == '*' && rest.n > 1 && is_wsp((unsigned char)rest.p[1])) {
+		edit_push(a, &edits, 0, 1, s_lit("-"));
 		tokenize_value(ta, rest, 1, SHCL_RULES_V2, tok);
-		/* A bare comma was refused (E010), so there is nothing to convert. */
-		if (tok->nelem == 1) value_edits(a, rest, tok, &edits, st);
+		/* A bare comma was refused (E010), so there is nothing to convert.
+		   A value's rules are an item's, and stricter about a colon, so
+		   what reads clean as one reads clean as the other. */
+		if (tok->nelem == 1) value_edits(a, rest, tok, &edits);
 	} else {
 		tokenize(ta, rest, ':', 0, SHCL_RULES_V2, tok);
 		if (tok->has_fault) return rest;
 		size_t last = tok->nseg - 1;
+		/* A selector in brackets is E029 now, so its line never reads clean
+		   and is rewritten whatever the file says it is. Only `name:[disc]`
+		   ending the line is a value here. */
+		for (size_t i = 0; i < tok->nseg; i++)
+			if (tok->segments[i].has_selector && !(i == last && !tok->has_sep)) st->refused_now = 1;
 		for (size_t i = 0; i < tok->nseg; i++) {
 			const ShclSegTok *seg = &tok->segments[i];
 			ShclStr name = s_slice(rest, seg->name.start, seg->name.end);
-			/* An unknown pair in double quotes read the same in 2.x, and is
-			   E023 now, so its backslash is doubled whichever wrote the file.
-			   A \u pair is a character now, so that one needs --from-2x. */
-			if (seg->name.quote == SHCL_QUOTE_DOUBLE && v2_kept_escape(name)) {
-				if (unicode_pair_differs(name) && !st->from_v2) st->ambiguous++;
-				else edit_push(a, &edits, seg->name.start - 1, seg->name.end + 1, escape_name_as(a, apply_escapes_v2(a, name), SHCL_RULES_V2));
+			/* A backslash in a quoted name is text now, and stays. Only a
+			   quote it shielded, or a real escape mark, needs another
+			   spelling. A bare name not led by a letter goes in quotes, since
+			   `-` then a blank would start a list item now.
+			   A file that does not say it is 2.x could be a 3.0 one. Where it
+			   reads clean under these rules as well, it is left and counted. */
+			int respell = 0, clean_now = 0;
+			if (piece_quoted(seg->name.quote)) {
+				if (memchr(name.p, '\\', name.n) || has_mark(name)) {
+					ShclStr now;
+					clean_now = quoted_name_now(a, s_slice(rest, seg->name.start - 1, seg->name.end + 1), &now);
+					respell = !clean_now || !s_eq(now, name);
+				}
+			} else {
+				/* `-` then a blank is a list item now. */
+				clean_now = name.n == 1 && name.p[0] == '-' && (seg->name.end >= rest.n || is_wsp((unsigned char)rest.p[seg->name.end]));
+				respell = !(name.n && ((name.p[0] | 0x20) >= 'a' && (name.p[0] | 0x20) <= 'z'));
 			}
-			if (seg->name.quote == SHCL_QUOTE_SINGLE && !s_eq(apply_escapes_v2(a, name), name)) {
-				if (st->from_v2) edit_push(a, &edits, seg->name.start - 1, seg->name.end + 1, escape_name_as(a, apply_escapes_v2(a, name), SHCL_RULES_V2));
-				else st->ambiguous++;
+			if (respell && clean_now && !st->from_v2 && !st->refused_now) st->ambiguous++;
+			else if (respell) {
+				int q = seg->name.quote != SHCL_QUOTE_NONE;
+				edit_push(a, &edits, q ? seg->name.start - 1 : seg->name.start, q ? seg->name.end + 1 : seg->name.end, escape_name(a, name));
 			}
 			if (!seg->has_selector) continue;
 			const ShclPiece *sel = &seg->selector;
@@ -2993,8 +2923,7 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 			while (k > 0 && is_wsp((unsigned char)rest.p[k - 1])) k--;
 			if (k > 0 && rest.p[k - 1] == ':') { has_colon = 1; colon = k - 1; }
 			ShclStr body = s_slice(rest, sel->start, sel->end);
-			ShclStr logical = apply_escapes_v2(a, body);
-			int unknown = sel->quote == SHCL_QUOTE_DOUBLE && v2_kept_escape(body);
+			ShclStr spelled = quoted ? s_slice(rest, sel->start - 1, sel->end + 1) : body;
 			if (i == last && !tok->has_sep) {
 				if (has_colon) {
 					/* name:[disc] with nothing after it: 2.x read it as
@@ -3003,49 +2932,74 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 					   one - and an index or the wildcard was refused as a
 					   selector, so those stay as written. A bare body moves
 					   into a value, where a fence run opens a raw block and a
-					   leading `[` is bracket text, so the emitter writes it. */
+					   leading `[` opens an array, so the emitter writes it. */
 					if (!quoted && (index_shape(body) || (body.n == 1 && body.p[0] == '*'))) return rest;
 					/* 2.x bound the bracket array, as one folded string. There
-					   is no spelling to move that to - a value beginning with
-					   `[` is bracket text now - so the binding goes, and the
+					   is no spelling to move that to - in brackets it is an
+					   array of several now - so the binding goes, and the
 					   caller hears about it rather than reading exit 0. */
 					if (!quoted && v2_bracket_array(a, body)) { st->lost++; return rest; }
-					if (!s_eq(logical, body) && !st->from_v2) { st->ambiguous++; continue; }
-					ShclStr spelling;
-					if (!s_eq(logical, body)) spelling = migrate_spelling(a, logical, 0);
-					else if (quoted && !unknown) spelling = s_trim_wsp(s_slice(rest, open + 1, close));
-					else spelling = migrate_spelling(a, logical, 1);
-					/* As a value, a path holding a \t or \n is E024. */
-					if (spells_path_escape(spelling)) {
-						spelling = migrate_spelling(a, logical, 0);
-						if (spells_path_escape(spelling)) st->lost++;
+					/* `[a]` is a one-element array now. */
+					if (!st->from_v2 && !st->refused_now) {
+						ShclTokens now; memset(&now, 0, sizeof now);
+						tokenize_value(a, rest, colon + 1, SHCL_RULES_CURRENT, &now);
+						ShclFault vf;
+						if (now.has_array && !now.has_array_fault && !value_fault(a, &now, rest, &vf)) { st->ambiguous++; return rest; }
 					}
+					ShclStr spelling;
+					if (!quoted) spelling = migrate_spelling(a, body, 1);
+					else if (reads_same(a, spelled, 1, body)) spelling = spelled;
+					else spelling = migrate_spelling(a, body, 0);
 					ShclSB sb = {0}; sb_puts(a, &sb, ": "); sb_putS(a, &sb, spelling);
 					edit_push(a, &edits, colon, close + 1, sb_S(&sb));
 					continue;
 				}
 			} else if (has_colon) {
 				/* The colon goes, and one space after it when the author
-				   spaced both sides, so `base : [x]` comes out `base [x]`. */
+				   spaced both sides, so `base : [x]` comes out `base (x)`. */
 				int spaced = colon > 0 && is_wsp((unsigned char)rest.p[colon - 1]) && is_wsp((unsigned char)rest.p[colon + 1]);
 				edit_push(a, &edits, colon, colon + 1 + (size_t)spaced, s_empty());
 			}
-			/* Double quotes already read alike on both sides, so only the other
-			   spellings turn on which rule set wrote the file. */
-			if (unknown && unicode_pair_differs(body) && !st->from_v2) st->ambiguous++;
-			else if (unknown) edit_push(a, &edits, sel->start - 1, sel->end + 1, migrate_spelling(a, logical, 0));
-			else if (!s_eq(logical, body) && sel->quote != SHCL_QUOTE_DOUBLE) {
-				if (st->from_v2) {
-					size_t ea = quoted ? sel->start - 1 : sel->start, eb = quoted ? sel->end + 1 : sel->end;
-					edit_push(a, &edits, ea, eb, migrate_spelling(a, logical, 0));
-				} else st->ambiguous++;
+			int index = !quoted && (index_shape(body) || (body.n == 1 && body.p[0] == '*'));
+			/* 2.x matched an array value by its display form, and a selector
+			   matches one plain value now, so nothing spells this. */
+			if (!index && !quoted && v2_bracket_array(a, body)) { st->lost++; return rest; }
+			edit_push(a, &edits, open, open + 1, s_lit("("));
+			edit_push(a, &edits, close, close + 1, s_lit(")"));
+			/* A backslash is text now, and stays. Only a quote or a blank it
+			   shielded, or one the body has bare, a paren, or a real escape
+			   mark, needs another spelling. */
+			if (!index && !selector_reads_back(a, spelled, body, quoted)) {
+				ShclStr spelling = migrate_spelling(a, body, 0);
+				/* Nothing reads back as that body, so there is no way to
+				   write it in parens. */
+				if (!selector_reads_back(a, spelling, body, 1)) { st->lost++; return rest; }
+				edit_push(a, &edits, quoted ? sel->start - 1 : sel->start, quoted ? sel->end + 1 : sel->end, spelling);
 			}
 		}
 		if (tok->has_sep) {
 			/* A same-line fence: the info string ran to the end of the line. */
 			ShclFence vf = fence_open(s_slice(rest, tok->value_start, rest.n));
 			if (vf.ok) { *fence_on = 1; *fence_ch = vf.ch; *fence_len = vf.len; return s_splice(a, rest, &edits); }
-			value_edits(a, rest, tok, &edits, st);
+			if (tok->nelem > 1) {
+				/* A file that does not say it is 2.x could be a 3.0 one, where
+				   `a,b` is a string. `a, b` is an error there, so it is safe. */
+				if (st->from_v2 || !reads_clean_now(a, rest, tok->sep + 1)) {
+					/* Only empty slots, which 2.x dropped: an empty value. */
+					if (shcl_tokens_element_count(tok) == 0) edit_push(a, &edits, tok->sep + 1, tok->value_end, s_empty());
+					else {
+						st->bracketed = 1;
+						edit_push(a, &edits, tok->value_start, tok->value_end, v2_array_text(a, rest, tok));
+					}
+				} else st->ambiguous++;
+			} else {
+				size_t before = edits.len;
+				value_edits(a, rest, tok, &edits);
+				if (!st->from_v2 && !st->refused_now && edits.len > before && reads_clean_now(a, rest, tok->sep + 1)) {
+					edits.len = before;
+					st->ambiguous++;
+				}
+			}
 		}
 	}
 	return s_splice(a, rest, &edits);
@@ -3151,14 +3105,6 @@ static int64_t format_line_version(ShclArena *ta, ShclArena *sc, ShclStr text) {
 	return found;
 }
 
-/* Which file this is cannot be read off the text: `p: 'C:\temp'` is one value
-   under 2.x and another under these rules, so rewriting a 3.0 file changes what
-   it says. So the version line decides. A file that names this format comes
-   back untouched; one that names an older format, or a caller passing from_v2,
-   gets the backslash re-spellings; anything else gets every other rewrite and
-   leaves those pieces alone, counted in st->ambiguous for the caller to refuse
-   over. A rewritten file is stamped with the version line, so the second run
-   has an answer the first one did not; stamp 0 leaves it off. */
 /* The line ending most of the text's lines end with. A tie goes to LF. */
 static const char *majority_eol(ShclStr text) {
 	size_t crlf = 0, lf = 0;
@@ -3170,7 +3116,31 @@ static const char *majority_eol(ShclStr text) {
 	return crlf > lf ? "\r\n" : "\n";
 }
 
-static ShclStr migrate(ShclArena *a, ShclArena *sc, ShclStr text, ShclMigrating *st, int *current, int stamp) {
+/* The two arenas a migration builds in, and the document it parses to ask
+   which lines these rules refuse. They sit off the frame so the recovery point
+   in migrate_text can still reach them: a longjmping SHCL_OOM skips this frame,
+   and an ordinary local is indeterminate by the time the jump arrives. */
+typedef struct { ShclArena a, sc; shcl_doc *doc; } ShclMigrateOwn;
+
+/* The diagnostics of text's load, in own->doc, which the caller frees. */
+static const ShclVecDiag *migrate_load(ShclMigrateOwn *own, ShclStr text) {
+	shcl_doc *d = own->doc = shcl_parse(text.p, text.n);
+	if (!d) arena_panic(own->a.panic);
+	return &d->diags;
+}
+static void migrate_unload(ShclMigrateOwn *own) { shcl_free(own->doc); own->doc = NULL; }
+
+/* Which file this is cannot always be read off the text: `p: a,b` is an array
+   under 2.x and one string under these rules, and a raw block can open where
+   only one rule set sees it, so rewriting a 3.0 file changes what it says. So
+   the version line decides. A file that names this format comes back
+   untouched; one that names an older format, or a caller passing from_v2, gets
+   every rewrite. Anything else leaves those pieces alone where these rules
+   read the line cleanly, counted in st->ambiguous for the caller to refuse
+   over. A rewritten file is stamped with the version line, so the second run
+   has an answer the first one did not; stamp 0 leaves it off. */
+static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int *current, int stamp) {
+	ShclArena *a = &own->a, *sc = &own->sc;
 	ShclStr whole = text, bom = s_empty();
 	if (text.n >= 3 && (unsigned char)text.p[0] == 0xEF && (unsigned char)text.p[1] == 0xBB && (unsigned char)text.p[2] == 0xBF) {
 		bom = s_slice(text, 0, 3);
@@ -3179,6 +3149,21 @@ static ShclStr migrate(ShclArena *a, ShclArena *sc, ShclStr text, ShclMigrating 
 	int64_t version = format_line_version(a, sc, text);
 	if (version >= SHCL_FORMAT_MAJOR) { *current = 1; return whole; }
 	if (version >= 0) st->from_v2 = 1;
+	/* Per line: these rules refuse it (1), or it put a 2.x comma list in
+	   brackets (2). */
+	size_t nlines = 1;
+	for (size_t i = 0; i < text.n; i++) nlines += text.p[i] == '\n';
+	unsigned char *flags = (unsigned char *)arena_alloc(a, nlines + 1);
+	memset(flags, 0, nlines + 1);
+	int bracketed = 0;
+	/* Where a file that does not say it is 2.x might be a 3.0 one, the lines
+	   these rules already refuse are safe to rewrite. */
+	if (!st->from_v2) {
+		const ShclVecDiag *dv = migrate_load(own, text);
+		for (size_t k = 0; k < dv->len; k++)
+			if (dv->data[k].sev == SHCL_SEV_ERROR && dv->data[k].line <= nlines) flags[dv->data[k].line] |= 1;
+		migrate_unload(own);
+	}
 	ShclTokens tok; memset(&tok, 0, sizeof tok);
 	int changed = 0;
 	ShclSB out = {0};
@@ -3209,8 +3194,11 @@ static ShclStr migrate(ShclArena *a, ShclArena *sc, ShclStr text, ShclMigrating 
 			ShclStr rest = trim_wsp_end(rest_full);
 			// lost counts lines, and one line can lose several values.
 			size_t lost_before = st->lost;
+			st->bracketed = 0;
+			st->refused_now = (flags[lineno] & 1) != 0;
 			ShclStr migrated = migrate_line(a, sc, rest, &tok, &fence_on, &fence_ch, &fence_len, st);
 			if (st->lost > lost_before) st->lost = lost_before + 1;
+			if (st->bracketed) { flags[lineno] |= 2; bracketed = 1; }
 			if (!s_eq(migrated, rest)) changed = 1;
 			sb_putS(a, &out, indent);
 			sb_putS(a, &out, migrated);
@@ -3226,6 +3214,15 @@ static ShclStr migrate(ShclArena *a, ShclArena *sc, ShclStr text, ShclMigrating 
 		split = differs;
 		start = i + 1;
 	}
+	/* 2.x let a comma list head lines of its own, and nothing spells that
+	   now: in brackets it is E028, and as one string it reads as another
+	   value. */
+	if (bracketed) {
+		const ShclVecDiag *dv = migrate_load(own, sb_S(&out));
+		for (size_t k = 0; k < dv->len; k++)
+			if (!strcmp(dv->data[k].code, "E028") && dv->data[k].line <= nlines && (flags[dv->data[k].line] & 2)) st->lost++;
+		migrate_unload(own);
+	}
 	/* Stamping a file whose ambiguous pieces were left alone would claim a
 	   migration that did not finish, and the next run would then skip it. A
 	   document that never closes its raw block has nowhere to put the line
@@ -3240,20 +3237,18 @@ static ShclStr migrate(ShclArena *a, ShclArena *sc, ShclStr text, ShclMigrating 
 	return sb_S(&out);
 }
 
-/* The two arenas a migration builds in. They sit off the frame so the recovery
-   point below can still reach them: a longjmping SHCL_OOM skips this frame, and
-   an ordinary local is indeterminate by the time the jump arrives. */
-typedef struct { ShclArena a, sc; } ShclMigrateOwn;
-
 /* Rewrite a document written under the 2.x rules so this parser reads the
    same tree. Each line is read with the 2.x tokenizer and rewritten only
-   where the two rule sets disagree: a bare or single-quoted piece whose
-   backslash meant an escape is double-quoted with that escape; a piece that
-   opened a quote it never closed is quoted whole; the name:[disc] selector
-   sugar loses its colon, and on a last segment becomes `name: disc`, with
-   `disc` written the way the formatter writes a value. A rewritten piece
-   holding a backslash is double-quoted, so the result reads the same under
-   2.x and a second run changes nothing.
+   where the two rule sets disagree (value-syntax.md, Migration). A backslash
+   stays as written and reads as text, so a piece is written another way only
+   where these rules would read its text as something else: a quote it
+   shielded, a real `◉`, a quote, tab or bracket in bare text, an open quote,
+   which is quoted whole. A comma list goes in brackets, a `*` item becomes
+   `- `, a bare name not led by a letter is quoted, and a selector goes from
+   brackets to parens, its body quoted where these rules would refuse it bare.
+   The name:[disc] selector sugar loses its colon, and on a last segment
+   becomes `name: disc`, with `disc` written the way the formatter writes a
+   value.
    Everything else - comments, blank lines, raw bodies, layout, a line 2.x
    could not read - comes through as written. One shape has no spelling here
    at all: a fence label holding a `#`, which 2.x ran to the end of the line
@@ -3270,15 +3265,15 @@ static shcl_migration migrate_text(const char *text, size_t len, int from_v2, in
 		   megabytes on a large file - then hand the failure on: the allocation
 		   still failed, so the hook gets its say with nothing left behind. */
 		ShclMigrateOwn *bad = own;
-		arena_free(&bad->a); arena_free(&bad->sc); free(bad);
+		shcl_free(bad->doc); arena_free(&bad->a); arena_free(&bad->sc); free(bad);
 		SHCL_OOM();
 		abort();
 	}
 	arena_guard(&own->a, &panic); arena_guard(&own->sc, &panic);
 	ShclStr in; in.p = text ? text : ""; in.n = len;
-	ShclMigrating st; st.from_v2 = from_v2; st.ambiguous = 0; st.lost = 0;
+	ShclMigrating st; memset(&st, 0, sizeof st); st.from_v2 = from_v2;
 	shcl_migration m; m.current = 0;
-	ShclStr r = migrate(&own->a, &own->sc, in, &st, &m.current, stamp);
+	ShclStr r = migrate(own, in, &st, &m.current, stamp);
 	m.ambiguous = st.ambiguous; m.lost = st.lost; m.len = r.n;
 	m.text = (char *)malloc(r.n + 1);
 	if (!m.text) {
@@ -3384,11 +3379,9 @@ DEFINE_VEC(ShclVecSeg, ShclSegment)
 typedef struct { int ok; ShclVecSeg segs; int has_value; ShclStr value_text; ShclStr err; } ShclPathScan; // value_text: after the separator colon, before any comment, trimmed
 
 /* The spelling of an index selector - an optional `+`, then digits - whatever
-   its size. The grammar says 1*DIGIT, with no upper bound. The optional `#`
-   is 2.x's `[#N]`, which migrate still reads. */
+   its size. The grammar says 1*DIGIT, with no upper bound. */
 static int index_shape(ShclStr body) {
 	size_t i = 0;
-	if (i < body.n && body.p[i] == '#') i++;
 	if (i < body.n && body.p[i] == '+') i++;
 	if (i >= body.n) return 0;
 	for (; i < body.n; i++) if (!is_adigit((unsigned char)body.p[i])) return 0;
@@ -3421,7 +3414,7 @@ static ShclSelector selector_of(ShclArena *a, const ShclPiece *p, ShclStr text) 
 	}
 	if (body.n == 1 && body.p[0] == '*') { sel.tag = SEL_WILDCARD; return sel; }
 	if (parse_u64(body, &idx)) { sel.tag = SEL_INDEX; sel.index = idx; return sel; }
-	if (!(body.n && body.p[0] == '#') && index_shape(body)) {
+	if (index_shape(body)) {
 		/* All digits but past u64: an index no instance can have, not a
 		   value selector that would create one on a write. */
 		sel.tag = SEL_INDEX; sel.index = UINT64_MAX; return sel;
@@ -7836,51 +7829,6 @@ static ShclStr quote_with(ShclArena *a, ShclStr t, char q) {
    in the quotes the writer picks. */
 static ShclStr quote_text(ShclArena *a, ShclStr t) { return quote_with(a, t, picks_single(t) ? '\'' : '"'); }
 
-// The 2.x spellings below are for migrate only.
-
-/* quote_text for a reader of rules, as in quote_double_as. */
-static ShclStr quote_text_as(ShclArena *a, ShclStr t, shcl_rules rules) {
-	int control = memchr(t.p, '\n', t.n) || memchr(t.p, '\t', t.n);
-	for (size_t i = 0; !control && rules == SHCL_RULES_CURRENT && i < t.n; i++) { uint32_t cp; control = invisible_at(t, i, &cp) != 0; }
-	ShclSB s = {0};
-	if (!control && !memchr(t.p, '\'', t.n) && (memchr(t.p, '"', t.n) || memchr(t.p, '\\', t.n))) {
-		sb_putc(a, &s, '\''); sb_putS(a, &s, t); sb_putc(a, &s, '\'');
-		return sb_S(&s);
-	}
-	return quote_double_as(a, t, rules);
-}
-
-/* The double-quoted spelling for a reader of rules. The two read it alike,
-   except a \u escape, which 2.x kept as written, so for 2.x an invisible
-   character goes in as it is. */
-static ShclStr quote_double_with(ShclArena *a, ShclStr t, shcl_rules rules, int path);
-static ShclStr quote_double_as(ShclArena *a, ShclStr t, shcl_rules rules) {
-	ShclStr out = quote_double_with(a, t, rules, 0);
-	/* Written \t or \n, a path is E024 on the reload, and a \u escape reads
-	   the same. 2.x kept one as written, so for 2.x a tab goes in as it is, and
-	   a line break has no spelling: migrate counts that one lost. */
-	if (spells_path_escape(out)) return quote_double_with(a, t, rules, 1);
-	return out;
-}
-
-static ShclStr quote_double_with(ShclArena *a, ShclStr t, shcl_rules rules, int path) {
-	ShclSB s = {0};
-	sb_reserve(a, &s, t.n + 2);
-	sb_putc(a, &s, '"');
-	for (size_t i = 0; i < t.n; i++) {
-		char c = t.p[i]; uint32_t cp; size_t l;
-		if (c == '\\') sb_puts(a, &s, "\\\\");
-		else if (c == '"') sb_puts(a, &s, "\\\"");
-		else if ((c == '\n' || c == '\t') && path && rules == SHCL_RULES_CURRENT) sb_put_unicode_escape(a, &s, (uint32_t)c);
-		else if (c == '\t' && path) sb_putc(a, &s, c);
-		else if (c == '\n') sb_puts(a, &s, "\\n");
-		else if (c == '\t') sb_puts(a, &s, "\\t");
-		else if (rules == SHCL_RULES_CURRENT && (l = invisible_at(t, i, &cp)) != 0) { sb_put_unicode_escape(a, &s, cp); i += l - 1; }
-		else sb_putc(a, &s, c);
-	}
-	sb_putc(a, &s, '"');
-	return sb_S(&s);
-}
 // leading_zero: a zero followed by another digit, after any sign: `007`,
 // `-012`, `00.5`.
 static int leading_zero(ShclStr t) {
@@ -7999,29 +7947,6 @@ static ShclStr escape_name(ShclArena *a, ShclStr name) {
 		if (i == name.n) return name;
 	}
 	return quote_text(a, name);
-}
-/* The name spelling 2.x read back, for migrate: its backslash escapes, with
-   an invisible character written as it is, since 2.x kept a \u as
-   written. */
-static ShclStr escape_name_as(ShclArena *a, ShclStr name, shcl_rules rules) {
-	if (name.n > 0) {
-		int allbare = 1; size_t i = 0;
-		while (i < name.n) { uint32_t c; size_t l = utf8_decode(name.p, name.n, i, &c); i += l; if (!is_bare_name_char(c)) { allbare = 0; break; } }
-		if (allbare) return name;
-	}
-	ShclSB b = {0};
-	sb_putc(a, &b, '"');
-	for (size_t i = 0; i < name.n; i++) {
-		char c = name.p[i]; uint32_t cp; size_t l;
-		if (c == '\\') sb_puts(a, &b, "\\\\");
-		else if (c == '"') sb_puts(a, &b, "\\\"");
-		else if (c == '\t') sb_puts(a, &b, "\\t");
-		else if (c == '\n') sb_puts(a, &b, "\\n");
-		else if (rules == SHCL_RULES_CURRENT && (l = invisible_at(name, i, &cp)) != 0) { sb_put_unicode_escape(a, &b, cp); i += l - 1; }
-		else sb_putc(a, &b, c);
-	}
-	sb_putc(a, &b, '"');
-	return sb_S(&b);
 }
 static ShclStr emit_name(ShclArena *a, ShclStr name) { return escape_name(a, name); }
 /* A field name for a diagnostic message: put the way the emitter would

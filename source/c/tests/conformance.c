@@ -1003,6 +1003,22 @@ static int file_is(const char *path, const char *text) {
 	return ok;
 }
 
+/* A migration's text starts with want. */
+static int mig_starts(const shcl_migration *m, const char *want) {
+	size_t n = strlen(want);
+	return m->len >= n && memcmp(m->text, want, n) == 0;
+}
+/* A migration's text, loaded; a diagnostic on it fails the fixture at. */
+static shcl_doc *mig_load(const shcl_migration *m, const char *at) {
+	shcl_doc *d = shcl_parse(m->text, m->len);
+	for (size_t i = 0; i < shcl_diag_count(d); i++) {
+		shcl_str dm = shcl_diag_message(d, i);
+		fprintf(stderr, "  line %zu: %s %.*s\n", shcl_diag_line(d, i), shcl_diag_code(d, i), (int)dm.n, dm.p);
+		fail(at, "the migrated text loads with a diagnostic");
+	}
+	return d;
+}
+
 int main(int argc, char **argv) {
 	setlocale(LC_ALL, "C");
 	/* The library has to format and read floats the same whatever locale the
@@ -3633,6 +3649,154 @@ int main(int argc, char **argv) {
 		}
 		if (ok || !refused) fail("init_array_parent", "a child of an array parent generated");
 		shcl_free(as);
+	}
+	test_id("Es1ySon", "migrate_brackets_a_2x_comma_list");
+	/* migrate writes a 2.x comma list in brackets, with or without a blank
+	   after the comma, since 2.x read both as arrays. In a file that does not
+	   say it is 2.x, `a,b` is a string under these rules, so it is left and
+	   counted; `a, b` is an error here, so it converts either way. A lone bare
+	   value these rules refuse is quoted. */
+	{
+		const char *t = "x: a, b\ny: a,b\nz: \"q\", r\nw: New York,,b\nv: done:\nu: rw,noatime\n";
+		shcl_migration mm = shcl_migrate(t, strlen(t), 1);
+		if (mm.ambiguous != 0) fail("migrate_comma_list", "ambiguous with from_v2");
+		if (!mig_starts(&mm, "x: [a, b]\ny: [a, b]\nz: [\"q\", r]\nw: [\"New York\", b]\nv: \"done:\"\nu: [rw, noatime]\n")) fail("migrate_comma_list", mm.text);
+		shcl_free(mig_load(&mm, "migrate_comma_list"));
+		free(mm.text);
+		t = "x: a, b\ny: a,b\n";
+		mm = shcl_migrate(t, strlen(t), 0);
+		if (mm.ambiguous != 1) fail("migrate_comma_list", "ambiguous not 1 without from_v2");
+		if (!mig_starts(&mm, "x: [a, b]\ny: a,b\n")) fail("migrate_comma_list", mm.text);
+		free(mm.text);
+	}
+	test_id("Es1ySoo", "migrate_writes_star_items_as_dashes");
+	/* A 2.x `*` item becomes `- `, and an item these rules would read as
+	   something else is quoted, such as one that looks like `- name: value`. */
+	{
+		const char *t = "list:\n\t* a\n\t* key: value\n\t* 'c'\n\t* O'Brien\n";
+		shcl_migration mm = shcl_migrate(t, strlen(t), 1);
+		if (!mig_starts(&mm, "list:\n\t- a\n\t- \"key: value\"\n\t- 'c'\n\t- \"O'Brien\"\n")) fail("migrate_star_items", mm.text);
+		shcl_doc *d = mig_load(&mm, "migrate_star_items");
+		shcl_read_str_arr r = shcl_read_string_array(d, "list", 4);
+		if (r.status != SHCL_GOOD || r.n != 4 || !str_is(r.values[0], "a") || !str_is(r.values[1], "key: value") || !str_is(r.values[2], "c") || !str_is(r.values[3], "O'Brien"))
+			fail("migrate_star_items", "list does not read back");
+		shcl_free(d);
+		free(mm.text);
+	}
+	test_id("Es1ySop", "migrate_quotes_a_name_not_led_by_a_letter");
+	/* A bare 2.x name not led by a letter is quoted, so `-x: y` and `- :0`
+	   stay fields rather than reading as list items, and `404` stays a name. */
+	{
+		const char *t = "404: a\n-x: y\nl:\n\t- :0\na.9b: 2\n_id: 7\n";
+		shcl_migration mm = shcl_migrate(t, strlen(t), 1);
+		if (!mig_starts(&mm, "\"404\": a\n\"-x\": y\nl:\n\t\"-\" :0\na.\"9b\": 2\n\"_id\": 7\n")) fail("migrate_name_lead", mm.text);
+		shcl_doc *d = mig_load(&mm, "migrate_name_lead");
+		shcl_read_str r = shcl_read_string(d, "\"-x\"", 4);
+		if (r.status != SHCL_GOOD || !str_is(r.value, "y")) fail("migrate_name_lead", "\"-x\"");
+		r = shcl_read_string(d, "l.\"-\"", 5);
+		if (r.status != SHCL_GOOD || !str_is(r.value, "0")) fail("migrate_name_lead", "l.\"-\"");
+		shcl_read_i64 ri = shcl_read_int(d, "a.\"9b\"", 6);
+		if (ri.status != SHCL_GOOD || ri.value != 2) fail("migrate_name_lead", "a.\"9b\"");
+		shcl_free(d);
+		free(mm.text);
+	}
+	test_id("Es1ySoq", "migrate_escapes_a_real_mark");
+	/* 2.x read a `◉` as text. A name, a bare value and a selector body
+	   holding one get the escape for a real mark, so they still read as that
+	   text. */
+	{
+		#define MK "\xe2\x97\x89"
+		const char *t = "\"a" MK "q" MK "\": 1\nbare: My" MK "SPACE" MK "App\ns[x" MK "y].p: 2\n";
+		shcl_migration mm = shcl_migrate(t, strlen(t), 1);
+		shcl_doc *d = mig_load(&mm, "migrate_real_mark");
+		shcl_str *ps; size_t np = shcl_paths(d, &ps);
+		if (np < 2 || !str_is(ps[0], "\"a" MK "ESCAPE_CHAR" MK "q" MK "ESCAPE_CHAR" MK "\"") || !str_is(ps[1], "bare")) fail("migrate_real_mark", mm.text);
+		shcl_read_str r = shcl_read_string(d, "bare", 4);
+		if (r.status != SHCL_GOOD || !str_is(r.value, "My" MK "SPACE" MK "App")) fail("migrate_real_mark", "bare");
+		if (shcl_count(d, "s", 1) != 1) fail("migrate_real_mark", "count s");
+		r = shcl_read_string(d, "s(0)", 4);
+		if (r.status != SHCL_GOOD || !str_is(r.value, "x" MK "y")) fail("migrate_real_mark", "s(0)");
+		shcl_free(d);
+		free(mm.text);
+	}
+	test_id("Es1ySor", "migrate_quotes_a_bare_selector_these_rules_refuse");
+	/* A 2.x selector goes in parens, and a bare body these rules refuse, such
+	   as one with a quote or a space, is quoted, so its block still loads. */
+	{
+		const char *t = "srv[O'Brien].port: 1\nsrv[New York].port: 2\n";
+		shcl_migration mm = shcl_migrate(t, strlen(t), 1);
+		if (!mig_starts(&mm, "srv(\"O'Brien\").port: 1\nsrv(\"New York\").port: 2\n")) fail("migrate_bare_selector", mm.text);
+		shcl_doc *d = mig_load(&mm, "migrate_bare_selector");
+		if (shcl_count(d, "srv", 3) != 2) fail("migrate_bare_selector", "count srv");
+		shcl_free(d);
+		free(mm.text);
+	}
+	test_id("Es1ySos", "migrate_writes_selectors_in_parens");
+	/* Every 2.x selector goes in parens: an index, a value, the sugar on a
+	   segment before the last, and a body with a paren in it, quoted. A
+	   selector in brackets is E029 under these rules, so a file that does not
+	   say it is 2.x gets the same rewrite, with nothing counted. */
+	{
+		const char *t = "a[x].k: 1\nb: y\nb[0].k: 2\nc[a(b)].k: 3\ne:[f].g: 4\nr[\"x\"]:\n\ts: 1\n";
+		const char *want = "a(x).k: 1\nb: y\nb(0).k: 2\nc(\"a(b)\").k: 3\ne(f).g: 4\nr(\"x\"):\n\ts: 1\n";
+		for (int from = 1; from >= 0; from--) {
+			shcl_migration mm = shcl_migrate(t, strlen(t), from);
+			if (mm.ambiguous != 0 || mm.lost != 0) fail("migrate_parens", from ? "counted with from_v2" : "counted without from_v2");
+			if (!mig_starts(&mm, want)) fail("migrate_parens", mm.text);
+			free(mm.text);
+		}
+		shcl_migration mm = shcl_migrate(t, strlen(t), 1);
+		shcl_doc *d = mig_load(&mm, "migrate_parens");
+		static const struct { const char *path; int64_t want; } reads[] = {
+			{"c(\"a(b)\").k", 3}, {"e(f).g", 4}, {"b(y).k", 2}, {"r(x).s", 1},
+		};
+		for (size_t i = 0; i < sizeof reads / sizeof *reads; i++) {
+			shcl_read_i64 ri = shcl_read_int(d, reads[i].path, strlen(reads[i].path));
+			if (ri.status != SHCL_GOOD || ri.value != reads[i].want) fail("migrate_parens", reads[i].path);
+		}
+		shcl_free(d);
+		free(mm.text);
+	}
+	test_id("Es1ySot", "migrate_counts_what_nothing_spells");
+	/* What 2.x bound and nothing spells now is counted lost, so the CLI
+	   refuses at 7: a selector with a comma, which matched an array value, and
+	   a comma list with lines under it. A list of only empty slots, which 2.x
+	   read as empty, is an empty value. */
+	{
+		const char *t = "a[x, y].b: 1\n";
+		shcl_migration mm = shcl_migrate(t, strlen(t), 1);
+		if (mm.lost != 1) fail("migrate_lost", "a selector with a comma");
+		free(mm.text);
+		t = "a: 1, 2\n\tb: 1\nc: 3, 4\n";
+		mm = shcl_migrate(t, strlen(t), 1);
+		if (mm.lost != 1) fail("migrate_lost", "a comma list with lines under it");
+		free(mm.text);
+		t = "e: ,\nf: , # c\n";
+		mm = shcl_migrate(t, strlen(t), 1);
+		if (mm.lost != 0) fail("migrate_lost", "empty slots");
+		if (!mig_starts(&mm, "e:\nf: # c\n")) fail("migrate_lost", mm.text);
+		shcl_doc *d = mig_load(&mm, "migrate_lost");
+		if (shcl_read_string(d, "e", 1).status != SHCL_EMPTY) fail("migrate_lost", "e not empty");
+		shcl_free(d);
+		free(mm.text);
+	}
+	test_id("Es1ySou", "migrate_leaves_what_reads_clean_now");
+	/* A file that does not say it is 2.x could be a 3.0 one. A piece that
+	   reads clean under these rules too, such as an escape, a backtick value,
+	   `[a]` or a `- ` item, is left as written and counted, so the CLI asks
+	   for --from-2x rather than changing a correct file at exit 0. A selector
+	   in brackets is E029 now, so its line is rewritten the 2.x way. */
+	{
+		const char *t = "x: \"a" MK "TAB" MK "b\"\n\"n" MK "TAB" MK "\": 1\nl:\n\t- :0\ns[\"" MK "TAB" MK "\"].p: 1\nb: `abc`\nc: [a]\n";
+		const char *want = "x: \"a" MK "TAB" MK "b\"\n\"n" MK "TAB" MK "\": 1\nl:\n\t- :0\ns(\"" MK "ESCAPE_CHAR" MK "TAB" MK "ESCAPE_CHAR" MK "\").p: 1\nb: `abc`\nc: [a]\n";
+		shcl_migration mm = shcl_migrate(t, strlen(t), 0);
+		if (mm.ambiguous != 5) fail("migrate_reads_clean", "ambiguous not 5");
+		if (mm.len != strlen(want) || memcmp(mm.text, want, mm.len) != 0) fail("migrate_reads_clean", mm.text);
+		free(mm.text);
+		mm = shcl_migrate(t, strlen(t), 1);
+		if (!contains(mm.text, mm.len, "ESCAPE_CHAR")) fail("migrate_reads_clean", "no ESCAPE_CHAR with from_v2");
+		free(mm.text);
+		#undef MK
 	}
 
 #ifdef _WIN32

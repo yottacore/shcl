@@ -231,21 +231,22 @@ int main() {
 	// without it.
 	auto gschema = shcl::Document::parse("field: port\n\ttype: int\n\trequired: yes\n\tdefault: 8080\n");
 	// The 2.x rewrite comes back as an owned string: the selector sugar loses
-	// its colon and a bare backslash escape is double-quoted.
-	// Told the file is 2.x, the backslash value is rewritten and the result is
-	// stamped with the format line, which is what makes a second run a no-op.
-	auto mig = shcl::migrate("base:[Boston]\n\tlat: 42\nnote: a\\tb\n", true);
-	CHECK(mig.text == "base: Boston\n\tlat: 42\nnote: \"a\\tb\"\n##    Format   3\n##    Migrated from SHCL 2.x.\n");
+	// its colon and a comma list goes in brackets.
+	// Told the file is 2.x, the list is rewritten and the result is stamped
+	// with the format line, which is what makes a second run a no-op.
+	auto mig = shcl::migrate("base:[Boston]\n\tlat: 42\nnote: a,b\n", true);
+	CHECK(mig.text == "base: Boston\n\tlat: 42\nnote: [a, b]\n##    Format   3\n##    Migrated from SHCL 2.x.\n");
 	CHECK(!mig.current && mig.ambiguous == 0 && mig.lost == 0);
 	CHECK(shcl::migrate(mig.text, true).current);
-	// Not told, and the file does not say: the value reads one way under each
-	// rule set, so it is left as written and counted rather than guessed at.
-	auto amb = shcl::migrate("note: a\\tb\n", false);
-	CHECK(amb.ambiguous == 1 && amb.text == "note: a\\tb\n");
+	// Not told, and the file does not say: `a,b` reads as an array under 2.x
+	// and one string here, so it is left as written and counted rather than
+	// guessed at.
+	auto amb = shcl::migrate("note: a,b\n", false);
+	CHECK(amb.ambiguous == 1 && amb.text == "note: a,b\n");
 	// Without the stamp, for a program that writes the info block itself; the
 	// Format line is what format_version reads.
-	auto unst = shcl::migrate_unstamped("base:[Boston]\n\tlat: 42\nnote: a\\tb\n", true);
-	CHECK(unst.text == "base: Boston\n\tlat: 42\nnote: \"a\\tb\"\n" && !unst.current);
+	auto unst = shcl::migrate_unstamped("base:[Boston]\n\tlat: 42\nnote: a,b\n", true);
+	CHECK(unst.text == "base: Boston\n\tlat: 42\nnote: [a, b]\n" && !unst.current);
 	CHECK(shcl::format_version(mig.text) == 3u && !shcl::format_version(unst.text));
 	// Durations and sizes: the name's unit, the caller's, and base 10.
 	{

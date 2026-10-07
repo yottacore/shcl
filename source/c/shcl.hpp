@@ -187,9 +187,9 @@ void tokenize(std::string_view text, char sep, bool path, Rules rules, Tokens &o
 void tokenize_value(std::string_view text, std::size_t from, Rules rules, Tokens &out);
 
 // What migrate produced, and what it could not keep: current when the
-// file already names its format, ambiguous for pieces the two rule sets read
-// differently and nothing can decide between, lost for lines 2.x bound a value
-// on that nothing binds now.
+// file already names its format, ambiguous for pieces both rule sets read
+// cleanly and differently and nothing can decide between, lost for lines 2.x
+// bound a value on that nothing binds now.
 struct Migration {
 	std::string text;
 	bool current = false;
