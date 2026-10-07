@@ -2220,7 +2220,8 @@ func doMigrate(o *opts) int {
 	}
 	if m.Lost != 0 {
 		fmt.Fprintf(os.Stderr, "%s: %d line(s) bound a value under 2.x that nothing binds now: bracket text "+
-			"after the colon or a line break in a Windows path, which have no spelling here (--lossy overrides)\n", file, m.Lost)
+			"after the colon, a selector holding a comma, or a comma list with lines under it, which have no "+
+			"spelling here (--lossy overrides)\n", file, m.Lost)
 		if !o.lossy {
 			rc = 7
 		}

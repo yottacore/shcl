@@ -264,6 +264,16 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 			- Tests: `Eryg0ZB` and `Eryg0bK` match Rust's `Erxfmqa` and `Erxfmqb`. `Eryg0ZB` fails on the code before, with its tokenizer lines taken out since the field is new. `Eryg0bK` passes there, since part 1 already gave an array no selector body; it fails with that check taken out. Rust's `Erxfmqc` is a fuzz property with no Go twin. Part 1's 4 commented paren rows are back on and fail on the code before. Parts 1 and 2's fixtures and `listAfterEmpty` now use parens.
 			- Verified: `go test -count=1` (unit tests pass, corpus as above), `go vet` and staticcheck in both modules and for windows, gofmt, test-ids check, check-docs, check-readme's Go example, cargo fmt and the Rust conformance tests.
 			- Left for part 3b: `migrate`, which still writes brackets, with its 7 corpus cases and 12 cli-regress rows. Go has no twins of Rust's `migrate` tests yet.
+		- 20261006: chunk D part 3b, Go `migrate` (2026100610073400's `migrate` half too), on `vsgo3b`, off `valsyn`. Library and CLI.
+			- In: what Rust's `vsmig` and `vsmig2` have. A backslash stays as written, a 2.x comma list goes in brackets, a `*` item becomes `- `, a bare name not led by a letter is quoted, a real `◉` gets its escape, and a selector goes in parens, its body quoted where these rules refuse it bare. A selector holding a comma and a comma list over lines are counted lost, and the CLI's lost message names all 3 kinds. In a file that does not say it is 2.x, a piece that reads clean both ways is left and counted, and a line these rules already refuse is rewritten.
+			- Removed: the 2.x escape reading and quoting helpers part 1 left for `migrate`, dead now, as they went in Rust. The `lazy` doc comment names the codes Rust's does.
+			- Corpus: 196 of 203 passed before, 203 after.
+			- Crosscheck with Rust over the corpus: 68 of 5952 comparisons diverged before, none after. With a fuzz dump of 500 inputs added, none of 10129 diverge.
+			- cli-regress for Go: 12 rows failed before, none after. Go and Rust both pass every row.
+			- check-migrate drives only the Rust CLI. Pointed at the Go CLI it passes the same way (638 documents, 28 lost counts), and it has 192 divergences on the Go CLI before.
+			- Tests: `ErykhtD` to `ErykhtK` match Rust's `Ervn56A`, `Erwed4A` to `Erwed4F` and `ErxqQLy`. Each failed on the code before.
+			- Verified: `go test -count=1`, `go vet` and staticcheck in both modules and for windows, gofmt, test-ids check, check-docs, crosscheck, cli-regress for Go and Rust, check-migrate.
+			- No new calls. The Go port is done. The Python and C ports, with the C++ veneer, remain.
 	- Decisions:
 		- 20261002: idea 3, with the changes listed in the design doc. Open points and their proposed answers are under its Roadmap.
 		- 20261002: a quote anywhere in a bare value is an error, and a bare field name starts with a letter. Dates, times, durations and sizes without spaces stay bare.
@@ -345,6 +355,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261006: Rust and the docs are in. Status stays Started only because the Go, Python and C ports, with the C++ veneer, remain.
 		- 20261006: the Go port, `migrate` aside, on `vsgo3` with 2026100207032800's Go part 3a. Details there. The Go corpus fails only its 7 `migrate` cases, and crosscheck with Rust diverges only on `migrate`. Go tests `Eryg0ZB` and `Eryg0bK` match `Erxfmqa` and `Erxfmqb`.
 			- No new calls. `Tokens.BracketSelector` is -1 when there is none, as `Misspelled` is. Go's `migrate`, then the Python and C ports with the C++ veneer, remain.
+		- 20261006: Go's `migrate` writes selectors in parens, on `vsgo3b` with 2026100207032800's Go part 3b. Go test `ErykhtI` matches `ErxqQLy`; the Python and C ports remain.
 	- Branch: `vspar`, `vsmig2`, `vsgo3`
 	- Commit: `c4da140e`, `df0eab64`, `dfb108ad`
 	- Test case: corpus 203 (`ErxfmqL`), conformance `Erxfmqa` and `Erxfmqb`, fuzz `Erxfmqc`, cli-regress `ErxfmqM` to `ErxfmqZ`. Each failed on the code before but `ErxfmqU`, a pinning row. `vsmig2`: conformance `ErxqQLy`, cli-regress `Erxvsaw`, and check-migrate `Eq5YPgP` with the bracket copies. Each failed on the code before; check-migrate had 35 divergences there.
