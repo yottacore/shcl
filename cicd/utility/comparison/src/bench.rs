@@ -232,7 +232,7 @@ fn shcl_walk(d: &shcl::Document, prefix: &str) -> u64 {
 		let insts = d.instances(&base);
 		if insts.len() > 1 {
 			for v in insts {
-				n += shcl_walk(d, &format!("{base}[{}]", shcl::quote_segment(&v)));
+				n += shcl_walk(d, &format!("{base}({})", shcl::quote_segment(&v)));
 			}
 		} else {
 			n += shcl_walk(d, &base);

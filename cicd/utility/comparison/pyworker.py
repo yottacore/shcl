@@ -190,7 +190,7 @@ def shcl_scalars(doc: Any) -> int:
 			base = seg if not prefix else f"{prefix}.{seg}"
 			insts = doc.instances(base)
 			if len(insts) > 1:
-				n += sum(walk(f"{base}[{shcl.quote_segment(v)}]") for v in insts)
+				n += sum(walk(f"{base}({shcl.quote_segment(v)})") for v in insts)
 			else:
 				n += walk(base)
 		return n
