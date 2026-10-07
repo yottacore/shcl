@@ -92,10 +92,16 @@ Usage:
                                          per line
   shcl migrate [options] FILE            rewrite a 2.x file for the current
                                          rules (print it, rewrite FILE with
-                                         --write or -w, keeping the original
-                                         as NAME_old_v2.EXT beside it, or name
-                                         the lines it would change with
-                                         --check)
+                                         --write or -w, keeping a backup of
+                                         the original beside it, or name the
+                                         lines it would change with --check)
+  shcl upgrade [options] FILE            when FILE does not load clean, or
+                                         with --from-2x reads differently once
+                                         migrated, print it migrated and made
+                                         over the way fmt writes it, with the
+                                         info block (or back it up and rewrite
+                                         it with --write); anything else is
+                                         left alone
   shcl tokens FILE                       each line's lexical spans, for seeing
                                          why the parser read a line as it did
                                          (every line on its own, raw bodies
@@ -157,19 +163,19 @@ Options (the subcommands each belongs to are in parentheses):
   --no-banner                            (init, and set --write when it creates
                                          FILE) leave out the info block naming
                                          the format and pointing at its spec
-  --write                                (fmt/set/migrate) rewrite FILE in
-                                         place, written -w too, through a
-                                         temp file and a rename; refused
-                                         with a FILE of '-'
+  --write                                (fmt/set/migrate/upgrade) rewrite
+                                         FILE in place, written -w too,
+                                         through a temp file and a rename;
+                                         refused with a FILE of '-'
   --lossy                                (fmt/set/migrate) with --write, rewrite
                                          even when this write would delete lines
                                          or values from the file; without it the
                                          write refuses and nothing is changed
-  --from-2x                              (migrate) the file was written for
-                                         2.x, so rewrite the spellings the two
-                                         rule sets read differently; without
-                                         it those are left alone and migrate
-                                         exits 7
+  --from-2x                              (migrate/upgrade) the file was
+                                         written for 2.x, so rewrite the
+                                         spellings the two rule sets read
+                                         differently; without it those are
+                                         left alone and the command exits 7
   --check                                (fmt/migrate) print nothing and exit 6
                                          when fmt would change the file or
                                          migrate would rewrite a line (named on
@@ -233,7 +239,12 @@ once per run; 'shcl explain CODE' gives the rule behind one of their codes. An
 in-place write also refuses when the rewrite would delete lines or values
 from the file (--lossy overrides). migrate refuses a file that does not say
 which rules it was written for, when the two readings differ (--from-2x says
-it is 2.x), and reports a 2.x binding it cannot convert.
+it is 2.x), and reports a 2.x binding it cannot convert. With --write, migrate
+and upgrade keep the original beside FILE as
+NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT, in local time, where N is the format
+it was written for, and write nothing when that name is taken. An upgrade
+writes even when the fresh file drops lines or values, since the backup keeps
+them.
 FILE may be '-' for stdin. With --layer, FILE is the highest file layer and
 each --layer is merged under it in order; --set applies last. 'fmt' with
 layers prints the merged canonical document.
@@ -241,8 +252,8 @@ layers prints the merged canonical document.
 Exit codes: 0 good, 1 usage error, 2 empty, 3 not found, 4 bad type,
 5 multiple instances, 6 check failed, strict load failed, init's schema has
 faults, or --check found a rewrite to make, 7 in-place write refused
-(--lossy overrides) or migrate left something behind, 8 a file or stream could
-not be read or written.
+(--lossy overrides) or migrate or upgrade left something behind, 8 a file or
+stream could not be read or written.
 """
 
 # About and donate are stdout, so they are byte-for-byte contracts across the
@@ -1091,6 +1102,8 @@ def allowed_opts(cmd):
 		allowed = ("--schema", "--no-banner")
 	elif cmd == "migrate":
 		allowed = ("--write", "--lossy", "--from-2x", "--check")
+	elif cmd == "upgrade":
+		allowed = ("--write", "--from-2x")
 	elif cmd in ("tokens", "explain"):
 		allowed = ()
 	elif cmd in ("count", "instances", "children", "paths"):
@@ -1542,136 +1555,6 @@ def name_start(file):
 	return start
 
 
-def old_copy_name(file):
-	# Where migrate --write keeps the file it replaces: _old_v2 before the last
-	# dot of the file name, or on the end when it has none. A leading dot is
-	# part of the name, not an extension.
-	start = name_start(file)
-	dot = file.rfind(".", start)
-	if dot > start:
-		return file[:dot] + "_old_v2" + file[dot:]
-	return file + "_old_v2"
-
-
-def create_copy(file, old):
-	# The exclusive create of the old copy, born private. On windows a new file
-	# takes the directory's ACL, while the save keeps the original's on the
-	# migrated file, so a private config got a backup others could read. The
-	# copy is born with the original's DACL there instead. Best effort: when
-	# that cannot be read, the directory's it is.
-	if os.name != "nt":
-		return os.open(old, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
-	import ctypes
-	import msvcrt
-
-	DACL_SECURITY_INFORMATION = 0x4
-	SE_DACL_AUTO_INHERIT_REQ = 0x0100
-	SE_DACL_AUTO_INHERITED = 0x0400
-	GENERIC_WRITE = 0x40000000
-	FILE_SHARE_ALL = 0x7
-	CREATE_NEW = 1
-	FILE_ATTRIBUTE_NORMAL = 0x80
-
-	class SecurityAttributes(ctypes.Structure):
-		_fields_ = [("length", ctypes.c_ulong), ("descriptor", ctypes.c_void_p), ("inherit", ctypes.c_int)]
-
-	# A NUL would end the name early here, where os.open refuses it.
-	if "\0" in old:
-		raise ValueError("embedded null character in path")
-	# WinDLL exists only on windows, and mypy checks this file against the
-	# POSIX stubs, where the name is simply absent.
-	adv = ctypes.WinDLL("advapi32", use_last_error=True)  # type: ignore[attr-defined]
-	k32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
-	adv.GetFileSecurityW.restype = ctypes.c_int
-	adv.GetFileSecurityW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong)]
-	adv.SetFileSecurityW.restype = ctypes.c_int
-	adv.SetFileSecurityW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_void_p]
-	adv.GetSecurityDescriptorControl.restype = ctypes.c_int
-	adv.GetSecurityDescriptorControl.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ushort), ctypes.POINTER(ctypes.c_ulong)]
-	adv.SetSecurityDescriptorControl.restype = ctypes.c_int
-	adv.SetSecurityDescriptorControl.argtypes = [ctypes.c_void_p, ctypes.c_ushort, ctypes.c_ushort]
-	k32.CreateFileW.restype = ctypes.c_void_p
-	k32.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p]
-	k32.CloseHandle.argtypes = [ctypes.c_void_p]
-	k32.DeleteFileW.argtypes = [ctypes.c_wchar_p]
-	# 64-bit words, since a security descriptor wants more than byte alignment.
-	sd = None
-	need = ctypes.c_ulong(0)
-	if "\0" not in file:
-		adv.GetFileSecurityW(file, DACL_SECURITY_INFORMATION, None, 0, ctypes.byref(need))
-	if need.value:
-		sd = (ctypes.c_uint64 * ((need.value + 7) // 8))()
-		if not adv.GetFileSecurityW(file, DACL_SECURITY_INFORMATION, sd, ctypes.sizeof(sd), ctypes.byref(need)):
-			sd = None
-	sa = SecurityAttributes(ctypes.sizeof(SecurityAttributes), ctypes.addressof(sd) if sd is not None else None, 0)
-	h = k32.CreateFileW(old, GENERIC_WRITE, FILE_SHARE_ALL, ctypes.byref(sa) if sd is not None else None, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, None)
-	if h is None or h == ctypes.c_void_p(-1).value:
-		# In errno's words, the way os.open said it.
-		e = ctypes.WinError(ctypes.get_last_error())  # type: ignore[attr-defined]
-		raise OSError(e.errno, os.strerror(e.errno), old, e.winerror)
-	# A create takes the ACEs but drops the auto-inherited mark, and without it
-	# a later change to the directory's ACL is not passed down to the copy.
-	# Setting the same DACL again with the request bit puts it back.
-	if sd is not None:
-		control = ctypes.c_ushort(0)
-		revision = ctypes.c_ulong(0)
-		if (
-			adv.GetSecurityDescriptorControl(sd, ctypes.byref(control), ctypes.byref(revision))
-			and control.value & SE_DACL_AUTO_INHERITED
-			and adv.SetSecurityDescriptorControl(sd, SE_DACL_AUTO_INHERIT_REQ, SE_DACL_AUTO_INHERIT_REQ)
-		):
-			adv.SetFileSecurityW(old, DACL_SECURITY_INFORMATION, sd)
-	try:
-		return msvcrt.open_osfhandle(h, os.O_WRONLY | os.O_BINARY)  # type: ignore[attr-defined]
-	except OSError:
-		k32.CloseHandle(h)
-		k32.DeleteFileW(old)
-		raise
-
-
-def keep_original(file, text):
-	# The original bytes, at the old-copy name, before the migrated text
-	# replaces them. The create is exclusive, so an earlier copy is never
-	# replaced, and the copy is synced before the save starts.
-	old = old_copy_name(file)
-	try:
-		fd = create_copy(file, old)
-	except FileExistsError:
-		return None, f"{old}: already exists; migrate keeps the original file there, so nothing was written"
-	except (OSError, ValueError) as e:
-		return None, f"{old}: {getattr(e, 'strerror', None) or e}"
-	try:
-		with os.fdopen(fd, "wb") as fh:
-			fh.write(text.encode("utf-8"))
-			# Out before the mode goes on, since a write clears setuid/setgid.
-			fh.flush()
-			# Born private, then given the original's group and bits, so a 600
-			# config never has a readable copy, and one in a setgid directory
-			# does not go to the directory's group. The group first, since a
-			# chown clears setuid/setgid. Best effort, the way the save keeps
-			# both. The mode is POSIX only: a 3.13 fchmod on windows would set
-			# the read-only bit, and a failed save could not remove the copy.
-			if os.name != "nt" and hasattr(os, "fchmod"):
-				try:
-					st = os.stat(file)
-					if hasattr(os, "fchown"):
-						try:
-							os.fchown(fh.fileno(), -1, st.st_gid)
-						except OSError:
-							pass
-					os.fchmod(fh.fileno(), stat.S_IMODE(st.st_mode))
-				except OSError:
-					pass
-			os.fsync(fh.fileno())
-	except OSError as e:
-		try:
-			os.remove(old)
-		except OSError:
-			pass
-		return None, f"{old}: {e.strerror or e}"
-	return old, None
-
-
 def do_migrate(o):
 	# A 2.x file rewritten for the current rules. The rewrite is text to text;
 	# the load after it is for the diagnostics and the save gate, the same
@@ -1753,9 +1636,11 @@ def do_migrate(o):
 		# with no stamp.
 		old = None
 		if rewritten:
-			old, err = keep_original(file, text)
-			if err is not None:
-				sys.stderr.write(err + "\n")
+			version = shcl.format_version(text)
+			try:
+				old = shcl.write_backup(file, text, version if version is not None else 2)
+			except shcl.UpgradeError as e:
+				sys.stderr.write(f"{e}\n")
 				return EXIT_IO
 		err = shcl.write_file_atomic(file, m.text)
 		if err is not None:
@@ -1784,6 +1669,54 @@ def do_migrate(o):
 		return 0
 	sys.stdout.write(m.text)
 	return rc
+
+
+def do_upgrade(o):
+	# A file this shcl cannot load clean, backed up and written fresh: the
+	# library's upgrade_file with --write, and its text half without, which
+	# prints the fresh text and touches nothing.
+	if len(o.args) != 1:
+		sys.stderr.write("usage: shcl upgrade [options] FILE (see --help)\n")
+		return 1
+	file = o.args[0]
+	if o.write and file == "-":
+		sys.stderr.write("upgrade --write cannot rewrite stdin; drop --write to print, or pass a FILE\n")
+		return 1
+	if o.write and not write_target_ok(file):
+		return EXIT_IO
+	if o.write:
+		try:
+			up = shcl.upgrade_file(file, o.from_2x)
+		except shcl.UpgradeAmbiguous as e:
+			sys.stderr.write(f"{e} (--from-2x rewrites them)\n")
+			return 7
+		except shcl.UpgradeError as e:
+			sys.stderr.write(f"{e}\n")
+			return EXIT_IO
+	else:
+		try:
+			text = read_input(file)
+		except (OSError, ValueError) as e:
+			sys.stderr.write(str(e) + "\n")
+			return EXIT_IO
+		up = shcl.upgrade(text, o.from_2x)
+	if up.current:
+		sys.stderr.write(f"{file}: nothing to upgrade: it loads clean or names its format\n")
+		if not o.write:
+			sys.stdout.write(up.text)
+		return 0
+	say_diagnostics_from("", up.diagnostics)
+	if up.ambiguous != 0:
+		sys.stderr.write(f"{shcl.UpgradeAmbiguous(file, up.ambiguous)} (--from-2x rewrites them)\n")
+		return 7
+	if up.lost != 0:
+		kept = "; the backup keeps them" if o.write else ""
+		sys.stderr.write(f"{file}: {up.lost} line(s)/value(s) do not carry over to the fresh file{kept}\n")
+	if o.write:
+		sys.stderr.write(f"{file}: upgraded; the original is {up.backup}\n")
+	else:
+		sys.stdout.write(up.text)
+	return 0
 
 
 def _span(p):
@@ -2525,7 +2458,7 @@ def do_paths(o):
 	return 0
 
 
-COMMANDS = ("get", "set", "fmt", "check", "init", "count", "instances", "children", "paths", "migrate", "tokens", "explain")
+COMMANDS = ("get", "set", "fmt", "check", "init", "count", "instances", "children", "paths", "migrate", "upgrade", "tokens", "explain")
 
 
 def run(argv):
@@ -2617,6 +2550,8 @@ def run(argv):
 		return do_paths(o)
 	if cmd == "migrate":
 		return do_migrate(o)
+	if cmd == "upgrade":
+		return do_upgrade(o)
 	if cmd == "tokens":
 		return do_tokens(o)
 	if cmd == "explain":

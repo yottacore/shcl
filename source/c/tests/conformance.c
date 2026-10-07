@@ -1019,6 +1019,44 @@ static shcl_doc *mig_load(const shcl_migration *m, const char *at) {
 	return d;
 }
 
+/* An upgrade's text is exactly want. */
+static int up_is(const shcl_upgraded *u, const char *want) {
+	size_t n = strlen(want);
+	return u->text && u->len == n && memcmp(u->text, want, n) == 0;
+}
+/* How many entries a directory has, and then nothing in it. */
+static size_t dir_entries(const char *dir) {
+	size_t n = 0;
+	DIR *dd = opendir(dir); const struct dirent *de;
+	while (dd && (de = readdir(dd))) n += strcmp(de->d_name, ".") != 0 && strcmp(de->d_name, "..") != 0;
+	if (dd) closedir(dd);
+	return n;
+}
+static void dir_clear(const char *dir) {
+	char p[512];
+	DIR *dd = opendir(dir); const struct dirent *de;
+	while (dd && (de = readdir(dd))) {
+		if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..")) continue;
+		snprintf(p, sizeof p, "%s/%s", dir, de->d_name);
+		remove(p);
+	}
+	if (dd) closedir(dd);
+#ifdef _WIN32
+	_rmdir(dir);
+#else
+	rmdir(dir);
+#endif
+}
+static void up_dir(char *dir, size_t cap, const char *tag) {
+	snprintf(dir, cap, "%s/shcl-upgrade-%s-%ld", tmp_root(), tag, (long)getpid());
+	dir_clear(dir);
+#ifdef _WIN32
+	if (_mkdir(dir) != 0) fail(tag, "mkdir failed");
+#else
+	if (mkdir(dir, 0700) != 0) fail(tag, "mkdir failed");
+#endif
+}
+
 int main(int argc, char **argv) {
 	setlocale(LC_ALL, "C");
 	/* The library has to format and read floats the same whatever locale the
@@ -3804,6 +3842,153 @@ int main(int argc, char **argv) {
 		free(mm.text);
 		#undef MK
 	}
+
+	/* shcl_upgrade and shcl_upgrade_file (2026100313461649): a file this
+	   version cannot load clean is backed up under a timestamped name and
+	   written fresh, and a good one is never touched. The backup's name reads
+	   the clock, so it is pinned for all of them. */
+#ifdef _WIN32
+	_putenv_s("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT");
+#else
+	setenv("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT", 1);
+#endif
+#define UP_V2 "name: \"say \\\"hi\\\"\"\ntags: a, b\n\n#\n# This config file format is SHCL.\n# \"Simple Hierarchical Config Language\"\n#    Legal    SHCL is Copyright © 2026 Jim Collier. License: MIT. No warranty.\n#\n"
+#define UP_TAG "_backup_20261004-001500_format-v2"
+	test_id("Es2qPd0", "upgrade_leaves_a_clean_or_stamped_file");
+	{
+		/* a,b is one string now and an array under 2.x, but it loads clean,
+		   and nothing says the file is 2.x. */
+		const char *clean = "a: 1\nb: x,y\n";
+		shcl_upgraded up = shcl_upgrade(clean, strlen(clean), 0);
+		if (!up.current || !up_is(&up, clean) || up.diagnostics) fail("upgrade_clean", "clean");
+		shcl_upgraded_free(&up);
+		const char *stamped = "p: a,b\n\n" SHCL_GEN_BANNER;
+		up = shcl_upgrade(stamped, strlen(stamped), 1);
+		if (!up.current) fail("upgrade_clean", "stamped");
+		shcl_upgraded_free(&up);
+		/* A beta build stamped the same Format line, so its errors are left
+		   too. */
+		const char *beta = "tags: a, b\n\n" SHCL_GEN_BANNER;
+		up = shcl_upgrade(beta, strlen(beta), 1);
+		if (!up.current || !up_is(&up, beta) || up.format != 3) fail("upgrade_clean", "beta");
+		shcl_upgraded_free(&up);
+	}
+	test_id("Es2qPd1", "upgrade_from_v2_rewrites_a_clean_file_that_reads_differently");
+	{
+		/* The caller says it is 2.x, where a,b was an array. */
+		shcl_upgraded up = shcl_upgrade("p: a,b\n", 7, 1);
+		if (up.current || up.lost != 0 || (up.diagnostics && shcl_diag_count(up.diagnostics) != 0)) fail("upgrade_from_v2", "a,b");
+		if (!up_is(&up, "p: [a, b]\n\n" SHCL_GEN_BANNER)) fail("upgrade_from_v2", up.text);
+		shcl_upgraded_free(&up);
+		/* Nothing reads differently, so there is nothing to do. */
+		const char *same = "a: 1\nb: x\n";
+		up = shcl_upgrade(same, strlen(same), 1);
+		if (!up.current || !up_is(&up, same)) fail("upgrade_from_v2", "same");
+		shcl_upgraded_free(&up);
+	}
+	test_id("Es2qPd2", "upgrade_writes_a_fresh_file_with_the_info_block");
+	{
+		shcl_upgraded up = shcl_upgrade(UP_V2, strlen(UP_V2), 0);
+		if (up.current || up.ambiguous != 0 || up.lost != 0 || up.format != 2) fail("upgrade_fresh", "counts");
+		int e026 = 0;
+		for (size_t i = 0; up.diagnostics && i < shcl_diag_count(up.diagnostics); i++) e026 |= !strcmp(shcl_diag_code(up.diagnostics, i), "E026");
+		if (!e026) fail("upgrade_fresh", "no E026");
+		/* 2.x's block goes, links or none, and the one init writes takes its
+		   place. */
+		if (!up_is(&up, "name: 'say \\\"hi\\\"'\ntags: [a, b]\n\n" SHCL_GEN_BANNER)) fail("upgrade_fresh", up.text);
+		shcl_upgraded again = shcl_upgrade(up.text, up.len, 0);
+		if (!again.current) fail("upgrade_fresh", "the fresh text is not current");
+		shcl_upgraded_free(&again);
+		shcl_upgraded_free(&up);
+	}
+	test_id("Es2qPd3", "upgrade_refuses_text_that_reads_two_ways");
+	{
+		const char *amb = "a: x,y\nb: \"q\n";
+		shcl_upgraded up = shcl_upgrade(amb, strlen(amb), 0);
+		if (up.current || up.ambiguous != 1 || !up_is(&up, amb)) fail("upgrade_ambiguous", "without from_v2");
+		shcl_upgraded_free(&up);
+		up = shcl_upgrade(amb, strlen(amb), 1);
+		const char *head = "a: [x, y]\nb: '\"q'\n\n##\n";
+		if (up.ambiguous != 0 || up.len < strlen(head) || memcmp(up.text, head, strlen(head)) != 0) fail("upgrade_ambiguous", up.text);
+		shcl_upgraded_free(&up);
+	}
+	test_id("Es2qPd4", "backup_name_puts_the_tag_before_the_extension");
+	{
+		static const struct { const char *file; uint32_t format; const char *want; } bn[] = {
+			{"f.shcl", 2, "f" UP_TAG ".shcl"},
+			{"a/b.c.shcl", 2, "a/b.c" UP_TAG ".shcl"},
+			{".shclrc", 2, ".shclrc" UP_TAG},
+			{"d.x/f", 2, "d.x/f" UP_TAG},
+			{"f.shcl", 3, "f_backup_20261004-001500_format-v3.shcl"},
+		};
+		for (size_t i = 0; i < sizeof bn / sizeof bn[0]; i++) {
+			char *got = shcl_backup_file_name(bn[i].file, bn[i].format);
+			if (strcmp(got, bn[i].want) != 0) fail("backup_name", got);
+			free(got);
+		}
+	}
+	test_id("Es2qPd5", "upgrade_file_backs_up_then_rewrites");
+	{
+		char udir[256], file[320], backup[320];
+		up_dir(udir, sizeof udir, "write");
+		snprintf(file, sizeof file, "%s/f.shcl", udir);
+		snprintf(backup, sizeof backup, "%s/f" UP_TAG ".shcl", udir);
+		put_file(file, UP_V2);
+#ifndef _WIN32
+		if (chmod(file, 0640) != 0) fail("upgrade_file", "chmod failed");
+#endif
+		shcl_upgraded up; char *why = NULL;
+		if (shcl_upgrade_file(file, 0, &up, &why) != SHCL_UPGRADE_OK) fail("upgrade_file", why ? why : "failed");
+		free(why); why = NULL;
+		if (!up.backup || strcmp(up.backup, backup) != 0) fail("upgrade_file", up.backup ? up.backup : "no backup");
+		if (!file_is(backup, UP_V2)) fail("upgrade_file", "the backup is not the original");
+		size_t n = 0; char *now = shcl_read_file(file, 0, &n, NULL);
+		if (!now || n != up.len || memcmp(now, up.text, n) != 0) fail("upgrade_file", "the file is not the fresh text");
+		free(now);
+#ifndef _WIN32
+		struct stat bs;
+		if (stat(backup, &bs) != 0 || (bs.st_mode & 07777) != 0640) fail("upgrade_file", "backup mode");
+#endif
+		shcl_upgraded_free(&up);
+		/* The second start finds a current file and writes nothing. */
+		if (shcl_upgrade_file(file, 0, &up, &why) != SHCL_UPGRADE_OK || !up.current || up.backup) fail("upgrade_file", "again");
+		free(why);
+		shcl_upgraded_free(&up);
+		if (dir_entries(udir) != 2) fail("upgrade_file", "entries");
+		dir_clear(udir);
+	}
+	test_id("Es2qPd6", "upgrade_file_never_writes_over_a_backup");
+	{
+		char udir[256], file[320], backup[320], none[320], amb[320];
+		up_dir(udir, sizeof udir, "taken");
+		snprintf(file, sizeof file, "%s/f.shcl", udir);
+		snprintf(backup, sizeof backup, "%s/f" UP_TAG ".shcl", udir);
+		put_file(file, UP_V2);
+		put_file(backup, "x\n");
+		shcl_upgraded up; char *why = NULL;
+		if (shcl_upgrade_file(file, 0, &up, &why) != SHCL_UPGRADE_BACKUP_TAKEN || !why || strncmp(why, backup, strlen(backup)) != 0) fail("upgrade_taken", why ? why : "not refused");
+		free(why); why = NULL;
+		shcl_upgraded_free(&up);
+		if (!file_is(file, UP_V2)) fail("upgrade_taken", "the file changed");
+		if (!file_is(backup, "x\n")) fail("upgrade_taken", "the backup changed");
+		/* Nothing at the path, and text that reads two ways, write nothing. */
+		snprintf(none, sizeof none, "%s/none.shcl", udir);
+		if (shcl_upgrade_file(none, 0, &up, NULL) != SHCL_UPGRADE_NOT_FOUND) fail("upgrade_taken", "none");
+		shcl_upgraded_free(&up);
+		snprintf(amb, sizeof amb, "%s/amb.shcl", udir);
+		put_file(amb, "a: x,y\nb: \"q\n");
+		if (shcl_upgrade_file(amb, 0, &up, NULL) != SHCL_UPGRADE_AMBIGUOUS || up.ambiguous != 1) fail("upgrade_taken", "amb");
+		shcl_upgraded_free(&up);
+		if (dir_entries(udir) != 3) fail("upgrade_taken", "entries");
+		dir_clear(udir);
+	}
+#undef UP_V2
+#undef UP_TAG
+#ifdef _WIN32
+	_putenv_s("SHCL_TEST_CLOCK", "");
+#else
+	unsetenv("SHCL_TEST_CLOCK");
+#endif
 
 #ifdef _WIN32
 	/* Windows-only, and wine cannot show either one: it maps onto a filesystem

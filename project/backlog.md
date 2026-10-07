@@ -33,39 +33,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
-- Back up and rewrite a config file when a program's shcl upgrade breaks it
-	- ID: 2026100313461649
-	- Type: Feature
-	- Status: Waiting for testing
-	- Note: 20261007, built on `upgbak`, off the value syntax branch, in all four bindings with the C++ interface. `shcl upgrade FILE [--write] [--from-2x]`, and `migrate --write` takes the same backup name. Beta-stamped Format 3 files can't be told apart, so they're left out. Waits on the full `--ci` and a hosted run before `upgbak` merges to dev. Details are in `upgbak`'s copy of this file.
-	- Priority: High
-	- Opened: 20261003-134616
-	- Opened by: JC
-	- Prereq IDs: 2026100207032800
-	- Related IDs: 2026100313461650, 2026092709243678, 2026100115403385, 2026100207032800
-	- Problem description:
-		- When a client program's shcl upgrade breaks compatibility with an existing file(s).
-		- Three programs so far are now configured to do this themselves. So just be careful not to race, conflict, or trample what the client program is doing.
-	- Requirements:
-		- Check if the new shcl version has breaking changes with the existing doc. If so:
-			- Rename the latest config file `[origname]_backup_YYYYmmDD-HHMMSS_format-v[shcl version].shcl`.
-				- In local time.
-			- Have the program write a new config file with the same previous path and name, from scratch, using whatever settings and conversions shcl can handle.
-		- Explore ideas like providing a "backup and upgrade config" function, that starts with a nice clean fresh config file, but with previous settings correctly carried over.
-	- Reason: just below "critical" importance as a feature.
-	- Note: 20261003, open points to settle before building.
-		- `migrate --write` already keeps the original as `NAME_old_v2.EXT` (2026092709243678). The two names should probably become one.
-		- Which version goes in the name: the file's format or the shcl library version.
-		- The info block comes only from `init` and a creating `set --write`, never from the library save. A fresh rewrite through the library would need an exception.
-		- 2026100115403385 says beta-stamped Format 3 files are on their own. This item would cover them, if the check can tell a beta file apart.
-	- Decisions:
-		- 20261003: one backup name. `migrate --write` moves from `NAME_old_v2.EXT` to the same timestamped name.
-		- 20261003: the version in the name is the old file's format, so `format-v2` for a 2.x file.
-		- 20261003: the fresh file gets the info block, as `init` writes it. This call is the one library write that does.
-		- 20261003: it covers beta-stamped Format 3 files too, when they can be told apart. This reopens the scope of 2026100115403385.
-	- Note: 20261005, waits on 2026100207032800, since its rewrite goes through `migrate`, which that item's chunk C changes. Work it right after chunk C.
-	- Estimated effort: High
-
 - A CICD test that makes old shcl files and checks the automatic conversion
 	- ID: 2026100313461650
 	- Type: Task
@@ -859,6 +826,74 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Swept: every test for a leading `#` on a comment line in all four. The merge's replaced-leaf rule is the one other site, filed as 2026092718195400.
 	- Branch: `keepdrop`
 	- Test case: corpus `178-clear-comments-kept-line`, both routes, with `comments` reads. It fails on the old code.
+
+- Back up and rewrite a config file when a program's shcl upgrade breaks it
+	- ID: 2026100313461649
+	- Type: Feature
+	- Status: Done
+	- Priority: High
+	- Opened: 20261003-134616
+	- Opened by: JC
+	- Prereq IDs: 2026100207032800
+	- Related IDs: 2026100313461650, 2026092709243678, 2026100115403385, 2026100207032800
+	- Problem description:
+		- When a client program's shcl upgrade breaks compatibility with an existing file(s).
+		- Three programs so far are now configured to do this themselves. So just be careful not to race, conflict, or trample what the client program is doing.
+	- Requirements:
+		- Check if the new shcl version has breaking changes with the existing doc. If so:
+			- Rename the latest config file `[origname]_backup_YYYYmmDD-HHMMSS_format-v[shcl version].shcl`.
+				- In local time.
+			- Have the program write a new config file with the same previous path and name, from scratch, using whatever settings and conversions shcl can handle.
+		- Explore ideas like providing a "backup and upgrade config" function, that starts with a nice clean fresh config file, but with previous settings correctly carried over.
+	- Reason: just below "critical" importance as a feature.
+	- Note: 20261003, open points to settle before building.
+		- `migrate --write` already keeps the original as `NAME_old_v2.EXT` (2026092709243678). The two names should probably become one.
+		- Which version goes in the name: the file's format or the shcl library version.
+		- The info block comes only from `init` and a creating `set --write`, never from the library save. A fresh rewrite through the library would need an exception.
+		- 2026100115403385 says beta-stamped Format 3 files are on their own. This item would cover them, if the check can tell a beta file apart.
+	- Decisions:
+		- 20261003: one backup name. `migrate --write` moves from `NAME_old_v2.EXT` to the same timestamped name.
+		- 20261003: the version in the name is the old file's format, so `format-v2` for a 2.x file.
+		- 20261003: the fresh file gets the info block, as `init` writes it. This call is the one library write that does.
+		- 20261003: it covers beta-stamped Format 3 files too, when they can be told apart. This reopens the scope of 2026100115403385.
+		- 20261007: kept, the user. With `--from-2x`, a 2.x file that loads clean but migrates to other text is backed up and rewritten.
+	- Note: 20261005, waits on 2026100207032800, since its rewrite goes through `migrate`, which that item's chunk C changes. Work it right after chunk C.
+	- Estimated effort: High
+	- Progress log:
+		- 20261007: split by binding. The Rust reference first, on `upgbak` off `valsyn`: library call, CLI, docs and cli-regress rows. Then Go, Python, and C with the C++ interface, one worker each, off `upgbak`.
+		- 20261007: the Rust part is in.
+			- `upgrade_file(path, from_v2)` backs up and rewrites a file that does not load clean. `upgrade(text, from_v2)` is the text half. `backup_file_name(file, format)` and `write_backup(file, text, format)` are the backup half, public so a program that writes its own new text can use the same name. `UpgradeError` has `NotFound`, `Ambiguous`, `BackupTaken` and `Io`.
+			- `shcl upgrade FILE [--write] [--from-2x]`. Without `--write` it prints the fresh text. Exit 7 for text that reads two ways, 8 for a taken backup name or a failed read or write.
+			- `migrate --write` uses the same backup name now. `SHCL_TEST_CLOCK` stands in for the clock, as in the setter note.
+			- Beta-stamped Format 3 files are left out, since they can't be told apart. A beta wrote the same Format line as a release, and from 20260924 on the same info block byte for byte. A file `migrate` stamped has only the Format line. Guessing from the content would rewrite a current file with a typo, and `a,b` would become an array. So a file naming Format 3 is never touched. Noted on 2026100115403385.
+		- Calls made, all reversible:
+			- Names: `upgrade_file`, `upgrade`, `backup_file_name`, `write_backup`, and the CLI's `upgrade`. `backup_name` was taken by a private windows helper.
+			- "Loads clean" is no error diagnostics; hints are fine. A file whose Format line names an older format is left alone too when it loads clean. Nothing writes such a line yet, but at Format 4 it needs a look.
+			- A file with no Format line gets `format-v2` in the backup name, even when it is an unstamped 3.0 file with a typo.
+			- The fresh file is the `fmt` form of the migrated text, with the block `init` writes. 2.x's own `#` block comes off, so there is only one.
+			- Lines and values the fresh file can't hold don't stop the write, since the backup keeps them. They are counted and printed. `migrate --write` still refuses at 7.
+			- The backup is an exclusive-create copy, not a rename, since a rename on POSIX replaces whatever is at the new name. The original stays at the path until the save's temp file and rename replace it. A file that changed since it was read is not written.
+			- Without `--write`, a current file is printed back, as `migrate` does. A missing file is exit 8; the library returns `NotFound`.
+			- 20261007: with `from_v2`, which says the file is 2.x, a file that loads clean is still backed up and rewritten when `migrate --from-2x` would change its text, as with `p: a,b`, an array under 2.x and one string now. One that migrates to the same text is left alone. Without `from_v2`, an unstamped clean file is still current, and a file naming Format 3 is never touched either way.
+		- Left for the ports:
+			- Mirror `upgrade`, `upgrade_file`, `backup_file_name`, `write_backup`, the error type and the CLI subcommand. The help text is byte-identical across the CLIs, so copy it from `main.rs`.
+			- `drop_banners` takes a mark, `#` for 2.x's block, and `set_banner` goes through `swap_banner(on, v2)`. The clock is `clock_now()`, beside `note_stamp()`.
+			- The `from_v2` rule above: a clean load returns current only without `from_v2`, or when the unstamped migrate leaves the text as it was (Rust `upgrade`, `Es2a1Jt`; rows `Es2a1Ju`, `Es2a1Jv`).
+			- Each CLI's `migrate --write` drops `_old_v2` for `backup_file_name`.
+			- cli-regress `Er5qICu`, the `migrate-*` save cases, the 3 windows migrate rows and `Er5qICw` expect the new name, so Go, Python and C fail them until ported. The per-binding clear in cli-regress and the one in sanitize-c remove both names. Drop `_old_v2` from both once all four have moved.
+			- Rows `Es2Rg1E` to `Es2Rg1P`, `Es2RuBA`, `Es2a1Ju` and `Es2a1Jv` run against every binding. Each port gets its own twins of the 7 Rust tests in `tests/upgrade.rs`.
+			- The changelog line doesn't say "in every binding" yet. Add that with the last port.
+			- The C++ interface wraps the new C calls (`check-veneer.bash`).
+		- 20261007: the Go part is in (`upgo`), CLI and `migrate --write` included. Its result type is `Upgraded`, since Go can't name a type and a call both `Upgrade` (noted in the style guide). Go tests `Es2fwnG` to `Es2fx19` twin the 7 Rust ones, and each fails with its part taken out. Verified: go test, go vet and staticcheck, cli-regress and crosscheck for Rust and Go, check-migrate on the Go CLI, help at 80 columns, test-ids check.
+		- 20261007: the Python port, on `uppy`. Python tests `Es2k1AZ` to `Es2k1Qn` match `Es2R4RP`, `Es2a1Jt`, `Es2R4TW`, `Es2R4Vy`, `Es2R4YD`, `Es2R4aS` and `Es2R4ch`, and each failed before it. Python raises `UpgradeNotFound`, `UpgradeAmbiguous`, `UpgradeBackupTaken` or `UpgradeFailed`, all under `UpgradeError`, as a save raises `SaveRefused` or `SaveFailed`. cli-regress, crosscheck and check-migrate pass for the Python CLI.
+		- 20261007: the C port, with the C++ interface, on `upc`. It was the last one, so the changelog line says "in every binding" now, and cli-regress and sanitize-c no longer clear `_old_v2`, since nothing writes that name. C names the result `shcl_upgraded`, beside its `shcl_upgrade` call (noted in the style guide), and `shcl_upgrade_error` is an enum with the message handed back beside it. C tests `Es2qPd0` to `Es2qPd6` twin the 7 Rust ones, and each fails with its part taken out. 24 cli-regress migrate and upgrade rows failed on the C CLI before. Verified: the C runner (203 of 203) and its windows build under wine, sanitize-c, check-c-compilers (all 5 levels), cppcheck at the normal level, check-veneer, veneer_smoke and its windows build under wine, cli-regress for C and Rust, crosscheck (no divergences), check-migrate on the C CLI, help at 80 columns, test-ids check, check-docs, check-readme. Over the 203 corpus inputs, `upgrade` with and without `--from-2x`, printed and with `--write`, matches Rust byte for byte under ASan and UBSan.
+	- Test case: Rust `tests/upgrade.rs`, `Es2R4RP` to `Es2R4ch` and `Es2a1Jt`; cli-regress `Es2Rg1E` to `Es2Rg1P`, `Es2RuBA`, `Es2a1Ju` and `Es2a1Jv`. `Es2R4RP`, `Es2R4TW` and `Es2R4ch` each fail with their part of the change taken out. `Es2a1Jt` failed on `60d0196c` and passes after. `Es2R4RP` now checks the clean file without `from_v2`, since the from_v2 call changed that case.
+	- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, the upgrade tests on windows-gnu under wine, cli-regress for Rust, check-migrate, check-docs, check-completions, test-ids check, shellcheck, markdownlint, and the 2,000,000 release fuzz (all 25). shell-regress fails the same 2 as on `valsyn`. Over the 203 corpus inputs, `upgrade --from-2x` rewrote 71, each one a fixpoint of `upgrade` and of `fmt`, with the same paths as `migrate --from-2x`.
+	- Verified: 20261007, on `upgbak` at `5c4221bf` with dev merged in: the full `--ci` (2032 ok, tree recorded) and hosted run 37680667248 (ci, windows, macos and go-floor green).
+	- Branch: `upgbak`
+	- Commit: `60d0196c`, `019400ad`
+	- Acceptance signoff: Self-closed: built in all four and the C++ interface, the from-2x call answered, and the full gate and hosted run pass.
+	- Closed: 20261007-134500
 
 - Selectors use `()`, and `[]` is for arrays only
 	- ID: 2026100610073400

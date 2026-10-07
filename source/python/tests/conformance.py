@@ -3403,6 +3403,141 @@ def main():
 	if "ESCAPE_CHAR" not in shcl.migrate(mtext, True).text:
 		raise SystemExit("no ESCAPE_CHAR with from_v2")
 
+	# upgrade and upgrade_file (2026100313461649): a file this version cannot
+	# load clean is backed up under a timestamped name and written fresh, and
+	# a good one is never touched. The backup's name reads the clock, so it is
+	# pinned for all of them.
+	held_clock = os.environ.get("SHCL_TEST_CLOCK")
+	os.environ["SHCL_TEST_CLOCK"] = "2026-10-04 00:15:00 -420 PDT"
+	up_v2 = "name: \"say \\\"hi\\\"\"\ntags: a, b\n\n#\n# This config file format is SHCL.\n# \"Simple Hierarchical Config Language\"\n#    Legal    SHCL is Copyright © 2026 Jim Collier. License: MIT. No warranty.\n#\n"
+	up_tag = "_backup_20261004-001500_format-v2"
+
+	test_id("Es2k1AZ", "upgrade_leaves_a_clean_or_stamped_file")
+	# a,b is one string now and an array under 2.x, but it loads clean, and
+	# nothing says the file is 2.x.
+	up = shcl.upgrade("a: 1\nb: x,y\n", False)
+	if not up.current or up.text != "a: 1\nb: x,y\n" or up.diagnostics:
+		raise SystemExit(f"clean: {up.current} {up.text!r} {up.diagnostics}")
+	if not shcl.upgrade(f"p: a,b\n\n{shcl.GEN_BANNER}", True).current:
+		raise SystemExit("stamped: not current")
+	# A beta build stamped the same Format line, so its errors are left too.
+	up_beta = f"tags: a, b\n\n{shcl.GEN_BANNER}"
+	up = shcl.upgrade(up_beta, True)
+	if not up.current or up.text != up_beta or up.format != 3:
+		raise SystemExit(f"beta: {up.current} {up.format} {up.text!r}")
+
+	test_id("Es2k1DD", "upgrade_from_v2_rewrites_a_clean_file_that_reads_differently")
+	# The caller says it is 2.x, where a,b was an array.
+	up = shcl.upgrade("p: a,b\n", True)
+	if up.current or up.lost != 0 or up.diagnostics:
+		raise SystemExit(f"a,b: {up.current} {up.lost} {up.diagnostics}")
+	if up.text != f"p: [a, b]\n\n{shcl.GEN_BANNER}":
+		raise SystemExit(repr(up.text))
+	# Nothing reads differently, so there is nothing to do.
+	up = shcl.upgrade("a: 1\nb: x\n", True)
+	if not up.current or up.text != "a: 1\nb: x\n":
+		raise SystemExit(f"same: {up.current} {up.text!r}")
+
+	test_id("Es2k1Fd", "upgrade_writes_a_fresh_file_with_the_info_block")
+	up = shcl.upgrade(up_v2, False)
+	if up.current or up.ambiguous != 0 or up.lost != 0 or up.format != 2:
+		raise SystemExit(f"{up.current} {up.ambiguous} {up.lost} {up.format}")
+	if not any(d.code == "E026" for d in up.diagnostics):
+		raise SystemExit(f"{up.diagnostics}")
+	# 2.x's block goes, links or none, and the one init writes takes its
+	# place.
+	up_want = f"name: 'say \\\"hi\\\"'\ntags: [a, b]\n\n{shcl.GEN_BANNER}"
+	if up.text != up_want:
+		raise SystemExit(f"got {up.text!r}\nwant {up_want!r}")
+	if not shcl.upgrade(up.text, False).current:
+		raise SystemExit("the fresh text is not current")
+
+	test_id("Es2k1IT", "upgrade_refuses_text_that_reads_two_ways")
+	up_amb = "a: x,y\nb: \"q\n"
+	up = shcl.upgrade(up_amb, False)
+	if up.current or up.ambiguous != 1 or up.text != up_amb:
+		raise SystemExit(f"{up.current} {up.ambiguous} {up.text!r}")
+	up = shcl.upgrade(up_amb, True)
+	if up.ambiguous != 0 or not up.text.startswith("a: [x, y]\nb: '\"q'\n\n##\n"):
+		raise SystemExit(f"from_v2: {up.ambiguous} {up.text!r}")
+
+	test_id("Es2k1LA", "backup_name_puts_the_tag_before_the_extension")
+	for up_file, up_format, up_want in (
+		("f.shcl", 2, f"f{up_tag}.shcl"),
+		("a/b.c.shcl", 2, f"a/b.c{up_tag}.shcl"),
+		(".shclrc", 2, f".shclrc{up_tag}"),
+		("d.x/f", 2, f"d.x/f{up_tag}"),
+		("f.shcl", 3, "f_backup_20261004-001500_format-v3.shcl"),
+	):
+		if shcl.backup_file_name(up_file, up_format) != up_want:
+			raise SystemExit(f"{up_file}: {shcl.backup_file_name(up_file, up_format)!r}")
+
+	test_id("Es2k1Ny", "upgrade_file_backs_up_then_rewrites")
+	with tempfile.TemporaryDirectory() as ud:
+		up_path = os.path.join(ud, "f.shcl")
+		with open(up_path, "wb") as uf:
+			uf.write(up_v2.encode("utf-8"))
+		if os.name == "posix":
+			os.chmod(up_path, 0o640)
+		up = shcl.upgrade_file(up_path, False)
+		up_backup = os.path.join(ud, f"f{up_tag}.shcl")
+		if up.backup != up_backup:
+			raise SystemExit(f"backup {up.backup!r}")
+		with open(up_backup, "rb") as uf:
+			if uf.read() != up_v2.encode("utf-8"):
+				raise SystemExit("the backup is not the original")
+		with open(up_path, "rb") as uf:
+			if uf.read() != up.text.encode("utf-8"):
+				raise SystemExit("the file is not the fresh text")
+		if os.name == "posix" and stat.S_IMODE(os.stat(up_backup).st_mode) != 0o640:
+			raise SystemExit(f"mode {stat.S_IMODE(os.stat(up_backup).st_mode):o}")
+		# The second start finds a current file and writes nothing.
+		up = shcl.upgrade_file(up_path, False)
+		if not up.current or up.backup != "" or len(os.listdir(ud)) != 2:
+			raise SystemExit(f"again: {up.current} {up.backup!r} {os.listdir(ud)}")
+
+	test_id("Es2k1Qn", "upgrade_file_never_writes_over_a_backup")
+	with tempfile.TemporaryDirectory() as ud:
+		up_path = os.path.join(ud, "f.shcl")
+		with open(up_path, "wb") as uf:
+			uf.write(up_v2.encode("utf-8"))
+		up_backup = os.path.join(ud, f"f{up_tag}.shcl")
+		with open(up_backup, "wb") as uf:
+			uf.write(b"x\n")
+		try:
+			shcl.upgrade_file(up_path, False)
+			raise SystemExit("taken: wrote")
+		except shcl.UpgradeBackupTaken as e:
+			if e.name != up_backup:
+				raise SystemExit(f"taken: {e.name!r}") from None
+		with open(up_path, "rb") as uf:
+			if uf.read() != up_v2.encode("utf-8"):
+				raise SystemExit("taken: the file changed")
+		with open(up_backup, "rb") as uf:
+			if uf.read() != b"x\n":
+				raise SystemExit("taken: the backup changed")
+		# Nothing at the path, and text that reads two ways, write nothing.
+		try:
+			shcl.upgrade_file(os.path.join(ud, "none.shcl"), False)
+			raise SystemExit("none: no error")
+		except shcl.UpgradeNotFound:
+			pass
+		up_amb_path = os.path.join(ud, "amb.shcl")
+		with open(up_amb_path, "wb") as uf:
+			uf.write(b"a: x,y\nb: \"q\n")
+		try:
+			shcl.upgrade_file(up_amb_path, False)
+			raise SystemExit("amb: no error")
+		except shcl.UpgradeAmbiguous as e:
+			if e.count != 1:
+				raise SystemExit(f"amb: count {e.count}") from None
+		if len(os.listdir(ud)) != 3:
+			raise SystemExit(f"left {os.listdir(ud)}")
+	if held_clock is None:
+		del os.environ["SHCL_TEST_CLOCK"]
+	else:
+		os.environ["SHCL_TEST_CLOCK"] = held_clock
+
 	test_id_end()
 	print(f"conformance: {len(cases)} case(s) pass")
 	return 0

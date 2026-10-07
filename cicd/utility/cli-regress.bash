@@ -340,6 +340,14 @@ printf 'a: %s\nb: ~~~\n\tline\n' "'x\ty'" > "${tmpDir}/migraw.shcl"
 ## Two Windows paths holding a line break on one line, and a bracket array on
 ## the next: three values lost, on two lines.
 printf '%s\n' 'p: "C:\\a\nb", "D:\\c\nd"' 'q: [1, 2]' > "${tmpDir}/miglost2.shcl"
+## 2.x text upgrade has to make over: a comma list these rules refuse, under
+## the info block 2.x's init wrote, less its two links, which goes. And text
+## that reads two ways, a,b, beside an unclosed quote, so it does not load
+## clean either.
+printf 'tags: a, b\nport: 80\n\n#\n# This config file format is SHCL.\n# "Simple Hierarchical Config Language"\n#    Legal    SHCL is Copyright \302\251 2026 Jim Collier. License: MIT. No warranty.\n#\n' > "${tmpDir}/upgv2.shcl"
+printf 'a: x,y\nb: "q\n' > "${tmpDir}/upgamb.shcl"
+## Clean under these rules, and an array under 2.x.
+printf 'p: a,b\n' > "${tmpDir}/upgclean.shcl"
 ## A schema key nothing knows, on schema line 2.
 printf 'field: a\n\tbogus: 1\n' > "${tmpDir}/unkey.shcl"
 ## A file and a name that both start with a dash, so only `--` makes them data.
@@ -391,6 +399,9 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	and fourth at the path %C% names, %MV% two lost values on one line and a
 ##	bracket array on the next, %LEW% a fresh copy at that path of a stacked
 ##	list with a field under it, after an instance of its name with fields,
+##	%U2% a 2.x file under 2.x's info block that does not load clean, %UA% one
+##	that reads two ways, and %U2W%/%UAW% fresh copies of them at that path,
+##	%UC% one that loads clean and reads as an array under 2.x,
 ##	%W% a fresh copy of the selector-sugar file, %BS% a fresh copy of a file
 ##	holding a backslash 2.x read as an escape, %BW% a fresh copy of
 ##	the bracket array, %V3% a file that already names its format,
@@ -987,7 +998,21 @@ rows=(
 	"ErkalBc|migrate-write-raw-open|migrate --write --from-2x %MRW%|-|7|-|nowhere to put the Format line|a: 'x\\\\ty'\nb: ~~~\n\tline\n"
 	## The kept original, named. The save cases below check the file itself,
 	## but they are POSIX fixtures, so this is the one windows runs.
-	'Er5qICu|migrate-write-keeps|migrate --write %W%|-|0||migrated, 1 line\(s\) rewritten; the original is .*w_old_v2\.shcl$'
+	'Er5qICu|migrate-write-keeps|migrate --write %W%|-|0||migrated, 1 line\(s\) rewritten; the original is .*w_backup_20261004-001500_format-v2\.shcl$'
+	## 2026100313461649: upgrade makes over a file that does not load clean,
+	## keeps the original under the timestamped name, and leaves a clean one
+	## alone. Text that reads two ways is refused at 7 with nothing written.
+	'Es2Rg1E|upgrade-print|upgrade %U2%|-|0|tags: [a, b]\nport: 80\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n|E026'
+	'Es2Rg1F|upgrade-write|upgrade --write %U2W%|-|0|-|upgraded; the original is .*created_backup_20261004-001500_format-v2\.shcl$|tags: [a, b]\nport: 80\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n'
+	'Es2Rg1G|upgrade-write-ambiguous|upgrade --write %UAW%|-|7|-|read one way under 2\.x and another.*--from-2x|a: x,y\nb: "q\n'
+	'Es2Rg1H|upgrade-clean|upgrade --write %NC%|-|0|-|nothing to upgrade'
+	'Es2Rg1I|upgrade-usage-line|upgrade|-|1||^usage: shcl upgrade \[options\] FILE \(see --help\)$'
+	'Es2Rg1J|upgrade-stdin-write|upgrade --write -|-|1||cannot rewrite stdin'
+	'Es2Rg1K|upgrade-check-refused|upgrade --check %UA%|-|1||--check'
+	## With --from-2x a clean file that reads differently once migrated is
+	## made over too; without it, it is left alone.
+	'Es2a1Ju|upgrade-from-2x-clean|upgrade --from-2x %UC%|-|0|p: [a, b]\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n|!.'
+	'Es2a1Jv|upgrade-clean-unsaid|upgrade %UC%|-|0|p: a,b\n|nothing to upgrade'
 	## 20260918 item 18: the usage line said [--write|-w] where the help line
 	## says [options].
 	'EqGfz44|migrate-usage-line|migrate|-|1||^usage: shcl migrate \[options\] FILE \(see --help\)$'
@@ -1371,6 +1396,9 @@ for row in "${rows[@]}"; do
 	argv="${argv//%MY%/${tmpDir}/miglonecrcrlf.shcl}"
 	argv="${argv//%MR%/${tmpDir}/migraw.shcl}"
 	argv="${argv//%MV%/${tmpDir}/miglost2.shcl}"
+	argv="${argv//%U2%/${tmpDir}/upgv2.shcl}"
+	argv="${argv//%UA%/${tmpDir}/upgamb.shcl}"
+	argv="${argv//%UC%/${tmpDir}/upgclean.shcl}"
 	argv="${argv//%SU%/${tmpDir}/unkey.shcl}"
 	argv="${argv//%NA%/${tmpDir}/nonascii.shcl}"
 	runIn=""
@@ -1461,6 +1489,12 @@ for row in "${rows[@]}"; do
 	elif [[ "${argv}" == *%LEW%* ]]; then
 		freshMigSrc=listempty
 		argv="${argv//%LEW%/${tmpDir}/created.shcl}"
+	elif [[ "${argv}" == *%U2W%* ]]; then
+		freshMigSrc=upgv2
+		argv="${argv//%U2W%/${tmpDir}/created.shcl}"
+	elif [[ "${argv}" == *%UAW%* ]]; then
+		freshMigSrc=upgamb
+		argv="${argv//%UAW%/${tmpDir}/created.shcl}"
 	fi
 	freshCreate=0
 	if [[ "${argv}" == *%C%* ]]; then
@@ -1534,9 +1568,9 @@ for row in "${rows[@]}"; do
 	done
 	for b in "${bindings[@]}"; do
 		name="${b%%|*}"; cli="${b#*|}"
-		## migrate --write keeps the original beside the file, and refuses when a
-		## copy from the last binding's run is still there.
-		rm -f "${tmpDir}/w_old_v2.shcl" "${tmpDir}/bs_old_v2.shcl" "${tmpDir}/bw_old_v2.shcl" "${tmpDir}/created_old_v2.shcl"
+		## migrate and upgrade --write keep the original beside the file, and
+		## refuse when a backup from the last binding's run is still there.
+		rm -f "${tmpDir}"/{w,bs,bw,created}_backup_*
 		((freshCopy)) && cp "${tmpDir}/sugar.shcl" "${tmpDir}/w.shcl"
 		((freshBs)) && cp "${tmpDir}/bsrc.shcl" "${tmpDir}/bs.shcl"
 		((freshBw)) && cp "${tmpDir}/brsrc.shcl" "${tmpDir}/bw.shcl"
@@ -1776,7 +1810,7 @@ if [[ "${onWindows}" == 1 ]]; then
 		MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' icacls "${winDir}\\f.shcl" /inheritance:r /grant:r "${USERNAME}:(F)" >/dev/null
 		want="$(fDacl "${winDir}\\f.shcl")"
 		rc=0; (cd "${aclDir}" && timeout "${rowSecs}" "${cli}" migrate --write f.shcl >/dev/null 2>"${tmpDir}/err" </dev/null) || rc=$?
-		got="$(fDacl "${winDir}\\f_old_v2.shcl")"
+		got="$(fDacl "${winDir}\\f_backup_20261004-001500_format-v2.shcl")"
 		nRun+=1
 		if [[ "${rc}" != 0 || "${want}" != D:P* || "${got}" != "${want}" ]]; then
 			echo "cli-regress: windows-migrate-acl [${name}]: exit ${rc}, copy ${got@Q}, original ${want@Q}: $(head -c 200 "${tmpDir}/err")" >&2; nBad+=1
@@ -1799,7 +1833,7 @@ if [[ "${onWindows}" == 1 ]]; then
 		winDir="$(cygpath -w "${roDir}")"
 		MSYS_NO_PATHCONV=1 attrib +r "${winDir}\\f.shcl" >/dev/null
 		rc=0; (cd "${roDir}" && timeout "${rowSecs}" "${cli}" migrate --write f.shcl >/dev/null 2>"${tmpDir}/err" </dev/null) || rc=$?
-		got="$(MSYS_NO_PATHCONV=1 powershell.exe -NoProfile -NonInteractive -Command "(Get-Item -LiteralPath '${winDir}\\f_old_v2.shcl').IsReadOnly" 2>/dev/null | tr -d '\r' || true)"
+		got="$(MSYS_NO_PATHCONV=1 powershell.exe -NoProfile -NonInteractive -Command "(Get-Item -LiteralPath '${winDir}\\f_backup_20261004-001500_format-v2.shcl').IsReadOnly" 2>/dev/null | tr -d '\r' || true)"
 		MSYS_NO_PATHCONV=1 attrib -r "${winDir}\\*" >/dev/null || true
 		nRun+=1
 		if [[ "${rc}" != 0 || "${got}" != False ]]; then
@@ -1811,7 +1845,7 @@ else
 fi
 
 ## 20260928 item 13: the name starts after a drive with no separator, so the
-## copy of C:.shclrc is C:.shclrc_old_v2, not C:_old_v2.shclrc. The drive is
+## copy of C:.shclrc is C:.shclrc_backup_..., not C:_backup_....shclrc. The drive is
 ## the fixture's own, whose current directory is the fixture. Only that argument
 ## is kept from path conversion, since the python wrapper's own path needs it.
 fTest ErMwwZ1 windows-migrate-drive-relative
@@ -1824,7 +1858,7 @@ if [[ "${onWindows}" == 1 ]]; then
 		drive="$(cygpath -w "${drelDir}")"; drive="${drive:0:2}"
 		rc=0; (cd "${drelDir}" && MSYS2_ARG_CONV_EXCL="${drive}" timeout "${rowSecs}" "${cli}" migrate --write "${drive}.shclrc" >/dev/null 2>"${tmpDir}/err" </dev/null) || rc=$?
 		nRun+=1
-		if [[ "${rc}" != 0 || ! -f "${drelDir}/.shclrc_old_v2" || -e "${drelDir}/_old_v2.shclrc" ]]; then
+		if [[ "${rc}" != 0 || ! -f "${drelDir}/.shclrc_backup_20261004-001500_format-v2" || -e "${drelDir}/_backup_20261004-001500_format-v2.shclrc" ]]; then
 			echo "cli-regress: windows-migrate-drive-relative [${name}]: exit ${rc}, left $(find "${drelDir}" -mindepth 1 -printf '%f '): $(head -c 200 "${tmpDir}/err")" >&2; nBad+=1
 		fi
 	done
@@ -1978,7 +2012,7 @@ fSaveSetup() {
 		## file that does not say it is 2.x keeps it (exit 7). A line under it
 		## makes it E028 here, so these rewrite at exit 0 as they did.
 		migrate)  printf 'base:[Boston]\n\tlat: 42\n' > f.shcl; chmod 0640 f.shcl ;;
-		migrate-taken) printf 'base:[Boston]\n\tlat: 42\n' > f.shcl; printf 'x\n' > f_old_v2.shcl ;;
+		migrate-taken) printf 'base:[Boston]\n\tlat: 42\n' > f.shcl; printf 'x\n' > f_backup_20261004-001500_format-v2.shcl ;;
 		migrate-stamp) printf 'a: 1\n' > f.shcl ;;
 		kept-remove) printf 'x: 1\nr: [1, 2\ny: 3\n' > f.shcl ;;
 		kept-lazy) printf 'a: [1\n\tb: 2\ny: 3\n' > f.shcl ;;
@@ -1992,6 +2026,10 @@ fSaveSetup() {
 		## file whose group the caller is not in.
 		migrate-setid) printf 'base:[Boston]\n\tlat: 42\n' > f.shcl; chgrp "$(id -gn)" f.shcl; chmod 6755 f.shcl ;;
 		migrate-rodir) mkdir ro; printf 'base:[Boston]\n\tlat: 42\n' > ro/g.shcl; chmod 0555 ro ;;
+		upgrade)  printf 'base:[Boston]\n\tlat: 42\n' > f.shcl; chmod 0640 f.shcl ;;
+		upgrade-taken) printf 'base:[Boston]\n\tlat: 42\n' > f.shcl; printf 'x\n' > f_backup_20261004-001500_format-v2.shcl ;;
+		upgrade-link) mkdir real; printf 'base:[Boston]\n\tlat: 42\n' > real/c.shcl; ln -s real/c.shcl f.shcl ;;
+		upgrade-rodir) mkdir ro; printf 'base:[Boston]\n\tlat: 42\n' > ro/g.shcl; chmod 0555 ro ;;
 	esac
 }
 ## id | argv | exit | what must hold afterwards, as a bash test run in the directory
@@ -2023,19 +2061,19 @@ saveCases=(
 	## migrate --write ends with the new file and the original beside it, at the
 	## original's mode. An earlier copy is never written over, and a file that
 	## only gains the Format line gets no copy.
-	'Er5ivua|migrate|migrate --write f.shcl|0|grep -qx "base: Boston" f.shcl && cmp -s f_old_v2.shcl <(printf "base:[Boston]\n\tlat: 42\n") && [[ "$(fStat a f_old_v2.shcl)" == 640 ]]'
-	'Er5ivub|migrate-taken|migrate --write f.shcl|8|grep -qx "base:\[Boston\]" f.shcl && [[ "$(cat f_old_v2.shcl)" == x && "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
+	'Er5ivua|migrate|migrate --write f.shcl|0|grep -qx "base: Boston" f.shcl && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "base:[Boston]\n\tlat: 42\n") && [[ "$(fStat a f_backup_20261004-001500_format-v2.shcl)" == 640 ]]'
+	'Er5ivub|migrate-taken|migrate --write f.shcl|8|grep -qx "base:\[Boston\]" f.shcl && [[ "$(cat f_backup_20261004-001500_format-v2.shcl)" == x && "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
 	'Er5ivuc|migrate-stamp|migrate --write f.shcl|0|[[ "$(ls -A)" == f.shcl ]]'
-	'Er5ivud|migrate-dotname|migrate --write .f|0|[[ -f .f_old_v2 ]]'
-	'Er5ivue|migrate-dotdir|migrate --write d.x/f|0|[[ -f d.x/f_old_v2 ]]'
+	'Er5ivud|migrate-dotname|migrate --write .f|0|[[ -f .f_backup_20261004-001500_format-v2 ]]'
+	'Er5ivue|migrate-dotdir|migrate --write d.x/f|0|[[ -f d.x/f_backup_20261004-001500_format-v2 ]]'
 	## Through a link: the target gets the new text, and the copy sits beside
 	## the link as a plain file.
-	'Er5qICv|migrate-link|migrate --write f.shcl|0|[[ -L f.shcl && -f f_old_v2.shcl && ! -L f_old_v2.shcl && ! -e real/c_old_v2.shcl ]] && grep -qx "base: Boston" real/c.shcl && grep -qx "base:\[Boston\]" f_old_v2.shcl'
+	'Er5qICv|migrate-link|migrate --write f.shcl|0|[[ -L f.shcl && -f f_backup_20261004-001500_format-v2.shcl && ! -L f_backup_20261004-001500_format-v2.shcl && ! -e real/c_backup_20261004-001500_format-v2.shcl ]] && grep -qx "base: Boston" real/c.shcl && grep -qx "base:\[Boston\]" f_backup_20261004-001500_format-v2.shcl'
 	## 20260928 items 3, 6 and 11: in a setgid directory the copy takes the
 	## original's group, not the directory's. Setuid, setgid and sticky come
 	## over too. A copy that cannot be made names its path once.
-	'ErCrqxU|migrate-setgid|migrate --write sg/f.shcl|0|[[ "$(fStat G sg/f_old_v2.shcl)" == "$(id -gn)" && "$(fStat a sg/f_old_v2.shcl)" == 640 ]]'
-	'ErCrqz4|migrate-setid|migrate --write f.shcl|0|[[ "$(fStat a f_old_v2.shcl)" == 6755 ]]'
+	'ErCrqxU|migrate-setgid|migrate --write sg/f.shcl|0|[[ "$(fStat G sg/f_backup_20261004-001500_format-v2.shcl)" == "$(id -gn)" && "$(fStat a sg/f_backup_20261004-001500_format-v2.shcl)" == 640 ]]'
+	'ErCrqz4|migrate-setid|migrate --write f.shcl|0|[[ "$(fStat a f_backup_20261004-001500_format-v2.shcl)" == 6755 ]]'
 	## A remove leaves the kept line beside its target (2026100307163901). Until
 	## that fix the save gate refused this at 7 and left the file alone.
 	'EreYYXK|kept-remove|set --write --remove y f.shcl|0|cmp -s f.shcl <(printf "x: 1\nr: [1, 2\n") && ! grep -q "refusing" "${tmpDir}/err"'
@@ -2048,7 +2086,13 @@ saveCases=(
 	## A setter making `a` writes every kept `a` in the block as that comment
 	## and puts the new line under the first (2026100307163907).
 	'ErmXhyt|kept-create|set --write --set a=5 f.shcl|0|cmp -s f.shcl <(printf "x: 1\n# a: [1  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing \x27]\x27 on the line\na: 5\ny: 3\n# a: [2  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 malformed array, no closing \x27]\x27 on the line\n")'
-	'ErCrr0Y|migrate-rodir|migrate --write ro/g.shcl|8|grep -qx "base:\[Boston\]" ro/g.shcl && grep -qiE "^ro/g_old_v2\.shcl: permission denied" "${tmpDir}/err" && ! grep -q "open " "${tmpDir}/err"'
+	## upgrade --write backs up and writes the same way (2026100313461649).
+	'Es2Rg1L|upgrade|upgrade --write f.shcl|0|grep -qx "base: Boston" f.shcl && grep -qx "##    Format   3" f.shcl && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "base:[Boston]\n\tlat: 42\n") && [[ "$(fStat a f_backup_20261004-001500_format-v2.shcl)" == 640 && "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
+	'Es2Rg1M|upgrade-taken|upgrade --write f.shcl|8|grep -qx "base:\[Boston\]" f.shcl && [[ "$(cat f_backup_20261004-001500_format-v2.shcl)" == x && "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
+	'Es2Rg1N|upgrade-link|upgrade --write f.shcl|0|[[ -L f.shcl && -f f_backup_20261004-001500_format-v2.shcl && ! -L f_backup_20261004-001500_format-v2.shcl && ! -e real/c_backup_20261004-001500_format-v2.shcl ]] && grep -qx "base: Boston" real/c.shcl && grep -qx "base:\[Boston\]" f_backup_20261004-001500_format-v2.shcl'
+	'Es2Rg1O|fifo-upgrade|upgrade --write f.shcl|8|[[ -p f.shcl ]]'
+	'Es2Rg1P|upgrade-rodir|upgrade --write ro/g.shcl|8|grep -qx "base:\[Boston\]" ro/g.shcl && grep -qiE "^ro/g_backup_20261004-001500_format-v2\.shcl: permission denied" "${tmpDir}/err"'
+	'ErCrr0Y|migrate-rodir|migrate --write ro/g.shcl|8|grep -qx "base:\[Boston\]" ro/g.shcl && grep -qiE "^ro/g_backup_20261004-001500_format-v2\.shcl: permission denied" "${tmpDir}/err" && ! grep -q "open " "${tmpDir}/err"'
 )
 if [[ "${onWindows}" == 1 ]]; then
 	echo "cli-regress: skipping the save-target cases (POSIX fixtures; not judged on windows)"
@@ -2142,10 +2186,32 @@ else
 		(trap '' XFSZ; ulimit -f 1; exec "${cli}" migrate --write "${failDir}/f.shcl" >/dev/null 2>"${tmpDir}/err" </dev/null) || rc=$?
 		nRun+=1
 		## An error naming the copy means the cap broke the copy, not the save.
-		if [[ "${rc}" != 8 ]] || grep -q _old_v2 "${tmpDir}/err"; then
+		if [[ "${rc}" != 8 ]] || grep -q _backup_ "${tmpDir}/err"; then
 			echo "cli-regress: migrate-failed-save [${name}]: exit ${rc}, expected 8 from the save: $(head -c 200 "${tmpDir}/err")" >&2; nBad+=1
-		elif ! cmp -s "${failDir}/f.shcl" "${tmpDir}/migfail.src" || [[ -e "${failDir}/f_old_v2.shcl" ]]; then
+		elif ! cmp -s "${failDir}/f.shcl" "${tmpDir}/migfail.src" || [[ -e "${failDir}/f_backup_20261004-001500_format-v2.shcl" ]]; then
 			echo "cli-regress: migrate-failed-save [${name}]: afterwards: $(find "${failDir}" -mindepth 1 -printf '%f ')" >&2; nBad+=1
+		fi
+	done
+fi
+
+## The same for upgrade --write, whose fresh text, the info block added, is
+## further over the cap (2026100313461649).
+fTest Es2RuBA upgrade-failed-save
+if [[ "${onWindows}" == 1 ]]; then
+	echo "cli-regress: skipping upgrade-failed-save (POSIX file-size limit)"
+	fTestSkip
+else
+	for b in "${bindings[@]}"; do
+		name="${b%%|*}"; cli="${b#*|}"
+		rm -rf "${failDir}"; mkdir -p "${failDir}"
+		cp "${tmpDir}/migfail.src" "${failDir}/f.shcl"
+		rc=0
+		(trap '' XFSZ; ulimit -f 1; exec "${cli}" upgrade --write "${failDir}/f.shcl" >/dev/null 2>"${tmpDir}/err" </dev/null) || rc=$?
+		nRun+=1
+		if [[ "${rc}" != 8 ]] || grep -q _backup_ "${tmpDir}/err"; then
+			echo "cli-regress: upgrade-failed-save [${name}]: exit ${rc}, expected 8 from the save: $(head -c 200 "${tmpDir}/err")" >&2; nBad+=1
+		elif ! cmp -s "${failDir}/f.shcl" "${tmpDir}/migfail.src" || [[ -n "$(find "${failDir}" -name '*_backup_*')" ]]; then
+			echo "cli-regress: upgrade-failed-save [${name}]: afterwards: $(find "${failDir}" -mindepth 1 -printf '%f ')" >&2; nBad+=1
 		fi
 	done
 fi
