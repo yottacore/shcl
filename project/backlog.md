@@ -73,6 +73,39 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- b26, 20261006, not CI: the corpus `fmt` and `check` against Linux, cli-regress, and `install.bash` against a stand-in release.
 		- Hosted: the `macos` job, still to be seen.
 
+- cli-regress fails 3 rows on macOS's own tools
+	- ID: 2026100617010925
+	- Type: Bug
+	- Status: Waiting for testing
+	- Needs local test suite run?: N. cli-regress, check-migrate, shell-regress, test-ids and shellcheck pass on Linux.
+	- Needs external testing: a cli-regress run on b26 with stock macOS tools plus a `timeout`, and the hosted macos job, which should now pass `man-width` through `mandoc`. The hosted windows job too, though nothing there should change.
+	- Severity: Low
+	- Opened: 20261006-170109
+	- Opened by: the b26 run for 2026100313461652
+	- Related IDs: 2026100313461652, 2026100413052101
+	- Target OS: macOS, FreeBSD
+	- Test environment: b26 (macOS 15.8.1), bash 5.2, no GNU coreutils.
+	- Steps to reproduce:
+		- On a Mac without GNU coreutils, with a `timeout` on PATH, run `cicd/utility/cli-regress.bash "macos|PATH-TO-SHCL"` under bash 4 or later.
+	- Incorrect behavior: 3 rows fail on the script's own tools, not on the CLI. `broken-pipe` calls `env --default-signal`, which BSD `env` lacks. `save-migrate-taken` compares `ls -A | wc -l` to `2`, and BSD `wc` pads the count with spaces. `man-width` calls `man --nh --nj -l`, which only man-db takes, so the page renders to nothing.
+	- Expected behavior: the 3 rows pass on BSD tools, as they do on Linux.
+	- Reproduced: 20261006 on b26. Run by hand there, the CLI does what each row wants: 141 with nothing on stderr, exit 8 with both files left, and the page at 80 columns under `mandoc`.
+	- Actual cause: GNU-only forms. The hosted macos job puts GNU coreutils first on PATH, so it never meets them.
+	- Note: 20261006, the hosted macos job does meet `man-width`: GNU coreutils has no `man`, and the runner's is not man-db. It is the only row that job fails (run 37550690633), so it keeps 2026100313461652 open and turns the job red on a main push.
+	- Note: 20261006, `macb26` already fixed the first two forms found (`head -c -1` and `stat -c`) and made a missing `timeout` an exit 2 with a message. Stock macOS still has no `timeout`.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: each row keeps the GNU form where it works and falls back otherwise.
+		- `broken-pipe` puts the default SIGPIPE back with perl where `env` has no `--default-signal`. With neither, it runs the CLI as is when SIGPIPE is not ignored, and skips with a message when it is.
+		- `save-migrate-taken` strips the spaces from the `wc -l` count before comparing. Same fix in check-migrate `EqRiIDx`, the only other string compare of a `wc` count.
+		- `man-width` uses man-db when `man --version` says it is man-db, else `mandoc -T ascii -O width=80`, else the old skip. The overstrike strip no longer needs GNU sed's `\x08`.
+	- Verified: on Linux with GNU tools, cli-regress passes all 3 rows on the Rust debug CLI, and check-migrate, shell-regress, test-ids and shellcheck pass. With a padding `wc`, an `env` without `--default-signal`, a `man` that is not man-db and Debian's `mandoc` 1.14.6 first on PATH, the old script fails all 3 rows and the new one passes them. It also passes with no perl, and with perl and SIGPIPE ignored. With no perl and SIGPIPE ignored, `broken-pipe` skips. With no mandoc, `man-width` skips as before. A 90-column line put in the page fails `man-width` through mandoc, and a CLI that does not die of SIGPIPE still fails `broken-pipe`.
+	- Not verified, only reasoned: real BSD `env`, `wc`, `perl` and macOS's `man` and `mandoc`, and the windows job, where `broken-pipe` skips as before and `man-width` takes the same path it did.
+	- Swept: every `env --default-signal`, `\x08` in sed, `man --nh` and string compare of a `wc` count under `cicd/`. Other `wc` counts are read as numbers, which takes the padding.
+	- Branch: `bsdrows`
+	- Commit: f0170ca5
+	- Test case: cli-regress `EqzuLW3` (broken-pipe), `Er5ivub` (save-migrate-taken), `EpHH7ZQ` (man-width), and check-migrate `EqRiIDx`. The 3 cli-regress rows fail on the old script with the BSD-style tools and pass on the new one.
+
 - No '\' escapes
 	- ID: 2026100207032800
 	- Type: Enhancement
@@ -264,39 +297,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Possible cause: the per-line fault checks added with the escape errors. `_line_fault` and the extra `any` calls account for most of the gap.
 	- Decisions:
 		- 20261002: recheck after 2026100207032800 is built, since it removes most of those checks. No perf work before 3.0.0 otherwise.
-
-- cli-regress fails 3 rows on macOS's own tools
-	- ID: 2026100617010925
-	- Type: Bug
-	- Status: Waiting for testing
-	- Needs local test suite run?: N. cli-regress, check-migrate, shell-regress, test-ids and shellcheck pass on Linux.
-	- Needs external testing: a cli-regress run on b26 with stock macOS tools plus a `timeout`, and the hosted macos job, which should now pass `man-width` through `mandoc`. The hosted windows job too, though nothing there should change.
-	- Severity: Low
-	- Opened: 20261006-170109
-	- Opened by: the b26 run for 2026100313461652
-	- Related IDs: 2026100313461652, 2026100413052101
-	- Target OS: macOS, FreeBSD
-	- Test environment: b26 (macOS 15.8.1), bash 5.2, no GNU coreutils.
-	- Steps to reproduce:
-		- On a Mac without GNU coreutils, with a `timeout` on PATH, run `cicd/utility/cli-regress.bash "macos|PATH-TO-SHCL"` under bash 4 or later.
-	- Incorrect behavior: 3 rows fail on the script's own tools, not on the CLI. `broken-pipe` calls `env --default-signal`, which BSD `env` lacks. `save-migrate-taken` compares `ls -A | wc -l` to `2`, and BSD `wc` pads the count with spaces. `man-width` calls `man --nh --nj -l`, which only man-db takes, so the page renders to nothing.
-	- Expected behavior: the 3 rows pass on BSD tools, as they do on Linux.
-	- Reproduced: 20261006 on b26. Run by hand there, the CLI does what each row wants: 141 with nothing on stderr, exit 8 with both files left, and the page at 80 columns under `mandoc`.
-	- Actual cause: GNU-only forms. The hosted macos job puts GNU coreutils first on PATH, so it never meets them.
-	- Note: 20261006, the hosted macos job does meet `man-width`: GNU coreutils has no `man`, and the runner's is not man-db. It is the only row that job fails (run 37550690633), so it keeps 2026100313461652 open and turns the job red on a main push.
-	- Note: 20261006, `macb26` already fixed the first two forms found (`head -c -1` and `stat -c`) and made a missing `timeout` an exit 2 with a message. Stock macOS still has no `timeout`.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Actual fix: each row keeps the GNU form where it works and falls back otherwise.
-		- `broken-pipe` puts the default SIGPIPE back with perl where `env` has no `--default-signal`. With neither, it runs the CLI as is when SIGPIPE is not ignored, and skips with a message when it is.
-		- `save-migrate-taken` strips the spaces from the `wc -l` count before comparing. Same fix in check-migrate `EqRiIDx`, the only other string compare of a `wc` count.
-		- `man-width` uses man-db when `man --version` says it is man-db, else `mandoc -T ascii -O width=80`, else the old skip. The overstrike strip no longer needs GNU sed's `\x08`.
-	- Verified: on Linux with GNU tools, cli-regress passes all 3 rows on the Rust debug CLI, and check-migrate, shell-regress, test-ids and shellcheck pass. With a padding `wc`, an `env` without `--default-signal`, a `man` that is not man-db and Debian's `mandoc` 1.14.6 first on PATH, the old script fails all 3 rows and the new one passes them. It also passes with no perl, and with perl and SIGPIPE ignored. With no perl and SIGPIPE ignored, `broken-pipe` skips. With no mandoc, `man-width` skips as before. A 90-column line put in the page fails `man-width` through mandoc, and a CLI that does not die of SIGPIPE still fails `broken-pipe`.
-	- Not verified, only reasoned: real BSD `env`, `wc`, `perl` and macOS's `man` and `mandoc`, and the windows job, where `broken-pipe` skips as before and `man-width` takes the same path it did.
-	- Swept: every `env --default-signal`, `\x08` in sed, `man --nh` and string compare of a `wc` count under `cicd/`. Other `wc` counts are read as numbers, which takes the padding.
-	- Branch: `bsdrows`
-	- Commit: f0170ca5
-	- Test case: cli-regress `EqzuLW3` (broken-pipe), `Er5ivub` (save-migrate-taken), `EpHH7ZQ` (man-width), and check-migrate `EqRiIDx`. The 3 cli-regress rows fail on the old script with the BSD-style tools and pass on the new one.
 
 - Build and test on FreeBSD
 	- ID: 2026100413052101
