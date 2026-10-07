@@ -3781,6 +3781,189 @@ func TestTheWriterQuotesACommaByWhereItSits(t *testing.T) {
 	}
 }
 
+// migrate writes a 2.x comma list in brackets, with or without a blank
+// after the comma, since 2.x read both as arrays. In a file that does not
+// say it is 2.x, `a,b` is a string under these rules, so it is left and
+// counted; `a, b` is an error here, so it converts either way. A lone bare
+// value these rules refuse is quoted.
+func TestMigrateBracketsA2xCommaList(t *testing.T) {
+	defer testID(t, "ErykhtD")
+	m := Migrate("x: a, b\ny: a,b\nz: \"q\", r\nw: New York,,b\nv: done:\nu: rw,noatime\n", true)
+	if m.Ambiguous != 0 {
+		t.Fatalf("ambiguous %d", m.Ambiguous)
+	}
+	if !strings.HasPrefix(m.Text, "x: [a, b]\ny: [a, b]\nz: [\"q\", r]\nw: [\"New York\", b]\nv: \"done:\"\nu: [rw, noatime]\n") {
+		t.Fatalf("%q", m.Text)
+	}
+	if d := Parse(m.Text).Diagnostics(); len(d) != 0 {
+		t.Fatalf("%v", d)
+	}
+	m = Migrate("x: a, b\ny: a,b\n", false)
+	if m.Ambiguous != 1 {
+		t.Fatalf("ambiguous %d", m.Ambiguous)
+	}
+	if !strings.HasPrefix(m.Text, "x: [a, b]\ny: a,b\n") {
+		t.Fatalf("%q", m.Text)
+	}
+}
+
+// A 2.x `*` item becomes `- `, and an item these rules would read as
+// something else is quoted, such as one that looks like `- name: value`.
+func TestMigrateWritesStarItemsAsDashes(t *testing.T) {
+	defer testID(t, "ErykhtE")
+	m := Migrate("list:\n\t* a\n\t* key: value\n\t* 'c'\n\t* O'Brien\n", true)
+	if !strings.HasPrefix(m.Text, "list:\n\t- a\n\t- \"key: value\"\n\t- 'c'\n\t- \"O'Brien\"\n") {
+		t.Fatalf("%q", m.Text)
+	}
+	back := Parse(m.Text)
+	if d := back.Diagnostics(); len(d) != 0 {
+		t.Fatalf("%v", d)
+	}
+	if v, st := back.GetStringArray("list"); st != Good || !reflect.DeepEqual(v, []string{"a", "key: value", "c", "O'Brien"}) {
+		t.Fatalf("list: %q %v", v, st)
+	}
+}
+
+// A bare 2.x name not led by a letter is quoted, so `-x: y` and `- :0` stay
+// fields rather than reading as list items, and `404` stays a name.
+func TestMigrateQuotesANameNotLedByALetter(t *testing.T) {
+	defer testID(t, "ErykhtF")
+	m := Migrate("404: a\n-x: y\nl:\n\t- :0\na.9b: 2\n_id: 7\n", true)
+	if !strings.HasPrefix(m.Text, "\"404\": a\n\"-x\": y\nl:\n\t\"-\" :0\na.\"9b\": 2\n\"_id\": 7\n") {
+		t.Fatalf("%q", m.Text)
+	}
+	back := Parse(m.Text)
+	if d := back.Diagnostics(); len(d) != 0 {
+		t.Fatalf("%v", d)
+	}
+	if v, st := back.GetString("\"-x\""); st != Good || v != "y" {
+		t.Fatalf("-x: %q %v", v, st)
+	}
+	if v, st := back.GetString("l.\"-\""); st != Good || v != "0" {
+		t.Fatalf("l.-: %q %v", v, st)
+	}
+	if v, st := back.GetInt("a.\"9b\""); st != Good || v != 2 {
+		t.Fatalf("a.9b: %d %v", v, st)
+	}
+}
+
+// 2.x read a `◉` as text. A name, a bare value and a selector body holding
+// one get the escape for a real mark, so they still read as that text.
+func TestMigrateEscapesARealMark(t *testing.T) {
+	defer testID(t, "ErykhtG")
+	m := Migrate("\"a\u25C9q\u25C9\": 1\nbare: My\u25C9SPACE\u25C9App\ns[x\u25C9y].p: 2\n", true)
+	back := Parse(m.Text)
+	if d := back.Diagnostics(); len(d) != 0 {
+		t.Fatalf("%v\n%s", d, m.Text)
+	}
+	if p := back.Paths(); len(p) < 2 || p[0] != "\"a\u25C9ESCAPE_CHAR\u25C9q\u25C9ESCAPE_CHAR\u25C9\"" || p[1] != "bare" {
+		t.Fatalf("%q\n%s", p, m.Text)
+	}
+	if v, st := back.GetString("bare"); st != Good || v != "My\u25C9SPACE\u25C9App" {
+		t.Fatalf("bare: %q %v", v, st)
+	}
+	if n := back.Count("s"); n != 1 {
+		t.Fatalf("count s %d", n)
+	}
+	if v, st := back.GetString("s(0)"); st != Good || v != "x\u25C9y" {
+		t.Fatalf("s(0): %q %v", v, st)
+	}
+}
+
+// A 2.x selector goes in parens, and a bare body these rules refuse, such
+// as one with a quote or a space, is quoted, so its block still loads.
+func TestMigrateQuotesABareSelectorTheseRulesRefuse(t *testing.T) {
+	defer testID(t, "ErykhtH")
+	m := Migrate("srv[O'Brien].port: 1\nsrv[New York].port: 2\n", true)
+	if !strings.HasPrefix(m.Text, "srv(\"O'Brien\").port: 1\nsrv(\"New York\").port: 2\n") {
+		t.Fatalf("%q", m.Text)
+	}
+	back := Parse(m.Text)
+	if d := back.Diagnostics(); len(d) != 0 {
+		t.Fatalf("%v", d)
+	}
+	if n := back.Count("srv"); n != 2 {
+		t.Fatalf("count srv %d", n)
+	}
+}
+
+// Every 2.x selector goes in parens: an index, a value, the sugar on a
+// segment before the last, and a body with a paren in it, quoted. A selector
+// in brackets is E029 under these rules, so a file that does not say it is
+// 2.x gets the same rewrite, with nothing counted.
+func TestMigrateWritesSelectorsInParens(t *testing.T) {
+	defer testID(t, "ErykhtI")
+	text := "a[x].k: 1\nb: y\nb[0].k: 2\nc[a(b)].k: 3\ne:[f].g: 4\nr[\"x\"]:\n\ts: 1\n"
+	want := "a(x).k: 1\nb: y\nb(0).k: 2\nc(\"a(b)\").k: 3\ne(f).g: 4\nr(\"x\"):\n\ts: 1\n"
+	for _, fromV2 := range []bool{true, false} {
+		m := Migrate(text, fromV2)
+		if m.Ambiguous != 0 || m.Lost != 0 {
+			t.Fatalf("fromV2 %v: ambiguous %d, lost %d\n%s", fromV2, m.Ambiguous, m.Lost, m.Text)
+		}
+		if !strings.HasPrefix(m.Text, want) {
+			t.Fatalf("fromV2 %v: %q", fromV2, m.Text)
+		}
+	}
+	back := Parse(Migrate(text, true).Text)
+	if d := back.Diagnostics(); len(d) != 0 {
+		t.Fatalf("%v", d)
+	}
+	for path, want := range map[string]int64{"c(\"a(b)\").k": 3, "e(f).g": 4, "b(y).k": 2, "r(x).s": 1} {
+		if v, st := back.GetInt(path); st != Good || v != want {
+			t.Errorf("%s: %d %v", path, v, st)
+		}
+	}
+}
+
+// What 2.x bound and nothing spells now is counted lost, so the CLI
+// refuses at 7: a selector with a comma, which matched an array value, and
+// a comma list with lines under it. A list of only empty slots, which 2.x
+// read as empty, is an empty value.
+func TestMigrateCountsWhatNothingSpells(t *testing.T) {
+	defer testID(t, "ErykhtJ")
+	if m := Migrate("a[x, y].b: 1\n", true); m.Lost != 1 {
+		t.Fatalf("lost %d", m.Lost)
+	}
+	if m := Migrate("a: 1, 2\n\tb: 1\nc: 3, 4\n", true); m.Lost != 1 {
+		t.Fatalf("lost %d\n%s", m.Lost, m.Text)
+	}
+	m := Migrate("e: ,\nf: , # c\n", true)
+	if m.Lost != 0 {
+		t.Fatalf("lost %d", m.Lost)
+	}
+	if !strings.HasPrefix(m.Text, "e:\nf: # c\n") {
+		t.Fatalf("%q", m.Text)
+	}
+	back := Parse(m.Text)
+	if d := back.Diagnostics(); len(d) != 0 {
+		t.Fatalf("%v", d)
+	}
+	if _, st := back.GetString("e"); st != Empty {
+		t.Fatalf("e: %v", st)
+	}
+}
+
+// A file that does not say it is 2.x could be a 3.0 one. A piece that reads
+// clean under these rules too, such as an escape, a backtick value, `[a]` or
+// a `- ` item, is left as written and counted, so the CLI asks for
+// --from-2x rather than changing a correct file at exit 0. A selector in
+// brackets is E029 now, so its line is rewritten the 2.x way.
+func TestMigrateLeavesWhatReadsCleanNow(t *testing.T) {
+	defer testID(t, "ErykhtK")
+	text := "x: \"a\u25C9TAB\u25C9b\"\n\"n\u25C9TAB\u25C9\": 1\nl:\n\t- :0\ns[\"\u25C9TAB\u25C9\"].p: 1\nb: `abc`\nc: [a]\n"
+	m := Migrate(text, false)
+	if m.Ambiguous != 5 {
+		t.Fatalf("ambiguous %d\n%s", m.Ambiguous, m.Text)
+	}
+	want := strings.Replace(text, "s[\"\u25C9TAB\u25C9\"]", "s(\"\u25C9ESCAPE_CHAR\u25C9TAB\u25C9ESCAPE_CHAR\u25C9\")", 1)
+	if m.Text != want {
+		t.Fatalf("got %q\nwant %q", m.Text, want)
+	}
+	if !strings.Contains(Migrate(text, true).Text, "ESCAPE_CHAR") {
+		t.Fatal("no ESCAPE_CHAR with fromV2")
+	}
+}
+
 // A list with a field under it (E001) after an empty binding of its name
 // that has fields: no text loads it back, since a reload joins the list's
 // header to that binding and drops its items (E008). The load is left as it

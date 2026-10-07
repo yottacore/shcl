@@ -788,9 +788,10 @@ const dead = -1
 // of them.
 const unopened = -2
 
-// lazy is the stack entry for a field line refused for its value alone (E019,
-// E023, E024): it binds nothing, but its path is fine, so the first line that
-// binds under it opens the path as `name:` would and binds there.
+// lazy is the stack entry for a field line refused for its value alone (E017,
+// E019, E023, E025) or for a bare name that still reads (E014): it binds
+// nothing, but its path is fine, so the first line that binds under it opens
+// the path as `name:` would and binds there.
 const lazy = -3
 
 // lazyLevel is a lazy level's line, for opening it: the stack entry it sits
@@ -1767,10 +1768,6 @@ func asciiLower(s string) string {
 	return string(b)
 }
 
-func isBareNameChar(c rune) bool {
-	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_'
-}
-
 func isASCIIAlpha(b byte) bool { return (b|0x20) >= 'a' && (b|0x20) <= 'z' }
 
 func isASCIIDigit(b byte) bool {
@@ -1907,82 +1904,6 @@ func escapeText(name string) (string, error) {
 		}
 	}
 	return "", errors.New("unknown escape '" + shown + "'; an escape is a name from the escape list, and a real " + m + " is " + m + "ESCAPE_CHAR" + m)
-}
-
-// applyEscapesV2 is the 2.x reading, for migrate: no \u, so 2.x kept
-// \u0041 as written.
-func applyEscapesV2(s string) string {
-	return resolveEscapes(s, RulesV2)
-}
-
-func resolveEscapes(s string, rules Rules) string {
-	// Bytes: every escape this recognizes is ASCII, and any other byte - a
-	// continuation byte included - is copied through untouched, so the result
-	// is the same string the rune walk built without decoding and re-encoding
-	// it. This runs on every string read and on every selector compare.
-	if !strings.ContainsRune(s, '\\') {
-		return s
-	}
-	out := make([]byte, 0, len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c != '\\' {
-			out = append(out, c)
-			continue
-		}
-		if i+1 >= len(s) {
-			out = append(out, '\\')
-			break
-		}
-		i++
-		switch s[i] {
-		case 't':
-			out = append(out, '\t')
-		case 'n':
-			out = append(out, '\n')
-		case '\\':
-			out = append(out, '\\')
-		case '"':
-			out = append(out, '"')
-		case '\'':
-			out = append(out, '\'')
-		case 'u', 'U':
-			if r, n, ok := unicodeEscape(s[i], s[i+1:]); ok && rules == RulesCurrent {
-				out = utf8.AppendRune(out, r)
-				i += n
-			} else {
-				out = append(out, '\\', s[i])
-			}
-		default:
-			out = append(out, '\\', s[i])
-		}
-	}
-	return string(out)
-}
-
-// unicodeEscape is the character a \u or \U escape names, and how many hex
-// digits it takes: four after u, eight after U, as in TOML. Not ok for a
-// short run, a surrogate or a value past U+10FFFF.
-func unicodeEscape(kind byte, after string) (rune, int, bool) {
-	n := 4
-	if kind == 'U' {
-		n = 8
-	}
-	if len(after) < n {
-		return 0, 0, false
-	}
-	var v uint32
-	for i := 0; i < n; i++ {
-		d := hexDigit(after[i])
-		if d < 0 {
-			return 0, 0, false
-		}
-		v = v<<4 | uint32(d)
-	}
-	if v > unicode.MaxRune || (v >= 0xD800 && v <= 0xDFFF) {
-		return 0, 0, false
-	}
-	return rune(v), n, true
 }
 
 // gen-escapes.py: begin
@@ -2183,29 +2104,6 @@ func flagTag(t string, i int) bool {
 		}
 	}
 	return false
-}
-
-// hasInvisible reports whether the text holds a character invisibleAt
-// escapes.
-func hasInvisible(t string) bool {
-	for i := 0; i < len(t); {
-		_, n, ok := invisibleAt(t, i)
-		if ok {
-			return true
-		}
-		i += n
-	}
-	return false
-}
-
-// writeUnicodeEscape writes r as \u with four digits, or as \U with eight
-// past U+FFFF, since \u takes four. Only the 2.x writer for migrate takes it.
-func writeUnicodeEscape(out *strings.Builder, r rune) {
-	if r > 0xFFFF {
-		fmt.Fprintf(out, "\\U%08X", r)
-		return
-	}
-	fmt.Fprintf(out, "\\u%04X", r)
 }
 
 // pushEscape writes a character the writer escapes: by its first name when
@@ -2577,12 +2475,16 @@ type Migration struct {
 	// Current: the file already names its format, so there was nothing to
 	// migrate and Text is the input.
 	Current bool
-	// Ambiguous: pieces the two rule sets read differently and nothing can
-	// decide between, left as written. Always 0 when the caller said 2.x.
+	// Ambiguous: pieces both rule sets read cleanly and differently, such as
+	// `a,b` or an escape, and runs of lines one rule set reads as a raw body
+	// and the other as fields, which nothing can decide between, left as
+	// written. Always 0 when the caller said the file is 2.x. A backslash is
+	// not one of them: it stays as written either way.
 	Ambiguous int
-	// Lost: lines 2.x bound a value on that nothing binds now - bracket text
-	// after the colon, or a line break in a value that starts like a Windows
-	// path, neither of which has a spelling here.
+	// Lost: lines 2.x bound a value on that nothing binds now, since there is
+	// no 3.0 spelling to move to: bracket text after the colon, a selector
+	// holding a comma, which matched an array value, and a comma list with
+	// lines under it (E028 in brackets).
 	Lost int
 }
 
@@ -2592,6 +2494,11 @@ type migrating struct {
 	fromV2    bool
 	ambiguous int
 	lost      int
+	// The line just rewritten put a 2.x comma list in brackets.
+	bracketed bool
+	// These rules refuse the line about to be rewritten, so it is not a
+	// correct 3.0 line, whatever the file is.
+	refusedNow bool
 }
 
 // FormatVersion is the format major a document's `##    Format   N` line
@@ -2739,25 +2646,29 @@ func formatLineVersion(text string) (int, bool) {
 
 // Migrate rewrites a document written under the 2.x rules so this parser
 // reads the same tree. Each line is read with the 2.x tokenizer and
-// rewritten only where the two rule sets disagree: a bare or single-quoted
-// piece whose backslash meant an escape is double-quoted with that escape; a
-// piece that opened a quote it never closed is quoted whole; the
-// `name:[disc]` selector sugar loses its colon, and on a last segment becomes
-// `name: disc`, with `disc` written the way the formatter writes a value. A
-// rewritten piece holding a backslash is double-quoted, so the result reads
-// the same under 2.x and a second run changes nothing.
+// rewritten only where the two rule sets disagree (value-syntax.md,
+// Migration). A backslash stays as written and reads as text, so a piece is
+// written another way only where these rules would read its text as
+// something else: a quote it shielded, a real `◉`, a quote, tab or bracket
+// in bare text, an open quote, which is quoted whole. A comma list goes in
+// brackets, a `*` item becomes `- `, a bare name not led by a letter is
+// quoted, and a selector goes from brackets to parens, its body quoted where
+// these rules would refuse it bare. The `name:[disc]` selector sugar loses
+// its colon, and on a last segment becomes `name: disc`, with `disc` written
+// the way the formatter writes a value.
 // Everything else - comments, blank lines, raw bodies, layout, a line 2.x
 // could not read - comes through as written. One shape has no spelling here
 // at all: a fence label holding a `#`, which 2.x ran to the end of the line
 // and which now ends at the `#`.
-// Which file this is cannot be read off the text: `p: 'C:\temp'` is one value
-// under 2.x and another under these rules, so rewriting a 3.0 file changes
-// what it says. So the version line decides. A file that names this format is
-// returned untouched; one that names an older format, or a caller passing
-// fromV2, gets the backslash re-spellings; anything else gets every other
-// rewrite and leaves those pieces alone, counted in Ambiguous for the caller
-// to refuse over. A rewritten file is stamped with the version line, so the
-// second run has an answer the first one did not.
+// Which file this is cannot always be read off the text: `p: a,b` is an array
+// under 2.x and one string under these rules, and a raw block can open where
+// only one rule set sees it, so rewriting a 3.0 file changes what it says. So
+// the version line decides. A file that names this format is returned
+// untouched; one that names an older format, or a caller passing fromV2, gets
+// every rewrite. Anything else leaves those pieces alone where these rules
+// read the line cleanly, counted in Ambiguous for the caller to refuse over.
+// A rewritten file is stamped with the version line, so the second run has an
+// answer the first one did not.
 func Migrate(text string, fromV2 bool) Migration {
 	return migrateText(text, fromV2, true)
 }
@@ -2792,6 +2703,18 @@ func migrateText(text string, fromV2, stamp bool) Migration {
 		return Migration{Text: whole, Current: true}
 	}
 	st := migrating{fromV2: fromV2 || hasVersion}
+	var bracketed []int
+	// Where a file that does not say it is 2.x might be a 3.0 one, the lines
+	// these rules already refuse are safe to rewrite.
+	var refused []int
+	if !st.fromV2 {
+		for _, d := range Parse(text).Diagnostics() {
+			if d.Severity == SeverityError {
+				refused = append(refused, d.Line)
+			}
+		}
+		sort.Ints(refused)
+	}
 	var out strings.Builder
 	out.Grow(len(text) + 96)
 	out.WriteString(bom)
@@ -2820,9 +2743,14 @@ func migrateText(text string, fromV2, stamp bool) Migration {
 			rest := trimEndWS(restFull)
 			// lost counts lines, and one line can lose several values.
 			lostBefore := st.lost
+			st.bracketed = false
+			st.refusedNow = sortedHas(refused, i+1)
 			migrated := migrateLine(rest, &tok, &fence, &st)
 			if st.lost > lostBefore {
 				st.lost = lostBefore + 1
+			}
+			if st.bracketed {
+				bracketed = append(bracketed, i+1)
 			}
 			if migrated != rest {
 				changed = true
@@ -2840,6 +2768,16 @@ func migrateText(text string, fromV2, stamp bool) Migration {
 			st.ambiguous++
 		}
 		split = differs
+	}
+	// 2.x let a comma list head lines of its own, and nothing spells that
+	// now: in brackets it is E028, and as one string it reads as another
+	// value.
+	if len(bracketed) != 0 {
+		for _, d := range Parse(out.String()).Diagnostics() {
+			if d.Code == "E028" && sortedHas(bracketed, d.Line) {
+				st.lost++
+			}
+		}
 	}
 	// Stamping a file whose ambiguous pieces were left alone would claim a
 	// migration that did not finish, and the next run would then skip it. A
@@ -2860,6 +2798,12 @@ func migrateText(text string, fromV2, stamp bool) Migration {
 		}
 	}
 	return Migration{Text: out.String(), Ambiguous: st.ambiguous, Lost: st.lost}
+}
+
+// sortedHas is true when the ascending list holds n.
+func sortedHas(list []int, n int) bool {
+	k := sort.SearchInts(list, n)
+	return k < len(list) && list[k] == n
 }
 
 // edit is one edit to a line: replace start..end with the text.
@@ -2897,21 +2841,15 @@ func readsSame(spelling string, quoted bool, logical string) bool {
 	return (p.Quote == QuoteSingle || p.Quote == QuoteDouble) == quoted && !bad && pieceText(p, spelling) == logical
 }
 
-// migrateSpelling is how a changed piece is written. 2.x read a backslash
-// in bare and single-quoted text as an escape too, and double quotes are
-// where both rule sets read one alike. No \u goes in, since 2.x would keep it
-// as written. So the migrated file reads the same under 2.x, and a second run
-// changes nothing. A line break in a value that starts like a Windows path
-// has no such spelling: written this way it is E024, so the caller counts it
-// lost.
+// migrateSpelling is how a changed piece is written: the way the writer
+// writes its text, so it reads back as that text. A backslash pair 2.x
+// resolved is not resolved here: it stays as written and reads as text now,
+// with no escape added.
 func migrateSpelling(logical string, bare bool) string {
-	if strings.Contains(logical, "\\") {
-		return quoteDoubleAs(logical, RulesV2)
-	}
 	if bare && !needsQuotes(logical) {
 		return logical
 	}
-	return quoteTextAs(logical, RulesV2)
+	return quoteText(logical)
 }
 
 // v2BracketArray is true when 2.x read this bare `[...]` body as the JSON-habit
@@ -2924,10 +2862,12 @@ func v2BracketArray(body string) bool {
 }
 
 // valueEdits collects the re-spellings a value's pieces need. Each piece is
-// read the 2.x way (escapes everywhere, an open quote kept whole, a quote at
-// both ends making it quoted) and rewritten only where the current rules
-// would read the same text as something else.
-func valueEdits(text string, tok *Tokens, edits *[]edit, st *migrating) {
+// cut the 2.x way (a backslash shields the next character, an open quote is
+// kept whole, a quote at both ends makes it quoted) and rewritten only where
+// the current rules would read its text as something else. Its text is as
+// 2.x wrote it, a backslash pair included, so the same bytes mean the same
+// either way.
+func valueEdits(text string, tok *Tokens, edits *[]edit) {
 	for i := range tok.Elements {
 		p := &tok.Elements[i]
 		raw := text[p.Start:p.End]
@@ -2936,33 +2876,76 @@ func valueEdits(text string, tok *Tokens, edits *[]edit, st *migrating) {
 		if quoted {
 			a, b = p.Start-1, p.End+1
 		}
-		if p.Quote == QuoteNone && !strings.Contains(raw, "\\") && raw != "" {
+		if p.Quote == QuoteNone && !strings.Contains(raw, "\\") && !strings.ContainsRune(raw, escapeMark) && raw != "" {
+			if _, bad := bareTrouble(raw, bareValue); !bad {
+				continue
+			}
+		}
+		if readsSame(text[a:b], quoted, raw) {
 			continue
 		}
-		logical := applyEscapesV2(raw)
-		if readsSame(text[a:b], quoted, logical) {
-			continue
-		}
-		// A resolved escape is the one edit that turns on which rule set wrote
-		// the file: these bytes say one thing under 2.x and another here. An
-		// open quote or an empty slot reads alike either way, so it still goes,
-		// and so does an unknown pair in double quotes, which both kept. A \u
-		// in double quotes is a character now and was text in 2.x.
-		differs := logical != raw
-		if p.Quote == QuoteDouble {
-			differs = unicodePairDiffers(raw)
-		}
-		if differs && !st.fromV2 {
-			st.ambiguous++
-			continue
-		}
-		spelling := migrateSpelling(logical, !(quoted || p.Quote == QuoteOpen))
-		// Written the way 2.x read it, the line is E024 and binds nothing.
-		if strings.HasPrefix(spelling, "\"") && spellsPathEscape(spelling) {
-			st.lost++
-		}
+		spelling := migrateSpelling(raw, !(quoted || p.Quote == QuoteOpen))
 		*edits = append(*edits, edit{start: a, end: b, with: spelling})
 	}
+}
+
+// v2ArrayText is a 2.x value with a comma in brackets, since 2.x read every
+// comma as an array. Its empty elements go, as 2.x dropped them. Each element
+// is written the way the writer writes one inside `[]`, unless its quoted
+// spelling already reads the same.
+func v2ArrayText(text string, tok *Tokens) string {
+	var out strings.Builder
+	out.WriteByte('[')
+	for i := range tok.Elements {
+		p := &tok.Elements[i]
+		if p.Quote == QuoteNone && p.End <= p.Start {
+			continue
+		}
+		if out.Len() > 1 {
+			out.WriteString(", ")
+		}
+		raw := text[p.Start:p.End]
+		quoted := p.Quote == QuoteSingle || p.Quote == QuoteDouble
+		switch {
+		case quoted && readsSame(text[p.Start-1:p.End+1], true, raw):
+			out.WriteString(text[p.Start-1 : p.End+1])
+		case p.Quote == QuoteNone && !elementNeedsQuotes(raw):
+			out.WriteString(raw)
+		default:
+			out.WriteString(quoteText(raw))
+		}
+	}
+	out.WriteByte(']')
+	return out.String()
+}
+
+// readsCleanNow is true when the current rules read a value with no fault, as
+// one piece: then `a,b` is a string now and was an array under 2.x.
+func readsCleanNow(text string, from int) bool {
+	var tok Tokens
+	TokenizeValue(text, from, RulesCurrent, &tok)
+	return tok.Array < 0 && len(tok.Elements) == 1 && valueFault(&tok, text) == nil
+}
+
+// quotedNameNow is the name a quoted field name, quotes included, reads as
+// under the current rules. ok is false when it does not read as one clean
+// name.
+func quotedNameNow(spelled string) (string, bool) {
+	line := spelled + ":"
+	var tok Tokens
+	Tokenize(line, ':', false, RulesCurrent, &tok)
+	if tok.Fault >= 0 || tok.Misspelled >= 0 || len(tok.Segments) != 1 {
+		return "", false
+	}
+	seg := &tok.Segments[0]
+	if seg.Selector != nil || (seg.Name.Quote != QuoteSingle && seg.Name.Quote != QuoteDouble) {
+		return "", false
+	}
+	name, err := resolveMarks(line[seg.Name.Start:seg.Name.End])
+	if err != nil {
+		return "", false
+	}
+	return name, true
 }
 
 func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) string {
@@ -2977,10 +2960,13 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 	s := rest
 	var edits []edit
 	if strings.HasPrefix(rest, "*") && len(s) > 1 && isWspByte(s[1]) {
+		edits = append(edits, edit{start: 0, end: 1, with: "-"})
 		TokenizeValue(rest, 1, RulesV2, tok)
 		// A bare comma was refused (E010), so there is nothing to convert.
+		// A value's rules are an item's, and stricter about a colon, so
+		// what reads clean as one reads clean as the other.
 		if len(tok.Elements) == 1 {
-			valueEdits(rest, tok, &edits, st)
+			valueEdits(rest, tok, &edits)
 		}
 	} else {
 		Tokenize(rest, ':', false, RulesV2, tok)
@@ -2988,25 +2974,43 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 			return rest
 		}
 		last := len(tok.Segments) - 1
+		// A selector in brackets is E029 now, so its line never reads clean and
+		// is rewritten whatever the file says it is. Only `name:[disc]` ending
+		// the line is a value here.
+		for i := range tok.Segments {
+			if tok.Segments[i].Selector != nil && !(i == last && tok.Sep < 0) {
+				st.refusedNow = true
+			}
+		}
 		for i := range tok.Segments {
 			seg := &tok.Segments[i]
 			name := rest[seg.Name.Start:seg.Name.End]
-			// An unknown pair in double quotes read the same in 2.x, and is
-			// E023 now, so its backslash is doubled whichever wrote the file.
-			// A \u pair is a character now, so that one needs --from-2x.
-			if seg.Name.Quote == QuoteDouble && v2KeptEscape(name) {
-				if unicodePairDiffers(name) && !st.fromV2 {
-					st.ambiguous++
-				} else {
-					edits = append(edits, edit{start: seg.Name.Start - 1, end: seg.Name.End + 1, with: escapeNameAs(applyEscapesV2(name), RulesV2)})
+			// A backslash in a quoted name is text now, and stays. Only a quote
+			// it shielded, or a real escape mark, needs another spelling. A bare
+			// name not led by a letter goes in quotes, since `-` then a blank
+			// would start a list item now.
+			// A file that does not say it is 2.x could be a 3.0 one. Where it
+			// reads clean under these rules as well, it is left and counted.
+			var respell, cleanNow bool
+			if seg.Name.Quote == QuoteSingle || seg.Name.Quote == QuoteDouble {
+				if strings.Contains(name, "\\") || strings.ContainsRune(name, escapeMark) {
+					now, ok := quotedNameNow(rest[seg.Name.Start-1 : seg.Name.End+1])
+					respell = !ok || now != name
+					cleanNow = ok
 				}
+			} else {
+				// `-` then a blank is a list item now.
+				cleanNow = name == "-" && (seg.Name.End >= len(s) || isWspByte(s[seg.Name.End]))
+				respell = !isASCIIAlpha(name[0])
 			}
-			if seg.Name.Quote == QuoteSingle && applyEscapesV2(name) != name {
-				if st.fromV2 {
-					edits = append(edits, edit{start: seg.Name.Start - 1, end: seg.Name.End + 1, with: escapeNameAs(applyEscapesV2(name), RulesV2)})
-				} else {
-					st.ambiguous++
+			if respell && cleanNow && !st.fromV2 && !st.refusedNow {
+				st.ambiguous++
+			} else if respell {
+				a, b := seg.Name.Start, seg.Name.End
+				if seg.Name.Quote != QuoteNone {
+					a, b = seg.Name.Start-1, seg.Name.End+1
 				}
+				edits = append(edits, edit{start: a, end: b, with: escapeName(name)})
 			}
 			sel := seg.Selector
 			if sel == nil {
@@ -3038,8 +3042,10 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 				colon = k - 1
 			}
 			body := rest[sel.Start:sel.End]
-			logical := applyEscapesV2(body)
-			unknown := sel.Quote == QuoteDouble && v2KeptEscape(body)
+			spelled := body
+			if quoted {
+				spelled = rest[sel.Start-1 : sel.End+1]
+			}
 			if i == last && tok.Sep < 0 {
 				if colon >= 0 {
 					// `name:[disc]` with nothing after it: 2.x read it as
@@ -3048,65 +3054,72 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 					// one - and an index or the wildcard was refused as a
 					// selector, so those stay as written. A bare body moves
 					// into a value, where a fence run opens a raw block and a
-					// leading `[` is bracket text, so the emitter writes it.
+					// leading `[` opens an array, so the emitter writes it.
 					if !quoted && (indexShape(body) || body == "*") {
 						return rest
 					}
 					// 2.x bound the bracket array, as one folded string. There
-					// is no spelling to move that to - a value beginning with
-					// `[` is bracket text now - so the binding goes, and the
+					// is no spelling to move that to - in brackets it is an
+					// array of several now - so the binding goes, and the
 					// caller hears about it rather than reading exit 0.
 					if !quoted && v2BracketArray(body) {
 						st.lost++
 						return rest
 					}
-					if logical != body && !st.fromV2 {
-						st.ambiguous++
-						continue
+					// `[a]` is a one-element array now.
+					if !st.fromV2 && !st.refusedNow {
+						var now Tokens
+						TokenizeValue(rest, colon+1, RulesCurrent, &now)
+						if now.Array >= 0 && now.ArrayFault < 0 && valueFault(&now, rest) == nil {
+							st.ambiguous++
+							return rest
+						}
 					}
 					var spelling string
-					if logical != body {
-						spelling = migrateSpelling(logical, false)
-					} else if quoted && !unknown {
-						spelling = trimWsp(rest[open+1 : close])
-					} else {
-						spelling = migrateSpelling(logical, true)
-					}
-					// As a value, a path holding a `\t` or `\n` is E024.
-					if strings.HasPrefix(spelling, "\"") && spellsPathEscape(spelling) {
-						spelling = migrateSpelling(logical, false)
-						if strings.HasPrefix(spelling, "\"") && spellsPathEscape(spelling) {
-							st.lost++
-						}
+					switch {
+					case !quoted:
+						spelling = migrateSpelling(body, true)
+					case readsSame(spelled, true, body):
+						spelling = spelled
+					default:
+						spelling = migrateSpelling(body, false)
 					}
 					edits = append(edits, edit{start: colon, end: close + 1, with: ": " + spelling})
 					continue
 				}
 			} else if colon >= 0 {
 				// The colon goes, and one space after it when the author
-				// spaced both sides, so `base : [x]` comes out `base [x]`.
+				// spaced both sides, so `base : [x]` comes out `base (x)`.
 				end := colon + 1
 				if colon > 0 && isWspByte(s[colon-1]) && isWspByte(s[colon+1]) {
 					end++
 				}
 				edits = append(edits, edit{start: colon, end: end})
 			}
-			// Double quotes already read alike on both sides, so only the other
-			// spellings turn on which rule set wrote the file.
-			if unknown && unicodePairDiffers(body) && !st.fromV2 {
-				st.ambiguous++
-			} else if unknown {
-				edits = append(edits, edit{start: sel.Start - 1, end: sel.End + 1, with: migrateSpelling(logical, false)})
-			} else if logical != body && sel.Quote != QuoteDouble {
-				if st.fromV2 {
-					a, b := sel.Start, sel.End
-					if quoted {
-						a, b = sel.Start-1, sel.End+1
-					}
-					edits = append(edits, edit{start: a, end: b, with: migrateSpelling(logical, false)})
-				} else {
-					st.ambiguous++
+			index := !quoted && (indexShape(body) || body == "*")
+			// 2.x matched an array value by its display form, and a selector
+			// matches one plain value now, so nothing spells this.
+			if !index && !quoted && v2BracketArray(body) {
+				st.lost++
+				return rest
+			}
+			edits = append(edits, edit{start: open, end: open + 1, with: "("}, edit{start: close, end: close + 1, with: ")"})
+			// A backslash is text now, and stays. Only a quote or a blank it
+			// shielded, or one the body has bare, a paren, or a real escape
+			// mark, needs another spelling.
+			if !index && !selectorReadsBack(spelled, body, quoted) {
+				spelling := migrateSpelling(body, false)
+				// Nothing reads back as that body, so there is no way to
+				// write it in parens.
+				if !selectorReadsBack(spelling, body, true) {
+					st.lost++
+					return rest
 				}
+				a, b := sel.Start, sel.End
+				if quoted {
+					a, b = sel.Start-1, sel.End+1
+				}
+				edits = append(edits, edit{start: a, end: b, with: spelling})
 			}
 		}
 		if tok.Sep >= 0 {
@@ -3115,7 +3128,29 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 				*fence = openFence{ch: ch, length: length, open: true}
 				return splice(rest, edits)
 			}
-			valueEdits(rest, tok, &edits, st)
+			sep := tok.Sep
+			if len(tok.Elements) > 1 {
+				// A file that does not say it is 2.x could be a 3.0 one, where
+				// `a,b` is a string. `a, b` is an error there, so it is safe.
+				if st.fromV2 || !readsCleanNow(rest, sep+1) {
+					// Only empty slots, which 2.x dropped: an empty value.
+					if tok.ElementCount() == 0 {
+						edits = append(edits, edit{start: sep + 1, end: tok.Value[1]})
+					} else {
+						st.bracketed = true
+						edits = append(edits, edit{start: tok.Value[0], end: tok.Value[1], with: v2ArrayText(rest, tok)})
+					}
+				} else {
+					st.ambiguous++
+				}
+			} else {
+				before := len(edits)
+				valueEdits(rest, tok, &edits)
+				if !st.fromV2 && !st.refusedNow && len(edits) > before && readsCleanNow(rest, sep+1) {
+					edits = edits[:before]
+					st.ambiguous++
+				}
+			}
 		}
 	}
 	return splice(rest, edits)
@@ -3194,91 +3229,6 @@ func selectorOf(p *Piece, text string) selector {
 		return selector{kind: selByIndex, index: math.MaxUint64}
 	}
 	return selector{kind: selByValue, value: body}
-}
-
-// unknownEscape is the character after the first backslash in raw that starts
-// no escape, or the u or U of one that names no character. Only meaningful for
-// a double-quoted piece.
-func unknownEscape(raw string) (rune, bool) {
-	if !strings.Contains(raw, "\\") {
-		return 0, false
-	}
-	for i := 0; i < len(raw); i++ {
-		if raw[i] != '\\' {
-			continue
-		}
-		// A double-quoted piece cannot end on a lone backslash: it would have
-		// escaped the closing quote.
-		if i+1 >= len(raw) {
-			return 0, false
-		}
-		i++
-		switch raw[i] {
-		case 't', 'n', '\\', '"', '\'':
-		case 'u', 'U':
-			if _, _, ok := unicodeEscape(raw[i], raw[i+1:]); !ok {
-				return rune(raw[i]), true
-			}
-		default:
-			r, _ := utf8.DecodeRuneInString(raw[i:])
-			return r, true
-		}
-	}
-	return 0, false
-}
-
-// v2KeptEscape is unknownEscape by the 2.x rules, which had no \u: a pair 2.x
-// kept as written, so migrate doubles its backslash.
-func v2KeptEscape(raw string) bool {
-	for i := 0; i < len(raw); i++ {
-		if raw[i] != '\\' {
-			continue
-		}
-		if i+1 >= len(raw) {
-			return false
-		}
-		i++
-		switch raw[i] {
-		case 't', 'n', '\\', '"', '\'':
-		default:
-			return true
-		}
-	}
-	return false
-}
-
-// unicodePairDiffers reports a 2.x pair that is a real \u escape now: 2.x read
-// the text as written and the current rules read a character, so only
-// --from-2x can say which.
-func unicodePairDiffers(raw string) bool {
-	_, bad := unknownEscape(raw)
-	return v2KeptEscape(raw) && !bad
-}
-
-// pathLike reports a double-quoted value that starts like a Windows path, a
-// drive (`C:\`) or a share (`\\`), and holds a `\t` or `\n` escape (E024).
-// `"C:\temp"` would read as `C:`, a tab and `emp`, which a path almost never
-// means. Any other pair made the line E023 before this is asked.
-func pathLike(p *Piece, text string) bool {
-	if p.Quote != QuoteDouble {
-		return false
-	}
-	raw := text[p.Start:p.End]
-	drive := len(raw) >= 3 && (raw[0]|0x20 >= 'a' && raw[0]|0x20 <= 'z') && raw[1] == ':' && raw[2] == '\\'
-	if !drive && !strings.HasPrefix(raw, "\\\\") {
-		return false
-	}
-	for i := 0; i+1 < len(raw); {
-		if raw[i] != '\\' {
-			i++
-			continue
-		}
-		if raw[i+1] == 't' || raw[i+1] == 'n' {
-			return true
-		}
-		i += 2
-	}
-	return false
 }
 
 // fault is why a line is refused, and whether its name still reads (opens):
@@ -7471,42 +7421,6 @@ func escapeName(name string) string {
 	return quoteText(name)
 }
 
-// escapeNameAs is the name spelling 2.x read back, for migrate: its
-// backslash escapes, with an invisible character written as it is, since 2.x
-// kept a \u as written.
-func escapeNameAs(name string, rules Rules) string {
-	if name != "" {
-		bare := true
-		for _, c := range name {
-			if !isBareNameChar(c) {
-				bare = false
-				break
-			}
-		}
-		if bare {
-			return name
-		}
-	}
-	var out strings.Builder
-	out.WriteByte('"')
-	for i := 0; i < len(name); i++ {
-		switch name[i] {
-		case '\\':
-			out.WriteString(`\\`)
-		case '"':
-			out.WriteString(`\"`)
-		case '\t':
-			out.WriteString(`\t`)
-		case '\n':
-			out.WriteString(`\n`)
-		default:
-			out.WriteByte(name[i])
-		}
-	}
-	out.WriteByte('"')
-	return out.String()
-}
-
 func emitName(name string) string {
 	return escapeName(name)
 }
@@ -8349,73 +8263,6 @@ func quoteWith(t string, q byte) string {
 		}
 	}
 	out.WriteByte(q)
-	return out.String()
-}
-
-// The 2.x spellings below are for migrate only.
-
-// quoteTextAs is quoteText for a reader of rules, as in quoteDoubleAs.
-func quoteTextAs(t string, rules Rules) string {
-	control := strings.ContainsAny(t, "\n\t") || (rules == RulesCurrent && hasInvisible(t))
-	if !control && !strings.Contains(t, "'") && strings.ContainsAny(t, "\"\\") {
-		return "'" + t + "'"
-	}
-	return quoteDoubleAs(t, rules)
-}
-
-// quoteDoubleAs is the double-quoted spelling for a reader of rules. The two
-// read it alike, except a \u escape, which 2.x kept as written, so for 2.x an
-// invisible character goes in as it is.
-func quoteDoubleAs(t string, rules Rules) string {
-	out := quoteDoubleWith(t, rules, false)
-	// Written `\t` or `\n`, a path is E024 on the reload, and a `\u` escape
-	// reads the same. 2.x kept one as written, so for 2.x a tab goes in as it
-	// is, and a line break has no spelling: migrate counts that one lost.
-	if spellsPathEscape(out) {
-		return quoteDoubleWith(t, rules, true)
-	}
-	return out
-}
-
-// spellsPathEscape reports a double-quoted spelling that would be E024.
-func spellsPathEscape(quoted string) bool {
-	return pathLike(&Piece{Start: 1, End: len(quoted) - 1, Quote: QuoteDouble}, quoted)
-}
-
-func quoteDoubleWith(t string, rules Rules, path bool) string {
-	// Bytes: every escape written here is ASCII, and a continuation byte is
-	// none of them, so the rest of the text copies through untouched. A
-	// character invisible names is decoded first.
-	var out strings.Builder
-	out.Grow(len(t) + 2)
-	out.WriteByte('"')
-	for i := 0; i < len(t); i++ {
-		switch t[i] {
-		case '\\':
-			out.WriteString("\\\\")
-		case '"':
-			out.WriteString("\\\"")
-		case '\n', '\t':
-			switch {
-			case path && rules == RulesCurrent:
-				writeUnicodeEscape(&out, rune(t[i]))
-			case path && t[i] == '\t':
-				out.WriteByte(t[i])
-			case t[i] == '\n':
-				out.WriteString("\\n")
-			default:
-				out.WriteString("\\t")
-			}
-		default:
-			if r, n, ok := invisibleAt(t, i); ok && rules == RulesCurrent {
-				writeUnicodeEscape(&out, r)
-				i += n - 1
-			} else {
-				out.WriteByte(t[i])
-			}
-		}
-	}
-	out.WriteByte('"')
 	return out.String()
 }
 
