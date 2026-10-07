@@ -1538,6 +1538,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Verified: the stage 6 command gave the same sha256 before and after, from 2 target dirs each and from the default one, with no warning after. Both halves are still macOS 13 and link only libSystem. shellcheck, shell-regress, test-ids and check-docs pass.
 	- Not verified: the hosted macos job with this change. It takes the empty `SDKROOT` path, so its build should not change.
 	- Branch: `xcrun`
+	- Commit: 5650cffb
 	- Test case: shell-regress `Es1rCr5`. It fails on the old config and passes on the new one.
 	- Acceptance signoff: Self-closed: the warning is gone, the binary is byte for byte the same, and the test failed before and passes after.
 	- Closed: 20261007-083039
