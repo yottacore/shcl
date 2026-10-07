@@ -33,39 +33,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
-- cli-regress fails 3 rows on macOS's own tools
-	- ID: 2026100617010925
-	- Type: Bug
-	- Status: Waiting for testing
-	- Needs local test suite run?: N. cli-regress, check-migrate, shell-regress, test-ids and shellcheck pass on Linux.
-	- Needs external testing: a cli-regress run on b26 with stock macOS tools plus a `timeout`, Hosted is done: run 37637035207 on dev `9300b1be`, 20261007, passed all 4 jobs, and the macos job passed all 3 rows, `man-width` through `mandoc`.
-	- Severity: Low
-	- Opened: 20261006-170109
-	- Opened by: the b26 run for 2026100313461652
-	- Related IDs: 2026100313461652, 2026100413052101
-	- Target OS: macOS, FreeBSD
-	- Test environment: b26 (macOS 15.8.1), bash 5.2, no GNU coreutils.
-	- Steps to reproduce:
-		- On a Mac without GNU coreutils, with a `timeout` on PATH, run `cicd/utility/cli-regress.bash "macos|PATH-TO-SHCL"` under bash 4 or later.
-	- Incorrect behavior: 3 rows fail on the script's own tools, not on the CLI. `broken-pipe` calls `env --default-signal`, which BSD `env` lacks. `save-migrate-taken` compares `ls -A | wc -l` to `2`, and BSD `wc` pads the count with spaces. `man-width` calls `man --nh --nj -l`, which only man-db takes, so the page renders to nothing.
-	- Expected behavior: the 3 rows pass on BSD tools, as they do on Linux.
-	- Reproduced: 20261006 on b26. Run by hand there, the CLI does what each row wants: 141 with nothing on stderr, exit 8 with both files left, and the page at 80 columns under `mandoc`.
-	- Actual cause: GNU-only forms. The hosted macos job puts GNU coreutils first on PATH, so it never meets them.
-	- Note: 20261006, the hosted macos job does meet `man-width`: GNU coreutils has no `man`, and the runner's is not man-db. It is the only row that job fails (run 37550690633), so it keeps 2026100313461652 open and turns the job red on a main push.
-	- Note: 20261006, `macb26` already fixed the first two forms found (`head -c -1` and `stat -c`) and made a missing `timeout` an exit 2 with a message. Stock macOS still has no `timeout`.
-	- Estimated effort: Low
-	- Actual effort: Low
-	- Actual fix: each row keeps the GNU form where it works and falls back otherwise.
-		- `broken-pipe` puts the default SIGPIPE back with perl where `env` has no `--default-signal`. With neither, it runs the CLI as is when SIGPIPE is not ignored, and skips with a message when it is.
-		- `save-migrate-taken` strips the spaces from the `wc -l` count before comparing. Same fix in check-migrate `EqRiIDx`, the only other string compare of a `wc` count.
-		- `man-width` uses man-db when `man --version` says it is man-db, else `mandoc -T ascii -O width=80`, else the old skip. The overstrike strip no longer needs GNU sed's `\x08`.
-	- Verified: on Linux with GNU tools, cli-regress passes all 3 rows on the Rust debug CLI, and check-migrate, shell-regress, test-ids and shellcheck pass. With a padding `wc`, an `env` without `--default-signal`, a `man` that is not man-db and Debian's `mandoc` 1.14.6 first on PATH, the old script fails all 3 rows and the new one passes them. It also passes with no perl, and with perl and SIGPIPE ignored. With no perl and SIGPIPE ignored, `broken-pipe` skips. With no mandoc, `man-width` skips as before. A 90-column line put in the page fails `man-width` through mandoc, and a CLI that does not die of SIGPIPE still fails `broken-pipe`.
-	- Not verified, only reasoned: real BSD `env`, `wc`, `perl` and macOS's `man` and `mandoc`, and the windows job, where `broken-pipe` skips as before and `man-width` takes the same path it did.
-	- Swept: every `env --default-signal`, `\x08` in sed, `man --nh` and string compare of a `wc` count under `cicd/`. Other `wc` counts are read as numbers, which takes the padding.
-	- Branch: `bsdrows`
-	- Commit: f0170ca5
-	- Test case: cli-regress `EqzuLW3` (broken-pipe), `Er5ivub` (save-migrate-taken), `EpHH7ZQ` (man-width), and check-migrate `EqRiIDx`. The 3 cli-regress rows fail on the old script with the BSD-style tools and pass on the new one.
-
 - No '\' escapes
 	- ID: 2026100207032800
 	- Type: Enhancement
@@ -486,22 +453,22 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: 20261003, `check-migrate.bash` already builds 2.x from pinned `7be348d` and compares reads after `migrate`. This would extend it to the backup and rewrite in 2026100313461649, and to beta-stamped Format 3 files once 2026100207032800 is in.
 	- Estimated effort: Avg
 
-- Make sure the demo GIF is still accurate and current
-	- ID: 2026100306315606
-	- Type: Task
+- The comparison tool writes its SHCL documents in the old value syntax
+	- ID: 2026100711403568
+	- Type: Bug
 	- Status: Queued
-	- Priority: Avg
-	- Opened: 20261003-063156
-	- Opened by: JC
-	- Prereq IDs: 2026100207032800
-	- Version and build: dev at `34ceede2`
-	- Problem description:
-		- `assets/demo.gif` was last made on 2026-09-19. The parser and CLI output have changed a lot since.
-		- The demo file's `tags: fast, "eu, west", cheap` line is a bare value with spaces and quotes, which is an error under 2026100207032800. That item has to go in first.
-	- Requirements:
-		- The demo file, `cicd/demo/script.txt` and `cicd/demo-scenario.toml` use current syntax.
-		- Each step's output in the GIF matches what the current release binary prints.
-		- Regenerate it with the cicd gif stage and check `cicd/demo/expected.txt` still matches.
+	- Severity: Avg
+	- Opened: 20261007-114035
+	- Opened by: found while working 2026100711350582
+	- Related IDs: 2026100207032800, 2026100221215300, 2026100219565400
+	- Version and build: valsyn at `c4c6273c`
+	- Steps to reproduce:
+		- Read `shcl_scalar` and `shcl_string` in `cicd/utility/comparison/src/model.rs`.
+	- Incorrect behavior: an array is written `a, b` with no brackets, which is `E026` now. A quote or backslash in a string is written `\"` or `\\`, and a backslash is plain text now. So the benchmark documents would load with errors once valsyn is in dev.
+	- Expected behavior: arrays in brackets, and strings quoted the way the writer quotes them.
+	- Reproduced: No. Read only; the comparison tool was not built or run.
+	- Note: needed before the Python perf recheck (2026100221215300) and the next benchmark run. The document sizes will move a little.
+	- Estimated effort: Low
 
 - README note on how escapes work, and why
 	- ID: 2026100313461651
@@ -721,6 +688,39 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: left for signoff: the new `migrate` refusal and no-stamp rule, which go past the item, and the `EreT6dh` trim change.
 	- Acceptance signoff: 20261003, signed off. The `migrate` refusal at 7 was OK'd. The no-stamp rule is the one design.md already had, now checked under both rule sets, and the `EreT6dh` change is a fix to the test, so neither needed a call.
 	- Closed: 20261003-162005
+
+- Gate fixtures and a generator still in the old value syntax
+	- ID: 2026100711350582
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Opened: 20261007-113505
+	- Opened by: the full `--ci` on valsyn at `c4c6273c` and hosted run 37659235658
+	- Parent ID: 2026100207032800
+	- Related IDs: 2026100610073400, 2026100306315606
+	- Version and build: valsyn at `c4c6273c`
+	- Steps to reproduce:
+		- Run the full `--ci` on valsyn, or a hosted run.
+	- Incorrect behavior: 3 gate rows fail on the test, not the CLI, and block the valsyn merge to dev.
+		- shell-regress `Ep19Ax8`: its fixture's field `-dash` is `E014` now, so the quoted `--` row reads nothing.
+		- shell-regress `Ep1BXPn`: largedoc's generated document writes `tags: a, b` and `* ` items. At 1 MiB it loads with 35230 errors and its long array reads back 0 of 20000.
+		- cli-regress `EqTPxzc`, on the hosted windows job only: its stderr regex has a `.` for each `◉`, which is 3 bytes. msys bash runs grep in a byte locale, so a `.` matches 1 byte there.
+	- Expected behavior: the rows test what they were written for.
+	- Reproduced: 20261007. Both shell-regress rows fail as in the gate log. `EqTPxzc` fails under `LC_ALL=C` and passes under UTF-8.
+	- Actual cause: fixtures and a generator written for the old syntax, and a regex that only works in a UTF-8 locale.
+	- Actual fix:
+		- `Ep19Ax8` writes the field as `"-dash": 5`, so the row still checks that a quoted `--` gets a dot-sourced pwsh `shcl` to a name starting with `-`. `EpHNNhw`'s `dash-arg` row had the same fixture and passed only because the binary and the wrappers gave the same `E014`. It is quoted too.
+		- largedoc's generator writes `tags: [fast, "eu, west", cheapN]` and `- ` items for `burst` and `wide`. Its other lines were already fine.
+		- `EqTPxzc` has the `◉` mark itself in the regex, which matches in either locale.
+	- Note: the profiler workload is the same generator at 4 MiB. It loaded with errors on valsyn and loads clean now, so its numbers may move.
+	- Swept: cli-regress for all four CLIs under `LC_ALL=C` fails only `EqTPxzc`. Of the regex rows whose stderr has a non-ASCII byte (7), only `EqTPxzc` used `.` for the mark. A grep over `cicd/` and `.github/` for a regex `.` beside an escape name, `©` or other non-ASCII text found no others. cli-regress's own `-h` field fixture (`EqzuLVq`) was already quoted.
+	- Verified: shell-regress passes, with `Ep19Ax8`, `EpHNNhw` and `Ep1BXPn` ok. largedoc at 1 MiB passes all 5 of its tests for the four CLIs, where before it failed `Eojtm8u` and `EnPl0qI`. cli-regress passes for all four CLIs under UTF-8 and under `LC_ALL=C`. test-ids check and shellcheck pass.
+	- Not verified: the hosted windows job. The next hosted run covers it.
+	- Test case: shell-regress `Ep19Ax8` and `Ep1BXPn`, cli-regress `EqTPxzc`. Each failed before and passes now, `EqTPxzc` under `LC_ALL=C`.
+	- Acceptance signoff: Self-closed: mechanical fixture fixes, and the tests failed before and pass after.
+	- Branch: `vsgate`
+	- Commit: `ad9c8510`
+	- Closed: 20261007-114200
 
 - A remove next to a settled kept line gives one answer on the document and another on its reload
 	- ID: 2026100506223902
@@ -1404,6 +1404,32 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Acceptance signoff: 20261003, closed without a hand check: the fuzz property, corpus 188 and the cli-regress rows cover what a hand test would, and the open question on the item went to 2026100218185700.
 	- Closed: 20261003-113243
 
+- Make sure the demo GIF is still accurate and current
+	- ID: 2026100306315606
+	- Type: Task
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20261003-063156
+	- Opened by: JC
+	- Prereq IDs: 2026100207032800
+	- Version and build: dev at `34ceede2`
+	- Problem description:
+		- `assets/demo.gif` was last made on 2026-09-19. The parser and CLI output have changed a lot since.
+		- The demo file's `tags: fast, "eu, west", cheap` line is a bare value with spaces and quotes, which is an error under 2026100207032800. That item has to go in first.
+	- Requirements:
+		- The demo file, `cicd/demo/script.txt` and `cicd/demo-scenario.toml` use current syntax.
+		- Each step's output in the GIF matches what the current release binary prints.
+		- Regenerate it with the cicd gif stage and check `cicd/demo/expected.txt` still matches.
+	- Actual effort: Low
+	- Done: 20261007, the demo file's `tags` line is a bracket array now. `script.txt` and `demo-scenario.toml` already used current syntax, the parens selector included. `assets/demo.gif` was rendered again from the release binary, and `cicd/demo/expected.txt` refreshed. The GIF shows what the CLI prints now at each step.
+	- Note: `fmt` now writes the demo file back unchanged, since `window` stays bare. The fmt step still shows the kept `retries 5` line and its `E014`.
+	- Verified: shell-regress passes, `EqM7a7s` and the demo output order rows included.
+	- Test case: shell-regress `EqM7a7s` (demo matches the gif). It failed before and passes now.
+	- Acceptance signoff: Self-closed: the change does what the item asked and its test passes.
+	- Branch: `vsgate`
+	- Commit: `493552b9`
+	- Closed: 20261007-114200
+
 - A macOS universal binary for amd64 and ARM
 	- ID: 2026100313461652
 	- Type: Feature
@@ -1813,6 +1839,42 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `pathhint`
 	- Commit: `1a12c02`
 	- Test case: corpus `171-windows-path-hint`, cli-regress `path-hint-*` rows. The read and strict rows and case 171 fail with the hint off, and `path-hint-set` shows a write is unaffected. The migrate goldens of cases 118, 122 and 170 now list the hint.
+
+- cli-regress fails 3 rows on macOS's own tools
+	- ID: 2026100617010925
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: N. cli-regress, check-migrate, shell-regress, test-ids and shellcheck pass on Linux.
+	- Needs external testing: a cli-regress run on b26 with stock macOS tools plus a `timeout`, Hosted is done: run 37637035207 on dev `9300b1be`, 20261007, passed all 4 jobs, and the macos job passed all 3 rows, `man-width` through `mandoc`.
+	- Severity: Low
+	- Opened: 20261006-170109
+	- Opened by: the b26 run for 2026100313461652
+	- Related IDs: 2026100313461652, 2026100413052101
+	- Target OS: macOS, FreeBSD
+	- Test environment: b26 (macOS 15.8.1), bash 5.2, no GNU coreutils.
+	- Steps to reproduce:
+		- On a Mac without GNU coreutils, with a `timeout` on PATH, run `cicd/utility/cli-regress.bash "macos|PATH-TO-SHCL"` under bash 4 or later.
+	- Incorrect behavior: 3 rows fail on the script's own tools, not on the CLI. `broken-pipe` calls `env --default-signal`, which BSD `env` lacks. `save-migrate-taken` compares `ls -A | wc -l` to `2`, and BSD `wc` pads the count with spaces. `man-width` calls `man --nh --nj -l`, which only man-db takes, so the page renders to nothing.
+	- Expected behavior: the 3 rows pass on BSD tools, as they do on Linux.
+	- Reproduced: 20261006 on b26. Run by hand there, the CLI does what each row wants: 141 with nothing on stderr, exit 8 with both files left, and the page at 80 columns under `mandoc`.
+	- Actual cause: GNU-only forms. The hosted macos job puts GNU coreutils first on PATH, so it never meets them.
+	- Note: 20261006, the hosted macos job does meet `man-width`: GNU coreutils has no `man`, and the runner's is not man-db. It is the only row that job fails (run 37550690633), so it keeps 2026100313461652 open and turns the job red on a main push.
+	- Note: 20261006, `macb26` already fixed the first two forms found (`head -c -1` and `stat -c`) and made a missing `timeout` an exit 2 with a message. Stock macOS still has no `timeout`.
+	- Estimated effort: Low
+	- Actual effort: Low
+	- Actual fix: each row keeps the GNU form where it works and falls back otherwise.
+		- `broken-pipe` puts the default SIGPIPE back with perl where `env` has no `--default-signal`. With neither, it runs the CLI as is when SIGPIPE is not ignored, and skips with a message when it is.
+		- `save-migrate-taken` strips the spaces from the `wc -l` count before comparing. Same fix in check-migrate `EqRiIDx`, the only other string compare of a `wc` count.
+		- `man-width` uses man-db when `man --version` says it is man-db, else `mandoc -T ascii -O width=80`, else the old skip. The overstrike strip no longer needs GNU sed's `\x08`.
+	- Verified: on Linux with GNU tools, cli-regress passes all 3 rows on the Rust debug CLI, and check-migrate, shell-regress, test-ids and shellcheck pass. With a padding `wc`, an `env` without `--default-signal`, a `man` that is not man-db and Debian's `mandoc` 1.14.6 first on PATH, the old script fails all 3 rows and the new one passes them. It also passes with no perl, and with perl and SIGPIPE ignored. With no perl and SIGPIPE ignored, `broken-pipe` skips. With no mandoc, `man-width` skips as before. A 90-column line put in the page fails `man-width` through mandoc, and a CLI that does not die of SIGPIPE still fails `broken-pipe`.
+	- Not verified, only reasoned: real BSD `env`, `wc`, `perl` and macOS's `man` and `mandoc`, and the windows job, where `broken-pipe` skips as before and `man-width` takes the same path it did.
+	- Swept: every `env --default-signal`, `\x08` in sed, `man --nh` and string compare of a `wc` count under `cicd/`. Other `wc` counts are read as numbers, which takes the padding.
+	- Branch: `bsdrows`
+	- Commit: f0170ca5
+	- Test case: cli-regress `EqzuLW3` (broken-pipe), `Er5ivub` (save-migrate-taken), `EpHH7ZQ` (man-width), and check-migrate `EqRiIDx`. The 3 cli-regress rows fail on the old script with the BSD-style tools and pass on the new one.
+	- Verified: 20261007, cli-regress on b26 (macOS 15.8.1, Intel) as `mactest`, under Homebrew bash 5.2 with only `/usr/bin` and `/bin` tools and a perl stand-in for `timeout`, against the stage 6 universal binary from dev `9300b1be`. 372 rows ok, all 3 included, and 14 skipped for no `/dev/full`, `/proc` or strace and the Windows rows.
+	- Acceptance signoff: Self-closed: the 3 rows pass on real BSD tools and in the hosted macos job.
+	- Closed: 20261007-102000
 
 - A merge can leave a list with a field under it after an empty binding of its name that has fields, which no text reloads as
 	- ID: 2026100511210900

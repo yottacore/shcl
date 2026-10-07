@@ -640,7 +640,7 @@ rows=(
 	## The value half of the same rule: the H001 hint splices the repeated
 	## values into its suggestion, and a value with a line break used to go
 	## in raw, so the hint arrived as four stderr lines.
-	'EqTPxzc|diag-value-line-break|check %NV%|-|0|line 2: Hint: H001\nok (1 diagnostic(s))\n|^line 2: Hint: H001 .srv. repeats as a bare leaf - did you mean .srv: \["a.NEWLINE.b", "c.NEWLINE.d"\].\?$'
+	'EqTPxzc|diag-value-line-break|check %NV%|-|0|line 2: Hint: H001\nok (1 diagnostic(s))\n|^line 2: Hint: H001 .srv. repeats as a bare leaf - did you mean .srv: \["a◉NEWLINE◉b", "c◉NEWLINE◉d"\].\?$'
 	'Eq4AfLW|diag-name-dotted|check --schema=%SN% %DN%|-|6|line 1: Error: V001\nfailed: 1 diagnostic(s), 1 error(s)\n|unknown field ."x\.y".'
 	## 20260918 item 14: the same for schema text, which every code below printed raw.
 	'EqGaO1w|schema-text-v002|check --schema=%SL% %DL%|-|6|-|V002 required path missing: a\."x\\ny"$'
