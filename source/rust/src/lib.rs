@@ -2649,9 +2649,10 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool) -> Migration {
 pub struct Upgrade {
 	/// The fresh file's text, or the input when `current` or `ambiguous`.
 	pub text: String,
-	/// The input loads with no error under these rules, or names this
-	/// format, so it is left as it is. A beta build of 3.0 stamped the same
-	/// Format line as a release, so a beta file is current here too.
+	/// The input loads with no error under these rules and, with `from_v2`,
+	/// migrates to the same text, or it names this format, so it is left as
+	/// it is. A beta build of 3.0 stamped the same Format line as a release,
+	/// so a beta file is current here too.
 	pub current: bool,
 	/// The format the input was written for, which goes in the backup's
 	/// name: what its Format line names, else 2.
@@ -2663,8 +2664,9 @@ pub struct Upgrade {
 	/// the ones 2.x bound that nothing binds now, and the ones the load of
 	/// the migrated text drops. The backup still has them.
 	pub lost: usize,
-	/// What loading the input found, which is why it needed the upgrade.
-	/// Empty when `current`.
+	/// What loading the input found, which is why it needed the upgrade
+	/// unless it loaded clean and `from_v2` said it reads as 2.x. Empty when
+	/// `current`.
 	pub diagnostics: Vec<Diagnostic>,
 	/// Where `upgrade_file` put the original. Empty from `upgrade`, and when
 	/// nothing was written.
@@ -2674,11 +2676,13 @@ pub struct Upgrade {
 /// A config file written for an older format, made over for this one: the
 /// input run through `migrate_unstamped`, then written the way `fmt` writes
 /// it, with any old info block swapped for the one `init` writes. This is
-/// the one library call that writes the block. A file that loads with no
-/// error under these rules, or that names this format, comes back
-/// `current` and untouched, since a program calling this on every start
-/// must never rewrite a good file. `from_v2` is migrate's: the file can only
-/// have been written for 2.x.
+/// the one library call that writes the block. A file that names this
+/// format comes back `current` and untouched, and so does one that loads
+/// with no error under these rules, since a program calling this on every
+/// start must never rewrite a good file. `from_v2` is migrate's: the file
+/// can only have been written for 2.x. Then a file that loads clean is
+/// still made over when `migrate` would change it, as it would `p: a,b`,
+/// an array under 2.x and one string now.
 pub fn upgrade(text: &str, from_v2: bool) -> Upgrade {
 	let version = format_version(text);
 	let mut up = Upgrade {
@@ -2694,12 +2698,18 @@ pub fn upgrade(text: &str, from_v2: bool) -> Upgrade {
 		return up;
 	}
 	let before = Document::parse(text);
-	if before.error_count() == 0 {
+	let clean = before.error_count() == 0;
+	if clean && !from_v2 {
+		return up;
+	}
+	let m = migrate_text(text, from_v2, false);
+	// A 2.x file can load clean and still read differently now, as `a,b`
+	// does. One migrate leaves as it was has nothing to do.
+	if clean && m.text == text {
 		return up;
 	}
 	up.current = false;
 	up.diagnostics = before.diags;
-	let m = migrate_text(text, from_v2, false);
 	up.ambiguous = m.ambiguous;
 	if m.ambiguous != 0 {
 		return up;
@@ -8076,8 +8086,8 @@ fn create_backup(file: &str, name: &str) -> std::io::Result<std::fs::File> {
 /// `upgrade` on a file, for a program to call when it starts, before its
 /// load. A file that needs it is kept under `backup_file_name` by `write_backup`,
 /// then the fresh text replaces it through `write_file_atomic`, so the path
-/// always holds one or the other. A file that loads clean, or names this
-/// format, is not written at all, and also neither is one that changed after it
+/// always holds one or the other. A file `upgrade` finds `current` is not
+/// written at all, and also neither is one that changed after it
 /// was read or that reads two ways. Opt-in on purpose: a program that keeps
 /// its own backups has no need of it. On success `backup` names the copy
 /// when one was made, and `text` is what the path now holds.

@@ -254,11 +254,17 @@ keep the original under the backup name
 .B migrate \-\-write
 uses and rewrite
 .IR FILE ).
-A file that loads with no error, or whose
+A file whose
 .B Format
-line names this format, is left alone at exit 0, so it is safe to run on
-every start. That includes a file a beta build of 3.0 wrote, since it has the
-same Format line. Values that read two ways, as for
+line names this format is left alone at exit 0, and so is one that loads with
+no error, so it is safe to run on every start. That includes a file a beta
+build of 3.0 wrote, since it has the same Format line. With
+.BR \-\-from\-2x ,
+which says the file is 2.x, a file that loads clean is still made over when
+.B migrate
+would change it, as it would
+.BR "p: a,b" ,
+an array under 2.x and one string now. Values that read two ways, as for
 .BR migrate ,
 are exit 7 unless
 .B \-\-from\-2x

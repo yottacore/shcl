@@ -346,6 +346,8 @@ printf '%s\n' 'p: "C:\\a\nb", "D:\\c\nd"' 'q: [1, 2]' > "${tmpDir}/miglost2.shcl
 ## clean either.
 printf 'tags: a, b\nport: 80\n\n#\n# This config file format is SHCL.\n# "Simple Hierarchical Config Language"\n#    Legal    SHCL is Copyright \302\251 2026 Jim Collier. License: MIT. No warranty.\n#\n' > "${tmpDir}/upgv2.shcl"
 printf 'a: x,y\nb: "q\n' > "${tmpDir}/upgamb.shcl"
+## Clean under these rules, and an array under 2.x.
+printf 'p: a,b\n' > "${tmpDir}/upgclean.shcl"
 ## A schema key nothing knows, on schema line 2.
 printf 'field: a\n\tbogus: 1\n' > "${tmpDir}/unkey.shcl"
 ## A file and a name that both start with a dash, so only `--` makes them data.
@@ -399,6 +401,7 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	list with a field under it, after an instance of its name with fields,
 ##	%U2% a 2.x file under 2.x's info block that does not load clean, %UA% one
 ##	that reads two ways, and %U2W%/%UAW% fresh copies of them at that path,
+##	%UC% one that loads clean and reads as an array under 2.x,
 ##	%W% a fresh copy of the selector-sugar file, %BS% a fresh copy of a file
 ##	holding a backslash 2.x read as an escape, %BW% a fresh copy of
 ##	the bracket array, %V3% a file that already names its format,
@@ -1006,6 +1009,10 @@ rows=(
 	'Es2Rg1I|upgrade-usage-line|upgrade|-|1||^usage: shcl upgrade \[options\] FILE \(see --help\)$'
 	'Es2Rg1J|upgrade-stdin-write|upgrade --write -|-|1||cannot rewrite stdin'
 	'Es2Rg1K|upgrade-check-refused|upgrade --check %UA%|-|1||--check'
+	## With --from-2x a clean file that reads differently once migrated is
+	## made over too; without it, it is left alone.
+	'Es2a1Ju|upgrade-from-2x-clean|upgrade --from-2x %UC%|-|0|p: [a, b]\n\n##\n## This config file format is SHCL.\n## "Simple Hierarchical Config Language"\n##    Format   3\n##    Home     https://github.com/yottacore/shcl\n##    Syntax   https://github.com/yottacore/shcl/blob/v3.0.0-beta1/project/spec.md\n##    Legal    SHCL is Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]. License: MIT. No warranty.\n##\n|!.'
+	'Es2a1Jv|upgrade-clean-unsaid|upgrade %UC%|-|0|p: a,b\n|nothing to upgrade'
 	## 20260918 item 18: the usage line said [--write|-w] where the help line
 	## says [options].
 	'EqGfz44|migrate-usage-line|migrate|-|1||^usage: shcl migrate \[options\] FILE \(see --help\)$'
@@ -1391,6 +1398,7 @@ for row in "${rows[@]}"; do
 	argv="${argv//%MV%/${tmpDir}/miglost2.shcl}"
 	argv="${argv//%U2%/${tmpDir}/upgv2.shcl}"
 	argv="${argv//%UA%/${tmpDir}/upgamb.shcl}"
+	argv="${argv//%UC%/${tmpDir}/upgclean.shcl}"
 	argv="${argv//%SU%/${tmpDir}/unkey.shcl}"
 	argv="${argv//%NA%/${tmpDir}/nonascii.shcl}"
 	runIn=""

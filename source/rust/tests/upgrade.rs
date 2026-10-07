@@ -33,14 +33,35 @@ const V2_FILE: &str = "name: \"say \\\"hi\\\"\"\ntags: a, b\n\n#\n# This config 
 fn upgrade_leaves_a_clean_or_stamped_file() {
 	let _id = test_id("Es2R4RP");
 	pin_clock();
-	// a,b is one string now and an array under 2.x, but it loads clean.
+	// a,b is one string now and an array under 2.x, but it loads clean, and
+	// nothing says the file is 2.x.
 	let clean = "a: 1\nb: x,y\n";
-	let up = upgrade(clean, true);
+	let up = upgrade(clean, false);
 	assert!(up.current && up.text == clean && up.diagnostics.is_empty());
+	let up = upgrade(&stamped_comma_list(), true);
+	assert!(up.current);
 	// A beta build stamped the same Format line, so its errors are left too.
 	let beta = format!("tags: a, b\n\n{}", GEN_BANNER);
 	let up = upgrade(&beta, true);
 	assert!(up.current && up.text == beta && up.format == 3);
+}
+
+fn stamped_comma_list() -> String {
+	format!("p: a,b\n\n{}", GEN_BANNER)
+}
+
+#[test]
+fn upgrade_from_v2_rewrites_a_clean_file_that_reads_differently() {
+	let _id = test_id("Es2a1Jt");
+	pin_clock();
+	// The caller says it is 2.x, where a,b was an array.
+	let up = upgrade("p: a,b\n", true);
+	assert!(!up.current && up.lost == 0 && up.diagnostics.is_empty());
+	assert_eq!(up.text, format!("p: [a, b]\n\n{}", GEN_BANNER));
+	// Nothing reads differently, so there is nothing to do.
+	let same = "a: 1\nb: x\n";
+	let up = upgrade(same, true);
+	assert!(up.current && up.text == same);
 }
 
 #[test]

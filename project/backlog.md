@@ -488,15 +488,17 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 			- Lines and values the fresh file can't hold don't stop the write, since the backup keeps them. They are counted and printed. `migrate --write` still refuses at 7.
 			- The backup is an exclusive-create copy, not a rename, since a rename on POSIX replaces whatever is at the new name. The original stays at the path until the save's temp file and rename replace it. A file that changed since it was read is not written.
 			- Without `--write`, a current file is printed back, as `migrate` does. A missing file is exit 8; the library returns `NotFound`.
+			- 20261007: with `from_v2`, which says the file is 2.x, a file that loads clean is still backed up and rewritten when `migrate --from-2x` would change its text, as with `p: a,b`, an array under 2.x and one string now. One that migrates to the same text is left alone. Without `from_v2`, an unstamped clean file is still current, and a file naming Format 3 is never touched either way.
 		- Left for the ports:
 			- Mirror `upgrade`, `upgrade_file`, `backup_file_name`, `write_backup`, the error type and the CLI subcommand. The help text is byte-identical across the CLIs, so copy it from `main.rs`.
 			- `drop_banners` takes a mark, `#` for 2.x's block, and `set_banner` goes through `swap_banner(on, v2)`. The clock is `clock_now()`, beside `note_stamp()`.
+			- The `from_v2` rule above: a clean load returns current only without `from_v2`, or when the unstamped migrate leaves the text as it was (Rust `upgrade`, `Es2a1Jt`; rows `Es2a1Ju`, `Es2a1Jv`).
 			- Each CLI's `migrate --write` drops `_old_v2` for `backup_file_name`.
 			- cli-regress `Er5qICu`, the `migrate-*` save cases, the 3 windows migrate rows and `Er5qICw` expect the new name, so Go, Python and C fail them until ported. The per-binding clear in cli-regress and the one in sanitize-c remove both names. Drop `_old_v2` from both once all four have moved.
-			- Rows `Es2Rg1E` to `Es2Rg1P` and `Es2RuBA` run against every binding. Each port gets its own twins of the 6 Rust tests in `tests/upgrade.rs`.
+			- Rows `Es2Rg1E` to `Es2Rg1P`, `Es2RuBA`, `Es2a1Ju` and `Es2a1Jv` run against every binding. Each port gets its own twins of the 7 Rust tests in `tests/upgrade.rs`.
 			- The changelog line doesn't say "in every binding" yet. Add that with the last port.
 			- The C++ interface wraps the new C calls (`check-veneer.bash`).
-	- Test case: Rust `tests/upgrade.rs`, `Es2R4RP` to `Es2R4ch`; cli-regress `Es2Rg1E` to `Es2Rg1P` and `Es2RuBA`. `Es2R4RP`, `Es2R4TW` and `Es2R4ch` each fail with their part of the change taken out.
+	- Test case: Rust `tests/upgrade.rs`, `Es2R4RP` to `Es2R4ch` and `Es2a1Jt`; cli-regress `Es2Rg1E` to `Es2Rg1P`, `Es2RuBA`, `Es2a1Ju` and `Es2a1Jv`. `Es2R4RP`, `Es2R4TW` and `Es2R4ch` each fail with their part of the change taken out. `Es2a1Jt` failed on `60d0196c` and passes after. `Es2R4RP` now checks the clean file without `from_v2`, since the from_v2 call changed that case.
 	- Verified: cargo test, cargo fmt, clippy `-D warnings` on the host and windows-gnu, the upgrade tests on windows-gnu under wine, cli-regress for Rust, check-migrate, check-docs, check-completions, test-ids check, shellcheck, markdownlint, and the 2,000,000 release fuzz (all 25). shell-regress fails the same 2 as on `valsyn`. Over the 203 corpus inputs, `upgrade --from-2x` rewrote 71, each one a fixpoint of `upgrade` and of `fmt`, with the same paths as `migrate --from-2x`.
 	- Branch: `upgbak`
 	- Commit: `60d0196c`
