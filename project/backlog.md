@@ -806,6 +806,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- A file naming Format 3 is never touched, with or without the flag: the corpus inputs that name it, plus one that loads with errors.
 	- Test case: check-migrate `Es34DZj` (upgrade on every compared document) and `Es34DZk` (Format 3 left alone). Each failed with the library broken: a backup with other bytes, no info block, the fresh file built from the unmigrated text, the Format 3 and clean-unchanged early returns taken out, the ambiguity ignored, a fresh file that differs without the flag, and `migrate` not refusing ambiguous text.
 	- Verified: check-migrate passes (638 compared, 288 rewritten with `--from-2x`, 22 of them clean, 234 without, 350 left alone, 32 refused at 7, 7 naming Format 3), shellcheck, test-ids check, check-docs. A one-off copy pointed at the Go, C and Python CLIs passed too.
+	- Decision: 20261007, OK'd by JC: the upgrade checks run on the Rust CLI only, like the rest of check-migrate. Python alone takes about 30 minutes there.
 	- Acceptance signoff: Self-closed: the item's intent was clear, the gate passes and each new check was seen to fail.
 	- Branch: `upgtest`
 	- Commit: `2fd2b410`
@@ -3864,6 +3865,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Possible cause: the per-line fault checks added with the escape errors. `_line_fault` and the extra `any` calls account for most of the gap.
 	- Decisions:
 		- 20261002: recheck after 2026100207032800 is built, since it removes most of those checks. No perf work before 3.0.0 otherwise.
+		- 20261007: deferral to after 3.0.0 OK'd by JC. The H005 cost stays under this item rather than getting its own.
 	- Progress log:
 		- 20261007: rechecked on dev `55785cca`, after 2026100207032800. The gap is wider, not gone. Parse times, median of 5 back-to-back rounds on one run, box load 13 to 23:
 			- `ddl` (256 KiB): 213 ms at `efcc7dd8`, 250 ms at `7e81cd87`, 287 ms on dev. Up 35%.
