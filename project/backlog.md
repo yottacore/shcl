@@ -38,7 +38,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Type: Feature
 	- Status: Waiting for testing
 	- Needs local test suite run?: N. The stage 6 command was run as stage 6 runs it, and the gates it touches pass.
-	- Needs external testing: b26, under the host lock: the universal binary's `fmt` and `check` output over the corpus against Linux's, cli-regress if b26 has a bash 4 or later, and `install.bash` end to end in macOS's own bash 3.2 against a local stand-in release (plan, install, `man shcl`, the system target, uninstall). Then the hosted `macos` job on macos-14, which builds it with the stage 6 command and runs the arm64 half.
+	- Needs external testing: b26 is done (20261006): the x86_64 half passed the corpus, cli-regress and an `install.bash` run, details in the progress log. Still to run: the hosted `macos` job on macos-14 (run 37548387357), which builds it with the stage 6 command and runs the arm64 half.
 	- Priority: Avg
 	- Opened: 20261003-134616
 	- Opened by: JC
@@ -51,6 +51,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: 20261006, the installer changes need a docs-only sync to main once this is on dev (`install.bash` 1.3.0, `install.ps1` 1.1.7). check-docs fails until then. The README stays off main until the cut.
 	- Decisions:
 		- 20261005: cross-build both halves here with zigbuild, run the amd64 half on b26 under the lock, and add a hosted macos-14 job that runs the corpus and cli-regress on ARM.
+		- 20261006: keep the macOS 13 floor.
+		- 20261006: stage 7 copies the macOS binary into the synced util dirs once it runs on b26.
 	- Prereq IDs: 2026100314005369
 	- Estimated effort: Avg
 	- Progress log:
@@ -60,10 +62,16 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261006: `install.bash` maps Darwin to the universal binary on both arches, and names the macOS 13 floor when the binary will not start. The release table already took `macos-universal`.
 		- 20261006: the hosted `macos` job runs crosscheck over the corpus against a debug build, cli-regress, and the Rust tests. It is not strict, so rows needing `/dev/full` or strace skip there. ci.yml now pins cargo-zigbuild, and check-pins reads each install line on its own, since the new pip line hid an unreadable one.
 		- 20261006: no dogfood dest for macOS until the binary has run on a Mac.
-	- Verified: the stage 6 command gave the same bytes from 2 target dirs and from another checkout. Both halves are for macOS 13 and link only libSystem, and every page hash in the arm64 signature matches. shell-regress, check-pins, check-docs, check-readme, test-ids, markdownlint and shellcheck pass. A Linux release build passes cli-regress and crosscheck the way the job runs them. Nothing has run on a Mac yet.
-	- Swept: the FreeBSD target's sites. Stage 6, the toolchain targets, both installers and their comments, README, design.md, the changelog, the release table and the dogfood note.
-	- Branch: `macbin`
+		- 20261006: b26 run, macOS 15.8.1 on Intel. `--version` and `--about` work, under `arch -x86_64` too. `fmt`, `check`, and `check --schema` where a case has one, over all 191 corpus cases match the Linux release byte for byte, exit codes and stderr included.
+		- 20261006: cli-regress on b26 under bash 5.2. Stock macOS has no `timeout`, and the script also stopped at a GNU-only `head -c -1`. Fixed on `macb26`: it now exits 2 and says so with no `timeout`, and takes BSD `stat` and `head`. The retest ran all 422 rows: 407 ok, 12 skipped (no `/dev/full`, `/proc` or strace, and the Windows rows), 3 failed on GNU-only forms in the script itself. Run by hand on b26, the CLI does what those 3 rows want. Filed as 2026100617010925.
+		- 20261006: `install.bash` end to end on b26 in macOS's own bash 3.2, with LibreSSL and BSD `sort -V`, against a local stand-in release signed with a test key. Stable picked v2.0.0 over v2.0.0-rc1, v1.10.0 and `vnext`, and dev picked v3.0.0-beta1. The signature check passed, and a tampered sums file was refused with the install left alone. The user install, a rerun as an update, both one-liner forms, `man shcl`, the uninstall, and the system target into `/opt/shcl` with its uninstall all worked. b26 was left as it was found.
+		- 20261006: stage 7 copies the universal binary to the synced `util/macos/bin`. That is where `dogfood_shcl.ps1` already looks on a Mac, and where another project's universal binary sits.
+	- Verified: the stage 6 command gave the same bytes from 2 target dirs and from another checkout. Both halves are for macOS 13 and link only libSystem, and every page hash in the arm64 signature matches. shell-regress, check-pins, check-docs, check-readme, test-ids, markdownlint and shellcheck pass. A Linux release build passes cli-regress and crosscheck the way the job runs them. The b26 run in the progress log passed. Stage 7's cross loop puts the universal binary in `util/macos/bin` under a scratch HOME.
+	- Swept: the FreeBSD target's sites. Stage 6, the toolchain targets, both installers and their comments, README, design.md, the changelog, the release table and the dogfood note. For stage 7: the runner's macOS dir list, and the stage 7 cross loop's key for `macos-universal`.
+	- Branch: `macbin`, `macb26`
 	- Test case: shell-regress `ErxeImS` (macOS plan on both arches), `ErxeImT` (install of the universal binary), `ErxeImU` (the macOS floor), `ErxeImV` (every stage 6 binary gets a table cell). `Er1zTEe` has the new install.ps1 text, and `EqL4rtp` holds the per-line pip read. Each failed with its change taken out.
+		- b26, 20261006, not CI: the corpus `fmt` and `check` against Linux, cli-regress, and `install.bash` against a stand-in release.
+		- Hosted: the `macos` job, still to be seen.
 
 - No '\' escapes
 	- ID: 2026100207032800
@@ -255,6 +263,25 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Possible cause: the per-line fault checks added with the escape errors. `_line_fault` and the extra `any` calls account for most of the gap.
 	- Decisions:
 		- 20261002: recheck after 2026100207032800 is built, since it removes most of those checks. No perf work before 3.0.0 otherwise.
+
+- cli-regress fails 3 rows on macOS's own tools
+	- ID: 2026100617010925
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261006-170109
+	- Opened by: the b26 run for 2026100313461652
+	- Related IDs: 2026100313461652, 2026100413052101
+	- Target OS: macOS, FreeBSD
+	- Test environment: b26 (macOS 15.8.1), bash 5.2, no GNU coreutils.
+	- Steps to reproduce:
+		- On a Mac without GNU coreutils, with a `timeout` on PATH, run `cicd/utility/cli-regress.bash "macos|PATH-TO-SHCL"` under bash 4 or later.
+	- Incorrect behavior: 3 rows fail on the script's own tools, not on the CLI. `broken-pipe` calls `env --default-signal`, which BSD `env` lacks. `save-migrate-taken` compares `ls -A | wc -l` to `2`, and BSD `wc` pads the count with spaces. `man-width` calls `man --nh --nj -l`, which only man-db takes, so the page renders to nothing.
+	- Expected behavior: the 3 rows pass on BSD tools, as they do on Linux.
+	- Reproduced: 20261006 on b26. Run by hand there, the CLI does what each row wants: 141 with nothing on stderr, exit 8 with both files left, and the page at 80 columns under `mandoc`.
+	- Actual cause: GNU-only forms. The hosted macos job puts GNU coreutils first on PATH, so it never meets them.
+	- Note: 20261006, `macb26` already fixed the first two forms found (`head -c -1` and `stat -c`) and made a missing `timeout` an exit 2 with a message. Stock macOS still has no `timeout`.
+	- Estimated effort: Low
 
 - Build and test on FreeBSD
 	- ID: 2026100413052101
