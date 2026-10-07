@@ -853,10 +853,10 @@ static int list_after_empty(shcl_doc *d) {
 		shcl_str p = ips[i];
 		shcl_str *kids;
 		if (!shcl_children(d, p.p, p.n, &kids) || !reads_bracketed(d, p.p, p.n)) continue;
-		if (!p.n || p.p[p.n - 1] != ']') continue;
-		size_t at = p.n;
-		while (at > 1 && !(p.p[at - 2] == '[' && p.p[at - 1] == '#')) at--;
-		if (at <= 1) continue;
+		if (!p.n || p.p[p.n - 1] != ')') continue;
+		size_t at = p.n - 1;
+		while (at > 0 && p.p[at - 1] != '(') at--;
+		if (at == 0) continue;
 		size_t k = 0;
 		int digits = 0;
 		for (size_t j = at; j + 1 < p.n; j++) {
@@ -866,7 +866,7 @@ static int list_after_empty(shcl_doc *d) {
 		if (!digits) continue;
 		for (size_t j = 0; j < k; j++) {
 			char e[512];
-			int n = snprintf(e, sizeof e, "%.*s%zu]", (int)at, p.p, j);
+			int n = snprintf(e, sizeof e, "%.*s%zu)", (int)at, p.p, j);
 			if (n < 0 || (size_t)n >= sizeof e) continue;
 			if (shcl_read_string(d, e, (size_t)n).status == SHCL_EMPTY && shcl_children(d, e, (size_t)n, &kids)) return 1;
 		}
@@ -1602,10 +1602,10 @@ int main(int argc, char **argv) {
 		if (lnc != 1 || lv[0] != 6) fail("lines", "code.done not [6]");
 		lnc = shcl_lines(ld, "a", 1, &lv);
 		if (lnc != 1 || lv[0] != 1) fail("lines", "a not [1]");
-		lnc = shcl_lines(ld, "code[*].done", 12, &lv);
-		if (lnc != 1 || lv[0] != 6) fail("lines", "code[*].done not [6]");
-		lnc = shcl_lines(ld, "code[*].nope", 12, &lv);
-		if (lnc != 1 || lv[0] != 0) fail("lines", "code[*].nope not [0]");
+		lnc = shcl_lines(ld, "code(*).done", 12, &lv);
+		if (lnc != 1 || lv[0] != 6) fail("lines", "code(*).done not [6]");
+		lnc = shcl_lines(ld, "code(*).nope", 12, &lv);
+		if (lnc != 1 || lv[0] != 0) fail("lines", "code(*).nope not [0]");
 		if (shcl_lines(ld, "missing", 7, &lv) != 0) fail("lines", "missing path not empty");
 		shcl_str *cv; size_t chn = shcl_children(ld, "code", 4, &cv);
 		const char *cw[] = { "hook", "hook", "done" };
@@ -1624,15 +1624,15 @@ int main(int argc, char **argv) {
 	{
 		const char *gt = "account: w\n\temail: e@x\n\t\tsshkey: k1\n\temail: f@x\n\t\tsshkey: k2\n";
 		shcl_doc *gd = shcl_parse(gt, strlen(gt));
-		shcl_str *gv; size_t gn = shcl_children(gd, "account[#0].email", 17, &gv);
+		shcl_str *gv; size_t gn = shcl_children(gd, "account(0).email", 16, &gv);
 		if (gn != 2 || gv[0].n != 6 || memcmp(gv[0].p, "sshkey", 6) || gv[1].n != 6 || memcmp(gv[1].p, "sshkey", 6)) fail("children", "every instance's children not listed");
-		gn = shcl_children(gd, "account.email[#1]", 17, &gv);
+		gn = shcl_children(gd, "account.email(1)", 16, &gv);
 		if (gn != 1) fail("children", "one instance's children not listed");
-		const char *iw[] = { "account", "account.email[#0]", "account.email[#0].sshkey", "account.email[#1]", "account.email[#1].sshkey" };
+		const char *iw[] = { "account", "account.email(0)", "account.email(0).sshkey", "account.email(1)", "account.email(1).sshkey" };
 		gn = shcl_instance_paths(gd, &gv);
 		if (gn != 5) fail("instance_paths", "count mismatch");
 		else for (size_t i = 0; i < 5; i++) if (gv[i].n != strlen(iw[i]) || memcmp(gv[i].p, iw[i], gv[i].n) != 0) { fail("instance_paths", "fixture mismatch"); break; }
-		shcl_read_str gr = shcl_read_string(gd, "account.email[#1].sshkey", 24);
+		shcl_read_str gr = shcl_read_string(gd, "account.email(1).sshkey", 23);
 		if (gr.status != SHCL_GOOD || gr.value.n != 2 || memcmp(gr.value.p, "k2", 2)) fail("instance_paths", "indexed path does not read");
 		shcl_free(gd);
 	}
@@ -2466,25 +2466,25 @@ int main(int argc, char **argv) {
 	// it stays with that line.
 	test_id("ErkSySr", "a_replaced_leaf_leaves_the_lines_beside_it");
 	{
-		const char *bt = "    srv: a\n  srv[x]: [3\nb[x]: [4\n# mine\nq: c\n";
+		const char *bt = "    srv: a\n  srv(x): [3\nb(x): [4\n# mine\nq: c\n";
 		shcl_doc *bd = shcl_parse(bt, strlen(bt));
 		shcl_str bc = shcl_to_canonical(bd);
-		const char *bw = "srv: a\n# srv[x]: [3\nb[x]: [4\n# mine\nq: c\n";
+		const char *bw = "srv: a\n# srv(x): [3\nb(x): [4\n# mine\nq: c\n";
 		if (bc.n != strlen(bw) || memcmp(bc.p, bw, bc.n) != 0) fail("kept_gate", "the beside fixture did not settle its kept line");
 		shcl_doc *bl = shcl_parse("q: 9\n", 5);
 		shcl_merge(bd, bl);
 		bc = shcl_to_canonical(bd);
-		bw = "srv: a\n# srv[x]: [3\nb[x]: [4\nq: 9\n";
+		bw = "srv: a\n# srv(x): [3\nb(x): [4\nq: 9\n";
 		if (bc.n != strlen(bw) || memcmp(bc.p, bw, bc.n) != 0) fail("kept_gate", "a replaced leaf took the lines beside it");
 		if (shcl_lost_count(bd) != 0) fail("kept_gate", "a replaced leaf's neighbors counted as lost");
 		shcl_free(bl); shcl_free(bd);
-		const char *pt = "p:\n\tq: c\n\t# mine\n\tb[x]: [4\n\t# n\n";
+		const char *pt = "p:\n\tq: c\n\t# mine\n\tb(x): [4\n\t# n\n";
 		const char *pl = "p:\n\tq: 9\n";
 		shcl_doc *pd = shcl_parse(pt, strlen(pt));
 		shcl_doc *pld = shcl_parse(pl, strlen(pl));
 		shcl_merge(pd, pld);
 		bc = shcl_to_canonical(pd);
-		bw = "p:\n\tb[x]: [4\n\t# n\n\tq: 9\n";
+		bw = "p:\n\tb(x): [4\n\t# n\n\tq: 9\n";
 		if (bc.n != strlen(bw) || memcmp(bc.p, bw, bc.n) != 0) fail("kept_gate", "a replaced leaf took the lines below it");
 		if (shcl_lost_count(pd) != 0) fail("kept_gate", "a replaced leaf's lines below counted as lost");
 		shcl_free(pld); shcl_free(pd);
@@ -2814,13 +2814,13 @@ int main(int argc, char **argv) {
 		const char *wt = "a:\n\tb: 1\n";
 		shcl_doc *wd = shcl_parse(wt, strlen(wt));
 		if (shcl_write_reason_(wd, "a.b", 3) != SHCL_W_WRITABLE) fail("write_reason", "a.b not writable");
-		if (shcl_write_reason_(wd, "a.new[Boston].x", 15) != SHCL_W_WRITABLE) fail("write_reason", "creatable path not writable");
+		if (shcl_write_reason_(wd, "a.new(Boston).x", 15) != SHCL_W_WRITABLE) fail("write_reason", "creatable path not writable");
 		if (shcl_write_reason_(wd, "", 0) != SHCL_W_BAD_PATH) fail("write_reason", "empty path not bad");
 		if (shcl_write_reason_(wd, "a..b", 4) != SHCL_W_BAD_PATH) fail("write_reason", "a..b not bad");
 		if (shcl_write_reason_(wd, "a.b: 2", 6) != SHCL_W_VALUE_IN_PATH) fail("write_reason", "value part not flagged");
-		if (shcl_write_reason_(wd, "a[*].b", 6) != SHCL_W_WILDCARD) fail("write_reason", "wildcard not flagged");
-		if (shcl_write_reason_(wd, "a[#5].b", 7) != SHCL_W_NO_SUCH_INDEX) fail("write_reason", "a[#5] not flagged");
-		if (shcl_write_reason_(wd, "nope[#0].b", 10) != SHCL_W_NO_SUCH_INDEX) fail("write_reason", "off-tree index not flagged");
+		if (shcl_write_reason_(wd, "a(*).b", 6) != SHCL_W_WILDCARD) fail("write_reason", "wildcard not flagged");
+		if (shcl_write_reason_(wd, "a(5).b", 6) != SHCL_W_NO_SUCH_INDEX) fail("write_reason", "a(5) not flagged");
+		if (shcl_write_reason_(wd, "nope(0).b", 9) != SHCL_W_NO_SUCH_INDEX) fail("write_reason", "off-tree index not flagged");
 		{
 			char deep[1026]; size_t dn = 0; // 513 segments: "d.d.d..."
 			for (size_t i = 0; i < 513; i++) { if (i) deep[dn++] = '.'; deep[dn++] = 'd'; }
@@ -2832,7 +2832,7 @@ int main(int argc, char **argv) {
 		// selector was refused while the value emitter still wrote elements in
 		// their source spelling and had nothing to escape with. Not
 		// corpus-pinnable - an ops line cannot contain a raw newline.
-		if (shcl_write_reason_(wd, "a[\"p\nq\"].b", 10) != SHCL_W_WRITABLE) fail("write_reason", "newline in selector not writable");
+		if (shcl_write_reason_(wd, "a(\"p\nq\").b", 10) != SHCL_W_WRITABLE) fail("write_reason", "newline in selector not writable");
 		if (shcl_write_reason_(wd, "\"x\ny\".b", 7) != SHCL_W_WRITABLE) fail("write_reason", "newline in name not writable");
 		if (shcl_write_reason_(wd, "\"x\\ny\".b", 8) != SHCL_W_WRITABLE) fail("write_reason", "escaped newline not writable");
 		// The probe never creates: the doc is unchanged after all of the above.
@@ -2846,7 +2846,7 @@ int main(int argc, char **argv) {
 	test_id("EpGigIO", "a_line_break_in_a_path_writes_and_reads_back");
 	{
 		shcl_doc *nd = shcl_parse("z: 0\n", 5);
-		if (!shcl_set_int(nd, "x[\"p\nq\"].c", sizeof "x[\"p\nq\"].c" - 1, 1)
+		if (!shcl_set_int(nd, "x(\"p\nq\").c", sizeof "x(\"p\nq\").c" - 1, 1)
 			|| !shcl_set_int(nd, "\"a\nb\".c", sizeof "\"a\nb\".c" - 1, 1))
 			fail("path_newline", "a line break in a path was refused");
 		shcl_str nt = shcl_to_canonical(nd);
@@ -2859,7 +2859,7 @@ int main(int argc, char **argv) {
 			if (shcl_error_count(nb) != 0) fail("path_newline", "the reload has errors");
 			shcl_str n2 = shcl_to_canonical(nb);
 			if (n2.n != nt.n || memcmp(n2.p, ntext, nt.n) != 0) fail("path_newline", "not a fixpoint");
-			if (shcl_read_int(nb, "x[\"p◉NEWLINE◉q\"].c", sizeof "x[\"p◉NEWLINE◉q\"].c" - 1).value != 1
+			if (shcl_read_int(nb, "x(\"p◉NEWLINE◉q\").c", sizeof "x(\"p◉NEWLINE◉q\").c" - 1).value != 1
 				|| shcl_read_int(nb, "\"a◉NEWLINE◉b\".c", sizeof "\"a◉NEWLINE◉b\".c" - 1).value != 1
 				|| shcl_read_int(nb, "\"a\nb\".c", sizeof "\"a\nb\".c" - 1).value != 1)
 				fail("path_newline", "a line break in a path did not read back");
@@ -3285,12 +3285,10 @@ int main(int argc, char **argv) {
 			{"x:\n\t- a, b\n", "E026", "quote the text"},
 			{"x:\n\t- a\tb\n", "E025", "quote it"},
 			{"x:\n\t- [a]\n", "E019", "quote the item"},
-			// Selectors are written in parens in the reference, which this
-			// binding does not read yet.
-			// {"x(a:b).y: 1\n", "E025", "quote it"},
-			// {"x(a,b).y: 1\n", "E025", "quote it"},
-			// {"x(a[b).y: 1\n", "E025", "quote it"},
-			// {"x(a(b).y: 1\n", "E025", "quote it"},
+			{"x(a:b).y: 1\n", "E025", "quote it"},
+			{"x(a,b).y: 1\n", "E025", "quote it"},
+			{"x(a[b).y: 1\n", "E025", "quote it"},
+			{"x(a(b).y: 1\n", "E025", "quote it"},
 		};
 		for (size_t i = 0; i < sizeof bt / sizeof bt[0]; i++) {
 			shcl_doc *bd = shcl_parse(bt[i].text, strlen(bt[i].text));
@@ -3357,13 +3355,12 @@ int main(int argc, char **argv) {
 	   that has fields: no text loads it back, since a reload joins the list's
 	   header to that binding and drops its items (E008). The load is left as
 	   it is; a save that would write it refuses (2026100511210900). An edit
-	   and a merge can each leave one. Same fixture in every runner. Selectors
-	   are in brackets here until this binding reads them in parens. */
+	   and a merge can each leave one. Same fixture in every runner. */
 	{
 		const char *lsrc = "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n";
 		shcl_doc *ld = shcl_parse_keep_lines(lsrc, strlen(lsrc), SHCL_STANDARD);
 		if (shcl_lost_count(ld) != 0) fail("list_no_text", "the load lost a line");
-		if (!shcl_set_empty(ld, "x[v]", 4)) fail("list_no_text", "set empty refused");
+		if (!shcl_set_empty(ld, "x(v)", 4)) fail("list_no_text", "set empty refused");
 		shcl_str lt = shcl_to_canonical(ld);
 		if (!str_is(lt, "x:\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n")) fail("list_no_text", "canonical");
 		shcl_doc *lb = shcl_parse(lt.p, lt.n);
@@ -3400,7 +3397,7 @@ int main(int argc, char **argv) {
 		const char *ok_src[] = {"x: v\nx:\n\t- a\n\tg: 2\n", "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n"};
 		for (size_t i = 0; i < 2; i++) {
 			shcl_doc *od = shcl_parse(ok_src[i], strlen(ok_src[i]));
-			if (!shcl_set_empty(od, "x[v]", 4) || shcl_lost_count(od) != 0) fail("list_no_text", ok_src[i]);
+			if (!shcl_set_empty(od, "x(v)", 4) || shcl_lost_count(od) != 0) fail("list_no_text", ok_src[i]);
 			shcl_free(od);
 		}
 	}
@@ -3412,7 +3409,7 @@ int main(int argc, char **argv) {
 		static const struct { const char *src, *path, *field, *want; } jc[] = {
 			{"b: x\nb:\n\t- 3\n\tk: 1\n", "b", "b.k", "1"},
 			{"b: x\nb: y z\n\t- 3\n\tk: 1\n", "b", "b.k", "1"},
-			{"x: v\nx:\n\t- a\n\tg: 2\n", "x[v]", "x.g", "2"},
+			{"x: v\nx:\n\t- a\n\tg: 2\n", "x(v)", "x.g", "2"},
 		};
 		for (size_t i = 0; i < sizeof jc / sizeof jc[0]; i++) {
 			shcl_doc *jd = shcl_parse(jc[i].src, strlen(jc[i].src));
@@ -3435,7 +3432,7 @@ int main(int argc, char **argv) {
 	   back, so that save refuses. The source text does, so with no edits the
 	   save that keeps lines writes it as it was. */
 	{
-		const char *ksrc = "c:\n\ts: 1\nc: [1]\n\tb[*]: 1\n\t- 3\n\ta: 2\n";
+		const char *ksrc = "c:\n\ts: 1\nc: [1]\n\tb(*): 1\n\t- 3\n\ta: 2\n";
 		shcl_doc *kd = shcl_parse_keep_lines(ksrc, strlen(ksrc), SHCL_STANDARD);
 		if (shcl_lost_count(kd) != 2) fail("list_source", "the wildcard line and the item");
 		int kept = 0;
@@ -3578,6 +3575,64 @@ int main(int argc, char **argv) {
 		(void)shcl_generate(s, 1, &ok);
 		if (before == 0 || shcl_diag_count(s) != before) fail("compact_keeps_generation_faults", "a generation fault outlived the next shcl_generate");
 		shcl_free(s);
+	}
+	test_id("Es1qzv8", "bracket_selectors_are_the_old_spelling");
+	/* A selector is written in parens. One in brackets is the old spelling: a
+	   file line is E029 and kept, and a lookup, a setter or a schema path in
+	   brackets is refused. A body starting with `#`, the old index, is refused
+	   too. Same fixture in every runner. */
+	{
+		const char *ot = "srv: web\n\tport: 80\nsrv[web]:\n\thost: h\n";
+		shcl_doc *od = shcl_parse(ot, strlen(ot));
+		if (shcl_diag_count(od) != 1 || strcmp(shcl_diag_code(od, 0), "E029") != 0 || shcl_diag_line(od, 0) != 3) fail("bracket_selector", "diagnostics");
+		if (shcl_lost_count(od) != 0) fail("bracket_selector", "lost");
+		shcl_read_str oh = shcl_read_string(od, "srv(web).host", 13);
+		if (oh.status != SHCL_GOOD || !str_is(oh.value, "h")) fail("bracket_selector", "srv(web).host");
+		if (shcl_count(od, "srv", 3) != 1) fail("bracket_selector", "srv count");
+		if (shcl_read_string(od, "srv[web].host", 13).status != SHCL_NOT_FOUND) fail("bracket_selector", "srv[web].host found");
+		if (shcl_count(od, "srv[web]", 8) != 0) fail("bracket_selector", "srv[web] count");
+		if (shcl_write_reason_(od, "srv[web].x", 10) != SHCL_W_BAD_PATH) fail("bracket_selector", "write_reason srv[web].x");
+		if (shcl_write_reason_(od, "srv(#0).x", 9) != SHCL_W_BAD_PATH) fail("bracket_selector", "write_reason srv(#0).x");
+		if (shcl_write_reason_(od, "srv(0).x", 8) != SHCL_W_WRITABLE) fail("bracket_selector", "write_reason srv(0).x");
+		if (shcl_set_int(od, "srv[web].x", 10, 1)) fail("bracket_selector", "a setter took a path in brackets");
+		if (!shcl_set_int(od, "srv(web).x", 10, 1)) fail("bracket_selector", "a setter refused srv(web).x");
+		shcl_str oc = shcl_to_canonical(od);
+		if (oc.n < 19 || memcmp(oc.p, "srv[web]:\nsrv: web\n", 19) != 0) fail("bracket_selector", "canonical");
+		shcl_tokens otok; memset(&otok, 0, sizeof otok);
+		shcl_tokenize(od, "a(x).b[y].c: 1", 14, ':', 0, SHCL_RULES_CURRENT, &otok);
+		if (!otok.has_bracket_selector || otok.bracket_selector != 6) fail("bracket_selector", "bracket_selector not 6");
+		shcl_tokenize(od, "a(x).b(y).c: 1", 14, ':', 0, SHCL_RULES_CURRENT, &otok);
+		if (otok.has_bracket_selector) fail("bracket_selector", "bracket_selector set with none");
+		shcl_free(od);
+		const char *osch = "field: \"srv[*].port\"\n";
+		shcl_doc *os = shcl_parse(osch, strlen(osch));
+		shcl_doc *odoc = shcl_parse("srv: a\n", 7);
+		shcl_validation *ov = shcl_validate(odoc, os);
+		int named = 0;
+		for (size_t i = 0; i < shcl_validation_count(ov); i++) {
+			shcl_str m = shcl_validation_message(ov, i);
+			if (!strcmp(shcl_validation_code(ov, i), "V093") && contains(m.p, m.n, "parens")) named = 1;
+		}
+		if (!named) fail("bracket_selector", "no V093 naming parens");
+		shcl_validation_free(ov);
+		shcl_free(odoc); shcl_free(os);
+	}
+	test_id("Es1qzxJ", "init_refuses_a_child_of_an_array_parent");
+	/* A parent whose default is an array has no selector a child line can use,
+	   since a selector matches one plain value. Generation refuses it rather
+	   than write a child that makes another instance. */
+	{
+		const char *asch = "field: tags\n\trequired: yes\n\tdefault: [a]\nfield: tags.k\n\trequired: yes\n";
+		shcl_doc *as = shcl_parse(asch, strlen(asch));
+		int ok = 1;
+		(void)shcl_generate(as, 1, &ok);
+		int refused = 0;
+		for (size_t i = 0; i < shcl_diag_count(as); i++) {
+			shcl_str m = shcl_diag_message(as, i);
+			if (!strcmp(shcl_diag_code(as, i), "V097") && contains(m.p, m.n, "no selector spelling")) refused = 1;
+		}
+		if (ok || !refused) fail("init_array_parent", "a child of an array parent generated");
+		shcl_free(as);
 	}
 
 #ifdef _WIN32

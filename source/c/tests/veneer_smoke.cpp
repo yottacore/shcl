@@ -79,7 +79,7 @@ int main() {
 	CHECK(kids.size() == 7 && kids[0] == "name" && kids[5] == "city" && kids[6] == "city");
 	CHECK(doc.children("nope").empty());
 	CHECK(doc.write_reason("port") == shcl::WriteReason::Writable);
-	CHECK(doc.write_reason("city[*]") == shcl::WriteReason::Wildcard);
+	CHECK(doc.write_reason("city(*)") == shcl::WriteReason::Wildcard);
 	auto multi = doc.read_string("city");
 	CHECK(multi.status == shcl::Status::Multiple);
 
@@ -161,7 +161,7 @@ int main() {
 	auto acct = shcl::Document::parse("account: w\n\temail: e@x\n\t\tsshkey: k1\n\temail: f@x\n\t\tsshkey: k2\n");
 	CHECK(acct.children("account.email").size() == 2);
 	auto each = acct.instance_paths();
-	CHECK(each.size() == 5 && each[1] == "account.email[#0]" && each[4] == "account.email[#1].sshkey");
+	CHECK(each.size() == 5 && each[1] == "account.email(0)" && each[4] == "account.email(1).sshkey");
 	auto spelled = shcl::Document::parse("SYMBOLS: 3\n");
 	CHECK(spelled.authored_name("symbols") == "SYMBOLS");
 	CHECK(spelled.authored_name("missing").empty());
@@ -212,8 +212,8 @@ int main() {
 	auto over = shcl::Document::parse("port: 9090\nserver: web1\n\thost: h1\n");
 	base.merge(over);
 	CHECK(base.get_or<int64_t>("port", 0) == 9090);
-	CHECK(base.get_or<int64_t>("server[web1].port", 0) == 80);
-	CHECK(base.get_or<std::string>("server[web1].host", std::string()) == "h1");
+	CHECK(base.get_or<int64_t>("server(web1).port", 0) == 80);
+	CHECK(base.get_or<std::string>("server(web1).host", std::string()) == "h1");
 	// Merged onto itself, a document is left as it is (20260918b item 19).
 	{
 		auto self = shcl::Document::parse("# c\na: 1\nbad line\n");
@@ -351,7 +351,8 @@ int main() {
 		CHECK(kept.set_int("block.a", 2) && kept.set_int("block.b", 3));
 		CHECK(kept.to_text_keep_lines() == std::make_pair(std::string("Name:   \"x\"   # c\nblock:\n    a: 2\n    b: 3\n"), true));
 		CHECK(w.to_text_keep_lines() == std::make_pair(w.to_canonical(), false));
-		CHECK(!w.set_int("a[*]", 1) && w.write_reason("a[*]") == shcl::WriteReason::Wildcard);
+		CHECK(!w.set_int("a(*)", 1) && w.write_reason("a(*)") == shcl::WriteReason::Wildcard);
+		CHECK(!w.set_int("a[x]", 1) && w.write_reason("a[x]") == shcl::WriteReason::BadPath);
 		CHECK(w.remove("blank") == 1 && !w.exists("blank") && w.remove("blank") == 0);
 
 		// A default form leaves a present field alone and still says whether the
@@ -376,9 +377,9 @@ int main() {
 	// The tokenizer, as `shcl tokens` shows a line.
 	{
 		shcl::Tokens tok;
-		const std::string line = "srv[\"a b\"].port: 80, '', , x # note";
+		const std::string line = "srv(\"a b\").port: 80, '', , x # note";
 		shcl::tokenize(line, ':', false, shcl::Rules::Current, tok);
-		CHECK(tok.segments.size() == 2 && !tok.fault_at && !tok.capped);
+		CHECK(tok.segments.size() == 2 && !tok.fault_at && !tok.capped && !tok.bracket_selector);
 		CHECK(tok.segments[0].selector && tok.segments[0].selector->quote == shcl::Quote::Double);
 		CHECK(line.substr(tok.segments[0].selector->start, tok.segments[0].selector->end - tok.segments[0].selector->start) == "a b");
 		CHECK(line.substr(tok.segments[1].name.start, tok.segments[1].name.end - tok.segments[1].name.start) == "port");
@@ -391,7 +392,7 @@ int main() {
 		CHECK(tok.segments.empty() && tok.elements.size() == 4 && tok.comment && line[*tok.comment] == '#');
 		shcl::tokenize("*.port", '=', true, shcl::Rules::Current, tok);
 		CHECK(tok.segments.size() == 2 && tok.segments[0].star && !tok.sep);
-		shcl::tokenize("a[b: 1", ':', false, shcl::Rules::Current, tok);
+		shcl::tokenize("a(b: 1", ':', false, shcl::Rules::Current, tok);
 		CHECK(tok.fault_at && std::string(tok.fault_why) == "unterminated selector");
 		tok.cap = 1;
 		shcl::tokenize("a: 1, 2, 3", ':', false, shcl::Rules::Current, tok);
@@ -403,6 +404,9 @@ int main() {
 		CHECK(tok.elements.size() == 2 && tok.elements[1].quote == shcl::Quote::Backtick && !tok.misspelled);
 		shcl::tokenize("404: x", ':', false, shcl::Rules::Current, tok);
 		CHECK(tok.misspelled && *tok.misspelled == 0 && !tok.array && !tok.array_fault_at);
+		// A selector in brackets, the old spelling, still reads, and is noted.
+		shcl::tokenize("a(x).b[y].c: 1", ':', false, shcl::Rules::Current, tok);
+		CHECK(tok.bracket_selector && *tok.bracket_selector == 6 && tok.segments.size() == 3 && tok.segments[1].selector);
 	}
 
 	// The hints a schema disavows, dropped from a parsed document by hand.

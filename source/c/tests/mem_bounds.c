@@ -211,9 +211,9 @@ int main(void) {
 	size_t big = 4u * 1024 * 1024;
 	char *blob = (char *)malloc(big);
 	memset(blob, 'x', big);
-	if (shcl_set_string(d, "a[*]", 4, blob, big)) fail("refused setter: the wildcard write was accepted");
-	for (int i = 0; i < 5; i++) if (shcl_set_raw(d, "a[*]", 4, blob, big, "", 0)) fail("refused setter: the raw write was accepted");
-	for (int i = 0; i < 10000; i++) if (shcl_set_int(d, "a[*]", 4, i)) fail("refused setter: the int write was accepted");
+	if (shcl_set_string(d, "a(*)", 4, blob, big)) fail("refused setter: the wildcard write was accepted");
+	for (int i = 0; i < 5; i++) if (shcl_set_raw(d, "a(*)", 4, blob, big, "", 0)) fail("refused setter: the raw write was accepted");
+	for (int i = 0; i < 10000; i++) if (shcl_set_int(d, "a(*)", 4, i)) fail("refused setter: the int write was accepted");
 	size_t after = arena_bytes(&d->arena);
 	printf("mem_bounds: refused writes: arena %zu -> %zu over 24 MB refused\n", held, after);
 	if (after > held + 4096) fail("a refused setter kept the value it encoded");
