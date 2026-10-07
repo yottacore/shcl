@@ -1533,16 +1533,26 @@ done
 ## the default goes back on first. Not a closed stdout: that is EBADF, and the
 ## closed-stdout row above already pins it.
 awk 'BEGIN{ for (i = 0; i < 40000; i++) printf "k%d: %d\n", i, i }' > "${tmpDir}/big.shcl"
+## BSD env has no --default-signal, so perl puts the default back there. With
+## neither, a SIGPIPE nobody ignored needs nothing put back; yes shows which.
+pipeDfl=()
+#  shellcheck disable=2016  ## perl's own variables.
+if env --default-signal=PIPE true 2>/dev/null; then pipeDfl=(env --default-signal=PIPE)
+elif command -v perl >/dev/null 2>&1; then pipeDfl=(perl -e '$SIG{PIPE} = "DEFAULT"; exec { $ARGV[0] } @ARGV or exit 127')
+else yesRc="$( { { yes 2>/dev/null; echo "$?" >&3; } | head -c1 >/dev/null; } 3>&1 || true)"; fi
 fTest EqzuLW3 broken-pipe
 if [[ "${onWindows}" == 1 ]]; then
 	echo "cli-regress: skipping broken-pipe (POSIX signal; not judged on windows)"
+	fTestSkip
+elif [[ -n "${yesRc:-}" && "${yesRc}" != 141 ]]; then
+	echo "cli-regress: skipping broken-pipe (SIGPIPE is ignored here, with no env --default-signal or perl to undo it)"
 	fTestSkip
 else
 	for b in "${bindings[@]}"; do
 		name="${b%%|*}"; cli="${b#*|}"
 		##	The status is kept from inside the pipeline: under pipefail a 141 there
 		##	would end this script, and the || that stops that also resets PIPESTATUS.
-		{ rc=0; env --default-signal=PIPE "${cli}" fmt "${tmpDir}/big.shcl" 2>"${tmpDir}/err" </dev/null || rc=$?; echo "${rc}" >"${tmpDir}/rc"; } | head -c1 >/dev/null
+		{ rc=0; "${pipeDfl[@]}" "${cli}" fmt "${tmpDir}/big.shcl" 2>"${tmpDir}/err" </dev/null || rc=$?; echo "${rc}" >"${tmpDir}/rc"; } | head -c1 >/dev/null
 		rc="$(<"${tmpDir}/rc")"; nRun+=1
 		gotErr=""; IFS= read -r -d '' gotErr <"${tmpDir}/err" || true
 		if [[ "${rc}" != 141 || -n "${gotErr}" ]]; then
@@ -1829,7 +1839,7 @@ saveCases=(
 	## original's mode. An earlier copy is never written over, and a file that
 	## only gains the Format line gets no copy.
 	'Er5ivua|migrate|migrate --write f.shcl|0|grep -qx "base: Boston" f.shcl && cmp -s f_old_v2.shcl <(printf "base:[Boston]\n\tlat: 42\n") && [[ "$(fStat a f_old_v2.shcl)" == 640 ]]'
-	'Er5ivub|migrate-taken|migrate --write f.shcl|8|grep -qx "base:\[Boston\]" f.shcl && [[ "$(cat f_old_v2.shcl)" == x && "$(ls -A | wc -l)" == 2 ]]'
+	'Er5ivub|migrate-taken|migrate --write f.shcl|8|grep -qx "base:\[Boston\]" f.shcl && [[ "$(cat f_old_v2.shcl)" == x && "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
 	'Er5ivuc|migrate-stamp|migrate --write f.shcl|0|[[ "$(ls -A)" == f.shcl ]]'
 	'Er5ivud|migrate-dotname|migrate --write .f|0|[[ -f .f_old_v2 ]]'
 	'Er5ivue|migrate-dotdir|migrate --write d.x/f|0|[[ -f d.x/f_old_v2 ]]'
@@ -2091,10 +2101,15 @@ done
 ## block nroff does not fill. Rendered rather than read, because the source's
 ## line lengths are not the page's. The overstrike sequences nroff writes for
 ## bold come off first, or every emphasized line reads as double its width.
+## Only man-db's man takes a file and these options. macOS and the BSDs have
+## mandoc instead, and its width option means the same.
 manPage="${repoDir}/source/man/shcl.1"
+if [[ "$(man --version 2>/dev/null || true)" == "man "[0-9]* ]]; then manCmd=(env MANWIDTH=80 MAN_KEEP_FORMATTING='' man --nh --nj -l)
+elif command -v mandoc >/dev/null 2>&1; then manCmd=(mandoc -T ascii -O width=80)
+else manCmd=(); fi
 fTest EpHH7ZQ man-width
-if [[ -f "${manPage}" ]] && command -v man >/dev/null 2>&1; then
-	rendered="$(MANWIDTH=80 MAN_KEEP_FORMATTING='' man --nh --nj -l "${manPage}" 2>/dev/null | sed 's/.\x08//g' || true)"
+if [[ -f "${manPage}" ]] && ((${#manCmd[@]})); then
+	rendered="$("${manCmd[@]}" "${manPage}" 2>/dev/null | sed $'s/.\b//g' || true)"
 	nRun+=1
 	if [[ -z "${rendered}" ]]; then
 		echo "cli-regress: man-width: the page rendered to nothing" >&2; nBad+=1
@@ -2108,9 +2123,9 @@ else
 	##	is the only check holding the page to 80 columns. Git Bash on windows has
 	##	no man, which is a fact of the platform rather than a missing tool.
 	if [[ -n "${SHCL_GATE_STRICT:-}" && "${onWindows}" == 0 ]]; then
-		echo "cli-regress: man-width: no man here and the gate requires it" >&2; nBad+=1
+		echo "cli-regress: man-width: no man-db or mandoc here and the gate requires it" >&2; nBad+=1
 	fi
-	echo "cli-regress: skipping the man page width check (no man here)"
+	echo "cli-regress: skipping the man page width check (no man-db or mandoc here)"
 	fTestSkip
 	echo "cli-regress man-width" >> "${SHCL_GATE_SKIPS:-/dev/null}"
 fi
@@ -2132,3 +2147,4 @@ echo "cli-regress: OK: ${#rows[@]} row(s) across ${#bindings[@]} binding(s), ${n
 ##		2026-09-29  Exact stderr ('=' field), for diagnostic order.
 ##		2026-10-06  Takes BSD stat and head, and stops with a message when there
 ##		            is no timeout.
+##		2026-10-06  broken-pipe, migrate-taken and man-width run on BSD tools.
