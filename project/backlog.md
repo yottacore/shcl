@@ -99,30 +99,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `upgbak`
 	- Commit: `60d0196c`, `019400ad`
 
-- A CICD test that makes old shcl files and checks the automatic conversion
-	- ID: 2026100313461650
-	- Type: Task
-	- Status: Done
-	- Priority: High
-	- Opened: 20261003-134616
-	- Opened by: JC
-	- Related IDs: 2026100313461649, 2026100307163909
-	- Requirements:
-		- Write a test as part of CICD that creates old shcl file versions, and tests the automatic conversion.
-	- Note: 20261003, `check-migrate.bash` already builds 2.x from pinned `7be348d` and compares reads after `migrate`. This would extend it to the backup and rewrite in 2026100313461649, and to beta-stamped Format 3 files once 2026100207032800 is in.
-	- Note: 20261007, beta-stamped Format 3 files are left out. A beta wrote the same Format line as a release, and from 20260924 on the same info block, so there's no beta file to build that a release file isn't. 2026100313461649 leaves any file naming Format 3 alone, which is what gets tested. Noted on 2026100115403385 too.
-	- Estimated effort: Avg
-	- Progress log:
-		- 20261007: `check-migrate.bash` runs every document it compares through `upgrade --write`, with and without `--from-2x`, on the Rust CLI as the rest of it does. A rewrite has to leave the original bytes at `cfg_backup_20261004-001500_format-v2.shcl` (`SHCL_TEST_CLOCK`) and nothing else beside it. The fresh file has to load clean, have the info block once, read the same as `migrate --from-2x`'s text, and be left alone by a second run with or without the flag. A file left alone has to keep its bytes.
-		- With `--from-2x` a file is expected to be rewritten when it loads with an error, or loads clean and `migrate` still changes it (`p: a,b`). Without the flag a clean file is current, and one with an error is either rewritten to the same fresh file or refused at 7, as `migrate` refuses it. Each of those ways has to be taken by some document, or the test fails.
-		- A file naming Format 3 is never touched, with or without the flag: the corpus inputs that name it, plus one that loads with errors.
-	- Test case: check-migrate `Es34DZj` (upgrade on every compared document) and `Es34DZk` (Format 3 left alone). Each failed with the library broken: a backup with other bytes, no info block, the fresh file built from the unmigrated text, the Format 3 and clean-unchanged early returns taken out, the ambiguity ignored, a fresh file that differs without the flag, and `migrate` not refusing ambiguous text.
-	- Verified: check-migrate passes (638 compared, 288 rewritten with `--from-2x`, 22 of them clean, 234 without, 350 left alone, 32 refused at 7, 7 naming Format 3), shellcheck, test-ids check, check-docs. A one-off copy pointed at the Go, C and Python CLIs passed too.
-	- Acceptance signoff: Self-closed: the item's intent was clear, the gate passes and each new check was seen to fail.
-	- Branch: `upgtest`
-	- Commit: `2fd2b410`
-	- Closed: 20261007-142313
-
 - The comparison tool writes its SHCL documents in the old value syntax
 	- ID: 2026100711403568
 	- Type: Bug
@@ -920,6 +896,30 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Swept: every test for a leading `#` on a comment line in all four. The merge's replaced-leaf rule is the one other site, filed as 2026092718195400.
 	- Branch: `keepdrop`
 	- Test case: corpus `178-clear-comments-kept-line`, both routes, with `comments` reads. It fails on the old code.
+
+- A CICD test that makes old shcl files and checks the automatic conversion
+	- ID: 2026100313461650
+	- Type: Task
+	- Status: Done
+	- Priority: High
+	- Opened: 20261003-134616
+	- Opened by: JC
+	- Related IDs: 2026100313461649, 2026100307163909
+	- Requirements:
+		- Write a test as part of CICD that creates old shcl file versions, and tests the automatic conversion.
+	- Note: 20261003, `check-migrate.bash` already builds 2.x from pinned `7be348d` and compares reads after `migrate`. This would extend it to the backup and rewrite in 2026100313461649, and to beta-stamped Format 3 files once 2026100207032800 is in.
+	- Note: 20261007, beta-stamped Format 3 files are left out. A beta wrote the same Format line as a release, and from 20260924 on the same info block, so there's no beta file to build that a release file isn't. 2026100313461649 leaves any file naming Format 3 alone, which is what gets tested. Noted on 2026100115403385 too.
+	- Estimated effort: Avg
+	- Progress log:
+		- 20261007: `check-migrate.bash` runs every document it compares through `upgrade --write`, with and without `--from-2x`, on the Rust CLI as the rest of it does. A rewrite has to leave the original bytes at `cfg_backup_20261004-001500_format-v2.shcl` (`SHCL_TEST_CLOCK`) and nothing else beside it. The fresh file has to load clean, have the info block once, read the same as `migrate --from-2x`'s text, and be left alone by a second run with or without the flag. A file left alone has to keep its bytes.
+		- With `--from-2x` a file is expected to be rewritten when it loads with an error, or loads clean and `migrate` still changes it (`p: a,b`). Without the flag a clean file is current, and one with an error is either rewritten to the same fresh file or refused at 7, as `migrate` refuses it. Each of those ways has to be taken by some document, or the test fails.
+		- A file naming Format 3 is never touched, with or without the flag: the corpus inputs that name it, plus one that loads with errors.
+	- Test case: check-migrate `Es34DZj` (upgrade on every compared document) and `Es34DZk` (Format 3 left alone). Each failed with the library broken: a backup with other bytes, no info block, the fresh file built from the unmigrated text, the Format 3 and clean-unchanged early returns taken out, the ambiguity ignored, a fresh file that differs without the flag, and `migrate` not refusing ambiguous text.
+	- Verified: check-migrate passes (638 compared, 288 rewritten with `--from-2x`, 22 of them clean, 234 without, 350 left alone, 32 refused at 7, 7 naming Format 3), shellcheck, test-ids check, check-docs. A one-off copy pointed at the Go, C and Python CLIs passed too.
+	- Acceptance signoff: Self-closed: the item's intent was clear, the gate passes and each new check was seen to fail.
+	- Branch: `upgtest`
+	- Commit: `2fd2b410`
+	- Closed: 20261007-142313
 
 - Selectors use `()`, and `[]` is for arrays only
 	- ID: 2026100610073400
