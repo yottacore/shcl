@@ -354,28 +354,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 **Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
 
-- README note on how escapes work, and why
-	- ID: 2026100313461651
-	- Type: Task
-	- Status: Done
-	- Priority: Avg
-	- Opened: 20261003-134616
-	- Opened by: JC
-	- Prereq IDs: 2026100207032800
-	- Requirements:
-		- Briefly note in README our different way of handling escapes, and why.
-		- Use the "newline" escape as an example, windows paths, and unicode escapes.
-	- Note: 20261003, the escape names come from `project/design_docs/value-syntax.md`: `◉NEWLINE◉`, `◉U+XXXX◉`, and a backslash is plain text, so `C:\temp` needs no doubling.
-	- Estimated effort: Low
-	- Done: a paragraph and sample under "What a .shcl file looks like": a backslash is text, so a Windows path goes in as typed; `◉NEWLINE◉`, `◉U+200B◉`, a backtick value, and why a non-keyboard mark. Links to the spec's escape table.
-	- Test case: none for the wording. The sample's reads were checked with the CLI, and check-readme and check-docs pass.
-	- Verified: `shcl check` on the sample is clean, and `get` returns the path as typed, a real line break, a zero-width space and the backtick text as written. `fmt` leaves it as is.
-	- Note: 20261007, rewritten to say why the usual escapes go wrong, and the 3 ways SHCL writes a problem character, then moved to its own `## Escapes` section after the sample. Same sample, with a 4-tilde fence so the inner fence shows as typed.
-	- Acceptance signoff: the wording was reworked by JC, 20261007.
-	- Branch: `escnote`, `escsect`
-	- Commit: `8c216fa7`
-	- Closed: 20261007-153000
-
 - A merge after an empty field writes a list that a reload joins to it
 	- ID: 2026100520243961
 	- Type: Bug
@@ -4337,12 +4315,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 ### Bugs
 
 ### Features and enhancements
-
-**Stop here for a release cut**.
-
-- 🔘 Cut `v3.0.0-beta1`, after everything above.
-	- Note: short release notes that just say issues were fixed, and a short changelog that names the fixes. This release only.
-	- Opened: 20260925-115006
 
 ### Done
 
