@@ -33,6 +33,277 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
+- The write-ops script still decodes `\t`, `\n` and `\\` in a value
+	- ID: 2026100717500002
+	- Type: Bug
+	- Status: Waiting for answers
+	- Severity: High
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 2
+	- Version and build: dev at `6a1d28f0`
+	- Steps to reproduce:
+		- `printf 'string\tpath\tC:\\temp\\new\n' | shcl set -`
+	- Incorrect behavior: exit 0, and the file gets `path: "C:◉TAB◉emp◉NEWLINE◉ew"`. The same value through `--set 'path=C:\temp\new'` writes `path: C:\temp\new`.
+	- Expected behavior: one escape rule in the whole CLI. The README's Escapes section says a backslash is text and a Windows path goes in as typed.
+	- Reproduced: 20261007, Rust CLI. `help set` says "string/raw values decode \n \t \\" in one line.
+	- Origin: the decode came with `e71b2c45` (2026-07-21), when files used backslash escapes too. 2026100207032800 dropped them from the file syntax and left the ops script alone. Not seen by an earlier round. Confirmed.
+	- Question: the ops format still needs a way to put a tab or a line break in a value, since its fields split on tabs. Read `◉TAB◉` and `◉NEWLINE◉` there, the file's own rule? Or keep `\` escapes in op values only, and say so in the README?
+	- Sweep: the ops reader in all four CLIs, the bash and PowerShell wrappers that build op lines, the man page and `help set`.
+
+- CLI reads take a path that cannot parse as not found, so `get --default` prints the default at exit 0
+	- ID: 2026100717500001
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 1
+	- Version and build: dev at `6a1d28f0`
+	- Steps to reproduce:
+		- `printf 'site: a\n\tport: 1\n' > p.shcl`
+		- `shcl get --int --default=8 p.shcl 'site[0].port'`
+		- `shcl count p.shcl 'site[0]'`
+	- Incorrect behavior: the first prints `8` at exit 0, with nothing on stderr. `count` prints `0` at exit 0, and `instances` and `children` print nothing at exit 0. A plain `get` says "a selector is written in parens now" at exit 3.
+	- Expected behavior: a path that cannot parse is a usage error on every subcommand, `--default` or not. `set --remove` already refuses one at exit 1, and its help says so. A 2.x script with bracket selectors otherwise reads its defaults forever with no sign.
+	- Reproduced: 20261007, Rust CLI. Same for `site(.port`, `''`, `site..port`, `user name` and `h:p`.
+	- Origin: not blamed to one commit. The bracket case is new with 2026100610073400, which made `[` after a name `E029`. Not seen by an earlier round. Confirmed.
+	- Sweep: every CLI read that takes a PATH, in all four CLIs. Check whether the library's `_or` reads hide a bad path the same way.
+
+- `set` without `--write` prints a result that drops a line, where `--write` refuses to
+	- ID: 2026100717500003
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 3
+	- Version and build: dev at `6a1d28f0`
+	- Steps to reproduce:
+		- `printf 'val: 1\n\t- e\nz: 2\n' > g.shcl`
+		- `shcl set g.shcl --set=val=9`
+		- `shcl set --write g.shcl --set=val=9`
+	- Incorrect behavior: the first prints `val: 9` and `z: 2` at exit 0 with the `- e` line gone, and only the load's `E011` on stderr. The second refuses at 7, "this write would delete 1 line(s)".
+	- Expected behavior: the same answer both ways. `shcl set f ... > f.new && mv f.new f` is a common way to edit a file, and today it skips the save gate. `fmt` to stdout is canonical by design and has `--check`; `set` is the keep-lines save from 3.0, so its stdout should be what `--write` would write, or refuse at 7 without `--lossy`.
+	- Reproduced: 20261007, Rust CLI.
+	- Origin: not blamed. Not seen by an earlier round. Confirmed.
+	- Sweep: `migrate` and `upgrade` without `--write`, in all four CLIs.
+
+- `validate()` says a document conforms when the schema failed to load
+	- ID: 2026100717500004
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 4
+	- Version and build: dev at `6a1d28f0`
+	- Steps to reproduce:
+		- Schema: `field: port`, then `type: int` and `max: "65535` under it. The quote never closes, so the `max` line is lost.
+		- Document: `port: 99999`. Parse both, then `doc.validate(&schema)`.
+	- Incorrect behavior: no findings, in Rust, Go, Python and C. `load_and_validate` and `shcl check --schema` refuse the same pair with `V099` at exit 6. The Rust doc comment says "Empty result = the document conforms".
+	- Expected behavior: every entry point gives the same answer. `validate` reports `V099` when the schema has a load error, as the other two do.
+	- Reproduced: 20261007, all four libraries.
+	- Origin: the doc comment is from `30120bcb` (2026-07-23). Not seen by an earlier round. Confirmed.
+	- Sweep: the C++ `validate()`, and every doc that shows parse-then-validate.
+
+- The README's bash and PowerShell CLI examples fail on 3.0
+	- ID: 2026100717500005
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 5
+	- Version and build: dev at `6a1d28f0`
+	- Steps to reproduce: run the blocks under `### Bash` and `### PowerShell` in README.md.
+	- Incorrect behavior: `--set-literal 'cluster.hosts=a.example.com, b.example.com'` exits 1, "the value text is not one value". The PowerShell op ``remove`tsite[old.example.com]`` exits 1, "a selector is written in parens now". The prose after the bash block says that text "writes a two-element array".
+	- Expected behavior: `[a.example.com, b.example.com]`, `site(old.example.com)`, and prose to match.
+	- Reproduced: 20261007, Rust CLI.
+	- Origin: the example is from `a3692013` (2026-08-04). 2026100207032800 changed the comma rule and 2026100610073400 the selectors, and neither swept these blocks. Not seen by an earlier round. Confirmed.
+	- Note: `check-readme.bash` builds and runs the 6 language examples, not the shell ones, so nothing caught this. Running them there is part of the fix.
+	- Sweep: every shell, PowerShell and text block in README.md and the man page, for brackets after a name and comma-space lists.
+
+**Stop here for a release cut**. The 5 items above give a wrong answer at exit 0, or break the front page.
+
+- `get --array` and `instances` print a line break as `\n`
+	- ID: 2026100717500006
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 6
+	- Version and build: dev at `6a1d28f0`
+	- Steps to reproduce: `x: ["a◉NEWLINE◉b", 'a\nb']`, then `shcl get --array f.shcl x`.
+	- Incorrect behavior: `"a\nb"`, then `a\nb`. `children`, `paths` and the writer use `◉NEWLINE◉`. The man page says "quoted escaped spelling" and doesn't say which one.
+	- Expected behavior: the 3.0 spelling, `"a◉NEWLINE◉b"`, as `init` writes it.
+	- Possible cause: `one_line()` in `main.rs`. Its comment says it matches `gen_default_text`, which 2026100207032800 moved to `◉` names.
+	- Reproduced: 20261007, Rust CLI.
+	- Origin: `24998d5d` (2026-09-03) and `76c35e6b` (2026-09-20), stale since 2026100207032800. Not seen by an earlier round. Confirmed.
+	- Sweep: the `one_line` twins in all four CLIs.
+
+- `shcl help fmt` prints part of `set`'s help
+	- ID: 2026100717500007
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 7
+	- Version and build: dev at `6a1d28f0`
+	- Steps to reproduce: `shcl help fmt`.
+	- Incorrect behavior: after fmt's usage line it prints "fmt writes it. PATH ends at the first '='..." and the whole ops table.
+	- Expected behavior: fmt's own text only.
+	- Possible cause: `help_for()` takes any wrapped line of the full help that starts with `fmt ` as fmt's paragraph, and a line of set's paragraph wraps to start with "fmt writes it."
+	- Reproduced: 20261007, Rust CLI.
+	- Origin: `help_for` is from `c78d41da` (2026-09-17); the wrap that trips it is later. Not seen by an earlier round. Confirmed.
+	- Note: any rewrap can do this to another command. A check that no `help CMD` holds another command's paragraph covers the class.
+	- Sweep: `help_for` in all four CLIs.
+
+- The README's `migrate` paragraph lists 2.x rewrites that 3.0 no longer makes
+	- ID: 2026100717500008
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 8
+	- Version and build: dev at `6a1d28f0`
+	- Incorrect behavior: "Using the CLI" says `migrate` rewrites "a backslash outside double quotes, an unknown escape in double quotes", and the next paragraph says a backslash value exits 7 without `--from-2x`. Now a backslash stays as written, so `path: "C:\temp\new"` is unchanged at exit 0, and the exit 7 case is a comma list such as `p: a,b`.
+	- Expected behavior: what spec.md's "Migrating from 2.x" and the man page say.
+	- Reproduced: 20261007, Rust CLI.
+	- Origin: `1991e313` (2026-09-27), stale since `vsmig`. Not seen by an earlier round. Confirmed.
+
+- A setter returns false while `write_reason` says Writable
+	- ID: 2026100717500009
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 9
+	- Version and build: dev at `6a1d28f0`
+	- Steps to reproduce: `set_float("x", NaN)`, or `set_int_array` on a field with lines under it, then `write_reason` on the same path.
+	- Incorrect behavior: false, and `write_reason` says Writable. A raw info string with `#`, a comment with a line break and bad `set_literal` text fail the same way, by their own docs.
+	- Expected behavior: the Rust, Go and Python docs say "false = path not writable (write_reason says why - same for every setter)", and README "What saving does" says the same. Either a reason for a refused value, or docs that say false can be the value. Only `shcl.hpp` says so now.
+	- Reproduced: 20261007, Rust and Go.
+	- Origin: not blamed. Not seen by an earlier round. Confirmed.
+
+- A setter on a repeated path writes the first instance and returns true
+	- ID: 2026100717500010
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 10
+	- Version and build: dev at `6a1d28f0`
+	- Steps to reproduce: `port: 1` and `port: 2`, then `set_int("port", 9)` and `get_int("port")`.
+	- Incorrect behavior: true, then Multiple. With two `site` blocks, `set_string("site.root", "/z")` changes the first only. The setter docs and the README say nothing about it. spec.md states the first-instance rule, for `--set` only. `--set`'s help calls it a "top layer", but `get dup.shcl a --set a=9` exits 5.
+	- Expected behavior: the rule stated in the setter docs, the README and the help. A refusal with its own `write_reason` would be a behavior change, for the user.
+	- Reproduced: 20261007, Rust and Go, and the Rust CLI.
+	- Origin: not blamed. Not seen by an earlier round. Confirmed.
+
+- C's `shcl_get_int` is the fallback read, where `get_int` is the status read in every other binding
+	- ID: 2026100717500011
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 11
+	- Version and build: dev at `6a1d28f0`
+	- Incorrect behavior: `shcl_get_int`, `shcl_get_float` and `shcl_get_bool` take a fallback (`shcl.h:493`), with `_or` twins beside them. Rust `get_int` returns a `Result`, Go `(v, Status)`, Python raises, and C++ `get<T>` returns the status result.
+	- Expected behavior: design.md, Consumer API, says every binding names the fallback tier `_or`, so a routine ported between two of them can't keep the call name and change tier. The three plain names do that. 3.0 is the last cut where dropping them costs nothing.
+	- Reproduced: 20261007, by reading `shcl.h` and the other three.
+	- Origin: not blamed. Not seen by an earlier round. Confirmed.
+
+- A strict load failure looks different from each entry point
+	- ID: 2026100717500012
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 12
+	- Version and build: dev at `6a1d28f0`
+	- Incorrect behavior: in Rust, `parse_with(Strict)` and `parse_keep_lines(Strict)` return `Err`. `load_file_with(Strict)` returns HadErrors, the same as Standard. `load_and_validate(Strict)` returns a plain document, and the caller has to check `error_count()`.
+	- Expected behavior: design.md says Strict fails the load. A program that moves from one entry point to another loses the hard failure and nothing tells it.
+	- Reproduced: 20261007, Rust. Go, Python and C not checked.
+	- Origin: not blamed. Not seen by an earlier round. Confirmed in Rust.
+	- Sweep: the same entry points in the other three, and the C++ veneer.
+
+- A repeated-field hint prints the whole suggested array on every run
+	- ID: 2026100717500013
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 13
+	- Version and build: dev at `6a1d28f0`
+	- Steps to reproduce: a 5 MB file of 400,000 `item: vN` lines, then `shcl get f.shcl item`.
+	- Incorrect behavior: one `H001` line of 3,489,031 bytes on stderr, every run, listing the whole array it suggests. The only way to quiet it is `2>/dev/null`, which hides the read's own error too.
+	- Expected behavior: the hint lists a few values and a count. The README says a hostile file can't run a program out of memory; a hint the size of the file is the same class.
+	- Reproduced: 20261007, Rust CLI.
+	- Origin: not blamed. Not seen by an earlier round. Confirmed.
+	- Sweep: the `H001` builders in all four.
+
+- Python's `write_file_atomic` returns an error string, and `Document()` raises
+	- ID: 2026100717500014
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 14
+	- Version and build: dev at `6a1d28f0`
+	- Incorrect behavior: `write_file_atomic` returns the failure as a string (`shcl.py:8655`), while `save_file`, `write_backup` and `upgrade_file` raise. `save_file`'s own docstring says why a returned message is unsafe: a bare call reads as success. `shcl.Document()` raises `TypeError` over the internal `arena`, `diags` and `strictness` arguments; only `Document.new()` works, where Rust, Go and C++ have a plain empty constructor.
+	- Expected behavior: one failure model in the binding, and an empty document from the constructor.
+	- Reproduced: 20261007, Python.
+	- Origin: not blamed. Not seen by an earlier round. Confirmed.
+
+- Doc text left behind by earlier changes
+	- ID: 2026100717500015
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 15
+	- Version and build: dev at `6a1d28f0`
+	- Incorrect behavior:
+		- `lib.rs:32`: `Strictness` "composes with per-call onBad", an option no binding has. It shows on docs.rs.
+		- `source/python/README.md:39`: the save refuses "if the load dropped a line". It also counts kept lines an edit takes. 2026100414480001 fixed the four doc comments and missed this one.
+		- `shcl.h` says nothing about threads, while every read writes the document's arena and index. Only the C++ veneer locks.
+	- Expected behavior: the docs say what the code does.
+	- Origin: `5756a593` (2026-07-12) for the first. The second is a sibling of 2026100414480001. Not seen by an earlier round. Confirmed.
+
+- `instances` output can't be fed back into a selector
+	- ID: 2026100717500016
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 16
+	- Problem description: with `shard: 1` then `shard: 0`, `for i in $(shcl instances f shard); do shcl get f "shard($i).owner"; done` prints the other shard's owner each time, since a bare number in parens is an index. `paths` prints `shard` twice. spec.md warns in prose, and a script has to do its own quoting.
+	- Requirements:
+		- A path-ready form, such as `instances --paths`, that prints `shard("1")`.
+		- Or one machine-readable mode for the list commands (NUL-separated, or JSON lines), which would settle 2026100717500006 as well.
+	- Reason: least surprise for script authors. The obvious loop is wrong, at exit 0.
+	- Origin: Confirmed. The spec documents it, so this is not filed as a defect.
+
+- A file stamped with a newer Format major loads clean
+	- ID: 2026100717500017
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 17
+	- Problem description: `Format 4` in the info block loads Clean, and `Format 2` with `x: "a\tb"` loads Clean and reads `a\tb`. To notice, a program calls `read_file` and `format_version` itself, since `load_file` never hands it the text. spec.md says the load ignores the line.
+	- Requirements:
+		- A hint on load when the stamp names a newer major than the library's.
+		- Maybe one for an older major too, pointing at `upgrade`.
+	- Reason: a 3.x program that reads a 4.x file today gets whatever the 3.x rules make of it, silently. The stamp exists for exactly this.
+	- Origin: Confirmed. A change of a documented rule, so it is for the user.
+
+- The ops-script note prints when stdin is piped
+	- ID: 2026100717500018
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 18
+	- Problem description: "shcl: reading write-ops from stdin (one op per line...)" goes to stderr on every `set -`, piped or not.
+	- Requirements: print it only when stdin is a terminal, as most tools do.
+	- Origin: Confirmed, Rust CLI.
+
 - README note on how escapes work, and why
 	- ID: 2026100313461651
 	- Type: Task
@@ -3849,6 +4120,32 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: the 2,000,000-iteration fuzz now fails `merge_never_panics_and_stays_fixpoint`. Case 185 moves the seed set onto a shared merge defect: a layer and its canonical form merge one blank line apart, above a comment. dev's code fails the same way with the case added and passes without it. Filed as 2026092918110222.
 	- Acceptance signoff: Self-closed: the sort by line asked for, and its tests fail on dev.
 	- Closed: 20260930-073042
+
+- Lookups walk every instance of a name, so a loop over instances is quadratic
+	- ID: 2026100717500019
+	- Type: Enhancement
+	- Status: Deferred
+	- Priority: Avg
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 19
+	- Problem description: `children_named` in `lib.rs` collects every same-named child before a `(k)` or `(value)` selector picks one, and `remove` rebuilds the parent's child list on every call. In Rust, reading `rep(i).v` for each of 20,000 instances took 4.8 s by index and 13 s by value; C and Go are close. 40,000 creating `set_int("rep(kI).v")` calls took 42 s. Wildcard reads and `instance_paths()` stay fast.
+	- Reason: typical configs have under 1,000 instances, where this doesn't show. Generated and inventory files do.
+	- Deferred: no new performance ideas before 3.0.0. Reopen once 3.0.0 is out, or on a report from a project with large repeated fields.
+	- Origin: Confirmed, all four, by timing.
+
+- Library gaps a generic tool has to work around
+	- ID: 2026100717500020
+	- Type: Enhancement
+	- Status: Deferred
+	- Priority: Low
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 20
+	- Problem description:
+		- No library call resolves a file's `Schema` line by the CLI's rules: relative to the config's directory, and refusing devices, FIFOs, UNC paths and files over 16 MiB. Each program writes its own.
+		- No way to ask a node's kind (scalar, array, raw block, empty) but trial reads.
+		- `set_*_default` returns true when something is already there, even `bad: abc` or a bare `empty:`, so "make sure this has a usable value" can't be said in one call.
+	- Deferred: no consuming project has asked. Reopen when one does, or after 3.0.0.
+	- Origin: Confirmed by reading and probes.
 
 - The Python binding parses about 25% slower than on 2026-09-19
 	- ID: 2026100221215300
