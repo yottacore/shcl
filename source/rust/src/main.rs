@@ -227,11 +227,11 @@ refused: --write with --layer; --write with --set outside 'set'; --write with a
 FILE of '-'; --lossy without --write; --no-banner on 'set' without --write;
 --check with --write; --layer=- on 'set'; --array with --raw, --rawinfo,
 --duration or --size; --default with --on-bad=error or --on-bad=flag; '-' named
-more than once across FILE, --layer and --schema. Two options that ask for
-different answers are a usage error whichever order they came in, and both are
-named: two different type options, or one value option given two different
-values. Repeating an option with the same value is allowed, and --layer and
---set are ordered lists, so they repeat.
+more than once across FILE, --layer and --schema; a PATH that cannot parse,
+--default or not. Two options that ask for different answers are a usage error
+whichever order they came in, and both are named: two different type options,
+or one value option given two different values. Repeating an option with the
+same value is allowed, and --layer and --set are ordered lists, so they repeat.
 Every subcommand that loads a document prints the load's diagnostics to stderr,
 once per run; 'shcl explain CODE' gives the rule behind one of their codes. An
 in-place write also refuses when the rewrite would delete lines or values
@@ -737,6 +737,17 @@ fn bad_path(path: &str) -> &'static str {
 	} else {
 		"not a usable path"
 	}
+}
+
+/// A read's PATH that cannot parse is a usage error, the same as --remove's.
+/// The library reads it as NotFound, so `get --default` would print the
+/// default at exit 0 and a 2.x script would never hear about it.
+fn refuse_read_path(path: &str) -> bool {
+	if !unusable_path(&Document::new(), path) {
+		return false;
+	}
+	errln!("bad PATH ({}): {} (see --help)", bad_path(path), path);
+	true
 }
 
 /// PATH=VALUE at the first `=` outside quotes and parens, so a selector
@@ -1841,6 +1852,9 @@ fn do_get(o: &Opts) -> u8 {
 		errln!("usage: shcl get [type] [options] FILE PATH (see --help)");
 		return 1;
 	};
+	if refuse_read_path(path) {
+		return 1;
+	}
 	let doc = match load_layered(o, file) {
 		Ok(d) => d,
 		Err(code) => return code,
@@ -1967,7 +1981,6 @@ fn do_get(o: &Opts) -> u8 {
 				Some(raw) => format!("value {} is not a valid {}", quoted(&raw), type_name),
 				None => format!("value is not a valid {}", type_name),
 			},
-			Status::NotFound if bracket_path(path) => BRACKET_PATH.to_string(),
 			Status::NotFound => "no value at that path".to_string(),
 			Status::Empty => "the value is empty".to_string(),
 			Status::Multiple => "the path matches multiple instances".to_string(),
@@ -3207,6 +3220,9 @@ fn do_enum(o: &Opts, want_count: bool) -> u8 {
 		errln!("usage: shcl {} [options] FILE PATH (see --help)", name);
 		return 1;
 	};
+	if refuse_read_path(path) {
+		return 1;
+	}
 	let doc = match load_layered(o, file) {
 		Ok(d) => d,
 		Err(code) => return code,
@@ -3234,6 +3250,10 @@ fn do_children(o: &Opts) -> u8 {
 			return 1;
 		}
 	};
+	// The empty path is the top level here, as the library documents it.
+	if !path.is_empty() && refuse_read_path(path) {
+		return 1;
+	}
 	let doc = match load_layered(o, file) {
 		Ok(d) => d,
 		Err(code) => return code,

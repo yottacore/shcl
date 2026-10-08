@@ -244,11 +244,11 @@ refused: --write with --layer; --write with --set outside 'set'; --write with a
 FILE of '-'; --lossy without --write; --no-banner on 'set' without --write;
 --check with --write; --layer=- on 'set'; --array with --raw, --rawinfo,
 --duration or --size; --default with --on-bad=error or --on-bad=flag; '-' named
-more than once across FILE, --layer and --schema. Two options that ask for
-different answers are a usage error whichever order they came in, and both are
-named: two different type options, or one value option given two different
-values. Repeating an option with the same value is allowed, and --layer and
---set are ordered lists, so they repeat.
+more than once across FILE, --layer and --schema; a PATH that cannot parse,
+--default or not. Two options that ask for different answers are a usage error
+whichever order they came in, and both are named: two different type options,
+or one value option given two different values. Repeating an option with the
+same value is allowed, and --layer and --set are ordered lists, so they repeat.
 Every subcommand that loads a document prints the load's diagnostics to stderr,
 once per run; 'shcl explain CODE' gives the rule behind one of their codes. An
 in-place write also refuses when the rewrite would delete lines or values
@@ -779,6 +779,17 @@ func badPath(path string) string {
 		return bracketPathMsg
 	}
 	return "not a usable path"
+}
+
+// refuseReadPath: a read's PATH that cannot parse is a usage error, the same
+// as --remove's. The library reads it as NotFound, so `get --default` would
+// print the default at exit 0 and a 2.x script would never hear about it.
+func refuseReadPath(path string) bool {
+	if !unusablePath(shcl.New(), path) {
+		return false
+	}
+	fmt.Fprintf(os.Stderr, "bad PATH (%s): %s (see --help)\n", badPath(path), path)
+	return true
 }
 
 // splitSet: PATH=VALUE at the first `=` outside quotes and parens, so a
@@ -1822,6 +1833,9 @@ func doGet(o *opts) int {
 		return 1
 	}
 	file, path := o.args[0], o.args[1]
+	if refuseReadPath(path) {
+		return 1
+	}
 	doc, code := loadLayered(o, file)
 	if doc == nil {
 		return code
@@ -1953,9 +1967,6 @@ func doGet(o *opts) int {
 			}
 		case shcl.NotFound:
 			reason = "no value at that path"
-			if bracketPath(path) {
-				reason = bracketPathMsg
-			}
 		case shcl.Empty:
 			reason = "the value is empty"
 		case shcl.Multiple:
@@ -3317,6 +3328,9 @@ func doEnum(o *opts, wantCount bool) int {
 		return 1
 	}
 	file, path := o.args[0], o.args[1]
+	if refuseReadPath(path) {
+		return 1
+	}
 	doc, code := loadLayered(o, file)
 	if doc == nil {
 		return code
@@ -3344,6 +3358,10 @@ func doChildren(o *opts) int {
 		file, path = o.args[0], o.args[1]
 	default:
 		fmt.Fprintln(os.Stderr, "usage: shcl children [options] FILE [PATH] (see --help)")
+		return 1
+	}
+	// The empty path is the top level here, as the library documents it.
+	if path != "" && refuseReadPath(path) {
 		return 1
 	}
 	doc, code := loadLayered(o, file)

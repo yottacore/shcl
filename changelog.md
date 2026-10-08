@@ -304,6 +304,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `--default` with `--on-bad=error` is a usage error.
 
+- A PATH that cannot parse is a usage error, exit 1, on `get`, `count`, `instances` and `children`, `--default` or not. It read as not found, so `get --default` printed the default at exit 0.
+
 - Write ops: `bool` takes only `true` and `false`, extra fields are an error, `comment` decodes escapes, and a CRLF script works.
 
 - `get --array`, `get --slots` and `instances` print one line per value.

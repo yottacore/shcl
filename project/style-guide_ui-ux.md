@@ -81,7 +81,7 @@ There are four CLIs, one per binding. Only the Rust one is distributed. The Go, 
 | Code | Meaning
 | :--- | :---
 | 0    | Good.
-| 1    | Usage error, and nothing else. A value an option refuses is still 1, since the option is what has to change.
+| 1    | Usage error, and nothing else. A value an option refuses is still 1, since the option is what has to change. So is a PATH that cannot parse, `--default` or not.
 | 2    | The value is empty.
 | 3    | Nothing at the path.
 | 4    | The value is the wrong type.

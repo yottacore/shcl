@@ -229,11 +229,11 @@ refused: --write with --layer; --write with --set outside 'set'; --write with a
 FILE of '-'; --lossy without --write; --no-banner on 'set' without --write;
 --check with --write; --layer=- on 'set'; --array with --raw, --rawinfo,
 --duration or --size; --default with --on-bad=error or --on-bad=flag; '-' named
-more than once across FILE, --layer and --schema. Two options that ask for
-different answers are a usage error whichever order they came in, and both are
-named: two different type options, or one value option given two different
-values. Repeating an option with the same value is allowed, and --layer and
---set are ordered lists, so they repeat.
+more than once across FILE, --layer and --schema; a PATH that cannot parse,
+--default or not. Two options that ask for different answers are a usage error
+whichever order they came in, and both are named: two different type options,
+or one value option given two different values. Repeating an option with the
+same value is allowed, and --layer and --set are ordered lists, so they repeat.
 Every subcommand that loads a document prints the load's diagnostics to stderr,
 once per run; 'shcl explain CODE' gives the rule behind one of their codes. An
 in-place write also refuses when the rewrite would delete lines or values
@@ -651,6 +651,16 @@ BRACKET_PATH = "a selector is written in parens now, name(value)"
 def bad_path(path):
 	# What a path the scanner refused is called.
 	return BRACKET_PATH if bracket_path(path) else "not a usable path"
+
+
+def refuse_read_path(path):
+	# A read's PATH that cannot parse is a usage error, the same as --remove's.
+	# The library reads it as NotFound, so `get --default` would print the
+	# default at exit 0 and a 2.x script would never hear about it.
+	if not unusable_path(shcl.Document.parse(""), path):
+		return False
+	sys.stderr.write(f"bad PATH ({bad_path(path)}): {path} (see --help)\n")
+	return True
 
 
 def split_set(arg):
@@ -1348,6 +1358,8 @@ def do_get(o):
 		sys.stderr.write("usage: shcl get [type] [options] FILE PATH (see --help)\n")
 		return 1
 	file, path = o.args[0], o.args[1]
+	if refuse_read_path(path):
+		return 1
 	try:
 		doc, code = load_layered(o, file)
 	except (OSError, ValueError) as e:
@@ -1439,7 +1451,7 @@ def do_get(o):
 				else f"value is not a valid {type_name}"
 			)
 		elif status == shcl.Status.NotFound:
-			reason = BRACKET_PATH if bracket_path(path) else "no value at that path"
+			reason = "no value at that path"
 		elif status == shcl.Status.Empty:
 			reason = "the value is empty"
 		else:
@@ -2401,6 +2413,8 @@ def do_enum(o, want_count):
 		sys.stderr.write(f"usage: shcl {name} [options] FILE PATH (see --help)\n")
 		return 1
 	file, path = o.args[0], o.args[1]
+	if refuse_read_path(path):
+		return 1
 	try:
 		doc, code = load_layered(o, file)
 	except (OSError, ValueError) as e:
@@ -2427,6 +2441,9 @@ def do_children(o):
 		file, path = o.args[0], o.args[1]
 	else:
 		sys.stderr.write("usage: shcl children [options] FILE [PATH] (see --help)\n")
+		return 1
+	# The empty path is the top level here, as the library documents it.
+	if path != "" and refuse_read_path(path):
 		return 1
 	try:
 		doc, code = load_layered(o, file)

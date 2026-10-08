@@ -215,11 +215,11 @@ static const char *HELP =
 	"FILE of '-'; --lossy without --write; --no-banner on 'set' without --write;\n"
 	"--check with --write; --layer=- on 'set'; --array with --raw, --rawinfo,\n"
 	"--duration or --size; --default with --on-bad=error or --on-bad=flag; '-' named\n"
-	"more than once across FILE, --layer and --schema. Two options that ask for\n"
-	"different answers are a usage error whichever order they came in, and both are\n"
-	"named: two different type options, or one value option given two different\n"
-	"values. Repeating an option with the same value is allowed, and --layer and\n"
-	"--set are ordered lists, so they repeat.\n"
+	"more than once across FILE, --layer and --schema; a PATH that cannot parse,\n"
+	"--default or not. Two options that ask for different answers are a usage error\n"
+	"whichever order they came in, and both are named: two different type options,\n"
+	"or one value option given two different values. Repeating an option with the\n"
+	"same value is allowed, and --layer and --set are ordered lists, so they repeat.\n"
 	"Every subcommand that loads a document prints the load's diagnostics to stderr,\n"
 	"once per run; 'shcl explain CODE' gives the rule behind one of their codes. An\n"
 	"in-place write also refuses when the rewrite would delete lines or values\n"
@@ -840,6 +840,18 @@ static const char *bad_path(const char *path, size_t plen) {
 	return bracket_path(path, plen) ? BRACKET_PATH : "not a usable path";
 }
 
+// A read's PATH that cannot parse is a usage error, the same as --remove's.
+// The library reads it as NotFound, so `get --default` would print the
+// default at exit 0 and a 2.x script would never hear about it.
+static int refuse_read_path(const char *path, size_t plen) {
+	shcl_doc *empty = shcl_parse("", 0);
+	int unusable = unusable_path(empty, path, plen);
+	shcl_free(empty);
+	if (!unusable) return 0;
+	fprintf(stderr, "bad PATH (%s): %s (see --help)\n", bad_path(path, plen), path);
+	return 1;
+}
+
 // PATH=VALUE at the first `=` outside quotes and parens, so a selector
 // holding one (`x(a=b).c=1`) still addresses its instance. The tokenizer reads
 // the path half with `=` as its separator, so quotes and parens mean here
@@ -945,6 +957,7 @@ static char *quoted(const char *p, size_t n) {
 static int do_get(Opts *o) {
 	if (o->nargs != 2) { fprintf(stderr, "usage: shcl get [type] [options] FILE PATH (see --help)\n"); return 1; }
 	const char *file = o->args[0], *path = o->args[1]; size_t plen = strlen(path);
+	if (refuse_read_path(path, plen)) return 1;
 	LayeredDoc L; int gate = load_layered(o, file, &L);
 	if (gate) return gate;
 	shcl_doc *d = L.doc;
@@ -1019,7 +1032,7 @@ static int do_get(Opts *o) {
 			} else
 				fprintf(stderr, "cannot read %s as %s: value is not a valid %s (in %s)\n", path, tbuf, tbuf, file);
 		} else if (status == SHCL_NOT_FOUND) {
-			fprintf(stderr, "cannot read %s as %s: %s (in %s)\n", path, tbuf, bracket_path(path, plen) ? BRACKET_PATH : "no value at that path", file);
+			fprintf(stderr, "cannot read %s as %s: no value at that path (in %s)\n", path, tbuf, file);
 		} else if (status == SHCL_EMPTY) {
 			fprintf(stderr, "cannot read %s as %s: the value is empty (in %s)\n", path, tbuf, file);
 		} else {
@@ -2040,6 +2053,7 @@ static int do_enum(Opts *o, int want_count) {
 		return 1;
 	}
 	const char *file = o->args[0], *path = o->args[1]; size_t plen = strlen(path);
+	if (refuse_read_path(path, plen)) return 1;
 	LayeredDoc L; int gate = load_layered(o, file, &L);
 	if (gate) return gate;
 	shcl_doc *d = L.doc;
@@ -2230,6 +2244,8 @@ static int do_children(Opts *o) {
 	if (o->nargs == 1) file = o->args[0];
 	else if (o->nargs == 2) { file = o->args[0]; path = o->args[1]; }
 	else { fprintf(stderr, "usage: shcl children [options] FILE [PATH] (see --help)\n"); return 1; }
+	// The empty path is the top level here, as the library documents it.
+	if (*path && refuse_read_path(path, strlen(path))) return 1;
 	LayeredDoc L; int gate = load_layered(o, file, &L);
 	if (gate) return gate;
 	shcl_str *names = NULL;
