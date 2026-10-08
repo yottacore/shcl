@@ -10,7 +10,7 @@ tab: "a\u0009b"
 "key\u00e9": 1
 bare: "a◉U+200B◉b"
 single: 'raw\u0041'
-path: C:\users
+path: "C:\users"
 short: "\u12"
 surrogate: "\uD800"
 past: "\U00110000"

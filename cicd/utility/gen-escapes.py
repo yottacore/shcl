@@ -255,8 +255,9 @@ def fAbnfWords(rule: str, words: list[str]) -> list[str]:
 
 def fAbnf() -> list[str]:
 	## The bare class leaves out the joiners and selectors too, since
-	## fmt-bareword places them itself.
-	bare = fSubtract([(0x21, 0x10FFFF)], [(c, c) for c in RESERVED] + WHITE_SPACE + INVISIBLE + JOINERS + SELECTORS)
+	## fmt-bareword places them itself, and the parens, which the writer
+	## quotes though a bare value may hold them.
+	bare = fSubtract([(0x21, 0x10FFFF)], [(c, c) for c in RESERVED] + [(0x28, 0x29)] + WHITE_SPACE + INVISIBLE + JOINERS + SELECTORS)
 	text = fSubtract([(0x00, 0x10FFFF)], [(c, c) for c in RESERVED] + WHITE_SPACE)
 	## A bare selector body ends at its ")", and holds no "(" either.
 	sel = fSubtract(text, [(0x28, 0x29)])

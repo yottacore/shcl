@@ -1598,7 +1598,7 @@ def main():
 	ok_dt = DT(date=(2026, 1, 2), time=(3, 4, 5), frac="60", zone=("offset", -90))
 	if not sdoc.set_datetime("d", ok_dt) or str(sdoc.get_datetime("d")) != str(ok_dt):
 		raise SystemExit("a valid datetime was refused or read back differently")
-	if sdoc.to_canonical() != "z: 0\n\nf: 2.5\n\nd: 2026-01-02T03:04:05.60-01:30\n":
+	if sdoc.to_canonical() != 'z: 0\n\nf: 2.5\n\nd: "2026-01-02T03:04:05.60-01:30"\n':
 		raise SystemExit(f"document after the refusals: {sdoc.to_canonical()!r}")
 	test_id("EryEqlx", "a_backtick_value_reads_raw_with_its_flag")
 	# A backtick value is raw text the program decodes itself: read as
@@ -3116,7 +3116,7 @@ def main():
 		("x: :0\n", "x", ":0"),
 		("x: https://a.com:8080/p?q=1,2\n", "x", "https://a.com:8080/p?q=1,2"),
 		("x: Jul 12 2026  # c\n", "x", "Jul 12 2026"),
-		("x:\n\t- New  York\n\t- :0\n", "x", '["New  York", :0]'),
+		("x:\n\t- New  York\n\t- :0\n", "x", '["New  York", ":0"]'),
 	):
 		bdoc = shcl.Document.parse(btext)
 		if bdoc.diagnostics():
@@ -3126,17 +3126,22 @@ def main():
 	if shcl.Document.parse("x: 80,443\n").read_int("x").status == shcl.Status.Good:
 		raise SystemExit("80,443 read as a number")
 
-	test_id("EryEqwF", "the_writer_quotes_a_comma_by_where_it_sits")
-	# The writer leaves a colon or comma bare where the reader takes it as
-	# text, quotes one at the end, and quotes an array element with a comma,
-	# since there it splits. A quoted thousands comma keeps its quotes, since
-	# only a quoted number reads one.
+	test_id("EryEqwF", "the_writer_quotes_a_colon_or_comma")
+	# The reader takes a colon or comma bare where it is text, but the writer
+	# quotes any whitespace, colon, comma, paren or bracket wherever it sits, so
+	# nobody has to know the reader's rules. A quoted value keeps its quotes and
+	# its quote kind, a quoted number included.
 	qcdoc = shcl.Document.new()
 	if not (qcdoc.set_string("opts", "rw,noatime") and qcdoc.set_string("display", ":0") and qcdoc.set_string("end", "a,")
-			and qcdoc.set_string("title", "My App") and qcdoc.set_string_array("tags", ["rw,noatime", "b"])):
+			and qcdoc.set_string("title", "My App") and qcdoc.set_string_array("tags", ["rw,noatime", "b"])
+			and qcdoc.set_string("call", "f(x)") and qcdoc.set_string("box", "a[0]") and qcdoc.set_string("tabbed", "a\tb")
+			and qcdoc.set_string("plain", "a-b.c/d")):
 		raise SystemExit("a setter refused")
 	qcout = qcdoc.to_canonical()
-	for qcwant in ("opts: rw,noatime\n", "display: :0\n", 'end: "a,"\n', 'title: "My App"\n', 'tags: ["rw,noatime", b]\n'):
+	for qcwant in (
+		'opts: "rw,noatime"\n', 'display: ":0"\n', 'end: "a,"\n', 'title: "My App"\n', 'tags: ["rw,noatime", b]\n',
+		'call: "f(x)"\n', 'box: "a[0]"\n', 'tabbed: "a◉TAB◉b"\n', "plain: a-b.c/d\n",
+	):
 		if qcwant not in qcout:
 			raise SystemExit(f"{qcwant!r} not in {qcout!r}")
 	qcback = shcl.Document.parse(qcout)
@@ -3149,6 +3154,13 @@ def main():
 		raise SystemExit(f"wrote {qcdoc.to_canonical()!r}")
 	if qcdoc.get_int("n", None) != 1000:
 		raise SystemExit(f"n: {qcdoc.read_int('n')!r}")
+	qcdoc = shcl.Document.parse("ver: \"8\"\nok: 'true'\nat: 2:30PM\nhost: localhost:8080\n")
+	if qcdoc.to_canonical() != "ver: \"8\"\nok: 'true'\nat: \"2:30PM\"\nhost: \"localhost:8080\"\n":
+		raise SystemExit(f"wrote {qcdoc.to_canonical()!r}")
+	if qcdoc.get_int("ver", None) != 8:
+		raise SystemExit(f"ver: {qcdoc.read_int('ver')!r}")
+	if not qcdoc.set_int("ver", 9) or not qcdoc.to_canonical().startswith('ver: "9"\n'):
+		raise SystemExit(f"ver set wrote {qcdoc.to_canonical()!r}")
 	qchint = shcl.Document.parse("t: a,b\nt: c\n").diagnostics()[0]
 	if qchint.code != "H001" or 't: ["a,b", c]' not in qchint.message:
 		raise SystemExit(f"hint {qchint!r}")

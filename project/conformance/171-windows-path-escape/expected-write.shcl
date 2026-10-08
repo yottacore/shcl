@@ -11,8 +11,8 @@ list:
 	- "E:\new"
 last: 2
 
-added: C:\x
+added: "C:\x"
 
-tabbed: C:\temp
+tabbed: "C:\temp"
 
 share2: \\srv\new

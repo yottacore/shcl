@@ -1579,7 +1579,7 @@ fn setters_refuse_a_value_the_reader_refuses() {
 	assert_eq!(doc.get_datetime("d"), Ok(ok));
 	assert_eq!(
 		doc.to_canonical(),
-		"z: 0\n\nf: 2.5\n\nd: 2026-01-02T03:04:05.60-01:30\n"
+		"z: 0\n\nf: 2.5\n\nd: \"2026-01-02T03:04:05.60-01:30\"\n"
 	);
 }
 
@@ -3092,7 +3092,11 @@ fn bare_spaces_colons_and_commas() {
 			"https://a.com:8080/p?q=1,2",
 		),
 		("x: Jul 12 2026  # c\n", "x", "Jul 12 2026"),
-		("x:\n\t- New  York\n\t- :0\n", "x", "[\"New  York\", :0]"),
+		(
+			"x:\n\t- New  York\n\t- :0\n",
+			"x",
+			"[\"New  York\", \":0\"]",
+		),
 	] {
 		let doc = Document::parse(text);
 		assert!(
@@ -3105,12 +3109,12 @@ fn bare_spaces_colons_and_commas() {
 	assert!(Document::parse("x: 80,443\n").get_int("x").is_err());
 }
 
-// The writer leaves a colon or comma bare where the reader takes it as
-// text, quotes one at the end, and quotes an array element with a comma,
-// since there it splits. A quoted thousands comma keeps its quotes, since
-// only a quoted number reads one.
+// The reader takes a colon or comma bare where it is text, but the writer
+// quotes any whitespace, colon, comma, paren or bracket wherever it sits, so
+// nobody has to know the reader's rules. A quoted value keeps its quotes and
+// its quote kind, a quoted number included.
 #[test]
-fn the_writer_quotes_a_comma_by_where_it_sits() {
+fn the_writer_quotes_a_colon_or_comma() {
 	let _id = test_id("Ervn569");
 	let mut doc = Document::new();
 	assert!(doc.set_string("opts", "rw,noatime"));
@@ -3118,13 +3122,21 @@ fn the_writer_quotes_a_comma_by_where_it_sits() {
 	assert!(doc.set_string("end", "a,"));
 	assert!(doc.set_string("title", "My App"));
 	assert!(doc.set_string_array("tags", &["rw,noatime", "b"]));
+	assert!(doc.set_string("call", "f(x)"));
+	assert!(doc.set_string("box", "a[0]"));
+	assert!(doc.set_string("tabbed", "a\tb"));
+	assert!(doc.set_string("plain", "a-b.c/d"));
 	let out = doc.to_canonical();
 	for want in [
-		"opts: rw,noatime\n",
-		"display: :0\n",
+		"opts: \"rw,noatime\"\n",
+		"display: \":0\"\n",
 		"end: \"a,\"\n",
 		"title: \"My App\"\n",
 		"tags: [\"rw,noatime\", b]\n",
+		"call: \"f(x)\"\n",
+		"box: \"a[0]\"\n",
+		"tabbed: \"a◉TAB◉b\"\n",
+		"plain: a-b.c/d\n",
 	] {
 		assert!(out.contains(want), "{want:?} not in {out:?}");
 	}
@@ -3137,6 +3149,15 @@ fn the_writer_quotes_a_comma_by_where_it_sits() {
 	let doc = Document::parse("n: \"1,000\"\n");
 	assert_eq!(doc.to_canonical(), "n: \"1,000\"\n");
 	assert_eq!(doc.get_int("n"), Ok(1000));
+	let text = "ver: \"8\"\nok: 'true'\nat: 2:30PM\nhost: localhost:8080\n";
+	let mut doc = Document::parse(text);
+	assert_eq!(
+		doc.to_canonical(),
+		"ver: \"8\"\nok: 'true'\nat: \"2:30PM\"\nhost: \"localhost:8080\"\n"
+	);
+	assert_eq!(doc.get_int("ver"), Ok(8));
+	assert!(doc.set_int("ver", 9));
+	assert!(doc.to_canonical().starts_with("ver: \"9\"\n"));
 	let doc = Document::parse("t: a,b\nt: c\n");
 	let hint = &doc.diagnostics()[0];
 	assert_eq!(hint.code, "H001");

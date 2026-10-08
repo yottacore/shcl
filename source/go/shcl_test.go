@@ -1229,7 +1229,7 @@ func TestSettersRefuseAValueTheReaderRefuses(t *testing.T) {
 	if got, st := doc.GetDateTime("d"); st != Good || got.String() != ok.String() {
 		t.Fatalf("datetime read back as %q %v", got.String(), st)
 	}
-	if got := doc.ToCanonical(); got != "z: 0\n\nf: 2.5\n\nd: 2026-01-02T03:04:05.60-01:30\n" {
+	if got := doc.ToCanonical(); got != "z: 0\n\nf: 2.5\n\nd: \"2026-01-02T03:04:05.60-01:30\"\n" {
 		t.Fatalf("document after the refusals: %q", got)
 	}
 }
@@ -3889,7 +3889,7 @@ func TestBareSpacesColonsAndCommas(t *testing.T) {
 		{"x: :0\n", "x", ":0"},
 		{"x: https://a.com:8080/p?q=1,2\n", "x", "https://a.com:8080/p?q=1,2"},
 		{"x: Jul 12 2026  # c\n", "x", "Jul 12 2026"},
-		{"x:\n\t- New  York\n\t- :0\n", "x", "[\"New  York\", :0]"},
+		{"x:\n\t- New  York\n\t- :0\n", "x", "[\"New  York\", \":0\"]"},
 	} {
 		doc := Parse(c.text)
 		if d := doc.Diagnostics(); len(d) != 0 {
@@ -3904,24 +3904,30 @@ func TestBareSpacesColonsAndCommas(t *testing.T) {
 	}
 }
 
-// The writer leaves a colon or comma bare where the reader takes it as
-// text, quotes one at the end, and quotes an array element with a comma,
-// since there it splits. A quoted thousands comma keeps its quotes, since
-// only a quoted number reads one.
-func TestTheWriterQuotesACommaByWhereItSits(t *testing.T) {
+// The reader takes a colon or comma bare where it is text, but the writer
+// quotes any whitespace, colon, comma, paren or bracket wherever it sits, so
+// nobody has to know the reader's rules. A quoted value keeps its quotes and
+// its quote kind, a quoted number included.
+func TestTheWriterQuotesAColonOrComma(t *testing.T) {
 	defer testID(t, "Ery85QH")
 	doc := New()
 	if !doc.SetString("opts", "rw,noatime") || !doc.SetString("display", ":0") || !doc.SetString("end", "a,") ||
-		!doc.SetString("title", "My App") || !doc.SetStringArray("tags", []string{"rw,noatime", "b"}) {
+		!doc.SetString("title", "My App") || !doc.SetStringArray("tags", []string{"rw,noatime", "b"}) ||
+		!doc.SetString("call", "f(x)") || !doc.SetString("box", "a[0]") || !doc.SetString("tabbed", "a\tb") ||
+		!doc.SetString("plain", "a-b.c/d") {
 		t.Fatal("a setter refused")
 	}
 	out := doc.ToCanonical()
 	for _, want := range []string{
-		"opts: rw,noatime\n",
-		"display: :0\n",
+		"opts: \"rw,noatime\"\n",
+		"display: \":0\"\n",
 		"end: \"a,\"\n",
 		"title: \"My App\"\n",
 		"tags: [\"rw,noatime\", b]\n",
+		"call: \"f(x)\"\n",
+		"box: \"a[0]\"\n",
+		"tabbed: \"a◉TAB◉b\"\n",
+		"plain: a-b.c/d\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("%q not in %q", want, out)
@@ -3940,6 +3946,16 @@ func TestTheWriterQuotesACommaByWhereItSits(t *testing.T) {
 	}
 	if v, st := doc.GetInt("n"); st != Good || v != 1000 {
 		t.Fatalf("n: %d %v", v, st)
+	}
+	doc = Parse("ver: \"8\"\nok: 'true'\nat: 2:30PM\nhost: localhost:8080\n")
+	if got := doc.ToCanonical(); got != "ver: \"8\"\nok: 'true'\nat: \"2:30PM\"\nhost: \"localhost:8080\"\n" {
+		t.Fatalf("wrote %q", got)
+	}
+	if v, st := doc.GetInt("ver"); st != Good || v != 8 {
+		t.Fatalf("ver: %d %v", v, st)
+	}
+	if !doc.SetInt("ver", 9) || !strings.HasPrefix(doc.ToCanonical(), "ver: \"9\"\n") {
+		t.Fatalf("ver set wrote %q", doc.ToCanonical())
 	}
 	hint := Parse("t: a,b\nt: c\n").Diagnostics()[0]
 	if hint.Code != "H001" || !strings.Contains(hint.Message, "t: [\"a,b\", c]") {

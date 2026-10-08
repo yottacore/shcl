@@ -27,12 +27,12 @@ last: 1
 
 tags2: ["rw,noatime", b]
 
-opts2: rw,noatime
+opts2: "rw,noatime"
 
 title2: "My  App"
 
 end2: "a,"
 
-lit: a,b
+lit: "a,b"
 
 lit2: [a, b]

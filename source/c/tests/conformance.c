@@ -3102,7 +3102,7 @@ int main(int argc, char **argv) {
 		char okb[SHCL_DT_BUF], rdb[SHCL_DT_BUF]; size_t okn = shcl_datetime_str(&ok, okb), rdn = shcl_datetime_str(&rd.value, rdb);
 		if (rd.status != SHCL_GOOD || okn != rdn || memcmp(okb, rdb, okn) != 0) fail("setters_refuse", "the datetime read back differently");
 		shcl_str canon = shcl_to_canonical(sd);
-		const char *want = "z: 0\n\nf: 2.5\n\nd: 2026-01-02T03:04:05.60-01:30\n";
+		const char *want = "z: 0\n\nf: 2.5\n\nd: \"2026-01-02T03:04:05.60-01:30\"\n";
 		if (canon.n != strlen(want) || memcmp(canon.p, want, canon.n) != 0) fail("setters_refuse", "document after the refusals differs");
 		shcl_free(sd);
 	}
@@ -3533,7 +3533,7 @@ int main(int argc, char **argv) {
 			{"x: :0\n", "x", ":0"},
 			{"x: https://a.com:8080/p?q=1,2\n", "x", "https://a.com:8080/p?q=1,2"},
 			{"x: Jul 12 2026  # c\n", "x", "Jul 12 2026"},
-			{"x:\n\t- New  York\n\t- :0\n", "x", "[\"New  York\", :0]"},
+			{"x:\n\t- New  York\n\t- :0\n", "x", "[\"New  York\", \":0\"]"},
 		};
 		for (size_t i = 0; i < sizeof gt / sizeof gt[0]; i++) {
 			shcl_doc *gd = shcl_parse(gt[i].text, strlen(gt[i].text));
@@ -3545,19 +3545,22 @@ int main(int argc, char **argv) {
 		if (shcl_read_int(nd, "x", 1).status == SHCL_GOOD) fail("bare_text", "80,443 read as a number");
 		shcl_free(nd);
 	}
-	test_id("EryvVbF", "the_writer_quotes_a_comma_by_where_it_sits");
-	/* The writer leaves a colon or comma bare where the reader takes it as
-	   text, quotes one at the end, and quotes an array element with a comma,
-	   since there it splits. A quoted thousands comma keeps its quotes, since
-	   only a quoted number reads one. */
+	test_id("EryvVbF", "the_writer_quotes_a_colon_or_comma");
+	/* The reader takes a colon or comma bare where it is text, but the writer
+	   quotes any whitespace, colon, comma, paren or bracket wherever it sits,
+	   so nobody has to know the reader's rules. A quoted value keeps its
+	   quotes and its quote kind, a quoted number included. */
 	{
 		shcl_doc *qd = shcl_new();
 		const char *tags[2] = {"rw,noatime", "b"}; size_t tl[2] = {10, 1};
 		if (!shcl_set_string(qd, "opts", 4, "rw,noatime", 10) || !shcl_set_string(qd, "display", 7, ":0", 2) || !shcl_set_string(qd, "end", 3, "a,", 2)
-			|| !shcl_set_string(qd, "title", 5, "My App", 6) || !shcl_set_string_array(qd, "tags", 4, tags, tl, 2))
+			|| !shcl_set_string(qd, "title", 5, "My App", 6) || !shcl_set_string_array(qd, "tags", 4, tags, tl, 2)
+			|| !shcl_set_string(qd, "call", 4, "f(x)", 4) || !shcl_set_string(qd, "box", 3, "a[0]", 4) || !shcl_set_string(qd, "tabbed", 6, "a\tb", 3)
+			|| !shcl_set_string(qd, "plain", 5, "a-b.c/d", 7))
 			fail("writer_comma", "a setter refused");
 		shcl_str qc = shcl_to_canonical(qd);
-		const char *qw[] = {"opts: rw,noatime\n", "display: :0\n", "end: \"a,\"\n", "title: \"My App\"\n", "tags: [\"rw,noatime\", b]\n"};
+		const char *qw[] = {"opts: \"rw,noatime\"\n", "display: \":0\"\n", "end: \"a,\"\n", "title: \"My App\"\n", "tags: [\"rw,noatime\", b]\n",
+			"call: \"f(x)\"\n", "box: \"a[0]\"\n", "tabbed: \"a◉TAB◉b\"\n", "plain: a-b.c/d\n"};
 		for (size_t i = 0; i < sizeof qw / sizeof qw[0]; i++) if (!contains(qc.p, qc.n, qw[i])) fail("writer_comma", qw[i]);
 		char qtext[256];
 		if (qc.n >= sizeof qtext) fail("writer_comma", "the canonical text outgrew the fixture buffer");
@@ -3576,6 +3579,16 @@ int main(int argc, char **argv) {
 		if (tc.n != 11 || memcmp(tc.p, "n: \"1,000\"\n", 11) != 0) fail("writer_comma", "a quoted thousands comma lost its quotes");
 		if (shcl_get_int_or(td, "n", 1, 0) != 1000) fail("writer_comma", "n");
 		shcl_free(td);
+		const char *vin = "ver: \"8\"\nok: 'true'\nat: 2:30PM\nhost: localhost:8080\n";
+		const char *vout = "ver: \"8\"\nok: 'true'\nat: \"2:30PM\"\nhost: \"localhost:8080\"\n";
+		shcl_doc *vd = shcl_parse(vin, strlen(vin));
+		shcl_str vc = shcl_to_canonical(vd);
+		if (vc.n != strlen(vout) || memcmp(vc.p, vout, vc.n) != 0) fail("writer_comma", "a quoted number lost its quotes, or a colon went bare");
+		if (shcl_get_int_or(vd, "ver", 3, 0) != 8) fail("writer_comma", "ver");
+		if (!shcl_set_int(vd, "ver", 3, 9)) fail("writer_comma", "set ver");
+		vc = shcl_to_canonical(vd);
+		if (vc.n < 9 || memcmp(vc.p, "ver: \"9\"\n", 9) != 0) fail("writer_comma", "a set over a quoted number dropped its quotes");
+		shcl_free(vd);
 		shcl_doc *hd = shcl_parse("t: a,b\nt: c\n", 12);
 		shcl_str hm = shcl_diag_count(hd) ? shcl_diag_message(hd, 0) : shcl_to_canonical(hd);
 		if (shcl_diag_count(hd) == 0 || strcmp(shcl_diag_code(hd, 0), "H001") != 0 || !contains(hm.p, hm.n, "t: [\"a,b\", c]")) fail("writer_comma", "the H001 hint");

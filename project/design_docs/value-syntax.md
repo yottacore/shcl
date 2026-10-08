@@ -343,7 +343,7 @@ Two older codes change scope:
 - Why no spaces inside `[]`: `[a b, c]` would then silently be 2 elements where 3 were meant.
 
 - Why a colon or comma needs a character after it: that keeps real text bare while catching what looks like another field or an array missing its brackets.
-	- `rw,noatime,nodev` for `mount`, `:0` for a display, URLs, `host:port` and times all stay bare.
+	- `rw,noatime,nodev` for `mount`, `:0` for a display, URLs, `host:port` and times all read bare. The writer quotes them anyway; see [Canonical output](#canonical-output).
 	- Text before the colon is not required, so `:0` works.
 	- `ports: 80,443` reads as the string `80,443`, not 2 ports. A typed int or array read of it fails, so a program expecting numbers notices. That was accepted, since options joined by commas are common.
 
@@ -501,15 +501,16 @@ Two older codes change scope:
 
 What the writer and `fmt` produce. The line-keeping save still writes unchanged lines as they were.
 
-- A value is written bare when it has no whitespace, none of `#` `"` `'` `` ` `` `[` `]` `◉`, no colon or comma with whitespace or the end after it, and needs no escape. Otherwise it is quoted.
-	- So `2:30PM`, `localhost:8080`, `:0` and `rw,noatime` stay bare.
-	- The writer still quotes any value with a space, though the reader takes one bare. A file `fmt` wrote before reads and writes the same, and only hand-typed lines get the leeway.
-	- An array element with a comma is quoted, since there the comma separates.
+- A value, `- ` item or array element is written bare only when it has no whitespace, none of `#` `"` `'` `` ` `` `:` `,` `(` `)` `[` `]` `◉`, and needs no escape. Otherwise it is quoted (answered 2026-10-08, item 2026100719122101).
+	- So `:0`, `2:30PM`, `localhost:8080`, `http://my.com/` and `rw,noatime` are written `":0"`, `"2:30PM"` and so on, though the reader takes each of them bare.
+	- Why: `fmt` is how a file gets made canonical, and canonical text shouldn't leave a person working out whether `a,b` is one value or two, or whether a colon starts another field. The reader's leeway is for hand-typed lines.
+	- The writer quotes any value with a space the same way. A tab inside quotes is written `◉TAB◉`.
+	- Typed reads don't care about the quotes, so a datetime a setter writes comes out quoted, `"2026-07-12T14:30"`.
 
-- The author's quote kind on a plain string is kept: single, double or backtick. `fmt` keeps it too, not only a setter's overwrite, so `'abc'` stays single quoted.
-	- Quoting used to be pure spelling, normalized away, which silently took the quotes off values a downstream language treats as special, such as `"@null"` or a quoted function name. The `quoted` read flag exists for that case.
-	- `ver: "8"` still becomes `ver: 8`, since readers type the value either way.
-	- A number with a leading zero keeps its quotes, as today: `zip: "02134"`. The quotes don't stop a typed read, so a program that reads `zip` as an int gets 2134. Knowing a zip code isn't a number is up to the program.
+- The author's quote kind is kept: single, double or backtick. `fmt` keeps it too, not only a setter's overwrite, so `'abc'` stays single quoted.
+	- Quotes are never dropped. Quoting used to be pure spelling, normalized away, which silently took the quotes off values a downstream language treats as special, such as `"@null"` or a quoted function name. The `quoted` read flag exists for that case.
+	- `ver: "8"` stays quoted, though readers type the value either way. Until 2026-10-08 it became `ver: 8`.
+	- A number with a leading zero keeps its quotes too: `zip: "02134"`. The quotes don't stop a typed read, so a program that reads `zip` as an int gets 2134. Knowing a zip code isn't a number is up to the program.
 	- A data value with a space keeps its quotes: `"Jul 12 2026"`, `"1h 30m"`.
 
 - Quote choice when the writer picks: double quotes, or single quotes when the text has a `"` and no `'`. Text with both goes in double quotes with `◉DOUBLE_QUOTE◉`. A backslash plays no part in the choice any more.
@@ -537,7 +538,7 @@ What the writer and `fmt` produce. The line-keeping save still writes unchanged 
 	- An array setter over a list written with `- ` keeps it stacked.
 	- A setter that overwrites a value keeps its quote kind, backtick, single or double, when the new text can be written that way. Otherwise the writer picks.
 
-- The quoting rule runs at standard strictness, fixed, so canonical form can't vary with how strictly the file was loaded.
+- The quoting rule looks only at the text, never at how strictly the file was loaded, so canonical form can't vary with it.
 
 ### Hidden characters
 
@@ -700,6 +701,7 @@ Not looked at in any depth:
 - No whitespace in any bare value, `E025` on `title: My App`. Settled 2026-10-02 and built in Rust on valsyn, then dropped 2026-10-06. The quote, comma and comment rules already give such a value one reading, and the ban made the most common hand-typed line an error.
 
 - Banning every bare colon and comma. That would put quotes on URLs, `host:port`, times, `:0` and `mount` options.
+	- That is a rule for reading. The writer quotes all of them since 2026-10-08, and the reader still takes them bare.
 
 - Keeping brackets for selectors. It costs nothing to build, and XPath and JSONPath do the same. But a line would use one bracket for two things.
 
@@ -780,3 +782,4 @@ What the build has today, and what replaces it.
 | 2026100511210900 | A merge can leave a list with a field under it after an empty binding of its name             | Fixed: the save refuses
 | 2026100610073400 | Selectors use `()`, and `[]` is for arrays only                                               | Done in Rust and the docs. The ports remain
 | 2026100609552447 | Don't allow the `[#N]` index selector                                                         | Moot, folded into 2026100610073400
+| 2026100719122101 | `fmt` leaves a value bare that a reader could misread                                         | The writer's quoting, under Canonical output

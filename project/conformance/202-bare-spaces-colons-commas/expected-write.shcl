@@ -2,10 +2,10 @@
 # colon or comma with a space or the end after it is not.
 title: "My  App"
 when: "Jul 12 2026"
-opts: rw,noatime
-display: :0
-url: https://example.com:8080/a?b=c,d
-ports: 80,443
+opts: "rw,noatime"
+display: ":0"
+url: "https://example.com:8080/a?b=c,d"
+ports: "80,443"
 qty: "1,000"
 host: a.com port: 80
 	under: 1
@@ -18,8 +18,8 @@ ab: [a, b]
 el: [rw, noatime]
 items:
 	- "New York"
-	- rw,noatime
-	- :0
+	- "rw,noatime"
+	- ":0"
 	- name: value
 	- name:
 	- a, b
@@ -27,12 +27,12 @@ last: 1
 
 tags2: ["rw,noatime", b]
 
-opts2: rw,noatime
+opts2: "rw,noatime"
 
 title2: "My  App"
 
 end2: "a,"
 
-lit: a,b
+lit: "a,b"
 
 lit2: [a, b]

@@ -13,8 +13,8 @@ ideo: a　b
 cr: ab
 pair: x, y z
 when: Jul-12-2026
-time: 2:30PM
-url: http://host:8080/path
+time: "2:30PM"
+url: "http://host:8080/path"
 ends: "ready:"
 open: "never closed
 	kid: 2
@@ -31,7 +31,7 @@ title2: "My App"
 
 made: plain
 
-made-colon: a:b
+made-colon: "a:b"
 
 made-end: "end:"
 
