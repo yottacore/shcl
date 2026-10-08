@@ -33,23 +33,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
-- The write-ops script still decodes `\t`, `\n` and `\\` in a value
-	- ID: 2026100717500002
-	- Type: Bug
-	- Status: Waiting for answers
-	- Severity: High
-	- Opened: 20261007-175000
-	- Opened by: Code review 20261007 item 2
-	- Version and build: dev at `6a1d28f0`
-	- Steps to reproduce:
-		- `printf 'string\tpath\tC:\\temp\\new\n' | shcl set -`
-	- Incorrect behavior: exit 0, and the file gets `path: "C:◉TAB◉emp◉NEWLINE◉ew"`. The same value through `--set 'path=C:\temp\new'` writes `path: C:\temp\new`.
-	- Expected behavior: one escape rule in the whole CLI. The README's Escapes section says a backslash is text and a Windows path goes in as typed.
-	- Reproduced: 20261007, Rust CLI. `help set` says "string/raw values decode \n \t \\" in one line.
-	- Origin: the decode came with `e71b2c45` (2026-07-21), when files used backslash escapes too. 2026100207032800 dropped them from the file syntax and left the ops script alone. Not seen by an earlier round. Confirmed.
-	- Question: the ops format still needs a way to put a tab or a line break in a value, since its fields split on tabs. Read `◉TAB◉` and `◉NEWLINE◉` there, the file's own rule? Or keep `\` escapes in op values only, and say so in the README?
-	- Sweep: the ops reader in all four CLIs, the bash and PowerShell wrappers that build op lines, the man page and `help set`.
-
 - CLI reads take a path that cannot parse as not found, so `get --default` prints the default at exit 0
 	- ID: 2026100717500001
 	- Type: Bug
@@ -67,6 +50,24 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: 20261007, Rust CLI. Same for `site(.port`, `''`, `site..port`, `user name` and `h:p`.
 	- Origin: not blamed to one commit. The bracket case is new with 2026100610073400, which made `[` after a name `E029`. Not seen by an earlier round. Confirmed.
 	- Sweep: every CLI read that takes a PATH, in all four CLIs. Check whether the library's `_or` reads hide a bad path the same way.
+
+- The write-ops script still decodes `\t`, `\n` and `\\` in a value
+	- ID: 2026100717500002
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 2
+	- Version and build: dev at `6a1d28f0`
+	- Steps to reproduce:
+		- `printf 'string\tpath\tC:\\temp\\new\n' | shcl set -`
+	- Incorrect behavior: exit 0, and the file gets `path: "C:◉TAB◉emp◉NEWLINE◉ew"`. The same value through `--set 'path=C:\temp\new'` writes `path: C:\temp\new`.
+	- Expected behavior: one escape rule in the whole CLI. The README's Escapes section says a backslash is text and a Windows path goes in as typed.
+	- Reproduced: 20261007, Rust CLI. `help set` says "string/raw values decode \n \t \\" in one line.
+	- Origin: the decode came with `e71b2c45` (2026-07-21), when files used backslash escapes too. 2026100207032800 dropped them from the file syntax and left the ops script alone. Not seen by an earlier round. Confirmed.
+	- Question: the ops format still needs a way to put a tab or a line break in a value, since its fields split on tabs. Read `◉TAB◉` and `◉NEWLINE◉` there, the file's own rule? Or keep `\` escapes in op values only, and say so in the README?
+	- Answered 2026-10-07 (JC): op values read the file's `◉` names, and a backslash is text. A raw body's line breaks go in as `◉NEWLINE◉`.
+	- Sweep: the ops reader in all four CLIs, the bash and PowerShell wrappers that build op lines, the man page and `help set`.
 
 - `set` without `--write` prints a result that drops a line, where `--write` refuses to
 	- ID: 2026100717500003
@@ -118,8 +119,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Origin: the example is from `a3692013` (2026-08-04). 2026100207032800 changed the comma rule and 2026100610073400 the selectors, and neither swept these blocks. Not seen by an earlier round. Confirmed.
 	- Note: `check-readme.bash` builds and runs the 6 language examples, not the shell ones, so nothing caught this. Running them there is part of the fix.
 	- Sweep: every shell, PowerShell and text block in README.md and the man page, for brackets after a name and comma-space lists.
-
-**Stop here for a release cut**. The 5 items above give a wrong answer at exit 0, or break the front page.
 
 - `get --array` and `instances` print a line break as `\n`
 	- ID: 2026100717500006
@@ -265,6 +264,26 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Expected behavior: the docs say what the code does.
 	- Origin: `5756a593` (2026-07-12) for the first. The second is a sibling of 2026100414480001. Not seen by an earlier round. Confirmed.
 
+- `fmt` leaves a value bare that a reader could misread
+	- ID: 2026100719122101
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261007-191221
+	- Opened by: JC
+	- Problem description: `fmt` is for making a file canonical, but it writes `:0`, `http://my.com/` and `rw,noatime` bare, and drops the quotes from `ver: "8"`. It does quote `Hello world`.
+	- Requirements:
+		- `fmt` and the writer quote any string value that could be misread, and use `◉` escapes where needed:
+			- `Hello world` -> `"Hello world"`
+			- `http://my.com/` -> `"http://my.com/"`
+			- `Hello<tab>world` -> `"Hello◉TAB◉world"`
+			- `:0` -> `":0"`
+			- `my,dog,has,` -> `"my,dog,has,"`
+		- Keep the author's quote kind, and never drop quotes, so `ver: "8"` stays a quoted string.
+		- `set --write` leaves untouched lines alone, as now.
+	- To settle before the work: the exact list. Proposed: any whitespace, `:` or `,`, plus what already needs quotes. That quotes `2:30PM` and `localhost:8080` too; typed reads don't care.
+	- Sweep: value-syntax.md's Canonical output section and spec.md, the writer in all four, array elements and `- ` items, corpus goldens.
+
 - `instances` output can't be fed back into a selector
 	- ID: 2026100717500016
 	- Type: Enhancement
@@ -293,6 +312,20 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reason: a 3.x program that reads a 4.x file today gets whatever the 3.x rules make of it, silently. The stamp exists for exactly this.
 	- Origin: Confirmed. A change of a documented rule, so it is for the user.
 
+- Doc examples, man page blocks and help text aren't run as tests
+	- ID: 2026100719122102
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261007-191221
+	- Opened by: JC
+	- Problem description: several of code review 20261007's findings sat where no gate looks: README shell blocks, the ops script, CLI output text, README prose. A corpus case's expected output is written by hand, so it catches a defect all four bindings share. What has no case is unchecked.
+	- Requirements:
+		- Run every example in value-syntax.md's and spec.md's tables through all four bindings, against the result the doc states.
+		- Run the man page's shell blocks, as 2026100717500005 does for README's.
+		- Fail on a 2.x escape form (`\n`, `\t`, `\\`) in help text or CLI output.
+	- Reason: the doc tables are the cheapest source of hand-written expected results.
+
 - The ops-script note prints when stdin is piped
 	- ID: 2026100717500018
 	- Type: Enhancement
@@ -303,6 +336,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Problem description: "shcl: reading write-ops from stdin (one op per line...)" goes to stderr on every `set -`, piped or not.
 	- Requirements: print it only when stdin is a terminal, as most tools do.
 	- Origin: Confirmed, Rust CLI.
+
+**Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
 
 - README note on how escapes work, and why
 	- ID: 2026100313461651
