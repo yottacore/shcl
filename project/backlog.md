@@ -236,7 +236,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Help, man page, README and spec say so.
 	- Reason: scripts get the path, value and line together without parsing plain text. NUL-separated output was weighed and dropped, since PowerShell can't split it easily and one record can't hold all 3 fields.
 
-- A file stamped with a newer Format major loads clean
+- A file stamped with a newer Format major should load clean
 	- ID: 2026100717500017
 	- Type: Enhancement
 	- Status: Queued
