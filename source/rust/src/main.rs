@@ -122,8 +122,9 @@ option holds the edits, an empty base when the ops script has stdin instead.
 With --write, a FILE that does not exist yet is created. Lines the edits leave
 alone come back as they were written; with --layer, or where the edited text
 would not load back the same, the whole document comes out canonical, the way
-fmt writes it. PATH ends at the first '=' outside quotes and parens, so a
-selector may hold one. Ops:
+fmt writes it. A result that would delete lines or values from the file is
+refused at exit 7, printed or written (--lossy overrides). PATH ends at the
+first '=' outside quotes and parens, so a selector may hold one. Ops:
   int|float|bool|string|datetime<TAB>PATH<TAB>VALUE       set a scalar
   <type>-array<TAB>PATH<TAB>V1<TAB>V2...                  set an inline array
   <type>[-array]-default<TAB>...                          set only if absent
@@ -167,10 +168,14 @@ Options (the subcommands each belongs to are in parentheses):
                                          FILE in place, written -w too,
                                          through a temp file and a rename;
                                          refused with a FILE of '-'
-  --lossy                                (fmt/set/migrate) with --write, rewrite
-                                         even when this write would delete lines
-                                         or values from the file; without it the
-                                         write refuses and nothing is changed
+  --lossy                                (fmt/set/migrate) go ahead even when
+                                         the result would delete lines or
+                                         values from the file. Without it the
+                                         write refuses at exit 7 and changes
+                                         nothing; set and migrate without
+                                         --write exit 7 too, and set prints
+                                         nothing. fmt takes it with --write
+                                         only
   --from-2x                              (migrate/upgrade) the file was
                                          written for 2.x, so rewrite the
                                          spellings the two rule sets read
@@ -226,20 +231,22 @@ FILE or PATH begins with a dash. The flags -h, --help, -v, -V, --version,
 print once, in the order given.
 An option a subcommand does not use is a usage error, not ignored. Also
 refused: --write with --layer; --write with --set outside 'set'; --write with a
-FILE of '-'; --lossy without --write; --no-banner on 'set' without --write;
---check with --write; --layer=- on 'set'; --array with --raw, --rawinfo,
---duration or --size; --default with --on-bad=error or --on-bad=flag; '-' named
-more than once across FILE, --layer and --schema; a PATH that cannot parse,
---default or not. Two options that ask for different answers are a usage error
-whichever order they came in, and both are named: two different type options,
-or one value option given two different values. Repeating an option with the
-same value is allowed, and --layer and --set are ordered lists, so they repeat.
+FILE of '-'; --lossy on 'fmt' without --write; --no-banner on 'set' without
+--write; --check with --write; --layer=- on 'set'; --array with --raw,
+--rawinfo, --duration or --size; --default with --on-bad=error or
+--on-bad=flag; '-' named more than once across FILE, --layer and --schema; a
+PATH that cannot parse, --default or not. Two options that ask for different
+answers are a usage error whichever order they came in, and both are named:
+two different type options, or one value option given two different values.
+Repeating an option with the same value is allowed, and --layer and --set are
+ordered lists, so they repeat.
 Every subcommand that loads a document prints the load's diagnostics to stderr,
 once per run; 'shcl explain CODE' gives the rule behind one of their codes. An
 in-place write also refuses when the rewrite would delete lines or values
-from the file (--lossy overrides). migrate refuses a file that does not say
-which rules it was written for, when the two readings differ (--from-2x says
-it is 2.x), and reports a 2.x binding it cannot convert. With --write, migrate
+from the file (--lossy overrides), and set and migrate without --write exit 7
+where it would. migrate refuses a file that does not say which rules it was
+written for, when the two readings differ (--from-2x says it is 2.x), and
+reports a 2.x binding it cannot convert. With --write, migrate
 and upgrade keep the original beside FILE as
 NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT, in local time, where N is the format
 it was written for, and write nothing when that name is taken. An upgrade
@@ -251,9 +258,9 @@ layers prints the merged canonical document.
 
 Exit codes: 0 good, 1 usage error, 2 empty, 3 not found, 4 bad type,
 5 multiple instances, 6 check failed, strict load failed, init's schema has
-faults, or --check found a rewrite to make, 7 in-place write refused
-(--lossy overrides) or migrate or upgrade left something behind, 8 a file or
-stream could not be read or written.
+faults, or --check found a rewrite to make, 7 a result refused for deleting
+lines or values (--lossy overrides), or migrate or upgrade left something
+behind, 8 a file or stream could not be read or written.
 ";
 
 // About and donate are stdout, so they are byte-for-byte contracts across the
@@ -1395,9 +1402,10 @@ fn check_opts(cmd: &str, o: &Opts) -> Result<(), u8> {
 		);
 		return Err(1);
 	}
-	// --lossy only overrides the in-place write's refusal, so on its own it says
-	// nothing and would read as protection the command never had.
-	if o.lossy && !o.write {
+	// --lossy only overrides a refusal, and fmt refuses only in place, so there
+	// it would read as protection the command never had. set and migrate ask
+	// the gate on stdout too (2026100717500003).
+	if o.lossy && !o.write && cmd == "fmt" {
 		errln!("--lossy is only meaningful with --write (see --help)");
 		return Err(1);
 	}
@@ -2223,20 +2231,8 @@ fn do_migrate(o: &Opts) -> u8 {
 		}
 		// Same as `fmt --check`: the save gate `--write` goes through is asked
 		// before 6, so 6 never promises a rewrite that would be refused.
-		if rc == 0 && !o.lossy && doc.lost_count() != 0 {
-			errln!(
-				"{}: migrate --write would refuse: the migrated text drops {} line(s)/value(s) on load (--lossy overrides)",
-				file,
-				doc.lost_count()
-			);
-			rc = 7;
-		} else if rc == 0 && !o.lossy && misplaced != 0 {
-			errln!(
-				"{}: migrate --write would refuse: the migrated text leaves {} line(s) unread at an indent no open level matches (--lossy overrides)",
-				file,
-				misplaced
-			);
-			rc = 7;
+		if rc == 0 {
+			rc = migrate_would_refuse(file, &doc, misplaced, o);
 		}
 		if rc == 0 && !rewritten.is_empty() {
 			rc = 6;
@@ -2311,8 +2307,39 @@ fn do_migrate(o: &Opts) -> u8 {
 			}
 		};
 	}
+	// The text itself keeps every line, so it prints whatever the gate says,
+	// but the exit is the one --write would give, as for the refusals above
+	// (2026100717500003).
+	if rc == 0 {
+		rc = migrate_would_refuse(file, &doc, misplaced, o);
+	}
 	out!("{}", m.text);
 	rc
+}
+
+/// The save gate `migrate --write` goes through, asked without writing: 7 with
+/// the reason on stderr when the write would refuse, else 0.
+fn migrate_would_refuse(file: &str, doc: &Document, misplaced: usize, o: &Opts) -> u8 {
+	if o.lossy {
+		return 0;
+	}
+	if doc.lost_count() != 0 {
+		errln!(
+			"{}: migrate --write would refuse: the migrated text drops {} line(s)/value(s) on load (--lossy overrides)",
+			file,
+			doc.lost_count()
+		);
+		return 7;
+	}
+	if misplaced != 0 {
+		errln!(
+			"{}: migrate --write would refuse: the migrated text leaves {} line(s) unread at an indent no open level matches (--lossy overrides)",
+			file,
+			misplaced
+		);
+		return 7;
+	}
+	0
 }
 
 /// A file this shcl cannot load clean, backed up and written fresh: the
@@ -2902,7 +2929,26 @@ fn do_set(o: &Opts) -> u8 {
 			!creating,
 		);
 	}
-	out!("{}", doc.to_text_keep_lines().0);
+	// `shcl set f ... > f.new && mv f.new f` is a common edit, so the print
+	// answers the way --write would: the same refusal, and the same word when
+	// the lines could not be kept. Only a print with no layers tried to keep
+	// them (2026100717500003).
+	let (text, kept) = doc.to_text_keep_lines();
+	if !kept && !o.lossy && doc.lost_count() > 0 {
+		errln!(
+			"{}: refusing to print: this result would delete {} line(s)/value(s) from the file (--lossy overrides)",
+			file,
+			doc.lost_count()
+		);
+		return 7;
+	}
+	out!("{}", text);
+	if !kept && o.layers.is_empty() {
+		errln!(
+			"{}: printed in the canonical form; the lines could not be kept as they were",
+			file
+		);
+	}
 	0
 }
 

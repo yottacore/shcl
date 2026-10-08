@@ -127,7 +127,12 @@ Lines the edits leave alone come back as they were written. With
 or where the edited text would not load back the same, the whole document
 comes out in canonical form, the way
 .B fmt
-writes it.
+writes it. Without
+.BR \-\-layer ,
+a note on stderr says when that happened.
+Printed or written, a result that would delete lines or values from the file
+is refused at exit 7; see
+.BR "WRITING IN PLACE" .
 Edits go in as the repeatable
 .BR \-\-set ,
 .BR \-\-set\-literal ,
@@ -242,6 +247,9 @@ It refuses at exit 8 and writes nothing when that name is taken. A file that
 only gains the Format line gets no copy.
 .B \-\-check
 prints nothing and names each line a rewrite would change.
+Printed, the text comes out whole, but the exit is the one
+.B \-\-write
+would give, 7 included.
 .TP
 .B upgrade
 For a program's config file that this shcl cannot load clean: run it through
@@ -442,10 +450,21 @@ also keep the original file; see above.
 .TP
 .B \-\-lossy
 .RB ( fmt ", " set ", " migrate )
-With
-.BR \-\-write ,
-rewrite even when this write would delete lines or values from the file.
-Without it the write refuses and nothing is changed.
+Go ahead even when the result would delete lines or values from the file.
+Without it a write refuses at exit 7 and nothing is changed.
+.B set
+and
+.B migrate
+without
+.B \-\-write
+exit 7 the same way;
+.B set
+then prints nothing, and
+.B migrate
+still prints its text, which loses nothing until it is loaded. On
+.B fmt
+it is taken only with
+.BR \-\-write .
 .TP
 .B \-\-from\-2x
 .RB ( migrate ", " upgrade )
@@ -607,6 +626,8 @@ outside
 .B set
 would persist what was given as a read-time override.
 .B \-\-lossy
+on
+.B fmt
 without
 .B \-\-write
 overrides nothing.
@@ -734,6 +755,17 @@ file
 \- a typo does not cost the line above it.
 .B \-\-lossy
 is how to say it was meant.
+.PP
+.B set
+and
+.B migrate
+without
+.B \-\-write
+exit 7 where the write would refuse, so
+.B "shcl set f ... > f.new && mv f.new f"
+stops at the same point an in-place write does.
+.B set
+prints nothing then.
 .SH MIGRATING FROM 2.X
 The 3.0 lexical rules are smaller than 2.x's, so a file written for 2.x can
 read differently under them.
@@ -845,8 +877,14 @@ schema has faults, or
 found a rewrite to make.
 .TP
 .B 7
-An in-place write was refused because the rewrite would delete lines or
-values from the file
+A write was refused because the result would delete lines or values from the
+file, or
+.B set
+or
+.B migrate
+without
+.B \-\-write
+would have refused one
 .RB ( \-\-lossy
 overrides), or
 .B migrate

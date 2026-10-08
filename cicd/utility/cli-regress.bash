@@ -637,6 +637,18 @@ rows=(
 	#'Er7gihi|set-write-keeps-dropped-between|set --write %KG% --set=x=v|-|7|-|would delete 1 line|x[*]: [1, 2\n x:\nx.a: 2\n'
 	'EraAIXa|set-write-keeps-dropped-gap|set --write %KG% --set=x=v|-|0|-|-|x(*): [1, 2\n x:\nx: v\n a: 2\n'
 	'EraAIXb|set-write-gap-fallback-refused|set --write %KG% --set=x.b=1|-|7|-|would delete 1 line|x(*): [1, 2\n x:\nx.a: 2\n'
+	## 2026100717500003: without --write, set printed the canonical text with
+	## the dropped line gone, at exit 0, where --write refused. The print now
+	## answers as --write does, so `set f ... > f.new && mv f.new f` is safe.
+	'Es8aXnv|set-print-refused-element|set %KE% --set=val=9|-|7||refusing to print: this result would delete 1 line|val: 1\n\t- e\nz: 2\n'
+	'Es8aXnw|set-print-fallback-refused|set %KL% --remove=window.margin|-|7||refusing to print: this result would delete 1 line|font:\n\tsize: 12\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n'
+	'Es8aXnx|set-print-lossy|set --lossy %KE% --set=val=9|-|0|val: 9\nz: 2\n|printed in the canonical form|val: 1\n\t- e\nz: 2\n'
+	'Es8aXny|set-print-keeps-dropped|set %KL% --set=font.size=13|-|0|font:\n\tsize: 13\nwindow:\n\t\tmargin: 4\n\tstray: 1\nlast: 1\n|!canonical|-'
+	'Es8aXnz|set-print-says-canonical|set %KF% --set=b=3|-|0|a:\n\tx: 1\n\ty: 1\nb: 3\n|printed in the canonical form|-'
+	## A layer under FILE is a merge, which keeps no lines, so a lost line
+	## anywhere refuses, and --lossy prints with no word about keeping them.
+	'Es8aXo0|set-print-layer-refused|set --set=q=1 --layer=%F% %KE%|-|7||refusing to print|-'
+	'Es8aXo1|set-print-layer-lossy|set --lossy --set=q=1 --layer=%F% %KE%|-|0|-|!canonical form|-'
 	"Ep3OILN|set-open-quote-refused|set --set=a(\"open=1 %X%|-|1|-|bad --set value"
 	## 20260909 item 13: a value built by a setter or a selector read as
 	## unquoted, so quoted thousands were BadType until a save and reload.
@@ -1006,6 +1018,13 @@ rows=(
 	'ErUn2Bu|fmt-check-refused-dropped|fmt --check %KL%|-|7||fmt --write would refuse: it would delete 1 line'
 	'EqQSqyY|migrate-check-refused|migrate --check %ML%|-|7||migrate --write would refuse: the migrated text drops 1 line'
 	'EqQSqyZ|migrate-write-refused-lost|migrate --write %ML%|-|7|-|refusing to rewrite: the migrated text drops 1 line'
+	## 2026100717500003: printed, the same file exited 0. The text still
+	## prints, since it keeps every line; the exit is what --write gives.
+	## --lossy works without --write on migrate and set now, not on fmt.
+	'Es8aXo2|migrate-print-refused-lost|migrate %ML%|-|7|list: ["a\\,b", c]\nwin:\n\t\tm: 4\n\tstray: 1\n##    Format   3\n##    Migrated from SHCL 2.x.\n|migrate --write would refuse: the migrated text drops 1 line'
+	'Es8aXo3|migrate-print-lossy|migrate --lossy %ML%|-|0|-|!would refuse'
+	'Es8aXo4|migrate-check-lossy|migrate --check --lossy %ML%|-|6||mlost\.shcl:1: migrate would rewrite this line'
+	'Es8aXo5|fmt-lossy-without-write|fmt --lossy %F%|-|1||only meaningful with --write'
 	## 20260918b item 55: a created file says so, since nothing else does.
 	'EqMO8f6|create-says|set --write --no-banner %C% --set=a=1|-|0|-|created\.shcl: created|a: 1\n'
 	## The sugar file's write goes through now (2026100115403384).

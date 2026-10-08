@@ -92,7 +92,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - `set` without `--write` prints a result that drops a line, where `--write` refuses to
 	- ID: 2026100717500003
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Severity: High
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 3
@@ -106,6 +106,16 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: 20261007, Rust CLI.
 	- Origin: not blamed. Not seen by an earlier round. Confirmed.
 	- Sweep: `migrate` and `upgrade` without `--write`, in all four CLIs.
+	- Actual cause [Bug]: `set` without `--write` printed `to_text_keep_lines()` and never asked the save gate, so a fallback to canonical dropped the line at exit 0. `migrate` without `--write` asked only its own 2.x checks, not the lost-line and indent checks `--check` and `--write` make.
+	- Actual fix [Bug]: `set` without `--write` refuses at 7 and prints nothing where `--write` would refuse, and says on stderr when it printed the canonical form instead of keeping the lines. `migrate` without `--write` exits 7 where `--write` would refuse, through one helper `--check` now shares, and still prints its text, since the text keeps every line. `--lossy` is taken without `--write` on `set` and `migrate`, and stays a usage error on `fmt`. All four CLIs, same stderr bytes. Help, man page, spec.md, design.md, the UI style guide, README, the wrapper headers and the changelog say so.
+	- Against: spec.md "`--lossy` only means anything alongside `--write`". The item's expected behavior needs `set --lossy` without `--write`, so the rule now reads: only where the command can refuse. `fmt` without `--write` still refuses it.
+	- Progress log:
+		- 20261008: for signoff. Three calls the item did not spell out: `set` prints nothing at 7 where `migrate` prints its text at 7, as it already did for its other refusals; `set --layer` refuses too, on any layer's lost line, with no note about kept lines; the canonical note on stderr is new for the print.
+	- Swept: `set` and `migrate` without `--write` (fixed). `upgrade` without `--write` runs the same `upgrade()` its `--write` does and gives the same exit; it writes past lost lines by design, since the backup keeps them, so nothing to fix. `fmt` to stdout left alone, per the item. `get`, `count`, `instances`, `children`, `paths`, `check`, `init`, `tokens` and `explain` produce no file text.
+	- Verified: cli-regress rows `Es8aXnv` to `Es8aXo4` fail on dev's four CLIs (36 checks) and pass after; the two guard rows pass both ways. cli-regress (473 rows), stderr and exit compared byte for byte across the four on 10 cases, help and `help set|migrate|fmt` byte-identical at 80 columns, man page rendered. Crosscheck (17862 comparisons), the four conformance suites, `cargo test`, Go cmd tests, check-docs, check-abnf, check-completions, shell-regress, clippy for the host and windows, rustfmt, gofmt, go vet, staticcheck, ruff, mypy, cppcheck, PSScriptAnalyzer, shellcheck, test-ids check, markdownlint.
+	- Branch: `setgate`
+	- Commit: `e3d6208b`
+	- Test case: cli-regress `Es8aXnv` (the review's repro), `Es8aXnw`, `Es8aXnx`, `Es8aXnz`, `Es8aXo0`, `Es8aXo1` (`set` printing), `Es8aXo2`, `Es8aXo3`, `Es8aXo4` (`migrate` printing and `--check --lossy`), plus guards `Es8aXny` (kept lines still print at 0) and `Es8aXo5` (`fmt --lossy` without `--write` still 1).
 
 - The README's bash and PowerShell CLI examples fail on 3.0
 	- ID: 2026100717500005

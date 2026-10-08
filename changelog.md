@@ -332,6 +332,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `set --write` says when it had to save the canonical form instead of keeping the lines.
 
+- `set` and `migrate` without `--write` exit 7 where `--write` would refuse, and take `--lossy`. `set` then prints nothing, and says when it printed the canonical form. It printed a result missing the dropped line at exit 0.
+
 - The Go and Python CLIs report a file that will not open as the file name and the system's message.
 
 ### C and C++
