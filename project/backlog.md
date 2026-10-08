@@ -64,7 +64,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - The write-ops script still decodes `\t`, `\n` and `\\` in a value
 	- ID: 2026100717500002
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: High
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 2
@@ -78,6 +78,16 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Question: the ops format still needs a way to put a tab or a line break in a value, since its fields split on tabs. Read `◉TAB◉` and `◉NEWLINE◉` there, the file's own rule? Or keep `\` escapes in op values only, and say so in the README?
 	- Answered 2026-10-07 (JC): op values read the file's `◉` names, and a backslash is text. A raw body's line breaks go in as `◉NEWLINE◉`.
 	- Sweep: the ops reader in all four CLIs, the bash and PowerShell wrappers that build op lines, the man page and `help set`.
+	- Actual cause [Bug]: each CLI's `unescape_ops`, and its twin in each corpus runner, still read 2.x's `\n`, `\t` and `\\`.
+	- Actual fix [Bug]: a `string`, `raw` body or `comment` value, with the default and array forms, has its `◉` names read by the file's own reader: the value is read in quotes and the string comes back. A value with no mark goes in as it is, so a backslash is text. An unknown name or a lone mark refuses the op at exit 1 with the reader's `E023` message. Same in all four CLIs and the four corpus runners. `INFO` and the `literal` op are unchanged. The help (byte-identical at 80 columns), the man page, the conformance README, the README's ops paragraph and the changelog say so.
+	- Note: the corpus ops files moved to the new escapes with every value unchanged, but for case 171. Its ops now write a drive and a share path as typed, since its goldens pinned the old decode (`"C:◉TAB◉emp"`). The Rust fuzz's ops dump writes the raw body's line break and tab as names.
+	- Swept: the ops readers in the four CLIs and the four corpus runners, all fixed. `shcl.bash` and `shcl.ps1` build no op lines, and the README's bash and PowerShell op examples hold no escape. Of the gate scripts, only cli-regress rows used the old escapes; crosscheck's and perf-gate's ops have none. `help`, `--help`, every `help CMD` and every `explain CODE` in all four, grepped for `\n`, `\t` and `\\`: only this line had one. Messages on stderr still show value text with 2.x escapes; filed as 2026100812323841.
+	- Verified: the 9 new rows fail on dev's four CLIs and pass after. Corpus cases 016, 058, 112, 131, 150, 171, 192 and 193 fail under dev's C runner and pass after. cli-regress (471 rows), crosscheck (41841 comparisons over the corpus and a 2000-iteration fuzz dump), the four conformance suites, `cargo test`, Go tests, shell-regress, check-docs, check-abnf, check-readme, check-completions, check-veneer, check-c-compilers, cppcheck at the normal level, clippy for the host and windows, rustfmt, gofmt, go vet, staticcheck, ruff, mypy, shellcheck, markdownlint, test-ids check. The mingw C CLI and windows Go CLI applied an escaped op under wine.
+	- Branch: `opsesc`
+	- Commit: `ce5fb45f`
+	- Test case: cli-regress `Es8bB4z` to `Es8bB57` (backslash text, names, raw line break, array, comment, default, both quote kinds, unknown name) and `Es8bB55` (a raw body's CR before a line break), plus the corpus write ops above. `ErpZsUg` and `EqBBQ57` pinned the old decode and are commented out, replaced by `Es8bB4z` and `Es8bB55`.
+	- Acceptance signoff: Self-closed: the answer on the item, tests fail before and pass after. The help, man page and README wording is new.
+	- Closed: 20261008-123238
 
 - `set` without `--write` prints a result that drops a line, where `--write` refuses to
 	- ID: 2026100717500003
@@ -136,7 +146,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - `get --array` and `instances` print a line break as `\n`
 	- ID: 2026100717500006
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Avg
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 6
@@ -148,6 +158,15 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: 20261007, Rust CLI.
 	- Origin: `24998d5d` (2026-09-03) and `76c35e6b` (2026-09-20), stale since 2026100207032800. Not seen by an earlier round. Confirmed.
 	- Sweep: the `one_line` twins in all four CLIs.
+	- Actual cause [Bug]: each CLI's `one_line` kept its own table of 2.x escapes.
+	- Actual fix [Bug]: a value holding a line break or a carriage return goes through the library's `quote_segment`, the writer's quoting. A line break is never bare in a name, so it gives the quoted form `init` writes, `"a◉NEWLINE◉b"`. Any other value prints as it is. All four CLIs. The man page and spec.md name the form, and the changelog has it under upgrading.
+	- Swept: every `one_line` caller in all four: `get --array`, `get --slots`, the `--default` under each, and `instances`. `children` and `paths` already printed the writer's form.
+	- Verified: the 8 new rows fail on dev's four CLIs and pass after, and the gates on 2026100717500002 cover this too.
+	- Branch: `opsesc`
+	- Commit: `ce5fb45f`
+	- Test case: cli-regress `Es8bB58` to `Es8bB5F`, including a backslash pair printed as text beside a real line break, and a lone CR. `EqT42DB`, `EqnwIkU`, `EqnwIkV`, `EqnwIkW`, `EqoRWES` and `EqoRWET` pinned the `\n` form and are commented out, replaced by `Es8bB58` to `Es8bB5D`.
+	- Acceptance signoff: Self-closed: the item named the form, tests fail before and pass after.
+	- Closed: 20261008-123238
 
 - `shcl help fmt` prints part of `set`'s help
 	- ID: 2026100717500007
@@ -319,16 +338,46 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Expected behavior: the docs say what the code does.
 	- Origin: `5756a593` (2026-07-12) for the first. The second is a sibling of 2026100414480001. Not seen by an earlier round. Confirmed.
 
+- Messages on stderr show value text with 2.x backslash escapes
+	- ID: 2026100812323841
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261008-123238
+	- Opened by: 2026100717500002's sweep
+	- Version and build: dev at `c25ed432`
+	- Steps to reproduce:
+		- `printf 'a: C:\\temp\n' | shcl get --int - a`
+		- `printf 'a: "◉C:\\x◉"\n' | shcl check -`
+	- Incorrect behavior: `value "C:\\temp" is not a valid int`, and `unknown escape '◉C:\\x◉'`. Both read as if the file held two backslashes. A backslash is text since 2026100207032800.
+	- Expected behavior: the value text as written, in a form that can't be mistaken for a 2.x escape.
+	- Reproduced: 20261008, Rust CLI.
+	- Origin: the CLI's `quoted()` and the library's `one_line()` and `schema_text()` for messages, from before 2026100207032800. Not seen by an earlier round. Confirmed.
+	- Question: which form a message uses for a value with a line break. The writer's quoted form escapes a real `◉` in source text as `◉ESCAPE_CHAR◉`, which reads oddly in an `E023` message about that very mark.
+	- Sweep: `quoted()` in the four CLIs, and the library's message helpers in all four, with the cli-regress rows that pin their text.
+
 - The ops-script note prints when stdin is piped
 	- ID: 2026100717500018
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Priority: Low
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 18
 	- Problem description: "shcl: reading write-ops from stdin (one op per line...)" goes to stderr on every `set -`, piped or not.
 	- Requirements: print it only when stdin is a terminal, as most tools do.
 	- Origin: Confirmed, Rust CLI.
+	- Against: the 20260817 review made the note unconditional "so a pipeline and a terminal behave identically", saying terminal sniffing had been rejected once already. That rejection was about `set -` meaning different things at a terminal, and it stands. This changes only a note on stderr: stdout and the exit code are the same either way.
+	- Progress log:
+		- 20261008: done as asked, all four. Left at signoff for the Against line.
+	- Decisions:
+		- Windows' `isatty` calls NUL a terminal, so Go, Python and C ask for the console mode there. Rust's `IsTerminal` already does.
+	- Actual fix: the note prints only when stdin is a terminal. Rust uses `IsTerminal`. Go asks for the terminal settings on Linux, macOS and the BSDs and the console mode on Windows, with a character-device guess anywhere else. Python uses `isatty`, plus the console mode on Windows. C uses `isatty`, or the console mode on Windows. The man page says so, and the changelog.
+	- Note: cli-regress's `@appear` and `@change` rows waited for the note to know the command was reading its ops. They now first write more script comments than a pipe holds, a write that returns only once the command is reading. The row loop no longer drops the note from stderr.
+	- Swept: `set` is the one subcommand with a waiting note, in all four CLIs.
+	- Verified: `Es8bB5G` fails on dev's four CLIs and passes after. `Es8bB5H` passes before and after, as it should, and its harness reads nothing from a command that prints nothing. `EpyBxDM` and `EqLeNlw` pass with the new wait. The mingw C CLI and windows Go CLI print no note on a pipe under wine.
+	- Branch: `opsesc`
+	- Commit: `273cc07e`
+	- Test case: cli-regress `Es8bB5G` (no note with stdin from /dev/null or a pipe) and `Es8bB5H` (the note at a terminal, through a pseudo-terminal; skipped on Windows or without python3). `EqzuLW2` pinned the note on /dev/null and is commented out.
 
 - Library gaps a generic tool has to work around
 	- ID: 2026100717500020

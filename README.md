@@ -947,6 +947,8 @@ raw	motd		Welcome.
 OPS
 ~~~
 
+A tab or line break inside an op value goes in as `◉TAB◉` or `◉NEWLINE◉`, the same escapes a file uses, and a backslash is text.
+
 ### PowerShell
 
 Dot-source it for the same helper names:

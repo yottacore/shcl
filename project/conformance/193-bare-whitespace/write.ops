@@ -2,5 +2,5 @@ string	title2	My App
 string	made	plain
 string	made-colon	a:b
 string	made-end	end:
-string	made-tab	a\tb
+string	made-tab	a◉TAB◉b
 string	made-nbsp	a b

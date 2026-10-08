@@ -149,7 +149,9 @@ selector may hold one. Ops:
   empty<TAB>PATH   comment<TAB>PATH<TAB>TEXT   remove<TAB>PATH
   clear-comments<TAB>PATH                                 drop comments above
   banner<TAB>on|off                                       add or drop info block
-string/raw values decode \n \t \\; a line starting with # is a script comment.
+String, raw and comment values read escapes as a file does: NEWLINE or TAB
+between two U+25C9 marks. A backslash is text, and a line starting with # is a
+script comment.
 
 Types (get only; default --string):
   --int --float --bool --datetime --string --raw --rawinfo --duration --size
@@ -2642,28 +2644,27 @@ func parseOpFloat(s string) (float64, error) {
 	return n, nil
 }
 
-// unescapeOps decodes an ops value: \n \t \\ only; other `\x` stays verbatim.
-func unescapeOps(s string) string {
-	var b strings.Builder
-	for i := 0; i < len(s); i++ {
-		if s[i] != '\\' || i+1 >= len(s) {
-			b.WriteByte(s[i])
-			continue
-		}
-		i++
-		switch s[i] {
-		case 'n':
-			b.WriteByte('\n')
-		case 't':
-			b.WriteByte('\t')
-		case '\\':
-			b.WriteByte('\\')
-		default:
-			b.WriteByte('\\')
-			b.WriteByte(s[i])
+// opText resolves an ops-script value's escapes, `◉TAB◉` and `◉NEWLINE◉` and
+// the rest of the file's names, so a tab or a line break can sit on one op
+// line. A backslash is text, as in a file (2026100717500002). The file's own
+// reader does it, on the value in quotes, so the two can't drift.
+func opText(s string) (string, error) {
+	if !strings.Contains(s, "◉") {
+		return s, nil
+	}
+	var text string
+	if strings.Contains(s, `"`) && !strings.Contains(s, "'") {
+		text = "v: '" + s + "'\n"
+	} else {
+		text = "v: \"" + strings.ReplaceAll(s, `"`, "◉DOUBLE_QUOTE◉") + "\"\n"
+	}
+	doc := shcl.Parse(text)
+	for _, d := range doc.Diagnostics() {
+		if d.Severity == shcl.SeverityError {
+			return "", errors.New(d.Message)
 		}
 	}
-	return b.String()
+	return doc.ReadString("v").Value, nil
 }
 
 func applyOp(doc *shcl.Document, line string) error {
@@ -2671,7 +2672,7 @@ func applyOp(doc *shcl.Document, line string) error {
 	// Every op but the array forms takes a fixed number of tab-separated
 	// fields. Extra ones used to be dropped, so a `raw` whose content held a
 	// literal tab lost everything after it and still reported success; the
-	// escape for a tab inside a value is `\t`.
+	// escape for a tab inside a value is `◉TAB◉`.
 	want := 0
 	switch f[0] {
 	case "empty", "remove", "clear-comments", "banner":
@@ -2741,12 +2742,23 @@ func applyOp(doc *shcl.Document, line string) error {
 		}
 		return out, nil
 	}
-	strs := func(xs []string) []string {
+	text := func(s string) (string, error) {
+		t, err := opText(s)
+		if err != nil {
+			return "", fmt.Errorf("cannot write %s: %w", path, err)
+		}
+		return t, nil
+	}
+	strs := func(xs []string) ([]string, error) {
 		out := make([]string, len(xs))
 		for i, s := range xs {
-			out[i] = unescapeOps(s)
+			t, err := text(s)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = t
 		}
-		return out
+		return out, nil
 	}
 	dt := func(s string) (shcl.DateTime, error) {
 		x, ok := shcl.ParseDateTime(s)
@@ -2767,6 +2779,7 @@ func applyOp(doc *shcl.Document, line string) error {
 		return out, nil
 	}
 	wrote := false
+	content := "" // a raw op's, for the refusal below
 	switch f[0] {
 	case "int":
 		n, err := pint(v)
@@ -2787,7 +2800,11 @@ func applyOp(doc *shcl.Document, line string) error {
 		}
 		wrote = doc.SetBool(path, b)
 	case "string":
-		wrote = doc.SetString(path, unescapeOps(v))
+		t, err := text(v)
+		if err != nil {
+			return err
+		}
+		wrote = doc.SetString(path, t)
 	case "datetime":
 		x, err := dt(v)
 		if err != nil {
@@ -2817,7 +2834,11 @@ func applyOp(doc *shcl.Document, line string) error {
 		}
 		wrote = doc.SetBoolDefault(path, b)
 	case "string-default":
-		wrote = doc.SetStringDefault(path, unescapeOps(v))
+		t, err := text(v)
+		if err != nil {
+			return err
+		}
+		wrote = doc.SetStringDefault(path, t)
 	case "datetime-default":
 		x, err := dt(v)
 		if err != nil {
@@ -2843,7 +2864,11 @@ func applyOp(doc *shcl.Document, line string) error {
 		}
 		wrote = doc.SetBoolArray(path, xs)
 	case "string-array":
-		wrote = doc.SetStringArray(path, strs(arr))
+		xs, err := strs(arr)
+		if err != nil {
+			return err
+		}
+		wrote = doc.SetStringArray(path, xs)
 	case "datetime-array":
 		xs, err := dts(arr)
 		if err != nil {
@@ -2869,21 +2894,36 @@ func applyOp(doc *shcl.Document, line string) error {
 		}
 		wrote = doc.SetBoolArrayDefault(path, xs)
 	case "string-array-default":
-		wrote = doc.SetStringArrayDefault(path, strs(arr))
+		xs, err := strs(arr)
+		if err != nil {
+			return err
+		}
+		wrote = doc.SetStringArrayDefault(path, xs)
 	case "datetime-array-default":
 		xs, err := dts(arr)
 		if err != nil {
 			return err
 		}
 		wrote = doc.SetDateTimeArrayDefault(path, xs)
-	case "raw":
-		wrote = doc.SetRaw(path, unescapeOps(get(3)), v)
-	case "raw-default":
-		wrote = doc.SetRawDefault(path, unescapeOps(get(3)), v)
+	case "raw", "raw-default":
+		t, err := text(get(3))
+		if err != nil {
+			return err
+		}
+		content = t
+		if f[0] == "raw" {
+			wrote = doc.SetRaw(path, t, v)
+		} else {
+			wrote = doc.SetRawDefault(path, t, v)
+		}
 	case "empty":
 		wrote = doc.SetEmpty(path)
 	case "comment":
-		wrote = doc.SetComment(path, unescapeOps(v))
+		t, err := text(v)
+		if err != nil {
+			return err
+		}
+		wrote = doc.SetComment(path, t)
 	case "remove", "clear-comments":
 		if unusablePath(doc, path) {
 			return fmt.Errorf("cannot %s %s: %s", f[0], path, badPath(path))
@@ -2914,7 +2954,7 @@ func applyOp(doc *shcl.Document, line string) error {
 		case "comment":
 			unwritable = "the comment text is not one line"
 		case "raw", "raw-default":
-			unwritable = rawRefusal(unescapeOps(get(3)))
+			unwritable = rawRefusal(content)
 		}
 		array := strings.Contains(f[0], "array") || (strings.HasPrefix(f[0], "literal") && strings.HasPrefix(strings.TrimLeftFunc(v, unicode.IsSpace), "["))
 		return fmt.Errorf("cannot write %s: %s", path, describeRefusal(doc, path, array, unwritable))
@@ -2990,11 +3030,13 @@ func doSet(o *opts) int {
 	var ops []byte
 	if len(o.sets) == 0 {
 		var err error
-		// Say so before blocking. With nothing on stdin this used to sit there
-		// silently, which reads as a hang rather than as a prompt; the note is
-		// unconditional so a pipeline and a terminal behave identically. The
-		// program-name prefix marks it as a notice; errors have none.
-		fmt.Fprintln(os.Stderr, "shcl: reading write-ops from stdin (one op per line, tab-separated; end with EOF)")
+		// Say so before blocking at a terminal, where nothing on stdin used to
+		// read as a hang. A pipe gets no note, since a script piping ops in
+		// knows (2026100717500018). The program-name prefix marks it as a
+		// notice; errors have none.
+		if stdinIsTerminal() {
+			fmt.Fprintln(os.Stderr, "shcl: reading write-ops from stdin (one op per line, tab-separated; end with EOF)")
+		}
 		ops, err = io.ReadAll(os.Stdin)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "stdin: %s\n", err)
@@ -3094,6 +3136,13 @@ const schemaLineMax = 16 << 20
 // openNoWait opens a Schema line's file. The POSIX build swaps in an open that
 // does not wait on a FIFO; windows has none at a path.
 var openNoWait = os.Open
+
+// stdinIsTerminal says whether stdin is a terminal. The platform builds swap in
+// an exact test; a character device is the guess elsewhere, /dev/null included.
+var stdinIsTerminal = func() bool {
+	fi, err := os.Stdin.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+}
 
 // readNamedSchema reads the schema a Schema line names. A line in a file
 // someone else wrote must not make an unattended check wait on a FIFO or read
@@ -3290,32 +3339,14 @@ func doInit(o *opts) int {
 // oneLine renders a value for a one-per-line listing. `instances` promises one
 // line per instance, and a value holding a line break broke that, so a caller
 // splitting on newlines counted more instances than `count` reports. Only such
-// a value changes: anything else comes out as it is. The escaped spelling is
-// the one genDefaultText writes for the same reason.
+// a value changes: anything else comes out as it is. It comes out quoted with
+// the writer's escapes, `"a◉NEWLINE◉b"`, as `init` writes a default. A line
+// break is never bare in a name either, so QuoteSegment gives exactly that.
 func oneLine(v string) string {
 	if !strings.ContainsAny(v, "\n\r") {
 		return v
 	}
-	var b strings.Builder
-	b.WriteByte('"')
-	for _, ch := range v {
-		switch ch {
-		case '\\':
-			b.WriteString(`\\`)
-		case '"':
-			b.WriteString(`\"`)
-		case '\n':
-			b.WriteString(`\n`)
-		case '\r':
-			b.WriteString(`\r`)
-		case '\t':
-			b.WriteString(`\t`)
-		default:
-			b.WriteRune(ch)
-		}
-	}
-	b.WriteByte('"')
-	return b.String()
+	return shcl.QuoteSegment(v)
 }
 
 func doEnum(o *opts, wantCount bool) int {

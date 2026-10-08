@@ -5,5 +5,5 @@ string	server.tls.key	/etc/ssl/billing.key
 remove	version
 string	log.level	info
 comment	server.host	public name
-raw	script	sh	echo stop\n\tindented
+raw	script	sh	echo stop◉NEWLINE◉◉TAB◉indented
 string-array	server.paths	/v1	/v3

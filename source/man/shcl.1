@@ -184,8 +184,10 @@ Print the number of instances at
 .B instances
 Print the instance values at
 .IR PATH ,
-one per line. A value holding a line break is printed in its quoted escaped
-spelling, so one instance is always one line.
+one per line. A value holding a line break is printed quoted, with the line
+break as the NEWLINE escape the way
+.B fmt
+writes it, so one instance is always one line.
 .TP
 .B children
 Print the child field names under
@@ -355,7 +357,9 @@ else from
 .B \-\-array
 Read the value as an array of the chosen type, one element per line. As in
 .BR instances ,
-an element holding a line break is printed in its quoted escaped spelling.
+an element holding a line break is printed quoted, with the escapes
+.B fmt
+writes.
 .SH OPTIONS
 The subcommands each option belongs to are named in parentheses. An option a
 subcommand does not use is a usage error, not something quietly ignored.
@@ -391,7 +395,9 @@ default.
 .RB ( get )
 Prefix each output line with its slot status and a tab \- per element for an
 array, per matched instance for a wildcard. A value holding a line break is
-then printed in its quoted escaped spelling, so each slot stays one line.
+then printed quoted, with the escapes
+.B fmt
+writes, so each slot stays one line.
 .TP
 .BI \-\-unit= UNIT
 .RB ( get )
@@ -698,14 +704,17 @@ replaced instead of added to.
 .B banner on
 puts the info block at the end, taking off an old one first;
 .B banner off
-only takes it off. String, comment and raw values decode
-.BR \en ,
-.B \et
-and
-.BR \e\e ,
-and a line starting with
+only takes it off. String, comment and raw values read escapes the way a file
+does, a name such as
+.B TAB
+or
+.B NEWLINE
+between two U+25C9 marks, so a tab or a line break fits on one op line. A
+backslash is text. A line starting with
 .B #
-is a script comment. A
+is a script comment. At a terminal,
+.B set
+says on stderr that it is waiting for the ops. A
 .B raw
 op's INFO may not hold a line break or a
 .BR # ,

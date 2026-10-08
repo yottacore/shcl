@@ -19,6 +19,13 @@ import (
 
 func init() {
 	notADiskFile = windowsNotADiskFile
+	stdinIsTerminal = windowsStdinIsTerminal
+}
+
+// NUL is a character device too, so only a console mode says console.
+func windowsStdinIsTerminal() bool {
+	var mode uint32
+	return syscall.GetConsoleMode(syscall.Stdin, &mode) == nil
 }
 
 func windowsNotADiskFile(path string) bool {
