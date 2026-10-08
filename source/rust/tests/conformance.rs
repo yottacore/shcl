@@ -1511,6 +1511,63 @@ fn refused_values_pass_the_path_check() {
 	}
 }
 
+// A setter on a path that matches more than one field at any step writes
+// nothing and the path checks Multiple, so a write never says true where the
+// read after it would say Multiple. An index or value selector picks one.
+// Same fixture in every runner.
+#[test]
+fn repeated_path_refuses_a_setter() {
+	let _id = test_id("Es9aZSF");
+	let text = "port: 1\nport: 2\nsite: a\n\troot: /x\nsite: b\n\troot: /y\nsec:\n\tk: 1\n\tk: 2\n";
+	type Set = Box<dyn Fn(&mut Document) -> bool>;
+	let cases: Vec<(&str, Set)> = vec![
+		("port", Box::new(|d| d.set_int("port", 9))),
+		("port", Box::new(|d| d.set_string("port", "9"))),
+		("port", Box::new(|d| d.set_literal("port", "9"))),
+		("port", Box::new(|d| d.set_int_array("port", &[9]))),
+		("port", Box::new(|d| d.set_empty("port"))),
+		("port", Box::new(|d| d.set_raw("port", "x", ""))),
+		("port", Box::new(|d| d.set_comment("port", "c"))),
+		("port", Box::new(|d| d.set_int_default("port", 9))),
+		("port", Box::new(|d| d.set_literal_default("port", "9"))),
+		("site.root", Box::new(|d| d.set_string("site.root", "/z"))),
+		("site.new", Box::new(|d| d.set_string("site.new", "v"))),
+		(
+			"site.new",
+			Box::new(|d| d.set_string_default("site.new", "v")),
+		),
+		("sec.k", Box::new(|d| d.set_int("sec.k", 9))),
+		("sec.k.x", Box::new(|d| d.set_int("sec.k.x", 9))),
+	];
+	for (path, set) in &cases {
+		let mut doc = Document::parse(text);
+		assert!(!set(&mut doc), "{path}: the setter returned true");
+		assert_eq!(
+			doc.check_set_path(path),
+			shcl::SetPathCheck::Multiple,
+			"{path}"
+		);
+		assert_eq!(
+			doc.to_canonical(),
+			Document::parse(text).to_canonical(),
+			"{path}: wrote something"
+		);
+	}
+	let mut doc = Document::parse(text);
+	assert!(doc.set_int("port(1)", 9));
+	assert!(doc.set_string("site(1).root", "/z"));
+	assert!(doc.set_string("site(a).root", "/w"));
+	assert!(doc.set_int("sec.k(0)", 7));
+	assert_eq!(doc.get_int_or("port(0)", 0), 1);
+	assert_eq!(doc.get_int_or("port(1)", 0), 9);
+	assert_eq!(doc.get_string_or("site(b).root", String::new()), "/z");
+	assert_eq!(doc.get_string_or("site(a).root", String::new()), "/w");
+	assert_eq!(doc.get_int_or("sec.k(0)", 0), 7);
+	// A remove takes every instance it matches, as a read sees them.
+	assert_eq!(doc.remove("port"), 2);
+	assert_eq!(doc.check_set_path("port"), shcl::SetPathCheck::Ok);
+}
+
 #[test]
 fn setters_refuse_a_value_the_reader_refuses() {
 	let _id = test_id("Eof29pY");
@@ -2335,8 +2392,8 @@ fn a_list_no_text_loads_back_refuses_to_save() {
 fn a_list_joining_an_emptied_field_keeps_its_fields_found() {
 	let _id = test_id("ErsETML");
 	for (src, path, field, want) in [
-		("b: x\nb:\n\t- 3\n\tk: 1\n", "b", "b.k", "1"),
-		("b: x\nb: y z\n\t- 3\n\tk: 1\n", "b", "b.k", "1"),
+		("b: x\nb:\n\t- 3\n\tk: 1\n", "b(0)", "b.k", "1"),
+		("b: x\nb: y z\n\t- 3\n\tk: 1\n", "b(0)", "b.k", "1"),
 		("x: v\nx:\n\t- a\n\tg: 2\n", "x(v)", "x.g", "2"),
 	] {
 		let mut doc = Document::parse(src);

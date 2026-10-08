@@ -534,7 +534,11 @@ instead.
 .TP
 .BI \-\-set= PATH = VALUE
 .RB ( get ", " fmt ", " count ", " instances ", " children ", " paths ", " set )
-Override one path as the topmost layer, after every file. Repeatable. On
+Edit one path, after every file. Repeatable. A path that matches more than
+one field at any step is refused at exit 1, since a read of it would answer
+that it matches several; an index such as
+.B name(0)
+picks one. On
 .B set
 it is an edit to the document itself, so it persists with
 .BR \-\-write .

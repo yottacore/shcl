@@ -719,7 +719,7 @@ if mb, st := doc.GetInt("site(example.com).max-upload-mb"); st == shcl.Good {
 }
 
 // A setter reports whether the write applied: a refused write writes nothing
-// at all rather than half of it. CheckSetPath names which of the five path
+// at all rather than half of it. CheckSetPath names which of the six path
 // reasons it hit, or SetPathOk when it was the value that was refused.
 if !doc.SetInt("workers", workers*2) {
 	fmt.Println("workers:", doc.CheckSetPath("workers"))
@@ -762,7 +762,7 @@ if read.status is not shcl.Status.Good:
 	print("unusable:", read.status)
 
 # A setter reports whether the write applied: a refused write writes nothing
-# at all rather than half of it. check_set_path names which of the five path
+# at all rather than half of it. check_set_path names which of the six path
 # reasons it hit, or Ok when it was the value that was refused.
 if not doc.set_int("workers", workers * 2):
 	print("workers:", doc.check_set_path("workers"))
@@ -854,7 +854,7 @@ if (root.status == SHCL_GOOD)
 	printf("%.*s\n", (int)root.value.n, root.value.p);
 
 // A setter reports whether the write applied: a refused write writes nothing
-// at all rather than half of it. shcl_check_set_path names which of the five
+// at all rather than half of it. shcl_check_set_path names which of the six
 // path reasons it hit (SHCL_SET_PATH_WILDCARD here, say), or SHCL_SET_PATH_OK
 // when it was the value that was refused.
 if (!shcl_set_int(doc, P("workers"), workers * 2))
@@ -1026,7 +1026,7 @@ A file somebody keeps by hand can be saved the way they keep it instead. Load it
 
 And the save protects the file it is overwriting. It goes through a temp file in the same directory plus a rename, so an interrupted save cannot leave a truncated config behind, and a linked-in config is written through rather than replaced. It also refuses when the write would delete lines or values from the file. A line the parser cannot read at all is kept verbatim and survives the save untouched. A line it could read and not place (a stray indent, an impossible selector) has no safe spelling to re-emit. That one counts into `lost_count()`, and the save stops rather than quietly dropping a line somebody typed. `save_file_lossy` is there for when deleting it is what you actually want, so it is always a stated choice.
 
-A setter returns failure - `false`, or `0` in C - when it writes nothing, and nothing is half-written. Either the path is the problem, or what the write would put there is. `check_set_path(path)` checks the path alone and says which of the five path reasons applied. Wildcards are the usual case, since those are query-only. When it says `Ok`, the write was refused for one of these:
+A setter returns failure - `false`, or `0` in C - when it writes nothing, and nothing is half-written. Either the path is the problem, or what the write would put there is. `check_set_path(path)` checks the path alone and says which of the six path reasons applied. Wildcards are the usual case, since those are query-only. Another is a path that matches more than one field, such as `port` in a file with two `port` lines, since the read after the write would not know which one you meant either. `port(0)` or `site(1).root` picks one. When it says `Ok`, the write was refused for one of these:
 
 - A float that is NaN or infinite.
 

@@ -95,7 +95,7 @@ typedef enum {
 
 // What shcl_check_set_path() finds at a path: whether a setter could write
 // there, and if not, why. SHCL_SET_PATH_OK = the path passes the writer's
-// validation; the rest name the five ways it cannot. A setter can still return
+// validation; the rest name the six ways it cannot. A setter can still return
 // 0 on SHCL_SET_PATH_OK, when the value itself is refused (see the setter
 // notes above shcl_new).
 typedef enum {
@@ -104,7 +104,8 @@ typedef enum {
 	SHCL_SET_PATH_VALUE_IN_PATH, // the path has a `: value` part; writes take values separately
 	SHCL_SET_PATH_WILDCARD,      // wildcard selectors are query-only
 	SHCL_SET_PATH_NO_SUCH_INDEX, // a `(k)` instance that does not (and can never) exist
-	SHCL_SET_PATH_TOO_DEEP       // deeper than the nesting cap; the writer never creates past it
+	SHCL_SET_PATH_TOO_DEEP,      // deeper than the nesting cap; the writer never creates past it
+	SHCL_SET_PATH_MULTIPLE       // a step matches more than one field; `(k)` or `(value)` picks one
 } shcl_set_path_check;
 
 typedef struct shcl_doc shcl_doc;
@@ -701,13 +702,15 @@ shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, shcl_upgrade
 // are copied into the arena, so the caller's buffers need not outlive the call.
 // Setters return 1 when the write applied and 0 when nothing was written.
 // Either the path check failed, and shcl_check_set_path says why (a wildcard,
-// a missing (N) instance, a value part, or past the depth cap), or it passed
+// a missing (N) instance, a value part, past the depth cap, or a step that
+// matches more than one field, since the read after the write would say
+// Multiple; `port(0)` or `site(1).root` picks one), or it passed
 // and the write was refused for what it would write: a NaN or infinite float,
 // a datetime the reader would refuse, a raw block whose info string holds a
 // `#` or a line break or whose body has a line ending in CR, a comment with a
 // line break, shcl_set_literal text that is not one value, an array on a
 // field with lines under it, or a new field under one holding an array.
-// _default forms return 1 when already present.
+// _default forms return 1 when already present and the path check passes.
 // Worth checking rather than assuming: an ignored 0 means the save that follows
 // writes a document missing the edit, and reports success doing it.
 shcl_doc *shcl_new(void); // an empty document (start point for generation), or NULL on an allocation failure
@@ -6526,10 +6529,13 @@ static shcl_set_path_check w_probe_write(shcl_doc *d, ShclArena *a, const ShclPa
 			ShclStr want = (seg->sel.tag == SEL_VALUE) ? seg->sel.value : s_empty();
 			ShclVecSize cands = {0};
 			children_named(d, a, pr, seg->name, &cands);
+			/* A write agrees with the read after it, which would say
+			   Multiple, so it never picks one instance for the caller. */
 			for (size_t k = 0; k < cands.len; k++) {
 				size_t c = cands.data[k];
 				if (seg->sel.tag == SEL_VALUE && !(single_scalar(&NODE(d, c).value) && s_eq(disp_key(a, &NODE(d, c).value), want))) continue;
-				found = c; break;
+				if (found != (size_t)-1) return SHCL_SET_PATH_MULTIPLE;
+				found = c;
 			}
 			if (found == (size_t)-1) off = 1; else pr = found;
 		}
@@ -6558,8 +6564,9 @@ static int w_write_target(shcl_doc *d, ShclStr path, size_t *out) {
 	return 1;
 }
 
-// Walk (creating as needed) to the node a write targets. Returns 1 + *out, or 0
-// if the path is unusable for a write (w_check_set_path says why). Validation
+// Walk (creating as needed) to the node a write targets. A step that matches
+// more than one instance is refused. Returns 1 + *out, or 0 if the path is
+// unusable for a write (w_check_set_path says why). Validation
 // runs first, so a doomed path leaves no half-created intermediates behind. A
 // setter creating a field deals with the kept lines of its name, as
 // w_set_child says.

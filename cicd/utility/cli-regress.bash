@@ -183,6 +183,8 @@ printf 'db:\n\thost: h\n\t"odd.key": 2\nweb:\n\tport: 1\n' > "${tmpDir}/tree.shc
 ## Two plain keys, for the edit options: what each one leaves behind is the
 ## whole assertion, so the document has to be small enough to spell out.
 printf 'a: 1\nb: 2\n' > "${tmpDir}/two.shcl"
+## A leaf and a block that each repeat, for a setter on a repeated path.
+printf 'p: 1\np: 2\ns: a\n\tr: x\ns: b\n\tr: y\n' > "${tmpDir}/dup.shcl"
 ## Bracket text on a value line is kept verbatim and binds nothing, so the
 ## rewrite goes through unchanged. The 2.x selector sugar reads the same way
 ## now, and the line under it loads under the field with no value, so that
@@ -375,7 +377,8 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	takes no temp file, %R%/%SA% a raw block and a schema that refuses it, %X% an
 ##	instance whose discriminator holds an '=', %Q% one whose discriminator holds
 ##	an apostrophe, %T% a document with a name that needs quoting in a path,
-##	%F2% a two-key file for the edit options, %M% a path with no file at it,
+##	%F2% a two-key file for the edit options, %FD% one whose leaf and block
+##	repeat, %M% a path with no file at it,
 ##	%BA% a bracket array, %SQ% a selector whose discriminator needs quotes,
 ##	%SP% a file naming its schema on a Schema line, %SPS% that schema, %SPU%
 ##	a file naming a URL there, %SPG% one naming a schema that is not there,
@@ -1159,6 +1162,17 @@ rows=(
 	'EqvZOhA|remove-wildcard-ok|set --remove=a.* %F2%|-|0|a: 1\nb: 2\n|-'
 	'EqvZOhB|ops-remove-bad-path|set %F2%|remove\tb(|1||^op line 1: cannot remove b\(: not a usable path$'
 	'EqvZOhC|ops-clear-comments-bad-path|set %F2%|clear-comments\ta..b|1||^op line 1: cannot clear-comments a\.\.b: not a usable path$'
+	## 2026100717500010: a setter on a path that matches more than one field
+	## wrote the first and said yes, and the read after it said Multiple. It is
+	## a usage error now, the default forms and ops lines too. An index or a
+	## value picks one, and a remove still takes every instance.
+	'Es9aZSL|set-repeated-path|set --set=p=9 %FD%|-|1||^--set: cannot write p: the path matches multiple instances; name\(0\) picks one$'
+	'Es9aZSM|set-repeated-parent|set --set=s.r=z %FD%|-|1||^--set: cannot write s\.r: the path matches multiple instances'
+	'Es9aZSN|get-set-repeated-path|get --set=p=9 %FD% p(0)|-|1||^--set: cannot write p: the path matches multiple instances'
+	'Es9aZSO|set-default-repeated-path|set --set-literal-default=p=9 %FD%|-|1||^--set-literal-default: cannot write p: the path matches multiple instances'
+	'Es9aZSP|ops-set-repeated-path|set %FD%|int\tp\t9\n|1||^op line 1: cannot write p: the path matches multiple instances; name\(0\) picks one$'
+	'Es9aZSQ|set-index-picks-one|set --set=p(1)=9 --set=s(b).r=z %FD%|-|0|p: 1\np: 9\ns: a\n\tr: x\ns: b\n\tr: z\n|-'
+	'Es9cyaF|remove-repeated-takes-all|set --remove=p %FD%|-|0|s: a\n\tr: x\ns: b\n\tr: y\n|-'
 	## 20260830b item 19: a script could read an open section's values but never
 	## learn its keys, so the only route was parsing fmt output in shell. A name
 	## needing quotes comes back path-ready, or enumerating it buys nothing.
@@ -1586,6 +1600,7 @@ for row in "${rows[@]}"; do
 	argv="${argv//%T%/${tmpDir}/tree.shcl}"
 	argv="${argv//%LS%/$'\xc5\xbf'}"
 	argv="${argv//%F2%/${tmpDir}/two.shcl}"
+	argv="${argv//%FD%/${tmpDir}/dup.shcl}"
 	argv="${argv//%M%/${tmpDir}/not-there.shcl}"
 	## A device that is always full exists on linux and not on windows; the
 	## rows that need one are skipped out loud rather than passing vacuously.

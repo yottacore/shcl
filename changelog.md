@@ -60,7 +60,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A read status has a new last value, `BadPath`, so a match that names every status needs one more arm.
 
-- `write_reason` is renamed `check_set_path` (Go `CheckSetPath`, C `shcl_check_set_path`), its result type `SetPathCheck`, and its `Writable` value `Ok`. Go's values take a `SetPath` prefix, `SetPathOk` to `SetPathTooDeep`, since `BadPath` is a read status now. C's are `SHCL_SET_PATH_OK` to `SHCL_SET_PATH_TOO_DEEP`.
+- `write_reason` is renamed `check_set_path` (Go `CheckSetPath`, C `shcl_check_set_path`), its result type `SetPathCheck`, and its `Writable` value `Ok`. Go's values take a `SetPath` prefix, `SetPathOk` to `SetPathMultiple`, since `BadPath` is a read status now. C's are `SHCL_SET_PATH_OK` to `SHCL_SET_PATH_MULTIPLE`.
+
+- A setter on a path that matches more than one field at any step writes nothing and returns false, where it wrote the first match. `check_set_path` says `Multiple`, a new last value. `port(0)` or `site(1).root` picks one. `--set`, `--set-literal`, their `-default` forms and a `set` op line on such a path exit 1.
 
 - The C++ veneer's `read_datetime_array` returns structured values. The text form is `read_datetime_array_str`.
 

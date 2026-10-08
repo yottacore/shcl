@@ -1561,6 +1561,46 @@ def main():
 			raise SystemExit(f"{rwhat}: check_set_path = {rdoc.check_set_path(rpath)}")
 		if rdoc.to_canonical() != rwant:
 			raise SystemExit(f"{rwhat}: wrote {rdoc.to_canonical()!r}")
+	test_id("Es9aZSH", "repeated_path_refuses_a_setter")
+	# A setter on a path that matches more than one field at any step writes
+	# nothing and the path checks Multiple, so a write never says True where
+	# the read after it would say Multiple. An index or value selector picks
+	# one. Same fixture in every runner.
+	mtext = "port: 1\nport: 2\nsite: a\n\troot: /x\nsite: b\n\troot: /y\nsec:\n\tk: 1\n\tk: 2\n"
+	mwant = shcl.Document.parse(mtext).to_canonical()
+	for mpath, mset in (
+		("port", lambda d: d.set_int("port", 9)),
+		("port", lambda d: d.set_string("port", "9")),
+		("port", lambda d: d.set_literal("port", "9")),
+		("port", lambda d: d.set_int_array("port", [9])),
+		("port", lambda d: d.set_empty("port")),
+		("port", lambda d: d.set_raw("port", "x", "")),
+		("port", lambda d: d.set_comment("port", "c")),
+		("port", lambda d: d.set_int_default("port", 9)),
+		("port", lambda d: d.set_literal_default("port", "9")),
+		("site.root", lambda d: d.set_string("site.root", "/z")),
+		("site.new", lambda d: d.set_string("site.new", "v")),
+		("site.new", lambda d: d.set_string_default("site.new", "v")),
+		("sec.k", lambda d: d.set_int("sec.k", 9)),
+		("sec.k.x", lambda d: d.set_int("sec.k.x", 9)),
+	):
+		mdoc = shcl.Document.parse(mtext)
+		if mset(mdoc):
+			raise SystemExit(f"{mpath}: the setter returned True")
+		if mdoc.check_set_path(mpath) is not shcl.SetPathCheck.Multiple:
+			raise SystemExit(f"{mpath}: check_set_path = {mdoc.check_set_path(mpath)}")
+		if mdoc.to_canonical() != mwant:
+			raise SystemExit(f"{mpath}: wrote {mdoc.to_canonical()!r}")
+	mdoc = shcl.Document.parse(mtext)
+	if not (mdoc.set_int("port(1)", 9) and mdoc.set_string("site(1).root", "/z")
+			and mdoc.set_string("site(a).root", "/w") and mdoc.set_int("sec.k(0)", 7)):
+		raise SystemExit("a setter naming one instance was refused")
+	if (mdoc.get_int_or("port(0)", 0), mdoc.get_int_or("port(1)", 0), mdoc.get_string_or("site(b).root", ""),
+			mdoc.get_string_or("site(a).root", ""), mdoc.get_int_or("sec.k(0)", 0)) != (1, 9, "/z", "/w", 7):
+		raise SystemExit(f"wrote the wrong instance: {mdoc.to_canonical()!r}")
+	# A remove takes every instance it matches, as a read sees them.
+	if mdoc.remove("port") != 2 or mdoc.check_set_path("port") is not shcl.SetPathCheck.Ok:
+		raise SystemExit("remove on a repeated path")
 	test_id("Eof29pb", "setters_refuse_a_value_the_reader_refuses")
 	# Each setter is the inverse of its read, so a value with no spelling the
 	# reader accepts fails the write and leaves the document alone. Same
@@ -2019,10 +2059,12 @@ def main():
 		("a: [1\ny: 3\n", "a.c", f"# a: [1{nac}\na:\n\tc: 5\ny: 3\n", 1),
 		# A loaded `a` changes in place.
 		("a: 1\nb: [1\na: [2\n", "a", f"a: 5\nb: [1\n# a: [2{na}\n", 1),
-		# Two valid lines stay as they are, and so does a kept line with a
-		# kept line under it, which as a comment would leave that line under
-		# the field above.
-		("a: 1\na: 2\n", "a", "a: 5\na: 2\n", 2),
+		# A kept line with a kept line under it stays as it is, since as a
+		# comment it would leave that line under the field above.
+		# Two valid lines wrote the first one here until a setter on a
+		# repeated path was refused (2026100717500010); the refusal is
+		# checked below.
+		# ("a: 1\na: 2\n", "a", "a: 5\na: 2\n", 2),
 		("a: 1\na: [2\n\tc: [3\n", "a", "a: 5\na: [2\n\tc: [3\n", 1),
 	]:
 		kdoc = shcl.Document.parse_keep_lines(text, shcl.Strictness.Standard)
@@ -2040,6 +2082,10 @@ def main():
 		del os.environ["SHCL_TEST_CLOCK"]
 	else:
 		os.environ["SHCL_TEST_CLOCK"] = held_clock
+	# Two valid lines stay as they are: the setter refuses the path.
+	kdoc = shcl.Document.parse_keep_lines("a: 1\na: 2\n", shcl.Strictness.Standard)
+	if kdoc.set_int("a", 5) or kdoc.to_text_keep_lines() != ("a: 1\na: 2\n", True):
+		fails.append(f"kept gate: two valid lines gave {kdoc.to_text_keep_lines()!r}")
 	# set_comment makes the field without touching the line.
 	kdoc = shcl.Document.parse("a: [1\ny: 3\n")
 	if not kdoc.set_comment("a", "n") or kdoc.to_canonical() != "a: [1\ny: 3\n\n# n\na:\n":
@@ -3216,8 +3262,8 @@ def main():
 	# and all, as a reload would. A read made before the write has the lookup
 	# built, and the fields that moved still have to be found through it.
 	for jsrc, jpath, jfield, jwant in (
-		("b: x\nb:\n\t- 3\n\tk: 1\n", "b", "b.k", "1"),
-		("b: x\nb: y z\n\t- 3\n\tk: 1\n", "b", "b.k", "1"),
+		("b: x\nb:\n\t- 3\n\tk: 1\n", "b(0)", "b.k", "1"),
+		("b: x\nb: y z\n\t- 3\n\tk: 1\n", "b(0)", "b.k", "1"),
 		("x: v\nx:\n\t- a\n\tg: 2\n", "x(v)", "x.g", "2"),
 	):
 		jdoc = shcl.Document.parse(jsrc)

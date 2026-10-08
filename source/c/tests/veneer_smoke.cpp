@@ -389,6 +389,10 @@ int main() {
 		CHECK(w.to_text_keep_lines() == std::make_pair(w.to_canonical(), false));
 		CHECK(!w.set_int("a(*)", 1) && w.check_set_path("a(*)") == shcl::SetPathCheck::Wildcard);
 		CHECK(!w.set_int("a[x]", 1) && w.check_set_path("a[x]") == shcl::SetPathCheck::BadPath);
+		// A repeated path is refused; an index picks one.
+		auto twice = shcl::Document::parse("p: 1\np: 2\n");
+		CHECK(!twice.set_int("p", 9) && twice.check_set_path("p") == shcl::SetPathCheck::Multiple);
+		CHECK(twice.set_int("p(1)", 9) && twice.get_or<int64_t>("p(1)", 0) == 9);
 		// A refused value leaves the path check at Ok, as the setter notes say.
 		CHECK(!w.set_float("nan", std::numeric_limits<double>::quiet_NaN()) && w.check_set_path("nan") == shcl::SetPathCheck::Ok);
 		CHECK(!w.set_literal("lit", "a, b") && w.check_set_path("lit") == shcl::SetPathCheck::Ok);

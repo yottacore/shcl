@@ -137,7 +137,7 @@ impl std::error::Error for SaveError {}
 
 /// What `check_set_path()` finds at a path: whether a setter could write
 /// there, and if not, why. `Ok` = the path passes the writer's validation;
-/// the rest name the five ways it cannot. A setter can still return `false`
+/// the rest name the six ways it cannot. A setter can still return `false`
 /// on `Ok`, when the value itself is refused (see `set_int`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SetPathCheck {
@@ -147,6 +147,7 @@ pub enum SetPathCheck {
 	Wildcard,    // wildcard selectors are query-only
 	NoSuchIndex, // a `(k)` instance that does not (and can never) exist
 	TooDeep,     // deeper than the nesting cap; the writer never creates past it
+	Multiple,    // a step matches more than one field; `(k)` or `(value)` picks one
 }
 
 /// Full-tier read result: value plus status plus the original raw text (when the
@@ -9793,15 +9794,30 @@ impl Document {
 				}
 				Some(Selector::ByValue { text, .. }) => {
 					let want = text.as_str();
-					probe = probe.and_then(|c| {
-						self.children_named(c, &seg.name).into_iter().find(|&n| {
+					let matches: Vec<usize> = probe
+						.map(|c| self.children_named(c, &seg.name))
+						.unwrap_or_default()
+						.into_iter()
+						.filter(|&n| {
 							single_scalar(&self.arena[n].value)
 								&& disp_key(&self.arena[n].value) == want
 						})
-					});
+						.collect();
+					if matches.len() > 1 {
+						return SetPathCheck::Multiple;
+					}
+					probe = matches.first().copied();
 				}
 				None => {
-					probe = probe.and_then(|c| self.children_named(c, &seg.name).first().copied());
+					// A write agrees with the read after it, which would say
+					// Multiple, so it never picks one instance for the caller.
+					let matches = probe
+						.map(|c| self.children_named(c, &seg.name))
+						.unwrap_or_default();
+					if matches.len() > 1 {
+						return SetPathCheck::Multiple;
+					}
+					probe = matches.first().copied();
 				}
 			}
 			trail.push(probe);
@@ -9819,12 +9835,13 @@ impl Document {
 		trail.last().copied().flatten()
 	}
 
-	/// Walk (creating as needed) to the node a write targets. A trailing name
-	/// with no selector hits the first same-named instance (or a new one); a
-	/// `(value)` selector selects the matching instance or creates it; `(k)`
-	/// must already exist. None = path unusable for a write (check_set_path()
-	/// says why). Validation runs first, so a doomed path leaves no
-	/// half-created intermediates behind. A `setter` creating a field deals
+	/// Walk (creating as needed) to the node a write targets. A name with no
+	/// selector hits its one instance (or a new one); a `(value)` selector
+	/// selects the matching instance or creates it; `(k)` must already exist.
+	/// A step that matches more than one instance is refused (Multiple).
+	/// None = path unusable for a write (check_set_path() says why).
+	/// Validation runs first, so a doomed path leaves no half-created
+	/// intermediates behind. A `setter` creating a field deals
 	/// with the kept lines of its name, as set_child() says.
 	fn place(&mut self, path: &str, setter: bool) -> Option<usize> {
 		let scan = scan_lookup(path).ok()?;
@@ -10614,9 +10631,11 @@ impl Document {
 		removed
 	}
 
-	/// Bind an integer at a path, creating the path as needed. False from any
-	/// setter means nothing was written. Either the path check failed, and
-	/// check_set_path says why, or it passed and the write was refused for
+	/// Bind an integer at a path, creating the path as needed. A step of the
+	/// path that matches more than one field fails the path check (Multiple),
+	/// since the read after the write would; `port(0)` or `site(1).root` picks
+	/// one. False from any setter means nothing was written. Either the path
+	/// check failed, and check_set_path says why, or it passed and the write was refused for
 	/// what it would write: a NaN or infinite float, a datetime the reader
 	/// would refuse, a raw block whose info string holds a `#` or a line
 	/// break or whose body has a line ending in CR, a comment with a line
@@ -15143,10 +15162,12 @@ mod kept_gate {
 				format!("a: 5\nb: [1\n# a: [2{na}\n"),
 				1,
 			),
-			// Two valid lines stay as they are, and so does a kept line with
-			// a kept line under it, which as a comment would leave that line
-			// under the field above.
-			("a: 1\na: 2\n", "a", "a: 5\na: 2\n".to_string(), 2),
+			// A kept line with a kept line under it stays as it is, since as
+			// a comment it would leave that line under the field above.
+			// Two valid lines wrote the first one here until a setter on a
+			// repeated path was refused (2026100717500010); the refusal is
+			// checked below.
+			// ("a: 1\na: 2\n", "a", "a: 5\na: 2\n".to_string(), 2),
 			(
 				"a: 1\na: [2\n\tc: [3\n",
 				"a",
@@ -15165,6 +15186,11 @@ mod kept_gate {
 			assert_eq!(back.to_canonical(), out);
 			assert_eq!(doc.to_text_keep_lines(), (out.clone(), true));
 		}
+		// Two valid lines stay as they are: the setter refuses the path.
+		let mut doc = Document::parse_keep_lines("a: 1\na: 2\n", Strictness::Standard)
+			.unwrap_or_else(|e| e.document);
+		assert!(!doc.set_int("a", 5));
+		assert_eq!(doc.to_text_keep_lines(), ("a: 1\na: 2\n".to_string(), true));
 		// set_comment makes the field without touching the line.
 		let mut doc = Document::parse("a: [1\ny: 3\n");
 		assert!(doc.set_comment("a", "n"));

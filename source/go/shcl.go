@@ -147,7 +147,7 @@ func (s Status) String() string {
 
 // SetPathCheck is what CheckSetPath finds at a path: whether a setter could
 // write there, and if not, why. SetPathOk = the path passes the writer's
-// validation; the rest name the five ways it cannot. A setter can still
+// validation; the rest name the six ways it cannot. A setter can still
 // return false on SetPathOk, when the value itself is refused (see SetInt).
 // Every value has the SetPath prefix, since the read statuses share the
 // package and BadPath is one of them.
@@ -160,6 +160,7 @@ const (
 	SetPathWildcard                        // wildcard selectors are query-only
 	SetPathNoSuchIndex                     // a `(k)` instance that does not (and can never) exist
 	SetPathTooDeep                         // deeper than the nesting cap; the writer never creates past it
+	SetPathMultiple                        // a step matches more than one field; `(k)` or `(value)` picks one
 )
 
 // String names the check the way the other bindings do, without the prefix.
@@ -177,6 +178,8 @@ func (r SetPathCheck) String() string {
 		return "NoSuchIndex"
 	case SetPathTooDeep:
 		return "TooDeep"
+	case SetPathMultiple:
+		return "Multiple"
 	}
 	return "Ok"
 }
@@ -9244,8 +9247,14 @@ func (d *Document) probeWrite(scan pathScan) (SetPathCheck, []int) {
 		switch {
 		case seg.sel == nil:
 			if alive {
+				// A write agrees with the read after it, which would say
+				// Multiple, so it never picks one instance for the caller.
+				m := d.childrenNamed(probe, seg.name)
+				if len(m) > 1 {
+					return SetPathMultiple, nil
+				}
 				alive = false
-				if m := d.childrenNamed(probe, seg.name); len(m) > 0 {
+				if len(m) > 0 {
 					probe, alive = m[0], true
 				}
 			}
@@ -9253,10 +9262,13 @@ func (d *Document) probeWrite(scan pathScan) (SetPathCheck, []int) {
 			if alive {
 				want := seg.sel.value
 				alive = false
+				found := 0
 				for _, c := range d.childrenNamed(probe, seg.name) {
 					if singleScalar(&d.arena[c].value) && dispKey(&d.arena[c].value) == want {
+						if found++; found > 1 {
+							return SetPathMultiple, nil
+						}
 						probe, alive = c, true
-						break
 					}
 				}
 			}
@@ -9295,10 +9307,10 @@ func (d *Document) writeTarget(path string) (int, bool) {
 	return trail[len(trail)-1], true
 }
 
-// place walks (creating as needed) to the node a write targets. A trailing name
-// with no selector hits the first same-named instance (or a new one); a (value)
-// selector selects the matching instance or creates it; (k) must already
-// exist. ok=false means the path is unusable for a write (CheckSetPath says
+// place walks (creating as needed) to the node a write targets. A name with
+// no selector hits its one instance (or a new one); a (value) selector selects
+// the matching instance or creates it; (k) must already exist. A step that
+// matches more than one instance is refused (SetPathMultiple). ok=false means the path is unusable for a write (CheckSetPath says
 // why). Validation runs first, so a doomed path leaves no half-created
 // intermediates behind. A setter creating a field deals with the kept lines
 // of its name, as setChild says.
@@ -10175,8 +10187,10 @@ func (d *Document) swapBanner(on, v2 bool) int {
 	return removed
 }
 
-// SetInt binds an integer at path, creating the path as needed. False from any
-// setter means nothing was written. Either the path check failed, and
+// SetInt binds an integer at path, creating the path as needed. A step of the
+// path that matches more than one field fails the path check (Multiple), since
+// the read after the write would; `port(0)` or `site(1).root` picks one. False
+// from any setter means nothing was written. Either the path check failed, and
 // CheckSetPath says why, or it passed and the write was refused for what it
 // would write: a NaN or infinite float, a datetime the reader would refuse, a
 // raw block whose info string holds a `#` or a line break or whose body has a

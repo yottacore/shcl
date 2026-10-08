@@ -2445,10 +2445,12 @@ int main(int argc, char **argv) {
 			{"a: [1\ny: 3\n", "a.c", "# a: [1" SETTER_NOTE("a.c") "\na:\n\tc: 5\ny: 3\n", 1},
 			// A loaded `a` changes in place.
 			{"a: 1\nb: [1\na: [2\n", "a", "a: 5\nb: [1\n# a: [2" SETTER_NOTE("a") "\n", 1},
-			// Two valid lines stay as they are, and so does a kept line with a
-			// kept line under it, which as a comment would leave that line
-			// under the field above.
-			{"a: 1\na: 2\n", "a", "a: 5\na: 2\n", 2},
+			// A kept line with a kept line under it stays as it is, since as
+			// a comment it would leave that line under the field above.
+			// Two valid lines wrote the first one here until a setter on a
+			// repeated path was refused (2026100717500010); the refusal is
+			// checked below.
+			// {"a: 1\na: 2\n", "a", "a: 5\na: 2\n", 2},
 			{"a: 1\na: [2\n\tc: [3\n", "a", "a: 5\na: [2\n\tc: [3\n", 1},
 		};
 #undef SETTER_NOTE
@@ -2475,6 +2477,16 @@ int main(int argc, char **argv) {
 #else
 		unsetenv("SHCL_TEST_CLOCK");
 #endif
+		// Two valid lines stay as they are: the setter refuses the path.
+		{
+			static const char tv[] = "a: 1\na: 2\n";
+			shcl_doc *td = shcl_parse_keep_lines(tv, strlen(tv), SHCL_STANDARD);
+			int tkept = 0;
+			int ttook = shcl_set_int(td, "a", 1, 5);
+			shcl_str tk = shcl_to_text_keep_lines(td, &tkept);
+			if (ttook || !tkept || tk.n != strlen(tv) || memcmp(tk.p, tv, tk.n) != 0) fail("kept_gate", "two valid lines");
+			shcl_free(td);
+		}
 		// shcl_set_comment makes the field without touching the line.
 		shcl_doc *cd = shcl_parse("a: [1\ny: 3\n", 11);
 		int took = shcl_set_comment(cd, "a", 1, "n", 1);
@@ -3030,6 +3042,64 @@ int main(int argc, char **argv) {
 			shcl_free(rd);
 		}
 		free(want);
+	}
+	// A setter on a path that matches more than one field at any step writes
+	// nothing and the path checks MULTIPLE, so a write never says 1 where the
+	// read after it would say Multiple. An index or value selector picks one.
+	// Same fixture in every runner.
+	test_id("Es9aZSI", "repeated_path_refuses_a_setter");
+	{
+		const char *mt = "port: 1\nport: 2\nsite: a\n\troot: /x\nsite: b\n\troot: /y\nsec:\n\tk: 1\n\tk: 2\n";
+		shcl_doc *base = shcl_parse(mt, strlen(mt));
+		shcl_str bw = shcl_to_canonical(base);
+		char *want = malloc(bw.n + 1);
+		if (!want) { fprintf(stderr, "out of memory\n"); exit(1); }
+		memcpy(want, bw.p, bw.n);
+		size_t wantn = bw.n;
+		shcl_free(base);
+		const int64_t nine[] = {9};
+		static const char *const at[] = {
+			"port", "port", "port", "port", "port", "port", "port", "port", "port",
+			"site.root", "site.new", "site.new", "sec.k", "sec.k.x",
+		};
+		for (size_t i = 0; i < sizeof at / sizeof at[0]; i++) {
+			shcl_doc *md = shcl_parse(mt, strlen(mt));
+			const char *p = at[i]; size_t pn = strlen(p);
+			int took = 1;
+			switch (i) {
+			case 0: took = shcl_set_int(md, p, pn, 9); break;
+			case 1: took = shcl_set_string(md, p, pn, "9", 1); break;
+			case 2: took = shcl_set_literal(md, p, pn, "9", 1); break;
+			case 3: took = shcl_set_int_array(md, p, pn, nine, 1); break;
+			case 4: took = shcl_set_empty(md, p, pn); break;
+			case 5: took = shcl_set_raw(md, p, pn, "x", 1, "", 0); break;
+			case 6: took = shcl_set_comment(md, p, pn, "c", 1); break;
+			case 7: took = shcl_set_int_default(md, p, pn, 9); break;
+			case 8: took = shcl_set_literal_default(md, p, pn, "9", 1); break;
+			case 9: took = shcl_set_string(md, p, pn, "/z", 2); break;
+			case 10: took = shcl_set_string(md, p, pn, "v", 1); break;
+			case 11: took = shcl_set_string_default(md, p, pn, "v", 1); break;
+			default: took = shcl_set_int(md, p, pn, 9); break;
+			}
+			if (took) fail("repeated_path", p);
+			if (shcl_check_set_path(md, p, pn) != SHCL_SET_PATH_MULTIPLE) fail("repeated_path", p);
+			shcl_str got = shcl_to_canonical(md);
+			if (got.n != wantn || memcmp(got.p, want, wantn)) fail("repeated_path", p);
+			shcl_free(md);
+		}
+		free(want);
+		shcl_doc *md = shcl_parse(mt, strlen(mt));
+		if (!shcl_set_int(md, "port(1)", 7, 9) || !shcl_set_string(md, "site(1).root", 12, "/z", 2)
+			|| !shcl_set_string(md, "site(a).root", 12, "/w", 2) || !shcl_set_int(md, "sec.k(0)", 8, 7))
+			fail("repeated_path", "a setter naming one instance was refused");
+		shcl_read_str rb = shcl_read_string(md, "site(b).root", 12), ra = shcl_read_string(md, "site(a).root", 12);
+		if (shcl_get_int_or(md, "port(0)", 7, 0) != 1 || shcl_get_int_or(md, "port(1)", 7, 0) != 9
+			|| shcl_get_int_or(md, "sec.k(0)", 8, 0) != 7 || rb.value.n != 2 || memcmp(rb.value.p, "/z", 2)
+			|| ra.value.n != 2 || memcmp(ra.value.p, "/w", 2))
+			fail("repeated_path", "wrote the wrong instance");
+		// A remove takes every instance it matches, as a read sees them.
+		if (shcl_remove(md, "port", 4) != 2 || shcl_check_set_path(md, "port", 4) != SHCL_SET_PATH_OK) fail("repeated_path", "remove");
+		shcl_free(md);
 	}
 	// Both halves of a path can contain a line break and write it \n: a name
 	// through the name escaper, a selector value through the value emitter. The
@@ -3651,8 +3721,8 @@ int main(int argc, char **argv) {
 	   built, and the fields that moved still have to be found through it. */
 	{
 		static const struct { const char *src, *path, *field, *want; } jc[] = {
-			{"b: x\nb:\n\t- 3\n\tk: 1\n", "b", "b.k", "1"},
-			{"b: x\nb: y z\n\t- 3\n\tk: 1\n", "b", "b.k", "1"},
+			{"b: x\nb:\n\t- 3\n\tk: 1\n", "b(0)", "b.k", "1"},
+			{"b: x\nb: y z\n\t- 3\n\tk: 1\n", "b(0)", "b.k", "1"},
 			{"x: v\nx:\n\t- a\n\tg: 2\n", "x(v)", "x.g", "2"},
 		};
 		for (size_t i = 0; i < sizeof jc / sizeof jc[0]; i++) {

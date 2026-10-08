@@ -47,7 +47,7 @@ let roots = doc.read_string_array("site(*).root");
 // truncate the config - and refuses if the load dropped a line this write
 // would delete (save_file_lossy is the override).
 // Setters are #[must_use]: a refused write writes nothing at all.
-// check_set_path names which of the five path reasons it hit, or says Ok
+// check_set_path names which of the six path reasons it hit, or says Ok
 // when it was the value that was refused.
 let path = "site(example.com).max-upload-mb";
 if !doc.set_int(path, limit * 2) {

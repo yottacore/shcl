@@ -144,7 +144,7 @@ _STATUS_ORDER = {s: i for i, s in enumerate(Status)}
 class SetPathCheck(Enum):
 	"""What check_set_path() finds at a path: whether a setter could write
 	there, and if not, why. Ok = the path passes the writer's validation; the
-	rest name the five ways it cannot. A setter can still return False on Ok,
+	rest name the six ways it cannot. A setter can still return False on Ok,
 	when the value itself is refused (see set_int)."""
 	Ok = 0
 	BadPath = 1       # empty path, or the scanner rejected it
@@ -152,6 +152,7 @@ class SetPathCheck(Enum):
 	Wildcard = 3      # wildcard selectors are query-only
 	NoSuchIndex = 4   # a `(k)` instance that does not (and can never) exist
 	TooDeep = 5       # deeper than the nesting cap; the writer never creates past it
+	Multiple = 6      # a step matches more than one field; `(k)` or `(value)` picks one
 
 
 class Diagnostic:
@@ -6516,15 +6517,18 @@ class Document:
 			elif sel is not None and sel[0] == "val":
 				if probe is not None:
 					want = sel[1]
-					found = None
-					for c in self._children_named(probe, seg.name):
-						if _single_scalar(self.arena[c].value) and _disp_key(self.arena[c].value) == want:
-							found = c
-							break
-					probe = found
+					matches = [c for c in self._children_named(probe, seg.name)
+						if _single_scalar(self.arena[c].value) and _disp_key(self.arena[c].value) == want]
+					if len(matches) > 1:
+						return (SetPathCheck.Multiple, None)
+					probe = matches[0] if matches else None
 			else:
 				if probe is not None:
+					# A write agrees with the read after it, which would say
+					# Multiple, so it never picks one instance for the caller.
 					matches = self._children_named(probe, seg.name)
+					if len(matches) > 1:
+						return (SetPathCheck.Multiple, None)
 					probe = matches[0] if matches else None
 			if trail is not None:
 				trail.append(probe)
@@ -6542,10 +6546,10 @@ class Document:
 		return trail[-1]
 
 	def _place(self, path, setter):
-		"""Walk (creating as needed) to the node a write targets. A trailing
-		name with no selector hits the first same-named instance (or a new one);
-		a `(value)` selector selects the matching instance or creates it; `(k)`
-		must already exist. None = path unusable for a write (check_set_path()
+		"""Walk (creating as needed) to the node a write targets. A name with
+		no selector hits its one instance (or a new one); a `(value)` selector
+		selects the matching instance or creates it; `(k)` must already exist.
+		A step that matches more than one instance is refused (Multiple). None = path unusable for a write (check_set_path()
 		says why). Validation runs first, so a doomed path leaves no
 		half-created intermediates behind. A setter creating a field deals
 		with the kept lines of its name, as _set_child() says."""
@@ -7158,8 +7162,10 @@ class Document:
 		return removed
 
 	def set_int(self, path: str, v: int) -> bool:
-		"""Bind an integer at path, creating the path as needed. False from any
-		setter means nothing was written. Either the path check failed, and
+		"""Bind an integer at path, creating the path as needed. A step of the
+		path that matches more than one field fails the path check (Multiple),
+		since the read after the write would; `port(0)` or `site(1).root` picks
+		one. False from any setter means nothing was written. Either the path check failed, and
 		check_set_path says why, or it passed and the write was refused for what
 		it would write: an int outside the 64-bit range the other bindings
 		hold, a NaN or infinite float, a datetime the reader would refuse, a raw
