@@ -36,7 +36,9 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - `fmt` leaves a value bare that a reader could misread
 	- ID: 2026100719122101
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on signoff
+	- Needs local test suite run?: the full `--ci` with the next main push, and a demo GIF rerender (shell-regress `EqM7a7s` is red until then).
+	- Needs external testing: a hosted run with the next main push.
 	- Priority: High
 	- Opened: 20261007-191221
 	- Opened by: JC
@@ -52,6 +54,20 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- `set --write` leaves untouched lines alone, as now.
 	- The list, answered 2026-10-08 (JC): any whitespace, `:`, `,`, `(`, `)`, `[` or `]`, plus what already needs quotes. That quotes `2:30PM` and `localhost:8080` too; typed reads don't care.
 	- Sweep: value-syntax.md's Canonical output section and spec.md, the writer in all four, array elements and `- ` items, corpus goldens.
+	- Progress log:
+		- 2026-10-08: Built in all four. The writer quotes a value, `- ` item or array element with any whitespace, `:`, `,`, `(`, `)`, `[` or `]`, and never drops quotes. Array elements now use the same rule, so their separate check is gone. The reader is unchanged.
+		- Calls made here, for signoff. A setter over a quoted value keeps the quotes, a typed one too, so `SetInt` over `ver: "8"` writes `ver: "9"`. A datetime from a setter comes out quoted, `"2026-07-12T14:30"`, and so does `"C:\temp"`. `migrate` writes a value it changes the way the writer does.
+		- Names need no change. A bare name is already only a letter then letters, digits, `-` and `_`, and anything else is quoted.
+		- Question: `fmt` still drops quotes a name doesn't need, so `"host": x` becomes `host: x`. Should a name keep its quotes too? Left as is.
+		- The demo GIF is stale. Its `window:` line now comes out quoted. Not rerendered.
+		- Corpus case 164 is now `164-quoted-data-kept`, since it pins the opposite of its old name.
+	- Decisions:
+		- The quote list and the never-drop rule, above (JC, 2026-10-08). Quote kind stays. `set --write` leaves untouched lines alone.
+	- Swept: the quoting, emit and new-element code and `keep_mark` in all four, `migrate`'s respelling and 2.x array text, the H001 hint's element, value-syntax.md, spec.md, design.md, grammar.abnf through `gen-escapes.py`, check-abnf's samples, the corpus README, the changelog, 5 cli-regress rows. Names checked, no change.
+	- Verified: the four conformance suites (203 of 203 each) and the other C tests, cli-regress, crosscheck over the corpus and a fuzz dump, the 2M release fuzz (all 25), check-docs, check-abnf, check-readme, check-migrate, check-c-compilers, clippy for both targets, go vet, staticcheck, ruff, mypy, cppcheck at the normal level. shell-regress passes but for `EqM7a7s`.
+	- Test case: `the_writer_quotes_a_colon_or_comma` in all four (`Ervn569`, `Ery85QH`, `EryEqwF`, `EryvVbF`), which fails on the old Rust writer and passes now. Also the corpus goldens, 164 and 202 most of all, and check-abnf's `fmt-bareword` samples.
+	- Branch: fmtquote
+	- Commit: `ce9c8a87`
 
 - `shcl help fmt` prints part of `set`'s help
 	- ID: 2026100717500007
