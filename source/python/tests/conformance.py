@@ -240,20 +240,20 @@ def scalar_read(doc, kind, query):
 	raise SystemExit(f"unknown type '{kind}'")
 
 
-def _unescape_ops(s):
-	# Decode an ops value: \n \t \\ only; other `\x` stays verbatim.
-	out = []
-	i = 0
-	while i < len(s):
-		c = s[i]
-		if c != "\\" or i + 1 >= len(s):
-			out.append(c)
-			i += 1
-			continue
-		nxt = s[i + 1]
-		out.append({"n": "\n", "t": "\t", "\\": "\\"}.get(nxt, "\\" + nxt))
-		i += 2
-	return "".join(out)
+def _op_text(s):
+	# An ops value with the file's escapes resolved, by the file's reader; a
+	# backslash is text (mirrors the CLI's _op_text). Raises ValueError.
+	if "◉" not in s:
+		return s
+	if '"' in s and "'" not in s:
+		text = f"v: '{s}'\n"
+	else:
+		text = 'v: "' + s.replace('"', "◉DOUBLE_QUOTE◉") + '"\n'
+	doc = shcl.Document.parse(text)
+	for d in doc.diagnostics():
+		if d.severity == shcl.Severity.Error:
+			raise ValueError(d.message)
+	return doc.read_string("v").value
 
 
 def _op_dt(s):
@@ -360,7 +360,7 @@ def try_apply_op(doc, line):
 		elif op == "bool":
 			wrote = doc.set_bool(path, _op_bool(v))
 		elif op == "string":
-			wrote = doc.set_string(path, _unescape_ops(v))
+			wrote = doc.set_string(path, _op_text(v))
 		elif op == "datetime":
 			wrote = doc.set_datetime(path, _op_dt(v))
 		elif op == "literal":
@@ -374,7 +374,7 @@ def try_apply_op(doc, line):
 		elif op == "bool-default":
 			wrote = doc.set_bool_default(path, _op_bool(v))
 		elif op == "string-default":
-			wrote = doc.set_string_default(path, _unescape_ops(v))
+			wrote = doc.set_string_default(path, _op_text(v))
 		elif op == "datetime-default":
 			wrote = doc.set_datetime_default(path, _op_dt(v))
 		elif op == "int-array":
@@ -384,7 +384,7 @@ def try_apply_op(doc, line):
 		elif op == "bool-array":
 			wrote = doc.set_bool_array(path, [_op_bool(x) for x in arr])
 		elif op == "string-array":
-			wrote = doc.set_string_array(path, [_unescape_ops(x) for x in arr])
+			wrote = doc.set_string_array(path, [_op_text(x) for x in arr])
 		elif op == "datetime-array":
 			wrote = doc.set_datetime_array(path, [_op_dt(x) for x in arr])
 		elif op == "int-array-default":
@@ -394,17 +394,17 @@ def try_apply_op(doc, line):
 		elif op == "bool-array-default":
 			wrote = doc.set_bool_array_default(path, [_op_bool(x) for x in arr])
 		elif op == "string-array-default":
-			wrote = doc.set_string_array_default(path, [_unescape_ops(x) for x in arr])
+			wrote = doc.set_string_array_default(path, [_op_text(x) for x in arr])
 		elif op == "datetime-array-default":
 			wrote = doc.set_datetime_array_default(path, [_op_dt(x) for x in arr])
 		elif op == "raw":
-			wrote = doc.set_raw(path, _unescape_ops(g(3)), v)
+			wrote = doc.set_raw(path, _op_text(g(3)), v)
 		elif op == "raw-default":
-			wrote = doc.set_raw_default(path, _unescape_ops(g(3)), v)
+			wrote = doc.set_raw_default(path, _op_text(g(3)), v)
 		elif op == "empty":
 			wrote = doc.set_empty(path)
 		elif op == "comment":
-			wrote = doc.set_comment(path, _unescape_ops(v))
+			wrote = doc.set_comment(path, _op_text(v))
 		elif op == "remove":
 			doc.remove(path)
 			wrote = True

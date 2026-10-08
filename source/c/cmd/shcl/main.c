@@ -120,7 +120,9 @@ static const char *HELP =
 	"  empty<TAB>PATH   comment<TAB>PATH<TAB>TEXT   remove<TAB>PATH\n"
 	"  clear-comments<TAB>PATH                                 drop comments above\n"
 	"  banner<TAB>on|off                                       add or drop info block\n"
-	"string/raw values decode \\n \\t \\\\; a line starting with # is a script comment.\n"
+	"String, raw and comment values read escapes as a file does: NEWLINE or TAB\n"
+	"between two U+25C9 marks. A backslash is text, and a line starting with # is a\n"
+	"script comment.\n"
 	"\n"
 	"Types (get only; default --string):\n"
 	"  --int --float --bool --datetime --string --raw --rawinfo --duration --size\n"
@@ -511,24 +513,15 @@ static void outln(const char *p, size_t n) { fwrite(p, 1, n, stdout); fputc('\n'
 /* A value for a one-per-line listing. `instances` promises one line per
    instance, and a value holding a line break broke that, so a caller splitting
    on newlines counted more instances than `count` reports. Only such a value
-   changes: anything else goes out as it is. The escaped spelling is the one the
-   generator writes for a default holding a newline, for the same reason. */
-static void out_one_line(const char *p, size_t n) {
+   changes: anything else goes out as it is. It goes out quoted with the
+   writer's escapes, "a◉NEWLINE◉b", as `init` writes a default. A line break is
+   never bare in a name either, so shcl_quote_segment gives exactly that. */
+static void out_one_line(shcl_doc *d, const char *p, size_t n) {
 	size_t i = 0;
 	while (i < n && p[i] != '\n' && p[i] != '\r') i++;
 	if (i == n) { outln(p, n); return; }
-	fputc('"', stdout);
-	for (i = 0; i < n; i++) {
-		switch (p[i]) {
-			case '\\': fputs("\\\\", stdout); break;
-			case '"':  fputs("\\\"", stdout); break;
-			case '\n': fputs("\\n", stdout); break;
-			case '\r': fputs("\\r", stdout); break;
-			case '\t': fputs("\\t", stdout); break;
-			default:   fputc(p[i], stdout); break;
-		}
-	}
-	fputs("\"\n", stdout);
+	shcl_str q = shcl_quote_segment(d, p, n);
+	outln(q.p, q.n);
 }
 
 // Whole-buffer UTF-8 validation, matching Rust read_to_string rejecting bad bytes.
@@ -1008,7 +1001,7 @@ static int do_get(Opts *o) {
 	// the value as it is, since the whole output is that one value.
 	#define EMITLINE(I, P, N) do { \
 		if (o->slots) printf("%s\t", shcl_status_name(SLOT_AT(I))); \
-		if (o->slots || o->array) out_one_line((P), (N)); else outln((P), (N)); \
+		if (o->slots || o->array) out_one_line(d, (P), (N)); else outln((P), (N)); \
 	} while (0)
 	// Why the read failed is worth saying even when the exit code already
 	// shows it: at the default mode the user otherwise gets an empty line, a
@@ -1053,8 +1046,8 @@ static int do_get(Opts *o) {
 				else EMITLINE(i, dv, strlen(dv));
 			}
 		} else {
-			if (o->slots) { printf("%s\t", shcl_status_name(status)); out_one_line(dv, strlen(dv)); }
-			else if (o->array) out_one_line(dv, strlen(dv));
+			if (o->slots) { printf("%s\t", shcl_status_name(status)); out_one_line(d, dv, strlen(dv)); }
+			else if (o->array) out_one_line(d, dv, strlen(dv));
 			else outln(dv, strlen(dv));
 		}
 		rc = 0;
@@ -1506,18 +1499,47 @@ static char *read_all_fp(FILE *f, size_t *len) {
 	*len = n; return buf;
 }
 
-// ops-value unescape: \n \t \\ only; other `\x` stays verbatim. out >= inlen.
-static size_t unescape_ops(const char *in, size_t inlen, char *out) {
-	size_t w = 0;
-	for (size_t i = 0; i < inlen; i++) {
-		if (in[i] != '\\' || i + 1 >= inlen) { out[w++] = in[i]; continue; }
-		char c = in[++i];
-		if (c == 'n') out[w++] = '\n';
-		else if (c == 't') out[w++] = '\t';
-		else if (c == '\\') out[w++] = '\\';
-		else { out[w++] = '\\'; out[w++] = c; }
+/* An ops-script value with its escapes resolved, ◉TAB◉ and ◉NEWLINE◉ and the
+   rest of the file's names, so a tab or a line break can sit on one op line. A
+   backslash is text, as in a file (2026100717500002). The file's own reader
+   does it, on the value in quotes, so the two can't drift. Returns
+   1 with the text in *out, or 0 with the reader's message there; the caller
+   frees it either way. */
+static int op_text(const char *in, size_t n, char **out, size_t *outn) {
+	static const char mark[] = "\xe2\x97\x89", dq[] = "\xe2\x97\x89" "DOUBLE_QUOTE" "\xe2\x97\x89";
+	int marked = 0, has_dq = 0, has_sq = 0;
+	for (size_t i = 0; i < n; i++) {
+		if (i + 3 <= n && memcmp(in + i, mark, 3) == 0) marked = 1;
+		if (in[i] == '"') has_dq = 1;
+		if (in[i] == '\'') has_sq = 1;
 	}
-	return w;
+	if (!marked) {
+		*out = (char *)xrealloc(NULL, n ? n : 1);
+		if (n) memcpy(*out, in, n);
+		*outn = n;
+		return 1;
+	}
+	char q = has_dq && !has_sq ? '\'' : '"';
+	char *text = (char *)xrealloc(NULL, n * (sizeof dq - 1) + 8), *w = text;
+	memcpy(w, "v: ", 3); w += 3;
+	*w++ = q;
+	for (size_t i = 0; i < n; i++) {
+		if (in[i] == '"' && q == '"') { memcpy(w, dq, sizeof dq - 1); w += sizeof dq - 1; }
+		else *w++ = in[i];
+	}
+	*w++ = q; *w++ = '\n';
+	shcl_doc *v = xdoc(shcl_parse(text, (size_t)(w - text)));
+	free(text);
+	int ok = 1;
+	shcl_str got = { "", 0 };
+	for (size_t i = 0; i < shcl_diag_count(v); i++)
+		if (shcl_diag_severity(v, i) == SHCL_SEV_ERROR) { got = shcl_diag_message(v, i); ok = 0; break; }
+	if (ok) got = shcl_read_string(v, "v", 1).value;
+	*out = (char *)xrealloc(NULL, got.n ? got.n : 1);
+	if (got.n) memcpy(*out, got.p, got.n);
+	*outn = got.n;
+	shcl_free(v);
+	return ok;
 }
 
 // Which half of a `raw` op had no spelling, and why. The half is asked of the
@@ -1525,12 +1547,9 @@ static size_t unescape_ops(const char *in, size_t inlen, char *out) {
 // so a write that still fails with one is the body's fault. Re-deriving the
 // rule in the CLI is how the two copies drift.
 static const char *raw_refusal(const char *content, size_t contn) {
-	char *b = (char *)xrealloc(NULL, contn ? contn : 1);
-	size_t m = unescape_ops(content, contn, b);
 	shcl_doc *probe = shcl_new();
-	int body_ok = probe && shcl_set_raw(probe, "p", 1, b, m, "", 0);
+	int body_ok = probe && shcl_set_raw(probe, "p", 1, content, contn, "", 0);
 	shcl_free(probe);
-	free(b);
 	return body_ok ? "the info string has no spelling that reads back: a '#' in it opens a comment, and a line break has no inline spelling"
 	               : "the block body has no spelling that reads back: a line ending in a carriage return is trimmed on the way back in, and a line spelling the closing fence would end the block early";
 }
@@ -1600,6 +1619,16 @@ static void op_err(size_t lineno, const char *fmt, ...) {
 	fputc('\n', stderr);
 }
 
+// op_text for one field of op line LINENO, saying why on a failure. 1 with the
+// text in *out for the caller to free, else 0 with nothing to free.
+static int op_field(size_t lineno, const char *path, size_t plen, const char *in, size_t n, char **out, size_t *outn) {
+	if (op_text(in, n, out, outn)) return 1;
+	op_err(lineno, "cannot write %.*s: %.*s", (int)plen, path, (int)*outn, *out);
+	free(*out);
+	*out = NULL;
+	return 0;
+}
+
 // Apply one write-ops line. A "-default" suffix means "only if absent": values
 // are gated FIRST (a malformed value fails even when the path already exists,
 // matching the reference's argument-evaluation order), then the op runs as the
@@ -1613,7 +1642,7 @@ static int apply_op(shcl_doc *d, const char *line, size_t linelen, size_t lineno
 	// Every op but the array forms takes a fixed number of tab-separated
 	// fields. Extra ones used to be dropped, so a `raw` whose content held a
 	// literal tab lost everything after it and still reported success; the
-	// escape for a tab inside a value is `\t`.
+	// escape for a tab inside a value is `◉TAB◉`.
 	{
 		int bad = 0;
 		static const struct { const char *op; size_t want; } counts[] = {
@@ -1638,6 +1667,7 @@ static int apply_op(shcl_doc *d, const char *line, size_t linelen, size_t lineno
 	const char *path = nf > 1 ? fp[1] : ""; size_t plen = nf > 1 ? fn[1] : 0;
 	const char *v = nf > 2 ? fp[2] : ""; size_t vn = nf > 2 ? fn[2] : 0;
 	int rc = 0, wrote = 1;
+	char *content = NULL; size_t contentn = 0; // a raw op's, for the refusal below
 	size_t opn_full = fn[0]; // the op as written, for the unknown-op message
 	int only_absent = 0;
 	if (fn[0] >= 8 && memcmp(fp[0] + fn[0] - 8, "-default", 8) == 0) {
@@ -1652,7 +1682,7 @@ static int apply_op(shcl_doc *d, const char *line, size_t linelen, size_t lineno
 	if (OP("int")) { int64_t x; if (!g_i64(v, vn, &x)) { op_err(lineno, "bad int: %.*s", (int)vn, v); rc = 1; } else wrote = SET(shcl_set_int, x); }
 	else if (OP("float")) { double x; if (!g_f64(v, vn, &x)) { op_err(lineno, "bad float: %.*s", (int)vn, v); rc = 1; } else wrote = SET(shcl_set_float, x); }
 	else if (OP("bool")) { int x; if (!g_bool(v, vn, &x)) { op_err(lineno, "bad bool: %.*s", (int)vn, v); rc = 1; } else wrote = SET(shcl_set_bool, x); }
-	else if (OP("string")) { char *b = (char *)xrealloc(NULL, vn ? vn : 1); size_t m = unescape_ops(v, vn, b); wrote = SET(shcl_set_string, b, m); free(b); }
+	else if (OP("string")) { char *b; size_t m; if (!op_field(lineno, path, plen, v, vn, &b, &m)) rc = 1; else { wrote = SET(shcl_set_string, b, m); free(b); } }
 	else if (OP("datetime")) { shcl_datetime dt; ShclStr sv; sv.p = v; sv.n = vn; if (!parse_datetime(&d->arena, sv, &dt)) { op_err(lineno, "bad datetime: %.*s", (int)vn, v); rc = 1; } else wrote = SET(shcl_set_datetime, &dt); }
 	else if (OP("literal")) { wrote = SET(shcl_set_literal, v, vn); }
 	else if (OP("int-array")) { int64_t *a = (int64_t *)xrealloc(NULL, (an ? an : 1) * sizeof *a); memset(a, 0, (an ? an : 1) * sizeof *a); for (size_t i = 0; i < an && !rc; i++) if (!g_i64(fp[2 + i], fn[2 + i], &a[i])) { op_err(lineno, "bad int: %.*s", (int)fn[2 + i], fp[2 + i]); rc = 1; } if (!rc) wrote = SET(shcl_set_int_array, a, an); free(a); }
@@ -1664,8 +1694,8 @@ static int apply_op(shcl_doc *d, const char *line, size_t linelen, size_t lineno
 		// and calls the slots uninitialized. gcc 13 does, 14 and 15 do not.
 		char **sv = (char **)xrealloc(NULL, (an ? an : 1) * sizeof *sv); size_t *sl = (size_t *)xrealloc(NULL, (an ? an : 1) * sizeof *sl);
 		memset(sv, 0, (an ? an : 1) * sizeof *sv); memset(sl, 0, (an ? an : 1) * sizeof *sl);
-		for (size_t i = 0; i < an; i++) { char *b = (char *)xrealloc(NULL, fn[2 + i] ? fn[2 + i] : 1); sl[i] = unescape_ops(fp[2 + i], fn[2 + i], b); sv[i] = b; }
-		wrote = SET(shcl_set_string_array, (const char *const *)sv, sl, an);
+		for (size_t i = 0; i < an && !rc; i++) if (!op_field(lineno, path, plen, fp[2 + i], fn[2 + i], &sv[i], &sl[i])) rc = 1;
+		if (!rc) wrote = SET(shcl_set_string_array, (const char *const *)sv, sl, an);
 		for (size_t i = 0; i < an; i++) free(sv[i]);
 		free(sv); free(sl);
 	}
@@ -1675,9 +1705,9 @@ static int apply_op(shcl_doc *d, const char *line, size_t linelen, size_t lineno
 		if (!rc) wrote = SET(shcl_set_datetime_array, a, an);
 		free(a);
 	}
-	else if (OP("raw")) { const char *cont = nf > 3 ? fp[3] : ""; size_t contn = nf > 3 ? fn[3] : 0; char *b = (char *)xrealloc(NULL, contn ? contn : 1); size_t m = unescape_ops(cont, contn, b); wrote = SET(shcl_set_raw, b, m, v, vn); free(b); }
+	else if (OP("raw")) { if (!op_field(lineno, path, plen, nf > 3 ? fp[3] : "", nf > 3 ? fn[3] : 0, &content, &contentn)) rc = 1; else wrote = SET(shcl_set_raw, content, contentn, v, vn); }
 	else if (OP("empty") && !only_absent) wrote = shcl_set_empty(d, path, plen);
-	else if (OP("comment") && !only_absent) { char *b = (char *)xrealloc(NULL, vn ? vn : 1); size_t m = unescape_ops(v, vn, b); wrote = shcl_set_comment(d, path, plen, b, m); free(b); }
+	else if (OP("comment") && !only_absent) { char *b; size_t m; if (!op_field(lineno, path, plen, v, vn, &b, &m)) rc = 1; else { wrote = shcl_set_comment(d, path, plen, b, m); free(b); } }
 	else if ((OP("remove") || OP("clear-comments")) && !only_absent && unusable_path(d, path, plen)) {
 		op_err(lineno, "cannot %.*s %.*s: %s", (int)fn[0], fp[0], (int)plen, path, bad_path(path, plen)); rc = 1;
 	}
@@ -1696,13 +1726,14 @@ static int apply_op(shcl_doc *d, const char *line, size_t linelen, size_t lineno
 		const char *unwritable = "the value has no spelling that reads back";
 		if (OP("literal")) unwritable = "the value text is not one value";
 		else if (OP("comment")) unwritable = "the comment text is not one line";
-		else if (OP("raw")) unwritable = raw_refusal(nf > 3 ? fp[3] : "", nf > 3 ? fn[3] : 0);
+		else if (OP("raw")) unwritable = raw_refusal(content, contentn);
 		int array = (fn[0] > 6 && memcmp(fp[0] + fn[0] - 6, "-array", 6) == 0) || (OP("literal") && array_text(v, vn));
 		op_err(lineno, "cannot write %.*s: %s", (int)plen, path, describe_refusal(d, path, plen, array, unwritable));
 		rc = 1;
 	}
 	#undef SET
 	#undef OP
+	free(content);
 	free(fp); free(fn);
 	return rc;
 }
@@ -2058,7 +2089,7 @@ static int do_enum(Opts *o, int want_count) {
 	if (gate) return gate;
 	shcl_doc *d = L.doc;
 	if (want_count) printf("%zu\n", shcl_count(d, path, plen));
-	else { shcl_str *vals; size_t n = shcl_instances(d, path, plen, &vals); for (size_t i = 0; i < n; i++) out_one_line(vals[i].p, vals[i].n); }
+	else { shcl_str *vals; size_t n = shcl_instances(d, path, plen, &vals); for (size_t i = 0; i < n; i++) out_one_line(d, vals[i].p, vals[i].n); }
 	layered_free(&L); return 0;
 }
 

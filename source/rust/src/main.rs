@@ -132,7 +132,9 @@ selector may hold one. Ops:
   empty<TAB>PATH   comment<TAB>PATH<TAB>TEXT   remove<TAB>PATH
   clear-comments<TAB>PATH                                 drop comments above
   banner<TAB>on|off                                       add or drop info block
-string/raw values decode \\n \\t \\\\; a line starting with # is a script comment.
+String, raw and comment values read escapes as a file does: NEWLINE or TAB
+between two U+25C9 marks. A backslash is text, and a line starting with # is a
+script comment.
 
 Types (get only; default --string):
   --int --float --bool --datetime --string --raw --rawinfo --duration --size
@@ -2599,28 +2601,28 @@ fn push_array(out: &mut String, tok: &Tokens) {
 	}
 }
 
-/// Decode an ops-script value: \n \t \\ only; other `\x` stays verbatim. The
-/// setters re-encode, so this is just for embedding newlines/tabs on one line.
-fn unescape_ops(s: &str) -> String {
-	let mut out = String::with_capacity(s.len());
-	let mut it = s.chars();
-	while let Some(c) = it.next() {
-		if c != '\\' {
-			out.push(c);
-			continue;
-		}
-		match it.next() {
-			Some('n') => out.push('\n'),
-			Some('t') => out.push('\t'),
-			Some('\\') => out.push('\\'),
-			Some(other) => {
-				out.push('\\');
-				out.push(other);
-			}
-			None => out.push('\\'),
-		}
+/// An ops-script value with its escapes resolved, `◉TAB◉` and `◉NEWLINE◉` and
+/// the rest of the file's names, so a tab or a line break can sit on one op
+/// line. A backslash is text, as in a file (2026100717500002). The file's own
+/// reader does it, on the value in quotes, so the two can't drift.
+fn op_text(s: &str) -> Result<String, String> {
+	if !s.contains('◉') {
+		return Ok(s.to_string());
 	}
-	out
+	let text = if s.contains('"') && !s.contains('\'') {
+		format!("v: '{}'\n", s)
+	} else {
+		format!("v: \"{}\"\n", s.replace('"', "◉DOUBLE_QUOTE◉"))
+	};
+	let doc = Document::parse(&text);
+	match doc
+		.diagnostics()
+		.iter()
+		.find(|d| d.severity == Severity::Error)
+	{
+		Some(d) => Err(d.message.clone()),
+		None => Ok(doc.read_string("v").value),
+	}
 }
 
 fn apply_op(doc: &mut Document, line: &str) -> Result<(), String> {
@@ -2628,7 +2630,7 @@ fn apply_op(doc: &mut Document, line: &str) -> Result<(), String> {
 	// Every op but the array forms takes a fixed number of tab-separated
 	// fields. Extra ones used to be dropped, so a `raw` whose content held a
 	// literal tab lost everything after it and still reported success; the
-	// escape for a tab inside a value is `\t`.
+	// escape for a tab inside a value is `◉TAB◉`.
 	let want = match f.first().copied().unwrap_or("") {
 		"empty" | "remove" | "clear-comments" | "banner" => 2,
 		"raw" | "raw-default" => 4,
@@ -2663,11 +2665,14 @@ fn apply_op(doc: &mut Document, line: &str) -> Result<(), String> {
 		_ => Err(format!("bad bool: {}", s)),
 	};
 	let arr = &f[2.min(f.len())..];
+	let text = |s: &str| op_text(s).map_err(|e| format!("cannot write {}: {}", path, e));
+	let texts = || arr.iter().map(|s| text(s)).collect::<Result<Vec<_>, _>>();
+	let content = || text(f.get(3).copied().unwrap_or(""));
 	let wrote = match f.first().copied().unwrap_or("") {
 		"int" => doc.set_int(path, pint(val())?),
 		"float" => doc.set_float(path, pflt(val())?),
 		"bool" => doc.set_bool(path, pbool(val())?),
-		"string" => doc.set_string(path, &unescape_ops(val())),
+		"string" => doc.set_string(path, &text(val())?),
 		"datetime" => {
 			let dt = parse_datetime(val()).ok_or_else(|| format!("bad datetime: {}", val()))?;
 			doc.set_datetime(path, &dt)
@@ -2677,7 +2682,7 @@ fn apply_op(doc: &mut Document, line: &str) -> Result<(), String> {
 		"int-default" => doc.set_int_default(path, pint(val())?),
 		"float-default" => doc.set_float_default(path, pflt(val())?),
 		"bool-default" => doc.set_bool_default(path, pbool(val())?),
-		"string-default" => doc.set_string_default(path, &unescape_ops(val())),
+		"string-default" => doc.set_string_default(path, &text(val())?),
 		"datetime-default" => {
 			let dt = parse_datetime(val()).ok_or_else(|| format!("bad datetime: {}", val()))?;
 			doc.set_datetime_default(path, &dt)
@@ -2697,7 +2702,7 @@ fn apply_op(doc: &mut Document, line: &str) -> Result<(), String> {
 				.collect::<Result<Vec<_>, _>>()?,
 		),
 		"string-array" => {
-			let owned: Vec<String> = arr.iter().map(|s| unescape_ops(s)).collect();
+			let owned = texts()?;
 			doc.set_string_array(path, &owned.iter().map(|s| s.as_str()).collect::<Vec<_>>())
 		}
 		"datetime-array" => {
@@ -2722,7 +2727,7 @@ fn apply_op(doc: &mut Document, line: &str) -> Result<(), String> {
 				.collect::<Result<Vec<_>, _>>()?,
 		),
 		"string-array-default" => {
-			let owned: Vec<String> = arr.iter().map(|s| unescape_ops(s)).collect();
+			let owned = texts()?;
 			doc.set_string_array_default(
 				path,
 				&owned.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
@@ -2735,12 +2740,10 @@ fn apply_op(doc: &mut Document, line: &str) -> Result<(), String> {
 				.collect::<Result<Vec<_>, _>>()?;
 			doc.set_datetime_array_default(path, &dts)
 		}
-		"raw" => doc.set_raw(path, &unescape_ops(f.get(3).copied().unwrap_or("")), val()),
-		"raw-default" => {
-			doc.set_raw_default(path, &unescape_ops(f.get(3).copied().unwrap_or("")), val())
-		}
+		"raw" => doc.set_raw(path, &content()?, val()),
+		"raw-default" => doc.set_raw_default(path, &content()?, val()),
 		"empty" => doc.set_empty(path),
-		"comment" => doc.set_comment(path, &unescape_ops(val())),
+		"comment" => doc.set_comment(path, &text(val())?),
 		"remove" | "clear-comments" if unusable_path(doc, path) => {
 			return Err(format!("cannot {} {}: {}", f[0], path, bad_path(path)));
 		}
@@ -2768,7 +2771,7 @@ fn apply_op(doc: &mut Document, line: &str) -> Result<(), String> {
 		let unwritable = match f[0] {
 			"literal" | "literal-default" => "the value text is not one value",
 			"comment" => "the comment text is not one line",
-			"raw" | "raw-default" => raw_refusal(&unescape_ops(f.get(3).copied().unwrap_or(""))),
+			"raw" | "raw-default" => raw_refusal(&content()?),
 			_ => "the value has no spelling that reads back",
 		};
 		return Err(format!(
@@ -3193,25 +3196,14 @@ fn do_init(o: &Opts) -> u8 {
 /// A value in a one-per-line listing. `instances` promises one line per
 /// instance, and a value holding a line break broke that, so a caller splitting
 /// on newlines counted more instances than `count` reports. Only such a value
-/// changes: anything else comes out as it is. The escaped spelling is the one
-/// `gen_default_text` writes for the same reason.
+/// changes: anything else comes out as it is. It comes out quoted with the
+/// writer's escapes, `"a◉NEWLINE◉b"`, as `init` writes a default. A line break
+/// is never bare in a name either, so `quote_segment` gives exactly that.
 fn one_line(v: &str) -> String {
 	if !v.contains('\n') && !v.contains('\r') {
 		return v.to_string();
 	}
-	let mut s = String::from("\"");
-	for ch in v.chars() {
-		match ch {
-			'\\' => s.push_str("\\\\"),
-			'"' => s.push_str("\\\""),
-			'\n' => s.push_str("\\n"),
-			'\r' => s.push_str("\\r"),
-			'\t' => s.push_str("\\t"),
-			c => s.push(c),
-		}
-	}
-	s.push('"');
-	s
+	shcl::quote_segment(v)
 }
 
 fn do_enum(o: &Opts, want_count: bool) -> u8 {

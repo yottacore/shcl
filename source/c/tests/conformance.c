@@ -239,18 +239,44 @@ static char *scalar_read(shcl_doc *d, const char *kind, const char *q, size_t qn
 	return out;
 }
 
-// ops-value unescape (\n \t \\); out >= inlen. Returns length.
-static size_t cf_unescape(const char *in, size_t inlen, char *out) {
-	size_t w = 0;
-	for (size_t i = 0; i < inlen; i++) {
-		if (in[i] != '\\' || i + 1 >= inlen) { out[w++] = in[i]; continue; }
-		char c = in[++i];
-		if (c == 'n') out[w++] = '\n';
-		else if (c == 't') out[w++] = '\t';
-		else if (c == '\\') out[w++] = '\\';
-		else { out[w++] = '\\'; out[w++] = c; }
+// An ops value with the file's escapes resolved, by the file's reader; a
+// backslash is text (mirrors the CLI's op_text). Returns a malloc'd copy and
+// its length, or NULL when the reader refuses it.
+static char *cf_op_text(const char *in, size_t n, size_t *outn) {
+	static const char mark[] = "\xe2\x97\x89", dq[] = "\xe2\x97\x89" "DOUBLE_QUOTE" "\xe2\x97\x89";
+	int marked = 0, has_dq = 0, has_sq = 0;
+	for (size_t i = 0; i < n; i++) {
+		if (i + 3 <= n && memcmp(in + i, mark, 3) == 0) marked = 1;
+		if (in[i] == '"') has_dq = 1;
+		if (in[i] == '\'') has_sq = 1;
 	}
-	return w;
+	char *out;
+	if (!marked) {
+		out = (char *)xrealloc(NULL, n ? n : 1);
+		if (n) memcpy(out, in, n);
+		*outn = n;
+		return out;
+	}
+	char q = has_dq && !has_sq ? '\'' : '"';
+	char *text = (char *)xrealloc(NULL, n * (sizeof dq - 1) + 8), *w = text;
+	memcpy(w, "v: ", 3); w += 3;
+	*w++ = q;
+	for (size_t i = 0; i < n; i++) {
+		if (in[i] == '"' && q == '"') { memcpy(w, dq, sizeof dq - 1); w += sizeof dq - 1; }
+		else *w++ = in[i];
+	}
+	*w++ = q; *w++ = '\n';
+	shcl_doc *v = shcl_parse(text, (size_t)(w - text));
+	free(text);
+	if (!v) { fprintf(stderr, "conformance: out of memory\n"); exit(70); }
+	for (size_t i = 0; i < shcl_diag_count(v); i++)
+		if (shcl_diag_severity(v, i) == SHCL_SEV_ERROR) { shcl_free(v); return NULL; }
+	shcl_str got = shcl_read_string(v, "v", 1).value;
+	out = (char *)xrealloc(NULL, got.n ? got.n : 1);
+	if (got.n) memcpy(out, got.p, got.n);
+	*outn = got.n;
+	shcl_free(v);
+	return out;
 }
 
 // Reference-equivalent op-value gates (same grammar the CLI applies): sign +
@@ -340,7 +366,7 @@ static int try_apply_op_c(shcl_doc *d, char *line) {
 	else if (!strcmp(op, "float")) { double x; if (!cf_f64(v, vn, &x)) rc = 1; else wrote = SET(shcl_set_float, x); }
 	else if (!strcmp(op, "bool")) { int x; if (!cf_bool(v, &x)) rc = 1; else wrote = SET(shcl_set_bool, x); }
 	else if (!strcmp(op, "literal")) { wrote = SET(shcl_set_literal, v, vn); }
-	else if (!strcmp(op, "string")) { char *b = (char *)xrealloc(NULL, vn ? vn : 1); size_t m = cf_unescape(v, vn, b); wrote = SET(shcl_set_string, b, m); free(b); }
+	else if (!strcmp(op, "string")) { size_t m; char *b = cf_op_text(v, vn, &m); if (!b) rc = 1; else { wrote = SET(shcl_set_string, b, m); free(b); } }
 	else if (!strcmp(op, "datetime")) { shcl_datetime dt; ShclStr sv; sv.p = v; sv.n = vn; if (!parse_datetime(&d->arena, sv, &dt)) rc = 1; else wrote = SET(shcl_set_datetime, &dt); }
 	else if (!strcmp(op, "int-array")) {
 		int64_t *a = (int64_t *)xrealloc(NULL, (an ? an : 1) * sizeof *a);
@@ -362,9 +388,9 @@ static int try_apply_op_c(shcl_doc *d, char *line) {
 	}
 	else if (!strcmp(op, "string-array")) {
 		char **sv = (char **)xrealloc(NULL, (an ? an : 1) * sizeof *sv); size_t *sl = (size_t *)xrealloc(NULL, (an ? an : 1) * sizeof *sl);
-		sv[0] = NULL; sl[0] = 0; // silence -Wmaybe-uninitialized for the an==0 call
-		for (size_t i = 0; i < an; i++) { size_t L = strlen(f[2 + i]); char *b = (char *)xrealloc(NULL, L ? L : 1); sl[i] = cf_unescape(f[2 + i], L, b); sv[i] = b; }
-		wrote = SET(shcl_set_string_array, (const char *const *)sv, sl, an);
+		memset(sv, 0, (an ? an : 1) * sizeof *sv); memset(sl, 0, (an ? an : 1) * sizeof *sl);
+		for (size_t i = 0; i < an && !rc; i++) if (!(sv[i] = cf_op_text(f[2 + i], strlen(f[2 + i]), &sl[i]))) rc = 1;
+		if (!rc) wrote = SET(shcl_set_string_array, (const char *const *)sv, sl, an);
 		for (size_t i = 0; i < an; i++) free(sv[i]);
 		free(sv); free(sl);
 	}
@@ -374,9 +400,9 @@ static int try_apply_op_c(shcl_doc *d, char *line) {
 		if (!rc) wrote = SET(shcl_set_datetime_array, a, an);
 		free(a);
 	}
-	else if (!strcmp(op, "raw")) { const char *cont = nf > 3 ? f[3] : ""; size_t cn = nf > 3 ? strlen(f[3]) : 0; char *b = (char *)xrealloc(NULL, cn ? cn : 1); size_t m = cf_unescape(cont, cn, b); wrote = SET(shcl_set_raw, b, m, v, vn); free(b); }
+	else if (!strcmp(op, "raw")) { const char *cont = nf > 3 ? f[3] : ""; size_t m; char *b = cf_op_text(cont, strlen(cont), &m); if (!b) rc = 1; else { wrote = SET(shcl_set_raw, b, m, v, vn); free(b); } }
 	else if (!strcmp(op, "empty") && !only_absent) wrote = shcl_set_empty(d, path, plen);
-	else if (!strcmp(op, "comment") && !only_absent) { char *b = (char *)xrealloc(NULL, vn ? vn : 1); size_t m = cf_unescape(v, vn, b); wrote = shcl_set_comment(d, path, plen, b, m); free(b); }
+	else if (!strcmp(op, "comment") && !only_absent) { size_t m; char *b = cf_op_text(v, vn, &m); if (!b) rc = 1; else { wrote = shcl_set_comment(d, path, plen, b, m); free(b); } }
 	else if (!strcmp(op, "remove") && !only_absent) shcl_remove(d, path, plen);
 	else if (!strcmp(op, "clear-comments") && !only_absent) shcl_clear_comments(d, path, plen);
 	else if (!strcmp(op, "banner") && !only_absent) {

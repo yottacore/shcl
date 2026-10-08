@@ -288,28 +288,25 @@ func TestCanonicalFormatMatchesExpected(t *testing.T) {
 	})
 }
 
-// unescapeOpsTest decodes an ops value: \n \t \\ only (mirrors the CLI).
-func unescapeOpsTest(s string) string {
-	var b strings.Builder
-	for i := 0; i < len(s); i++ {
-		if s[i] != '\\' || i+1 >= len(s) {
-			b.WriteByte(s[i])
-			continue
-		}
-		i++
-		switch s[i] {
-		case 'n':
-			b.WriteByte('\n')
-		case 't':
-			b.WriteByte('\t')
-		case '\\':
-			b.WriteByte('\\')
-		default:
-			b.WriteByte('\\')
-			b.WriteByte(s[i])
+// opTextTest resolves an ops value's escapes with the file's reader; a
+// backslash is text (mirrors the CLI's opText).
+func opTextTest(s string) (string, error) {
+	if !strings.Contains(s, "◉") {
+		return s, nil
+	}
+	var text string
+	if strings.Contains(s, `"`) && !strings.Contains(s, "'") {
+		text = "v: '" + s + "'\n"
+	} else {
+		text = "v: \"" + strings.ReplaceAll(s, `"`, "◉DOUBLE_QUOTE◉") + "\"\n"
+	}
+	doc := Parse(text)
+	for _, d := range doc.Diagnostics() {
+		if d.Severity == SeverityError {
+			return "", errors.New(d.Message)
 		}
 	}
-	return b.String()
+	return doc.ReadString("v").Value, nil
 }
 
 // Value gates mirror the CLI's exactly: grammar first (reference FromStr
@@ -458,12 +455,16 @@ func tryApplyOpTest(doc *Document, line string) error {
 		}
 		return o, nil
 	}
-	strs := func(xs []string) []string {
+	strs := func(xs []string) ([]string, error) {
 		o := make([]string, len(xs))
 		for i, s := range xs {
-			o[i] = unescapeOpsTest(s)
+			t, err := opTextTest(s)
+			if err != nil {
+				return nil, err
+			}
+			o[i] = t
 		}
-		return o
+		return o, nil
 	}
 	dt := func(s string) (DateTime, error) {
 		x, ok := ParseDateTime(s)
@@ -504,7 +505,11 @@ func tryApplyOpTest(doc *Document, line string) error {
 		}
 		wrote = doc.SetBool(path, b)
 	case "string":
-		wrote = doc.SetString(path, unescapeOpsTest(v))
+		t, err := opTextTest(v)
+		if err != nil {
+			return err
+		}
+		wrote = doc.SetString(path, t)
 	case "datetime":
 		x, err := dt(v)
 		if err != nil {
@@ -534,7 +539,11 @@ func tryApplyOpTest(doc *Document, line string) error {
 		}
 		wrote = doc.SetBoolDefault(path, b)
 	case "string-default":
-		wrote = doc.SetStringDefault(path, unescapeOpsTest(v))
+		t, err := opTextTest(v)
+		if err != nil {
+			return err
+		}
+		wrote = doc.SetStringDefault(path, t)
 	case "datetime-default":
 		x, err := dt(v)
 		if err != nil {
@@ -560,7 +569,11 @@ func tryApplyOpTest(doc *Document, line string) error {
 		}
 		wrote = doc.SetBoolArray(path, xs)
 	case "string-array":
-		wrote = doc.SetStringArray(path, strs(arr))
+		xs, err := strs(arr)
+		if err != nil {
+			return err
+		}
+		wrote = doc.SetStringArray(path, xs)
 	case "datetime-array":
 		xs, err := dts(arr)
 		if err != nil {
@@ -586,7 +599,11 @@ func tryApplyOpTest(doc *Document, line string) error {
 		}
 		wrote = doc.SetBoolArrayDefault(path, xs)
 	case "string-array-default":
-		wrote = doc.SetStringArrayDefault(path, strs(arr))
+		xs, err := strs(arr)
+		if err != nil {
+			return err
+		}
+		wrote = doc.SetStringArrayDefault(path, xs)
 	case "datetime-array-default":
 		xs, err := dts(arr)
 		if err != nil {
@@ -594,13 +611,25 @@ func tryApplyOpTest(doc *Document, line string) error {
 		}
 		wrote = doc.SetDateTimeArrayDefault(path, xs)
 	case "raw":
-		wrote = doc.SetRaw(path, unescapeOpsTest(get(3)), v)
+		t, err := opTextTest(get(3))
+		if err != nil {
+			return err
+		}
+		wrote = doc.SetRaw(path, t, v)
 	case "raw-default":
-		wrote = doc.SetRawDefault(path, unescapeOpsTest(get(3)), v)
+		t, err := opTextTest(get(3))
+		if err != nil {
+			return err
+		}
+		wrote = doc.SetRawDefault(path, t, v)
 	case "empty":
 		wrote = doc.SetEmpty(path)
 	case "comment":
-		wrote = doc.SetComment(path, unescapeOpsTest(v))
+		t, err := opTextTest(v)
+		if err != nil {
+			return err
+		}
+		wrote = doc.SetComment(path, t)
 	case "remove":
 		doc.Remove(path)
 		wrote = true

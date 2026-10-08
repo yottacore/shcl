@@ -12,6 +12,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - An escape is a name between two `◉` marks, from a fixed list: `◉NEWLINE◉`, `◉TAB◉`, `◉U+200B◉`, and `◉ESCAPE_CHAR◉` for the mark itself. Anything else between two marks is `E023`.
 
+- `set`'s write-ops script reads the same escapes in a string, raw or comment value, so `◉TAB◉` and `◉NEWLINE◉` put a tab or a line break on one op line, and a backslash is text. It read `\n`, `\t` and `\\` there. An unknown name refuses the op.
+
+- `get --array`, `get --slots` and `instances` print a value holding a line break quoted with `◉` escapes, `"a◉NEWLINE◉b"`, where they wrote `"a\nb"`.
+
 - `fmt` and every save write a line break, a tab in quotes and each invisible character as a `◉` escape. A zero-width space or a direction mark comes out as `◉U+XXXX◉`. The joiners stay as written, and so do a variation selector after a visible character and the tags of a subdivision flag.
 
 - A value in backticks, such as `` `#FF8800` `` or `` `\x7F` ``, is raw. A read returns the text as written, with a `backtick` flag, for the program to decode.

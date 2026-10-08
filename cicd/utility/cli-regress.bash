@@ -853,9 +853,23 @@ rows=(
 	#'ErUmRRi|path-escape-migrate-lost|migrate -|q: "\\\\\\\\srv\\new"\n|7|-|line break in a Windows path'
 	#'Er1adAs|escape-unknown-migrate|migrate -|q: "C:\\work"\n|0|q: "C:\\\\work"\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	'ErpZsUf|path-text-read|get - a|a: "C:\\temp"\n|0|C:\\temp\n|-'
-	'ErpZsUg|path-tab-set|set -|string\ta\tC:\\temp\n|0|a: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n|-'
+	## The ops script kept 2.x's \n, \t and \\ in a string value until
+	## 2026100717500002, so a Windows path lost its \t there alone. Op values
+	## read the file's escape names now, and a backslash is text.
+	#'ErpZsUg|path-tab-set|set -|string\ta\tC:\\temp\n|0|a: "C:\xe2\x97\x89TAB\xe2\x97\x89emp"\n|-'
 	'ErpZsUh|path-text-literal|set -|literal\tx\t"C:\\temp"\n|0|x: "C:\\temp"\n|-'
 	'ErpZsUi|backslash-migrate-same|migrate -|q: "C:\\work"\n|0|q: "C:\\work"\n##    Format   3\n|-'
+	## 2026100717500002: an op value reads the file's escape names, a tab or a
+	## line break included, and a backslash pair is text, the same as in --set.
+	'Es8bB4z|ops-backslash-text|set -|string\ta\tC:\\temp\\new\n|0|a: C:\\temp\\new\n|-'
+	'Es8bB50|ops-escape-names|set -|string\ta\tx\xe2\x97\x89TAB\xe2\x97\x89y\xe2\x97\x89NEWLINE\xe2\x97\x89z\n|0|a: "x\xe2\x97\x89TAB\xe2\x97\x89y\xe2\x97\x89NEWLINE\xe2\x97\x89z"\n|-'
+	'Es8bB51|ops-raw-line-break|set -|raw\tr\tsh\techo hi\xe2\x97\x89NEWLINE\xe2\x97\x89echo bye\n|0|r:\n\t\x60\x60\x60sh\n\techo hi\n\techo bye\n\t\x60\x60\x60\n|-'
+	'Es8bB52|ops-array-escapes|set -|string-array\ta\tC:\\new\tx\xe2\x97\x89TAB\xe2\x97\x89y\n|0|a: [C:\\new, "x\xe2\x97\x89TAB\xe2\x97\x89y"]\n|-'
+	'Es8bB53|ops-comment-escape|set -|comment\ta\tC:\\new \xe2\x97\x89ESCAPE_CHAR\xe2\x97\x89\nstring\ta\tv\n|0|# C:\\new \xe2\x97\x89\na: v\n|-'
+	'Es8bB57|ops-default-escape|set -|string-default\ta\tx\xe2\x97\x89TAB\xe2\x97\x89\n|0|a: "x\xe2\x97\x89TAB\xe2\x97\x89"\n|-'
+	## The value is read in quotes, so a quote in it stays text whichever kind.
+	'Es8bB56|ops-escape-quotes|set -|string\ta\tsay "hi" it\x27s\xe2\x97\x89TAB\xe2\x97\x89ok\nstring\tb\tsay "hi"\xe2\x97\x89TAB\xe2\x97\x89\n|0|a: "say \xe2\x97\x89DOUBLE_QUOTE\xe2\x97\x89hi\xe2\x97\x89DOUBLE_QUOTE\xe2\x97\x89 it\x27s\xe2\x97\x89TAB\xe2\x97\x89ok"\n\nb: \x27say "hi"\xe2\x97\x89TAB\xe2\x97\x89\x27\n|-'
+	'Es8bB54|ops-escape-unknown|set -|string\ta\tx\xe2\x97\x89NOPE\xe2\x97\x89\n|1||^op line 1: cannot write a: .*NOPE'
 	## 2026100307163914: a field line kept for its value alone reads NotFound with
 	## nothing under it and Empty once a line under it loads, and explain says so.
 	'Erlr8eZ|kept-value-e019-empty|get - a|a: [1\n\tb: 1\n|2|\n|E019'
@@ -1066,16 +1080,29 @@ rows=(
 	## 20260920b item 26: a value holding a line break printed across two lines,
 	## so `instances` gave four lines where `count` said two. Only such a value
 	## is escaped; a plain one with a dot in it comes out as written.
-	'EqT42DB|instances-one-per-line|instances %NV% srv|-|0|"a\\nb"\n"c\\nd"\n|-'
+	## The escaped form was 2.x's `\n` until 2026100717500006. It is the
+	## writer's now, as `init` writes it, so the rows that pinned `\n` give way
+	## to the ones after them.
+	#'EqT42DB|instances-one-per-line|instances %NV% srv|-|0|"a\\nb"\n"c\\nd"\n|-'
+	'Es8bB58|instances-one-per-line-mark|instances %NV% srv|-|0|"a\xe2\x97\x89NEWLINE\xe2\x97\x89b"\n"c\xe2\x97\x89NEWLINE\xe2\x97\x89d"\n|-'
 	'EqT42DC|instances-plain-unescaped|instances %NV% plain|-|0|x.y\n|-'
 	## 20260923 item 4: the same for get's array and slot listings, one line per
 	## element. A plain scalar read is the whole output, so it stays as it is.
-	'EqnwIkU|get-array-one-per-line|get --array %NV% arr|-|0|"a\\nb"\nc\n|-'
-	'EqnwIkV|get-slots-one-per-line|get --array --slots %NV% arr|-|0|Good\t"a\\nb"\nGood\tc\n|-'
-	'EqnwIkW|get-slots-scalar-escaped|get --slots %NV% one|-|0|Good\t"x\\ny"\n|-'
+	#'EqnwIkU|get-array-one-per-line|get --array %NV% arr|-|0|"a\\nb"\nc\n|-'
+	#'EqnwIkV|get-slots-one-per-line|get --array --slots %NV% arr|-|0|Good\t"a\\nb"\nGood\tc\n|-'
+	#'EqnwIkW|get-slots-scalar-escaped|get --slots %NV% one|-|0|Good\t"x\\ny"\n|-'
+	'Es8bB59|get-array-one-per-line-mark|get --array %NV% arr|-|0|"a\xe2\x97\x89NEWLINE\xe2\x97\x89b"\nc\n|-'
+	'Es8bB5A|get-slots-one-per-line-mark|get --array --slots %NV% arr|-|0|Good\t"a\xe2\x97\x89NEWLINE\xe2\x97\x89b"\nGood\tc\n|-'
+	'Es8bB5B|get-slots-scalar-mark|get --slots %NV% one|-|0|Good\t"x\xe2\x97\x89NEWLINE\xe2\x97\x89y"\n|-'
 	'EqnwIkX|get-scalar-unescaped|get %NV% one|-|0|x\ny\n|-'
-	'EqoRWES|get-array-default-missing|get --array %DB% %NV% nope|-|0|"q\\nr"\n|-'
-	'EqoRWET|get-array-default-slots|get --array --int %DB% %NV% arr|-|0|"q\\nr"\n"q\\nr"\n|-'
+	#'EqoRWES|get-array-default-missing|get --array %DB% %NV% nope|-|0|"q\\nr"\n|-'
+	#'EqoRWET|get-array-default-slots|get --array --int %DB% %NV% arr|-|0|"q\\nr"\n"q\\nr"\n|-'
+	'Es8bB5C|get-array-default-missing-mark|get --array %DB% %NV% nope|-|0|"q\xe2\x97\x89NEWLINE\xe2\x97\x89r"\n|-'
+	'Es8bB5D|get-array-default-slots-mark|get --array --int %DB% %NV% arr|-|0|"q\xe2\x97\x89NEWLINE\xe2\x97\x89r"\n"q\xe2\x97\x89NEWLINE\xe2\x97\x89r"\n|-'
+	## A backslash pair is text, so it is printed as written beside a real line
+	## break, and a lone carriage return takes its own name.
+	'Es8bB5E|get-array-backslash-text|get --array - x|x: ["a\xe2\x97\x89NEWLINE\xe2\x97\x89b", \x27a\\nb\x27]\n|0|"a\xe2\x97\x89NEWLINE\xe2\x97\x89b"\na\\nb\n|-'
+	'Es8bB5F|instances-lone-cr|instances - x|x: "a\xe2\x97\x89CR\xe2\x97\x89b"\n|0|"a\xe2\x97\x89CR\xe2\x97\x89b"\n|-'
 	'EqoRWEU|get-scalar-default-missing|get %DB% %NV% nope|-|0|q\nr\n|-'
 	## 20260830b item 22: usage and I/O shared exit 1, so a script could not
 	## tell "the command line is wrong" from "that file is not there".
@@ -1165,7 +1192,10 @@ rows=(
 	## 20260909 item 60: one message covered four causes across both halves of
 	## the op, so a refusal never said which half to look at.
 	'EqBBQ56|ops-raw-bad-info|set %F%|raw\tk\tc#x\tbody\n|1|-|the info string has no spelling that reads back'
-	'EqBBQ57|ops-raw-bad-body|set %F%|raw\tk\tc\tbody\r\\nmore\n|1|-|the block body has no spelling that reads back'
+	## The body's line break was \n until 2026100717500002; a backslash is text
+	## now, so that body has a mid-line CR, which reads back.
+	#'EqBBQ57|ops-raw-bad-body|set %F%|raw\tk\tc\tbody\r\\nmore\n|1|-|the block body has no spelling that reads back'
+	'Es8bB55|ops-raw-bad-body-mark|set %F%|raw\tk\tc\tbody\r\xe2\x97\x89NEWLINE\xe2\x97\x89more\n|1|-|the block body has no spelling that reads back'
 	'EomzUyo|ops-extra-fields-int|set %F%|int\tk\t1\textra\n|1|-|int takes 3 tab-separated'
 	'EomzUyp|ops-array-takes-any|set %F%|int-array\tk\t1\t2\t3\n|0|a: 1\n\nk: [1, 2, 3]\n|-'
 	## An array setter writes brackets whatever the length (2026100207032800).

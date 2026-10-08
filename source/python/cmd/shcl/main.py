@@ -134,7 +134,9 @@ selector may hold one. Ops:
   empty<TAB>PATH   comment<TAB>PATH<TAB>TEXT   remove<TAB>PATH
   clear-comments<TAB>PATH                                 drop comments above
   banner<TAB>on|off                                       add or drop info block
-string/raw values decode \\n \\t \\\\; a line starting with # is a script comment.
+String, raw and comment values read escapes as a file does: NEWLINE or TAB
+between two U+25C9 marks. A backslash is text, and a line starting with # is a
+script comment.
 
 Types (get only; default --string):
   --int --float --bool --datetime --string --raw --rawinfo --duration --size
@@ -1880,28 +1882,23 @@ def do_tokens(o):
 	return 0
 
 
-def _unescape_ops(s):
-	# Decode an ops value: \n \t \\ only; other `\x` stays verbatim.
-	out = []
-	i = 0
-	while i < len(s):
-		c = s[i]
-		if c != "\\" or i + 1 >= len(s):
-			out.append(c)
-			i += 1
-			continue
-		nxt = s[i + 1]
-		if nxt == "n":
-			out.append("\n")
-		elif nxt == "t":
-			out.append("\t")
-		elif nxt == "\\":
-			out.append("\\")
-		else:
-			out.append("\\")
-			out.append(nxt)
-		i += 2
-	return "".join(out)
+def _op_text(s):
+	# An ops-script value with its escapes resolved, `◉TAB◉` and `◉NEWLINE◉` and
+	# the rest of the file's names, so a tab or a line break can sit on one op
+	# line. A backslash is text, as in a file (2026100717500002). The file's own
+	# reader does it, on the value in quotes, so the two can't drift.
+	# Raises ValueError with the reader's message.
+	if "◉" not in s:
+		return s
+	if '"' in s and "'" not in s:
+		text = f"v: '{s}'\n"
+	else:
+		text = 'v: "' + s.replace('"', "◉DOUBLE_QUOTE◉") + '"\n'
+	doc = shcl.Document.parse(text)
+	for d in doc.diagnostics():
+		if d.severity == shcl.Severity.Error:
+			raise ValueError(d.message)
+	return doc.read_string("v").value
 
 
 def _op_dt(s):
@@ -1997,7 +1994,7 @@ def apply_op(doc, line):
 	# Every op but the array forms takes a fixed number of tab-separated fields.
 	# Extra ones used to be dropped, so a `raw` whose content held a literal tab
 	# lost everything after it and still reported success; the escape for a tab
-	# inside a value is `\t`.
+	# inside a value is `◉TAB◉`.
 	want = _OP_FIELDS.get(f[0])
 	if want is not None and len(f) > want:
 		raise ValueError(f"{f[0]} takes {want} tab-separated field(s), got {len(f)}")
@@ -2008,6 +2005,13 @@ def apply_op(doc, line):
 	path, v = get(1), get(2)
 	arr = f[2:] if len(f) > 2 else []
 	op = f[0]
+
+	def text(s):
+		try:
+			return _op_text(s)
+		except ValueError as e:
+			raise ValueError(f"cannot write {path}: {e}") from None
+
 	if op == "int":
 		wrote = doc.set_int(path, _op_int(v))
 	elif op == "float":
@@ -2015,7 +2019,7 @@ def apply_op(doc, line):
 	elif op == "bool":
 		wrote = doc.set_bool(path, _op_bool(v))
 	elif op == "string":
-		wrote = doc.set_string(path, _unescape_ops(v))
+		wrote = doc.set_string(path, text(v))
 	elif op == "datetime":
 		wrote = doc.set_datetime(path, _op_dt(v))
 	elif op == "literal":
@@ -2029,7 +2033,7 @@ def apply_op(doc, line):
 	elif op == "bool-default":
 		wrote = doc.set_bool_default(path, _op_bool(v))
 	elif op == "string-default":
-		wrote = doc.set_string_default(path, _unescape_ops(v))
+		wrote = doc.set_string_default(path, text(v))
 	elif op == "datetime-default":
 		wrote = doc.set_datetime_default(path, _op_dt(v))
 	elif op == "int-array":
@@ -2039,7 +2043,7 @@ def apply_op(doc, line):
 	elif op == "bool-array":
 		wrote = doc.set_bool_array(path, [_op_bool(x) for x in arr])
 	elif op == "string-array":
-		wrote = doc.set_string_array(path, [_unescape_ops(x) for x in arr])
+		wrote = doc.set_string_array(path, [text(x) for x in arr])
 	elif op == "datetime-array":
 		wrote = doc.set_datetime_array(path, [_op_dt(x) for x in arr])
 	elif op == "int-array-default":
@@ -2049,17 +2053,17 @@ def apply_op(doc, line):
 	elif op == "bool-array-default":
 		wrote = doc.set_bool_array_default(path, [_op_bool(x) for x in arr])
 	elif op == "string-array-default":
-		wrote = doc.set_string_array_default(path, [_unescape_ops(x) for x in arr])
+		wrote = doc.set_string_array_default(path, [text(x) for x in arr])
 	elif op == "datetime-array-default":
 		wrote = doc.set_datetime_array_default(path, [_op_dt(x) for x in arr])
 	elif op == "raw":
-		wrote = doc.set_raw(path, _unescape_ops(get(3)), v)
+		wrote = doc.set_raw(path, text(get(3)), v)
 	elif op == "raw-default":
-		wrote = doc.set_raw_default(path, _unescape_ops(get(3)), v)
+		wrote = doc.set_raw_default(path, text(get(3)), v)
 	elif op == "empty":
 		wrote = doc.set_empty(path)
 	elif op == "comment":
-		wrote = doc.set_comment(path, _unescape_ops(v))
+		wrote = doc.set_comment(path, text(v))
 	elif op in ("remove", "clear-comments") and unusable_path(doc, path):
 		raise ValueError(f"cannot {op} {path}: {bad_path(path)}")
 	elif op == "remove":
@@ -2084,7 +2088,7 @@ def apply_op(doc, line):
 		elif op == "comment":
 			unwritable = "the comment text is not one line"
 		elif op in ("raw", "raw-default"):
-			unwritable = _raw_refusal(_unescape_ops(get(3)))
+			unwritable = _raw_refusal(text(get(3)))
 		else:
 			unwritable = "the value has no spelling that reads back"
 		array = "array" in op or (op.startswith("literal") and v.lstrip().startswith("["))
@@ -2386,25 +2390,12 @@ def one_line(v):
 	"""A value for a one-per-line listing. instances promises one line per
 	instance, and a value holding a line break broke that, so a caller splitting
 	on newlines counted more instances than count reports. Only such a value
-	changes. The escaped spelling is the one _gen_default_text writes."""
+	changes. It comes out quoted with the writer's escapes, "a◉NEWLINE◉b", as
+	init writes a default. A line break is never bare in a name either, so
+	quote_segment gives exactly that."""
 	if "\n" not in v and "\r" not in v:
 		return v
-	out = ['"']
-	for ch in v:
-		if ch == "\\":
-			out.append("\\\\")
-		elif ch == '"':
-			out.append('\\"')
-		elif ch == "\n":
-			out.append("\\n")
-		elif ch == "\r":
-			out.append("\\r")
-		elif ch == "\t":
-			out.append("\\t")
-		else:
-			out.append(ch)
-	out.append('"')
-	return "".join(out)
+	return shcl.quote_segment(v)
 
 
 def do_enum(o, want_count):

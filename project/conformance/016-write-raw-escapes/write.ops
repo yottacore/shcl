@@ -1,7 +1,7 @@
 # raw blocks, tricky strings, datetimes
-raw	query	sql	SELECT *\nFROM t\nWHERE x = 1;
+raw	query	sql	SELECT *◉NEWLINE◉FROM t◉NEWLINE◉WHERE x = 1;
 raw	code	python	print("hi")
-string	tricky	tab\there quote " and backslash \\ end
+string	tricky	tab◉TAB◉here quote " and backslash \ end
 string	fence	```not a real fence```
 string	emptystr	
 datetime	shortdate	20260712

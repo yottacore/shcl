@@ -68,27 +68,26 @@ struct Case {
 	expected_migrate_diags: Option<String>,
 }
 
-/// Decode an ops value: \n \t \\ only, others verbatim (mirrors the CLI).
-fn unescape_ops(s: &str) -> String {
-	let mut out = String::with_capacity(s.len());
-	let mut it = s.chars();
-	while let Some(c) = it.next() {
-		if c != '\\' {
-			out.push(c);
-			continue;
-		}
-		match it.next() {
-			Some('n') => out.push('\n'),
-			Some('t') => out.push('\t'),
-			Some('\\') => out.push('\\'),
-			Some(other) => {
-				out.push('\\');
-				out.push(other);
-			}
-			None => out.push('\\'),
-		}
+/// An ops value with the file's escapes resolved, by the file's reader; a
+/// backslash is text (mirrors the CLI's op_text).
+fn op_text(s: &str) -> Result<String, String> {
+	if !s.contains('◉') {
+		return Ok(s.to_string());
 	}
-	out
+	let text = if s.contains('"') && !s.contains('\'') {
+		format!("v: '{}'\n", s)
+	} else {
+		format!("v: \"{}\"\n", s.replace('"', "◉DOUBLE_QUOTE◉"))
+	};
+	let doc = Document::parse(&text);
+	match doc
+		.diagnostics()
+		.iter()
+		.find(|d| d.severity == shcl::Severity::Error)
+	{
+		Some(d) => Err(d.message.clone()),
+		None => Ok(doc.read_string("v").value),
+	}
 }
 
 /// Apply one write-ops line via the library Writer, with the same value gates
@@ -114,24 +113,30 @@ fn try_apply_op(doc: &mut Document, line: &str) -> Result<(), String> {
 	let bools = |xs: &[&str]| xs.iter().map(|s| pbool(s)).collect::<Result<Vec<_>, _>>();
 	let dt = |s: &str| parse_datetime(s).ok_or_else(|| format!("bad datetime: {}", s));
 	let arr = &f[2.min(f.len())..];
+	let texts = || {
+		arr.iter()
+			.map(|s| op_text(s))
+			.collect::<Result<Vec<_>, _>>()
+	};
+	let content = || op_text(f.get(3).copied().unwrap_or(""));
 	let wrote = match f.first().copied().unwrap_or("") {
 		"int" => doc.set_int(path, pint(v)?),
 		"float" => doc.set_float(path, pflt(v)?),
 		"bool" => doc.set_bool(path, pbool(v)?),
-		"string" => doc.set_string(path, &unescape_ops(v)),
+		"string" => doc.set_string(path, &op_text(v)?),
 		"datetime" => doc.set_datetime(path, &dt(v)?),
 		"literal" => doc.set_literal(path, v),
 		"literal-default" => doc.set_literal_default(path, v),
 		"int-default" => doc.set_int_default(path, pint(v)?),
 		"float-default" => doc.set_float_default(path, pflt(v)?),
 		"bool-default" => doc.set_bool_default(path, pbool(v)?),
-		"string-default" => doc.set_string_default(path, &unescape_ops(v)),
+		"string-default" => doc.set_string_default(path, &op_text(v)?),
 		"datetime-default" => doc.set_datetime_default(path, &dt(v)?),
 		"int-array" => doc.set_int_array(path, &ints(arr)?),
 		"float-array" => doc.set_float_array(path, &flts(arr)?),
 		"bool-array" => doc.set_bool_array(path, &bools(arr)?),
 		"string-array" => {
-			let owned: Vec<String> = arr.iter().map(|s| unescape_ops(s)).collect();
+			let owned = texts()?;
 			doc.set_string_array(path, &owned.iter().map(|s| s.as_str()).collect::<Vec<_>>())
 		}
 		"datetime-array" => {
@@ -142,7 +147,7 @@ fn try_apply_op(doc: &mut Document, line: &str) -> Result<(), String> {
 		"float-array-default" => doc.set_float_array_default(path, &flts(arr)?),
 		"bool-array-default" => doc.set_bool_array_default(path, &bools(arr)?),
 		"string-array-default" => {
-			let owned: Vec<String> = arr.iter().map(|s| unescape_ops(s)).collect();
+			let owned = texts()?;
 			doc.set_string_array_default(
 				path,
 				&owned.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
@@ -152,12 +157,10 @@ fn try_apply_op(doc: &mut Document, line: &str) -> Result<(), String> {
 			let dts = arr.iter().map(|s| dt(s)).collect::<Result<Vec<_>, _>>()?;
 			doc.set_datetime_array_default(path, &dts)
 		}
-		"raw" => doc.set_raw(path, &unescape_ops(f.get(3).copied().unwrap_or("")), v),
-		"raw-default" => {
-			doc.set_raw_default(path, &unescape_ops(f.get(3).copied().unwrap_or("")), v)
-		}
+		"raw" => doc.set_raw(path, &content()?, v),
+		"raw-default" => doc.set_raw_default(path, &content()?, v),
 		"empty" => doc.set_empty(path),
-		"comment" => doc.set_comment(path, &unescape_ops(v)),
+		"comment" => doc.set_comment(path, &op_text(v)?),
 		"remove" => {
 			doc.remove(path);
 			true

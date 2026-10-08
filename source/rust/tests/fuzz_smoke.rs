@@ -2780,7 +2780,7 @@ fn kept_lines_survive_edits() {
 				5 => (doc.set_empty(&path), format!("empty\t{path}")),
 				6 => (
 					doc.set_raw(&path, "one\n\ttwo", "sh"),
-					format!("raw\t{path}\tsh\tone\\n\\ttwo"),
+					format!("raw\t{path}\tsh\tone◉NEWLINE◉◉TAB◉two"),
 				),
 				7 => {
 					doc.set_banner(true);
@@ -3142,7 +3142,7 @@ fn keeping_lines_ends_each_line_by_the_rule() {
 				}
 				_ => (
 					doc.set_raw(&path, "one\n\ttwo", "sh"),
-					format!("raw\t{path}\tsh\tone\\n\\ttwo"),
+					format!("raw\t{path}\tsh\tone◉NEWLINE◉◉TAB◉two"),
 				),
 			};
 			// An edit that did not take changed nothing, so the script leaves

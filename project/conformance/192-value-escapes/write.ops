@@ -1,6 +1,6 @@
-string	made	tab\there
-string	made-nl	one\ntwo
-string	made-mark	a◉b
+string	made	tab◉TAB◉here
+string	made-nl	one◉NEWLINE◉two
+string	made-mark	a◉ESCAPE_CHAR◉b
 string	made-ctl	abcde
 string	made-cr	ab
 literal	made-crlf	"a◉CRLF◉b"
