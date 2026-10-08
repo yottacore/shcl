@@ -1601,6 +1601,40 @@ def main():
 	# A remove takes every instance it matches, as a read sees them.
 	if mdoc.remove("port") != 2 or mdoc.check_set_path("port") is not shcl.SetPathCheck.Ok:
 		raise SystemExit("remove on a repeated path")
+	test_id("Es9aZSJ", "setters_refuse_text_that_is_not_utf8")
+	# A lone surrogate has no UTF-8 spelling, so no save could write it. Every
+	# setter that takes text refuses it, as Go's refuse bytes that are not
+	# UTF-8: it returns False, writes nothing, and the path checks Ok. The same
+	# cases are in the C runner.
+	utext = "sec:\n\tx: 1\nsrv: a\n"
+	uwant = shcl.Document.parse(utext).to_canonical()
+	ubad = "a\udcffb"
+	for upath, uset in (
+		("s", lambda d: d.set_string("s", ubad)),
+		("s", lambda d: d.set_string_default("s", ubad)),
+		("s", lambda d: d.set_string_array("s", ["ok", ubad])),
+		("s", lambda d: d.set_string_array_default("s", ["ok", ubad])),
+		("sec.x", lambda d: d.set_comment("sec.x", ubad)),
+		("r", lambda d: d.set_raw("r", ubad, "")),
+		("r", lambda d: d.set_raw("r", "body", ubad)),
+		("r", lambda d: d.set_raw_default("r", ubad, "")),
+		("l", lambda d: d.set_literal("l", ubad)),
+		("l", lambda d: d.set_literal("l", f'"{ubad}"')),
+		("l", lambda d: d.set_literal("l", f"[ok, {ubad}]")),
+		("l", lambda d: d.set_literal_default("l", ubad)),
+		(f'"{ubad}"', lambda d: d.set_int(f'"{ubad}"', 1)),
+		(f'"{ubad}".x', lambda d: d.set_int(f'"{ubad}".x', 1)),
+		(f"srv({ubad}).x", lambda d: d.set_int(f"srv({ubad}).x", 1)),
+		(f'srv("{ubad}").x', lambda d: d.set_int(f'srv("{ubad}").x', 1)),
+		(f'"{ubad}"', lambda d: d.set_comment(f'"{ubad}"', "c")),
+	):
+		udoc = shcl.Document.parse(utext)
+		if uset(udoc):
+			raise SystemExit(f"{upath!r}: the setter returned True")
+		if udoc.check_set_path(upath) is not shcl.SetPathCheck.Ok:
+			raise SystemExit(f"{upath!r}: check_set_path = {udoc.check_set_path(upath)}")
+		if udoc.to_canonical() != uwant:
+			raise SystemExit(f"{upath!r}: wrote {udoc.to_canonical()!r}")
 	test_id("Eof29pb", "setters_refuse_a_value_the_reader_refuses")
 	# Each setter is the inverse of its read, so a value with no spelling the
 	# reader accepts fails the write and leaves the document alone. Same
@@ -2712,9 +2746,14 @@ def main():
 		test_id("EoM2uEl", "a_surrogate_save_leaves_no_temp_file")
 		# A document holding a lone surrogate has no UTF-8 spelling; the save
 		# fails like any other failed write, and leaves no temp file behind.
-		surdoc = shcl.Document.parse("a: 1\n")
-		if not surdoc.set_string("s", "\udcff"):
-			raise SystemExit("set_string refused a surrogate")
+		# A setter put the surrogate in until setters refused text with no UTF-8
+		# spelling (2026100815543610); a parse still keeps one.
+		# surdoc = shcl.Document.parse("a: 1\n")
+		# if not surdoc.set_string("s", "\udcff"):
+		# 	raise SystemExit("set_string refused a surrogate")
+		surdoc = shcl.Document.parse("a: 1\ns: \udcff\n")
+		if surdoc.read_string("s").value != "\udcff":
+			raise SystemExit("the parse dropped a surrogate")
 		try:
 			surdoc.save_file(fpath)
 			raise SystemExit("save_file wrote a lone surrogate")

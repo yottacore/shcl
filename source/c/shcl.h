@@ -709,7 +709,8 @@ shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, shcl_upgrade
 // a datetime the reader would refuse, a raw block whose info string holds a
 // `#` or a line break or whose body has a line ending in CR, a comment with a
 // line break, shcl_set_literal text that is not one value, an array on a
-// field with lines under it, or a new field under one holding an array.
+// field with lines under it, a new field under one holding an array, or text
+// that is not valid UTF-8.
 // _default forms return 1 when already present and the path check passes.
 // Worth checking rather than assuming: an ignored 0 means the save that follows
 // writes a document missing the edit, and reports success doing it.
@@ -8160,13 +8161,35 @@ static ShclStr value_half(ShclArena *a, ShclArena *tmp, ShclStr text, ShclTokens
 	return line;
 }
 
+// Whole-buffer UTF-8 validation. The parser assumes well-formed input, so the
+// file tier has to reject bad bytes the way the reference's read-to-string and
+// python's decoding open do, and a setter refuses them, as Go's do, since the
+// next load of the saved file would refuse the whole file.
+static int shcl_utf8_valid(const char *p, size_t n) {
+	size_t i = 0;
+	while (i < n) {
+		unsigned char c = (unsigned char)p[i];
+		if (c < 0x80) { i++; continue; }
+		size_t need; uint32_t cp; uint32_t lo;
+		if ((c >> 5) == 0x6) { need = 1; cp = c & 0x1F; lo = 0x80; }
+		else if ((c >> 4) == 0xE) { need = 2; cp = c & 0x0F; lo = 0x800; }
+		else if ((c >> 3) == 0x1E) { need = 3; cp = c & 0x07; lo = 0x10000; }
+		else return 0;
+		if (i + need >= n) return 0;
+		for (size_t k = 1; k <= need; k++) { unsigned char cc = (unsigned char)p[i + k]; if ((cc & 0xC0) != 0x80) return 0; cp = (cp << 6) | (cc & 0x3F); }
+		if (cp < lo || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) return 0;
+		i += need + 1;
+	}
+	return 1;
+}
+
 /* True when a value comes back off the page as itself. */
 static int value_reads_back(ShclArena *a, const ShclValue *v) {
 	ShclTokens tok; memset(&tok, 0, sizeof tok);
 	if (v->kind == V_EMPTY) return 1;
 	if (v->kind == V_CELL || v->kind == V_ARRAY) {
 		ShclStr text; emit_value_text(a, v, &text);
-		if (text.n && memchr(text.p, '\n', text.n)) return 0;
+		if ((text.n && memchr(text.p, '\n', text.n)) || !shcl_utf8_valid(text.p, text.n)) return 0;
 		ShclStr line = value_half(a, a, text, &tok);
 		ShclFault f;
 		if (tok.has_comment || tok.has_array != (v->kind == V_ARRAY) || array_fault(a, &tok, &f) || value_fault(a, &tok, line, &f)) return 0;
@@ -8183,7 +8206,7 @@ static int value_reads_back(ShclArena *a, const ShclValue *v) {
 	}
 	const ShclRawVal *r = v->raw;
 	ShclStr line = emit_fence_line(a, r);
-	if (line.n && memchr(line.p, '\n', line.n)) return 0;
+	if ((line.n && memchr(line.p, '\n', line.n)) || !shcl_utf8_valid(line.p, line.n) || !shcl_utf8_valid(r->content.p, r->content.n)) return 0;
 	tokenize_value(a, line, 0, SHCL_RULES_CURRENT, &tok);
 	ShclFence f = fence_open(s_slice(line, tok.value_start, tok.value_end));
 	if (!f.ok || f.ch != r->fence_char || f.len != r->fence_len || !s_eq(f.info, r->info)) return 0;
@@ -8202,7 +8225,7 @@ static int value_reads_back(ShclArena *a, const ShclValue *v) {
 /* True when a field name comes back off a line as itself. */
 static int name_reads_back(ShclArena *a, ShclStr name) {
 	ShclStr text = escape_name(a, name);
-	if (text.n && memchr(text.p, '\n', text.n)) return 0;
+	if ((text.n && memchr(text.p, '\n', text.n)) || !shcl_utf8_valid(text.p, text.n)) return 0;
 	ShclTokens tok; memset(&tok, 0, sizeof tok);
 	tokenize(a, text, ':', 0, SHCL_RULES_CURRENT, &tok);
 	return !tok.has_fault && tok.nseg == 1 && !tok.segments[0].has_selector
@@ -8214,7 +8237,7 @@ static int name_reads_back(ShclArena *a, ShclStr name) {
    the trimmed text is what gets written; text holding a line break is refused
    rather than cut down to its first line. */
 static int comment_line(ShclArena *a, ShclStr text, ShclStr *out) {
-	if (text.n && memchr(text.p, '\n', text.n)) return 0;
+	if ((text.n && memchr(text.p, '\n', text.n)) || !shcl_utf8_valid(text.p, text.n)) return 0;
 	ShclStr t = trim_wsp_end(text), line;
 	if (t.n && t.p[0] == '#') line = t;
 	else if (t.n == 0) line = s_lit("#");
@@ -12318,27 +12341,6 @@ int shcl_write_file_atomic(const char *path, const char *data, size_t n) {
 #undef SHCL_FILE_CLEANUP
 #undef SHCL_FILE_UNLINK
 	return ok ? 1 : 0;
-}
-
-// Whole-buffer UTF-8 validation. The parser assumes well-formed input, so the
-// file tier has to reject bad bytes the way the reference's read-to-string and
-// python's decoding open do.
-static int shcl_utf8_valid(const char *p, size_t n) {
-	size_t i = 0;
-	while (i < n) {
-		unsigned char c = (unsigned char)p[i];
-		if (c < 0x80) { i++; continue; }
-		size_t need; uint32_t cp; uint32_t lo;
-		if ((c >> 5) == 0x6) { need = 1; cp = c & 0x1F; lo = 0x80; }
-		else if ((c >> 4) == 0xE) { need = 2; cp = c & 0x0F; lo = 0x800; }
-		else if ((c >> 3) == 0x1E) { need = 3; cp = c & 0x07; lo = 0x10000; }
-		else return 0;
-		if (i + need >= n) return 0;
-		for (size_t k = 1; k <= need; k++) { unsigned char cc = (unsigned char)p[i + k]; if ((cc & 0xC0) != 0x80) return 0; cp = (cp << 6) | (cc & 0x3F); }
-		if (cp < lo || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) return 0;
-		i += need + 1;
-	}
-	return 1;
 }
 
 // File tier, read half on its own: the text of PATH, malloc'd and

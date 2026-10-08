@@ -226,6 +226,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A setter writes only what reads back, and refuses anything else.
 
+- C and Python setters refuse text that is not valid UTF-8, as Go's do. They took it, and the save wrote a file every reader refuses (C) or failed (Python).
+
 - `SetFloat` refuses infinity and NaN, and `SetDateTime` refuses a date that cannot exist.
 
 - `SetLiteral` refuses text a file line would refuse, such as a malformed array or a bad escape.

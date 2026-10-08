@@ -7171,8 +7171,9 @@ class Document:
 		hold, a NaN or infinite float, a datetime the reader would refuse, a raw
 		block whose info string holds a `#` or a line break or whose body has a
 		line ending in CR, a comment with a line break, set_literal text that is
-		not one value, an array on a field with lines under it, or a new field
-		under one holding an array. Worth checking rather than assuming: an
+		not one value, an array on a field with lines under it, a new field
+		under one holding an array, or text with no UTF-8 spelling (a lone
+		surrogate). Worth checking rather than assuming: an
 		ignored False means the save that follows writes a document missing the
 		edit, and reports success doing it. A value of
 		the wrong type is a TypeError (same for every typed setter): int here,
@@ -9226,11 +9227,11 @@ def _quote_with(t, q):
 
 
 def _encodable(text):
-	"""True when the text has UTF-8 bytes for the tokenizer to scan. Python is
-	the one binding whose string can hold a lone surrogate, so it is the one
-	that can be handed text with no spelling at all; the read-back checks let
-	that through rather than refusing it, since the save is where a document
-	that cannot be encoded fails, and always has."""
+	"""True when the text has a UTF-8 spelling. A Python string can hold a
+	lone surrogate, which has none, so a document holding one fails its save.
+	The read-back checks refuse such text, as Go's refuse bytes that are not
+	UTF-8, so a setter never puts one in. A parse still keeps one (see
+	tokenize_value)."""
 	try:
 		text.encode("utf-8")
 	except UnicodeEncodeError:
@@ -9277,10 +9278,8 @@ def _value_reads_back(v):
 		return True
 	if v.kind == "cell" or v.kind == "array":
 		text = _emit_value_text(v)
-		if "\n" in text:
+		if "\n" in text or not _encodable(text):
 			return False
-		if not _encodable(text):
-			return True
 		tok = Tokens()
 		s = _value_half(text, tok)
 		if (tok.comment is not None
@@ -9295,10 +9294,8 @@ def _value_reads_back(v):
 			return False
 		return all(_piece_is(p, tok.src, e.text) for p, e in zip(back, v.els))
 	line = _emit_fence_line(v)
-	if "\n" in line:
+	if "\n" in line or not _encodable(line) or not _encodable(v.content):
 		return False
-	if not _encodable(line):
-		return True
 	tok = Tokens()
 	tokenize_value(line, 0, Rules.CURRENT, tok)
 	if _fence_open(tok.src[tok.value[0]:tok.value[1]].decode("utf-8", "surrogatepass")) != (v.fence_char, v.fence_len, v.info):
@@ -9314,10 +9311,8 @@ def _value_reads_back(v):
 def _name_reads_back(name):
 	"""True when a field name comes back off a line as itself."""
 	text = _escape_name(name)
-	if "\n" in text:
+	if "\n" in text or not _encodable(text):
 		return False
-	if not _encodable(text):
-		return True
 	tok = Tokens()
 	tokenize(text, ":", False, Rules.CURRENT, tok)
 	return (
@@ -9343,7 +9338,7 @@ def _comment_line(text):
 	else:
 		line = "# " + t
 	if not _encodable(line):
-		return line
+		return None
 	tok = Tokens()
 	tokenize_value(line, 0, Rules.CURRENT, tok)
 	if tok.comment == 0 and _trim_wsp_end(line) == line:

@@ -396,6 +396,7 @@ int main() {
 		// A refused value leaves the path check at Ok, as the setter notes say.
 		CHECK(!w.set_float("nan", std::numeric_limits<double>::quiet_NaN()) && w.check_set_path("nan") == shcl::SetPathCheck::Ok);
 		CHECK(!w.set_literal("lit", "a, b") && w.check_set_path("lit") == shcl::SetPathCheck::Ok);
+		CHECK(!w.set_string("u8", "a\xff" "b") && w.check_set_path("u8") == shcl::SetPathCheck::Ok);
 		CHECK(w.remove("blank") == 1 && !w.exists("blank") && w.remove("blank") == 0);
 
 		// A default form leaves a present field alone and still says whether the

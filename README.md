@@ -1042,7 +1042,7 @@ A setter returns failure - `false`, or `0` in C - when it writes nothing, and no
 
 - A new field under one that holds an array.
 
-Go also refuses text that is not valid UTF-8, and Python an int outside the 64-bit range.
+Go, Python and C also refuse text that is not valid UTF-8, which a Rust string can't hold, and Python an int outside the 64-bit range.
 
 Check that answer rather than assuming it: an ignored failure means the save that follows writes a config missing the edit, and reports success doing it. In Rust the setters are `#[must_use]`, so dropping the answer is a compile warning.
 

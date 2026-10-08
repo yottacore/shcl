@@ -3043,6 +3043,59 @@ int main(int argc, char **argv) {
 		}
 		free(want);
 	}
+	// Text that is not valid UTF-8 would save as a file whose next load fails
+	// whole. Every setter that takes text refuses it, as Go's do: it returns 0,
+	// writes nothing, and the path checks OK. The same cases are in the Python
+	// runner, with a lone surrogate.
+	test_id("Es9aZSK", "setters_refuse_text_that_is_not_utf8");
+	{
+		const char *ut = "sec:\n\tx: 1\nsrv: a\n";
+		shcl_doc *base = shcl_parse(ut, strlen(ut));
+		shcl_str bw = shcl_to_canonical(base);
+		char *want = malloc(bw.n + 1);
+		if (!want) { fprintf(stderr, "out of memory\n"); exit(1); }
+		memcpy(want, bw.p, bw.n);
+		size_t wantn = bw.n;
+		shcl_free(base);
+		static const char bad[] = "a\xff" "b", cut[] = "a\xc3", sur[] = "a\xed\xa0\x80" "b", over[] = "a\xc0\xaf";
+		const char *const arr[] = {"ok", bad};
+		const size_t lens[] = {2, sizeof bad - 1};
+		static const char *const at[] = {
+			"s", "s", "s", "s", "s", "s", "sec.x", "r", "r", "r", "l", "l", "l", "l",
+			"\"a\xff" "b\"", "\"a\xff" "b\".x", "srv(a\xff" "b).x", "srv(\"a\xff" "b\").x", "\"a\xff" "b\"",
+		};
+		for (size_t i = 0; i < sizeof at / sizeof at[0]; i++) {
+			shcl_doc *ud = shcl_parse(ut, strlen(ut));
+			const char *p = at[i]; size_t pn = strlen(p);
+			int took = 1;
+			switch (i) {
+			case 0: took = shcl_set_string(ud, p, pn, bad, sizeof bad - 1); break;
+			case 1: took = shcl_set_string(ud, p, pn, cut, sizeof cut - 1); break;
+			case 2: took = shcl_set_string(ud, p, pn, sur, sizeof sur - 1); break;
+			case 3: took = shcl_set_string(ud, p, pn, over, sizeof over - 1); break;
+			case 4: took = shcl_set_string_default(ud, p, pn, bad, sizeof bad - 1); break;
+			case 5: took = shcl_set_string_array(ud, p, pn, arr, lens, 2) || shcl_set_string_array_default(ud, p, pn, arr, lens, 2); break;
+			case 6: took = shcl_set_comment(ud, p, pn, bad, sizeof bad - 1); break;
+			case 7: took = shcl_set_raw(ud, p, pn, bad, sizeof bad - 1, "", 0); break;
+			case 8: took = shcl_set_raw(ud, p, pn, "body", 4, bad, sizeof bad - 1); break;
+			case 9: took = shcl_set_raw_default(ud, p, pn, bad, sizeof bad - 1, "", 0); break;
+			case 10: took = shcl_set_literal(ud, p, pn, bad, sizeof bad - 1); break;
+			case 11: took = shcl_set_literal(ud, p, pn, "\"a\xff" "b\"", 5); break;
+			case 12: took = shcl_set_literal(ud, p, pn, "[ok, a\xff" "b]", 9); break;
+			case 13: took = shcl_set_literal_default(ud, p, pn, bad, sizeof bad - 1); break;
+			case 18: took = shcl_set_comment(ud, p, pn, "c", 1); break;
+			default: took = shcl_set_int(ud, p, pn, 1); break;
+			}
+			char what[32];
+			snprintf(what, sizeof what, "case %zu", i);
+			if (took) fail("not_utf8", what);
+			if (shcl_check_set_path(ud, p, pn) != SHCL_SET_PATH_OK) fail("not_utf8", what);
+			shcl_str got = shcl_to_canonical(ud);
+			if (got.n != wantn || memcmp(got.p, want, wantn)) fail("not_utf8", what);
+			shcl_free(ud);
+		}
+		free(want);
+	}
 	// A setter on a path that matches more than one field at any step writes
 	// nothing and the path checks MULTIPLE, so a write never says 1 where the
 	// read after it would say Multiple. An index or value selector picks one.
