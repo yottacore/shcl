@@ -328,6 +328,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `set` skips a byte order mark at the start of its ops, which Windows PowerShell 5.1 adds to piped text.
 
+- `set` says it is reading ops from stdin only when stdin is a terminal.
+
 - `set --write` says when it had to save the canonical form instead of keeping the lines.
 
 - The Go and Python CLIs report a file that will not open as the file name and the system's message.

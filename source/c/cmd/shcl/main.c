@@ -1619,6 +1619,16 @@ static void op_err(size_t lineno, const char *fmt, ...) {
 	fputc('\n', stderr);
 }
 
+// Windows calls NUL a terminal through _isatty, so a console mode decides there.
+static int stdin_is_terminal(void) {
+#ifdef _WIN32
+	DWORD mode;
+	return GetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), &mode) != 0;
+#else
+	return isatty(STDIN_FILENO);
+#endif
+}
+
 // op_text for one field of op line LINENO, saying why on a failure. 1 with the
 // text in *out for the caller to free, else 0 with nothing to free.
 static int op_field(size_t lineno, const char *path, size_t plen, const char *in, size_t n, char **out, size_t *outn) {
@@ -1780,10 +1790,10 @@ static int do_set(Opts *o) {
 	// block on the console for anyone who passed edits as options.
 	size_t opslen = 0; char *ops = NULL;
 	if (o->nsets == 0) {
-		// Say so before blocking. With nothing on stdin this used to sit there
-		// silently, which reads as a hang rather than as a prompt; the note is
-		// unconditional so a pipeline and a terminal behave identically.
-		fprintf(stderr, "shcl: reading write-ops from stdin (one op per line, tab-separated; end with EOF)\n");
+		// Say so before blocking at a terminal, where nothing on stdin used to
+		// read as a hang. A pipe gets no note, since a script piping ops in
+		// knows (2026100717500018).
+		if (stdin_is_terminal()) fprintf(stderr, "shcl: reading write-ops from stdin (one op per line, tab-separated; end with EOF)\n");
 		ops = read_all_fp(stdin, &opslen);
 		// The ops script gets the same UTF-8 gate as any file input (exit 1).
 		if (!utf8_valid(ops, opslen)) {

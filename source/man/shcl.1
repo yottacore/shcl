@@ -712,7 +712,9 @@ or
 between two U+25C9 marks, so a tab or a line break fits on one op line. A
 backslash is text. A line starting with
 .B #
-is a script comment. A
+is a script comment. At a terminal,
+.B set
+says on stderr that it is waiting for the ops. A
 .B raw
 op's INFO may not hold a line break or a
 .BR # ,

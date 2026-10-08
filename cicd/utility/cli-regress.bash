@@ -118,6 +118,8 @@ printf '\r  b[c: 2\n' > "${tmpDir}/colcr.shcl"
 printf 'field: ns\n\ttype: int-array\n\tmax: 10\nfield: fs\n\ttype: float-array\n\tmin: 1.0\n' > "${tmpDir}/range.shcl"
 printf 'ns: [5, 20, 3]\nfs: [2.0, 0.5, 4.0]\n' > "${tmpDir}/outofrange.shcl"
 printf '"x.y": 1\n' > "${tmpDir}/dotname.shcl"
+## Script comments past any pipe's buffer, for the @appear and @change rows.
+awk 'BEGIN{ for (i = 0; i < 16384; i++) printf "# %061d\n", i }' > "${tmpDir}/opsfill"
 ## Schema paths and a type with a line break. Every code that names schema
 ## text printed it raw, so one diagnostic arrived as two stderr lines. The
 ## break is the value's NEWLINE escape, so the path text holds a real one.
@@ -1650,19 +1652,19 @@ for row in "${rows[@]}"; do
 			-)          timeout "${rowSecs}" "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" </dev/null || rc=$? ;;
 			@asciilocale) PYTHONIOENCODING=ascii LC_ALL=C timeout "${rowSecs}" "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" </dev/null || rc=$? ;;
 			@memcap)    (ulimit -v 2000000; exec timeout "${rowSecs}" "${cli}" "${args[@]}") >"${tmpDir}/out" 2>"${tmpDir}/err" </dev/null || rc=$? ;;
-			## The file turns up while the command waits on stdin: after its
-			## notice and before the ops, so the create has already been decided.
+			## The file turns up while the command waits on stdin: once it is
+			## reading the ops, so the create has already been decided.
 			## @change: the file is there first and changes during the wait.
+			## The notice used to say when; a pipe gets none since
+			## 2026100717500018. A write of more script comments than any pipe
+			## holds returns only once the command is reading them.
 			@appear|@change)
 				[[ "${stdinSpec}" == @change ]] && printf 'a: 1\n' >"${tmpDir}/created.shcl"
 				rm -f "${tmpDir}/in.fifo"; mkfifo "${tmpDir}/in.fifo"
 				timeout "${rowSecs}" "${cli}" "${args[@]}" >"${tmpDir}/out" 2>"${tmpDir}/err" <"${tmpDir}/in.fifo" &
 				appearPid=$!
 				exec {fifoFd}>"${tmpDir}/in.fifo"
-				for ((w = 0; w < 200; w++)); do
-					grep -q 'reading write-ops' "${tmpDir}/err" && break
-					sleep 0.05
-				done
+				cat "${tmpDir}/opsfill" >&"${fifoFd}" || true
 				if [[ "${stdinSpec}" == @change ]]; then
 					printf 'a: 1\nb: 2\n' >"${tmpDir}/created.shcl"
 				else
@@ -1700,8 +1702,7 @@ for row in "${rows[@]}"; do
 			fi
 		fi
 		if [[ "${wantErr}" != "-" ]]; then
-			## The stdin notice is a prompt, not a diagnostic; it is not what a row is about.
-			gotErr="$(grep -v 'reading write-ops from stdin' "${tmpDir}/err" || true)"
+			gotErr="$(cat -- "${tmpDir}/err")"
 			if [[ "${wantErr}" == =* ]]; then
 				IFS= read -r -d '' gotErr <"${tmpDir}/err" || true
 				printf -v expErr '%b' "${wantErr#=}"
@@ -1722,7 +1723,7 @@ done
 ## 20260817 item 28: a bare run printed the help and exited 1, -v was refused
 ## while -V worked, and set sat on stdin saying nothing. Checked against help
 ## and -V rather than a spelling, since the version moves every release. The
-## row loop drops the stdin notice from stderr, so it is checked here.
+## stdin notice is checked after these.
 fTest Er1zoZJ bare-and-short-v
 for b in "${bindings[@]}"; do
 	name="${b%%|*}"; cli="${b#*|}"
@@ -1776,16 +1777,54 @@ for b in "${bindings[@]}"; do
 		fi
 	done
 done
-fTest EqzuLW2 set-stdin-notice
+## The notice went out whatever stdin was until 2026100717500018, so a script
+## piping ops in got it on every run. Only a terminal gets it now.
+#fTest EqzuLW2 set-stdin-notice
+#for b in "${bindings[@]}"; do
+#	name="${b%%|*}"; cli="${b#*|}"
+#	rc=0; "${cli}" set "${tmpDir}/ok.shcl" >/dev/null 2>"${tmpDir}/err" </dev/null || rc=$?
+#	nRun+=1
+#	gotErr=""; IFS= read -r -d '' gotErr <"${tmpDir}/err" || true
+#	if [[ "${rc}" != 0 || "${gotErr}" != $'shcl: reading write-ops from stdin (one op per line, tab-separated; end with EOF)\n' ]]; then
+#		echo "cli-regress: set-stdin-notice [${name}]: exit ${rc}, stderr ${gotErr@Q}" >&2; nBad+=1
+#	fi
+#done
+fTest Es8bB5G set-stdin-no-notice
 for b in "${bindings[@]}"; do
 	name="${b%%|*}"; cli="${b#*|}"
-	rc=0; "${cli}" set "${tmpDir}/ok.shcl" >/dev/null 2>"${tmpDir}/err" </dev/null || rc=$?
-	nRun+=1
-	gotErr=""; IFS= read -r -d '' gotErr <"${tmpDir}/err" || true
-	if [[ "${rc}" != 0 || "${gotErr}" != $'shcl: reading write-ops from stdin (one op per line, tab-separated; end with EOF)\n' ]]; then
-		echo "cli-regress: set-stdin-notice [${name}]: exit ${rc}, stderr ${gotErr@Q}" >&2; nBad+=1
-	fi
+	for how in null pipe; do
+		rc=0
+		if [[ "${how}" == null ]]; then "${cli}" set "${tmpDir}/ok.shcl" >/dev/null 2>"${tmpDir}/err" </dev/null || rc=$?
+		else printf 'int\tx\t1\n' | "${cli}" set "${tmpDir}/ok.shcl" >/dev/null 2>"${tmpDir}/err" || rc=$?; fi
+		nRun+=1
+		if [[ "${rc}" != 0 || -s "${tmpDir}/err" ]]; then
+			echo "cli-regress: set-stdin-no-notice [${name}]: stdin from ${how}, exit ${rc}, stderr $(cat -- "${tmpDir}/err")" >&2; nBad+=1
+		fi
+	done
 done
+## At a terminal the notice is what keeps the wait from reading as a hang. The
+## terminal gets EOF before the command starts, so the ops script is empty.
+fTest Es8bB5H set-stdin-notice-terminal
+if [[ "${onWindows}" == 1 ]] || ! command -v python3 >/dev/null 2>&1; then
+	echo "cli-regress: skipping set-stdin-notice-terminal (needs python3 and a POSIX terminal)"
+	fTestSkip
+else
+	for b in "${bindings[@]}"; do
+		name="${b%%|*}"; cli="${b#*|}"
+		rc=0
+		python3 -c '
+import os, subprocess, sys
+master, slave = os.openpty()
+os.write(master, b"\x04")
+sys.exit(subprocess.run(sys.argv[1:], stdin=slave, stdout=subprocess.DEVNULL, timeout=60).returncode)
+' "${cli}" set "${tmpDir}/ok.shcl" 2>"${tmpDir}/err" </dev/null || rc=$?
+		nRun+=1
+		gotErr=""; IFS= read -r -d '' gotErr <"${tmpDir}/err" || true
+		if [[ "${rc}" != 0 || "${gotErr}" != $'shcl: reading write-ops from stdin (one op per line, tab-separated; end with EOF)\n' ]]; then
+			echo "cli-regress: set-stdin-notice-terminal [${name}]: exit ${rc}, stderr ${gotErr@Q}" >&2; nBad+=1
+		fi
+	done
+fi
 
 ## 20260716 item 25: a reader that leaves early got three exit codes, 134 from
 ## the reference's abort, 141 from Go and 0 from Python. Settled as dying of

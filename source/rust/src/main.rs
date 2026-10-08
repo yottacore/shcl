@@ -2838,12 +2838,16 @@ fn do_set(o: &Opts) -> u8 {
 	// block on the console for anyone who passed edits as options.
 	let mut ops = String::new();
 	if o.sets.is_empty() {
-		use std::io::Read;
-		// Say so before blocking. With nothing on stdin this used to sit there
-		// silently, which reads as a hang rather than as a prompt; the note is
-		// unconditional so a pipeline and a terminal behave identically. The
-		// program-name prefix marks it as a notice; errors have none.
-		errln!("shcl: reading write-ops from stdin (one op per line, tab-separated; end with EOF)");
+		use std::io::{IsTerminal, Read};
+		// Say so before blocking at a terminal, where nothing on stdin used to
+		// read as a hang. A pipe gets no note, since a script piping ops in
+		// knows (2026100717500018). The program-name prefix marks it as a
+		// notice; errors have none.
+		if std::io::stdin().is_terminal() {
+			errln!(
+				"shcl: reading write-ops from stdin (one op per line, tab-separated; end with EOF)"
+			);
+		}
 		if let Err(e) = std::io::stdin().read_to_string(&mut ops) {
 			errln!("stdin: {}", e);
 			return EXIT_IO;

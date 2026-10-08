@@ -1901,6 +1901,22 @@ def _op_text(s):
 	return doc.read_string("v").value
 
 
+def _stdin_is_terminal():
+	# Windows calls NUL a terminal through isatty, so a console mode decides there.
+	try:
+		if sys.stdin is None or not sys.stdin.isatty():
+			return False
+	except (OSError, ValueError):
+		return False
+	if os.name != "nt":
+		return True
+	import ctypes
+	import msvcrt
+	mode = ctypes.c_ulong()
+	k32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+	return bool(k32.GetConsoleMode(msvcrt.get_osfhandle(sys.stdin.fileno()), ctypes.byref(mode)))  # type: ignore[attr-defined]
+
+
 def _op_dt(s):
 	dt = shcl.parse_datetime(s)
 	if dt is None:
@@ -2154,13 +2170,14 @@ def do_set(o):
 	# bad bytes are a hard error, never silently replaced.
 	ops = ""
 	if not o.sets:
-		# Say so before blocking. With nothing on stdin this used to sit there
-		# silently, which reads as a hang rather than as a prompt; the note is
-		# unconditional so a pipeline and a terminal behave identically. The
-		# program-name prefix marks it as a notice; errors have none.
-		sys.stderr.write(
-			"shcl: reading write-ops from stdin (one op per line, tab-separated; end with EOF)\n"
-		)
+		# Say so before blocking at a terminal, where nothing on stdin used to
+		# read as a hang. A pipe gets no note, since a script piping ops in
+		# knows (2026100717500018). The program-name prefix marks it as a
+		# notice; errors have none.
+		if _stdin_is_terminal():
+			sys.stderr.write(
+				"shcl: reading write-ops from stdin (one op per line, tab-separated; end with EOF)\n"
+			)
 		try:
 			ops = sys.stdin.buffer.read().decode("utf-8")
 		except UnicodeDecodeError:

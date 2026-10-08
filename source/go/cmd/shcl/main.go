@@ -3030,11 +3030,13 @@ func doSet(o *opts) int {
 	var ops []byte
 	if len(o.sets) == 0 {
 		var err error
-		// Say so before blocking. With nothing on stdin this used to sit there
-		// silently, which reads as a hang rather than as a prompt; the note is
-		// unconditional so a pipeline and a terminal behave identically. The
-		// program-name prefix marks it as a notice; errors have none.
-		fmt.Fprintln(os.Stderr, "shcl: reading write-ops from stdin (one op per line, tab-separated; end with EOF)")
+		// Say so before blocking at a terminal, where nothing on stdin used to
+		// read as a hang. A pipe gets no note, since a script piping ops in
+		// knows (2026100717500018). The program-name prefix marks it as a
+		// notice; errors have none.
+		if stdinIsTerminal() {
+			fmt.Fprintln(os.Stderr, "shcl: reading write-ops from stdin (one op per line, tab-separated; end with EOF)")
+		}
 		ops, err = io.ReadAll(os.Stdin)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "stdin: %s\n", err)
@@ -3134,6 +3136,13 @@ const schemaLineMax = 16 << 20
 // openNoWait opens a Schema line's file. The POSIX build swaps in an open that
 // does not wait on a FIFO; windows has none at a path.
 var openNoWait = os.Open
+
+// stdinIsTerminal says whether stdin is a terminal. The platform builds swap in
+// an exact test; a character device is the guess elsewhere, /dev/null included.
+var stdinIsTerminal = func() bool {
+	fi, err := os.Stdin.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+}
 
 // readNamedSchema reads the schema a Schema line names. A line in a file
 // someone else wrote must not make an unattended check wait on a FIFO or read
