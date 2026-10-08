@@ -2522,12 +2522,12 @@ for b in "${bindings[@]}"; do
 				if ($0 == "") { start = 1; next }
 				if (start) { head = $0; start = 0; n++ }
 				if (head ~ /^(shcl - |Usage:|Types \(|Options \()/) next
-				owner[$0] = head; para[n] = para[n] $0 "\n"; first[n] = head
+				whose[$0] = head; para[n] = para[n] $0 "\n"; first[n] = head
 				next
 			}
 			{ got = got $0 "\n" }
-			($0 in owner) && index(owner[$0], cmd) != 1 {
-				print "line " FNR " is from the paragraph opening \"" substr(owner[$0], 1, 30) "\""
+			($0 in whose) && index(whose[$0], cmd) != 1 {
+				print "line " FNR " is from the paragraph opening \"" substr(whose[$0], 1, 30) "\""
 			}
 			END {
 				for (i = 1; i <= n; i++)
