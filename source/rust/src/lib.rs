@@ -69,7 +69,9 @@ pub struct Diagnostic {
 }
 
 /// Read status sentinels. `Empty` is informational - the empty value is still returned.
-/// Ordered by severity so a worst-of aggregate is just `max`.
+/// Ordered by severity so a worst-of aggregate is just `max`. `BadPath` is a
+/// path the scanner refuses or one with a `: value` part, so it never got as
+/// far as the document; `NotFound` is a usable path that matched nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Status {
 	Good,
@@ -77,6 +79,7 @@ pub enum Status {
 	NotFound,
 	BadType,
 	Multiple,
+	BadPath,
 }
 
 impl std::fmt::Display for Status {
@@ -89,6 +92,7 @@ impl std::fmt::Display for Status {
 			Status::NotFound => "NotFound",
 			Status::BadType => "BadType",
 			Status::Multiple => "Multiple",
+			Status::BadPath => "BadPath",
 		})
 	}
 }
@@ -9471,9 +9475,11 @@ impl Document {
 	}
 
 	fn resolve_mode(&self, path: &str, group: bool) -> Result<Resolved, Status> {
-		let scan = scan_lookup(path).map_err(|_| Status::NotFound)?;
-		if scan.value.is_some() {
-			return Err(Status::NotFound); // a query has no value part
+		// The same paths write_reason calls BadPath or ValueInPath: a query
+		// has no value part, and an empty one names nothing.
+		let scan = scan_lookup(path).map_err(|_| Status::BadPath)?;
+		if scan.value.is_some() || scan.segments.is_empty() {
+			return Err(Status::BadPath);
 		}
 		Ok(self.resolve_from(&[ROOT], &scan.segments, group))
 	}

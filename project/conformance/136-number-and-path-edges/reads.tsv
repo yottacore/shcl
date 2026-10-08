@@ -10,11 +10,11 @@ list	int[]	7|5|0	Good
 glued	string	-	NotFound
 glued	int	-	NotFound
 sq	string	-	NotFound
-srv()	string	-	NotFound
-srv().port	int	-	NotFound
+srv()	string	-	BadPath
+srv().port	int	-	BadPath
 srv(+0).port	int	80	Good
 srv(+0).port	int	80	Good
-.pad	int	-	NotFound
-pad.	int	-	NotFound
-a..b	int	-	NotFound
-..	int	-	NotFound
+.pad	int	-	BadPath
+pad.	int	-	BadPath
+a..b	int	-	BadPath
+..	int	-	BadPath

@@ -56,6 +56,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Go's `Read.OK()` is removed. Use `Ok()`.
 
+- A read status has a new last value, `BadPath`, so a match that names every status needs one more arm. Go's `WriteReason` value `BadPath` is `WriteBadPath`, since the name is the read status now.
+
 - The C++ veneer's `read_datetime_array` returns structured values. The text form is `read_datetime_array_str`.
 
 - C++ no longer shows the C interface: a file including `shcl.hpp` gets no `shcl.h`, only the implementation file does. The calls the other bindings have as free functions are free here too (`migrate`, `format_version`, `generate`, `tokenize`, `quote_segment`, `read_file`, `write_file_atomic`, `suppress_declared_*`). `load_file` returns the document with its status, `generate` returns the faults, `Datetime` is `DateTime` with the reference's fields, and `Diagnostic.is_error` is `severity`.
@@ -201,6 +203,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - An array read of a one-element cell reports its quoting.
 
 - The info-string of an empty binding reads `Empty`.
+
+- A path that cannot be read as a path, such as `site[0].port`, `a..b` or one with a `: value` part, reads `BadPath`, where it read `NotFound`. The `_or` reads still give their fallback, and Python's value for it is 1, the CLI's usage exit.
 
 ### Writes and saving
 

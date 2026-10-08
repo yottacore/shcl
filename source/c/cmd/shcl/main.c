@@ -841,8 +841,8 @@ static const char *bad_path(const char *path, size_t plen) {
 }
 
 // A read's PATH that cannot parse is a usage error, the same as --remove's.
-// The library reads it as NotFound, so `get --default` would print the
-// default at exit 0 and a 2.x script would never hear about it.
+// The library's _or reads give their default for it, so `get --default`
+// would print the default at exit 0 and a 2.x script would never hear about it.
 static int refuse_read_path(const char *path, size_t plen) {
 	shcl_doc *empty = shcl_parse("", 0);
 	int unusable = unusable_path(empty, path, plen);
@@ -1035,6 +1035,9 @@ static int do_get(Opts *o) {
 			fprintf(stderr, "cannot read %s as %s: no value at that path (in %s)\n", path, tbuf, file);
 		} else if (status == SHCL_EMPTY) {
 			fprintf(stderr, "cannot read %s as %s: the value is empty (in %s)\n", path, tbuf, file);
+		} else if (status == SHCL_BAD_PATH) {
+			// Refused before the load, so only a library read meets it.
+			fprintf(stderr, "cannot read %s as %s: not a usable path (in %s)\n", path, tbuf, file);
 		} else {
 			fprintf(stderr, "cannot read %s as %s: the path matches multiple instances (in %s)\n", path, tbuf, file);
 		}

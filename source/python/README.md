@@ -27,7 +27,7 @@ if file_status is FileStatus.NotFound:
 # One call, a typed value, a visible fallback at the call site.
 limit = doc.get_int("site(example.com).max-upload-mb", default=10)
 
-# Or ask why a read failed: Good, Empty, NotFound, BadType, Multiple.
+# Or ask why a read failed: Good, Empty, NotFound, BadType, Multiple, BadPath.
 r = doc.read_int("site(example.com).max-upload-mb")
 if r.status is not Status.Good:
 	print(r.status, r.raw)

@@ -3,6 +3,6 @@ query	type	expected	status
 -	load	fail	-	strict
 a	string	-	NotFound
 a(x#y).b	int	-	NotFound
-b(#5).c	string	-	NotFound
+b(#5).c	string	-	BadPath
 ok	int	2	Good
 -	lost	0	-

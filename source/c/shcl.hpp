@@ -38,8 +38,10 @@ namespace shcl {
 enum class Strictness { Loose, Standard, Strict };
 // Only Error fails a strict load; Hint flags legal but lookalike input.
 enum class Severity { Error, Hint };
-// Empty is informational: the empty value still comes back.
-enum class Status { Good, Empty, NotFound, BadType, Multiple };
+// Empty is informational: the empty value still comes back. BadPath is a path
+// the scanner refused or one with a `: value` part; NotFound is a usable path
+// that matched nothing.
+enum class Status { Good, Empty, NotFound, BadType, Multiple, BadPath };
 // Why a write would fail: the distinctions behind a setter's bare false.
 enum class WriteReason { Writable, BadPath, ValueInPath, Wildcard, NoSuchIndex, TooDeep };
 // The unit a duration or size read gives a bare number, when the field name
@@ -583,7 +585,8 @@ namespace shcl {
 static_assert(static_cast<int>(Strictness::Loose) == SHCL_LOOSE && static_cast<int>(Strictness::Standard) == SHCL_STANDARD && static_cast<int>(Strictness::Strict) == SHCL_STRICT, "Strictness drifted from shcl_strictness");
 static_assert(static_cast<int>(Severity::Error) == SHCL_SEV_ERROR && static_cast<int>(Severity::Hint) == SHCL_SEV_HINT, "Severity drifted from shcl_severity");
 static_assert(static_cast<int>(Status::Good) == SHCL_GOOD && static_cast<int>(Status::Empty) == SHCL_EMPTY && static_cast<int>(Status::NotFound) == SHCL_NOT_FOUND
-	&& static_cast<int>(Status::BadType) == SHCL_BAD_TYPE && static_cast<int>(Status::Multiple) == SHCL_MULTIPLE, "Status drifted from shcl_status");
+	&& static_cast<int>(Status::BadType) == SHCL_BAD_TYPE && static_cast<int>(Status::Multiple) == SHCL_MULTIPLE
+	&& static_cast<int>(Status::BadPath) == SHCL_BAD_PATH, "Status drifted from shcl_status");
 static_assert(static_cast<int>(WriteReason::Writable) == SHCL_W_WRITABLE && static_cast<int>(WriteReason::BadPath) == SHCL_W_BAD_PATH
 	&& static_cast<int>(WriteReason::ValueInPath) == SHCL_W_VALUE_IN_PATH && static_cast<int>(WriteReason::Wildcard) == SHCL_W_WILDCARD
 	&& static_cast<int>(WriteReason::NoSuchIndex) == SHCL_W_NO_SUCH_INDEX && static_cast<int>(WriteReason::TooDeep) == SHCL_W_TOO_DEEP, "WriteReason drifted from shcl_write_reason");

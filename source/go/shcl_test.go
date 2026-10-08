@@ -1013,6 +1013,68 @@ func TestNulNameDoesNotSatisfyADottedSchemaPath(t *testing.T) {
 	}
 }
 
+// A path the scanner refuses, or one with a value part, is BadPath on every
+// read with a status, where a path that parses and finds nothing stays
+// NotFound. The no-status calls give their empty answer and Or its default.
+// Same fixture in every runner.
+func TestBadPathReadsSayBadPath(t *testing.T) {
+	defer testID(t, "Es9JVrY")
+	doc := Parse("site: a\n\tport: 1\n")
+	if st := doc.ReadInt("site(0).port").Status; st != Good {
+		t.Fatalf("site(0).port: %v", st)
+	}
+	if st := doc.ReadInt("nope").Status; st != NotFound {
+		t.Fatalf("nope: %v", st)
+	}
+	for _, p := range []string{"site[0].port", "site(.port", "site..port", "", "user name", "site.port: 1", "h:p"} {
+		r := doc.ReadInt(p)
+		if r.Status != BadPath || r.Value != 0 || r.Raw != nil {
+			t.Errorf("ReadInt(%q) = %v %v %v", p, r.Status, r.Value, r.Raw)
+		}
+		sts := []Status{
+			doc.ReadFloat(p).Status, doc.ReadBool(p).Status, doc.ReadString(p).Status,
+			doc.ReadRaw(p).Status, doc.ReadRawInfo(p).Status, doc.ReadDateTime(p).Status,
+			doc.ReadDuration(p, DurationNone).Status, doc.ReadSize(p, SizeNone, false).Status,
+			doc.ReadFloatArray(p).Status, doc.ReadBoolArray(p).Status,
+			doc.ReadStringArray(p).Status, doc.ReadDateTimeArray(p).Status,
+		}
+		for i, st := range sts {
+			if st != BadPath {
+				t.Errorf("read %d of %q: %v", i, p, st)
+			}
+		}
+		if a := doc.ReadIntArray(p); a.Status != BadPath || len(a.Value) != 0 || len(a.Slots) != 0 {
+			t.Errorf("ReadIntArray(%q) = %v %v %v", p, a.Status, a.Value, a.Slots)
+		}
+		if _, st := doc.GetInt(p); st != BadPath {
+			t.Errorf("GetInt(%q): %v", p, st)
+		}
+		if _, st := doc.GetStringArray(p); st != BadPath {
+			t.Errorf("GetStringArray(%q): %v", p, st)
+		}
+		if v := doc.GetIntOr(p, 8); v != 8 {
+			t.Errorf("GetIntOr(%q) = %d", p, v)
+		}
+		if n := doc.Count(p); n != 0 {
+			t.Errorf("Count(%q) = %d", p, n)
+		}
+		if v := doc.Instances(p); len(v) != 0 {
+			t.Errorf("Instances(%q) = %v", p, v)
+		}
+		if v := doc.Children(p); p != "" && len(v) != 0 {
+			t.Errorf("Children(%q) = %v", p, v)
+		}
+	}
+	// The empty path is the top level for Children, as documented.
+	if v := doc.Children(""); !reflect.DeepEqual(v, []string{"site"}) {
+		t.Errorf("Children(\"\") = %v", v)
+	}
+	// Last in the order, so a worst-of aggregate puts it on top.
+	if BadPath <= Multiple || BadPath.String() != "BadPath" {
+		t.Errorf("BadPath order or name: %d %q", BadPath, BadPath.String())
+	}
+}
+
 func TestWriteReasonNamesTheFailure(t *testing.T) {
 	defer testID(t, "ElouJ8L")
 	// The reason behind a setter's bare false. Same fixture in every runner.
@@ -1023,10 +1085,10 @@ func TestWriteReasonNamesTheFailure(t *testing.T) {
 	if got := doc.WriteReason("a.new(Boston).x"); got != Writable { // creatable
 		t.Errorf("a.new(Boston).x: got %v, want Writable", got)
 	}
-	if got := doc.WriteReason(""); got != BadPath {
+	if got := doc.WriteReason(""); got != WriteBadPath {
 		t.Errorf("empty path: got %v, want BadPath", got)
 	}
-	if got := doc.WriteReason("a..b"); got != BadPath {
+	if got := doc.WriteReason("a..b"); got != WriteBadPath {
 		t.Errorf("a..b: got %v, want BadPath", got)
 	}
 	if got := doc.WriteReason("a.b: 2"); got != ValueInPath {
@@ -4257,13 +4319,17 @@ func TestBracketSelectorsAreTheOldSpelling(t *testing.T) {
 	if n := doc.Count("srv"); n != 1 {
 		t.Fatalf("srv count %d", n)
 	}
-	if st := doc.ReadString("srv[web].host").Status; st != NotFound {
+	// Was NotFound until reads got BadPath (2026100717500001).
+	// if st := doc.ReadString("srv[web].host").Status; st != NotFound {
+	// 	t.Fatalf("srv[web].host status %v", st)
+	// }
+	if st := doc.ReadString("srv[web].host").Status; st != BadPath {
 		t.Fatalf("srv[web].host status %v", st)
 	}
 	if n := doc.Count("srv[web]"); n != 0 {
 		t.Fatalf("srv[web] count %d", n)
 	}
-	for path, want := range map[string]WriteReason{"srv[web].x": BadPath, "srv(#0).x": BadPath, "srv(0).x": Writable} {
+	for path, want := range map[string]WriteReason{"srv[web].x": WriteBadPath, "srv(#0).x": WriteBadPath, "srv(0).x": Writable} {
 		if got := doc.WriteReason(path); got != want {
 			t.Errorf("WriteReason(%q) = %v, want %v", path, got, want)
 		}

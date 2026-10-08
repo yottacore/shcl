@@ -9,6 +9,6 @@ stage	count	2	Good
 srv	count	1	Good
 srv("20000000000000000000").port	int	2	Good
 tags	count	0	Good
-tags(a, b, c).x	int	-	NotFound
+tags(a, b, c).x	int	-	BadPath
 repo	count	1	Good
 repo("org/name#123").branch	string	main	Good

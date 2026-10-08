@@ -125,12 +125,20 @@ class Severity(Enum):
 
 
 class Status(Enum):
-	# Values are the CLI exit codes, so status_code is just Status.value.
+	# Values are the CLI exit codes, so status_code is just Status.value. The
+	# order is severity, so a worst-of aggregate takes the last; BadPath is
+	# last, with the usage exit 1. BadPath is a path the scanner refused or one
+	# with a `: value` part; NotFound is a usable path that matched nothing.
 	Good = 0
 	Empty = 2
 	NotFound = 3
 	BadType = 4
 	Multiple = 5
+	BadPath = 1
+
+
+# Severity, for a worst-of aggregate: the values are exit codes, not an order.
+_STATUS_ORDER = {s: i for i, s in enumerate(Status)}
 
 
 class WriteReason(Enum):
@@ -6276,12 +6284,14 @@ class Document:
 		# Returns a _resolve_from result, or ("err", Status). group puts every
 		# node behind a wildcard slot in the list, for the callers that act on
 		# the whole match rather than read one value per instance.
+		# The same paths write_reason calls BadPath or ValueInPath: a query has
+		# no value part, and an empty one names nothing.
 		try:
 			segments, value_text = _scan_lookup(path)
 		except _PathError:
-			return ("err", Status.NotFound)
-		if value_text is not None:
-			return ("err", Status.NotFound)   # a query has no value part
+			return ("err", Status.BadPath)
+		if value_text is not None or not segments:
+			return ("err", Status.BadPath)
 		return self._resolve_from([ROOT], segments, group)
 
 	def count(self, path: str) -> int:
@@ -7776,7 +7786,7 @@ class Document:
 				sts.append(st)
 			# No slots at all means the wildcard's parent is not there, so the
 			# path did not resolve - Empty is for a node that is.
-			status = max(sts, key=lambda s: s.value) if sts else Status.NotFound
+			status = max(sts, key=_STATUS_ORDER.__getitem__) if sts else Status.NotFound
 			return Read(out, status, None, sts)
 		if tag == "none":
 			return Read([], Status.NotFound, None)
@@ -7797,7 +7807,7 @@ class Document:
 			v, st = _coerced(coerce, el, default)
 			out.append(v)
 			sts.append(st)
-		status = max(sts, key=lambda s: s.value) if sts else Status.Good
+		status = max(sts, key=_STATUS_ORDER.__getitem__) if sts else Status.Good
 		# A one-element value has a single scalar element, so the flag means
 		# the same thing here as on the scalar read of the same node. `[]` is an
 		# empty array, which is Good, where an empty value is Empty.
