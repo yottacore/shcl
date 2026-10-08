@@ -35,7 +35,7 @@ servers: web2
         port: 8081
 retries 5
 budget: "$1,200"
-window: 2026-07-12T14:30
+window: "2026-07-12T14:30"
 motd:
         ~~~
         Scheduled maintenance tonight.
