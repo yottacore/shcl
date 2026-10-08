@@ -2813,7 +2813,6 @@ static ShclStr strip_common(ShclStr line, ShclStr common) {
 
 static ShclStr quote_text(ShclArena *a, ShclStr t);
 static int needs_quotes(ShclStr t);
-static int element_needs_quotes(ShclStr t);
 static ShclStr emit_element(ShclArena *a, const ShclElement *e);
 static ShclElement new_element(ShclStr text);
 static ShclStr escape_name(ShclArena *a, ShclStr name);
@@ -2915,7 +2914,7 @@ static ShclStr v2_array_text(ShclArena *a, ShclStr text, const ShclTokens *tok) 
 		ShclStr raw = s_slice(text, p->start, p->end);
 		int quoted = piece_quoted(p->quote);
 		if (quoted && reads_same(a, s_slice(text, p->start - 1, p->end + 1), 1, raw)) sb_putS(a, &out, s_slice(text, p->start - 1, p->end + 1));
-		else if (p->quote == SHCL_QUOTE_NONE && !element_needs_quotes(raw)) sb_putS(a, &out, raw);
+		else if (p->quote == SHCL_QUOTE_NONE && !needs_quotes(raw)) sb_putS(a, &out, raw);
 		else sb_putS(a, &out, quote_text(a, raw));
 	}
 	sb_putc(a, &out, ']');
@@ -6432,7 +6431,6 @@ static void w_choose_fence(ShclStr content, unsigned char *fc, size_t *fl) {
 	*fc = '`'; *fl = maxrun + 1 < 3 ? 3 : maxrun + 1;
 }
 
-static ShclElement new_array_element(ShclStr text);
 static int backtick_holds(ShclStr t);
 static ShclValue w_cell1(ShclArena *a, ShclStr text) {
 	ShclValue v; memset(&v, 0, sizeof v); v.kind = V_CELL;
@@ -6444,7 +6442,7 @@ static ShclValue w_cell1(ShclArena *a, ShclStr text) {
 static ShclValue w_array(ShclArena *a, const ShclStr *texts, size_t n) {
 	ShclValue v; memset(&v, 0, sizeof v); v.kind = V_ARRAY;
 	ShclElement *els = (ShclElement *)arena_alloc(a, (n ? n : 1) * sizeof(ShclElement));
-	for (size_t i = 0; i < n; i++) els[i] = new_array_element(texts[i]);
+	for (size_t i = 0; i < n; i++) els[i] = new_element(texts[i]);
 	v.els = els; v.nels = n; return v;
 }
 
@@ -6727,8 +6725,7 @@ typedef struct { ShclSite site; size_t owner, k; } ShclKeptAt;
 static int comment_out_kept(shcl_doc *d, size_t parent, ShclStr name, ShclStr path, int anchor, ShclKeptAt *first);
 /* An overwrite keeps the quote kind the old value was written in, when the
    new text can be written that way (value-syntax.md, Canonical output). The
-   kind is the one a save writes, so the answer is the same after a reload: a
-   quoted data format is written bare. */
+   kind is the one a save writes, so the answer is the same after a reload. */
 static void keep_mark(ShclArena *a, const ShclValue *old, ShclValue *now) {
 	if (old->kind != V_CELL || now->kind != V_CELL) return;
 	const ShclElement *was = &old->els[0];
@@ -8004,55 +8001,23 @@ static ShclStr quote_with(ShclArena *a, ShclStr t, char q) {
    in the quotes the writer picks. */
 static ShclStr quote_text(ShclArena *a, ShclStr t) { return quote_with(a, t, picks_single(t) ? '\'' : '"'); }
 
-// leading_zero: a zero followed by another digit, after any sign: `007`,
-// `-012`, `00.5`.
-static int leading_zero(ShclStr t) {
-	if (t.n && (t.p[0] == '+' || t.p[0] == '-')) { t.p++; t.n--; }
-	return t.n > 1 && t.p[0] == '0' && t.p[1] >= '0' && t.p[1] <= '9';
-}
-// is_data_format: true when the text reads as an int, float, bool, or datetime
-// at standard strictness - fixed there deliberately, so canonical form cannot
-// vary with the load strictness. A number with a leading zero does not count:
-// quotes are how a file says the zeros matter, as in a zip code.
-// One pass over the bytes before any coercion. At Standard the int, float and
-// datetime forms all require at least one ASCII digit; the only formats that do
-// not are the boolean words, and the longest of those is "false". An ordinary
-// quoted string fails both tests, so emit stops running four full coercions on
-// every quoted element it writes.
-static int is_data_format(ShclArena *a, const ShclElement *e) {
-	int64_t iv; double fv; int bv; shcl_datetime dv;
-	int has_digit = 0;
-	for (size_t i = 0; i < e->text.n; i++) if (e->text.p[i] >= '0' && e->text.p[i] <= '9') { has_digit = 1; break; }
-	if (!has_digit) {
-		ShclStr t = s_trim(e->text);
-		return t.n <= 5 && parse_bool_text(a, t, SHCL_STANDARD, &bv);
-	}
-	if (!leading_zero(s_trim(e->text))) {
-		if (parse_int_text(a, e, SHCL_STANDARD, &iv)) return 1;
-		if (parse_float_text(a, e, SHCL_STANDARD, &fv)) return 1;
-	}
-	if (parse_bool_text(a, e->text, SHCL_STANDARD, &bv)) return 1;
-	if (parse_datetime(a, e->text, &dv)) return 1;
-	return 0;
-}
-/* Minimal quoting for a value or list item (value-syntax.md, Canonical
-   output): bare only when the text has no whitespace, none of the characters
-   that open or escape a piece, needs no escape, and does not end in a colon or
-   comma, which would read as another field or an array. A colon or comma
-   inside is text: `2:30PM` and `rw,noatime` stay bare. The reader takes spaces
-   bare, but the writer still quotes them. */
+/* Quoting for a value, list item or array element (value-syntax.md,
+   Canonical output): bare only when the text has no whitespace, none of the
+   characters that open, split or escape a piece, and needs no escape. The
+   reader takes spaces and an inner colon or comma bare, as in `2:30PM` or
+   `rw,noatime`, but the writer quotes them so nobody has to know that. */
 static int needs_quotes(ShclStr t) {
-	if (t.n == 0 || t.p[t.n - 1] == ':' || t.p[t.n - 1] == ',') return 1;
+	if (t.n == 0) return 1;
 	for (size_t i = 0; i < t.n;) {
 		uint32_t c; size_t l = utf8_decode(t.p, t.n, i, &c);
-		if (white_space(c) || c == '#' || c == '"' || c == '\'' || c == '`' || c == '[' || c == ']' || c == 0x25C9) return 1;
+		if (white_space(c) || c == '#' || c == '"' || c == '\'' || c == '`' || c == ':' || c == ',' || c == '(' || c == ')'
+		    || c == '[' || c == ']' || c == 0x25C9)
+			return 1;
 		if (invisible_at(t, i, &c)) return 1;
 		i += l;
 	}
 	return fence_open(t).ok;
 }
-/* The same for an array element, where any comma splits. */
-static int element_needs_quotes(ShclStr t) { return needs_quotes(t) || memchr(t.p, ',', t.n) != NULL; }
 
 /* Whether text can be a backtick value: no backtick, which would end it, and
    nothing the writer would have to escape, since a backtick value has no
@@ -8066,51 +8031,32 @@ static int backtick_holds(ShclStr t) {
 	return 1;
 }
 
-/* The element as written: bare when it can be, else in the author's quote
-   kind when the text allows it, else the quotes the writer picks. A quoted
-   plain string keeps its quotes, since quoting it is how a file says it is
-   text; a quoted data format loses them, since readers type the value either
-   way. One with a comma keeps them, since only a quoted number reads a
-   thousands comma. A backtick value stays in backticks whatever it holds. */
-static ShclStr emit_piece(ShclArena *a, const ShclElement *e, int quote) {
+/* A value, list item or array element as written: bare when it can be, else
+   in the author's quote kind when the text allows it, else the quotes the
+   writer picks. Quotes are never dropped, a quoted number included, since
+   quoting it is how a file says it is text. A backtick value stays in
+   backticks whatever it holds. */
+static ShclStr emit_element(ShclArena *a, const ShclElement *e) {
 	ShclStr t = e->text;
 	if (e->mark == MARK_BACKTICK && backtick_holds(t)) {
 		ShclSB s = {0}; sb_reserve(a, &s, t.n + 2);
 		sb_putc(a, &s, '`'); sb_putS(a, &s, t); sb_putc(a, &s, '`');
 		return sb_S(&s);
 	}
-	if (!quote && (e->mark == MARK_BARE || (!memchr(t.p, ',', t.n) && is_data_format(a, e)))) return t;
+	if (e->mark == MARK_BARE && !needs_quotes(t)) return t;
 	if (e->mark == MARK_SINGLE && !memchr(t.p, '\'', t.n)) return quote_with(a, t, '\'');
 	if (e->mark == MARK_DOUBLE && !memchr(t.p, '"', t.n)) return quote_with(a, t, '"');
 	return quote_text(a, t);
 }
-/* A value or list item as written. See emit_piece. */
-static ShclStr emit_element(ShclArena *a, const ShclElement *e) { return emit_piece(a, e, needs_quotes(e->text)); }
-/* An element inside `[]` as written. See emit_piece. */
-static ShclStr emit_array_element(ShclArena *a, const ShclElement *e) { return emit_piece(a, e, element_needs_quotes(e->text)); }
 
-static ShclElement new_element_as(ShclStr text, int quote) {
-	ShclElement e; e.text = text;
-	e.mark = !quote ? MARK_BARE : picks_single(text) ? MARK_SINGLE : MARK_DOUBLE;
-	return e;
-}
 // An element no source wrote. It counts as quoted when canonical output will
 // quote it, so a read gives the same answer before a save as after one. A
-// thousands comma reads only in quotes, so `1,000` from a setter keeps them and
-// still reads as 1000.
+// thousands comma reads only in quotes, and `1,000` from a setter gets them.
 static ShclElement new_element(ShclStr text) {
-	int quote = needs_quotes(text);
-	ShclElement e = new_element_as(text, quote);
-	if (!quote && memchr(text.p, ',', text.n)) {
-		e.mark = MARK_DOUBLE;
-		ShclArena tmp; memset(&tmp, 0, sizeof tmp);
-		if (!is_data_format(&tmp, &e)) e.mark = MARK_BARE;
-		arena_free(&tmp);
-	}
+	ShclElement e; e.text = text;
+	e.mark = !needs_quotes(text) ? MARK_BARE : picks_single(text) ? MARK_SINGLE : MARK_DOUBLE;
 	return e;
 }
-/* new_element for an element inside `[]`. */
-static ShclElement new_array_element(ShclStr text) { return new_element_as(text, element_needs_quotes(text)); }
 
 /* Emit a stored (escape-resolved) name in a spelling that reads back as the
    same name: bare when the spelling rule allows it, else quoted the way a
@@ -8132,7 +8078,7 @@ static ShclStr diag_name(ShclArena *a, ShclStr name) { return escape_name(a, nam
 /* One element of a value, written for a diagnostic message: the emitter's
    spelling inside `[]`, the only place a message puts one, so a value with a
    line break cannot split one diagnostic across two. */
-static ShclStr diag_element(ShclArena *a, const ShclElement *e) { return emit_array_element(a, e); }
+static ShclStr diag_element(ShclArena *a, const ShclElement *e) { return emit_element(a, e); }
 /* A value for a diagnostic message. Only a scalar reaches this today, from
    the H001 hint; a raw block has no one-line form worth suggesting. */
 static ShclStr diag_value(ShclArena *a, const ShclValue *v) {
@@ -8156,7 +8102,7 @@ static ShclStr diag_value(ShclArena *a, const ShclValue *v) {
 static ShclStr emit_array(ShclArena *a, const ShclElement *els, size_t n) {
 	ShclSB out = {0, 0, 0};
 	sb_putc(a, &out, '[');
-	for (size_t i = 0; i < n; i++) { if (i) sb_puts(a, &out, ", "); sb_putS(a, &out, emit_array_element(a, &els[i])); }
+	for (size_t i = 0; i < n; i++) { if (i) sb_puts(a, &out, ", "); sb_putS(a, &out, emit_element(a, &els[i])); }
 	sb_putc(a, &out, ']');
 	return sb_S(&out);
 }

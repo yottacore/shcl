@@ -3,5 +3,5 @@ script:
 		echo hi
 	```
 city: [Boston]
-path: C:\\temp
+path: "C:\\temp"
 last: 1

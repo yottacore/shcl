@@ -160,21 +160,20 @@ code-point      = code-prefix 1*6HEXDIG
                 ; backtick values, fence labels or raw bodies. The writer uses
                 ; the first name of each and U+ with at least four digits.
 
-fmt-bareword    = *fmt-punct fmt-unit *( *fmt-punct fmt-unit )
-fmt-punct       = ":" / ","
+fmt-bareword    = 1*fmt-unit
 fmt-unit        = fmt-bare-char [ variation-sel ] / %x200C-200D / subdivision-flag
-                ; the minimally-quoted shape the FORMATTER emits, reached from
-                ; nothing above. A value holding anything outside this class,
-                ; ending in ":" or ",", or a run that would read as a fence
-                ; comes back quoted. The writer quotes a value with a space,
-                ; though the parser takes one bare. A ":" or "," inside stays
-                ; bare (2:30PM, localhost:8080, rw,noatime). An array element
-                ; with a "," is quoted, since there it splits.
+                ; the bare shape the FORMATTER emits for a value, a list item
+                ; or an array element, reached from nothing above. Text
+                ; holding anything outside this class, or a run that would
+                ; read as a fence, comes back quoted, and so does a quoted
+                ; value, whatever it holds. The parser takes a space, ":",
+                ; ",", "(" and ")" bare, but the writer quotes them all
+                ; (2:30PM, localhost:8080, rw,noatime).
 subdivision-flag= %x1F3F4 3*7flag-tag %xE007F
 flag-tag        = %xE0030-E0039 / %xE0061-E007A
 ; gen-escapes.py: begin
 ; Generated from Unicode 18.0 by cicd/utility/gen-escapes.py. Edit the script, not this block.
-fmt-bare-char   = %x21 / %x24-26 / %x28-2B / %x2D-39 / %x3B-5A / %x5C
+fmt-bare-char   = %x21 / %x24-26 / %x2A-2B / %x2D-39 / %x3B-5A / %x5C
                 / %x5E-5F / %x61-7E / %xA1-AC / %xAE-34E / %x350-61B
                 / %x61D-115E / %x1161-167F / %x1681-17B3 / %x17B6-180A
                 / %x1810-1FFF / %x2010-2027 / %x2030-205E / %x2070-25C8
@@ -208,13 +207,14 @@ code-prefix     = "U+" / "UNICODE+" / "UNICODE-" / "UNICODE_"
                 / "UNICODE" / "U-" / "U_" / "U"
 ; gen-escapes.py: end
                 ; fmt-bare-char excludes whitespace, "," ":" "#" DQUOTE "'"
-                ; "[" "]" a backtick and the escape mark, and each character
-                ; the formatter writes as an escape (spec.md, "Escapes"). "\"
-                ; is in: the formatter leaves a backslash bare. The joiners, a
-                ; variation selector after a visible character and the tags of
-                ; a subdivision flag are written as they are, so fmt-bareword
-                ; places them. bare-text is every character but White_Space
-                ; and the same reserved set.
+                ; "(" ")" "[" "]" a backtick and the escape mark, and each
+                ; character the formatter writes as an escape (spec.md,
+                ; "Escapes"). "\" is in: the formatter leaves a backslash
+                ; bare. The joiners, a variation selector after a visible
+                ; character and the tags of a subdivision flag are written as
+                ; they are, so fmt-bareword places them. bare-text is every
+                ; character but White_Space and the reserved set, and it
+                ; keeps the parens.
 
 ;-----------------------------------------------------------------------------
 ; Stacked lists

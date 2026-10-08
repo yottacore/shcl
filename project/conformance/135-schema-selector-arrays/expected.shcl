@@ -1,7 +1,7 @@
 srv: web1
 	port: 80
 	flags: [true, false]
-	when: [2026-01-01, 2026-02-01T10:00:00Z]
+	when: [2026-01-01, "2026-02-01T10:00:00Z"]
 srv: web2
 	port: 9090
 	flags: yes

@@ -384,7 +384,7 @@ Both open points are settled:
 
 Structure-only canonicalizer: block form, tabs, insertion order, minimal quoting, redundancy collapsed, value text untouched (it cannot know types).
 
-**Author quoting on plain strings survives canonical output; quoted data-format values still normalize to bare.** Moved to [the value syntax design](design_docs/value-syntax.md), under Canonical output.
+**Author quoting survives canonical output, on data-format values too, and the writer quotes any colon, comma or paren.** Moved to [the value syntax design](design_docs/value-syntax.md), under Canonical output.
 
 **A raw block's nesting is the closing fence's own indent, and the rule is symmetric.** The nesting used to be the common indent of the body's non-blank lines, which made a shared body indent unrepresentable and needed an emit exception for a body with no non-blank line at all - the case that once grew by a level per pass.
 

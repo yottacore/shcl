@@ -1,6 +1,6 @@
 # A colon before the field's own colon must not hide a bracket array.
 "a:b": [80, 443]
-srv: db:5432
+srv: "db:5432"
 	ports: [80, 443]
 plain: [1, 2]
 x: [a].y: [1, 2]

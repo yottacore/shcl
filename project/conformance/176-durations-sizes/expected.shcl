@@ -29,7 +29,7 @@ chunk: 64
 half: 0.5KiB
 odd: 1.1KiB
 huge: 8388608TiB
-quoted-ms: 250
+quoted-ms: "250"
 camelms: 5
 fine18: 0.000003814697265625TiB
 fine19: 0.0000019073486328125TiB

@@ -352,7 +352,7 @@ Case `162` pins the `comments` read: the lines above a node from the `#` on, bot
 
 Case `163` pins a comment at an item's column after a stacked list's last item: it stays inside the list, with and without an old-marker line kept among the items.
 
-Case `164` pins quoted data values in canonical output: a quoted int, float, bool or date comes back bare, element by element, while a quoted plain string keeps its quotes.
+Case `164` pins quoted data values in canonical output: a quoted int, float, bool or date keeps its quotes and its quote kind, element by element, the same as a quoted plain string. Typed reads don't care about them.
 
 Case `165` pins a comment set on a node the writer just created at the top level: the blank line goes above the comment, not between it and the node.
 
@@ -368,7 +368,7 @@ Case `170` held unknown backslash escapes, each `E023` before the value syntax. 
 
 Case `171` held drive and share paths in double quotes, each `E024` before the value syntax. A backslash is text now, so every path reads as written and the load passes at Strict. Its `write.ops` writes a drive and a share path as typed, and its `write-bad.ops` lines are commented out.
 
-Case `172` pins a quoted number with a leading zero: it keeps its quotes through canonical output, element by element, while a bare one stays bare and a quoted `0.5`, `0` or hex value comes back bare. Int and float reads drop the zeros, and a string read keeps them.
+Case `172` pins a quoted number with a leading zero: it keeps its quotes through canonical output, element by element, while a bare one stays bare. A quoted `0.5`, `0` or hex value keeps its quotes too. Int and float reads drop the zeros, and a string read keeps them.
 
 Case `173` pins the `0x`, `0o` and `0b` integer prefixes in either case and with a sign, a bare leading zero read as decimal, bad digits and an empty prefix as `BadType`, the int range at both ends, and a float read past it.
 
@@ -410,7 +410,7 @@ Case `191` pins a field line refused for its name (`E014`, `E023` in a name) who
 
 Case `192` pins the escape mark: names from the list in any case, aliases, every code point prefix, escapes in bare, single- and double-quoted values, a quoted name, a selector body and a stacked item, and the mark as text in a comment and a raw block. An unknown name, a lone mark, a surrogate, a code point past U+10FFFF or with seven digits, an empty pair and a name with a space are `E023`, kept as written; one in a value keeps its block, one in a name or selector takes it. Its write ops pin the writer's escapes: `TAB`, `NEWLINE`, `CR`, `CRLF`, `ESCAPE_CHAR`, the named controls, a code point for the rest, and `DOUBLE_QUOTE` in text holding both quotes.
 
-Case `193` pins `E025`: a tab, a quote or whitespace other than a space in a bare value, and any whitespace in an array element or a bare selector body. A bare value or stacked item may hold spaces, edge whitespace is trimmed first, and a colon inside a value is text, so a time, a URL and a dash-separated date stay bare. `x, y z` is `E026` for its comma. A line refused for its value keeps its block, and so does an open quote (`E017`); a refused selector takes it. Its write ops store spaced text as data, and the writer still quotes a value with a space and one that ends in a colon.
+Case `193` pins `E025`: a tab, a quote or whitespace other than a space in a bare value, and any whitespace in an array element or a bare selector body. A bare value or stacked item may hold spaces, edge whitespace is trimmed first, and a colon inside a value is text, so a time, a URL and a dash-separated date stay bare. `x, y z` is `E026` for its comma. A line refused for its value keeps its block, and so does an open quote (`E017`); a refused selector takes it. Its write ops store spaced text as data, and the writer quotes a value with a space or a colon.
 
 Case `194` pins the bare name rule (`E014`): a name not led by an ASCII letter, or holding a space or a non-ASCII letter, still reads, so its line is kept and the lines under it load under that name, a dotted segment included. A line with no colon reads that way too, and a clean name alone is `E015`. A name that cannot be read takes its block with it.
 
@@ -428,7 +428,7 @@ Case `200` pins that a selector matches one plain value, quoted or not: `srv(a)`
 
 Case `201` pins a list with a field under it that a merge adds after an empty binding of its name in a lower layer, with a comment and a kept line between the two. A reload of the merged text joins the list to the binding and puts the two lines above it, so the merge does the same.
 
-Case `202` pins spaces, colons and commas in bare text. A bare value or stacked item keeps its spaces as typed, and canonical output quotes it. A colon or comma with something other than a blank after it is text, so `rw,noatime`, `:0`, a URL and `80,443` stay bare, and the last is a string that a typed int read refuses. A colon then a space or the end is `E025` in a value and `E027` in an item, and a comma then a space or the end is `E026`. A tab or a bracket in a bare value and a space in an array element are `E025`. Inside brackets every comma splits, and the writer quotes an element with a comma.
+Case `202` pins spaces, colons and commas in bare text. A bare value or stacked item keeps its spaces as typed, and canonical output quotes it. A colon or comma with something other than a blank after it is text, so `rw,noatime`, `:0`, a URL and `80,443` stay bare, and the last is a string that a typed int read refuses. A colon then a space or the end is `E025` in a value and `E027` in an item, and a comma then a space or the end is `E026`. A tab or a bracket in a bare value and a space in an array element are `E025`. Inside brackets every comma splits. The writer quotes any value, item or element with a space, colon or comma, so canonical output puts all of these in quotes.
 
 Case `203` pins a selector in brackets, the old spelling, as `E029`: the line is kept as written and binds nothing. When it selects by value, the lines under it load under that instance, so `srv[web]:` with `host: h` under it adds `host` to `srv: web`. An index in brackets opens nothing, so the line under `item[0]:` is dropped (`E018`), as under a refused `item(0):`. A lookup in brackets reads `BadPath`, and so does one whose body starts with `#`. A `(` in a bare body is `E025`. A nested pair, `pick(a(b))`, ends the body at the first `)`, so the line is `E014`.
 

@@ -2821,7 +2821,7 @@ fn v2_array_text(text: &str, tok: &Tokens) -> String {
 		let quoted = matches!(p.quote, Quote::Single | Quote::Double);
 		if quoted && reads_same(&text[p.start - 1..p.end + 1], true, raw) {
 			out.push_str(&text[p.start - 1..p.end + 1]);
-		} else if p.quote == Quote::None && !element_needs_quotes(raw) {
+		} else if p.quote == Quote::None && !needs_quotes(raw) {
 			out.push_str(raw);
 		} else {
 			out.push_str(&quote_text(raw));
@@ -7673,7 +7673,7 @@ fn diag_name(name: &str) -> String {
 /// spelling inside `[]`, the only place a message puts one, so a value with
 /// a line break cannot split one diagnostic across two.
 fn diag_element(e: &Element) -> String {
-	emit_array_element(e).into_owned()
+	emit_element(e).into_owned()
 }
 
 /// A value for a diagnostic message. Only a scalar reaches this today, from
@@ -9011,49 +9011,33 @@ pub fn suppress_declared_reopens(schema: &Document, diags: &mut Vec<Diagnostic>)
 	diags.retain(|d| d.code != "H002" || !heads.iter().any(|h| d.message.starts_with(h.as_str())));
 }
 
-/// Minimal quoting for a value or list item (value-syntax.md, Canonical
-/// output): bare only when the text has no whitespace, none of the
-/// characters that open or escape a piece, needs no escape, and does not end
-/// in a colon or comma, which would read as another field or an array. A
-/// colon or comma inside is text: `2:30PM` and `rw,noatime` stay bare. The
-/// reader takes spaces bare, but the writer still quotes them.
+/// Quoting for a value, list item or array element (value-syntax.md,
+/// Canonical output): bare only when the text has no whitespace, none of
+/// the characters that open, split or escape a piece, and needs no escape.
+/// The reader takes spaces and an inner colon or comma bare, as in `2:30PM`
+/// or `rw,noatime`, but the writer quotes them so nobody has to know that.
 fn needs_quotes(t: &str) -> bool {
 	t.is_empty()
-		|| t.ends_with([':', ','])
 		|| t.char_indices().any(|(i, c)| {
 			white_space(c)
-				|| matches!(c, '#' | '"' | '\'' | '`' | '[' | ']' | ESCAPE_MARK)
-				|| invisible_at(t, i, c)
+				|| matches!(
+					c,
+					'#' | '"' | '\'' | '`' | ':' | ',' | '(' | ')' | '[' | ']' | ESCAPE_MARK
+				) || invisible_at(t, i, c)
 		}) || fence_open(t).is_some()
 }
 
-/// The same for an array element, where any comma splits.
-fn element_needs_quotes(t: &str) -> bool {
-	needs_quotes(t) || t.contains(',')
-}
-
-/// A value or list item as written. See emit_piece.
+/// A value, list item or array element as written: bare when it can be,
+/// else in the author's quote kind when the text allows it, else the quotes
+/// the writer picks. Quotes are never dropped, a quoted number included,
+/// since quoting it is how a file says it is text. A backtick value stays in
+/// backticks whatever it holds.
 fn emit_element(e: &Element) -> std::borrow::Cow<'_, str> {
-	emit_piece(e, needs_quotes(&e.text))
-}
-
-/// An element inside `[]` as written. See emit_piece.
-fn emit_array_element(e: &Element) -> std::borrow::Cow<'_, str> {
-	emit_piece(e, element_needs_quotes(&e.text))
-}
-
-/// The element as written: bare when it can be, else in the author's quote
-/// kind when the text allows it, else the quotes the writer picks. A quoted
-/// plain string keeps its quotes, since quoting it is how a file says it is
-/// text; a quoted data format loses them, since readers type the value
-/// either way. One with a comma keeps them, since only a quoted number reads
-/// a thousands comma. A backtick value stays in backticks whatever it holds.
-fn emit_piece(e: &Element, quote: bool) -> std::borrow::Cow<'_, str> {
 	let t = &e.text;
 	if e.mark == Mark::Backtick && backtick_holds(t) {
 		return std::borrow::Cow::Owned(format!("`{}`", t));
 	}
-	if !quote && (!e.quoted() || (is_data_format(e) && !t.contains(','))) {
+	if !e.quoted() && !needs_quotes(t) {
 		return std::borrow::Cow::Borrowed(t);
 	}
 	std::borrow::Cow::Owned(match e.mark {
@@ -9073,28 +9057,9 @@ fn backtick_holds(t: &str) -> bool {
 
 /// An element no source wrote. It counts as quoted when canonical output will
 /// quote it, so a read gives the same answer before a save as after one. A
-/// thousands comma reads only in quotes, so `1,000` from a setter keeps them
-/// and still reads as 1000.
+/// thousands comma reads only in quotes, and `1,000` from a setter gets them.
 fn new_element(text: String) -> Element {
-	let quote = needs_quotes(&text);
-	let mut e = new_element_as(text, quote);
-	if !quote && e.text.contains(',') {
-		e.mark = Mark::Double;
-		if !is_data_format(&e) {
-			e.mark = Mark::Bare;
-		}
-	}
-	e
-}
-
-/// new_element for an element inside `[]`.
-fn new_array_element(text: String) -> Element {
-	let quote = element_needs_quotes(&text);
-	new_element_as(text, quote)
-}
-
-fn new_element_as(text: String, quote: bool) -> Element {
-	let mark = if !quote {
+	let mark = if !needs_quotes(&text) {
 		Mark::Bare
 	} else if picks_single(&text) {
 		Mark::Single
@@ -9102,33 +9067,6 @@ fn new_element_as(text: String, quote: bool) -> Element {
 		Mark::Double
 	};
 	Element { text, mark }
-}
-
-/// True when the text reads as an int, float, bool, or datetime at standard
-/// strictness - fixed there deliberately, so canonical form cannot vary with
-/// the load strictness. A number with a leading zero does not count: quotes
-/// are how a file says the zeros matter, as in a zip code.
-fn is_data_format(e: &Element) -> bool {
-	// One pass over the bytes before any coercion. At Standard the int, float
-	// and datetime forms all require at least one ASCII digit; the only formats
-	// that do not are the boolean words, and the longest of those is "false".
-	// An ordinary quoted string fails both tests, so emit stops running four
-	// full coercions on every quoted element it writes.
-	let t = e.text.trim();
-	if t.bytes().any(|b| b.is_ascii_digit()) {
-		let number = parse_int_text(e, Strictness::Standard).is_some()
-			|| parse_float_text(e, Strictness::Standard).is_some();
-		return (number && !leading_zero(t))
-			|| parse_datetime(&e.text).is_some()
-			|| parse_bool_text(t, Strictness::Standard).is_some();
-	}
-	t.len() <= 5 && parse_bool_text(t, Strictness::Standard).is_some()
-}
-
-/// A zero followed by another digit, after any sign: `007`, `-012`, `00.5`.
-fn leading_zero(t: &str) -> bool {
-	let b = t.strip_prefix(['+', '-']).unwrap_or(t).as_bytes();
-	b.len() > 1 && b[0] == b'0' && b[1].is_ascii_digit()
 }
 
 /// The quotes the writer picks: double, or single when the text has a `"`
@@ -9194,7 +9132,7 @@ fn emit_array_into(out: &mut String, els: &[Element]) {
 		if i > 0 {
 			out.push_str(", ");
 		}
-		out.push_str(&emit_array_element(e));
+		out.push_str(&emit_element(e));
 	}
 	out.push(']');
 }
@@ -9688,8 +9626,7 @@ fn literal_value(text: &str) -> Option<Value> {
 
 /// An overwrite keeps the quote kind the old value was written in, when the
 /// new text can be written that way (value-syntax.md, Canonical output). The
-/// kind is the one a save writes, so the answer is the same after a reload:
-/// a quoted data format is written bare.
+/// kind is the one a save writes, so the answer is the same after a reload.
 fn keep_mark(old: &Value, new: &mut Value) {
 	let (Value::Cell(was), Value::Cell(now)) = (old, &mut *new) else {
 		return;
@@ -9736,7 +9673,7 @@ fn choose_fence(content: &str) -> (u8, usize) {
 /// An array setter's value: written in brackets whatever its length, so
 /// one element is `[80]` and none is `[]`.
 fn array_cell(texts: Vec<String>) -> Value {
-	Value::Array(texts.into_iter().map(new_array_element).collect())
+	Value::Array(texts.into_iter().map(new_element).collect())
 }
 
 impl Document {

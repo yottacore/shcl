@@ -22,7 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - An array is written in brackets, `ports: [80, 443]`, or one `- ` item per line. `[]` is empty. A malformed one is `E019`.
 
-- A bare value may hold spaces, as in `title: My App`, but not a quote, a tab or a bracket (`E025`). A colon or comma needs a character other than whitespace right after it, so `rw,noatime` and `localhost:8080` stay bare, `host: a.com port: 80` is `E025` and `ports: 80, 443` is `E026`.
+- A bare value may hold spaces, as in `title: My App`, but not a quote, a tab or a bracket (`E025`). A colon or comma needs a character other than whitespace right after it, so `rw,noatime` and `localhost:8080` read bare, `host: a.com port: 80` is `E025` and `ports: 80, 443` is `E026`.
 
 - A bare field name starts with a letter. Quote any other name, as in `"404": x`, or it is `E014`.
 
@@ -40,7 +40,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A selector is written in parens, `site(example.com).root`, and brackets are only for arrays. A selector in brackets is `E029`, and a path in brackets is refused. The `field:[disc]` form and the `[#N]` index are gone; an index is `site(0)`. Quote a path with a paren on a command line.
 
-- `fmt` and every canonical save keep the quotes on a number with a leading zero, such as `zip: "02134"`, where they took them off.
+- `fmt` and every canonical save never take quotes off a value, so `ver: "8"` and `zip: "02134"` stay quoted, where they came out bare.
+
+- `fmt` and every canonical save quote a value, list item or array element holding any whitespace, `:`, `,`, `(`, `)`, `[` or `]`, so `display: :0` comes out `display: ":0"` and `opts: rw,noatime` as `opts: "rw,noatime"`. Both still read bare.
 
 - `shcl migrate FILE --from-2x` rewrites a 2.x file for these rules and leaves comments and layout alone. It writes comma lists in brackets, `*` items as `- ` and selectors in parens, quotes what would now read differently, and leaves a backslash as written. With `--write` the original is kept beside it, as `config_backup_20261007-091500_format-v2.shcl` for `config.shcl`, in local time.
 

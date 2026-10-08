@@ -607,7 +607,7 @@ rows=(
 	"ErrQs1W|set-quoted-quote-in-selector|set --set=srv(\"O'Brien\").port=9 %Q%|-|0|srv(\"O'Brien\"):\n\tport: 9\n|-"
 	"ErrQs1X|set-default-quoted-quote-in-selector|set --set-default=srv(\"O'Brien\").port=9 %Q%|-|0|srv(\"O'Brien\"):\n\tport: 0\n|-"
 	"ErrQs1Y|set-bare-quote-in-selector-refused|set --set=srv(O'Brien).port=9 %Q%|-|1||not a usable path"
-	"Ep3OILM|set-quoted-selector-eq|set --set=x(\"k)=v\").d=2 %X%|-|0|x(a=b):\n\tc: 0\n\nx: k)=v\n\td: 2\n|-"
+	"Ep3OILM|set-quoted-selector-eq|set --set=x(\"k)=v\").d=2 %X%|-|0|x(a=b):\n\tc: 0\n\nx: \"k)=v\"\n\td: 2\n|-"
 	## set writes back the lines its edits leave alone, printing or in place,
 	## where fmt writes the canonical form.
 	'EqutO7J|set-keeps-lines|set %K% --set=block.a=2|-|0|# note\nName:   "x"   # c\nblock:\n    a: 2\n|-'
@@ -729,14 +729,14 @@ rows=(
 	'ErvnzpS|bare-spaces-read|get - t|t: My  App  # c\n|0|My  App\n|-'
 	'ErvnzpT|bare-spaces-fmt|fmt -|t: My  App\nl:\n\t- New York\n|0|t: "My  App"\nl:\n\t- "New York"\n|-'
 	'ErvnzpU|bare-comma-text-read|get - o|o: rw,noatime\n|0|rw,noatime\n|-'
-	'ErvnzpV|bare-colon-text-fmt|fmt -|d: :0\nu: http://h:80/p\n|0|d: :0\nu: http://h:80/p\n|-'
+	'ErvnzpV|bare-colon-text-fmt|fmt -|d: :0\nu: http://h:80/p\n|0|d: ":0"\nu: "http://h:80/p"\n|-'
 	'ErvnzpW|e025-loose-colon-check|check -|host: a.com port: 80\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a colon then a space in a bare value; put each field on its own line, or quote the value$'
 	'ErvnzpX|e025-tab-check|check -|t: a\tb\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a tab in a bare value; quote it$'
 	'ErvnzpY|e026-trailing-comma-check|check -|x: a,\n|6|line 1: Error: E026\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E026 a comma then a space or the end in a bare value'
 	'ErvnzpZ|e027-name-value-check|check -|a:\n\t- name: value\n\t- b\n|6|line 2: Error: E027\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 2: Error: E027 a list item with a colon then a space or the end'
 	'Ervnzpa|e025-selector-colon-check|check -|srv(a:b).p: 1\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a colon in a bare selector; quote it$'
 	'Ervnzpb|array-tight-comma-splits|set --set-literal=t=[a,b] -|t: 1\n|0|t: [a, b]\n|-'
-	'Ervnzpc|set-literal-comma-text|set --set-literal=o=rw,noatime --set=e=a, -|o: 1\n|0|o: rw,noatime\n\ne: "a,"\n|-'
+	'Ervnzpc|set-literal-comma-text|set --set-literal=o=rw,noatime --set=e=a, -|o: 1\n|0|o: "rw,noatime"\n\ne: "a,"\n|-'
 	'Ervnzpd|migrate-comma-list|migrate --from-2x -|x: a,b\ny: a, b\n|0|x: [a, b]\ny: [a, b]\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	'Ervnzpe|migrate-comma-ambiguous|migrate -|y: a,b\n|7|y: a,b\n|read one way under 2.x and another'
 	## A comment on a stacked item stays on it, and one among the items stays
@@ -875,10 +875,10 @@ rows=(
 	'ErpZsUi|backslash-migrate-same|migrate -|q: "C:\\work"\n|0|q: "C:\\work"\n##    Format   3\n|-'
 	## 2026100717500002: an op value reads the file's escape names, a tab or a
 	## line break included, and a backslash pair is text, the same as in --set.
-	'Es8bB4z|ops-backslash-text|set -|string\ta\tC:\\temp\\new\n|0|a: C:\\temp\\new\n|-'
+	'Es8bB4z|ops-backslash-text|set -|string\ta\tC:\\temp\\new\n|0|a: "C:\\temp\\new"\n|-'
 	'Es8bB50|ops-escape-names|set -|string\ta\tx\xe2\x97\x89TAB\xe2\x97\x89y\xe2\x97\x89NEWLINE\xe2\x97\x89z\n|0|a: "x\xe2\x97\x89TAB\xe2\x97\x89y\xe2\x97\x89NEWLINE\xe2\x97\x89z"\n|-'
 	'Es8bB51|ops-raw-line-break|set -|raw\tr\tsh\techo hi\xe2\x97\x89NEWLINE\xe2\x97\x89echo bye\n|0|r:\n\t\x60\x60\x60sh\n\techo hi\n\techo bye\n\t\x60\x60\x60\n|-'
-	'Es8bB52|ops-array-escapes|set -|string-array\ta\tC:\\new\tx\xe2\x97\x89TAB\xe2\x97\x89y\n|0|a: [C:\\new, "x\xe2\x97\x89TAB\xe2\x97\x89y"]\n|-'
+	'Es8bB52|ops-array-escapes|set -|string-array\ta\tC:\\new\tx\xe2\x97\x89TAB\xe2\x97\x89y\n|0|a: ["C:\\new", "x\xe2\x97\x89TAB\xe2\x97\x89y"]\n|-'
 	'Es8bB53|ops-comment-escape|set -|comment\ta\tC:\\new \xe2\x97\x89ESCAPE_CHAR\xe2\x97\x89\nstring\ta\tv\n|0|# C:\\new \xe2\x97\x89\na: v\n|-'
 	'Es8bB57|ops-default-escape|set -|string-default\ta\tx\xe2\x97\x89TAB\xe2\x97\x89\n|0|a: "x\xe2\x97\x89TAB\xe2\x97\x89"\n|-'
 	## The value is read in quotes, so a quote in it stays text whichever kind.

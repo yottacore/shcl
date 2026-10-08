@@ -2983,7 +2983,7 @@ func v2ArrayText(text string, tok *Tokens) string {
 		switch {
 		case quoted && readsSame(text[p.Start-1:p.End+1], true, raw):
 			out.WriteString(text[p.Start-1 : p.End+1])
-		case p.Quote == QuoteNone && !elementNeedsQuotes(raw):
+		case p.Quote == QuoteNone && !needsQuotes(raw):
 			out.WriteString(raw)
 		default:
 			out.WriteString(quoteText(raw))
@@ -7525,7 +7525,7 @@ func diagName(name string) string {
 // the emitter's spelling inside `[]`, the only place a message puts one, so a
 // value with a line break cannot split one diagnostic across two.
 func diagElement(e *element) string {
-	return emitArrayElement(e)
+	return emitElement(e)
 }
 
 // diagValue is a value for a diagnostic message. Only a scalar reaches this
@@ -8320,19 +8320,19 @@ func SuppressDeclaredReopens(schema *Document, diags []Diagnostic) []Diagnostic 
 	return kept
 }
 
-// needsQuotes is minimal quoting for a value or list item (value-syntax.md,
-// Canonical output): bare only when the text has no whitespace, none of the
-// characters that open or escape a piece, needs no escape, and does not end
-// in a colon or comma, which would read as another field or an array. A colon
-// or comma inside is text: `2:30PM` and `rw,noatime` stay bare. The reader
-// takes spaces bare, but the writer still quotes them.
+// needsQuotes is quoting for a value, list item or array element
+// (value-syntax.md, Canonical output): bare only when the text has no
+// whitespace, none of the characters that open, split or escape a piece, and
+// needs no escape. The reader takes spaces and an inner colon or comma bare,
+// as in `2:30PM` or `rw,noatime`, but the writer quotes them so nobody has to
+// know that.
 func needsQuotes(t string) bool {
-	if t == "" || strings.HasSuffix(t, ":") || strings.HasSuffix(t, ",") {
+	if t == "" {
 		return true
 	}
 	for i, c := range t {
 		switch c {
-		case '#', '"', '\'', '`', '[', ']', escapeMark:
+		case '#', '"', '\'', '`', ':', ',', '(', ')', '[', ']', escapeMark:
 			return true
 		}
 		if whiteSpace(c) {
@@ -8346,35 +8346,17 @@ func needsQuotes(t string) bool {
 	return ok
 }
 
-// elementNeedsQuotes is needsQuotes for an array element, where any comma
-// splits.
-func elementNeedsQuotes(t string) bool {
-	return needsQuotes(t) || strings.Contains(t, ",")
-}
-
-// emitElement is a value or list item as written. See emitPiece.
+// emitElement is a value, list item or array element as written: bare when
+// it can be, else in the author's quote kind when the text allows it, else
+// the quotes the writer picks. Quotes are never dropped, a quoted number
+// included, since quoting it is how a file says it is text. A backtick value
+// stays in backticks whatever it holds.
 func emitElement(e *element) string {
-	return emitPiece(e, needsQuotes(e.text))
-}
-
-// emitArrayElement is an element inside `[]` as written. See emitPiece.
-func emitArrayElement(e *element) string {
-	return emitPiece(e, elementNeedsQuotes(e.text))
-}
-
-// emitPiece is the element as written: bare when it can be, else in the
-// author's quote kind when the text allows it, else the quotes the writer
-// picks. A quoted plain string keeps its quotes, since quoting it is how a
-// file says it is text; a quoted data format loses them, since readers type
-// the value either way. One with a comma keeps them, since only a quoted
-// number reads a thousands comma. A backtick value stays in backticks
-// whatever it holds.
-func emitPiece(e *element, quote bool) string {
 	t := e.text
 	if e.mark == markBacktick && backtickHolds(t) {
 		return "`" + t + "`"
 	}
-	if !quote && (!e.quoted() || (isDataFormat(e) && !strings.Contains(t, ","))) {
+	if !e.quoted() && !needsQuotes(t) {
 		return t
 	}
 	switch {
@@ -8403,86 +8385,18 @@ func backtickHolds(t string) bool {
 
 // newElement builds an element no source wrote. It counts as quoted when
 // canonical output will quote it, so a read gives the same answer before a
-// save as after one. A thousands comma reads only in quotes, so `1,000` from a
-// setter keeps them and still reads as 1000.
+// save as after one. A thousands comma reads only in quotes, and `1,000` from
+// a setter gets them.
 func newElement(text string) element {
-	quote := needsQuotes(text)
-	e := newElementAs(text, quote)
-	if !quote && strings.Contains(e.text, ",") {
-		e.mark = markDouble
-		if !isDataFormat(&e) {
-			e.mark = markBare
-		}
-	}
-	return e
-}
-
-// newArrayElement is newElement for an element inside `[]`.
-func newArrayElement(text string) element {
-	return newElementAs(text, elementNeedsQuotes(text))
-}
-
-func newElementAs(text string, quote bool) element {
 	m := markBare
 	switch {
-	case !quote:
+	case !needsQuotes(text):
 	case picksSingle(text):
 		m = markSingle
 	default:
 		m = markDouble
 	}
 	return element{text: text, mark: m}
-}
-
-// isDataFormat reports whether the text reads as an int, float, bool, or
-// datetime at standard strictness - fixed there deliberately, so canonical
-// form cannot vary with the load strictness. A number with a leading zero does
-// not count: quotes are how a file says the zeros matter, as in a zip code.
-func isDataFormat(e *element) bool {
-	// One pass over the bytes before any coercion. At Standard the int, float
-	// and datetime forms all require at least one ASCII digit; the only formats
-	// that do not are the boolean words, and the longest of those is "false".
-	// An ordinary quoted string fails both tests, so emit stops running four
-	// full coercions on every quoted element it writes.
-	hasDigit := false
-	for i := 0; i < len(e.text); i++ {
-		if e.text[i] >= '0' && e.text[i] <= '9' {
-			hasDigit = true
-			break
-		}
-	}
-	if !hasDigit {
-		t := strings.TrimSpace(e.text)
-		if len(t) > 5 {
-			return false
-		}
-		_, ok := parseBoolText(t, Standard)
-		return ok
-	}
-	if !leadingZero(strings.TrimSpace(e.text)) {
-		if _, ok := parseIntText(e, Standard); ok {
-			return true
-		}
-		if _, ok := parseFloatText(e, Standard); ok {
-			return true
-		}
-	}
-	if _, ok := parseBoolText(e.text, Standard); ok {
-		return true
-	}
-	if _, ok := ParseDateTime(e.text); ok {
-		return true
-	}
-	return false
-}
-
-// leadingZero reports a zero followed by another digit, after any sign: `007`,
-// `-012`, `00.5`.
-func leadingZero(t string) bool {
-	if t != "" && (t[0] == '+' || t[0] == '-') {
-		t = t[1:]
-	}
-	return len(t) > 1 && t[0] == '0' && t[1] >= '0' && t[1] <= '9'
 }
 
 // picksSingle is the quotes the writer picks: double, or single when the
@@ -8565,7 +8479,7 @@ func emitArrayInto(out *strings.Builder, els []element) {
 		if i > 0 {
 			out.WriteString(", ")
 		}
-		out.WriteString(emitArrayElement(&els[i]))
+		out.WriteString(emitElement(&els[i]))
 	}
 	out.WriteByte(']')
 }
@@ -9171,7 +9085,7 @@ func literalValue(text string) (value, bool) {
 // keepMark: an overwrite keeps the quote kind the old value was written in,
 // when the new text can be written that way (value-syntax.md, Canonical
 // output). The kind is the one a save writes, so the answer is the same after
-// a reload: a quoted data format is written bare.
+// a reload.
 func keepMark(old, now *value) {
 	if old.kind != vCell || now.kind != vCell {
 		return
@@ -9232,7 +9146,7 @@ func chooseFence(content string) (byte, int) {
 func arrayCell(texts []string) value {
 	els := make([]element, len(texts))
 	for i, t := range texts {
-		els[i] = newArrayElement(t)
+		els[i] = newElement(t)
 	}
 	return value{kind: vArray, els: els}
 }

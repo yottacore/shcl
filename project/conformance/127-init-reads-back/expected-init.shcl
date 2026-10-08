@@ -20,7 +20,7 @@ env(prod).url: u
 # stage: dev
 
 ## any, required
-srv: 20000000000000000000
+srv: "20000000000000000000"
 
 ## any, required
 srv("20000000000000000000").port: 2

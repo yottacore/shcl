@@ -585,8 +585,7 @@ def _literal_value(text):
 def _keep_mark(old, new):
 	# An overwrite keeps the quote kind the old value was written in, when the
 	# new text can be written that way (value-syntax.md, Canonical output). The
-	# kind is the one a save writes, so the answer is the same after a reload:
-	# a quoted data format is written bare.
+	# kind is the one a save writes, so the answer is the same after a reload.
 	if old.kind != "cell" or new.kind != "cell":
 		return
 	was, now = old.els[0], new.els[0]
@@ -666,7 +665,7 @@ def _as_float(v):
 def _array_cell(texts):
 	# An array setter's value: written in brackets whatever its length, so one
 	# element is `[80]` and none is `[]`.
-	return _array([_new_array_element(t) for t in texts])
+	return _array([_new_element(t) for t in texts])
 
 
 def _choose_fence(content):
@@ -2597,7 +2596,7 @@ def _v2_array_text(s, tok):
 		quoted = p.quote is Quote.SINGLE or p.quote is Quote.DOUBLE
 		if quoted and _reads_same(s[p.start - 1:p.end + 1].decode("utf-8", "surrogatepass"), True, raw):
 			out.append(s[p.start - 1:p.end + 1].decode("utf-8", "surrogatepass"))
-		elif p.quote is Quote.NONE and not _element_needs_quotes(raw):
+		elif p.quote is Quote.NONE and not _needs_quotes(raw):
 			out.append(raw)
 		else:
 			out.append(_quote_text(raw))
@@ -8291,7 +8290,7 @@ def _diag_element(e):
 	# One element of a value, written for a diagnostic message: the emitter's
 	# spelling inside `[]`, the only place a message puts one, so a value with
 	# a line break cannot split one diagnostic across two.
-	return _emit_array_element(e)
+	return _emit_element(e)
 
 
 def _diag_value(v):
@@ -9101,23 +9100,20 @@ def suppress_declared_reopens(schema: Document, diags: list[Diagnostic]) -> None
 
 
 # What the writer always quotes, besides whitespace: the characters that
-# open, quote or escape a piece.
-_QUOTE_CHARS = frozenset("#\"'`[]\u25c9")
+# open, quote, split or escape a piece.
+_QUOTE_CHARS = frozenset("#\"'`:,()[]\u25c9")
 
 
 def _needs_quotes(t):
-	"""Minimal quoting for a value or list item (value-syntax.md, Canonical
-	output): bare only when the text has no whitespace, none of the characters
-	that open or escape a piece, needs no escape, and does not end in a colon
-	or comma, which would read as another field or an array. A colon or comma
-	inside is text: `2:30PM` and `rw,noatime` stay bare. The reader takes
-	spaces bare, but the writer still quotes them."""
+	"""Quoting for a value, list item or array element (value-syntax.md,
+	Canonical output): bare only when the text has no whitespace, none of the
+	characters that open, split or escape a piece, and needs no escape. The
+	reader takes spaces and an inner colon or comma bare, as in `2:30PM` or
+	`rw,noatime`, but the writer quotes them so nobody has to know that."""
 	# isdisjoint iterates the text in C and stops at the first hit; the generator
 	# it replaced made one Python call per character of every element emitted.
 	return (
 		not t
-		or t[-1] == ":"
-		or t[-1] == ","
 		or not _QUOTE_CHARS.isdisjoint(t)
 		or not _WHITE_SPACE.isdisjoint(t)
 		or _has_invisible(t)
@@ -9125,33 +9121,17 @@ def _needs_quotes(t):
 	)
 
 
-def _element_needs_quotes(t):
-	"""The same for an array element, where any comma splits."""
-	return _needs_quotes(t) or "," in t
-
-
 def _emit_element(e):
-	"""A value or list item as written. See _emit_piece."""
-	return _emit_piece(e, _needs_quotes(e.text))
-
-
-def _emit_array_element(e):
-	"""An element inside `[]` as written. See _emit_piece."""
-	return _emit_piece(e, _element_needs_quotes(e.text))
-
-
-def _emit_piece(e, quote):
-	"""The element as written: bare when it can be, else in the author's quote
-	kind when the text allows it, else the quotes the writer picks. A quoted
-	plain string keeps its quotes, since quoting it is how a file says it is
-	text; a quoted data format loses them, since readers type the value either
-	way. One with a comma keeps them, since only a quoted number reads a
-	thousands comma. A backtick value stays in backticks whatever it holds."""
+	"""A value, list item or array element as written: bare when it can be,
+	else in the author's quote kind when the text allows it, else the quotes
+	the writer picks. Quotes are never dropped, a quoted number included, since
+	quoting it is how a file says it is text. A backtick value stays in
+	backticks whatever it holds."""
 	t = e.text
 	mark = e.mark
 	if mark is _Mark.BACKTICK and _backtick_holds(t):
 		return "`" + t + "`"
-	if not quote and (mark is _Mark.BARE or ("," not in t and _is_data_format(e))):
+	if mark is _Mark.BARE and not _needs_quotes(t):
 		return t
 	if mark is _Mark.SINGLE and "'" not in t:
 		return _quote_with(t, "'")
@@ -9170,57 +9150,10 @@ def _backtick_holds(t):
 def _new_element(text):
 	"""An element no source wrote. It counts as quoted when canonical output will
 	quote it, so a read gives the same answer before a save as after one. A
-	thousands comma reads only in quotes, so `1,000` from a setter keeps them
-	and still reads as 1000."""
-	quote = _needs_quotes(text)
-	e = _new_element_as(text, quote)
-	if not quote and "," in text:
-		e.mark = _Mark.DOUBLE
-		if not _is_data_format(e):
-			e.mark = _Mark.BARE
-	return e
-
-
-def _new_array_element(text):
-	"""_new_element for an element inside `[]`."""
-	return _new_element_as(text, _element_needs_quotes(text))
-
-
-def _new_element_as(text, quote):
-	if not quote:
+	thousands comma reads only in quotes, and `1,000` from a setter gets them."""
+	if not _needs_quotes(text):
 		return _Element(text, _Mark.BARE)
 	return _Element(text, _Mark.SINGLE if _picks_single(text) else _Mark.DOUBLE)
-
-
-def _is_data_format(e):
-	"""True when the text reads as an int, float, bool, or datetime at standard
-	strictness - fixed there deliberately, so canonical form cannot vary with
-	the load strictness. A number with a leading zero does not count: quotes
-	are how a file says the zeros matter, as in a zip code.
-
-	One pass over the text before any coercion: at Standard the int, float and
-	datetime forms all require at least one ASCII digit, and the only formats
-	that do not are the boolean words, the longest of which is "false". An
-	ordinary quoted string fails both tests, so emit stops running four full
-	coercions on every quoted element it writes."""
-	if _ASCII_DIGITS.isdisjoint(e.text):
-		t = _trim(e.text)
-		return len(t) <= 5 and _parse_bool_text(t, Strictness.Standard) is not None
-	if not _leading_zero(_trim(e.text)):
-		if _parse_int_text(e, Strictness.Standard) is not None:
-			return True
-		if _parse_float_text(e, Strictness.Standard) is not None:
-			return True
-	if _parse_bool_text(e.text, Strictness.Standard) is not None:
-		return True
-	return parse_datetime(e.text) is not None
-
-
-def _leading_zero(t):
-	"""A zero followed by another digit, after any sign: `007`, `-012`, `00.5`."""
-	if t[:1] in ("+", "-"):
-		t = t[1:]
-	return len(t) > 1 and t[0] == "0" and t[1] in _ASCII_DIGITS
 
 
 def _picks_single(t):
@@ -9292,7 +9225,7 @@ def _encodable(text):
 
 def _emit_array(els):
 	"""An array the way _emit_line writes it: `[a, b]`, and `[]` for none."""
-	return "[" + ", ".join(_emit_array_element(e) for e in els) + "]"
+	return "[" + ", ".join(_emit_element(e) for e in els) + "]"
 
 
 def _emit_value_text(v):
