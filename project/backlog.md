@@ -86,32 +86,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: any rewrap can do this to another command. A check that no `help CMD` holds another command's paragraph covers the class.
 	- Sweep: `help_for` in all four CLIs.
 
-- A setter returns false while `write_reason` says Writable
-	- ID: 2026100717500009
-	- Type: Bug
-	- Status: Done
-	- Severity: Avg
-	- Opened: 20261007-175000
-	- Opened by: Code review 20261007 item 9
-	- Version and build: dev at `6a1d28f0`
-	- Steps to reproduce: `set_float("x", NaN)`, or `set_int_array` on a field with lines under it, then `write_reason` on the same path.
-	- Incorrect behavior: false, and `write_reason` says Writable. A raw info string with `#`, a comment with a line break and bad `set_literal` text fail the same way, by their own docs.
-	- Expected behavior: the Rust, Go and Python docs say "false = path not writable (write_reason says why - same for every setter)", and README "What saving does" says the same. Either a reason for a refused value, or docs that say false can be the value. Only `shcl.hpp` says so now.
-	- Reproduced: 20261007, Rust and Go.
-	- Origin: not blamed. Not seen by an earlier round. Confirmed.
-	- Progress log:
-		- 20261008: no answer at the round's start, so the best guess stands: docs only. False from a setter means the path check failed, or it passed and the write was refused for what it would write, and the docs list what. `write_reason` is `check_set_path` now (2026100717500001), so the docs use that name.
-		- The list, from the code: a NaN or infinite float, a datetime the reader would refuse, a raw block whose info string holds a `#` or a line break or whose body has a line ending in CR, a comment with a line break, `set_literal` text that is not one value, an array on a field with lines under it (array setters and `set_literal`), and a new field under one holding an array. That last one was not on the item; the path check says Ok there too. Go also refuses text that is not valid UTF-8, and Python an int past 64 bits.
-		- C and Python take text that is not valid UTF-8 where Go refuses it. Filed as 2026100815543610.
-	- Actual fix [Bug]: the setter notes in all four and `shcl.hpp`, the `check_set_path` docs, README "What saving does", the README examples' comments, both binding READMEs and spec.md's setter bullet now say false is the path or the value, and list the refused values. The "same for every setter" wording is gone from all three docs that had it.
-	- Swept: `git grep -n -i 'same for every setter\|path not writable\|bare false\|bare 0\|bare False'` and every setter doc block (Rust `set_int`, Go `SetInt`, Python `set_int`, C's note above `shcl_new`, `shcl.hpp`'s Writes block). The README's five example comments and "What saving does", `source/rust/README.md`, `source/python/README.md`, spec.md's setter bullets. Each listed refusal was checked against each binding's `set_value`, `place` and value read-back checks.
-	- Verified: the new test passes in all four, and fails in all four with `set_float` taking NaN. `cargo test`, the four conformance suites, Go cmd tests, the C++ veneer smoke, cli-regress (482 rows), crosscheck (17862 comparisons), check-docs, check-readme, check-veneer, check-abnf, check-completions, shell-regress, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy, cppcheck at the normal level, gcc 15 and clang builds of the C runner, markdownlint.
-	- Branch: `setcheck`
-	- Commit: `0dbfcdf6`
-	- Test case: `refused_values_pass_the_path_check` in all four runners (Rust `Es9S4kJ`, Go `Es9S4kK`, Python `Es9S4kL`, C `Es9S4kM`): each listed refusal returns false, writes nothing, and the path checks Ok. Go adds its UTF-8 cases and Python its 64-bit ones. Two of them in the C++ `veneer_smoke` (`EjtkR0S`).
-	- Acceptance signoff: Self-closed 20261008: docs only, the round's best guess, and the list is held by the test.
-	- Closed: 20261008-155436
-
 - C and Python setters take text that is not valid UTF-8, where Go refuses it
 	- ID: 2026100815543610
 	- Type: Bug
@@ -312,6 +286,32 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Origin: Confirmed by reading and probes.
 
 **Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
+
+- A setter returns false while `write_reason` says Writable
+	- ID: 2026100717500009
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 9
+	- Version and build: dev at `6a1d28f0`
+	- Steps to reproduce: `set_float("x", NaN)`, or `set_int_array` on a field with lines under it, then `write_reason` on the same path.
+	- Incorrect behavior: false, and `write_reason` says Writable. A raw info string with `#`, a comment with a line break and bad `set_literal` text fail the same way, by their own docs.
+	- Expected behavior: the Rust, Go and Python docs say "false = path not writable (write_reason says why - same for every setter)", and README "What saving does" says the same. Either a reason for a refused value, or docs that say false can be the value. Only `shcl.hpp` says so now.
+	- Reproduced: 20261007, Rust and Go.
+	- Origin: not blamed. Not seen by an earlier round. Confirmed.
+	- Progress log:
+		- 20261008: no answer at the round's start, so the best guess stands: docs only. False from a setter means the path check failed, or it passed and the write was refused for what it would write, and the docs list what. `write_reason` is `check_set_path` now (2026100717500001), so the docs use that name.
+		- The list, from the code: a NaN or infinite float, a datetime the reader would refuse, a raw block whose info string holds a `#` or a line break or whose body has a line ending in CR, a comment with a line break, `set_literal` text that is not one value, an array on a field with lines under it (array setters and `set_literal`), and a new field under one holding an array. That last one was not on the item; the path check says Ok there too. Go also refuses text that is not valid UTF-8, and Python an int past 64 bits.
+		- C and Python take text that is not valid UTF-8 where Go refuses it. Filed as 2026100815543610.
+	- Actual fix [Bug]: the setter notes in all four and `shcl.hpp`, the `check_set_path` docs, README "What saving does", the README examples' comments, both binding READMEs and spec.md's setter bullet now say false is the path or the value, and list the refused values. The "same for every setter" wording is gone from all three docs that had it.
+	- Swept: `git grep -n -i 'same for every setter\|path not writable\|bare false\|bare 0\|bare False'` and every setter doc block (Rust `set_int`, Go `SetInt`, Python `set_int`, C's note above `shcl_new`, `shcl.hpp`'s Writes block). The README's five example comments and "What saving does", `source/rust/README.md`, `source/python/README.md`, spec.md's setter bullets. Each listed refusal was checked against each binding's `set_value`, `place` and value read-back checks.
+	- Verified: the new test passes in all four, and fails in all four with `set_float` taking NaN. `cargo test`, the four conformance suites, Go cmd tests, the C++ veneer smoke, cli-regress (482 rows), crosscheck (17862 comparisons), check-docs, check-readme, check-veneer, check-abnf, check-completions, shell-regress, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy, cppcheck at the normal level, gcc 15 and clang builds of the C runner, markdownlint.
+	- Branch: `setcheck`
+	- Commit: `0dbfcdf6`
+	- Test case: `refused_values_pass_the_path_check` in all four runners (Rust `Es9S4kJ`, Go `Es9S4kK`, Python `Es9S4kL`, C `Es9S4kM`): each listed refusal returns false, writes nothing, and the path checks Ok. Go adds its UTF-8 cases and Python its 64-bit ones. Two of them in the C++ `veneer_smoke` (`EjtkR0S`).
+	- Acceptance signoff: Self-closed 20261008: docs only, the round's best guess, and the list is held by the test.
+	- Closed: 20261008-155436
 
 - CLI reads take a path that cannot parse as not found, so `get --default` prints the default at exit 0
 	- ID: 2026100717500001
