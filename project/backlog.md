@@ -97,36 +97,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Origin: not blamed. Not seen by an earlier round. Confirmed.
 	- Sweep: `migrate` and `upgrade` without `--write`, in all four CLIs.
 
-- `validate()` says a document conforms when the schema failed to load
-	- ID: 2026100717500004
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Needs local test suite run?: cppcheck at the exhaustive level, with the next full `--ci`. It ran out of time at 10 minutes here; the normal level passed.
-	- Severity: High
-	- Opened: 20261007-175000
-	- Opened by: Code review 20261007 item 4
-	- Version and build: dev at `6a1d28f0`
-	- Steps to reproduce:
-		- Schema: `field: port`, then `type: int` and `max: "65535` under it. The quote never closes, so the `max` line is lost.
-		- Document: `port: 99999`. Parse both, then `doc.validate(&schema)`.
-	- Incorrect behavior: no findings, in Rust, Go, Python and C. `load_and_validate` and `shcl check --schema` refuse the same pair with `V099` at exit 6. The Rust doc comment says "Empty result = the document conforms".
-	- Expected behavior: every entry point gives the same answer. `validate` reports `V099` when the schema has a load error, as the other two do.
-	- Reproduced: 20261007, all four libraries.
-	- Origin: the doc comment is from `30120bcb` (2026-07-23). Not seen by an earlier round. Confirmed.
-	- Sweep: the C++ `validate()`, and every doc that shows parse-then-validate.
-	- Actual cause: `validate` built the schema from whatever loaded and never looked at the schema's own load errors. Only `load_and_validate` and the CLIs checked them, each with its own copy of the test. `generate` had the same gap: on the steps' schema it wrote a starter with the `max` dropped.
-	- Decisions:
-		- `generate` answers a schema that does not load with the same lone `V099`, as `init` already refused it at 6. Without that, its self-check turned the new `V099` from `validate` into a `V097` that read "generated value fails the schema that produced it: schema failed to load".
-		- The `V090`+ faults still let the surviving constraints check the document, per the review's decided-against list.
-	- Actual fix: one helper per binding, `schema_load_fault`, used by `validate`, `load_and_validate` and `generate`. A schema with an error diagnostic of its own gets a lone `V099` and nothing is checked. A `V` code on the schema is not a load error: a document from `load_and_validate` holds some, and C's `generate` records its faults on the schema. Doc comments in all four and the C++ interface now say so, and so do spec.md, design.md, README and the changelog.
-	- Branch: `valschema`
-	- Commit: `47f885ee`
-	- Test case: `validate_and_generate_report_a_broken_schema` in every runner, `Es8Oq5B` (Rust), `Es8Oq5C` (Go), `Es8Oq5D` (Python), `Es8Oq5E` (C), plus checks in the C++ smoke `EjtkR0S`. Each runner's schema dimension now takes `V099` from `validate` itself and checks `load_and_validate` gives the same list on every corpus case, so corpus `024-schema-noload` pins it in all four.
-	- Acceptance signoff: two things to judge, the README sentence and the `generate` call.
-	- Verified: the steps above, run again 20261008 in Python, gave nothing from `validate` and `V099` from `load_and_validate`. Each runner fails with the check taken out of `validate` (024 gave `V001`, the fixture got nothing) and passes with it. The `generate` check and the `V` code filter each fail alone too, in Python and C, and the filter in Rust. Full Rust suite at 20k fuzz, both Go modules, the Python and C runners, the C++ smoke, `oom_hook`, `oom_recover`, `mem_bounds`, the C runner and C++ smoke under ASan and UBSan, cli-regress (453 rows), crosscheck over the corpus, check-docs, check-readme, check-abnf, markdownlint, test-ids, shell-regress, clippy for the host and windows-gnu, go vet, staticcheck, ruff, mypy, cppcheck at the normal level.
-	- Swept: `validate`, `load_and_validate` and `generate` in Rust, Go, Python, C, and their C++ wrappers. `check --schema` and `init` already refuse in all four CLIs, left as they are. Docs: README, spec.md, design.md, changelog. The Rust and Python READMEs, the man page and `check-veneer.bash` show no parse-then-validate on a broken schema.
-	- Note: `veneer_smoke.cpp`'s check that `generate` gives `V097` on a schema holding `bad line` is commented out. It expected generation to run over a schema with a load error (`E014`), which this fix makes `V099`. The `E014` was only there so the schema kept a diagnostic of its own. The new check expects `V099` there, and the `V097` loop now runs on the same schema without that line.
-
 - The README's bash and PowerShell CLI examples fail on 3.0
 	- ID: 2026100717500005
 	- Type: Bug
@@ -142,6 +112,26 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Origin: the example is from `a3692013` (2026-08-04). 2026100207032800 changed the comma rule and 2026100610073400 the selectors, and neither swept these blocks. Not seen by an earlier round. Confirmed.
 	- Note: `check-readme.bash` builds and runs the 6 language examples, not the shell ones, so nothing caught this. Running them there is part of the fix.
 	- Sweep: every shell, PowerShell and text block in README.md and the man page, for brackets after a name and comma-space lists.
+
+- `fmt` leaves a value bare that a reader could misread
+	- ID: 2026100719122101
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: High
+	- Opened: 20261007-191221
+	- Opened by: JC
+	- Problem description: `fmt` is for making a file canonical, but it writes `:0`, `http://my.com/` and `rw,noatime` bare, and drops the quotes from `ver: "8"`. It does quote `Hello world`.
+	- Requirements:
+		- `fmt` and the writer quote any string value that could be misread, and use `◉` escapes where needed:
+			- `Hello world` -> `"Hello world"`
+			- `http://my.com/` -> `"http://my.com/"`
+			- `Hello<tab>world` -> `"Hello◉TAB◉world"`
+			- `:0` -> `":0"`
+			- `my,dog,has,` -> `"my,dog,has,"`
+		- Keep the author's quote kind, and never drop quotes, so `ver: "8"` stays a quoted string.
+		- `set --write` leaves untouched lines alone, as now.
+	- The list, answered 2026-10-08 (JC): any whitespace, `:`, `,`, `(`, `)`, `[` or `]`, plus what already needs quotes. That quotes `2:30PM` and `localhost:8080` too; typed reads don't care.
+	- Sweep: value-syntax.md's Canonical output section and spec.md, the writer in all four, array elements and `- ` items, corpus goldens.
 
 - `get --array` and `instances` print a line break as `\n`
 	- ID: 2026100717500006
@@ -259,54 +249,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Origin: not blamed. Not seen by an earlier round. Confirmed.
 	- Sweep: the `H001` builders in all four.
 
-- Python's `write_file_atomic` returns an error string, and `Document()` raises
-	- ID: 2026100717500014
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261007-175000
-	- Opened by: Code review 20261007 item 14
-	- Version and build: dev at `6a1d28f0`
-	- Incorrect behavior: `write_file_atomic` returns the failure as a string (`shcl.py:8655`), while `save_file`, `write_backup` and `upgrade_file` raise. `save_file`'s own docstring says why a returned message is unsafe: a bare call reads as success. `shcl.Document()` raises `TypeError` over the internal `arena`, `diags` and `strictness` arguments; only `Document.new()` works, where Rust, Go and C++ have a plain empty constructor.
-	- Expected behavior: one failure model in the binding, and an empty document from the constructor.
-	- Reproduced: 20261007, Python.
-	- Origin: not blamed. Not seen by an earlier round. Confirmed.
-
-- Doc text left behind by earlier changes
-	- ID: 2026100717500015
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261007-175000
-	- Opened by: Code review 20261007 item 15
-	- Version and build: dev at `6a1d28f0`
-	- Incorrect behavior:
-		- `lib.rs:32`: `Strictness` "composes with per-call onBad", an option no binding has. It shows on docs.rs.
-		- `source/python/README.md:39`: the save refuses "if the load dropped a line". It also counts kept lines an edit takes. 2026100414480001 fixed the four doc comments and missed this one.
-		- `shcl.h` says nothing about threads, while every read writes the document's arena and index. Only the C++ veneer locks.
-	- Expected behavior: the docs say what the code does.
-	- Origin: `5756a593` (2026-07-12) for the first. The second is a sibling of 2026100414480001. Not seen by an earlier round. Confirmed.
-
-- `fmt` leaves a value bare that a reader could misread
-	- ID: 2026100719122101
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: High
-	- Opened: 20261007-191221
-	- Opened by: JC
-	- Problem description: `fmt` is for making a file canonical, but it writes `:0`, `http://my.com/` and `rw,noatime` bare, and drops the quotes from `ver: "8"`. It does quote `Hello world`.
-	- Requirements:
-		- `fmt` and the writer quote any string value that could be misread, and use `◉` escapes where needed:
-			- `Hello world` -> `"Hello world"`
-			- `http://my.com/` -> `"http://my.com/"`
-			- `Hello<tab>world` -> `"Hello◉TAB◉world"`
-			- `:0` -> `":0"`
-			- `my,dog,has,` -> `"my,dog,has,"`
-		- Keep the author's quote kind, and never drop quotes, so `ver: "8"` stays a quoted string.
-		- `set --write` leaves untouched lines alone, as now.
-	- The list, answered 2026-10-08 (JC): any whitespace, `:`, `,`, `(`, `)`, `[` or `]`, plus what already needs quotes. That quotes `2:30PM` and `localhost:8080` too; typed reads don't care.
-	- Sweep: value-syntax.md's Canonical output section and spec.md, the writer in all four, array elements and `- ` items, corpus goldens.
-
 - `instances` output can't be fed back into a selector
 	- ID: 2026100717500016
 	- Type: Enhancement
@@ -349,6 +291,34 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Fail on a 2.x escape form (`\n`, `\t`, `\\`) in help text or CLI output.
 	- Reason: the doc tables are the cheapest source of hand-written expected results.
 
+- Python's `write_file_atomic` returns an error string, and `Document()` raises
+	- ID: 2026100717500014
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 14
+	- Version and build: dev at `6a1d28f0`
+	- Incorrect behavior: `write_file_atomic` returns the failure as a string (`shcl.py:8655`), while `save_file`, `write_backup` and `upgrade_file` raise. `save_file`'s own docstring says why a returned message is unsafe: a bare call reads as success. `shcl.Document()` raises `TypeError` over the internal `arena`, `diags` and `strictness` arguments; only `Document.new()` works, where Rust, Go and C++ have a plain empty constructor.
+	- Expected behavior: one failure model in the binding, and an empty document from the constructor.
+	- Reproduced: 20261007, Python.
+	- Origin: not blamed. Not seen by an earlier round. Confirmed.
+
+- Doc text left behind by earlier changes
+	- ID: 2026100717500015
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 15
+	- Version and build: dev at `6a1d28f0`
+	- Incorrect behavior:
+		- `lib.rs:32`: `Strictness` "composes with per-call onBad", an option no binding has. It shows on docs.rs.
+		- `source/python/README.md:39`: the save refuses "if the load dropped a line". It also counts kept lines an edit takes. 2026100414480001 fixed the four doc comments and missed this one.
+		- `shcl.h` says nothing about threads, while every read writes the document's arena and index. Only the C++ veneer locks.
+	- Expected behavior: the docs say what the code does.
+	- Origin: `5756a593` (2026-07-12) for the first. The second is a sibling of 2026100414480001. Not seen by an earlier round. Confirmed.
+
 - The ops-script note prints when stdin is piped
 	- ID: 2026100717500018
 	- Type: Enhancement
@@ -376,6 +346,36 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Origin: Confirmed by reading and probes.
 
 **Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
+
+- `validate()` says a document conforms when the schema failed to load
+	- ID: 2026100717500004
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 4
+	- Version and build: dev at `6a1d28f0`
+	- Steps to reproduce:
+		- Schema: `field: port`, then `type: int` and `max: "65535` under it. The quote never closes, so the `max` line is lost.
+		- Document: `port: 99999`. Parse both, then `doc.validate(&schema)`.
+	- Incorrect behavior: no findings, in Rust, Go, Python and C. `load_and_validate` and `shcl check --schema` refuse the same pair with `V099` at exit 6. The Rust doc comment says "Empty result = the document conforms".
+	- Expected behavior: every entry point gives the same answer. `validate` reports `V099` when the schema has a load error, as the other two do.
+	- Reproduced: 20261007, all four libraries.
+	- Origin: the doc comment is from `30120bcb` (2026-07-23). Not seen by an earlier round. Confirmed.
+	- Sweep: the C++ `validate()`, and every doc that shows parse-then-validate.
+	- Actual cause: `validate` built the schema from whatever loaded and never looked at the schema's own load errors. Only `load_and_validate` and the CLIs checked them, each with its own copy of the test. `generate` had the same gap: on the steps' schema it wrote a starter with the `max` dropped.
+	- Decisions:
+		- `generate` answers a schema that does not load with the same lone `V099`, as `init` already refused it at 6. Without that, its self-check turned the new `V099` from `validate` into a `V097` that read "generated value fails the schema that produced it: schema failed to load".
+		- The `V090`+ faults still let the surviving constraints check the document, per the review's decided-against list.
+	- Actual fix: one helper per binding, `schema_load_fault`, used by `validate`, `load_and_validate` and `generate`. A schema with an error diagnostic of its own gets a lone `V099` and nothing is checked. A `V` code on the schema is not a load error: a document from `load_and_validate` holds some, and C's `generate` records its faults on the schema. Doc comments in all four and the C++ interface now say so, and so do spec.md, design.md, README and the changelog.
+	- Branch: `valschema`
+	- Commit: `47f885ee`
+	- Test case: `validate_and_generate_report_a_broken_schema` in every runner, `Es8Oq5B` (Rust), `Es8Oq5C` (Go), `Es8Oq5D` (Python), `Es8Oq5E` (C), plus checks in the C++ smoke `EjtkR0S`. Each runner's schema dimension now takes `V099` from `validate` itself and checks `load_and_validate` gives the same list on every corpus case, so corpus `024-schema-noload` pins it in all four.
+	- Acceptance signoff: Self-closed 20261008: tested both ways in all four. The README sentence and the `generate` call can still be judged at review. Exhaustive cppcheck goes with the next main push; the normal level passed.
+	- Verified: the steps above, run again 20261008 in Python, gave nothing from `validate` and `V099` from `load_and_validate`. Each runner fails with the check taken out of `validate` (024 gave `V001`, the fixture got nothing) and passes with it. The `generate` check and the `V` code filter each fail alone too, in Python and C, and the filter in Rust. Full Rust suite at 20k fuzz, both Go modules, the Python and C runners, the C++ smoke, `oom_hook`, `oom_recover`, `mem_bounds`, the C runner and C++ smoke under ASan and UBSan, cli-regress (453 rows), crosscheck over the corpus, check-docs, check-readme, check-abnf, markdownlint, test-ids, shell-regress, clippy for the host and windows-gnu, go vet, staticcheck, ruff, mypy, cppcheck at the normal level.
+	- Swept: `validate`, `load_and_validate` and `generate` in Rust, Go, Python, C, and their C++ wrappers. `check --schema` and `init` already refuse in all four CLIs, left as they are. Docs: README, spec.md, design.md, changelog. The Rust and Python READMEs, the man page and `check-veneer.bash` show no parse-then-validate on a broken schema.
+	- Note: `veneer_smoke.cpp`'s check that `generate` gives `V097` on a schema holding `bad line` is commented out. It expected generation to run over a schema with a load error (`E014`), which this fix makes `V099`. The `E014` was only there so the schema kept a diagnostic of its own. The new check expects `V099` there, and the `V097` loop now runs on the same schema without that line.
+	- Closed: 20261008-115144
 
 - A merge after an empty field writes a list that a reload joins to it
 	- ID: 2026100520243961
