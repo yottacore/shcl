@@ -206,6 +206,16 @@ int main() {
 	auto broken = shcl::Document::parse("field: port\n\tfrobnicate: 1\n");
 	auto fd = doc.validate(broken);
 	CHECK(fd.size() >= 2 && fd[0].code == "V090" && fd.back().code == "V001");
+	// A schema that does not load is a lone V099 through every entry point,
+	// and a failed generate leaves no fault behind that reads as one.
+	auto noload = shcl::Document::parse("field: port\n\ttype: int\n\tmax: \"65535\n");
+	auto nv = shcl::Document::parse("port: 99999\n").validate(noload);
+	CHECK(nv.size() == 1 && nv[0].code == "V099" && nv[0].line == 0);
+	auto [ntext, nfaults] = shcl::generate(noload, true);
+	CHECK(ntext.empty() && nfaults.size() == 1 && nfaults[0].code == "V099");
+	CHECK(shcl::generate(broken, true).second.size() >= 1);
+	auto fdAgain = doc.validate(broken);
+	CHECK(fdAgain.size() == fd.size() && fdAgain[0].code == "V090");
 
 	// Layered loading: overlay a higher-priority doc; leaf override, container merge.
 	auto base = shcl::Document::parse("port: 8080\nserver: web1\n\tport: 80\n");
@@ -287,8 +297,17 @@ int main() {
 	auto genfault = shcl::Document::parse("field: p\n\ttype: int\n\trequired: yes\n\tmin: 1\n\tmax: 10\n\tdefault: 99\nbad line\n");
 	for (int i = 0; i < 3; i++) {
 		auto [gtext, gfaults] = shcl::generate(genfault, true);
+		// The E014 means the schema did not load, and generate answers that
+		// with a lone V099 since 2026100717500004, so V097 is never reached.
+		// CHECK(gtext.empty() && gfaults.size() == 1 && gfaults[0].code == "V097" && gfaults[0].severity == shcl::Severity::Error);
+		CHECK(gtext.empty() && gfaults.size() == 1 && gfaults[0].code == "V099" && gfaults[0].severity == shcl::Severity::Error);
+	}
+	auto genfaultLoads = shcl::Document::parse("field: p\n\ttype: int\n\trequired: yes\n\tmin: 1\n\tmax: 10\n\tdefault: 99\n");
+	for (int i = 0; i < 3; i++) {
+		auto [gtext, gfaults] = shcl::generate(genfaultLoads, true);
 		CHECK(gtext.empty() && gfaults.size() == 1 && gfaults[0].code == "V097" && gfaults[0].severity == shcl::Severity::Error);
 	}
+	CHECK(genfaultLoads.diagnostics().empty());
 	auto ownDiags = genfault.diagnostics();
 	CHECK(ownDiags.size() == 1 && ownDiags[0].code == "E014");
 	// A default-constructed Document is an empty one, not a null handle.

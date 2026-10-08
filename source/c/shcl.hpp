@@ -329,7 +329,8 @@ public:
 	// Parse at a strictness, validate against a schema, and hand back a
 	// document whose diagnostics() serve one combined list, parse first. Never
 	// fails: error_count() answers "did it fail". An empty schema text skips
-	// validation; the H001 and H002 hints the schema disavows are dropped.
+	// validation, and one that does not load adds a lone V099, as validate()
+	// does; the H001 and H002 hints the schema disavows are dropped.
 	static Document load_and_validate(std::string_view text, std::string_view schema, Strictness s);
 
 #ifndef SHCL_NO_FILE_IO
@@ -369,6 +370,8 @@ public:
 	std::size_t lost_count() const;
 
 	// Schema validation (spec.md "Schema validation"): empty result = conforms.
+	// A schema with a load error of its own gives a lone V099 and checks
+	// nothing, as load_and_validate and `check --schema` do.
 	// Schema faults (V09x, schema-file lines) come first; the surviving
 	// constraints still check the document, and the unknown-field sweep skips
 	// only when a fault cost a path spelling. The H001/H002 hints a schema
@@ -555,7 +558,8 @@ template <> Read<std::vector<DateTime>> Document::get<std::vector<DateTime>>(std
 
 // Schema-driven generation (`shcl init`): a commented, typed starter config
 // from a schema, and the schema's faults (V09x), which are empty exactly when
-// the text is good. A footer naming the format and pointing at the spec is
+// the text is good. A schema with a load error of its own is a lone V099, as
+// `init` refuses it. A footer naming the format and pointing at the spec is
 // written last unless no_banner. The schema is left as it was.
 std::pair<std::string, std::vector<Diagnostic>> generate(const Document &schema, bool no_banner = false);
 

@@ -1221,17 +1221,17 @@ def main():
 
 	# Schema dimension: golden = the exact `check --schema` stdout at Standard
 	# (doc parse diags, then validation diags, then the summary). A schema that
-	# does not load cleanly is a single V099, mirroring the CLI.
+	# does not load cleanly is a single V099, mirroring the CLI. It comes from
+	# validate() itself, and load_and_validate has to give the same list, so
+	# every entry point is held to the one golden.
 	for case in cases:
 		if case["schema"] is None:
 			continue
 		doc = shcl.Document.parse(case["input"])
 		diags = list(doc.diagnostics())
 		sdoc = shcl.Document.parse(case["schema"])
-		if any(sd.severity == shcl.Severity.Error for sd in sdoc.diagnostics()):
-			diags.append(shcl.Diagnostic(0, shcl.Severity.Error, "schema failed to load", "V099"))
-		else:
-			diags.extend(doc.validate(sdoc))
+		diags.extend(doc.validate(sdoc))
+		if not any(sd.severity == shcl.Severity.Error for sd in sdoc.diagnostics()):
 			shcl.suppress_declared_repeats(sdoc, diags)
 			shcl.suppress_declared_reopens(sdoc, diags)
 		got = ""
@@ -1240,6 +1240,10 @@ def main():
 			got += f"line {d.line}: {d.severity.name}: {d.code}\n"
 			if d.severity == shcl.Severity.Error:
 				errors += 1
+		one_shot = shcl.Document.load_and_validate(case["input"], case["schema"], shcl.Strictness.Standard)
+		lv = "".join(f"line {d.line}: {d.severity.name}: {d.code}\n" for d in one_shot.diagnostics())
+		if lv != got:
+			fails.append(f"{case['name']}: load_and_validate disagrees with parse then validate")
 		if errors > 0:
 			got += f"failed: {len(diags)} diagnostic(s), {errors} error(s)\n"
 		else:
@@ -1398,6 +1402,23 @@ def main():
 	# An empty schema still means "skip validation", not "everything unknown".
 	if shcl.Document.load_and_validate("host: example\n", "", shcl.Strictness.Standard).error_count() != 0:
 		raise SystemExit("empty schema: load_and_validate not clean")
+	test_id("Es8Oq5D", "validate_and_generate_report_a_broken_schema")
+	# The quote never closes, so the max line is lost and a parse then
+	# validate passed 99999 with no word. Same fixture in every runner.
+	qschema = shcl.Document.parse('field: port\n\ttype: int\n\tmax: "65535\n')
+	qvs = shcl.Document.parse("port: 99999\n").validate(qschema)
+	if [(d.line, d.severity, d.code) for d in qvs] != [(0, shcl.Severity.Error, "V099")]:
+		raise SystemExit(f"broken schema: validate got {[d.code for d in qvs]}, want a lone V099")
+	qtext, qfaults = shcl.generate(qschema, True)
+	if qtext != "" or [d.code for d in qfaults] != ["V099"]:
+		raise SystemExit(f"broken schema: generate got {qtext!r}, {[d.code for d in qfaults]}, want a lone V099")
+	# A document that came through load_and_validate holds V codes of its own,
+	# and they are not load errors when it is used as a schema.
+	qchecked = shcl.Document.load_and_validate("field: port\n", "field: other\n", shcl.Strictness.Standard)
+	if not qchecked.diagnostics() or qchecked.diagnostics()[0].code != "V001":
+		raise SystemExit("checked schema: want V001 first")
+	if shcl.Document.parse("port: 1\n").validate(qchecked):
+		raise SystemExit("checked schema as a schema: validate not clean")
 	test_id("Eqzz38e", "nul_name_does_not_satisfy_a_dotted_schema_path")
 	# The unknown-field chain key is length-prefixed, not NUL-joined: a single
 	# field whose name literally contains a NUL must not impersonate the

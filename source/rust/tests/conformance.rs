@@ -376,7 +376,9 @@ fn validation_matches_expected() {
 	let _id = test_id("EkstvaW");
 	// Schema dimension: golden = the exact `check --schema` stdout at Standard
 	// (doc parse diags, then validation diags, then the summary). A schema that
-	// does not load cleanly is a single V099, mirroring the CLI.
+	// does not load cleanly is a single V099, mirroring the CLI. It comes from
+	// validate() itself, and load_and_validate has to give the same list, so
+	// every entry point is held to the one golden.
 	each_case(|case| {
 		let (schema_text, want) = match (&case.schema, &case.expected_validate) {
 			(Some(s), Some(w)) => (s, w),
@@ -389,19 +391,12 @@ fn validation_matches_expected() {
 		let doc = Document::parse(&case.input);
 		let mut diags: Vec<shcl::Diagnostic> = doc.diagnostics().to_vec();
 		let sdoc = Document::parse(schema_text);
-		if sdoc
+		diags.extend(doc.validate(&sdoc));
+		if !sdoc
 			.diagnostics()
 			.iter()
 			.any(|d| d.severity == shcl::Severity::Error)
 		{
-			diags.push(shcl::Diagnostic {
-				line: 0,
-				severity: shcl::Severity::Error,
-				message: "schema failed to load".to_string(),
-				code: "V099",
-			});
-		} else {
-			diags.extend(doc.validate(&sdoc));
 			shcl::suppress_declared_repeats(&sdoc, &mut diags);
 			shcl::suppress_declared_reopens(&sdoc, &mut diags);
 		}
@@ -409,6 +404,16 @@ fn validation_matches_expected() {
 		for d in &diags {
 			got.push_str(&format!("line {}: {:?}: {}\n", d.line, d.severity, d.code));
 		}
+		let one_shot = Document::load_and_validate(&case.input, schema_text, Strictness::Standard);
+		let mut lv = String::new();
+		for d in one_shot.diagnostics() {
+			lv.push_str(&format!("line {}: {:?}: {}\n", d.line, d.severity, d.code));
+		}
+		assert_eq!(
+			lv, got,
+			"{}: load_and_validate disagrees with parse then validate",
+			case.name
+		);
 		let errors = diags
 			.iter()
 			.filter(|d| d.severity == shcl::Severity::Error)
@@ -2494,6 +2499,27 @@ fn one_shot_load_reports_a_broken_schema() {
 	// An empty schema still means "skip validation", not "everything unknown".
 	let none = Document::load_and_validate("host: example\n", "", Strictness::Standard);
 	assert_eq!(none.error_count(), 0);
+}
+
+#[test]
+fn validate_and_generate_report_a_broken_schema() {
+	let _id = test_id("Es8Oq5B");
+	// The quote never closes, so the max line is lost and a parse then
+	// validate passed 99999 with no word. Same fixture in every runner.
+	let schema = Document::parse("field: port\n\ttype: int\n\tmax: \"65535\n");
+	let vs = Document::parse("port: 99999\n").validate(&schema);
+	let codes: Vec<&str> = vs.iter().map(|d| d.code).collect();
+	assert_eq!(codes, ["V099"]);
+	assert_eq!((vs[0].line, vs[0].severity), (0, shcl::Severity::Error));
+	let err = generate(&schema, true).expect_err("a starter from a schema that did not load");
+	let codes: Vec<&str> = err.iter().map(|d| d.code).collect();
+	assert_eq!(codes, ["V099"]);
+	// A document that came through load_and_validate holds V codes of its own,
+	// and they are not load errors when it is used as a schema.
+	let checked =
+		Document::load_and_validate("field: port\n", "field: other\n", Strictness::Standard);
+	assert_eq!(checked.diagnostics()[0].code, "V001");
+	assert!(Document::parse("port: 1\n").validate(&checked).is_empty());
 }
 
 #[test]

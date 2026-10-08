@@ -5697,23 +5697,18 @@ func (d *Document) ErrorCount() int {
 // prints), so half the errors can't vanish because a caller forgot one of the
 // two lists. Never fails: a strict-failing document comes back as the document
 // plus its diagnostics (ErrorCount answers "did it fail"). An empty schema
-// text skips validation entirely. H001 hints the schema disavows (a declared
-// repeat upper bound above 1) are dropped.
+// text skips validation entirely, and one that does not load adds a lone
+// V099, as Validate does. H001 hints the schema disavows (a declared repeat
+// upper bound above 1) are dropped.
 func LoadAndValidate(text, schemaText string, strictness Strictness) *Document {
 	doc := newParser().parse(text, strictness)
 	if strings.TrimSpace(schemaText) != "" {
 		schema := Parse(schemaText)
-		// A schema that did not load would silently drop the constraints on
-		// its broken lines, or report every field as unknown - either way
-		// blaming the document for the schema. Say so instead, as `check`
-		// does, and validate nothing.
-		for _, sd := range schema.diags {
-			if sd.Severity == SeverityError {
-				doc.diags = append(doc.diags, Diagnostic{
-					Line: 0, Severity: SeverityError, Message: "schema failed to load", Code: "V099",
-				})
-				return doc
-			}
+		// Validate would give the same lone V099; a broken schema disavows no
+		// hints either, so nothing is suppressed.
+		if fault, ok := schemaLoadFault(schema); ok {
+			doc.diags = append(doc.diags, fault)
+			return doc
 		}
 		doc.diags = append(doc.diags, doc.Validate(schema)...)
 		doc.diags = SuppressDeclaredRepeats(schema, doc.diags)
@@ -13104,8 +13099,14 @@ func genDefaultText(v string) string {
 // first time it is checked. A footer naming
 // the format and pointing at the spec is written last unless noBanner; the
 // flag is negative so leaving it alone writes the footer. faults != nil =
-// schema faults (V09x), same as Validate / check --schema.
+// schema faults (V09x), same as Validate / check --schema; a schema with a
+// load error of its own is a lone V099, as `init` refuses it.
 func Generate(schema *Document, noBanner bool) (string, []Diagnostic) {
+	// A starter config from what survived a broken load would leave out the
+	// fields on the broken lines with no word about them.
+	if fault, ok := schemaLoadFault(schema); ok {
+		return "", []Diagnostic{fault}
+	}
 	// Generation lays the whole schema out, so unlike validation it has no
 	// safe partial mode: any fault fails it.
 	def, faults := buildSchema(schema)
@@ -13875,8 +13876,22 @@ func min3(a, b, c int) int {
 	return a
 }
 
+// schemaLoadFault is the lone V099 that every schema entry point gives a
+// schema with load errors of its own. Validation's own codes are V and are not
+// load errors: a document that came through LoadAndValidate holds some.
+func schemaLoadFault(schema *Document) (Diagnostic, bool) {
+	for _, d := range schema.diags {
+		if d.Severity == SeverityError && !strings.HasPrefix(d.Code, "V") {
+			return Diagnostic{Line: 0, Severity: SeverityError, Message: "schema failed to load", Code: "V099"}, true
+		}
+	}
+	return Diagnostic{}, false
+}
+
 // Validate checks this document against a schema document (itself plain SHCL -
 // spec.md "Schema validation"). An empty result means the document conforms.
+// A schema with a load error of its own gives a lone V099 and checks nothing,
+// the same answer as LoadAndValidate and `check --schema`.
 // Diagnostic lines are document lines (0 = document scope); schema faults
 // (V09x, schema-file lines) come first, and the surviving constraints still
 // check the document. The unknown-field sweep runs too, unless a fault cost
@@ -13889,6 +13904,12 @@ func min3(a, b, c int) int {
 // SuppressDeclaredReopens yourself, or use LoadAndValidate, which runs both
 // for you.
 func (d *Document) Validate(schema *Document) []Diagnostic {
+	// A schema that did not load would drop the constraints on its broken
+	// lines, or report every field as unknown - either way blaming the
+	// document for the schema.
+	if fault, ok := schemaLoadFault(schema); ok {
+		return []Diagnostic{fault}
+	}
 	def, faults := buildSchema(schema)
 	out := faults
 	// One mount set for the whole schema: two top-level paths can resolve to

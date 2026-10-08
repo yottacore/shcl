@@ -90,7 +90,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - `validate()` says a document conforms when the schema failed to load
 	- ID: 2026100717500004
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
+	- Needs local test suite run?: cppcheck at the exhaustive level, with the next full `--ci`. It ran out of time at 10 minutes here; the normal level passed.
 	- Severity: High
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 4
@@ -103,6 +104,17 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: 20261007, all four libraries.
 	- Origin: the doc comment is from `30120bcb` (2026-07-23). Not seen by an earlier round. Confirmed.
 	- Sweep: the C++ `validate()`, and every doc that shows parse-then-validate.
+	- Actual cause: `validate` built the schema from whatever loaded and never looked at the schema's own load errors. Only `load_and_validate` and the CLIs checked them, each with its own copy of the test. `generate` had the same gap: on the steps' schema it wrote a starter with the `max` dropped.
+	- Decisions:
+		- `generate` answers a schema that does not load with the same lone `V099`, as `init` already refused it at 6. Without that, its self-check turned the new `V099` from `validate` into a `V097` that read "generated value fails the schema that produced it: schema failed to load".
+		- The `V090`+ faults still let the surviving constraints check the document, per the review's decided-against list.
+	- Actual fix: one helper per binding, `schema_load_fault`, used by `validate`, `load_and_validate` and `generate`. A schema with an error diagnostic of its own gets a lone `V099` and nothing is checked. A `V` code on the schema is not a load error: a document from `load_and_validate` holds some, and C's `generate` records its faults on the schema. Doc comments in all four and the C++ interface now say so, and so do spec.md, design.md, README and the changelog.
+	- Branch: `valschema`
+	- Test case: `validate_and_generate_report_a_broken_schema` in every runner, `Es8Oq5B` (Rust), `Es8Oq5C` (Go), `Es8Oq5D` (Python), `Es8Oq5E` (C), plus checks in the C++ smoke `EjtkR0S`. Each runner's schema dimension now takes `V099` from `validate` itself and checks `load_and_validate` gives the same list on every corpus case, so corpus `024-schema-noload` pins it in all four.
+	- Acceptance signoff: two things to judge, the README sentence and the `generate` call.
+	- Verified: the steps above, run again 20261008 in Python, gave nothing from `validate` and `V099` from `load_and_validate`. Each runner fails with the check taken out of `validate` (024 gave `V001`, the fixture got nothing) and passes with it. The `generate` check and the `V` code filter each fail alone too, in Python and C, and the filter in Rust. Full Rust suite at 20k fuzz, both Go modules, the Python and C runners, the C++ smoke, `oom_hook`, `oom_recover`, `mem_bounds`, the C runner and C++ smoke under ASan and UBSan, cli-regress (453 rows), crosscheck over the corpus, check-docs, check-readme, check-abnf, markdownlint, test-ids, shell-regress, clippy for the host and windows-gnu, go vet, staticcheck, ruff, mypy, cppcheck at the normal level.
+	- Swept: `validate`, `load_and_validate` and `generate` in Rust, Go, Python, C, and their C++ wrappers. `check --schema` and `init` already refuse in all four CLIs, left as they are. Docs: README, spec.md, design.md, changelog. The Rust and Python READMEs, the man page and `check-veneer.bash` show no parse-then-validate on a broken schema.
+	- Note: `veneer_smoke.cpp`'s check that `generate` gives `V097` on a schema holding `bad line` is commented out. It expected generation to run over a schema with a load error (`E014`), which this fix makes `V099`. The `E014` was only there so the schema kept a diagnostic of its own. The new check expects `V099` there, and the `V097` loop now runs on the same schema without that line.
 
 - The README's bash and PowerShell CLI examples fail on 3.0
 	- ID: 2026100717500005
