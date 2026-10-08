@@ -54,35 +54,13 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Progress log:
 		- 20261008: the CLI half is in, all four. Open question below, on the library.
 		- Question: the library's reads hide a bad path the same way, in all four. `get_int_or("site[0].port", 8)` gives 8, the full-tier read gives NotFound, and `count` gives 0. Only `write_reason` tells a bad path from a missing one. Any fix changes a public contract: a new read status such as `BadPath` breaks every exhaustive match on the status, and an `_or` that raises breaks the call that never fails. Options: (a) leave the library as it is, and say in spec.md that a read takes a path that cannot parse as NotFound and `write_reason` is the check; (b) add a status for 3.0, since it is a major bump anyway. My pick is (a). The library was left alone.
+		- 20261008: the user asked for examples, and said a behavior change is fine since every current consumer can change. With that, my pick moves to (b): a `BadPath` read status, last in the order, and Python's value 1 to match the CLI's exit. The `_or` reads still give the default.
 	- Actual fix [Bug]: `get`, `count`, `instances` and `children` check PATH with the same test `--remove` uses, before the load, and exit 1 with `bad PATH (REASON): PATH (see --help)`. A bracket selector keeps its reason, "a selector is written in parens now, name(value)"; anything else is "not a usable path". `children` still takes the empty path as the top level, as the library documents. A bad PATH is judged before FILE is read, like the other usage errors. All four CLIs, same stderr bytes. The help's refused list, the man page, the UI style guide's exit table and the changelog say so. The man page's `get` text said `[*]` and now says `(*)`.
 	- Swept: the positional PATH of `get`, `count`, `instances` and `children` (fixed). `--set`, `--set-literal`, `--set-default`, `--set-literal-default`, `--remove` and every ops-script path already refused at 1 through `write_reason`. `paths`, `fmt`, `check`, `init`, `migrate`, `upgrade`, `tokens` and `explain` take no PATH. The library `_or` reads in Rust, Go, Python and C hide it too; see the question.
 	- Verified: the 10 refusal rows fail on dev's four CLIs (40 checks) and pass after. cli-regress (462 rows), crosscheck (17862 comparisons), the four conformance suites, `cargo test`, Go cmd tests, check-docs, check-abnf, check-readme, check-migrate, shell-regress, check-completions, clippy for the host and windows, rustfmt, go vet, staticcheck, ruff, mypy, shellcheck, test-ids check, markdownlint.
 	- Branch: `badpath`
 	- Commit: `abe9c719`
 	- Test case: cli-regress `Es8PcNw` to `Es8PcO5` (each refusal, the `--default` cases included), plus `Es8PcO6` (`children` with an empty path lists the top level) and `Es8PcO7` (a missing path still gives the default). `ErxfmqP`, `ErxfmqU` and `ErrQs1q` expected exit 3 and are commented out, replaced by `Es8PcNw`, `Es8PcNz` and `Es8PcO0`.
-
-- The ops-script note prints when stdin is piped
-	- ID: 2026100717500018
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Priority: Low
-	- Opened: 20261007-175000
-	- Opened by: Code review 20261007 item 18
-	- Problem description: "shcl: reading write-ops from stdin (one op per line...)" goes to stderr on every `set -`, piped or not.
-	- Requirements: print it only when stdin is a terminal, as most tools do.
-	- Origin: Confirmed, Rust CLI.
-	- Against: the 20260817 review made the note unconditional "so a pipeline and a terminal behave identically", saying terminal sniffing had been rejected once already. That rejection was about `set -` meaning different things at a terminal, and it stands. This changes only a note on stderr: stdout and the exit code are the same either way.
-	- Progress log:
-		- 20261008: done as asked, all four. Left at signoff for the Against line.
-	- Decisions:
-		- Windows' `isatty` calls NUL a terminal, so Go, Python and C ask for the console mode there. Rust's `IsTerminal` already does.
-	- Actual fix: the note prints only when stdin is a terminal. Rust uses `IsTerminal`. Go asks for the terminal settings on Linux, macOS and the BSDs and the console mode on Windows, with a character-device guess anywhere else. Python uses `isatty`, plus the console mode on Windows. C uses `isatty`, or the console mode on Windows. The man page says so, and the changelog.
-	- Note: cli-regress's `@appear` and `@change` rows waited for the note to know the command was reading its ops. They now first write more script comments than a pipe holds, a write that returns only once the command is reading. The row loop no longer drops the note from stderr.
-	- Swept: `set` is the one subcommand with a waiting note, in all four CLIs.
-	- Verified: `Es8bB5G` fails on dev's four CLIs and passes after. `Es8bB5H` passes before and after, as it should, and its harness reads nothing from a command that prints nothing. `EpyBxDM` and `EqLeNlw` pass with the new wait. The mingw C CLI and windows Go CLI print no note on a pipe under wine.
-	- Branch: `opsesc`
-	- Commit: `273cc07e`
-	- Test case: cli-regress `Es8bB5G` (no note with stdin from /dev/null or a pipe) and `Es8bB5H` (the note at a terminal, through a pseudo-terminal; skipped on Windows or without python3). `EqzuLW2` pinned the note on /dev/null and is commented out.
 
 - The README's bash and PowerShell CLI examples fail on 3.0
 	- ID: 2026100717500005
@@ -175,6 +153,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Steps to reproduce: `port: 1` and `port: 2`, then `set_int("port", 9)` and `get_int("port")`.
 	- Incorrect behavior: true, then Multiple. With two `site` blocks, `set_string("site.root", "/z")` changes the first only. The setter docs and the README say nothing about it. spec.md states the first-instance rule, for `--set` only. `--set`'s help calls it a "top layer", but `get dup.shcl a --set a=9` exits 5.
 	- Expected behavior: the rule stated in the setter docs, the README and the help. A refusal with its own `write_reason` would be a behavior change, for the user.
+	- Progress log:
+		- 20261008: answered, a behavior change is fine, since every current consumer can change. Use what fits the project best. My call: refuse. A setter whose path matches more than one node at any step returns false, and `write_reason` gives a new `Multiple`, so a write agrees with the read that would follow it. `port(0)` or `site(1).root` picks one. `--set` on such a path is a usage error at exit 1, and spec.md's first-instance rule goes. The round's best guess, docs only, is dropped.
 	- Reproduced: 20261007, Rust and Go, and the Rust CLI.
 	- Origin: not blamed. Not seen by an earlier round. Confirmed.
 
@@ -233,6 +213,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Or one machine-readable mode for the list commands (NUL-separated, or JSON lines), which would settle 2026100717500006 as well.
 	- Reason: least surprise for script authors. The obvious loop is wrong, at exit 0.
 	- Origin: Confirmed. The spec documents it, so this is not filed as a defect.
+	- Progress log:
+		- 20261008: `instances --paths` OK'd. Proposed back: print the index form, `shard(0)`, which is unique even when 2 instances share a value and never holds a space. The user asked why not a machine-readable mode too. Proposed: `--json` on `paths`, `children`, `instances` and `get --array`, one JSON object per line with path, value and line. Waiting on the user.
 
 - A file stamped with a newer Format major loads clean
 	- ID: 2026100717500017
@@ -306,6 +288,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: 20261008, Rust CLI.
 	- Origin: the CLI's `quoted()` and the library's `one_line()` and `schema_text()` for messages, from before 2026100207032800. Not seen by an earlier round. Confirmed.
 	- Question: which form a message uses for a value with a line break. The writer's quoted form escapes a real `◉` in source text as `◉ESCAPE_CHAR◉`, which reads oddly in an `E023` message about that very mark.
+		- Answered 20261008: a real `◉` in a message shows as itself, then its code in parentheses: `◉ (U+25C9)`.
 	- Sweep: `quoted()` in the four CLIs, and the library's message helpers in all four, with the cli-regress rows that pin their text.
 
 - Library gaps a generic tool has to work around
@@ -324,6 +307,32 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Origin: Confirmed by reading and probes.
 
 **Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
+
+- The ops-script note prints when stdin is piped
+	- ID: 2026100717500018
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Low
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 18
+	- Problem description: "shcl: reading write-ops from stdin (one op per line...)" goes to stderr on every `set -`, piped or not.
+	- Requirements: print it only when stdin is a terminal, as most tools do.
+	- Origin: Confirmed, Rust CLI.
+	- Against: the 20260817 review made the note unconditional "so a pipeline and a terminal behave identically", saying terminal sniffing had been rejected once already. That rejection was about `set -` meaning different things at a terminal, and it stands. This changes only a note on stderr: stdout and the exit code are the same either way.
+	- Progress log:
+		- 20261008: done as asked, all four. Left at signoff for the Against line.
+		- 20261008: signed off, as long as it doesn't start churn. The note prints only at a terminal; don't reopen it.
+	- Decisions:
+		- Windows' `isatty` calls NUL a terminal, so Go, Python and C ask for the console mode there. Rust's `IsTerminal` already does.
+	- Actual fix: the note prints only when stdin is a terminal. Rust uses `IsTerminal`. Go asks for the terminal settings on Linux, macOS and the BSDs and the console mode on Windows, with a character-device guess anywhere else. Python uses `isatty`, plus the console mode on Windows. C uses `isatty`, or the console mode on Windows. The man page says so, and the changelog.
+	- Note: cli-regress's `@appear` and `@change` rows waited for the note to know the command was reading its ops. They now first write more script comments than a pipe holds, a write that returns only once the command is reading. The row loop no longer drops the note from stderr.
+	- Swept: `set` is the one subcommand with a waiting note, in all four CLIs.
+	- Verified: `Es8bB5G` fails on dev's four CLIs and passes after. `Es8bB5H` passes before and after, as it should, and its harness reads nothing from a command that prints nothing. `EpyBxDM` and `EqLeNlw` pass with the new wait. The mingw C CLI and windows Go CLI print no note on a pipe under wine.
+	- Branch: `opsesc`
+	- Commit: `273cc07e`
+	- Test case: cli-regress `Es8bB5G` (no note with stdin from /dev/null or a pipe) and `Es8bB5H` (the note at a terminal, through a pseudo-terminal; skipped on Windows or without python3). `EqzuLW2` pinned the note on /dev/null and is commented out.
+	- Acceptance signoff: JC 20261008, OK as long as it doesn't open up churn.
+	- Closed: 20261008-144500
 
 - The write-ops script still decodes `\t`, `\n` and `\\` in a value
 	- ID: 2026100717500002
