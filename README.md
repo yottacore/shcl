@@ -336,19 +336,11 @@ SHCL avoids the whole problem. It has 3 easy ways to write a problem character, 
 Examples:
 
 ~~~~text
-# No surprise escapes here.
+# No surprise escapes here, it's just a literal string.
 backup-dir: C:\temp\new
 
-# Deliberate and obvious escapes, if you don't want to use a fenced block
-motd: "Back soon.◉NEWLINE◉◉TAB◉Sorry for the wait."
-
-demo-escapes:
-	# As before, these values here are returned by SHCL with the escapes properly interpreted.
-	emoji:  "This is a smiley emoji: ◉U+1F600◉."
-	escape: "This is the SHCL escape character: ◉ESCAPE_CHAR◉"
-
+# The standard fenced block approach to give the calling program a formatted string without interpretation.
 help-text:
-	# This text between the fenced block is given to the program without interpretation.
 	~~~
 	The system may need one or more of:
 		- A reboot
@@ -357,6 +349,14 @@ help-text:
 
 # This is returned as a literal string for the calling program to deal with, as it requested.
 color: `\x1b[31m`
+
+# Deliberate and obvious escapes, if you don't want to use a fenced block
+motd: "Back soon.◉NEWLINE◉◉TAB◉Sorry for the wait."
+
+# As with the previous example, these values here are returned by SHCL with the escapes properly interpreted.
+demo-escapes:
+	emoji:  "This is a smiley emoji: ◉U+1F600◉."
+	escape: "This is the SHCL escape character: ◉ESCAPE_CHAR◉"
 ~~~~
 
 The full list of escapes is in [the spec](project/spec.md#escapes).
