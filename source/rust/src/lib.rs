@@ -10635,10 +10635,10 @@ impl Document {
 	/// path that matches more than one field fails the path check (Multiple),
 	/// since the read after the write would; `port(0)` or `site(1).root` picks
 	/// one. False from any setter means nothing was written. Either the path
-	/// check failed, and check_set_path says why, or it passed and the write was refused for
-	/// what it would write: a NaN or infinite float, a datetime the reader
-	/// would refuse, a raw block whose info string holds a `#` or a line
-	/// break or whose body has a line ending in CR, a comment with a line
+	/// check failed, and check_set_path says why, or it passed and the write
+	/// was refused for what it would write: a NaN or infinite float, a datetime
+	/// the reader would refuse, a raw block whose info string holds a `#` or a
+	/// line break or whose body has a line ending in CR, a comment with a line
 	/// break, `set_literal` text that is not one value, an array on a field
 	/// with lines under it, or a new field under one holding an array. The
 	/// setters are must_use because an ignored false means the save that

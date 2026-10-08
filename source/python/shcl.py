@@ -6546,13 +6546,14 @@ class Document:
 		return trail[-1]
 
 	def _place(self, path, setter):
-		"""Walk (creating as needed) to the node a write targets. A name with
-		no selector hits its one instance (or a new one); a `(value)` selector
-		selects the matching instance or creates it; `(k)` must already exist.
-		A step that matches more than one instance is refused (Multiple). None = path unusable for a write (check_set_path()
-		says why). Validation runs first, so a doomed path leaves no
-		half-created intermediates behind. A setter creating a field deals
-		with the kept lines of its name, as _set_child() says."""
+		"""Walk (creating as needed) to the node a write targets. A name with no
+		selector hits its one instance (or a new one); a `(value)` selector
+		selects the matching instance or creates it; `(k)` must already exist. A
+		step that matches more than one instance is refused (Multiple). None =
+		path unusable for a write (check_set_path() says why). Validation runs
+		first, so a doomed path leaves no half-created intermediates behind. A
+		setter creating a field deals with the kept lines of its name, as
+		_set_child() says."""
 		try:
 			segments, value_text = _scan_lookup(path)
 		except _PathError:
@@ -7162,22 +7163,22 @@ class Document:
 		return removed
 
 	def set_int(self, path: str, v: int) -> bool:
-		"""Bind an integer at path, creating the path as needed. A step of the
-		path that matches more than one field fails the path check (Multiple),
-		since the read after the write would; `port(0)` or `site(1).root` picks
-		one. False from any setter means nothing was written. Either the path check failed, and
-		check_set_path says why, or it passed and the write was refused for what
-		it would write: an int outside the 64-bit range the other bindings
-		hold, a NaN or infinite float, a datetime the reader would refuse, a raw
-		block whose info string holds a `#` or a line break or whose body has a
-		line ending in CR, a comment with a line break, set_literal text that is
-		not one value, an array on a field with lines under it, a new field
-		under one holding an array, or text with no UTF-8 spelling (a lone
-		surrogate). Worth checking rather than assuming: an
+		"""Bind an integer at path, creating the path as needed. A step of the path
+		that matches more than one field fails the path check (Multiple), since
+		the read after the write would; `port(0)` or `site(1).root` picks one.
+		False from any setter means nothing was written. Either the path check
+		failed, and check_set_path says why, or it passed and the write was
+		refused for what it would write: an int outside the 64-bit range the
+		other bindings hold, a NaN or infinite float, a datetime the reader
+		would refuse, a raw block whose info string holds a `#` or a line break
+		or whose body has a line ending in CR, a comment with a line break,
+		set_literal text that is not one value, an array on a field with lines
+		under it, a new field under one holding an array, or text with no UTF-8
+		spelling (a lone surrogate). Worth checking rather than assuming: an
 		ignored False means the save that follows writes a document missing the
-		edit, and reports success doing it. A value of
-		the wrong type is a TypeError (same for every typed setter): int here,
-		and a bool is not one."""
+		edit, and reports success doing it. A value of the wrong type is a
+		TypeError (same for every typed setter): int here, and a bool is not
+		one."""
 		_want("set_int", v, "int")
 		if not _fits_i64(v):
 			return False

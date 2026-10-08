@@ -443,8 +443,9 @@ public:
 	// info string holds a `#` or a line break or whose body has a line ending
 	// in CR, a comment with a line break, set_literal text that is not one
 	// value, an array on a field with lines under it, a new field under one
-	// holding an array, or text that is not valid UTF-8. An ignored false means the save that follows writes a
-	// document missing the edit, hence nodiscard.
+	// holding an array, or text that is not valid UTF-8. An ignored false
+	// means the save that follows writes a document missing the edit, hence
+	// nodiscard.
 	[[nodiscard]] bool set_int(std::string_view path, std::int64_t v);
 	[[nodiscard]] bool set_float(std::string_view path, double v);
 	[[nodiscard]] bool set_bool(std::string_view path, bool v);

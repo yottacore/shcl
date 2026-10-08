@@ -9307,13 +9307,13 @@ func (d *Document) writeTarget(path string) (int, bool) {
 	return trail[len(trail)-1], true
 }
 
-// place walks (creating as needed) to the node a write targets. A name with
-// no selector hits its one instance (or a new one); a (value) selector selects
-// the matching instance or creates it; (k) must already exist. A step that
-// matches more than one instance is refused (SetPathMultiple). ok=false means the path is unusable for a write (CheckSetPath says
-// why). Validation runs first, so a doomed path leaves no half-created
-// intermediates behind. A setter creating a field deals with the kept lines
-// of its name, as setChild says.
+// place walks (creating as needed) to the node a write targets. A name with no
+// selector hits its one instance (or a new one); a (value) selector selects the
+// matching instance or creates it; (k) must already exist. A step that matches
+// more than one instance is refused (SetPathMultiple). ok=false means the path
+// is unusable for a write (CheckSetPath says why). Validation runs first, so a
+// doomed path leaves no half-created intermediates behind. A setter creating a
+// field deals with the kept lines of its name, as setChild says.
 func (d *Document) place(path string, setter bool) (int, bool) {
 	scan, err := scanLookup(path)
 	if err != nil {
