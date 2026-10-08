@@ -306,6 +306,155 @@ if [[ "${escOut}" != "ok (0 diagnostic(s))" ]]; then
 	exit 1
 fi
 fTestEnd
+
+##	The shell blocks. The Bash and PowerShell ones went stale at 3.0, first on
+##	the comma rule and then on the selectors, since nothing ran them. A section's
+##	blocks run top to bottom in one directory, the way a reader pastes them, on
+##	the README's server.shcl with the wrapper beside it and SHCL_BIN pinned to the
+##	built CLI. Every command has to succeed, and the file left behind has to load
+##	clean.
+fSectionBlocks(){   ## fSectionBlocks HEADING LANG DIR: writes DIR/N.blk, prints N
+	mkdir -p "$3"
+	awk -v head="$1" -v lang="$2" -v dir="$3" '
+		fence != "" { if ($0 == fence) { fence = ""; if (out != "") { close(out); out = "" } } else if (out != "") print > out; next }
+		/^~~~+/ { fence = $0; sub(/[^~].*$/, "", fence); if (f && $0 == fence lang) out = dir "/" (++n) ".blk"; next }
+		/^#+ / { f = ($0 == head) }
+		END { print n + 0 }' "${readme}"
+}
+fSectionLoadsClean(){   ## fSectionLoadsClean NAME DIR
+	local out
+	out="$("${cli}" check "$2/server.shcl" 2>&1 || true)"
+	[[ "${out}" == "ok (0 diagnostic(s))" ]] && return 0
+	echo "check-readme: the README's $1 blocks leave a server.shcl that does not load clean:" >&2
+	printf '%s\n' "${out}" | sed 's/^/	/' >&2
+	exit 1
+}
+##	A bash or sh section runs as one script under errexit. A line such as
+##	`x=$(...)   # 52428800, in bytes` is a claim about what x holds, so it is
+##	checked too.
+fRunBashSection(){   ## fRunBashSection HEADING LANG
+	local dir="${tmpDir}/sh-${2}-${1//[^A-Za-z]/}" n i name want
+	n="$(fSectionBlocks "$1" "$2" "${dir}")"
+	if [[ "${n}" == 0 ]]; then echo "check-readme: no ${2} block under '${1}' in ${readme}" >&2; exit 1; fi
+	cp "${tmpDir}/server-in.shcl" "${dir}/server.shcl"
+	cp "${repoDir}/source/bash/shcl.bash" "${dir}/"
+	{
+		echo 'set -Eeo pipefail'
+		# shellcheck disable=SC2016  ## expands in the generated script
+		echo 'trap '\''echo "fails at: ${BASH_COMMAND}" >&2'\'' ERR'
+		for ((i = 1; i <= n; i++)); do cat "${dir}/${i}.blk"; done
+		for ((i = 1; i <= n; i++)); do
+			sed -nE 's/^([A-Za-z_][A-Za-z0-9_]*)=\$\(.*\)[[:space:]]+#[[:space:]]*([0-9]+)([^0-9].*)?$/\1 \2/p' "${dir}/${i}.blk"
+		done | while read -r name want; do
+			echo "[[ \"\${${name}}\" == '${want}' ]] || { echo \"check-readme: README ${2} block: ${name} is '\${${name}}', its comment says ${want}\" >&2; exit 1; }"
+		done
+	} > "${dir}/run.bash"
+	if ! ( cd "${dir}" && PATH="${tx}/bin:${PATH}" SHCL_BIN="${cli}" bash "${dir}/run.bash" ) > "${dir}/run.out" 2>&1 </dev/null; then
+		echo "check-readme: the README's ${2} blocks under '${1}' do not run:" >&2
+		head -n 20 "${dir}/run.out" | sed 's/^/	/' >&2
+		exit 1
+	fi
+	fSectionLoadsClean "${2} '${1}'" "${dir}"
+	echo "check-readme: the ${n} ${2} block(s) under '${1}' run"
+}
+fTest Es9JhMP shell-blocks
+fRunBashSection '## Using the CLI' sh
+fRunBashSection '### Bash' bash
+fTestEnd
+
+##	PowerShell has no errexit for a native exit code, so the blocks are parsed
+##	and run one top-level statement at a time, dot-sourced so each sees what the
+##	last one set, and a nonzero LASTEXITCODE after any of them fails the run.
+fTest Es9JhOf powershell-blocks
+if command -v pwsh >/dev/null 2>&1; then
+	psDir="${tmpDir}/ps"
+	nPs="$(fSectionBlocks '### PowerShell' powershell "${psDir}")"
+	if [[ "${nPs}" == 0 ]]; then echo "check-readme: no powershell block under '### PowerShell' in ${readme}" >&2; exit 1; fi
+	cp "${tmpDir}/server-in.shcl" "${psDir}/server.shcl"
+	cp "${repoDir}/source/powershell/shcl.ps1" "${psDir}/"
+	cat > "${tmpDir}/run-ps-blocks.ps1" << 'EOF'
+$ErrorActionPreference = 'Stop'
+foreach ($__readmeBlock in (Get-ChildItem -Path $args[0] -Filter '*.blk' | Sort-Object -Property { [int]$_.BaseName })) {
+	$__readmeTokens = $null; $__readmeErrors = $null
+	$__readmeAst = [System.Management.Automation.Language.Parser]::ParseFile($__readmeBlock.FullName, [ref]$__readmeTokens, [ref]$__readmeErrors)
+	if ($__readmeErrors.Count -gt 0) {
+		[Console]::Error.WriteLine("check-readme: README PowerShell block $($__readmeBlock.BaseName) does not parse: $($__readmeErrors[0].Message)")
+		exit 1
+	}
+	foreach ($__readmeStatement in $__readmeAst.EndBlock.Statements) {
+		$global:LASTEXITCODE = 0
+		. ([scriptblock]::Create($__readmeStatement.Extent.Text))
+		if ($global:LASTEXITCODE -ne 0) {
+			[Console]::Error.WriteLine("check-readme: README PowerShell block $($__readmeBlock.BaseName) exits $($global:LASTEXITCODE) at: $($__readmeStatement.Extent.Text)")
+			exit 1
+		}
+	}
+}
+exit 0
+EOF
+	if ! ( cd "${psDir}" && SHCL_BIN="${cli}" env -u DISPLAY pwsh -NoProfile -NonInteractive -File "${tmpDir}/run-ps-blocks.ps1" "${psDir}" ) > "${psDir}/run.out" 2>&1 </dev/null; then
+		echo "check-readme: the README's PowerShell blocks do not run:" >&2
+		head -n 20 "${psDir}/run.out" | sed 's/^/	/' >&2
+		exit 1
+	fi
+	fSectionLoadsClean PowerShell "${psDir}"
+	echo "check-readme: the ${nPs} PowerShell block(s) run"
+elif [[ -n "${SHCL_GATE_STRICT:-}" ]]; then
+	echo "check-readme: no pwsh here, and the gate requires it" >&2
+	exit 1
+else
+	echo "check-readme: skipping the PowerShell blocks (no pwsh here)"
+	echo check-readme >> "${SHCL_GATE_SKIPS:-/dev/null}"
+	fTestSkip
+fi
+fTestEnd
+
+##	The prose under the Bash block says what each of the two set options makes
+##	of one piece of text: --set one string, --set-literal a two-element array.
+##	It said so of comma text after 3.0 made that an error.
+fTest Es9JhQu set-spellings
+# shellcheck disable=SC2016  ## the backticks are markdown, not expansions
+setText="$(awk '/^The two spellings differ/' "${readme}" | grep -oE '`[a-z.-]+=[^`]*,[^`]*`' | head -n1 | tr -d '`' || true)"
+[[ -n "${setText}" ]] || { echo "check-readme: the paragraph on --set and --set-literal no longer shows its comma text" >&2; exit 1 ;}
+for setOpt in --set --set-literal; do
+	if [[ "${setOpt}" == --set ]]; then wantN=1; else wantN=2; fi
+	printf 'x: 1\n' > "${tmpDir}/spell.shcl"
+	if ! "${cli}" set --write "${tmpDir}/spell.shcl" "${setOpt}" "${setText}" > "${tmpDir}/spell.out" 2>&1; then
+		echo "check-readme: '${setOpt} ${setText}', from the README, fails:" >&2
+		sed 's/^/	/' "${tmpDir}/spell.out" >&2
+		exit 1
+	fi
+	gotN="$("${cli}" get --array "${tmpDir}/spell.shcl" "${setText%%=*}" 2>/dev/null | wc -l | tr -d ' ' || true)"
+	if [[ "${gotN}" != "${wantN}" ]]; then
+		echo "check-readme: '${setOpt} ${setText}', from the README, writes ${gotN} element(s), not ${wantN}" >&2
+		exit 1
+	fi
+done
+fTestEnd
+
+##	The paragraph on 2.x files names the value that needs --from-2x and the one
+##	that comes through as it was. It went stale once already, on backslashes.
+fTest Es9KiYw migrate-claims
+migPara="$(awk '/^If you have files written for 2.x/' "${readme}")"
+# shellcheck disable=SC2016  ## the backticks are markdown, not expansions
+migComma="$(grep -oE '`[a-z]+: [^`]*,[^`]*`' <<< "${migPara}" | head -n1 | tr -d '`' || true)"
+# shellcheck disable=SC2016  ## the backticks are markdown, not expansions
+migSlash="$(grep -oE '`[a-z]+: [^`]*\\[^`]*`' <<< "${migPara}" | head -n1 | tr -d '`' || true)"
+[[ -n "${migComma}" && -n "${migSlash}" ]] \
+	|| { echo "check-readme: the paragraph on 2.x files no longer shows its comma value and its backslash value" >&2; exit 1 ;}
+printf '%s\n' "${migComma}" > "${tmpDir}/mig.shcl"
+migRc=0; migOut="$("${cli}" migrate "${tmpDir}/mig.shcl" 2>/dev/null)" || migRc=$?
+if [[ "${migRc}" != 7 || "${migOut}" != "${migComma}" ]]; then
+	echo "check-readme: migrate on '${migComma}' exits ${migRc} and prints '${migOut}'; the README says it is left alone at exit 7" >&2
+	exit 1
+fi
+printf '%s\n' "${migSlash}" > "${tmpDir}/mig.shcl"
+migRc=0; migOut="$("${cli}" migrate "${tmpDir}/mig.shcl" 2>/dev/null)" || migRc=$?
+if [[ "${migRc}" != 0 || "${migOut%%$'\n'*}" != "${migSlash}" ]]; then
+	echo "check-readme: migrate on '${migSlash}' exits ${migRc} and prints '${migOut%%$'\n'*}'; the README says it comes through as it was" >&2
+	exit 1
+fi
+fTestEnd
 echo "check-readme: OK"
 
 ##	History:
@@ -322,3 +471,6 @@ echo "check-readme: OK"
 ##		            save are run and their file compared with the README's.
 ##		2026-09-26  The C++ example, built apart from its implementation file.
 ##		2026-10-07  The Escapes sample has to load clean.
+##		2026-10-08  The Bash, PowerShell and CLI shell blocks run, after the
+##		            first two were found failing on 3.0. Also the --set prose
+##		            and the 2.x migrate paragraph's two values.

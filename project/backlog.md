@@ -67,7 +67,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - The README's bash and PowerShell CLI examples fail on 3.0
 	- ID: 2026100717500005
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: High
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 5
@@ -79,6 +79,16 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Origin: the example is from `a3692013` (2026-08-04). 2026100207032800 changed the comma rule and 2026100610073400 the selectors, and neither swept these blocks. Not seen by an earlier round. Confirmed.
 	- Note: `check-readme.bash` builds and runs the 6 language examples, not the shell ones, so nothing caught this. Running them there is part of the fix.
 	- Sweep: every shell, PowerShell and text block in README.md and the man page, for brackets after a name and comma-space lists.
+	- Actual cause [Bug]: the blocks predate the bracket arrays and paren selectors, and `check-readme.bash` ran only the language examples and the console transcripts.
+	- Actual fix [Bug]: both `--set-literal` lines write `[a.example.com, b.example.com]`, the PowerShell op removes `site(old.example.com)`, and the prose after the bash block shows `hosts=[a, b]`. `check-readme.bash` now runs the `### Bash` and `### PowerShell` blocks and the `## Using the CLI` sh block against the built CLI. Each section runs top to bottom on the README's server.shcl, every command has to succeed, and the file left behind has to load clean. A `# N` comment on an assignment is checked against the value. PowerShell runs one statement at a time and fails on a nonzero exit. With no pwsh it's a noted skip, and a failure under the strict gate. The prose's `hosts=[a, b]` goes through both options: one string from `--set`, 2 elements from `--set-literal`.
+	- Swept: README's shell, PowerShell, console, text and shcl blocks and its prose. Only the 3 sites above, plus the 2.x paragraph (2026100717500008). The man page's shell blocks and its `--set` and `--set-literal` text already use parens and brackets. Its `name:[disc]`, `base[Boston]` and `[\-default]` hits describe the old forms or option syntax. Left alone: the `shcl.ps1` header's `--set-literal=ports=80,443`, which is about PowerShell splitting at a comma and still runs at exit 0.
+	- Verified: on the old README, `Es9JhMP` fails on the bash block. With only that fixed, `Es9JhOf` fails on the PowerShell `--set-literal`, then on the op. With both fixed, `Es9JhQu` fails on the old prose. All pass after. Also red on a wrong byte count in the bash comment. With pwsh off PATH the test skips and is noted in SHCL_GATE_SKIPS, and fails under SHCL_GATE_STRICT. check-docs, shell-regress (its skip-rule scans included), test-ids check, shellcheck and markdownlint pass.
+	- Note: the hosted ci job runs the PowerShell blocks for the first time with the next main push.
+	- Branch: `readmesh`
+	- Commit: `98a4b7d4`
+	- Test case: check-readme `Es9JhMP` (shell blocks), `Es9JhOf` (PowerShell blocks), `Es9JhQu` (the `--set` prose).
+	- Acceptance signoff: Self-closed: the blocks follow value-syntax.md, and the tests fail before and pass after. The one prose change is the example.
+	- Closed: 20261008-153500
 
 - `fmt` leaves a value bare that a reader could misread
 	- ID: 2026100719122101
@@ -120,7 +130,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - The README's `migrate` paragraph lists 2.x rewrites that 3.0 no longer makes
 	- ID: 2026100717500008
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Avg
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 8
@@ -129,6 +139,14 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Expected behavior: what spec.md's "Migrating from 2.x" and the man page say.
 	- Reproduced: 20261007, Rust CLI.
 	- Origin: `1991e313` (2026-09-27), stale since `vsmig`. Not seen by an earlier round. Confirmed.
+	- Actual cause [Bug]: `vsmig` changed what `migrate` rewrites, and the README paragraphs weren't updated with spec.md and the man page.
+	- Actual fix [Bug]: the list of rewrites is now the man page's: a comma list, a `*` item, a selector in brackets, a quote that never closed, and `name:[disc]`. The exit 7 example is `p: a,b`, an array then and one string now. A new sentence says backslashes are a quiet change that `migrate` leaves as written, so `path: "C:\temp\new"` comes through as it was. The raw label sentence stays, as "another" quiet case.
+	- Verified: `migrate` without `--from-2x` on each case in the list rewrites it at exit 0, but `p: a,b`, which it leaves at exit 7. `Es9KiYw` fails on the old paragraph and on a non-comma value in its place, and passes after.
+	- Branch: `readmesh`
+	- Commit: `98a4b7d4`
+	- Test case: check-readme `Es9KiYw` (runs the paragraph's comma value and backslash value through `migrate`).
+	- Acceptance signoff: Self-closed: the text follows spec.md and the man page, and the test fails before and passes after. The backslash sentence is new README wording.
+	- Closed: 20261008-153500
 
 - A setter returns false while `write_reason` says Writable
 	- ID: 2026100717500009
