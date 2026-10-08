@@ -741,23 +741,44 @@ rows=(
 	## is E025 in a lookup too, and an array value is never selected.
 	'ErrQs1o|get-bare-space-selector|get - base(New◉SPACE◉York).lat|base: "New York"\n\tlat: 1\n|0|1\n|-'
 	'ErrQs1p|count-selector-skips-array|count - x(a)|x: [a]\nx: a\n|0|1\n|-'
-	"ErrQs1q|get-bare-quote-selector-refused|get %Q% srv(O'Brien).port|-|3|\n|no value at that path"
+	## A read's PATH that cannot parse is a usage error since 2026100717500001,
+	## so this one is exit 1 now; Es8PcO0 below takes its place.
+	#"ErrQs1q|get-bare-quote-selector-refused|get %Q% srv(O'Brien).port|-|3|\n|no value at that path"
 	## 2026100610073400: a selector is written in parens. One in brackets is
 	## E029, kept as written, and a path in brackets is refused with a reason.
 	'ErxfmqM|e029-check|check -|a[x].b: 1\n|6|line 1: Error: E029\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E029 selector in brackets; write it in parens, name\(value\), since brackets are only for arrays, at column 2$'
 	'ErxfmqN|e029-lines-under-load|get - srv(web).host|srv: web\n\tport: 80\nsrv[web]:\n\thost: h\n|0|h\n|E029'
 	'ErxfmqO|e029-fmt-keeps-line|fmt -|srv: web\n\tport: 80\nsrv[web]:\n\thost: h\n|0|srv[web]:\nsrv: web\n\tport: 80\n\thost: h\n|E029'
-	'ErxfmqP|get-bracket-path-named|get %F% a[0]|-|3|\n|a selector is written in parens now, name\(value\)'
+	## Exit 1 since 2026100717500001, with the same reason; Es8PcNw below.
+	#'ErxfmqP|get-bracket-path-named|get %F% a[0]|-|3|\n|a selector is written in parens now, name\(value\)'
 	'ErxfmqQ|set-bracket-path-named|set --set=a[0].b=1 %F%|-|1||^--set: cannot write a\[0\]\.b: a selector is written in parens now, name\(value\)$'
 	'ErxfmqR|remove-bracket-path-named|set --remove=a[0] %F2%|-|1||^bad --remove value \(a selector is written in parens now, name\(value\)\): a\[0\] \(see --help\)$'
 	'ErxfmqS|ops-remove-bracket-path-named|set %F2%|remove\ta[0]\n|1||^op line 1: cannot remove a\[0\]: a selector is written in parens now, name\(value\)$'
 	'ErxfmqT|schema-bracket-path-named|check --schema=- %F%|field: "a[*].b"\n|6|line 1: Error: V093\nfailed: 1 diagnostic(s), 1 error(s)\n|V093 bad schema path: a\[\*\]\.b; selector in brackets; write it in parens'
-	'ErxfmqU|get-hash-index-refused|get %F% a(#0)|-|3|\n|no value at that path'
+	## Exit 1 since 2026100717500001; Es8PcNz below.
+	#'ErxfmqU|get-hash-index-refused|get %F% a(#0)|-|3|\n|no value at that path'
 	'ErxfmqZ|set-hash-index-refused|set --set=a(#0)=2 %F%|-|1||not a usable path'
 	'ErxfmqV|get-paren-index|get %F% a(0)|-|0|1\n|-'
 	'ErxfmqW|e025-paren-in-selector|check -|a(x(y).b: 1\n|6|line 1: Error: E025\nfailed: 1 diagnostic(s), 1 error(s)\n|^line 1: Error: E025 a paren in a bare selector; quote it$'
 	'ErxfmqX|get-quoted-paren-selector|get - a("x)y")|a: "x)y"\n|0|x)y\n|-'
 	'ErxfmqY|explain-e029|explain E029|-|0|\nE029  error       a selector in brackets, the old spelling\n  Selectors are written in parens: person(Bucky).city, person("New York"),\n  person(0) and person(*). Brackets are only for arrays. The line is kept\n  as written and binds nothing. When it selects by value, the lines under\n  it still load, under the instance it names. On a command line, quote the\n  path, since a bare ( is a syntax error in most shells.\n\n|-'
+	## 2026100717500001: a read took a PATH that cannot parse as not found, so
+	## get --default printed the default at exit 0 and count printed 0. Every
+	## read's PATH is refused at 1 now, as --remove's is, before the load. A
+	## missing path still reads as not found, and children takes the empty
+	## path as the top level.
+	'Es8PcNw|get-bracket-path-usage|get %F% a[0]|-|1||=bad PATH (a selector is written in parens now, name(value)): a[0] (see --help)\n'
+	'Es8PcNx|get-default-bad-path|get --int --default=8 %F% a[0].port|-|1||=bad PATH (a selector is written in parens now, name(value)): a[0].port (see --help)\n'
+	'Es8PcNy|get-default-unparsable|get --default=8 %F% a..b|-|1||=bad PATH (not a usable path): a..b (see --help)\n'
+	'Es8PcNz|get-hash-index-usage|get %F% a(#0)|-|1||=bad PATH (not a usable path): a(#0) (see --help)\n'
+	"Es8PcO0|get-bare-quote-selector-usage|get %Q% srv(O'Brien).port|-|1||=bad PATH (not a usable path): srv(O'Brien).port (see --help)\n"
+	'Es8PcO1|get-empty-path-usage|get --default=8 %F% %E%|-|1||=bad PATH (not a usable path):  (see --help)\n'
+	'Es8PcO2|get-value-in-path-usage|get --on-bad=error %F% a:1|-|1||=bad PATH (not a usable path): a:1 (see --help)\n'
+	'Es8PcO3|count-bad-path-usage|count %F% a[0]|-|1||=bad PATH (a selector is written in parens now, name(value)): a[0] (see --help)\n'
+	'Es8PcO4|instances-bad-path-usage|instances %F% a(|-|1||=bad PATH (not a usable path): a( (see --help)\n'
+	'Es8PcO5|children-bad-path-usage|children %F% .a|-|1||=bad PATH (not a usable path): .a (see --help)\n'
+	'Es8PcO6|children-empty-path-top|children %F2% %E%|-|0|a\nb\n|^$'
+	'Es8PcO7|get-default-missing-path|get --default=8 %F% nope|-|0|8\n|^$'
 	'ErqYSbS|tokens-array|tokens -|p: [a, b] # c\nq: [x\n- y\n|0|1:0 name=0-1 sep=1 value=3-9 array=3 elem=4-5 elem=7-8 comment=10\n2:0 name=0-1 sep=1 value=3-5 array=3 array-fault=3:no closing \x27]\x27 on the line elem=4-5\n3:0 item value=2-3 elem=2-3\n|-'
 	'ErqYWEx|get-one-element-string|get - p|p: [80]\n|0|[80]\n|-'
 	'ErqYWEy|get-one-element-int|get --int - p|p: [80]\n|0|80\n|-'

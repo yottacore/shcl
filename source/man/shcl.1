@@ -3,7 +3,7 @@
 .\"
 .\" Has no version string on purpose: the release bump touches eight files
 .\" and this is not one of them. Keep it in step with HELP in the four CLIs.
-.TH SHCL 1 2026-10-07 shcl "User Commands"
+.TH SHCL 1 2026-10-08 shcl "User Commands"
 .SH NAME
 shcl \- read, edit, validate and format Simple Hierarchical Config Language files
 .SH SYNOPSIS
@@ -106,7 +106,7 @@ Read one value, or an array of them, at
 The type is chosen at the call site with a type option; the default is
 .BR \-\-string .
 A trailing
-.RB [ * ]
+.RB ( * )
 in a path segment fans the read across every instance of that segment.
 .TP
 .B set
@@ -658,6 +658,11 @@ may be named only once across
 and
 .B \-\-schema
 \- there is one stdin, so two names for it would each read part of a document.
+A
+.I PATH
+that cannot parse is a usage error too, with
+.B \-\-default
+or without, rather than a path that was not found.
 .SH WRITE OPS
 .B set
 reads a write-ops script on stdin when none of
