@@ -2620,14 +2620,15 @@ static size_t option_names(const char **v, size_t cap) {
 	return n;
 }
 
-// From the first line of text starting with lead to the blank line after it,
-// with a blank line above. Nothing at all when no line starts with lead.
+// The first paragraph of text that opens with lead, up to the blank line after
+// it, with a blank line above. Nothing at all when none does. A line inside a
+// paragraph never counts, since a wrapped line can start with any word.
 static void print_block(const char *text, const char *lead) {
 	size_t ll = strlen(lead);
 	for (const char *p = text; *p;) {
 		const char *e = strchr(p, '\n');
 		size_t n = e ? (size_t)(e - p) : strlen(p);
-		if (!strncmp(p, lead, ll)) {
+		if ((p == text || (p - text >= 2 && p[-2] == '\n')) && !strncmp(p, lead, ll)) {
 			putchar('\n');
 			while (*p) {
 				e = strchr(p, '\n');

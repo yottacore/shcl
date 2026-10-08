@@ -1235,20 +1235,15 @@ fn help_for(cmd: &str) -> String {
 	}
 	// A paragraph of the full help that opens with the subcommand's own name is
 	// that subcommand's - today that is set's write-ops block, which is the
-	// half of set a user most needs in front of them.
+	// half of set a user most needs in front of them. Its first line only: a
+	// wrapped line inside one can start with any word.
 	let lead = format!("{} ", cmd);
-	let mut first = true;
-	for l in HELP
-		.lines()
-		.skip_while(|l| !l.starts_with(&lead))
-		.take_while(|l| !l.is_empty())
-	{
-		if first {
-			out.push('\n');
-			first = false;
-		}
-		out.push_str(l);
+	if let Some(para) = HELP.split("\n\n").find(|p| p.starts_with(&lead)) {
 		out.push('\n');
+		for l in para.lines() {
+			out.push_str(l);
+			out.push('\n');
+		}
 	}
 	let allowed = allowed_opts(cmd);
 	if allowed.contains(&"--<type>") {

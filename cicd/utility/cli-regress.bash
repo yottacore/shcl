@@ -2460,6 +2460,45 @@ for b in "${bindings[@]}"; do
 	fi
 done
 
+## `help CMD` takes the full help's paragraphs that open with CMD's name. It
+## took any line starting with it, so set's paragraph, rewrapped to start a line
+## with "fmt writes it.", showed up as fmt's help (20261007 item 7). Every prose
+## line in a narrowed help has to come from a paragraph opening with that
+## command, and every such paragraph has to be there whole. The usage, type and
+## option blocks are cut by their own rules and checked above.
+fTest Es9aIKE help-own-paragraphs
+for b in "${bindings[@]}"; do
+	name="${b%%|*}"; cli="${b#*|}"
+	"${cli}" help </dev/null >"${tmpDir}/fullhelp" 2>/dev/null || true
+	## `help help` is the full text.
+	mapfile -t cmds < <({ grep -oE '^  shcl [a-z]+' "${tmpDir}/fullhelp" || true ;} | awk '{print $2}' | { grep -vx help || true ;} | sort -u)
+	((${#cmds[@]} >= 10)) || { echo "cli-regress: help-own-paragraphs [${name}]: only ${#cmds[@]} subcommand(s) found in the help" >&2; nBad+=1; }
+	for c in "${cmds[@]}"; do
+		nRun+=1
+		"${cli}" help "${c}" </dev/null >"${tmpDir}/cmdhelp" 2>/dev/null || true
+		while IFS= read -r stray; do
+			echo "cli-regress: help-own-paragraphs [${name}]: help ${c}: ${stray}" >&2; nBad+=1
+		done < <(awk -v cmd="${c} " '
+			BEGIN { start = 1 }
+			FNR == NR {
+				if ($0 == "") { start = 1; next }
+				if (start) { head = $0; start = 0; n++ }
+				if (head ~ /^(shcl - |Usage:|Types \(|Options \()/) next
+				owner[$0] = head; para[n] = para[n] $0 "\n"; first[n] = head
+				next
+			}
+			{ got = got $0 "\n" }
+			($0 in owner) && index(owner[$0], cmd) != 1 {
+				print "line " FNR " is from the paragraph opening \"" substr(owner[$0], 1, 30) "\""
+			}
+			END {
+				for (i = 1; i <= n; i++)
+					if (index(first[i], cmd) == 1 && !index(got, para[i]))
+						print "leaves out its own paragraph opening \"" substr(first[i], 1, 30) "\""
+			}' "${tmpDir}/fullhelp" "${tmpDir}/cmdhelp")
+	done
+done
+
 ## The man page sits next to that help and had nothing holding it to the same
 ## width; rendered at 80 it already had one 81-column line, from an example
 ## block nroff does not fill. Rendered rather than read, because the source's
