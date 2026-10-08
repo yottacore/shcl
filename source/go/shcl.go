@@ -4947,17 +4947,19 @@ func (p *parser) emitRepeatedLeafHints() {
 				continue
 			}
 			line := 0
-			vals := make([]string, 0, len(g.nodes))
+			vals := make([]string, 0, diagListMax)
 			for _, c := range g.nodes {
 				if p.arena[c].line > line {
 					line = p.arena[c].line
 				}
-				vals = append(vals, diagValue(&p.arena[c].value))
+				if len(vals) < diagListMax {
+					vals = append(vals, diagValue(&p.arena[c].value))
+				}
 			}
 			p.diag(Diagnostic{
 				Line:     line,
 				Severity: SeverityHint,
-				Message:  fmt.Sprintf("%s[%s]'?", h001Head(g.name), strings.Join(vals, ", ")),
+				Message:  fmt.Sprintf("%s[%s]'?%s", h001Head(g.name), diagList(vals, len(g.nodes)), diagMore(len(g.nodes))),
 				Code:     "H001",
 			})
 		}
@@ -7539,6 +7541,31 @@ func diagValue(v *value) string {
 		return v.display()
 	}
 	return diagElement(&v.els[0])
+}
+
+// diagListMax is how many values a diagnostic lists before it only counts the
+// rest. H001 once listed all 400,000 lines of a repeated field on one stderr
+// line.
+const diagListMax = 3
+
+// diagList is the first few of total values, comma-separated, with ", ..."
+// when some are left out. diagMore is the count that goes after.
+func diagList(shown []string, total int) string {
+	if len(shown) > diagListMax {
+		shown = shown[:diagListMax]
+	}
+	out := strings.Join(shown, ", ")
+	if total > diagListMax {
+		out += ", ..."
+	}
+	return out
+}
+
+func diagMore(total int) string {
+	if total > diagListMax {
+		return fmt.Sprintf(" (and %d more)", total-diagListMax)
+	}
+	return ""
 }
 
 // h001Head is the single H001 wording site: the hint builder and the schema
@@ -14006,7 +14033,13 @@ func (d *Document) vNode(c *constraint, n int, out *[]Diagnostic) {
 		if !isArray && (base == "string" || base == "") && node.value.kind == vArray {
 			text := node.value.display()
 			if c.allowed != nil && c.allowed.kind == allowStrings && !containsString(c.allowed.strs, text) {
-				vdiag(out, line, "V004", fmt.Sprintf("value not allowed at '%s': %s", schemaText(c.path), oneLine(text)))
+				// The bracket form, cut short like any list in a message.
+				shown := make([]string, 0, diagListMax)
+				for i := 0; i < len(els) && i < diagListMax; i++ {
+					shown = append(shown, diagElement(&els[i]))
+				}
+				brief := "[" + diagList(shown, len(els)) + "]" + diagMore(len(els))
+				vdiag(out, line, "V004", fmt.Sprintf("value not allowed at '%s': %s", schemaText(c.path), oneLine(brief)))
 			}
 			return
 		}

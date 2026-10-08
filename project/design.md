@@ -265,6 +265,8 @@ The "did you mean `enabled`?" suggestion rides in the prose message, not the cod
 
 **A field name in a diagnostic appears the way the emitter would write it.** Pasting the stored name in raw let a name with a line break split one diagnostic across two lines, and printed a flat `a.b` exactly like `a` nesting `b` - the ambiguity `paths` output and `QuoteSegment` already avoid by quoting. Every site that names a field now goes through one helper, so the `H001` and `H002` suppressors still match the head their builder emitted. A carriage return used to be escaped for display only, since the name parse had no `\r` escape to read back. Since format 3 the emitter writes it as `◉CR◉`, like any other control.
 
+**A list in a diagnostic shows its first 3 values and counts the rest**, as in `'x: [a, b, c, ...]'? (and 9 more)`. The `H001` hint for a field repeated on 400,000 lines was one 3.4 MB stderr line, printed on every run. One helper per binding does the cut, so the four stay byte-identical.
+
 **A broken schema is reported against the schema.** Codes `V090+` cover schema faults (unknown constraint key, unusable type name), and their line numbers refer to the schema file.
 
 - Originally any fault suppressed data validation entirely; after consumer feedback we decided a fault must not mask real violations - the schema builder already drops a broken key or field individually, so the surviving constraints now check the document too, with the faults listed first.

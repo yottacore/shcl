@@ -2826,6 +2826,10 @@ static ShclElement new_element(ShclStr text);
 static ShclStr escape_name(ShclArena *a, ShclStr name);
 static ShclStr diag_name(ShclArena *a, ShclStr name);
 static ShclStr diag_value(ShclArena *a, const ShclValue *v);
+/* How many values a diagnostic lists before it only counts the rest. H001
+   once listed all 400,000 lines of a repeated field on one stderr line. */
+#define SHCL_DIAG_LIST_MAX 3
+static void diag_list_end(ShclArena *a, ShclSB *s, size_t total, const char *close);
 static int index_shape(ShclStr body);
 static int selector_reads_back(ShclArena *a, ShclStr body, ShclStr text, int quoted);
 
@@ -5505,9 +5509,9 @@ static void emit_repeated_leaf_hints(ShclParser *P) {
 				if (NODE(P->d, c).line > maxline) maxline = NODE(P->d, c).line;
 			}
 			if (!all_scalar) continue;
-			ShclSB joined = {0};
-			for (size_t k = 0; k < grp.len; k++) { if (k) sb_puts(tmp, &joined, ", "); sb_putS(tmp, &joined, diag_value(tmp, &NODE(P->d, grp.data[k]).value)); }
-			ShclSB m = {0}; sb_putS(tmp, &m, h001_head(tmp, names.data[gi])); sb_putc(tmp, &m, '['); sb_putS(tmp, &m, sb_S(&joined)); sb_puts(tmp, &m, "]'?");
+			ShclSB m = {0}; sb_putS(tmp, &m, h001_head(tmp, names.data[gi])); sb_putc(tmp, &m, '[');
+			for (size_t k = 0; k < grp.len && k < SHCL_DIAG_LIST_MAX; k++) { if (k) sb_puts(tmp, &m, ", "); sb_putS(tmp, &m, diag_value(tmp, &NODE(P->d, grp.data[k]).value)); }
+			diag_list_end(tmp, &m, grp.len, "]'?");
 			p_diag(P, maxline, SHCL_SEV_HINT, "H001", sb_S(&m));
 		}
 	}
@@ -8092,6 +8096,18 @@ static ShclStr diag_element(ShclArena *a, const ShclElement *e) { return emit_el
 static ShclStr diag_value(ShclArena *a, const ShclValue *v) {
 	if (v->kind != V_CELL) return value_display(a, v);
 	return diag_element(a, &v->els[0]);
+}
+/* The caller writes the first SHCL_DIAG_LIST_MAX values itself, then this
+   closes the list: ", ..." when some were left out, close, and the count of
+   the rest. */
+static void diag_list_end(ShclArena *a, ShclSB *s, size_t total, const char *close) {
+	if (total > SHCL_DIAG_LIST_MAX) sb_puts(a, s, ", ...");
+	sb_puts(a, s, close);
+	if (total > SHCL_DIAG_LIST_MAX) {
+		char n[48];
+		snprintf(n, sizeof n, " (and %zu more)", total - SHCL_DIAG_LIST_MAX);
+		sb_puts(a, s, n);
+	}
 }
 
 // --- The write side's one rule: what is written has to read back ------------
@@ -10875,7 +10891,13 @@ static void v_node(ShclArena *a, ShclArena *lv, shcl_doc *d, const ShclVCons *c,
 		if (c->has_allowed && c->akind == ALLOW_STRINGS) {
 			int found = 0;
 			for (size_t x = 0; x < c->a_n; x++) if (s_eq(c->a_strs[x], text)) { found = 1; break; }
-			if (!found) v_not_allowed(a, out, line, c, text);
+			if (!found) {
+				// The bracket form, cut short like any list in a message.
+				ShclSB brief = {0, 0, 0}; sb_putc(lv, &brief, '[');
+				for (size_t x = 0; x < nels && x < SHCL_DIAG_LIST_MAX; x++) { if (x) sb_puts(lv, &brief, ", "); sb_putS(lv, &brief, diag_element(lv, &els[x])); }
+				diag_list_end(lv, &brief, nels, "]");
+				v_not_allowed(a, out, line, c, sb_S(&brief));
+			}
 		}
 		return;
 	}
