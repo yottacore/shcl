@@ -595,7 +595,7 @@ A config file can also name its own schema, so `shcl check app.shcl` needs no op
 	##    Schema   app-schema.shcl
 	~~~
 
-A broken schema cannot mask a broken config: a fault in the schema itself is reported as its own error (`V090`+), and the constraints that did parse still check the file. The unknown-field sweep keeps running through a broken constraint, since the field is still declared by name. It turns off only when a fault costs a path spelling outright: an unreadable `field:` path, or a mount naming no declared fragment. Only those can turn a declared field into a false unknown.
+A broken schema cannot mask a broken config: a fault in the schema itself is reported as its own error (`V090`+), and the constraints that did parse still check the file. The unknown-field sweep keeps running through a broken constraint, since the field is still declared by name. It turns off only when a fault costs a path spelling outright: an unreadable `field:` path, or a mount naming no declared fragment. Only those can turn a declared field into a false unknown. A schema file that does not load at all, say a quote that never closes, is `V099` and nothing is checked against it, from the library and the CLI alike.
 
 The same schema, pointed the other way, writes a starting file for your own users - commented, correctly typed, required fields live and optional ones left commented out:
 

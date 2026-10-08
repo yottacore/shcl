@@ -184,6 +184,8 @@ size_t shcl_error_count(const shcl_doc *d);
 
 // Schema validation (spec.md "Schema validation"): check d against a schema
 // document (itself plain SHCL). Zero diagnostics = the document conforms.
+// A schema with a load error of its own gives a lone V099 and checks nothing,
+// the same answer as shcl_load_and_validate and `check --schema`.
 // Diagnostic lines are document lines (0 = document scope); schema faults
 // (V09x, schema-file lines) come first, and the surviving constraints still
 // check the document. The unknown-field sweep runs too, unless a fault cost
@@ -228,7 +230,8 @@ void shcl_suppress_declared_reopens(shcl_doc *schema, shcl_doc *doc);
 // two lists. Fails only on an allocation, and then it is NULL: a strict-failing
 // document comes back as the document plus its diagnostics (shcl_error_count
 // answers "did it fail"). An
-// empty schema text skips validation entirely. H001 hints the schema disavows
+// empty schema text skips validation entirely, and one that does not load adds
+// a lone V099, as shcl_validate does. H001 hints the schema disavows
 // (a declared repeat upper bound above 1) are dropped. Free with shcl_free.
 shcl_doc *shcl_load_and_validate(const char *text, size_t len, const char *schema, size_t slen, shcl_strictness s);
 
@@ -301,7 +304,8 @@ shcl_save_result shcl_save_file_keep_lines(shcl_doc *d, const char *path, int *k
 // diagnostics. A footer naming the format and pointing at the spec is
 // written last unless no_banner; the flag is negative so passing 0 writes the
 // footer. *ok is set to 1 on success, 0 if the schema has faults (V09x) - then
-// the returned string is empty and nothing was kept. Bytes live in the schema's
+// the returned string is empty and nothing was kept. A schema with a load error
+// of its own is a lone V099, as `init` refuses it. Bytes live in the schema's
 // read arena; valid until shcl_free, or until shcl_reads_release. Generation
 // faults from an earlier call on the same schema are dropped first, so the list
 // describes this call; the schema's own diagnostics stay. A failed allocation
@@ -11336,6 +11340,21 @@ static void v_unknown(ShclArena *a, ShclArena *tmp, shcl_doc *d, const ShclVSche
 	arena_free(tmp);
 }
 
+/* The lone V099 that every schema entry point gives a schema with load errors
+   of its own. Validation's own codes are V and are not load errors: a
+   document that came through shcl_load_and_validate holds some, and so does a
+   schema shcl_generate recorded its faults on. */
+static int schema_load_fault(const shcl_doc *schema, ShclDiag *fault) {
+	for (size_t i = 0; i < schema->diags.len; i++) {
+		const ShclDiag *dg = &schema->diags.data[i];
+		if (dg->sev != SHCL_SEV_ERROR || (dg->code && dg->code[0] == 'V')) continue;
+		fault->line = 0; fault->sev = SHCL_SEV_ERROR; fault->code = "V099";
+		fault->message = s_lit("schema failed to load"); fault->generated = 0;
+		return 1;
+	}
+	return 0;
+}
+
 /* The recovery path reads only the two volatile carriers, so -Wclobbered's
    guess about a helper inlined below is wrong here the way it is for
    do_parse. */
@@ -11364,6 +11383,15 @@ shcl_validation *shcl_validate(shcl_doc *d, shcl_doc *schema) {
 	}
 	shcl_validation *v = val;
 	arena_guard(&v->arena, &panic);
+	// A schema that did not load would drop the constraints on its broken
+	// lines, or report every field as unknown - either way blaming the
+	// document for the schema.
+	ShclDiag fault;
+	if (schema_load_fault(schema, &fault)) {
+		ShclVecDiag_push(&v->arena, &v->diags, fault);
+		arena_guard(&v->arena, NULL);
+		return v;
+	}
 	/* Reading the document allocates too - the name index above all - so the
 	   read-side arenas unwind here rather than to SHCL_OOM. */
 	arena_guard(&d->index_arena, &panic); arena_guard(&d->scratch, &panic); arena_guard(&d->reads, &panic);
@@ -11656,14 +11684,11 @@ shcl_doc *shcl_load_and_validate(const char *text, size_t len, const char *schem
 		shcl_doc *sd = own->sd = shcl_parse(schema, slen);
 		if (!sd) { load_release(own, 0); return NULL; }
 		doc_guard(sd, &panic);
-		// A schema that did not load would silently drop the constraints on
-		// its broken lines, or report every field as unknown - either way
-		// blaming the document for the schema. Say so instead, as `check`
-		// does, and validate nothing.
-		int sbad = 0;
-		for (size_t i = 0; i < sd->diags.len; i++) if (sd->diags.data[i].sev == SHCL_SEV_ERROR) { sbad = 1; break; }
-		if (sbad) {
-			push_diag(d, 0, SHCL_SEV_ERROR, "V099", s_lit("schema failed to load"));
+		// shcl_validate would give the same lone V099; a broken schema
+		// disavows no hints either, so nothing is suppressed.
+		ShclDiag fault;
+		if (schema_load_fault(sd, &fault)) {
+			push_diag(d, fault.line, fault.sev, fault.code, fault.message);
 			load_release(own, 1);
 			return d;
 		}
@@ -13008,10 +13033,18 @@ static shcl_str generate_in(shcl_doc *schema, int no_banner, int *ok, ShclGenOwn
 		}
 		schema->diags.len = w;
 	}
+	shcl_str r;
+	// A starter config from what survived a broken load would leave out the
+	// fields on the broken lines with no word about them.
+	ShclDiag fault;
+	if (schema_load_fault(schema, &fault)) {
+		push_gen_diag(schema, fault.line, fault.sev, fault.code, fault.message);
+		if (ok) *ok = 0;
+		ShclStr e = s_empty(); r.p = e.p; r.n = e.n; return r;
+	}
 	// Generation lays the whole schema out, so unlike validation it has no
 	// safe partial mode: any fault fails it.
 	v_build_schema(a, schema, &def, &faults);
-	shcl_str r;
 	if (faults.len) {
 		// Recorded on the schema document like every other generation fault,
 		// so a caller sees the V09x list itself and does not have to rebuild

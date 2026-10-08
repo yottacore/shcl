@@ -1355,6 +1355,8 @@ int main(int argc, char **argv) {
 		// Schema dimension (optional): golden = the exact `check --schema` stdout
 		// at Standard (doc parse diags, then validation diags, then the summary).
 		// A schema that does not load cleanly is a single V099, mirroring the CLI.
+		// It comes from shcl_validate itself, and shcl_load_and_validate has to
+		// give the same list, so every entry point is held to the one golden.
 		snprintf(path, sizeof path, "%s/%s/schema.shcl", corpus, names[ci]); size_t schlen; char *sch = read_file(path, &schlen);
 		if (sch) {
 			snprintf(path, sizeof path, "%s/%s/expected-validate.txt", corpus, names[ci]); size_t evlen; char *ev = read_file(path, &evlen);
@@ -1362,21 +1364,19 @@ int main(int argc, char **argv) {
 			else {
 				shcl_doc *vd = shcl_parse(input, ilen);
 				shcl_doc *sd = shcl_parse(sch, schlen);
-				int v99 = 0;
-				for (size_t i = 0; i < shcl_diag_count(sd); i++) if (shcl_diag_severity(sd, i) == SHCL_SEV_ERROR) v99 = 1;
-				shcl_validation *vv = v99 ? NULL : shcl_validate(vd, sd);
-				if (vv) { shcl_suppress_declared_repeats(sd, vd); shcl_suppress_declared_reopens(sd, vd); }
-				size_t nd = shcl_diag_count(vd), nv = vv ? shcl_validation_count(vv) : 0, nerr = 0;
-				size_t total = nd + nv + (v99 ? 1 : 0);
+				int sbad = 0;
+				for (size_t i = 0; i < shcl_diag_count(sd); i++) if (shcl_diag_severity(sd, i) == SHCL_SEV_ERROR) sbad = 1;
+				shcl_validation *vv = shcl_validate(vd, sd);
+				if (!vv) { fprintf(stderr, "out of memory\n"); exit(2); }
+				if (!sbad) { shcl_suppress_declared_repeats(sd, vd); shcl_suppress_declared_reopens(sd, vd); }
+				size_t nd = shcl_diag_count(vd), nv = shcl_validation_count(vv), nerr = 0;
+				size_t total = nd + nv;
 				char *vj = xrealloc(NULL, 64); size_t jl = 0, jc = 64;
-				for (size_t i = 0; i < nd + nv + (size_t)(v99 ? 1 : 0); i++) {
+				for (size_t i = 0; i < nd + nv; i++) {
 					char ln[128]; int w;
 					if (i < nd) {
 						if (shcl_diag_severity(vd, i) == SHCL_SEV_ERROR) nerr++;
 						w = snprintf(ln, sizeof ln, "line %zu: %s: %s\n", shcl_diag_line(vd, i), shcl_diag_severity(vd, i) == SHCL_SEV_ERROR ? "Error" : "Hint", shcl_diag_code(vd, i));
-					} else if (v99) {
-						nerr++;
-						w = snprintf(ln, sizeof ln, "line 0: Error: V099\n");
 					} else {
 						size_t k = i - nd;
 						if (shcl_validation_severity(vv, k) == SHCL_SEV_ERROR) nerr++;
@@ -1384,6 +1384,19 @@ int main(int argc, char **argv) {
 					}
 					if (jl + (size_t)w + 1 > jc) { jc = (jl + (size_t)w + 1) * 2; vj = xrealloc(vj, jc); }
 					memcpy(vj + jl, ln, (size_t)w); jl += (size_t)w;
+				}
+				{
+					shcl_doc *lv = shcl_load_and_validate(input, ilen, sch, schlen, SHCL_STANDARD);
+					if (!lv) { fprintf(stderr, "out of memory\n"); exit(2); }
+					char *lj = xrealloc(NULL, 64); size_t ll = 0, lc = 64;
+					for (size_t i = 0; i < shcl_diag_count(lv); i++) {
+						char ln[128];
+						int w = snprintf(ln, sizeof ln, "line %zu: %s: %s\n", shcl_diag_line(lv, i), shcl_diag_severity(lv, i) == SHCL_SEV_ERROR ? "Error" : "Hint", shcl_diag_code(lv, i));
+						if (ll + (size_t)w + 1 > lc) { lc = (ll + (size_t)w + 1) * 2; lj = xrealloc(lj, lc); }
+						memcpy(lj + ll, ln, (size_t)w); ll += (size_t)w;
+					}
+					if (ll != jl || (jl && memcmp(lj, vj, jl) != 0)) fail(names[ci], "shcl_load_and_validate disagrees with parse then validate");
+					free(lj); shcl_free(lv);
 				}
 				char sum[96]; int sw;
 				if (nerr) sw = snprintf(sum, sizeof sum, "failed: %zu diagnostic(s), %zu error(s)\n", total, nerr);
@@ -3036,6 +3049,42 @@ int main(int argc, char **argv) {
 		shcl_doc *ed = shcl_load_and_validate(bt, strlen(bt), "", 0, SHCL_STANDARD);
 		if (shcl_error_count(ed) != 0) fail("oneshot_broken", "empty schema not clean");
 		shcl_free(ed);
+	}
+	// The quote never closes, so the max line is lost and a parse then
+	// validate passed 99999 with no word. Same fixture in every runner.
+	test_id("Es8Oq5E", "validate_and_generate_report_a_broken_schema");
+	{
+		const char *qs = "field: port\n\ttype: int\n\tmax: \"65535\n";
+		shcl_doc *qschema = shcl_parse(qs, strlen(qs));
+		shcl_doc *qdoc = shcl_parse("port: 99999\n", 12);
+		shcl_validation *qv = shcl_validate(qdoc, qschema);
+		if (!qv || shcl_validation_count(qv) != 1) fail("validate_broken", "want a lone V099");
+		else if (strcmp(shcl_validation_code(qv, 0), "V099") || shcl_validation_line(qv, 0) != 0 || shcl_validation_severity(qv, 0) != SHCL_SEV_ERROR) fail("validate_broken", "code not V099 at line 0");
+		shcl_validation_free(qv);
+		size_t before = shcl_diag_count(qschema);
+		int ok = 1;
+		shcl_str qt = shcl_generate(qschema, 1, &ok);
+		if (ok || qt.n != 0) fail("validate_broken", "generate wrote a starter");
+		if (shcl_diag_count(qschema) != before + 1 || strcmp(shcl_diag_code(qschema, before), "V099")) fail("validate_broken", "generate fault not a lone V099");
+		shcl_free(qdoc); shcl_free(qschema);
+		// A document that came through shcl_load_and_validate holds V codes of
+		// its own, and they are not load errors when it is used as a schema.
+		shcl_doc *checked = shcl_load_and_validate("field: port\n", 12, "field: other\n", 13, SHCL_STANDARD);
+		if (shcl_diag_count(checked) == 0 || strcmp(shcl_diag_code(checked, 0), "V001")) fail("validate_broken", "checked schema: want V001 first");
+		shcl_doc *pd = shcl_parse("port: 1\n", 8);
+		shcl_validation *pv = shcl_validate(pd, checked);
+		if (!pv || shcl_validation_count(pv) != 0) fail("validate_broken", "checked schema as a schema not clean");
+		shcl_validation_free(pv); shcl_free(pd); shcl_free(checked);
+		// So are the faults a failed shcl_generate records on its schema: the
+		// same handle still validates with its V090 and surviving constraints.
+		const char *fs = "field: port\n\ttype: int\n\tfrobnicate: 1\n";
+		shcl_doc *fschema = shcl_parse(fs, strlen(fs));
+		shcl_generate(fschema, 1, &ok);
+		if (ok) fail("validate_broken", "generate passed a V090 schema");
+		shcl_doc *fd = shcl_parse("port: x\n", 8);
+		shcl_validation *fv = shcl_validate(fd, fschema);
+		if (!fv || shcl_validation_count(fv) != 2 || strcmp(shcl_validation_code(fv, 0), "V090") || strcmp(shcl_validation_code(fv, 1), "V003")) fail("validate_broken", "validate after a failed generate not V090, V003");
+		shcl_validation_free(fv); shcl_free(fd); shcl_free(fschema);
 	}
 	// The unknown-field chain key is length-prefixed, not NUL-joined: a single
 	// field whose name literally contains a NUL must not impersonate the

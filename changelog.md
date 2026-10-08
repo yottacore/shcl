@@ -276,6 +276,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `check --schema` prints the schema's own diagnostics, and still validates at strict.
 
+- `validate` and `generate` report a schema that does not load as `V099`, as `check --schema` and `init` already did.
+
 ### CLI
 
 - `migrate` refuses while a line sits at an indent no level matches, since 2.x read some of them.

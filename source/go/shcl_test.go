@@ -736,7 +736,9 @@ func TestValidationMatchesExpected(t *testing.T) {
 	defer testID(t, "Eksumuu")
 	// Schema dimension: golden = the exact `check --schema` stdout at Standard
 	// (doc parse diags, then validation diags, then the summary). A schema that
-	// does not load cleanly is a single V099, mirroring the CLI.
+	// does not load cleanly is a single V099, mirroring the CLI. It comes from
+	// Validate itself, and LoadAndValidate has to give the same list, so every
+	// entry point is held to the one golden.
 	eachCase(t, func(t *testing.T, c corpusCase) {
 		if !c.hasSchema {
 			return
@@ -744,16 +746,14 @@ func TestValidationMatchesExpected(t *testing.T) {
 		doc := Parse(c.input)
 		diags := append([]Diagnostic{}, doc.Diagnostics()...)
 		sdoc := Parse(c.schema)
+		diags = append(diags, doc.Validate(sdoc)...)
 		bad := false
 		for _, sd := range sdoc.Diagnostics() {
 			if sd.Severity == SeverityError {
 				bad = true
 			}
 		}
-		if bad {
-			diags = append(diags, Diagnostic{Line: 0, Severity: SeverityError, Message: "schema failed to load", Code: "V099"})
-		} else {
-			diags = append(diags, doc.Validate(sdoc)...)
+		if !bad {
 			diags = SuppressDeclaredRepeats(sdoc, diags)
 			diags = SuppressDeclaredReopens(sdoc, diags)
 		}
@@ -764,6 +764,13 @@ func TestValidationMatchesExpected(t *testing.T) {
 			if d.Severity == SeverityError {
 				errors++
 			}
+		}
+		var lv strings.Builder
+		for _, d := range LoadAndValidate(c.input, c.schema, Standard).Diagnostics() {
+			fmt.Fprintf(&lv, "line %d: %s: %s\n", d.Line, d.Severity, d.Code)
+		}
+		if lv.String() != got.String() {
+			t.Errorf("%s: LoadAndValidate disagrees with parse then validate\ngot:\n%s\nwant:\n%s", c.name, lv.String(), got.String())
 		}
 		if errors > 0 {
 			fmt.Fprintf(&got, "failed: %d diagnostic(s), %d error(s)\n", len(diags), errors)
@@ -927,6 +934,30 @@ func TestOneShotLoadReportsABrokenSchema(t *testing.T) {
 	// An empty schema still means "skip validation", not "everything unknown".
 	if got := LoadAndValidate("host: example\n", "", Standard).ErrorCount(); got != 0 {
 		t.Errorf("empty schema: got %d errors, want 0", got)
+	}
+}
+
+func TestValidateAndGenerateReportABrokenSchema(t *testing.T) {
+	defer testID(t, "Es8Oq5C")
+	// The quote never closes, so the max line is lost and a parse then
+	// validate passed 99999 with no word. Same fixture in every runner.
+	schema := Parse("field: port\n\ttype: int\n\tmax: \"65535\n")
+	vs := Parse("port: 99999\n").Validate(schema)
+	if len(vs) != 1 || vs[0].Code != "V099" || vs[0].Line != 0 || vs[0].Severity != SeverityError {
+		t.Errorf("validate: got %v, want a lone V099", vs)
+	}
+	text, faults := Generate(schema, true)
+	if text != "" || len(faults) != 1 || faults[0].Code != "V099" {
+		t.Errorf("generate: got %q, %v, want a lone V099", text, faults)
+	}
+	// A document that came through LoadAndValidate holds V codes of its own,
+	// and they are not load errors when it is used as a schema.
+	checked := LoadAndValidate("field: port\n", "field: other\n", Standard)
+	if ds := checked.Diagnostics(); len(ds) == 0 || ds[0].Code != "V001" {
+		t.Fatalf("checked schema: got %v, want V001 first", ds)
+	}
+	if vs := Parse("port: 1\n").Validate(checked); len(vs) != 0 {
+		t.Errorf("checked schema as a schema: got %v, want none", vs)
 	}
 }
 

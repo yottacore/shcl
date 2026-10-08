@@ -5699,23 +5699,17 @@ impl Document {
 	/// prints), so half the errors can't vanish because a caller forgot one
 	/// of the two lists. Never fails: a strict-failing document comes back as
 	/// the document plus its diagnostics (error_count() answers "did it
-	/// fail"). An empty schema text skips validation entirely. H001 hints the
+	/// fail"). An empty schema text skips validation entirely, and one that
+	/// does not load adds a lone V099, as `validate` does. H001 hints the
 	/// schema disavows (a declared repeat upper bound above 1) are dropped.
 	pub fn load_and_validate(text: &str, schema_text: &str, strictness: Strictness) -> Document {
 		let mut doc = Parser::new().parse(text, strictness);
 		if !schema_text.trim().is_empty() {
 			let schema = Document::parse(schema_text);
-			// A schema that did not load would silently drop the constraints on
-			// its broken lines, or report every field as unknown - either way
-			// blaming the document for the schema. Say so instead, as `check`
-			// does, and validate nothing.
-			if schema.diags.iter().any(|d| d.severity == Severity::Error) {
-				doc.diags.push(Diagnostic {
-					line: 0,
-					severity: Severity::Error,
-					code: "V099",
-					message: "schema failed to load".to_string(),
-				});
+			// validate() would give the same lone V099; a broken schema
+			// disavows no hints either, so nothing is suppressed.
+			if let Some(fault) = schema_load_fault(&schema) {
+				doc.diags.push(fault);
 				return doc;
 			}
 			let vdiags = doc.validate(&schema);
@@ -13356,8 +13350,14 @@ fn v007_sanctioned(message: &str) -> bool {
 /// config that fails the first time it is checked.
 /// A footer naming the format and pointing at the spec is written last unless
 /// `no_banner`; the flag is negative so leaving it alone writes the footer.
-/// Err = schema faults (V09x), same as `validate`/`check --schema`.
+/// Err = schema faults (V09x), same as `validate`/`check --schema`; a schema
+/// with a load error of its own is a lone V099, as `init` refuses it.
 pub fn generate(schema: &Document, no_banner: bool) -> Result<String, Vec<Diagnostic>> {
+	// A starter config from what survived a broken load would leave out the
+	// fields on the broken lines with no word about them.
+	if let Some(fault) = schema_load_fault(schema) {
+		return Err(vec![fault]);
+	}
 	// Generation lays the whole schema out, so unlike validation it has no
 	// safe partial mode: any fault fails it.
 	let (def, faults) = build_schema(schema);
@@ -14047,9 +14047,27 @@ fn edit_distance(a: &str, b: &str, cap: usize) -> usize {
 	prev[b.len()]
 }
 
+/// The lone V099 that every schema entry point gives a schema with load
+/// errors of its own. Validation's own codes are V and are not load errors: a
+/// document that came through `load_and_validate` holds some.
+fn schema_load_fault(schema: &Document) -> Option<Diagnostic> {
+	let broken = schema
+		.diags
+		.iter()
+		.any(|d| d.severity == Severity::Error && !d.code.starts_with('V'));
+	broken.then(|| Diagnostic {
+		line: 0,
+		severity: Severity::Error,
+		code: "V099",
+		message: "schema failed to load".to_string(),
+	})
+}
+
 impl Document {
 	/// Validate this document against a schema document (itself plain SHCL -
 	/// spec.md "Schema validation"). Empty result = the document conforms.
+	/// A schema with a load error of its own gives a lone V099 and checks
+	/// nothing, the same answer as `load_and_validate` and `check --schema`.
 	/// Diagnostic lines are document lines (0 = document scope); schema faults
 	/// (V09x, schema-file lines) come first, and the surviving constraints
 	/// still check the document. The unknown-field sweep runs too, unless a
@@ -14062,6 +14080,12 @@ impl Document {
 	/// `suppress_declared_repeats`/`suppress_declared_reopens` yourself, or use
 	/// `load_and_validate`, which runs both for you.
 	pub fn validate(&self, schema: &Document) -> Vec<Diagnostic> {
+		// A schema that did not load would drop the constraints on its broken
+		// lines, or report every field as unknown - either way blaming the
+		// document for the schema.
+		if let Some(fault) = schema_load_fault(schema) {
+			return vec![fault];
+		}
 		let (def, faults) = build_schema(schema);
 		let mut out = faults;
 		// One mount set for the whole schema: two top-level paths can resolve

@@ -5737,17 +5737,17 @@ class Document:
 		prints), so half the errors can't vanish because a caller forgot one
 		of the two lists. Never fails: a strict-failing document comes back as
 		the document plus its diagnostics (error_count() answers "did it
-		fail"). An empty schema text skips validation entirely. H001 hints the
+		fail"). An empty schema text skips validation entirely, and one that
+		does not load adds a lone V099, as validate() does. H001 hints the
 		schema disavows (a declared repeat upper bound above 1) are dropped."""
 		doc = _Parser().parse(text, strictness)
 		if _trim(schema_text):
 			schema = Document.parse(schema_text)
-			# A schema that did not load would silently drop the constraints on
-			# its broken lines, or report every field as unknown - either way
-			# blaming the document for the schema. Say so instead, as `check`
-			# does, and validate nothing.
-			if any(d.severity == Severity.Error for d in schema.diags):
-				doc.diags.append(Diagnostic(0, Severity.Error, "schema failed to load", "V099"))
+			# validate() would give the same lone V099; a broken schema
+			# disavows no hints either, so nothing is suppressed.
+			fault = _schema_load_fault(schema)
+			if fault is not None:
+				doc.diags.append(fault)
 				return doc
 			vdiags = doc.validate(schema)
 			doc.diags.extend(vdiags)
@@ -7940,13 +7940,21 @@ class Document:
 
 	def validate(self, schema: Document) -> list[Diagnostic]:
 		"""Validate against a schema document (itself plain SHCL). Empty result
-		= the document conforms. Diagnostic lines are document lines (0 =
+		= the document conforms. A schema with a load error of its own gives a
+		lone V099 and checks nothing, the same answer as load_and_validate and
+		`check --schema`. Diagnostic lines are document lines (0 =
 		document scope); schema faults (V09x, schema-file lines) come first,
 		and the surviving constraints still check the document. The
 		unknown-field sweep runs too, unless a fault cost the schema a path
 		spelling (an unreadable `field:` path, or a mount naming no declared
 		fragment) - only those can turn declared fields into false unknowns;
 		a key-level fault keeps its entry's chain."""
+		# A schema that did not load would drop the constraints on its broken
+		# lines, or report every field as unknown - either way blaming the
+		# document for the schema.
+		fault = _schema_load_fault(schema)
+		if fault is not None:
+			return [fault]
 		sdef, faults = _build_schema(schema)
 		out = faults
 		# One mount set for the whole schema: two top-level paths can resolve
@@ -10220,6 +10228,15 @@ def _vdiag(out, line, code, msg):
 	out.append(Diagnostic(line, Severity.Error, msg, code))
 
 
+def _schema_load_fault(schema: Document) -> Diagnostic | None:
+	# The lone V099 that every schema entry point gives a schema with load
+	# errors of its own. Validation's own codes are V and are not load errors: a
+	# document that came through load_and_validate holds some.
+	if any(d.severity == Severity.Error and not d.code.startswith("V") for d in schema.diags):
+		return Diagnostic(0, Severity.Error, "schema failed to load", "V099")
+	return None
+
+
 def _single_text(v):
 	# One scalar constraint value (escapes applied), or None for anything else.
 	if v.kind == "cell":
@@ -10673,7 +10690,13 @@ def generate(schema: Document, no_banner: bool = False) -> tuple[str, list[Diagn
 	footer naming the format and pointing at the spec is written last unless
 	no_banner; the flag is negative so leaving it alone writes the footer.
 	Returns (text, faults): a non-empty fault list (V09x) means the schema is
-	broken and text is empty."""
+	broken and text is empty. A schema with a load error of its own is a lone
+	V099, as `init` refuses it."""
+	# A starter config from what survived a broken load would leave out the
+	# fields on the broken lines with no word about them.
+	fault = _schema_load_fault(schema)
+	if fault is not None:
+		return "", [fault]
 	# Generation lays the whole schema out, so unlike validation it has no
 	# safe partial mode: any fault fails it.
 	sdef, faults = _build_schema(schema)

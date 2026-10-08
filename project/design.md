@@ -273,6 +273,8 @@ The "did you mean `enabled`?" suggestion rides in the prose message, not the cod
 
 - Generation keeps the all-or-nothing rule - a partial starter file would be worse than an error.
 
+- A schema that does not load is not a schema fault. A load error loses its line, and the constraints on it go with no `V09x` to say so, so validating against what survived blames the document for the schema. Every entry point answers it with a lone `V099` and checks nothing: `validate`, the one-shot, `check --schema`, `generate` and `init`. `validate` passed it in all four bindings until 2026100717500004, and also the other two refused it. A `V` code on the schema document is not a load error, since a document that came through the one-shot holds some and C's `generate` records its faults there.
+
 **CLI surface: `shcl check --schema SCHEMA FILE`**, rather than a new subcommand. Loading and validating are the same question ("is this file good?"), the output shape and exit codes are already defined by `check`, and folding it in avoids a second nearly identical command.
 
 Both open points are settled:
