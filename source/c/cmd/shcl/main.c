@@ -110,8 +110,9 @@ static const char *HELP =
 	"With --write, a FILE that does not exist yet is created. Lines the edits leave\n"
 	"alone come back as they were written; with --layer, or where the edited text\n"
 	"would not load back the same, the whole document comes out canonical, the way\n"
-	"fmt writes it. PATH ends at the first '=' outside quotes and parens, so a\n"
-	"selector may hold one. Ops:\n"
+	"fmt writes it. A result that would delete lines or values from the file is\n"
+	"refused at exit 7, printed or written (--lossy overrides). PATH ends at the\n"
+	"first '=' outside quotes and parens, so a selector may hold one. Ops:\n"
 	"  int|float|bool|string|datetime<TAB>PATH<TAB>VALUE       set a scalar\n"
 	"  <type>-array<TAB>PATH<TAB>V1<TAB>V2...                  set an inline array\n"
 	"  <type>[-array]-default<TAB>...                          set only if absent\n"
@@ -153,10 +154,14 @@ static const char *HELP =
 	"                                         FILE in place, written -w too,\n"
 	"                                         through a temp file and a rename;\n"
 	"                                         refused with a FILE of '-'\n"
-	"  --lossy                                (fmt/set/migrate) with --write, rewrite\n"
-	"                                         even when this write would delete lines\n"
-	"                                         or values from the file; without it the\n"
-	"                                         write refuses and nothing is changed\n"
+	"  --lossy                                (fmt/set/migrate) go ahead even when\n"
+	"                                         the result would delete lines or\n"
+	"                                         values from the file. Without it the\n"
+	"                                         write refuses at exit 7 and changes\n"
+	"                                         nothing; set and migrate without\n"
+	"                                         --write exit 7 too, and set prints\n"
+	"                                         nothing. fmt takes it with --write\n"
+	"                                         only\n"
 	"  --from-2x                              (migrate/upgrade) the file was\n"
 	"                                         written for 2.x, so rewrite the\n"
 	"                                         spellings the two rule sets read\n"
@@ -212,20 +217,22 @@ static const char *HELP =
 	"print once, in the order given.\n"
 	"An option a subcommand does not use is a usage error, not ignored. Also\n"
 	"refused: --write with --layer; --write with --set outside 'set'; --write with a\n"
-	"FILE of '-'; --lossy without --write; --no-banner on 'set' without --write;\n"
-	"--check with --write; --layer=- on 'set'; --array with --raw, --rawinfo,\n"
-	"--duration or --size; --default with --on-bad=error or --on-bad=flag; '-' named\n"
-	"more than once across FILE, --layer and --schema; a PATH that cannot parse,\n"
-	"--default or not. Two options that ask for different answers are a usage error\n"
-	"whichever order they came in, and both are named: two different type options,\n"
-	"or one value option given two different values. Repeating an option with the\n"
-	"same value is allowed, and --layer and --set are ordered lists, so they repeat.\n"
+	"FILE of '-'; --lossy on 'fmt' without --write; --no-banner on 'set' without\n"
+	"--write; --check with --write; --layer=- on 'set'; --array with --raw,\n"
+	"--rawinfo, --duration or --size; --default with --on-bad=error or\n"
+	"--on-bad=flag; '-' named more than once across FILE, --layer and --schema; a\n"
+	"PATH that cannot parse, --default or not. Two options that ask for different\n"
+	"answers are a usage error whichever order they came in, and both are named:\n"
+	"two different type options, or one value option given two different values.\n"
+	"Repeating an option with the same value is allowed, and --layer and --set are\n"
+	"ordered lists, so they repeat.\n"
 	"Every subcommand that loads a document prints the load's diagnostics to stderr,\n"
 	"once per run; 'shcl explain CODE' gives the rule behind one of their codes. An\n"
 	"in-place write also refuses when the rewrite would delete lines or values\n"
-	"from the file (--lossy overrides). migrate refuses a file that does not say\n"
-	"which rules it was written for, when the two readings differ (--from-2x says\n"
-	"it is 2.x), and reports a 2.x binding it cannot convert. With --write, migrate\n"
+	"from the file (--lossy overrides), and set and migrate without --write exit 7\n"
+	"where it would. migrate refuses a file that does not say which rules it was\n"
+	"written for, when the two readings differ (--from-2x says it is 2.x), and\n"
+	"reports a 2.x binding it cannot convert. With --write, migrate\n"
 	"and upgrade keep the original beside FILE as\n"
 	"NAME_backup_YYYYmmDD-HHMMSS_format-vN.EXT, in local time, where N is the format\n"
 	"it was written for, and write nothing when that name is taken. An upgrade\n"
@@ -237,9 +244,9 @@ static const char *HELP =
 	"\n"
 	"Exit codes: 0 good, 1 usage error, 2 empty, 3 not found, 4 bad type,\n"
 	"5 multiple instances, 6 check failed, strict load failed, init's schema has\n"
-	"faults, or --check found a rewrite to make, 7 in-place write refused\n"
-	"(--lossy overrides) or migrate or upgrade left something behind, 8 a file or\n"
-	"stream could not be read or written.\n";
+	"faults, or --check found a rewrite to make, 7 a result refused for deleting\n"
+	"lines or values (--lossy overrides), or migrate or upgrade left something\n"
+	"behind, 8 a file or stream could not be read or written.\n";
 
 // About and donate are stdout, so they are byte-for-byte contracts across the
 // bindings the same way the help text and the init banner are. The version
@@ -1261,6 +1268,21 @@ static size_t name_start(const char *file) {
 // A 2.x file rewritten for the current rules. The rewrite is text to text;
 // the load after it is for the diagnostics and the save gate, the same gate
 // `fmt --write` goes through.
+// The save gate migrate --write goes through, asked without writing: 7 with
+// the reason on stderr when the write would refuse, else 0.
+static int migrate_would_refuse(const char *file, const shcl_doc *d, size_t misplaced, const Opts *o) {
+	if (o->lossy) return 0;
+	if (shcl_lost_count(d) != 0) {
+		fprintf(stderr, "%s: migrate --write would refuse: the migrated text drops %zu line(s)/value(s) on load (--lossy overrides)\n", file, shcl_lost_count(d));
+		return 7;
+	}
+	if (misplaced != 0) {
+		fprintf(stderr, "%s: migrate --write would refuse: the migrated text leaves %zu line(s) unread at an indent no open level matches (--lossy overrides)\n", file, misplaced);
+		return 7;
+	}
+	return 0;
+}
+
 static int do_migrate(const Opts *o) {
 	if (o->nargs != 1) { fprintf(stderr, "usage: shcl migrate [options] FILE (see --help)\n"); return 1; }
 	const char *file = o->args[0];
@@ -1312,13 +1334,7 @@ static int do_migrate(const Opts *o) {
 	if (o->check) {
 		// Same as fmt --check: the save gate --write goes through is asked
 		// before 6, so 6 never promises a rewrite that would be refused.
-		if (rc == 0 && !o->lossy && shcl_lost_count(d) != 0) {
-			fprintf(stderr, "%s: migrate --write would refuse: the migrated text drops %zu line(s)/value(s) on load (--lossy overrides)\n", file, shcl_lost_count(d));
-			rc = 7;
-		} else if (rc == 0 && !o->lossy && misplaced != 0) {
-			fprintf(stderr, "%s: migrate --write would refuse: the migrated text leaves %zu line(s) unread at an indent no open level matches (--lossy overrides)\n", file, misplaced);
-			rc = 7;
-		}
+		if (rc == 0) rc = migrate_would_refuse(file, d, misplaced, o);
 		if (rc == 0 && rewritten) rc = 6;
 	} else if (o->write) {
 		if (rc) {
@@ -1362,7 +1378,13 @@ static int do_migrate(const Opts *o) {
 			}
 			free(old);
 		}
-	} else fwrite(m.text, 1, m.len, stdout);
+	} else {
+		// The text itself keeps every line, so it prints whatever the gate
+		// says, but the exit is the one --write would give, as for the
+		// refusals above (2026100717500003).
+		if (rc == 0) rc = migrate_would_refuse(file, d, misplaced, o);
+		fwrite(m.text, 1, m.len, stdout);
+	}
 	shcl_free(d); free(m.text); free(text);
 	return rc;
 }
@@ -1804,7 +1826,21 @@ static int do_set(Opts *o) {
 			// A file that was there is read again first, for the same wait.
 			rc = write_back(nd ? nd : d, file, o, creating ? NULL : L.texts[L.ntexts - 1], L.base_len, !creating);
 		}
-		else { shcl_str c = shcl_to_text_keep_lines(d, NULL); fwrite(c.p, 1, c.n, stdout); }
+		else {
+			// `shcl set f ... > f.new && mv f.new f` is a common edit, so the
+			// print answers the way --write would: the same refusal, and the
+			// same word when the lines could not be kept. Only a print with no
+			// layers tried to keep them (2026100717500003).
+			int kept = 0;
+			shcl_str c = shcl_to_text_keep_lines(d, &kept);
+			if (!kept && !o->lossy && shcl_lost_count(d) > 0) {
+				fprintf(stderr, "%s: refusing to print: this result would delete %zu line(s)/value(s) from the file (--lossy overrides)\n", file, shcl_lost_count(d));
+				rc = 7;
+			} else {
+				fwrite(c.p, 1, c.n, stdout);
+				if (!kept && o->nlayers == 0) fprintf(stderr, "%s: printed in the canonical form; the lines could not be kept as they were\n", file);
+			}
+		}
 	}
 	if (nd) shcl_free(nd);
 	free(nt); free(ops); layered_free(&L); return rc;
@@ -2364,9 +2400,10 @@ static int check_opts(const char *cmd, const Opts *o) {
 		fprintf(stderr, "--default cannot be combined with --on-bad=%s (see --help)\n", o->on_bad_arg);
 		return 1;
 	}
-	// --lossy only overrides the in-place write's refusal, so on its own it says
-	// nothing and would read as protection the command never had.
-	if (o->lossy && !o->write) {
+	// --lossy only overrides a refusal, and fmt refuses only in place, so there
+	// it would read as protection the command never had. set and migrate ask
+	// the gate on stdout too (2026100717500003).
+	if (o->lossy && !o->write && !strcmp(cmd, "fmt")) {
 		fprintf(stderr, "--lossy is only meaningful with --write (see --help)\n");
 		return 1;
 	}

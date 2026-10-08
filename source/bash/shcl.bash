@@ -46,8 +46,9 @@
 ##	Exit codes (straight from the binary): 0 good, 1 usage error, 2 empty,
 ##	3 not found, 4 bad type, 5 multiple instances, 6 check failed, strict
 ##	load failure, a faulty init schema, or --check found a rewrite to make,
-##	7 in-place write refused (--lossy overrides) or migrate or upgrade left
-##	something behind, 8 a file or stream could not be read or written.
+##	7 a result refused for deleting lines or values (--lossy overrides), or
+##	migrate or upgrade left something behind, 8 a file or stream could not be
+##	read or written.
 #••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••
 
 ##	Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]

@@ -87,7 +87,7 @@ There are four CLIs, one per binding. Only the Rust one is distributed. The Go, 
 | 4    | The value is the wrong type.
 | 5    | The path matches more than one instance.
 | 6    | `check` found an error, a strict load failed, `init`'s schema has faults, or a `--check` found a rewrite to make.
-| 7    | An in-place write was refused, or `migrate` or `upgrade` left something behind. A `--check` reports the refusal with the same code.
+| 7    | An in-place write was refused, or `set` or `migrate` without `--write` would refuse one, or `migrate` or `upgrade` left something behind. A `--check` reports the refusal with the same code.
 | 8    | A file or stream could not be read or written.
 
 A new failure reuses one of these where one fits.
@@ -98,6 +98,6 @@ A new failure reuses one of these where one fits.
 
 - An in-place write goes through the library's save: a temp file, then a rename over the original.
 
-- A write that would delete lines or values from the file is refused with exit 7, and the file is left alone. `--lossy` says the loss was meant.
+- A write that would delete lines or values from the file is refused with exit 7, and the file is left alone. `--lossy` says the loss was meant. `set` and `migrate` without `--write` exit 7 the same way, so their stdout is never a result the write would refuse. `set` prints nothing then.
 
 - `--write` on `set` creates FILE when it is not there yet, with the info block unless `--no-banner` is given.
