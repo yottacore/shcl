@@ -89,7 +89,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - C and Python setters take text that is not valid UTF-8, where Go refuses it
 	- ID: 2026100815543610
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Avg
 	- Opened: 20261008-155436
 	- Opened by: found working 2026100717500009
@@ -102,11 +102,21 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: 20261008, C library and Python.
 	- Origin: Go's check came in `3425ce43` (2026-09-23) and was not ported. Confirmed.
 	- Sweep: every read-back check in C and Python: value, raw info and body, name, selector value, comment, `set_literal`.
+	- Actual cause [Bug]: C's read-back checks had no UTF-8 test, and Python's `_encodable` let a lone surrogate through on purpose, leaving the save to fail on it.
+	- Actual fix [Bug]: C's `value_reads_back` (value, raw info line and raw body), `name_reads_back` and `comment_line` refuse text that is not valid UTF-8, through `shcl_utf8_valid`, moved out of the file-tier block so a `SHCL_NO_FILE_IO` build keeps it. Python's `_value_reads_back`, `_name_reads_back` and `_comment_line` refuse a lone surrogate, and check a raw body too. The setter returns false, writes nothing, and the path still checks Ok. The refused-values lists in C, Python, `shcl.hpp`, README "What saving does", spec.md and the changelog say so.
+	- Note: 20260918b item 20 decided a lone surrogate is one more character to the parse and every lookup, and the save is where it fails. That stands for parsed text; only the setters changed. Python test `EoM2uEl` put its surrogate in through `set_string`; that line is commented out with the reason, and the test now gets it from a parse.
+	- Swept: each check on the Sweep line, in both. The value check also covers a selector value a setter creates (`w_place`, `_place`), `set_literal` and every default form, and the name check a field a setter creates. Python's `_encodable` callers are these three functions only. The four CLIs already refuse such text in an argument or on stdin at exit 1, before the library sees it, so they need no change.
+	- Verified: the new tests fail on the old checks (C 38 failures, Python on its first case) and pass after. `cargo test` (fuzz 200000), Go library and cmd tests, the Python and C runners (203 cases each), C `oom_hook`, `oom_recover`, `mem_bounds`, the C++ `veneer_smoke`, a `SHCL_NO_FILE_IO` build, gcc 15 and clang builds of the C runner, cli-regress (489 rows, 2587 checks), crosscheck over the corpus and a fuzz dump (41841 comparisons), check-docs, check-readme, check-abnf, check-veneer, check-completions, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy, cppcheck at the normal level, markdownlint, shellcheck. shell-regress fails only `EqM7a7s` (the stale demo GIF), which fails the same on dev.
+	- Branch: `setmulti`
+	- Commit: `3f8e9dfb`
+	- Test case: `setters_refuse_text_that_is_not_utf8`, Python `Es9aZSJ` and C `Es9aZSK`: strings, string arrays, comments, raw bodies and info strings, `set_literal`, the default forms, a quoted field name and a selector value a setter would create, each refused with nothing written and the path at Ok. C covers a bad byte, a cut sequence, an encoded surrogate and an overlong form. One case in the C++ `veneer_smoke` (`EjtkR0S`).
+	- Acceptance signoff: Self-closed 20261008: the expected behavior on the item, matching Go; the tests fail before and pass after.
+	- Closed: 20261008-164310
 
 - A setter on a repeated path writes the first instance and returns true
 	- ID: 2026100717500010
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Avg
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 10
@@ -116,8 +126,24 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Expected behavior: the rule stated in the setter docs, the README and the help. A refusal with its own `write_reason` would be a behavior change, for the user.
 	- Progress log:
 		- 20261008: answered, a behavior change is fine, since every current consumer can change. Use what fits the project best. My call: refuse. A setter whose path matches more than one node at any step returns false, and `write_reason` gives a new `Multiple`, so a write agrees with the read that would follow it. `port(0)` or `site(1).root` picks one. `--set` on such a path is a usage error at exit 1, and spec.md's first-instance rule goes. The round's best guess, docs only, is dropped.
+		- 20261008: built as that call, a best guess the user did not confirm. `write_reason` is `check_set_path` now. Calls made here:
+			- A `(value)` selector that matches two instances is refused too, by "any step". The load and a merge fold equal instances, so it is not reached today.
+			- A default form on a repeated path returns false, since on a path that exists it reports the path check's answer.
+			- `set_comment` refuses the same way, through the same walk.
+			- `remove` and `clear_comments` act on every node the path reaches, as a read sees them, and return the count. That is documented ("the node(s) at a path") and is not this defect, since nothing is picked for the caller. Left alone; `remove` is pinned by the new tests and cli-regress `Es9cyaF`.
+			- design.md's 907 rule, "Two valid lines of one name stay as they are", still holds: the setter is refused, so both stay, and design.md now says so. The kept-gate test row that pinned the first-instance write (`a: 1`, `a: 2` set to `a: 5`, `a: 2`) is commented out in all four with the reason, and a check that the setter refuses and the keep save is unchanged sits beside it.
+			- 5 corpus ops lines wrote a repeated path. They name the instance now (`list(0)`, `b(0)`, `"404"(0)`) in 015, 062, 143, 169 and 194, with the goldens unchanged. `ErsETML`'s two `b` rows set `b(0)` in all four for the same reason.
+			- The CLI message is "cannot write PATH: the path matches multiple instances; name(0) picks one". The `--set` help says "edit one path, after all files; repeatable. A path matching several fields is refused; name(0) picks one", where it said "override one path as the top layer".
 	- Reproduced: 20261007, Rust and Go, and the Rust CLI.
 	- Origin: not blamed. Not seen by an earlier round. Confirmed.
+	- Actual fix [Bug]: the setters' path check walks every step, and a name with no selector, or a `(value)` selector, that matches more than one field gives a new last `SetPathCheck` value, `Multiple` (Go `SetPathMultiple`, C `SHCL_SET_PATH_MULTIPLE`). Every setter, the default and comment forms included, returns false and writes nothing there. All four and the C++ interface. The CLIs refuse `--set`, `--set-literal`, both `-default` forms and an ops-script set line on such a path at exit 1, all four with the same stderr. spec.md's first-instance rule is gone, and its Writer bullet, the `--set` help, the man page, README "What saving does", the setter docs in all four and `shcl.hpp`, both binding READMEs ("six path reasons"), design.md, the code style guide and the changelog say so.
+	- Swept: the one path-check walk per binding (Rust `probe_write`, Go `probeWrite`, Python `_probe_write`, C `w_probe_write`) and its callers: `check_set_path`, `write_target`, and `place`, which every setter, `set_comment` and the default forms reach. `describe_refusal` in all four CLIs. `git grep -n -i 'first instance\|first same-named\|top layer\|five path\|five ways\|SetPathTooDeep\|SET_PATH_TOO_DEEP'`: what is left is the `TooDeep` value's own uses, the runners' notes and the conformance README's text on `merge.sets` and layers, which is a real top layer, and design.md's five benchmark encoders.
+	- Verified: the runner tests fail in all four with only the path check's new branch taken out, and pass with it. The 5 refusal rows in cli-regress fail on dev's four CLIs (20 checks) and pass after. The gates listed on 2026100815543610, run on the same tree.
+	- Branch: `setmulti`
+	- Commit: `a4d2d6b0`
+	- Test case: `repeated_path_refuses_a_setter` in all four runners (Rust `Es9aZSF`, Go `Es9aZSG`, Python `Es9aZSH`, C `Es9aZSI`): each setter kind on a repeated leaf, a child of a repeated block, a new child under it and a repeated child, refused with nothing written and the path at `Multiple`; an index or value selector writes the one it names; a remove takes both. Two checks in the C++ `veneer_smoke` (`EjtkR0S`). cli-regress `Es9aZSL` to `Es9aZSP` (`--set`, a repeated parent, `get --set`, `--set-literal-default`, an ops line), `Es9aZSQ` (an index picks one) and `Es9cyaF` (a remove takes every instance).
+	- Acceptance signoff: Self-closed 20261008: built as the call on the item; tests fail before and pass after in all four. The calls above are listed for review.
+	- Closed: 20261008-164310
 
 - C's `shcl_get_int` is the fallback read, where `get_int` is the status read in every other binding
 	- ID: 2026100717500011
