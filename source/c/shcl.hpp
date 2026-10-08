@@ -44,7 +44,7 @@ enum class Severity { Error, Hint };
 enum class Status { Good, Empty, NotFound, BadType, Multiple, BadPath };
 // What check_set_path() finds: whether a setter could write at a path, and if
 // not, why. A setter can still refuse its value on Ok.
-enum class SetPathCheck { Ok, BadPath, ValueInPath, Wildcard, NoSuchIndex, TooDeep };
+enum class SetPathCheck { Ok, BadPath, ValueInPath, Wildcard, NoSuchIndex, TooDeep, Multiple };
 // The unit a duration or size read gives a bare number, when the field name
 // gives none. Kilo to Tera are powers of 1024 unless the read asks for
 // decimal; Kibi to Tebi always are.
@@ -436,14 +436,16 @@ public:
 	SetPathCheck check_set_path(std::string_view path) const;
 
 	// Writes. A setter creates the path as needed, and false means nothing was
-	// written. Either the path check failed, and check_set_path() says why, or
+	// written. Either the path check failed, and check_set_path() says why,
+	// such as a step that matches more than one field (port(0) picks one), or
 	// it passed and the write was refused for what it would write: a NaN or
 	// infinite float, a datetime the reader would refuse, a raw block whose
 	// info string holds a `#` or a line break or whose body has a line ending
 	// in CR, a comment with a line break, set_literal text that is not one
-	// value, an array on a field with lines under it, or a new field under one
-	// holding an array. An ignored false means the save that follows writes a
-	// document missing the edit, hence nodiscard.
+	// value, an array on a field with lines under it, a new field under one
+	// holding an array, or text that is not valid UTF-8. An ignored false
+	// means the save that follows writes a document missing the edit, hence
+	// nodiscard.
 	[[nodiscard]] bool set_int(std::string_view path, std::int64_t v);
 	[[nodiscard]] bool set_float(std::string_view path, double v);
 	[[nodiscard]] bool set_bool(std::string_view path, bool v);
@@ -472,7 +474,8 @@ public:
 	[[nodiscard]] bool set_literal(std::string_view path, std::string_view text);
 
 	// Only-if-absent forms of the setters above. Each writes only where nothing
-	// is yet, and returns true when something already is.
+	// is yet, and returns true when something already is and the path check
+	// passes.
 	[[nodiscard]] bool set_int_default(std::string_view path, std::int64_t v);
 	[[nodiscard]] bool set_float_default(std::string_view path, double v);
 	[[nodiscard]] bool set_bool_default(std::string_view path, bool v);
@@ -594,7 +597,8 @@ static_assert(static_cast<int>(Status::Good) == SHCL_GOOD && static_cast<int>(St
 	&& static_cast<int>(Status::BadPath) == SHCL_BAD_PATH, "Status drifted from shcl_status");
 static_assert(static_cast<int>(SetPathCheck::Ok) == SHCL_SET_PATH_OK && static_cast<int>(SetPathCheck::BadPath) == SHCL_SET_PATH_BAD_PATH
 	&& static_cast<int>(SetPathCheck::ValueInPath) == SHCL_SET_PATH_VALUE_IN_PATH && static_cast<int>(SetPathCheck::Wildcard) == SHCL_SET_PATH_WILDCARD
-	&& static_cast<int>(SetPathCheck::NoSuchIndex) == SHCL_SET_PATH_NO_SUCH_INDEX && static_cast<int>(SetPathCheck::TooDeep) == SHCL_SET_PATH_TOO_DEEP, "SetPathCheck drifted from shcl_set_path_check");
+	&& static_cast<int>(SetPathCheck::NoSuchIndex) == SHCL_SET_PATH_NO_SUCH_INDEX && static_cast<int>(SetPathCheck::TooDeep) == SHCL_SET_PATH_TOO_DEEP
+	&& static_cast<int>(SetPathCheck::Multiple) == SHCL_SET_PATH_MULTIPLE, "SetPathCheck drifted from shcl_set_path_check");
 static_assert(static_cast<int>(Quote::None) == SHCL_QUOTE_NONE && static_cast<int>(Quote::Single) == SHCL_QUOTE_SINGLE
 	&& static_cast<int>(Quote::Double) == SHCL_QUOTE_DOUBLE && static_cast<int>(Quote::Backtick) == SHCL_QUOTE_BACKTICK
 	&& static_cast<int>(Quote::Open) == SHCL_QUOTE_OPEN, "Quote drifted from shcl_quote");

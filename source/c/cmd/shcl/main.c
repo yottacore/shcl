@@ -185,9 +185,10 @@ static const char *HELP =
 	"                                         under FILE; repeatable, earlier =\n"
 	"                                         lower priority\n"
 	"  --set=PATH=VALUE                       (get/set/fmt/count/instances/children/\n"
-	"                                         paths) override one path as the top\n"
-	"                                         layer, after all files; repeatable. On\n"
-	"                                         'set' it is an edit to the document\n"
+	"                                         paths) edit one path, after all files;\n"
+	"                                         repeatable. A path matching several\n"
+	"                                         fields is refused; name(0) picks one.\n"
+	"                                         On 'set' it is an edit to the document\n"
 	"                                         itself, so it persists with --write.\n"
 	"                                         VALUE goes in as data: its type still\n"
 	"                                         follows the text (8 is an int), but a\n"
@@ -721,6 +722,7 @@ static const char *describe_refusal(shcl_doc *d, const char *path, size_t plen, 
 	case SHCL_SET_PATH_WILDCARD: return "a wildcard path cannot be written";
 	case SHCL_SET_PATH_NO_SUCH_INDEX: return "no instance at that index";
 	case SHCL_SET_PATH_TOO_DEEP: return "deeper than the nesting cap";
+	case SHCL_SET_PATH_MULTIPLE: return "the path matches multiple instances; name(0) picks one";
 	}
 	return "not a usable path";
 }

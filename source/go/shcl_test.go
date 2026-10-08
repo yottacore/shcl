@@ -1175,6 +1175,61 @@ func TestRefusedValuesPassThePathCheck(t *testing.T) {
 	}
 }
 
+// A setter on a path that matches more than one field at any step writes
+// nothing and the path checks Multiple, so a write never says true where the
+// read after it would say Multiple. An index or value selector picks one.
+// Same fixture in every runner.
+func TestRepeatedPathRefusesASetter(t *testing.T) {
+	defer testID(t, "Es9aZSG")
+	text := "port: 1\nport: 2\nsite: a\n\troot: /x\nsite: b\n\troot: /y\nsec:\n\tk: 1\n\tk: 2\n"
+	cases := []struct {
+		path string
+		set  func(d *Document) bool
+	}{
+		{"port", func(d *Document) bool { return d.SetInt("port", 9) }},
+		{"port", func(d *Document) bool { return d.SetString("port", "9") }},
+		{"port", func(d *Document) bool { return d.SetLiteral("port", "9") }},
+		{"port", func(d *Document) bool { return d.SetIntArray("port", []int64{9}) }},
+		{"port", func(d *Document) bool { return d.SetEmpty("port") }},
+		{"port", func(d *Document) bool { return d.SetRaw("port", "x", "") }},
+		{"port", func(d *Document) bool { return d.SetComment("port", "c") }},
+		{"port", func(d *Document) bool { return d.SetIntDefault("port", 9) }},
+		{"port", func(d *Document) bool { return d.SetLiteralDefault("port", "9") }},
+		{"site.root", func(d *Document) bool { return d.SetString("site.root", "/z") }},
+		{"site.new", func(d *Document) bool { return d.SetString("site.new", "v") }},
+		{"site.new", func(d *Document) bool { return d.SetStringDefault("site.new", "v") }},
+		{"sec.k", func(d *Document) bool { return d.SetInt("sec.k", 9) }},
+		{"sec.k.x", func(d *Document) bool { return d.SetInt("sec.k.x", 9) }},
+	}
+	want := Parse(text).ToCanonical()
+	for _, c := range cases {
+		doc := Parse(text)
+		if c.set(doc) {
+			t.Errorf("%s: the setter returned true", c.path)
+		}
+		if got := doc.CheckSetPath(c.path); got != SetPathMultiple {
+			t.Errorf("%s: CheckSetPath = %v, want Multiple", c.path, got)
+		}
+		if got := doc.ToCanonical(); got != want {
+			t.Errorf("%s: wrote %q", c.path, got)
+		}
+	}
+	doc := Parse(text)
+	if !doc.SetInt("port(1)", 9) || !doc.SetString("site(1).root", "/z") || !doc.SetString("site(a).root", "/w") || !doc.SetInt("sec.k(0)", 7) {
+		t.Fatalf("a setter naming one instance was refused")
+	}
+	if doc.GetIntOr("port(0)", 0) != 1 || doc.GetIntOr("port(1)", 0) != 9 || doc.GetStringOr("site(b).root", "") != "/z" || doc.GetStringOr("site(a).root", "") != "/w" || doc.GetIntOr("sec.k(0)", 0) != 7 {
+		t.Fatalf("wrote the wrong instance: %q", doc.ToCanonical())
+	}
+	// A remove takes every instance it matches, as a read sees them.
+	if n := doc.Remove("port"); n != 2 {
+		t.Fatalf("Remove(port) = %d, want 2", n)
+	}
+	if got := doc.CheckSetPath("port"); got != SetPathOk {
+		t.Fatalf("CheckSetPath(port) after the remove = %v", got)
+	}
+}
+
 func TestSettersRefuseAValueTheReaderRefuses(t *testing.T) {
 	defer testID(t, "Eof29pZ")
 	// Each setter is the inverse of its read, so a value with no spelling the
@@ -3675,10 +3730,12 @@ func TestASetterCommentsOutEveryKeptLineOfItsName(t *testing.T) {
 		{"a: [1\ny: 3\n", "a.c", "# a: [1" + nac + "\na:\n\tc: 5\ny: 3\n", 1},
 		// A loaded `a` changes in place.
 		{"a: 1\nb: [1\na: [2\n", "a", "a: 5\nb: [1\n# a: [2" + na + "\n", 1},
-		// Two valid lines stay as they are, and so does a kept line with a
-		// kept line under it, which as a comment would leave that line under
-		// the field above.
-		{"a: 1\na: 2\n", "a", "a: 5\na: 2\n", 2},
+		// A kept line with a kept line under it stays as it is, since as a
+		// comment it would leave that line under the field above.
+		// Two valid lines wrote the first one here until a setter on a
+		// repeated path was refused (2026100717500010); the refusal is
+		// checked below.
+		// {"a: 1\na: 2\n", "a", "a: 5\na: 2\n", 2},
 		{"a: 1\na: [2\n\tc: [3\n", "a", "a: 5\na: [2\n\tc: [3\n", 1},
 	} {
 		doc, _ := ParseKeepLines(c.text, Standard)
@@ -3699,6 +3756,14 @@ func TestASetterCommentsOutEveryKeptLineOfItsName(t *testing.T) {
 		if keep, kept := doc.ToTextKeepLines(); keep != out || !kept {
 			t.Fatalf("%q: keep save %q %v", c.text, keep, kept)
 		}
+	}
+	// Two valid lines stay as they are: the setter refuses the path.
+	two, _ := ParseKeepLines("a: 1\na: 2\n", Standard)
+	if two.SetInt("a", 5) {
+		t.Fatalf("SetInt took a repeated path")
+	}
+	if keep, kept := two.ToTextKeepLines(); keep != "a: 1\na: 2\n" || !kept {
+		t.Fatalf("two valid lines: keep save %q %v", keep, kept)
 	}
 	// SetComment makes the field without touching the line.
 	doc := Parse("a: [1\ny: 3\n")
@@ -4213,8 +4278,8 @@ func TestAListNoTextLoadsBackRefusesToSave(t *testing.T) {
 func TestAListJoiningAnEmptiedFieldKeepsItsFieldsFound(t *testing.T) {
 	defer testID(t, "EryDfsy")
 	for _, c := range []struct{ src, path, field, want string }{
-		{"b: x\nb:\n\t- 3\n\tk: 1\n", "b", "b.k", "1"},
-		{"b: x\nb: y z\n\t- 3\n\tk: 1\n", "b", "b.k", "1"},
+		{"b: x\nb:\n\t- 3\n\tk: 1\n", "b(0)", "b.k", "1"},
+		{"b: x\nb: y z\n\t- 3\n\tk: 1\n", "b(0)", "b.k", "1"},
 		{"x: v\nx:\n\t- a\n\tg: 2\n", "x(v)", "x.g", "2"},
 	} {
 		doc := Parse(c.src)

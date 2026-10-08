@@ -1,2 +1,2 @@
-int	"404".code	5
+int	"404"(0).code	5
 int	"-y"	9

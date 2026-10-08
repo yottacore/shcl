@@ -197,9 +197,10 @@ Options (the subcommands each belongs to are in parentheses):
                                          under FILE; repeatable, earlier =
                                          lower priority
   --set=PATH=VALUE                       (get/set/fmt/count/instances/children/
-                                         paths) override one path as the top
-                                         layer, after all files; repeatable. On
-                                         'set' it is an edit to the document
+                                         paths) edit one path, after all files;
+                                         repeatable. A path matching several
+                                         fields is refused; name(0) picks one.
+                                         On 'set' it is an edit to the document
                                          itself, so it persists with --write.
                                          VALUE goes in as data: its type still
                                          follows the text (8 is an int), but a
@@ -1489,6 +1490,7 @@ fn describe_refusal(
 		shcl::SetPathCheck::Wildcard => "a wildcard path cannot be written",
 		shcl::SetPathCheck::NoSuchIndex => "no instance at that index",
 		shcl::SetPathCheck::TooDeep => "deeper than the nesting cap",
+		shcl::SetPathCheck::Multiple => "the path matches multiple instances; name(0) picks one",
 	}
 }
 

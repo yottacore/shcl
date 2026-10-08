@@ -64,7 +64,7 @@ Case `011` pins array-as-string: an array read as one string is its canonical br
 
 Case `012` pins raw-block identity: the info-string is part of a block's value, so equal bodies with `sql` and `python` infos are two instances (never a silent merge that drops an info).
 
-Cases `014`-`016` pin the **Writer**. `014` builds a document from an empty base (scalars, arrays, a comment above a later-set field, an empty section, and a `-default` that no-ops when the field already exists). `015` edits an existing document (overwrite the first instance of a leaf, `-default` that keeps the present value, `remove`, and a `(value)` selector that adds children under the matching instance). `016` pins the emit hazards: raw blocks (info string as identity), a string that looks like a fence, tricky strings (tab/quote/backslash and a fence-lookalike, minimally quoted so they read back verbatim), an explicit empty string (`""`, distinct from an empty value), and a bare 8-digit date stored canonically.
+Cases `014`-`016` pin the **Writer**. `014` builds a document from an empty base (scalars, arrays, a comment above a later-set field, an empty section, and a `-default` that no-ops when the field already exists). `015` edits an existing document (overwrite one instance of a repeated leaf by its index, `-default` that keeps the present value, `remove`, and a `(value)` selector that adds children under the matching instance). `016` pins the emit hazards: raw blocks (info string as identity), a string that looks like a fence, tricky strings (tab/quote/backslash and a fence-lookalike, minimally quoted so they read back verbatim), an explicit empty string (`""`, distinct from an empty value), and a bare 8-digit date stored canonically.
 
 Case `013` pins comment preservation through `fmt`: a whole-line comment re-emits above the node bound by the next line (merged instances concatenate theirs), a trailing comment stays on its line (a second one from a merged instance moves above), a comment among `- ` items or on one stays where it was, a comment between a bare header and its fence attaches to that field, `#` inside a raw block stays content, and comments after the last binding line re-emit at the end. The older cases' expected files have their inputs' comments too.
 
@@ -150,7 +150,7 @@ Case `060` pins the stacked-list errors: an item with no parent field (`E007`), 
 
 Case `061` pins `E012`: a dedent to a column that matches no open level is skipped and written back as it was, and the next line at a real level binds where it belongs.
 
-Case `062` pins a writer fold: `empty b` clears the value of `b: 1`, which then merges with the `b` below it. The `int b.c 5` before it names which `b` the setter picked, since the merged order differs by instance; the op it replaced set a value the `b` below already had, so the golden read the same either way.
+Case `062` pins a writer fold: `empty b` clears the value of `b: 1`, which then merges with the `b` below it. The `int b(0).c 5` before it names which `b` the setter writes, since the merged order differs by instance; the op it replaced set a value the `b` below already had, so the golden read the same either way.
 
 Case `063` pins `remove` followed by a `-default` on the same path: the default finds the path gone and writes it again, at the end.
 

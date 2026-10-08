@@ -60,7 +60,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A read status has a new last value, `BadPath`, so a match that names every status needs one more arm.
 
-- `write_reason` is renamed `check_set_path` (Go `CheckSetPath`, C `shcl_check_set_path`), its result type `SetPathCheck`, and its `Writable` value `Ok`. Go's values take a `SetPath` prefix, `SetPathOk` to `SetPathTooDeep`, since `BadPath` is a read status now. C's are `SHCL_SET_PATH_OK` to `SHCL_SET_PATH_TOO_DEEP`.
+- `write_reason` is renamed `check_set_path` (Go `CheckSetPath`, C `shcl_check_set_path`), its result type `SetPathCheck`, and its `Writable` value `Ok`. Go's values take a `SetPath` prefix, `SetPathOk` to `SetPathMultiple`, since `BadPath` is a read status now. C's are `SHCL_SET_PATH_OK` to `SHCL_SET_PATH_MULTIPLE`.
+
+- A setter on a path that matches more than one field at any step writes nothing and returns false, where it wrote the first match. `check_set_path` says `Multiple`, a new last value. `port(0)` or `site(1).root` picks one. `--set`, `--set-literal`, their `-default` forms and a `set` op line on such a path exit 1.
 
 - The C++ veneer's `read_datetime_array` returns structured values. The text form is `read_datetime_array_str`.
 
@@ -223,6 +225,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - A setter writing a field writes each malformed line of that name in its block as a comment, with a note giving the path, the local time and the reason. A new field goes right under the first of them. It wrote a second line for the field, which read as two once the malformed line was fixed.
 
 - A setter writes only what reads back, and refuses anything else.
+
+- C and Python setters refuse text that is not valid UTF-8, as Go's do. They took it, and the save wrote a file every reader refuses (C) or failed (Python).
 
 - `SetFloat` refuses infinity and NaN, and `SetDateTime` refuses a date that cannot exist.
 
