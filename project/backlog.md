@@ -104,6 +104,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Swept: `set` and `migrate` without `--write` (fixed). `upgrade` without `--write` runs the same `upgrade()` its `--write` does and gives the same exit; it writes past lost lines by design, since the backup keeps them, so nothing to fix. `fmt` to stdout left alone, per the item. `get`, `count`, `instances`, `children`, `paths`, `check`, `init`, `tokens` and `explain` produce no file text.
 	- Verified: cli-regress rows `Es8aXnv` to `Es8aXo4` fail on dev's four CLIs (36 checks) and pass after; the two guard rows pass both ways. cli-regress (473 rows), stderr and exit compared byte for byte across the four on 10 cases, help and `help set|migrate|fmt` byte-identical at 80 columns, man page rendered. Crosscheck (17862 comparisons), the four conformance suites, `cargo test`, Go cmd tests, check-docs, check-abnf, check-completions, shell-regress, clippy for the host and windows, rustfmt, gofmt, go vet, staticcheck, ruff, mypy, cppcheck, PSScriptAnalyzer, shellcheck, test-ids check, markdownlint.
 	- Branch: `setgate`
+	- Commit: `e3d6208b`
 	- Test case: cli-regress `Es8aXnv` (the review's repro), `Es8aXnw`, `Es8aXnx`, `Es8aXnz`, `Es8aXo0`, `Es8aXo1` (`set` printing), `Es8aXo2`, `Es8aXo3`, `Es8aXo4` (`migrate` printing and `--check --lossy`), plus guards `Es8aXny` (kept lines still print at 0) and `Es8aXo5` (`fmt --lossy` without `--write` still 1).
 
 - The README's bash and PowerShell CLI examples fail on 3.0
