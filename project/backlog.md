@@ -36,7 +36,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - CLI reads take a path that cannot parse as not found, so `get --default` prints the default at exit 0
 	- ID: 2026100717500001
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting for answers
 	- Severity: High
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 1
@@ -50,6 +50,16 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: 20261007, Rust CLI. Same for `site(.port`, `''`, `site..port`, `user name` and `h:p`.
 	- Origin: not blamed to one commit. The bracket case is new with 2026100610073400, which made `[` after a name `E029`. Not seen by an earlier round. Confirmed.
 	- Sweep: every CLI read that takes a PATH, in all four CLIs. Check whether the library's `_or` reads hide a bad path the same way.
+	- Actual cause [Bug]: `get`, `count`, `instances` and `children` passed PATH straight to the library, whose reads take a path the scanner refuses as NotFound. Only `--remove` and the ops script's `remove` checked a path first.
+	- Progress log:
+		- 20261008: the CLI half is in, all four. Open question below, on the library.
+		- Question: the library's reads hide a bad path the same way, in all four. `get_int_or("site[0].port", 8)` gives 8, the full-tier read gives NotFound, and `count` gives 0. Only `write_reason` tells a bad path from a missing one. Any fix changes a public contract: a new read status such as `BadPath` breaks every exhaustive match on the status, and an `_or` that raises breaks the call that never fails. Options: (a) leave the library as it is, and say in spec.md that a read takes a path that cannot parse as NotFound and `write_reason` is the check; (b) add a status for 3.0, since it is a major bump anyway. My pick is (a). The library was left alone.
+	- Actual fix [Bug]: `get`, `count`, `instances` and `children` check PATH with the same test `--remove` uses, before the load, and exit 1 with `bad PATH (REASON): PATH (see --help)`. A bracket selector keeps its reason, "a selector is written in parens now, name(value)"; anything else is "not a usable path". `children` still takes the empty path as the top level, as the library documents. A bad PATH is judged before FILE is read, like the other usage errors. All four CLIs, same stderr bytes. The help's refused list, the man page, the UI style guide's exit table and the changelog say so. The man page's `get` text said `[*]` and now says `(*)`.
+	- Swept: the positional PATH of `get`, `count`, `instances` and `children` (fixed). `--set`, `--set-literal`, `--set-default`, `--set-literal-default`, `--remove` and every ops-script path already refused at 1 through `write_reason`. `paths`, `fmt`, `check`, `init`, `migrate`, `upgrade`, `tokens` and `explain` take no PATH. The library `_or` reads in Rust, Go, Python and C hide it too; see the question.
+	- Verified: the 10 refusal rows fail on dev's four CLIs (40 checks) and pass after. cli-regress (462 rows), crosscheck (17862 comparisons), the four conformance suites, `cargo test`, Go cmd tests, check-docs, check-abnf, check-readme, check-migrate, shell-regress, check-completions, clippy for the host and windows, rustfmt, go vet, staticcheck, ruff, mypy, shellcheck, test-ids check, markdownlint.
+	- Branch: `badpath`
+	- Commit: `abe9c719`
+	- Test case: cli-regress `Es8PcNw` to `Es8PcO5` (each refusal, the `--default` cases included), plus `Es8PcO6` (`children` with an empty path lists the top level) and `Es8PcO7` (a missing path still gives the default). `ErxfmqP`, `ErxfmqU` and `ErrQs1q` expected exit 3 and are commented out, replaced by `Es8PcNw`, `Es8PcNz` and `Es8PcO0`.
 
 - The write-ops script still decodes `\t`, `\n` and `\\` in a value
 	- ID: 2026100717500002
