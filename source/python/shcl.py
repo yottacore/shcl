@@ -24,6 +24,7 @@ project/style-guide_code.md).
 from __future__ import annotations
 
 import bisect
+import itertools
 import math
 import os
 import re
@@ -4066,8 +4067,8 @@ class _Parser:
 				)
 				if all_scalar_leaves:
 					line = max(self.arena[c].line for c in group)
-					joined = ", ".join(_diag_value(self.arena[c].value) for c in group)
-					hints.append((line, f"{_h001_head(name)}[{joined}]'?"))
+					shown = _diag_list((_diag_value(self.arena[c].value) for c in group), len(group))
+					hints.append((line, f"{_h001_head(name)}[{shown}]'?{_diag_more(len(group))}"))
 		for line, message in hints:
 			self._diag(Diagnostic(line, Severity.Hint, message, "H001"))
 
@@ -8111,7 +8112,9 @@ class Document:
 		if not is_array and (base == "string" or base is None) and node.value.kind == "array":
 			text = node.value.display()
 			if c.allowed is not None and c.allowed[0] == "strings" and text not in c.allowed[1]:
-				_vdiag(out, line, "V004", f"value not allowed at '{_schema_text(c.path)}': {_one_line(text)}")
+				# The bracket form, cut short like any list in a message.
+				brief = f"[{_diag_list((_diag_element(e) for e in els), len(els))}]{_diag_more(len(els))}"
+				_vdiag(out, line, "V004", f"value not allowed at '{_schema_text(c.path)}': {_one_line(brief)}")
 			return
 		# A scalar kind on a multi-element value is the array-where-one-scalar-
 		# expected miss.
@@ -8316,6 +8319,22 @@ def _diag_value(v):
 	if v.kind != "cell":
 		return v.display()
 	return _diag_element(v.els[0])
+
+
+# How many values a diagnostic lists before it only counts the rest. H001 once
+# listed all 400,000 lines of a repeated field on one stderr line.
+_DIAG_LIST_MAX = 3
+
+
+def _diag_list(items, total):
+	# The first few of total values, comma-separated, with ", ..." when some are
+	# left out. _diag_more is the count that goes after.
+	out = ", ".join(itertools.islice(items, _DIAG_LIST_MAX))
+	return out + ", ..." if total > _DIAG_LIST_MAX else out
+
+
+def _diag_more(total):
+	return f" (and {total - _DIAG_LIST_MAX} more)" if total > _DIAG_LIST_MAX else ""
 
 
 def quote_segment(name: str) -> str:

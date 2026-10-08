@@ -190,6 +190,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A load lists its diagnostics in line order. The `H001` hints and a late `H002` came after everything else.
 
+- A diagnostic lists the first 3 values of a list and counts the rest. The `H001` hint for a field repeated on 400,000 lines printed all of them, on one line, every run. `V004` on an array read as a string did the same.
+
 ### Reads
 
 - A wildcard whose parent is missing reads `NotFound`, not `Empty`.

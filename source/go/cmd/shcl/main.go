@@ -1283,18 +1283,16 @@ func helpFor(cmd string) string {
 	}
 	// A paragraph of the full help that opens with the subcommand's own name is
 	// that subcommand's - today that is set's write-ops block, which is the
-	// half of set a user most needs in front of them.
+	// half of set a user most needs in front of them. Its first line only: a
+	// wrapped line inside one can start with any word.
 	lead := cmd + " "
-	for i, l := range lines {
-		if !strings.HasPrefix(l, lead) {
+	for _, para := range strings.Split(help, "\n\n") {
+		if !strings.HasPrefix(para, lead) {
 			continue
 		}
 		out.WriteString("\n")
-		for _, p := range lines[i:] {
-			if p == "" {
-				break
-			}
-			out.WriteString(p + "\n")
+		for _, l := range strings.Split(strings.TrimSuffix(para, "\n"), "\n") {
+			out.WriteString(l + "\n")
 		}
 		break
 	}

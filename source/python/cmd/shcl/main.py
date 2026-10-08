@@ -1152,14 +1152,12 @@ def help_for(cmd):
 			out.append(line)
 	# A paragraph of the full help that opens with the subcommand's own name is
 	# that subcommand's - today that is set's write-ops block, which is the half
-	# of set a user most needs in front of them.
-	for i, line in enumerate(lines):
-		if line.startswith(cmd + " "):
+	# of set a user most needs in front of them. Its first line only: a wrapped
+	# line inside one can start with any word.
+	for para in HELP.split("\n\n"):
+		if para.startswith(cmd + " "):
 			out.append("")
-			for para in lines[i:]:
-				if not para:
-					break
-				out.append(para)
+			out.extend(para.rstrip("\n").split("\n"))
 			break
 	allowed = allowed_opts(cmd)
 	if "--<type>" in allowed:

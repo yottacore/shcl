@@ -2340,6 +2340,44 @@ else
 	done
 fi
 
+## A list in a diagnostic shows its first 3 values and counts the rest
+## (20261007 item 13). The H001 hint on a field repeated over 400,000 lines was
+## one 3.4 MB stderr line, every run. V004 on an array read as a string printed
+## the whole array the same way.
+fTest Es9aIMN diag-list-cap
+awk 'BEGIN{ for (i = 0; i < 20000; i++) printf "item: v%d\n", i }' > "${tmpDir}/rep20k.shcl"
+printf 'field: x\n\ttype: string\n\tallowed: [a]\n' > "${tmpDir}/allowa.shcl"
+printf 'x: [p, q, r, s, t]\n' > "${tmpDir}/arr5.shcl"
+printf 'x: [p, q, r]\n' > "${tmpDir}/arr3.shcl"
+capWant=(
+	"rep20k|get ${tmpDir}/rep20k.shcl item|line 20000: Hint: H001 'item' repeats as a bare leaf - did you mean 'item: [v0, v1, v2, ...]'? (and 19997 more)"
+	"rep4|check -|line 4: Hint: H001 'x' repeats as a bare leaf - did you mean 'x: [a, b, c, ...]'? (and 1 more)"
+	"rep3|check -|line 3: Hint: H001 'x' repeats as a bare leaf - did you mean 'x: [a, b, c]'?"
+	"v004-arr5|check --schema=${tmpDir}/allowa.shcl ${tmpDir}/arr5.shcl|line 1: Error: V004 value not allowed at 'x': [p, q, r, ...] (and 2 more)"
+	"v004-arr3|check --schema=${tmpDir}/allowa.shcl ${tmpDir}/arr3.shcl|line 1: Error: V004 value not allowed at 'x': [p, q, r]"
+)
+for b in "${bindings[@]}"; do
+	name="${b%%|*}"; cli="${b#*|}"
+	for w in "${capWant[@]}"; do
+		IFS='|' read -r what cmd want <<<"${w}"
+		read -r -a cmdArgv <<<"${cmd}"
+		case "${what}" in
+			rep4) stdinText=$'x: a\nx: b\nx: c\nx: d\n' ;;
+			rep3) stdinText=$'x: a\nx: b\nx: c\n' ;;
+			*)    stdinText="" ;;
+		esac
+		nRun+=1
+		"${cli}" "${cmdArgv[@]}" <<<"${stdinText}" >/dev/null 2>"${tmpDir}/caperr" || true
+		got="$(grep -E ' (H001|V004) ' "${tmpDir}/caperr" || true)"
+		size="$(wc -c <"${tmpDir}/caperr")"
+		if [[ "${got}" != "${want}" ]]; then
+			echo "cli-regress: diag-list-cap [${name}]: ${what}: got: $(head -c 200 <<<"${got}")" >&2; nBad+=1
+		elif ((size > 1000)); then
+			echo "cli-regress: diag-list-cap [${name}]: ${what}: stderr is ${size} bytes" >&2; nBad+=1
+		fi
+	done
+done
+
 ## The help text is a column-aligned table sitting at exactly 80 wide, and it is
 ## hand-duplicated in four CLIs, so one added word wraps it in every terminal at
 ## once and nothing else here would notice. Only help is checked: about and
@@ -2473,6 +2511,45 @@ for b in "${bindings[@]}"; do
 	if ((nOpts < 10)); then
 		echo "cli-regress: option-scopes [${name}]: only ${nOpts} option(s) found in the help" >&2; nBad+=1
 	fi
+done
+
+## `help CMD` takes the full help's paragraphs that open with CMD's name. It
+## took any line starting with it, so set's paragraph, rewrapped to start a line
+## with "fmt writes it.", showed up as fmt's help (20261007 item 7). Every prose
+## line in a narrowed help has to come from a paragraph opening with that
+## command, and every such paragraph has to be there whole. The usage, type and
+## option blocks are cut by their own rules and checked above.
+fTest Es9aIKE help-own-paragraphs
+for b in "${bindings[@]}"; do
+	name="${b%%|*}"; cli="${b#*|}"
+	"${cli}" help </dev/null >"${tmpDir}/fullhelp" 2>/dev/null || true
+	## `help help` is the full text.
+	mapfile -t cmds < <({ grep -oE '^  shcl [a-z]+' "${tmpDir}/fullhelp" || true ;} | awk '{print $2}' | { grep -vx help || true ;} | sort -u)
+	((${#cmds[@]} >= 10)) || { echo "cli-regress: help-own-paragraphs [${name}]: only ${#cmds[@]} subcommand(s) found in the help" >&2; nBad+=1; }
+	for c in "${cmds[@]}"; do
+		nRun+=1
+		"${cli}" help "${c}" </dev/null >"${tmpDir}/cmdhelp" 2>/dev/null || true
+		while IFS= read -r stray; do
+			echo "cli-regress: help-own-paragraphs [${name}]: help ${c}: ${stray}" >&2; nBad+=1
+		done < <(awk -v cmd="${c} " '
+			BEGIN { start = 1 }
+			FNR == NR {
+				if ($0 == "") { start = 1; next }
+				if (start) { head = $0; start = 0; n++ }
+				if (head ~ /^(shcl - |Usage:|Types \(|Options \()/) next
+				whose[$0] = head; para[n] = para[n] $0 "\n"; first[n] = head
+				next
+			}
+			{ got = got $0 "\n" }
+			($0 in whose) && index(whose[$0], cmd) != 1 {
+				print "line " FNR " is from the paragraph opening \"" substr(whose[$0], 1, 30) "\""
+			}
+			END {
+				for (i = 1; i <= n; i++)
+					if (index(first[i], cmd) == 1 && !index(got, para[i]))
+						print "leaves out its own paragraph opening \"" substr(first[i], 1, 30) "\""
+			}' "${tmpDir}/fullhelp" "${tmpDir}/cmdhelp")
+	done
 done
 
 ## The man page sits next to that help and had nothing holding it to the same

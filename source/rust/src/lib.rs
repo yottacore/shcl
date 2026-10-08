@@ -4970,12 +4970,14 @@ impl<'a> Parser<'a> {
 				});
 				if all_scalar_leaves {
 					let line = group.iter().map(|&c| self.arena[c].line).max().unwrap_or(0);
-					let joined = group
-						.iter()
-						.map(|&c| diag_value(&self.arena[c].value))
-						.collect::<Vec<_>>()
-						.join(", ");
-					hints.push((line, format!("{}[{}]'?", h001_head(name), joined)));
+					let shown = diag_list(
+						group.iter().map(|&c| diag_value(&self.arena[c].value)),
+						group.len(),
+					);
+					hints.push((
+						line,
+						format!("{}[{}]'?{}", h001_head(name), shown, diag_more(group.len())),
+					));
 				}
 			}
 		}
@@ -7684,6 +7686,28 @@ fn diag_value(v: &Value) -> String {
 	match v {
 		Value::Cell(e) => diag_element(e),
 		Value::Empty | Value::Array(_) | Value::Raw(_) => v.display(),
+	}
+}
+
+/// How many values a diagnostic lists before it only counts the rest. H001
+/// once listed all 400,000 lines of a repeated field on one stderr line.
+const DIAG_LIST_MAX: usize = 3;
+
+/// The first few of `total` values, comma-separated, with `, ...` when some are
+/// left out. `diag_more` is the count that goes after.
+fn diag_list(items: impl Iterator<Item = String>, total: usize) -> String {
+	let mut out = items.take(DIAG_LIST_MAX).collect::<Vec<_>>().join(", ");
+	if total > DIAG_LIST_MAX {
+		out.push_str(", ...");
+	}
+	out
+}
+
+fn diag_more(total: usize) -> String {
+	if total > DIAG_LIST_MAX {
+		format!(" (and {} more)", total - DIAG_LIST_MAX)
+	} else {
+		String::new()
 	}
 }
 
@@ -14262,6 +14286,12 @@ impl Document {
 					if let Some(AllowedSet::Strings(set)) = &c.allowed
 						&& !set.contains(&text)
 					{
+						// The bracket form, cut short like any list in a message.
+						let shown = format!(
+							"[{}]{}",
+							diag_list(els.iter().map(diag_element), els.len()),
+							diag_more(els.len())
+						);
 						vdiag(
 							out,
 							line,
@@ -14269,7 +14299,7 @@ impl Document {
 							format!(
 								"value not allowed at '{}': {}",
 								schema_text(&c.path),
-								one_line(&text)
+								one_line(&shown)
 							),
 						);
 					}
