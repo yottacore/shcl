@@ -33,74 +33,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
-- CLI reads take a path that cannot parse as not found, so `get --default` prints the default at exit 0
-	- ID: 2026100717500001
-	- Type: Bug
-	- Status: Done
-	- Severity: High
-	- Opened: 20261007-175000
-	- Opened by: Code review 20261007 item 1
-	- Version and build: dev at `6a1d28f0`
-	- Steps to reproduce:
-		- `printf 'site: a\n\tport: 1\n' > p.shcl`
-		- `shcl get --int --default=8 p.shcl 'site[0].port'`
-		- `shcl count p.shcl 'site[0]'`
-	- Incorrect behavior: the first prints `8` at exit 0, with nothing on stderr. `count` prints `0` at exit 0, and `instances` and `children` print nothing at exit 0. A plain `get` says "a selector is written in parens now" at exit 3.
-	- Expected behavior: a path that cannot parse is a usage error on every subcommand, `--default` or not. `set --remove` already refuses one at exit 1, and its help says so. A 2.x script with bracket selectors otherwise reads its defaults forever with no sign.
-	- Reproduced: 20261007, Rust CLI. Same for `site(.port`, `''`, `site..port`, `user name` and `h:p`.
-	- Origin: not blamed to one commit. The bracket case is new with 2026100610073400, which made `[` after a name `E029`. Not seen by an earlier round. Confirmed.
-	- Sweep: every CLI read that takes a PATH, in all four CLIs. Check whether the library's `_or` reads hide a bad path the same way.
-	- Actual cause [Bug]: `get`, `count`, `instances` and `children` passed PATH straight to the library, whose reads take a path the scanner refuses as NotFound. Only `--remove` and the ops script's `remove` checked a path first.
-	- Progress log:
-		- 20261008: the CLI half is in, all four. Open question below, on the library.
-		- Question: the library's reads hide a bad path the same way, in all four. `get_int_or("site[0].port", 8)` gives 8, the full-tier read gives NotFound, and `count` gives 0. Only `write_reason` tells a bad path from a missing one. Any fix changes a public contract: a new read status such as `BadPath` breaks every exhaustive match on the status, and an `_or` that raises breaks the call that never fails. Options: (a) leave the library as it is, and say in spec.md that a read takes a path that cannot parse as NotFound and `write_reason` is the check; (b) add a status for 3.0, since it is a major bump anyway. My pick is (a). The library was left alone.
-		- 20261008: the user asked for examples, and said a behavior change is fine since every current consumer can change. With that, my pick moves to (b): a `BadPath` read status, last in the order, and Python's value 1 to match the CLI's exit. The `_or` reads still give the default.
-		- Answered 20261008: (b), a `BadPath` read status, all four. Back to Queued for the library half.
-		- The user asked whether `write_reason` is how a caller learns why something failed, since "write" reads like saving the file. With (b) a read gets its own status, so `write_reason` is left for the setters alone. The name still mixes terms: setters are `set_*`, and `--write` means save. Proposed with this item: rename it `check_set_path`, with `SetPathCheck` and `Ok` in place of `Writable`, in all four and the C++ interface. Waiting on the name.
-		- 20261008: no answer on the name, so the best guess stands: `check_set_path` (Go `CheckSetPath`, C `shcl_check_set_path`), enum `SetPathCheck`, `Ok` for `Writable`, all four and the C++ interface. It is its own step after this one.
-		- 20261008: the library half is in, all four and the C++ interface. Calls made here:
-			- `BadPath` covers what the CLI refuses: a path the scanner refuses, a path with a `: value` part, and an empty one. That matches `write_reason`'s `BadPath` plus `ValueInPath`.
-			- `count`, `instances`, `children`, `line`, `lines` and `exists` return no status, so they still give their empty answer for a bad path, and spec.md says so. Giving them a status would change their signatures in all four. Not done; a status read such as `read_string` tells a bad path apart.
-			- Go keeps every enum value in one namespace, and `BadPath` was already the write reason there. The read status takes `BadPath`, like the other three, and the write reason is `WriteBadPath`, still printed `BadPath`. The rename step can pick the final write-side names.
-			- 23 corpus rows that pinned `NotFound` for a refused path now pin `BadPath`, and the conformance README says so. 5 existing checks that pinned `NotFound` (the bracket fixture in all four, and the Python surrogate path) are commented out with the reason, beside the new ones.
-	- Actual fix [Bug]: `get`, `count`, `instances` and `children` check PATH with the same test `--remove` uses, before the load, and exit 1 with `bad PATH (REASON): PATH (see --help)`. A bracket selector keeps its reason, "a selector is written in parens now, name(value)"; anything else is "not a usable path". `children` still takes the empty path as the top level, as the library documents. A bad PATH is judged before FILE is read, like the other usage errors. All four CLIs, same stderr bytes. The help's refused list, the man page, the UI style guide's exit table and the changelog say so. The man page's `get` text said `[*]` and now says `(*)`.
-		- Library half: a new read status `BadPath`, last in the order, in all four and the C++ interface. Python's value is 1, the CLI's usage exit, and Python's worst-of aggregate now goes by declaration order. Every read with a status gives it for a path the scanner refuses, one with a value part, or an empty one, where they gave `NotFound`. The `_or` reads still give their fallback, and `children("")` is still the top level. The four CLIs map it to exit 1 and give it a message, though they refuse a bad PATH before the load, so their behavior is the same. spec.md, the Rust and Python READMEs, the code style guide (Go's `WriteBadPath`) and the changelog say so.
-	- Swept: the library reads in all four and `shcl.hpp`: each binding's resolve is the one place a read path is scanned (Rust `resolve_mode`, Go `resolveMode`, Python `_resolve`, C `resolve_mode`), and every status read reaches it through `node_at`, `read_named`, `read_array` or their twins (C `value_at`, `array_elements`, `scalar_named_at`, and the `_to` copies). The only other scanner calls are the writer's and the schema's. `check-veneer` passes; the veneer forwards every read to C. No tooling matches on every status.
-	- Swept (CLI half): the positional PATH of `get`, `count`, `instances` and `children` (fixed). `--set`, `--set-literal`, `--set-default`, `--set-literal-default`, `--remove` and every ops-script path already refused at 1 through `write_reason`. `paths`, `fmt`, `check`, `init`, `migrate`, `upgrade`, `tokens` and `explain` take no PATH. The library `_or` reads in Rust, Go, Python and C hide it too; see the question.
-	- Verified (library half): the new test fails on the old resolve and passes after in all four and the C++ interface (Python and C run with the old resolve swapped in). `cargo test`, the four conformance suites (203 cases each), cli-regress (482 rows, 2559 checks), crosscheck over the corpus and a fuzz dump (41841 comparisons), check-docs, check-abnf, check-readme, check-completions, check-veneer, shell-regress, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy, cppcheck at the normal level, gcc 15 and clang and mingw builds, markdownlint.
-	- Verified (CLI half): the 10 refusal rows fail on dev's four CLIs (40 checks) and pass after. cli-regress (462 rows), crosscheck (17862 comparisons), the four conformance suites, `cargo test`, Go cmd tests, check-docs, check-abnf, check-readme, check-migrate, shell-regress, check-completions, clippy for the host and windows, rustfmt, go vet, staticcheck, ruff, mypy, shellcheck, test-ids check, markdownlint.
-	- Branch: `badpath`, `badread`
-	- Commit: `abe9c719`, `1e56f1d0`
-	- Test case: `bad_path_reads_say_bad_path` in all four runners (Rust `Es9JVrX`, Go `Es9JVrY`, Python `Es9JVrZ`, C `Es9JVra`), plus BadPath checks in the C++ `veneer_smoke` (`EjtkR0S`), and the 23 corpus rows. CLI half: cli-regress `Es8PcNw` to `Es8PcO5` (each refusal, the `--default` cases included), plus `Es8PcO6` (`children` with an empty path lists the top level) and `Es8PcO7` (a missing path still gives the default). `ErxfmqP`, `ErxfmqU` and `ErrQs1q` expected exit 3 and are commented out, replaced by `Es8PcNw`, `Es8PcNz` and `Es8PcO0`.
-	- Acceptance signoff: Self-closed 20261008: the user picked (b); tests fail before and pass after in all four. The calls above are listed for review.
-	- Closed: 20261008-152746
-
-- The README's bash and PowerShell CLI examples fail on 3.0
-	- ID: 2026100717500005
-	- Type: Bug
-	- Status: Done
-	- Severity: High
-	- Opened: 20261007-175000
-	- Opened by: Code review 20261007 item 5
-	- Version and build: dev at `6a1d28f0`
-	- Steps to reproduce: run the blocks under `### Bash` and `### PowerShell` in README.md.
-	- Incorrect behavior: `--set-literal 'cluster.hosts=a.example.com, b.example.com'` exits 1, "the value text is not one value". The PowerShell op ``remove`tsite[old.example.com]`` exits 1, "a selector is written in parens now". The prose after the bash block says that text "writes a two-element array".
-	- Expected behavior: `[a.example.com, b.example.com]`, `site(old.example.com)`, and prose to match.
-	- Reproduced: 20261007, Rust CLI.
-	- Origin: the example is from `a3692013` (2026-08-04). 2026100207032800 changed the comma rule and 2026100610073400 the selectors, and neither swept these blocks. Not seen by an earlier round. Confirmed.
-	- Note: `check-readme.bash` builds and runs the 6 language examples, not the shell ones, so nothing caught this. Running them there is part of the fix.
-	- Sweep: every shell, PowerShell and text block in README.md and the man page, for brackets after a name and comma-space lists.
-	- Actual cause [Bug]: the blocks predate the bracket arrays and paren selectors, and `check-readme.bash` ran only the language examples and the console transcripts.
-	- Actual fix [Bug]: both `--set-literal` lines write `[a.example.com, b.example.com]`, the PowerShell op removes `site(old.example.com)`, and the prose after the bash block shows `hosts=[a, b]`. `check-readme.bash` now runs the `### Bash` and `### PowerShell` blocks and the `## Using the CLI` sh block against the built CLI. Each section runs top to bottom on the README's server.shcl, every command has to succeed, and the file left behind has to load clean. A `# N` comment on an assignment is checked against the value. PowerShell runs one statement at a time and fails on a nonzero exit. With no pwsh it's a noted skip, and a failure under the strict gate. The prose's `hosts=[a, b]` goes through both options: one string from `--set`, 2 elements from `--set-literal`.
-	- Swept: README's shell, PowerShell, console, text and shcl blocks and its prose. Only the 3 sites above, plus the 2.x paragraph (2026100717500008). The man page's shell blocks and its `--set` and `--set-literal` text already use parens and brackets. Its `name:[disc]`, `base[Boston]` and `[\-default]` hits describe the old forms or option syntax. Left alone: the `shcl.ps1` header's `--set-literal=ports=80,443`, which is about PowerShell splitting at a comma and still runs at exit 0.
-	- Verified: on the old README, `Es9JhMP` fails on the bash block. With only that fixed, `Es9JhOf` fails on the PowerShell `--set-literal`, then on the op. With both fixed, `Es9JhQu` fails on the old prose. All pass after. Also red on a wrong byte count in the bash comment. With pwsh off PATH the test skips and is noted in SHCL_GATE_SKIPS, and fails under SHCL_GATE_STRICT. check-docs, shell-regress (its skip-rule scans included), test-ids check, shellcheck and markdownlint pass.
-	- Note: the hosted ci job runs the PowerShell blocks for the first time with the next main push.
-	- Branch: `readmesh`
-	- Commit: `98a4b7d4`
-	- Test case: check-readme `Es9JhMP` (shell blocks), `Es9JhOf` (PowerShell blocks), `Es9JhQu` (the `--set` prose).
-	- Acceptance signoff: Self-closed: the blocks follow value-syntax.md, and the tests fail before and pass after. The one prose change is the example.
-	- Closed: 20261008-153500
-
 - `fmt` leaves a value bare that a reader could misread
 	- ID: 2026100719122101
 	- Type: Enhancement
@@ -137,27 +69,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Origin: `help_for` is from `c78d41da` (2026-09-17); the wrap that trips it is later. Not seen by an earlier round. Confirmed.
 	- Note: any rewrap can do this to another command. A check that no `help CMD` holds another command's paragraph covers the class.
 	- Sweep: `help_for` in all four CLIs.
-
-- The README's `migrate` paragraph lists 2.x rewrites that 3.0 no longer makes
-	- ID: 2026100717500008
-	- Type: Bug
-	- Status: Done
-	- Severity: Avg
-	- Opened: 20261007-175000
-	- Opened by: Code review 20261007 item 8
-	- Version and build: dev at `6a1d28f0`
-	- Incorrect behavior: "Using the CLI" says `migrate` rewrites "a backslash outside double quotes, an unknown escape in double quotes", and the next paragraph says a backslash value exits 7 without `--from-2x`. Now a backslash stays as written, so `path: "C:\temp\new"` is unchanged at exit 0, and the exit 7 case is a comma list such as `p: a,b`.
-	- Expected behavior: what spec.md's "Migrating from 2.x" and the man page say.
-	- Reproduced: 20261007, Rust CLI.
-	- Origin: `1991e313` (2026-09-27), stale since `vsmig`. Not seen by an earlier round. Confirmed.
-	- Actual cause [Bug]: `vsmig` changed what `migrate` rewrites, and the README paragraphs weren't updated with spec.md and the man page.
-	- Actual fix [Bug]: the list of rewrites is now the man page's: a comma list, a `*` item, a selector in brackets, a quote that never closed, and `name:[disc]`. The exit 7 example is `p: a,b`, an array then and one string now. A new sentence says backslashes are a quiet change that `migrate` leaves as written, so `path: "C:\temp\new"` comes through as it was. The raw label sentence stays, as "another" quiet case.
-	- Verified: `migrate` without `--from-2x` on each case in the list rewrites it at exit 0, but `p: a,b`, which it leaves at exit 7. `Es9KiYw` fails on the old paragraph and on a non-comma value in its place, and passes after.
-	- Branch: `readmesh`
-	- Commit: `98a4b7d4`
-	- Test case: check-readme `Es9KiYw` (runs the paragraph's comma value and backslash value through `migrate`).
-	- Acceptance signoff: Self-closed: the text follows spec.md and the man page, and the test fails before and passes after. The backslash sentence is new README wording.
-	- Closed: 20261008-153500
 
 - A setter returns false while `write_reason` says Writable
 	- ID: 2026100717500009
@@ -356,6 +267,95 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Origin: Confirmed by reading and probes.
 
 **Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
+
+- CLI reads take a path that cannot parse as not found, so `get --default` prints the default at exit 0
+	- ID: 2026100717500001
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 1
+	- Version and build: dev at `6a1d28f0`
+	- Steps to reproduce:
+		- `printf 'site: a\n\tport: 1\n' > p.shcl`
+		- `shcl get --int --default=8 p.shcl 'site[0].port'`
+		- `shcl count p.shcl 'site[0]'`
+	- Incorrect behavior: the first prints `8` at exit 0, with nothing on stderr. `count` prints `0` at exit 0, and `instances` and `children` print nothing at exit 0. A plain `get` says "a selector is written in parens now" at exit 3.
+	- Expected behavior: a path that cannot parse is a usage error on every subcommand, `--default` or not. `set --remove` already refuses one at exit 1, and its help says so. A 2.x script with bracket selectors otherwise reads its defaults forever with no sign.
+	- Reproduced: 20261007, Rust CLI. Same for `site(.port`, `''`, `site..port`, `user name` and `h:p`.
+	- Origin: not blamed to one commit. The bracket case is new with 2026100610073400, which made `[` after a name `E029`. Not seen by an earlier round. Confirmed.
+	- Sweep: every CLI read that takes a PATH, in all four CLIs. Check whether the library's `_or` reads hide a bad path the same way.
+	- Actual cause [Bug]: `get`, `count`, `instances` and `children` passed PATH straight to the library, whose reads take a path the scanner refuses as NotFound. Only `--remove` and the ops script's `remove` checked a path first.
+	- Progress log:
+		- 20261008: the CLI half is in, all four. Open question below, on the library.
+		- Question: the library's reads hide a bad path the same way, in all four. `get_int_or("site[0].port", 8)` gives 8, the full-tier read gives NotFound, and `count` gives 0. Only `write_reason` tells a bad path from a missing one. Any fix changes a public contract: a new read status such as `BadPath` breaks every exhaustive match on the status, and an `_or` that raises breaks the call that never fails. Options: (a) leave the library as it is, and say in spec.md that a read takes a path that cannot parse as NotFound and `write_reason` is the check; (b) add a status for 3.0, since it is a major bump anyway. My pick is (a). The library was left alone.
+		- 20261008: the user asked for examples, and said a behavior change is fine since every current consumer can change. With that, my pick moves to (b): a `BadPath` read status, last in the order, and Python's value 1 to match the CLI's exit. The `_or` reads still give the default.
+		- Answered 20261008: (b), a `BadPath` read status, all four. Back to Queued for the library half.
+		- The user asked whether `write_reason` is how a caller learns why something failed, since "write" reads like saving the file. With (b) a read gets its own status, so `write_reason` is left for the setters alone. The name still mixes terms: setters are `set_*`, and `--write` means save. Proposed with this item: rename it `check_set_path`, with `SetPathCheck` and `Ok` in place of `Writable`, in all four and the C++ interface. Waiting on the name.
+		- 20261008: no answer on the name, so the best guess stands: `check_set_path` (Go `CheckSetPath`, C `shcl_check_set_path`), enum `SetPathCheck`, `Ok` for `Writable`, all four and the C++ interface. It is its own step after this one.
+		- 20261008: the library half is in, all four and the C++ interface. Calls made here:
+			- `BadPath` covers what the CLI refuses: a path the scanner refuses, a path with a `: value` part, and an empty one. That matches `write_reason`'s `BadPath` plus `ValueInPath`.
+			- `count`, `instances`, `children`, `line`, `lines` and `exists` return no status, so they still give their empty answer for a bad path, and spec.md says so. Giving them a status would change their signatures in all four. Not done; a status read such as `read_string` tells a bad path apart.
+			- Go keeps every enum value in one namespace, and `BadPath` was already the write reason there. The read status takes `BadPath`, like the other three, and the write reason is `WriteBadPath`, still printed `BadPath`. The rename step can pick the final write-side names.
+			- 23 corpus rows that pinned `NotFound` for a refused path now pin `BadPath`, and the conformance README says so. 5 existing checks that pinned `NotFound` (the bracket fixture in all four, and the Python surrogate path) are commented out with the reason, beside the new ones.
+	- Actual fix [Bug]: `get`, `count`, `instances` and `children` check PATH with the same test `--remove` uses, before the load, and exit 1 with `bad PATH (REASON): PATH (see --help)`. A bracket selector keeps its reason, "a selector is written in parens now, name(value)"; anything else is "not a usable path". `children` still takes the empty path as the top level, as the library documents. A bad PATH is judged before FILE is read, like the other usage errors. All four CLIs, same stderr bytes. The help's refused list, the man page, the UI style guide's exit table and the changelog say so. The man page's `get` text said `[*]` and now says `(*)`.
+		- Library half: a new read status `BadPath`, last in the order, in all four and the C++ interface. Python's value is 1, the CLI's usage exit, and Python's worst-of aggregate now goes by declaration order. Every read with a status gives it for a path the scanner refuses, one with a value part, or an empty one, where they gave `NotFound`. The `_or` reads still give their fallback, and `children("")` is still the top level. The four CLIs map it to exit 1 and give it a message, though they refuse a bad PATH before the load, so their behavior is the same. spec.md, the Rust and Python READMEs, the code style guide (Go's `WriteBadPath`) and the changelog say so.
+	- Swept: the library reads in all four and `shcl.hpp`: each binding's resolve is the one place a read path is scanned (Rust `resolve_mode`, Go `resolveMode`, Python `_resolve`, C `resolve_mode`), and every status read reaches it through `node_at`, `read_named`, `read_array` or their twins (C `value_at`, `array_elements`, `scalar_named_at`, and the `_to` copies). The only other scanner calls are the writer's and the schema's. `check-veneer` passes; the veneer forwards every read to C. No tooling matches on every status.
+	- Swept (CLI half): the positional PATH of `get`, `count`, `instances` and `children` (fixed). `--set`, `--set-literal`, `--set-default`, `--set-literal-default`, `--remove` and every ops-script path already refused at 1 through `write_reason`. `paths`, `fmt`, `check`, `init`, `migrate`, `upgrade`, `tokens` and `explain` take no PATH. The library `_or` reads in Rust, Go, Python and C hide it too; see the question.
+	- Verified (library half): the new test fails on the old resolve and passes after in all four and the C++ interface (Python and C run with the old resolve swapped in). `cargo test`, the four conformance suites (203 cases each), cli-regress (482 rows, 2559 checks), crosscheck over the corpus and a fuzz dump (41841 comparisons), check-docs, check-abnf, check-readme, check-completions, check-veneer, shell-regress, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy, cppcheck at the normal level, gcc 15 and clang and mingw builds, markdownlint.
+	- Verified (CLI half): the 10 refusal rows fail on dev's four CLIs (40 checks) and pass after. cli-regress (462 rows), crosscheck (17862 comparisons), the four conformance suites, `cargo test`, Go cmd tests, check-docs, check-abnf, check-readme, check-migrate, shell-regress, check-completions, clippy for the host and windows, rustfmt, go vet, staticcheck, ruff, mypy, shellcheck, test-ids check, markdownlint.
+	- Branch: `badpath`, `badread`
+	- Commit: `abe9c719`, `1e56f1d0`
+	- Test case: `bad_path_reads_say_bad_path` in all four runners (Rust `Es9JVrX`, Go `Es9JVrY`, Python `Es9JVrZ`, C `Es9JVra`), plus BadPath checks in the C++ `veneer_smoke` (`EjtkR0S`), and the 23 corpus rows. CLI half: cli-regress `Es8PcNw` to `Es8PcO5` (each refusal, the `--default` cases included), plus `Es8PcO6` (`children` with an empty path lists the top level) and `Es8PcO7` (a missing path still gives the default). `ErxfmqP`, `ErxfmqU` and `ErrQs1q` expected exit 3 and are commented out, replaced by `Es8PcNw`, `Es8PcNz` and `Es8PcO0`.
+	- Acceptance signoff: Self-closed 20261008: the user picked (b); tests fail before and pass after in all four. The calls above are listed for review.
+	- Closed: 20261008-152746
+
+- The README's bash and PowerShell CLI examples fail on 3.0
+	- ID: 2026100717500005
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 5
+	- Version and build: dev at `6a1d28f0`
+	- Steps to reproduce: run the blocks under `### Bash` and `### PowerShell` in README.md.
+	- Incorrect behavior: `--set-literal 'cluster.hosts=a.example.com, b.example.com'` exits 1, "the value text is not one value". The PowerShell op ``remove`tsite[old.example.com]`` exits 1, "a selector is written in parens now". The prose after the bash block says that text "writes a two-element array".
+	- Expected behavior: `[a.example.com, b.example.com]`, `site(old.example.com)`, and prose to match.
+	- Reproduced: 20261007, Rust CLI.
+	- Origin: the example is from `a3692013` (2026-08-04). 2026100207032800 changed the comma rule and 2026100610073400 the selectors, and neither swept these blocks. Not seen by an earlier round. Confirmed.
+	- Note: `check-readme.bash` builds and runs the 6 language examples, not the shell ones, so nothing caught this. Running them there is part of the fix.
+	- Sweep: every shell, PowerShell and text block in README.md and the man page, for brackets after a name and comma-space lists.
+	- Actual cause [Bug]: the blocks predate the bracket arrays and paren selectors, and `check-readme.bash` ran only the language examples and the console transcripts.
+	- Actual fix [Bug]: both `--set-literal` lines write `[a.example.com, b.example.com]`, the PowerShell op removes `site(old.example.com)`, and the prose after the bash block shows `hosts=[a, b]`. `check-readme.bash` now runs the `### Bash` and `### PowerShell` blocks and the `## Using the CLI` sh block against the built CLI. Each section runs top to bottom on the README's server.shcl, every command has to succeed, and the file left behind has to load clean. A `# N` comment on an assignment is checked against the value. PowerShell runs one statement at a time and fails on a nonzero exit. With no pwsh it's a noted skip, and a failure under the strict gate. The prose's `hosts=[a, b]` goes through both options: one string from `--set`, 2 elements from `--set-literal`.
+	- Swept: README's shell, PowerShell, console, text and shcl blocks and its prose. Only the 3 sites above, plus the 2.x paragraph (2026100717500008). The man page's shell blocks and its `--set` and `--set-literal` text already use parens and brackets. Its `name:[disc]`, `base[Boston]` and `[\-default]` hits describe the old forms or option syntax. Left alone: the `shcl.ps1` header's `--set-literal=ports=80,443`, which is about PowerShell splitting at a comma and still runs at exit 0.
+	- Verified: on the old README, `Es9JhMP` fails on the bash block. With only that fixed, `Es9JhOf` fails on the PowerShell `--set-literal`, then on the op. With both fixed, `Es9JhQu` fails on the old prose. All pass after. Also red on a wrong byte count in the bash comment. With pwsh off PATH the test skips and is noted in SHCL_GATE_SKIPS, and fails under SHCL_GATE_STRICT. check-docs, shell-regress (its skip-rule scans included), test-ids check, shellcheck and markdownlint pass.
+	- Note: the hosted ci job runs the PowerShell blocks for the first time with the next main push.
+	- Branch: `readmesh`
+	- Commit: `98a4b7d4`
+	- Test case: check-readme `Es9JhMP` (shell blocks), `Es9JhOf` (PowerShell blocks), `Es9JhQu` (the `--set` prose).
+	- Acceptance signoff: Self-closed: the blocks follow value-syntax.md, and the tests fail before and pass after. The one prose change is the example.
+	- Closed: 20261008-153500
+
+- The README's `migrate` paragraph lists 2.x rewrites that 3.0 no longer makes
+	- ID: 2026100717500008
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 8
+	- Version and build: dev at `6a1d28f0`
+	- Incorrect behavior: "Using the CLI" says `migrate` rewrites "a backslash outside double quotes, an unknown escape in double quotes", and the next paragraph says a backslash value exits 7 without `--from-2x`. Now a backslash stays as written, so `path: "C:\temp\new"` is unchanged at exit 0, and the exit 7 case is a comma list such as `p: a,b`.
+	- Expected behavior: what spec.md's "Migrating from 2.x" and the man page say.
+	- Reproduced: 20261007, Rust CLI.
+	- Origin: `1991e313` (2026-09-27), stale since `vsmig`. Not seen by an earlier round. Confirmed.
+	- Actual cause [Bug]: `vsmig` changed what `migrate` rewrites, and the README paragraphs weren't updated with spec.md and the man page.
+	- Actual fix [Bug]: the list of rewrites is now the man page's: a comma list, a `*` item, a selector in brackets, a quote that never closed, and `name:[disc]`. The exit 7 example is `p: a,b`, an array then and one string now. A new sentence says backslashes are a quiet change that `migrate` leaves as written, so `path: "C:\temp\new"` comes through as it was. The raw label sentence stays, as "another" quiet case.
+	- Verified: `migrate` without `--from-2x` on each case in the list rewrites it at exit 0, but `p: a,b`, which it leaves at exit 7. `Es9KiYw` fails on the old paragraph and on a non-comma value in its place, and passes after.
+	- Branch: `readmesh`
+	- Commit: `98a4b7d4`
+	- Test case: check-readme `Es9KiYw` (runs the paragraph's comma value and backslash value through `migrate`).
+	- Acceptance signoff: Self-closed: the text follows spec.md and the man page, and the test fails before and passes after. The backslash sentence is new README wording.
+	- Closed: 20261008-153500
 
 - The ops-script note prints when stdin is piped
 	- ID: 2026100717500018
