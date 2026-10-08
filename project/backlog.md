@@ -281,7 +281,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 			- `my,dog,has,` -> `"my,dog,has,"`
 		- Keep the author's quote kind, and never drop quotes, so `ver: "8"` stays a quoted string.
 		- `set --write` leaves untouched lines alone, as now.
-	- To settle before the work: the exact list. Proposed: any whitespace, `:` or `,`, plus what already needs quotes. That quotes `2:30PM` and `localhost:8080` too; typed reads don't care.
+	- The list, answered 2026-10-08 (JC): any whitespace, `:`, `,`, `(`, `)`, `[` or `]`, plus what already needs quotes. That quotes `2:30PM` and `localhost:8080` too; typed reads don't care.
 	- Sweep: value-syntax.md's Canonical output section and spec.md, the writer in all four, array elements and `- ` items, corpus goldens.
 
 - `instances` output can't be fed back into a selector
@@ -336,6 +336,21 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Problem description: "shcl: reading write-ops from stdin (one op per line...)" goes to stderr on every `set -`, piped or not.
 	- Requirements: print it only when stdin is a terminal, as most tools do.
 	- Origin: Confirmed, Rust CLI.
+
+- Library gaps a generic tool has to work around
+	- ID: 2026100717500020
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 20
+	- Problem description:
+		- No library call resolves a file's `Schema` line by the CLI's rules: relative to the config's directory, and refusing devices, FIFOs, UNC paths and files over 16 MiB. Each program writes its own.
+		- No way to ask a node's kind (scalar, array, raw block, empty) but trial reads.
+		- `set_*_default` returns true when something is already there, even `bad: abc` or a bare `empty:`, so "make sure this has a usable value" can't be said in one call.
+	- Decisions:
+		- 20261008: before the cut, not after (JC).
+	- Origin: Confirmed by reading and probes.
 
 **Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
 
@@ -4156,32 +4171,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Acceptance signoff: Self-closed: the sort by line asked for, and its tests fail on dev.
 	- Closed: 20260930-073042
 
-- Lookups walk every instance of a name, so a loop over instances is quadratic
-	- ID: 2026100717500019
-	- Type: Enhancement
-	- Status: Deferred
-	- Priority: Avg
-	- Opened: 20261007-175000
-	- Opened by: Code review 20261007 item 19
-	- Problem description: `children_named` in `lib.rs` collects every same-named child before a `(k)` or `(value)` selector picks one, and `remove` rebuilds the parent's child list on every call. In Rust, reading `rep(i).v` for each of 20,000 instances took 4.8 s by index and 13 s by value; C and Go are close. 40,000 creating `set_int("rep(kI).v")` calls took 42 s. Wildcard reads and `instance_paths()` stay fast.
-	- Reason: typical configs have under 1,000 instances, where this doesn't show. Generated and inventory files do.
-	- Deferred: no new performance ideas before 3.0.0. Reopen once 3.0.0 is out, or on a report from a project with large repeated fields.
-	- Origin: Confirmed, all four, by timing.
-
-- Library gaps a generic tool has to work around
-	- ID: 2026100717500020
-	- Type: Enhancement
-	- Status: Deferred
-	- Priority: Low
-	- Opened: 20261007-175000
-	- Opened by: Code review 20261007 item 20
-	- Problem description:
-		- No library call resolves a file's `Schema` line by the CLI's rules: relative to the config's directory, and refusing devices, FIFOs, UNC paths and files over 16 MiB. Each program writes its own.
-		- No way to ask a node's kind (scalar, array, raw block, empty) but trial reads.
-		- `set_*_default` returns true when something is already there, even `bad: abc` or a bare `empty:`, so "make sure this has a usable value" can't be said in one call.
-	- Deferred: no consuming project has asked. Reopen when one does, or after 3.0.0.
-	- Origin: Confirmed by reading and probes.
-
 - The Python binding parses about 25% slower than on 2026-09-19
 	- ID: 2026100221215300
 	- Type: Bug
@@ -4227,6 +4216,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Reading every one of 20k instances by value takes 80 s in Rust, and 3.8 s by `[#i]`. 2,000 removes on a file with 50k instances take 13 s in Rust and 120 s in Python.
 	- Requirements:
 		- Lookups by name and by value scale with the matches, not the siblings.
+	- Note: 20261008, 2026100717500019 folded in here (JC). Its timings from 20261007: `children_named` collects every same-named child before a `(k)` or `(value)` selector picks one. Reading `rep(i).v` for each of 20,000 instances took 4.8 s by index and 13 s by value in Rust; C and Go are close. 40,000 creating `set_int("rep(kI).v")` calls took 42 s. Wildcard reads and `instance_paths()` stay fast.
 	- Note: performance ideas wait until 3.0.0 is out. Reopen then, or when a user reports a file with thousands of instances.
 
 - A merge that replaces a leaf drops a kept line the settle turned into a comment
@@ -4326,6 +4316,21 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261001, from the answer on 2026100115323216: single quotes are the go-to for stopping escapes, when the string holds no `'`.
 		- 20261002: closed as Moot. No setter options. A setter that overwrites a value keeps its quote kind when it can, and `SetLiteral` takes any quotes as written.
 	- Closed: 20261002-184515
+
+- Lookups walk every instance of a name, so a loop over instances is quadratic
+	- ID: 2026100717500019
+	- Type: Enhancement
+	- Status: Moot
+	- Priority: Avg
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 19
+	- Problem description: `children_named` in `lib.rs` collects every same-named child before a `(k)` or `(value)` selector picks one, and `remove` rebuilds the parent's child list on every call. In Rust, reading `rep(i).v` for each of 20,000 instances took 4.8 s by index and 13 s by value; C and Go are close. 40,000 creating `set_int("rep(kI).v")` calls took 42 s. Wildcard reads and `instance_paths()` stay fast.
+	- Reason: typical configs have under 1,000 instances, where this doesn't show. Generated and inventory files do.
+	- Note: 20261008, folded into 2026100307163919 (JC). Same cause, and its timings are copied there.
+	- Superseded by ID: 2026100307163919
+	- Test case: none. Nothing is built for it; any test goes under 2026100307163919.
+	- Origin: Confirmed, all four, by timing.
+	- Closed: 20261008-105752
 
 ## Old format
 
