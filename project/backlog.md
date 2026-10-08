@@ -73,7 +73,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - A setter returns false while `write_reason` says Writable
 	- ID: 2026100717500009
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Avg
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 9
@@ -83,6 +83,35 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Expected behavior: the Rust, Go and Python docs say "false = path not writable (write_reason says why - same for every setter)", and README "What saving does" says the same. Either a reason for a refused value, or docs that say false can be the value. Only `shcl.hpp` says so now.
 	- Reproduced: 20261007, Rust and Go.
 	- Origin: not blamed. Not seen by an earlier round. Confirmed.
+	- Progress log:
+		- 20261008: no answer at the round's start, so the best guess stands: docs only. False from a setter means the path check failed, or it passed and the write was refused for what it would write, and the docs list what. `write_reason` is `check_set_path` now (2026100717500001), so the docs use that name.
+		- The list, from the code: a NaN or infinite float, a datetime the reader would refuse, a raw block whose info string holds a `#` or a line break or whose body has a line ending in CR, a comment with a line break, `set_literal` text that is not one value, an array on a field with lines under it (array setters and `set_literal`), and a new field under one holding an array. That last one was not on the item; the path check says Ok there too. Go also refuses text that is not valid UTF-8, and Python an int past 64 bits.
+		- C and Python take text that is not valid UTF-8 where Go refuses it. Filed as 2026100815543610.
+	- Actual fix [Bug]: the setter notes in all four and `shcl.hpp`, the `check_set_path` docs, README "What saving does", the README examples' comments, both binding READMEs and spec.md's setter bullet now say false is the path or the value, and list the refused values. The "same for every setter" wording is gone from all three docs that had it.
+	- Swept: `git grep -n -i 'same for every setter\|path not writable\|bare false\|bare 0\|bare False'` and every setter doc block (Rust `set_int`, Go `SetInt`, Python `set_int`, C's note above `shcl_new`, `shcl.hpp`'s Writes block). The README's five example comments and "What saving does", `source/rust/README.md`, `source/python/README.md`, spec.md's setter bullets. Each listed refusal was checked against each binding's `set_value`, `place` and value read-back checks.
+	- Verified: the new test passes in all four, and fails in all four with `set_float` taking NaN. `cargo test`, the four conformance suites, Go cmd tests, the C++ veneer smoke, cli-regress (482 rows), crosscheck (17862 comparisons), check-docs, check-readme, check-veneer, check-abnf, check-completions, shell-regress, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy, cppcheck at the normal level, gcc 15 and clang builds of the C runner, markdownlint.
+	- Branch: `setcheck`
+	- Commit: `0dbfcdf6`
+	- Test case: `refused_values_pass_the_path_check` in all four runners (Rust `Es9S4kJ`, Go `Es9S4kK`, Python `Es9S4kL`, C `Es9S4kM`): each listed refusal returns false, writes nothing, and the path checks Ok. Go adds its UTF-8 cases and Python its 64-bit ones. Two of them in the C++ `veneer_smoke` (`EjtkR0S`).
+	- Acceptance signoff: Self-closed 20261008: docs only, the round's best guess, and the list is held by the test.
+	- Closed: 20261008-155436
+
+- C and Python setters take text that is not valid UTF-8, where Go refuses it
+	- ID: 2026100815543610
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261008-155436
+	- Opened by: found working 2026100717500009
+	- Version and build: dev at `ab8fc248`
+	- Steps to reproduce:
+		- C: `shcl_set_string(d, "s", 1, "a\xffb", 3)`, then `shcl_save_file`.
+		- Python: `set_string("s", "a\ud800b")`, then `save_file`.
+	- Incorrect behavior: C returns 1 and saves `s: a<FF>b`, and every CLI then refuses the whole file at exit 8, "stream did not contain valid UTF-8". Python returns True, and the save raises `SaveFailed` from the encoder. `set_comment` and a field name in the path do the same. Go refuses all of these in its setters (`valueReadsBack`, `nameReadsBack`, `commentLine`).
+	- Expected behavior: the setter refuses, as Go's does, so a save never writes a file the next load refuses. Rust's `&str` cannot hold such text.
+	- Reproduced: 20261008, C library and Python.
+	- Origin: Go's check came in `3425ce43` (2026-09-23) and was not ported. Confirmed.
+	- Sweep: every read-back check in C and Python: value, raw info and body, name, selector value, comment, `set_literal`.
 
 - A setter on a repeated path writes the first instance and returns true
 	- ID: 2026100717500010
@@ -298,15 +327,21 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 			- `count`, `instances`, `children`, `line`, `lines` and `exists` return no status, so they still give their empty answer for a bad path, and spec.md says so. Giving them a status would change their signatures in all four. Not done; a status read such as `read_string` tells a bad path apart.
 			- Go keeps every enum value in one namespace, and `BadPath` was already the write reason there. The read status takes `BadPath`, like the other three, and the write reason is `WriteBadPath`, still printed `BadPath`. The rename step can pick the final write-side names.
 			- 23 corpus rows that pinned `NotFound` for a refused path now pin `BadPath`, and the conformance README says so. 5 existing checks that pinned `NotFound` (the bracket fixture in all four, and the Python surrogate path) are commented out with the reason, beside the new ones.
+		- 20261008: the rename step is in, a best guess the user did not confirm: `write_reason` is `check_set_path` (Go `CheckSetPath`, C `shcl_check_set_path`, C++ `check_set_path`), its type `SetPathCheck`, and `Writable` is `Ok`, in all four, the C++ interface, the CLIs, the tests, spec.md, the READMEs, the code style guide and the changelog. Calls made here:
+			- Go's values are `SetPathOk` to `SetPathTooDeep`. `BadPath` is a read status, and a bare `Ok` would sit beside `Read.Ok()`. `String()` prints them without the prefix, as the others do. This replaces the interim `WriteBadPath`.
+			- C's are `SHCL_SET_PATH_OK` to `SHCL_SET_PATH_TOO_DEEP`, and the type is `shcl_set_path_check`. The call has no trailing underscore now, since the type no longer has its name. The style guide's exception for it is gone.
+			- Tests were renamed in place and kept their IDs. The C runner's comment for this test sat above the `BadPath` test and is back above its own.
 	- Actual fix [Bug]: `get`, `count`, `instances` and `children` check PATH with the same test `--remove` uses, before the load, and exit 1 with `bad PATH (REASON): PATH (see --help)`. A bracket selector keeps its reason, "a selector is written in parens now, name(value)"; anything else is "not a usable path". `children` still takes the empty path as the top level, as the library documents. A bad PATH is judged before FILE is read, like the other usage errors. All four CLIs, same stderr bytes. The help's refused list, the man page, the UI style guide's exit table and the changelog say so. The man page's `get` text said `[*]` and now says `(*)`.
 		- Library half: a new read status `BadPath`, last in the order, in all four and the C++ interface. Python's value is 1, the CLI's usage exit, and Python's worst-of aggregate now goes by declaration order. Every read with a status gives it for a path the scanner refuses, one with a value part, or an empty one, where they gave `NotFound`. The `_or` reads still give their fallback, and `children("")` is still the top level. The four CLIs map it to exit 1 and give it a message, though they refuse a bad PATH before the load, so their behavior is the same. spec.md, the Rust and Python READMEs, the code style guide (Go's `WriteBadPath`) and the changelog say so.
 	- Swept: the library reads in all four and `shcl.hpp`: each binding's resolve is the one place a read path is scanned (Rust `resolve_mode`, Go `resolveMode`, Python `_resolve`, C `resolve_mode`), and every status read reaches it through `node_at`, `read_named`, `read_array` or their twins (C `value_at`, `array_elements`, `scalar_named_at`, and the `_to` copies). The only other scanner calls are the writer's and the schema's. `check-veneer` passes; the veneer forwards every read to C. No tooling matches on every status.
 	- Swept (CLI half): the positional PATH of `get`, `count`, `instances` and `children` (fixed). `--set`, `--set-literal`, `--set-default`, `--set-literal-default`, `--remove` and every ops-script path already refused at 1 through `write_reason`. `paths`, `fmt`, `check`, `init`, `migrate`, `upgrade`, `tokens` and `explain` take no PATH. The library `_or` reads in Rust, Go, Python and C hide it too; see the question.
 	- Verified (library half): the new test fails on the old resolve and passes after in all four and the C++ interface (Python and C run with the old resolve swapped in). `cargo test`, the four conformance suites (203 cases each), cli-regress (482 rows, 2559 checks), crosscheck over the corpus and a fuzz dump (41841 comparisons), check-docs, check-abnf, check-readme, check-completions, check-veneer, shell-regress, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy, cppcheck at the normal level, gcc 15 and clang and mingw builds, markdownlint.
 	- Verified (CLI half): the 10 refusal rows fail on dev's four CLIs (40 checks) and pass after. cli-regress (462 rows), crosscheck (17862 comparisons), the four conformance suites, `cargo test`, Go cmd tests, check-docs, check-abnf, check-readme, check-migrate, shell-regress, check-completions, clippy for the host and windows, rustfmt, go vet, staticcheck, ruff, mypy, shellcheck, test-ids check, markdownlint.
-	- Branch: `badpath`, `badread`
-	- Commit: `abe9c719`, `1e56f1d0`
-	- Test case: `bad_path_reads_say_bad_path` in all four runners (Rust `Es9JVrX`, Go `Es9JVrY`, Python `Es9JVrZ`, C `Es9JVra`), plus BadPath checks in the C++ `veneer_smoke` (`EjtkR0S`), and the 23 corpus rows. CLI half: cli-regress `Es8PcNw` to `Es8PcO5` (each refusal, the `--default` cases included), plus `Es8PcO6` (`children` with an empty path lists the top level) and `Es8PcO7` (a missing path still gives the default). `ErxfmqP`, `ErxfmqU` and `ErrQs1q` expected exit 3 and are commented out, replaced by `Es8PcNw`, `Es8PcNz` and `Es8PcO0`.
+	- Swept (rename): `git grep -n -i 'write_reason\|WriteReason\|writable'` over the whole repo, cicd scripts, cli-regress, shell-regress and check-veneer included. What is left is past changelog entries, this backlog, and `writable` in its plain sense (file modes, installers, the schema generator's `unwritable` constraints, test prose).
+	- Verified (rename): the gates listed on 2026100717500009, run on the same commit.
+	- Branch: `badpath`, `badread`, `setcheck`
+	- Commit: `abe9c719`, `1e56f1d0`, `0dbfcdf6`
+	- Test case: `check_set_path_names_the_failure` (`ElouJ8K` to `ElouJ8N`, renamed in place) holds the new names. `bad_path_reads_say_bad_path` in all four runners (Rust `Es9JVrX`, Go `Es9JVrY`, Python `Es9JVrZ`, C `Es9JVra`), plus BadPath checks in the C++ `veneer_smoke` (`EjtkR0S`), and the 23 corpus rows. CLI half: cli-regress `Es8PcNw` to `Es8PcO5` (each refusal, the `--default` cases included), plus `Es8PcO6` (`children` with an empty path lists the top level) and `Es8PcO7` (a missing path still gives the default). `ErxfmqP`, `ErxfmqU` and `ErrQs1q` expected exit 3 and are commented out, replaced by `Es8PcNw`, `Es8PcNz` and `Es8PcO0`.
 	- Acceptance signoff: Self-closed 20261008: the user picked (b); tests fail before and pass after in all four. The calls above are listed for review.
 	- Closed: 20261008-152746
 

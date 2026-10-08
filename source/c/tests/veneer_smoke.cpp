@@ -78,8 +78,8 @@ int main() {
 	auto kids = doc.children("");
 	CHECK(kids.size() == 7 && kids[0] == "name" && kids[5] == "city" && kids[6] == "city");
 	CHECK(doc.children("nope").empty());
-	CHECK(doc.write_reason("port") == shcl::WriteReason::Writable);
-	CHECK(doc.write_reason("city(*)") == shcl::WriteReason::Wildcard);
+	CHECK(doc.check_set_path("port") == shcl::SetPathCheck::Ok);
+	CHECK(doc.check_set_path("city(*)") == shcl::SetPathCheck::Wildcard);
 	auto multi = doc.read_string("city");
 	CHECK(multi.status == shcl::Status::Multiple);
 
@@ -387,8 +387,11 @@ int main() {
 		CHECK(kept.set_int("block.a", 2) && kept.set_int("block.b", 3));
 		CHECK(kept.to_text_keep_lines() == std::make_pair(std::string("Name:   \"x\"   # c\nblock:\n    a: 2\n    b: 3\n"), true));
 		CHECK(w.to_text_keep_lines() == std::make_pair(w.to_canonical(), false));
-		CHECK(!w.set_int("a(*)", 1) && w.write_reason("a(*)") == shcl::WriteReason::Wildcard);
-		CHECK(!w.set_int("a[x]", 1) && w.write_reason("a[x]") == shcl::WriteReason::BadPath);
+		CHECK(!w.set_int("a(*)", 1) && w.check_set_path("a(*)") == shcl::SetPathCheck::Wildcard);
+		CHECK(!w.set_int("a[x]", 1) && w.check_set_path("a[x]") == shcl::SetPathCheck::BadPath);
+		// A refused value leaves the path check at Ok, as the setter notes say.
+		CHECK(!w.set_float("nan", std::numeric_limits<double>::quiet_NaN()) && w.check_set_path("nan") == shcl::SetPathCheck::Ok);
+		CHECK(!w.set_literal("lit", "a, b") && w.check_set_path("lit") == shcl::SetPathCheck::Ok);
 		CHECK(w.remove("blank") == 1 && !w.exists("blank") && w.remove("blank") == 0);
 
 		// A default form leaves a present field alone and still says whether the

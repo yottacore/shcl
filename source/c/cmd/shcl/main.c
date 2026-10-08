@@ -714,13 +714,13 @@ static int array_text(const char *v, size_t n) {
 // shcl_set_literal whatever the op.
 static const char *bad_path(const char *path, size_t plen); // beside split_set
 static const char *describe_refusal(shcl_doc *d, const char *path, size_t plen, int array, const char *unwritable) {
-	switch (shcl_write_reason_(d, path, plen)) {
-	case SHCL_W_WRITABLE: { const char *why = array_refusal(d, path, plen, array); return why ? why : unwritable; }
-	case SHCL_W_BAD_PATH: return bad_path(path, plen);
-	case SHCL_W_VALUE_IN_PATH: return "a path with a value part cannot be written";
-	case SHCL_W_WILDCARD: return "a wildcard path cannot be written";
-	case SHCL_W_NO_SUCH_INDEX: return "no instance at that index";
-	case SHCL_W_TOO_DEEP: return "deeper than the nesting cap";
+	switch (shcl_check_set_path(d, path, plen)) {
+	case SHCL_SET_PATH_OK: { const char *why = array_refusal(d, path, plen, array); return why ? why : unwritable; }
+	case SHCL_SET_PATH_BAD_PATH: return bad_path(path, plen);
+	case SHCL_SET_PATH_VALUE_IN_PATH: return "a path with a value part cannot be written";
+	case SHCL_SET_PATH_WILDCARD: return "a wildcard path cannot be written";
+	case SHCL_SET_PATH_NO_SUCH_INDEX: return "no instance at that index";
+	case SHCL_SET_PATH_TOO_DEEP: return "deeper than the nesting cap";
 	}
 	return "not a usable path";
 }
@@ -817,8 +817,8 @@ static void say_layered_diagnostics(const LayeredDoc *L) {
 // 0: one the scanner rejects, or one with a value part. A missing path or a
 // wildcard is still fine.
 static int unusable_path(shcl_doc *d, const char *path, size_t plen) {
-	shcl_write_reason r = shcl_write_reason_(d, path, plen);
-	return r == SHCL_W_BAD_PATH || r == SHCL_W_VALUE_IN_PATH;
+	shcl_set_path_check r = shcl_check_set_path(d, path, plen);
+	return r == SHCL_SET_PATH_BAD_PATH || r == SHCL_SET_PATH_VALUE_IN_PATH;
 }
 
 // A path with a selector in brackets, the old spelling (E029). A 2.x habit

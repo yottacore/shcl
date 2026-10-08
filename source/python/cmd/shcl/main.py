@@ -643,7 +643,7 @@ def unusable_path(doc, path):
 	# A path no document can hold, which a remove would take as a miss and
 	# exit 0: one the scanner rejects, or one with a value part. A missing
 	# path or a wildcard is still fine.
-	return doc.write_reason(path) in (shcl.WriteReason.BadPath, shcl.WriteReason.ValueInPath)
+	return doc.check_set_path(path) in (shcl.SetPathCheck.BadPath, shcl.SetPathCheck.ValueInPath)
 
 
 def bracket_path(path):
@@ -1316,17 +1316,17 @@ def describe_refusal(doc, path, array, unwritable):
 	# is fine what failed is the text, and only the caller knows which half of
 	# the op that was, so it names it: a setter refused for its value used to
 	# report the sentence written for set_literal whatever the op.
-	reason = doc.write_reason(path)
-	if reason == shcl.WriteReason.Writable:
+	reason = doc.check_set_path(path)
+	if reason == shcl.SetPathCheck.Ok:
 		why = array_refusal(doc, path, array)
 		return why if why is not None else unwritable
-	if reason == shcl.WriteReason.BadPath:
+	if reason == shcl.SetPathCheck.BadPath:
 		return bad_path(path)
-	if reason == shcl.WriteReason.ValueInPath:
+	if reason == shcl.SetPathCheck.ValueInPath:
 		return "a path with a value part cannot be written"
-	if reason == shcl.WriteReason.Wildcard:
+	if reason == shcl.SetPathCheck.Wildcard:
 		return "a wildcard path cannot be written"
-	if reason == shcl.WriteReason.NoSuchIndex:
+	if reason == shcl.SetPathCheck.NoSuchIndex:
 		return "no instance at that index"
 	return "deeper than the nesting cap"
 

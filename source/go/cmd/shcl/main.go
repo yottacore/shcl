@@ -770,8 +770,8 @@ var infoFlags = [...]string{"-h", "--help", "-v", "-V", "--version", "--about", 
 // miss and exit 0: one the scanner rejects, or one with a value part. A
 // missing path or a wildcard is still fine.
 func unusablePath(doc *shcl.Document, path string) bool {
-	r := doc.WriteReason(path)
-	return r == shcl.WriteBadPath || r == shcl.ValueInPath
+	r := doc.CheckSetPath(path)
+	return r == shcl.SetPathBadPath || r == shcl.SetPathValueInPath
 }
 
 // bracketPath: a path with a selector in brackets, the old spelling (E029).
@@ -1523,19 +1523,19 @@ func arrayRefusal(doc *shcl.Document, path string, array bool) (string, bool) {
 // setter refused for its value used to report the sentence written for
 // SetLiteral whatever the op.
 func describeRefusal(doc *shcl.Document, path string, array bool, unwritable string) string {
-	switch doc.WriteReason(path) {
-	case shcl.Writable:
+	switch doc.CheckSetPath(path) {
+	case shcl.SetPathOk:
 		if why, ok := arrayRefusal(doc, path, array); ok {
 			return why
 		}
 		return unwritable
-	case shcl.ValueInPath:
+	case shcl.SetPathValueInPath:
 		return "a path with a value part cannot be written"
-	case shcl.Wildcard:
+	case shcl.SetPathWildcard:
 		return "a wildcard path cannot be written"
-	case shcl.NoSuchIndex:
+	case shcl.SetPathNoSuchIndex:
 		return "no instance at that index"
-	case shcl.TooDeep:
+	case shcl.SetPathTooDeep:
 		return "deeper than the nesting cap"
 	}
 	return badPath(path) // BadPath

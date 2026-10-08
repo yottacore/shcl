@@ -725,8 +725,8 @@ const INFO_FLAGS: [&str; 7] = [
 /// or a wildcard is still fine.
 fn unusable_path(doc: &Document, path: &str) -> bool {
 	matches!(
-		doc.write_reason(path),
-		shcl::WriteReason::BadPath | shcl::WriteReason::ValueInPath
+		doc.check_set_path(path),
+		shcl::SetPathCheck::BadPath | shcl::SetPathCheck::ValueInPath
 	)
 }
 
@@ -1482,13 +1482,13 @@ fn describe_refusal(
 	array: bool,
 	unwritable: &'static str,
 ) -> &'static str {
-	match doc.write_reason(path) {
-		shcl::WriteReason::Writable => array_refusal(doc, path, array).unwrap_or(unwritable),
-		shcl::WriteReason::BadPath => bad_path(path),
-		shcl::WriteReason::ValueInPath => "a path with a value part cannot be written",
-		shcl::WriteReason::Wildcard => "a wildcard path cannot be written",
-		shcl::WriteReason::NoSuchIndex => "no instance at that index",
-		shcl::WriteReason::TooDeep => "deeper than the nesting cap",
+	match doc.check_set_path(path) {
+		shcl::SetPathCheck::Ok => array_refusal(doc, path, array).unwrap_or(unwritable),
+		shcl::SetPathCheck::BadPath => bad_path(path),
+		shcl::SetPathCheck::ValueInPath => "a path with a value part cannot be written",
+		shcl::SetPathCheck::Wildcard => "a wildcard path cannot be written",
+		shcl::SetPathCheck::NoSuchIndex => "no instance at that index",
+		shcl::SetPathCheck::TooDeep => "deeper than the nesting cap",
 	}
 }
 

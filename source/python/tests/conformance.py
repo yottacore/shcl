@@ -1497,38 +1497,70 @@ def main():
 	# the CLI's usage exit.
 	if list(shcl.Status)[-1] is not shcl.Status.BadPath or shcl.Status.BadPath.value != 1:
 		raise SystemExit(f"BadPath order or value {list(shcl.Status)}")
-	test_id("ElouJ8N", "write_reason_names_the_failure")
-	# write_reason: the reason behind a setter's bare False. Same fixture in
+	test_id("ElouJ8N", "check_set_path_names_the_failure")
+	# check_set_path: the reason behind a setter's bare False. Same fixture in
 	# every runner.
 	wdoc = shcl.Document.parse("a:\n\tb: 1\n")
 	for wpath, wwant in (
-		("a.b", shcl.WriteReason.Writable),
-		("a.new(Boston).x", shcl.WriteReason.Writable),   # creatable
-		("", shcl.WriteReason.BadPath),
-		("a..b", shcl.WriteReason.BadPath),
-		("a.b: 2", shcl.WriteReason.ValueInPath),
-		("a(*).b", shcl.WriteReason.Wildcard),
-		("a(5).b", shcl.WriteReason.NoSuchIndex),
-		("nope(0).b", shcl.WriteReason.NoSuchIndex),
-		(".".join(["d"] * 513), shcl.WriteReason.TooDeep),
+		("a.b", shcl.SetPathCheck.Ok),
+		("a.new(Boston).x", shcl.SetPathCheck.Ok),   # creatable
+		("", shcl.SetPathCheck.BadPath),
+		("a..b", shcl.SetPathCheck.BadPath),
+		("a.b: 2", shcl.SetPathCheck.ValueInPath),
+		("a(*).b", shcl.SetPathCheck.Wildcard),
+		("a(5).b", shcl.SetPathCheck.NoSuchIndex),
+		("nope(0).b", shcl.SetPathCheck.NoSuchIndex),
+		(".".join(["d"] * 513), shcl.SetPathCheck.TooDeep),
 		# A literal line break is writable wherever a path can have one: a name
 		# emits through the name escaper and a selector value through the value
 		# emitter, and both write a break \n and read it back as one. The
 		# selector was refused while the value emitter still wrote elements in
 		# their source spelling and had nothing to escape with. Not
 		# corpus-pinnable - an ops line cannot contain a raw newline.
-		('a("p\nq").b', shcl.WriteReason.Writable),
-		('"x\ny".b', shcl.WriteReason.Writable),
-		('"x\\ny".b', shcl.WriteReason.Writable),
+		('a("p\nq").b', shcl.SetPathCheck.Ok),
+		('"x\ny".b', shcl.SetPathCheck.Ok),
+		('"x\\ny".b', shcl.SetPathCheck.Ok),
 	):
-		wgot = wdoc.write_reason(wpath)
+		wgot = wdoc.check_set_path(wpath)
 		if wgot is not wwant:
-			raise SystemExit(f"write_reason({wpath!r}) got {wgot} want {wwant}")
+			raise SystemExit(f"check_set_path({wpath!r}) got {wgot} want {wwant}")
 	# The probe never creates: the doc is unchanged after all of the above.
 	if wdoc.count("a") != 1:
-		raise SystemExit("write_reason probe created an instance")
+		raise SystemExit("check_set_path probe created an instance")
 	if wdoc.paths() != ["a", "a.b"]:
-		raise SystemExit(f"write_reason probe changed paths: {wdoc.paths()}")
+		raise SystemExit(f"check_set_path probe changed paths: {wdoc.paths()}")
+	test_id("Es9S4kL", "refused_values_pass_the_path_check")
+	# The setter docs list the values a setter refuses on a path check_set_path
+	# passes. Each one here returns False, writes nothing, and the path checks
+	# Ok, so the list stays true. Same fixture in every runner, plus Python's
+	# own: an int outside the 64-bit range.
+	rtext = "ports: [80, 443]\nsec:\n\tx: 1\n"
+	rwant = shcl.Document.parse(rtext).to_canonical()
+	for rwhat, rpath, rset in (
+		("NaN float", "f", lambda d: d.set_float("f", math.nan)),
+		("infinite float", "f", lambda d: d.set_float("f", math.inf)),
+		("infinite float in an array", "f", lambda d: d.set_float_array("f", [1.0, -math.inf])),
+		("month 13", "t", lambda d: d.set_datetime("t", shcl.ShclDateTime(date=(2026, 13, 1)))),
+		("raw info with #", "r", lambda d: d.set_raw("r", "body", "sh # x")),
+		("raw info with a line break", "r", lambda d: d.set_raw("r", "body", "sh\nx")),
+		("raw body line ending in CR", "r", lambda d: d.set_raw("r", "a\r\nb", "")),
+		("comment with a line break", "sec.x", lambda d: d.set_comment("sec.x", "a\nb")),
+		("literal of two values", "l", lambda d: d.set_literal("l", "a, b")),
+		("literal with an open quote", "l", lambda d: d.set_literal("l", '"abc')),
+		("literal with a line break", "l", lambda d: d.set_literal("l", "a\nb")),
+		("array on a field with lines under it", "sec", lambda d: d.set_int_array("sec", [1, 2])),
+		("literal array on a field with lines under it", "sec", lambda d: d.set_literal("sec", "[1, 2]")),
+		("field under an array", "ports.x", lambda d: d.set_int("ports.x", 1)),
+		("int past 64 bits", "i", lambda d: d.set_int("i", 1 << 64)),
+		("int array past 64 bits", "i", lambda d: d.set_int_array("i", [1, -(1 << 63) - 1])),
+	):
+		rdoc = shcl.Document.parse(rtext)
+		if rset(rdoc):
+			raise SystemExit(f"{rwhat}: the setter returned True")
+		if rdoc.check_set_path(rpath) is not shcl.SetPathCheck.Ok:
+			raise SystemExit(f"{rwhat}: check_set_path = {rdoc.check_set_path(rpath)}")
+		if rdoc.to_canonical() != rwant:
+			raise SystemExit(f"{rwhat}: wrote {rdoc.to_canonical()!r}")
 	test_id("Eof29pb", "setters_refuse_a_value_the_reader_refuses")
 	# Each setter is the inverse of its read, so a value with no spelling the
 	# reader accepts fails the write and leaves the document alone. Same
@@ -3307,12 +3339,12 @@ def main():
 	if odoc.count("srv[web]") != 0:
 		raise SystemExit(f"srv[web] count {odoc.count('srv[web]')}")
 	for opath, owant in (
-		("srv[web].x", shcl.WriteReason.BadPath),
-		("srv(#0).x", shcl.WriteReason.BadPath),
-		("srv(0).x", shcl.WriteReason.Writable),
+		("srv[web].x", shcl.SetPathCheck.BadPath),
+		("srv(#0).x", shcl.SetPathCheck.BadPath),
+		("srv(0).x", shcl.SetPathCheck.Ok),
 	):
-		if odoc.write_reason(opath) != owant:
-			raise SystemExit(f"write_reason({opath!r}) = {odoc.write_reason(opath)}, want {owant}")
+		if odoc.check_set_path(opath) != owant:
+			raise SystemExit(f"check_set_path({opath!r}) = {odoc.check_set_path(opath)}, want {owant}")
 	if odoc.set_int("srv[web].x", 1):
 		raise SystemExit("a setter took a path in brackets")
 	if not odoc.set_int("srv(web).x", 1):

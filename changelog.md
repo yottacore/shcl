@@ -56,7 +56,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Go's `Read.OK()` is removed. Use `Ok()`.
 
-- A read status has a new last value, `BadPath`, so a match that names every status needs one more arm. Go's `WriteReason` value `BadPath` is `WriteBadPath`, since the name is the read status now.
+- A read status has a new last value, `BadPath`, so a match that names every status needs one more arm.
+
+- `write_reason` is renamed `check_set_path` (Go `CheckSetPath`, C `shcl_check_set_path`), its result type `SetPathCheck`, and its `Writable` value `Ok`. Go's values take a `SetPath` prefix, `SetPathOk` to `SetPathTooDeep`, since `BadPath` is a read status now. C's are `SHCL_SET_PATH_OK` to `SHCL_SET_PATH_TOO_DEEP`.
 
 - The C++ veneer's `read_datetime_array` returns structured values. The text form is `read_datetime_array_str`.
 

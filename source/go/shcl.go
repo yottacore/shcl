@@ -145,37 +145,40 @@ func (s Status) String() string {
 	return "Good"
 }
 
-// WriteReason is why a write would fail (WriteReason()): the distinctions
-// behind a setter's bare false. Writable = the path passes the writer's
-// validation; the rest name the five ways it cannot.
-type WriteReason int
+// SetPathCheck is what CheckSetPath finds at a path: whether a setter could
+// write there, and if not, why. SetPathOk = the path passes the writer's
+// validation; the rest name the five ways it cannot. A setter can still
+// return false on SetPathOk, when the value itself is refused (see SetInt).
+// Every value has the SetPath prefix, since the read statuses share the
+// package and BadPath is one of them.
+type SetPathCheck int
 
 const (
-	Writable     WriteReason = iota // the path passes the writer's validation
-	WriteBadPath                    // empty path, or the scanner rejected it; BadPath is the read status
-	ValueInPath                     // the path has a `: value` part; writes take values separately
-	Wildcard                        // wildcard selectors are query-only
-	NoSuchIndex                     // a `(k)` instance that does not (and can never) exist
-	TooDeep                         // deeper than the nesting cap; the writer never creates past it
+	SetPathOk          SetPathCheck = iota // the path passes the writer's validation
+	SetPathBadPath                         // empty path, or the scanner rejected it
+	SetPathValueInPath                     // the path has a `: value` part; writes take values separately
+	SetPathWildcard                        // wildcard selectors are query-only
+	SetPathNoSuchIndex                     // a `(k)` instance that does not (and can never) exist
+	SetPathTooDeep                         // deeper than the nesting cap; the writer never creates past it
 )
 
-// String names the reason.
-func (r WriteReason) String() string {
+// String names the check the way the other bindings do, without the prefix.
+func (r SetPathCheck) String() string {
 	switch r {
-	case Writable:
-		return "Writable"
-	case WriteBadPath:
+	case SetPathOk:
+		return "Ok"
+	case SetPathBadPath:
 		return "BadPath"
-	case ValueInPath:
+	case SetPathValueInPath:
 		return "ValueInPath"
-	case Wildcard:
+	case SetPathWildcard:
 		return "Wildcard"
-	case NoSuchIndex:
+	case SetPathNoSuchIndex:
 		return "NoSuchIndex"
-	case TooDeep:
+	case SetPathTooDeep:
 		return "TooDeep"
 	}
-	return "Writable"
+	return "Ok"
 }
 
 // Read is the full-tier read result: value plus status plus the original raw
@@ -8889,7 +8892,7 @@ func (d *Document) resolveGroup(path string) (resolved, bool) {
 	return d.resolveMode(path, true)
 }
 
-// resolveMode's false is a BadPath read: the same paths WriteReason calls
+// resolveMode's false is a BadPath read: the same paths CheckSetPath calls
 // BadPath or ValueInPath, since a query has no value part and an empty one
 // names nothing.
 func (d *Document) resolveMode(path string, group bool) (resolved, bool) {
@@ -9286,33 +9289,33 @@ func (d *Document) newChild(parent int, name, nameSrc string, v value) int {
 	return idx
 }
 
-// WriteReason reports why a write at this path would fail - the reason behind
-// a setter's bare false, so a consumer's error message need not guess.
-// Writable means the same validation place() runs would pass; nothing is
-// created.
-func (d *Document) WriteReason(path string) WriteReason {
+// CheckSetPath reports whether a setter could write at this path, and why not
+// when it could not, so a consumer's error message need not guess. SetPathOk
+// means the same validation place() runs would pass; nothing is created. A
+// setter can still refuse its value on a SetPathOk path (see SetInt).
+func (d *Document) CheckSetPath(path string) SetPathCheck {
 	scan, err := scanLookup(path)
 	if err != nil {
-		return WriteBadPath
+		return SetPathBadPath
 	}
 	r, _ := d.probeWrite(scan)
 	return r
 }
 
-// probeWrite is the validation walk WriteReason and place share. The returned
+// probeWrite is the validation walk CheckSetPath and place share. The returned
 // trail records where each segment ended up - -1 from the point the path falls
 // off the existing tree - so place can create from exactly there instead of
 // scanning the path and walking the tree a second time.
-func (d *Document) probeWrite(scan pathScan) (WriteReason, []int) {
+func (d *Document) probeWrite(scan pathScan) (SetPathCheck, []int) {
 	if scan.hasValue {
-		return ValueInPath, nil
+		return SetPathValueInPath, nil
 	}
 	if len(scan.segments) == 0 {
-		return WriteBadPath, nil
+		return SetPathBadPath, nil
 	}
 	// Writer side of the load-time nesting cap: never create deeper.
 	if len(scan.segments) > MaxDepth {
-		return TooDeep, nil
+		return SetPathTooDeep, nil
 	}
 	// The probe walk place() validates with: once it falls off the existing
 	// tree, a later `(k)` can never match (fresh intermediates are created
@@ -9322,7 +9325,7 @@ func (d *Document) probeWrite(scan pathScan) (WriteReason, []int) {
 	for i := range scan.segments {
 		seg := &scan.segments[i]
 		if seg.star {
-			return Wildcard, nil
+			return SetPathWildcard, nil
 		}
 		switch {
 		case seg.sel == nil:
@@ -9345,15 +9348,15 @@ func (d *Document) probeWrite(scan pathScan) (WriteReason, []int) {
 			}
 		case seg.sel.kind == selByIndex:
 			if !alive {
-				return NoSuchIndex, nil
+				return SetPathNoSuchIndex, nil
 			}
 			matches := d.childrenNamed(probe, seg.name)
 			if seg.sel.index >= uint64(len(matches)) {
-				return NoSuchIndex, nil
+				return SetPathNoSuchIndex, nil
 			}
 			probe = matches[seg.sel.index]
 		default:
-			return Wildcard, nil
+			return SetPathWildcard, nil
 		}
 		if alive {
 			trail = append(trail, probe)
@@ -9361,7 +9364,7 @@ func (d *Document) probeWrite(scan pathScan) (WriteReason, []int) {
 			trail = append(trail, -1)
 		}
 	}
-	return Writable, trail
+	return SetPathOk, trail
 }
 
 // writeTarget is the node a write at this path lands on when it is already
@@ -9372,7 +9375,7 @@ func (d *Document) writeTarget(path string) (int, bool) {
 		return 0, false
 	}
 	reason, trail := d.probeWrite(scan)
-	if reason != Writable || len(trail) == 0 || trail[len(trail)-1] < 0 {
+	if reason != SetPathOk || len(trail) == 0 || trail[len(trail)-1] < 0 {
 		return 0, false
 	}
 	return trail[len(trail)-1], true
@@ -9381,7 +9384,7 @@ func (d *Document) writeTarget(path string) (int, bool) {
 // place walks (creating as needed) to the node a write targets. A trailing name
 // with no selector hits the first same-named instance (or a new one); a (value)
 // selector selects the matching instance or creates it; (k) must already
-// exist. ok=false means the path is unusable for a write (WriteReason says
+// exist. ok=false means the path is unusable for a write (CheckSetPath says
 // why). Validation runs first, so a doomed path leaves no half-created
 // intermediates behind. A setter creating a field deals with the kept lines
 // of its name, as setChild says.
@@ -9391,7 +9394,7 @@ func (d *Document) place(path string, setter bool) (int, bool) {
 		return 0, false
 	}
 	reason, trail := d.probeWrite(scan)
-	if reason != Writable {
+	if reason != SetPathOk {
 		return 0, false
 	}
 	// Nothing is created until every segment the write would create is known
@@ -10258,9 +10261,15 @@ func (d *Document) swapBanner(on, v2 bool) int {
 	return removed
 }
 
-// SetInt binds an integer at path, creating the path as needed; false = path
-// not writable (WriteReason says why - same for every setter). Worth checking
-// rather than assuming: an ignored false means the save that follows writes a
+// SetInt binds an integer at path, creating the path as needed. False from any
+// setter means nothing was written. Either the path check failed, and
+// CheckSetPath says why, or it passed and the write was refused for what it
+// would write: a NaN or infinite float, a datetime the reader would refuse, a
+// raw block whose info string holds a `#` or a line break or whose body has a
+// line ending in CR, a comment with a line break, SetLiteral text that is not
+// one value, an array on a field with lines under it, a new field under one
+// holding an array, or text that is not valid UTF-8. Worth checking rather
+// than assuming: an ignored false means the save that follows writes a
 // document missing the edit, and reports success doing it.
 func (d *Document) SetInt(path string, v int64) bool {
 	return d.setValue(path, cellOf(strconv.FormatInt(v, 10)))
@@ -10382,7 +10391,7 @@ func (d *Document) setDefault(path string, set func(*Document, string) bool) boo
 	if !d.Exists(path) {
 		return set(d, path)
 	}
-	if d.WriteReason(path) != Writable {
+	if d.CheckSetPath(path) != SetPathOk {
 		return false
 	}
 	if d.probeDoc == nil {

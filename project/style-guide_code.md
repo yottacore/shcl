@@ -53,7 +53,8 @@ New bindings (Tier 3) follow the same recipe: port the reference function-for-fu
 	- Go calls the result of `Upgrade` and `UpgradeFile` an `Upgraded`, where Rust has an `Upgrade` struct beside its `upgrade` call. Go gives a type and a function one namespace, and the call keeps the name. Its `UpgradeError` is a struct with an `UpgradeErrorKind`, for the same reason as `Zone`.
 	- C calls that result an `shcl_upgraded` too, beside its `shcl_upgrade` call, for the same reason as `read_bool` below, and frees it with `shcl_upgraded_free`. Its `shcl_upgrade_error` is an enum with an OK value, and the message comes back through an out parameter, since a C enum has no payload.
 	- Python's zone is a `("utc", None) | ("offset", minutes)` tuple with no named type. A two-case tagged value is a tuple in Python, and a class for it would be the port reading as something the other three are not.
-	- C writes `read_bool` and `write_reason` as `shcl_read_bool_` and `shcl_write_reason_`. C gives a function and a typedef one namespace, and the result types already hold the plain names. Renaming either side would break callers for no gain in behavior.
+	- C writes `read_bool` as `shcl_read_bool_`. C gives a function and a typedef one namespace, and the result type already holds the plain name. Renaming either side would break callers for no gain in behavior.
+	- Go writes the `SetPathCheck` values with a `SetPath` prefix, `SetPathOk` where the others have `Ok`. Every Go enum value lives in the package's one namespace, where `BadPath` is already a read status, and a bare `Ok` would sit beside `Read.Ok()`. `String()` gives the names without the prefix, as the others print them.
 
 - Single file per binding, zero dependencies. That is the product ("copy this file into your tree"), so no module splits, no helper crates/packages, and no dependency however good.
 
@@ -93,7 +94,7 @@ New bindings (Tier 3) follow the same recipe: port the reference function-for-fu
 
 - Deliberate deviation: the datetime type is `DateTime`, not `ShclDateTime`; the package name already has the prefix. The reference and Python export `DateTime` as an alias so the two spellings meet.
 
-- Enum values share the package's one namespace, so a name two enums would both use gets a prefix on one side: `FileNotFound` beside the read status `NotFound`, and `WriteBadPath` beside the read status `BadPath`. Each prints the reference's name.
+- Enum values share the package's one namespace, so a name two enums would both use gets a prefix on one side: `FileNotFound` beside the read status `NotFound`, and every `SetPathCheck` value, `SetPathOk` to `SetPathTooDeep`, since `BadPath` is a read status. Each prints the reference's name.
 
 - The tokenizer's absent offsets (`Sep`, `Comment`, `Fault`) are `-1` where the reference has `None`; the spans themselves are the same byte offsets in every binding.
 

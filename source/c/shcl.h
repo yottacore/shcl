@@ -93,17 +93,19 @@ typedef enum {
 	SHCL_GOOD, SHCL_EMPTY, SHCL_NOT_FOUND, SHCL_BAD_TYPE, SHCL_MULTIPLE, SHCL_BAD_PATH
 } shcl_status;
 
-// Why a write would fail (shcl_write_reason_()): the distinctions behind a
-// setter's bare 0. SHCL_W_WRITABLE = the path passes the writer's validation;
-// the rest name the five ways it cannot.
+// What shcl_check_set_path() finds at a path: whether a setter could write
+// there, and if not, why. SHCL_SET_PATH_OK = the path passes the writer's
+// validation; the rest name the five ways it cannot. A setter can still return
+// 0 on SHCL_SET_PATH_OK, when the value itself is refused (see the setter
+// notes above shcl_new).
 typedef enum {
-	SHCL_W_WRITABLE,
-	SHCL_W_BAD_PATH,      // empty path, or the scanner rejected it
-	SHCL_W_VALUE_IN_PATH, // the path has a `: value` part; writes take values separately
-	SHCL_W_WILDCARD,      // wildcard selectors are query-only
-	SHCL_W_NO_SUCH_INDEX, // a `(k)` instance that does not (and can never) exist
-	SHCL_W_TOO_DEEP       // deeper than the nesting cap; the writer never creates past it
-} shcl_write_reason;
+	SHCL_SET_PATH_OK,
+	SHCL_SET_PATH_BAD_PATH,      // empty path, or the scanner rejected it
+	SHCL_SET_PATH_VALUE_IN_PATH, // the path has a `: value` part; writes take values separately
+	SHCL_SET_PATH_WILDCARD,      // wildcard selectors are query-only
+	SHCL_SET_PATH_NO_SUCH_INDEX, // a `(k)` instance that does not (and can never) exist
+	SHCL_SET_PATH_TOO_DEEP       // deeper than the nesting cap; the writer never creates past it
+} shcl_set_path_check;
 
 typedef struct shcl_doc shcl_doc;
 
@@ -697,11 +699,15 @@ shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, shcl_upgrade
 // The reverse of the reads. Each setter builds the canonical stored text for a
 // typed value and places it at a path (creating intermediate nodes). New values
 // are copied into the arena, so the caller's buffers need not outlive the call.
-// Setters return 1 when the write applied, 0 when the path is unusable
-// (wildcard, missing (N) instance, a value part, or past the depth cap) or
-// the value has no spelling the reader accepts (a non-finite float, a datetime
-// the reader would refuse, a raw info-string holding a `#`) - nothing is
-// created on failure. _default forms return 1 when already present.
+// Setters return 1 when the write applied and 0 when nothing was written.
+// Either the path check failed, and shcl_check_set_path says why (a wildcard,
+// a missing (N) instance, a value part, or past the depth cap), or it passed
+// and the write was refused for what it would write: a NaN or infinite float,
+// a datetime the reader would refuse, a raw block whose info string holds a
+// `#` or a line break or whose body has a line ending in CR, a comment with a
+// line break, shcl_set_literal text that is not one value, an array on a
+// field with lines under it, or a new field under one holding an array.
+// _default forms return 1 when already present.
 // Worth checking rather than assuming: an ignored 0 means the save that follows
 // writes a document missing the edit, and reports success doing it.
 shcl_doc *shcl_new(void); // an empty document (start point for generation), or NULL on an allocation failure
@@ -739,10 +745,12 @@ size_t shcl_clear_comments(shcl_doc *d, const char *path, size_t plen);
 // that wants it in a file it writes. Returns how many old blocks came off.
 size_t shcl_set_banner(shcl_doc *d, int on);
 int shcl_set_empty(shcl_doc *d, const char *path, size_t plen);
-// Why a write at this path would fail - the reason behind a setter's bare 0,
-// so a consumer's error message need not guess. SHCL_W_WRITABLE means the same
-// validation the setters run would pass. Probes only; never creates.
-shcl_write_reason shcl_write_reason_(shcl_doc *d, const char *path, size_t plen);
+// Whether a setter could write at this path, and why not when it could not,
+// so a consumer's error message need not guess. SHCL_SET_PATH_OK means the same
+// validation the setters run would pass. Probes only; never creates. A setter
+// can still refuse its value on an OK path (see the setter notes above
+// shcl_new).
+shcl_set_path_check shcl_check_set_path(shcl_doc *d, const char *path, size_t plen);
 
 int shcl_set_int(shcl_doc *d, const char *path, size_t plen, int64_t v);
 int shcl_set_float(shcl_doc *d, const char *path, size_t plen, double v);
@@ -6102,7 +6110,7 @@ static int resolve_mode(shcl_doc *d, ShclStr path, ShclResolved *out, int group)
 	// ShclResolved this call fills stays usable until the next resolve.
 	arena_reset(&d->scratch);
 	ShclPathScan ps = scan_lookup(&d->scratch, path);
-	// 0 is a BadPath read: the same paths write_reason calls BadPath or
+	// 0 is a BadPath read: the same paths check_set_path calls BadPath or
 	// ValueInPath, since a query has no value part and an empty one names nothing.
 	if (!ps.ok || ps.has_value || ps.segs.len == 0) return 0;
 	size_t root = ROOT;
@@ -6489,31 +6497,31 @@ static size_t w_new_child(shcl_doc *d, size_t parent, ShclStr name, ShclStr name
 	return idx;
 }
 
-/* The validation walk w_write_reason and w_place share. `trail`, when non-NULL,
+/* The validation walk w_check_set_path and w_place share. `trail`, when non-NULL,
    receives where each segment ended up - (size_t)-1 from the point the path falls
    off the existing tree - so w_place can create from exactly there instead of
    scanning the path and walking the tree a second time. `ps` is the caller's
    already-scanned path, so the scan happens once too. */
-static shcl_write_reason w_probe_write(shcl_doc *d, ShclArena *a, const ShclPathScan *psp, size_t *trail) {
+static shcl_set_path_check w_probe_write(shcl_doc *d, ShclArena *a, const ShclPathScan *psp, size_t *trail) {
 	const ShclPathScan ps = *psp;
-	if (!ps.ok) return SHCL_W_BAD_PATH;
-	if (ps.has_value) return SHCL_W_VALUE_IN_PATH;
-	if (ps.segs.len == 0) return SHCL_W_BAD_PATH;
+	if (!ps.ok) return SHCL_SET_PATH_BAD_PATH;
+	if (ps.has_value) return SHCL_SET_PATH_VALUE_IN_PATH;
+	if (ps.segs.len == 0) return SHCL_SET_PATH_BAD_PATH;
 	/* Writer side of the load-time nesting cap: never create deeper. */
-	if (ps.segs.len > SHCL_MAX_DEPTH) return SHCL_W_TOO_DEEP;
+	if (ps.segs.len > SHCL_MAX_DEPTH) return SHCL_SET_PATH_TOO_DEEP;
 	/* Once this probe falls off the existing tree, a later `(k)` can never
 	   match (fresh intermediates are created childless), so an index segment
 	   past that point is unresolvable. */
 	int off = 0; size_t pr = ROOT;
 	for (size_t i = 0; i < ps.segs.len; i++) {
 		ShclSegment *seg = &ps.segs.data[i];
-		if (seg->star) return SHCL_W_WILDCARD;
-		if (seg->sel.tag == SEL_WILDCARD) return SHCL_W_WILDCARD;
+		if (seg->star) return SHCL_SET_PATH_WILDCARD;
+		if (seg->sel.tag == SEL_WILDCARD) return SHCL_SET_PATH_WILDCARD;
 		if (seg->sel.tag == SEL_INDEX) {
-			if (off) return SHCL_W_NO_SUCH_INDEX;
+			if (off) return SHCL_SET_PATH_NO_SUCH_INDEX;
 			ShclVecSize matches = {0};
 			children_named(d, a, pr, seg->name, &matches);
-			if (seg->sel.index >= (uint64_t)matches.len) return SHCL_W_NO_SUCH_INDEX;
+			if (seg->sel.index >= (uint64_t)matches.len) return SHCL_SET_PATH_NO_SUCH_INDEX;
 			pr = matches.data[seg->sel.index];
 		} else if (!off) {
 			size_t found = (size_t)-1;
@@ -6529,13 +6537,13 @@ static shcl_write_reason w_probe_write(shcl_doc *d, ShclArena *a, const ShclPath
 		}
 		if (trail) trail[i] = off ? (size_t)-1 : pr;
 	}
-	return SHCL_W_WRITABLE;
+	return SHCL_SET_PATH_OK;
 }
 
-// Why a write at this path would fail - the validation walk w_place runs
-// before creating anything. SHCL_W_WRITABLE means w_place's gate would pass;
+// Whether a write at this path could go ahead - the validation walk w_place
+// runs before creating anything. SHCL_SET_PATH_OK means w_place's gate would pass;
 // nothing is created. Temporaries (scan, compare strings) go into `a`.
-static shcl_write_reason w_write_reason(shcl_doc *d, ShclArena *a, ShclStr path) {
+static shcl_set_path_check w_check_set_path(shcl_doc *d, ShclArena *a, ShclStr path) {
 	ShclPathScan ps = scan_lookup(a, path);
 	return w_probe_write(d, a, &ps, NULL);
 }
@@ -6547,13 +6555,13 @@ static int w_write_target(shcl_doc *d, ShclStr path, size_t *out) {
 	ShclArena *t = &d->scratch;
 	ShclPathScan ps = scan_lookup(t, path);
 	size_t *trail = (size_t *)arena_alloc(t, (ps.segs.len ? ps.segs.len : 1) * sizeof(size_t));
-	if (w_probe_write(d, t, &ps, trail) != SHCL_W_WRITABLE || !ps.segs.len || trail[ps.segs.len - 1] == (size_t)-1) return 0;
+	if (w_probe_write(d, t, &ps, trail) != SHCL_SET_PATH_OK || !ps.segs.len || trail[ps.segs.len - 1] == (size_t)-1) return 0;
 	*out = trail[ps.segs.len - 1];
 	return 1;
 }
 
 // Walk (creating as needed) to the node a write targets. Returns 1 + *out, or 0
-// if the path is unusable for a write (w_write_reason says why). Validation
+// if the path is unusable for a write (w_check_set_path says why). Validation
 // runs first, so a doomed path leaves no half-created intermediates behind. A
 // setter creating a field deals with the kept lines of its name, as
 // w_set_child says.
@@ -6567,7 +6575,7 @@ static int w_place(shcl_doc *d, ShclStr path, int setter, size_t *out) {
 	arena_reset(t);
 	ShclPathScan ps = scan_lookup(t, path);
 	size_t *trail = (size_t *)arena_alloc(t, (ps.segs.len ? ps.segs.len : 1) * sizeof(size_t));
-	if (w_probe_write(d, t, &ps, trail) != SHCL_W_WRITABLE) return 0;
+	if (w_probe_write(d, t, &ps, trail) != SHCL_SET_PATH_OK) return 0;
 	/* Nothing is created until every segment the write would create is known
 	   to read back: the name through the name escaper, an instance selector
 	   as the value it binds, and the first under a field that takes a field
@@ -7015,12 +7023,12 @@ size_t shcl_remove(shcl_doc *d, const char *path, size_t plen) {
 	return targets.len;
 }
 
-shcl_write_reason shcl_write_reason_(shcl_doc *d, const char *path, size_t plen) {
+shcl_set_path_check shcl_check_set_path(shcl_doc *d, const char *path, size_t plen) {
 	ShclStr p; p.p = path; p.n = plen;
 	// A probe, not a write: temporaries go into scratch (reset like resolve's -
 	// the previous query's die now), never permanently into the doc arena.
 	arena_reset(&d->scratch);
-	return w_write_reason(d, &d->scratch, p);
+	return w_check_set_path(d, &d->scratch, p);
 }
 
 /* Attach a leading comment line to the node at a path (creating an empty node
@@ -7324,7 +7332,7 @@ int shcl_set_datetime_array(shcl_doc *d, const char *path, size_t plen, const sh
    then the value's, which the same setter gives on the probe document. NULL
    means the path alone refuses. */
 static shcl_doc *w_default_probe(shcl_doc *d, const char *path, size_t plen) {
-	if (shcl_write_reason_(d, path, plen) != SHCL_W_WRITABLE) return NULL;
+	if (shcl_check_set_path(d, path, plen) != SHCL_SET_PATH_OK) return NULL;
 	if (!d->probe_doc) {
 		shcl_doc *e = shcl_new();
 		if (!e) { SHCL_OOM(); return NULL; }

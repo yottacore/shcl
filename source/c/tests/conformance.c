@@ -2903,8 +2903,6 @@ int main(int argc, char **argv) {
 		if (shcl_exists(dd, "when", 4)) fail("dt_clamp", "a refused datetime left a node behind");
 		shcl_free(dd);
 	}
-	// write_reason: the reason behind a setter's bare 0. Same fixture in every
-	// runner.
 	test_id("Es9JVra", "bad_path_reads_say_bad_path");
 	// A path the scanner refuses, or one with a value part, is BadPath on every
 	// read with a status, where a path that parses and finds nothing stays
@@ -2948,22 +2946,24 @@ int main(int argc, char **argv) {
 		if (SHCL_BAD_PATH <= SHCL_MULTIPLE || strcmp(shcl_status_name(SHCL_BAD_PATH), "BadPath") || shcl_status_code(SHCL_BAD_PATH) != 1) fail("bad_path", "order, name or code");
 		shcl_free(bd);
 	}
-	test_id("ElouJ8M", "write_reason_names_the_failure");
+	// check_set_path: the reason behind a setter's bare 0. Same fixture in every
+	// runner.
+	test_id("ElouJ8M", "check_set_path_names_the_failure");
 	{
 		const char *wt = "a:\n\tb: 1\n";
 		shcl_doc *wd = shcl_parse(wt, strlen(wt));
-		if (shcl_write_reason_(wd, "a.b", 3) != SHCL_W_WRITABLE) fail("write_reason", "a.b not writable");
-		if (shcl_write_reason_(wd, "a.new(Boston).x", 15) != SHCL_W_WRITABLE) fail("write_reason", "creatable path not writable");
-		if (shcl_write_reason_(wd, "", 0) != SHCL_W_BAD_PATH) fail("write_reason", "empty path not bad");
-		if (shcl_write_reason_(wd, "a..b", 4) != SHCL_W_BAD_PATH) fail("write_reason", "a..b not bad");
-		if (shcl_write_reason_(wd, "a.b: 2", 6) != SHCL_W_VALUE_IN_PATH) fail("write_reason", "value part not flagged");
-		if (shcl_write_reason_(wd, "a(*).b", 6) != SHCL_W_WILDCARD) fail("write_reason", "wildcard not flagged");
-		if (shcl_write_reason_(wd, "a(5).b", 6) != SHCL_W_NO_SUCH_INDEX) fail("write_reason", "a(5) not flagged");
-		if (shcl_write_reason_(wd, "nope(0).b", 9) != SHCL_W_NO_SUCH_INDEX) fail("write_reason", "off-tree index not flagged");
+		if (shcl_check_set_path(wd, "a.b", 3) != SHCL_SET_PATH_OK) fail("check_set_path", "a.b not writable");
+		if (shcl_check_set_path(wd, "a.new(Boston).x", 15) != SHCL_SET_PATH_OK) fail("check_set_path", "creatable path not writable");
+		if (shcl_check_set_path(wd, "", 0) != SHCL_SET_PATH_BAD_PATH) fail("check_set_path", "empty path not bad");
+		if (shcl_check_set_path(wd, "a..b", 4) != SHCL_SET_PATH_BAD_PATH) fail("check_set_path", "a..b not bad");
+		if (shcl_check_set_path(wd, "a.b: 2", 6) != SHCL_SET_PATH_VALUE_IN_PATH) fail("check_set_path", "value part not flagged");
+		if (shcl_check_set_path(wd, "a(*).b", 6) != SHCL_SET_PATH_WILDCARD) fail("check_set_path", "wildcard not flagged");
+		if (shcl_check_set_path(wd, "a(5).b", 6) != SHCL_SET_PATH_NO_SUCH_INDEX) fail("check_set_path", "a(5) not flagged");
+		if (shcl_check_set_path(wd, "nope(0).b", 9) != SHCL_SET_PATH_NO_SUCH_INDEX) fail("check_set_path", "off-tree index not flagged");
 		{
 			char deep[1026]; size_t dn = 0; // 513 segments: "d.d.d..."
 			for (size_t i = 0; i < 513; i++) { if (i) deep[dn++] = '.'; deep[dn++] = 'd'; }
-			if (shcl_write_reason_(wd, deep, dn) != SHCL_W_TOO_DEEP) fail("write_reason", "513 segments not too deep");
+			if (shcl_check_set_path(wd, deep, dn) != SHCL_SET_PATH_TOO_DEEP) fail("check_set_path", "513 segments not too deep");
 		}
 		// A literal line break is writable wherever a path can have one: a name
 		// emits through the name escaper and a selector value through the value
@@ -2971,12 +2971,65 @@ int main(int argc, char **argv) {
 		// selector was refused while the value emitter still wrote elements in
 		// their source spelling and had nothing to escape with. Not
 		// corpus-pinnable - an ops line cannot contain a raw newline.
-		if (shcl_write_reason_(wd, "a(\"p\nq\").b", 10) != SHCL_W_WRITABLE) fail("write_reason", "newline in selector not writable");
-		if (shcl_write_reason_(wd, "\"x\ny\".b", 7) != SHCL_W_WRITABLE) fail("write_reason", "newline in name not writable");
-		if (shcl_write_reason_(wd, "\"x\\ny\".b", 8) != SHCL_W_WRITABLE) fail("write_reason", "escaped newline not writable");
+		if (shcl_check_set_path(wd, "a(\"p\nq\").b", 10) != SHCL_SET_PATH_OK) fail("check_set_path", "newline in selector not writable");
+		if (shcl_check_set_path(wd, "\"x\ny\".b", 7) != SHCL_SET_PATH_OK) fail("check_set_path", "newline in name not writable");
+		if (shcl_check_set_path(wd, "\"x\\ny\".b", 8) != SHCL_SET_PATH_OK) fail("check_set_path", "escaped newline not writable");
 		// The probe never creates: the doc is unchanged after all of the above.
-		if (shcl_count(wd, "a", 1) != 1) fail("write_reason", "probe created nodes");
+		if (shcl_count(wd, "a", 1) != 1) fail("check_set_path", "probe created nodes");
 		shcl_free(wd);
+	}
+	// The setter docs list the values a setter refuses on a path
+	// shcl_check_set_path passes. Each one here returns 0, writes nothing, and
+	// the path checks OK, so the list stays true. Same fixture in every runner.
+	test_id("Es9S4kM", "refused_values_pass_the_path_check");
+	{
+		const char *rt = "ports: [80, 443]\nsec:\n\tx: 1\n";
+		shcl_doc *base = shcl_parse(rt, strlen(rt));
+		shcl_str bw = shcl_to_canonical(base);
+		char *want = malloc(bw.n + 1);
+		if (!want) { fprintf(stderr, "out of memory\n"); exit(1); }
+		memcpy(want, bw.p, bw.n);
+		size_t wantn = bw.n;
+		shcl_free(base);
+		shcl_datetime month13;
+		memset(&month13, 0, sizeof month13);
+		month13.has_date = 1; month13.year = 2026; month13.month = 13; month13.day = 1;
+		const double inf_arr[] = {1.0, -INFINITY};
+		const int64_t two[] = {1, 2};
+		static const char *const what[] = {
+			"NaN float", "infinite float", "infinite float in an array", "month 13",
+			"raw info with #", "raw info with a line break", "raw body line ending in CR",
+			"comment with a line break", "literal of two values", "literal with an open quote",
+			"literal with a line break", "array on a field with lines under it",
+			"literal array on a field with lines under it", "field under an array",
+		};
+		static const char *const at[] = {"f", "f", "f", "t", "r", "r", "r", "sec.x", "l", "l", "l", "sec", "sec", "ports.x"};
+		for (size_t i = 0; i < sizeof what / sizeof what[0]; i++) {
+			shcl_doc *rd = shcl_parse(rt, strlen(rt));
+			int took = 1;
+			switch (i) {
+			case 0: took = shcl_set_float(rd, "f", 1, NAN); break;
+			case 1: took = shcl_set_float(rd, "f", 1, INFINITY); break;
+			case 2: took = shcl_set_float_array(rd, "f", 1, inf_arr, 2); break;
+			case 3: took = shcl_set_datetime(rd, "t", 1, &month13); break;
+			case 4: took = shcl_set_raw(rd, "r", 1, "body", 4, "sh # x", 6); break;
+			case 5: took = shcl_set_raw(rd, "r", 1, "body", 4, "sh\nx", 4); break;
+			case 6: took = shcl_set_raw(rd, "r", 1, "a\r\nb", 4, "", 0); break;
+			case 7: took = shcl_set_comment(rd, "sec.x", 5, "a\nb", 3); break;
+			case 8: took = shcl_set_literal(rd, "l", 1, "a, b", 4); break;
+			case 9: took = shcl_set_literal(rd, "l", 1, "\"abc", 4); break;
+			case 10: took = shcl_set_literal(rd, "l", 1, "a\nb", 3); break;
+			case 11: took = shcl_set_int_array(rd, "sec", 3, two, 2); break;
+			case 12: took = shcl_set_literal(rd, "sec", 3, "[1, 2]", 6); break;
+			default: took = shcl_set_int(rd, "ports.x", 7, 1); break;
+			}
+			if (took) fail("refused_values", what[i]);
+			if (shcl_check_set_path(rd, at[i], strlen(at[i])) != SHCL_SET_PATH_OK) fail("refused_values", what[i]);
+			shcl_str got = shcl_to_canonical(rd);
+			if (got.n != wantn || memcmp(got.p, want, wantn)) fail("refused_values", what[i]);
+			shcl_free(rd);
+		}
+		free(want);
 	}
 	// Both halves of a path can contain a line break and write it \n: a name
 	// through the name escaper, a selector value through the value emitter. The
@@ -3771,9 +3824,9 @@ int main(int argc, char **argv) {
 		// if (shcl_read_string(od, "srv[web].host", 13).status != SHCL_NOT_FOUND) fail("bracket_selector", "srv[web].host found");
 		if (shcl_read_string(od, "srv[web].host", 13).status != SHCL_BAD_PATH) fail("bracket_selector", "srv[web].host not BadPath");
 		if (shcl_count(od, "srv[web]", 8) != 0) fail("bracket_selector", "srv[web] count");
-		if (shcl_write_reason_(od, "srv[web].x", 10) != SHCL_W_BAD_PATH) fail("bracket_selector", "write_reason srv[web].x");
-		if (shcl_write_reason_(od, "srv(#0).x", 9) != SHCL_W_BAD_PATH) fail("bracket_selector", "write_reason srv(#0).x");
-		if (shcl_write_reason_(od, "srv(0).x", 8) != SHCL_W_WRITABLE) fail("bracket_selector", "write_reason srv(0).x");
+		if (shcl_check_set_path(od, "srv[web].x", 10) != SHCL_SET_PATH_BAD_PATH) fail("bracket_selector", "check_set_path srv[web].x");
+		if (shcl_check_set_path(od, "srv(#0).x", 9) != SHCL_SET_PATH_BAD_PATH) fail("bracket_selector", "check_set_path srv(#0).x");
+		if (shcl_check_set_path(od, "srv(0).x", 8) != SHCL_SET_PATH_OK) fail("bracket_selector", "check_set_path srv(0).x");
 		if (shcl_set_int(od, "srv[web].x", 10, 1)) fail("bracket_selector", "a setter took a path in brackets");
 		if (!shcl_set_int(od, "srv(web).x", 10, 1)) fail("bracket_selector", "a setter refused srv(web).x");
 		shcl_str oc = shcl_to_canonical(od);

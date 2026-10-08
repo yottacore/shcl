@@ -42,8 +42,9 @@ enum class Severity { Error, Hint };
 // the scanner refused or one with a `: value` part; NotFound is a usable path
 // that matched nothing.
 enum class Status { Good, Empty, NotFound, BadType, Multiple, BadPath };
-// Why a write would fail: the distinctions behind a setter's bare false.
-enum class WriteReason { Writable, BadPath, ValueInPath, Wildcard, NoSuchIndex, TooDeep };
+// What check_set_path() finds: whether a setter could write at a path, and if
+// not, why. A setter can still refuse its value on Ok.
+enum class SetPathCheck { Ok, BadPath, ValueInPath, Wildcard, NoSuchIndex, TooDeep };
 // The unit a duration or size read gives a bare number, when the field name
 // gives none. Kilo to Tera are powers of 1024 unless the read asks for
 // decimal; Kibi to Tebi always are.
@@ -430,15 +431,19 @@ public:
 	// where every other name operation sees them resolved); empty when the path
 	// does not resolve to exactly one node.
 	std::string authored_name(std::string_view path) const;
-	// Why a write at a path would fail. Probes only; never creates.
-	WriteReason write_reason(std::string_view path) const;
+	// Whether a setter could write at a path, and why not. Probes only; never
+	// creates.
+	SetPathCheck check_set_path(std::string_view path) const;
 
-	// Writes. A setter creates the path as needed and returns false when the
-	// path is unusable (write_reason() says why) or the value has no spelling
-	// the reader accepts: a non-finite float, a datetime the reader would
-	// refuse, a raw info string holding a `#`. Nothing is created on false. An
-	// ignored false means the save that follows writes a document missing the
-	// edit, hence nodiscard.
+	// Writes. A setter creates the path as needed, and false means nothing was
+	// written. Either the path check failed, and check_set_path() says why, or
+	// it passed and the write was refused for what it would write: a NaN or
+	// infinite float, a datetime the reader would refuse, a raw block whose
+	// info string holds a `#` or a line break or whose body has a line ending
+	// in CR, a comment with a line break, set_literal text that is not one
+	// value, an array on a field with lines under it, or a new field under one
+	// holding an array. An ignored false means the save that follows writes a
+	// document missing the edit, hence nodiscard.
 	[[nodiscard]] bool set_int(std::string_view path, std::int64_t v);
 	[[nodiscard]] bool set_float(std::string_view path, double v);
 	[[nodiscard]] bool set_bool(std::string_view path, bool v);
@@ -587,9 +592,9 @@ static_assert(static_cast<int>(Severity::Error) == SHCL_SEV_ERROR && static_cast
 static_assert(static_cast<int>(Status::Good) == SHCL_GOOD && static_cast<int>(Status::Empty) == SHCL_EMPTY && static_cast<int>(Status::NotFound) == SHCL_NOT_FOUND
 	&& static_cast<int>(Status::BadType) == SHCL_BAD_TYPE && static_cast<int>(Status::Multiple) == SHCL_MULTIPLE
 	&& static_cast<int>(Status::BadPath) == SHCL_BAD_PATH, "Status drifted from shcl_status");
-static_assert(static_cast<int>(WriteReason::Writable) == SHCL_W_WRITABLE && static_cast<int>(WriteReason::BadPath) == SHCL_W_BAD_PATH
-	&& static_cast<int>(WriteReason::ValueInPath) == SHCL_W_VALUE_IN_PATH && static_cast<int>(WriteReason::Wildcard) == SHCL_W_WILDCARD
-	&& static_cast<int>(WriteReason::NoSuchIndex) == SHCL_W_NO_SUCH_INDEX && static_cast<int>(WriteReason::TooDeep) == SHCL_W_TOO_DEEP, "WriteReason drifted from shcl_write_reason");
+static_assert(static_cast<int>(SetPathCheck::Ok) == SHCL_SET_PATH_OK && static_cast<int>(SetPathCheck::BadPath) == SHCL_SET_PATH_BAD_PATH
+	&& static_cast<int>(SetPathCheck::ValueInPath) == SHCL_SET_PATH_VALUE_IN_PATH && static_cast<int>(SetPathCheck::Wildcard) == SHCL_SET_PATH_WILDCARD
+	&& static_cast<int>(SetPathCheck::NoSuchIndex) == SHCL_SET_PATH_NO_SUCH_INDEX && static_cast<int>(SetPathCheck::TooDeep) == SHCL_SET_PATH_TOO_DEEP, "SetPathCheck drifted from shcl_set_path_check");
 static_assert(static_cast<int>(Quote::None) == SHCL_QUOTE_NONE && static_cast<int>(Quote::Single) == SHCL_QUOTE_SINGLE
 	&& static_cast<int>(Quote::Double) == SHCL_QUOTE_DOUBLE && static_cast<int>(Quote::Backtick) == SHCL_QUOTE_BACKTICK
 	&& static_cast<int>(Quote::Open) == SHCL_QUOTE_OPEN, "Quote drifted from shcl_quote");
@@ -999,7 +1004,7 @@ bool Document::quoted(std::string_view path) const { return shcl_quoted(detail::
 bool Document::backtick(std::string_view path) const { return shcl_backtick(detail::held(*this), path.data(), path.size()) != 0; }
 bool Document::exists(std::string_view path) const { return shcl_exists(detail::held(*this), path.data(), path.size()) != 0; }
 std::string Document::authored_name(std::string_view path) const { return detail::str(shcl_authored_name(detail::held(*this), path.data(), path.size())); }
-WriteReason Document::write_reason(std::string_view path) const { return static_cast<WriteReason>(shcl_write_reason_(detail::held(*this), path.data(), path.size())); }
+SetPathCheck Document::check_set_path(std::string_view path) const { return static_cast<SetPathCheck>(shcl_check_set_path(detail::held(*this), path.data(), path.size())); }
 
 bool Document::set_int(std::string_view path, std::int64_t v) { return shcl_set_int(detail::doc(*this), path.data(), path.size(), v) != 0; }
 bool Document::set_float(std::string_view path, double v) { return shcl_set_float(detail::doc(*this), path.data(), path.size(), v) != 0; }
