@@ -672,17 +672,18 @@ match doc.get_int("site(example.com).max-upload-mb") {
 }
 
 // Writes create what they need to: this adds a site and a nested block.
-// Each one reports whether it applied - a path that cannot be written writes
-// nothing at all rather than half of it - and the setters are `#[must_use]`,
-// so that answer cannot go missing by accident.
+// Each one reports whether it applied - a refused write writes nothing at all
+// rather than half of it - and the setters are `#[must_use]`, so that answer
+// cannot go missing by accident. check_set_path says what was wrong with the
+// path, or Ok when it was the value that was refused.
 if !doc.set_int("workers", workers * 2) {
-	eprintln!("workers: {:?}", doc.write_reason("workers"));
+	eprintln!("workers: {:?}", doc.check_set_path("workers"));
 }
 if !doc.set_bool("site(example.com).tls.hsts", true) {
-	eprintln!("hsts: {:?}", doc.write_reason("site(example.com).tls.hsts"));
+	eprintln!("hsts: {:?}", doc.check_set_path("site(example.com).tls.hsts"));
 }
 if !doc.set_string("site(blog.example.com).root", "/srv/www/blog") {
-	eprintln!("blog root: {:?}", doc.write_reason("site(blog.example.com).root"));
+	eprintln!("blog root: {:?}", doc.check_set_path("site(blog.example.com).root"));
 }
 
 // Refuses if this write would delete lines or values from the file; see
@@ -717,17 +718,17 @@ if mb, st := doc.GetInt("site(example.com).max-upload-mb"); st == shcl.Good {
 	fmt.Println("unusable:", st)
 }
 
-// A setter reports whether the write applied: a path that cannot be written
-// writes nothing at all rather than half of it, and WriteReason names which of
-// the five reasons it hit.
+// A setter reports whether the write applied: a refused write writes nothing
+// at all rather than half of it. CheckSetPath names which of the five path
+// reasons it hit, or SetPathOk when it was the value that was refused.
 if !doc.SetInt("workers", workers*2) {
-	fmt.Println("workers:", doc.WriteReason("workers"))
+	fmt.Println("workers:", doc.CheckSetPath("workers"))
 }
 if !doc.SetBool("site(example.com).tls.hsts", true) {
-	fmt.Println("hsts:", doc.WriteReason("site(example.com).tls.hsts"))
+	fmt.Println("hsts:", doc.CheckSetPath("site(example.com).tls.hsts"))
 }
 if !doc.SetString("site(blog.example.com).root", "/srv/www/blog") {
-	fmt.Println("blog root:", doc.WriteReason("site(blog.example.com).root"))
+	fmt.Println("blog root:", doc.CheckSetPath("site(blog.example.com).root"))
 }
 
 // Refuses if this write would delete lines or values from the file; see
@@ -760,15 +761,15 @@ read = doc.read_int("site(example.com).max-upload-mb")
 if read.status is not shcl.Status.Good:
 	print("unusable:", read.status)
 
-# A setter reports whether the write applied: a path that cannot be written
-# writes nothing at all rather than half of it, and write_reason names which of
-# the five reasons it hit.
+# A setter reports whether the write applied: a refused write writes nothing
+# at all rather than half of it. check_set_path names which of the five path
+# reasons it hit, or Ok when it was the value that was refused.
 if not doc.set_int("workers", workers * 2):
-	print("workers:", doc.write_reason("workers"))
+	print("workers:", doc.check_set_path("workers"))
 if not doc.set_bool("site(example.com).tls.hsts", True):
-	print("hsts:", doc.write_reason("site(example.com).tls.hsts"))
+	print("hsts:", doc.check_set_path("site(example.com).tls.hsts"))
 if not doc.set_string("site(blog.example.com).root", "/srv/www/blog"):
-	print("blog root:", doc.write_reason("site(blog.example.com).root"))
+	print("blog root:", doc.check_set_path("site(blog.example.com).root"))
 
 # Raises SaveRefused if this write would delete lines or values from the
 # file; see "What saving does" below (save_file_lossy is the override).
@@ -852,15 +853,16 @@ shcl_read_str root = shcl_read_string(doc, P("site(example.com).root"));
 if (root.status == SHCL_GOOD)
 	printf("%.*s\n", (int)root.value.n, root.value.p);
 
-// A setter reports whether the write applied: a path that cannot be written
-// writes nothing at all rather than half of it, and shcl_write_reason_ names
-// which of the five reasons it hit (SHCL_W_WILDCARD here, say).
+// A setter reports whether the write applied: a refused write writes nothing
+// at all rather than half of it. shcl_check_set_path names which of the five
+// path reasons it hit (SHCL_SET_PATH_WILDCARD here, say), or SHCL_SET_PATH_OK
+// when it was the value that was refused.
 if (!shcl_set_int(doc, P("workers"), workers * 2))
-	printf("workers: %d\n", shcl_write_reason_(doc, P("workers")));
+	printf("workers: %d\n", shcl_check_set_path(doc, P("workers")));
 if (!shcl_set_bool(doc, P("site(example.com).tls.hsts"), 1))
-	printf("hsts: %d\n", shcl_write_reason_(doc, P("site(example.com).tls.hsts")));
+	printf("hsts: %d\n", shcl_check_set_path(doc, P("site(example.com).tls.hsts")));
 if (!shcl_set_string(doc, P("site(blog.example.com).root"), P("/srv/www/blog")))
-	fprintf(stderr, "blog root: reason %d\n", shcl_write_reason_(doc, P("site(blog.example.com).root")));
+	fprintf(stderr, "blog root: reason %d\n", shcl_check_set_path(doc, P("site(blog.example.com).root")));
 
 // SHCL_SAVE_REFUSED means this write would delete lines or values from the
 // file; see "What saving does" below (shcl_save_file_lossy is the override).
@@ -898,13 +900,14 @@ auto root = doc.read_string("site(example.com).root");
 if (root.status == shcl::Status::Good)
 	std::printf("%s\n", root.value.c_str());
 
-// A setter reports whether the write applied, and write_reason() says why not
+// A setter reports whether the write applied, and check_set_path() says what was
+// wrong with the path, or Ok when it was the value
 if (!doc.set_int("workers", workers * 2))
-	std::printf("workers: %d\n", static_cast<int>(doc.write_reason("workers")));
+	std::printf("workers: %d\n", static_cast<int>(doc.check_set_path("workers")));
 if (!doc.set_bool("site(example.com).tls.hsts", true))
-	std::printf("hsts: %d\n", static_cast<int>(doc.write_reason("site(example.com).tls.hsts")));
+	std::printf("hsts: %d\n", static_cast<int>(doc.check_set_path("site(example.com).tls.hsts")));
 if (!doc.set_string("site(blog.example.com).root", "/srv/www/blog"))
-	std::fprintf(stderr, "blog root: reason %d\n", static_cast<int>(doc.write_reason("site(blog.example.com).root")));
+	std::fprintf(stderr, "blog root: reason %d\n", static_cast<int>(doc.check_set_path("site(blog.example.com).root")));
 
 // Refused means this write would delete lines or values from the file; see
 // "What saving does" below (save_file_lossy is the override).
@@ -1023,7 +1026,25 @@ A file somebody keeps by hand can be saved the way they keep it instead. Load it
 
 And the save protects the file it is overwriting. It goes through a temp file in the same directory plus a rename, so an interrupted save cannot leave a truncated config behind, and a linked-in config is written through rather than replaced. It also refuses when the write would delete lines or values from the file. A line the parser cannot read at all is kept verbatim and survives the save untouched. A line it could read and not place (a stray indent, an impossible selector) has no safe spelling to re-emit. That one counts into `lost_count()`, and the save stops rather than quietly dropping a line somebody typed. `save_file_lossy` is there for when deleting it is what you actually want, so it is always a stated choice.
 
-A setter returns failure - `false`, or `0` in C - when a path cannot be written at all. Wildcards are the usual case, since those are query-only. Nothing is half-written, and `write_reason(path)` says which of the five reasons applied. Check that answer rather than assuming it: an ignored failure means the save that follows writes a config missing the edit, and reports success doing it. In Rust the setters are `#[must_use]`, so dropping the answer is a compile warning.
+A setter returns failure - `false`, or `0` in C - when it writes nothing, and nothing is half-written. Either the path is the problem, or what the write would put there is. `check_set_path(path)` checks the path alone and says which of the five path reasons applied. Wildcards are the usual case, since those are query-only. When it says `Ok`, the write was refused for one of these:
+
+- A float that is NaN or infinite.
+
+- A datetime the reader would refuse, such as month 13.
+
+- A raw block whose info string holds a `#` or a line break, or whose body has a line ending in a carriage return.
+
+- A comment holding a line break.
+
+- `set_literal` text that is not one value, such as `a, b` or a quote that never closes.
+
+- An array on a field that has lines under it.
+
+- A new field under one that holds an array.
+
+Go also refuses text that is not valid UTF-8, and Python an int outside the 64-bit range.
+
+Check that answer rather than assuming it: an ignored failure means the save that follows writes a config missing the edit, and reports success doing it. In Rust the setters are `#[must_use]`, so dropping the answer is a compile warning.
 
 One read-side companion belongs with this: canonical output lowercases field names, and `authored_name(path)` hands back the spelling the author actually used. It is what you want in a message about their file - reporting `Max-Upload-MB` as `max-upload-mb` reads like a different setting to the person who wrote it.
 

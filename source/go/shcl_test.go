@@ -1075,36 +1075,36 @@ func TestBadPathReadsSayBadPath(t *testing.T) {
 	}
 }
 
-func TestWriteReasonNamesTheFailure(t *testing.T) {
+func TestCheckSetPathNamesTheFailure(t *testing.T) {
 	defer testID(t, "ElouJ8L")
 	// The reason behind a setter's bare false. Same fixture in every runner.
 	doc := Parse("a:\n\tb: 1\n")
-	if got := doc.WriteReason("a.b"); got != Writable {
-		t.Errorf("a.b: got %v, want Writable", got)
+	if got := doc.CheckSetPath("a.b"); got != SetPathOk {
+		t.Errorf("a.b: got %v, want Ok", got)
 	}
-	if got := doc.WriteReason("a.new(Boston).x"); got != Writable { // creatable
-		t.Errorf("a.new(Boston).x: got %v, want Writable", got)
+	if got := doc.CheckSetPath("a.new(Boston).x"); got != SetPathOk { // creatable
+		t.Errorf("a.new(Boston).x: got %v, want Ok", got)
 	}
-	if got := doc.WriteReason(""); got != WriteBadPath {
+	if got := doc.CheckSetPath(""); got != SetPathBadPath {
 		t.Errorf("empty path: got %v, want BadPath", got)
 	}
-	if got := doc.WriteReason("a..b"); got != WriteBadPath {
+	if got := doc.CheckSetPath("a..b"); got != SetPathBadPath {
 		t.Errorf("a..b: got %v, want BadPath", got)
 	}
-	if got := doc.WriteReason("a.b: 2"); got != ValueInPath {
+	if got := doc.CheckSetPath("a.b: 2"); got != SetPathValueInPath {
 		t.Errorf("a.b: 2: got %v, want ValueInPath", got)
 	}
-	if got := doc.WriteReason("a(*).b"); got != Wildcard {
+	if got := doc.CheckSetPath("a(*).b"); got != SetPathWildcard {
 		t.Errorf("a(*).b: got %v, want Wildcard", got)
 	}
-	if got := doc.WriteReason("a(5).b"); got != NoSuchIndex {
+	if got := doc.CheckSetPath("a(5).b"); got != SetPathNoSuchIndex {
 		t.Errorf("a(5).b: got %v, want NoSuchIndex", got)
 	}
-	if got := doc.WriteReason("nope(0).b"); got != NoSuchIndex {
+	if got := doc.CheckSetPath("nope(0).b"); got != SetPathNoSuchIndex {
 		t.Errorf("nope(0).b: got %v, want NoSuchIndex", got)
 	}
 	deep := strings.TrimSuffix(strings.Repeat("d.", 513), ".")
-	if got := doc.WriteReason(deep); got != TooDeep {
+	if got := doc.CheckSetPath(deep); got != SetPathTooDeep {
 		t.Errorf("deep path: got %v, want TooDeep", got)
 	}
 	// A literal line break is writable wherever a path can have one: a name
@@ -1113,14 +1113,14 @@ func TestWriteReasonNamesTheFailure(t *testing.T) {
 	// was refused while the value emitter still wrote elements in their source
 	// spelling and had nothing to escape with. Not corpus-pinnable - an ops
 	// line cannot contain a raw newline.
-	if got := doc.WriteReason("a(\"p\nq\").b"); got != Writable {
-		t.Errorf("newline in selector: got %v, want Writable", got)
+	if got := doc.CheckSetPath("a(\"p\nq\").b"); got != SetPathOk {
+		t.Errorf("newline in selector: got %v, want Ok", got)
 	}
-	if got := doc.WriteReason("\"x\ny\".b"); got != Writable {
-		t.Errorf("newline in name: got %v, want Writable", got)
+	if got := doc.CheckSetPath("\"x\ny\".b"); got != SetPathOk {
+		t.Errorf("newline in name: got %v, want Ok", got)
 	}
-	if got := doc.WriteReason("\"x\\ny\".b"); got != Writable {
-		t.Errorf("escaped newline in name: got %v, want Writable", got)
+	if got := doc.CheckSetPath("\"x\\ny\".b"); got != SetPathOk {
+		t.Errorf("escaped newline in name: got %v, want Ok", got)
 	}
 	// The probe never creates: the doc is unchanged after all of the above.
 	if n := doc.Count("a"); n != 1 {
@@ -1128,6 +1128,50 @@ func TestWriteReasonNamesTheFailure(t *testing.T) {
 	}
 	if got := doc.Paths(); strings.Join(got, ",") != "a,a.b" {
 		t.Errorf("paths: got %v", got)
+	}
+}
+
+// The setter docs list the values a setter refuses on a path CheckSetPath
+// passes. Each one here returns false, writes nothing, and the path checks
+// SetPathOk, so the list stays true. Same fixture in every runner, plus Go's
+// own: text that is not valid UTF-8.
+func TestRefusedValuesPassThePathCheck(t *testing.T) {
+	defer testID(t, "Es9S4kK")
+	text := "ports: [80, 443]\nsec:\n\tx: 1\n"
+	month13 := DateTime{HasDate: true, Year: 2026, Month: 13, Day: 1}
+	cases := []struct {
+		what, path string
+		set        func(d *Document) bool
+	}{
+		{"NaN float", "f", func(d *Document) bool { return d.SetFloat("f", math.NaN()) }},
+		{"infinite float", "f", func(d *Document) bool { return d.SetFloat("f", math.Inf(1)) }},
+		{"infinite float in an array", "f", func(d *Document) bool { return d.SetFloatArray("f", []float64{1, math.Inf(-1)}) }},
+		{"month 13", "t", func(d *Document) bool { return d.SetDateTime("t", month13) }},
+		{"raw info with #", "r", func(d *Document) bool { return d.SetRaw("r", "body", "sh # x") }},
+		{"raw info with a line break", "r", func(d *Document) bool { return d.SetRaw("r", "body", "sh\nx") }},
+		{"raw body line ending in CR", "r", func(d *Document) bool { return d.SetRaw("r", "a\r\nb", "") }},
+		{"comment with a line break", "sec.x", func(d *Document) bool { return d.SetComment("sec.x", "a\nb") }},
+		{"literal of two values", "l", func(d *Document) bool { return d.SetLiteral("l", "a, b") }},
+		{"literal with an open quote", "l", func(d *Document) bool { return d.SetLiteral("l", "\"abc") }},
+		{"literal with a line break", "l", func(d *Document) bool { return d.SetLiteral("l", "a\nb") }},
+		{"array on a field with lines under it", "sec", func(d *Document) bool { return d.SetIntArray("sec", []int64{1, 2}) }},
+		{"literal array on a field with lines under it", "sec", func(d *Document) bool { return d.SetLiteral("sec", "[1, 2]") }},
+		{"field under an array", "ports.x", func(d *Document) bool { return d.SetInt("ports.x", 1) }},
+		{"string that is not UTF-8", "s", func(d *Document) bool { return d.SetString("s", "a\xffb") }},
+		{"comment that is not UTF-8", "sec.x", func(d *Document) bool { return d.SetComment("sec.x", "a\xffb") }},
+	}
+	want := Parse(text).ToCanonical()
+	for _, c := range cases {
+		doc := Parse(text)
+		if c.set(doc) {
+			t.Errorf("%s: the setter returned true", c.what)
+		}
+		if got := doc.CheckSetPath(c.path); got != SetPathOk {
+			t.Errorf("%s: CheckSetPath = %v, want Ok", c.what, got)
+		}
+		if got := doc.ToCanonical(); got != want {
+			t.Errorf("%s: wrote %q", c.what, got)
+		}
 	}
 }
 
@@ -4329,9 +4373,9 @@ func TestBracketSelectorsAreTheOldSpelling(t *testing.T) {
 	if n := doc.Count("srv[web]"); n != 0 {
 		t.Fatalf("srv[web] count %d", n)
 	}
-	for path, want := range map[string]WriteReason{"srv[web].x": WriteBadPath, "srv(#0).x": WriteBadPath, "srv(0).x": Writable} {
-		if got := doc.WriteReason(path); got != want {
-			t.Errorf("WriteReason(%q) = %v, want %v", path, got, want)
+	for path, want := range map[string]SetPathCheck{"srv[web].x": SetPathBadPath, "srv(#0).x": SetPathBadPath, "srv(0).x": SetPathOk} {
+		if got := doc.CheckSetPath(path); got != want {
+			t.Errorf("CheckSetPath(%q) = %v, want %v", path, got, want)
 		}
 	}
 	if doc.SetInt("srv[web].x", 1) {

@@ -135,12 +135,13 @@ impl std::fmt::Display for SaveError {
 
 impl std::error::Error for SaveError {}
 
-/// Why a write would fail (`write_reason()`): the distinctions behind a
-/// setter's bare `false`. `Writable` = the path passes the writer's
-/// validation; the rest name the five ways it cannot.
+/// What `check_set_path()` finds at a path: whether a setter could write
+/// there, and if not, why. `Ok` = the path passes the writer's validation;
+/// the rest name the five ways it cannot. A setter can still return `false`
+/// on `Ok`, when the value itself is refused (see `set_int`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WriteReason {
-	Writable,
+pub enum SetPathCheck {
+	Ok,
 	BadPath,     // empty path, or the scanner rejected it
 	ValueInPath, // the path has a `: value` part; writes take values separately
 	Wildcard,    // wildcard selectors are query-only
@@ -9475,7 +9476,7 @@ impl Document {
 	}
 
 	fn resolve_mode(&self, path: &str, group: bool) -> Result<Resolved, Status> {
-		// The same paths write_reason calls BadPath or ValueInPath: a query
+		// The same paths check_set_path calls BadPath or ValueInPath: a query
 		// has no value part, and an empty one names nothing.
 		let scan = scan_lookup(path).map_err(|_| Status::BadPath)?;
 		if scan.value.is_some() || scan.segments.is_empty() {
@@ -9798,31 +9799,32 @@ impl Document {
 		idx
 	}
 
-	/// Why a write at this path would fail - the reason behind a setter's bare
-	/// `false`, so a consumer's error message need not guess. `Writable` means
-	/// the same validation `place()` runs would pass; nothing is created.
-	pub fn write_reason(&self, path: &str) -> WriteReason {
+	/// Whether a setter could write at this path, and why not when it could
+	/// not, so a consumer's error message need not guess. `Ok` means the same
+	/// validation `place()` runs would pass; nothing is created. A setter can
+	/// still refuse its value on an `Ok` path (see `set_int`).
+	pub fn check_set_path(&self, path: &str) -> SetPathCheck {
 		let Ok(scan) = scan_lookup(path) else {
-			return WriteReason::BadPath;
+			return SetPathCheck::BadPath;
 		};
 		self.probe_write(&scan, &mut Vec::new())
 	}
 
-	/// The validation walk `write_reason` and `place` share. `trail` collects
+	/// The validation walk `check_set_path` and `place` share. `trail` collects
 	/// where each segment ended up - `None` from the point the path falls off the
 	/// existing tree - so `place` can create from exactly there instead of
 	/// scanning the path and walking the tree a second time.
-	fn probe_write(&self, scan: &PathScan, trail: &mut Vec<Option<usize>>) -> WriteReason {
+	fn probe_write(&self, scan: &PathScan, trail: &mut Vec<Option<usize>>) -> SetPathCheck {
 		trail.clear();
 		if scan.value.is_some() {
-			return WriteReason::ValueInPath;
+			return SetPathCheck::ValueInPath;
 		}
 		if scan.segments.is_empty() {
-			return WriteReason::BadPath;
+			return SetPathCheck::BadPath;
 		}
 		// Writer side of the load-time nesting cap: never create deeper.
 		if scan.segments.len() > MAX_DEPTH {
-			return WriteReason::TooDeep;
+			return SetPathCheck::TooDeep;
 		}
 		// The probe walk place() validates with: once it falls off the existing
 		// tree, a later `(k)` can never match (fresh intermediates are created
@@ -9830,7 +9832,7 @@ impl Document {
 		let mut probe = Some(ROOT);
 		for seg in &scan.segments {
 			if seg.star {
-				return WriteReason::Wildcard;
+				return SetPathCheck::Wildcard;
 			}
 			// A newline in a SELECTOR has no one-line spelling, so the emitted
 			// binding would split across two lines and reparse as neither. The
@@ -9841,15 +9843,15 @@ impl Document {
 			// escape-resolved and emitted through the name escaper, which writes
 			// a line break as `\n` and reads it back as one.
 			match &seg.selector {
-				Some(Selector::Wildcard) => return WriteReason::Wildcard,
+				Some(Selector::Wildcard) => return SetPathCheck::Wildcard,
 				Some(Selector::ByIndex(k)) => {
 					let Some(c) = probe else {
-						return WriteReason::NoSuchIndex;
+						return SetPathCheck::NoSuchIndex;
 					};
 					let matches = self.children_named(c, &seg.name);
 					match index_usize(*k).and_then(|i| matches.get(i)) {
 						Some(&m) => probe = Some(m),
-						None => return WriteReason::NoSuchIndex,
+						None => return SetPathCheck::NoSuchIndex,
 					}
 				}
 				Some(Selector::ByValue { text, .. }) => {
@@ -9867,14 +9869,14 @@ impl Document {
 			}
 			trail.push(probe);
 		}
-		WriteReason::Writable
+		SetPathCheck::Ok
 	}
 
 	/// The node a write at this path lands on when it is already there.
 	fn write_target(&self, path: &str) -> Option<usize> {
 		let scan = scan_lookup(path).ok()?;
 		let mut trail = Vec::new();
-		if self.probe_write(&scan, &mut trail) != WriteReason::Writable {
+		if self.probe_write(&scan, &mut trail) != SetPathCheck::Ok {
 			return None;
 		}
 		trail.last().copied().flatten()
@@ -9883,14 +9885,14 @@ impl Document {
 	/// Walk (creating as needed) to the node a write targets. A trailing name
 	/// with no selector hits the first same-named instance (or a new one); a
 	/// `(value)` selector selects the matching instance or creates it; `(k)`
-	/// must already exist. None = path unusable for a write (write_reason()
+	/// must already exist. None = path unusable for a write (check_set_path()
 	/// says why). Validation runs first, so a doomed path leaves no
 	/// half-created intermediates behind. A `setter` creating a field deals
 	/// with the kept lines of its name, as set_child() says.
 	fn place(&mut self, path: &str, setter: bool) -> Option<usize> {
 		let scan = scan_lookup(path).ok()?;
 		let mut trail: Vec<Option<usize>> = Vec::new();
-		if self.probe_write(&scan, &mut trail) != WriteReason::Writable {
+		if self.probe_write(&scan, &mut trail) != SetPathCheck::Ok {
 			return None;
 		}
 		// Nothing is created until every segment the write would create is
@@ -10514,7 +10516,7 @@ impl Document {
 	/// it, so text that is blank leaves a bare `#`. Text holding a line break
 	/// is refused: a comment is one line, and keeping only the first would
 	/// drop the rest with nothing to say so.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
+	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see check_set_path)"]
 	pub fn set_comment(&mut self, path: &str, text: &str) -> bool {
 		let Some(c) = comment_line(text) else {
 			return false;
@@ -10675,18 +10677,25 @@ impl Document {
 		removed
 	}
 
-	/// Bind an integer at a path, creating the path as needed; false = path not
-	/// writable (write_reason says why - same for every setter). The setters are
-	/// must_use because an ignored false means the save that follows writes a
-	/// document missing the edit, and reports success doing it.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
+	/// Bind an integer at a path, creating the path as needed. False from any
+	/// setter means nothing was written. Either the path check failed, and
+	/// check_set_path says why, or it passed and the write was refused for
+	/// what it would write: a NaN or infinite float, a datetime the reader
+	/// would refuse, a raw block whose info string holds a `#` or a line
+	/// break or whose body has a line ending in CR, a comment with a line
+	/// break, `set_literal` text that is not one value, an array on a field
+	/// with lines under it, or a new field under one holding an array. The
+	/// setters are must_use because an ignored false means the save that
+	/// follows writes a document missing the edit, and reports success doing
+	/// it.
+	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see check_set_path)"]
 	pub fn set_int(&mut self, path: &str, v: i64) -> bool {
 		self.set_value(path, cell_of(v.to_string()))
 	}
 	/// Bind a float at a path, in the canonical shortest spelling. An
 	/// infinity or a NaN has no spelling the reader accepts, so it fails the
 	/// write rather than binding a value that cannot read back.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
+	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see check_set_path)"]
 	pub fn set_float(&mut self, path: &str, v: f64) -> bool {
 		if !v.is_finite() {
 			return false;
@@ -10694,12 +10703,12 @@ impl Document {
 		self.set_value(path, cell_of(format_float(v)))
 	}
 	/// Bind true/false at a path.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
+	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see check_set_path)"]
 	pub fn set_bool(&mut self, path: &str, v: bool) -> bool {
 		self.set_value(path, cell_of(if v { "true" } else { "false" }.to_string()))
 	}
 	/// Bind a string at a path, escaped so it reads back exactly.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
+	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see check_set_path)"]
 	pub fn set_string(&mut self, path: &str, v: &str) -> bool {
 		self.set_value(path, cell_of(v.to_string()))
 	}
@@ -10707,7 +10716,7 @@ impl Document {
 	/// fields are public and have no invariant, so a value the reader would
 	/// refuse (month 13, a fraction with no seconds, an empty struct) fails
 	/// the write rather than binding text that cannot read back.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
+	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see check_set_path)"]
 	pub fn set_datetime(&mut self, path: &str, v: &ShclDateTime) -> bool {
 		if !datetime_reads_back(v) {
 			return false;
@@ -10720,7 +10729,7 @@ impl Document {
 	/// holds a line break, or a `#`, which reads as a comment - fails the
 	/// write, as does a body line ending in CR, since the load takes the
 	/// trailing CR run off every line.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
+	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see check_set_path)"]
 	pub fn set_raw(&mut self, path: &str, content: &str, info: &str) -> bool {
 		let info = trim_wsp(info);
 		let (fence_char, fence_len) = choose_fence(content);
@@ -10735,18 +10744,18 @@ impl Document {
 		)
 	}
 	/// Bind an empty value at a path (distinct from the empty string).
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
+	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see check_set_path)"]
 	pub fn set_empty(&mut self, path: &str) -> bool {
 		self.set_value(path, Value::Empty)
 	}
 
 	/// Bind an inline integer array at a path.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
+	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see check_set_path)"]
 	pub fn set_int_array(&mut self, path: &str, v: &[i64]) -> bool {
 		self.set_value(path, array_cell(v.iter().map(|x| x.to_string()).collect()))
 	}
 	/// Bind an inline float array at a path.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
+	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see check_set_path)"]
 	pub fn set_float_array(&mut self, path: &str, v: &[f64]) -> bool {
 		if !v.iter().all(|x| x.is_finite()) {
 			return false;
@@ -10757,7 +10766,7 @@ impl Document {
 		)
 	}
 	/// Bind an inline bool array at a path.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
+	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see check_set_path)"]
 	pub fn set_bool_array(&mut self, path: &str, v: &[bool]) -> bool {
 		self.set_value(
 			path,
@@ -10769,12 +10778,12 @@ impl Document {
 		)
 	}
 	/// Bind an inline string array at a path, per-element escaped.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
+	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see check_set_path)"]
 	pub fn set_string_array(&mut self, path: &str, v: &[&str]) -> bool {
 		self.set_value(path, array_cell(v.iter().map(|x| x.to_string()).collect()))
 	}
 	/// Bind an inline datetime array at a path.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
+	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see check_set_path)"]
 	pub fn set_datetime_array(&mut self, path: &str, v: &[ShclDateTime]) -> bool {
 		if !v.iter().all(datetime_reads_back) {
 			return false;
@@ -10791,7 +10800,7 @@ impl Document {
 		if !self.exists(path) {
 			return set(self, path);
 		}
-		if self.write_reason(path) != WriteReason::Writable {
+		if self.check_set_path(path) != SetPathCheck::Ok {
 			return false;
 		}
 		let probe = self.probe_doc.get_or_insert_with(|| {
@@ -10803,22 +10812,22 @@ impl Document {
 		set(probe, "v")
 	}
 	/// `set_int` only when the path has no node yet.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
+	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see check_set_path)"]
 	pub fn set_int_default(&mut self, path: &str, v: i64) -> bool {
 		self.set_default(path, |d, p| d.set_int(p, v))
 	}
 	/// `set_float` only when the path has no node yet.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
+	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see check_set_path)"]
 	pub fn set_float_default(&mut self, path: &str, v: f64) -> bool {
 		self.set_default(path, |d, p| d.set_float(p, v))
 	}
 	/// `set_bool` only when the path has no node yet.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
+	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see check_set_path)"]
 	pub fn set_bool_default(&mut self, path: &str, v: bool) -> bool {
 		self.set_default(path, |d, p| d.set_bool(p, v))
 	}
 	/// `set_string` only when the path has no node yet.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
+	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see check_set_path)"]
 	pub fn set_string_default(&mut self, path: &str, v: &str) -> bool {
 		self.set_default(path, |d, p| d.set_string(p, v))
 	}
@@ -10827,7 +10836,7 @@ impl Document {
 	/// be quoted. This is how a caller holding value text - a config line, a
 	/// user's `--set` argument - writes it without knowing its shape first.
 	/// Fails on text that could not be one line's value (see `literal_value`).
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
+	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see check_set_path)"]
 	pub fn set_literal(&mut self, path: &str, text: &str) -> bool {
 		match literal_value(text) {
 			Some(v) => self.set_value_as(path, v, false),
@@ -10835,42 +10844,42 @@ impl Document {
 		}
 	}
 	/// `set_literal` only when the path has no node yet.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
+	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see check_set_path)"]
 	pub fn set_literal_default(&mut self, path: &str, text: &str) -> bool {
 		self.set_default(path, |d, p| d.set_literal(p, text))
 	}
 	/// `set_datetime` only when the path has no node yet.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
+	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see check_set_path)"]
 	pub fn set_datetime_default(&mut self, path: &str, v: &ShclDateTime) -> bool {
 		self.set_default(path, |d, p| d.set_datetime(p, v))
 	}
 	/// `set_raw` only when the path has no node yet.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
+	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see check_set_path)"]
 	pub fn set_raw_default(&mut self, path: &str, content: &str, info: &str) -> bool {
 		self.set_default(path, |d, p| d.set_raw(p, content, info))
 	}
 	/// `set_int_array` only when the path has no node yet.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
+	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see check_set_path)"]
 	pub fn set_int_array_default(&mut self, path: &str, v: &[i64]) -> bool {
 		self.set_default(path, |d, p| d.set_int_array(p, v))
 	}
 	/// `set_float_array` only when the path has no node yet.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
+	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see check_set_path)"]
 	pub fn set_float_array_default(&mut self, path: &str, v: &[f64]) -> bool {
 		self.set_default(path, |d, p| d.set_float_array(p, v))
 	}
 	/// `set_bool_array` only when the path has no node yet.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
+	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see check_set_path)"]
 	pub fn set_bool_array_default(&mut self, path: &str, v: &[bool]) -> bool {
 		self.set_default(path, |d, p| d.set_bool_array(p, v))
 	}
 	/// `set_string_array` only when the path has no node yet.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
+	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see check_set_path)"]
 	pub fn set_string_array_default(&mut self, path: &str, v: &[&str]) -> bool {
 		self.set_default(path, |d, p| d.set_string_array(p, v))
 	}
 	/// `set_datetime_array` only when the path has no node yet.
-	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see write_reason)"]
+	#[must_use = "a setter reports whether the write applied; an unusable path writes nothing (see check_set_path)"]
 	pub fn set_datetime_array_default(&mut self, path: &str, v: &[ShclDateTime]) -> bool {
 		self.set_default(path, |d, p| d.set_datetime_array(p, v))
 	}

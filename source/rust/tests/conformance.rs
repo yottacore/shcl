@@ -1390,33 +1390,125 @@ fn one_shot_load_and_validate() {
 }
 
 #[test]
-fn write_reason_names_the_failure() {
+fn check_set_path_names_the_failure() {
 	let _id = test_id("ElouJ8K");
 	// The reason behind a setter's bare false. Same fixture in every runner.
 	let doc = Document::parse("a:\n\tb: 1\n");
-	use shcl::WriteReason::*;
-	assert_eq!(doc.write_reason("a.b"), Writable);
-	assert_eq!(doc.write_reason("a.new(Boston).x"), Writable); // creatable
-	assert_eq!(doc.write_reason(""), BadPath);
-	assert_eq!(doc.write_reason("a..b"), BadPath);
-	assert_eq!(doc.write_reason("a.b: 2"), ValueInPath);
-	assert_eq!(doc.write_reason("a(*).b"), Wildcard);
-	assert_eq!(doc.write_reason("a(5).b"), NoSuchIndex);
-	assert_eq!(doc.write_reason("nope(0).b"), NoSuchIndex);
+	use shcl::SetPathCheck::*;
+	assert_eq!(doc.check_set_path("a.b"), Ok);
+	assert_eq!(doc.check_set_path("a.new(Boston).x"), Ok); // creatable
+	assert_eq!(doc.check_set_path(""), BadPath);
+	assert_eq!(doc.check_set_path("a..b"), BadPath);
+	assert_eq!(doc.check_set_path("a.b: 2"), ValueInPath);
+	assert_eq!(doc.check_set_path("a(*).b"), Wildcard);
+	assert_eq!(doc.check_set_path("a(5).b"), NoSuchIndex);
+	assert_eq!(doc.check_set_path("nope(0).b"), NoSuchIndex);
 	let deep = vec!["d"; 513].join(".");
-	assert_eq!(doc.write_reason(&deep), TooDeep);
+	assert_eq!(doc.check_set_path(&deep), TooDeep);
 	// A literal line break is writable wherever a path can have one: a name
 	// emits through the name escaper and a selector value through the value
 	// emitter, and both write a break `\n` and read it back as one. The
 	// selector was refused while the value emitter still wrote elements in
 	// their source spelling and had nothing to escape with. Not corpus-pinnable
 	// - an ops line cannot contain a raw newline.
-	assert_eq!(doc.write_reason("a(\"p\nq\").b"), Writable);
-	assert_eq!(doc.write_reason("\"x\ny\".b"), Writable);
-	assert_eq!(doc.write_reason("\"x\\ny\".b"), Writable);
+	assert_eq!(doc.check_set_path("a(\"p\nq\").b"), Ok);
+	assert_eq!(doc.check_set_path("\"x\ny\".b"), Ok);
+	assert_eq!(doc.check_set_path("\"x\\ny\".b"), Ok);
 	// The probe never creates: the doc is unchanged after all of the above.
 	assert_eq!(doc.count("a"), 1);
 	assert_eq!(doc.paths(), vec!["a", "a.b"]);
+}
+
+// The setter docs list the values a setter refuses on a path check_set_path
+// passes. Each one here returns false, writes nothing, and the path checks Ok,
+// so the list stays true. Same fixture in every runner.
+#[test]
+fn refused_values_pass_the_path_check() {
+	let _id = test_id("Es9S4kJ");
+	let text = "ports: [80, 443]\nsec:\n\tx: 1\n";
+	let month13 = shcl::ShclDateTime {
+		date: Some((2026, 13, 1)),
+		..shcl::ShclDateTime::default()
+	};
+	type Set = Box<dyn Fn(&mut Document) -> bool>;
+	let cases: Vec<(&str, &str, Set)> = vec![
+		("NaN float", "f", Box::new(|d| d.set_float("f", f64::NAN))),
+		(
+			"infinite float",
+			"f",
+			Box::new(|d| d.set_float("f", f64::INFINITY)),
+		),
+		(
+			"infinite float in an array",
+			"f",
+			Box::new(|d| d.set_float_array("f", &[1.0, f64::NEG_INFINITY])),
+		),
+		(
+			"month 13",
+			"t",
+			Box::new(move |d| d.set_datetime("t", &month13)),
+		),
+		(
+			"raw info with #",
+			"r",
+			Box::new(|d| d.set_raw("r", "body", "sh # x")),
+		),
+		(
+			"raw info with a line break",
+			"r",
+			Box::new(|d| d.set_raw("r", "body", "sh\nx")),
+		),
+		(
+			"raw body line ending in CR",
+			"r",
+			Box::new(|d| d.set_raw("r", "a\r\nb", "")),
+		),
+		(
+			"comment with a line break",
+			"sec.x",
+			Box::new(|d| d.set_comment("sec.x", "a\nb")),
+		),
+		(
+			"literal of two values",
+			"l",
+			Box::new(|d| d.set_literal("l", "a, b")),
+		),
+		(
+			"literal with an open quote",
+			"l",
+			Box::new(|d| d.set_literal("l", "\"abc")),
+		),
+		(
+			"literal with a line break",
+			"l",
+			Box::new(|d| d.set_literal("l", "a\nb")),
+		),
+		(
+			"array on a field with lines under it",
+			"sec",
+			Box::new(|d| d.set_int_array("sec", &[1, 2])),
+		),
+		(
+			"literal array on a field with lines under it",
+			"sec",
+			Box::new(|d| d.set_literal("sec", "[1, 2]")),
+		),
+		(
+			"field under an array",
+			"ports.x",
+			Box::new(|d| d.set_int("ports.x", 1)),
+		),
+	];
+	for (what, path, set) in &cases {
+		let mut doc = Document::parse(text);
+		assert!(!set(&mut doc), "{what}: the setter returned true");
+		assert_eq!(doc.check_set_path(path), shcl::SetPathCheck::Ok, "{what}");
+		assert_eq!(
+			doc.to_canonical(),
+			Document::parse(text).to_canonical(),
+			"{what}: wrote something"
+		);
+	}
 }
 
 #[test]
@@ -2654,8 +2746,8 @@ fn huge_selector_index_is_not_found() {
 	);
 	assert_eq!(doc.count("a(4294967296)"), 0);
 	assert_eq!(
-		doc.write_reason("a(4294967296)"),
-		shcl::WriteReason::NoSuchIndex
+		doc.check_set_path("a(4294967296)"),
+		shcl::SetPathCheck::NoSuchIndex
 	);
 	let mut w = Document::parse("a: 1\na: 2\n");
 	assert!(!w.set_int("a(4294967296)", 9));
@@ -2686,9 +2778,12 @@ fn bracket_selectors_are_the_old_spelling() {
 		shcl::Status::BadPath
 	);
 	assert_eq!(doc.count("srv[web]"), 0);
-	assert_eq!(doc.write_reason("srv[web].x"), shcl::WriteReason::BadPath);
-	assert_eq!(doc.write_reason("srv(#0).x"), shcl::WriteReason::BadPath);
-	assert_eq!(doc.write_reason("srv(0).x"), shcl::WriteReason::Writable);
+	assert_eq!(
+		doc.check_set_path("srv[web].x"),
+		shcl::SetPathCheck::BadPath
+	);
+	assert_eq!(doc.check_set_path("srv(#0).x"), shcl::SetPathCheck::BadPath);
+	assert_eq!(doc.check_set_path("srv(0).x"), shcl::SetPathCheck::Ok);
 	assert!(!doc.set_int("srv[web].x", 1));
 	assert!(doc.set_int("srv(web).x", 1));
 	assert!(doc.to_canonical().starts_with("srv[web]:\nsrv: web\n"));

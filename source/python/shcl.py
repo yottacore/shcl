@@ -64,6 +64,7 @@ __all__ = [
 	"SaveFailed",
 	"SaveRefused",
 	"SegTok",
+	"SetPathCheck",
 	"Severity",
 	"ShclDateTime",
 	"SizeUnit",
@@ -77,7 +78,6 @@ __all__ = [
 	"UpgradeError",
 	"UpgradeFailed",
 	"UpgradeNotFound",
-	"WriteReason",
 	"backup_file_name",
 	"format_float",
 	"format_version",
@@ -141,11 +141,12 @@ class Status(Enum):
 _STATUS_ORDER = {s: i for i, s in enumerate(Status)}
 
 
-class WriteReason(Enum):
-	"""Why a write would fail (write_reason()): the distinctions behind a
-	setter's bare False. Writable = the path passes the writer's validation;
-	the rest name the five ways it cannot."""
-	Writable = 0
+class SetPathCheck(Enum):
+	"""What check_set_path() finds at a path: whether a setter could write
+	there, and if not, why. Ok = the path passes the writer's validation; the
+	rest name the five ways it cannot. A setter can still return False on Ok,
+	when the value itself is refused (see set_int)."""
+	Ok = 0
 	BadPath = 1       # empty path, or the scanner rejected it
 	ValueInPath = 2   # the path has a `: value` part; writes take values separately
 	Wildcard = 3      # wildcard selectors are query-only
@@ -6284,7 +6285,7 @@ class Document:
 		# Returns a _resolve_from result, or ("err", Status). group puts every
 		# node behind a wildcard slot in the list, for the callers that act on
 		# the whole match rather than read one value per instance.
-		# The same paths write_reason calls BadPath or ValueInPath: a query has
+		# The same paths check_set_path calls BadPath or ValueInPath: a query has
 		# no value part, and an empty one names nothing.
 		try:
 			segments, value_text = _scan_lookup(path)
@@ -6473,44 +6474,45 @@ class Document:
 		self._settle(parent, len(self.arena[parent].children) - 1)
 		return idx
 
-	def write_reason(self, path: str) -> WriteReason:
-		"""Why a write at this path would fail - the reason behind a setter's
-		bare False, so a consumer's error message need not guess. Writable means
-		the same validation _place() runs would pass; nothing is created."""
+	def check_set_path(self, path: str) -> SetPathCheck:
+		"""Whether a setter could write at this path, and why not when it could
+		not, so a consumer's error message need not guess. Ok means the same
+		validation _place() runs would pass; nothing is created. A setter can
+		still refuse its value on an Ok path (see set_int)."""
 		try:
 			segments, value_text = _scan_lookup(path)
 		except _PathError:
-			return WriteReason.BadPath
+			return SetPathCheck.BadPath
 		return self._probe_write(segments, value_text)[0]
 
-	def _probe_write(self, segments, value_text, trail=None) -> tuple[WriteReason, list | None]:
-		"""The validation walk write_reason and _place share. `trail`, when a
+	def _probe_write(self, segments, value_text, trail=None) -> tuple[SetPathCheck, list | None]:
+		"""The validation walk check_set_path and _place share. `trail`, when a
 		list is passed, collects where each segment ended up - None from the point
 		the path falls off the existing tree - so _place can create from exactly
 		there instead of scanning the path and walking the tree a second time."""
 		if value_text is not None:
-			return (WriteReason.ValueInPath, None)
+			return (SetPathCheck.ValueInPath, None)
 		if not segments:
-			return (WriteReason.BadPath, None)
+			return (SetPathCheck.BadPath, None)
 		# Writer side of the load-time nesting cap: never create deeper.
 		if len(segments) > MAX_DEPTH:
-			return (WriteReason.TooDeep, None)
+			return (SetPathCheck.TooDeep, None)
 		# The probe walk _place() validates with: once it falls off the existing
 		# tree, a later `(k)` can never match (fresh intermediates are created
 		# childless), so an index segment past that point is unresolvable.
 		probe = ROOT
 		for seg in segments:
 			if seg.star:
-				return (WriteReason.Wildcard, None)
+				return (SetPathCheck.Wildcard, None)
 			sel = seg.selector
 			if sel is not None and sel[0] == "wild":
-				return (WriteReason.Wildcard, None)
+				return (SetPathCheck.Wildcard, None)
 			if sel is not None and sel[0] == "idx":
 				if probe is None:
-					return (WriteReason.NoSuchIndex, None)
+					return (SetPathCheck.NoSuchIndex, None)
 				matches = self._children_named(probe, seg.name)
 				if sel[1] >= len(matches):
-					return (WriteReason.NoSuchIndex, None)
+					return (SetPathCheck.NoSuchIndex, None)
 				probe = matches[sel[1]]
 			elif sel is not None and sel[0] == "val":
 				if probe is not None:
@@ -6527,7 +6529,7 @@ class Document:
 					probe = matches[0] if matches else None
 			if trail is not None:
 				trail.append(probe)
-		return (WriteReason.Writable, trail)
+		return (SetPathCheck.Ok, trail)
 
 	def _write_target(self, path):
 		"""The node a write at this path lands on when it is already there."""
@@ -6536,7 +6538,7 @@ class Document:
 		except _PathError:
 			return None
 		trail: list = []
-		if self._probe_write(segments, value_text, trail)[0] != WriteReason.Writable or not trail or trail[-1] is None:
+		if self._probe_write(segments, value_text, trail)[0] != SetPathCheck.Ok or not trail or trail[-1] is None:
 			return None
 		return trail[-1]
 
@@ -6544,7 +6546,7 @@ class Document:
 		"""Walk (creating as needed) to the node a write targets. A trailing
 		name with no selector hits the first same-named instance (or a new one);
 		a `(value)` selector selects the matching instance or creates it; `(k)`
-		must already exist. None = path unusable for a write (write_reason()
+		must already exist. None = path unusable for a write (check_set_path()
 		says why). Validation runs first, so a doomed path leaves no
 		half-created intermediates behind. A setter creating a field deals
 		with the kept lines of its name, as _set_child() says."""
@@ -6553,7 +6555,7 @@ class Document:
 		except _PathError:
 			return None
 		trail: list = []
-		if self._probe_write(segments, value_text, trail)[0] != WriteReason.Writable:
+		if self._probe_write(segments, value_text, trail)[0] != SetPathCheck.Ok:
 			return None
 		# Nothing is created until every segment the write would create is known
 		# to read back: the name through the name escaper, an instance selector
@@ -7157,10 +7159,17 @@ class Document:
 		return removed
 
 	def set_int(self, path: str, v: int) -> bool:
-		"""Bind an integer at path, creating the path as needed; False = path not
-		writable (write_reason says why - same for every setter). Worth checking
-		rather than assuming: an ignored False means the save that follows writes
-		a document missing the edit, and reports success doing it. A value of
+		"""Bind an integer at path, creating the path as needed. False from any
+		setter means nothing was written. Either the path check failed, and
+		check_set_path says why, or it passed and the write was refused for what
+		it would write: an int outside the 64-bit range the other bindings
+		hold, a NaN or infinite float, a datetime the reader would refuse, a raw
+		block whose info string holds a `#` or a line break or whose body has a
+		line ending in CR, a comment with a line break, set_literal text that is
+		not one value, an array on a field with lines under it, or a new field
+		under one holding an array. Worth checking rather than assuming: an
+		ignored False means the save that follows writes a document missing the
+		edit, and reports success doing it. A value of
 		the wrong type is a TypeError (same for every typed setter): int here,
 		and a bool is not one."""
 		_want("set_int", v, "int")
@@ -7253,7 +7262,7 @@ class Document:
 	def _set_default(self, path: str, set_: Callable[[Document, str], bool]) -> bool:
 		if not self.exists(path):
 			return set_(self, path)
-		if self.write_reason(path) != WriteReason.Writable:
+		if self.check_set_path(path) != SetPathCheck.Ok:
 			return False
 		if self._probe_doc is None:
 			self._probe_doc = Document.new()
