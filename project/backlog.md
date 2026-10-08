@@ -36,7 +36,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - CLI reads take a path that cannot parse as not found, so `get --default` prints the default at exit 0
 	- ID: 2026100717500001
 	- Type: Bug
-	- Status: Waiting for answers
+	- Status: Queued
 	- Severity: High
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 1
@@ -55,6 +55,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261008: the CLI half is in, all four. Open question below, on the library.
 		- Question: the library's reads hide a bad path the same way, in all four. `get_int_or("site[0].port", 8)` gives 8, the full-tier read gives NotFound, and `count` gives 0. Only `write_reason` tells a bad path from a missing one. Any fix changes a public contract: a new read status such as `BadPath` breaks every exhaustive match on the status, and an `_or` that raises breaks the call that never fails. Options: (a) leave the library as it is, and say in spec.md that a read takes a path that cannot parse as NotFound and `write_reason` is the check; (b) add a status for 3.0, since it is a major bump anyway. My pick is (a). The library was left alone.
 		- 20261008: the user asked for examples, and said a behavior change is fine since every current consumer can change. With that, my pick moves to (b): a `BadPath` read status, last in the order, and Python's value 1 to match the CLI's exit. The `_or` reads still give the default.
+		- Answered 20261008: (b), a `BadPath` read status, all four. Back to Queued for the library half.
+		- The user asked whether `write_reason` is how a caller learns why something failed, since "write" reads like saving the file. With (b) a read gets its own status, so `write_reason` is left for the setters alone. The name still mixes terms: setters are `set_*`, and `--write` means save. Proposed with this item: rename it `check_set_path`, with `SetPathCheck` and `Ok` in place of `Writable`, in all four and the C++ interface. Waiting on the name.
 	- Actual fix [Bug]: `get`, `count`, `instances` and `children` check PATH with the same test `--remove` uses, before the load, and exit 1 with `bad PATH (REASON): PATH (see --help)`. A bracket selector keeps its reason, "a selector is written in parens now, name(value)"; anything else is "not a usable path". `children` still takes the empty path as the top level, as the library documents. A bad PATH is judged before FILE is read, like the other usage errors. All four CLIs, same stderr bytes. The help's refused list, the man page, the UI style guide's exit table and the changelog say so. The man page's `get` text said `[*]` and now says `(*)`.
 	- Swept: the positional PATH of `get`, `count`, `instances` and `children` (fixed). `--set`, `--set-literal`, `--set-default`, `--set-literal-default`, `--remove` and every ops-script path already refused at 1 through `write_reason`. `paths`, `fmt`, `check`, `init`, `migrate`, `upgrade`, `tokens` and `explain` take no PATH. The library `_or` reads in Rust, Go, Python and C hide it too; see the question.
 	- Verified: the 10 refusal rows fail on dev's four CLIs (40 checks) and pass after. cli-regress (462 rows), crosscheck (17862 comparisons), the four conformance suites, `cargo test`, Go cmd tests, check-docs, check-abnf, check-readme, check-migrate, shell-regress, check-completions, clippy for the host and windows, rustfmt, go vet, staticcheck, ruff, mypy, shellcheck, test-ids check, markdownlint.
@@ -215,6 +217,24 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Origin: Confirmed. The spec documents it, so this is not filed as a defect.
 	- Progress log:
 		- 20261008: `instances --paths` OK'd. Proposed back: print the index form, `shard(0)`, which is unique even when 2 instances share a value and never holds a space. The user asked why not a machine-readable mode too. Proposed: `--json` on `paths`, `children`, `instances` and `get --array`, one JSON object per line with path, value and line. Waiting on the user.
+		- Answered 20261008: `--paths` prints the index form, `shard(0)`. `--json` is its own item, 2026100814455655, in this release.
+
+- A `--json` mode for the list commands
+	- ID: 2026100814455655
+	- Type: Feature
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261008-144556
+	- Opened by: JC, from talk on 2026100717500016
+	- Related IDs: 2026100717500016, 2026100717500006
+	- Problem description: the list commands print one bare value per line. A value with a space or a line break, or 2 instances with one value, can't be told apart in a shell loop, and the line a value came from isn't shown.
+	- Requirements:
+		- `--json` on `paths`, `children`, `instances` and `get --array`.
+		- One JSON object per line, such as `{"path":"shard(0)","value":"1","line":1}`. The path is the index form, the same as `instances --paths`.
+		- Byte-identical output in all four CLIs, each with its own small JSON string writer. No new dependency.
+		- Works from bash with `jq` and from PowerShell with `ConvertFrom-Json`.
+		- Help, man page, README and spec say so.
+	- Reason: scripts get the path, value and line together without parsing plain text. NUL-separated output was weighed and dropped, since PowerShell can't split it easily and one record can't hold all 3 fields.
 
 - A file stamped with a newer Format major loads clean
 	- ID: 2026100717500017
