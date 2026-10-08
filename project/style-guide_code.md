@@ -93,6 +93,8 @@ New bindings (Tier 3) follow the same recipe: port the reference function-for-fu
 
 - Deliberate deviation: the datetime type is `DateTime`, not `ShclDateTime`; the package name already has the prefix. The reference and Python export `DateTime` as an alias so the two spellings meet.
 
+- Enum values share the package's one namespace, so a name two enums would both use gets a prefix on one side: `FileNotFound` beside the read status `NotFound`, and `WriteBadPath` beside the read status `BadPath`. Each prints the reference's name.
+
 - The tokenizer's absent offsets (`Sep`, `Comment`, `Fault`) are `-1` where the reference has `None`; the spans themselves are the same byte offsets in every binding.
 
 ### Python

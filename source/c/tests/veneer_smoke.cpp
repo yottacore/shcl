@@ -95,6 +95,14 @@ int main() {
 
 	auto missing = doc.read_int("nope");
 	CHECK(missing.status == shcl::Status::NotFound);
+	// A path that cannot parse is BadPath, last in the order, and the
+	// fallback still covers it.
+	CHECK(doc.read_int("city[Boston]").status == shcl::Status::BadPath);
+	CHECK(doc.get<std::string>("port: 1").status == shcl::Status::BadPath);
+	CHECK(doc.read_int_array("a..b").status == shcl::Status::BadPath && doc.read_int_array("a..b").slots.empty());
+	CHECK(doc.get_or<int64_t>("city[Boston]", 9) == 9 && doc.count("city[Boston]") == 0);
+	CHECK(std::string(shcl::to_string(shcl::Status::BadPath)) == "BadPath" && shcl::status_code(shcl::Status::BadPath) == 1);
+	CHECK(shcl::Status::BadPath > shcl::Status::Multiple);
 
 	// Convenience tier: value on Good, call-site fallback otherwise.
 	CHECK(doc.get_or<int64_t>("port", 9) == 8080);

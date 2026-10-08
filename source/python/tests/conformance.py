@@ -995,8 +995,14 @@ def main():
 		fails.append("surrogate: the parse did not keep the text")
 	if sdoc.read_string("a").value != "x\udc80" or sdoc.read_string('"k\udc81"').status != shcl.Status.Good:
 		fails.append("surrogate: a read did not find what the parse kept")
-	if sdoc.read_string("z\udc80").status != shcl.Status.NotFound or sdoc.exists("q\udc80.r"):
-		fails.append("surrogate: a path holding one is not NotFound")
+	# Was NotFound until reads got BadPath (2026100717500001): a bare name
+	# outside ASCII is refused, so the quoted spelling is the miss now.
+	# if sdoc.read_string("z\udc80").status != shcl.Status.NotFound or sdoc.exists("q\udc80.r"):
+	# 	fails.append("surrogate: a path holding one is not NotFound")
+	if sdoc.read_string("z\udc80").status != shcl.Status.BadPath or sdoc.exists("q\udc80.r"):
+		fails.append("surrogate: a bare path holding one is not BadPath")
+	if sdoc.read_string('"z\udc80"').status != shcl.Status.NotFound or sdoc.exists('"q\udc80".r'):
+		fails.append("surrogate: a quoted path holding one is not NotFound")
 	with tempfile.TemporaryDirectory() as sd:
 		try:
 			sdoc.save_file(os.path.join(sd, "s.shcl"))
@@ -1445,6 +1451,52 @@ def main():
 			for sst in snode.body[1:]:
 				if isinstance(sst, ast.Expr) and isinstance(sst.value, ast.Constant) and isinstance(sst.value.value, str):
 					raise SystemExit(f"shcl.py:{sst.lineno}: a string statement below the first one documents nothing")
+	test_id("Es9JVrZ", "bad_path_reads_say_bad_path")
+	# A path the scanner refuses, or one with a value part, is BadPath on every
+	# read with a status, where a path that parses and finds nothing stays
+	# NotFound. The no-status calls give their empty answer and _or its
+	# default. Same fixture in every runner.
+	bpdoc = shcl.Document.parse("site: a\n\tport: 1\n")
+	if bpdoc.read_int("site(0).port").status is not shcl.Status.Good:
+		raise SystemExit(f"site(0).port {bpdoc.read_int('site(0).port')!r}")
+	if bpdoc.read_int("nope").status is not shcl.Status.NotFound:
+		raise SystemExit(f"nope {bpdoc.read_int('nope')!r}")
+	for bpath in ("site[0].port", "site(.port", "site..port", "", "user name", "site.port: 1", "h:p"):
+		bpr = bpdoc.read_int(bpath)
+		if (bpr.status, bpr.value, bpr.raw) != (shcl.Status.BadPath, 0, None):
+			raise SystemExit(f"read_int({bpath!r}) {bpr!r}")
+		for bpread in (
+			bpdoc.read_float, bpdoc.read_bool, bpdoc.read_string, bpdoc.read_raw,
+			bpdoc.read_raw_info, bpdoc.read_datetime, bpdoc.read_duration, bpdoc.read_size,
+			bpdoc.read_float_array, bpdoc.read_bool_array, bpdoc.read_string_array,
+			bpdoc.read_datetime_array,
+		):
+			if bpread(bpath).status is not shcl.Status.BadPath:
+				raise SystemExit(f"{bpread.__name__}({bpath!r}) {bpread(bpath)!r}")
+		bpa = bpdoc.read_int_array(bpath)
+		if (bpa.status, bpa.value, bpa.slots) != (shcl.Status.BadPath, [], []):
+			raise SystemExit(f"read_int_array({bpath!r}) {bpa!r}")
+		for bpget in (bpdoc.get_int, bpdoc.get_string_array):
+			bpraised = None
+			try:
+				bpget(bpath)
+			except shcl.StatusError as e:
+				bpraised = e.status
+			if bpraised is not shcl.Status.BadPath:
+				raise SystemExit(f"{bpget.__name__}({bpath!r}) raised {bpraised}")
+		if bpdoc.get_int(bpath, 8) != 8 or bpdoc.get_int_or(bpath, 8) != 8:
+			raise SystemExit(f"get_int default ({bpath!r})")
+		if bpdoc.count(bpath) != 0 or bpdoc.instances(bpath) != []:
+			raise SystemExit(f"count/instances ({bpath!r})")
+		if bpath and bpdoc.children(bpath) != []:
+			raise SystemExit(f"children({bpath!r}) {bpdoc.children(bpath)}")
+	# The empty path is the top level for children(), as documented.
+	if bpdoc.children("") != ["site"]:
+		raise SystemExit(f"children('') {bpdoc.children('')}")
+	# Last in the order, so a worst-of aggregate puts it on top; its value is
+	# the CLI's usage exit.
+	if list(shcl.Status)[-1] is not shcl.Status.BadPath or shcl.Status.BadPath.value != 1:
+		raise SystemExit(f"BadPath order or value {list(shcl.Status)}")
 	test_id("ElouJ8N", "write_reason_names_the_failure")
 	# write_reason: the reason behind a setter's bare False. Same fixture in
 	# every runner.
@@ -3247,7 +3299,10 @@ def main():
 		raise SystemExit(f"srv(web).host = {odoc.read_string('srv(web).host')!r}")
 	if odoc.count("srv") != 1:
 		raise SystemExit(f"srv count {odoc.count('srv')}")
-	if odoc.read_string("srv[web].host").status != shcl.Status.NotFound:
+	# Was NotFound until reads got BadPath (2026100717500001).
+	# if odoc.read_string("srv[web].host").status != shcl.Status.NotFound:
+	# 	raise SystemExit(f"srv[web].host {odoc.read_string('srv[web].host')!r}")
+	if odoc.read_string("srv[web].host").status != shcl.Status.BadPath:
 		raise SystemExit(f"srv[web].host {odoc.read_string('srv[web].host')!r}")
 	if odoc.count("srv[web]") != 0:
 		raise SystemExit(f"srv[web] count {odoc.count('srv[web]')}")

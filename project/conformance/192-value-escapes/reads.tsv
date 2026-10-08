@@ -21,6 +21,6 @@ unknown	string	-	Empty
 unknown.under	int	1	Good
 odd	string	-	NotFound
 surrogate	string	-	NotFound
-"bad◉NAME◉"	int	-	NotFound
+"bad◉NAME◉"	int	-	BadPath
 stack	string[]	fine	Good
 last	int	1	Good

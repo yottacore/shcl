@@ -506,6 +506,8 @@ func statusCode(st shcl.Status) int {
 		return 4
 	case shcl.Multiple:
 		return 5
+	case shcl.BadPath:
+		return 1
 	}
 	return 0
 }
@@ -769,7 +771,7 @@ var infoFlags = [...]string{"-h", "--help", "-v", "-V", "--version", "--about", 
 // missing path or a wildcard is still fine.
 func unusablePath(doc *shcl.Document, path string) bool {
 	r := doc.WriteReason(path)
-	return r == shcl.BadPath || r == shcl.ValueInPath
+	return r == shcl.WriteBadPath || r == shcl.ValueInPath
 }
 
 // bracketPath: a path with a selector in brackets, the old spelling (E029).
@@ -791,8 +793,9 @@ func badPath(path string) string {
 }
 
 // refuseReadPath: a read's PATH that cannot parse is a usage error, the same
-// as --remove's. The library reads it as NotFound, so `get --default` would
-// print the default at exit 0 and a 2.x script would never hear about it.
+// as --remove's. The library's _or reads give their default for it, so `get
+// --default` would print the default at exit 0 and a 2.x script would never
+// hear about it.
 func refuseReadPath(path string) bool {
 	if !unusablePath(shcl.New(), path) {
 		return false
@@ -1981,6 +1984,9 @@ func doGet(o *opts) int {
 			reason = "the value is empty"
 		case shcl.Multiple:
 			reason = "the path matches multiple instances"
+		case shcl.BadPath:
+			// Refused before the load, so only a library read meets it.
+			reason = "not a usable path"
 		}
 		fmt.Fprintf(os.Stderr, "cannot read %s as %s: %s (in %s)\n", path, typeName, reason, file)
 	}

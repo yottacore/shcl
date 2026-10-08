@@ -2905,6 +2905,49 @@ int main(int argc, char **argv) {
 	}
 	// write_reason: the reason behind a setter's bare 0. Same fixture in every
 	// runner.
+	test_id("Es9JVra", "bad_path_reads_say_bad_path");
+	// A path the scanner refuses, or one with a value part, is BadPath on every
+	// read with a status, where a path that parses and finds nothing stays
+	// NotFound. The no-status calls give their empty answer and _or its
+	// default. Same fixture in every runner.
+	{
+		const char *bt = "site: a\n\tport: 1\n";
+		shcl_doc *bd = shcl_parse(bt, strlen(bt));
+		if (shcl_read_int(bd, "site(0).port", 12).status != SHCL_GOOD) fail("bad_path", "site(0).port not good");
+		if (shcl_read_int(bd, "nope", 4).status != SHCL_NOT_FOUND) fail("bad_path", "nope not NotFound");
+		static const char *const bps[] = {"site[0].port", "site(.port", "site..port", "", "user name", "site.port: 1", "h:p"};
+		for (size_t i = 0; i < sizeof bps / sizeof bps[0]; i++) {
+			const char *p = bps[i]; size_t n = strlen(p);
+			shcl_read_i64 ri = shcl_read_int(bd, p, n);
+			if (ri.status != SHCL_BAD_PATH || ri.value != 0) fail("bad_path", p);
+			shcl_status sts[] = {
+				shcl_read_float(bd, p, n).status, shcl_read_bool_(bd, p, n).status,
+				shcl_read_string(bd, p, n).status, shcl_read_raw(bd, p, n).status,
+				shcl_read_raw_info(bd, p, n).status, shcl_read_datetime(bd, p, n).status,
+				shcl_read_duration(bd, p, n, SHCL_DURATION_NONE).status,
+				shcl_read_size(bd, p, n, SHCL_SIZE_NONE, 0).status,
+				shcl_read_float_array(bd, p, n).status, shcl_read_bool_array(bd, p, n).status,
+				shcl_read_string_array(bd, p, n).status, shcl_read_datetime_array(bd, p, n).status,
+			};
+			for (size_t k = 0; k < sizeof sts / sizeof sts[0]; k++)
+				if (sts[k] != SHCL_BAD_PATH) fail("bad_path", p);
+			shcl_read_i64_arr ra = shcl_read_int_array(bd, p, n);
+			if (ra.status != SHCL_BAD_PATH || ra.n != 0 || ra.statuses) fail("bad_path", p);
+			char buf[8] = "x"; size_t len = 9; int64_t iv[2]; shcl_status sl[2]; size_t an = 9;
+			if (shcl_read_string_to(bd, p, n, buf, sizeof buf, &len) != SHCL_BAD_PATH || len != 0 || buf[0]) fail("bad_path", p);
+			if (shcl_read_int_array_to(bd, p, n, iv, sl, 2, &an) != SHCL_BAD_PATH || an != 0) fail("bad_path", p);
+			if (shcl_get_int_or(bd, p, n, 8) != 8 || shcl_get_int(bd, p, n, 8) != 8) fail("bad_path", p);
+			shcl_str *bv;
+			if (shcl_count(bd, p, n) != 0 || shcl_instances(bd, p, n, &bv) != 0) fail("bad_path", p);
+			if (n && shcl_children(bd, p, n, &bv) != 0) fail("bad_path", p);
+		}
+		// The empty path is the top level for shcl_children, as documented.
+		shcl_str *kids;
+		if (shcl_children(bd, "", 0, &kids) != 1 || kids[0].n != 4 || memcmp(kids[0].p, "site", 4)) fail("bad_path", "children of the empty path");
+		// Last in the order, so a worst-of aggregate puts it on top.
+		if (SHCL_BAD_PATH <= SHCL_MULTIPLE || strcmp(shcl_status_name(SHCL_BAD_PATH), "BadPath") || shcl_status_code(SHCL_BAD_PATH) != 1) fail("bad_path", "order, name or code");
+		shcl_free(bd);
+	}
 	test_id("ElouJ8M", "write_reason_names_the_failure");
 	{
 		const char *wt = "a:\n\tb: 1\n";
@@ -3724,7 +3767,9 @@ int main(int argc, char **argv) {
 		shcl_read_str oh = shcl_read_string(od, "srv(web).host", 13);
 		if (oh.status != SHCL_GOOD || !str_is(oh.value, "h")) fail("bracket_selector", "srv(web).host");
 		if (shcl_count(od, "srv", 3) != 1) fail("bracket_selector", "srv count");
-		if (shcl_read_string(od, "srv[web].host", 13).status != SHCL_NOT_FOUND) fail("bracket_selector", "srv[web].host found");
+		// Was NotFound until reads got BadPath (2026100717500001).
+		// if (shcl_read_string(od, "srv[web].host", 13).status != SHCL_NOT_FOUND) fail("bracket_selector", "srv[web].host found");
+		if (shcl_read_string(od, "srv[web].host", 13).status != SHCL_BAD_PATH) fail("bracket_selector", "srv[web].host not BadPath");
 		if (shcl_count(od, "srv[web]", 8) != 0) fail("bracket_selector", "srv[web] count");
 		if (shcl_write_reason_(od, "srv[web].x", 10) != SHCL_W_BAD_PATH) fail("bracket_selector", "write_reason srv[web].x");
 		if (shcl_write_reason_(od, "srv(#0).x", 9) != SHCL_W_BAD_PATH) fail("bracket_selector", "write_reason srv(#0).x");

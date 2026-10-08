@@ -2580,6 +2580,67 @@ fn repeat_suppression_uses_parsed_leaf() {
 	assert_eq!(d2.iter().filter(|d| d.code == "H001").count(), 0);
 }
 
+// A path the scanner refuses, or one with a value part, is BadPath on every
+// read with a status, where a path that parses and finds nothing stays
+// NotFound. The no-status calls give their empty answer and `_or` its
+// default. Same fixture in every runner.
+#[test]
+fn bad_path_reads_say_bad_path() {
+	let _id = test_id("Es9JVrX");
+	use shcl::Status::{BadPath, Good, Multiple, NotFound};
+	let doc = Document::parse("site: a\n\tport: 1\n");
+	assert_eq!(doc.read_int("site(0).port").status, Good);
+	assert_eq!(doc.read_int("nope").status, NotFound);
+	let bad = [
+		"site[0].port",
+		"site(.port",
+		"site..port",
+		"",
+		"user name",
+		"site.port: 1",
+		"h:p",
+	];
+	for p in bad {
+		let r = doc.read_int(p);
+		assert_eq!(
+			(r.status, r.value, r.raw.is_none()),
+			(BadPath, 0, true),
+			"{p:?}"
+		);
+		assert_eq!(doc.read_float(p).status, BadPath, "{p:?}");
+		assert_eq!(doc.read_bool(p).status, BadPath, "{p:?}");
+		assert_eq!(doc.read_string(p).status, BadPath, "{p:?}");
+		assert_eq!(doc.read_raw(p).status, BadPath, "{p:?}");
+		assert_eq!(doc.read_raw_info(p).status, BadPath, "{p:?}");
+		assert_eq!(doc.read_datetime(p).status, BadPath, "{p:?}");
+		assert_eq!(doc.read_duration(p, None).status, BadPath, "{p:?}");
+		assert_eq!(doc.read_size(p, None, false).status, BadPath, "{p:?}");
+		let a = doc.read_int_array(p);
+		assert_eq!(
+			(a.status, a.value.len(), a.slots.len()),
+			(BadPath, 0, 0),
+			"{p:?}"
+		);
+		assert_eq!(doc.read_float_array(p).status, BadPath, "{p:?}");
+		assert_eq!(doc.read_bool_array(p).status, BadPath, "{p:?}");
+		assert_eq!(doc.read_string_array(p).status, BadPath, "{p:?}");
+		assert_eq!(doc.read_datetime_array(p).status, BadPath, "{p:?}");
+		assert_eq!(doc.get_int(p), Err(BadPath), "{p:?}");
+		assert_eq!(doc.get_string_array(p), Err(BadPath), "{p:?}");
+		assert_eq!(doc.get_int_or(p, 8), 8, "{p:?}");
+		assert_eq!(doc.count(p), 0, "{p:?}");
+		assert!(doc.instances(p).is_empty(), "{p:?}");
+		if !p.is_empty() {
+			assert!(doc.children(p).is_empty(), "{p:?}");
+		}
+	}
+	// The empty path is the top level for children(), as documented.
+	assert_eq!(doc.children(""), vec!["site".to_string()]);
+	// Last in the order, so a worst-of aggregate puts it on top.
+	assert!(BadPath > Multiple);
+	assert_eq!(BadPath.to_string(), "BadPath");
+}
+
 #[test]
 fn huge_selector_index_is_not_found() {
 	let _id = test_id("Elv59be");
@@ -2615,9 +2676,14 @@ fn bracket_selectors_are_the_old_spelling() {
 	assert_eq!(doc.lost_count(), 0);
 	assert_eq!(doc.read_string("srv(web).host").value, "h");
 	assert_eq!(doc.count("srv"), 1);
+	// Was NotFound until reads got BadPath (2026100717500001).
+	// assert_eq!(
+	// 	doc.read_string("srv[web].host").status,
+	// 	shcl::Status::NotFound
+	// );
 	assert_eq!(
 		doc.read_string("srv[web].host").status,
-		shcl::Status::NotFound
+		shcl::Status::BadPath
 	);
 	assert_eq!(doc.count("srv[web]"), 0);
 	assert_eq!(doc.write_reason("srv[web].x"), shcl::WriteReason::BadPath);

@@ -114,7 +114,7 @@ type Diagnostic struct {
 }
 
 // Status is the read sentinel. Empty is informational - the empty value is
-// still returned.
+// still returned. Ordered by severity so a worst-of aggregate is the largest.
 type Status int
 
 const (
@@ -123,6 +123,7 @@ const (
 	NotFound               // path resolved to no node
 	BadType                // value would not coerce to the asked type
 	Multiple               // path resolved to more than one node
+	BadPath                // the scanner refused the path, or it has a `: value` part
 )
 
 // String names the status.
@@ -138,6 +139,8 @@ func (s Status) String() string {
 		return "BadType"
 	case Multiple:
 		return "Multiple"
+	case BadPath:
+		return "BadPath"
 	}
 	return "Good"
 }
@@ -148,12 +151,12 @@ func (s Status) String() string {
 type WriteReason int
 
 const (
-	Writable    WriteReason = iota // the path passes the writer's validation
-	BadPath                        // empty path, or the scanner rejected it
-	ValueInPath                    // the path has a `: value` part; writes take values separately
-	Wildcard                       // wildcard selectors are query-only
-	NoSuchIndex                    // a `(k)` instance that does not (and can never) exist
-	TooDeep                        // deeper than the nesting cap; the writer never creates past it
+	Writable     WriteReason = iota // the path passes the writer's validation
+	WriteBadPath                    // empty path, or the scanner rejected it; BadPath is the read status
+	ValueInPath                     // the path has a `: value` part; writes take values separately
+	Wildcard                        // wildcard selectors are query-only
+	NoSuchIndex                     // a `(k)` instance that does not (and can never) exist
+	TooDeep                         // deeper than the nesting cap; the writer never creates past it
 )
 
 // String names the reason.
@@ -161,7 +164,7 @@ func (r WriteReason) String() string {
 	switch r {
 	case Writable:
 		return "Writable"
-	case BadPath:
+	case WriteBadPath:
 		return "BadPath"
 	case ValueInPath:
 		return "ValueInPath"
@@ -8886,10 +8889,13 @@ func (d *Document) resolveGroup(path string) (resolved, bool) {
 	return d.resolveMode(path, true)
 }
 
+// resolveMode's false is a BadPath read: the same paths WriteReason calls
+// BadPath or ValueInPath, since a query has no value part and an empty one
+// names nothing.
 func (d *Document) resolveMode(path string, group bool) (resolved, bool) {
 	scan, err := scanLookup(path)
-	if err != nil || scan.hasValue {
-		return resolved{}, false // a query has no value part
+	if err != nil || scan.hasValue || len(scan.segments) == 0 {
+		return resolved{}, false
 	}
 	return d.resolveFrom([]int{root}, scan.segments, group), true
 }
@@ -9287,7 +9293,7 @@ func (d *Document) newChild(parent int, name, nameSrc string, v value) int {
 func (d *Document) WriteReason(path string) WriteReason {
 	scan, err := scanLookup(path)
 	if err != nil {
-		return BadPath
+		return WriteBadPath
 	}
 	r, _ := d.probeWrite(scan)
 	return r
@@ -9302,7 +9308,7 @@ func (d *Document) probeWrite(scan pathScan) (WriteReason, []int) {
 		return ValueInPath, nil
 	}
 	if len(scan.segments) == 0 {
-		return BadPath, nil
+		return WriteBadPath, nil
 	}
 	// Writer side of the load-time nesting cap: never create deeper.
 	if len(scan.segments) > MaxDepth {
@@ -11855,7 +11861,7 @@ func ParseDateTime(text string) (DateTime, bool) {
 func (d *Document) nodeAt(path string) (int, Status) {
 	r, ok := d.resolve(path)
 	if !ok {
-		return -1, NotFound
+		return -1, BadPath
 	}
 	switch r.kind {
 	case resNone:
@@ -12042,7 +12048,7 @@ func readArray[T any](d *Document, path string, coerce func(*element) (T, bool))
 	// target type and records its own status; the aggregate is the worst one.
 	r, ok := d.resolve(path)
 	if !ok {
-		return Read[[]T]{Value: []T{}, Status: NotFound}
+		return Read[[]T]{Value: []T{}, Status: BadPath}
 	}
 	switch r.kind {
 	case resSlots:

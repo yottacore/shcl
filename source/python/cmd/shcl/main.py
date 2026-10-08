@@ -664,8 +664,8 @@ def bad_path(path):
 
 def refuse_read_path(path):
 	# A read's PATH that cannot parse is a usage error, the same as --remove's.
-	# The library reads it as NotFound, so `get --default` would print the
-	# default at exit 0 and a 2.x script would never hear about it.
+	# The library's _or reads give their default for it, so `get --default`
+	# would print the default at exit 0 and a 2.x script would never hear about it.
 	if not unusable_path(shcl.Document.parse(""), path):
 		return False
 	sys.stderr.write(f"bad PATH ({bad_path(path)}): {path} (see --help)\n")
@@ -1464,6 +1464,9 @@ def do_get(o):
 			reason = "no value at that path"
 		elif status == shcl.Status.Empty:
 			reason = "the value is empty"
+		elif status == shcl.Status.BadPath:
+			# Refused before the load, so only a library read meets it.
+			reason = "not a usable path"
 		else:
 			reason = "the path matches multiple instances"
 		sys.stderr.write(

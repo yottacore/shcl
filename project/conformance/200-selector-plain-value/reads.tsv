@@ -8,6 +8,6 @@ srv(a).port	int	1	Good
 srv(a).tls	bool	true	Good
 srv("a").tls	bool	true	Good
 srv("b c").port	int	2	Good
-srv(b c).port	int	0	NotFound
+srv(b c).port	int	0	BadPath
 base	count	0	-
 last	int	1	Good

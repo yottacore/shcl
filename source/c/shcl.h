@@ -86,8 +86,11 @@ typedef enum { SHCL_LOOSE, SHCL_STANDARD, SHCL_STRICT } shcl_strictness;
 typedef enum { SHCL_SEV_ERROR, SHCL_SEV_HINT } shcl_severity;
 
 // Read status sentinels. Empty is informational - the empty value still returns.
+// Ordered by severity so a worst-of aggregate is the largest. SHCL_BAD_PATH is
+// a path the scanner refused or one with a `: value` part; SHCL_NOT_FOUND is a
+// usable path that matched nothing.
 typedef enum {
-	SHCL_GOOD, SHCL_EMPTY, SHCL_NOT_FOUND, SHCL_BAD_TYPE, SHCL_MULTIPLE
+	SHCL_GOOD, SHCL_EMPTY, SHCL_NOT_FOUND, SHCL_BAD_TYPE, SHCL_MULTIPLE, SHCL_BAD_PATH
 } shcl_status;
 
 // Why a write would fail (shcl_write_reason_()): the distinctions behind a
@@ -6099,7 +6102,9 @@ static int resolve_mode(shcl_doc *d, ShclStr path, ShclResolved *out, int group)
 	// ShclResolved this call fills stays usable until the next resolve.
 	arena_reset(&d->scratch);
 	ShclPathScan ps = scan_lookup(&d->scratch, path);
-	if (!ps.ok || ps.has_value) return 0;
+	// 0 is a BadPath read: the same paths write_reason calls BadPath or
+	// ValueInPath, since a query has no value part and an empty one names nothing.
+	if (!ps.ok || ps.has_value || ps.segs.len == 0) return 0;
 	size_t root = ROOT;
 	*out = resolve_from(d, &root, 1, ps.segs.data, ps.segs.len, group);
 	return 1;
@@ -6110,7 +6115,7 @@ static int resolve(shcl_doc *d, ShclStr path, ShclResolved *out) { return resolv
 static int resolve_group(shcl_doc *d, ShclStr path, ShclResolved *out) { return resolve_mode(d, path, out, 1); }
 static shcl_status value_at(shcl_doc *d, ShclStr path, ShclValue **out) {
 	ShclResolved r;
-	if (!resolve(d, path, &r)) return SHCL_NOT_FOUND;
+	if (!resolve(d, path, &r)) return SHCL_BAD_PATH;
 	if (r.kind == R_NONE) return SHCL_NOT_FOUND;
 	if (r.kind == R_MANY || r.kind == R_SLOTS) return SHCL_MULTIPLE;
 	*out = &NODE(d, r.one).value; return SHCL_GOOD;
@@ -6139,7 +6144,7 @@ static shcl_status scalar_at(shcl_doc *d, ShclStr path, ShclElement **el) {
 static shcl_status array_elements(shcl_doc *d, ShclArena *a, ShclStr path, ShclElement ***els, shcl_status **sts, size_t *n) {
 	ShclResolved r;
 	*els = NULL; *sts = NULL; *n = 0;
-	if (!resolve(d, path, &r)) return SHCL_NOT_FOUND;
+	if (!resolve(d, path, &r)) return SHCL_BAD_PATH;
 	if (r.kind == R_SLOTS) {
 		size_t m = r.slots.len;
 		ShclElement **arr = (ShclElement **)arena_alloc(a, (m ? m : 1) * sizeof(ShclElement *));
@@ -7795,7 +7800,8 @@ shcl_read_dt shcl_read_datetime(shcl_doc *d, const char *path, size_t plen) {
 static shcl_status scalar_named_at(shcl_doc *d, ShclStr path, ShclElement **el, ShclStr *name) {
 	ShclResolved r;
 	*el = NULL;
-	if (!resolve(d, path, &r) || r.kind == R_NONE) return SHCL_NOT_FOUND;
+	if (!resolve(d, path, &r)) return SHCL_BAD_PATH;
+	if (r.kind == R_NONE) return SHCL_NOT_FOUND;
 	if (r.kind == R_MANY || r.kind == R_SLOTS) return SHCL_MULTIPLE;
 	*name = NODE(d, r.one).name;
 	return scalar_element(&NODE(d, r.one).value, el);
@@ -10011,11 +10017,11 @@ size_t shcl_datetime_str(const shcl_datetime *dt, char *out) {
 	return n;
 }
 int shcl_status_code(shcl_status s) {
-	switch (s) { case SHCL_GOOD: return 0; case SHCL_EMPTY: return 2; case SHCL_NOT_FOUND: return 3; case SHCL_BAD_TYPE: return 4; case SHCL_MULTIPLE: return 5; }
+	switch (s) { case SHCL_GOOD: return 0; case SHCL_EMPTY: return 2; case SHCL_NOT_FOUND: return 3; case SHCL_BAD_TYPE: return 4; case SHCL_MULTIPLE: return 5; case SHCL_BAD_PATH: return 1; }
 	return 1;
 }
 const char *shcl_status_name(shcl_status s) {
-	switch (s) { case SHCL_GOOD: return "Good"; case SHCL_EMPTY: return "Empty"; case SHCL_NOT_FOUND: return "NotFound"; case SHCL_BAD_TYPE: return "BadType"; case SHCL_MULTIPLE: return "Multiple"; }
+	switch (s) { case SHCL_GOOD: return "Good"; case SHCL_EMPTY: return "Empty"; case SHCL_NOT_FOUND: return "NotFound"; case SHCL_BAD_TYPE: return "BadType"; case SHCL_MULTIPLE: return "Multiple"; case SHCL_BAD_PATH: return "BadPath"; }
 	return "Good";
 }
 int shcl_status_ok(shcl_status s) { return s == SHCL_GOOD || s == SHCL_EMPTY; }

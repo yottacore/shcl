@@ -498,6 +498,7 @@ fn status_code(st: Status) -> u8 {
 		Status::NotFound => 3,
 		Status::BadType => 4,
 		Status::Multiple => 5,
+		Status::BadPath => 1,
 	}
 }
 
@@ -749,8 +750,8 @@ fn bad_path(path: &str) -> &'static str {
 }
 
 /// A read's PATH that cannot parse is a usage error, the same as --remove's.
-/// The library reads it as NotFound, so `get --default` would print the
-/// default at exit 0 and a 2.x script would never hear about it.
+/// The library's `_or` reads give their default for it, so `get --default`
+/// would print the default at exit 0 and a 2.x script would never hear about it.
 fn refuse_read_path(path: &str) -> bool {
 	if !unusable_path(&Document::new(), path) {
 		return false;
@@ -1994,6 +1995,8 @@ fn do_get(o: &Opts) -> u8 {
 			Status::NotFound => "no value at that path".to_string(),
 			Status::Empty => "the value is empty".to_string(),
 			Status::Multiple => "the path matches multiple instances".to_string(),
+			// Refused before the load, so only a library read meets it.
+			Status::BadPath => "not a usable path".to_string(),
 			Status::Good => String::new(), // handled above; keep the match total
 		};
 		errln!(
