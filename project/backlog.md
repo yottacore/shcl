@@ -61,6 +61,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Question: `fmt` still drops quotes a name doesn't need, so `"host": x` becomes `host: x`. Should a name keep its quotes too? Left as is.
 		- The demo GIF is stale. Its `window:` line now comes out quoted. Not rerendered.
 		- Corpus case 164 is now `164-quoted-data-kept`, since it pins the opposite of its old name.
+		- 2026-10-08: The demo GIF was rendered again and `cicd/demo/expected.txt` refreshed (`helphint`, `4aab0b99`). shell-regress `EqM7a7s` passes.
 	- Decisions:
 		- The quote list and the never-drop rule, above (JC, 2026-10-08). Quote kind stays. `set --write` leaves untouched lines alone.
 	- Swept: the quoting, emit and new-element code and `keep_mark` in all four, `migrate`'s respelling and 2.x array text, the H001 hint's element, value-syntax.md, spec.md, design.md, grammar.abnf through `gen-escapes.py`, check-abnf's samples, the corpus README, the changelog, 5 cli-regress rows. Names checked, no change.
@@ -72,7 +73,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - `shcl help fmt` prints part of `set`'s help
 	- ID: 2026100717500007
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
+	- Needs local test suite run?: the full `--ci` with the next main push.
 	- Severity: Avg
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 7
@@ -85,6 +87,15 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Origin: `help_for` is from `c78d41da` (2026-09-17); the wrap that trips it is later. Not seen by an earlier round. Confirmed.
 	- Note: any rewrap can do this to another command. A check that no `help CMD` holds another command's paragraph covers the class.
 	- Sweep: `help_for` in all four CLIs.
+	- Cause: `help_for` took the first line of the full help that starts with `fmt `, wherever it sat in a paragraph. A wrapped line in set's paragraph starts with "fmt writes it.", so fmt's help got the rest of set's paragraph.
+	- Fixed: all four take a paragraph only when its first line starts with the command's name.
+	- Swept: `help_for` in all four CLIs. C's `print_block` also cuts the Types block, which already starts a paragraph, so its output is unchanged. `help CMD` for every command is byte-identical across the four.
+	- Verified: cli-regress, shell-regress, crosscheck over the corpus, the four conformance suites and the other unit tests, check-docs, check-abnf, clippy for both targets, go vet, staticcheck, ruff, mypy.
+	- Test case: cli-regress `Es9aIKE` (`help-own-paragraphs`): for every command, in all four, no line of `help CMD` comes from a paragraph that opens with another command, and the command's own paragraph is there whole. It failed on `help fmt` in all four before the fix and passes now.
+	- Acceptance signoff: Self-closed: the change does what the item asked, and its test failed before and passes after.
+	- Branch: helphint
+	- Commit: `288ce795`
+	- Closed: 20261008-162924
 
 - C and Python setters take text that is not valid UTF-8, where Go refuses it
 	- ID: 2026100815543610
@@ -149,7 +160,9 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - A repeated-field hint prints the whole suggested array on every run
 	- ID: 2026100717500013
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
+	- Needs local test suite run?: the full `--ci` with the next main push, for cppcheck over the C change.
+	- Needs external testing: a hosted run with the next main push.
 	- Severity: Avg
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 13
@@ -160,6 +173,16 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: 20261007, Rust CLI.
 	- Origin: not blamed. Not seen by an earlier round. Confirmed.
 	- Sweep: the `H001` builders in all four.
+	- Cause: the H001 builder joined every value of the repeated field into the hint.
+	- Fixed: a list in a diagnostic shows its first 3 values, then `...` and a count, in all four: `'item' repeats as a bare leaf - did you mean 'item: [v0, v1, v2, ...]'? (and 399997 more)`. 3 or fewer show as before. stderr for the 400,000-line file is 301 bytes, the same bytes in all four. design.md and the changelog say so.
+	- Swept: the H001 builder in all four. Every other message builder in the four libraries and CLIs that joins a list: only `V004` on an array read as a string, which printed the whole array, now cut the same way. `init`'s `one of:` annotation and `desc` join write file text, not messages. `H002`, `H005`, `V004` to `V006`, the "did you mean" suggestions and every name quote one value or name from their own line, so they were left alone. The corpus `expected-diags` files hold codes only. cli-regress `EqTPxzc` and `ErqYSbQ` pin 2-value hints and still pass.
+	- Progress log:
+		- 2026-10-08: The hint wording and the cut at 3 are for signoff.
+		- Question: one value can still be as long as its own line, and `V004` on a raw block puts the whole block on one stderr line. Should a single value be cut short too, say past 200 characters?
+	- Verified: cli-regress, shell-regress, crosscheck over the corpus, the four conformance suites and the other unit tests, check-docs, check-abnf, clippy for both targets, go vet, staticcheck, ruff, mypy, markdownlint.
+	- Test case: cli-regress `Es9aIMN` (`diag-list-cap`): a field repeated on 20,000 lines, 3 and 4 repeats, and `V004` on 3- and 5-element arrays, exact text in all four and stderr under 1,000 bytes. It failed in all four before the fix and passes now.
+	- Branch: helphint
+	- Commit: `86825250`
 
 - `instances` output can't be fed back into a selector
 	- ID: 2026100717500016
