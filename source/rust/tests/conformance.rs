@@ -407,7 +407,8 @@ fn validation_matches_expected() {
 		for d in &diags {
 			got.push_str(&format!("line {}: {:?}: {}\n", d.line, d.severity, d.code));
 		}
-		let one_shot = Document::load_and_validate(&case.input, schema_text, Strictness::Standard);
+		let one_shot =
+			Document::load_and_validate(&case.input, schema_text, Strictness::Standard).unwrap();
 		let mut lv = String::new();
 		for d in one_shot.diagnostics() {
 			lv.push_str(&format!("line {}: {:?}: {}\n", d.line, d.severity, d.code));
@@ -1376,17 +1377,107 @@ fn one_shot_load_and_validate() {
 	// accident. Same fixture in every runner.
 	let text = ": nope\nport: x\n";
 	let schema = "field: port\n\ttype: int\n";
-	let doc = shcl::Document::load_and_validate(text, schema, Strictness::Standard);
+	let doc = shcl::Document::load_and_validate(text, schema, Strictness::Standard).unwrap();
 	let codes: Vec<&str> = doc.diagnostics().iter().map(|d| d.code).collect();
 	assert_eq!(codes, vec!["E014", "V003"]);
 	assert_eq!(doc.error_count(), 2);
 	assert_eq!(doc.read_string("port").value, "x"); // doc still usable
-	// Strict never throws here; the diagnostics are the answer.
-	let strict = shcl::Document::load_and_validate(text, schema, Strictness::Strict);
-	assert!(strict.error_count() >= 2);
+	// Commented out 2026-10-08: Strict fails here as it does in parse_with
+	// (2026100717500012); strict_fails_the_same_from_every_entry_point has it.
+	// // Strict never throws here; the diagnostics are the answer.
+	// let strict = shcl::Document::load_and_validate(text, schema, Strictness::Strict);
+	// assert!(strict.error_count() >= 2);
+	let strict = shcl::Document::load_and_validate(text, schema, Strictness::Strict).unwrap_err();
+	assert_eq!(strict.document.error_count(), 2);
 	// An empty schema declares nothing and validates nothing.
-	let plain = shcl::Document::load_and_validate("a: 1\n", "", Strictness::Standard);
+	let plain = shcl::Document::load_and_validate("a: 1\n", "", Strictness::Standard).unwrap();
 	assert_eq!((plain.error_count(), plain.diagnostics().len()), (0, 0));
+}
+
+#[test]
+fn strict_fails_the_same_from_every_entry_point() {
+	let _id = test_id("Es9mP2o");
+	// Strict fails the load on any error diagnostic, from every entry point,
+	// with the document inside the error. The file tier and the one-shot gave
+	// a plain document where parse_with failed. Same fixture in every runner.
+	use shcl::{FileStatus, LoadError};
+	let dir = std::env::temp_dir().join(format!("shcl-strictsame-{}", std::process::id()));
+	std::fs::create_dir_all(&dir).unwrap();
+	let f = dir.join("t.shcl");
+	let fs = f.to_str().unwrap();
+	let text = ": nope\nport: 1\n";
+	std::fs::write(&f, text).unwrap();
+	let schema = "field: port\n\ttype: int\n";
+	let strict = Strictness::Strict;
+	let runs: Vec<(&str, Result<Document, LoadError>)> = vec![
+		("parse_with", Document::parse_with(text, strict)),
+		(
+			"parse_limited",
+			Document::parse_limited(text, strict, 0, 0, 0),
+		),
+		("parse_keep_lines", Document::parse_keep_lines(text, strict)),
+		(
+			"load_and_validate",
+			Document::load_and_validate(text, schema, strict),
+		),
+		(
+			"load_file_with",
+			Document::load_file_with(fs, strict).map(|r| r.0),
+		),
+		(
+			"load_file_keep_lines",
+			Document::load_file_keep_lines(fs, strict).map(|r| r.0),
+		),
+	];
+	for (name, run) in runs {
+		let Err(e) = run else {
+			panic!("{name}: a strict load with an error came back Ok");
+		};
+		let codes: Vec<&str> = e.diagnostics.iter().map(|d| d.code).collect();
+		assert_eq!(codes, ["E014"], "{name}");
+		assert_eq!(
+			e.document.get_int("port"),
+			Ok(1),
+			"{name}: the document comes back"
+		);
+	}
+	// A schema finding is an error in the same list, so it fails the
+	// one-shot at Strict too.
+	let e = Document::load_and_validate("port: x\n", schema, strict).unwrap_err();
+	let codes: Vec<&str> = e.diagnostics.iter().map(|d| d.code).collect();
+	assert_eq!(codes, ["V003"]);
+	// Below Strict nothing fails, and the file status says HadErrors.
+	let standard = Strictness::Standard;
+	assert!(Document::parse_with(text, standard).is_ok());
+	assert!(Document::parse_limited(text, standard, 0, 0, 0).is_ok());
+	assert!(Document::parse_keep_lines(text, standard).is_ok());
+	assert_eq!(
+		Document::load_and_validate(text, schema, standard)
+			.unwrap()
+			.error_count(),
+		1
+	);
+	assert_eq!(
+		Document::load_file_with(fs, standard).unwrap().1,
+		FileStatus::HadErrors
+	);
+	assert_eq!(
+		Document::load_file_keep_lines(fs, standard).unwrap().1,
+		FileStatus::HadErrors
+	);
+	// A file that could not be read has no diagnostics, so Strict gives its
+	// status like any other level.
+	let none = dir.join("none.shcl");
+	let none = none.to_str().unwrap();
+	assert_eq!(
+		Document::load_file_with(none, strict).unwrap().1,
+		FileStatus::NotFound
+	);
+	assert_eq!(
+		Document::load_file_keep_lines(none, strict).unwrap().1,
+		FileStatus::NotFound
+	);
+	let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -2640,16 +2731,17 @@ fn one_shot_load_reports_a_broken_schema() {
 	// broken lines, or report every field as unknown - blaming the document.
 	// Same fixture in every runner.
 	let schema = "field: apikey\n\ttype: string\n  required: true\n";
-	let doc = Document::load_and_validate("host: example\n", schema, Strictness::Standard);
+	let doc = Document::load_and_validate("host: example\n", schema, Strictness::Standard).unwrap();
 	let ds = doc.diagnostics();
 	assert_eq!(ds.len(), 1, "expected only the schema fault, got {:?}", ds);
 	assert_eq!(ds[0].code, "V099");
 	assert_eq!(doc.error_count(), 1);
 	// A schema that loads still validates normally.
-	let ok = Document::load_and_validate("host: example\n", "field: host\n", Strictness::Standard);
+	let ok = Document::load_and_validate("host: example\n", "field: host\n", Strictness::Standard)
+		.unwrap();
 	assert_eq!(ok.error_count(), 0);
 	// An empty schema still means "skip validation", not "everything unknown".
-	let none = Document::load_and_validate("host: example\n", "", Strictness::Standard);
+	let none = Document::load_and_validate("host: example\n", "", Strictness::Standard).unwrap();
 	assert_eq!(none.error_count(), 0);
 }
 
@@ -2669,7 +2761,8 @@ fn validate_and_generate_report_a_broken_schema() {
 	// A document that came through load_and_validate holds V codes of its own,
 	// and they are not load errors when it is used as a schema.
 	let checked =
-		Document::load_and_validate("field: port\n", "field: other\n", Strictness::Standard);
+		Document::load_and_validate("field: port\n", "field: other\n", Strictness::Standard)
+			.unwrap();
 	assert_eq!(checked.diagnostics()[0].code, "V001");
 	assert!(Document::parse("port: 1\n").validate(&checked).is_empty());
 }

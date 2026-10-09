@@ -46,7 +46,7 @@ if not doc.set_int("site(example.com).max-upload-mb", limit * 2):
 doc.save_file("server.shcl")
 ~~~
 
-`Document.parse` never raises, and neither does `load_file`. When you want a hard error instead, use `Document.parse_with(text, Strictness.Strict)`, which raises `LoadError`. A `get_*` call with no `default=` raises `StatusError` rather than inventing a value.
+`Document.parse` never raises, and neither does `load_file`. When you want a hard error instead, use `Document.parse_with(text, Strictness.Strict)` or `load_file_with(path, Strictness.Strict)`, which raise `LoadError`. A `get_*` call with no `default=` raises `StatusError` rather than inventing a value.
 
 Also here: `merge` for layered config (defaults, site, user), `validate` against a schema that is itself a SHCL file, a full writer, and a canonical formatter that preserves comments.
 

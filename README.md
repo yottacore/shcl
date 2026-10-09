@@ -785,8 +785,8 @@ const std = @import("std");
 const c = @cImport(@cInclude("shcl.h"));
 
 // The C API takes (pointer, length) paths; a Zig slice already has both.
-fn getInt(doc: ?*c.shcl_doc, path: []const u8, def: i64) i64 {
-	return c.shcl_get_int(doc, path.ptr, path.len, def);
+fn getIntOr(doc: ?*c.shcl_doc, path: []const u8, def: i64) i64 {
+	return c.shcl_get_int_or(doc, path.ptr, path.len, def);
 }
 fn setInt(doc: ?*c.shcl_doc, path: []const u8, v: i64) bool {
 	return c.shcl_set_int(doc, path.ptr, path.len, v) != 0;
@@ -806,7 +806,7 @@ var st: c.shcl_file_status = undefined;
 const doc = c.shcl_load_file("server.shcl", &st);
 defer c.shcl_free(doc);
 
-const workers = getInt(doc, "workers", 4);
+const workers = getIntOr(doc, "workers", 4);
 
 const root = readString(doc, "site(example.com).root");
 if (root.status == c.SHCL_GOOD)
@@ -846,7 +846,7 @@ shcl_doc *doc = shcl_load_file("server.shcl", &st);
 if (st == SHCL_FILE_NOT_FOUND)
 	puts("no config yet - starting from defaults");
 
-int64_t workers = shcl_get_int(doc, P("workers"), 4);
+int64_t workers = shcl_get_int_or(doc, P("workers"), 4);
 
 // Strings keep the status tier, so missing and empty stay distinguishable
 shcl_read_str root = shcl_read_string(doc, P("site(example.com).root"));

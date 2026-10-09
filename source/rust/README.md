@@ -56,7 +56,7 @@ if !doc.set_int(path, limit * 2) {
 doc.save_file("server.shcl").unwrap();
 ~~~
 
-`Document::parse` never fails, and neither does `load_file`. When you want a hard error instead, use `Document::parse_with(&text, Strictness::Strict)`.
+`Document::parse` never fails, and neither does `load_file`. When you want a hard error instead, use `Document::parse_with(&text, Strictness::Strict)` or `load_file_with(path, Strictness::Strict)`.
 
 Also here: `merge` for layered config (defaults, site, user), `validate` against a schema that is itself a SHCL file, a full writer, and a canonical formatter that preserves comments.
 

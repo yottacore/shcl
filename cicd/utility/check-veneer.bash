@@ -35,9 +35,6 @@ source "$(dirname -- "${BASH_SOURCE[0]}")/include/test-id.bash"
 
 ## Public calls the veneer reaches another way, and how.
 declare -A covered=(
-	[shcl_get_int]="get_or<int64_t> reads through get<T> and checks the status itself"
-	[shcl_get_float]="get_or<double> reads through get<T> and checks the status itself"
-	[shcl_get_bool]="get_or<bool> reads through get<T> and checks the status itself"
 	[shcl_get_int_or]="get_or<int64_t> reads through get<T> and checks the status itself"
 	[shcl_get_float_or]="get_or<double> reads through get<T> and checks the status itself"
 	[shcl_get_bool_or]="get_or<bool> reads through get<T> and checks the status itself"
@@ -78,6 +75,16 @@ done
 for name in "${!covered[@]}"; do
 	if [[ -z "${isDeclared[${name}]:-}" ]]; then
 		echo "check-veneer: ${name} is listed as reached another way, and shcl.h no longer declares it" >&2; nBad=$((nBad + 1))
+	fi
+done
+
+fTest Es9li9x c-get-calls-take-the-or-name
+## A C read with a fallback is spelled _or, as in every binding, since a plain
+## get_* elsewhere is the status read. C's plain three were fallback reads with
+## an _or twin beside them, so a ported routine kept its name and changed tier.
+for name in "${declared[@]}"; do
+	if [[ "${name}" == shcl_get_* && "${name}" != *_or ]]; then
+		echo "check-veneer: shcl.h declares ${name}; a fallback read is spelled _or, and the status read is shcl_read_*" >&2; nBad=$((nBad + 1))
 	fi
 done
 
@@ -192,3 +199,4 @@ exit "${rc}"
 ##		- 2026-09-16 JC: Created.
 ##		- 2026-09-26 JC: get<int> compile-fail check.
 ##		- 2026-09-26 JC: The public half names no C, and a consumer links apart.
+##		- 2026-10-08 JC: A C get_* call is spelled _or.

@@ -1383,14 +1383,77 @@ def main():
 		raise SystemExit(f"error_count got {odoc.error_count()}")
 	if odoc.read_string("port").value != "x":  # doc still usable
 		raise SystemExit("load_and_validate doc not readable")
-	# Strict never raises here; the diagnostics are the answer.
-	ostrict = shcl.Document.load_and_validate(otext, oschema, shcl.Strictness.Strict)
-	if ostrict.error_count() < 2:
-		raise SystemExit(f"strict error_count got {ostrict.error_count()}")
+	# Commented out 2026-10-08: Strict raises here as it does in parse_with
+	# (2026100717500012); strict_fails_the_same_from_every_entry_point has it.
+	# # Strict never raises here; the diagnostics are the answer.
+	# ostrict = shcl.Document.load_and_validate(otext, oschema, shcl.Strictness.Strict)
+	# if ostrict.error_count() < 2:
+	# 	raise SystemExit(f"strict error_count got {ostrict.error_count()}")
+	try:
+		shcl.Document.load_and_validate(otext, oschema, shcl.Strictness.Strict)
+		raise SystemExit("strict load_and_validate did not raise")
+	except shcl.LoadError as e:
+		if e.document is None or e.document.error_count() != 2:
+			raise SystemExit("strict load_and_validate lost its document") from e
 	# An empty schema declares nothing and validates nothing.
 	oplain = shcl.Document.load_and_validate("a: 1\n", "", shcl.Strictness.Standard)
 	if (oplain.error_count(), len(oplain.diagnostics())) != (0, 0):
 		raise SystemExit("empty-schema load_and_validate not clean")
+	test_id("Es9mP70", "strict_fails_the_same_from_every_entry_point")
+	# Strict fails the load on any error diagnostic, from every entry point,
+	# with the document inside the error. The file tier and the one-shot gave
+	# a plain document where parse_with raised. Same fixture in every runner.
+	with tempfile.TemporaryDirectory() as std_dir:
+		sf = os.path.join(std_dir, "t.shcl")
+		stext = ": nope\nport: 1\n"
+		with open(sf, "w", encoding="utf-8", newline="") as fh:
+			fh.write(stext)
+		sschema = "field: port\n\ttype: int\n"
+		strict = shcl.Strictness.Strict
+		D = shcl.Document
+		sruns = [
+			("parse_with", lambda: D.parse_with(stext, strict)),
+			("parse_limited", lambda: D.parse_limited(stext, strict)),
+			("parse_keep_lines", lambda: D.parse_keep_lines(stext, strict)),
+			("load_and_validate", lambda: D.load_and_validate(stext, sschema, strict)),
+			("load_file_with", lambda: D.load_file_with(sf, strict)),
+			("load_file_keep_lines", lambda: D.load_file_keep_lines(sf, strict)),
+		]
+		for sname, srun in sruns:
+			try:
+				srun()
+				raise SystemExit(f"{sname}: a strict load with an error did not raise")
+			except shcl.LoadError as e:
+				if [d.code for d in e.diagnostics] != ["E014"]:
+					raise SystemExit(f"{sname}: diagnostics {[d.code for d in e.diagnostics]}") from e
+				if e.document is None or e.document.get_int("port") != 1:
+					raise SystemExit(f"{sname}: the document does not come back") from e
+		# A schema finding is an error in the same list, so it fails the
+		# one-shot at Strict too.
+		try:
+			D.load_and_validate("port: x\n", sschema, strict)
+			raise SystemExit("a schema finding at Strict did not raise")
+		except shcl.LoadError as e:
+			if [d.code for d in e.diagnostics] != ["V003"]:
+				raise SystemExit(f"schema finding at Strict: {[d.code for d in e.diagnostics]}") from e
+		# Below Strict nothing fails, and the file status says HadErrors.
+		standard = shcl.Strictness.Standard
+		D.parse_with(stext, standard)
+		D.parse_limited(stext, standard)
+		D.parse_keep_lines(stext, standard)
+		if D.load_and_validate(stext, sschema, standard).error_count() != 1:
+			raise SystemExit("load_and_validate at Standard")
+		if D.load_file_with(sf, standard)[1] != shcl.FileStatus.HadErrors:
+			raise SystemExit("load_file_with at Standard")
+		if D.load_file_keep_lines(sf, standard)[1] != shcl.FileStatus.HadErrors:
+			raise SystemExit("load_file_keep_lines at Standard")
+		# A file that could not be read has no diagnostics, so Strict gives
+		# its status like any other level.
+		snone = os.path.join(std_dir, "none.shcl")
+		if D.load_file_with(snone, strict)[1] != shcl.FileStatus.NotFound:
+			raise SystemExit("load_file_with on a missing file")
+		if D.load_file_keep_lines(snone, strict)[1] != shcl.FileStatus.NotFound:
+			raise SystemExit("load_file_keep_lines on a missing file")
 	test_id("Eqzz38d", "one_shot_load_reports_a_broken_schema")
 	# A schema that does not load would otherwise drop the constraints on its
 	# broken lines, or report every field as unknown - blaming the document.

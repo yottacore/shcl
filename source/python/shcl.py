@@ -5573,10 +5573,16 @@ class Document:
 		"""Parse at a chosen strictness. Only Strict can fail (any error
 		diagnostic); the raised LoadError still includes the parsed document
 		alongside the diagnostics."""
-		doc = _Parser().parse(text, strictness)
-		if strictness == Strictness.Strict and any(d.severity == Severity.Error for d in doc.diags):
-			raise LoadError(list(doc.diags), doc)
-		return doc
+		return _Parser().parse(text, strictness)._strict_gate()
+
+	def _strict_gate(self) -> Document:
+		"""The one place Strict fails a load: any error diagnostic on the
+		document an entry point is about to hand back. Every entry point that
+		takes a strictness goes through here, so moving from one to another
+		never loses the failure (2026100717500012)."""
+		if self._strictness == Strictness.Strict and self.error_count() > 0:
+			raise LoadError(list(self.diags), self)
+		return self
 
 	@staticmethod
 	def parse_limited(
@@ -5602,10 +5608,7 @@ class Document:
 		p.max_nodes = max_nodes
 		p.max_elements = max_elements
 		p.max_diags = max_diags
-		doc = p.parse(text, strictness)
-		if strictness == Strictness.Strict and any(d.severity == Severity.Error for d in doc.diags):
-			raise LoadError(list(doc.diags), doc)
-		return doc
+		return p.parse(text, strictness)._strict_gate()
 
 	@staticmethod
 	def load_file(path: str | os.PathLike[str]) -> tuple[Document, FileStatus]:
@@ -5614,17 +5617,35 @@ class Document:
 		read), and the returned (document, FileStatus) pair separates the four
 		cases consumers otherwise confuse: absent, present-but-unreadable,
 		parsed with errors, clean."""
-		return Document.load_file_with(path, Strictness.Standard)
+		return Document._load_file_any(path, Strictness.Standard, False)
 
 	@staticmethod
 	def load_file_with(path: str | os.PathLike[str], strictness: Strictness) -> tuple[Document, FileStatus]:
-		"""load_file at a chosen strictness. A strict-failing file reports
-		HadErrors; the recover-and-continue document still comes back."""
+		"""load_file at a chosen strictness. As parse_with, only Strict can
+		fail: a file that read and parsed with an error diagnostic raises
+		LoadError, holding the recover-and-continue document. A file that
+		could not be read has no diagnostics, so it gives its status at every
+		level."""
+		return Document._load_file_gated(path, strictness, False)
+
+	@staticmethod
+	def _load_file_gated(
+		path: str | os.PathLike[str], strictness: Strictness, keep: bool
+	) -> tuple[Document, FileStatus]:
+		doc, st = Document._load_file_any(path, strictness, keep)
+		return doc._strict_gate(), st
+
+	@staticmethod
+	def _load_file_any(
+		path: str | os.PathLike[str], strictness: Strictness, keep: bool
+	) -> tuple[Document, FileStatus]:
 		text, st = read_file(path, 0)
 		if text is None:
 			return _Parser().parse("", strictness), st
 		doc = _Parser().parse(text, strictness)
-		if any(d.severity == Severity.Error for d in doc.diags):
+		if keep:
+			doc._keep_source(text)
+		if doc.error_count() > 0:
 			return doc, FileStatus.HadErrors
 		return doc, FileStatus.Clean
 
@@ -5745,11 +5766,13 @@ class Document:
 		schema, and hand back the document with ONE combined diagnostics
 		list (parse first, then validation - the order `check --schema`
 		prints), so half the errors can't vanish because a caller forgot one
-		of the two lists. Never fails: a strict-failing document comes back as
-		the document plus its diagnostics (error_count() answers "did it
-		fail"). An empty schema text skips validation entirely, and one that
-		does not load adds a lone V099, as validate() does. H001 hints the
-		schema disavows (a declared repeat upper bound above 1) are dropped."""
+		of the two lists. As parse_with, only Strict can fail, raising
+		LoadError on any error in that combined list, a schema finding
+		included; it holds the validated document. Below Strict,
+		error_count() answers "did it fail". An empty schema text skips
+		validation entirely, and one that does not load adds a lone V099, as
+		validate() does. H001 hints the schema disavows (a declared repeat
+		upper bound above 1) are dropped."""
 		doc = _Parser().parse(text, strictness)
 		if _trim(schema_text):
 			schema = Document.parse(schema_text)
@@ -5758,12 +5781,12 @@ class Document:
 			fault = _schema_load_fault(schema)
 			if fault is not None:
 				doc.diags.append(fault)
-				return doc
+				return doc._strict_gate()
 			vdiags = doc.validate(schema)
 			doc.diags.extend(vdiags)
 			suppress_declared_repeats(schema, doc.diags)
 			suppress_declared_reopens(schema, doc.diags)
-		return doc
+		return doc._strict_gate()
 
 	def strictness(self) -> Strictness:
 		return self._strictness
@@ -5784,21 +5807,12 @@ class Document:
 		is the same one parse_with gives; only the save differs."""
 		doc = _Parser().parse(text, strictness)
 		doc._keep_source(text)
-		if strictness == Strictness.Strict and any(d.severity == Severity.Error for d in doc.diags):
-			raise LoadError(list(doc.diags), doc)
-		return doc
+		return doc._strict_gate()
 
 	@staticmethod
 	def load_file_keep_lines(path: str | os.PathLike[str], strictness: Strictness) -> tuple[Document, FileStatus]:
 		"""load_file_with, keeping the text for to_text_keep_lines()."""
-		text, st = read_file(path, 0)
-		if text is None:
-			return _Parser().parse("", strictness), st
-		doc = _Parser().parse(text, strictness)
-		doc._keep_source(text)
-		if any(d.severity == Severity.Error for d in doc.diags):
-			return doc, FileStatus.HadErrors
-		return doc, FileStatus.Clean
+		return Document._load_file_gated(path, strictness, True)
 
 	def _keep_source(self, text):
 		self._source = "" if self.to_canonical() == text else text

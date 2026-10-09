@@ -795,7 +795,7 @@ func TestValidationMatchesExpected(t *testing.T) {
 			}
 		}
 		var lv strings.Builder
-		for _, d := range LoadAndValidate(c.input, c.schema, Standard).Diagnostics() {
+		for _, d := range lvStandard(t, c.input, c.schema).Diagnostics() {
 			fmt.Fprintf(&lv, "line %d: %s: %s\n", d.Line, d.Severity, d.Code)
 		}
 		if lv.String() != got.String() {
@@ -906,6 +906,16 @@ func TestWriteBadOpsAreRejected(t *testing.T) {
 	})
 }
 
+// lvStandard is LoadAndValidate at Standard, which never errs.
+func lvStandard(t *testing.T, text, schema string) *Document {
+	t.Helper()
+	doc, err := LoadAndValidate(text, schema, Standard)
+	if err != nil {
+		t.Fatalf("LoadAndValidate at Standard: %v", err)
+	}
+	return doc
+}
+
 func TestOneShotLoadAndValidate(t *testing.T) {
 	defer testID(t, "Elp3cOh")
 	// One combined diagnostics list (parse first, then validation) and an
@@ -913,7 +923,7 @@ func TestOneShotLoadAndValidate(t *testing.T) {
 	// accident. Same fixture in every runner.
 	text := ": nope\nport: x\n"
 	schema := "field: port\n\ttype: int\n"
-	doc := LoadAndValidate(text, schema, Standard)
+	doc := lvStandard(t, text, schema)
 	var codes []string
 	for _, d := range doc.Diagnostics() {
 		codes = append(codes, d.Code)
@@ -927,15 +937,101 @@ func TestOneShotLoadAndValidate(t *testing.T) {
 	if got := doc.ReadString("port").Value; got != "x" { // doc still usable
 		t.Errorf("port: got %q, want \"x\"", got)
 	}
-	// Strict never errors out here; the diagnostics are the answer.
-	strict := LoadAndValidate(text, schema, Strict)
-	if strict.ErrorCount() < 2 {
-		t.Errorf("strict error count: got %d, want >= 2", strict.ErrorCount())
+	// Commented out 2026-10-08: Strict fails here as it does in ParseWith
+	// (2026100717500012); TestStrictFailsTheSameFromEveryEntryPoint has it.
+	// // Strict never errors out here; the diagnostics are the answer.
+	// strict := LoadAndValidate(text, schema, Strict)
+	// if strict.ErrorCount() < 2 {
+	// 	t.Errorf("strict error count: got %d, want >= 2", strict.ErrorCount())
+	// }
+	strict, err := LoadAndValidate(text, schema, Strict)
+	if err == nil || strict.ErrorCount() != 2 {
+		t.Errorf("strict: got err %v, %d errors, want a LoadError and 2", err, strict.ErrorCount())
 	}
 	// An empty schema declares nothing and validates nothing.
-	plain := LoadAndValidate("a: 1\n", "", Standard)
+	plain := lvStandard(t, "a: 1\n", "")
 	if plain.ErrorCount() != 0 || len(plain.Diagnostics()) != 0 {
 		t.Errorf("plain: got %d errors, %d diags, want 0, 0", plain.ErrorCount(), len(plain.Diagnostics()))
+	}
+}
+
+func TestStrictFailsTheSameFromEveryEntryPoint(t *testing.T) {
+	defer testID(t, "Es9mP4v")
+	// Strict fails the load on any error diagnostic, from every entry point,
+	// with the document beside the error. The file tier and the one-shot gave
+	// a plain document where ParseWith failed. Same fixture in every runner.
+	dir := t.TempDir()
+	f := filepath.Join(dir, "t.shcl")
+	text := ": nope\nport: 1\n"
+	if err := os.WriteFile(f, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	schema := "field: port\n\ttype: int\n"
+	type run struct {
+		name string
+		doc  *Document
+		err  error
+	}
+	var runs []run
+	add := func(name string, doc *Document, err error) { runs = append(runs, run{name, doc, err}) }
+	doc, err := ParseWith(text, Strict)
+	add("ParseWith", doc, err)
+	doc, err = ParseLimited(text, Strict, 0, 0, 0)
+	add("ParseLimited", doc, err)
+	doc, err = ParseKeepLines(text, Strict)
+	add("ParseKeepLines", doc, err)
+	doc, err = LoadAndValidate(text, schema, Strict)
+	add("LoadAndValidate", doc, err)
+	doc, _, err = LoadFileWith(f, Strict)
+	add("LoadFileWith", doc, err)
+	doc, _, err = LoadFileKeepLines(f, Strict)
+	add("LoadFileKeepLines", doc, err)
+	for _, r := range runs {
+		var le *LoadError
+		if !errors.As(r.err, &le) {
+			t.Errorf("%s: a strict load with an error gave %v, want a *LoadError", r.name, r.err)
+			continue
+		}
+		if len(le.Diagnostics) != 1 || le.Diagnostics[0].Code != "E014" {
+			t.Errorf("%s: diagnostics %v, want a lone E014", r.name, le.Diagnostics)
+		}
+		if v, st := le.Document.GetInt("port"); st != Good || v != 1 || r.doc != le.Document {
+			t.Errorf("%s: the document does not come back", r.name)
+		}
+	}
+	// A schema finding is an error in the same list, so it fails the
+	// one-shot at Strict too.
+	var le *LoadError
+	if _, err := LoadAndValidate("port: x\n", schema, Strict); !errors.As(err, &le) || len(le.Diagnostics) != 1 || le.Diagnostics[0].Code != "V003" {
+		t.Errorf("schema finding at Strict: got %v, want a LoadError with a lone V003", err)
+	}
+	// Below Strict nothing fails, and the file status says HadErrors.
+	if _, err := ParseWith(text, Standard); err != nil {
+		t.Errorf("ParseWith at Standard: %v", err)
+	}
+	if _, err := ParseLimited(text, Standard, 0, 0, 0); err != nil {
+		t.Errorf("ParseLimited at Standard: %v", err)
+	}
+	if _, err := ParseKeepLines(text, Standard); err != nil {
+		t.Errorf("ParseKeepLines at Standard: %v", err)
+	}
+	if d, err := LoadAndValidate(text, schema, Standard); err != nil || d.ErrorCount() != 1 {
+		t.Errorf("LoadAndValidate at Standard: %v", err)
+	}
+	if _, st, err := LoadFileWith(f, Standard); err != nil || st != FileHadErrors {
+		t.Errorf("LoadFileWith at Standard: %v, %v", st, err)
+	}
+	if _, st, err := LoadFileKeepLines(f, Standard); err != nil || st != FileHadErrors {
+		t.Errorf("LoadFileKeepLines at Standard: %v, %v", st, err)
+	}
+	// A file that could not be read has no diagnostics, so Strict gives its
+	// status like any other level.
+	none := filepath.Join(dir, "none.shcl")
+	if _, st, err := LoadFileWith(none, Strict); err != nil || st != FileNotFound {
+		t.Errorf("LoadFileWith on a missing file: %v, %v", st, err)
+	}
+	if _, st, err := LoadFileKeepLines(none, Strict); err != nil || st != FileNotFound {
+		t.Errorf("LoadFileKeepLines on a missing file: %v, %v", st, err)
 	}
 }
 
@@ -945,7 +1041,7 @@ func TestOneShotLoadReportsABrokenSchema(t *testing.T) {
 	// broken lines, or report every field as unknown - blaming the document.
 	// Same fixture in every runner.
 	schema := "field: apikey\n\ttype: string\n  required: true\n"
-	doc := LoadAndValidate("host: example\n", schema, Standard)
+	doc := lvStandard(t, "host: example\n", schema)
 	ds := doc.Diagnostics()
 	if len(ds) != 1 {
 		t.Fatalf("expected only the schema fault, got %v", ds)
@@ -957,11 +1053,11 @@ func TestOneShotLoadReportsABrokenSchema(t *testing.T) {
 		t.Errorf("error count: got %d, want 1", got)
 	}
 	// A schema that loads still validates normally.
-	if got := LoadAndValidate("host: example\n", "field: host\n", Standard).ErrorCount(); got != 0 {
+	if got := lvStandard(t, "host: example\n", "field: host\n").ErrorCount(); got != 0 {
 		t.Errorf("loading schema: got %d errors, want 0", got)
 	}
 	// An empty schema still means "skip validation", not "everything unknown".
-	if got := LoadAndValidate("host: example\n", "", Standard).ErrorCount(); got != 0 {
+	if got := lvStandard(t, "host: example\n", "").ErrorCount(); got != 0 {
 		t.Errorf("empty schema: got %d errors, want 0", got)
 	}
 }
@@ -981,7 +1077,7 @@ func TestValidateAndGenerateReportABrokenSchema(t *testing.T) {
 	}
 	// A document that came through LoadAndValidate holds V codes of its own,
 	// and they are not load errors when it is used as a schema.
-	checked := LoadAndValidate("field: port\n", "field: other\n", Standard)
+	checked := lvStandard(t, "field: port\n", "field: other\n")
 	if ds := checked.Diagnostics(); len(ds) == 0 || ds[0].Code != "V001" {
 		t.Fatalf("checked schema: got %v, want V001 first", ds)
 	}

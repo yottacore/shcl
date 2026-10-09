@@ -13,7 +13,7 @@
 // Writing a mapper - the shape of a real consumer that walks a document into
 // its own model (the surface is 60+ methods, but a mapper needs about six):
 //
-//	doc := shcl.LoadAndValidate(text, schemaText, shcl.Standard)
+//	doc, _ := shcl.LoadAndValidate(text, schemaText, shcl.Standard) // only Strict errs
 //	if doc.ErrorCount() > 0 {
 //		for _, d := range doc.Diagnostics() { // one combined list: parse + validation
 //			log.Printf("line %d: %s: %s", d.Line, d.Code, d.Message)
@@ -5464,15 +5464,18 @@ func Parse(text string) *Document {
 // error, with the error including it too - so `doc, err :=` callers can
 // inspect doc.Diagnostics() without a nil check blowing up.
 func ParseWith(text string, strictness Strictness) (*Document, error) {
-	doc := newParser().parse(text, strictness)
-	if strictness == Strict {
-		for _, d := range doc.diags {
-			if d.Severity == SeverityError {
-				return doc, &LoadError{Diagnostics: append([]Diagnostic(nil), doc.diags...), Document: doc}
-			}
-		}
+	return newParser().parse(text, strictness).strictGate()
+}
+
+// strictGate is the one place Strict fails a load: any error diagnostic on
+// the document an entry point is about to hand back. Every entry point that
+// takes a strictness goes through here, so moving from one to another never
+// loses the failure (2026100717500012).
+func (d *Document) strictGate() (*Document, error) {
+	if d.strictness == Strict && d.ErrorCount() > 0 {
+		return d, &LoadError{Diagnostics: append([]Diagnostic(nil), d.diags...), Document: d}
 	}
-	return doc, nil
+	return d, nil
 }
 
 // ParseLimited parses with resource caps beside the strictness, for input the
@@ -5495,15 +5498,7 @@ func ParseLimited(text string, strictness Strictness, maxNodes, maxElements, max
 	p.maxNodes = maxNodes
 	p.maxElements = maxElements
 	p.maxDiags = maxDiags
-	doc := p.parse(text, strictness)
-	if strictness == Strict {
-		for _, d := range doc.diags {
-			if d.Severity == SeverityError {
-				return doc, &LoadError{Diagnostics: append([]Diagnostic(nil), doc.diags...), Document: doc}
-			}
-		}
-	}
-	return doc, nil
+	return p.parse(text, strictness).strictGate()
 }
 
 // Diagnostics is everything the load recorded (after LoadAndValidate,
@@ -5706,12 +5701,13 @@ func (d *Document) ErrorCount() int {
 // validate against a schema, and hand back the document with ONE combined
 // diagnostics list (parse first, then validation - the order `check --schema`
 // prints), so half the errors can't vanish because a caller forgot one of the
-// two lists. Never fails: a strict-failing document comes back as the document
-// plus its diagnostics (ErrorCount answers "did it fail"). An empty schema
+// two lists. As ParseWith, only Strict can fail, on any error in that
+// combined list, a schema finding included; the document comes back non-nil
+// either way. Below Strict, ErrorCount answers "did it fail". An empty schema
 // text skips validation entirely, and one that does not load adds a lone
 // V099, as Validate does. H001 hints the schema disavows (a declared repeat
 // upper bound above 1) are dropped.
-func LoadAndValidate(text, schemaText string, strictness Strictness) *Document {
+func LoadAndValidate(text, schemaText string, strictness Strictness) (*Document, error) {
 	doc := newParser().parse(text, strictness)
 	if strings.TrimSpace(schemaText) != "" {
 		schema := Parse(schemaText)
@@ -5719,13 +5715,13 @@ func LoadAndValidate(text, schemaText string, strictness Strictness) *Document {
 		// hints either, so nothing is suppressed.
 		if fault, ok := schemaLoadFault(schema); ok {
 			doc.diags = append(doc.diags, fault)
-			return doc
+			return doc.strictGate()
 		}
 		doc.diags = append(doc.diags, doc.Validate(schema)...)
 		doc.diags = SuppressDeclaredRepeats(schema, doc.diags)
 		doc.diags = SuppressDeclaredReopens(schema, doc.diags)
 	}
-	return doc
+	return doc.strictGate()
 }
 
 // Strictness is the level the document was loaded at.
@@ -5765,19 +5761,8 @@ func (d *Document) keepSource(text string) {
 }
 
 // LoadFileKeepLines is LoadFileWith, keeping the text for ToTextKeepLines().
-func LoadFileKeepLines(path string, level Strictness) (*Document, FileStatus) {
-	text, st := ReadFile(path, 0)
-	if st != FileClean {
-		return newParser().parse("", level), st
-	}
-	doc := newParser().parse(text, level)
-	doc.keepSource(text)
-	for _, d := range doc.diags {
-		if d.Severity == SeverityError {
-			return doc, FileHadErrors
-		}
-	}
-	return doc, FileClean
+func LoadFileKeepLines(path string, level Strictness) (*Document, FileStatus, error) {
+	return loadFileGated(path, level, true)
 }
 
 // ToTextKeepLines returns the text a save that keeps lines writes, and whether
@@ -8231,21 +8216,35 @@ func (s FileStatus) String() string {
 // otherwise confuse: absent, present-but-unreadable, parsed with errors,
 // clean.
 func LoadFile(path string) (*Document, FileStatus) {
-	return LoadFileWith(path, Standard)
+	return loadFileAny(path, Standard, false)
 }
 
-// LoadFileWith is LoadFile at a chosen strictness. A strict-failing file
-// reports FileHadErrors; the recover-and-continue document still comes back.
-func LoadFileWith(path string, level Strictness) (*Document, FileStatus) {
+// LoadFileWith is LoadFile at a chosen strictness. As ParseWith, only Strict
+// can fail: a file that read and parsed with an error diagnostic gives a
+// *LoadError beside the recover-and-continue document and FileHadErrors. A
+// file that could not be read has no diagnostics, so it gives its status and
+// a nil error at every level.
+func LoadFileWith(path string, level Strictness) (*Document, FileStatus, error) {
+	return loadFileGated(path, level, false)
+}
+
+func loadFileGated(path string, level Strictness, keep bool) (*Document, FileStatus, error) {
+	doc, st := loadFileAny(path, level, keep)
+	_, err := doc.strictGate()
+	return doc, st, err
+}
+
+func loadFileAny(path string, level Strictness, keep bool) (*Document, FileStatus) {
 	text, st := ReadFile(path, 0)
 	if st != FileClean {
 		return newParser().parse("", level), st
 	}
 	doc := newParser().parse(text, level)
-	for _, d := range doc.diags {
-		if d.Severity == SeverityError {
-			return doc, FileHadErrors
-		}
+	if keep {
+		doc.keepSource(text)
+	}
+	if doc.ErrorCount() > 0 {
+		return doc, FileHadErrors
 	}
 	return doc, FileClean
 }

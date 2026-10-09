@@ -100,7 +100,9 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - C's `shcl_get_int` is the fallback read, where `get_int` is the status read in every other binding
 	- ID: 2026100717500011
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
+	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
+	- Needs external testing: a hosted run with the next main push.
 	- Severity: Avg
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 11
@@ -109,11 +111,22 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Expected behavior: design.md, Consumer API, says every binding names the fallback tier `_or`, so a routine ported between two of them can't keep the call name and change tier. The three plain names do that. 3.0 is the last cut where dropping them costs nothing.
 	- Reproduced: 20261007, by reading `shcl.h` and the other three.
 	- Origin: not blamed. Not seen by an earlier round. Confirmed.
+	- Progress log:
+		- 2026-10-08: Best guess, no answer yet: drop the three plain names. Strings, datetimes, raw blocks and arrays never had a plain `shcl_get_*`; they are on the `shcl_read_*` tier only.
+	- Actual cause: the plain three came first, and the `_or` names were added beside them as aliases in 2.0 without dropping them.
+	- Actual fix: the three are gone from `shcl.h`, and the `_or` calls hold the code. The README's C and Zig examples, the C runner, spec.md, the style guide, check-veneer's list and the changelog's upgrade notes moved with them. The C++ interface never called them.
+	- Swept: every public `shcl_get_*` in `shcl.h`, now `_or` only (int, float, bool, duration, size). A repo-wide grep for the three names, CLIs, scripts and docs included, found only the README, the C runner and check-veneer, all changed.
+	- Verified: the four conformance suites (203 cases each), the full Rust suite at 20k fuzz, both Go modules, the other C tests and the C++ smoke, cli-regress (489 rows), crosscheck over the corpus, check-veneer, check-readme with its C and Zig examples, check-docs, check-abnf, test-ids, shellcheck, markdownlint, clippy for both targets, go vet, staticcheck, ruff, mypy, cppcheck at the normal level.
+	- Test case: check-veneer `Es9li9x` (`c-get-calls-take-the-or-name`): every public `shcl_get_*` in `shcl.h` ends in `_or`. It fails on dev's header, naming the three, and passes now.
+	- Branch: apitidy
+	- Commit: `daa1d9fe`
 
 - A strict load failure looks different from each entry point
 	- ID: 2026100717500012
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting on signoff
+	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
+	- Needs external testing: a hosted run with the next main push.
 	- Severity: Avg
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 12
@@ -123,6 +136,23 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: 20261007, Rust. Go, Python and C not checked.
 	- Origin: not blamed. Not seen by an earlier round. Confirmed in Rust.
 	- Sweep: the same entry points in the other three, and the C++ veneer.
+	- Progress log:
+		- 2026-10-08: The entry points that take a strictness, before the fix:
+			- Rust: `parse_with`, `parse_limited` and `parse_keep_lines` return `Err`. `load_file_with` and `load_file_keep_lines` give HadErrors only. `load_and_validate` gives a plain document.
+			- Go: `ParseWith`, `ParseLimited` and `ParseKeepLines` give a `*LoadError`. `LoadFileWith` and `LoadFileKeepLines` give FileHadErrors only. `LoadAndValidate` gives a plain document. The same split as Rust.
+			- Python: `parse_with`, `parse_limited` and `parse_keep_lines` raise `LoadError`. `load_file_with`, `load_file_keep_lines` and `load_and_validate` don't. The same split.
+			- C: `shcl_parse_with`, `shcl_parse_limited`, `shcl_parse_keep_lines`, `shcl_load_file_with`, `shcl_load_file_keep_lines` and `shcl_load_and_validate` all return the document, and `shcl_strict_failed` was already true after each one at Strict with an error. C was consistent.
+			- C++: the same six as `Document` calls, with `strict_failed()`. Consistent, through C.
+		- 2026-10-08: The one behavior, from the Rust parse functions: at Strict, any error diagnostic on the document a call hands back fails it, with the document inside the error. That is C's `shcl_strict_failed` rule, so C and C++ keep their signatures. In the one-shot a schema finding fails it too, since it is an error in the same list. C already did that.
+		- 2026-10-08: This is a 3.0 signature change. Rust `load_file_with` and `load_file_keep_lines` return `Result<(Document, FileStatus), LoadError>`, and `load_and_validate` `Result<Document, LoadError>`. Go `LoadFileWith` and `LoadFileKeepLines` return `(*Document, FileStatus, error)`, and `LoadAndValidate` `(*Document, error)`. Python raises. `load_file` keeps its signature, since it is always Standard. No CLI, script or tool called the changed calls, only the bindings' own tests and the Go package doc's example.
+	- Against: spec.md's file tier said a strict-failing file "reports `HadErrors` ... never a throw", spec.md's schema section and the 2026-08-02 one-shot item said the one-shot never fails, and design.md's file tier says the load never fails. All of that now holds below Strict. design.md has a sub-bullet saying so.
+	- Actual cause: each entry point did its own strict check, and only the parse ones had one.
+	- Actual fix: one gate per binding (`strict_gate`, `strictGate`, `_strict_gate`) that every entry point taking a strictness returns through. spec.md, design.md, the C and C++ comments, the Rust and Python READMEs and the changelog's upgrade notes say so. The "Strict never throws here" lines in the Rust, Go and Python one-shot tests are commented out with the reason, and those tests now expect the failure. C's gained a `shcl_strict_failed` check.
+	- Swept: the six entry points in all four and the C++ interface, listed above. Every caller in the repo: the bindings' tests, `mem_test.go` and the Go package doc. No CLI, script, wrapper or the comparison tool calls them. `parse` and `load_file` are Standard only and never fail.
+	- Verified: the four conformance suites (203 cases each), the full Rust suite at 20k fuzz, both Go modules, the other C tests and the C++ smoke, cli-regress (489 rows), crosscheck over the corpus, check-veneer, check-readme with its C and Zig examples, check-docs, check-abnf, test-ids, shellcheck, markdownlint, clippy for both targets, go vet, staticcheck, ruff, mypy, cppcheck at the normal level.
+	- Test case: `strict_fails_the_same_from_every_entry_point` in Rust `Es9mP2o`, Go `Es9mP4v`, Python `Es9mP70` and C `Es9mP97`, and checks in the C++ smoke `EjtkR0S`. Python fails on dev's library and passes now. Rust and Go don't build against dev, since the old signatures can't express the failure. C and C++ pass on dev too, since C was already consistent; both fail when the one-shot ignores its strictness.
+	- Branch: apitidy
+	- Commit: `daa1d9fe`
 
 - `instances` output can't be fed back into a selector
 	- ID: 2026100717500016

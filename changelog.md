@@ -58,6 +58,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Go's `Read.OK()` is removed. Use `Ok()`.
 
+- A Strict load fails the same way from every call that takes a strictness. `load_file_with`, `load_file_keep_lines` and `load_and_validate` fail like `parse_with`, with the document inside the error, where they gave a plain document: Rust returns a `Result`, Go adds an `error` (`LoadFileWith` and `LoadFileKeepLines` return three values), Python raises `LoadError`. A schema finding fails the one-shot at Strict too. C and C++ keep their signatures, and `strict_failed` says so.
+
+- C's `shcl_get_int`, `shcl_get_float` and `shcl_get_bool` are removed. They took a fallback, where `get_int` in the other bindings is the status read. Use `shcl_get_int_or` and its twins, or `shcl_read_int` for the status.
+
 - A read status has a new last value, `BadPath`, so a match that names every status needs one more arm.
 
 - `write_reason` is renamed `check_set_path` (Go `CheckSetPath`, C `shcl_check_set_path`), its result type `SetPathCheck`, and its `Writable` value `Ok`. Go's values take a `SetPath` prefix, `SetPathOk` to `SetPathMultiple`, since `BadPath` is a read status now. C's are `SHCL_SET_PATH_OK` to `SHCL_SET_PATH_MULTIPLE`.

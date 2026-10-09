@@ -319,7 +319,8 @@ public:
 	explicit operator bool() const { return d_ != nullptr; }
 
 	// A parse never fails on the document's account: bad lines are skipped and
-	// diagnosed. A strict one that found errors says so in strict_failed().
+	// diagnosed. A strict one that found errors says so in strict_failed(), and
+	// so does every other call here that takes a strictness.
 	static Document parse(std::string_view text);
 	static Document parse_with(std::string_view text, Strictness s);
 	// parse_with, keeping a copy of the text for to_text_keep_lines().
@@ -330,8 +331,9 @@ public:
 	static Document parse_limited(std::string_view text, Strictness s, std::size_t max_nodes, std::size_t max_elements, std::size_t max_diags);
 
 	// Parse at a strictness, validate against a schema, and hand back a
-	// document whose diagnostics() serve one combined list, parse first. Never
-	// fails: error_count() answers "did it fail". An empty schema text skips
+	// document whose diagnostics() serve one combined list, parse first. At
+	// strict, strict_failed() says it failed on any error in that list, a
+	// schema finding included; below strict, error_count(). An empty schema text skips
 	// validation, and one that does not load adds a lone V099, as validate()
 	// does; the H001 and H002 hints the schema disavows are dropped.
 	static Document load_and_validate(std::string_view text, std::string_view schema, Strictness s);
@@ -339,7 +341,8 @@ public:
 #ifndef SHCL_NO_FILE_IO
 	// File tier. The status separates absent, unreadable, parsed with errors
 	// and clean. An allocation failure is the one exception, and shows as a
-	// false document.
+	// false document. At strict, strict_failed() says the load failed, as
+	// after parse_with; the status is HadErrors either way.
 	static std::pair<Document, FileStatus> load_file(const std::string &path);
 	static std::pair<Document, FileStatus> load_file_with(const std::string &path, Strictness s);
 	// load_file_with, keeping the text for to_text_keep_lines().

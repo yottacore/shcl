@@ -95,9 +95,9 @@ func TestRangeFaultsCostTheirMessage(t *testing.T) {
 		inRange.WriteString("k" + strconv.Itoa(i) + ": 5\n")
 		outOfRange.WriteString("k" + strconv.Itoa(i) + ": 50\n")
 	}
-	clean := allocatedBy(func() any { return LoadAndValidate(inRange.String(), schema.String(), Standard) })
+	clean := allocatedBy(func() any { return lvStandard(t, inRange.String(), schema.String()) })
 	faulty := allocatedBy(func() any {
-		doc := LoadAndValidate(outOfRange.String(), schema.String(), Standard)
+		doc := lvStandard(t, outOfRange.String(), schema.String())
 		n := 0
 		for _, dg := range doc.Diagnostics() {
 			if dg.Code == "V006" {
