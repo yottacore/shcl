@@ -98,7 +98,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Verified (C, on `ssc`): the C conformance runner at gcc `-O0` and `-O2` and clang `-O0` and `-O2`, `oom_hook`, `oom_recover`, `mem_bounds`, check-c-compilers (5 compilers), sanitize-c under ASan and UBSan, cppcheck at the normal level, the C++ veneer smoke, native and as a Windows build, check-veneer, the mingw and no-file-IO builds, perf-gate for C, cli-regress (496 rows, 2687 checks) and crosscheck over the corpus (17901 comparisons) and over a fuzz dump with its eol and kept saves (41880) across all four, check-readme with the Zig example built, test-ids check, shellcheck, markdownlint, and check-docs, red only on `installers-match-main` as before. `EsDjsvT` and `EsDjsxk` each fail with the path check skipped on a refused value and with `UnderArray` given as `BadPath`, and `EsDjsvT` and `Es9aZSK` with `NotUtf8` asked after the raw reasons. cli-regress fails on C's CLI with its refusal text changed. `EoXX3yy` fails with one C check taken out of the README. Exhaustive cppcheck waits for the next main push.
 	- Verified (all four, on `setstat`): cli-regress (496 rows, 2687 checks), crosscheck over the corpus (17862 comparisons), the Go, Python and C suites, check-readme, check-abnf, check-docs, test-ids check, shellcheck, markdownlint. The comparison tool builds.
 	- Branch: `setstat`, C on `ssc`
-	- Commit: `c251f741`
+	- Commit: `c251f741`, C `4aea318a`
 
 - `instances` output can't be fed back into a selector
 	- ID: 2026100717500016
