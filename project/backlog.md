@@ -100,6 +100,97 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `setstat`, C on `ssc`
 	- Commit: `c251f741`, C `4aea318a`
 
+- A failed write says why only in text
+	- ID: 2026100912352400
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Priority: Low
+	- Opened: 20261009-123524
+	- Opened by: JC, from 2026100912271700
+	- Related IDs: 2026100717500014, 2026100912271700
+	- Problem description: Rust's `write_file_atomic` returns `Result<(), String>`, and `SaveError::Io` and `UpgradeError::Io` hold only a message. Python's `write_file_atomic` returns a string. A program can't tell a missing folder from no permission or a full disk without parsing the text. Go wraps the OS error with `%w`, and C leaves `errno` set, so those two can already check it.
+	- Requirements:
+		- A write failure gives a reason a program can check, like `read_file`'s `FileStatus` does for reads. All four and the C++ interface, same names in the same order.
+		- Work it with 2026100717500014, which changes Python's `write_file_atomic` to raise.
+	- Needs external testing: the hosted windows run, for the shared table of Windows system codes. It ran here only under wine. Exhaustive cppcheck waits for the next main push.
+	- Progress log:
+		- 20261009: built on `wrstat`, all four and the C++ interface, from a best guess. The question was asked and not answered: reuse `FileStatus`'s names where they fit, add only what writes need, and keep the message beside the status.
+			- `WriteStatus`, in this order, numbered from 0: `Ok`, `NotFound` (the folder is not there, or part of the path is a file), `Unreadable` (`upgrade_file` could not read the file), `PermissionDenied`, `DiskFull` (disk or quota), `ReadOnly` (read-only filesystem or media), `IsDirectory`, `NotRegular`, `Other`.
+			- Rust: a `WriteError` with `status` and `message`, from `write_file_atomic`, and inside `SaveError::Io` and `UpgradeError::Io`.
+			- Go: `WriteOk` to `WriteOther`, and a `*WriteError` from `WriteFileAtomic` and a save's failed write, and as `UpgradeError.Err` for `UpgradeIO`. It still wraps the OS error, so `errors.Is` works as before.
+			- Python: an `Enum` true only for `Ok`, as `SetStatus` is. `WriteError` has `.status`, and so do `SaveFailed` and `UpgradeFailed`.
+			- C: `shcl_write_status`, `SHCL_WRITE_OK` to `SHCL_WRITE_OTHER`, with `shcl_write_status_name`. The 6 calls that write take a last `shcl_write_status *why`, which may be NULL. `errno` is still set. An out parameter rather than a return value, so a call left unchanged fails to compile instead of reading backwards.
+			- C++: `WriteStatus` with `to_string`. `write_file_atomic` returns it in place of a bool. The saves take `WriteStatus *why = nullptr`, so old calls still build. `UpgradeError` has `status`.
+			- My calls beyond the guess: `NotRegular` sits beside `IsDirectory`, since every binding already told the two apart in its message. `upgrade_file`'s "changed since it was read" is `Other`. A file another process holds open on Windows is `PermissionDenied` in all four, where C and Python already put it. Windows system codes go through one table all four share, since each language files some of them differently.
+			- CLI output is unchanged.
+	- Test case: `write_status_values_in_order` (Rust `EsEhCFx`, Go `EsEhCG0`, Python `EsEhCG3`, C `EsEhCG9`), `write_status_names_each_failure` (`EsEhCFy`, `EsEhCG1`, `EsEhCG4`, `EsEhCGA`), the OS error table (Rust `os_errors_map_to_one_reason` `EsEhCFz`, Go `TestWriteStatusOf` `EsEhCG2`, Python `write_status_of_os_errors` `EsEhCG5`, C `write_status_of_errno` `EsEhCGB`), Python `write_status_only_ok_is_true` (`EsEhCG6`), and the C++ `veneer_smoke` (`EjtkR0S`).
+	- Swept: every call of `write_file_atomic`, the 3 saves, `write_backup` and `upgrade_file` in the four libraries, the four CLIs, the four runners, the C++ veneer and its smoke test, the README's C and Zig examples, and the comparison tool, which builds.
+	- Verified: the Rust tests, clippy for the host and windows, and the write tests for the windows target under wine. Go tests in both modules, vet for the host and windows, staticcheck, and the Go write tests under wine. The Python runner, ruff and mypy. The C runner, its mingw build under wine, check-c-compilers, sanitize-c, cppcheck at the normal level, the no-file-IO build, the C++ veneer smoke and check-veneer. cli-regress (496 rows, 2687 checks), crosscheck over the corpus (17901 comparisons), check-readme with every example built, check-abnf, test-ids check and markdownlint. check-docs is red only on `installers-match-main`, as before.
+	- Verified: each binding's tests fail with `NotADirectory` or `ENOTDIR` taken out of the table, and with `Unreadable` given as `Other`. C's fail with the FIFO flag dropped, and C++'s with a save's status not passed back.
+	- Branch: `wrstat`
+	- Commit: `6e0210c2`
+
+- Long values make messages huge
+	- ID: 2026100818251400
+	- Type: Bug
+	- Status: Waiting for testing
+	- Needs local test suite run?: the full `--ci`, for exhaustive cppcheck over the C change.
+	- Needs external testing: the hosted run, for cli-regress on windows and macos.
+	- Severity: Low
+	- Opened: 20261008-182514
+	- Opened by: JC, from a question on 2026100717500013
+	- Related IDs: 2026100812323841, 2026100717500013
+	- Steps to reproduce: a 4,000 character base64 `token`, then `shcl get --int f token`.
+	- Incorrect behavior: the whole value is echoed. One 4,065 byte line on stderr, and a 5 MB value would give a 5 MB line.
+	- Expected behavior: a value in a message is cut at 200 characters, then its length, like `value "tAj7pRNw...xYz" (4000 chars) is not a valid int`. All four and the library messages.
+	- Progress log:
+		- 20261008: accepted (JC). Same reason as the H001 list cap. Work it with 2026100812323841, since both go through `quoted()` and the message helpers.
+		- 20261009: built in all four, with 2026100812323841. Best guess to confirm at signoff: the first and last 100 characters with `...` between, since the example shows both ends.
+	- Decisions:
+		- A value over 200 characters is cut. 200 or fewer show whole.
+		- Characters are code points, and a cut never splits one.
+		- The length goes after the closing quote, or after the value where the message has no quotes.
+		- H001's suggested values and V004's bracket list cut each element the same way, in the writer's form.
+	- Actual fix [Bug]: the library's `one_line` and each CLI's `quoted` count characters and cut the middle past 200. `diag_element` cuts the same way.
+	- Swept: the value sites in Rust, Go, Python and C: `one_line` (E023's escape name, V004 to V006), `diag_element` (H001, V004's bracket list), and `quoted` in the four CLIs. Names and paths (`diag_name`, `schema_text`) are not values and are not cut. Neither is command-line text echoed in a usage error.
+	- Verified: the new rows fail on dev's build and pass on all four. `cargo test`, the four conformance suites, `go test` (both modules), the C extras and veneer_smoke, cli-regress (507 rows, 2731 checks), crosscheck over the corpus (17901 comparisons), clippy for the host and windows, rustfmt, gofmt, go vet, staticcheck, ruff, mypy, cppcheck at the normal level, the C CLI under gcc 15 and clang at `-O0`, `-O3` and `-Os`, the 2M release fuzz (all 26), shell-regress, check-docs (only the known `EpHGoa0` installer red), check-abnf, check-readme, test-ids check, shellcheck, markdownlint.
+	- Branch: `msgval`
+	- Commit: `81943546`
+	- Test case: cli-regress `EsEhCd0` to `EsEhCd5`, with 2 and 4 byte characters and the 200 and 201 character edges.
+
+- Messages on stderr show value text with 2.x backslash escapes
+	- ID: 2026100812323841
+	- Type: Bug
+	- Status: Waiting for testing
+	- Needs local test suite run?: the full `--ci`, for exhaustive cppcheck over the C change.
+	- Needs external testing: the hosted run. The windows job runs the new row whose argument holds a line break.
+	- Severity: Low
+	- Opened: 20261008-123238
+	- Opened by: 2026100717500002's sweep
+	- Version and build: dev at `c25ed432`
+	- Steps to reproduce:
+		- `printf 'a: C:\\temp\n' | shcl get --int - a`
+		- `printf 'a: "◉C:\\x◉"\n' | shcl check -`
+	- Incorrect behavior: `value "C:\\temp" is not a valid int`, and `unknown escape '◉C:\\x◉'`. Both read as if the file held two backslashes. A backslash is text since 2026100207032800.
+	- Expected behavior: the value text as written, in a form that can't be mistaken for a 2.x escape.
+	- Reproduced: 20261008, Rust CLI.
+	- Origin: the CLI's `quoted()` and the library's `one_line()` and `schema_text()` for messages, from before 2026100207032800. Not seen by an earlier round. Confirmed.
+	- Question: which form a message uses for a value with a line break. The writer's quoted form escapes a real `◉` in source text as `◉ESCAPE_CHAR◉`, which reads oddly in an `E023` message about that very mark.
+		- Answered 20261008: a real `◉` in a message shows as itself, then its code in parentheses: `◉ (U+25C9)`.
+	- Sweep: `quoted()` in the four CLIs, and the library's message helpers in all four, with the cli-regress rows that pin their text.
+	- Progress log:
+		- 20261009: best guess, as asked: a line break, carriage return or tab shows by its escape name, `◉NEWLINE◉`, `◉CR◉`, `◉TAB◉`. Any other control is a code point, `◉U+0007◉`, so the CLIs need no name table. A `"` shows as itself.
+		- 20261009: `get`'s message showed the raw text inside added quotes. With no backslash escapes, `a: "abc"` would read `""abc""`, and each mark of an escape would get `(U+25C9)`. It now shows the text the read parsed, quotes off, as the C CLI already did. Confirm at signoff.
+	- Decisions:
+		- A backslash is itself. The message helpers write no backslash escapes.
+		- Messages use these forms for value text. Names and paths keep the writer's form, which has no backslash escapes either.
+	- Actual fix [Bug]: the library's `one_line` and each CLI's `quoted` write the forms above. `schema_text` and the setter note's path write a line break as `◉NEWLINE◉`, and the note a carriage return as `◉CR◉`. V004's bracket list no longer goes through `one_line` twice. Corpus 127's `init` golden moved, since a generated comment showed a schema path's line break as `\n`. Its `input.shcl` keeps the old comment, so the fuzz seed set stays the same.
+	- Swept: `quoted` in the four CLIs. `one_line`, `schema_text` and `note_text` in Rust, Go, Python and C. `diag_name` and `diag_element` use the writer's form and stay. A grep of the four libraries and CLIs for a written `\n`, `\r`, `\t` or `\\` finds no other site.
+	- Verified: the new and changed rows fail on dev's build and pass on all four. The same runs as 2026100818251400.
+	- Branch: `msgval`
+	- Commit: `81943546`
+	- Test case: cli-regress `EsEhCcw` to `EsEhCcz` and `EsEix5w`, and the changed rows `EqGaO1w` to `EqGaO23`, `EonKleq` and `Er1zoZI`.
+
 - `line`, `lines`, `authored_name`, `comments`, `exists`, `remove` and `clear_comments` can't report a path that doesn't parse
 	- ID: 2026100912271700
 	- Type: Enhancement
@@ -185,33 +276,44 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Fail on a 2.x escape form (`\n`, `\t`, `\\`) in help text or CLI output.
 	- Reason: the doc tables are the cheapest source of hand-written expected results.
 
-- Long values make messages huge
-	- ID: 2026100818251400
-	- Type: Bug
-	- Status: Waiting for testing
-	- Needs local test suite run?: the full `--ci`, for exhaustive cppcheck over the C change.
-	- Needs external testing: the hosted run, for cli-regress on windows and macos.
-	- Severity: Low
-	- Opened: 20261008-182514
-	- Opened by: JC, from a question on 2026100717500013
-	- Related IDs: 2026100812323841, 2026100717500013
-	- Steps to reproduce: a 4,000 character base64 `token`, then `shcl get --int f token`.
-	- Incorrect behavior: the whole value is echoed. One 4,065 byte line on stderr, and a 5 MB value would give a 5 MB line.
-	- Expected behavior: a value in a message is cut at 200 characters, then its length, like `value "tAj7pRNw...xYz" (4000 chars) is not a valid int`. All four and the library messages.
-	- Progress log:
-		- 20261008: accepted (JC). Same reason as the H001 list cap. Work it with 2026100812323841, since both go through `quoted()` and the message helpers.
-		- 20261009: built in all four, with 2026100812323841. Best guess to confirm at signoff: the first and last 100 characters with `...` between, since the example shows both ends.
+- Library gaps a generic tool has to work around
+	- ID: 2026100717500020
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 20
+	- Related IDs: 2026100907362300, which goes first
+	- Problem description:
+		- No library call resolves a file's `Schema` line by the CLI's rules: relative to the config's directory, and refusing devices, FIFOs, UNC paths and files over 16 MiB. Each program writes its own.
+		- No way to ask a node's kind (scalar, array, raw block, empty) but trial reads.
+		- `set_*_default` returns true when something is already there, even `bad: abc` or a bare `empty:`, so "make sure this has a usable value" can't be said in one call.
 	- Decisions:
-		- A value over 200 characters is cut. 200 or fewer show whole.
-		- Characters are code points, and a cut never splits one.
-		- The length goes after the closing quote, or after the value where the message has no quotes.
-		- H001's suggested values and V004's bracket list cut each element the same way, in the writer's form.
-	- Actual fix [Bug]: the library's `one_line` and each CLI's `quoted` count characters and cut the middle past 200. `diag_element` cuts the same way.
-	- Swept: the value sites in Rust, Go, Python and C: `one_line` (E023's escape name, V004 to V006), `diag_element` (H001, V004's bracket list), and `quoted` in the four CLIs. Names and paths (`diag_name`, `schema_text`) are not values and are not cut. Neither is command-line text echoed in a usage error.
-	- Verified: the new rows fail on dev's build and pass on all four. `cargo test`, the four conformance suites, `go test` (both modules), the C extras and veneer_smoke, cli-regress (507 rows, 2731 checks), crosscheck over the corpus (17901 comparisons), clippy for the host and windows, rustfmt, gofmt, go vet, staticcheck, ruff, mypy, cppcheck at the normal level, the C CLI under gcc 15 and clang at `-O0`, `-O3` and `-Os`, the 2M release fuzz (all 26), shell-regress, check-docs (only the known `EpHGoa0` installer red), check-abnf, check-readme, test-ids check, shellcheck, markdownlint.
-	- Branch: `msgval`
-	- Commit: `81943546`
-	- Test case: cli-regress `EsEhCd0` to `EsEhCd5`, with 2 and 4 byte characters and the 200 and 201 character edges.
+		- 20261008: before the cut, not after (JC).
+		- 20261009: all three get a fix, not docs (JC).
+		- 20261009: the third is `set_*_default` itself. It writes the default when the field is missing, empty or doesn't read as that type, and keeps a replaced line as a `##` comment with a note (JC).
+	- Requirements:
+		- A library call reads a config's `Schema` line and resolves it by the CLI's rules. The CLI uses the same call, so the two can't drift.
+		- A `kind(path)` read gives scalar, array, raw block or empty, with a status for a missing or bad path.
+		- One call makes sure a field has a usable value of a type.
+	- Question: the third one, proposed: `set_*_default` writes the default when the field is missing, empty, or doesn't read as that type, and leaves a good value alone. The old line stays as a `##` comment with a note, the way a setter writes over a kept line (2026100307163907), so `bad: abc` is not lost. True means the field now reads as that type. The other way is a new `ensure_*` family beside the current `set_*_default`, which would keep its meaning.
+		- Answered 20261009: as proposed, `set_*_default` changes. No `ensure_*` family.
+	- Origin: Confirmed by reading and probes.
+
+- `format_version` gives the same answer for a garbled Format line and for none
+	- ID: 2026100912352401
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261009-123524
+	- Opened by: JC, from 2026100912271700
+	- Related IDs: 2026100912271700, 2026100717500017
+	- Problem description: `format_version` returns None both when no line names a format and when the line is there but names no number, such as `##    Format   3x`. A program asking before it rewrites a file can't tell an unstamped file from a damaged stamp.
+	- Requirements:
+		- A status form that tells no line, a readable major and a line it can't read apart. All four and the C++ interface.
+		- Check `schema_ref` for the same mix-up and fix it the same way if it has it.
+
+**Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
 
 - Python's `write_file_atomic` returns an error string, and `Document()` raises
 	- ID: 2026100717500014
@@ -255,108 +357,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Test case: none, comment and README text only.
 	- Acceptance signoff: Self-closed: mechanical.
 	- Closed: 20261009-132539
-
-- Messages on stderr show value text with 2.x backslash escapes
-	- ID: 2026100812323841
-	- Type: Bug
-	- Status: Waiting for testing
-	- Needs local test suite run?: the full `--ci`, for exhaustive cppcheck over the C change.
-	- Needs external testing: the hosted run. The windows job runs the new row whose argument holds a line break.
-	- Severity: Low
-	- Opened: 20261008-123238
-	- Opened by: 2026100717500002's sweep
-	- Version and build: dev at `c25ed432`
-	- Steps to reproduce:
-		- `printf 'a: C:\\temp\n' | shcl get --int - a`
-		- `printf 'a: "◉C:\\x◉"\n' | shcl check -`
-	- Incorrect behavior: `value "C:\\temp" is not a valid int`, and `unknown escape '◉C:\\x◉'`. Both read as if the file held two backslashes. A backslash is text since 2026100207032800.
-	- Expected behavior: the value text as written, in a form that can't be mistaken for a 2.x escape.
-	- Reproduced: 20261008, Rust CLI.
-	- Origin: the CLI's `quoted()` and the library's `one_line()` and `schema_text()` for messages, from before 2026100207032800. Not seen by an earlier round. Confirmed.
-	- Question: which form a message uses for a value with a line break. The writer's quoted form escapes a real `◉` in source text as `◉ESCAPE_CHAR◉`, which reads oddly in an `E023` message about that very mark.
-		- Answered 20261008: a real `◉` in a message shows as itself, then its code in parentheses: `◉ (U+25C9)`.
-	- Sweep: `quoted()` in the four CLIs, and the library's message helpers in all four, with the cli-regress rows that pin their text.
-	- Progress log:
-		- 20261009: best guess, as asked: a line break, carriage return or tab shows by its escape name, `◉NEWLINE◉`, `◉CR◉`, `◉TAB◉`. Any other control is a code point, `◉U+0007◉`, so the CLIs need no name table. A `"` shows as itself.
-		- 20261009: `get`'s message showed the raw text inside added quotes. With no backslash escapes, `a: "abc"` would read `""abc""`, and each mark of an escape would get `(U+25C9)`. It now shows the text the read parsed, quotes off, as the C CLI already did. Confirm at signoff.
-	- Decisions:
-		- A backslash is itself. The message helpers write no backslash escapes.
-		- Messages use these forms for value text. Names and paths keep the writer's form, which has no backslash escapes either.
-	- Actual fix [Bug]: the library's `one_line` and each CLI's `quoted` write the forms above. `schema_text` and the setter note's path write a line break as `◉NEWLINE◉`, and the note a carriage return as `◉CR◉`. V004's bracket list no longer goes through `one_line` twice. Corpus 127's `init` golden moved, since a generated comment showed a schema path's line break as `\n`. Its `input.shcl` keeps the old comment, so the fuzz seed set stays the same.
-	- Swept: `quoted` in the four CLIs. `one_line`, `schema_text` and `note_text` in Rust, Go, Python and C. `diag_name` and `diag_element` use the writer's form and stay. A grep of the four libraries and CLIs for a written `\n`, `\r`, `\t` or `\\` finds no other site.
-	- Verified: the new and changed rows fail on dev's build and pass on all four. The same runs as 2026100818251400.
-	- Branch: `msgval`
-	- Commit: `81943546`
-	- Test case: cli-regress `EsEhCcw` to `EsEhCcz` and `EsEix5w`, and the changed rows `EqGaO1w` to `EqGaO23`, `EonKleq` and `Er1zoZI`.
-
-- Library gaps a generic tool has to work around
-	- ID: 2026100717500020
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Low
-	- Opened: 20261007-175000
-	- Opened by: Code review 20261007 item 20
-	- Related IDs: 2026100907362300, which goes first
-	- Problem description:
-		- No library call resolves a file's `Schema` line by the CLI's rules: relative to the config's directory, and refusing devices, FIFOs, UNC paths and files over 16 MiB. Each program writes its own.
-		- No way to ask a node's kind (scalar, array, raw block, empty) but trial reads.
-		- `set_*_default` returns true when something is already there, even `bad: abc` or a bare `empty:`, so "make sure this has a usable value" can't be said in one call.
-	- Decisions:
-		- 20261008: before the cut, not after (JC).
-		- 20261009: all three get a fix, not docs (JC).
-		- 20261009: the third is `set_*_default` itself. It writes the default when the field is missing, empty or doesn't read as that type, and keeps a replaced line as a `##` comment with a note (JC).
-	- Requirements:
-		- A library call reads a config's `Schema` line and resolves it by the CLI's rules. The CLI uses the same call, so the two can't drift.
-		- A `kind(path)` read gives scalar, array, raw block or empty, with a status for a missing or bad path.
-		- One call makes sure a field has a usable value of a type.
-	- Question: the third one, proposed: `set_*_default` writes the default when the field is missing, empty, or doesn't read as that type, and leaves a good value alone. The old line stays as a `##` comment with a note, the way a setter writes over a kept line (2026100307163907), so `bad: abc` is not lost. True means the field now reads as that type. The other way is a new `ensure_*` family beside the current `set_*_default`, which would keep its meaning.
-		- Answered 20261009: as proposed, `set_*_default` changes. No `ensure_*` family.
-	- Origin: Confirmed by reading and probes.
-
-- A failed write says why only in text
-	- ID: 2026100912352400
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Priority: Low
-	- Opened: 20261009-123524
-	- Opened by: JC, from 2026100912271700
-	- Related IDs: 2026100717500014, 2026100912271700
-	- Problem description: Rust's `write_file_atomic` returns `Result<(), String>`, and `SaveError::Io` and `UpgradeError::Io` hold only a message. Python's `write_file_atomic` returns a string. A program can't tell a missing folder from no permission or a full disk without parsing the text. Go wraps the OS error with `%w`, and C leaves `errno` set, so those two can already check it.
-	- Requirements:
-		- A write failure gives a reason a program can check, like `read_file`'s `FileStatus` does for reads. All four and the C++ interface, same names in the same order.
-		- Work it with 2026100717500014, which changes Python's `write_file_atomic` to raise.
-	- Needs external testing: the hosted windows run, for the shared table of Windows system codes. It ran here only under wine. Exhaustive cppcheck waits for the next main push.
-	- Progress log:
-		- 20261009: built on `wrstat`, all four and the C++ interface, from a best guess. The question was asked and not answered: reuse `FileStatus`'s names where they fit, add only what writes need, and keep the message beside the status.
-			- `WriteStatus`, in this order, numbered from 0: `Ok`, `NotFound` (the folder is not there, or part of the path is a file), `Unreadable` (`upgrade_file` could not read the file), `PermissionDenied`, `DiskFull` (disk or quota), `ReadOnly` (read-only filesystem or media), `IsDirectory`, `NotRegular`, `Other`.
-			- Rust: a `WriteError` with `status` and `message`, from `write_file_atomic`, and inside `SaveError::Io` and `UpgradeError::Io`.
-			- Go: `WriteOk` to `WriteOther`, and a `*WriteError` from `WriteFileAtomic` and a save's failed write, and as `UpgradeError.Err` for `UpgradeIO`. It still wraps the OS error, so `errors.Is` works as before.
-			- Python: an `Enum` true only for `Ok`, as `SetStatus` is. `WriteError` has `.status`, and so do `SaveFailed` and `UpgradeFailed`.
-			- C: `shcl_write_status`, `SHCL_WRITE_OK` to `SHCL_WRITE_OTHER`, with `shcl_write_status_name`. The 6 calls that write take a last `shcl_write_status *why`, which may be NULL. `errno` is still set. An out parameter rather than a return value, so a call left unchanged fails to compile instead of reading backwards.
-			- C++: `WriteStatus` with `to_string`. `write_file_atomic` returns it in place of a bool. The saves take `WriteStatus *why = nullptr`, so old calls still build. `UpgradeError` has `status`.
-			- My calls beyond the guess: `NotRegular` sits beside `IsDirectory`, since every binding already told the two apart in its message. `upgrade_file`'s "changed since it was read" is `Other`. A file another process holds open on Windows is `PermissionDenied` in all four, where C and Python already put it. Windows system codes go through one table all four share, since each language files some of them differently.
-			- CLI output is unchanged.
-	- Test case: `write_status_values_in_order` (Rust `EsEhCFx`, Go `EsEhCG0`, Python `EsEhCG3`, C `EsEhCG9`), `write_status_names_each_failure` (`EsEhCFy`, `EsEhCG1`, `EsEhCG4`, `EsEhCGA`), the OS error table (Rust `os_errors_map_to_one_reason` `EsEhCFz`, Go `TestWriteStatusOf` `EsEhCG2`, Python `write_status_of_os_errors` `EsEhCG5`, C `write_status_of_errno` `EsEhCGB`), Python `write_status_only_ok_is_true` (`EsEhCG6`), and the C++ `veneer_smoke` (`EjtkR0S`).
-	- Swept: every call of `write_file_atomic`, the 3 saves, `write_backup` and `upgrade_file` in the four libraries, the four CLIs, the four runners, the C++ veneer and its smoke test, the README's C and Zig examples, and the comparison tool, which builds.
-	- Verified: the Rust tests, clippy for the host and windows, and the write tests for the windows target under wine. Go tests in both modules, vet for the host and windows, staticcheck, and the Go write tests under wine. The Python runner, ruff and mypy. The C runner, its mingw build under wine, check-c-compilers, sanitize-c, cppcheck at the normal level, the no-file-IO build, the C++ veneer smoke and check-veneer. cli-regress (496 rows, 2687 checks), crosscheck over the corpus (17901 comparisons), check-readme with every example built, check-abnf, test-ids check and markdownlint. check-docs is red only on `installers-match-main`, as before.
-	- Verified: each binding's tests fail with `NotADirectory` or `ENOTDIR` taken out of the table, and with `Unreadable` given as `Other`. C's fail with the FIFO flag dropped, and C++'s with a save's status not passed back.
-	- Branch: `wrstat`
-	- Commit: `6e0210c2`
-
-- `format_version` gives the same answer for a garbled Format line and for none
-	- ID: 2026100912352401
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Low
-	- Opened: 20261009-123524
-	- Opened by: JC, from 2026100912271700
-	- Related IDs: 2026100912271700, 2026100717500017
-	- Problem description: `format_version` returns None both when no line names a format and when the line is there but names no number, such as `##    Format   3x`. A program asking before it rewrites a file can't tell an unstamped file from a damaged stamp.
-	- Requirements:
-		- A status form that tells no line, a readable major and a line it can't read apart. All four and the C++ interface.
-		- Check `schema_ref` for the same mix-up and fix it the same way if it has it.
-
-**Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
 
 - `count`, `instances` and `children` can't report a path that doesn't parse
 	- ID: 2026100818140260
