@@ -188,7 +188,9 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - Long values make messages huge
 	- ID: 2026100818251400
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting for testing
+	- Needs local test suite run?: the full `--ci`, for exhaustive cppcheck over the C change.
+	- Needs external testing: the hosted run, for cli-regress on windows and macos.
 	- Severity: Low
 	- Opened: 20261008-182514
 	- Opened by: JC, from a question on 2026100717500013
@@ -198,6 +200,18 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Expected behavior: a value in a message is cut at 200 characters, then its length, like `value "tAj7pRNw...xYz" (4000 chars) is not a valid int`. All four and the library messages.
 	- Progress log:
 		- 20261008: accepted (JC). Same reason as the H001 list cap. Work it with 2026100812323841, since both go through `quoted()` and the message helpers.
+		- 20261009: built in all four, with 2026100812323841. Best guess to confirm at signoff: the first and last 100 characters with `...` between, since the example shows both ends.
+	- Decisions:
+		- A value over 200 characters is cut. 200 or fewer show whole.
+		- Characters are code points, and a cut never splits one.
+		- The length goes after the closing quote, or after the value where the message has no quotes.
+		- H001's suggested values and V004's bracket list cut each element the same way, in the writer's form.
+	- Actual fix [Bug]: the library's `one_line` and each CLI's `quoted` count characters and cut the middle past 200. `diag_element` cuts the same way.
+	- Swept: the value sites in Rust, Go, Python and C: `one_line` (E023's escape name, V004 to V006), `diag_element` (H001, V004's bracket list), and `quoted` in the four CLIs. Names and paths (`diag_name`, `schema_text`) are not values and are not cut. Neither is command-line text echoed in a usage error.
+	- Verified: the new rows fail on dev's build and pass on all four. `cargo test`, the four conformance suites, `go test` (both modules), the C extras and veneer_smoke, cli-regress (507 rows, 2731 checks), crosscheck over the corpus (17901 comparisons), clippy for the host and windows, rustfmt, gofmt, go vet, staticcheck, ruff, mypy, cppcheck at the normal level, the C CLI under gcc 15 and clang at `-O0`, `-O3` and `-Os`, the 2M release fuzz (all 26), shell-regress, check-docs (only the known `EpHGoa0` installer red), check-abnf, check-readme, test-ids check, shellcheck, markdownlint.
+	- Branch: `msgval`
+	- Commit: `81943546`
+	- Test case: cli-regress `EsEhCd0` to `EsEhCd5`, with 2 and 4 byte characters and the 200 and 201 character edges.
 
 - Python's `write_file_atomic` returns an error string, and `Document()` raises
 	- ID: 2026100717500014
@@ -223,7 +237,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - Doc text left behind by earlier changes
 	- ID: 2026100717500015
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 15
@@ -234,11 +248,20 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- `shcl.h` says nothing about threads, while every read writes the document's arena and index. Only the C++ veneer locks.
 	- Expected behavior: the docs say what the code does.
 	- Origin: `5756a593` (2026-07-12) for the first. The second is a sibling of 2026100414480001. Not seen by an earlier round. Confirmed.
+	- Actual fix [Bug]: `Strictness` reads "Set once at load", as Go's does. The Python README, and the Rust README with the same sentence, say the save refuses when the write would delete lines or values, the main README's wording. `shcl.h`'s header says a document is not thread safe, since a read writes its arena and index, and that the C++ interface locks.
+	- Swept: Go, Python and C never had the onBad line. The four `save_file` doc comments were fixed by 2026100414480001, and the main README's five save comments already read right. `shcl.hpp` already says what its const members allow.
+	- Branch: `msgval`
+	- Commit: `81943546`, `5d8f89bb`
+	- Test case: none, comment and README text only.
+	- Acceptance signoff: Self-closed: mechanical.
+	- Closed: 20261009-132539
 
 - Messages on stderr show value text with 2.x backslash escapes
 	- ID: 2026100812323841
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting for testing
+	- Needs local test suite run?: the full `--ci`, for exhaustive cppcheck over the C change.
+	- Needs external testing: the hosted run. The windows job runs the new row whose argument holds a line break.
 	- Severity: Low
 	- Opened: 20261008-123238
 	- Opened by: 2026100717500002's sweep
@@ -253,6 +276,18 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Question: which form a message uses for a value with a line break. The writer's quoted form escapes a real `◉` in source text as `◉ESCAPE_CHAR◉`, which reads oddly in an `E023` message about that very mark.
 		- Answered 20261008: a real `◉` in a message shows as itself, then its code in parentheses: `◉ (U+25C9)`.
 	- Sweep: `quoted()` in the four CLIs, and the library's message helpers in all four, with the cli-regress rows that pin their text.
+	- Progress log:
+		- 20261009: best guess, as asked: a line break, carriage return or tab shows by its escape name, `◉NEWLINE◉`, `◉CR◉`, `◉TAB◉`. Any other control is a code point, `◉U+0007◉`, so the CLIs need no name table. A `"` shows as itself.
+		- 20261009: `get`'s message showed the raw text inside added quotes. With no backslash escapes, `a: "abc"` would read `""abc""`, and each mark of an escape would get `(U+25C9)`. It now shows the text the read parsed, quotes off, as the C CLI already did. Confirm at signoff.
+	- Decisions:
+		- A backslash is itself. The message helpers write no backslash escapes.
+		- Messages use these forms for value text. Names and paths keep the writer's form, which has no backslash escapes either.
+	- Actual fix [Bug]: the library's `one_line` and each CLI's `quoted` write the forms above. `schema_text` and the setter note's path write a line break as `◉NEWLINE◉`, and the note a carriage return as `◉CR◉`. V004's bracket list no longer goes through `one_line` twice. Corpus 127's `init` golden moved, since a generated comment showed a schema path's line break as `\n`. Its `input.shcl` keeps the old comment, so the fuzz seed set stays the same.
+	- Swept: `quoted` in the four CLIs. `one_line`, `schema_text` and `note_text` in Rust, Go, Python and C. `diag_name` and `diag_element` use the writer's form and stay. A grep of the four libraries and CLIs for a written `\n`, `\r`, `\t` or `\\` finds no other site.
+	- Verified: the new and changed rows fail on dev's build and pass on all four. The same runs as 2026100818251400.
+	- Branch: `msgval`
+	- Commit: `81943546`
+	- Test case: cli-regress `EsEhCcw` to `EsEhCcz` and `EsEix5w`, and the changed rows `EqGaO1w` to `EqGaO23`, `EonKleq` and `Er1zoZI`.
 
 - Library gaps a generic tool has to work around
 	- ID: 2026100717500020

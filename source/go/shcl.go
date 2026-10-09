@@ -1996,22 +1996,85 @@ func leadingWS(s string) string {
 	return s[:i]
 }
 
-// oneLine is value text for a diagnostic message: line breaks and tabs escaped,
-// so one diagnostic is one line. A raw block's body is the value that made this
-// necessary - it contains its own newlines. The replacer is built once, since
-// building it was most of what a validation with range faults allocated.
+// oneLine is value text for a diagnostic message. See oneLineIn.
 func oneLine(s string) string {
-	return oneLineReplacer.Replace(s)
+	return oneLineIn(s, "", "")
 }
 
-var oneLineReplacer = strings.NewReplacer("\\", "\\\\", "\n", "\\n", "\r", "\\r", "\t", "\\t")
+// diagTextMax is how many characters of a value a message shows. A 5 MB value
+// made a 5 MB stderr line.
+const diagTextMax = 200
+
+// oneLineIn is value text for a diagnostic message, between open and close. It
+// stays one line, and nothing in it reads as a 2.x backslash escape: a
+// backslash is itself, a line break, carriage return or tab shows by its
+// escape name, any other control as a code point, and a real escape mark as
+// itself with its code after it. A raw block's body is the value that made
+// this necessary - it holds its own line breaks. Past diagTextMax characters
+// the middle is cut, and the length goes after close.
+func oneLineIn(s, open, close string) string {
+	total := utf8.RuneCountInString(s)
+	var b strings.Builder
+	b.WriteString(open)
+	if total <= diagTextMax {
+		writeShown(&b, s)
+	} else {
+		head, tail := cutEnds(s, total)
+		writeShown(&b, head)
+		b.WriteString("...")
+		writeShown(&b, tail)
+	}
+	b.WriteString(close)
+	if total > diagTextMax {
+		fmt.Fprintf(&b, " (%d chars)", total)
+	}
+	return b.String()
+}
+
+// cutEnds is the first and last diagTextMax / 2 characters of s, which has
+// total of them. Cut on characters, never inside one.
+func cutEnds(s string, total int) (string, string) {
+	half := diagTextMax / 2
+	head, tail := len(s), len(s)
+	n := 0
+	for i := range s {
+		if n == half {
+			head = i
+		}
+		if n == total-half {
+			tail = i
+			break
+		}
+		n++
+	}
+	return s[:head], s[tail:]
+}
+
+func writeShown(b *strings.Builder, s string) {
+	for _, c := range s {
+		switch {
+		case c == '\t':
+			b.WriteString("\u25C9TAB\u25C9")
+		case c == '\n':
+			b.WriteString("\u25C9NEWLINE\u25C9")
+		case c == '\r':
+			b.WriteString("\u25C9CR\u25C9")
+		case c == escapeMark:
+			b.WriteString("\u25C9 (U+25C9)")
+		case c < 0x20 || (c >= 0x7f && c <= 0x9f) || c == 0x2028 || c == 0x2029:
+			fmt.Fprintf(b, "\u25C9U+%04X\u25C9", c)
+		default:
+			b.WriteRune(c)
+		}
+	}
+}
 
 // schemaText is schema text for a diagnostic or a generated comment: a path or
-// a type as the schema wrote it, with a line break written `\n`, so one
-// diagnostic stays one line. Only the break is escaped, so a path reads the
-// way it was written.
+// a type as the schema wrote it, with a line break written by its escape name,
+// so one diagnostic stays one line. Only the break is escaped, so a path reads
+// the way it was written.
 func schemaText(s string) string {
-	return strings.ReplaceAll(s, "\n", "\\n")
+	return strings.ReplaceAll(s, "\n", "\u25C9NEWLINE\u25C9")
 }
 
 // resolveMarks is the text of a piece with its `◉NAME◉` escapes resolved.
@@ -2050,7 +2113,7 @@ func resolveMarks(raw string) (string, error) {
 // either case, or a code point prefix and one to six hex digits.
 func escapeText(name string) (string, error) {
 	m := string(escapeMark)
-	shown := m + oneLine(name) + m
+	shown := oneLineIn(name, "'"+m, m+"'")
 	nameChars := name != ""
 	for i := 0; i < len(name) && nameChars; i++ {
 		b := name[i]
@@ -2081,12 +2144,12 @@ func escapeText(name string) (string, error) {
 				continue
 			}
 			if v > unicode.MaxRune || (v >= 0xD800 && v <= 0xDFFF) {
-				return "", errors.New("escape '" + shown + "' names no Unicode character")
+				return "", errors.New("escape " + shown + " names no Unicode character")
 			}
 			return string(rune(v)), nil
 		}
 	}
-	return "", errors.New("unknown escape '" + shown + "'; an escape is a name from the escape list, and a real " + m + " is " + m + "ESCAPE_CHAR" + m)
+	return "", errors.New("unknown escape " + shown + "; an escape is a name from the escape list, and a real " + m + " is " + m + "ESCAPE_CHAR" + m)
 }
 
 // gen-escapes.py: begin
@@ -6415,9 +6478,10 @@ func arrayKept(text string) bool {
 	return lineFault(&tok, text) == nil
 }
 
-// noteText is a path in a note, kept to one line.
+// noteText is a path in a note, kept to one line, with a line break or
+// carriage return written by its escape name.
 func noteText(s string) string {
-	return strings.ReplaceAll(strings.ReplaceAll(s, "\n", `\n`), "\r", `\r`)
+	return strings.ReplaceAll(strings.ReplaceAll(s, "\n", "\u25C9NEWLINE\u25C9"), "\r", "\u25C9CR\u25C9")
 }
 
 // keptNaming is the code and message the load gave a kept line that names
@@ -7690,9 +7754,16 @@ func diagName(name string) string {
 
 // diagElement is one element of a value, written for a diagnostic message:
 // the emitter's spelling inside `[]`, the only place a message puts one, so a
-// value with a line break cannot split one diagnostic across two.
+// value with a line break cannot split one diagnostic across two. A long one
+// is cut like any value in a message, with its length after it.
 func diagElement(e *element) string {
-	return emitElement(e)
+	total := utf8.RuneCountInString(e.text)
+	if total <= diagTextMax {
+		return emitElement(e)
+	}
+	head, tail := cutEnds(e.text, total)
+	cut := element{text: head + "..." + tail, mark: e.mark}
+	return fmt.Sprintf("%s (%d chars)", emitElement(&cut), total)
 }
 
 // diagValue is a value for a diagnostic message. Only a scalar reaches this
@@ -14320,12 +14391,13 @@ func (d *Document) vNode(c *constraint, n int, out *[]Diagnostic) {
 			text := node.value.display()
 			if c.allowed != nil && c.allowed.kind == allowStrings && !containsString(c.allowed.strs, text) {
 				// The bracket form, cut short like any list in a message.
+				// The emitter's text is one line already.
 				shown := make([]string, 0, diagListMax)
 				for i := 0; i < len(els) && i < diagListMax; i++ {
 					shown = append(shown, diagElement(&els[i]))
 				}
 				brief := "[" + diagList(shown, len(els)) + "]" + diagMore(len(els))
-				vdiag(out, line, "V004", fmt.Sprintf("value not allowed at '%s': %s", schemaText(c.path), oneLine(brief)))
+				vdiag(out, line, "V004", fmt.Sprintf("value not allowed at '%s': %s", schemaText(c.path), brief))
 			}
 			return
 		}

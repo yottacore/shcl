@@ -38,7 +38,7 @@ repo("org/name#123").branch: main
 # m.x:
 
 ## Paths needing an instance name (not generated):
-##   m.x   f\nb: 1
+##   m.x   f◉NEWLINE◉b: 1
 
 ##
 ## This config file format is SHCL.

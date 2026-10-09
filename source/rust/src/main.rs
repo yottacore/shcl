@@ -1959,9 +1959,13 @@ fn do_get(o: &Opts) -> u8 {
 			o.kind.name().to_string()
 		};
 		let reason = match status {
-			Status::BadType => match doc.read_string(path).raw {
-				Some(raw) => format!("value {} is not a valid {}", quoted(&raw), type_name),
-				None => format!("value is not a valid {}", type_name),
+			// The text the typed read parsed: quotes off and escapes read, so
+			// a quoted value is not quoted twice.
+			Status::BadType => match doc.read_string(path) {
+				r if r.raw.is_some() => {
+					format!("value {} is not a valid {}", quoted(&r.value), type_name)
+				}
+				_ => format!("value is not a valid {}", type_name),
 			},
 			Status::NotFound => "no value at that path".to_string(),
 			Status::Empty => "the value is empty".to_string(),
@@ -2022,26 +2026,57 @@ fn do_get(o: &Opts) -> u8 {
 	}
 }
 
-/// The source text, quoted for a message: one line whatever it holds, with
-/// the same escapes in every binding.
+/// How many characters of a value a message shows (`DIAG_TEXT_MAX` in the
+/// library).
+const QUOTED_MAX: usize = 200;
+
+/// A value's text, quoted for a message, the way the library shows a value:
+/// one line whatever it holds, and nothing that reads as a 2.x backslash
+/// escape. A line break, carriage return or tab shows by its escape name, any
+/// other control as a code point, and a real escape mark as itself with its
+/// code after it. Past QUOTED_MAX characters the middle is cut, and the length
+/// goes after the closing quote.
 fn quoted(s: &str) -> String {
-	let mut out = String::with_capacity(s.len() + 2);
+	let total = s.chars().count();
+	let mut out = String::with_capacity(s.len().min(QUOTED_MAX * 4) + 18);
 	out.push('"');
+	if total <= QUOTED_MAX {
+		push_shown(&mut out, s);
+	} else {
+		let half = QUOTED_MAX / 2;
+		let head = s.char_indices().nth(half).map_or(s.len(), |(i, _)| i);
+		let tail = s
+			.char_indices()
+			.nth(total - half)
+			.map_or(s.len(), |(i, _)| i);
+		push_shown(&mut out, &s[..head]);
+		out.push_str("...");
+		push_shown(&mut out, &s[tail..]);
+	}
+	out.push('"');
+	if total > QUOTED_MAX {
+		let _ = write!(out, " ({} chars)", total);
+	}
+	out
+}
+
+fn push_shown(out: &mut String, s: &str) {
 	for c in s.chars() {
 		match c {
-			'"' => out.push_str("\\\""),
-			'\\' => out.push_str("\\\\"),
-			'\n' => out.push_str("\\n"),
-			'\r' => out.push_str("\\r"),
-			'\t' => out.push_str("\\t"),
-			c if (c as u32) < 0x20 || c == '\x7f' => {
-				out.push_str(&format!("\\u{{{:x}}}", c as u32))
+			'\t' => out.push_str("\u{25C9}TAB\u{25C9}"),
+			'\n' => out.push_str("\u{25C9}NEWLINE\u{25C9}"),
+			'\r' => out.push_str("\u{25C9}CR\u{25C9}"),
+			'\u{25C9}' => out.push_str("\u{25C9} (U+25C9)"),
+			c if c < ' '
+				|| ('\u{7F}'..='\u{9F}').contains(&c)
+				|| c == '\u{2028}'
+				|| c == '\u{2029}' =>
+			{
+				let _ = write!(out, "\u{25C9}U+{:04X}\u{25C9}", c as u32);
 			}
 			c => out.push(c),
 		}
 	}
-	out.push('"');
-	out
 }
 
 fn do_fmt(o: &Opts) -> u8 {

@@ -1967,8 +1967,10 @@ func doGet(o *opts) int {
 		var reason string
 		switch status {
 		case shcl.BadType:
-			if raw := doc.ReadString(path).Raw; raw != nil {
-				reason = fmt.Sprintf("value %s is not a valid %s", quoted(*raw), typeName)
+			// The text the typed read parsed: quotes off and escapes read,
+			// so a quoted value is not quoted twice.
+			if r := doc.ReadString(path); r.Raw != nil {
+				reason = fmt.Sprintf("value %s is not a valid %s", quoted(r.Value), typeName)
 			} else {
 				reason = fmt.Sprintf("value is not a valid %s", typeName)
 			}
@@ -2019,32 +2021,64 @@ func doGet(o *opts) int {
 	}
 }
 
-// quoted is the source text, quoted for a message: one line whatever it holds,
-// with the same escapes in every binding.
+// quotedMax is how many characters of a value a message shows (diagTextMax
+// in the library).
+const quotedMax = 200
+
+// quoted is a value's text, quoted for a message, the way the library shows
+// a value: one line whatever it holds, and nothing that reads as a 2.x
+// backslash escape. A line break, carriage return or tab shows by its escape
+// name, any other control as a code point, and a real escape mark as itself
+// with its code after it. Past quotedMax characters the middle is cut, and the
+// length goes after the closing quote.
 func quoted(s string) string {
+	total := utf8.RuneCountInString(s)
 	var b strings.Builder
-	b.Grow(len(s) + 2)
 	b.WriteByte('"')
+	if total <= quotedMax {
+		writeShown(&b, s)
+	} else {
+		half := quotedMax / 2
+		head, tail := len(s), len(s)
+		n := 0
+		for i := range s {
+			if n == half {
+				head = i
+			}
+			if n == total-half {
+				tail = i
+				break
+			}
+			n++
+		}
+		writeShown(&b, s[:head])
+		b.WriteString("...")
+		writeShown(&b, s[tail:])
+	}
+	b.WriteByte('"')
+	if total > quotedMax {
+		fmt.Fprintf(&b, " (%d chars)", total)
+	}
+	return b.String()
+}
+
+func writeShown(b *strings.Builder, s string) {
 	for _, c := range s {
 		switch {
-		case c == '"':
-			b.WriteString("\\\"")
-		case c == '\\':
-			b.WriteString("\\\\")
-		case c == '\n':
-			b.WriteString("\\n")
-		case c == '\r':
-			b.WriteString("\\r")
 		case c == '\t':
-			b.WriteString("\\t")
-		case c < 0x20 || c == 0x7f:
-			fmt.Fprintf(&b, "\\u{%x}", c)
+			b.WriteString("\u25C9TAB\u25C9")
+		case c == '\n':
+			b.WriteString("\u25C9NEWLINE\u25C9")
+		case c == '\r':
+			b.WriteString("\u25C9CR\u25C9")
+		case c == 0x25C9:
+			b.WriteString("\u25C9 (U+25C9)")
+		case c < 0x20 || (c >= 0x7f && c <= 0x9f) || c == 0x2028 || c == 0x2029:
+			fmt.Fprintf(b, "\u25C9U+%04X\u25C9", c)
 		default:
 			b.WriteRune(c)
 		}
 	}
-	b.WriteByte('"')
-	return b.String()
 }
 
 func doFmt(o *opts) int {
