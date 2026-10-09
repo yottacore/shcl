@@ -762,15 +762,18 @@ read = doc.read_int("site(example.com).max-upload-mb")
 if read.status is not shcl.Status.Good:
 	print("unusable:", read.status)
 
-# A setter reports whether the write applied: a refused write writes nothing
-# at all rather than half of it. check_set_path names which of the six path
-# reasons it hit, or Ok when it was the value that was refused.
-if not doc.set_int("workers", workers * 2):
-	print("workers:", doc.check_set_path("workers"))
-if not doc.set_bool("site(example.com).tls.hsts", True):
-	print("hsts:", doc.check_set_path("site(example.com).tls.hsts"))
-if not doc.set_string("site(blog.example.com).root", "/srv/www/blog"):
-	print("blog root:", doc.check_set_path("site(blog.example.com).root"))
+# A setter returns Ok, or why it wrote nothing - a refused write writes
+# nothing at all rather than half of it. Only Ok is true, so `if not` works
+# too.
+st = doc.set_int("workers", workers * 2)
+if st is not shcl.SetStatus.Ok:
+	print("workers:", st)
+st = doc.set_bool("site(example.com).tls.hsts", True)
+if st is not shcl.SetStatus.Ok:
+	print("hsts:", st)
+st = doc.set_string("site(blog.example.com).root", "/srv/www/blog")
+if st is not shcl.SetStatus.Ok:
+	print("blog root:", st)
 
 # Raises SaveRefused if this write would delete lines or values from the
 # file; see "What saving does" below (save_file_lossy is the override).

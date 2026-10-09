@@ -507,7 +507,7 @@ class _SetOpt:
 			# Removing nothing is not a failure, the same as the ops script's
 			# `remove`: the point of the option is the path's absence after.
 			doc.remove(self.path)
-			return True
+			return shcl.SetStatus.Ok
 		return doc.set_string(self.path, self.value)
 
 	def opt(self):
@@ -644,7 +644,7 @@ def unusable_path(doc, path):
 	# A path no document can hold, which a remove would take as a miss and
 	# exit 0: one the scanner rejects, or one with a value part. A missing
 	# path or a wildcard is still fine.
-	return doc.check_set_path(path) in (shcl.SetPathCheck.BadPath, shcl.SetPathCheck.ValueInPath)
+	return doc.check_set_path(path) in (shcl.SetStatus.BadPath, shcl.SetStatus.ValueInPath)
 
 
 def bracket_path(path):
@@ -1099,9 +1099,9 @@ def load_layered_from(o, file, given, keep):
 		say_diagnostics_from(label(i + 1), over.diagnostics())
 		doc.merge(over)
 	for st in o.sets:
-		if not st.apply(doc):
-			why = describe_refusal(doc, st.path, st.kind != "--set" and st.value.lstrip().startswith("["), "the value text is not one value")
-			sys.stderr.write(f"{st.opt()}: cannot write {st.path}: {why}\n")
+		wrote = st.apply(doc)
+		if wrote is not shcl.SetStatus.Ok:
+			sys.stderr.write(f"{st.opt()}: cannot write {st.path}: {refusal(wrote, st.path)}\n")
 			return None, "", 1
 	return doc, texts[-1], None
 
@@ -1292,44 +1292,35 @@ def check_opts(cmd, o):
 	return None
 
 
-def array_refusal(doc, path, array):
-	# A field with lines under it takes one plain value or none (E028), so an
-	# array there, or a field made under an array, is refused for where it
-	# goes.
-	if array and doc.children(path):
-		return "a field with lines under it takes one plain value or none"
-	tok = shcl.Tokens()
-	shcl.tokenize(path, "=", True, shcl.RULES_CURRENT, tok)
-	for nxt in tok.segments[1:]:
-		quoted = int(nxt.name.quote is not shcl.Quote.NONE)
-		up = tok.src[:nxt.name.start - quoted].decode("utf-8", "surrogatepass").rstrip(".")
-		r = doc.read_string(up)
-		# Brackets on a value that reads unquoted are an array's.
-		if r.status == shcl.Status.Good and not r.quoted and r.value.startswith("["):
-			return "an array takes no lines under it"
-	return None
-
-
-def describe_refusal(doc, path, array, unwritable):
-	# The per-binding wording behind a setter's bare False. When the path itself
-	# is fine what failed is the text, and only the caller knows which half of
-	# the op that was, so it names it: a setter refused for its value used to
-	# report the sentence written for set_literal whatever the op.
-	reason = doc.check_set_path(path)
-	if reason == shcl.SetPathCheck.Ok:
-		why = array_refusal(doc, path, array)
-		return why if why is not None else unwritable
-	if reason == shcl.SetPathCheck.BadPath:
+def refusal(st, path):
+	# Why a setter wrote nothing, from the status it gave. The library knows
+	# which rule refused the write, so nothing here works it out again: a copy
+	# of the rule in the CLI is how the two drift. The text is the same in all
+	# four CLIs.
+	S = shcl.SetStatus
+	if st is S.Ok:
+		# Not a refusal; no caller asks.
+		return "written"
+	if st is S.BadPath:
 		return bad_path(path)
-	if reason == shcl.SetPathCheck.ValueInPath:
-		return "a path with a value part cannot be written"
-	if reason == shcl.SetPathCheck.Wildcard:
-		return "a wildcard path cannot be written"
-	if reason == shcl.SetPathCheck.NoSuchIndex:
-		return "no instance at that index"
-	if reason == shcl.SetPathCheck.Multiple:
-		return "the path matches multiple instances; name(0) picks one"
-	return "deeper than the nesting cap"
+	return {
+		S.ValueInPath: "a path with a value part cannot be written",
+		S.Wildcard: "a wildcard path cannot be written",
+		S.NoSuchIndex: "no instance at that index",
+		S.TooDeep: "deeper than the nesting cap",
+		S.Multiple: "the path matches multiple instances; name(0) picks one",
+		S.UnderArray: "an array takes no lines under it",
+		S.HasChildren: "a field with lines under it takes one plain value or none",
+		S.NotFinite: "a float has to be finite",
+		S.BadDateTime: "the datetime does not read back as the same one",
+		S.BadRawInfo: "the info string has no spelling that reads back: a '#' in it opens a comment, and a line break has no inline spelling",
+		S.BadRawBody: "the block body has no spelling that reads back: a line ending in a carriage return is trimmed on the way back in, and a line spelling the closing fence would end the block early",
+		S.BadComment: "the comment text is not one line",
+		S.NotOneValue: "the value text is not one value",
+		S.NotUtf8: "the text is not valid UTF-8",
+		S.OutOfRange: "the int is outside the 64-bit range",
+		S.NoReadBack: "the value has no spelling that reads back",
+	}[st]
 
 
 def say_diagnostics(diags):
@@ -2111,44 +2102,20 @@ def apply_op(doc, line):
 		raise ValueError(f"cannot {op} {path}: {bad_path(path)}")
 	elif op == "remove":
 		doc.remove(path)
-		wrote = True
+		wrote = shcl.SetStatus.Ok
 	elif op == "clear-comments":
 		doc.clear_comments(path)
-		wrote = True
+		wrote = shcl.SetStatus.Ok
 	elif op == "banner":
 		# The second field is on or off, not a path.
 		if path not in ("on", "off"):
 			raise ValueError(f"bad banner: {path} (on or off)")
 		doc.set_banner(path == "on")
-		wrote = True
+		wrote = shcl.SetStatus.Ok
 	else:
 		raise ValueError(f"unknown op: {op}")
-	if not wrote:
-		# Which half of the op had no spelling: the reader is otherwise sent to
-		# the value when it was the info string or the comment that failed.
-		if op in ("literal", "literal-default"):
-			unwritable = "the value text is not one value"
-		elif op == "comment":
-			unwritable = "the comment text is not one line"
-		elif op in ("raw", "raw-default"):
-			unwritable = _raw_refusal(text(get(3)))
-		else:
-			unwritable = "the value has no spelling that reads back"
-		array = "array" in op or (op.startswith("literal") and v.lstrip().startswith("["))
-		raise ValueError(f"cannot write {path}: {describe_refusal(doc, path, array, unwritable)}")
-
-
-def _raw_refusal(content):
-	"""Which half of a `raw` op had no spelling, and why. The half is asked of the
-
-	library rather than worked out here: an empty info string always reads back,
-	so a write that still fails with one is the body's fault. Re-deriving the
-	rule in the CLI is how the two copies drift.
-	"""
-	probe = shcl.Document.new()
-	if not probe.set_raw("p", content, ""):
-		return "the block body has no spelling that reads back: a line ending in a carriage return is trimmed on the way back in, and a line spelling the closing fence would end the block early"
-	return "the info string has no spelling that reads back: a '#' in it opens a comment, and a line break has no inline spelling"
+	if wrote is not shcl.SetStatus.Ok:
+		raise ValueError(f"cannot write {path}: {refusal(wrote, path)}")
 
 
 def do_set(o):
