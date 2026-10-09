@@ -36,9 +36,8 @@ if r.status is not Status.Good:
 roots = doc.read_string_array("site(*).root")
 
 # Writes through a temp file and a rename, so an interrupted save cannot
-# truncate the config - and raises SaveRefused if this write would delete
-# content from the file, such as a line the load dropped or a kept line an edit
-# took (save_file_lossy is the override).
+# truncate the config - and raises SaveRefused if this write would delete lines
+# or values from the file (save_file_lossy is the override).
 # A setter returns SetStatus.Ok, or why it wrote nothing at all. Only Ok is
 # true, so `if not doc.set_int(...)` reads as refused.
 st = doc.set_int("site(example.com).max-upload-mb", limit * 2)
