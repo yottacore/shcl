@@ -33,6 +33,21 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
+- Retire the bash and PowerShell wrappers
+	- ID: 2026100818251401
+	- Type: Enhancement
+	- Status: Started
+	- Priority: Avg
+	- Opened: 20261008-182514
+	- Opened by: JC
+	- Problem description: `shcl.bash` and `shcl.ps1` add little over calling the binary. `shcl_int f p` is `shcl get --int f p`. The PowerShell one fixes 5.1's output encoding and old argument quoting, but a third of it fixes problems it makes itself, and the two have taken 33 commits since August.
+	- Requirements:
+		- Move both to `project/legacy/`, unmaintained and not installed, with a short note there.
+		- Installers, packages, dogfood and the gates stop using them. An update removes the old copies from an install.
+		- README, design.md, the man page and the changelog show calling the binary from bash and PowerShell, plus the 5.1 encoding line.
+	- Progress log:
+		- 20261008: the user agreed to drop both.
+
 - `count`, `instances` and `children` can't report a path that doesn't parse
 	- ID: 2026100818140260
 	- Type: Bug
@@ -108,6 +123,20 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Run the man page's shell blocks, as 2026100717500005 does for README's.
 		- Fail on a 2.x escape form (`\n`, `\t`, `\\`) in help text or CLI output.
 	- Reason: the doc tables are the cheapest source of hand-written expected results.
+
+- Long values make messages huge
+	- ID: 2026100818251400
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261008-182514
+	- Opened by: JC, from a question on 2026100717500013
+	- Related IDs: 2026100812323841, 2026100717500013
+	- Steps to reproduce: a 4,000 character base64 `token`, then `shcl get --int f token`.
+	- Incorrect behavior: the whole value is echoed. One 4,065 byte line on stderr, and a 5 MB value would give a 5 MB line.
+	- Expected behavior: a value in a message is cut at 200 characters, then its length, like `value "tAj7pRNw...xYz" (4000 chars) is not a valid int`. All four and the library messages.
+	- Progress log:
+		- 20261008: accepted (JC). Same reason as the H001 list cap. Work it with 2026100812323841, since both go through `quoted()` and the message helpers.
 
 - Python's `write_file_atomic` returns an error string, and `Document()` raises
 	- ID: 2026100717500014
@@ -295,7 +324,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 			- C++: the same six as `Document` calls, with `strict_failed()`. Consistent, through C.
 		- 2026-10-08: The one behavior, from the Rust parse functions: at Strict, any error diagnostic on the document a call hands back fails it, with the document inside the error. That is C's `shcl_strict_failed` rule, so C and C++ keep their signatures. In the one-shot a schema finding fails it too, since it is an error in the same list. C already did that.
 		- 2026-10-08: This is a 3.0 signature change. Rust `load_file_with` and `load_file_keep_lines` return `Result<(Document, FileStatus), LoadError>`, and `load_and_validate` `Result<Document, LoadError>`. Go `LoadFileWith` and `LoadFileKeepLines` return `(*Document, FileStatus, error)`, and `LoadAndValidate` `(*Document, error)`. Python raises. `load_file` keeps its signature, since it is always Standard. No CLI, script or tool called the changed calls, only the bindings' own tests and the Go package doc's example.
-		- 20261008: signed off (JC).
+		- 20261008: signed off (JC). A schema finding alone failing the Strict one-shot stays, agreed (JC).
 	- Against: spec.md's file tier said a strict-failing file "reports `HadErrors` ... never a throw", spec.md's schema section and the 2026-08-02 one-shot item said the one-shot never fails, and design.md's file tier says the load never fails. All of that now holds below Strict. design.md has a sub-bullet saying so.
 	- Actual cause: each entry point did its own strict check, and only the parse ones had one.
 	- Actual fix: one gate per binding (`strict_gate`, `strictGate`, `_strict_gate`) that every entry point taking a strictness returns through. spec.md, design.md, the C and C++ comments, the Rust and Python READMEs and the changelog's upgrade notes say so. The "Strict never throws here" lines in the Rust, Go and Python one-shot tests are commented out with the reason, and those tests now expect the failure. C's gained a `shcl_strict_failed` check.
