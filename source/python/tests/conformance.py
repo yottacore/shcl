@@ -3606,6 +3606,48 @@ def main():
 	if shcl.format_version("##    Format   4294967296\na: 1\n") != shcl.FORMAT_MAJOR:
 		raise SystemExit("format_version: 4294967296 did not read as the current major")
 
+	test_id("EsEtTdR", "stamp_reads_say_why")
+	# The Format and Schema lines read with a status, so an unstamped file and
+	# a damaged stamp read apart, and the load's H006 and H007 hints say the
+	# same as the Format read on every row. Rust's stamp_reads_say_why has the
+	# same rows.
+	G, E, NF, BT = shcl.Status.Good, shcl.Status.Empty, shcl.Status.NotFound, shcl.Status.BadType
+	for ftext, fvalue, fstatus, fline, fhint in (
+		("a: 1\n", 0, NF, 0, ""),
+		("a: 1\n##    Format   3\n", 3, G, 2, ""),
+		("##    Format   4\na: 1\n", 4, G, 1, "H006"),
+		("a: 1\n##    Format   2\n", 2, G, 2, "H007"),
+		("a: 1\n##    Format   3x\n", 0, BT, 2, ""),
+		("a: 1\n##    Format\n", 0, E, 2, ""),
+		("a: 1\n##    Format   \n", 0, E, 2, ""),
+		("##    Format   x\n##    Format   2\n", 2, G, 2, "H007"),
+		("note: ~~~\n##    Format   4\n~~~\n", 0, NF, 0, ""),
+		("a: 1\n##    Format  3\n", 0, NF, 0, ""),
+		("\ufeff##    Format   5\n", 5, G, 1, "H006"),
+		("##    Format   4294967296\n", shcl.FORMAT_MAJOR, G, 1, ""),
+		("a:\n\t##    Format   1\n\tb: 1\n", 1, G, 2, "H007"),
+	):
+		fr = shcl.read_format_version(ftext)
+		if (fr.value, fr.status, fr.line) != (fvalue, fstatus, fline):
+			raise SystemExit(f"read_format_version {ftext!r}: {fr}")
+		if shcl.format_version(ftext) != (fvalue if fstatus is G else None):
+			raise SystemExit(f"format_version {ftext!r}: {shcl.format_version(ftext)}")
+		stamp_hints = [(d.code, d.line) for d in shcl.Document.parse(ftext).diagnostics() if d.code in ("H006", "H007")]
+		if stamp_hints != ([(fhint, fline)] if fhint else []):
+			raise SystemExit(f"hints {ftext!r}: {stamp_hints}")
+	for stext, sref, sstatus, sline in (
+		("a: 1\n", "", NF, 0),
+		("##    Schema   ./s.shcl\n", "./s.shcl", G, 1),
+		("##    Schema\na: 1\n", "", E, 1),
+		("##    Schema   \n##    Schema   b.shcl\n", "b.shcl", G, 2),
+		("x: ~~~\n##    Schema   a\n~~~\n", "", NF, 0),
+	):
+		rs = shcl.read_schema_ref(stext)
+		if (rs.value, rs.status, rs.line) != (sref, sstatus, sline):
+			raise SystemExit(f"read_schema_ref {stext!r}: {rs}")
+		if shcl.schema_ref(stext) != (sref if sstatus is G else None):
+			raise SystemExit(f"schema_ref {stext!r}: {shcl.schema_ref(stext)}")
+
 	test_id("EpFxQH3", "tokenizer_helpers_are_module_level")
 	# The tokenizer's helpers are module level. Defined inside it they would
 	# be rebuilt, with a fresh cell each, once per document line.

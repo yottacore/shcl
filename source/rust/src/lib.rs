@@ -2532,16 +2532,34 @@ struct Migrating {
 
 /// The format major a document's `##    Format   N` line names, read the way
 /// `migrate` reads it. None when no line names one, which is every 2.x file
-/// and a current one written without the info block. `migrate` hands a file
+/// and a current one written without the info block, and when the line names
+/// no number; read_format_version() tells those apart. `migrate` hands a file
 /// back untouched exactly when this is `FORMAT_MAJOR` or more, so a program
 /// can ask before it rewrites anything.
 #[must_use]
 pub fn format_version(text: &str) -> Option<u32> {
-	format_line_version(text.strip_prefix('\u{feff}').unwrap_or(text))
+	let r = read_format_version(text);
+	(r.status == Status::Good).then_some(r.value)
 }
 
-/// format_version() on text with the BOM already off. Digits that do not fit
-/// 32 bits read as "newer than this", since whatever wrote them was not 2.x.
+/// format_version() with a status: `Good` with the major, `NotFound` when no
+/// line names a format, `Empty` for a Format line with nothing after the
+/// word, or `BadType` for one whose number does not read, such as
+/// `##    Format   3x`, so an unstamped file and a damaged stamp read apart.
+/// `raw` is the text after the head, and `line` the line it is on. The load's
+/// `H006` and `H007` hints come from this same reading.
+#[must_use]
+pub fn read_format_version(text: &str) -> Read<u32> {
+	format_line_read(text.strip_prefix('\u{feff}').unwrap_or(text))
+}
+
+/// The Format line's head without the blanks before the number. A line that
+/// is only this names no number.
+const FORMAT_WORD: &str = "##    Format";
+
+/// read_format_version() on text with the BOM already off. Digits that do
+/// not fit 32 bits are not a 2.x file either, so they read as this major and
+/// there is nothing to migrate.
 ///
 /// A Format line pasted into a raw body is that block's content, and taking
 /// it as the file's would rewrite a current file, or leave an old one alone.
@@ -2551,21 +2569,37 @@ pub fn format_version(text: &str) -> Option<u32> {
 /// skips. The two differ on a single-quoted name ending in a backslash. A file
 /// naming this format on any line has nothing to migrate, so the highest line
 /// decides: the stamp `migrate` adds comes after an older one, and the next
-/// run has to see it.
-fn format_line_version(text: &str) -> Option<u32> {
+/// run has to see it. A line that names no number counts where either rule
+/// set reads it outside a block, and only when no line names one.
+fn format_line_read(text: &str) -> Read<u32> {
+	// Most documents have no Format line, and every load asks.
+	if !text.contains(FORMAT_WORD) {
+		return Read::new(0, Status::NotFound, None);
+	}
 	let mut now = RawLines::new(Rules::Current);
 	let mut then = RawLines::new(Rules::V2);
-	let mut found: Option<u32> = None;
-	for line in text.split('\n') {
+	let mut found: Option<(u32, usize, &str)> = None;
+	let mut unread: Option<(Status, usize, &str)> = None;
+	for (i, line) in text.split('\n').enumerate() {
 		let current = now.step(line);
 		let old = then.step(line);
-		let Some(n) = current
-			.or(old)
-			.and_then(|r| r.strip_prefix(FORMAT_LINE_HEAD))
-		else {
+		let Some(rest) = current.or(old) else {
 			continue;
 		};
+		let n = match rest.strip_prefix(FORMAT_LINE_HEAD) {
+			Some(n) => n,
+			None if rest == FORMAT_WORD => "",
+			None => continue,
+		};
 		if n.is_empty() || !n.bytes().all(|c| c.is_ascii_digit()) {
+			if unread.is_none() {
+				let st = if n.is_empty() {
+					Status::Empty
+				} else {
+					Status::BadType
+				};
+				unread = Some((st, i + 1, n));
+			}
 			continue;
 		}
 		// More digits than fit is not a 2.x file either, so it reads as this
@@ -2573,39 +2607,102 @@ fn format_line_version(text: &str) -> Option<u32> {
 		let v = n.parse().unwrap_or(FORMAT_MAJOR);
 		if v >= FORMAT_MAJOR {
 			if current.is_some() {
-				return Some(v);
+				return Read::new(v, Status::Good, Some(n.to_string())).at(i + 1, None);
 			}
-		} else if old.is_some() {
-			found = found.max(Some(v));
+		} else if old.is_some() && found.is_none_or(|(f, _, _)| v > f) {
+			found = Some((v, i + 1, n));
 		}
 	}
-	found
+	if let Some((v, line, n)) = found {
+		return Read::new(v, Status::Good, Some(n.to_string())).at(line, None);
+	}
+	match unread {
+		Some((st, line, n)) => Read::new(0, st, Some(n.to_string())).at(line, None),
+		None => Read::new(0, Status::NotFound, None),
+	}
+}
+
+/// The load's hint for a file whose Format line names another major than
+/// this one: `H006` for a newer one, `H007` for an older one. It reads the
+/// line the way read_format_version() does, so the two never disagree.
+fn stamp_hint(stamp: &Read<u32>) -> Option<Diagnostic> {
+	if stamp.status != Status::Good || stamp.value == FORMAT_MAJOR {
+		return None;
+	}
+	let (code, message) = if stamp.value > FORMAT_MAJOR {
+		(
+			"H006",
+			format!(
+				"the file names format {}, newer than this reader's format {}, so some lines may read differently than written",
+				stamp.value, FORMAT_MAJOR
+			),
+		)
+	} else {
+		(
+			"H007",
+			format!(
+				"the file names format {}, older than this reader's format {}, so some lines may read differently than written; shcl upgrade --from-2x rewrites it",
+				stamp.value, FORMAT_MAJOR
+			),
+		)
+	};
+	Some(Diagnostic {
+		line: stamp.line,
+		severity: Severity::Hint,
+		message,
+		code,
+	})
 }
 
 /// The schema a document's `##    Schema   REF` line names: a path, or a URL
-/// for an editor to fetch. None when no line names one. The first such line
-/// wins, and one inside a raw body is that block's content, as with the
-/// Format line. Either line may be indented, since the formatter indents a
-/// comment to the field below it. A relative path is the caller's to resolve,
-/// from the config file's directory.
+/// for an editor to fetch. None when no line names one, and when the only
+/// Schema line names nothing; read_schema_ref() tells those apart. The first
+/// line naming one wins, and one inside a raw body is that block's content,
+/// as with the Format line. Either line may be indented, since the formatter
+/// indents a comment to the field below it. A relative path is the caller's
+/// to resolve, from the config file's directory.
 #[must_use]
 pub fn schema_ref(text: &str) -> Option<String> {
+	let r = read_schema_ref(text);
+	(r.status == Status::Good).then_some(r.value)
+}
+
+/// schema_ref() with a status: `Good` with the reference, `NotFound` when no
+/// line names a schema, or `Empty` when a Schema line has nothing after the
+/// word, so an unstamped file and a damaged line read apart. Any other text
+/// is a reference, whether or not it leads anywhere. `line` is the line it
+/// is on.
+#[must_use]
+pub fn read_schema_ref(text: &str) -> Read<String> {
 	let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+	let word = trim_wsp_end(SCHEMA_LINE_HEAD);
+	if !text.contains(word) {
+		return Read::new(String::new(), Status::NotFound, None);
+	}
 	// The Schema line is new in this format, so the blocks are the parser's.
 	let mut lines = RawLines::new(Rules::Current);
-	for line in text.split('\n') {
-		let Some(r) = lines
-			.step(line)
-			.and_then(|r| r.strip_prefix(SCHEMA_LINE_HEAD))
-		else {
+	let mut empty = 0;
+	for (i, line) in text.split('\n').enumerate() {
+		let Some(rest) = lines.step(line) else {
 			continue;
 		};
-		let r = trim_wsp(r);
-		if !r.is_empty() {
-			return Some(r.to_string());
+		if rest == word {
+			if empty == 0 {
+				empty = i + 1;
+			}
+			continue;
+		}
+		if let Some(r) = rest.strip_prefix(SCHEMA_LINE_HEAD) {
+			let r = trim_wsp(r);
+			if !r.is_empty() {
+				return Read::new(r.to_string(), Status::Good, Some(r.to_string())).at(i + 1, None);
+			}
 		}
 	}
-	None
+	if empty == 0 {
+		return Read::new(String::new(), Status::NotFound, None);
+	}
+	Read::new(String::new(), Status::Empty, Some(String::new())).at(empty, None)
 }
 
 /// Walks a document's lines and tells raw-body content from the rest, the
@@ -2726,7 +2823,8 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool) -> Migration {
 		Some(t) => ("\u{feff}", t),
 		None => ("", text),
 	};
-	let version = format_line_version(body_text);
+	let version = format_line_read(body_text);
+	let version = (version.status == Status::Good).then_some(version.value);
 	if version.is_some_and(|n| n >= FORMAT_MAJOR) {
 		return Migration {
 			text: text.to_string(),
@@ -5195,6 +5293,9 @@ impl<'a> Parser<'a> {
 			lines.pop();
 		}
 		self.src = lines.clone();
+		if let Some(d) = stamp_hint(&format_line_read(text)) {
+			self.diag(d);
+		}
 		let mut i = 0usize;
 		let mut node_capped = false;
 		let mut tok = Tokens {

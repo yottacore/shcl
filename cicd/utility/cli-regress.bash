@@ -940,6 +940,16 @@ rows=(
 	'Er35Y6N|unit-clash|get --duration --unit=s --unit=m - t|t: 1\n|1||^--unit=s cannot be combined with --unit=m'
 	'Er35Y6O|duration-no-array|get --duration --array - t|t: 1s\n|1||^--duration has no --array form'
 	'Er35Y6P|unit-hint|check -|t-ms: 5s\n|0|line 1: Hint: H005\nok (1 diagnostic(s))\n|H005 value is in s and the name says ms'
+	## 2026100717500017: a Format line naming another major than this one gets
+	## a hint, H006 newer and H007 older, on every loading command. A hint
+	## changes no outcome, so Strict still passes. A line whose number does
+	## not read gets none (2026100912352401 gives it a status instead).
+	"EsEtTdV|stamp-newer-hint|check -|a: 1\n##    Format   4\n|0|line 2: Hint: H006\nok (1 diagnostic(s))\n|=line 2: Hint: H006 the file names format 4, newer than this reader's format 3, so some lines may read differently than written\n(run 'shcl explain CODE' for the rule behind a code)\n"
+	'EsEtTdW|stamp-older-hint|get - p|p: a,b\n##    Format   2\n|0|a,b\n|^line 2: Hint: H007 .*; shcl upgrade --from-2x rewrites it$'
+	'EsEtTdX|stamp-garbled-quiet|check -|a: 1\n##    Format   3x\n|0|ok (0 diagnostic(s))\n|-'
+	'EsEtTdY|stamp-hint-strict-passes|check --strictness=strict -|a: 1\n##    Format   4\n|0|line 2: Hint: H006\nok (1 diagnostic(s))\n|-'
+	"EsEtTdZ|explain-h006|explain H006|-|0|\nH006  hint        the file names a newer format than this reader\n  The info block's Format line names a format past the one this shcl reads,\n  so the file may use rules it does not know, and a line can read\n  differently than its author meant. The load goes on as usual. A shcl made\n  for that format reads it as written.\n\n|-"
+	"EsEtTda|explain-h007|explain H007|-|0|\nH007  hint        the file names an older format than this reader\n  The info block's Format line names a format before the one this shcl\n  reads, and some lines read differently now: p: a,b was an array in 2.x\n  and is one string here. 'shcl upgrade FILE --from-2x --write' rewrites\n  the file for these rules and keeps the original beside it. A file with\n  nothing to change keeps its old Format line, and\n  'shcl migrate FILE --write' stamps it with this format.\n\n|-"
 	## 20260928 idea 4: a hint found after the parse's pass, here a late fold,
 	## was listed after every other diagnostic. The prose is the same in all
 	## four, so stderr is pinned whole.

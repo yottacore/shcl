@@ -294,6 +294,20 @@ int main() {
 	auto unst = shcl::migrate_unstamped("base:[Boston]\n\tlat: 42\nnote: a,b\n", true);
 	CHECK(unst.text == "base: Boston\n\tlat: 42\nnote: [a, b]\n" && !unst.current);
 	CHECK(shcl::format_version(mig.text) == 3u && !shcl::format_version(unst.text));
+	// The status forms tell an unstamped file from a damaged line, and the
+	// load hints at a stamp naming another major.
+	auto fv = shcl::read_format_version("a: 1\n##    Format   3x\n");
+	CHECK(fv.status == shcl::Status::BadType && fv.value == 0u);
+	CHECK(shcl::read_format_version("a: 1\n").status == shcl::Status::NotFound);
+	CHECK(shcl::read_format_version("##    Format\n").status == shcl::Status::Empty);
+	fv = shcl::read_format_version(mig.text);
+	CHECK(fv.status == shcl::Status::Good && fv.value == 3u);
+	auto older = shcl::Document::parse("a: 1\n##    Format   2\n");
+	CHECK(older.diagnostics().size() == 1 && older.diagnostics()[0].code == "H007" && older.diagnostics()[0].line == 2);
+	auto sr = shcl::read_schema_ref("##    Schema   ./s.shcl\n");
+	CHECK(sr.status == shcl::Status::Good && sr.value == "./s.shcl");
+	CHECK(shcl::read_schema_ref("##    Schema\n").status == shcl::Status::Empty);
+	CHECK(shcl::read_schema_ref("a: 1\n").status == shcl::Status::NotFound && !shcl::schema_ref("##    Schema\n"));
 	// upgrade makes over text that does not load clean, with the info block,
 	// and leaves the result alone the next time.
 	auto up = shcl::upgrade("tags: a, b\n", false);

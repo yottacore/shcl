@@ -3666,6 +3666,78 @@ func TestFormatVersionCapsAt32Bits(t *testing.T) {
 	}
 }
 
+// TestStampReadsSayWhy: the Format and Schema lines read with a status, so an
+// unstamped file and a damaged stamp read apart, and the load's H006 and H007
+// hints say the same as the Format read on every row. Rust's
+// stamp_reads_say_why has the same rows.
+func TestStampReadsSayWhy(t *testing.T) {
+	defer testID(t, "EsEtTdQ")
+	formats := []struct {
+		text   string
+		value  int
+		status Status
+		line   int
+		hint   string
+	}{
+		{"a: 1\n", 0, NotFound, 0, ""},
+		{"a: 1\n##    Format   3\n", 3, Good, 2, ""},
+		{"##    Format   4\na: 1\n", 4, Good, 1, "H006"},
+		{"a: 1\n##    Format   2\n", 2, Good, 2, "H007"},
+		{"a: 1\n##    Format   3x\n", 0, BadType, 2, ""},
+		{"a: 1\n##    Format\n", 0, Empty, 2, ""},
+		{"a: 1\n##    Format   \n", 0, Empty, 2, ""},
+		{"##    Format   x\n##    Format   2\n", 2, Good, 2, "H007"},
+		{"note: ~~~\n##    Format   4\n~~~\n", 0, NotFound, 0, ""},
+		{"a: 1\n##    Format  3\n", 0, NotFound, 0, ""},
+		{"\ufeff##    Format   5\n", 5, Good, 1, "H006"},
+		{"##    Format   4294967296\n", FormatMajor, Good, 1, ""},
+		{"a:\n\t##    Format   1\n\tb: 1\n", 1, Good, 2, "H007"},
+	}
+	for _, c := range formats {
+		r := ReadFormatVersion(c.text)
+		if r.Value != c.value || r.Status != c.status || r.Line != c.line {
+			t.Errorf("%q: read %d %v line %d", c.text, r.Value, r.Status, r.Line)
+		}
+		if v, ok := FormatVersion(c.text); ok != (c.status == Good) || v != c.value {
+			t.Errorf("%q: FormatVersion gave %d %v", c.text, v, ok)
+		}
+		var got []string
+		for _, d := range Parse(c.text).Diagnostics() {
+			if d.Code == "H006" || d.Code == "H007" {
+				got = append(got, fmt.Sprintf("%s@%d", d.Code, d.Line))
+			}
+		}
+		want := ""
+		if c.hint != "" {
+			want = fmt.Sprintf("%s@%d", c.hint, c.line)
+		}
+		if strings.Join(got, ",") != want {
+			t.Errorf("%q: hints %v, want %q", c.text, got, want)
+		}
+	}
+	schemas := []struct {
+		text   string
+		value  string
+		status Status
+		line   int
+	}{
+		{"a: 1\n", "", NotFound, 0},
+		{"##    Schema   ./s.shcl\n", "./s.shcl", Good, 1},
+		{"##    Schema\na: 1\n", "", Empty, 1},
+		{"##    Schema   \n##    Schema   b.shcl\n", "b.shcl", Good, 2},
+		{"x: ~~~\n##    Schema   a\n~~~\n", "", NotFound, 0},
+	}
+	for _, c := range schemas {
+		r := ReadSchemaRef(c.text)
+		if r.Value != c.value || r.Status != c.status || r.Line != c.line {
+			t.Errorf("%q: read %q %v line %d", c.text, r.Value, r.Status, r.Line)
+		}
+		if v, ok := SchemaRef(c.text); ok != (c.status == Good) || v != c.value {
+			t.Errorf("%q: SchemaRef gave %q %v", c.text, v, ok)
+		}
+	}
+}
+
 // TestSettersWriteOnlyWhatReadsBack: a setter writes only what reads back. Each
 // one builds its text through the emitter and hands it to the tokenizer before
 // the document is touched, so for every input either the call refuses and the

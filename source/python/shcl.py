@@ -92,6 +92,8 @@ __all__ = [
 	"parse_datetime",
 	"quote_segment",
 	"read_file",
+	"read_format_version",
+	"read_schema_ref",
 	"schema_ref",
 	"suppress_declared_reopens",
 	"suppress_declared_repeats",
@@ -2310,16 +2312,33 @@ class _Migrating:
 def format_version(text: str) -> int | None:
 	"""The format major a document's `##    Format   N` line names, read the way
 	migrate reads it. None when no line names one, which is every 2.x file and
-	a current one written without the info block. migrate hands a file back
+	a current one written without the info block, and when the line names no
+	number; read_format_version() tells those apart. migrate hands a file back
 	untouched exactly when this is FORMAT_MAJOR or more, so a program can ask
 	before it rewrites anything."""
-	return _format_line_version(text[1:] if text.startswith("\ufeff") else text)
+	r = read_format_version(text)
+	return r.value if r.status is Status.Good else None
 
 
-def _format_line_version(text):
-	"""format_version() on text with the BOM already off. Digits that do not
-	fit 32 bits read as "newer than this", since whatever wrote them was not
-	2.x.
+def read_format_version(text: str) -> Read[int]:
+	"""format_version() with a status: Good with the major, NotFound when no
+	line names a format, Empty for a Format line with nothing after the word,
+	or BadType for one whose number does not read, such as
+	`##    Format   3x`, so an unstamped file and a damaged stamp read apart.
+	.raw is the text after the head, and .line the line it is on. The load's
+	H006 and H007 hints come from this same reading."""
+	return _format_line_read(text[1:] if text.startswith("\ufeff") else text)
+
+
+# The Format line's head without the blanks before the number. A line that is
+# only this names no number.
+_FORMAT_WORD = "##    Format"
+
+
+def _format_line_read(text: str) -> Read[int]:
+	"""read_format_version() on text with the BOM already off. Digits that do
+	not fit 32 bits are not a 2.x file either, so they read as this major and
+	there is nothing to migrate.
 
 	A Format line pasted into a raw body is that block's content, and taking
 	it as the file's would rewrite a current file, or leave an old one alone.
@@ -2329,18 +2348,30 @@ def _format_line_version(text):
 	skips. The two differ on a single-quoted name ending in a backslash. A file
 	naming this format on any line has nothing to migrate, so the highest line
 	decides: the stamp migrate adds comes after an older one, and the next run
-	has to see it."""
+	has to see it. A line that names no number counts where either rule set
+	reads it outside a block, and only when no line names one."""
+	# Most documents have no Format line, and every load asks.
+	if _FORMAT_WORD not in text:
+		return Read(0, Status.NotFound, None)
 	now = _RawLines(Rules.CURRENT)
 	then = _RawLines(Rules.V2)
-	found = None
-	for line in text.split("\n"):
+	found: Read[int] | None = None
+	unread: Read[int] | None = None
+	for i, line in enumerate(text.split("\n")):
 		current = now.step(line)
 		old = then.step(line)
 		rest = current if current is not None else old
-		if rest is None or not rest.startswith(FORMAT_LINE_HEAD):
+		if rest is None:
 			continue
-		n = rest[len(FORMAT_LINE_HEAD):]
+		if rest.startswith(FORMAT_LINE_HEAD):
+			n = rest[len(FORMAT_LINE_HEAD):]
+		elif rest == _FORMAT_WORD:
+			n = ""
+		else:
+			continue
 		if not n or not all("0" <= c <= "9" for c in n):
+			if unread is None:
+				unread = Read(0, Status.BadType if n else Status.Empty, n)._at(i + 1, None)
 			continue
 		# A number too long for int() - CPython refuses past 4300 digits - is
 		# one no format will ever have. The reference's parse fails on it too
@@ -2350,31 +2381,73 @@ def _format_line_version(text):
 		v = FORMAT_MAJOR if len(digits) > 10 or int(digits) > 0xFFFFFFFF else int(digits)
 		if v >= FORMAT_MAJOR:
 			if current is not None:
-				return v
-		elif old is not None:
-			found = v if found is None else max(found, v)
-	return found
+				return Read(v, Status.Good, n)._at(i + 1, None)
+		elif old is not None and (found is None or v > found.value):
+			found = Read(v, Status.Good, n)._at(i + 1, None)
+	if found is not None:
+		return found
+	if unread is not None:
+		return unread
+	return Read(0, Status.NotFound, None)
+
+
+def _stamp_hint(stamp: Read[int]) -> Diagnostic | None:
+	"""The load's hint for a file whose Format line names another major than
+	this one: H006 for a newer one, H007 for an older one. It reads the line
+	the way read_format_version() does, so the two never disagree."""
+	if stamp.status is not Status.Good or stamp.value == FORMAT_MAJOR:
+		return None
+	if stamp.value > FORMAT_MAJOR:
+		return Diagnostic(stamp.line, Severity.Hint,
+			f"the file names format {stamp.value}, newer than this reader's format {FORMAT_MAJOR}, "
+			"so some lines may read differently than written", "H006")
+	return Diagnostic(stamp.line, Severity.Hint,
+		f"the file names format {stamp.value}, older than this reader's format {FORMAT_MAJOR}, "
+		"so some lines may read differently than written; shcl upgrade --from-2x rewrites it", "H007")
 
 
 def schema_ref(text: str) -> str | None:
 	"""The schema a document's `##    Schema   REF` line names: a path, or a
-	URL for an editor to fetch. None when no line names one. The first such
-	line wins, and one inside a raw body is that block's content, as with the
-	Format line. Either line may be indented, since the formatter indents a
-	comment to the field below it. A relative path is the caller's to resolve,
-	from the config file's directory."""
+	URL for an editor to fetch. None when no line names one, and when the only
+	Schema line names nothing; read_schema_ref() tells those apart. The first
+	line naming one wins, and one inside a raw body is that block's content,
+	as with the Format line. Either line may be indented, since the formatter
+	indents a comment to the field below it. A relative path is the caller's
+	to resolve, from the config file's directory."""
+	r = read_schema_ref(text)
+	return r.value if r.status is Status.Good else None
+
+
+def read_schema_ref(text: str) -> Read[str]:
+	"""schema_ref() with a status: Good with the reference, NotFound when no
+	line names a schema, or Empty when a Schema line has nothing after the
+	word, so an unstamped file and a damaged line read apart. Any other text is
+	a reference, whether or not it leads anywhere. .line is the line it is
+	on."""
 	if text.startswith("\ufeff"):
 		text = text[1:]
+	word = _trim_wsp_end(SCHEMA_LINE_HEAD)
+	if word not in text:
+		return Read("", Status.NotFound, None)
 	# The Schema line is new in this format, so the blocks are the parser's.
 	lines = _RawLines(Rules.CURRENT)
-	for line in text.split("\n"):
+	empty = 0
+	for i, line in enumerate(text.split("\n")):
 		rest = lines.step(line)
-		if rest is None or not rest.startswith(SCHEMA_LINE_HEAD):
+		if rest is None:
+			continue
+		if rest == word:
+			if not empty:
+				empty = i + 1
+			continue
+		if not rest.startswith(SCHEMA_LINE_HEAD):
 			continue
 		r = _trim_wsp(rest[len(SCHEMA_LINE_HEAD):])
 		if r:
-			return r
-	return None
+			return Read(r, Status.Good, r)._at(i + 1, None)
+	if not empty:
+		return Read("", Status.NotFound, None)
+	return Read("", Status.Empty, "")._at(empty, None)
 
 
 class _RawLines:
@@ -2474,7 +2547,8 @@ def _migrate_text(text, from_v2, stamp):
 	if text.startswith("\ufeff"):
 		bom = "\ufeff"
 		text = text[1:]
-	version = _format_line_version(text)
+	named = _format_line_read(text)
+	version = named.value if named.status is Status.Good else None
 	if version is not None and version >= FORMAT_MAJOR:
 		return Migration(whole, current=True)
 	st = _Migrating(from_v2 or version is not None)
@@ -4189,6 +4263,9 @@ class _Parser:
 		if text.endswith("\n"):
 			lines.pop()
 		self.src = lines
+		hint = _stamp_hint(_format_line_read(text))
+		if hint is not None:
+			self._diag(hint)
 		i = 0
 		nlines = len(lines)
 		node_capped = False

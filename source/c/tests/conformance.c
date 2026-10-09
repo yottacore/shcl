@@ -4120,6 +4120,58 @@ int main(int argc, char **argv) {
 		if (shcl_format_version(a, strlen(a)) != 4294967295LL) fail("format_version_caps_at_32_bits", "4294967295 did not read as itself");
 		if (shcl_format_version(b, strlen(b)) != SHCL_FORMAT_MAJOR) fail("format_version_caps_at_32_bits", "4294967296 did not read as the current major");
 	}
+	test_id("EsEtTdS", "stamp_reads_say_why");
+	/* The Format and Schema lines read with a status, so an unstamped file and
+	   a damaged stamp read apart, and the load's H006 and H007 hints say the
+	   same as the Format read on every row. Rust's stamp_reads_say_why has the
+	   same rows. */
+	{
+		static const struct { const char *text; int64_t value; shcl_status status; size_t line; const char *hint; } ft[] = {
+			{"a: 1\n", 0, SHCL_NOT_FOUND, 0, ""},
+			{"a: 1\n##    Format   3\n", 3, SHCL_GOOD, 2, ""},
+			{"##    Format   4\na: 1\n", 4, SHCL_GOOD, 1, "H006"},
+			{"a: 1\n##    Format   2\n", 2, SHCL_GOOD, 2, "H007"},
+			{"a: 1\n##    Format   3x\n", 0, SHCL_BAD_TYPE, 2, ""},
+			{"a: 1\n##    Format\n", 0, SHCL_EMPTY, 2, ""},
+			{"a: 1\n##    Format   \n", 0, SHCL_EMPTY, 2, ""},
+			{"##    Format   x\n##    Format   2\n", 2, SHCL_GOOD, 2, "H007"},
+			{"note: ~~~\n##    Format   4\n~~~\n", 0, SHCL_NOT_FOUND, 0, ""},
+			{"a: 1\n##    Format  3\n", 0, SHCL_NOT_FOUND, 0, ""},
+			{"\xEF\xBB\xBF##    Format   5\n", 5, SHCL_GOOD, 1, "H006"},
+			{"##    Format   4294967296\n", SHCL_FORMAT_MAJOR, SHCL_GOOD, 1, ""},
+			{"a:\n\t##    Format   1\n\tb: 1\n", 1, SHCL_GOOD, 2, "H007"},
+		};
+		for (size_t k = 0; k < sizeof ft / sizeof ft[0]; k++) {
+			size_t n = strlen(ft[k].text);
+			shcl_read_i64 r = shcl_read_format_version(ft[k].text, n);
+			if (r.value != ft[k].value || r.status != ft[k].status) fail("stamp_reads_say_why", ft[k].text);
+			if (shcl_format_version(ft[k].text, n) != (ft[k].status == SHCL_GOOD ? ft[k].value : -1)) fail("stamp_reads_say_why", ft[k].text);
+			shcl_doc *hd = shcl_parse(ft[k].text, n);
+			size_t hints = 0;
+			for (size_t i = 0; i < shcl_diag_count(hd); i++) {
+				const char *code = shcl_diag_code(hd, i);
+				if (strcmp(code, "H006") && strcmp(code, "H007")) continue;
+				hints++;
+				if (strcmp(code, ft[k].hint) || shcl_diag_line(hd, i) != ft[k].line) fail("stamp_reads_say_why", ft[k].text);
+			}
+			if (hints != (ft[k].hint[0] ? 1u : 0u)) fail("stamp_reads_say_why", ft[k].text);
+			shcl_free(hd);
+		}
+		static const struct { const char *text; const char *ref; shcl_status status; } st[] = {
+			{"a: 1\n", "", SHCL_NOT_FOUND},
+			{"##    Schema   ./s.shcl\n", "./s.shcl", SHCL_GOOD},
+			{"##    Schema\na: 1\n", "", SHCL_EMPTY},
+			{"##    Schema   \n##    Schema   b.shcl\n", "b.shcl", SHCL_GOOD},
+			{"x: ~~~\n##    Schema   a\n~~~\n", "", SHCL_NOT_FOUND},
+		};
+		for (size_t k = 0; k < sizeof st / sizeof st[0]; k++) {
+			size_t n = strlen(st[k].text), rn = 99;
+			shcl_read_str r = shcl_read_schema_ref(st[k].text, n);
+			if (r.status != st[k].status || r.value.n != strlen(st[k].ref) || memcmp(r.value.p, st[k].ref, r.value.n)) fail("stamp_reads_say_why", st[k].text);
+			const char *plain = shcl_schema_ref(st[k].text, n, &rn);
+			if ((plain != NULL) != (st[k].status == SHCL_GOOD) || rn != (plain ? strlen(st[k].ref) : 0)) fail("stamp_reads_say_why", st[k].text);
+		}
+	}
 	test_id("EryvVWx", "a_comma_splits_a_bare_value_only_before_a_blank");
 	/* A comma splits a value outside brackets only with a blank, a comment or
 	   the end after it; inside brackets every one does (value-syntax.md,
