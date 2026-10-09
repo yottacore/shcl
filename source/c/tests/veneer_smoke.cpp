@@ -504,6 +504,27 @@ int main() {
 		CHECK(keepingSt == shcl::FileStatus::Clean && keeping.set_int("b", 2));
 		CHECK(keeping.save_file_keep_lines(f) == std::make_pair(shcl::SaveResult::Ok, true));
 		CHECK(shcl::read_file(f).first == "a:   1\n\nb: 2\n");
+		// Strict fails the load from every entry point the same way:
+		// strict_failed() on what each hands back (2026100717500012).
+		{
+			const std::string bad = ": nope\nport: 1\n", sch = "field: port\n\ttype: int\n";
+			CHECK(shcl::write_file_atomic(f, bad));
+			for (auto lv : {shcl::Strictness::Standard, shcl::Strictness::Strict}) {
+				bool want = lv == shcl::Strictness::Strict;
+				auto [sfd, fst] = shcl::Document::load_file_with(f, lv);
+				auto [kd, kst] = shcl::Document::load_file_keep_lines(f, lv);
+				const shcl::Document *all[] = {&sfd, &kd};
+				auto pw = shcl::Document::parse_with(bad, lv), pl = shcl::Document::parse_limited(bad, lv, 0, 0, 0);
+				auto pk = shcl::Document::parse_keep_lines(bad, lv), lav = shcl::Document::load_and_validate(bad, sch, lv);
+				const shcl::Document *more[] = {&pw, &pl, &pk, &lav};
+				CHECK(fst == shcl::FileStatus::HadErrors && kst == shcl::FileStatus::HadErrors);
+				for (auto *d : all) CHECK(d->strict_failed() == want && d->error_count() == 1 && d->get_or<std::int64_t>("port", 0) == 1);
+				for (auto *d : more) CHECK(d->strict_failed() == want && d->error_count() == 1 && d->get_or<std::int64_t>("port", 0) == 1);
+			}
+			CHECK(shcl::Document::load_and_validate("port: x\n", sch, shcl::Strictness::Strict).strict_failed());
+			auto [nd, nst] = shcl::Document::load_file_with(dir + "/none.shcl", shcl::Strictness::Strict);
+			CHECK(nst == shcl::FileStatus::NotFound && !nd.strict_failed());
+		}
 		// An indent matching no level is lost when it is tabs; one holding a
 		// space is kept as written.
 		CHECK(shcl::Document::parse("a:\n\tb: 1\n  c: 2\n").lost_count() == 0);

@@ -2072,7 +2072,7 @@ int main(int argc, char **argv) {
 		if (!tf || fputs("a: 1\n: broken\n", tf) == EOF || fclose(tf) != 0) fail("file_tier", "seed write failed");
 		fd = shcl_load_file(tfile, &fst);
 		if (fst != SHCL_FILE_HAD_ERRORS) fail("file_tier", "broken file status");
-		if (shcl_get_int(fd, "a", 1, 0) != 1) fail("file_tier", "broken file read");
+		if (shcl_get_int_or(fd, "a", 1, 0) != 1) fail("file_tier", "broken file read");
 		shcl_free(fd);
 		tf = fopen(tfile, "wb");
 		if (!tf || fputs("a: 1\nb: x\n", tf) == EOF || fclose(tf) != 0) fail("file_tier", "seed rewrite failed");
@@ -2946,7 +2946,7 @@ int main(int argc, char **argv) {
 			char buf[8] = "x"; size_t len = 9; int64_t iv[2]; shcl_status sl[2]; size_t an = 9;
 			if (shcl_read_string_to(bd, p, n, buf, sizeof buf, &len) != SHCL_BAD_PATH || len != 0 || buf[0]) fail("bad_path", p);
 			if (shcl_read_int_array_to(bd, p, n, iv, sl, 2, &an) != SHCL_BAD_PATH || an != 0) fail("bad_path", p);
-			if (shcl_get_int_or(bd, p, n, 8) != 8 || shcl_get_int(bd, p, n, 8) != 8) fail("bad_path", p);
+			if (shcl_get_int_or(bd, p, n, 8) != 8 || shcl_get_float_or(bd, p, n, 8.5) != 8.5 || shcl_get_bool_or(bd, p, n, 1) != 1) fail("bad_path", p);
 			shcl_str *bv;
 			if (shcl_count(bd, p, n) != 0 || shcl_instances(bd, p, n, &bv) != 0) fail("bad_path", p);
 			if (n && shcl_children(bd, p, n, &bv) != 0) fail("bad_path", p);
@@ -3265,14 +3265,69 @@ int main(int argc, char **argv) {
 		shcl_read_str pr = shcl_read_string(od, "port", 4); // doc still usable
 		if (pr.status != SHCL_GOOD || pr.value.n != 1 || pr.value.p[0] != 'x') fail("oneshot", "port not readable");
 		shcl_free(od);
-		// Strict never errors out here; the diagnostics are the answer.
+		// Strict fails here as after shcl_parse_with (2026100717500012).
 		shcl_doc *sd = shcl_load_and_validate(ot, strlen(ot), os, strlen(os), SHCL_STRICT);
 		if (shcl_error_count(sd) < 2) fail("oneshot", "strict error_count < 2");
+		if (!shcl_strict_failed(sd)) fail("oneshot", "strict load did not fail");
 		shcl_free(sd);
 		// An empty schema declares nothing and validates nothing.
 		shcl_doc *pd = shcl_load_and_validate("a: 1\n", 5, "", 0, SHCL_STANDARD);
 		if (shcl_error_count(pd) != 0 || shcl_diag_count(pd) != 0) fail("oneshot", "plain doc not clean");
 		shcl_free(pd);
+	}
+	// Strict fails the load on any error diagnostic, from every entry point.
+	// In C that is shcl_strict_failed on the document each one hands back;
+	// the file status stays HadErrors. Same fixture in every runner.
+	test_id("Es9mP97", "strict_fails_the_same_from_every_entry_point");
+	{
+		char sdir[256], sfile[288], snone[288];
+		snprintf(sdir, sizeof sdir, "%s/shcl-strictsame-%ld", tmp_root(), (long)getpid());
+#ifdef _WIN32
+		if (_mkdir(sdir) != 0) fail("strict_same", "mkdir failed");
+#else
+		if (mkdir(sdir, 0700) != 0) fail("strict_same", "mkdir failed");
+#endif
+		snprintf(sfile, sizeof sfile, "%s/t.shcl", sdir);
+		snprintf(snone, sizeof snone, "%s/none.shcl", sdir);
+		const char *st = ": nope\nport: 1\n";
+		const char *ss = "field: port\n\ttype: int\n";
+		FILE *sf = fopen(sfile, "wb");
+		if (!sf || fputs(st, sf) == EOF || fclose(sf) != 0) fail("strict_same", "seed write failed");
+		const char *entries[] = {"parse_with", "parse_limited", "parse_keep_lines", "load_and_validate", "load_file_with", "load_file_keep_lines"};
+		for (int lv = 0; lv < 2; lv++) {
+			shcl_strictness level = lv ? SHCL_STRICT : SHCL_STANDARD;
+			shcl_file_status fs1 = SHCL_FILE_CLEAN, fs2 = SHCL_FILE_CLEAN;
+			shcl_doc *docs[6] = {
+				shcl_parse_with(st, strlen(st), level),
+				shcl_parse_limited(st, strlen(st), level, 0, 0, 0),
+				shcl_parse_keep_lines(st, strlen(st), level),
+				shcl_load_and_validate(st, strlen(st), ss, strlen(ss), level),
+				shcl_load_file_with(sfile, level, &fs1),
+				shcl_load_file_keep_lines(sfile, level, &fs2),
+			};
+			for (int k = 0; k < 6; k++) {
+				if (!docs[k]) { fail("strict_same", entries[k]); continue; }
+				if (shcl_strict_failed(docs[k]) != lv) fail("strict_same", entries[k]);
+				if (shcl_diag_count(docs[k]) != 1 || strcmp(shcl_diag_code(docs[k], 0), "E014")) fail("strict_same", entries[k]);
+				if (shcl_get_int_or(docs[k], "port", 4, 0) != 1) fail("strict_same", entries[k]);
+				shcl_free(docs[k]);
+			}
+			if (fs1 != SHCL_FILE_HAD_ERRORS || fs2 != SHCL_FILE_HAD_ERRORS) fail("strict_same", "file status");
+			// A file that could not be read has no diagnostics, so Strict
+			// gives its status like any other level.
+			shcl_doc *nd = shcl_load_file_with(snone, level, &fs1);
+			if (fs1 != SHCL_FILE_NOT_FOUND || !nd || shcl_strict_failed(nd)) fail("strict_same", "missing file");
+			shcl_free(nd);
+			nd = shcl_load_file_keep_lines(snone, level, &fs2);
+			if (fs2 != SHCL_FILE_NOT_FOUND || !nd || shcl_strict_failed(nd)) fail("strict_same", "missing file, keep lines");
+			shcl_free(nd);
+		}
+		// A schema finding is an error in the same list, so it fails the
+		// one-shot at Strict too.
+		shcl_doc *vd = shcl_load_and_validate("port: x\n", 8, ss, strlen(ss), SHCL_STRICT);
+		if (!vd || !shcl_strict_failed(vd) || shcl_diag_count(vd) != 1 || strcmp(shcl_diag_code(vd, 0), "V003")) fail("strict_same", "schema finding");
+		shcl_free(vd);
+		dir_clear(sdir);
 	}
 	// A schema that does not load would otherwise drop the constraints on its
 	// broken lines, or report every field as unknown - blaming the document.

@@ -161,7 +161,9 @@ shcl_doc *shcl_parse_limited(const char *text, size_t len, shcl_strictness s, si
 void shcl_free(shcl_doc *d);
 
 // True when a strict load would fail (strictness==strict and an error diagnostic
-// exists). At loose/standard this is always false.
+// exists). At loose/standard this is always false. It is how every call that
+// takes a strictness reports a strict failure, the one-shot and file loads
+// included (2026100717500012).
 int shcl_strict_failed(const shcl_doc *d);
 shcl_strictness shcl_strictness_of(const shcl_doc *d);
 
@@ -233,10 +235,10 @@ void shcl_suppress_declared_reopens(shcl_doc *schema, shcl_doc *doc);
 // schema, and hand back a document whose shcl_diag_* accessors serve ONE
 // combined list (parse first, then validation - the order `check --schema`
 // prints), so half the errors can't vanish because a caller forgot one of the
-// two lists. Fails only on an allocation, and then it is NULL: a strict-failing
-// document comes back as the document plus its diagnostics (shcl_error_count
-// answers "did it fail"). An
-// empty schema text skips validation entirely, and one that does not load adds
+// two lists. NULL only on an allocation failure. At strict, shcl_strict_failed
+// says it failed on any error in that combined list, a schema finding
+// included, as after shcl_parse_with; below strict, shcl_error_count answers
+// "did it fail". An empty schema text skips validation entirely, and one that does not load adds
 // a lone V099, as shcl_validate does. H001 hints the schema disavows
 // (a declared repeat upper bound above 1) are dropped. Free with shcl_free.
 shcl_doc *shcl_load_and_validate(const char *text, size_t len, const char *schema, size_t slen, shcl_strictness s);
@@ -248,8 +250,9 @@ shcl_doc *shcl_load_and_validate(const char *text, size_t len, const char *schem
 // command line, not the narrow argv). Load does not fail on the file's account: the
 // document always comes back usable (empty when the file could not be read),
 // and the status out-param (may be NULL) separates the four cases a consumer's
-// own load path otherwise confuses. NULL means an allocation failed, as for a
-// parse. Save writes the canonical text through a temp file in
+// own load path otherwise confuses. At strict, shcl_strict_failed says the load
+// failed, as after shcl_parse_with; the status is HAD_ERRORS either way. NULL
+// means an allocation failed, as for a parse. Save writes the canonical text through a temp file in
 // the same directory plus a rename - the same mechanics the CLI's --write
 // uses - so an interrupted save can never truncate the config it rewrites.
 // On windows a failed save can leave nothing at the path, when the old file was
@@ -500,12 +503,8 @@ void shcl_compact(shcl_doc *d);
 // Convenience tier: the value, or the call-site fallback unless the read is Good
 // - so a missing/empty/bad/ambiguous read cannot masquerade as a real zero. The
 // string/datetime/raw and array reads keep the shcl_read_* status tier above.
-int64_t shcl_get_int(shcl_doc *d, const char *path, size_t plen, int64_t def);
-double  shcl_get_float(shcl_doc *d, const char *path, size_t plen, double def);
-int     shcl_get_bool(shcl_doc *d, const char *path, size_t plen, int def);
-// The same three under the cross-binding spelling: `_or` means "with a
-// fallback" in every binding, so a routine ported between two of them cannot
-// keep the call name while changing which tier it uses.
+// `_or` means "with a fallback" in every binding, so a routine ported between
+// two of them cannot keep the call name while changing which tier it uses.
 int64_t shcl_get_int_or(shcl_doc *d, const char *path, size_t plen, int64_t def);
 int64_t shcl_get_duration_or(shcl_doc *d, const char *path, size_t plen, shcl_duration_unit unit, int64_t def);
 int64_t shcl_get_size_or(shcl_doc *d, const char *path, size_t plen, shcl_size_unit unit, int decimal, int64_t def);
@@ -7762,23 +7761,14 @@ void shcl_merge(shcl_doc *d, const shcl_doc *over) {
 	else resettle_kept(d);
 }
 
-int64_t shcl_get_int(shcl_doc *d, const char *path, size_t plen, int64_t def) {
+int64_t shcl_get_int_or(shcl_doc *d, const char *path, size_t plen, int64_t def) {
 	shcl_read_i64 r = shcl_read_int(d, path, plen); return r.status == SHCL_GOOD ? r.value : def;
 }
-double shcl_get_float(shcl_doc *d, const char *path, size_t plen, double def) {
+double shcl_get_float_or(shcl_doc *d, const char *path, size_t plen, double def) {
 	shcl_read_f64 r = shcl_read_float(d, path, plen); return r.status == SHCL_GOOD ? r.value : def;
 }
-int shcl_get_bool(shcl_doc *d, const char *path, size_t plen, int def) {
-	shcl_read_bool r = shcl_read_bool_(d, path, plen); return r.status == SHCL_GOOD ? r.value : def;
-}
-int64_t shcl_get_int_or(shcl_doc *d, const char *path, size_t plen, int64_t def) {
-	return shcl_get_int(d, path, plen, def);
-}
-double shcl_get_float_or(shcl_doc *d, const char *path, size_t plen, double def) {
-	return shcl_get_float(d, path, plen, def);
-}
 int shcl_get_bool_or(shcl_doc *d, const char *path, size_t plen, int def) {
-	return shcl_get_bool(d, path, plen, def);
+	shcl_read_bool r = shcl_read_bool_(d, path, plen); return r.status == SHCL_GOOD ? r.value : def;
 }
 
 shcl_read_i64 shcl_read_int(shcl_doc *d, const char *path, size_t plen) {

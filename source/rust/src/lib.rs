@@ -5550,16 +5550,22 @@ impl Document {
 	// boxing it would change the public shape for a value built once per load.
 	#[allow(clippy::result_large_err)]
 	pub fn parse_with(text: &str, strictness: Strictness) -> Result<Document, LoadError> {
-		let doc = Parser::new().parse(text, strictness);
-		if strictness == Strictness::Strict
-			&& doc.diags.iter().any(|d| d.severity == Severity::Error)
-		{
+		Parser::new().parse(text, strictness).strict_gate()
+	}
+
+	/// The one place Strict fails a load: any error diagnostic on the
+	/// document an entry point is about to hand back. Every entry point that
+	/// takes a strictness goes through here, so moving from one to another
+	/// never loses the failure (2026100717500012).
+	#[allow(clippy::result_large_err)]
+	fn strict_gate(self) -> Result<Document, LoadError> {
+		if self.strictness == Strictness::Strict && self.error_count() > 0 {
 			return Err(LoadError {
-				diagnostics: doc.diags.clone(),
-				document: doc,
+				diagnostics: self.diags.clone(),
+				document: self,
 			});
 		}
-		Ok(doc)
+		Ok(self)
 	}
 
 	/// Parse with resource caps beside the strictness, for input the consumer
@@ -5585,16 +5591,9 @@ impl Document {
 		max_elements: usize,
 		max_diags: usize,
 	) -> Result<Document, LoadError> {
-		let doc = Parser::limited(max_nodes, max_elements, max_diags).parse(text, strictness);
-		if strictness == Strictness::Strict
-			&& doc.diags.iter().any(|d| d.severity == Severity::Error)
-		{
-			return Err(LoadError {
-				diagnostics: doc.diags.clone(),
-				document: doc,
-			});
-		}
-		Ok(doc)
+		Parser::limited(max_nodes, max_elements, max_diags)
+			.parse(text, strictness)
+			.strict_gate()
 	}
 
 	/// Everything the load recorded (after load_and_validate, validation
@@ -5705,12 +5704,18 @@ impl Document {
 	/// schema, and hand back the document with ONE combined diagnostics
 	/// list (parse first, then validation - the order `check --schema`
 	/// prints), so half the errors can't vanish because a caller forgot one
-	/// of the two lists. Never fails: a strict-failing document comes back as
-	/// the document plus its diagnostics (error_count() answers "did it
-	/// fail"). An empty schema text skips validation entirely, and one that
+	/// of the two lists. As parse_with, only Strict can fail, on any error
+	/// in that combined list, a schema finding included; the Err holds the
+	/// validated document. Below Strict, error_count() answers "did it
+	/// fail". An empty schema text skips validation entirely, and one that
 	/// does not load adds a lone V099, as `validate` does. H001 hints the
 	/// schema disavows (a declared repeat upper bound above 1) are dropped.
-	pub fn load_and_validate(text: &str, schema_text: &str, strictness: Strictness) -> Document {
+	#[allow(clippy::result_large_err)]
+	pub fn load_and_validate(
+		text: &str,
+		schema_text: &str,
+		strictness: Strictness,
+	) -> Result<Document, LoadError> {
 		let mut doc = Parser::new().parse(text, strictness);
 		if !schema_text.trim().is_empty() {
 			let schema = Document::parse(schema_text);
@@ -5718,14 +5723,14 @@ impl Document {
 			// disavows no hints either, so nothing is suppressed.
 			if let Some(fault) = schema_load_fault(&schema) {
 				doc.diags.push(fault);
-				return doc;
+				return doc.strict_gate();
 			}
 			let vdiags = doc.validate(&schema);
 			doc.diags.extend(vdiags);
 			suppress_declared_repeats(&schema, &mut doc.diags);
 			suppress_declared_reopens(&schema, &mut doc.diags);
 		}
-		doc
+		doc.strict_gate()
 	}
 
 	/// The level the document was loaded at.
@@ -5738,22 +5743,45 @@ impl Document {
 	/// be read), and the status separates the four cases consumers otherwise
 	/// confuse: absent, present-but-unreadable, parsed with errors, clean.
 	pub fn load_file(path: &str) -> (Document, FileStatus) {
-		Document::load_file_with(path, Strictness::Standard)
+		Document::load_file_any(path, Strictness::Standard, false)
 	}
 
-	/// load_file at a chosen strictness. A strict-failing file reports
-	/// HadErrors; the recover-and-continue document still comes back.
-	pub fn load_file_with(path: &str, level: Strictness) -> (Document, FileStatus) {
+	/// load_file at a chosen strictness. As parse_with, only Strict can fail:
+	/// a file that read and parsed with an error diagnostic is an Err holding
+	/// the recover-and-continue document. A file that could not be read has
+	/// no diagnostics, so it comes back Ok with its status at every level.
+	#[allow(clippy::result_large_err)]
+	pub fn load_file_with(
+		path: &str,
+		level: Strictness,
+	) -> Result<(Document, FileStatus), LoadError> {
+		Document::load_file_gated(path, level, false)
+	}
+
+	#[allow(clippy::result_large_err)]
+	fn load_file_gated(
+		path: &str,
+		level: Strictness,
+		keep: bool,
+	) -> Result<(Document, FileStatus), LoadError> {
+		let (doc, st) = Document::load_file_any(path, level, keep);
+		Ok((doc.strict_gate()?, st))
+	}
+
+	fn load_file_any(path: &str, level: Strictness, keep: bool) -> (Document, FileStatus) {
 		let text = match read_file(path, 0) {
 			Ok(t) => t,
 			Err(st) => return (Parser::new().parse("", level), st),
 		};
-		let doc = Parser::new().parse(&text, level);
-		let st = if doc.diags.iter().any(|d| d.severity == Severity::Error) {
+		let mut doc = Parser::new().parse(&text, level);
+		let st = if doc.error_count() > 0 {
 			FileStatus::HadErrors
 		} else {
 			FileStatus::Clean
 		};
+		if keep {
+			doc.keep_source(&text);
+		}
 		(doc, st)
 	}
 
@@ -5816,19 +5844,12 @@ impl Document {
 	}
 
 	/// load_file_with, keeping the text for to_text_keep_lines().
-	pub fn load_file_keep_lines(path: &str, level: Strictness) -> (Document, FileStatus) {
-		let text = match read_file(path, 0) {
-			Ok(t) => t,
-			Err(st) => return (Parser::new().parse("", level), st),
-		};
-		let mut doc = Parser::new().parse(&text, level);
-		let st = if doc.diags.iter().any(|d| d.severity == Severity::Error) {
-			FileStatus::HadErrors
-		} else {
-			FileStatus::Clean
-		};
-		doc.keep_source(&text);
-		(doc, st)
+	#[allow(clippy::result_large_err)]
+	pub fn load_file_keep_lines(
+		path: &str,
+		level: Strictness,
+	) -> Result<(Document, FileStatus), LoadError> {
+		Document::load_file_gated(path, level, true)
 	}
 
 	/// The text a save that keeps lines writes, and whether it kept them.

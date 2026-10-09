@@ -334,6 +334,7 @@ Both open points are settled:
 **The library has an optional file tier; file lifecycle is where consumer bugs live.** Consumer feedback showed every program that persists a config re-implementing the same load/save dance and making the same mistakes independently - confusing absent with unreadable, fumbling buffer lengths, tearing a config with a plain overwrite.
 
 - We decided on a small companion tier. The load never fails and returns a four-way status (clean / had-errors / not-found / unreadable) beside an always-usable document. The save writes canonical text through the same atomic temp-and-rename the CLI's `--write` already used, moved into the library so the CLIs call it and the two cannot drift.
+	- That is below Strict. Since 3.0 a Strict file load fails the way a Strict parse does, with the document inside the error, so a program moving between entry points keeps the failure. The one-shot load-and-validate does the same.
 
 - It stays a companion, not core: C guards it behind `SHCL_NO_FILE_IO` so embedded consumers keep a file-I/O-free build.
 
