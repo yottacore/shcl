@@ -12,6 +12,7 @@
 package shcl
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -29,6 +30,27 @@ func init() {
 	restoreAttrs = windowsRestoreAttrs
 	notADiskFile = windowsNotADiskFile
 	createTemp = windowsCreateTemp
+	osWriteStatus = windowsWriteStatus
+}
+
+// The system's own code, from the table every binding shares: Go files a
+// held file and a missing network path under no reason at all.
+func windowsWriteStatus(err error) (WriteStatus, bool) {
+	var code syscall.Errno
+	if !errors.As(err, &code) {
+		return WriteOk, false
+	}
+	switch code {
+	case 2, 3, 15, 53, 67, 267:
+		return WriteNotFound, true
+	case 5, 32, 33, 1224:
+		return WritePermissionDenied, true
+	case 39, 112, 1295:
+		return WriteDiskFull, true
+	case 19:
+		return WriteReadOnly, true
+	}
+	return WriteOk, false
 }
 
 // A device has the same ARCHIVE bit an ordinary file does, so an attribute

@@ -630,7 +630,7 @@ static void temp_takes_the_targets_dacl(void) {
 		DaclPoll poll = { tmp, 0, "" };
 		HANDLE poller = CreateThread(NULL, 0, dacl_poller, &poll, 0, NULL);
 		if (!poller) fail("dacl", "thread failed");
-		int saved = shcl_write_file_atomic(target, "a: 2\n", 5);
+		int saved = shcl_write_file_atomic(target, "a: 2\n", 5, NULL);
 		InterlockedExchange(&poll.stop, 1);
 		if (poller) { WaitForSingleObject(poller, INFINITE); CloseHandle(poller); }
 		CloseHandle(hold);
@@ -647,7 +647,7 @@ static void temp_takes_the_targets_dacl(void) {
 				nfail++;
 			}
 		if (dd) closedir(dd);
-		if (!shcl_write_file_atomic(target, "a: 2\n", 5)) fail("dacl", "a save over an unheld file failed");
+		if (!shcl_write_file_atomic(target, "a: 2\n", 5, NULL)) fail("dacl", "a save over an unheld file failed");
 		if (!dacl_sddl(target, got, sizeof got) || strcmp(got, want) != 0) {
 			fprintf(stderr, "FAIL dacl: %s: the saved file's DACL is %s, want %s\n", names[i], got, want);
 			nfail++;
@@ -657,7 +657,7 @@ static void temp_takes_the_targets_dacl(void) {
 	snprintf(fresh, sizeof fresh, "%s\\n.shcl", dir);
 	snprintf(plain, sizeof plain, "%s\\p.shcl", dir);
 	snprintf(b, sizeof b, "%s\\b.shcl", dir);
-	if (!shcl_write_file_atomic(fresh, "a: 2\n", 5)) fail("dacl", "a save to a new file failed");
+	if (!shcl_write_file_atomic(fresh, "a: 2\n", 5, NULL)) fail("dacl", "a save to a new file failed");
 	seed(plain, "a: 2\n");
 	if (!dacl_sddl(plain, want, sizeof want)) fail("dacl", "the plain file's DACL could not be read");
 	else if (!dacl_sddl(fresh, got, sizeof got) || strcmp(got, want) != 0) {
@@ -2188,7 +2188,7 @@ int main(int argc, char **argv) {
 			free(rt);
 		}
 		if (shcl_set_int(fd, "c", 1, 3) != SHCL_SET_OK) fail("file_tier", "set_int failed");
-		if (shcl_save_file(fd, tfile) != SHCL_SAVE_OK) fail("file_tier", "save failed");
+		if (shcl_save_file(fd, tfile, NULL) != SHCL_SAVE_OK) fail("file_tier", "save failed");
 		shcl_doc *fb = shcl_load_file(tfile, &fst);
 		shcl_str c1 = shcl_to_canonical(fd), c2 = shcl_to_canonical(fb);
 		if (fst != SHCL_FILE_CLEAN || c1.n != c2.n || memcmp(c1.p, c2.p, c1.n) != 0) fail("file_tier", "save round-trip mismatch");
@@ -2205,7 +2205,7 @@ int main(int argc, char **argv) {
 			snprintf(fresh, sizeof fresh, "%s/fresh.shcl", tdir);
 			shcl_doc *nd = shcl_parse("a: 1\n", 5);
 			for (int pass = 0; pass < 2; pass++) {
-				if (shcl_save_file(nd, fresh) != SHCL_SAVE_OK) fail("file_tier", pass ? "overwrite save failed" : "new file save failed");
+				if (shcl_save_file(nd, fresh, NULL) != SHCL_SAVE_OK) fail("file_tier", pass ? "overwrite save failed" : "new file save failed");
 				shcl_doc *nb = shcl_load_file(fresh, &fst);
 				shcl_str nc = shcl_to_canonical(nb);
 				if (fst != SHCL_FILE_CLEAN || nc.n != 5 || memcmp(nc.p, "a: 1\n", 5) != 0) fail("file_tier", pass ? "overwritten file round-trip" : "new file round-trip");
@@ -2224,11 +2224,11 @@ int main(int argc, char **argv) {
 				if (!pf || fclose(pf) != 0) fail("file_tier", "probe create failed");
 				struct stat ps, ns;
 				if (stat(probe, &ps) != 0) fail("file_tier", "probe stat failed");
-				if (shcl_save_file(nd, born) != SHCL_SAVE_OK) fail("file_tier", "new file save failed");
+				if (shcl_save_file(nd, born, NULL) != SHCL_SAVE_OK) fail("file_tier", "new file save failed");
 				if (stat(born, &ns) != 0) fail("file_tier", "new file stat failed");
 				if ((ns.st_mode & 0777) != (ps.st_mode & 0777)) fail("file_tier", "new file mode");
 				if (chmod(born, 0640) != 0) fail("file_tier", "chmod failed");
-				if (shcl_save_file(nd, born) != SHCL_SAVE_OK) fail("file_tier", "existing file save failed");
+				if (shcl_save_file(nd, born, NULL) != SHCL_SAVE_OK) fail("file_tier", "existing file save failed");
 				if (stat(born, &ns) != 0) fail("file_tier", "existing file stat failed");
 				if ((ns.st_mode & 0777) != 0640) fail("file_tier", "existing file mode");
 				// setuid and setgid come over too: applying the mode before
@@ -2237,7 +2237,7 @@ int main(int argc, char **argv) {
 				// setgid on a file whose group the caller is not in.
 				if (chown(born, (uid_t)-1, getegid()) != 0) { /* the chmod below says */ }
 				if (chmod(born, 06750) == 0 && stat(born, &ns) == 0 && (ns.st_mode & 07777) == 06750) {
-					if (shcl_save_file(nd, born) != SHCL_SAVE_OK) fail("file_tier", "set-id save failed");
+					if (shcl_save_file(nd, born, NULL) != SHCL_SAVE_OK) fail("file_tier", "set-id save failed");
 					if (stat(born, &ns) != 0) fail("file_tier", "set-id stat failed");
 					if ((ns.st_mode & 07777) != 06750) fail("file_tier", "set-id bits lost");
 				} else {
@@ -2261,7 +2261,7 @@ int main(int argc, char **argv) {
 				char bsfile[320], u8file[320], drfile[320], cwd[320];
 				snprintf(bsfile, sizeof bsfile, "%s\\bs.shcl", tdir);
 				for (char *p = bsfile; *p; p++) if (*p == '/') *p = '\\';
-				if (shcl_save_file(nd, bsfile) != SHCL_SAVE_OK) fail("file_tier", "backslash path save failed");
+				if (shcl_save_file(nd, bsfile, NULL) != SHCL_SAVE_OK) fail("file_tier", "backslash path save failed");
 				shcl_doc *bb = shcl_load_file(bsfile, &fst);
 				if (fst != SHCL_FILE_CLEAN) fail("file_tier", "backslash path load");
 				shcl_free(bb); remove(bsfile);
@@ -2269,7 +2269,7 @@ int main(int argc, char **argv) {
 				// write and read back the same wrong name, so a round trip through
 				// them proves nothing.
 				snprintf(u8file, sizeof u8file, "%s/\xe6\x97\xa5.shcl", tdir);
-				if (shcl_save_file(nd, u8file) != SHCL_SAVE_OK) fail("file_tier", "utf-8 name save failed");
+				if (shcl_save_file(nd, u8file, NULL) != SHCL_SAVE_OK) fail("file_tier", "utf-8 name save failed");
 				wchar_t wname[320];
 				if (MultiByteToWideChar(CP_UTF8, 0, u8file, -1, wname, 320) == 0) fail("file_tier", "widen failed");
 				if (GetFileAttributesW(wname) == INVALID_FILE_ATTRIBUTES) fail("file_tier", "utf-8 name not on disk under its own spelling");
@@ -2280,7 +2280,7 @@ int main(int argc, char **argv) {
 				// beside the fixture's other files once that directory is tdir.
 				if (tdir[1] == ':' && _getcwd(cwd, sizeof cwd) && _chdir(tdir) == 0) {
 					snprintf(drfile, sizeof drfile, "%c:dr.shcl", tdir[0]);
-					if (shcl_save_file(nd, drfile) != SHCL_SAVE_OK) fail("file_tier", "drive-relative save failed");
+					if (shcl_save_file(nd, drfile, NULL) != SHCL_SAVE_OK) fail("file_tier", "drive-relative save failed");
 					if (_chdir(cwd) != 0) fail("file_tier", "chdir back failed");
 					snprintf(drfile, sizeof drfile, "%s/dr.shcl", tdir);
 					bb = shcl_load_file(drfile, &fst);
@@ -2292,7 +2292,7 @@ int main(int argc, char **argv) {
 			// (NULL, 0) through the public atomic write: fwrite with a null
 			// buffer is undefined even at length zero, and only the sanitized
 			// build of this runner would see it.
-			if (!shcl_write_file_atomic(fresh, NULL, 0)) fail("file_tier", "atomic write of (NULL, 0) failed");
+			if (!shcl_write_file_atomic(fresh, NULL, 0, NULL)) fail("file_tier", "atomic write of (NULL, 0) failed");
 			{
 				FILE *ef = fopen(fresh, "rb");
 				if (!ef || fgetc(ef) != EOF) fail("file_tier", "atomic write of (NULL, 0) left bytes");
@@ -2321,34 +2321,34 @@ int main(int argc, char **argv) {
 		const char *lt2 = "a:\n\t\tb: 1\n\tc: 2\n";
 		shcl_doc *lo = shcl_parse(lt2, strlen(lt2));
 		if (shcl_lost_count(lo) != 1) fail("lost", "lost_count not 1");
-		if (shcl_save_file(kd, tfile) != SHCL_SAVE_OK) fail("lost", "kept save failed");
+		if (shcl_save_file(kd, tfile, NULL) != SHCL_SAVE_OK) fail("lost", "kept save failed");
 		shcl_doc *kb = shcl_load_file(tfile, &fst);
 		shcl_str kbc = shcl_to_canonical(kb);
 		if (!contains(kbc.p, kbc.n, "square-miles 300\n")) fail("lost", "retained line lost through save");
 		shcl_free(kb);
-		if (shcl_save_file(lo, tfile) != SHCL_SAVE_REFUSED) fail("lost", "save did not refuse a lossy save");
-		if (shcl_save_file_lossy(lo, tfile) != SHCL_SAVE_OK) fail("lost", "lossy save failed");
+		if (shcl_save_file(lo, tfile, NULL) != SHCL_SAVE_REFUSED) fail("lost", "save did not refuse a lossy save");
+		if (shcl_save_file_lossy(lo, tfile, NULL) != SHCL_SAVE_OK) fail("lost", "lossy save failed");
 		// A refusal and a failed write are separate values, not two spellings of
 		// one message, and the gate answers before any i/o - so an unwritable path
 		// still reports the refusal. Same fixture in every runner.
 		char bad[320];
 		snprintf(bad, sizeof bad, "%s/nope/t.shcl", tdir);
-		if (shcl_save_file(kd, bad) != SHCL_SAVE_FAILED) fail("lost", "a failed write did not report as one");
-		if (shcl_save_file(lo, bad) != SHCL_SAVE_REFUSED) fail("lost", "refusal did not survive an unwritable path");
+		if (shcl_save_file(kd, bad, NULL) != SHCL_SAVE_FAILED) fail("lost", "a failed write did not report as one");
+		if (shcl_save_file(lo, bad, NULL) != SHCL_SAVE_REFUSED) fail("lost", "refusal did not survive an unwritable path");
 		// A save that keeps lines writes the dropped line back as it was, so it
 		// refuses only when it falls back to canonical. Here removing the line
 		// above it would make it a child of `a`.
 		shcl_doc *kl = shcl_parse_keep_lines(lt2, strlen(lt2), SHCL_STANDARD);
 		if (shcl_set_int(kl, "a.b", 3, 5) != SHCL_SET_OK) fail("lost", "keep set failed");
 		int klk = 0;
-		if (shcl_save_file_keep_lines(kl, tfile, &klk) != SHCL_SAVE_OK || !klk) fail("lost", "keep save did not keep a dropped line");
+		if (shcl_save_file_keep_lines(kl, tfile, &klk, NULL) != SHCL_SAVE_OK || !klk) fail("lost", "keep save did not keep a dropped line");
 		size_t kll = 0; shcl_file_status kls;
 		char *klt = shcl_read_file(tfile, 0, &kll, &kls);
 		const char *klw = "a:\n\t\tb: 5\n\tc: 2\n";
 		if (!klt || kll != strlen(klw) || memcmp(klt, klw, kll) != 0) fail("lost", "keep save text mismatch");
 		free(klt);
 		if (shcl_remove(kl, "a.b", 3) != 1) fail("lost", "keep remove failed");
-		if (shcl_save_file_keep_lines(kl, tfile, &klk) != SHCL_SAVE_REFUSED) fail("lost", "keep save did not refuse its fallback");
+		if (shcl_save_file_keep_lines(kl, tfile, &klk, NULL) != SHCL_SAVE_REFUSED) fail("lost", "keep save did not refuse its fallback");
 		shcl_free(kl);
 		shcl_free(lo); shcl_free(kd);
 		remove(tfile); rmdir(tdir);
@@ -2379,8 +2379,8 @@ int main(int argc, char **argv) {
 #endif
 		FILE *kf = fopen(kfile, "wb");
 		if (kf) { fputs(kbase, kf); fclose(kf); }
-		if (shcl_save_file(kd, kfile) != SHCL_SAVE_REFUSED) fail("kept_gate", "save_file did not refuse");
-		if (shcl_save_file_keep_lines(kd, kfile, &kk) != SHCL_SAVE_REFUSED) fail("kept_gate", "save_file_keep_lines did not refuse");
+		if (shcl_save_file(kd, kfile, NULL) != SHCL_SAVE_REFUSED) fail("kept_gate", "save_file did not refuse");
+		if (shcl_save_file_keep_lines(kd, kfile, &kk, NULL) != SHCL_SAVE_REFUSED) fail("kept_gate", "save_file_keep_lines did not refuse");
 		size_t kn = 0; shcl_file_status kst;
 		char *kt = shcl_read_file(kfile, 0, &kn, &kst);
 		if (!kt || kn != strlen(kbase) || memcmp(kt, kbase, kn) != 0) fail("kept_gate", "the file changed");
@@ -2745,7 +2745,7 @@ int main(int argc, char **argv) {
 		if (mkdir(ddir, 0700) != 0 || mkdir(dreal, 0700) != 0) fail("dangling", "mkdir failed");
 		if (symlink("real/c.shcl", dlink) != 0) fail("dangling", "symlink failed");
 		shcl_doc *dd = shcl_parse("a: 1\n", 5);
-		if (shcl_save_file(dd, dlink) != SHCL_SAVE_OK) fail("dangling", "save through a dangling link failed");
+		if (shcl_save_file(dd, dlink, NULL) != SHCL_SAVE_OK) fail("dangling", "save through a dangling link failed");
 		struct stat ls;
 		if (lstat(dlink, &ls) != 0 || !S_ISLNK(ls.st_mode)) fail("dangling", "the link is no longer a link");
 		size_t tn; char *tt = read_file(dtarget, &tn);
@@ -2765,7 +2765,7 @@ int main(int argc, char **argv) {
 		if (mkdir(cdir, 0700) != 0) fail("cycle", "mkdir failed");
 		if (symlink("b.shcl", ca) != 0 || symlink("a.shcl", cb) != 0) fail("cycle", "symlink failed");
 		shcl_doc *cd = shcl_parse("a: 1\n", 5);
-		if (shcl_save_file(cd, ca) == SHCL_SAVE_OK) fail("cycle", "a symlink cycle saved without an error");
+		if (shcl_save_file(cd, ca, NULL) == SHCL_SAVE_OK) fail("cycle", "a symlink cycle saved without an error");
 		struct stat cs;
 		if (lstat(ca, &cs) != 0 || !S_ISLNK(cs.st_mode)) fail("cycle", "a symlink cycle was replaced by a regular file");
 		if (lstat(cb, &cs) != 0 || !S_ISLNK(cs.st_mode)) fail("cycle", "a symlink cycle was replaced by a regular file");
@@ -2785,13 +2785,13 @@ int main(int argc, char **argv) {
 		struct stat ts;
 		snprintf(tp, sizeof tp, "%s/p.shcl", tdir);
 		if (mkfifo(tp, 0600) != 0) fail("targets", "mkfifo failed");
-		if (shcl_save_file(td, tp) == SHCL_SAVE_OK) fail("targets", "a FIFO saved without an error");
+		if (shcl_save_file(td, tp, NULL) == SHCL_SAVE_OK) fail("targets", "a FIFO saved without an error");
 		if (lstat(tp, &ts) != 0 || !S_ISFIFO(ts.st_mode)) fail("targets", "a FIFO was replaced by a regular file");
 		remove(tp);
 		snprintf(tp, sizeof tp, "%s/l.shcl", tdir);
 		snprintf(tq, sizeof tq, "%s/d", tdir);
 		if (symlink("d/", tp) != 0) fail("targets", "symlink failed");
-		if (shcl_save_file(td, tp) == SHCL_SAVE_OK) fail("targets", "a link naming a directory saved without an error");
+		if (shcl_save_file(td, tp, NULL) == SHCL_SAVE_OK) fail("targets", "a link naming a directory saved without an error");
 		if (lstat(tq, &ts) == 0) fail("targets", "a link naming a directory made a file");
 		remove(tp);
 		snprintf(tp, sizeof tp, "%s/real", tdir); if (mkdir(tp, 0700) != 0) fail("targets", "mkdir failed");
@@ -2801,7 +2801,7 @@ int main(int argc, char **argv) {
 		snprintf(tq, sizeof tq, "%s/real/sub/f.shcl", tdir);
 		if (symlink("../real/sub", tp) != 0 || symlink("../x.shcl", tq) != 0) fail("targets", "symlink failed");
 		snprintf(tr, sizeof tr, "%s/top/lnkdir/f.shcl", tdir);
-		if (shcl_save_file(td, tr) != SHCL_SAVE_OK) fail("targets", "save through lnk/.. failed");
+		if (shcl_save_file(td, tr, NULL) != SHCL_SAVE_OK) fail("targets", "save through lnk/.. failed");
 		snprintf(tr, sizeof tr, "%s/real/x.shcl", tdir);
 		size_t xn; char *xt = read_file(tr, &xn);
 		if (!xt || xn != 5 || memcmp(xt, "a: 1\n", 5) != 0) fail("targets", "file not created behind lnk/..");
@@ -2827,7 +2827,7 @@ int main(int argc, char **argv) {
 		if (!rf || fputs("a: 1\n", rf) == EOF || fclose(rf) != 0) fail("readonly", "seed write failed");
 		if (!SetFileAttributesA(rfile, GetFileAttributesA(rfile) | FILE_ATTRIBUTE_READONLY)) fail("readonly", "set read-only failed");
 		shcl_doc *rd = shcl_parse("a: 2\n", 5);
-		if (shcl_save_file(rd, rfile) != SHCL_SAVE_OK) fail("readonly", "save over a read-only file failed");
+		if (shcl_save_file(rd, rfile, NULL) != SHCL_SAVE_OK) fail("readonly", "save over a read-only file failed");
 		size_t rn; char *rt = read_file(rfile, &rn);
 		if (!rt || rn != 5 || memcmp(rt, "a: 2\n", 5) != 0) fail("readonly", "file not rewritten");
 		free(rt);
@@ -2837,7 +2837,7 @@ int main(int argc, char **argv) {
 		// hidden config used to come back visible.
 		SetFileAttributesA(rfile, (GetFileAttributesA(rfile) & ~(DWORD)FILE_ATTRIBUTE_READONLY) | FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM);
 		shcl_doc *hd = shcl_parse("a: 3\n", 5);
-		if (shcl_save_file(hd, rfile) != SHCL_SAVE_OK) fail("attrs", "save over a hidden file failed");
+		if (shcl_save_file(hd, rfile, NULL) != SHCL_SAVE_OK) fail("attrs", "save over a hidden file failed");
 		DWORD after = GetFileAttributesA(rfile);
 		if (!(after & FILE_ATTRIBUTE_HIDDEN)) fail("attrs", "file did not come back hidden");
 		if (!(after & FILE_ATTRIBUTE_SYSTEM)) fail("attrs", "file did not come back system");
@@ -2876,11 +2876,11 @@ int main(int argc, char **argv) {
 		HANDLE hold = CreateFileW(wh, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 		if (hold == INVALID_HANDLE_VALUE) fail("errno", "hold failed");
 		errno = 0;
-		if (shcl_write_file_atomic(hfile, "a: 2\n", 5)) fail("errno", "write over a held file succeeded");
+		if (shcl_write_file_atomic(hfile, "a: 2\n", 5, NULL)) fail("errno", "write over a held file succeeded");
 		if (errno == 0) fail("errno", "failed publish left errno at 0");
 		CloseHandle(hold);
 		errno = 0;
-		if (shcl_write_file_atomic("nul", "a: 2\n", 5)) fail("errno", "write to a device name succeeded");
+		if (shcl_write_file_atomic("nul", "a: 2\n", 5, NULL)) fail("errno", "write to a device name succeeded");
 		if (errno == 0) fail("errno", "failed publish to a device left errno at 0");
 		DIR *hdd = opendir(hdir); const struct dirent *he;
 		while (hdd && (he = readdir(hdd))) if (strcmp(he->d_name, ".") != 0 && strcmp(he->d_name, "..") != 0) {
@@ -2917,7 +2917,7 @@ int main(int argc, char **argv) {
 			shcl_read_str r = shcl_read_string(gd, "k0042", 5);
 			if (r.status != SHCL_GOOD || r.value.n != 5 || memcmp(r.value.p, "v0042", 5) != 0) { fail("retain", "read failed"); break; }
 		}
-		for (int i = 0; i < 200; i++) if (shcl_save_file(gd, gfile) != SHCL_SAVE_OK) { fail("retain", "save failed"); break; }
+		for (int i = 0; i < 200; i++) if (shcl_save_file(gd, gfile, NULL) != SHCL_SAVE_OK) { fail("retain", "save failed"); break; }
 		size_t after = arena_bytes(&gd->arena);
 		if (after > before + 65536) fail("retain", "reads and saves grew the document arena");
 		shcl_free(gd); free(gt);
@@ -3773,14 +3773,160 @@ int main(int argc, char **argv) {
 		static const char *sfx[] = { "/", "/.", "/.." };
 		for (size_t si = 0; si < sizeof sfx / sizeof sfx[0]; si++) {
 			snprintf(dpath, sizeof dpath, "%s%s", dfile, sfx[si]);
-			if (shcl_save_file(dd, dpath) == SHCL_SAVE_OK) fail("dirpath", "a directory-shaped path was accepted");
+			if (shcl_save_file(dd, dpath, NULL) == SHCL_SAVE_OK) fail("dirpath", "a directory-shaped path was accepted");
 		}
 		size_t dn; char *dt = read_file(dfile, &dn);
 		if (!dt || dn != 5 || memcmp(dt, "a: 1\n", 5) != 0) fail("dirpath", "a refused save changed the file");
 		free(dt);
-		if (shcl_save_file(dd, dfile) != SHCL_SAVE_OK) fail("dirpath", "the plain path did not save");
+		if (shcl_save_file(dd, dfile, NULL) != SHCL_SAVE_OK) fail("dirpath", "the plain path did not save");
 		shcl_free(dd);
 		remove(dfile); rmdir(ddir);
+	}
+
+	/* Every reason a write gives, in the order every binding numbers them,
+	   and the names the other three print. Same fixture in every runner. */
+	test_id("EsEhCG9", "write_status_values_in_order");
+	{
+		static const shcl_write_status all[] = {
+			SHCL_WRITE_OK, SHCL_WRITE_NOT_FOUND, SHCL_WRITE_UNREADABLE, SHCL_WRITE_PERMISSION_DENIED,
+			SHCL_WRITE_DISK_FULL, SHCL_WRITE_READ_ONLY, SHCL_WRITE_IS_DIRECTORY, SHCL_WRITE_NOT_REGULAR, SHCL_WRITE_OTHER,
+		};
+		static const char *const wnames[] = {
+			"Ok", "NotFound", "Unreadable", "PermissionDenied", "DiskFull", "ReadOnly", "IsDirectory", "NotRegular", "Other",
+		};
+		if (sizeof all / sizeof all[0] != sizeof wnames / sizeof wnames[0]) fail("write_status_order", "a value and its name are not one to one");
+		for (size_t i = 0; i < sizeof all / sizeof all[0]; i++) {
+			if ((size_t)all[i] != i) fail("write_status_order", wnames[i]);
+			if (strcmp(shcl_write_status_name(all[i]), wnames[i]) != 0) fail("write_status_order", wnames[i]);
+		}
+	}
+	/* A failed write says why as a value, beside errno: from
+	   shcl_write_file_atomic, a save, shcl_write_backup and shcl_upgrade_file.
+	   A full disk and a read-only filesystem can't be made here without root;
+	   the table test below maps those. Same fixture in every runner. */
+	test_id("EsEhCGA", "write_status_names_each_failure");
+	{
+		char wdir[256], wp[400], wmissing[400];
+		snprintf(wdir, sizeof wdir, "%s/shcl-wrstat-%ld", tmp_root(), (long)getpid());
+		snprintf(wmissing, sizeof wmissing, "%s/nope/t.shcl", wdir);
+#ifdef _WIN32
+		if (_mkdir(wdir) != 0) fail("write_status", "mkdir failed");
+		snprintf(wp, sizeof wp, "%s/sub", wdir);
+		if (_mkdir(wp) != 0) fail("write_status", "mkdir failed");
+#else
+		if (mkdir(wdir, 0700) != 0) fail("write_status", "mkdir failed");
+		snprintf(wp, sizeof wp, "%s/sub", wdir);
+		if (mkdir(wp, 0700) != 0) fail("write_status", "mkdir failed");
+#endif
+		shcl_write_status why = SHCL_WRITE_OTHER;
+		snprintf(wp, sizeof wp, "%s/ok.shcl", wdir);
+		if (!shcl_write_file_atomic(wp, "a: 1\n", 5, &why) || why != SHCL_WRITE_OK) fail("write_status", "a plain write");
+		why = SHCL_WRITE_OK;
+		if (shcl_write_file_atomic(wmissing, "a: 1\n", 5, &why) || why != SHCL_WRITE_NOT_FOUND || errno != ENOENT) fail("write_status", "into a missing folder");
+		shcl_doc *wd = shcl_parse("a: 1\n", 5);
+		why = SHCL_WRITE_OK;
+		if (shcl_save_file(wd, wmissing, &why) != SHCL_SAVE_FAILED || why != SHCL_WRITE_NOT_FOUND) fail("write_status", "save into a missing folder");
+		why = SHCL_WRITE_OK;
+		if (shcl_save_file_lossy(wd, wmissing, &why) != SHCL_SAVE_FAILED || why != SHCL_WRITE_NOT_FOUND) fail("write_status", "lossy save into a missing folder");
+		shcl_doc *wk = shcl_parse_keep_lines("a: 1\n", 5, SHCL_STANDARD);
+		why = SHCL_WRITE_OK;
+		if (shcl_save_file_keep_lines(wk, wmissing, NULL, &why) != SHCL_SAVE_FAILED || why != SHCL_WRITE_NOT_FOUND) fail("write_status", "kept save into a missing folder");
+		shcl_free(wk);
+		/* A refusal is no write failure. */
+		shcl_doc *wl = shcl_parse("a:\n\t\tb: 1\n\tc: 2\n", 16);
+		why = SHCL_WRITE_OTHER;
+		if (shcl_save_file(wl, wmissing, &why) != SHCL_SAVE_REFUSED || why != SHCL_WRITE_OK) fail("write_status", "a refusal");
+		shcl_free(wl);
+		/* Part of the path is a file: the folder isn't there either. */
+		snprintf(wp, sizeof wp, "%s/ok.shcl/t.shcl", wdir);
+		why = SHCL_WRITE_OK;
+		if (shcl_write_file_atomic(wp, "a: 1\n", 5, &why) || why != SHCL_WRITE_NOT_FOUND) fail("write_status", "under a file");
+		snprintf(wp, sizeof wp, "%s/sub", wdir);
+		why = SHCL_WRITE_OK;
+		if (shcl_write_file_atomic(wp, "a: 1\n", 5, &why) || why != SHCL_WRITE_IS_DIRECTORY) fail("write_status", "over a directory");
+		shcl_upgraded wup;
+		why = SHCL_WRITE_OK;
+		if (shcl_upgrade_file(wp, 0, &wup, NULL, &why) != SHCL_UPGRADE_IO || why != SHCL_WRITE_IS_DIRECTORY) fail("write_status", "upgrade of a directory");
+		shcl_upgraded_free(&wup);
+		snprintf(wp, sizeof wp, "%s/ok.shcl/", wdir);
+		why = SHCL_WRITE_OK;
+		if (shcl_write_file_atomic(wp, "a: 1\n", 5, &why) || why != SHCL_WRITE_IS_DIRECTORY) fail("write_status", "through a trailing separator");
+		snprintf(wp, sizeof wp, "%s/bin.shcl", wdir);
+		if (!shcl_write_file_atomic(wp, "a: \xff\n", 5, NULL)) fail("write_status", "seed write failed");
+		why = SHCL_WRITE_OK;
+		if (shcl_upgrade_file(wp, 0, &wup, NULL, &why) != SHCL_UPGRADE_IO || why != SHCL_WRITE_UNREADABLE) fail("write_status", "upgrade of a file that is not UTF-8");
+		shcl_upgraded_free(&wup);
+		remove(wp);
+		snprintf(wp, sizeof wp, "%s/ok.shcl", wdir);
+		remove(wp);
+		snprintf(wp, sizeof wp, "%s/sub", wdir);
+		rmdir(wp);
+#ifndef _WIN32
+		snprintf(wp, sizeof wp, "%s/p.shcl", wdir);
+		if (mkfifo(wp, 0600) != 0) fail("write_status", "mkfifo failed");
+		why = SHCL_WRITE_OK;
+		if (shcl_write_file_atomic(wp, "a: 1\n", 5, &why) || why != SHCL_WRITE_NOT_REGULAR) fail("write_status", "over a FIFO");
+		why = SHCL_WRITE_OK;
+		if (shcl_upgrade_file(wp, 0, &wup, NULL, &why) != SHCL_UPGRADE_IO || why != SHCL_WRITE_NOT_REGULAR) fail("write_status", "upgrade of a FIFO");
+		shcl_upgraded_free(&wup);
+		remove(wp);
+		/* root writes anyway, so the rows wait for a probe that is refused. */
+		char shut[300], v2[340];
+		snprintf(shut, sizeof shut, "%s/shut", wdir);
+		snprintf(v2, sizeof v2, "%s/v2.shcl", shut);
+		if (mkdir(shut, 0700) != 0) fail("write_status", "mkdir failed");
+		if (!shcl_write_file_atomic(v2, "x: a,b\n", 7, NULL)) fail("write_status", "seed write failed");
+		if (chmod(shut, 0500) != 0) fail("write_status", "chmod failed");
+		snprintf(wp, sizeof wp, "%s/probe", shut);
+		FILE *probe = fopen(wp, "wb");
+		if (probe) {
+			fclose(probe);
+			remove(wp);
+		} else {
+			snprintf(wp, sizeof wp, "%s/t.shcl", shut);
+			why = SHCL_WRITE_OK;
+			if (shcl_write_file_atomic(wp, "a: 1\n", 5, &why) || why != SHCL_WRITE_PERMISSION_DENIED) fail("write_status", "into a shut folder");
+			why = SHCL_WRITE_OK;
+			if (shcl_write_backup(v2, "x: a,b\n", 7, 2, NULL, NULL, &why) != SHCL_UPGRADE_IO || why != SHCL_WRITE_PERMISSION_DENIED) fail("write_status", "backup into a shut folder");
+			why = SHCL_WRITE_OK;
+			if (shcl_upgrade_file(v2, 1, &wup, NULL, &why) != SHCL_UPGRADE_IO || why != SHCL_WRITE_PERMISSION_DENIED) fail("write_status", "upgrade in a shut folder");
+			shcl_upgraded_free(&wup);
+		}
+		if (chmod(shut, 0700) != 0) fail("write_status", "chmod back failed");
+		remove(v2);
+		rmdir(shut);
+#endif
+		shcl_free(wd);
+		rmdir(wdir);
+	}
+	/* The table from errno to a write's reason, and on windows from the
+	   system's code through shcl_errno_from_win32. Most rows can't be made to
+	   happen on a test box: a full disk, a read-only mount, a file held open. */
+	test_id("EsEhCGB", "write_status_of_errno");
+	{
+		static const struct { int e; shcl_write_status want; } rows[] = {
+			{ ENOENT, SHCL_WRITE_NOT_FOUND }, { ENOTDIR, SHCL_WRITE_NOT_FOUND },
+			{ EACCES, SHCL_WRITE_PERMISSION_DENIED }, { EPERM, SHCL_WRITE_PERMISSION_DENIED },
+			{ ENOSPC, SHCL_WRITE_DISK_FULL }, { EROFS, SHCL_WRITE_READ_ONLY }, { EISDIR, SHCL_WRITE_IS_DIRECTORY },
+			{ EIO, SHCL_WRITE_OTHER }, { EEXIST, SHCL_WRITE_OTHER }, { EINVAL, SHCL_WRITE_OTHER },
+#ifdef EDQUOT
+			{ EDQUOT, SHCL_WRITE_DISK_FULL },
+#endif
+		};
+		for (size_t i = 0; i < sizeof rows / sizeof rows[0]; i++)
+			if (s_write_status_of(rows[i].e) != rows[i].want) fail("write_status_of", strerror(rows[i].e));
+#ifdef _WIN32
+		static const struct { DWORD code; shcl_write_status want; } wrows[] = {
+			{ 2, SHCL_WRITE_NOT_FOUND }, { 3, SHCL_WRITE_NOT_FOUND }, { 15, SHCL_WRITE_NOT_FOUND }, { 53, SHCL_WRITE_NOT_FOUND },
+			{ 67, SHCL_WRITE_NOT_FOUND }, { 267, SHCL_WRITE_NOT_FOUND },
+			{ 5, SHCL_WRITE_PERMISSION_DENIED }, { 32, SHCL_WRITE_PERMISSION_DENIED }, { 33, SHCL_WRITE_PERMISSION_DENIED },
+			{ 1224, SHCL_WRITE_PERMISSION_DENIED },
+			{ 39, SHCL_WRITE_DISK_FULL }, { 112, SHCL_WRITE_DISK_FULL }, { 1295, SHCL_WRITE_DISK_FULL },
+			{ 19, SHCL_WRITE_READ_ONLY }, { 1117, SHCL_WRITE_OTHER },
+		};
+		for (size_t i = 0; i < sizeof wrows / sizeof wrows[0]; i++)
+			if (s_write_status_of(shcl_errno_from_win32(wrows[i].code)) != wrows[i].want) fail("write_status_of", "a windows code");
+#endif
 	}
 
 	/* A written value with both quote kinds is stored the way its own
@@ -3910,7 +4056,7 @@ int main(int argc, char **argv) {
 		}
 		char ef[288];
 		snprintf(ef, sizeof ef, "%s/shcl-setters-%ld.shcl", tmp_root(), (long)getpid());
-		if (shcl_save_file(every, ef) != SHCL_SAVE_OK) fail("setters_read_back", "every accepted write together would not save");
+		if (shcl_save_file(every, ef, NULL) != SHCL_SAVE_OK) fail("setters_read_back", "every accepted write together would not save");
 		else {
 			shcl_file_status est;
 			shcl_doc *eb = shcl_load_file(ef, &est);
@@ -4081,11 +4227,11 @@ int main(int argc, char **argv) {
 #endif
 		snprintf(lfile, sizeof lfile, "%s/t.shcl", ldir);
 		put_file(lfile, lsrc);
-		if (shcl_save_file(ld, lfile) != SHCL_SAVE_REFUSED) fail("list_no_text", "save went through");
+		if (shcl_save_file(ld, lfile, NULL) != SHCL_SAVE_REFUSED) fail("list_no_text", "save went through");
 		int lk = 0;
-		if (shcl_save_file_keep_lines(ld, lfile, &lk) != SHCL_SAVE_REFUSED) fail("list_no_text", "the keep save went through");
+		if (shcl_save_file_keep_lines(ld, lfile, &lk, NULL) != SHCL_SAVE_REFUSED) fail("list_no_text", "the keep save went through");
 		if (!file_is(lfile, lsrc)) fail("list_no_text", "file changed");
-		if (shcl_save_file_lossy(ld, lfile) != SHCL_SAVE_OK) fail("list_no_text", "lossy save failed");
+		if (shcl_save_file_lossy(ld, lfile, NULL) != SHCL_SAVE_OK) fail("list_no_text", "lossy save failed");
 		remove(lfile); rmdir(ldir);
 		shcl_free(ld);
 		/* The same through a merge: the list arrives over an empty binding. */
@@ -4149,9 +4295,9 @@ int main(int argc, char **argv) {
 #endif
 		snprintf(kfile, sizeof kfile, "%s/t.shcl", kdir);
 		put_file(kfile, ksrc);
-		if (shcl_save_file(kd, kfile) != SHCL_SAVE_REFUSED) fail("list_source", "save went through");
+		if (shcl_save_file(kd, kfile, NULL) != SHCL_SAVE_REFUSED) fail("list_source", "save went through");
 		int kk = 0;
-		if (shcl_save_file_keep_lines(kd, kfile, &kk) != SHCL_SAVE_OK || !kk) fail("list_source", "the keep save kept no lines");
+		if (shcl_save_file_keep_lines(kd, kfile, &kk, NULL) != SHCL_SAVE_OK || !kk) fail("list_source", "the keep save kept no lines");
 		if (!file_is(kfile, ksrc)) fail("list_source", "file changed");
 		remove(kfile); rmdir(kdir);
 		shcl_free(kd);
@@ -4582,7 +4728,7 @@ int main(int argc, char **argv) {
 		if (chmod(file, 0640) != 0) fail("upgrade_file", "chmod failed");
 #endif
 		shcl_upgraded up; char *why = NULL;
-		if (shcl_upgrade_file(file, 0, &up, &why) != SHCL_UPGRADE_OK) fail("upgrade_file", why ? why : "failed");
+		if (shcl_upgrade_file(file, 0, &up, &why, NULL) != SHCL_UPGRADE_OK) fail("upgrade_file", why ? why : "failed");
 		free(why); why = NULL;
 		if (!up.backup || strcmp(up.backup, backup) != 0) fail("upgrade_file", up.backup ? up.backup : "no backup");
 		if (!file_is(backup, UP_V2)) fail("upgrade_file", "the backup is not the original");
@@ -4595,7 +4741,7 @@ int main(int argc, char **argv) {
 #endif
 		shcl_upgraded_free(&up);
 		/* The second start finds a current file and writes nothing. */
-		if (shcl_upgrade_file(file, 0, &up, &why) != SHCL_UPGRADE_OK || !up.current || up.backup) fail("upgrade_file", "again");
+		if (shcl_upgrade_file(file, 0, &up, &why, NULL) != SHCL_UPGRADE_OK || !up.current || up.backup) fail("upgrade_file", "again");
 		free(why);
 		shcl_upgraded_free(&up);
 		if (dir_entries(udir) != 2) fail("upgrade_file", "entries");
@@ -4610,18 +4756,18 @@ int main(int argc, char **argv) {
 		put_file(file, UP_V2);
 		put_file(backup, "x\n");
 		shcl_upgraded up; char *why = NULL;
-		if (shcl_upgrade_file(file, 0, &up, &why) != SHCL_UPGRADE_BACKUP_TAKEN || !why || strncmp(why, backup, strlen(backup)) != 0) fail("upgrade_taken", why ? why : "not refused");
+		if (shcl_upgrade_file(file, 0, &up, &why, NULL) != SHCL_UPGRADE_BACKUP_TAKEN || !why || strncmp(why, backup, strlen(backup)) != 0) fail("upgrade_taken", why ? why : "not refused");
 		free(why); why = NULL;
 		shcl_upgraded_free(&up);
 		if (!file_is(file, UP_V2)) fail("upgrade_taken", "the file changed");
 		if (!file_is(backup, "x\n")) fail("upgrade_taken", "the backup changed");
 		/* Nothing at the path, and text that reads two ways, write nothing. */
 		snprintf(none, sizeof none, "%s/none.shcl", udir);
-		if (shcl_upgrade_file(none, 0, &up, NULL) != SHCL_UPGRADE_NOT_FOUND) fail("upgrade_taken", "none");
+		if (shcl_upgrade_file(none, 0, &up, NULL, NULL) != SHCL_UPGRADE_NOT_FOUND) fail("upgrade_taken", "none");
 		shcl_upgraded_free(&up);
 		snprintf(amb, sizeof amb, "%s/amb.shcl", udir);
 		put_file(amb, "a: x,y\nb: \"q\n");
-		if (shcl_upgrade_file(amb, 0, &up, NULL) != SHCL_UPGRADE_AMBIGUOUS || up.ambiguous != 1) fail("upgrade_taken", "amb");
+		if (shcl_upgrade_file(amb, 0, &up, NULL, NULL) != SHCL_UPGRADE_AMBIGUOUS || up.ambiguous != 1) fail("upgrade_taken", "amb");
 		shcl_upgraded_free(&up);
 		if (dir_entries(udir) != 3) fail("upgrade_taken", "entries");
 		dir_clear(udir);
@@ -4663,14 +4809,14 @@ int main(int argc, char **argv) {
 		if (!sr || strncmp(sr, "\\\\?\\", 4) == 0) fail("longpath", "a short path took the long-path prefix");
 		free(sr);
 		shcl_doc *ld = shcl_parse("a: 1\n", 5);
-		if (shcl_save_file(ld, lp) != SHCL_SAVE_OK) fail("longpath", "save refused a path past MAX_PATH");
+		if (shcl_save_file(ld, lp, NULL) != SHCL_SAVE_OK) fail("longpath", "save refused a path past MAX_PATH");
 		/* Through the library, which is what has to add the prefix: the
 		   runner's own reader is plain fopen and would refuse the path. */
 		size_t rn = 0; shcl_file_status lst; char *rt = shcl_read_file(lp, 0, &rn, &lst);
 		if (!rt || lst != SHCL_FILE_CLEAN || rn != 5 || memcmp(rt, "a: 1\n", 5) != 0)
 			fail("longpath", "the long path did not read back");
 		free(rt);
-		if (shcl_set_int(ld, "a", 1, 2) == SHCL_SET_OK && shcl_save_file(ld, lp) != SHCL_SAVE_OK)
+		if (shcl_set_int(ld, "a", 1, 2) == SHCL_SET_OK && shcl_save_file(ld, lp, NULL) != SHCL_SAVE_OK)
 			fail("longpath", "a rewrite of a path past MAX_PATH failed");
 		shcl_free(ld);
 		remove_long(lp);
@@ -4706,7 +4852,7 @@ int main(int argc, char **argv) {
 		if (!made) { test_skip(); printf("conformance: winlink skipped (no symlink)\n"); }
 		else {
 			shcl_doc *sd = shcl_parse("a: 2\n", 5);
-			if (shcl_save_file(sd, link) != SHCL_SAVE_OK) fail("winlink", "save through the link failed");
+			if (shcl_save_file(sd, link, NULL) != SHCL_SAVE_OK) fail("winlink", "save through the link failed");
 			shcl_free(sd);
 			size_t rn; char *rt = read_file(real, &rn);
 			if (!rt || rn != 5 || memcmp(rt, "a: 2\n", 5) != 0) fail("winlink", "the save did not reach the link's target");
@@ -4780,7 +4926,7 @@ int main(int argc, char **argv) {
 		if (!made) { test_skip(); printf("conformance: windsave skipped (no symlink)\n"); }
 		else {
 			shcl_doc *sd = shcl_parse("a: 1\n", 5);
-			if (shcl_save_file(sd, link) != SHCL_SAVE_OK) fail("windsave", "save through a dangling link failed");
+			if (shcl_save_file(sd, link, NULL) != SHCL_SAVE_OK) fail("windsave", "save through a dangling link failed");
 			shcl_free(sd);
 			DWORD a = GetFileAttributesW(wl);
 			if (a == INVALID_FILE_ATTRIBUTES || !(a & FILE_ATTRIBUTE_REPARSE_POINT))

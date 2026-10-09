@@ -294,27 +294,48 @@ typedef enum {
 typedef enum {
 	SHCL_SAVE_OK,      /* written */
 	SHCL_SAVE_REFUSED, /* the lost-content gate fired; lossy overrides */
-	SHCL_SAVE_FAILED   /* the write itself failed; errno describes it */
+	SHCL_SAVE_FAILED   /* the write itself failed; *why and errno say why */
 } shcl_save_result;
+/* Why a write failed, so a program can tell a missing folder from no
+   permission or a full disk without reading errno itself. NOT_FOUND and
+   UNREADABLE are shcl_file_status's names. Every call that writes takes a
+   shcl_write_status *why (may be NULL), set to SHCL_WRITE_OK when it wrote or
+   failed for another reason, such as a refusal. errno is left set as well.
+   New values go on the end; the other bindings number them in this order. */
+typedef enum {
+	SHCL_WRITE_OK,                /* the write went through */
+	SHCL_WRITE_NOT_FOUND,         /* the folder it goes in is not there, or part of the path is a file */
+	SHCL_WRITE_UNREADABLE,        /* shcl_upgrade_file could not read the file as UTF-8 text */
+	SHCL_WRITE_PERMISSION_DENIED, /* no permission to write there; on windows, also a file another process holds open */
+	SHCL_WRITE_DISK_FULL,         /* the disk is full, or the user's quota is */
+	SHCL_WRITE_READ_ONLY,         /* a read-only filesystem, or write-protected media */
+	SHCL_WRITE_IS_DIRECTORY,      /* the path names a directory */
+	SHCL_WRITE_NOT_REGULAR,       /* something at the path that is not a regular file, such as a FIFO or a device */
+	SHCL_WRITE_OTHER              /* anything else; errno says what */
+} shcl_write_status;
 // Textual name of a file status, the shcl_status_name of this enum, so
 // logging one reads as a case rather than a number. NUL-terminated, static.
 const char *shcl_file_status_name(shcl_file_status s);
+// The write status's name as the other bindings print it, "Ok" to "Other".
+const char *shcl_write_status_name(shcl_write_status s);
 shcl_doc *shcl_load_file(const char *path, shcl_file_status *status);
 shcl_doc *shcl_load_file_with(const char *path, shcl_strictness s, shcl_file_status *status);
 // The read half on its own: the file's text, malloc'd and NUL-terminated (the
 // caller frees it), with *len set; or NULL with the status saying why. A file
 // past max_bytes is unreadable; 0 is no cap.
 char *shcl_read_file(const char *path, size_t max_bytes, size_t *len, shcl_file_status *status);
-shcl_save_result shcl_save_file(shcl_doc *d, const char *path);
-shcl_save_result shcl_save_file_lossy(shcl_doc *d, const char *path);
-int shcl_write_file_atomic(const char *path, const char *data, size_t n);
+shcl_save_result shcl_save_file(shcl_doc *d, const char *path, shcl_write_status *why);
+shcl_save_result shcl_save_file_lossy(shcl_doc *d, const char *path, shcl_write_status *why);
+// The temp-file-and-rename write the saves go through, for bytes that are not
+// a document. 1 when it wrote, 0 when it failed, with *why saying why.
+int shcl_write_file_atomic(const char *path, const char *data, size_t n, shcl_write_status *why);
 // shcl_load_file_with, keeping the text for shcl_to_text_keep_lines.
 shcl_doc *shcl_load_file_keep_lines(const char *path, shcl_strictness s, shcl_file_status *status);
 // shcl_save_file with shcl_to_text_keep_lines: *kept (when not NULL) is 1 when
 // it kept the lines, 0 when it wrote the canonical form instead. A line the
 // load dropped comes back as written when the lines are kept, so this refuses
 // the way shcl_save_file does only when it would write canonical.
-shcl_save_result shcl_save_file_keep_lines(shcl_doc *d, const char *path, int *kept);
+shcl_save_result shcl_save_file_keep_lines(shcl_doc *d, const char *path, int *kept, shcl_write_status *why);
 #endif
 
 // Schema-driven generation (`shcl init --schema`): a commented, typed starter
@@ -702,7 +723,7 @@ typedef enum {
 	SHCL_UPGRADE_NOT_FOUND,    // nothing at the path
 	SHCL_UPGRADE_AMBIGUOUS,    // the file does not say which rules it was written for, and some of it reads two ways; from_v2 settles it
 	SHCL_UPGRADE_BACKUP_TAKEN, // something is already at the backup's name; it is never written over
-	SHCL_UPGRADE_IO            // a read or write failed; the message names the file and why
+	SHCL_UPGRADE_IO            // a read or write failed; the message names the file, and *why says why
 } shcl_upgrade_error;
 // Keep text, the bytes last read from file, under shcl_backup_file_name,
 // before something replaces them. The create is exclusive, so an earlier
@@ -711,7 +732,7 @@ typedef enum {
 // group and mode (on windows its DACL), so a private config never has a
 // readable copy. *name gets the backup's name, malloc'd, on success; on a
 // failure *message (when not NULL) gets why. The caller frees both.
-shcl_upgrade_error shcl_write_backup(const char *file, const char *text, size_t len, uint32_t format, char **name, char **message);
+shcl_upgrade_error shcl_write_backup(const char *file, const char *text, size_t len, uint32_t format, char **name, char **message, shcl_write_status *why);
 // shcl_upgrade on a file, for a program to call when it starts, before its
 // load. A file that needs it is kept under shcl_backup_file_name by
 // shcl_write_backup, then the fresh text replaces it through
@@ -724,7 +745,7 @@ shcl_upgrade_error shcl_write_backup(const char *file, const char *text, size_t 
 // which has the count for SHCL_UPGRADE_AMBIGUOUS, and *message (when not
 // NULL) gets why. Either way shcl_upgraded_free(out) is safe, and the caller
 // frees the message.
-shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, shcl_upgraded *out, char **message);
+shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, shcl_upgraded *out, char **message, shcl_write_status *why);
 #endif
 
 // --- Writer: typed emit, defaults, comments, structural edits ---------------
@@ -11895,12 +11916,13 @@ static wchar_t *shcl_widen(const char *s) {
 // causes map; the rest is EIO, which at least is not "Success".
 static int shcl_errno_from_win32(DWORD e) {
 	switch (e) {
-	case ERROR_FILE_NOT_FOUND: case ERROR_PATH_NOT_FOUND: case ERROR_INVALID_DRIVE: return ENOENT;
+	case ERROR_FILE_NOT_FOUND: case ERROR_PATH_NOT_FOUND: case ERROR_INVALID_DRIVE: case ERROR_BAD_NETPATH: case ERROR_BAD_NET_NAME: return ENOENT;
 	case ERROR_ACCESS_DENIED: case ERROR_SHARING_VIOLATION: case ERROR_LOCK_VIOLATION: case ERROR_USER_MAPPED_FILE: return EACCES;
 	case ERROR_ALREADY_EXISTS: case ERROR_FILE_EXISTS: return EEXIST;
 	case ERROR_NOT_ENOUGH_MEMORY: case ERROR_OUTOFMEMORY: return ENOMEM;
 	case ERROR_INVALID_NAME: case ERROR_BAD_PATHNAME: case ERROR_INVALID_PARAMETER: case ERROR_FILENAME_EXCED_RANGE: return EINVAL;
-	case ERROR_DISK_FULL: case ERROR_HANDLE_DISK_FULL: return ENOSPC;
+	case ERROR_DISK_FULL: case ERROR_HANDLE_DISK_FULL: case ERROR_DISK_QUOTA_EXCEEDED: return ENOSPC;
+	case ERROR_WRITE_PROTECT: return EROFS;
 	case ERROR_BUSY: return EBUSY;
 	case ERROR_DIRECTORY: return ENOTDIR;
 	// A link that points at itself. Without this the message read "Invalid
@@ -12361,8 +12383,9 @@ static int shcl_names_a_directory(const char *path) {
 // points) and the original's whole mode - setuid, setgid and sticky included,
 // as an editor's rewrite would keep it - is copied onto the temp file; other
 // hard links to the old inode keep the old content (inherent to rename).
-// Returns 1 on success, 0 on failure with errno left describing it.
-int shcl_write_file_atomic(const char *path, const char *data, size_t n) {
+// Returns 1 on success, 0 on failure with errno left describing it, and
+// *not_regular set when that is why, since EINVAL could be anything.
+static int s_write_file_atomic(const char *path, const char *data, size_t n, int *not_regular) {
 	if (shcl_names_a_directory(path)) { errno = EISDIR; return 0; }
 #ifndef _WIN32
 	char *real = shcl_resolve_target(path);
@@ -12410,6 +12433,7 @@ int shcl_write_file_atomic(const char *path, const char *data, size_t n) {
 	// has no errno for "not a regular file"; EINVAL is the nearest.
 	if (have_st && !S_ISREG(st.st_mode)) {
 		errno = S_ISDIR(st.st_mode) ? EISDIR : EINVAL;
+		*not_regular = !S_ISDIR(st.st_mode);
 		free(tmp); SHCL_FILE_CLEANUP(); return 0;
 	}
 #else
@@ -12422,6 +12446,7 @@ int shcl_write_file_atomic(const char *path, const char *data, size_t n) {
 	// attributes to test.
 	if (shcl_not_a_disk_file(target)) {
 		errno = EINVAL;
+		*not_regular = 1;
 		free(tmp); SHCL_FILE_CLEANUP(); return 0;
 	}
 #endif
@@ -12492,6 +12517,45 @@ int shcl_write_file_atomic(const char *path, const char *data, size_t n) {
 #undef SHCL_FILE_CLEANUP
 #undef SHCL_FILE_UNLINK
 	return ok ? 1 : 0;
+}
+
+// The reason for errno after a failed write. The windows codes reach errno
+// through shcl_errno_from_win32, which sorts them the way the other bindings'
+// shared table does.
+static shcl_write_status s_write_status_of(int e) {
+	switch (e) {
+	case ENOENT: case ENOTDIR: return SHCL_WRITE_NOT_FOUND;
+	case EACCES: case EPERM: return SHCL_WRITE_PERMISSION_DENIED;
+	case ENOSPC: return SHCL_WRITE_DISK_FULL;
+#ifdef EDQUOT
+	case EDQUOT: return SHCL_WRITE_DISK_FULL;
+#endif
+	case EROFS: return SHCL_WRITE_READ_ONLY;
+	case EISDIR: return SHCL_WRITE_IS_DIRECTORY;
+	default: return SHCL_WRITE_OTHER;
+	}
+}
+
+int shcl_write_file_atomic(const char *path, const char *data, size_t n, shcl_write_status *why) {
+	int not_regular = 0;
+	int ok = s_write_file_atomic(path, data, n, &not_regular);
+	if (why) *why = ok ? SHCL_WRITE_OK : not_regular ? SHCL_WRITE_NOT_REGULAR : s_write_status_of(errno);
+	return ok;
+}
+
+const char *shcl_write_status_name(shcl_write_status s) {
+	switch (s) {
+	case SHCL_WRITE_OK: return "Ok";
+	case SHCL_WRITE_NOT_FOUND: return "NotFound";
+	case SHCL_WRITE_UNREADABLE: return "Unreadable";
+	case SHCL_WRITE_PERMISSION_DENIED: return "PermissionDenied";
+	case SHCL_WRITE_DISK_FULL: return "DiskFull";
+	case SHCL_WRITE_READ_ONLY: return "ReadOnly";
+	case SHCL_WRITE_IS_DIRECTORY: return "IsDirectory";
+	case SHCL_WRITE_NOT_REGULAR: return "NotRegular";
+	case SHCL_WRITE_OTHER: return "Other";
+	}
+	return "Other";
 }
 
 // File tier, read half on its own: the text of PATH, malloc'd and
@@ -12606,31 +12670,33 @@ shcl_doc *shcl_load_file_keep_lines(const char *path, shcl_strictness s, shcl_fi
 // would delete content from the file (shcl_lost_count) - that is
 // SHCL_SAVE_REFUSED, distinct from SHCL_SAVE_FAILED so the caller need not
 // guess which happened; shcl_save_file_lossy writes anyway.
-shcl_save_result shcl_save_file(shcl_doc *d, const char *path) {
+shcl_save_result shcl_save_file(shcl_doc *d, const char *path, shcl_write_status *why) {
+	if (why) *why = SHCL_WRITE_OK;
 	if (shcl_lost_count(d) > 0) return SHCL_SAVE_REFUSED;
 	ShclStr c = emit_canonical(d);
-	return shcl_write_file_atomic(path, c.p, c.n) ? SHCL_SAVE_OK : SHCL_SAVE_FAILED;
+	return shcl_write_file_atomic(path, c.p, c.n, why) ? SHCL_SAVE_OK : SHCL_SAVE_FAILED;
 }
 
 // shcl_save_file without the lost-content gate: writes even when the
 // write deletes content from the file. The caller owns that choice. Never returns
 // SHCL_SAVE_REFUSED - the gate is the one thing it skips.
-shcl_save_result shcl_save_file_lossy(shcl_doc *d, const char *path) {
+shcl_save_result shcl_save_file_lossy(shcl_doc *d, const char *path, shcl_write_status *why) {
 	ShclStr c = emit_canonical(d);
-	return shcl_write_file_atomic(path, c.p, c.n) ? SHCL_SAVE_OK : SHCL_SAVE_FAILED;
+	return shcl_write_file_atomic(path, c.p, c.n, why) ? SHCL_SAVE_OK : SHCL_SAVE_FAILED;
 }
 
 // shcl_save_file with shcl_to_text_keep_lines: *kept (when not NULL) is 1 when
 // it kept the lines, 0 when it wrote the canonical form instead. A line the
 // load dropped comes back as written when the lines are kept, so this refuses
 // the way shcl_save_file does only when it would write canonical.
-shcl_save_result shcl_save_file_keep_lines(shcl_doc *d, const char *path, int *kept) {
+shcl_save_result shcl_save_file_keep_lines(shcl_doc *d, const char *path, int *kept, shcl_write_status *why) {
 	if (kept) *kept = 0;
+	if (why) *why = SHCL_WRITE_OK;
 	ShclStr t;
 	int k = keep_text(d, &t);
 	if (!k && shcl_lost_count(d) > 0) return SHCL_SAVE_REFUSED;
 	if (kept) *kept = k;
-	return shcl_write_file_atomic(path, t.p, t.n) ? SHCL_SAVE_OK : SHCL_SAVE_FAILED;
+	return shcl_write_file_atomic(path, t.p, t.n, why) ? SHCL_SAVE_OK : SHCL_SAVE_FAILED;
 }
 
 /* An upgrade's failure message, malloc'd into *out when the caller asked for
@@ -12670,9 +12736,10 @@ static void upgrade_remove(const char *name) {
 #endif
 }
 
-shcl_upgrade_error shcl_write_backup(const char *file, const char *text, size_t len, uint32_t format, char **name, char **message) {
+shcl_upgrade_error shcl_write_backup(const char *file, const char *text, size_t len, uint32_t format, char **name, char **message, shcl_write_status *why) {
 	if (name) *name = NULL;
 	if (message) *message = NULL;
+	if (why) *why = SHCL_WRITE_OK;
 	char *bk = shcl_backup_file_name(file, format);
 #ifdef _WIN32
 	/* A new file takes the directory's ACL, so the backup is born with the
@@ -12686,9 +12753,11 @@ shcl_upgrade_error shcl_write_backup(const char *file, const char *text, size_t 
 	int fd = open(bk, O_WRONLY | O_CREAT | O_EXCL, 0600);
 #endif
 	if (fd < 0) {
-		shcl_upgrade_error r = errno == EEXIST
+		int ce = errno;
+		if (ce != EEXIST && why) *why = s_write_status_of(ce);
+		shcl_upgrade_error r = ce == EEXIST
 			? upgrade_fail(message, SHCL_UPGRADE_BACKUP_TAKEN, "%s: already exists; the original would be kept there, so nothing was written", bk)
-			: upgrade_fail(message, SHCL_UPGRADE_IO, "%s: %s", bk, strerror(errno));
+			: upgrade_fail(message, SHCL_UPGRADE_IO, "%s: %s", bk, strerror(ce));
 		free(bk);
 		return r;
 	}
@@ -12714,6 +12783,7 @@ shcl_upgrade_error shcl_write_backup(const char *file, const char *text, size_t 
 	if (f) ok = (fclose(f) == 0) && ok;
 	if (!ok) {
 		upgrade_remove(bk);
+		if (why) *why = s_write_status_of(e2);
 		upgrade_fail(message, SHCL_UPGRADE_IO, "%s: %s", bk, strerror(e2));
 		free(bk);
 		return SHCL_UPGRADE_IO;
@@ -12723,20 +12793,32 @@ shcl_upgrade_error shcl_write_backup(const char *file, const char *text, size_t 
 	return SHCL_UPGRADE_OK;
 }
 
-shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, shcl_upgraded *out, char **message) {
+// The reason that goes with an upgrade's failure, into *why when the caller
+// asked for one.
+static shcl_upgrade_error upgrade_why(shcl_write_status *why, shcl_write_status st, shcl_upgrade_error e) {
+	if (why) *why = st;
+	return e;
+}
+
+shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, shcl_upgraded *out, char **message, shcl_write_status *why) {
 	if (message) *message = NULL;
+	if (why) *why = SHCL_WRITE_OK;
 	memset(out, 0, sizeof *out);
 	/* A FIFO or a device would block the read or be replaced by a file. */
 #ifdef _WIN32
 	wchar_t *w = shcl_widen(path);
 	DWORD attrs = w ? GetFileAttributesW(w) : INVALID_FILE_ATTRIBUTES;
 	free(w);
-	if ((attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY)) || shcl_not_a_disk_file(path))
-		return upgrade_fail(message, SHCL_UPGRADE_IO, "%s: not a regular file", path);
+	int is_dir = attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY);
+	if (is_dir || shcl_not_a_disk_file(path))
+		return upgrade_why(why, is_dir ? SHCL_WRITE_IS_DIRECTORY : SHCL_WRITE_NOT_REGULAR,
+			upgrade_fail(message, SHCL_UPGRADE_IO, "%s: not a regular file", path));
 #else
 	struct stat st;
 	if (stat(path, &st) == 0) {
-		if (!S_ISREG(st.st_mode)) return upgrade_fail(message, SHCL_UPGRADE_IO, "%s: not a regular file", path);
+		if (!S_ISREG(st.st_mode))
+			return upgrade_why(why, S_ISDIR(st.st_mode) ? SHCL_WRITE_IS_DIRECTORY : SHCL_WRITE_NOT_REGULAR,
+				upgrade_fail(message, SHCL_UPGRADE_IO, "%s: not a regular file", path));
 	} else if (errno == ENOENT) {
 		return upgrade_fail(message, SHCL_UPGRADE_NOT_FOUND, "%s: no such file", path);
 	}
@@ -12746,7 +12828,7 @@ shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, shcl_upgrade
 	char *text = shcl_read_file(path, 0, &len, &fst);
 	if (!text) {
 		if (fst == SHCL_FILE_NOT_FOUND) return upgrade_fail(message, SHCL_UPGRADE_NOT_FOUND, "%s: no such file", path);
-		return upgrade_fail(message, SHCL_UPGRADE_IO, "%s: cannot be read as UTF-8 text", path);
+		return upgrade_why(why, SHCL_WRITE_UNREADABLE, upgrade_fail(message, SHCL_UPGRADE_IO, "%s: cannot be read as UTF-8 text", path));
 	}
 	shcl_upgraded up = shcl_upgrade(text, len, from_v2);
 	shcl_upgrade_error r = SHCL_UPGRADE_OK;
@@ -12757,11 +12839,11 @@ shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, shcl_upgrade
 		out->ambiguous = up.ambiguous;
 		shcl_upgraded_free(&up);
 	} else if (!upgrade_holds(path, text, len)) {
-		r = upgrade_fail(message, SHCL_UPGRADE_IO, "%s: changed since it was read; nothing written", path);
+		r = upgrade_why(why, SHCL_WRITE_OTHER, upgrade_fail(message, SHCL_UPGRADE_IO, "%s: changed since it was read; nothing written", path));
 		shcl_upgraded_free(&up);
-	} else if ((r = shcl_write_backup(path, text, len, up.format, &up.backup, message)) != SHCL_UPGRADE_OK) {
+	} else if ((r = shcl_write_backup(path, text, len, up.format, &up.backup, message, why)) != SHCL_UPGRADE_OK) {
 		shcl_upgraded_free(&up);
-	} else if (!shcl_write_file_atomic(path, up.text, up.len)) {
+	} else if (!shcl_write_file_atomic(path, up.text, up.len, why)) {
 		int e = errno;
 		/* With the original still in place the backup would only stand in the
 		   way of the next run. A replace that fails part way on windows can

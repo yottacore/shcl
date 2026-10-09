@@ -532,7 +532,7 @@ int main() {
 		// strict_failed() on what each hands back (2026100717500012).
 		{
 			const std::string bad = ": nope\nport: 1\n", sch = "field: port\n\ttype: int\n";
-			CHECK(shcl::write_file_atomic(f, bad));
+			CHECK(shcl::write_file_atomic(f, bad) == shcl::WriteStatus::Ok);
 			for (auto lv : {shcl::Strictness::Standard, shcl::Strictness::Strict}) {
 				bool want = lv == shcl::Strictness::Strict;
 				auto [sfd, fst] = shcl::Document::load_file_with(f, lv);
@@ -557,9 +557,18 @@ int main() {
 		CHECK(lost.save_file(f) == shcl::SaveResult::Refused);
 		CHECK(lost.save_file_lossy(f) == shcl::SaveResult::Ok);
 		CHECK(strict.save_file(dir + "/nope/t.shcl") == shcl::SaveResult::Failed);
-		CHECK(shcl::write_file_atomic(f, "not: a save\n") && shcl::read_file(f).first == "not: a save\n");
-		CHECK(shcl::write_file_atomic(f, "") && shcl::read_file(f) == std::make_pair(std::string(), shcl::FileStatus::Clean));
-		CHECK(!shcl::write_file_atomic(dir + "/nope/t.shcl", "x"));
+		// A failed write says why, and a refusal is no write failure.
+		shcl::WriteStatus why = shcl::WriteStatus::Other;
+		CHECK(strict.save_file(dir + "/nope/t.shcl", &why) == shcl::SaveResult::Failed && why == shcl::WriteStatus::NotFound);
+		CHECK(strict.save_file_lossy(dir, &why) == shcl::SaveResult::Failed && why == shcl::WriteStatus::IsDirectory);
+		CHECK(keeping.save_file_keep_lines(dir + "/nope/t.shcl", &why).first == shcl::SaveResult::Failed && why == shcl::WriteStatus::NotFound);
+		CHECK(lost.save_file(dir + "/nope/t.shcl", &why) == shcl::SaveResult::Refused && why == shcl::WriteStatus::Ok);
+		CHECK(std::string(shcl::to_string(shcl::WriteStatus::PermissionDenied)) == "PermissionDenied");
+		CHECK(shcl::write_file_atomic(f, "not: a save\n") == shcl::WriteStatus::Ok && shcl::read_file(f).first == "not: a save\n");
+		CHECK(shcl::write_file_atomic(f, "") == shcl::WriteStatus::Ok && shcl::read_file(f) == std::make_pair(std::string(), shcl::FileStatus::Clean));
+		CHECK(shcl::write_file_atomic(dir + "/nope/t.shcl", "x") == shcl::WriteStatus::NotFound);
+		auto dirUp = shcl::upgrade_file(dir, false).second;
+		CHECK(dirUp && dirUp->kind == shcl::UpgradeErrorKind::Io && dirUp->status == shcl::WriteStatus::IsDirectory);
 		// upgrade_file keeps the original under the timestamped name and
 		// writes the fresh text; the name is never written over.
 #ifdef _WIN32
@@ -567,7 +576,7 @@ int main() {
 #else
 		setenv("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT", 1);
 #endif
-		CHECK(shcl::write_file_atomic(f, "tags: a, b\n"));
+		CHECK(shcl::write_file_atomic(f, "tags: a, b\n") == shcl::WriteStatus::Ok);
 		std::string bk = dir + "/t_backup_20261004-001500_format-v2.shcl";
 		CHECK(shcl::backup_file_name(f, 2) == bk);
 		auto [upf, upErr] = shcl::upgrade_file(f, false);
@@ -577,7 +586,7 @@ int main() {
 		auto [taken, takenErr] = shcl::write_backup(f, "x\n", 2);
 		CHECK(taken.empty() && takenErr && takenErr->kind == shcl::UpgradeErrorKind::BackupTaken && takenErr->message.rfind(bk, 0) == 0);
 		CHECK(shcl::upgrade_file(dir + "/none.shcl", false).second->kind == shcl::UpgradeErrorKind::NotFound);
-		CHECK(shcl::write_file_atomic(f, "a: x,y\nb: \"q\n"));
+		CHECK(shcl::write_file_atomic(f, "a: x,y\nb: \"q\n") == shcl::WriteStatus::Ok);
 		auto [amb2, amb2Err] = shcl::upgrade_file(f, false);
 		CHECK(amb2Err && amb2Err->kind == shcl::UpgradeErrorKind::Ambiguous && amb2Err->count == 1 && amb2.text.empty());
 #ifdef _WIN32

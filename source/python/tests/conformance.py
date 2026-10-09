@@ -8,6 +8,7 @@
 
 import ast
 import collections
+import errno
 import math
 import os
 import re
@@ -629,13 +630,16 @@ def _temp_takes_the_targets_dacl(td):
 		stop = threading.Event()
 		poller = threading.Thread(target=poll, args=(tmp, stop, seen))
 		poller.start()
+		held = None
 		try:
-			err = shcl.write_file_atomic(target, "a: 2\n")
+			shcl.write_file_atomic(target, "a: 2\n")
+		except shcl.WriteError as e:
+			held = e
 		finally:
 			stop.set()
 			poller.join()
 			k32.CloseHandle(hold)
-		if err is None:
+		if held is None:
 			raise SystemExit(f"{name}: a save over a held file went through")
 		if not seen:
 			raise SystemExit(f"{name}: the temp file was never seen")
@@ -644,15 +648,11 @@ def _temp_takes_the_targets_dacl(td):
 		left = [n for n in os.listdir(d) if ".tmp" in n or ".bak" in n]
 		if left:
 			raise SystemExit(f"{name}: left behind: {left}")
-		err = shcl.write_file_atomic(target, "a: 2\n")
-		if err is not None:
-			raise SystemExit(err)
+		shcl.write_file_atomic(target, "a: 2\n")
 		if sddl(target) != want:
 			raise SystemExit(f"{name}: the saved file's DACL is {sddl(target)}, want {want}")
 	fresh, plain = os.path.join(d, "n.shcl"), os.path.join(d, "p.shcl")
-	err = shcl.write_file_atomic(fresh, "a: 2\n")
-	if err is not None:
-		raise SystemExit(err)
+	shcl.write_file_atomic(fresh, "a: 2\n")
 	with open(plain, "w", encoding="utf-8", newline="") as fh:
 		fh.write("a: 2\n")
 	born = sddl(plain)
@@ -2943,9 +2943,10 @@ def main():
 				print("conformance: skipping the non-UTF-8 name save (this filesystem refuses the name)")
 				test_skip()
 			if takes_odd:
-				werr = shcl.write_file_atomic(odd, "a: 1\n")
-				if werr is not None:
-					raise SystemExit(f"save of a name with no early character start failed: {werr}")
+				try:
+					shcl.write_file_atomic(odd, "a: 1\n")
+				except shcl.WriteError as werr:
+					raise SystemExit(f"save of a name with no early character start failed: {werr}") from None
 				if _read(odd) != "a: 1\n":
 					raise SystemExit("save of a name with no early character start wrote the wrong text")
 		if os.name != "nt":
@@ -3054,6 +3055,141 @@ def main():
 			pass
 		if [n for n in os.listdir(td) if ".tmp" in n]:
 			raise SystemExit("failed save left a temp file")
+		test_id("EsEhCG3", "write_status_values_in_order")
+		# Every reason a write gives, in the order every binding numbers them.
+		# The other three print the same names. Same fixture in every runner.
+		wnames = [st.name for st in shcl.WriteStatus]
+		if wnames != ["Ok", "NotFound", "Unreadable", "PermissionDenied", "DiskFull", "ReadOnly", "IsDirectory", "NotRegular", "Other"]:
+			raise SystemExit(f"WriteStatus names {wnames}")
+		if [st.value for st in shcl.WriteStatus] != list(range(len(wnames))):
+			raise SystemExit(f"WriteStatus values {[st.value for st in shcl.WriteStatus]}")
+		test_id("EsEhCG6", "write_status_only_ok_is_true")
+		# Python-only, as with SetStatus.
+		for wst in shcl.WriteStatus:
+			if bool(wst) != (wst is shcl.WriteStatus.Ok):
+				raise SystemExit(f"bool({wst}) is {bool(wst)}")
+		test_id("EsEhCG7", "write_file_atomic_raises")
+		# A failed write raises, as the saves do, where it used to return the
+		# message: a bare call read as success. Same message as before.
+		wdir = os.path.join(td, "wrstat")
+		os.mkdir(wdir)
+		shcl.write_file_atomic(os.path.join(wdir, "ok.shcl"), "a: 1\n")
+		wmissing = os.path.join(wdir, "nope", "t.shcl")
+		try:
+			shcl.write_file_atomic(wmissing, "a: 1\n")
+			raise SystemExit("a write into a missing folder went through")
+		except shcl.WriteError as wfail:
+			if not str(wfail).startswith(wmissing + ": ") or wfail.status is not shcl.WriteStatus.NotFound:
+				raise SystemExit(f"a write into a missing folder: {wfail!r} {wfail.status}") from None
+		test_id("EsEhCG4", "write_status_names_each_failure")
+		# A failed write says why as a value, beside the message it always
+		# had: from write_file_atomic, a save, write_backup and upgrade_file. A
+		# full disk and a read-only filesystem can't be made here without root;
+		# the table test below maps those. Same fixture in every runner.
+		os.mkdir(os.path.join(wdir, "sub"))
+
+		def wstatus(call: Any) -> Optional[shcl.WriteStatus]:
+			try:
+				call()
+			except (shcl.WriteError, shcl.SaveFailed, shcl.UpgradeFailed) as wfail:
+				return wfail.status
+			return None
+
+		wdoc = shcl.Document.parse("a: 1\n")
+		wkept = shcl.Document.parse_keep_lines("a: 1\n", shcl.Strictness.Standard)
+
+		def wat(name: str) -> str:
+			return os.path.join(wdir, name)
+
+		wrows: list[tuple[str, Any, Optional[shcl.WriteStatus]]] = [
+			("a plain write", lambda: shcl.write_file_atomic(wat("ok.shcl"), "a: 1\n"), None),
+			("save into a missing folder", lambda: wdoc.save_file(wmissing), shcl.WriteStatus.NotFound),
+			("lossy save into a missing folder", lambda: wdoc.save_file_lossy(wmissing), shcl.WriteStatus.NotFound),
+			("kept save into a missing folder", lambda: wkept.save_file_keep_lines(wmissing), shcl.WriteStatus.NotFound),
+			("under a file", lambda: shcl.write_file_atomic(wat("ok.shcl/t.shcl"), "a: 1\n"), shcl.WriteStatus.NotFound),
+			("over a directory", lambda: shcl.write_file_atomic(wat("sub"), "a: 1\n"), shcl.WriteStatus.IsDirectory),
+			("through a trailing separator", lambda: shcl.write_file_atomic(wat("ok.shcl") + "/", "a: 1\n"), shcl.WriteStatus.IsDirectory),
+			("upgrade of a directory", lambda: shcl.upgrade_file(wat("sub"), False), shcl.WriteStatus.IsDirectory),
+		]
+		with open(wat("bin.shcl"), "wb") as bfh:
+			bfh.write(b"a: \xff\n")
+		wrows.append(("upgrade of a file that is not UTF-8", lambda: shcl.upgrade_file(wat("bin.shcl"), False), shcl.WriteStatus.Unreadable))
+		if os.name != "nt":
+			os.mkfifo(wat("p.shcl"))
+			wrows.append(("over a FIFO", lambda: shcl.write_file_atomic(wat("p.shcl"), "a: 1\n"), shcl.WriteStatus.NotRegular))
+			wrows.append(("upgrade of a FIFO", lambda: shcl.upgrade_file(wat("p.shcl"), False), shcl.WriteStatus.NotRegular))
+		for what, call, want in wrows:
+			got = wstatus(call)
+			if got is not want:
+				raise SystemExit(f"{what}: {got}, want {want}")
+		if os.name != "nt":
+			# root writes anyway, so the rows wait for a probe that is refused.
+			shut = wat("shut")
+			os.mkdir(shut)
+			v2 = os.path.join(shut, "v2.shcl")
+			with open(v2, "w", encoding="utf-8") as fh:
+				fh.write("x: a,b\n")
+			os.chmod(shut, 0o500)
+			try:
+				try:
+					with open(os.path.join(shut, "probe"), "w"):
+						pass
+					refused = False
+				except OSError:
+					refused = True
+				if refused:
+					for what, call in (
+						("into a shut folder", lambda: shcl.write_file_atomic(os.path.join(shut, "t.shcl"), "a: 1\n")),
+						("backup into a shut folder", lambda: shcl.write_backup(v2, "x: a,b\n", 2)),
+						("upgrade in a shut folder", lambda: shcl.upgrade_file(v2, True)),
+					):
+						got = wstatus(call)
+						if got is not shcl.WriteStatus.PermissionDenied:
+							raise SystemExit(f"{what}: {got}")
+			finally:
+				os.chmod(shut, 0o700)
+		test_id("EsEhCG5", "write_status_of_os_errors")
+		# The table from an OS error to a write's reason. Most rows can't be
+		# made to happen on a test box: a full disk, a read-only mount, a file
+		# held open.
+		wtable: list[tuple[BaseException, shcl.WriteStatus]] = [
+			(FileNotFoundError(errno.ENOENT, "x"), shcl.WriteStatus.NotFound),
+			(NotADirectoryError(errno.ENOTDIR, "x"), shcl.WriteStatus.NotFound),
+			(PermissionError(errno.EACCES, "x"), shcl.WriteStatus.PermissionDenied),
+			(PermissionError(errno.EPERM, "x"), shcl.WriteStatus.PermissionDenied),
+			(IsADirectoryError(errno.EISDIR, "x"), shcl.WriteStatus.IsDirectory),
+			(OSError(errno.ENOSPC, "x"), shcl.WriteStatus.DiskFull),
+			(OSError(errno.EROFS, "x"), shcl.WriteStatus.ReadOnly),
+			(OSError(errno.EIO, "x"), shcl.WriteStatus.Other),
+			(FileExistsError(errno.EEXIST, "x"), shcl.WriteStatus.Other),
+			(ValueError("embedded null byte"), shcl.WriteStatus.Other),
+		]
+		if hasattr(errno, "EDQUOT"):
+			wtable.append((OSError(errno.EDQUOT, "x"), shcl.WriteStatus.DiskFull))
+		for code, wname in (
+			(2, "NotFound"), (3, "NotFound"), (15, "NotFound"), (53, "NotFound"), (67, "NotFound"), (267, "NotFound"),
+			(5, "PermissionDenied"), (32, "PermissionDenied"), (33, "PermissionDenied"), (1224, "PermissionDenied"),
+			(39, "DiskFull"), (112, "DiskFull"), (1295, "DiskFull"), (19, "ReadOnly"), (1117, "Other"),
+		):
+			# What a windows OSError holds; built by hand, it reads the same here.
+			we = OSError(errno.EIO, "x")
+			we.winerror = code  # type: ignore[attr-defined]
+			wtable.append((we, shcl.WriteStatus[wname]))
+		for exc, want in wtable:
+			got = shcl._write_status_of(exc)
+			if got is not want:
+				raise SystemExit(f"{exc!r} {getattr(exc, 'winerror', None)}: {got}, want {want}")
+		test_id("EsEhCG8", "document_constructor_is_empty")
+		# Document() is an empty document, as Document.new() is and as the
+		# other three's plain constructors are. It raised TypeError over the
+		# parser's own arguments.
+		edoc = shcl.Document()
+		if edoc.to_canonical() != shcl.Document.new().to_canonical() or edoc.diagnostics() or edoc.lost_count() != 0:
+			raise SystemExit(f"Document(): {edoc.to_canonical()!r} {edoc.diagnostics()}")
+		if edoc.set_int("a.b", 1) is not shcl.SetStatus.Ok or edoc.to_canonical() != "a:\n\tb: 1\n":
+			raise SystemExit(f"Document() then a setter: {edoc.to_canonical()!r}")
+		if edoc.strictness() is not shcl.Strictness.Standard:
+			raise SystemExit(f"Document() strictness {edoc.strictness()}")
 		test_id("EoM2uEm", "an_int_is_not_a_path")
 		# A path is a str or a PathLike, never a descriptor: read_file(0) used
 		# to read stdin and close it.

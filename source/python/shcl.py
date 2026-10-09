@@ -24,6 +24,7 @@ project/style-guide_code.md).
 from __future__ import annotations
 
 import bisect
+import errno
 import itertools
 import math
 import os
@@ -79,6 +80,8 @@ __all__ = [
 	"UpgradeError",
 	"UpgradeFailed",
 	"UpgradeNotFound",
+	"WriteError",
+	"WriteStatus",
 	"backup_file_name",
 	"format_float",
 	"format_version",
@@ -290,7 +293,13 @@ class SaveRefused(SaveError):
 
 
 class SaveFailed(SaveError):
-	"""The write itself failed; the message is what the system reported."""
+	"""The write itself failed; the message is what the system reported, and
+	status says why."""
+	status: WriteStatus
+
+	def __init__(self, message: str, status: WriteStatus):
+		self.status = status
+		super().__init__(message)
 
 
 class ShclDateTime:
@@ -5525,14 +5534,16 @@ class Document:
 
 	def __init__(
 		self,
-		arena: list[_Node],
-		diags: list[Diagnostic],
-		strictness: Strictness,
+		arena: list[_Node] | None = None,
+		diags: list[Diagnostic] | None = None,
+		strictness: Strictness = Strictness.Standard,
 		orphans: list[_Lead] | None = None,
 		lost: int = 0,
 	) -> None:
-		self.arena = arena
-		self.diags = diags
+		"""Document() is an empty document, the same as Document.new(). The
+		arguments are the parser's."""
+		self.arena = arena if arena is not None else [_Node("", _empty(), 0, 0)]
+		self.diags = diags if diags is not None else []
 		self._strictness = strictness
 		self.orphans = orphans if orphans is not None else []
 		# Lines or values parsing dropped that canonical output cannot re-emit
@@ -5680,17 +5691,13 @@ class Document:
 		lost = self.lost_count()
 		if lost > 0:
 			raise SaveRefused(path, lost)
-		err = write_file_atomic(path, self.to_canonical())
-		if err is not None:
-			raise SaveFailed(err)
+		_save_text(path, self.to_canonical())
 
 	def save_file_lossy(self, path: str | os.PathLike[str]) -> None:
 		"""save_file without the lost-content gate: writes even when the
 		write deletes content from the file. The caller owns that choice. Never
 		raises SaveRefused - the gate is the one thing it skips."""
-		err = write_file_atomic(path, self.to_canonical())
-		if err is not None:
-			raise SaveFailed(err)
+		_save_text(path, self.to_canonical())
 
 	def diagnostics(self) -> list[Diagnostic]:
 		# A copy: the reference hands out a borrowed view nobody can append to,
@@ -5865,9 +5872,7 @@ class Document:
 		lost = self.lost_count()
 		if not kept and lost > 0:
 			raise SaveRefused(path, lost)
-		err = write_file_atomic(path, text)
-		if err is not None:
-			raise SaveFailed(err)
+		_save_text(path, text)
 		return kept
 
 	def _emit_marked(self):
@@ -8480,6 +8485,83 @@ class FileStatus(Enum):
 	Unreadable = 3   # exists but could not be read (permissions, a directory, bad encoding, past a read_file cap)
 
 
+class WriteStatus(Enum):
+	"""Why a write failed, so a program can tell a missing folder from no
+	permission or a full disk without parsing the message. NotFound and
+	Unreadable are FileStatus's names. Ok is a write that went through, which
+	only C hands back; here a failure raises an error holding one of the
+	rest. New values go on the end; every binding numbers them in this order.
+
+	Only Ok is true, as with SetStatus."""
+	Ok = 0                 # the write went through
+	NotFound = 1           # the folder it goes in is not there, or part of the path is a file
+	Unreadable = 2         # upgrade_file could not read the file as UTF-8 text
+	PermissionDenied = 3   # no permission to write there; on windows, also a file another process holds open
+	DiskFull = 4           # the disk is full, or the user's quota is
+	ReadOnly = 5           # a read-only filesystem, or write-protected media
+	IsDirectory = 6        # the path names a directory
+	NotRegular = 7         # something at the path that is not a regular file, such as a FIFO or a device
+	Other = 8              # anything else; the message says what
+
+	def __bool__(self) -> bool:
+		return self is WriteStatus.Ok
+
+
+class WriteError(Exception):
+	"""A failed write_file_atomic(): status says why, and the message names
+	the file and says what the system reported."""
+	status: WriteStatus
+
+	def __init__(self, message: str, status: WriteStatus):
+		self.status = status
+		super().__init__(message)
+
+
+# The windows system codes first, from one table all four bindings share,
+# since each language files a held file or a missing network path somewhere
+# different.
+_WIN_WRITE_STATUS = {
+	2: WriteStatus.NotFound, 3: WriteStatus.NotFound, 15: WriteStatus.NotFound,
+	53: WriteStatus.NotFound, 67: WriteStatus.NotFound, 267: WriteStatus.NotFound,
+	5: WriteStatus.PermissionDenied, 32: WriteStatus.PermissionDenied,
+	33: WriteStatus.PermissionDenied, 1224: WriteStatus.PermissionDenied,
+	39: WriteStatus.DiskFull, 112: WriteStatus.DiskFull, 1295: WriteStatus.DiskFull,
+	19: WriteStatus.ReadOnly,
+}
+
+
+def _write_status_of(e: BaseException) -> WriteStatus:
+	"""The reason for a failed write's exception. A ValueError (a NUL in the
+	path, text the encoder refuses) is Other."""
+	st = _WIN_WRITE_STATUS.get(getattr(e, "winerror", None) or 0)
+	if st is not None:
+		return st
+	if isinstance(e, (FileNotFoundError, NotADirectoryError)):
+		return WriteStatus.NotFound
+	if isinstance(e, PermissionError):
+		return WriteStatus.PermissionDenied
+	if isinstance(e, IsADirectoryError):
+		return WriteStatus.IsDirectory
+	code = getattr(e, "errno", None)
+	if code is not None and code in (errno.ENOSPC, getattr(errno, "EDQUOT", errno.ENOSPC)):
+		return WriteStatus.DiskFull
+	if code is not None and code == errno.EROFS:
+		return WriteStatus.ReadOnly
+	return WriteStatus.Other
+
+
+def _failed(file, e: BaseException) -> WriteError:
+	return WriteError(f"{file}: {e}", _write_status_of(e))
+
+
+def _save_text(path, text):
+	"""write_file_atomic for a save, which raises SaveFailed."""
+	try:
+		write_file_atomic(path, text)
+	except WriteError as e:
+		raise SaveFailed(str(e), e.status) from None
+
+
 # The attribute bits a publish will not keep by itself - hidden and
 # system on windows, nothing anywhere else. ReplaceFile's documented preserve
 # list is creation time, short name, object id, DACLs, security attributes,
@@ -8799,12 +8881,14 @@ def _not_a_disk_file(path):
 	return not stat.S_ISREG(st.st_mode) and not stat.S_ISDIR(st.st_mode)
 
 
-def write_file_atomic(file: str | os.PathLike[str], data: str) -> str | None:
-	# The file tier's write mechanism (also what the CLI's --write uses): a
-	# temp file in the same dir, then a rename over the target,
-	# so an interrupted write can never truncate the config it rewrites. The data
-	# is synced before the rename so a crash cannot publish an empty file.
-	# Returns None on success, or the error message to report.
+def write_file_atomic(file: str | os.PathLike[str], data: str) -> None:
+	"""The file tier's write mechanism, also what the CLI's --write uses: a
+	temp file in the same dir, then a rename over the target, so an
+	interrupted write can never truncate the config it rewrites. Raises
+	WriteError, whose status says why, as the saves raise: a returned message
+	would let the call on a line of its own report success."""
+	# The data is synced before the rename so a crash cannot publish an empty
+	# file.
 	#
 	# A rename publishes a new inode, so the target is resolved through symlinks
 	# first (otherwise a linked-in config gets replaced by a regular file and the
@@ -8812,7 +8896,7 @@ def write_file_atomic(file: str | os.PathLike[str], data: str) -> str | None:
 	# (otherwise a 600 config comes back at whatever the umask allows). Other hard
 	# links to the old inode cannot survive a rename and keep the old content.
 	# A NUL in the path raises ValueError rather than OSError, and this call
-	# promises a returned message, never a throw. POSIX raises it here, at the
+	# promises a WriteError, never anything else. POSIX raises it here, at the
 	# resolve; windows resolves such a path happily and raises at the first call
 	# that touches the filesystem instead, so every one of them below has to
 	# have the same guard.
@@ -8822,11 +8906,11 @@ def write_file_atomic(file: str | os.PathLike[str], data: str) -> str | None:
 	# a regular file, but a path cleanup drops the trailing separator first, so a
 	# save through `f/.` used to rewrite `f` in some bindings.
 	if _names_a_directory(file):
-		return f"{file}: is a directory"
+		raise WriteError(f"{file}: is a directory", WriteStatus.IsDirectory)
 	try:
 		target = _resolve_target(file)
 	except (OSError, ValueError) as e:
-		return f"{file}: {e}"
+		raise _failed(file, e) from None
 	d = os.path.dirname(target)
 	if d == "":
 		d = "."
@@ -8864,10 +8948,12 @@ def write_file_atomic(file: str | os.PathLike[str], data: str) -> str | None:
 	# swaps it for a regular file at exit 0. Save outcomes in design.md is the
 	# rule for what a save does with each thing it can find at the path.
 	if existing is not None and not stat.S_ISREG(existing.st_mode):
-		return f"{file}: is a directory" if stat.S_ISDIR(existing.st_mode) else f"{file}: not a regular file"
+		if stat.S_ISDIR(existing.st_mode):
+			raise WriteError(f"{file}: is a directory", WriteStatus.IsDirectory)
+		raise WriteError(f"{file}: not a regular file", WriteStatus.NotRegular)
 	# os.stat cannot see a reserved name with no device behind it.
 	if _not_a_disk_file(target):
-		return f"{file}: not a regular file"
+		raise WriteError(f"{file}: not a regular file", WriteStatus.NotRegular)
 	# Windows: a read-only file cannot be replaced, and a read-only temp cannot
 	# be removed after a failure, so the attribute comes off the target for the
 	# publish and goes back on the new file after it - the same outcome as
@@ -8880,7 +8966,7 @@ def write_file_atomic(file: str | os.PathLike[str], data: str) -> str | None:
 	born = 0o600 if existing is not None else 0o666
 	f = None
 	tmp = ""
-	last = ""
+	last: OSError | ValueError | None = None
 	for attempt in range(8):
 		tmp = os.path.join(d, f".{base}.tmp{os.getpid()}.{attempt}")
 		try:
@@ -8892,9 +8978,10 @@ def write_file_atomic(file: str | os.PathLike[str], data: str) -> str | None:
 			f = os.fdopen(fd, "w", encoding="utf-8", newline="")
 			break
 		except (OSError, ValueError) as e:
-			last = str(e)
+			last = e
 	if f is None:
-		return f"{file}: cannot create temporary file: {last}"
+		raise WriteError(f"{file}: cannot create temporary file: {last if last is not None else ''}",
+			_write_status_of(last) if last is not None else WriteStatus.Other)
 	try:
 		try:
 			f.write(data)
@@ -8931,7 +9018,7 @@ def write_file_atomic(file: str | os.PathLike[str], data: str) -> str | None:
 	# message shape, and no temp file left behind.
 	except (OSError, ValueError) as e:
 		_remove_quietly(tmp)
-		return f"{file}: {e}"
+		raise _failed(file, e) from None
 	if read_only:
 		_set_read_only(target, False)
 	try:
@@ -8950,13 +9037,12 @@ def write_file_atomic(file: str | os.PathLike[str], data: str) -> str | None:
 			_set_read_only(target, True)
 		if existing is None:
 			_remove_quietly(tmp)
-		return f"{file}: {e}"
+		raise _failed(file, e) from None
 	if carried:
 		_restore_attrs(target, carried)
 	if read_only:
 		_set_read_only(target, True)
 	_sync_dir(d)
-	return None
 
 
 class UpgradeError(Exception):
@@ -8995,7 +9081,13 @@ class UpgradeBackupTaken(UpgradeError):
 
 
 class UpgradeFailed(UpgradeError):
-	"""A read or write failed; the message is what was reported."""
+	"""A read or write failed; the message is what was reported, and status
+	says why."""
+	status: WriteStatus
+
+	def __init__(self, message: str, status: WriteStatus):
+		self.status = status
+		super().__init__(message)
 
 
 def backup_file_name(file: str, format: int) -> str:
@@ -9041,7 +9133,7 @@ def write_backup(file: str, text: str, format: int) -> str:
 	except FileExistsError:
 		raise UpgradeBackupTaken(name) from None
 	except (OSError, ValueError) as e:
-		raise UpgradeFailed(f"{name}: {getattr(e, 'strerror', None) or e}") from None
+		raise UpgradeFailed(f"{name}: {getattr(e, 'strerror', None) or e}", _write_status_of(e)) from None
 	try:
 		with os.fdopen(fd, "wb") as fh:
 			fh.write(text.encode("utf-8"))
@@ -9066,7 +9158,7 @@ def write_backup(file: str, text: str, format: int) -> str:
 	# ValueError alongside: a lone surrogate in the text fails the encode.
 	except (OSError, ValueError) as e:
 		_remove_quietly(name)
-		raise UpgradeFailed(f"{name}: {getattr(e, 'strerror', None) or e}") from None
+		raise UpgradeFailed(f"{name}: {getattr(e, 'strerror', None) or e}", _write_status_of(e)) from None
 	return name
 
 
@@ -9101,12 +9193,13 @@ def upgrade_file(path: str | os.PathLike[str], from_v2: bool) -> Upgrade:
 	except (OSError, ValueError):
 		st = None
 	if st is not None and not stat.S_ISREG(st.st_mode):
-		raise UpgradeFailed(f"{path}: not a regular file")
+		raise UpgradeFailed(f"{path}: not a regular file",
+			WriteStatus.IsDirectory if stat.S_ISDIR(st.st_mode) else WriteStatus.NotRegular)
 	text, status = read_file(path, 0)
 	if status == FileStatus.NotFound:
 		raise UpgradeNotFound(path)
 	if text is None:
-		raise UpgradeFailed(f"{path}: cannot be read as UTF-8 text")
+		raise UpgradeFailed(f"{path}: cannot be read as UTF-8 text", WriteStatus.Unreadable)
 	up = upgrade(text, from_v2)
 	if up.current:
 		return up
@@ -9122,17 +9215,18 @@ def upgrade_file(path: str | os.PathLike[str], from_v2: bool) -> Upgrade:
 			return False
 
 	if not same():
-		raise UpgradeFailed(f"{path}: changed since it was read; nothing written")
+		raise UpgradeFailed(f"{path}: changed since it was read; nothing written", WriteStatus.Other)
 	up.backup = write_backup(path, text, up.format)
-	err = write_file_atomic(path, up.text)
-	if err is not None:
+	try:
+		write_file_atomic(path, up.text)
+	except WriteError as e:
 		# With the original still in place the backup would only stand in the
 		# way of the next run. A replace that fails part way on windows can
 		# leave nothing at the path, and then the backup is all there is.
 		if same():
 			_remove_quietly(up.backup)
-			raise UpgradeFailed(err)
-		raise UpgradeFailed(f"{err}; the original is {up.backup}")
+			raise UpgradeFailed(str(e), e.status) from None
+		raise UpgradeFailed(f"{e}; the original is {up.backup}", e.status) from None
 	return up
 
 
@@ -9162,7 +9256,7 @@ def _resolve_target(file):
 		# A link whose text ends in a separator, `.` or `..` can only reach a
 		# directory, and the kernel refuses to create a file through it.
 		if _names_a_directory(nxt):
-			raise OSError("is a directory")
+			raise IsADirectoryError("is a directory")
 		if os.path.isabs(nxt):
 			p = nxt
 		else:

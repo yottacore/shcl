@@ -1124,11 +1124,11 @@ static int write_back(shcl_doc *d, const char *file, Opts *o, const char *read, 
 	// than building it again, with the same refusal shcl_save_file_keep_lines
 	// makes (20260926 idea 3).
 	shcl_save_result r;
-	if (o->lossy && keep) r = shcl_write_file_atomic(file, c.p, c.n) ? SHCL_SAVE_OK : SHCL_SAVE_FAILED;
-	else if (o->lossy) r = shcl_save_file_lossy(d, file);
+	if (o->lossy && keep) r = shcl_write_file_atomic(file, c.p, c.n, NULL) ? SHCL_SAVE_OK : SHCL_SAVE_FAILED;
+	else if (o->lossy) r = shcl_save_file_lossy(d, file, NULL);
 	else if (keep && !kept && shcl_lost_count(d) > 0) r = SHCL_SAVE_REFUSED;
-	else if (keep) r = shcl_write_file_atomic(file, c.p, c.n) ? SHCL_SAVE_OK : SHCL_SAVE_FAILED;
-	else r = shcl_save_file(d, file);
+	else if (keep) r = shcl_write_file_atomic(file, c.p, c.n, NULL) ? SHCL_SAVE_OK : SHCL_SAVE_FAILED;
+	else r = shcl_save_file(d, file, NULL);
 	if (r == SHCL_SAVE_OK) {
 		// A created file is the one write with nothing to compare against
 		// afterwards, and a typo in the name used to end at exit 0 with an
@@ -1323,11 +1323,11 @@ static int do_migrate(const Opts *o) {
 			// 3.0 file with no stamp.
 			char *old = NULL, *why = NULL;
 			int64_t version = shcl_format_version(text, len);
-			if (rewritten && shcl_write_backup(file, text, len, version < 0 ? 2u : (uint32_t)version, &old, &why) != SHCL_UPGRADE_OK) {
+			if (rewritten && shcl_write_backup(file, text, len, version < 0 ? 2u : (uint32_t)version, &old, &why, NULL) != SHCL_UPGRADE_OK) {
 				fprintf(stderr, "%s\n", why);
 				free(why);
 				rc = EXIT_IO;
-			} else if (!shcl_write_file_atomic(file, m.text, m.len)) {
+			} else if (!shcl_write_file_atomic(file, m.text, m.len, NULL)) {
 				int e = errno;
 				if (!dir_takes_a_temp(file)) fprintf(stderr, "%s: cannot create temporary file: %s\n", file, strerror(e));
 				else fprintf(stderr, "%s: %s\n", file, strerror(e));
@@ -1373,7 +1373,7 @@ static int do_upgrade(const Opts *o) {
 	shcl_upgraded up;
 	if (o->write) {
 		char *why = NULL;
-		shcl_upgrade_error e = shcl_upgrade_file(file, o->from_2x, &up, &why);
+		shcl_upgrade_error e = shcl_upgrade_file(file, o->from_2x, &up, &why, NULL);
 		if (e != SHCL_UPGRADE_OK) {
 			if (e == SHCL_UPGRADE_AMBIGUOUS) fprintf(stderr, "%s (--from-2x rewrites them)\n", why);
 			else fprintf(stderr, "%s\n", why);

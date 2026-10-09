@@ -820,7 +820,7 @@ _ = setInt(doc, "workers", workers * 2);
 _ = setBool(doc, "site(example.com).tls.hsts", true);
 _ = setString(doc, "site(blog.example.com).root", "/srv/www/blog");
 
-_ = c.shcl_save_file(doc, "server.shcl");
+_ = c.shcl_save_file(doc, "server.shcl", null);
 ~~~
 
 Alongside it goes an `impl.c` of two lines (`#define SHCL_IMPLEMENTATION`, then `#include "shcl.h"`); build with `zig build-exe main.zig impl.c -lc -lm -I.`. Letting the C file tier do the loading and saving keeps Zig's own standard library out of it, which matters here because that library still moves between releases while this interop does not; checked on 0.16.
@@ -872,8 +872,12 @@ if (ss != SHCL_SET_OK)
 
 // SHCL_SAVE_REFUSED means this write would delete lines or values from the
 // file; see "What saving does" below (shcl_save_file_lossy is the override).
-if (shcl_save_file(doc, "server.shcl") != SHCL_SAVE_OK)
-	fprintf(stderr, "could not save\n");
+shcl_write_status why;
+shcl_save_result saved = shcl_save_file(doc, "server.shcl", &why);
+if (saved == SHCL_SAVE_REFUSED)
+	fprintf(stderr, "not saved: it would drop lines\n");
+else if (saved == SHCL_SAVE_FAILED)
+	fprintf(stderr, "could not save: %s\n", shcl_write_status_name(why));
 
 shcl_free(doc);   // frees the document and everything handed out from it
 ~~~
@@ -1029,6 +1033,8 @@ That is the whole file after the edits, not an excerpt - a formatter that can su
 A file somebody keeps by hand can be saved the way they keep it instead. Load it with `parse_keep_lines` or `load_file_keep_lines`, and save with `save_file_keep_lines`. Each line the edits did not touch comes back byte for byte, a changed value is written into its own line, and a new line takes the indent of the lines around it. The text has to load back as the same document, with no new error. Where it would not, as after a merge, or a child added under a flat dotted line, the save writes the canonical form and returns false, so the program knows which one it got. A line the load dropped comes back as written too, so this save refuses only when it would write the canonical form. `shcl set` saves this way; `shcl fmt` is the canonical one.
 
 And the save protects the file it is overwriting. It goes through a temp file in the same directory plus a rename, so an interrupted save cannot leave a truncated config behind, and a linked-in config is written through rather than replaced. It also refuses when the write would delete lines or values from the file. A line the parser cannot read at all is kept verbatim and survives the save untouched. A line it could read and not place (a stray indent, an impossible selector) has no safe spelling to re-emit. That one counts into `lost_count()`, and the save stops rather than quietly dropping a line somebody typed. `save_file_lossy` is there for when deleting it is what you actually want, so it is always a stated choice.
+
+A save that fails says why as a value, beside its message: `NotFound` when the folder isn't there, `PermissionDenied`, `DiskFull`, `ReadOnly`, `IsDirectory` and a couple more, so a program can tell them apart without reading the text. The same goes for `write_file_atomic` and `upgrade_file`. In C it comes back through the last argument, which may be NULL.
 
 A setter returns a status, `Ok` when the write applied. Anything else means it wrote nothing at all, and names why. Either the path is the problem, or what the write would put there is, and when both are the path's reason is the one you get. Wildcards are the usual path reason (`Wildcard`), since those are query-only. Another is a path that matches more than one field (`Multiple`), such as `port` in a file with two `port` lines, since the read after the write would not know which one you meant either. `port(0)` or `site(1).root` picks one. A value reason names what was wrong with it: `NotFinite` for a NaN, `BadComment` for comment text with a line break, `NotOneValue` for `set_literal` text like `a, b`, and so on. `check_set_path(path)` checks the path alone, without writing. The whole list is in the [spec](project/spec.md), under the Writer.
 

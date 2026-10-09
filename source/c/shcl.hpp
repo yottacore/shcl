@@ -271,22 +271,30 @@ enum class FileStatus { Clean, HadErrors, NotFound, Unreadable };
 // overrides, and folding it into a failed write leaves the caller with an
 // override they cannot tell they need.
 enum class SaveResult { Ok, Refused, Failed };
+// Why a write failed, so a program can tell a missing folder from no
+// permission or a full disk. NotFound and Unreadable are FileStatus's names.
+// Unreadable is upgrade_file's, for a file it could not read as UTF-8 text.
+// PermissionDenied on windows is also a file another process holds open.
+// The order is every binding's.
+enum class WriteStatus { Ok, NotFound, Unreadable, PermissionDenied, DiskFull, ReadOnly, IsDirectory, NotRegular, Other };
 // Textual name of a file status, for a log line. Static storage.
 const char *to_string(FileStatus s);
+const char *to_string(WriteStatus s);
 // The file's text and Clean, or an empty text with the status saying why. A
 // file past max_bytes is Unreadable; 0 is no cap. load_file is this plus a parse.
 std::pair<std::string, FileStatus> read_file(const std::string &path, std::size_t max_bytes = 0);
 // The temp-file-and-rename write the saves go through, for bytes that are not
-// a document. False when it failed, with errno saying why.
-bool write_file_atomic(const std::string &path, std::string_view data);
+// a document. Ok, or why it failed.
+WriteStatus write_file_atomic(const std::string &path, std::string_view data);
 // Why upgrade_file or write_backup wrote nothing, or not all of it. message
 // is worded as the other bindings word the error; count is
-// Upgrade::ambiguous, for Ambiguous.
+// Upgrade::ambiguous, for Ambiguous; status says why, for Io.
 enum class UpgradeErrorKind { NotFound, Ambiguous, BackupTaken, Io };
 struct UpgradeError {
 	UpgradeErrorKind kind{};
 	std::string message{};
 	std::size_t count{};
+	WriteStatus status{};
 };
 // Keep text, the bytes last read from file, under backup_file_name, before
 // something replaces them. The create is exclusive, so nothing at the name is
@@ -356,11 +364,12 @@ public:
 	// load_file_with, keeping the text for to_text_keep_lines().
 	static std::pair<Document, FileStatus> load_file_keep_lines(const std::string &path, Strictness s);
 	// Canonical text, written atomically: the CLI --write mechanics.
-	SaveResult save_file(const std::string &path) const;
-	SaveResult save_file_lossy(const std::string &path) const;
+	// *why (when given) gets why a Failed save failed, else Ok.
+	SaveResult save_file(const std::string &path, WriteStatus *why = nullptr) const;
+	SaveResult save_file_lossy(const std::string &path, WriteStatus *why = nullptr) const;
 	// save_file with to_text_keep_lines(), and whether it kept the lines or
 	// wrote the canonical form instead. Refuses the way save_file does.
-	std::pair<SaveResult, bool> save_file_keep_lines(const std::string &path) const;
+	std::pair<SaveResult, bool> save_file_keep_lines(const std::string &path, WriteStatus *why = nullptr) const;
 #endif
 
 	// True when a strict load would fail: strict, and an error diagnostic exists.
@@ -632,6 +641,11 @@ static_assert(static_cast<int>(FileStatus::Clean) == SHCL_FILE_CLEAN && static_c
 	&& static_cast<int>(FileStatus::NotFound) == SHCL_FILE_NOT_FOUND && static_cast<int>(FileStatus::Unreadable) == SHCL_FILE_UNREADABLE, "FileStatus drifted from shcl_file_status");
 static_assert(static_cast<int>(SaveResult::Ok) == SHCL_SAVE_OK && static_cast<int>(SaveResult::Refused) == SHCL_SAVE_REFUSED
 	&& static_cast<int>(SaveResult::Failed) == SHCL_SAVE_FAILED, "SaveResult drifted from shcl_save_result");
+static_assert(static_cast<int>(WriteStatus::Ok) == SHCL_WRITE_OK && static_cast<int>(WriteStatus::NotFound) == SHCL_WRITE_NOT_FOUND
+	&& static_cast<int>(WriteStatus::Unreadable) == SHCL_WRITE_UNREADABLE && static_cast<int>(WriteStatus::PermissionDenied) == SHCL_WRITE_PERMISSION_DENIED
+	&& static_cast<int>(WriteStatus::DiskFull) == SHCL_WRITE_DISK_FULL && static_cast<int>(WriteStatus::ReadOnly) == SHCL_WRITE_READ_ONLY
+	&& static_cast<int>(WriteStatus::IsDirectory) == SHCL_WRITE_IS_DIRECTORY && static_cast<int>(WriteStatus::NotRegular) == SHCL_WRITE_NOT_REGULAR
+	&& static_cast<int>(WriteStatus::Other) == SHCL_WRITE_OTHER, "WriteStatus drifted from shcl_write_status");
 // The C enum puts OK first, so each kind sits one past its C value.
 static_assert(static_cast<int>(UpgradeErrorKind::NotFound) + 1 == SHCL_UPGRADE_NOT_FOUND && static_cast<int>(UpgradeErrorKind::Ambiguous) + 1 == SHCL_UPGRADE_AMBIGUOUS
 	&& static_cast<int>(UpgradeErrorKind::BackupTaken) + 1 == SHCL_UPGRADE_BACKUP_TAKEN && static_cast<int>(UpgradeErrorKind::Io) + 1 == SHCL_UPGRADE_IO, "UpgradeErrorKind drifted from shcl_upgrade_error");
@@ -910,6 +924,7 @@ std::string backup_file_name(const std::string &file, std::uint32_t format) {
 
 #ifndef SHCL_NO_FILE_IO
 const char *to_string(FileStatus s) { return shcl_file_status_name(static_cast<shcl_file_status>(s)); }
+const char *to_string(WriteStatus s) { return shcl_write_status_name(static_cast<shcl_write_status>(s)); }
 
 std::pair<std::string, FileStatus> read_file(const std::string &path, std::size_t max_bytes) {
 	// Initialized: the status should never depend on the callee having written it.
@@ -920,22 +935,28 @@ std::pair<std::string, FileStatus> read_file(const std::string &path, std::size_
 	return {std::string(p.get(), n), static_cast<FileStatus>(cs)};
 }
 
-bool write_file_atomic(const std::string &path, std::string_view data) { return shcl_write_file_atomic(path.c_str(), data.data(), data.size()) != 0; }
+WriteStatus write_file_atomic(const std::string &path, std::string_view data) {
+	shcl_write_status st = SHCL_WRITE_OTHER;
+	shcl_write_file_atomic(path.c_str(), data.data(), data.size(), &st);
+	return static_cast<WriteStatus>(st);
+}
 
 std::pair<std::string, std::optional<UpgradeError>> write_backup(const std::string &file, std::string_view text, std::uint32_t format) {
 	char *name = nullptr, *why = nullptr;
-	shcl_upgrade_error e = shcl_write_backup(file.c_str(), text.data(), text.size(), format, &name, &why);
+	shcl_write_status st = SHCL_WRITE_OK;
+	shcl_upgrade_error e = shcl_write_backup(file.c_str(), text.data(), text.size(), format, &name, &why, &st);
 	std::unique_ptr<char, void (*)(void *)> n(name, &std::free), w(why, &std::free);
-	if (e != SHCL_UPGRADE_OK) return {std::string(), UpgradeError{static_cast<UpgradeErrorKind>(static_cast<int>(e) - 1), w ? std::string(w.get()) : std::string(), 0}};
+	if (e != SHCL_UPGRADE_OK) return {std::string(), UpgradeError{static_cast<UpgradeErrorKind>(static_cast<int>(e) - 1), w ? std::string(w.get()) : std::string(), 0, static_cast<WriteStatus>(st)}};
 	return {std::string(n.get()), std::nullopt};
 }
 
 std::pair<Upgrade, std::optional<UpgradeError>> upgrade_file(const std::string &path, bool from_v2) {
 	detail::UpgradedOwn own;
 	char *why = nullptr;
-	shcl_upgrade_error e = shcl_upgrade_file(path.c_str(), from_v2 ? 1 : 0, &own.c, &why);
+	shcl_write_status st = SHCL_WRITE_OK;
+	shcl_upgrade_error e = shcl_upgrade_file(path.c_str(), from_v2 ? 1 : 0, &own.c, &why, &st);
 	std::unique_ptr<char, void (*)(void *)> w(why, &std::free);
-	if (e != SHCL_UPGRADE_OK) return {Upgrade{}, UpgradeError{static_cast<UpgradeErrorKind>(static_cast<int>(e) - 1), w ? std::string(w.get()) : std::string(), own.c.ambiguous}};
+	if (e != SHCL_UPGRADE_OK) return {Upgrade{}, UpgradeError{static_cast<UpgradeErrorKind>(static_cast<int>(e) - 1), w ? std::string(w.get()) : std::string(), own.c.ambiguous, static_cast<WriteStatus>(st)}};
 	return {detail::upgraded(own.c), std::nullopt};
 }
 #endif
@@ -970,11 +991,23 @@ std::pair<Document, FileStatus> Document::load_file_keep_lines(const std::string
 	Document d = Access::wrap(shcl_load_file_keep_lines(path.c_str(), static_cast<shcl_strictness>(s), &cs));
 	return {std::move(d), static_cast<FileStatus>(cs)};
 }
-SaveResult Document::save_file(const std::string &path) const { return static_cast<SaveResult>(shcl_save_file(detail::held(*this), path.c_str())); }
-SaveResult Document::save_file_lossy(const std::string &path) const { return static_cast<SaveResult>(shcl_save_file_lossy(detail::held(*this), path.c_str())); }
-std::pair<SaveResult, bool> Document::save_file_keep_lines(const std::string &path) const {
+SaveResult Document::save_file(const std::string &path, WriteStatus *why) const {
+	shcl_write_status st = SHCL_WRITE_OK;
+	SaveResult r = static_cast<SaveResult>(shcl_save_file(detail::held(*this), path.c_str(), &st));
+	if (why) *why = static_cast<WriteStatus>(st);
+	return r;
+}
+SaveResult Document::save_file_lossy(const std::string &path, WriteStatus *why) const {
+	shcl_write_status st = SHCL_WRITE_OK;
+	SaveResult r = static_cast<SaveResult>(shcl_save_file_lossy(detail::held(*this), path.c_str(), &st));
+	if (why) *why = static_cast<WriteStatus>(st);
+	return r;
+}
+std::pair<SaveResult, bool> Document::save_file_keep_lines(const std::string &path, WriteStatus *why) const {
 	int k = 0;
-	SaveResult r = static_cast<SaveResult>(shcl_save_file_keep_lines(detail::held(*this), path.c_str(), &k));
+	shcl_write_status st = SHCL_WRITE_OK;
+	SaveResult r = static_cast<SaveResult>(shcl_save_file_keep_lines(detail::held(*this), path.c_str(), &k, &st));
+	if (why) *why = static_cast<WriteStatus>(st);
 	return {r, k != 0};
 }
 #endif
