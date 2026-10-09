@@ -578,6 +578,8 @@ Materialization is idempotent and order-stable, so two traversals of the same do
 
 - `InstancePaths()` is `Paths()` one instance at a time: every binding's path in file order, with `(i)` on each segment whose name its parent repeats, so each path reads exactly one node and a repeated block is walked instance by instance.
 
+- `Fields()`, `ReadFields(path)` and `ReadChildFields(path)` (each binding's spelling) are `InstancePaths()`, `ReadInstances` and `ReadChildren` with the whole field beside each entry: its path in the `InstancePaths()` form, its name as stored, its value as `Instances` gives it, and its line (0 for one a setter built). A wildcard slot that reached nothing is an all-empty field, so indices still match `Count`. The path is what a caller hands back to a read, since a value is not a selector: `(1)` is an index whatever the instance's value. The CLI's `--json` output and `instances --paths` print these.
+
 - `QuoteSegment(name)` (each binding's spelling of it) quotes one segment for splicing into a lookup path: a bare name passes through, anything else comes back quoted and escaped - the same spelling the canonical formatter writes, and the exact inverse of the name parse, so any name at all can be spliced. Building a path from user-typed text without it is path injection - a dotted name reads as nesting.
 
 - An ambiguous single-value read (path resolves to many instances) reports `Multiple`; narrow it with a selector until exactly one remains.
@@ -836,6 +838,10 @@ On the CLI, every loading subcommand (`get`, `fmt`, `count`, `instances`, `child
 - A `--set` value goes in as **data**. Its type still follows the text (`workers=8` is an integer), but a comma, a quote or a space inside it is content, so `ports=80, 443` stores one quoted string and `title=My App` stores `title: "My App"`.
 
 - `--set-literal=PATH=TEXT` is the same option with the other reading. `TEXT` goes in as **value syntax**, the way a file writes it, so `ports=[80, 443]` stores a two-element array, `title="My App"` a quoted string and `` color=`#FF8800` `` a backtick value. Text a file line would report, such as `ports=80, 443`, is refused. `--remove=PATH`, `--set-default=PATH=VALUE` and `--set-literal-default=PATH=TEXT` complete the edit options, and all five share one ordered list, so the last one to touch a path wins. On the read side, `--slots` prints an array read's per-slot statuses beside its values.
+
+- `instances --paths` prints the path that reads each instance, the `InstancePaths()` form such as `shard(0)`, in place of its value. A wildcard slot that reached nothing is an empty line.
+
+- `--json` on `get`, `instances`, `children` and `paths` prints one JSON object per line, for `jq` or PowerShell's `ConvertFrom-Json`. The keys always come in the same order: `path`, the `InstancePaths()` form; `name`, on `children` only; `value`, always a string; `line`, a number, 0 for a field an edit made; and `status`, on `get --slots` only. On `get` the value is the value read, or the `--default` in its place, every element of one array has the field's path and line, and a read that reached no field has an empty path. Elsewhere the value is the field's own: an array in brackets as `fmt` writes it, a raw block's content, empty when the field has none. `paths --json` lists every field, repeats included, where `paths` lists each path once. Only what JSON requires is escaped, the way `jq -c` writes it, so the four CLIs agree byte for byte. `--paths` with `--json` is a usage error, since both say what a line holds.
 
 Environment-variable mapping is deliberately not provided. The env namespace and its naming convention belong to the consuming program, which can map env vars onto `--set` itself.
 

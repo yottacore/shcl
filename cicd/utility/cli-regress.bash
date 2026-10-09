@@ -1140,6 +1140,30 @@ rows=(
 	'Es8bB5E|get-array-backslash-text|get --array - x|x: ["a\xe2\x97\x89NEWLINE\xe2\x97\x89b", \x27a\\nb\x27]\n|0|"a\xe2\x97\x89NEWLINE\xe2\x97\x89b"\na\\nb\n|-'
 	'Es8bB5F|instances-lone-cr|instances - x|x: "a\xe2\x97\x89CR\xe2\x97\x89b"\n|0|"a\xe2\x97\x89CR\xe2\x97\x89b"\n|-'
 	'EqoRWEU|get-scalar-default-missing|get %DB% %NV% nope|-|0|q\nr\n|-'
+	## 2026100717500016 and 2026100814455655: a value is not a selector, since
+	## a number in parens is an index, so --paths prints the path that reads
+	## each instance. --json prints one object per line: path, name on children,
+	## value as a string, line, and status on get --slots. The path is "" where a
+	## wildcard slot or a get reached no field.
+	'EsEvmKv|instances-paths|instances --paths - shard|shard: 1\n\towner: ann\nshard: 0\n\towner: bob\n|0|shard(0)\nshard(1)\n|-'
+	'EsEvmKw|instances-json|instances --json - shard|shard: 1\n\towner: ann\nshard: 0\n\towner: bob\n|0|{"path":"shard(0)","value":"1","line":1}\n{"path":"shard(1)","value":"0","line":3}\n|-'
+	'EsEvmKx|instances-paths-slot-miss|instances --paths - a(*).b|a: x\n\tb: 1\na: y\n|0|a(0).b\n\n|-'
+	'EsEvmKy|instances-json-slot-miss|instances --json - a(*).b|a: x\n\tb: 1\na: y\n|0|{"path":"a(0).b","value":"1","line":2}\n{"path":"","value":"","line":0}\n|-'
+	'EsEvmKz|instances-paths-shared-value|instances --paths - a.b|a: x\n\tb: 1\na: y\n\tb: 1\n|0|a(0).b\na(1).b\n|-'
+	'EsEvmL0|paths-json-every-field|paths --json -|k: 1\nk: 2\nhdr:\n\tq: \x27say "hi" \\\x27\nr:\n\t\x60\x60\x60\n\ta\n\tb\n\t\x60\x60\x60\narr: [1, 2]\n"a.b": x\n|0|{"path":"k(0)","value":"1","line":1}\n{"path":"k(1)","value":"2","line":2}\n{"path":"hdr","value":"","line":3}\n{"path":"hdr.q","value":"say \\"hi\\" \\\\","line":4}\n{"path":"r","value":"a\\nb","line":5}\n{"path":"arr","value":"[1, 2]","line":10}\n{"path":"\\"a.b\\"","value":"x","line":11}\n|-'
+	'EsEvmL1|paths-plain-once-each|paths -|k: 1\nk: 2\nhdr:\n\tq: \x27say "hi" \\\x27\nr:\n\t\x60\x60\x60\n\ta\n\tb\n\t\x60\x60\x60\narr: [1, 2]\n"a.b": x\n|0|k\nhdr\nhdr.q\nr\narr\n"a.b"\n|-'
+	'EsEvmL2|children-json|children --json -|k: 1\nk: 2\nhdr:\n\tq: \x27say "hi" \\\x27\nr:\n\t\x60\x60\x60\n\ta\n\tb\n\t\x60\x60\x60\narr: [1, 2]\n"a.b": x\n|0|{"path":"k(0)","name":"k","value":"1","line":1}\n{"path":"k(1)","name":"k","value":"2","line":2}\n{"path":"hdr","name":"hdr","value":"","line":3}\n{"path":"r","name":"r","value":"a\\nb","line":5}\n{"path":"arr","name":"arr","value":"[1, 2]","line":10}\n{"path":"\\"a.b\\"","name":"a.b","value":"x","line":11}\n|-'
+	'EsEvmL3|children-json-raw-block|children --json - r|k: 1\nk: 2\nhdr:\n\tq: \x27say "hi" \\\x27\nr:\n\t\x60\x60\x60\n\ta\n\tb\n\t\x60\x60\x60\narr: [1, 2]\n"a.b": x\n|0||-'
+	'EsEvmL4|get-json-escapes|get --json - t|t: "x\xe2\x97\x89TAB\xe2\x97\x89y\xe2\x97\x89U+0001\xe2\x97\x89\xe2\x97\x89U+007F\xe2\x97\x89\xc3\xa9"\n|0|{"path":"t","value":"x\\ty\\u0001\\u007f\xc3\xa9","line":1}\n|-'
+	'EsEvmL5|get-json-raw|get --json --raw - r|k: 1\nk: 2\nhdr:\n\tq: \x27say "hi" \\\x27\nr:\n\t\x60\x60\x60\n\ta\n\tb\n\t\x60\x60\x60\narr: [1, 2]\n"a.b": x\n|0|{"path":"r","value":"a\\nb","line":5}\n|-'
+	'EsEvmL6|get-array-json|get --array --json --int - arr|k: 1\nk: 2\nhdr:\n\tq: \x27say "hi" \\\x27\nr:\n\t\x60\x60\x60\n\ta\n\tb\n\t\x60\x60\x60\narr: [1, 2]\n"a.b": x\n|0|{"path":"arr","value":"1","line":10}\n{"path":"arr","value":"2","line":10}\n|-'
+	'EsEvmL7|get-array-json-slots-default|get --array --json --slots --default=q - a(*).b|a: x\n\tb: 1\na: y\n|0|{"path":"a(0).b","value":"1","line":2,"status":"Good"}\n{"path":"","value":"q","line":0,"status":"NotFound"}\n|-'
+	'EsEvmL8|get-json-not-found|get --json - nope|shard: 1\n\towner: ann\nshard: 0\n\towner: bob\n|3|{"path":"","value":"","line":0}\n|-'
+	'EsEvmL9|get-json-default-bad-type|get --json --int --default=7 - t|t: "x\xe2\x97\x89TAB\xe2\x97\x89y\xe2\x97\x89U+0001\xe2\x97\x89\xe2\x97\x89U+007F\xe2\x97\x89\xc3\xa9"\n|0|{"path":"t","value":"7","line":1}\n|-'
+	'EsEvmLA|json-edit-line-zero|paths --json --set=n=1 -|a: 1\n|0|{"path":"a","value":"1","line":1}\n{"path":"n","value":"1","line":0}\n|-'
+	'EsEvmLB|paths-with-json-refused|instances --paths --json - a|a: 1\n|1||^--paths cannot be combined with --json \(see --help\)$'
+	'EsEvmLC|json-not-on-count|count --json - a|a: 1\n|1||^option --json not valid for count \(see --help\)$'
+	'EsEvmLD|paths-not-on-children|children --paths -|a: 1\n|1||^option --paths not valid for children \(see --help\)$'
 	## 20260830b item 22: usage and I/O shared exit 1, so a script could not
 	## tell "the command line is wrong" from "that file is not there".
 	'EoXIc2a|io-missing-file|get %M% a|-|8|-|-'
@@ -2423,6 +2447,88 @@ for b in "${bindings[@]}"; do
 		fi
 	done
 done
+
+##	2026100814455655: --json has to read back through the two readers the help
+##	names. jq -c . writes each line back byte for byte, which pins the escaping
+##	to jq's, and jq and PowerShell's ConvertFrom-Json have to decode the same
+##	path, value and line, compared as base64 so a line break or a control
+##	character in a value cannot hide. Every corpus input and a file holding
+##	every control character, through paths, children and instances. PowerShell
+##	before 7.5 has no -DateKind and turns a value that looks like a date into
+##	a DateTime, so there only the path and line are compared.
+fTest EsEvmLE json-reads-back
+if command -v jq >/dev/null 2>&1; then
+	jsonCtl=""
+	for code in $(seq 1 31) 127; do jsonCtl+="$(printf '\xe2\x97\x89U+%04X\xe2\x97\x89' "${code}")"; done
+	{
+		printf 'ctl: "%s"\n' "${jsonCtl}"
+		printf 'q: \x27say "hi" \\ / \xe2\x80\xa8 \xf0\x9f\x98\x80 \xc3\xa9\x27\n'
+		printf 'when: 2026-10-09T10:00:00Z\n"a.b(c)": x\nr:\n\t\x60\x60\x60\n\tline\\one\n\t"two"\n\t\x60\x60\x60\ne:\nk: 1\nk: 2\n'
+	} > "${tmpDir}/jsonctl.shcl"
+	cat > "${tmpDir}/json-back.ps1" <<'PSEOF'
+$enc = [Text.UTF8Encoding]::new($false)
+$dateKind = (Get-Command -Name ConvertFrom-Json).Parameters.ContainsKey('DateKind')
+foreach ($line in [IO.File]::ReadAllLines($args[0], $enc)) {
+	if ($dateKind) { $o = ConvertFrom-Json -InputObject $line -DateKind String } else { $o = ConvertFrom-Json -InputObject $line }
+	$value = '-'
+	if ($dateKind) { $value = [Convert]::ToBase64String($enc.GetBytes([string]$o.value)) }
+	'{0} {1} {2}' -f [Convert]::ToBase64String($enc.GetBytes([string]$o.path)), $value, $o.line
+}
+PSEOF
+	havePwsh=0; command -v pwsh >/dev/null 2>&1 && havePwsh=1
+	for b in "${bindings[@]}"; do
+		name="${b%%|*}"; cli="${b#*|}"
+		: > "${tmpDir}/json.lines"
+		for f in "${repoDir}"/project/conformance/*/input.shcl "${tmpDir}/jsonctl.shcl"; do
+			"${cli}" paths --json "${f}" >> "${tmpDir}/json.lines" 2>/dev/null || true
+			"${cli}" children --json "${f}" >> "${tmpDir}/json.lines" 2>/dev/null || true
+		done
+		"${cli}" instances --json "${tmpDir}/jsonctl.shcl" k >> "${tmpDir}/json.lines" 2>/dev/null || true
+		nRun+=1
+		nLines="$(wc -l < "${tmpDir}/json.lines")"
+		if ((nLines < 500)); then
+			echo "cli-regress: json-reads-back [${name}]: only ${nLines} line(s) of --json output" >&2; nBad+=1; continue
+		fi
+		if ! jq -c . < "${tmpDir}/json.lines" > "${tmpDir}/json.back" 2>"${tmpDir}/json.err"; then
+			echo "cli-regress: json-reads-back [${name}]: jq refused a line: $(head -c 300 "${tmpDir}/json.err")" >&2; nBad+=1; continue
+		fi
+		if ! cmp -s "${tmpDir}/json.lines" "${tmpDir}/json.back"; then
+			echo "cli-regress: json-reads-back [${name}]: jq -c . writes a line back differently:" >&2
+			diff "${tmpDir}/json.lines" "${tmpDir}/json.back" | head -n 4 >&2 || true
+			nBad+=1; continue
+		fi
+		if ((havePwsh)); then
+			jq -r '"\(.path | @base64) \(.value | @base64) \(.line)"' < "${tmpDir}/json.lines" > "${tmpDir}/json.jq"
+			if ! env -u DISPLAY pwsh -NoProfile -NonInteractive -File "${tmpDir}/json-back.ps1" "${tmpDir}/json.lines" > "${tmpDir}/json.ps" 2>"${tmpDir}/json.err" </dev/null; then
+				echo "cli-regress: json-reads-back [${name}]: ConvertFrom-Json refused a line: $(head -c 300 "${tmpDir}/json.err")" >&2; nBad+=1; continue
+			fi
+			## Without -DateKind the value column is '-' on that side.
+			if [[ "$(awk 'NR == 1 { print $2 }' "${tmpDir}/json.ps")" == - ]]; then
+				awk '{ $2 = "-"; print }' "${tmpDir}/json.jq" > "${tmpDir}/json.jq2"; mv "${tmpDir}/json.jq2" "${tmpDir}/json.jq"
+			fi
+			if ! diff <(tr -d '\r' < "${tmpDir}/json.ps") "${tmpDir}/json.jq" > "${tmpDir}/json.diff"; then
+				echo "cli-regress: json-reads-back [${name}]: ConvertFrom-Json and jq decode a line differently:" >&2
+				head -n 4 "${tmpDir}/json.diff" >&2
+				nBad+=1
+			fi
+		fi
+	done
+	if ((havePwsh == 0)); then
+		if [[ -n "${SHCL_GATE_STRICT:-}" && "$(uname -s)" == Linux ]]; then
+			echo "cli-regress: json-reads-back: no pwsh here and the gate requires it" >&2; nBad+=1
+		fi
+		echo "cli-regress: json-reads-back: skipping the ConvertFrom-Json half (no pwsh here)"
+		echo "cli-regress json-reads-back pwsh" >> "${SHCL_GATE_SKIPS:-/dev/null}"
+	fi
+else
+	if [[ -n "${SHCL_GATE_STRICT:-}" && "$(uname -s)" == Linux ]]; then
+		echo "cli-regress: json-reads-back: no jq here and the gate requires it" >&2; nBad+=1
+	fi
+	echo "cli-regress: skipping json-reads-back (no jq here)"
+	fTestSkip
+	echo "cli-regress json-reads-back" >> "${SHCL_GATE_SKIPS:-/dev/null}"
+fi
+fTestEnd
 
 ## The help text is a column-aligned table sitting at exactly 80 wide, and it is
 ## hand-duplicated in four CLIs, so one added word wraps it in every terminal at

@@ -2025,6 +2025,46 @@ def main():
 		raise SystemExit(f"instance_paths() got {gdoc.instance_paths()}")
 	if gdoc.get_string("account.email(1).sshkey") != "k2":
 		raise SystemExit("an instance path did not read its node")
+	test_id("EsEsFpX", "fields_give_each_instance_its_own_path")
+	# The --json listings: each instance, a repeated one included, gets a path
+	# that reads that one, with its name, value and line beside it.
+	fdoc = shcl.Document.parse("shard: 1\n\towner: ann\nshard: 0\n\towner: bob\n\towner: cy\n")
+	F = shcl.Field
+	fall = fdoc.fields()
+	fwant = [
+		F("shard(0)", "shard", "1", 1),
+		F("shard(0).owner", "owner", "ann", 2),
+		F("shard(1)", "shard", "0", 3),
+		F("shard(1).owner(0)", "owner", "bob", 4),
+		F("shard(1).owner(1)", "owner", "cy", 5),
+	]
+	if fall != fwant:
+		raise SystemExit(f"fields() got {fall}")
+	if fdoc.instance_paths() != [fld.path for fld in fwant]:
+		raise SystemExit(f"instance_paths() got {fdoc.instance_paths()}")
+	for fld in fall:
+		if fdoc.get_string(fld.path) != fld.value:
+			raise SystemExit(f"{fld.path} did not read its own value")
+	fr = fdoc.read_fields("shard(1).owner")
+	if fr.status != shcl.Status.Good or fr.line != 0 or fr.value != fall[3:5]:
+		raise SystemExit(f"read_fields over two got {fr.value} {fr.status} {fr.line}")
+	fr = fdoc.read_fields("shard(0)")
+	if fr.line != 1 or fr.value != fall[0:1]:
+		raise SystemExit(f"read_fields over one got {fr.value} {fr.line}")
+	# One slot per instance, and a slot that reached two is all empty.
+	if fdoc.read_fields("shard(*).owner").value != [fall[1], F()]:
+		raise SystemExit(f"read_fields over slots got {fdoc.read_fields('shard(*).owner').value}")
+	if fdoc.read_fields("nope").status != shcl.Status.NotFound or fdoc.read_fields("a..b").status != shcl.Status.BadPath:
+		raise SystemExit("read_fields status")
+	if fdoc.read_child_fields("").value != [fall[0], fall[2]]:
+		raise SystemExit(f"read_child_fields top got {fdoc.read_child_fields('').value}")
+	if fdoc.read_child_fields("shard").value != [fall[1], fall[3], fall[4]]:
+		raise SystemExit(f"read_child_fields shard got {fdoc.read_child_fields('shard').value}")
+	fr = fdoc.read_child_fields("shard(1)")
+	if len(fr.value) != 2 or fr.line != 3:
+		raise SystemExit(f"read_child_fields shard(1) got {fr.value} {fr.line}")
+	if fdoc.read_child_fields("nope").status != shcl.Status.NotFound or fdoc.read_child_fields("a..b").status != shcl.Status.BadPath:
+		raise SystemExit("read_child_fields status")
 	test_id("EoM2uEi", "read_surface_line_quoted_children")
 	# line/quoted on the read result, line(path), children(path). Same
 	# fixture in every runner (C pins the same answers on shcl_quoted and

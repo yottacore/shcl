@@ -330,6 +330,18 @@ impl<T> Read<T> {
 	}
 }
 
+/// One field as a listing shows it: the path that reads exactly that field,
+/// written the way instance_paths() writes it, the name as stored, the value
+/// as instances() gives it, and the 1-based source line (0 for a node a
+/// setter built).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Field {
+	pub path: String,
+	pub name: String,
+	pub value: String,
+	pub line: usize,
+}
+
 /// A failed strict load: the diagnostics that failed it, plus the recovered tree.
 #[derive(Debug)]
 pub struct LoadError {
@@ -9825,12 +9837,95 @@ impl Document {
 	/// each path reads exactly one node and a repeated block is walked
 	/// instance by instance. Segments are written as paths() writes them.
 	pub fn instance_paths(&self) -> Vec<String> {
+		self.instance_walk().into_iter().map(|(_, p)| p).collect()
+	}
+
+	/// instance_paths() as a field list: each binding's path, name, value and
+	/// line, in the same order.
+	pub fn fields(&self) -> Vec<Field> {
+		self.instance_walk()
+			.into_iter()
+			.map(|(n, p)| self.field_of(n, p))
+			.collect()
+	}
+
+	/// read_instances() with each instance's path, name and line beside its
+	/// value. The path is the one instance_paths() writes for that node, so
+	/// two instances with one value still get paths that read one each. An
+	/// unresolved wildcard slot is an all-empty Field, line 0.
+	pub fn read_fields(&self, path: &str) -> Read<Vec<Field>> {
+		let (nodes, line): (Vec<Option<usize>>, usize) = match self.resolve(path) {
+			Err(st) => return Read::new(Vec::new(), st, None),
+			Ok(Resolved::None) => return Read::new(Vec::new(), Status::NotFound, None),
+			Ok(Resolved::Slots(s)) if s.is_empty() => {
+				return Read::new(Vec::new(), Status::NotFound, None);
+			}
+			Ok(Resolved::One(n)) => (vec![Some(n)], self.arena[n].line),
+			Ok(Resolved::Many(v)) => (v.into_iter().map(Some).collect(), 0),
+			Ok(Resolved::Slots(s)) => (s.into_iter().map(Result::ok).collect(), 0),
+		};
+		let paths = self.instance_path_index();
+		let fields = nodes
+			.into_iter()
+			.map(|n| n.map_or_else(Field::default, |n| self.field_of(n, paths[n].clone())))
+			.collect();
+		Read::new(fields, Status::Good, None).at(line, None)
+	}
+
+	/// read_children() with each child's path, value and line beside its
+	/// name, paths written as instance_paths() writes them. "" is the top
+	/// level.
+	pub fn read_child_fields(&self, path: &str) -> Read<Vec<Field>> {
+		let (nodes, line) = if path.trim().is_empty() {
+			(vec![ROOT], 0)
+		} else {
+			match self.resolve(path) {
+				Err(st) => return Read::new(Vec::new(), st, None),
+				Ok(Resolved::None) => return Read::new(Vec::new(), Status::NotFound, None),
+				Ok(Resolved::Slots(s)) if s.is_empty() => {
+					return Read::new(Vec::new(), Status::NotFound, None);
+				}
+				Ok(Resolved::One(n)) => (vec![n], self.arena[n].line),
+				Ok(Resolved::Many(v)) => (v, 0),
+				Ok(Resolved::Slots(s)) => (s.into_iter().flatten().collect(), 0),
+			}
+		};
+		let paths = self.instance_path_index();
+		let fields = nodes
+			.iter()
+			.flat_map(|&n| &self.arena[n].children)
+			.map(|&c| self.field_of(c, paths[c].clone()))
+			.collect();
+		Read::new(fields, Status::Good, None).at(line, None)
+	}
+
+	fn field_of(&self, node: usize, path: String) -> Field {
+		let n = &self.arena[node];
+		Field {
+			path,
+			name: n.name.clone(),
+			value: n.value.display(),
+			line: n.line,
+		}
+	}
+
+	/// Each node's instance_paths() path by arena index. The root and nodes
+	/// no longer in the tree stay "". One walk, so a field list costs the
+	/// same however wide its parent is; a lookup per path would scan every
+	/// sibling each time.
+	fn instance_path_index(&self) -> Vec<String> {
+		let mut at = vec![String::new(); self.arena.len()];
+		for (n, p) in self.instance_walk() {
+			at[n] = p;
+		}
+		at
+	}
+
+	/// Every node under the root with its instance path, in file order.
+	fn instance_walk(&self) -> Vec<(usize, String)> {
 		let mut out = Vec::new();
 		let mut stack: Vec<(usize, String)> = vec![(ROOT, String::new())];
 		while let Some((node, prefix)) = stack.pop() {
-			if node != ROOT {
-				out.push(prefix.clone());
-			}
 			let kids = &self.arena[node].children;
 			let mut total: HashMap<&str, usize> = HashMap::new();
 			for &c in kids {
@@ -9851,6 +9946,9 @@ impl Document {
 					*i += 1;
 				}
 				paths.push((c, path));
+			}
+			if node != ROOT {
+				out.push((node, prefix));
 			}
 			stack.extend(paths.into_iter().rev());
 		}

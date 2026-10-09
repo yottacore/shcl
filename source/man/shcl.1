@@ -3,7 +3,7 @@
 .\"
 .\" Has no version string on purpose: the release bump touches eight files
 .\" and this is not one of them. Keep it in step with HELP in the four CLIs.
-.TH SHCL 1 2026-10-08 shcl "User Commands"
+.TH SHCL 1 2026-10-09 shcl "User Commands"
 .SH NAME
 shcl \- read, edit, validate and format Simple Hierarchical Config Language files
 .SH SYNOPSIS
@@ -192,7 +192,13 @@ Print the instance values at
 one per line. A value holding a line break is printed quoted, with the line
 break as the NEWLINE escape the way
 .B fmt
-writes it, so one instance is always one line.
+writes it, so one instance is always one line. With
+.BR \-\-paths ,
+each line is instead the path that reads that one instance, such as
+.BR shard(0) ,
+which a script can hand back to
+.B get
+whatever the values are.
 .TP
 .B children
 Print the child field names under
@@ -211,6 +217,9 @@ when the difference matters.
 Print every field path in the document, one per line, in file order and
 deduplicated \- the whole-document counterpart of
 .BR children .
+With
+.BR \-\-json ,
+every field gets its own line, repeats included.
 .TP
 .B migrate
 Rewrite a file written for shcl 2.x so the current parser reads the same
@@ -406,6 +415,19 @@ array, per matched instance for a wildcard. A value holding a line break is
 then printed quoted, with the escapes
 .B fmt
 writes, so each slot stays one line.
+.TP
+.B \-\-json
+.RB ( get ", " instances ", " children ", " paths )
+Print one JSON object per line in place of the plain output. See
+.BR "JSON OUTPUT" .
+.TP
+.B \-\-paths
+.RB ( instances )
+Print the path that reads each instance in place of its value, written as
+.B paths \-\-json
+writes it, with
+.BI ( N )
+on a name its parent repeats.
 .TP
 .BI \-\-unit= UNIT
 .RB ( get )
@@ -644,7 +666,10 @@ has no file to leave the info block out of.
 .B \-\-check
 with
 .B \-\-write
-asks for both answers at once.
+asks for both answers at once, and so does
+.B \-\-paths
+with
+.BR \-\-json .
 .B \-\-write
 with a
 .I FILE
@@ -694,6 +719,60 @@ A
 that cannot parse is a usage error too, with
 .B \-\-default
 or without, rather than a path that was not found.
+.SH JSON OUTPUT
+With
+.BR \-\-json ,
+.BR get ,
+.BR instances ,
+.B children
+and
+.B paths
+print one JSON object per line, for
+.B jq
+or PowerShell's
+.BR ConvertFrom\-Json .
+The keys always come in this order:
+.TP
+.B path
+The path that reads exactly that field, with
+.BI ( N )
+on each name its parent repeats, so two instances never share one. Empty for a
+wildcard slot that reached nothing, and on a
+.B get
+that reached no field.
+.TP
+.B name
+.B children
+only: the child's name, with no quotes or escapes.
+.TP
+.B value
+Always a string. On
+.BR get ,
+the value read, or the
+.B \-\-default
+in its place. Elsewhere the field's value: an array in brackets, as
+.B fmt
+writes it, a raw block's content, or empty when the field has none.
+.TP
+.B line
+The line the field is on in the file it came from, or 0 for one an edit made.
+Every element of one array has the field's line.
+.TP
+.B status
+.B get \-\-slots
+only: the slot's status, as
+.B \-\-slots
+prints it.
+.PP
+Only what JSON requires is escaped, the way
+.B jq \-c
+writes it, so a line run through
+.B "jq \-c .\&"
+comes back byte for byte.
+.B paths \-\-json
+lists every field, where plain
+.B paths
+lists each path once.
 .SH WRITE OPS
 .B set
 reads a write-ops script on stdin when none of
@@ -918,6 +997,19 @@ Count repeated fields, then fan one read across every instance:
 .nf
 shcl count server.shcl site
 shcl get \-\-array \-\-slots server.shcl 'site(*).tls.hsts'
+.fi
+.RE
+.PP
+Walk the instances by path, which stays right when a value is a number or two
+instances share one, or hand every field to
+.BR jq :
+.PP
+.RS
+.nf
+for p in $(shcl instances \-\-paths server.shcl site); do
+    shcl get server.shcl "$p.tls.hsts"
+done
+shcl paths \-\-json server.shcl | jq \-r '.path + " = " + .value'
 .fi
 .RE
 .PP

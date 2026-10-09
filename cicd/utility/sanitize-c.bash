@@ -149,18 +149,24 @@ fReadRow(){
 		load)         fCli check "${strictArg[@]}" "$input"
 		              fCli fmt "${strictArg[@]}" "$input" ;;
 		count)        fCli count "${strictArg[@]}" "$input" "$query" ;;
-		instances)    fCli instances "${strictArg[@]}" "$input" "$query" ;;
-		children)     fCli children "${strictArg[@]}" "$input" "$query" ;;
-		paths)        fCli paths "${strictArg[@]}" "$input" ;;
+		instances)    fCli instances "${strictArg[@]}" "$input" "$query"
+		              fCli instances --paths "${strictArg[@]}" "$input" "$query"
+		              fCli instances --json "${strictArg[@]}" "$input" "$query" ;;
+		children)     fCli children "${strictArg[@]}" "$input" "$query"
+		              fCli children --json "${strictArg[@]}" "$input" "$query" ;;
+		paths)        fCli paths "${strictArg[@]}" "$input"
+		              fCli paths --json "${strictArg[@]}" "$input" ;;
 		lost)         : ;;   ## no CLI surface, like crosscheck.bash's own arm
 		instance_paths|comments|schema) : ;; ## library only, the same
 		int'[]'|float'[]'|bool'[]'|datetime'[]'|string'[]')
 		              fCli get "--${type%[]}" --array "${strictArg[@]}" "$input" "$query"
-		              fCli get "--${type%[]}" --array --slots "${strictArg[@]}" "$input" "$query" ;;
+		              fCli get "--${type%[]}" --array --slots "${strictArg[@]}" "$input" "$query"
+		              fCli get "--${type%[]}" --array --json --slots "${strictArg[@]}" "$input" "$query" ;;
 		int|float|bool|datetime|string|raw|rawinfo)
 		              fCli get "--${type}" "${strictArg[@]}" "$input" "$query"
 		              fCli get "--${type}" --on-bad=error "${strictArg[@]}" "$input" "$query"
-		              fCli get "--${type}" "--default=<x>" "${strictArg[@]}" "$input" "$query" ;;
+		              fCli get "--${type}" "--default=<x>" "${strictArg[@]}" "$input" "$query"
+		              fCli get "--${type}" --json "${strictArg[@]}" "$input" "$query" ;;
 		## duration[@UNIT] and size[@UNIT][+decimal], as crosscheck.bash reads them.
 		duration*|size*)
 		              local -a unitArg=()
@@ -182,6 +188,7 @@ fCase(){
 	input="${caseDir}input.shcl"
 	[[ -f "${input}" ]] || return 0
 	fCli fmt "${input}"
+	fCli paths --json "${input}"
 	fCli check "${input}"
 	if [[ -f "${caseDir}schema.shcl" ]]; then fCli check "--schema=${caseDir}schema.shcl" "${input}"; fi
 	if [[ -f "${caseDir}write.ops" ]]; then fCli set "${input}" < "${caseDir}write.ops"; fi

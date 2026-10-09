@@ -2869,7 +2869,7 @@ def sub(text, old, new, what):
     return out
 
 s = open(repo + "/source/rust/src/main.rs").read()
-arm = TAB * 2 + '"count" | "instances" | "children" | "paths" => &['
+arm = TAB * 2 + '"count" => &['
 s = sub(s, arm, TAB * 2 + '"ping" => &[],' + NL + arm, "main.rs: the option-less arm of allowed_opts")
 s = sub(s, TAB + '"explain",' + NL + "];", TAB + '"explain",' + NL + TAB + '"ping",' + NL + "];", "main.rs: the end of COMMANDS")
 disp = TAB * 2 + '"paths" => do_paths(o),'
@@ -2879,7 +2879,7 @@ s = sub(s, disp, disp + NL + TAB * 2 + '"ping" => 0,', "main.rs: the paths line 
 open(fix + "/source/rust/src/main.rs", "w").write(s)
 for name in ("shcl.bash", "_shcl"):
     c = open(repo + "/source/completions/" + name).read()
-    row = TAB * 2 + "count|instances|children|paths) echo '--strictness"
+    row = TAB * 2 + "count)           echo '--strictness"
     c = sub(c, row, TAB * 2 + "ping)            echo '' ;;" + NL + row, name + ": the option row for count")
     if name == "shcl.bash":
         c = sub(c, "paths migrate upgrade tokens explain help", "paths migrate upgrade tokens explain ping help", name + ": the command list")

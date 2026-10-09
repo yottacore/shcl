@@ -315,21 +315,27 @@ fReadRow(){
 		load)         fCompare "load" check "${strictArg[@]}" "$input"
 		              fCompare "fmt ${level:-standard}" fmt "${strictArg[@]}" "$input" ;;
 		count)        fCompare "count ${query}" count "${strictArg[@]}" "$input" "$query" ;;
-		instances)    fCompare "instances ${query}" instances "${strictArg[@]}" "$input" "$query" ;;
-		children)     fCompare "children ${query}" children "${strictArg[@]}" "$input" "$query" ;;
-		paths)        fCompare "paths" paths "${strictArg[@]}" "$input" ;;
+		instances)    fCompare "instances ${query}" instances "${strictArg[@]}" "$input" "$query"
+		              fCompare "instances --paths ${query}" instances --paths "${strictArg[@]}" "$input" "$query"
+		              fCompare "instances --json ${query}" instances --json "${strictArg[@]}" "$input" "$query" ;;
+		children)     fCompare "children ${query}" children "${strictArg[@]}" "$input" "$query"
+		              fCompare "children --json ${query}" children --json "${strictArg[@]}" "$input" "$query" ;;
+		paths)        fCompare "paths" paths "${strictArg[@]}" "$input"
+		              fCompare "paths --json" paths --json "${strictArg[@]}" "$input" ;;
 		lost)         : ;;   ## no CLI surface; the in-place write below is what it reaches
 		instance_paths|comments|schema) : ;; ## library only; the four runners pin it
 		int'[]'|float'[]'|bool'[]'|datetime'[]'|string'[]')
 		              fCompare "get ${query} ${type}" get "--${type%[]}" --array "${strictArg[@]}" "$input" "$query"
-		              fCompare "get ${query} ${type} slots" get "--${type%[]}" --array --slots "${strictArg[@]}" "$input" "$query" ;;
+		              fCompare "get ${query} ${type} slots" get "--${type%[]}" --array --slots "${strictArg[@]}" "$input" "$query"
+		              fCompare "get ${query} ${type} json" get "--${type%[]}" --array --json --slots "${strictArg[@]}" "$input" "$query" ;;
 		int|float|bool|datetime|string|raw|rawinfo)
 		              fCompare "get ${query} ${type}" get "--${type}" "${strictArg[@]}" "$input" "$query"
 		              # on-bad=error (exit-code differential; message goes to dropped stderr)
 		              # and a default substitution (stdout differential) - the accessor
 		              # policy surface, where hand-written ports diverge most easily.
 		              fCompare "get ${query} ${type} on-bad=error" get "--${type}" --on-bad=error "${strictArg[@]}" "$input" "$query"
-		              fCompare "get ${query} ${type} default" get "--${type}" "--default=<x>" "${strictArg[@]}" "$input" "$query" ;;
+		              fCompare "get ${query} ${type} default" get "--${type}" "--default=<x>" "${strictArg[@]}" "$input" "$query"
+		              fCompare "get ${query} ${type} json" get "--${type}" --json "${strictArg[@]}" "$input" "$query" ;;
 		## duration[@UNIT] and size[@UNIT][+decimal]: the unit a bare number
 		## takes when its name gives none, and KB to TB in powers of 1000.
 		duration*|size*)
@@ -357,6 +363,10 @@ fCase(){
 	local input="${caseDir}input.shcl" caseName="${caseDir%/}"
 	caseName="${caseName##*/}"
 	fCompare "fmt ${caseName}" fmt "$input"
+	# Every field with its path, value and line: the one listing that walks
+	# the whole tree, so a binding whose JSON writer or index paths differ
+	# shows on any case.
+	fCompare "paths --json ${caseName}" paths --json "$input"
 	# The lexical view and the 2.x rewrite: the tokenizer is the one reader
 	# of a line's parts, so its spans are the finest-grained parity there is,
 	# and migrate reads through the same tokenizer's 2.x flag. Both answers to
@@ -443,6 +453,7 @@ fKeepEdits(){
 fExtraFile(){
 	local f="$1" reads
 	fCompare "fmt ${f##*/}" fmt "$f"
+	fCompare "paths --json ${f##*/}" paths --json "$f"
 	fCompare "tokens ${f##*/}" tokens "$f"
 	fCompare "migrate ${f##*/}" migrate "$f"
 	fCompare "migrate --from-2x ${f##*/}" migrate --from-2x "$f"

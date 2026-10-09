@@ -543,6 +543,20 @@ methods
 tls
 ~~~
 
+The values `instances` prints are not paths. A number in parens is an index, so with `shard: 1` above `shard: 0`, `shard(1)` reads the second one. `--paths` prints the path that reads each instance instead, and `--json` prints one JSON object per line with the path, value and line together, for `jq` or PowerShell's `ConvertFrom-Json`:
+
+~~~console
+$ shcl instances --paths server.shcl site
+site(0)
+site(1)
+
+$ shcl instances --json server.shcl site
+{"path":"site(0)","value":"example.com","line":7}
+{"path":"site(1)","value":"blog.example.com","line":17}
+~~~
+
+`get`, `children` and `paths` take `--json` too. `paths --json` lists every field, repeats included, and `children --json` adds each child's `name`. The value is always a string, with a line break in it as JSON's `\n`.
+
 `check` is where the forgiving parser shows its hand. Knock the colon off line 3 of that file, and line 3 is all you lose:
 
 ~~~console
@@ -964,6 +978,16 @@ OPS
 
 A tab or line break inside an op value goes in as `◉TAB◉` or `◉NEWLINE◉`, the same escapes a file uses, and a backslash is text.
 
+Lists come back one item per line. When a script needs more than a name, `--json` gives each item as one JSON object, and `--paths` gives each instance a path that reads only it:
+
+~~~bash
+shcl paths --json server.shcl | jq -r '"\(.line)\t\(.path) = \(.value)"'
+
+for site in $(shcl instances --paths server.shcl site); do
+    echo "${site}: $(shcl get server.shcl "${site}.root")"
+done
+~~~
+
 ### PowerShell
 
 The same reads, calling `shcl` directly. Quote a path that has a selector in it. Unquoted, PowerShell runs what is inside the parentheses as a command.
@@ -985,6 +1009,15 @@ The op-script form works here too, piped in:
 $ops = "remove`tsite(old.example.com)",
        "raw`tmotd`t`tWelcome."
 $ops | shcl set --write server.shcl
+~~~
+
+`--json` output is one object per line, which `ConvertFrom-Json` takes as it comes:
+
+~~~powershell
+$sites = shcl instances --json server.shcl site | ConvertFrom-Json
+foreach ($site in $sites) {
+	"$($site.path) on line $($site.line): $(shcl get server.shcl "$($site.path).root")"
+}
 ~~~
 
 `$LASTEXITCODE` has the exit code after each call. Windows PowerShell 5.1 reads a native command's output in the console's code page, so set `[Console]::OutputEncoding = [Text.Encoding]::UTF8` before reading a value that isn't plain ASCII. To pipe non-ASCII text in on 5.1, also set `$OutputEncoding = [Text.UTF8Encoding]::new($false)`, which leaves out the byte-order mark.

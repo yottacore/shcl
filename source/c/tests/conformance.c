@@ -1813,6 +1813,45 @@ int main(int argc, char **argv) {
 		if (gr.status != SHCL_GOOD || gr.value.n != 2 || memcmp(gr.value.p, "k2", 2)) fail("instance_paths", "indexed path does not read");
 		shcl_free(gd);
 	}
+	// The --json listings: each instance, a repeated one included, gets a path
+	// that reads that one, with its name, value and line beside it. Same
+	// fixture in every runner.
+	test_id("EsEsFrh", "fields_give_each_instance_its_own_path");
+	{
+		const char *ft = "shard: 1\n\towner: ann\nshard: 0\n\towner: bob\n\towner: cy\n";
+		shcl_doc *fd = shcl_parse(ft, strlen(ft));
+		static const char *fp[] = { "shard(0)", "shard(0).owner", "shard(1)", "shard(1).owner(0)", "shard(1).owner(1)" };
+		static const char *fnm[] = { "shard", "owner", "shard", "owner", "owner" };
+		static const char *fv[] = { "1", "ann", "0", "bob", "cy" };
+		#define FIELD_IS(F, I) ((F).path.n == strlen(fp[I]) && !memcmp((F).path.p, fp[I], (F).path.n) \
+			&& (F).name.n == strlen(fnm[I]) && !memcmp((F).name.p, fnm[I], (F).name.n) \
+			&& (F).value.n == strlen(fv[I]) && !memcmp((F).value.p, fv[I], (F).value.n) && (F).line == (size_t)(I) + 1)
+		shcl_field *fa; size_t fn = shcl_fields(fd, &fa);
+		if (fn != 5) fail("fields", "count mismatch");
+		else for (size_t i = 0; i < 5; i++) {
+			if (!FIELD_IS(fa[i], i)) { fail("fields", "fixture mismatch"); break; }
+			shcl_read_str fr = shcl_read_string(fd, fp[i], strlen(fp[i]));
+			if (fr.status != SHCL_GOOD || fr.value.n != strlen(fv[i]) || memcmp(fr.value.p, fv[i], fr.value.n)) { fail("fields", "a path did not read its own value"); break; }
+		}
+		shcl_read_field_list fl = shcl_read_fields(fd, "shard(1).owner", 14);
+		if (fl.status != SHCL_GOOD || fl.n != 2 || !FIELD_IS(fl.values[0], 3) || !FIELD_IS(fl.values[1], 4)) fail("read_fields", "two instances");
+		fl = shcl_read_fields(fd, "shard(0)", 8);
+		if (fl.n != 1 || !FIELD_IS(fl.values[0], 0)) fail("read_fields", "one instance");
+		// One slot per instance, and a slot that reached two is all empty.
+		fl = shcl_read_fields(fd, "shard(*).owner", 14);
+		if (fl.n != 2 || !FIELD_IS(fl.values[0], 1) || fl.values[1].path.n || fl.values[1].name.n || fl.values[1].value.n || fl.values[1].line) fail("read_fields", "slots");
+		if (shcl_read_fields(fd, "nope", 4).status != SHCL_NOT_FOUND) fail("read_fields", "nope not NotFound");
+		if (shcl_read_fields(fd, "a..b", 4).status != SHCL_BAD_PATH) fail("read_fields", "a..b not BadPath");
+		fl = shcl_read_child_fields(fd, "", 0);
+		if (fl.status != SHCL_GOOD || fl.n != 2 || !FIELD_IS(fl.values[0], 0) || !FIELD_IS(fl.values[1], 2)) fail("read_child_fields", "top level");
+		fl = shcl_read_child_fields(fd, "shard", 5);
+		if (fl.n != 3 || !FIELD_IS(fl.values[0], 1) || !FIELD_IS(fl.values[1], 3) || !FIELD_IS(fl.values[2], 4)) fail("read_child_fields", "every instance's children");
+		if (shcl_read_child_fields(fd, "shard(1)", 8).n != 2) fail("read_child_fields", "one instance");
+		if (shcl_read_child_fields(fd, "nope", 4).status != SHCL_NOT_FOUND) fail("read_child_fields", "nope not NotFound");
+		if (shcl_read_child_fields(fd, "a..b", 4).status != SHCL_BAD_PATH) fail("read_child_fields", "a..b not BadPath");
+		#undef FIELD_IS
+		shcl_free(fd);
+	}
 	// authored_name: the author's spelling, unfolded; merged instances keep the
 	// first binding's; unresolved or Multiple is empty; writer-built keeps the
 	// setter path's spelling. Same fixture in every runner.

@@ -30,7 +30,7 @@ _shcl_valopts='--default --on-bad --strictness --schema --unit --layer --set --s
 ## so offering it here would be a lie.
 _shcl_opts() {
 	case "$1" in
-		get)             echo '--<type> --array --slots --unit --decimal --default --on-bad --strictness --layer --set --set-literal --set-default --set-literal-default --remove' ;;
+		get)             echo '--<type> --array --slots --json --unit --decimal --default --on-bad --strictness --layer --set --set-literal --set-default --set-literal-default --remove' ;;
 		set)             echo '--strictness --layer --set --set-literal --set-default --set-literal-default --remove --write --lossy --no-banner' ;;
 		fmt)             echo '--write --lossy --check --strictness --layer --set --set-literal --set-default --set-literal-default --remove' ;;
 		check)           echo '--strictness --schema' ;;
@@ -38,7 +38,9 @@ _shcl_opts() {
 		migrate)         echo '--write --lossy --from-2x --check' ;;
 		upgrade)         echo '--write --from-2x' ;;
 		tokens|explain)  echo '' ;;
-		count|instances|children|paths) echo '--strictness --layer --set --set-literal --set-default --set-literal-default --remove' ;;
+		count)           echo '--strictness --layer --set --set-literal --set-default --set-literal-default --remove' ;;
+		instances)       echo '--paths --json --strictness --layer --set --set-literal --set-default --set-literal-default --remove' ;;
+		children|paths)  echo '--json --strictness --layer --set --set-literal --set-default --set-literal-default --remove' ;;
 		*)               echo '' ;;
 	esac
 }

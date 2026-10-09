@@ -45,6 +45,7 @@ __all__ = [
 	"DateTime",
 	"Diagnostic",
 	"Document",
+	"Field",
 	"FORMAT_LINE",
 	"DurationUnit",
 	"FORMAT_LINE_HEAD",
@@ -193,6 +194,36 @@ class Diagnostic:
 	# The reference derives Debug; print() is how Python gets debugged.
 	def __repr__(self) -> str:
 		return f"Diagnostic(line={self.line}, severity={self.severity}, message={self.message!r}, code={self.code!r})"
+
+
+class Field:
+	"""One field as a listing shows it: the path that reads exactly that
+	field, written the way instance_paths() writes it, the name as stored,
+	the value as instances() gives it, and the 1-based source line (0 for a
+	node a setter built)."""
+	__slots__ = ("path", "name", "value", "line")
+	path: str
+	name: str
+	value: str
+	line: int
+
+	def __init__(self, path: str = "", name: str = "", value: str = "", line: int = 0):
+		self.path = path
+		self.name = name
+		self.value = value
+		self.line = line
+
+	# The reference derives PartialEq and Debug.
+	def __eq__(self, other: object) -> bool:
+		if not isinstance(other, Field):
+			return NotImplemented
+		return (self.path, self.name, self.value, self.line) == (other.path, other.name, other.value, other.line)
+
+	def __hash__(self) -> int:
+		return hash((self.path, self.name, self.value, self.line))
+
+	def __repr__(self) -> str:
+		return f"Field(path={self.path!r}, name={self.name!r}, value={self.value!r}, line={self.line})"
 
 
 T = TypeVar("T")
@@ -6497,12 +6528,79 @@ class Document:
 		with `(i)` on each segment whose name repeats under its parent, so
 		each path reads exactly one node and a repeated block is walked
 		instance by instance. Segments are written as paths() writes them."""
-		out: list[str] = []
+		return [p for _, p in self._instance_walk()]
+
+	def fields(self) -> list[Field]:
+		"""instance_paths() as a field list: each binding's path, name, value
+		and line, in the same order."""
+		return [self._field_of(n, p) for n, p in self._instance_walk()]
+
+	def read_fields(self, path: str) -> Read[list[Field]]:
+		"""read_instances() with each instance's path, name and line beside its
+		value. The path is the one instance_paths() writes for that node, so
+		two instances with one value still get paths that read one each. An
+		unresolved wildcard slot is an all-empty Field, line 0."""
+		r = self._resolve(path)
+		tag = r[0]
+		if tag == "err":
+			return Read([], r[1], None)
+		if tag == "none" or (tag == "slots" and not r[1]):
+			return Read([], Status.NotFound, None)
+		line = 0
+		if tag == "one":
+			nodes = [r[1]]
+			line = self.arena[r[1]].line
+		else:
+			nodes = r[1]
+		paths = self._instance_path_index()
+		out = [self._field_of(n, paths[n]) if isinstance(n, int) else Field() for n in nodes]
+		return Read(out, Status.Good, None)._at(line, None)
+
+	def read_child_fields(self, path: str) -> Read[list[Field]]:
+		"""read_children() with each child's path, value and line beside its
+		name, paths written as instance_paths() writes them. "" is the top
+		level."""
+		line = 0
+		if not _trim(path):
+			nodes = [ROOT]
+		else:
+			r = self._resolve(path)
+			tag = r[0]
+			if tag == "err":
+				return Read([], r[1], None)
+			if tag == "none" or (tag == "slots" and not r[1]):
+				return Read([], Status.NotFound, None)
+			if tag == "one":
+				nodes = [r[1]]
+				line = self.arena[r[1]].line
+			elif tag == "many":
+				nodes = r[1]
+			else:
+				nodes = [n for n in r[1] if isinstance(n, int)]
+		paths = self._instance_path_index()
+		out = [self._field_of(c, paths[c]) for n in nodes for c in self.arena[n].children]
+		return Read(out, Status.Good, None)._at(line, None)
+
+	def _field_of(self, node: int, path: str) -> Field:
+		n = self.arena[node]
+		return Field(path, n.name, n.value.display(), n.line)
+
+	def _instance_path_index(self) -> list[str]:
+		# Each node's instance_paths() path by arena index. The root and
+		# nodes no longer in the tree stay "". One walk, so a field list costs
+		# the same however wide its parent is; a lookup per path would scan
+		# every sibling each time.
+		at = [""] * len(self.arena)
+		for n, p in self._instance_walk():
+			at[n] = p
+		return at
+
+	def _instance_walk(self) -> list[tuple[int, str]]:
+		# Every node under the root with its instance path, in file order.
+		out: list[tuple[int, str]] = []
 		stack = [(ROOT, "")]
 		while stack:
 			node, prefix = stack.pop()
-			if node != ROOT:
-				out.append(prefix)
 			kids = self.arena[node].children
 			total: dict[str, int] = {}
 			for c in kids:
@@ -6519,6 +6617,8 @@ class Document:
 					path += f"({i})"
 					at[name] = i + 1
 				paths.append((c, path))
+			if node != ROOT:
+				out.append((node, prefix))
 			stack.extend(reversed(paths))
 		return out
 

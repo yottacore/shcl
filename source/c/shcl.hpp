@@ -102,6 +102,18 @@ struct Diagnostic {
 	std::string code{};
 };
 
+// One field as a listing shows it: the path that reads exactly that field,
+// written the way instance_paths() writes it, the name as stored, the value as
+// instances() gives it, and the 1-based source line (0 for a node a setter
+// built).
+struct Field {
+	std::string path{};
+	std::string name{};
+	std::string value{};
+	std::size_t line{};
+};
+inline bool operator==(const Field &a, const Field &b) { return a.path == b.path && a.name == b.name && a.value == b.value && a.line == b.line; }
+
 // A datetime's zone suffix as written: Z, or an offset in minutes.
 enum class ZoneKind { Utc, Offset };
 struct Zone { ZoneKind kind{}; std::int32_t offset_minutes{}; };
@@ -427,6 +439,15 @@ public:
 	// paths() one instance at a time: every binding's path, with (i) on each
 	// segment whose name its parent repeats, so each path reads one node.
 	std::vector<std::string> instance_paths() const;
+	// instance_paths() as a field list: each binding's path, name, value and
+	// line, in the same order.
+	std::vector<Field> fields() const;
+	// read_instances() with each instance's path, name and line beside its
+	// value, the path as instance_paths() writes it. An unresolved wildcard
+	// slot is an all-empty Field.
+	Read<std::vector<Field>> read_fields(std::string_view path) const;
+	// read_children() with each child's path, value and line beside its name.
+	Read<std::vector<Field>> read_child_fields(std::string_view path) const;
 	// The comment lines above the node(s) at a path, the ones clear_comments
 	// takes, each from its `#` on, so a program can tell its own comment from
 	// one a user wrote there.
@@ -687,6 +708,11 @@ static std::vector<Status> slots(const shcl_status *s, std::size_t n) {
 static std::vector<std::string> strs(const shcl_str *a, std::size_t n) {
 	std::vector<std::string> v; v.reserve(n);
 	for (std::size_t i = 0; i < n; i++) v.push_back(str(a[i]));
+	return v;
+}
+static std::vector<Field> fields(const shcl_field *a, std::size_t n) {
+	std::vector<Field> v; v.reserve(n);
+	for (std::size_t i = 0; i < n; i++) v.push_back(Field{str(a[i].path), str(a[i].name), str(a[i].value), a[i].line});
 	return v;
 }
 
@@ -1049,6 +1075,9 @@ void Document::compact() { shcl_compact(detail::doc(*this)); }
 std::size_t Document::count(std::string_view path) const { return shcl_count(detail::held(*this), path.data(), path.size()); }
 std::vector<std::string> Document::paths() const { auto h = detail::fresh(*this); shcl_str *a; std::size_t n = shcl_paths(h, &a); return detail::strs(a, n); }
 std::vector<std::string> Document::instance_paths() const { auto h = detail::fresh(*this); shcl_str *a; std::size_t n = shcl_instance_paths(h, &a); return detail::strs(a, n); }
+std::vector<Field> Document::fields() const { auto h = detail::fresh(*this); shcl_field *a; std::size_t n = shcl_fields(h, &a); return detail::fields(a, n); }
+Read<std::vector<Field>> Document::read_fields(std::string_view path) const { auto h = detail::fresh(*this); auto r = shcl_read_fields(h, path.data(), path.size()); return {detail::fields(r.values, r.n), detail::st(r.status)}; }
+Read<std::vector<Field>> Document::read_child_fields(std::string_view path) const { auto h = detail::fresh(*this); auto r = shcl_read_child_fields(h, path.data(), path.size()); return {detail::fields(r.values, r.n), detail::st(r.status)}; }
 std::vector<std::string> Document::comments(std::string_view path) const { auto h = detail::fresh(*this); shcl_str *a; std::size_t n = shcl_comments(h, path.data(), path.size(), &a); return detail::strs(a, n); }
 std::vector<std::string> Document::instances(std::string_view path) const { auto h = detail::fresh(*this); shcl_str *a; std::size_t n = shcl_instances(h, path.data(), path.size(), &a); return detail::strs(a, n); }
 std::vector<std::string> Document::children(std::string_view path) const { auto h = detail::fresh(*this); shcl_str *a; std::size_t n = shcl_children(h, path.data(), path.size(), &a); return detail::strs(a, n); }
