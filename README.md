@@ -720,17 +720,16 @@ if mb, st := doc.GetInt("site(example.com).max-upload-mb"); st == shcl.Good {
 	fmt.Println("unusable:", st)
 }
 
-// A setter reports whether the write applied: a refused write writes nothing
-// at all rather than half of it. CheckSetPath names which of the six path
-// reasons it hit, or SetPathOk when it was the value that was refused.
-if !doc.SetInt("workers", workers*2) {
-	fmt.Println("workers:", doc.CheckSetPath("workers"))
+// Each setter returns SetOk, or why it wrote nothing: a refused write writes
+// nothing at all rather than half of it.
+if st := doc.SetInt("workers", workers*2); st != shcl.SetOk {
+	fmt.Println("workers:", st)
 }
-if !doc.SetBool("site(example.com).tls.hsts", true) {
-	fmt.Println("hsts:", doc.CheckSetPath("site(example.com).tls.hsts"))
+if st := doc.SetBool("site(example.com).tls.hsts", true); st != shcl.SetOk {
+	fmt.Println("hsts:", st)
 }
-if !doc.SetString("site(blog.example.com).root", "/srv/www/blog") {
-	fmt.Println("blog root:", doc.CheckSetPath("site(blog.example.com).root"))
+if st := doc.SetString("site(blog.example.com).root", "/srv/www/blog"); st != shcl.SetOk {
+	fmt.Println("blog root:", st)
 }
 
 // Refuses if this write would delete lines or values from the file; see

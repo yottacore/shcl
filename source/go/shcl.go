@@ -145,43 +145,109 @@ func (s Status) String() string {
 	return "Good"
 }
 
-// SetPathCheck is what CheckSetPath finds at a path: whether a setter could
-// write there, and if not, why. SetPathOk = the path passes the writer's
-// validation; the rest name the six ways it cannot. A setter can still
-// return false on SetPathOk, when the value itself is refused (see SetInt).
-// Every value has the SetPath prefix, since the read statuses share the
-// package and BadPath is one of them.
-type SetPathCheck int
+// SetStatus is what a setter did: SetOk when the write applied, or why it
+// wrote nothing. CheckSetPath gives the path's half of it, the reasons up to
+// SetUnderArray, without writing. The rest are about the value, so only a
+// setter gives them. When both halves are wrong the path's reason wins. New
+// values go on the end; the other bindings number them in this order. Every
+// value has the Set prefix, since the read statuses share the package and
+// BadPath is one of them. Check it rather than assume it: an ignored refusal
+// means the save that follows writes a document missing the edit, and reports
+// success doing it.
+type SetStatus int
 
 const (
-	SetPathOk          SetPathCheck = iota // the path passes the writer's validation
-	SetPathBadPath                         // empty path, or the scanner rejected it
-	SetPathValueInPath                     // the path has a `: value` part; writes take values separately
-	SetPathWildcard                        // wildcard selectors are query-only
-	SetPathNoSuchIndex                     // a `(k)` instance that does not (and can never) exist
-	SetPathTooDeep                         // deeper than the nesting cap; the writer never creates past it
-	SetPathMultiple                        // a step matches more than one field; `(k)` or `(value)` picks one
+	// SetOk: the write applied.
+	SetOk SetStatus = iota
+	// SetBadPath: an empty path, one the scanner refuses, or one naming a
+	// field or instance it would create that has no line reading back as
+	// itself. A path that is not valid UTF-8 is one of these.
+	SetBadPath
+	// SetValueInPath: the path has a `: value` part; a write takes its value
+	// separately.
+	SetValueInPath
+	// SetWildcard: a wildcard; wildcards are query-only.
+	SetWildcard
+	// SetNoSuchIndex: a `(k)` instance that is not there, and a write never
+	// creates one.
+	SetNoSuchIndex
+	// SetTooDeep: deeper than the nesting cap; the writer never creates past
+	// it.
+	SetTooDeep
+	// SetMultiple: a step matches more than one field; `(k)` or `(value)`
+	// picks one.
+	SetMultiple
+	// SetUnderArray: a field the write would create under one holding an
+	// array, which takes no lines under it (E028).
+	SetUnderArray
+	// SetHasChildren: an array on a field with lines under it, which takes
+	// one plain value or none (E028).
+	SetHasChildren
+	// SetNotFinite: a NaN or infinite float.
+	SetNotFinite
+	// SetBadDateTime: a datetime the reader would refuse, such as month 13.
+	SetBadDateTime
+	// SetBadRawInfo: a raw block's info string holds a `#` or a line break.
+	SetBadRawInfo
+	// SetBadRawBody: a raw block's body has a line ending in a carriage
+	// return.
+	SetBadRawBody
+	// SetBadComment: comment text holding a line break.
+	SetBadComment
+	// SetNotOneValue: SetLiteral text that is not one value.
+	SetNotOneValue
+	// SetNotUtf8: value, comment, info or body text that is not valid UTF-8.
+	// A Go string can hold any bytes, and a document is UTF-8.
+	SetNotUtf8
+	// SetOutOfRange: an int past the 64-bit range. Never from Go, whose int64
+	// cannot hold one.
+	SetOutOfRange
+	// SetNoReadBack: any other value that would not read back as itself.
+	// None is known.
+	SetNoReadBack
 )
 
-// String names the check the way the other bindings do, without the prefix.
-func (r SetPathCheck) String() string {
-	switch r {
-	case SetPathOk:
+// String names the status the way the other bindings do, without the prefix.
+func (s SetStatus) String() string {
+	switch s {
+	case SetOk:
 		return "Ok"
-	case SetPathBadPath:
+	case SetBadPath:
 		return "BadPath"
-	case SetPathValueInPath:
+	case SetValueInPath:
 		return "ValueInPath"
-	case SetPathWildcard:
+	case SetWildcard:
 		return "Wildcard"
-	case SetPathNoSuchIndex:
+	case SetNoSuchIndex:
 		return "NoSuchIndex"
-	case SetPathTooDeep:
+	case SetTooDeep:
 		return "TooDeep"
-	case SetPathMultiple:
+	case SetMultiple:
 		return "Multiple"
+	case SetUnderArray:
+		return "UnderArray"
+	case SetHasChildren:
+		return "HasChildren"
+	case SetNotFinite:
+		return "NotFinite"
+	case SetBadDateTime:
+		return "BadDateTime"
+	case SetBadRawInfo:
+		return "BadRawInfo"
+	case SetBadRawBody:
+		return "BadRawBody"
+	case SetBadComment:
+		return "BadComment"
+	case SetNotOneValue:
+		return "NotOneValue"
+	case SetNotUtf8:
+		return "NotUtf8"
+	case SetOutOfRange:
+		return "OutOfRange"
+	case SetNoReadBack:
+		return "NoReadBack"
 	}
-	return "Ok"
+	return "SetStatus(" + strconv.Itoa(int(s)) + ")"
 }
 
 // Read is the full-tier read result: value plus status plus the original raw
@@ -8593,14 +8659,7 @@ func valueReadsBack(v *value) bool {
 		return nextElement(tok.Elements, &at) == nil
 	default:
 		r := v.raw
-		line := emitFenceLine(r)
-		if strings.Contains(line, "\n") || !utf8.ValidString(line) || !utf8.ValidString(r.content) {
-			return false
-		}
-		var tok Tokens
-		TokenizeValue(line, 0, RulesCurrent, &tok)
-		ch, length, info, ok := fenceOpen(line[tok.Value[0]:tok.Value[1]])
-		if !ok || ch != r.fenceChar || length != r.fenceLen || info != r.info {
+		if !fenceReadsBack(r) || !utf8.ValidString(r.content) {
 			return false
 		}
 		// A body line ending in a carriage return loses it to the load's
@@ -8613,6 +8672,31 @@ func valueReadsBack(v *value) bool {
 		}
 		return true
 	}
+}
+
+// fenceReadsBack is true when a raw block's opening fence line, its info
+// string with it, comes back off the page as itself.
+func fenceReadsBack(r *rawValue) bool {
+	line := emitFenceLine(r)
+	if strings.Contains(line, "\n") || !utf8.ValidString(line) {
+		return false
+	}
+	var tok Tokens
+	TokenizeValue(line, 0, RulesCurrent, &tok)
+	ch, length, info, ok := fenceOpen(line[tok.Value[0]:tok.Value[1]])
+	return ok && ch == r.fenceChar && length == r.fenceLen && info == r.info
+}
+
+// valueIsUtf8 is false when any text a value holds is not valid UTF-8, which
+// is the first thing a refused value is asked, so a setter names the bytes
+// rather than what they broke.
+func valueIsUtf8(v *value) bool {
+	for i := range v.els {
+		if !utf8.ValidString(v.els[i].text) {
+			return false
+		}
+	}
+	return v.raw == nil || (utf8.ValidString(v.raw.info) && utf8.ValidString(v.raw.content))
 }
 
 // nameReadsBack is true when a field name comes back off a line as itself.
@@ -9264,13 +9348,14 @@ func (d *Document) newChild(parent int, name, nameSrc string, v value) int {
 }
 
 // CheckSetPath reports whether a setter could write at this path, and why not
-// when it could not, so a consumer's error message need not guess. SetPathOk
-// means the same validation place() runs would pass; nothing is created. A
-// setter can still refuse its value on a SetPathOk path (see SetInt).
-func (d *Document) CheckSetPath(path string) SetPathCheck {
+// when it could not, so a consumer's error message need not guess. SetOk
+// means the same validation place() runs would pass; nothing is created. It
+// gives only the path reasons, SetBadPath to SetUnderArray. A setter can still
+// refuse its value on a SetOk path, and its own status says why.
+func (d *Document) CheckSetPath(path string) SetStatus {
 	scan, err := scanLookup(path)
 	if err != nil {
-		return SetPathBadPath
+		return SetBadPath
 	}
 	r, _ := d.probeWrite(scan)
 	return r
@@ -9280,16 +9365,16 @@ func (d *Document) CheckSetPath(path string) SetPathCheck {
 // trail records where each segment ended up - -1 from the point the path falls
 // off the existing tree - so place can create from exactly there instead of
 // scanning the path and walking the tree a second time.
-func (d *Document) probeWrite(scan pathScan) (SetPathCheck, []int) {
+func (d *Document) probeWrite(scan pathScan) (SetStatus, []int) {
 	if scan.hasValue {
-		return SetPathValueInPath, nil
+		return SetValueInPath, nil
 	}
 	if len(scan.segments) == 0 {
-		return SetPathBadPath, nil
+		return SetBadPath, nil
 	}
 	// Writer side of the load-time nesting cap: never create deeper.
 	if len(scan.segments) > MaxDepth {
-		return SetPathTooDeep, nil
+		return SetTooDeep, nil
 	}
 	// The probe walk place() validates with: once it falls off the existing
 	// tree, a later `(k)` can never match (fresh intermediates are created
@@ -9299,7 +9384,7 @@ func (d *Document) probeWrite(scan pathScan) (SetPathCheck, []int) {
 	for i := range scan.segments {
 		seg := &scan.segments[i]
 		if seg.star {
-			return SetPathWildcard, nil
+			return SetWildcard, nil
 		}
 		switch {
 		case seg.sel == nil:
@@ -9308,7 +9393,7 @@ func (d *Document) probeWrite(scan pathScan) (SetPathCheck, []int) {
 				// Multiple, so it never picks one instance for the caller.
 				m := d.childrenNamed(probe, seg.name)
 				if len(m) > 1 {
-					return SetPathMultiple, nil
+					return SetMultiple, nil
 				}
 				alive = false
 				if len(m) > 0 {
@@ -9323,7 +9408,7 @@ func (d *Document) probeWrite(scan pathScan) (SetPathCheck, []int) {
 				for _, c := range d.childrenNamed(probe, seg.name) {
 					if singleScalar(&d.arena[c].value) && dispKey(&d.arena[c].value) == want {
 						if found++; found > 1 {
-							return SetPathMultiple, nil
+							return SetMultiple, nil
 						}
 						probe, alive = c, true
 					}
@@ -9331,15 +9416,15 @@ func (d *Document) probeWrite(scan pathScan) (SetPathCheck, []int) {
 			}
 		case seg.sel.kind == selByIndex:
 			if !alive {
-				return SetPathNoSuchIndex, nil
+				return SetNoSuchIndex, nil
 			}
 			matches := d.childrenNamed(probe, seg.name)
 			if seg.sel.index >= uint64(len(matches)) {
-				return SetPathNoSuchIndex, nil
+				return SetNoSuchIndex, nil
 			}
 			probe = matches[seg.sel.index]
 		default:
-			return SetPathWildcard, nil
+			return SetWildcard, nil
 		}
 		if alive {
 			trail = append(trail, probe)
@@ -9347,7 +9432,30 @@ func (d *Document) probeWrite(scan pathScan) (SetPathCheck, []int) {
 			trail = append(trail, -1)
 		}
 	}
-	return SetPathOk, trail
+	// Nothing is created until every segment the write would create is known
+	// to read back: the name through the name escaper, an instance selector
+	// as the value it binds, and the first under a field that takes a field
+	// under it, which an array does not (E028). These come after the walk, so
+	// a reason it finds further on still wins.
+	for i := range scan.segments {
+		if trail[i] >= 0 {
+			continue
+		}
+		if i > 0 && trail[i-1] >= 0 && d.arena[trail[i-1]].value.kind == vArray {
+			return SetUnderArray, nil
+		}
+		seg := &scan.segments[i]
+		if !nameReadsBack(seg.name) {
+			return SetBadPath, nil
+		}
+		if seg.sel != nil && seg.sel.kind == selByValue {
+			v := cellOf(seg.sel.value)
+			if !valueReadsBack(&v) {
+				return SetBadPath, nil
+			}
+		}
+	}
+	return SetOk, trail
 }
 
 // writeTarget is the node a write at this path lands on when it is already
@@ -9358,7 +9466,7 @@ func (d *Document) writeTarget(path string) (int, bool) {
 		return 0, false
 	}
 	reason, trail := d.probeWrite(scan)
-	if reason != SetPathOk || len(trail) == 0 || trail[len(trail)-1] < 0 {
+	if reason != SetOk || len(trail) == 0 || trail[len(trail)-1] < 0 {
 		return 0, false
 	}
 	return trail[len(trail)-1], true
@@ -9367,40 +9475,19 @@ func (d *Document) writeTarget(path string) (int, bool) {
 // place walks (creating as needed) to the node a write targets. A name with no
 // selector hits its one instance (or a new one); a (value) selector selects the
 // matching instance or creates it; (k) must already exist. A step that matches
-// more than one instance is refused (SetPathMultiple). ok=false means the path
-// is unusable for a write (CheckSetPath says why). Validation runs first, so a
-// doomed path leaves no half-created intermediates behind. A setter creating a
-// field deals with the kept lines of its name, as setChild says.
-func (d *Document) place(path string, setter bool) (int, bool) {
+// more than one instance is refused (SetMultiple). A status other than SetOk
+// means the path is unusable for a write, with the reason CheckSetPath gives.
+// Validation runs first, so a doomed path leaves no half-created
+// intermediates behind. A setter creating a field deals with the kept lines
+// of its name, as setChild says.
+func (d *Document) place(path string, setter bool) (int, SetStatus) {
 	scan, err := scanLookup(path)
 	if err != nil {
-		return 0, false
+		return 0, SetBadPath
 	}
-	reason, trail := d.probeWrite(scan)
-	if reason != SetPathOk {
-		return 0, false
-	}
-	// Nothing is created until every segment the write would create is known
-	// to read back: the name through the name escaper, an instance selector
-	// as the value it binds, and the first under a field that takes a field
-	// under it, which an array does not (E028).
-	for i := range scan.segments {
-		if trail[i] >= 0 {
-			continue
-		}
-		if i > 0 && trail[i-1] >= 0 && d.arena[trail[i-1]].value.kind == vArray {
-			return 0, false
-		}
-		seg := &scan.segments[i]
-		if !nameReadsBack(seg.name) {
-			return 0, false
-		}
-		if seg.sel != nil && seg.sel.kind == selByValue {
-			v := cellOf(seg.sel.value)
-			if !valueReadsBack(&v) {
-				return 0, false
-			}
-		}
+	checked, trail := d.probeWrite(scan)
+	if checked != SetOk {
+		return 0, checked
 	}
 	cur := root
 	for i := range scan.segments {
@@ -9417,10 +9504,13 @@ func (d *Document) place(path string, setter bool) (int, bool) {
 			v = value{kind: vEmpty}
 		case seg.sel.kind == selByValue:
 			v = cellOf(seg.sel.value)
-		default:
+		case seg.sel.kind == selByIndex:
 			// Unreachable: probeWrite refuses a wildcard outright and an
 			// unresolvable index, so neither reaches an empty trail slot.
-			return 0, false
+			// Belt only.
+			return 0, SetNoSuchIndex
+		default:
+			return 0, SetWildcard
 		}
 		if setter {
 			cur = d.setChild(cur, seg.name, seg.nameSrc, v, path)
@@ -9428,7 +9518,7 @@ func (d *Document) place(path string, setter bool) (int, bool) {
 			cur = d.newChild(cur, seg.name, seg.nameSrc, v)
 		}
 	}
-	return cur, true
+	return cur, SetOk
 }
 
 // setChild: a setter creating a field writes the kept lines of its name in
@@ -9442,29 +9532,49 @@ func (d *Document) setChild(parent int, name, nameSrc string, v value, path stri
 	return d.newChild(parent, name, nameSrc, v)
 }
 
-func (d *Document) setValue(path string, v value) bool {
+func (d *Document) setValue(path string, v value) SetStatus {
 	return d.setValueAs(path, v, true)
+}
+
+// refuse: a refused value still answers with the path's reason when the path
+// is wrong too, as CheckSetPath would. Asked only once a write has failed, so
+// one that applies walks the path once.
+func (d *Document) refuse(path string, why SetStatus) SetStatus {
+	if bad := d.CheckSetPath(path); bad != SetOk {
+		return bad
+	}
+	return why
 }
 
 // setValueAs is setValue, saying whether an overwrite keeps the old value's
 // quote kind. A literal says its own quotes, so it does not.
-func (d *Document) setValueAs(path string, v value, keepQuotes bool) bool {
+func (d *Document) setValueAs(path string, v value, keepQuotes bool) SetStatus {
 	if !valueReadsBack(&v) {
-		return false
+		why := SetNoReadBack
+		switch {
+		case !valueIsUtf8(&v):
+			why = SetNotUtf8
+		case v.kind == vRaw && !fenceReadsBack(v.raw):
+			why = SetBadRawInfo
+		case v.kind == vRaw:
+			why = SetBadRawBody
+		}
+		return d.refuse(path, why)
 	}
 	if d.probe {
-		return true
+		return SetOk
 	}
 	fresh := len(d.arena)
 	// A field with lines under it takes one plain value or none (E028).
+	// writeTarget finds it only on a path that checks Ok.
 	if v.kind == vArray {
 		if n, ok := d.writeTarget(path); ok && len(d.arena[n].children) != 0 {
-			return false
+			return SetHasChildren
 		}
 	}
-	idx, ok := d.place(path, true)
-	if !ok {
-		return false
+	idx, st := d.place(path, true)
+	if st != SetOk {
+		return st
 	}
 	// place has already done it for a field it created.
 	if idx < fresh && d.keptOwed > 0 {
@@ -9491,7 +9601,7 @@ func (d *Document) setValueAs(path string, v value, keepQuotes bool) bool {
 	}
 	settleFirstBlank(d.arena, d.orphans)
 	d.resettleKept()
-	return true
+	return SetOk
 }
 
 // keptAt is where a lead sits: its list, the node that list is on, and its
@@ -10041,17 +10151,22 @@ func (d *Document) live(node int) bool {
 // SetComment attaches a leading comment line to the node at a path (creating an
 // empty node if absent, so a section can be annotated). A missing '#' is added,
 // and trailing whitespace comes off the way the load takes it, so text that is
-// blank leaves a bare '#'. Text holding a line break is refused: a comment is
-// one line, and keeping only the first would drop the rest with nothing to say
-// so.
-func (d *Document) SetComment(path, text string) bool {
+// blank leaves a bare '#'. Text holding a line break is refused
+// (SetBadComment): a comment is one line, and keeping only the first would
+// drop the rest with nothing to say so. Text that is not valid UTF-8 is
+// SetNotUtf8.
+func (d *Document) SetComment(path, text string) SetStatus {
 	line, ok := commentLine(text)
 	if !ok {
-		return false
+		why := SetBadComment
+		if !utf8.ValidString(text) {
+			why = SetNotUtf8
+		}
+		return d.refuse(path, why)
 	}
-	idx, ok := d.place(path, false)
-	if !ok {
-		return false
+	idx, st := d.place(path, false)
+	if st != SetOk {
+		return st
 	}
 	// The node's own blank moves above its first comment; otherwise the blank
 	// would separate the comment from what it annotates. Above the first one
@@ -10070,7 +10185,7 @@ func (d *Document) SetComment(path, text string) bool {
 	t.leading = append(t.leading, l)
 	settleFirstBlank(d.arena, d.orphans)
 	d.resettleKept()
-	return true
+	return SetOk
 }
 
 // Comments returns the comment lines above the node(s) at a path, the ones
@@ -10246,73 +10361,71 @@ func (d *Document) swapBanner(on, v2 bool) int {
 
 // SetInt binds an integer at path, creating the path as needed. A step of the
 // path that matches more than one field fails the path check (Multiple), since
-// the read after the write would; `port(0)` or `site(1).root` picks one. False
-// from any setter means nothing was written. Either the path check failed, and
-// CheckSetPath says why, or it passed and the write was refused for what it
-// would write: a NaN or infinite float, a datetime the reader would refuse, a
-// raw block whose info string holds a `#` or a line break or whose body has a
-// line ending in CR, a comment with a line break, SetLiteral text that is not
-// one value, an array on a field with lines under it, a new field under one
-// holding an array, or text that is not valid UTF-8. Worth checking rather
-// than assuming: an ignored false means the save that follows writes a
-// document missing the edit, and reports success doing it.
-func (d *Document) SetInt(path string, v int64) bool {
+// the read after the write would; `port(0)` or `site(1).root` picks one. Every
+// setter returns SetOk when the write applied. Any other value means nothing
+// was written, and names why: the path's reason when the path is wrong, as
+// CheckSetPath gives it, else the value's. Worth checking rather than
+// assuming: an ignored refusal means the save that follows writes a document
+// missing the edit, and reports success doing it.
+func (d *Document) SetInt(path string, v int64) SetStatus {
 	return d.setValue(path, cellOf(strconv.FormatInt(v, 10)))
 }
 
 // SetFloat binds a float at path, in the canonical shortest spelling. An
 // infinity or a NaN has no spelling the reader accepts, so it fails the write
-// rather than binding a value that cannot read back.
-func (d *Document) SetFloat(path string, v float64) bool {
+// (SetNotFinite) rather than binding a value that cannot read back.
+func (d *Document) SetFloat(path string, v float64) SetStatus {
 	if math.IsInf(v, 0) || math.IsNaN(v) {
-		return false
+		return d.refuse(path, SetNotFinite)
 	}
 	return d.setValue(path, cellOf(FormatFloat(v)))
 }
 
 // SetBool binds true/false at path.
-func (d *Document) SetBool(path string, v bool) bool {
+func (d *Document) SetBool(path string, v bool) SetStatus {
 	return d.setValue(path, cellOf(boolText(v)))
 }
 
 // SetString binds a string at path, escaped so it reads back exactly. A Go
 // string can hold any bytes, and a document is UTF-8, so text that is not
-// valid UTF-8 fails the write rather than being stored with a replacement
-// character per bad byte and reported as written - the same refusal SetFloat
-// gives an infinity and SetDateTime a month of 13.
-func (d *Document) SetString(path, v string) bool {
+// valid UTF-8 fails the write (SetNotUtf8) rather than being stored with a
+// replacement character per bad byte and reported as written - the same
+// refusal SetFloat gives an infinity and SetDateTime a month of 13.
+func (d *Document) SetString(path, v string) SetStatus {
 	return d.setValue(path, cellOf(v))
 }
 
 // SetDateTime binds a datetime at path, in its canonical spelling. The
 // struct's fields are public and have no invariant, so a value the reader
 // would refuse (month 13, a fraction with no seconds, an empty struct) fails
-// the write rather than binding text that cannot read back.
-func (d *Document) SetDateTime(path string, v DateTime) bool {
+// the write (SetBadDateTime) rather than binding text that cannot read back.
+func (d *Document) SetDateTime(path string, v DateTime) SetStatus {
 	if !datetimeReadsBack(v) {
-		return false
+		return d.refuse(path, SetBadDateTime)
 	}
 	return d.setValue(path, cellOf(v.String()))
 }
 
 // SetEmpty binds an empty value at path (distinct from the empty string).
-func (d *Document) SetEmpty(path string) bool {
+func (d *Document) SetEmpty(path string) SetStatus {
 	return d.setValue(path, value{kind: vEmpty})
 }
 
 // SetRaw binds a raw block at path, picking a fence longer than any content line.
 // The info-string is stored as a fence line would read it back (trimmed the way
 // the load trims one); one that would not read back whole - it holds a line
-// break, or a `#`, which reads as a comment - fails the write, as does a body
-// line ending in CR, since the load takes the trailing CR run off every line.
-func (d *Document) SetRaw(path, content, info string) bool {
+// break, or a `#`, which reads as a comment - fails the write (SetBadRawInfo),
+// as does a body line ending in CR (SetBadRawBody), since the load takes the
+// trailing CR run off every line.
+func (d *Document) SetRaw(path, content, info string) SetStatus {
 	info = trimWsp(info)
 	fc, fl := chooseFence(content)
 	return d.setValue(path, value{kind: vRaw, raw: &rawValue{content: content, info: info, fenceChar: fc, fenceLen: fl}})
 }
 
-// SetIntArray binds an inline integer array at path.
-func (d *Document) SetIntArray(path string, v []int64) bool {
+// SetIntArray binds an inline integer array at path. An array on a field with
+// lines under it fails the write (SetHasChildren), from every array setter.
+func (d *Document) SetIntArray(path string, v []int64) SetStatus {
 	texts := make([]string, len(v))
 	for i, x := range v {
 		texts[i] = strconv.FormatInt(x, 10)
@@ -10321,10 +10434,10 @@ func (d *Document) SetIntArray(path string, v []int64) bool {
 }
 
 // SetFloatArray binds an inline float array at path.
-func (d *Document) SetFloatArray(path string, v []float64) bool {
+func (d *Document) SetFloatArray(path string, v []float64) SetStatus {
 	for _, x := range v {
 		if math.IsInf(x, 0) || math.IsNaN(x) {
-			return false
+			return d.refuse(path, SetNotFinite)
 		}
 	}
 	texts := make([]string, len(v))
@@ -10335,7 +10448,7 @@ func (d *Document) SetFloatArray(path string, v []float64) bool {
 }
 
 // SetBoolArray binds an inline bool array at path.
-func (d *Document) SetBoolArray(path string, v []bool) bool {
+func (d *Document) SetBoolArray(path string, v []bool) SetStatus {
 	texts := make([]string, len(v))
 	for i, x := range v {
 		texts[i] = boolText(x)
@@ -10344,17 +10457,17 @@ func (d *Document) SetBoolArray(path string, v []bool) bool {
 }
 
 // SetStringArray binds an inline string array at path, per-element escaped.
-func (d *Document) SetStringArray(path string, v []string) bool {
+func (d *Document) SetStringArray(path string, v []string) SetStatus {
 	texts := make([]string, len(v))
 	copy(texts, v)
 	return d.setValue(path, arrayCell(texts))
 }
 
 // SetDateTimeArray binds an inline datetime array at path.
-func (d *Document) SetDateTimeArray(path string, v []DateTime) bool {
+func (d *Document) SetDateTimeArray(path string, v []DateTime) SetStatus {
 	for _, x := range v {
 		if !datetimeReadsBack(x) {
-			return false
+			return d.refuse(path, SetBadDateTime)
 		}
 	}
 	texts := make([]string, len(v))
@@ -10372,12 +10485,12 @@ func (d *Document) SetDateTimeArray(path string, v []DateTime) bool {
 
 // setDefault runs set on the path when nothing is there yet, and otherwise
 // answers with the path's verdict and the value's.
-func (d *Document) setDefault(path string, set func(*Document, string) bool) bool {
+func (d *Document) setDefault(path string, set func(*Document, string) SetStatus) SetStatus {
 	if !d.Exists(path) {
 		return set(d, path)
 	}
-	if d.CheckSetPath(path) != SetPathOk {
-		return false
+	if checked := d.CheckSetPath(path); checked != SetOk {
+		return checked
 	}
 	if d.probeDoc == nil {
 		d.probeDoc = New()
@@ -10387,76 +10500,88 @@ func (d *Document) setDefault(path string, set func(*Document, string) bool) boo
 }
 
 // SetIntDefault is SetInt only when path has no node yet.
-func (d *Document) SetIntDefault(path string, v int64) bool {
-	return d.setDefault(path, func(e *Document, p string) bool { return e.SetInt(p, v) })
+func (d *Document) SetIntDefault(path string, v int64) SetStatus {
+	return d.setDefault(path, func(e *Document, p string) SetStatus { return e.SetInt(p, v) })
 }
 
 // SetFloatDefault is SetFloat only when path has no node yet.
-func (d *Document) SetFloatDefault(path string, v float64) bool {
-	return d.setDefault(path, func(e *Document, p string) bool { return e.SetFloat(p, v) })
+func (d *Document) SetFloatDefault(path string, v float64) SetStatus {
+	return d.setDefault(path, func(e *Document, p string) SetStatus { return e.SetFloat(p, v) })
 }
 
 // SetBoolDefault is SetBool only when path has no node yet.
-func (d *Document) SetBoolDefault(path string, v bool) bool {
-	return d.setDefault(path, func(e *Document, p string) bool { return e.SetBool(p, v) })
+func (d *Document) SetBoolDefault(path string, v bool) SetStatus {
+	return d.setDefault(path, func(e *Document, p string) SetStatus { return e.SetBool(p, v) })
 }
 
 // SetLiteral binds text at path as value syntax rather than as data: "[80, 443]"
 // becomes a two-element array where SetString would store one string that has
 // to be quoted. This is how a caller holding value text - a config line, a
 // user's --set argument - writes it without knowing its shape first. Fails on
-// text that could not be one line's value (see literalValue).
-func (d *Document) SetLiteral(path, text string) bool {
+// text that could not be one line's value (SetNotOneValue, see literalValue).
+// An array on a field with lines under it is SetHasChildren, as from the
+// array setters, and text that is not valid UTF-8 is SetNotUtf8.
+func (d *Document) SetLiteral(path, text string) SetStatus {
+	// Text that parsed as one value and still has no line that reads back is
+	// still not one value, as far as the caller can tell.
 	v, ok := literalValue(text)
 	if !ok {
-		return false
+		why := SetNotOneValue
+		if !utf8.ValidString(text) {
+			why = SetNotUtf8
+		}
+		return d.refuse(path, why)
 	}
-	return d.setValueAs(path, v, false)
+	st := d.setValueAs(path, v, false)
+	if st == SetNoReadBack {
+		return SetNotOneValue
+	}
+	return st
 }
 
 // SetLiteralDefault is SetLiteral only when path has no node yet.
-func (d *Document) SetLiteralDefault(path, text string) bool {
-	return d.setDefault(path, func(e *Document, p string) bool { return e.SetLiteral(p, text) })
+func (d *Document) SetLiteralDefault(path, text string) SetStatus {
+	return d.setDefault(path, func(e *Document, p string) SetStatus { return e.SetLiteral(p, text) })
 }
 
 // SetStringDefault is SetString only when path has no node yet.
-func (d *Document) SetStringDefault(path, v string) bool {
-	return d.setDefault(path, func(e *Document, p string) bool { return e.SetString(p, v) })
+func (d *Document) SetStringDefault(path, v string) SetStatus {
+	return d.setDefault(path, func(e *Document, p string) SetStatus { return e.SetString(p, v) })
 }
 
 // SetDateTimeDefault is SetDateTime only when path has no node yet.
-func (d *Document) SetDateTimeDefault(path string, v DateTime) bool {
-	return d.setDefault(path, func(e *Document, p string) bool { return e.SetDateTime(p, v) })
+func (d *Document) SetDateTimeDefault(path string, v DateTime) SetStatus {
+	return d.setDefault(path, func(e *Document, p string) SetStatus { return e.SetDateTime(p, v) })
 }
 
 // SetRawDefault is SetRaw only when path has no node yet.
-func (d *Document) SetRawDefault(path, content, info string) bool {
-	return d.setDefault(path, func(e *Document, p string) bool { return e.SetRaw(p, content, info) })
+func (d *Document) SetRawDefault(path, content, info string) SetStatus {
+	return d.setDefault(path, func(e *Document, p string) SetStatus { return e.SetRaw(p, content, info) })
 }
 
 // SetIntArrayDefault is SetIntArray only when path has no node yet.
-func (d *Document) SetIntArrayDefault(path string, v []int64) bool {
-	return d.setDefault(path, func(e *Document, p string) bool { return e.SetIntArray(p, v) })
+func (d *Document) SetIntArrayDefault(path string, v []int64) SetStatus {
+	return d.setDefault(path, func(e *Document, p string) SetStatus { return e.SetIntArray(p, v) })
 }
 
 // SetFloatArrayDefault is SetFloatArray only when path has no node yet.
-func (d *Document) SetFloatArrayDefault(path string, v []float64) bool {
-	return d.setDefault(path, func(e *Document, p string) bool { return e.SetFloatArray(p, v) })
+func (d *Document) SetFloatArrayDefault(path string, v []float64) SetStatus {
+	return d.setDefault(path, func(e *Document, p string) SetStatus { return e.SetFloatArray(p, v) })
 }
 
 // SetBoolArrayDefault is SetBoolArray only when path has no node yet.
-func (d *Document) SetBoolArrayDefault(path string, v []bool) bool {
-	return d.setDefault(path, func(e *Document, p string) bool { return e.SetBoolArray(p, v) })
+func (d *Document) SetBoolArrayDefault(path string, v []bool) SetStatus {
+	return d.setDefault(path, func(e *Document, p string) SetStatus { return e.SetBoolArray(p, v) })
 }
 
 // SetStringArrayDefault is SetStringArray only when path has no node yet.
-func (d *Document) SetStringArrayDefault(path string, v []string) bool {
-	return d.setDefault(path, func(e *Document, p string) bool { return e.SetStringArray(p, v) })
+func (d *Document) SetStringArrayDefault(path string, v []string) SetStatus {
+	return d.setDefault(path, func(e *Document, p string) SetStatus { return e.SetStringArray(p, v) })
 }
 
 // SetDateTimeArrayDefault is SetDateTimeArray only when path has no node yet.
-func (d *Document) SetDateTimeArrayDefault(path string, v []DateTime) bool {
-	return d.setDefault(path, func(e *Document, p string) bool { return e.SetDateTimeArray(p, v) })
+func (d *Document) SetDateTimeArrayDefault(path string, v []DateTime) SetStatus {
+	return d.setDefault(path, func(e *Document, p string) SetStatus { return e.SetDateTimeArray(p, v) })
 }
 
 // ---------------------------------------------------------------------------
