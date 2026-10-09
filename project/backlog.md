@@ -270,6 +270,32 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Answered 20261009: as proposed, `set_*_default` changes. No `ensure_*` family.
 	- Origin: Confirmed by reading and probes.
 
+- A failed write says why only in text
+	- ID: 2026100912352400
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261009-123524
+	- Opened by: JC, from 2026100912271700
+	- Related IDs: 2026100717500014, 2026100912271700
+	- Problem description: Rust's `write_file_atomic` returns `Result<(), String>`, and `SaveError::Io` and `UpgradeError::Io` hold only a message. Python's `write_file_atomic` returns a string. A program can't tell a missing folder from no permission or a full disk without parsing the text. Go wraps the OS error with `%w`, and C leaves `errno` set, so those two can already check it.
+	- Requirements:
+		- A write failure gives a reason a program can check, like `read_file`'s `FileStatus` does for reads. All four and the C++ interface, same names in the same order.
+		- Work it with 2026100717500014, which changes Python's `write_file_atomic` to raise.
+
+- `format_version` gives the same answer for a garbled Format line and for none
+	- ID: 2026100912352401
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Low
+	- Opened: 20261009-123524
+	- Opened by: JC, from 2026100912271700
+	- Related IDs: 2026100912271700, 2026100717500017
+	- Problem description: `format_version` returns None both when no line names a format and when the line is there but names no number, such as `##    Format   3x`. A program asking before it rewrites a file can't tell an unstamped file from a damaged stamp.
+	- Requirements:
+		- A status form that tells no line, a readable major and a line it can't read apart. All four and the C++ interface.
+		- Check `schema_ref` for the same mix-up and fix it the same way if it has it.
+
 **Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
 
 - `count`, `instances` and `children` can't report a path that doesn't parse
