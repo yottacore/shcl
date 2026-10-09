@@ -188,7 +188,7 @@ func (r SetPathCheck) String() string {
 // text (when the path resolved), so a caller can always recover what was
 // actually in the file. Array reads also give one status per slot (element,
 // or wildcard instance) in Slots; Status is then the worst slot. Scalar reads
-// leave Slots nil.
+// and the list reads (ReadCount, ReadInstances, ReadChildren) leave Slots nil.
 // Line is the 1-based source line of the resolved binding (0 when the path
 // did not resolve to one node, or the node was writer-built), so a consumer
 // check the schema cannot express can still cite the line. Quoted is true
@@ -8848,19 +8848,29 @@ func (d *Document) resolveMode(path string, group bool) (resolved, bool) {
 
 // Count returns the instance count at a path (0 when nothing matches).
 func (d *Document) Count(path string) int {
+	return d.ReadCount(path).Value
+}
+
+// ReadCount is Count with a status: Good, NotFound when the path matches
+// nothing, or BadPath when it cannot be read as a path. A wildcard with no
+// slots matches nothing, as in ReadIntArray. Line is set when the path
+// reaches one node.
+func (d *Document) ReadCount(path string) Read[int] {
 	r, ok := d.resolve(path)
 	if !ok {
-		return 0
+		return Read[int]{Status: BadPath}
 	}
-	switch r.kind {
-	case resOne:
-		return 1
-	case resMany:
-		return len(r.many)
-	case resSlots:
-		return len(r.slots)
+	switch {
+	case r.kind == resNone:
+		return Read[int]{Status: NotFound}
+	case r.kind == resSlots && len(r.slots) == 0:
+		return Read[int]{Status: NotFound}
+	case r.kind == resOne:
+		return Read[int]{Value: 1, Status: Good}.at(d.arena[r.one].line, nil)
+	case r.kind == resMany:
+		return Read[int]{Value: len(r.many), Status: Good}
 	}
-	return 0
+	return Read[int]{Value: len(r.slots), Status: Good}
 }
 
 // Paths returns every field path in the document, in file order, deduplicated -
@@ -8966,38 +8976,48 @@ func (d *Document) Lines(path string) []int {
 // dotted path reaches all of them. Names come back as stored; QuoteSegment()
 // makes one splice-safe in a path.
 func (d *Document) Children(path string) []string {
+	return d.ReadChildren(path).Value
+}
+
+// ReadChildren is Children with a status: Good, NotFound when the path
+// matches nothing, or BadPath when it cannot be read as a path, the way
+// ReadCount has them. A node with no children is Good with an empty list, so
+// an empty section and a missing one read differently. Line is set when the
+// path reaches one node.
+func (d *Document) ReadChildren(path string) Read[[]string] {
 	nodes := []int{root}
+	line := 0
 	if strings.TrimSpace(path) != "" {
 		r, ok := d.resolve(path)
 		if !ok {
-			return nil
+			return Read[[]string]{Value: []string{}, Status: BadPath}
 		}
-		switch r.kind {
-		case resOne:
+		switch {
+		case r.kind == resNone:
+			return Read[[]string]{Value: []string{}, Status: NotFound}
+		case r.kind == resSlots && len(r.slots) == 0:
+			return Read[[]string]{Value: []string{}, Status: NotFound}
+		case r.kind == resOne:
 			nodes = []int{r.one}
-		case resMany:
+			line = d.arena[r.one].line
+		case r.kind == resMany:
 			nodes = r.many
-		case resSlots:
+		default:
 			nodes = nodes[:0]
 			for _, n := range r.slots {
 				if n >= 0 {
 					nodes = append(nodes, n)
 				}
 			}
-		default:
-			return nil
 		}
 	}
-	var out []string
+	out := []string{}
 	for _, n := range nodes {
 		for _, c := range d.arena[n].children {
 			out = append(out, d.arena[c].name)
 		}
 	}
-	if out == nil {
-		out = []string{}
-	}
-	return out
+	return Read[[]string]{Value: out, Status: Good}.at(line, nil)
 }
 
 // InstancePaths is Paths() one instance at a time: every binding's path in
@@ -9047,31 +9067,42 @@ func (d *Document) InstancePaths() []string {
 // slots that did not resolve stay in the list as "" so indices keep matching
 // Count().
 func (d *Document) Instances(path string) []string {
+	return d.ReadInstances(path).Value
+}
+
+// ReadInstances is Instances with a status: Good, NotFound when the path
+// matches nothing, or BadPath when it cannot be read as a path, the way
+// ReadCount has them. Unresolved wildcard slots stay "" as in Instances, and
+// still count as a match, as they do in ReadCount. Line is set when the path
+// reaches one node.
+func (d *Document) ReadInstances(path string) Read[[]string] {
 	r, ok := d.resolve(path)
 	if !ok {
-		return nil
+		return Read[[]string]{Value: []string{}, Status: BadPath}
 	}
-	switch r.kind {
-	case resOne:
-		return []string{d.arena[r.one].value.display()}
-	case resMany:
+	switch {
+	case r.kind == resNone:
+		return Read[[]string]{Value: []string{}, Status: NotFound}
+	case r.kind == resSlots && len(r.slots) == 0:
+		return Read[[]string]{Value: []string{}, Status: NotFound}
+	case r.kind == resOne:
+		return Read[[]string]{Value: []string{d.arena[r.one].value.display()}, Status: Good}.at(d.arena[r.one].line, nil)
+	case r.kind == resMany:
 		out := make([]string, 0, len(r.many))
 		for _, n := range r.many {
 			out = append(out, d.arena[n].value.display())
 		}
-		return out
-	case resSlots:
-		out := make([]string, 0, len(r.slots))
-		for _, s := range r.slots {
-			if s >= 0 {
-				out = append(out, d.arena[s].value.display())
-			} else {
-				out = append(out, "")
-			}
-		}
-		return out
+		return Read[[]string]{Value: out, Status: Good}
 	}
-	return nil
+	out := make([]string, 0, len(r.slots))
+	for _, s := range r.slots {
+		if s >= 0 {
+			out = append(out, d.arena[s].value.display())
+		} else {
+			out = append(out, "")
+		}
+	}
+	return Read[[]string]{Value: out, Status: Good}
 }
 
 // ---------------------------------------------------------------------------

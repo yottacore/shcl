@@ -530,16 +530,44 @@ fn reads_match_expected() {
 					.parse()
 					.unwrap_or_else(|_| panic!("{}: bad count", at));
 				assert_eq!(doc.count(query), want, "{}", at);
+				// A status other than `-` pins the read_ twin too.
+				if status != "-" {
+					let r = doc.read_count(query);
+					assert_eq!(
+						(r.value, r.status.to_string().as_str()),
+						(want, status),
+						"{}",
+						at
+					);
+				}
 				continue;
 			}
 			if kind == "instances" {
 				let got = doc.instances(query).join("|");
 				assert_eq!(got, expected, "{}", at);
+				if status != "-" {
+					let r = doc.read_instances(query);
+					assert_eq!(
+						(r.value.join("|"), r.status.to_string()),
+						(got, status.to_string()),
+						"{}",
+						at
+					);
+				}
 				continue;
 			}
 			if kind == "children" {
 				let got = doc.children(query).join("|");
 				assert_eq!(got, expected, "{}", at);
+				if status != "-" {
+					let r = doc.read_children(query);
+					assert_eq!(
+						(r.value.join("|"), r.status.to_string()),
+						(got, status.to_string()),
+						"{}",
+						at
+					);
+				}
 				continue;
 			}
 			if kind == "paths" {
@@ -2881,6 +2909,68 @@ fn bad_path_reads_say_bad_path() {
 	// Last in the order, so a worst-of aggregate puts it on top.
 	assert!(BadPath > Multiple);
 	assert_eq!(BadPath.to_string(), "BadPath");
+}
+
+// The list reads' status twins: BadPath for a path that cannot be read,
+// NotFound for one that matches nothing, Good otherwise, with the value the
+// plain call gives. Same fixture in every runner.
+#[test]
+fn list_reads_say_bad_path() {
+	let _id = test_id("EsDQqYd");
+	use shcl::Status::{BadPath, Good, NotFound};
+	let doc = Document::parse("site: a\n\tport: 1\nsite: b\n");
+	let c = doc.read_count("site");
+	assert_eq!((c.value, c.status, c.line), (2, Good, 0));
+	let c = doc.read_count("site(0)");
+	assert_eq!((c.value, c.status, c.line), (1, Good, 1));
+	// An unresolved wildcard slot still counts, as in count().
+	let c = doc.read_count("site(*).port");
+	assert_eq!((c.value, c.status), (2, Good));
+	assert_eq!(doc.read_count("nope").status, NotFound);
+	assert_eq!(doc.read_count("nope(*)").status, NotFound);
+	let i = doc.read_instances("site");
+	assert_eq!(
+		(i.value, i.status),
+		(vec!["a".to_string(), "b".to_string()], Good)
+	);
+	let i = doc.read_instances("site(*).port");
+	assert_eq!(
+		(i.value, i.status),
+		(vec!["1".to_string(), String::new()], Good)
+	);
+	assert_eq!(doc.read_instances("nope").status, NotFound);
+	let k = doc.read_children("site(0)");
+	assert_eq!(
+		(k.value, k.status, k.line),
+		(vec!["port".to_string()], Good, 1)
+	);
+	// An empty section is Good, a missing one NotFound.
+	let k = doc.read_children("site(1)");
+	assert_eq!((k.value.len(), k.status), (0, Good));
+	assert_eq!(doc.read_children("nope").status, NotFound);
+	let k = doc.read_children("");
+	assert_eq!(
+		(k.value.join("|"), k.status),
+		("site|site".to_string(), Good)
+	);
+	for p in [
+		"site[0].port",
+		"site(.port",
+		"site..port",
+		"",
+		"user name",
+		"site.port: 1",
+		"h:p",
+	] {
+		let c = doc.read_count(p);
+		assert_eq!((c.value, c.status, c.slots.len()), (0, BadPath, 0), "{p:?}");
+		let i = doc.read_instances(p);
+		assert_eq!((i.value.len(), i.status), (0, BadPath), "{p:?}");
+		if !p.is_empty() {
+			let k = doc.read_children(p);
+			assert_eq!((k.value.len(), k.status), (0, BadPath), "{p:?}");
+		}
+	}
 }
 
 #[test]

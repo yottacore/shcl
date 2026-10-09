@@ -92,6 +92,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `instance_paths()` in every binding walks a file one instance at a time, with `(i)` on each repeated name.
 
+- `read_count()`, `read_instances()` and `read_children()` in every binding (Go `ReadCount`, C `shcl_read_count`) give the plain call's answer with a status: `BadPath` for a path that cannot be read as a path, `NotFound` for one that matches nothing.
+
 - `format_version()` and `migrate_unstamped()` in every binding, for a program that writes its own info block.
 
 - `upgrade_file()` in every binding, for a program to call on start: a config file it cannot load clean is kept under a timestamped backup name and written fresh, with whatever settings carry over and the info block. A file that loads clean is left alone, unless the caller says it is 2.x and it reads differently now. `upgrade()` is the text half, and `backup_file_name()` and `write_backup()` the backup half. `shcl upgrade FILE` does the same, printing or with `--write`.

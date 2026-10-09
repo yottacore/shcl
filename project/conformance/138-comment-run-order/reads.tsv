@@ -7,7 +7,7 @@ wallpaper.blur	float	3	Good
 e.f.g	int	1	Good
 h.i	int	1	Good
 m	int	1	Good
-b	count	0	Good
-wallpaper.rotate	count	0	Good
+b	count	0	NotFound
+wallpaper.rotate	count	0	NotFound
 -	paths	a|d|wallpaper|wallpaper.opacity|wallpaper.blur|e|e.f|e.f.g|h|h.i|m	-
 -	lost	0	-

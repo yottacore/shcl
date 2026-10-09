@@ -180,7 +180,8 @@ T = TypeVar("T")
 class Read(Generic[T]):
 	"""Value plus status plus the original raw text (when the path resolved).
 	Array reads also give one status per slot (element, or wildcard instance)
-	in .slots; .status is then the worst slot. Scalar reads leave .slots empty.
+	in .slots; .status is then the worst slot. Scalar reads and the list reads
+	(read_count, read_instances, read_children) leave .slots empty.
 	.line is the 1-based source line of the resolved binding (0 when the path
 	did not resolve to one node, or the node was writer-built), so a consumer
 	check the schema cannot express can still cite the line. .quoted is True
@@ -6312,13 +6313,22 @@ class Document:
 
 	def count(self, path: str) -> int:
 		"""Instance count at a path (0 when nothing matches)."""
+		return self.read_count(path).value
+
+	def read_count(self, path: str) -> Read[int]:
+		"""count() with a status: Good, NotFound when the path matches
+		nothing, or BadPath when it cannot be read as a path. A wildcard with
+		no slots matches nothing, as in read_int_array(). .line is set when
+		the path reaches one node."""
 		r = self._resolve(path)
 		tag = r[0]
+		if tag == "err":
+			return Read(0, r[1], None)
+		if tag == "none" or (tag == "slots" and not r[1]):
+			return Read(0, Status.NotFound, None)
 		if tag == "one":
-			return 1
-		if tag == "many" or tag == "slots":
-			return len(r[1])
-		return 0
+			return Read(1, Status.Good, None)._at(self.arena[r[1]].line, None)
+		return Read(len(r[1]), Status.Good, None)
 
 	def paths(self) -> list[str]:
 		"""Every field path in the document, in file order, deduplicated - a
@@ -6387,20 +6397,33 @@ class Document:
 		several instances lists the children of each in turn, the way a dotted
 		path reaches all of them. Names come back as stored; quote_segment()
 		makes one splice-safe in a path."""
+		return self.read_children(path).value
+
+	def read_children(self, path: str) -> Read[list[str]]:
+		"""children() with a status: Good, NotFound when the path matches
+		nothing, or BadPath when it cannot be read as a path, the way
+		read_count() has them. A node with no children is Good with an empty
+		list, so an empty section and a missing one read differently. .line is
+		set when the path reaches one node."""
+		line = 0
 		if not _trim(path):
 			nodes = [ROOT]
 		else:
 			r = self._resolve(path)
 			tag = r[0]
+			if tag == "err":
+				return Read([], r[1], None)
+			if tag == "none" or (tag == "slots" and not r[1]):
+				return Read([], Status.NotFound, None)
 			if tag == "one":
 				nodes = [r[1]]
+				line = self.arena[r[1]].line
 			elif tag == "many":
 				nodes = r[1]
-			elif tag == "slots":
-				nodes = [n for n in r[1] if isinstance(n, int)]
 			else:
-				return []
-		return [self.arena[c].name for n in nodes for c in self.arena[n].children]
+				nodes = [n for n in r[1] if isinstance(n, int)]
+		names = [self.arena[c].name for n in nodes for c in self.arena[n].children]
+		return Read(names, Status.Good, None)._at(line, None)
 
 	def instance_paths(self) -> list[str]:
 		"""paths() one instance at a time: every binding's path in file order,
@@ -6435,16 +6458,26 @@ class Document:
 	def instances(self, path: str) -> list[str]:
 		"""Instance values at a path, in file order. Wildcard slots that did not
 		resolve stay in the list as "" so indices keep matching count()."""
+		return self.read_instances(path).value
+
+	def read_instances(self, path: str) -> Read[list[str]]:
+		"""instances() with a status: Good, NotFound when the path matches
+		nothing, or BadPath when it cannot be read as a path, the way
+		read_count() has them. Unresolved wildcard slots stay "" as in
+		instances(), and still count as a match, as they do in read_count().
+		.line is set when the path reaches one node."""
 		r = self._resolve(path)
 		tag = r[0]
+		if tag == "err":
+			return Read([], r[1], None)
+		if tag == "none" or (tag == "slots" and not r[1]):
+			return Read([], Status.NotFound, None)
 		if tag == "one":
-			return [self.arena[r[1]].value.display()]
+			return Read([self.arena[r[1]].value.display()], Status.Good, None)._at(self.arena[r[1]].line, None)
 		if tag == "many":
-			return [self.arena[n].value.display() for n in r[1]]
-		if tag == "slots":
-			return [self.arena[n].value.display() if isinstance(n, int) else ""
-				for n in r[1]]
-		return []
+			return Read([self.arena[n].value.display() for n in r[1]], Status.Good, None)
+		return Read([self.arena[n].value.display() if isinstance(n, int) else ""
+			for n in r[1]], Status.Good, None)
 
 	# Writer: typed emit, defaults, comments, structural edits
 	# The reverse of the Accessor. A setter builds the canonical stored text for a

@@ -33,20 +33,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
-- `count`, `instances` and `children` can't report a path that doesn't parse
-	- ID: 2026100818140260
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Opened: 20261008-181402
-	- Opened by: JC, from 2026100717500001
-	- Related IDs: 2026100717500001
-	- Steps to reproduce: `count("site[0]")` in any binding.
-	- Incorrect behavior: 0, the same as a path with no match. `instances` and `children` give an empty list. They return a plain number or list, so 2026100717500001's `BadPath` status has nowhere to go. The CLI refuses a bad PATH before the load, so only the library is affected.
-	- Expected behavior: a status form that says `BadPath`, the way the full-tier reads do, in all four and the C++ interface.
-	- Progress log:
-		- 20261008: the user agreed it should, as easier to work with.
-
 - A setter's false doesn't say why
 	- ID: 2026100907362300
 	- Type: Enhancement
@@ -214,6 +200,36 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Origin: Confirmed by reading and probes.
 
 **Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
+
+- `count`, `instances` and `children` can't report a path that doesn't parse
+	- ID: 2026100818140260
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Opened: 20261008-181402
+	- Opened by: JC, from 2026100717500001
+	- Related IDs: 2026100717500001
+	- Steps to reproduce: `count("site[0]")` in any binding.
+	- Incorrect behavior: 0, the same as a path with no match. `instances` and `children` give an empty list. They return a plain number or list, so 2026100717500001's `BadPath` status has nowhere to go. The CLI refuses a bad PATH before the load, so only the library is affected.
+	- Expected behavior: a status form that says `BadPath`, the way the full-tier reads do, in all four and the C++ interface.
+	- Progress log:
+		- 20261008: the user agreed it should, as easier to work with.
+		- 20261009: status twins added beside the plain calls, which keep their signatures.
+		- 20261009, question: `line` and `exists` can already be answered with a status, through any read's `line` and through `read_count`. `lines`, `authored_name` and `comments` still give an empty answer for a bad path. Add twins for them too, or leave them?
+		- 20261009: Done. The test runs and gates above cover it. The question above goes to the user as a possible follow-up item.
+	- Decisions:
+		- The twins follow the full-tier read names: Rust and Python `read_count`, `read_instances`, `read_children`, Go `ReadCount` and so on, C `shcl_read_count` and the rest, C++ `read_count` and the rest. They return the read result, with no per-slot statuses.
+		- `Good`, `NotFound` when the path matches nothing, `BadPath` when it cannot be read as a path. A wildcard with no slots is `NotFound`, as in the array reads. Unresolved wildcard slots still count as a match, as they do in `count`.
+		- A node with no children is `Good` with an empty list, so an empty section and a missing one read differently.
+		- C's result types are new, `shcl_read_usize` and `shcl_read_str_list`. Reusing `shcl_read_str_arr` would hand back a NULL `statuses` on a `Good` read.
+		- The plain calls now return the twin's value, so each binding has one implementation of each.
+	- Actual fix [Bug]: the three twins in all four and the C++ interface. Corpus rows for `count`, `instances` and `children` now check the twin's status when their status column is not `-`. 25 rows that said `Good` for a count of 0 had never been checked; they now say `NotFound`. New rows in cases `081` and `203` pin `BadPath`, `NotFound`, the empty section and the wildcard cases. spec.md, the conformance README and the changelog say so.
+	- Swept: `count`, `instances` and `children` in Rust, Go, Python, C and `shcl.hpp`. The four CLIs already refuse a bad PATH before the load, so they did not change. The other path calls with no status are in the question above.
+	- Verified: the new test and the corpus rows fail with `BadPath` swapped for `NotFound` in each binding, and pass after. `cargo test`, the four conformance suites, `go test` (both modules), veneer_smoke, check-veneer, cli-regress (489 rows, 2659 checks), crosscheck over the corpus (17901 comparisons), check-docs (only the known `EpHGoa0` installer red), check-abnf, check-readme, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy with the typing probe, the C runner built by gcc at every `-O` level and run from gcc `-O2`, clang, and ASan and UBSan, exhaustive cppcheck, shell-regress, markdownlint.
+	- Branch: `liststat`
+	- Commit: `76bb2bb1`
+	- Test case: `list_reads_say_bad_path` in all four runners (Rust `EsDQqYd`, Go `EsDQqYe`, Python `EsDQqYf`, C `EsDQqYg`), list-read checks in the C++ `veneer_smoke` (`EjtkR0S`), and the corpus rows in `081` and `203`.
+	- Closed: 20261009-084449
 
 - Retire the bash and PowerShell wrappers
 	- ID: 2026100818251401

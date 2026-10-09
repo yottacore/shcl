@@ -3,14 +3,14 @@ query	type	expected	status
 -	load	fail	-	strict
 window.columns	int	160	Good
 window.rows	int	48	Good
-window.margin	count	0	Good
+window.margin	count	0	NotFound
 font.face.size	int	12	Good
 font.face.family	string	mono	Good
 font.hint.first	int	1	Good
 font.hint.second	int	2	Good
 a.b	int	1	Good
-a.c	count	0	Good
-a.h	count	0	Good
+a.c	count	0	NotFound
+a.h	count	0	NotFound
 window	children	opacity|columns|rows	-
 font	children	face|hint	-
 -	lost	0	-

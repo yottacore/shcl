@@ -2,15 +2,15 @@ query	type	expected	status
 -	load	ok	-
 -	load	fail	-	strict
 a.b	int	1	Good
-x	count	0	Good
-a.c	count	0	Good
-a.d	count	0	Good
-a.b.d	count	0	Good
-a.e	count	0	Good
-a.h	count	0	Good
+x	count	0	NotFound
+a.c	count	0	NotFound
+a.d	count	0	NotFound
+a.b.d	count	0	NotFound
+a.e	count	0	NotFound
+a.h	count	0	NotFound
 p.q	int	1	Good
-p.g	count	0	Good
-p.j	count	0	Good
+p.g	count	0	NotFound
+p.j	count	0	NotFound
 a	children	b	-
 p	children	q	-
 -	paths	a|a.b|p|p.q|z	-

@@ -134,6 +134,12 @@ typedef struct { int     *values; size_t n; shcl_status status; const shcl_statu
 typedef struct { shcl_str *values; size_t n; shcl_status status; const shcl_status *statuses; } shcl_read_str_arr;
 typedef struct { shcl_datetime *values; size_t n; shcl_status status; const shcl_status *statuses; } shcl_read_dt_arr;
 
+// The list reads' results (shcl_read_count, shcl_read_instances,
+// shcl_read_children): the plain call's answer with a status, and no per-slot
+// statuses.
+typedef struct { size_t value; shcl_status status; } shcl_read_usize;
+typedef struct { shcl_str *values; size_t n; shcl_status status; } shcl_read_str_list;
+
 // Maximum nesting depth (levels below the document root), enforced at load and
 // by the Writer. Deeper lines are skipped with an E016 error. The cap is what
 // keeps the recursive tree walks (emit, merge, clone) safely inside every
@@ -355,8 +361,16 @@ shcl_str shcl_to_text_keep_lines(shcl_doc *d, int *kept);
 
 // Instance count at a path (0 when nothing matches).
 size_t shcl_count(shcl_doc *d, const char *path, size_t plen);
+// shcl_count with a status: SHCL_GOOD, SHCL_NOT_FOUND when the path matches
+// nothing, or SHCL_BAD_PATH when it cannot be read as a path. A wildcard with
+// no slots matches nothing, as in shcl_read_int_array.
+shcl_read_usize shcl_read_count(shcl_doc *d, const char *path, size_t plen);
 // Instance display values, in file order. Writes an arena-owned array to *out.
 size_t shcl_instances(shcl_doc *d, const char *path, size_t plen, shcl_str **out);
+// shcl_instances with a status, the way shcl_read_count has them. Unresolved
+// wildcard slots stay "" as in shcl_instances, and still count as a match, as
+// they do in shcl_read_count. values is arena-owned, like shcl_instances' list.
+shcl_read_str_list shcl_read_instances(shcl_doc *d, const char *path, size_t plen);
 // 1-based source line of the binding at a path, for consumer checks the
 // schema cannot express. 0 when the path does not resolve to exactly one
 // node, or the node was writer-built. Merged instances cite the first
@@ -401,6 +415,10 @@ size_t shcl_lines(shcl_doc *d, const char *path, size_t plen, size_t **out);
 // shcl_quote_segment makes one splice-safe in a path. Writes an arena-owned
 // array to *out.
 size_t shcl_children(shcl_doc *d, const char *path, size_t plen, shcl_str **out);
+// shcl_children with a status, the way shcl_read_count has them. A node with no
+// children is SHCL_GOOD with n 0, so an empty section and a missing one read
+// differently. values is arena-owned, like shcl_children's list.
+shcl_read_str_list shcl_read_children(shcl_doc *d, const char *path, size_t plen);
 // Every field path in the document, in file order, deduplicated - a query
 // recipe for tooling. A segment that is not bare-name-safe is emitted quoted
 // and escaped - the form the path scanner accepts - so each path is a
@@ -6191,10 +6209,19 @@ static shcl_status worst_slot(const shcl_status *sts, size_t n, shcl_status floo
 }
 
 size_t shcl_count(shcl_doc *d, const char *path, size_t plen) {
+	return shcl_read_count(d, path, plen).value;
+}
+shcl_read_usize shcl_read_count(shcl_doc *d, const char *path, size_t plen) {
+	shcl_read_usize R; R.value = 0; R.status = SHCL_GOOD;
 	ShclStr p; p.p = path; p.n = plen;
-	ShclResolved r; if (!resolve(d, p, &r)) return 0;
-	switch (r.kind) { case R_NONE: return 0; case R_ONE: return 1; case R_MANY: return r.many.len; case R_SLOTS: return r.slots.len; }
-	return 0;
+	ShclResolved r; if (!resolve(d, p, &r)) { R.status = SHCL_BAD_PATH; return R; }
+	switch (r.kind) {
+	case R_NONE: R.status = SHCL_NOT_FOUND; break;
+	case R_ONE: R.value = 1; break;
+	case R_MANY: R.value = r.many.len; break;
+	case R_SLOTS: R.value = r.slots.len; if (!R.value) R.status = SHCL_NOT_FOUND; break;
+	}
+	return R;
 }
 static ShclStr emit_name(ShclArena *a, ShclStr name);
 
@@ -6299,28 +6326,34 @@ shcl_str shcl_quote_segment(shcl_doc *d, const char *name, size_t len) {
 	return out;
 }
 
-static size_t instances_in(shcl_doc *d, ShclArena *a, ShclStr p, shcl_str **out) {
+static shcl_status instances_in(shcl_doc *d, ShclArena *a, ShclStr p, shcl_str **out, size_t *n) {
 	// Wildcard slots that did not resolve stay in the list as "" so indices
 	// keep matching shcl_count.
 	ShclResolved r;
-	if (!resolve(d, p, &r)) { *out = (shcl_str *)arena_alloc(a, sizeof(shcl_str)); return 0; }
+	*n = 0;
+	if (!resolve(d, p, &r)) { *out = (shcl_str *)arena_alloc(a, sizeof(shcl_str)); return SHCL_BAD_PATH; }
 	if (r.kind == R_SLOTS) {
 		size_t m = r.slots.len;
 		shcl_str *arr = (shcl_str *)arena_alloc(a, (m ? m : 1) * sizeof(shcl_str));
 		for (size_t k = 0; k < m; k++)
 			arr[k] = r.slots.data[k].present ? value_display(a, &NODE(d, r.slots.data[k].idx).value) : s_empty();
-		*out = arr; return m;
+		*out = arr; *n = m; return m ? SHCL_GOOD : SHCL_NOT_FOUND;
 	}
 	ShclVecSize nodes = {0};
 	if (r.kind == R_ONE) ShclVecSize_push(a, &nodes, r.one);
 	else if (r.kind == R_MANY) for (size_t k = 0; k < r.many.len; k++) ShclVecSize_push(a, &nodes, r.many.data[k]);
 	shcl_str *arr = (shcl_str *)arena_alloc(a, (nodes.len ? nodes.len : 1) * sizeof(shcl_str));
 	for (size_t k = 0; k < nodes.len; k++) arr[k] = value_display(a, &NODE(d, nodes.data[k]).value);
-	*out = arr; return nodes.len;
+	*out = arr; *n = nodes.len; return r.kind == R_NONE ? SHCL_NOT_FOUND : SHCL_GOOD;
 }
 size_t shcl_instances(shcl_doc *d, const char *path, size_t plen, shcl_str **out) {
-	ShclStr p; p.p = path; p.n = plen;
-	return instances_in(d, &d->reads, p, out);
+	shcl_read_str_list r = shcl_read_instances(d, path, plen);
+	*out = r.values; return r.n;
+}
+shcl_read_str_list shcl_read_instances(shcl_doc *d, const char *path, size_t plen) {
+	shcl_read_str_list R; ShclStr p; p.p = path; p.n = plen;
+	R.status = instances_in(d, &d->reads, p, &R.values, &R.n);
+	return R;
 }
 
 size_t shcl_line(shcl_doc *d, const char *path, size_t plen) {
@@ -6371,7 +6404,12 @@ size_t shcl_lines(shcl_doc *d, const char *path, size_t plen, size_t **out) {
 }
 
 size_t shcl_children(shcl_doc *d, const char *path, size_t plen, shcl_str **out) {
+	shcl_read_str_list r = shcl_read_children(d, path, plen);
+	*out = r.values; return r.n;
+}
+shcl_read_str_list shcl_read_children(shcl_doc *d, const char *path, size_t plen) {
 	// Names come back as stored (already arena-owned); only the array is new.
+	shcl_read_str_list R; R.n = 0; R.status = SHCL_GOOD;
 	ShclArena *a = &d->reads; ShclStr p; p.p = path; p.n = plen;
 	arena_reset(&d->scratch); // the node list is dead after the call
 	ShclVecSize nodes = {0};
@@ -6379,7 +6417,9 @@ size_t shcl_children(shcl_doc *d, const char *path, size_t plen, shcl_str **out)
 		ShclVecSize_push(&d->scratch, &nodes, ROOT);
 	} else {
 		ShclResolved r;
-		if (!resolve(d, p, &r)) { *out = (shcl_str *)arena_alloc(a, sizeof(shcl_str)); return 0; }
+		if (!resolve(d, p, &r)) R.status = SHCL_BAD_PATH;
+		else if (r.kind == R_NONE || (r.kind == R_SLOTS && r.slots.len == 0)) R.status = SHCL_NOT_FOUND;
+		if (R.status != SHCL_GOOD) { R.values = (shcl_str *)arena_alloc(a, sizeof(shcl_str)); return R; }
 		if (r.kind == R_ONE) ShclVecSize_push(&d->scratch, &nodes, r.one);
 		else if (r.kind == R_MANY) for (size_t k = 0; k < r.many.len; k++) ShclVecSize_push(&d->scratch, &nodes, r.many.data[k]);
 		else if (r.kind == R_SLOTS)
@@ -6394,7 +6434,7 @@ size_t shcl_children(shcl_doc *d, const char *path, size_t plen, shcl_str **out)
 		ShclVecSize kids = NODE(d, nodes.data[k]).children;
 		for (size_t j = 0; j < kids.len; j++) { arr[n].p = NODE(d, kids.data[j]).name.p; arr[n].n = NODE(d, kids.data[j]).name.n; n++; }
 	}
-	*out = arr; return n;
+	R.values = arr; R.n = n; return R;
 }
 
 // --- Writer ------------------------------------------------------------------
