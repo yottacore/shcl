@@ -2030,7 +2030,7 @@ fn do_get(o: &Opts) -> u8 {
 /// library).
 const QUOTED_MAX: usize = 200;
 
-/// The source text, quoted for a message, the way the library shows a value:
+/// A value's text, quoted for a message, the way the library shows a value:
 /// one line whatever it holds, and nothing that reads as a 2.x backslash
 /// escape. A line break, carriage return or tab shows by its escape name, any
 /// other control as a code point, and a real escape mark as itself with its

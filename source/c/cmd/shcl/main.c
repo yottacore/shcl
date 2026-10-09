@@ -934,7 +934,7 @@ static size_t put_shown(char *out, const char *p, size_t n) {
 	return w;
 }
 
-// The source text, quoted for a message, the way the library shows a value:
+// A value's text, quoted for a message, the way the library shows a value:
 // one line whatever it holds, and nothing that reads as a 2.x backslash
 // escape. A line break, carriage return or tab shows by its escape name, any
 // other control as a code point, and a real escape mark as itself with its

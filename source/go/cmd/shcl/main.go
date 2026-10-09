@@ -2025,7 +2025,7 @@ func doGet(o *opts) int {
 // in the library).
 const quotedMax = 200
 
-// quoted is the source text, quoted for a message, the way the library shows
+// quoted is a value's text, quoted for a message, the way the library shows
 // a value: one line whatever it holds, and nothing that reads as a 2.x
 // backslash escape. A line break, carriage return or tab shows by its escape
 // name, any other control as a code point, and a real escape mark as itself
