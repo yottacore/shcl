@@ -1,0 +1,6 @@
+# A Format line naming an older major than this reader's gets a hint (H007)
+# that points at upgrade. The load goes on as usual and reads by these rules,
+# so the backslash below is text.
+path: "C:\temp"
+tags: "a,b"
+##    Format   2

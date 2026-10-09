@@ -439,6 +439,18 @@ H002|hint|a binding merged with a non-adjacent earlier one
 H005|hint|a value in another unit than its field name ends in
   timeout-ms: 5s reads as 5000 milliseconds, since a unit in the value
   wins over the one the name gives a bare number. Legal, and often a slip.
+H006|hint|the file names a newer format than this reader
+  The info block's Format line names a format past the one this shcl reads,
+  so the file may use rules it does not know, and a line can read
+  differently than its author meant. The load goes on as usual. A shcl made
+  for that format reads it as written.
+H007|hint|the file names an older format than this reader
+  The info block's Format line names a format before the one this shcl
+  reads, and some lines read differently now: p: a,b was an array in 2.x
+  and is one string here. 'shcl upgrade FILE --from-2x --write' rewrites
+  the file for these rules and keeps the original beside it. A file with
+  nothing to change keeps its old Format line, and
+  'shcl migrate FILE --write' stamps it with this format.
 V001|error|unknown field
   No schema path covers it. Only the topmost unknown node is reported; its
   subtree is skipped. The prose has the did-you-mean suggestion.

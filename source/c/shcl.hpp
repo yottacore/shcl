@@ -216,13 +216,22 @@ Migration migrate(std::string_view text, bool from_v2);
 // writes GEN_BANNER itself, which includes the version line.
 Migration migrate_unstamped(std::string_view text, bool from_v2);
 // The format major a document's Format line names, read the way migrate reads
-// it; none when no line names one. migrate hands a file back untouched exactly
-// when this is FORMAT_MAJOR or more.
+// it; none when no line names one, or when it names no number. migrate hands a
+// file back untouched exactly when this is FORMAT_MAJOR or more.
 std::optional<std::uint32_t> format_version(std::string_view text);
+// format_version() with a status: Good with the major, NotFound when no line
+// names a format, Empty for a Format line with nothing after the word, or
+// BadType for one whose number does not read, such as `##    Format   3x`.
+// value is 0 unless Good.
+Read<std::uint32_t> read_format_version(std::string_view text);
 // The schema a document's Schema line names, a path or a URL; none when no
-// line names one. The first such line wins, and a relative path is the
-// caller's to resolve, from the config file's directory.
+// line names one, or when it names nothing. The first line naming one wins,
+// and a relative path is the caller's to resolve, from the config file's
+// directory.
 std::optional<std::string> schema_ref(std::string_view text);
+// schema_ref() with a status: Good with the reference, NotFound when no line
+// names a schema, or Empty when a Schema line has nothing after the word.
+Read<std::string> read_schema_ref(std::string_view text);
 
 // What upgrade() made of a document, and upgrade_file() of a file. text is
 // the fresh file's text, or the input when current or ambiguous. current: the
@@ -890,6 +899,10 @@ std::optional<std::uint32_t> format_version(std::string_view text) {
 	if (v < 0) return std::nullopt;
 	return static_cast<std::uint32_t>(v);
 }
+Read<std::uint32_t> read_format_version(std::string_view text) {
+	shcl_read_i64 r = shcl_read_format_version(text.data(), text.size());
+	return {static_cast<std::uint32_t>(r.value), detail::st(r.status)};
+}
 
 std::optional<DurationUnit> duration_unit_from_spelling(std::string_view s) {
 	shcl_duration_unit u = shcl_duration_unit_of(s.data(), s.size());
@@ -909,6 +922,10 @@ std::optional<std::string> schema_ref(std::string_view text) {
 	const char *r = shcl_schema_ref(text.data(), text.size(), &n);
 	if (!r) return std::nullopt;
 	return std::string(r, n);
+}
+Read<std::string> read_schema_ref(std::string_view text) {
+	shcl_read_str r = shcl_read_schema_ref(text.data(), text.size());
+	return {std::string(r.value.p, r.value.n), detail::st(r.status)};
 }
 
 Upgrade upgrade(std::string_view text, bool from_v2) {

@@ -11,7 +11,7 @@ use common::test_id;
 use shcl::{
 	Document, DurationUnit, FORMAT_LINE, FORMAT_LINE_HEAD, FORMAT_MAJOR, MIGRATED_LINE, Rules,
 	SizeUnit, Strictness, Tokens, format_version, generate, migrate, migrate_unstamped,
-	parse_datetime, quote_segment, schema_ref, tokenize,
+	parse_datetime, quote_segment, read_format_version, read_schema_ref, schema_ref, tokenize,
 };
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -3519,6 +3519,88 @@ fn format_version_caps_at_32_bits() {
 		format_version("##    Format   4294967296\na: 1\n"),
 		Some(FORMAT_MAJOR)
 	);
+}
+
+/// The Format and Schema lines read with a status, so an unstamped file and a
+/// damaged stamp read apart, and the load's H006 and H007 hints say the same
+/// as the Format read on every row (2026100912352401, 2026100717500017). The
+/// same rows are in every binding's runner.
+#[test]
+fn stamp_reads_say_why() {
+	let _id = test_id("EsEtTdP");
+	use shcl::Status::{BadType, Empty, Good, NotFound};
+	let formats = [
+		("a: 1\n", 0, NotFound, 0, ""),
+		("a: 1\n##    Format   3\n", 3, Good, 2, ""),
+		("##    Format   4\na: 1\n", 4, Good, 1, "H006"),
+		("a: 1\n##    Format   2\n", 2, Good, 2, "H007"),
+		("a: 1\n##    Format   3x\n", 0, BadType, 2, ""),
+		("a: 1\n##    Format\n", 0, Empty, 2, ""),
+		("a: 1\n##    Format   \n", 0, Empty, 2, ""),
+		// A number that reads wins over a line that does not.
+		("##    Format   x\n##    Format   2\n", 2, Good, 2, "H007"),
+		// A raw body's content is not the file's stamp.
+		("note: ~~~\n##    Format   4\n~~~\n", 0, NotFound, 0, ""),
+		// Only the head the block writes names a format.
+		("a: 1\n##    Format  3\n", 0, NotFound, 0, ""),
+		("\u{feff}##    Format   5\n", 5, Good, 1, "H006"),
+		("##    Format   4294967296\n", FORMAT_MAJOR, Good, 1, ""),
+		("a:\n\t##    Format   1\n\tb: 1\n", 1, Good, 2, "H007"),
+	];
+	for (text, value, status, line, hint) in formats {
+		let r = read_format_version(text);
+		assert_eq!(
+			(r.value, r.status, r.line),
+			(value, status, line),
+			"{:?}",
+			text
+		);
+		assert_eq!(
+			format_version(text),
+			(status == Good).then_some(value),
+			"{:?}",
+			text
+		);
+		let hints: Vec<(&str, usize)> = Document::parse(text)
+			.diagnostics()
+			.iter()
+			.filter(|d| d.code == "H006" || d.code == "H007")
+			.map(|d| (d.code, d.line))
+			.collect();
+		let want: Vec<(&str, usize)> = if hint.is_empty() {
+			vec![]
+		} else {
+			vec![(hint, line)]
+		};
+		assert_eq!(hints, want, "{:?}", text);
+	}
+	let schemas = [
+		("a: 1\n", "", NotFound, 0),
+		("##    Schema   ./s.shcl\n", "./s.shcl", Good, 1),
+		("##    Schema\na: 1\n", "", Empty, 1),
+		(
+			"##    Schema   \n##    Schema   b.shcl\n",
+			"b.shcl",
+			Good,
+			2,
+		),
+		("x: ~~~\n##    Schema   a\n~~~\n", "", NotFound, 0),
+	];
+	for (text, value, status, line) in schemas {
+		let r = read_schema_ref(text);
+		assert_eq!(
+			(r.value.as_str(), r.status, r.line),
+			(value, status, line),
+			"{:?}",
+			text
+		);
+		assert_eq!(
+			schema_ref(text),
+			(status == Good).then(|| value.to_string()),
+			"{:?}",
+			text
+		);
+	}
 }
 
 /// A setter writes only what reads back. Each one builds its text through the

@@ -1,0 +1,6 @@
+query	type	expected	status
+-	load	ok	-
+-	load	ok	-	strict
+-	lost	0	-
+port	int	8080	Good
+note	raw	##    Format   2	Good

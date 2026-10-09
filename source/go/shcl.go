@@ -2749,35 +2749,77 @@ type migrating struct {
 
 // FormatVersion is the format major a document's `##    Format   N` line
 // names, read the way Migrate reads it. ok is false when no line names one,
-// which is every 2.x file and a current one written without the info block.
+// which is every 2.x file and a current one written without the info block,
+// and when the line names no number; ReadFormatVersion tells those apart.
 // Migrate hands a file back untouched exactly when this is FormatMajor or
 // more, so a program can ask before it rewrites anything.
 func FormatVersion(text string) (int, bool) {
-	return formatLineVersion(strings.TrimPrefix(text, "\ufeff"))
+	r := ReadFormatVersion(text)
+	return r.Value, r.Status == Good
 }
 
+// ReadFormatVersion is FormatVersion with a status: Good with the major,
+// NotFound when no line names a format, Empty for a Format line with nothing
+// after the word, or BadType for one whose number does not read, such as
+// `##    Format   3x`, so an unstamped file and a damaged stamp read apart.
+// Raw is the text after the head, and Line the line it is on. The load's
+// H006 and H007 hints come from this same reading.
+func ReadFormatVersion(text string) Read[int] {
+	return formatLineRead(strings.TrimPrefix(text, "\ufeff"))
+}
+
+// formatWord is the Format line's head without the blanks before the number.
+// A line that is only this names no number.
+const formatWord = "##    Format"
+
 // SchemaRef is the schema a document's `##    Schema   REF` line names: a
-// path, or a URL for an editor to fetch. ok is false when no line names one.
-// The first such line wins, and one inside a raw body is that block's
-// content, as with the Format line. Either line may be indented, since the
-// formatter indents a comment to the field below it. A relative path is the
-// caller's to resolve, from the config file's directory.
+// path, or a URL for an editor to fetch. ok is false when no line names one,
+// and when the only Schema line names nothing; ReadSchemaRef tells those
+// apart. The first line naming one wins, and one inside a raw body is that
+// block's content, as with the Format line. Either line may be indented,
+// since the formatter indents a comment to the field below it. A relative
+// path is the caller's to resolve, from the config file's directory.
 func SchemaRef(text string) (string, bool) {
+	r := ReadSchemaRef(text)
+	return r.Value, r.Status == Good
+}
+
+// ReadSchemaRef is SchemaRef with a status: Good with the reference,
+// NotFound when no line names a schema, or Empty when a Schema line has
+// nothing after the word, so an unstamped file and a damaged line read
+// apart. Any other text is a reference, whether or not it leads anywhere.
+// Line is the line it is on.
+func ReadSchemaRef(text string) Read[string] {
 	text = strings.TrimPrefix(text, "\ufeff")
+	word := trimEndWS(SchemaLineHead)
+	if !strings.Contains(text, word) {
+		return Read[string]{Status: NotFound}
+	}
 	// The Schema line is new in this format, so the blocks are the parser's.
 	lines := newRawLines(RulesCurrent)
-	for _, line := range strings.Split(text, "\n") {
+	empty := 0
+	for i, line := range strings.Split(text, "\n") {
 		rest, ok := lines.step(line)
 		if !ok {
 			continue
 		}
+		if rest == word {
+			if empty == 0 {
+				empty = i + 1
+			}
+			continue
+		}
 		if r, ok := strings.CutPrefix(rest, SchemaLineHead); ok {
 			if r = trimWsp(r); r != "" {
-				return r, true
+				return Read[string]{Value: r, Status: Good, Raw: &r, Line: i + 1}
 			}
 		}
 	}
-	return "", false
+	if empty == 0 {
+		return Read[string]{Status: NotFound}
+	}
+	none := ""
+	return Read[string]{Status: Empty, Raw: &none, Line: empty}
 }
 
 // rawLines walks a document's lines and tells raw-body content from the rest,
@@ -2838,9 +2880,9 @@ func opensRaw(rest string, tok *Tokens) openFence {
 	return openFence{ch: ch, length: length, open: ok}
 }
 
-// formatLineVersion is FormatVersion on text with the BOM already off. Digits
-// that do not fit 32 bits are not a 2.x file either, so they read as this
-// major and there is nothing to migrate.
+// formatLineRead is ReadFormatVersion on text with the BOM already off.
+// Digits that do not fit 32 bits are not a 2.x file either, so they read as
+// this major and there is nothing to migrate.
 //
 // A Format line pasted into a raw body is that block's content, and taking it
 // as the file's would rewrite a current file, or leave an old one alone. Where
@@ -2850,29 +2892,47 @@ func opensRaw(rest string, tok *Tokens) openFence {
 // two differ on a single-quoted name ending in a backslash. A file naming this
 // format on any line has nothing to migrate, so the highest line decides: the
 // stamp Migrate adds comes after an older one, and the next run has to see it.
-func formatLineVersion(text string) (int, bool) {
+// A line that names no number counts where either rule set reads it outside a
+// block, and only when no line names one.
+func formatLineRead(text string) Read[int] {
+	// Most documents have no Format line, and every load asks.
+	if !strings.Contains(text, formatWord) {
+		return Read[int]{Status: NotFound}
+	}
 	now := newRawLines(RulesCurrent)
 	then := newRawLines(RulesV2)
-	found, has := 0, false
-	for _, line := range strings.Split(text, "\n") {
+	var found, unread Read[int]
+	for i, line := range strings.Split(text, "\n") {
 		current, inNow := now.step(line)
 		old, inThen := then.step(line)
+		if !(inNow || inThen) {
+			continue
+		}
 		rest := current
 		if !inNow {
 			rest = old
 		}
 		n, ok := strings.CutPrefix(rest, FormatLineHead)
-		if !(inNow || inThen) || !ok || n == "" {
-			continue
+		if !ok {
+			if rest != formatWord {
+				continue
+			}
+			n = ""
 		}
-		digits := true
-		for i := 0; i < len(n); i++ {
-			if n[i] < '0' || n[i] > '9' {
+		digits := n != ""
+		for k := 0; k < len(n); k++ {
+			if n[k] < '0' || n[k] > '9' {
 				digits = false
 				break
 			}
 		}
 		if !digits {
+			if unread.Line == 0 {
+				unread = Read[int]{Status: BadType, Raw: &n, Line: i + 1}
+				if n == "" {
+					unread.Status = Empty
+				}
+			}
 			continue
 		}
 		v, err := strconv.Atoi(n)
@@ -2881,13 +2941,38 @@ func formatLineVersion(text string) (int, bool) {
 		}
 		if v >= FormatMajor {
 			if inNow {
-				return v, true
+				return Read[int]{Value: v, Status: Good, Raw: &n, Line: i + 1}
 			}
-		} else if inThen && (!has || v > found) {
-			found, has = v, true
+		} else if inThen && (found.Line == 0 || v > found.Value) {
+			found = Read[int]{Value: v, Status: Good, Raw: &n, Line: i + 1}
 		}
 	}
-	return found, has
+	if found.Line != 0 {
+		return found
+	}
+	if unread.Line != 0 {
+		return unread
+	}
+	return Read[int]{Status: NotFound}
+}
+
+// stampHint is the load's hint for a file whose Format line names another
+// major than this one: H006 for a newer one, H007 for an older one. It reads
+// the line the way ReadFormatVersion does, so the two never disagree.
+func stampHint(stamp Read[int]) (Diagnostic, bool) {
+	if stamp.Status != Good || stamp.Value == FormatMajor {
+		return Diagnostic{}, false
+	}
+	d := Diagnostic{Line: stamp.Line, Severity: SeverityHint, Code: "H006", Message: fmt.Sprintf(
+		"the file names format %d, newer than this reader's format %d, so some lines may read differently than written",
+		stamp.Value, FormatMajor)}
+	if stamp.Value < FormatMajor {
+		d.Code = "H007"
+		d.Message = fmt.Sprintf(
+			"the file names format %d, older than this reader's format %d, so some lines may read differently than written; shcl upgrade --from-2x rewrites it",
+			stamp.Value, FormatMajor)
+	}
+	return d, true
 }
 
 // Migrate rewrites a document written under the 2.x rules so this parser
@@ -2944,7 +3029,8 @@ func migrateText(text string, fromV2, stamp bool) Migration {
 		bom = "\ufeff"
 		text = text[len(bom):]
 	}
-	version, hasVersion := formatLineVersion(text)
+	named := formatLineRead(text)
+	version, hasVersion := named.Value, named.Status == Good
 	if hasVersion && version >= FormatMajor {
 		return Migration{Text: whole, Current: true}
 	}
@@ -5269,6 +5355,9 @@ func (p *parser) parse(text string, strictness Strictness) *Document {
 		lines = lines[:len(lines)-1]
 	}
 	p.src = lines
+	if d, ok := stampHint(formatLineRead(text)); ok {
+		p.diag(d)
+	}
 	// Growing the arena by append cost about an eighth of fmt on a large
 	// file, and more than that in peak memory.
 	want := arenaWant(nodeLines, p.maxNodes)

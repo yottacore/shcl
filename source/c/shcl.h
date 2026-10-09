@@ -660,18 +660,34 @@ shcl_migration shcl_migrate(const char *text, size_t len, int from_v2);
 shcl_migration shcl_migrate_unstamped(const char *text, size_t len, int from_v2);
 // The format major a document's `##    Format   N` line names, read the way
 // shcl_migrate reads it, or -1 when no line names one, which is every 2.x file
-// and a current one written without the info block. shcl_migrate hands a file
-// back untouched exactly when this is SHCL_FORMAT_MAJOR or more, so a program
-// can ask before it rewrites anything. Digits past 32 bits read as
+// and a current one written without the info block, and when the line names
+// no number; shcl_read_format_version tells those apart. shcl_migrate hands a
+// file back untouched exactly when this is SHCL_FORMAT_MAJOR or more, so a
+// program can ask before it rewrites anything. Digits past 32 bits read as
 // SHCL_FORMAT_MAJOR, since whatever wrote them was not 2.x.
 int64_t shcl_format_version(const char *text, size_t len);
+// shcl_format_version with a status: SHCL_GOOD with the major, SHCL_NOT_FOUND
+// when no line names a format, SHCL_EMPTY for a Format line with nothing after
+// the word, or SHCL_BAD_TYPE for one whose number does not read, such as
+// `##    Format   3x`, so an unstamped file and a damaged stamp read apart.
+// value is 0 unless SHCL_GOOD. The load's H006 and H007 hints come from this
+// same reading.
+shcl_read_i64 shcl_read_format_version(const char *text, size_t len);
 // The schema a document's `##    Schema   REF` line names: a path, or a URL
 // for an editor to fetch, as a pointer into text with its length in *ref_len.
-// NULL when no line names one. The first such line wins, and one inside a raw
-// body is that block's content, as with the Format line. Either line may be
-// indented, since the formatter indents a comment to the field below it. A
-// relative path is the caller's to resolve, from the config file's directory.
+// NULL when no line names one, and when the only Schema line names nothing;
+// shcl_read_schema_ref tells those apart. The first line naming one wins, and
+// one inside a raw body is that block's content, as with the Format line.
+// Either line may be indented, since the formatter indents a comment to the
+// field below it. A relative path is the caller's to resolve, from the config
+// file's directory.
 const char *shcl_schema_ref(const char *text, size_t len, size_t *ref_len);
+// shcl_schema_ref with a status: SHCL_GOOD with the reference, SHCL_NOT_FOUND
+// when no line names a schema, or SHCL_EMPTY when a Schema line has nothing
+// after the word, so an unstamped file and a damaged line read apart. Any
+// other text is a reference, whether or not it leads anywhere. value points
+// into text, and is empty unless SHCL_GOOD.
+shcl_read_str shcl_read_schema_ref(const char *text, size_t len);
 
 // What shcl_upgrade made of a document, and shcl_upgrade_file of a file.
 // shcl_upgraded_free gives back all of it. text is malloc'd and
@@ -3230,10 +3246,29 @@ static int raw_lines_step(ShclArena *ta, ShclArena *sc, ShclRawLines *w, ShclStr
 	return 1;
 }
 
-/* shcl_format_version() on text with the BOM already off: the major a
-   `##    Format   N` line names, or -1 when the document has none. Digits
-   that do not fit 32 bits read as "newer than this", since whatever wrote them
-   was not 2.x.
+/* What a document's Format line says, as shcl_read_format_version gives it,
+   with the line it is on. */
+typedef struct { int64_t value; shcl_status status; size_t line; } ShclStamp;
+
+/* The Format line's head without the blanks before the number. A line that is
+   only this names no number. */
+#define SHCL_FORMAT_WORD "##    Format"
+
+/* Whether text holds needle anywhere. */
+static int s_has(ShclStr text, ShclStr needle) {
+	if (needle.n == 0) return 1;
+	for (size_t i = 0; i + needle.n <= text.n; i++) {
+		const char *hit = (const char *)memchr(text.p + i, needle.p[0], text.n - needle.n + 1 - i);
+		if (!hit) return 0;
+		i = (size_t)(hit - text.p);
+		if (memcmp(hit, needle.p, needle.n) == 0) return 1;
+	}
+	return 0;
+}
+
+/* shcl_read_format_version() on text with the BOM already off. Digits that do
+   not fit 32 bits are not a 2.x file either, so they read as this major and
+   there is nothing to migrate.
    A Format line pasted into a raw body is that block's content, and taking it
    as the file's would rewrite a current file, or leave an old one alone. Where
    the blocks are turns on the rules the file was written under, which is what
@@ -3241,35 +3276,57 @@ static int raw_lines_step(ShclArena *ta, ShclArena *sc, ShclRawLines *w, ShclStr
    the parser finds, and an older one outside the blocks the rewrite skips. The
    two differ on a single-quoted name ending in a backslash. A file naming this
    format on any line has nothing to migrate, so the highest line decides: the
-   stamp migrate adds comes after an older one, and the next run has to see it. */
-static int64_t format_line_version(ShclArena *ta, ShclArena *sc, ShclStr text) {
+   stamp migrate adds comes after an older one, and the next run has to see it.
+   A line that names no number counts where either rule set reads it outside a
+   block, and only when no line names one. */
+static ShclStamp format_line_read(ShclArena *ta, ShclArena *sc, ShclStr text) {
 	size_t headn = sizeof(SHCL_FORMAT_LINE_HEAD) - 1, start = 0;
-	int64_t found = -1;
+	ShclStamp none; none.value = 0; none.status = SHCL_NOT_FOUND; none.line = 0;
+	/* Most documents have no Format line, and every load asks. */
+	if (!s_has(text, s_lit(SHCL_FORMAT_WORD))) return none;
+	ShclStamp found = none, unread = none;
 	ShclRawLines now, then;
 	raw_lines_init(&now, SHCL_RULES_CURRENT);
 	raw_lines_init(&then, SHCL_RULES_V2);
+	size_t lineno = 0;
 	for (size_t i = 0; i <= text.n; i++) {
 		if (i < text.n && text.p[i] != '\n') continue;
 		ShclStr raw = s_slice(text, start, i);
 		start = i + 1;
+		lineno++;
 		ShclStr current = s_empty(), old = s_empty();
 		int in_now = raw_lines_step(ta, sc, &now, raw, &current);
 		int in_then = raw_lines_step(ta, sc, &then, raw, &old);
 		ShclStr line = in_now ? current : old;
-		if (!(in_now || in_then) || line.n <= headn || memcmp(line.p, SHCL_FORMAT_LINE_HEAD, headn) != 0) continue;
-		ShclStr n = s_slice(line, headn, line.n);
-		uint64_t u = 0; int ok = 1, big = 0;
+		if (!(in_now || in_then)) continue;
+		ShclStr n;
+		if (line.n >= headn && memcmp(line.p, SHCL_FORMAT_LINE_HEAD, headn) == 0) n = s_slice(line, headn, line.n);
+		else if (s_eq(line, s_lit(SHCL_FORMAT_WORD))) n = s_empty();
+		else continue;
+		uint64_t u = 0; int ok = n.n > 0, big = 0;
 		for (size_t k = 0; k < n.n; k++) {
 			if (!is_adigit((unsigned char)n.p[k])) { ok = 0; break; }
 			if (!big) { u = u * 10 + (uint64_t)(n.p[k] - '0'); if (u > UINT32_MAX) big = 1; }
 		}
-		if (!ok) continue;
+		if (!ok) {
+			if (!unread.line) { unread.status = n.n ? SHCL_BAD_TYPE : SHCL_EMPTY; unread.line = lineno; }
+			continue;
+		}
 		int64_t v = big ? SHCL_FORMAT_MAJOR : (int64_t)u;
 		if (v >= SHCL_FORMAT_MAJOR) {
-			if (in_now) return v;
-		} else if (in_then && v > found) found = v;
+			if (in_now) { ShclStamp r; r.value = v; r.status = SHCL_GOOD; r.line = lineno; return r; }
+		} else if (in_then && (!found.line || v > found.value)) {
+			found.value = v; found.status = SHCL_GOOD; found.line = lineno;
+		}
 	}
-	return found;
+	if (found.line) return found;
+	return unread;
+}
+
+/* The major alone, or -1 when no line names one that reads. */
+static int64_t format_line_version(ShclArena *ta, ShclArena *sc, ShclStr text) {
+	ShclStamp st = format_line_read(ta, sc, text);
+	return st.status == SHCL_GOOD ? st.value : -1;
 }
 
 /* The line ending most of the text's lines end with. A tie goes to LF. */
@@ -3534,6 +3591,11 @@ void shcl_upgraded_free(shcl_upgraded *up) {
 }
 
 int64_t shcl_format_version(const char *text, size_t len) {
+	shcl_read_i64 r = shcl_read_format_version(text, len);
+	return r.status == SHCL_GOOD ? r.value : -1;
+}
+
+shcl_read_i64 shcl_read_format_version(const char *text, size_t len) {
 	ShclMigrateOwn *volatile own = (ShclMigrateOwn *)calloc(1, sizeof *own);
 	if (!own) { SHCL_OOM(); abort(); }
 	jmp_buf panic;
@@ -3546,16 +3608,21 @@ int64_t shcl_format_version(const char *text, size_t len) {
 	arena_guard(&own->a, &panic); arena_guard(&own->sc, &panic);
 	ShclStr in; in.p = text ? text : ""; in.n = len;
 	if (in.n >= 3 && (unsigned char)in.p[0] == 0xEF && (unsigned char)in.p[1] == 0xBB && (unsigned char)in.p[2] == 0xBF) in = s_slice(in, 3, in.n);
-	int64_t v = format_line_version(&own->a, &own->sc, in);
+	ShclStamp st = format_line_read(&own->a, &own->sc, in);
 	ShclMigrateOwn *done = own;
 	arena_free(&done->a); arena_free(&done->sc); free(done);
-	return v;
+	shcl_read_i64 r; r.value = st.status == SHCL_GOOD ? st.value : 0; r.status = st.status;
+	return r;
 }
 
-/* The Schema line's reference. The line is new in this format, so the blocks
-   are the parser's. */
-static int schema_line_ref(ShclArena *ta, ShclArena *sc, ShclStr text, ShclStr *out) {
+/* The Schema line's reference: SHCL_GOOD with it in *out, SHCL_EMPTY for a
+   Schema line with nothing after the word, else SHCL_NOT_FOUND. The line is
+   new in this format, so the blocks are the parser's. */
+static shcl_status schema_line_ref(ShclArena *ta, ShclArena *sc, ShclStr text, ShclStr *out) {
 	size_t headn = sizeof(SHCL_SCHEMA_LINE_HEAD) - 1, start = 0;
+	ShclStr word = trim_wsp_end(s_lit(SHCL_SCHEMA_LINE_HEAD));
+	if (!s_has(text, word)) return SHCL_NOT_FOUND;
+	int empty = 0;
 	ShclRawLines lines;
 	raw_lines_init(&lines, SHCL_RULES_CURRENT);
 	for (size_t i = 0; i <= text.n; i++) {
@@ -3564,12 +3631,13 @@ static int schema_line_ref(ShclArena *ta, ShclArena *sc, ShclStr text, ShclStr *
 		start = i + 1;
 		ShclStr rest = s_empty();
 		if (!raw_lines_step(ta, sc, &lines, raw, &rest)) continue;
+		if (s_eq(rest, word)) { empty = 1; continue; }
 		if (rest.n >= headn && memcmp(rest.p, SHCL_SCHEMA_LINE_HEAD, headn) == 0) {
 			ShclStr r = s_trim_wsp(s_slice(rest, headn, rest.n));
-			if (r.n) { *out = r; return 1; }
+			if (r.n) { *out = r; return SHCL_GOOD; }
 		}
 	}
-	return 0;
+	return empty ? SHCL_EMPTY : SHCL_NOT_FOUND;
 }
 
 /* The recovery path reads only the volatile carrier, so -Wclobbered's guess
@@ -3579,6 +3647,12 @@ static int schema_line_ref(ShclArena *ta, ShclArena *sc, ShclStr text, ShclStr *
 	#pragma GCC diagnostic ignored "-Wclobbered"
 #endif
 const char *shcl_schema_ref(const char *text, size_t len, size_t *ref_len) {
+	shcl_read_str r = shcl_read_schema_ref(text, len);
+	if (ref_len) *ref_len = r.status == SHCL_GOOD ? r.value.n : 0;
+	return r.status == SHCL_GOOD ? r.value.p : NULL;
+}
+
+shcl_read_str shcl_read_schema_ref(const char *text, size_t len) {
 	ShclMigrateOwn *volatile own = (ShclMigrateOwn *)calloc(1, sizeof *own);
 	if (!own) { SHCL_OOM(); abort(); }
 	jmp_buf panic;
@@ -3591,12 +3665,12 @@ const char *shcl_schema_ref(const char *text, size_t len, size_t *ref_len) {
 	arena_guard(&own->a, &panic); arena_guard(&own->sc, &panic);
 	ShclStr in; in.p = text ? text : ""; in.n = len;
 	if (in.n >= 3 && (unsigned char)in.p[0] == 0xEF && (unsigned char)in.p[1] == 0xBB && (unsigned char)in.p[2] == 0xBF) in = s_slice(in, 3, in.n);
-	ShclStr r = s_empty();
-	int found = schema_line_ref(&own->a, &own->sc, in, &r);
+	ShclStr ref = s_empty();
+	shcl_status st = schema_line_ref(&own->a, &own->sc, in, &ref);
 	ShclMigrateOwn *done = own;
 	arena_free(&done->a); arena_free(&done->sc); free(done);
-	if (ref_len) *ref_len = found ? r.n : 0;
-	return found ? r.p : NULL;
+	shcl_read_str r; r.value = ref; r.status = st;
+	return r;
 }
 #if defined(__GNUC__) && !defined(__clang__)
 	#pragma GCC diagnostic pop
@@ -5530,6 +5604,26 @@ static void diags_by_line(ShclArena *tmp, ShclVecDiag *v) {
 	if (src != v->data) memcpy(v->data, src, n * sizeof *src);
 }
 
+/* The load's hint for a file whose Format line names another major than this
+   one: H006 for a newer one, H007 for an older one. It reads the line the way
+   shcl_read_format_version does, so the two never disagree. The walk builds in
+   the per-line arena and the hints one, both free before the first line. */
+static void stamp_hint(ShclParser *P, ShclStr text) {
+	ShclStamp st = format_line_read(P->line, P->hints, text);
+	if (st.status == SHCL_GOOD && st.value != SHCL_FORMAT_MAJOR) {
+		int newer = st.value > SHCL_FORMAT_MAJOR;
+		ShclSB m = {0};
+		sb_puts(P->line, &m, "the file names format "); sb_put_u64(P->line, &m, (uint64_t)st.value);
+		sb_puts(P->line, &m, newer ? ", newer than this reader's format " : ", older than this reader's format ");
+		sb_put_u64(P->line, &m, SHCL_FORMAT_MAJOR);
+		sb_puts(P->line, &m, ", so some lines may read differently than written");
+		if (!newer) sb_puts(P->line, &m, "; shcl upgrade --from-2x rewrites it");
+		p_diag(P, st.line, SHCL_SEV_HINT, newer ? "H006" : "H007", sb_S(&m));
+	}
+	arena_reset(P->line);
+	arena_reset(P->hints);
+}
+
 static void emit_repeated_leaf_hints(ShclParser *P) {
 	ShclArena *a = &P->d->arena;
 	/* Grouping bookkeeping (name buckets, member lists, joined displays) is
@@ -5642,6 +5736,7 @@ static void parse_body(shcl_doc *d, ShclParseOwn *own, const char *text, size_t 
 		}
 	}
 	P.src_lines = lines;
+	stamp_hint(&P, full);
 	size_t i = 0;
 	int node_capped = 0;
 	while (i < lines.len) {

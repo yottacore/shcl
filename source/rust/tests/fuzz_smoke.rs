@@ -10,8 +10,8 @@ mod common;
 
 use common::test_id;
 use shcl::{
-	Document, Piece, Quote, Rules, SegTok, Severity, Strictness, Tokens, format_version, migrate,
-	quote_segment, schema_ref, tokenize, tokenize_value,
+	Document, FORMAT_MAJOR, Piece, Quote, Rules, SegTok, Severity, Strictness, Tokens,
+	format_version, migrate, quote_segment, schema_ref, tokenize, tokenize_value,
 };
 
 /// Small deterministic PRNG (xorshift64*); no external crates, stable across runs.
@@ -361,10 +361,12 @@ fn mutated_inputs_never_panic_and_format_is_fixpoint() {
 		// rewrites, and each has to settle after one pass. An unstamped output
 		// is written in the value syntax, which a second pass reads as 2.x
 		// text, so only a stamped one is held to it until migrate learns the
-		// value syntax (2026100207032800).
+		// value syntax (2026100207032800). An older Format line the input
+		// already had is not a stamp: with a raw block left open migrate adds
+		// none, and the CLI refuses that output at 7.
 		for from_v2 in [true, false] {
 			let m = migrate(&text, from_v2).text;
-			if format_version(&m).is_none() {
+			if !format_version(&m).is_some_and(|v| v >= FORMAT_MAJOR) {
 				continue;
 			}
 			assert_eq!(
