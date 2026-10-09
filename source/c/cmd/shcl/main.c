@@ -667,64 +667,34 @@ static char *read_stream(FILE *f, const char *who, size_t max, size_t *len) {
 	*len = n; return buf;
 }
 
-// A string read at the path that comes back unquoted and in brackets. A read
-// of an array is never quoted, though shcl_quoted gives a one-element array
-// its element's flag; an array's element never reads as the array's own
-// bracket text, which is how one is told from a quoted "[x]".
-static int reads_bracketed(shcl_doc *d, const char *path, size_t plen) {
-	shcl_read_str r = shcl_read_string(d, path, plen);
-	if (r.status != SHCL_GOOD || !r.value.n || r.value.p[0] != '[') return 0;
-	if (!shcl_quoted(d, path, plen)) return 1;
-	shcl_read_str_arr sa = shcl_read_string_array(d, path, plen);
-	return sa.status == SHCL_GOOD && (sa.n != 1 || sa.values[0].n != r.value.n || memcmp(sa.values[0].p, r.value.p, r.value.n) != 0);
-}
-
-// A field with lines under it takes one plain value or none (E028), so an
-// array there, or a field made under an array, is refused for where it goes.
-// NULL when neither is why.
-static const char *array_refusal(shcl_doc *d, const char *path, size_t plen, int array) {
-	shcl_str *kids;
-	if (array && shcl_children(d, path, plen, &kids)) return "a field with lines under it takes one plain value or none";
-	ShclArena a; memset(&a, 0, sizeof a);
-	ShclTokens tok; memset(&tok, 0, sizeof tok);
-	ShclStr p; p.p = path; p.n = plen;
-	tokenize(&a, p, '=', 1, SHCL_RULES_CURRENT, &tok);
-	const char *why = NULL;
-	for (size_t k = 1; k < tok.nseg && !why; k++) {
-		size_t quoted = tok.segments[k].name.quote != SHCL_QUOTE_NONE;
-		size_t up = tok.segments[k].name.start - quoted;
-		while (up > 0 && path[up - 1] == '.') up--;
-		// Brackets on a value that reads unquoted are an array's.
-		if (reads_bracketed(d, path, up)) why = "an array takes no lines under it";
-	}
-	arena_free(&a);
-	return why;
-}
-
-// Value text that starts an array, past any leading whitespace.
-static int array_text(const char *v, size_t n) {
-	size_t i = 0;
-	while (i < n && v[i] && strchr(" \t\r\n\v\f", v[i])) i++;
-	return i < n && v[i] == '[';
-}
-
-// The per-binding wording behind a setter's bare 0.
-// Why a write was refused. When the path itself is fine what failed is the
-// text, and only the caller knows which half of the op that was, so it names
-// it: a setter refused for its value used to report the sentence written for
-// shcl_set_literal whatever the op.
+// Why a setter wrote nothing, from the status it gave. The library knows
+// which rule refused the write, so nothing here works it out again: a copy of
+// the rule in the CLI is how the two drift. The text is the same in all four
+// CLIs.
 static const char *bad_path(const char *path, size_t plen); // beside split_set
-static const char *describe_refusal(shcl_doc *d, const char *path, size_t plen, int array, const char *unwritable) {
-	switch (shcl_check_set_path(d, path, plen)) {
-	case SHCL_SET_PATH_OK: { const char *why = array_refusal(d, path, plen, array); return why ? why : unwritable; }
-	case SHCL_SET_PATH_BAD_PATH: return bad_path(path, plen);
-	case SHCL_SET_PATH_VALUE_IN_PATH: return "a path with a value part cannot be written";
-	case SHCL_SET_PATH_WILDCARD: return "a wildcard path cannot be written";
-	case SHCL_SET_PATH_NO_SUCH_INDEX: return "no instance at that index";
-	case SHCL_SET_PATH_TOO_DEEP: return "deeper than the nesting cap";
-	case SHCL_SET_PATH_MULTIPLE: return "the path matches multiple instances; name(0) picks one";
+static const char *refusal(shcl_set_status st, const char *path, size_t plen) {
+	switch (st) {
+	// Not a refusal; no caller asks.
+	case SHCL_SET_OK: return "written";
+	case SHCL_SET_BAD_PATH: return bad_path(path, plen);
+	case SHCL_SET_VALUE_IN_PATH: return "a path with a value part cannot be written";
+	case SHCL_SET_WILDCARD: return "a wildcard path cannot be written";
+	case SHCL_SET_NO_SUCH_INDEX: return "no instance at that index";
+	case SHCL_SET_TOO_DEEP: return "deeper than the nesting cap";
+	case SHCL_SET_MULTIPLE: return "the path matches multiple instances; name(0) picks one";
+	case SHCL_SET_UNDER_ARRAY: return "an array takes no lines under it";
+	case SHCL_SET_HAS_CHILDREN: return "a field with lines under it takes one plain value or none";
+	case SHCL_SET_NOT_FINITE: return "a float has to be finite";
+	case SHCL_SET_BAD_DATETIME: return "the datetime does not read back as the same one";
+	case SHCL_SET_BAD_RAW_INFO: return "the info string has no spelling that reads back: a '#' in it opens a comment, and a line break has no inline spelling";
+	case SHCL_SET_BAD_RAW_BODY: return "the block body has no spelling that reads back: a line ending in a carriage return is trimmed on the way back in, and a line spelling the closing fence would end the block early";
+	case SHCL_SET_BAD_COMMENT: return "the comment text is not one line";
+	case SHCL_SET_NOT_ONE_VALUE: return "the value text is not one value";
+	case SHCL_SET_NOT_UTF8: return "the text is not valid UTF-8";
+	case SHCL_SET_OUT_OF_RANGE: return "the int is outside the 64-bit range";
+	case SHCL_SET_NO_READ_BACK: return "the value has no spelling that reads back";
 	}
-	return "not a usable path";
+	return "the value has no spelling that reads back";
 }
 
 // One diagnostic line in the shape every command uses: `line N: Severity:
@@ -819,8 +789,8 @@ static void say_layered_diagnostics(const LayeredDoc *L) {
 // 0: one the scanner rejects, or one with a value part. A missing path or a
 // wildcard is still fine.
 static int unusable_path(shcl_doc *d, const char *path, size_t plen) {
-	shcl_set_path_check r = shcl_check_set_path(d, path, plen);
-	return r == SHCL_SET_PATH_BAD_PATH || r == SHCL_SET_PATH_VALUE_IN_PATH;
+	shcl_set_status r = shcl_check_set_path(d, path, plen);
+	return r == SHCL_SET_BAD_PATH || r == SHCL_SET_VALUE_IN_PATH;
 }
 
 // A path with a selector in brackets, the old spelling (E029). A 2.x habit
@@ -871,21 +841,18 @@ static int split_set(const char *arg, size_t *plen, const char **val) {
 
 // Apply one --set/--set-literal override. Both spellings share a list so they
 // apply in the order given, which decides the winner when two target one path.
-static int set_apply(shcl_doc *d, const SetOpt *s) {
+static shcl_set_status set_apply(shcl_doc *d, const SetOpt *s) {
 	size_t vlen = strlen(s->value);
-	int ok;
 	if (!strcmp(s->opt, "--remove")) {
 		// Removing nothing is not a failure, the same as the ops script's
 		// `remove`: the point of the option is the path's absence after.
 		shcl_remove(d, s->path, s->plen);
-		return 1;
+		return SHCL_SET_OK;
 	}
-	if (!strcmp(s->opt, "--set-literal")) ok = shcl_set_literal(d, s->path, s->plen, s->value, vlen);
-	else if (!strcmp(s->opt, "--set-default")) ok = shcl_set_string_default(d, s->path, s->plen, s->value, vlen);
-	else if (!strcmp(s->opt, "--set-literal-default")) ok = shcl_set_literal_default(d, s->path, s->plen, s->value, vlen);
-	else ok = shcl_set_string(d, s->path, s->plen, s->value, vlen);
-	if (!ok) fprintf(stderr, "%s: cannot write %.*s: %s\n", s->opt, (int)s->plen, s->path, describe_refusal(d, s->path, s->plen, strcmp(s->opt, "--set") && array_text(s->value, vlen), "the value text is not one value"));
-	return ok;
+	if (!strcmp(s->opt, "--set-literal")) return shcl_set_literal(d, s->path, s->plen, s->value, vlen);
+	if (!strcmp(s->opt, "--set-default")) return shcl_set_string_default(d, s->path, s->plen, s->value, vlen);
+	if (!strcmp(s->opt, "--set-literal-default")) return shcl_set_literal_default(d, s->path, s->plen, s->value, vlen);
+	return shcl_set_string(d, s->path, s->plen, s->value, vlen);
 }
 
 static int load_layered_from(Opts *o, const char *file, char *given, size_t given_len, int keep, LayeredDoc *out);
@@ -929,7 +896,12 @@ static int load_layered_from(Opts *o, const char *file, char *given, size_t give
 	// runs: a refused --set used to return with nothing said about them.
 	say_layered_diagnostics(out);
 	for (int i = 0; i < o->nsets; i++) {
-		if (!set_apply(out->doc, &o->sets[i])) { layered_free(out); return 1; }
+		shcl_set_status st = set_apply(out->doc, &o->sets[i]);
+		if (st != SHCL_SET_OK) {
+			fprintf(stderr, "%s: cannot write %.*s: %s\n", o->sets[i].opt, (int)o->sets[i].plen, o->sets[i].path, refusal(st, o->sets[i].path, o->sets[i].plen));
+			layered_free(out);
+			return 1;
+		}
 	}
 	return 0;
 }
@@ -1569,19 +1541,6 @@ static int op_text(const char *in, size_t n, char **out, size_t *outn) {
 	return ok;
 }
 
-// Which half of a `raw` op had no spelling, and why. The half is asked of the
-// library rather than worked out here: an empty info string always reads back,
-// so a write that still fails with one is the body's fault. Re-deriving the
-// rule in the CLI is how the two copies drift.
-static const char *raw_refusal(const char *content, size_t contn) {
-	shcl_doc *probe = shcl_new();
-	int body_ok = probe && shcl_set_raw(probe, "p", 1, content, contn, "", 0);
-	shcl_free(probe);
-	return body_ok ? "the info string has no spelling that reads back: a '#' in it opens a comment, and a line break has no inline spelling"
-	               : "the block body has no spelling that reads back: a line ending in a carriage return is trimmed on the way back in, and a line spelling the closing fence would end the block early";
-}
-
-
 // Reference-equivalent op-value gates: the same grammar Rust's i64/f64 FromStr
 // accepts, checked before conversion, so `abc`, `0x10`, `1_0`, padded or
 // non-ASCII digits, and out-of-range magnitudes are rejected instead of being
@@ -1703,8 +1662,9 @@ static int apply_op(shcl_doc *d, const char *line, size_t linelen, size_t lineno
 	}
 	const char *path = nf > 1 ? fp[1] : ""; size_t plen = nf > 1 ? fn[1] : 0;
 	const char *v = nf > 2 ? fp[2] : ""; size_t vn = nf > 2 ? fn[2] : 0;
-	int rc = 0, wrote = 1;
-	char *content = NULL; size_t contentn = 0; // a raw op's, for the refusal below
+	int rc = 0;
+	shcl_set_status wrote = SHCL_SET_OK;
+	char *content = NULL; size_t contentn = 0; // a raw op's body
 	size_t opn_full = fn[0]; // the op as written, for the unknown-op message
 	int only_absent = 0;
 	if (fn[0] >= 8 && memcmp(fp[0] + fn[0] - 8, "-default", 8) == 0) {
@@ -1757,15 +1717,8 @@ static int apply_op(shcl_doc *d, const char *line, size_t linelen, size_t lineno
 		else { op_err(lineno, "bad banner: %.*s (on or off)", (int)plen, path); rc = 1; }
 	}
 	else { op_err(lineno, "unknown op: %.*s", (int)opn_full, fp[0]); rc = 1; }
-	if (rc == 0 && !wrote) {
-		// Which half of the op had no spelling: the reader is otherwise sent to
-		// the value when it was the info string or the comment that failed.
-		const char *unwritable = "the value has no spelling that reads back";
-		if (OP("literal")) unwritable = "the value text is not one value";
-		else if (OP("comment")) unwritable = "the comment text is not one line";
-		else if (OP("raw")) unwritable = raw_refusal(content, contentn);
-		int array = (fn[0] > 6 && memcmp(fp[0] + fn[0] - 6, "-array", 6) == 0) || (OP("literal") && array_text(v, vn));
-		op_err(lineno, "cannot write %.*s: %s", (int)plen, path, describe_refusal(d, path, plen, array, unwritable));
+	if (rc == 0 && wrote != SHCL_SET_OK) {
+		op_err(lineno, "cannot write %.*s: %s", (int)plen, path, refusal(wrote, path, plen));
 		rc = 1;
 	}
 	#undef SET

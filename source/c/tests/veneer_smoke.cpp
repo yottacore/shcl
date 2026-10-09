@@ -33,6 +33,7 @@ static int test_id_end(int failed) {
 
 int main() {
 	test_id("EjtkR0S", "veneer_smoke");
+	using S = shcl::SetStatus;
 	const std::string src =
 		"name: demo\n"
 		"port: 8080\n"
@@ -78,8 +79,8 @@ int main() {
 	auto kids = doc.children("");
 	CHECK(kids.size() == 7 && kids[0] == "name" && kids[5] == "city" && kids[6] == "city");
 	CHECK(doc.children("nope").empty());
-	CHECK(doc.check_set_path("port") == shcl::SetPathCheck::Ok);
-	CHECK(doc.check_set_path("city(*)") == shcl::SetPathCheck::Wildcard);
+	CHECK(doc.check_set_path("port") == S::Ok);
+	CHECK(doc.check_set_path("city(*)") == S::Wildcard);
 	auto multi = doc.read_string("city");
 	CHECK(multi.status == shcl::Status::Multiple);
 
@@ -374,28 +375,28 @@ int main() {
 	// not be written at all before the veneer had setters.
 	{
 		auto w = shcl::Document::parse("port: 8080\n");
-		CHECK(w.set_int("port", 9090) && w.get_or<int64_t>("port", 0) == 9090);
-		CHECK(w.set_float("ratio", 0.25) && w.get_or<double>("ratio", 0) == 0.25);
-		CHECK(!w.set_float("inf", std::numeric_limits<double>::infinity()) && !w.exists("inf"));
-		CHECK(w.set_bool("on", true) && w.get_or<bool>("on", false));
-		CHECK(w.set_string("name", "a, b") && w.read_string("name").value == "a, b");
-		CHECK(w.set_raw("q", "select 1", "sql") && w.get_raw_or("q", "") == "select 1" && w.get_raw_info_or("q", "") == "sql");
-		CHECK(!w.set_raw("q2", "x", "c#") && !w.exists("q2"));
-		CHECK(w.set_int_array("ports", {80, 443}) && w.read_int_array("ports").value == std::vector<int64_t>({80, 443}));
-		CHECK(w.set_float_array("fs", {1.5, 2}) && w.read_float_array("fs").value == std::vector<double>({1.5, 2}));
-		CHECK(w.set_bool_array("flags", {true, false, true}) && w.read_bool_array("flags").value == std::vector<bool>({true, false, true}));
-		CHECK(w.set_string_array("tags", {"red", "a,b", ""}) && w.read_string_array("tags").value == std::vector<std::string>({"red", "a,b", ""}));
-		CHECK(w.set_literal("lit", "[80, 443] # two") && w.read_int_array("lit").value == std::vector<int64_t>({80, 443}));
-		CHECK(!w.set_literal("lit3", "80, 443") && !w.exists("lit3"));
-		CHECK(!w.set_literal("lit2", "\"open") && !w.exists("lit2"));
+		CHECK(w.set_int("port", 9090) == S::Ok && w.get_or<int64_t>("port", 0) == 9090);
+		CHECK(w.set_float("ratio", 0.25) == S::Ok && w.get_or<double>("ratio", 0) == 0.25);
+		CHECK(w.set_float("inf", std::numeric_limits<double>::infinity()) == S::NotFinite && !w.exists("inf"));
+		CHECK(w.set_bool("on", true) == S::Ok && w.get_or<bool>("on", false));
+		CHECK(w.set_string("name", "a, b") == S::Ok && w.read_string("name").value == "a, b");
+		CHECK(w.set_raw("q", "select 1", "sql") == S::Ok && w.get_raw_or("q", "") == "select 1" && w.get_raw_info_or("q", "") == "sql");
+		CHECK(w.set_raw("q2", "x", "c#") == S::BadRawInfo && !w.exists("q2"));
+		CHECK(w.set_int_array("ports", {80, 443}) == S::Ok && w.read_int_array("ports").value == std::vector<int64_t>({80, 443}));
+		CHECK(w.set_float_array("fs", {1.5, 2}) == S::Ok && w.read_float_array("fs").value == std::vector<double>({1.5, 2}));
+		CHECK(w.set_bool_array("flags", {true, false, true}) == S::Ok && w.read_bool_array("flags").value == std::vector<bool>({true, false, true}));
+		CHECK(w.set_string_array("tags", {"red", "a,b", ""}) == S::Ok && w.read_string_array("tags").value == std::vector<std::string>({"red", "a,b", ""}));
+		CHECK(w.set_literal("lit", "[80, 443] # two") == S::Ok && w.read_int_array("lit").value == std::vector<int64_t>({80, 443}));
+		CHECK(w.set_literal("lit3", "80, 443") == S::NotOneValue && !w.exists("lit3"));
+		CHECK(w.set_literal("lit2", "\"open") == S::NotOneValue && !w.exists("lit2"));
 		auto stamps = shcl::Document::parse("t: [2026-08-02T10:20:30.5Z, 2026-09-01]\n").read_datetime_array("t");
 		CHECK(stamps.ok() && stamps.value.size() == 2);
-		CHECK(w.set_datetime("when", stamps.value[0]) && w.read_datetime_str("when").value == "2026-08-02T10:20:30.5Z");
-		CHECK(w.set_datetime_array("whens", stamps.value) && w.read_datetime_array_str("whens").value == std::vector<std::string>({"2026-08-02T10:20:30.5Z", "2026-09-01"}));
-		CHECK(!w.set_datetime("never", shcl::DateTime()) && !w.set_datetime_array("nevers", {stamps.value[1], shcl::DateTime()}));
-		CHECK(w.set_empty("blank") && w.read_string("blank").status == shcl::Status::Empty);
-		CHECK(w.set_comment("port", "the port") && w.to_canonical().find("# the port\nport: 9090\n") != std::string::npos);
-		CHECK(!w.set_comment("port", "two\nlines"));
+		CHECK(w.set_datetime("when", stamps.value[0]) == S::Ok && w.read_datetime_str("when").value == "2026-08-02T10:20:30.5Z");
+		CHECK(w.set_datetime_array("whens", stamps.value) == S::Ok && w.read_datetime_array_str("whens").value == std::vector<std::string>({"2026-08-02T10:20:30.5Z", "2026-09-01"}));
+		CHECK(w.set_datetime("never", shcl::DateTime()) == S::BadDateTime && w.set_datetime_array("nevers", {stamps.value[1], shcl::DateTime()}) == S::BadDateTime);
+		CHECK(w.set_empty("blank") == S::Ok && w.read_string("blank").status == shcl::Status::Empty);
+		CHECK(w.set_comment("port", "the port") == S::Ok && w.to_canonical().find("# the port\nport: 9090\n") != std::string::npos);
+		CHECK(w.set_comment("port", "two\nlines") == S::BadComment);
 		CHECK(w.clear_comments("port") == 1 && w.to_canonical().find("# the port") == std::string::npos);
 		CHECK(w.set_banner(true) == 0 && w.to_canonical().find("## This config file format is SHCL.\n") != std::string::npos);
 		CHECK(w.set_banner(false) == 1 && w.to_canonical().find("##") == std::string::npos);
@@ -403,30 +404,34 @@ int main() {
 		// document not loaded for it writes the canonical form.
 		auto kept = shcl::Document::parse_keep_lines("Name:   \"x\"   # c\nblock:\n    a: 1\n", shcl::Strictness::Standard);
 		CHECK(kept.to_text_keep_lines() == std::make_pair(std::string("Name:   \"x\"   # c\nblock:\n    a: 1\n"), true));
-		CHECK(kept.set_int("block.a", 2) && kept.set_int("block.b", 3));
+		CHECK(kept.set_int("block.a", 2) == S::Ok && kept.set_int("block.b", 3) == S::Ok);
 		CHECK(kept.to_text_keep_lines() == std::make_pair(std::string("Name:   \"x\"   # c\nblock:\n    a: 2\n    b: 3\n"), true));
 		CHECK(w.to_text_keep_lines() == std::make_pair(w.to_canonical(), false));
-		CHECK(!w.set_int("a(*)", 1) && w.check_set_path("a(*)") == shcl::SetPathCheck::Wildcard);
-		CHECK(!w.set_int("a[x]", 1) && w.check_set_path("a[x]") == shcl::SetPathCheck::BadPath);
+		CHECK(w.set_int("a(*)", 1) == S::Wildcard && w.check_set_path("a(*)") == S::Wildcard);
+		CHECK(w.set_int("a[x]", 1) == S::BadPath && w.check_set_path("a[x]") == S::BadPath);
 		// A repeated path is refused; an index picks one.
 		auto twice = shcl::Document::parse("p: 1\np: 2\n");
-		CHECK(!twice.set_int("p", 9) && twice.check_set_path("p") == shcl::SetPathCheck::Multiple);
-		CHECK(twice.set_int("p(1)", 9) && twice.get_or<int64_t>("p(1)", 0) == 9);
+		CHECK(twice.set_int("p", 9) == S::Multiple && twice.check_set_path("p") == S::Multiple);
+		CHECK(twice.set_int("p(1)", 9) == S::Ok && twice.get_or<int64_t>("p(1)", 0) == 9);
 		// A refused value leaves the path check at Ok, as the setter notes say.
-		CHECK(!w.set_float("nan", std::numeric_limits<double>::quiet_NaN()) && w.check_set_path("nan") == shcl::SetPathCheck::Ok);
-		CHECK(!w.set_literal("lit", "a, b") && w.check_set_path("lit") == shcl::SetPathCheck::Ok);
-		CHECK(!w.set_string("u8", "a\xff" "b") && w.check_set_path("u8") == shcl::SetPathCheck::Ok);
+		CHECK(w.set_float("nan", std::numeric_limits<double>::quiet_NaN()) == S::NotFinite && w.check_set_path("nan") == S::Ok);
+		CHECK(w.set_literal("lit", "a, b") == S::NotOneValue && w.check_set_path("lit") == S::Ok);
+		CHECK(w.set_string("u8", "a\xff" "b") == S::NotUtf8 && w.check_set_path("u8") == S::Ok);
+		// The two E028 reasons, one from the path and one from the value.
+		CHECK(w.set_int("ports.x", 1) == S::UnderArray && w.check_set_path("ports.x") == S::UnderArray);
+		CHECK(w.set_int("hc.x", 1) == S::Ok && w.set_int_array("hc", {1}) == S::HasChildren);
+		CHECK(std::string(shcl::to_string(S::Ok)) == "Ok" && std::string(shcl::to_string(S::NoReadBack)) == "NoReadBack" && static_cast<int>(S::NoReadBack) == 17);
 		CHECK(w.remove("blank") == 1 && !w.exists("blank") && w.remove("blank") == 0);
 
 		// A default form leaves a present field alone and still says whether the
 		// value could have been written there.
-		CHECK(w.set_int_default("port", 1) && w.get_or<int64_t>("port", 0) == 9090);
-		CHECK(!w.set_float_default("ratio", std::numeric_limits<double>::infinity()) && w.get_or<double>("ratio", 0) == 0.25);
-		CHECK(w.set_int_default("d.i", 1) && w.set_float_default("d.f", 0.5) && w.set_bool_default("d.b", false));
-		CHECK(w.set_string_default("d.s", "x") && w.set_literal_default("d.l", "[1, 2]") && w.set_raw_default("d.r", "body", ""));
-		CHECK(w.set_datetime_default("d.t", stamps.value[1]) && w.set_int_array_default("d.ia", {1}) && w.set_float_array_default("d.fa", {1.5}));
-		CHECK(w.set_bool_array_default("d.ba", {true}) && w.set_string_array_default("d.sa", {"s"}) && w.set_datetime_array_default("d.ta", stamps.value));
-		CHECK(w.set_string_default("d.s", "y") && w.get_or<std::string>("d.s", "") == "x");
+		CHECK(w.set_int_default("port", 1) == S::Ok && w.get_or<int64_t>("port", 0) == 9090);
+		CHECK(w.set_float_default("ratio", std::numeric_limits<double>::infinity()) == S::NotFinite && w.get_or<double>("ratio", 0) == 0.25);
+		CHECK(w.set_int_default("d.i", 1) == S::Ok && w.set_float_default("d.f", 0.5) == S::Ok && w.set_bool_default("d.b", false) == S::Ok);
+		CHECK(w.set_string_default("d.s", "x") == S::Ok && w.set_literal_default("d.l", "[1, 2]") == S::Ok && w.set_raw_default("d.r", "body", "") == S::Ok);
+		CHECK(w.set_datetime_default("d.t", stamps.value[1]) == S::Ok && w.set_int_array_default("d.ia", {1}) == S::Ok && w.set_float_array_default("d.fa", {1.5}) == S::Ok);
+		CHECK(w.set_bool_array_default("d.ba", {true}) == S::Ok && w.set_string_array_default("d.sa", {"s"}) == S::Ok && w.set_datetime_array_default("d.ta", stamps.value) == S::Ok);
+		CHECK(w.set_string_default("d.s", "y") == S::Ok && w.get_or<std::string>("d.s", "") == "x");
 
 		// All of it survives a save and a reload.
 		auto back = shcl::Document::parse(w.to_canonical());
@@ -520,7 +525,7 @@ int main() {
 		CHECK(strict.save_file(f) == shcl::SaveResult::Ok);
 		{ FILE *fh = std::fopen(f.c_str(), "wb"); CHECK(fh && std::fputs("a:   1\n", fh) != EOF && std::fclose(fh) == 0); }
 		auto [keeping, keepingSt] = shcl::Document::load_file_keep_lines(f, shcl::Strictness::Standard);
-		CHECK(keepingSt == shcl::FileStatus::Clean && keeping.set_int("b", 2));
+		CHECK(keepingSt == shcl::FileStatus::Clean && keeping.set_int("b", 2) == S::Ok);
 		CHECK(keeping.save_file_keep_lines(f) == std::make_pair(shcl::SaveResult::Ok, true));
 		CHECK(shcl::read_file(f).first == "a:   1\n\nb: 2\n");
 		// Strict fails the load from every entry point the same way:

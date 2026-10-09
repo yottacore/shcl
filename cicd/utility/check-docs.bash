@@ -618,7 +618,7 @@ if [[ -f "${readme}" ]]; then
 		block="$(awk -v f="^~~~+${fence}\$" '$0 ~ f, /^~~~+$/' "${readme}")"
 		[[ -n "${block}" ]] || { fBad "README.md has no \`\`\`${fence} example, so its setter checks went unread"; continue ;}
 		calls="$(grep -cE '(doc\.[Ss]et[A-Za-z_]+\(|shcl_set_[a-z]+\(doc)' <<<"${block}" || true)"
-		checked="$(grep -cE '(if !doc\.[Ss]et|if not doc\.set_|if \(!shcl_set_|!= *(SetStatus::Ok|shcl\.SetOk|SHCL_SET_OK)|is not (shcl\.)?SetStatus\.Ok)' <<<"${block}" || true)"
+		checked="$(grep -cE '(if !doc\.[Ss]et|if not doc\.set_|!= *(SetStatus::Ok|shcl\.SetOk|SHCL_SET_OK)|is not (shcl\.)?SetStatus\.Ok)' <<<"${block}" || true)"
 		((calls == 0)) && continue
 		((checked >= calls)) || fBad "README ${fence} example calls ${calls} setter(s) and checks ${checked}"
 	done

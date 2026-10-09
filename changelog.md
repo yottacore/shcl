@@ -66,7 +66,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `write_reason` is renamed `check_set_path` (Go `CheckSetPath`, C `shcl_check_set_path`). It returns a `SetStatus`, below, and its `Writable` value is `Ok`.
 
-- Every setter returns a `SetStatus` in place of true or false: `Ok` when the write applied, or why it wrote nothing, such as `Wildcard`, `NotFinite` or `NotOneValue`. When the path and the value are both wrong, the path's reason comes back. In Rust the status is `#[must_use]`; compare it with `SetStatus::Ok`. Go's values are `SetOk` to `SetNoReadBack`; compare with `SetOk`. In Python only `Ok` is true, so `if not doc.set_int(...)` still means refused.
+- Every setter returns a `SetStatus` in place of true or false: `Ok` when the write applied, or why it wrote nothing, such as `Wildcard`, `NotFinite` or `NotOneValue`. When the path and the value are both wrong, the path's reason comes back. In Rust the status is `#[must_use]`; compare it with `SetStatus::Ok`. Go's values are `SetOk` to `SetNoReadBack`; compare with `SetOk`. In Python only `Ok` is true, so `if not doc.set_int(...)` still means refused. C's values are `SHCL_SET_OK` to `SHCL_SET_NO_READ_BACK`, of type `shcl_set_status`, and `shcl_set_status_name` gives the name. `SHCL_SET_OK` is 0, so an old `if (!shcl_set_int(...))` now fires on success and has to become `!= SHCL_SET_OK`. C++ returns `SetStatus`, with `to_string`.
 
 - `check_set_path` says `UnderArray` for a field under one holding an array, where it said `Ok`.
 

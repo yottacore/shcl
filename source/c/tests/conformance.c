@@ -111,7 +111,7 @@ static void soup_fail(const char *msg, int kind, const char *in, size_t n) {
 }
 /* One setter of the round-trip fixture, by number, so the shared document
    takes exactly what the one-off did. */
-static int soup_set(shcl_doc *d, int kind, const char *p, size_t pn, const char *in, size_t inn) {
+static shcl_set_status soup_set(shcl_doc *d, int kind, const char *p, size_t pn, const char *in, size_t inn) {
 	switch (kind) {
 	case 0: return shcl_set_string(d, p, pn, in, inn);
 	case 1: return shcl_set_literal(d, p, pn, in, inn);
@@ -354,7 +354,8 @@ static int try_apply_op_c(shcl_doc *d, char *line) {
 	const char *v = nf > 2 ? f[2] : ""; size_t vn = nf > 2 ? strlen(f[2]) : 0;
 	size_t an = nf > 2 ? nf - 2 : 0;
 	size_t oplen = strlen(op);
-	int only_absent = 0, rc = 0, wrote = 1;
+	int only_absent = 0, rc = 0;
+	shcl_set_status wrote = SHCL_SET_OK;
 	if (oplen >= 8 && !strcmp(op + oplen - 8, "-default")) {
 		only_absent = 1;
 		op[oplen - 8] = '\0';
@@ -410,7 +411,7 @@ static int try_apply_op_c(shcl_doc *d, char *line) {
 		else rc = 1;
 	}
 	else rc = 2; // no such op here: a misspelled bad-ops row is a fixture bug
-	if (rc == 0 && !wrote) rc = 1;
+	if (rc == 0 && wrote != SHCL_SET_OK) rc = 1;
 	#undef SET
 	free(f);
 	return rc;
@@ -771,7 +772,7 @@ static int keeps_every_line(const char *base, size_t n) {
 	int ok = 1, kept = 0, clean = 1;
 	for (size_t i = 0; i < shcl_diag_count(d); i++)
 		if (shcl_diag_severity(d, i) == SHCL_SEV_ERROR) clean = 0;
-	if (clean && shcl_set_int(d, "zz_new", 6, 1)) {
+	if (clean && shcl_set_int(d, "zz_new", 6, 1) == SHCL_SET_OK) {
 		shcl_str t = shcl_to_text_keep_lines(d, &kept);
 		size_t at = 0;
 		for (size_t p = 0; kept && ok && p < n;) {
@@ -941,13 +942,13 @@ static void edits_and_merges_match_a_reload(void) {
 				shcl_doc *d = docs[k];
 				switch (op) {
 				case 0: case 1: { shcl_doc *l = shcl_parse(layer.p, layer.n); shcl_merge(d, l); shcl_free(l); break; }
-				case 2: applied += shcl_set_int(d, path.p, path.n, 7); break;
-				case 3: applied += shcl_set_string(d, path.p, path.n, v, strlen(v)); break;
+				case 2: applied += shcl_set_int(d, path.p, path.n, 7) == SHCL_SET_OK; break;
+				case 3: applied += shcl_set_string(d, path.p, path.n, v, strlen(v)) == SHCL_SET_OK; break;
 				case 4: applied += (int)shcl_remove(d, path.p, path.n); break;
-				case 5: applied += shcl_set_comment(d, path.p, path.n, v, strlen(v)); break;
-				case 6: applied += shcl_set_empty(d, path.p, path.n); break;
-				case 7: applied += shcl_set_raw(d, path.p, path.n, "body", 4, v, strlen(v)); break;
-				case 8: applied += shcl_set_int_default(d, path.p, path.n, 1); break;
+				case 5: applied += shcl_set_comment(d, path.p, path.n, v, strlen(v)) == SHCL_SET_OK; break;
+				case 6: applied += shcl_set_empty(d, path.p, path.n) == SHCL_SET_OK; break;
+				case 7: applied += shcl_set_raw(d, path.p, path.n, "body", 4, v, strlen(v)) == SHCL_SET_OK; break;
+				case 8: applied += shcl_set_int_default(d, path.p, path.n, 1) == SHCL_SET_OK; break;
 				case 9: applied += (int)shcl_clear_comments(d, path.p, path.n); break;
 				default: applied += (int)shcl_set_banner(d, strcmp(v, "v0") != 0); break;
 				}
@@ -1006,6 +1007,77 @@ static void edits_and_merges_match_a_reload(void) {
 static int str_is(shcl_str s, const char *w) { return s.n == strlen(w) && memcmp(s.p, w, s.n) == 0; }
 
 /* Both documents list the same paths in the same order. */
+/* A setter's status agrees with shcl_check_set_path over generated
+   documents: a path reason is what the path check gives for that path, a
+   value reason comes with a path that checks OK, and a refusal writes
+   nothing. The reference runs it over its fuzz soup; this runs it over the
+   sequence fixture's documents and the setter soup, as the Python runner
+   does. */
+static void setter_status_agrees_with_the_path_check(void) {
+	static const char *const alpha[] = { "\"", "'", "\\", "#", ",", "[", "]", "\r", "\n", " ", "\t", "\xc2\xa0", "a" };
+	enum { NALPHA = sizeof alpha / sizeof alpha[0], NSOUP = 1 + NALPHA + NALPHA * NALPHA };
+	static char soup[NSOUP][8];
+	size_t ns = 0;
+	soup[ns++][0] = 0;
+	for (size_t x = 0; x < NALPHA; x++) {
+		snprintf(soup[ns++], sizeof soup[0], "%s", alpha[x]);
+		for (size_t y = 0; y < NALPHA; y++) snprintf(soup[ns++], sizeof soup[0], "%s%s", alpha[x], alpha[y]);
+	}
+	static const char *const tails[] = { "", "", "", "", ".kid", "(*)", "(7)", "..x" };
+	const int64_t two[] = {1, 2}, three[] = {3};
+	seq_s = 0x5EED57A71C0000D1ULL;
+	SeqBuf text = {0}, path = {0}, before = {0};
+	int seen[SHCL_SET_NO_READ_BACK + 1] = {0}, bad = 0;
+	for (int i = 0; i < 3000 && !bad; i++) {
+		seq_doc(&text);
+		shcl_doc *d = shcl_parse(text.p, text.n);
+		shcl_str *paths; size_t np = shcl_paths(d, &paths);
+		path.n = 0; seq_put(&path, "", 0);
+		if (np == 0 || seq_below(4) == 0) { seq_puts(&path, "new"); seq_num(&path, seq_below(3)); seq_puts(&path, ".k"); }
+		else { shcl_str pick = paths[seq_below(np)]; seq_put(&path, pick.p, pick.n); }
+		seq_puts(&path, tails[seq_below(8)]);
+		const char *v = soup[seq_below(NSOUP)];
+		size_t vn = strlen(v);
+		shcl_set_status checked = shcl_check_set_path(d, path.p, path.n);
+		shcl_str bt = shcl_to_canonical(d);
+		before.n = 0; seq_put(&before, bt.p, bt.n);
+		size_t op = seq_below(10);
+		shcl_set_status got;
+		switch (op) {
+		case 0: got = shcl_set_int(d, path.p, path.n, 7); break;
+		case 1: got = shcl_set_string(d, path.p, path.n, v, vn); break;
+		case 2: got = shcl_set_literal(d, path.p, path.n, v, vn); break;
+		case 3: got = shcl_set_comment(d, path.p, path.n, v, vn); break;
+		case 4: { const char *info = soup[seq_below(NSOUP)]; got = shcl_set_raw(d, path.p, path.n, v, vn, info, strlen(info)); break; }
+		case 5: got = shcl_set_int_array(d, path.p, path.n, two, 2); break;
+		case 6: got = shcl_set_float(d, path.p, path.n, vn % 2 == 0 ? NAN : 1.5); break;
+		case 7: got = shcl_set_literal_default(d, path.p, path.n, v, vn); break;
+		case 8: got = shcl_set_int_array_default(d, path.p, path.n, three, 1); break;
+		default: got = shcl_set_empty(d, path.p, path.n); break;
+		}
+		if ((size_t)got <= SHCL_SET_NO_READ_BACK) seen[got] = 1;
+		shcl_set_status want = got <= SHCL_SET_UNDER_ARRAY ? got : SHCL_SET_OK;
+		if (checked != want) {
+			fprintf(stderr, "FAIL setter_status: iteration %d: op %zu at %s gave %s, check_set_path %s:\n%s", i, op, path.p, shcl_set_status_name(got), shcl_set_status_name(checked), text.p);
+			nfail++; bad = 1;
+		}
+		shcl_str after = shcl_to_canonical(d);
+		if (got != SHCL_SET_OK && (after.n != before.n || memcmp(after.p, before.p, after.n) != 0)) {
+			fprintf(stderr, "FAIL setter_status: iteration %d: op %zu at %s gave %s and wrote:\n%s", i, op, path.p, shcl_set_status_name(got), text.p);
+			nfail++; bad = 1;
+		}
+		shcl_free(d);
+	}
+	/* Guard: the documents still reach path and value reasons both. */
+	static const shcl_set_status reach[] = {
+		SHCL_SET_OK, SHCL_SET_BAD_PATH, SHCL_SET_WILDCARD, SHCL_SET_NO_SUCH_INDEX, SHCL_SET_MULTIPLE, SHCL_SET_UNDER_ARRAY,
+		SHCL_SET_HAS_CHILDREN, SHCL_SET_NOT_FINITE, SHCL_SET_BAD_RAW_INFO, SHCL_SET_BAD_COMMENT, SHCL_SET_NOT_ONE_VALUE,
+	};
+	for (size_t k = 0; !bad && k < sizeof reach / sizeof reach[0]; k++)
+		if (!seen[reach[k]]) { fprintf(stderr, "FAIL setter_status: never saw %s\n", shcl_set_status_name(reach[k])); nfail++; }
+	free(text.p); free(path.p); free(before.p);
+}
+
 static int same_paths(shcl_doc *x, shcl_doc *y) {
 	shcl_str *px, *py;
 	size_t nx = shcl_paths(x, &px), ny = shcl_paths(y, &py);
@@ -1490,7 +1562,7 @@ int main(int argc, char **argv) {
 					if (slines[li][0] == '\0' || slines[li][0] == '#') continue;
 					const char *eq = strchr(slines[li], '=');
 					if (!eq) { fail(names[ci], "bad merge.sets line"); continue; }
-					if (!shcl_set_string(md, slines[li], (size_t)(eq - slines[li]), eq + 1, strlen(eq + 1))) fail(names[ci], "merge.set did not apply");
+					if (shcl_set_string(md, slines[li], (size_t)(eq - slines[li]), eq + 1, strlen(eq + 1)) != SHCL_SET_OK) fail(names[ci], "merge.set did not apply");
 				}
 				free(slines); free(ms);
 			}
@@ -1753,7 +1825,7 @@ int main(int argc, char **argv) {
 		sn = shcl_authored_name(nd, "code", 4);
 		if (sn.n != 4 || memcmp(sn.p, "Code", 4) != 0) fail("authored_name", "code spelling mismatch");
 		if (shcl_authored_name(nd, "missing", 7).n != 0) fail("authored_name", "missing path not empty");
-		if (!shcl_set_int(nd, "NewTop.n", 8, 1)) fail("authored_name", "set_int NewTop.n failed");
+		if (shcl_set_int(nd, "NewTop.n", 8, 1) != SHCL_SET_OK) fail("authored_name", "set_int NewTop.n failed");
 		sn = shcl_authored_name(nd, "newtop", 6);
 		if (sn.n != 6 || memcmp(sn.p, "NewTop", 6) != 0) fail("authored_name", "newtop spelling mismatch");
 		shcl_free(nd);
@@ -2115,7 +2187,7 @@ int main(int argc, char **argv) {
 			if (rt || rst != SHCL_FILE_NOT_FOUND) fail("file_tier", "read_file missing");
 			free(rt);
 		}
-		if (!shcl_set_int(fd, "c", 1, 3)) fail("file_tier", "set_int failed");
+		if (shcl_set_int(fd, "c", 1, 3) != SHCL_SET_OK) fail("file_tier", "set_int failed");
 		if (shcl_save_file(fd, tfile) != SHCL_SAVE_OK) fail("file_tier", "save failed");
 		shcl_doc *fb = shcl_load_file(tfile, &fst);
 		shcl_str c1 = shcl_to_canonical(fd), c2 = shcl_to_canonical(fb);
@@ -2267,7 +2339,7 @@ int main(int argc, char **argv) {
 		// refuses only when it falls back to canonical. Here removing the line
 		// above it would make it a child of `a`.
 		shcl_doc *kl = shcl_parse_keep_lines(lt2, strlen(lt2), SHCL_STANDARD);
-		if (!shcl_set_int(kl, "a.b", 3, 5)) fail("lost", "keep set failed");
+		if (shcl_set_int(kl, "a.b", 3, 5) != SHCL_SET_OK) fail("lost", "keep set failed");
 		int klk = 0;
 		if (shcl_save_file_keep_lines(kl, tfile, &klk) != SHCL_SAVE_OK || !klk) fail("lost", "keep save did not keep a dropped line");
 		size_t kll = 0; shcl_file_status kls;
@@ -2398,7 +2470,7 @@ int main(int argc, char **argv) {
 		};
 		for (size_t i = 0; i < sizeof sc / sizeof sc[0]; i++) {
 			shcl_doc *sd = shcl_parse_keep_lines(sc[i].text, strlen(sc[i].text), SHCL_STANDARD);
-			int took = shcl_set_int(sd, sc[i].path, strlen(sc[i].path), 5);
+			int took = shcl_set_int(sd, sc[i].path, strlen(sc[i].path), 5) == SHCL_SET_OK;
 			shcl_str out = shcl_to_canonical(sd);
 			if (!took || shcl_lost_count(sd) != 0 || out.n != strlen(sc[i].want) || memcmp(out.p, sc[i].want, out.n) != 0) {
 				fail("kept_gate", sc[i].text);
@@ -2427,7 +2499,7 @@ int main(int argc, char **argv) {
 		};
 		for (size_t i = 0; i < sizeof bc / sizeof bc[0]; i++) {
 			shcl_doc *bd = shcl_parse("a: [1\n\tb: 2\n", 12);
-			int took = shcl_set_int(bd, bc[i].path, strlen(bc[i].path), 5);
+			int took = shcl_set_int(bd, bc[i].path, strlen(bc[i].path), 5) == SHCL_SET_OK;
 			shcl_str out = shcl_to_canonical(bd);
 			if (!took || out.n != strlen(bc[i].want) || memcmp(out.p, bc[i].want, out.n) != 0) fail("kept_gate", bc[i].path);
 			shcl_free(bd);
@@ -2468,7 +2540,7 @@ int main(int argc, char **argv) {
 #undef SETTER_NOTE
 		for (size_t i = 0; i < sizeof ec / sizeof ec[0]; i++) {
 			shcl_doc *ed = shcl_parse_keep_lines(ec[i].text, strlen(ec[i].text), SHCL_STANDARD);
-			int took = shcl_set_int(ed, ec[i].path, strlen(ec[i].path), 5);
+			int took = shcl_set_int(ed, ec[i].path, strlen(ec[i].path), 5) == SHCL_SET_OK;
 			shcl_str out = shcl_to_canonical(ed);
 			if (!took || shcl_lost_count(ed) != 0 || out.n != strlen(ec[i].want) || memcmp(out.p, ec[i].want, out.n) != 0) {
 				fail("kept_gate", ec[i].text);
@@ -2494,14 +2566,14 @@ int main(int argc, char **argv) {
 			static const char tv[] = "a: 1\na: 2\n";
 			shcl_doc *td = shcl_parse_keep_lines(tv, strlen(tv), SHCL_STANDARD);
 			int tkept = 0;
-			int ttook = shcl_set_int(td, "a", 1, 5);
+			int ttook = shcl_set_int(td, "a", 1, 5) == SHCL_SET_OK;
 			shcl_str tk = shcl_to_text_keep_lines(td, &tkept);
 			if (ttook || !tkept || tk.n != strlen(tv) || memcmp(tk.p, tv, tk.n) != 0) fail("kept_gate", "two valid lines");
 			shcl_free(td);
 		}
 		// shcl_set_comment makes the field without touching the line.
 		shcl_doc *cd = shcl_parse("a: [1\ny: 3\n", 11);
-		int took = shcl_set_comment(cd, "a", 1, "n", 1);
+		int took = shcl_set_comment(cd, "a", 1, "n", 1) == SHCL_SET_OK;
 		shcl_str out = shcl_to_canonical(cd);
 		static const char cwant[] = "a: [1\ny: 3\n\n# n\na:\n";
 		if (!took || out.n != strlen(cwant) || memcmp(out.p, cwant, out.n) != 0) fail("kept_gate", "set_comment beside a kept line");
@@ -2616,43 +2688,43 @@ int main(int argc, char **argv) {
 	test_id("EoM5gS8", "set_raw_keeps_a_shared_indent_and_trims_the_info");
 	{
 		shcl_doc *sd = shcl_new();
-		if (!shcl_set_raw(sd, "q", 1, "  a\n  b", 7, " sql ", 5)) fail("set_raw", "set_raw failed");
+		if (shcl_set_raw(sd, "q", 1, "  a\n  b", 7, " sql ", 5) != SHCL_SET_OK) fail("set_raw", "set_raw failed");
 		shcl_str sc = shcl_to_canonical(sd);
 		shcl_doc *back = shcl_parse(sc.p, sc.n);
 		shcl_read_str br = shcl_read_raw(back, "q", 1);
 		if (br.status != SHCL_GOOD || br.value.n != 7 || memcmp(br.value.p, "  a\n  b", 7) != 0) fail("set_raw", "shared indent did not survive a reload");
 		shcl_read_str bi = shcl_read_raw_info(back, "q", 1);
 		if (bi.status != SHCL_GOOD || bi.value.n != 3 || memcmp(bi.value.p, "sql", 3) != 0) fail("set_raw", "info not trimmed");
-		if (shcl_set_raw(sd, "q", 1, "x", 1, "a\nb", 3)) fail("set_raw", "info with a newline accepted");
+		if (shcl_set_raw(sd, "q", 1, "x", 1, "a\nb", 3) == SHCL_SET_OK) fail("set_raw", "info with a newline accepted");
 		br = shcl_read_raw(sd, "q", 1);
 		if (br.status != SHCL_GOOD || br.value.n != 7 || memcmp(br.value.p, "  a\n  b", 7) != 0) fail("set_raw", "refused write changed the document");
 		// A trailing CR is a blank and comes off, as the load takes it; one
 		// mid-info is content.
-		if (!shcl_set_raw(sd, "q", 1, "x", 1, "ab\r", 3)) fail("set_raw", "info ending in a CR refused");
+		if (shcl_set_raw(sd, "q", 1, "x", 1, "ab\r", 3) != SHCL_SET_OK) fail("set_raw", "info ending in a CR refused");
 		shcl_free(back);
 		sc = shcl_to_canonical(sd);
 		back = shcl_parse(sc.p, sc.n);
 		bi = shcl_read_raw_info(back, "q", 1);
 		if (bi.status != SHCL_GOOD || bi.value.n != 2 || memcmp(bi.value.p, "ab", 2) != 0) fail("set_raw", "trailing CR on an info not trimmed");
-		if (!shcl_set_raw(sd, "q", 1, "x", 1, "a\rb", 3)) fail("set_raw", "info with a mid-string CR refused");
+		if (shcl_set_raw(sd, "q", 1, "x", 1, "a\rb", 3) != SHCL_SET_OK) fail("set_raw", "info with a mid-string CR refused");
 		shcl_free(back);
 		sc = shcl_to_canonical(sd);
 		back = shcl_parse(sc.p, sc.n);
 		bi = shcl_read_raw_info(back, "q", 1);
 		if (bi.status != SHCL_GOOD || bi.value.n != 3 || memcmp(bi.value.p, "a\rb", 3) != 0) fail("set_raw", "mid-string CR info did not round-trip");
-		if (shcl_set_raw(sd, "q", 1, "x", 1, "a # b", 5)) fail("set_raw", "info with a # accepted");
+		if (shcl_set_raw(sd, "q", 1, "x", 1, "a # b", 5) == SHCL_SET_OK) fail("set_raw", "info with a # accepted");
 		// An info string has no quoting of its own: quotes are characters in
 		// it, so they hide nothing, and a `#` glued to the label opens a
 		// comment too.
-		if (shcl_set_raw(sd, "q", 1, "x", 1, "\"a # b\"", 7)) fail("set_raw", "quoted # info accepted");
-		if (shcl_set_raw(sd, "q", 1, "x", 1, "c#", 2)) fail("set_raw", "glued # info accepted");
+		if (shcl_set_raw(sd, "q", 1, "x", 1, "\"a # b\"", 7) == SHCL_SET_OK) fail("set_raw", "quoted # info accepted");
+		if (shcl_set_raw(sd, "q", 1, "x", 1, "c#", 2) == SHCL_SET_OK) fail("set_raw", "glued # info accepted");
 		shcl_free(back);
 		// A body line ending in CR has no fence spelling: the load takes the
 		// whole trailing CR run off every line, so it is refused rather than
 		// lost. A CR mid-line is content and still round-trips.
-		if (shcl_set_raw(sd, "q", 1, "a\r\nb", 4, "", 0)) fail("set_raw", "body with a line-ending CR accepted");
-		if (shcl_set_raw(sd, "q", 1, "\r", 1, "", 0)) fail("set_raw", "body of one CR accepted");
-		if (!shcl_set_raw(sd, "q", 1, "a\rb", 3, "", 0)) fail("set_raw", "body with a mid-line CR refused");
+		if (shcl_set_raw(sd, "q", 1, "a\r\nb", 4, "", 0) == SHCL_SET_OK) fail("set_raw", "body with a line-ending CR accepted");
+		if (shcl_set_raw(sd, "q", 1, "\r", 1, "", 0) == SHCL_SET_OK) fail("set_raw", "body of one CR accepted");
+		if (shcl_set_raw(sd, "q", 1, "a\rb", 3, "", 0) != SHCL_SET_OK) fail("set_raw", "body with a mid-line CR refused");
 		sc = shcl_to_canonical(sd);
 		back = shcl_parse(sc.p, sc.n);
 		br = shcl_read_raw(back, "q", 1);
@@ -2923,7 +2995,7 @@ int main(int argc, char **argv) {
 		// the value, so it has to survive the same value - and then refuse it,
 		// since nothing this shape reads back.
 		shcl_doc *dd = shcl_new();
-		if (shcl_set_datetime(dd, "when", 4, &worst)) fail("dt_clamp", "the setter bound a datetime the reader refuses");
+		if (shcl_set_datetime(dd, "when", 4, &worst) == SHCL_SET_OK) fail("dt_clamp", "the setter bound a datetime the reader refuses");
 		if (shcl_exists(dd, "when", 4)) fail("dt_clamp", "a refused datetime left a node behind");
 		shcl_free(dd);
 	}
@@ -3011,24 +3083,24 @@ int main(int argc, char **argv) {
 		}
 		shcl_free(ld);
 	}
-	// check_set_path: the reason behind a setter's bare 0. Same fixture in every
-	// runner.
+	// check_set_path: the path's half of a setter's status. Same fixture in
+	// every runner.
 	test_id("ElouJ8M", "check_set_path_names_the_failure");
 	{
 		const char *wt = "a:\n\tb: 1\n";
 		shcl_doc *wd = shcl_parse(wt, strlen(wt));
-		if (shcl_check_set_path(wd, "a.b", 3) != SHCL_SET_PATH_OK) fail("check_set_path", "a.b not writable");
-		if (shcl_check_set_path(wd, "a.new(Boston).x", 15) != SHCL_SET_PATH_OK) fail("check_set_path", "creatable path not writable");
-		if (shcl_check_set_path(wd, "", 0) != SHCL_SET_PATH_BAD_PATH) fail("check_set_path", "empty path not bad");
-		if (shcl_check_set_path(wd, "a..b", 4) != SHCL_SET_PATH_BAD_PATH) fail("check_set_path", "a..b not bad");
-		if (shcl_check_set_path(wd, "a.b: 2", 6) != SHCL_SET_PATH_VALUE_IN_PATH) fail("check_set_path", "value part not flagged");
-		if (shcl_check_set_path(wd, "a(*).b", 6) != SHCL_SET_PATH_WILDCARD) fail("check_set_path", "wildcard not flagged");
-		if (shcl_check_set_path(wd, "a(5).b", 6) != SHCL_SET_PATH_NO_SUCH_INDEX) fail("check_set_path", "a(5) not flagged");
-		if (shcl_check_set_path(wd, "nope(0).b", 9) != SHCL_SET_PATH_NO_SUCH_INDEX) fail("check_set_path", "off-tree index not flagged");
+		if (shcl_check_set_path(wd, "a.b", 3) != SHCL_SET_OK) fail("check_set_path", "a.b not writable");
+		if (shcl_check_set_path(wd, "a.new(Boston).x", 15) != SHCL_SET_OK) fail("check_set_path", "creatable path not writable");
+		if (shcl_check_set_path(wd, "", 0) != SHCL_SET_BAD_PATH) fail("check_set_path", "empty path not bad");
+		if (shcl_check_set_path(wd, "a..b", 4) != SHCL_SET_BAD_PATH) fail("check_set_path", "a..b not bad");
+		if (shcl_check_set_path(wd, "a.b: 2", 6) != SHCL_SET_VALUE_IN_PATH) fail("check_set_path", "value part not flagged");
+		if (shcl_check_set_path(wd, "a(*).b", 6) != SHCL_SET_WILDCARD) fail("check_set_path", "wildcard not flagged");
+		if (shcl_check_set_path(wd, "a(5).b", 6) != SHCL_SET_NO_SUCH_INDEX) fail("check_set_path", "a(5) not flagged");
+		if (shcl_check_set_path(wd, "nope(0).b", 9) != SHCL_SET_NO_SUCH_INDEX) fail("check_set_path", "off-tree index not flagged");
 		{
 			char deep[1026]; size_t dn = 0; // 513 segments: "d.d.d..."
 			for (size_t i = 0; i < 513; i++) { if (i) deep[dn++] = '.'; deep[dn++] = 'd'; }
-			if (shcl_check_set_path(wd, deep, dn) != SHCL_SET_PATH_TOO_DEEP) fail("check_set_path", "513 segments not too deep");
+			if (shcl_check_set_path(wd, deep, dn) != SHCL_SET_TOO_DEEP) fail("check_set_path", "513 segments not too deep");
 		}
 		// A literal line break is writable wherever a path can have one: a name
 		// emits through the name escaper and a selector value through the value
@@ -3036,16 +3108,17 @@ int main(int argc, char **argv) {
 		// selector was refused while the value emitter still wrote elements in
 		// their source spelling and had nothing to escape with. Not
 		// corpus-pinnable - an ops line cannot contain a raw newline.
-		if (shcl_check_set_path(wd, "a(\"p\nq\").b", 10) != SHCL_SET_PATH_OK) fail("check_set_path", "newline in selector not writable");
-		if (shcl_check_set_path(wd, "\"x\ny\".b", 7) != SHCL_SET_PATH_OK) fail("check_set_path", "newline in name not writable");
-		if (shcl_check_set_path(wd, "\"x\\ny\".b", 8) != SHCL_SET_PATH_OK) fail("check_set_path", "escaped newline not writable");
+		if (shcl_check_set_path(wd, "a(\"p\nq\").b", 10) != SHCL_SET_OK) fail("check_set_path", "newline in selector not writable");
+		if (shcl_check_set_path(wd, "\"x\ny\".b", 7) != SHCL_SET_OK) fail("check_set_path", "newline in name not writable");
+		if (shcl_check_set_path(wd, "\"x\\ny\".b", 8) != SHCL_SET_OK) fail("check_set_path", "escaped newline not writable");
 		// The probe never creates: the doc is unchanged after all of the above.
 		if (shcl_count(wd, "a", 1) != 1) fail("check_set_path", "probe created nodes");
 		shcl_free(wd);
 	}
-	// The setter docs list the values a setter refuses on a path
-	// shcl_check_set_path passes. Each one here returns 0, writes nothing, and
-	// the path checks OK, so the list stays true. Same fixture in every runner.
+	// The values a setter refuses on a path shcl_check_set_path passes. Each
+	// one here is refused, writes nothing, and the path checks OK. Same fixture
+	// in every runner. setter_status_names_each_refusal has the status each one
+	// gives.
 	test_id("Es9S4kM", "refused_values_pass_the_path_check");
 	{
 		const char *rt = "ports: [80, 443]\nsec:\n\tx: 1\n";
@@ -3066,12 +3139,16 @@ int main(int argc, char **argv) {
 			"raw info with #", "raw info with a line break", "raw body line ending in CR",
 			"comment with a line break", "literal of two values", "literal with an open quote",
 			"literal with a line break", "array on a field with lines under it",
-			"literal array on a field with lines under it", "field under an array",
+			"literal array on a field with lines under it",
+			// The path check says UnderArray for this one now
+			// (2026100907362300), since no value could go there.
+			// setter_status_names_each_refusal has it.
+			// "field under an array",
 		};
-		static const char *const at[] = {"f", "f", "f", "t", "r", "r", "r", "sec.x", "l", "l", "l", "sec", "sec", "ports.x"};
+		static const char *const at[] = {"f", "f", "f", "t", "r", "r", "r", "sec.x", "l", "l", "l", "sec", "sec" /* , "ports.x" */};
 		for (size_t i = 0; i < sizeof what / sizeof what[0]; i++) {
 			shcl_doc *rd = shcl_parse(rt, strlen(rt));
-			int took = 1;
+			shcl_set_status took = SHCL_SET_OK;
 			switch (i) {
 			case 0: took = shcl_set_float(rd, "f", 1, NAN); break;
 			case 1: took = shcl_set_float(rd, "f", 1, INFINITY); break;
@@ -3086,10 +3163,11 @@ int main(int argc, char **argv) {
 			case 10: took = shcl_set_literal(rd, "l", 1, "a\nb", 3); break;
 			case 11: took = shcl_set_int_array(rd, "sec", 3, two, 2); break;
 			case 12: took = shcl_set_literal(rd, "sec", 3, "[1, 2]", 6); break;
-			default: took = shcl_set_int(rd, "ports.x", 7, 1); break;
+			// default: took = shcl_set_int(rd, "ports.x", 7, 1); break;
+			default: break;
 			}
-			if (took) fail("refused_values", what[i]);
-			if (shcl_check_set_path(rd, at[i], strlen(at[i])) != SHCL_SET_PATH_OK) fail("refused_values", what[i]);
+			if (took == SHCL_SET_OK) fail("refused_values", what[i]);
+			if (shcl_check_set_path(rd, at[i], strlen(at[i])) != SHCL_SET_OK) fail("refused_values", what[i]);
 			shcl_str got = shcl_to_canonical(rd);
 			if (got.n != wantn || memcmp(got.p, want, wantn)) fail("refused_values", what[i]);
 			shcl_free(rd);
@@ -3097,9 +3175,9 @@ int main(int argc, char **argv) {
 		free(want);
 	}
 	// Text that is not valid UTF-8 would save as a file whose next load fails
-	// whole. Every setter that takes text refuses it, as Go's do: it returns 0,
-	// writes nothing, and the path checks OK. The same cases are in the Python
-	// runner, with a lone surrogate.
+	// whole. Every setter that takes text refuses it, as Go's do: it gives
+	// SHCL_SET_NOT_UTF8, writes nothing, and the path checks OK. The same cases
+	// are in the Python runner, with a lone surrogate.
 	test_id("Es9aZSK", "setters_refuse_text_that_is_not_utf8");
 	{
 		const char *ut = "sec:\n\tx: 1\nsrv: a\n";
@@ -3114,35 +3192,40 @@ int main(int argc, char **argv) {
 		const char *const arr[] = {"ok", bad};
 		const size_t lens[] = {2, sizeof bad - 1};
 		static const char *const at[] = {
-			"s", "s", "s", "s", "s", "s", "sec.x", "r", "r", "r", "l", "l", "l", "l",
-			"\"a\xff" "b\"", "\"a\xff" "b\".x", "srv(a\xff" "b).x", "srv(\"a\xff" "b\").x", "\"a\xff" "b\"",
+			"s", "s", "s", "s", "s", "s", "s", "sec.x", "r", "r", "r", "l", "l", "l", "l",
+			// A path that is not UTF-8 checks BadPath now, from
+			// shcl_check_set_path as from the setter (2026100907362300), so
+			// these moved to setter_status_names_each_refusal.
+			// "\"a\xff" "b\"", "\"a\xff" "b\".x", "srv(a\xff" "b).x", "srv(\"a\xff" "b\").x", "\"a\xff" "b\"",
 		};
 		for (size_t i = 0; i < sizeof at / sizeof at[0]; i++) {
 			shcl_doc *ud = shcl_parse(ut, strlen(ut));
 			const char *p = at[i]; size_t pn = strlen(p);
-			int took = 1;
+			shcl_set_status took = SHCL_SET_OK;
 			switch (i) {
 			case 0: took = shcl_set_string(ud, p, pn, bad, sizeof bad - 1); break;
 			case 1: took = shcl_set_string(ud, p, pn, cut, sizeof cut - 1); break;
 			case 2: took = shcl_set_string(ud, p, pn, sur, sizeof sur - 1); break;
 			case 3: took = shcl_set_string(ud, p, pn, over, sizeof over - 1); break;
 			case 4: took = shcl_set_string_default(ud, p, pn, bad, sizeof bad - 1); break;
-			case 5: took = shcl_set_string_array(ud, p, pn, arr, lens, 2) || shcl_set_string_array_default(ud, p, pn, arr, lens, 2); break;
-			case 6: took = shcl_set_comment(ud, p, pn, bad, sizeof bad - 1); break;
-			case 7: took = shcl_set_raw(ud, p, pn, bad, sizeof bad - 1, "", 0); break;
-			case 8: took = shcl_set_raw(ud, p, pn, "body", 4, bad, sizeof bad - 1); break;
-			case 9: took = shcl_set_raw_default(ud, p, pn, bad, sizeof bad - 1, "", 0); break;
-			case 10: took = shcl_set_literal(ud, p, pn, bad, sizeof bad - 1); break;
-			case 11: took = shcl_set_literal(ud, p, pn, "\"a\xff" "b\"", 5); break;
-			case 12: took = shcl_set_literal(ud, p, pn, "[ok, a\xff" "b]", 9); break;
-			case 13: took = shcl_set_literal_default(ud, p, pn, bad, sizeof bad - 1); break;
-			case 18: took = shcl_set_comment(ud, p, pn, "c", 1); break;
-			default: took = shcl_set_int(ud, p, pn, 1); break;
+			case 5: took = shcl_set_string_array(ud, p, pn, arr, lens, 2); break;
+			case 6: took = shcl_set_string_array_default(ud, p, pn, arr, lens, 2); break;
+			case 7: took = shcl_set_comment(ud, p, pn, bad, sizeof bad - 1); break;
+			case 8: took = shcl_set_raw(ud, p, pn, bad, sizeof bad - 1, "", 0); break;
+			case 9: took = shcl_set_raw(ud, p, pn, "body", 4, bad, sizeof bad - 1); break;
+			case 10: took = shcl_set_raw_default(ud, p, pn, bad, sizeof bad - 1, "", 0); break;
+			case 11: took = shcl_set_literal(ud, p, pn, bad, sizeof bad - 1); break;
+			case 12: took = shcl_set_literal(ud, p, pn, "\"a\xff" "b\"", 5); break;
+			case 13: took = shcl_set_literal(ud, p, pn, "[ok, a\xff" "b]", 9); break;
+			case 14: took = shcl_set_literal_default(ud, p, pn, bad, sizeof bad - 1); break;
+			// case 19: took = shcl_set_comment(ud, p, pn, "c", 1); break;
+			// default: took = shcl_set_int(ud, p, pn, 1); break;
+			default: break;
 			}
 			char what[32];
 			snprintf(what, sizeof what, "case %zu", i);
-			if (took) fail("not_utf8", what);
-			if (shcl_check_set_path(ud, p, pn) != SHCL_SET_PATH_OK) fail("not_utf8", what);
+			if (took != SHCL_SET_NOT_UTF8) fail("not_utf8", what);
+			if (shcl_check_set_path(ud, p, pn) != SHCL_SET_OK) fail("not_utf8", what);
 			shcl_str got = shcl_to_canonical(ud);
 			if (got.n != wantn || memcmp(got.p, want, wantn)) fail("not_utf8", what);
 			shcl_free(ud);
@@ -3150,7 +3233,7 @@ int main(int argc, char **argv) {
 		free(want);
 	}
 	// A setter on a path that matches more than one field at any step writes
-	// nothing and the path checks MULTIPLE, so a write never says 1 where the
+	// nothing and the path checks MULTIPLE, so a write never says OK where the
 	// read after it would say Multiple. An index or value selector picks one.
 	// Same fixture in every runner.
 	test_id("Es9aZSI", "repeated_path_refuses_a_setter");
@@ -3171,7 +3254,7 @@ int main(int argc, char **argv) {
 		for (size_t i = 0; i < sizeof at / sizeof at[0]; i++) {
 			shcl_doc *md = shcl_parse(mt, strlen(mt));
 			const char *p = at[i]; size_t pn = strlen(p);
-			int took = 1;
+			shcl_set_status took = SHCL_SET_OK;
 			switch (i) {
 			case 0: took = shcl_set_int(md, p, pn, 9); break;
 			case 1: took = shcl_set_string(md, p, pn, "9", 1); break;
@@ -3187,16 +3270,16 @@ int main(int argc, char **argv) {
 			case 11: took = shcl_set_string_default(md, p, pn, "v", 1); break;
 			default: took = shcl_set_int(md, p, pn, 9); break;
 			}
-			if (took) fail("repeated_path", p);
-			if (shcl_check_set_path(md, p, pn) != SHCL_SET_PATH_MULTIPLE) fail("repeated_path", p);
+			if (took != SHCL_SET_MULTIPLE) fail("repeated_path", p);
+			if (shcl_check_set_path(md, p, pn) != SHCL_SET_MULTIPLE) fail("repeated_path", p);
 			shcl_str got = shcl_to_canonical(md);
 			if (got.n != wantn || memcmp(got.p, want, wantn)) fail("repeated_path", p);
 			shcl_free(md);
 		}
 		free(want);
 		shcl_doc *md = shcl_parse(mt, strlen(mt));
-		if (!shcl_set_int(md, "port(1)", 7, 9) || !shcl_set_string(md, "site(1).root", 12, "/z", 2)
-			|| !shcl_set_string(md, "site(a).root", 12, "/w", 2) || !shcl_set_int(md, "sec.k(0)", 8, 7))
+		if (shcl_set_int(md, "port(1)", 7, 9) != SHCL_SET_OK || shcl_set_string(md, "site(1).root", 12, "/z", 2) != SHCL_SET_OK
+			|| shcl_set_string(md, "site(a).root", 12, "/w", 2) != SHCL_SET_OK || shcl_set_int(md, "sec.k(0)", 8, 7) != SHCL_SET_OK)
 			fail("repeated_path", "a setter naming one instance was refused");
 		shcl_read_str rb = shcl_read_string(md, "site(b).root", 12), ra = shcl_read_string(md, "site(a).root", 12);
 		if (shcl_get_int_or(md, "port(0)", 7, 0) != 1 || shcl_get_int_or(md, "port(1)", 7, 0) != 9
@@ -3204,9 +3287,153 @@ int main(int argc, char **argv) {
 			|| ra.value.n != 2 || memcmp(ra.value.p, "/w", 2))
 			fail("repeated_path", "wrote the wrong instance");
 		// A remove takes every instance it matches, as a read sees them.
-		if (shcl_remove(md, "port", 4) != 2 || shcl_check_set_path(md, "port", 4) != SHCL_SET_PATH_OK) fail("repeated_path", "remove");
+		if (shcl_remove(md, "port", 4) != 2 || shcl_check_set_path(md, "port", 4) != SHCL_SET_OK) fail("repeated_path", "remove");
 		shcl_free(md);
 	}
+	// Every status a setter gives, in the order every binding numbers them,
+	// and the names the other three print. Same fixture in every runner.
+	test_id("EsDjstE", "setter_status_values_in_order");
+	{
+		static const shcl_set_status all[] = {
+			SHCL_SET_OK, SHCL_SET_BAD_PATH, SHCL_SET_VALUE_IN_PATH, SHCL_SET_WILDCARD, SHCL_SET_NO_SUCH_INDEX,
+			SHCL_SET_TOO_DEEP, SHCL_SET_MULTIPLE, SHCL_SET_UNDER_ARRAY, SHCL_SET_HAS_CHILDREN, SHCL_SET_NOT_FINITE,
+			SHCL_SET_BAD_DATETIME, SHCL_SET_BAD_RAW_INFO, SHCL_SET_BAD_RAW_BODY, SHCL_SET_BAD_COMMENT,
+			SHCL_SET_NOT_ONE_VALUE, SHCL_SET_NOT_UTF8, SHCL_SET_OUT_OF_RANGE, SHCL_SET_NO_READ_BACK,
+		};
+		static const char *const snames[] = {
+			"Ok", "BadPath", "ValueInPath", "Wildcard", "NoSuchIndex", "TooDeep", "Multiple", "UnderArray",
+			"HasChildren", "NotFinite", "BadDateTime", "BadRawInfo", "BadRawBody", "BadComment", "NotOneValue",
+			"NotUtf8", "OutOfRange", "NoReadBack",
+		};
+		if (sizeof all / sizeof all[0] != sizeof snames / sizeof snames[0]) fail("setter_status_order", "a value and its name are not one to one");
+		for (size_t i = 0; i < sizeof all / sizeof all[0]; i++) {
+			if ((size_t)all[i] != i) fail("setter_status_order", snames[i]);
+			if (strcmp(shcl_set_status_name(all[i]), snames[i]) != 0) fail("setter_status_order", snames[i]);
+		}
+	}
+	// A setter's status names why it wrote nothing. A path reason is the one
+	// shcl_check_set_path gives, and wins over a value reason when both apply,
+	// since the path is what to fix first; a value reason comes with a path
+	// that checks OK. A default form on a path already there writes nothing and
+	// gives what the plain setter would. Same fixture in every runner, plus C's
+	// own: SHCL_SET_NOT_UTF8 for value, comment, info and body text, ahead of
+	// the other value reasons, and SHCL_SET_BAD_PATH for a path that is not
+	// UTF-8. OUT_OF_RANGE and NO_READ_BACK have no case: an int64_t is in
+	// range, and no other value is known that fails to read back.
+	test_id("EsDjsvT", "setter_status_names_each_refusal");
+	{
+		const char *st = "a:\n\tb: 1\nports: [80, 443]\nsec:\n\tx: 1\nport: 1\nport: 2\n";
+		shcl_datetime month13;
+		memset(&month13, 0, sizeof month13);
+		month13.has_date = 1; month13.year = 2026; month13.month = 13; month13.day = 1;
+		char deep[1026]; size_t dn = 0; // 513 segments: "d.d.d..."
+		for (size_t i = 0; i < 513; i++) { if (i) deep[dn++] = '.'; deep[dn++] = 'd'; }
+		deep[dn] = 0;
+		const int64_t two[] = {1, 2}, one[] = {1};
+		const double inf_pair[] = {1, INFINITY};
+		static const char bad[] = "a\xff" "b";
+		const char *const sv[] = {"v"}, *const sbad[] = {"x", bad};
+		const size_t svl[] = {1}, sbadl[] = {1, sizeof bad - 1};
+		static const struct { const char *path; shcl_set_status want; } sc[] = {
+			{"a.b", SHCL_SET_OK}, {"a.c", SHCL_SET_OK}, {"a.b", SHCL_SET_OK},
+			{"", SHCL_SET_BAD_PATH}, {"a..b", SHCL_SET_BAD_PATH}, {"a.b: 2", SHCL_SET_VALUE_IN_PATH},
+			{"a(*).b", SHCL_SET_WILDCARD}, {"a(5).b", SHCL_SET_NO_SUCH_INDEX}, {NULL, SHCL_SET_TOO_DEEP},
+			{"port", SHCL_SET_MULTIPLE}, {"ports.x", SHCL_SET_UNDER_ARRAY}, {"ports.x.y", SHCL_SET_UNDER_ARRAY},
+			{"ports.x", SHCL_SET_UNDER_ARRAY}, {"ports.x", SHCL_SET_UNDER_ARRAY},
+			{"sec", SHCL_SET_HAS_CHILDREN}, {"sec", SHCL_SET_HAS_CHILDREN}, {"sec", SHCL_SET_HAS_CHILDREN},
+			{"f", SHCL_SET_NOT_FINITE}, {"f", SHCL_SET_NOT_FINITE}, {"a.b", SHCL_SET_NOT_FINITE},
+			{"t", SHCL_SET_BAD_DATETIME},
+			{"r", SHCL_SET_BAD_RAW_INFO}, {"r", SHCL_SET_BAD_RAW_INFO}, {"a.b", SHCL_SET_BAD_RAW_INFO},
+			{"r", SHCL_SET_BAD_RAW_BODY}, {"sec.x", SHCL_SET_BAD_COMMENT},
+			{"l", SHCL_SET_NOT_ONE_VALUE}, {"l", SHCL_SET_NOT_ONE_VALUE}, {"l", SHCL_SET_NOT_ONE_VALUE}, {"a.b", SHCL_SET_NOT_ONE_VALUE},
+			// Both halves wrong: the path's reason.
+			{"a(*).b", SHCL_SET_WILDCARD}, {"ports.x", SHCL_SET_UNDER_ARRAY}, {"a..b", SHCL_SET_BAD_PATH},
+			{"a(5).b", SHCL_SET_NO_SUCH_INDEX}, {"port", SHCL_SET_MULTIPLE}, {"port", SHCL_SET_MULTIPLE},
+			// C's own: text that is not UTF-8. It wins over the other value
+			// reasons, and a path's reason still wins over it.
+			{"s", SHCL_SET_NOT_UTF8}, {"s", SHCL_SET_NOT_UTF8}, {"s", SHCL_SET_NOT_UTF8}, {"s", SHCL_SET_NOT_UTF8},
+			{"sec.x", SHCL_SET_NOT_UTF8}, {"sec.x", SHCL_SET_NOT_UTF8},
+			{"r", SHCL_SET_NOT_UTF8}, {"r", SHCL_SET_NOT_UTF8}, {"r", SHCL_SET_NOT_UTF8}, {"a.b", SHCL_SET_NOT_UTF8},
+			{"port", SHCL_SET_MULTIPLE}, {"a\xff" ".b", SHCL_SET_BAD_PATH}, {"a\xff" ".b", SHCL_SET_BAD_PATH},
+			// A name or selector that is not UTF-8, from
+			// setters_refuse_text_that_is_not_utf8.
+			{"\"a\xff" "b\"", SHCL_SET_BAD_PATH}, {"\"a\xff" "b\".x", SHCL_SET_BAD_PATH}, {"srv(a\xff" "b).x", SHCL_SET_BAD_PATH},
+			{"srv(\"a\xff" "b\").x", SHCL_SET_BAD_PATH}, {"\"a\xff" "b\"", SHCL_SET_BAD_PATH},
+		};
+		for (size_t i = 0; i < sizeof sc / sizeof sc[0]; i++) {
+			const char *p = sc[i].path ? sc[i].path : deep; size_t pn = strlen(p);
+			shcl_doc *sd = shcl_parse(st, strlen(st));
+			shcl_str bt = shcl_to_canonical(sd);
+			char *before = malloc(bt.n + 1);
+			if (!before) { fprintf(stderr, "out of memory\n"); exit(1); }
+			memcpy(before, bt.p, bt.n);
+			size_t beforen = bt.n;
+			shcl_set_status got = SHCL_SET_OK;
+			switch (i) {
+			case 0: got = shcl_set_int(sd, p, pn, 2); break;
+			case 1: got = shcl_set_float(sd, p, pn, 2.5); break;
+			case 2: got = shcl_set_int_default(sd, p, pn, 9); break;
+			case 3: got = shcl_set_int(sd, p, pn, 1); break;
+			case 4: got = shcl_set_string(sd, p, pn, "v", 1); break;
+			case 5: case 6: case 7: case 8: got = shcl_set_int(sd, p, pn, 1); break;
+			case 9: got = shcl_set_int(sd, p, pn, 9); break;
+			case 10: case 11: got = shcl_set_int(sd, p, pn, 1); break;
+			case 12: got = shcl_set_comment(sd, p, pn, "c", 1); break;
+			case 13: got = shcl_set_int_default(sd, p, pn, 1); break;
+			case 14: got = shcl_set_int_array(sd, p, pn, two, 2); break;
+			case 15: got = shcl_set_string_array(sd, p, pn, sv, svl, 1); break;
+			case 16: got = shcl_set_literal(sd, p, pn, "[1, 2]", 6); break;
+			case 17: got = shcl_set_float(sd, p, pn, NAN); break;
+			case 18: got = shcl_set_float_array(sd, p, pn, inf_pair, 2); break;
+			case 19: got = shcl_set_float_default(sd, p, pn, NAN); break;
+			case 20: got = shcl_set_datetime(sd, p, pn, &month13); break;
+			case 21: got = shcl_set_raw(sd, p, pn, "body", 4, "sh # x", 6); break;
+			case 22: got = shcl_set_raw(sd, p, pn, "body", 4, "sh\nx", 4); break;
+			case 23: got = shcl_set_raw_default(sd, p, pn, "body", 4, "sh # x", 6); break;
+			case 24: got = shcl_set_raw(sd, p, pn, "a\r\nb", 4, "", 0); break;
+			case 25: got = shcl_set_comment(sd, p, pn, "a\nb", 3); break;
+			case 26: got = shcl_set_literal(sd, p, pn, "a, b", 4); break;
+			case 27: got = shcl_set_literal(sd, p, pn, "\"abc", 4); break;
+			case 28: got = shcl_set_literal(sd, p, pn, "a\nb", 3); break;
+			case 29: got = shcl_set_literal_default(sd, p, pn, "a, b", 4); break;
+			case 30: got = shcl_set_float(sd, p, pn, NAN); break;
+			case 31: got = shcl_set_literal(sd, p, pn, "a, b", 4); break;
+			case 32: got = shcl_set_comment(sd, p, pn, "a\nb", 3); break;
+			case 33: got = shcl_set_raw(sd, p, pn, "x", 1, "#", 1); break;
+			case 34: got = shcl_set_int_array(sd, p, pn, one, 1); break;
+			case 35: got = shcl_set_float_default(sd, p, pn, NAN); break;
+			case 36: got = shcl_set_string(sd, p, pn, bad, sizeof bad - 1); break;
+			case 37: got = shcl_set_string_array(sd, p, pn, sbad, sbadl, 2); break;
+			case 38: got = shcl_set_literal(sd, p, pn, bad, sizeof bad - 1); break;
+			case 39: got = shcl_set_literal(sd, p, pn, "a\xff, b", 5); break;
+			case 40: got = shcl_set_comment(sd, p, pn, bad, sizeof bad - 1); break;
+			case 41: got = shcl_set_comment(sd, p, pn, "a\xff\nb", 4); break;
+			case 42: got = shcl_set_raw(sd, p, pn, bad, sizeof bad - 1, "", 0); break;
+			case 43: got = shcl_set_raw(sd, p, pn, "body", 4, "sh\xff", 3); break;
+			case 44: got = shcl_set_raw(sd, p, pn, "a\xff\r\nb", 5, "#", 1); break;
+			case 45: got = shcl_set_string_default(sd, p, pn, bad, sizeof bad - 1); break;
+			case 46: got = shcl_set_string(sd, p, pn, bad, sizeof bad - 1); break;
+			case 47: got = shcl_set_int(sd, p, pn, 1); break;
+			case 48: got = shcl_set_string(sd, p, pn, bad, sizeof bad - 1); break;
+			case 53: got = shcl_set_comment(sd, p, pn, "c", 1); break;
+			default: got = shcl_set_int(sd, p, pn, 1); break;
+			}
+			char what[96];
+			snprintf(what, sizeof what, "case %zu: got %s, want %s", i, shcl_set_status_name(got), shcl_set_status_name(sc[i].want));
+			if (got != sc[i].want) fail("setter_status", what);
+			shcl_doc *cd = shcl_parse(st, strlen(st));
+			shcl_set_status checked = shcl_check_set_path(cd, p, pn);
+			shcl_free(cd);
+			int path_reason = sc[i].want != SHCL_SET_OK && sc[i].want <= SHCL_SET_UNDER_ARRAY;
+			if (path_reason ? checked != sc[i].want : checked != SHCL_SET_OK) fail("setter_status", what);
+			shcl_str after = shcl_to_canonical(sd);
+			if (got != SHCL_SET_OK && (after.n != beforen || memcmp(after.p, before, beforen) != 0)) fail("setter_status", what);
+			free(before);
+			shcl_free(sd);
+		}
+	}
+	test_id("EsDjsxk", "setter_status_agrees_with_the_path_check");
+	setter_status_agrees_with_the_path_check();
 	// Both halves of a path can contain a line break and write it \n: a name
 	// through the name escaper, a selector value through the value emitter. The
 	// selector was refused while elements were stored in their source spelling
@@ -3214,8 +3441,8 @@ int main(int argc, char **argv) {
 	test_id("EpGigIO", "a_line_break_in_a_path_writes_and_reads_back");
 	{
 		shcl_doc *nd = shcl_parse("z: 0\n", 5);
-		if (!shcl_set_int(nd, "x(\"p\nq\").c", sizeof "x(\"p\nq\").c" - 1, 1)
-			|| !shcl_set_int(nd, "\"a\nb\".c", sizeof "\"a\nb\".c" - 1, 1))
+		if (shcl_set_int(nd, "x(\"p\nq\").c", sizeof "x(\"p\nq\").c" - 1, 1) != SHCL_SET_OK
+			|| shcl_set_int(nd, "\"a\nb\".c", sizeof "\"a\nb\".c" - 1, 1) != SHCL_SET_OK)
 			fail("path_newline", "a line break in a path was refused");
 		shcl_str nt = shcl_to_canonical(nd);
 		char ntext[256];
@@ -3244,15 +3471,15 @@ int main(int argc, char **argv) {
 		double nonfinite[3]; nonfinite[0] = INFINITY; nonfinite[1] = -INFINITY; nonfinite[2] = NAN;
 		for (int i = 0; i < 3; i++) {
 			double pair[2]; pair[0] = 1; pair[1] = nonfinite[i];
-			if (shcl_set_float(sd, "f", 1, nonfinite[i]) || shcl_set_float_default(sd, "f", 1, nonfinite[i]) || shcl_set_float_array(sd, "f", 1, pair, 2))
-				fail("setters_refuse", "a non-finite float was written");
+			if (shcl_set_float(sd, "f", 1, nonfinite[i]) != SHCL_SET_NOT_FINITE || shcl_set_float_default(sd, "f", 1, nonfinite[i]) != SHCL_SET_NOT_FINITE || shcl_set_float_array(sd, "f", 1, pair, 2) != SHCL_SET_NOT_FINITE)
+				fail("setters_refuse", "a non-finite float was written, or not as NOT_FINITE");
 			// A default form on a path that is already there writes nothing, and
 			// still refuses what the plain setter would.
-			if (shcl_set_float_default(sd, "z", 1, nonfinite[i]) || shcl_set_float_array_default(sd, "z", 1, pair, 2))
+			if (shcl_set_float_default(sd, "z", 1, nonfinite[i]) != SHCL_SET_NOT_FINITE || shcl_set_float_array_default(sd, "z", 1, pair, 2) != SHCL_SET_NOT_FINITE)
 				fail("setters_refuse", "a non-finite float passed a default form on a present path");
 		}
-		if (!shcl_set_float(sd, "f", 1, 2.5) || shcl_get_float_or(sd, "f", 1, 0) != 2.5) fail("setters_refuse", "a finite float was refused");
-		if (!shcl_set_float_default(sd, "z", 1, 2.5) || shcl_get_float_or(sd, "z", 1, 1) != 0) fail("setters_refuse", "a finite float default on a present path was refused or written");
+		if (shcl_set_float(sd, "f", 1, 2.5) != SHCL_SET_OK || shcl_get_float_or(sd, "f", 1, 0) != 2.5) fail("setters_refuse", "a finite float was refused");
+		if (shcl_set_float_default(sd, "z", 1, 2.5) != SHCL_SET_OK || shcl_get_float_or(sd, "z", 1, 1) != 0) fail("setters_refuse", "a finite float default on a present path was refused or written");
 		shcl_datetime bad[10]; memset(bad, 0, sizeof bad);
 		// [0] nothing written
 		bad[1].has_date = 1; bad[1].year = 2026; bad[1].month = 13; bad[1].day = 1;
@@ -3267,13 +3494,13 @@ int main(int argc, char **argv) {
 		shcl_datetime good; memset(&good, 0, sizeof good); good.has_date = 1; good.year = 2026; good.month = 1; good.day = 1;
 		for (int i = 0; i < 10; i++) {
 			shcl_datetime pair[2]; pair[0] = good; pair[1] = bad[i];
-			if (shcl_set_datetime(sd, "d", 1, &bad[i]) || shcl_set_datetime_default(sd, "d", 1, &bad[i]) || shcl_set_datetime_array(sd, "d", 1, pair, 2))
-				fail("setters_refuse", "a datetime the reader refuses was written");
-			if (shcl_set_datetime_default(sd, "z", 1, &bad[i]) || shcl_set_datetime_array_default(sd, "z", 1, pair, 2))
+			if (shcl_set_datetime(sd, "d", 1, &bad[i]) != SHCL_SET_BAD_DATETIME || shcl_set_datetime_default(sd, "d", 1, &bad[i]) != SHCL_SET_BAD_DATETIME || shcl_set_datetime_array(sd, "d", 1, pair, 2) != SHCL_SET_BAD_DATETIME)
+				fail("setters_refuse", "a datetime the reader refuses was written, or not as BAD_DATETIME");
+			if (shcl_set_datetime_default(sd, "z", 1, &bad[i]) != SHCL_SET_BAD_DATETIME || shcl_set_datetime_array_default(sd, "z", 1, pair, 2) != SHCL_SET_BAD_DATETIME)
 				fail("setters_refuse", "a datetime the reader refuses passed a default form on a present path");
 		}
 		shcl_datetime ok = good; ok.day = 2; ok.has_time = 1; ok.hour = 3; ok.minute = 4; ok.has_sec = 1; ok.sec = 5; ok.has_frac = 1; ok.frac = s_lit("60"); ok.zone = SHCL_ZONE_OFFSET; ok.off_min = -90;
-		if (!shcl_set_datetime(sd, "d", 1, &ok)) fail("setters_refuse", "a valid datetime was refused");
+		if (shcl_set_datetime(sd, "d", 1, &ok) != SHCL_SET_OK) fail("setters_refuse", "a valid datetime was refused");
 		shcl_read_dt rd = shcl_read_datetime(sd, "d", 1);
 		char okb[SHCL_DT_BUF], rdb[SHCL_DT_BUF]; size_t okn = shcl_datetime_str(&ok, okb), rdn = shcl_datetime_str(&rd.value, rdb);
 		if (rd.status != SHCL_GOOD || okn != rdn || memcmp(okb, rdb, okn) != 0) fail("setters_refuse", "the datetime read back differently");
@@ -3298,8 +3525,8 @@ int main(int argc, char **argv) {
 		if (ba.n != 2 || shcl_quoted(bd, "a", 1) || shcl_backtick(bd, "a", 1)) fail("backtick", "a");
 		shcl_read_i64 bi = shcl_read_int(bd, "n", 1);
 		if (bi.status != SHCL_GOOD || bi.value != 7 || !shcl_backtick(bd, "n", 1)) fail("backtick", "n");
-		if (!shcl_set_string(bd, "c", 1, "#00FF00", 7) || !shcl_backtick(bd, "c", 1)) fail("backtick", "an overwrite lost the backticks");
-		if (!shcl_set_string(bd, "c", 1, "a`b", 3) || shcl_backtick(bd, "c", 1)) fail("backtick", "a backtick value holding a backtick");
+		if (shcl_set_string(bd, "c", 1, "#00FF00", 7) != SHCL_SET_OK || !shcl_backtick(bd, "c", 1)) fail("backtick", "an overwrite lost the backticks");
+		if (shcl_set_string(bd, "c", 1, "a`b", 3) != SHCL_SET_OK || shcl_backtick(bd, "c", 1)) fail("backtick", "a backtick value holding a backtick");
 		shcl_str bc = shcl_to_canonical(bd);
 		if (bc.n < 9 || memcmp(bc.p, "c: \"a`b\"\n", 9) != 0) fail("backtick", "the fixture wrote other text");
 		shcl_free(bd);
@@ -3471,10 +3698,10 @@ int main(int argc, char **argv) {
 	test_id("EpHDKeu", "a_null_span_is_no_text");
 	{
 		shcl_doc *zd = shcl_parse("", 0);
-		if (!shcl_set_literal(zd, "l", 1, NULL, 0)) fail("null_span", "set_literal refused (NULL, 0)");
-		if (!shcl_set_raw(zd, "r", 1, NULL, 0, NULL, 0)) fail("null_span", "set_raw refused (NULL, 0)");
-		if (!shcl_set_literal_default(zd, "l2", 2, NULL, 0)) fail("null_span", "set_literal_default refused (NULL, 0)");
-		if (!shcl_set_raw_default(zd, "r2", 2, NULL, 0, NULL, 0)) fail("null_span", "set_raw_default refused (NULL, 0)");
+		if (shcl_set_literal(zd, "l", 1, NULL, 0) != SHCL_SET_OK) fail("null_span", "set_literal refused (NULL, 0)");
+		if (shcl_set_raw(zd, "r", 1, NULL, 0, NULL, 0) != SHCL_SET_OK) fail("null_span", "set_raw refused (NULL, 0)");
+		if (shcl_set_literal_default(zd, "l2", 2, NULL, 0) != SHCL_SET_OK) fail("null_span", "set_literal_default refused (NULL, 0)");
+		if (shcl_set_raw_default(zd, "r2", 2, NULL, 0, NULL, 0) != SHCL_SET_OK) fail("null_span", "set_raw_default refused (NULL, 0)");
 		shcl_str zc = shcl_to_canonical(zd);
 		const char *zwant = "l:\n\nr:\n\t```\n\t```\n\nl2:\n\nr2:\n\t```\n\t```\n";
 		if (zc.n != strlen(zwant) || memcmp(zc.p, zwant, zc.n) != 0) fail("null_span", "document differs from empty literal and raw values");
@@ -3563,7 +3790,7 @@ int main(int argc, char **argv) {
 	test_id("EommtF4", "written_spelling_matches_its_reload");
 	{
 		shcl_doc *wd = shcl_parse("x: 1\n", 5);
-		if (!shcl_set_string(wd, "k", 1, "q\"q'", 4)) fail("written_spelling", "set_string refused");
+		if (shcl_set_string(wd, "k", 1, "q\"q'", 4) != SHCL_SET_OK) fail("written_spelling", "set_string refused");
 		/* The canonical text lives in wd's read arena, so it is copied onto
 		   the stack before wb is parsed from it - a fixture value is short. */
 		shcl_str wc = shcl_to_canonical(wd);
@@ -3609,10 +3836,10 @@ int main(int argc, char **argv) {
 				shcl_doc *sd = shcl_parse("k: 1\n", 5);
 				char before[SOUP_BUF]; size_t bn;
 				soup_text(sd, before, &bn);
-				int applied = soup_set(sd, kind, "k", 1, in, inn);
+				int applied = soup_set(sd, kind, "k", 1, in, inn) == SHCL_SET_OK;
 				if (applied) {
 					char sp[24]; int spn = snprintf(sp, sizeof sp, "k%zu", ++slot);
-					if (!soup_set(every, kind, sp, (size_t)spn, in, inn)) soup_fail("a slot refused what k took", kind, in, inn);
+					if (soup_set(every, kind, sp, (size_t)spn, in, inn) != SHCL_SET_OK) soup_fail("a slot refused what k took", kind, in, inn);
 				}
 				char text[SOUP_BUF]; size_t tn;
 				soup_text(sd, text, &tn);
@@ -3664,8 +3891,8 @@ int main(int argc, char **argv) {
 			memcpy(qp, qs.p, qn);
 			char before[SOUP_BUF]; size_t bn;
 			soup_text(nd, before, &bn);
-			int wrote = shcl_set_string(nd, qp, qn, "v", 1);
-			if (wrote && !shcl_set_string(every, qp, qn, "v", 1)) soup_fail("the name was refused the second time", -1, in, inn);
+			int wrote = shcl_set_string(nd, qp, qn, "v", 1) == SHCL_SET_OK;
+			if (wrote && shcl_set_string(every, qp, qn, "v", 1) != SHCL_SET_OK) soup_fail("the name was refused the second time", -1, in, inn);
 			char text[SOUP_BUF]; size_t tn;
 			soup_text(nd, text, &tn);
 			if (!wrote) {
@@ -3784,10 +4011,10 @@ int main(int argc, char **argv) {
 	{
 		shcl_doc *qd = shcl_new();
 		const char *tags[2] = {"rw,noatime", "b"}; size_t tl[2] = {10, 1};
-		if (!shcl_set_string(qd, "opts", 4, "rw,noatime", 10) || !shcl_set_string(qd, "display", 7, ":0", 2) || !shcl_set_string(qd, "end", 3, "a,", 2)
-			|| !shcl_set_string(qd, "title", 5, "My App", 6) || !shcl_set_string_array(qd, "tags", 4, tags, tl, 2)
-			|| !shcl_set_string(qd, "call", 4, "f(x)", 4) || !shcl_set_string(qd, "box", 3, "a[0]", 4) || !shcl_set_string(qd, "tabbed", 6, "a\tb", 3)
-			|| !shcl_set_string(qd, "plain", 5, "a-b.c/d", 7))
+		if (shcl_set_string(qd, "opts", 4, "rw,noatime", 10) != SHCL_SET_OK || shcl_set_string(qd, "display", 7, ":0", 2) != SHCL_SET_OK || shcl_set_string(qd, "end", 3, "a,", 2) != SHCL_SET_OK
+			|| shcl_set_string(qd, "title", 5, "My App", 6) != SHCL_SET_OK || shcl_set_string_array(qd, "tags", 4, tags, tl, 2) != SHCL_SET_OK
+			|| shcl_set_string(qd, "call", 4, "f(x)", 4) != SHCL_SET_OK || shcl_set_string(qd, "box", 3, "a[0]", 4) != SHCL_SET_OK || shcl_set_string(qd, "tabbed", 6, "a\tb", 3) != SHCL_SET_OK
+			|| shcl_set_string(qd, "plain", 5, "a-b.c/d", 7) != SHCL_SET_OK)
 			fail("writer_comma", "a setter refused");
 		shcl_str qc = shcl_to_canonical(qd);
 		const char *qw[] = {"opts: \"rw,noatime\"\n", "display: \":0\"\n", "end: \"a,\"\n", "title: \"My App\"\n", "tags: [\"rw,noatime\", b]\n",
@@ -3816,7 +4043,7 @@ int main(int argc, char **argv) {
 		shcl_str vc = shcl_to_canonical(vd);
 		if (vc.n != strlen(vout) || memcmp(vc.p, vout, vc.n) != 0) fail("writer_comma", "a quoted number lost its quotes, or a colon went bare");
 		if (shcl_get_int_or(vd, "ver", 3, 0) != 8) fail("writer_comma", "ver");
-		if (!shcl_set_int(vd, "ver", 3, 9)) fail("writer_comma", "set ver");
+		if (shcl_set_int(vd, "ver", 3, 9) != SHCL_SET_OK) fail("writer_comma", "set ver");
 		vc = shcl_to_canonical(vd);
 		if (vc.n < 9 || memcmp(vc.p, "ver: \"9\"\n", 9) != 0) fail("writer_comma", "a set over a quoted number dropped its quotes");
 		shcl_free(vd);
@@ -3835,7 +4062,7 @@ int main(int argc, char **argv) {
 		const char *lsrc = "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n";
 		shcl_doc *ld = shcl_parse_keep_lines(lsrc, strlen(lsrc), SHCL_STANDARD);
 		if (shcl_lost_count(ld) != 0) fail("list_no_text", "the load lost a line");
-		if (!shcl_set_empty(ld, "x(v)", 4)) fail("list_no_text", "set empty refused");
+		if (shcl_set_empty(ld, "x(v)", 4) != SHCL_SET_OK) fail("list_no_text", "set empty refused");
 		shcl_str lt = shcl_to_canonical(ld);
 		if (!str_is(lt, "x:\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n")) fail("list_no_text", "canonical");
 		shcl_doc *lb = shcl_parse(lt.p, lt.n);
@@ -3872,7 +4099,7 @@ int main(int argc, char **argv) {
 		const char *ok_src[] = {"x: v\nx:\n\t- a\n\tg: 2\n", "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n"};
 		for (size_t i = 0; i < 2; i++) {
 			shcl_doc *od = shcl_parse(ok_src[i], strlen(ok_src[i]));
-			if (!shcl_set_empty(od, "x(v)", 4) || shcl_lost_count(od) != 0) fail("list_no_text", ok_src[i]);
+			if (shcl_set_empty(od, "x(v)", 4) != SHCL_SET_OK || shcl_lost_count(od) != 0) fail("list_no_text", ok_src[i]);
 			shcl_free(od);
 		}
 	}
@@ -3889,7 +4116,7 @@ int main(int argc, char **argv) {
 		for (size_t i = 0; i < sizeof jc / sizeof jc[0]; i++) {
 			shcl_doc *jd = shcl_parse(jc[i].src, strlen(jc[i].src));
 			if (shcl_read_string(jd, jc[i].field, strlen(jc[i].field)).status != SHCL_GOOD) fail("list_join_found", jc[i].src);
-			if (!shcl_set_empty(jd, jc[i].path, strlen(jc[i].path))) fail("list_join_found", jc[i].src);
+			if (shcl_set_empty(jd, jc[i].path, strlen(jc[i].path)) != SHCL_SET_OK) fail("list_join_found", jc[i].src);
 			shcl_str jt = shcl_to_canonical(jd);
 			shcl_doc *jb = shcl_parse(jt.p, jt.n);
 			shcl_doc *both[2] = {jb, jd};
@@ -3994,9 +4221,9 @@ int main(int argc, char **argv) {
 	{
 		const char *asrc = "l: [a]\nc: 1\n\tk: 2\n";
 		shcl_doc *ad = shcl_parse(asrc, strlen(asrc));
-		if (shcl_set_int(ad, "l.c", 3, 1)) fail("setter_apart", "a field under an array");
+		if (shcl_set_int(ad, "l.c", 3, 1) == SHCL_SET_OK) fail("setter_apart", "a field under an array");
 		const char *one[1] = {"1"}; size_t onel[1] = {1};
-		if (shcl_set_literal(ad, "c", 1, "[1, 2]", 6) || shcl_set_string_array(ad, "c", 1, one, onel, 1)) fail("setter_apart", "an array over fields");
+		if (shcl_set_literal(ad, "c", 1, "[1, 2]", 6) == SHCL_SET_OK || shcl_set_string_array(ad, "c", 1, one, onel, 1) == SHCL_SET_OK) fail("setter_apart", "an array over fields");
 		if (!str_is(shcl_to_canonical(ad), asrc)) fail("setter_apart", "changed");
 		shcl_free(ad);
 		/* An array with nothing under it takes a new one, and a stacked list
@@ -4005,7 +4232,7 @@ int main(int argc, char **argv) {
 		ad = shcl_parse(asrc2, strlen(asrc2));
 		const char *bc[2] = {"b", "c"}; size_t bcl[2] = {1, 1};
 		const char *x1[1] = {"x"}; size_t x1l[1] = {1};
-		if (!shcl_set_string_array(ad, "l", 1, bc, bcl, 2) || !shcl_set_string_array(ad, "z", 1, x1, x1l, 1)) fail("setter_apart", "an array setter refused");
+		if (shcl_set_string_array(ad, "l", 1, bc, bcl, 2) != SHCL_SET_OK || shcl_set_string_array(ad, "z", 1, x1, x1l, 1) != SHCL_SET_OK) fail("setter_apart", "an array setter refused");
 		if (!str_is(shcl_to_canonical(ad), "l: [b, c]\nz:\n\t- x\n")) fail("setter_apart", "stacked");
 		shcl_free(ad);
 	}
@@ -4021,7 +4248,7 @@ int main(int argc, char **argv) {
 		const char *st = "a: [1\n\t\t\": \n\t d-: 2\n\te: 3\n";
 		shcl_doc *sl = shcl_parse(st, strlen(st));
 		if (shcl_clear_comments(sl, "a.d", 3) != 0) fail("settled_below", "clear_comments took a line at a.d");
-		if (!shcl_set_empty(sl, "a.c", 3) || !shcl_set_raw(sl, "b.c", 3, "body", 4, "v0", 2)) fail("settled_below", "a setter refused");
+		if (shcl_set_empty(sl, "a.c", 3) != SHCL_SET_OK || shcl_set_raw(sl, "b.c", 3, "body", 4, "v0", 2) != SHCL_SET_OK) fail("settled_below", "a setter refused");
 		shcl_str sc = shcl_to_canonical(sl);
 		shcl_doc *sb = shcl_parse(sc.p, sc.n);
 		if (shcl_remove(sl, "a.c", 3) != 1 || shcl_remove(sb, "a.c", 3) != 1) fail("settled_below", "a remove missed");
@@ -4068,11 +4295,11 @@ int main(int argc, char **argv) {
 		// if (shcl_read_string(od, "srv[web].host", 13).status != SHCL_NOT_FOUND) fail("bracket_selector", "srv[web].host found");
 		if (shcl_read_string(od, "srv[web].host", 13).status != SHCL_BAD_PATH) fail("bracket_selector", "srv[web].host not BadPath");
 		if (shcl_count(od, "srv[web]", 8) != 0) fail("bracket_selector", "srv[web] count");
-		if (shcl_check_set_path(od, "srv[web].x", 10) != SHCL_SET_PATH_BAD_PATH) fail("bracket_selector", "check_set_path srv[web].x");
-		if (shcl_check_set_path(od, "srv(#0).x", 9) != SHCL_SET_PATH_BAD_PATH) fail("bracket_selector", "check_set_path srv(#0).x");
-		if (shcl_check_set_path(od, "srv(0).x", 8) != SHCL_SET_PATH_OK) fail("bracket_selector", "check_set_path srv(0).x");
-		if (shcl_set_int(od, "srv[web].x", 10, 1)) fail("bracket_selector", "a setter took a path in brackets");
-		if (!shcl_set_int(od, "srv(web).x", 10, 1)) fail("bracket_selector", "a setter refused srv(web).x");
+		if (shcl_check_set_path(od, "srv[web].x", 10) != SHCL_SET_BAD_PATH) fail("bracket_selector", "check_set_path srv[web].x");
+		if (shcl_check_set_path(od, "srv(#0).x", 9) != SHCL_SET_BAD_PATH) fail("bracket_selector", "check_set_path srv(#0).x");
+		if (shcl_check_set_path(od, "srv(0).x", 8) != SHCL_SET_OK) fail("bracket_selector", "check_set_path srv(0).x");
+		if (shcl_set_int(od, "srv[web].x", 10, 1) == SHCL_SET_OK) fail("bracket_selector", "a setter took a path in brackets");
+		if (shcl_set_int(od, "srv(web).x", 10, 1) != SHCL_SET_OK) fail("bracket_selector", "a setter refused srv(web).x");
 		shcl_str oc = shcl_to_canonical(od);
 		if (oc.n < 19 || memcmp(oc.p, "srv[web]:\nsrv: web\n", 19) != 0) fail("bracket_selector", "canonical");
 		shcl_tokens otok; memset(&otok, 0, sizeof otok);
@@ -4443,7 +4670,7 @@ int main(int argc, char **argv) {
 		if (!rt || lst != SHCL_FILE_CLEAN || rn != 5 || memcmp(rt, "a: 1\n", 5) != 0)
 			fail("longpath", "the long path did not read back");
 		free(rt);
-		if (shcl_set_int(ld, "a", 1, 2) && shcl_save_file(ld, lp) != SHCL_SAVE_OK)
+		if (shcl_set_int(ld, "a", 1, 2) == SHCL_SET_OK && shcl_save_file(ld, lp) != SHCL_SAVE_OK)
 			fail("longpath", "a rewrite of a path past MAX_PATH failed");
 		shcl_free(ld);
 		remove_long(lp);

@@ -36,7 +36,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - A setter's false doesn't say why
 	- ID: 2026100907362300
 	- Type: Enhancement
-	- Status: Started
+	- Status: Waiting on signoff
 	- Priority: Avg
 	- Opened: 20261009-073623
 	- Opened by: JC, from 2026100717500009
@@ -86,12 +86,19 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 			- A path with a lone surrogate is `BadPath` from `check_set_path` too now, where it said `Ok`, since the name check moved into the path check. `Es9aZSJ`'s five path rows are commented out for it, and `EsDeim8` has them.
 			- `OutOfRange` comes from `set_int`, `set_int_array` and their default forms.
 			- Python has no fuzz soup, so its twin of `EsDRhJo` runs over the sequence fixture's documents and the setter soup, with the same guard.
-	- Test case: conformance `setter_status_values_in_order` (`EsDRhHg`, Go `EsDeJ9a`, Python `EsDeik0`) and `setter_status_names_each_refusal` (`EsDRhFU`, Go `EsDeJBi`, Python `EsDeim8`), fuzz `setter_status_agrees_with_the_path_check` (`EsDRhJo`, Go `EsDemw3`, Python `EsDeioE`), Python's `setter_status_only_ok_is_true` (`EsDeiqL`), cli-regress `EsDRhLy`, `EsDRhOB`, `EsDRhQM`, `EsDRhSf`, `EsDRhUp`, `EsDTA92` and `EsDTA93`, and check-docs `setter-examples-check-the-result` (`EoXX3yy`), which counts a status compared with `Ok` as a check. `Es9S4kJ`'s field-under-an-array row, Go's `Es9S4kK`'s and Python's `Es9S4kL`'s, are commented out with the reason.
+		- 20261009: C is in on `ssc`: the library, the CLI's `refusal()`, the C++ interface, the README's C, C++ and Zig examples, the changelog's C names and design.md. All four now agree, so the branch can merge.
+			- `shcl_set_status`, `SHCL_SET_OK` to `SHCL_SET_NO_READ_BACK`. New `shcl_set_status_name` gives the names, as `shcl_status_name` does for a read. C++ has `SetStatus` with `to_string`, and the setters stay `[[nodiscard]]`.
+			- `NotUtf8` comes before the other value reasons and a path's reason still wins, as in Go and Python. A path that is not UTF-8 is `BadPath` from `shcl_check_set_path` too, so `Es9aZSK`'s five path rows are commented out and `EsDjsvT` has them. design.md says so under the table.
+			- No `warn_unused_result` on the setters. The library uses it nowhere, and it would not catch the real hazard, a check written the wrong way round.
+			- A default form whose probe document cannot be made now aborts after `SHCL_OOM`, as `arena_panic` does, where it returned 0.
+			- Swept, every C setter call: the library (the default forms, `w_place`, `w_set_marked_as`, `set_comment`), the CLI (`set_apply`, the ops `SET` macro, `apply_op`), `conformance.c` (113 sites, the ops runner and soup helper included), `mem_bounds.c` (10), `oom_hook.c` (one bare call, left), `veneer_smoke.cpp`, `check-veneer.bash`'s consumer file, the README's C, C++ and Zig examples, and check-docs' setter-check pattern, which counted `if (!shcl_set_` as a check and no longer does. The comparison tool calls only Rust.
+	- Test case: conformance `setter_status_values_in_order` (`EsDRhHg`, Go `EsDeJ9a`, Python `EsDeik0`, C `EsDjstE`) and `setter_status_names_each_refusal` (`EsDRhFU`, Go `EsDeJBi`, Python `EsDeim8`, C `EsDjsvT`), fuzz `setter_status_agrees_with_the_path_check` (`EsDRhJo`, Go `EsDemw3`, Python `EsDeioE`, C `EsDjsxk`), the C++ `veneer_smoke` (`EjtkR0S`), Python's `setter_status_only_ok_is_true` (`EsDeiqL`), cli-regress `EsDRhLy`, `EsDRhOB`, `EsDRhQM`, `EsDRhSf`, `EsDRhUp`, `EsDTA92` and `EsDTA93`, and check-docs `setter-examples-check-the-result` (`EoXX3yy`), which counts a status compared with `Ok` as a check. `Es9S4kJ`'s field-under-an-array row, Go's `Es9S4kK`'s, Python's `Es9S4kL`'s and C's `Es9S4kM`'s, are commented out with the reason.
 	- Verified (Rust): `cargo test` with the fuzz at 20,000, `fuzz_smoke` at 200,000 in release, rustfmt, clippy for the host and windows. `EsDRhFU` fails with the path check skipped on a refused value and with `UnderArray` given as `BadPath`. `EsDRhJo` fails on both too. The 7 new cli-regress rows fail with the CLI's text changed. `EoXX3yy` fails with one README check taken out.
 	- Verified (Python, on `sspy`): the conformance run, ruff, mypy with the typing probe, cli-regress (496 rows, 2687 checks) and crosscheck over the corpus (17901 comparisons) across all four, check-readme, test-ids check, markdownlint, and check-docs, red only on `installers-match-main` as before. `EsDeim8` and `EsDeioE` each fail with the path check skipped on a refused value, and with `UnderArray` given as `BadPath`. `EsDeiqL` fails with `__bool__` taken out, the typing probe with a setter typed `Any`, and `EoXX3yy` with one Python check taken out of the README.
+	- Verified (C, on `ssc`): the C conformance runner at gcc `-O0` and `-O2` and clang `-O0` and `-O2`, `oom_hook`, `oom_recover`, `mem_bounds`, check-c-compilers (5 compilers), sanitize-c under ASan and UBSan, cppcheck at the normal level, the C++ veneer smoke, native and as a Windows build, check-veneer, the mingw and no-file-IO builds, perf-gate for C, cli-regress (496 rows, 2687 checks) and crosscheck over the corpus (17901 comparisons) and over a fuzz dump with its eol and kept saves (41880) across all four, check-readme with the Zig example built, test-ids check, shellcheck, markdownlint, and check-docs, red only on `installers-match-main` as before. `EsDjsvT` and `EsDjsxk` each fail with the path check skipped on a refused value and with `UnderArray` given as `BadPath`, and `EsDjsvT` and `Es9aZSK` with `NotUtf8` asked after the raw reasons. cli-regress fails on C's CLI with its refusal text changed. `EoXX3yy` fails with one C check taken out of the README. Exhaustive cppcheck waits for the next main push.
 	- Verified (all four, on `setstat`): cli-regress (496 rows, 2687 checks), crosscheck over the corpus (17862 comparisons), the Go, Python and C suites, check-readme, check-abnf, check-docs, test-ids check, shellcheck, markdownlint. The comparison tool builds.
-	- Branch: `setstat`
-	- Commit: `c251f741`
+	- Branch: `setstat`, C on `ssc`
+	- Commit: `c251f741`, C `4aea318a`
 
 - `instances` output can't be fed back into a selector
 	- ID: 2026100717500016

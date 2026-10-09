@@ -136,7 +136,7 @@ cat >"${work}/user.cpp" <<'EOF'
 #endif
 int main() {
 	auto d = shcl::Document::parse("a: 1\nt: 2026-01-02T03:04Z\n");
-	if (!d || d.get_or<std::int64_t>("a", 0) != 1 || !d.set_string("b", "x")) return 1;
+	if (!d || d.get_or<std::int64_t>("a", 0) != 1 || d.set_string("b", "x") != shcl::SetStatus::Ok) return 1;
 	auto t = d.read_datetime("t");
 	if (!t.ok() || t.value != *shcl::parse_datetime(t.value.str())) return 2;
 	auto [text, faults] = shcl::generate(shcl::Document::parse("field: p\n\tdefault: 1\n"), true);
