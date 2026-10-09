@@ -1,7 +1,7 @@
 ; NSIS installer for shcl (Windows). Driven by cicd/utility/package.bash:
 ;   makensis -DVERSION=... -DSRCEXE=... -DPAYLOAD=... -DOUTFILE=... shcl.nsi
 ; Layout matches the system-install spec: $PROGRAMFILES64\Shcl with the binary,
-; code\ (drop-in files), scripts\ (ps1 wrapper), added to the machine PATH.
+; code\ (drop-in files), added to the machine PATH.
 ; The payload's man\ and completions\ are Linux-only and are not staged for
 ; this setup: Windows has no man and the completions are bash/zsh.
 
@@ -87,8 +87,11 @@ Section "Install"
 	File "/oname=shcl.exe" "${SRCEXE}"
 	SetOutPath "$INSTDIR\code"
 	File "${PAYLOAD}\code\*.*"
-	SetOutPath "$INSTDIR\scripts"
-	File "${PAYLOAD}\scripts\*.*"
+	; The shell wrappers are retired. An upgrade takes out the copies an older
+	; setup put in scripts\, and the dir if nothing else is in it.
+	Delete "$INSTDIR\scripts\shcl.ps1"
+	Delete "$INSTDIR\scripts\shcl.bash"
+	RMDir "$INSTDIR\scripts"
 	WriteUninstaller "$INSTDIR\uninstall.exe"
 
 	WriteRegStr HKLM "${REG_UNINST}" "DisplayName" "SHCL"
@@ -125,9 +128,12 @@ Section "Uninstall"
 	SendMessage ${HWND_BROADCAST} ${WM_WININICHANGE} 0 "STR:Environment" /TIMEOUT=5000
 	Delete "$INSTDIR\shcl.exe"
 	; The payload by name, written by package.bash from the file set the
-	; install copies. A glob took anything else kept in code\ or scripts\ as
-	; well, where both script installers remove only what they laid down.
+	; install copies. A glob took anything else kept in code\ as well, where
+	; both script installers remove only what they laid down. scripts\ is from
+	; a setup before the wrappers were retired.
 	!include "${UNINSTLIST}"
+	Delete "$INSTDIR\scripts\shcl.ps1"
+	Delete "$INSTDIR\scripts\shcl.bash"
 	RMDir "$INSTDIR\code"
 	RMDir "$INSTDIR\scripts"
 	Delete "$INSTDIR\uninstall.exe"

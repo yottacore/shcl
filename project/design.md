@@ -36,7 +36,7 @@ Design, requirements, and direction. The task list is in `backlog.md`. The full 
 	- [Reference implementation](#reference-implementation)
 	- [Go binding (Tier 2)](#go-binding-tier-2)
 	- [C binding (Tier 2)](#c-binding-tier-2)
-	- [Shell wrappers](#shell-wrappers)
+	- [Shell wrappers (retired)](#shell-wrappers-retired)
 	- [Man page and completions](#man-page-and-completions)
 
 <!-- /TOC -->
@@ -55,7 +55,7 @@ Design, requirements, and direction. The task list is in `backlog.md`. The full 
 
 	- Tier 3: the rest (C#, Java with Kotlin, JavaScript), deferred for now, corpus-gated, designed for from the start.
 
-	- Bash and PowerShell are thin wrappers around the CLI, not independent parsers. They inherit conformance for free. The companion typed surfaces (C++, Kotlin) are one core plus an interface of their own, not separate parsers.
+	- Bash and PowerShell scripts call the CLI, so they inherit its conformance for free. The wrappers that used to sit between them and the CLI are retired; see [Shell wrappers (retired)](#shell-wrappers-retired). The companion typed surfaces (C++, Kotlin) are one core plus an interface of their own, not separate parsers.
 
 ## Guiding principles and decisions
 
@@ -814,7 +814,7 @@ The responsibility is split rather than duplicate the pipeline:
 	- A registry publish cannot be taken back. Neither crates.io nor PyPI allows reuploading a version, and each bakes in the README it was given at that moment - so the per-binding READMEs (`source/rust/README.md`, `source/python/README.md`) get their example code compiled and run against the packaged artifact before the upload, not after. Those files exist separately from the front-page README because relative links and images break on a package page, and Cargo cannot reach above the crate root anyway.
 	- Binding versions move in lockstep with the product version, deliberately. The bindings are byte-for-byte equivalent by design, so a single number across all of them means a consumer reading `2.1` in any language knows exactly what behavior they have. It also lets each ecosystem's ordinary compatible-version operator (`shcl = "2"`, `shcl~=2.0`, Go's major-version import rule) do the tracking, with no scheme of our own to explain or maintain.
 
-- Installer packages ride the release stage, not a separate pipeline: `cicd/utility/package.bash` builds .deb/.rpm (nfpm, one sed-rendered template) per Linux binary and an NSIS setup per Windows binary, into the same versioned artifact family before the checksums are written. Package layout follows distro convention (/usr/bin + /usr/share/shcl) rather than the /opt layout the standalone install.bash uses - packages answer to distro policy, the script answers to the spec. Payload matches install.bash: binary + code/ drop-ins + scripts/ wrappers.
+- Installer packages ride the release stage, not a separate pipeline: `cicd/utility/package.bash` builds .deb/.rpm (nfpm, one sed-rendered template) per Linux binary and an NSIS setup per Windows binary, into the same versioned artifact family before the checksums are written. Package layout follows distro convention (/usr/bin + /usr/share/shcl) rather than the /opt layout the standalone install.bash uses - packages answer to distro policy, the script answers to the spec. Payload matches install.bash: binary + code/ drop-ins, plus the man page and completions in the Linux packages.
 
 - Release trust root: the sha256sums file is signed offline with an RSA-4096 key, and both installers include the public half inlined and check it before reading a checksum out of the file. Decisions behind it:
 	- Order matters more than the algorithm - a checksum taken from an unverified sums file proves nothing, so the signature is checked first or not at all.
@@ -872,21 +872,20 @@ The responsibility is split rather than duplicate the pipeline:
 
 - C has no committed zero-dependency formatter, so its quality gate is a warning-clean compile rather than a separate format stage.
 
-### Shell wrappers
+### Shell wrappers (retired)
 
-- The shell binding wraps the `shcl` CLI, not a parser, so it inherits conformance for free.
+- Retired 2026-10-08. Bash and PowerShell scripts call the `shcl` binary directly, and the README shows how. The two wrappers are frozen in `project/legacy/`, unmaintained and not installed, and an installer update removes the copies an older release put in `scripts/`. Why:
+	- They added little over the binary. `shcl_int f p` is `shcl get --int f p`.
+	- The PowerShell one did fix two real 5.1 problems, its output encoding and its old way of quoting native arguments. But about a third of it fixed problems that come from putting a PowerShell script or function in front of a native command: `--` and unquoted commas eaten before the function sees them, colon arguments split under `-File`, and pipeline input to forward.
+	- The two took 33 commits from August to October 2026, against a binary that needs none of it.
+	- What 5.1 needs from a caller is one encoding line, and the README says so.
 
-- Bash 3.2 (`source/bash/shcl.bash`) was targeted rather than POSIX sh (mostly defined in 1979). The wrapper earns its keep by being dual-purpose: run it as a script, or source it and call functions. That dual mode and the typed helpers read far cleaner with Bash's arrays and `local` than with portable sh. A thin passthrough would give a sourcing caller nothing over the binary itself.
-
-- PowerShell (`source/powershell/shcl.ps1`) is the second wrapper, built to the same design: dual-mode (run, or dot-source for the identical `shcl`/`shcl_*` helper names), the same binary-resolution order, and exit codes passed through into `$LASTEXITCODE`. It deliberately has no script-level param block - one would try to bind subcommand words - so every argument arrives in `$args` verbatim. Like the Bash wrapper it forwards rather than parses, so it is not in the cross-binding differential.
-
-- One `shcl` function is the whole CLI. `shcl_get`, `shcl_int`, `shcl_bool`, and friends are one-line typed sugar. `shcl_duration` and `shcl_size` hand back milliseconds and bytes, as `get --duration` and `get --size` do. Both modes take the same arguments and return the binary's exit code unchanged, so a not-found or empty read stays a distinct nonzero.
-
-- Two things a sourced tool must not do, and doesn't:
-
-	- Leak shell options into the caller. Strict mode is armed only on the run path.
-
-	- Let its own `shcl` function shadow the binary during lookup. The binary is resolved via `$SHCL_BIN`, a co-located `shcl`, PATH, then the repo build, so a dogfooded install and in-repo dev both work without configuration.
+- The superseded design, kept for the record:
+	- The shell binding wrapped the `shcl` CLI, not a parser, so it inherited conformance for free.
+	- Bash 3.2 (`project/legacy/shcl.bash`, was `source/bash/`) was targeted rather than POSIX sh. The wrapper was meant to earn its keep by being dual-purpose: run it as a script, or source it and call functions. That dual mode and the typed helpers read far cleaner with Bash's arrays and `local` than with portable sh.
+	- PowerShell (`project/legacy/shcl.ps1`, was `source/powershell/`) was the second wrapper, built to the same design: dual-mode, the same binary-resolution order, and exit codes passed through into `$LASTEXITCODE`. It had no script-level param block, since one would try to bind subcommand words, so every argument arrived in `$args` verbatim.
+	- One `shcl` function was the whole CLI, and `shcl_get`, `shcl_int`, `shcl_bool` and the rest were one-line typed sugar.
+	- A sourced wrapper armed strict mode only on its run path, so no shell options leaked into the caller, and its own `shcl` function never shadowed the binary during lookup. The binary was found through `$SHCL_BIN`, a `shcl` beside the script or a level up, PATH, then the repo build.
 
 ### Man page and completions
 

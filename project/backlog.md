@@ -36,7 +36,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - Retire the bash and PowerShell wrappers
 	- ID: 2026100818251401
 	- Type: Enhancement
-	- Status: Started
+	- Status: Done
+	- Needs external testing: win-runners' `ps args` step, which lost its shcl.ps1 calls, on the hosted windows job with the next main push. The setup's removal of an older `scripts\` is untested on Windows.
 	- Priority: Avg
 	- Opened: 20261008-182514
 	- Opened by: JC
@@ -47,6 +48,15 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- README, design.md, the man page and the changelog show calling the binary from bash and PowerShell, plus the 5.1 encoding line.
 	- Progress log:
 		- 20261008: the user agreed to drop both.
+		- 20261008: Both moved to `project/legacy/` with a readme, and out of the installers (`install.bash` 1.4.0, `install.ps1` 1.2.0), the packages, the drop-ins tarball, the dogfood stage and the lint lists. An update removes an older install's `scripts/` copies, and so does the setup.
+		- 20261008: README, design.md (the old design kept under "Shell wrappers (retired)"), spec, style guide, contributing, the man page and the changelog. The README's Bash and PowerShell examples call `shcl` directly, with the 5.1 encoding line.
+		- 20261008: The wrapper rows left shell-regress and win-runners. The dogfood runner's rows stay.
+		- check-docs `EpHGoa0` goes red once this reaches dev, until the installers are synced to main.
+	- Verified: shell-regress, check-readme, check-docs, `test-ids.py check`, shellcheck, PSScriptAnalyzer on install.ps1 and the dogfood runner, markdownlint, `install.bash --help`.
+	- Test case: shell-regress `EsAArRe` runs install.bash over an older install with the wrappers in `scripts/`, and `EsAArkd` runs install.ps1's `Remove-OldWrapper` the same way. Both fail on the old installers and pass now. check-readme `Es9JhMP` and `Es9JhOf` run the new README examples.
+	- Branch: nowrap
+	- Commit: `cee64cc4`
+	- Closed: 20261008-184153
 
 - `count`, `instances` and `children` can't report a path that doesn't parse
 	- ID: 2026100818140260

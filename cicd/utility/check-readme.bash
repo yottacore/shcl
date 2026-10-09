@@ -310,9 +310,8 @@ fTestEnd
 ##	The shell blocks. The Bash and PowerShell ones went stale at 3.0, first on
 ##	the comma rule and then on the selectors, since nothing ran them. A section's
 ##	blocks run top to bottom in one directory, the way a reader pastes them, on
-##	the README's server.shcl with the wrapper beside it and SHCL_BIN pinned to the
-##	built CLI. Every command has to succeed, and the file left behind has to load
-##	clean.
+##	the README's server.shcl with the built CLI first on PATH as `shcl`. Every
+##	command has to succeed, and the file left behind has to load clean.
 fSectionBlocks(){   ## fSectionBlocks HEADING LANG DIR: writes DIR/N.blk, prints N
 	mkdir -p "$3"
 	awk -v head="$1" -v lang="$2" -v dir="$3" '
@@ -337,7 +336,6 @@ fRunBashSection(){   ## fRunBashSection HEADING LANG
 	n="$(fSectionBlocks "$1" "$2" "${dir}")"
 	if [[ "${n}" == 0 ]]; then echo "check-readme: no ${2} block under '${1}' in ${readme}" >&2; exit 1; fi
 	cp "${tmpDir}/server-in.shcl" "${dir}/server.shcl"
-	cp "${repoDir}/source/bash/shcl.bash" "${dir}/"
 	{
 		echo 'set -Eeo pipefail'
 		# shellcheck disable=SC2016  ## expands in the generated script
@@ -349,7 +347,7 @@ fRunBashSection(){   ## fRunBashSection HEADING LANG
 			echo "[[ \"\${${name}}\" == '${want}' ]] || { echo \"check-readme: README ${2} block: ${name} is '\${${name}}', its comment says ${want}\" >&2; exit 1; }"
 		done
 	} > "${dir}/run.bash"
-	if ! ( cd "${dir}" && PATH="${tx}/bin:${PATH}" SHCL_BIN="${cli}" bash "${dir}/run.bash" ) > "${dir}/run.out" 2>&1 </dev/null; then
+	if ! ( cd "${dir}" && PATH="${tx}/bin:${PATH}" bash "${dir}/run.bash" ) > "${dir}/run.out" 2>&1 </dev/null; then
 		echo "check-readme: the README's ${2} blocks under '${1}' do not run:" >&2
 		head -n 20 "${dir}/run.out" | sed 's/^/	/' >&2
 		exit 1
@@ -371,7 +369,6 @@ if command -v pwsh >/dev/null 2>&1; then
 	nPs="$(fSectionBlocks '### PowerShell' powershell "${psDir}")"
 	if [[ "${nPs}" == 0 ]]; then echo "check-readme: no powershell block under '### PowerShell' in ${readme}" >&2; exit 1; fi
 	cp "${tmpDir}/server-in.shcl" "${psDir}/server.shcl"
-	cp "${repoDir}/source/powershell/shcl.ps1" "${psDir}/"
 	cat > "${tmpDir}/run-ps-blocks.ps1" << 'EOF'
 $ErrorActionPreference = 'Stop'
 foreach ($__readmeBlock in (Get-ChildItem -Path $args[0] -Filter '*.blk' | Sort-Object -Property { [int]$_.BaseName })) {
@@ -392,7 +389,7 @@ foreach ($__readmeBlock in (Get-ChildItem -Path $args[0] -Filter '*.blk' | Sort-
 }
 exit 0
 EOF
-	if ! ( cd "${psDir}" && SHCL_BIN="${cli}" env -u DISPLAY pwsh -NoProfile -NonInteractive -File "${tmpDir}/run-ps-blocks.ps1" "${psDir}" ) > "${psDir}/run.out" 2>&1 </dev/null; then
+	if ! ( cd "${psDir}" && PATH="${tx}/bin:${PATH}" env -u DISPLAY pwsh -NoProfile -NonInteractive -File "${tmpDir}/run-ps-blocks.ps1" "${psDir}" ) > "${psDir}/run.out" 2>&1 </dev/null; then
 		echo "check-readme: the README's PowerShell blocks do not run:" >&2
 		head -n 20 "${psDir}/run.out" | sed 's/^/	/' >&2
 		exit 1
@@ -474,3 +471,5 @@ echo "check-readme: OK"
 ##		2026-10-08  The Bash, PowerShell and CLI shell blocks run, after the
 ##		            first two were found failing on 3.0. Also the --set prose
 ##		            and the 2.x migrate paragraph's two values.
+##		2026-10-08  The Bash and PowerShell blocks call the CLI on PATH; the
+##		            wrappers are retired.

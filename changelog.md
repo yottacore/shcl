@@ -80,6 +80,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The installers default to the newest full release, installed for the current user. With no full release yet, that is the newest pre-release.
 
+- The Bash and PowerShell wrappers are retired. Call `shcl` directly: `shcl_int f p` is `shcl get --int f p`. No package or installer includes them now, and an installer update removes the old copies from `scripts/`.
+
 ### New
 
 - A prebuilt macOS binary, one universal file for Intel and Apple silicon, for macOS 13 and later. `install.bash` installs it.

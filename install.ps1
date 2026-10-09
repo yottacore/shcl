@@ -4,8 +4,9 @@
 ##	Release installer for shcl (Simple Hierarchical Config Language) on Windows.
 ##	Downloads the latest release from GitHub, checks the sha256sums file against
 ##	the release signing key before trusting a checksum out of it, and lays out
-##	the binary plus the drop-in source files and wrappers. Idempotent:
-##	re-running updates an existing install in place.
+##	the binary plus the drop-in source files. Idempotent: re-running updates
+##	an existing install in place, and takes out the retired shell wrappers an
+##	older install put in scripts\.
 ##
 ##	Usage (one-liner, defaults):
 ##		irm https://raw.githubusercontent.com/yottacore/shcl/main/install.ps1 | iex
@@ -21,7 +22,8 @@
 ##		                        system: C:\Program Files\Shcl, added to the
 ##		                        machine PATH (needs an elevated shell).
 ##		-Uninstall              remove what an install of the same -Target laid
-##		                        down (binary, code\, scripts\, PATH entry).
+##		                        down (binary, code\, PATH entry, and an older
+##		                        install's scripts\).
 ##		-Yes                    skip the confirmation prompt.
 ##		-Version                print this installer's version and exit.
 ##		-Help                   print the options and exit.
@@ -32,7 +34,6 @@
 ##		shcl.exe    the CLI binary
 ##		code\       drop-in single-file bindings (lib.rs, shcl.go, shcl.py,
 ##		            shcl.h, shcl.hpp)
-##		scripts\    the PowerShell wrapper (shcl.ps1) and bash wrapper
 #==============================================================================
 
 ##	Copyright (C) 2026 Jim Collier
@@ -44,7 +45,7 @@
 .SYNOPSIS
 Installs, updates or removes the shcl release binary on Windows.
 .DESCRIPTION
-Downloads a release from GitHub, checks the signed sha256sums file before trusting a checksum out of it, and installs the binary, the drop-in source files and the wrappers. Re-running updates an install in place.
+Downloads a release from GitHub, checks the signed sha256sums file before trusting a checksum out of it, and installs the binary and the drop-in source files. Re-running updates an install in place, and removes the shell wrappers an older install put in scripts\.
 .PARAMETER Release
 stable (the default) takes the newest full release, or the newest pre-release while there is no full one. dev takes the newest release, pre-releases included.
 .PARAMETER Target
@@ -86,7 +87,7 @@ param(
 	Set-StrictMode -Version Latest
 	$ErrorActionPreference = 'Stop'
 
-	$installerVersion = '1.1.7'
+	$installerVersion = '1.2.0'
 
 	## Every run opens with a blank line and ends with one, errors included.
 	Write-Output ''
@@ -332,6 +333,7 @@ installed.
 
 	## Removes the files an install writes, by name, the staging name an
 	## interrupted install leaves, and each install dir once it is empty.
+	## scripts\ is from an install before the wrappers were retired.
 	## Deleting the whole code\ and scripts\ trees took whatever else someone
 	## had put there, and a populated dir stays, since the setup .exe installs
 	## here too. Hands back what would not go and whether anything this
@@ -365,6 +367,22 @@ installed.
 			}
 		}
 		[PSCustomObject]@{ Stuck = $stuck.ToArray(); Foreign = $foreign }
+	}
+
+	## The shell wrappers are retired (project/legacy/). An update takes out the
+	## copies an older install left in scripts\, and the dir once that empties
+	## it. A file that will not go stays, since the wrapper was only ever extra.
+	function Remove-OldWrapper {
+		[CmdletBinding()]
+		[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+		param([string]$Dest)
+		$dir = Join-Path -Path $Dest -ChildPath 'scripts'
+		if (-not (Test-Path -LiteralPath $dir -PathType Container)) { return }
+		foreach ($name in 'shcl.ps1', 'shcl.bash') {
+			$path = Join-Path -Path $dir -ChildPath $name
+			if (Test-Path -LiteralPath $path -PathType Leaf) { Remove-Item -Force -LiteralPath $path -ErrorAction SilentlyContinue }
+		}
+		if (@(Get-ChildItem -Force -LiteralPath $dir).Count -eq 0) { Remove-Item -Force -LiteralPath $dir -ErrorAction SilentlyContinue }
 	}
 
 	## Windows only; elsewhere install.bash (Linux, macOS, FreeBSD) or build from source.
@@ -518,7 +536,8 @@ installed.
 	Write-Output "shcl $version ($channel, windows-$arch) -> $dest ($existing)"
 	Write-Output "  from     https://github.com/$repo/releases/tag/$tag"
 	Write-Output "  binary   $dest\shcl.exe"
-	Write-Output "  drop-ins $dest\code\, wrappers $dest\scripts\"
+	Write-Output "  drop-ins $dest\code\"
+	if (Test-Path -LiteralPath (Join-Path -Path $dest -ChildPath 'scripts')) { Write-Output "  removes  the retired wrappers in $dest\scripts\" }
 	Write-Output "  adds $pathDir to the $pathScope PATH if missing"
 	if (-not $Yes) {
 		$reply = Read-Host 'Proceed? [y/N]'
@@ -564,7 +583,7 @@ installed.
 		$got = (Get-FileHash -Algorithm SHA256 -LiteralPath $tmpExe).Hash.ToLower()
 		if (-not $want -or $got -ne $want.ToLower()) { Exit-Install "sha256 mismatch on $asset" }
 
-		## Drop-in code files and wrappers come from a release asset covered by the
+		## Drop-in code files come from a release asset covered by the
 		## same signed sums file as the binary. They used to come from GitHub's
 		## generated source zipball, which has neither a signature nor a
 		## checksum. Releases predating the asset install the binary alone.
@@ -602,11 +621,11 @@ installed.
 			Copy-Item -LiteralPath $tmpExe -Destination (Join-Path -Path $dest -ChildPath '.shcl.exe.new')
 			Move-Item -Force -LiteralPath (Join-Path -Path $dest -ChildPath '.shcl.exe.new') -Destination (Join-Path -Path $dest -ChildPath 'shcl.exe')
 			if ($haveDropins) {
-				New-Item -ItemType Directory -Force -Path (Join-Path -Path $dest -ChildPath 'code'), (Join-Path -Path $dest -ChildPath 'scripts') | Out-Null
+				New-Item -ItemType Directory -Force -Path (Join-Path -Path $dest -ChildPath 'code') | Out-Null
 				$payloadRoot = $srcroot.FullName
 				Copy-Item -LiteralPath "$payloadRoot\source\rust\src\lib.rs", "$payloadRoot\source\go\shcl.go", "$payloadRoot\source\python\shcl.py", "$payloadRoot\source\c\shcl.h", "$payloadRoot\source\c\shcl.hpp" -Destination (Join-Path -Path $dest -ChildPath 'code')
-				Copy-Item -LiteralPath "$payloadRoot\source\powershell\shcl.ps1", "$payloadRoot\source\bash\shcl.bash" -Destination (Join-Path -Path $dest -ChildPath 'scripts')
 			}
+			Remove-OldWrapper -Dest $dest
 		} catch {
 			$ex = $_.Exception
 			while ($ex.InnerException) { $ex = $ex.InnerException }
@@ -633,7 +652,7 @@ installed.
 		if (Test-Path -LiteralPath (Join-Path -Path $dest -ChildPath 'uninstall.exe')) {
 			Write-Output "note: $dest came from the shcl setup - its Add/Remove Programs entry still shows the version it installed"
 		}
-		if (-not $haveDropins) { Write-Output "note: this release ships no signed drop-in payload, so $dest\code and $dest\scripts were skipped - take them from the repo if you want them" }
+		if (-not $haveDropins) { Write-Output "note: this release ships no signed drop-in payload, so $dest\code was skipped - take the files from the repo if you want them" }
 		$rerun = if ($invokedAsFile) { "& '$scriptPath'" } else { '& ([scriptblock]::Create((irm https://raw.githubusercontent.com/yottacore/shcl/main/install.ps1)))' }
 		Write-Output "to remove it again: $rerun -Uninstall -Target $Target"
 		## And what `shcl` actually resolves to: the receipt below runs the copy

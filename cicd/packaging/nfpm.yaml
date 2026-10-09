@@ -1,7 +1,7 @@
 # nfpm config template for the .deb/.rpm packages (https://nfpm.goreleaser.com).
 # cicd/utility/package.bash sed-renders the ${SHCL_*} placeholders per build
 # (nfpm does not expand env vars in contents src). SHCL_PAYLOAD = staged
-# code/ + scripts/ trees; payload mirrors install.bash.
+# code/ tree, man page, docs and completions; payload mirrors install.bash.
 name: shcl
 arch: ${SHCL_ARCH}
 platform: linux
@@ -12,7 +12,7 @@ maintainer: Jim Collier <32471972+jim-collier@users.noreply.github.com>
 description: |
   Simple Hierarchical Config Language.
   Reference parser, accessor, writer, and CLI, with drop-in language
-  bindings (Rust, Go, Python, C/C++) and Bash/PowerShell wrappers.
+  bindings (Rust, Go, Python, C/C++).
 homepage: https://github.com/yottacore/shcl
 license: MIT
 # What the binary links against, read off the binary itself by package.bash:
@@ -45,9 +45,6 @@ contents:
       mode: 0755
   - src: ${SHCL_PAYLOAD}/code
     dst: /usr/share/shcl/code
-    type: tree
-  - src: ${SHCL_PAYLOAD}/scripts
-    dst: /usr/share/shcl/scripts
     type: tree
   - src: ${SHCL_PAYLOAD}/man/shcl.1.gz
     dst: /usr/share/man/man1/shcl.1.gz
