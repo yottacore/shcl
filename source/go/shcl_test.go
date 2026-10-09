@@ -1171,6 +1171,63 @@ func TestBadPathReadsSayBadPath(t *testing.T) {
 	}
 }
 
+// The list reads' status twins: BadPath for a path that cannot be read,
+// NotFound for one that matches nothing, Good otherwise, with the value the
+// plain call gives. Same fixture in every runner.
+func TestListReadsSayBadPath(t *testing.T) {
+	defer testID(t, "EsDQqYe")
+	doc := Parse("site: a\n\tport: 1\nsite: b\n")
+	if c := doc.ReadCount("site"); c.Value != 2 || c.Status != Good || c.Line != 0 {
+		t.Errorf("ReadCount(site) = %d %v %d", c.Value, c.Status, c.Line)
+	}
+	if c := doc.ReadCount("site(0)"); c.Value != 1 || c.Status != Good || c.Line != 1 {
+		t.Errorf("ReadCount(site(0)) = %d %v %d", c.Value, c.Status, c.Line)
+	}
+	// An unresolved wildcard slot still counts, as in Count.
+	if c := doc.ReadCount("site(*).port"); c.Value != 2 || c.Status != Good {
+		t.Errorf("ReadCount(site(*).port) = %d %v", c.Value, c.Status)
+	}
+	if st := doc.ReadCount("nope").Status; st != NotFound {
+		t.Errorf("ReadCount(nope): %v", st)
+	}
+	if st := doc.ReadCount("nope(*)").Status; st != NotFound {
+		t.Errorf("ReadCount(nope(*)): %v", st)
+	}
+	if i := doc.ReadInstances("site"); !reflect.DeepEqual(i.Value, []string{"a", "b"}) || i.Status != Good {
+		t.Errorf("ReadInstances(site) = %q %v", i.Value, i.Status)
+	}
+	if i := doc.ReadInstances("site(*).port"); !reflect.DeepEqual(i.Value, []string{"1", ""}) || i.Status != Good {
+		t.Errorf("ReadInstances(site(*).port) = %q %v", i.Value, i.Status)
+	}
+	if st := doc.ReadInstances("nope").Status; st != NotFound {
+		t.Errorf("ReadInstances(nope): %v", st)
+	}
+	if k := doc.ReadChildren("site(0)"); !reflect.DeepEqual(k.Value, []string{"port"}) || k.Status != Good || k.Line != 1 {
+		t.Errorf("ReadChildren(site(0)) = %q %v %d", k.Value, k.Status, k.Line)
+	}
+	// An empty section is Good, a missing one NotFound.
+	if k := doc.ReadChildren("site(1)"); len(k.Value) != 0 || k.Status != Good {
+		t.Errorf("ReadChildren(site(1)) = %q %v", k.Value, k.Status)
+	}
+	if st := doc.ReadChildren("nope").Status; st != NotFound {
+		t.Errorf("ReadChildren(nope): %v", st)
+	}
+	if k := doc.ReadChildren(""); strings.Join(k.Value, "|") != "site|site" || k.Status != Good {
+		t.Errorf("ReadChildren(\"\") = %q %v", k.Value, k.Status)
+	}
+	for _, p := range []string{"site[0].port", "site(.port", "site..port", "", "user name", "site.port: 1", "h:p"} {
+		if c := doc.ReadCount(p); c.Value != 0 || c.Status != BadPath || len(c.Slots) != 0 {
+			t.Errorf("ReadCount(%q) = %d %v %v", p, c.Value, c.Status, c.Slots)
+		}
+		if i := doc.ReadInstances(p); len(i.Value) != 0 || i.Status != BadPath {
+			t.Errorf("ReadInstances(%q) = %q %v", p, i.Value, i.Status)
+		}
+		if k := doc.ReadChildren(p); p != "" && (len(k.Value) != 0 || k.Status != BadPath) {
+			t.Errorf("ReadChildren(%q) = %q %v", p, k.Value, k.Status)
+		}
+	}
+}
+
 func TestCheckSetPathNamesTheFailure(t *testing.T) {
 	defer testID(t, "ElouJ8L")
 	// The reason behind a setter's bare false. Same fixture in every runner.
@@ -3009,17 +3066,27 @@ func TestReadsMatchExpected(t *testing.T) {
 				if got := doc.Count(query); got != want {
 					t.Errorf("%s: count: got %d want %d", at, got, want)
 				}
+				// A status other than `-` pins the Read twin too.
+				if r := doc.ReadCount(query); status != "-" && (r.Value != want || r.Status.String() != status) {
+					t.Errorf("%s: ReadCount: got %d %v want %d %s", at, r.Value, r.Status, want, status)
+				}
 				continue
 			}
 			if kind == "instances" {
 				if got := strings.Join(doc.Instances(query), "|"); got != expected {
 					t.Errorf("%s: instances: got %q want %q", at, got, expected)
 				}
+				if r := doc.ReadInstances(query); status != "-" && (strings.Join(r.Value, "|") != expected || r.Status.String() != status) {
+					t.Errorf("%s: ReadInstances: got %q %v want %q %s", at, r.Value, r.Status, expected, status)
+				}
 				continue
 			}
 			if kind == "children" {
 				if got := strings.Join(doc.Children(query), "|"); got != expected {
 					t.Errorf("%s: children: got %q want %q", at, got, expected)
+				}
+				if r := doc.ReadChildren(query); status != "-" && (strings.Join(r.Value, "|") != expected || r.Status.String() != status) {
+					t.Errorf("%s: ReadChildren: got %q %v want %q %s", at, r.Value, r.Status, expected, status)
 				}
 				continue
 			}

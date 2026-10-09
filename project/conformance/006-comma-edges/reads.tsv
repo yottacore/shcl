@@ -13,4 +13,4 @@ tight	string	[red, green]	Good
 tight	string[]	red|green	Good
 emptyish	string[]	red||blue	Good
 emptyish	count	1	Good
-double	count	0	Good
+double	count	0	NotFound

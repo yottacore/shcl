@@ -24,3 +24,6 @@ if TYPE_CHECKING:
 		assert_type(d.read_bool_array("a").value, list[bool])
 		assert_type(d.read_string_array("a").value, list[str])
 		assert_type(d.read_datetime_array("a").value, list[shcl.ShclDateTime])
+		assert_type(d.read_count("a").value, int)
+		assert_type(d.read_instances("a").value, list[str])
+		assert_type(d.read_children("a").value, list[str])
