@@ -64,6 +64,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- The docs drop the refused-value list from 2026100717500009 where the status names them.
 	- Decisions:
 		- 20261009: before the cut, since it changes every setter's signature and would otherwise wait for 4.0 (JC).
+		- 20261009: one `SetStatus` enum. `SetPathCheck` is renamed to it and gets the value reasons, and `check_set_path` returns it too (JC).
 
 - `instances` output can't be fed back into a selector
 	- ID: 2026100717500016
@@ -203,11 +204,13 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Decisions:
 		- 20261008: before the cut, not after (JC).
 		- 20261009: all three get a fix, not docs (JC).
+		- 20261009: the third is `set_*_default` itself. It writes the default when the field is missing, empty or doesn't read as that type, and keeps a replaced line as a `##` comment with a note (JC).
 	- Requirements:
 		- A library call reads a config's `Schema` line and resolves it by the CLI's rules. The CLI uses the same call, so the two can't drift.
 		- A `kind(path)` read gives scalar, array, raw block or empty, with a status for a missing or bad path.
 		- One call makes sure a field has a usable value of a type.
 	- Question: the third one, proposed: `set_*_default` writes the default when the field is missing, empty, or doesn't read as that type, and leaves a good value alone. The old line stays as a `##` comment with a note, the way a setter writes over a kept line (2026100307163907), so `bad: abc` is not lost. True means the field now reads as that type. The other way is a new `ensure_*` family beside the current `set_*_default`, which would keep its meaning.
+		- Answered 20261009: as proposed, `set_*_default` changes. No `ensure_*` family.
 	- Origin: Confirmed by reading and probes.
 
 **Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
