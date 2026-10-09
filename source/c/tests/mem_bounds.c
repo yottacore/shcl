@@ -211,9 +211,9 @@ int main(void) {
 	size_t big = 4u * 1024 * 1024;
 	char *blob = (char *)malloc(big);
 	memset(blob, 'x', big);
-	if (shcl_set_string(d, "a(*)", 4, blob, big)) fail("refused setter: the wildcard write was accepted");
-	for (int i = 0; i < 5; i++) if (shcl_set_raw(d, "a(*)", 4, blob, big, "", 0)) fail("refused setter: the raw write was accepted");
-	for (int i = 0; i < 10000; i++) if (shcl_set_int(d, "a(*)", 4, i)) fail("refused setter: the int write was accepted");
+	if (shcl_set_string(d, "a(*)", 4, blob, big) == SHCL_SET_OK) fail("refused setter: the wildcard write was accepted");
+	for (int i = 0; i < 5; i++) if (shcl_set_raw(d, "a(*)", 4, blob, big, "", 0) == SHCL_SET_OK) fail("refused setter: the raw write was accepted");
+	for (int i = 0; i < 10000; i++) if (shcl_set_int(d, "a(*)", 4, i) == SHCL_SET_OK) fail("refused setter: the int write was accepted");
 	size_t after = arena_bytes(&d->arena);
 	printf("mem_bounds: refused writes: arena %zu -> %zu over 24 MB refused\n", held, after);
 	if (after > held + 4096) fail("a refused setter kept the value it encoded");
@@ -230,8 +230,8 @@ int main(void) {
 	memset(lit, 'y', mib);
 	lit[0] = '"';
 	for (int i = 0; i < 200; i++) {
-		if (shcl_set_raw(d, "r", 1, "body", 4, blob, mib)) fail("refused setter: a raw info string holding # was accepted");
-		if (shcl_set_literal(d, "l", 1, lit, mib)) fail("refused setter: an unterminated literal was accepted");
+		if (shcl_set_raw(d, "r", 1, "body", 4, blob, mib) == SHCL_SET_OK) fail("refused setter: a raw info string holding # was accepted");
+		if (shcl_set_literal(d, "l", 1, lit, mib) == SHCL_SET_OK) fail("refused setter: an unterminated literal was accepted");
 	}
 	size_t scap = 0;
 	for (const ShclBlock *b = d->scratch.head; b; b = b->next) scap += b->cap;
@@ -305,7 +305,7 @@ int main(void) {
 			   parent's list, so the old walk only stepped over it and cost
 			   three times a sound build. A removed subtree keeps its own list,
 			   and the old walk indexed every dead child. */
-			if (churned) for (int i = 0; i < 50000; i++) if (!shcl_set_int(cd, "g.tmp.x", 7, i) || shcl_remove(cd, "g.tmp", 5) != 1) { fail("churn cycle: set or remove refused"); break; }
+			if (churned) for (int i = 0; i < 50000; i++) if (shcl_set_int(cd, "g.tmp.x", 7, i) != SHCL_SET_OK || shcl_remove(cd, "g.tmp", 5) != 1) { fail("churn cycle: set or remove refused"); break; }
 			/* A second document, as the other three runners use. Merging one
 			   onto itself returns before the index is dropped, so both sides
 			   built the index once and timed 1999 hash lookups. */
@@ -398,7 +398,7 @@ int main(void) {
 			shcl_doc *kd = shcl_parse(ktext, len);
 			shcl_doc *ov = shcl_parse("g:\n\tj: 1\n", 9);
 			double c0 = wall_ms();
-			for (int i = 0; i < 500; i++) if (!shcl_set_int(kd, "g.k", 3, i)) fail("kept-line fixture: set refused");
+			for (int i = 0; i < 500; i++) if (shcl_set_int(kd, "g.k", 3, i) != SHCL_SET_OK) fail("kept-line fixture: set refused");
 			for (int i = 0; i < 500; i++) shcl_merge(kd, ov);
 			t[kept] = wall_ms() - c0;
 			if (shcl_get_int_or(kd, "g.k", 3, -1) != 499) fail("kept-line fixture: wrong result");
@@ -477,7 +477,7 @@ int main(void) {
 		memset(blob, 'x', big);
 		d = shcl_parse("a: 1\n", 5);
 		held = arena_bytes(&d->arena);
-		if (!shcl_set_string(d, "a", 1, blob, big)) fail("set_string of a large value failed");
+		if (shcl_set_string(d, "a", 1, blob, big) != SHCL_SET_OK) fail("set_string of a large value failed");
 		size_t grew = arena_bytes(&d->arena) - held;
 		printf("mem_bounds: set_string: %zu bytes for a %zu-byte value\n", grew, big);
 		// The builder is opened at the value's own size, so the only slack is
@@ -521,8 +521,8 @@ int main(void) {
 		d = shcl_parse("b: 1\n", 5);
 		const char *arr[2] = {blob, blob};
 		size_t lens[2] = {big, big};
-		if (!shcl_set_string_default(d, "b", 1, blob, big)) fail("default probe: the string was refused");
-		if (!shcl_set_string_array_default(d, "b", 1, arr, lens, 2)) fail("default probe: the array was refused");
+		if (shcl_set_string_default(d, "b", 1, blob, big) != SHCL_SET_OK) fail("default probe: the string was refused");
+		if (shcl_set_string_array_default(d, "b", 1, arr, lens, 2) != SHCL_SET_OK) fail("default probe: the array was refused");
 		held = arena_caps(&d->arena) + arena_caps(&d->scratch) + arena_caps(&d->reads);
 		if (d->probe_doc) held += arena_caps(&d->probe_doc->arena) + arena_caps(&d->probe_doc->scratch) + arena_caps(&d->probe_doc->reads);
 		printf("mem_bounds: default probe: %zu bytes held after two 4 MB defaults\n", held);

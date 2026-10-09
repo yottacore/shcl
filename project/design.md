@@ -660,6 +660,8 @@ The mirror of the load outcomes, on the write side. A setter builds its line tex
 | `OutOfRange`  | value | An int past the 64-bit range. Python only.
 | `NoReadBack`  | value | Any other value that does not read back. None is known; it keeps the rule above true for a value nobody has thought of.
 
+- `NotUtf8` comes before the other value reasons, so that way text that is not UTF-8 gives it even with a line break or a `#` in it as well. A path's reason still wins over all of them, and a path that is not UTF-8 is `BadPath`.
+
 ### Kept lines under edits
 
 What each edit does with the kept lines near its target. A kept line is one the load kept as written: retained for its content, or kept for where it sits. The table is the rule. Edits lost these lines one site at a time, each at exit 0, so a new edit gets a row before it gets code.

@@ -42,9 +42,15 @@ enum class Severity { Error, Hint };
 // the scanner refused or one with a `: value` part; NotFound is a usable path
 // that matched nothing.
 enum class Status { Good, Empty, NotFound, BadType, Multiple, BadPath };
-// What check_set_path() finds: whether a setter could write at a path, and if
-// not, why. A setter can still refuse its value on Ok.
-enum class SetPathCheck { Ok, BadPath, ValueInPath, Wildcard, NoSuchIndex, TooDeep, Multiple };
+// What a setter did: Ok when the write applied, or why it wrote nothing.
+// check_set_path() gives the path's half of it, the reasons up to UnderArray,
+// without writing. The rest are about the value, so only a setter gives them.
+// When both halves are wrong the path's reason wins, and NotUtf8 comes before
+// the other value reasons. The order is every binding's.
+enum class SetStatus {
+	Ok, BadPath, ValueInPath, Wildcard, NoSuchIndex, TooDeep, Multiple, UnderArray,
+	HasChildren, NotFinite, BadDateTime, BadRawInfo, BadRawBody, BadComment, NotOneValue, NotUtf8, OutOfRange, NoReadBack
+};
 // The unit a duration or size read gives a bare number, when the field name
 // gives none. Kilo to Tera are powers of 1024 unless the read asks for
 // decimal; Kibi to Tebi always are.
@@ -129,6 +135,8 @@ inline bool operator!=(const DateTime &a, const DateTime &b) { return !(a == b);
 
 // Status as text, for a log line or a message. Static storage.
 const char *to_string(Status s);
+// A setter's status as text, "Ok" to "NoReadBack". Static storage.
+const char *to_string(SetStatus s);
 // The CLI exit code a read with this status ends on.
 int status_code(Status s);
 // The CLI's strictness spellings, loose|standard|strict or 1|2|3, in any case.
@@ -442,62 +450,58 @@ public:
 	// does not resolve to exactly one node.
 	std::string authored_name(std::string_view path) const;
 	// Whether a setter could write at a path, and why not. Probes only; never
-	// creates.
-	SetPathCheck check_set_path(std::string_view path) const;
+	// creates. Gives only the path reasons, BadPath to UnderArray.
+	SetStatus check_set_path(std::string_view path) const;
 
-	// Writes. A setter creates the path as needed, and false means nothing was
-	// written. Either the path check failed, and check_set_path() says why,
-	// such as a step that matches more than one field (port(0) picks one), or
-	// it passed and the write was refused for what it would write: a NaN or
-	// infinite float, a datetime the reader would refuse, a raw block whose
-	// info string holds a `#` or a line break or whose body has a line ending
-	// in CR, a comment with a line break, set_literal text that is not one
-	// value, an array on a field with lines under it, a new field under one
-	// holding an array, or text that is not valid UTF-8. An ignored false
-	// means the save that follows writes a document missing the edit, hence
+	// Writes. A setter creates the path as needed and returns Ok when the
+	// write applied. Any other value means nothing was written, and names why:
+	// the path's reason when the path is wrong, as check_set_path() gives it,
+	// such as a step that matches more than one field (port(0) picks one),
+	// else the value's, such as NotFinite for a NaN. An ignored refusal means
+	// the save that follows writes a document missing the edit, hence
 	// nodiscard.
-	[[nodiscard]] bool set_int(std::string_view path, std::int64_t v);
-	[[nodiscard]] bool set_float(std::string_view path, double v);
-	[[nodiscard]] bool set_bool(std::string_view path, bool v);
-	[[nodiscard]] bool set_string(std::string_view path, std::string_view v);
-	[[nodiscard]] bool set_datetime(std::string_view path, const DateTime &v);
+	[[nodiscard]] SetStatus set_int(std::string_view path, std::int64_t v);
+	[[nodiscard]] SetStatus set_float(std::string_view path, double v);
+	[[nodiscard]] SetStatus set_bool(std::string_view path, bool v);
+	[[nodiscard]] SetStatus set_string(std::string_view path, std::string_view v);
+	[[nodiscard]] SetStatus set_datetime(std::string_view path, const DateTime &v);
 	// A fence longer than any content line is picked for it. A body line ending
-	// in CR fails the write, since a load takes that CR off.
-	[[nodiscard]] bool set_raw(std::string_view path, std::string_view content, std::string_view info);
+	// in CR fails the write (BadRawBody), since a load takes that CR off.
+	[[nodiscard]] SetStatus set_raw(std::string_view path, std::string_view content, std::string_view info);
 	// An empty value, which is not the empty string.
-	[[nodiscard]] bool set_empty(std::string_view path);
+	[[nodiscard]] SetStatus set_empty(std::string_view path);
 
 	// Arrays, one per call, written in brackets: one element is [80] and none
-	// is [].
-	[[nodiscard]] bool set_int_array(std::string_view path, const std::vector<std::int64_t> &v);
-	[[nodiscard]] bool set_float_array(std::string_view path, const std::vector<double> &v);
-	[[nodiscard]] bool set_bool_array(std::string_view path, const std::vector<bool> &v);
-	[[nodiscard]] bool set_string_array(std::string_view path, const std::vector<std::string> &v);
-	[[nodiscard]] bool set_datetime_array(std::string_view path, const std::vector<DateTime> &v);
+	// is []. An array on a field with lines under it is HasChildren.
+	[[nodiscard]] SetStatus set_int_array(std::string_view path, const std::vector<std::int64_t> &v);
+	[[nodiscard]] SetStatus set_float_array(std::string_view path, const std::vector<double> &v);
+	[[nodiscard]] SetStatus set_bool_array(std::string_view path, const std::vector<bool> &v);
+	[[nodiscard]] SetStatus set_string_array(std::string_view path, const std::vector<std::string> &v);
+	[[nodiscard]] SetStatus set_datetime_array(std::string_view path, const std::vector<DateTime> &v);
 
 	// Text bound as value syntax rather than as data, so "[80, 443]" is a
-	// two-element array where set_string would store one string. False for text
-	// no single line could hold, a line break, or what a file line is refused
+	// two-element array where set_string would store one string. NotOneValue
+	// for text no single line could hold, a line break, or what a file line is refused
 	// for in a value: a malformed array, a bare comma, a quote that never
 	// closes, a bad escape, or what bare text may not hold. A `#` outside quotes
 	// ends the value as it would in a file.
-	[[nodiscard]] bool set_literal(std::string_view path, std::string_view text);
+	[[nodiscard]] SetStatus set_literal(std::string_view path, std::string_view text);
 
 	// Only-if-absent forms of the setters above. Each writes only where nothing
-	// is yet, and returns true when something already is and the path check
-	// passes.
-	[[nodiscard]] bool set_int_default(std::string_view path, std::int64_t v);
-	[[nodiscard]] bool set_float_default(std::string_view path, double v);
-	[[nodiscard]] bool set_bool_default(std::string_view path, bool v);
-	[[nodiscard]] bool set_string_default(std::string_view path, std::string_view v);
-	[[nodiscard]] bool set_datetime_default(std::string_view path, const DateTime &v);
-	[[nodiscard]] bool set_literal_default(std::string_view path, std::string_view text);
-	[[nodiscard]] bool set_raw_default(std::string_view path, std::string_view content, std::string_view info);
-	[[nodiscard]] bool set_int_array_default(std::string_view path, const std::vector<std::int64_t> &v);
-	[[nodiscard]] bool set_float_array_default(std::string_view path, const std::vector<double> &v);
-	[[nodiscard]] bool set_bool_array_default(std::string_view path, const std::vector<bool> &v);
-	[[nodiscard]] bool set_string_array_default(std::string_view path, const std::vector<std::string> &v);
-	[[nodiscard]] bool set_datetime_array_default(std::string_view path, const std::vector<DateTime> &v);
+	// is yet. Where something is, it writes nothing and gives what the plain
+	// setter would.
+	[[nodiscard]] SetStatus set_int_default(std::string_view path, std::int64_t v);
+	[[nodiscard]] SetStatus set_float_default(std::string_view path, double v);
+	[[nodiscard]] SetStatus set_bool_default(std::string_view path, bool v);
+	[[nodiscard]] SetStatus set_string_default(std::string_view path, std::string_view v);
+	[[nodiscard]] SetStatus set_datetime_default(std::string_view path, const DateTime &v);
+	[[nodiscard]] SetStatus set_literal_default(std::string_view path, std::string_view text);
+	[[nodiscard]] SetStatus set_raw_default(std::string_view path, std::string_view content, std::string_view info);
+	[[nodiscard]] SetStatus set_int_array_default(std::string_view path, const std::vector<std::int64_t> &v);
+	[[nodiscard]] SetStatus set_float_array_default(std::string_view path, const std::vector<double> &v);
+	[[nodiscard]] SetStatus set_bool_array_default(std::string_view path, const std::vector<bool> &v);
+	[[nodiscard]] SetStatus set_string_array_default(std::string_view path, const std::vector<std::string> &v);
+	[[nodiscard]] SetStatus set_datetime_array_default(std::string_view path, const std::vector<DateTime> &v);
 
 	// Delete the nodes at a path, subtrees included, and say how many. Lines
 	// kept as written beside a node stay where they were, and a field opened
@@ -505,8 +509,8 @@ public:
 	std::size_t remove(std::string_view path);
 	// A leading comment line on the node at a path, creating an empty node when
 	// there is none so a section can be annotated. A missing `#` is added. Text
-	// holding a line break is refused, since a comment is one line.
-	[[nodiscard]] bool set_comment(std::string_view path, std::string_view text);
+	// holding a line break is refused (BadComment), since a comment is one line.
+	[[nodiscard]] SetStatus set_comment(std::string_view path, std::string_view text);
 	// Take off the comment lines above the nodes at a path, so a comment can be
 	// replaced, and say how many came off.
 	std::size_t clear_comments(std::string_view path);
@@ -605,10 +609,16 @@ static_assert(static_cast<int>(Severity::Error) == SHCL_SEV_ERROR && static_cast
 static_assert(static_cast<int>(Status::Good) == SHCL_GOOD && static_cast<int>(Status::Empty) == SHCL_EMPTY && static_cast<int>(Status::NotFound) == SHCL_NOT_FOUND
 	&& static_cast<int>(Status::BadType) == SHCL_BAD_TYPE && static_cast<int>(Status::Multiple) == SHCL_MULTIPLE
 	&& static_cast<int>(Status::BadPath) == SHCL_BAD_PATH, "Status drifted from shcl_status");
-static_assert(static_cast<int>(SetPathCheck::Ok) == SHCL_SET_PATH_OK && static_cast<int>(SetPathCheck::BadPath) == SHCL_SET_PATH_BAD_PATH
-	&& static_cast<int>(SetPathCheck::ValueInPath) == SHCL_SET_PATH_VALUE_IN_PATH && static_cast<int>(SetPathCheck::Wildcard) == SHCL_SET_PATH_WILDCARD
-	&& static_cast<int>(SetPathCheck::NoSuchIndex) == SHCL_SET_PATH_NO_SUCH_INDEX && static_cast<int>(SetPathCheck::TooDeep) == SHCL_SET_PATH_TOO_DEEP
-	&& static_cast<int>(SetPathCheck::Multiple) == SHCL_SET_PATH_MULTIPLE, "SetPathCheck drifted from shcl_set_path_check");
+static_assert(static_cast<int>(SetStatus::Ok) == SHCL_SET_OK && static_cast<int>(SetStatus::BadPath) == SHCL_SET_BAD_PATH
+	&& static_cast<int>(SetStatus::ValueInPath) == SHCL_SET_VALUE_IN_PATH && static_cast<int>(SetStatus::Wildcard) == SHCL_SET_WILDCARD
+	&& static_cast<int>(SetStatus::NoSuchIndex) == SHCL_SET_NO_SUCH_INDEX && static_cast<int>(SetStatus::TooDeep) == SHCL_SET_TOO_DEEP
+	&& static_cast<int>(SetStatus::Multiple) == SHCL_SET_MULTIPLE && static_cast<int>(SetStatus::UnderArray) == SHCL_SET_UNDER_ARRAY
+	&& static_cast<int>(SetStatus::HasChildren) == SHCL_SET_HAS_CHILDREN && static_cast<int>(SetStatus::NotFinite) == SHCL_SET_NOT_FINITE
+	&& static_cast<int>(SetStatus::BadDateTime) == SHCL_SET_BAD_DATETIME && static_cast<int>(SetStatus::BadRawInfo) == SHCL_SET_BAD_RAW_INFO
+	&& static_cast<int>(SetStatus::BadRawBody) == SHCL_SET_BAD_RAW_BODY && static_cast<int>(SetStatus::BadComment) == SHCL_SET_BAD_COMMENT
+	&& static_cast<int>(SetStatus::NotOneValue) == SHCL_SET_NOT_ONE_VALUE && static_cast<int>(SetStatus::NotUtf8) == SHCL_SET_NOT_UTF8
+	&& static_cast<int>(SetStatus::OutOfRange) == SHCL_SET_OUT_OF_RANGE && static_cast<int>(SetStatus::NoReadBack) == SHCL_SET_NO_READ_BACK,
+	"SetStatus drifted from shcl_set_status");
 static_assert(static_cast<int>(Quote::None) == SHCL_QUOTE_NONE && static_cast<int>(Quote::Single) == SHCL_QUOTE_SINGLE
 	&& static_cast<int>(Quote::Double) == SHCL_QUOTE_DOUBLE && static_cast<int>(Quote::Backtick) == SHCL_QUOTE_BACKTICK
 	&& static_cast<int>(Quote::Open) == SHCL_QUOTE_OPEN, "Quote drifted from shcl_quote");
@@ -814,6 +824,7 @@ using detail::Access;
 std::string DateTime::str() const { return detail::dt_str(detail::to_c(*this)); }
 
 const char *to_string(Status s) { return shcl_status_name(static_cast<shcl_status>(s)); }
+const char *to_string(SetStatus s) { return shcl_set_status_name(static_cast<shcl_set_status>(s)); }
 int status_code(Status s) { return shcl_status_code(static_cast<shcl_status>(s)); }
 
 std::optional<Strictness> strictness_from_arg(std::string_view s) {
@@ -1021,37 +1032,37 @@ bool Document::quoted(std::string_view path) const { return shcl_quoted(detail::
 bool Document::backtick(std::string_view path) const { return shcl_backtick(detail::held(*this), path.data(), path.size()) != 0; }
 bool Document::exists(std::string_view path) const { return shcl_exists(detail::held(*this), path.data(), path.size()) != 0; }
 std::string Document::authored_name(std::string_view path) const { return detail::str(shcl_authored_name(detail::held(*this), path.data(), path.size())); }
-SetPathCheck Document::check_set_path(std::string_view path) const { return static_cast<SetPathCheck>(shcl_check_set_path(detail::held(*this), path.data(), path.size())); }
+SetStatus Document::check_set_path(std::string_view path) const { return static_cast<SetStatus>(shcl_check_set_path(detail::held(*this), path.data(), path.size())); }
 
-bool Document::set_int(std::string_view path, std::int64_t v) { return shcl_set_int(detail::doc(*this), path.data(), path.size(), v) != 0; }
-bool Document::set_float(std::string_view path, double v) { return shcl_set_float(detail::doc(*this), path.data(), path.size(), v) != 0; }
-bool Document::set_bool(std::string_view path, bool v) { return shcl_set_bool(detail::doc(*this), path.data(), path.size(), v ? 1 : 0) != 0; }
-bool Document::set_string(std::string_view path, std::string_view v) { return shcl_set_string(detail::doc(*this), path.data(), path.size(), v.data(), v.size()) != 0; }
-bool Document::set_datetime(std::string_view path, const DateTime &v) { shcl_datetime c = detail::to_c(v); return shcl_set_datetime(detail::doc(*this), path.data(), path.size(), &c) != 0; }
-bool Document::set_raw(std::string_view path, std::string_view content, std::string_view info) { return shcl_set_raw(detail::doc(*this), path.data(), path.size(), content.data(), content.size(), info.data(), info.size()) != 0; }
-bool Document::set_empty(std::string_view path) { return shcl_set_empty(detail::doc(*this), path.data(), path.size()) != 0; }
-bool Document::set_int_array(std::string_view path, const std::vector<std::int64_t> &v) { return shcl_set_int_array(detail::doc(*this), path.data(), path.size(), v.data(), v.size()) != 0; }
-bool Document::set_float_array(std::string_view path, const std::vector<double> &v) { return shcl_set_float_array(detail::doc(*this), path.data(), path.size(), v.data(), v.size()) != 0; }
-bool Document::set_bool_array(std::string_view path, const std::vector<bool> &v) { auto b = detail::bool_args(v); return shcl_set_bool_array(detail::doc(*this), path.data(), path.size(), b.data(), b.size()) != 0; }
-bool Document::set_string_array(std::string_view path, const std::vector<std::string> &v) { auto a = detail::str_args(v); return shcl_set_string_array(detail::doc(*this), path.data(), path.size(), a.p.data(), a.n.data(), v.size()) != 0; }
-bool Document::set_datetime_array(std::string_view path, const std::vector<DateTime> &v) { auto a = detail::dt_args(v); return shcl_set_datetime_array(detail::doc(*this), path.data(), path.size(), a.data(), a.size()) != 0; }
-bool Document::set_literal(std::string_view path, std::string_view text) { return shcl_set_literal(detail::doc(*this), path.data(), path.size(), text.data(), text.size()) != 0; }
+SetStatus Document::set_int(std::string_view path, std::int64_t v) { return static_cast<SetStatus>(shcl_set_int(detail::doc(*this), path.data(), path.size(), v)); }
+SetStatus Document::set_float(std::string_view path, double v) { return static_cast<SetStatus>(shcl_set_float(detail::doc(*this), path.data(), path.size(), v)); }
+SetStatus Document::set_bool(std::string_view path, bool v) { return static_cast<SetStatus>(shcl_set_bool(detail::doc(*this), path.data(), path.size(), v ? 1 : 0)); }
+SetStatus Document::set_string(std::string_view path, std::string_view v) { return static_cast<SetStatus>(shcl_set_string(detail::doc(*this), path.data(), path.size(), v.data(), v.size())); }
+SetStatus Document::set_datetime(std::string_view path, const DateTime &v) { shcl_datetime c = detail::to_c(v); return static_cast<SetStatus>(shcl_set_datetime(detail::doc(*this), path.data(), path.size(), &c)); }
+SetStatus Document::set_raw(std::string_view path, std::string_view content, std::string_view info) { return static_cast<SetStatus>(shcl_set_raw(detail::doc(*this), path.data(), path.size(), content.data(), content.size(), info.data(), info.size())); }
+SetStatus Document::set_empty(std::string_view path) { return static_cast<SetStatus>(shcl_set_empty(detail::doc(*this), path.data(), path.size())); }
+SetStatus Document::set_int_array(std::string_view path, const std::vector<std::int64_t> &v) { return static_cast<SetStatus>(shcl_set_int_array(detail::doc(*this), path.data(), path.size(), v.data(), v.size())); }
+SetStatus Document::set_float_array(std::string_view path, const std::vector<double> &v) { return static_cast<SetStatus>(shcl_set_float_array(detail::doc(*this), path.data(), path.size(), v.data(), v.size())); }
+SetStatus Document::set_bool_array(std::string_view path, const std::vector<bool> &v) { auto b = detail::bool_args(v); return static_cast<SetStatus>(shcl_set_bool_array(detail::doc(*this), path.data(), path.size(), b.data(), b.size())); }
+SetStatus Document::set_string_array(std::string_view path, const std::vector<std::string> &v) { auto a = detail::str_args(v); return static_cast<SetStatus>(shcl_set_string_array(detail::doc(*this), path.data(), path.size(), a.p.data(), a.n.data(), v.size())); }
+SetStatus Document::set_datetime_array(std::string_view path, const std::vector<DateTime> &v) { auto a = detail::dt_args(v); return static_cast<SetStatus>(shcl_set_datetime_array(detail::doc(*this), path.data(), path.size(), a.data(), a.size())); }
+SetStatus Document::set_literal(std::string_view path, std::string_view text) { return static_cast<SetStatus>(shcl_set_literal(detail::doc(*this), path.data(), path.size(), text.data(), text.size())); }
 
-bool Document::set_int_default(std::string_view path, std::int64_t v) { return shcl_set_int_default(detail::doc(*this), path.data(), path.size(), v) != 0; }
-bool Document::set_float_default(std::string_view path, double v) { return shcl_set_float_default(detail::doc(*this), path.data(), path.size(), v) != 0; }
-bool Document::set_bool_default(std::string_view path, bool v) { return shcl_set_bool_default(detail::doc(*this), path.data(), path.size(), v ? 1 : 0) != 0; }
-bool Document::set_string_default(std::string_view path, std::string_view v) { return shcl_set_string_default(detail::doc(*this), path.data(), path.size(), v.data(), v.size()) != 0; }
-bool Document::set_datetime_default(std::string_view path, const DateTime &v) { shcl_datetime c = detail::to_c(v); return shcl_set_datetime_default(detail::doc(*this), path.data(), path.size(), &c) != 0; }
-bool Document::set_literal_default(std::string_view path, std::string_view text) { return shcl_set_literal_default(detail::doc(*this), path.data(), path.size(), text.data(), text.size()) != 0; }
-bool Document::set_raw_default(std::string_view path, std::string_view content, std::string_view info) { return shcl_set_raw_default(detail::doc(*this), path.data(), path.size(), content.data(), content.size(), info.data(), info.size()) != 0; }
-bool Document::set_int_array_default(std::string_view path, const std::vector<std::int64_t> &v) { return shcl_set_int_array_default(detail::doc(*this), path.data(), path.size(), v.data(), v.size()) != 0; }
-bool Document::set_float_array_default(std::string_view path, const std::vector<double> &v) { return shcl_set_float_array_default(detail::doc(*this), path.data(), path.size(), v.data(), v.size()) != 0; }
-bool Document::set_bool_array_default(std::string_view path, const std::vector<bool> &v) { auto b = detail::bool_args(v); return shcl_set_bool_array_default(detail::doc(*this), path.data(), path.size(), b.data(), b.size()) != 0; }
-bool Document::set_string_array_default(std::string_view path, const std::vector<std::string> &v) { auto a = detail::str_args(v); return shcl_set_string_array_default(detail::doc(*this), path.data(), path.size(), a.p.data(), a.n.data(), v.size()) != 0; }
-bool Document::set_datetime_array_default(std::string_view path, const std::vector<DateTime> &v) { auto a = detail::dt_args(v); return shcl_set_datetime_array_default(detail::doc(*this), path.data(), path.size(), a.data(), a.size()) != 0; }
+SetStatus Document::set_int_default(std::string_view path, std::int64_t v) { return static_cast<SetStatus>(shcl_set_int_default(detail::doc(*this), path.data(), path.size(), v)); }
+SetStatus Document::set_float_default(std::string_view path, double v) { return static_cast<SetStatus>(shcl_set_float_default(detail::doc(*this), path.data(), path.size(), v)); }
+SetStatus Document::set_bool_default(std::string_view path, bool v) { return static_cast<SetStatus>(shcl_set_bool_default(detail::doc(*this), path.data(), path.size(), v ? 1 : 0)); }
+SetStatus Document::set_string_default(std::string_view path, std::string_view v) { return static_cast<SetStatus>(shcl_set_string_default(detail::doc(*this), path.data(), path.size(), v.data(), v.size())); }
+SetStatus Document::set_datetime_default(std::string_view path, const DateTime &v) { shcl_datetime c = detail::to_c(v); return static_cast<SetStatus>(shcl_set_datetime_default(detail::doc(*this), path.data(), path.size(), &c)); }
+SetStatus Document::set_literal_default(std::string_view path, std::string_view text) { return static_cast<SetStatus>(shcl_set_literal_default(detail::doc(*this), path.data(), path.size(), text.data(), text.size())); }
+SetStatus Document::set_raw_default(std::string_view path, std::string_view content, std::string_view info) { return static_cast<SetStatus>(shcl_set_raw_default(detail::doc(*this), path.data(), path.size(), content.data(), content.size(), info.data(), info.size())); }
+SetStatus Document::set_int_array_default(std::string_view path, const std::vector<std::int64_t> &v) { return static_cast<SetStatus>(shcl_set_int_array_default(detail::doc(*this), path.data(), path.size(), v.data(), v.size())); }
+SetStatus Document::set_float_array_default(std::string_view path, const std::vector<double> &v) { return static_cast<SetStatus>(shcl_set_float_array_default(detail::doc(*this), path.data(), path.size(), v.data(), v.size())); }
+SetStatus Document::set_bool_array_default(std::string_view path, const std::vector<bool> &v) { auto b = detail::bool_args(v); return static_cast<SetStatus>(shcl_set_bool_array_default(detail::doc(*this), path.data(), path.size(), b.data(), b.size())); }
+SetStatus Document::set_string_array_default(std::string_view path, const std::vector<std::string> &v) { auto a = detail::str_args(v); return static_cast<SetStatus>(shcl_set_string_array_default(detail::doc(*this), path.data(), path.size(), a.p.data(), a.n.data(), v.size())); }
+SetStatus Document::set_datetime_array_default(std::string_view path, const std::vector<DateTime> &v) { auto a = detail::dt_args(v); return static_cast<SetStatus>(shcl_set_datetime_array_default(detail::doc(*this), path.data(), path.size(), a.data(), a.size())); }
 
 std::size_t Document::remove(std::string_view path) { return shcl_remove(detail::doc(*this), path.data(), path.size()); }
-bool Document::set_comment(std::string_view path, std::string_view text) { return shcl_set_comment(detail::doc(*this), path.data(), path.size(), text.data(), text.size()) != 0; }
+SetStatus Document::set_comment(std::string_view path, std::string_view text) { return static_cast<SetStatus>(shcl_set_comment(detail::doc(*this), path.data(), path.size(), text.data(), text.size())); }
 std::size_t Document::clear_comments(std::string_view path) { return shcl_clear_comments(detail::doc(*this), path.data(), path.size()); }
 std::size_t Document::set_banner(bool on) { return shcl_set_banner(detail::doc(*this), on ? 1 : 0); }
 
