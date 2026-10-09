@@ -47,6 +47,24 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Progress log:
 		- 20261008: the user agreed it should, as easier to work with.
 
+- A setter's false doesn't say why
+	- ID: 2026100907362300
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261009-073623
+	- Opened by: JC, from 2026100717500009
+	- Related IDs: 2026100717500009, 2026100717500020
+	- Problem description: a setter returns true or false. On false the caller learns why only from `check_set_path`, which says `Ok` when the value was refused. Some refusals come from a person or a file, not a bug in the program: `set_literal` text a person typed that is not one value, a comment typed with a line break, a raw body read with CR line endings, an array on a field that has lines under it. The program then has to guess, or copy the refusal list from the docs.
+	- Requirements:
+		- Every setter returns a status in place of true or false: the path reasons from `SetPathCheck`, plus one per refused value kind. All four and the C++ interface, same names in the same order.
+		- Rust's is `#[must_use]`. Go and C check it against `Ok`.
+		- The CLIs print the reason from the status.
+		- 2026100717500020's new calls return the same status, so this goes first.
+		- The docs drop the refused-value list from 2026100717500009 where the status names them.
+	- Decisions:
+		- 20261009: before the cut, since it changes every setter's signature and would otherwise wait for 4.0 (JC).
+
 - `instances` output can't be fed back into a selector
 	- ID: 2026100717500016
 	- Type: Enhancement
@@ -177,6 +195,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Priority: Low
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 20
+	- Related IDs: 2026100907362300, which goes first
 	- Problem description:
 		- No library call resolves a file's `Schema` line by the CLI's rules: relative to the config's directory, and refusing devices, FIFOs, UNC paths and files over 16 MiB. Each program writes its own.
 		- No way to ask a node's kind (scalar, array, raw block, empty) but trial reads.
