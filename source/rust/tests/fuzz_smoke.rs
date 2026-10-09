@@ -379,6 +379,98 @@ fn mutated_inputs_never_panic_and_format_is_fixpoint() {
 	}
 }
 
+/// A setter's status agrees with check_set_path over structural soup: a
+/// path reason is what check_set_path gives for that path, a value reason
+/// comes with a path that checks Ok, and a refusal writes nothing.
+#[test]
+fn setter_status_agrees_with_the_path_check() {
+	let _id = test_id("EsDRhJo");
+	use shcl::SetStatus::*;
+	let path_reasons = [
+		BadPath,
+		ValueInPath,
+		Wildcard,
+		NoSuchIndex,
+		TooDeep,
+		Multiple,
+		UnderArray,
+	];
+	let iters = iter_count(1);
+	let mut rng = Rng(0x5EED_57A7_1C00_00D1);
+	let mut seen = std::collections::BTreeSet::new();
+	for i in 0..iters {
+		let text = structural(&mut rng);
+		let mut doc = Document::parse(&text);
+		let paths = doc.paths();
+		let mut path = if paths.is_empty() || rng.below(4) == 0 {
+			format!("new{}.k", rng.below(3))
+		} else {
+			paths[rng.below(paths.len())].clone()
+		};
+		match rng.below(8) {
+			0 => path.push_str(".kid"),
+			1 => path.push_str("(*)"),
+			2 => path.push_str("(7)"),
+			3 => path.push_str("..x"),
+			_ => {}
+		}
+		let v = soup_text(&mut rng, 7);
+		let checked = doc.check_set_path(&path);
+		let before = doc.to_canonical();
+		let op = rng.below(10);
+		let got = match op {
+			0 => doc.set_int(&path, 7),
+			1 => doc.set_string(&path, &v),
+			2 => doc.set_literal(&path, &v),
+			3 => doc.set_comment(&path, &v),
+			4 => doc.set_raw(&path, &v, &soup_text(&mut rng, 5)),
+			5 => doc.set_int_array(&path, &[1, 2]),
+			6 => doc.set_float(
+				&path,
+				if v.len().is_multiple_of(2) {
+					f64::NAN
+				} else {
+					1.5
+				},
+			),
+			7 => doc.set_literal_default(&path, &v),
+			8 => doc.set_int_array_default(&path, &[3]),
+			_ => doc.set_empty(&path),
+		};
+		seen.insert(format!("{got:?}"));
+		let want = if path_reasons.contains(&got) { got } else { Ok };
+		assert_eq!(
+			checked, want,
+			"iteration {i}: op {op} at {path:?} with {v:?} gave {got:?}:\n{text}"
+		);
+		if got != Ok {
+			assert_eq!(
+				doc.to_canonical(),
+				before,
+				"iteration {i}: op {op} at {path:?} gave {got:?} and wrote:\n{text}"
+			);
+		}
+	}
+	// Guard: the soup still reaches path and value reasons both.
+	if iters >= 300 {
+		for want in [
+			"Ok",
+			"BadPath",
+			"Wildcard",
+			"NoSuchIndex",
+			"Multiple",
+			"UnderArray",
+			"HasChildren",
+			"NotFinite",
+			"BadRawInfo",
+			"BadComment",
+			"NotOneValue",
+		] {
+			assert!(seen.contains(want), "never saw {want}: {seen:?}");
+		}
+	}
+}
+
 /// A write on structural soup must leave a formatter fixpoint: the corpus
 /// pins this for a handful of documents, and the one fold defect that broke it
 /// (duplicates folded one level and no deeper) was invisible to every
@@ -405,19 +497,19 @@ fn writes_on_structural_soup_stay_fixpoint() {
 		let v = soup_text(&mut rng, 7);
 		let op = rng.below(10);
 		let applied = match op {
-			0 => doc.set_int(&path, 7),
-			1 => doc.set_string(&path, &v),
+			0 => doc.set_int(&path, 7) == shcl::SetStatus::Ok,
+			1 => doc.set_string(&path, &v) == shcl::SetStatus::Ok,
 			2 => doc.remove(&path) > 0,
-			3 => doc.set_int_default(&path, 1),
-			4 => doc.set_empty(&path),
-			5 => doc.set_comment(&path, &v),
-			6 => doc.set_literal(&path, &v),
+			3 => doc.set_int_default(&path, 1) == shcl::SetStatus::Ok,
+			4 => doc.set_empty(&path) == shcl::SetStatus::Ok,
+			5 => doc.set_comment(&path, &v) == shcl::SetStatus::Ok,
+			6 => doc.set_literal(&path, &v) == shcl::SetStatus::Ok,
 			7 => doc.clear_comments(&path) > 0,
 			8 => {
 				doc.set_banner(v.len().is_multiple_of(2));
 				true
 			}
-			_ => doc.set_raw(&path, &v, &soup_text(&mut rng, 7)),
+			_ => doc.set_raw(&path, &v, &soup_text(&mut rng, 7)) == shcl::SetStatus::Ok,
 		};
 		if !applied {
 			assert_eq!(
@@ -1183,7 +1275,7 @@ fn writer_roundtrips_and_stays_fixpoint() {
 	for i in 0..iters {
 		let s = soup_text(&mut rng, 12);
 		let mut d = Document::new();
-		assert!(d.set_string("k", &s));
+		assert_eq!(d.set_string("k", &s), shcl::SetStatus::Ok);
 		// In-memory: encode is the exact inverse of the scalar string read.
 		let mem = d.read_string("k");
 		assert_eq!(mem.value, s, "in-memory set/read #{} for {:?}", i, s);
@@ -1211,7 +1303,10 @@ fn writer_roundtrips_and_stays_fixpoint() {
 		// Array form: each element unquotes/unescapes back to itself.
 		let b = soup_text(&mut rng, 12);
 		let mut da = Document::new();
-		assert!(da.set_string_array("k", &[s.as_str(), b.as_str()]));
+		assert_eq!(
+			da.set_string_array("k", &[s.as_str(), b.as_str()]),
+			shcl::SetStatus::Ok
+		);
 		let ra = Document::parse(&da.to_canonical()).read_string_array("k");
 		assert_eq!(
 			ra.value,
@@ -1264,14 +1359,14 @@ fn edits_and_merges_match_a_reload() {
 						d.merge(&Document::parse(&layer));
 						true
 					}
-					2 => d.set_int(&path, 7),
-					3 => d.set_string(&path, &v),
+					2 => d.set_int(&path, 7) == shcl::SetStatus::Ok,
+					3 => d.set_string(&path, &v) == shcl::SetStatus::Ok,
 					4 => d.remove(&path) > 0,
-					5 => d.set_comment(&path, &v),
-					6 => d.set_empty(&path),
-					7 => d.set_raw(&path, "body", &v),
-					8 => d.set_int_default(&path, 1),
-					9 => d.set_literal(&path, &v),
+					5 => d.set_comment(&path, &v) == shcl::SetStatus::Ok,
+					6 => d.set_empty(&path) == shcl::SetStatus::Ok,
+					7 => d.set_raw(&path, "body", &v) == shcl::SetStatus::Ok,
+					8 => d.set_int_default(&path, 1) == shcl::SetStatus::Ok,
+					9 => d.set_literal(&path, &v) == shcl::SetStatus::Ok,
 					10 => d.clear_comments(&path) > 0,
 					_ => {
 						d.set_banner(v != "v0");
@@ -1346,8 +1441,8 @@ fn a_remove_keeps_a_settled_line_below_it() {
 	let _id = test_id("ErpmA09");
 	let mut live = Document::parse("a: [1\n\t\t\": \n\t d-: 2\n\te: 3\n");
 	assert_eq!(live.clear_comments("a.d"), 0);
-	assert!(live.set_empty("a.c"));
-	assert!(live.set_raw("b.c", "body", "v0"));
+	assert_eq!(live.set_empty("a.c"), shcl::SetStatus::Ok);
+	assert_eq!(live.set_raw("b.c", "body", "v0"), shcl::SetStatus::Ok);
 	let mut back = Document::parse(&live.to_canonical());
 	assert_eq!(live.remove("a.c"), 1);
 	assert_eq!(back.remove("a.c"), 1);
@@ -1438,7 +1533,7 @@ fn keeping_lines_reloads_as_the_document() {
 			.iter()
 			.any(|d| d.severity == Severity::Error);
 		let mut added = doc.clone();
-		let set = (clean || shape >= 2) && added.set_int("zz_new", 1);
+		let set = (clean || shape >= 2) && added.set_int("zz_new", 1) == shcl::SetStatus::Ok;
 		assert!(set || shape < 2, "iteration {i}: no new field:\n{base}");
 		if set {
 			let (text, kept) = added.to_text_keep_lines();
@@ -1465,15 +1560,15 @@ fn keeping_lines_reloads_as_the_document() {
 			};
 			let op = rng.below(9);
 			let _ = match op {
-				0 => doc.set_int(&path, 7),
-				1 => doc.set_string(&path, "new text"),
+				0 => doc.set_int(&path, 7) == shcl::SetStatus::Ok,
+				1 => doc.set_string(&path, "new text") == shcl::SetStatus::Ok,
 				2 => doc.remove(&path) > 0,
-				3 => doc.set_comment(&path, "added"),
+				3 => doc.set_comment(&path, "added") == shcl::SetStatus::Ok,
 				4 => doc.clear_comments(&path) > 0,
-				5 => doc.set_int(&format!("{path}.kid{step}"), 3),
-				6 => doc.set_empty(&path),
+				5 => doc.set_int(&format!("{path}.kid{step}"), 3) == shcl::SetStatus::Ok,
+				6 => doc.set_empty(&path) == shcl::SetStatus::Ok,
 				7 => doc.set_banner(true) > 0,
-				_ => doc.set_raw(&path, "one\n\ttwo", "sh"),
+				_ => doc.set_raw(&path, "one\n\ttwo", "sh") == shcl::SetStatus::Ok,
 			};
 			log.push_str(&format!("op {op} at {path:?}\n"));
 		}
@@ -1703,7 +1798,7 @@ fn kept_lines_keep_their_path() {
 		// A new field changes no kept line's parent.
 		let mut doc =
 			Document::parse_keep_lines(&base, Strictness::Standard).unwrap_or_else(|e| e.document);
-		if !doc.set_int("zz_new", 1) {
+		if doc.set_int("zz_new", 1) != shcl::SetStatus::Ok {
 			continue;
 		}
 		let (text, _) = doc.to_text_keep_lines();
@@ -2663,7 +2758,7 @@ fn remove_and_setter_exceptions_go_by_position() {
 		Document::parse_keep_lines(base, Strictness::Standard).unwrap_or_else(|e| e.document);
 	let before = doc.to_canonical();
 	assert_eq!(setter_reach(&before, "x.a"), [1, 2].into_iter().collect());
-	assert!(doc.set_int("x.a", 7));
+	assert_eq!(doc.set_int("x.a", 7), shcl::SetStatus::Ok);
 	let after = doc.to_canonical();
 	let note = "  ## commented out by shcl when setting x.a, STAMP: E019 malformed array, no closing ']' on the line";
 	assert_eq!(
@@ -2760,26 +2855,32 @@ fn kept_lines_survive_edits() {
 			let before = doc.to_canonical();
 			let op = rng.below(15);
 			let (took, line) = match op {
-				0 => (doc.set_int(&path, 7), format!("int\t{path}\t7")),
+				0 => (
+					doc.set_int(&path, 7) == shcl::SetStatus::Ok,
+					format!("int\t{path}\t7"),
+				),
 				1 => (
-					doc.set_string(&path, "new text"),
+					doc.set_string(&path, "new text") == shcl::SetStatus::Ok,
 					format!("string\t{path}\tnew text"),
 				),
 				2 => (
-					doc.set_literal(&path, "9, 8"),
+					doc.set_literal(&path, "9, 8") == shcl::SetStatus::Ok,
 					format!("literal\t{path}\t9, 8"),
 				),
 				3 => (
-					doc.set_comment(&path, "added"),
+					doc.set_comment(&path, "added") == shcl::SetStatus::Ok,
 					format!("comment\t{path}\tadded"),
 				),
 				4 => (
 					doc.clear_comments(&path) > 0,
 					format!("clear-comments\t{path}"),
 				),
-				5 => (doc.set_empty(&path), format!("empty\t{path}")),
+				5 => (
+					doc.set_empty(&path) == shcl::SetStatus::Ok,
+					format!("empty\t{path}"),
+				),
 				6 => (
-					doc.set_raw(&path, "one\n\ttwo", "sh"),
+					doc.set_raw(&path, "one\n\ttwo", "sh") == shcl::SetStatus::Ok,
 					format!("raw\t{path}\tsh\tone◉NEWLINE◉◉TAB◉two"),
 				),
 				7 => {
@@ -2791,7 +2892,7 @@ fn kept_lines_survive_edits() {
 					(true, "banner\toff".to_string())
 				}
 				9 => (
-					doc.set_int_default(&path, 5),
+					doc.set_int_default(&path, 5) == shcl::SetStatus::Ok,
 					format!("int-default\t{path}\t5"),
 				),
 				10 => {
@@ -3115,14 +3216,17 @@ fn keeping_lines_ends_each_line_by_the_rule() {
 			};
 			let op = rng.below(9);
 			let (took, line) = match op {
-				0 => (doc.set_int(&path, 7), format!("int\t{path}\t7")),
+				0 => (
+					doc.set_int(&path, 7) == shcl::SetStatus::Ok,
+					format!("int\t{path}\t7"),
+				),
 				1 => (
-					doc.set_string(&path, "new text"),
+					doc.set_string(&path, "new text") == shcl::SetStatus::Ok,
 					format!("string\t{path}\tnew text"),
 				),
 				2 => (doc.remove(&path) > 0, format!("remove\t{path}")),
 				3 => (
-					doc.set_comment(&path, "added"),
+					doc.set_comment(&path, "added") == shcl::SetStatus::Ok,
 					format!("comment\t{path}\tadded"),
 				),
 				4 => (
@@ -3130,10 +3234,13 @@ fn keeping_lines_ends_each_line_by_the_rule() {
 					format!("clear-comments\t{path}"),
 				),
 				5 => (
-					doc.set_int(&format!("{path}.kid{step}"), 3),
+					doc.set_int(&format!("{path}.kid{step}"), 3) == shcl::SetStatus::Ok,
 					format!("int\t{path}.kid{step}\t3"),
 				),
-				6 => (doc.set_empty(&path), format!("empty\t{path}")),
+				6 => (
+					doc.set_empty(&path) == shcl::SetStatus::Ok,
+					format!("empty\t{path}"),
+				),
 				// The count is of old blocks taken off; the new one goes on
 				// either way.
 				7 => {
@@ -3141,7 +3248,7 @@ fn keeping_lines_ends_each_line_by_the_rule() {
 					(true, "banner\ton".to_string())
 				}
 				_ => (
-					doc.set_raw(&path, "one\n\ttwo", "sh"),
+					doc.set_raw(&path, "one\n\ttwo", "sh") == shcl::SetStatus::Ok,
 					format!("raw\t{path}\tsh\tone◉NEWLINE◉◉TAB◉two"),
 				),
 			};

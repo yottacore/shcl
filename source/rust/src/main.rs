@@ -524,7 +524,7 @@ struct Set {
 }
 
 impl Set {
-	fn apply(&self, doc: &mut Document) -> bool {
+	fn apply(&self, doc: &mut Document) -> shcl::SetStatus {
 		match self.kind {
 			SetKind::Data => doc.set_string(&self.path, &self.value),
 			SetKind::Literal => doc.set_literal(&self.path, &self.value),
@@ -534,7 +534,7 @@ impl Set {
 			// `remove`: the point of the option is the path's absence after.
 			SetKind::Remove => {
 				doc.remove(&self.path);
-				true
+				shcl::SetStatus::Ok
 			}
 		}
 	}
@@ -727,7 +727,7 @@ const INFO_FLAGS: [&str; 7] = [
 fn unusable_path(doc: &Document, path: &str) -> bool {
 	matches!(
 		doc.check_set_path(path),
-		shcl::SetPathCheck::BadPath | shcl::SetPathCheck::ValueInPath
+		shcl::SetStatus::BadPath | shcl::SetStatus::ValueInPath
 	)
 }
 
@@ -1434,58 +1434,36 @@ fn check_opts(cmd: &str, o: &Opts) -> Result<(), u8> {
 	Ok(())
 }
 
-/// Which half of a `raw` op had no spelling, and why. The half is asked of the
-/// library rather than worked out here: an empty info string always reads back,
-/// so a write that still fails with one is the body's fault. Re-deriving the
-/// rule in the CLI is how the two copies drift.
-fn raw_refusal(content: &str) -> &'static str {
-	let mut probe = Document::new();
-	if !probe.set_raw("p", content, "") {
-		"the block body has no spelling that reads back: a line ending in a carriage return is trimmed on the way back in, and a line spelling the closing fence would end the block early"
-	} else {
-		"the info string has no spelling that reads back: a '#' in it opens a comment, and a line break has no inline spelling"
-	}
-}
-
-/// A field with lines under it takes one plain value or none (E028): an
-/// array there, or a field made under an array, is refused for where it goes.
-fn array_refusal(doc: &Document, path: &str, array: bool) -> Option<&'static str> {
-	if array && !doc.children(path).is_empty() {
-		return Some("a field with lines under it takes one plain value or none");
-	}
-	let mut tok = shcl::Tokens::default();
-	tokenize(path, b'=', true, Rules::Current, &mut tok);
-	for next in tok.segments.iter().skip(1) {
-		let quoted = usize::from(next.name.quote != Quote::None);
-		let up = path[..next.name.start - quoted].trim_end_matches('.');
-		let r = doc.read_string(up);
-		// Brackets on a value that reads unquoted are an array's.
-		if r.status == shcl::Status::Good && !r.quoted && r.value.starts_with('[') {
-			return Some("an array takes no lines under it");
+/// Why a setter wrote nothing, from the status it gave. The library knows
+/// which rule refused the write, so nothing here works it out again: a copy
+/// of the rule in the CLI is how the two drift. The text is the same in all
+/// four CLIs.
+fn refusal(st: shcl::SetStatus, path: &str) -> &'static str {
+	use shcl::SetStatus::*;
+	match st {
+		// Not a refusal; no caller asks.
+		Ok => "written",
+		BadPath => bad_path(path),
+		ValueInPath => "a path with a value part cannot be written",
+		Wildcard => "a wildcard path cannot be written",
+		NoSuchIndex => "no instance at that index",
+		TooDeep => "deeper than the nesting cap",
+		Multiple => "the path matches multiple instances; name(0) picks one",
+		UnderArray => "an array takes no lines under it",
+		HasChildren => "a field with lines under it takes one plain value or none",
+		NotFinite => "a float has to be finite",
+		BadDateTime => "the datetime does not read back as the same one",
+		BadRawInfo => {
+			"the info string has no spelling that reads back: a '#' in it opens a comment, and a line break has no inline spelling"
 		}
-	}
-	None
-}
-
-/// The per-binding wording behind a setter's bare `false`.
-/// Why a write was refused. When the path itself is fine what failed is the
-/// text, and only the caller knows which half of the op that was, so it names
-/// it: a setter refused for its value used to report the sentence written for
-/// `set_literal` whatever the op.
-fn describe_refusal(
-	doc: &Document,
-	path: &str,
-	array: bool,
-	unwritable: &'static str,
-) -> &'static str {
-	match doc.check_set_path(path) {
-		shcl::SetPathCheck::Ok => array_refusal(doc, path, array).unwrap_or(unwritable),
-		shcl::SetPathCheck::BadPath => bad_path(path),
-		shcl::SetPathCheck::ValueInPath => "a path with a value part cannot be written",
-		shcl::SetPathCheck::Wildcard => "a wildcard path cannot be written",
-		shcl::SetPathCheck::NoSuchIndex => "no instance at that index",
-		shcl::SetPathCheck::TooDeep => "deeper than the nesting cap",
-		shcl::SetPathCheck::Multiple => "the path matches multiple instances; name(0) picks one",
+		BadRawBody => {
+			"the block body has no spelling that reads back: a line ending in a carriage return is trimmed on the way back in, and a line spelling the closing fence would end the block early"
+		}
+		BadComment => "the comment text is not one line",
+		NotOneValue => "the value text is not one value",
+		NotUtf8 => "the text is not valid UTF-8",
+		OutOfRange => "the int is outside the 64-bit range",
+		NoReadBack => "the value has no spelling that reads back",
 	}
 }
 
@@ -1590,17 +1568,13 @@ fn load_layered_from(
 		doc.merge(&over);
 	}
 	for s in &o.sets {
-		if !s.apply(&mut doc) {
+		let st = s.apply(&mut doc);
+		if st != shcl::SetStatus::Ok {
 			errln!(
 				"{}: cannot write {}: {}",
 				s.opt(),
 				s.path,
-				describe_refusal(
-					&doc,
-					&s.path,
-					s.kind != SetKind::Data && s.value.trim_start().starts_with('['),
-					"the value text is not one value"
-				)
+				refusal(st, &s.path)
 			);
 			return Err(1);
 		}
@@ -2776,42 +2750,24 @@ fn apply_op(doc: &mut Document, line: &str) -> Result<(), String> {
 		}
 		"remove" => {
 			doc.remove(path);
-			true
+			shcl::SetStatus::Ok
 		}
 		"clear-comments" => {
 			doc.clear_comments(path);
-			true
+			shcl::SetStatus::Ok
 		}
 		// The second field is on or off, not a path.
 		"banner" => match path {
 			"on" | "off" => {
 				doc.set_banner(path == "on");
-				true
+				shcl::SetStatus::Ok
 			}
 			_ => return Err(format!("bad banner: {} (on or off)", path)),
 		},
 		other => return Err(format!("unknown op: {}", other)),
 	};
-	if !wrote {
-		// Which half of the op had no spelling: the reader is otherwise sent to
-		// the value when it was the info string or the comment that failed.
-		let unwritable = match f[0] {
-			"literal" | "literal-default" => "the value text is not one value",
-			"comment" => "the comment text is not one line",
-			"raw" | "raw-default" => raw_refusal(&content()?),
-			_ => "the value has no spelling that reads back",
-		};
-		return Err(format!(
-			"cannot write {}: {}",
-			path,
-			describe_refusal(
-				doc,
-				path,
-				f[0].contains("array")
-					|| (f[0].starts_with("literal") && val().trim_start().starts_with('[')),
-				unwritable
-			)
-		));
+	if wrote != shcl::SetStatus::Ok {
+		return Err(format!("cannot write {}: {}", path, refusal(wrote, path)));
 	}
 	Ok(())
 }

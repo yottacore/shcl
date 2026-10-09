@@ -1173,6 +1173,15 @@ rows=(
 	'Es9aZSP|ops-set-repeated-path|set %FD%|int\tp\t9\n|1||^op line 1: cannot write p: the path matches multiple instances; name\(0\) picks one$'
 	'Es9aZSQ|set-index-picks-one|set --set=p(1)=9 --set=s(b).r=z %FD%|-|0|p: 1\np: 9\ns: a\n\tr: x\ns: b\n\tr: z\n|-'
 	'Es9cyaF|remove-repeated-takes-all|set --remove=p %FD%|-|0|s: a\n\tr: x\ns: b\n\tr: y\n|-'
+	## 2026100907362300: a setter says why it wrote nothing, and the CLI
+	## prints the reason from that. Same text in all four.
+	'EsDRhLy|set-no-such-index|set --set=a(5).b=1 %F%|-|1||^--set: cannot write a\(5\)\.b: no instance at that index$'
+	"EsDRhOB|set-too-deep|set --set=$(printf 'd.%.0s' {1..512})d=1 %F%|-|1||: deeper than the nesting cap\$"
+	'EsDRhQM|ops-value-in-path|set %F%|int\ta: 2\t1\n|1||^op line 1: cannot write a: 2: a path with a value part cannot be written$'
+	'EsDRhSf|ops-comment-not-one-line|set %F%|comment\ta\tx\xe2\x97\x89NEWLINE\xe2\x97\x89y\n|1||^op line 1: cannot write a: the comment text is not one line$'
+	'EsDRhUp|ops-literal-not-one-value|set %F%|literal\ta\tx, y\n|1||^op line 1: cannot write a: the value text is not one value$'
+	'EsDTA92|ops-comment-under-array|set %F%|literal\ta\t[1, 2]\ncomment\ta.x\tc\n|1||^op line 2: cannot write a\.x: an array takes no lines under it$'
+	'EsDTA93|ops-raw-bad-info-whole|set %F%|raw\tk\tc#x\tbody\n|1||^op line 1: cannot write k: the info string has no spelling that reads back: a .#. in it opens a comment, and a line break has no inline spelling$'
 	## 20260830b item 19: a script could read an open section's values but never
 	## learn its keys, so the only route was parsing fmt output in shell. A name
 	## needing quotes comes back path-ready, or enumerating it buys nothing.

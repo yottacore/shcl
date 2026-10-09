@@ -21,7 +21,7 @@ cargo install shcl
 ## Use
 
 ~~~rust
-use shcl::{Document, FileStatus};
+use shcl::{Document, FileStatus, SetStatus};
 
 // Reads and parses in one call, and never fails: the document is usable
 // either way, and the status separates missing from unreadable from
@@ -46,12 +46,11 @@ let roots = doc.read_string_array("site(*).root");
 // Writes through a temp file and a rename, so an interrupted save cannot
 // truncate the config - and refuses if the load dropped a line this write
 // would delete (save_file_lossy is the override).
-// Setters are #[must_use]: a refused write writes nothing at all.
-// check_set_path names which of the six path reasons it hit, or says Ok
-// when it was the value that was refused.
-let path = "site(example.com).max-upload-mb";
-if !doc.set_int(path, limit * 2) {
-	eprintln!("not written: {:?}", doc.check_set_path(path));
+// A setter returns Ok, or why it wrote nothing at all, and the status is
+// #[must_use].
+let st = doc.set_int("site(example.com).max-upload-mb", limit * 2);
+if st != SetStatus::Ok {
+	eprintln!("not written: {st:?}");
 }
 doc.save_file("server.shcl").unwrap();
 ~~~

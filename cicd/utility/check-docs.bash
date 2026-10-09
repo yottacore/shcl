@@ -611,13 +611,14 @@ fTest EoXX3yy setter-examples-check-the-result
 ##	Each language example says a setter reports whether the write applied, then
 ##	three of the four called the first two bare. The Rust one checks all three,
 ##	because the type system makes it, so it is the comparison a reader has.
+##	A check is a negated call, or a status compared with Ok (2026100907362300).
 readme="${repoDir}/README.md"
 if [[ -f "${readme}" ]]; then
 	for fence in rust go python c; do
 		block="$(awk -v f="^~~~+${fence}\$" '$0 ~ f, /^~~~+$/' "${readme}")"
 		[[ -n "${block}" ]] || { fBad "README.md has no \`\`\`${fence} example, so its setter checks went unread"; continue ;}
 		calls="$(grep -cE '(doc\.[Ss]et[A-Za-z_]+\(|shcl_set_[a-z]+\(doc)' <<<"${block}" || true)"
-		checked="$(grep -cE '(if !doc\.[Ss]et|if not doc\.set_|if \(!shcl_set_)' <<<"${block}" || true)"
+		checked="$(grep -cE '(if !doc\.[Ss]et|if not doc\.set_|if \(!shcl_set_|!= *(SetStatus::Ok|shcl\.SetOk|SHCL_SET_OK)|is not (shcl\.)?SetStatus\.Ok)' <<<"${block}" || true)"
 		((calls == 0)) && continue
 		((checked >= calls)) || fBad "README ${fence} example calls ${calls} setter(s) and checks ${checked}"
 	done

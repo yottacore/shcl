@@ -649,7 +649,7 @@ Every binding is one file with no dependencies. You can optionally just copy it 
 - Note: The Rust crate includes the library and the CLI together. See [Language packages](#language-packages) if the binary is what you are after.
 
 ~~~rust
-use shcl::{Document, FileStatus, Status};
+use shcl::{Document, FileStatus, SetStatus, Status};
 
 // One call reads and parses, and never fails: the document comes back usable
 // either way, and the status tells missing apart from unreadable and from
@@ -672,18 +672,20 @@ match doc.get_int("site(example.com).max-upload-mb") {
 }
 
 // Writes create what they need to: this adds a site and a nested block.
-// Each one reports whether it applied - a refused write writes nothing at all
-// rather than half of it - and the setters are `#[must_use]`, so that answer
-// cannot go missing by accident. check_set_path says what was wrong with the
-// path, or Ok when it was the value that was refused.
-if !doc.set_int("workers", workers * 2) {
-	eprintln!("workers: {:?}", doc.check_set_path("workers"));
+// Each one returns Ok, or why it wrote nothing - a refused write writes
+// nothing at all rather than half of it - and the status is `#[must_use]`, so
+// that answer cannot go missing by accident.
+let st = doc.set_int("workers", workers * 2);
+if st != SetStatus::Ok {
+	eprintln!("workers: {st:?}");
 }
-if !doc.set_bool("site(example.com).tls.hsts", true) {
-	eprintln!("hsts: {:?}", doc.check_set_path("site(example.com).tls.hsts"));
+let st = doc.set_bool("site(example.com).tls.hsts", true);
+if st != SetStatus::Ok {
+	eprintln!("hsts: {st:?}");
 }
-if !doc.set_string("site(blog.example.com).root", "/srv/www/blog") {
-	eprintln!("blog root: {:?}", doc.check_set_path("site(blog.example.com).root"));
+let st = doc.set_string("site(blog.example.com).root", "/srv/www/blog");
+if st != SetStatus::Ok {
+	eprintln!("blog root: {st:?}");
 }
 
 // Refuses if this write would delete lines or values from the file; see
@@ -1022,25 +1024,9 @@ A file somebody keeps by hand can be saved the way they keep it instead. Load it
 
 And the save protects the file it is overwriting. It goes through a temp file in the same directory plus a rename, so an interrupted save cannot leave a truncated config behind, and a linked-in config is written through rather than replaced. It also refuses when the write would delete lines or values from the file. A line the parser cannot read at all is kept verbatim and survives the save untouched. A line it could read and not place (a stray indent, an impossible selector) has no safe spelling to re-emit. That one counts into `lost_count()`, and the save stops rather than quietly dropping a line somebody typed. `save_file_lossy` is there for when deleting it is what you actually want, so it is always a stated choice.
 
-A setter returns failure - `false`, or `0` in C - when it writes nothing, and nothing is half-written. Either the path is the problem, or what the write would put there is. `check_set_path(path)` checks the path alone and says which of the six path reasons applied. Wildcards are the usual case, since those are query-only. Another is a path that matches more than one field, such as `port` in a file with two `port` lines, since the read after the write would not know which one you meant either. `port(0)` or `site(1).root` picks one. When it says `Ok`, the write was refused for one of these:
+A setter returns a status, `Ok` when the write applied. Anything else means it wrote nothing at all, and names why. Either the path is the problem, or what the write would put there is, and when both are the path's reason is the one you get. Wildcards are the usual path reason (`Wildcard`), since those are query-only. Another is a path that matches more than one field (`Multiple`), such as `port` in a file with two `port` lines, since the read after the write would not know which one you meant either. `port(0)` or `site(1).root` picks one. A value reason names what was wrong with it: `NotFinite` for a NaN, `BadComment` for comment text with a line break, `NotOneValue` for `set_literal` text like `a, b`, and so on. `check_set_path(path)` checks the path alone, without writing. The whole list is in the [spec](project/spec.md), under the Writer.
 
-- A float that is NaN or infinite.
-
-- A datetime the reader would refuse, such as month 13.
-
-- A raw block whose info string holds a `#` or a line break, or whose body has a line ending in a carriage return.
-
-- A comment holding a line break.
-
-- `set_literal` text that is not one value, such as `a, b` or a quote that never closes.
-
-- An array on a field that has lines under it.
-
-- A new field under one that holds an array.
-
-Go, Python and C also refuse text that is not valid UTF-8, which a Rust string can't hold, and Python an int outside the 64-bit range.
-
-Check that answer rather than assuming it: an ignored failure means the save that follows writes a config missing the edit, and reports success doing it. In Rust the setters are `#[must_use]`, so dropping the answer is a compile warning.
+Check that answer rather than assuming it: an ignored refusal means the save that follows writes a config missing the edit, adn reports success doing it. In Rust the status is `#[must_use]`, so dropping it is a compile warning.
 
 One read-side companion belongs with this: canonical output lowercases field names, and `authored_name(path)` hands back the spelling the author actually used. It is what you want in a message about their file - reporting `Max-Upload-MB` as `max-upload-mb` reads like a different setting to the person who wrote it.
 
