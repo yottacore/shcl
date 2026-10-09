@@ -649,7 +649,7 @@ Every binding is one file with no dependencies. You can optionally just copy it 
 - Note: The Rust crate includes the library and the CLI together. See [Language packages](#language-packages) if the binary is what you are after.
 
 ~~~rust
-use shcl::{Document, FileStatus, Status};
+use shcl::{Document, FileStatus, SetStatus, Status};
 
 // One call reads and parses, and never fails: the document comes back usable
 // either way, and the status tells missing apart from unreadable and from
@@ -672,18 +672,20 @@ match doc.get_int("site(example.com).max-upload-mb") {
 }
 
 // Writes create what they need to: this adds a site and a nested block.
-// Each one reports whether it applied - a refused write writes nothing at all
-// rather than half of it - and the setters are `#[must_use]`, so that answer
-// cannot go missing by accident. check_set_path says what was wrong with the
-// path, or Ok when it was the value that was refused.
-if !doc.set_int("workers", workers * 2) {
-	eprintln!("workers: {:?}", doc.check_set_path("workers"));
+// Each one returns Ok, or why it wrote nothing - a refused write writes
+// nothing at all rather than half of it - and the status is `#[must_use]`, so
+// that answer cannot go missing by accident.
+let st = doc.set_int("workers", workers * 2);
+if st != SetStatus::Ok {
+	eprintln!("workers: {st:?}");
 }
-if !doc.set_bool("site(example.com).tls.hsts", true) {
-	eprintln!("hsts: {:?}", doc.check_set_path("site(example.com).tls.hsts"));
+let st = doc.set_bool("site(example.com).tls.hsts", true);
+if st != SetStatus::Ok {
+	eprintln!("hsts: {st:?}");
 }
-if !doc.set_string("site(blog.example.com).root", "/srv/www/blog") {
-	eprintln!("blog root: {:?}", doc.check_set_path("site(blog.example.com).root"));
+let st = doc.set_string("site(blog.example.com).root", "/srv/www/blog");
+if st != SetStatus::Ok {
+	eprintln!("blog root: {st:?}");
 }
 
 // Refuses if this write would delete lines or values from the file; see
@@ -718,17 +720,16 @@ if mb, st := doc.GetInt("site(example.com).max-upload-mb"); st == shcl.Good {
 	fmt.Println("unusable:", st)
 }
 
-// A setter reports whether the write applied: a refused write writes nothing
-// at all rather than half of it. CheckSetPath names which of the six path
-// reasons it hit, or SetPathOk when it was the value that was refused.
-if !doc.SetInt("workers", workers*2) {
-	fmt.Println("workers:", doc.CheckSetPath("workers"))
+// Each setter returns SetOk, or why it wrote nothing: a refused write writes
+// nothing at all rather than half of it.
+if st := doc.SetInt("workers", workers*2); st != shcl.SetOk {
+	fmt.Println("workers:", st)
 }
-if !doc.SetBool("site(example.com).tls.hsts", true) {
-	fmt.Println("hsts:", doc.CheckSetPath("site(example.com).tls.hsts"))
+if st := doc.SetBool("site(example.com).tls.hsts", true); st != shcl.SetOk {
+	fmt.Println("hsts:", st)
 }
-if !doc.SetString("site(blog.example.com).root", "/srv/www/blog") {
-	fmt.Println("blog root:", doc.CheckSetPath("site(blog.example.com).root"))
+if st := doc.SetString("site(blog.example.com).root", "/srv/www/blog"); st != shcl.SetOk {
+	fmt.Println("blog root:", st)
 }
 
 // Refuses if this write would delete lines or values from the file; see
@@ -761,15 +762,18 @@ read = doc.read_int("site(example.com).max-upload-mb")
 if read.status is not shcl.Status.Good:
 	print("unusable:", read.status)
 
-# A setter reports whether the write applied: a refused write writes nothing
-# at all rather than half of it. check_set_path names which of the six path
-# reasons it hit, or Ok when it was the value that was refused.
-if not doc.set_int("workers", workers * 2):
-	print("workers:", doc.check_set_path("workers"))
-if not doc.set_bool("site(example.com).tls.hsts", True):
-	print("hsts:", doc.check_set_path("site(example.com).tls.hsts"))
-if not doc.set_string("site(blog.example.com).root", "/srv/www/blog"):
-	print("blog root:", doc.check_set_path("site(blog.example.com).root"))
+# A setter returns Ok, or why it wrote nothing - a refused write writes
+# nothing at all rather than half of it. Only Ok is true, so `if not` works
+# too.
+st = doc.set_int("workers", workers * 2)
+if st is not shcl.SetStatus.Ok:
+	print("workers:", st)
+st = doc.set_bool("site(example.com).tls.hsts", True)
+if st is not shcl.SetStatus.Ok:
+	print("hsts:", st)
+st = doc.set_string("site(blog.example.com).root", "/srv/www/blog")
+if st is not shcl.SetStatus.Ok:
+	print("blog root:", st)
 
 # Raises SaveRefused if this write would delete lines or values from the
 # file; see "What saving does" below (save_file_lossy is the override).
@@ -789,13 +793,13 @@ fn getIntOr(doc: ?*c.shcl_doc, path: []const u8, def: i64) i64 {
 	return c.shcl_get_int_or(doc, path.ptr, path.len, def);
 }
 fn setInt(doc: ?*c.shcl_doc, path: []const u8, v: i64) bool {
-	return c.shcl_set_int(doc, path.ptr, path.len, v) != 0;
+	return c.shcl_set_int(doc, path.ptr, path.len, v) == c.SHCL_SET_OK;
 }
 fn setBool(doc: ?*c.shcl_doc, path: []const u8, v: bool) bool {
-	return c.shcl_set_bool(doc, path.ptr, path.len, @intFromBool(v)) != 0;
+	return c.shcl_set_bool(doc, path.ptr, path.len, @intFromBool(v)) == c.SHCL_SET_OK;
 }
 fn setString(doc: ?*c.shcl_doc, path: []const u8, v: []const u8) bool {
-	return c.shcl_set_string(doc, path.ptr, path.len, v.ptr, v.len) != 0;
+	return c.shcl_set_string(doc, path.ptr, path.len, v.ptr, v.len) == c.SHCL_SET_OK;
 }
 fn readString(doc: ?*c.shcl_doc, path: []const u8) c.shcl_read_str {
 	return c.shcl_read_string(doc, path.ptr, path.len);
@@ -853,16 +857,18 @@ shcl_read_str root = shcl_read_string(doc, P("site(example.com).root"));
 if (root.status == SHCL_GOOD)
 	printf("%.*s\n", (int)root.value.n, root.value.p);
 
-// A setter reports whether the write applied: a refused write writes nothing
-// at all rather than half of it. shcl_check_set_path names which of the six
-// path reasons it hit (SHCL_SET_PATH_WILDCARD here, say), or SHCL_SET_PATH_OK
-// when it was the value that was refused.
-if (!shcl_set_int(doc, P("workers"), workers * 2))
-	printf("workers: %d\n", shcl_check_set_path(doc, P("workers")));
-if (!shcl_set_bool(doc, P("site(example.com).tls.hsts"), 1))
-	printf("hsts: %d\n", shcl_check_set_path(doc, P("site(example.com).tls.hsts")));
-if (!shcl_set_string(doc, P("site(blog.example.com).root"), P("/srv/www/blog")))
-	fprintf(stderr, "blog root: reason %d\n", shcl_check_set_path(doc, P("site(blog.example.com).root")));
+// A setter returns SHCL_SET_OK, or why it wrote nothing - a refused write
+// writes nothing at all rather than half of it. SHCL_SET_OK is 0, so compare
+// with it: a bare `!` would read a refusal as success.
+shcl_set_status ss = shcl_set_int(doc, P("workers"), workers * 2);
+if (ss != SHCL_SET_OK)
+	fprintf(stderr, "workers: %s\n", shcl_set_status_name(ss));
+ss = shcl_set_bool(doc, P("site(example.com).tls.hsts"), 1);
+if (ss != SHCL_SET_OK)
+	fprintf(stderr, "hsts: %s\n", shcl_set_status_name(ss));
+ss = shcl_set_string(doc, P("site(blog.example.com).root"), P("/srv/www/blog"));
+if (ss != SHCL_SET_OK)
+	fprintf(stderr, "blog root: %s\n", shcl_set_status_name(ss));
 
 // SHCL_SAVE_REFUSED means this write would delete lines or values from the
 // file; see "What saving does" below (shcl_save_file_lossy is the override).
@@ -900,14 +906,16 @@ auto root = doc.read_string("site(example.com).root");
 if (root.status == shcl::Status::Good)
 	std::printf("%s\n", root.value.c_str());
 
-// A setter reports whether the write applied, and check_set_path() says what was
-// wrong with the path, or Ok when it was the value
-if (!doc.set_int("workers", workers * 2))
-	std::printf("workers: %d\n", static_cast<int>(doc.check_set_path("workers")));
-if (!doc.set_bool("site(example.com).tls.hsts", true))
-	std::printf("hsts: %d\n", static_cast<int>(doc.check_set_path("site(example.com).tls.hsts")));
-if (!doc.set_string("site(blog.example.com).root", "/srv/www/blog"))
-	std::fprintf(stderr, "blog root: reason %d\n", static_cast<int>(doc.check_set_path("site(blog.example.com).root")));
+// A setter returns Ok, or why it wrote nothing, and is nodiscard
+auto ss = doc.set_int("workers", workers * 2);
+if (ss != shcl::SetStatus::Ok)
+	std::fprintf(stderr, "workers: %s\n", shcl::to_string(ss));
+ss = doc.set_bool("site(example.com).tls.hsts", true);
+if (ss != shcl::SetStatus::Ok)
+	std::fprintf(stderr, "hsts: %s\n", shcl::to_string(ss));
+ss = doc.set_string("site(blog.example.com).root", "/srv/www/blog");
+if (ss != shcl::SetStatus::Ok)
+	std::fprintf(stderr, "blog root: %s\n", shcl::to_string(ss));
 
 // Refused means this write would delete lines or values from the file; see
 // "What saving does" below (save_file_lossy is the override).
@@ -1022,25 +1030,9 @@ A file somebody keeps by hand can be saved the way they keep it instead. Load it
 
 And the save protects the file it is overwriting. It goes through a temp file in the same directory plus a rename, so an interrupted save cannot leave a truncated config behind, and a linked-in config is written through rather than replaced. It also refuses when the write would delete lines or values from the file. A line the parser cannot read at all is kept verbatim and survives the save untouched. A line it could read and not place (a stray indent, an impossible selector) has no safe spelling to re-emit. That one counts into `lost_count()`, and the save stops rather than quietly dropping a line somebody typed. `save_file_lossy` is there for when deleting it is what you actually want, so it is always a stated choice.
 
-A setter returns failure - `false`, or `0` in C - when it writes nothing, and nothing is half-written. Either the path is the problem, or what the write would put there is. `check_set_path(path)` checks the path alone and says which of the six path reasons applied. Wildcards are the usual case, since those are query-only. Another is a path that matches more than one field, such as `port` in a file with two `port` lines, since the read after the write would not know which one you meant either. `port(0)` or `site(1).root` picks one. When it says `Ok`, the write was refused for one of these:
+A setter returns a status, `Ok` when the write applied. Anything else means it wrote nothing at all, and names why. Either the path is the problem, or what the write would put there is, and when both are the path's reason is the one you get. Wildcards are the usual path reason (`Wildcard`), since those are query-only. Another is a path that matches more than one field (`Multiple`), such as `port` in a file with two `port` lines, since the read after the write would not know which one you meant either. `port(0)` or `site(1).root` picks one. A value reason names what was wrong with it: `NotFinite` for a NaN, `BadComment` for comment text with a line break, `NotOneValue` for `set_literal` text like `a, b`, and so on. `check_set_path(path)` checks the path alone, without writing. The whole list is in the [spec](project/spec.md), under the Writer.
 
-- A float that is NaN or infinite.
-
-- A datetime the reader would refuse, such as month 13.
-
-- A raw block whose info string holds a `#` or a line break, or whose body has a line ending in a carriage return.
-
-- A comment holding a line break.
-
-- `set_literal` text that is not one value, such as `a, b` or a quote that never closes.
-
-- An array on a field that has lines under it.
-
-- A new field under one that holds an array.
-
-Go, Python and C also refuse text that is not valid UTF-8, which a Rust string can't hold, and Python an int outside the 64-bit range.
-
-Check that answer rather than assuming it: an ignored failure means the save that follows writes a config missing the edit, and reports success doing it. In Rust the setters are `#[must_use]`, so dropping the answer is a compile warning.
+Check that answer rather than assuming it: an ignored refusal means the save that follows writes a config missing the edit, adn reports success doing it. In Rust the status is `#[must_use]`, so dropping it is a compile warning. In C `SHCL_SET_OK` is 0, so compare with it, since a bare `!` reads a refusal as success.
 
 One read-side companion belongs with this: canonical output lowercases field names, and `authored_name(path)` hands back the spelling the author actually used. It is what you want in a message about their file - reporting `Max-Upload-MB` as `max-upload-mb` reads like a different setting to the person who wrote it.
 

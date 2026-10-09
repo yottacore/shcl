@@ -758,7 +758,11 @@ fn shcl_scalar(v: &Val) -> String {
 	};
 	// A refusal means the model holds a value no file can carry; that is a bug
 	// in the model, and a document missing it would compare different data.
-	assert!(took, "the SHCL writer refused a generated value");
+	assert_eq!(
+		took,
+		shcl::SetStatus::Ok,
+		"the SHCL writer refused a generated value"
+	);
 	let line = d.to_canonical();
 	match line.strip_prefix("v: ").and_then(|l| l.strip_suffix('\n')) {
 		Some(text) => text.to_string(),

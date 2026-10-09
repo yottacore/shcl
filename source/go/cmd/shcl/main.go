@@ -17,7 +17,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"unicode"
 	"unicode/utf8"
 
 	shcl "github.com/yottacore/shcl/source/go/v2"
@@ -534,7 +533,7 @@ type setOpt struct {
 	kind  setKind
 }
 
-func (s setOpt) apply(doc *shcl.Document) bool {
+func (s setOpt) apply(doc *shcl.Document) shcl.SetStatus {
 	switch s.kind {
 	case setLiteral:
 		return doc.SetLiteral(s.path, s.value)
@@ -546,7 +545,7 @@ func (s setOpt) apply(doc *shcl.Document) bool {
 		// Removing nothing is not a failure, the same as the ops script's
 		// `remove`: the point of the option is the path's absence after.
 		doc.Remove(s.path)
-		return true
+		return shcl.SetOk
 	}
 	return doc.SetString(s.path, s.value)
 }
@@ -772,7 +771,7 @@ var infoFlags = [...]string{"-h", "--help", "-v", "-V", "--version", "--about", 
 // missing path or a wildcard is still fine.
 func unusablePath(doc *shcl.Document, path string) bool {
 	r := doc.CheckSetPath(path)
-	return r == shcl.SetPathBadPath || r == shcl.SetPathValueInPath
+	return r == shcl.SetBadPath || r == shcl.SetValueInPath
 }
 
 // bracketPath: a path with a selector in brackets, the old spelling (E029).
@@ -1491,55 +1490,49 @@ func checkOpts(cmd string, o *opts) int {
 	return 0
 }
 
-// arrayRefusal: a field with lines under it takes one plain value or none
-// (E028), so an array there, or a field made under an array, is refused for
-// where it goes.
-func arrayRefusal(doc *shcl.Document, path string, array bool) (string, bool) {
-	if array && len(doc.Children(path)) != 0 {
-		return "a field with lines under it takes one plain value or none", true
-	}
-	var tok shcl.Tokens
-	shcl.Tokenize(path, '=', true, shcl.RulesCurrent, &tok)
-	for i := 1; i < len(tok.Segments); i++ {
-		next := &tok.Segments[i]
-		quoted := 0
-		if next.Name.Quote != shcl.QuoteNone {
-			quoted = 1
-		}
-		up := strings.TrimRight(path[:next.Name.Start-quoted], ".")
-		r := doc.ReadString(up)
-		// Brackets on a value that reads unquoted are an array's.
-		if r.Status == shcl.Good && !r.Quoted && strings.HasPrefix(r.Value, "[") {
-			return "an array takes no lines under it", true
-		}
-	}
-	return "", false
-}
-
-// describeRefusal is the per-binding wording behind a setter's bare false: why
-// a write was refused. When the path itself is fine what failed is the text,
-// and only the caller knows which half of the op that was, so it names it: a
-// setter refused for its value used to report the sentence written for
-// SetLiteral whatever the op.
-func describeRefusal(doc *shcl.Document, path string, array bool, unwritable string) string {
-	switch doc.CheckSetPath(path) {
-	case shcl.SetPathOk:
-		if why, ok := arrayRefusal(doc, path, array); ok {
-			return why
-		}
-		return unwritable
-	case shcl.SetPathValueInPath:
+// refusal: why a setter wrote nothing, from the status it gave. The library
+// knows which rule refused the write, so nothing here works it out again: a
+// copy of the rule in the CLI is how the two drift. The text is the same in
+// all four CLIs.
+func refusal(st shcl.SetStatus, path string) string {
+	switch st {
+	case shcl.SetOk:
+		// Not a refusal; no caller asks.
+		return "written"
+	case shcl.SetBadPath:
+		return badPath(path)
+	case shcl.SetValueInPath:
 		return "a path with a value part cannot be written"
-	case shcl.SetPathWildcard:
+	case shcl.SetWildcard:
 		return "a wildcard path cannot be written"
-	case shcl.SetPathNoSuchIndex:
+	case shcl.SetNoSuchIndex:
 		return "no instance at that index"
-	case shcl.SetPathTooDeep:
+	case shcl.SetTooDeep:
 		return "deeper than the nesting cap"
-	case shcl.SetPathMultiple:
+	case shcl.SetMultiple:
 		return "the path matches multiple instances; name(0) picks one"
+	case shcl.SetUnderArray:
+		return "an array takes no lines under it"
+	case shcl.SetHasChildren:
+		return "a field with lines under it takes one plain value or none"
+	case shcl.SetNotFinite:
+		return "a float has to be finite"
+	case shcl.SetBadDateTime:
+		return "the datetime does not read back as the same one"
+	case shcl.SetBadRawInfo:
+		return "the info string has no spelling that reads back: a '#' in it opens a comment, and a line break has no inline spelling"
+	case shcl.SetBadRawBody:
+		return "the block body has no spelling that reads back: a line ending in a carriage return is trimmed on the way back in, and a line spelling the closing fence would end the block early"
+	case shcl.SetBadComment:
+		return "the comment text is not one line"
+	case shcl.SetNotOneValue:
+		return "the value text is not one value"
+	case shcl.SetNotUtf8:
+		return "the text is not valid UTF-8"
+	case shcl.SetOutOfRange:
+		return "the int is outside the 64-bit range"
 	}
-	return badPath(path) // BadPath
+	return "the value has no spelling that reads back" // SetNoReadBack
 }
 
 // sayDiagnostics prints the load's diagnostics, one line each, in the shape
@@ -1831,8 +1824,8 @@ func loadLayeredFrom(o *opts, file string, given *string, keep bool) (*shcl.Docu
 		doc.Merge(over)
 	}
 	for _, s := range o.sets {
-		if !s.apply(doc) {
-			fmt.Fprintf(os.Stderr, "%s: cannot write %s: %s\n", s.opt(), s.path, describeRefusal(doc, s.path, s.kind != setData && strings.HasPrefix(strings.TrimLeftFunc(s.value, unicode.IsSpace), "["), "the value text is not one value"))
+		if st := s.apply(doc); st != shcl.SetOk {
+			fmt.Fprintf(os.Stderr, "%s: cannot write %s: %s\n", s.opt(), s.path, refusal(st, s.path))
 			return nil, "", 1
 		}
 	}
@@ -2813,8 +2806,7 @@ func applyOp(doc *shcl.Document, line string) error {
 		}
 		return out, nil
 	}
-	wrote := false
-	content := "" // a raw op's, for the refusal below
+	wrote := shcl.SetOk
 	switch f[0] {
 	case "int":
 		n, err := pint(v)
@@ -2945,7 +2937,6 @@ func applyOp(doc *shcl.Document, line string) error {
 		if err != nil {
 			return err
 		}
-		content = t
 		if f[0] == "raw" {
 			wrote = doc.SetRaw(path, t, v)
 		} else {
@@ -2968,45 +2959,21 @@ func applyOp(doc *shcl.Document, line string) error {
 		} else {
 			doc.ClearComments(path)
 		}
-		wrote = true
+		wrote = shcl.SetOk
 	case "banner":
 		// The second field is on or off, not a path.
 		if path != "on" && path != "off" {
 			return fmt.Errorf("bad banner: %s (on or off)", path)
 		}
 		doc.SetBanner(path == "on")
-		wrote = true
+		wrote = shcl.SetOk
 	default:
 		return fmt.Errorf("unknown op: %s", f[0])
 	}
-	if !wrote {
-		// Which half of the op had no spelling: the reader is otherwise sent
-		// to the value when it was the info string or the comment that failed.
-		unwritable := "the value has no spelling that reads back"
-		switch f[0] {
-		case "literal", "literal-default":
-			unwritable = "the value text is not one value"
-		case "comment":
-			unwritable = "the comment text is not one line"
-		case "raw", "raw-default":
-			unwritable = rawRefusal(content)
-		}
-		array := strings.Contains(f[0], "array") || (strings.HasPrefix(f[0], "literal") && strings.HasPrefix(strings.TrimLeftFunc(v, unicode.IsSpace), "["))
-		return fmt.Errorf("cannot write %s: %s", path, describeRefusal(doc, path, array, unwritable))
+	if wrote != shcl.SetOk {
+		return fmt.Errorf("cannot write %s: %s", path, refusal(wrote, path))
 	}
 	return nil
-}
-
-// rawRefusal: Which half of a `raw` op had no spelling, and why. The half is asked of the
-// library rather than worked out here: an empty info string always reads back,
-// so a write that still fails with one is the body's fault. Re-deriving the
-// rule in the CLI is how the two copies drift.
-func rawRefusal(content string) string {
-	probe := shcl.New()
-	if !probe.SetRaw("p", content, "") {
-		return "the block body has no spelling that reads back: a line ending in a carriage return is trimmed on the way back in, and a line spelling the closing fence would end the block early"
-	}
-	return "the info string has no spelling that reads back: a '#' in it opens a comment, and a line break has no inline spelling"
 }
 
 func doSet(o *opts) int {

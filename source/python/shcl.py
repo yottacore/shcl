@@ -65,7 +65,7 @@ __all__ = [
 	"SaveFailed",
 	"SaveRefused",
 	"SegTok",
-	"SetPathCheck",
+	"SetStatus",
 	"Severity",
 	"ShclDateTime",
 	"SizeUnit",
@@ -142,18 +142,36 @@ class Status(Enum):
 _STATUS_ORDER = {s: i for i, s in enumerate(Status)}
 
 
-class SetPathCheck(Enum):
-	"""What check_set_path() finds at a path: whether a setter could write
-	there, and if not, why. Ok = the path passes the writer's validation; the
-	rest name the six ways it cannot. A setter can still return False on Ok,
-	when the value itself is refused (see set_int)."""
+class SetStatus(Enum):
+	"""What a setter did: Ok when the write applied, or why it wrote nothing.
+	check_set_path() gives the path's half of it, the reasons up to
+	UnderArray, without writing. The rest are about the value, so only a
+	setter gives them. When both halves are wrong the path's reason wins.
+	New values go on the end; every binding numbers them in this order.
+
+	Only Ok is true, so `if not doc.set_int(...)` still means refused. A
+	plain IntEnum would make Ok the false one (style guide, Python)."""
 	Ok = 0
-	BadPath = 1       # empty path, or the scanner rejected it
-	ValueInPath = 2   # the path has a `: value` part; writes take values separately
-	Wildcard = 3      # wildcard selectors are query-only
-	NoSuchIndex = 4   # a `(k)` instance that does not (and can never) exist
+	BadPath = 1       # empty, scanner-refused, or a name or `(value)` it would create that does not read back
+	ValueInPath = 2   # the path has a `: value` part; a write takes its value separately
+	Wildcard = 3      # wildcards are query-only
+	NoSuchIndex = 4   # a `(k)` instance that is not there, and a write never creates one
 	TooDeep = 5       # deeper than the nesting cap; the writer never creates past it
 	Multiple = 6      # a step matches more than one field; `(k)` or `(value)` picks one
+	UnderArray = 7    # a field it would create under one holding an array (E028)
+	HasChildren = 8   # an array on a field with lines under it (E028)
+	NotFinite = 9     # a NaN or infinite float
+	BadDateTime = 10  # a datetime the reader would refuse, such as month 13
+	BadRawInfo = 11   # a raw block's info string holds a `#` or a line break
+	BadRawBody = 12   # a raw block's body has a line ending in a carriage return
+	BadComment = 13   # comment text holding a line break
+	NotOneValue = 14  # set_literal text that is not one value
+	NotUtf8 = 15      # text with no UTF-8 spelling, such as a lone surrogate
+	OutOfRange = 16   # an int past the 64-bit range the other bindings hold
+	NoReadBack = 17   # any other value that would not read back; none is known
+
+	def __bool__(self) -> bool:
+		return self is SetStatus.Ok
 
 
 class Diagnostic:
@@ -6522,45 +6540,47 @@ class Document:
 		self._settle(parent, len(self.arena[parent].children) - 1)
 		return idx
 
-	def check_set_path(self, path: str) -> SetPathCheck:
+	def check_set_path(self, path: str) -> SetStatus:
 		"""Whether a setter could write at this path, and why not when it could
 		not, so a consumer's error message need not guess. Ok means the same
-		validation _place() runs would pass; nothing is created. A setter can
-		still refuse its value on an Ok path (see set_int)."""
+		validation _place() runs would pass; nothing is created. It gives only
+		the path reasons, BadPath to UnderArray. A setter can still refuse its
+		value on an Ok path, and its own status says why."""
 		try:
 			segments, value_text = _scan_lookup(path)
 		except _PathError:
-			return SetPathCheck.BadPath
-		return self._probe_write(segments, value_text)[0]
+			return SetStatus.BadPath
+		return self._probe_write(segments, value_text, [])
 
-	def _probe_write(self, segments, value_text, trail=None) -> tuple[SetPathCheck, list | None]:
-		"""The validation walk check_set_path and _place share. `trail`, when a
-		list is passed, collects where each segment ended up - None from the point
-		the path falls off the existing tree - so _place can create from exactly
-		there instead of scanning the path and walking the tree a second time."""
+	def _probe_write(self, segments, value_text, trail: list) -> SetStatus:
+		"""The validation walk check_set_path and _place share. `trail`
+		collects where each segment ended up - None from the point the path
+		falls off the existing tree - so _place can create from exactly there
+		instead of scanning the path and walking the tree a second time."""
+		trail.clear()
 		if value_text is not None:
-			return (SetPathCheck.ValueInPath, None)
+			return SetStatus.ValueInPath
 		if not segments:
-			return (SetPathCheck.BadPath, None)
+			return SetStatus.BadPath
 		# Writer side of the load-time nesting cap: never create deeper.
 		if len(segments) > MAX_DEPTH:
-			return (SetPathCheck.TooDeep, None)
+			return SetStatus.TooDeep
 		# The probe walk _place() validates with: once it falls off the existing
 		# tree, a later `(k)` can never match (fresh intermediates are created
 		# childless), so an index segment past that point is unresolvable.
 		probe = ROOT
 		for seg in segments:
 			if seg.star:
-				return (SetPathCheck.Wildcard, None)
+				return SetStatus.Wildcard
 			sel = seg.selector
 			if sel is not None and sel[0] == "wild":
-				return (SetPathCheck.Wildcard, None)
+				return SetStatus.Wildcard
 			if sel is not None and sel[0] == "idx":
 				if probe is None:
-					return (SetPathCheck.NoSuchIndex, None)
+					return SetStatus.NoSuchIndex
 				matches = self._children_named(probe, seg.name)
 				if sel[1] >= len(matches):
-					return (SetPathCheck.NoSuchIndex, None)
+					return SetStatus.NoSuchIndex
 				probe = matches[sel[1]]
 			elif sel is not None and sel[0] == "val":
 				if probe is not None:
@@ -6568,7 +6588,7 @@ class Document:
 					matches = [c for c in self._children_named(probe, seg.name)
 						if _single_scalar(self.arena[c].value) and _disp_key(self.arena[c].value) == want]
 					if len(matches) > 1:
-						return (SetPathCheck.Multiple, None)
+						return SetStatus.Multiple
 					probe = matches[0] if matches else None
 			else:
 				if probe is not None:
@@ -6576,11 +6596,25 @@ class Document:
 					# Multiple, so it never picks one instance for the caller.
 					matches = self._children_named(probe, seg.name)
 					if len(matches) > 1:
-						return (SetPathCheck.Multiple, None)
+						return SetStatus.Multiple
 					probe = matches[0] if matches else None
-			if trail is not None:
-				trail.append(probe)
-		return (SetPathCheck.Ok, trail)
+			trail.append(probe)
+		# Nothing is created until every segment the write would create is known
+		# to read back: the name through the name escaper, an instance selector
+		# as the value it binds, and the first under a field that takes a field
+		# under it, which an array does not (E028). These come after the walk,
+		# so a reason it finds further on still wins.
+		for i, seg in enumerate(segments):
+			if trail[i] is not None:
+				continue
+			if i > 0 and trail[i - 1] is not None and self.arena[trail[i - 1]].value.kind == "array":
+				return SetStatus.UnderArray
+			if not _name_reads_back(seg.name):
+				return SetStatus.BadPath
+			sel = seg.selector
+			if sel is not None and sel[0] == "val" and not _value_reads_back(_cell_of(sel[1])):
+				return SetStatus.BadPath
+		return SetStatus.Ok
 
 	def _write_target(self, path):
 		"""The node a write at this path lands on when it is already there."""
@@ -6589,40 +6623,27 @@ class Document:
 		except _PathError:
 			return None
 		trail: list = []
-		if self._probe_write(segments, value_text, trail)[0] != SetPathCheck.Ok or not trail or trail[-1] is None:
+		if self._probe_write(segments, value_text, trail) != SetStatus.Ok or not trail:
 			return None
 		return trail[-1]
 
-	def _place(self, path, setter):
+	def _place(self, path, setter) -> tuple[int, SetStatus]:
 		"""Walk (creating as needed) to the node a write targets. A name with no
 		selector hits its one instance (or a new one); a `(value)` selector
 		selects the matching instance or creates it; `(k)` must already exist. A
-		step that matches more than one instance is refused (Multiple). None =
-		path unusable for a write (check_set_path() says why). Validation runs
-		first, so a doomed path leaves no half-created intermediates behind. A
-		setter creating a field deals with the kept lines of its name, as
-		_set_child() says."""
+		step that matches more than one instance is refused (Multiple). A status
+		other than Ok = path unusable for a write, with the reason
+		check_set_path gives. Validation runs first, so a doomed path leaves no
+		half-created intermediates behind. A setter creating a field deals with
+		the kept lines of its name, as _set_child() says."""
 		try:
 			segments, value_text = _scan_lookup(path)
 		except _PathError:
-			return None
+			return (-1, SetStatus.BadPath)
 		trail: list = []
-		if self._probe_write(segments, value_text, trail)[0] != SetPathCheck.Ok:
-			return None
-		# Nothing is created until every segment the write would create is known
-		# to read back: the name through the name escaper, an instance selector
-		# as the value it binds, and the first under a field that takes a field
-		# under it, which an array does not (E028).
-		for i, seg in enumerate(segments):
-			if trail[i] is not None:
-				continue
-			if i > 0 and trail[i - 1] is not None and self.arena[trail[i - 1]].value.kind == "array":
-				return None
-			if not _name_reads_back(seg.name):
-				return None
-			sel = seg.selector
-			if sel is not None and sel[0] == "val" and not _value_reads_back(_cell_of(sel[1])):
-				return None
+		checked = self._probe_write(segments, value_text, trail)
+		if checked != SetStatus.Ok:
+			return (-1, checked)
 		cur = ROOT
 		for i, seg in enumerate(segments):
 			# The probe already resolved every segment that exists; only the
@@ -6635,15 +6656,18 @@ class Document:
 				value = _empty()
 			elif sel[0] == "val":
 				value = _cell_of(sel[1])
+			elif sel[0] == "idx":
+				# Both are unreachable: _probe_write refuses a wildcard outright
+				# and an unresolvable index, so neither reaches an empty trail
+				# slot. Belt only.
+				return (-1, SetStatus.NoSuchIndex)
 			else:
-				# Unreachable: _probe_write refuses a wildcard outright and an
-				# unresolvable index, so neither reaches an empty trail slot.
-				return None
+				return (-1, SetStatus.Wildcard)
 			if setter:
 				cur = self._set_child(cur, seg.name, seg.name_src, value, path)
 			else:
 				cur = self._new_child(cur, seg.name, seg.name_src, value)
-		return cur
+		return (cur, SetStatus.Ok)
 
 	def _set_child(self, parent, name, name_src, value, path):
 		"""A setter creating a field writes the kept lines of its name in the
@@ -6656,25 +6680,41 @@ class Document:
 			return self._new_child_under(parent, name, name_src, value, at)
 		return self._new_child(parent, name, name_src, value)
 
-	def _set_value(self, path: str, value) -> bool:
+	def _set_value(self, path: str, value) -> SetStatus:
 		return self._set_value_as(path, value, True)
 
-	def _set_value_as(self, path, value, keep_quotes):
+	def _refuse(self, path: str, why: SetStatus) -> SetStatus:
+		"""A refused value still answers with the path's reason when the path
+		is wrong too, as check_set_path would. Asked only once a write has
+		failed, so one that applies walks the path once."""
+		bad = self.check_set_path(path)
+		return why if bad is SetStatus.Ok else bad
+
+	def _set_value_as(self, path, value, keep_quotes) -> SetStatus:
 		"""_set_value(), saying whether an overwrite keeps the old value's
 		quote kind. A literal says its own quotes, so it does not."""
 		if not _value_reads_back(value):
-			return False
+			if not _value_encodable(value):
+				why = SetStatus.NotUtf8
+			elif value.kind == "raw" and not _fence_reads_back(value):
+				why = SetStatus.BadRawInfo
+			elif value.kind == "raw":
+				why = SetStatus.BadRawBody
+			else:
+				why = SetStatus.NoReadBack
+			return self._refuse(path, why)
 		if self._probe:
-			return True
+			return SetStatus.Ok
 		fresh = len(self.arena)
 		# A field with lines under it takes one plain value or none (E028).
+		# _write_target finds it only on a path that checks Ok.
 		if value.kind == "array":
 			n = self._write_target(path)
 			if n is not None and self.arena[n].children:
-				return False
-		idx = self._place(path, True)
-		if idx is None:
-			return False
+				return SetStatus.HasChildren
+		idx, why = self._place(path, True)
+		if why is not SetStatus.Ok:
+			return why
 		# _place() has already done it for a field it created.
 		if idx < fresh and self._kept_owed > 0:
 			self._comment_out_kept(self.arena[idx].parent, self.arena[idx].name, path, False)
@@ -6697,7 +6737,7 @@ class Document:
 			self._settle_fence_name(parent, name)
 		_settle_first_blank(self.arena, self.orphans)
 		self._resettle_kept()
-		return True
+		return SetStatus.Ok
 
 	def _comment_out_kept(self, parent, name, path, anchor):
 		"""A setter writing a field writes every kept line of its name in the
@@ -7060,19 +7100,20 @@ class Document:
 			node = p
 		return True
 
-	def set_comment(self, path: str, text: str) -> bool:
+	def set_comment(self, path: str, text: str) -> SetStatus:
 		"""Attach a leading comment line to the node at a path (creating an empty
 		node if absent). A missing '#' is added, and trailing whitespace comes
 		off the way the load takes it, so text that is blank leaves a bare '#'.
-		Text holding a line break is refused: a comment is one line, and keeping
-		only the first would drop the rest with nothing to say so."""
+		Text holding a line break is refused (BadComment): a comment is one
+		line, and keeping only the first would drop the rest with nothing to
+		say so. Text with no UTF-8 spelling is NotUtf8."""
 		_want("set_comment", text, "str")
 		c = _comment_line(text)
 		if c is None:
-			return False
-		idx = self._place(path, False)
-		if idx is None:
-			return False
+			return self._refuse(path, SetStatus.BadComment if _encodable(text) else SetStatus.NotUtf8)
+		idx, why = self._place(path, False)
+		if why is not SetStatus.Ok:
+			return why
 		# The node's own blank moves above its first comment; otherwise the
 		# blank would separate the comment from what it annotates. Above the
 		# first one already there, when there is one.
@@ -7088,7 +7129,7 @@ class Document:
 		t.leading.append(lead)
 		_settle_first_blank(self.arena, self.orphans)
 		self._resettle_kept()
-		return True
+		return SetStatus.Ok
 
 	def comments(self, path: str) -> list[str]:
 		"""The comment lines above the node(s) at a path, the ones
@@ -7210,102 +7251,101 @@ class Document:
 		self._resettle_kept()
 		return removed
 
-	def set_int(self, path: str, v: int) -> bool:
+	def set_int(self, path: str, v: int) -> SetStatus:
 		"""Bind an integer at path, creating the path as needed. A step of the path
 		that matches more than one field fails the path check (Multiple), since
 		the read after the write would; `port(0)` or `site(1).root` picks one.
-		False from any setter means nothing was written. Either the path check
-		failed, and check_set_path says why, or it passed and the write was
-		refused for what it would write: an int outside the 64-bit range the
-		other bindings hold, a NaN or infinite float, a datetime the reader
-		would refuse, a raw block whose info string holds a `#` or a line break
-		or whose body has a line ending in CR, a comment with a line break,
-		set_literal text that is not one value, an array on a field with lines
-		under it, a new field under one holding an array, or text with no UTF-8
-		spelling (a lone surrogate). Worth checking rather than assuming: an
-		ignored False means the save that follows writes a document missing the
-		edit, and reports success doing it. A value of the wrong type is a
-		TypeError (same for every typed setter): int here, and a bool is not
-		one."""
+		Every setter returns SetStatus.Ok when the write applied. Any other
+		value means nothing was written, and names why: the path's reason when
+		the path is wrong, as check_set_path gives it, else the value's. An int
+		outside the 64-bit range the other bindings hold is OutOfRange, and text
+		with no UTF-8 spelling (a lone surrogate) is NotUtf8. Only Ok is true,
+		so `if not doc.set_int(...)` reads as refused. Worth checking rather
+		than assuming: an ignored refusal means the save that follows writes a
+		document missing the edit, and reports success doing it. A value of the
+		wrong type is a TypeError (same for every typed setter): int here, and
+		a bool is not one."""
 		_want("set_int", v, "int")
 		if not _fits_i64(v):
-			return False
+			return self._refuse(path, SetStatus.OutOfRange)
 		return self._set_value(path, _cell_of(str(v)))
 
-	def set_float(self, path: str, v: float) -> bool:
+	def set_float(self, path: str, v: float) -> SetStatus:
 		"""Bind a float; an int is accepted and written as the float it converts
 		to, a bool is a TypeError. An infinity or a NaN (one past the float
 		range included) has no spelling the reader accepts, so it fails the
-		write rather than binding a value that cannot read back."""
+		write (NotFinite) rather than binding a value that cannot read back."""
 		_want("set_float", v, "float")
 		x = _as_float(v)
 		if not math.isfinite(x):
-			return False
+			return self._refuse(path, SetStatus.NotFinite)
 		return self._set_value(path, _cell_of(format_float(x)))
 
-	def set_bool(self, path: str, v: bool) -> bool:
+	def set_bool(self, path: str, v: bool) -> SetStatus:
 		"""Bind a bool; anything else, 0/1 included, is a TypeError."""
 		_want("set_bool", v, "bool")
 		return self._set_value(path, _cell_of("true" if v else "false"))
 
-	def set_string(self, path: str, v: str) -> bool:
+	def set_string(self, path: str, v: str) -> SetStatus:
 		"""Bind a string; a non-str is a TypeError."""
 		_want("set_string", v, "str")
 		return self._set_value(path, _cell_of(v))
 
-	def set_datetime(self, path: str, v: ShclDateTime) -> bool:
+	def set_datetime(self, path: str, v: ShclDateTime) -> SetStatus:
 		"""Bind a ShclDateTime; anything else is a TypeError. Its fields have
 		no invariant, so a value the reader would refuse (month 13, a fraction
-		with no seconds, an empty one) fails the write rather than binding
-		text that cannot read back."""
+		with no seconds, an empty one) fails the write (BadDateTime) rather
+		than binding text that cannot read back."""
 		_want("set_datetime", v, "datetime")
 		if not _datetime_reads_back(v):
-			return False
+			return self._refuse(path, SetStatus.BadDateTime)
 		return self._set_value(path, _cell_of(str(v)))
 
-	def set_raw(self, path: str, content: str, info: str) -> bool:
+	def set_raw(self, path: str, content: str, info: str) -> SetStatus:
 		"""Bind a raw block at a path, picking a fence longer than any content
 		line. The info-string is stored as a fence line would read it back
 		(trimmed the way the load trims one); one that would not read back whole
 		- it holds a line break, or a `#`, which reads as a comment - fails the
-		write, as does a body line ending in CR, since the load takes the
-		trailing CR run off every line."""
+		write (BadRawInfo), as does a body line ending in CR (BadRawBody), since
+		the load takes the trailing CR run off every line."""
 		_want("set_raw", content, "str")
 		_want("set_raw", info, "str")
 		info = _trim_wsp(info)
 		fc, fl = _choose_fence(content)
 		return self._set_value(path, _raw(content, info, fc, fl))
 
-	def set_empty(self, path: str) -> bool:
+	def set_empty(self, path: str) -> SetStatus:
 		return self._set_value(path, _empty())
 
-	def set_int_array(self, path: str, v: list[int]) -> bool:
-		"""Bind an inline int array; every element is checked as set_int does."""
+	def set_int_array(self, path: str, v: list[int]) -> SetStatus:
+		"""Bind an inline int array; every element is checked as set_int does.
+		An array on a field with lines under it fails the write (HasChildren),
+		from every array setter."""
 		v = _want_all("set_int_array", v, "int")
 		if not all(_fits_i64(x) for x in v):
-			return False
+			return self._refuse(path, SetStatus.OutOfRange)
 		return self._set_value(path, _array_cell([str(x) for x in v]))
 
-	def set_float_array(self, path: str, v: list[float]) -> bool:
+	def set_float_array(self, path: str, v: list[float]) -> SetStatus:
 		"""Bind an inline float array; every element is converted as set_float does."""
 		v = _want_all("set_float_array", v, "float")
 		xs = [_as_float(x) for x in v]
 		if not all(math.isfinite(x) for x in xs):
-			return False
+			return self._refuse(path, SetStatus.NotFinite)
 		return self._set_value(path, _array_cell([format_float(x) for x in xs]))
 
-	def set_bool_array(self, path: str, v: list[bool]) -> bool:
+	def set_bool_array(self, path: str, v: list[bool]) -> SetStatus:
 		v = _want_all("set_bool_array", v, "bool")
 		return self._set_value(path, _array_cell(["true" if x else "false" for x in v]))
 
-	def set_string_array(self, path: str, v: list[str]) -> bool:
+	def set_string_array(self, path: str, v: list[str]) -> SetStatus:
 		v = _want_all("set_string_array", v, "str")
 		return self._set_value(path, _array_cell(list(v)))
 
-	def set_datetime_array(self, path: str, v: list[ShclDateTime]) -> bool:
+	def set_datetime_array(self, path: str, v: list[ShclDateTime]) -> SetStatus:
 		v = _want_all("set_datetime_array", v, "datetime")
 		if not all(_datetime_reads_back(x) for x in v):
-			return False
+			return self._refuse(path, SetStatus.BadDateTime)
 		return self._set_value(path, _array_cell([str(x) for x in v]))
 
 	# Default (only-if-absent) forms - the "emit defaults" half of the Writer.
@@ -7314,73 +7354,80 @@ class Document:
 	# nothing and reports what a write there would: the path's verdict, so a
 	# wildcard is refused whether or not its slots happen to resolve, and the
 	# value's, which the same setter gives on the probe document.
-	def _set_default(self, path: str, set_: Callable[[Document, str], bool]) -> bool:
+	def _set_default(self, path: str, set_: Callable[[Document, str], SetStatus]) -> SetStatus:
 		if not self.exists(path):
 			return set_(self, path)
-		if self.check_set_path(path) != SetPathCheck.Ok:
-			return False
+		checked = self.check_set_path(path)
+		if checked is not SetStatus.Ok:
+			return checked
 		if self._probe_doc is None:
 			self._probe_doc = Document.new()
 			self._probe_doc._probe = True
 		return set_(self._probe_doc, "v")
 
-	def set_int_default(self, path: str, v: int) -> bool:
+	def set_int_default(self, path: str, v: int) -> SetStatus:
 		_want("set_int_default", v, "int")
 		return self._set_default(path, lambda d, p: d.set_int(p, v))
 
-	def set_float_default(self, path: str, v: float) -> bool:
+	def set_float_default(self, path: str, v: float) -> SetStatus:
 		_want("set_float_default", v, "float")
 		return self._set_default(path, lambda d, p: d.set_float(p, v))
 
-	def set_bool_default(self, path: str, v: bool) -> bool:
+	def set_bool_default(self, path: str, v: bool) -> SetStatus:
 		_want("set_bool_default", v, "bool")
 		return self._set_default(path, lambda d, p: d.set_bool(p, v))
 
-	def set_literal(self, path: str, text: str) -> bool:
+	def set_literal(self, path: str, text: str) -> SetStatus:
 		"""Bind text at path as value syntax rather than as data.
 
 		"[80, 443]" becomes a two-element array where set_string would store one
 		string that has to be quoted. This is how a caller holding value text -
 		a config line, a user's --set argument - writes it without knowing its
-		shape first. Returns False on text that could not be one line's value.
+		shape first. Fails on text that could not be one line's value
+		(NotOneValue), and on text with no UTF-8 spelling (NotUtf8). An array
+		on a field with lines under it is HasChildren, as from the array
+		setters.
 		"""
 		_want("set_literal", text, "str")
 		v = _literal_value(text)
 		if v is None:
-			return False
-		return self._set_value_as(path, v, False)
+			return self._refuse(path, SetStatus.NotOneValue if _encodable(text) else SetStatus.NotUtf8)
+		# Text that parsed as one value and still has no line that reads back
+		# is still not one value, as far as the caller can tell.
+		st = self._set_value_as(path, v, False)
+		return SetStatus.NotOneValue if st is SetStatus.NoReadBack else st
 
-	def set_literal_default(self, path: str, text: str) -> bool:
+	def set_literal_default(self, path: str, text: str) -> SetStatus:
 		return self._set_default(path, lambda d, p: d.set_literal(p, text))
 
-	def set_string_default(self, path: str, v: str) -> bool:
+	def set_string_default(self, path: str, v: str) -> SetStatus:
 		_want("set_string_default", v, "str")
 		return self._set_default(path, lambda d, p: d.set_string(p, v))
 
-	def set_datetime_default(self, path: str, v: ShclDateTime) -> bool:
+	def set_datetime_default(self, path: str, v: ShclDateTime) -> SetStatus:
 		_want("set_datetime_default", v, "datetime")
 		return self._set_default(path, lambda d, p: d.set_datetime(p, v))
 
-	def set_raw_default(self, path: str, content: str, info: str) -> bool:
+	def set_raw_default(self, path: str, content: str, info: str) -> SetStatus:
 		return self._set_default(path, lambda d, p: d.set_raw(p, content, info))
 
-	def set_int_array_default(self, path: str, v: list[int]) -> bool:
+	def set_int_array_default(self, path: str, v: list[int]) -> SetStatus:
 		_want_all("set_int_array_default", v, "int")
 		return self._set_default(path, lambda d, p: d.set_int_array(p, v))
 
-	def set_float_array_default(self, path: str, v: list[float]) -> bool:
+	def set_float_array_default(self, path: str, v: list[float]) -> SetStatus:
 		_want_all("set_float_array_default", v, "float")
 		return self._set_default(path, lambda d, p: d.set_float_array(p, v))
 
-	def set_bool_array_default(self, path: str, v: list[bool]) -> bool:
+	def set_bool_array_default(self, path: str, v: list[bool]) -> SetStatus:
 		_want_all("set_bool_array_default", v, "bool")
 		return self._set_default(path, lambda d, p: d.set_bool_array(p, v))
 
-	def set_string_array_default(self, path: str, v: list[str]) -> bool:
+	def set_string_array_default(self, path: str, v: list[str]) -> SetStatus:
 		_want_all("set_string_array_default", v, "str")
 		return self._set_default(path, lambda d, p: d.set_string_array(p, v))
 
-	def set_datetime_array_default(self, path: str, v: list[ShclDateTime]) -> bool:
+	def set_datetime_array_default(self, path: str, v: list[ShclDateTime]) -> SetStatus:
 		_want_all("set_datetime_array_default", v, "datetime")
 		return self._set_default(path, lambda d, p: d.set_datetime_array(p, v))
 
@@ -9360,19 +9407,31 @@ def _value_reads_back(v):
 		if len(back) != len(v.els):
 			return False
 		return all(_piece_is(p, tok.src, e.text) for p, e in zip(back, v.els))
-	line = _emit_fence_line(v)
-	if "\n" in line or not _encodable(line) or not _encodable(v.content):
-		return False
-	tok = Tokens()
-	tokenize_value(line, 0, Rules.CURRENT, tok)
-	if _fence_open(tok.src[tok.value[0]:tok.value[1]].decode("utf-8", "surrogatepass")) != (v.fence_char, v.fence_len, v.info):
-		return False
 	# A body line ending in a carriage return loses it to the load's line-end
 	# trim, and one spelling the closing fence would end the block early.
-	return all(
+	return _fence_reads_back(v) and _encodable(v.content) and all(
 		not ln.endswith("\r") and not _is_fence_close(ln, v.fence_char, v.fence_len)
 		for ln in v.content.split("\n")
 	)
+
+
+def _fence_reads_back(v):
+	"""True when a raw block's opening fence line, its info string with it,
+	comes back off the page as itself."""
+	line = _emit_fence_line(v)
+	if "\n" in line or not _encodable(line):
+		return False
+	tok = Tokens()
+	tokenize_value(line, 0, Rules.CURRENT, tok)
+	return _fence_open(tok.src[tok.value[0]:tok.value[1]].decode("utf-8", "surrogatepass")) == (v.fence_char, v.fence_len, v.info)
+
+
+def _value_encodable(v):
+	"""True when every text a value holds has a UTF-8 spelling, so a refusal
+	can say NotUtf8 rather than blame the value's form."""
+	if v.kind == "raw":
+		return _encodable(v.info) and _encodable(v.content)
+	return all(_encodable(e.text) for e in v.els)
 
 
 def _name_reads_back(name):

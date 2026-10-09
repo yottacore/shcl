@@ -54,7 +54,7 @@ New bindings (Tier 3) follow the same recipe: port the reference function-for-fu
 	- C calls that result an `shcl_upgraded` too, beside its `shcl_upgrade` call, for the same reason as `read_bool` below, and frees it with `shcl_upgraded_free`. Its `shcl_upgrade_error` is an enum with an OK value, and the message comes back through an out parameter, since a C enum has no payload.
 	- Python's zone is a `("utc", None) | ("offset", minutes)` tuple with no named type. A two-case tagged value is a tuple in Python, and a class for it would be the port reading as something the other three are not.
 	- C writes `read_bool` as `shcl_read_bool_`. C gives a function and a typedef one namespace, and the result type already holds the plain name. Renaming either side would break callers for no gain in behavior.
-	- Go writes the `SetPathCheck` values with a `SetPath` prefix, `SetPathOk` where the others have `Ok`. Every Go enum value lives in the package's one namespace, where `BadPath` is already a read status, and a bare `Ok` would sit beside `Read.Ok()`. `String()` gives the names without the prefix, as the others print them.
+	- Go writes the `SetStatus` values with a `Set` prefix, `SetOk` to `SetNoReadBack`, where the others have `Ok` to `NoReadBack`. Every Go enum value lives in the package's one namespace, where `BadPath` and `Multiple` are already read statuses, and a bare `Ok` would sit beside `Read.Ok()`. `String()` gives the names without the prefix, as the others print them. C's are `SHCL_SET_OK` to `SHCL_SET_NO_READ_BACK`, of type `shcl_set_status`, and `shcl_set_status_name` gives the names, as `shcl_status_name` does for a read.
 
 - Single file per binding, zero dependencies. That is the product ("copy this file into your tree"), so no module splits, no helper crates/packages, and no dependency however good.
 
@@ -80,7 +80,7 @@ New bindings (Tier 3) follow the same recipe: port the reference function-for-fu
 
 - `Cow<str>` where a per-line helper usually has nothing to do: `fold_name` when a name has no upper case to fold, and the path scanner's plain-name fast path when a name has nothing to resolve. The other three allocate freely there, or hand the work to a garbage collector, so there is nothing to mirror - and the parser calls these once per segment per line, where two strings built and freed for the sake of copying bytes onto themselves showed up in a profile.
 
-- The setters are `#[must_use]`. Surface-only, so parity is untouched - the other three have no equivalent and say the same thing in prose. A dropped `false` means the save that follows writes a config missing the edit and reports success, which is the one failure here that leaves no trace anywhere; the compiler catches it for free in the one language that can.
+- `SetStatus` is `#[must_use]`, so every setter's answer is. Surface-only, so parity is untouched - the other three have no equivalent and say the same thing in prose. A dropped refusal means the save that follows writes a config missing the edit and reports success, which is the one failure here that leaves no trace anywhere; the compiler catches it for free in the one language that can.
 
 ### Go
 
@@ -94,7 +94,7 @@ New bindings (Tier 3) follow the same recipe: port the reference function-for-fu
 
 - Deliberate deviation: the datetime type is `DateTime`, not `ShclDateTime`; the package name already has the prefix. The reference and Python export `DateTime` as an alias so the two spellings meet.
 
-- Enum values share the package's one namespace, so a name two enums would both use gets a prefix on one side: `FileNotFound` beside the read status `NotFound`, and every `SetPathCheck` value, `SetPathOk` to `SetPathMultiple`, since `BadPath` is a read status. Each prints the reference's name.
+- Enum values share the package's one namespace, so a name two enums would both use gets a prefix on one side: `FileNotFound` beside the read status `NotFound`, and every `SetStatus` value, `SetOk` to `SetNoReadBack`, since `BadPath` and `Multiple` are read statuses. Each prints the reference's name.
 
 - The tokenizer's absent offsets (`Sep`, `Comment`, `Fault`) are `-1` where the reference has `None`; the spans themselves are the same byte offsets in every binding.
 
@@ -117,6 +117,9 @@ New bindings (Tier 3) follow the same recipe: port the reference function-for-fu
 - The public surface is type-hinted (every public method, function and attribute); private helpers are hinted where it pays, and mypy strict is not a gate.
 
 - Deliberate deviation: the write side's read-back check lets text with no UTF-8 spelling through. Python's string is the only one of the four that can hold a lone surrogate, and the tokenizer scans bytes, so there is nothing to hand it; the save is where a document that cannot be encoded fails, and always was.
+	- Superseded 2026-10-08 by 2026100815543610: the setters refuse such text, as Go's and C's do, and since 2026100907362300 the status says `NotUtf8`. A parse still keeps a lone surrogate, and the save is still where that fails.
+
+- Deliberate deviation: `SetStatus` is an `Enum` whose only true value is `Ok`, through a `__bool__`. The other three have no truth value on it and compare with `Ok`. Setters returned a bool before, so a caller's `if not doc.set_int(...)` keeps meaning refused. An `IntEnum` was the other choice, and there `Ok` is 0 and false, which would turn every such check around with no error. The values are still numbered from 0 in the reference's order, as `.value`.
 
 - Deliberate deviation: the tokenizer scans the UTF-8 bytes of the line rather than the str, and `Tokens.src` keeps those bytes so the read-back helpers can slice them. Every offset the four bindings hand out is a byte offset, and the `tokens` output is compared byte for byte, so the str's code-point offsets could not serve. Two hot-path shortcuts ride on that, both exact: a value with no quote and no `#` is cut with `bytes.find` one piece at a time (so the element cap still stops the scan where the byte loop would), and a bare name is matched with a compiled ASCII class.
 

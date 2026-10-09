@@ -637,6 +637,31 @@ The mirror of the load outcomes, on the write side. A setter builds its line tex
 
 - A path may have a line break in either half. A name and a selector value both go through the one quoter, which writes it as `◉NEWLINE◉` and reads it back. The selector was refused until the tokenizer cut, while elements were still stored in their source spelling and the value emitter had nothing to escape with.
 
+- A refused write says why, in the status every setter returns. The table is the rule: one row per status, in the order every binding numbers them. A path reason wins over a value reason, since the path is the first thing to fix, so a value reason always comes with a path `CheckSetPath` passes. The CLIs print the reason from the status and work none of it out again. A new refusal gets a row on the end before it gets code.
+
+| Status        | Half  | Given for
+| :---          | :---  | :---
+| `Ok`          |       | The write applied.
+| `BadPath`     | path  | An empty path, one the scanner refuses, or a name or `(value)` the write would create that has no line reading back as itself.
+| `ValueInPath` | path  | A `: value` part in the path.
+| `Wildcard`    | path  | A wildcard name or selector.
+| `NoSuchIndex` | path  | A `(k)` with no instance there.
+| `TooDeep`     | path  | A path past the nesting cap.
+| `Multiple`    | path  | A step with no selector, or a `(value)`, matching more than one field.
+| `UnderArray`  | path  | A field the write would create under one holding an array (`E028`).
+| `HasChildren` | value | An array on a field with lines under it (`E028`).
+| `NotFinite`   | value | A NaN or infinite float.
+| `BadDateTime` | value | A datetime that does not read back as the same fields.
+| `BadRawInfo`  | value | A raw block's info string holding a `#` or a line break.
+| `BadRawBody`  | value | A raw block's body line ending in a carriage return, or one that would close the block.
+| `BadComment`  | value | Comment text holding a line break.
+| `NotOneValue` | value | `SetLiteral` text a file line would not read as one value.
+| `NotUtf8`     | value | Text that is not valid UTF-8. Go, Python and C; a Rust string always is.
+| `OutOfRange`  | value | An int past the 64-bit range. Python only.
+| `NoReadBack`  | value | Any other value that does not read back. None is known; it keeps the rule above true for a value nobody has thought of.
+
+- `NotUtf8` comes before the other value reasons, so that way text that is not UTF-8 gives it even with a line break or a `#` in it as well. A path's reason still wins over all of them, and a path that is not UTF-8 is `BadPath`.
+
 ### Kept lines under edits
 
 What each edit does with the kept lines near its target. A kept line is one the load kept as written: retained for its content, or kept for where it sits. The table is the rule. Edits lost these lines one site at a time, each at exit 0, so a new edit gets a row before it gets code.

@@ -36,7 +36,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - A setter's false doesn't say why
 	- ID: 2026100907362300
 	- Type: Enhancement
-	- Status: Started
+	- Status: Waiting on signoff
 	- Priority: Avg
 	- Opened: 20261009-073623
 	- Opened by: JC, from 2026100717500009
@@ -52,7 +52,53 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261009: before the cut, since it changes every setter's signature and would otherwise wait for 4.0 (JC).
 		- 20261009: one `SetStatus` enum. `SetPathCheck` is renamed to it and gets the value reasons, and `check_set_path` returns it too (JC).
 	- Progress log:
-		- 20261009: Rust part in on the integration branch `setstat`. Go, Python, C and C++ ports next; merged to dev once all four agree.
+		- 20261009: part 1 is in on `setstat`: the Rust library and CLI, spec.md, design.md, the READMEs' prose and Rust examples, the code style guide and the changelog. Go, Python, C and the C++ interface are ported from it next. The branch merges to dev once all four agree.
+			- `SetStatus`, in this order, numbered from 0 in every binding:
+				- `Ok`: the write applied.
+				- `BadPath`: an empty path, one the scanner refuses, or a name or `(value)` the write would create that has no line reading back. That last one was a bare false.
+				- `ValueInPath`: a `: value` part in the path.
+				- `Wildcard`: a wildcard name or selector.
+				- `NoSuchIndex`: a `(k)` with no instance there.
+				- `TooDeep`: past the nesting cap.
+				- `Multiple`: a step that matches more than one field.
+				- `UnderArray`: a field the write would create under an array. `check_set_path` says it now, where it said `Ok`.
+				- `HasChildren`: an array on a field with lines under it.
+				- `NotFinite`: a NaN or infinite float.
+				- `BadDateTime`: a datetime that does not read back as the same fields.
+				- `BadRawInfo`: an info string with a `#` or a line break.
+				- `BadRawBody`: a body line ending in CR.
+				- `BadComment`: comment text with a line break.
+				- `NotOneValue`: `set_literal` text that is not one value, a literal that parses and still has no line that reads back included.
+				- `NotUtf8`: value, comment, info or body text that is not UTF-8. Go, Python and C only. A path that is not UTF-8 stays `BadPath`.
+				- `OutOfRange`: an int past 64 bits. Python only.
+				- `NoReadBack`: any other value that does not read back. None is known.
+			- `check_set_path` gives `Ok` or one of the path reasons, `BadPath` to `UnderArray`. When the path and the value are both wrong the setter gives the path's reason. Rust asks the path check only after a value is refused, so a write that applies walks the path once. A default form on a path already there gives what the plain setter would.
+			- The CLIs print the reason from the status, with the same text as before for every reason they could reach. `refusal()` in `main.rs` has one line per status, and the ports copy it byte for byte. The CLI's own copies of the rules (`describe_refusal`, `raw_refusal`, `array_refusal`) are gone, and the ports drop theirs.
+			- For the ports: Go's values are `SetOk` to `SetNoReadBack`, C's `SHCL_SET_OK` to `SHCL_SET_NO_READ_BACK` with type `shcl_set_status` (code style guide). C's OK is 0, so every `if (!shcl_set_...)` turns around without a warning; sweep them all, tests and the README's C example included. Python needs a choice on truthiness: an `IntEnum` makes `Ok` false. The README's Go, Python, C and C++ examples still test a bool and call `check_set_path`, and check-readme builds them, so each port updates its own. The changelog line needs the Go and C names.
+			- Tests to copy: `EsDRhHg` (names and order), `EsDRhFU` (each refusal, path wins, defaults), the fuzz property `EsDRhJo`, `Es9aZSF` now asserting `Multiple` from the setter, and `Es9S4kJ` with its field-under-an-array row commented out.
+			- Gates on `setstat`: none red. cli-regress, crosscheck and the Go, Python and C suites pass as they are, since no CLI text changed and the other three are untouched. check-docs' `installers-match-main` is red, from installers that differ between dev and main, not from this change.
+		- 20261009: Go is in on `ssgo`: the library, the CLI's `refusal()`, the README's Go example and the changelog's Go names. Text that is not UTF-8 gives `NotUtf8` ahead of any other value reason, and a path's reason still wins over it. Go has no fuzz harness, so the `EsDRhJo` property runs over the setter soup instead.
+			- Tests: `EsDeJ9a` (names and order), `EsDeJBi` (each refusal, Go's `NotUtf8` cases included), `EsDemw3` (status agrees with the path check), and `Es9S4kK`, `Es9aZSG`, `Eof29pZ` and `EomvfCs` now asserting the status. `Es9S4kK`'s field-under-an-array row is commented out with the reason.
+			- Verified: both Go modules' tests, go vet, gofmt, staticcheck, cli-regress and crosscheck in all four, check-readme, and test-ids check. check-docs is red only on `installers-match-main`, as before.
+		- 20261009: the Python part is in on `sspy`: the library, the CLI, the tests, the READMEs' Python examples, the changelog and the code style guide.
+			- `SetStatus` is an `Enum` whose only true value is `Ok`, so an old `if not doc.set_int(...)` still means refused. An `IntEnum` would make `Ok` the false one. A best guess, not put to the user. It is a per-language deviation in the code style guide.
+			- `NotUtf8` comes before the other value reasons: a value, comment, info or body with a lone surrogate gives `NotUtf8` even with a line break or a `#` in it too. Go and C should do the same.
+			- A path with a lone surrogate is `BadPath` from `check_set_path` too now, where it said `Ok`, since the name check moved into the path check. `Es9aZSJ`'s five path rows are commented out for it, and `EsDeim8` has them.
+			- `OutOfRange` comes from `set_int`, `set_int_array` and their default forms.
+			- Python has no fuzz soup, so its twin of `EsDRhJo` runs over the sequence fixture's documents and the setter soup, with the same guard.
+		- 20261009: C is in on `ssc`: the library, the CLI's `refusal()`, the C++ interface, the README's C, C++ and Zig examples, the changelog's C names and design.md. All four now agree, so the branch can merge.
+			- `shcl_set_status`, `SHCL_SET_OK` to `SHCL_SET_NO_READ_BACK`. New `shcl_set_status_name` gives the names, as `shcl_status_name` does for a read. C++ has `SetStatus` with `to_string`, and the setters stay `[[nodiscard]]`.
+			- `NotUtf8` comes before the other value reasons and a path's reason still wins, as in Go and Python. A path that is not UTF-8 is `BadPath` from `shcl_check_set_path` too, so `Es9aZSK`'s five path rows are commented out and `EsDjsvT` has them. design.md says so under the table.
+			- No `warn_unused_result` on the setters. The library uses it nowhere, and it would not catch the real hazard, a check written the wrong way round.
+			- A default form whose probe document cannot be made now aborts after `SHCL_OOM`, as `arena_panic` does, where it returned 0.
+			- Swept, every C setter call: the library (the default forms, `w_place`, `w_set_marked_as`, `set_comment`), the CLI (`set_apply`, the ops `SET` macro, `apply_op`), `conformance.c` (113 sites, the ops runner and soup helper included), `mem_bounds.c` (10), `oom_hook.c` (one bare call, left), `veneer_smoke.cpp`, `check-veneer.bash`'s consumer file, the README's C, C++ and Zig examples, and check-docs' setter-check pattern, which counted `if (!shcl_set_` as a check and no longer does. The comparison tool calls only Rust.
+	- Test case: conformance `setter_status_values_in_order` (`EsDRhHg`, Go `EsDeJ9a`, Python `EsDeik0`, C `EsDjstE`) and `setter_status_names_each_refusal` (`EsDRhFU`, Go `EsDeJBi`, Python `EsDeim8`, C `EsDjsvT`), fuzz `setter_status_agrees_with_the_path_check` (`EsDRhJo`, Go `EsDemw3`, Python `EsDeioE`, C `EsDjsxk`), the C++ `veneer_smoke` (`EjtkR0S`), Python's `setter_status_only_ok_is_true` (`EsDeiqL`), cli-regress `EsDRhLy`, `EsDRhOB`, `EsDRhQM`, `EsDRhSf`, `EsDRhUp`, `EsDTA92` and `EsDTA93`, and check-docs `setter-examples-check-the-result` (`EoXX3yy`), which counts a status compared with `Ok` as a check. `Es9S4kJ`'s field-under-an-array row, Go's `Es9S4kK`'s, Python's `Es9S4kL`'s and C's `Es9S4kM`'s, are commented out with the reason.
+	- Verified (Rust): `cargo test` with the fuzz at 20,000, `fuzz_smoke` at 200,000 in release, rustfmt, clippy for the host and windows. `EsDRhFU` fails with the path check skipped on a refused value and with `UnderArray` given as `BadPath`. `EsDRhJo` fails on both too. The 7 new cli-regress rows fail with the CLI's text changed. `EoXX3yy` fails with one README check taken out.
+	- Verified (Python, on `sspy`): the conformance run, ruff, mypy with the typing probe, cli-regress (496 rows, 2687 checks) and crosscheck over the corpus (17901 comparisons) across all four, check-readme, test-ids check, markdownlint, and check-docs, red only on `installers-match-main` as before. `EsDeim8` and `EsDeioE` each fail with the path check skipped on a refused value, and with `UnderArray` given as `BadPath`. `EsDeiqL` fails with `__bool__` taken out, the typing probe with a setter typed `Any`, and `EoXX3yy` with one Python check taken out of the README.
+	- Verified (C, on `ssc`): the C conformance runner at gcc `-O0` and `-O2` and clang `-O0` and `-O2`, `oom_hook`, `oom_recover`, `mem_bounds`, check-c-compilers (5 compilers), sanitize-c under ASan and UBSan, cppcheck at the normal level, the C++ veneer smoke, native and as a Windows build, check-veneer, the mingw and no-file-IO builds, perf-gate for C, cli-regress (496 rows, 2687 checks) and crosscheck over the corpus (17901 comparisons) and over a fuzz dump with its eol and kept saves (41880) across all four, check-readme with the Zig example built, test-ids check, shellcheck, markdownlint, and check-docs, red only on `installers-match-main` as before. `EsDjsvT` and `EsDjsxk` each fail with the path check skipped on a refused value and with `UnderArray` given as `BadPath`, and `EsDjsvT` and `Es9aZSK` with `NotUtf8` asked after the raw reasons. cli-regress fails on C's CLI with its refusal text changed. `EoXX3yy` fails with one C check taken out of the README. Exhaustive cppcheck waits for the next main push.
+	- Verified (all four, on `setstat`): cli-regress (496 rows, 2687 checks), crosscheck over the corpus (17862 comparisons), the Go, Python and C suites, check-readme, check-abnf, check-docs, test-ids check, shellcheck, markdownlint. The comparison tool builds.
+	- Branch: `setstat`, C on `ssc`
+	- Commit: `c251f741`, C `4aea318a`
 
 - `instances` output can't be fed back into a selector
 	- ID: 2026100717500016

@@ -163,23 +163,23 @@ fn try_apply_op(doc: &mut Document, line: &str) -> Result<(), String> {
 		"comment" => doc.set_comment(path, &op_text(v)?),
 		"remove" => {
 			doc.remove(path);
-			true
+			shcl::SetStatus::Ok
 		}
 		"clear-comments" => {
 			doc.clear_comments(path);
-			true
+			shcl::SetStatus::Ok
 		}
 		"banner" => match path {
 			"on" | "off" => {
 				doc.set_banner(path == "on");
-				true
+				shcl::SetStatus::Ok
 			}
 			_ => return Err(format!("bad banner: {}", path)),
 		},
 		other => return Err(format!("{}{}", UNKNOWN_OP, other)),
 	};
-	if !wrote {
-		return Err(format!("cannot write {}", path));
+	if wrote != shcl::SetStatus::Ok {
+		return Err(format!("cannot write {}: {:?}", path, wrote));
 	}
 	Ok(())
 }
@@ -806,8 +806,9 @@ fn layered_merge_matches_expected() {
 				let (p, v) = line
 					.split_once('=')
 					.unwrap_or_else(|| panic!("{}: bad merge.sets line: {}", case.name, line));
-				assert!(
+				assert_eq!(
 					doc.set_string(p, v),
+					shcl::SetStatus::Ok,
 					"{}: merge.set did not apply: {}",
 					case.name,
 					line
@@ -1047,12 +1048,16 @@ fn depth_cap_boundary_and_writer() {
 	// The Writer refuses to create past the cap and stays a no-op.
 	let mut w = Document::new();
 	let deep_path = format!("a.{}", segs.join("."));
-	assert!(!w.set_int(&deep_path, 1), "a too-deep path is not writable");
+	assert_ne!(
+		w.set_int(&deep_path, 1),
+		shcl::SetStatus::Ok,
+		"a too-deep path is not writable"
+	);
 	assert!(
 		!w.exists("a"),
 		"writer must not half-create a too-deep path"
 	);
-	assert!(w.set_int(&segs.join("."), 2));
+	assert_eq!(w.set_int(&segs.join("."), 2), shcl::SetStatus::Ok);
 	assert!(w.exists("a0"), "writer must still create an at-cap path");
 }
 
@@ -1511,9 +1516,9 @@ fn strict_fails_the_same_from_every_entry_point() {
 #[test]
 fn check_set_path_names_the_failure() {
 	let _id = test_id("ElouJ8K");
-	// The reason behind a setter's bare false. Same fixture in every runner.
+	// The path's half of a setter's status. Same fixture in every runner.
 	let doc = Document::parse("a:\n\tb: 1\n");
-	use shcl::SetPathCheck::*;
+	use shcl::SetStatus::*;
 	assert_eq!(doc.check_set_path("a.b"), Ok);
 	assert_eq!(doc.check_set_path("a.new(Boston).x"), Ok); // creatable
 	assert_eq!(doc.check_set_path(""), BadPath);
@@ -1538,9 +1543,9 @@ fn check_set_path_names_the_failure() {
 	assert_eq!(doc.paths(), vec!["a", "a.b"]);
 }
 
-// The setter docs list the values a setter refuses on a path check_set_path
-// passes. Each one here returns false, writes nothing, and the path checks Ok,
-// so the list stays true. Same fixture in every runner.
+// The values a setter refuses on a path check_set_path passes. Each one here
+// is refused, writes nothing, and the path checks Ok. Same fixture in every
+// runner. setter_status_names_each_refusal has the status each one gives.
 #[test]
 fn refused_values_pass_the_path_check() {
 	let _id = test_id("Es9S4kJ");
@@ -1549,7 +1554,7 @@ fn refused_values_pass_the_path_check() {
 		date: Some((2026, 13, 1)),
 		..shcl::ShclDateTime::default()
 	};
-	type Set = Box<dyn Fn(&mut Document) -> bool>;
+	type Set = Box<dyn Fn(&mut Document) -> shcl::SetStatus>;
 	let cases: Vec<(&str, &str, Set)> = vec![
 		("NaN float", "f", Box::new(|d| d.set_float("f", f64::NAN))),
 		(
@@ -1612,21 +1617,246 @@ fn refused_values_pass_the_path_check() {
 			"sec",
 			Box::new(|d| d.set_literal("sec", "[1, 2]")),
 		),
-		(
-			"field under an array",
-			"ports.x",
-			Box::new(|d| d.set_int("ports.x", 1)),
-		),
+		// The path check says UnderArray for this one now (2026100907362300),
+		// since no value could go there. setter_status_names_each_refusal
+		// has it.
+		// (
+		// 	"field under an array",
+		// 	"ports.x",
+		// 	Box::new(|d| d.set_int("ports.x", 1)),
+		// ),
 	];
 	for (what, path, set) in &cases {
 		let mut doc = Document::parse(text);
-		assert!(!set(&mut doc), "{what}: the setter returned true");
-		assert_eq!(doc.check_set_path(path), shcl::SetPathCheck::Ok, "{what}");
+		assert_ne!(
+			set(&mut doc),
+			shcl::SetStatus::Ok,
+			"{what}: the setter wrote"
+		);
+		assert_eq!(doc.check_set_path(path), shcl::SetStatus::Ok, "{what}");
 		assert_eq!(
 			doc.to_canonical(),
 			Document::parse(text).to_canonical(),
 			"{what}: wrote something"
 		);
+	}
+}
+
+// Every status a setter gives, in the order every binding numbers them. The
+// other three print the same names. Same fixture in every runner.
+#[test]
+fn setter_status_values_in_order() {
+	let _id = test_id("EsDRhHg");
+	use shcl::SetStatus::*;
+	let all = [
+		Ok,
+		BadPath,
+		ValueInPath,
+		Wildcard,
+		NoSuchIndex,
+		TooDeep,
+		Multiple,
+		UnderArray,
+		HasChildren,
+		NotFinite,
+		BadDateTime,
+		BadRawInfo,
+		BadRawBody,
+		BadComment,
+		NotOneValue,
+		NotUtf8,
+		OutOfRange,
+		NoReadBack,
+	];
+	let names: Vec<String> = all.iter().map(|s| format!("{s:?}")).collect();
+	assert_eq!(
+		names,
+		[
+			"Ok",
+			"BadPath",
+			"ValueInPath",
+			"Wildcard",
+			"NoSuchIndex",
+			"TooDeep",
+			"Multiple",
+			"UnderArray",
+			"HasChildren",
+			"NotFinite",
+			"BadDateTime",
+			"BadRawInfo",
+			"BadRawBody",
+			"BadComment",
+			"NotOneValue",
+			"NotUtf8",
+			"OutOfRange",
+			"NoReadBack",
+		]
+	);
+	for (i, s) in all.iter().enumerate() {
+		assert_eq!(*s as usize, i, "{s:?}");
+	}
+}
+
+// A setter's status names why it wrote nothing. A path reason is the one
+// check_set_path gives, and wins over a value reason when both apply, since
+// the path is what to fix first; a value reason comes with a path that checks
+// Ok. A default form on a path already there writes nothing and gives what
+// the plain setter would. Same fixture in every runner. NotUtf8, OutOfRange
+// and NoReadBack have no case: a Rust string is always UTF-8, an i64 is in
+// range, and no other value is known that fails to read back.
+#[test]
+fn setter_status_names_each_refusal() {
+	let _id = test_id("EsDRhFU");
+	use shcl::SetStatus::*;
+	let text = "a:\n\tb: 1\nports: [80, 443]\nsec:\n\tx: 1\nport: 1\nport: 2\n";
+	let month13 = shcl::ShclDateTime {
+		date: Some((2026, 13, 1)),
+		..shcl::ShclDateTime::default()
+	};
+	let deep = vec!["d"; 513].join(".");
+	type Set = Box<dyn Fn(&mut Document) -> shcl::SetStatus>;
+	let cases: Vec<(&str, shcl::SetStatus, Set)> = vec![
+		("a.b", Ok, Box::new(|d| d.set_int("a.b", 2))),
+		("a.c", Ok, Box::new(|d| d.set_float("a.c", 2.5))),
+		("a.b", Ok, Box::new(|d| d.set_int_default("a.b", 9))),
+		("", BadPath, Box::new(|d| d.set_int("", 1))),
+		("a..b", BadPath, Box::new(|d| d.set_string("a..b", "v"))),
+		("a.b: 2", ValueInPath, Box::new(|d| d.set_int("a.b: 2", 1))),
+		("a(*).b", Wildcard, Box::new(|d| d.set_int("a(*).b", 1))),
+		("a(5).b", NoSuchIndex, Box::new(|d| d.set_int("a(5).b", 1))),
+		(
+			&deep,
+			TooDeep,
+			Box::new(|d| d.set_int(&vec!["d"; 513].join("."), 1)),
+		),
+		("port", Multiple, Box::new(|d| d.set_int("port", 9))),
+		("ports.x", UnderArray, Box::new(|d| d.set_int("ports.x", 1))),
+		(
+			"ports.x.y",
+			UnderArray,
+			Box::new(|d| d.set_int("ports.x.y", 1)),
+		),
+		(
+			"ports.x",
+			UnderArray,
+			Box::new(|d| d.set_comment("ports.x", "c")),
+		),
+		(
+			"ports.x",
+			UnderArray,
+			Box::new(|d| d.set_int_default("ports.x", 1)),
+		),
+		(
+			"sec",
+			HasChildren,
+			Box::new(|d| d.set_int_array("sec", &[1, 2])),
+		),
+		(
+			"sec",
+			HasChildren,
+			Box::new(|d| d.set_string_array("sec", &["v"])),
+		),
+		(
+			"sec",
+			HasChildren,
+			Box::new(|d| d.set_literal("sec", "[1, 2]")),
+		),
+		("f", NotFinite, Box::new(|d| d.set_float("f", f64::NAN))),
+		(
+			"f",
+			NotFinite,
+			Box::new(|d| d.set_float_array("f", &[1.0, f64::INFINITY])),
+		),
+		(
+			"a.b",
+			NotFinite,
+			Box::new(|d| d.set_float_default("a.b", f64::NAN)),
+		),
+		(
+			"t",
+			BadDateTime,
+			Box::new(move |d| d.set_datetime("t", &month13)),
+		),
+		(
+			"r",
+			BadRawInfo,
+			Box::new(|d| d.set_raw("r", "body", "sh # x")),
+		),
+		(
+			"r",
+			BadRawInfo,
+			Box::new(|d| d.set_raw("r", "body", "sh\nx")),
+		),
+		(
+			"a.b",
+			BadRawInfo,
+			Box::new(|d| d.set_raw_default("a.b", "body", "sh # x")),
+		),
+		("r", BadRawBody, Box::new(|d| d.set_raw("r", "a\r\nb", ""))),
+		(
+			"sec.x",
+			BadComment,
+			Box::new(|d| d.set_comment("sec.x", "a\nb")),
+		),
+		("l", NotOneValue, Box::new(|d| d.set_literal("l", "a, b"))),
+		("l", NotOneValue, Box::new(|d| d.set_literal("l", "\"abc"))),
+		("l", NotOneValue, Box::new(|d| d.set_literal("l", "a\nb"))),
+		(
+			"a.b",
+			NotOneValue,
+			Box::new(|d| d.set_literal_default("a.b", "a, b")),
+		),
+		// Both halves wrong: the path's reason.
+		(
+			"a(*).b",
+			Wildcard,
+			Box::new(|d| d.set_float("a(*).b", f64::NAN)),
+		),
+		(
+			"ports.x",
+			UnderArray,
+			Box::new(|d| d.set_literal("ports.x", "a, b")),
+		),
+		("a..b", BadPath, Box::new(|d| d.set_comment("a..b", "a\nb"))),
+		(
+			"a(5).b",
+			NoSuchIndex,
+			Box::new(|d| d.set_raw("a(5).b", "x", "#")),
+		),
+		(
+			"port",
+			Multiple,
+			Box::new(|d| d.set_int_array("port", &[1])),
+		),
+		(
+			"port",
+			Multiple,
+			Box::new(|d| d.set_float_default("port", f64::NAN)),
+		),
+	];
+	let path_reasons = [
+		BadPath,
+		ValueInPath,
+		Wildcard,
+		NoSuchIndex,
+		TooDeep,
+		Multiple,
+		UnderArray,
+	];
+	for (path, want, set) in &cases {
+		let mut doc = Document::parse(text);
+		let before = doc.to_canonical();
+		let got = set(&mut doc);
+		assert_eq!(got, *want, "{path:?}");
+		let checked = Document::parse(text).check_set_path(path);
+		if path_reasons.contains(want) {
+			assert_eq!(checked, *want, "{path:?}: check_set_path");
+		} else {
+			assert_eq!(checked, Ok, "{path:?}: check_set_path");
+		}
+		if got != Ok {
+			assert_eq!(doc.to_canonical(), before, "{path:?}: wrote something");
+		}
 	}
 }
 
@@ -1638,7 +1868,7 @@ fn refused_values_pass_the_path_check() {
 fn repeated_path_refuses_a_setter() {
 	let _id = test_id("Es9aZSF");
 	let text = "port: 1\nport: 2\nsite: a\n\troot: /x\nsite: b\n\troot: /y\nsec:\n\tk: 1\n\tk: 2\n";
-	type Set = Box<dyn Fn(&mut Document) -> bool>;
+	type Set = Box<dyn Fn(&mut Document) -> shcl::SetStatus>;
 	let cases: Vec<(&str, Set)> = vec![
 		("port", Box::new(|d| d.set_int("port", 9))),
 		("port", Box::new(|d| d.set_string("port", "9"))),
@@ -1660,10 +1890,10 @@ fn repeated_path_refuses_a_setter() {
 	];
 	for (path, set) in &cases {
 		let mut doc = Document::parse(text);
-		assert!(!set(&mut doc), "{path}: the setter returned true");
+		assert_eq!(set(&mut doc), shcl::SetStatus::Multiple, "{path}");
 		assert_eq!(
 			doc.check_set_path(path),
-			shcl::SetPathCheck::Multiple,
+			shcl::SetStatus::Multiple,
 			"{path}"
 		);
 		assert_eq!(
@@ -1673,10 +1903,10 @@ fn repeated_path_refuses_a_setter() {
 		);
 	}
 	let mut doc = Document::parse(text);
-	assert!(doc.set_int("port(1)", 9));
-	assert!(doc.set_string("site(1).root", "/z"));
-	assert!(doc.set_string("site(a).root", "/w"));
-	assert!(doc.set_int("sec.k(0)", 7));
+	assert_eq!(doc.set_int("port(1)", 9), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_string("site(1).root", "/z"), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_string("site(a).root", "/w"), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_int("sec.k(0)", 7), shcl::SetStatus::Ok);
 	assert_eq!(doc.get_int_or("port(0)", 0), 1);
 	assert_eq!(doc.get_int_or("port(1)", 0), 9);
 	assert_eq!(doc.get_string_or("site(b).root", String::new()), "/z");
@@ -1684,7 +1914,7 @@ fn repeated_path_refuses_a_setter() {
 	assert_eq!(doc.get_int_or("sec.k(0)", 0), 7);
 	// A remove takes every instance it matches, as a read sees them.
 	assert_eq!(doc.remove("port"), 2);
-	assert_eq!(doc.check_set_path("port"), shcl::SetPathCheck::Ok);
+	assert_eq!(doc.check_set_path("port"), shcl::SetStatus::Ok);
 }
 
 #[test]
@@ -1696,16 +1926,34 @@ fn setters_refuse_a_value_the_reader_refuses() {
 	use shcl::{ShclDateTime, Zone};
 	let mut doc = Document::parse("z: 0\n");
 	for v in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN] {
-		assert!(!doc.set_float("f", v), "{v}");
-		assert!(!doc.set_float_default("f", v), "{v}");
-		assert!(!doc.set_float_array("f", &[1.0, v]), "{v}");
+		assert_eq!(doc.set_float("f", v), shcl::SetStatus::NotFinite, "{v}");
+		assert_eq!(
+			doc.set_float_default("f", v),
+			shcl::SetStatus::NotFinite,
+			"{v}"
+		);
+		assert_eq!(
+			doc.set_float_array("f", &[1.0, v]),
+			shcl::SetStatus::NotFinite,
+			"{v}"
+		);
 		// A default form on a path that is already there writes nothing, and
 		// still refuses what the plain setter would.
-		assert!(!doc.set_float_default("z", v), "{v}");
-		assert!(!doc.set_float_array_default("z", &[1.0, v]), "{v}");
+		assert_eq!(
+			doc.set_float_default("z", v),
+			shcl::SetStatus::NotFinite,
+			"{v}"
+		);
+		assert_eq!(
+			doc.set_float_array_default("z", &[1.0, v]),
+			shcl::SetStatus::NotFinite,
+			"{v}"
+		);
 	}
-	assert!(doc.set_float("f", 2.5) && doc.get_float("f") == Ok(2.5));
-	assert!(doc.set_float_default("z", 2.5) && doc.get_float("z") == Ok(0.0));
+	assert_eq!(doc.set_float("f", 2.5), shcl::SetStatus::Ok);
+	assert_eq!(doc.get_float("f"), Ok(2.5));
+	assert_eq!(doc.set_float_default("z", 2.5), shcl::SetStatus::Ok);
+	assert_eq!(doc.get_float("z"), Ok(0.0));
 	let good = |d: Option<(i32, u32, u32)>, t: Option<(u32, u32, Option<u32>)>| ShclDateTime {
 		date: d,
 		time: t,
@@ -1734,15 +1982,29 @@ fn setters_refuse_a_value_the_reader_refuses() {
 		with(good(Some((2026, 1, 1)), None), None, Some(Zone::Utc)), // zone on a date alone
 	];
 	for dt in &bad {
-		assert!(!doc.set_datetime("d", dt), "{dt}");
-		assert!(!doc.set_datetime_default("d", dt), "{dt}");
-		assert!(
-			!doc.set_datetime_array("d", &[good(Some((2026, 1, 1)), None), dt.clone()]),
+		assert_eq!(
+			doc.set_datetime("d", dt),
+			shcl::SetStatus::BadDateTime,
 			"{dt}"
 		);
-		assert!(!doc.set_datetime_default("z", dt), "{dt}");
-		assert!(
-			!doc.set_datetime_array_default("z", &[good(Some((2026, 1, 1)), None), dt.clone()]),
+		assert_eq!(
+			doc.set_datetime_default("d", dt),
+			shcl::SetStatus::BadDateTime,
+			"{dt}"
+		);
+		assert_eq!(
+			doc.set_datetime_array("d", &[good(Some((2026, 1, 1)), None), dt.clone()]),
+			shcl::SetStatus::BadDateTime,
+			"{dt}"
+		);
+		assert_eq!(
+			doc.set_datetime_default("z", dt),
+			shcl::SetStatus::BadDateTime,
+			"{dt}"
+		);
+		assert_eq!(
+			doc.set_datetime_array_default("z", &[good(Some((2026, 1, 1)), None), dt.clone()]),
+			shcl::SetStatus::BadDateTime,
 			"{dt}"
 		);
 	}
@@ -1751,7 +2013,7 @@ fn setters_refuse_a_value_the_reader_refuses() {
 		Some("60"),
 		Some(Zone::OffsetMinutes(-90)),
 	);
-	assert!(doc.set_datetime("d", &ok));
+	assert_eq!(doc.set_datetime("d", &ok), shcl::SetStatus::Ok);
 	assert_eq!(doc.get_datetime("d"), Ok(ok));
 	assert_eq!(
 		doc.to_canonical(),
@@ -1779,9 +2041,9 @@ fn a_backtick_value_reads_raw_with_its_flag() {
 	assert_eq!((r.value.len(), r.quoted, r.backtick), (2, false, false));
 	let r = doc.read_int("n");
 	assert_eq!((r.value, r.backtick), (7, true));
-	assert!(doc.set_string("c", "#00FF00"));
+	assert_eq!(doc.set_string("c", "#00FF00"), shcl::SetStatus::Ok);
 	assert!(doc.read_string("c").backtick);
-	assert!(doc.set_string("c", "a`b"));
+	assert_eq!(doc.set_string("c", "a`b"), shcl::SetStatus::Ok);
 	assert!(!doc.read_string("c").backtick);
 	assert!(doc.to_canonical().starts_with("c: \"a`b\"\n"));
 }
@@ -1794,8 +2056,8 @@ fn a_line_break_in_a_path_writes_and_reads_back() {
 	// was refused while elements were stored in their source spelling and the
 	// emitter had nothing to escape with. Same fixture in every runner.
 	let mut doc = Document::parse("z: 0\n");
-	assert!(doc.set_int("x(\"p\nq\").c", 1));
-	assert!(doc.set_int("\"a\nb\".c", 1));
+	assert_eq!(doc.set_int("x(\"p\nq\").c", 1), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_int("\"a\nb\".c", 1), shcl::SetStatus::Ok);
 	let text = doc.to_canonical();
 	let back = Document::parse(&text);
 	assert_eq!(back.error_count(), 0);
@@ -1891,7 +2153,7 @@ fn read_surface_line_quoted_children() {
 	assert_eq!(d2.authored_name("SYMBOLS"), "SYMBOLS");
 	assert_eq!(d2.authored_name("code"), "Code");
 	assert_eq!(d2.authored_name("missing"), "");
-	assert!(d2.set_int("NewTop.n", 1));
+	assert_eq!(d2.set_int("NewTop.n", 1), shcl::SetStatus::Ok);
 	assert_eq!(d2.authored_name("newtop"), "NewTop");
 	// Escapes ARE resolved on a name, so both spellings of the path find the
 	// same node - while authored_name still hands back the source spelling,
@@ -1946,7 +2208,7 @@ fn file_tier_load_save() {
 		shcl::read_file(dir.join("none.shcl").to_str().unwrap(), 0),
 		Err(FileStatus::NotFound)
 	);
-	assert!(doc.set_int("c", 3));
+	assert_eq!(doc.set_int("c", 3), shcl::SetStatus::Ok);
 	doc.save_file(fs).unwrap();
 	let (back, st) = Document::load_file(fs);
 	assert_eq!(st, FileStatus::Clean);
@@ -2044,38 +2306,38 @@ fn set_raw_keeps_a_shared_indent_and_trims_the_info() {
 	// back, and an info with a line break or a `#` has no spelling and fails
 	// the write. Same fixture in every runner.
 	let mut doc = Document::new();
-	assert!(doc.set_raw("q", "  a\n  b", " sql "));
+	assert_eq!(doc.set_raw("q", "  a\n  b", " sql "), shcl::SetStatus::Ok);
 	let back = Document::parse(&doc.to_canonical());
 	assert_eq!(back.get_raw("q"), Ok("  a\n  b".to_string()));
 	assert_eq!(back.read_raw_info("q").value, "sql");
-	assert!(!doc.set_raw("q", "x", "a\nb"));
+	assert_ne!(doc.set_raw("q", "x", "a\nb"), shcl::SetStatus::Ok);
 	// A trailing CR is a blank and comes off, as the load takes it; one
 	// mid-info is content.
-	assert!(doc.set_raw("q", "x", "ab\r"));
+	assert_eq!(doc.set_raw("q", "x", "ab\r"), shcl::SetStatus::Ok);
 	assert_eq!(
 		Document::parse(&doc.to_canonical())
 			.read_raw_info("q")
 			.value,
 		"ab"
 	);
-	assert!(doc.set_raw("q", "x", "a\rb"));
+	assert_eq!(doc.set_raw("q", "x", "a\rb"), shcl::SetStatus::Ok);
 	assert_eq!(
 		Document::parse(&doc.to_canonical())
 			.read_raw_info("q")
 			.value,
 		"a\rb"
 	);
-	assert!(!doc.set_raw("q", "x", "a # b"));
+	assert_ne!(doc.set_raw("q", "x", "a # b"), shcl::SetStatus::Ok);
 	// An info string has no quoting of its own: quotes are characters in it,
 	// so they hide nothing, and a `#` glued to the label opens a comment too.
-	assert!(!doc.set_raw("q", "x", "\"a # b\""));
-	assert!(!doc.set_raw("q", "x", "c#"));
+	assert_ne!(doc.set_raw("q", "x", "\"a # b\""), shcl::SetStatus::Ok);
+	assert_ne!(doc.set_raw("q", "x", "c#"), shcl::SetStatus::Ok);
 	// A body line ending in CR has no fence spelling: the load takes the whole
 	// trailing CR run off every line, so it is refused rather than lost. A CR
 	// mid-line is content and still round-trips.
-	assert!(!doc.set_raw("q", "a\r\nb", ""));
-	assert!(!doc.set_raw("q", "\r", ""));
-	assert!(doc.set_raw("q", "a\rb", ""));
+	assert_ne!(doc.set_raw("q", "a\r\nb", ""), shcl::SetStatus::Ok);
+	assert_ne!(doc.set_raw("q", "\r", ""), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_raw("q", "a\rb", ""), shcl::SetStatus::Ok);
 	let back = Document::parse(&doc.to_canonical());
 	assert_eq!(back.get_raw("q"), Ok("a\rb".to_string()));
 }
@@ -2278,7 +2540,7 @@ fn save_refuses_a_directory_shaped_path() {
 fn written_spelling_matches_its_reload() {
 	let _id = test_id("EommtF2");
 	let mut d = Document::parse("x: 1\n");
-	assert!(d.set_string("k", "q\"q'"));
+	assert_eq!(d.set_string("k", "q\"q'"), shcl::SetStatus::Ok);
 	let back = Document::parse(&d.to_canonical());
 	assert_eq!(back.instances("k"), d.instances("k"));
 	assert_eq!(d.get_string_or("k", String::new()), "q\"q'");
@@ -2301,7 +2563,7 @@ fn index_rebuild_ignores_removed_nodes() {
 			// three times a sound build. A removed subtree keeps its own list,
 			// and the old walk indexed every dead child.
 			for i in 0..50_000 {
-				assert!(d.set_int("g.tmp.x", i));
+				assert_eq!(d.set_int("g.tmp.x", i), shcl::SetStatus::Ok);
 				assert_eq!(d.remove("g.tmp"), 1);
 			}
 		}
@@ -2401,7 +2663,7 @@ fn a_far_kept_line_costs_an_edit_nothing() {
 		// Edits first: a merge drops the name index, and the edit after it
 		// would rebuild it over the whole document either way.
 		for i in 0..500 {
-			assert!(d.set_int("g.k", i));
+			assert_eq!(d.set_int("g.k", i), shcl::SetStatus::Ok);
 		}
 		for _ in 0..500 {
 			d.merge(&other);
@@ -2439,7 +2701,7 @@ fn standard_trait_surface() {
 	);
 	// Clone is a deep copy: editing the copy must not reach the original.
 	let mut copy = doc.clone();
-	assert!(copy.set_int("a", 9));
+	assert_eq!(copy.set_int("a", 9), shcl::SetStatus::Ok);
 	assert_eq!(doc.get_int("a"), Ok(1));
 	assert_eq!(copy.get_int("a"), Ok(9));
 	assert_eq!(shcl::Status::BadType.to_string(), "BadType");
@@ -2461,7 +2723,7 @@ fn a_list_no_text_loads_back_refuses_to_save() {
 	let src = "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n";
 	let mut doc = Document::parse_keep_lines(src, Strictness::Standard).unwrap();
 	assert_eq!(doc.lost_count(), 0);
-	assert!(doc.set_empty("x(v)"));
+	assert_eq!(doc.set_empty("x(v)"), shcl::SetStatus::Ok);
 	let text = doc.to_canonical();
 	assert_eq!(text, "x:\n\tf: 1\nx:\n\t- a\n\t- b\n\tg: 2\n");
 	assert_eq!(
@@ -2497,10 +2759,10 @@ fn a_list_no_text_loads_back_refuses_to_save() {
 	// An empty binding with no fields takes the list in, so nothing is lost,
 	// and a list with no field under it goes in brackets.
 	let mut doc = Document::parse("x: v\nx:\n\t- a\n\tg: 2\n");
-	assert!(doc.set_empty("x(v)"));
+	assert_eq!(doc.set_empty("x(v)"), shcl::SetStatus::Ok);
 	assert_eq!(doc.lost_count(), 0, "{:?}", doc.to_canonical());
 	let mut doc = Document::parse("x: v\n\tf: 1\nx:\n\t- a\n\t- b\n");
-	assert!(doc.set_empty("x(v)"));
+	assert_eq!(doc.set_empty("x(v)"), shcl::SetStatus::Ok);
 	assert_eq!(doc.lost_count(), 0, "{:?}", doc.to_canonical());
 }
 
@@ -2517,7 +2779,7 @@ fn a_list_joining_an_emptied_field_keeps_its_fields_found() {
 	] {
 		let mut doc = Document::parse(src);
 		assert!(doc.get_string(field).is_ok(), "{src:?}");
-		assert!(doc.set_empty(path), "{src:?}");
+		assert_eq!(doc.set_empty(path), shcl::SetStatus::Ok, "{src:?}");
 		let back = Document::parse(&doc.to_canonical());
 		assert_eq!(back.get_string(field).as_deref(), Ok(want), "{src:?}");
 		assert_eq!(doc.get_string(field).as_deref(), Ok(want), "{src:?}");
@@ -2640,7 +2902,7 @@ fn lost_and_save_gate() {
 	// above it would make it a child of `a`.
 	let mut keep =
 		Document::parse_keep_lines("a:\n\t\tb: 1\n\tc: 2\n", Strictness::Standard).unwrap();
-	assert!(keep.set_int("a.b", 5));
+	assert_eq!(keep.set_int("a.b", 5), shcl::SetStatus::Ok);
 	assert!(matches!(keep.save_file_keep_lines(fs), Ok(true)));
 	assert_eq!(
 		std::fs::read_to_string(fs).unwrap(),
@@ -2686,7 +2948,10 @@ fn raw_is_source_text() {
 	// A written value has no source spelling; raw falls back to display. The
 	// selector's escaped spelling must reach the existing instance.
 	let mut doc2 = Document::parse("who: 'q\"uote'\n");
-	assert!(doc2.set_int("who(\"q◉DQUOTE◉uote\").n", 5));
+	assert_eq!(
+		doc2.set_int("who(\"q◉DQUOTE◉uote\").n", 5),
+		shcl::SetStatus::Ok
+	);
 	assert_eq!(doc2.count("who"), 1);
 	let r = doc2.read_int("who('q\"uote').n");
 	assert_eq!((r.value, r.status), (5, shcl::Status::Good));
@@ -2802,8 +3067,9 @@ fn quote_segment_backslash_round_trips() {
 	// closing quote be read as an escape pair.
 	let mut doc = Document::new();
 	let p = quote_segment("a\\");
-	assert!(
+	assert_eq!(
 		doc.set_int(&p, 7),
+		shcl::SetStatus::Ok,
 		"path from quote_segment must be writable"
 	);
 	let r = doc.read_int(&p);
@@ -2822,7 +3088,12 @@ fn quote_segment_backslash_round_trips() {
 	for name in ["\\", "a\\\\", "b\\\\\\", "\\.x"] {
 		let mut d2 = Document::new();
 		let q = quote_segment(name);
-		assert!(d2.set_int(&q, 3), "unwritable path for {:?}", name);
+		assert_eq!(
+			d2.set_int(&q, 3),
+			shcl::SetStatus::Ok,
+			"unwritable path for {:?}",
+			name
+		);
 		assert_eq!(d2.read_int(&q).value, 3, "value lost for {:?}", name);
 	}
 }
@@ -2987,10 +3258,10 @@ fn huge_selector_index_is_not_found() {
 	assert_eq!(doc.count("a(4294967296)"), 0);
 	assert_eq!(
 		doc.check_set_path("a(4294967296)"),
-		shcl::SetPathCheck::NoSuchIndex
+		shcl::SetStatus::NoSuchIndex
 	);
 	let mut w = Document::parse("a: 1\na: 2\n");
-	assert!(!w.set_int("a(4294967296)", 9));
+	assert_ne!(w.set_int("a(4294967296)", 9), shcl::SetStatus::Ok);
 	// In-range still works.
 	assert_eq!(doc.read_int("a(1)").value, 2);
 }
@@ -3018,14 +3289,11 @@ fn bracket_selectors_are_the_old_spelling() {
 		shcl::Status::BadPath
 	);
 	assert_eq!(doc.count("srv[web]"), 0);
-	assert_eq!(
-		doc.check_set_path("srv[web].x"),
-		shcl::SetPathCheck::BadPath
-	);
-	assert_eq!(doc.check_set_path("srv(#0).x"), shcl::SetPathCheck::BadPath);
-	assert_eq!(doc.check_set_path("srv(0).x"), shcl::SetPathCheck::Ok);
-	assert!(!doc.set_int("srv[web].x", 1));
-	assert!(doc.set_int("srv(web).x", 1));
+	assert_eq!(doc.check_set_path("srv[web].x"), shcl::SetStatus::BadPath);
+	assert_eq!(doc.check_set_path("srv(#0).x"), shcl::SetStatus::BadPath);
+	assert_eq!(doc.check_set_path("srv(0).x"), shcl::SetStatus::Ok);
+	assert_ne!(doc.set_int("srv[web].x", 1), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_int("srv(web).x", 1), shcl::SetStatus::Ok);
 	assert!(doc.to_canonical().starts_with("srv[web]:\nsrv: web\n"));
 	let mut tok = Tokens::default();
 	tokenize("a(x).b[y].c: 1", b':', false, Rules::Current, &mut tok);
@@ -3136,11 +3404,12 @@ fn setters_write_only_what_reads_back() {
 				4 => d.set_raw(p, "body", &s),
 				_ => d.set_string_array(p, &["x", s.as_str()]),
 			};
-			let applied = set(&mut doc, "k");
+			let applied = set(&mut doc, "k") == shcl::SetStatus::Ok;
 			if applied {
 				slot += 1;
-				assert!(
+				assert_eq!(
 					set(&mut all, &format!("k{slot}")),
+					shcl::SetStatus::Ok,
 					"slot {slot} refused what k took (setter {kind}, input {s:?})"
 				);
 			}
@@ -3206,10 +3475,11 @@ fn setters_write_only_what_reads_back() {
 		let path = shcl::quote_segment(&s);
 		let mut doc = Document::parse("k: 1\n");
 		let before = doc.to_canonical();
-		let applied = doc.set_string(&path, "v");
+		let applied = doc.set_string(&path, "v") == shcl::SetStatus::Ok;
 		if applied {
-			assert!(
+			assert_eq!(
 				all.set_string(&path, "v"),
+				shcl::SetStatus::Ok,
 				"the name {s:?} was refused the second time"
 			);
 		}
@@ -3357,15 +3627,18 @@ fn bare_spaces_colons_and_commas() {
 fn the_writer_quotes_a_colon_or_comma() {
 	let _id = test_id("Ervn569");
 	let mut doc = Document::new();
-	assert!(doc.set_string("opts", "rw,noatime"));
-	assert!(doc.set_string("display", ":0"));
-	assert!(doc.set_string("end", "a,"));
-	assert!(doc.set_string("title", "My App"));
-	assert!(doc.set_string_array("tags", &["rw,noatime", "b"]));
-	assert!(doc.set_string("call", "f(x)"));
-	assert!(doc.set_string("box", "a[0]"));
-	assert!(doc.set_string("tabbed", "a\tb"));
-	assert!(doc.set_string("plain", "a-b.c/d"));
+	assert_eq!(doc.set_string("opts", "rw,noatime"), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_string("display", ":0"), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_string("end", "a,"), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_string("title", "My App"), shcl::SetStatus::Ok);
+	assert_eq!(
+		doc.set_string_array("tags", &["rw,noatime", "b"]),
+		shcl::SetStatus::Ok
+	);
+	assert_eq!(doc.set_string("call", "f(x)"), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_string("box", "a[0]"), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_string("tabbed", "a\tb"), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_string("plain", "a-b.c/d"), shcl::SetStatus::Ok);
 	let out = doc.to_canonical();
 	for want in [
 		"opts: \"rw,noatime\"\n",
@@ -3396,7 +3669,7 @@ fn the_writer_quotes_a_colon_or_comma() {
 		"ver: \"8\"\nok: 'true'\nat: \"2:30PM\"\nhost: \"localhost:8080\"\n"
 	);
 	assert_eq!(doc.get_int("ver"), Ok(8));
-	assert!(doc.set_int("ver", 9));
+	assert_eq!(doc.set_int("ver", 9), shcl::SetStatus::Ok);
 	assert!(doc.to_canonical().starts_with("ver: \"9\"\n"));
 	let doc = Document::parse("t: a,b\nt: c\n");
 	let hint = &doc.diagnostics()[0];
