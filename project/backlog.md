@@ -36,7 +36,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - A setter's false doesn't say why
 	- ID: 2026100907362300
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Started
 	- Priority: Avg
 	- Opened: 20261009-073623
 	- Opened by: JC, from 2026100717500009
@@ -51,6 +51,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Decisions:
 		- 20261009: before the cut, since it changes every setter's signature and would otherwise wait for 4.0 (JC).
 		- 20261009: one `SetStatus` enum. `SetPathCheck` is renamed to it and gets the value reasons, and `check_set_path` returns it too (JC).
+	- Progress log:
+		- 20261009: Rust part in on the integration branch `setstat`. Go, Python, C and C++ ports next; merged to dev once all four agree.
 
 - `instances` output can't be fed back into a selector
 	- ID: 2026100717500016
