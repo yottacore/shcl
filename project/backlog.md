@@ -33,126 +33,34 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
-- `fmt` leaves a value bare that a reader could misread
-	- ID: 2026100719122101
+- Retire the bash and PowerShell wrappers
+	- ID: 2026100818251401
 	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Needs local test suite run?: the full `--ci` with the next main push, and a demo GIF rerender (shell-regress `EqM7a7s` is red until then).
-	- Needs external testing: a hosted run with the next main push.
-	- Priority: High
-	- Opened: 20261007-191221
+	- Status: Started
+	- Priority: Avg
+	- Opened: 20261008-182514
 	- Opened by: JC
-	- Problem description: `fmt` is for making a file canonical, but it writes `:0`, `http://my.com/` and `rw,noatime` bare, and drops the quotes from `ver: "8"`. It does quote `Hello world`.
+	- Problem description: `shcl.bash` and `shcl.ps1` add little over calling the binary. `shcl_int f p` is `shcl get --int f p`. The PowerShell one fixes 5.1's output encoding and old argument quoting, but a third of it fixes problems it makes itself, and the two have taken 33 commits since August.
 	- Requirements:
-		- `fmt` and the writer quote any string value that could be misread, and use `◉` escapes where needed:
-			- `Hello world` -> `"Hello world"`
-			- `http://my.com/` -> `"http://my.com/"`
-			- `Hello<tab>world` -> `"Hello◉TAB◉world"`
-			- `:0` -> `":0"`
-			- `my,dog,has,` -> `"my,dog,has,"`
-		- Keep the author's quote kind, and never drop quotes, so `ver: "8"` stays a quoted string.
-		- `set --write` leaves untouched lines alone, as now.
-	- The list, answered 2026-10-08 (JC): any whitespace, `:`, `,`, `(`, `)`, `[` or `]`, plus what already needs quotes. That quotes `2:30PM` and `localhost:8080` too; typed reads don't care.
-	- Sweep: value-syntax.md's Canonical output section and spec.md, the writer in all four, array elements and `- ` items, corpus goldens.
+		- Move both to `project/legacy/`, unmaintained and not installed, with a short note there.
+		- Installers, packages, dogfood and the gates stop using them. An update removes the old copies from an install.
+		- README, design.md, the man page and the changelog show calling the binary from bash and PowerShell, plus the 5.1 encoding line.
 	- Progress log:
-		- 2026-10-08: Built in all four. The writer quotes a value, `- ` item or array element with any whitespace, `:`, `,`, `(`, `)`, `[` or `]`, and never drops quotes. Array elements now use the same rule, so their separate check is gone. The reader is unchanged.
-		- Calls made here, for signoff. A setter over a quoted value keeps the quotes, a typed one too, so `SetInt` over `ver: "8"` writes `ver: "9"`. A datetime from a setter comes out quoted, `"2026-07-12T14:30"`, and so does `"C:\temp"`. `migrate` writes a value it changes the way the writer does.
-		- Names need no change. A bare name is already only a letter then letters, digits, `-` and `_`, and anything else is quoted.
-		- Question: `fmt` still drops quotes a name doesn't need, so `"host": x` becomes `host: x`. Should a name keep its quotes too? Left as is.
-		- The demo GIF is stale. Its `window:` line now comes out quoted. Not rerendered.
-		- Corpus case 164 is now `164-quoted-data-kept`, since it pins the opposite of its old name.
-		- 2026-10-08: The demo GIF was rendered again and `cicd/demo/expected.txt` refreshed (`helphint`, `4aab0b99`). shell-regress `EqM7a7s` passes.
-	- Decisions:
-		- The quote list and the never-drop rule, above (JC, 2026-10-08). Quote kind stays. `set --write` leaves untouched lines alone.
-	- Swept: the quoting, emit and new-element code and `keep_mark` in all four, `migrate`'s respelling and 2.x array text, the H001 hint's element, value-syntax.md, spec.md, design.md, grammar.abnf through `gen-escapes.py`, check-abnf's samples, the corpus README, the changelog, 5 cli-regress rows. Names checked, no change.
-	- Verified: the four conformance suites (203 of 203 each) and the other C tests, cli-regress, crosscheck over the corpus and a fuzz dump, the 2M release fuzz (all 25), check-docs, check-abnf, check-readme, check-migrate, check-c-compilers, clippy for both targets, go vet, staticcheck, ruff, mypy, cppcheck at the normal level. shell-regress passes but for `EqM7a7s`.
-	- Test case: `the_writer_quotes_a_colon_or_comma` in all four (`Ervn569`, `Ery85QH`, `EryEqwF`, `EryvVbF`), which fails on the old Rust writer and passes now. Also the corpus goldens, 164 and 202 most of all, and check-abnf's `fmt-bareword` samples.
-	- Branch: fmtquote
-	- Commit: `ce9c8a87`
+		- 20261008: the user agreed to drop both.
 
-- A repeated-field hint prints the whole suggested array on every run
-	- ID: 2026100717500013
+- `count`, `instances` and `children` can't report a path that doesn't parse
+	- ID: 2026100818140260
 	- Type: Bug
-	- Status: Waiting on signoff
-	- Needs local test suite run?: the full `--ci` with the next main push, for cppcheck over the C change.
-	- Needs external testing: a hosted run with the next main push.
-	- Severity: Avg
-	- Opened: 20261007-175000
-	- Opened by: Code review 20261007 item 13
-	- Version and build: dev at `6a1d28f0`
-	- Steps to reproduce: a 5 MB file of 400,000 `item: vN` lines, then `shcl get f.shcl item`.
-	- Incorrect behavior: one `H001` line of 3,489,031 bytes on stderr, every run, listing the whole array it suggests. The only way to quiet it is `2>/dev/null`, which hides the read's own error too.
-	- Expected behavior: the hint lists a few values and a count. The README says a hostile file can't run a program out of memory; a hint the size of the file is the same class.
-	- Reproduced: 20261007, Rust CLI.
-	- Origin: not blamed. Not seen by an earlier round. Confirmed.
-	- Sweep: the `H001` builders in all four.
-	- Cause: the H001 builder joined every value of the repeated field into the hint.
-	- Fixed: a list in a diagnostic shows its first 3 values, then `...` and a count, in all four: `'item' repeats as a bare leaf - did you mean 'item: [v0, v1, v2, ...]'? (and 399997 more)`. 3 or fewer show as before. stderr for the 400,000-line file is 301 bytes, the same bytes in all four. design.md and the changelog say so.
-	- Swept: the H001 builder in all four. Every other message builder in the four libraries and CLIs that joins a list: only `V004` on an array read as a string, which printed the whole array, now cut the same way. `init`'s `one of:` annotation and `desc` join write file text, not messages. `H002`, `H005`, `V004` to `V006`, the "did you mean" suggestions and every name quote one value or name from their own line, so they were left alone. The corpus `expected-diags` files hold codes only. cli-regress `EqTPxzc` and `ErqYSbQ` pin 2-value hints and still pass.
+	- Status: Queued
+	- Severity: High
+	- Opened: 20261008-181402
+	- Opened by: JC, from 2026100717500001
+	- Related IDs: 2026100717500001
+	- Steps to reproduce: `count("site[0]")` in any binding.
+	- Incorrect behavior: 0, the same as a path with no match. `instances` and `children` give an empty list. They return a plain number or list, so 2026100717500001's `BadPath` status has nowhere to go. The CLI refuses a bad PATH before the load, so only the library is affected.
+	- Expected behavior: a status form that says `BadPath`, the way the full-tier reads do, in all four and the C++ interface.
 	- Progress log:
-		- 2026-10-08: The hint wording and the cut at 3 are for signoff.
-		- Question: one value can still be as long as its own line, and `V004` on a raw block puts the whole block on one stderr line. Should a single value be cut short too, say past 200 characters?
-	- Verified: cli-regress, shell-regress, crosscheck over the corpus, the four conformance suites and the other unit tests, check-docs, check-abnf, clippy for both targets, go vet, staticcheck, ruff, mypy, markdownlint.
-	- Test case: cli-regress `Es9aIMN` (`diag-list-cap`): a field repeated on 20,000 lines, 3 and 4 repeats, and `V004` on 3- and 5-element arrays, exact text in all four and stderr under 1,000 bytes. It failed in all four before the fix and passes now.
-	- Branch: helphint
-	- Commit: `86825250`
-
-- C's `shcl_get_int` is the fallback read, where `get_int` is the status read in every other binding
-	- ID: 2026100717500011
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
-	- Needs external testing: a hosted run with the next main push.
-	- Severity: Avg
-	- Opened: 20261007-175000
-	- Opened by: Code review 20261007 item 11
-	- Version and build: dev at `6a1d28f0`
-	- Incorrect behavior: `shcl_get_int`, `shcl_get_float` and `shcl_get_bool` take a fallback (`shcl.h:493`), with `_or` twins beside them. Rust `get_int` returns a `Result`, Go `(v, Status)`, Python raises, and C++ `get<T>` returns the status result.
-	- Expected behavior: design.md, Consumer API, says every binding names the fallback tier `_or`, so a routine ported between two of them can't keep the call name and change tier. The three plain names do that. 3.0 is the last cut where dropping them costs nothing.
-	- Reproduced: 20261007, by reading `shcl.h` and the other three.
-	- Origin: not blamed. Not seen by an earlier round. Confirmed.
-	- Progress log:
-		- 2026-10-08: Best guess, no answer yet: drop the three plain names. Strings, datetimes, raw blocks and arrays never had a plain `shcl_get_*`; they are on the `shcl_read_*` tier only.
-	- Actual cause: the plain three came first, and the `_or` names were added beside them as aliases in 2.0 without dropping them.
-	- Actual fix: the three are gone from `shcl.h`, and the `_or` calls hold the code. The README's C and Zig examples, the C runner, spec.md, the style guide, check-veneer's list and the changelog's upgrade notes moved with them. The C++ interface never called them.
-	- Swept: every public `shcl_get_*` in `shcl.h`, now `_or` only (int, float, bool, duration, size). A repo-wide grep for the three names, CLIs, scripts and docs included, found only the README, the C runner and check-veneer, all changed.
-	- Verified: the four conformance suites (203 cases each), the full Rust suite at 20k fuzz, both Go modules, the other C tests and the C++ smoke, cli-regress (489 rows), crosscheck over the corpus, check-veneer, check-readme with its C and Zig examples, check-docs, check-abnf, test-ids, shellcheck, markdownlint, clippy for both targets, go vet, staticcheck, ruff, mypy, cppcheck at the normal level.
-	- Test case: check-veneer `Es9li9x` (`c-get-calls-take-the-or-name`): every public `shcl_get_*` in `shcl.h` ends in `_or`. It fails on dev's header, naming the three, and passes now.
-	- Branch: apitidy
-	- Commit: `daa1d9fe`
-
-- A strict load failure looks different from each entry point
-	- ID: 2026100717500012
-	- Type: Bug
-	- Status: Waiting on signoff
-	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
-	- Needs external testing: a hosted run with the next main push.
-	- Severity: Avg
-	- Opened: 20261007-175000
-	- Opened by: Code review 20261007 item 12
-	- Version and build: dev at `6a1d28f0`
-	- Incorrect behavior: in Rust, `parse_with(Strict)` and `parse_keep_lines(Strict)` return `Err`. `load_file_with(Strict)` returns HadErrors, the same as Standard. `load_and_validate(Strict)` returns a plain document, and the caller has to check `error_count()`.
-	- Expected behavior: design.md says Strict fails the load. A program that moves from one entry point to another loses the hard failure and nothing tells it.
-	- Reproduced: 20261007, Rust. Go, Python and C not checked.
-	- Origin: not blamed. Not seen by an earlier round. Confirmed in Rust.
-	- Sweep: the same entry points in the other three, and the C++ veneer.
-	- Progress log:
-		- 2026-10-08: The entry points that take a strictness, before the fix:
-			- Rust: `parse_with`, `parse_limited` and `parse_keep_lines` return `Err`. `load_file_with` and `load_file_keep_lines` give HadErrors only. `load_and_validate` gives a plain document.
-			- Go: `ParseWith`, `ParseLimited` and `ParseKeepLines` give a `*LoadError`. `LoadFileWith` and `LoadFileKeepLines` give FileHadErrors only. `LoadAndValidate` gives a plain document. The same split as Rust.
-			- Python: `parse_with`, `parse_limited` and `parse_keep_lines` raise `LoadError`. `load_file_with`, `load_file_keep_lines` and `load_and_validate` don't. The same split.
-			- C: `shcl_parse_with`, `shcl_parse_limited`, `shcl_parse_keep_lines`, `shcl_load_file_with`, `shcl_load_file_keep_lines` and `shcl_load_and_validate` all return the document, and `shcl_strict_failed` was already true after each one at Strict with an error. C was consistent.
-			- C++: the same six as `Document` calls, with `strict_failed()`. Consistent, through C.
-		- 2026-10-08: The one behavior, from the Rust parse functions: at Strict, any error diagnostic on the document a call hands back fails it, with the document inside the error. That is C's `shcl_strict_failed` rule, so C and C++ keep their signatures. In the one-shot a schema finding fails it too, since it is an error in the same list. C already did that.
-		- 2026-10-08: This is a 3.0 signature change. Rust `load_file_with` and `load_file_keep_lines` return `Result<(Document, FileStatus), LoadError>`, and `load_and_validate` `Result<Document, LoadError>`. Go `LoadFileWith` and `LoadFileKeepLines` return `(*Document, FileStatus, error)`, and `LoadAndValidate` `(*Document, error)`. Python raises. `load_file` keeps its signature, since it is always Standard. No CLI, script or tool called the changed calls, only the bindings' own tests and the Go package doc's example.
-	- Against: spec.md's file tier said a strict-failing file "reports `HadErrors` ... never a throw", spec.md's schema section and the 2026-08-02 one-shot item said the one-shot never fails, and design.md's file tier says the load never fails. All of that now holds below Strict. design.md has a sub-bullet saying so.
-	- Actual cause: each entry point did its own strict check, and only the parse ones had one.
-	- Actual fix: one gate per binding (`strict_gate`, `strictGate`, `_strict_gate`) that every entry point taking a strictness returns through. spec.md, design.md, the C and C++ comments, the Rust and Python READMEs and the changelog's upgrade notes say so. The "Strict never throws here" lines in the Rust, Go and Python one-shot tests are commented out with the reason, and those tests now expect the failure. C's gained a `shcl_strict_failed` check.
-	- Swept: the six entry points in all four and the C++ interface, listed above. Every caller in the repo: the bindings' tests, `mem_test.go` and the Go package doc. No CLI, script, wrapper or the comparison tool calls them. `parse` and `load_file` are Standard only and never fail.
-	- Verified: the four conformance suites (203 cases each), the full Rust suite at 20k fuzz, both Go modules, the other C tests and the C++ smoke, cli-regress (489 rows), crosscheck over the corpus, check-veneer, check-readme with its C and Zig examples, check-docs, check-abnf, test-ids, shellcheck, markdownlint, clippy for both targets, go vet, staticcheck, ruff, mypy, cppcheck at the normal level.
-	- Test case: `strict_fails_the_same_from_every_entry_point` in Rust `Es9mP2o`, Go `Es9mP4v`, Python `Es9mP70` and C `Es9mP97`, and checks in the C++ smoke `EjtkR0S`. Python fails on dev's library and passes now. Rust and Go don't build against dev, since the old signatures can't express the failure. C and C++ pass on dev too, since C was already consistent; both fail when the one-shot ignores its strictness.
-	- Branch: apitidy
-	- Commit: `daa1d9fe`
+		- 20261008: the user agreed it should, as easier to work with.
 
 - `instances` output can't be fed back into a selector
 	- ID: 2026100717500016
@@ -215,6 +123,20 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Run the man page's shell blocks, as 2026100717500005 does for README's.
 		- Fail on a 2.x escape form (`\n`, `\t`, `\\`) in help text or CLI output.
 	- Reason: the doc tables are the cheapest source of hand-written expected results.
+
+- Long values make messages huge
+	- ID: 2026100818251400
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261008-182514
+	- Opened by: JC, from a question on 2026100717500013
+	- Related IDs: 2026100812323841, 2026100717500013
+	- Steps to reproduce: a 4,000 character base64 `token`, then `shcl get --int f token`.
+	- Incorrect behavior: the whole value is echoed. One 4,065 byte line on stderr, and a 5 MB value would give a 5 MB line.
+	- Expected behavior: a value in a message is cut at 200 characters, then its length, like `value "tAj7pRNw...xYz" (4000 chars) is not a valid int`. All four and the library messages.
+	- Progress log:
+		- 20261008: accepted (JC). Same reason as the H001 list cap. Work it with 2026100812323841, since both go through `quoted()` and the message helpers.
 
 - Python's `write_file_atomic` returns an error string, and `Document()` raises
 	- ID: 2026100717500014
@@ -279,6 +201,140 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Origin: Confirmed by reading and probes.
 
 **Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
+
+- `fmt` leaves a value bare that a reader could misread
+	- ID: 2026100719122101
+	- Type: Enhancement
+	- Status: Done
+	- Needs local test suite run?: the full `--ci` with the next main push, and a demo GIF rerender (shell-regress `EqM7a7s` is red until then).
+	- Needs external testing: a hosted run with the next main push.
+	- Priority: High
+	- Opened: 20261007-191221
+	- Opened by: JC
+	- Problem description: `fmt` is for making a file canonical, but it writes `:0`, `http://my.com/` and `rw,noatime` bare, and drops the quotes from `ver: "8"`. It does quote `Hello world`.
+	- Requirements:
+		- `fmt` and the writer quote any string value that could be misread, and use `◉` escapes where needed:
+			- `Hello world` -> `"Hello world"`
+			- `http://my.com/` -> `"http://my.com/"`
+			- `Hello<tab>world` -> `"Hello◉TAB◉world"`
+			- `:0` -> `":0"`
+			- `my,dog,has,` -> `"my,dog,has,"`
+		- Keep the author's quote kind, and never drop quotes, so `ver: "8"` stays a quoted string.
+		- `set --write` leaves untouched lines alone, as now.
+	- The list, answered 2026-10-08 (JC): any whitespace, `:`, `,`, `(`, `)`, `[` or `]`, plus what already needs quotes. That quotes `2:30PM` and `localhost:8080` too; typed reads don't care.
+	- Sweep: value-syntax.md's Canonical output section and spec.md, the writer in all four, array elements and `- ` items, corpus goldens.
+	- Progress log:
+		- 2026-10-08: Built in all four. The writer quotes a value, `- ` item or array element with any whitespace, `:`, `,`, `(`, `)`, `[` or `]`, and never drops quotes. Array elements now use the same rule, so their separate check is gone. The reader is unchanged.
+		- Calls made here, for signoff. A setter over a quoted value keeps the quotes, a typed one too, so `SetInt` over `ver: "8"` writes `ver: "9"`. A datetime from a setter comes out quoted, `"2026-07-12T14:30"`, and so does `"C:\temp"`. `migrate` writes a value it changes the way the writer does.
+		- Names need no change. A bare name is already only a letter then letters, digits, `-` and `_`, and anything else is quoted.
+		- Question: `fmt` still drops quotes a name doesn't need, so `"host": x` becomes `host: x`. Should a name keep its quotes too? Left as is.
+		- The demo GIF is stale. Its `window:` line now comes out quoted. Not rerendered.
+		- Corpus case 164 is now `164-quoted-data-kept`, since it pins the opposite of its old name.
+		- 2026-10-08: The demo GIF was rendered again and `cicd/demo/expected.txt` refreshed (`helphint`, `4aab0b99`). shell-regress `EqM7a7s` passes.
+		- 20261008: signed off (JC).
+		- 20261008, names (JC): no quotes where a name doesn't need them, but a quoted name changes only when its line is edited or the whole file is made canonical. That is how it already works: `set --write` keeps `"host": x` as written, `fmt` writes `host: x`.
+	- Decisions:
+		- The quote list and the never-drop rule, above (JC, 2026-10-08). Quote kind stays. `set --write` leaves untouched lines alone.
+	- Swept: the quoting, emit and new-element code and `keep_mark` in all four, `migrate`'s respelling and 2.x array text, the H001 hint's element, value-syntax.md, spec.md, design.md, grammar.abnf through `gen-escapes.py`, check-abnf's samples, the corpus README, the changelog, 5 cli-regress rows. Names checked, no change.
+	- Verified: the four conformance suites (203 of 203 each) and the other C tests, cli-regress, crosscheck over the corpus and a fuzz dump, the 2M release fuzz (all 25), check-docs, check-abnf, check-readme, check-migrate, check-c-compilers, clippy for both targets, go vet, staticcheck, ruff, mypy, cppcheck at the normal level. shell-regress passes but for `EqM7a7s`.
+	- Test case: `the_writer_quotes_a_colon_or_comma` in all four (`Ervn569`, `Ery85QH`, `EryEqwF`, `EryvVbF`), which fails on the old Rust writer and passes now. Also the corpus goldens, 164 and 202 most of all, and check-abnf's `fmt-bareword` samples.
+	- Branch: fmtquote
+	- Commit: `ce9c8a87`
+	- Acceptance signoff: JC 20261008.
+	- Closed: 20261008-181402
+
+- A repeated-field hint prints the whole suggested array on every run
+	- ID: 2026100717500013
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: the full `--ci` with the next main push, for cppcheck over the C change.
+	- Needs external testing: a hosted run with the next main push.
+	- Severity: Avg
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 13
+	- Version and build: dev at `6a1d28f0`
+	- Steps to reproduce: a 5 MB file of 400,000 `item: vN` lines, then `shcl get f.shcl item`.
+	- Incorrect behavior: one `H001` line of 3,489,031 bytes on stderr, every run, listing the whole array it suggests. The only way to quiet it is `2>/dev/null`, which hides the read's own error too.
+	- Expected behavior: the hint lists a few values and a count. The README says a hostile file can't run a program out of memory; a hint the size of the file is the same class.
+	- Reproduced: 20261007, Rust CLI.
+	- Origin: not blamed. Not seen by an earlier round. Confirmed.
+	- Sweep: the `H001` builders in all four.
+	- Cause: the H001 builder joined every value of the repeated field into the hint.
+	- Fixed: a list in a diagnostic shows its first 3 values, then `...` and a count, in all four: `'item' repeats as a bare leaf - did you mean 'item: [v0, v1, v2, ...]'? (and 399997 more)`. 3 or fewer show as before. stderr for the 400,000-line file is 301 bytes, the same bytes in all four. design.md and the changelog say so.
+	- Swept: the H001 builder in all four. Every other message builder in the four libraries and CLIs that joins a list: only `V004` on an array read as a string, which printed the whole array, now cut the same way. `init`'s `one of:` annotation and `desc` join write file text, not messages. `H002`, `H005`, `V004` to `V006`, the "did you mean" suggestions and every name quote one value or name from their own line, so they were left alone. The corpus `expected-diags` files hold codes only. cli-regress `EqTPxzc` and `ErqYSbQ` pin 2-value hints and still pass.
+	- Progress log:
+		- 2026-10-08: The hint wording and the cut at 3 are for signoff.
+		- Question: one value can still be as long as its own line, and `V004` on a raw block puts the whole block on one stderr line. Should a single value be cut short too, say past 200 characters?
+		- 20261008: signed off (JC).
+	- Verified: cli-regress, shell-regress, crosscheck over the corpus, the four conformance suites and the other unit tests, check-docs, check-abnf, clippy for both targets, go vet, staticcheck, ruff, mypy, markdownlint.
+	- Test case: cli-regress `Es9aIMN` (`diag-list-cap`): a field repeated on 20,000 lines, 3 and 4 repeats, and `V004` on 3- and 5-element arrays, exact text in all four and stderr under 1,000 bytes. It failed in all four before the fix and passes now.
+	- Branch: helphint
+	- Commit: `86825250`
+	- Acceptance signoff: JC 20261008.
+	- Closed: 20261008-181402
+
+- C's `shcl_get_int` is the fallback read, where `get_int` is the status read in every other binding
+	- ID: 2026100717500011
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
+	- Needs external testing: a hosted run with the next main push.
+	- Severity: Avg
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 11
+	- Version and build: dev at `6a1d28f0`
+	- Incorrect behavior: `shcl_get_int`, `shcl_get_float` and `shcl_get_bool` take a fallback (`shcl.h:493`), with `_or` twins beside them. Rust `get_int` returns a `Result`, Go `(v, Status)`, Python raises, and C++ `get<T>` returns the status result.
+	- Expected behavior: design.md, Consumer API, says every binding names the fallback tier `_or`, so a routine ported between two of them can't keep the call name and change tier. The three plain names do that. 3.0 is the last cut where dropping them costs nothing.
+	- Reproduced: 20261007, by reading `shcl.h` and the other three.
+	- Origin: not blamed. Not seen by an earlier round. Confirmed.
+	- Progress log:
+		- 2026-10-08: Best guess, no answer yet: drop the three plain names. Strings, datetimes, raw blocks and arrays never had a plain `shcl_get_*`; they are on the `shcl_read_*` tier only.
+		- 20261008: signed off (JC).
+	- Actual cause: the plain three came first, and the `_or` names were added beside them as aliases in 2.0 without dropping them.
+	- Actual fix: the three are gone from `shcl.h`, and the `_or` calls hold the code. The README's C and Zig examples, the C runner, spec.md, the style guide, check-veneer's list and the changelog's upgrade notes moved with them. The C++ interface never called them.
+	- Swept: every public `shcl_get_*` in `shcl.h`, now `_or` only (int, float, bool, duration, size). A repo-wide grep for the three names, CLIs, scripts and docs included, found only the README, the C runner and check-veneer, all changed.
+	- Verified: the four conformance suites (203 cases each), the full Rust suite at 20k fuzz, both Go modules, the other C tests and the C++ smoke, cli-regress (489 rows), crosscheck over the corpus, check-veneer, check-readme with its C and Zig examples, check-docs, check-abnf, test-ids, shellcheck, markdownlint, clippy for both targets, go vet, staticcheck, ruff, mypy, cppcheck at the normal level.
+	- Test case: check-veneer `Es9li9x` (`c-get-calls-take-the-or-name`): every public `shcl_get_*` in `shcl.h` ends in `_or`. It fails on dev's header, naming the three, and passes now.
+	- Branch: apitidy
+	- Commit: `daa1d9fe`
+	- Acceptance signoff: JC 20261008.
+	- Closed: 20261008-181402
+
+- A strict load failure looks different from each entry point
+	- ID: 2026100717500012
+	- Type: Bug
+	- Status: Done
+	- Needs local test suite run?: the full `--ci` with the next main push, for exhaustive cppcheck over the C change.
+	- Needs external testing: a hosted run with the next main push.
+	- Severity: Avg
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 12
+	- Version and build: dev at `6a1d28f0`
+	- Incorrect behavior: in Rust, `parse_with(Strict)` and `parse_keep_lines(Strict)` return `Err`. `load_file_with(Strict)` returns HadErrors, the same as Standard. `load_and_validate(Strict)` returns a plain document, and the caller has to check `error_count()`.
+	- Expected behavior: design.md says Strict fails the load. A program that moves from one entry point to another loses the hard failure and nothing tells it.
+	- Reproduced: 20261007, Rust. Go, Python and C not checked.
+	- Origin: not blamed. Not seen by an earlier round. Confirmed in Rust.
+	- Sweep: the same entry points in the other three, and the C++ veneer.
+	- Progress log:
+		- 2026-10-08: The entry points that take a strictness, before the fix:
+			- Rust: `parse_with`, `parse_limited` and `parse_keep_lines` return `Err`. `load_file_with` and `load_file_keep_lines` give HadErrors only. `load_and_validate` gives a plain document.
+			- Go: `ParseWith`, `ParseLimited` and `ParseKeepLines` give a `*LoadError`. `LoadFileWith` and `LoadFileKeepLines` give FileHadErrors only. `LoadAndValidate` gives a plain document. The same split as Rust.
+			- Python: `parse_with`, `parse_limited` and `parse_keep_lines` raise `LoadError`. `load_file_with`, `load_file_keep_lines` and `load_and_validate` don't. The same split.
+			- C: `shcl_parse_with`, `shcl_parse_limited`, `shcl_parse_keep_lines`, `shcl_load_file_with`, `shcl_load_file_keep_lines` and `shcl_load_and_validate` all return the document, and `shcl_strict_failed` was already true after each one at Strict with an error. C was consistent.
+			- C++: the same six as `Document` calls, with `strict_failed()`. Consistent, through C.
+		- 2026-10-08: The one behavior, from the Rust parse functions: at Strict, any error diagnostic on the document a call hands back fails it, with the document inside the error. That is C's `shcl_strict_failed` rule, so C and C++ keep their signatures. In the one-shot a schema finding fails it too, since it is an error in the same list. C already did that.
+		- 2026-10-08: This is a 3.0 signature change. Rust `load_file_with` and `load_file_keep_lines` return `Result<(Document, FileStatus), LoadError>`, and `load_and_validate` `Result<Document, LoadError>`. Go `LoadFileWith` and `LoadFileKeepLines` return `(*Document, FileStatus, error)`, and `LoadAndValidate` `(*Document, error)`. Python raises. `load_file` keeps its signature, since it is always Standard. No CLI, script or tool called the changed calls, only the bindings' own tests and the Go package doc's example.
+		- 20261008: signed off (JC). A schema finding alone failing the Strict one-shot stays, agreed (JC).
+	- Against: spec.md's file tier said a strict-failing file "reports `HadErrors` ... never a throw", spec.md's schema section and the 2026-08-02 one-shot item said the one-shot never fails, and design.md's file tier says the load never fails. All of that now holds below Strict. design.md has a sub-bullet saying so.
+	- Actual cause: each entry point did its own strict check, and only the parse ones had one.
+	- Actual fix: one gate per binding (`strict_gate`, `strictGate`, `_strict_gate`) that every entry point taking a strictness returns through. spec.md, design.md, the C and C++ comments, the Rust and Python READMEs and the changelog's upgrade notes say so. The "Strict never throws here" lines in the Rust, Go and Python one-shot tests are commented out with the reason, and those tests now expect the failure. C's gained a `shcl_strict_failed` check.
+	- Swept: the six entry points in all four and the C++ interface, listed above. Every caller in the repo: the bindings' tests, `mem_test.go` and the Go package doc. No CLI, script, wrapper or the comparison tool calls them. `parse` and `load_file` are Standard only and never fail.
+	- Verified: the four conformance suites (203 cases each), the full Rust suite at 20k fuzz, both Go modules, the other C tests and the C++ smoke, cli-regress (489 rows), crosscheck over the corpus, check-veneer, check-readme with its C and Zig examples, check-docs, check-abnf, test-ids, shellcheck, markdownlint, clippy for both targets, go vet, staticcheck, ruff, mypy, cppcheck at the normal level.
+	- Test case: `strict_fails_the_same_from_every_entry_point` in Rust `Es9mP2o`, Go `Es9mP4v`, Python `Es9mP70` and C `Es9mP97`, and checks in the C++ smoke `EjtkR0S`. Python fails on dev's library and passes now. Rust and Go don't build against dev, since the old signatures can't express the failure. C and C++ pass on dev too, since C was already consistent; both fail when the one-shot ignores its strictness.
+	- Branch: apitidy
+	- Commit: `daa1d9fe`
+	- Acceptance signoff: JC 20261008.
+	- Closed: 20261008-181402
 
 - `shcl help fmt` prints part of `set`'s help
 	- ID: 2026100717500007
