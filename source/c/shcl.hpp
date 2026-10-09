@@ -397,6 +397,13 @@ public:
 
 	// Instance count at a path (0 when nothing matches).
 	std::size_t count(std::string_view path) const;
+	// count() with a status: Good, NotFound when the path matches nothing, or
+	// BadPath when it cannot be read as a path. read_instances() and
+	// read_children() give theirs the same way, and none has per-slot
+	// statuses. A node with no children is Good with an empty list.
+	Read<std::size_t> read_count(std::string_view path) const;
+	Read<std::vector<std::string>> read_instances(std::string_view path) const;
+	Read<std::vector<std::string>> read_children(std::string_view path) const;
 	// Every field path, file order, deduplicated. A segment that is not
 	// bare-name-safe comes back quoted, so each path reads back as a lookup.
 	std::vector<std::string> paths() const;
@@ -1001,6 +1008,9 @@ std::vector<std::string> Document::instance_paths() const { auto h = detail::fre
 std::vector<std::string> Document::comments(std::string_view path) const { auto h = detail::fresh(*this); shcl_str *a; std::size_t n = shcl_comments(h, path.data(), path.size(), &a); return detail::strs(a, n); }
 std::vector<std::string> Document::instances(std::string_view path) const { auto h = detail::fresh(*this); shcl_str *a; std::size_t n = shcl_instances(h, path.data(), path.size(), &a); return detail::strs(a, n); }
 std::vector<std::string> Document::children(std::string_view path) const { auto h = detail::fresh(*this); shcl_str *a; std::size_t n = shcl_children(h, path.data(), path.size(), &a); return detail::strs(a, n); }
+Read<std::size_t> Document::read_count(std::string_view path) const { auto r = shcl_read_count(detail::held(*this), path.data(), path.size()); return {r.value, detail::st(r.status)}; }
+Read<std::vector<std::string>> Document::read_instances(std::string_view path) const { auto h = detail::fresh(*this); auto r = shcl_read_instances(h, path.data(), path.size()); return {detail::strs(r.values, r.n), detail::st(r.status)}; }
+Read<std::vector<std::string>> Document::read_children(std::string_view path) const { auto h = detail::fresh(*this); auto r = shcl_read_children(h, path.data(), path.size()); return {detail::strs(r.values, r.n), detail::st(r.status)}; }
 std::size_t Document::line(std::string_view path) const { return shcl_line(detail::held(*this), path.data(), path.size()); }
 std::vector<std::size_t> Document::lines(std::string_view path) const {
 	auto h = detail::fresh(*this);

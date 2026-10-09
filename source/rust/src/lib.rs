@@ -189,7 +189,8 @@ pub enum SetStatus {
 /// Full-tier read result: value plus status plus the original raw text (when the
 /// path resolved), so a caller can always recover what was actually in the file.
 /// Array reads also give one status per slot (element, or wildcard instance) in
-/// `slots`; `status` is then the worst slot. Scalar reads leave `slots` empty.
+/// `slots`; `status` is then the worst slot. Scalar reads and the list reads
+/// (`read_count`, `read_instances`, `read_children`) leave `slots` empty.
 /// `line` is the 1-based source line of the resolved binding (0 when the path
 /// did not resolve to one node, or the node was writer-built), so a consumer
 /// check the schema cannot express can still cite the line. `quoted` is true
@@ -9509,11 +9510,21 @@ impl Document {
 
 	/// Instance count at a path (0 when nothing matches).
 	pub fn count(&self, path: &str) -> usize {
+		self.read_count(path).value
+	}
+
+	/// count() with a status: `Good`, `NotFound` when the path matches
+	/// nothing, or `BadPath` when it cannot be read as a path. A wildcard
+	/// with no slots matches nothing, as in read_int_array(). `line` is set
+	/// when the path reaches one node.
+	pub fn read_count(&self, path: &str) -> Read<usize> {
 		match self.resolve(path) {
-			Ok(Resolved::None) | Err(_) => 0,
-			Ok(Resolved::One(_)) => 1,
-			Ok(Resolved::Many(v)) => v.len(),
-			Ok(Resolved::Slots(s)) => s.len(),
+			Err(st) => Read::new(0, st, None),
+			Ok(Resolved::None) => Read::new(0, Status::NotFound, None),
+			Ok(Resolved::Slots(s)) if s.is_empty() => Read::new(0, Status::NotFound, None),
+			Ok(Resolved::One(n)) => Read::new(1, Status::Good, None).at(self.arena[n].line, None),
+			Ok(Resolved::Many(v)) => Read::new(v.len(), Status::Good, None),
+			Ok(Resolved::Slots(s)) => Read::new(s.len(), Status::Good, None),
 		}
 	}
 
@@ -9601,21 +9612,35 @@ impl Document {
 	/// path reaches all of them. Names come back as stored; quote_segment()
 	/// makes one splice-safe in a path.
 	pub fn children(&self, path: &str) -> Vec<String> {
-		let nodes = if path.trim().is_empty() {
-			vec![ROOT]
+		self.read_children(path).value
+	}
+
+	/// children() with a status: `Good`, `NotFound` when the path matches
+	/// nothing, or `BadPath` when it cannot be read as a path, the way
+	/// read_count() has them. A node with no children is `Good` with an
+	/// empty list, so an empty section and a missing one read differently.
+	/// `line` is set when the path reaches one node.
+	pub fn read_children(&self, path: &str) -> Read<Vec<String>> {
+		let (nodes, line) = if path.trim().is_empty() {
+			(vec![ROOT], 0)
 		} else {
 			match self.resolve(path) {
-				Ok(Resolved::One(n)) => vec![n],
-				Ok(Resolved::Many(v)) => v,
-				Ok(Resolved::Slots(s)) => s.into_iter().flatten().collect(),
-				_ => return Vec::new(),
+				Err(st) => return Read::new(Vec::new(), st, None),
+				Ok(Resolved::None) => return Read::new(Vec::new(), Status::NotFound, None),
+				Ok(Resolved::Slots(s)) if s.is_empty() => {
+					return Read::new(Vec::new(), Status::NotFound, None);
+				}
+				Ok(Resolved::One(n)) => (vec![n], self.arena[n].line),
+				Ok(Resolved::Many(v)) => (v, 0),
+				Ok(Resolved::Slots(s)) => (s.into_iter().flatten().collect(), 0),
 			}
 		};
-		nodes
+		let names = nodes
 			.iter()
 			.flat_map(|&n| &self.arena[n].children)
 			.map(|&c| self.arena[c].name.clone())
-			.collect()
+			.collect();
+		Read::new(names, Status::Good, None).at(line, None)
 	}
 
 	/// paths() one instance at a time: every binding's path in file order,
@@ -9658,17 +9683,38 @@ impl Document {
 	/// Instance values at a path, in file order. Wildcard slots that did not
 	/// resolve stay in the list as "" so indices keep matching count().
 	pub fn instances(&self, path: &str) -> Vec<String> {
+		self.read_instances(path).value
+	}
+
+	/// instances() with a status: `Good`, `NotFound` when the path matches
+	/// nothing, or `BadPath` when it cannot be read as a path, the way
+	/// read_count() has them. Unresolved wildcard slots stay "" as in
+	/// instances(), and still count as a match, as they do in read_count().
+	/// `line` is set when the path reaches one node.
+	pub fn read_instances(&self, path: &str) -> Read<Vec<String>> {
 		match self.resolve(path) {
-			Ok(Resolved::One(n)) => vec![self.arena[n].value.display()],
-			Ok(Resolved::Many(v)) => v.iter().map(|&n| self.arena[n].value.display()).collect(),
-			Ok(Resolved::Slots(s)) => s
-				.into_iter()
-				.map(|r| match r {
-					Ok(n) => self.arena[n].value.display(),
-					Err(_) => String::new(),
-				})
-				.collect(),
-			_ => Vec::new(),
+			Err(st) => Read::new(Vec::new(), st, None),
+			Ok(Resolved::None) => Read::new(Vec::new(), Status::NotFound, None),
+			Ok(Resolved::Slots(s)) if s.is_empty() => Read::new(Vec::new(), Status::NotFound, None),
+			Ok(Resolved::One(n)) => {
+				Read::new(vec![self.arena[n].value.display()], Status::Good, None)
+					.at(self.arena[n].line, None)
+			}
+			Ok(Resolved::Many(v)) => Read::new(
+				v.iter().map(|&n| self.arena[n].value.display()).collect(),
+				Status::Good,
+				None,
+			),
+			Ok(Resolved::Slots(s)) => Read::new(
+				s.into_iter()
+					.map(|r| match r {
+						Ok(n) => self.arena[n].value.display(),
+						Err(_) => String::new(),
+					})
+					.collect(),
+				Status::Good,
+				None,
+			),
 		}
 	}
 }

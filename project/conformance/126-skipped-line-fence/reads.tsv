@@ -4,9 +4,9 @@ query	type	expected	status
 port	int	80	Good
 name	string	web	Good
 a.b	int	1	Good
-servers	count	0	Good
-script	count	0	Good
-a.run	count	0	Good
-a.name	count	0	Good
+servers	count	0	NotFound
+script	count	0	NotFound
+a.run	count	0	NotFound
+a.name	count	0	NotFound
 -	paths	port|a|a.b|name	-
 -	lost	2	-

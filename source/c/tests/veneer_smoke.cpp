@@ -103,6 +103,25 @@ int main() {
 	CHECK(doc.get_or<int64_t>("city[Boston]", 9) == 9 && doc.count("city[Boston]") == 0);
 	CHECK(std::string(shcl::to_string(shcl::Status::BadPath)) == "BadPath" && shcl::status_code(shcl::Status::BadPath) == 1);
 	CHECK(shcl::Status::BadPath > shcl::Status::Multiple);
+	// The list reads' status twins, on the fixture the runners use.
+	{
+		auto ld = shcl::Document::parse("site: a\n\tport: 1\nsite: b\n");
+		auto lc = ld.read_count("site");
+		CHECK(lc.value == 2 && lc.status == shcl::Status::Good && lc.slots.empty());
+		CHECK(ld.read_count("site(*).port").value == 2 && ld.read_count("site(*).port").status == shcl::Status::Good);
+		CHECK(ld.read_count("nope").status == shcl::Status::NotFound && ld.read_count("nope(*)").status == shcl::Status::NotFound);
+		CHECK(ld.read_count("site[0]").value == 0 && ld.read_count("site[0]").status == shcl::Status::BadPath);
+		auto li = ld.read_instances("site(*).port");
+		CHECK(li.status == shcl::Status::Good && li.value == std::vector<std::string>({"1", ""}));
+		CHECK(ld.read_instances("nope").status == shcl::Status::NotFound);
+		CHECK(ld.read_instances("site..port").status == shcl::Status::BadPath && ld.read_instances("site..port").value.empty());
+		auto lk = ld.read_children("site(0)");
+		CHECK(lk.status == shcl::Status::Good && lk.value == std::vector<std::string>({"port"}));
+		CHECK(ld.read_children("site(1)").status == shcl::Status::Good && ld.read_children("site(1)").value.empty());
+		CHECK(ld.read_children("nope").status == shcl::Status::NotFound);
+		CHECK(ld.read_children("h:p").status == shcl::Status::BadPath);
+		CHECK(ld.read_children("").status == shcl::Status::Good && ld.read_children("").value.size() == 2);
+	}
 
 	// Convenience tier: value on Good, call-site fallback otherwise.
 	CHECK(doc.get_or<int64_t>("port", 9) == 8080);

@@ -14,3 +14,12 @@ pick(#0).c	int	-	BadPath
 pick(0).c	int	3	Good
 tags	string[]	a|b	Good
 last	int	1	Good
+srv[web]	count	0	BadPath
+srv[web]	instances		BadPath
+srv[web]	children		BadPath
+srv(db)	count	0	NotFound
+srv(db)	instances		NotFound
+srv(db)	children		NotFound
+srv	instances	web	Good
+srv	children	port|host	Good
+last	children		Good

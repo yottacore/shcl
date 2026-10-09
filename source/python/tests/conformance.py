@@ -1310,16 +1310,26 @@ def main():
 			if kind == "count":
 				if str(doc.count(query)) != expected:
 					fails.append(f"{at}: count got {doc.count(query)} want {expected}")
+				# A status other than `-` pins the read_ twin too.
+				rc = doc.read_count(query)
+				if status != "-" and (str(rc.value), rc.status.name) != (expected, status):
+					fails.append(f"{at}: read_count got {rc.value} {rc.status.name} want {expected} {status}")
 				continue
 			if kind == "instances":
 				got = "|".join(doc.instances(query))
 				if got != expected:
 					fails.append(f"{at}: instances got {got!r} want {expected!r}")
+				ri = doc.read_instances(query)
+				if status != "-" and ("|".join(ri.value), ri.status.name) != (expected, status):
+					fails.append(f"{at}: read_instances got {ri.value!r} {ri.status.name} want {expected!r} {status}")
 				continue
 			if kind == "children":
 				got = "|".join(doc.children(query))
 				if got != expected:
 					fails.append(f"{at}: children got {got!r} want {expected!r}")
+				rk = doc.read_children(query)
+				if status != "-" and ("|".join(rk.value), rk.status.name) != (expected, status):
+					fails.append(f"{at}: read_children got {rk.value!r} {rk.status.name} want {expected!r} {status}")
 				continue
 			if kind == "paths":
 				got = "|".join(doc.paths())
@@ -1560,6 +1570,55 @@ def main():
 	# the CLI's usage exit.
 	if list(shcl.Status)[-1] is not shcl.Status.BadPath or shcl.Status.BadPath.value != 1:
 		raise SystemExit(f"BadPath order or value {list(shcl.Status)}")
+	test_id("EsDQqYf", "list_reads_say_bad_path")
+	# The list reads' status twins: BadPath for a path that cannot be read,
+	# NotFound for one that matches nothing, Good otherwise, with the value the
+	# plain call gives. Same fixture in every runner.
+	ldoc = shcl.Document.parse("site: a\n\tport: 1\nsite: b\n")
+	lgood = shcl.Status.Good
+	lc = ldoc.read_count("site")
+	if (lc.value, lc.status, lc.line) != (2, lgood, 0):
+		raise SystemExit(f"read_count(site) {lc!r}")
+	lc = ldoc.read_count("site(0)")
+	if (lc.value, lc.status, lc.line) != (1, lgood, 1):
+		raise SystemExit(f"read_count(site(0)) {lc!r}")
+	# An unresolved wildcard slot still counts, as in count().
+	lc = ldoc.read_count("site(*).port")
+	if (lc.value, lc.status) != (2, lgood):
+		raise SystemExit(f"read_count(site(*).port) {lc!r}")
+	for lpath in ("nope", "nope(*)"):
+		if ldoc.read_count(lpath).status is not shcl.Status.NotFound:
+			raise SystemExit(f"read_count({lpath!r}) {ldoc.read_count(lpath)!r}")
+	li = ldoc.read_instances("site")
+	if (li.value, li.status) != (["a", "b"], lgood):
+		raise SystemExit(f"read_instances(site) {li!r}")
+	li = ldoc.read_instances("site(*).port")
+	if (li.value, li.status) != (["1", ""], lgood):
+		raise SystemExit(f"read_instances(site(*).port) {li!r}")
+	if ldoc.read_instances("nope").status is not shcl.Status.NotFound:
+		raise SystemExit(f"read_instances(nope) {ldoc.read_instances('nope')!r}")
+	lk = ldoc.read_children("site(0)")
+	if (lk.value, lk.status, lk.line) != (["port"], lgood, 1):
+		raise SystemExit(f"read_children(site(0)) {lk!r}")
+	# An empty section is Good, a missing one NotFound.
+	lk = ldoc.read_children("site(1)")
+	if (lk.value, lk.status) != ([], lgood):
+		raise SystemExit(f"read_children(site(1)) {lk!r}")
+	if ldoc.read_children("nope").status is not shcl.Status.NotFound:
+		raise SystemExit(f"read_children(nope) {ldoc.read_children('nope')!r}")
+	lk = ldoc.read_children("")
+	if ("|".join(lk.value), lk.status) != ("site|site", lgood):
+		raise SystemExit(f"read_children('') {lk!r}")
+	for lpath in ("site[0].port", "site(.port", "site..port", "", "user name", "site.port: 1", "h:p"):
+		lc = ldoc.read_count(lpath)
+		if (lc.value, lc.status, lc.slots) != (0, shcl.Status.BadPath, []):
+			raise SystemExit(f"read_count({lpath!r}) {lc!r}")
+		li = ldoc.read_instances(lpath)
+		if (li.value, li.status) != ([], shcl.Status.BadPath):
+			raise SystemExit(f"read_instances({lpath!r}) {li!r}")
+		lk = ldoc.read_children(lpath)
+		if lpath and (lk.value, lk.status) != ([], shcl.Status.BadPath):
+			raise SystemExit(f"read_children({lpath!r}) {lk!r}")
 	test_id("ElouJ8N", "check_set_path_names_the_failure")
 	# check_set_path: the reason behind a setter's bare False. Same fixture in
 	# every runner.

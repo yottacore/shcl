@@ -1262,18 +1262,30 @@ int main(int argc, char **argv) {
 				if (!strcmp(kind, "count")) {
 					char nb[32]; snprintf(nb, sizeof nb, "%zu", shcl_count(rd, query, qn));
 					if (strcmp(nb, exp)) fail(at, "count mismatch");
+					// A status other than `-` pins the read_ twin too.
+					shcl_read_usize rc = shcl_read_count(rd, query, qn);
+					snprintf(nb, sizeof nb, "%zu", rc.value);
+					if (strcmp(status, "-") && (strcmp(nb, exp) || strcmp(shcl_status_name(rc.status), status))) fail(at, "read_count mismatch");
 					shcl_free(rd); continue;
 				}
 				if (!strcmp(kind, "instances")) {
 					shcl_str *vals; size_t n = shcl_instances(rd, query, qn, &vals);
 					char *joined = join_pipe(vals, n);
 					if (strcmp(joined, exp)) fail(at, "instances mismatch");
+					free(joined);
+					shcl_read_str_list ri = shcl_read_instances(rd, query, qn);
+					joined = join_pipe(ri.values, ri.n);
+					if (strcmp(status, "-") && (strcmp(joined, exp) || strcmp(shcl_status_name(ri.status), status))) fail(at, "read_instances mismatch");
 					free(joined); shcl_free(rd); continue;
 				}
 				if (!strcmp(kind, "children")) {
 					shcl_str *kids; size_t n = shcl_children(rd, query, qn, &kids);
 					char *joined = join_pipe(kids, n);
 					if (strcmp(joined, exp)) fail(at, "children mismatch");
+					free(joined);
+					shcl_read_str_list rk = shcl_read_children(rd, query, qn);
+					joined = join_pipe(rk.values, rk.n);
+					if (strcmp(status, "-") && (strcmp(joined, exp) || strcmp(shcl_status_name(rk.status), status))) fail(at, "read_children mismatch");
 					free(joined); shcl_free(rd); continue;
 				}
 				if (!strcmp(kind, "paths")) {
@@ -2957,6 +2969,47 @@ int main(int argc, char **argv) {
 		// Last in the order, so a worst-of aggregate puts it on top.
 		if (SHCL_BAD_PATH <= SHCL_MULTIPLE || strcmp(shcl_status_name(SHCL_BAD_PATH), "BadPath") || shcl_status_code(SHCL_BAD_PATH) != 1) fail("bad_path", "order, name or code");
 		shcl_free(bd);
+	}
+	test_id("EsDQqYg", "list_reads_say_bad_path");
+	// The list reads' status twins: BadPath for a path that cannot be read,
+	// NotFound for one that matches nothing, Good otherwise, with the value the
+	// plain call gives. Same fixture in every runner.
+	{
+		const char *lt = "site: a\n\tport: 1\nsite: b\n";
+		shcl_doc *ld = shcl_parse(lt, strlen(lt));
+		shcl_read_usize lc = shcl_read_count(ld, "site", 4);
+		if (lc.value != 2 || lc.status != SHCL_GOOD) fail("list_reads", "read_count(site)");
+		lc = shcl_read_count(ld, "site(0)", 7);
+		if (lc.value != 1 || lc.status != SHCL_GOOD) fail("list_reads", "read_count(site(0))");
+		// An unresolved wildcard slot still counts, as in shcl_count.
+		lc = shcl_read_count(ld, "site(*).port", 12);
+		if (lc.value != 2 || lc.status != SHCL_GOOD) fail("list_reads", "read_count(site(*).port)");
+		if (shcl_read_count(ld, "nope", 4).status != SHCL_NOT_FOUND) fail("list_reads", "read_count(nope)");
+		if (shcl_read_count(ld, "nope(*)", 7).status != SHCL_NOT_FOUND) fail("list_reads", "read_count(nope(*))");
+		shcl_read_str_list li = shcl_read_instances(ld, "site", 4);
+		if (li.status != SHCL_GOOD || li.n != 2 || li.values[0].n != 1 || li.values[0].p[0] != 'a' || li.values[1].n != 1 || li.values[1].p[0] != 'b') fail("list_reads", "read_instances(site)");
+		li = shcl_read_instances(ld, "site(*).port", 12);
+		if (li.status != SHCL_GOOD || li.n != 2 || li.values[0].n != 1 || li.values[0].p[0] != '1' || li.values[1].n != 0) fail("list_reads", "read_instances(site(*).port)");
+		if (shcl_read_instances(ld, "nope", 4).status != SHCL_NOT_FOUND) fail("list_reads", "read_instances(nope)");
+		shcl_read_str_list lk = shcl_read_children(ld, "site(0)", 7);
+		if (lk.status != SHCL_GOOD || lk.n != 1 || lk.values[0].n != 4 || memcmp(lk.values[0].p, "port", 4)) fail("list_reads", "read_children(site(0))");
+		// An empty section is Good, a missing one NotFound.
+		lk = shcl_read_children(ld, "site(1)", 7);
+		if (lk.status != SHCL_GOOD || lk.n != 0) fail("list_reads", "read_children(site(1))");
+		if (shcl_read_children(ld, "nope", 4).status != SHCL_NOT_FOUND) fail("list_reads", "read_children(nope)");
+		lk = shcl_read_children(ld, "", 0);
+		if (lk.status != SHCL_GOOD || lk.n != 2 || lk.values[0].n != 4 || memcmp(lk.values[0].p, "site", 4) || lk.values[1].n != 4 || memcmp(lk.values[1].p, "site", 4)) fail("list_reads", "read_children of the empty path");
+		static const char *const lps[] = {"site[0].port", "site(.port", "site..port", "", "user name", "site.port: 1", "h:p"};
+		for (size_t i = 0; i < sizeof lps / sizeof lps[0]; i++) {
+			const char *p = lps[i]; size_t n = strlen(p);
+			lc = shcl_read_count(ld, p, n);
+			if (lc.value != 0 || lc.status != SHCL_BAD_PATH) fail("list_reads", p);
+			li = shcl_read_instances(ld, p, n);
+			if (li.n != 0 || li.status != SHCL_BAD_PATH || !li.values) fail("list_reads", p);
+			lk = shcl_read_children(ld, p, n);
+			if (n && (lk.n != 0 || lk.status != SHCL_BAD_PATH || !lk.values)) fail("list_reads", p);
+		}
+		shcl_free(ld);
 	}
 	// check_set_path: the reason behind a setter's bare 0. Same fixture in every
 	// runner.
