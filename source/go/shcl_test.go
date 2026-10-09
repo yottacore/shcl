@@ -484,7 +484,7 @@ func tryApplyOpTest(doc *Document, line string) error {
 		}
 		return o, nil
 	}
-	wrote := false
+	wrote := SetOk
 	switch f[0] {
 	case "int":
 		n, err := pint(v)
@@ -632,21 +632,21 @@ func tryApplyOpTest(doc *Document, line string) error {
 		wrote = doc.SetComment(path, t)
 	case "remove":
 		doc.Remove(path)
-		wrote = true
+		wrote = SetOk
 	case "clear-comments":
 		doc.ClearComments(path)
-		wrote = true
+		wrote = SetOk
 	case "banner":
 		if path != "on" && path != "off" {
 			return fmt.Errorf("bad banner: %s", path)
 		}
 		doc.SetBanner(path == "on")
-		wrote = true
+		wrote = SetOk
 	default:
 		return fmt.Errorf("%w: %s", errUnknownOp, f[0])
 	}
-	if !wrote {
-		return fmt.Errorf("cannot write %s", path)
+	if wrote != SetOk {
+		return fmt.Errorf("cannot write %s: %v", path, wrote)
 	}
 	return nil
 }
@@ -1230,34 +1230,34 @@ func TestListReadsSayBadPath(t *testing.T) {
 
 func TestCheckSetPathNamesTheFailure(t *testing.T) {
 	defer testID(t, "ElouJ8L")
-	// The reason behind a setter's bare false. Same fixture in every runner.
+	// The path's half of a setter's status. Same fixture in every runner.
 	doc := Parse("a:\n\tb: 1\n")
-	if got := doc.CheckSetPath("a.b"); got != SetPathOk {
+	if got := doc.CheckSetPath("a.b"); got != SetOk {
 		t.Errorf("a.b: got %v, want Ok", got)
 	}
-	if got := doc.CheckSetPath("a.new(Boston).x"); got != SetPathOk { // creatable
+	if got := doc.CheckSetPath("a.new(Boston).x"); got != SetOk { // creatable
 		t.Errorf("a.new(Boston).x: got %v, want Ok", got)
 	}
-	if got := doc.CheckSetPath(""); got != SetPathBadPath {
+	if got := doc.CheckSetPath(""); got != SetBadPath {
 		t.Errorf("empty path: got %v, want BadPath", got)
 	}
-	if got := doc.CheckSetPath("a..b"); got != SetPathBadPath {
+	if got := doc.CheckSetPath("a..b"); got != SetBadPath {
 		t.Errorf("a..b: got %v, want BadPath", got)
 	}
-	if got := doc.CheckSetPath("a.b: 2"); got != SetPathValueInPath {
+	if got := doc.CheckSetPath("a.b: 2"); got != SetValueInPath {
 		t.Errorf("a.b: 2: got %v, want ValueInPath", got)
 	}
-	if got := doc.CheckSetPath("a(*).b"); got != SetPathWildcard {
+	if got := doc.CheckSetPath("a(*).b"); got != SetWildcard {
 		t.Errorf("a(*).b: got %v, want Wildcard", got)
 	}
-	if got := doc.CheckSetPath("a(5).b"); got != SetPathNoSuchIndex {
+	if got := doc.CheckSetPath("a(5).b"); got != SetNoSuchIndex {
 		t.Errorf("a(5).b: got %v, want NoSuchIndex", got)
 	}
-	if got := doc.CheckSetPath("nope(0).b"); got != SetPathNoSuchIndex {
+	if got := doc.CheckSetPath("nope(0).b"); got != SetNoSuchIndex {
 		t.Errorf("nope(0).b: got %v, want NoSuchIndex", got)
 	}
 	deep := strings.TrimSuffix(strings.Repeat("d.", 513), ".")
-	if got := doc.CheckSetPath(deep); got != SetPathTooDeep {
+	if got := doc.CheckSetPath(deep); got != SetTooDeep {
 		t.Errorf("deep path: got %v, want TooDeep", got)
 	}
 	// A literal line break is writable wherever a path can have one: a name
@@ -1266,13 +1266,13 @@ func TestCheckSetPathNamesTheFailure(t *testing.T) {
 	// was refused while the value emitter still wrote elements in their source
 	// spelling and had nothing to escape with. Not corpus-pinnable - an ops
 	// line cannot contain a raw newline.
-	if got := doc.CheckSetPath("a(\"p\nq\").b"); got != SetPathOk {
+	if got := doc.CheckSetPath("a(\"p\nq\").b"); got != SetOk {
 		t.Errorf("newline in selector: got %v, want Ok", got)
 	}
-	if got := doc.CheckSetPath("\"x\ny\".b"); got != SetPathOk {
+	if got := doc.CheckSetPath("\"x\ny\".b"); got != SetOk {
 		t.Errorf("newline in name: got %v, want Ok", got)
 	}
-	if got := doc.CheckSetPath("\"x\\ny\".b"); got != SetPathOk {
+	if got := doc.CheckSetPath("\"x\\ny\".b"); got != SetOk {
 		t.Errorf("escaped newline in name: got %v, want Ok", got)
 	}
 	// The probe never creates: the doc is unchanged after all of the above.
@@ -1284,42 +1284,45 @@ func TestCheckSetPathNamesTheFailure(t *testing.T) {
 	}
 }
 
-// The setter docs list the values a setter refuses on a path CheckSetPath
-// passes. Each one here returns false, writes nothing, and the path checks
-// SetPathOk, so the list stays true. Same fixture in every runner, plus Go's
-// own: text that is not valid UTF-8.
+// The values a setter refuses on a path CheckSetPath passes. Each one here is
+// refused, writes nothing, and the path checks SetOk. Same fixture in every
+// runner, plus Go's own: text that is not valid UTF-8.
+// TestSetterStatusNamesEachRefusal has the status each one gives.
 func TestRefusedValuesPassThePathCheck(t *testing.T) {
 	defer testID(t, "Es9S4kK")
 	text := "ports: [80, 443]\nsec:\n\tx: 1\n"
 	month13 := DateTime{HasDate: true, Year: 2026, Month: 13, Day: 1}
 	cases := []struct {
 		what, path string
-		set        func(d *Document) bool
+		set        func(d *Document) SetStatus
 	}{
-		{"NaN float", "f", func(d *Document) bool { return d.SetFloat("f", math.NaN()) }},
-		{"infinite float", "f", func(d *Document) bool { return d.SetFloat("f", math.Inf(1)) }},
-		{"infinite float in an array", "f", func(d *Document) bool { return d.SetFloatArray("f", []float64{1, math.Inf(-1)}) }},
-		{"month 13", "t", func(d *Document) bool { return d.SetDateTime("t", month13) }},
-		{"raw info with #", "r", func(d *Document) bool { return d.SetRaw("r", "body", "sh # x") }},
-		{"raw info with a line break", "r", func(d *Document) bool { return d.SetRaw("r", "body", "sh\nx") }},
-		{"raw body line ending in CR", "r", func(d *Document) bool { return d.SetRaw("r", "a\r\nb", "") }},
-		{"comment with a line break", "sec.x", func(d *Document) bool { return d.SetComment("sec.x", "a\nb") }},
-		{"literal of two values", "l", func(d *Document) bool { return d.SetLiteral("l", "a, b") }},
-		{"literal with an open quote", "l", func(d *Document) bool { return d.SetLiteral("l", "\"abc") }},
-		{"literal with a line break", "l", func(d *Document) bool { return d.SetLiteral("l", "a\nb") }},
-		{"array on a field with lines under it", "sec", func(d *Document) bool { return d.SetIntArray("sec", []int64{1, 2}) }},
-		{"literal array on a field with lines under it", "sec", func(d *Document) bool { return d.SetLiteral("sec", "[1, 2]") }},
-		{"field under an array", "ports.x", func(d *Document) bool { return d.SetInt("ports.x", 1) }},
-		{"string that is not UTF-8", "s", func(d *Document) bool { return d.SetString("s", "a\xffb") }},
-		{"comment that is not UTF-8", "sec.x", func(d *Document) bool { return d.SetComment("sec.x", "a\xffb") }},
+		{"NaN float", "f", func(d *Document) SetStatus { return d.SetFloat("f", math.NaN()) }},
+		{"infinite float", "f", func(d *Document) SetStatus { return d.SetFloat("f", math.Inf(1)) }},
+		{"infinite float in an array", "f", func(d *Document) SetStatus { return d.SetFloatArray("f", []float64{1, math.Inf(-1)}) }},
+		{"month 13", "t", func(d *Document) SetStatus { return d.SetDateTime("t", month13) }},
+		{"raw info with #", "r", func(d *Document) SetStatus { return d.SetRaw("r", "body", "sh # x") }},
+		{"raw info with a line break", "r", func(d *Document) SetStatus { return d.SetRaw("r", "body", "sh\nx") }},
+		{"raw body line ending in CR", "r", func(d *Document) SetStatus { return d.SetRaw("r", "a\r\nb", "") }},
+		{"comment with a line break", "sec.x", func(d *Document) SetStatus { return d.SetComment("sec.x", "a\nb") }},
+		{"literal of two values", "l", func(d *Document) SetStatus { return d.SetLiteral("l", "a, b") }},
+		{"literal with an open quote", "l", func(d *Document) SetStatus { return d.SetLiteral("l", "\"abc") }},
+		{"literal with a line break", "l", func(d *Document) SetStatus { return d.SetLiteral("l", "a\nb") }},
+		{"array on a field with lines under it", "sec", func(d *Document) SetStatus { return d.SetIntArray("sec", []int64{1, 2}) }},
+		{"literal array on a field with lines under it", "sec", func(d *Document) SetStatus { return d.SetLiteral("sec", "[1, 2]") }},
+		// The path check says UnderArray for this one now (2026100907362300),
+		// since no value could go there. TestSetterStatusNamesEachRefusal has
+		// it.
+		// {"field under an array", "ports.x", func(d *Document) SetStatus { return d.SetInt("ports.x", 1) }},
+		{"string that is not UTF-8", "s", func(d *Document) SetStatus { return d.SetString("s", "a\xffb") }},
+		{"comment that is not UTF-8", "sec.x", func(d *Document) SetStatus { return d.SetComment("sec.x", "a\xffb") }},
 	}
 	want := Parse(text).ToCanonical()
 	for _, c := range cases {
 		doc := Parse(text)
-		if c.set(doc) {
-			t.Errorf("%s: the setter returned true", c.what)
+		if c.set(doc) == SetOk {
+			t.Errorf("%s: the setter wrote", c.what)
 		}
-		if got := doc.CheckSetPath(c.path); got != SetPathOk {
+		if got := doc.CheckSetPath(c.path); got != SetOk {
 			t.Errorf("%s: CheckSetPath = %v, want Ok", c.what, got)
 		}
 		if got := doc.ToCanonical(); got != want {
@@ -1328,8 +1331,165 @@ func TestRefusedValuesPassThePathCheck(t *testing.T) {
 	}
 }
 
+// Every status a setter gives, in the order every binding numbers them. The
+// other three print the same names. Same fixture in every runner.
+func TestSetterStatusValuesInOrder(t *testing.T) {
+	defer testID(t, "EsDeJ9a")
+	all := []SetStatus{
+		SetOk,
+		SetBadPath,
+		SetValueInPath,
+		SetWildcard,
+		SetNoSuchIndex,
+		SetTooDeep,
+		SetMultiple,
+		SetUnderArray,
+		SetHasChildren,
+		SetNotFinite,
+		SetBadDateTime,
+		SetBadRawInfo,
+		SetBadRawBody,
+		SetBadComment,
+		SetNotOneValue,
+		SetNotUtf8,
+		SetOutOfRange,
+		SetNoReadBack,
+	}
+	names := []string{
+		"Ok",
+		"BadPath",
+		"ValueInPath",
+		"Wildcard",
+		"NoSuchIndex",
+		"TooDeep",
+		"Multiple",
+		"UnderArray",
+		"HasChildren",
+		"NotFinite",
+		"BadDateTime",
+		"BadRawInfo",
+		"BadRawBody",
+		"BadComment",
+		"NotOneValue",
+		"NotUtf8",
+		"OutOfRange",
+		"NoReadBack",
+	}
+	if len(all) != len(names) {
+		t.Fatalf("%d values, %d names", len(all), len(names))
+	}
+	for i, s := range all {
+		if s.String() != names[i] {
+			t.Errorf("value %d is %q, want %q", i, s.String(), names[i])
+		}
+		if int(s) != i {
+			t.Errorf("%v is %d, want %d", s, int(s), i)
+		}
+	}
+}
+
+// A setter's status names why it wrote nothing. A path reason is the one
+// CheckSetPath gives, and wins over a value reason when both apply, since the
+// path is what to fix first; a value reason comes with a path that checks
+// Ok. A default form on a path already there writes nothing and gives what
+// the plain setter would. Same fixture in every runner, plus Go's own:
+// NotUtf8 for value, comment, info and body text, and BadPath for a path that
+// is not UTF-8. OutOfRange and NoReadBack have no case: an int64 is in range,
+// and no other value is known that fails to read back.
+func TestSetterStatusNamesEachRefusal(t *testing.T) {
+	defer testID(t, "EsDeJBi")
+	text := "a:\n\tb: 1\nports: [80, 443]\nsec:\n\tx: 1\nport: 1\nport: 2\n"
+	month13 := DateTime{HasDate: true, Year: 2026, Month: 13, Day: 1}
+	deep := strings.TrimSuffix(strings.Repeat("d.", 513), ".")
+	cases := []struct {
+		path string
+		want SetStatus
+		set  func(d *Document) SetStatus
+	}{
+		{"a.b", SetOk, func(d *Document) SetStatus { return d.SetInt("a.b", 2) }},
+		{"a.c", SetOk, func(d *Document) SetStatus { return d.SetFloat("a.c", 2.5) }},
+		{"a.b", SetOk, func(d *Document) SetStatus { return d.SetIntDefault("a.b", 9) }},
+		{"", SetBadPath, func(d *Document) SetStatus { return d.SetInt("", 1) }},
+		{"a..b", SetBadPath, func(d *Document) SetStatus { return d.SetString("a..b", "v") }},
+		{"a.b: 2", SetValueInPath, func(d *Document) SetStatus { return d.SetInt("a.b: 2", 1) }},
+		{"a(*).b", SetWildcard, func(d *Document) SetStatus { return d.SetInt("a(*).b", 1) }},
+		{"a(5).b", SetNoSuchIndex, func(d *Document) SetStatus { return d.SetInt("a(5).b", 1) }},
+		{deep, SetTooDeep, func(d *Document) SetStatus { return d.SetInt(deep, 1) }},
+		{"port", SetMultiple, func(d *Document) SetStatus { return d.SetInt("port", 9) }},
+		{"ports.x", SetUnderArray, func(d *Document) SetStatus { return d.SetInt("ports.x", 1) }},
+		{"ports.x.y", SetUnderArray, func(d *Document) SetStatus { return d.SetInt("ports.x.y", 1) }},
+		{"ports.x", SetUnderArray, func(d *Document) SetStatus { return d.SetComment("ports.x", "c") }},
+		{"ports.x", SetUnderArray, func(d *Document) SetStatus { return d.SetIntDefault("ports.x", 1) }},
+		{"sec", SetHasChildren, func(d *Document) SetStatus { return d.SetIntArray("sec", []int64{1, 2}) }},
+		{"sec", SetHasChildren, func(d *Document) SetStatus { return d.SetStringArray("sec", []string{"v"}) }},
+		{"sec", SetHasChildren, func(d *Document) SetStatus { return d.SetLiteral("sec", "[1, 2]") }},
+		{"f", SetNotFinite, func(d *Document) SetStatus { return d.SetFloat("f", math.NaN()) }},
+		{"f", SetNotFinite, func(d *Document) SetStatus { return d.SetFloatArray("f", []float64{1, math.Inf(1)}) }},
+		{"a.b", SetNotFinite, func(d *Document) SetStatus { return d.SetFloatDefault("a.b", math.NaN()) }},
+		{"t", SetBadDateTime, func(d *Document) SetStatus { return d.SetDateTime("t", month13) }},
+		{"r", SetBadRawInfo, func(d *Document) SetStatus { return d.SetRaw("r", "body", "sh # x") }},
+		{"r", SetBadRawInfo, func(d *Document) SetStatus { return d.SetRaw("r", "body", "sh\nx") }},
+		{"a.b", SetBadRawInfo, func(d *Document) SetStatus { return d.SetRawDefault("a.b", "body", "sh # x") }},
+		{"r", SetBadRawBody, func(d *Document) SetStatus { return d.SetRaw("r", "a\r\nb", "") }},
+		{"sec.x", SetBadComment, func(d *Document) SetStatus { return d.SetComment("sec.x", "a\nb") }},
+		{"l", SetNotOneValue, func(d *Document) SetStatus { return d.SetLiteral("l", "a, b") }},
+		{"l", SetNotOneValue, func(d *Document) SetStatus { return d.SetLiteral("l", "\"abc") }},
+		{"l", SetNotOneValue, func(d *Document) SetStatus { return d.SetLiteral("l", "a\nb") }},
+		{"a.b", SetNotOneValue, func(d *Document) SetStatus { return d.SetLiteralDefault("a.b", "a, b") }},
+		// Both halves wrong: the path's reason.
+		{"a(*).b", SetWildcard, func(d *Document) SetStatus { return d.SetFloat("a(*).b", math.NaN()) }},
+		{"ports.x", SetUnderArray, func(d *Document) SetStatus { return d.SetLiteral("ports.x", "a, b") }},
+		{"a..b", SetBadPath, func(d *Document) SetStatus { return d.SetComment("a..b", "a\nb") }},
+		{"a(5).b", SetNoSuchIndex, func(d *Document) SetStatus { return d.SetRaw("a(5).b", "x", "#") }},
+		{"port", SetMultiple, func(d *Document) SetStatus { return d.SetIntArray("port", []int64{1}) }},
+		{"port", SetMultiple, func(d *Document) SetStatus { return d.SetFloatDefault("port", math.NaN()) }},
+		// Go's own: text that is not UTF-8. It wins over the other value
+		// reasons, and a path's reason still wins over it.
+		{"s", SetNotUtf8, func(d *Document) SetStatus { return d.SetString("s", "a\xffb") }},
+		{"s", SetNotUtf8, func(d *Document) SetStatus { return d.SetStringArray("s", []string{"x", "a\xffb"}) }},
+		{"s", SetNotUtf8, func(d *Document) SetStatus { return d.SetLiteral("s", "a\xffb") }},
+		{"s", SetNotUtf8, func(d *Document) SetStatus { return d.SetLiteral("s", "a\xff, b") }},
+		{"sec.x", SetNotUtf8, func(d *Document) SetStatus { return d.SetComment("sec.x", "a\xffb") }},
+		{"sec.x", SetNotUtf8, func(d *Document) SetStatus { return d.SetComment("sec.x", "a\xff\nb") }},
+		{"r", SetNotUtf8, func(d *Document) SetStatus { return d.SetRaw("r", "a\xffb", "") }},
+		{"r", SetNotUtf8, func(d *Document) SetStatus { return d.SetRaw("r", "body", "sh\xff") }},
+		{"r", SetNotUtf8, func(d *Document) SetStatus { return d.SetRaw("r", "a\xff\r\nb", "#") }},
+		{"a.b", SetNotUtf8, func(d *Document) SetStatus { return d.SetStringDefault("a.b", "a\xffb") }},
+		{"port", SetMultiple, func(d *Document) SetStatus { return d.SetString("port", "a\xffb") }},
+		{"a\xff.b", SetBadPath, func(d *Document) SetStatus { return d.SetInt("a\xff.b", 1) }},
+		{"a\xff.b", SetBadPath, func(d *Document) SetStatus { return d.SetString("a\xff.b", "a\xffb") }},
+	}
+	pathReasons := map[SetStatus]bool{
+		SetBadPath:     true,
+		SetValueInPath: true,
+		SetWildcard:    true,
+		SetNoSuchIndex: true,
+		SetTooDeep:     true,
+		SetMultiple:    true,
+		SetUnderArray:  true,
+	}
+	for _, c := range cases {
+		doc := Parse(text)
+		before := doc.ToCanonical()
+		got := c.set(doc)
+		if got != c.want {
+			t.Errorf("%q: got %v, want %v", c.path, got, c.want)
+		}
+		checked := Parse(text).CheckSetPath(c.path)
+		if pathReasons[c.want] && checked != c.want {
+			t.Errorf("%q: CheckSetPath = %v, want %v", c.path, checked, c.want)
+		}
+		if !pathReasons[c.want] && checked != SetOk {
+			t.Errorf("%q: CheckSetPath = %v, want Ok", c.path, checked)
+		}
+		if got != SetOk && doc.ToCanonical() != before {
+			t.Errorf("%q: wrote something", c.path)
+		}
+	}
+}
+
 // A setter on a path that matches more than one field at any step writes
-// nothing and the path checks Multiple, so a write never says true where the
+// nothing and the path checks Multiple, so a write never says Ok where the
 // read after it would say Multiple. An index or value selector picks one.
 // Same fixture in every runner.
 func TestRepeatedPathRefusesASetter(t *testing.T) {
@@ -1337,30 +1497,30 @@ func TestRepeatedPathRefusesASetter(t *testing.T) {
 	text := "port: 1\nport: 2\nsite: a\n\troot: /x\nsite: b\n\troot: /y\nsec:\n\tk: 1\n\tk: 2\n"
 	cases := []struct {
 		path string
-		set  func(d *Document) bool
+		set  func(d *Document) SetStatus
 	}{
-		{"port", func(d *Document) bool { return d.SetInt("port", 9) }},
-		{"port", func(d *Document) bool { return d.SetString("port", "9") }},
-		{"port", func(d *Document) bool { return d.SetLiteral("port", "9") }},
-		{"port", func(d *Document) bool { return d.SetIntArray("port", []int64{9}) }},
-		{"port", func(d *Document) bool { return d.SetEmpty("port") }},
-		{"port", func(d *Document) bool { return d.SetRaw("port", "x", "") }},
-		{"port", func(d *Document) bool { return d.SetComment("port", "c") }},
-		{"port", func(d *Document) bool { return d.SetIntDefault("port", 9) }},
-		{"port", func(d *Document) bool { return d.SetLiteralDefault("port", "9") }},
-		{"site.root", func(d *Document) bool { return d.SetString("site.root", "/z") }},
-		{"site.new", func(d *Document) bool { return d.SetString("site.new", "v") }},
-		{"site.new", func(d *Document) bool { return d.SetStringDefault("site.new", "v") }},
-		{"sec.k", func(d *Document) bool { return d.SetInt("sec.k", 9) }},
-		{"sec.k.x", func(d *Document) bool { return d.SetInt("sec.k.x", 9) }},
+		{"port", func(d *Document) SetStatus { return d.SetInt("port", 9) }},
+		{"port", func(d *Document) SetStatus { return d.SetString("port", "9") }},
+		{"port", func(d *Document) SetStatus { return d.SetLiteral("port", "9") }},
+		{"port", func(d *Document) SetStatus { return d.SetIntArray("port", []int64{9}) }},
+		{"port", func(d *Document) SetStatus { return d.SetEmpty("port") }},
+		{"port", func(d *Document) SetStatus { return d.SetRaw("port", "x", "") }},
+		{"port", func(d *Document) SetStatus { return d.SetComment("port", "c") }},
+		{"port", func(d *Document) SetStatus { return d.SetIntDefault("port", 9) }},
+		{"port", func(d *Document) SetStatus { return d.SetLiteralDefault("port", "9") }},
+		{"site.root", func(d *Document) SetStatus { return d.SetString("site.root", "/z") }},
+		{"site.new", func(d *Document) SetStatus { return d.SetString("site.new", "v") }},
+		{"site.new", func(d *Document) SetStatus { return d.SetStringDefault("site.new", "v") }},
+		{"sec.k", func(d *Document) SetStatus { return d.SetInt("sec.k", 9) }},
+		{"sec.k.x", func(d *Document) SetStatus { return d.SetInt("sec.k.x", 9) }},
 	}
 	want := Parse(text).ToCanonical()
 	for _, c := range cases {
 		doc := Parse(text)
-		if c.set(doc) {
-			t.Errorf("%s: the setter returned true", c.path)
+		if got := c.set(doc); got != SetMultiple {
+			t.Errorf("%s: the setter gave %v, want Multiple", c.path, got)
 		}
-		if got := doc.CheckSetPath(c.path); got != SetPathMultiple {
+		if got := doc.CheckSetPath(c.path); got != SetMultiple {
 			t.Errorf("%s: CheckSetPath = %v, want Multiple", c.path, got)
 		}
 		if got := doc.ToCanonical(); got != want {
@@ -1368,7 +1528,7 @@ func TestRepeatedPathRefusesASetter(t *testing.T) {
 		}
 	}
 	doc := Parse(text)
-	if !doc.SetInt("port(1)", 9) || !doc.SetString("site(1).root", "/z") || !doc.SetString("site(a).root", "/w") || !doc.SetInt("sec.k(0)", 7) {
+	if doc.SetInt("port(1)", 9) != SetOk || doc.SetString("site(1).root", "/z") != SetOk || doc.SetString("site(a).root", "/w") != SetOk || doc.SetInt("sec.k(0)", 7) != SetOk {
 		t.Fatalf("a setter naming one instance was refused")
 	}
 	if doc.GetIntOr("port(0)", 0) != 1 || doc.GetIntOr("port(1)", 0) != 9 || doc.GetStringOr("site(b).root", "") != "/z" || doc.GetStringOr("site(a).root", "") != "/w" || doc.GetIntOr("sec.k(0)", 0) != 7 {
@@ -1378,7 +1538,7 @@ func TestRepeatedPathRefusesASetter(t *testing.T) {
 	if n := doc.Remove("port"); n != 2 {
 		t.Fatalf("Remove(port) = %d, want 2", n)
 	}
-	if got := doc.CheckSetPath("port"); got != SetPathOk {
+	if got := doc.CheckSetPath("port"); got != SetOk {
 		t.Fatalf("CheckSetPath(port) after the remove = %v", got)
 	}
 }
@@ -1390,19 +1550,19 @@ func TestSettersRefuseAValueTheReaderRefuses(t *testing.T) {
 	// fixture in every runner.
 	doc := Parse("z: 0\n")
 	for _, v := range []float64{math.Inf(1), math.Inf(-1), math.NaN()} {
-		if doc.SetFloat("f", v) || doc.SetFloatDefault("f", v) || doc.SetFloatArray("f", []float64{1, v}) {
-			t.Fatalf("float %v was written", v)
+		if doc.SetFloat("f", v) != SetNotFinite || doc.SetFloatDefault("f", v) != SetNotFinite || doc.SetFloatArray("f", []float64{1, v}) != SetNotFinite {
+			t.Fatalf("float %v was written, or not as NotFinite", v)
 		}
 		// A default form on a path that is already there writes nothing, and
 		// still refuses what the plain setter would.
-		if doc.SetFloatDefault("z", v) || doc.SetFloatArrayDefault("z", []float64{1, v}) {
+		if doc.SetFloatDefault("z", v) != SetNotFinite || doc.SetFloatArrayDefault("z", []float64{1, v}) != SetNotFinite {
 			t.Fatalf("float %v passed a default form on a present path", v)
 		}
 	}
-	if v, st := 2.5, Good; !doc.SetFloat("f", v) || func() bool { g, s := doc.GetFloat("f"); return g != v || s != st }() {
+	if v, st := 2.5, Good; doc.SetFloat("f", v) != SetOk || func() bool { g, s := doc.GetFloat("f"); return g != v || s != st }() {
 		t.Fatalf("a finite float was refused")
 	}
-	if !doc.SetFloatDefault("z", 2.5) || func() bool { g, _ := doc.GetFloat("z"); return g != 0 }() {
+	if doc.SetFloatDefault("z", 2.5) != SetOk || func() bool { g, _ := doc.GetFloat("z"); return g != 0 }() {
 		t.Fatalf("a finite float default on a present path was refused or written")
 	}
 	date := func(y, m, d int) DateTime { return DateTime{HasDate: true, Year: y, Month: m, Day: d} }
@@ -1423,15 +1583,15 @@ func TestSettersRefuseAValueTheReaderRefuses(t *testing.T) {
 		utc(date(2026, 1, 1)),                   // zone on a date alone
 	}
 	for _, dt := range bad {
-		if doc.SetDateTime("d", dt) || doc.SetDateTimeDefault("d", dt) || doc.SetDateTimeArray("d", []DateTime{date(2026, 1, 1), dt}) {
-			t.Fatalf("datetime %q was written", dt.String())
+		if doc.SetDateTime("d", dt) != SetBadDateTime || doc.SetDateTimeDefault("d", dt) != SetBadDateTime || doc.SetDateTimeArray("d", []DateTime{date(2026, 1, 1), dt}) != SetBadDateTime {
+			t.Fatalf("datetime %q was written, or not as BadDateTime", dt.String())
 		}
-		if doc.SetDateTimeDefault("z", dt) || doc.SetDateTimeArrayDefault("z", []DateTime{date(2026, 1, 1), dt}) {
+		if doc.SetDateTimeDefault("z", dt) != SetBadDateTime || doc.SetDateTimeArrayDefault("z", []DateTime{date(2026, 1, 1), dt}) != SetBadDateTime {
 			t.Fatalf("datetime %q passed a default form on a present path", dt.String())
 		}
 	}
 	ok := offset(DateTime{HasDate: true, Year: 2026, Month: 1, Day: 2, HasTime: true, Hour: 3, Minute: 4, HasSeconds: true, Second: 5, Frac: "60"}, -90)
-	if !doc.SetDateTime("d", ok) {
+	if doc.SetDateTime("d", ok) != SetOk {
 		t.Fatalf("a valid datetime was refused")
 	}
 	if got, st := doc.GetDateTime("d"); st != Good || got.String() != ok.String() {
@@ -1463,10 +1623,10 @@ func TestABacktickValueReadsRawWithItsFlag(t *testing.T) {
 	if r := doc.ReadInt("n"); r.Value != 7 || !r.Backtick {
 		t.Fatalf("n: %d %v", r.Value, r.Backtick)
 	}
-	if !doc.SetString("c", "#00FF00") || !doc.ReadString("c").Backtick {
+	if doc.SetString("c", "#00FF00") != SetOk || !doc.ReadString("c").Backtick {
 		t.Fatal("an overwrite lost the backticks")
 	}
-	if !doc.SetString("c", "a`b") || doc.ReadString("c").Backtick {
+	if doc.SetString("c", "a`b") != SetOk || doc.ReadString("c").Backtick {
 		t.Fatal("a backtick value holding a backtick")
 	}
 	if got := doc.ToCanonical(); !strings.HasPrefix(got, "c: \"a`b\"\n") {
@@ -1599,7 +1759,7 @@ func TestReadSurfaceLineQuotedChildren(t *testing.T) {
 	if got := d2.AuthoredName("missing"); got != "" {
 		t.Errorf("AuthoredName(missing): got %q", got)
 	}
-	if !d2.SetInt("NewTop.n", 1) {
+	if d2.SetInt("NewTop.n", 1) != SetOk {
 		t.Errorf("SetInt NewTop.n failed")
 	}
 	if got := d2.AuthoredName("newtop"); got != "NewTop" {
@@ -1681,7 +1841,7 @@ func TestFileTierLoadSave(t *testing.T) {
 	if _, rst := ReadFile(dir+"/none.shcl", 0); rst != FileNotFound {
 		t.Errorf("ReadFile missing: got %v", rst)
 	}
-	if !doc.SetInt("c", 3) {
+	if doc.SetInt("c", 3) != SetOk {
 		t.Fatal("SetInt failed")
 	}
 	if err := doc.SaveFile(f); err != nil {
@@ -1811,7 +1971,7 @@ func TestSetRawKeepsASharedIndentAndTrimsTheInfo(t *testing.T) {
 	// back, and an info with a line break or a `#` has no spelling and fails
 	// the write. Same fixture in every runner.
 	doc := New()
-	if !doc.SetRaw("q", "  a\n  b", " sql ") {
+	if doc.SetRaw("q", "  a\n  b", " sql ") != SetOk {
 		t.Fatal("SetRaw failed")
 	}
 	back := Parse(doc.ToCanonical())
@@ -1821,44 +1981,44 @@ func TestSetRawKeepsASharedIndentAndTrimsTheInfo(t *testing.T) {
 	if info := back.ReadRawInfo("q").Value; info != "sql" {
 		t.Errorf("info: got %q, want sql", info)
 	}
-	if doc.SetRaw("q", "x", "a\nb") {
+	if doc.SetRaw("q", "x", "a\nb") == SetOk {
 		t.Error("info with a newline was accepted")
 	}
 	// A trailing CR is a blank and comes off, as the load takes it; one
 	// mid-info is content.
-	if !doc.SetRaw("q", "x", "ab\r") {
+	if doc.SetRaw("q", "x", "ab\r") != SetOk {
 		t.Fatal("info ending in a carriage return was refused")
 	}
 	if info := Parse(doc.ToCanonical()).ReadRawInfo("q").Value; info != "ab" {
 		t.Errorf("trailing CR info: got %q, want ab", info)
 	}
-	if !doc.SetRaw("q", "x", "a\rb") {
+	if doc.SetRaw("q", "x", "a\rb") != SetOk {
 		t.Fatal("info with a mid-string carriage return was refused")
 	}
 	if info := Parse(doc.ToCanonical()).ReadRawInfo("q").Value; info != "a\rb" {
 		t.Errorf("mid-string CR info: got %q", info)
 	}
-	if doc.SetRaw("q", "x", "a # b") {
+	if doc.SetRaw("q", "x", "a # b") == SetOk {
 		t.Error("info with a spaced # was accepted")
 	}
 	// An info string has no quoting of its own: quotes are characters in it,
 	// so they hide nothing, and a `#` glued to the label opens a comment too.
-	if doc.SetRaw("q", "x", "\"a # b\"") {
+	if doc.SetRaw("q", "x", "\"a # b\"") == SetOk {
 		t.Error("info with a quoted # was accepted")
 	}
-	if doc.SetRaw("q", "x", "c#") {
+	if doc.SetRaw("q", "x", "c#") == SetOk {
 		t.Error("info with a glued # was accepted")
 	}
 	// A body line ending in CR has no fence spelling: the load takes the whole
 	// trailing CR run off every line, so it is refused rather than lost. A CR
 	// mid-line is content and still round-trips.
-	if doc.SetRaw("q", "a\r\nb", "") {
+	if doc.SetRaw("q", "a\r\nb", "") == SetOk {
 		t.Error("body with a line-ending carriage return was accepted")
 	}
-	if doc.SetRaw("q", "\r", "") {
+	if doc.SetRaw("q", "\r", "") == SetOk {
 		t.Error("body of one carriage return was accepted")
 	}
-	if !doc.SetRaw("q", "a\rb", "") {
+	if doc.SetRaw("q", "a\rb", "") != SetOk {
 		t.Fatal("body with a mid-line carriage return was refused")
 	}
 	back = Parse(doc.ToCanonical())
@@ -2100,7 +2260,7 @@ func TestSaveRefusesADirectoryShapedPath(t *testing.T) {
 func TestALineBreakInAPathWritesAndReadsBack(t *testing.T) {
 	defer testID(t, "EpGigIL")
 	doc := Parse("z: 0\n")
-	if !doc.SetInt("x(\"p\nq\").c", 1) || !doc.SetInt("\"a\nb\".c", 1) {
+	if doc.SetInt("x(\"p\nq\").c", 1) != SetOk || doc.SetInt("\"a\nb\".c", 1) != SetOk {
 		t.Fatal("a line break in a path was refused")
 	}
 	text := doc.ToCanonical()
@@ -2122,35 +2282,38 @@ func TestSetStringRefusesInvalidUTF8(t *testing.T) {
 	defer testID(t, "EomvfCs")
 	d := Parse("a: 1\n")
 	bad := string([]byte{0x61, 0xff, 0x62})
-	if d.SetString("k", bad) {
-		t.Error("SetString accepted text that is not UTF-8")
+	if got := d.SetString("k", bad); got != SetNotUtf8 {
+		t.Errorf("SetString on text that is not UTF-8 gave %v", got)
 	}
-	if d.SetStringArray("k", []string{"ok", bad}) {
-		t.Error("SetStringArray accepted an element that is not UTF-8")
+	if got := d.SetStringArray("k", []string{"ok", bad}); got != SetNotUtf8 {
+		t.Errorf("SetStringArray on an element that is not UTF-8 gave %v", got)
 	}
 	// Every other way text reaches the page. Each used to save and then fail
-	// the next load of the whole file.
-	for name, set := range map[string]func() bool{
-		"SetRaw content":    func() bool { return d.SetRaw("k", bad, "") },
-		"SetRaw info":       func() bool { return d.SetRaw("k", "x", bad) },
-		"SetRawDefault":     func() bool { return d.SetRawDefault("k", bad, "") },
-		"SetComment":        func() bool { return d.SetComment("a", bad) },
-		"SetLiteral bare":   func() bool { return d.SetLiteral("k", bad) },
-		"SetLiteral quoted": func() bool { return d.SetLiteral("k", `"`+bad+`"`) },
-		"SetLiteralDefault": func() bool { return d.SetLiteralDefault("k", bad) },
-		"SetStringDefault":  func() bool { return d.SetStringDefault("k", bad) },
-		"a name":            func() bool { return d.SetInt(bad, 1) },
-		"a quoted name":     func() bool { return d.SetInt(`"`+bad+`"`, 1) },
-		"a selector":        func() bool { return d.SetInt("s("+bad+").x", 1) },
+	// the next load of the whole file. Text in a path is the path's fault.
+	for name, c := range map[string]struct {
+		want SetStatus
+		set  func() SetStatus
+	}{
+		"SetRaw content":    {SetNotUtf8, func() SetStatus { return d.SetRaw("k", bad, "") }},
+		"SetRaw info":       {SetNotUtf8, func() SetStatus { return d.SetRaw("k", "x", bad) }},
+		"SetRawDefault":     {SetNotUtf8, func() SetStatus { return d.SetRawDefault("k", bad, "") }},
+		"SetComment":        {SetNotUtf8, func() SetStatus { return d.SetComment("a", bad) }},
+		"SetLiteral bare":   {SetNotUtf8, func() SetStatus { return d.SetLiteral("k", bad) }},
+		"SetLiteral quoted": {SetNotUtf8, func() SetStatus { return d.SetLiteral("k", `"`+bad+`"`) }},
+		"SetLiteralDefault": {SetNotUtf8, func() SetStatus { return d.SetLiteralDefault("k", bad) }},
+		"SetStringDefault":  {SetNotUtf8, func() SetStatus { return d.SetStringDefault("k", bad) }},
+		"a name":            {SetBadPath, func() SetStatus { return d.SetInt(bad, 1) }},
+		"a quoted name":     {SetBadPath, func() SetStatus { return d.SetInt(`"`+bad+`"`, 1) }},
+		"a selector":        {SetBadPath, func() SetStatus { return d.SetInt("s("+bad+").x", 1) }},
 	} {
-		if set() {
-			t.Errorf("%s accepted text that is not UTF-8", name)
+		if got := c.set(); got != c.want {
+			t.Errorf("%s on text that is not UTF-8 gave %v, want %v", name, got, c.want)
 		}
 	}
 	if d.ToCanonical() != "a: 1\n" {
 		t.Errorf("a refused write changed the document: %q", d.ToCanonical())
 	}
-	if !d.SetString("k", "fine") {
+	if d.SetString("k", "fine") != SetOk {
 		t.Error("SetString refused valid text")
 	}
 }
@@ -2162,7 +2325,7 @@ func TestSetStringRefusesInvalidUTF8(t *testing.T) {
 func TestWrittenSpellingMatchesItsReload(t *testing.T) {
 	defer testID(t, "EommtF3")
 	d := Parse("x: 1\n")
-	if !d.SetString("k", "q\"q'") {
+	if d.SetString("k", "q\"q'") != SetOk {
 		t.Fatal("set_string refused")
 	}
 	back := Parse(d.ToCanonical())
@@ -2190,7 +2353,7 @@ func TestIndexRebuildIgnoresRemovedNodes(t *testing.T) {
 			// three times a sound build. A removed subtree keeps its own list,
 			// and the old walk indexed every dead child.
 			for i := 0; i < 50000; i++ {
-				if !d.SetInt("g.tmp.x", int64(i)) || d.Remove("g.tmp") != 1 {
+				if d.SetInt("g.tmp.x", int64(i)) != SetOk || d.Remove("g.tmp") != 1 {
 					t.Fatalf("churn cycle %d: set or remove refused", i)
 				}
 			}
@@ -2290,7 +2453,7 @@ func TestAFarKeptLineCostsAnEditNothing(t *testing.T) {
 		// Edits first: a merge drops the name index, and the edit after it
 		// would rebuild it over the whole document either way.
 		for i := 0; i < 500; i++ {
-			if !d.SetInt("g.k", int64(i)) {
+			if d.SetInt("g.k", int64(i)) != SetOk {
 				t.Fatalf("SetInt refused")
 			}
 		}
@@ -2372,7 +2535,7 @@ func TestLostAndSaveGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !keep.SetInt("a.b", 5) {
+	if keep.SetInt("a.b", 5) != SetOk {
 		t.Fatal("SetInt a.b refused")
 	}
 	if k, err := keep.SaveFileKeepLines(f); err != nil || !k {
@@ -2757,7 +2920,7 @@ func TestRawIsSourceText(t *testing.T) {
 	// A written value has no source spelling; raw falls back to display. The
 	// selector's escaped spelling must reach the existing instance.
 	doc2 := Parse("who: 'q\"uote'\n")
-	if !doc2.SetInt("who(\"q◉DQUOTE◉uote\").n", 5) {
+	if doc2.SetInt("who(\"q◉DQUOTE◉uote\").n", 5) != SetOk {
 		t.Fatal("SetInt with escaped selector failed")
 	}
 	if n := doc2.Count("who"); n != 1 {
@@ -2794,7 +2957,7 @@ func TestLayeredMergeMatchesExpected(t *testing.T) {
 			if eq < 0 {
 				t.Fatalf("%s: bad merge.sets line: %s", c.name, line)
 			}
-			if !doc.SetString(line[:eq], line[eq+1:]) {
+			if doc.SetString(line[:eq], line[eq+1:]) != SetOk {
 				t.Fatalf("%s: merge.set did not apply: %s", c.name, line)
 			}
 		}
@@ -3294,7 +3457,7 @@ func TestSettersWriteOnlyWhatReadsBack(t *testing.T) {
 		for kind := 0; kind < 6; kind++ {
 			doc := Parse("k: 1\n")
 			before := doc.ToCanonical()
-			set := func(d *Document, p string) bool {
+			set := func(d *Document, p string) SetStatus {
 				switch kind {
 				case 0:
 					return d.SetString(p, s)
@@ -3309,10 +3472,10 @@ func TestSettersWriteOnlyWhatReadsBack(t *testing.T) {
 				}
 				return d.SetStringArray(p, []string{"x", s})
 			}
-			applied := set(doc, "k")
+			applied := set(doc, "k") == SetOk
 			if applied {
 				slot++
-				if !set(all, "k"+strconv.Itoa(slot)) {
+				if set(all, "k"+strconv.Itoa(slot)) != SetOk {
 					t.Fatalf("slot %d refused what k took (setter %d, input %q)", slot, kind, s)
 				}
 			}
@@ -3362,8 +3525,8 @@ func TestSettersWriteOnlyWhatReadsBack(t *testing.T) {
 		path := QuoteSegment(s)
 		doc := Parse("k: 1\n")
 		before := doc.ToCanonical()
-		applied := doc.SetString(path, "v")
-		if applied && !all.SetString(path, "v") {
+		applied := doc.SetString(path, "v") == SetOk
+		if applied && all.SetString(path, "v") != SetOk {
 			t.Fatalf("the name %q was refused the second time", s)
 		}
 		if !applied {
@@ -3391,6 +3554,81 @@ func TestSettersWriteOnlyWhatReadsBack(t *testing.T) {
 	}
 	if back.ToCanonical() != all.ToCanonical() {
 		t.Fatalf("every accepted write together changed on a save and load")
+	}
+}
+
+// A setter's status agrees with CheckSetPath over the setter soup: a path
+// reason is what CheckSetPath gives for that path, a value reason comes with a
+// path that checks Ok, and a refusal writes nothing. Rust runs the same
+// property over its structural fuzz soup (EsDRhJo); Go has no fuzz harness,
+// so the soup is the setter alphabet, through the value and the path both.
+func TestSetterStatusAgreesWithThePathCheck(t *testing.T) {
+	defer testID(t, "EsDemw3")
+	text := "a:\n\tb: 1\nports: [80, 443]\nsec:\n\tx: 1\nport: 1\nport: 2\n"
+	pathReasons := map[SetStatus]bool{
+		SetBadPath:     true,
+		SetValueInPath: true,
+		SetWildcard:    true,
+		SetNoSuchIndex: true,
+		SetTooDeep:     true,
+		SetMultiple:    true,
+		SetUnderArray:  true,
+	}
+	seen := map[SetStatus]bool{}
+	step := 0
+	for _, v := range soupInputs() {
+		paths := []string{"a.b", "new.k", "a.b.kid", "a(*).b", "a(7).b", "a..x", "port", "ports.x", "sec", "sec.x", "a.b: 1", QuoteSegment(v) + ".k", "a(" + v + ").k"}
+		for _, path := range paths {
+			doc := Parse(text)
+			checked := doc.CheckSetPath(path)
+			before := doc.ToCanonical()
+			op := step % 10
+			step++
+			var got SetStatus
+			switch op {
+			case 0:
+				got = doc.SetInt(path, 7)
+			case 1:
+				got = doc.SetString(path, v)
+			case 2:
+				got = doc.SetLiteral(path, v)
+			case 3:
+				got = doc.SetComment(path, v)
+			case 4:
+				got = doc.SetRaw(path, v, v)
+			case 5:
+				got = doc.SetIntArray(path, []int64{1, 2})
+			case 6:
+				f := 1.5
+				if len(v)%2 == 0 {
+					f = math.NaN()
+				}
+				got = doc.SetFloat(path, f)
+			case 7:
+				got = doc.SetLiteralDefault(path, v)
+			case 8:
+				got = doc.SetIntArrayDefault(path, []int64{3})
+			default:
+				got = doc.SetEmpty(path)
+			}
+			seen[got] = true
+			want := SetOk
+			if pathReasons[got] {
+				want = got
+			}
+			if checked != want {
+				t.Fatalf("op %d at %q with %q gave %v, CheckSetPath %v", op, path, v, got, checked)
+			}
+			if got != SetOk && doc.ToCanonical() != before {
+				t.Fatalf("op %d at %q with %q gave %v and wrote", op, path, v, got)
+			}
+		}
+	}
+	// Guard: the soup still reaches path and value reasons both.
+	for _, want := range []SetStatus{SetOk, SetBadPath, SetValueInPath, SetWildcard, SetNoSuchIndex, SetMultiple, SetUnderArray, SetHasChildren, SetNotFinite, SetBadRawInfo, SetBadRawBody, SetBadComment, SetNotOneValue, SetNotUtf8} {
+		if !seen[want] {
+			t.Errorf("never saw %v", want)
+		}
 	}
 }
 
@@ -3489,7 +3727,7 @@ func keepsEveryLine(base string) bool {
 			return true
 		}
 	}
-	if !doc.SetInt("zz_new", 1) {
+	if doc.SetInt("zz_new", 1) != SetOk {
 		return true
 	}
 	text, kept := doc.ToTextKeepLines()
@@ -3682,7 +3920,7 @@ func TestARemoveKeepsASettledLineBelowIt(t *testing.T) {
 	if n := live.ClearComments("a.d"); n != 0 {
 		t.Fatalf("cleared %d", n)
 	}
-	if !live.SetEmpty("a.c") || !live.SetRaw("b.c", "body", "v0") {
+	if live.SetEmpty("a.c") != SetOk || live.SetRaw("b.c", "body", "v0") != SetOk {
 		t.Fatalf("a setter refused")
 	}
 	back := Parse(live.ToCanonical())
@@ -3837,7 +4075,7 @@ func TestASetterCommentsOutTheKeptLineHeadingItsTarget(t *testing.T) {
 			"# 404: x  ## commented out by shcl when setting \"404\", 2026-10-04 00:15:00 PDT: E014 field name needs quotes\n\"404\": 5\n\tq: 1\n"},
 	} {
 		doc, _ := ParseKeepLines(c.text, Standard)
-		if !doc.SetInt(c.path, 5) {
+		if doc.SetInt(c.path, 5) != SetOk {
 			t.Fatalf("%q: SetInt refused", c.text)
 		}
 		if n := doc.LostCount(); n != 0 {
@@ -3862,7 +4100,7 @@ func TestASetterCommentsOutTheKeptLineHeadingItsTarget(t *testing.T) {
 		{"z", "a: [1\n\tb: 2\n\nz: 5\n"},
 	} {
 		doc := Parse("a: [1\n\tb: 2\n")
-		if !doc.SetInt(c.path, 5) || doc.ToCanonical() != c.want {
+		if doc.SetInt(c.path, 5) != SetOk || doc.ToCanonical() != c.want {
 			t.Fatalf("%s: wrote %q", c.path, doc.ToCanonical())
 		}
 	}
@@ -3902,7 +4140,7 @@ func TestASetterCommentsOutEveryKeptLineOfItsName(t *testing.T) {
 		{"a: 1\na: [2\n\tc: [3\n", "a", "a: 5\na: [2\n\tc: [3\n", 1},
 	} {
 		doc, _ := ParseKeepLines(c.text, Standard)
-		if !doc.SetInt(c.path, 5) {
+		if doc.SetInt(c.path, 5) != SetOk {
 			t.Fatalf("%q: SetInt refused", c.text)
 		}
 		if n := doc.LostCount(); n != 0 {
@@ -3922,7 +4160,7 @@ func TestASetterCommentsOutEveryKeptLineOfItsName(t *testing.T) {
 	}
 	// Two valid lines stay as they are: the setter refuses the path.
 	two, _ := ParseKeepLines("a: 1\na: 2\n", Standard)
-	if two.SetInt("a", 5) {
+	if two.SetInt("a", 5) == SetOk {
 		t.Fatalf("SetInt took a repeated path")
 	}
 	if keep, kept := two.ToTextKeepLines(); keep != "a: 1\na: 2\n" || !kept {
@@ -3930,7 +4168,7 @@ func TestASetterCommentsOutEveryKeptLineOfItsName(t *testing.T) {
 	}
 	// SetComment makes the field without touching the line.
 	doc := Parse("a: [1\ny: 3\n")
-	if !doc.SetComment("a", "n") || doc.ToCanonical() != "a: [1\ny: 3\n\n# n\na:\n" {
+	if doc.SetComment("a", "n") != SetOk || doc.ToCanonical() != "a: [1\ny: 3\n\n# n\na:\n" {
 		t.Fatalf("SetComment wrote %q", doc.ToCanonical())
 	}
 }
@@ -4139,10 +4377,10 @@ func TestBareSpacesColonsAndCommas(t *testing.T) {
 func TestTheWriterQuotesAColonOrComma(t *testing.T) {
 	defer testID(t, "Ery85QH")
 	doc := New()
-	if !doc.SetString("opts", "rw,noatime") || !doc.SetString("display", ":0") || !doc.SetString("end", "a,") ||
-		!doc.SetString("title", "My App") || !doc.SetStringArray("tags", []string{"rw,noatime", "b"}) ||
-		!doc.SetString("call", "f(x)") || !doc.SetString("box", "a[0]") || !doc.SetString("tabbed", "a\tb") ||
-		!doc.SetString("plain", "a-b.c/d") {
+	if doc.SetString("opts", "rw,noatime") != SetOk || doc.SetString("display", ":0") != SetOk || doc.SetString("end", "a,") != SetOk ||
+		doc.SetString("title", "My App") != SetOk || doc.SetStringArray("tags", []string{"rw,noatime", "b"}) != SetOk ||
+		doc.SetString("call", "f(x)") != SetOk || doc.SetString("box", "a[0]") != SetOk || doc.SetString("tabbed", "a\tb") != SetOk ||
+		doc.SetString("plain", "a-b.c/d") != SetOk {
 		t.Fatal("a setter refused")
 	}
 	out := doc.ToCanonical()
@@ -4182,7 +4420,7 @@ func TestTheWriterQuotesAColonOrComma(t *testing.T) {
 	if v, st := doc.GetInt("ver"); st != Good || v != 8 {
 		t.Fatalf("ver: %d %v", v, st)
 	}
-	if !doc.SetInt("ver", 9) || !strings.HasPrefix(doc.ToCanonical(), "ver: \"9\"\n") {
+	if doc.SetInt("ver", 9) != SetOk || !strings.HasPrefix(doc.ToCanonical(), "ver: \"9\"\n") {
 		t.Fatalf("ver set wrote %q", doc.ToCanonical())
 	}
 	hint := Parse("t: a,b\nt: c\n").Diagnostics()[0]
@@ -4386,7 +4624,7 @@ func TestAListNoTextLoadsBackRefusesToSave(t *testing.T) {
 	if doc.LostCount() != 0 {
 		t.Fatalf("load lost %d", doc.LostCount())
 	}
-	if !doc.SetEmpty("x(v)") {
+	if doc.SetEmpty("x(v)") != SetOk {
 		t.Fatal("set empty refused")
 	}
 	text := doc.ToCanonical()
@@ -4429,7 +4667,7 @@ func TestAListNoTextLoadsBackRefusesToSave(t *testing.T) {
 	// and a list with no field under it goes in brackets.
 	for _, src := range []string{"x: v\nx:\n\t- a\n\tg: 2\n", "x: v\n\tf: 1\nx:\n\t- a\n\t- b\n"} {
 		doc := Parse(src)
-		if !doc.SetEmpty("x(v)") || doc.LostCount() != 0 {
+		if doc.SetEmpty("x(v)") != SetOk || doc.LostCount() != 0 {
 			t.Fatalf("%q: lost %d: %q", src, doc.LostCount(), doc.ToCanonical())
 		}
 	}
@@ -4449,7 +4687,7 @@ func TestAListJoiningAnEmptiedFieldKeepsItsFieldsFound(t *testing.T) {
 		if _, st := doc.GetString(c.field); st != Good {
 			t.Fatalf("%q: before: %v", c.src, st)
 		}
-		if !doc.SetEmpty(c.path) {
+		if doc.SetEmpty(c.path) != SetOk {
 			t.Fatalf("%q: set empty refused", c.src)
 		}
 		back := Parse(doc.ToCanonical())
@@ -4567,10 +4805,10 @@ func TestASetterKeepsFieldsAndArraysApart(t *testing.T) {
 	defer testID(t, "EryDg1D")
 	src := "l: [a]\nc: 1\n\tk: 2\n"
 	doc := Parse(src)
-	if doc.SetInt("l.c", 1) {
+	if doc.SetInt("l.c", 1) == SetOk {
 		t.Fatalf("a field under an array: %q", doc.ToCanonical())
 	}
-	if doc.SetLiteral("c", "[1, 2]") || doc.SetStringArray("c", []string{"1"}) {
+	if doc.SetLiteral("c", "[1, 2]") == SetOk || doc.SetStringArray("c", []string{"1"}) == SetOk {
 		t.Fatalf("an array over fields: %q", doc.ToCanonical())
 	}
 	if doc.ToCanonical() != src {
@@ -4579,7 +4817,7 @@ func TestASetterKeepsFieldsAndArraysApart(t *testing.T) {
 	// An array with nothing under it takes a new one, and a stacked list
 	// written with '- ' stays stacked.
 	doc = Parse("l: [a]\nz:\n\t- a\n\t- b\n")
-	if !doc.SetStringArray("l", []string{"b", "c"}) || !doc.SetStringArray("z", []string{"x"}) {
+	if doc.SetStringArray("l", []string{"b", "c"}) != SetOk || doc.SetStringArray("z", []string{"x"}) != SetOk {
 		t.Fatal("an array setter refused")
 	}
 	if got := doc.ToCanonical(); got != "l: [b, c]\nz:\n\t- x\n" {
@@ -4617,15 +4855,15 @@ func TestBracketSelectorsAreTheOldSpelling(t *testing.T) {
 	if n := doc.Count("srv[web]"); n != 0 {
 		t.Fatalf("srv[web] count %d", n)
 	}
-	for path, want := range map[string]SetPathCheck{"srv[web].x": SetPathBadPath, "srv(#0).x": SetPathBadPath, "srv(0).x": SetPathOk} {
+	for path, want := range map[string]SetStatus{"srv[web].x": SetBadPath, "srv(#0).x": SetBadPath, "srv(0).x": SetOk} {
 		if got := doc.CheckSetPath(path); got != want {
 			t.Errorf("CheckSetPath(%q) = %v, want %v", path, got, want)
 		}
 	}
-	if doc.SetInt("srv[web].x", 1) {
+	if doc.SetInt("srv[web].x", 1) == SetOk {
 		t.Fatal("a setter took a path in brackets")
 	}
-	if !doc.SetInt("srv(web).x", 1) {
+	if doc.SetInt("srv(web).x", 1) != SetOk {
 		t.Fatal("a setter refused srv(web).x")
 	}
 	if got := doc.ToCanonical(); !strings.HasPrefix(got, "srv[web]:\nsrv: web\n") {
