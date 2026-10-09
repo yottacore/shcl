@@ -50,7 +50,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - A setter's false doesn't say why
 	- ID: 2026100907362300
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Started
 	- Priority: Avg
 	- Opened: 20261009-073623
 	- Opened by: JC, from 2026100717500009
@@ -65,6 +65,37 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Decisions:
 		- 20261009: before the cut, since it changes every setter's signature and would otherwise wait for 4.0 (JC).
 		- 20261009: one `SetStatus` enum. `SetPathCheck` is renamed to it and gets the value reasons, and `check_set_path` returns it too (JC).
+	- Progress log:
+		- 20261009: part 1 is in on `setstat`: the Rust library and CLI, spec.md, design.md, the READMEs' prose and Rust examples, the code style guide and the changelog. Go, Python, C and the C++ interface are ported from it next. The branch merges to dev once all four agree.
+			- `SetStatus`, in this order, numbered from 0 in every binding:
+				- `Ok`: the write applied.
+				- `BadPath`: an empty path, one the scanner refuses, or a name or `(value)` the write would create that has no line reading back. That last one was a bare false.
+				- `ValueInPath`: a `: value` part in the path.
+				- `Wildcard`: a wildcard name or selector.
+				- `NoSuchIndex`: a `(k)` with no instance there.
+				- `TooDeep`: past the nesting cap.
+				- `Multiple`: a step that matches more than one field.
+				- `UnderArray`: a field the write would create under an array. `check_set_path` says it now, where it said `Ok`.
+				- `HasChildren`: an array on a field with lines under it.
+				- `NotFinite`: a NaN or infinite float.
+				- `BadDateTime`: a datetime that does not read back as the same fields.
+				- `BadRawInfo`: an info string with a `#` or a line break.
+				- `BadRawBody`: a body line ending in CR.
+				- `BadComment`: comment text with a line break.
+				- `NotOneValue`: `set_literal` text that is not one value, a literal that parses and still has no line that reads back included.
+				- `NotUtf8`: value, comment, info or body text that is not UTF-8. Go, Python and C only. A path that is not UTF-8 stays `BadPath`.
+				- `OutOfRange`: an int past 64 bits. Python only.
+				- `NoReadBack`: any other value that does not read back. None is known.
+			- `check_set_path` gives `Ok` or one of the path reasons, `BadPath` to `UnderArray`. When the path and the value are both wrong the setter gives the path's reason. Rust asks the path check only after a value is refused, so a write that applies walks the path once. A default form on a path already there gives what the plain setter would.
+			- The CLIs print the reason from the status, with the same text as before for every reason they could reach. `refusal()` in `main.rs` has one line per status, and the ports copy it byte for byte. The CLI's own copies of the rules (`describe_refusal`, `raw_refusal`, `array_refusal`) are gone, and the ports drop theirs.
+			- For the ports: Go's values are `SetOk` to `SetNoReadBack`, C's `SHCL_SET_OK` to `SHCL_SET_NO_READ_BACK` with type `shcl_set_status` (code style guide). C's OK is 0, so every `if (!shcl_set_...)` turns around without a warning; sweep them all, tests and the README's C example included. Python needs a choice on truthiness: an `IntEnum` makes `Ok` false. The README's Go, Python, C and C++ examples still test a bool and call `check_set_path`, and check-readme builds them, so each port updates its own. The changelog line needs the Go and C names.
+			- Tests to copy: `EsDRhHg` (names and order), `EsDRhFU` (each refusal, path wins, defaults), the fuzz property `EsDRhJo`, `Es9aZSF` now asserting `Multiple` from the setter, and `Es9S4kJ` with its field-under-an-array row commented out.
+			- Gates on `setstat`: none red. cli-regress, crosscheck and the Go, Python and C suites pass as they are, since no CLI text changed and the other three are untouched. check-docs' `installers-match-main` is red, from installers that differ between dev and main, not from this change.
+	- Test case: conformance `setter_status_values_in_order` (`EsDRhHg`) and `setter_status_names_each_refusal` (`EsDRhFU`), fuzz `setter_status_agrees_with_the_path_check` (`EsDRhJo`), cli-regress `EsDRhLy`, `EsDRhOB`, `EsDRhQM`, `EsDRhSf`, `EsDRhUp`, `EsDTA92` and `EsDTA93`, and check-docs `setter-examples-check-the-result` (`EoXX3yy`), which counts a status compared with `Ok` as a check. `Es9S4kJ`'s field-under-an-array row is commented out with the reason.
+	- Verified (Rust): `cargo test` with the fuzz at 20,000, `fuzz_smoke` at 200,000 in release, rustfmt, clippy for the host and windows. `EsDRhFU` fails with the path check skipped on a refused value and with `UnderArray` given as `BadPath`. `EsDRhJo` fails on both too. The 7 new cli-regress rows fail with the CLI's text changed. `EoXX3yy` fails with one README check taken out.
+	- Verified (all four, on `setstat`): cli-regress (496 rows, 2687 checks), crosscheck over the corpus (17862 comparisons), the Go, Python and C suites, check-readme, check-abnf, check-docs, test-ids check, shellcheck, markdownlint. The comparison tool builds.
+	- Branch: `setstat`
+	- Commit: `c251f741`
 
 - `instances` output can't be fed back into a selector
 	- ID: 2026100717500016
