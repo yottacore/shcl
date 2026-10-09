@@ -67,33 +67,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Commit: `250115f3`
 	- Test case: `fields_give_each_instance_its_own_path` (Rust `EsEsFl8`, Go `EsEsFnM`, Python `EsEsFpX`, C `EsEsFrh`) and the veneer smoke; cli-regress `EsEvmKw`, `EsEvmKy`, `EsEvmL0` to `EsEvmLC`, and `EsEvmLE` (every corpus input's `--json` lines through `jq -c .` and `ConvertFrom-Json`); crosscheck and sanitize-c `--json` on every listing row and `paths --json` on every input; check-readme's bash and PowerShell blocks.
 
-- A file stamped with a newer Format major should load clean
-	- ID: 2026100717500017
-	- Type: Enhancement
-	- Status: Waiting for testing
-	- Needs local test suite run?: Y, the full `--ci`, for exhaustive cppcheck over the C change.
-	- Needs external testing: a hosted run.
-	- Priority: Avg
-	- Opened: 20261007-175000
-	- Opened by: Code review 20261007 item 17
-	- Problem description: `Format 4` in the info block loads Clean, and `Format 2` with `x: "a\tb"` loads Clean and reads `a\tb`. To notice, a program calls `read_file` and `format_version` itself, since `load_file` never hands it the text. spec.md says the load ignores the line.
-	- Requirements:
-		- A hint on load when the stamp names a newer major than the library's.
-		- Maybe one for an older major too, pointing at `upgrade`.
-	- Reason: a 3.x program that reads a 4.x file today gets whatever the 3.x rules make of it, silently. The stamp exists for exactly this.
-	- Origin: Confirmed. A change of a documented rule, so it needs JC's OK.
-	- Progress log:
-		- 20261009: built with 2026100912352401 in all four and the C++ interface. `H006` for a newer major, `H007` for an older one, on the stamp's line. The load reads the line through the same call as `read_format_version`, so the two can't disagree. A hint changes no load outcome, Strict included. A line whose number does not read gets no hint.
-		- 20261009, my call: `H007` says `shcl upgrade --from-2x`, since `upgrade` leaves a clean file with an older stamp alone without it (2026100313461649's call). A file it has nothing to change in keeps the old line and the hint, so `explain H007` also names `migrate FILE --write`, which stamps it. The hint and explain wording are for signoff.
-		- 20261009: corpus 204 and 205 moved the fuzz seeds. The migrate fixpoint property took an input's own older Format line for migrate's stamp. With a raw block left open migrate adds none, and the CLI refuses that output at 7, so the property now holds only output naming this format. Test-only. A second find is filed as 2026100914525821.
-	- Decisions:
-		- 20261008: 2 hints, one for a newer major and one for an older major pointing at `upgrade` (JC).
-	- Swept: every load in each binding goes through its one parser function, so `parse`, `parse_with`, `parse_limited`, the keep-lines loads, the file loads and the one-shot all hint. `migrate`, `upgrade`, `format_version` and the hint read one function per binding: `format_line_read` in Rust and C, `formatLineRead` in Go, `_format_line_read` in Python. spec.md, design.md, the changelog, the corpus README and all four `explain` tables say so.
-	- Verified: hint emission taken out of each binding fails corpus 204 and 205 there, and the stamp test in Rust, Go and C. Also: the four conformance suites (C also built by mingw and run under wine), veneer_smoke and check-veneer, cli-regress (513 rows, 2763 checks, all four), crosscheck over the corpus (18030 comparisons), check-docs (only the known `EpHGoa0` red), check-abnf, check-readme, test-ids check, shell-regress, shellcheck, markdownlint, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy with the typing probe, cppcheck at the normal level, check-c-compilers (5 compilers, every `-O` level) and sanitize-c. The 200,000 release fuzz passes all 26. The 2,000,000 one passes all but `Eqk24nZ`, which fails on dev's code too once 204 and 205 move the seeds (2026100914525821). With the two cases moved out it passes all 26.
-	- Branch: `fmtstamp`
-	- Commit: `be88796f`
-	- Test case: corpus `204-format-newer-hint` (`EsEtTdT`) and `205-format-older-hint` (`EsEtTdU`) in all four runners, the hint rows of `stamp_reads_say_why` (Rust `EsEtTdP`, Go `EsEtTdQ`, Python `EsEtTdR`, C `EsEtTdS`), cli-regress `EsEtTdV` to `EsEtTda`, and veneer_smoke `EjtkR0S`.
-
 - Long values make messages huge
 	- ID: 2026100818251400
 	- Type: Bug
@@ -111,6 +84,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261008: accepted (JC). Same reason as the H001 list cap. Work it with 2026100812323841, since both go through `quoted()` and the message helpers.
 		- 20261009: built in all four, with 2026100812323841. The cut keeps the first and last 100 characters with `...` between, since the example shows both ends.
 	- Decisions:
+		- 20261009: the cut keeps both ends (JC).
 		- A value over 200 characters is cut. 200 or fewer show whole.
 		- Characters are code points, and a cut never splits one.
 		- The length goes after the closing quote, or after the value where the message has no quotes.
@@ -121,39 +95,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `msgval`
 	- Commit: `81943546`
 	- Test case: cli-regress `EsEhCd0` to `EsEhCd5`, with 2 and 4 byte characters and the 200 and 201 character edges.
-
-- Messages on stderr show value text with 2.x backslash escapes
-	- ID: 2026100812323841
-	- Type: Bug
-	- Status: Waiting for testing
-	- Needs local test suite run?: the full `--ci`, for exhaustive cppcheck over the C change.
-	- Needs external testing: the hosted run. The windows job runs the new row whose argument holds a line break.
-	- Severity: Low
-	- Opened: 20261008-123238
-	- Opened by: 2026100717500002's sweep
-	- Version and build: dev at `c25ed432`
-	- Steps to reproduce:
-		- `printf 'a: C:\\temp\n' | shcl get --int - a`
-		- `printf 'a: "◉C:\\x◉"\n' | shcl check -`
-	- Incorrect behavior: `value "C:\\temp" is not a valid int`, and `unknown escape '◉C:\\x◉'`. Both read as if the file held two backslashes. A backslash is text since 2026100207032800.
-	- Expected behavior: the value text as written, in a form that can't be mistaken for a 2.x escape.
-	- Reproduced: 20261008, Rust CLI.
-	- Origin: the CLI's `quoted()` and the library's `one_line()` and `schema_text()` for messages, from before 2026100207032800. Not seen by an earlier round. Confirmed.
-	- Question: which form a message uses for a value with a line break. The writer's quoted form escapes a real `◉` in source text as `◉ESCAPE_CHAR◉`, which reads oddly in an `E023` message about that very mark.
-		- Answered 20261008: a real `◉` in a message shows as itself, then its code in parentheses: `◉ (U+25C9)`.
-	- Sweep: `quoted()` in the four CLIs, and the library's message helpers in all four, with the cli-regress rows that pin their text.
-	- Progress log:
-		- 20261009: a line break, carriage return or tab shows by its escape name, `◉NEWLINE◉`, `◉CR◉`, `◉TAB◉`. Any other control is a code point, `◉U+0007◉`, so the CLIs need no name table. A `"` shows as itself.
-		- 20261009: `get`'s message showed the raw text inside added quotes. With no backslash escapes, `a: "abc"` would read `""abc""`, and each mark of an escape would get `(U+25C9)`. It now shows the text the read parsed, quotes off, as the C CLI already did. Confirm at signoff.
-	- Decisions:
-		- A backslash is itself. The message helpers write no backslash escapes.
-		- Messages use these forms for value text. Names and paths keep the writer's form, which has no backslash escapes either.
-	- Actual fix [Bug]: the library's `one_line` and each CLI's `quoted` write the forms above. `schema_text` and the setter note's path write a line break as `◉NEWLINE◉`, and the note a carriage return as `◉CR◉`. V004's bracket list no longer goes through `one_line` twice. Corpus 127's `init` golden moved, since a generated comment showed a schema path's line break as `\n`. Its `input.shcl` keeps the old comment, so the fuzz seed set stays the same.
-	- Swept: `quoted` in the four CLIs. `one_line`, `schema_text` and `note_text` in Rust, Go, Python and C. `diag_name` and `diag_element` use the writer's form and stay. A grep of the four libraries and CLIs for a written `\n`, `\r`, `\t` or `\\` finds no other site.
-	- Verified: the new and changed rows fail on dev's build and pass on all four. The same runs as 2026100818251400.
-	- Branch: `msgval`
-	- Commit: `81943546`
-	- Test case: cli-regress `EsEhCcw` to `EsEhCcz` and `EsEix5w`, and the changed rows `EqGaO1w` to `EqGaO23`, `EonKleq` and `Er1zoZI`.
 
 - A failed write says why only in text
 	- ID: 2026100912352400
@@ -228,6 +169,35 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: 20261009, Rust fuzz only. Dev's code fails the same way with the two cases, so the hints did not cause it. Not cut down yet.
 	- Note: High, since the 2M release fuzz is on the release bar. The 200,000 gate passes.
 
+- A file stamped with a newer Format major should load clean
+	- ID: 2026100717500017
+	- Type: Enhancement
+	- Status: Queued
+	- Needs local test suite run?: Y, the full `--ci`, for exhaustive cppcheck over the C change.
+	- Needs external testing: a hosted run.
+	- Priority: Avg
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 17
+	- Problem description: `Format 4` in the info block loads Clean, and `Format 2` with `x: "a\tb"` loads Clean and reads `a\tb`. To notice, a program calls `read_file` and `format_version` itself, since `load_file` never hands it the text. spec.md says the load ignores the line.
+	- Requirements:
+		- A hint on load when the stamp names a newer major than the library's.
+		- Maybe one for an older major too, pointing at `upgrade`.
+	- Reason: a 3.x program that reads a 4.x file today gets whatever the 3.x rules make of it, silently. The stamp exists for exactly this.
+	- Origin: Confirmed. A change of a documented rule, so it needs JC's OK.
+	- Progress log:
+		- 20261009: built with 2026100912352401 in all four and the C++ interface. `H006` for a newer major, `H007` for an older one, on the stamp's line. The load reads the line through the same call as `read_format_version`, so the two can't disagree. A hint changes no load outcome, Strict included. A line whose number does not read gets no hint.
+		- 20261009, my call: `H007` says `shcl upgrade --from-2x`, since `upgrade` leaves a clean file with an older stamp alone without it (2026100313461649's call). A file it has nothing to change in keeps the old line and the hint, so `explain H007` also names `migrate FILE --write`, which stamps it. The hint and explain wording are for signoff.
+		- 20261009: rework queued for the restamp. Today `upgrade --from-2x` says "nothing to upgrade" on a Format 2 file that reads the same under 3, so H007's advice does nothing and the hint shows on every load. `explain H007`'s pointer at `migrate FILE --write` can go once it works.
+		- 20261009: corpus 204 and 205 moved the fuzz seeds. The migrate fixpoint property took an input's own older Format line for migrate's stamp. With a raw block left open migrate adds none, and the CLI refuses that output at 7, so the property now holds only output naming this format. Test-only. A second find is filed as 2026100914525821.
+	- Decisions:
+		- 20261008: 2 hints, one for a newer major and one for an older major pointing at `upgrade` (JC).
+		- 20261009: `upgrade --write --from-2x` restamps a file whose only change would be its Format line. It takes the backup like any upgrade and writes `Format 3` in place of the old line. Without `--from-2x` nothing changes. This reverses part of 2026100313461649's call (JC).
+	- Swept: every load in each binding goes through its one parser function, so `parse`, `parse_with`, `parse_limited`, the keep-lines loads, the file loads and the one-shot all hint. `migrate`, `upgrade`, `format_version` and the hint read one function per binding: `format_line_read` in Rust and C, `formatLineRead` in Go, `_format_line_read` in Python. spec.md, design.md, the changelog, the corpus README and all four `explain` tables say so.
+	- Verified: hint emission taken out of each binding fails corpus 204 and 205 there, and the stamp test in Rust, Go and C. Also: the four conformance suites (C also built by mingw and run under wine), veneer_smoke and check-veneer, cli-regress (513 rows, 2763 checks, all four), crosscheck over the corpus (18030 comparisons), check-docs (only the known `EpHGoa0` red), check-abnf, check-readme, test-ids check, shell-regress, shellcheck, markdownlint, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy with the typing probe, cppcheck at the normal level, check-c-compilers (5 compilers, every `-O` level) and sanitize-c. The 200,000 release fuzz passes all 26. The 2,000,000 one passes all but `Eqk24nZ`, which fails on dev's code too once 204 and 205 move the seeds (2026100914525821). With the two cases moved out it passes all 26.
+	- Branch: `fmtstamp`
+	- Commit: `be88796f`
+	- Test case: corpus `204-format-newer-hint` (`EsEtTdT`) and `205-format-older-hint` (`EsEtTdU`) in all four runners, the hint rows of `stamp_reads_say_why` (Rust `EsEtTdP`, Go `EsEtTdQ`, Python `EsEtTdR`, C `EsEtTdS`), cli-regress `EsEtTdV` to `EsEtTda`, and veneer_smoke `EjtkR0S`.
+
 - `line`, `lines`, `authored_name`, `comments`, `exists`, `remove` and `clear_comments` can't report a path that doesn't parse
 	- ID: 2026100912271700
 	- Type: Enhancement
@@ -263,6 +233,42 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Run the man page's shell blocks, as 2026100717500005 does for README's.
 		- Fail on a 2.x escape form (`\n`, `\t`, `\\`) in help text or CLI output.
 	- Reason: the doc tables are the cheapest source of hand-written expected results.
+
+- Messages on stderr show value text with 2.x backslash escapes
+	- ID: 2026100812323841
+	- Type: Bug
+	- Status: Queued
+	- Needs local test suite run?: the full `--ci`, for exhaustive cppcheck over the C change.
+	- Needs external testing: the hosted run. The windows job runs the new row whose argument holds a line break.
+	- Severity: Low
+	- Opened: 20261008-123238
+	- Opened by: 2026100717500002's sweep
+	- Version and build: dev at `c25ed432`
+	- Steps to reproduce:
+		- `printf 'a: C:\\temp\n' | shcl get --int - a`
+		- `printf 'a: "◉C:\\x◉"\n' | shcl check -`
+	- Incorrect behavior: `value "C:\\temp" is not a valid int`, and `unknown escape '◉C:\\x◉'`. Both read as if the file held two backslashes. A backslash is text since 2026100207032800.
+	- Expected behavior: the value text as written, in a form that can't be mistaken for a 2.x escape.
+	- Reproduced: 20261008, Rust CLI.
+	- Origin: the CLI's `quoted()` and the library's `one_line()` and `schema_text()` for messages, from before 2026100207032800. Not seen by an earlier round. Confirmed.
+	- Question: which form a message uses for a value with a line break. The writer's quoted form escapes a real `◉` in source text as `◉ESCAPE_CHAR◉`, which reads oddly in an `E023` message about that very mark.
+		- Answered 20261008: a real `◉` in a message shows as itself, then its code in parentheses: `◉ (U+25C9)`.
+	- Sweep: `quoted()` in the four CLIs, and the library's message helpers in all four, with the cli-regress rows that pin their text.
+	- Progress log:
+		- 20261009: a line break, carriage return or tab shows by its escape name, `◉NEWLINE◉`, `◉CR◉`, `◉TAB◉`. Any other control is a code point, `◉U+0007◉`, so the CLIs need no name table. A `"` shows as itself.
+		- 20261009: `get`'s message showed the raw text inside added quotes. With no backslash escapes, `a: "abc"` would read `""abc""`, and each mark of an escape would get `(U+25C9)`. It now shows the text the read parsed, quotes off, as the C CLI already did.
+		- 20261009: rework queued. A message shows every character `fmt` escapes the way `fmt` writes it, so other controls aren't `◉U+0007◉` while `fmt` writes `◉BEL◉`, and zero-width and bidi characters stop printing raw.
+	- Decisions:
+		- A backslash is itself. The message helpers write no backslash escapes.
+		- Messages use these forms for value text. Names and paths keep the writer's form, which has no backslash escapes either.
+		- 20261009: `get`'s type error shows the parsed text (JC).
+		- 20261009: a message shows a character the same way `fmt` writes it. One with a name in the escape list gets its first name (`◉BEL◉`, `◉ESC◉`, `◉NUL◉`, `◉DEL◉`), and the rest of what `fmt` escapes gets `◉U+XXXX◉`, C1 controls and zero-width and bidi characters included. A real `◉` stays `◉ (U+25C9)` (JC).
+	- Actual fix [Bug]: the library's `one_line` and each CLI's `quoted` write the forms above. `schema_text` and the setter note's path write a line break as `◉NEWLINE◉`, and the note a carriage return as `◉CR◉`. V004's bracket list no longer goes through `one_line` twice. Corpus 127's `init` golden moved, since a generated comment showed a schema path's line break as `\n`. Its `input.shcl` keeps the old comment, so the fuzz seed set stays the same.
+	- Swept: `quoted` in the four CLIs. `one_line`, `schema_text` and `note_text` in Rust, Go, Python and C. `diag_name` and `diag_element` use the writer's form and stay. A grep of the four libraries and CLIs for a written `\n`, `\r`, `\t` or `\\` finds no other site.
+	- Verified: the new and changed rows fail on dev's build and pass on all four. The same runs as 2026100818251400.
+	- Branch: `msgval`
+	- Commit: `81943546`
+	- Test case: cli-regress `EsEhCcw` to `EsEhCcz` and `EsEix5w`, and the changed rows `EqGaO1w` to `EqGaO23`, `EonKleq` and `Er1zoZI`.
 
 - Library gaps a generic tool has to work around
 	- ID: 2026100717500020
