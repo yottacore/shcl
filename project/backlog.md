@@ -217,7 +217,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - `instances` output can't be fed back into a selector
 	- ID: 2026100717500016
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on signoff
+	- Needs external testing: the full `--ci` and a hosted run with the next main push, shared with 2026100814455655.
 	- Priority: Avg
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 16
@@ -230,11 +231,19 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Progress log:
 		- 20261008: `instances --paths` OK'd. Proposed back: print the index form, `shard(0)`, which is unique even when 2 instances share a value and never holds a space. The user asked why not a machine-readable mode too. Proposed: `--json` on `paths`, `children`, `instances` and `get --array`, one JSON object per line with path, value and line. Waiting on the user.
 		- Answered 20261008: `--paths` prints the index form, `shard(0)`. `--json` is its own item, 2026100814455655, in this release.
+		- 20261009: `instances --paths` built in all four CLIs. Each line is the path `instance_paths()` writes for that instance, which reads it whatever the values are. A wildcard slot that reached nothing is an empty line, as plain `instances` prints it. `--paths` with `--json` is a usage error (see 2026100814455655).
+		- Question: the index form puts `(i)` only on a name its parent repeats, so a field with one instance prints `shard`, not `shard(0)`. Both read the same field, and this keeps one path per field across `--paths` and every `--json` listing. Best guess, not put to the user; the other way is an index on the last name always.
+	- Swept: the four CLIs' option tables, help and dispatch, both completion files, the man page, README, spec.md and the changelog.
+	- Verified: cli-regress over all four CLIs (strict), crosscheck over the corpus and a fuzz dump (`instances --paths` on every `instances` row), sanitize-c, check-completions, check-readme, shell-regress.
+	- Branch: `listjson`
+	- Commit: `250115f3`
+	- Test case: cli-regress `EsEvmKv` (instances-paths), `EsEvmKx` (slot miss), `EsEvmKz` (2 instances with one value), `EsEvmLB` and `EsEvmLD` (refusals); crosscheck `instances --paths` on every corpus `instances` row.
 
 - A `--json` mode for the list commands
 	- ID: 2026100814455655
 	- Type: Feature
-	- Status: Queued
+	- Status: Waiting on signoff
+	- Needs external testing: Windows PowerShell 5.1 reading the lines with `ConvertFrom-Json` (only pwsh 7.6 ran here); the hosted windows job's cli-regress `EsEvmLE` and README PowerShell blocks; the full `--ci` (exhaustive cppcheck over the C changes) and a hosted run with the next main push.
 	- Priority: Avg
 	- Opened: 20261008-144556
 	- Opened by: JC, from talk on 2026100717500016
@@ -247,6 +256,22 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Works from bash with `jq` and from PowerShell with `ConvertFrom-Json`.
 		- Help, man page, README and spec say so.
 	- Reason: scripts get the path, value and line together without parsing plain text. NUL-separated output was weighed and dropped, since PowerShell can't split it easily and one record can't hold all 3 fields.
+	- Progress log:
+		- 20261009: built in all four CLIs, with each its own JSON string writer. Calls left to me, best guesses not put to the user:
+			- Every object has `path`, `value` and `line`, keys always in that order. `children` adds `name`, the name with no quotes, since names are what it lists. `get --slots` adds `status`.
+			- `value` is always a string. An array comes in brackets as `fmt` writes it, a raw block as its content, and a field with no value as `""`. On `get` it is the value read, or the `--default` in its place.
+			- `path` is the `instance_paths()` form. It is `""`, with line 0, for a wildcard slot or a `get` that reached no field. Every element of one array has the field's path and line.
+			- `paths --json` lists every field, repeats included, where plain `paths` lists each path once.
+			- `--json` works on a plain `get` too, one object, though the item names `get --array`. Refusing it would have needed a rule of its own.
+			- `--paths` with `--json` is a usage error, like `--check` with `--write`, since both say what a line holds.
+			- Only what JSON requires is escaped, the way `jq -c` writes it, so `jq -c .` gives each line back byte for byte.
+			- New library calls in all four and the C++ interface: `fields()`, `read_fields()` and `read_child_fields()` (Go `Fields`, C `shcl_fields`). Built from the old calls, `--json` looked up each path again, and a lookup scans every sibling, so a wide file went quadratic. One walk keeps it linear: 20,000 instances list in about 0.1 to 0.3 s in Rust, Go and C.
+		- PowerShell 7 turns a value that looks like a date into a `DateTime`, unless 7.5 or later is given `-DateKind String`. README and the man page say so. Windows PowerShell 5.1 should not do this, but was not run.
+	- Swept: the four CLIs' option tables, help and dispatch, both completion files, check-completions and shell-regress's anchors on the old shared option row, the crosscheck and sanitize-c row arms, README, the man page, spec.md and the changelog.
+	- Verified: the four conformance suites and the veneer smoke, cli-regress over all four CLIs (strict, pwsh 7.6 and jq 1.8.1), crosscheck over the corpus and a 500-input fuzz dump (48747 comparisons, 0 divergences), sanitize-c, check-readme, check-docs (only the known `installers-match-main` red), check-abnf, check-completions, check-veneer, shell-regress, test-ids check, markdownlint, shellcheck, clippy for both targets, go vet and staticcheck, ruff and mypy, cppcheck at the normal level, gcc 15, clang and mingw builds of the C CLI. `EsEvmL4` and `EsEvmLE` failed with Go's DEL escape removed, and the library tests failed with a slot miss dropped.
+	- Branch: `listjson`
+	- Commit: `250115f3`
+	- Test case: `fields_give_each_instance_its_own_path` (Rust `EsEsFl8`, Go `EsEsFnM`, Python `EsEsFpX`, C `EsEsFrh`) and the veneer smoke; cli-regress `EsEvmKw`, `EsEvmKy`, `EsEvmL0` to `EsEvmLC`, and `EsEvmLE` (every corpus input's `--json` lines through `jq -c .` and `ConvertFrom-Json`); crosscheck and sanitize-c `--json` on every listing row and `paths --json` on every input; check-readme's bash and PowerShell blocks.
 
 - A file stamped with a newer Format major should load clean
 	- ID: 2026100717500017

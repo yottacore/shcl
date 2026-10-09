@@ -1020,6 +1020,8 @@ foreach ($site in $sites) {
 }
 ~~~
 
+PowerShell 7 turns a value that looks like a date into a `DateTime`. On 7.5 and later, `ConvertFrom-Json -DateKind String` keeps it as the text in the file.
+
 `$LASTEXITCODE` has the exit code after each call. Windows PowerShell 5.1 reads a native command's output in the console's code page, so set `[Console]::OutputEncoding = [Text.Encoding]::UTF8` before reading a value that isn't plain ASCII. To pipe non-ASCII text in on 5.1, also set `$OutputEncoding = [Text.UTF8Encoding]::new($false)`, which leaves out the byte-order mark.
 
 ### What saving does

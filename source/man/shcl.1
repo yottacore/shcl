@@ -730,7 +730,7 @@ and
 print one JSON object per line, for
 .B jq
 or PowerShell's
-.BR ConvertFrom\-Json .
+.BR \%ConvertFrom\-Json .
 The keys always come in this order:
 .TP
 .B path
@@ -773,6 +773,10 @@ comes back byte for byte.
 lists every field, where plain
 .B paths
 lists each path once.
+PowerShell 7 turns a value that looks like a date into a DateTime; on 7.5 and
+later,
+.B \%ConvertFrom\-Json \-DateKind String
+keeps the text.
 .SH WRITE OPS
 .B set
 reads a write-ops script on stdin when none of
