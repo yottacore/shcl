@@ -29,7 +29,7 @@ use std::hash::{BuildHasherDefault, Hasher};
 // Public surface
 // ---------------------------------------------------------------------------
 
-/// Per-document forgiveness knob. Set once at load; composes with per-call onBad.
+/// Per-document forgiveness knob. Set once at load.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Strictness {
 	Loose,
@@ -1778,21 +1778,80 @@ fn trim_wsp_end(s: &str) -> &str {
 	s.trim_end_matches(is_wsp)
 }
 
-/// Value text for a diagnostic message: line breaks and tabs escaped, so one
-/// diagnostic is one line. A raw block's body is the value that made this
-/// necessary - it contains its own newlines.
+/// Value text for a diagnostic message. See `one_line_in`.
 fn one_line(s: &str) -> String {
-	s.replace('\\', "\\\\")
-		.replace('\n', "\\n")
-		.replace('\r', "\\r")
-		.replace('\t', "\\t")
+	one_line_in(s, "", "")
+}
+
+/// How many characters of a value a message shows. A 5 MB value made a 5 MB
+/// stderr line.
+const DIAG_TEXT_MAX: usize = 200;
+
+/// Value text for a diagnostic message, between `open` and `close`. It stays
+/// one line, and nothing in it reads as a 2.x backslash escape: a backslash is
+/// itself, a line break, carriage return or tab shows by its escape name, any
+/// other control as a code point, and a real escape mark as itself with its
+/// code after it. A raw block's body is the value that made this necessary -
+/// it holds its own line breaks. Past DIAG_TEXT_MAX characters the middle is
+/// cut, and the length goes after `close`.
+fn one_line_in(s: &str, open: &str, close: &str) -> String {
+	let total = s.chars().count();
+	let mut out =
+		String::with_capacity(open.len() + s.len().min(DIAG_TEXT_MAX * 4) + close.len() + 16);
+	out.push_str(open);
+	if total <= DIAG_TEXT_MAX {
+		push_shown(&mut out, s);
+	} else {
+		let (head, tail) = cut_ends(s, total);
+		push_shown(&mut out, head);
+		out.push_str("...");
+		push_shown(&mut out, tail);
+	}
+	out.push_str(close);
+	if total > DIAG_TEXT_MAX {
+		out.push_str(&format!(" ({} chars)", total));
+	}
+	out
+}
+
+/// The first and last DIAG_TEXT_MAX / 2 characters of `s`, which has `total`
+/// of them. Cut on characters, never inside one.
+fn cut_ends(s: &str, total: usize) -> (&str, &str) {
+	let half = DIAG_TEXT_MAX / 2;
+	let head = s.char_indices().nth(half).map_or(s.len(), |(i, _)| i);
+	let tail = s
+		.char_indices()
+		.nth(total - half)
+		.map_or(s.len(), |(i, _)| i);
+	(&s[..head], &s[tail..])
+}
+
+fn push_shown(out: &mut String, s: &str) {
+	use std::fmt::Write;
+	for c in s.chars() {
+		match c {
+			'\t' => out.push_str("\u{25C9}TAB\u{25C9}"),
+			'\n' => out.push_str("\u{25C9}NEWLINE\u{25C9}"),
+			'\r' => out.push_str("\u{25C9}CR\u{25C9}"),
+			ESCAPE_MARK => out.push_str("\u{25C9} (U+25C9)"),
+			c if c < ' '
+				|| ('\u{7F}'..='\u{9F}').contains(&c)
+				|| c == '\u{2028}'
+				|| c == '\u{2029}' =>
+			{
+				let _ = write!(out, "{m}U+{:04X}{m}", c as u32, m = ESCAPE_MARK);
+			}
+			c => out.push(c),
+		}
+	}
 }
 
 /// Schema text for a diagnostic or a generated comment: a path or a type as the
-/// schema wrote it, with a line break written `\n`, so one diagnostic stays one
-/// line. Only the break is escaped, so a path reads the way it was written.
+/// schema wrote it, with a line break written by its escape name, so one
+/// diagnostic stays one line. Only the break is escaped, so a path reads the
+/// way it was written.
 fn schema_text(s: &str) -> String {
-	s.replace('\n', "\\n")
+	s.replace('\n', "\u{25C9}NEWLINE\u{25C9}")
 }
 
 /// The text of a piece with its `◉NAME◉` escapes resolved. The marks pair up
@@ -1825,7 +1884,7 @@ fn resolve_marks(raw: &str) -> Result<String, String> {
 /// The text one escape name stands for: a name from the list, either case,
 /// or a code point prefix and one to six hex digits.
 fn escape_text(name: &str) -> Result<std::borrow::Cow<'static, str>, String> {
-	let shown = || format!("{m}{}{m}", one_line(name), m = ESCAPE_MARK);
+	let shown = || one_line_in(name, "'\u{25C9}", "\u{25C9}'");
 	if !name.is_empty()
 		&& name
 			.bytes()
@@ -1853,11 +1912,11 @@ fn escape_text(name: &str) -> Result<std::borrow::Cow<'static, str>, String> {
 				.ok()
 				.and_then(char::from_u32)
 				.map(|c| std::borrow::Cow::Owned(c.to_string()))
-				.ok_or_else(|| format!("escape '{}' names no Unicode character", shown()));
+				.ok_or_else(|| format!("escape {} names no Unicode character", shown()));
 		}
 	}
 	Err(format!(
-		"unknown escape '{}'; an escape is a name from the escape list, and a real {m} is {m}ESCAPE_CHAR{m}",
+		"unknown escape {}; an escape is a name from the escape list, and a real {m} is {m}ESCAPE_CHAR{m}",
 		shown(),
 		m = ESCAPE_MARK
 	))
@@ -6559,9 +6618,11 @@ fn array_kept(text: &str) -> bool {
 	tok.array.is_some() && path_of(&tok, text).is_ok() && line_fault(&tok, text).is_none()
 }
 
-/// A path in a note, kept to one line.
+/// A path in a note, kept to one line, with a line break or carriage return
+/// written by its escape name.
 fn note_text(s: &str) -> String {
-	s.replace('\n', "\\n").replace('\r', "\\r")
+	s.replace('\n', "\u{25C9}NEWLINE\u{25C9}")
+		.replace('\r', "\u{25C9}CR\u{25C9}")
 }
 
 /// The code and message the load gave a kept line that names just `name`,
@@ -7733,9 +7794,19 @@ fn diag_name(name: &str) -> String {
 
 /// One element of a value, written for a diagnostic message: the emitter's
 /// spelling inside `[]`, the only place a message puts one, so a value with
-/// a line break cannot split one diagnostic across two.
+/// a line break cannot split one diagnostic across two. A long one is cut
+/// like any value in a message, with its length after it.
 fn diag_element(e: &Element) -> String {
-	emit_element(e).into_owned()
+	let total = e.text.chars().count();
+	if total <= DIAG_TEXT_MAX {
+		return emit_element(e).into_owned();
+	}
+	let (head, tail) = cut_ends(&e.text, total);
+	let cut = Element {
+		text: format!("{}...{}", head, tail),
+		mark: e.mark,
+	};
+	format!("{} ({} chars)", emit_element(&cut), total)
 }
 
 /// A value for a diagnostic message. Only a scalar reaches this today, from
@@ -14396,6 +14467,7 @@ impl Document {
 						&& !set.contains(&text)
 					{
 						// The bracket form, cut short like any list in a message.
+						// The emitter's text is one line already.
 						let shown = format!(
 							"[{}]{}",
 							diag_list(els.iter().map(diag_element), els.len()),
@@ -14405,11 +14477,7 @@ impl Document {
 							out,
 							line,
 							"V004",
-							format!(
-								"value not allowed at '{}': {}",
-								schema_text(&c.path),
-								one_line(&shown)
-							),
+							format!("value not allowed at '{}': {}", schema_text(&c.path), shown),
 						);
 					}
 					return;

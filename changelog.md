@@ -16,6 +16,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `get --array`, `get --slots` and `instances` print a value holding a line break quoted with `◉` escapes, `"a◉NEWLINE◉b"`, where they wrote `"a\nb"`.
 
+- Messages show a value's text with a backslash as one backslash. A line break, carriage return or tab shows as `◉NEWLINE◉`, `◉CR◉` or `◉TAB◉`, another control as `◉U+0007◉`, and a real `◉` as `◉ (U+25C9)`. They wrote `\\`, `\n` and `\t`, so `C:\temp` read as two backslashes. A setter's note and a generated schema comment write a line break the same way.
+
 - `fmt` and every save write a line break, a tab in quotes and each invisible character as a `◉` escape. A zero-width space or a direction mark comes out as `◉U+XXXX◉`. The joiners stay as written, and so do a variation selector after a visible character and the tags of a subdivision flag.
 
 - A value in backticks, such as `` `#FF8800` `` or `` `\x7F` ``, is raw. A read returns the text as written, with a `backtick` flag, for the program to decode.
@@ -361,6 +363,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `set` and `migrate` without `--write` exit 7 where `--write` would refuse, and take `--lossy`. `set` then prints nothing, and says when it printed the canonical form. It printed a result missing the dropped line at exit 0.
 
 - The Go and Python CLIs report a file that will not open as the file name and the system's message.
+
+- A value in a message, from the CLI or the library, is cut past 200 characters to its first and last 100, then its length, as in `value "tAj7...xYz" (4000 chars) is not a valid int`. A 5 MB value made a 5 MB line.
+
+- `get`'s type error shows the text the read parsed, quotes off, so `a: "12cats"` is `value "12cats"`, not `"\"12cats\""`.
 
 ### C and C++
 

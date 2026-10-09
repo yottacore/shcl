@@ -15,6 +15,11 @@
 // The C++ interface in shcl.hpp runs on this core and is not a second parser.
 // A C++ caller includes only that one, and sees none of this file.
 //
+// A shcl_doc is not thread safe. Every call on one writes to it, reads too,
+// since a read fills the document's arena and its name index. Keep a document
+// to one thread at a time, or hold a lock around each call. The C++ interface
+// takes that lock itself, so its const members are safe from several threads.
+//
 // Compile-time knobs, each defined before the implementation include:
 //   SHCL_NO_FILE_IO  leave the file tier out (no file I/O in the library)
 //   SHCL_OOM()       what an allocation failure outside a parse does; the
@@ -2142,6 +2147,12 @@ static const char *find_mark(ShclStr s, size_t from) {
 static int has_mark(ShclStr s) { return find_mark(s, 0) != NULL; }
 
 static ShclStr v_one_line(ShclArena *a, ShclStr t);
+static ShclStr v_one_line_in(ShclArena *a, ShclStr t, const char *open, const char *close);
+/* How many characters of a value a message shows. A 5 MB value made a 5 MB
+   stderr line. */
+#define SHCL_DIAG_TEXT_MAX 200
+static size_t v_char_count(ShclStr s);
+static void v_cut_ends(ShclStr s, size_t total, ShclStr *head, ShclStr *tail);
 static int ascii_ieq(ShclStr a, const char *b, size_t n) {
 	if (a.n != n) return 0;
 	for (size_t i = 0; i < n; i++) {
@@ -2184,16 +2195,16 @@ static int escape_text(ShclArena *a, ShclStr name, ShclSB *out, ShclStr *why) {
 			if (!hex) continue;
 			if (v > 0x10FFFF || (v >= 0xD800 && v <= 0xDFFF)) {
 				ShclSB m = {0};
-				sb_puts(a, &m, "escape '"); sb_puts(a, &m, escape_mark); sb_putS(a, &m, v_one_line(a, name)); sb_puts(a, &m, escape_mark);
-				sb_puts(a, &m, "' names no Unicode character");
+				sb_puts(a, &m, "escape "); sb_putS(a, &m, v_one_line_in(a, name, "'\xE2\x97\x89", "\xE2\x97\x89'"));
+				sb_puts(a, &m, " names no Unicode character");
 				*why = sb_S(&m); return 0;
 			}
 			sb_put_cp(a, out, v); return 1;
 		}
 	}
 	ShclSB m = {0};
-	sb_puts(a, &m, "unknown escape '"); sb_puts(a, &m, escape_mark); sb_putS(a, &m, v_one_line(a, name)); sb_puts(a, &m, escape_mark);
-	sb_puts(a, &m, "'; an escape is a name from the escape list"); sb_put_mark_note(a, &m);
+	sb_puts(a, &m, "unknown escape "); sb_putS(a, &m, v_one_line_in(a, name, "'\xE2\x97\x89", "\xE2\x97\x89'"));
+	sb_puts(a, &m, "; an escape is a name from the escape list"); sb_put_mark_note(a, &m);
 	*why = sb_S(&m); return 0;
 }
 
@@ -8188,8 +8199,18 @@ static ShclStr emit_name(ShclArena *a, ShclStr name) { return escape_name(a, nam
 static ShclStr diag_name(ShclArena *a, ShclStr name) { return escape_name(a, name); }
 /* One element of a value, written for a diagnostic message: the emitter's
    spelling inside `[]`, the only place a message puts one, so a value with a
-   line break cannot split one diagnostic across two. */
-static ShclStr diag_element(ShclArena *a, const ShclElement *e) { return emit_element(a, e); }
+   line break cannot split one diagnostic across two. A long one is cut like
+   any value in a message, with its length after it. */
+static ShclStr diag_element(ShclArena *a, const ShclElement *e) {
+	size_t total = v_char_count(e->text);
+	if (total <= SHCL_DIAG_TEXT_MAX) return emit_element(a, e);
+	ShclStr head, tail; v_cut_ends(e->text, total, &head, &tail);
+	ShclSB t = {0, 0, 0}; sb_putS(a, &t, head); sb_puts(a, &t, "..."); sb_putS(a, &t, tail);
+	ShclElement cut = {sb_S(&t), e->mark};
+	ShclSB o = {0, 0, 0}; sb_putS(a, &o, emit_element(a, &cut));
+	sb_puts(a, &o, " ("); sb_put_u64(a, &o, total); sb_puts(a, &o, " chars)");
+	return sb_S(&o);
+}
 /* A value for a diagnostic message. Only a scalar reaches this today, from
    the H001 hint; a raw block has no one-line form worth suggesting. */
 static ShclStr diag_value(ShclArena *a, const ShclValue *v) {
@@ -8530,11 +8551,12 @@ static ShclStr commented(ShclArena *a, ShclStr text) {
 	return sb_S(&b);
 }
 
-/* A path in a note, kept to one line. */
+/* A path in a note, kept to one line, with a line break or carriage return
+   written by its escape name. */
 static void put_note_text(ShclArena *a, ShclSB *b, ShclStr s) {
 	for (size_t i = 0; i < s.n; i++) {
-		if (s.p[i] == '\n') sb_puts(a, b, "\\n");
-		else if (s.p[i] == '\r') sb_puts(a, b, "\\r");
+		if (s.p[i] == '\n') sb_puts(a, b, "\xE2\x97\x89" "NEWLINE" "\xE2\x97\x89");
+		else if (s.p[i] == '\r') sb_puts(a, b, "\xE2\x97\x89" "CR" "\xE2\x97\x89");
 		else sb_putc(a, b, s.p[i]);
 	}
 }
@@ -10338,15 +10360,16 @@ static void v_diag(ShclArena *a, ShclVecDiag *out, size_t line, const char *code
 }
 static ShclStr v_msgz(ShclArena *a, const char *z) { ShclStr s; s.p = z; s.n = strlen(z); return s_dup(a, s); }
 /* Schema text for a diagnostic or a generated comment: a path or a type as the
-   schema wrote it, with a line break written `\n`, so one diagnostic stays one
-   line. Only the break is escaped, so a path reads the way it was written. */
+   schema wrote it, with a line break written by its escape name, so one
+   diagnostic stays one line. Only the break is escaped, so a path reads the way
+   it was written. */
 static ShclStr schema_text(ShclArena *a, ShclStr s) {
 	int has = 0;
 	for (size_t k = 0; k < s.n; k++) if (s.p[k] == '\n') { has = 1; break; }
 	if (!has) return s;
 	ShclSB b = {0, 0, 0};
 	for (size_t k = 0; k < s.n; k++) {
-		if (s.p[k] == '\n') sb_puts(a, &b, "\\n");
+		if (s.p[k] == '\n') sb_puts(a, &b, "\xE2\x97\x89" "NEWLINE" "\xE2\x97\x89");
 		else sb_putc(a, &b, s.p[k]);
 	}
 	return sb_S(&b);
@@ -10981,28 +11004,69 @@ static void v_wrong_type(ShclArena *a, ShclVecDiag *out, size_t line, const Shcl
 	sb_puts(a, &s, "': value is not a valid "); sb_puts(a, &s, c->ty ? c->ty : "string");
 	v_diag(a, out, line, "V003", sb_S(&s));
 }
-/* Value text for a diagnostic message: line breaks and tabs escaped, so one
-   diagnostic is one line. A raw block's body is the value that made this
-   necessary - it contains its own newlines. */
-static ShclStr v_one_line(ShclArena *a, ShclStr t) {
-	ShclSB o = {0, 0, 0};
-	sb_reserve(a, &o, t.n);
-	for (size_t i = 0; i < t.n; i++) {
-		switch (t.p[i]) {
-		case '\\': sb_puts(a, &o, "\\\\"); break;
-		case '\n': sb_puts(a, &o, "\\n"); break;
-		case '\r': sb_puts(a, &o, "\\r"); break;
-		case '\t': sb_puts(a, &o, "\\t"); break;
-		default: sb_putc(a, &o, t.p[i]); break;
-		}
+/* Value text for a diagnostic message. See v_one_line_in. */
+static ShclStr v_one_line(ShclArena *a, ShclStr t) { return v_one_line_in(a, t, "", ""); }
+static size_t v_char_count(ShclStr s) {
+	size_t total = 0;
+	for (size_t i = 0; i < s.n; i += utf8_len(s, i)) total++;
+	return total;
+}
+/* The first and last SHCL_DIAG_TEXT_MAX / 2 characters of s, which has total
+   of them. Cut on characters, never inside one. */
+static void v_cut_ends(ShclStr s, size_t total, ShclStr *head, ShclStr *tail) {
+	size_t half = SHCL_DIAG_TEXT_MAX / 2, n = 0, h = s.n, t = s.n;
+	for (size_t i = 0; i < s.n; i += utf8_len(s, i)) {
+		if (n == half) h = i;
+		if (n == total - half) { t = i; break; }
+		n++;
 	}
+	*head = s_slice(s, 0, h); *tail = s_slice(s, t, s.n);
+}
+static void v_put_shown(ShclArena *a, ShclSB *o, ShclStr t) {
+	static const char hex[] = "0123456789ABCDEF";
+	for (size_t i = 0; i < t.n;) {
+		size_t l = utf8_len(t, i);
+		uint32_t cp; utf8_decode(t.p, i + l, i, &cp);
+		if (cp == '\t') sb_puts(a, o, "\xE2\x97\x89" "TAB" "\xE2\x97\x89");
+		else if (cp == '\n') sb_puts(a, o, "\xE2\x97\x89" "NEWLINE" "\xE2\x97\x89");
+		else if (cp == '\r') sb_puts(a, o, "\xE2\x97\x89" "CR" "\xE2\x97\x89");
+		else if (cp == 0x25C9) sb_puts(a, o, "\xE2\x97\x89" " (U+25C9)");
+		else if (cp < 0x20 || (cp >= 0x7F && cp <= 0x9F) || cp == 0x2028 || cp == 0x2029) {
+			char u[4] = {hex[cp >> 12 & 0xF], hex[cp >> 8 & 0xF], hex[cp >> 4 & 0xF], hex[cp & 0xF]};
+			sb_puts(a, o, "\xE2\x97\x89" "U+"); sb_put(a, o, u, 4); sb_puts(a, o, "\xE2\x97\x89");
+		} else sb_put(a, o, t.p + i, l);
+		i += l;
+	}
+}
+/* Value text for a diagnostic message, between open and close. It stays one
+   line, and nothing in it reads as a 2.x backslash escape: a backslash is
+   itself, a line break, carriage return or tab shows by its escape name, any
+   other control as a code point, and a real escape mark as itself with its
+   code after it. A raw block's body is the value that made this necessary - it
+   holds its own line breaks. Past SHCL_DIAG_TEXT_MAX characters the middle is
+   cut, and the length goes after close. */
+static ShclStr v_one_line_in(ShclArena *a, ShclStr t, const char *open, const char *close) {
+	size_t total = v_char_count(t);
+	ShclSB o = {0, 0, 0};
+	sb_reserve(a, &o, t.n < SHCL_DIAG_TEXT_MAX * 4 ? t.n + 16 : SHCL_DIAG_TEXT_MAX * 4 + 16);
+	sb_puts(a, &o, open);
+	if (total <= SHCL_DIAG_TEXT_MAX) v_put_shown(a, &o, t);
+	else {
+		ShclStr head, tail; v_cut_ends(t, total, &head, &tail);
+		v_put_shown(a, &o, head); sb_puts(a, &o, "..."); v_put_shown(a, &o, tail);
+	}
+	sb_puts(a, &o, close);
+	if (total > SHCL_DIAG_TEXT_MAX) { sb_puts(a, &o, " ("); sb_put_u64(a, &o, total); sb_puts(a, &o, " chars)"); }
 	return sb_S(&o);
 }
-static void v_not_allowed(ShclArena *a, ShclVecDiag *out, size_t line, const ShclVCons *c, ShclStr text) {
+static void v_not_allowed_shown(ShclArena *a, ShclVecDiag *out, size_t line, const ShclVCons *c, ShclStr shown) {
 	ShclSB s = {0, 0, 0};
 	sb_puts(a, &s, "value not allowed at '"); sb_putS(a, &s, schema_text(a, c->path));
-	sb_puts(a, &s, "': "); sb_putS(a, &s, v_one_line(a, text));
+	sb_puts(a, &s, "': "); sb_putS(a, &s, shown);
 	v_diag(a, out, line, "V004", sb_S(&s));
+}
+static void v_not_allowed(ShclArena *a, ShclVecDiag *out, size_t line, const ShclVCons *c, ShclStr text) {
+	v_not_allowed_shown(a, out, line, c, v_one_line(a, text));
 }
 
 // V005/V006. rel is "below min " or "above max "; bound is the schema's own
@@ -11055,7 +11119,8 @@ static void v_node(ShclArena *a, ShclArena *lv, shcl_doc *d, const ShclVCons *c,
 				ShclSB brief = {0, 0, 0}; sb_putc(lv, &brief, '[');
 				for (size_t x = 0; x < nels && x < SHCL_DIAG_LIST_MAX; x++) { if (x) sb_puts(lv, &brief, ", "); sb_putS(lv, &brief, diag_element(lv, &els[x])); }
 				diag_list_end(lv, &brief, nels, "]");
-				v_not_allowed(a, out, line, c, sb_S(&brief));
+				// The emitter's text is one line already.
+				v_not_allowed_shown(a, out, line, c, sb_S(&brief));
 			}
 		}
 		return;

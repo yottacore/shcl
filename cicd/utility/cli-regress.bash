@@ -155,6 +155,18 @@ fi
 #  shellcheck disable=2016  ## the backticks are the fence the fixture needs.
 printf 'b:\n\t```\n\tline one\n\tline two\n\t```\n' > "${tmpDir}/rawval.shcl"
 printf 'field: b\n\ttype: string\n\tallowed: nope\n' > "${tmpDir}/rawvalschema.shcl"
+## Values for the message cut at 200 characters: 2 and 4 byte characters, so a
+## cut by bytes or mid-sequence shows. And a raw body with a tab and a real mark.
+printf -v longHead '%150s' ''; longHead="${longHead// /$'\xc3\xa9'}"
+printf -v longTail '%150s' ''; longTail="${longTail// /$'\xf0\x9f\x98\x80'}"
+printf -v longX '%300s' ''; longX="${longX// /x}"
+printf -v x200 '%200s' ''; x200="${x200// /x}"
+printf 'b: %s%s\n' "${longHead}" "${longTail}" > "${tmpDir}/longval.shcl"
+printf 'b: %s\nc: %sx\n' "${x200}" "${x200}" > "${tmpDir}/edgeval.shcl"
+printf 'b: 1\nb: %s\n' "${longX}" > "${tmpDir}/longrep.shcl"
+printf 'a: "%s%s%s%s"\n' "${mark}" "${longHead}" "${longTail}" "${mark}" > "${tmpDir}/longesc.shcl"
+#  shellcheck disable=2016  ## the backticks are the fence the fixture needs.
+printf 'b:\n\t```\n\tx%sy\tz\n\t```\n' "${mark}" > "${tmpDir}/markval.shcl"
 ## A schema whose own load has something to say: two `field: a` instances merge,
 ## so `allowed` repeats as a bare leaf - which is exactly what the V092 under it
 ## is about, and it was invisible.
@@ -671,14 +683,14 @@ rows=(
 	'EqTPxzc|diag-value-line-break|check %NV%|-|0|line 2: Hint: H001\nok (1 diagnostic(s))\n|^line 2: Hint: H001 .srv. repeats as a bare leaf - did you mean .srv: \["a◉NEWLINE◉b", "c◉NEWLINE◉d"\].\?$'
 	'Eq4AfLW|diag-name-dotted|check --schema=%SN% %DN%|-|6|line 1: Error: V001\nfailed: 1 diagnostic(s), 1 error(s)\n|unknown field ."x\.y".'
 	## 20260918 item 14: the same for schema text, which every code below printed raw.
-	'EqGaO1w|schema-text-v002|check --schema=%SL% %DL%|-|6|-|V002 required path missing: a\."x\\ny"$'
-	'EqGaO1x|schema-text-v003|check --schema=%SL% %DL%|-|6|-|V003 wrong type at .c\."x\\ny".: value is not a valid bool$'
-	'EqGaO1y|schema-text-v004|check --schema=%SL% %DL%|-|6|-|V004 value not allowed at .b\."x\\ny".: 9$'
-	'EqGaO1z|schema-text-v005|check --schema=%SL% %DL%|-|6|-|V005 value below min 5 at .b\."x\\ny".: 1$'
-	'EqGaO20|schema-text-v006|check --schema=%SL% %DL%|-|6|-|V006 value above max 6 at .b\."x\\ny".: 9$'
-	'EqGaO21|schema-text-v007|check --schema=%SL% %DL%|-|6|-|V007 instance count out of bounds at .b\."x\\ny".: 2 not in 3\.\.3$'
-	'EqGaO22|schema-text-v091|check --schema=%SM% %DL%|-|6|-|V091 unknown schema type .in\\nt.$'
-	'EqGaO23|schema-text-v093|check --schema=%SM% %DL%|-|6|-|V093 bad schema path: d\."x\\ny"\.$'
+	'EqGaO1w|schema-text-v002|check --schema=%SL% %DL%|-|6|-|V002 required path missing: a\."x◉NEWLINE◉y"$'
+	'EqGaO1x|schema-text-v003|check --schema=%SL% %DL%|-|6|-|V003 wrong type at .c\."x◉NEWLINE◉y".: value is not a valid bool$'
+	'EqGaO1y|schema-text-v004|check --schema=%SL% %DL%|-|6|-|V004 value not allowed at .b\."x◉NEWLINE◉y".: 9$'
+	'EqGaO1z|schema-text-v005|check --schema=%SL% %DL%|-|6|-|V005 value below min 5 at .b\."x◉NEWLINE◉y".: 1$'
+	'EqGaO20|schema-text-v006|check --schema=%SL% %DL%|-|6|-|V006 value above max 6 at .b\."x◉NEWLINE◉y".: 9$'
+	'EqGaO21|schema-text-v007|check --schema=%SL% %DL%|-|6|-|V007 instance count out of bounds at .b\."x◉NEWLINE◉y".: 2 not in 3\.\.3$'
+	'EqGaO22|schema-text-v091|check --schema=%SM% %DL%|-|6|-|V091 unknown schema type .in◉NEWLINE◉t.$'
+	'EqGaO23|schema-text-v093|check --schema=%SM% %DL%|-|6|-|V093 bad schema path: d\."x◉NEWLINE◉y"\.$'
 	## A bracket array is the array spelling now, not E019 (2026100207032800).
 	'Ep3QaNl|bracket-array-check|check %BA%|-|0|ok (0 diagnostic(s))\n|-'
 	'EpFkZy7|bracket-array-write-kept|fmt --write %BA%|-|0||-'
@@ -1190,7 +1202,7 @@ rows=(
 	'EoXDpDP|children-missing|children %T% nope|-|0||-'
 	'EoXDpDQ|paths-all|paths %T%|-|0|db\ndb.host\ndb."odd.key"\nweb\nweb.port\n|-'
 	## 20260901b item 28: a value with newlines in it stays on one line.
-	'EonKleq|diag-value-one-line|check --schema=%SA% %R%|-|6|-|not allowed at .b.: line one.nline two'
+	'EonKleq|diag-value-one-line|check --schema=%SA% %R%|-|6|-|not allowed at .b.: line one◉NEWLINE◉line two$'
 	## 20260901b item 24: two layers with a bad line 2 printed the same thing
 	## twice, with nothing to say which file each came from.
 	'Eon9YY4|layer-diags-named|fmt --layer=%B% %B2%|-|0|-|bad2.shcl line 2: Error: E014'
@@ -1276,7 +1288,26 @@ rows=(
 	## or file. 20260830 item 34: C printed a raw body as it stood, so the one
 	## line ran over three, and the four CLIs each quoted the value their own way.
 	'Er1zoZH|onbad-error-names-value|get --int --on-bad=error - a|a: 12cats\n|4||^cannot read a as int: value "12cats" is not a valid int \(in -\)$'
-	'Er1zoZI|bad-int-raw-one-line|get --int %R% b|-|4|0\n|^cannot read b as int: value "line one\\nline two" is not a valid int \(in [^)]*rawval\.shcl\)$'
+	'Er1zoZI|bad-int-raw-one-line|get --int %R% b|-|4|0\n|^cannot read b as int: value "line one◉NEWLINE◉line two" is not a valid int \(in [^)]*rawval\.shcl\)$'
+	## 2026100812323841: a message showed value text with 2.x backslash escapes,
+	## so C:\temp read as two backslashes. A line break, carriage return or tab
+	## shows by its escape name, another control as a code point, a real mark
+	## as itself with its code.
+	'EsEhCcw|msg-backslash-as-text|get --int --on-bad=error - a|a: C:\\temp\n|4||=cannot read a as int: value "C:\\temp" is not a valid int (in -)\n'
+	'EsEhCcx|msg-escape-unknown-backslash|check -|a: "◉C:\\x◉"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 unknown escape .◉C:\\x◉.; an escape'
+	"EsEhCcy|msg-controls-and-mark|get --int --on-bad=error - a|a: 'say \"hi\" x◉TAB◉y◉BEL◉z◉ESCAPE_CHAR◉◉CR◉'\n|4||=cannot read a as int: value \"say \"hi\" x◉TAB◉y◉U+0007◉z◉ (U+25C9)◉CR◉\" is not a valid int (in -)\n"
+	'EsEhCcz|msg-library-mark-tab|check --schema=%SA% %MK%|-|6|-|V004 value not allowed at .b.: x◉ \(U\+25C9\)y◉TAB◉z$'
+	## 2026100818251400: a long value made a message as long as the value. Past
+	## 200 characters the middle is cut and the length follows.
+	'EsEhCd0|msg-long-value-get|get --int --on-bad=error %LV% b|-|4||^cannot read b as int: value "(é){100}\.\.\.(😀){100}" \(300 chars\) is not a valid int \(in [^)]*longval\.shcl\)$'
+	'EsEhCd1|msg-long-value-edge|get --int --on-bad=error %LE% b|-|4||^cannot read b as int: value "x{200}" is not a valid int '
+	'EsEhCd2|msg-long-value-edge-cut|get --int --on-bad=error %LE% c|-|4||^cannot read c as int: value "x{100}\.\.\.x{100}" \(201 chars\) is not a valid int '
+	'EsEhCd3|msg-long-value-schema|check --schema=%SA% %LV%|-|6|-|V004 value not allowed at .b.: (é){100}\.\.\.(😀){100} \(300 chars\)$'
+	'EsEhCd4|msg-long-escape|check %LS%|-|6|-|E023 unknown escape .◉(é){100}\.\.\.(😀){100}◉. \(300 chars\); an escape'
+	'EsEhCd5|msg-long-hint|check %LR%|-|0|-|H001 .b. repeats as a bare leaf - did you mean .b: \[1, x{100}\.\.\.x{100} \(300 chars\)\].\?$'
+	## A setter's note named a path with a line break as \n. A path with a real
+	## line break in a quoted name now shows it by its escape name.
+	'EsEix5w|msg-note-path-line-break|set - %NLSET%|"x◉NEWLINE◉y": "◉NOPE◉"\n|0|# "x◉NEWLINE◉y": "◉NOPE◉"  ## commented out by shcl when setting "x◉NEWLINE◉y", 2026-10-04 00:15:00 PDT: E023 unknown escape \x27◉NOPE◉\x27\n"x◉NEWLINE◉y": 5\n|-'
 	'EqSNyFl|default-clash|get --int --default=7 --default=8 %F% nope|-|1|-|^--default=7 cannot be combined with --default=8 \(see --help\)$'
 	'EqSNyFm|default-repeat-ok|get --int --default=7 --default=7 %F% nope|-|0|7\n|-'
 	'EqSNyFn|schema-clash|check --schema=%S% --schema=%S2% %F%|-|1|-|^--schema=.* cannot be combined with --schema=.* \(see --help\)$'
@@ -1441,6 +1472,11 @@ for row in "${rows[@]}"; do
 	argv="${argv//%SJ%/${tmpDir}/optnodef.shcl}"
 	argv="${argv//%SK%/${tmpDir}/nosel.shcl}"
 	argv="${argv//%R%/${tmpDir}/rawval.shcl}"
+	argv="${argv//%LV%/${tmpDir}/longval.shcl}"
+	argv="${argv//%LE%/${tmpDir}/edgeval.shcl}"
+	argv="${argv//%LR%/${tmpDir}/longrep.shcl}"
+	argv="${argv//%LS%/${tmpDir}/longesc.shcl}"
+	argv="${argv//%MK%/${tmpDir}/markval.shcl}"
 	argv="${argv//%N%/${tmpDir}/nowrite/f.shcl}"
 	argv="${argv//%X%/${tmpDir}/sel.shcl}"
 	argv="${argv//%Q%/${tmpDir}/quote.shcl}"
@@ -1661,6 +1697,7 @@ for row in "${rows[@]}"; do
 	for k in "${!args[@]}"; do
 		if [[ "${args[k]}" == "%E%" ]]; then args[k]=""; fi
 		if [[ "${args[k]}" == "%DB%" ]]; then args[k]=$'--default=q\nr'; fi
+		if [[ "${args[k]}" == "%NLSET%" ]]; then args[k]=$'--set="x\ny"=5'; fi
 	done
 	for b in "${bindings[@]}"; do
 		name="${b%%|*}"; cli="${b#*|}"

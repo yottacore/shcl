@@ -1446,10 +1446,12 @@ def do_get(o):
 	):
 		type_name = f"{o.kind} array" if o.array else o.kind
 		if status == shcl.Status.BadType:
-			raw = doc.read_string(path).raw
+			# The text the typed read parsed: quotes off and escapes read, so a
+			# quoted value is not quoted twice.
+			r = doc.read_string(path)
 			reason = (
-				f"value {quoted(raw)} is not a valid {type_name}"
-				if raw is not None
+				f"value {quoted(r.value)} is not a valid {type_name}"
+				if r.raw is not None
 				else f"value is not a valid {type_name}"
 			)
 		elif status == shcl.Status.NotFound:
@@ -1488,26 +1490,40 @@ def do_get(o):
 	return status_code(status)
 
 
+# How many characters of a value a message shows (_DIAG_TEXT_MAX in the
+# library).
+QUOTED_MAX = 200
+
+
 def quoted(s):
-	# The source text, quoted for a message: one line whatever it holds, with
-	# the same escapes in every binding.
-	out = ['"']
+	# The source text, quoted for a message, the way the library shows a value:
+	# one line whatever it holds, and nothing that reads as a 2.x backslash
+	# escape. A line break, carriage return or tab shows by its escape name, any
+	# other control as a code point, and a real escape mark as itself with its
+	# code after it. Past QUOTED_MAX characters the middle is cut, and the
+	# length goes after the closing quote.
+	total = len(s)
+	if total <= QUOTED_MAX:
+		return f'"{shown(s)}"'
+	half = QUOTED_MAX // 2
+	return f'"{shown(s[:half])}...{shown(s[total - half:])}" ({total} chars)'
+
+
+def shown(s):
+	out = []
 	for c in s:
-		if c == '"':
-			out.append('\\"')
-		elif c == "\\":
-			out.append("\\\\")
+		if c == "\t":
+			out.append("\u25c9TAB\u25c9")
 		elif c == "\n":
-			out.append("\\n")
+			out.append("\u25c9NEWLINE\u25c9")
 		elif c == "\r":
-			out.append("\\r")
-		elif c == "\t":
-			out.append("\\t")
-		elif ord(c) < 0x20 or c == "\x7f":
-			out.append(f"\\u{{{ord(c):x}}}")
+			out.append("\u25c9CR\u25c9")
+		elif c == "\u25c9":
+			out.append("\u25c9 (U+25C9)")
+		elif c < " " or "\x7f" <= c <= "\x9f" or c in "\u2028\u2029":
+			out.append(f"\u25c9U+{ord(c):04X}\u25c9")
 		else:
 			out.append(c)
-	out.append('"')
 	return "".join(out)
 
 

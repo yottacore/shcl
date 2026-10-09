@@ -1795,18 +1795,61 @@ def _cell_of_tokens(tok, s):
 
 
 def _one_line(s):
-	# Value text for a diagnostic message: line breaks and tabs escaped, so one
-	# diagnostic is one line. A raw block's body is the value that made this
-	# necessary - it contains its own newlines.
-	return s.replace("\\", "\\\\").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+	# Value text for a diagnostic message. See _one_line_in.
+	return _one_line_in(s, "", "")
+
+
+# How many characters of a value a message shows. A 5 MB value made a 5 MB
+# stderr line.
+_DIAG_TEXT_MAX = 200
+
+
+def _one_line_in(s, open_, close):
+	# Value text for a diagnostic message, between open_ and close. It stays one
+	# line, and nothing in it reads as a 2.x backslash escape: a backslash is
+	# itself, a line break, carriage return or tab shows by its escape name, any
+	# other control as a code point, and a real escape mark as itself with its
+	# code after it. A raw block's body is the value that made this necessary -
+	# it holds its own line breaks. Past _DIAG_TEXT_MAX characters the middle is
+	# cut, and the length goes after close.
+	total = len(s)
+	if total <= _DIAG_TEXT_MAX:
+		return f"{open_}{_shown(s)}{close}"
+	head, tail = _cut_ends(s, total)
+	return f"{open_}{_shown(head)}...{_shown(tail)}{close} ({total} chars)"
+
+
+def _cut_ends(s, total):
+	# The first and last _DIAG_TEXT_MAX // 2 characters of s, which has total of
+	# them.
+	half = _DIAG_TEXT_MAX // 2
+	return s[:half], s[total - half:]
+
+
+def _shown(s):
+	out = []
+	for c in s:
+		if c == "\t":
+			out.append("\u25c9TAB\u25c9")
+		elif c == "\n":
+			out.append("\u25c9NEWLINE\u25c9")
+		elif c == "\r":
+			out.append("\u25c9CR\u25c9")
+		elif c == _ESCAPE_MARK:
+			out.append("\u25c9 (U+25C9)")
+		elif c < " " or "\x7f" <= c <= "\x9f" or c in "\u2028\u2029":
+			out.append(f"\u25c9U+{ord(c):04X}\u25c9")
+		else:
+			out.append(c)
+	return "".join(out)
 
 
 def _schema_text(s):
 	# Schema text for a diagnostic or a generated comment: a path or a type as
-	# the schema wrote it, with a line break written `\n`, so one diagnostic
-	# stays one line. Only the break is escaped, so a path reads the way it was
-	# written.
-	return s.replace("\n", "\\n")
+	# the schema wrote it, with a line break written by its escape name, so one
+	# diagnostic stays one line. Only the break is escaped, so a path reads the
+	# way it was written.
+	return s.replace("\n", "\u25c9NEWLINE\u25c9")
 
 
 def _first_where(xs, pred):
@@ -1852,7 +1895,7 @@ def _escape_text(name):
 	list, either case, or a code point prefix and one to six hex digits.
 	(None, message) when it is neither."""
 	m = _ESCAPE_MARK
-	shown = f"{m}{_one_line(name)}{m}"
+	shown = _one_line_in(name, f"'{m}", f"{m}'")
 	if name and _ESCAPE_NAME_CHARS.issuperset(name):
 		upper = name.upper()
 		for n, text in _ESCAPE_NAMES:
@@ -1865,9 +1908,9 @@ def _escape_text(name):
 				continue
 			v = int(digits, 16)
 			if v > 0x10FFFF or 0xD800 <= v <= 0xDFFF:
-				return None, f"escape '{shown}' names no Unicode character"
+				return None, f"escape {shown} names no Unicode character"
 			return chr(v), None
-	return None, f"unknown escape '{shown}'; an escape is a name from the escape list, and a real {m} is {m}ESCAPE_CHAR{m}"
+	return None, f"unknown escape {shown}; an escape is a name from the escape list, and a real {m} is {m}ESCAPE_CHAR{m}"
 
 
 _HEX_CHARS = frozenset("0123456789abcdefABCDEF")
@@ -4676,8 +4719,9 @@ def _array_kept(text):
 
 
 def _note_text(s):
-	"""A path in a note, kept to one line."""
-	return s.replace("\n", "\\n").replace("\r", "\\r")
+	"""A path in a note, kept to one line, with a line break or carriage return
+	written by its escape name."""
+	return s.replace("\n", "\u25c9NEWLINE\u25c9").replace("\r", "\u25c9CR\u25c9")
 
 
 def _kept_naming(lead, name):
@@ -8207,8 +8251,9 @@ class Document:
 			text = node.value.display()
 			if c.allowed is not None and c.allowed[0] == "strings" and text not in c.allowed[1]:
 				# The bracket form, cut short like any list in a message.
+				# The emitter's text is one line already.
 				brief = f"[{_diag_list((_diag_element(e) for e in els), len(els))}]{_diag_more(len(els))}"
-				_vdiag(out, line, "V004", f"value not allowed at '{_schema_text(c.path)}': {_one_line(brief)}")
+				_vdiag(out, line, "V004", f"value not allowed at '{_schema_text(c.path)}': {brief}")
 			return
 		# A scalar kind on a multi-element value is the array-where-one-scalar-
 		# expected miss.
@@ -8403,8 +8448,13 @@ def _diag_name(name):
 def _diag_element(e):
 	# One element of a value, written for a diagnostic message: the emitter's
 	# spelling inside `[]`, the only place a message puts one, so a value with
-	# a line break cannot split one diagnostic across two.
-	return _emit_element(e)
+	# a line break cannot split one diagnostic across two. A long one is cut
+	# like any value in a message, with its length after it.
+	total = len(e.text)
+	if total <= _DIAG_TEXT_MAX:
+		return _emit_element(e)
+	head, tail = _cut_ends(e.text, total)
+	return f"{_emit_element(_Element(head + '...' + tail, e.mark))} ({total} chars)"
 
 
 def _diag_value(v):
