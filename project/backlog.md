@@ -100,6 +100,29 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `setstat`, C on `ssc`
 	- Commit: `c251f741`, C `4aea318a`
 
+- `line`, `lines`, `authored_name`, `comments`, `exists`, `remove` and `clear_comments` can't report a path that doesn't parse
+	- ID: 2026100912271700
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261009-122717
+	- Opened by: JC, from 2026100818140260
+	- Related IDs: 2026100818140260, 2026100717500020
+	- Problem description: these calls return a plain value, so a bad path gives the same empty answer as a missing field. A caller has to make a second call, such as `read_count`, and sort it out itself.
+		- `comments`: empty for a bad path, a missing field, and a field with no comments above it. The same bug `count` had.
+		- `authored_name` and `line`: empty or 0 for a bad path, a missing field, and a repeated field. `line` is also 0 for a node a setter built.
+		- `lines`: empty for a bad path and a missing field.
+		- `exists`: false for a bad path and a missing field.
+		- `remove` and `clear_comments`: 0 for a bad path, a missing field, and nothing to take off.
+	- Requirements:
+		- A status twin for each, beside the plain call, the way 2026100818140260 did it. All four and the C++ interface.
+		- Every call that takes a path has a status form, so a caller never has to work out why an answer is empty.
+	- Open points:
+		- Names for the `remove` and `clear_comments` twins, since `read_` reads wrong on a call that changes the document. Best guess: the count with the same `Good`, `NotFound`, `BadPath` status `read_count` returns.
+		- Whether `authored_name` and `line` say `Multiple` for a repeated field, as the full-tier reads do. Best guess: yes.
+	- Decisions:
+		- 20261009: twins for all of them, over fewer twins plus docs pointing at `read_count`, so a caller needs one call and no logic of its own (JC).
+
 - `instances` output can't be fed back into a selector
 	- ID: 2026100717500016
 	- Type: Enhancement
@@ -265,6 +288,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261009: status twins added beside the plain calls, which keep their signatures.
 		- 20261009, question: `line` and `exists` can already be answered with a status, through any read's `line` and through `read_count`. `lines`, `authored_name` and `comments` still give an empty answer for a bad path. Add twins for them too, or leave them?
 		- 20261009: Done. The test runs and gates above cover it. The question above goes to the user as a possible follow-up item.
+		- 20261009: answered, filed as 2026100912271700 with `exists` and `remove` added.
 	- Decisions:
 		- The twins follow the full-tier read names: Rust and Python `read_count`, `read_instances`, `read_children`, Go `ReadCount` and so on, C `shcl_read_count` and the rest, C++ `read_count` and the rest. They return the read result, with no per-slot statuses.
 		- `Good`, `NotFound` when the path matches nothing, `BadPath` when it cannot be read as a path. A wildcard with no slots is `NotFound`, as in the array reads. Unresolved wildcard slots still count as a match, as they do in `count`.
