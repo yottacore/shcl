@@ -218,12 +218,12 @@ Behavior the corpus cannot see, because it is not stdout, belongs in `cicd/utili
 	- `staticcheck` - Go: `go install honnef.co/go/tools/cmd/staticcheck@<pin>`.
 	- `govulncheck` - Go: `go install golang.org/x/vuln/cmd/govulncheck@<pin>`; checks the module graph and the standard library against the vulnerability database.
 	- `cargo-deny` - Rust: `cargo install cargo-deny --version <pin>`; advisories, licenses and duplicate versions over the lockfile, config in `source/rust/deny.toml`.
-	- `shellcheck` - the pipeline's own scripts and the bash wrapper.
+	- `shellcheck` - the pipeline's own scripts and the installers.
 	- `ruff` + `mypy` - Python: `pipx install ruff` and `pipx install mypy`; both read their settings from `source/python/pyproject.toml`.
 	- `build` - Python: `pipx install build`. The lint stage builds the wheel and sdist and checks they contain the library alone, since the CLI and the tests must never ship.
 	- `cppcheck` - C: `pipx install cppcheck` (PyPI wheel bundles the real binary).
 	- `markdownlint-cli2` - docs: `npm install -g markdownlint-cli2`; repo config in `.markdownlint-cli2.jsonc`.
-	- `PSScriptAnalyzer` - ps1 wrapper: `pwsh -Command 'Install-Module PSScriptAnalyzer -Scope CurrentUser'`.
+	- `PSScriptAnalyzer` - the ps1 installer and scripts: `pwsh -Command 'Install-Module PSScriptAnalyzer -Scope CurrentUser'`.
 
 - Versions: the pipeline pins each of these tools, and hosted CI installs the same versions. The pins live in one place, `TOOL_PINS` in `cicd/config.bash`; install those versions and the run stays quiet (a drifted tool gets a warning at the top of every run, and a lint-stage check fails the run if the workflow file's copy of a pin ever disagrees).
 

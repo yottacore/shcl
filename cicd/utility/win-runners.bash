@@ -331,37 +331,29 @@ fRunDogfood() {
 	done
 }
 
-## Code review 20261003 items 5 and 8: started by -File, the wrapper and the
-## dogfood runner both saw a `-`-led argument with a colon in two pieces, and
-## under 5.1 the runner lost an embedded quote and an empty argument. Both
-## shells run both scripts, and the .cmd launcher runs the runner under
-## whichever shell it finds. Path conversion is off, so every call gets the
-## same bytes. 2026100408550401: called from a session, both scripts passed
-## an unquoted `-x:y` on as `y`, and `-x: y` has to stay two arguments.
+## Code review 20261003 items 5 and 8: started by -File, the dogfood runner
+## saw a `-`-led argument with a colon in two pieces, and under 5.1 it lost an
+## embedded quote and an empty argument. Both shells run it, and the .cmd
+## launcher runs it under whichever shell it finds. Path conversion is off, so
+## every call gets the same bytes. 2026100408550401: called from a session, it
+## passed an unquoted `-x:y` on as `y`.
 fRunPsArgs() {
-	local sh prof app src f bin out want sess
+	local sh prof app src f out want sess
 	cargo build --quiet --manifest-path source/rust/Cargo.toml || return 1
 	sess="${work}/pscolon.ps1"
 	cat > "${sess}" <<'PSEOF'
-$ps1 = $args[0]; $env:SHCL_BIN = $args[1]; $f = $args[2]; $dogfood = $args[3]
-. $ps1
-$o = shcl get --default -x:y $f nope
-if ("$o" -cne '-x:y') { "shcl.ps1 joined: [$o]" }
-$o = shcl get --default -x: $f nope
-if ("$o" -cne '-x:') { "shcl.ps1 spaced: [$o]" }
+$f = $args[0]; $dogfood = $args[1]
 $o = & $dogfood --no-update get --default -x:y $f nope
 if ("$o" -cne '-x:y') { "dogfood_shcl.ps1 joined: [$o]" }
 'done'
 PSEOF
 	f="${work}/psargs.shcl"; printf 'site: a\nurl: b\n' > "${f}"
-	f="$(cygpath -w "${f}")"; bin="$(cygpath -w source/rust/target/debug/shcl.exe)"
+	f="$(cygpath -w "${f}")"
 	local -x MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
 	want="$(source/rust/target/debug/shcl.exe children "${f}" --set=url=http://x)"
 	[[ "${want}" == $'site\nurl' ]] || { echo "win-runners: psargs: the binary gave ${want@Q}" >&2; return 1; }
 	for sh in powershell pwsh; do
 		command -v "${sh}" >/dev/null 2>&1 || continue
-		out="$(SHCL_BIN="${bin}" "${sh}" -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w source/powershell/shcl.ps1)" children "${f}" --set=url=http://x 2>&1)" || true
-		[[ "${out//$'\r'/}" == "${want}" ]] || { echo "win-runners: psargs (${sh}): shcl.ps1 gave ${out@Q}" >&2; return 1; }
 		prof="${work}/pa-${sh}/profile"; app="${work}/pa-${sh}/app"
 		src="${prof}/Dropbox/0-0/common/exec/util/mswin/cli/by-self/win64"
 		mkdir -p "${src}" "${app}"
@@ -373,7 +365,7 @@ PSEOF
 		[[ "${out//$'\r'/}" == 'zip="02134"' ]] || { echo "win-runners: psargs (${sh}): dogfood_shcl.ps1 lost a quote: ${out@Q}" >&2; return 1; }
 		out="$(USERPROFILE="${prof}" LOCALAPPDATA="${app}" "${sh}" -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w utility/dogfood_shcl.ps1)" --no-update get --default '' "${f}" nope 2>&1)" || true
 		[[ -z "${out//$'\r'/}" ]] || { echo "win-runners: psargs (${sh}): dogfood_shcl.ps1 lost an empty argument: ${out@Q}" >&2; return 1; }
-		out="$(USERPROFILE="${prof}" LOCALAPPDATA="${app}" "${sh}" -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "${sess}")" "$(cygpath -w source/powershell/shcl.ps1)" "${bin}" "${f}" "$(cygpath -w utility/dogfood_shcl.ps1)" 2>&1)" || true
+		out="$(USERPROFILE="${prof}" LOCALAPPDATA="${app}" "${sh}" -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "${sess}")" "${f}" "$(cygpath -w utility/dogfood_shcl.ps1)" 2>&1)" || true
 		[[ "${out//$'\r'/}" == 'done' ]] || { echo "win-runners: psargs (${sh}): from a session: ${out@Q}" >&2; return 1; }
 	done
 	[[ -n "${prof:-}" ]] || return 0
@@ -495,3 +487,4 @@ fi
 ##		  refusing the lot over one absent toolchain. Skipped rows are named.
 ##		- 20260903: The registry row runs on a developer box too, inside a
 ##		  sandbox, instead of being skipped there.
+##		- 20261008: The shcl.ps1 rows went with the retired wrapper.

@@ -404,7 +404,8 @@ function Get-RunTarget {
 ## script sees them. A `-`-led one with a colon became a name and a value, so
 ## `--set=url=http://x` reached shcl as `--set=url=http` and `//x`. The
 ## process's own argument list still has them as typed, after this script's
-## path. Nothing when no argument there names this script. As in shcl.ps1.
+## path. Nothing when no argument there names this script. Taken from the
+## retired shcl.ps1, now in project/legacy/.
 function Get-FileArgument {
 	[CmdletBinding()]
 	[OutputType([string[]])]
@@ -421,7 +422,8 @@ function Get-FileArgument {
 ## `-x:` and a `y`, and splatted on to shcl the `-x:` is dropped. The calling
 ## line tells it apart from `-x: y`, which a direct call passes as two
 ## arguments. With no command there whose colon parameters match, the pair is
-## joined. Plain strings come back. As _shcl_colon_args in shcl.ps1.
+## joined. Plain strings come back. Taken from _shcl_colon_args in the
+## retired shcl.ps1.
 function Join-ColonArgument {
 	[CmdletBinding()]
 	param([object[]]$Argument)
@@ -455,8 +457,8 @@ function Join-ColonArgument {
 ## Windows PowerShell 5.1, 7 before 7.3, and 7.3 and later set to Legacy, hand
 ## a native command one command line built the old way, where an embedded
 ## quote goes through bare and an empty argument is left out. So each argument
-## with a blank or a quote is quoted the way shcl's parser reads it back. As
-## _shcl_native_args in shcl.ps1.
+## with a blank or a quote is quoted the way shcl's parser reads it back.
+## Taken from _shcl_native_args in the retired shcl.ps1.
 function ConvertTo-NativeArgument {
 	[CmdletBinding()]
 	param([object[]]$Argument)

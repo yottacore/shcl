@@ -150,13 +150,11 @@ New bindings (Tier 3) follow the same recipe: port the reference function-for-fu
 
 - The read structs stay value+status, where the other three have `raw`, `line` and `quoted` on the read result. Those two of the three that a C consumer can still ask for are separate accessors - `shcl_line`, `shcl_quoted` - because widening a by-value struct to include a borrowed span costs every read that never looks at it. C++'s `Read<T>` follows C here rather than the other three. Filling `line` and `quoted` would resolve the path twice more on every read, so they stay `line()` and `quoted()` on the `Document`.
 
-### Bash and PowerShell (wrappers)
+### Bash and PowerShell
 
-- These are front ends to the compiled `shcl` binary, not parsers - they inherit conformance for free.
+- The Bash and PowerShell wrappers were retired on 2026-10-08 and are frozen in `project/legacy/`, out of every lint list. What is left is the installers, the dogfood runner and the pipeline's own scripts.
 
-- shellcheck gates the bash wrapper; shfmt does not rewrite (its output fights the house shell style). PSScriptAnalyzer gates the ps1.
-
-- The ps1 deviates from PowerShell convention on purpose: no `param()` block (it would eat `get`/`--int` before they reach the binary in dual-mode use) and `shcl_*` snake_case helper names instead of Verb-Noun (the sourced call surface is identical across bash and pwsh, which outranks the local convention for a two-line forwarder).
+- shellcheck gates the bash scripts; shfmt does not rewrite (its output fights the house shell style). PSScriptAnalyzer gates the ps1 files.
 
 - Shell scripts keep the house compact style: `#•••` section rules, minified helper functions, the header layout the existing files use.
 

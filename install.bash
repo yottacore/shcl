@@ -6,8 +6,9 @@
 ##	macOS and FreeBSD.
 ##	Downloads the latest release from GitHub, checks the sha256sums file against
 ##	the release signing key before trusting a checksum out of it, and lays out
-##	the binary plus the drop-in source files and shell wrappers. Idempotent:
-##	re-running updates an existing install in place.
+##	the binary plus the drop-in source files. Idempotent: re-running updates
+##	an existing install in place, and takes out the retired shell wrappers an
+##	older install put in scripts/.
 ##
 ##	Needs curl or wget, plus openssl for the signature check.
 ##
@@ -29,14 +30,14 @@
 ##		--yes | -y               skip the confirmation prompt.
 ##		--version                print this installer's version and exit.
 ##		--uninstall              remove what an install of the same --target
-##		                         laid down (binary, symlinks, code/, scripts/,
-##		                         man/, completions/), and nothing else.
+##		                         laid down (binary, symlinks, code/, man/,
+##		                         completions/, and an older install's
+##		                         scripts/), and nothing else.
 ##
 ##	Layout under the install dir:
 ##		shcl         the CLI binary
 ##		code/        drop-in single-file bindings (lib.rs, shcl.go, shcl.py,
 ##		             shcl.h, shcl.hpp)
-##		scripts/     shell wrappers (shcl.bash, shcl.ps1)
 ##		man/         the man page, symlinked into the target's man1 dir
 ##		completions/ bash and zsh completions, enabled by hand (see the note the
 ##		             install prints - the .deb/.rpm put these in place for you)
@@ -52,7 +53,7 @@
 
 set -euo pipefail
 
-installer_version="1.3.0"
+installer_version="1.4.0"
 REPO="yottacore/shcl"
 release="stable"
 target="user"
@@ -90,8 +91,8 @@ install.bash ${installer_version} - release installer for shcl on Linux, macOS a
 
 Downloads the latest release from GitHub, checks the sha256sums file against the
 release signing key before trusting a checksum out of it, and lays out the binary
-plus the drop-in source files and shell wrappers. Idempotent: re-running updates
-an existing install in place.
+plus the drop-in source files. Idempotent: re-running updates an existing install
+in place, and removes the shell wrappers an older install put in scripts/.
 
 Needs curl or wget, plus openssl for the signature check.
 
@@ -113,14 +114,13 @@ Options (both --opt=VALUE and --opt VALUE work):
   --yes, -y                skip the confirmation prompt.
   --version                print this installer's version and exit.
   --uninstall              remove what an install of the same --target laid
-                           down (binary, symlinks, code/, scripts/, man/,
-                           completions/), and nothing else.
+                           down (binary, symlinks, code/, man/, completions/,
+                           and an older install's scripts/), and nothing else.
 
 Layout under the install dir:
   shcl          the CLI binary
   code/         drop-in single-file bindings (lib.rs, shcl.go, shcl.py,
                 shcl.h, shcl.hpp)
-  scripts/      shell wrappers (shcl.bash, shcl.ps1)
   man/          the man page, symlinked into the target's man1 dir
   completions/  bash and zsh completions, enabled by hand (see the note the
                 install prints - the .deb/.rpm put these in place for you)
@@ -217,8 +217,9 @@ fi
 
 ## The files the install writes, by name, then each payload directory if that
 ## emptied it - never a recursive delete, and never a glob. A glob took whatever
-## else someone had put in code/ or scripts/. The staging name goes too, since
-## an interrupted install leaves it behind. Everything runs in one privileged
+## else someone had put in code/ or scripts/. scripts/ is from an install before
+## the wrappers were retired. The staging name goes too, since an interrupted
+## install leaves it behind. Everything runs in one privileged
 ## shell, because a system tree only root can list is also one only root can
 ## empty.
 fRemoveLaidDown(){   ## fRemoveLaidDown DEST
@@ -379,7 +380,8 @@ existing="new install"
 printf 'shcl %s (%s, %s-%s) -> %s (%s)\n' "${version}" "${channel}" "${osname}" "${arch}" "${dest}" "${existing}"
 printf '  from     https://github.com/%s/releases/tag/%s\n' "${REPO}" "${tag}"
 printf '  binary   %s/shcl (symlink %s)\n' "${dest}" "${link}"
-printf '  drop-ins %s/code/, wrappers %s/scripts/\n' "${dest}" "${dest}"
+printf '  drop-ins %s/code/\n' "${dest}"
+[[ -d "${dest}/scripts" ]] && printf '  removes  the retired wrappers in %s/scripts/\n' "${dest}"
 printf '  man page %s (symlink %s)\n' "${dest}/man/shcl.1" "${manlink}"
 printf '  compl.   %s/completions/ (enable by hand - see the note at the end)\n' "${dest}"
 [[ -n "${asroot}" ]] && printf '  uses sudo for %s and %s\n' "${dest}" "${link}"
@@ -434,7 +436,7 @@ fFetch "${base}/${asset}" "${tmp}/shcl" || fDie "download failed: ${asset}"
 got="$(fSha256 "${tmp}/shcl")"
 [[ -n "${want}" && "${got}" == "${want}" ]] || fDie "sha256 mismatch on ${asset}"
 
-## Drop-in code files and wrappers come from a release asset covered by the same
+## Drop-in code files come from a release asset covered by the same
 ## signed sums file as the binary. They used to come from GitHub's generated
 ## source tarball, which has neither a signature nor a checksum - so the one
 ## payload we made executable was the one nothing had verified. Releases before
@@ -473,11 +475,10 @@ if [[ -n "${want_src}" ]]; then
 	fFetch "${base}/${dropins}" "${tmp}/dropins.tgz" || fDie "download failed: ${dropins}"
 	got_src="$(fSha256 "${tmp}/dropins.tgz")"
 	[[ "${got_src}" == "${want_src}" ]] || fDie "sha256 mismatch on ${dropins}"
-	mkdir -p "${tmp}/x" "${tmp}/code" "${tmp}/scripts" "${tmp}/man" "${tmp}/completions"
+	mkdir -p "${tmp}/x" "${tmp}/code" "${tmp}/man" "${tmp}/completions"
 	tar -xzf "${tmp}/dropins.tgz" -C "${tmp}/x"
 	cp "${tmp}/x/source/rust/src/lib.rs" "${tmp}/x/source/go/shcl.go" "${tmp}/x/source/python/shcl.py" \
 	   "${tmp}/x/source/c/shcl.h" "${tmp}/x/source/c/shcl.hpp" "${tmp}/code/"
-	cp "${tmp}/x/source/bash/shcl.bash" "${tmp}/x/source/powershell/shcl.ps1" "${tmp}/scripts/"
 	## A payload from before the man page and completions existed is still a
 	## valid payload - install what it has and say what it did not include.
 	if [[ -f "${tmp}/x/source/man/shcl.1" ]]; then
@@ -485,7 +486,6 @@ if [[ -n "${want_src}" ]]; then
 		cp "${tmp}/x/source/completions/shcl.bash" "${tmp}/x/source/completions/_shcl" "${tmp}/completions/"
 		have_docs=1
 	fi
-	chmod 755 "${tmp}/scripts/shcl.bash"
 	have_dropins=1
 fi
 
@@ -523,10 +523,13 @@ fLayDown(){
 	${asroot} cp "${tmp}/shcl" "${dest}/.shcl.new"
 	${asroot} mv -f "${dest}/.shcl.new" "${dest}/shcl"
 	if (( have_dropins )); then
-		${asroot} mkdir -p "${dest}/code" "${dest}/scripts"
+		${asroot} mkdir -p "${dest}/code"
 		${asroot} cp "${tmp}"/code/* "${dest}/code/"
-		${asroot} cp "${tmp}"/scripts/* "${dest}/scripts/"
 	fi
+	## The shell wrappers are retired (project/legacy/), so an update takes out
+	## the copies an older install left, and scripts/ once that empties it.
+	${asroot} rm -f "${dest}/scripts/shcl.bash" "${dest}/scripts/shcl.ps1"
+	${asroot} rmdir "${dest}/scripts" 2>/dev/null || true
 	mandir=""
 	if (( have_docs )); then
 		mandir="$(fTopMissing "$(dirname "${manlink}")")"
@@ -567,7 +570,7 @@ printf 'installed shcl %s -> %s\n' "${version}" "${link}"
 if [[ -n "${man_note}" ]]; then
 	printf 'note: %s - left alone, and this install'\''s man page not linked there\n' "${man_note}"
 fi
-(( have_dropins )) || printf 'note: this release ships no signed drop-in payload, so %s/code and %s/scripts were skipped - take them from the repo if you want them\n' "${dest}" "${dest}"
+(( have_dropins )) || printf 'note: this release ships no signed drop-in payload, so %s/code was skipped - take the files from the repo if you want them\n' "${dest}"
 ## Completions are laid down but not wired in. There is no one directory that
 ## works: the bash autoload dir varies by bash-completion version, zsh wants a
 ## dir on $fpath, and writing into the distro's own /usr/share would collide

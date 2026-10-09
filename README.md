@@ -36,7 +36,7 @@
 
 - The same file reads the same in every language. The Rust reference and the Go, Python, and C/C++ bindings produce byte-for-byte identical output, held to one conformance corpus. Zig uses the C header as is.
 
-- Each binding is one drop-in source file with no dependencies. The CLI is a single binary, with thin Bash and PowerShell wrappers over it.
+- Each binding is one drop-in source file with no dependencies. The CLI is a single binary, and shell scripts call it directly.
 
 - Prebuilt for Linux, macOS and Windows, x86_64 and ARM64, and for FreeBSD on x86_64. Everything else builds from source with `cargo install shcl`.
 
@@ -403,7 +403,7 @@ For version pinning and the dependency line per ecosystem, see [Example use-case
 
 The simplest route, if your system has a package manager. Download the `.deb`, `.rpm`, or Windows setup for your architecture (`x86_64` or `arm64`) from the releases page.
 
-Packages put the binary at `/usr/bin/shcl`, and the drop-in sources and shell wrappers under `/usr/share/shcl/`. They also install the man page and the bash and zsh completions where each shell already looks, so `man shcl` and tab completion work with nothing to configure.
+Packages put the binary at `/usr/bin/shcl`, and the drop-in sources under `/usr/share/shcl/`. They also install the man page and the bash and zsh completions where each shell already looks, so `man shcl` and tab completion work with nothing to configure.
 
 #### Debian
 
@@ -423,7 +423,7 @@ Run `shcl-2.0.0-windows-x86_64-setup.exe`. It installs to `C:\Program Files\Shcl
 
 ### Install scripts, stable or dev
 
-Downloads a release, checks its signature, and installs the binary plus the drop-in files and wrappers. Idempotent. It uses sane defaults, states its plan, and asks before touching anything. Pass `--help` (`-Help` on Windows) for the options.
+Downloads a release, checks its signature, and installs the binary plus the drop-in files. Idempotent. An update also removes the Bash and PowerShell wrappers that older releases put in `scripts/`. It uses sane defaults, states its plan, and asks before touching anything. Pass `--help` (`-Help` on Windows) for the options.
 
 The default is the newest full release. Until 3.0.0 is out that is still 2.0.0, which reads files by the 2.x rules. For the 3.0 beta this page describes, add `--release dev` (`-Release dev` on Windows).
 
@@ -632,7 +632,7 @@ A few more verbs round out the CLI. `migrate` rewrites a file written for shcl 2
 
 If you have files written for 2.x, run `migrate --from-2x` over them once and read what comes back. The flag is not optional politeness: a comma list such as `p: a,b` is written the same way under both rule sets and means two different things, an array then and one string now, so without being told which rules wrote the file, `migrate` leaves those values alone and exits 7 rather than guessing and damaging a file that was already correct. What it rewrites it stamps, so running it twice is safe. Most of what changed at 3.0 is loud, and a file that has it says so the first time it loads. Backslashes are one quiet exception: a backslash pair was an escape in 2.x and is text now, and `migrate` leaves every backslash as written, so `path: "C:\temp\new"` comes through as it was. A raw block's label is another: one holding a `#` ran to the end of the line in 2.x and ends at the `#` now, and `migrate` cannot rewrite that, since a label has no quoting.
 
-`shcl help` covers the rest and `man shcl` says the same at more length; `shcl help get` narrows it to one subcommand, and `shcl explain E019` gives the rule behind a diagnostic code, with `shcl explain` alone listing every code. A typo in a command or an option says what was probably meant. `shcl --about` names the version, license and project home, and `shcl --donate` points at the sponsors page. Tab completion for bash and zsh is included. To drive it from a script with typed helpers instead, there are [Bash](#bash) and [PowerShell](#powershell) wrappers.
+`shcl help` covers the rest and `man shcl` says the same at more length; `shcl help get` narrows it to one subcommand, and `shcl explain E019` gives the rule behind a diagnostic code, with `shcl explain` alone listing every code. A typo in a command or an option says what was probably meant. `shcl --about` names the version, license and project home, and `shcl --donate` points at the sponsors page. Tab completion for bash and zsh is included. For calling it from a script, see [Bash](#bash) and [PowerShell](#powershell).
 
 ## Example use-cases in your code
 
@@ -919,18 +919,16 @@ Build with `c++ -std=c++17 -O2 main.cpp impl.cpp -o ex -lm`. The `Document` free
 
 ### Bash
 
-The shell wrappers are not parsers; they wrap the CLI, which is why they inherit its conformance for free. Source one and you get typed sugar over the same commands:
+Scripts call the `shcl` binary directly. It is the parser, so a script gets the same answers as every binding. A typed read is `get` with a type option, and the value comes back on stdout.
 
-- Install: install the CLI, source the wrapper
+- Install: install the CLI, see [Installation](#installation)
 
-- Dependency line: n/a - it wraps the CLI
+- Dependency line: n/a - scripts call the CLI
 
 ~~~bash
-source shcl.bash
-
-workers=$(shcl_int --default=4 server.shcl workers)
-root=$(shcl_get --default='' server.shcl 'site(example.com).root')
-maxUpload=$(shcl_size server.shcl 'site(example.com).Max-Upload-MB')   # 52428800, in bytes
+workers=$(shcl get --int --default=4 server.shcl workers)
+root=$(shcl get --default='' server.shcl 'site(example.com).root')
+maxUpload=$(shcl get --size server.shcl 'site(example.com).Max-Upload-MB')   # 52428800, in bytes
 
 # Repeatable, applied in order; --write rewrites the file in place.
 shcl set --write server.shcl \
@@ -938,6 +936,8 @@ shcl set --write server.shcl \
     --set 'site(example.com).tls.hsts=true' \
     --set-literal 'cluster.hosts=[a.example.com, b.example.com]'
 ~~~
+
+A missing value with no `--default`, or one that isn't the type asked for, exits nonzero and says why on stderr.
 
 The two spellings differ in how the value is read. `--set` takes **data**: its type follows the text, so `workers=8` writes an integer, but a bracket or a comma in it is content - `hosts=[a, b]` would store one quoted string. `--set-literal` takes **value syntax**, the way a file writes it, so that same text writes a two-element array. Reach for it whenever the value is not a plain scalar.
 
@@ -954,14 +954,12 @@ A tab or line break inside an op value goes in as `◉TAB◉` or `◉NEWLINE◉`
 
 ### PowerShell
 
-Dot-source it for the same helper names:
+The same reads, calling `shcl` directly. Quote a path that has a selector in it. Unquoted, PowerShell runs what is inside the parentheses as a command.
 
 ~~~powershell
-. ./shcl.ps1
-
-$workers   = [int](shcl_int --default=4 server.shcl workers)
-$root      = shcl_get --default='' server.shcl 'site(example.com).root'
-$maxUpload = [long](shcl_size server.shcl 'site(example.com).Max-Upload-MB')
+$workers   = [int](shcl get --int --default=4 server.shcl workers)
+$root      = shcl get --default='' server.shcl 'site(example.com).root'
+$maxUpload = [long](shcl get --size server.shcl 'site(example.com).Max-Upload-MB')
 
 shcl set --write server.shcl `
          --set "workers=$($workers * 2)" `
@@ -969,7 +967,7 @@ shcl set --write server.shcl `
          --set-literal 'cluster.hosts=[a.example.com, b.example.com]'
 ~~~
 
-The op-script form works here too - the sourced `shcl` forwards pipeline input to the binary:
+The op-script form works here too, piped in:
 
 ~~~powershell
 $ops = "remove`tsite(old.example.com)",
@@ -977,9 +975,7 @@ $ops = "remove`tsite(old.example.com)",
 $ops | shcl set --write server.shcl
 ~~~
 
-One PowerShell wrinkle: a bare `--` never reaches the dot-sourced `shcl` function, because PowerShell reads it as its own end-of-parameters token first. Quote it when a FILE or PATH begins with a dash: `shcl get '--' server.shcl -x`. The script form and the binary itself take a bare `--` the way the help describes.
-
-Windows PowerShell 5.1 has one more. Started with `-File` while its input is redirected, it refuses a lone `-` argument before the script's first line runs, so `type f.shcl | powershell -File shcl.ps1 get - a` fails. Dot-source the script, run it under PowerShell 7, or call the binary for that one.
+`$LASTEXITCODE` has the exit code after each call. Windows PowerShell 5.1 reads a native command's output in the console's code page, so set `[Console]::OutputEncoding = [Text.Encoding]::UTF8` before reading a value that isn't plain ASCII. To pipe non-ASCII text in on 5.1, also set `$OutputEncoding = [Text.UTF8Encoding]::new($false)`, which leaves out the byte-order mark.
 
 ### What saving does
 

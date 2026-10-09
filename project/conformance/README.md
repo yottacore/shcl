@@ -1,7 +1,7 @@
 <!-- markdownlint-disable MD010 MD033 MD041 -->
 # Conformance corpus
 
-Golden cases that pin every released SHCL binding to identical behavior. Each independent parser runs this corpus in CI; drift on any case means the binding is non-conformant and is not released. (CLI-wrapper bindings and companion typed surfaces inherit conformance from their core.)
+Golden cases that pin every released SHCL binding to identical behavior. Each independent parser runs this corpus in CI; drift on any case means the binding is non-conformant and is not released. (Shell scripts that call the CLI, and companion typed surfaces, inherit conformance from their core.)
 
 ## Case layout
 

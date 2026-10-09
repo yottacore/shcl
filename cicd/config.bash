@@ -110,9 +110,9 @@ BUILD_EXTRA=(
 ## scripts so cicd can't rot silently. The extras gate every other binding too:
 ## go vet, ruff + mypy (Python), cppcheck (C, exhaustive, with a result cache),
 ## markdownlint over all tracked .md (config in .markdownlint-cli2.jsonc
-## at repo root), and PSScriptAnalyzer on every tracked .ps1. shfmt is
-## deliberately NOT here - its output fights the hand-formatted shell style, so
-## it stays interactive-only.
+## at repo root), and PSScriptAnalyzer on every tracked .ps1 but the frozen ones
+## in project/legacy/. shfmt is deliberately NOT here - its output fights the
+## hand-formatted shell style, so it stays interactive-only.
 ##
 ## The last three are the supply-chain half: staticcheck alongside go vet,
 ## govulncheck against the Go standard library and module graph, and cargo-deny
@@ -143,7 +143,6 @@ LINT_EXTRA=(
 	## under a second. It sits in the git dir so a pre-push worktree finds it too.
 	'cbd="$(git rev-parse --git-common-dir 2>/dev/null || echo cicd/artifacts)/cppcheck-build"; mkdir -p "${cbd}"; cppcheck -j 2 --cppcheck-build-dir="${cbd}" --error-exitcode=1 --enable=warning,portability --inline-suppr --check-level=exhaustive --quiet -Isource/c source/c/cmd/shcl/main.c source/c/tests/conformance.c'
 	'markdownlint-cli2'
-	'pwsh -NoProfile -Command "Invoke-ScriptAnalyzer -Path source/powershell/shcl.ps1 -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit"'
 	'pwsh -NoProfile -Command "Invoke-ScriptAnalyzer -Path install.ps1 -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit"'
 	'pwsh -NoProfile -Command "Invoke-ScriptAnalyzer -Path utility/dogfood_shcl.ps1 -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit"'
 	'pwsh -NoProfile -Command "Invoke-ScriptAnalyzer -Path cicd/packaging/shclpath.ps1 -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit"'
@@ -204,7 +203,6 @@ SHELLCHECK_TARGETS=(
 	cicd/utility/include/gfs-rotate.bash
 	cicd/utility/include/largedoc-gen.bash
 	cicd/utility/include/test-id.bash
-	source/bash/shcl.bash
 	source/completions/shcl.bash
 	install.bash
 	install-dev.bash
@@ -249,7 +247,7 @@ TEST_EXTRA=(
 	## write regressions reached dev in consecutive rounds with no number to fail
 	## on, and the read side was quadratic before the surviving name index.
 	'cicd/utility/perf-gate.bash "${BINDING_CLIS[@]}"'
-	## The wrappers, the one-liner's scope hygiene, and the errexit grep trap.
+	## The installers, the one-liner's scope hygiene, and the errexit grep trap.
 	'cicd/utility/shell-regress.bash'
 	## A 2.x file migrated for the current rules reads as the tree 2.x read,
 	## judged against a build of the last pre-cut commit.
@@ -429,21 +427,6 @@ PACKAGE_ENABLE=1
 DOGFOOD_FIXED_DESTS=(
 	"${HOME}/synced/0-0/common/exec/util/linux/bin"
 )
-## Shell wrappers ride along, each renamed to <EXE_NAME>.<ext>. A missing source is
-## skipped silently. Each has its own preferred dest list (first existing+writable
-## wins), matched by file extension below - a wrapper is a sourceable include, so it
-## belongs with its kind, not on PATH beside the binary; falls back to the binary's
-## dest if none of its own exist.
-DOGFOOD_WRAPPERS=(
-	"source/bash/shcl.bash"
-	"source/powershell/shcl.ps1"
-)
-DOGFOOD_WRAPPER_DESTS_bash=(
-	"${HOME}/synced/0-0/common/exec/util/linux/bash/include"
-)
-DOGFOOD_WRAPPER_DESTS_ps1=(
-	"${HOME}/synced/0-0/common/exec/util/0_crossplatform"
-)
 ## Cross-built binaries install too, into a dest keyed by their CROSS_TARGETS
 ## os-arch label with '-' written as '_'. Same first-existing-and-writable rule; an
 ## os-arch with no list here just isn't installed. None for either arm64,
@@ -508,3 +491,4 @@ PUBLISH_AUTO_MESSAGE=""
 ##		- 2026-09-21 JC: cppcheck keeps a result cache in the git dir and checks its two files side by side.
 ##		- 2026-09-22 JC: PROFILE_CHECK, the sampler's attribution against two loops of known cost.
 ##		- 2026-09-26 JC: PROFILE_CHECK_*: --ci runs the calibration on a build without LTO.
+##		- 2026-10-08 JC: The shell wrappers are retired: out of the lint lists and the dogfood stage.

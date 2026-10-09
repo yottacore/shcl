@@ -573,7 +573,7 @@ if ((${#RELEASE_NATIVE_CMD[@]})); then
 		## Installer packages (.deb/.rpm via nfpm, NSIS setup per Windows exe) join
 		## the artifact family before the sums are written, so they ship verified too.
 		((PACKAGE_ENABLE)) && "${here}/utility/package.bash" "${root}" "${art_dir}" "${ver}"
-		## The drop-in sources, wrappers, man page and completions the installer
+		## The drop-in sources, man page and completions the installer
 		## lays down, as one asset in the same family - so they are covered by the
 		## signed sums like everything else. The installer used to take them from
 		## GitHub's generated source tarball, which has no signature and no
@@ -583,7 +583,6 @@ if ((${#RELEASE_NATIVE_CMD[@]})); then
 			--mtime="@${SOURCE_DATE_EPOCH}" -cf - \
 			source/rust/src/lib.rs source/go/shcl.go source/python/shcl.py \
 			source/c/shcl.h source/c/shcl.hpp \
-			source/bash/shcl.bash source/powershell/shcl.ps1 \
 			source/man/shcl.1 source/completions/shcl.bash source/completions/_shcl \
 			| gzip -n -9 > "${art_dir}/${EXE_NAME}-${ver}-dropins.tar.gz" )
 		fWriteSums
@@ -596,8 +595,8 @@ fi
 
 ## Stage 7: dogfood - drop the freshly built optimized native binary into the first
 ## existing+writable fixed dest, under EXE_NAME, so the copy launched by hand stays
-## current. The bash wrapper rides along as <EXE_NAME>.bash once it exists, and each
-## cross-built binary goes to its own per-os-arch dest where one is configured.
+## current. Each cross-built binary goes to its own per-os-arch dest where one is
+## configured.
 ## Skipped when no release binary was built (e.g. --ci) or the dest list is empty.
 ## No sudo: a non-writable dest is passed over with a warning, never force-installed.
 fSection "7/9  Dogfood"
@@ -607,15 +606,6 @@ if ((${#DOGFOOD_FIXED_DESTS[@]})) && [[ -f "${RELEASE_NATIVE_BIN:-/nonexist}" ]]
 		fEcho "WARNING: ${dogfood_dest}/${EXE_NAME} is running; dogfood copy skipped"
 	elif [[ -n "$dogfood_dest" ]]; then
 		fInstallAtomic "${RELEASE_NATIVE_BIN}" "$dogfood_dest" "${EXE_NAME}"
-		for wrapper in "${DOGFOOD_WRAPPERS[@]:-}"; do
-			[[ -n "$wrapper" && -f "$wrapper" ]] || continue
-			ext="${wrapper##*.}"                                       ## .bash / .ps1 -> dest name + dest-list key
-			declare -n wrapper_dests="DOGFOOD_WRAPPER_DESTS_${ext}"
-			wrapper_dest="$(fFirstWritableDir "${wrapper_dests[@]:-}")"
-			unset -n wrapper_dests
-			[[ -z "$wrapper_dest" ]] && wrapper_dest="$dogfood_dest"   ## fall back beside the binary
-			fInstallAtomic "$wrapper" "$wrapper_dest" "${EXE_NAME}.${ext}"
-		done
 	else
 		fEcho "WARNING: no dogfood dest exists+writable (${DOGFOOD_FIXED_DESTS[*]}); skipping"
 	fi
@@ -730,3 +720,4 @@ fEcho_Clean
 ##		- 2026-09-22 JC: The profiler stage runs the config's attribution check before it draws a graph.
 ##		- 2026-09-23 JC: The record waits for the cross checks, and --no-cross holds it back.
 ##		- 2026-09-26 JC: --ci runs the profiler's attribution check alone, on the config's cheaper build.
+##		- 2026-10-08 JC: The shell wrappers are retired: out of the drop-ins tarball and the dogfood stage.

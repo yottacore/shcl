@@ -4,9 +4,8 @@
 ##		Build installable packages from the versioned release artifacts:
 ##		.deb + .rpm via nfpm (x86_64 and arm64, whichever binaries exist) and an
 ##		NSIS setup .exe per Windows binary. Payload mirrors install.bash: binary,
-##		code/ drop-ins (lib.rs, shcl.go, shcl.py, shcl.h, shcl.hpp), scripts/
-##		wrappers (shcl.bash, shcl.ps1), and for the Linux packages only the man/
-##		page and completions/ for bash and zsh. Packages go beside the raw
+##		code/ drop-ins (lib.rs, shcl.go, shcl.py, shcl.h, shcl.hpp), and for the
+##		Linux packages only the man/ page and completions/ for bash and zsh. Packages go beside the raw
 ##		binaries in the artifact dir, named into the same shcl-<version>-* family
 ##		so the engine's sha256sums rewrite picks them up. Two builds of one
 ##		commit give the same bytes (mtimes and build metadata are pinned to the
@@ -51,13 +50,11 @@ fVersionQuad(){
 ## Stage the shared payload (same file set install.bash pulls from a tag).
 payload="$(mktemp -d)"
 trap 'rm -rf "${payload}"' EXIT
-mkdir -p "${payload}/code" "${payload}/scripts"
-chmod 755 "${payload}" "${payload}/code" "${payload}/scripts"   ## tree type copies dir modes into the package
+mkdir -p "${payload}/code"
+chmod 755 "${payload}" "${payload}/code"   ## tree type copies dir modes into the package
 cp "${root}/source/rust/src/lib.rs" "${root}/source/go/shcl.go" "${root}/source/python/shcl.py" \
    "${root}/source/c/shcl.h" "${root}/source/c/shcl.hpp" "${payload}/code/"
-cp "${root}/source/bash/shcl.bash" "${root}/source/powershell/shcl.ps1" "${payload}/scripts/"
-chmod 644 "${payload}"/code/* "${payload}/scripts/shcl.ps1"
-chmod 755 "${payload}/scripts/shcl.bash"
+chmod 644 "${payload}"/code/*
 
 ## Every package records the mtime of what it holds, so a payload staged a
 ## minute later gives different bytes for the same commit. Pin the staged tree
@@ -189,11 +186,11 @@ else
 fi
 
 ## The setup's uninstaller removes the payload by name, one NSIS Delete line
-## per file, so a file someone else keeps in code\ or scripts\ stays, as it
-## does with both script installers.
+## per file, so a file someone else keeps in code\ stays, as it does with
+## both script installers.
 fUninstallList(){
 	local f rel
-	for f in "$1"/code/* "$1"/scripts/*; do
+	for f in "$1"/code/*; do
 		rel="${f#"$1"/}"
 		# shellcheck disable=SC2016  ## $INSTDIR is NSIS's, not the shell's
 		printf 'Delete "$INSTDIR\\%s"\n' "${rel//\//\\}"
@@ -236,3 +233,4 @@ fi
 ##		  and completions staged for the Linux packages only.
 ##		- 2026-09-02: Dependencies read off the binary, Debian copyright and changelog
 ##		  files, and a check of both against every package built.
+##		- 2026-10-08: The shell wrappers are retired; no scripts/ in any payload.

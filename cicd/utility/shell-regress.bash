@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 ##	Purpose:
-##		Pin the tooling surface: the two wrappers, the one-liner's scope hygiene,
+##		Pin the tooling surface: the installers, the one-liner's scope hygiene,
 ##		the packaging script's version handling, and the comparison worker's
 ##		argument handling. None of it is reachable from the corpus or the CLI
 ##		gate, and every row here is a defect a review round found.
@@ -13,7 +13,7 @@
 ##		A substitution ending in `|| true` is fine, which is the fix each time.
 ##	Syntax:
 ##		shell-regress.bash [--cli PATH]
-##		  --cli PATH  the shcl binary the wrappers should resolve to
+##		  --cli PATH  the shcl binary the rows run
 ##		              (default source/rust/target/debug/shcl)
 ##	Exit: 0 = clean, 1 = a check failed, 2 = usage or missing input.
 ##	History: At bottom of script.
@@ -67,58 +67,6 @@ fHaveFile(){
 	echo "$2" >> "${SHCL_GATE_SKIPS:-/dev/null}"
 	return 1
 }
-
-fTest EoTJb0K 20260830-21-bash-wrapper-refuses-a-bad-shcl-bin
-##	20260830 item 21: -x is true for a directory, so a directory passed as
-##	SHCL_BIN got as far as being run.
-out="$(SHCL_BIN="${tmpDir}" bash -c "source '${repoDir}/source/bash/shcl.bash'; shcl_get '${tmpDir}/t.shcl' a" 2>&1 || true)"
-[[ "${out}" == *"not an executable file"* ]] || fBad "bash wrapper took a directory as SHCL_BIN: ${out@Q}"
-out="$(SHCL_BIN="${tmpDir}/nope" bash -c "source '${repoDir}/source/bash/shcl.bash'; shcl_get '${tmpDir}/t.shcl' a" 2>&1 || true)"
-[[ "${out}" == *"not an executable file"* ]] || fBad "bash wrapper took a missing SHCL_BIN: ${out@Q}"
-out="$(SHCL_BIN="${cli}" bash -c "source '${repoDir}/source/bash/shcl.bash'; shcl_get '${tmpDir}/t.shcl' a" 2>&1 || true)"
-[[ "${out}" == "1" ]] || fBad "bash wrapper did not read through a pinned SHCL_BIN: ${out@Q}"
-
-fTest EoTJb0L bash-wrapper-ignores-an-inherited-cache
-##	The private cache is not an interface: an inherited value would beat every
-##	documented lookup step.
-out="$(_SHCL_BIN=/nonexistent SHCL_BIN="${cli}" bash -c "source '${repoDir}/source/bash/shcl.bash'; shcl_get '${tmpDir}/t.shcl' a" 2>&1 || true)"
-[[ "${out}" == "1" ]] || fBad "bash wrapper honored an inherited _SHCL_BIN: ${out@Q}"
-
-fTest EqzwPFE 20260716-32-bash-wrapper-through-a-link
-##	20260716 item 32: reached through a link, the wrapper looked for its
-##	sibling binary beside the link. One link relative and one absolute, run and
-##	sourced, with no SHCL_BIN: the stub beside the real file has to answer.
-mkdir -p "${tmpDir}/blink/real" "${tmpDir}/blink/lnk"
-cp "${repoDir}/source/bash/shcl.bash" "${tmpDir}/blink/real/"
-printf '#!/bin/sh\necho "sibling $*"\n' > "${tmpDir}/blink/real/shcl"; chmod 755 "${tmpDir}/blink/real/shcl"
-ln -s ../real/shcl.bash "${tmpDir}/blink/lnk/rel.bash"
-ln -s "${tmpDir}/blink/lnk/rel.bash" "${tmpDir}/blink/abs.bash"
-for via in lnk/rel.bash abs.bash; do
-	out="$(env -u SHCL_BIN bash "${tmpDir}/blink/${via}" x 2>&1 || true)"
-	[[ "${out}" == "sibling x" ]] || fBad "bash wrapper run through ${via} missed its sibling binary: ${out@Q}"
-	# shellcheck disable=SC2016  ## the inner shell's own $1
-	out="$(env -u SHCL_BIN bash -c 'source "$1"; shcl y' _ "${tmpDir}/blink/${via}" 2>&1 || true)"
-	[[ "${out}" == "sibling y" ]] || fBad "bash wrapper sourced through ${via} missed its sibling binary: ${out@Q}"
-done
-
-fTest ErlisVv 20261003-16-bash-wrapper-in-an-install
-##	20261003 item 16: every installer puts the wrappers in scripts/ with the
-##	binary a level up, and the wrapper looked only beside itself, so with the
-##	bin link off PATH it found nothing. PATH here has no shcl on it.
-mkdir -p "${tmpDir}/inst/scripts"
-cp "${repoDir}/source/bash/shcl.bash" "${repoDir}/source/powershell/shcl.ps1" "${tmpDir}/inst/scripts/"
-printf '#!/bin/sh\necho "installed $*"\n' > "${tmpDir}/inst/shcl"; chmod 755 "${tmpDir}/inst/shcl"
-out="$(env -u SHCL_BIN PATH=/usr/bin:/bin bash "${tmpDir}/inst/scripts/shcl.bash" x 2>&1 || true)"
-[[ "${out}" == "installed x" ]] || fBad "bash wrapper in an install's scripts/ missed the binary a level up: ${out@Q}"
-
-fTest ErlisYf 20261003-16-pwsh-wrapper-in-an-install
-if fHave pwsh; then
-	pwshExe="$(command -v pwsh)"
-	out="$(env -u SHCL_BIN PATH=/usr/bin:/bin "${pwshExe}" -NoProfile -File "${tmpDir}/inst/scripts/shcl.ps1" x 2>&1 </dev/null || true)"
-	[[ "${out}" == "installed x" ]] || fBad "pwsh wrapper in an install's scripts/ missed the binary a level up: ${out@Q}"
-else
-	fTestSkip
-fi
 
 fTest Ep11mJd 20260904-10-11-bash-completion-value-options
 ##	20260904 items 10 and 11: bash cuts `--opt=value` at the `=` before a
@@ -202,189 +150,6 @@ for mode in "${compModes[@]}"; do
 	[[ "${out}" == "alpha.shcl" ]] || fBad "bash completion (${mode}) lost the FILE slot after --: ${out@Q}"
 done
 
-fTest EpHNNhw 20260904-39-wrappers-match-the-binary
-##	20260904 item 39: nothing had ever compared what the two wrappers hand back
-##	against what the binary hands back. They are pass-through front ends, so
-##	every row here is the same assertion - same stdout, same stderr, same exit
-##	code - across four ways of calling them. Item 16 (the script form ending the
-##	caller's shell) lived in that gap for a release.
-{
-	printf 'a: 1\nname: two words\nblk:\n\t~~~txt\n\tbody\n\n\t~~~\n"-dash": 5\n' > "${tmpDir}/w.shcl"
-	##	Dot-sourcing through a file, and splatting real argv into the function,
-	##	so bash's quoting never has to survive a PowerShell -Command string.
-	#  shellcheck disable=2016  ## PowerShell's own $variables.
-	{
-		echo ". '${repoDir}/source/powershell/shcl.ps1'"
-		echo 'shcl @args'
-		echo 'exit $LASTEXITCODE'
-	} > "${tmpDir}/wdot.ps1"
-
-	##	id | stdin (printf %b, '-' for none) | the arguments, one per field
-	wrapRows=(
-		'good|-|get|--int|%F%|a'
-		'missing|-|get|--int|%F%|nope'
-		'badtype|-|get|--int|%F%|name'
-		'nofile|-|check|%M%'
-		'usage|-|get|--nope|%F%|a'
-		'stdin-fmt|a: 1\n|fmt|-'
-		'stdin-ops|int\tb\t2\n|set|%F%'
-		'raw-tail|-|get|--raw|%F%|blk'
-		'space-arg|-|get|%F%|name'
-		'dash-arg|-|get|--|%F%|-dash'
-	)
-	fRunWrapper(){  ## fRunWrapper MODE STDIN ARGS...
-		local mode="$1" stdinSpec="$2"; shift 2
-		local rc=0
-		##	bashsrc keeps the wrapper's path out of $0, or the wrapper sees
-		##	BASH_SOURCE[0] == $0 and runs as a script instead of being sourced.
-		case "${mode}" in
-			binary)   if [[ "${stdinSpec}" == - ]]; then "${cli}" "$@" >"${tmpDir}/wo" 2>"${tmpDir}/we" </dev/null || rc=$?
-			          else printf '%b' "${stdinSpec}" | "${cli}" "$@" >"${tmpDir}/wo" 2>"${tmpDir}/we" || rc=$?; fi ;;
-			bash)     if [[ "${stdinSpec}" == - ]]; then bash "${repoDir}/source/bash/shcl.bash" "$@" >"${tmpDir}/wo" 2>"${tmpDir}/we" </dev/null || rc=$?
-			          else printf '%b' "${stdinSpec}" | bash "${repoDir}/source/bash/shcl.bash" "$@" >"${tmpDir}/wo" 2>"${tmpDir}/we" || rc=$?; fi ;;
-			bashsrc)  if [[ "${stdinSpec}" == - ]]; then bash -c 'w="$1"; shift; source "$w"; shcl "$@"' bashsrc "${repoDir}/source/bash/shcl.bash" "$@" >"${tmpDir}/wo" 2>"${tmpDir}/we" </dev/null || rc=$?
-			          else printf '%b' "${stdinSpec}" | bash -c 'w="$1"; shift; source "$w"; shcl "$@"' bashsrc "${repoDir}/source/bash/shcl.bash" "$@" >"${tmpDir}/wo" 2>"${tmpDir}/we" || rc=$?; fi ;;
-			pwsh)     if [[ "${stdinSpec}" == - ]]; then pwsh -NoProfile -File "${repoDir}/source/powershell/shcl.ps1" "$@" >"${tmpDir}/wo" 2>"${tmpDir}/we" </dev/null || rc=$?
-			          else printf '%b' "${stdinSpec}" | pwsh -NoProfile -File "${repoDir}/source/powershell/shcl.ps1" "$@" >"${tmpDir}/wo" 2>"${tmpDir}/we" || rc=$?; fi ;;
-			pwshsrc)  if [[ "${stdinSpec}" == - ]]; then pwsh -NoProfile -File "${tmpDir}/wdot.ps1" "$@" >"${tmpDir}/wo" 2>"${tmpDir}/we" </dev/null || rc=$?
-			          else printf '%b' "${stdinSpec}" | pwsh -NoProfile -File "${tmpDir}/wdot.ps1" "$@" >"${tmpDir}/wo" 2>"${tmpDir}/we" || rc=$?; fi ;;
-		esac
-		printf 'rc=%s\n' "${rc}"
-		printf -- '--out--\n'; cat "${tmpDir}/wo"
-		printf -- '--err--\n'; cat "${tmpDir}/we"
-	}
-
-	wrapModes=(bash bashsrc)
-	fHave pwsh >/dev/null 2>&1 && wrapModes+=(pwsh pwshsrc)
-	export SHCL_BIN="${cli}"
-	for row in "${wrapRows[@]}"; do
-		IFS='|' read -r -a f <<<"${row}"
-		id="${f[0]}"; stdinSpec="${f[1]}"
-		args=("${f[@]:2}")
-		for ((ai = 0; ai < ${#args[@]}; ai++)); do
-			args[ai]="${args[ai]//%F%/${tmpDir}/w.shcl}"
-			args[ai]="${args[ai]//%M%/${tmpDir}/not-there.shcl}"
-		done
-		want="$(fRunWrapper binary "${stdinSpec}" "${args[@]}")"
-		for mode in "${wrapModes[@]}"; do
-			##	The one documented difference: PowerShell eats a bare `--` before
-			##	a dot-sourced function sees it, which the rows above this block
-			##	pin on their own. Every other row goes through unchanged.
-			[[ "${id}" == dash-arg && "${mode}" == pwshsrc ]] && continue
-			got="$(fRunWrapper "${mode}" "${stdinSpec}" "${args[@]}")"
-			[[ "${got}" == "${want}" ]] || fBad "wrapper ${mode} differs from the binary on ${id}: ${got@Q} against ${want@Q}"
-		done
-	done
-
-	fTest ErJEygN 20260928-idea-3-bash-typed-helpers-match-the-binary
-	##	Code review 20260928 idea 3 added shcl_duration and shcl_size. Each row
-	##	calls a sourced typed helper and the binary on the same piped text.
-	##	id | piped text | the helper call | the same thing on the binary
-	bashHelperRows=(
-		'int|a: 5|shcl_int - a|get --int - a'
-		'float|a: 1.5|shcl_float - a|get --float - a'
-		'bool|a: on|shcl_bool - a|get --bool - a'
-		'datetime|a: 2026-09-28|shcl_datetime - a|get --datetime - a'
-		'duration|t: 90s|shcl_duration - t|get --duration - t'
-		'duration-unit|t: 3|shcl_duration --unit=s - t|get --duration --unit=s - t'
-		'duration-bad|t: soon|shcl_duration - t|get --duration - t'
-		'size|m: 2KB|shcl_size - m|get --size - m'
-		'size-decimal|m: 2KB|shcl_size --decimal - m|get --size --decimal - m'
-		'size-unit|m: 3|shcl_size --unit=MB - m|get --size --unit=MB - m'
-	)
-	for row in "${bashHelperRows[@]}"; do
-		IFS='|' read -r hid piped hcall bcall <<<"${row}"
-		read -r -a hargs <<<"${hcall}"
-		read -r -a bargs <<<"${bcall}"
-		hrc=0
-		hout="$(printf '%s\n' "${piped}" | bash -c 'w="$1"; shift; source "$w"; "$@"' helpers "${repoDir}/source/bash/shcl.bash" "${hargs[@]}" 2>&1)" || hrc=$?
-		brc=0
-		bout="$(printf '%s\n' "${piped}" | "${cli}" "${bargs[@]}" 2>&1)" || brc=$?
-		[[ "${hout}" == "${bout}" && "${hrc}" == "${brc}" ]] \
-			|| fBad "bash helper ${hid} differs from the binary: ${hout@Q} rc=${hrc} against ${bout@Q} rc=${brc}"
-	done
-
-	fTest EqM3Y7s 20260918b-32-piped-helpers-match-the-binary
-	##	20260918b item 32: the matrix above pipes into the script, where the
-	##	binary inherits the process's stdin and a wrapper that drops $input
-	##	looks fine. A typed helper is only reached from a PowerShell pipeline,
-	##	and every one of them passed @args without $input, so `'a: 5' |
-	##	shcl_fmt -` printed nothing at exit 0. The rows below build that
-	##	pipeline inside PowerShell and hold each helper against the binary.
-	if [[ " ${wrapModes[*]} " == *" pwshsrc "* ]]; then
-		#  shellcheck disable=2016  ## PowerShell's own $variables.
-		{
-			echo ". '${repoDir}/source/powershell/shcl.ps1'"
-			echo '$data = $args[0]; $fn = $args[1]'
-			echo '$rest = @(); if ($args.Count -gt 2) { $rest = $args[2..($args.Count - 1)] }'
-			echo 'if ($data -ne "") { $data | & $fn @rest } else { & $fn @rest }'
-			echo 'exit $LASTEXITCODE'
-		} > "${tmpDir}/whelp.ps1"
-		##	id | piped text | the helper call | the same thing on the binary
-		helperRows=(
-			'fmt|a: 5|shcl_fmt -|fmt -'
-			'int|a: 5|shcl_int - a|get --int - a'
-			'array|a: 1, 2|shcl_array --int - a|get --array --int - a'
-			'check|bad line|shcl_check -|check -'
-			'count|a: 1|shcl_count - a|count - a'
-			'duration|t: 3|shcl_duration --unit=s - t|get --duration --unit=s - t'
-			'size|m: 2KB|shcl_size --decimal - m|get --size --decimal - m'
-		)
-		for row in "${helperRows[@]}"; do
-			IFS='|' read -r hid piped hcall bcall <<<"${row}"
-			read -r -a hargs <<<"${hcall}"
-			read -r -a bargs <<<"${bcall}"
-			hrc=0
-			hout="$(pwsh -NoProfile -File "${tmpDir}/whelp.ps1" "${piped}" "${hargs[@]}" 2>&1)" || hrc=$?
-			brc=0
-			bout="$(printf '%s\n' "${piped}" | "${cli}" "${bargs[@]}" 2>&1)" || brc=$?
-			[[ "${hout}" == "${bout}" && "${hrc}" == "${brc}" ]] \
-				|| fBad "piped helper ${hid} differs from the binary: ${hout@Q} rc=${hrc} against ${bout@Q} rc=${brc}"
-		done
-
-		fTest EqnwIkT 20260923-9-10-ps1-encoding-and-script-stdin
-		##	20260923 items 9 and 10. Windows PowerShell 5.1 pipes text in as
-		##	us-ascii and decodes what comes back with the console's code page, so
-		##	`'a: café' | shcl fmt -` gave `caf?` at exit 0. pwsh here defaults to
-		##	UTF-8 for both, so the rows set the two to something else first. And
-		##	the script form, run from a PowerShell pipeline, dropped its input.
-		printf 'a: caf\xc3\xa9\n' > "${tmpDir}/cafe.shcl"
-		#  shellcheck disable=2016  ## PowerShell's own $variables.
-		{
-			echo ". '${repoDir}/source/powershell/shcl.ps1'"
-			echo '$cafe = "caf" + [char]0xe9'
-			echo '$OutputEncoding = [System.Text.Encoding]::ASCII'
-			echo '$r = "a: $cafe" | shcl get - a'
-			echo '"piped=$($r -eq $cafe)"'
-			echo '[Console]::OutputEncoding = [System.Text.Encoding]::Latin1'
-			echo "\$r = shcl get '${tmpDir}/cafe.shcl' a"
-			echo '"decoded=$($r -eq $cafe) restored=$([Console]::OutputEncoding.CodePage)"'
-			echo "\$r = 'a: 5' | & '${repoDir}/source/powershell/shcl.ps1' get --int - a"
-			echo '"script=$r rc=$LASTEXITCODE"'
-			echo 'function f { $OutputEncoding = [System.Text.Encoding]::ASCII; $r = "a: $cafe" | shcl get - a; "scoped=$($r -eq $cafe)" }'
-			echo 'f'
-		} > "${tmpDir}/wenc.ps1"
-		out="$(pwsh -NoProfile -File "${tmpDir}/wenc.ps1" </dev/null 2>&1 || true)"
-		[[ "${out}" == *"piped=True"* ]] || fBad "shcl.ps1 pipes text in with the caller's \$OutputEncoding: ${out@Q}"
-		[[ "${out}" == *"decoded=True restored=28591"* ]] \
-			|| fBad "shcl.ps1 decodes output with the console's code page, or does not put it back: ${out@Q}"
-		[[ "${out}" == *"script=5 rc=0"* ]] || fBad "shcl.ps1 run as a script drops pipeline input: ${out@Q}"
-		[[ "${out}" == *"scoped=True"* ]] || fBad "shcl.ps1 pipes text in with a caller's own \$OutputEncoding: ${out@Q}"
-		## 20260924 item 1: started by -File with stdin from outside PowerShell,
-		## the script must hand the binary the bytes, not text PowerShell decoded.
-		printf 'a: 1\n' > "${tmpDir}/wbyte.shcl"
-		rc=0; printf 'string\tk\tx\377y\n' | pwsh -NoProfile -File "${repoDir}/source/powershell/shcl.ps1" set --write "${tmpDir}/wbyte.shcl" >/dev/null 2>&1 || rc=$?
-		[[ "${rc}" == 8 && "$(cat "${tmpDir}/wbyte.shcl")" == "a: 1" ]] \
-			|| fBad "shcl.ps1 run by -File saves stdin it re-encoded: rc ${rc}, file ${tmpDir}/wbyte.shcl"
-		#  shellcheck disable=2016  ## The backticks are a fence.
-		out="$(printf 'r: ```\n\tab\rcd\n```\n' | pwsh -NoProfile -File "${repoDir}/source/powershell/shcl.ps1" get --raw - r 2>&1 || true)"
-		[[ "${out}" == *$'ab\rcd'* ]] || fBad "shcl.ps1 run by -File turns a CR in stdin into a line break: ${out@Q}"
-	else
-		fTestSkipBlock
-	fi
-	unset SHCL_BIN
-}
-
 fTest EpHMbJw 20260904-35-zsh-completion
 ##	20260904 item 35: the zsh completion had never been run by anything - only
 ##	its option table was diffed - and it did not parse at all. An apostrophe
@@ -451,141 +216,8 @@ else
 	fTestSkip
 fi
 
-fTest Ep19Ax8 20260904-16-pwsh-bare-double-dash
+fTest EoTJb0M 20260829-16-install-ps1-help-leaves-the-caller-alone
 if fHave pwsh; then
-	##	20260904 item 16: PowerShell reads a bare `--` as its own token and drops
-	##	it before a dot-sourced function sees its arguments; the quoted spelling
-	##	is the documented way through. Both halves are pinned, so a PowerShell
-	##	release that changes either shows up here.
-	printf -- '"-dash": 5\n' > "${tmpDir}/dash.shcl"
-	out="$(pwsh -NoProfile -Command ". '${repoDir}/source/powershell/shcl.ps1'; \$env:SHCL_BIN = '${cli}'; shcl get -- '${tmpDir}/dash.shcl' '-dash'" 2>&1 || true)"
-	[[ "${out}" == *"unknown option"* ]] || fBad "pwsh now hands a bare -- to the sourced function; the wrapper note is stale: ${out@Q}"
-	out="$(pwsh -NoProfile -Command ". '${repoDir}/source/powershell/shcl.ps1'; \$env:SHCL_BIN = '${cli}'; shcl get '--' '${tmpDir}/dash.shcl' '-dash'" 2>&1 || true)"
-	[[ "${out}" == "5" ]] || fBad "pwsh dot-sourced shcl did not take a quoted --: ${out@Q}"
-
-	fTest EqM3Y7t 20260918b-35-pwsh-comma-split
-	##	20260918b item 35: the second difference, documented the same way.
-	##	PowerShell splits an unquoted `a,b` into an array for a function and
-	##	not for a native command, so a bracket array with a comma in it is a
-	##	usage error dot-sourced and works quoted.
-	out="$(pwsh -NoProfile -Command ". '${repoDir}/source/powershell/shcl.ps1'; \$env:SHCL_BIN = '${cli}'; shcl set --set-literal=ports=[80,443] '${tmpDir}/w.shcl'" 2>&1 || true)"
-	[[ "${out}" == *"usage"* || "${out}" == *"unknown"* || "${out}" == *"bad --set"* ]] \
-		|| fBad "pwsh no longer splits an unquoted comma for a sourced function; the wrapper note is stale: ${out@Q}"
-	out="$(pwsh -NoProfile -Command ". '${repoDir}/source/powershell/shcl.ps1'; \$env:SHCL_BIN = '${cli}'; shcl set '--set-literal=ports=[80,443]' '${tmpDir}/w.shcl'" 2>&1 || true)"
-	[[ "${out}" == *"ports: [80, 443]"* ]] || fBad "pwsh dot-sourced shcl did not take a quoted comma value: ${out@Q}"
-
-	fTest EqzwPFF 20260716-14-ps1-wrapper-refuses-a-bad-shcl-bin
-	out="$(pwsh -NoProfile -Command ". '${repoDir}/source/powershell/shcl.ps1'; \$env:SHCL_BIN = '${tmpDir}'; shcl_get '${tmpDir}/t.shcl' a" 2>&1 || true)"
-	[[ "${out}" == *"not executable"* ]] || fBad "PowerShell wrapper took a directory as SHCL_BIN: ${out@Q}"
-	##	20260716 item 14: a file with no execute bit passed as the binary. pwsh
-	##	hands such a file to the desktop opener, so a stand-in opener sits first
-	##	on PATH and has to stay unused. Item 34: a pinned base name skipped the
-	##	.exe fallback every other lookup step takes.
-	mkdir -p "${tmpDir}/pwbin/opener" "${tmpDir}/pwbin/exe"
-	printf '#!/bin/sh\necho opened >> "%s"\n' "${tmpDir}/pwbin/opened" > "${tmpDir}/pwbin/opener/xdg-open"
-	printf '#!/bin/sh\necho plain\n' > "${tmpDir}/pwbin/plain"
-	printf '#!/bin/sh\necho "exe $*"\n' > "${tmpDir}/pwbin/exe/x.exe"
-	chmod 755 "${tmpDir}/pwbin/opener/xdg-open" "${tmpDir}/pwbin/exe/x.exe"; chmod 644 "${tmpDir}/pwbin/plain"
-	out="$(env -u DISPLAY -u WAYLAND_DISPLAY PATH="${tmpDir}/pwbin/opener:${PATH}" pwsh -NoProfile -Command ". '${repoDir}/source/powershell/shcl.ps1'; \$env:SHCL_BIN = '${tmpDir}/pwbin/plain'; shcl --version" 2>&1 </dev/null || true)"
-	[[ "${out}" == *"not executable"* && ! -e "${tmpDir}/pwbin/opened" ]] || fBad "PowerShell wrapper took a file with no execute bit as SHCL_BIN: ${out@Q}"
-	out="$(env -u DISPLAY -u WAYLAND_DISPLAY PATH="${tmpDir}/pwbin/opener:${PATH}" pwsh -NoProfile -Command ". '${repoDir}/source/powershell/shcl.ps1'; \$env:SHCL_BIN = '${tmpDir}/pwbin/exe/x'; shcl a b" 2>&1 </dev/null || true)"
-	[[ "${out}" == "exe a b" ]] || fBad "PowerShell wrapper did not take x.exe for SHCL_BIN=x: ${out@Q}"
-
-	fTest ErD2LTv 20260928-item4-ps1-legacy-quotes
-	##	20260928 item 4: Windows PowerShell 5.1 builds a native command line the
-	##	old way, so an embedded quote never reached the binary and an empty
-	##	argument was left out. The Legacy mode of 7 builds it the same way, so
-	##	it stands in for 5.1 here. Each value goes in as --default and has to
-	##	come back from a read of a missing path as it went in.
-	#  shellcheck disable=2016,2028  ## PowerShell's own $variables and backslashes, quoted so bash leaves them alone.
-	{
-		echo 'Set-StrictMode -Version Latest'
-		printf '. %s\n' "'${repoDir}/source/powershell/shcl.ps1'"
-		printf '$env:SHCL_BIN = %s\n' "'${cli}'"
-		echo '$PSNativeCommandArgumentPassing = "Legacy"'
-		echo '$q = [string][char]34'
-		echo '$vals = @(($q + "q" + $q), ("a" + $q + "b"), "", "C:\a b\", ("p\" + $q + "q"), ("x " + $q + "y" + $q + " z"))'
-		echo 'if ($vals.Count -ne 6) { "the value list has $($vals.Count) entries" }'
-		echo 'foreach ($v in $vals) { $o = shcl get "--default=$v" $args[0] nope; if (($o -join "`n") -cne $v -or $LASTEXITCODE -ne 0) { "lost: [$v] came back [$($o -join "|")] rc $LASTEXITCODE" } }'
-		echo '$o = shcl get --default "" $args[0] nope; if ($LASTEXITCODE -ne 0) { "lost: an empty argument, rc $LASTEXITCODE" }'
-		echo '"done"'
-	} > "${tmpDir}/legacy.ps1"
-	printf 'a: 1\n' > "${tmpDir}/legacy.shcl"
-	out="$(env -u DISPLAY -u WAYLAND_DISPLAY pwsh -NoProfile -File "${tmpDir}/legacy.ps1" "${tmpDir}/legacy.shcl" 2>&1 </dev/null || true)"
-	[[ "${out}" == "done" ]] || fBad "PowerShell wrapper under legacy argument passing: ${out@Q}"
-
-	fTest ErkOqpb 20261003-item5-ps1-file-colon-args
-	##	Code review 20261003 item 5: started by -File, PowerShell took a `-`-led
-	##	argument with a colon apart before the script saw it, so
-	##	`--set=url=http://x` reached the binary as two arguments and the read
-	##	answered wrong at exit 0. A stub that prints its arguments stands in for
-	##	the binary, then the real one runs the review's own case.
-	#  shellcheck disable=2016  ## the stub's own $@ and $a.
-	printf '#!/bin/sh\nfor a in "$@"; do printf "[%%s]\\n" "$a"; done\n' > "${tmpDir}/argv.sh"; chmod +x "${tmpDir}/argv.sh"
-	#  shellcheck disable=2016  ## PowerShell's own $true, passed as typed.
-	colonArgs=(children x.shcl '--set=url=http://x' '-x:y' '-b:' c '-k:$true' '--z=1:2' -- -File '' 'a b')
-	want="$("${tmpDir}/argv.sh" "${colonArgs[@]}")"
-	got="$(SHCL_BIN="${tmpDir}/argv.sh" pwsh -NoProfile -File "${repoDir}/source/powershell/shcl.ps1" "${colonArgs[@]}" 2>&1 </dev/null || true)"
-	[[ "${got}" == "${want}" ]] || fBad "shcl.ps1 run by -File changed its arguments: ${got@Q} against ${want@Q}"
-	got="$(cd "${repoDir}/source/powershell" && SHCL_BIN="${tmpDir}/argv.sh" pwsh -NoProfile shcl.ps1 "${colonArgs[@]}" 2>&1 </dev/null || true)"
-	[[ "${got}" == "${want}" ]] || fBad "shcl.ps1 run as pwsh's first word changed its arguments: ${got@Q} against ${want@Q}"
-	printf 'site: a\nurl: b\n' > "${tmpDir}/colon.shcl"
-	want="$("${cli}" children "${tmpDir}/colon.shcl" --set=url=http://x 2>&1)" || true
-	got="$(SHCL_BIN="${cli}" pwsh -NoProfile -File "${repoDir}/source/powershell/shcl.ps1" children "${tmpDir}/colon.shcl" --set=url=http://x 2>&1 </dev/null || true)"
-	[[ -n "${want}" && "${got}" == "${want}" ]] || fBad "shcl.ps1 run by -File: children with --set=url=http://x gave ${got@Q}, the binary ${want@Q}"
-
-	fTest Ermwgw4 2026100408550401-ps1-session-colon-args
-	##	Called from a session, an unquoted `-x:y` reached the binary as `y`. Each
-	##	row wants what a direct call passes, where `-x: y` is two arguments. The
-	##	last row is the fallback, where the caller's own parameter took `-q:1`.
-	cat > "${tmpDir}/sesscolon.ps1" <<'PSEOF'
-Set-StrictMode -Version Latest
-$ps1 = $args[0]
-$env:SHCL_BIN = $args[1]
-. $ps1
-function Test-Same([string]$Label, [object[]]$Got, [string[]]$Want) {
-	if (($Got -join '|') -cne ($Want -join '|')) { "${Label}: [$($Got -join '|')] against [$($Want -join '|')]" }
-}
-function Invoke-Wrap { shcl @args }
-function Invoke-Bound([string]$q) { $null = $q; shcl @args }
-Test-Same 'dot-sourced' (shcl a -x:y -x: y -k:$true -n:1,2 -s:"a b" -e: -q --z:w '-x:' y) @('[a]', '[-x:y]', '[-x:]', '[y]', '[-k:True]', '[-n:1,2]', '[-s:a b]', '[-e:]', '[-q]', '[--z:w]', '[-x:]', '[y]')
-Test-Same 'helper' (shcl_get f -x:y -x: y) @('[get]', '[f]', '[-x:y]', '[-x:]', '[y]')
-Test-Same 'script' (& $ps1 a -x:y -x: y) @('[a]', '[-x:y]', '[-x:]', '[y]')
-Test-Same 'wrapper' (Invoke-Wrap a -x:y -x: y) @('[a]', '[-x:y]', '[-x:]', '[y]')
-Test-Same 'piped' ('in' | shcl a -x:y -x: y) @('[a]', '[-x:y]', '[-x:]', '[y]')
-$got = shcl a -x:y `
-	-x: y
-Test-Same 'two lines' $got @('[a]', '[-x:y]', '[-x:]', '[y]')
-Test-Same 'bound' (Invoke-Bound -q:1 -x: y) @('[-x:y]')
-$PSNativeCommandArgumentPassing = 'Legacy'
-Test-Same 'legacy' (shcl a -x:y -x: y -s:"a b") @('[a]', '[-x:y]', '[-x:]', '[y]', '[-s:a b]')
-'done'
-PSEOF
-	out="$(env -u DISPLAY -u WAYLAND_DISPLAY pwsh -NoProfile -File "${tmpDir}/sesscolon.ps1" "${repoDir}/source/powershell/shcl.ps1" "${tmpDir}/argv.sh" 2>&1 </dev/null || true)"
-	[[ "${out}" == "done" ]] || fBad "shcl.ps1 from a session changed a colon argument: ${out@Q}"
-
-	fTest EoUqEKW 20260830b-10-ps1-link-resolver
-	##	20260830b item 10: the symlink resolver called a .NET 6 method that
-	##	Windows PowerShell 5.1 does not have, unguarded and at load, so every
-	##	dot-source on 5.1 hit it. An Env: item stands in for 5.1's method-less
-	##	FileInfo. The link row is the other half: resolution still works where
-	##	the method does exist.
-	#  shellcheck disable=2016  ## PowerShell's own $variables, quoted so bash leaves them alone.
-	{
-		echo 'Set-StrictMode -Version Latest'
-		echo '$ErrorActionPreference = "Stop"'
-		sed -n '/^function _shcl_scriptdir/,/^}/p' "${repoDir}/source/powershell/shcl.ps1"
-		echo 'try { $null = _shcl_scriptdir "Env:HOME"; Write-Output "resolved" } catch { Write-Output "threw" }'
-	} > "${tmpDir}/scriptdir.ps1"
-	out="$(pwsh -NoProfile -File "${tmpDir}/scriptdir.ps1" 2>&1 || true)"
-	[[ "${out}" == "resolved" ]] || fBad "PowerShell wrapper called a missing link resolver: ${out@Q}"
-	mkdir -p "${tmpDir}/real" "${tmpDir}/lnk"
-	cp "${repoDir}/source/powershell/shcl.ps1" "${tmpDir}/real/"
-	ln -sf "${tmpDir}/real/shcl.ps1" "${tmpDir}/lnk/shcl.ps1"
-	out="$(pwsh -NoProfile -Command ". '${tmpDir}/lnk/shcl.ps1'; Write-Output \"root=\$script:_SHCL_ROOT\"" 2>&1 || true)"
-	[[ "${out}" == "root=${tmpDir}/real" ]] || fBad "PowerShell wrapper did not resolve its own symlink: ${out@Q}"
-
-	fTest EoTJb0M 20260829-16-install-ps1-help-leaves-the-caller-alone
 	##	20260829 item 16 and 20260830 item 8: the script used to end the caller's
 	##	shell, and then to leave strict mode and its functions behind in it.
 	##	Through a file rather than -Command, so the PowerShell keeps its own
@@ -827,6 +459,31 @@ SRVEOF
 	[[ "${out}" == *"other: stuck=[] foreign=True"* && -e "${tmpDir}/rmfile/other/scripts/mine.txt" && ! -e "${tmpDir}/rmfile/other/shcl.exe" ]] \
 		|| fBad "install.ps1 -Uninstall mishandled a file it did not install: ${out@Q}"
 
+	fTest EsAArkd 2026100818251401-install-ps1-update-drops-wrappers
+	##	The wrappers are retired, so an update takes out an older install's
+	##	scripts\shcl.ps1 and shcl.bash, and scripts\ once that empties it. The
+	##	function is lifted, since the script stops anywhere but Windows.
+	ow="${tmpDir}/oldwrap"
+	mkdir -p "${ow}/clean/scripts" "${ow}/kept/scripts" "${ow}/none"
+	for d in clean kept; do printf 'x\n' > "${ow}/${d}/scripts/shcl.ps1"; printf 'x\n' > "${ow}/${d}/scripts/shcl.bash"; done
+	printf 'mine\n' > "${ow}/kept/scripts/mine.txt"
+	#  shellcheck disable=2016  ## PowerShell's own $variables, quoted so bash leaves them alone.
+	{
+		echo 'Set-StrictMode -Version Latest'
+		echo '$ErrorActionPreference = "Stop"'
+		sed -n '/^\tfunction Remove-OldWrapper/,/^\t}/p' "${repoDir}/install.ps1"
+		echo "foreach (\$dir in 'clean', 'kept', 'none') { Remove-OldWrapper -Dest (Join-Path -Path '${ow}' -ChildPath \$dir) }"
+		echo 'Write-Output "done"'
+	} > "${tmpDir}/oldwrap.ps1"
+	out="$(pwsh -NoProfile -File "${tmpDir}/oldwrap.ps1" 2>&1 || true)"
+	[[ "${out}" == "done" ]] || fBad "install.ps1's Remove-OldWrapper did not run: ${out@Q}"
+	[[ -e "${ow}/clean/scripts" ]] && fBad "install.ps1 update left an empty scripts dir behind"
+	[[ -f "${ow}/kept/scripts/mine.txt" && ! -e "${ow}/kept/scripts/shcl.ps1" && ! -e "${ow}/kept/scripts/shcl.bash" ]] \
+		|| fBad "install.ps1 update mishandled a scripts dir holding a file it never installed"
+	[[ -e "${ow}/none/scripts" ]] && fBad "install.ps1 update made a scripts dir where there was none"
+	# shellcheck disable=SC2016  ## install.ps1's own $dest, matched literally
+	grep -qF 'Remove-OldWrapper -Dest $dest' "${repoDir}/install.ps1" || fBad "install.ps1 no longer calls Remove-OldWrapper on an install"
+
 	fTest Eq8WEvR 20260909-38-shclpath-fails-without-registry
 	##	20260909 item 38: the setup's PATH script exited 0 when it could not
 	##	write, so the setup's fallback message never showed. There is no
@@ -849,10 +506,9 @@ fTest Eojt4B6 20260830b-12-system-install-modes
 eval "$(sed -n '/^fWidenModes()/,/^}/p;/^fTopMissing()/,/^}/p;/^fLinkOwner()/,/^}/p;/^fLayDown()/,/^}/p' "${repoDir}/install.bash")"
 (
 	umask 077
-	mkdir -p "${tmpDir}/stage/code" "${tmpDir}/stage/scripts" "${tmpDir}/stage/man" "${tmpDir}/stage/completions" "${tmpDir}/sys/usr/local/share"
+	mkdir -p "${tmpDir}/stage/code" "${tmpDir}/stage/man" "${tmpDir}/stage/completions" "${tmpDir}/sys/usr/local/share"
 	printf 'bin\n'  > "${tmpDir}/stage/shcl";      chmod 700 "${tmpDir}/stage/shcl"
 	printf 'data\n' > "${tmpDir}/stage/code/lib.rs"
-	printf 'data\n' > "${tmpDir}/stage/scripts/shcl.bash"
 	printf 'man\n'  > "${tmpDir}/stage/man/shcl.1"
 	printf 'comp\n' > "${tmpDir}/stage/completions/shcl.bash"
 	## The installer's own globals, as the lifted function reads them.
@@ -1304,15 +960,6 @@ nBadBefore="${nBad}"
 	[[ "${rc}" == 0 && "${out}" == *"Copyright"* ]] || fBad "n8git_backup-and-publish no longer answers a real -v: rc=${rc} ${out@Q}"
 	exit $((nBad - nBadBefore))
 ) || nBad=$((nBad + 1))
-
-fTest Eonfke8 20260901b-46-wrapper-header-width
-##	20260901b item 46: the PowerShell wrapper's header ran one line out to 126
-##	columns where its bash twin wraps. Comment lines only - the code in both
-##	has a couple of long ones on purpose.
-for wrapper in source/bash/shcl.bash source/powershell/shcl.ps1; do
-	long="$(awk '/^#{2}/ && length > 100 { print NR": "length }' "${repoDir}/${wrapper}")"
-	[[ -z "${long}" ]] || fBad "${wrapper}: header comment runs past 100 columns at ${long//$'\n'/, }"
-done
 
 fTest EqzwPFK 20260901b-18-on-path-trailing-slash
 ##	20260901b item 18: the "not on your PATH" note compared strings against
@@ -1972,6 +1619,74 @@ else
 	fTestSkip
 fi
 
+fTest EsAArRe 2026100818251401-install-bash-update-drops-wrappers
+##	The wrappers are retired, so an update over an older install takes out
+##	scripts/shcl.bash and scripts/shcl.ps1, and scripts/ once that empties it.
+##	The whole install on Linux, from a stand-in release with a drop-ins
+##	payload, over two older installs: one with only the wrappers in scripts/,
+##	one with somebody's own file there too. openssl is stubbed for the verify
+##	step alone, as in the macOS row.
+if fHave setsid && fHave openssl; then
+	ui="${tmpDir}/updinst"
+	mkdir -p "${ui}/bin" "${ui}/rel" "${ui}/x/source/rust/src" "${ui}/x/source/go" "${ui}/x/source/python" "${ui}/x/source/c" "${ui}/x/source/man" "${ui}/x/source/completions"
+	for f in rust/src/lib.rs go/shcl.go python/shcl.py c/shcl.h c/shcl.hpp man/shcl.1 completions/shcl.bash completions/_shcl; do
+		printf 'x\n' > "${ui}/x/source/${f}"
+	done
+	( cd "${ui}/x" && tar -czf "${ui}/rel/shcl-3.0.0-beta1-dropins.tar.gz" source )
+	printf '#!/bin/sh\necho "shcl v3.0.0-beta1"\n' > "${ui}/rel/shcl-3.0.0-beta1-linux-x86_64"
+	( cd "${ui}/rel" && sha256sum shcl-3.0.0-beta1-linux-x86_64 shcl-3.0.0-beta1-dropins.tar.gz > "${ui}/sums" )
+	printf '[{"tag_name":"v3.0.0-beta1","prerelease":true,"draft":false}]\n' > "${ui}/rel.json"
+	cat > "${ui}/bin/curl" <<-STUB
+		#!/bin/sh
+		out=""; url=""
+		while [ \$# -gt 0 ]; do case "\$1" in -o) out="\$2"; shift 2 ;; -*) shift ;; *) url="\$1"; shift ;; esac; done
+		case "\${url}" in
+			https://api.github.com/repos/yottacore/shcl/releases*) cp '${ui}/rel.json' "\${out}" ;;
+			*/shcl-3.0.0-beta1-sha256sums.txt) cp '${ui}/sums' "\${out}" ;;
+			*/shcl-3.0.0-beta1-sha256sums.txt.sig) : > "\${out}" ;;
+			*/shcl-3.0.0-beta1-linux-x86_64) cp '${ui}/rel/shcl-3.0.0-beta1-linux-x86_64' "\${out}" ;;
+			*/shcl-3.0.0-beta1-dropins.tar.gz) cp '${ui}/rel/shcl-3.0.0-beta1-dropins.tar.gz' "\${out}" ;;
+			*) exit 22 ;;
+		esac
+	STUB
+	cat > "${ui}/bin/openssl" <<-STUB
+		#!/bin/sh
+		for a in "\$@"; do [ "\${a}" = -verify ] && exit 0; done
+		exec '$(command -v openssl)' "\$@"
+	STUB
+	# shellcheck disable=SC2016  ## the stub's own $1
+	printf '#!/bin/sh\ncase "$1" in -s) echo Linux ;; -m) echo x86_64 ;; *) echo Linux ;; esac\n' > "${ui}/bin/uname"
+	chmod 755 "${ui}/bin/curl" "${ui}/bin/openssl" "${ui}/bin/uname"
+	for kind in clean kept; do
+		uh="${ui}/home-${kind}"; ud="${uh}/.local/share/shcl"
+		mkdir -p "${ud}/scripts" "${uh}/.local/bin"
+		printf 'old\n' > "${ud}/shcl"; chmod 755 "${ud}/shcl"
+		ln -s "${ud}/shcl" "${uh}/.local/bin/shcl"
+		printf 'old\n' > "${ud}/scripts/shcl.bash"; printf 'old\n' > "${ud}/scripts/shcl.ps1"
+		[[ "${kind}" == kept ]] && printf 'mine\n' > "${ud}/scripts/mine.sh"
+		# shellcheck disable=SC2031  ## the gate's own PATH, which no subshell above changed for this one
+		out="$(HOME="${uh}" PATH="${ui}/bin:${PATH}" setsid -w bash "${repoDir}/install.bash" --release dev --yes </dev/null 2>&1 || true)"
+		[[ "${out}" == *"removes  the retired wrappers in ${ud}/scripts/"* && "${out}" == *"installed shcl 3.0.0-beta1"* ]] \
+			|| fBad "install.bash update over an older install (${kind}): ${out@Q}"
+		[[ -e "${ud}/scripts/shcl.bash" || -e "${ud}/scripts/shcl.ps1" ]] && fBad "install.bash update left the retired wrappers in ${ud}/scripts (${kind})"
+		[[ -f "${ud}/code/lib.rs" && -f "${ud}/man/shcl.1" ]] || fBad "install.bash update did not lay down the drop-ins (${kind})"
+		cmp -s "${ud}/shcl" "${ui}/rel/shcl-3.0.0-beta1-linux-x86_64" || fBad "install.bash update did not replace the binary (${kind})"
+		if [[ "${kind}" == clean ]]; then
+			[[ -e "${ud}/scripts" ]] && fBad "install.bash update left an empty scripts/ behind"
+		else
+			[[ -f "${ud}/scripts/mine.sh" ]] || fBad "install.bash update took a file in scripts/ it never installed"
+		fi
+	done
+	## A fresh install plans no removal and makes no scripts/.
+	uh="${ui}/home-new"; mkdir -p "${uh}"
+	# shellcheck disable=SC2031  ## the gate's own PATH, which no subshell above changed for this one
+	out="$(HOME="${uh}" PATH="${ui}/bin:${PATH}" setsid -w bash "${repoDir}/install.bash" --release dev --yes </dev/null 2>&1 || true)"
+	[[ "${out}" == *"installed shcl 3.0.0-beta1"* && "${out}" != *"retired wrappers"* && ! -e "${uh}/.local/share/shcl/scripts" ]] \
+		|| fBad "install.bash fresh install: ${out@Q}"
+else
+	fTestSkip
+fi
+
 fTest ErlTWLO 20261004-install-bash-release-without-platform
 ##	A release from before a platform got its binary is named as such, from the
 ##	signed sums, and the binary is never fetched. openssl is stubbed, since the
@@ -2145,9 +1860,8 @@ fTest EonYeTo 20260901b-35-rpm-owns-its-directories
 ## block alone, and a skip nobody saw left the hosted gate without them.
 if fHave nfpm && fHave dpkg-deb && fHave rpm; then
 	pDir="${tmpDir}/nfpm"
-	mkdir -p "${pDir}/payload/code" "${pDir}/payload/scripts" "${pDir}/payload/man" "${pDir}/payload/doc" "${pDir}/payload/completions"
+	mkdir -p "${pDir}/payload/code" "${pDir}/payload/man" "${pDir}/payload/doc" "${pDir}/payload/completions"
 	printf 'x\n' > "${pDir}/payload/code/lib.rs"
-	printf 'x\n' > "${pDir}/payload/scripts/shcl.bash"
 	printf 'x\n' > "${pDir}/payload/doc/copyright"
 	printf 'x\n' > "${pDir}/payload/completions/shcl.bash"
 	printf 'x\n' > "${pDir}/payload/completions/_shcl"
@@ -2271,9 +1985,10 @@ if fHave makensis; then
 	##	20260918 item 13: the uninstaller deleted code\*.* and scripts\*.*, so a
 	##	file someone else kept there went too. What makensis compiles into it
 	##	has to name each payload file, through the list package.bash writes,
-	##	and hold no wildcard.
-	nsiPay="${tmpDir}/nsipay"; mkdir -p "${nsiPay}/code" "${nsiPay}/scripts"
-	: > "${nsiPay}/code/lib.rs"; : > "${nsiPay}/scripts/shcl.ps1"; : > "${tmpDir}/fake.exe"
+	##	and hold no wildcard. The retired wrappers an older setup left in
+	##	scripts\ are named outright.
+	nsiPay="${tmpDir}/nsipay"; mkdir -p "${nsiPay}/code"
+	: > "${nsiPay}/code/lib.rs"; : > "${tmpDir}/fake.exe"
 	eval "$(sed -n '/^fUninstallList()/,/^}/p' "${repoDir}/cicd/utility/package.bash")"
 	if declare -F fUninstallList >/dev/null; then
 		fUninstallList "${nsiPay}" > "${tmpDir}/uninstall.nsh"
@@ -2293,16 +2008,6 @@ else
 	echo "shell-regress: makensis not installed - packaging row skipped"
 	fTestSkipBlock
 fi
-
-fTest EoUqEKX 20260830b-11-guarded-iswindows
-##	20260830b item 11: $IsWindows does not exist on Windows PowerShell 5.1, and
-##	reading it there throws under a caller's strict mode. Every read has to sit
-##	behind a version test that short-circuits first, which cannot be exercised
-##	from a 7.x session because $PSVersionTable is read-only.
-while IFS= read -r h; do
-	fBad "source/powershell/shcl.ps1: unguarded \$IsWindows read: ${h}"
-done < <(grep -n 'IsWindows' "${repoDir}/source/powershell/shcl.ps1" \
-	| grep -vE '^[0-9]+:##' | grep -vE 'PSVersion\.Major -lt 6 -or' || true)
 
 fTest EoXLk6q comparison-worker-arguments
 ##	The comparison worker: a bad ITERS used to be a traceback, and a zero one
@@ -2998,7 +2703,8 @@ fTest ErkOqyK 20261003-item8-dogfood-legacy-quotes
 ##	they came, so under Windows PowerShell 5.1 an embedded quote never reached
 ##	shcl and an empty argument was left out. `zip="02134"` saved as a number at
 ##	exit 0. The Legacy mode of 7 builds the command line the same way, so it
-##	stands in for 5.1. Same values as shcl.ps1's row (20260928 item 4).
+##	stands in for 5.1. Same values as the retired shcl.ps1 wrapper's row
+##	(20260928 item 4).
 if fHave pwsh; then
 	dh="${tmpDir}/dflegacy"
 	dsrc="${dh}/synced/0-0/common/exec/util/linux/bin"
@@ -3356,6 +3062,7 @@ fShellFiles(){
 	local f magic line
 	while IFS= read -r f; do
 		case "${f}" in
+			project/legacy/*) ;;
 			*.bash) printf '%s\n' "${repoDir}/${f}" ;;
 			*)
 				[[ -f "${repoDir}/${f}" ]] || continue
@@ -3581,7 +3288,7 @@ lintExtra="$( set +u; source "${repoDir}/cicd/config.bash"; printf '%s\n' "${LIN
 
 ##	PowerShell: one PSScriptAnalyzer line per tracked file, both ways.
 psTargets="$(grep -oE 'Invoke-ScriptAnalyzer -Path [^ ]+' <<<"${lintExtra}" | awk '{print $3}' | LC_ALL=C sort -u || true)"
-psFiles="$(git -C "${repoDir}" ls-files --cached --others --exclude-standard -- '*.ps1' | LC_ALL=C sort -u)"
+psFiles="$(git -C "${repoDir}" ls-files --cached --others --exclude-standard -- '*.ps1' ':!project/legacy/' | LC_ALL=C sort -u)"
 while IFS= read -r f; do
 	if [[ -n "${f}" ]]; then fBad "${f}: a PowerShell script the lint stage does not analyze; add a line to LINT_EXTRA"; fi
 done < <(LC_ALL=C comm -23 <(printf '%s\n' "${psFiles}") <(printf '%s\n' "${psTargets}"))
@@ -3764,7 +3471,7 @@ if ((nBad)); then
 	echo "shell-regress: ${nBad} check(s) failed" >&2
 	exit 1
 fi
-echo "shell-regress: OK: wrappers, one-liner scope, packaging, installers, comparison worker, and no unguarded greps, failed-test loop bodies or tab escapes in an ERE"
+echo "shell-regress: OK: installers, one-liner scope, packaging, comparison worker, and no unguarded greps, failed-test loop bodies or tab escapes in an ERE"
 
 ##	History:
 ##		2026-08-30  Created, pinning the wrapper and installer defects from the
@@ -3775,3 +3482,5 @@ echo "shell-regress: OK: wrappers, one-liner scope, packaging, installers, compa
 ##		2026-09-19  The shellcheck list is compared with the tracked shell files.
 ##		2026-09-19  check-pins: an empty pip family, and a pip line read blind.
 ##		2026-09-20  The PowerShell and Python lint lists get the same comparison.
+##		2026-10-08  The shell wrappers are retired, and their rows with them. An
+##		            install update over an older one drops its scripts/.
