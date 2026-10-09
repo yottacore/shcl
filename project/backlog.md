@@ -270,6 +270,20 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Commit: `81943546`
 	- Test case: cli-regress `EsEhCcw` to `EsEhCcz` and `EsEix5w`, and the changed rows `EqGaO1w` to `EqGaO23`, `EonKleq` and `Er1zoZI`.
 
+- `migrate --write` leaves the old Format line beside the new one
+	- ID: 2026100916475300
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261009-164753
+	- Opened by: JC, from talk on 2026100717500017
+	- Related IDs: 2026100717500017
+	- Version and build: dev at `e72c0d6b`
+	- Steps to reproduce: `printf 'port: 80\n##    Format   2\n' > f.shcl && shcl migrate f.shcl --write`
+	- Incorrect behavior: the file ends with `##    Format   2` and then `##    Format   3`. It loads clean with no hint, but reads as 2 formats.
+	- Expected behavior: `migrate` writes `Format 3` in place of the old Format line. A file with none still gets one added.
+	- Reproduced: 20261009, all four CLIs.
+
 - Library gaps a generic tool has to work around
 	- ID: 2026100717500020
 	- Type: Enhancement
