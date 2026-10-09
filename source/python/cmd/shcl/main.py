@@ -1027,17 +1027,13 @@ def write_back(doc, file, o, read=None, keep=False):
 	# (20260926 idea 3).
 	try:
 		if o.lossy and keep:
-			err = shcl.write_file_atomic(file, text)
-			if err is not None:
-				raise shcl.SaveFailed(err)
+			shcl.write_file_atomic(file, text)
 		elif o.lossy:
 			doc.save_file_lossy(file)
 		elif keep and not kept and doc.lost_count() > 0:
 			raise shcl.SaveRefused(file, doc.lost_count())
 		elif keep:
-			err = shcl.write_file_atomic(file, text)
-			if err is not None:
-				raise shcl.SaveFailed(err)
+			shcl.write_file_atomic(file, text)
 		else:
 			doc.save_file(file)
 		# A created file is the one write with nothing to compare against
@@ -1055,7 +1051,7 @@ def write_back(doc, file, o, read=None, keep=False):
 	except shcl.SaveRefused as e:
 		sys.stderr.write(f"{file}: refusing to rewrite: this write would delete {e.lost} line(s)/value(s) from the file (--lossy overrides)\n")
 		return 7
-	except shcl.SaveError as e:
+	except (shcl.SaveError, shcl.WriteError) as e:
 		sys.stderr.write(str(e) + "\n")
 	return EXIT_IO
 
@@ -1655,9 +1651,10 @@ def do_migrate(o):
 			except shcl.UpgradeError as e:
 				sys.stderr.write(f"{e}\n")
 				return EXIT_IO
-		err = shcl.write_file_atomic(file, m.text)
-		if err is not None:
-			sys.stderr.write(err + "\n")
+		try:
+			shcl.write_file_atomic(file, m.text)
+		except shcl.WriteError as e:
+			sys.stderr.write(f"{e}\n")
 			# With the original still in place the copy would only stand in
 			# the way of the next run. A replace that fails part way on windows
 			# can leave nothing at FILE, and then the copy is all there is.

@@ -2532,6 +2532,149 @@ fn save_refuses_a_directory_shaped_path() {
 	let _ = std::fs::remove_dir(&dir);
 }
 
+// Every reason a write gives, in the order every binding numbers them. The
+// other three print the same names. Same fixture in every runner.
+#[test]
+fn write_status_values_in_order() {
+	let _id = test_id("EsEhCFx");
+	use shcl::WriteStatus::*;
+	let all = [
+		Ok,
+		NotFound,
+		Unreadable,
+		PermissionDenied,
+		DiskFull,
+		ReadOnly,
+		IsDirectory,
+		NotRegular,
+		Other,
+	];
+	let names: Vec<String> = all.iter().map(|s| format!("{s:?}")).collect();
+	assert_eq!(
+		names,
+		[
+			"Ok",
+			"NotFound",
+			"Unreadable",
+			"PermissionDenied",
+			"DiskFull",
+			"ReadOnly",
+			"IsDirectory",
+			"NotRegular",
+			"Other",
+		]
+	);
+	for (i, s) in all.iter().enumerate() {
+		assert_eq!(*s as usize, i, "{s:?}");
+	}
+}
+
+/// A failed write says why as a value, beside the message it always had: from
+/// `write_file_atomic`, a save, `write_backup` and `upgrade_file`. A full disk
+/// and a read-only filesystem can't be made here without root; the library's
+/// own test maps those. Same fixture in every runner.
+#[test]
+fn write_status_names_each_failure() {
+	let _id = test_id("EsEhCFy");
+	use shcl::{SaveError, UpgradeError, WriteStatus, upgrade_file, write_file_atomic};
+	let dir = std::env::temp_dir().join(format!("shcl-wrstat-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&dir);
+	std::fs::create_dir_all(dir.join("sub")).unwrap();
+	let at = |name: &str| dir.join(name).to_str().unwrap().to_string();
+	let why = |r: Result<(), shcl::WriteError>| r.err().map(|e| e.status);
+	let doc = Document::parse("a: 1\n");
+	assert_eq!(why(write_file_atomic(&at("ok.shcl"), "a: 1\n")), None);
+	let missing = at("nope/t.shcl");
+	let e = write_file_atomic(&missing, "a: 1\n").unwrap_err();
+	assert_eq!(e.status, WriteStatus::NotFound);
+	assert!(e.message.starts_with(&missing), "{}", e.message);
+	assert_eq!(e.to_string(), e.message);
+	match doc.save_file(&missing) {
+		Err(SaveError::Io(e)) => assert_eq!(e.status, WriteStatus::NotFound),
+		other => panic!("save into a missing folder: {other:?}"),
+	}
+	match doc.save_file_lossy(&missing) {
+		Err(SaveError::Io(e)) => assert_eq!(e.status, WriteStatus::NotFound),
+		other => panic!("lossy save into a missing folder: {other:?}"),
+	}
+	match Document::parse_keep_lines("a: 1\n", Strictness::Standard)
+		.unwrap()
+		.save_file_keep_lines(&missing)
+	{
+		Err(SaveError::Io(e)) => assert_eq!(e.status, WriteStatus::NotFound),
+		other => panic!("kept save into a missing folder: {other:?}"),
+	}
+	// Part of the path is a file: the folder isn't there either.
+	assert_eq!(
+		why(write_file_atomic(&at("ok.shcl/t.shcl"), "a: 1\n")),
+		Some(WriteStatus::NotFound)
+	);
+	assert_eq!(
+		why(write_file_atomic(&at("sub"), "a: 1\n")),
+		Some(WriteStatus::IsDirectory)
+	);
+	assert_eq!(
+		why(write_file_atomic(&format!("{}/", at("ok.shcl")), "a: 1\n")),
+		Some(WriteStatus::IsDirectory)
+	);
+	match upgrade_file(&at("sub"), false) {
+		Err(UpgradeError::Io(e)) => assert_eq!(e.status, WriteStatus::IsDirectory),
+		other => panic!("upgrade of a directory: {other:?}"),
+	}
+	std::fs::write(at("bin.shcl"), b"a: \xff\n").unwrap();
+	match upgrade_file(&at("bin.shcl"), false) {
+		Err(UpgradeError::Io(e)) => assert_eq!(e.status, WriteStatus::Unreadable),
+		other => panic!("upgrade of a file that is not UTF-8: {other:?}"),
+	}
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::PermissionsExt;
+		let fifo = at("p.shcl");
+		assert!(
+			std::process::Command::new("mkfifo")
+				.arg(&fifo)
+				.status()
+				.unwrap()
+				.success()
+		);
+		assert_eq!(
+			why(write_file_atomic(&fifo, "a: 1\n")),
+			Some(WriteStatus::NotRegular)
+		);
+		match upgrade_file(&fifo, false) {
+			Err(UpgradeError::Io(e)) => assert_eq!(e.status, WriteStatus::NotRegular),
+			other => panic!("upgrade of a FIFO: {other:?}"),
+		}
+		// root writes anyway, so the rows wait for a probe that is refused.
+		let shut = dir.join("shut");
+		std::fs::create_dir(&shut).unwrap();
+		std::fs::write(shut.join("v2.shcl"), "x: a,b\n").unwrap();
+		std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o500)).unwrap();
+		if std::fs::write(shut.join("probe"), "").is_err() {
+			let f = shut.join("t.shcl");
+			assert_eq!(
+				why(write_file_atomic(f.to_str().unwrap(), "a: 1\n")),
+				Some(WriteStatus::PermissionDenied)
+			);
+			let v2 = shut.join("v2.shcl");
+			match shcl::write_backup(v2.to_str().unwrap(), "x: a,b\n", 2) {
+				Err(UpgradeError::Io(e)) => {
+					assert_eq!(e.status, WriteStatus::PermissionDenied)
+				}
+				other => panic!("backup into a shut folder: {other:?}"),
+			}
+			match upgrade_file(v2.to_str().unwrap(), true) {
+				Err(UpgradeError::Io(e)) => {
+					assert_eq!(e.status, WriteStatus::PermissionDenied)
+				}
+				other => panic!("upgrade in a shut folder: {other:?}"),
+			}
+		}
+		std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o700)).unwrap();
+	}
+	let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A written value with both quote kinds is stored the way its own reload
 /// stores it, so `instances` and a read's raw text agree across a save. The
 /// emitter escapes the double quotes; the writer used to keep them bare. Same

@@ -55,6 +55,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -249,6 +250,113 @@ func (s SetStatus) String() string {
 	}
 	return "SetStatus(" + strconv.Itoa(int(s)) + ")"
 }
+
+// WriteStatus says why a write failed, so a program can tell a missing folder
+// from no permission or a full disk without parsing the message. NotFound and
+// Unreadable are FileStatus's names. WriteOk is a write that went through,
+// which only C hands back; here a failure is a *WriteError holding one of the
+// rest. Every value has the Write prefix, as SetStatus's have Set. New values
+// go on the end; the other bindings number them in this order.
+type WriteStatus int
+
+const (
+	// WriteOk: the write went through.
+	WriteOk WriteStatus = iota
+	// WriteNotFound: the folder it goes in is not there, or part of the path
+	// is a file.
+	WriteNotFound
+	// WriteUnreadable: UpgradeFile could not read the file as UTF-8 text.
+	WriteUnreadable
+	// WritePermissionDenied: no permission to write there. On windows, also a
+	// file another process holds open.
+	WritePermissionDenied
+	// WriteDiskFull: the disk is full, or the user's quota is.
+	WriteDiskFull
+	// WriteReadOnly: a read-only filesystem, or write-protected media.
+	WriteReadOnly
+	// WriteIsDirectory: the path names a directory.
+	WriteIsDirectory
+	// WriteNotRegular: something at the path that is not a regular file, such
+	// as a FIFO or a device.
+	WriteNotRegular
+	// WriteOther: anything else; the message says what.
+	WriteOther
+)
+
+// String names the status the way the other bindings do, without the prefix.
+func (s WriteStatus) String() string {
+	switch s {
+	case WriteOk:
+		return "Ok"
+	case WriteNotFound:
+		return "NotFound"
+	case WriteUnreadable:
+		return "Unreadable"
+	case WritePermissionDenied:
+		return "PermissionDenied"
+	case WriteDiskFull:
+		return "DiskFull"
+	case WriteReadOnly:
+		return "ReadOnly"
+	case WriteIsDirectory:
+		return "IsDirectory"
+	case WriteNotRegular:
+		return "NotRegular"
+	case WriteOther:
+		return "Other"
+	}
+	return "WriteStatus(" + strconv.Itoa(int(s)) + ")"
+}
+
+// WriteError is a failed write: WriteFileAtomic's error, a save's when the
+// write fails, and the one inside an *UpgradeError of kind UpgradeIO. Status
+// is why; Err is the message, which names the file, and wraps the OS error
+// when there is one, so errors.Is still reaches it.
+type WriteError struct {
+	Status WriteStatus
+	Err    error
+}
+
+// Error is the message, the same text the error had before it had a status.
+func (e *WriteError) Error() string { return e.Err.Error() }
+
+// Unwrap gives the error behind the status, for errors.Is.
+func (e *WriteError) Unwrap() error { return e.Err }
+
+// writeFailed is a *WriteError for an OS error, with its reason.
+func writeFailed(err error, format string, args ...any) *WriteError {
+	return &WriteError{Status: writeStatusOf(err), Err: fmt.Errorf(format, args...)}
+}
+
+// writeStatusOf is the OS error's reason. On windows the system's own code
+// goes first, from one table all four bindings share, since each language
+// files a held file or a missing network path somewhere different.
+func writeStatusOf(err error) WriteStatus {
+	var we *WriteError
+	if errors.As(err, &we) {
+		return we.Status
+	}
+	if st, ok := osWriteStatus(err); ok {
+		return st
+	}
+	switch {
+	case errors.Is(err, os.ErrNotExist), errors.Is(err, syscall.ENOTDIR):
+		return WriteNotFound
+	case errors.Is(err, os.ErrPermission):
+		return WritePermissionDenied
+	case errors.Is(err, syscall.ENOSPC), errors.Is(err, syscall.EDQUOT):
+		return WriteDiskFull
+	case errors.Is(err, syscall.EROFS):
+		return WriteReadOnly
+	case errors.Is(err, syscall.EISDIR):
+		return WriteIsDirectory
+	}
+	return WriteOther
+}
+
+// osWriteStatus is the windows half of writeStatusOf, a hook for the reason
+// publishFile is one (shcl_windows.go).
+var osWriteStatus = func(error) (WriteStatus, bool) { return WriteOk, false }
 
 // Read is the full-tier read result: value plus status plus the original raw
 // text (when the path resolved), so a caller can always recover what was
@@ -7723,15 +7831,15 @@ func ReadFile(path string, maxBytes int) (string, FileStatus) {
 // real one is left stale) and the original's mode is copied onto the temp file
 // (otherwise a 600 config comes back at whatever the umask allows). Other hard
 // links to the old inode cannot survive a rename and keep the old content.
-// The i/o failures wrap rather than flatten, so a caller can tell a permission
-// failure from a full disk with errors.Is instead of matching on prose.
+// A failure is a *WriteError, whose Status says why. The i/o failures wrap
+// rather than flatten, so errors.Is still reaches the OS error.
 func WriteFileAtomic(file, data string) error {
 	if namesADirectory(file) {
-		return fmt.Errorf("%s: is a directory", file)
+		return &WriteError{Status: WriteIsDirectory, Err: fmt.Errorf("%s: is a directory", file)}
 	}
 	target, terr := resolveTarget(file)
 	if terr != nil {
-		return fmt.Errorf("%s: %w", file, terr)
+		return writeFailed(terr, "%s: %w", file, terr)
 	}
 	dir := filepath.Dir(target)
 	base := filepath.Base(target)
@@ -7764,14 +7872,14 @@ func WriteFileAtomic(file, data string) error {
 	// rule for what a save does with each thing it can find at the path.
 	if existErr == nil && !existing.Mode().IsRegular() {
 		if existing.IsDir() {
-			return fmt.Errorf("%s: is a directory", file)
+			return &WriteError{Status: WriteIsDirectory, Err: fmt.Errorf("%s: is a directory", file)}
 		}
-		return fmt.Errorf("%s: not a regular file", file)
+		return notRegular(file)
 	}
 	// os.Stat cannot see a reserved name with no device behind it; see
 	// notADiskFile.
 	if notADiskFile(target) {
-		return fmt.Errorf("%s: not a regular file", file)
+		return notRegular(file)
 	}
 	born := os.FileMode(0o600)
 	if existErr != nil {
@@ -7806,7 +7914,7 @@ func WriteFileAtomic(file, data string) error {
 		last = oerr
 	}
 	if f == nil {
-		return fmt.Errorf("%s: cannot create temporary file: %w", file, last)
+		return writeFailed(last, "%s: cannot create temporary file: %w", file, last)
 	}
 	var err error
 	if _, werr := f.WriteString(data); werr != nil {
@@ -7838,7 +7946,7 @@ func WriteFileAtomic(file, data string) error {
 	}
 	if err != nil {
 		_ = os.Remove(tmp) // the write error is the one to report
-		return fmt.Errorf("%s: %w", file, err)
+		return writeFailed(err, "%s: %w", file, err)
 	}
 	if readOnly {
 		setReadOnly(target, false)
@@ -7861,10 +7969,14 @@ func WriteFileAtomic(file, data string) error {
 		if existErr != nil {
 			_ = os.Remove(tmp) // the publish error is the one to report
 		}
-		return fmt.Errorf("%s: %w", file, rerr)
+		return writeFailed(rerr, "%s: %w", file, rerr)
 	}
 	syncDir(dir)
 	return nil
+}
+
+func notRegular(file string) *WriteError {
+	return &WriteError{Status: WriteNotRegular, Err: fmt.Errorf("%s: not a regular file", file)}
 }
 
 // UpgradeErrorKind says why UpgradeFile or WriteBackup wrote nothing, or not
@@ -7880,7 +7992,7 @@ const (
 	// UpgradeBackupTaken: something is already at the backup's name. It is
 	// never written over.
 	UpgradeBackupTaken
-	// UpgradeIO: a read or write failed; Err has it.
+	// UpgradeIO: a read or write failed; Err is a *WriteError saying why.
 	UpgradeIO
 )
 
@@ -7893,7 +8005,8 @@ type UpgradeError struct {
 	Path string
 	// Count is Upgraded.Ambiguous, for UpgradeAmbiguous.
 	Count int
-	// Err is the failure for UpgradeIO, with the path in its message.
+	// Err is the failure for UpgradeIO, a *WriteError with the path in its
+	// message.
 	Err error
 }
 
@@ -7972,7 +8085,7 @@ func WriteBackup(file, text string, format int) (string, error) {
 		if errors.As(err, &pe) {
 			err = pe.Err
 		}
-		return &UpgradeError{Kind: UpgradeIO, Err: fmt.Errorf("%s: %w", name, err)}
+		return &UpgradeError{Kind: UpgradeIO, Err: writeFailed(err, "%s: %w", name, err)}
 	}
 	// On windows the backup is born with the original's DACL, since a new file
 	// takes the directory's ACL (createTemp).
@@ -8018,7 +8131,11 @@ func UpgradeFile(path string, fromV2 bool) (Upgraded, error) {
 	fi, err := os.Stat(path)
 	switch {
 	case err == nil && !fi.Mode().IsRegular():
-		return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: fmt.Errorf("%s: not a regular file", path)}
+		st := WriteNotRegular
+		if fi.IsDir() {
+			st = WriteIsDirectory
+		}
+		return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: &WriteError{Status: st, Err: fmt.Errorf("%s: not a regular file", path)}}
 	case errors.Is(err, os.ErrNotExist):
 		return Upgraded{}, &UpgradeError{Kind: UpgradeNotFound, Path: path}
 	}
@@ -8028,7 +8145,7 @@ func UpgradeFile(path string, fromV2 bool) (Upgraded, error) {
 	case FileNotFound:
 		return Upgraded{}, &UpgradeError{Kind: UpgradeNotFound, Path: path}
 	default:
-		return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: fmt.Errorf("%s: cannot be read as UTF-8 text", path)}
+		return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: &WriteError{Status: WriteUnreadable, Err: fmt.Errorf("%s: cannot be read as UTF-8 text", path)}}
 	}
 	up := Upgrade(text, fromV2)
 	if up.Current {
@@ -8042,7 +8159,7 @@ func UpgradeFile(path string, fromV2 bool) (Upgraded, error) {
 		return rerr == nil && string(now) == text
 	}
 	if !same() {
-		return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: fmt.Errorf("%s: changed since it was read; nothing written", path)}
+		return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: &WriteError{Status: WriteOther, Err: fmt.Errorf("%s: changed since it was read; nothing written", path)}}
 	}
 	if up.Backup, err = WriteBackup(path, text, up.Format); err != nil {
 		return Upgraded{}, err
@@ -8055,7 +8172,7 @@ func UpgradeFile(path string, fromV2 bool) (Upgraded, error) {
 			_ = os.Remove(up.Backup)
 			return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: werr}
 		}
-		return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: fmt.Errorf("%w; the original is %s", werr, up.Backup)}
+		return Upgraded{}, &UpgradeError{Kind: UpgradeIO, Err: &WriteError{Status: writeStatusOf(werr), Err: fmt.Errorf("%w; the original is %s", werr, up.Backup)}}
 	}
 	return up, nil
 }
@@ -8099,7 +8216,7 @@ func resolveTarget(file string) (string, error) {
 		// A link whose text ends in a separator, `.` or `..` can only reach a
 		// directory, and the kernel refuses to create a file through it.
 		if namesADirectory(next) {
-			return "", errors.New("is a directory")
+			return "", &WriteError{Status: WriteIsDirectory, Err: errors.New("is a directory")}
 		}
 		if filepath.IsAbs(next) {
 			p = next
@@ -8337,7 +8454,7 @@ func (e *SaveRefused) Error() string {
 // the config it rewrites - the same mechanics the CLI's `--write` uses.
 // Refuses when the write would delete content from the file (see
 // LostCount); SaveFileLossy writes anyway. A refusal comes back as
-// *SaveRefused, a write failure as the wrapped i/o error.
+// *SaveRefused, a write failure as WriteFileAtomic's *WriteError.
 func (d *Document) SaveFile(path string) error {
 	if lost := d.LostCount(); lost > 0 {
 		return &SaveRefused{Path: path, Lost: lost}

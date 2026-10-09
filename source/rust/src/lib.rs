@@ -116,8 +116,8 @@ pub enum FileStatus {
 pub enum SaveError {
 	/// This save would delete content from the file (see `lost_count`).
 	Refused { path: String, lost: usize },
-	/// The write itself failed; has the reported message.
-	Io(String),
+	/// The write itself failed: why, and the message.
+	Io(WriteError),
 }
 
 impl std::fmt::Display for SaveError {
@@ -128,12 +128,92 @@ impl std::fmt::Display for SaveError {
 				"{}: refusing to save: this write would delete {} line(s)/value(s) from the file (see diagnostics; save_file_lossy overrides)",
 				path, lost
 			),
-			SaveError::Io(m) => f.write_str(m),
+			SaveError::Io(e) => std::fmt::Display::fmt(e, f),
 		}
 	}
 }
 
 impl std::error::Error for SaveError {}
+
+/// Why a write failed, so a program can tell a missing folder from no
+/// permission or a full disk without parsing the message. `NotFound` and
+/// `Unreadable` are `FileStatus`'s names. `Ok` is a write that went through,
+/// which only C hands back; here a failure is a `WriteError` holding one of
+/// the rest. New values go on the end; the other bindings number them in this
+/// order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WriteStatus {
+	/// The write went through.
+	Ok,
+	/// The folder it goes in is not there, or part of the path is a file.
+	NotFound,
+	/// `upgrade_file` could not read the file as UTF-8 text.
+	Unreadable,
+	/// No permission to write there. On windows, also a file another
+	/// process holds open.
+	PermissionDenied,
+	/// The disk is full, or the user's quota is.
+	DiskFull,
+	/// A read-only filesystem, or write-protected media.
+	ReadOnly,
+	/// The path names a directory.
+	IsDirectory,
+	/// Something at the path that is not a regular file, such as a FIFO or a
+	/// device.
+	NotRegular,
+	/// Anything else; the message says what.
+	Other,
+}
+
+/// A failed write: why, and the message to show, which names the file and
+/// says what the system reported.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WriteError {
+	pub status: WriteStatus,
+	pub message: String,
+}
+
+impl WriteError {
+	fn new(status: WriteStatus, message: String) -> WriteError {
+		WriteError { status, message }
+	}
+	fn io(file: &str, e: &std::io::Error) -> WriteError {
+		WriteError::new(write_status_of(e), format!("{}: {}", file, e))
+	}
+}
+
+impl std::fmt::Display for WriteError {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.write_str(&self.message)
+	}
+}
+
+impl std::error::Error for WriteError {}
+
+/// The OS error's reason. On windows the system's own code goes first, from
+/// one table all four bindings share, since each language files a held file
+/// or a missing network path somewhere different.
+fn write_status_of(e: &std::io::Error) -> WriteStatus {
+	use std::io::ErrorKind as K;
+	#[cfg(windows)]
+	if let Some(code) = e.raw_os_error() {
+		match code {
+			2 | 3 | 15 | 53 | 67 | 267 => return WriteStatus::NotFound,
+			5 | 32 | 33 | 1224 => return WriteStatus::PermissionDenied,
+			39 | 112 | 1295 => return WriteStatus::DiskFull,
+			19 => return WriteStatus::ReadOnly,
+			_ => {}
+		}
+	}
+	match e.kind() {
+		K::NotFound | K::NotADirectory => WriteStatus::NotFound,
+		K::PermissionDenied => WriteStatus::PermissionDenied,
+		K::StorageFull | K::QuotaExceeded => WriteStatus::DiskFull,
+		K::ReadOnlyFilesystem => WriteStatus::ReadOnly,
+		K::IsADirectory => WriteStatus::IsDirectory,
+		_ => WriteStatus::Other,
+	}
+}
 
 /// What a setter did: `Ok` when the write applied, or why it wrote nothing.
 /// `check_set_path()` gives the path's half of it, the reasons up to
@@ -7871,12 +7951,16 @@ pub fn read_file(path: &str, max_bytes: usize) -> Result<String, FileStatus> {
 /// real one is left stale) and the original's mode is copied onto the temp file
 /// (otherwise a 600 config comes back at whatever the umask allows). Other hard
 /// links to the old inode cannot survive a rename and keep the old content.
-pub fn write_file_atomic(file: &str, data: &str) -> Result<(), String> {
+pub fn write_file_atomic(file: &str, data: &str) -> Result<(), WriteError> {
 	use std::io::Write;
 	if names_a_directory(file) {
-		return Err(format!("{}: Is a directory", file));
+		return Err(WriteError::new(
+			WriteStatus::IsDirectory,
+			format!("{}: Is a directory", file),
+		));
 	}
-	let target = resolve_target(file).map_err(|e| format!("{}: {}", file, e))?;
+	let target = resolve_target(file)
+		.map_err(|(status, why)| WriteError::new(status, format!("{}: {}", file, why)))?;
 	let dir = match target.parent() {
 		Some(d) if !d.as_os_str().is_empty() => d,
 		_ => std::path::Path::new("."),
@@ -7913,17 +7997,19 @@ pub fn write_file_atomic(file: &str, data: &str) -> Result<(), String> {
 	if let Some(m) = &existing
 		&& !m.is_file()
 	{
-		let what = if m.is_dir() {
-			"Is a directory"
+		return Err(if m.is_dir() {
+			WriteError::new(
+				WriteStatus::IsDirectory,
+				format!("{}: Is a directory", file),
+			)
 		} else {
-			"not a regular file"
-		};
-		return Err(format!("{}: {}", file, what));
+			not_regular(file)
+		});
 	}
 	// The test above cannot see a windows device name; see not_a_disk_file.
 	#[cfg(windows)]
 	if not_a_disk_file(&target) {
-		return Err(format!("{}: not a regular file", file));
+		return Err(not_regular(file));
 	}
 	// Windows: a read-only file cannot be replaced, and a read-only temp cannot
 	// be removed after a failure, so the attribute comes off the target for the
@@ -7945,7 +8031,7 @@ pub fn write_file_atomic(file: &str, data: &str) -> Result<(), String> {
 	};
 	let mut file_handle = None;
 	let mut tmp = std::path::PathBuf::new();
-	let mut last = String::new();
+	let mut last = None;
 	for attempt in 0..8 {
 		tmp = dir.join(format!(".{}.tmp{}.{}", base, std::process::id(), attempt));
 		let mut opts = std::fs::OpenOptions::new();
@@ -7968,11 +8054,16 @@ pub fn write_file_atomic(file: &str, data: &str) -> Result<(), String> {
 				file_handle = Some(f);
 				break;
 			}
-			Err(e) => last = e.to_string(),
+			Err(e) => last = Some(e),
 		}
 	}
 	let Some(mut f) = file_handle else {
-		return Err(format!("{}: cannot create temporary file: {}", file, last));
+		let status = last.as_ref().map_or(WriteStatus::Other, write_status_of);
+		let why = last.map(|e| e.to_string()).unwrap_or_default();
+		return Err(WriteError::new(
+			status,
+			format!("{}: cannot create temporary file: {}", file, why),
+		));
 	};
 	let res = (|| -> std::io::Result<()> {
 		f.write_all(data.as_bytes())?;
@@ -7997,7 +8088,7 @@ pub fn write_file_atomic(file: &str, data: &str) -> Result<(), String> {
 	})();
 	if let Err(e) = res {
 		let _ = std::fs::remove_file(&tmp);
-		return Err(format!("{}: {}", file, e));
+		return Err(WriteError::io(file, &e));
 	}
 	drop(f);
 	#[cfg(windows)]
@@ -8022,9 +8113,16 @@ pub fn write_file_atomic(file: &str, data: &str) -> Result<(), String> {
 	if read_only {
 		set_read_only(&target, true); // whether or not the publish went through
 	}
-	published.map_err(|e| format!("{}: {}", file, e))?;
+	published.map_err(|e| WriteError::io(file, &e))?;
 	sync_dir(dir);
 	Ok(())
+}
+
+fn not_regular(file: &str) -> WriteError {
+	WriteError::new(
+		WriteStatus::NotRegular,
+		format!("{}: not a regular file", file),
+	)
 }
 
 /// Why `upgrade_file` or `write_backup` wrote nothing, or not all of it.
@@ -8037,8 +8135,8 @@ pub enum UpgradeError {
 	Ambiguous { path: String, count: usize },
 	/// Something is already at the backup's name. It is never written over.
 	BackupTaken(String),
-	/// A read or write failed; has the reported message.
-	Io(String),
+	/// A read or write failed: why, and the message.
+	Io(WriteError),
 }
 
 impl std::fmt::Display for UpgradeError {
@@ -8055,7 +8153,7 @@ impl std::fmt::Display for UpgradeError {
 				"{}: already exists; the original would be kept there, so nothing was written",
 				name
 			),
-			UpgradeError::Io(m) => f.write_str(m),
+			UpgradeError::Io(e) => std::fmt::Display::fmt(e, f),
 		}
 	}
 }
@@ -8116,7 +8214,7 @@ pub fn write_backup(file: &str, text: &str, format: u32) -> Result<String, Upgra
 		if e.kind() == std::io::ErrorKind::AlreadyExists {
 			UpgradeError::BackupTaken(name.clone())
 		} else {
-			UpgradeError::Io(format!("{}: {}", name, e))
+			UpgradeError::Io(WriteError::io(&name, &e))
 		}
 	})?;
 	let res = (|| -> std::io::Result<()> {
@@ -8134,7 +8232,7 @@ pub fn write_backup(file: &str, text: &str, format: u32) -> Result<String, Upgra
 	if let Err(e) = res {
 		drop(f);
 		let _ = std::fs::remove_file(&name);
-		return Err(UpgradeError::Io(format!("{}: {}", name, e)));
+		return Err(UpgradeError::Io(WriteError::io(&name, &e)));
 	}
 	Ok(name)
 }
@@ -8177,7 +8275,15 @@ pub fn upgrade_file(path: &str, from_v2: bool) -> Result<Upgrade, UpgradeError> 
 	// A FIFO or a device would block the read or be replaced by a file.
 	match std::fs::metadata(path) {
 		Ok(m) if !m.is_file() => {
-			return Err(UpgradeError::Io(format!("{}: not a regular file", path)));
+			let status = if m.is_dir() {
+				WriteStatus::IsDirectory
+			} else {
+				WriteStatus::NotRegular
+			};
+			return Err(UpgradeError::Io(WriteError::new(
+				status,
+				format!("{}: not a regular file", path),
+			)));
 		}
 		Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
 			return Err(UpgradeError::NotFound(path.to_string()));
@@ -8188,9 +8294,9 @@ pub fn upgrade_file(path: &str, from_v2: bool) -> Result<Upgrade, UpgradeError> 
 		Ok(t) => t,
 		Err(FileStatus::NotFound) => return Err(UpgradeError::NotFound(path.to_string())),
 		Err(_) => {
-			return Err(UpgradeError::Io(format!(
-				"{}: cannot be read as UTF-8 text",
-				path
+			return Err(UpgradeError::Io(WriteError::new(
+				WriteStatus::Unreadable,
+				format!("{}: cannot be read as UTF-8 text", path),
 			)));
 		}
 	};
@@ -8206,9 +8312,9 @@ pub fn upgrade_file(path: &str, from_v2: bool) -> Result<Upgrade, UpgradeError> 
 	}
 	let same = |now: Vec<u8>| now == text.as_bytes();
 	if !std::fs::read(path).is_ok_and(same) {
-		return Err(UpgradeError::Io(format!(
-			"{}: changed since it was read; nothing written",
-			path
+		return Err(UpgradeError::Io(WriteError::new(
+			WriteStatus::Other,
+			format!("{}: changed since it was read; nothing written", path),
 		)));
 	}
 	up.backup = write_backup(path, &text, up.format)?;
@@ -8220,9 +8326,9 @@ pub fn upgrade_file(path: &str, from_v2: bool) -> Result<Upgrade, UpgradeError> 
 			let _ = std::fs::remove_file(&up.backup);
 			return Err(UpgradeError::Io(e));
 		}
-		return Err(UpgradeError::Io(format!(
-			"{}; the original is {}",
-			e, up.backup
+		return Err(UpgradeError::Io(WriteError::new(
+			e.status,
+			format!("{}; the original is {}", e, up.backup),
 		)));
 	}
 	Ok(up)
@@ -8250,7 +8356,7 @@ fn names_a_directory(file: &str) -> bool {
 /// A path that is no link at all is a plain create at the path as given.
 /// A link cycle is an error: silently creating a regular file in its place
 /// would be the exact replacement the symlink walk exists to avoid.
-fn resolve_target(file: &str) -> Result<std::path::PathBuf, String> {
+fn resolve_target(file: &str) -> Result<std::path::PathBuf, (WriteStatus, &'static str)> {
 	if let Ok(p) = std::fs::canonicalize(file) {
 		return Ok(p);
 	}
@@ -8263,7 +8369,7 @@ fn resolve_target(file: &str) -> Result<std::path::PathBuf, String> {
 		// directory, and the kernel refuses to create a file through it. The
 		// path join below would drop the separator.
 		if names_a_directory(&next.to_string_lossy()) {
-			return Err("Is a directory".to_string());
+			return Err((WriteStatus::IsDirectory, "Is a directory"));
 		}
 		p = if next.is_absolute() {
 			next
@@ -8275,7 +8381,7 @@ fn resolve_target(file: &str) -> Result<std::path::PathBuf, String> {
 		};
 	}
 	if std::fs::read_link(&p).is_ok() {
-		return Err("too many levels of symbolic links".to_string());
+		return Err((WriteStatus::Other, "too many levels of symbolic links"));
 	}
 	Ok(match (p.parent(), p.file_name()) {
 		(Some(d), Some(n)) if !d.as_os_str().is_empty() => {
@@ -15462,5 +15568,102 @@ mod kept_gate {
 		doc.merge(&Document::parse("p:\n\tq: 9\n"));
 		assert_eq!(doc.to_canonical(), "p:\n\tb(x): [4\n\t# n\n\tq: 9\n");
 		assert_eq!(doc.lost_count(), 0);
+	}
+}
+
+// The table from an OS error to a write's reason. Most rows can't be made to
+// happen on a test box: a full disk, a read-only mount, a file held open.
+#[cfg(test)]
+mod write_status_map {
+	use super::*;
+
+	struct TestId(&'static str);
+
+	fn test_id(id: &'static str) -> TestId {
+		TestId(id)
+	}
+
+	impl Drop for TestId {
+		fn drop(&mut self) {
+			use std::io::Write;
+			let status = if std::thread::panicking() {
+				"FAIL"
+			} else {
+				"ok"
+			};
+			let thread = std::thread::current();
+			let _ = writeln!(
+				std::io::stderr().lock(),
+				"{:<4} {} rust {}",
+				status,
+				self.0,
+				thread.name().unwrap_or("?")
+			);
+		}
+	}
+
+	#[test]
+	fn os_errors_map_to_one_reason() {
+		let _id = test_id("EsEhCFz");
+		use std::io::ErrorKind as K;
+		let rows = [
+			(K::NotFound, WriteStatus::NotFound),
+			(K::NotADirectory, WriteStatus::NotFound),
+			(K::PermissionDenied, WriteStatus::PermissionDenied),
+			(K::StorageFull, WriteStatus::DiskFull),
+			(K::QuotaExceeded, WriteStatus::DiskFull),
+			(K::ReadOnlyFilesystem, WriteStatus::ReadOnly),
+			(K::IsADirectory, WriteStatus::IsDirectory),
+			(K::AlreadyExists, WriteStatus::Other),
+			(K::InvalidInput, WriteStatus::Other),
+			(K::Other, WriteStatus::Other),
+		];
+		for (kind, want) in rows {
+			assert_eq!(
+				write_status_of(&std::io::Error::from(kind)),
+				want,
+				"{kind:?}"
+			);
+		}
+		// The numbers POSIX systems share, then the ones they don't.
+		#[cfg(unix)]
+		for (code, want) in [
+			(1, WriteStatus::PermissionDenied),  // EPERM
+			(2, WriteStatus::NotFound),          // ENOENT
+			(5, WriteStatus::Other),             // EIO
+			(13, WriteStatus::PermissionDenied), // EACCES
+			(20, WriteStatus::NotFound),         // ENOTDIR
+			(21, WriteStatus::IsDirectory),      // EISDIR
+			(28, WriteStatus::DiskFull),         // ENOSPC
+			(30, WriteStatus::ReadOnly),         // EROFS
+			(
+				if cfg!(target_os = "linux") { 122 } else { 69 },
+				WriteStatus::DiskFull,
+			), // EDQUOT
+		] {
+			let e = std::io::Error::from_raw_os_error(code);
+			assert_eq!(write_status_of(&e), want, "{code}");
+		}
+		#[cfg(windows)]
+		for (code, want) in [
+			(2, WriteStatus::NotFound),
+			(3, WriteStatus::NotFound),
+			(15, WriteStatus::NotFound),
+			(53, WriteStatus::NotFound),
+			(67, WriteStatus::NotFound),
+			(267, WriteStatus::NotFound),
+			(5, WriteStatus::PermissionDenied),
+			(32, WriteStatus::PermissionDenied),
+			(33, WriteStatus::PermissionDenied),
+			(1224, WriteStatus::PermissionDenied),
+			(39, WriteStatus::DiskFull),
+			(112, WriteStatus::DiskFull),
+			(1295, WriteStatus::DiskFull),
+			(19, WriteStatus::ReadOnly),
+			(1117, WriteStatus::Other), // ERROR_IO_DEVICE
+		] {
+			let e = std::io::Error::from_raw_os_error(code);
+			assert_eq!(write_status_of(&e), want, "{code}");
+		}
 	}
 }

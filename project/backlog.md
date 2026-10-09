@@ -202,7 +202,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - Python's `write_file_atomic` returns an error string, and `Document()` raises
 	- ID: 2026100717500014
 	- Type: Bug
-	- Status: Queued
+	- Status: Done
 	- Severity: Low
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 14
@@ -211,6 +211,14 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Expected behavior: one failure model in the binding, and an empty document from the constructor.
 	- Reproduced: 20261007, Python.
 	- Origin: not blamed. Not seen by an earlier round. Confirmed.
+	- Actual fix: `write_file_atomic` raises `WriteError`, with the message it used to return and a status (2026100912352400). The saves and `upgrade_file` turn it into `SaveFailed` and `UpgradeFailed` as before. `Document()` is an empty document, the same as `Document.new()`; the parser's own arguments are optional.
+	- Swept: every caller of `write_file_atomic` in the repo. The library's 3 saves and `upgrade_file`, the CLI's `set` save and `migrate --write`, the runner's DACL fixture and non-UTF-8 name save. The `an_int_is_not_a_path` row still gets a `TypeError`. No tool, script or doc called it. Rust, Go and C++ already had a plain empty constructor.
+	- Verified: both tests fail with the fix taken back out (a returned message, and `Document()` with no arena) and pass with it. The Python runner, ruff and mypy pass.
+	- Branch: `wrstat`
+	- Commit: `6e0210c2`
+	- Test case: Python `write_file_atomic_raises` (`EsEhCG7`) and `document_constructor_is_empty` (`EsEhCG8`).
+	- Acceptance signoff: Self-closed: the item's intent was clear, and its tests fail without the fix and pass with it.
+	- Closed: 20261009-133641
 
 - Doc text left behind by earlier changes
 	- ID: 2026100717500015
@@ -273,7 +281,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - A failed write says why only in text
 	- ID: 2026100912352400
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on signoff
 	- Priority: Low
 	- Opened: 20261009-123524
 	- Opened by: JC, from 2026100912271700
@@ -282,6 +290,23 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Requirements:
 		- A write failure gives a reason a program can check, like `read_file`'s `FileStatus` does for reads. All four and the C++ interface, same names in the same order.
 		- Work it with 2026100717500014, which changes Python's `write_file_atomic` to raise.
+	- Needs external testing: the hosted windows run, for the shared table of Windows system codes. It ran here only under wine. Exhaustive cppcheck waits for the next main push.
+	- Progress log:
+		- 20261009: built on `wrstat`, all four and the C++ interface, from a best guess. The question was asked and not answered: reuse `FileStatus`'s names where they fit, add only what writes need, and keep the message beside the status.
+			- `WriteStatus`, in this order, numbered from 0: `Ok`, `NotFound` (the folder is not there, or part of the path is a file), `Unreadable` (`upgrade_file` could not read the file), `PermissionDenied`, `DiskFull` (disk or quota), `ReadOnly` (read-only filesystem or media), `IsDirectory`, `NotRegular`, `Other`.
+			- Rust: a `WriteError` with `status` and `message`, from `write_file_atomic`, and inside `SaveError::Io` and `UpgradeError::Io`.
+			- Go: `WriteOk` to `WriteOther`, and a `*WriteError` from `WriteFileAtomic` and a save's failed write, and as `UpgradeError.Err` for `UpgradeIO`. It still wraps the OS error, so `errors.Is` works as before.
+			- Python: an `Enum` true only for `Ok`, as `SetStatus` is. `WriteError` has `.status`, and so do `SaveFailed` and `UpgradeFailed`.
+			- C: `shcl_write_status`, `SHCL_WRITE_OK` to `SHCL_WRITE_OTHER`, with `shcl_write_status_name`. The 6 calls that write take a last `shcl_write_status *why`, which may be NULL. `errno` is still set. An out parameter rather than a return value, so a call left unchanged fails to compile instead of reading backwards.
+			- C++: `WriteStatus` with `to_string`. `write_file_atomic` returns it in place of a bool. The saves take `WriteStatus *why = nullptr`, so old calls still build. `UpgradeError` has `status`.
+			- My calls beyond the guess: `NotRegular` sits beside `IsDirectory`, since every binding already told the two apart in its message. `upgrade_file`'s "changed since it was read" is `Other`. A file another process holds open on Windows is `PermissionDenied` in all four, where C and Python already put it. Windows system codes go through one table all four share, since each language files some of them differently.
+			- CLI output is unchanged.
+	- Test case: `write_status_values_in_order` (Rust `EsEhCFx`, Go `EsEhCG0`, Python `EsEhCG3`, C `EsEhCG9`), `write_status_names_each_failure` (`EsEhCFy`, `EsEhCG1`, `EsEhCG4`, `EsEhCGA`), the OS error table (Rust `os_errors_map_to_one_reason` `EsEhCFz`, Go `TestWriteStatusOf` `EsEhCG2`, Python `write_status_of_os_errors` `EsEhCG5`, C `write_status_of_errno` `EsEhCGB`), Python `write_status_only_ok_is_true` (`EsEhCG6`), and the C++ `veneer_smoke` (`EjtkR0S`).
+	- Swept: every call of `write_file_atomic`, the 3 saves, `write_backup` and `upgrade_file` in the four libraries, the four CLIs, the four runners, the C++ veneer and its smoke test, the README's C and Zig examples, and the comparison tool, which builds.
+	- Verified: the Rust tests, clippy for the host and windows, and the write tests for the windows target under wine. Go tests in both modules, vet for the host and windows, staticcheck, and the Go write tests under wine. The Python runner, ruff and mypy. The C runner, its mingw build under wine, check-c-compilers, sanitize-c, cppcheck at the normal level, the no-file-IO build, the C++ veneer smoke and check-veneer. cli-regress (496 rows, 2687 checks), crosscheck over the corpus (17901 comparisons), check-readme with every example built, check-abnf, test-ids check and markdownlint. check-docs is red only on `installers-match-main`, as before.
+	- Verified: each binding's tests fail with `NotADirectory` or `ENOTDIR` taken out of the table, and with `Unreadable` given as `Other`. C's fail with the FIFO flag dropped, and C++'s with a save's status not passed back.
+	- Branch: `wrstat`
+	- Commit: `6e0210c2`
 
 - `format_version` gives the same answer for a garbled Format line and for none
 	- ID: 2026100912352401

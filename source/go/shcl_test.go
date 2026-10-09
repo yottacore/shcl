@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -1948,6 +1949,172 @@ func TestSaveFileErrorWrapsTheCause(t *testing.T) {
 	}
 	if !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("error does not wrap fs.ErrNotExist: %v", err)
+	}
+}
+
+// Every reason a write gives, in the order every binding numbers them. The
+// other three print the same names. Same fixture in every runner.
+func TestWriteStatusValuesInOrder(t *testing.T) {
+	defer testID(t, "EsEhCG0")
+	all := []WriteStatus{
+		WriteOk,
+		WriteNotFound,
+		WriteUnreadable,
+		WritePermissionDenied,
+		WriteDiskFull,
+		WriteReadOnly,
+		WriteIsDirectory,
+		WriteNotRegular,
+		WriteOther,
+	}
+	names := []string{"Ok", "NotFound", "Unreadable", "PermissionDenied", "DiskFull", "ReadOnly", "IsDirectory", "NotRegular", "Other"}
+	for i, s := range all {
+		if int(s) != i || s.String() != names[i] {
+			t.Errorf("%d: %d %q, want %q", i, int(s), s.String(), names[i])
+		}
+	}
+}
+
+// writeStatusIn is the reason inside a failed write's error, or WriteOk.
+func writeStatusIn(t *testing.T, err error) WriteStatus {
+	t.Helper()
+	if err == nil {
+		return WriteOk
+	}
+	var we *WriteError
+	if !errors.As(err, &we) {
+		t.Fatalf("not a *WriteError: %T %v", err, err)
+	}
+	return we.Status
+}
+
+// A failed write says why as a value, beside the message it always had: from
+// WriteFileAtomic, a save, WriteBackup and UpgradeFile. A full disk and a
+// read-only filesystem can't be made here without root; TestWriteStatusOf
+// maps those. Same fixture in every runner.
+func TestWriteStatusNamesEachFailure(t *testing.T) {
+	defer testID(t, "EsEhCG1")
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	at := func(name string) string { return filepath.Join(dir, name) }
+	check := func(what string, err error, want WriteStatus) {
+		t.Helper()
+		if got := writeStatusIn(t, err); got != want {
+			t.Errorf("%s: %v (%v), want %v", what, got, err, want)
+		}
+	}
+	doc := Parse("a: 1\n")
+	check("a plain write", WriteFileAtomic(at("ok.shcl"), "a: 1\n"), WriteOk)
+	missing := at("nope/t.shcl")
+	err := WriteFileAtomic(missing, "a: 1\n")
+	check("into a missing folder", err, WriteNotFound)
+	if err == nil || !strings.HasPrefix(err.Error(), missing) || !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("into a missing folder: %v", err)
+	}
+	check("save into a missing folder", doc.SaveFile(missing), WriteNotFound)
+	check("lossy save into a missing folder", doc.SaveFileLossy(missing), WriteNotFound)
+	kd, kerr := ParseKeepLines("a: 1\n", Standard)
+	if kerr != nil {
+		t.Fatal(kerr)
+	}
+	_, err = kd.SaveFileKeepLines(missing)
+	check("kept save into a missing folder", err, WriteNotFound)
+	// Part of the path is a file: the folder isn't there either.
+	check("under a file", WriteFileAtomic(at("ok.shcl/t.shcl"), "a: 1\n"), WriteNotFound)
+	check("over a directory", WriteFileAtomic(at("sub"), "a: 1\n"), WriteIsDirectory)
+	check("through a trailing separator", WriteFileAtomic(at("ok.shcl")+"/", "a: 1\n"), WriteIsDirectory)
+	_, err = UpgradeFile(at("sub"), false)
+	check("upgrade of a directory", err, WriteIsDirectory)
+	if err := os.WriteFile(at("bin.shcl"), []byte("a: \xff\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = UpgradeFile(at("bin.shcl"), false)
+	check("upgrade of a file that is not UTF-8", err, WriteUnreadable)
+	if runtime.GOOS == "windows" {
+		return
+	}
+	fifo := at("p.shcl")
+	if err := exec.Command("mkfifo", fifo).Run(); err != nil {
+		t.Fatal(err)
+	}
+	check("over a FIFO", WriteFileAtomic(fifo, "a: 1\n"), WriteNotRegular)
+	_, err = UpgradeFile(fifo, false)
+	check("upgrade of a FIFO", err, WriteNotRegular)
+	// root writes anyway, so the rows wait for a probe that is refused.
+	shut := at("shut")
+	if err := os.Mkdir(shut, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	v2 := filepath.Join(shut, "v2.shcl")
+	if err := os.WriteFile(v2, []byte("x: a,b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(shut, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(shut, 0o700)
+	if os.WriteFile(filepath.Join(shut, "probe"), nil, 0o644) == nil {
+		return
+	}
+	check("into a shut folder", WriteFileAtomic(filepath.Join(shut, "t.shcl"), "a: 1\n"), WritePermissionDenied)
+	_, err = WriteBackup(v2, "x: a,b\n", 2)
+	check("backup into a shut folder", err, WritePermissionDenied)
+	_, err = UpgradeFile(v2, true)
+	check("upgrade in a shut folder", err, WritePermissionDenied)
+}
+
+// The table from an OS error to a write's reason. Most rows can't be made to
+// happen on a test box: a full disk, a read-only mount, a file held open.
+func TestWriteStatusOf(t *testing.T) {
+	defer testID(t, "EsEhCG2")
+	rows := []struct {
+		err  error
+		want WriteStatus
+	}{
+		{fs.ErrNotExist, WriteNotFound},
+		{fs.ErrPermission, WritePermissionDenied},
+		{fs.ErrExist, WriteOther},
+		{errors.New("x"), WriteOther},
+		{&WriteError{Status: WriteIsDirectory, Err: errors.New("x")}, WriteIsDirectory},
+	}
+	if runtime.GOOS != "windows" {
+		rows = append(rows, []struct {
+			err  error
+			want WriteStatus
+		}{
+			{syscall.EPERM, WritePermissionDenied},
+			{syscall.ENOENT, WriteNotFound},
+			{syscall.EIO, WriteOther},
+			{syscall.EACCES, WritePermissionDenied},
+			{syscall.ENOTDIR, WriteNotFound},
+			{syscall.EISDIR, WriteIsDirectory},
+			{syscall.ENOSPC, WriteDiskFull},
+			{syscall.EROFS, WriteReadOnly},
+			{syscall.EDQUOT, WriteDiskFull},
+			{&fs.PathError{Op: "open", Path: "x", Err: syscall.ENOSPC}, WriteDiskFull},
+		}...)
+	} else {
+		for _, r := range []struct {
+			code uintptr
+			want WriteStatus
+		}{
+			{2, WriteNotFound}, {3, WriteNotFound}, {15, WriteNotFound}, {53, WriteNotFound}, {67, WriteNotFound}, {267, WriteNotFound},
+			{5, WritePermissionDenied}, {32, WritePermissionDenied}, {33, WritePermissionDenied}, {1224, WritePermissionDenied},
+			{39, WriteDiskFull}, {112, WriteDiskFull}, {1295, WriteDiskFull},
+			{19, WriteReadOnly}, {1117, WriteOther},
+		} {
+			rows = append(rows, struct {
+				err  error
+				want WriteStatus
+			}{syscall.Errno(r.code), r.want})
+		}
+	}
+	for _, r := range rows {
+		if got := writeStatusOf(r.err); got != r.want {
+			t.Errorf("%v: %v, want %v", r.err, got, r.want)
+		}
 	}
 }
 

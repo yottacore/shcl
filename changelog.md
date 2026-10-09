@@ -78,6 +78,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Python's typed setters raise `TypeError` on a value of the wrong type, and the array setters take a list.
 
+- Python's `write_file_atomic` raises `WriteError` when the write fails, as the saves do, where it returned the message. `Document()` is an empty document, as `Document.new()` is, where it raised `TypeError`.
+
+- Rust's `write_file_atomic` fails with a `WriteError`, and `SaveError::Io` and `UpgradeError::Io` hold one, where each held only the message. Go's `WriteFileAtomic` and a save's failed write give a `*WriteError`, and `UpgradeError.Err` is one for `UpgradeIO`. C's `shcl_write_file_atomic`, `shcl_save_file`, `shcl_save_file_lossy`, `shcl_save_file_keep_lines`, `shcl_write_backup` and `shcl_upgrade_file` take a last `shcl_write_status *why`, which may be NULL. C++'s `write_file_atomic` returns a `WriteStatus` in place of a bool.
+
 - `shcl --version` prints `shcl v3.0.0`, plus a build number on a release binary. The words `version`, `about` and `donate` are gone: use `--version`, `--about` and `--donate`. Several of them in one run each print once, in order.
 
 - `shcl set` writes back the lines its edits leave alone, printing or with `--write`, where it wrote the canonical form. `shcl fmt` still writes the canonical form.
@@ -87,6 +91,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The Bash and PowerShell wrappers are retired. Call `shcl` directly: `shcl_int f p` is `shcl get --int f p`. No package or installer includes them now, and an installer update removes the old copies from `scripts/`.
 
 ### New
+
+- A failed write says why as a value, a `WriteStatus`, beside the message: `NotFound` for a missing folder, `PermissionDenied`, `DiskFull`, `ReadOnly`, `IsDirectory`, `NotRegular`, `Unreadable` from `upgrade_file`, or `Other`. It comes from `write_file_atomic`, the saves, `write_backup` and `upgrade_file` in every binding. Go's values are `WriteOk` to `WriteOther`, and C's `SHCL_WRITE_OK` to `SHCL_WRITE_OTHER` with `shcl_write_status_name`.
 
 - A prebuilt macOS binary, one universal file for Intel and Apple silicon, for macOS 13 and later. `install.bash` installs it.
 

@@ -502,6 +502,8 @@ What a save does with each thing it can find at the path. The same answer comes 
 | A regular file whose canonical bytes equal what the save would write    | No write under `--write`, at exit 0. The file keeps its inode, its mtime and its hard links. The library's save always writes, since its caller may want the publish.
 | Nothing at the path, under the CLI's `--write`                          | Created as above, plus `FILE: created` on stderr, so a mistyped name is not a silent new file at exit 0.
 
+The library's refusals say why as a write status too: `IsDirectory` for the three is-a-directory rows, `NotRegular` for the FIFO row, and `Other` for a link cycle.
+
 ### Load outcomes
 
 Every load-time code has one outcome, and the parser derives the lost count and the held indent level from that outcome alone. Each diagnosing arm names its code and its outcome and does nothing else; one function records the diagnostic, counts, and holds the level. Before this, every arm counted and pushed by hand, and an arm that skipped one or the other was a repeat defect. A line has one of five outcomes:
