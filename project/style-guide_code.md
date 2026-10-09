@@ -117,6 +117,9 @@ New bindings (Tier 3) follow the same recipe: port the reference function-for-fu
 - The public surface is type-hinted (every public method, function and attribute); private helpers are hinted where it pays, and mypy strict is not a gate.
 
 - Deliberate deviation: the write side's read-back check lets text with no UTF-8 spelling through. Python's string is the only one of the four that can hold a lone surrogate, and the tokenizer scans bytes, so there is nothing to hand it; the save is where a document that cannot be encoded fails, and always was.
+	- Superseded 2026-10-08 by 2026100815543610: the setters refuse such text, as Go's and C's do, and since 2026100907362300 the status says `NotUtf8`. A parse still keeps a lone surrogate, and the save is still where that fails.
+
+- Deliberate deviation: `SetStatus` is an `Enum` whose only true value is `Ok`, through a `__bool__`. The other three have no truth value on it and compare with `Ok`. Setters returned a bool before, so a caller's `if not doc.set_int(...)` keeps meaning refused. An `IntEnum` was the other choice, and there `Ok` is 0 and false, which would turn every such check around with no error. The values are still numbered from 0 in the reference's order, as `.value`.
 
 - Deliberate deviation: the tokenizer scans the UTF-8 bytes of the line rather than the str, and `Tokens.src` keeps those bytes so the read-back helpers can slice them. Every offset the four bindings hand out is a byte offset, and the `tokens` output is compared byte for byte, so the str's code-point offsets could not serve. Two hot-path shortcuts ride on that, both exact: a value with no quote and no `#` is cut with `bytes.find` one piece at a time (so the element cap still stops the scan where the byte loop would), and a bare name is matched with a compiled ASCII class.
 

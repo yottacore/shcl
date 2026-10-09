@@ -15,7 +15,7 @@ pip install shcl
 ## Use
 
 ~~~python
-from shcl import Document, FileStatus, Status
+from shcl import Document, FileStatus, SetStatus, Status
 
 # Reads and parses in one call, and never raises: the document is usable
 # either way, and the status separates missing from unreadable from
@@ -38,11 +38,11 @@ roots = doc.read_string_array("site(*).root")
 # Writes through a temp file and a rename, so an interrupted save cannot
 # truncate the config - and raises SaveRefused if the load dropped a line this
 # write would delete (save_file_lossy is the override).
-# A setter reports whether the write applied: a refused write writes nothing
-# at all. check_set_path names which of the six path reasons it hit, or says
-# Ok when it was the value that was refused.
-if not doc.set_int("site(example.com).max-upload-mb", limit * 2):
-	print(doc.check_set_path("site(example.com).max-upload-mb"))
+# A setter returns SetStatus.Ok, or why it wrote nothing at all. Only Ok is
+# true, so `if not doc.set_int(...)` reads as refused.
+st = doc.set_int("site(example.com).max-upload-mb", limit * 2)
+if st is not SetStatus.Ok:
+	print("not written:", st)
 doc.save_file("server.shcl")
 ~~~
 

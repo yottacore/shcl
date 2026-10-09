@@ -407,21 +407,21 @@ def try_apply_op(doc, line):
 			wrote = doc.set_comment(path, _op_text(v))
 		elif op == "remove":
 			doc.remove(path)
-			wrote = True
+			wrote = shcl.SetStatus.Ok
 		elif op == "clear-comments":
 			doc.clear_comments(path)
-			wrote = True
+			wrote = shcl.SetStatus.Ok
 		elif op == "banner":
 			if path not in ("on", "off"):
 				return f"bad banner: {path}"
 			doc.set_banner(path == "on")
-			wrote = True
+			wrote = shcl.SetStatus.Ok
 		else:
 			return f"{_UNKNOWN_OP}{op}"
 	except ValueError as e:
 		return str(e)
-	if not wrote:
-		return f"cannot write {path}"
+	if wrote is not shcl.SetStatus.Ok:
+		return f"cannot write {path}: {wrote.name}"
 	return None
 
 
@@ -755,6 +755,62 @@ def setters_write_only_what_reads_back():
 			raise SystemExit(f"every accepted write together loaded {st}")
 		if back.to_canonical() != every.to_canonical():
 			raise SystemExit("every accepted write together changed on a save and load")
+
+
+def setter_status_agrees_with_the_path_check():
+	# A setter's status agrees with check_set_path over generated documents:
+	# a path reason is what check_set_path gives for that path, a value reason
+	# comes with a path that checks Ok, and a refusal writes nothing. The
+	# reference runs it over its fuzz soup; this runs it over the sequence
+	# fixture's documents and the setter soup.
+	S = shcl.SetStatus
+	g = SeqGen(0x5EED57A71C0000D1)
+	soup = soup_inputs()
+	seen = set()
+	for i in range(3000):
+		text = g.doc()
+		doc = shcl.Document.parse(text)
+		paths = doc.paths()
+		if not paths or g.below(4) == 0:
+			path = f"new{g.below(3)}.k"
+		else:
+			path = paths[g.below(len(paths))]
+		path += ("", "", "", "", ".kid", "(*)", "(7)", "..x")[g.below(8)]
+		v = soup[g.below(len(soup))]
+		checked = doc.check_set_path(path)
+		before = doc.to_canonical()
+		op = g.below(10)
+		if op == 0:
+			got = doc.set_int(path, 7)
+		elif op == 1:
+			got = doc.set_string(path, v)
+		elif op == 2:
+			got = doc.set_literal(path, v)
+		elif op == 3:
+			got = doc.set_comment(path, v)
+		elif op == 4:
+			got = doc.set_raw(path, v, soup[g.below(len(soup))])
+		elif op == 5:
+			got = doc.set_int_array(path, [1, 2])
+		elif op == 6:
+			got = doc.set_float(path, math.nan if len(v) % 2 == 0 else 1.5)
+		elif op == 7:
+			got = doc.set_literal_default(path, v)
+		elif op == 8:
+			got = doc.set_int_array_default(path, [3])
+		else:
+			got = doc.set_empty(path)
+		seen.add(got.name)
+		want = got if got.value <= S.UnderArray.value else S.Ok
+		if checked is not want:
+			raise SystemExit(f"iteration {i}: op {op} at {path!r} with {v!r} gave {got}, check_set_path {checked}:\n{text}")
+		if got is not S.Ok and doc.to_canonical() != before:
+			raise SystemExit(f"iteration {i}: op {op} at {path!r} gave {got} and wrote:\n{text}")
+	# Guard: the documents still reach path and value reasons both.
+	for want_name in ("Ok", "BadPath", "Wildcard", "NoSuchIndex", "Multiple", "UnderArray", "HasChildren",
+			"NotFinite", "BadRawInfo", "BadComment", "NotOneValue"):
+		if want_name not in seen:
+			raise SystemExit(f"never saw {want_name}: {sorted(seen)}")
 
 
 class SeqGen:
@@ -1620,28 +1676,27 @@ def main():
 		if lpath and (lk.value, lk.status) != ([], shcl.Status.BadPath):
 			raise SystemExit(f"read_children({lpath!r}) {lk!r}")
 	test_id("ElouJ8N", "check_set_path_names_the_failure")
-	# check_set_path: the reason behind a setter's bare False. Same fixture in
-	# every runner.
+	# The path's half of a setter's status. Same fixture in every runner.
 	wdoc = shcl.Document.parse("a:\n\tb: 1\n")
 	for wpath, wwant in (
-		("a.b", shcl.SetPathCheck.Ok),
-		("a.new(Boston).x", shcl.SetPathCheck.Ok),   # creatable
-		("", shcl.SetPathCheck.BadPath),
-		("a..b", shcl.SetPathCheck.BadPath),
-		("a.b: 2", shcl.SetPathCheck.ValueInPath),
-		("a(*).b", shcl.SetPathCheck.Wildcard),
-		("a(5).b", shcl.SetPathCheck.NoSuchIndex),
-		("nope(0).b", shcl.SetPathCheck.NoSuchIndex),
-		(".".join(["d"] * 513), shcl.SetPathCheck.TooDeep),
+		("a.b", shcl.SetStatus.Ok),
+		("a.new(Boston).x", shcl.SetStatus.Ok),   # creatable
+		("", shcl.SetStatus.BadPath),
+		("a..b", shcl.SetStatus.BadPath),
+		("a.b: 2", shcl.SetStatus.ValueInPath),
+		("a(*).b", shcl.SetStatus.Wildcard),
+		("a(5).b", shcl.SetStatus.NoSuchIndex),
+		("nope(0).b", shcl.SetStatus.NoSuchIndex),
+		(".".join(["d"] * 513), shcl.SetStatus.TooDeep),
 		# A literal line break is writable wherever a path can have one: a name
 		# emits through the name escaper and a selector value through the value
 		# emitter, and both write a break \n and read it back as one. The
 		# selector was refused while the value emitter still wrote elements in
 		# their source spelling and had nothing to escape with. Not
 		# corpus-pinnable - an ops line cannot contain a raw newline.
-		('a("p\nq").b', shcl.SetPathCheck.Ok),
-		('"x\ny".b', shcl.SetPathCheck.Ok),
-		('"x\\ny".b', shcl.SetPathCheck.Ok),
+		('a("p\nq").b', shcl.SetStatus.Ok),
+		('"x\ny".b', shcl.SetStatus.Ok),
+		('"x\\ny".b', shcl.SetStatus.Ok),
 	):
 		wgot = wdoc.check_set_path(wpath)
 		if wgot is not wwant:
@@ -1652,10 +1707,10 @@ def main():
 	if wdoc.paths() != ["a", "a.b"]:
 		raise SystemExit(f"check_set_path probe changed paths: {wdoc.paths()}")
 	test_id("Es9S4kL", "refused_values_pass_the_path_check")
-	# The setter docs list the values a setter refuses on a path check_set_path
-	# passes. Each one here returns False, writes nothing, and the path checks
-	# Ok, so the list stays true. Same fixture in every runner, plus Python's
-	# own: an int outside the 64-bit range.
+	# The values a setter refuses on a path check_set_path passes. Each one
+	# here is refused, writes nothing, and the path checks Ok. Same fixture in
+	# every runner, plus Python's own: an int outside the 64-bit range.
+	# setter_status_names_each_refusal has the status each one gives.
 	rtext = "ports: [80, 443]\nsec:\n\tx: 1\n"
 	rwant = shcl.Document.parse(rtext).to_canonical()
 	for rwhat, rpath, rset in (
@@ -1672,21 +1727,130 @@ def main():
 		("literal with a line break", "l", lambda d: d.set_literal("l", "a\nb")),
 		("array on a field with lines under it", "sec", lambda d: d.set_int_array("sec", [1, 2])),
 		("literal array on a field with lines under it", "sec", lambda d: d.set_literal("sec", "[1, 2]")),
-		("field under an array", "ports.x", lambda d: d.set_int("ports.x", 1)),
+		# The path check says UnderArray for this one now (2026100907362300),
+		# since no value could go there. setter_status_names_each_refusal has
+		# it.
+		# ("field under an array", "ports.x", lambda d: d.set_int("ports.x", 1)),
 		("int past 64 bits", "i", lambda d: d.set_int("i", 1 << 64)),
 		("int array past 64 bits", "i", lambda d: d.set_int_array("i", [1, -(1 << 63) - 1])),
 	):
 		rdoc = shcl.Document.parse(rtext)
-		if rset(rdoc):
-			raise SystemExit(f"{rwhat}: the setter returned True")
-		if rdoc.check_set_path(rpath) is not shcl.SetPathCheck.Ok:
+		if rset(rdoc) is shcl.SetStatus.Ok:
+			raise SystemExit(f"{rwhat}: the setter wrote")
+		if rdoc.check_set_path(rpath) is not shcl.SetStatus.Ok:
 			raise SystemExit(f"{rwhat}: check_set_path = {rdoc.check_set_path(rpath)}")
 		if rdoc.to_canonical() != rwant:
 			raise SystemExit(f"{rwhat}: wrote {rdoc.to_canonical()!r}")
+	test_id("EsDeik0", "setter_status_values_in_order")
+	# Every status a setter gives, in the order every binding numbers them.
+	# The other three print the same names. Same fixture in every runner.
+	snames = [st.name for st in shcl.SetStatus]
+	if snames != [
+		"Ok", "BadPath", "ValueInPath", "Wildcard", "NoSuchIndex", "TooDeep", "Multiple", "UnderArray",
+		"HasChildren", "NotFinite", "BadDateTime", "BadRawInfo", "BadRawBody", "BadComment", "NotOneValue",
+		"NotUtf8", "OutOfRange", "NoReadBack",
+	]:
+		raise SystemExit(f"SetStatus names {snames}")
+	if [st.value for st in shcl.SetStatus] != list(range(len(snames))):
+		raise SystemExit(f"SetStatus values {[st.value for st in shcl.SetStatus]}")
+	test_id("EsDeiqL", "setter_status_only_ok_is_true")
+	# Python-only: only Ok is true, so a caller's `if not doc.set_int(...)`
+	# from when setters gave a bool still means refused. A plain IntEnum would
+	# make Ok, the 0, the false one.
+	for st in shcl.SetStatus:
+		if bool(st) != (st is shcl.SetStatus.Ok):
+			raise SystemExit(f"bool({st}) is {bool(st)}")
+	if isinstance(shcl.SetStatus.Ok, int):
+		raise SystemExit("SetStatus.Ok compares as an int")
+	tdoc = shcl.Document.parse("p: 1\np: 2\n")
+	if tdoc.set_int("p", 3) or not tdoc.set_int("q", 3):
+		raise SystemExit(f"a setter's truth value: {tdoc.to_canonical()!r}")
+	test_id("EsDeim8", "setter_status_names_each_refusal")
+	# A setter's status names why it wrote nothing. A path reason is the one
+	# check_set_path gives, and wins over a value reason when both apply, since
+	# the path is what to fix first; a value reason comes with a path that
+	# checks Ok. A default form on a path already there writes nothing and
+	# gives what the plain setter would. Same fixture in every runner, plus
+	# Python's own NotUtf8 and OutOfRange cases. NoReadBack has no case: no
+	# value is known that fails to read back.
+	S = shcl.SetStatus
+	stext = "a:\n\tb: 1\nports: [80, 443]\nsec:\n\tx: 1\nport: 1\nport: 2\n"
+	smonth13 = shcl.ShclDateTime(date=(2026, 13, 1))
+	sdeep = ".".join(["d"] * 513)
+	sbad = "a\udcffb"
+	for spath, swant, sset in (
+		("a.b", S.Ok, lambda d: d.set_int("a.b", 2)),
+		("a.c", S.Ok, lambda d: d.set_float("a.c", 2.5)),
+		("a.b", S.Ok, lambda d: d.set_int_default("a.b", 9)),
+		("", S.BadPath, lambda d: d.set_int("", 1)),
+		("a..b", S.BadPath, lambda d: d.set_string("a..b", "v")),
+		("a.b: 2", S.ValueInPath, lambda d: d.set_int("a.b: 2", 1)),
+		("a(*).b", S.Wildcard, lambda d: d.set_int("a(*).b", 1)),
+		("a(5).b", S.NoSuchIndex, lambda d: d.set_int("a(5).b", 1)),
+		(sdeep, S.TooDeep, lambda d: d.set_int(sdeep, 1)),
+		("port", S.Multiple, lambda d: d.set_int("port", 9)),
+		("ports.x", S.UnderArray, lambda d: d.set_int("ports.x", 1)),
+		("ports.x.y", S.UnderArray, lambda d: d.set_int("ports.x.y", 1)),
+		("ports.x", S.UnderArray, lambda d: d.set_comment("ports.x", "c")),
+		("ports.x", S.UnderArray, lambda d: d.set_int_default("ports.x", 1)),
+		("sec", S.HasChildren, lambda d: d.set_int_array("sec", [1, 2])),
+		("sec", S.HasChildren, lambda d: d.set_string_array("sec", ["v"])),
+		("sec", S.HasChildren, lambda d: d.set_literal("sec", "[1, 2]")),
+		("f", S.NotFinite, lambda d: d.set_float("f", math.nan)),
+		("f", S.NotFinite, lambda d: d.set_float_array("f", [1.0, math.inf])),
+		("a.b", S.NotFinite, lambda d: d.set_float_default("a.b", math.nan)),
+		("t", S.BadDateTime, lambda d: d.set_datetime("t", smonth13)),
+		("r", S.BadRawInfo, lambda d: d.set_raw("r", "body", "sh # x")),
+		("r", S.BadRawInfo, lambda d: d.set_raw("r", "body", "sh\nx")),
+		("a.b", S.BadRawInfo, lambda d: d.set_raw_default("a.b", "body", "sh # x")),
+		("r", S.BadRawBody, lambda d: d.set_raw("r", "a\r\nb", "")),
+		("sec.x", S.BadComment, lambda d: d.set_comment("sec.x", "a\nb")),
+		("l", S.NotOneValue, lambda d: d.set_literal("l", "a, b")),
+		("l", S.NotOneValue, lambda d: d.set_literal("l", '"abc')),
+		("l", S.NotOneValue, lambda d: d.set_literal("l", "a\nb")),
+		("a.b", S.NotOneValue, lambda d: d.set_literal_default("a.b", "a, b")),
+		# Both halves wrong: the path's reason.
+		("a(*).b", S.Wildcard, lambda d: d.set_float("a(*).b", math.nan)),
+		("ports.x", S.UnderArray, lambda d: d.set_literal("ports.x", "a, b")),
+		("a..b", S.BadPath, lambda d: d.set_comment("a..b", "a\nb")),
+		("a(5).b", S.NoSuchIndex, lambda d: d.set_raw("a(5).b", "x", "#")),
+		("port", S.Multiple, lambda d: d.set_int_array("port", [1])),
+		("port", S.Multiple, lambda d: d.set_float_default("port", math.nan)),
+		# Python's own. Text with no UTF-8 spelling in a value is NotUtf8, in a
+		# path BadPath, and an int past 64 bits OutOfRange.
+		("s", S.NotUtf8, lambda d: d.set_string("s", sbad)),
+		("sec.x", S.NotUtf8, lambda d: d.set_comment("sec.x", sbad)),
+		("r", S.NotUtf8, lambda d: d.set_raw("r", "body", sbad)),
+		("r", S.NotUtf8, lambda d: d.set_raw("r", sbad, "")),
+		("l", S.NotUtf8, lambda d: d.set_literal("l", sbad)),
+		("a.b", S.NotUtf8, lambda d: d.set_string_default("a.b", sbad)),
+		(f'"{sbad}"', S.BadPath, lambda d: d.set_int(f'"{sbad}"', 1)),
+		(f'"{sbad}".x', S.BadPath, lambda d: d.set_int(f'"{sbad}".x', 1)),
+		(f"a({sbad}).x", S.BadPath, lambda d: d.set_int(f"a({sbad}).x", 1)),
+		(f'a("{sbad}").x', S.BadPath, lambda d: d.set_int(f'a("{sbad}").x', 1)),
+		(f'"{sbad}"', S.BadPath, lambda d: d.set_comment(f'"{sbad}"', "c")),
+		(f'"{sbad}"', S.BadPath, lambda d: d.set_string(f'"{sbad}"', sbad)),
+		("i", S.OutOfRange, lambda d: d.set_int("i", 1 << 64)),
+		("i", S.OutOfRange, lambda d: d.set_int_array("i", [1, -(1 << 63) - 1])),
+		("a.b", S.OutOfRange, lambda d: d.set_int_default("a.b", 1 << 63)),
+		("a(*).b", S.Wildcard, lambda d: d.set_int("a(*).b", 1 << 64)),
+	):
+		sdoc = shcl.Document.parse(stext)
+		sbefore = sdoc.to_canonical()
+		sgot = sset(sdoc)
+		if sgot is not swant:
+			raise SystemExit(f"{spath!r}: got {sgot}, want {swant}")
+		schecked = shcl.Document.parse(stext).check_set_path(spath)
+		if schecked is not (swant if swant.value <= S.UnderArray.value else S.Ok):
+			raise SystemExit(f"{spath!r}: check_set_path = {schecked}")
+		if sgot is not S.Ok and sdoc.to_canonical() != sbefore:
+			raise SystemExit(f"{spath!r}: wrote {sdoc.to_canonical()!r}")
+	test_id("EsDeioE", "setter_status_agrees_with_the_path_check")
+	setter_status_agrees_with_the_path_check()
 	test_id("Es9aZSH", "repeated_path_refuses_a_setter")
 	# A setter on a path that matches more than one field at any step writes
-	# nothing and the path checks Multiple, so a write never says True where
-	# the read after it would say Multiple. An index or value selector picks
+	# nothing and the path checks Multiple, so a write never says Ok where the
+	# read after it would say Multiple. An index or value selector picks
 	# one. Same fixture in every runner.
 	mtext = "port: 1\nport: 2\nsite: a\n\troot: /x\nsite: b\n\troot: /y\nsec:\n\tk: 1\n\tk: 2\n"
 	mwant = shcl.Document.parse(mtext).to_canonical()
@@ -1707,9 +1871,10 @@ def main():
 		("sec.k.x", lambda d: d.set_int("sec.k.x", 9)),
 	):
 		mdoc = shcl.Document.parse(mtext)
-		if mset(mdoc):
-			raise SystemExit(f"{mpath}: the setter returned True")
-		if mdoc.check_set_path(mpath) is not shcl.SetPathCheck.Multiple:
+		mgot = mset(mdoc)
+		if mgot is not shcl.SetStatus.Multiple:
+			raise SystemExit(f"{mpath}: the setter gave {mgot}")
+		if mdoc.check_set_path(mpath) is not shcl.SetStatus.Multiple:
 			raise SystemExit(f"{mpath}: check_set_path = {mdoc.check_set_path(mpath)}")
 		if mdoc.to_canonical() != mwant:
 			raise SystemExit(f"{mpath}: wrote {mdoc.to_canonical()!r}")
@@ -1721,12 +1886,12 @@ def main():
 			mdoc.get_string_or("site(a).root", ""), mdoc.get_int_or("sec.k(0)", 0)) != (1, 9, "/z", "/w", 7):
 		raise SystemExit(f"wrote the wrong instance: {mdoc.to_canonical()!r}")
 	# A remove takes every instance it matches, as a read sees them.
-	if mdoc.remove("port") != 2 or mdoc.check_set_path("port") is not shcl.SetPathCheck.Ok:
+	if mdoc.remove("port") != 2 or mdoc.check_set_path("port") is not shcl.SetStatus.Ok:
 		raise SystemExit("remove on a repeated path")
 	test_id("Es9aZSJ", "setters_refuse_text_that_is_not_utf8")
 	# A lone surrogate has no UTF-8 spelling, so no save could write it. Every
 	# setter that takes text refuses it, as Go's refuse bytes that are not
-	# UTF-8: it returns False, writes nothing, and the path checks Ok. The same
+	# UTF-8: it gives NotUtf8, writes nothing, and the path checks Ok. The same
 	# cases are in the C runner.
 	utext = "sec:\n\tx: 1\nsrv: a\n"
 	uwant = shcl.Document.parse(utext).to_canonical()
@@ -1744,16 +1909,20 @@ def main():
 		("l", lambda d: d.set_literal("l", f'"{ubad}"')),
 		("l", lambda d: d.set_literal("l", f"[ok, {ubad}]")),
 		("l", lambda d: d.set_literal_default("l", ubad)),
-		(f'"{ubad}"', lambda d: d.set_int(f'"{ubad}"', 1)),
-		(f'"{ubad}".x', lambda d: d.set_int(f'"{ubad}".x', 1)),
-		(f"srv({ubad}).x", lambda d: d.set_int(f"srv({ubad}).x", 1)),
-		(f'srv("{ubad}").x', lambda d: d.set_int(f'srv("{ubad}").x', 1)),
-		(f'"{ubad}"', lambda d: d.set_comment(f'"{ubad}"', "c")),
+		# A path that is not UTF-8 checks BadPath now, from check_set_path as
+		# from the setter (2026100907362300), so these moved to
+		# setter_status_names_each_refusal.
+		# (f'"{ubad}"', lambda d: d.set_int(f'"{ubad}"', 1)),
+		# (f'"{ubad}".x', lambda d: d.set_int(f'"{ubad}".x', 1)),
+		# (f"srv({ubad}).x", lambda d: d.set_int(f"srv({ubad}).x", 1)),
+		# (f'srv("{ubad}").x', lambda d: d.set_int(f'srv("{ubad}").x', 1)),
+		# (f'"{ubad}"', lambda d: d.set_comment(f'"{ubad}"', "c")),
 	):
 		udoc = shcl.Document.parse(utext)
-		if uset(udoc):
-			raise SystemExit(f"{upath!r}: the setter returned True")
-		if udoc.check_set_path(upath) is not shcl.SetPathCheck.Ok:
+		ugot = uset(udoc)
+		if ugot is not shcl.SetStatus.NotUtf8:
+			raise SystemExit(f"{upath!r}: the setter gave {ugot}")
+		if udoc.check_set_path(upath) is not shcl.SetStatus.Ok:
 			raise SystemExit(f"{upath!r}: check_set_path = {udoc.check_set_path(upath)}")
 		if udoc.to_canonical() != uwant:
 			raise SystemExit(f"{upath!r}: wrote {udoc.to_canonical()!r}")
@@ -1762,16 +1931,17 @@ def main():
 	# reader accepts fails the write and leaves the document alone. Same
 	# fixture in every runner.
 	sdoc = shcl.Document.parse("z: 0\n")
+	NF = shcl.SetStatus.NotFinite
 	for v in (math.inf, -math.inf, math.nan):
-		if sdoc.set_float("f", v) or sdoc.set_float_default("f", v) or sdoc.set_float_array("f", [1.0, v]):
-			raise SystemExit(f"float {v} was written")
+		if (sdoc.set_float("f", v), sdoc.set_float_default("f", v), sdoc.set_float_array("f", [1.0, v])) != (NF, NF, NF):
+			raise SystemExit(f"float {v} was not refused as NotFinite")
 		# A default form on a path that is already there writes nothing, and
 		# still refuses what the plain setter would.
-		if sdoc.set_float_default("z", v) or sdoc.set_float_array_default("z", [1.0, v]):
+		if (sdoc.set_float_default("z", v), sdoc.set_float_array_default("z", [1.0, v])) != (NF, NF):
 			raise SystemExit(f"float {v} passed a default form on a present path")
-	if not sdoc.set_float("f", 2.5) or sdoc.get_float("f") != 2.5:
+	if sdoc.set_float("f", 2.5) is not shcl.SetStatus.Ok or sdoc.get_float("f") != 2.5:
 		raise SystemExit("a finite float was refused")
-	if not sdoc.set_float_default("z", 2.5) or sdoc.get_float("z") != 0:
+	if sdoc.set_float_default("z", 2.5) is not shcl.SetStatus.Ok or sdoc.get_float("z") != 0:
 		raise SystemExit("a finite float default on a present path was refused or written")
 	DT = shcl.ShclDateTime
 	bad_dts = [
@@ -1786,13 +1956,14 @@ def main():
 		DT(time=(1, 2, None), zone=("offset", 9999)),          # +166:39
 		DT(date=(2026, 1, 1), zone=("utc", None)),             # zone on a date alone
 	]
+	BD = shcl.SetStatus.BadDateTime
 	for dt in bad_dts:
-		if sdoc.set_datetime("d", dt) or sdoc.set_datetime_default("d", dt) or sdoc.set_datetime_array("d", [DT(date=(2026, 1, 1)), dt]):
-			raise SystemExit(f"datetime {dt} was written")
-		if sdoc.set_datetime_default("z", dt) or sdoc.set_datetime_array_default("z", [DT(date=(2026, 1, 1)), dt]):
+		if (sdoc.set_datetime("d", dt), sdoc.set_datetime_default("d", dt), sdoc.set_datetime_array("d", [DT(date=(2026, 1, 1)), dt])) != (BD, BD, BD):
+			raise SystemExit(f"datetime {dt} was not refused as BadDateTime")
+		if (sdoc.set_datetime_default("z", dt), sdoc.set_datetime_array_default("z", [DT(date=(2026, 1, 1)), dt])) != (BD, BD):
 			raise SystemExit(f"datetime {dt} passed a default form on a present path")
 	ok_dt = DT(date=(2026, 1, 2), time=(3, 4, 5), frac="60", zone=("offset", -90))
-	if not sdoc.set_datetime("d", ok_dt) or str(sdoc.get_datetime("d")) != str(ok_dt):
+	if sdoc.set_datetime("d", ok_dt) is not shcl.SetStatus.Ok or str(sdoc.get_datetime("d")) != str(ok_dt):
 		raise SystemExit("a valid datetime was refused or read back differently")
 	if sdoc.to_canonical() != 'z: 0\n\nf: 2.5\n\nd: "2026-01-02T03:04:05.60-01:30"\n':
 		raise SystemExit(f"document after the refusals: {sdoc.to_canonical()!r}")
@@ -3558,9 +3729,9 @@ def main():
 	if odoc.count("srv[web]") != 0:
 		raise SystemExit(f"srv[web] count {odoc.count('srv[web]')}")
 	for opath, owant in (
-		("srv[web].x", shcl.SetPathCheck.BadPath),
-		("srv(#0).x", shcl.SetPathCheck.BadPath),
-		("srv(0).x", shcl.SetPathCheck.Ok),
+		("srv[web].x", shcl.SetStatus.BadPath),
+		("srv(#0).x", shcl.SetStatus.BadPath),
+		("srv(0).x", shcl.SetStatus.Ok),
 	):
 		if odoc.check_set_path(opath) != owant:
 			raise SystemExit(f"check_set_path({opath!r}) = {odoc.check_set_path(opath)}, want {owant}")
