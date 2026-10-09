@@ -33,102 +33,10 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
-- A setter's false doesn't say why
-	- ID: 2026100907362300
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Priority: Avg
-	- Opened: 20261009-073623
-	- Opened by: JC, from 2026100717500009
-	- Related IDs: 2026100717500009, 2026100717500020
-	- Problem description: a setter returns true or false. On false the caller learns why only from `check_set_path`, which says `Ok` when the value was refused. Some refusals come from a person or a file, not a bug in the program: `set_literal` text a person typed that is not one value, a comment typed with a line break, a raw body read with CR line endings, an array on a field that has lines under it. The program then has to guess, or copy the refusal list from the docs.
-	- Requirements:
-		- Every setter returns a status in place of true or false: the path reasons from `SetPathCheck`, plus one per refused value kind. All four and the C++ interface, same names in the same order.
-		- Rust's is `#[must_use]`. Go and C check it against `Ok`.
-		- The CLIs print the reason from the status.
-		- 2026100717500020's new calls return the same status, so this goes first.
-		- The docs drop the refused-value list from 2026100717500009 where the status names them.
-	- Decisions:
-		- 20261009: before the cut, since it changes every setter's signature and would otherwise wait for 4.0 (JC).
-		- 20261009: one `SetStatus` enum. `SetPathCheck` is renamed to it and gets the value reasons, and `check_set_path` returns it too (JC).
-	- Progress log:
-		- 20261009: part 1 is in on `setstat`: the Rust library and CLI, spec.md, design.md, the READMEs' prose and Rust examples, the code style guide and the changelog. Go, Python, C and the C++ interface are ported from it next. The branch merges to dev once all four agree.
-			- `SetStatus`, in this order, numbered from 0 in every binding:
-				- `Ok`: the write applied.
-				- `BadPath`: an empty path, one the scanner refuses, or a name or `(value)` the write would create that has no line reading back. That last one was a bare false.
-				- `ValueInPath`: a `: value` part in the path.
-				- `Wildcard`: a wildcard name or selector.
-				- `NoSuchIndex`: a `(k)` with no instance there.
-				- `TooDeep`: past the nesting cap.
-				- `Multiple`: a step that matches more than one field.
-				- `UnderArray`: a field the write would create under an array. `check_set_path` says it now, where it said `Ok`.
-				- `HasChildren`: an array on a field with lines under it.
-				- `NotFinite`: a NaN or infinite float.
-				- `BadDateTime`: a datetime that does not read back as the same fields.
-				- `BadRawInfo`: an info string with a `#` or a line break.
-				- `BadRawBody`: a body line ending in CR.
-				- `BadComment`: comment text with a line break.
-				- `NotOneValue`: `set_literal` text that is not one value, a literal that parses and still has no line that reads back included.
-				- `NotUtf8`: value, comment, info or body text that is not UTF-8. Go, Python and C only. A path that is not UTF-8 stays `BadPath`.
-				- `OutOfRange`: an int past 64 bits. Python only.
-				- `NoReadBack`: any other value that does not read back. None is known.
-			- `check_set_path` gives `Ok` or one of the path reasons, `BadPath` to `UnderArray`. When the path and the value are both wrong the setter gives the path's reason. Rust asks the path check only after a value is refused, so a write that applies walks the path once. A default form on a path already there gives what the plain setter would.
-			- The CLIs print the reason from the status, with the same text as before for every reason they could reach. `refusal()` in `main.rs` has one line per status, and the ports copy it byte for byte. The CLI's own copies of the rules (`describe_refusal`, `raw_refusal`, `array_refusal`) are gone, and the ports drop theirs.
-			- For the ports: Go's values are `SetOk` to `SetNoReadBack`, C's `SHCL_SET_OK` to `SHCL_SET_NO_READ_BACK` with type `shcl_set_status` (code style guide). C's OK is 0, so every `if (!shcl_set_...)` turns around without a warning; sweep them all, tests and the README's C example included. Python needs a choice on truthiness: an `IntEnum` makes `Ok` false. The README's Go, Python, C and C++ examples still test a bool and call `check_set_path`, and check-readme builds them, so each port updates its own. The changelog line needs the Go and C names.
-			- Tests to copy: `EsDRhHg` (names and order), `EsDRhFU` (each refusal, path wins, defaults), the fuzz property `EsDRhJo`, `Es9aZSF` now asserting `Multiple` from the setter, and `Es9S4kJ` with its field-under-an-array row commented out.
-			- Gates on `setstat`: none red. cli-regress, crosscheck and the Go, Python and C suites pass as they are, since no CLI text changed and the other three are untouched. check-docs' `installers-match-main` is red, from installers that differ between dev and main, not from this change.
-		- 20261009: Go is in on `ssgo`: the library, the CLI's `refusal()`, the README's Go example and the changelog's Go names. Text that is not UTF-8 gives `NotUtf8` ahead of any other value reason, and a path's reason still wins over it. Go has no fuzz harness, so the `EsDRhJo` property runs over the setter soup instead.
-			- Tests: `EsDeJ9a` (names and order), `EsDeJBi` (each refusal, Go's `NotUtf8` cases included), `EsDemw3` (status agrees with the path check), and `Es9S4kK`, `Es9aZSG`, `Eof29pZ` and `EomvfCs` now asserting the status. `Es9S4kK`'s field-under-an-array row is commented out with the reason.
-			- Verified: both Go modules' tests, go vet, gofmt, staticcheck, cli-regress and crosscheck in all four, check-readme, and test-ids check. check-docs is red only on `installers-match-main`, as before.
-		- 20261009: the Python part is in on `sspy`: the library, the CLI, the tests, the READMEs' Python examples, the changelog and the code style guide.
-			- `SetStatus` is an `Enum` whose only true value is `Ok`, so an old `if not doc.set_int(...)` still means refused. An `IntEnum` would make `Ok` the false one. A best guess, not put to the user. It is a per-language deviation in the code style guide.
-			- `NotUtf8` comes before the other value reasons: a value, comment, info or body with a lone surrogate gives `NotUtf8` even with a line break or a `#` in it too. Go and C should do the same.
-			- A path with a lone surrogate is `BadPath` from `check_set_path` too now, where it said `Ok`, since the name check moved into the path check. `Es9aZSJ`'s five path rows are commented out for it, and `EsDeim8` has them.
-			- `OutOfRange` comes from `set_int`, `set_int_array` and their default forms.
-			- Python has no fuzz soup, so its twin of `EsDRhJo` runs over the sequence fixture's documents and the setter soup, with the same guard.
-		- 20261009: C is in on `ssc`: the library, the CLI's `refusal()`, the C++ interface, the README's C, C++ and Zig examples, the changelog's C names and design.md. All four now agree, so the branch can merge.
-			- `shcl_set_status`, `SHCL_SET_OK` to `SHCL_SET_NO_READ_BACK`. New `shcl_set_status_name` gives the names, as `shcl_status_name` does for a read. C++ has `SetStatus` with `to_string`, and the setters stay `[[nodiscard]]`.
-			- `NotUtf8` comes before the other value reasons and a path's reason still wins, as in Go and Python. A path that is not UTF-8 is `BadPath` from `shcl_check_set_path` too, so `Es9aZSK`'s five path rows are commented out and `EsDjsvT` has them. design.md says so under the table.
-			- No `warn_unused_result` on the setters. The library uses it nowhere, and it would not catch the real hazard, a check written the wrong way round.
-			- A default form whose probe document cannot be made now aborts after `SHCL_OOM`, as `arena_panic` does, where it returned 0.
-			- Swept, every C setter call: the library (the default forms, `w_place`, `w_set_marked_as`, `set_comment`), the CLI (`set_apply`, the ops `SET` macro, `apply_op`), `conformance.c` (113 sites, the ops runner and soup helper included), `mem_bounds.c` (10), `oom_hook.c` (one bare call, left), `veneer_smoke.cpp`, `check-veneer.bash`'s consumer file, the README's C, C++ and Zig examples, and check-docs' setter-check pattern, which counted `if (!shcl_set_` as a check and no longer does. The comparison tool calls only Rust.
-	- Test case: conformance `setter_status_values_in_order` (`EsDRhHg`, Go `EsDeJ9a`, Python `EsDeik0`, C `EsDjstE`) and `setter_status_names_each_refusal` (`EsDRhFU`, Go `EsDeJBi`, Python `EsDeim8`, C `EsDjsvT`), fuzz `setter_status_agrees_with_the_path_check` (`EsDRhJo`, Go `EsDemw3`, Python `EsDeioE`, C `EsDjsxk`), the C++ `veneer_smoke` (`EjtkR0S`), Python's `setter_status_only_ok_is_true` (`EsDeiqL`), cli-regress `EsDRhLy`, `EsDRhOB`, `EsDRhQM`, `EsDRhSf`, `EsDRhUp`, `EsDTA92` and `EsDTA93`, and check-docs `setter-examples-check-the-result` (`EoXX3yy`), which counts a status compared with `Ok` as a check. `Es9S4kJ`'s field-under-an-array row, Go's `Es9S4kK`'s, Python's `Es9S4kL`'s and C's `Es9S4kM`'s, are commented out with the reason.
-	- Verified (Rust): `cargo test` with the fuzz at 20,000, `fuzz_smoke` at 200,000 in release, rustfmt, clippy for the host and windows. `EsDRhFU` fails with the path check skipped on a refused value and with `UnderArray` given as `BadPath`. `EsDRhJo` fails on both too. The 7 new cli-regress rows fail with the CLI's text changed. `EoXX3yy` fails with one README check taken out.
-	- Verified (Python, on `sspy`): the conformance run, ruff, mypy with the typing probe, cli-regress (496 rows, 2687 checks) and crosscheck over the corpus (17901 comparisons) across all four, check-readme, test-ids check, markdownlint, and check-docs, red only on `installers-match-main` as before. `EsDeim8` and `EsDeioE` each fail with the path check skipped on a refused value, and with `UnderArray` given as `BadPath`. `EsDeiqL` fails with `__bool__` taken out, the typing probe with a setter typed `Any`, and `EoXX3yy` with one Python check taken out of the README.
-	- Verified (C, on `ssc`): the C conformance runner at gcc `-O0` and `-O2` and clang `-O0` and `-O2`, `oom_hook`, `oom_recover`, `mem_bounds`, check-c-compilers (5 compilers), sanitize-c under ASan and UBSan, cppcheck at the normal level, the C++ veneer smoke, native and as a Windows build, check-veneer, the mingw and no-file-IO builds, perf-gate for C, cli-regress (496 rows, 2687 checks) and crosscheck over the corpus (17901 comparisons) and over a fuzz dump with its eol and kept saves (41880) across all four, check-readme with the Zig example built, test-ids check, shellcheck, markdownlint, and check-docs, red only on `installers-match-main` as before. `EsDjsvT` and `EsDjsxk` each fail with the path check skipped on a refused value and with `UnderArray` given as `BadPath`, and `EsDjsvT` and `Es9aZSK` with `NotUtf8` asked after the raw reasons. cli-regress fails on C's CLI with its refusal text changed. `EoXX3yy` fails with one C check taken out of the README. Exhaustive cppcheck waits for the next main push.
-	- Verified (all four, on `setstat`): cli-regress (496 rows, 2687 checks), crosscheck over the corpus (17862 comparisons), the Go, Python and C suites, check-readme, check-abnf, check-docs, test-ids check, shellcheck, markdownlint. The comparison tool builds.
-	- Branch: `setstat`, C on `ssc`
-	- Commit: `c251f741`, C `4aea318a`
-
-- `instances` output can't be fed back into a selector
-	- ID: 2026100717500016
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Needs external testing: the full `--ci` and a hosted run with the next main push, shared with 2026100814455655.
-	- Priority: Avg
-	- Opened: 20261007-175000
-	- Opened by: Code review 20261007 item 16
-	- Problem description: with `shard: 1` then `shard: 0`, `for i in $(shcl instances f shard); do shcl get f "shard($i).owner"; done` prints the other shard's owner each time, since a bare number in parens is an index. `paths` prints `shard` twice. spec.md warns in prose, and a script has to do its own quoting.
-	- Requirements:
-		- A path-ready form, such as `instances --paths`, that prints `shard("1")`.
-		- Or one machine-readable mode for the list commands (NUL-separated, or JSON lines), which would settle 2026100717500006 as well.
-	- Reason: least surprise for script authors. The obvious loop is wrong, at exit 0.
-	- Origin: Confirmed. The spec documents it, so this is not filed as a defect.
-	- Progress log:
-		- 20261008: `instances --paths` OK'd. Proposed back: print the index form, `shard(0)`, which is unique even when 2 instances share a value and never holds a space. The user asked why not a machine-readable mode too. Proposed: `--json` on `paths`, `children`, `instances` and `get --array`, one JSON object per line with path, value and line. Waiting on the user.
-		- Answered 20261008: `--paths` prints the index form, `shard(0)`. `--json` is its own item, 2026100814455655, in this release.
-		- 20261009: `instances --paths` built in all four CLIs. Each line is the path `instance_paths()` writes for that instance, which reads it whatever the values are. A wildcard slot that reached nothing is an empty line, as plain `instances` prints it. `--paths` with `--json` is a usage error (see 2026100814455655).
-		- Question: the index form puts `(i)` only on a name its parent repeats, so a field with one instance prints `shard`, not `shard(0)`. Both read the same field, and this keeps one path per field across `--paths` and every `--json` listing. Best guess, not put to the user; the other way is an index on the last name always.
-	- Swept: the four CLIs' option tables, help and dispatch, both completion files, the man page, README, spec.md and the changelog.
-	- Verified: cli-regress over all four CLIs (strict), crosscheck over the corpus and a fuzz dump (`instances --paths` on every `instances` row), sanitize-c, check-completions, check-readme, shell-regress.
-	- Branch: `listjson`
-	- Commit: `250115f3`
-	- Test case: cli-regress `EsEvmKv` (instances-paths), `EsEvmKx` (slot miss), `EsEvmKz` (2 instances with one value), `EsEvmLB` and `EsEvmLD` (refusals); crosscheck `instances --paths` on every corpus `instances` row.
-
 - A `--json` mode for the list commands
 	- ID: 2026100814455655
 	- Type: Feature
-	- Status: Waiting on signoff
+	- Status: Waiting for testing
 	- Needs external testing: Windows PowerShell 5.1 reading the lines with `ConvertFrom-Json` (only pwsh 7.6 ran here); the hosted windows job's cli-regress `EsEvmLE` and README PowerShell blocks; the full `--ci` (exhaustive cppcheck over the C changes) and a hosted run with the next main push.
 	- Priority: Avg
 	- Opened: 20261008-144556
@@ -143,7 +51,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Help, man page, README and spec say so.
 	- Reason: scripts get the path, value and line together without parsing plain text. NUL-separated output was weighed and dropped, since PowerShell can't split it easily and one record can't hold all 3 fields.
 	- Progress log:
-		- 20261009: built in all four CLIs, with each its own JSON string writer. Calls left to me, best guesses not put to the user:
+		- 20261009: built in all four CLIs, with each its own JSON string writer. Calls made while building it:
 			- Every object has `path`, `value` and `line`, keys always in that order. `children` adds `name`, the name with no quotes, since names are what it lists. `get --slots` adds `status`.
 			- `value` is always a string. An array comes in brackets as `fmt` writes it, a raw block as its content, and a field with no value as `""`. On `get` it is the value read, or the `--default` in its place.
 			- `path` is the `instance_paths()` form. It is `""`, with line 0, for a wildcard slot or a `get` that reached no field. Every element of one array has the field's path and line.
@@ -159,36 +67,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Commit: `250115f3`
 	- Test case: `fields_give_each_instance_its_own_path` (Rust `EsEsFl8`, Go `EsEsFnM`, Python `EsEsFpX`, C `EsEsFrh`) and the veneer smoke; cli-regress `EsEvmKw`, `EsEvmKy`, `EsEvmL0` to `EsEvmLC`, and `EsEvmLE` (every corpus input's `--json` lines through `jq -c .` and `ConvertFrom-Json`); crosscheck and sanitize-c `--json` on every listing row and `paths --json` on every input; check-readme's bash and PowerShell blocks.
 
-- A failed write says why only in text
-	- ID: 2026100912352400
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Priority: Low
-	- Opened: 20261009-123524
-	- Opened by: JC, from 2026100912271700
-	- Related IDs: 2026100717500014, 2026100912271700
-	- Problem description: Rust's `write_file_atomic` returns `Result<(), String>`, and `SaveError::Io` and `UpgradeError::Io` hold only a message. Python's `write_file_atomic` returns a string. A program can't tell a missing folder from no permission or a full disk without parsing the text. Go wraps the OS error with `%w`, and C leaves `errno` set, so those two can already check it.
-	- Requirements:
-		- A write failure gives a reason a program can check, like `read_file`'s `FileStatus` does for reads. All four and the C++ interface, same names in the same order.
-		- Work it with 2026100717500014, which changes Python's `write_file_atomic` to raise.
-	- Needs external testing: the hosted windows run, for the shared table of Windows system codes. It ran here only under wine. Exhaustive cppcheck waits for the next main push.
-	- Progress log:
-		- 20261009: built on `wrstat`, all four and the C++ interface, from a best guess. The question was asked and not answered: reuse `FileStatus`'s names where they fit, add only what writes need, and keep the message beside the status.
-			- `WriteStatus`, in this order, numbered from 0: `Ok`, `NotFound` (the folder is not there, or part of the path is a file), `Unreadable` (`upgrade_file` could not read the file), `PermissionDenied`, `DiskFull` (disk or quota), `ReadOnly` (read-only filesystem or media), `IsDirectory`, `NotRegular`, `Other`.
-			- Rust: a `WriteError` with `status` and `message`, from `write_file_atomic`, and inside `SaveError::Io` and `UpgradeError::Io`.
-			- Go: `WriteOk` to `WriteOther`, and a `*WriteError` from `WriteFileAtomic` and a save's failed write, and as `UpgradeError.Err` for `UpgradeIO`. It still wraps the OS error, so `errors.Is` works as before.
-			- Python: an `Enum` true only for `Ok`, as `SetStatus` is. `WriteError` has `.status`, and so do `SaveFailed` and `UpgradeFailed`.
-			- C: `shcl_write_status`, `SHCL_WRITE_OK` to `SHCL_WRITE_OTHER`, with `shcl_write_status_name`. The 6 calls that write take a last `shcl_write_status *why`, which may be NULL. `errno` is still set. An out parameter rather than a return value, so a call left unchanged fails to compile instead of reading backwards.
-			- C++: `WriteStatus` with `to_string`. `write_file_atomic` returns it in place of a bool. The saves take `WriteStatus *why = nullptr`, so old calls still build. `UpgradeError` has `status`.
-			- My calls beyond the guess: `NotRegular` sits beside `IsDirectory`, since every binding already told the two apart in its message. `upgrade_file`'s "changed since it was read" is `Other`. A file another process holds open on Windows is `PermissionDenied` in all four, where C and Python already put it. Windows system codes go through one table all four share, since each language files some of them differently.
-			- CLI output is unchanged.
-	- Test case: `write_status_values_in_order` (Rust `EsEhCFx`, Go `EsEhCG0`, Python `EsEhCG3`, C `EsEhCG9`), `write_status_names_each_failure` (`EsEhCFy`, `EsEhCG1`, `EsEhCG4`, `EsEhCGA`), the OS error table (Rust `os_errors_map_to_one_reason` `EsEhCFz`, Go `TestWriteStatusOf` `EsEhCG2`, Python `write_status_of_os_errors` `EsEhCG5`, C `write_status_of_errno` `EsEhCGB`), Python `write_status_only_ok_is_true` (`EsEhCG6`), and the C++ `veneer_smoke` (`EjtkR0S`).
-	- Swept: every call of `write_file_atomic`, the 3 saves, `write_backup` and `upgrade_file` in the four libraries, the four CLIs, the four runners, the C++ veneer and its smoke test, the README's C and Zig examples, and the comparison tool, which builds.
-	- Verified: the Rust tests, clippy for the host and windows, and the write tests for the windows target under wine. Go tests in both modules, vet for the host and windows, staticcheck, and the Go write tests under wine. The Python runner, ruff and mypy. The C runner, its mingw build under wine, check-c-compilers, sanitize-c, cppcheck at the normal level, the no-file-IO build, the C++ veneer smoke and check-veneer. cli-regress (496 rows, 2687 checks), crosscheck over the corpus (17901 comparisons), check-readme with every example built, check-abnf, test-ids check and markdownlint. check-docs is red only on `installers-match-main`, as before.
-	- Verified: each binding's tests fail with `NotADirectory` or `ENOTDIR` taken out of the table, and with `Unreadable` given as `Other`. C's fail with the FIFO flag dropped, and C++'s with a save's status not passed back.
-	- Branch: `wrstat`
-	- Commit: `6e0210c2`
-
 - A file stamped with a newer Format major should load clean
 	- ID: 2026100717500017
 	- Type: Enhancement
@@ -203,7 +81,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- A hint on load when the stamp names a newer major than the library's.
 		- Maybe one for an older major too, pointing at `upgrade`.
 	- Reason: a 3.x program that reads a 4.x file today gets whatever the 3.x rules make of it, silently. The stamp exists for exactly this.
-	- Origin: Confirmed. A change of a documented rule, so it is for the user.
+	- Origin: Confirmed. A change of a documented rule, so it needs JC's OK.
 	- Progress log:
 		- 20261009: built with 2026100912352401 in all four and the C++ interface. `H006` for a newer major, `H007` for an older one, on the stamp's line. The load reads the line through the same call as `read_format_version`, so the two can't disagree. A hint changes no load outcome, Strict included. A line whose number does not read gets no hint.
 		- 20261009, my call: `H007` says `shcl upgrade --from-2x`, since `upgrade` leaves a clean file with an older stamp alone without it (2026100313461649's call). A file it has nothing to change in keeps the old line and the hint, so `explain H007` also names `migrate FILE --write`, which stamps it. The hint and explain wording are for signoff.
@@ -231,7 +109,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Expected behavior: a value in a message is cut at 200 characters, then its length, like `value "tAj7pRNw...xYz" (4000 chars) is not a valid int`. All four and the library messages.
 	- Progress log:
 		- 20261008: accepted (JC). Same reason as the H001 list cap. Work it with 2026100812323841, since both go through `quoted()` and the message helpers.
-		- 20261009: built in all four, with 2026100812323841. Best guess to confirm at signoff: the first and last 100 characters with `...` between, since the example shows both ends.
+		- 20261009: built in all four, with 2026100812323841. The cut keeps the first and last 100 characters with `...` between, since the example shows both ends.
 	- Decisions:
 		- A value over 200 characters is cut. 200 or fewer show whole.
 		- Characters are code points, and a cut never splits one.
@@ -265,7 +143,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Answered 20261008: a real `◉` in a message shows as itself, then its code in parentheses: `◉ (U+25C9)`.
 	- Sweep: `quoted()` in the four CLIs, and the library's message helpers in all four, with the cli-regress rows that pin their text.
 	- Progress log:
-		- 20261009: best guess, as asked: a line break, carriage return or tab shows by its escape name, `◉NEWLINE◉`, `◉CR◉`, `◉TAB◉`. Any other control is a code point, `◉U+0007◉`, so the CLIs need no name table. A `"` shows as itself.
+		- 20261009: a line break, carriage return or tab shows by its escape name, `◉NEWLINE◉`, `◉CR◉`, `◉TAB◉`. Any other control is a code point, `◉U+0007◉`, so the CLIs need no name table. A `"` shows as itself.
 		- 20261009: `get`'s message showed the raw text inside added quotes. With no backslash escapes, `a: "abc"` would read `""abc""`, and each mark of an escape would get `(U+25C9)`. It now shows the text the read parsed, quotes off, as the C CLI already did. Confirm at signoff.
 	- Decisions:
 		- A backslash is itself. The message helpers write no backslash escapes.
@@ -276,6 +154,38 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `msgval`
 	- Commit: `81943546`
 	- Test case: cli-regress `EsEhCcw` to `EsEhCcz` and `EsEix5w`, and the changed rows `EqGaO1w` to `EqGaO23`, `EonKleq` and `Er1zoZI`.
+
+- A failed write says why only in text
+	- ID: 2026100912352400
+	- Type: Enhancement
+	- Status: Waiting for testing
+	- Priority: Low
+	- Opened: 20261009-123524
+	- Opened by: JC, from 2026100912271700
+	- Related IDs: 2026100717500014, 2026100912271700
+	- Problem description: Rust's `write_file_atomic` returns `Result<(), String>`, and `SaveError::Io` and `UpgradeError::Io` hold only a message. Python's `write_file_atomic` returns a string. A program can't tell a missing folder from no permission or a full disk without parsing the text. Go wraps the OS error with `%w`, and C leaves `errno` set, so those two can already check it.
+	- Requirements:
+		- A write failure gives a reason a program can check, like `read_file`'s `FileStatus` does for reads. All four and the C++ interface, same names in the same order.
+		- Work it with 2026100717500014, which changes Python's `write_file_atomic` to raise.
+	- Decisions:
+		- 20261009: the names stay as built. `Ok` matches `SetStatus`, `NotFound` and `Unreadable` match `FileStatus`, and the rest are the OS reasons (me).
+	- Needs external testing: the hosted windows run, for the shared table of Windows system codes. It ran here only under wine. Exhaustive cppcheck waits for the next main push.
+	- Progress log:
+		- 20261009: built on `wrstat`, all four and the C++ interface. It reuses `FileStatus`'s names where they fit, adds only what writes need, and keeps the message beside the status.
+			- `WriteStatus`, in this order, numbered from 0: `Ok`, `NotFound` (the folder is not there, or part of the path is a file), `Unreadable` (`upgrade_file` could not read the file), `PermissionDenied`, `DiskFull` (disk or quota), `ReadOnly` (read-only filesystem or media), `IsDirectory`, `NotRegular`, `Other`.
+			- Rust: a `WriteError` with `status` and `message`, from `write_file_atomic`, and inside `SaveError::Io` and `UpgradeError::Io`.
+			- Go: `WriteOk` to `WriteOther`, and a `*WriteError` from `WriteFileAtomic` and a save's failed write, and as `UpgradeError.Err` for `UpgradeIO`. It still wraps the OS error, so `errors.Is` works as before.
+			- Python: an `Enum` true only for `Ok`, as `SetStatus` is. `WriteError` has `.status`, and so do `SaveFailed` and `UpgradeFailed`.
+			- C: `shcl_write_status`, `SHCL_WRITE_OK` to `SHCL_WRITE_OTHER`, with `shcl_write_status_name`. The 6 calls that write take a last `shcl_write_status *why`, which may be NULL. `errno` is still set. An out parameter rather than a return value, so a call left unchanged fails to compile instead of reading backwards.
+			- C++: `WriteStatus` with `to_string`. `write_file_atomic` returns it in place of a bool. The saves take `WriteStatus *why = nullptr`, so old calls still build. `UpgradeError` has `status`.
+			- Other calls: `NotRegular` sits beside `IsDirectory`, since every binding already told the two apart in its message. `upgrade_file`'s "changed since it was read" is `Other`. A file another process holds open on Windows is `PermissionDenied` in all four, where C and Python already put it. Windows system codes go through one table all four share, since each language files some of them differently.
+			- CLI output is unchanged.
+	- Test case: `write_status_values_in_order` (Rust `EsEhCFx`, Go `EsEhCG0`, Python `EsEhCG3`, C `EsEhCG9`), `write_status_names_each_failure` (`EsEhCFy`, `EsEhCG1`, `EsEhCG4`, `EsEhCGA`), the OS error table (Rust `os_errors_map_to_one_reason` `EsEhCFz`, Go `TestWriteStatusOf` `EsEhCG2`, Python `write_status_of_os_errors` `EsEhCG5`, C `write_status_of_errno` `EsEhCGB`), Python `write_status_only_ok_is_true` (`EsEhCG6`), and the C++ `veneer_smoke` (`EjtkR0S`).
+	- Swept: every call of `write_file_atomic`, the 3 saves, `write_backup` and `upgrade_file` in the four libraries, the four CLIs, the four runners, the C++ veneer and its smoke test, the README's C and Zig examples, and the comparison tool, which builds.
+	- Verified: the Rust tests, clippy for the host and windows, and the write tests for the windows target under wine. Go tests in both modules, vet for the host and windows, staticcheck, and the Go write tests under wine. The Python runner, ruff and mypy. The C runner, its mingw build under wine, check-c-compilers, sanitize-c, cppcheck at the normal level, the no-file-IO build, the C++ veneer smoke and check-veneer. cli-regress (496 rows, 2687 checks), crosscheck over the corpus (17901 comparisons), check-readme with every example built, check-abnf, test-ids check and markdownlint. check-docs is red only on `installers-match-main`, as before.
+	- Verified: each binding's tests fail with `NotADirectory` or `ENOTDIR` taken out of the table, and with `Unreadable` given as `Other`. C's fail with the FIFO flag dropped, and C++'s with a save's status not passed back.
+	- Branch: `wrstat`
+	- Commit: `6e0210c2`
 
 - `format_version` gives the same answer for a garbled Format line and for none
 	- ID: 2026100912352401
@@ -296,7 +206,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261009: `schema_ref` had it for one line: `##    Schema` with nothing after it read the same as no line. `read_schema_ref` (Go `ReadSchemaRef`, C `shcl_read_schema_ref`) gives that `Empty`. Any other text after the head is a reference.
 		- C and C++ results have no line, as with the list twins. Rust, Go and Python set `line` and `raw`.
 	- Decisions:
-		- 20261009: a status form after 2026100818140260's twins (JC). The name is my best guess.
+		- 20261009: a status form after 2026100818140260's twins (JC). The name is my pick.
 	- Swept: `format_version` and `schema_ref` in Rust, Go, Python, C and `shcl.hpp`. Their callers (`migrate`, `upgrade`, the CLIs' `check`, `migrate` and `upgrade`) keep the plain calls, whose answers did not change.
 	- Verified: the shared table in each runner caught a Go slip while porting (a missed `CutPrefix` hands back the whole line). Also: the four conformance suites (C also built by mingw and run under wine), veneer_smoke and check-veneer, cli-regress (513 rows, 2763 checks, all four), crosscheck over the corpus (18030 comparisons), check-docs (only the known `EpHGoa0` red), check-abnf, check-readme, test-ids check, shell-regress, shellcheck, markdownlint, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy with the typing probe, cppcheck at the normal level, check-c-compilers (5 compilers, every `-O` level) and sanitize-c. The 200,000 release fuzz passes all 26. The 2,000,000 one passes all but `Eqk24nZ`, which fails on dev's code too once 204 and 205 move the seeds (2026100914525821). With the two cases moved out it passes all 26.
 	- Branch: `fmtstamp`
@@ -335,11 +245,10 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Requirements:
 		- A status twin for each, beside the plain call, the way 2026100818140260 did it. All four and the C++ interface.
 		- Every call that takes a path has a status form, so a caller never has to work out why an answer is empty.
-	- Open points:
-		- Names for the `remove` and `clear_comments` twins, since `read_` reads wrong on a call that changes the document. Best guess: the count with the same `Good`, `NotFound`, `BadPath` status `read_count` returns.
-		- Whether `authored_name` and `line` say `Multiple` for a repeated field, as the full-tier reads do. Best guess: yes.
 	- Decisions:
 		- 20261009: twins for all of them, over fewer twins plus docs pointing at `read_count`, so a caller needs one call and no logic of its own (JC).
+		- 20261009: the `remove` and `clear_comments` twins are `try_remove` and `try_clear_comments` (Go `TryRemove`, C `shcl_try_remove`). Each returns the count and the `Good`, `NotFound`, `BadPath` status `read_count` returns. `read_` reads wrong on a call that changes the document (me).
+		- 20261009: the `authored_name` and `line` twins say `Multiple` for a repeated field, as the typed reads do. `host(1)` or `lines` gets one (JC).
 
 - Doc examples, man page blocks and help text aren't run as tests
 	- ID: 2026100719122102
@@ -380,6 +289,103 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Origin: Confirmed by reading and probes.
 
 **Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
+
+- A setter's false doesn't say why
+	- ID: 2026100907362300
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20261009-073623
+	- Opened by: JC, from 2026100717500009
+	- Related IDs: 2026100717500009, 2026100717500020
+	- Problem description: a setter returns true or false. On false the caller learns why only from `check_set_path`, which says `Ok` when the value was refused. Some refusals come from a person or a file, not a bug in the program: `set_literal` text a person typed that is not one value, a comment typed with a line break, a raw body read with CR line endings, an array on a field that has lines under it. The program then has to guess, or copy the refusal list from the docs.
+	- Requirements:
+		- Every setter returns a status in place of true or false: the path reasons from `SetPathCheck`, plus one per refused value kind. All four and the C++ interface, same names in the same order.
+		- Rust's is `#[must_use]`. Go and C check it against `Ok`.
+		- The CLIs print the reason from the status.
+		- 2026100717500020's new calls return the same status, so this goes first.
+		- The docs drop the refused-value list from 2026100717500009 where the status names them.
+	- Decisions:
+		- 20261009: before the cut, since it changes every setter's signature and would otherwise wait for 4.0 (JC).
+		- 20261009: one `SetStatus` enum. `SetPathCheck` is renamed to it and gets the value reasons, and `check_set_path` returns it too (JC).
+		- 20261009: the 4 calls in the progress log stay: Python's `Enum` true only for `Ok`, `NotUtf8` ahead of other value reasons, a non-UTF-8 path is `BadPath` from `check_set_path`, and C's default setters abort after `SHCL_OOM` when the probe can't be made (JC).
+	- Progress log:
+		- 20261009: part 1 is in on `setstat`: the Rust library and CLI, spec.md, design.md, the READMEs' prose and Rust examples, the code style guide and the changelog. Go, Python, C and the C++ interface are ported from it next. The branch merges to dev once all four agree.
+			- `SetStatus`, in this order, numbered from 0 in every binding:
+				- `Ok`: the write applied.
+				- `BadPath`: an empty path, one the scanner refuses, or a name or `(value)` the write would create that has no line reading back. That last one was a bare false.
+				- `ValueInPath`: a `: value` part in the path.
+				- `Wildcard`: a wildcard name or selector.
+				- `NoSuchIndex`: a `(k)` with no instance there.
+				- `TooDeep`: past the nesting cap.
+				- `Multiple`: a step that matches more than one field.
+				- `UnderArray`: a field the write would create under an array. `check_set_path` says it now, where it said `Ok`.
+				- `HasChildren`: an array on a field with lines under it.
+				- `NotFinite`: a NaN or infinite float.
+				- `BadDateTime`: a datetime that does not read back as the same fields.
+				- `BadRawInfo`: an info string with a `#` or a line break.
+				- `BadRawBody`: a body line ending in CR.
+				- `BadComment`: comment text with a line break.
+				- `NotOneValue`: `set_literal` text that is not one value, a literal that parses and still has no line that reads back included.
+				- `NotUtf8`: value, comment, info or body text that is not UTF-8. Go, Python and C only. A path that is not UTF-8 stays `BadPath`.
+				- `OutOfRange`: an int past 64 bits. Python only.
+				- `NoReadBack`: any other value that does not read back. None is known.
+			- `check_set_path` gives `Ok` or one of the path reasons, `BadPath` to `UnderArray`. When the path and the value are both wrong the setter gives the path's reason. Rust asks the path check only after a value is refused, so a write that applies walks the path once. A default form on a path already there gives what the plain setter would.
+			- The CLIs print the reason from the status, with the same text as before for every reason they could reach. `refusal()` in `main.rs` has one line per status, and the ports copy it byte for byte. The CLI's own copies of the rules (`describe_refusal`, `raw_refusal`, `array_refusal`) are gone, and the ports drop theirs.
+			- For the ports: Go's values are `SetOk` to `SetNoReadBack`, C's `SHCL_SET_OK` to `SHCL_SET_NO_READ_BACK` with type `shcl_set_status` (code style guide). C's OK is 0, so every `if (!shcl_set_...)` turns around without a warning; sweep them all, tests and the README's C example included. Python needs a choice on truthiness: an `IntEnum` makes `Ok` false. The README's Go, Python, C and C++ examples still test a bool and call `check_set_path`, and check-readme builds them, so each port updates its own. The changelog line needs the Go and C names.
+			- Tests to copy: `EsDRhHg` (names and order), `EsDRhFU` (each refusal, path wins, defaults), the fuzz property `EsDRhJo`, `Es9aZSF` now asserting `Multiple` from the setter, and `Es9S4kJ` with its field-under-an-array row commented out.
+			- Gates on `setstat`: none red. cli-regress, crosscheck and the Go, Python and C suites pass as they are, since no CLI text changed and the other three are untouched. check-docs' `installers-match-main` is red, from installers that differ between dev and main, not from this change.
+		- 20261009: Go is in on `ssgo`: the library, the CLI's `refusal()`, the README's Go example and the changelog's Go names. Text that is not UTF-8 gives `NotUtf8` ahead of any other value reason, and a path's reason still wins over it. Go has no fuzz harness, so the `EsDRhJo` property runs over the setter soup instead.
+			- Tests: `EsDeJ9a` (names and order), `EsDeJBi` (each refusal, Go's `NotUtf8` cases included), `EsDemw3` (status agrees with the path check), and `Es9S4kK`, `Es9aZSG`, `Eof29pZ` and `EomvfCs` now asserting the status. `Es9S4kK`'s field-under-an-array row is commented out with the reason.
+			- Verified: both Go modules' tests, go vet, gofmt, staticcheck, cli-regress and crosscheck in all four, check-readme, and test-ids check. check-docs is red only on `installers-match-main`, as before.
+		- 20261009: the Python part is in on `sspy`: the library, the CLI, the tests, the READMEs' Python examples, the changelog and the code style guide.
+			- `SetStatus` is an `Enum` whose only true value is `Ok`, so an old `if not doc.set_int(...)` still means refused. An `IntEnum` would make `Ok` the false one. It is a per-language deviation in the code style guide.
+			- `NotUtf8` comes before the other value reasons: a value, comment, info or body with a lone surrogate gives `NotUtf8` even with a line break or a `#` in it too. Go and C should do the same.
+			- A path with a lone surrogate is `BadPath` from `check_set_path` too now, where it said `Ok`, since the name check moved into the path check. `Es9aZSJ`'s five path rows are commented out for it, and `EsDeim8` has them.
+			- `OutOfRange` comes from `set_int`, `set_int_array` and their default forms.
+			- Python has no fuzz soup, so its twin of `EsDRhJo` runs over the sequence fixture's documents and the setter soup, with the same guard.
+		- 20261009: C is in on `ssc`: the library, the CLI's `refusal()`, the C++ interface, the README's C, C++ and Zig examples, the changelog's C names and design.md. All four now agree, so the branch can merge.
+			- `shcl_set_status`, `SHCL_SET_OK` to `SHCL_SET_NO_READ_BACK`. New `shcl_set_status_name` gives the names, as `shcl_status_name` does for a read. C++ has `SetStatus` with `to_string`, and the setters stay `[[nodiscard]]`.
+			- `NotUtf8` comes before the other value reasons and a path's reason still wins, as in Go and Python. A path that is not UTF-8 is `BadPath` from `shcl_check_set_path` too, so `Es9aZSK`'s five path rows are commented out and `EsDjsvT` has them. design.md says so under the table.
+			- No `warn_unused_result` on the setters. The library uses it nowhere, and it would not catch the real hazard, a check written the wrong way round.
+			- A default form whose probe document cannot be made now aborts after `SHCL_OOM`, as `arena_panic` does, where it returned 0.
+			- Swept, every C setter call: the library (the default forms, `w_place`, `w_set_marked_as`, `set_comment`), the CLI (`set_apply`, the ops `SET` macro, `apply_op`), `conformance.c` (113 sites, the ops runner and soup helper included), `mem_bounds.c` (10), `oom_hook.c` (one bare call, left), `veneer_smoke.cpp`, `check-veneer.bash`'s consumer file, the README's C, C++ and Zig examples, and check-docs' setter-check pattern, which counted `if (!shcl_set_` as a check and no longer does. The comparison tool calls only Rust.
+	- Test case: conformance `setter_status_values_in_order` (`EsDRhHg`, Go `EsDeJ9a`, Python `EsDeik0`, C `EsDjstE`) and `setter_status_names_each_refusal` (`EsDRhFU`, Go `EsDeJBi`, Python `EsDeim8`, C `EsDjsvT`), fuzz `setter_status_agrees_with_the_path_check` (`EsDRhJo`, Go `EsDemw3`, Python `EsDeioE`, C `EsDjsxk`), the C++ `veneer_smoke` (`EjtkR0S`), Python's `setter_status_only_ok_is_true` (`EsDeiqL`), cli-regress `EsDRhLy`, `EsDRhOB`, `EsDRhQM`, `EsDRhSf`, `EsDRhUp`, `EsDTA92` and `EsDTA93`, and check-docs `setter-examples-check-the-result` (`EoXX3yy`), which counts a status compared with `Ok` as a check. `Es9S4kJ`'s field-under-an-array row, Go's `Es9S4kK`'s, Python's `Es9S4kL`'s and C's `Es9S4kM`'s, are commented out with the reason.
+	- Verified (Rust): `cargo test` with the fuzz at 20,000, `fuzz_smoke` at 200,000 in release, rustfmt, clippy for the host and windows. `EsDRhFU` fails with the path check skipped on a refused value and with `UnderArray` given as `BadPath`. `EsDRhJo` fails on both too. The 7 new cli-regress rows fail with the CLI's text changed. `EoXX3yy` fails with one README check taken out.
+	- Verified (Python, on `sspy`): the conformance run, ruff, mypy with the typing probe, cli-regress (496 rows, 2687 checks) and crosscheck over the corpus (17901 comparisons) across all four, check-readme, test-ids check, markdownlint, and check-docs, red only on `installers-match-main` as before. `EsDeim8` and `EsDeioE` each fail with the path check skipped on a refused value, and with `UnderArray` given as `BadPath`. `EsDeiqL` fails with `__bool__` taken out, the typing probe with a setter typed `Any`, and `EoXX3yy` with one Python check taken out of the README.
+	- Verified (C, on `ssc`): the C conformance runner at gcc `-O0` and `-O2` and clang `-O0` and `-O2`, `oom_hook`, `oom_recover`, `mem_bounds`, check-c-compilers (5 compilers), sanitize-c under ASan and UBSan, cppcheck at the normal level, the C++ veneer smoke, native and as a Windows build, check-veneer, the mingw and no-file-IO builds, perf-gate for C, cli-regress (496 rows, 2687 checks) and crosscheck over the corpus (17901 comparisons) and over a fuzz dump with its eol and kept saves (41880) across all four, check-readme with the Zig example built, test-ids check, shellcheck, markdownlint, and check-docs, red only on `installers-match-main` as before. `EsDjsvT` and `EsDjsxk` each fail with the path check skipped on a refused value and with `UnderArray` given as `BadPath`, and `EsDjsvT` and `Es9aZSK` with `NotUtf8` asked after the raw reasons. cli-regress fails on C's CLI with its refusal text changed. `EoXX3yy` fails with one C check taken out of the README. Exhaustive cppcheck waits for the next main push.
+	- Verified (all four, on `setstat`): cli-regress (496 rows, 2687 checks), crosscheck over the corpus (17862 comparisons), the Go, Python and C suites, check-readme, check-abnf, check-docs, test-ids check, shellcheck, markdownlint. The comparison tool builds.
+	- Branch: `setstat`, C on `ssc`
+	- Commit: `c251f741`, C `4aea318a`
+	- Acceptance signoff: JC 20261009.
+	- Closed: 20261009-162016
+
+- `instances` output can't be fed back into a selector
+	- ID: 2026100717500016
+	- Type: Enhancement
+	- Status: Done
+	- Priority: Avg
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 16
+	- Problem description: with `shard: 1` then `shard: 0`, `for i in $(shcl instances f shard); do shcl get f "shard($i).owner"; done` prints the other shard's owner each time, since a bare number in parens is an index. `paths` prints `shard` twice. spec.md warns in prose, and a script has to do its own quoting.
+	- Requirements:
+		- A path-ready form, such as `instances --paths`, that prints `shard("1")`.
+		- Or one machine-readable mode for the list commands (NUL-separated, or JSON lines), which would settle 2026100717500006 as well.
+	- Reason: least surprise for script authors. The obvious loop is wrong, at exit 0.
+	- Origin: Confirmed. The spec documents it, so this is not filed as a defect.
+	- Progress log:
+		- 20261008: `instances --paths` OK'd. Proposed back: print the index form, `shard(0)`, which is unique even when 2 instances share a value and never holds a space. JC asked why not a machine-readable mode too. Proposed: `--json` on `paths`, `children`, `instances` and `get --array`, one JSON object per line with path, value and line.
+		- Answered 20261008: `--paths` prints the index form, `shard(0)`. `--json` is its own item, 2026100814455655, in this release.
+		- 20261009: `instances --paths` built in all four CLIs. Each line is the path `instance_paths()` writes for that instance, which reads it whatever the values are. A wildcard slot that reached nothing is an empty line, as plain `instances` prints it. `--paths` with `--json` is a usage error (see 2026100814455655).
+		- Question: the index form puts `(i)` only on a name its parent repeats, so a field with one instance prints `shard`, not `shard(0)`. Both read the same field, and this keeps one path per field across `--paths` and every `--json` listing. The other way is an index on the last name always.
+			- Answered 20261009: as built, the index only on a repeated name (JC).
+	- Swept: the four CLIs' option tables, help and dispatch, both completion files, the man page, README, spec.md and the changelog.
+	- Verified: cli-regress over all four CLIs (strict), crosscheck over the corpus and a fuzz dump (`instances --paths` on every `instances` row), sanitize-c, check-completions, check-readme, shell-regress.
+	- Branch: `listjson`
+	- Commit: `250115f3`
+	- Test case: cli-regress `EsEvmKv` (instances-paths), `EsEvmKx` (slot miss), `EsEvmKz` (2 instances with one value), `EsEvmLB` and `EsEvmLD` (refusals); crosscheck `instances --paths` on every corpus `instances` row.
+	- Acceptance signoff: JC 20261009.
+	- Closed: 20261009-162016
 
 - Python's `write_file_atomic` returns an error string, and `Document()` raises
 	- ID: 2026100717500014
@@ -436,10 +442,10 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Incorrect behavior: 0, the same as a path with no match. `instances` and `children` give an empty list. They return a plain number or list, so 2026100717500001's `BadPath` status has nowhere to go. The CLI refuses a bad PATH before the load, so only the library is affected.
 	- Expected behavior: a status form that says `BadPath`, the way the full-tier reads do, in all four and the C++ interface.
 	- Progress log:
-		- 20261008: the user agreed it should, as easier to work with.
+		- 20261008: JC agreed it should, as easier to work with.
 		- 20261009: status twins added beside the plain calls, which keep their signatures.
 		- 20261009, question: `line` and `exists` can already be answered with a status, through any read's `line` and through `read_count`. `lines`, `authored_name` and `comments` still give an empty answer for a bad path. Add twins for them too, or leave them?
-		- 20261009: Done. The test runs and gates above cover it. The question above goes to the user as a possible follow-up item.
+		- 20261009: Done. The test runs and gates above cover it. The question above goes to JC as a possible follow-up item.
 		- 20261009: answered, filed as 2026100912271700 with `exists` and `remove` added.
 	- Decisions:
 		- The twins follow the full-tier read names: Rust and Python `read_count`, `read_instances`, `read_children`, Go `ReadCount` and so on, C `shcl_read_count` and the rest, C++ `read_count` and the rest. They return the read result, with no per-slot statuses.
@@ -469,7 +475,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Installers, packages, dogfood and the gates stop using them. An update removes the old copies from an install.
 		- README, design.md, the man page and the changelog show calling the binary from bash and PowerShell, plus the 5.1 encoding line.
 	- Progress log:
-		- 20261008: the user agreed to drop both.
+		- 20261008: JC agreed to drop both.
 		- 20261008: Both moved to `project/legacy/` with a readme, and out of the installers (`install.bash` 1.4.0, `install.ps1` 1.2.0), the packages, the drop-ins tarball, the dogfood stage and the lint lists. An update removes an older install's `scripts/` copies, and so does the setup.
 		- 20261008: README, design.md (the old design kept under "Shell wrappers (retired)"), spec, style guide, contributing, the man page and the changelog. The README's Bash and PowerShell examples call `shcl` directly, with the 5.1 encoding line.
 		- 20261008: The wrapper rows left shell-regress and win-runners. The dogfood runner's rows stay.
@@ -566,7 +572,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: 20261007, by reading `shcl.h` and the other three.
 	- Origin: not blamed. Not seen by an earlier round. Confirmed.
 	- Progress log:
-		- 2026-10-08: Best guess, no answer yet: drop the three plain names. Strings, datetimes, raw blocks and arrays never had a plain `shcl_get_*`; they are on the `shcl_read_*` tier only.
+		- 2026-10-08: drop the three plain names. Strings, datetimes, raw blocks and arrays never had a plain `shcl_get_*`; they are on the `shcl_read_*` tier only.
 		- 20261008: signed off (JC).
 	- Actual cause: the plain three came first, and the `_or` names were added beside them as aliases in 2.0 without dropping them.
 	- Actual fix: the three are gone from `shcl.h`, and the `_or` calls hold the code. The README's C and Zig examples, the C runner, spec.md, the style guide, check-veneer's list and the changelog's upgrade notes moved with them. The C++ interface never called them.
@@ -678,10 +684,10 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Version and build: dev at `6a1d28f0`
 	- Steps to reproduce: `port: 1` and `port: 2`, then `set_int("port", 9)` and `get_int("port")`.
 	- Incorrect behavior: true, then Multiple. With two `site` blocks, `set_string("site.root", "/z")` changes the first only. The setter docs and the README say nothing about it. spec.md states the first-instance rule, for `--set` only. `--set`'s help calls it a "top layer", but `get dup.shcl a --set a=9` exits 5.
-	- Expected behavior: the rule stated in the setter docs, the README and the help. A refusal with its own `write_reason` would be a behavior change, for the user.
+	- Expected behavior: the rule stated in the setter docs, the README and the help. A refusal with its own `write_reason` would be a behavior change, for JC to call.
 	- Progress log:
-		- 20261008: answered, a behavior change is fine, since every current consumer can change. Use what fits the project best. My call: refuse. A setter whose path matches more than one node at any step returns false, and `write_reason` gives a new `Multiple`, so a write agrees with the read that would follow it. `port(0)` or `site(1).root` picks one. `--set` on such a path is a usage error at exit 1, and spec.md's first-instance rule goes. The round's best guess, docs only, is dropped.
-		- 20261008: built as that call, a best guess the user did not confirm. `write_reason` is `check_set_path` now. Calls made here:
+		- 20261008: answered, a behavior change is fine, since every current consumer can change. Use what fits the project best. My call: refuse. A setter whose path matches more than one node at any step returns false, and `write_reason` gives a new `Multiple`, so a write agrees with the read that would follow it. `port(0)` or `site(1).root` picks one. `--set` on such a path is a usage error at exit 1, and spec.md's first-instance rule goes. The earlier docs-only fix is dropped.
+		- 20261008: built as that call. `write_reason` is `check_set_path` now. Calls made here:
 			- A `(value)` selector that matches two instances is refused too, by "any step". The load and a merge fold equal instances, so it is not reached today.
 			- A default form on a repeated path returns false, since on a path that exists it reports the path check's answer.
 			- `set_comment` refuses the same way, through the same walk.
@@ -714,7 +720,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: 20261007, Rust and Go.
 	- Origin: not blamed. Not seen by an earlier round. Confirmed.
 	- Progress log:
-		- 20261008: no answer at the round's start, so the best guess stands: docs only. False from a setter means the path check failed, or it passed and the write was refused for what it would write, and the docs list what. `write_reason` is `check_set_path` now (2026100717500001), so the docs use that name.
+		- 20261008: docs only. False from a setter means the path check failed, or it passed and the write was refused for what it would write, and the docs list what. `write_reason` is `check_set_path` now (2026100717500001), so the docs use that name.
 		- The list, from the code: a NaN or infinite float, a datetime the reader would refuse, a raw block whose info string holds a `#` or a line break or whose body has a line ending in CR, a comment with a line break, `set_literal` text that is not one value, an array on a field with lines under it (array setters and `set_literal`), and a new field under one holding an array. That last one was not on the item; the path check says Ok there too. Go also refuses text that is not valid UTF-8, and Python an int past 64 bits.
 		- C and Python take text that is not valid UTF-8 where Go refuses it. Filed as 2026100815543610.
 	- Actual fix [Bug]: the setter notes in all four and `shcl.hpp`, the `check_set_path` docs, README "What saving does", the README examples' comments, both binding READMEs and spec.md's setter bullet now say false is the path or the value, and list the refused values. The "same for every setter" wording is gone from all three docs that had it.
@@ -723,7 +729,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `setcheck`
 	- Commit: `0dbfcdf6`
 	- Test case: `refused_values_pass_the_path_check` in all four runners (Rust `Es9S4kJ`, Go `Es9S4kK`, Python `Es9S4kL`, C `Es9S4kM`): each listed refusal returns false, writes nothing, and the path checks Ok. Go adds its UTF-8 cases and Python its 64-bit ones. Two of them in the C++ `veneer_smoke` (`EjtkR0S`).
-	- Acceptance signoff: Self-closed 20261008: docs only, the round's best guess, and the list is held by the test.
+	- Acceptance signoff: Self-closed 20261008: docs only, and the test checks the list.
 	- Closed: 20261008-155436
 
 - CLI reads take a path that cannot parse as not found, so `get --default` prints the default at exit 0
@@ -1743,7 +1749,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261003: the version in the name is the old file's format, so `format-v2` for a 2.x file.
 		- 20261003: the fresh file gets the info block, as `init` writes it. This call is the one library write that does.
 		- 20261003: it covers beta-stamped Format 3 files too, when they can be told apart. This reopens the scope of 2026100115403385.
-		- 20261007: kept, the user. With `--from-2x`, a 2.x file that loads clean but migrates to other text is backed up and rewritten.
+		- 20261007: kept (JC). With `--from-2x`, a 2.x file that loads clean but migrates to other text is backed up and rewritten.
 	- Note: 20261005, waits on 2026100207032800, since its rewrite goes through `migrate`, which that item's chunk C changes. Work it right after chunk C.
 	- Estimated effort: High
 	- Progress log:
@@ -1965,7 +1971,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Question: should a setter on a field opened from a kept line keep the table's rule, or do something else, such as refuse, or write the kept line as a comment?
 		- 20261004, answered: a setter writes the kept line as a comment, says why and when, and the set then goes ahead, so the file has one `a`. The example given was `# a: [1]  ## Invalid original value commented out by shcl on 'set' command, YYYY-mm-DD HH:MM:SS.`, to be made exact.
 		- Proposed text, OK'd 20261004: `# a: [1]  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E019 bracket array syntax`. It names the path, since library setters do this too and not only `set`. It names the code and message the load gave, since that is the actual reason.
-		- The time is local, with the zone's short name, or its offset such as `UTC-07:00` when no short name is known (the user, 20261004). Windows gives only long names like "Pacific Daylight Time", so it writes the offset. Tests pin the clock and zone through an override.
+		- The time is local, with the zone's short name, or its offset such as `UTC-07:00` when no short name is known (JC, 20261004). Windows gives only long names like "Pacific Daylight Time", so it writes the offset. Tests pin the clock and zone through an override.
 		- Rust has no crates to lean on here. Local time comes from `localtime_r` on POSIX and the Win32 time zone calls on Windows, declared by hand like the existing `ReplaceFile` ones.
 		- 20261004: setter half fixed in all four. A setter on a field opened from a kept line writes that line as the OK'd comment, then sets. The line is a plain comment from then on, as a reload reads it, so `ClearComments` and a remove of the field take it. `SHCL_TEST_CLOCK` pins the time for tests, and cli-regress and crosscheck set it. design.md's setter row, spec.md and the changelog say so.
 		- 20261004: `EreT6dh` had no row left for this item, since the remove half took it out. It now counts a setter's comment, by its note, as the line it was. A 300,000 run reached that path 8,516 times.
@@ -2475,7 +2481,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- The release recipe has a step for it, after signing, plus a second run against the live release to diff.
 	- Verified: the table for the published v2.0.0 renders right through GitHub's markdown API. Both tests failed with a fault put in the script and pass on the fix. shellcheck over the lint list and `test-ids.py check` pass, and so does the whole `shell-regress.bash`.
 	- Progress log:
-		- 20261005: done on `dltable`. The heading and its place in the notes are a best guess, and are in the private recipe only, so easy to move.
+		- 20261005: done on `dltable`. The heading and its place in the notes are my pick, and are in the private recipe only, so easy to move.
 	- Branch: `dltable`
 	- Commit: `e6a75d0c`
 	- Test case: shell-regress `ErsrmzS` (fixture names to the expected table) and `Ersrn1M` (upload names, and the refusals).
@@ -5536,7 +5542,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Cause: stable falls back to a pre-release only when there is no full release, and v1.0.0 to v2.0.0 are full releases.
 		- Note: the code matches its help. What fails is the expectation that the beta installs by default, while main's README will describe format 3. Needs a call on which side moves.
 		- Origin: `ce64bbe`. Not seen before. Confirmed.
-		- Decided: the code stays as its help says. The README says stable installs 2.0.0 until 3.0.0 is out, and `--release dev` gets the beta. The question went unanswered, so this is the recommended option, and it is easy to reverse.
+		- Decided: the code stays as its help says. The README says stable installs 2.0.0 until 3.0.0 is out, and `--release dev` gets the beta. It is easy to reverse.
 		- Pinned by: the item 1 row also checks that stable plans 2.0.0 and dev plans the beta.
 		- Note: the README sentence comes out at 3.0.0 final.
 		- Opened: 20260924-190225
@@ -10890,7 +10896,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 	- ✅ Idea 7: the installers default to the `dev` channel and a `system` install.
 		- Note: `stable` and `user` are the usual defaults. Changing it is a call to make, and stable as the default also wants a fallback to the newest prerelease when no stable release exists.
-		- Decided: `stable` and `user` (the user, 2026-09-24).
+		- Decided: `stable` and `user` (JC, 2026-09-24).
 		- Done: both installers. While there is no full release, `stable` takes the newest pre-release and the plan says so.
 		- Pinned by: a pre-release-only fixture in `shell-regress.bash`, which the old pickers answer with nothing.
 		- Opened: 20260924-133723
@@ -10905,7 +10911,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 	- ✅ Idea 11: a cross-platform `dogfood_shcl.ps1` runner to replace `n8runshcl.ps1`.
 		- Note: copy the newest dogfood build into a dated versions folder, keep 5 to 10 copies within 1 GB, skip ones in use, and launch with the arguments passed through. Masters in the repo, launchers for each OS.
-		- Decided: the latest link is `~/.local/bin/shcl`, the user install location. A system install goes in the usual root location, `/usr/local/bin` (the user, 2026-09-24).
+		- Decided: the latest link is `~/.local/bin/shcl`, the user install location. A system install goes in the usual root location, `/usr/local/bin` (JC, 2026-09-24).
 		- Done: `utility/dogfood_shcl.ps1`, with `dogfood_shcl` for Linux and macOS and `dogfood_shcl.cmd` for Windows. It takes the build from the synced dogfood dir and keeps 5 to 10 versions within 1 GB, by GFS role. It never deletes a running version, and leaves a regular file at the fixed name alone. The pipe gets only shcl's output. Stage 7 deploys all three where they changed. `n8runshcl.ps1` is gone.
 		- Decided against: self-elevating on Windows. A CLI's output would land in a new window that closes. The fixed name falls back to a hard link, then a copy.
 		- Pinned by: `shell-regress.bash` rows, which fail with the running check, the stderr notes or the regular-file guard taken out.
@@ -10913,7 +10919,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Closed: 20260924-151302
 
 	- ✅ Idea 13: `--version` and `--about` have no build number.
-		- Decided: include the build number (the user, 2026-09-24). It reverses an earlier call for no `build` stamp and a bare `version` line.
+		- Decided: include the build number (JC, 2026-09-24). It reverses an earlier call for no `build` stamp and a bare `version` line.
 		- Note: it would be minutes since 2000 from the commit time, in lower-case Crockford base32, in all four CLIs. `cargo install` from crates.io has no git history, so it needs a fallback.
 		- Done: the release builds in stage 6 print `shcl vX.Y.Z build <id>` for `version` and on the first line of `about`. `version` stays one line, as design.md has it for scripts. Other builds print `shcl vX.Y.Z`, the other three CLIs included, so the four still compare byte for byte.
 		- Pinned by: `shell-regress.bash` rows for the encoding, and for the export ahead of the native release build. Both fail with the alphabet or the export broken.
@@ -14247,7 +14253,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 	- 🚫 Idea 10: the dogfood build goes to `util/linux/bin`, not `app/linux/`.
 		- Note: `util/linux/bin` is the folder of on-PATH CLI tools.
-		- Decided against: `util/linux/bin` stays. `app/linux/` is for GUI programs (the user, 2026-09-24).
+		- Decided against: `util/linux/bin` stays. `app/linux/` is for GUI programs (JC, 2026-09-24).
 		- Opened: 20260924-133723
 		- Closed: 20260924-142448
 
