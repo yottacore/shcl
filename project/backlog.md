@@ -191,6 +191,21 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Commit: `81943546`
 	- Test case: cli-regress `EsEhCcw` to `EsEhCcz` and `EsEix5w`, and the changed rows `EqGaO1w` to `EqGaO23`, `EonKleq` and `Er1zoZI`.
 
+- The 2M release fuzz fails `edits_and_merges_match_a_reload` once corpus 204 and 205 move the seeds
+	- ID: 2026100914525821
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Opened: 20261009-145258
+	- Opened by: found while working 2026100717500017
+	- Related IDs: 2026100717500017
+	- Version and build: `fmtstamp` at `be88796f`, and dev's code at `45e38056` with the two cases copied in
+	- Steps to reproduce: `SHCL_FUZZ_ITERS=2000000` release fuzz, `--test fuzz_smoke edits_and_merges_match_a_reload`.
+	- Incorrect behavior: `Eqk24nZ` fails at iteration 1116826: op 4 (a remove) at `srv.b` gives different text on the document and on its reload. The base has kept lines and a merge layer before it.
+	- Expected behavior: the two match, or differ only in comments the reload took.
+	- Reproduced: 20261009, Rust fuzz only. Dev's code fails the same way with the two cases, so the hints did not cause it. Not cut down yet.
+	- Note: High, since the 2M release fuzz is on the release bar. The 200,000 gate passes.
+
 - `line`, `lines`, `authored_name`, `comments`, `exists`, `remove` and `clear_comments` can't report a path that doesn't parse
 	- ID: 2026100912271700
 	- Type: Enhancement
@@ -251,7 +266,9 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - A file stamped with a newer Format major should load clean
 	- ID: 2026100717500017
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting for testing
+	- Needs local test suite run?: Y, the full `--ci`, for exhaustive cppcheck over the C change.
+	- Needs external testing: a hosted run.
 	- Priority: Avg
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 17
@@ -261,6 +278,17 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Maybe one for an older major too, pointing at `upgrade`.
 	- Reason: a 3.x program that reads a 4.x file today gets whatever the 3.x rules make of it, silently. The stamp exists for exactly this.
 	- Origin: Confirmed. A change of a documented rule, so it is for the user.
+	- Progress log:
+		- 20261009: built with 2026100912352401 in all four and the C++ interface. `H006` for a newer major, `H007` for an older one, on the stamp's line. The load reads the line through the same call as `read_format_version`, so the two can't disagree. A hint changes no load outcome, Strict included. A line whose number does not read gets no hint.
+		- 20261009, my call: `H007` says `shcl upgrade --from-2x`, since `upgrade` leaves a clean file with an older stamp alone without it (2026100313461649's call). A file it has nothing to change in keeps the old line and the hint, so `explain H007` also names `migrate FILE --write`, which stamps it. The hint and explain wording are for signoff.
+		- 20261009: corpus 204 and 205 moved the fuzz seeds. The migrate fixpoint property took an input's own older Format line for migrate's stamp. With a raw block left open migrate adds none, and the CLI refuses that output at 7, so the property now holds only output naming this format. Test-only. A second find is filed as 2026100914525821.
+	- Decisions:
+		- 20261008: 2 hints, one for a newer major and one for an older major pointing at `upgrade` (JC).
+	- Swept: every load in each binding goes through its one parser function, so `parse`, `parse_with`, `parse_limited`, the keep-lines loads, the file loads and the one-shot all hint. `migrate`, `upgrade`, `format_version` and the hint read one function per binding: `format_line_read` in Rust and C, `formatLineRead` in Go, `_format_line_read` in Python. spec.md, design.md, the changelog, the corpus README and all four `explain` tables say so.
+	- Verified: hint emission taken out of each binding fails corpus 204 and 205 there, and the stamp test in Rust, Go and C. Also: the four conformance suites (C also built by mingw and run under wine), veneer_smoke and check-veneer, cli-regress (513 rows, 2763 checks, all four), crosscheck over the corpus (18030 comparisons), check-docs (only the known `EpHGoa0` red), check-abnf, check-readme, test-ids check, shell-regress, shellcheck, markdownlint, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy with the typing probe, cppcheck at the normal level, check-c-compilers (5 compilers, every `-O` level) and sanitize-c. The 200,000 release fuzz passes all 26. The 2,000,000 one passes all but `Eqk24nZ`, which fails on dev's code too once 204 and 205 move the seeds (2026100914525821). With the two cases moved out it passes all 26.
+	- Branch: `fmtstamp`
+	- Commit: `be88796f`
+	- Test case: corpus `204-format-newer-hint` (`EsEtTdT`) and `205-format-older-hint` (`EsEtTdU`) in all four runners, the hint rows of `stamp_reads_say_why` (Rust `EsEtTdP`, Go `EsEtTdQ`, Python `EsEtTdR`, C `EsEtTdS`), cli-regress `EsEtTdV` to `EsEtTda`, and veneer_smoke `EjtkR0S`.
 
 - Doc examples, man page blocks and help text aren't run as tests
 	- ID: 2026100719122102
@@ -303,7 +331,9 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - `format_version` gives the same answer for a garbled Format line and for none
 	- ID: 2026100912352401
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting for testing
+	- Needs local test suite run?: Y, the full `--ci`, for exhaustive cppcheck over the C change.
+	- Needs external testing: a hosted run.
 	- Priority: Low
 	- Opened: 20261009-123524
 	- Opened by: JC, from 2026100912271700
@@ -312,6 +342,17 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Requirements:
 		- A status form that tells no line, a readable major and a line it can't read apart. All four and the C++ interface.
 		- Check `schema_ref` for the same mix-up and fix it the same way if it has it.
+	- Progress log:
+		- 20261009: `read_format_version` in Rust and Python, Go `ReadFormatVersion`, C `shcl_read_format_version`, C++ `read_format_version`. `Good` with the major, `NotFound` with no line, `Empty` for `##    Format` with nothing after it, and `BadType` for a number that does not read, such as `3x`. Only the block's own spelling counts as the line, so `##    Format  3` with 2 blanks is still `NotFound`. `format_version` gives the twin's value, and `migrate` and 2026100717500017's hints read the same function.
+		- 20261009: `schema_ref` had it for one line: `##    Schema` with nothing after it read the same as no line. `read_schema_ref` (Go `ReadSchemaRef`, C `shcl_read_schema_ref`) gives that `Empty`. Any other text after the head is a reference.
+		- C and C++ results have no line, as with the list twins. Rust, Go and Python set `line` and `raw`.
+	- Decisions:
+		- 20261009: a status form after 2026100818140260's twins (JC). The name is my best guess.
+	- Swept: `format_version` and `schema_ref` in Rust, Go, Python, C and `shcl.hpp`. Their callers (`migrate`, `upgrade`, the CLIs' `check`, `migrate` and `upgrade`) keep the plain calls, whose answers did not change.
+	- Verified: the shared table in each runner caught a Go slip while porting (a missed `CutPrefix` hands back the whole line). Also: the four conformance suites (C also built by mingw and run under wine), veneer_smoke and check-veneer, cli-regress (513 rows, 2763 checks, all four), crosscheck over the corpus (18030 comparisons), check-docs (only the known `EpHGoa0` red), check-abnf, check-readme, test-ids check, shell-regress, shellcheck, markdownlint, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy with the typing probe, cppcheck at the normal level, check-c-compilers (5 compilers, every `-O` level) and sanitize-c. The 200,000 release fuzz passes all 26. The 2,000,000 one passes all but `Eqk24nZ`, which fails on dev's code too once 204 and 205 move the seeds (2026100914525821). With the two cases moved out it passes all 26.
+	- Branch: `fmtstamp`
+	- Commit: `be88796f`
+	- Test case: `stamp_reads_say_why` in all four runners (Rust `EsEtTdP`, Go `EsEtTdQ`, Python `EsEtTdR`, C `EsEtTdS`), and the status checks in veneer_smoke (`EjtkR0S`).
 
 **Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
 
