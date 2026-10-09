@@ -158,6 +158,12 @@ typedef struct { shcl_datetime *values; size_t n; shcl_status status; const shcl
 // statuses.
 typedef struct { size_t value; shcl_status status; } shcl_read_usize;
 typedef struct { shcl_str *values; size_t n; shcl_status status; } shcl_read_str_list;
+// One field as a listing shows it: the path that reads exactly that field,
+// written the way shcl_instance_paths writes it, the name as stored, the value
+// as shcl_instances gives it, and the 1-based source line (0 for a node a
+// setter built).
+typedef struct { shcl_str path; shcl_str name; shcl_str value; size_t line; } shcl_field;
+typedef struct { shcl_field *values; size_t n; shcl_status status; } shcl_read_field_list;
 
 // Maximum nesting depth (levels below the document root), enforced at load and
 // by the Writer. Deeper lines are skipped with an E016 error. The cap is what
@@ -471,6 +477,20 @@ size_t shcl_paths(shcl_doc *d, shcl_str **out);
 // Segments are written as shcl_paths writes them. Returns the count; *out
 // stays valid until shcl_free, or until shcl_reads_release.
 size_t shcl_instance_paths(shcl_doc *d, shcl_str **out);
+// shcl_instance_paths as a field list: each binding's path, name, value and
+// line, in the same order. Returns the count; *out stays valid until shcl_free,
+// or until shcl_reads_release.
+size_t shcl_fields(shcl_doc *d, shcl_field **out);
+// shcl_read_instances with each instance's path, name and line beside its
+// value. The path is the one shcl_instance_paths writes for that node, so two
+// instances with one value still get paths that read one each. An unresolved
+// wildcard slot is an all-empty field, line 0. values is arena-owned, like
+// shcl_read_instances' list.
+shcl_read_field_list shcl_read_fields(shcl_doc *d, const char *path, size_t plen);
+// shcl_read_children with each child's path, value and line beside its name,
+// paths written as shcl_instance_paths writes them. An empty or
+// whitespace-only path is the top level. values is arena-owned.
+shcl_read_field_list shcl_read_child_fields(shcl_doc *d, const char *path, size_t plen);
 // Quote one path segment so it can be spliced into a lookup path: a bare name
 // passes through, anything else comes back quoted and escaped in the form the
 // path scanner accepts. Splicing user-typed text into a path without this is
@@ -532,7 +552,7 @@ shcl_status shcl_read_datetime_array_to(shcl_doc *d, const char *path, size_t pl
 shcl_status shcl_read_string_array_to(shcl_doc *d, const char *path, size_t plen, shcl_str *out, shcl_status *slots, size_t cap, size_t *n);
 
 // Give back everything the read calls have handed out. Every result from a read
-// - shcl_read_*, shcl_children, shcl_paths, shcl_instance_paths, shcl_comments, shcl_instances, shcl_lines,
+// - shcl_read_*, shcl_children, shcl_paths, shcl_instance_paths, shcl_fields, shcl_comments, shcl_instances, shcl_lines,
 // shcl_quote_segment, shcl_to_canonical, shcl_generate - is invalid after this; the document itself is untouched
 // and stays readable, so the next read works normally. Optional: leave it alone
 // and results live until shcl_free, which is the documented contract and what a
@@ -6312,22 +6332,22 @@ size_t shcl_paths(shcl_doc *d, shcl_str **out) {
 	*out = arr; return n;
 }
 
-size_t shcl_instance_paths(shcl_doc *d, shcl_str **out) {
-	ShclArena *a = &d->reads;
-	// Same reset as shcl_paths: this read takes no path.
-	arena_reset(&d->scratch);
-	ShclArena *t = &d->scratch;
-	typedef struct { size_t node; ShclStr path; } PEnt;
+typedef struct { size_t node; ShclStr path; } ShclWalked;
+
+// Every node under the root with its shcl_instance_paths path, in file order.
+// The paths go to pa; the list and the walk's temporaries to t, which the
+// caller resets.
+static size_t instance_walk(shcl_doc *d, ShclArena *pa, ShclArena *t, ShclWalked **out) {
 	typedef struct { size_t node; size_t total; size_t at; } NCount; // node names the count's name
-	PEnt *stack = NULL; size_t sn = 0, sc = 0;
-	shcl_str *arr = NULL; size_t n = 0, cap = 0;
-	#define PPUSH(N, P) do { if (sn == sc) { size_t nc = sc ? sc * 2 : 16; stack = (PEnt *)arena_grow(t, stack, sc, nc, sizeof(PEnt)); sc = nc; } stack[sn].node = (N); stack[sn].path = (P); sn++; } while (0)
+	ShclWalked *stack = NULL; size_t sn = 0, sc = 0;
+	ShclWalked *arr = NULL; size_t n = 0, cap = 0;
+	#define PPUSH(N, P) do { if (sn == sc) { size_t nc = sc ? sc * 2 : 16; stack = (ShclWalked *)arena_grow(t, stack, sc, nc, sizeof(ShclWalked)); sc = nc; } stack[sn].node = (N); stack[sn].path = (P); sn++; } while (0)
 	PPUSH(ROOT, s_empty());
 	while (sn) {
-		PEnt e = stack[--sn];
+		ShclWalked e = stack[--sn];
 		if (e.node != ROOT) {
-			if (n == cap) { size_t nc = cap ? cap * 2 : 16; arr = (shcl_str *)arena_grow(a, arr, cap, nc, sizeof(shcl_str)); cap = nc; }
-			arr[n].p = e.path.p; arr[n].n = e.path.n; n++;
+			if (n == cap) { size_t nc = cap ? cap * 2 : 16; arr = (ShclWalked *)arena_grow(t, arr, cap, nc, sizeof(ShclWalked)); cap = nc; }
+			arr[n++] = e;
 		}
 		ShclVecSize kids = NODE(d, e.node).children;
 		if (!kids.len) continue;
@@ -6345,25 +6365,115 @@ size_t shcl_instance_paths(shcl_doc *d, shcl_str **out) {
 			counts[hit].total++;
 			which[i] = hit;
 		}
-		PEnt *mine = (PEnt *)arena_alloc(t, kids.len * sizeof(PEnt));
+		ShclWalked *mine = (ShclWalked *)arena_alloc(t, kids.len * sizeof(ShclWalked));
 		for (size_t i = 0; i < kids.len; i++) {
-			ShclStr seg = emit_name(a, NODE(d, kids.data[i]).name);
+			ShclStr seg = emit_name(pa, NODE(d, kids.data[i]).name);
 			ShclSB b = {0};
-			if (e.path.n) { sb_putS(a, &b, e.path); sb_putc(a, &b, '.'); }
-			sb_putS(a, &b, seg);
+			if (e.path.n) { sb_putS(pa, &b, e.path); sb_putc(pa, &b, '.'); }
+			sb_putS(pa, &b, seg);
 			NCount *c = &counts[which[i]];
 			if (c->total > 1) {
 				char ix[32]; int len = snprintf(ix, sizeof ix, "(%llu)", (unsigned long long)c->at++);
 				ShclStr ixs; ixs.p = ix; ixs.n = (size_t)len;
-				sb_putS(a, &b, ixs);
+				sb_putS(pa, &b, ixs);
 			}
 			mine[i].node = kids.data[i]; mine[i].path = sb_S(&b);
 		}
 		for (size_t i = kids.len; i > 0; i--) PPUSH(mine[i - 1].node, mine[i - 1].path);
 	}
 	#undef PPUSH
-	if (!arr) arr = (shcl_str *)arena_alloc(a, sizeof(shcl_str));
 	*out = arr; return n;
+}
+
+size_t shcl_instance_paths(shcl_doc *d, shcl_str **out) {
+	ShclArena *a = &d->reads;
+	// Same reset as shcl_paths: this read takes no path.
+	arena_reset(&d->scratch);
+	ShclWalked *w; size_t n = instance_walk(d, a, &d->scratch, &w);
+	shcl_str *arr = (shcl_str *)arena_alloc(a, (n ? n : 1) * sizeof(shcl_str));
+	for (size_t i = 0; i < n; i++) { arr[i].p = w[i].path.p; arr[i].n = w[i].path.n; }
+	*out = arr; return n;
+}
+
+static shcl_field field_of(shcl_doc *d, ShclArena *a, size_t node, ShclStr path) {
+	shcl_field f;
+	f.path = path;
+	f.name = NODE(d, node).name;
+	f.value = value_display(a, &NODE(d, node).value);
+	f.line = NODE(d, node).line; // writer-built nodes have 0
+	return f;
+}
+
+size_t shcl_fields(shcl_doc *d, shcl_field **out) {
+	ShclArena *a = &d->reads;
+	arena_reset(&d->scratch); // takes no path, as shcl_paths
+	ShclWalked *w; size_t n = instance_walk(d, a, &d->scratch, &w);
+	shcl_field *arr = (shcl_field *)arena_alloc(a, (n ? n : 1) * sizeof(shcl_field));
+	for (size_t i = 0; i < n; i++) arr[i] = field_of(d, a, w[i].node, w[i].path);
+	*out = arr; return n;
+}
+
+// Each node's shcl_instance_paths path by node index, built in scratch. The
+// root and nodes no longer in the tree stay "". One walk, so a field list costs
+// the same however wide its parent is; a lookup per path would scan every
+// sibling each time. Call after the resolve, which resets scratch.
+static ShclStr *instance_path_index(shcl_doc *d) {
+	ShclArena *t = &d->scratch;
+	ShclStr *at = (ShclStr *)arena_alloc(t, (d->nodes.len ? d->nodes.len : 1) * sizeof(ShclStr));
+	for (size_t i = 0; i < d->nodes.len; i++) at[i] = s_empty();
+	ShclWalked *w; size_t n = instance_walk(d, t, t, &w);
+	for (size_t i = 0; i < n; i++) at[w[i].node] = w[i].path;
+	return at;
+}
+
+shcl_read_field_list shcl_read_fields(shcl_doc *d, const char *path, size_t plen) {
+	shcl_read_field_list R; R.n = 0; R.status = SHCL_GOOD;
+	ShclArena *a = &d->reads; ShclStr p; p.p = path; p.n = plen;
+	ShclResolved r;
+	if (!resolve(d, p, &r)) R.status = SHCL_BAD_PATH;
+	else if (r.kind == R_NONE || (r.kind == R_SLOTS && r.slots.len == 0)) R.status = SHCL_NOT_FOUND;
+	if (R.status != SHCL_GOOD) { R.values = (shcl_field *)arena_alloc(a, sizeof(shcl_field)); return R; }
+	ShclStr *paths = instance_path_index(d);
+	size_t m = r.kind == R_ONE ? 1 : r.kind == R_MANY ? r.many.len : r.slots.len;
+	shcl_field *arr = (shcl_field *)arena_alloc(a, m * sizeof(shcl_field));
+	for (size_t k = 0; k < m; k++) {
+		if (r.kind == R_SLOTS && !r.slots.data[k].present) {
+			arr[k].path = arr[k].name = arr[k].value = s_empty(); arr[k].line = 0;
+			continue;
+		}
+		size_t node = r.kind == R_ONE ? r.one : r.kind == R_MANY ? r.many.data[k] : r.slots.data[k].idx;
+		arr[k] = field_of(d, a, node, s_dup(a, paths[node]));
+	}
+	R.values = arr; R.n = m; return R;
+}
+
+shcl_read_field_list shcl_read_child_fields(shcl_doc *d, const char *path, size_t plen) {
+	shcl_read_field_list R; R.n = 0; R.status = SHCL_GOOD;
+	ShclArena *a = &d->reads; ShclStr p; p.p = path; p.n = plen;
+	ShclResolved r; r.kind = R_NONE;
+	int top = s_trim(p).n == 0;
+	if (!top) {
+		if (!resolve(d, p, &r)) R.status = SHCL_BAD_PATH;
+		else if (r.kind == R_NONE || (r.kind == R_SLOTS && r.slots.len == 0)) R.status = SHCL_NOT_FOUND;
+		if (R.status != SHCL_GOOD) { R.values = (shcl_field *)arena_alloc(a, sizeof(shcl_field)); return R; }
+	} else {
+		arena_reset(&d->scratch);
+	}
+	ShclStr *paths = instance_path_index(d);
+	ShclVecSize nodes = {0};
+	if (top) ShclVecSize_push(&d->scratch, &nodes, ROOT);
+	else if (r.kind == R_ONE) ShclVecSize_push(&d->scratch, &nodes, r.one);
+	else if (r.kind == R_MANY) for (size_t k = 0; k < r.many.len; k++) ShclVecSize_push(&d->scratch, &nodes, r.many.data[k]);
+	else for (size_t k = 0; k < r.slots.len; k++) if (r.slots.data[k].present) ShclVecSize_push(&d->scratch, &nodes, r.slots.data[k].idx);
+	size_t total = 0;
+	for (size_t k = 0; k < nodes.len; k++) total += NODE(d, nodes.data[k]).children.len;
+	shcl_field *arr = (shcl_field *)arena_alloc(a, (total ? total : 1) * sizeof(shcl_field));
+	size_t n = 0;
+	for (size_t k = 0; k < nodes.len; k++) {
+		ShclVecSize kids = NODE(d, nodes.data[k]).children;
+		for (size_t j = 0; j < kids.len; j++) arr[n++] = field_of(d, a, kids.data[j], s_dup(a, paths[kids.data[j]]));
+	}
+	R.values = arr; R.n = n; return R;
 }
 
 shcl_str shcl_quote_segment(shcl_doc *d, const char *name, size_t len) {

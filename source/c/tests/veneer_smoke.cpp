@@ -190,6 +190,14 @@ int main() {
 	CHECK(acct.children("account.email").size() == 2);
 	auto each = acct.instance_paths();
 	CHECK(each.size() == 5 && each[1] == "account.email(0)" && each[4] == "account.email(1).sshkey");
+	auto acctFields = acct.fields();
+	CHECK(acctFields.size() == 5 && acctFields[4].path == each[4] && acctFields[4].name == "sshkey" && acctFields[4].value == "k2" && acctFields[4].line == 5);
+	auto emails = acct.read_fields("account.email");
+	CHECK(emails.status == shcl::Status::Good && emails.value.size() == 2 && emails.value[1] == acctFields[3]);
+	CHECK(acct.read_fields("account(*).nope").status == shcl::Status::Good && acct.read_fields("account(*).nope").value[0] == shcl::Field{});
+	auto keys = acct.read_child_fields("account.email");
+	CHECK(keys.status == shcl::Status::Good && keys.value.size() == 2 && keys.value[0] == acctFields[2]);
+	CHECK(acct.read_child_fields("h:p").status == shcl::Status::BadPath);
 	auto spelled = shcl::Document::parse("SYMBOLS: 3\n");
 	CHECK(spelled.authored_name("symbols") == "SYMBOLS");
 	CHECK(spelled.authored_name("missing").empty());

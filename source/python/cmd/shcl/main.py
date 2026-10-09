@@ -157,6 +157,13 @@ Options (the subcommands each belongs to are in parentheses):
   --slots                                (get) prefix each line with its slot
                                          status and a tab (per element, or per
                                          wildcard slot)
+  --json                                 (get/instances/children/paths) print
+                                         one JSON object per line, with the
+                                         field's path, value and line; the
+                                         full help has the details
+  --paths                                (instances) print the path that reads
+                                         each instance, such as shard(0), in
+                                         place of its value
   --unit=UNIT                            (get) the unit a bare number is in,
                                          for --duration (ms s m h d) or --size
                                          (B kB KB MB GB TB KiB MiB GiB TiB),
@@ -226,21 +233,30 @@ Options (the subcommands each belongs to are in parentheses):
 The five above share one ordered list, so two of them touching the same path
 resolve in the order given. Raw blocks still go in through the ops script.
 
+With --json, each line is one JSON object, keys in this order: "path", the
+path that reads that one field, with (N) on a name its parent repeats; "name",
+on children only; "value", always a string: on get the value read, or the
+--default in its place, and elsewhere the field's value (an array in brackets,
+a raw block's content, empty when it has none); "line", its line in the file
+it came from (0 for one an edit made); and "status", on get --slots only.
+paths --json lists every field, repeats included. A wildcard slot that reached
+nothing has an empty path and line 0.
+
 Value options accept either spelling: --default=VALUE or --default VALUE. In
 the space form the next argument is taken as the value whatever it looks like,
 so --default --int reads --int as the default. Use -- to end the options when a
 FILE or PATH begins with a dash. The flags -h, --help, -v, -V, --version,
 --about and --donate count anywhere an option can go. Several in one run each
 print once, in the order given.
-An option a subcommand does not use is a usage error, not ignored. Also
-refused: --write with --layer; --write with --set outside 'set'; --write with a
-FILE of '-'; --lossy on 'fmt' without --write; --no-banner on 'set' without
---write; --check with --write; --layer=- on 'set'; --array with --raw,
---rawinfo, --duration or --size; --default with --on-bad=error or
+An option a subcommand does not use is a usage error, not ignored. Also refused:
+--write with --layer; --write with --set outside 'set'; --write with a FILE of
+'-'; --lossy on 'fmt' without --write; --no-banner on 'set' without --write;
+--check with --write; --paths with --json; --layer=- on 'set'; --array with
+--raw, --rawinfo, --duration or --size; --default with --on-bad=error or
 --on-bad=flag; '-' named more than once across FILE, --layer and --schema; a
 PATH that cannot parse, --default or not. Two options that ask for different
-answers are a usage error whichever order they came in, and both are named:
-two different type options, or one value option given two different values.
+answers are a usage error whichever order they came in, and both are named: two
+different type options, or one value option given two different values.
 Repeating an option with the same value is allowed, and --layer and --set are
 ordered lists, so they repeat.
 Every subcommand that loads a document prints the load's diagnostics to stderr,
@@ -515,7 +531,7 @@ class _SetOpt:
 
 
 class _Opts:
-	__slots__ = ("kind", "kind_opt", "kind_text", "clash_opt", "clash", "array", "slots", "default", "on_bad", "on_bad_arg", "on_bad_text", "strictness", "strictness_text", "write", "lossy", "from_2x", "check", "no_banner", "schema", "unit", "decimal", "layers", "sets", "args", "seen", "swallowed")
+	__slots__ = ("kind", "kind_opt", "kind_text", "clash_opt", "clash", "array", "slots", "json", "paths", "default", "on_bad", "on_bad_arg", "on_bad_text", "strictness", "strictness_text", "write", "lossy", "from_2x", "check", "no_banner", "schema", "unit", "decimal", "layers", "sets", "args", "seen", "swallowed")
 
 	def __init__(self):
 		self.kind = "string"     # int|float|bool|datetime|string|raw
@@ -534,6 +550,8 @@ class _Opts:
 		self.clash = None
 		self.array = False
 		self.slots = False
+		self.json = False
+		self.paths = False
 		self.default = None
 		self.on_bad = "flag"     # error|default|flag
 		# What an explicit --on-bad asked for, whatever the order. --default sets
@@ -845,6 +863,12 @@ def parse_opts(argv):
 		elif a == "--slots":
 			o.slots = True
 			o.seen.append("--slots")
+		elif a == "--json":
+			o.json = True
+			o.seen.append("--json")
+		elif a == "--paths":
+			o.paths = True
+			o.seen.append("--paths")
 		elif a == "--no-banner":
 			o.no_banner = True
 			o.seen.append("--no-banner")
@@ -1107,7 +1131,7 @@ def allowed_opts(cmd):
 	# per-subcommand help is cut from the full help with it, and the shell
 	# completions have the same table (check-completions.bash diffs the two).
 	if cmd == "get":
-		allowed = ("--<type>", "--array", "--slots", "--unit", "--decimal", "--default", "--on-bad", "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove")
+		allowed = ("--<type>", "--array", "--slots", "--json", "--unit", "--decimal", "--default", "--on-bad", "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove")
 	elif cmd == "set":
 		allowed = ("--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove", "--write", "--lossy", "--no-banner")
 	elif cmd == "fmt":
@@ -1122,8 +1146,12 @@ def allowed_opts(cmd):
 		allowed = ("--write", "--from-2x")
 	elif cmd in ("tokens", "explain"):
 		allowed = ()
-	elif cmd in ("count", "instances", "children", "paths"):
+	elif cmd == "count":
 		allowed = ("--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove")
+	elif cmd == "instances":
+		allowed = ("--paths", "--json", "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove")
+	elif cmd in ("children", "paths"):
+		allowed = ("--json", "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove")
 	else:
 		allowed = ()
 	return allowed
@@ -1276,6 +1304,10 @@ def check_opts(cmd, o):
 	if o.check and o.write:
 		sys.stderr.write("--check cannot be combined with --write (see --help)\n")
 		return 1
+	# Both say what a line holds, and a JSON line already has the path.
+	if o.paths and o.json:
+		sys.stderr.write("--paths cannot be combined with --json (see --help)\n")
+		return 1
 	# The ops script already has stdin, so a layer cannot read it too.
 	if cmd == "set" and any(lf == "-" for lf in o.layers):
 		sys.stderr.write("--layer=- is not valid for set: stdin already has the ops script or the document (see --help)\n")
@@ -1416,12 +1448,27 @@ def do_get(o):
 		# Per-line slot status: falls back to the aggregate for scalar reads.
 		return slots[i] if i < len(slots) else status
 
+	# The field each line came from, for --json: one per slot on a wildcard
+	# read, else the one field the read reached, else none.
+	fields = doc.read_fields(path).value if o.json else []
+
+	def json_at(i, value, count, st):
+		f = shcl.Field()
+		if len(fields) == count:
+			if i < len(fields):
+				f = fields[i]
+		elif len(fields) == 1:
+			f = fields[0]
+		return json_line(f.path, None, value, f.line, st if o.slots else None)
+
 	# An array or a slot listing is one line per element, so a value holding a
 	# line break takes its escaped spelling there. A plain scalar read prints the
 	# value as it is, since the whole output is that one value.
 	def emit(lns):
 		for i, ln in enumerate(lns):
-			if o.slots:
+			if o.json:
+				print(json_at(i, ln, len(lns), slot_at(i)))
+			elif o.slots:
 				print(f"{slot_at(i).name}\t{one_line(ln)}")
 			elif o.array:
 				print(one_line(ln))
@@ -1470,6 +1517,8 @@ def do_get(o):
 		if slots:
 			# Array read: the default substitutes per bad slot; alignment holds.
 			emit([ln if slot_at(i) == shcl.Status.Good else dv for i, ln in enumerate(lines)])
+		elif o.json:
+			print(json_at(0, dv, len(lines), status))
 		elif o.slots:
 			print(f"{status.name}\t{one_line(dv)}")
 		elif o.array:
@@ -2449,10 +2498,49 @@ def do_enum(o, want_count):
 		return code
 	if want_count:
 		print(doc.count(path))
+	elif o.json or o.paths:
+		for f in doc.read_fields(path).value:
+			if o.json:
+				print(json_line(f.path, None, f.value, f.line, None))
+			else:
+				print(f.path)
 	else:
 		for v in doc.instances(path):
 			print(one_line(v))
 	return 0
+
+
+def json_line(path, name, value, line, st):
+	"""One line of --json output. The keys always come in this order, and only
+	what JSON requires is escaped, the way `jq -c` writes it, so the four CLIs
+	agree byte for byte and a line run through `jq -c .` comes back the same."""
+	out = ['{"path":']
+	push_json(out, path)
+	if name is not None:
+		out.append(',"name":')
+		push_json(out, name)
+	out.append(',"value":')
+	push_json(out, value)
+	out.append(f',"line":{line}')
+	if st is not None:
+		out.append(f',"status":"{st.name}"')
+	out.append("}")
+	return "".join(out)
+
+
+_JSON_SHORT = {'"': '\\"', "\\": "\\\\", "\n": "\\n", "\r": "\\r", "\t": "\\t", "\b": "\\b", "\f": "\\f"}
+
+
+def push_json(out, s):
+	out.append('"')
+	for c in s:
+		if c in _JSON_SHORT:
+			out.append(_JSON_SHORT[c])
+		elif c < " " or c == "\x7f":
+			out.append(f"\\u{ord(c):04x}")
+		else:
+			out.append(c)
+	out.append('"')
 
 
 def do_children(o):
@@ -2477,6 +2565,10 @@ def do_children(o):
 		return EXIT_IO
 	if doc is None:
 		return code
+	if o.json:
+		for f in doc.read_child_fields(path).value:
+			print(json_line(f.path, f.name, f.value, f.line, None))
+		return 0
 	for name in doc.children(path):
 		print(shcl.quote_segment(name))
 	return 0
@@ -2495,6 +2587,10 @@ def do_paths(o):
 		return EXIT_IO
 	if doc is None:
 		return code
+	if o.json:
+		for f in doc.fields():
+			print(json_line(f.path, None, f.value, f.line, None))
+		return 0
 	for p in doc.paths():
 		print(p)
 	return 0

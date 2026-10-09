@@ -104,6 +104,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `instance_paths()` in every binding walks a file one instance at a time, with `(i)` on each repeated name.
 
+- `fields()`, `read_fields()` and `read_child_fields()` in every binding (Go `Fields`, C `shcl_fields`) give each field's path, name, value and line together, the path in the `instance_paths()` form.
+
+- `shcl instances --paths` prints the path that reads each instance, such as `shard(0)`, so a loop over a repeated field no longer has to build selectors from values. `--json` on `get`, `instances`, `children` and `paths` prints one JSON object per line, with the path, value and line, for `jq` or `ConvertFrom-Json`.
+
 - `read_count()`, `read_instances()` and `read_children()` in every binding (Go `ReadCount`, C `shcl_read_count`) give the plain call's answer with a status: `BadPath` for a path that cannot be read as a path, `NotFound` for one that matches nothing.
 
 - `format_version()` and `migrate_unstamped()` in every binding, for a program that writes its own info block.

@@ -143,6 +143,13 @@ static const char *HELP =
 	"  --slots                                (get) prefix each line with its slot\n"
 	"                                         status and a tab (per element, or per\n"
 	"                                         wildcard slot)\n"
+	"  --json                                 (get/instances/children/paths) print\n"
+	"                                         one JSON object per line, with the\n"
+	"                                         field's path, value and line; the\n"
+	"                                         full help has the details\n"
+	"  --paths                                (instances) print the path that reads\n"
+	"                                         each instance, such as shard(0), in\n"
+	"                                         place of its value\n"
 	"  --unit=UNIT                            (get) the unit a bare number is in,\n"
 	"                                         for --duration (ms s m h d) or --size\n"
 	"                                         (B kB KB MB GB TB KiB MiB GiB TiB),\n"
@@ -212,21 +219,30 @@ static const char *HELP =
 	"The five above share one ordered list, so two of them touching the same path\n"
 	"resolve in the order given. Raw blocks still go in through the ops script.\n"
 	"\n"
+	"With --json, each line is one JSON object, keys in this order: \"path\", the\n"
+	"path that reads that one field, with (N) on a name its parent repeats; \"name\",\n"
+	"on children only; \"value\", always a string: on get the value read, or the\n"
+	"--default in its place, and elsewhere the field's value (an array in brackets,\n"
+	"a raw block's content, empty when it has none); \"line\", its line in the file\n"
+	"it came from (0 for one an edit made); and \"status\", on get --slots only.\n"
+	"paths --json lists every field, repeats included. A wildcard slot that reached\n"
+	"nothing has an empty path and line 0.\n"
+	"\n"
 	"Value options accept either spelling: --default=VALUE or --default VALUE. In\n"
 	"the space form the next argument is taken as the value whatever it looks like,\n"
 	"so --default --int reads --int as the default. Use -- to end the options when a\n"
 	"FILE or PATH begins with a dash. The flags -h, --help, -v, -V, --version,\n"
 	"--about and --donate count anywhere an option can go. Several in one run each\n"
 	"print once, in the order given.\n"
-	"An option a subcommand does not use is a usage error, not ignored. Also\n"
-	"refused: --write with --layer; --write with --set outside 'set'; --write with a\n"
-	"FILE of '-'; --lossy on 'fmt' without --write; --no-banner on 'set' without\n"
-	"--write; --check with --write; --layer=- on 'set'; --array with --raw,\n"
-	"--rawinfo, --duration or --size; --default with --on-bad=error or\n"
+	"An option a subcommand does not use is a usage error, not ignored. Also refused:\n"
+	"--write with --layer; --write with --set outside 'set'; --write with a FILE of\n"
+	"'-'; --lossy on 'fmt' without --write; --no-banner on 'set' without --write;\n"
+	"--check with --write; --paths with --json; --layer=- on 'set'; --array with\n"
+	"--raw, --rawinfo, --duration or --size; --default with --on-bad=error or\n"
 	"--on-bad=flag; '-' named more than once across FILE, --layer and --schema; a\n"
 	"PATH that cannot parse, --default or not. Two options that ask for different\n"
-	"answers are a usage error whichever order they came in, and both are named:\n"
-	"two different type options, or one value option given two different values.\n"
+	"answers are a usage error whichever order they came in, and both are named: two\n"
+	"different type options, or one value option given two different values.\n"
 	"Repeating an option with the same value is allowed, and --layer and --set are\n"
 	"ordered lists, so they repeat.\n"
 	"Every subcommand that loads a document prints the load's diagnostics to stderr,\n"
@@ -297,6 +313,8 @@ typedef struct {
 	const char *clash[2];     // clash[0] NULL when nothing competed
 	int array;
 	int slots;
+	int json;
+	int paths;
 	const char *deflt;        // NULL if unset
 	const char *on_bad;       // error|default|flag
 	// What an explicit --on-bad asked for, whatever the order. --default sets
@@ -530,6 +548,43 @@ static void out_one_line(shcl_doc *d, const char *p, size_t n) {
 	if (i == n) { outln(p, n); return; }
 	shcl_str q = shcl_quote_segment(d, p, n);
 	outln(q.p, q.n);
+}
+
+static void push_json(shcl_str s) {
+	putchar('"');
+	for (size_t i = 0; i < s.n; i++) {
+		unsigned char c = (unsigned char)s.p[i];
+		switch (c) {
+		case '"': fputs("\\\"", stdout); break;
+		case '\\': fputs("\\\\", stdout); break;
+		case '\n': fputs("\\n", stdout); break;
+		case '\r': fputs("\\r", stdout); break;
+		case '\t': fputs("\\t", stdout); break;
+		case '\b': fputs("\\b", stdout); break;
+		case '\f': fputs("\\f", stdout); break;
+		default:
+			// Bytes of a multibyte character are all 0x80 and up, so they go
+			// out as they are.
+			if (c < 0x20 || c == 0x7f) printf("\\u%04x", c);
+			else putchar(c);
+		}
+	}
+	putchar('"');
+}
+
+/* One line of --json output. The keys always come in this order, and only
+   what JSON requires is escaped, the way `jq -c` writes it, so the four CLIs
+   agree byte for byte and a line run through `jq -c .` comes back the same.
+   name is NULL outside children, and st outside --slots. */
+static void json_line(shcl_str path, const shcl_str *name, shcl_str value, size_t line, const shcl_status *st) {
+	fputs("{\"path\":", stdout);
+	push_json(path);
+	if (name) { fputs(",\"name\":", stdout); push_json(*name); }
+	fputs(",\"value\":", stdout);
+	push_json(value);
+	printf(",\"line\":%zu", line);
+	if (st) printf(",\"status\":\"%s\"", shcl_status_name(*st));
+	fputs("}\n", stdout);
 }
 
 // Whole-buffer UTF-8 validation, matching Rust read_to_string rejecting bad bytes.
@@ -1022,10 +1077,24 @@ static int do_get(Opts *o) {
 
 	// Per-line slot status: falls back to the aggregate for scalar reads.
 	#define SLOT_AT(I) (slotSts && (I) < nSlots ? slotSts[I] : status)
+	// The field each line came from, for --json: one per slot on a wildcard
+	// read, else the one field the read reached, else none. Read last, since
+	// its lookup resets the scratch the typed read used.
+	shcl_read_field_list fields = { NULL, 0, SHCL_GOOD };
+	if (o->json) fields = shcl_read_fields(d, path, plen);
+	#define JSONLINE(I, P, N, COUNT, ST) do { \
+		shcl_field none = { { "", 0 }, { "", 0 }, { "", 0 }, 0 }; \
+		const shcl_field *f = &none; \
+		if (fields.n == (COUNT)) { if ((I) < fields.n) f = &fields.values[I]; } \
+		else if (fields.n == 1) f = &fields.values[0]; \
+		shcl_status st_ = (ST); shcl_str v_ = { (P), (N) }; \
+		json_line(f->path, NULL, v_, f->line, o->slots ? &st_ : NULL); \
+	} while (0)
 	// An array or a slot listing is one line per element, so a value holding a
 	// line break takes its escaped spelling there. A plain scalar read prints
 	// the value as it is, since the whole output is that one value.
 	#define EMITLINE(I, P, N) do { \
+		if (o->json) { JSONLINE((I), (P), (N), nlines, SLOT_AT(I)); break; } \
 		if (o->slots) printf("%s\t", shcl_status_name(SLOT_AT(I))); \
 		if (o->slots || o->array) out_one_line(d, (P), (N)); else outln((P), (N)); \
 	} while (0)
@@ -1075,7 +1144,8 @@ static int do_get(Opts *o) {
 				else EMITLINE(i, dv, strlen(dv));
 			}
 		} else {
-			if (o->slots) { printf("%s\t", shcl_status_name(status)); out_one_line(d, dv, strlen(dv)); }
+			if (o->json) JSONLINE(0, dv, strlen(dv), nlines, status);
+			else if (o->slots) { printf("%s\t", shcl_status_name(status)); out_one_line(d, dv, strlen(dv)); }
 			else if (o->array) out_one_line(d, dv, strlen(dv));
 			else outln(dv, strlen(dv));
 		}
@@ -2138,6 +2208,13 @@ static int do_enum(Opts *o, int want_count) {
 	if (gate) return gate;
 	shcl_doc *d = L.doc;
 	if (want_count) printf("%zu\n", shcl_count(d, path, plen));
+	else if (o->json || o->paths) {
+		shcl_read_field_list fl = shcl_read_fields(d, path, plen);
+		for (size_t i = 0; i < fl.n; i++) {
+			if (o->json) json_line(fl.values[i].path, NULL, fl.values[i].value, fl.values[i].line, NULL);
+			else outln(fl.values[i].path.p, fl.values[i].path.n);
+		}
+	}
 	else { shcl_str *vals; size_t n = shcl_instances(d, path, plen, &vals); for (size_t i = 0; i < n; i++) out_one_line(d, vals[i].p, vals[i].n); }
 	layered_free(&L); return 0;
 }
@@ -2249,7 +2326,7 @@ static int known_option(const char *name) {
 
 static int parse_opts(int argc, char **argv, int from, Opts *o) {
 	o->kind = "string"; o->kind_opt = o->kind_text = NULL; o->clash_opt = NULL; o->clash[0] = o->clash[1] = NULL;
-	o->array = 0; o->slots = 0; o->deflt = NULL; o->on_bad = "flag"; o->on_bad_arg = NULL; o->on_bad_text = NULL;
+	o->array = 0; o->slots = 0; o->json = 0; o->paths = 0; o->deflt = NULL; o->on_bad = "flag"; o->on_bad_arg = NULL; o->on_bad_text = NULL;
 	o->strictness = SHCL_STANDARD; o->strictness_text = NULL; o->write = 0; o->lossy = 0; o->from_2x = 0; o->check = 0; o->no_banner = 0; o->schema = NULL; o->unit = NULL; o->decimal = 0;
 	o->layers = o->args = NULL; o->sets = NULL; o->nlayers = o->nsets = o->nargs = 0; o->nseen = 0;
 	o->swallowed_opt = o->swallowed_value = NULL;
@@ -2270,6 +2347,8 @@ static int parse_opts(int argc, char **argv, int from, Opts *o) {
 		}
 		else if (!strcmp(a, "--array")) { o->array = 1; opt_seen(o, "--array"); }
 		else if (!strcmp(a, "--slots")) { o->slots = 1; opt_seen(o, "--slots"); }
+		else if (!strcmp(a, "--json")) { o->json = 1; opt_seen(o, "--json"); }
+		else if (!strcmp(a, "--paths")) { o->paths = 1; opt_seen(o, "--paths"); }
 		else if (!strcmp(a, "--write") || !strcmp(a, "-w")) { o->write = 1; opt_seen(o, "--write"); }
 		else if (!strcmp(a, "--lossy")) { o->lossy = 1; opt_seen(o, "--lossy"); }
 		else if (!strcmp(a, "--from-2x")) { o->from_2x = 1; opt_seen(o, "--from-2x"); }
@@ -2328,6 +2407,12 @@ static int do_children(Opts *o) {
 	if (*path && refuse_read_path(path, strlen(path))) return 1;
 	LayeredDoc L; int gate = load_layered(o, file, &L);
 	if (gate) return gate;
+	if (o->json) {
+		shcl_read_field_list fl = shcl_read_child_fields(L.doc, path, strlen(path));
+		for (size_t i = 0; i < fl.n; i++) json_line(fl.values[i].path, &fl.values[i].name, fl.values[i].value, fl.values[i].line, NULL);
+		layered_free(&L);
+		return 0;
+	}
 	shcl_str *names = NULL;
 	size_t n = shcl_children(L.doc, path, strlen(path), &names);
 	for (size_t i = 0; i < n; i++) {
@@ -2344,6 +2429,13 @@ static int do_paths(Opts *o) {
 	if (o->nargs != 1) { fprintf(stderr, "usage: shcl paths [options] FILE (see --help)\n"); return 1; }
 	LayeredDoc L; int gate = load_layered(o, o->args[0], &L);
 	if (gate) return gate;
+	if (o->json) {
+		shcl_field *fs = NULL;
+		size_t nf = shcl_fields(L.doc, &fs);
+		for (size_t i = 0; i < nf; i++) json_line(fs[i].path, NULL, fs[i].value, fs[i].line, NULL);
+		layered_free(&L);
+		return 0;
+	}
 	shcl_str *ps = NULL;
 	size_t n = shcl_paths(L.doc, &ps);
 	for (size_t i = 0; i < n; i++) { fwrite(ps[i].p, 1, ps[i].n, stdout); putchar('\n'); }
@@ -2355,14 +2447,16 @@ static int do_paths(Opts *o) {
 // per-subcommand help is cut from the full help with it, and the shell
 // completions have the same table (check-completions.bash diffs the two).
 static const char *const *allowed_opts(const char *cmd) {
-	static const char *get_ok[] = { "--<type>", "--array", "--slots", "--unit", "--decimal", "--default", "--on-bad", "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove", NULL };
+	static const char *get_ok[] = { "--<type>", "--array", "--slots", "--json", "--unit", "--decimal", "--default", "--on-bad", "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove", NULL };
 	static const char *set_ok[] = { "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove", "--write", "--lossy", "--no-banner", NULL };
 	static const char *fmt_ok[] = { "--write", "--lossy", "--check", "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove", NULL };
 	static const char *check_ok[] = { "--strictness", "--schema", NULL };
 	static const char *init_ok[] = { "--schema", "--no-banner", NULL };
 	static const char *migrate_ok[] = { "--write", "--lossy", "--from-2x", "--check", NULL };
 	static const char *upgrade_ok[] = { "--write", "--from-2x", NULL };
-	static const char *enum_ok[] = { "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove", NULL };
+	static const char *count_ok[] = { "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove", NULL };
+	static const char *instances_ok[] = { "--paths", "--json", "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove", NULL };
+	static const char *list_ok[] = { "--json", "--strictness", "--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove", NULL };
 	static const char *none_ok[] = { NULL };
 	const char *const *allowed = none_ok;
 	if (!strcmp(cmd, "get")) allowed = get_ok;
@@ -2372,8 +2466,9 @@ static const char *const *allowed_opts(const char *cmd) {
 	else if (!strcmp(cmd, "init")) allowed = init_ok;
 	else if (!strcmp(cmd, "migrate")) allowed = migrate_ok;
 	else if (!strcmp(cmd, "upgrade")) allowed = upgrade_ok;
-	else if (!strcmp(cmd, "count") || !strcmp(cmd, "instances")
-	         || !strcmp(cmd, "children") || !strcmp(cmd, "paths")) allowed = enum_ok;
+	else if (!strcmp(cmd, "count")) allowed = count_ok;
+	else if (!strcmp(cmd, "instances")) allowed = instances_ok;
+	else if (!strcmp(cmd, "children") || !strcmp(cmd, "paths")) allowed = list_ok;
 	return allowed;
 }
 
@@ -2459,6 +2554,11 @@ static int check_opts(const char *cmd, const Opts *o) {
 	}
 	if (o->check && o->write) {
 		fprintf(stderr, "--check cannot be combined with --write (see --help)\n");
+		return 1;
+	}
+	// Both say what a line holds, and a JSON line already has the path.
+	if (o->paths && o->json) {
+		fprintf(stderr, "--paths cannot be combined with --json (see --help)\n");
 		return 1;
 	}
 	// The ops script already has stdin, so a layer cannot read it too.

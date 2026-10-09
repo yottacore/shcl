@@ -9,8 +9,8 @@ mod common;
 
 use common::test_id;
 use shcl::{
-	Document, DurationUnit, FORMAT_LINE, FORMAT_LINE_HEAD, FORMAT_MAJOR, MIGRATED_LINE, Rules,
-	SizeUnit, Strictness, Tokens, format_version, generate, migrate, migrate_unstamped,
+	Document, DurationUnit, FORMAT_LINE, FORMAT_LINE_HEAD, FORMAT_MAJOR, Field, MIGRATED_LINE,
+	Rules, SizeUnit, Strictness, Tokens, format_version, generate, migrate, migrate_unstamped,
 	parse_datetime, quote_segment, schema_ref, tokenize,
 };
 use std::collections::BTreeSet;
@@ -2104,6 +2104,58 @@ fn children_and_instance_paths_walk_a_repeated_key() {
 		doc.get_string("account.email(1).sshkey"),
 		Ok("k2".to_string())
 	);
+}
+
+#[test]
+fn fields_give_each_instance_its_own_path() {
+	let _id = test_id("EsEsFl8");
+	// The --json listings: each instance, a repeated one included, gets
+	// a path that reads that one, with its name, value and line beside it.
+	let doc = Document::parse("shard: 1\n\towner: ann\nshard: 0\n\towner: bob\n\towner: cy\n");
+	let all = doc.fields();
+	let paths: Vec<&str> = all.iter().map(|f| f.path.as_str()).collect();
+	assert_eq!(
+		paths,
+		vec![
+			"shard(0)",
+			"shard(0).owner",
+			"shard(1)",
+			"shard(1).owner(0)",
+			"shard(1).owner(1)"
+		]
+	);
+	assert_eq!(paths, doc.instance_paths());
+	let names: Vec<&str> = all.iter().map(|f| f.name.as_str()).collect();
+	assert_eq!(names, vec!["shard", "owner", "shard", "owner", "owner"]);
+	let values: Vec<&str> = all.iter().map(|f| f.value.as_str()).collect();
+	assert_eq!(values, vec!["1", "ann", "0", "bob", "cy"]);
+	let lines: Vec<usize> = all.iter().map(|f| f.line).collect();
+	assert_eq!(lines, vec![1, 2, 3, 4, 5]);
+	for f in &all {
+		assert_eq!(doc.get_string(&f.path), Ok(f.value.clone()), "{}", f.path);
+	}
+	let r = doc.read_fields("shard(1).owner");
+	assert_eq!(r.status, shcl::Status::Good);
+	assert_eq!(r.value, all[3..5].to_vec());
+	assert_eq!(r.line, 0);
+	let r = doc.read_fields("shard(0)");
+	assert_eq!((r.value, r.line), (vec![all[0].clone()], 1));
+	// One slot per instance, and a slot that reached two is all empty.
+	let r = doc.read_fields("shard(*).owner");
+	assert_eq!(r.value, vec![all[1].clone(), Field::default()]);
+	assert_eq!(doc.read_fields("nope").status, shcl::Status::NotFound);
+	assert_eq!(doc.read_fields("a..b").status, shcl::Status::BadPath);
+	let r = doc.read_child_fields("");
+	assert_eq!(r.value, vec![all[0].clone(), all[2].clone()]);
+	let r = doc.read_child_fields("shard");
+	assert_eq!(
+		r.value,
+		vec![all[1].clone(), all[3].clone(), all[4].clone()]
+	);
+	let r = doc.read_child_fields("shard(1)");
+	assert_eq!((r.value.len(), r.line), (2, 3));
+	assert_eq!(doc.read_child_fields("nope").status, shcl::Status::NotFound);
+	assert_eq!(doc.read_child_fields("a..b").status, shcl::Status::BadPath);
 }
 
 #[test]

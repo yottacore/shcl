@@ -171,6 +171,13 @@ Options (the subcommands each belongs to are in parentheses):
   --slots                                (get) prefix each line with its slot
                                          status and a tab (per element, or per
                                          wildcard slot)
+  --json                                 (get/instances/children/paths) print
+                                         one JSON object per line, with the
+                                         field's path, value and line; the
+                                         full help has the details
+  --paths                                (instances) print the path that reads
+                                         each instance, such as shard(0), in
+                                         place of its value
   --unit=UNIT                            (get) the unit a bare number is in,
                                          for --duration (ms s m h d) or --size
                                          (B kB KB MB GB TB KiB MiB GiB TiB),
@@ -240,21 +247,30 @@ Options (the subcommands each belongs to are in parentheses):
 The five above share one ordered list, so two of them touching the same path
 resolve in the order given. Raw blocks still go in through the ops script.
 
+With --json, each line is one JSON object, keys in this order: "path", the
+path that reads that one field, with (N) on a name its parent repeats; "name",
+on children only; "value", always a string: on get the value read, or the
+--default in its place, and elsewhere the field's value (an array in brackets,
+a raw block's content, empty when it has none); "line", its line in the file
+it came from (0 for one an edit made); and "status", on get --slots only.
+paths --json lists every field, repeats included. A wildcard slot that reached
+nothing has an empty path and line 0.
+
 Value options accept either spelling: --default=VALUE or --default VALUE. In
 the space form the next argument is taken as the value whatever it looks like,
 so --default --int reads --int as the default. Use -- to end the options when a
 FILE or PATH begins with a dash. The flags -h, --help, -v, -V, --version,
 --about and --donate count anywhere an option can go. Several in one run each
 print once, in the order given.
-An option a subcommand does not use is a usage error, not ignored. Also
-refused: --write with --layer; --write with --set outside 'set'; --write with a
-FILE of '-'; --lossy on 'fmt' without --write; --no-banner on 'set' without
---write; --check with --write; --layer=- on 'set'; --array with --raw,
---rawinfo, --duration or --size; --default with --on-bad=error or
+An option a subcommand does not use is a usage error, not ignored. Also refused:
+--write with --layer; --write with --set outside 'set'; --write with a FILE of
+'-'; --lossy on 'fmt' without --write; --no-banner on 'set' without --write;
+--check with --write; --paths with --json; --layer=- on 'set'; --array with
+--raw, --rawinfo, --duration or --size; --default with --on-bad=error or
 --on-bad=flag; '-' named more than once across FILE, --layer and --schema; a
 PATH that cannot parse, --default or not. Two options that ask for different
-answers are a usage error whichever order they came in, and both are named:
-two different type options, or one value option given two different values.
+answers are a usage error whichever order they came in, and both are named: two
+different type options, or one value option given two different values.
 Repeating an option with the same value is allowed, and --layer and --set are
 ordered lists, so they repeat.
 Every subcommand that loads a document prints the load's diagnostics to stderr,
@@ -677,6 +693,8 @@ type opts struct {
 	clashB   string
 	array    bool
 	slots    bool
+	json     bool
+	paths    bool
 	def      string
 	onBad    onBad
 	// What an explicit --on-bad asked for, whatever the order. --default sets
@@ -1090,6 +1108,12 @@ func parseOpts(argv []string) (*opts, error) {
 		case a == "--slots":
 			o.slots = true
 			o.seen = append(o.seen, "--slots")
+		case a == "--json":
+			o.json = true
+			o.seen = append(o.seen, "--json")
+		case a == "--paths":
+			o.paths = true
+			o.seen = append(o.seen, "--paths")
 		case a == "--write" || a == "-w":
 			o.write = true
 			o.seen = append(o.seen, "--write")
@@ -1190,7 +1214,7 @@ func allowedOpts(cmd string) []string {
 	var allowed []string
 	switch cmd {
 	case "get":
-		allowed = []string{"--<type>", "--array", "--slots", "--unit", "--decimal", "--default", "--on-bad", "--strictness",
+		allowed = []string{"--<type>", "--array", "--slots", "--json", "--unit", "--decimal", "--default", "--on-bad", "--strictness",
 			"--layer", "--set", "--set-literal", "--set-default", "--set-literal-default", "--remove"}
 	case "set":
 		allowed = []string{"--strictness", "--layer", "--set", "--set-literal", "--set-default",
@@ -1208,8 +1232,14 @@ func allowedOpts(cmd string) []string {
 		allowed = []string{"--write", "--from-2x"}
 	case "tokens", "explain":
 		allowed = []string{}
-	case "count", "instances", "children", "paths":
+	case "count":
 		allowed = []string{"--strictness", "--layer", "--set", "--set-literal", "--set-default",
+			"--set-literal-default", "--remove"}
+	case "instances":
+		allowed = []string{"--paths", "--json", "--strictness", "--layer", "--set", "--set-literal", "--set-default",
+			"--set-literal-default", "--remove"}
+	case "children", "paths":
+		allowed = []string{"--json", "--strictness", "--layer", "--set", "--set-literal", "--set-default",
 			"--set-literal-default", "--remove"}
 	}
 	return allowed
@@ -1459,6 +1489,11 @@ func checkOpts(cmd string, o *opts) int {
 	}
 	if o.check && o.write {
 		fmt.Fprintln(os.Stderr, "--check cannot be combined with --write (see --help)")
+		return 1
+	}
+	// Both say what a line holds, and a JSON line already has the path.
+	if o.paths && o.json {
+		fmt.Fprintln(os.Stderr, "--paths cannot be combined with --json (see --help)")
 		return 1
 	}
 	// The ops script already has stdin, so a layer cannot read it too.
@@ -1938,12 +1973,36 @@ func doGet(o *opts) int {
 		}
 		return status
 	}
+	// The field each line came from, for --json: one per slot on a wildcard
+	// read, else the one field the read reached, else none.
+	var fields []shcl.Field
+	if o.json {
+		fields = doc.ReadFields(path).Value
+	}
+	jsonAt := func(i int, value string, count int, st shcl.Status) string {
+		var f shcl.Field
+		switch {
+		case len(fields) == count:
+			if i < len(fields) {
+				f = fields[i]
+			}
+		case len(fields) == 1:
+			f = fields[0]
+		}
+		var stp *shcl.Status
+		if o.slots {
+			stp = &st
+		}
+		return jsonLine(f.Path, nil, value, f.Line, stp)
+	}
 	// An array or a slot listing is one line per element, so a value holding a
 	// line break takes its escaped spelling there. A plain scalar read prints
 	// the value as it is, since the whole output is that one value.
 	emit := func(lines []string) {
 		for i, l := range lines {
-			if o.slots {
+			if o.json {
+				outln(jsonAt(i, l, len(lines), slotAt(i)))
+			} else if o.slots {
 				outf("%s\t%s\n", slotAt(i), oneLine(l))
 			} else if o.array {
 				outln(oneLine(l))
@@ -2002,6 +2061,8 @@ func doGet(o *opts) int {
 				}
 			}
 			emit(subbed)
+		} else if o.json {
+			outln(jsonAt(0, o.def, len(lines), status))
 		} else if o.slots {
 			outf("%s\t%s\n", status, oneLine(o.def))
 		} else if o.array {
@@ -3416,12 +3477,73 @@ func doEnum(o *opts, wantCount bool) int {
 	}
 	if wantCount {
 		outln(doc.Count(path))
+	} else if o.json || o.paths {
+		for _, f := range doc.ReadFields(path).Value {
+			if o.json {
+				outln(jsonLine(f.Path, nil, f.Value, f.Line, nil))
+			} else {
+				outln(f.Path)
+			}
+		}
 	} else {
 		for _, v := range doc.Instances(path) {
 			outln(oneLine(v))
 		}
 	}
 	return 0
+}
+
+// jsonLine is one line of --json output. The keys always come in this order,
+// and only what JSON requires is escaped, the way `jq -c` writes it, so the
+// four CLIs agree byte for byte and a line run through `jq -c .` comes back
+// the same.
+func jsonLine(path string, name *string, value string, line int, st *shcl.Status) string {
+	var b strings.Builder
+	b.Grow(len(path) + len(value) + 40)
+	b.WriteString(`{"path":`)
+	pushJSON(&b, path)
+	if name != nil {
+		b.WriteString(`,"name":`)
+		pushJSON(&b, *name)
+	}
+	b.WriteString(`,"value":`)
+	pushJSON(&b, value)
+	b.WriteString(`,"line":`)
+	b.WriteString(strconv.Itoa(line))
+	if st != nil {
+		b.WriteString(`,"status":"`)
+		b.WriteString(st.String())
+		b.WriteByte('"')
+	}
+	b.WriteByte('}')
+	return b.String()
+}
+
+func pushJSON(b *strings.Builder, s string) {
+	b.WriteByte('"')
+	for _, c := range s {
+		switch {
+		case c == '"':
+			b.WriteString(`\"`)
+		case c == '\\':
+			b.WriteString(`\\`)
+		case c == '\n':
+			b.WriteString(`\n`)
+		case c == '\r':
+			b.WriteString(`\r`)
+		case c == '\t':
+			b.WriteString(`\t`)
+		case c == '\b':
+			b.WriteString(`\b`)
+		case c == '\f':
+			b.WriteString(`\f`)
+		case c < ' ' || c == 0x7f:
+			fmt.Fprintf(b, `\u%04x`, c)
+		default:
+			b.WriteRune(c)
+		}
+	}
+	b.WriteByte('"')
 }
 
 // doChildren: child field names under a path, one per line, in file order and
@@ -3447,6 +3569,12 @@ func doChildren(o *opts) int {
 	if doc == nil {
 		return code
 	}
+	if o.json {
+		for _, f := range doc.ReadChildFields(path).Value {
+			outln(jsonLine(f.Path, &f.Name, f.Value, f.Line, nil))
+		}
+		return 0
+	}
 	for _, name := range doc.Children(path) {
 		outln(shcl.QuoteSegment(name))
 	}
@@ -3463,6 +3591,12 @@ func doPaths(o *opts) int {
 	doc, code := loadLayered(o, o.args[0])
 	if doc == nil {
 		return code
+	}
+	if o.json {
+		for _, f := range doc.Fields() {
+			outln(jsonLine(f.Path, nil, f.Value, f.Line, nil))
+		}
+		return 0
 	}
 	for _, p := range doc.Paths() {
 		outln(p)

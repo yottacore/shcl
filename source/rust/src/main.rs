@@ -155,6 +155,13 @@ Options (the subcommands each belongs to are in parentheses):
   --slots                                (get) prefix each line with its slot
                                          status and a tab (per element, or per
                                          wildcard slot)
+  --json                                 (get/instances/children/paths) print
+                                         one JSON object per line, with the
+                                         field's path, value and line; the
+                                         full help has the details
+  --paths                                (instances) print the path that reads
+                                         each instance, such as shard(0), in
+                                         place of its value
   --unit=UNIT                            (get) the unit a bare number is in,
                                          for --duration (ms s m h d) or --size
                                          (B kB KB MB GB TB KiB MiB GiB TiB),
@@ -224,21 +231,30 @@ Options (the subcommands each belongs to are in parentheses):
 The five above share one ordered list, so two of them touching the same path
 resolve in the order given. Raw blocks still go in through the ops script.
 
+With --json, each line is one JSON object, keys in this order: \"path\", the
+path that reads that one field, with (N) on a name its parent repeats; \"name\",
+on children only; \"value\", always a string: on get the value read, or the
+--default in its place, and elsewhere the field's value (an array in brackets,
+a raw block's content, empty when it has none); \"line\", its line in the file
+it came from (0 for one an edit made); and \"status\", on get --slots only.
+paths --json lists every field, repeats included. A wildcard slot that reached
+nothing has an empty path and line 0.
+
 Value options accept either spelling: --default=VALUE or --default VALUE. In
 the space form the next argument is taken as the value whatever it looks like,
 so --default --int reads --int as the default. Use -- to end the options when a
 FILE or PATH begins with a dash. The flags -h, --help, -v, -V, --version,
 --about and --donate count anywhere an option can go. Several in one run each
 print once, in the order given.
-An option a subcommand does not use is a usage error, not ignored. Also
-refused: --write with --layer; --write with --set outside 'set'; --write with a
-FILE of '-'; --lossy on 'fmt' without --write; --no-banner on 'set' without
---write; --check with --write; --layer=- on 'set'; --array with --raw,
---rawinfo, --duration or --size; --default with --on-bad=error or
+An option a subcommand does not use is a usage error, not ignored. Also refused:
+--write with --layer; --write with --set outside 'set'; --write with a FILE of
+'-'; --lossy on 'fmt' without --write; --no-banner on 'set' without --write;
+--check with --write; --paths with --json; --layer=- on 'set'; --array with
+--raw, --rawinfo, --duration or --size; --default with --on-bad=error or
 --on-bad=flag; '-' named more than once across FILE, --layer and --schema; a
 PATH that cannot parse, --default or not. Two options that ask for different
-answers are a usage error whichever order they came in, and both are named:
-two different type options, or one value option given two different values.
+answers are a usage error whichever order they came in, and both are named: two
+different type options, or one value option given two different values.
 Repeating an option with the same value is allowed, and --layer and --set are
 ordered lists, so they repeat.
 Every subcommand that loads a document prints the load's diagnostics to stderr,
@@ -640,6 +656,8 @@ struct Opts {
 	clash: Option<(String, String)>,
 	array: bool,
 	slots: bool,
+	json: bool,
+	paths: bool,
 	default: Option<String>,
 	on_bad: OnBad,
 	// What an explicit --on-bad asked for, whatever the order. --default sets
@@ -865,6 +883,8 @@ fn parse_opts(argv: &[String]) -> Result<Opts, String> {
 		clash: None,
 		array: false,
 		slots: false,
+		json: false,
+		paths: false,
 		default: None,
 		on_bad: OnBad::Flag,
 		on_bad_arg: None,
@@ -916,6 +936,14 @@ fn parse_opts(argv: &[String]) -> Result<Opts, String> {
 			"--slots" => {
 				o.slots = true;
 				o.seen.push("--slots");
+			}
+			"--json" => {
+				o.json = true;
+				o.seen.push("--json");
+			}
+			"--paths" => {
+				o.paths = true;
+				o.seen.push("--paths");
 			}
 			"--write" | "-w" => {
 				o.write = true;
@@ -1124,6 +1152,7 @@ fn allowed_opts(cmd: &str) -> &'static [&'static str] {
 			"--<type>",
 			"--array",
 			"--slots",
+			"--json",
 			"--unit",
 			"--decimal",
 			"--default",
@@ -1166,7 +1195,28 @@ fn allowed_opts(cmd: &str) -> &'static [&'static str] {
 		"migrate" => &["--write", "--lossy", "--from-2x", "--check"],
 		"upgrade" => &["--write", "--from-2x"],
 		"tokens" | "explain" => &[],
-		"count" | "instances" | "children" | "paths" => &[
+		"count" => &[
+			"--strictness",
+			"--layer",
+			"--set",
+			"--set-literal",
+			"--set-default",
+			"--set-literal-default",
+			"--remove",
+		],
+		"instances" => &[
+			"--paths",
+			"--json",
+			"--strictness",
+			"--layer",
+			"--set",
+			"--set-literal",
+			"--set-default",
+			"--set-literal-default",
+			"--remove",
+		],
+		"children" | "paths" => &[
+			"--json",
 			"--strictness",
 			"--layer",
 			"--set",
@@ -1414,6 +1464,11 @@ fn check_opts(cmd: &str, o: &Opts) -> Result<(), u8> {
 	}
 	if o.check && o.write {
 		errln!("--check cannot be combined with --write (see --help)");
+		return Err(1);
+	}
+	// Both say what a line holds, and a JSON line already has the path.
+	if o.paths && o.json {
+		errln!("--paths cannot be combined with --json (see --help)");
 		return Err(1);
 	}
 	// The ops script already has stdin, so a layer cannot read it too.
@@ -1928,12 +1983,33 @@ fn do_get(o: &Opts) -> u8 {
 	};
 	// Per-line slot status: falls back to the aggregate for scalar reads.
 	let slot_at = |i: usize| slots.get(i).copied().unwrap_or(status);
+	// The field each line came from, for --json: one per slot on a wildcard
+	// read, else the one field the read reached, else none.
+	let fields = if o.json {
+		doc.read_fields(path).value
+	} else {
+		Vec::new()
+	};
+	let json_at = |i: usize, value: &str, count: usize, st: Status| {
+		let f = if fields.len() == count {
+			fields.get(i)
+		} else if fields.len() == 1 {
+			fields.first()
+		} else {
+			None
+		};
+		let none = shcl::Field::default();
+		let f = f.unwrap_or(&none);
+		json_line(&f.path, None, value, f.line, o.slots.then_some(st))
+	};
 	// An array or a slot listing is one line per element, so a value holding a
 	// line break takes its escaped spelling there. A plain scalar read prints
 	// the value as it is, since the whole output is that one value.
 	let emit = |lines: &[String]| {
 		for (i, l) in lines.iter().enumerate() {
-			if o.slots {
+			if o.json {
+				outln!("{}", json_at(i, l, lines.len(), slot_at(i)));
+			} else if o.slots {
 				outln!("{:?}\t{}", slot_at(i), one_line(l));
 			} else if o.array {
 				outln!("{}", one_line(l));
@@ -2005,7 +2081,9 @@ fn do_get(o: &Opts) -> u8 {
 				emit(&subbed);
 			} else {
 				let dv = o.default.clone().unwrap_or_default();
-				if o.slots {
+				if o.json {
+					outln!("{}", json_at(0, &dv, lines.len(), status));
+				} else if o.slots {
 					outln!("{:?}\t{}", status, one_line(&dv));
 				} else if o.array {
 					outln!("{}", one_line(&dv));
@@ -3262,12 +3340,68 @@ fn do_enum(o: &Opts, want_count: bool) -> u8 {
 	};
 	if want_count {
 		outln!("{}", doc.count(path));
+	} else if o.json || o.paths {
+		for f in doc.read_fields(path).value {
+			if o.json {
+				outln!("{}", json_line(&f.path, None, &f.value, f.line, None));
+			} else {
+				outln!("{}", f.path);
+			}
+		}
 	} else {
 		for v in doc.instances(path) {
 			outln!("{}", one_line(&v));
 		}
 	}
 	0
+}
+
+/// One line of --json output. The keys always come in this order, and only
+/// what JSON requires is escaped, the way `jq -c` writes it, so the four
+/// CLIs agree byte for byte and a line run through `jq -c .` comes back the
+/// same.
+fn json_line(
+	path: &str,
+	name: Option<&str>,
+	value: &str,
+	line: usize,
+	st: Option<Status>,
+) -> String {
+	let mut out = String::with_capacity(path.len() + value.len() + 40);
+	out.push_str("{\"path\":");
+	push_json(&mut out, path);
+	if let Some(name) = name {
+		out.push_str(",\"name\":");
+		push_json(&mut out, name);
+	}
+	out.push_str(",\"value\":");
+	push_json(&mut out, value);
+	let _ = write!(out, ",\"line\":{}", line);
+	if let Some(st) = st {
+		let _ = write!(out, ",\"status\":\"{:?}\"", st);
+	}
+	out.push('}');
+	out
+}
+
+fn push_json(out: &mut String, s: &str) {
+	out.push('"');
+	for c in s.chars() {
+		match c {
+			'"' => out.push_str("\\\""),
+			'\\' => out.push_str("\\\\"),
+			'\n' => out.push_str("\\n"),
+			'\r' => out.push_str("\\r"),
+			'\t' => out.push_str("\\t"),
+			'\u{8}' => out.push_str("\\b"),
+			'\u{c}' => out.push_str("\\f"),
+			c if c < ' ' || c == '\u{7f}' => {
+				let _ = write!(out, "\\u{:04x}", c as u32);
+			}
+			c => out.push(c),
+		}
+	}
+	out.push('"');
 }
 
 /// Child field names under a path, one per line, in file order and with
@@ -3291,6 +3425,15 @@ fn do_children(o: &Opts) -> u8 {
 		Ok(d) => d,
 		Err(code) => return code,
 	};
+	if o.json {
+		for f in doc.read_child_fields(path).value {
+			outln!(
+				"{}",
+				json_line(&f.path, Some(&f.name), &f.value, f.line, None)
+			);
+		}
+		return 0;
+	}
 	for name in doc.children(path) {
 		outln!("{}", shcl::quote_segment(&name));
 	}
@@ -3308,6 +3451,12 @@ fn do_paths(o: &Opts) -> u8 {
 		Ok(d) => d,
 		Err(code) => return code,
 	};
+	if o.json {
+		for f in doc.fields() {
+			outln!("{}", json_line(&f.path, None, &f.value, f.line, None));
+		}
+		return 0;
+	}
 	for p in doc.paths() {
 		outln!("{}", p);
 	}

@@ -1672,6 +1672,66 @@ func TestChildrenAndInstancePathsWalkARepeatedKey(t *testing.T) {
 	}
 }
 
+func TestFieldsGiveEachInstanceItsOwnPath(t *testing.T) {
+	defer testID(t, "EsEsFnM")
+	// The --json listings: each instance, a repeated one included, gets a
+	// path that reads that one, with its name, value and line beside it.
+	doc := Parse("shard: 1\n\towner: ann\nshard: 0\n\towner: bob\n\towner: cy\n")
+	all := doc.Fields()
+	want := []Field{
+		{"shard(0)", "shard", "1", 1},
+		{"shard(0).owner", "owner", "ann", 2},
+		{"shard(1)", "shard", "0", 3},
+		{"shard(1).owner(0)", "owner", "bob", 4},
+		{"shard(1).owner(1)", "owner", "cy", 5},
+	}
+	if !reflect.DeepEqual(all, want) {
+		t.Fatalf("Fields: got %v", all)
+	}
+	if got := strings.Join(doc.InstancePaths(), "|"); got != "shard(0)|shard(0).owner|shard(1)|shard(1).owner(0)|shard(1).owner(1)" {
+		t.Errorf("InstancePaths: got %q", got)
+	}
+	for _, f := range all {
+		if v, st := doc.GetString(f.Path); st != Good || v != f.Value {
+			t.Errorf("%s reads %q %v", f.Path, v, st)
+		}
+	}
+	r := doc.ReadFields("shard(1).owner")
+	if r.Status != Good || r.Line != 0 || !reflect.DeepEqual(r.Value, all[3:5]) {
+		t.Errorf("ReadFields over two: %v", r)
+	}
+	r = doc.ReadFields("shard(0)")
+	if r.Line != 1 || !reflect.DeepEqual(r.Value, all[0:1]) {
+		t.Errorf("ReadFields over one: %v", r)
+	}
+	// One slot per instance, and a slot that reached two is all empty.
+	r = doc.ReadFields("shard(*).owner")
+	if !reflect.DeepEqual(r.Value, []Field{all[1], {}}) {
+		t.Errorf("ReadFields over slots: %v", r)
+	}
+	if st := doc.ReadFields("nope").Status; st != NotFound {
+		t.Errorf("ReadFields nope: %v", st)
+	}
+	if st := doc.ReadFields("a..b").Status; st != BadPath {
+		t.Errorf("ReadFields a..b: %v", st)
+	}
+	if r := doc.ReadChildFields(""); !reflect.DeepEqual(r.Value, []Field{all[0], all[2]}) {
+		t.Errorf("ReadChildFields top: %v", r)
+	}
+	if r := doc.ReadChildFields("shard"); !reflect.DeepEqual(r.Value, []Field{all[1], all[3], all[4]}) {
+		t.Errorf("ReadChildFields shard: %v", r)
+	}
+	if r := doc.ReadChildFields("shard(1)"); len(r.Value) != 2 || r.Line != 3 {
+		t.Errorf("ReadChildFields shard(1): %v", r)
+	}
+	if st := doc.ReadChildFields("nope").Status; st != NotFound {
+		t.Errorf("ReadChildFields nope: %v", st)
+	}
+	if st := doc.ReadChildFields("a..b").Status; st != BadPath {
+		t.Errorf("ReadChildFields a..b: %v", st)
+	}
+}
+
 func TestReadSurfaceLineQuotedChildren(t *testing.T) {
 	defer testID(t, "ElorUZl")
 	// Line/Quoted on the read result, Line(path), Children(path). Same

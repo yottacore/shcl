@@ -396,6 +396,17 @@ func (r Read[T]) at(line int, el *element) Read[T] {
 	return r
 }
 
+// Field is one field as a listing shows it: the path that reads exactly that
+// field, written the way InstancePaths() writes it, the name as stored, the
+// value as Instances() gives it, and the 1-based source line (0 for a node a
+// setter built).
+type Field struct {
+	Path  string
+	Name  string
+	Value string
+	Line  int
+}
+
 // LoadError is a failed Strict load: the diagnostics that failed it, plus the
 // recovered tree.
 type LoadError struct {
@@ -9297,36 +9308,152 @@ func (d *Document) ReadChildren(path string) Read[[]string] {
 // parent, so each path reads exactly one node and a repeated block is walked
 // instance by instance. Segments are written as Paths() writes them.
 func (d *Document) InstancePaths() []string {
-	var out []string
-	type ent struct {
-		node   int
-		prefix string
+	walk := d.instanceWalk()
+	out := make([]string, 0, len(walk))
+	for _, w := range walk {
+		out = append(out, w.path)
 	}
-	stack := []ent{{root, ""}}
+	return out
+}
+
+// Fields is InstancePaths() as a field list: each binding's path, name, value
+// and line, in the same order.
+func (d *Document) Fields() []Field {
+	walk := d.instanceWalk()
+	out := make([]Field, 0, len(walk))
+	for _, w := range walk {
+		out = append(out, d.fieldOf(w.node, w.path))
+	}
+	return out
+}
+
+// ReadFields is ReadInstances() with each instance's path, name and line
+// beside its value. The path is the one InstancePaths() writes for that node,
+// so two instances with one value still get paths that read one each. An
+// unresolved wildcard slot is an all-empty Field, line 0.
+func (d *Document) ReadFields(path string) Read[[]Field] {
+	r, ok := d.resolve(path)
+	if !ok {
+		return Read[[]Field]{Value: []Field{}, Status: BadPath}
+	}
+	var nodes []int
+	line := 0
+	switch {
+	case r.kind == resNone:
+		return Read[[]Field]{Value: []Field{}, Status: NotFound}
+	case r.kind == resSlots && len(r.slots) == 0:
+		return Read[[]Field]{Value: []Field{}, Status: NotFound}
+	case r.kind == resOne:
+		nodes = []int{r.one}
+		line = d.arena[r.one].line
+	case r.kind == resMany:
+		nodes = r.many
+	default:
+		nodes = r.slots
+	}
+	paths := d.instancePathIndex()
+	out := make([]Field, 0, len(nodes))
+	for _, n := range nodes {
+		if n < 0 {
+			out = append(out, Field{})
+		} else {
+			out = append(out, d.fieldOf(n, paths[n]))
+		}
+	}
+	return Read[[]Field]{Value: out, Status: Good}.at(line, nil)
+}
+
+// ReadChildFields is ReadChildren() with each child's path, value and line
+// beside its name, paths written as InstancePaths() writes them. "" is the
+// top level.
+func (d *Document) ReadChildFields(path string) Read[[]Field] {
+	nodes := []int{root}
+	line := 0
+	if strings.TrimSpace(path) != "" {
+		r, ok := d.resolve(path)
+		if !ok {
+			return Read[[]Field]{Value: []Field{}, Status: BadPath}
+		}
+		switch {
+		case r.kind == resNone:
+			return Read[[]Field]{Value: []Field{}, Status: NotFound}
+		case r.kind == resSlots && len(r.slots) == 0:
+			return Read[[]Field]{Value: []Field{}, Status: NotFound}
+		case r.kind == resOne:
+			nodes = []int{r.one}
+			line = d.arena[r.one].line
+		case r.kind == resMany:
+			nodes = r.many
+		default:
+			nodes = nodes[:0]
+			for _, n := range r.slots {
+				if n >= 0 {
+					nodes = append(nodes, n)
+				}
+			}
+		}
+	}
+	paths := d.instancePathIndex()
+	out := []Field{}
+	for _, n := range nodes {
+		for _, c := range d.arena[n].children {
+			out = append(out, d.fieldOf(c, paths[c]))
+		}
+	}
+	return Read[[]Field]{Value: out, Status: Good}.at(line, nil)
+}
+
+func (d *Document) fieldOf(node int, path string) Field {
+	n := &d.arena[node]
+	return Field{Path: path, Name: n.name, Value: n.value.display(), Line: n.line}
+}
+
+// instancePathIndex is each node's InstancePaths() path by arena index. The
+// root and nodes no longer in the tree stay "". One walk, so a field list
+// costs the same however wide its parent is; a lookup per path would scan
+// every sibling each time.
+func (d *Document) instancePathIndex() []string {
+	at := make([]string, len(d.arena))
+	for _, w := range d.instanceWalk() {
+		at[w.node] = w.path
+	}
+	return at
+}
+
+type walked struct {
+	node int
+	path string
+}
+
+// instanceWalk is every node under the root with its instance path, in file
+// order.
+func (d *Document) instanceWalk() []walked {
+	var out []walked
+	stack := []walked{{root, ""}}
 	for len(stack) > 0 {
 		e := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
-		if e.node != root {
-			out = append(out, e.prefix)
-		}
 		kids := d.arena[e.node].children
 		total := map[string]int{}
 		for _, c := range kids {
 			total[d.arena[c].name]++
 		}
 		at := map[string]int{}
-		paths := make([]ent, 0, len(kids))
+		paths := make([]walked, 0, len(kids))
 		for _, c := range kids {
 			name := d.arena[c].name
 			path := emitName(name)
-			if e.prefix != "" {
-				path = e.prefix + "." + path
+			if e.path != "" {
+				path = e.path + "." + path
 			}
 			if total[name] > 1 {
 				path += "(" + strconv.Itoa(at[name]) + ")"
 				at[name]++
 			}
-			paths = append(paths, ent{c, path})
+			paths = append(paths, walked{c, path})
+		}
+		if e.node != root {
+			out = append(out, e)
 		}
 		for i := len(paths) - 1; i >= 0; i-- {
 			stack = append(stack, paths[i])
