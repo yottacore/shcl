@@ -100,6 +100,65 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `setstat`, C on `ssc`
 	- Commit: `c251f741`, C `4aea318a`
 
+- `instances` output can't be fed back into a selector
+	- ID: 2026100717500016
+	- Type: Enhancement
+	- Status: Waiting on signoff
+	- Needs external testing: the full `--ci` and a hosted run with the next main push, shared with 2026100814455655.
+	- Priority: Avg
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 16
+	- Problem description: with `shard: 1` then `shard: 0`, `for i in $(shcl instances f shard); do shcl get f "shard($i).owner"; done` prints the other shard's owner each time, since a bare number in parens is an index. `paths` prints `shard` twice. spec.md warns in prose, and a script has to do its own quoting.
+	- Requirements:
+		- A path-ready form, such as `instances --paths`, that prints `shard("1")`.
+		- Or one machine-readable mode for the list commands (NUL-separated, or JSON lines), which would settle 2026100717500006 as well.
+	- Reason: least surprise for script authors. The obvious loop is wrong, at exit 0.
+	- Origin: Confirmed. The spec documents it, so this is not filed as a defect.
+	- Progress log:
+		- 20261008: `instances --paths` OK'd. Proposed back: print the index form, `shard(0)`, which is unique even when 2 instances share a value and never holds a space. The user asked why not a machine-readable mode too. Proposed: `--json` on `paths`, `children`, `instances` and `get --array`, one JSON object per line with path, value and line. Waiting on the user.
+		- Answered 20261008: `--paths` prints the index form, `shard(0)`. `--json` is its own item, 2026100814455655, in this release.
+		- 20261009: `instances --paths` built in all four CLIs. Each line is the path `instance_paths()` writes for that instance, which reads it whatever the values are. A wildcard slot that reached nothing is an empty line, as plain `instances` prints it. `--paths` with `--json` is a usage error (see 2026100814455655).
+		- Question: the index form puts `(i)` only on a name its parent repeats, so a field with one instance prints `shard`, not `shard(0)`. Both read the same field, and this keeps one path per field across `--paths` and every `--json` listing. Best guess, not put to the user; the other way is an index on the last name always.
+	- Swept: the four CLIs' option tables, help and dispatch, both completion files, the man page, README, spec.md and the changelog.
+	- Verified: cli-regress over all four CLIs (strict), crosscheck over the corpus and a fuzz dump (`instances --paths` on every `instances` row), sanitize-c, check-completions, check-readme, shell-regress.
+	- Branch: `listjson`
+	- Commit: `250115f3`
+	- Test case: cli-regress `EsEvmKv` (instances-paths), `EsEvmKx` (slot miss), `EsEvmKz` (2 instances with one value), `EsEvmLB` and `EsEvmLD` (refusals); crosscheck `instances --paths` on every corpus `instances` row.
+
+- A `--json` mode for the list commands
+	- ID: 2026100814455655
+	- Type: Feature
+	- Status: Waiting on signoff
+	- Needs external testing: Windows PowerShell 5.1 reading the lines with `ConvertFrom-Json` (only pwsh 7.6 ran here); the hosted windows job's cli-regress `EsEvmLE` and README PowerShell blocks; the full `--ci` (exhaustive cppcheck over the C changes) and a hosted run with the next main push.
+	- Priority: Avg
+	- Opened: 20261008-144556
+	- Opened by: JC, from talk on 2026100717500016
+	- Related IDs: 2026100717500016, 2026100717500006
+	- Problem description: the list commands print one bare value per line. A value with a space or a line break, or 2 instances with one value, can't be told apart in a shell loop, and the line a value came from isn't shown.
+	- Requirements:
+		- `--json` on `paths`, `children`, `instances` and `get --array`.
+		- One JSON object per line, such as `{"path":"shard(0)","value":"1","line":1}`. The path is the index form, the same as `instances --paths`.
+		- Byte-identical output in all four CLIs, each with its own small JSON string writer. No new dependency.
+		- Works from bash with `jq` and from PowerShell with `ConvertFrom-Json`.
+		- Help, man page, README and spec say so.
+	- Reason: scripts get the path, value and line together without parsing plain text. NUL-separated output was weighed and dropped, since PowerShell can't split it easily and one record can't hold all 3 fields.
+	- Progress log:
+		- 20261009: built in all four CLIs, with each its own JSON string writer. Calls left to me, best guesses not put to the user:
+			- Every object has `path`, `value` and `line`, keys always in that order. `children` adds `name`, the name with no quotes, since names are what it lists. `get --slots` adds `status`.
+			- `value` is always a string. An array comes in brackets as `fmt` writes it, a raw block as its content, and a field with no value as `""`. On `get` it is the value read, or the `--default` in its place.
+			- `path` is the `instance_paths()` form. It is `""`, with line 0, for a wildcard slot or a `get` that reached no field. Every element of one array has the field's path and line.
+			- `paths --json` lists every field, repeats included, where plain `paths` lists each path once.
+			- `--json` works on a plain `get` too, one object, though the item names `get --array`. Refusing it would have needed a rule of its own.
+			- `--paths` with `--json` is a usage error, like `--check` with `--write`, since both say what a line holds.
+			- Only what JSON requires is escaped, the way `jq -c` writes it, so `jq -c .` gives each line back byte for byte.
+			- New library calls in all four and the C++ interface: `fields()`, `read_fields()` and `read_child_fields()` (Go `Fields`, C `shcl_fields`). Built from the old calls, `--json` looked up each path again, and a lookup scans every sibling, so a wide file went quadratic. One walk keeps it linear: 20,000 instances list in about 0.1 to 0.3 s in Rust, Go and C.
+		- PowerShell 7 turns a value that looks like a date into a `DateTime`, unless 7.5 or later is given `-DateKind String`. README and the man page say so. Windows PowerShell 5.1 should not do this, but was not run.
+	- Swept: the four CLIs' option tables, help and dispatch, both completion files, check-completions and shell-regress's anchors on the old shared option row, the crosscheck and sanitize-c row arms, README, the man page, spec.md and the changelog.
+	- Verified: the four conformance suites and the veneer smoke, cli-regress over all four CLIs (strict, pwsh 7.6 and jq 1.8.1), crosscheck over the corpus and a 500-input fuzz dump (48747 comparisons, 0 divergences), sanitize-c, check-readme, check-docs (only the known `installers-match-main` red), check-abnf, check-completions, check-veneer, shell-regress, test-ids check, markdownlint, shellcheck, clippy for both targets, go vet and staticcheck, ruff and mypy, cppcheck at the normal level, gcc 15, clang and mingw builds of the C CLI. `EsEvmL4` and `EsEvmLE` failed with Go's DEL escape removed, and the library tests failed with a slot miss dropped.
+	- Branch: `listjson`
+	- Commit: `250115f3`
+	- Test case: `fields_give_each_instance_its_own_path` (Rust `EsEsFl8`, Go `EsEsFnM`, Python `EsEsFpX`, C `EsEsFrh`) and the veneer smoke; cli-regress `EsEvmKw`, `EsEvmKy`, `EsEvmL0` to `EsEvmLC`, and `EsEvmLE` (every corpus input's `--json` lines through `jq -c .` and `ConvertFrom-Json`); crosscheck and sanitize-c `--json` on every listing row and `paths --json` on every input; check-readme's bash and PowerShell blocks.
+
 - A failed write says why only in text
 	- ID: 2026100912352400
 	- Type: Enhancement
@@ -129,6 +188,33 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Verified: each binding's tests fail with `NotADirectory` or `ENOTDIR` taken out of the table, and with `Unreadable` given as `Other`. C's fail with the FIFO flag dropped, and C++'s with a save's status not passed back.
 	- Branch: `wrstat`
 	- Commit: `6e0210c2`
+
+- A file stamped with a newer Format major should load clean
+	- ID: 2026100717500017
+	- Type: Enhancement
+	- Status: Waiting for testing
+	- Needs local test suite run?: Y, the full `--ci`, for exhaustive cppcheck over the C change.
+	- Needs external testing: a hosted run.
+	- Priority: Avg
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 17
+	- Problem description: `Format 4` in the info block loads Clean, and `Format 2` with `x: "a\tb"` loads Clean and reads `a\tb`. To notice, a program calls `read_file` and `format_version` itself, since `load_file` never hands it the text. spec.md says the load ignores the line.
+	- Requirements:
+		- A hint on load when the stamp names a newer major than the library's.
+		- Maybe one for an older major too, pointing at `upgrade`.
+	- Reason: a 3.x program that reads a 4.x file today gets whatever the 3.x rules make of it, silently. The stamp exists for exactly this.
+	- Origin: Confirmed. A change of a documented rule, so it is for the user.
+	- Progress log:
+		- 20261009: built with 2026100912352401 in all four and the C++ interface. `H006` for a newer major, `H007` for an older one, on the stamp's line. The load reads the line through the same call as `read_format_version`, so the two can't disagree. A hint changes no load outcome, Strict included. A line whose number does not read gets no hint.
+		- 20261009, my call: `H007` says `shcl upgrade --from-2x`, since `upgrade` leaves a clean file with an older stamp alone without it (2026100313461649's call). A file it has nothing to change in keeps the old line and the hint, so `explain H007` also names `migrate FILE --write`, which stamps it. The hint and explain wording are for signoff.
+		- 20261009: corpus 204 and 205 moved the fuzz seeds. The migrate fixpoint property took an input's own older Format line for migrate's stamp. With a raw block left open migrate adds none, and the CLI refuses that output at 7, so the property now holds only output naming this format. Test-only. A second find is filed as 2026100914525821.
+	- Decisions:
+		- 20261008: 2 hints, one for a newer major and one for an older major pointing at `upgrade` (JC).
+	- Swept: every load in each binding goes through its one parser function, so `parse`, `parse_with`, `parse_limited`, the keep-lines loads, the file loads and the one-shot all hint. `migrate`, `upgrade`, `format_version` and the hint read one function per binding: `format_line_read` in Rust and C, `formatLineRead` in Go, `_format_line_read` in Python. spec.md, design.md, the changelog, the corpus README and all four `explain` tables say so.
+	- Verified: hint emission taken out of each binding fails corpus 204 and 205 there, and the stamp test in Rust, Go and C. Also: the four conformance suites (C also built by mingw and run under wine), veneer_smoke and check-veneer, cli-regress (513 rows, 2763 checks, all four), crosscheck over the corpus (18030 comparisons), check-docs (only the known `EpHGoa0` red), check-abnf, check-readme, test-ids check, shell-regress, shellcheck, markdownlint, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy with the typing probe, cppcheck at the normal level, check-c-compilers (5 compilers, every `-O` level) and sanitize-c. The 200,000 release fuzz passes all 26. The 2,000,000 one passes all but `Eqk24nZ`, which fails on dev's code too once 204 and 205 move the seeds (2026100914525821). With the two cases moved out it passes all 26.
+	- Branch: `fmtstamp`
+	- Commit: `be88796f`
+	- Test case: corpus `204-format-newer-hint` (`EsEtTdT`) and `205-format-older-hint` (`EsEtTdU`) in all four runners, the hint rows of `stamp_reads_say_why` (Rust `EsEtTdP`, Go `EsEtTdQ`, Python `EsEtTdR`, C `EsEtTdS`), cli-regress `EsEtTdV` to `EsEtTda`, and veneer_smoke `EjtkR0S`.
 
 - Long values make messages huge
 	- ID: 2026100818251400
@@ -191,6 +277,32 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Commit: `81943546`
 	- Test case: cli-regress `EsEhCcw` to `EsEhCcz` and `EsEix5w`, and the changed rows `EqGaO1w` to `EqGaO23`, `EonKleq` and `Er1zoZI`.
 
+- `format_version` gives the same answer for a garbled Format line and for none
+	- ID: 2026100912352401
+	- Type: Enhancement
+	- Status: Waiting for testing
+	- Needs local test suite run?: Y, the full `--ci`, for exhaustive cppcheck over the C change.
+	- Needs external testing: a hosted run.
+	- Priority: Low
+	- Opened: 20261009-123524
+	- Opened by: JC, from 2026100912271700
+	- Related IDs: 2026100912271700, 2026100717500017
+	- Problem description: `format_version` returns None both when no line names a format and when the line is there but names no number, such as `##    Format   3x`. A program asking before it rewrites a file can't tell an unstamped file from a damaged stamp.
+	- Requirements:
+		- A status form that tells no line, a readable major and a line it can't read apart. All four and the C++ interface.
+		- Check `schema_ref` for the same mix-up and fix it the same way if it has it.
+	- Progress log:
+		- 20261009: `read_format_version` in Rust and Python, Go `ReadFormatVersion`, C `shcl_read_format_version`, C++ `read_format_version`. `Good` with the major, `NotFound` with no line, `Empty` for `##    Format` with nothing after it, and `BadType` for a number that does not read, such as `3x`. Only the block's own spelling counts as the line, so `##    Format  3` with 2 blanks is still `NotFound`. `format_version` gives the twin's value, and `migrate` and 2026100717500017's hints read the same function.
+		- 20261009: `schema_ref` had it for one line: `##    Schema` with nothing after it read the same as no line. `read_schema_ref` (Go `ReadSchemaRef`, C `shcl_read_schema_ref`) gives that `Empty`. Any other text after the head is a reference.
+		- C and C++ results have no line, as with the list twins. Rust, Go and Python set `line` and `raw`.
+	- Decisions:
+		- 20261009: a status form after 2026100818140260's twins (JC). The name is my best guess.
+	- Swept: `format_version` and `schema_ref` in Rust, Go, Python, C and `shcl.hpp`. Their callers (`migrate`, `upgrade`, the CLIs' `check`, `migrate` and `upgrade`) keep the plain calls, whose answers did not change.
+	- Verified: the shared table in each runner caught a Go slip while porting (a missed `CutPrefix` hands back the whole line). Also: the four conformance suites (C also built by mingw and run under wine), veneer_smoke and check-veneer, cli-regress (513 rows, 2763 checks, all four), crosscheck over the corpus (18030 comparisons), check-docs (only the known `EpHGoa0` red), check-abnf, check-readme, test-ids check, shell-regress, shellcheck, markdownlint, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy with the typing probe, cppcheck at the normal level, check-c-compilers (5 compilers, every `-O` level) and sanitize-c. The 200,000 release fuzz passes all 26. The 2,000,000 one passes all but `Eqk24nZ`, which fails on dev's code too once 204 and 205 move the seeds (2026100914525821). With the two cases moved out it passes all 26.
+	- Branch: `fmtstamp`
+	- Commit: `be88796f`
+	- Test case: `stamp_reads_say_why` in all four runners (Rust `EsEtTdP`, Go `EsEtTdQ`, Python `EsEtTdR`, C `EsEtTdS`), and the status checks in veneer_smoke (`EjtkR0S`).
+
 - The 2M release fuzz fails `edits_and_merges_match_a_reload` once corpus 204 and 205 move the seeds
 	- ID: 2026100914525821
 	- Type: Bug
@@ -229,92 +341,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Decisions:
 		- 20261009: twins for all of them, over fewer twins plus docs pointing at `read_count`, so a caller needs one call and no logic of its own (JC).
 
-- `instances` output can't be fed back into a selector
-	- ID: 2026100717500016
-	- Type: Enhancement
-	- Status: Waiting on signoff
-	- Needs external testing: the full `--ci` and a hosted run with the next main push, shared with 2026100814455655.
-	- Priority: Avg
-	- Opened: 20261007-175000
-	- Opened by: Code review 20261007 item 16
-	- Problem description: with `shard: 1` then `shard: 0`, `for i in $(shcl instances f shard); do shcl get f "shard($i).owner"; done` prints the other shard's owner each time, since a bare number in parens is an index. `paths` prints `shard` twice. spec.md warns in prose, and a script has to do its own quoting.
-	- Requirements:
-		- A path-ready form, such as `instances --paths`, that prints `shard("1")`.
-		- Or one machine-readable mode for the list commands (NUL-separated, or JSON lines), which would settle 2026100717500006 as well.
-	- Reason: least surprise for script authors. The obvious loop is wrong, at exit 0.
-	- Origin: Confirmed. The spec documents it, so this is not filed as a defect.
-	- Progress log:
-		- 20261008: `instances --paths` OK'd. Proposed back: print the index form, `shard(0)`, which is unique even when 2 instances share a value and never holds a space. The user asked why not a machine-readable mode too. Proposed: `--json` on `paths`, `children`, `instances` and `get --array`, one JSON object per line with path, value and line. Waiting on the user.
-		- Answered 20261008: `--paths` prints the index form, `shard(0)`. `--json` is its own item, 2026100814455655, in this release.
-		- 20261009: `instances --paths` built in all four CLIs. Each line is the path `instance_paths()` writes for that instance, which reads it whatever the values are. A wildcard slot that reached nothing is an empty line, as plain `instances` prints it. `--paths` with `--json` is a usage error (see 2026100814455655).
-		- Question: the index form puts `(i)` only on a name its parent repeats, so a field with one instance prints `shard`, not `shard(0)`. Both read the same field, and this keeps one path per field across `--paths` and every `--json` listing. Best guess, not put to the user; the other way is an index on the last name always.
-	- Swept: the four CLIs' option tables, help and dispatch, both completion files, the man page, README, spec.md and the changelog.
-	- Verified: cli-regress over all four CLIs (strict), crosscheck over the corpus and a fuzz dump (`instances --paths` on every `instances` row), sanitize-c, check-completions, check-readme, shell-regress.
-	- Branch: `listjson`
-	- Commit: `250115f3`
-	- Test case: cli-regress `EsEvmKv` (instances-paths), `EsEvmKx` (slot miss), `EsEvmKz` (2 instances with one value), `EsEvmLB` and `EsEvmLD` (refusals); crosscheck `instances --paths` on every corpus `instances` row.
-
-- A `--json` mode for the list commands
-	- ID: 2026100814455655
-	- Type: Feature
-	- Status: Waiting on signoff
-	- Needs external testing: Windows PowerShell 5.1 reading the lines with `ConvertFrom-Json` (only pwsh 7.6 ran here); the hosted windows job's cli-regress `EsEvmLE` and README PowerShell blocks; the full `--ci` (exhaustive cppcheck over the C changes) and a hosted run with the next main push.
-	- Priority: Avg
-	- Opened: 20261008-144556
-	- Opened by: JC, from talk on 2026100717500016
-	- Related IDs: 2026100717500016, 2026100717500006
-	- Problem description: the list commands print one bare value per line. A value with a space or a line break, or 2 instances with one value, can't be told apart in a shell loop, and the line a value came from isn't shown.
-	- Requirements:
-		- `--json` on `paths`, `children`, `instances` and `get --array`.
-		- One JSON object per line, such as `{"path":"shard(0)","value":"1","line":1}`. The path is the index form, the same as `instances --paths`.
-		- Byte-identical output in all four CLIs, each with its own small JSON string writer. No new dependency.
-		- Works from bash with `jq` and from PowerShell with `ConvertFrom-Json`.
-		- Help, man page, README and spec say so.
-	- Reason: scripts get the path, value and line together without parsing plain text. NUL-separated output was weighed and dropped, since PowerShell can't split it easily and one record can't hold all 3 fields.
-	- Progress log:
-		- 20261009: built in all four CLIs, with each its own JSON string writer. Calls left to me, best guesses not put to the user:
-			- Every object has `path`, `value` and `line`, keys always in that order. `children` adds `name`, the name with no quotes, since names are what it lists. `get --slots` adds `status`.
-			- `value` is always a string. An array comes in brackets as `fmt` writes it, a raw block as its content, and a field with no value as `""`. On `get` it is the value read, or the `--default` in its place.
-			- `path` is the `instance_paths()` form. It is `""`, with line 0, for a wildcard slot or a `get` that reached no field. Every element of one array has the field's path and line.
-			- `paths --json` lists every field, repeats included, where plain `paths` lists each path once.
-			- `--json` works on a plain `get` too, one object, though the item names `get --array`. Refusing it would have needed a rule of its own.
-			- `--paths` with `--json` is a usage error, like `--check` with `--write`, since both say what a line holds.
-			- Only what JSON requires is escaped, the way `jq -c` writes it, so `jq -c .` gives each line back byte for byte.
-			- New library calls in all four and the C++ interface: `fields()`, `read_fields()` and `read_child_fields()` (Go `Fields`, C `shcl_fields`). Built from the old calls, `--json` looked up each path again, and a lookup scans every sibling, so a wide file went quadratic. One walk keeps it linear: 20,000 instances list in about 0.1 to 0.3 s in Rust, Go and C.
-		- PowerShell 7 turns a value that looks like a date into a `DateTime`, unless 7.5 or later is given `-DateKind String`. README and the man page say so. Windows PowerShell 5.1 should not do this, but was not run.
-	- Swept: the four CLIs' option tables, help and dispatch, both completion files, check-completions and shell-regress's anchors on the old shared option row, the crosscheck and sanitize-c row arms, README, the man page, spec.md and the changelog.
-	- Verified: the four conformance suites and the veneer smoke, cli-regress over all four CLIs (strict, pwsh 7.6 and jq 1.8.1), crosscheck over the corpus and a 500-input fuzz dump (48747 comparisons, 0 divergences), sanitize-c, check-readme, check-docs (only the known `installers-match-main` red), check-abnf, check-completions, check-veneer, shell-regress, test-ids check, markdownlint, shellcheck, clippy for both targets, go vet and staticcheck, ruff and mypy, cppcheck at the normal level, gcc 15, clang and mingw builds of the C CLI. `EsEvmL4` and `EsEvmLE` failed with Go's DEL escape removed, and the library tests failed with a slot miss dropped.
-	- Branch: `listjson`
-	- Commit: `250115f3`
-	- Test case: `fields_give_each_instance_its_own_path` (Rust `EsEsFl8`, Go `EsEsFnM`, Python `EsEsFpX`, C `EsEsFrh`) and the veneer smoke; cli-regress `EsEvmKw`, `EsEvmKy`, `EsEvmL0` to `EsEvmLC`, and `EsEvmLE` (every corpus input's `--json` lines through `jq -c .` and `ConvertFrom-Json`); crosscheck and sanitize-c `--json` on every listing row and `paths --json` on every input; check-readme's bash and PowerShell blocks.
-
-- A file stamped with a newer Format major should load clean
-	- ID: 2026100717500017
-	- Type: Enhancement
-	- Status: Waiting for testing
-	- Needs local test suite run?: Y, the full `--ci`, for exhaustive cppcheck over the C change.
-	- Needs external testing: a hosted run.
-	- Priority: Avg
-	- Opened: 20261007-175000
-	- Opened by: Code review 20261007 item 17
-	- Problem description: `Format 4` in the info block loads Clean, and `Format 2` with `x: "a\tb"` loads Clean and reads `a\tb`. To notice, a program calls `read_file` and `format_version` itself, since `load_file` never hands it the text. spec.md says the load ignores the line.
-	- Requirements:
-		- A hint on load when the stamp names a newer major than the library's.
-		- Maybe one for an older major too, pointing at `upgrade`.
-	- Reason: a 3.x program that reads a 4.x file today gets whatever the 3.x rules make of it, silently. The stamp exists for exactly this.
-	- Origin: Confirmed. A change of a documented rule, so it is for the user.
-	- Progress log:
-		- 20261009: built with 2026100912352401 in all four and the C++ interface. `H006` for a newer major, `H007` for an older one, on the stamp's line. The load reads the line through the same call as `read_format_version`, so the two can't disagree. A hint changes no load outcome, Strict included. A line whose number does not read gets no hint.
-		- 20261009, my call: `H007` says `shcl upgrade --from-2x`, since `upgrade` leaves a clean file with an older stamp alone without it (2026100313461649's call). A file it has nothing to change in keeps the old line and the hint, so `explain H007` also names `migrate FILE --write`, which stamps it. The hint and explain wording are for signoff.
-		- 20261009: corpus 204 and 205 moved the fuzz seeds. The migrate fixpoint property took an input's own older Format line for migrate's stamp. With a raw block left open migrate adds none, and the CLI refuses that output at 7, so the property now holds only output naming this format. Test-only. A second find is filed as 2026100914525821.
-	- Decisions:
-		- 20261008: 2 hints, one for a newer major and one for an older major pointing at `upgrade` (JC).
-	- Swept: every load in each binding goes through its one parser function, so `parse`, `parse_with`, `parse_limited`, the keep-lines loads, the file loads and the one-shot all hint. `migrate`, `upgrade`, `format_version` and the hint read one function per binding: `format_line_read` in Rust and C, `formatLineRead` in Go, `_format_line_read` in Python. spec.md, design.md, the changelog, the corpus README and all four `explain` tables say so.
-	- Verified: hint emission taken out of each binding fails corpus 204 and 205 there, and the stamp test in Rust, Go and C. Also: the four conformance suites (C also built by mingw and run under wine), veneer_smoke and check-veneer, cli-regress (513 rows, 2763 checks, all four), crosscheck over the corpus (18030 comparisons), check-docs (only the known `EpHGoa0` red), check-abnf, check-readme, test-ids check, shell-regress, shellcheck, markdownlint, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy with the typing probe, cppcheck at the normal level, check-c-compilers (5 compilers, every `-O` level) and sanitize-c. The 200,000 release fuzz passes all 26. The 2,000,000 one passes all but `Eqk24nZ`, which fails on dev's code too once 204 and 205 move the seeds (2026100914525821). With the two cases moved out it passes all 26.
-	- Branch: `fmtstamp`
-	- Commit: `be88796f`
-	- Test case: corpus `204-format-newer-hint` (`EsEtTdT`) and `205-format-older-hint` (`EsEtTdU`) in all four runners, the hint rows of `stamp_reads_say_why` (Rust `EsEtTdP`, Go `EsEtTdQ`, Python `EsEtTdR`, C `EsEtTdS`), cli-regress `EsEtTdV` to `EsEtTda`, and veneer_smoke `EjtkR0S`.
-
 - Doc examples, man page blocks and help text aren't run as tests
 	- ID: 2026100719122102
 	- Type: Enhancement
@@ -352,32 +378,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Question: the third one, proposed: `set_*_default` writes the default when the field is missing, empty, or doesn't read as that type, and leaves a good value alone. The old line stays as a `##` comment with a note, the way a setter writes over a kept line (2026100307163907), so `bad: abc` is not lost. True means the field now reads as that type. The other way is a new `ensure_*` family beside the current `set_*_default`, which would keep its meaning.
 		- Answered 20261009: as proposed, `set_*_default` changes. No `ensure_*` family.
 	- Origin: Confirmed by reading and probes.
-
-- `format_version` gives the same answer for a garbled Format line and for none
-	- ID: 2026100912352401
-	- Type: Enhancement
-	- Status: Waiting for testing
-	- Needs local test suite run?: Y, the full `--ci`, for exhaustive cppcheck over the C change.
-	- Needs external testing: a hosted run.
-	- Priority: Low
-	- Opened: 20261009-123524
-	- Opened by: JC, from 2026100912271700
-	- Related IDs: 2026100912271700, 2026100717500017
-	- Problem description: `format_version` returns None both when no line names a format and when the line is there but names no number, such as `##    Format   3x`. A program asking before it rewrites a file can't tell an unstamped file from a damaged stamp.
-	- Requirements:
-		- A status form that tells no line, a readable major and a line it can't read apart. All four and the C++ interface.
-		- Check `schema_ref` for the same mix-up and fix it the same way if it has it.
-	- Progress log:
-		- 20261009: `read_format_version` in Rust and Python, Go `ReadFormatVersion`, C `shcl_read_format_version`, C++ `read_format_version`. `Good` with the major, `NotFound` with no line, `Empty` for `##    Format` with nothing after it, and `BadType` for a number that does not read, such as `3x`. Only the block's own spelling counts as the line, so `##    Format  3` with 2 blanks is still `NotFound`. `format_version` gives the twin's value, and `migrate` and 2026100717500017's hints read the same function.
-		- 20261009: `schema_ref` had it for one line: `##    Schema` with nothing after it read the same as no line. `read_schema_ref` (Go `ReadSchemaRef`, C `shcl_read_schema_ref`) gives that `Empty`. Any other text after the head is a reference.
-		- C and C++ results have no line, as with the list twins. Rust, Go and Python set `line` and `raw`.
-	- Decisions:
-		- 20261009: a status form after 2026100818140260's twins (JC). The name is my best guess.
-	- Swept: `format_version` and `schema_ref` in Rust, Go, Python, C and `shcl.hpp`. Their callers (`migrate`, `upgrade`, the CLIs' `check`, `migrate` and `upgrade`) keep the plain calls, whose answers did not change.
-	- Verified: the shared table in each runner caught a Go slip while porting (a missed `CutPrefix` hands back the whole line). Also: the four conformance suites (C also built by mingw and run under wine), veneer_smoke and check-veneer, cli-regress (513 rows, 2763 checks, all four), crosscheck over the corpus (18030 comparisons), check-docs (only the known `EpHGoa0` red), check-abnf, check-readme, test-ids check, shell-regress, shellcheck, markdownlint, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy with the typing probe, cppcheck at the normal level, check-c-compilers (5 compilers, every `-O` level) and sanitize-c. The 200,000 release fuzz passes all 26. The 2,000,000 one passes all but `Eqk24nZ`, which fails on dev's code too once 204 and 205 move the seeds (2026100914525821). With the two cases moved out it passes all 26.
-	- Branch: `fmtstamp`
-	- Commit: `be88796f`
-	- Test case: `stamp_reads_say_why` in all four runners (Rust `EsEtTdP`, Go `EsEtTdQ`, Python `EsEtTdR`, C `EsEtTdS`), and the status checks in veneer_smoke (`EjtkR0S`).
 
 **Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
 
