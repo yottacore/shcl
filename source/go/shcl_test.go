@@ -5510,6 +5510,9 @@ func TestReadNamedSchemaFollowsCheckRules(t *testing.T) {
 	}
 	if SchemaFileNotFound.String() != "FileNotFound" || SchemaURL.String() != "Url" {
 		t.Error("names")
+	}
+}
+
 // What the value at a path is, through Kind and ReadKind, from the stored
 // form, with the status ReadLine gives. Same fixture in every runner.
 func TestKindReadsSayWhatIsThere(t *testing.T) {
