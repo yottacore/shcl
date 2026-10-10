@@ -4457,6 +4457,69 @@ def main():
 	else:
 		os.environ["SHCL_TEST_CLOCK"] = held_clock
 
+	# read_named_schema reads a Schema line by check's rules: from the
+	# config's directory, or the working directory when the path has none; a
+	# URL is never fetched; only a regular file is read, and none over 16 MiB.
+	# The CLI's check is this call, so its rows in cli-regress pin the same
+	# rules. Same fixture in every runner.
+	test_id("EsJZ107", "read_named_schema_follows_check_rules")
+	SS = shcl.SchemaStatus
+	with tempfile.TemporaryDirectory() as nd:
+		ns_cfg = nd + "/cfg.shcl"
+		os.mkdir(nd + "/sub")
+		with open(nd + "/s.shcl", "wb") as nf:
+			nf.write(b"field: port\n")
+		with open(nd + "/bad.shcl", "wb") as nf:
+			nf.write(b"a: \xff\n")
+		with open(nd + "/big.shcl", "wb") as nf:
+			nf.write(b"a" * ((16 << 20) + 1))
+
+		def ns_line(r: str) -> str:
+			return "a: 1\n##    Schema   " + r + "\n"
+
+		nr = shcl.read_named_schema(ns_line("s.shcl"), ns_cfg)
+		if (nr.status, nr.text, nr.path, nr.line, nr.message) != (SS.Good, "field: port\n", nd + "/s.shcl", 2, ""):
+			raise SystemExit(f"named good: {nr.status} {nr.path!r} {nr.line} {nr.message!r}")
+		ns_abs = nd + "/s.shcl"
+		nr = shcl.read_named_schema(ns_line(ns_abs), "cfg.shcl")
+		if nr.path != ns_abs or nr.status is not SS.Good or not nr.status:
+			raise SystemExit(f"named absolute: {nr.status} {nr.path!r}")
+		nr = shcl.read_named_schema("a: 1\n", ns_cfg)
+		if (nr.status, nr.path, nr.line) != (SS.NotFound, "", 0) or nr.status:
+			raise SystemExit(f"named no line: {nr.status}")
+		nr = shcl.read_named_schema("##    Schema\na: 1\n", ns_cfg)
+		if (nr.status, nr.path, nr.line) != (SS.Empty, "", 1):
+			raise SystemExit(f"named empty: {nr.status}")
+		nr = shcl.read_named_schema(ns_line("https://example.com/s.shcl"), ns_cfg)
+		if (nr.status, nr.path, nr.text) != (SS.Url, "https://example.com/s.shcl", "") or not nr.message:
+			raise SystemExit(f"named url: {nr.status} {nr.path!r}")
+		for ns_file in ("cfg.shcl", "-", ""):
+			nr = shcl.read_named_schema(ns_line("gone.shcl"), ns_file)
+			if (nr.status, nr.path) != (SS.FileNotFound, "./gone.shcl"):
+				raise SystemExit(f"named {ns_file!r}: {nr.status} {nr.path!r}")
+		nr = shcl.read_named_schema(ns_line("gone.shcl"), ns_cfg)
+		if nr.status is not SS.FileNotFound or not nr.message.startswith(nd + "/gone.shcl: "):
+			raise SystemExit(f"named gone: {nr.status} {nr.message!r}")
+
+		def ns_named(r: str) -> shcl.SchemaStatus:
+			return shcl.read_named_schema(ns_line(r), ns_cfg).status
+
+		ns_cases = [("sub", SS.IsDirectory), ("big.shcl", SS.TooLarge), ("bad.shcl", SS.Unreadable), ("s.shcl\0x", SS.Unreadable)]
+		if os.name == "nt":
+			ns_cases.append(("NUL", SS.NotRegular))
+			for ns_n in ("//host/share/s.shcl", "\\\\host\\share\\s.shcl", "\\??\\C:\\s.shcl"):
+				nr = shcl.read_named_schema(ns_line(ns_n), ns_cfg)
+				if (nr.status, nr.path) != (SS.NetworkPath, ns_n):
+					raise SystemExit(f"named {ns_n!r}: {nr.status} {nr.path!r}")
+		else:
+			os.mkfifo(nd + "/fifo")
+			ns_cases += [("/dev/null", SS.NotRegular), ("fifo", SS.NotRegular), ("//host/share/s.shcl", SS.FileNotFound)]
+		for ns_r, ns_want in ns_cases:
+			if ns_named(ns_r) is not ns_want:
+				raise SystemExit(f"named {ns_r!r}: {ns_named(ns_r)}, want {ns_want}")
+		if SS.FileNotFound.name != "FileNotFound" or SS.FileNotFound.value != 5:
+			raise SystemExit("named: names")
+
 	test_id_end()
 	print(f"conformance: {len(cases)} case(s) pass")
 	return 0

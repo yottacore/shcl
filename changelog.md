@@ -486,6 +486,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - C builds a schema in linear time.
 
+- `read_named_schema()` in every binding (Go `ReadNamedSchema`, C `shcl_read_named_schema`) reads the schema a config's Schema line names by `check`'s rules, and gives back its text or a `SchemaStatus` saying why not. `check` in all four CLIs goes through it.
+
 ## v2.0.0 - 2026-08-26
 
 The first major since 1.0.0. Two things change incompatibly, both listed under Changed: escapes now resolve in field names, so `"a\"b"` and `'a"b'` are one field where they used to be two; and the C++ veneer's `read_datetime` returns the structured value every other binding's does, with the textual form moving to `read_datetime_str`. Canonical output also moves for several shapes - in each case one where the old output lost something or would not settle - so a file reformatted by 2.0 can differ from the same file reformatted by 1.2. Go consumers update the import path to `github.com/jim-collier/shcl/source/go/v2`, and anyone who installed the Go CLI switches to the Rust binary, which is the only one distributed now - see Removed. Rust and Python consumers change a version constraint and nothing else.

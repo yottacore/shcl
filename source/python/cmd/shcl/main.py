@@ -1644,19 +1644,6 @@ def rewritten_lines(before, after):
 	return [i + 1 for i, (x, y) in enumerate(zip(b.split("\n"), after.split("\n"))) if x.rstrip("\r") != y.rstrip("\r")]
 
 
-def name_start(file):
-	# Where the file name starts in a path: after the last separator, or on
-	# windows after a drive with no separator (C:cfg.shcl). A backslash is a
-	# separator only on windows.
-	start = file.rfind("/") + 1
-	if os.name != "nt":
-		return start
-	start = max(start, file.rfind("\\") + 1)
-	if start == 0 and len(file) >= 2 and file[1] == ":" and file[0].isascii() and file[0].isalpha():
-		start = 2
-	return start
-
-
 def do_migrate(o):
 	# A 2.x file rewritten for the current rules. The rewrite is text to text;
 	# the load after it is for the diagnostics and the save gate, the same
@@ -2313,78 +2300,21 @@ def do_set(o):
 
 def schema_for(o, file, text):
 	"""The schema check validates against: --schema, else the one the file
-	names on its Schema line. A relative path there is read from the config
-	file's directory, the way an editor reads it. A URL is left to editors,
-	since a check that reads the network because of a line in a file is not
-	one to run unattended."""
+	names on its Schema line, read by the library's rules. A URL is left to
+	editors, since a check that reads the network because of a line in a file
+	is not one to run unattended. None when there is nothing to validate
+	against; an OSError is a schema that cannot be read."""
 	if o.schema is not None:
-		return o.schema
-	named = shcl.schema_ref(text)
-	if named is None:
+		return read_input(o.schema)
+	named = shcl.read_named_schema(text, file)
+	if named.status is shcl.SchemaStatus.Good:
+		return named.text
+	if named.status in (shcl.SchemaStatus.NotFound, shcl.SchemaStatus.Empty):
 		return None
-	if "://" in named:
-		sys.stderr.write("the file names its schema by URL (" + named + "), which check does not fetch; pass --schema=SCHEMA to validate against it\n")
+	if named.status is shcl.SchemaStatus.Url:
+		sys.stderr.write("the file names its schema by URL (" + named.path + "), which check does not fetch; pass --schema=SCHEMA to validate against it\n")
 		return None
-	# Two separators, or the NT prefix, name a share or a device on windows,
-	# and a line in a file someone else wrote must not reach another host.
-	if os.name == "nt" and len(named) >= 2 and ((named[0] in "/\\" and named[1] in "/\\") or named.startswith("\\??\\")):
-		raise OSError(f"{named}: a Schema line cannot name a network or device path")
-	c = named[0]
-	if c == "/" or (os.name == "nt" and (c == "\\" or (len(named) >= 2 and named[1] == ":" and c.isascii() and c.isalpha()))):
-		return named
-	start = 0 if file == "-" else name_start(file)
-	if start == 0:
-		return "./" + named
-	return file[:start] + named
-
-
-# The most a Schema line's file may hold. A regular file can still read
-# without end: the kernel's page map has size 0 and reads as hundreds of GiB.
-SCHEMA_LINE_MAX = 16 << 20
-
-
-def read_named_schema(path):
-	"""The schema a Schema line names. A line in a file someone else wrote must
-	not make an unattended check wait on a FIFO or read a device until memory
-	runs out, so only a regular file is read, and no more of it than
-	SCHEMA_LINE_MAX."""
-
-	def regular(st):
-		if stat.S_ISDIR(st.st_mode):
-			raise OSError(f"{path}: Is a directory")
-		if not stat.S_ISREG(st.st_mode):
-			raise OSError(f"{path}: not a regular file")
-
-	try:
-		# Asked before the open too, since opening a FIFO waits for a writer.
-		regular(os.stat(path))
-		# The path can turn into a FIFO between the stat and the open, so on
-		# POSIX the open does not wait, and the flag comes straight back off:
-		# only the open waits, and the fstat refuses a FIFO before any read.
-		no_wait = getattr(os, "O_NONBLOCK", 0)
-		fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0) | no_wait)
-		# Unbuffered fixed reads, since the page map refuses one that is not a
-		# multiple of 8. One read past the cap is what tells a file at it from
-		# one over it.
-		with open(fd, "rb", buffering=0) as f:
-			if no_wait:
-				os.set_blocking(fd, True)
-			regular(os.fstat(f.fileno()))
-			data = bytearray()
-			while chunk := f.read(1 << 16):
-				data += chunk
-				if len(data) > SCHEMA_LINE_MAX:
-					raise OSError(f"{path}: too large for a schema (over 16 MiB)")
-	except ValueError as e:
-		raise OSError(f"{path}: {e}") from e
-	except OSError as e:
-		if e.strerror is None:
-			raise
-		raise OSError(f"{path}: {e.strerror}") from e
-	try:
-		return data.decode("utf-8")
-	except UnicodeDecodeError as e:
-		raise ValueError(f"{path}: stream did not contain valid UTF-8") from e
+	raise OSError(named.message)
 
 
 def do_check(o):
@@ -2415,16 +2345,11 @@ def do_check(o):
 	# schema itself always loads at Standard (a program artifact); one that
 	# does not load cleanly is a single V099 schema fault.
 	try:
-		schema_file = schema_for(o, o.args[0], text)
-	except OSError as e:
+		stext = schema_for(o, o.args[0], text)
+	except (OSError, ValueError) as e:
 		sys.stderr.write(str(e) + "\n")
 		return EXIT_IO
-	if schema_file is not None:
-		try:
-			stext = read_input(schema_file) if o.schema is not None else read_named_schema(schema_file)
-		except (OSError, ValueError) as e:
-			sys.stderr.write(str(e) + "\n")
-			return EXIT_IO
+	if stext is not None:
 		sdoc = shcl.Document.parse(stext)
 		if any(sd.severity == shcl.Severity.Error for sd in sdoc.diagnostics()):
 			for sd in sdoc.diagnostics():

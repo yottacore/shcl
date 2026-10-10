@@ -56,6 +56,7 @@ __all__ = [
 	"MAX_DEPTH",
 	"MIGRATED_LINE",
 	"Migration",
+	"NamedSchema",
 	"Piece",
 	"Quote",
 	"RULES_CURRENT",
@@ -66,6 +67,7 @@ __all__ = [
 	"SaveError",
 	"SaveFailed",
 	"SaveRefused",
+	"SchemaStatus",
 	"SegTok",
 	"SetStatus",
 	"Severity",
@@ -93,6 +95,7 @@ __all__ = [
 	"quote_segment",
 	"read_file",
 	"read_format_version",
+	"read_named_schema",
 	"read_schema_ref",
 	"schema_ref",
 	"suppress_declared_reopens",
@@ -9211,6 +9214,139 @@ def read_file(path: str | os.PathLike[str], max_bytes: int = 0) -> tuple[str | N
 		return data.decode("utf-8"), FileStatus.Clean
 	except UnicodeDecodeError:
 		return None, FileStatus.Unreadable
+
+
+class SchemaStatus(Enum):
+	"""What read_named_schema() found. NotFound and Empty are
+	read_schema_ref()'s answers; the rest say why a named schema was not
+	read. New values go on the end; every binding numbers them in this order.
+
+	Only Good is true, as with WriteStatus."""
+	Good = 0           # the schema's text was read
+	NotFound = 1       # no line names a schema
+	Empty = 2          # a Schema line with nothing after the word
+	Url = 3            # the line names a URL, which is not fetched
+	NetworkPath = 4    # on windows, a path starting with two slashes or backslashes, or with \??\, which names a network share or a device
+	FileNotFound = 5   # nothing at the path
+	IsDirectory = 6    # the path names a directory
+	NotRegular = 7     # something at the path that is not a regular file, such as a FIFO or a device
+	TooLarge = 8       # a file over 16 MiB
+	Unreadable = 9     # no permission, text that is not UTF-8, or another read error
+
+	def __bool__(self) -> bool:
+		return self is SchemaStatus.Good
+
+
+class NamedSchema:
+	"""What read_named_schema() gives back. text is the schema's text when
+	status is Good, else empty. path is where the line points: the path
+	resolved from the config file's directory, or the URL or network path as
+	written; empty when no line names one. line is the Schema line's number,
+	0 with none. message says why nothing was read, naming the path, and is
+	empty for Good, NotFound and Empty."""
+
+	__slots__ = ("status", "text", "path", "line", "message")
+
+	def __init__(self, status: SchemaStatus, text: str = "", path: str = "", line: int = 0, message: str = "") -> None:
+		self.status = status
+		self.text = text
+		self.path = path
+		self.line = line
+		self.message = message
+
+
+# The most a Schema line's file may hold. A regular file can still read
+# without end: the kernel's page map has size 0 and reads as hundreds of GiB.
+_SCHEMA_LINE_MAX = 16 << 20
+
+
+def read_named_schema(text: str, file: str) -> NamedSchema:
+	"""The schema a config file names on its Schema line, read the way
+	`check` reads it. text is the config's text and file its path, which only
+	says where a relative path starts: the config file's directory, or the
+	working directory when file has none, such as "-" for stdin. A URL is not
+	fetched, and on windows neither is a network share or a device path. Only
+	a regular file is read, and none over 16 MiB, so a line in a file someone
+	else wrote cannot make a program wait on a FIFO or read a device until
+	memory runs out."""
+	r = read_schema_ref(text)
+	out = NamedSchema(SchemaStatus.NotFound, line=r.line)
+	if r.status is Status.Empty:
+		out.status = SchemaStatus.Empty
+		return out
+	if r.status is not Status.Good:
+		return out
+	named = r.value
+	if "://" in named:
+		out.status = SchemaStatus.Url
+		out.message = f"{named}: a schema named by URL is not fetched"
+		out.path = named
+		return out
+	# Two separators, or the NT prefix, name a share or a device on windows,
+	# and a line in a file someone else wrote must not reach another host.
+	if os.name == "nt" and len(named) >= 2 and ((named[0] in "/\\" and named[1] in "/\\") or named.startswith("\\??\\")):
+		out.status = SchemaStatus.NetworkPath
+		out.message = f"{named}: a Schema line cannot name a network or device path"
+		out.path = named
+		return out
+	c = named[0]
+	if c == "/" or (os.name == "nt" and (c == "\\" or (len(named) >= 2 and named[1] == ":" and c.isascii() and c.isalpha()))):
+		out.path = named
+	else:
+		start = _file_name_start(file)
+		out.path = file[:start] + named if start else "./" + named
+	out.status, out.text, out.message = _read_schema_file(out.path)
+	return out
+
+
+def _read_schema_file(path: str) -> tuple[SchemaStatus, str, str]:
+	"""read_named_schema()'s read: only a regular file, and no more of it than
+	_SCHEMA_LINE_MAX. The status, the text, and why there is none."""
+	if _not_a_disk_file(path):
+		return SchemaStatus.NotRegular, "", f"{path}: not a regular file"
+
+	def regular(st: os.stat_result) -> tuple[SchemaStatus, str, str] | None:
+		if stat.S_ISDIR(st.st_mode):
+			return SchemaStatus.IsDirectory, "", f"{path}: Is a directory"
+		if not stat.S_ISREG(st.st_mode):
+			return SchemaStatus.NotRegular, "", f"{path}: not a regular file"
+		return None
+
+	try:
+		# Asked before the open too, since opening a FIFO waits for a writer.
+		bad = regular(os.stat(path))
+		if bad:
+			return bad
+		# The path can turn into a FIFO between the stat and the open, so on
+		# POSIX the open does not wait, and the flag comes straight back off:
+		# only the open waits, and the fstat refuses a FIFO before any read.
+		no_wait = getattr(os, "O_NONBLOCK", 0)
+		fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0) | no_wait)
+		# Unbuffered fixed reads, since the page map refuses one that is not a
+		# multiple of 8. One read past the cap is what tells a file at it from
+		# one over it.
+		with open(fd, "rb", buffering=0) as f:
+			if no_wait:
+				os.set_blocking(fd, True)
+			bad = regular(os.fstat(f.fileno()))
+			if bad:
+				return bad
+			data = bytearray()
+			while chunk := f.read(1 << 16):
+				data += chunk
+				if len(data) > _SCHEMA_LINE_MAX:
+					return SchemaStatus.TooLarge, "", f"{path}: too large for a schema (over 16 MiB)"
+	except FileNotFoundError as e:
+		return SchemaStatus.FileNotFound, "", f"{path}: {e.strerror or e}"
+	except ValueError as e:
+		# A NUL in the path raises this rather than an OSError.
+		return SchemaStatus.Unreadable, "", f"{path}: {e}"
+	except OSError as e:
+		return SchemaStatus.Unreadable, "", f"{path}: {e.strerror or e}"
+	try:
+		return SchemaStatus.Good, data.decode("utf-8"), ""
+	except UnicodeDecodeError:
+		return SchemaStatus.Unreadable, "", f"{path}: stream did not contain valid UTF-8"
 
 
 def _not_a_disk_file(path):

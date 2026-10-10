@@ -5251,6 +5251,111 @@ int main(int argc, char **argv) {
 	}
 #endif
 
+	/* shcl_read_named_schema reads a Schema line by check's rules: from the
+	   config's directory, or the working directory when the path has none; a
+	   URL is never fetched; only a regular file is read, and none over 16 MiB.
+	   The CLI's check is this call, so its rows in cli-regress pin the same
+	   rules. Same fixture in every runner. */
+	test_id("EsJZ108", "read_named_schema_follows_check_rules");
+	{
+		char nd[256], ncfg[300], np[400], nline[600];
+		snprintf(nd, sizeof nd, "%s/shcl-namedschema-%ld", tmp_root(), (long)getpid());
+		snprintf(ncfg, sizeof ncfg, "%s/cfg.shcl", nd);
+#ifdef _WIN32
+		if (_mkdir(nd) != 0) fail("named_schema", "mkdir failed");
+		snprintf(np, sizeof np, "%s/sub", nd);
+		if (_mkdir(np) != 0) fail("named_schema", "mkdir failed");
+#else
+		if (mkdir(nd, 0700) != 0) fail("named_schema", "mkdir failed");
+		snprintf(np, sizeof np, "%s/sub", nd);
+		if (mkdir(np, 0700) != 0) fail("named_schema", "mkdir failed");
+#endif
+		snprintf(np, sizeof np, "%s/s.shcl", nd); put_file(np, "field: port\n");
+		snprintf(np, sizeof np, "%s/bad.shcl", nd); put_file(np, "a: \xff\n");
+		snprintf(np, sizeof np, "%s/big.shcl", nd);
+		{
+			size_t bn = ((size_t)16 << 20) + 1;
+			char *big = (char *)malloc(bn);
+			FILE *bf = fopen(np, "wb");
+			if (big && bf) { memset(big, 'a', bn); fwrite(big, 1, bn, bf); }
+			else fail("named_schema", "big file");
+			if (bf) fclose(bf);
+			free(big);
+		}
+#define NAMED(ref, file) (snprintf(nline, sizeof nline, "a: 1\n##    Schema   %s\n", (ref)), shcl_read_named_schema(nline, strlen(nline), (file)))
+		shcl_named_schema nr = NAMED("s.shcl", ncfg);
+		snprintf(np, sizeof np, "%s/s.shcl", nd);
+		if (nr.status != SHCL_SCHEMA_GOOD || strcmp(nr.text, "field: port\n") != 0 || nr.len != 12 || strcmp(nr.path, np) != 0
+		    || nr.path_len != strlen(np) || nr.line != 2 || nr.message_len != 0 || nr.message[0])
+			fail("named_schema", "good");
+		shcl_named_schema_free(&nr);
+		shcl_named_schema_free(&nr);
+		nr = NAMED(np, "cfg.shcl");
+		if (nr.status != SHCL_SCHEMA_GOOD || strcmp(nr.path, np) != 0) fail("named_schema", "absolute");
+		shcl_named_schema_free(&nr);
+
+		nr = shcl_read_named_schema("a: 1\n", 5, ncfg);
+		if (nr.status != SHCL_SCHEMA_NOT_FOUND || nr.path_len != 0 || nr.line != 0 || !nr.text || !nr.message) fail("named_schema", "no line");
+		shcl_named_schema_free(&nr);
+		nr = shcl_read_named_schema("##    Schema\na: 1\n", 18, ncfg);
+		if (nr.status != SHCL_SCHEMA_EMPTY || nr.path_len != 0 || nr.line != 1) fail("named_schema", "empty");
+		shcl_named_schema_free(&nr);
+
+		nr = NAMED("https://example.com/s.shcl", ncfg);
+		if (nr.status != SHCL_SCHEMA_URL || strcmp(nr.path, "https://example.com/s.shcl") != 0 || nr.len != 0 || !nr.message_len)
+			fail("named_schema", "url");
+		shcl_named_schema_free(&nr);
+
+		const char *nfiles[] = {"cfg.shcl", "-", "", NULL};
+		for (size_t i = 0; i < 4; i++) {
+			nr = NAMED("gone.shcl", nfiles[i]);
+			if (nr.status != SHCL_SCHEMA_FILE_NOT_FOUND || strcmp(nr.path, "./gone.shcl") != 0) fail("named_schema", "relative to the working directory");
+			shcl_named_schema_free(&nr);
+		}
+		nr = NAMED("gone.shcl", ncfg);
+		snprintf(np, sizeof np, "%s/gone.shcl: ", nd);
+		if (nr.status != SHCL_SCHEMA_FILE_NOT_FOUND || strncmp(nr.message, np, strlen(np)) != 0) fail("named_schema", "gone");
+		shcl_named_schema_free(&nr);
+
+		struct { const char *ref; shcl_schema_status want; } ncases[] = {
+			{"sub", SHCL_SCHEMA_IS_DIRECTORY}, {"big.shcl", SHCL_SCHEMA_TOO_LARGE}, {"bad.shcl", SHCL_SCHEMA_UNREADABLE},
+#ifdef _WIN32
+			{"NUL", SHCL_SCHEMA_NOT_REGULAR},
+			{"//host/share/s.shcl", SHCL_SCHEMA_NETWORK_PATH}, {"\\\\host\\share\\s.shcl", SHCL_SCHEMA_NETWORK_PATH},
+			{"\\??\\C:\\s.shcl", SHCL_SCHEMA_NETWORK_PATH},
+#else
+			{"/dev/null", SHCL_SCHEMA_NOT_REGULAR}, {"fifo", SHCL_SCHEMA_NOT_REGULAR}, {"//host/share/s.shcl", SHCL_SCHEMA_FILE_NOT_FOUND},
+#endif
+		};
+#ifndef _WIN32
+		snprintf(np, sizeof np, "%s/fifo", nd);
+		if (mkfifo(np, 0600) != 0) fail("named_schema", "mkfifo failed");
+#endif
+		for (size_t i = 0; i < sizeof ncases / sizeof *ncases; i++) {
+			nr = NAMED(ncases[i].ref, ncfg);
+			if (nr.status != ncases[i].want) { fail("named_schema", ncases[i].ref); fprintf(stderr, "  got %s\n", shcl_schema_status_name(nr.status)); }
+#ifdef _WIN32
+			if (ncases[i].want == SHCL_SCHEMA_NETWORK_PATH && strcmp(nr.path, ncases[i].ref) != 0) fail("named_schema", "network path as written");
+#endif
+			shcl_named_schema_free(&nr);
+		}
+		/* A path that comes off of a file can hold a NUL, which no open can take. */
+		static const char nul_line[] = "##    Schema   s.shcl\0x\n";
+		nr = shcl_read_named_schema(nul_line, sizeof nul_line - 1, ncfg);
+		if (nr.status != SHCL_SCHEMA_UNREADABLE || nr.path_len != strlen(nd) + 9 || nr.message_len <= nr.path_len) fail("named_schema", "nul");
+		shcl_named_schema_free(&nr);
+#undef NAMED
+		if (strcmp(shcl_schema_status_name(SHCL_SCHEMA_FILE_NOT_FOUND), "FileNotFound") != 0) fail("named_schema", "names");
+		const char *nnames[] = {"s.shcl", "bad.shcl", "big.shcl", "fifo"};
+		for (size_t i = 0; i < 4; i++) { snprintf(np, sizeof np, "%s/%s", nd, nnames[i]); remove(np); }
+		snprintf(np, sizeof np, "%s/sub", nd);
+#ifdef _WIN32
+		_rmdir(np); _rmdir(nd);
+#else
+		rmdir(np); rmdir(nd);
+#endif
+	}
+
 	test_id_end();
 	if (nfail) { fprintf(stderr, "conformance: %d failure(s)\n", nfail); return 1; }
 	printf("conformance: %zu case(s) pass\n", nn);

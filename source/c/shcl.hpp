@@ -307,6 +307,31 @@ std::pair<std::string, FileStatus> read_file(const std::string &path, std::size_
 // The temp-file-and-rename write the saves go through, for bytes that are not
 // a document. Ok, or why it failed.
 WriteStatus write_file_atomic(const std::string &path, std::string_view data);
+// What read_named_schema() found. NotFound and Empty are read_schema_ref()'s
+// answers; the rest say why a named schema was not read. NetworkPath is on
+// windows only: a path starting with two slashes or backslashes, or with
+// `\??\`. TooLarge is a file over 16 MiB. The order is every binding's.
+enum class SchemaStatus { Good, NotFound, Empty, Url, NetworkPath, FileNotFound, IsDirectory, NotRegular, TooLarge, Unreadable };
+const char *to_string(SchemaStatus s);
+// What read_named_schema() gives back. text is the schema's text when Good.
+// path is where the line points: the path resolved from the config file's
+// directory, or the URL or network path as written; empty when no line names
+// one. line is the Schema line's number, 0 with none. message says why
+// nothing was read, naming the path, and is empty for Good, NotFound and
+// Empty.
+struct NamedSchema {
+	SchemaStatus status{};
+	std::string text{};
+	std::string path{};
+	std::size_t line{};
+	std::string message{};
+};
+// The schema a config file names on its Schema line, read the way `check`
+// reads it. file is the config's path, which only says where a relative path
+// starts: its directory, or the working directory when it has none, such as
+// "-" for stdin. A URL is not fetched, and on windows neither is a network
+// share or a device path. Only a regular file is read, and none over 16 MiB.
+NamedSchema read_named_schema(std::string_view text, const std::string &file);
 // Why upgrade_file or write_backup wrote nothing, or not all of it. message
 // is worded as the other bindings word the error; count is
 // Upgrade::ambiguous, for Ambiguous; status says why, for Io.
@@ -694,6 +719,12 @@ static_assert(static_cast<int>(WriteStatus::Ok) == SHCL_WRITE_OK && static_cast<
 	&& static_cast<int>(WriteStatus::DiskFull) == SHCL_WRITE_DISK_FULL && static_cast<int>(WriteStatus::ReadOnly) == SHCL_WRITE_READ_ONLY
 	&& static_cast<int>(WriteStatus::IsDirectory) == SHCL_WRITE_IS_DIRECTORY && static_cast<int>(WriteStatus::NotRegular) == SHCL_WRITE_NOT_REGULAR
 	&& static_cast<int>(WriteStatus::Other) == SHCL_WRITE_OTHER, "WriteStatus drifted from shcl_write_status");
+static_assert(static_cast<int>(SchemaStatus::Good) == SHCL_SCHEMA_GOOD && static_cast<int>(SchemaStatus::NotFound) == SHCL_SCHEMA_NOT_FOUND
+	&& static_cast<int>(SchemaStatus::Empty) == SHCL_SCHEMA_EMPTY && static_cast<int>(SchemaStatus::Url) == SHCL_SCHEMA_URL
+	&& static_cast<int>(SchemaStatus::NetworkPath) == SHCL_SCHEMA_NETWORK_PATH && static_cast<int>(SchemaStatus::FileNotFound) == SHCL_SCHEMA_FILE_NOT_FOUND
+	&& static_cast<int>(SchemaStatus::IsDirectory) == SHCL_SCHEMA_IS_DIRECTORY && static_cast<int>(SchemaStatus::NotRegular) == SHCL_SCHEMA_NOT_REGULAR
+	&& static_cast<int>(SchemaStatus::TooLarge) == SHCL_SCHEMA_TOO_LARGE && static_cast<int>(SchemaStatus::Unreadable) == SHCL_SCHEMA_UNREADABLE,
+	"SchemaStatus drifted from shcl_schema_status");
 // The C enum puts OK first, so each kind sits one past its C value.
 static_assert(static_cast<int>(UpgradeErrorKind::NotFound) + 1 == SHCL_UPGRADE_NOT_FOUND && static_cast<int>(UpgradeErrorKind::Ambiguous) + 1 == SHCL_UPGRADE_AMBIGUOUS
 	&& static_cast<int>(UpgradeErrorKind::BackupTaken) + 1 == SHCL_UPGRADE_BACKUP_TAKEN && static_cast<int>(UpgradeErrorKind::Io) + 1 == SHCL_UPGRADE_IO, "UpgradeErrorKind drifted from shcl_upgrade_error");
@@ -1000,6 +1031,16 @@ WriteStatus write_file_atomic(const std::string &path, std::string_view data) {
 	shcl_write_status st = SHCL_WRITE_OTHER;
 	shcl_write_file_atomic(path.c_str(), data.data(), data.size(), &st);
 	return static_cast<WriteStatus>(st);
+}
+
+const char *to_string(SchemaStatus s) { return shcl_schema_status_name(static_cast<shcl_schema_status>(s)); }
+
+NamedSchema read_named_schema(std::string_view text, const std::string &file) {
+	shcl_named_schema c = shcl_read_named_schema(text.data(), text.size(), file.c_str());
+	NamedSchema out{static_cast<SchemaStatus>(c.status), std::string(c.text, c.len), std::string(c.path, c.path_len), c.line,
+		std::string(c.message, c.message_len)};
+	shcl_named_schema_free(&c);
+	return out;
 }
 
 std::pair<std::string, std::optional<UpgradeError>> write_backup(const std::string &file, std::string_view text, std::uint32_t format) {

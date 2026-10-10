@@ -8106,6 +8106,237 @@ func ReadFile(path string, maxBytes int) (string, FileStatus) {
 	return string(data), FileClean
 }
 
+// SchemaStatus is what ReadNamedSchema found. SchemaNotFound and SchemaEmpty
+// are ReadSchemaRef's answers; the rest say why a named schema was not read.
+// Every value has the Schema prefix, as WriteStatus's have Write. New values
+// go on the end; the other bindings number them in this order.
+type SchemaStatus int
+
+const (
+	// SchemaGood: the schema's text was read.
+	SchemaGood SchemaStatus = iota
+	// SchemaNotFound: no line names a schema.
+	SchemaNotFound
+	// SchemaEmpty: a Schema line with nothing after the word.
+	SchemaEmpty
+	// SchemaURL: the line names a URL, which is not fetched.
+	SchemaURL
+	// SchemaNetworkPath: on windows, a path starting with two slashes or
+	// backslashes, or with `\??\`, which names a network share or a device.
+	SchemaNetworkPath
+	// SchemaFileNotFound: nothing at the path.
+	SchemaFileNotFound
+	// SchemaIsDirectory: the path names a directory.
+	SchemaIsDirectory
+	// SchemaNotRegular: something at the path that is not a regular file,
+	// such as a FIFO or a device.
+	SchemaNotRegular
+	// SchemaTooLarge: a file over 16 MiB.
+	SchemaTooLarge
+	// SchemaUnreadable: the file could not be read: no permission, text that
+	// is not UTF-8, or another read error.
+	SchemaUnreadable
+)
+
+// String gives the names the other bindings print, without the prefix.
+func (s SchemaStatus) String() string {
+	switch s {
+	case SchemaGood:
+		return "Good"
+	case SchemaNotFound:
+		return "NotFound"
+	case SchemaEmpty:
+		return "Empty"
+	case SchemaURL:
+		return "Url"
+	case SchemaNetworkPath:
+		return "NetworkPath"
+	case SchemaFileNotFound:
+		return "FileNotFound"
+	case SchemaIsDirectory:
+		return "IsDirectory"
+	case SchemaNotRegular:
+		return "NotRegular"
+	case SchemaTooLarge:
+		return "TooLarge"
+	case SchemaUnreadable:
+		return "Unreadable"
+	}
+	return "SchemaStatus(" + strconv.Itoa(int(s)) + ")"
+}
+
+// NamedSchema is what ReadNamedSchema gives back. Text is the schema's text
+// when Status is SchemaGood, else empty. Path is where the line points: the
+// path resolved from the config file's directory, or the URL or network path
+// as written; empty when no line names one. Line is the Schema line's number,
+// 0 with none. Message says why nothing was read, naming the path, and is
+// empty for SchemaGood, SchemaNotFound and SchemaEmpty.
+type NamedSchema struct {
+	Status  SchemaStatus
+	Text    string
+	Path    string
+	Line    int
+	Message string
+}
+
+// schemaLineMax is the most a Schema line's file may hold. A regular file can
+// still read without end: the kernel's page map has size 0 and reads as
+// hundreds of GiB.
+const schemaLineMax = 16 << 20
+
+// ReadNamedSchema is the schema a config file names on its Schema line, read
+// the way `check` reads it. text is the config's text and file its path,
+// which only says where a relative path starts: the config file's directory,
+// or the working directory when file has none, such as "-" for stdin. A URL
+// is not fetched, and on windows neither is a network share or a device path.
+// Only a regular file is read, and none over 16 MiB, so a line in a file
+// someone else wrote cannot make a program wait on a FIFO or read a device
+// until memory runs out.
+func ReadNamedSchema(text, file string) NamedSchema {
+	r := ReadSchemaRef(text)
+	out := NamedSchema{Status: SchemaNotFound, Line: r.Line}
+	switch r.Status {
+	case Good:
+	case Empty:
+		out.Status = SchemaEmpty
+		return out
+	default:
+		return out
+	}
+	named := r.Value
+	if strings.Contains(named, "://") {
+		out.Status = SchemaURL
+		out.Message = named + ": a schema named by URL is not fetched"
+		out.Path = named
+		return out
+	}
+	// Two separators, or the NT prefix, name a share or a device on windows,
+	// and a line in a file someone else wrote must not reach another host.
+	isSep := func(c byte) bool { return c == '/' || c == '\\' }
+	if runtime.GOOS == "windows" && len(named) >= 2 && ((isSep(named[0]) && isSep(named[1])) || strings.HasPrefix(named, `\??\`)) {
+		out.Status = SchemaNetworkPath
+		out.Message = named + ": a Schema line cannot name a network or device path"
+		out.Path = named
+		return out
+	}
+	absolute := named[0] == '/' || (runtime.GOOS == "windows" && (named[0] == '\\' ||
+		(len(named) >= 2 && named[1] == ':' && (named[0]|0x20) >= 'a' && (named[0]|0x20) <= 'z')))
+	switch start := fileNameStart(file); {
+	case absolute:
+		out.Path = named
+	case start == 0:
+		out.Path = "./" + named
+	default:
+		out.Path = file[:start] + named
+	}
+	t, status, err := readSchemaFile(out.Path)
+	if err != nil {
+		out.Status = status
+		out.Message = err.Error()
+		return out
+	}
+	out.Status = SchemaGood
+	out.Text = t
+	return out
+}
+
+// openNoWait opens a Schema line's file. The path can turn into a FIFO between
+// the stat and the open, and opening a FIFO waits for a writer. So off windows
+// the open does not wait, and the flag comes straight back off: only the open
+// waits, and the caller's fstat refuses a FIFO before any read.
+func openNoWait(path string) (*os.File, error) {
+	if runtime.GOOS == "windows" {
+		return os.Open(path)
+	}
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	rc, err := f.SyscallConn()
+	if err == nil {
+		if cerr := rc.Control(func(fd uintptr) { err = setBlocking(syscall.SetNonblock, fd) }); cerr != nil {
+			err = cerr
+		}
+	}
+	if err != nil {
+		_ = f.Close() // nothing was read, so nothing is lost
+		return nil, &os.PathError{Op: "open", Path: path, Err: err}
+	}
+	return f, nil
+}
+
+// setBlocking clears the flag. syscall.SetNonblock takes an int on POSIX and
+// a Handle on windows, and the type parameter is what lets shcl.go build for
+// both without a file per platform.
+func setBlocking[T ~int | ~uintptr](set func(T, bool) error, fd uintptr) error {
+	return set(T(fd), false)
+}
+
+// readSchemaFile is ReadNamedSchema's read: only a regular file, and no more
+// of it than schemaLineMax.
+func readSchemaFile(path string) (string, SchemaStatus, error) {
+	if notADiskFile(path) {
+		return "", SchemaNotRegular, fmt.Errorf("%s: not a regular file", path)
+	}
+	failed := func(err error) (SchemaStatus, error) {
+		status := SchemaUnreadable
+		if errors.Is(err, os.ErrNotExist) {
+			status = SchemaFileNotFound
+		}
+		var pe *os.PathError
+		if errors.As(err, &pe) {
+			return status, fmt.Errorf("%s: %w", path, pe.Err)
+		}
+		return status, fmt.Errorf("%s: %w", path, err)
+	}
+	regular := func(fi os.FileInfo, err error) (SchemaStatus, error) {
+		switch {
+		case err != nil:
+			return failed(err)
+		case fi.IsDir():
+			return SchemaIsDirectory, fmt.Errorf("%s: Is a directory", path)
+		case !fi.Mode().IsRegular():
+			return SchemaNotRegular, fmt.Errorf("%s: not a regular file", path)
+		}
+		return SchemaGood, nil
+	}
+	// Asked before the open too, since opening a FIFO waits for a writer.
+	if status, err := regular(os.Stat(path)); err != nil {
+		return "", status, err
+	}
+	f, err := openNoWait(path)
+	if err != nil {
+		status, ferr := failed(err)
+		return "", status, ferr
+	}
+	defer f.Close()
+	if status, err := regular(f.Stat()); err != nil {
+		return "", status, err
+	}
+	// Fixed reads, since the page map refuses one that is not a multiple of 8.
+	// One read past the cap is what tells a file at it from one over it.
+	var b []byte
+	chunk := make([]byte, 1<<16)
+	for {
+		n, err := f.Read(chunk)
+		b = append(b, chunk[:n]...)
+		if len(b) > schemaLineMax {
+			return "", SchemaTooLarge, fmt.Errorf("%s: too large for a schema (over 16 MiB)", path)
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			status, ferr := failed(err)
+			return "", status, ferr
+		}
+	}
+	if !utf8.Valid(b) {
+		return "", SchemaUnreadable, fmt.Errorf("%s: stream did not contain valid UTF-8", path)
+	}
+	return string(b), SchemaGood, nil
+}
+
 // WriteFileAtomic is the file tier's write mechanism (also what the CLI's
 // `--write` uses): a temp file in the same dir, then a rename over the
 // target, so an interrupted write can never truncate the config it rewrites.

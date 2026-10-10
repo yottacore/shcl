@@ -36,6 +36,8 @@ if TYPE_CHECKING:
 		assert_type(d.try_clear_comments("a").value, int)
 		assert_type(shcl.read_format_version("").value, int)
 		assert_type(shcl.read_schema_ref("").value, str)
+		assert_type(shcl.read_named_schema("", "").status, shcl.SchemaStatus)
+		assert_type(shcl.read_named_schema("", "").text, str)
 		assert_type(d.set_int("a", 1), shcl.SetStatus)
 		assert_type(d.set_comment("a", "c"), shcl.SetStatus)
 		assert_type(d.set_literal_default("a", "1"), shcl.SetStatus)
