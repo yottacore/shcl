@@ -366,7 +366,7 @@ fn mutated_inputs_never_panic_and_format_is_fixpoint() {
 		// none, and the CLI refuses that output at 7.
 		for from_v2 in [true, false] {
 			let m = migrate(&text, from_v2).text;
-			if !format_version(&m).is_some_and(|v| v >= FORMAT_MAJOR) {
+			if format_version(&m).is_none_or(|v| v < FORMAT_MAJOR) {
 				continue;
 			}
 			assert_eq!(
