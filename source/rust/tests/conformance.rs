@@ -3007,6 +3007,32 @@ fn a_merged_list_joins_an_empty_field_past_a_comment() {
 	}
 }
 
+/// A list that joins an empty binding brings its fields, and the binding's
+/// own kept line inside its block is written after them. A merge left it
+/// filed inside the block, so a remove of the last field wrote it before the
+/// kept line among the items, and a reload after it (2026100914525821).
+#[test]
+fn a_joined_list_files_the_bindings_lines_like_a_reload() {
+	let _id = test_id("EsFs76t");
+	let mut doc = Document::parse("srv:\n\t[\n");
+	doc.merge(&Document::parse("srv:\n\t- 1\n\t*\n\tb: 1\n"));
+	let text = doc.to_canonical();
+	assert_eq!(text, "srv:\n\t- 1\n\t*\n\tb: 1\n\t[\n");
+	let mut back = Document::parse(&text);
+	assert_eq!(doc.remove("srv.b"), 1);
+	assert_eq!(back.remove("srv.b"), 1);
+	assert_eq!(doc.to_canonical(), "srv:\n\t- 1\n\t*\n\t[\n");
+	assert_eq!(back.to_canonical(), doc.to_canonical());
+	// The write side's join, when a remove empties the binding.
+	let mut doc = Document::parse("srv:\n\tx: 1\n\t[\n");
+	doc.merge(&Document::parse("srv:\n\t- 1\n\t*\n\tb: 1\n"));
+	assert_eq!(doc.remove("srv.x"), 1);
+	let mut back = Document::parse(&doc.to_canonical());
+	assert_eq!(doc.remove("srv.b"), 1);
+	assert_eq!(back.remove("srv.b"), 1);
+	assert_eq!(back.to_canonical(), doc.to_canonical());
+}
+
 /// The remove twin: the merge without the gap builds the list no text loads
 /// back, after a binding with a field. A remove that takes that field joins
 /// the list, and one that takes the list's field puts it in brackets, as a

@@ -4527,6 +4527,17 @@ static void bracket(shcl_doc *d, ShclNode *nd) {
 	if (!nd->children.len && (nd->star_list || nd->trivia)) unstack(d, nd);
 }
 
+/* A block's inside comments go to its last child's own, where a reload
+   files them. A no-op with no children. */
+static void settle_inside(shcl_doc *d, size_t n) {
+	ShclNode *nd = &NODE(d, n);
+	if (!nd->children.len || !nd->trivia || !nd->trivia->inside.len) return;
+	ShclArena *a = &d->arena;
+	ShclTrivia *kt = triv_mut(a, &NODE(d, nd->children.data[nd->children.len - 1]));
+	for (size_t k = 0; k < nd->trivia->inside.len; k++) ShclVecLead_push(a, &kt->after, nd->trivia->inside.data[k]);
+	nd->trivia->inside.len = 0;
+}
+
 /* A list after an empty binding of its name, which a stacked header would
    join on a reload. In brackets when it can be. A list with fields under it
    cannot, so it joins that binding here, as a reload joins it, when that
@@ -4540,6 +4551,10 @@ static int fold_list_into_empty(shcl_doc *d, size_t empty, size_t list) {
 	NODE(d, list).value = v_empty();
 	NODE(d, empty).star_list = 1;
 	fold_node_into(d, empty, list);
+	/* The binding's lines inside its block now follow the list's fields,
+	   where a reload files them. No merge or remove settles this block
+	   after the join. */
+	settle_inside(d, empty);
 	return 1;
 }
 
@@ -4595,7 +4610,6 @@ static int settle_fence_trailing(shcl_doc *d, size_t n) {
    only a full pass looks for one. */
 static void settle_pairs(shcl_doc *d, size_t n, size_t from);
 static int settle_block(shcl_doc *d, size_t n, size_t from) {
-	ShclArena *a = &d->arena;
 	if (!NODE(d, n).children.len) return 0;
 	int joined = from <= 1 && settle_fence_trailing(d, n);
 	settle_pairs(d, n, from);
@@ -4606,13 +4620,7 @@ static int settle_block(shcl_doc *d, size_t n, size_t from) {
 		settle_pairs(d, n, 1);
 	}
 	/* After the join, which can take the last child. */
-	ShclNode *nd = &NODE(d, n);
-	if (!nd->children.len) return joined;
-	if (nd->trivia && nd->trivia->inside.len) {
-		ShclTrivia *kt = triv_mut(a, &NODE(d, nd->children.data[nd->children.len - 1]));
-		for (size_t k = 0; k < nd->trivia->inside.len; k++) ShclVecLead_push(a, &kt->after, nd->trivia->inside.data[k]);
-		nd->trivia->inside.len = 0;
-	}
+	settle_inside(d, n);
 	return joined;
 }
 

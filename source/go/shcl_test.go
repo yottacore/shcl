@@ -5065,6 +5065,44 @@ func TestAMergedListJoinsAnEmptyFieldPastAComment(t *testing.T) {
 	}
 }
 
+// A list that joins an empty binding brings its fields, and the binding's
+// own kept line inside its block is written after them. A merge left it
+// filed inside the block, so a remove of the last field wrote it before the
+// kept line among the items, and a reload after it (2026100914525821).
+func TestAJoinedListFilesTheBindingsLinesLikeAReload(t *testing.T) {
+	defer testID(t, "EsFs7xv")
+	layer := Parse("srv:\n\t- 1\n\t*\n\tb: 1\n")
+	doc := Parse("srv:\n\t[\n")
+	doc.Merge(layer)
+	text := doc.ToCanonical()
+	if want := "srv:\n\t- 1\n\t*\n\tb: 1\n\t[\n"; text != want {
+		t.Fatalf("merged %q, want %q", text, want)
+	}
+	back := Parse(text)
+	if doc.Remove("srv.b") != 1 || back.Remove("srv.b") != 1 {
+		t.Fatal("remove srv.b")
+	}
+	if got, want := doc.ToCanonical(), "srv:\n\t- 1\n\t*\n\t[\n"; got != want {
+		t.Fatalf("removed %q, want %q", got, want)
+	}
+	if back.ToCanonical() != doc.ToCanonical() {
+		t.Fatalf("reload %q, document %q", back.ToCanonical(), doc.ToCanonical())
+	}
+	// The write side's join, when a remove empties the binding.
+	doc = Parse("srv:\n\tx: 1\n\t[\n")
+	doc.Merge(layer)
+	if doc.Remove("srv.x") != 1 {
+		t.Fatal("remove srv.x")
+	}
+	back = Parse(doc.ToCanonical())
+	if doc.Remove("srv.b") != 1 || back.Remove("srv.b") != 1 {
+		t.Fatal("remove srv.b after the join")
+	}
+	if back.ToCanonical() != doc.ToCanonical() {
+		t.Fatalf("after the join: reload %q, document %q", back.ToCanonical(), doc.ToCanonical())
+	}
+}
+
 // The remove twin: the merge without the gap builds the list no text loads
 // back, after a binding with a field. A remove that takes that field joins
 // the list, and one that takes the list's field puts it in brackets, as a
