@@ -2816,16 +2816,21 @@ def _v2_array_text(s, tok):
 			continue
 		if len(out) > 1:
 			out.append(", ")
-		raw = s[p.start:p.end].decode("utf-8", "surrogatepass")
-		quoted = p.quote is Quote.SINGLE or p.quote is Quote.DOUBLE
-		if quoted and _reads_same(s[p.start - 1:p.end + 1].decode("utf-8", "surrogatepass"), True, raw):
-			out.append(s[p.start - 1:p.end + 1].decode("utf-8", "surrogatepass"))
-		elif p.quote is Quote.NONE and not _needs_quotes(raw):
-			out.append(raw)
-		else:
-			out.append(_quote_text(raw))
+		out.append(_v2_element_text(s, p))
 	out.append("]")
 	return "".join(out)
+
+
+def _v2_element_text(s, p):
+	"""One 2.x element as the writer writes it, unless its quoted spelling
+	already reads the same."""
+	raw = s[p.start:p.end].decode("utf-8", "surrogatepass")
+	quoted = p.quote is Quote.SINGLE or p.quote is Quote.DOUBLE
+	if quoted and _reads_same(s[p.start - 1:p.end + 1].decode("utf-8", "surrogatepass"), True, raw):
+		return s[p.start - 1:p.end + 1].decode("utf-8", "surrogatepass")
+	if p.quote is Quote.NONE and not _needs_quotes(raw):
+		return raw
+	return _quote_text(raw)
 
 
 def _reads_clean_now(text, from_):
@@ -2998,9 +3003,16 @@ def _migrate_line(rest, tok, fence, st):
 				# A file that does not say it is 2.x could be a 3.0 one, where
 				# `a,b` is a string. `a, b` is an error there, so it is safe.
 				if st.from_v2 or not _reads_clean_now(rest, sep + 1):
+					kept = tok.element_count()
 					# Only empty slots, which 2.x dropped: an empty value.
-					if tok.element_count() == 0:
+					if kept == 0:
 						edits.append((sep + 1, tok.value[1], b""))
+					elif kept == 1:
+						# One left, which 2.x read as the plain value: `s,`
+						# is `s`, and joins a `k: s` beside it, which `[s]`
+						# would not.
+						p = next(p for p in tok.elements if p.quote is not Quote.NONE or p.end > p.start)
+						edits.append((tok.value[0], tok.value[1], _v2_element_text(s, p).encode("utf-8", "surrogatepass")))
 					else:
 						st.bracketed = True
 						edits.append((tok.value[0], tok.value[1], _v2_array_text(s, tok).encode("utf-8", "surrogatepass")))

@@ -3017,6 +3017,16 @@ static void value_edits(ShclArena *a, ShclStr text, const ShclTokens *tok, ShclV
 	}
 }
 
+/* One 2.x element as the writer writes it, unless its quoted spelling
+   already reads the same. */
+static ShclStr v2_element_text(ShclArena *a, ShclStr text, const ShclPiece *p) {
+	ShclStr raw = s_slice(text, p->start, p->end);
+	int quoted = piece_quoted(p->quote);
+	if (quoted && reads_same(a, s_slice(text, p->start - 1, p->end + 1), 1, raw)) return s_slice(text, p->start - 1, p->end + 1);
+	if (p->quote == SHCL_QUOTE_NONE && !needs_quotes(raw)) return raw;
+	return quote_text(a, raw);
+}
+
 /* A 2.x value with a comma in brackets, since 2.x read every comma as an
    array. Its empty elements go, as 2.x dropped them. Each element is written
    the way the writer writes one inside `[]`, unless its quoted spelling
@@ -3028,11 +3038,7 @@ static ShclStr v2_array_text(ShclArena *a, ShclStr text, const ShclTokens *tok) 
 		const ShclPiece *p = &tok->elements[i];
 		if (p->quote == SHCL_QUOTE_NONE && p->end <= p->start) continue;
 		if (out.len > 1) sb_puts(a, &out, ", ");
-		ShclStr raw = s_slice(text, p->start, p->end);
-		int quoted = piece_quoted(p->quote);
-		if (quoted && reads_same(a, s_slice(text, p->start - 1, p->end + 1), 1, raw)) sb_putS(a, &out, s_slice(text, p->start - 1, p->end + 1));
-		else if (p->quote == SHCL_QUOTE_NONE && !needs_quotes(raw)) sb_putS(a, &out, raw);
-		else sb_putS(a, &out, quote_text(a, raw));
+		sb_putS(a, &out, v2_element_text(a, text, p));
 	}
 	sb_putc(a, &out, ']');
 	return sb_S(&out);
@@ -3188,9 +3194,20 @@ static ShclStr migrate_line(ShclArena *ta, ShclArena *a, ShclStr rest, ShclToken
 				/* A file that does not say it is 2.x could be a 3.0 one, where
 				   `a,b` is a string. `a, b` is an error there, so it is safe. */
 				if (st->from_v2 || !reads_clean_now(a, rest, tok->sep + 1)) {
+					size_t kept = shcl_tokens_element_count(tok);
 					/* Only empty slots, which 2.x dropped: an empty value. */
-					if (shcl_tokens_element_count(tok) == 0) edit_push(a, &edits, tok->sep + 1, tok->value_end, s_empty());
-					else {
+					if (kept == 0) edit_push(a, &edits, tok->sep + 1, tok->value_end, s_empty());
+					else if (kept == 1) {
+						/* One left, which 2.x read as the plain value: `s,`
+						   is `s`, and joins a `k: s` beside it, which `[s]`
+						   would not. */
+						for (size_t i = 0; i < tok->nelem; i++) {
+							const ShclPiece *p = &tok->elements[i];
+							if (p->quote == SHCL_QUOTE_NONE && p->end <= p->start) continue;
+							edit_push(a, &edits, tok->value_start, tok->value_end, v2_element_text(a, rest, p));
+							break;
+						}
+					} else {
 						st->bracketed = 1;
 						edit_push(a, &edits, tok->value_start, tok->value_end, v2_array_text(a, rest, tok));
 					}

@@ -920,7 +920,7 @@ Most of the change is loud. A quote that never closes is `E017`, bracket text af
 
 One change is quiet. A backslash pair was an escape in 2.x and is text now, so `"C:\\work"` read as `C:\work` then and reads as `C:\\work` now. `migrate` leaves every backslash as written and adds no escape for it. A piece is written another way only where these rules would read its text as something else: `"say \"hi\""` becomes `'say \"hi\"'`, since the backslash no longer keeps the quote from ending the string.
 
-So is a comma list. 2.x read `a,b` and `a, b` both as arrays, and the current rules read `a,b` as one string. `migrate` writes either one in brackets, `[a, b]`, and drops an empty element, as 2.x did. In a file that does not say which rules wrote it, `a,b` is left as written and asks for `--from-2x`, while `a, b`, an error under these rules, is converted either way. A lone bare value these rules refuse, such as `done:` or `O'Brien`, is quoted.
+So is a comma list. 2.x read `a,b` and `a, b` both as arrays, and the current rules read `a,b` as one string. `migrate` writes either one in brackets, `[a, b]`, and drops an empty element, as 2.x did. A list with one element left, such as `s,`, is the plain value `s`, which is how 2.x read it. In a file that does not say which rules wrote it, `a,b` is left as written and asks for `--from-2x`, while `a, b`, an error under these rules, is converted either way. A lone bare value these rules refuse, such as `done:` or `O'Brien`, is quoted.
 
 The comment rule did not change. A `#` outside quotes opened a comment in 2.x and still does, so values and comments read the same on both sides.
 

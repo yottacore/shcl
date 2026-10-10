@@ -332,6 +332,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `migrate` writes its Format line over an older one, where it added a second line under it. A file with none still gets one at the end.
 
+- `migrate` writes a 2.x list with one element left, such as `k: s,`, as the plain value `k: s`, as 2.x read it. It wrote `k: [s]`, which split it from a `k: s` beside it and reads as the string `[s]`.
+
 - `get`, `count`, `instances`, `fmt` and `set` print the load's diagnostics to stderr, once, before any edit runs.
 
 - Diagnostics under `--layer` name their file, and every layer's are printed.

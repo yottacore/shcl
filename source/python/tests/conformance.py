@@ -4053,6 +4053,19 @@ def main():
 	if not mm.text.startswith("x: [a, b]\ny: a,b\n"):
 		raise SystemExit(repr(mm.text))
 
+	test_id("EsIx4ac", "migrate_writes_a_lone_2x_element_plain")
+	# A 2.x comma list with one element left once the empty slots go was the
+	# plain value to 2.x, so `k: s,` and `k: s` were one field. In brackets they
+	# would be two, and `[s]` reads as that string too.
+	mm = shcl.migrate("k: s,\nk: s\nq: , \"a b\"\nc: x,\n\td: 1\n", True)
+	if (mm.ambiguous, mm.lost) != (0, 0):
+		raise SystemExit(f"ambiguous {mm.ambiguous}, lost {mm.lost}")
+	if not mm.text.startswith("k: s\nk: s\nq: \"a b\"\nc: x\n\td: 1\n"):
+		raise SystemExit(repr(mm.text))
+	lone = shcl.Document.parse(mm.text)
+	if lone.diagnostics() or lone.count("k") != 1 or lone.get_string("k") != "s":
+		raise SystemExit(f"{lone.diagnostics()} {lone.count('k')} {lone.get_string('k')!r}")
+
 	test_id("Es1eIOq", "migrate_writes_star_items_as_dashes")
 	# A 2.x `*` item becomes `- `, and an item these rules would read as
 	# something else is quoted, such as one that looks like `- name: value`.

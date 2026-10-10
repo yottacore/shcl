@@ -3161,18 +3161,24 @@ fn v2_array_text(text: &str, tok: &Tokens) -> String {
 		if out.len() > 1 {
 			out.push_str(", ");
 		}
-		let raw = &text[p.start..p.end];
-		let quoted = matches!(p.quote, Quote::Single | Quote::Double);
-		if quoted && reads_same(&text[p.start - 1..p.end + 1], true, raw) {
-			out.push_str(&text[p.start - 1..p.end + 1]);
-		} else if p.quote == Quote::None && !needs_quotes(raw) {
-			out.push_str(raw);
-		} else {
-			out.push_str(&quote_text(raw));
-		}
+		out.push_str(&v2_element_text(text, p));
 	}
 	out.push(']');
 	out
+}
+
+/// One 2.x element as the writer writes it, unless its quoted spelling
+/// already reads the same.
+fn v2_element_text(text: &str, p: &Piece) -> String {
+	let raw = &text[p.start..p.end];
+	let quoted = matches!(p.quote, Quote::Single | Quote::Double);
+	if quoted && reads_same(&text[p.start - 1..p.end + 1], true, raw) {
+		text[p.start - 1..p.end + 1].to_string()
+	} else if p.quote == Quote::None && !needs_quotes(raw) {
+		raw.to_string()
+	} else {
+		quote_text(raw)
+	}
 }
 
 /// True when the current rules read a value with no fault, as one piece:
@@ -3388,9 +3394,21 @@ fn migrate_line(
 					// A file that does not say it is 2.x could be a 3.0 one, where
 					// `a,b` is a string. `a, b` is an error there, so it is safe.
 					if st.from_v2 || !reads_clean_now(rest, sep + 1) {
+						let kept = tok.element_count();
 						// Only empty slots, which 2.x dropped: an empty value.
-						if tok.element_count() == 0 {
+						if kept == 0 {
 							edits.push((sep + 1, tok.value.1, String::new()));
+						} else if kept == 1 {
+							// One left, which 2.x read as the plain value: `s,`
+							// is `s`, and joins a `k: s` beside it, which `[s]`
+							// would not.
+							if let Some(p) = tok
+								.elements
+								.iter()
+								.find(|p| p.quote != Quote::None || p.end > p.start)
+							{
+								edits.push((tok.value.0, tok.value.1, v2_element_text(rest, p)));
+							}
 						} else {
 							st.bracketed = true;
 							edits.push((tok.value.0, tok.value.1, v2_array_text(rest, tok)));

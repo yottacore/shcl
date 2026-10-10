@@ -3385,19 +3385,25 @@ func v2ArrayText(text string, tok *Tokens) string {
 		if out.Len() > 1 {
 			out.WriteString(", ")
 		}
-		raw := text[p.Start:p.End]
-		quoted := p.Quote == QuoteSingle || p.Quote == QuoteDouble
-		switch {
-		case quoted && readsSame(text[p.Start-1:p.End+1], true, raw):
-			out.WriteString(text[p.Start-1 : p.End+1])
-		case p.Quote == QuoteNone && !needsQuotes(raw):
-			out.WriteString(raw)
-		default:
-			out.WriteString(quoteText(raw))
-		}
+		out.WriteString(v2ElementText(text, p))
 	}
 	out.WriteByte(']')
 	return out.String()
+}
+
+// v2ElementText is one 2.x element as the writer writes it, unless its quoted
+// spelling already reads the same.
+func v2ElementText(text string, p *Piece) string {
+	raw := text[p.Start:p.End]
+	quoted := p.Quote == QuoteSingle || p.Quote == QuoteDouble
+	switch {
+	case quoted && readsSame(text[p.Start-1:p.End+1], true, raw):
+		return text[p.Start-1 : p.End+1]
+	case p.Quote == QuoteNone && !needsQuotes(raw):
+		return raw
+	default:
+		return quoteText(raw)
+	}
 }
 
 // readsCleanNow is true when the current rules read a value with no fault, as
@@ -3614,9 +3620,21 @@ func migrateLine(rest string, tok *Tokens, fence *openFence, st *migrating) stri
 				// A file that does not say it is 2.x could be a 3.0 one, where
 				// `a,b` is a string. `a, b` is an error there, so it is safe.
 				if st.fromV2 || !readsCleanNow(rest, sep+1) {
+					kept := tok.ElementCount()
 					// Only empty slots, which 2.x dropped: an empty value.
-					if tok.ElementCount() == 0 {
+					if kept == 0 {
 						edits = append(edits, edit{start: sep + 1, end: tok.Value[1]})
+					} else if kept == 1 {
+						// One left, which 2.x read as the plain value: `s,`
+						// is `s`, and joins a `k: s` beside it, which `[s]`
+						// would not.
+						for i := range tok.Elements {
+							p := &tok.Elements[i]
+							if p.Quote != QuoteNone || p.End > p.Start {
+								edits = append(edits, edit{start: tok.Value[0], end: tok.Value[1], with: v2ElementText(rest, p)})
+								break
+							}
+						}
 					} else {
 						st.bracketed = true
 						edits = append(edits, edit{start: tok.Value[0], end: tok.Value[1], with: v2ArrayText(rest, tok)})

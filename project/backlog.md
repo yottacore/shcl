@@ -33,6 +33,38 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
+- check-migrate fails on 2 fuzz documents
+	- ID: 2026100919123100
+	- Type: Bug
+	- Status: Waiting for testing
+	- Severity: High
+	- Opened: 20261009-191231
+	- Opened by: found while working 2026100717500017
+	- Related IDs: 2026100717500017, 2026100914525821
+	- Version and build: dev at `904cef04`
+	- Steps to reproduce: `cicd/utility/check-migrate.bash` from the repo root, about 8 minutes.
+	- Incorrect behavior: 14 divergences over 654 documents. `fuzz_00274` and `fuzz_00412` read differently after `migrate` than under 2.x, and `fuzz_00412` fails every `upgrade` check: no backup, a fresh file that loads with an error and no info block, and a second upgrade that changes it again. `Eq5YPgP` and `Es34DZj` fail.
+	- Expected behavior: the gate passes, or each document is a case the gate already excuses.
+	- Reproduced: 20261009, on dev with `restamp` merged, and with dev's library before `restamp`. The dumped fuzz documents changed when corpus 204 and 205 moved the seeds. 20261010, again on dev at `2504fca0`, each document cut down:
+		- `fuzz_00274`: once the lines 2.x refused come out, as the gate takes them out, `kind: split,` sits 2 lines above `kind: split` with lines under it, and 2.x joins the two (`H002`). Cut down to `k: s,` then `k: s`. 2.x reads one `k`. `migrate --from-2x` exits 0 with `k: [s]` and `k: s`, which reads as 2. `k: s,` alone also read as the string `[s]`, where 2.x read `s`.
+		- `fuzz_00412`: an intact info block naming `Format 3`, and `stage: pr`d`. Cut down to `a: b`c` then `##    Format   3`. 2.x reads `b`c`, and the current rules refuse it (`E025`). `migrate` leaves the file as written and `upgrade` leaves it alone, the rule for a Format 3 file (2026100115403385). The gate still held it to 2.x reads and expected an upgrade to rewrite it.
+		- The same `pr`d` line in a 2.x file with no Format line migrates right, to `"pr`d"`.
+	- Actual cause [Bug]: 2, one in `migrate` and one in the gate.
+		- `migrate` wrote a 2.x comma list with 1 element left as a one-element array. 2.x read `s,` as the plain value `s`, so `k: s,` joined a `k: s` beside it, and `[s]` does not. A wrong answer at exit 0.
+		- check-migrate compared every fuzz document with 2.x, Format 3 ones included. The fuzz generator mutates corpus inputs that have the info block, so a mutation that keeps the block intact is a Format 3 file.
+	- Actual fix [Bug]:
+		- `migrate` writes a 2.x list with 1 element left as that element, spelled the way the writer writes a plain value. All four bindings, through an element helper split out of the bracket writer. So a one-element list with lines under it now migrates at exit 0, where it counted as lost, since `k: s` can have lines under it.
+		- check-migrate checks a document that names Format 3 for being left as written by `migrate` and by `upgrade` both ways, and does not compare it with 2.x. It takes that path only when the text has the line and `migrate` says the file names its format. No new corpus case, so the fuzz seeds did not move.
+		- value-syntax.md's Migration table, spec.md and the changelog say so.
+	- Swept: the comma-list branch of `migrate_line` in Rust, Go, Python and C, the only place a 2.x list is written again. Count and string read match 2.x for `s, ,`, `,s`, `"s",`, `'s',`, `a b,`, `-,`, `done:,`, `"",`, `80,` and a pair with lines under each. 2-element lists, and `"a, b"` beside `a, b`, already matched. `k: ```,` and `k: [x,` take other paths and are unchanged.
+	- Verified: each new runner test and the cli-regress row fail on dev's library and pass on the fix. The 2 gate pins fail with the format check broken and pass on it. check-migrate passes: 642 documents compared, 12 naming Format 3 left as written, 654 in all. Also the four conformance suites, cli-regress (537 rows, 2887 checks, all four), crosscheck over the corpus and a fuzz dump (35955 comparisons), the 200,000 release fuzz, check-docs (only the known `EpHGoa0` red), check-abnf, test-ids check, shell-regress, shellcheck, markdownlint, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy and cppcheck at the normal level.
+	- Test case: `migrate_writes_a_lone_2x_element_plain` in all four runners (Rust `EsIx4WI`, Go `EsIx4YP`, Python `EsIx4ac`, C `EsIx4cm`), cli-regress `EsIx4ev`, and check-migrate `EsIx4hA` (corpus 149 takes the Format 3 path) and `EsIx4jK` (a 2.x document with `Format 3` in a comment does not).
+	- Branch: `migfix`
+	- Commit: `03068cf9`
+	- Needs local test suite run?: Y, the full `--ci`, which runs check-migrate in the pre-push gate and exhaustive cppcheck over the C change.
+	- Needs external testing: a hosted run with the next main push.
+	- Note: High, since check-migrate is in the pre-push gate, so the next main push fails until this is fixed.
+
 - A `--json` mode for the list commands
 	- ID: 2026100814455655
 	- Type: Feature
@@ -210,21 +242,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `fmtstamp`
 	- Commit: `be88796f`
 	- Test case: `stamp_reads_say_why` in all four runners (Rust `EsEtTdP`, Go `EsEtTdQ`, Python `EsEtTdR`, C `EsEtTdS`), and the status checks in veneer_smoke (`EjtkR0S`).
-
-- check-migrate fails on 2 fuzz documents
-	- ID: 2026100919123100
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Opened: 20261009-191231
-	- Opened by: found while working 2026100717500017
-	- Related IDs: 2026100717500017, 2026100914525821
-	- Version and build: dev at `904cef04`
-	- Steps to reproduce: `cicd/utility/check-migrate.bash` from the repo root, about 8 minutes.
-	- Incorrect behavior: 14 divergences over 654 documents. `fuzz_00274` and `fuzz_00412` read differently after `migrate` than under 2.x, and `fuzz_00412` fails every `upgrade` check: no backup, a fresh file that loads with an error and no info block, and a second upgrade that changes it again. `Eq5YPgP` and `Es34DZj` fail.
-	- Expected behavior: the gate passes, or each document is a case the gate already excuses.
-	- Reproduced: 20261009, on dev with `restamp` merged, and with dev's library before `restamp`. Likely the dumped fuzz documents changed when corpus 204 and 205 moved the seeds. Not cut down yet.
-	- Note: High, since check-migrate is in the pre-push gate, so the next main push fails until this is fixed.
 
 - `line`, `lines`, `authored_name`, `comments`, `exists`, `remove` and `clear_comments` can't report a path that doesn't parse
 	- ID: 2026100912271700
