@@ -136,7 +136,7 @@ LINT_EXTRA=(
 	## python utilities: ruff never imports what it checks, so this costs nothing
 	## and the files are covered. cicd/utility/ruff.toml extends the project rule
 	## set for them.
-	'RAYON_NUM_THREADS="${CPU_CAP}" ruff check ${QUIET_FLAG} cicd/utility/flame-report.py cicd/utility/gen-demo-gif.py cicd/utility/check-abnf.py cicd/utility/gen-escapes.py cicd/utility/comparison/pyworker.py cicd/utility/test-ids.py'
+	'RAYON_NUM_THREADS="${CPU_CAP}" ruff check ${QUIET_FLAG} cicd/utility/flame-report.py cicd/utility/gen-demo-gif.py cicd/utility/check-abnf.py cicd/utility/doc-tables.py cicd/utility/gen-escapes.py cicd/utility/comparison/pyworker.py cicd/utility/test-ids.py'
 	## Exhaustive over every #ifdef mix of the header is about ten minutes, and
 	## most runs change no C. The build dir keeps each file's result, keyed on its
 	## code, its comments and these options, so an unchanged file replays in well
@@ -174,6 +174,7 @@ SHELLCHECK_TARGETS=(
 	cicd/utility/check-banner-tag.bash
 	cicd/utility/check-c-compilers.bash
 	cicd/utility/check-completions.bash
+	cicd/utility/check-doc-examples.bash
 	cicd/utility/check-docs.bash
 	cicd/utility/check-install-dev.bash
 	cicd/utility/check-locale.bash
@@ -243,6 +244,9 @@ TEST_EXTRA=(
 	## CLI behavior the corpus cannot reach: closed streams, '-' twice on one
 	## command line, a carriage return ending an ops line, error-message shape.
 	'cicd/utility/cli-regress.bash "${BINDING_CLIS[@]}"'
+	## The examples the value syntax doc's and the spec's tables state a result
+	## for, and the man page's example blocks. Nothing ran either before.
+	'cicd/utility/check-doc-examples.bash "${BINDING_CLIS[@]}"'
 	## The read and write paths must stay small beside the parse. Two superlinear
 	## write regressions reached dev in consecutive rounds with no number to fail
 	## on, and the read side was quadratic before the surviving name index.

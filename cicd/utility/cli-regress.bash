@@ -1491,7 +1491,30 @@ rows=(
 	'EqzuLW1|ascii-locale-fmt|fmt %NA%|@asciilocale|0|n: "caf\xc3\xa9 \xe2\x82\xac"\n|^$'
 )
 
-declare -i nRun=0 nBad=0
+declare -i nRun=0 nBad=0 n2x=0
+
+##	2.x wrote a line break as \n, a tab as \t and a backslash as \\. Since 3.0
+##	a backslash is plain text, and the old forms still turned up in help and
+##	output text that no gate read (review 20261007). A backslash then n or t
+##	with no letter or digit after it, or two backslashes, reads as one of them,
+##	while a path such as C:\temp\new does not. Output that holds one on purpose
+##	is let through by content, each with its reason.
+re2x='\\[nt]([^[:alnum:]]|$)|\\{2}'
+allow2x=(
+	## migrate keeps a 2.x backslash pair as written (value-syntax.md, Migration).
+	'"C:\\work"'
+	'"C:\\a\nb", "D:\\c\nd"'
+)
+fFind2x(){   ## fFind2x HITFILE WHAT TEXT: notes each line of TEXT with a 2.x escape
+	local line a
+	[[ "$3" =~ ${re2x} ]] || return 0
+	while IFS= read -r line; do
+		## --json output, where these are JSON's own escapes.
+		if [[ "${line}" == '{"'*'}' ]]; then continue; fi
+		for a in "${allow2x[@]}"; do line="${line//"${a}"/}"; done
+		if [[ "${line}" =~ ${re2x} ]]; then printf '%s: %s\n' "$2" "${line}" >> "$1"; fi
+	done <<<"$3"
+}
 
 ##	A row's status line goes out when the next row opens, so it covers every
 ##	binding.
@@ -1811,6 +1834,11 @@ for row in "${rows[@]}"; do
 		esac
 		cd -- "${startDir}"
 		nRun+=1
+		scanOut=""; IFS= read -r -d '' scanOut <"${tmpDir}/out" || true
+		scanErr=""; IFS= read -r -d '' scanErr <"${tmpDir}/err" || true
+		fFind2x "${tmpDir}/esc2x-out" "${tid} ${id} [${name}] stdout" "${scanOut}"
+		fFind2x "${tmpDir}/esc2x-out" "${tid} ${id} [${name}] stderr" "${scanErr}"
+		n2x+=1
 		if ((rc == 124 && wantRc != 124)); then
 			echo "cli-regress: ${id} [${name}]: timed out after ${rowSecs} s" >&2; nBad+=1; continue
 		fi
@@ -1852,6 +1880,20 @@ for row in "${rows[@]}"; do
 		fi
 	done
 done
+
+## Review 20261007: 2.x escape forms in what the rows print, every binding,
+## stdout and stderr, whatever the row itself checks.
+## Rows a platform cannot judge are skipped before they run, so the floor is
+## half the rows rather than all of them.
+fTest EsJLUK1 output-no-2x-escapes
+if ((n2x * 2 < ${#rows[@]})); then
+	echo "cli-regress: output-no-2x-escapes: only ${n2x} row run(s) scanned for ${#rows[@]} row(s)" >&2; nBad+=1
+fi
+if [[ -s "${tmpDir}/esc2x-out" ]]; then
+	while IFS= read -r hit; do
+		echo "cli-regress: output-no-2x-escapes: ${hit}" >&2; nBad+=1
+	done <"${tmpDir}/esc2x-out"
+fi
 
 ## 20260817 item 28: a bare run printed the help and exited 1, -v was refused
 ## while -V worked, and set sat on stdin saying nothing. Checked against help
@@ -2571,24 +2613,28 @@ fTestEnd
 ## donate include the copyright symbol and the author ID by design, so a byte
 ## count is not a column count there, and neither is aligned anyway.
 maxCols=80
+## The narrowed helps and the code table are cut from the same text and make
+## the same 80-column promise, and there are far too many of them to eyeball.
+## Both lists come from the CLI under test, so a new code or subcommand is
+## covered without a second list to keep in step.
+fHelpTexts(){   ## fHelpTexts CLI: every help and code text, one command line each
+	local sub code
+	printf '%s\n' help --help explain
+	while read -r sub; do
+		if [[ -n "${sub}" ]]; then echo "help ${sub}"; fi
+	done < <("$1" help 2>/dev/null </dev/null | { grep -oE '^  shcl [a-z]+' || true ;} | awk '{print $2}' | sort -u)
+	while read -r code; do
+		if [[ -n "${code}" ]]; then echo "explain ${code}"; fi
+	done < <("$1" explain 2>/dev/null </dev/null | { grep -oE '^[EHV][0-9]+' || true ;})
+	## Retired codes are not in the listing; the reference's table names them.
+	while read -r code; do
+		if [[ -n "${code}" ]]; then echo "explain ${code}"; fi
+	done < <(sed -n '/^const RETIRED: &str = "/,/^";$/p' "${repoDir}/source/rust/src/main.rs" | { grep -oE '^[EHV][0-9]+' || true ;})
+}
 fTest Eq9yPCQ help-width
 for b in "${bindings[@]}"; do
 	name="${b%%|*}"; cli="${b#*|}"
-	## The narrowed helps and the code table are cut from the same text and make
-	## the same 80-column promise, and there are far too many of them to eyeball.
-	## Both lists come from the CLI under test, so a new code or subcommand is
-	## covered without a second list to keep in step.
-	checks=(help --help explain)
-	while read -r sub; do
-		[[ -n "${sub}" ]] && checks+=("help ${sub}")
-	done < <("${cli}" help 2>/dev/null </dev/null | { grep -oE '^  shcl [a-z]+' || true ;} | awk '{print $2}' | sort -u)
-	while read -r code; do
-		[[ -n "${code}" ]] && checks+=("explain ${code}")
-	done < <("${cli}" explain 2>/dev/null </dev/null | { grep -oE '^[EHV][0-9]+' || true ;})
-	## Retired codes are not in the listing; the reference's table names them.
-	while read -r code; do
-		[[ -n "${code}" ]] && checks+=("explain ${code}")
-	done < <(sed -n '/^const RETIRED: &str = "/,/^";$/p' "${repoDir}/source/rust/src/main.rs" | { grep -oE '^[EHV][0-9]+' || true ;})
+	mapfile -t checks < <(fHelpTexts "${cli}")
 	for cmd in "${checks[@]}"; do
 		read -r -a cmdArgv <<<"${cmd}"
 		text="$("${cli}" "${cmdArgv[@]}" 2>/dev/null </dev/null || true)"
@@ -2772,6 +2818,30 @@ else
 	fTestSkip
 	echo "cli-regress man-width" >> "${SHCL_GATE_SKIPS:-/dev/null}"
 fi
+
+## Review 20261007: 2.x escape forms in the help, the code texts, the about
+## text and the man page as rendered above, which no row prints whole.
+fTest EsJLUK0 help-no-2x-escapes
+for b in "${bindings[@]}"; do
+	name="${b%%|*}"; cli="${b#*|}"
+	mapfile -t checks < <(fHelpTexts "${cli}")
+	checks+=(--about --donate)
+	if ((${#checks[@]} < 20)); then
+		echo "cli-regress: help-no-2x-escapes [${name}]: only ${#checks[@]} help text(s) found" >&2; nBad+=1
+	fi
+	for cmd in "${checks[@]}"; do
+		read -r -a cmdArgv <<<"${cmd}"
+		text="$("${cli}" "${cmdArgv[@]}" 2>/dev/null </dev/null || true)"
+		nRun+=1
+		fFind2x "${tmpDir}/esc2x-help" "[${name}] ${cmd}" "${text}"
+	done
+done
+fFind2x "${tmpDir}/esc2x-help" "man page" "${rendered:-}"
+if [[ -s "${tmpDir}/esc2x-help" ]]; then
+	while IFS= read -r hit; do
+		echo "cli-regress: help-no-2x-escapes: ${hit}" >&2; nBad+=1
+	done <"${tmpDir}/esc2x-help"
+fi
 fTestEnd
 
 if ((nBad)); then
@@ -2791,3 +2861,5 @@ echo "cli-regress: OK: ${#rows[@]} row(s) across ${#bindings[@]} binding(s), ${n
 ##		2026-10-06  Takes BSD stat and head, and stops with a message when there
 ##		            is no timeout.
 ##		2026-10-06  broken-pipe, migrate-taken and man-width run on BSD tools.
+##		2026-10-10  2.x escape forms (\n, \t, two backslashes) fail in the help,
+##		            the code texts, the man page and every row's output.

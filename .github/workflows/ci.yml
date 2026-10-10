@@ -84,7 +84,9 @@ jobs:
           ## The stub-package rows build a .deb and an .rpm and read them back:
           ## dpkg-deb ships on the image, rpm does not, and nfpm is installed
           ## with the Go tools below.
-          sudo apt-get update -qq && sudo apt-get install -y -qq nsis zsh bash-completion gcc-mingw-w64-x86-64 strace rpm
+          ## check-doc-examples runs the man page's jq example. The image has
+          ## jq today; named here so a skip can't start failing the gate.
+          sudo apt-get update -qq && sudo apt-get install -y -qq nsis zsh bash-completion gcc-mingw-w64-x86-64 strace rpm jq
           pip install ruff==0.15.22 mypy==2.3.0 cppcheck==1.5.1 build==1.5.0 pillow==11.1.0
           npm install -g markdownlint-cli2@0.23.1
           pwsh -NoProfile -Command 'Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Force -Scope CurrentUser'
