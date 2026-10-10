@@ -975,8 +975,15 @@ fn settle_block(arena: &mut [NodeData], n: usize, from: usize) -> bool {
 		settle_pairs(arena, n, 1);
 	}
 	// After the join, which can take the last child.
+	settle_inside(arena, n);
+	joined
+}
+
+/// A block's inside comments go to its last child's own, where a reload
+/// files them. A no-op with no children.
+fn settle_inside(arena: &mut [NodeData], n: usize) {
 	let Some(&kid) = arena[n].children.last() else {
-		return joined;
+		return;
 	};
 	if let Some(t) = arena[n].trivia.as_deref_mut()
 		&& !t.inside.is_empty()
@@ -984,7 +991,6 @@ fn settle_block(arena: &mut [NodeData], n: usize, from: usize) -> bool {
 		let moved = std::mem::take(&mut t.inside);
 		arena[kid].triv_mut().after.extend(moved);
 	}
-	joined
 }
 
 /// A child's comments at its own level go above the next sibling, from
@@ -1061,6 +1067,10 @@ fn fold_list_into_empty(arena: &mut [NodeData], empty: usize, list: usize) -> bo
 	arena[empty].value = std::mem::replace(&mut arena[list].value, Value::Empty);
 	arena[empty].star_list = true;
 	fold_node_into(arena, empty, list);
+	// The binding's lines inside its block now follow the list's fields,
+	// where a reload files them. No merge or remove settles this block
+	// after the join.
+	settle_inside(arena, empty);
 	true
 }
 

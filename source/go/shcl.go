@@ -1053,16 +1053,22 @@ func settleBlock(arena []nodeData, n, from int) bool {
 		settlePairs(arena, n, 1)
 	}
 	// After the join, which can take the last child.
+	settleInside(arena, n)
+	return joined
+}
+
+// settleInside: a block's inside comments go to its last child's own, where
+// a reload files them. A no-op with no children.
+func settleInside(arena []nodeData, n int) {
 	kids := arena[n].children
 	if len(kids) == 0 {
-		return joined
+		return
 	}
 	if t := arena[n].trivia; t != nil && len(t.inside) > 0 {
 		kt := arena[kids[len(kids)-1]].trivMut()
 		kt.after = append(kt.after, t.inside...)
 		t.inside = nil
 	}
-	return joined
 }
 
 // settlePairs: a child's comments at its own level go above the next
@@ -1154,6 +1160,10 @@ func foldListIntoEmpty(arena []nodeData, empty, list int) bool {
 	arena[list].value = value{}
 	arena[empty].starList = true
 	foldNodeInto(arena, empty, list)
+	// The binding's lines inside its block now follow the list's fields,
+	// where a reload files them. No merge or remove settles this block
+	// after the join.
+	settleInside(arena, empty)
 	return true
 }
 

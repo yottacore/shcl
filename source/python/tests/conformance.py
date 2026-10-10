@@ -3880,6 +3880,35 @@ def main():
 		if len(mdoc.instances("p.s")) != 1:
 			raise SystemExit(f"{mbase!r}: {len(mdoc.instances('p.s'))} instances")
 
+	test_id("EsFs7xw", "a_joined_list_files_the_bindings_lines_like_a_reload")
+	# A list that joins an empty binding brings its fields, and the binding's
+	# own kept line inside its block is written after them. A merge left it
+	# filed inside the block, so a remove of the last field wrote it before
+	# the kept line among the items, and a reload after it (2026100914525821).
+	ylayer = shcl.Document.parse("srv:\n\t- 1\n\t*\n\tb: 1\n")
+	ydoc = shcl.Document.parse("srv:\n\t[\n")
+	ydoc.merge(ylayer)
+	ytext = ydoc.to_canonical()
+	if ytext != "srv:\n\t- 1\n\t*\n\tb: 1\n\t[\n":
+		raise SystemExit(f"joined list: merged {ytext!r}")
+	yback = shcl.Document.parse(ytext)
+	if ydoc.remove("srv.b") != 1 or yback.remove("srv.b") != 1:
+		raise SystemExit("joined list: remove srv.b")
+	if ydoc.to_canonical() != "srv:\n\t- 1\n\t*\n\t[\n":
+		raise SystemExit(f"joined list: removed {ydoc.to_canonical()!r}")
+	if yback.to_canonical() != ydoc.to_canonical():
+		raise SystemExit(f"joined list: reload {yback.to_canonical()!r}, document {ydoc.to_canonical()!r}")
+	# The write side's join, when a remove empties the binding.
+	ydoc = shcl.Document.parse("srv:\n\tx: 1\n\t[\n")
+	ydoc.merge(ylayer)
+	if ydoc.remove("srv.x") != 1:
+		raise SystemExit("joined list: remove srv.x")
+	yback = shcl.Document.parse(ydoc.to_canonical())
+	if ydoc.remove("srv.b") != 1 or yback.remove("srv.b") != 1:
+		raise SystemExit("joined list: remove srv.b after the join")
+	if yback.to_canonical() != ydoc.to_canonical():
+		raise SystemExit(f"joined list after the join: reload {yback.to_canonical()!r}, document {ydoc.to_canonical()!r}")
+
 	test_id("ErylLpe", "a_remove_settles_a_list_after_an_empty_field")
 	# The remove twin: the merge without the gap builds the list no text loads
 	# back, after a binding with a field. A remove that takes that field joins

@@ -914,14 +914,20 @@ def _settle_block(arena, n, start):
 		joined = True
 		_settle_pairs(arena, n, 1)
 	# After the join, which can take the last child.
+	_settle_inside(arena, n)
+	return joined
+
+
+def _settle_inside(arena, n):
+	"""A block's inside comments go to its last child's own, where a reload
+	files them. A no-op with no children."""
 	kids = arena[n].children
 	if not kids:
-		return joined
+		return
 	t = arena[n].trivia
 	if t is not None and t.inside:
 		arena[kids[-1]]._triv().after.extend(t.inside)
 		t.inside = []
-	return joined
 
 
 def _settle_pairs(arena, n, start):
@@ -984,6 +990,10 @@ def _fold_list_into_empty(arena, empty, lst):
 	arena[lst].value = _empty()
 	e.star_list = True
 	_fold_node_into(arena, empty, lst)
+	# The binding's lines inside its block now follow the list's fields,
+	# where a reload files them. No merge or remove settles this block
+	# after the join.
+	_settle_inside(arena, empty)
 	return True
 
 

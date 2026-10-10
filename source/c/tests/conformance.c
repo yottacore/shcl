@@ -4425,6 +4425,33 @@ int main(int argc, char **argv) {
 			shcl_free(mb); shcl_free(md);
 		}
 	}
+	test_id("EsFs7xx", "a_joined_list_files_the_bindings_lines_like_a_reload");
+	/* A list that joins an empty binding brings its fields, and the binding's
+	   own kept line inside its block is written after them. A merge left it
+	   filed inside the block, so a remove of the last field wrote it before
+	   the kept line among the items, and a reload after it
+	   (2026100914525821). */
+	{
+		static const char *jbase[] = {"srv:\n\t[\n", "srv:\n\tx: 1\n\t[\n"};
+		const char *jover = "srv:\n\t- 1\n\t*\n\tb: 1\n";
+		for (size_t i = 0; i < 2; i++) {
+			shcl_doc *jd = shcl_parse(jbase[i], strlen(jbase[i]));
+			shcl_doc *jo = shcl_parse(jover, strlen(jover));
+			shcl_merge(jd, jo);
+			shcl_free(jo);
+			if (i == 0 && !str_is(shcl_to_canonical(jd), "srv:\n\t- 1\n\t*\n\tb: 1\n\t[\n")) fail("joined_list", "merged");
+			/* The write side's join, when a remove empties the binding. */
+			if (i == 1 && shcl_remove(jd, "srv.x", 5) != 1) fail("joined_list", "remove srv.x");
+			shcl_str jt = shcl_to_canonical(jd);
+			shcl_doc *jb = shcl_parse(jt.p, jt.n);
+			if (shcl_remove(jd, "srv.b", 5) != 1 || shcl_remove(jb, "srv.b", 5) != 1) fail("joined_list", "remove srv.b");
+			shcl_str jdt = shcl_to_canonical(jd);
+			if (i == 0 && !str_is(jdt, "srv:\n\t- 1\n\t*\n\t[\n")) fail("joined_list", "removed");
+			shcl_str jbt = shcl_to_canonical(jb);
+			if (jbt.n != jdt.n || memcmp(jbt.p, jdt.p, jdt.n) != 0) fail("joined_list", jbase[i]);
+			shcl_free(jb); shcl_free(jd);
+		}
+	}
 	test_id("Es1gWRw", "a_remove_settles_a_list_after_an_empty_field");
 	/* The remove twin: the merge without the gap builds the list no text loads
 	   back, after a binding with a field. A remove that takes that field joins
