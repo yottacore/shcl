@@ -6,9 +6,10 @@
 
 use shcl::{
 	Diagnostic, Document, DurationUnit, FORMAT_MAJOR, GEN_BANNER, Piece, Quote, Rules, SaveError,
-	Severity, SizeUnit, Status, Strictness, Tokens, UpgradeError, format_float, format_version,
-	generate, migrate, parse_datetime, schema_ref, suppress_declared_reopens,
-	suppress_declared_repeats, tokenize, upgrade, upgrade_file, write_backup, write_file_atomic,
+	SchemaStatus, Severity, SizeUnit, Status, Strictness, Tokens, UpgradeError, format_float,
+	format_version, generate, migrate, parse_datetime, read_named_schema,
+	suppress_declared_reopens, suppress_declared_repeats, tokenize, upgrade, upgrade_file,
+	write_backup, write_file_atomic,
 };
 use std::fmt::Write as _;
 use std::process::ExitCode;
@@ -2235,20 +2236,6 @@ fn rewritten_lines(before: &str, after: &str) -> Vec<usize> {
 		.collect()
 }
 
-/// Where the file name starts in a path: after the last separator, or on
-/// windows after a drive with no separator (`C:cfg.shcl`). A backslash is a
-/// separator only on windows.
-fn name_start(file: &str) -> usize {
-	let seps: &[char] = if cfg!(windows) { &['/', '\\'] } else { &['/'] };
-	let b = file.as_bytes();
-	let drive = if cfg!(windows) && b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':' {
-		2
-	} else {
-		0
-	};
-	file.rfind(seps).map_or(drive, |i| (i + 1).max(drive))
-}
-
 /// A 2.x file rewritten for the current rules. The rewrite is text to text;
 /// the load after it is for the diagnostics and the save gate, the same gate
 /// `fmt --write` goes through.
@@ -3038,123 +3025,27 @@ fn do_set(o: &Opts) -> u8 {
 }
 
 /// The schema `check` validates against: `--schema`, else the one the file
-/// names on its Schema line. A relative path there is read from the config
-/// file's directory, the way an editor reads it. A URL is left to editors,
-/// since a check that reads the network because of a line in a file is not
-/// one to run unattended.
+/// names on its Schema line, read by the library's rules. A URL is left to
+/// editors, since a check that reads the network because of a line in a file
+/// is not one to run unattended. None when there is nothing to validate
+/// against; an error is a schema that cannot be read.
 fn schema_for(o: &Opts, file: &str, text: &str) -> Result<Option<String>, String> {
-	if o.schema.is_some() {
-		return Ok(o.schema.clone());
+	if let Some(schema) = &o.schema {
+		return read_input(schema).map(Some);
 	}
-	let Some(named) = schema_ref(text) else {
-		return Ok(None);
-	};
-	if named.contains("://") {
-		errln!(
-			"the file names its schema by URL ({}), which check does not fetch; pass --schema=SCHEMA to validate against it",
-			named
-		);
-		return Ok(None);
-	}
-	let b = named.as_bytes();
-	// Two separators, or the NT prefix, name a share or a device on windows,
-	// and a line in a file someone else wrote must not reach another host.
-	let sep = |c: u8| c == b'/' || c == b'\\';
-	if cfg!(windows) && b.len() >= 2 && ((sep(b[0]) && sep(b[1])) || named.starts_with("\\??\\")) {
-		return Err(format!(
-			"{}: a Schema line cannot name a network or device path",
-			named
-		));
-	}
-	let absolute = b[0] == b'/'
-		|| (cfg!(windows)
-			&& (b[0] == b'\\' || (b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':')));
-	if absolute {
-		return Ok(Some(named));
-	}
-	let start = if file == "-" { 0 } else { name_start(file) };
-	if start == 0 {
-		return Ok(Some(format!("./{}", named)));
-	}
-	Ok(Some(format!("{}{}", &file[..start], named)))
-}
-
-/// The most a Schema line's file may hold. A regular file can still read
-/// without end: the kernel's page map has size 0 and reads as hundreds of GiB.
-const SCHEMA_LINE_MAX: usize = 16 << 20;
-
-/// The path can turn into a FIFO between the stat and the open, and opening a
-/// FIFO waits for a writer. So on POSIX the open does not wait, and the flag
-/// comes straight back off: only the open waits, and the caller's fstat
-/// refuses a FIFO before any read. Self-contained extern to stay zero-dep.
-#[cfg(unix)]
-fn open_no_wait(path: &str) -> std::io::Result<std::fs::File> {
-	use std::os::fd::AsRawFd;
-	use std::os::unix::fs::OpenOptionsExt;
-	const F_GETFL: i32 = 3;
-	const F_SETFL: i32 = 4;
-	unsafe extern "C" {
-		fn fcntl(fd: i32, cmd: i32, ...) -> i32;
-	}
-	let f = std::fs::OpenOptions::new()
-		.read(true)
-		.custom_flags(O_NONBLOCK)
-		.open(path)?;
-	let fd = f.as_raw_fd();
-	let flags = unsafe { fcntl(fd, F_GETFL) };
-	if flags == -1 || unsafe { fcntl(fd, F_SETFL, flags & !O_NONBLOCK) } == -1 {
-		return Err(std::io::Error::last_os_error());
-	}
-	Ok(f)
-}
-#[cfg(not(unix))]
-fn open_no_wait(path: &str) -> std::io::Result<std::fs::File> {
-	std::fs::File::open(path)
-}
-
-// Linux on mips and sparc has its own values; no release builds for either.
-#[cfg(any(target_os = "linux", target_os = "android"))]
-const O_NONBLOCK: i32 = 0o4000;
-#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
-const O_NONBLOCK: i32 = 0x4;
-
-/// Reads the schema a Schema line names. A line in a file someone else wrote
-/// must not make an unattended check wait on a FIFO or read a device until
-/// memory runs out, so only a regular file is read, and no more of it than
-/// SCHEMA_LINE_MAX.
-fn read_named_schema(path: &str) -> Result<String, String> {
-	use std::io::Read;
-	#[cfg(windows)]
-	if not_a_disk_file(path) {
-		return Err(format!("{}: not a regular file", path));
-	}
-	let regular = |m: std::io::Result<std::fs::Metadata>| match m {
-		Ok(m) if m.is_dir() => Err(format!("{}: Is a directory", path)),
-		Ok(m) if !m.is_file() => Err(format!("{}: not a regular file", path)),
-		Ok(_) => Ok(()),
-		Err(e) => Err(format!("{}: {}", path, e)),
-	};
-	// Asked before the open too, since opening a FIFO waits for a writer.
-	regular(std::fs::metadata(path))?;
-	let mut f = open_no_wait(path).map_err(|e| format!("{}: {}", path, e))?;
-	regular(f.metadata())?;
-	// Fixed reads, since the page map refuses one that is not a multiple of 8.
-	// One read past the cap is what tells a file at it from one over it.
-	let mut bytes = Vec::new();
-	let mut chunk = vec![0u8; 1 << 16];
-	loop {
-		let n = match f.read(&mut chunk) {
-			Ok(0) => break,
-			Ok(n) => n,
-			Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-			Err(e) => return Err(format!("{}: {}", path, e)),
-		};
-		bytes.extend_from_slice(&chunk[..n]);
-		if bytes.len() > SCHEMA_LINE_MAX {
-			return Err(format!("{}: too large for a schema (over 16 MiB)", path));
+	let named = read_named_schema(text, file);
+	match named.status {
+		SchemaStatus::Good => Ok(Some(named.text)),
+		SchemaStatus::NotFound | SchemaStatus::Empty => Ok(None),
+		SchemaStatus::Url => {
+			errln!(
+				"the file names its schema by URL ({}), which check does not fetch; pass --schema=SCHEMA to validate against it",
+				named.path
+			);
+			Ok(None)
 		}
+		_ => Err(named.message),
 	}
-	String::from_utf8(bytes).map_err(|_| format!("{}: stream did not contain valid UTF-8", path))
 }
 
 fn do_check(o: &Opts) -> u8 {
@@ -3183,27 +3074,15 @@ fn do_check(o: &Opts) -> u8 {
 		// --schema: append validation diagnostics under the same contract.
 		// The schema itself always loads at Standard (a program artifact);
 		// one that does not load cleanly is a single V099 schema fault.
-		let schema_file = match schema_for(o, file, &text) {
+		let schema_text = match schema_for(o, file, &text) {
 			Ok(s) => s,
 			Err(e) => {
 				errln!("{}", e);
 				return EXIT_IO;
 			}
 		};
-		if let Some(schema_file) = &schema_file {
-			let read = if o.schema.is_some() {
-				read_input(schema_file)
-			} else {
-				read_named_schema(schema_file)
-			};
-			let stext = match read {
-				Ok(t) => t,
-				Err(e) => {
-					errln!("{}", e);
-					return EXIT_IO;
-				}
-			};
-			let sdoc = Document::parse(&stext);
+		if let Some(stext) = &schema_text {
+			let sdoc = Document::parse(stext);
 			if sdoc
 				.diagnostics()
 				.iter()

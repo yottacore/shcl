@@ -8207,6 +8207,238 @@ pub fn read_file(path: &str, max_bytes: usize) -> Result<String, FileStatus> {
 	String::from_utf8(bytes).map_err(|_| FileStatus::Unreadable)
 }
 
+/// What read_named_schema() found. `NotFound` and `Empty` are
+/// read_schema_ref()'s answers; the rest say why a named schema was not read.
+/// New values go on the end; the other bindings number them in this order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SchemaStatus {
+	/// The schema's text was read.
+	Good,
+	/// No line names a schema.
+	NotFound,
+	/// A Schema line with nothing after the word.
+	Empty,
+	/// The line names a URL, which is not fetched.
+	Url,
+	/// On windows, a path starting with two slashes or backslashes, or with
+	/// `\??\`, which names a network share or a device.
+	NetworkPath,
+	/// Nothing at the path.
+	FileNotFound,
+	/// The path names a directory.
+	IsDirectory,
+	/// Something at the path that is not a regular file, such as a FIFO or a
+	/// device.
+	NotRegular,
+	/// A file over 16 MiB.
+	TooLarge,
+	/// The file could not be read: no permission, text that is not UTF-8, or
+	/// another read error.
+	Unreadable,
+}
+
+impl std::fmt::Display for SchemaStatus {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.write_str(match self {
+			SchemaStatus::Good => "Good",
+			SchemaStatus::NotFound => "NotFound",
+			SchemaStatus::Empty => "Empty",
+			SchemaStatus::Url => "Url",
+			SchemaStatus::NetworkPath => "NetworkPath",
+			SchemaStatus::FileNotFound => "FileNotFound",
+			SchemaStatus::IsDirectory => "IsDirectory",
+			SchemaStatus::NotRegular => "NotRegular",
+			SchemaStatus::TooLarge => "TooLarge",
+			SchemaStatus::Unreadable => "Unreadable",
+		})
+	}
+}
+
+/// What read_named_schema() gives back. `text` is the schema's text when
+/// `status` is `Good`, else empty. `path` is where the line points: the path
+/// resolved from the config file's directory, or the URL or network path as
+/// written; empty when no line names one. `line` is the Schema line's
+/// number, 0 with none. `message` says why nothing was read, naming the
+/// path, and is empty for `Good`, `NotFound` and `Empty`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NamedSchema {
+	pub status: SchemaStatus,
+	pub text: String,
+	pub path: String,
+	pub line: usize,
+	pub message: String,
+}
+
+/// The most a Schema line's file may hold. A regular file can still read
+/// without end: the kernel's page map has size 0 and reads as hundreds of GiB.
+const SCHEMA_LINE_MAX: usize = 16 << 20;
+
+/// The schema a config file names on its Schema line, read the way `check`
+/// reads it. `text` is the config's text and `file` its path, which only
+/// says where a relative path starts: the config file's directory, or the
+/// working directory when `file` has none, such as `-` for stdin. A URL is
+/// not fetched, and on windows neither is a network share or a device path.
+/// Only a regular file is read, and none over 16 MiB, so a line in a file
+/// someone else wrote cannot make a program wait on a FIFO or read a device
+/// until memory runs out.
+#[must_use]
+pub fn read_named_schema(text: &str, file: &str) -> NamedSchema {
+	let r = read_schema_ref(text);
+	let mut out = NamedSchema {
+		status: SchemaStatus::NotFound,
+		text: String::new(),
+		path: String::new(),
+		line: r.line,
+		message: String::new(),
+	};
+	match r.status {
+		Status::Good => {}
+		Status::Empty => {
+			out.status = SchemaStatus::Empty;
+			return out;
+		}
+		_ => return out,
+	}
+	let named = r.value;
+	if named.contains("://") {
+		out.status = SchemaStatus::Url;
+		out.message = format!("{}: a schema named by URL is not fetched", named);
+		out.path = named;
+		return out;
+	}
+	let b = named.as_bytes();
+	// Two separators, or the NT prefix, name a share or a device on windows,
+	// and a line in a file someone else wrote must not reach another host.
+	let sep = |c: u8| c == b'/' || c == b'\\';
+	if cfg!(windows) && b.len() >= 2 && ((sep(b[0]) && sep(b[1])) || named.starts_with("\\??\\")) {
+		out.status = SchemaStatus::NetworkPath;
+		out.message = format!(
+			"{}: a Schema line cannot name a network or device path",
+			named
+		);
+		out.path = named;
+		return out;
+	}
+	let absolute = b[0] == b'/'
+		|| (cfg!(windows)
+			&& (b[0] == b'\\' || (b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':')));
+	out.path = if absolute {
+		named
+	} else {
+		match file_name_start(file) {
+			0 => format!("./{}", named),
+			start => format!("{}{}", &file[..start], named),
+		}
+	};
+	match read_schema_file(&out.path) {
+		Ok(t) => {
+			out.status = SchemaStatus::Good;
+			out.text = t;
+		}
+		Err((status, message)) => {
+			out.status = status;
+			out.message = message;
+		}
+	}
+	out
+}
+
+/// The path can turn into a FIFO between the stat and the open, and opening a
+/// FIFO waits for a writer. So on POSIX the open does not wait, and the flag
+/// comes straight back off: only the open waits, and the caller's fstat
+/// refuses a FIFO before any read.
+#[cfg(unix)]
+fn open_no_wait(path: &str) -> std::io::Result<std::fs::File> {
+	use std::os::fd::AsRawFd;
+	use std::os::unix::fs::OpenOptionsExt;
+	const F_GETFL: i32 = 3;
+	const F_SETFL: i32 = 4;
+	// Linux on mips and sparc has its own values; no release builds for either.
+	#[cfg(any(target_os = "linux", target_os = "android"))]
+	const O_NONBLOCK: i32 = 0o4000;
+	#[cfg(not(any(target_os = "linux", target_os = "android")))]
+	const O_NONBLOCK: i32 = 0x4;
+	unsafe extern "C" {
+		fn fcntl(fd: i32, cmd: i32, ...) -> i32;
+	}
+	let f = std::fs::OpenOptions::new()
+		.read(true)
+		.custom_flags(O_NONBLOCK)
+		.open(path)?;
+	let fd = f.as_raw_fd();
+	let flags = unsafe { fcntl(fd, F_GETFL) };
+	if flags == -1 || unsafe { fcntl(fd, F_SETFL, flags & !O_NONBLOCK) } == -1 {
+		return Err(std::io::Error::last_os_error());
+	}
+	Ok(f)
+}
+#[cfg(not(unix))]
+fn open_no_wait(path: &str) -> std::io::Result<std::fs::File> {
+	std::fs::File::open(path)
+}
+
+/// read_named_schema()'s read: only a regular file, and no more of it than
+/// SCHEMA_LINE_MAX.
+fn read_schema_file(path: &str) -> Result<String, (SchemaStatus, String)> {
+	use std::io::Read;
+	#[cfg(windows)]
+	if not_a_disk_file(std::path::Path::new(path)) {
+		return Err((
+			SchemaStatus::NotRegular,
+			format!("{}: not a regular file", path),
+		));
+	}
+	let failed = |e: std::io::Error| {
+		let status = if e.kind() == std::io::ErrorKind::NotFound {
+			SchemaStatus::FileNotFound
+		} else {
+			SchemaStatus::Unreadable
+		};
+		(status, format!("{}: {}", path, e))
+	};
+	let regular = |m: std::io::Result<std::fs::Metadata>| match m {
+		Ok(m) if m.is_dir() => Err((
+			SchemaStatus::IsDirectory,
+			format!("{}: Is a directory", path),
+		)),
+		Ok(m) if !m.is_file() => Err((
+			SchemaStatus::NotRegular,
+			format!("{}: not a regular file", path),
+		)),
+		Ok(_) => Ok(()),
+		Err(e) => Err(failed(e)),
+	};
+	// Asked before the open too, since opening a FIFO waits for a writer.
+	regular(std::fs::metadata(path))?;
+	let mut f = open_no_wait(path).map_err(failed)?;
+	regular(f.metadata())?;
+	// Fixed reads, since the page map refuses one that is not a multiple of 8.
+	// One read past the cap is what tells a file at it from one over it.
+	let mut bytes = Vec::new();
+	let mut chunk = vec![0u8; 1 << 16];
+	loop {
+		let n = match f.read(&mut chunk) {
+			Ok(0) => break,
+			Ok(n) => n,
+			Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+			Err(e) => return Err(failed(e)),
+		};
+		bytes.extend_from_slice(&chunk[..n]);
+		if bytes.len() > SCHEMA_LINE_MAX {
+			return Err((
+				SchemaStatus::TooLarge,
+				format!("{}: too large for a schema (over 16 MiB)", path),
+			));
+		}
+	}
+	String::from_utf8(bytes).map_err(|_| {
+		(
+			SchemaStatus::Unreadable,
+			format!("{}: stream did not contain valid UTF-8", path),
+		)
+	})
+}
+
 /// The file tier's write mechanism (also what the CLI's `--write` uses): a
 /// temp file in the same dir, then a rename over the target,
 /// so an interrupted write can never truncate the config it rewrites. The data

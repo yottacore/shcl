@@ -2231,23 +2231,6 @@ func rewrittenLines(before, after string) []int {
 	return lines
 }
 
-// nameStart says where the file name starts in a path: after the last
-// separator, or on windows after a drive with no separator (C:cfg.shcl). A
-// backslash is a separator only on windows.
-func nameStart(file string) int {
-	start := strings.LastIndex(file, "/") + 1
-	if runtime.GOOS != "windows" {
-		return start
-	}
-	if bs := strings.LastIndex(file, "\\") + 1; bs > start {
-		start = bs
-	}
-	if start == 0 && len(file) >= 2 && file[1] == ':' && (file[0]|0x20) >= 'a' && (file[0]|0x20) <= 'z' {
-		start = 2
-	}
-	return start
-}
-
 // doMigrate: a 2.x file rewritten for the current rules. The rewrite is text
 // to text; the load after it is for the diagnostics and the save gate, the
 // same gate `fmt --write` goes through.
@@ -3228,114 +3211,33 @@ func doSet(o *opts) int {
 }
 
 // schemaFor is the schema check validates against: --schema, else the one the
-// file names on its Schema line. A relative path there is read from the
-// config file's directory, the way an editor reads it. A URL is left to
+// file names on its Schema line, read by the library's rules. A URL is left to
 // editors, since a check that reads the network because of a line in a file
-// is not one to run unattended.
+// is not one to run unattended. ok is false when there is nothing to validate
+// against; an error is a schema that cannot be read.
 func schemaFor(o *opts, file, text string) (string, bool, error) {
 	if o.schemaSet {
-		return o.schema, true, nil
+		t, err := readInput(o.schema)
+		return t, err == nil, err
 	}
-	named, ok := shcl.SchemaRef(text)
-	if !ok {
+	named := shcl.ReadNamedSchema(text, file)
+	switch named.Status {
+	case shcl.SchemaGood:
+		return named.Text, true, nil
+	case shcl.SchemaNotFound, shcl.SchemaEmpty:
+		return "", false, nil
+	case shcl.SchemaURL:
+		fmt.Fprintf(os.Stderr, "the file names its schema by URL (%s), which check does not fetch; pass --schema=SCHEMA to validate against it\n", named.Path)
 		return "", false, nil
 	}
-	if strings.Contains(named, "://") {
-		fmt.Fprintf(os.Stderr, "the file names its schema by URL (%s), which check does not fetch; pass --schema=SCHEMA to validate against it\n", named)
-		return "", false, nil
-	}
-	// Two separators, or the NT prefix, name a share or a device on windows,
-	// and a line in a file someone else wrote must not reach another host.
-	isSep := func(c byte) bool { return c == '/' || c == '\\' }
-	if runtime.GOOS == "windows" && len(named) >= 2 && ((isSep(named[0]) && isSep(named[1])) || strings.HasPrefix(named, `\??\`)) {
-		return "", false, fmt.Errorf("%s: a Schema line cannot name a network or device path", named)
-	}
-	absolute := named[0] == '/' || (runtime.GOOS == "windows" && (named[0] == '\\' ||
-		(len(named) >= 2 && named[1] == ':' && (named[0]|0x20) >= 'a' && (named[0]|0x20) <= 'z')))
-	if absolute {
-		return named, true, nil
-	}
-	start := 0
-	if file != "-" {
-		start = nameStart(file)
-	}
-	if start == 0 {
-		return "./" + named, true, nil
-	}
-	return file[:start] + named, true, nil
+	return "", false, errors.New(named.Message)
 }
-
-// schemaLineMax is the most a Schema line's file may hold. A regular file can
-// still read without end: the kernel's page map has size 0 and reads as
-// hundreds of GiB.
-const schemaLineMax = 16 << 20
-
-// openNoWait opens a Schema line's file. The POSIX build swaps in an open that
-// does not wait on a FIFO; windows has none at a path.
-var openNoWait = os.Open
 
 // stdinIsTerminal says whether stdin is a terminal. The platform builds swap in
 // an exact test; a character device is the guess elsewhere, /dev/null included.
 var stdinIsTerminal = func() bool {
 	fi, err := os.Stdin.Stat()
 	return err == nil && fi.Mode()&os.ModeCharDevice != 0
-}
-
-// readNamedSchema reads the schema a Schema line names. A line in a file
-// someone else wrote must not make an unattended check wait on a FIFO or read
-// a device until memory runs out, so only a regular file is read, and no more
-// of it than schemaLineMax.
-func readNamedSchema(path string) (string, error) {
-	if notADiskFile(path) {
-		return "", fmt.Errorf("%s: not a regular file", path)
-	}
-	regular := func(fi fs.FileInfo, err error) error {
-		var pe *fs.PathError
-		switch {
-		case errors.As(err, &pe):
-			return fmt.Errorf("%s: %w", path, pe.Err)
-		case err != nil:
-			return fmt.Errorf("%s: %w", path, err)
-		case fi.IsDir():
-			return fmt.Errorf("%s: Is a directory", path)
-		case !fi.Mode().IsRegular():
-			return fmt.Errorf("%s: not a regular file", path)
-		}
-		return nil
-	}
-	// Asked before the open too, since opening a FIFO waits for a writer.
-	if err := regular(os.Stat(path)); err != nil {
-		return "", err
-	}
-	f, err := openNoWait(path)
-	if err != nil {
-		return "", regular(nil, err)
-	}
-	defer f.Close()
-	if err := regular(f.Stat()); err != nil {
-		return "", err
-	}
-	// Fixed reads, since the page map refuses one that is not a multiple of 8.
-	// One read past the cap is what tells a file at it from one over it.
-	var b []byte
-	chunk := make([]byte, 1<<16)
-	for {
-		n, err := f.Read(chunk)
-		b = append(b, chunk[:n]...)
-		if len(b) > schemaLineMax {
-			return "", fmt.Errorf("%s: too large for a schema (over 16 MiB)", path)
-		}
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return "", regular(nil, err)
-		}
-	}
-	if !utf8.Valid(b) {
-		return "", fmt.Errorf("%s: stream did not contain valid UTF-8", path)
-	}
-	return string(b), nil
 }
 
 func doCheck(o *opts) int {
@@ -3359,21 +3261,12 @@ func doCheck(o *opts) int {
 	// --schema: append validation diagnostics under the same contract. The
 	// schema itself always loads at Standard (a program artifact); one that
 	// does not load cleanly is a single V099 schema fault.
-	schemaFile, ok, err := schemaFor(o, o.args[0], text)
+	stext, ok, err := schemaFor(o, o.args[0], text)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return exitIO
 	}
 	if ok {
-		read := readNamedSchema
-		if o.schemaSet {
-			read = readInput
-		}
-		stext, serr := read(schemaFile)
-		if serr != nil {
-			fmt.Fprintln(os.Stderr, serr)
-			return exitIO
-		}
 		sdoc := shcl.Parse(stext)
 		bad := false
 		for _, sd := range sdoc.Diagnostics() {

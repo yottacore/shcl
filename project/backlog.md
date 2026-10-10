@@ -356,6 +356,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- ID: 2026100717500020
 	- Type: Enhancement
 	- Status: Queued
+	- Needs local test suite run?:
+		- (schema resolve) Y, the full `--ci` for exhaustive cppcheck over the C change, and the hosted windows job for Python's Windows branch, which nothing here runs.
 	- Priority: Low
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 20
@@ -368,11 +370,20 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261008: before the cut, not after (JC).
 		- 20261009: all three get a fix, not docs (JC).
 		- 20261009: the third is `set_*_default` itself. It writes the default when the field is missing, empty or doesn't read as that type, and keeps a replaced line as a `##` comment with a note (JC).
+		- 20261010 (schema resolve): one call that returns a status, named after `read_schema_ref`, with no plain twin. Status names follow `FileStatus` and `WriteStatus` where they mean the same thing (me).
+		- 20261010 (schema resolve): a URL comes back as a status with the URL in `path`, so a program that fetches can do it itself. `check`'s note about `--schema` stays in the CLI (me).
 	- Requirements:
 		- A library call reads a config's `Schema` line and resolves it by the CLI's rules. The CLI uses the same call, so the two can't drift.
 		- A `kind(path)` read gives scalar, array, raw block or empty, with a status for a missing or bad path.
 		- One call makes sure a field has a usable value of a type.
 	- Origin: Confirmed by reading and probes.
+	- Progress log:
+		- 20261010 (schema resolve): `read_named_schema(text, file)` in all four (Go `ReadNamedSchema`, C `shcl_read_named_schema` and `shcl_named_schema_free`) and C++ `read_named_schema`. It reads the Schema line, resolves it from the config's directory, and gives back the schema's text or a `SchemaStatus`: `NotFound`, `Empty`, `Url`, `NetworkPath`, `FileNotFound`, `IsDirectory`, `NotRegular`, `TooLarge` or `Unreadable`, with the path, the line and a message naming the path.
+		- 20261010 (schema resolve): `check` in all four CLIs goes through it, and their own copies of the rules are gone. Python's `check` now refuses a windows device name on the Schema line, as the other three did.
+	- Swept (schema resolve): every `schema_ref` and `read_schema_ref` caller. Only `check` resolved the line, in each CLI. Each CLI's resolve and read helpers (the name split, the open that does not wait on a FIFO, the 16 MiB cap) moved into the library, and Go's `main_unix.go`, which held only that open, is gone. spec.md, README, the style guide's naming list and the changelog say so.
+	- Verified (schema resolve): each new runner test fails with its binding's fix broken and passes with it, and cli-regress's FIFO-swap row fails for Go without the library's open that does not wait. The Rust, Go and C tests and the C++ smoke pass their Windows branches under wine. Also cargo test, clippy for linux and windows, rustfmt, the four conformance suites, `go test -count=1` per module, gofmt, vet and staticcheck for linux and windows, ruff, mypy, cppcheck at the normal level, the C runner under ASan and UBSan and at all five `-O` levels, gcc-15, clang, mingw, cli-regress (541 rows, 4 bindings), crosscheck, check-veneer, check-abnf, test-ids, markdownlint, and check-docs with only the known `EpHGoa0` red.
+	- Test case (schema resolve): `read_named_schema_follows_check_rules` in all four runners (Rust `EsJZ105`, Go `EsJZ106`, Python `EsJZ107`, C `EsJZ108`) and the C++ smoke `EjtkR0S`. The CLI side is cli-regress's schema-line rows, `Er2thhx` to `ErfuRh7`, and `Erlf8t9`.
+	- Branch (schema resolve): `schemares`
 
 **Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
 

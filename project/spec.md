@@ -799,6 +799,8 @@ A config file can name its own schema on a comment line written like the info bl
 
 - A URL is for editors. `check` does not fetch one, and says so on stderr, since a check that reads the network because of a line in a file is not one to run unattended.
 
+- `ReadNamedSchema(text, file)` is that read as a library call, and `check` goes through it. `file` is the config's path, and only says where a relative path starts. It gives back the schema's text, or a `SchemaStatus` saying why not: `NotFound` and `Empty` as `ReadSchemaRef` has them, `Url`, `NetworkPath` on Windows, `FileNotFound`, `IsDirectory`, `NotRegular`, `TooLarge`, or `Unreadable` for anything else, such as a file that is not UTF-8. It also gives the path it read, or the URL as written, the line number, and a message naming the path. A URL is never fetched.
+
 - `SetBanner` rewrites the info block and keeps a Schema line that sits in it.
 
 ## Layered loading

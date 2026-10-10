@@ -348,6 +348,53 @@ shcl_doc *shcl_load_file_keep_lines(const char *path, shcl_strictness s, shcl_fi
 // load dropped comes back as written when the lines are kept, so this refuses
 // the way shcl_save_file does only when it would write canonical.
 shcl_save_result shcl_save_file_keep_lines(shcl_doc *d, const char *path, int *kept, shcl_write_status *why);
+// What shcl_read_named_schema found. NOT_FOUND and EMPTY are
+// shcl_read_schema_ref's answers; the rest say why a named schema was not
+// read. New values go on the end; the other bindings number them in this
+// order.
+typedef enum {
+	SHCL_SCHEMA_GOOD,           /* the schema's text was read */
+	SHCL_SCHEMA_NOT_FOUND,      /* no line names a schema */
+	SHCL_SCHEMA_EMPTY,          /* a Schema line with nothing after the word */
+	SHCL_SCHEMA_URL,            /* the line names a URL, which is not fetched */
+	SHCL_SCHEMA_NETWORK_PATH,   /* on windows, a path starting with two slashes or backslashes, or with \??\, which names a network share or a device */
+	SHCL_SCHEMA_FILE_NOT_FOUND, /* nothing at the path */
+	SHCL_SCHEMA_IS_DIRECTORY,   /* the path names a directory */
+	SHCL_SCHEMA_NOT_REGULAR,    /* something at the path that is not a regular file, such as a FIFO or a device */
+	SHCL_SCHEMA_TOO_LARGE,      /* a file over 16 MiB */
+	SHCL_SCHEMA_UNREADABLE      /* no permission, text that is not UTF-8, or another read error */
+} shcl_schema_status;
+// The schema status's name as the other bindings print it, "Good" to
+// "Unreadable".
+const char *shcl_schema_status_name(shcl_schema_status s);
+// What shcl_read_named_schema gives back; shcl_named_schema_free gives back
+// all of it. text, path and message are malloc'd and NUL-terminated, never
+// NULL, with their lengths beside them, since a path from a file can hold a
+// NUL. text is the schema's text when status is SHCL_SCHEMA_GOOD, else empty.
+// path is where the line points: the path resolved from the config file's
+// directory, or the URL or network path as written; empty when no line names
+// one. line is the Schema line's number, 0 with none. message says why
+// nothing was read, naming the path, and is empty for GOOD, NOT_FOUND and
+// EMPTY.
+typedef struct {
+	shcl_schema_status status;
+	char *text; size_t len;
+	char *path; size_t path_len;
+	size_t line;
+	char *message; size_t message_len;
+} shcl_named_schema;
+// The schema a config file names on its Schema line, read the way `check`
+// reads it. text is the config's text and file its path (NULL reads as ""),
+// which only says where a relative path starts: the config file's directory,
+// or the working directory when file has none, such as "-" for stdin. A URL
+// is not fetched, and on windows neither is a network share or a device path.
+// Only a regular file is read, and none over 16 MiB, so a line in a file
+// someone else wrote cannot make a program wait on a FIFO or read a device
+// until memory runs out.
+shcl_named_schema shcl_read_named_schema(const char *text, size_t len, const char *file);
+// Frees what an shcl_named_schema holds and zeroes it, so a second call is
+// harmless.
+void shcl_named_schema_free(shcl_named_schema *ns);
 #endif
 
 // Schema-driven generation (`shcl init --schema`): a commented, typed starter
@@ -3759,27 +3806,31 @@ shcl_read_i64 shcl_read_format_version(const char *text, size_t len) {
 }
 
 /* The Schema line's reference: SHCL_GOOD with it in *out, SHCL_EMPTY for a
-   Schema line with nothing after the word, else SHCL_NOT_FOUND. The line is
-   new in this format, so the blocks are the parser's. */
-static shcl_status schema_line_ref(ShclArena *ta, ShclArena *sc, ShclStr text, ShclStr *out) {
-	size_t headn = sizeof(SHCL_SCHEMA_LINE_HEAD) - 1, start = 0;
+   Schema line with nothing after the word, else SHCL_NOT_FOUND. *line_no
+   gets the line it is on, 0 with none. The line is new in this format, so
+   the blocks are the parser's. */
+static shcl_status schema_line_ref(ShclArena *ta, ShclArena *sc, ShclStr text, ShclStr *out, size_t *line_no) {
+	size_t headn = sizeof(SHCL_SCHEMA_LINE_HEAD) - 1, start = 0, ln = 0;
 	ShclStr word = trim_wsp_end(s_lit(SHCL_SCHEMA_LINE_HEAD));
+	*line_no = 0;
 	if (!s_has(text, word)) return SHCL_NOT_FOUND;
-	int empty = 0;
+	size_t empty = 0;
 	ShclRawLines lines;
 	raw_lines_init(&lines, SHCL_RULES_CURRENT);
 	for (size_t i = 0; i <= text.n; i++) {
 		if (i < text.n && text.p[i] != '\n') continue;
 		ShclStr raw = s_slice(text, start, i);
 		start = i + 1;
+		ln++;
 		ShclStr rest = s_empty();
 		if (!raw_lines_step(ta, sc, &lines, raw, &rest)) continue;
-		if (s_eq(rest, word)) { empty = 1; continue; }
+		if (s_eq(rest, word)) { if (!empty) empty = ln; continue; }
 		if (rest.n >= headn && memcmp(rest.p, SHCL_SCHEMA_LINE_HEAD, headn) == 0) {
 			ShclStr r = s_trim_wsp(s_slice(rest, headn, rest.n));
-			if (r.n) { *out = r; return SHCL_GOOD; }
+			if (r.n) { *out = r; *line_no = ln; return SHCL_GOOD; }
 		}
 	}
+	*line_no = empty;
 	return empty ? SHCL_EMPTY : SHCL_NOT_FOUND;
 }
 
@@ -3795,7 +3846,8 @@ const char *shcl_schema_ref(const char *text, size_t len, size_t *ref_len) {
 	return r.status == SHCL_GOOD ? r.value.p : NULL;
 }
 
-shcl_read_str shcl_read_schema_ref(const char *text, size_t len) {
+/* shcl_read_schema_ref, with the line it is on in *line_no. */
+static shcl_read_str s_read_schema_ref_at(const char *text, size_t len, size_t *line_no) {
 	ShclMigrateOwn *volatile own = (ShclMigrateOwn *)calloc(1, sizeof *own);
 	if (!own) { SHCL_OOM(); abort(); }
 	jmp_buf panic;
@@ -3809,11 +3861,16 @@ shcl_read_str shcl_read_schema_ref(const char *text, size_t len) {
 	ShclStr in; in.p = text ? text : ""; in.n = len;
 	if (in.n >= 3 && (unsigned char)in.p[0] == 0xEF && (unsigned char)in.p[1] == 0xBB && (unsigned char)in.p[2] == 0xBF) in = s_slice(in, 3, in.n);
 	ShclStr ref = s_empty();
-	shcl_status st = schema_line_ref(&own->a, &own->sc, in, &ref);
+	shcl_status st = schema_line_ref(&own->a, &own->sc, in, &ref, line_no);
 	ShclMigrateOwn *done = own;
 	arena_free(&done->a); arena_free(&done->sc); free(done);
 	shcl_read_str r; r.value = ref; r.status = st;
 	return r;
+}
+
+shcl_read_str shcl_read_schema_ref(const char *text, size_t len) {
+	size_t line_no;
+	return s_read_schema_ref_at(text, len, &line_no);
 }
 #if defined(__GNUC__) && !defined(__clang__)
 	#pragma GCC diagnostic pop
@@ -13053,6 +13110,194 @@ char *shcl_read_file(const char *path, size_t max_bytes, size_t *len, shcl_file_
 	if (len) *len = n;
 	if (status) *status = SHCL_FILE_CLEAN;
 	return buf;
+}
+
+const char *shcl_schema_status_name(shcl_schema_status s) {
+	switch (s) {
+	case SHCL_SCHEMA_GOOD: return "Good";
+	case SHCL_SCHEMA_NOT_FOUND: return "NotFound";
+	case SHCL_SCHEMA_EMPTY: return "Empty";
+	case SHCL_SCHEMA_URL: return "Url";
+	case SHCL_SCHEMA_NETWORK_PATH: return "NetworkPath";
+	case SHCL_SCHEMA_FILE_NOT_FOUND: return "FileNotFound";
+	case SHCL_SCHEMA_IS_DIRECTORY: return "IsDirectory";
+	case SHCL_SCHEMA_NOT_REGULAR: return "NotRegular";
+	case SHCL_SCHEMA_TOO_LARGE: return "TooLarge";
+	case SHCL_SCHEMA_UNREADABLE: return "Unreadable";
+	}
+	return "Unreadable";
+}
+
+/* The most a Schema line's file may hold. A regular file can still read
+   without end: the kernel's page map has size 0 and reads as hundreds of GiB. */
+#define SHCL_SCHEMA_FILE_MAX ((size_t)16 << 20)
+
+/* A malloc'd, NUL-terminated copy of A then B, either of which may hold a
+   NUL; *n gets the length. */
+static char *s_join_n(const char *a, size_t an, const char *b, size_t bn, size_t *n) {
+	char *out = (char *)malloc(an + bn + 1);
+	if (!out) { SHCL_OOM(); abort(); }
+	if (an) memcpy(out, a, an);
+	if (bn) memcpy(out + an, b, bn);
+	out[an + bn] = '\0';
+	*n = an + bn;
+	return out;
+}
+
+/* Sets why read_named_schema read nothing: STATUS, and the path then WHY. */
+static void s_schema_refuse(shcl_named_schema *ns, shcl_schema_status status, const char *why) {
+	free(ns->message);
+	ns->status = status;
+	size_t wn = strlen(why);
+	char *tail = (char *)malloc(wn + 3);
+	if (!tail) { SHCL_OOM(); abort(); }
+	tail[0] = ':'; tail[1] = ' ';
+	memcpy(tail + 2, why, wn + 1);
+	ns->message = s_join_n(ns->path, ns->path_len, tail, wn + 2, &ns->message_len);
+	free(tail);
+}
+
+/* shcl_read_named_schema's read of ns->path: only a regular file, and no
+   more of it than SHCL_SCHEMA_FILE_MAX. */
+static void s_read_schema_file(shcl_named_schema *ns) {
+	const char *path = ns->path;
+	if (memchr(path, 0, ns->path_len)) { s_schema_refuse(ns, SHCL_SCHEMA_UNREADABLE, strerror(EINVAL)); return; }
+#ifdef _WIN32
+	wchar_t *w = shcl_widen(path);
+	DWORD attrs = w ? GetFileAttributesW(w) : INVALID_FILE_ATTRIBUTES;
+	free(w);
+	int is_dir = attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY);
+	if (!is_dir && shcl_not_a_disk_file(path)) { s_schema_refuse(ns, SHCL_SCHEMA_NOT_REGULAR, "not a regular file"); return; }
+	if (is_dir) { s_schema_refuse(ns, SHCL_SCHEMA_IS_DIRECTORY, "Is a directory"); return; }
+	FILE *f = shcl_fopen_rb(path);
+	if (!f) { s_schema_refuse(ns, errno == ENOENT ? SHCL_SCHEMA_FILE_NOT_FOUND : SHCL_SCHEMA_UNREADABLE, strerror(errno)); return; }
+	/* Asked again of the handle, since the path can change after the test. */
+	if (GetFileType((HANDLE)_get_osfhandle(_fileno(f))) != FILE_TYPE_DISK) {
+		fclose(f);
+		s_schema_refuse(ns, SHCL_SCHEMA_NOT_REGULAR, "not a regular file");
+		return;
+	}
+#else
+	/* Asked before the open too, since opening a FIFO waits for a writer. */
+	struct stat st;
+	if (stat(path, &st) == 0 && !S_ISREG(st.st_mode)) {
+		if (S_ISDIR(st.st_mode)) s_schema_refuse(ns, SHCL_SCHEMA_IS_DIRECTORY, "Is a directory");
+		else s_schema_refuse(ns, SHCL_SCHEMA_NOT_REGULAR, "not a regular file");
+		return;
+	}
+	/* The path can turn into a FIFO between the stat and the open, so the open
+	   does not wait, and the flag comes straight back off: only the open
+	   waits, and the fstat refuses a FIFO before any read. */
+	int oflags = O_RDONLY | O_NONBLOCK;
+#ifdef O_CLOEXEC
+	oflags |= O_CLOEXEC;
+#endif
+	int fd = open(path, oflags);
+	if (fd < 0) { s_schema_refuse(ns, errno == ENOENT ? SHCL_SCHEMA_FILE_NOT_FOUND : SHCL_SCHEMA_UNREADABLE, strerror(errno)); return; }
+	int fl = fcntl(fd, F_GETFL);
+	if (fl == -1 || fcntl(fd, F_SETFL, fl & ~O_NONBLOCK) == -1) {
+		int e = errno;
+		close(fd);
+		s_schema_refuse(ns, SHCL_SCHEMA_UNREADABLE, strerror(e));
+		return;
+	}
+	if (fstat(fd, &st) == 0 && !S_ISREG(st.st_mode)) {
+		close(fd);
+		if (S_ISDIR(st.st_mode)) s_schema_refuse(ns, SHCL_SCHEMA_IS_DIRECTORY, "Is a directory");
+		else s_schema_refuse(ns, SHCL_SCHEMA_NOT_REGULAR, "not a regular file");
+		return;
+	}
+	FILE *f = fdopen(fd, "rb");
+	if (!f) { int e = errno; close(fd); s_schema_refuse(ns, SHCL_SCHEMA_UNREADABLE, strerror(e)); return; }
+#endif
+	/* Fixed reads, since the page map refuses one that is not a multiple of 8.
+	   One read past the cap is what tells a file at it from one over it. */
+	size_t cap = (size_t)1 << 16, n = 0;
+	char *buf = (char *)malloc(cap + 1);
+	if (!buf) { fclose(f); SHCL_OOM(); abort(); }
+	for (;;) {
+		if (cap - n < ((size_t)1 << 16)) {
+			char *nb = (char *)realloc(buf, cap * 2 + 1);
+			if (!nb) { free(buf); fclose(f); SHCL_OOM(); abort(); }
+			buf = nb; cap *= 2;
+		}
+		errno = 0;
+		size_t got = fread(buf + n, 1, (size_t)1 << 16, f);
+		n += got;
+		if (n > SHCL_SCHEMA_FILE_MAX) {
+			free(buf); fclose(f);
+			s_schema_refuse(ns, SHCL_SCHEMA_TOO_LARGE, "too large for a schema (over 16 MiB)");
+			return;
+		}
+		if (got == 0) break;
+	}
+	if (ferror(f)) {
+		int e = errno ? errno : EIO;
+		free(buf); fclose(f);
+		s_schema_refuse(ns, SHCL_SCHEMA_UNREADABLE, strerror(e));
+		return;
+	}
+	fclose(f);
+	if (!shcl_utf8_valid(buf, n)) {
+		free(buf);
+		s_schema_refuse(ns, SHCL_SCHEMA_UNREADABLE, "stream did not contain valid UTF-8");
+		return;
+	}
+	buf[n] = '\0';
+	free(ns->text);
+	ns->text = buf; ns->len = n;
+	ns->status = SHCL_SCHEMA_GOOD;
+}
+
+shcl_named_schema shcl_read_named_schema(const char *text, size_t len, const char *file) {
+	shcl_named_schema ns;
+	memset(&ns, 0, sizeof ns);
+	ns.status = SHCL_SCHEMA_NOT_FOUND;
+	ns.text = s_join_n("", 0, "", 0, &ns.len);
+	ns.path = s_join_n("", 0, "", 0, &ns.path_len);
+	ns.message = s_join_n("", 0, "", 0, &ns.message_len);
+	if (!file) file = "";
+	shcl_read_str r = s_read_schema_ref_at(text, len, &ns.line);
+	if (r.status == SHCL_EMPTY) ns.status = SHCL_SCHEMA_EMPTY;
+	if (r.status != SHCL_GOOD) return ns;
+	const char *named = r.value.p;
+	size_t n = r.value.n;
+	int url = 0;
+	for (size_t i = 0; i + 3 <= n; i++)
+		if (memcmp(named + i, "://", 3) == 0) { url = 1; break; }
+	if (url) {
+		free(ns.path);
+		ns.path = s_join_n(named, n, "", 0, &ns.path_len);
+		s_schema_refuse(&ns, SHCL_SCHEMA_URL, "a schema named by URL is not fetched");
+		return ns;
+	}
+	unsigned char c = (unsigned char)named[0];
+	int absolute = c == '/';
+#ifdef _WIN32
+	/* Two separators, or the NT prefix, name a share or a device, and a line
+	   in a file someone else wrote must not reach another host. */
+	int two = n >= 2 && (named[0] == '/' || named[0] == '\\') && (named[1] == '/' || named[1] == '\\');
+	if (two || (n >= 4 && memcmp(named, "\\??\\", 4) == 0)) {
+		free(ns.path);
+		ns.path = s_join_n(named, n, "", 0, &ns.path_len);
+		s_schema_refuse(&ns, SHCL_SCHEMA_NETWORK_PATH, "a Schema line cannot name a network or device path");
+		return ns;
+	}
+	absolute = absolute || c == '\\' || (n >= 2 && named[1] == ':' && (c | 0x20) >= 'a' && (c | 0x20) <= 'z');
+#endif
+	size_t start = file_name_start(file);
+	free(ns.path);
+	if (absolute) ns.path = s_join_n(named, n, "", 0, &ns.path_len);
+	else if (start == 0) ns.path = s_join_n("./", 2, named, n, &ns.path_len);
+	else ns.path = s_join_n(file, start, named, n, &ns.path_len);
+	s_read_schema_file(&ns);
+	return ns;
+}
+
+void shcl_named_schema_free(shcl_named_schema *ns) {
+	if (!ns) return;
+	free(ns->text); free(ns->path); free(ns->message);
+	memset(ns, 0, sizeof *ns);
 }
 
 // File tier, load half: read and parse PATH. Never fails - the document

@@ -5420,3 +5420,95 @@ func TestInitRefusesAChildOfAnArrayParent(t *testing.T) {
 		t.Fatalf("a child of an array parent generated: %q %v", text, faults)
 	}
 }
+
+// A Schema line reads by check's rules through ReadNamedSchema: from the
+// config's directory, or the working directory when the path has none; a URL
+// is never fetched; only a regular file is read, and none over 16 MiB. The
+// CLI's check is this call, so its rows in cli-regress pin the same rules.
+// Same fixture in every runner.
+func TestReadNamedSchemaFollowsCheckRules(t *testing.T) {
+	defer testID(t, "EsJZ106")
+	d := t.TempDir()
+	cfg := d + "/cfg.shcl"
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(os.Mkdir(d+"/sub", 0o755))
+	must(os.WriteFile(d+"/s.shcl", []byte("field: port\n"), 0o644))
+	must(os.WriteFile(d+"/bad.shcl", []byte("a: \xff\n"), 0o644))
+	must(os.WriteFile(d+"/big.shcl", []byte(strings.Repeat("a", 16<<20+1)), 0o644))
+	line := func(r string) string { return "a: 1\n##    Schema   " + r + "\n" }
+
+	r := ReadNamedSchema(line("s.shcl"), cfg)
+	if r.Status != SchemaGood || r.Text != "field: port\n" || r.Path != d+"/s.shcl" || r.Line != 2 || r.Message != "" {
+		t.Fatalf("good: %+v", r)
+	}
+	abs := d + "/s.shcl"
+	if r := ReadNamedSchema(line(abs), "cfg.shcl"); r.Path != abs || r.Status != SchemaGood {
+		t.Fatalf("absolute: %+v", r)
+	}
+
+	if r := ReadNamedSchema("a: 1\n", cfg); r.Status != SchemaNotFound || r.Path != "" || r.Line != 0 {
+		t.Fatalf("no line: %+v", r)
+	}
+	if r := ReadNamedSchema("##    Schema\na: 1\n", cfg); r.Status != SchemaEmpty || r.Path != "" || r.Line != 1 {
+		t.Fatalf("empty: %+v", r)
+	}
+
+	r = ReadNamedSchema(line("https://example.com/s.shcl"), cfg)
+	if r.Status != SchemaURL || r.Path != "https://example.com/s.shcl" || r.Text != "" || r.Message == "" {
+		t.Fatalf("url: %+v", r)
+	}
+
+	for _, file := range []string{"cfg.shcl", "-", ""} {
+		if r := ReadNamedSchema(line("gone.shcl"), file); r.Status != SchemaFileNotFound || r.Path != "./gone.shcl" {
+			t.Fatalf("%q: %+v", file, r)
+		}
+	}
+	r = ReadNamedSchema(line("gone.shcl"), cfg)
+	if r.Status != SchemaFileNotFound || !strings.HasPrefix(r.Message, d+"/gone.shcl: ") {
+		t.Fatalf("gone: %+v", r)
+	}
+
+	named := func(r string) SchemaStatus { return ReadNamedSchema(line(r), cfg).Status }
+	for _, c := range []struct {
+		r    string
+		want SchemaStatus
+	}{
+		{"sub", SchemaIsDirectory},
+		{"big.shcl", SchemaTooLarge},
+		{"bad.shcl", SchemaUnreadable},
+		{"s.shcl\x00x", SchemaUnreadable},
+	} {
+		if got := named(c.r); got != c.want {
+			t.Errorf("%q: %v, want %v", c.r, got, c.want)
+		}
+	}
+	if runtime.GOOS == "windows" {
+		if got := named("NUL"); got != SchemaNotRegular {
+			t.Errorf("NUL: %v", got)
+		}
+		for _, n := range []string{`//host/share/s.shcl`, `\\host\share\s.shcl`, `\??\C:\s.shcl`} {
+			if r := ReadNamedSchema(line(n), cfg); r.Status != SchemaNetworkPath || r.Path != n {
+				t.Errorf("%q: %+v", n, r)
+			}
+		}
+	} else {
+		if got := named("/dev/null"); got != SchemaNotRegular {
+			t.Errorf("/dev/null: %v", got)
+		}
+		must(exec.Command("mkfifo", d+"/fifo").Run())
+		if got := named("fifo"); got != SchemaNotRegular {
+			t.Errorf("fifo: %v", got)
+		}
+		if got := named("//host/share/s.shcl"); got != SchemaFileNotFound {
+			t.Errorf("share path on POSIX: %v", got)
+		}
+	}
+	if SchemaFileNotFound.String() != "FileNotFound" || SchemaURL.String() != "Url" {
+		t.Error("names")
+	}
+}

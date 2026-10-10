@@ -4310,3 +4310,105 @@ fn migrate_leaves_what_reads_clean_now() {
 	);
 	assert!(migrate(text, true).text.contains("ESCAPE_CHAR"));
 }
+
+// read_named_schema reads a Schema line by check's rules: from the config's
+// directory, or the working directory when the path has none; a URL is never
+// fetched; only a regular file is read, and none over 16 MiB. The CLI's check
+// is this call, so its rows in cli-regress pin the same rules. Same fixture
+// in every runner.
+#[test]
+fn read_named_schema_follows_check_rules() {
+	let _id = test_id("EsJZ105");
+	use shcl::{SchemaStatus as S, read_named_schema};
+	let dir = std::env::temp_dir().join(format!("shcl-namedschema-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&dir);
+	std::fs::create_dir_all(dir.join("sub")).unwrap();
+	let d = dir.to_str().unwrap();
+	let cfg = format!("{}/cfg.shcl", d);
+	std::fs::write(dir.join("s.shcl"), "field: port\n").unwrap();
+	std::fs::write(dir.join("bad.shcl"), b"a: \xff\n").unwrap();
+	std::fs::write(dir.join("big.shcl"), vec![b'a'; (16 << 20) + 1]).unwrap();
+	let line = |r: &str| format!("a: 1\n##    Schema   {}\n", r);
+
+	let r = read_named_schema(&line("s.shcl"), &cfg);
+	assert_eq!(
+		(
+			r.status,
+			r.text.as_str(),
+			r.path.clone(),
+			r.line,
+			r.message.as_str()
+		),
+		(S::Good, "field: port\n", format!("{}/s.shcl", d), 2, "")
+	);
+	let abs = format!("{}/s.shcl", d);
+	assert_eq!(read_named_schema(&line(&abs), "cfg.shcl").path, abs);
+	assert_eq!(read_named_schema(&line(&abs), "cfg.shcl").status, S::Good);
+
+	let r = read_named_schema("a: 1\n", &cfg);
+	assert_eq!((r.status, r.path.as_str(), r.line), (S::NotFound, "", 0));
+	let r = read_named_schema("##    Schema\na: 1\n", &cfg);
+	assert_eq!((r.status, r.path.as_str(), r.line), (S::Empty, "", 1));
+
+	let r = read_named_schema(&line("https://example.com/s.shcl"), &cfg);
+	assert_eq!(
+		(r.status, r.path.as_str(), r.text.as_str()),
+		(S::Url, "https://example.com/s.shcl", "")
+	);
+	assert!(!r.message.is_empty());
+
+	for (file, want) in [
+		("cfg.shcl", "./gone.shcl"),
+		("-", "./gone.shcl"),
+		("", "./gone.shcl"),
+	] {
+		let r = read_named_schema(&line("gone.shcl"), file);
+		assert_eq!(
+			(r.status, r.path.as_str()),
+			(S::FileNotFound, want),
+			"{:?}",
+			file
+		);
+	}
+	let r = read_named_schema(&line("gone.shcl"), &cfg);
+	assert_eq!(r.status, S::FileNotFound);
+	assert!(
+		r.message.starts_with(&format!("{}/gone.shcl: ", d)),
+		"{}",
+		r.message
+	);
+
+	let named = |r: &str| read_named_schema(&line(r), &cfg).status;
+	assert_eq!(named("sub"), S::IsDirectory);
+	assert_eq!(named("big.shcl"), S::TooLarge);
+	assert_eq!(named("bad.shcl"), S::Unreadable);
+	assert_eq!(named("s.shcl\0x"), S::Unreadable);
+	#[cfg(unix)]
+	{
+		assert_eq!(named("/dev/null"), S::NotRegular);
+		let fifo = dir.join("fifo");
+		assert!(
+			std::process::Command::new("mkfifo")
+				.arg(&fifo)
+				.status()
+				.unwrap()
+				.success()
+		);
+		assert_eq!(named("fifo"), S::NotRegular);
+		assert_eq!(named("//host/share/s.shcl"), S::FileNotFound);
+	}
+	#[cfg(windows)]
+	{
+		assert_eq!(named("NUL"), S::NotRegular);
+		for r in [
+			"//host/share/s.shcl",
+			"\\\\host\\share\\s.shcl",
+			"\\??\\C:\\s.shcl",
+		] {
+			let got = read_named_schema(&line(r), &cfg);
+			assert_eq!((got.status, got.path.as_str()), (S::NetworkPath, r));
+		}
+	}
+	assert_eq!(S::FileNotFound.to_string(), "FileNotFound");
+	let _ = std::fs::remove_dir_all(&dir);
+}
