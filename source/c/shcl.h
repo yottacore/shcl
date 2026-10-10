@@ -2237,6 +2237,8 @@ static ShclStr v_one_line_in(ShclArena *a, ShclStr t, const char *open, const ch
 #define SHCL_DIAG_TEXT_MAX 200
 static size_t v_char_count(ShclStr s);
 static void v_cut_ends(ShclStr s, size_t total, ShclStr *head, ShclStr *tail);
+static void v_put_shown(ShclArena *a, ShclSB *o, ShclStr t, const char *mark);
+static ShclStr schema_text(ShclArena *a, ShclStr s);
 static int ascii_ieq(ShclStr a, const char *b, size_t n) {
 	if (a.n != n) return 0;
 	for (size_t i = 0; i < n; i++) {
@@ -8947,15 +8949,8 @@ static ShclStr commented(ShclArena *a, ShclStr text) {
 	return sb_S(&b);
 }
 
-/* A path in a note, kept to one line, with a line break or carriage return
-   written by its escape name. */
-static void put_note_text(ShclArena *a, ShclSB *b, ShclStr s) {
-	for (size_t i = 0; i < s.n; i++) {
-		if (s.p[i] == '\n') sb_puts(a, b, "\xE2\x97\x89" "NEWLINE" "\xE2\x97\x89");
-		else if (s.p[i] == '\r') sb_puts(a, b, "\xE2\x97\x89" "CR" "\xE2\x97\x89");
-		else sb_putc(a, b, s.p[i]);
-	}
-}
+/* A path in a note, kept to one line, the way schema_text shows one. */
+static void put_note_text(ShclArena *a, ShclSB *b, ShclStr s) { v_put_shown(a, b, s, escape_mark); }
 
 #if !defined(_WIN32) || defined(SHCL_NO_FILE_IO)
 /* A struct tm's local time as text, and its offset from the UTC one for the
@@ -10756,18 +10751,11 @@ static void v_diag(ShclArena *a, ShclVecDiag *out, size_t line, const char *code
 }
 static ShclStr v_msgz(ShclArena *a, const char *z) { ShclStr s; s.p = z; s.n = strlen(z); return s_dup(a, s); }
 /* Schema text for a diagnostic or a generated comment: a path or a type as the
-   schema wrote it, with a line break written by its escape name, so one
-   diagnostic stays one line. Only the break is escaped, so a path reads the way
-   it was written. */
+   schema wrote it, kept to one line, with what fmt escapes shown its way. A ◉
+   stays as written, since in a path it is the path's own escape. */
 static ShclStr schema_text(ShclArena *a, ShclStr s) {
-	int has = 0;
-	for (size_t k = 0; k < s.n; k++) if (s.p[k] == '\n') { has = 1; break; }
-	if (!has) return s;
 	ShclSB b = {0, 0, 0};
-	for (size_t k = 0; k < s.n; k++) {
-		if (s.p[k] == '\n') sb_puts(a, &b, "\xE2\x97\x89" "NEWLINE" "\xE2\x97\x89");
-		else sb_putc(a, &b, s.p[k]);
-	}
+	v_put_shown(a, &b, s, escape_mark);
 	return sb_S(&b);
 }
 static ShclStr v_msg3(ShclArena *a, const char *pre, ShclStr mid, const char *post) {
@@ -11418,38 +11406,52 @@ static void v_cut_ends(ShclStr s, size_t total, ShclStr *head, ShclStr *tail) {
 	}
 	*head = s_slice(s, 0, h); *tail = s_slice(s, t, s.n);
 }
-static void v_put_shown(ShclArena *a, ShclSB *o, ShclStr t) {
-	static const char hex[] = "0123456789ABCDEF";
-	for (size_t i = 0; i < t.n;) {
-		size_t l = utf8_len(t, i);
-		uint32_t cp; utf8_decode(t.p, i + l, i, &cp);
-		if (cp == '\t') sb_puts(a, o, "\xE2\x97\x89" "TAB" "\xE2\x97\x89");
-		else if (cp == '\n') sb_puts(a, o, "\xE2\x97\x89" "NEWLINE" "\xE2\x97\x89");
-		else if (cp == '\r') sb_puts(a, o, "\xE2\x97\x89" "CR" "\xE2\x97\x89");
-		else if (cp == 0x25C9) sb_puts(a, o, "\xE2\x97\x89" " (U+25C9)");
-		else if (cp < 0x20 || (cp >= 0x7F && cp <= 0x9F) || cp == 0x2028 || cp == 0x2029) {
-			char u[4] = {hex[cp >> 12 & 0xF], hex[cp >> 8 & 0xF], hex[cp >> 4 & 0xF], hex[cp & 0xF]};
-			sb_puts(a, o, "\xE2\x97\x89" "U+"); sb_put(a, o, u, 4); sb_puts(a, o, "\xE2\x97\x89");
-		} else sb_put(a, o, t.p + i, l);
-		i += l;
+/* A real escape mark in a message's value text. ◉ESCAPE_CHAR◉ reads oddly in
+   an E023 message about that very mark. */
+#define SHCL_SHOWN_MARK "\xE2\x97\x89" " (U+25C9)"
+/* t the way fmt writes it in quotes, less the quotes, with two changes: a `"`
+   is itself, and a real escape mark is mark. The writer's own output is taken
+   apart rather than a second list kept here, so a message can't drift from
+   fmt. */
+static void v_put_shown(ShclArena *a, ShclSB *o, ShclStr t, const char *mark) {
+	ShclStr w = quote_with(a, t, '"');
+	ShclStr rest = s_slice(w, 1, w.n - 1);
+	const char *at;
+	while ((at = find_mark(rest, 0)) != NULL) {
+		size_t from = (size_t)(at - rest.p);
+		sb_put(a, o, rest.p, from);
+		ShclStr after = s_slice(rest, from + ESCAPE_MARK_LEN, rest.n);
+		/* The writer closes every escape it opens. */
+		const char *close = find_mark(after, 0);
+		size_t end = close ? (size_t)(close - after.p) : after.n;
+		ShclStr name = s_slice(after, 0, end);
+		const char *text = NULL;
+		for (size_t k = 0; k < sizeof escape_names / sizeof *escape_names; k++)
+			if (strlen(escape_names[k].name) == name.n && memcmp(escape_names[k].name, name.p, name.n) == 0) { text = escape_names[k].text; break; }
+		if (text && strcmp(text, "\"") == 0) sb_putc(a, o, '"');
+		else if (text && strcmp(text, escape_mark) == 0) sb_puts(a, o, mark);
+		else { sb_puts(a, o, escape_mark); sb_putS(a, o, name); sb_puts(a, o, escape_mark); }
+		rest = close ? s_slice(after, end + ESCAPE_MARK_LEN, after.n) : s_slice(after, after.n, after.n);
 	}
+	sb_putS(a, o, rest);
 }
 /* Value text for a diagnostic message, between open and close. It stays one
-   line, and nothing in it reads as a 2.x backslash escape: a backslash is
-   itself, a line break, carriage return or tab shows by its escape name, any
-   other control as a code point, and a real escape mark as itself with its
-   code after it. A raw block's body is the value that made this necessary - it
-   holds its own line breaks. Past SHCL_DIAG_TEXT_MAX characters the middle is
-   cut, and the length goes after close. */
+   line, and each character shows the way fmt writes it in quotes (see
+   v_put_shown), so nothing in it reads as a 2.x backslash escape. A raw
+   block's body is the value that made this necessary - it holds its own line
+   breaks. Past SHCL_DIAG_TEXT_MAX characters the middle is cut, and the length
+   goes after close. */
 static ShclStr v_one_line_in(ShclArena *a, ShclStr t, const char *open, const char *close) {
 	size_t total = v_char_count(t);
 	ShclSB o = {0, 0, 0};
 	sb_reserve(a, &o, t.n < SHCL_DIAG_TEXT_MAX * 4 ? t.n + 16 : SHCL_DIAG_TEXT_MAX * 4 + 16);
 	sb_puts(a, &o, open);
-	if (total <= SHCL_DIAG_TEXT_MAX) v_put_shown(a, &o, t);
+	if (total <= SHCL_DIAG_TEXT_MAX) v_put_shown(a, &o, t, SHCL_SHOWN_MARK);
 	else {
 		ShclStr head, tail; v_cut_ends(t, total, &head, &tail);
-		v_put_shown(a, &o, head); sb_puts(a, &o, "..."); v_put_shown(a, &o, tail);
+		ShclSB cut = {0, 0, 0};
+		sb_putS(a, &cut, head); sb_puts(a, &cut, "..."); sb_putS(a, &cut, tail);
+		v_put_shown(a, &o, sb_S(&cut), SHCL_SHOWN_MARK);
 	}
 	sb_puts(a, &o, close);
 	if (total > SHCL_DIAG_TEXT_MAX) { sb_puts(a, &o, " ("); sb_put_u64(a, &o, total); sb_puts(a, &o, " chars)"); }

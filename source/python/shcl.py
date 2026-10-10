@@ -1859,17 +1859,21 @@ _DIAG_TEXT_MAX = 200
 
 def _one_line_in(s, open_, close):
 	# Value text for a diagnostic message, between open_ and close. It stays one
-	# line, and nothing in it reads as a 2.x backslash escape: a backslash is
-	# itself, a line break, carriage return or tab shows by its escape name, any
-	# other control as a code point, and a real escape mark as itself with its
-	# code after it. A raw block's body is the value that made this necessary -
-	# it holds its own line breaks. Past _DIAG_TEXT_MAX characters the middle is
-	# cut, and the length goes after close.
+	# line, and each character shows the way fmt writes it in quotes (see
+	# _shown), so nothing in it reads as a 2.x backslash escape. A raw block's
+	# body is the value that made this necessary - it holds its own line breaks.
+	# Past _DIAG_TEXT_MAX characters the middle is cut, and the length goes
+	# after close.
 	total = len(s)
 	if total <= _DIAG_TEXT_MAX:
-		return f"{open_}{_shown(s)}{close}"
+		return f"{open_}{_shown(s, _SHOWN_MARK)}{close}"
 	head, tail = _cut_ends(s, total)
-	return f"{open_}{_shown(head)}...{_shown(tail)}{close} ({total} chars)"
+	return f"{open_}{_shown(f'{head}...{tail}', _SHOWN_MARK)}{close} ({total} chars)"
+
+
+# A real escape mark in a message's value text. ◉ESCAPE_CHAR◉ reads oddly in an
+# E023 message about that very mark.
+_SHOWN_MARK = "\u25c9 (U+25C9)"
 
 
 def _cut_ends(s, total):
@@ -1879,30 +1883,42 @@ def _cut_ends(s, total):
 	return s[:half], s[total - half:]
 
 
-def _shown(s):
+def _shown(s, mark):
+	# s the way fmt writes it in quotes, less the quotes, with two changes: a
+	# `"` is itself, and a real escape mark is mark. The writer's own output is
+	# taken apart rather than a second list kept here, so a message can't drift
+	# from fmt.
+	m = _ESCAPE_MARK
+	rest = _quote_with(s, '"')[1:-1]
 	out = []
-	for c in s:
-		if c == "\t":
-			out.append("\u25c9TAB\u25c9")
-		elif c == "\n":
-			out.append("\u25c9NEWLINE\u25c9")
-		elif c == "\r":
-			out.append("\u25c9CR\u25c9")
-		elif c == _ESCAPE_MARK:
-			out.append("\u25c9 (U+25C9)")
-		elif c < " " or "\x7f" <= c <= "\x9f" or c in "\u2028\u2029":
-			out.append(f"\u25c9U+{ord(c):04X}\u25c9")
+	while True:
+		at = rest.find(m)
+		if at < 0:
+			break
+		out.append(rest[:at])
+		after = rest[at + 1:]
+		# The writer closes every escape it opens.
+		end = after.find(m)
+		if end < 0:
+			end = len(after)
+		name = after[:end]
+		text = _ESCAPE_TEXT_OF.get(name)
+		if text == '"':
+			out.append('"')
+		elif text == m:
+			out.append(mark)
 		else:
-			out.append(c)
+			out.append(f"{m}{name}{m}")
+		rest = after[end + 1:]
+	out.append(rest)
 	return "".join(out)
 
 
 def _schema_text(s):
 	# Schema text for a diagnostic or a generated comment: a path or a type as
-	# the schema wrote it, with a line break written by its escape name, so one
-	# diagnostic stays one line. Only the break is escaped, so a path reads the
-	# way it was written.
-	return s.replace("\n", "\u25c9NEWLINE\u25c9")
+	# the schema wrote it, kept to one line, with what fmt escapes shown its
+	# way. A ◉ stays as written, since in a path it is the path's own escape.
+	return _shown(s, _ESCAPE_MARK)
 
 
 def _first_where(xs, pred):
@@ -2142,6 +2158,7 @@ def _has_invisible(t):
 # The name the writer uses for each text: the first one listed, so the walk
 # goes backward and an earlier name overwrites a later one.
 _ESCAPE_NAME_OF = {text: name for name, text in reversed(_ESCAPE_NAMES)}
+_ESCAPE_TEXT_OF = dict(_ESCAPE_NAMES)
 
 
 def _escape_of(c):
@@ -4894,9 +4911,8 @@ def _array_kept(text):
 
 
 def _note_text(s):
-	"""A path in a note, kept to one line, with a line break or carriage return
-	written by its escape name."""
-	return s.replace("\n", "\u25c9NEWLINE\u25c9").replace("\r", "\u25c9CR\u25c9")
+	"""A path in a note, kept to one line, the way _schema_text shows one."""
+	return _schema_text(s)
 
 
 def _kept_naming(lead, name):

@@ -1553,33 +1553,46 @@ QUOTED_MAX = 200
 
 def quoted(s):
 	# A value's text, quoted for a message, the way the library shows a value:
-	# one line whatever it holds, and nothing that reads as a 2.x backslash
-	# escape. A line break, carriage return or tab shows by its escape name, any
-	# other control as a code point, and a real escape mark as itself with its
-	# code after it. Past QUOTED_MAX characters the middle is cut, and the
+	# one line whatever it holds, with each character the way fmt writes it in
+	# quotes (see shown). Past QUOTED_MAX characters the middle is cut, and the
 	# length goes after the closing quote.
 	total = len(s)
 	if total <= QUOTED_MAX:
 		return f'"{shown(s)}"'
 	half = QUOTED_MAX // 2
-	return f'"{shown(s[:half])}...{shown(s[total - half:])}" ({total} chars)'
+	return f'"{shown(s[:half] + "..." + s[total - half:])}" ({total} chars)'
 
 
 def shown(s):
+	# s the way fmt writes it in quotes, less the quotes, with a `"` as itself
+	# and a real escape mark as itself with its code after it, as the library's
+	# messages show one. The writer's own quote_segment does the escaping, so a
+	# message can't drift from fmt; those two are its first names on the escape
+	# list.
+	m = "\u25c9"
+	rest = shcl.quote_segment(s)
+	if rest[:1] in ('"', "'"):
+		rest = rest[1:-1]
 	out = []
-	for c in s:
-		if c == "\t":
-			out.append("\u25c9TAB\u25c9")
-		elif c == "\n":
-			out.append("\u25c9NEWLINE\u25c9")
-		elif c == "\r":
-			out.append("\u25c9CR\u25c9")
-		elif c == "\u25c9":
-			out.append("\u25c9 (U+25C9)")
-		elif c < " " or "\x7f" <= c <= "\x9f" or c in "\u2028\u2029":
-			out.append(f"\u25c9U+{ord(c):04X}\u25c9")
+	while True:
+		at = rest.find(m)
+		if at < 0:
+			break
+		out.append(rest[:at])
+		after = rest[at + 1:]
+		# The writer closes every escape it opens.
+		end = after.find(m)
+		if end < 0:
+			end = len(after)
+		name = after[:end]
+		if name == "DOUBLE_QUOTE":
+			out.append('"')
+		elif name == "ESCAPE_CHAR":
+			out.append(f"{m} (U+25C9)")
 		else:
-			out.append(c)
+			out.append(f"{m}{name}{m}")
+		rest = after[end + 1:]
+	out.append(rest)
 	return "".join(out)
 
 

@@ -2120,11 +2120,9 @@ fn do_get(o: &Opts) -> u8 {
 const QUOTED_MAX: usize = 200;
 
 /// A value's text, quoted for a message, the way the library shows a value:
-/// one line whatever it holds, and nothing that reads as a 2.x backslash
-/// escape. A line break, carriage return or tab shows by its escape name, any
-/// other control as a code point, and a real escape mark as itself with its
-/// code after it. Past QUOTED_MAX characters the middle is cut, and the length
-/// goes after the closing quote.
+/// one line whatever it holds, with each character the way `fmt` writes it in
+/// quotes (see `push_shown`). Past QUOTED_MAX characters the middle is cut,
+/// and the length goes after the closing quote.
 fn quoted(s: &str) -> String {
 	let total = s.chars().count();
 	let mut out = String::with_capacity(s.len().min(QUOTED_MAX * 4) + 18);
@@ -2138,9 +2136,7 @@ fn quoted(s: &str) -> String {
 			.char_indices()
 			.nth(total - half)
 			.map_or(s.len(), |(i, _)| i);
-		push_shown(&mut out, &s[..head]);
-		out.push_str("...");
-		push_shown(&mut out, &s[tail..]);
+		push_shown(&mut out, &format!("{}...{}", &s[..head], &s[tail..]));
 	}
 	out.push('"');
 	if total > QUOTED_MAX {
@@ -2149,23 +2145,32 @@ fn quoted(s: &str) -> String {
 	out
 }
 
+/// `s` the way `fmt` writes it in quotes, less the quotes, with a `"` as
+/// itself and a real escape mark as itself with its code after it, as the
+/// library's messages show one. The writer's own `quote_segment` does the
+/// escaping, so a message can't drift from `fmt`; those two are its first
+/// names on the escape list.
 fn push_shown(out: &mut String, s: &str) {
-	for c in s.chars() {
-		match c {
-			'\t' => out.push_str("\u{25C9}TAB\u{25C9}"),
-			'\n' => out.push_str("\u{25C9}NEWLINE\u{25C9}"),
-			'\r' => out.push_str("\u{25C9}CR\u{25C9}"),
-			'\u{25C9}' => out.push_str("\u{25C9} (U+25C9)"),
-			c if c < ' '
-				|| ('\u{7F}'..='\u{9F}').contains(&c)
-				|| c == '\u{2028}'
-				|| c == '\u{2029}' =>
-			{
-				let _ = write!(out, "\u{25C9}U+{:04X}\u{25C9}", c as u32);
+	let written = shcl::quote_segment(s);
+	let mut rest = match written.as_bytes().first() {
+		Some(b'"' | b'\'') => &written[1..written.len() - 1],
+		_ => written.as_str(),
+	};
+	while let Some(at) = rest.find('\u{25C9}') {
+		out.push_str(&rest[..at]);
+		let after = &rest[at + '\u{25C9}'.len_utf8()..];
+		// The writer closes every escape it opens.
+		let close = after.find('\u{25C9}').unwrap_or(after.len());
+		match &after[..close] {
+			"DOUBLE_QUOTE" => out.push('"'),
+			"ESCAPE_CHAR" => out.push_str("\u{25C9} (U+25C9)"),
+			name => {
+				let _ = write!(out, "\u{25C9}{}\u{25C9}", name);
 			}
-			c => out.push(c),
 		}
+		rest = after.get(close + '\u{25C9}'.len_utf8()..).unwrap_or("");
 	}
+	out.push_str(rest);
 }
 
 fn do_fmt(o: &Opts) -> u8 {
