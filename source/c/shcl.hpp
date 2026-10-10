@@ -461,6 +461,11 @@ public:
 	// takes, each from its `#` on, so a program can tell its own comment from
 	// one a user wrote there.
 	std::vector<std::string> comments(std::string_view path) const;
+	// comments() with a status: Good, NotFound when the path reaches no real
+	// node, or BadPath when it cannot be read as a path. A node with no comment
+	// is Good with an empty list. read_exists(), try_remove() and
+	// try_clear_comments() give theirs the same way.
+	Read<std::vector<std::string>> read_comments(std::string_view path) const;
 	// Instance display values at a path, in file order.
 	std::vector<std::string> instances(std::string_view path) const;
 	// Child field names under a path, file order, duplicates included; "" is
@@ -470,9 +475,17 @@ public:
 	// 1-based source line of the binding at a path; 0 when it does not resolve
 	// to exactly one node or the node was writer-built.
 	std::size_t line(std::string_view path) const;
+	// line() with a status: Good, NotFound when the path matches nothing,
+	// Multiple when it matches more than one node, as the typed reads say, or
+	// BadPath. A writer-built node is Good with 0. read_authored_name() gives
+	// its status the same way.
+	Read<std::size_t> read_line(std::string_view path) const;
 	// The plural line(): every binding's line, in file order. Unresolved
 	// wildcard slots stay in the list as 0; a miss is the empty vector.
 	std::vector<std::size_t> lines(std::string_view path) const;
+	// lines() with a status, the way read_count() has them; an unresolved
+	// wildcard slot still counts as a match.
+	Read<std::vector<std::size_t>> read_lines(std::string_view path) const;
 	// Whether the single scalar value at a path was quoted in the source, so a
 	// quoted plain string is distinguishable from a bare word that happens to
 	// spell a reserved one. False for anything that is not one scalar element.
@@ -483,11 +496,13 @@ public:
 	bool backtick(std::string_view path) const;
 	// Whether a path resolves to at least one node.
 	bool exists(std::string_view path) const;
+	Read<bool> read_exists(std::string_view path) const;
 	// The field name at a path exactly as the author wrote it (case
 	// unfolded, outer quotes stripped - escape sequences stay as written too,
 	// where every other name operation sees them resolved); empty when the path
 	// does not resolve to exactly one node.
 	std::string authored_name(std::string_view path) const;
+	Read<std::string> read_authored_name(std::string_view path) const;
 	// Whether a setter could write at a path, and why not. Probes only; never
 	// creates. Gives only the path reasons, BadPath to UnderArray.
 	SetStatus check_set_path(std::string_view path) const;
@@ -546,6 +561,8 @@ public:
 	// kept as written beside a node stay where they were, and a field opened
 	// only by the lines under it goes with the last of them.
 	std::size_t remove(std::string_view path);
+	// remove() with a status; a bad path removes nothing.
+	Read<std::size_t> try_remove(std::string_view path);
 	// A leading comment line on the node at a path, creating an empty node when
 	// there is none so a section can be annotated. A missing `#` is added. Text
 	// holding a line break is refused (BadComment), since a comment is one line.
@@ -553,6 +570,7 @@ public:
 	// Take off the comment lines above the nodes at a path, so a comment can be
 	// replaced, and say how many came off.
 	std::size_t clear_comments(std::string_view path);
+	Read<std::size_t> try_clear_comments(std::string_view path);
 	// The info block at the end, an old one taken off first; false only takes
 	// it off. Says how many old blocks came off.
 	std::size_t set_banner(bool on);
@@ -1096,12 +1114,19 @@ std::vector<Field> Document::fields() const { auto h = detail::fresh(*this); shc
 Read<std::vector<Field>> Document::read_fields(std::string_view path) const { auto h = detail::fresh(*this); auto r = shcl_read_fields(h, path.data(), path.size()); return {detail::fields(r.values, r.n), detail::st(r.status)}; }
 Read<std::vector<Field>> Document::read_child_fields(std::string_view path) const { auto h = detail::fresh(*this); auto r = shcl_read_child_fields(h, path.data(), path.size()); return {detail::fields(r.values, r.n), detail::st(r.status)}; }
 std::vector<std::string> Document::comments(std::string_view path) const { auto h = detail::fresh(*this); shcl_str *a; std::size_t n = shcl_comments(h, path.data(), path.size(), &a); return detail::strs(a, n); }
+Read<std::vector<std::string>> Document::read_comments(std::string_view path) const { auto h = detail::fresh(*this); auto r = shcl_read_comments(h, path.data(), path.size()); return {detail::strs(r.values, r.n), detail::st(r.status)}; }
 std::vector<std::string> Document::instances(std::string_view path) const { auto h = detail::fresh(*this); shcl_str *a; std::size_t n = shcl_instances(h, path.data(), path.size(), &a); return detail::strs(a, n); }
 std::vector<std::string> Document::children(std::string_view path) const { auto h = detail::fresh(*this); shcl_str *a; std::size_t n = shcl_children(h, path.data(), path.size(), &a); return detail::strs(a, n); }
 Read<std::size_t> Document::read_count(std::string_view path) const { auto r = shcl_read_count(detail::held(*this), path.data(), path.size()); return {r.value, detail::st(r.status)}; }
 Read<std::vector<std::string>> Document::read_instances(std::string_view path) const { auto h = detail::fresh(*this); auto r = shcl_read_instances(h, path.data(), path.size()); return {detail::strs(r.values, r.n), detail::st(r.status)}; }
 Read<std::vector<std::string>> Document::read_children(std::string_view path) const { auto h = detail::fresh(*this); auto r = shcl_read_children(h, path.data(), path.size()); return {detail::strs(r.values, r.n), detail::st(r.status)}; }
 std::size_t Document::line(std::string_view path) const { return shcl_line(detail::held(*this), path.data(), path.size()); }
+Read<std::size_t> Document::read_line(std::string_view path) const { auto r = shcl_read_line(detail::held(*this), path.data(), path.size()); return {r.value, detail::st(r.status)}; }
+Read<std::vector<std::size_t>> Document::read_lines(std::string_view path) const {
+	auto h = detail::fresh(*this);
+	auto r = shcl_read_lines(h, path.data(), path.size());
+	return {std::vector<std::size_t>(r.values, r.values + r.n), detail::st(r.status)};
+}
 std::vector<std::size_t> Document::lines(std::string_view path) const {
 	auto h = detail::fresh(*this);
 	std::size_t *a; std::size_t n = shcl_lines(h, path.data(), path.size(), &a);
@@ -1110,7 +1135,9 @@ std::vector<std::size_t> Document::lines(std::string_view path) const {
 bool Document::quoted(std::string_view path) const { return shcl_quoted(detail::held(*this), path.data(), path.size()) != 0; }
 bool Document::backtick(std::string_view path) const { return shcl_backtick(detail::held(*this), path.data(), path.size()) != 0; }
 bool Document::exists(std::string_view path) const { return shcl_exists(detail::held(*this), path.data(), path.size()) != 0; }
+Read<bool> Document::read_exists(std::string_view path) const { auto r = shcl_read_exists(detail::held(*this), path.data(), path.size()); return {r.value != 0, detail::st(r.status)}; }
 std::string Document::authored_name(std::string_view path) const { return detail::str(shcl_authored_name(detail::held(*this), path.data(), path.size())); }
+Read<std::string> Document::read_authored_name(std::string_view path) const { auto r = shcl_read_authored_name(detail::held(*this), path.data(), path.size()); return {detail::str(r.value), detail::st(r.status)}; }
 SetStatus Document::check_set_path(std::string_view path) const { return static_cast<SetStatus>(shcl_check_set_path(detail::held(*this), path.data(), path.size())); }
 
 SetStatus Document::set_int(std::string_view path, std::int64_t v) { return static_cast<SetStatus>(shcl_set_int(detail::doc(*this), path.data(), path.size(), v)); }
@@ -1141,8 +1168,10 @@ SetStatus Document::set_string_array_default(std::string_view path, const std::v
 SetStatus Document::set_datetime_array_default(std::string_view path, const std::vector<DateTime> &v) { auto a = detail::dt_args(v); return static_cast<SetStatus>(shcl_set_datetime_array_default(detail::doc(*this), path.data(), path.size(), a.data(), a.size())); }
 
 std::size_t Document::remove(std::string_view path) { return shcl_remove(detail::doc(*this), path.data(), path.size()); }
+Read<std::size_t> Document::try_remove(std::string_view path) { auto r = shcl_try_remove(detail::doc(*this), path.data(), path.size()); return {r.value, detail::st(r.status)}; }
 SetStatus Document::set_comment(std::string_view path, std::string_view text) { return static_cast<SetStatus>(shcl_set_comment(detail::doc(*this), path.data(), path.size(), text.data(), text.size())); }
 std::size_t Document::clear_comments(std::string_view path) { return shcl_clear_comments(detail::doc(*this), path.data(), path.size()); }
+Read<std::size_t> Document::try_clear_comments(std::string_view path) { auto r = shcl_try_clear_comments(detail::doc(*this), path.data(), path.size()); return {r.value, detail::st(r.status)}; }
 std::size_t Document::set_banner(bool on) { return shcl_set_banner(detail::doc(*this), on ? 1 : 0); }
 
 Read<std::int64_t> Document::read_int(std::string_view path) const { auto h = detail::held(*this); auto r = shcl_read_int(h, path.data(), path.size()); return {r.value, detail::st(r.status)}; }

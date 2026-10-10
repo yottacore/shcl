@@ -234,8 +234,9 @@ T = TypeVar("T")
 class Read(Generic[T]):
 	"""Value plus status plus the original raw text (when the path resolved).
 	Array reads also give one status per slot (element, or wildcard instance)
-	in .slots; .status is then the worst slot. Scalar reads and the list reads
-	(read_count, read_instances, read_children) leave .slots empty.
+	in .slots; .status is then the worst slot. Scalar reads and the status
+	twins of the plain calls (read_count, read_lines, try_remove and the rest)
+	leave .slots empty.
 	.line is the 1-based source line of the resolved binding (0 when the path
 	did not resolve to one node, or the node was writer-built), so a consumer
 	check the schema cannot express can still cite the line. .quoted is True
@@ -6586,10 +6587,17 @@ class Document:
 		schema cannot express. 0 when the path does not resolve to exactly one
 		node, or the node was writer-built. Merged instances cite the first
 		binding's line, matching diagnostics."""
-		r = self._resolve(path)
-		if r[0] == "one":
-			return self.arena[r[1]].line
-		return 0
+		return self.read_line(path).value
+
+	def read_line(self, path: str) -> Read[int]:
+		"""line() with a status: Good, NotFound when the path matches
+		nothing, Multiple when it matches more than one node, as the typed
+		reads say, or BadPath when it cannot be read as a path. A writer-built
+		node is Good with 0. .line is set too."""
+		tag, n = self._node_at(path)
+		if tag == "err":
+			return Read(0, n, None)
+		return Read(self.arena[n].line, Status.Good, None)._at(self.arena[n].line, None)
 
 	def authored_name(self, path: str) -> str:
 		"""The field name at a path exactly as the author wrote it (case
@@ -6601,26 +6609,41 @@ class Document:
 		does not resolve to exactly one node. Merged instances keep the first
 		binding's spelling; a writer-built node keeps the spelling the setter's
 		path used."""
-		r = self._resolve(path)
-		if r[0] == "one":
-			return self.arena[r[1]].name_src
-		return ""
+		return self.read_authored_name(path).value
+
+	def read_authored_name(self, path: str) -> Read[str]:
+		"""authored_name() with a status, the way read_line() has them:
+		Multiple for a repeated field, NotFound or BadPath otherwise."""
+		tag, n = self._node_at(path)
+		if tag == "err":
+			return Read("", n, None)
+		return Read(self.arena[n].name_src, Status.Good, None)._at(self.arena[n].line, None)
 
 	def lines(self, path: str) -> list[int]:
 		"""The plural line(): 1-based source lines at a path, in file order, so
 		a repeated field - the case that most wants a citable line - yields
 		every binding's. Wildcard slots that did not resolve stay in the list
 		as 0, and a writer-built node is 0, so indices keep matching count()."""
+		return self.read_lines(path).value
+
+	def read_lines(self, path: str) -> Read[list[int]]:
+		"""lines() with a status: Good, NotFound when the path matches
+		nothing, or BadPath when it cannot be read as a path, the way
+		read_count() has them. Unresolved wildcard slots stay 0 as in
+		lines(), and still count as a match. .line is set when the path
+		reaches one node."""
 		r = self._resolve(path)
 		tag = r[0]
+		if tag == "err":
+			return Read([], r[1], None)
+		if tag == "none" or (tag == "slots" and not r[1]):
+			return Read([], Status.NotFound, None)
 		if tag == "one":
-			return [self.arena[r[1]].line]
+			return Read([self.arena[r[1]].line], Status.Good, None)._at(self.arena[r[1]].line, None)
 		if tag == "many":
-			return [self.arena[n].line for n in r[1]]
-		if tag == "slots":
-			return [self.arena[n].line if isinstance(n, int) else 0
-				for n in r[1]]
-		return []
+			return Read([self.arena[n].line for n in r[1]], Status.Good, None)
+		return Read([self.arena[n].line if isinstance(n, int) else 0
+			for n in r[1]], Status.Good, None)
 
 	def children(self, path: str) -> list[str]:
 		"""Child field names under a path, in file order, duplicates included -
@@ -7209,15 +7232,43 @@ class Document:
 			self.arena[parent].children = keep
 			self._settle(parent, 1)
 
-	def exists(self, path: str) -> bool:
-		"""True when the path resolves to at least one real node."""
+	def _targets_at(self, path):
+		# The real nodes a path reaches, every node behind a wildcard slot
+		# included, for the calls that act on the whole match: ("ok", list) or
+		# ("err", Status). NotFound when there are none, so a wildcard whose
+		# slots all miss is NotFound here, unlike read_count().
 		r = self._resolve(path, True)
 		tag = r[0]
-		if tag == "one" or tag == "many":
-			return True
-		if tag == "slots":
-			return any(isinstance(n, int) for n in r[1])
-		return False
+		if tag == "err":
+			return ("err", r[1])
+		if tag == "one":
+			found = [r[1]]
+		elif tag == "many":
+			found = list(r[1])
+		elif tag == "slots":
+			found = [n for n in r[1] if isinstance(n, int)]
+		else:
+			found = []
+		if not found:
+			return ("err", Status.NotFound)
+		return ("ok", found)
+
+	def _line_of_one(self, targets: list[int]) -> int:
+		# A read's .line for a target list: set when it is one node.
+		return self.arena[targets[0]].line if len(targets) == 1 else 0
+
+	def exists(self, path: str) -> bool:
+		"""True when the path resolves to at least one real node."""
+		return self.read_exists(path).value
+
+	def read_exists(self, path: str) -> Read[bool]:
+		"""exists() with a status: Good when it is true, NotFound when the
+		path reaches no real node, or BadPath when it cannot be read as a
+		path. .line is set when the path reaches one node."""
+		tag, t = self._targets_at(path)
+		if tag == "err":
+			return Read(False, t, None)
+		return Read(True, Status.Good, None)._at(self._line_of_one(t), None)
 
 	def remove(self, path: str) -> int:
 		"""Delete the node(s) at a path (with their subtrees); returns how many.
@@ -7226,16 +7277,21 @@ class Document:
 
 		A removed node's storage is not reclaimed, so a process that adds and removes in a loop grows by a few hundred bytes a pair. Reloading the canonical text gives it back.
 		"""
-		r = self._resolve(path, True)
-		tag = r[0]
-		if tag == "one":
-			targets = [r[1]]
-		elif tag == "many":
-			targets = list(r[1])
-		elif tag == "slots":
-			targets = [n for n in r[1] if isinstance(n, int)]
-		else:
-			targets = []
+		return self.try_remove(path).value
+
+	def try_remove(self, path: str) -> Read[int]:
+		"""remove() with a status: Good, NotFound when the path reaches no
+		real node, or BadPath when it cannot be read as a path, which removes
+		nothing. .line is set when the path reached one node."""
+		tag, found = self._targets_at(path)
+		status = Status.Good
+		if tag == "err":
+			if found is not Status.NotFound:
+				return Read(0, found, None)
+			# A miss still settles below, as it always has.
+			status, found = found, []
+		targets: list[int] = found
+		line = self._line_of_one(targets)
 		# Mark first, rebuild each touched child list once. Dropping one target
 		# at a time rebuilt the same list once per target, which is quadratic
 		# when a path matches many siblings.
@@ -7318,7 +7374,7 @@ class Document:
 				self._settle_fence_name(nd.parent, nd.name)
 		_settle_first_blank(self.arena, self.orphans)
 		self._resettle_kept()
-		return len(targets)
+		return Read(len(targets), status, None)._at(line, None)
 
 	def _leave_above(self, node: int, left: list[_Lead]) -> None:
 		"""Lines a remove left, put above the sibling that followed them."""
@@ -7420,17 +7476,18 @@ class Document:
 		can tell its own comment from one a user wrote there, and set_comment
 		puts a line it gave back as it was. Empty when the path reaches
 		nothing."""
-		r = self._resolve(path, True)
-		tag = r[0]
-		if tag == "one":
-			targets = [r[1]]
-		elif tag == "many":
-			targets = list(r[1])
-		elif tag == "slots":
-			targets = [n for n in r[1] if isinstance(n, int)]
-		else:
-			targets = []
-		return [c.text for t in targets if (tr := self.arena[t].trivia) is not None for c in tr.leading if c.is_comment()]
+		return self.read_comments(path).value
+
+	def read_comments(self, path: str) -> Read[list[str]]:
+		"""comments() with a status: Good, NotFound when the path reaches no
+		real node, or BadPath when it cannot be read as a path. A node with no
+		comment above it is Good with an empty list. .line is set when the
+		path reaches one node."""
+		tag, targets = self._targets_at(path)
+		if tag == "err":
+			return Read([], targets, None)
+		found = [c.text for t in targets if (tr := self.arena[t].trivia) is not None for c in tr.leading if c.is_comment()]
+		return Read(found, Status.Good, None)._at(self._line_of_one(targets), None)
 
 	def clear_comments(self, path: str) -> int:
 		"""Take off the comment lines above the node(s) at a path, the lines
@@ -7440,16 +7497,17 @@ class Document:
 		heading written for a group of fields goes too. A comment on the node's
 		own line stays, and so does a line kept as written for being malformed.
 		Returns how many lines came off, 0 when the path reaches nothing."""
-		r = self._resolve(path, True)
-		tag = r[0]
-		if tag == "one":
-			targets = [r[1]]
-		elif tag == "many":
-			targets = list(r[1])
-		elif tag == "slots":
-			targets = [n for n in r[1] if isinstance(n, int)]
-		else:
-			targets = []
+		return self.try_clear_comments(path).value
+
+	def try_clear_comments(self, path: str) -> Read[int]:
+		"""clear_comments() with a status: Good, NotFound when the path
+		reaches no real node, or BadPath when it cannot be read as a path. A
+		node with no comment above it is Good with 0. .line is set when the
+		path reaches one node."""
+		tag, targets = self._targets_at(path)
+		if tag == "err":
+			return Read(0, targets, None)
+		line = self._line_of_one(targets)
 		cleared = 0
 		for t in targets:
 			nd = self.arena[t]
@@ -7475,7 +7533,7 @@ class Document:
 		if cleared:
 			_settle_first_blank(self.arena, self.orphans)
 			self._resettle_kept()
-		return cleared
+		return Read(cleared, Status.Good, None)._at(line, None)
 
 	def set_banner(self, on: bool) -> int:
 		"""Put the info block (GEN_BANNER) at the end of the document, or with

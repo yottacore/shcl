@@ -1412,6 +1412,11 @@ int main(int argc, char **argv) {
 					shcl_str *cs; size_t n = shcl_comments(rd, query, qn, &cs);
 					char *joined = join_pipe(cs, n);
 					if (strcmp(joined, exp)) fail(at, "comments mismatch");
+					free(joined);
+					// A status other than `-` pins shcl_read_comments too.
+					shcl_read_str_list rm = shcl_read_comments(rd, query, qn);
+					joined = join_pipe(rm.values, rm.n);
+					if (strcmp(status, "-") && (strcmp(joined, exp) || strcmp(shcl_status_name(rm.status), status))) fail(at, "read_comments mismatch");
 					free(joined); shcl_free(rd); continue;
 				}
 				shcl_status st; const shcl_status *slots; size_t nslots;
@@ -3172,6 +3177,89 @@ int main(int argc, char **argv) {
 			if (n && (lk.n != 0 || lk.status != SHCL_BAD_PATH || !lk.values)) fail("list_reads", p);
 		}
 		shcl_free(ld);
+	}
+	test_id("EsJ3yE5", "path_twins_say_bad_path");
+	// The other path calls' status twins: BadPath for a path that cannot be
+	// read, NotFound for one that reaches nothing, Multiple where a single-node
+	// call meets several. Same fixture in every runner.
+	{
+		const char *pt = "# about site\nsite: a\n\tport: 1\nsite: b\nName: x\n";
+		shcl_doc *pd = shcl_parse(pt, strlen(pt));
+		shcl_read_usize pl = shcl_read_line(pd, "site(0)", 7);
+		if (pl.value != 2 || pl.status != SHCL_GOOD) fail("path_twins", "read_line(site(0))");
+		pl = shcl_read_line(pd, "site", 4);
+		if (pl.value != 0 || pl.status != SHCL_MULTIPLE) fail("path_twins", "read_line(site)");
+		if (shcl_read_line(pd, "site(*).port", 12).status != SHCL_MULTIPLE) fail("path_twins", "read_line(site(*).port)");
+		if (shcl_read_line(pd, "nope", 4).status != SHCL_NOT_FOUND) fail("path_twins", "read_line(nope)");
+		shcl_read_str pa = shcl_read_authored_name(pd, "name", 4);
+		if (pa.status != SHCL_GOOD || pa.value.n != 4 || memcmp(pa.value.p, "Name", 4)) fail("path_twins", "read_authored_name(name)");
+		pa = shcl_read_authored_name(pd, "site", 4);
+		if (pa.status != SHCL_MULTIPLE || pa.value.n != 0) fail("path_twins", "read_authored_name(site)");
+		if (shcl_read_authored_name(pd, "nope", 4).status != SHCL_NOT_FOUND) fail("path_twins", "read_authored_name(nope)");
+		shcl_read_usize_list pls = shcl_read_lines(pd, "site", 4);
+		if (pls.status != SHCL_GOOD || pls.n != 2 || pls.values[0] != 2 || pls.values[1] != 4) fail("path_twins", "read_lines(site)");
+		// An unresolved wildcard slot still counts, as in shcl_read_count.
+		pls = shcl_read_lines(pd, "site(*).port", 12);
+		if (pls.status != SHCL_GOOD || pls.n != 2 || pls.values[0] != 3 || pls.values[1] != 0) fail("path_twins", "read_lines(site(*).port)");
+		if (shcl_read_lines(pd, "nope", 4).status != SHCL_NOT_FOUND) fail("path_twins", "read_lines(nope)");
+		if (shcl_read_lines(pd, "nope(*)", 7).status != SHCL_NOT_FOUND) fail("path_twins", "read_lines(nope(*))");
+		shcl_read_str_list pc = shcl_read_comments(pd, "site", 4);
+		if (pc.status != SHCL_GOOD || pc.n != 1 || pc.values[0].n != 12 || memcmp(pc.values[0].p, "# about site", 12)) fail("path_twins", "read_comments(site)");
+		// A node with no comment is Good, a missing one NotFound, and so is a
+		// wildcard whose slots all miss.
+		pc = shcl_read_comments(pd, "site(1)", 7);
+		if (pc.status != SHCL_GOOD || pc.n != 0 || !pc.values) fail("path_twins", "read_comments(site(1))");
+		if (shcl_read_comments(pd, "nope", 4).status != SHCL_NOT_FOUND) fail("path_twins", "read_comments(nope)");
+		if (shcl_read_comments(pd, "site(*).nope", 12).status != SHCL_NOT_FOUND) fail("path_twins", "read_comments(site(*).nope)");
+		shcl_read_bool pe = shcl_read_exists(pd, "site(*).port", 12);
+		if (pe.value != 1 || pe.status != SHCL_GOOD) fail("path_twins", "read_exists(site(*).port)");
+		pe = shcl_read_exists(pd, "site(*).nope", 12);
+		if (pe.value != 0 || pe.status != SHCL_NOT_FOUND) fail("path_twins", "read_exists(site(*).nope)");
+		if (shcl_read_exists(pd, "nope", 4).status != SHCL_NOT_FOUND) fail("path_twins", "read_exists(nope)");
+		static const char *const pps[] = {"site[0].port", "site(.port", "site..port", "", "user name", "site.port: 1", "h:p"};
+		for (size_t i = 0; i < sizeof pps / sizeof pps[0]; i++) {
+			const char *p = pps[i]; size_t n = strlen(p);
+			pl = shcl_read_line(pd, p, n);
+			if (pl.value != 0 || pl.status != SHCL_BAD_PATH) fail("path_twins", p);
+			pa = shcl_read_authored_name(pd, p, n);
+			if (pa.value.n != 0 || pa.status != SHCL_BAD_PATH) fail("path_twins", p);
+			pls = shcl_read_lines(pd, p, n);
+			if (pls.n != 0 || pls.status != SHCL_BAD_PATH || !pls.values) fail("path_twins", p);
+			pc = shcl_read_comments(pd, p, n);
+			if (pc.n != 0 || pc.status != SHCL_BAD_PATH || !pc.values) fail("path_twins", p);
+			pe = shcl_read_exists(pd, p, n);
+			if (pe.value != 0 || pe.status != SHCL_BAD_PATH) fail("path_twins", p);
+			pl = shcl_try_clear_comments(pd, p, n);
+			if (pl.value != 0 || pl.status != SHCL_BAD_PATH) fail("path_twins", p);
+			pl = shcl_try_remove(pd, p, n);
+			if (pl.value != 0 || pl.status != SHCL_BAD_PATH) fail("path_twins", p);
+		}
+		{
+			char was[128]; shcl_str c = shcl_to_canonical(pd);
+			size_t wn = c.n < sizeof was ? c.n : sizeof was;
+			memcpy(was, c.p, wn);
+			shcl_doc *fresh = shcl_parse(pt, strlen(pt));
+			c = shcl_to_canonical(fresh);
+			if (c.n != wn || memcmp(c.p, was, wn)) fail("path_twins", "a bad path changed the document");
+			shcl_free(fresh);
+		}
+		// A node a setter built has no source line, and says Good.
+		if (shcl_set_int(pd, "built", 5, 1) != SHCL_SET_OK) fail("path_twins", "set_int(built)");
+		pl = shcl_read_line(pd, "built", 5);
+		if (pl.value != 0 || pl.status != SHCL_GOOD) fail("path_twins", "read_line(built)");
+		pl = shcl_try_clear_comments(pd, "site(1)", 7);
+		if (pl.value != 0 || pl.status != SHCL_GOOD) fail("path_twins", "try_clear_comments(site(1))");
+		if (shcl_try_clear_comments(pd, "nope", 4).status != SHCL_NOT_FOUND) fail("path_twins", "try_clear_comments(nope)");
+		pl = shcl_try_clear_comments(pd, "site", 4);
+		if (pl.value != 1 || pl.status != SHCL_GOOD) fail("path_twins", "try_clear_comments(site)");
+		pl = shcl_try_remove(pd, "site(*).port", 12);
+		if (pl.value != 1 || pl.status != SHCL_GOOD) fail("path_twins", "try_remove(site(*).port)");
+		pl = shcl_try_remove(pd, "site(*).port", 12);
+		if (pl.value != 0 || pl.status != SHCL_NOT_FOUND) fail("path_twins", "second try_remove(site(*).port)");
+		if (shcl_try_remove(pd, "nope", 4).status != SHCL_NOT_FOUND) fail("path_twins", "try_remove(nope)");
+		pl = shcl_try_remove(pd, "site", 4);
+		if (pl.value != 2 || pl.status != SHCL_GOOD) fail("path_twins", "try_remove(site)");
+		shcl_free(pd);
 	}
 	// check_set_path: the path's half of a setter's status. Same fixture in
 	// every runner.

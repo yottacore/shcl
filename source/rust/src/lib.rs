@@ -269,8 +269,9 @@ pub enum SetStatus {
 /// Full-tier read result: value plus status plus the original raw text (when the
 /// path resolved), so a caller can always recover what was actually in the file.
 /// Array reads also give one status per slot (element, or wildcard instance) in
-/// `slots`; `status` is then the worst slot. Scalar reads and the list reads
-/// (`read_count`, `read_instances`, `read_children`) leave `slots` empty.
+/// `slots`; `status` is then the worst slot. Scalar reads and the status
+/// twins of the plain calls (`read_count`, `read_lines`, `try_remove` and the
+/// rest) leave `slots` empty.
 /// `line` is the 1-based source line of the resolved binding (0 when the path
 /// did not resolve to one node, or the node was writer-built), so a consumer
 /// check the schema cannot express can still cite the line. `quoted` is true
@@ -9928,9 +9929,17 @@ impl Document {
 	/// node, or the node was writer-built. Merged instances cite the first
 	/// binding's line, matching diagnostics.
 	pub fn line(&self, path: &str) -> usize {
-		match self.resolve(path) {
-			Ok(Resolved::One(n)) => self.arena[n].line,
-			_ => 0,
+		self.read_line(path).value
+	}
+
+	/// line() with a status: `Good`, `NotFound` when the path matches
+	/// nothing, `Multiple` when it matches more than one node, as the typed
+	/// reads say, or `BadPath` when it cannot be read as a path. A
+	/// writer-built node is `Good` with 0. `line` is set too.
+	pub fn read_line(&self, path: &str) -> Read<usize> {
+		match self.node_at(path) {
+			Ok(n) => Read::new(self.arena[n].line, Status::Good, None).at(self.arena[n].line, None),
+			Err(st) => Read::new(0, st, None),
 		}
 	}
 
@@ -9944,9 +9953,16 @@ impl Document {
 	/// binding's spelling; a writer-built node keeps the spelling the setter's
 	/// path used.
 	pub fn authored_name(&self, path: &str) -> String {
-		match self.resolve(path) {
-			Ok(Resolved::One(n)) => self.arena[n].authored().to_string(),
-			_ => String::new(),
+		self.read_authored_name(path).value
+	}
+
+	/// authored_name() with a status, the way read_line() has them:
+	/// `Multiple` for a repeated field, `NotFound` or `BadPath` otherwise.
+	pub fn read_authored_name(&self, path: &str) -> Read<String> {
+		match self.node_at(path) {
+			Ok(n) => Read::new(self.arena[n].authored().to_string(), Status::Good, None)
+				.at(self.arena[n].line, None),
+			Err(st) => Read::new(String::new(), st, None),
 		}
 	}
 
@@ -9955,17 +9971,37 @@ impl Document {
 	/// binding's. Wildcard slots that did not resolve stay in the list as 0,
 	/// and a writer-built node is 0, so indices keep matching count().
 	pub fn lines(&self, path: &str) -> Vec<usize> {
+		self.read_lines(path).value
+	}
+
+	/// lines() with a status: `Good`, `NotFound` when the path matches
+	/// nothing, or `BadPath` when it cannot be read as a path, the way
+	/// read_count() has them. Unresolved wildcard slots stay 0 as in
+	/// lines(), and still count as a match. `line` is set when the path
+	/// reaches one node.
+	pub fn read_lines(&self, path: &str) -> Read<Vec<usize>> {
 		match self.resolve(path) {
-			Ok(Resolved::One(n)) => vec![self.arena[n].line],
-			Ok(Resolved::Many(v)) => v.iter().map(|&n| self.arena[n].line).collect(),
-			Ok(Resolved::Slots(s)) => s
-				.into_iter()
-				.map(|r| match r {
-					Ok(n) => self.arena[n].line,
-					Err(_) => 0,
-				})
-				.collect(),
-			_ => Vec::new(),
+			Err(st) => Read::new(Vec::new(), st, None),
+			Ok(Resolved::None) => Read::new(Vec::new(), Status::NotFound, None),
+			Ok(Resolved::Slots(s)) if s.is_empty() => Read::new(Vec::new(), Status::NotFound, None),
+			Ok(Resolved::One(n)) => {
+				Read::new(vec![self.arena[n].line], Status::Good, None).at(self.arena[n].line, None)
+			}
+			Ok(Resolved::Many(v)) => Read::new(
+				v.iter().map(|&n| self.arena[n].line).collect(),
+				Status::Good,
+				None,
+			),
+			Ok(Resolved::Slots(s)) => Read::new(
+				s.into_iter()
+					.map(|r| match r {
+						Ok(n) => self.arena[n].line,
+						Err(_) => 0,
+					})
+					.collect(),
+				Status::Good,
+				None,
+			),
 		}
 	}
 
@@ -10851,12 +10887,43 @@ impl Document {
 		}
 	}
 
+	/// The real nodes a path reaches, every node behind a wildcard slot
+	/// included, for the calls that act on the whole match. `NotFound` when
+	/// there are none, so a wildcard whose slots all miss is `NotFound`
+	/// here, unlike read_count().
+	fn targets_at(&self, path: &str) -> Result<Vec<usize>, Status> {
+		let found: Vec<usize> = match self.resolve_group(path)? {
+			Resolved::None => Vec::new(),
+			Resolved::One(n) => vec![n],
+			Resolved::Many(v) => v,
+			Resolved::Slots(s) => s.into_iter().filter_map(|r| r.ok()).collect(),
+		};
+		if found.is_empty() {
+			return Err(Status::NotFound);
+		}
+		Ok(found)
+	}
+
+	/// A read's `line` for a target list: set when it is one node.
+	fn line_of_one(&self, targets: &[usize]) -> usize {
+		match targets {
+			[n] => self.arena[*n].line,
+			_ => 0,
+		}
+	}
+
 	/// True when the path resolves to at least one real node.
 	pub fn exists(&self, path: &str) -> bool {
-		match self.resolve_group(path) {
-			Ok(Resolved::One(_)) | Ok(Resolved::Many(_)) => true,
-			Ok(Resolved::Slots(s)) => s.iter().any(|r| r.is_ok()),
-			_ => false,
+		self.read_exists(path).value
+	}
+
+	/// exists() with a status: `Good` when it is true, `NotFound` when the
+	/// path reaches no real node, or `BadPath` when it cannot be read as a
+	/// path. `line` is set when the path reaches one node.
+	pub fn read_exists(&self, path: &str) -> Read<bool> {
+		match self.targets_at(path) {
+			Ok(t) => Read::new(true, Status::Good, None).at(self.line_of_one(&t), None),
+			Err(st) => Read::new(false, st, None),
 		}
 	}
 
@@ -10865,12 +10932,20 @@ impl Document {
 	/// opened only by the lines under it goes with the last of them.
 	/// A removed node's storage is not reclaimed, so a process that adds and removes in a loop grows by a few hundred bytes a pair. Reloading the canonical text gives it back.
 	pub fn remove(&mut self, path: &str) -> usize {
-		let targets: Vec<usize> = match self.resolve_group(path) {
-			Ok(Resolved::One(n)) => vec![n],
-			Ok(Resolved::Many(v)) => v,
-			Ok(Resolved::Slots(s)) => s.into_iter().filter_map(|r| r.ok()).collect(),
-			_ => Vec::new(),
+		self.try_remove(path).value
+	}
+
+	/// remove() with a status: `Good`, `NotFound` when the path reaches no
+	/// real node, or `BadPath` when it cannot be read as a path, which
+	/// removes nothing. `line` is set when the path reached one node.
+	pub fn try_remove(&mut self, path: &str) -> Read<usize> {
+		let (targets, status) = match self.targets_at(path) {
+			Ok(t) => (t, Status::Good),
+			// A miss still settles below, as it always has.
+			Err(Status::NotFound) => (Vec::new(), Status::NotFound),
+			Err(st) => return Read::new(0, st, None),
 		};
+		let line = self.line_of_one(&targets);
 		// Mark first, rebuild each touched child list once. Dropping one target
 		// at a time rebuilt the same list once per target, which is quadratic
 		// when a path matches many siblings.
@@ -10981,7 +11056,7 @@ impl Document {
 		}
 		settle_first_blank(&mut self.arena, &mut self.orphans);
 		self.resettle_kept();
-		targets.len()
+		Read::new(targets.len(), status, None).at(line, None)
 	}
 
 	/// Lines a remove left, put above the sibling that followed them.
@@ -11101,19 +11176,26 @@ impl Document {
 	/// comment from one a user wrote there, and set_comment puts a line it
 	/// gave back as it was. Empty when the path reaches nothing.
 	pub fn comments(&self, path: &str) -> Vec<String> {
-		let targets: Vec<usize> = match self.resolve_group(path) {
-			Ok(Resolved::One(n)) => vec![n],
-			Ok(Resolved::Many(v)) => v,
-			Ok(Resolved::Slots(s)) => s.into_iter().filter_map(|r| r.ok()).collect(),
-			_ => Vec::new(),
+		self.read_comments(path).value
+	}
+
+	/// comments() with a status: `Good`, `NotFound` when the path reaches no
+	/// real node, or `BadPath` when it cannot be read as a path. A node with
+	/// no comment above it is `Good` with an empty list. `line` is set when
+	/// the path reaches one node.
+	pub fn read_comments(&self, path: &str) -> Read<Vec<String>> {
+		let targets = match self.targets_at(path) {
+			Ok(t) => t,
+			Err(st) => return Read::new(Vec::new(), st, None),
 		};
-		targets
+		let found = targets
 			.iter()
 			.filter_map(|&t| self.arena[t].trivia.as_deref())
 			.flat_map(|tr| &tr.leading)
 			.filter(|l| l.is_comment())
 			.map(|l| l.text.clone())
-			.collect()
+			.collect();
+		Read::new(found, Status::Good, None).at(self.line_of_one(&targets), None)
 	}
 
 	/// Take off the comment lines above the node(s) at a path, the lines
@@ -11125,12 +11207,19 @@ impl Document {
 	/// malformed. Returns how many lines came off, 0 when the path reaches
 	/// nothing.
 	pub fn clear_comments(&mut self, path: &str) -> usize {
-		let targets: Vec<usize> = match self.resolve_group(path) {
-			Ok(Resolved::One(n)) => vec![n],
-			Ok(Resolved::Many(v)) => v,
-			Ok(Resolved::Slots(s)) => s.into_iter().filter_map(|r| r.ok()).collect(),
-			_ => Vec::new(),
+		self.try_clear_comments(path).value
+	}
+
+	/// clear_comments() with a status: `Good`, `NotFound` when the path
+	/// reaches no real node, or `BadPath` when it cannot be read as a path.
+	/// A node with no comment above it is `Good` with 0. `line` is set when
+	/// the path reaches one node.
+	pub fn try_clear_comments(&mut self, path: &str) -> Read<usize> {
+		let targets = match self.targets_at(path) {
+			Ok(t) => t,
+			Err(st) => return Read::new(0, st, None),
 		};
+		let line = self.line_of_one(&targets);
 		let mut cleared = 0;
 		for t in targets {
 			let nd = &mut self.arena[t];
@@ -11160,7 +11249,7 @@ impl Document {
 			settle_first_blank(&mut self.arena, &mut self.orphans);
 			self.resettle_kept();
 		}
-		cleared
+		Read::new(cleared, Status::Good, None).at(line, None)
 	}
 
 	/// Put the info block (`GEN_BANNER`) at the end of the document, or with
