@@ -2967,6 +2967,40 @@ func formatLineRead(text string) Read[int] {
 	return Read[int]{Status: NotFound}
 }
 
+// restamp is the text with the Format line ReadFormatVersion found on line
+// naming this format instead, indent and line end kept. False when the new
+// line would not read as the file's stamp, as when a rewrite left it in a
+// raw body, so a caller adds the line rather than lose it.
+func restamp(text string, line int) (string, bool) {
+	bom := ""
+	if strings.HasPrefix(text, "\ufeff") {
+		bom = "\ufeff"
+	}
+	var out strings.Builder
+	out.Grow(len(text) + 4)
+	out.WriteString(bom)
+	for i, l := range strings.Split(text[len(bom):], "\n") {
+		if i > 0 {
+			out.WriteByte('\n')
+		}
+		if i+1 != line {
+			out.WriteString(l)
+			continue
+		}
+		indent := leadingWS(l)
+		rest := trimEndWS(strings.TrimRight(l[len(indent):], "\r"))
+		out.WriteString(indent)
+		out.WriteString(FormatLine)
+		out.WriteString(l[len(indent)+len(rest):])
+	}
+	s := out.String()
+	now := formatLineRead(s[len(bom):])
+	if now.Status != Good || now.Value != FormatMajor || now.Line != line {
+		return "", false
+	}
+	return s, true
+}
+
 // stampHint is the load's hint for a file whose Format line names another
 // major than this one: H006 for a newer one, H007 for an older one. It reads
 // the line the way ReadFormatVersion does, so the two never disagree.
@@ -3010,7 +3044,8 @@ func stampHint(stamp Read[int]) (Diagnostic, bool) {
 // every rewrite. Anything else leaves those pieces alone where these rules
 // read the line cleanly, counted in Ambiguous for the caller to refuse over.
 // A rewritten file is stamped with the version line, so the second run has an
-// answer the first one did not.
+// answer the first one did not. An older Format line becomes that line where
+// it is; a file with none gets it at the end.
 func Migrate(text string, fromV2 bool) Migration {
 	return migrateText(text, fromV2, true)
 }
@@ -3126,15 +3161,26 @@ func migrateText(text string, fromV2, stamp bool) Migration {
 	// migration that did not finish, and the next run would then skip it. A
 	// document that never closes its raw block has nowhere to put the line
 	// either, under either rule set: appended, it would be another line of the
-	// block's content. The lines end the way most of the file's do.
+	// block's content. The lines end the way most of the file's do. An older
+	// Format line becomes this one where it is, so the file names one format.
 	if stamp && st.ambiguous == 0 && !fence.open && !now.fence.open {
 		eol := majorityEol(text)
+		addFormat := true
+		if hasVersion {
+			if t, ok := restamp(out.String(), named.Line); ok {
+				out.Reset()
+				out.WriteString(t)
+				addFormat = false
+			}
+		}
 		s := out.String()
-		if s != "" && !strings.HasSuffix(s, "\n") {
+		if (addFormat || changed) && s != "" && !strings.HasSuffix(s, "\n") {
 			out.WriteString(eol)
 		}
-		out.WriteString(FormatLine)
-		out.WriteString(eol)
+		if addFormat {
+			out.WriteString(FormatLine)
+			out.WriteString(eol)
+		}
 		if changed {
 			out.WriteString(MigratedLine)
 			out.WriteString(eol)
@@ -3148,9 +3194,9 @@ type Upgraded struct {
 	// Text is the fresh file's text, or the input when Current or Ambiguous.
 	Text string
 	// Current: the input loads with no error under these rules and, with
-	// fromV2, migrates to the same text, or it names this format, so it is
-	// left as it is. A beta build of 3.0 stamped the same Format line as a
-	// release, so a beta file is current here too.
+	// fromV2, migrates to the same text and names no older format, or it
+	// names this format, so it is left as it is. A beta build of 3.0 stamped
+	// the same Format line as a release, so a beta file is current here too.
 	Current bool
 	// Format is the format the input was written for, which goes in the
 	// backup's name: what its Format line names, else 2.
@@ -3180,9 +3226,11 @@ type Upgraded struct {
 // never rewrite a good file. fromV2 is Migrate's: the file can only have been
 // written for 2.x. Then a file that loads clean is still made over when
 // Migrate would change it, as it would `p: a,b`, an array under 2.x and one
-// string now.
+// string now. One it would not change that names an older format gets this
+// format on that Format line, and nothing else.
 func Upgrade(text string, fromV2 bool) Upgraded {
-	version, hasVersion := FormatVersion(text)
+	named := ReadFormatVersion(text)
+	version, hasVersion := named.Value, named.Status == Good
 	up := Upgraded{Text: text, Current: true, Format: 2}
 	if hasVersion {
 		up.Format = version
@@ -3197,8 +3245,17 @@ func Upgrade(text string, fromV2 bool) Upgraded {
 	}
 	m := migrateText(text, fromV2, false)
 	// A 2.x file can load clean and still read differently now, as `a,b`
-	// does. One migrate leaves as it was has nothing to do.
+	// does. One migrate leaves as it was has nothing to do, but an older
+	// Format line, which would keep the load's H007 hint, becomes this one.
 	if clean && m.Text == text {
+		if !hasVersion {
+			return up
+		}
+		if t, ok := restamp(text, named.Line); ok {
+			up.Current = false
+			up.Diagnostics = before.diags
+			up.Text = t
+		}
 		return up
 	}
 	up.Current = false

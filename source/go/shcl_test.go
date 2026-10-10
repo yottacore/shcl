@@ -722,6 +722,27 @@ func TestMigrateIsAFixpoint(t *testing.T) {
 	})
 }
 
+// stampedInPlace is the text with line naming this format, indent and line
+// end kept, when that reads as the file's stamp. Migrate writes its stamp
+// there when the input names an older format on that line (2026100916475300).
+func stampedInPlace(text string, line int) (string, bool) {
+	bom := ""
+	if strings.HasPrefix(text, "\ufeff") {
+		bom = "\ufeff"
+	}
+	lines := strings.Split(text[len(bom):], "\n")
+	if line < 1 || line > len(lines) {
+		return "", false
+	}
+	was := lines[line-1]
+	indent := len(was) - len(strings.TrimLeft(was, " \t"))
+	body := strings.TrimRight(was[indent:], " \t\r")
+	lines[line-1] = was[:indent] + FormatLine + was[indent+len(body):]
+	out := bom + strings.Join(lines, "\n")
+	now := ReadFormatVersion(out)
+	return out, now.Status == Good && now.Value == FormatMajor && now.Line == line
+}
+
 func TestMigrateUnstampedIsMigrateWithoutTheStamp(t *testing.T) {
 	defer testID(t, "Eqpzw7U")
 	// Over every input, not only the migrate cases: the stamp is the one
@@ -743,11 +764,20 @@ func TestMigrateUnstampedIsMigrateWithoutTheStamp(t *testing.T) {
 			}
 			want := bare.Text
 			if !full.Current && full.Text != bare.Text {
-				if want != "" && !strings.HasSuffix(want, "\n") {
+				add := true
+				if old := ReadFormatVersion(c.input); old.Status == Good {
+					if in, ok := stampedInPlace(bare.Text, old.Line); ok {
+						want, add = in, false
+					}
+				}
+				changed := bare.Text != c.input
+				if (add || changed) && want != "" && !strings.HasSuffix(want, "\n") {
 					want += eol
 				}
-				want += FormatLine + eol
-				if bare.Text != c.input {
+				if add {
+					want += FormatLine + eol
+				}
+				if changed {
 					want += MigratedLine + eol
 				}
 			}

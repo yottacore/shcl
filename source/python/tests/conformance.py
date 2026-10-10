@@ -186,6 +186,25 @@ def _diag_text(text):
 	return got
 
 
+def _stamped_in_place(text: str, line: int) -> Optional[str]:
+	"""The text with line `line` naming this format, indent and line end kept,
+	when that reads as the file's stamp. migrate writes its stamp there when
+	the input names an older format on that line (2026100916475300)."""
+	bom = "\ufeff" if text.startswith("\ufeff") else ""
+	lines = text[len(bom):].split("\n")
+	if not 0 < line <= len(lines):
+		return None
+	was = lines[line - 1]
+	indent = len(was) - len(was.lstrip(" \t"))
+	body = was[indent:].rstrip(" \t\r")
+	lines[line - 1] = was[:indent] + shcl.FORMAT_LINE + was[indent + len(body):]
+	out = bom + "\n".join(lines)
+	now = shcl.read_format_version(out)
+	if now.status is not shcl.Status.Good or now.value != shcl.FORMAT_MAJOR or now.line != line:
+		return None
+	return out
+
+
 def scalar_read(doc, kind, query):
 	# Returns (value_string, status, slot_statuses).
 	if kind == "int":
@@ -1264,10 +1283,17 @@ def main():
 			eol = "\r\n" if crlf > case["input"].count("\n") - crlf else "\n"
 			stamp_want = unstamped.text
 			if not stamped.current and stamped.text != unstamped.text:
-				if stamp_want and not stamp_want.endswith("\n"):
+				stamp_old = shcl.read_format_version(case["input"])
+				stamp_in = _stamped_in_place(unstamped.text, stamp_old.line) if stamp_old.status is shcl.Status.Good else None
+				stamp_add = stamp_in is None
+				if stamp_in is not None:
+					stamp_want = stamp_in
+				stamp_changed = unstamped.text != case["input"]
+				if (stamp_add or stamp_changed) and stamp_want and not stamp_want.endswith("\n"):
 					stamp_want += eol
-				stamp_want += shcl.FORMAT_LINE + eol
-				if unstamped.text != case["input"]:
+				if stamp_add:
+					stamp_want += shcl.FORMAT_LINE + eol
+				if stamp_changed:
 					stamp_want += shcl.MIGRATED_LINE + eol
 			if stamped.text != stamp_want:
 				fails.append(f"{case['name']}: the stamp is not the only difference")
@@ -4153,6 +4179,34 @@ def main():
 	up = shcl.upgrade("a: 1\nb: x\n", True)
 	if not up.current or up.text != "a: 1\nb: x\n":
 		raise SystemExit(f"same: {up.current} {up.text!r}")
+
+	test_id("EsFrOVQ", "an_older_format_line_becomes_this_one_in_place")
+	# Nothing else changes, so only the stamp does, and only with from_v2
+	# (2026100717500017).
+	up_old = "port: 80\n##    Format   2\n"
+	up = shcl.upgrade(up_old, True)
+	if up.current or up.format != 2 or up.lost != 0 or up.text != "port: 80\n##    Format   3\n":
+		raise SystemExit(f"restamp: {up.current} {up.format} {up.lost} {up.text!r}")
+	if not any(d.code == "H007" for d in up.diagnostics):
+		raise SystemExit(f"no H007 in {up.diagnostics}")
+	if not shcl.upgrade(up.text, True).current:
+		raise SystemExit("the restamped text is not current")
+	up = shcl.upgrade(up_old, False)
+	if not up.current or up.text != up_old:
+		raise SystemExit(f"without from_v2: {up.current} {up.text!r}")
+	# Indent, trailing blanks, line end and BOM stay as they were.
+	up = shcl.upgrade("\ufeffp: 1\r\n\t##    Format   1  \r\nq: 2", True)
+	if up.text != "\ufeffp: 1\r\n\t##    Format   3  \r\nq: 2":
+		raise SystemExit(f"layout: {up.text!r}")
+	# migrate writes its stamp there too, and adds one only to a file with
+	# none (2026100916475300).
+	for up_in, up_want in (
+		(up_old, "port: 80\n##    Format   3\n"),
+		("x: a,b\n##    Format   2\ny: 1\n", "x: [a, b]\n##    Format   3\ny: 1\n##    Migrated from SHCL 2.x.\n"),
+		("port: 80\n", "port: 80\n##    Format   3\n"),
+	):
+		if shcl.migrate(up_in, False).text != up_want:
+			raise SystemExit(f"migrate {up_in!r}: {shcl.migrate(up_in, False).text!r}")
 
 	test_id("Es2k1Fd", "upgrade_writes_a_fresh_file_with_the_info_block")
 	up = shcl.upgrade(up_v2, False)

@@ -2391,6 +2391,25 @@ def _format_line_read(text: str) -> Read[int]:
 	return Read(0, Status.NotFound, None)
 
 
+def _restamp(text: str, line: int) -> str | None:
+	"""The text with the Format line read_format_version() found on line
+	naming this format instead, indent and line end kept. None when the new
+	line would not read as the file's stamp, as when a rewrite left it in a
+	raw body, so a caller adds the line rather than lose it."""
+	bom = "\ufeff" if text.startswith("\ufeff") else ""
+	lines = text[len(bom):].split("\n")
+	if 0 < line <= len(lines):
+		was = lines[line - 1]
+		indent = _leading_ws(was)
+		rest = _trim_wsp_end(was[len(indent):].rstrip("\r"))
+		lines[line - 1] = indent + FORMAT_LINE + was[len(indent) + len(rest):]
+	body = "\n".join(lines)
+	now = _format_line_read(body)
+	if now.status is not Status.Good or now.value != FORMAT_MAJOR or now.line != line:
+		return None
+	return bom + body
+
+
 def _stamp_hint(stamp: Read[int]) -> Diagnostic | None:
 	"""The load's hint for a file whose Format line names another major than
 	this one: H006 for a newer one, H007 for an older one. It reads the line
@@ -2523,7 +2542,8 @@ def migrate(text: str, from_v2: bool) -> Migration:
 	from_v2, gets every rewrite. Anything else leaves those pieces alone where
 	these rules read the line cleanly, counted in ambiguous for the caller to
 	refuse over. A rewritten file is stamped with the version line, so the
-	second run has an answer the first one did not."""
+	second run has an answer the first one did not. An older Format line
+	becomes that line where it is; a file with none gets it at the end."""
 	return _migrate_text(text, from_v2, True)
 
 
@@ -2607,14 +2627,21 @@ def _migrate_text(text, from_v2, stamp):
 	# migration that did not finish, and the next run would then skip it. A
 	# document that never closes its raw block has nowhere to put the line
 	# either, under either rule set: appended, it would be another line of the
-	# block's content. The lines end the way most of the file's do.
+	# block's content. The lines end the way most of the file's do. An older
+	# Format line becomes this one where it is, so the file names one format.
 	if stamp and st.ambiguous == 0 and fence is None and now.fence is None:
 		eol = _majority_eol(text)
 		s = "".join(out)
-		if s and not s.endswith("\n"):
+		restamped = _restamp(s, named.line) if version is not None else None
+		add_format = restamped is None
+		if restamped is not None:
+			s = restamped
+			out = [s]
+		if (add_format or changed) and s and not s.endswith("\n"):
 			out.append(eol)
-		out.append(FORMAT_LINE)
-		out.append(eol)
+		if add_format:
+			out.append(FORMAT_LINE)
+			out.append(eol)
 		if changed:
 			out.append(MIGRATED_LINE)
 			out.append(eol)
@@ -2626,9 +2653,9 @@ class Upgrade:
 
 	text: the fresh file's text, or the input when current or ambiguous.
 	current: the input loads with no error under these rules and, with
-	from_v2, migrates to the same text, or it names this format, so it is left
-	as it is. A beta build of 3.0 stamped the same Format line as a release,
-	so a beta file is current here too. format: the format the input was
+	from_v2, migrates to the same text and names no older format, or it names
+	this format, so it is left as it is. A beta build of 3.0 stamped the same
+	Format line as a release, so a beta file is current here too. format: the format the input was
 	written for, which goes in the backup's name: what its Format line names,
 	else 2. ambiguous: as Migration.ambiguous; nonzero means the text reads
 	two ways and nothing is written. lost: lines and values of the input the
@@ -2661,8 +2688,10 @@ def upgrade(text: str, from_v2: bool) -> Upgrade:
 	never rewrite a good file. from_v2 is migrate's: the file can only have
 	been written for 2.x. Then a file that loads clean is still made over
 	when migrate would change it, as it would `p: a,b`, an array under 2.x and
-	one string now."""
-	version = format_version(text)
+	one string now. One it would not change that names an older format gets
+	this format on that Format line, and nothing else."""
+	named = read_format_version(text)
+	version = named.value if named.status is Status.Good else None
 	up = Upgrade(text, True, version if version is not None else 2)
 	if version is not None and version >= FORMAT_MAJOR:
 		return up
@@ -2672,8 +2701,14 @@ def upgrade(text: str, from_v2: bool) -> Upgrade:
 		return up
 	m = _migrate_text(text, from_v2, False)
 	# A 2.x file can load clean and still read differently now, as `a,b`
-	# does. One migrate leaves as it was has nothing to do.
+	# does. One migrate leaves as it was has nothing to do, but an older
+	# Format line, which would keep the load's H007 hint, becomes this one.
 	if clean and m.text == text:
+		restamped = _restamp(text, named.line) if version is not None else None
+		if restamped is not None:
+			up.current = False
+			up.diagnostics = before.diagnostics()
+			up.text = restamped
 		return up
 	up.current = False
 	up.diagnostics = before.diagnostics()
