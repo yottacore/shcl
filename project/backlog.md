@@ -211,6 +211,21 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Commit: `be88796f`
 	- Test case: `stamp_reads_say_why` in all four runners (Rust `EsEtTdP`, Go `EsEtTdQ`, Python `EsEtTdR`, C `EsEtTdS`), and the status checks in veneer_smoke (`EjtkR0S`).
 
+- check-migrate fails on 2 fuzz documents
+	- ID: 2026100919123100
+	- Type: Bug
+	- Status: Queued
+	- Severity: High
+	- Opened: 20261009-191231
+	- Opened by: found while working 2026100717500017
+	- Related IDs: 2026100717500017, 2026100914525821
+	- Version and build: dev at `904cef04`
+	- Steps to reproduce: `cicd/utility/check-migrate.bash` from the repo root, about 8 minutes.
+	- Incorrect behavior: 14 divergences over 654 documents. `fuzz_00274` and `fuzz_00412` read differently after `migrate` than under 2.x, and `fuzz_00412` fails every `upgrade` check: no backup, a fresh file that loads with an error and no info block, and a second upgrade that changes it again. `Eq5YPgP` and `Es34DZj` fail.
+	- Expected behavior: the gate passes, or each document is a case the gate already excuses.
+	- Reproduced: 20261009, on dev with `restamp` merged, and with dev's library before `restamp`. Likely the dumped fuzz documents changed when corpus 204 and 205 moved the seeds. Not cut down yet.
+	- Note: High, since check-migrate is in the pre-push gate, so the next main push fails until this is fixed.
+
 - `line`, `lines`, `authored_name`, `comments`, `exists`, `remove` and `clear_comments` can't report a path that doesn't parse
 	- ID: 2026100912271700
 	- Type: Enhancement
@@ -303,8 +318,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- A library call reads a config's `Schema` line and resolves it by the CLI's rules. The CLI uses the same call, so the two can't drift.
 		- A `kind(path)` read gives scalar, array, raw block or empty, with a status for a missing or bad path.
 		- One call makes sure a field has a usable value of a type.
-	- Question: the third one, proposed: `set_*_default` writes the default when the field is missing, empty, or doesn't read as that type, and leaves a good value alone. The old line stays as a `##` comment with a note, the way a setter writes over a kept line (2026100307163907), so `bad: abc` is not lost. True means the field now reads as that type. The other way is a new `ensure_*` family beside the current `set_*_default`, which would keep its meaning.
-		- Answered 20261009: as proposed, `set_*_default` changes. No `ensure_*` family.
 	- Origin: Confirmed by reading and probes.
 
 **Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.

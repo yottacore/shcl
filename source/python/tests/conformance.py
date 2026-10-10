@@ -3653,9 +3653,9 @@ def main():
 		("##    Format   4294967296\n", shcl.FORMAT_MAJOR, G, 1, ""),
 		("a:\n\t##    Format   1\n\tb: 1\n", 1, G, 2, "H007"),
 	):
-		fr = shcl.read_format_version(ftext)
-		if (fr.value, fr.status, fr.line) != (fvalue, fstatus, fline):
-			raise SystemExit(f"read_format_version {ftext!r}: {fr}")
+		stamp = shcl.read_format_version(ftext)
+		if (stamp.value, stamp.status, stamp.line) != (fvalue, fstatus, fline):
+			raise SystemExit(f"read_format_version {ftext!r}: {stamp}")
 		if shcl.format_version(ftext) != (fvalue if fstatus is G else None):
 			raise SystemExit(f"format_version {ftext!r}: {shcl.format_version(ftext)}")
 		stamp_hints = [(d.code, d.line) for d in shcl.Document.parse(ftext).diagnostics() if d.code in ("H006", "H007")]
