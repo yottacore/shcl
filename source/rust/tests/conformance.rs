@@ -4411,6 +4411,8 @@ fn read_named_schema_follows_check_rules() {
 	}
 	assert_eq!(S::FileNotFound.to_string(), "FileNotFound");
 	let _ = std::fs::remove_dir_all(&dir);
+}
+
 // kind() and read_kind(): what the value at a path is, from the stored form,
 // with the status read_line() gives. Same fixture in every runner.
 #[test]
