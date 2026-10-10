@@ -153,11 +153,12 @@ typedef struct { int     *values; size_t n; shcl_status status; const shcl_statu
 typedef struct { shcl_str *values; size_t n; shcl_status status; const shcl_status *statuses; } shcl_read_str_arr;
 typedef struct { shcl_datetime *values; size_t n; shcl_status status; const shcl_status *statuses; } shcl_read_dt_arr;
 
-// The list reads' results (shcl_read_count, shcl_read_instances,
-// shcl_read_children): the plain call's answer with a status, and no per-slot
-// statuses.
+// The status twins' results (shcl_read_count, shcl_read_lines,
+// shcl_try_remove and the rest): the plain call's answer with a status, and no
+// per-slot statuses.
 typedef struct { size_t value; shcl_status status; } shcl_read_usize;
 typedef struct { shcl_str *values; size_t n; shcl_status status; } shcl_read_str_list;
+typedef struct { size_t *values; size_t n; shcl_status status; } shcl_read_usize_list;
 // One field as a listing shows it: the path that reads exactly that field,
 // written the way shcl_instance_paths writes it, the name as stored, the value
 // as shcl_instances gives it, and the 1-based source line (0 for a node a
@@ -422,6 +423,11 @@ shcl_read_str_list shcl_read_instances(shcl_doc *d, const char *path, size_t ple
 // node, or the node was writer-built. Merged instances cite the first
 // binding's line, matching diagnostics.
 size_t shcl_line(shcl_doc *d, const char *path, size_t plen);
+// shcl_line with a status: SHCL_GOOD, SHCL_NOT_FOUND when the path matches
+// nothing, SHCL_MULTIPLE when it matches more than one node, as the typed reads
+// say, or SHCL_BAD_PATH when it cannot be read as a path. A writer-built node is
+// SHCL_GOOD with 0.
+shcl_read_usize shcl_read_line(shcl_doc *d, const char *path, size_t plen);
 // 1 when the single scalar value at a path was quoted in the source, so a
 // consumer can tell a quoted plain string from a bare word that happens to
 // spell a reserved one - `mode: "on"` against `mode: on`. 0 for anything that
@@ -447,12 +453,20 @@ int shcl_backtick(shcl_doc *d, const char *path, size_t plen);
 // Borrowed from the document's own arena, so it outlives shcl_reads_release and
 // is valid until shcl_free or shcl_compact - the name is stored, not built.
 shcl_str shcl_authored_name(shcl_doc *d, const char *path, size_t plen);
+// shcl_authored_name with a status, the way shcl_read_line has them:
+// SHCL_MULTIPLE for a repeated field, SHCL_NOT_FOUND or SHCL_BAD_PATH otherwise.
+// value is borrowed the same way.
+shcl_read_str shcl_read_authored_name(shcl_doc *d, const char *path, size_t plen);
 // The plural shcl_line: 1-based source lines at a path, in file order, so a
 // repeated field - the case that most wants a citable line - yields every
 // binding's. Wildcard slots that did not resolve stay in the list as 0, and a
 // writer-built node is 0, so indices keep matching shcl_count. Writes an
 // arena-owned array to *out.
 size_t shcl_lines(shcl_doc *d, const char *path, size_t plen, size_t **out);
+// shcl_lines with a status, the way shcl_read_count has them. Unresolved
+// wildcard slots stay 0 as in shcl_lines, and still count as a match. values is
+// arena-owned, like shcl_lines' list.
+shcl_read_usize_list shcl_read_lines(shcl_doc *d, const char *path, size_t plen);
 // Child field names under a path, in file order, duplicates included - the
 // "what keys are in this section?" question shcl_paths (deduplicated,
 // path-shaped) cannot answer. An empty or whitespace-only path enumerates the
@@ -804,10 +818,17 @@ shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, shcl_upgrade
 // success doing it. SHCL_SET_OK is 0, so test `!= SHCL_SET_OK`, never `!`.
 shcl_doc *shcl_new(void); // an empty document (start point for generation), or NULL on an allocation failure
 int shcl_exists(shcl_doc *d, const char *path, size_t plen);       // 0/1
+// shcl_exists with a status: SHCL_GOOD when it is 1, SHCL_NOT_FOUND when the
+// path reaches no real node, or SHCL_BAD_PATH when it cannot be read as a path.
+shcl_read_bool shcl_read_exists(shcl_doc *d, const char *path, size_t plen);
 // Lines kept as written beside a node stay where they were, and a field opened
 // only by the lines under it goes with the last of them. A removed node's
 // storage is not reclaimed until shcl_compact or shcl_free.
 size_t shcl_remove(shcl_doc *d, const char *path, size_t plen);    // count deleted
+// shcl_remove with a status: SHCL_GOOD, SHCL_NOT_FOUND when the path reaches no
+// real node, or SHCL_BAD_PATH when it cannot be read as a path, which removes
+// nothing.
+shcl_read_usize shcl_try_remove(shcl_doc *d, const char *path, size_t plen);
 // Text holding a line break is SHCL_SET_BAD_COMMENT.
 shcl_set_status shcl_set_comment(shcl_doc *d, const char *path, size_t plen, const char *text, size_t tlen);
 // The comment lines above the node(s) at a path, the ones shcl_clear_comments
@@ -816,6 +837,9 @@ shcl_set_status shcl_set_comment(shcl_doc *d, const char *path, size_t plen, con
 // back as it was. Returns the count, 0 when the path reaches nothing; *out
 // stays valid until shcl_free, or until shcl_reads_release.
 size_t shcl_comments(shcl_doc *d, const char *path, size_t plen, shcl_str **out);
+// shcl_comments with a status, the way shcl_try_remove has them. A node with no
+// comment above it is SHCL_GOOD with n 0. values lives as long as *out above.
+shcl_read_str_list shcl_read_comments(shcl_doc *d, const char *path, size_t plen);
 // Take off the comment lines above the node(s) at a path, the ones
 // shcl_set_comment adds to, so a comment can be replaced rather than stacked.
 // Those are the lines the load put between the node and the binding line
@@ -823,6 +847,9 @@ size_t shcl_comments(shcl_doc *d, const char *path, size_t plen, shcl_str **out)
 // the node's own line stays, and so does a line kept as written for being
 // malformed. Returns how many lines came off, 0 when the path reaches nothing.
 size_t shcl_clear_comments(shcl_doc *d, const char *path, size_t plen);
+// shcl_clear_comments with a status, the way shcl_try_remove has them. A node
+// with no comment above it is SHCL_GOOD with 0.
+shcl_read_usize shcl_try_clear_comments(shcl_doc *d, const char *path, size_t plen);
 // Put the info block (SHCL_GEN_BANNER) at the end of the document, or with on
 // 0 just take it off. An old block comes off first, found by its "This config
 // file format is SHCL." line, never by its links or Legal line, which a later
@@ -6410,12 +6437,18 @@ static int resolve(shcl_doc *d, ShclStr path, ShclResolved *out) { return resolv
 // resolve() with every node behind a wildcard slot in the list, for the callers
 // that act on the whole match rather than read one value per instance.
 static int resolve_group(shcl_doc *d, ShclStr path, ShclResolved *out) { return resolve_mode(d, path, out, 1); }
-static shcl_status value_at(shcl_doc *d, ShclStr path, ShclValue **out) {
+// Single node at a path, or the failing status.
+static shcl_status node_at(shcl_doc *d, ShclStr path, size_t *out) {
 	ShclResolved r;
 	if (!resolve(d, path, &r)) return SHCL_BAD_PATH;
 	if (r.kind == R_NONE) return SHCL_NOT_FOUND;
 	if (r.kind == R_MANY || r.kind == R_SLOTS) return SHCL_MULTIPLE;
-	*out = &NODE(d, r.one).value; return SHCL_GOOD;
+	*out = r.one; return SHCL_GOOD;
+}
+static shcl_status value_at(shcl_doc *d, ShclStr path, ShclValue **out) {
+	size_t n = 0; shcl_status st = node_at(d, path, &n);
+	if (st == SHCL_GOOD) *out = &NODE(d, n).value;
+	return st;
 }
 /* The one element a scalar read takes: `[80]` reads as 80 and `[]` as
    empty, while two elements are not one scalar. */
@@ -6712,10 +6745,14 @@ shcl_read_str_list shcl_read_instances(shcl_doc *d, const char *path, size_t ple
 }
 
 size_t shcl_line(shcl_doc *d, const char *path, size_t plen) {
-	ShclStr p; p.p = path; p.n = plen;
-	ShclResolved r; if (!resolve(d, p, &r)) return 0;
-	if (r.kind != R_ONE) return 0;
-	return NODE(d, r.one).line; // writer-built nodes have 0
+	return shcl_read_line(d, path, plen).value;
+}
+shcl_read_usize shcl_read_line(shcl_doc *d, const char *path, size_t plen) {
+	shcl_read_usize R; R.value = 0;
+	ShclStr p; p.p = path; p.n = plen; size_t n = 0;
+	R.status = node_at(d, p, &n);
+	if (R.status == SHCL_GOOD) R.value = NODE(d, n).line; // writer-built nodes have 0
+	return R;
 }
 
 int shcl_quoted(shcl_doc *d, const char *path, size_t plen) {
@@ -6731,31 +6768,42 @@ int shcl_backtick(shcl_doc *d, const char *path, size_t plen) {
 }
 
 shcl_str shcl_authored_name(shcl_doc *d, const char *path, size_t plen) {
-	ShclStr p; p.p = path; p.n = plen;
-	ShclResolved r; if (!resolve(d, p, &r)) return s_empty();
-	if (r.kind != R_ONE) return s_empty();
-	return node_authored(&NODE(d, r.one));
+	return shcl_read_authored_name(d, path, plen).value;
+}
+shcl_read_str shcl_read_authored_name(shcl_doc *d, const char *path, size_t plen) {
+	shcl_read_str R; R.value = s_empty();
+	ShclStr p; p.p = path; p.n = plen; size_t n = 0;
+	R.status = node_at(d, p, &n);
+	if (R.status == SHCL_GOOD) R.value = node_authored(&NODE(d, n));
+	return R;
 }
 
 size_t shcl_lines(shcl_doc *d, const char *path, size_t plen, size_t **out) {
+	shcl_read_usize_list r = shcl_read_lines(d, path, plen);
+	*out = r.values; return r.n;
+}
+shcl_read_usize_list shcl_read_lines(shcl_doc *d, const char *path, size_t plen) {
 	// Wildcard slots that did not resolve stay in the list as 0 so indices
 	// keep matching shcl_count.
+	shcl_read_usize_list R; R.n = 0; R.status = SHCL_GOOD;
 	ShclArena *a = &d->reads; ShclStr p; p.p = path; p.n = plen;
 	ShclResolved r;
-	if (!resolve(d, p, &r)) { *out = (size_t *)arena_alloc(a, sizeof(size_t)); return 0; }
+	if (!resolve(d, p, &r)) R.status = SHCL_BAD_PATH;
+	else if (r.kind == R_NONE || (r.kind == R_SLOTS && r.slots.len == 0)) R.status = SHCL_NOT_FOUND;
+	if (R.status != SHCL_GOOD) { R.values = (size_t *)arena_alloc(a, sizeof(size_t)); return R; }
 	if (r.kind == R_SLOTS) {
 		size_t m = r.slots.len;
-		size_t *arr = (size_t *)arena_alloc(a, (m ? m : 1) * sizeof(size_t));
+		size_t *arr = (size_t *)arena_alloc(a, m * sizeof(size_t));
 		for (size_t k = 0; k < m; k++)
 			arr[k] = r.slots.data[k].present ? NODE(d, r.slots.data[k].idx).line : 0;
-		*out = arr; return m;
+		R.values = arr; R.n = m; return R;
 	}
 	ShclVecSize nodes = {0};
 	if (r.kind == R_ONE) ShclVecSize_push(a, &nodes, r.one);
 	else if (r.kind == R_MANY) for (size_t k = 0; k < r.many.len; k++) ShclVecSize_push(a, &nodes, r.many.data[k]);
 	size_t *arr = (size_t *)arena_alloc(a, (nodes.len ? nodes.len : 1) * sizeof(size_t));
 	for (size_t k = 0; k < nodes.len; k++) arr[k] = NODE(d, nodes.data[k]).line; // writer-built nodes have 0
-	*out = arr; return nodes.len;
+	R.values = arr; R.n = nodes.len; return R;
 }
 
 size_t shcl_children(shcl_doc *d, const char *path, size_t plen, shcl_str **out) {
@@ -7223,12 +7271,29 @@ static shcl_set_status w_set_marked(shcl_doc *d, ShclStr path, ShclValue v, Shcl
 
 shcl_doc *shcl_new(void) { return shcl_parse("", 0); }
 
+/* The real nodes a path reaches, every node behind a wildcard slot included,
+   for the calls that act on the whole match. The list is in scratch until the
+   next resolve. SHCL_NOT_FOUND when there are none, so a wildcard whose slots
+   all miss is SHCL_NOT_FOUND here, unlike shcl_read_count. */
+static shcl_status targets_at(shcl_doc *d, ShclStr p, ShclVecSize *out) {
+	ShclResolved r; ShclVecSize found = {0};
+	*out = found;
+	if (!resolve_group(d, p, &r)) return SHCL_BAD_PATH;
+	if (r.kind == R_ONE) ShclVecSize_push(&d->scratch, &found, r.one);
+	else if (r.kind == R_MANY) found = r.many;
+	else if (r.kind == R_SLOTS) for (size_t i = 0; i < r.slots.len; i++) if (r.slots.data[i].present) ShclVecSize_push(&d->scratch, &found, r.slots.data[i].idx);
+	*out = found;
+	return found.len ? SHCL_GOOD : SHCL_NOT_FOUND;
+}
+
 int shcl_exists(shcl_doc *d, const char *path, size_t plen) {
-	ShclStr p; p.p = path; p.n = plen; ShclResolved r;
-	if (!resolve_group(d, p, &r)) return 0;
-	if (r.kind == R_ONE || r.kind == R_MANY) return 1;
-	if (r.kind == R_SLOTS) for (size_t i = 0; i < r.slots.len; i++) if (r.slots.data[i].present) return 1;
-	return 0;
+	return shcl_read_exists(d, path, plen).value;
+}
+shcl_read_bool shcl_read_exists(shcl_doc *d, const char *path, size_t plen) {
+	shcl_read_bool R; ShclStr p; p.p = path; p.n = plen; ShclVecSize targets;
+	R.status = targets_at(d, p, &targets);
+	R.value = R.status == SHCL_GOOD;
+	return R;
 }
 
 static int heads_block(ShclArena *a, const ShclNode *node);
@@ -7350,15 +7415,18 @@ static int node_live(const shcl_doc *d, size_t node) {
 }
 
 size_t shcl_remove(shcl_doc *d, const char *path, size_t plen) {
+	return shcl_try_remove(d, path, plen).value;
+}
+shcl_read_usize shcl_try_remove(shcl_doc *d, const char *path, size_t plen) {
 	// Work vectors only, so they go in the scratch the resolve below resets -
 	// the document arena is never reset, and a wildcard remove left two vectors
 	// sized to the target count sitting in it until shcl_compact.
-	ShclArena *a = &d->scratch; ShclStr p; p.p = path; p.n = plen; ShclResolved r;
-	if (!resolve_group(d, p, &r)) return 0;
-	ShclVecSize targets = {0};
-	if (r.kind == R_ONE) ShclVecSize_push(a, &targets, r.one);
-	else if (r.kind == R_MANY) targets = r.many;
-	else if (r.kind == R_SLOTS) for (size_t i = 0; i < r.slots.len; i++) if (r.slots.data[i].present) ShclVecSize_push(a, &targets, r.slots.data[i].idx);
+	shcl_read_usize R; R.value = 0;
+	ShclArena *a = &d->scratch; ShclStr p; p.p = path; p.n = plen;
+	ShclVecSize targets;
+	R.status = targets_at(d, p, &targets);
+	// A miss still settles below, as it always has.
+	if (R.status == SHCL_BAD_PATH) return R;
 	// Mark first, rebuild each touched child list once. Dropping one target at
 	// a time rebuilt the same list once per target, which is quadratic when a
 	// path matches many siblings. The pair of vectors is one vector of (node,
@@ -7452,7 +7520,7 @@ size_t shcl_remove(shcl_doc *d, const char *path, size_t plen) {
 	}
 	settle_first_blank(d);
 	resettle_kept(d);
-	return targets.len;
+	R.value = targets.len; return R;
 }
 
 shcl_set_status shcl_check_set_path(shcl_doc *d, const char *path, size_t plen) {
@@ -7498,16 +7566,15 @@ shcl_set_status shcl_set_comment(shcl_doc *d, const char *path, size_t plen, con
 }
 
 size_t shcl_comments(shcl_doc *d, const char *path, size_t plen, shcl_str **out) {
-	ShclArena *a = &d->reads;
-	arena_reset(&d->scratch);
-	ShclArena *t = &d->scratch; ShclStr p; p.p = path; p.n = plen; ShclResolved r;
+	shcl_read_str_list r = shcl_read_comments(d, path, plen);
+	*out = r.values; return r.n;
+}
+shcl_read_str_list shcl_read_comments(shcl_doc *d, const char *path, size_t plen) {
+	shcl_read_str_list R;
+	ShclArena *a = &d->reads; ShclStr p; p.p = path; p.n = plen;
 	shcl_str *arr = NULL; size_t n = 0, cap = 0;
-	ShclVecSize targets = {0};
-	if (resolve_group(d, p, &r)) {
-		if (r.kind == R_ONE) ShclVecSize_push(t, &targets, r.one);
-		else if (r.kind == R_MANY) targets = r.many;
-		else if (r.kind == R_SLOTS) for (size_t i = 0; i < r.slots.len; i++) if (r.slots.data[i].present) ShclVecSize_push(t, &targets, r.slots.data[i].idx);
-	}
+	ShclVecSize targets;
+	R.status = targets_at(d, p, &targets);
 	for (size_t i = 0; i < targets.len; i++) {
 		const ShclTrivia *tr = NODE(d, targets.data[i]).trivia;
 		if (!tr) continue;
@@ -7519,16 +7586,17 @@ size_t shcl_comments(shcl_doc *d, const char *path, size_t plen, shcl_str **out)
 		}
 	}
 	if (!arr) arr = (shcl_str *)arena_alloc(a, sizeof(shcl_str));
-	*out = arr; return n;
+	R.values = arr; R.n = n; return R;
 }
 
 size_t shcl_clear_comments(shcl_doc *d, const char *path, size_t plen) {
-	ShclArena *a = &d->scratch; ShclStr p; p.p = path; p.n = plen; ShclResolved r;
-	if (!resolve_group(d, p, &r)) return 0;
-	ShclVecSize targets = {0};
-	if (r.kind == R_ONE) ShclVecSize_push(a, &targets, r.one);
-	else if (r.kind == R_MANY) targets = r.many;
-	else if (r.kind == R_SLOTS) for (size_t i = 0; i < r.slots.len; i++) if (r.slots.data[i].present) ShclVecSize_push(a, &targets, r.slots.data[i].idx);
+	return shcl_try_clear_comments(d, path, plen).value;
+}
+shcl_read_usize shcl_try_clear_comments(shcl_doc *d, const char *path, size_t plen) {
+	shcl_read_usize R; R.value = 0;
+	ShclStr p; p.p = path; p.n = plen; ShclVecSize targets;
+	R.status = targets_at(d, p, &targets);
+	if (R.status != SHCL_GOOD) return R;
 	size_t cleared = 0;
 	for (size_t i = 0; i < targets.len; i++) {
 		ShclNode *nd = &NODE(d, targets.data[i]);
@@ -7550,7 +7618,7 @@ size_t shcl_clear_comments(shcl_doc *d, const char *path, size_t plen) {
 		else nd->blank_before |= blank;
 	}
 	if (cleared) { settle_first_blank(d); resettle_kept(d); }
-	return cleared;
+	R.value = cleared; return R;
 }
 
 /* The info block's first two text lines. An old block is found by the first,

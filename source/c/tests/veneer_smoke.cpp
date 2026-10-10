@@ -123,6 +123,33 @@ int main() {
 		CHECK(ld.read_children("h:p").status == shcl::Status::BadPath);
 		CHECK(ld.read_children("").status == shcl::Status::Good && ld.read_children("").value.size() == 2);
 	}
+	// The other path calls' status twins, on the fixture the runners use.
+	{
+		auto pd = shcl::Document::parse("# about site\nsite: a\n\tport: 1\nsite: b\nName: x\n");
+		auto pl = pd.read_line("site(0)");
+		CHECK(pl.value == 2 && pl.status == shcl::Status::Good && pl.slots.empty());
+		CHECK(pd.read_line("site").status == shcl::Status::Multiple && pd.read_line("nope").status == shcl::Status::NotFound);
+		CHECK(pd.read_line("site..port").value == 0 && pd.read_line("site..port").status == shcl::Status::BadPath);
+		auto pa = pd.read_authored_name("name");
+		CHECK(pa.value == "Name" && pa.status == shcl::Status::Good);
+		CHECK(pd.read_authored_name("site").status == shcl::Status::Multiple && pd.read_authored_name("h:p").status == shcl::Status::BadPath);
+		auto pls = pd.read_lines("site(*).port");
+		CHECK(pls.status == shcl::Status::Good && pls.value == std::vector<std::size_t>({3, 0}));
+		CHECK(pd.read_lines("nope").status == shcl::Status::NotFound && pd.read_lines("site[0]").status == shcl::Status::BadPath);
+		auto pc = pd.read_comments("site");
+		CHECK(pc.status == shcl::Status::Good && pc.value == std::vector<std::string>({"# about site"}));
+		CHECK(pd.read_comments("site(1)").status == shcl::Status::Good && pd.read_comments("site(1)").value.empty());
+		CHECK(pd.read_comments("site(*).nope").status == shcl::Status::NotFound && pd.read_comments("").status == shcl::Status::BadPath);
+		CHECK(pd.read_exists("site(*).port").value && pd.read_exists("site(*).port").status == shcl::Status::Good);
+		CHECK(!pd.read_exists("nope").value && pd.read_exists("nope").status == shcl::Status::NotFound);
+		CHECK(!pd.read_exists("user name").value && pd.read_exists("user name").status == shcl::Status::BadPath);
+		CHECK(pd.try_clear_comments("site.port: 1").status == shcl::Status::BadPath && pd.try_remove("site(.port").status == shcl::Status::BadPath);
+		CHECK(pd.try_clear_comments("nope").status == shcl::Status::NotFound && pd.try_remove("nope").status == shcl::Status::NotFound);
+		auto pr = pd.try_clear_comments("site");
+		CHECK(pr.value == 1 && pr.status == shcl::Status::Good);
+		pr = pd.try_remove("site");
+		CHECK(pr.value == 2 && pr.status == shcl::Status::Good);
+	}
 
 	// Convenience tier: value on Good, call-site fallback otherwise.
 	CHECK(doc.get_or<int64_t>("port", 9) == 8080);

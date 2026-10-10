@@ -584,6 +584,16 @@ fn reads_match_expected() {
 			if kind == "comments" {
 				let got = doc.comments(query).join("|");
 				assert_eq!(got, expected, "{}", at);
+				// A status other than `-` pins read_comments too.
+				if status != "-" {
+					let r = doc.read_comments(query);
+					assert_eq!(
+						(r.value.join("|"), r.status.to_string()),
+						(got, status.to_string()),
+						"{}",
+						at
+					);
+				}
 				continue;
 			}
 
@@ -3499,6 +3509,94 @@ fn list_reads_say_bad_path() {
 			assert_eq!((k.value.len(), k.status), (0, BadPath), "{p:?}");
 		}
 	}
+}
+
+// The other path calls' status twins: BadPath for a path that cannot be
+// read, NotFound for one that reaches nothing, Multiple where a single-node
+// call meets several. Same fixture in every runner.
+#[test]
+fn path_twins_say_bad_path() {
+	let _id = test_id("EsJ3y7I");
+	use shcl::Status::{BadPath, Good, Multiple, NotFound};
+	let text = "# about site\nsite: a\n\tport: 1\nsite: b\nName: x\n";
+	let mut doc = Document::parse(text);
+	let l = doc.read_line("site(0)");
+	assert_eq!((l.value, l.status, l.line), (2, Good, 2));
+	assert_eq!(
+		(doc.read_line("site").value, doc.read_line("site").status),
+		(0, Multiple)
+	);
+	assert_eq!(doc.read_line("site(*).port").status, Multiple);
+	assert_eq!(doc.read_line("nope").status, NotFound);
+	let a = doc.read_authored_name("name");
+	assert_eq!((a.value.as_str(), a.status, a.line), ("Name", Good, 5));
+	let a = doc.read_authored_name("site");
+	assert_eq!((a.value.as_str(), a.status), ("", Multiple));
+	assert_eq!(doc.read_authored_name("nope").status, NotFound);
+	let l = doc.read_lines("site");
+	assert_eq!((l.value, l.status), (vec![2, 4], Good));
+	// An unresolved wildcard slot still counts, as in read_count().
+	let l = doc.read_lines("site(*).port");
+	assert_eq!((l.value, l.status), (vec![3, 0], Good));
+	assert_eq!(doc.read_lines("nope").status, NotFound);
+	assert_eq!(doc.read_lines("nope(*)").status, NotFound);
+	let c = doc.read_comments("site");
+	assert_eq!(
+		(c.value, c.status),
+		(vec!["# about site".to_string()], Good)
+	);
+	// A node with no comment is Good, a missing one NotFound, and so is a
+	// wildcard whose slots all miss.
+	let c = doc.read_comments("site(1)");
+	assert_eq!((c.value.len(), c.status, c.line), (0, Good, 4));
+	assert_eq!(doc.read_comments("nope").status, NotFound);
+	assert_eq!(doc.read_comments("site(*).nope").status, NotFound);
+	let e = doc.read_exists("site(*).port");
+	assert_eq!((e.value, e.status, e.line), (true, Good, 3));
+	let e = doc.read_exists("site(*).nope");
+	assert_eq!((e.value, e.status), (false, NotFound));
+	assert_eq!(doc.read_exists("nope").status, NotFound);
+	for p in [
+		"site[0].port",
+		"site(.port",
+		"site..port",
+		"",
+		"user name",
+		"site.port: 1",
+		"h:p",
+	] {
+		let l = doc.read_line(p);
+		assert_eq!((l.value, l.status, l.slots.len()), (0, BadPath, 0), "{p:?}");
+		let a = doc.read_authored_name(p);
+		assert_eq!((a.value.as_str(), a.status), ("", BadPath), "{p:?}");
+		let l = doc.read_lines(p);
+		assert_eq!((l.value.len(), l.status), (0, BadPath), "{p:?}");
+		let c = doc.read_comments(p);
+		assert_eq!((c.value.len(), c.status), (0, BadPath), "{p:?}");
+		let e = doc.read_exists(p);
+		assert_eq!((e.value, e.status), (false, BadPath), "{p:?}");
+		let r = doc.try_clear_comments(p);
+		assert_eq!((r.value, r.status), (0, BadPath), "{p:?}");
+		let r = doc.try_remove(p);
+		assert_eq!((r.value, r.status), (0, BadPath), "{p:?}");
+	}
+	assert_eq!(doc.to_canonical(), Document::parse(text).to_canonical());
+	// A node a setter built has no source line, and says Good.
+	assert_eq!(doc.set_int("built", 1), shcl::SetStatus::Ok);
+	let l = doc.read_line("built");
+	assert_eq!((l.value, l.status), (0, Good));
+	let r = doc.try_clear_comments("site(1)");
+	assert_eq!((r.value, r.status, r.line), (0, Good, 4));
+	assert_eq!(doc.try_clear_comments("nope").status, NotFound);
+	let r = doc.try_clear_comments("site");
+	assert_eq!((r.value, r.status), (1, Good));
+	let r = doc.try_remove("site(*).port");
+	assert_eq!((r.value, r.status, r.line), (1, Good, 3));
+	let r = doc.try_remove("site(*).port");
+	assert_eq!((r.value, r.status), (0, NotFound));
+	assert_eq!(doc.try_remove("nope").status, NotFound);
+	let r = doc.try_remove("site");
+	assert_eq!((r.value, r.status), (2, Good));
 }
 
 #[test]

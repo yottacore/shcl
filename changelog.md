@@ -110,6 +110,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `read_count()`, `read_instances()` and `read_children()` in every binding (Go `ReadCount`, C `shcl_read_count`) give the plain call's answer with a status: `BadPath` for a path that cannot be read as a path, `NotFound` for one that matches nothing.
 
+- `read_line()`, `read_lines()`, `read_authored_name()`, `read_comments()`, `read_exists()`, `try_remove()` and `try_clear_comments()` in every binding (Go `ReadLine` and `TryRemove`, C `shcl_read_line` and `shcl_try_remove`) do the same for the rest of the calls that take a path. `read_line()` and `read_authored_name()` say `Multiple` for a repeated field.
+
 - `format_version()` and `migrate_unstamped()` in every binding, for a program that writes its own info block.
 
 - `read_format_version()` and `read_schema_ref()` in every binding (Go `ReadFormatVersion`, C `shcl_read_format_version`) give the plain call's answer with a status, so a file with no Format line and one whose line names no number read apart: `NotFound`, `Empty` for the line with nothing after it, `BadType` for `##    Format   3x`. A Schema line naming nothing is `Empty`.

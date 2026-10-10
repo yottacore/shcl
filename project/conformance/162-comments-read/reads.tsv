@@ -1,9 +1,13 @@
 query	type	expected	status
 -	load	ok	-
-a	comments	# The comment lines above a node, each from its # on, the lines|# clear_comments takes.	-
-b	comments	# mine|# indented note	-
-c	comments		-
-c.d	comments	# inner	-
-e	comments	# first e|# second e	-
-e(1)	comments	# second e	-
-nope	comments		-
+a	comments	# The comment lines above a node, each from its # on, the lines|# clear_comments takes.	Good
+b	comments	# mine|# indented note	Good
+c	comments		Good
+c.d	comments	# inner	Good
+e	comments	# first e|# second e	Good
+e(1)	comments	# second e	Good
+nope	comments		NotFound
+e[0]	comments		BadPath
+e(1	comments		BadPath
+e(*)	comments	# first e|# second e	Good
+e(*).x	comments		NotFound

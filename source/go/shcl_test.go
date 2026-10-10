@@ -1259,6 +1259,124 @@ func TestListReadsSayBadPath(t *testing.T) {
 	}
 }
 
+// The other path calls' status twins: BadPath for a path that cannot be
+// read, NotFound for one that reaches nothing, Multiple where a single-node
+// call meets several. Same fixture in every runner.
+func TestPathTwinsSayBadPath(t *testing.T) {
+	defer testID(t, "EsJ3y9X")
+	text := "# about site\nsite: a\n\tport: 1\nsite: b\nName: x\n"
+	doc := Parse(text)
+	if l := doc.ReadLine("site(0)"); l.Value != 2 || l.Status != Good || l.Line != 2 {
+		t.Errorf("ReadLine(site(0)) = %d %v %d", l.Value, l.Status, l.Line)
+	}
+	if l := doc.ReadLine("site"); l.Value != 0 || l.Status != Multiple {
+		t.Errorf("ReadLine(site) = %d %v", l.Value, l.Status)
+	}
+	if st := doc.ReadLine("site(*).port").Status; st != Multiple {
+		t.Errorf("ReadLine(site(*).port): %v", st)
+	}
+	if st := doc.ReadLine("nope").Status; st != NotFound {
+		t.Errorf("ReadLine(nope): %v", st)
+	}
+	if a := doc.ReadAuthoredName("name"); a.Value != "Name" || a.Status != Good || a.Line != 5 {
+		t.Errorf("ReadAuthoredName(name) = %q %v %d", a.Value, a.Status, a.Line)
+	}
+	if a := doc.ReadAuthoredName("site"); a.Value != "" || a.Status != Multiple {
+		t.Errorf("ReadAuthoredName(site) = %q %v", a.Value, a.Status)
+	}
+	if st := doc.ReadAuthoredName("nope").Status; st != NotFound {
+		t.Errorf("ReadAuthoredName(nope): %v", st)
+	}
+	if l := doc.ReadLines("site"); !reflect.DeepEqual(l.Value, []int{2, 4}) || l.Status != Good {
+		t.Errorf("ReadLines(site) = %v %v", l.Value, l.Status)
+	}
+	// An unresolved wildcard slot still counts, as in ReadCount.
+	if l := doc.ReadLines("site(*).port"); !reflect.DeepEqual(l.Value, []int{3, 0}) || l.Status != Good {
+		t.Errorf("ReadLines(site(*).port) = %v %v", l.Value, l.Status)
+	}
+	for _, p := range []string{"nope", "nope(*)"} {
+		if st := doc.ReadLines(p).Status; st != NotFound {
+			t.Errorf("ReadLines(%q): %v", p, st)
+		}
+	}
+	if c := doc.ReadComments("site"); !reflect.DeepEqual(c.Value, []string{"# about site"}) || c.Status != Good {
+		t.Errorf("ReadComments(site) = %q %v", c.Value, c.Status)
+	}
+	// A node with no comment is Good, a missing one NotFound, and so is a
+	// wildcard whose slots all miss.
+	if c := doc.ReadComments("site(1)"); len(c.Value) != 0 || c.Status != Good || c.Line != 4 {
+		t.Errorf("ReadComments(site(1)) = %q %v %d", c.Value, c.Status, c.Line)
+	}
+	for _, p := range []string{"nope", "site(*).nope"} {
+		if st := doc.ReadComments(p).Status; st != NotFound {
+			t.Errorf("ReadComments(%q): %v", p, st)
+		}
+	}
+	if e := doc.ReadExists("site(*).port"); !e.Value || e.Status != Good || e.Line != 3 {
+		t.Errorf("ReadExists(site(*).port) = %v %v %d", e.Value, e.Status, e.Line)
+	}
+	if e := doc.ReadExists("site(*).nope"); e.Value || e.Status != NotFound {
+		t.Errorf("ReadExists(site(*).nope) = %v %v", e.Value, e.Status)
+	}
+	if st := doc.ReadExists("nope").Status; st != NotFound {
+		t.Errorf("ReadExists(nope): %v", st)
+	}
+	for _, p := range []string{"site[0].port", "site(.port", "site..port", "", "user name", "site.port: 1", "h:p"} {
+		if l := doc.ReadLine(p); l.Value != 0 || l.Status != BadPath || len(l.Slots) != 0 {
+			t.Errorf("ReadLine(%q) = %d %v %v", p, l.Value, l.Status, l.Slots)
+		}
+		if a := doc.ReadAuthoredName(p); a.Value != "" || a.Status != BadPath {
+			t.Errorf("ReadAuthoredName(%q) = %q %v", p, a.Value, a.Status)
+		}
+		if l := doc.ReadLines(p); len(l.Value) != 0 || l.Status != BadPath {
+			t.Errorf("ReadLines(%q) = %v %v", p, l.Value, l.Status)
+		}
+		if c := doc.ReadComments(p); len(c.Value) != 0 || c.Status != BadPath {
+			t.Errorf("ReadComments(%q) = %q %v", p, c.Value, c.Status)
+		}
+		if e := doc.ReadExists(p); e.Value || e.Status != BadPath {
+			t.Errorf("ReadExists(%q) = %v %v", p, e.Value, e.Status)
+		}
+		if r := doc.TryClearComments(p); r.Value != 0 || r.Status != BadPath {
+			t.Errorf("TryClearComments(%q) = %d %v", p, r.Value, r.Status)
+		}
+		if r := doc.TryRemove(p); r.Value != 0 || r.Status != BadPath {
+			t.Errorf("TryRemove(%q) = %d %v", p, r.Value, r.Status)
+		}
+	}
+	if doc.ToCanonical() != Parse(text).ToCanonical() {
+		t.Errorf("a bad path changed the document:\n%s", doc.ToCanonical())
+	}
+	// A node a setter built has no source line, and says Good.
+	if st := doc.SetInt("built", 1); st != SetOk {
+		t.Fatalf("SetInt(built): %v", st)
+	}
+	if l := doc.ReadLine("built"); l.Value != 0 || l.Status != Good {
+		t.Errorf("ReadLine(built) = %d %v", l.Value, l.Status)
+	}
+	if r := doc.TryClearComments("site(1)"); r.Value != 0 || r.Status != Good || r.Line != 4 {
+		t.Errorf("TryClearComments(site(1)) = %d %v %d", r.Value, r.Status, r.Line)
+	}
+	if st := doc.TryClearComments("nope").Status; st != NotFound {
+		t.Errorf("TryClearComments(nope): %v", st)
+	}
+	if r := doc.TryClearComments("site"); r.Value != 1 || r.Status != Good {
+		t.Errorf("TryClearComments(site) = %d %v", r.Value, r.Status)
+	}
+	if r := doc.TryRemove("site(*).port"); r.Value != 1 || r.Status != Good || r.Line != 3 {
+		t.Errorf("TryRemove(site(*).port) = %d %v %d", r.Value, r.Status, r.Line)
+	}
+	if r := doc.TryRemove("site(*).port"); r.Value != 0 || r.Status != NotFound {
+		t.Errorf("second TryRemove(site(*).port) = %d %v", r.Value, r.Status)
+	}
+	if st := doc.TryRemove("nope").Status; st != NotFound {
+		t.Errorf("TryRemove(nope): %v", st)
+	}
+	if r := doc.TryRemove("site"); r.Value != 2 || r.Status != Good {
+		t.Errorf("TryRemove(site) = %d %v", r.Value, r.Status)
+	}
+}
+
 func TestCheckSetPathNamesTheFailure(t *testing.T) {
 	defer testID(t, "ElouJ8L")
 	// The path's half of a setter's status. Same fixture in every runner.
@@ -3525,6 +3643,10 @@ func TestReadsMatchExpected(t *testing.T) {
 			if kind == "comments" {
 				if got := strings.Join(doc.Comments(query), "|"); got != expected {
 					t.Errorf("%s: comments: got %q want %q", at, got, expected)
+				}
+				// A status other than `-` pins ReadComments too.
+				if r := doc.ReadComments(query); status != "-" && (strings.Join(r.Value, "|") != expected || r.Status.String() != status) {
+					t.Errorf("%s: ReadComments: got %q %v want %q %s", at, r.Value, r.Status, expected, status)
 				}
 				continue
 			}

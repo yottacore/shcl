@@ -1427,6 +1427,10 @@ def main():
 				got = "|".join(doc.comments(query))
 				if got != expected:
 					fails.append(f"{at}: comments got {got!r} want {expected!r}")
+				# A status other than `-` pins read_comments too.
+				rm = doc.read_comments(query)
+				if status != "-" and ("|".join(rm.value), rm.status.name) != (expected, status):
+					fails.append(f"{at}: read_comments got {rm.value!r} {rm.status.name} want {expected!r} {status}")
 				continue
 
 			got_value, got_status, got_slots = scalar_read(doc, kind, query)
@@ -1701,6 +1705,109 @@ def main():
 		lk = ldoc.read_children(lpath)
 		if lpath and (lk.value, lk.status) != ([], shcl.Status.BadPath):
 			raise SystemExit(f"read_children({lpath!r}) {lk!r}")
+	test_id("EsJ3yBo", "path_twins_say_bad_path")
+	# The other path calls' status twins: BadPath for a path that cannot be
+	# read, NotFound for one that reaches nothing, Multiple where a single-node
+	# call meets several. Same fixture in every runner.
+	ptext = "# about site\nsite: a\n\tport: 1\nsite: b\nName: x\n"
+	pdoc = shcl.Document.parse(ptext)
+	pgood, pnf, pmul, pbad = shcl.Status.Good, shcl.Status.NotFound, shcl.Status.Multiple, shcl.Status.BadPath
+	pl = pdoc.read_line("site(0)")
+	if (pl.value, pl.status, pl.line) != (2, pgood, 2):
+		raise SystemExit(f"read_line(site(0)) {pl!r}")
+	pl = pdoc.read_line("site")
+	if (pl.value, pl.status) != (0, pmul):
+		raise SystemExit(f"read_line(site) {pl!r}")
+	if pdoc.read_line("site(*).port").status is not pmul:
+		raise SystemExit(f"read_line(site(*).port) {pdoc.read_line('site(*).port')!r}")
+	if pdoc.read_line("nope").status is not pnf:
+		raise SystemExit(f"read_line(nope) {pdoc.read_line('nope')!r}")
+	pa = pdoc.read_authored_name("name")
+	if (pa.value, pa.status, pa.line) != ("Name", pgood, 5):
+		raise SystemExit(f"read_authored_name(name) {pa!r}")
+	pa = pdoc.read_authored_name("site")
+	if (pa.value, pa.status) != ("", pmul):
+		raise SystemExit(f"read_authored_name(site) {pa!r}")
+	if pdoc.read_authored_name("nope").status is not pnf:
+		raise SystemExit(f"read_authored_name(nope) {pdoc.read_authored_name('nope')!r}")
+	pls = pdoc.read_lines("site")
+	if (pls.value, pls.status) != ([2, 4], pgood):
+		raise SystemExit(f"read_lines(site) {pls!r}")
+	# An unresolved wildcard slot still counts, as in read_count().
+	pls = pdoc.read_lines("site(*).port")
+	if (pls.value, pls.status) != ([3, 0], pgood):
+		raise SystemExit(f"read_lines(site(*).port) {pls!r}")
+	for ppath in ("nope", "nope(*)"):
+		if pdoc.read_lines(ppath).status is not pnf:
+			raise SystemExit(f"read_lines({ppath!r}) {pdoc.read_lines(ppath)!r}")
+	pc = pdoc.read_comments("site")
+	if (pc.value, pc.status) != (["# about site"], pgood):
+		raise SystemExit(f"read_comments(site) {pc!r}")
+	# A node with no comment is Good, a missing one NotFound, and so is a
+	# wildcard whose slots all miss.
+	pc = pdoc.read_comments("site(1)")
+	if (pc.value, pc.status, pc.line) != ([], pgood, 4):
+		raise SystemExit(f"read_comments(site(1)) {pc!r}")
+	for ppath in ("nope", "site(*).nope"):
+		if pdoc.read_comments(ppath).status is not pnf:
+			raise SystemExit(f"read_comments({ppath!r}) {pdoc.read_comments(ppath)!r}")
+	pe = pdoc.read_exists("site(*).port")
+	if (pe.value, pe.status, pe.line) != (True, pgood, 3):
+		raise SystemExit(f"read_exists(site(*).port) {pe!r}")
+	pe = pdoc.read_exists("site(*).nope")
+	if (pe.value, pe.status) != (False, pnf):
+		raise SystemExit(f"read_exists(site(*).nope) {pe!r}")
+	if pdoc.read_exists("nope").status is not pnf:
+		raise SystemExit(f"read_exists(nope) {pdoc.read_exists('nope')!r}")
+	for ppath in ("site[0].port", "site(.port", "site..port", "", "user name", "site.port: 1", "h:p"):
+		pl = pdoc.read_line(ppath)
+		if (pl.value, pl.status, pl.slots) != (0, pbad, []):
+			raise SystemExit(f"read_line({ppath!r}) {pl!r}")
+		pa = pdoc.read_authored_name(ppath)
+		if (pa.value, pa.status) != ("", pbad):
+			raise SystemExit(f"read_authored_name({ppath!r}) {pa!r}")
+		pls = pdoc.read_lines(ppath)
+		if (pls.value, pls.status) != ([], pbad):
+			raise SystemExit(f"read_lines({ppath!r}) {pls!r}")
+		pc = pdoc.read_comments(ppath)
+		if (pc.value, pc.status) != ([], pbad):
+			raise SystemExit(f"read_comments({ppath!r}) {pc!r}")
+		pe = pdoc.read_exists(ppath)
+		if (pe.value, pe.status) != (False, pbad):
+			raise SystemExit(f"read_exists({ppath!r}) {pe!r}")
+		pr = pdoc.try_clear_comments(ppath)
+		if (pr.value, pr.status) != (0, pbad):
+			raise SystemExit(f"try_clear_comments({ppath!r}) {pr!r}")
+		pr = pdoc.try_remove(ppath)
+		if (pr.value, pr.status) != (0, pbad):
+			raise SystemExit(f"try_remove({ppath!r}) {pr!r}")
+	if pdoc.to_canonical() != shcl.Document.parse(ptext).to_canonical():
+		raise SystemExit(f"a bad path changed the document:\n{pdoc.to_canonical()}")
+	# A node a setter built has no source line, and says Good.
+	if pdoc.set_int("built", 1) is not shcl.SetStatus.Ok:
+		raise SystemExit("set_int(built)")
+	pl = pdoc.read_line("built")
+	if (pl.value, pl.status) != (0, pgood):
+		raise SystemExit(f"read_line(built) {pl!r}")
+	pr = pdoc.try_clear_comments("site(1)")
+	if (pr.value, pr.status, pr.line) != (0, pgood, 4):
+		raise SystemExit(f"try_clear_comments(site(1)) {pr!r}")
+	if pdoc.try_clear_comments("nope").status is not pnf:
+		raise SystemExit("try_clear_comments(nope)")
+	pr = pdoc.try_clear_comments("site")
+	if (pr.value, pr.status) != (1, pgood):
+		raise SystemExit(f"try_clear_comments(site) {pr!r}")
+	pr = pdoc.try_remove("site(*).port")
+	if (pr.value, pr.status, pr.line) != (1, pgood, 3):
+		raise SystemExit(f"try_remove(site(*).port) {pr!r}")
+	pr = pdoc.try_remove("site(*).port")
+	if (pr.value, pr.status) != (0, pnf):
+		raise SystemExit(f"second try_remove(site(*).port) {pr!r}")
+	if pdoc.try_remove("nope").status is not pnf:
+		raise SystemExit("try_remove(nope)")
+	pr = pdoc.try_remove("site")
+	if (pr.value, pr.status) != (2, pgood):
+		raise SystemExit(f"try_remove(site) {pr!r}")
 	test_id("ElouJ8N", "check_set_path_names_the_failure")
 	# The path's half of a setter's status. Same fixture in every runner.
 	wdoc = shcl.Document.parse("a:\n\tb: 1\n")

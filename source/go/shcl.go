@@ -9371,11 +9371,19 @@ func (d *Document) Paths() []string {
 // exactly one node, or the node was writer-built. Merged instances cite the
 // first binding's line, matching diagnostics.
 func (d *Document) Line(path string) int {
-	r, ok := d.resolve(path)
-	if !ok || r.kind != resOne {
-		return 0
+	return d.ReadLine(path).Value
+}
+
+// ReadLine is Line with a status: Good, NotFound when the path matches
+// nothing, Multiple when it matches more than one node, as the typed reads
+// say, or BadPath when it cannot be read as a path. A writer-built node is
+// Good with 0. Line is set too.
+func (d *Document) ReadLine(path string) Read[int] {
+	n, st := d.nodeAt(path)
+	if st != Good {
+		return Read[int]{Status: st}
 	}
-	return d.arena[r.one].line
+	return Read[int]{Value: d.arena[n].line, Status: Good}.at(d.arena[n].line, nil)
 }
 
 // AuthoredName is the field name at a path exactly as the author wrote it
@@ -9387,11 +9395,17 @@ func (d *Document) Line(path string) int {
 // exactly one node. Merged instances keep the first binding's spelling; a
 // writer-built node keeps the spelling the setter's path used.
 func (d *Document) AuthoredName(path string) string {
-	r, ok := d.resolve(path)
-	if !ok || r.kind != resOne {
-		return ""
+	return d.ReadAuthoredName(path).Value
+}
+
+// ReadAuthoredName is AuthoredName with a status, the way ReadLine has them:
+// Multiple for a repeated field, NotFound or BadPath otherwise.
+func (d *Document) ReadAuthoredName(path string) Read[string] {
+	n, st := d.nodeAt(path)
+	if st != Good {
+		return Read[string]{Status: st}
 	}
-	return d.arena[r.one].authored()
+	return Read[string]{Value: d.arena[n].authored(), Status: Good}.at(d.arena[n].line, nil)
 }
 
 // Lines is the plural Line(): 1-based source lines at a path, in file order,
@@ -9399,31 +9413,41 @@ func (d *Document) AuthoredName(path string) string {
 // every binding's. Wildcard slots that did not resolve stay in the list as 0,
 // and a writer-built node is 0, so indices keep matching Count().
 func (d *Document) Lines(path string) []int {
+	return d.ReadLines(path).Value
+}
+
+// ReadLines is Lines with a status: Good, NotFound when the path matches
+// nothing, or BadPath when it cannot be read as a path, the way ReadCount has
+// them. Unresolved wildcard slots stay 0 as in Lines, and still count as a
+// match. Line is set when the path reaches one node.
+func (d *Document) ReadLines(path string) Read[[]int] {
 	r, ok := d.resolve(path)
 	if !ok {
-		return nil
+		return Read[[]int]{Value: []int{}, Status: BadPath}
 	}
-	switch r.kind {
-	case resOne:
-		return []int{d.arena[r.one].line}
-	case resMany:
+	switch {
+	case r.kind == resNone:
+		return Read[[]int]{Value: []int{}, Status: NotFound}
+	case r.kind == resSlots && len(r.slots) == 0:
+		return Read[[]int]{Value: []int{}, Status: NotFound}
+	case r.kind == resOne:
+		return Read[[]int]{Value: []int{d.arena[r.one].line}, Status: Good}.at(d.arena[r.one].line, nil)
+	case r.kind == resMany:
 		out := make([]int, 0, len(r.many))
 		for _, n := range r.many {
 			out = append(out, d.arena[n].line)
 		}
-		return out
-	case resSlots:
-		out := make([]int, 0, len(r.slots))
-		for _, s := range r.slots {
-			if s >= 0 {
-				out = append(out, d.arena[s].line)
-			} else {
-				out = append(out, 0)
-			}
-		}
-		return out
+		return Read[[]int]{Value: out, Status: Good}
 	}
-	return nil
+	out := make([]int, 0, len(r.slots))
+	for _, s := range r.slots {
+		if s >= 0 {
+			out = append(out, d.arena[s].line)
+		} else {
+			out = append(out, 0)
+		}
+	}
+	return Read[[]int]{Value: out, Status: Good}
 }
 
 // Children returns the child field names under a path, in file order,
@@ -10383,23 +10407,56 @@ func (d *Document) foldDupsBelow(start int) {
 	}
 }
 
-// Exists is true when the path resolves to at least one real node.
-func (d *Document) Exists(path string) bool {
+// targetsAt returns the real nodes a path reaches, every node behind a
+// wildcard slot included, for the calls that act on the whole match. NotFound
+// when there are none, so a wildcard whose slots all miss is NotFound here,
+// unlike ReadCount.
+func (d *Document) targetsAt(path string) ([]int, Status) {
 	r, ok := d.resolveGroup(path)
 	if !ok {
-		return false
+		return nil, BadPath
 	}
+	var found []int
 	switch r.kind {
-	case resOne, resMany:
-		return true
+	case resOne:
+		found = []int{r.one}
+	case resMany:
+		found = r.many
 	case resSlots:
 		for _, s := range r.slots {
 			if s >= 0 {
-				return true
+				found = append(found, s)
 			}
 		}
 	}
-	return false
+	if len(found) == 0 {
+		return nil, NotFound
+	}
+	return found, Good
+}
+
+// lineOfOne is a read's Line for a target list: set when it is one node.
+func (d *Document) lineOfOne(targets []int) int {
+	if len(targets) != 1 {
+		return 0
+	}
+	return d.arena[targets[0]].line
+}
+
+// Exists is true when the path resolves to at least one real node.
+func (d *Document) Exists(path string) bool {
+	return d.ReadExists(path).Value
+}
+
+// ReadExists is Exists with a status: Good when it is true, NotFound when the
+// path reaches no real node, or BadPath when it cannot be read as a path.
+// Line is set when the path reaches one node.
+func (d *Document) ReadExists(path string) Read[bool] {
+	t, st := d.targetsAt(path)
+	if st != Good {
+		return Read[bool]{Status: st}
+	}
+	return Read[bool]{Value: true, Status: Good}.at(d.lineOfOne(t), nil)
 }
 
 // Remove deletes the node(s) at a path (with their subtrees); returns how many.
@@ -10407,23 +10464,19 @@ func (d *Document) Exists(path string) bool {
 // only by the lines under it goes with the last of them.
 // A removed node's storage is not reclaimed, so a process that adds and removes in a loop grows by a few hundred bytes a pair. Reloading the canonical text gives it back.
 func (d *Document) Remove(path string) int {
-	r, ok := d.resolveGroup(path)
-	if !ok {
-		return 0
+	return d.TryRemove(path).Value
+}
+
+// TryRemove is Remove with a status: Good, NotFound when the path reaches no
+// real node, or BadPath when it cannot be read as a path, which removes
+// nothing. Line is set when the path reached one node.
+func (d *Document) TryRemove(path string) Read[int] {
+	targets, status := d.targetsAt(path)
+	// A miss still settles below, as it always has.
+	if status == BadPath {
+		return Read[int]{Status: status}
 	}
-	var targets []int
-	switch r.kind {
-	case resOne:
-		targets = []int{r.one}
-	case resMany:
-		targets = r.many
-	case resSlots:
-		for _, s := range r.slots {
-			if s >= 0 {
-				targets = append(targets, s)
-			}
-		}
-	}
+	line := d.lineOfOne(targets)
 	// Mark first, rebuild each touched child list once. Dropping one target at
 	// a time rebuilt the same list once per target, which is quadratic when a
 	// path matches many siblings.
@@ -10539,7 +10592,7 @@ func (d *Document) Remove(path string) int {
 	}
 	settleFirstBlank(d.arena, d.orphans)
 	d.resettleKept()
-	return len(targets)
+	return Read[int]{Value: len(targets), Status: status}.at(line, nil)
 }
 
 // leaveAbove puts lines a remove left above the sibling that followed them.
@@ -10682,24 +10735,19 @@ func (d *Document) SetComment(path, text string) SetStatus {
 // its own comment from one a user wrote there, and SetComment puts a line it
 // gave back as it was. Empty when the path reaches nothing.
 func (d *Document) Comments(path string) []string {
-	r, ok := d.resolveGroup(path)
-	if !ok {
-		return nil
+	return d.ReadComments(path).Value
+}
+
+// ReadComments is Comments with a status: Good, NotFound when the path reaches
+// no real node, or BadPath when it cannot be read as a path. A node with no
+// comment above it is Good with an empty list. Line is set when the path
+// reaches one node.
+func (d *Document) ReadComments(path string) Read[[]string] {
+	targets, st := d.targetsAt(path)
+	if st != Good {
+		return Read[[]string]{Value: []string{}, Status: st}
 	}
-	var targets []int
-	switch r.kind {
-	case resOne:
-		targets = []int{r.one}
-	case resMany:
-		targets = r.many
-	case resSlots:
-		for _, s := range r.slots {
-			if s >= 0 {
-				targets = append(targets, s)
-			}
-		}
-	}
-	var out []string
+	out := []string{}
 	for _, t := range targets {
 		tr := d.arena[t].trivia
 		if tr == nil {
@@ -10711,7 +10759,7 @@ func (d *Document) Comments(path string) []string {
 			}
 		}
 	}
-	return out
+	return Read[[]string]{Value: out, Status: Good}.at(d.lineOfOne(targets), nil)
 }
 
 // ClearComments takes off the comment lines above the node(s) at a path, the
@@ -10722,23 +10770,19 @@ func (d *Document) Comments(path string) []string {
 // stays, and so does a line kept as written for being malformed. Returns how
 // many lines came off, 0 when the path reaches nothing.
 func (d *Document) ClearComments(path string) int {
-	r, ok := d.resolveGroup(path)
-	if !ok {
-		return 0
+	return d.TryClearComments(path).Value
+}
+
+// TryClearComments is ClearComments with a status: Good, NotFound when the
+// path reaches no real node, or BadPath when it cannot be read as a path. A
+// node with no comment above it is Good with 0. Line is set when the path
+// reaches one node.
+func (d *Document) TryClearComments(path string) Read[int] {
+	targets, st := d.targetsAt(path)
+	if st != Good {
+		return Read[int]{Status: st}
 	}
-	var targets []int
-	switch r.kind {
-	case resOne:
-		targets = []int{r.one}
-	case resMany:
-		targets = r.many
-	case resSlots:
-		for _, s := range r.slots {
-			if s >= 0 {
-				targets = append(targets, s)
-			}
-		}
-	}
+	line := d.lineOfOne(targets)
 	cleared := 0
 	for _, t := range targets {
 		nd := &d.arena[t]
@@ -10774,7 +10818,7 @@ func (d *Document) ClearComments(path string) int {
 		settleFirstBlank(d.arena, d.orphans)
 		d.resettleKept()
 	}
-	return cleared
+	return Read[int]{Value: cleared, Status: Good}.at(line, nil)
 }
 
 // SetBanner puts the info block (GenBanner) at the end of the document, or
