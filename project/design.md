@@ -38,6 +38,7 @@ Design, requirements, and direction. The task list is in `backlog.md`. The full 
 	- [C binding (Tier 2)](#c-binding-tier-2)
 	- [Shell wrappers (retired)](#shell-wrappers-retired)
 	- [Man page and completions](#man-page-and-completions)
+- [Copyright and license](#copyright-and-license)
 
 <!-- /TOC -->
 
@@ -938,3 +939,8 @@ The responsibility is split rather than duplicate the pipeline:
 	- The installer leaves the completions under the install directory and prints the line to paste for each shell. There is no one directory that works: bash's autoload directory varies with the bash-completion version, zsh needs a directory already on `$fpath`, and writing into the distribution's own would collide with the packaged copy. Printing the line is the same bargain the `PATH` note already strikes - plain about what was not done, with the fix one paste away.
 
 	- Uninstall removes only what a matching install laid down, and the man symlink only when it points back into the install directory. One that does not came from a package, and removing it would break a working install.
+
+## Copyright and license
+
+> Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]<br />
+> Licensed under Creative Commons Attribution 4.0 International (CC BY 4.0) <https://creativecommons.org/licenses/by/4.0/>.
