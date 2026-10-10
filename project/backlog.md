@@ -296,9 +296,9 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - Messages on stderr show value text with 2.x backslash escapes
 	- ID: 2026100812323841
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting for testing
 	- Needs local test suite run?: the full `--ci`, for exhaustive cppcheck over the C change.
-	- Needs external testing: the hosted run. The windows job runs the new row whose argument holds a line break.
+	- Needs external testing: the hosted run, for cli-regress on windows and macos. The windows job runs the row whose argument holds a line break.
 	- Severity: Low
 	- Opened: 20261008-123238
 	- Opened by: 2026100717500002's sweep
@@ -317,17 +317,24 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261009: a line break, carriage return or tab shows by its escape name, `◉NEWLINE◉`, `◉CR◉`, `◉TAB◉`. Any other control is a code point, `◉U+0007◉`, so the CLIs need no name table. A `"` shows as itself.
 		- 20261009: `get`'s message showed the raw text inside added quotes. With no backslash escapes, `a: "abc"` would read `""abc""`, and each mark of an escape would get `(U+25C9)`. It now shows the text the read parsed, quotes off, as the C CLI already did.
 		- 20261009: rework queued. A message shows every character `fmt` escapes the way `fmt` writes it, so other controls aren't `◉U+0007◉` while `fmt` writes `◉BEL◉`, and zero-width and bidi characters stop printing raw.
+		- 20261010: rework built in all four. The message helpers take the writer's own quoted text and put back a `"` and a real `◉`, so the escape list lives in one place.
 	- Decisions:
 		- A backslash is itself. The message helpers write no backslash escapes.
 		- Messages use these forms for value text. Names and paths keep the writer's form, which has no backslash escapes either.
 		- 20261009: `get`'s type error shows the parsed text (JC).
 		- 20261009: a message shows a character the same way `fmt` writes it. One with a name in the escape list gets its first name (`◉BEL◉`, `◉ESC◉`, `◉NUL◉`, `◉DEL◉`), and the rest of what `fmt` escapes gets `◉U+XXXX◉`, C1 controls and zero-width and bidi characters included. A real `◉` stays `◉ (U+25C9)` (JC).
+		- 20261010: a carriage return and line feed pair shows as `◉CRLF◉`, as `fmt` writes it (me).
+		- 20261010: a cut value is shown as the one text `head...tail`, the way `diag_element` already cuts one. The cut still counts the value's own characters, so an escape name adds nothing to the count (me).
+		- 20261010: a schema path and a setter note's path show what `fmt` escapes the same way, with a `◉` left as written, since in a path it is the path's own escape (me).
 	- Actual fix [Bug]: the library's `one_line` and each CLI's `quoted` write the forms above. `schema_text` and the setter note's path write a line break as `◉NEWLINE◉`, and the note a carriage return as `◉CR◉`. V004's bracket list no longer goes through `one_line` twice. Corpus 127's `init` golden moved, since a generated comment showed a schema path's line break as `\n`. Its `input.shcl` keeps the old comment, so the fuzz seed set stays the same.
+		- 20261010 rework: `one_line`, `schema_text` and `note_text` run the writer's `quote_with` and turn its `◉DOUBLE_QUOTE◉` and `◉ESCAPE_CHAR◉` back into a `"` and the mark form. Each CLI's `quoted` does the same through `quote_segment`. cli-regress `EsEhCcy` now expects `◉BEL◉` where it pinned `◉U+0007◉`, per the 20261009 decision.
 	- Swept: `quoted` in the four CLIs. `one_line`, `schema_text` and `note_text` in Rust, Go, Python and C. `diag_name` and `diag_element` use the writer's form and stay. A grep of the four libraries and CLIs for a written `\n`, `\r`, `\t` or `\\` finds no other site.
+		- 20261010 rework: the same sites in all four. A grep of the four libraries and CLIs for a hand-written escape name or `U+%04X` outside the generated table and the writer finds none. A grep of the Rust library's messages for text put in raw finds only the format stamp, which is digits.
 	- Verified: the new and changed rows fail on dev's build and pass on all four. The same runs as 2026100818251400.
-	- Branch: `msgval`
-	- Commit: `81943546`
-	- Test case: cli-regress `EsEhCcw` to `EsEhCcz` and `EsEix5w`, and the changed rows `EqGaO1w` to `EqGaO23`, `EonKleq` and `Er1zoZI`.
+		- 20261010 rework: the new rows and `EsEhCcy` fail on dev's build in all four (20 checks) and pass on the branch. `cargo test`, `go test` (both modules), the Python and C conformance runners, the C extras and veneer_smoke, cli-regress (541 rows, 2903 checks), crosscheck over the corpus (21339 comparisons), rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy, cppcheck at the normal level, shellcheck, test-ids check, gen-escapes. The C CLI builds under gcc 15 and clang at `-O0` and `-O3` and under mingw, and runs clean under ASan and UBSan over the new inputs. The four agree byte for byte on a set of selectors, flag tags, joiners and a CR LF pair across the cut.
+	- Branch: `msgval`, `msgfmt`
+	- Commit: `81943546`, `1d5f3f2b`
+	- Test case: cli-regress `EsEhCcw` to `EsEhCcz` and `EsEix5w`, and the changed rows `EqGaO1w` to `EqGaO23`, `EonKleq` and `Er1zoZI`. The rework adds `EsJDGCI` to `EsJDGCL`: a BEL, a C1 control, a zero-width space and a direction override in a `get` type error, in an `E023` escape name and in a schema path, and `◉NUL◉`, `◉ESC◉`, `◉DEL◉` and `◉CRLF◉` in a `get` type error.
 
 - Library gaps a generic tool has to work around
 	- ID: 2026100717500020
