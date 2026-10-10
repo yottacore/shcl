@@ -356,6 +356,10 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- ID: 2026100717500020
 	- Type: Enhancement
 	- Status: Queued
+	- Needs local test suite run?:
+		- (kind) the full `--ci`, for exhaustive cppcheck, check-c-compilers and sanitize-c over the C change.
+	- Needs external testing:
+		- (kind) the hosted run, whose windows job runs the new test in all four runners.
 	- Priority: Low
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 20
@@ -364,15 +368,27 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- No library call resolves a file's `Schema` line by the CLI's rules: relative to the config's directory, and refusing devices, FIFOs, UNC paths and files over 16 MiB. Each program writes its own.
 		- No way to ask a node's kind (scalar, array, raw block, empty) but trial reads.
 		- `set_*_default` returns true when something is already there, even `bad: abc` or a bare `empty:`, so "make sure this has a usable value" can't be said in one call.
+	- Progress log:
+		- 20261010 (kind): `kind` and `read_kind` in all four and the C++ interface (Go `Kind` and `ReadKind`, C `shcl_kind` and `shcl_read_kind`). They give `Empty`, `Scalar`, `Array` or `Raw` from the stored form, with `Good`, `NotFound`, `Multiple` or `BadPath`.
 	- Decisions:
 		- 20261008: before the cut, not after (JC).
 		- 20261009: all three get a fix, not docs (JC).
 		- 20261009: the third is `set_*_default` itself. It writes the default when the field is missing, empty or doesn't read as that type, and keeps a replaced line as a `##` comment with a note (JC).
+		- 20261010 (kind): the type is `ValueKind` in every binding, with `Empty`, `Scalar`, `Array` and `Raw` in that order, so its zero value is `Empty`. Go's values have a `Kind` prefix, since `Empty` is a read status. C's are `SHCL_KIND_EMPTY` to `SHCL_KIND_RAW`, and its result is a new `shcl_read_value_kind`, since no existing read struct holds the enum and `shcl_read_kind` is the call's name (me).
+		- 20261010 (kind): `read_kind` uses the typed reads' lookup, as `read_line` does, so a repeated field or a wildcard says `Multiple` (me).
+		- 20261010 (kind): an empty value is `Good` with `Empty` as the answer, the way `read_children` gives a node with no children `Good` and an empty list. A plain `kind` on a miss gives `Empty`, as `line` gives 0 (me).
+		- 20261010 (kind): the answer is the stored form. `x:` is `Empty`, `x: []` and `x: [80]` are `Array`, `x: ""` is `Scalar`, and a section header is `Empty` (me).
+		- 20261010 (kind): library only. Neither the item nor the design docs ask for a CLI word (me).
 	- Requirements:
 		- A library call reads a config's `Schema` line and resolves it by the CLI's rules. The CLI uses the same call, so the two can't drift.
 		- A `kind(path)` read gives scalar, array, raw block or empty, with a status for a missing or bad path.
 		- One call makes sure a field has a usable value of a type.
 	- Origin: Confirmed by reading and probes.
+	- Swept (kind): `kind` and `read_kind` in Rust, Go, Python, C and `shcl.hpp`, with C's `shcl_value_kind_name` behind C++ `to_string(ValueKind)`. spec.md (Status sentinels and the path calls), the style guide's naming exceptions, the changelog and the Python typing probe name them. No CLI, corpus or migration change.
+	- Verified (kind): the new test fails in all four, and veneer_smoke too, with arrays mapped to `Scalar`, and passes after. Also: `cargo test`, the four conformance suites, `go test` (both modules), veneer_smoke, check-veneer, cli-regress (541 rows, 3187 checks, all four), crosscheck over the corpus (21339 comparisons), check-docs (only the known `EpHGoa0` installer red), check-abnf, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy with the typing probe, cppcheck at the normal level, markdownlint.
+	- Branch (kind): `nodekind`
+	- Commit (kind): `2c2937f1`
+	- Test case (kind): `kind_reads_say_what_is_there` in all four runners (Rust `EsJYNe1`, Go `EsJYNe2`, Python `EsJYNe3`, C `EsJYNe4`), and the kind checks in the C++ `veneer_smoke` (`EjtkR0S`).
 
 **Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
 
