@@ -325,7 +325,9 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - Doc examples, man page blocks and help text aren't run as tests
 	- ID: 2026100719122102
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting for testing
+	- Needs local test suite run?: Y, the full `--ci`, whose tests stage runs the new gate.
+	- Needs external testing: a hosted run. The ubuntu job runs the new gate with jq, and the macos and windows jobs run cli-regress's two new scans.
 	- Priority: Avg
 	- Opened: 20261007-191221
 	- Opened by: JC
@@ -335,6 +337,20 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Run the man page's shell blocks, as 2026100717500005 does for README's.
 		- Fail on a 2.x escape form (`\n`, `\t`, `\\`) in help text or CLI output.
 	- Reason: the doc tables are the cheapest source of hand-written expected results.
+	- Progress log:
+		- 20261010: `check-doc-examples.bash` runs the tables in value-syntax.md and spec.md through all four CLIs with `doc-tables.py`, and the man page's EXAMPLES blocks on each binding. Every binding has to print the same bytes, and the result has to be what the row says. 58 rows of value-syntax.md and 33 of spec.md are checked, and the rest are prose and counted. Every row holds on all four bindings, so no doc or binding defect turned up.
+		- 20261010: cli-regress fails on a 2.x escape form in the help, each `help CMD`, each `explain` code with the retired ones, `--about`, `--donate`, the rendered man page, and the stdout and stderr of every row on every binding.
+	- Decisions:
+		- 20261010: a table is known by its header. Each known kind has a reader, a header with none fails the gate, and a table with no examples is listed by header with its reason (me).
+		- 20261010: in a code table, a quoted whole line is an example of the row's code. That is an item, or a name then a colon and a value. A retired code's line gives the code its row names instead. `- value`, `route: [GET, POST]` and `p: a,b` are not examples and are listed by content (me).
+		- 20261010: a migration row's fragment goes where it means what the row says: an item under a field, a selector at the head of a path, anything else as a value (me).
+		- 20261010: the man page names server.shcl and a schema without showing them, so the README's are used (me).
+		- 20261010: the 2.x rule is a backslash then `n` or `t` with no letter or digit after it, or two backslashes, so `C:\temp\new` passes. JSON lines pass, and so does migrate's output of a kept 2.x pair, listed by content (me).
+	- Swept: the 2.x scan reads everything the CLIs print in cli-regress's 541 rows, ops scripts and diagnostics included, plus every help and code text. The README and man page shell blocks run under check-readme and this gate. README prose is not CLI output and is not scanned.
+	- Verified: each new test was seen to fail. `EsJLUJx` and `EsJLUJy` on doc copies with a changed value, code, element count, alias, character, migrate result, typed read, strictness pair, boolean token and `◉U+` prefix, on a reads-as wording with no rule, on a renamed table header, and on a floor above the row count. A binding that differs from the rest in one read, or in an exit code, fails them too. `EsJLUJz` on `site[*]` in a block, a roff escape in a block, a `.nf` block under another section, and only 4 blocks. `EsJLUK0` and `EsJLUK1` on a binding that writes `\n` in place of `◉NEWLINE◉` and in its help. `EsJLUK1` with an allowed migrate line taken off the list and with no rows scanned, `EsJLUK0` with a `\en` added to the man page. On the branch, check-doc-examples and cli-regress (541 rows, 3187 checks, four bindings), check-readme, check-docs (only the known `EpHGoa0` red), shell-regress, check-pins, test-ids check, shellcheck over the lint list, ruff and markdownlint pass.
+	- Branch: `doctest`
+	- Commit: `9131f267`
+	- Test case: check-doc-examples `EsJLUJx` (value-syntax.md tables), `EsJLUJy` (spec.md tables) and `EsJLUJz` (man page examples). cli-regress `EsJLUK0` (help, code texts and man page) and `EsJLUK1` (every row's output).
 
 - Library gaps a generic tool has to work around
 	- ID: 2026100717500020
