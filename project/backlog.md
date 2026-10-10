@@ -246,7 +246,9 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - `line`, `lines`, `authored_name`, `comments`, `exists`, `remove` and `clear_comments` can't report a path that doesn't parse
 	- ID: 2026100912271700
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting for testing
+	- Needs local test suite run?: the full `--ci`, for exhaustive cppcheck, check-c-compilers and sanitize-c over the C change.
+	- Needs external testing: the hosted run, whose windows job runs the new test in all four runners.
 	- Priority: Avg
 	- Opened: 20261009-122717
 	- Opened by: JC, from 2026100818140260
@@ -260,10 +262,22 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Requirements:
 		- A status twin for each, beside the plain call, the way 2026100818140260 did it. All four and the C++ interface.
 		- Every call that takes a path has a status form, so a caller never has to work out why an answer is empty.
+	- Progress log:
+		- 20261010: twins added in all four and the C++ interface. Each plain call returns its twin's value, so each binding has one implementation of each.
+		- 20261010: `remove` on a bad path ran the settle pass that follows a remove in Rust and Python, and returned before it in Go and C. All four now return before it.
 	- Decisions:
 		- 20261009: twins for all of them, over fewer twins plus docs pointing at `read_count`, so a caller needs one call and no logic of its own (JC).
 		- 20261009: the `remove` and `clear_comments` twins are `try_remove` and `try_clear_comments` (Go `TryRemove`, C `shcl_try_remove`). Each returns the count and the `Good`, `NotFound`, `BadPath` status `read_count` returns. `read_` reads wrong on a call that changes the document (me).
 		- 20261009: the `authored_name` and `line` twins say `Multiple` for a repeated field, as the typed reads do. `host(1)` or `lines` gets one (JC).
+		- 20261010: `read_line` and `read_authored_name` use the typed reads' lookup, so a wildcard path says `Multiple` there too (me).
+		- 20261010: `read_lines` counts an unresolved wildcard slot as a match, as `read_count` and `read_instances` do (me).
+		- 20261010: `read_exists`, `read_comments`, `try_remove` and `try_clear_comments` say `NotFound` when the path reaches no node that is there, so a wildcard whose slots all miss is `NotFound` for them. Their plain answers already count only those nodes (me).
+		- 20261010: C reuses `shcl_read_usize`, `shcl_read_str`, `shcl_read_bool` and `shcl_read_str_list`, and adds `shcl_read_usize_list` for `shcl_read_lines` (me).
+	- Swept: `line`, `lines`, `authored_name`, `comments`, `exists`, `remove` and `clear_comments` in Rust, Go, Python, C and `shcl.hpp`. The four CLIs refuse a bad PATH before the load, so they did not change. spec.md, the conformance README and the changelog name the twins. Every call that takes a path now has a status form.
+	- Verified: the new test fails in all four with `BadPath` swapped for `NotFound` in the twins, and so do the new `162` rows, and both pass after. `cargo test`, the four conformance suites (C also at `-O0` and `-O3`), `go test` (both modules), veneer_smoke, check-veneer, cli-regress (537 rows, 2887 checks), crosscheck over the corpus (21339 comparisons), check-docs (only the known `EpHGoa0` installer red), check-abnf, check-readme, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck (host and windows), ruff, mypy with the typing probe, cppcheck at the normal level, markdownlint, shellcheck.
+	- Branch: `pathstat`
+	- Commit: `4c6e3380`
+	- Test case: `path_twins_say_bad_path` in all four runners (Rust `EsJ3y7I`, Go `EsJ3y9X`, Python `EsJ3yBo`, C `EsJ3yE5`), the twin checks in the C++ `veneer_smoke` (`EjtkR0S`), and the `comments` rows in case `162`, which now pin `read_comments`.
 
 - Doc examples, man page blocks and help text aren't run as tests
 	- ID: 2026100719122102
