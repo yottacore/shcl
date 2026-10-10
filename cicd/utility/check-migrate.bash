@@ -45,6 +45,10 @@
 ##		backup name, and a fresh file that loads clean, has the info block
 ##		once, reads as the migrated text, and is left alone by a second run.
 ##		A file left alone keeps its bytes, and one naming format 3 always is.
+##
+##		A document that names format 3 is not a 2.x file. It is checked for
+##		being left as written by both, and is not compared with 2.x
+##		(fNamesFormat3, asserted on a corpus case).
 ##	Syntax:
 ##		check-migrate.bash [--corpus DIR] [--iters N] [--min N] [--min-corpus N] [--min-fuzz N]
 ##		  --corpus DIR  conformance corpus root (default project/conformance)
@@ -411,6 +415,19 @@ for n, line in enumerate(text.split("\n"), 1):
 		| awk 'NR == FNR { if (index($0, ",")) comma[FNR] = 1; next } comma[$1]' "$1" -
 }
 
+##	A document that names this format is not a 2.x file, whatever 2.x makes of
+##	it: migrate leaves it as written and upgrade never touches it, beta files
+##	included (value-syntax.md, Migration). A fuzz document mutated from a
+##	corpus input with the info block is one. So it is checked for that and
+##	not compared with 2.x. Taken only when the text has the line and migrate
+##	says so too, so a 2.x file migrate wrongly passes over still compares.
+fNamesFormat3(){
+	local err
+	grep -qE '^##[[:space:]]+Format[[:space:]]+[3-9]' "$1" || return 1
+	err="$("${newCli}" migrate --from-2x "$1" 2>&1 >/dev/null || true)"
+	[[ "${err}" == *"nothing to migrate: the file already names its format"* ]]
+}
+
 ##	Takes out every line above, until 2.x reads what is left cleanly. Fails
 ##	when nothing is left, or when taking lines out keeps turning up more. The
 ##	first round has the same bytes as the source, so it takes the source's
@@ -531,12 +548,24 @@ fUpgradeCheck(){
 	fi
 }
 
-declare -i nCompared=0 nCorpus=0 nTrimmed=0 nSkipped=0 nBad=0 nLostChecked=0 nRawOpen=0
+declare -i nCompared=0 nCorpus=0 nTrimmed=0 nSkipped=0 nBad=0 nLostChecked=0 nRawOpen=0 nNamed3=0
 fTest Eq5YPgP corpus and fuzz documents migrate to the tree 2.x read
 for f in "${corpus}"/*/input.shcl "${brackets}"/*.shcl "${dump}"/*.shcl; do
 	[[ -f "${f}" ]] || continue
 	name="${f%/input.shcl}"; name="${name##*/}"; name="${name%.shcl}"
 	if fHasNul "${f}"; then nSkipped+=1; continue; fi
+	if fNamesFormat3 "${f}"; then
+		nNamed3+=1
+		rc=0; "${newCli}" migrate --from-2x "${f}" > "${tmpDir}/migrated.shcl" 2>/dev/null || rc=$?
+		if ((rc != 0)) || ! cmp -s "${f}" "${tmpDir}/migrated.shcl"; then
+			nBad+=1
+			echo "check-migrate: DIVERGE ${name}: it names format 3, and migrate exited ${rc} or changed it"
+		fi
+		upName="${name}"; upSrc="${f}"
+		fUpgradeRun "${f}" --from-2x; fUpUntouched "format 3, with --from-2x"
+		fUpgradeRun "${f}";           fUpUntouched "format 3, without --from-2x"
+		continue
+	fi
 	## Every document here is a 2.x file by construction, which is exactly what
 	## migrate cannot read off the text: without the flag it leaves the pieces
 	## the two rule sets disagree on and refuses.
@@ -654,6 +683,13 @@ rawRc=0; "${newCli}" migrate --from-2x "${corpus}/096-raw-unterminated-eof/input
 fTest EpUIoZe 094 still has a mid-line carriage return
 fCrMidLine "${corpus}/094-unicode-space/input.shcl" 2>/dev/null \
 	|| { echo "check-migrate: 094-unicode-space no longer has a mid-line carriage return" >&2; nBad+=1; }
+fTest EsIx4hA 149 names format 3 and is passed over as current
+fNamesFormat3 "${corpus}/149-banner/input.shcl" \
+	|| { echo "check-migrate: 149-banner no longer names format 3 in a way migrate passes over" >&2; nBad+=1; }
+fTest EsIx4jK a 2.x document is not taken for format 3
+printf 'a: 1\n## Format 3 is in a comment here\n' > "${tmpDir}/not3.shcl"
+! fNamesFormat3 "${tmpDir}/not3.shcl" \
+	|| { echo "check-migrate: a 2.x document with no Format line was taken for format 3" >&2; nBad+=1; }
 ##	The third has no corpus case - a new one shifts the fuzz seed set, which
 ##	costs a gate round - so it is checked against a document built here: 2.x
 ##	reads both elements, the current parser places only the first, and the write
@@ -679,7 +715,7 @@ if ((nBad)); then
 	echo "check-migrate: ${nBad} divergence(s) over ${nCompared} document(s) (${nSkipped} skipped)" >&2
 	exit 1
 fi
-echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, ${nCorpus} corpus cases, $((nCompared - nCorpus)) fuzz-dumped and ${nTrimmed} with lines taken out first; ${nLostChecked} lost count(s) match; ${nRawOpen} refused for an open raw block; ${nSkipped} skipped; upgrade rewrote ${nUpRewritten} with --from-2x (${nUpCleanRewritten} that loaded clean) and ${nUpPlain} without, left ${nUpCurrent} and ${nFormat3} naming format 3, refused ${nUpAmbiguous} at 7"
+echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, ${nCorpus} corpus cases, $((nCompared - nCorpus)) fuzz-dumped and ${nTrimmed} with lines taken out first; ${nLostChecked} lost count(s) match; ${nRawOpen} refused for an open raw block; ${nNamed3} naming format 3 left as written; ${nSkipped} skipped; upgrade rewrote ${nUpRewritten} with --from-2x (${nUpCleanRewritten} that loaded clean) and ${nUpPlain} without, left ${nUpCurrent} and ${nFormat3} naming format 3, refused ${nUpAmbiguous} at 7"
 
 ##	History:
 ##		2026-09-08  Created with the 3.0 lexical cut, pinned on the funnel merge.
@@ -706,3 +742,5 @@ echo "check-migrate: OK: ${nCompared} document(s) migrate to the tree 2.x read, 
 ##		            corpus inputs with a selector are compared in brackets too.
 ##		2026-10-07  Each compared document goes through `upgrade --write` too,
 ##		            and a file naming format 3 is never upgraded.
+##		2026-10-10  A document naming format 3 is checked for being left as
+##		            written, not compared with 2.x.

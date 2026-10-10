@@ -4784,6 +4784,30 @@ func TestMigrateBracketsA2xCommaList(t *testing.T) {
 	}
 }
 
+// A 2.x comma list with one element left once the empty slots go was the
+// plain value to 2.x, so `k: s,` and `k: s` were one field. In brackets they
+// would be two, and `[s]` reads as that string too.
+func TestMigrateWritesALone2xElementPlain(t *testing.T) {
+	defer testID(t, "EsIx4YP")
+	m := Migrate("k: s,\nk: s\nq: , \"a b\"\nc: x,\n\td: 1\n", true)
+	if m.Ambiguous != 0 || m.Lost != 0 {
+		t.Fatalf("ambiguous %d, lost %d", m.Ambiguous, m.Lost)
+	}
+	if !strings.HasPrefix(m.Text, "k: s\nk: s\nq: \"a b\"\nc: x\n\td: 1\n") {
+		t.Fatalf("%q", m.Text)
+	}
+	back := Parse(m.Text)
+	if d := back.Diagnostics(); len(d) != 0 {
+		t.Fatalf("%v", d)
+	}
+	if n := back.Count("k"); n != 1 {
+		t.Fatalf("count %d", n)
+	}
+	if s, st := back.GetString("k"); st != Good || s != "s" {
+		t.Fatalf("%q %v", s, st)
+	}
+}
+
 // A 2.x `*` item becomes `- `, and an item these rules would read as
 // something else is quoted, such as one that looks like `- name: value`.
 func TestMigrateWritesStarItemsAsDashes(t *testing.T) {

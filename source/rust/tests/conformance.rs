@@ -4043,6 +4043,25 @@ fn migrate_brackets_a_2x_comma_list() {
 	assert!(m.text.starts_with("x: [a, b]\ny: a,b\n"), "{:?}", m.text);
 }
 
+// A 2.x comma list with one element left once the empty slots go was the
+// plain value to 2.x, so `k: s,` and `k: s` were one field. In brackets they
+// would be two, and `[s]` reads as that string too.
+#[test]
+fn migrate_writes_a_lone_2x_element_plain() {
+	let _id = test_id("EsIx4WI");
+	let m = migrate("k: s,\nk: s\nq: , \"a b\"\nc: x,\n\td: 1\n", true);
+	assert_eq!((m.ambiguous, m.lost), (0, 0));
+	assert!(
+		m.text.starts_with("k: s\nk: s\nq: \"a b\"\nc: x\n\td: 1\n"),
+		"{:?}",
+		m.text
+	);
+	let back = Document::parse(&m.text);
+	assert!(back.diagnostics().is_empty(), "{:?}", back.diagnostics());
+	assert_eq!(back.count("k"), 1);
+	assert_eq!(back.get_string("k").as_deref(), Ok("s"));
+}
+
 // A 2.x `*` item becomes `- `, and an item these rules would read as
 // something else is quoted, such as one that looks like `- name: value`.
 #[test]

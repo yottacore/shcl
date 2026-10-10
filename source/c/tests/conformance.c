@@ -4672,6 +4672,21 @@ int main(int argc, char **argv) {
 		if (!mig_starts(&mm, "x: [a, b]\ny: a,b\n")) fail("migrate_comma_list", mm.text);
 		free(mm.text);
 	}
+	test_id("EsIx4cm", "migrate_writes_a_lone_2x_element_plain");
+	/* A 2.x comma list with one element left once the empty slots go was the
+	   plain value to 2.x, so `k: s,` and `k: s` were one field. In brackets they
+	   would be two, and `[s]` reads as that string too. */
+	{
+		const char *t = "k: s,\nk: s\nq: , \"a b\"\nc: x,\n\td: 1\n";
+		shcl_migration mm = shcl_migrate(t, strlen(t), 1);
+		if (mm.ambiguous != 0 || mm.lost != 0) fail("migrate_lone_element", "ambiguous or lost");
+		if (!mig_starts(&mm, "k: s\nk: s\nq: \"a b\"\nc: x\n\td: 1\n")) fail("migrate_lone_element", mm.text);
+		shcl_doc *d = mig_load(&mm, "migrate_lone_element");
+		shcl_read_str r = shcl_read_string(d, "k", 1);
+		if (shcl_count(d, "k", 1) != 1 || r.status != SHCL_GOOD || !str_is(r.value, "s")) fail("migrate_lone_element", "k does not read as one s");
+		shcl_free(d);
+		free(mm.text);
+	}
 	test_id("Es1ySoo", "migrate_writes_star_items_as_dashes");
 	/* A 2.x `*` item becomes `- `, and an item these rules would read as
 	   something else is quoted, such as one that looks like `- name: value`. */

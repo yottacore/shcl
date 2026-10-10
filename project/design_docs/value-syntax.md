@@ -578,6 +578,7 @@ Moved from `design.md`, with the escape spelling changed to `◉U+XXXX◉`.
 | A bare selector body with a quote or whitespace | The same body, quoted, so `srv[New York]` is `srv("New York")`. A paren in it is quoted too
 | `a, b` or `a,b`                                 | `[a, b]`, since 2.x read both as arrays
 | `x: ,`, only empty slots                        | `x:`, empty, as 2.x read it
+| `x: s,`, one element left                       | `x: s`, the plain value 2.x read
 | `* item`                                        | `- item`
 | `* key: value`                                  | `- "key: value"`
 | A real `◉`                                      | `◉ESCAPE_CHAR◉`, in a name and a selector too

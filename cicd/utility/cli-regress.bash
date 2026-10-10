@@ -754,6 +754,8 @@ rows=(
 	'Ervnzpc|set-literal-comma-text|set --set-literal=o=rw,noatime --set=e=a, -|o: 1\n|0|o: "rw,noatime"\n\ne: "a,"\n|-'
 	'Ervnzpd|migrate-comma-list|migrate --from-2x -|x: a,b\ny: a, b\n|0|x: [a, b]\ny: [a, b]\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	'Ervnzpe|migrate-comma-ambiguous|migrate -|y: a,b\n|7|y: a,b\n|read one way under 2.x and another'
+	## 2.x read `k: s,` as `k: s`, one field with the line after it.
+	'EsIx4ev|migrate-lone-element|migrate --from-2x -|k: s,\nk: s\n|0|k: s\nk: s\n##    Format   3\n##    Migrated from SHCL 2.x.\n|-'
 	## A comment on a stacked item stays on it, and one among the items stays
 	## among them.
 	'ErrQs1i|list-item-comment-fmt|fmt -|l:\n\t# first\n\t- a  # one\n\t- b\n|0|l:\n\t# first\n\t- a  # one\n\t- b\n|-'
