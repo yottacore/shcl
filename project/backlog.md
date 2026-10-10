@@ -36,7 +36,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - `fmt` turns a bare `80,443` into a number
 	- ID: 2026101010054746
 	- Type: Bug
-	- Status: Waiting for answers
+	- Status: Queued
 	- Severity: High
 	- Opened: 20261010-100547
 	- Opened by: found while working 2026100717500020
@@ -47,7 +47,9 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Expected behavior: a value reads the same before and after `fmt` and a save.
 	- Reproduced: 20261010, dev's Rust build, and all four CLIs on `defaultfix`. 2026100717500020's default forms act on that read, so on `defaultfix` the fuzz property `Eqk24nZ` fails at iteration 12093: a default replaces the bare value on the document and leaves the quoted one on its reload.
 	- Possible cause [Bug]: two recorded rules meet. A quoted `1,000` reads as 1000 (spec.md, 20261006), and the writer quotes a value holding `,` (2026100719122101). Item 13 of an earlier review fixed the same class for a value a setter wrote, which counts as quoted when the canonical text quotes it.
-	- Question: which way? Options:
+	- Decisions:
+		- 20261010: a quoted thousands number stops reading as a number, so `"1,000"` is text like `1,000`. `fmt` keeps quoting a value with a comma, and a typed read gives the same answer before and after a save (JC).
+	- Question: which way? Options, the first chosen:
 		- The writer keeps a bare value bare when quoting it would change how it reads, here one shaped like a thousands number. Canonical text then holds a bare comma in that one case.
 		- A quoted thousands number stops reading as a number, so `"1,000"` is text the same as `1,000`. Simplest, and it drops a feature.
 		- A bare thousands number reads as one too. This reverses spec.md's `ports: 80,443` example.
@@ -55,7 +57,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - Library gaps a generic tool has to work around
 	- ID: 2026100717500020
 	- Type: Enhancement
-	- Status: Waiting for answers
+	- Status: Queued
 	- Needs local test suite run?:
 		- (schema resolve) Y, the full `--ci` for exhaustive cppcheck over the C change, and the hosted windows job for Python's Windows branch, which nothing here runs.
 		- (kind) the full `--ci`, for exhaustive cppcheck, check-c-compilers and sanitize-c over the C change.
@@ -85,6 +87,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261010 (kind): `read_kind` uses the typed reads' lookup, as `read_line` does, so a repeated field or a wildcard says `Multiple` (me).
 		- 20261010 (kind): an empty value is `Good` with `Empty` as the answer, the way `read_children` gives a node with no children `Good` and an empty list. A plain `kind` on a miss gives `Empty`, as `line` gives 0 (me).
 		- 20261010 (kind): the answer is the stored form. `x:` is `Empty`, `x: []` and `x: [80]` are `Array`, `x: ""` is `Scalar`, and a section header is `Empty` (me).
+		- 20261010 (default): `--set-default` and `--set-literal-default` stay string defaults that fill only a missing or empty field; the typed ops do the replacing (JC). The merge of `defaultfix` waits on 2026101010054746.
 		- 20261010 (kind): library only. Neither the item nor the design docs ask for a CLI word (me).
 	- Requirements:
 		- A library call reads a config's `Schema` line and resolves it by the CLI's rules. The CLI uses the same call, so the two can't drift.
