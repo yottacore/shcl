@@ -154,21 +154,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Commit: `be88796f`
 	- Test case: `stamp_reads_say_why` in all four runners (Rust `EsEtTdP`, Go `EsEtTdQ`, Python `EsEtTdR`, C `EsEtTdS`), and the status checks in veneer_smoke (`EjtkR0S`).
 
-- The 2M release fuzz fails `edits_and_merges_match_a_reload` once corpus 204 and 205 move the seeds
-	- ID: 2026100914525821
-	- Type: Bug
-	- Status: Queued
-	- Severity: High
-	- Opened: 20261009-145258
-	- Opened by: found while working 2026100717500017
-	- Related IDs: 2026100717500017
-	- Version and build: `fmtstamp` at `be88796f`, and dev's code at `45e38056` with the two cases copied in
-	- Steps to reproduce: `SHCL_FUZZ_ITERS=2000000` release fuzz, `--test fuzz_smoke edits_and_merges_match_a_reload`.
-	- Incorrect behavior: `Eqk24nZ` fails at iteration 1116826: op 4 (a remove) at `srv.b` gives different text on the document and on its reload. The base has kept lines and a merge layer before it.
-	- Expected behavior: the two match, or differ only in comments the reload took.
-	- Reproduced: 20261009, Rust fuzz only. Dev's code fails the same way with the two cases, so the hints did not cause it. Not cut down yet.
-	- Note: High, since the 2M release fuzz is on the release bar. The 200,000 gate passes.
-
 - A file stamped with a newer Format major should load clean
 	- ID: 2026100717500017
 	- Type: Enhancement
@@ -309,6 +294,34 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Origin: Confirmed by reading and probes.
 
 **Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
+
+- The 2M release fuzz fails `edits_and_merges_match_a_reload` once corpus 204 and 205 move the seeds
+	- ID: 2026100914525821
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Opened: 20261009-145258
+	- Opened by: found while working 2026100717500017
+	- Related IDs: 2026100717500017, 2026100520243961, 2026100506223902
+	- Version and build: `fmtstamp` at `be88796f`, and dev's code at `45e38056` with the two cases copied in
+	- Steps to reproduce: `SHCL_FUZZ_ITERS=2000000` release fuzz, `--test fuzz_smoke edits_and_merges_match_a_reload`.
+		- Cut down: load `srv:` with `\t[` under it, merge `srv:` with `\t- 1`, `\t*` and `\tb: 1` under it, then remove `srv.b` from that document and from a reload of its canonical text.
+	- Incorrect behavior: `Eqk24nZ` fails at iteration 1116826: op 4 (a remove) at `srv.b` gives different text on the document and on its reload. The base has kept lines and a merge layer before it.
+		- Cut down: the document writes `\t[` before `\t*`, and the reload writes `\t*` before `\t[`.
+	- Expected behavior: the two match, or differ only in comments the reload took.
+	- Reproduced: 20261009, Rust fuzz only. Dev's code fails the same way with the two cases, so the hints did not cause it. Not cut down yet.
+		- 20261009: on dev at `185bf53b` with 204 and 205 in, same iteration. Cut down to the steps above in Rust. Go, Python and C fail the same steps.
+	- Note: High, since the 2M release fuzz is on the release bar. The 200,000 gate passes.
+	- Actual cause [Bug]: a library defect in all four, not the documented remove case. A stacked list with a field under it that joins an empty binding of its name (2026100520243961's join) brings its fields, but the binding's own kept lines inside its block stayed filed there. A load files such lines on the last field, and a merge does too for every block it visits. The joined binding is not one of those blocks. A remove of the last field then wrote the field's lines after the binding's, where the text had them before. Both lines are kept lines (`E013`, `E014`), not comments, so the excuse in `Eqk24nZ` never applied, and it shouldn't.
+	- Actual fix [Bug]: the join files the binding's inside lines on the last field, as a load does. One helper does that for the join and for the settle pass, in all four. No change to the test's excuse.
+	- Swept: every place a child list grows. The parser settles every block after its folds. The write-side fold and its fold of the children below settle the survivor. A merge settles each block it visits, and a new child settles its parent. Both joins, the settle pass's (load and merge) and the write side's (setters and remove), go through the one fold, which now settles. Same in Go (`foldListIntoEmpty`), Python (`_fold_list_into_empty`) and C (`fold_list_into_empty`).
+	- Verified: the 2,000,000 release fuzz passes all 26, `Eqk24nZ` included. The new fixture fails in all four with the fix taken out, both the merge's join and the remove's join. Also: the four conformance suites, cargo test, go test for both modules, cli-regress (532 rows, 2859 checks, all four), crosscheck over the corpus (21339 comparisons), check-docs (only the known `EpHGoa0` red), test-ids check, rustfmt, gofmt, go vet, staticcheck, ruff, cppcheck at the exhaustive level.
+	- Note: dev's clippy fails `nonminimal_bool` at the migrate stamp property in `fuzz_smoke.rs`, and mypy fails `comparison-overlap` in Python's stamp test. Both came in with `fmtstamp`, so they are left for the restamp work.
+	- Test case: `a_joined_list_files_the_bindings_lines_like_a_reload`, Rust `EsFs76t`, Go `EsFs7xv`, Python `EsFs7xw`, C `EsFs7xx`; fuzz `Eqk24nZ` at 2,000,000.
+	- Branch: `fuzzrm`
+	- Commit: `14e0a249`
+	- Acceptance signoff: Self-closed: the fuzz failed before and passes after, each new test fails without the fix, and the reload's order is what the document's own text says.
+	- Closed: 20261009-183713
 
 - A setter's false doesn't say why
 	- ID: 2026100907362300
