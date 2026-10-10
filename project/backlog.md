@@ -33,6 +33,25 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
+- `fmt` turns a bare `80,443` into a number
+	- ID: 2026101010054746
+	- Type: Bug
+	- Status: Waiting for answers
+	- Severity: High
+	- Opened: 20261010-100547
+	- Opened by: found while working 2026100717500020
+	- Related IDs: 2026100717500020, 2026100719122101
+	- Version and build: dev at `ba94dd62`
+	- Steps to reproduce: a file holding `p: 80,443`. `shcl get --int FILE p` exits 4, not a valid int. `shcl fmt --write FILE` writes `p: "80,443"`, and the same `get` now prints 80443.
+	- Incorrect behavior: a typed read changes across a `fmt`, at exit 0. Thousands separators read only in quotes (spec.md), and since 2026100719122101 the writer quotes any value with a comma.
+	- Expected behavior: a value reads the same before and after `fmt` and a save.
+	- Reproduced: 20261010, dev's Rust build, and all four CLIs on `defaultfix`. 2026100717500020's default forms act on that read, so on `defaultfix` the fuzz property `Eqk24nZ` fails at iteration 12093: a default replaces the bare value on the document and leaves the quoted one on its reload.
+	- Possible cause [Bug]: two recorded rules meet. A quoted `1,000` reads as 1000 (spec.md, 20261006), and the writer quotes a value holding `,` (2026100719122101). Item 13 of an earlier review fixed the same class for a value a setter wrote, which counts as quoted when the canonical text quotes it.
+	- Question: which way? Options:
+		- The writer keeps a bare value bare when quoting it would change how it reads, here one shaped like a thousands number. Canonical text then holds a bare comma in that one case.
+		- A quoted thousands number stops reading as a number, so `"1,000"` is text the same as `1,000`. Simplest, and it drops a feature.
+		- A bare thousands number reads as one too. This reverses spec.md's `ports: 80,443` example.
+
 - check-migrate fails on 2 fuzz documents
 	- ID: 2026100919123100
 	- Type: Bug
@@ -373,6 +392,24 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- A `kind(path)` read gives scalar, array, raw block or empty, with a status for a missing or bad path.
 		- One call makes sure a field has a usable value of a type.
 	- Origin: Confirmed by reading and probes.
+	- Progress log:
+		- (default) 20261010: the third requirement is built on `defaultfix`, in Rust, Go, Python, C and the C++ interface. A default form writes where the path is missing, where the field is empty, and where its value does not read as the type by the typed read at the document's strictness. A replaced value stays above the field as `# port: abc  ## replaced by shcl when setting a default for port, STAMP: not an int`. A raw block is refused for a default of another type, with the new last `SetStatus` value `RawBlock` (Go `SetRawBlock`, C `SHCL_SET_RAW_BLOCK`). design.md has a Default forms table as the rule.
+		- (default) 20261010: on this branch the fuzz property `Eqk24nZ` fails at 20,000 iterations and up. A bare `80,443` reads as text, `fmt` quotes it, and the quoted one reads as the int 80443, so a default acts differently on a document and on its reload. Filed as 2026101010054746. With the quoted thousands reading switched off, the 2,000,000 release fuzz passes all 27, so that is the only failure. Merging this branch before 2026101010054746 is settled turns the `--quick` and `--ci` fuzz red.
+	- Decisions:
+		- (default) 20261010: a raw block at the path is refused for a default of another type (`RawBlock`), since its body has no one-line comment (me).
+		- (default) 20261010: an inline array or a stacked list that does not read is replaced. Its value goes in the comment as one bracket array, so nothing typed is lost (me).
+		- (default) 20261010: an empty value, and a field with lines under it and no value, read `Empty`, so they are filled with no note. An array default on such a field is `HasChildren`, as from the plain setter (me).
+		- (default) 20261010: `set_string_default` and `set_literal_default` count any value, since any value reads as a string and literal text names no type. So `--set-default` and `--set-literal-default` fill only a missing or empty field, and the typed ops do the replacing (me).
+		- (default) 20261010: the note has the form of the 20261004 setter note, `# LINE  ## ...`, with the stamp `SHCL_TEST_CLOCK` pins. The old line is spelled the way the canonical text spells it, folded name included, so a document and its reload write the same note (me).
+		- (default) 20261010: a path is judged first, then the value against the probe document, then what is there, so a NaN over a bad value is `NotFinite` (me).
+		- Question: (default) should `--set-default`'s value take its type from its text, the way `--set` stores `8` as an int, so `--set-default=port=8080` replaces `port: abc`? As built it fills only a missing or empty field.
+	- Swept: (default) every default form in Rust, Go, Python, C and `shcl.hpp`, and `SetComment`, whose placement code became one helper the replace shares. The four CLIs' `refusal()` and help text (the ops table line and `--set-default`); their ops decoders already call the library forms. The status order tests in the four runners and veneer_smoke, and C's setter soup bound. spec.md, design.md (the status table, the note under Kept lines under edits, a new Default forms section), the man page, README, the corpus README, the code style guide, a perf-gate comment and the changelog. Corpus cases 014, 015, 063, 065, 092 and 121 use default ops and pass unchanged. The comparison tool and the dogfood runners call no default form.
+	- Verified: (default) each new test fails with the old behavior put back, in all four, and the Rust table fails with the raw block replaced or the note left off. cargo test, rustfmt, clippy for the host and windows, `go test -count=1` for both modules, gofmt, go vet, staticcheck, the Python runner, ruff, mypy, the C runner, oom_hook, oom_recover, mem_bounds, veneer_smoke, check-veneer, check-c-compilers (5 compilers), sanitize-c, cppcheck at the normal level, the mingw CLI build, cli-regress (545 rows, 3203 checks, all four), crosscheck over the corpus and a 2,000-iteration fuzz dump (48930 comparisons), perf-gate in all four, check-docs (only the known `EpHGoa0` red), check-abnf, test-ids check, shell-regress, shellcheck and markdownlint. A one-off run of 8 typed default ops over the corpus inputs and 150 fuzz inputs through the four CLIs gave the same bytes and exit codes in 1137 runs, 369 of them replacing. The 200,000 release fuzz passes all but `Eqk24nZ` (2026101010054746).
+	- Needs local test suite run?:
+		- (default) the full `--ci`, exhaustive cppcheck included, and the 2,000,000 release fuzz once 2026101010054746 is settled. The hosted run, and the C++ interface's windows build under wine.
+	- Test case: (default) `default_fills_what_does_not_read` (Rust `EsJZko3`, Go `EsJZko4`, Python `EsJZko5`, C `EsJZko6`), `default_replace_round_trips` (Rust `EsJZko7`, Go `EsJZko8`, Python `EsJZko9`, C `EsJZkoA`), fuzz `a_default_leaves_a_value_of_its_type` (`EsJZkoB`), cli-regress `EsJZkoC`, `EsJZkoD`, `EsJZkoE` and `EsJZkoF`, and `RawBlock` added to the status order tests (`EsDRhHg`, `EsDeJ9a`, `EsDeik0`, `EsDjstE`) and veneer_smoke (`EjtkR0S`).
+	- Branch: (default) `defaultfix`
+	- Commit: (default) `5bb89ac4`
 
 **Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
 
