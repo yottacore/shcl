@@ -2098,11 +2098,9 @@ func doGet(o *opts) int {
 const quotedMax = 200
 
 // quoted is a value's text, quoted for a message, the way the library shows
-// a value: one line whatever it holds, and nothing that reads as a 2.x
-// backslash escape. A line break, carriage return or tab shows by its escape
-// name, any other control as a code point, and a real escape mark as itself
-// with its code after it. Past quotedMax characters the middle is cut, and the
-// length goes after the closing quote.
+// a value: one line whatever it holds, with each character the way fmt writes
+// it in quotes (see writeShown). Past quotedMax characters the middle is cut,
+// and the length goes after the closing quote.
 func quoted(s string) string {
 	total := utf8.RuneCountInString(s)
 	var b strings.Builder
@@ -2123,9 +2121,7 @@ func quoted(s string) string {
 			}
 			n++
 		}
-		writeShown(&b, s[:head])
-		b.WriteString("...")
-		writeShown(&b, s[tail:])
+		writeShown(&b, s[:head]+"..."+s[tail:])
 	}
 	b.WriteByte('"')
 	if total > quotedMax {
@@ -2134,23 +2130,44 @@ func quoted(s string) string {
 	return b.String()
 }
 
+// writeShown writes s the way fmt writes it in quotes, less the quotes, with
+// a `"` as itself and a real escape mark as itself with its code after it, as
+// the library's messages show one. The writer's own QuoteSegment does the
+// escaping, so a message can't drift from fmt; those two are its first names
+// on the escape list.
 func writeShown(b *strings.Builder, s string) {
-	for _, c := range s {
-		switch {
-		case c == '\t':
-			b.WriteString("\u25C9TAB\u25C9")
-		case c == '\n':
-			b.WriteString("\u25C9NEWLINE\u25C9")
-		case c == '\r':
-			b.WriteString("\u25C9CR\u25C9")
-		case c == 0x25C9:
-			b.WriteString("\u25C9 (U+25C9)")
-		case c < 0x20 || (c >= 0x7f && c <= 0x9f) || c == 0x2028 || c == 0x2029:
-			fmt.Fprintf(b, "\u25C9U+%04X\u25C9", c)
+	const m = "\u25C9"
+	rest := shcl.QuoteSegment(s)
+	if rest != "" && (rest[0] == '"' || rest[0] == '\'') {
+		rest = rest[1 : len(rest)-1]
+	}
+	for {
+		at := strings.Index(rest, m)
+		if at < 0 {
+			break
+		}
+		b.WriteString(rest[:at])
+		after := rest[at+len(m):]
+		// The writer closes every escape it opens.
+		end := strings.Index(after, m)
+		if end < 0 {
+			end = len(after)
+		}
+		switch name := after[:end]; name {
+		case "DOUBLE_QUOTE":
+			b.WriteByte('"')
+		case "ESCAPE_CHAR":
+			b.WriteString(m + " (U+25C9)")
 		default:
-			b.WriteRune(c)
+			b.WriteString(m + name + m)
+		}
+		if end == len(after) {
+			rest = ""
+		} else {
+			rest = after[end+len(m):]
 		}
 	}
+	b.WriteString(rest)
 }
 
 func doFmt(o *opts) int {

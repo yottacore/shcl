@@ -2027,23 +2027,20 @@ func oneLine(s string) string {
 const diagTextMax = 200
 
 // oneLineIn is value text for a diagnostic message, between open and close. It
-// stays one line, and nothing in it reads as a 2.x backslash escape: a
-// backslash is itself, a line break, carriage return or tab shows by its
-// escape name, any other control as a code point, and a real escape mark as
-// itself with its code after it. A raw block's body is the value that made
-// this necessary - it holds its own line breaks. Past diagTextMax characters
-// the middle is cut, and the length goes after close.
+// stays one line, and each character shows the way fmt writes it in quotes
+// (see writeShown), so nothing in it reads as a 2.x backslash escape. A raw
+// block's body is the value that made this necessary - it holds its own line
+// breaks. Past diagTextMax characters the middle is cut, and the length goes
+// after close.
 func oneLineIn(s, open, close string) string {
 	total := utf8.RuneCountInString(s)
 	var b strings.Builder
 	b.WriteString(open)
 	if total <= diagTextMax {
-		writeShown(&b, s)
+		writeShown(&b, s, shownMark)
 	} else {
 		head, tail := cutEnds(s, total)
-		writeShown(&b, head)
-		b.WriteString("...")
-		writeShown(&b, tail)
+		writeShown(&b, head+"..."+tail, shownMark)
 	}
 	b.WriteString(close)
 	if total > diagTextMax {
@@ -2051,6 +2048,10 @@ func oneLineIn(s, open, close string) string {
 	}
 	return b.String()
 }
+
+// shownMark is a real escape mark in a message's value text. ◉ESCAPE_CHAR◉
+// reads oddly in an E023 message about that very mark.
+const shownMark = "\u25C9 (U+25C9)"
 
 // cutEnds is the first and last diagTextMax / 2 characters of s, which has
 // total of them. Cut on characters, never inside one.
@@ -2071,31 +2072,59 @@ func cutEnds(s string, total int) (string, string) {
 	return s[:head], s[tail:]
 }
 
-func writeShown(b *strings.Builder, s string) {
-	for _, c := range s {
-		switch {
-		case c == '\t':
-			b.WriteString("\u25C9TAB\u25C9")
-		case c == '\n':
-			b.WriteString("\u25C9NEWLINE\u25C9")
-		case c == '\r':
-			b.WriteString("\u25C9CR\u25C9")
-		case c == escapeMark:
-			b.WriteString("\u25C9 (U+25C9)")
-		case c < 0x20 || (c >= 0x7f && c <= 0x9f) || c == 0x2028 || c == 0x2029:
-			fmt.Fprintf(b, "\u25C9U+%04X\u25C9", c)
+// writeShown writes s the way fmt writes it in quotes, less the quotes, with
+// two changes: a `"` is itself, and a real escape mark is mark. The writer's
+// own output is taken apart rather than a second list kept here, so a message
+// can't drift from fmt.
+func writeShown(b *strings.Builder, s, mark string) {
+	written := quoteWith(s, '"')
+	rest := written[1 : len(written)-1]
+	m := string(escapeMark)
+	for {
+		at := strings.Index(rest, m)
+		if at < 0 {
+			break
+		}
+		b.WriteString(rest[:at])
+		after := rest[at+len(m):]
+		// The writer closes every escape it opens.
+		end := strings.Index(after, m)
+		if end < 0 {
+			end = len(after)
+		}
+		name := after[:end]
+		text := ""
+		for _, e := range escapeNames {
+			if e.name == name {
+				text = e.text
+				break
+			}
+		}
+		switch text {
+		case `"`:
+			b.WriteByte('"')
+		case m:
+			b.WriteString(mark)
 		default:
-			b.WriteRune(c)
+			b.WriteString(m + name + m)
+		}
+		if end == len(after) {
+			rest = ""
+		} else {
+			rest = after[end+len(m):]
 		}
 	}
+	b.WriteString(rest)
 }
 
 // schemaText is schema text for a diagnostic or a generated comment: a path or
-// a type as the schema wrote it, with a line break written by its escape name,
-// so one diagnostic stays one line. Only the break is escaped, so a path reads
-// the way it was written.
+// a type as the schema wrote it, kept to one line, with what fmt escapes shown
+// its way. A ◉ stays as written, since in a path it is the path's own escape.
 func schemaText(s string) string {
-	return strings.ReplaceAll(s, "\n", "\u25C9NEWLINE\u25C9")
+	var b strings.Builder
+	b.Grow(len(s))
+	writeShown(&b, s, string(escapeMark))
+	return b.String()
 }
 
 // resolveMarks is the text of a piece with its `◉NAME◉` escapes resolved.
@@ -6663,10 +6692,10 @@ func arrayKept(text string) bool {
 	return lineFault(&tok, text) == nil
 }
 
-// noteText is a path in a note, kept to one line, with a line break or
-// carriage return written by its escape name.
+// noteText is a path in a note, kept to one line, the way schemaText shows
+// one.
 func noteText(s string) string {
-	return strings.ReplaceAll(strings.ReplaceAll(s, "\n", "\u25C9NEWLINE\u25C9"), "\r", "\u25C9CR\u25C9")
+	return schemaText(s)
 }
 
 // keptNaming is the code and message the load gave a kept line that names

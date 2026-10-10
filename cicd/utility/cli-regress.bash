@@ -127,6 +127,7 @@ mark=$'\xe2\x97\x89'
 printf "field: 'a.\"x%sNEWLINE%sy\"'\n\trequired: yes\nfield: 'b.\"x%sNEWLINE%sy\"'\n\ttype: int\n\tmin: 5\n\tmax: 6\n\tallowed: [5, 6, 1]\n\trepeat: 3\nfield: 'c.\"x%sNEWLINE%sy\"'\n\ttype: bool\n" "${mark}" "${mark}" "${mark}" "${mark}" "${mark}" "${mark}" > "${tmpDir}/nlschema.shcl"
 printf 'b:\n\t"x%sNEWLINE%sy": 9\n\t"x%sNEWLINE%sy": 1\nc:\n\t"x%sNEWLINE%sy": maybe\n' "${mark}" "${mark}" "${mark}" "${mark}" "${mark}" "${mark}" > "${tmpDir}/nldoc.shcl"
 printf "field: k\n\ttype: \"in%sNEWLINE%st\"\nfield: 'd.\"x%sNEWLINE%sy\".'\n" "${mark}" "${mark}" "${mark}" "${mark}" > "${tmpDir}/nlfault.shcl"
+printf "field: 'a.\"x%sU+200B%sy%sTAB%sz%sCR%sw\"'\n\trequired: yes\n" "${mark}" "${mark}" "${mark}" "${mark}" "${mark}" "${mark}" > "${tmpDir}/zwschema.shcl"
 printf 'field: x.y\n\ttype: int\n' > "${tmpDir}/dotschema.shcl"
 ## A directory a write cannot create a temp file in. The phase is worth naming -
 ## it is the difference between "fix the file" and "fix its directory" - and the
@@ -440,7 +441,8 @@ manySets="$(for i in {0..69}; do printf -- '--set=k%d=%d ' "${i}" "${i}"; done)"
 ##	%NB% a repeated field name with a line break, %DN%/%SN% a flat name
 ##	with a dot and a schema that declares it as nesting, %SL%/%SM% schema
 ##	paths and a type with a line break, valid and faulted, and %DL% a
-##	document for them, %CB% a malformed
+##	document for them, %SZ% a schema path with a zero-width space, a tab and
+##	a carriage return, %CB% a malformed
 ##	line indented and behind a non-ASCII name, %CR% one behind a carriage
 ##	return that is not indent, %SG%/%DG% a schema with an int
 ##	and a float range and a document that breaks both, %NC% a file that loads
@@ -1338,8 +1340,15 @@ rows=(
 	## as itself with its code.
 	'EsEhCcw|msg-backslash-as-text|get --int --on-bad=error - a|a: C:\\temp\n|4||=cannot read a as int: value "C:\\temp" is not a valid int (in -)\n'
 	'EsEhCcx|msg-escape-unknown-backslash|check -|a: "◉C:\\x◉"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 unknown escape .◉C:\\x◉.; an escape'
-	"EsEhCcy|msg-controls-and-mark|get --int --on-bad=error - a|a: 'say \"hi\" x◉TAB◉y◉BEL◉z◉ESCAPE_CHAR◉◉CR◉'\n|4||=cannot read a as int: value \"say \"hi\" x◉TAB◉y◉U+0007◉z◉ (U+25C9)◉CR◉\" is not a valid int (in -)\n"
+	"EsEhCcy|msg-controls-and-mark|get --int --on-bad=error - a|a: 'say \"hi\" x◉TAB◉y◉BEL◉z◉ESCAPE_CHAR◉◉CR◉'\n|4||=cannot read a as int: value \"say \"hi\" x◉TAB◉y◉BEL◉z◉ (U+25C9)◉CR◉\" is not a valid int (in -)\n"
 	'EsEhCcz|msg-library-mark-tab|check --schema=%SA% %MK%|-|6|-|V004 value not allowed at .b.: x◉ \(U\+25C9\)y◉TAB◉z$'
+	## 2026100812323841 rework: a message shows a character the way fmt writes
+	## it, so a named control is not a code point, and a C1 control, a
+	## zero-width space or a direction override does not print raw.
+	'EsJDGCI|msg-get-hidden-chars|get --int --on-bad=error - a|a: "x◉BEL◉y◉U+0085◉z◉U+200B◉w◉U+202E◉v"\n|4||=cannot read a as int: value "x◉BEL◉y◉U+0085◉z◉U+200B◉w◉U+202E◉v" is not a valid int (in -)\n'
+	'EsJDGCJ|msg-get-named-controls|get --int --on-bad=error - a|a: "◉NUL◉◉ESC◉◉DEL◉◉CRLF◉"\n|4||=cannot read a as int: value "◉NUL◉◉ESC◉◉DEL◉◉CRLF◉" is not a valid int (in -)\n'
+	'EsJDGCK|msg-escape-hidden-chars|check -|a: "◉x\x07y\xc2\x85z\xe2\x80\x8bw\xe2\x80\xaev◉"\n|6|line 1: Error: E023\nfailed: 1 diagnostic(s), 1 error(s)\n|E023 unknown escape .◉x◉BEL◉y◉U\+0085◉z◉U\+200B◉w◉U\+202E◉v◉.; an escape'
+	'EsJDGCL|msg-schema-path-hidden-chars|check --schema=%SZ% %F%|-|6|-|V002 required path missing: a\."x◉U\+200B◉y◉TAB◉z◉CR◉w"$'
 	## 2026100818251400: a long value made a message as long as the value. Past
 	## 200 characters the middle is cut and the length follows.
 	'EsEhCd0|msg-long-value-get|get --int --on-bad=error %LV% b|-|4||^cannot read b as int: value "(é){100}\.\.\.(😀){100}" \(300 chars\) is not a valid int \(in [^)]*longval\.shcl\)$'
@@ -1546,6 +1555,7 @@ for row in "${rows[@]}"; do
 	argv="${argv//%SN%/${tmpDir}/dotschema.shcl}"
 	argv="${argv//%SL%/${tmpDir}/nlschema.shcl}"
 	argv="${argv//%SM%/${tmpDir}/nlfault.shcl}"
+	argv="${argv//%SZ%/${tmpDir}/zwschema.shcl}"
 	argv="${argv//%DL%/${tmpDir}/nldoc.shcl}"
 	argv="${argv//%CB%/${tmpDir}/colbytes.shcl}"
 	argv="${argv//%CR%/${tmpDir}/colcr.shcl}"

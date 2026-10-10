@@ -1891,24 +1891,21 @@ fn one_line(s: &str) -> String {
 const DIAG_TEXT_MAX: usize = 200;
 
 /// Value text for a diagnostic message, between `open` and `close`. It stays
-/// one line, and nothing in it reads as a 2.x backslash escape: a backslash is
-/// itself, a line break, carriage return or tab shows by its escape name, any
-/// other control as a code point, and a real escape mark as itself with its
-/// code after it. A raw block's body is the value that made this necessary -
-/// it holds its own line breaks. Past DIAG_TEXT_MAX characters the middle is
-/// cut, and the length goes after `close`.
+/// one line, and each character shows the way `fmt` writes it in quotes (see
+/// `push_shown`), so nothing in it reads as a 2.x backslash escape. A raw
+/// block's body is the value that made this necessary - it holds its own line
+/// breaks. Past DIAG_TEXT_MAX characters the middle is cut, and the length
+/// goes after `close`.
 fn one_line_in(s: &str, open: &str, close: &str) -> String {
 	let total = s.chars().count();
 	let mut out =
 		String::with_capacity(open.len() + s.len().min(DIAG_TEXT_MAX * 4) + close.len() + 16);
 	out.push_str(open);
 	if total <= DIAG_TEXT_MAX {
-		push_shown(&mut out, s);
+		push_shown(&mut out, s, SHOWN_MARK);
 	} else {
 		let (head, tail) = cut_ends(s, total);
-		push_shown(&mut out, head);
-		out.push_str("...");
-		push_shown(&mut out, tail);
+		push_shown(&mut out, &format!("{}...{}", head, tail), SHOWN_MARK);
 	}
 	out.push_str(close);
 	if total > DIAG_TEXT_MAX {
@@ -1916,6 +1913,10 @@ fn one_line_in(s: &str, open: &str, close: &str) -> String {
 	}
 	out
 }
+
+/// A real escape mark in a message's value text. `◉ESCAPE_CHAR◉` reads oddly
+/// in an `E023` message about that very mark.
+const SHOWN_MARK: &str = "\u{25C9} (U+25C9)";
 
 /// The first and last DIAG_TEXT_MAX / 2 characters of `s`, which has `total`
 /// of them. Cut on characters, never inside one.
@@ -1929,32 +1930,40 @@ fn cut_ends(s: &str, total: usize) -> (&str, &str) {
 	(&s[..head], &s[tail..])
 }
 
-fn push_shown(out: &mut String, s: &str) {
-	use std::fmt::Write;
-	for c in s.chars() {
-		match c {
-			'\t' => out.push_str("\u{25C9}TAB\u{25C9}"),
-			'\n' => out.push_str("\u{25C9}NEWLINE\u{25C9}"),
-			'\r' => out.push_str("\u{25C9}CR\u{25C9}"),
-			ESCAPE_MARK => out.push_str("\u{25C9} (U+25C9)"),
-			c if c < ' '
-				|| ('\u{7F}'..='\u{9F}').contains(&c)
-				|| c == '\u{2028}'
-				|| c == '\u{2029}' =>
-			{
-				let _ = write!(out, "{m}U+{:04X}{m}", c as u32, m = ESCAPE_MARK);
+/// `s` the way `fmt` writes it in quotes, less the quotes, with two changes: a
+/// `"` is itself, and a real escape mark is `mark`. The writer's own output is
+/// taken apart rather than a second list kept here, so a message can't drift
+/// from `fmt`.
+fn push_shown(out: &mut String, s: &str, mark: &str) {
+	let written = quote_with(s, '"');
+	let mut rest = &written[1..written.len() - 1];
+	while let Some(at) = rest.find(ESCAPE_MARK) {
+		out.push_str(&rest[..at]);
+		let after = &rest[at + ESCAPE_MARK.len_utf8()..];
+		// The writer closes every escape it opens.
+		let close = after.find(ESCAPE_MARK).unwrap_or(after.len());
+		let name = &after[..close];
+		match ESCAPE_NAMES.iter().find(|(n, _)| *n == name) {
+			Some((_, "\"")) => out.push('"'),
+			Some((_, "\u{25C9}")) => out.push_str(mark),
+			_ => {
+				out.push(ESCAPE_MARK);
+				out.push_str(name);
+				out.push(ESCAPE_MARK);
 			}
-			c => out.push(c),
 		}
+		rest = after.get(close + ESCAPE_MARK.len_utf8()..).unwrap_or("");
 	}
+	out.push_str(rest);
 }
 
 /// Schema text for a diagnostic or a generated comment: a path or a type as the
-/// schema wrote it, with a line break written by its escape name, so one
-/// diagnostic stays one line. Only the break is escaped, so a path reads the
-/// way it was written.
+/// schema wrote it, kept to one line, with what `fmt` escapes shown its way. A
+/// `◉` stays as written, since in a path it is the path's own escape.
 fn schema_text(s: &str) -> String {
-	s.replace('\n', "\u{25C9}NEWLINE\u{25C9}")
+	let mut out = String::with_capacity(s.len());
+	push_shown(&mut out, s, "\u{25C9}");
+	out
 }
 
 /// The text of a piece with its `◉NAME◉` escapes resolved. The marks pair up
@@ -6886,11 +6895,9 @@ fn array_kept(text: &str) -> bool {
 	tok.array.is_some() && path_of(&tok, text).is_ok() && line_fault(&tok, text).is_none()
 }
 
-/// A path in a note, kept to one line, with a line break or carriage return
-/// written by its escape name.
+/// A path in a note, kept to one line, the way `schema_text` shows one.
 fn note_text(s: &str) -> String {
-	s.replace('\n', "\u{25C9}NEWLINE\u{25C9}")
-		.replace('\r', "\u{25C9}CR\u{25C9}")
+	schema_text(s)
 }
 
 /// The code and message the load gave a kept line that names just `name`,

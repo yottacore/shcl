@@ -16,7 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `get --array`, `get --slots` and `instances` print a value holding a line break quoted with `◉` escapes, `"a◉NEWLINE◉b"`, where they wrote `"a\nb"`.
 
-- Messages show a value's text with a backslash as one backslash. A line break, carriage return or tab shows as `◉NEWLINE◉`, `◉CR◉` or `◉TAB◉`, another control as `◉U+0007◉`, and a real `◉` as `◉ (U+25C9)`. They wrote `\\`, `\n` and `\t`, so `C:\temp` read as two backslashes. A setter's note and a generated schema comment write a line break the same way.
+- Messages show a value's text with a backslash as one backslash. Each character `fmt` escapes shows the way `fmt` writes it, such as `◉NEWLINE◉`, `◉BEL◉` or `◉U+200B◉`, and a real `◉` as `◉ (U+25C9)`. They wrote `\\`, `\n` and `\t`, so `C:\temp` read as two backslashes, and a zero-width space or a direction mark printed as itself. A setter's note and a generated schema comment show them the same way.
 
 - `fmt` and every save write a line break, a tab in quotes and each invisible character as a `◉` escape. A zero-width space or a direction mark comes out as `◉U+XXXX◉`. The joiners stay as written, and so do a variation selector after a visible character and the tags of a subdivision flag.
 

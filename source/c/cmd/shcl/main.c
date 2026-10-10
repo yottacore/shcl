@@ -976,65 +976,66 @@ static int load_layered_from(Opts *o, const char *file, char *given, size_t give
 // library).
 #define QUOTED_MAX 200
 
-static size_t put_shown(char *out, const char *p, size_t n) {
-	static const char hex[] = "0123456789ABCDEF";
+// w, from shcl_quote_segment, the way fmt writes it in quotes, less the
+// quotes, with a `"` as itself and a real escape mark as itself with its code
+// after it, as the library's messages show one. The writer does the escaping,
+// so a message can't drift from fmt; those two are its first names on the
+// escape list. Never longer than w, so out needs w.n bytes.
+static size_t put_shown(char *out, shcl_str w) {
 	static const char mark[] = "\xE2\x97\x89";
-	ShclStr t = {p, n};
-	size_t w = 0;
-	for (size_t i = 0; i < n;) {
-		size_t l = utf8_len(t, i);
-		uint32_t cp; utf8_decode(p, i + l, i, &cp);
-		const char *name = cp == '\t' ? "TAB" : cp == '\n' ? "NEWLINE" : cp == '\r' ? "CR" : NULL;
-		if (name) {
-			size_t nl = strlen(name);
-			memcpy(out + w, mark, 3); memcpy(out + w + 3, name, nl); memcpy(out + w + 3 + nl, mark, 3); w += nl + 6;
-		} else if (cp == 0x25C9) { memcpy(out + w, mark, 3); memcpy(out + w + 3, " (U+25C9)", 9); w += 12; }
-		else if (cp < 0x20 || (cp >= 0x7F && cp <= 0x9F) || cp == 0x2028 || cp == 0x2029) {
-			memcpy(out + w, mark, 3); w += 3;
-			out[w++] = 'U'; out[w++] = '+';
-			out[w++] = hex[cp >> 12 & 0xF]; out[w++] = hex[cp >> 8 & 0xF]; out[w++] = hex[cp >> 4 & 0xF]; out[w++] = hex[cp & 0xF];
-			memcpy(out + w, mark, 3); w += 3;
-		} else { memcpy(out + w, p + i, l); w += l; }
-		i += l;
+	size_t i = 0, n = w.n, o = 0;
+	if (n >= 2 && (w.p[0] == '"' || w.p[0] == '\'')) { i = 1; n--; }
+	while (i < n) {
+		if (n - i < 3 || memcmp(w.p + i, mark, 3) != 0) { out[o++] = w.p[i++]; continue; }
+		size_t s = i + 3, e = s;
+		while (e + 3 <= n && memcmp(w.p + e, mark, 3) != 0) e++;
+		// The writer closes every escape it opens.
+		int closed = e + 3 <= n;
+		if (!closed) e = n;
+		size_t len = e - s;
+		if (len == 12 && memcmp(w.p + s, "DOUBLE_QUOTE", 12) == 0) out[o++] = '"';
+		else if (len == 11 && memcmp(w.p + s, "ESCAPE_CHAR", 11) == 0) { memcpy(out + o, mark, 3); memcpy(out + o + 3, " (U+25C9)", 9); o += 12; }
+		else {
+			memcpy(out + o, mark, 3); memcpy(out + o + 3, w.p + s, len); o += len + 3;
+			if (closed) { memcpy(out + o, mark, 3); o += 3; }
+		}
+		i = closed ? e + 3 : n;
 	}
-	return w;
+	return o;
 }
 
 // A value's text, quoted for a message, the way the library shows a value:
-// one line whatever it holds, and nothing that reads as a 2.x backslash
-// escape. A line break, carriage return or tab shows by its escape name, any
-// other control as a code point, and a real escape mark as itself with its
-// code after it. Past QUOTED_MAX characters the middle is cut, and the length
-// goes after the closing quote.
-static char *quoted(const char *p, size_t n) {
+// one line whatever it holds, with each character the way fmt writes it in
+// quotes (see put_shown). Past QUOTED_MAX characters the middle is cut, and
+// the length goes after the closing quote.
+static char *quoted(shcl_doc *d, const char *p, size_t n) {
 	ShclStr t = {p, n};
 	size_t total = 0;
 	for (size_t i = 0; i < n; i += utf8_len(t, i)) total++;
-	size_t head = n, tail = n;
+	char *cut = NULL;
 	if (total > QUOTED_MAX) {
-		size_t half = QUOTED_MAX / 2, k = 0;
+		size_t half = QUOTED_MAX / 2, k = 0, head = n, tail = n;
 		for (size_t i = 0; i < n; i += utf8_len(t, i)) {
 			if (k == half) head = i;
 			if (k == total - half) { tail = i; break; }
 			k++;
 		}
+		cut = (char *)xrealloc(NULL, head + 3 + (n - tail));
+		memcpy(cut, p, head); memcpy(cut + head, "...", 3); memcpy(cut + head + 3, p + tail, n - tail);
+		p = cut; n = head + 3 + (n - tail);
 	}
-	// A shown character is at most 13 bytes, from a 1 byte control.
-	size_t cap = (total > QUOTED_MAX ? head + (n - tail) : n) * 13 + 48;
+	shcl_str w = shcl_quote_segment(d, p, n);
+	free(cut);
+	size_t cap = w.n + 48;
 	char *out = (char *)xrealloc(NULL, cap);
-	size_t w = 0;
-	out[w++] = '"';
-	if (total <= QUOTED_MAX) w += put_shown(out + w, p, n);
-	else {
-		w += put_shown(out + w, p, head);
-		memcpy(out + w, "...", 3); w += 3;
-		w += put_shown(out + w, p + tail, n - tail);
-	}
-	out[w++] = '"';
-	out[w] = '\0';
+	size_t o = 0;
+	out[o++] = '"';
+	o += put_shown(out + o, w);
+	out[o++] = '"';
+	out[o] = '\0';
 	if (total > QUOTED_MAX) {
-		int k = snprintf(out + w, cap - w, " (%zu chars)", total);
-		if (k < 0 || (size_t)k >= cap - w) out[w] = '\0';
+		int k = snprintf(out + o, cap - o, " (%zu chars)", total);
+		if (k < 0 || (size_t)k >= cap - o) out[o] = '\0';
 	}
 	return out;
 }
@@ -1125,7 +1126,7 @@ static int do_get(Opts *o) {
 			// read_string answers Good or Empty exactly then.
 			shcl_read_str rs = shcl_read_string(d, path, plen);
 			if (rs.status == SHCL_GOOD || rs.status == SHCL_EMPTY) {
-				char *q = quoted(rs.value.p, rs.value.n);
+				char *q = quoted(d, rs.value.p, rs.value.n);
 				fprintf(stderr, "cannot read %s as %s: value %s is not a valid %s (in %s)\n", path, tbuf, q, tbuf, file);
 				free(q);
 			} else
