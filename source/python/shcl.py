@@ -175,6 +175,7 @@ class SetStatus(Enum):
 	NotUtf8 = 15      # text with no UTF-8 spelling, such as a lone surrogate
 	OutOfRange = 16   # an int past the 64-bit range the other bindings hold
 	NoReadBack = 17   # any other value that would not read back; none is known
+	RawBlock = 18     # a default of another type at a raw block, whose body a replace would lose
 
 	def __bool__(self) -> bool:
 		return self is SetStatus.Ok
@@ -7469,11 +7470,16 @@ class Document:
 		idx, why = self._place(path, False)
 		if why is not SetStatus.Ok:
 			return why
+		self._push_comment(idx, c)
+		return SetStatus.Ok
+
+	def _push_comment(self, idx, text):
+		"""A comment line right above a node, after any already there."""
 		# The node's own blank moves above its first comment; otherwise the
 		# blank would separate the comment from what it annotates. Above the
 		# first one already there, when there is one.
 		nd = self.arena[idx]
-		lead = _Lead(c, False)
+		lead = _Lead(text, False)
 		t = nd._triv()
 		if nd.blank_before:
 			nd.blank_before = False
@@ -7484,7 +7490,6 @@ class Document:
 		t.leading.append(lead)
 		_settle_first_blank(self.arena, self.orphans)
 		self._resettle_kept()
-		return SetStatus.Ok
 
 	def comments(self, path: str) -> list[str]:
 		"""The comment lines above the node(s) at a path, the ones
@@ -7705,13 +7710,18 @@ class Document:
 			return self._refuse(path, SetStatus.BadDateTime)
 		return self._set_value(path, _array_cell([str(x) for x in v]))
 
-	# Default (only-if-absent) forms - the "emit defaults" half of the Writer.
-	# The type gate runs whether or not the path exists, so a wrong-typed call
-	# fails the same way on every document. A path that already resolves writes
-	# nothing and reports what a write there would: the path's verdict, so a
-	# wildcard is refused whether or not its slots happen to resolve, and the
-	# value's, which the same setter gives on the probe document.
-	def _set_default(self, path: str, set_: Callable[[Document, str], SetStatus]) -> SetStatus:
+	# Default forms - the "emit defaults" half of the Writer. Each one makes
+	# sure the field has a usable value of its type: it writes where the path
+	# is missing, where the field is empty, and where its value does not read
+	# as that type by the typed read at the document's strictness. A value it
+	# replaces stays above the field as a comment with a note (design.md,
+	# Default forms). The type gate runs whether or not the path exists, so a
+	# wrong-typed call fails the same way on every document. Where the value
+	# reads, nothing is written, and the call still reports what a write there
+	# would: the path's verdict, so a wildcard is refused whether or not its
+	# slots happen to resolve, and the value's, which the same setter gives on
+	# the probe document.
+	def _set_default(self, path: str, what: str, reads: Callable[[Document, str], Status], set_: Callable[[Document, str], SetStatus]) -> SetStatus:
 		if not self.exists(path):
 			return set_(self, path)
 		checked = self.check_set_path(path)
@@ -7720,19 +7730,57 @@ class Document:
 		if self._probe_doc is None:
 			self._probe_doc = Document.new()
 			self._probe_doc._probe = True
-		return set_(self._probe_doc, "v")
+		judged = set_(self._probe_doc, "v")
+		if judged is not SetStatus.Ok:
+			return judged
+		st = reads(self, path)
+		if st is Status.Good:
+			return SetStatus.Ok
+		if st is Status.BadType:
+			return self._replace_default(path, what, set_)
+		return set_(self, path)
+
+	def _replace_default(self, path: str, what: str, set_: Callable[[Document, str], SetStatus]) -> SetStatus:
+		"""A default written over a value that does not read as its type. The
+		old line goes above the field as a comment, so nothing typed by hand is
+		lost. A raw block stays, since its body has no one-line comment."""
+		idx = self._write_target(path)
+		if idx is None:
+			return set_(self, path)
+		nd = self.arena[idx]
+		if nd.value.kind == "raw":
+			return SetStatus.RawBlock
+		# Written the way the canonical text writes the line, so the note is
+		# the same on a document and on a reload of its text.
+		val = _emit_value_text(nd.value) or ""
+		was = f"# {_emit_name(nd.name)}: {val}  ## replaced by shcl when setting a default for {_note_text(path)}, {_note_stamp()}: not {what}"
+		parent, name = nd.parent, nd.name
+		st = set_(self, path)
+		if st is not SetStatus.Ok:
+			return st
+		# A value equal to another instance's folds the two, and the earlier
+		# one stays.
+		at = idx
+		if idx not in self.arena[parent].children:
+			key = _merge_key(name, self.arena[idx].value)
+			for c in self._children_named(parent, name):
+				if _merge_key(self.arena[c].name, self.arena[c].value) == key:
+					at = c
+					break
+		self._push_comment(at, was)
+		return SetStatus.Ok
 
 	def set_int_default(self, path: str, v: int) -> SetStatus:
 		_want("set_int_default", v, "int")
-		return self._set_default(path, lambda d, p: d.set_int(p, v))
+		return self._set_default(path, "an int", lambda d, p: d.read_int(p).status, lambda d, p: d.set_int(p, v))
 
 	def set_float_default(self, path: str, v: float) -> SetStatus:
 		_want("set_float_default", v, "float")
-		return self._set_default(path, lambda d, p: d.set_float(p, v))
+		return self._set_default(path, "a float", lambda d, p: d.read_float(p).status, lambda d, p: d.set_float(p, v))
 
 	def set_bool_default(self, path: str, v: bool) -> SetStatus:
 		_want("set_bool_default", v, "bool")
-		return self._set_default(path, lambda d, p: d.set_bool(p, v))
+		return self._set_default(path, "a bool", lambda d, p: d.read_bool(p).status, lambda d, p: d.set_bool(p, v))
 
 	def set_literal(self, path: str, text: str) -> SetStatus:
 		"""Bind text at path as value syntax rather than as data.
@@ -7755,38 +7803,38 @@ class Document:
 		return SetStatus.NotOneValue if st is SetStatus.NoReadBack else st
 
 	def set_literal_default(self, path: str, text: str) -> SetStatus:
-		return self._set_default(path, lambda d, p: d.set_literal(p, text))
+		return self._set_default(path, "a string", lambda d, p: d.read_string(p).status, lambda d, p: d.set_literal(p, text))
 
 	def set_string_default(self, path: str, v: str) -> SetStatus:
 		_want("set_string_default", v, "str")
-		return self._set_default(path, lambda d, p: d.set_string(p, v))
+		return self._set_default(path, "a string", lambda d, p: d.read_string(p).status, lambda d, p: d.set_string(p, v))
 
 	def set_datetime_default(self, path: str, v: ShclDateTime) -> SetStatus:
 		_want("set_datetime_default", v, "datetime")
-		return self._set_default(path, lambda d, p: d.set_datetime(p, v))
+		return self._set_default(path, "a datetime", lambda d, p: d.read_datetime(p).status, lambda d, p: d.set_datetime(p, v))
 
 	def set_raw_default(self, path: str, content: str, info: str) -> SetStatus:
-		return self._set_default(path, lambda d, p: d.set_raw(p, content, info))
+		return self._set_default(path, "a raw block", lambda d, p: d.read_raw(p).status, lambda d, p: d.set_raw(p, content, info))
 
 	def set_int_array_default(self, path: str, v: list[int]) -> SetStatus:
 		_want_all("set_int_array_default", v, "int")
-		return self._set_default(path, lambda d, p: d.set_int_array(p, v))
+		return self._set_default(path, "an int array", lambda d, p: d.read_int_array(p).status, lambda d, p: d.set_int_array(p, v))
 
 	def set_float_array_default(self, path: str, v: list[float]) -> SetStatus:
 		_want_all("set_float_array_default", v, "float")
-		return self._set_default(path, lambda d, p: d.set_float_array(p, v))
+		return self._set_default(path, "a float array", lambda d, p: d.read_float_array(p).status, lambda d, p: d.set_float_array(p, v))
 
 	def set_bool_array_default(self, path: str, v: list[bool]) -> SetStatus:
 		_want_all("set_bool_array_default", v, "bool")
-		return self._set_default(path, lambda d, p: d.set_bool_array(p, v))
+		return self._set_default(path, "a bool array", lambda d, p: d.read_bool_array(p).status, lambda d, p: d.set_bool_array(p, v))
 
 	def set_string_array_default(self, path: str, v: list[str]) -> SetStatus:
 		_want_all("set_string_array_default", v, "str")
-		return self._set_default(path, lambda d, p: d.set_string_array(p, v))
+		return self._set_default(path, "a string array", lambda d, p: d.read_string_array(p).status, lambda d, p: d.set_string_array(p, v))
 
 	def set_datetime_array_default(self, path: str, v: list[ShclDateTime]) -> SetStatus:
 		_want_all("set_datetime_array_default", v, "datetime")
-		return self._set_default(path, lambda d, p: d.set_datetime_array(p, v))
+		return self._set_default(path, "a datetime array", lambda d, p: d.read_datetime_array(p).status, lambda d, p: d.set_datetime_array(p, v))
 
 	# Layered loading: overlay a higher-priority document
 

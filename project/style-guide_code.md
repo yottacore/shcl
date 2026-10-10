@@ -54,7 +54,7 @@ New bindings (Tier 3) follow the same recipe: port the reference function-for-fu
 	- C calls that result an `shcl_upgraded` too, beside its `shcl_upgrade` call, for the same reason as `read_bool` below, and frees it with `shcl_upgraded_free`. Its `shcl_upgrade_error` is an enum with an OK value, and the message comes back through an out parameter, since a C enum has no payload.
 	- Python's zone is a `("utc", None) | ("offset", minutes)` tuple with no named type. A two-case tagged value is a tuple in Python, and a class for it would be the port reading as something the other three are not.
 	- C writes `read_bool` as `shcl_read_bool_`. C gives a function and a typedef one namespace, and the result type already holds the plain name. Renaming either side would break callers for no gain in behavior.
-	- Go writes the `SetStatus` values with a `Set` prefix, `SetOk` to `SetNoReadBack`, where the others have `Ok` to `NoReadBack`. Every Go enum value lives in the package's one namespace, where `BadPath` and `Multiple` are already read statuses, and a bare `Ok` would sit beside `Read.Ok()`. `String()` gives the names without the prefix, as the others print them. C's are `SHCL_SET_OK` to `SHCL_SET_NO_READ_BACK`, of type `shcl_set_status`, and `shcl_set_status_name` gives the names, as `shcl_status_name` does for a read.
+	- Go writes the `SetStatus` values with a `Set` prefix, `SetOk` to `SetRawBlock`, where the others have `Ok` to `RawBlock`. Every Go enum value lives in the package's one namespace, where `BadPath` and `Multiple` are already read statuses, and a bare `Ok` would sit beside `Read.Ok()`. `String()` gives the names without the prefix, as the others print them. C's are `SHCL_SET_OK` to `SHCL_SET_RAW_BLOCK`, of type `shcl_set_status`, and `shcl_set_status_name` gives the names, as `shcl_status_name` does for a read.
 	- `WriteStatus` goes the same way: Go's `WriteOk` to `WriteOther`, since `NotFound` is a read status, and C's `SHCL_WRITE_OK` to `SHCL_WRITE_OTHER`, of type `shcl_write_status`, with `shcl_write_status_name`.
 
 - Single file per binding, zero dependencies. That is the product ("copy this file into your tree"), so no module splits, no helper crates/packages, and no dependency however good.
@@ -95,7 +95,7 @@ New bindings (Tier 3) follow the same recipe: port the reference function-for-fu
 
 - Deliberate deviation: the datetime type is `DateTime`, not `ShclDateTime`; the package name already has the prefix. The reference and Python export `DateTime` as an alias so the two spellings meet.
 
-- Enum values share the package's one namespace, so a name two enums would both use gets a prefix on one side: `FileNotFound` beside the read status `NotFound`, and every `SetStatus` value, `SetOk` to `SetNoReadBack`, since `BadPath` and `Multiple` are read statuses, and every `WriteStatus` value, `WriteOk` to `WriteOther`, since `NotFound` is one too. Each prints the reference's name.
+- Enum values share the package's one namespace, so a name two enums would both use gets a prefix on one side: `FileNotFound` beside the read status `NotFound`, and every `SetStatus` value, `SetOk` to `SetRawBlock`, since `BadPath` and `Multiple` are read statuses, and every `WriteStatus` value, `WriteOk` to `WriteOther`, since `NotFound` is one too. Each prints the reference's name.
 
 - The tokenizer's absent offsets (`Sep`, `Comment`, `Fault`) are `-1` where the reference has `None`; the spans themselves are the same byte offsets in every binding.
 

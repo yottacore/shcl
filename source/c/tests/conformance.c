@@ -378,9 +378,12 @@ static int cf_bool(const char *p, int *out) {
 	return 0;
 }
 
+// The status the last op's setter gave, for a test that names it.
+static shcl_set_status op_wrote;
+
 // Apply one write-ops line (NUL-terminated, tab-split in place) via the library
-// Writer, with the CLI's value gates. A "-default" suffix means "only if
-// absent"; values gate first, like the reference. Returns 0 ok, 1 rejected.
+// Writer, with the CLI's value gates. A "-default" suffix means the library's
+// default form; values gate first, like the reference. Returns 0 ok, 1 rejected.
 static int try_apply_op_c(shcl_doc *d, char *line) {
 	size_t cap = 8, nf = 0; char **f = (char **)xrealloc(NULL, cap * sizeof *f);
 	f[nf++] = line;
@@ -448,6 +451,7 @@ static int try_apply_op_c(shcl_doc *d, char *line) {
 	}
 	else rc = 2; // no such op here: a misspelled bad-ops row is a fixture bug
 	if (rc == 0 && wrote != SHCL_SET_OK) rc = 1;
+	op_wrote = wrote;
 	#undef SET
 	free(f);
 	return rc;
@@ -1063,7 +1067,7 @@ static void setter_status_agrees_with_the_path_check(void) {
 	const int64_t two[] = {1, 2}, three[] = {3};
 	seq_s = 0x5EED57A71C0000D1ULL;
 	SeqBuf text = {0}, path = {0}, before = {0};
-	int seen[SHCL_SET_NO_READ_BACK + 1] = {0}, bad = 0;
+	int seen[SHCL_SET_RAW_BLOCK + 1] = {0}, bad = 0;
 	for (int i = 0; i < 3000 && !bad; i++) {
 		seq_doc(&text);
 		shcl_doc *d = shcl_parse(text.p, text.n);
@@ -1091,7 +1095,7 @@ static void setter_status_agrees_with_the_path_check(void) {
 		case 8: got = shcl_set_int_array_default(d, path.p, path.n, three, 1); break;
 		default: got = shcl_set_empty(d, path.p, path.n); break;
 		}
-		if ((size_t)got <= SHCL_SET_NO_READ_BACK) seen[got] = 1;
+		if ((size_t)got <= SHCL_SET_RAW_BLOCK) seen[got] = 1;
 		shcl_set_status want = got <= SHCL_SET_UNDER_ARRAY ? got : SHCL_SET_OK;
 		if (checked != want) {
 			fprintf(stderr, "FAIL setter_status: iteration %d: op %zu at %s gave %s, check_set_path %s:\n%s", i, op, path.p, shcl_set_status_name(got), shcl_set_status_name(checked), text.p);
@@ -3476,12 +3480,12 @@ int main(int argc, char **argv) {
 			SHCL_SET_OK, SHCL_SET_BAD_PATH, SHCL_SET_VALUE_IN_PATH, SHCL_SET_WILDCARD, SHCL_SET_NO_SUCH_INDEX,
 			SHCL_SET_TOO_DEEP, SHCL_SET_MULTIPLE, SHCL_SET_UNDER_ARRAY, SHCL_SET_HAS_CHILDREN, SHCL_SET_NOT_FINITE,
 			SHCL_SET_BAD_DATETIME, SHCL_SET_BAD_RAW_INFO, SHCL_SET_BAD_RAW_BODY, SHCL_SET_BAD_COMMENT,
-			SHCL_SET_NOT_ONE_VALUE, SHCL_SET_NOT_UTF8, SHCL_SET_OUT_OF_RANGE, SHCL_SET_NO_READ_BACK,
+			SHCL_SET_NOT_ONE_VALUE, SHCL_SET_NOT_UTF8, SHCL_SET_OUT_OF_RANGE, SHCL_SET_NO_READ_BACK, SHCL_SET_RAW_BLOCK,
 		};
 		static const char *const snames[] = {
 			"Ok", "BadPath", "ValueInPath", "Wildcard", "NoSuchIndex", "TooDeep", "Multiple", "UnderArray",
 			"HasChildren", "NotFinite", "BadDateTime", "BadRawInfo", "BadRawBody", "BadComment", "NotOneValue",
-			"NotUtf8", "OutOfRange", "NoReadBack",
+			"NotUtf8", "OutOfRange", "NoReadBack", "RawBlock",
 		};
 		if (sizeof all / sizeof all[0] != sizeof snames / sizeof snames[0]) fail("setter_status_order", "a value and its name are not one to one");
 		for (size_t i = 0; i < sizeof all / sizeof all[0]; i++) {
@@ -5250,6 +5254,117 @@ int main(int argc, char **argv) {
 		_rmdir(sdir);
 	}
 #endif
+
+	// A default form writes where the field is missing, empty or does not read
+	// as its type, and keeps a value it replaces above the field as a comment
+	// with a note. A raw block stays (RAW_BLOCK), an array on a field with
+	// lines under it is refused as from the plain setter, and the value is
+	// judged first. The typed read decides, at the document's strictness, so
+	// `$5` is an int only when loose. A second call writes nothing, and the
+	// canonical text is a fixpoint. Same table in every runner.
+	test_id("EsJZko6", "default_fills_what_does_not_read");
+	{
+#ifdef _WIN32
+		_putenv_s("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT");
+#else
+		setenv("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT", 1);
+#endif
+		static const char dtext[] = "port: abc  # the port\nempty:\ngood: 8080\nlist: [80, 443]\nflag: maybe\nports: 80\nwords: a\nscript:\n\t```sh\n\techo hi\n\t```\nsrv:\n\tk: 1\nn: $5\n";
+#define DNOTE(line, path, what) "# " line "  ## replaced by shcl when setting a default for " path ", 2026-10-04 00:15:00 PDT: not " what
+		static const struct { const char *op, *path; shcl_set_status want; const char *note; int writes; } dr[] = {
+			{"int-default\tport\t9", "port", SHCL_SET_OK, DNOTE("port: abc", "port", "an int"), 1},
+			{"int-default\tempty\t3", "empty", SHCL_SET_OK, "", 1},
+			{"int-default\tgood\t1", "good", SHCL_SET_OK, "", 0},
+			{"int-default\tlist\t1", "list", SHCL_SET_OK, DNOTE("list: [80, 443]", "list", "an int"), 1},
+			{"float-default\tlist\t1.5", "list", SHCL_SET_OK, DNOTE("list: [80, 443]", "list", "a float"), 1},
+			{"bool-default\tflag\ttrue", "flag", SHCL_SET_OK, DNOTE("flag: maybe", "flag", "a bool"), 1},
+			{"datetime-default\tport\t2026-01-02", "port", SHCL_SET_OK, DNOTE("port: abc", "port", "a datetime"), 1},
+			{"int-array-default\tports\t1", "ports", SHCL_SET_OK, "", 0},
+			{"int-array-default\twords\t1\t2", "words", SHCL_SET_OK, DNOTE("words: a", "words", "an int array"), 1},
+			{"raw-default\tport\tsh\techo", "port", SHCL_SET_OK, DNOTE("port: abc", "port", "a raw block"), 1},
+			{"int-default\tscript\t1", "script", SHCL_SET_RAW_BLOCK, "", 0},
+			{"int-array-default\tscript\t1", "script", SHCL_SET_RAW_BLOCK, "", 0},
+			{"string-default\tscript\tx", "script", SHCL_SET_OK, "", 0},
+			{"string-default\tempty\tx", "empty", SHCL_SET_OK, "", 1},
+			{"literal-default\tport\t[1, 2]", "port", SHCL_SET_OK, "", 0},
+			{"int-default\tsrv\t5", "srv", SHCL_SET_OK, "", 1},
+			{"int-array-default\tsrv\t1", "srv", SHCL_SET_HAS_CHILDREN, "", 0},
+			{"int-default\tn\t1", "n", SHCL_SET_OK, DNOTE("n: $5", "n", "an int"), 1},
+		};
+#undef DNOTE
+		for (size_t i = 0; i < sizeof dr / sizeof dr[0]; i++) {
+			char line[128];
+			shcl_doc *dd = shcl_parse(dtext, sizeof dtext - 1);
+			shcl_str before = shcl_to_canonical(dd);
+			shcl_str *cs; size_t had = shcl_comments(dd, dr[i].path, strlen(dr[i].path), &cs);
+			snprintf(line, sizeof line, "%s", dr[i].op);
+			op_wrote = SHCL_SET_OK;
+			try_apply_op_c(dd, line);
+			if (op_wrote != dr[i].want) { fprintf(stderr, "FAIL default_fills: %s gave %s\n", dr[i].op, shcl_set_status_name(op_wrote)); nfail++; }
+			shcl_str after = shcl_to_canonical(dd);
+			int wrote = after.n != before.n || memcmp(after.p, before.p, after.n) != 0;
+			if (wrote != dr[i].writes) { fprintf(stderr, "FAIL default_fills: %s wrote %d:\n%.*s", dr[i].op, wrote, (int)after.n, after.p); nfail++; }
+			size_t nc = shcl_comments(dd, dr[i].path, strlen(dr[i].path), &cs);
+			if (!dr[i].note[0]) { if (nc != had) { fprintf(stderr, "FAIL default_fills: %s added a comment\n", dr[i].op); nfail++; } }
+			else if (nc != had + 1 || cs[had].n != strlen(dr[i].note) || memcmp(cs[had].p, dr[i].note, cs[had].n) != 0) {
+				fprintf(stderr, "FAIL default_fills: %s note %.*s\n", dr[i].op, nc > had ? (int)cs[had].n : 0, nc > had ? cs[had].p : ""); nfail++;
+			}
+			shcl_doc *db = shcl_parse(after.p, after.n);
+			shcl_str back = shcl_to_canonical(db);
+			if (back.n != after.n || memcmp(back.p, after.p, after.n) != 0) { fprintf(stderr, "FAIL default_fills: %s is not a fixpoint\n", dr[i].op); nfail++; }
+			snprintf(line, sizeof line, "%s", dr[i].op); try_apply_op_c(dd, line);
+			snprintf(line, sizeof line, "%s", dr[i].op); try_apply_op_c(db, line);
+			shcl_str a2 = shcl_to_canonical(dd), b2 = shcl_to_canonical(db);
+			if (a2.n != after.n || memcmp(a2.p, after.p, after.n) != 0 || b2.n != after.n || memcmp(b2.p, after.p, after.n) != 0) { fprintf(stderr, "FAIL default_fills: %s a second call wrote\n", dr[i].op); nfail++; }
+			shcl_free(db); shcl_free(dd);
+		}
+		shcl_doc *nan = shcl_parse(dtext, sizeof dtext - 1);
+		shcl_str nb = shcl_to_canonical(nan);
+		if (shcl_set_float_default(nan, "port", 4, NAN) != SHCL_SET_NOT_FINITE) fail("default_fills", "NaN over a bad value");
+		shcl_str na = shcl_to_canonical(nan);
+		if (na.n != nb.n || memcmp(na.p, nb.p, na.n) != 0) fail("default_fills", "a refused NaN wrote");
+		shcl_free(nan);
+		shcl_doc *loose = shcl_parse_with(dtext, sizeof dtext - 1, SHCL_LOOSE);
+		shcl_str lb = shcl_to_canonical(loose);
+		if (shcl_set_int_default(loose, "n", 1, 1) != SHCL_SET_OK) fail("default_fills", "loose $5 refused");
+		shcl_str la = shcl_to_canonical(loose);
+		if (la.n != lb.n || memcmp(la.p, lb.p, la.n) != 0 || shcl_read_int(loose, "n", 1).status != SHCL_GOOD) fail("default_fills", "loose $5 was replaced");
+		shcl_free(loose);
+	}
+	// A replaced line kept as a comment goes through the save that keeps
+	// lines, `fmt` and a reload unchanged, and a run of the same defaults on
+	// the saved text writes nothing. Same fixture in every runner.
+	test_id("EsJZkoA", "default_replace_round_trips");
+	{
+		static const char rtext[] = "srv:\n    Port:   abc     # keep\n    other: 1\nlist:\n  - 80\n  - x  # ex\nn: 5\n";
+		static const char *const rops[] = {"int-default\tsrv.port\t9", "int-array-default\tlist\t1\t2", "int-default\tn\t7"};
+		static const char rwant[] = "srv:\n    # port: abc  ## replaced by shcl when setting a default for srv.port, 2026-10-04 00:15:00 PDT: not an int\n    Port:   9     # keep\n    other: 1\n# ex\n# list: [80, x]  ## replaced by shcl when setting a default for list, 2026-10-04 00:15:00 PDT: not an int array\nlist:\n    - 1\n    - 2\nn: 5\n";
+		char line[128];
+		shcl_doc *rd = shcl_parse_keep_lines(rtext, sizeof rtext - 1, SHCL_STANDARD);
+		for (size_t i = 0; i < 3; i++) { snprintf(line, sizeof line, "%s", rops[i]); apply_op_c(rd, line); }
+		int kept = 0;
+		shcl_str saved = shcl_to_text_keep_lines(rd, &kept);
+		if (!kept || saved.n != sizeof rwant - 1 || memcmp(saved.p, rwant, saved.n) != 0) { fprintf(stderr, "FAIL default_round_trip: kept %d:\n%.*s", kept, (int)saved.n, saved.p); nfail++; }
+		shcl_str canon = shcl_to_canonical(rd);
+		shcl_doc *r1 = shcl_parse(saved.p, saved.n), *r2 = shcl_parse(canon.p, canon.n);
+		shcl_str c1 = shcl_to_canonical(r1), c2 = shcl_to_canonical(r2);
+		if (c1.n != canon.n || memcmp(c1.p, canon.p, canon.n) != 0 || c2.n != canon.n || memcmp(c2.p, canon.p, canon.n) != 0) fail("default_round_trip", "reload or fmt changed it");
+		shcl_doc *rb = shcl_parse_keep_lines(saved.p, saved.n, SHCL_STANDARD);
+		for (size_t i = 0; i < 3; i++) { snprintf(line, sizeof line, "%s", rops[i]); apply_op_c(rb, line); }
+		int kept2 = 0;
+		shcl_str again = shcl_to_text_keep_lines(rb, &kept2);
+		if (!kept2 || again.n != saved.n || memcmp(again.p, saved.p, saved.n) != 0) fail("default_round_trip", "a second run wrote");
+		shcl_str *cs; size_t nc = shcl_comments(rb, "srv.port", 8, &cs);
+		if (nc != 1 || cs[0].n < 20 || memcmp(cs[0].p, "# port: abc  ## replaced", 24) != 0) fail("default_round_trip", "the note is not the field's comment");
+		shcl_read_i64_arr ra = shcl_read_int_array(rb, "list", 4);
+		if (shcl_get_int_or(rb, "srv.port", 8, 0) != 9 || ra.status != SHCL_GOOD || ra.n != 2 || ra.values[0] != 1 || ra.values[1] != 2) fail("default_round_trip", "reads after the round trip");
+		shcl_free(rb); shcl_free(r1); shcl_free(r2); shcl_free(rd);
+#ifdef _WIN32
+		_putenv_s("SHCL_TEST_CLOCK", "");
+#else
+		unsetenv("SHCL_TEST_CLOCK");
+#endif
+	}
 
 	test_id_end();
 	if (nfail) { fprintf(stderr, "conformance: %d failure(s)\n", nfail); return 1; }

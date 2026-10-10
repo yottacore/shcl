@@ -967,7 +967,7 @@ A missing value with no `--default`, or one that isn't the type asked for, exits
 
 The two spellings differ in how the value is read. `--set` takes **data**: its type follows the text, so `workers=8` writes an integer, but a bracket or a comma in it is content - `hosts=[a, b]` would store one quoted string. `--set-literal` takes **value syntax**, the way a file writes it, so that same text writes a two-element array. Reach for it whenever the value is not a plain scalar.
 
-Removal and set-only-if-absent have option forms too - `--remove=PATH`, `--set-default=PATH=VALUE`, `--set-literal-default=PATH=TEXT` - and all five share one ordered list, so two options touching the same path resolve in the order given. Raw blocks are the one edit with no option form; those go in as a write-ops script on stdin, one op per line, fields separated by a literal tab:
+Removal and defaults have option forms too - `--remove=PATH`, `--set-default=PATH=VALUE`, `--set-literal-default=PATH=TEXT`, where a default fills a field that is missing or empty - and all five share one ordered list, so two options touching the same path resolve in the order given. Raw blocks are the one edit with no option form; those go in as a write-ops script on stdin, one op per line, fields separated by a literal tab:
 
 ~~~bash
 shcl set --write server.shcl <<OPS

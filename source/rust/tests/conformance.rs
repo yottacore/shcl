@@ -1713,6 +1713,7 @@ fn setter_status_values_in_order() {
 		NotUtf8,
 		OutOfRange,
 		NoReadBack,
+		RawBlock,
 	];
 	let names: Vec<String> = all.iter().map(|s| format!("{s:?}")).collect();
 	assert_eq!(
@@ -1736,6 +1737,7 @@ fn setter_status_values_in_order() {
 			"NotUtf8",
 			"OutOfRange",
 			"NoReadBack",
+			"RawBlock",
 		]
 	);
 	for (i, s) in all.iter().enumerate() {
@@ -4309,4 +4311,204 @@ fn migrate_leaves_what_reads_clean_now() {
 		)
 	);
 	assert!(migrate(text, true).text.contains("ESCAPE_CHAR"));
+}
+
+/// The note's time as STAMP, so a test can pin the rest without pinning the
+/// clock, which other tests here read at the same time.
+fn default_unstamped(text: &str) -> String {
+	let mut out = String::new();
+	for line in text.split_inclusive('\n') {
+		let head = "  ## replaced by shcl when setting a default for ";
+		let (Some(k), Some(e)) = (line.find(head), line.rfind(": not ")) else {
+			out.push_str(line);
+			continue;
+		};
+		// The path ends at the last ", " before the stamp's date.
+		let Some(c) = line[k..e].rfind(", 2") else {
+			out.push_str(line);
+			continue;
+		};
+		out.push_str(&line[..k + c + 2]);
+		out.push_str("STAMP");
+		out.push_str(&line[e..]);
+	}
+	out
+}
+
+const DEFAULT_TEXT: &str = "port: abc  # the port\nempty:\ngood: 8080\nlist: [80, 443]\nflag: maybe\nports: 80\nwords: a\nscript:\n\t```sh\n\techo hi\n\t```\nsrv:\n\tk: 1\nn: $5\n";
+
+// A default form writes where the field is missing, empty or does not read
+// as its type, and keeps a value it replaces above the field as a comment
+// with a note. A raw block stays (RawBlock), an array on a field with lines
+// under it is refused as from the plain setter, and the value is judged
+// first. The typed read decides, at the document's strictness, so `$5` is
+// an int only when loose. A second call writes nothing, and the canonical
+// text is a fixpoint. Same table in every runner.
+#[test]
+fn default_fills_what_does_not_read() {
+	let _id = test_id("EsJZko3");
+	let note = |line: &str, path: &str, what: &str| {
+		format!(
+			"# {line}  ## replaced by shcl when setting a default for {path}, STAMP: not {what}"
+		)
+	};
+	// op line, status, the note above the field or "", whether it writes.
+	let rows: Vec<(&str, &str, String, bool)> = vec![
+		(
+			"int-default\tport\t9",
+			"Ok",
+			note("port: abc", "port", "an int"),
+			true,
+		),
+		("int-default\tempty\t3", "Ok", String::new(), true),
+		("int-default\tgood\t1", "Ok", String::new(), false),
+		(
+			"int-default\tlist\t1",
+			"Ok",
+			note("list: [80, 443]", "list", "an int"),
+			true,
+		),
+		(
+			"float-default\tlist\t1.5",
+			"Ok",
+			note("list: [80, 443]", "list", "a float"),
+			true,
+		),
+		(
+			"bool-default\tflag\ttrue",
+			"Ok",
+			note("flag: maybe", "flag", "a bool"),
+			true,
+		),
+		(
+			"datetime-default\tport\t2026-01-02",
+			"Ok",
+			note("port: abc", "port", "a datetime"),
+			true,
+		),
+		("int-array-default\tports\t1", "Ok", String::new(), false),
+		(
+			"int-array-default\twords\t1\t2",
+			"Ok",
+			note("words: a", "words", "an int array"),
+			true,
+		),
+		(
+			"raw-default\tport\tsh\techo",
+			"Ok",
+			note("port: abc", "port", "a raw block"),
+			true,
+		),
+		("int-default\tscript\t1", "RawBlock", String::new(), false),
+		(
+			"int-array-default\tscript\t1",
+			"RawBlock",
+			String::new(),
+			false,
+		),
+		("string-default\tscript\tx", "Ok", String::new(), false),
+		("string-default\tempty\tx", "Ok", String::new(), true),
+		("literal-default\tport\t[1, 2]", "Ok", String::new(), false),
+		("int-default\tsrv\t5", "Ok", String::new(), true),
+		(
+			"int-array-default\tsrv\t1",
+			"HasChildren",
+			String::new(),
+			false,
+		),
+		(
+			"int-default\tn\t1",
+			"Ok",
+			note("n: $5", "n", "an int"),
+			true,
+		),
+	];
+	for (op, want, want_note, writes) in &rows {
+		let mut doc = Document::parse(DEFAULT_TEXT);
+		let before = doc.to_canonical();
+		let path = op.split('\t').nth(1).unwrap();
+		let had = doc.comments(path).len();
+		let got = match try_apply_op(&mut doc, op) {
+			Ok(()) => "Ok".to_string(),
+			Err(e) => e.rsplit(": ").next().unwrap_or_default().to_string(),
+		};
+		assert_eq!(&got, want, "{op:?}");
+		let after = doc.to_canonical();
+		assert_eq!(after != before, *writes, "{op:?}:\n{after}");
+		let notes = doc.comments(path);
+		if want_note.is_empty() {
+			assert_eq!(notes.len(), had, "{op:?}: {notes:?}");
+		} else {
+			assert_eq!(notes.len(), had + 1, "{op:?}: {notes:?}");
+			assert_eq!(&default_unstamped(&notes[had]), want_note, "{op:?}");
+			assert!(
+				after.contains(&format!("{}\n", notes[had])),
+				"{op:?}:\n{after}"
+			);
+		}
+		let back = Document::parse(&after);
+		assert_eq!(back.to_canonical(), after, "{op:?}: not a fixpoint");
+		let mut again = Document::parse(&after);
+		try_apply_op(&mut doc, op).ok();
+		try_apply_op(&mut again, op).ok();
+		assert_eq!(doc.to_canonical(), after, "{op:?}: a second call wrote");
+		assert_eq!(
+			again.to_canonical(),
+			after,
+			"{op:?}: a call on the reload wrote"
+		);
+	}
+	let mut nan = Document::parse(DEFAULT_TEXT);
+	assert_eq!(
+		nan.set_float_default("port", f64::NAN),
+		shcl::SetStatus::NotFinite
+	);
+	assert_eq!(
+		nan.to_canonical(),
+		Document::parse(DEFAULT_TEXT).to_canonical()
+	);
+	let mut loose = Document::parse_with(DEFAULT_TEXT, Strictness::Loose).unwrap();
+	let before = loose.to_canonical();
+	assert_eq!(loose.set_int_default("n", 1), shcl::SetStatus::Ok);
+	assert_eq!(loose.to_canonical(), before);
+	assert_eq!(loose.read_int("n").status, Status::Good);
+}
+
+// A replaced line kept as a comment goes through the save that keeps lines,
+// `fmt` and a reload unchanged, and a run of the same defaults on the saved
+// text writes nothing. Same fixture in every runner.
+#[test]
+fn default_replace_round_trips() {
+	let _id = test_id("EsJZko7");
+	let text = "srv:\n    Port:   abc     # keep\n    other: 1\nlist:\n  - 80\n  - x  # ex\nn: 5\n";
+	let ops = [
+		"int-default\tsrv.port\t9",
+		"int-array-default\tlist\t1\t2",
+		"int-default\tn\t7",
+	];
+	let want = "srv:\n    # port: abc  ## replaced by shcl when setting a default for srv.port, STAMP: not an int\n    Port:   9     # keep\n    other: 1\n# ex\n# list: [80, x]  ## replaced by shcl when setting a default for list, STAMP: not an int array\nlist:\n    - 1\n    - 2\nn: 5\n";
+	let mut doc = Document::parse_keep_lines(text, Strictness::Standard).unwrap();
+	for op in ops {
+		apply_op(&mut doc, op, op);
+	}
+	let (saved, kept) = doc.to_text_keep_lines();
+	assert!(kept, "fell back to canonical:\n{saved}");
+	assert_eq!(default_unstamped(&saved), want);
+	let canon = doc.to_canonical();
+	assert_eq!(Document::parse(&saved).to_canonical(), canon);
+	assert_eq!(
+		Document::parse(&canon).to_canonical(),
+		canon,
+		"fmt is not a fixpoint"
+	);
+	let mut back = Document::parse_keep_lines(&saved, Strictness::Standard).unwrap();
+	for op in ops {
+		apply_op(&mut back, op, op);
+	}
+	assert_eq!(back.to_text_keep_lines(), (saved.clone(), true));
+	let notes = back.comments("srv.port");
+	assert_eq!(notes.len(), 1, "{notes:?}");
+	assert!(saved.contains(&notes[0]));
+	assert_eq!(back.get_int("srv.port"), Ok(9));
+	assert_eq!(back.get_int_array("list"), Ok(vec![1, 2]));
 }

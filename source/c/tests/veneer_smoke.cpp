@@ -470,6 +470,7 @@ int main() {
 		CHECK(w.set_int("ports.x", 1) == S::UnderArray && w.check_set_path("ports.x") == S::UnderArray);
 		CHECK(w.set_int("hc.x", 1) == S::Ok && w.set_int_array("hc", {1}) == S::HasChildren);
 		CHECK(std::string(shcl::to_string(S::Ok)) == "Ok" && std::string(shcl::to_string(S::NoReadBack)) == "NoReadBack" && static_cast<int>(S::NoReadBack) == 17);
+		CHECK(std::string(shcl::to_string(S::RawBlock)) == "RawBlock" && static_cast<int>(S::RawBlock) == 18);
 		CHECK(w.remove("blank") == 1 && !w.exists("blank") && w.remove("blank") == 0);
 
 		// A default form leaves a present field alone and still says whether the

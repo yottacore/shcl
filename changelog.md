@@ -486,6 +486,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - C builds a schema in linear time.
 
+- The default setters make sure a field has a usable value of their type. They write where the field is missing, empty, or holds a value that does not read as that type, and keep a replaced value above the field as a comment saying so. A raw block stays, and a default of another type on it gives the new `SetStatus` value `RawBlock` (Go `SetRawBlock`, C `SHCL_SET_RAW_BLOCK`). `--set-default` and `--set-literal-default` fill a missing or empty field.
+
 ## v2.0.0 - 2026-08-26
 
 The first major since 1.0.0. Two things change incompatibly, both listed under Changed: escapes now resolve in field names, so `"a\"b"` and `'a"b'` are one field where they used to be two; and the C++ veneer's `read_datetime` returns the structured value every other binding's does, with the textual form moving to `read_datetime_str`. Canonical output also moves for several shapes - in each case one where the old output lost something or would not settle - so a file reformatted by 2.0 can differ from the same file reformatted by 1.2. Go consumers update the import path to `github.com/jim-collier/shcl/source/go/v2`, and anyone who installed the Go CLI switches to the Rust binary, which is the only one distributed now - see Removed. Rust and Python consumers change a version constraint and nothing else.

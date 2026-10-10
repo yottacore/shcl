@@ -124,7 +124,8 @@ typedef enum {
 	SHCL_SET_NOT_ONE_VALUE,  // shcl_set_literal text that is not one value
 	SHCL_SET_NOT_UTF8,       // value, comment, info or body text that is not valid UTF-8
 	SHCL_SET_OUT_OF_RANGE,   // an int past the 64-bit range; never from C, whose int64_t cannot hold one
-	SHCL_SET_NO_READ_BACK    // any other value that would not read back as itself; none is known
+	SHCL_SET_NO_READ_BACK,   // any other value that would not read back as itself; none is known
+	SHCL_SET_RAW_BLOCK       // a default of another type at a raw block, whose body a replace would lose
 } shcl_set_status;
 
 typedef struct shcl_doc shcl_doc;
@@ -812,10 +813,10 @@ shcl_upgrade_error shcl_upgrade_file(const char *path, int from_v2, shcl_upgrade
 // is wrong, as shcl_check_set_path gives it, else the value's. A step of the
 // path that matches more than one field is SHCL_SET_MULTIPLE, since the read
 // after the write would say Multiple; `port(0)` or `site(1).root` picks one.
-// A _default form on a path already there writes nothing and gives what the
-// plain setter would. Worth checking rather than assuming: an ignored refusal
-// means the save that follows writes a document missing the edit, and reports
-// success doing it. SHCL_SET_OK is 0, so test `!= SHCL_SET_OK`, never `!`.
+// A _default form writes unless the field already reads as its type, and on
+// a path whose value reads it gives what the plain setter would. Worth
+// checking rather than assuming: an ignored refusal means the save that
+// follows writes a document missing the edit, and reports success doing it. SHCL_SET_OK is 0, so test `!= SHCL_SET_OK`, never `!`.
 shcl_doc *shcl_new(void); // an empty document (start point for generation), or NULL on an allocation failure
 int shcl_exists(shcl_doc *d, const char *path, size_t plen);       // 0/1
 // shcl_exists with a status: SHCL_GOOD when it is 1, SHCL_NOT_FOUND when the
@@ -871,7 +872,7 @@ shcl_set_status shcl_set_empty(shcl_doc *d, const char *path, size_t plen);
 // only the path reasons, SHCL_SET_BAD_PATH to SHCL_SET_UNDER_ARRAY. A setter
 // can still refuse its value on an OK path, and its own status says why.
 shcl_set_status shcl_check_set_path(shcl_doc *d, const char *path, size_t plen);
-// The status's name as the other bindings print it, "Ok" to "NoReadBack".
+// The status's name as the other bindings print it, "Ok" to "RawBlock".
 const char *shcl_set_status_name(shcl_set_status s);
 
 shcl_set_status shcl_set_int(shcl_doc *d, const char *path, size_t plen, int64_t v);
@@ -903,7 +904,12 @@ shcl_set_status shcl_set_datetime_array(shcl_doc *d, const char *path, size_t pl
 // not hold). A # outside quotes ends the value as it would in a file.
 shcl_set_status shcl_set_literal(shcl_doc *d, const char *path, size_t plen, const char *text, size_t tlen);
 
-// Default (only-if-absent) forms - the "emit defaults" half of the Writer.
+// Default forms - the "emit defaults" half of the Writer. Each writes unless
+// the field already reads as its type, by the typed read at the document's
+// strictness: missing, empty or not that type, the field gets the default, and
+// an old value stays above it as a comment with a note. A raw block there
+// stays and gives SHCL_SET_RAW_BLOCK. The string and literal forms count any
+// value, since any value reads as a string.
 shcl_set_status shcl_set_int_default(shcl_doc *d, const char *path, size_t plen, int64_t v);
 shcl_set_status shcl_set_float_default(shcl_doc *d, const char *path, size_t plen, double v);
 shcl_set_status shcl_set_bool_default(shcl_doc *d, const char *path, size_t plen, int v);
@@ -7533,6 +7539,26 @@ shcl_set_status shcl_check_set_path(shcl_doc *d, const char *path, size_t plen) 
 	return w_check_set_path(d, &d->scratch, p);
 }
 
+/* A comment line right above a node, after any already there. text is in
+   the document arena. */
+static void w_push_comment(shcl_doc *d, size_t idx, ShclStr text) {
+	ShclArena *a = &d->arena;
+	/* The node's own blank moves above its first comment; otherwise the blank
+	   would separate the comment from what it annotates. Above the first one
+	   already there, when there is one. */
+	ShclNode *nd = &NODE(d, idx);
+	ShclLead lead = lead_plain(text);
+	ShclTrivia *t = triv_mut(a, nd);
+	if (nd->blank_before) {
+		nd->blank_before = 0;
+		if (t->leading.len) t->leading.data[0].blank_before = 1;
+		else lead.blank_before = 1;
+	}
+	ShclVecLead_push(a, &t->leading, lead);
+	settle_first_blank(d);
+	resettle_kept(d);
+}
+
 /* Attach a leading comment line to the node at a path (creating an empty node
    if it does not exist yet, so a section can be annotated). A missing `#` is
    added, and trailing whitespace comes off the way the load takes it, so text
@@ -7550,20 +7576,7 @@ shcl_set_status shcl_set_comment(shcl_doc *d, const char *path, size_t plen, con
 	ShclStr out = s_dup(a, line);
 	shcl_set_status placed = w_place(d, p, 0, &idx);
 	if (placed != SHCL_SET_OK) { arena_release(a, m); return placed; }
-	/* The node's own blank moves above its first comment; otherwise the blank
-	   would separate the comment from what it annotates. Above the first one
-	   already there, when there is one. */
-	ShclNode *nd = &NODE(d, idx);
-	ShclLead lead = lead_plain(out);
-	ShclTrivia *t = triv_mut(a, nd);
-	if (nd->blank_before) {
-		nd->blank_before = 0;
-		if (t->leading.len) t->leading.data[0].blank_before = 1;
-		else lead.blank_before = 1;
-	}
-	ShclVecLead_push(a, &t->leading, lead);
-	settle_first_blank(d);
-	resettle_kept(d);
+	w_push_comment(d, idx, out);
 	return SHCL_SET_OK;
 }
 
@@ -7843,10 +7856,15 @@ shcl_set_status shcl_set_datetime_array(shcl_doc *d, const char *path, size_t pl
 	return w_set_marked(d, p, w_array(a, t, n), m);
 }
 
-/* A default form writes only where nothing is yet. Where something is, it
-   writes nothing and reports what a write there would: the path's verdict,
-   then the value's, which the same setter gives on the probe document. NULL
-   means the path alone refuses, and *st says why. */
+/* Default forms - the "emit defaults" half of the Writer. Each one makes sure
+   the field has a usable value of its type: it writes where the path is
+   missing, where the field is empty, and where its value does not read as
+   that type by the typed read at the document's strictness. A value it
+   replaces stays above the field as a comment with a note (design.md, Default
+   forms). Where the value reads, nothing is written, and the call still
+   reports what a write there would: the path's verdict, then the value's,
+   which the same setter gives on the probe document. NULL means the path
+   alone refuses, and *st says why. */
 static shcl_doc *w_default_probe(shcl_doc *d, const char *path, size_t plen, shcl_set_status *st) {
 	*st = shcl_check_set_path(d, path, plen);
 	if (*st != SHCL_SET_OK) return NULL;
@@ -7862,18 +7880,114 @@ static shcl_doc *w_default_probe(shcl_doc *d, const char *path, size_t plen, shc
 	arena_reset_smallest(&d->probe_doc->scratch);
 	return d->probe_doc;
 }
-shcl_set_status shcl_set_int_default(shcl_doc *d, const char *path, size_t plen, int64_t v) { if (!shcl_exists(d, path, plen)) return shcl_set_int(d, path, plen, v); shcl_set_status st; shcl_doc *e = w_default_probe(d, path, plen, &st); return e ? shcl_set_int(e, "v", 1, v) : st; }
-shcl_set_status shcl_set_float_default(shcl_doc *d, const char *path, size_t plen, double v) { if (!shcl_exists(d, path, plen)) return shcl_set_float(d, path, plen, v); shcl_set_status st; shcl_doc *e = w_default_probe(d, path, plen, &st); return e ? shcl_set_float(e, "v", 1, v) : st; }
-shcl_set_status shcl_set_bool_default(shcl_doc *d, const char *path, size_t plen, int v) { if (!shcl_exists(d, path, plen)) return shcl_set_bool(d, path, plen, v); shcl_set_status st; shcl_doc *e = w_default_probe(d, path, plen, &st); return e ? shcl_set_bool(e, "v", 1, v) : st; }
-shcl_set_status shcl_set_string_default(shcl_doc *d, const char *path, size_t plen, const char *s, size_t slen) { if (!shcl_exists(d, path, plen)) return shcl_set_string(d, path, plen, s, slen); shcl_set_status st; shcl_doc *e = w_default_probe(d, path, plen, &st); return e ? shcl_set_string(e, "v", 1, s, slen) : st; }
-shcl_set_status shcl_set_literal_default(shcl_doc *d, const char *path, size_t plen, const char *text, size_t tlen) { if (!shcl_exists(d, path, plen)) return shcl_set_literal(d, path, plen, text, tlen); shcl_set_status st; shcl_doc *e = w_default_probe(d, path, plen, &st); return e ? shcl_set_literal(e, "v", 1, text, tlen) : st; }
-shcl_set_status shcl_set_datetime_default(shcl_doc *d, const char *path, size_t plen, const shcl_datetime *dt) { if (!shcl_exists(d, path, plen)) return shcl_set_datetime(d, path, plen, dt); shcl_set_status st; shcl_doc *e = w_default_probe(d, path, plen, &st); return e ? shcl_set_datetime(e, "v", 1, dt) : st; }
-shcl_set_status shcl_set_raw_default(shcl_doc *d, const char *path, size_t plen, const char *content, size_t clen, const char *info, size_t ilen) { if (!shcl_exists(d, path, plen)) return shcl_set_raw(d, path, plen, content, clen, info, ilen); shcl_set_status st; shcl_doc *e = w_default_probe(d, path, plen, &st); return e ? shcl_set_raw(e, "v", 1, content, clen, info, ilen) : st; }
-shcl_set_status shcl_set_int_array_default(shcl_doc *d, const char *path, size_t plen, const int64_t *v, size_t n) { if (!shcl_exists(d, path, plen)) return shcl_set_int_array(d, path, plen, v, n); shcl_set_status st; shcl_doc *e = w_default_probe(d, path, plen, &st); return e ? shcl_set_int_array(e, "v", 1, v, n) : st; }
-shcl_set_status shcl_set_float_array_default(shcl_doc *d, const char *path, size_t plen, const double *v, size_t n) { if (!shcl_exists(d, path, plen)) return shcl_set_float_array(d, path, plen, v, n); shcl_set_status st; shcl_doc *e = w_default_probe(d, path, plen, &st); return e ? shcl_set_float_array(e, "v", 1, v, n) : st; }
-shcl_set_status shcl_set_bool_array_default(shcl_doc *d, const char *path, size_t plen, const int *v, size_t n) { if (!shcl_exists(d, path, plen)) return shcl_set_bool_array(d, path, plen, v, n); shcl_set_status st; shcl_doc *e = w_default_probe(d, path, plen, &st); return e ? shcl_set_bool_array(e, "v", 1, v, n) : st; }
-shcl_set_status shcl_set_string_array_default(shcl_doc *d, const char *path, size_t plen, const char *const *v, const size_t *lens, size_t n) { if (!shcl_exists(d, path, plen)) return shcl_set_string_array(d, path, plen, v, lens, n); shcl_set_status st; shcl_doc *e = w_default_probe(d, path, plen, &st); return e ? shcl_set_string_array(e, "v", 1, v, lens, n) : st; }
-shcl_set_status shcl_set_datetime_array_default(shcl_doc *d, const char *path, size_t plen, const shcl_datetime *v, size_t n) { if (!shcl_exists(d, path, plen)) return shcl_set_datetime_array(d, path, plen, v, n); shcl_set_status st; shcl_doc *e = w_default_probe(d, path, plen, &st); return e ? shcl_set_datetime_array(e, "v", 1, v, n) : st; }
+
+/* What a default form writes, for whichever setter it stands in front of. */
+typedef struct {
+	const void *v;
+	size_t n;
+	const size_t *lens;
+	const char *info;
+	size_t ilen;
+} WDefault;
+typedef shcl_set_status (*w_default_set)(shcl_doc *d, const char *path, size_t plen, const WDefault *w);
+typedef shcl_status (*w_default_reads)(shcl_doc *d, const char *path, size_t plen);
+
+static void put_note_text(ShclArena *a, ShclSB *b, ShclStr s);
+static void note_stamp(ShclArena *a, ShclSB *b);
+static int emit_value_text(ShclArena *a, const ShclValue *v, ShclStr *out);
+
+/* A default written over a value that does not read as its type. The old
+   line goes above the field as a comment, so nothing typed by hand is lost.
+   A raw block stays, since its body has no one-line comment. */
+static shcl_set_status w_replace_default(shcl_doc *d, const char *path, size_t plen, const char *what, w_default_set set, const WDefault *w) {
+	ShclArena *a = &d->arena; ShclStr p; p.p = path; p.n = plen; size_t idx;
+	if (!w_write_target(d, p, &idx)) return set(d, path, plen, w);
+	if (NODE(d, idx).value.kind == V_RAW) return SHCL_SET_RAW_BLOCK;
+	/* Written the way the canonical text writes the line, so the note is the
+	   same on a document and on a reload of its text. */
+	ShclMark m = arena_mark(a);
+	ShclStr val;
+	emit_value_text(&d->scratch, &NODE(d, idx).value, &val);
+	ShclSB b = {0};
+	sb_puts(a, &b, "# "); sb_putS(a, &b, emit_name(&d->scratch, NODE(d, idx).name));
+	sb_puts(a, &b, ": "); sb_putS(a, &b, val);
+	sb_puts(a, &b, "  ## replaced by shcl when setting a default for ");
+	put_note_text(a, &b, p);
+	sb_puts(a, &b, ", ");
+	note_stamp(a, &b);
+	sb_puts(a, &b, ": not "); sb_puts(a, &b, what);
+	ShclStr was = sb_S(&b);
+	size_t parent = NODE(d, idx).parent; ShclStr name = NODE(d, idx).name;
+	shcl_set_status st = set(d, path, plen, w);
+	if (st != SHCL_SET_OK) { arena_release(a, m); return st; }
+	/* A value equal to another instance's folds the two, and the earlier one
+	   stays. */
+	size_t at = idx, k;
+	for (k = 0; k < NODE(d, parent).children.len && NODE(d, parent).children.data[k] != idx; k++) {}
+	if (k == NODE(d, parent).children.len) {
+		ShclVecSize kids = {0};
+		children_named(d, &d->scratch, parent, name, &kids);
+		for (size_t i = 0; i < kids.len; i++) {
+			const ShclNode *c = &NODE(d, kids.data[i]);
+			if (merge_eq(c->name, &c->value, name, &NODE(d, idx).value)) { at = kids.data[i]; break; }
+		}
+	}
+	w_push_comment(d, at, was);
+	return SHCL_SET_OK;
+}
+
+static shcl_set_status w_set_default(shcl_doc *d, const char *path, size_t plen, const char *what, w_default_reads reads, w_default_set set, const WDefault *w) {
+	if (!shcl_exists(d, path, plen)) return set(d, path, plen, w);
+	shcl_set_status st;
+	shcl_doc *e = w_default_probe(d, path, plen, &st);
+	if (!e) return st;
+	st = set(e, "v", 1, w);
+	if (st != SHCL_SET_OK) return st;
+	ShclMark m = arena_mark(&d->reads);
+	shcl_status r = reads(d, path, plen);
+	arena_release(&d->reads, m);
+	if (r == SHCL_GOOD) return SHCL_SET_OK;
+	if (r == SHCL_BAD_TYPE) return w_replace_default(d, path, plen, what, set, w);
+	return set(d, path, plen, w);
+}
+
+static shcl_status w_reads_int(shcl_doc *d, const char *p, size_t n) { return shcl_read_int(d, p, n).status; }
+static shcl_status w_reads_float(shcl_doc *d, const char *p, size_t n) { return shcl_read_float(d, p, n).status; }
+static shcl_status w_reads_bool(shcl_doc *d, const char *p, size_t n) { return shcl_read_bool_(d, p, n).status; }
+static shcl_status w_reads_string(shcl_doc *d, const char *p, size_t n) { return shcl_read_string(d, p, n).status; }
+static shcl_status w_reads_datetime(shcl_doc *d, const char *p, size_t n) { return shcl_read_datetime(d, p, n).status; }
+static shcl_status w_reads_raw(shcl_doc *d, const char *p, size_t n) { return shcl_read_raw(d, p, n).status; }
+static shcl_status w_reads_int_array(shcl_doc *d, const char *p, size_t n) { return shcl_read_int_array(d, p, n).status; }
+static shcl_status w_reads_float_array(shcl_doc *d, const char *p, size_t n) { return shcl_read_float_array(d, p, n).status; }
+static shcl_status w_reads_bool_array(shcl_doc *d, const char *p, size_t n) { return shcl_read_bool_array(d, p, n).status; }
+static shcl_status w_reads_string_array(shcl_doc *d, const char *p, size_t n) { return shcl_read_string_array(d, p, n).status; }
+static shcl_status w_reads_datetime_array(shcl_doc *d, const char *p, size_t n) { return shcl_read_datetime_array(d, p, n).status; }
+
+static shcl_set_status w_sets_int(shcl_doc *d, const char *p, size_t n, const WDefault *w) { return shcl_set_int(d, p, n, *(const int64_t *)w->v); }
+static shcl_set_status w_sets_float(shcl_doc *d, const char *p, size_t n, const WDefault *w) { return shcl_set_float(d, p, n, *(const double *)w->v); }
+static shcl_set_status w_sets_bool(shcl_doc *d, const char *p, size_t n, const WDefault *w) { return shcl_set_bool(d, p, n, *(const int *)w->v); }
+static shcl_set_status w_sets_string(shcl_doc *d, const char *p, size_t n, const WDefault *w) { return shcl_set_string(d, p, n, (const char *)w->v, w->n); }
+static shcl_set_status w_sets_literal(shcl_doc *d, const char *p, size_t n, const WDefault *w) { return shcl_set_literal(d, p, n, (const char *)w->v, w->n); }
+static shcl_set_status w_sets_datetime(shcl_doc *d, const char *p, size_t n, const WDefault *w) { return shcl_set_datetime(d, p, n, (const shcl_datetime *)w->v); }
+static shcl_set_status w_sets_raw(shcl_doc *d, const char *p, size_t n, const WDefault *w) { return shcl_set_raw(d, p, n, (const char *)w->v, w->n, w->info, w->ilen); }
+static shcl_set_status w_sets_int_array(shcl_doc *d, const char *p, size_t n, const WDefault *w) { return shcl_set_int_array(d, p, n, (const int64_t *)w->v, w->n); }
+static shcl_set_status w_sets_float_array(shcl_doc *d, const char *p, size_t n, const WDefault *w) { return shcl_set_float_array(d, p, n, (const double *)w->v, w->n); }
+static shcl_set_status w_sets_bool_array(shcl_doc *d, const char *p, size_t n, const WDefault *w) { return shcl_set_bool_array(d, p, n, (const int *)w->v, w->n); }
+static shcl_set_status w_sets_string_array(shcl_doc *d, const char *p, size_t n, const WDefault *w) { return shcl_set_string_array(d, p, n, (const char *const *)w->v, w->lens, w->n); }
+static shcl_set_status w_sets_datetime_array(shcl_doc *d, const char *p, size_t n, const WDefault *w) { return shcl_set_datetime_array(d, p, n, (const shcl_datetime *)w->v, w->n); }
+
+shcl_set_status shcl_set_int_default(shcl_doc *d, const char *path, size_t plen, int64_t v) { WDefault w = {&v, 0, NULL, NULL, 0}; return w_set_default(d, path, plen, "an int", w_reads_int, w_sets_int, &w); }
+shcl_set_status shcl_set_float_default(shcl_doc *d, const char *path, size_t plen, double v) { WDefault w = {&v, 0, NULL, NULL, 0}; return w_set_default(d, path, plen, "a float", w_reads_float, w_sets_float, &w); }
+shcl_set_status shcl_set_bool_default(shcl_doc *d, const char *path, size_t plen, int v) { WDefault w = {&v, 0, NULL, NULL, 0}; return w_set_default(d, path, plen, "a bool", w_reads_bool, w_sets_bool, &w); }
+shcl_set_status shcl_set_string_default(shcl_doc *d, const char *path, size_t plen, const char *s, size_t slen) { WDefault w = {s, slen, NULL, NULL, 0}; return w_set_default(d, path, plen, "a string", w_reads_string, w_sets_string, &w); }
+shcl_set_status shcl_set_literal_default(shcl_doc *d, const char *path, size_t plen, const char *text, size_t tlen) { WDefault w = {text, tlen, NULL, NULL, 0}; return w_set_default(d, path, plen, "a string", w_reads_string, w_sets_literal, &w); }
+shcl_set_status shcl_set_datetime_default(shcl_doc *d, const char *path, size_t plen, const shcl_datetime *dt) { WDefault w = {dt, 0, NULL, NULL, 0}; return w_set_default(d, path, plen, "a datetime", w_reads_datetime, w_sets_datetime, &w); }
+shcl_set_status shcl_set_raw_default(shcl_doc *d, const char *path, size_t plen, const char *content, size_t clen, const char *info, size_t ilen) { WDefault w = {content, clen, NULL, info, ilen}; return w_set_default(d, path, plen, "a raw block", w_reads_raw, w_sets_raw, &w); }
+shcl_set_status shcl_set_int_array_default(shcl_doc *d, const char *path, size_t plen, const int64_t *v, size_t n) { WDefault w = {v, n, NULL, NULL, 0}; return w_set_default(d, path, plen, "an int array", w_reads_int_array, w_sets_int_array, &w); }
+shcl_set_status shcl_set_float_array_default(shcl_doc *d, const char *path, size_t plen, const double *v, size_t n) { WDefault w = {v, n, NULL, NULL, 0}; return w_set_default(d, path, plen, "a float array", w_reads_float_array, w_sets_float_array, &w); }
+shcl_set_status shcl_set_bool_array_default(shcl_doc *d, const char *path, size_t plen, const int *v, size_t n) { WDefault w = {v, n, NULL, NULL, 0}; return w_set_default(d, path, plen, "a bool array", w_reads_bool_array, w_sets_bool_array, &w); }
+shcl_set_status shcl_set_string_array_default(shcl_doc *d, const char *path, size_t plen, const char *const *v, const size_t *lens, size_t n) { WDefault w = {v, n, lens, NULL, 0}; return w_set_default(d, path, plen, "a string array", w_reads_string_array, w_sets_string_array, &w); }
+shcl_set_status shcl_set_datetime_array_default(shcl_doc *d, const char *path, size_t plen, const shcl_datetime *v, size_t n) { WDefault w = {v, n, NULL, NULL, 0}; return w_set_default(d, path, plen, "a datetime array", w_reads_datetime_array, w_sets_datetime_array, &w); }
 
 // --- Layered loading: overlay a higher-priority document onto a lower one ----
 
@@ -10564,6 +10678,7 @@ const char *shcl_set_status_name(shcl_set_status s) {
 	case SHCL_SET_NOT_UTF8: return "NotUtf8";
 	case SHCL_SET_OUT_OF_RANGE: return "OutOfRange";
 	case SHCL_SET_NO_READ_BACK: return "NoReadBack";
+	case SHCL_SET_RAW_BLOCK: return "RawBlock";
 	}
 	return "Unknown";
 }

@@ -206,6 +206,10 @@ const (
 	// SetNoReadBack: any other value that would not read back as itself.
 	// None is known.
 	SetNoReadBack
+	// SetRawBlock: a default of another type at a field holding a raw
+	// block. Replacing it would throw the body away, since a body has no
+	// one-line comment.
+	SetRawBlock
 )
 
 // String names the status the way the other bindings do, without the prefix.
@@ -247,6 +251,8 @@ func (s SetStatus) String() string {
 		return "OutOfRange"
 	case SetNoReadBack:
 		return "NoReadBack"
+	case SetRawBlock:
+		return "RawBlock"
 	}
 	return "SetStatus(" + strconv.Itoa(int(s)) + ")"
 }
@@ -10739,11 +10745,18 @@ func (d *Document) SetComment(path, text string) SetStatus {
 	if st != SetOk {
 		return st
 	}
+	d.pushComment(idx, line)
+	return SetOk
+}
+
+// pushComment puts a comment line right above a node, after any already
+// there.
+func (d *Document) pushComment(idx int, text string) {
 	// The node's own blank moves above its first comment; otherwise the blank
 	// would separate the comment from what it annotates. Above the first one
 	// already there, when there is one.
 	nd := &d.arena[idx]
-	l := plainLead(line)
+	l := plainLead(text)
 	t := nd.trivMut()
 	if nd.blankBefore {
 		nd.blankBefore = false
@@ -10756,7 +10769,6 @@ func (d *Document) SetComment(path, text string) SetStatus {
 	t.leading = append(t.leading, l)
 	settleFirstBlank(d.arena, d.orphans)
 	d.resettleKept()
-	return SetOk
 }
 
 // Comments returns the comment lines above the node(s) at a path, the ones
@@ -11039,15 +11051,17 @@ func (d *Document) SetDateTimeArray(path string, v []DateTime) SetStatus {
 	return d.setValue(path, arrayCell(texts))
 }
 
-// Default (only-if-absent) forms - the "emit defaults" half of the Writer.
-// A path that already resolves writes nothing and reports what a write there
-// would: the path's verdict, so a wildcard is refused whether or not its slots
-// happen to resolve, and the value's, which the same setter gives on the probe
-// document.
+// Default forms - the "emit defaults" half of the Writer. Each one makes sure
+// the field has a usable value of its type: it writes where the path is
+// missing, where the field is empty, and where its value does not read as
+// that type by the typed read at the document's strictness. A value it
+// replaces stays above the field as a comment with a note (design.md, Default
+// forms). Where the value reads, nothing is written, and the call still
+// reports what a write there would: the path's verdict, so a wildcard is
+// refused whether or not its slots happen to resolve, and the value's, which
+// the same setter gives on the probe document.
 
-// setDefault runs set on the path when nothing is there yet, and otherwise
-// answers with the path's verdict and the value's.
-func (d *Document) setDefault(path string, set func(*Document, string) SetStatus) SetStatus {
+func (d *Document) setDefault(path, what string, reads func(*Document, string) Status, set func(*Document, string) SetStatus) SetStatus {
 	if !d.Exists(path) {
 		return set(d, path)
 	}
@@ -11058,22 +11072,80 @@ func (d *Document) setDefault(path string, set func(*Document, string) SetStatus
 		d.probeDoc = New()
 		d.probeDoc.probe = true
 	}
-	return set(d.probeDoc, "v")
+	if judged := set(d.probeDoc, "v"); judged != SetOk {
+		return judged
+	}
+	switch reads(d, path) {
+	case Good:
+		return SetOk
+	case BadType:
+		return d.replaceDefault(path, what, set)
+	}
+	return set(d, path)
 }
 
-// SetIntDefault is SetInt only when path has no node yet.
+// replaceDefault writes a default over a value that does not read as its
+// type. The old line goes above the field as a comment, so nothing typed by
+// hand is lost. A raw block stays, since its body has no one-line comment.
+func (d *Document) replaceDefault(path, what string, set func(*Document, string) SetStatus) SetStatus {
+	idx, ok := d.writeTarget(path)
+	if !ok {
+		return set(d, path)
+	}
+	nd := &d.arena[idx]
+	if nd.value.kind == vRaw {
+		return SetRawBlock
+	}
+	// Written the way the canonical text writes the line, so the note is the
+	// same on a document and on a reload of its text.
+	val, _ := emitValueText(&nd.value)
+	was := fmt.Sprintf("# %s: %s  ## replaced by shcl when setting a default for %s, %s: not %s",
+		emitName(nd.name), val, noteText(path), noteStamp(), what)
+	parent, name := nd.parent, nd.name
+	if st := set(d, path); st != SetOk {
+		return st
+	}
+	// A value equal to another instance's folds the two, and the earlier one
+	// stays.
+	at := idx
+	if !containsIndex(d.arena[parent].children, idx) {
+		v := &d.arena[idx].value
+		for _, c := range d.childrenNamed(parent, name) {
+			if mergeEq(d.arena[c].name, &d.arena[c].value, name, v) {
+				at = c
+				break
+			}
+		}
+	}
+	d.pushComment(at, was)
+	return SetOk
+}
+
+func containsIndex(xs []int, v int) bool {
+	for _, x := range xs {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
+// SetIntDefault is SetInt unless the field already reads as an int. Missing,
+// empty or not an int, it gets v, and an old value stays above it as a
+// comment. A raw block there stays and gives SetRawBlock. The other default
+// forms work the same way with their own type.
 func (d *Document) SetIntDefault(path string, v int64) SetStatus {
-	return d.setDefault(path, func(e *Document, p string) SetStatus { return e.SetInt(p, v) })
+	return d.setDefault(path, "an int", func(e *Document, p string) Status { return e.ReadInt(p).Status }, func(e *Document, p string) SetStatus { return e.SetInt(p, v) })
 }
 
-// SetFloatDefault is SetFloat only when path has no node yet.
+// SetFloatDefault is SetFloat unless the field already reads as that type.
 func (d *Document) SetFloatDefault(path string, v float64) SetStatus {
-	return d.setDefault(path, func(e *Document, p string) SetStatus { return e.SetFloat(p, v) })
+	return d.setDefault(path, "a float", func(e *Document, p string) Status { return e.ReadFloat(p).Status }, func(e *Document, p string) SetStatus { return e.SetFloat(p, v) })
 }
 
-// SetBoolDefault is SetBool only when path has no node yet.
+// SetBoolDefault is SetBool unless the field already reads as that type.
 func (d *Document) SetBoolDefault(path string, v bool) SetStatus {
-	return d.setDefault(path, func(e *Document, p string) SetStatus { return e.SetBool(p, v) })
+	return d.setDefault(path, "a bool", func(e *Document, p string) Status { return e.ReadBool(p).Status }, func(e *Document, p string) SetStatus { return e.SetBool(p, v) })
 }
 
 // SetLiteral binds text at path as value syntax rather than as data: "[80, 443]"
@@ -11101,49 +11173,51 @@ func (d *Document) SetLiteral(path, text string) SetStatus {
 	return st
 }
 
-// SetLiteralDefault is SetLiteral only when path has no node yet.
+// SetLiteralDefault is SetLiteral unless the field already has a value.
+// Literal text names no type, so any value counts.
 func (d *Document) SetLiteralDefault(path, text string) SetStatus {
-	return d.setDefault(path, func(e *Document, p string) SetStatus { return e.SetLiteral(p, text) })
+	return d.setDefault(path, "a string", func(e *Document, p string) Status { return e.ReadString(p).Status }, func(e *Document, p string) SetStatus { return e.SetLiteral(p, text) })
 }
 
-// SetStringDefault is SetString only when path has no node yet.
+// SetStringDefault is SetString unless the field already has a value, since
+// any value reads as a string.
 func (d *Document) SetStringDefault(path, v string) SetStatus {
-	return d.setDefault(path, func(e *Document, p string) SetStatus { return e.SetString(p, v) })
+	return d.setDefault(path, "a string", func(e *Document, p string) Status { return e.ReadString(p).Status }, func(e *Document, p string) SetStatus { return e.SetString(p, v) })
 }
 
-// SetDateTimeDefault is SetDateTime only when path has no node yet.
+// SetDateTimeDefault is SetDateTime unless the field already reads as that type.
 func (d *Document) SetDateTimeDefault(path string, v DateTime) SetStatus {
-	return d.setDefault(path, func(e *Document, p string) SetStatus { return e.SetDateTime(p, v) })
+	return d.setDefault(path, "a datetime", func(e *Document, p string) Status { return e.ReadDateTime(p).Status }, func(e *Document, p string) SetStatus { return e.SetDateTime(p, v) })
 }
 
-// SetRawDefault is SetRaw only when path has no node yet.
+// SetRawDefault is SetRaw unless the field already reads as that type.
 func (d *Document) SetRawDefault(path, content, info string) SetStatus {
-	return d.setDefault(path, func(e *Document, p string) SetStatus { return e.SetRaw(p, content, info) })
+	return d.setDefault(path, "a raw block", func(e *Document, p string) Status { return e.ReadRaw(p).Status }, func(e *Document, p string) SetStatus { return e.SetRaw(p, content, info) })
 }
 
-// SetIntArrayDefault is SetIntArray only when path has no node yet.
+// SetIntArrayDefault is SetIntArray unless the field already reads as that type.
 func (d *Document) SetIntArrayDefault(path string, v []int64) SetStatus {
-	return d.setDefault(path, func(e *Document, p string) SetStatus { return e.SetIntArray(p, v) })
+	return d.setDefault(path, "an int array", func(e *Document, p string) Status { return e.ReadIntArray(p).Status }, func(e *Document, p string) SetStatus { return e.SetIntArray(p, v) })
 }
 
-// SetFloatArrayDefault is SetFloatArray only when path has no node yet.
+// SetFloatArrayDefault is SetFloatArray unless the field already reads as that type.
 func (d *Document) SetFloatArrayDefault(path string, v []float64) SetStatus {
-	return d.setDefault(path, func(e *Document, p string) SetStatus { return e.SetFloatArray(p, v) })
+	return d.setDefault(path, "a float array", func(e *Document, p string) Status { return e.ReadFloatArray(p).Status }, func(e *Document, p string) SetStatus { return e.SetFloatArray(p, v) })
 }
 
-// SetBoolArrayDefault is SetBoolArray only when path has no node yet.
+// SetBoolArrayDefault is SetBoolArray unless the field already reads as that type.
 func (d *Document) SetBoolArrayDefault(path string, v []bool) SetStatus {
-	return d.setDefault(path, func(e *Document, p string) SetStatus { return e.SetBoolArray(p, v) })
+	return d.setDefault(path, "a bool array", func(e *Document, p string) Status { return e.ReadBoolArray(p).Status }, func(e *Document, p string) SetStatus { return e.SetBoolArray(p, v) })
 }
 
-// SetStringArrayDefault is SetStringArray only when path has no node yet.
+// SetStringArrayDefault is SetStringArray unless the field already reads as that type.
 func (d *Document) SetStringArrayDefault(path string, v []string) SetStatus {
-	return d.setDefault(path, func(e *Document, p string) SetStatus { return e.SetStringArray(p, v) })
+	return d.setDefault(path, "a string array", func(e *Document, p string) Status { return e.ReadStringArray(p).Status }, func(e *Document, p string) SetStatus { return e.SetStringArray(p, v) })
 }
 
-// SetDateTimeArrayDefault is SetDateTimeArray only when path has no node yet.
+// SetDateTimeArrayDefault is SetDateTimeArray unless the field already reads as that type.
 func (d *Document) SetDateTimeArrayDefault(path string, v []DateTime) SetStatus {
-	return d.setDefault(path, func(e *Document, p string) SetStatus { return e.SetDateTimeArray(p, v) })
+	return d.setDefault(path, "a datetime array", func(e *Document, p string) Status { return e.ReadDateTimeArray(p).Status }, func(e *Document, p string) SetStatus { return e.SetDateTimeArray(p, v) })
 }
 
 // ---------------------------------------------------------------------------

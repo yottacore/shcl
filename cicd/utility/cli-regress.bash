@@ -1489,6 +1489,13 @@ rows=(
 	## raised on a non-ASCII value wherever that was not UTF-8.
 	'EqzuLW0|ascii-locale-get|get %NA% n|@asciilocale|0|caf\xc3\xa9 \xe2\x82\xac\n|^$'
 	'EqzuLW1|ascii-locale-fmt|fmt %NA%|@asciilocale|0|n: "caf\xc3\xa9 \xe2\x82\xac"\n|^$'
+	## 2026100717500020: a default op replaces a value that does not read as
+	## its type and keeps the old line as a comment, refuses over a raw block,
+	## and the data options fill only a missing or empty field.
+	'EsJZkoC|default-op-replaces|set -|string\tport\tabc\nint-default\tport\t9\n|0|# port: abc  ## replaced by shcl when setting a default for port, 2026-10-04 00:15:00 PDT: not an int\nport: 9\n|-'
+	'EsJZkoD|default-op-raw-block|set -|raw\tscript\tsh\techo hi\nint-default\tscript\t1\n|1||^op line 2: cannot write script: a raw block is there, and a default of another type would lose its body$'
+	'EsJZkoE|set-default-fills-empty|set --set-default=e=3 -|e:\n|0|e: 3\n|-'
+	'EsJZkoF|set-default-keeps-any-value|set --set-default=p=9 -|p: abc\n|0|p: abc\n|-'
 )
 
 declare -i nRun=0 nBad=0 n2x=0

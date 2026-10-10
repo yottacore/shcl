@@ -1881,7 +1881,7 @@ def main():
 	if snames != [
 		"Ok", "BadPath", "ValueInPath", "Wildcard", "NoSuchIndex", "TooDeep", "Multiple", "UnderArray",
 		"HasChildren", "NotFinite", "BadDateTime", "BadRawInfo", "BadRawBody", "BadComment", "NotOneValue",
-		"NotUtf8", "OutOfRange", "NoReadBack",
+		"NotUtf8", "OutOfRange", "NoReadBack", "RawBlock",
 	]:
 		raise SystemExit(f"SetStatus names {snames}")
 	if [st.value for st in shcl.SetStatus] != list(range(len(snames))):
@@ -4452,6 +4452,104 @@ def main():
 				raise SystemExit(f"amb: count {e.count}") from None
 		if len(os.listdir(ud)) != 3:
 			raise SystemExit(f"left {os.listdir(ud)}")
+	if held_clock is None:
+		del os.environ["SHCL_TEST_CLOCK"]
+	else:
+		os.environ["SHCL_TEST_CLOCK"] = held_clock
+
+	test_id("EsJZko5", "default_fills_what_does_not_read")
+	# A default form writes where the field is missing, empty or does not read
+	# as its type, and keeps a value it replaces above the field as a comment
+	# with a note. A raw block stays (RawBlock), an array on a field with lines
+	# under it is refused as from the plain setter, and the value is judged
+	# first. The typed read decides, at the document's strictness, so `$5` is
+	# an int only when loose. A second call writes nothing, and the canonical
+	# text is a fixpoint. Same table in every runner.
+	held_clock = os.environ.get("SHCL_TEST_CLOCK")
+	os.environ["SHCL_TEST_CLOCK"] = "2026-10-04 00:15:00 -420 PDT"
+	dtext = "port: abc  # the port\nempty:\ngood: 8080\nlist: [80, 443]\nflag: maybe\nports: 80\nwords: a\nscript:\n\t```sh\n\techo hi\n\t```\nsrv:\n\tk: 1\nn: $5\n"
+
+	def dnote(line, path, what):
+		return f"# {line}  ## replaced by shcl when setting a default for {path}, 2026-10-04 00:15:00 PDT: not {what}"
+	drows = [
+		("int-default\tport\t9", "Ok", dnote("port: abc", "port", "an int"), True),
+		("int-default\tempty\t3", "Ok", "", True),
+		("int-default\tgood\t1", "Ok", "", False),
+		("int-default\tlist\t1", "Ok", dnote("list: [80, 443]", "list", "an int"), True),
+		("float-default\tlist\t1.5", "Ok", dnote("list: [80, 443]", "list", "a float"), True),
+		("bool-default\tflag\ttrue", "Ok", dnote("flag: maybe", "flag", "a bool"), True),
+		("datetime-default\tport\t2026-01-02", "Ok", dnote("port: abc", "port", "a datetime"), True),
+		("int-array-default\tports\t1", "Ok", "", False),
+		("int-array-default\twords\t1\t2", "Ok", dnote("words: a", "words", "an int array"), True),
+		("raw-default\tport\tsh\techo", "Ok", dnote("port: abc", "port", "a raw block"), True),
+		("int-default\tscript\t1", "RawBlock", "", False),
+		("int-array-default\tscript\t1", "RawBlock", "", False),
+		("string-default\tscript\tx", "Ok", "", False),
+		("string-default\tempty\tx", "Ok", "", True),
+		("literal-default\tport\t[1, 2]", "Ok", "", False),
+		("int-default\tsrv\t5", "Ok", "", True),
+		("int-array-default\tsrv\t1", "HasChildren", "", False),
+		("int-default\tn\t1", "Ok", dnote("n: $5", "n", "an int"), True),
+	]
+	for dop, dwant, dwant_note, dwrites in drows:
+		ddoc = shcl.Document.parse(dtext)
+		dbefore = ddoc.to_canonical()
+		dpath = dop.split("\t")[1]
+		dhad = len(ddoc.comments(dpath))
+		derr = try_apply_op(ddoc, dop)
+		dgot = "Ok" if derr is None else derr.rsplit(": ", 1)[1]
+		if dgot != dwant:
+			raise SystemExit(f"{dop!r}: got {dgot}, want {dwant}")
+		dafter = ddoc.to_canonical()
+		if (dafter != dbefore) != dwrites:
+			raise SystemExit(f"{dop!r}: wrote {dafter != dbefore}:\n{dafter}")
+		dnotes = ddoc.comments(dpath)
+		if not dwant_note:
+			if len(dnotes) != dhad:
+				raise SystemExit(f"{dop!r}: comments {dnotes}")
+		elif len(dnotes) != dhad + 1 or dnotes[dhad] != dwant_note or dnotes[dhad] + "\n" not in dafter:
+			raise SystemExit(f"{dop!r}: comments {dnotes}, want {dwant_note!r}")
+		if shcl.Document.parse(dafter).to_canonical() != dafter:
+			raise SystemExit(f"{dop!r}: not a fixpoint")
+		dagain = shcl.Document.parse(dafter)
+		try_apply_op(ddoc, dop)
+		try_apply_op(dagain, dop)
+		if ddoc.to_canonical() != dafter or dagain.to_canonical() != dafter:
+			raise SystemExit(f"{dop!r}: a second call wrote")
+	dnan = shcl.Document.parse(dtext)
+	if dnan.set_float_default("port", float("nan")) is not shcl.SetStatus.NotFinite or dnan.to_canonical() != shcl.Document.parse(dtext).to_canonical():
+		raise SystemExit("NaN over a bad value")
+	dloose = shcl.Document.parse_with(dtext, shcl.Strictness.Loose)
+	dbefore = dloose.to_canonical()
+	if dloose.set_int_default("n", 1) is not shcl.SetStatus.Ok or dloose.to_canonical() != dbefore or dloose.read_int("n").status is not shcl.Status.Good:
+		raise SystemExit(f"loose $5: {dloose.to_canonical()!r}")
+
+	test_id("EsJZko9", "default_replace_round_trips")
+	# A replaced line kept as a comment goes through the save that keeps
+	# lines, `fmt` and a reload unchanged, and a run of the same defaults on
+	# the saved text writes nothing. Same fixture in every runner.
+	rtext = "srv:\n    Port:   abc     # keep\n    other: 1\nlist:\n  - 80\n  - x  # ex\nn: 5\n"
+	rops = ["int-default\tsrv.port\t9", "int-array-default\tlist\t1\t2", "int-default\tn\t7"]
+	rwant = "srv:\n    # port: abc  ## replaced by shcl when setting a default for srv.port, 2026-10-04 00:15:00 PDT: not an int\n    Port:   9     # keep\n    other: 1\n# ex\n# list: [80, x]  ## replaced by shcl when setting a default for list, 2026-10-04 00:15:00 PDT: not an int array\nlist:\n    - 1\n    - 2\nn: 5\n"
+	rdoc = shcl.Document.parse_keep_lines(rtext, shcl.Strictness.Standard)
+	for rop in rops:
+		apply_op(rdoc, rop, rop)
+	rsaved, rkept = rdoc.to_text_keep_lines()
+	if not rkept or rsaved != rwant:
+		raise SystemExit(f"kept {rkept}: {rsaved!r}")
+	rcanon = rdoc.to_canonical()
+	if shcl.Document.parse(rsaved).to_canonical() != rcanon or shcl.Document.parse(rcanon).to_canonical() != rcanon:
+		raise SystemExit(f"reload or fmt changed it: {rcanon!r}")
+	rback = shcl.Document.parse_keep_lines(rsaved, shcl.Strictness.Standard)
+	for rop in rops:
+		apply_op(rback, rop, rop)
+	if rback.to_text_keep_lines() != (rsaved, True):
+		raise SystemExit(f"a second run wrote: {rback.to_text_keep_lines()!r}")
+	rnotes = rback.comments("srv.port")
+	if len(rnotes) != 1 or rnotes[0] not in rsaved:
+		raise SystemExit(f"comments {rnotes}")
+	if rback.get_int_or("srv.port", 0) != 9 or rback.get_int_array_or("list", []) != [1, 2]:
+		raise SystemExit("reads after the round trip")
 	if held_clock is None:
 		del os.environ["SHCL_TEST_CLOCK"]
 	else:

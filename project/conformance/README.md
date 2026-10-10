@@ -18,7 +18,7 @@ Each case is a directory `NNN-short-name/` containing:
 - `write.ops` + `expected-write.shcl` (optional, as a pair) - the **Writer** dimension. `write.ops` is a script of write operations (one per line, tab-separated); each binding applies it to `input.shcl` via its library Writer and must produce `expected-write.shcl` byte-for-byte, and that output must be a formatter fixpoint. A blank line or one starting with `#` is skipped. Op grammar (`<T>` = `int|float|bool|string|datetime`):
 	- `<T><TAB>PATH<TAB>VALUE` - set a scalar. `datetime` VALUE is any accepted spelling and is stored canonically.
 	- `<T>-array<TAB>PATH<TAB>V1<TAB>V2...` - set an array, written in brackets whatever its length (no elements = `[]`).
-	- `<T>[-array]-default<TAB>...` - set only if the path does not already resolve.
+	- `<T>[-array]-default<TAB>...` - the library's default form: set where the path is missing, empty or does not read as that type, with a replaced value kept above as a comment.
 	- `literal<TAB>PATH<TAB>TEXT` (and `literal-default`) - set from value syntax rather than data, so `[80, 443]` stores a two-element array where the `string` op would store one quoted string. `TEXT` is read as the value half of a line: it is trimmed, a `#` outside quotes ends it wherever it sits, and text with a line break, an unclosed quote, a bare comma or a malformed array is rejected.
 	- `raw<TAB>PATH<TAB>INFO<TAB>CONTENT` (and `raw-default`) - set a raw block; `INFO` may be empty. `INFO` is taken as written. The escapes below are read in `CONTENT` only.
 	- `empty<TAB>PATH`, `comment<TAB>PATH<TAB>TEXT`, `clear-comments<TAB>PATH`, `remove<TAB>PATH`.

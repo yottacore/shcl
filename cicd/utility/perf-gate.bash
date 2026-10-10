@@ -64,8 +64,8 @@ awk -v n="$((keys / 2))" 'BEGIN{ for (i = 0; i < n; i++) printf "int\tk%d\t%d\n"
 ## Paths that do not resolve: the set-if-absent half, which is where the
 ## whole-index rebuild hid.
 awk 'BEGIN{ for (i = 0; i < 1000; i++) printf "int-default\tnew%d\t%d\n", i, i }' > "${tmpDir}/defaults.ops"
-## Every existing key looked up and left alone. set-if-absent on a path that
-## already resolves is a path read and nothing else, which is the only way to
+## Every existing key looked up and left alone. A default on a path whose
+## value already reads as its type is path reads and nothing else, the only way to
 ## drive one lookup per key through a single process. Without an index that
 ## outlives the parse this is a sibling scan per key, so it goes quadratic.
 awk -v n="${keys}" 'BEGIN{ for (i = 0; i < n; i++) printf "int-default\tk%d\t0\n", i }' > "${tmpDir}/reads.ops"
