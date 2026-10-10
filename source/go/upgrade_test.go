@@ -66,6 +66,46 @@ func TestUpgradeFromV2RewritesACleanFileThatReadsDifferently(t *testing.T) {
 	}
 }
 
+func TestAnOlderFormatLineBecomesThisOneInPlace(t *testing.T) {
+	defer testID(t, "EsFrOVP")
+	t.Setenv("SHCL_TEST_CLOCK", upgradeClock)
+	// Nothing else changes, so only the stamp does, and only with fromV2
+	// (2026100717500017).
+	old := "port: 80\n##    Format   2\n"
+	up := Upgrade(old, true)
+	if up.Current || up.Format != 2 || up.Lost != 0 || up.Text != "port: 80\n##    Format   3\n" {
+		t.Fatalf("restamp: %+v", up)
+	}
+	h007 := false
+	for _, d := range up.Diagnostics {
+		h007 = h007 || d.Code == "H007"
+	}
+	if !h007 {
+		t.Fatalf("no H007 in %+v", up.Diagnostics)
+	}
+	if !Upgrade(up.Text, true).Current {
+		t.Fatal("the restamped text is not current")
+	}
+	if up := Upgrade(old, false); !up.Current || up.Text != old {
+		t.Fatalf("without fromV2: %+v", up)
+	}
+	// Indent, trailing blanks, line end and BOM stay as they were.
+	if got, want := Upgrade("\ufeffp: 1\r\n\t##    Format   1  \r\nq: 2", true).Text, "\ufeffp: 1\r\n\t##    Format   3  \r\nq: 2"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	// Migrate writes its stamp there too, and adds one only to a file with
+	// none (2026100916475300).
+	for _, c := range [][2]string{
+		{old, "port: 80\n##    Format   3\n"},
+		{"x: a,b\n##    Format   2\ny: 1\n", "x: [a, b]\n##    Format   3\ny: 1\n##    Migrated from SHCL 2.x.\n"},
+		{"port: 80\n", "port: 80\n##    Format   3\n"},
+	} {
+		if got := Migrate(c[0], false).Text; got != c[1] {
+			t.Fatalf("migrate %q: got %q, want %q", c[0], got, c[1])
+		}
+	}
+}
+
 func TestUpgradeWritesAFreshFileWithTheInfoBlock(t *testing.T) {
 	defer testID(t, "Es2fws2")
 	t.Setenv("SHCL_TEST_CLOCK", upgradeClock)

@@ -242,7 +242,8 @@ Which file it is looking at cannot be read off the text, so the info block's
 line decides: a file that has it is left alone, and one without it keeps the
 spellings the two rule sets read differently and exits 7 unless
 .B \-\-from\-2x
-says it really is 2.x. A rewritten file is stamped with that line, and
+says it really is 2.x. A rewritten file is stamped with that line, written
+over an older one where the file has it, and
 .B \-\-write
 says how many lines it rewrote.
 Before it saves a file with a rewritten line,
@@ -283,7 +284,10 @@ which says the file is 2.x, a file that loads clean is still made over when
 .B migrate
 would change it, as it would
 .BR "p: a,b" ,
-an array under 2.x and one string now. Values that read two ways, as for
+an array under 2.x and one string now, and one it would not change whose
+.B Format
+line names an older format gets only that line rewritten to name this one.
+Values that read two ways, as for
 .BR migrate ,
 are exit 7 unless
 .B \-\-from\-2x

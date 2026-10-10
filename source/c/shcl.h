@@ -3343,10 +3343,35 @@ static ShclStamp format_line_read(ShclArena *ta, ShclArena *sc, ShclStr text) {
 	return unread;
 }
 
-/* The major alone, or -1 when no line names one that reads. */
-static int64_t format_line_version(ShclArena *ta, ShclArena *sc, ShclStr text) {
-	ShclStamp st = format_line_read(ta, sc, text);
-	return st.status == SHCL_GOOD ? st.value : -1;
+/* The text with the Format line format_line_read found on `line` naming this
+   format instead, indent and line end kept, built in *sb from a. 0 when the new
+   line would not read as the file's stamp, as when a rewrite left it in a raw
+   body, so a caller adds the line rather than lose it. */
+static int restamp(ShclArena *a, ShclArena *sc, ShclStr text, size_t line, ShclSB *sb) {
+	ShclStr bom = s_empty(), body = text;
+	if (text.n >= 3 && (unsigned char)text.p[0] == 0xEF && (unsigned char)text.p[1] == 0xBB && (unsigned char)text.p[2] == 0xBF) {
+		bom = s_slice(text, 0, 3);
+		body = s_slice(text, 3, text.n);
+	}
+	memset(sb, 0, sizeof *sb);
+	sb_reserve(a, sb, text.n + 4);
+	sb_putS(a, sb, bom);
+	size_t start = 0, lineno = 0;
+	for (size_t i = 0; i <= body.n; i++) {
+		if (i < body.n && body.p[i] != '\n') continue;
+		ShclStr l = s_slice(body, start, i);
+		start = i + 1;
+		if (lineno++ > 0) sb_putc(a, sb, '\n');
+		if (lineno != line) { sb_putS(a, sb, l); continue; }
+		ShclStr indent = leading_ws(l);
+		ShclStr rest = trim_wsp_end(s_slice(l, indent.n, l.n));
+		sb_putS(a, sb, indent);
+		sb_puts(a, sb, SHCL_FORMAT_LINE);
+		sb_putS(a, sb, s_slice(l, indent.n + rest.n, l.n));
+	}
+	ShclStr r = sb_S(sb);
+	ShclStamp now = format_line_read(a, sc, s_slice(r, bom.n, r.n));
+	return now.status == SHCL_GOOD && now.value == SHCL_FORMAT_MAJOR && now.line == line;
 }
 
 /* The line ending most of the text's lines end with. A tie goes to LF. */
@@ -3382,7 +3407,8 @@ static void migrate_unload(ShclMigrateOwn *own) { shcl_free(own->doc); own->doc 
    every rewrite. Anything else leaves those pieces alone where these rules
    read the line cleanly, counted in st->ambiguous for the caller to refuse
    over. A rewritten file is stamped with the version line, so the second run
-   has an answer the first one did not; stamp 0 leaves it off. */
+   has an answer the first one did not; stamp 0 leaves it off. An older Format
+   line becomes that line where it is; a file with none gets it at the end. */
 static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int *current, int stamp) {
 	ShclArena *a = &own->a, *sc = &own->sc;
 	ShclStr whole = text, bom = s_empty();
@@ -3390,7 +3416,8 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
 		bom = s_slice(text, 0, 3);
 		text = s_slice(text, 3, text.n);
 	}
-	int64_t version = format_line_version(a, sc, text);
+	ShclStamp named = format_line_read(a, sc, text);
+	int64_t version = named.status == SHCL_GOOD ? named.value : -1;
 	if (version >= SHCL_FORMAT_MAJOR) { *current = 1; return whole; }
 	if (version >= 0) st->from_v2 = 1;
 	/* Per line: these rules refuse it (1), or it put a 2.x comma list in
@@ -3471,11 +3498,15 @@ static ShclStr migrate(ShclMigrateOwn *own, ShclStr text, ShclMigrating *st, int
 	   migration that did not finish, and the next run would then skip it. A
 	   document that never closes its raw block has nowhere to put the line
 	   either, under either rule set: appended, it would be another line of the
-	   block's content. The lines end the way most of the file's do. */
+	   block's content. The lines end the way most of the file's do. An older
+	   Format line becomes this one where it is, so the file names one format. */
 	if (stamp && st->ambiguous == 0 && !fence_on && !now.fence_on) {
 		const char *eol = majority_eol(text);
-		if (out.len && out.data[out.len - 1] != '\n') sb_puts(a, &out, eol);
-		sb_puts(a, &out, SHCL_FORMAT_LINE); sb_puts(a, &out, eol);
+		ShclSB re;
+		int add_format = !(version >= 0 && restamp(a, sc, sb_S(&out), named.line, &re));
+		if (!add_format) out = re;
+		if ((add_format || changed) && out.len && out.data[out.len - 1] != '\n') sb_puts(a, &out, eol);
+		if (add_format) { sb_puts(a, &out, SHCL_FORMAT_LINE); sb_puts(a, &out, eol); }
 		if (changed) { sb_puts(a, &out, SHCL_MIGRATED_LINE); sb_puts(a, &out, eol); }
 	}
 	return sb_S(&out);
@@ -3534,6 +3565,38 @@ static shcl_migration migrate_text(const char *text, size_t len, int from_v2, in
 	return m;
 }
 
+/* restamp() for shcl_upgrade, on the line its own read of the text finds: a
+   malloc'd copy with its length in *out_len, or NULL when the text names no
+   older format or the new line would not read as the stamp. An allocation
+   failure goes to outer. */
+static char *restamp_text(const char *text, size_t len, size_t *out_len, jmp_buf *outer) {
+	ShclMigrateOwn *volatile own = (ShclMigrateOwn *)calloc(1, sizeof *own);
+	if (!own) arena_panic(outer);
+	jmp_buf panic;
+	if (SHCL_SETJMP(panic)) {
+		ShclMigrateOwn *bad = own;
+		arena_free(&bad->a); arena_free(&bad->sc); free(bad);
+		arena_panic(outer);
+	}
+	arena_guard(&own->a, &panic); arena_guard(&own->sc, &panic);
+	ShclStr in; in.p = text ? text : ""; in.n = len;
+	ShclStr body = in;
+	if (in.n >= 3 && (unsigned char)in.p[0] == 0xEF && (unsigned char)in.p[1] == 0xBB && (unsigned char)in.p[2] == 0xBF) body = s_slice(in, 3, in.n);
+	ShclStamp named = format_line_read(&own->a, &own->sc, body);
+	ShclSB re;
+	char *r = NULL;
+	if (named.status == SHCL_GOOD && named.value < SHCL_FORMAT_MAJOR && restamp(&own->a, &own->sc, in, named.line, &re)) {
+		ShclStr t = sb_S(&re);
+		r = (char *)malloc(t.n + 1);
+		if (!r) longjmp(panic, 1);
+		memcpy(r, t.p, t.n); r[t.n] = 0;
+		*out_len = t.n;
+	}
+	ShclMigrateOwn *done = own;
+	arena_free(&done->a); arena_free(&done->sc); free(done);
+	return r;
+}
+
 shcl_migration shcl_migrate(const char *text, size_t len, int from_v2) {
 	return migrate_text(text, len, from_v2, 1, NULL);
 }
@@ -3553,6 +3616,7 @@ static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, 
 	up->current = 1;
 	up->format = version < 0 ? 2 : (uint32_t)version;
 	shcl_str keep; keep.p = text; keep.n = len;
+	int restamped = 0;
 	if (version < SHCL_FORMAT_MAJOR) {
 		own->before = shcl_parse(text, len);
 		if (!own->before) longjmp(*panic, 1);
@@ -3562,13 +3626,26 @@ static void upgrade_into(ShclUpgradeOwn *own, jmp_buf *panic, const char *text, 
 			m = migrate_text(text, len, from_v2, 0, panic);
 			own->migrated = m.text;
 			/* A 2.x file can load clean and still read differently now, as
-			   `a,b` does. One migrate leaves as it was has nothing to do. */
+			   `a,b` does. One migrate leaves as it was has nothing to do, but an
+			   older Format line, which would keep the load's H007 hint, becomes
+			   this one. */
 			if (!clean || m.len != len || (len && memcmp(m.text, text, len) != 0)) {
 				up->current = 0;
 				up->ambiguous = m.ambiguous;
+			} else if (version >= 0) {
+				size_t n = 0;
+				char *re = restamp_text(text, len, &n, panic);
+				if (re) {
+					/* The same text as the input, so the copy can go. */
+					free(own->migrated);
+					own->migrated = re;
+					restamped = 1;
+					up->current = 0;
+					keep.p = re; keep.n = n;
+				}
 			}
 		}
-		if (!up->current && !up->ambiguous) {
+		if (!up->current && !up->ambiguous && !restamped) {
 			own->fresh = shcl_parse(m.text, m.len);
 			if (!own->fresh) longjmp(*panic, 1);
 			doc_guard(own->fresh, panic);

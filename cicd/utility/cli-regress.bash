@@ -946,10 +946,17 @@ rows=(
 	## not read gets none (2026100912352401 gives it a status instead).
 	"EsEtTdV|stamp-newer-hint|check -|a: 1\n##    Format   4\n|0|line 2: Hint: H006\nok (1 diagnostic(s))\n|=line 2: Hint: H006 the file names format 4, newer than this reader's format 3, so some lines may read differently than written\n(run 'shcl explain CODE' for the rule behind a code)\n"
 	'EsEtTdW|stamp-older-hint|get - p|p: a,b\n##    Format   2\n|0|a,b\n|^line 2: Hint: H007 .*; shcl upgrade --from-2x rewrites it$'
+	## 2026100717500017: with --from-2x, a file whose only change is its stamp
+	## gets this format on that line, so H007's advice does something. Without
+	## it nothing changes. 2026100916475300: migrate writes its stamp there too.
+	'EsFrOVT|upgrade-restamp|upgrade --from-2x -|p: 1\n##    Format   2\n|0|p: 1\n##    Format   3\n|!nothing to upgrade'
+	'EsFrOVU|upgrade-restamp-unsaid|upgrade -|p: 1\n##    Format   2\n|0|p: 1\n##    Format   2\n|nothing to upgrade'
+	'EsFrOVS|migrate-restamp|migrate -|port: 80\n##    Format   2\n|0|port: 80\n##    Format   3\n|-'
+	'EsFrOVX|migrate-restamp-changed|migrate -|x: a,b\n##    Format   2\ny: 1\n|0|x: [a, b]\n##    Format   3\ny: 1\n##    Migrated from SHCL 2.x.\n|-'
 	'EsEtTdX|stamp-garbled-quiet|check -|a: 1\n##    Format   3x\n|0|ok (0 diagnostic(s))\n|-'
 	'EsEtTdY|stamp-hint-strict-passes|check --strictness=strict -|a: 1\n##    Format   4\n|0|line 2: Hint: H006\nok (1 diagnostic(s))\n|-'
 	"EsEtTdZ|explain-h006|explain H006|-|0|\nH006  hint        the file names a newer format than this reader\n  The info block's Format line names a format past the one this shcl reads,\n  so the file may use rules it does not know, and a line can read\n  differently than its author meant. The load goes on as usual. A shcl made\n  for that format reads it as written.\n\n|-"
-	"EsEtTda|explain-h007|explain H007|-|0|\nH007  hint        the file names an older format than this reader\n  The info block's Format line names a format before the one this shcl\n  reads, and some lines read differently now: p: a,b was an array in 2.x\n  and is one string here. 'shcl upgrade FILE --from-2x --write' rewrites\n  the file for these rules and keeps the original beside it. A file with\n  nothing to change keeps its old Format line, and\n  'shcl migrate FILE --write' stamps it with this format.\n\n|-"
+	"EsEtTda|explain-h007|explain H007|-|0|\nH007  hint        the file names an older format than this reader\n  The info block's Format line names a format before the one this shcl\n  reads, and some lines read differently now: p: a,b was an array in 2.x\n  and is one string here. 'shcl upgrade FILE --from-2x --write' rewrites\n  the file for these rules and keeps the original beside it. A file with\n  nothing else to change gets this format on its Format line.\n\n|-"
 	## 20260928 idea 4: a hint found after the parse's pass, here a late fold,
 	## was listed after every other diagnostic. The prose is the same in all
 	## four, so stderr is pinned whole.
@@ -2234,6 +2241,8 @@ fSaveSetup() {
 		upgrade-taken) printf 'base:[Boston]\n\tlat: 42\n' > f.shcl; printf 'x\n' > f_backup_20261004-001500_format-v2.shcl ;;
 		upgrade-link) mkdir real; printf 'base:[Boston]\n\tlat: 42\n' > real/c.shcl; ln -s real/c.shcl f.shcl ;;
 		upgrade-rodir) mkdir ro; printf 'base:[Boston]\n\tlat: 42\n' > ro/g.shcl; chmod 0555 ro ;;
+		upgrade-restamp) printf 'p: 1\n##    Format   2\n' > f.shcl ;;
+		migrate-restamp) printf 'port: 80\n##    Format   2\n' > f.shcl ;;
 	esac
 }
 ## id | argv | exit | what must hold afterwards, as a bash test run in the directory
@@ -2296,6 +2305,10 @@ saveCases=(
 	'Es2Rg1N|upgrade-link|upgrade --write f.shcl|0|[[ -L f.shcl && -f f_backup_20261004-001500_format-v2.shcl && ! -L f_backup_20261004-001500_format-v2.shcl && ! -e real/c_backup_20261004-001500_format-v2.shcl ]] && grep -qx "base: Boston" real/c.shcl && grep -qx "base:\[Boston\]" f_backup_20261004-001500_format-v2.shcl'
 	'Es2Rg1O|fifo-upgrade|upgrade --write f.shcl|8|[[ -p f.shcl ]]'
 	'Es2Rg1P|upgrade-rodir|upgrade --write ro/g.shcl|8|grep -qx "base:\[Boston\]" ro/g.shcl && grep -qiE "^ro/g_backup_20261004-001500_format-v2\.shcl: permission denied" "${tmpDir}/err"'
+	## An older Format line becomes this one, backed up like any upgrade
+	## (2026100717500017) and any migrate that rewrites a line (2026100916475300).
+	'EsFrOVV|upgrade-restamp|upgrade --write --from-2x f.shcl|0|cmp -s f.shcl <(printf "p: 1\n##    Format   3\n") && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "p: 1\n##    Format   2\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
+	'EsFrOVW|migrate-restamp|migrate --write f.shcl|0|cmp -s f.shcl <(printf "port: 80\n##    Format   3\n") && cmp -s f_backup_20261004-001500_format-v2.shcl <(printf "port: 80\n##    Format   2\n") && [[ "$(ls -A | wc -l | tr -d " ")" == 2 ]]'
 	'ErCrr0Y|migrate-rodir|migrate --write ro/g.shcl|8|grep -qx "base:\[Boston\]" ro/g.shcl && grep -qiE "^ro/g_backup_20261004-001500_format-v2\.shcl: permission denied" "${tmpDir}/err" && ! grep -q "open " "${tmpDir}/err"'
 )
 if [[ "${onWindows}" == 1 ]]; then

@@ -145,6 +145,42 @@ static int contains(const char *p, size_t n, const char *needle) {
 	return 0;
 }
 
+// text with the first line naming the older major `major` naming this format
+// instead, indent and line end kept, when that reads as the file's stamp:
+// migrate writes its stamp there (2026100916475300). C's reads have no line,
+// so the first line naming that major stands in for the one the read found.
+// A malloc'd copy, or NULL.
+static char *stamped_in_place(const char *text, size_t n, int64_t major, size_t *out_n) {
+	size_t headn = sizeof(SHCL_FORMAT_LINE_HEAD) - 1, linen = sizeof(SHCL_FORMAT_LINE) - 1;
+	size_t start = n >= 3 && memcmp(text, "\xEF\xBB\xBF", 3) == 0 ? 3 : 0;
+	while (start <= n) {
+		size_t end = start;
+		while (end < n && text[end] != '\n') end++;
+		size_t i = start, b = end;
+		while (i < end && (text[i] == ' ' || text[i] == '\t')) i++;
+		while (b > i && (text[b - 1] == ' ' || text[b - 1] == '\t' || text[b - 1] == '\r')) b--;
+		int64_t v = -1;
+		if (b - i > headn && memcmp(text + i, SHCL_FORMAT_LINE_HEAD, headn) == 0) {
+			v = 0;
+			for (size_t k = i + headn; k < b && v >= 0; k++) v = text[k] >= '0' && text[k] <= '9' && v < 1000000 ? v * 10 + (text[k] - '0') : -1;
+		}
+		if (v == major) {
+			size_t on = i + linen + (n - b);
+			char *out = (char *)malloc(on + 1);
+			if (!out) abort();
+			memcpy(out, text, i);
+			memcpy(out + i, SHCL_FORMAT_LINE, linen);
+			memcpy(out + i + linen, text + b, n - b);
+			out[on] = 0;
+			shcl_read_i64 now = shcl_read_format_version(out, on);
+			if (now.status == SHCL_GOOD && now.value == SHCL_FORMAT_MAJOR) { *out_n = on; return out; }
+			free(out);
+		}
+		start = end + 1;
+	}
+	return NULL;
+}
+
 // realloc that never returns NULL: on OOM, free the old block and exit 2.
 static void *xrealloc(void *p, size_t n) {
 	void *q = realloc(p, n);
@@ -1693,10 +1729,25 @@ int main(int argc, char **argv) {
 			memcpy(want, bare.text, bare.len); wn = bare.len;
 			int same = full.len == bare.len && (bare.len == 0 || memcmp(full.text, bare.text, bare.len) == 0);
 			if (!full.current && !same) {
-				if (wn && want[wn - 1] != '\n') { memcpy(want + wn, eol, eol_n); wn += eol_n; }
-				memcpy(want + wn, SHCL_FORMAT_LINE, sizeof(SHCL_FORMAT_LINE) - 1); wn += sizeof(SHCL_FORMAT_LINE) - 1;
-				memcpy(want + wn, eol, eol_n); wn += eol_n;
-				if (bare.len != ilen || (ilen && memcmp(bare.text, input, ilen) != 0)) {
+				shcl_read_i64 old = shcl_read_format_version(input, ilen);
+				size_t in_n = 0;
+				char *in_place = old.status == SHCL_GOOD ? stamped_in_place(bare.text, bare.len, old.value, &in_n) : NULL;
+				int add = in_place == NULL;
+				if (in_place) {
+					free(want);
+					wcap = in_n + sizeof(SHCL_MIGRATED_LINE) + 8;
+					want = (char *)malloc(wcap);
+					if (!want) abort();
+					memcpy(want, in_place, in_n); wn = in_n;
+					free(in_place);
+				}
+				int changed = bare.len != ilen || (ilen && memcmp(bare.text, input, ilen) != 0);
+				if ((add || changed) && wn && want[wn - 1] != '\n') { memcpy(want + wn, eol, eol_n); wn += eol_n; }
+				if (add) {
+					memcpy(want + wn, SHCL_FORMAT_LINE, sizeof(SHCL_FORMAT_LINE) - 1); wn += sizeof(SHCL_FORMAT_LINE) - 1;
+					memcpy(want + wn, eol, eol_n); wn += eol_n;
+				}
+				if (changed) {
 					memcpy(want + wn, SHCL_MIGRATED_LINE, sizeof(SHCL_MIGRATED_LINE) - 1); wn += sizeof(SHCL_MIGRATED_LINE) - 1;
 					memcpy(want + wn, eol, eol_n); wn += eol_n;
 				}
@@ -4793,6 +4844,41 @@ int main(int argc, char **argv) {
 		up = shcl_upgrade(same, strlen(same), 1);
 		if (!up.current || !up_is(&up, same)) fail("upgrade_from_v2", "same");
 		shcl_upgraded_free(&up);
+	}
+	test_id("EsFrOVR", "an_older_format_line_becomes_this_one_in_place");
+	{
+		/* Nothing else changes, so only the stamp does, and only with from_v2
+		   (2026100717500017). */
+		const char *old = "port: 80\n##    Format   2\n";
+		shcl_upgraded up = shcl_upgrade(old, strlen(old), 1);
+		if (up.current || up.format != 2 || up.lost != 0 || !up_is(&up, "port: 80\n##    Format   3\n")) fail("upgrade_restamp", up.text);
+		int h007 = 0;
+		for (size_t i = 0; up.diagnostics && i < shcl_diag_count(up.diagnostics); i++) h007 |= !strcmp(shcl_diag_code(up.diagnostics, i), "H007");
+		if (!h007) fail("upgrade_restamp", "no H007");
+		shcl_upgraded again = shcl_upgrade(up.text, up.len, 1);
+		if (!again.current) fail("upgrade_restamp", "the restamped text is not current");
+		shcl_upgraded_free(&again);
+		shcl_upgraded_free(&up);
+		up = shcl_upgrade(old, strlen(old), 0);
+		if (!up.current || !up_is(&up, old)) fail("upgrade_restamp", "without from_v2");
+		shcl_upgraded_free(&up);
+		/* Indent, trailing blanks, line end and BOM stay as they were. */
+		const char *laid = "\xEF\xBB\xBFp: 1\r\n\t##    Format   1  \r\nq: 2";
+		up = shcl_upgrade(laid, strlen(laid), 1);
+		if (!up_is(&up, "\xEF\xBB\xBFp: 1\r\n\t##    Format   3  \r\nq: 2")) fail("upgrade_restamp", up.text);
+		shcl_upgraded_free(&up);
+		/* migrate writes its stamp there too, and adds one only to a file with
+		   none (2026100916475300). */
+		const char *mig[][2] = {
+			{"port: 80\n##    Format   2\n", "port: 80\n##    Format   3\n"},
+			{"x: a,b\n##    Format   2\ny: 1\n", "x: [a, b]\n##    Format   3\ny: 1\n##    Migrated from SHCL 2.x.\n"},
+			{"port: 80\n", "port: 80\n##    Format   3\n"},
+		};
+		for (size_t i = 0; i < sizeof mig / sizeof mig[0]; i++) {
+			shcl_migration m = shcl_migrate(mig[i][0], strlen(mig[i][0]), 0);
+			if (m.len != strlen(mig[i][1]) || memcmp(m.text, mig[i][1], m.len) != 0) fail("migrate_restamp", m.text);
+			free(m.text);
+		}
 	}
 	test_id("Es2qPd2", "upgrade_writes_a_fresh_file_with_the_info_block");
 	{

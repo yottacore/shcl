@@ -2632,6 +2632,35 @@ fn format_line_read(text: &str) -> Read<u32> {
 	}
 }
 
+/// The text with the Format line read_format_version() found on `line`
+/// naming this format instead, indent and line end kept. None when the new
+/// line would not read as the file's stamp, as when a rewrite left it in a
+/// raw body, so a caller adds the line rather than lose it.
+fn restamp(text: &str, line: usize) -> Option<String> {
+	let (bom, body) = match text.strip_prefix('\u{feff}') {
+		Some(t) => ("\u{feff}", t),
+		None => ("", text),
+	};
+	let mut out = String::with_capacity(text.len() + 4);
+	out.push_str(bom);
+	for (i, l) in body.split('\n').enumerate() {
+		if i > 0 {
+			out.push('\n');
+		}
+		if i + 1 != line {
+			out.push_str(l);
+			continue;
+		}
+		let indent = leading_ws(l);
+		let rest = trim_wsp_end(l[indent.len()..].trim_end_matches('\r'));
+		out.push_str(indent);
+		out.push_str(FORMAT_LINE);
+		out.push_str(&l[indent.len() + rest.len()..]);
+	}
+	let now = format_line_read(&out[bom.len()..]);
+	(now.status == Status::Good && now.value == FORMAT_MAJOR && now.line == line).then_some(out)
+}
+
 /// The load's hint for a file whose Format line names another major than
 /// this one: `H006` for a newer one, `H007` for an older one. It reads the
 /// line the way read_format_version() does, so the two never disagree.
@@ -2809,7 +2838,8 @@ fn opens_raw(rest: &str, tok: &mut Tokens) -> Option<(u8, usize)> {
 /// `from_v2`, gets every rewrite. Anything else leaves those pieces alone
 /// where these rules read the line cleanly, counted in `ambiguous` for the
 /// caller to refuse over. A rewritten file is stamped with the version line,
-/// so the second run has an answer the first one did not.
+/// so the second run has an answer the first one did not. An older Format
+/// line becomes that line where it is; a file with none gets it at the end.
 pub fn migrate(text: &str, from_v2: bool) -> Migration {
 	migrate_text(text, from_v2, true)
 }
@@ -2833,8 +2863,8 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool) -> Migration {
 		Some(t) => ("\u{feff}", t),
 		None => ("", text),
 	};
-	let version = format_line_read(body_text);
-	let version = (version.status == Status::Good).then_some(version.value);
+	let named = format_line_read(body_text);
+	let version = (named.status == Status::Good).then_some(named.value);
 	if version.is_some_and(|n| n >= FORMAT_MAJOR) {
 		return Migration {
 			text: text.to_string(),
@@ -2925,14 +2955,22 @@ fn migrate_text(text: &str, from_v2: bool, stamp: bool) -> Migration {
 	// migration that did not finish, and the next run would then skip it. A
 	// document that never closes its raw block has nowhere to put the line
 	// either, under either rule set: appended, it would be another line of the
-	// block's content. The lines end the way most of the file's do.
+	// block's content. The lines end the way most of the file's do. An older
+	// Format line becomes this one where it is, so the file names one format.
 	if stamp && st.ambiguous == 0 && fence.is_none() && now.fence.is_none() {
 		let eol = majority_eol(body_text);
-		if !out.is_empty() && !out.ends_with('\n') {
+		let restamped = version.and_then(|_| restamp(&out, named.line));
+		let add_format = restamped.is_none();
+		if let Some(t) = restamped {
+			out = t;
+		}
+		if (add_format || changed) && !out.is_empty() && !out.ends_with('\n') {
 			out.push_str(eol);
 		}
-		out.push_str(FORMAT_LINE);
-		out.push_str(eol);
+		if add_format {
+			out.push_str(FORMAT_LINE);
+			out.push_str(eol);
+		}
 		if changed {
 			out.push_str(MIGRATED_LINE);
 			out.push_str(eol);
@@ -2952,9 +2990,9 @@ pub struct Upgrade {
 	/// The fresh file's text, or the input when `current` or `ambiguous`.
 	pub text: String,
 	/// The input loads with no error under these rules and, with `from_v2`,
-	/// migrates to the same text, or it names this format, so it is left as
-	/// it is. A beta build of 3.0 stamped the same Format line as a release,
-	/// so a beta file is current here too.
+	/// migrates to the same text and names no older format, or it names this
+	/// format, so it is left as it is. A beta build of 3.0 stamped the same
+	/// Format line as a release, so a beta file is current here too.
 	pub current: bool,
 	/// The format the input was written for, which goes in the backup's
 	/// name: what its Format line names, else 2.
@@ -2984,9 +3022,11 @@ pub struct Upgrade {
 /// start must never rewrite a good file. `from_v2` is migrate's: the file
 /// can only have been written for 2.x. Then a file that loads clean is
 /// still made over when `migrate` would change it, as it would `p: a,b`,
-/// an array under 2.x and one string now.
+/// an array under 2.x and one string now. One it would not change that names
+/// an older format gets this format on that Format line, and nothing else.
 pub fn upgrade(text: &str, from_v2: bool) -> Upgrade {
-	let version = format_version(text);
+	let named = read_format_version(text);
+	let version = (named.status == Status::Good).then_some(named.value);
 	let mut up = Upgrade {
 		text: text.to_string(),
 		current: true,
@@ -3006,8 +3046,14 @@ pub fn upgrade(text: &str, from_v2: bool) -> Upgrade {
 	}
 	let m = migrate_text(text, from_v2, false);
 	// A 2.x file can load clean and still read differently now, as `a,b`
-	// does. One migrate leaves as it was has nothing to do.
+	// does. One migrate leaves as it was has nothing to do, but an older
+	// Format line, which would keep the load's H007 hint, becomes this one.
 	if clean && m.text == text {
+		if let Some(t) = version.and_then(|_| restamp(text, named.line)) {
+			up.current = false;
+			up.diagnostics = before.diags;
+			up.text = t;
+		}
 		return up;
 	}
 	up.current = false;

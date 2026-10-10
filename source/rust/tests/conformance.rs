@@ -10,8 +10,9 @@ mod common;
 use common::test_id;
 use shcl::{
 	Document, DurationUnit, FORMAT_LINE, FORMAT_LINE_HEAD, FORMAT_MAJOR, Field, MIGRATED_LINE,
-	Rules, SizeUnit, Strictness, Tokens, format_version, generate, migrate, migrate_unstamped,
-	parse_datetime, quote_segment, read_format_version, read_schema_ref, schema_ref, tokenize,
+	Rules, SizeUnit, Status, Strictness, Tokens, format_version, generate, migrate,
+	migrate_unstamped, parse_datetime, quote_segment, read_format_version, read_schema_ref,
+	schema_ref, tokenize,
 };
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -916,6 +917,30 @@ fn migrate_is_a_fixpoint() {
 	});
 }
 
+/// The text with line `line` naming this format, indent and line end kept,
+/// when that reads as the file's stamp. migrate writes its stamp there when
+/// the input names an older format on that line (2026100916475300).
+fn stamped_in_place(text: &str, line: usize) -> Option<String> {
+	let bom = if text.starts_with('\u{feff}') {
+		"\u{feff}"
+	} else {
+		""
+	};
+	let mut lines: Vec<String> = text[bom.len()..].split('\n').map(str::to_string).collect();
+	let was = lines.get(line.checked_sub(1)?)?.clone();
+	let indent = was.len() - was.trim_start_matches([' ', '\t']).len();
+	let body = was[indent..].trim_end_matches([' ', '\t', '\r']);
+	lines[line - 1] = format!(
+		"{}{}{}",
+		&was[..indent],
+		FORMAT_LINE,
+		&was[indent + body.len()..]
+	);
+	let out = format!("{bom}{}", lines.join("\n"));
+	let now = read_format_version(&out);
+	(now.status == Status::Good && now.value == FORMAT_MAJOR && now.line == line).then_some(out)
+}
+
 #[test]
 fn migrate_unstamped_is_migrate_without_the_stamp() {
 	let _id = test_id("Eqps7zO");
@@ -945,12 +970,23 @@ fn migrate_unstamped_is_migrate_without_the_stamp() {
 			};
 			let mut want = bare.text.clone();
 			if !full.current && full.text != bare.text {
-				if !want.is_empty() && !want.ends_with('\n') {
+				let old = read_format_version(&case.input);
+				let in_place = (old.status == Status::Good)
+					.then(|| stamped_in_place(&bare.text, old.line))
+					.flatten();
+				let add = in_place.is_none();
+				if let Some(t) = in_place {
+					want = t;
+				}
+				let changed = bare.text != case.input;
+				if (add || changed) && !want.is_empty() && !want.ends_with('\n') {
 					want.push_str(eol);
 				}
-				want.push_str(FORMAT_LINE);
-				want.push_str(eol);
-				if bare.text != case.input {
+				if add {
+					want.push_str(FORMAT_LINE);
+					want.push_str(eol);
+				}
+				if changed {
 					want.push_str(MIGRATED_LINE);
 					want.push_str(eol);
 				}

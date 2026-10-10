@@ -67,6 +67,40 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Commit: `250115f3`
 	- Test case: `fields_give_each_instance_its_own_path` (Rust `EsEsFl8`, Go `EsEsFnM`, Python `EsEsFpX`, C `EsEsFrh`) and the veneer smoke; cli-regress `EsEvmKw`, `EsEvmKy`, `EsEvmL0` to `EsEvmLC`, and `EsEvmLE` (every corpus input's `--json` lines through `jq -c .` and `ConvertFrom-Json`); crosscheck and sanitize-c `--json` on every listing row and `paths --json` on every input; check-readme's bash and PowerShell blocks.
 
+- A file stamped with a newer Format major should load clean
+	- ID: 2026100717500017
+	- Type: Enhancement
+	- Status: Waiting for testing
+	- Needs local test suite run?: Y, the full `--ci`, for exhaustive cppcheck over the C change.
+	- Needs external testing: a hosted run.
+	- Priority: Avg
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 17
+	- Problem description: `Format 4` in the info block loads Clean, and `Format 2` with `x: "a\tb"` loads Clean and reads `a\tb`. To notice, a program calls `read_file` and `format_version` itself, since `load_file` never hands it the text. spec.md says the load ignores the line.
+	- Requirements:
+		- A hint on load when the stamp names a newer major than the library's.
+		- Maybe one for an older major too, pointing at `upgrade`.
+	- Reason: a 3.x program that reads a 4.x file today gets whatever the 3.x rules make of it, silently. The stamp exists for exactly this.
+	- Origin: Confirmed. A change of a documented rule, so it needs JC's OK.
+	- Progress log:
+		- 20261009: built with 2026100912352401 in all four and the C++ interface. `H006` for a newer major, `H007` for an older one, on the stamp's line. The load reads the line through the same call as `read_format_version`, so the two can't disagree. A hint changes no load outcome, Strict included. A line whose number does not read gets no hint.
+		- 20261009, my call: `H007` says `shcl upgrade --from-2x`, since `upgrade` leaves a clean file with an older stamp alone without it (2026100313461649's call). A file it has nothing to change in keeps the old line and the hint, so `explain H007` also names `migrate FILE --write`, which stamps it. The hint and explain wording are for signoff.
+		- 20261009: rework queued for the restamp. Today `upgrade --from-2x` says "nothing to upgrade" on a Format 2 file that reads the same under 3, so H007's advice does nothing and the hint shows on every load. `explain H007`'s pointer at `migrate FILE --write` can go once it works.
+		- 20261009: corpus 204 and 205 moved the fuzz seeds. The migrate fixpoint property took an input's own older Format line for migrate's stamp. With a raw block left open migrate adds none, and the CLI refuses that output at 7, so the property now holds only output naming this format. Test-only. A second find is filed as 2026100914525821.
+		- 20261009: the restamp is in, all four. With `--from-2x`, `upgrade` writes `Format 3` in place of an older Format line on a file with nothing else to change, indent and line end kept, after the backup, so the H007 hint goes. Without it nothing changes. The new line is kept only when it reads back as the stamp through `format_line_read`; otherwise the file is left alone. `explain H007` drops its `migrate FILE --write` pointer in all four. `migrate` writes its stamp the same way (2026100916475300).
+		- 20261009: the H007 hint and explain wording were marked for signoff. The explain text changed again here, my call. It still waits on that look.
+	- Decisions:
+		- 20261008: 2 hints, one for a newer major and one for an older major pointing at `upgrade` (JC).
+		- 20261009: `upgrade --write --from-2x` restamps a file whose only change would be its Format line. It takes the backup like any upgrade and writes `Format 3` in place of the old line. Without `--from-2x` nothing changes. This reverses part of 2026100313461649's call (JC).
+	- Against: 2026100313461649's call that a clean file naming an older format is left alone. JC reversed that part on 20261009, and only for `--from-2x`.
+	- Swept: the restamp is one helper per binding, `restamp` in Rust, Go and C (with C's `restamp_text` for `upgrade`) and `_restamp` in Python. It replaces the line `format_line_read` found and reads the result back through it. `upgrade` and `migrate` are its only callers. The four `explain` tables, spec.md, design.md, the man page and the changelog say so. The C++ interface needs nothing, since no call changed.
+	- Swept: every load in each binding goes through its one parser function, so `parse`, `parse_with`, `parse_limited`, the keep-lines loads, the file loads and the one-shot all hint. `migrate`, `upgrade`, `format_version` and the hint read one function per binding: `format_line_read` in Rust and C, `formatLineRead` in Go, `_format_line_read` in Python. spec.md, design.md, the changelog, the corpus README and all four `explain` tables say so.
+	- Verified: hint emission taken out of each binding fails corpus 204 and 205 there, and the stamp test in Rust, Go and C. Also: the four conformance suites (C also built by mingw and run under wine), veneer_smoke and check-veneer, cli-regress (513 rows, 2763 checks, all four), crosscheck over the corpus (18030 comparisons), check-docs (only the known `EpHGoa0` red), check-abnf, check-readme, test-ids check, shell-regress, shellcheck, markdownlint, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy with the typing probe, cppcheck at the normal level, check-c-compilers (5 compilers, every `-O` level) and sanitize-c. The 200,000 release fuzz passes all 26. The 2,000,000 one passes all but `Eqk24nZ`, which fails on dev's code too once 204 and 205 move the seeds (2026100914525821). With the two cases moved out it passes all 26.
+	- Verified: 20261009, the restamp. The new tests and rows fail on dev's code and pass on all four. Also: the four conformance suites, veneer_smoke and check-veneer, cli-regress (536 rows, 2883 checks, all four), crosscheck over the corpus (21339 comparisons), check-docs (only the known `EpHGoa0` red), test-ids check, shellcheck, markdownlint, rustfmt, clippy on the library, CLI and the other test targets for the host and on the library and CLI for windows, gofmt, go vet, staticcheck, ruff, cppcheck at the normal level, check-c-compilers (5 compilers, every `-O` level) and sanitize-c. The 2,000,000 release fuzz passes all but `Eqk24nZ` (2026100914525821). check-migrate has 14 divergences, the same ones on dev's code.
+	- Branch: `fmtstamp`, `restamp`
+	- Commit: `be88796f`, `b79f2183`
+	- Test case: corpus `204-format-newer-hint` (`EsEtTdT`) and `205-format-older-hint` (`EsEtTdU`) in all four runners, the hint rows of `stamp_reads_say_why` (Rust `EsEtTdP`, Go `EsEtTdQ`, Python `EsEtTdR`, C `EsEtTdS`), cli-regress `EsEtTdV` to `EsEtTda`, and veneer_smoke `EjtkR0S`. The restamp: `an_older_format_line_becomes_this_one_in_place` (Rust `EsFrOVO`, Go `EsFrOVP`, Python `EsFrOVQ`, C `EsFrOVR`), cli-regress `EsFrOVT`, `EsFrOVU` and save case `EsFrOVV`, and the changed row `EsEtTda`.
+
 - Long values make messages huge
 	- ID: 2026100818251400
 	- Type: Bug
@@ -95,6 +129,29 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `msgval`
 	- Commit: `81943546`
 	- Test case: cli-regress `EsEhCd0` to `EsEhCd5`, with 2 and 4 byte characters and the 200 and 201 character edges.
+
+- `migrate --write` leaves the old Format line beside the new one
+	- ID: 2026100916475300
+	- Type: Bug
+	- Status: Waiting for testing
+	- Needs local test suite run?: Y, the full `--ci`, for exhaustive cppcheck over the C change.
+	- Needs external testing: a hosted run.
+	- Severity: Low
+	- Opened: 20261009-164753
+	- Opened by: JC, from talk on 2026100717500017
+	- Related IDs: 2026100717500017
+	- Version and build: dev at `e72c0d6b`
+	- Steps to reproduce: `printf 'port: 80\n##    Format   2\n' > f.shcl && shcl migrate f.shcl --write`
+	- Incorrect behavior: the file ends with `##    Format   2` and then `##    Format   3`. It loads clean with no hint, but reads as 2 formats.
+	- Expected behavior: `migrate` writes `Format 3` in place of the old Format line. A file with none still gets one added.
+	- Reproduced: 20261009, all four CLIs.
+	- Actual cause [Bug]: `migrate` always appended its stamp, whatever older Format line the file had.
+	- Actual fix [Bug]: `migrate` writes `Format 3` over the older line `format_line_read` found, indent and line end kept, through the restamp helper 2026100717500017 added. The line is kept only when it reads back as the stamp; otherwise it goes at the end as before. A file with no Format line gets one at the end, and the migrated note still goes at the end. The rewritten Format line counts as a rewritten line, so `--write` keeps a backup and `--check` names it.
+	- Swept: `migrate_text` in Rust, Go, Python and C. The stamp check over the corpus in all four runners (Rust `Eqps7zO`, Go `Eqpzw7U`, Python and C) learned the in-place stamp.
+	- Verified: the new rows and tests fail on dev's code and pass on all four. The same runs as 2026100717500017.
+	- Branch: `restamp`
+	- Commit: `b79f2183`
+	- Test case: cli-regress `EsFrOVS`, `EsFrOVX` and save case `EsFrOVW`, the migrate half of `an_older_format_line_becomes_this_one_in_place` (`EsFrOVO` to `EsFrOVR`), and the corpus stamp check in the four runners.
 
 - A failed write says why only in text
 	- ID: 2026100912352400
@@ -153,35 +210,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `fmtstamp`
 	- Commit: `be88796f`
 	- Test case: `stamp_reads_say_why` in all four runners (Rust `EsEtTdP`, Go `EsEtTdQ`, Python `EsEtTdR`, C `EsEtTdS`), and the status checks in veneer_smoke (`EjtkR0S`).
-
-- A file stamped with a newer Format major should load clean
-	- ID: 2026100717500017
-	- Type: Enhancement
-	- Status: Queued
-	- Needs local test suite run?: Y, the full `--ci`, for exhaustive cppcheck over the C change.
-	- Needs external testing: a hosted run.
-	- Priority: Avg
-	- Opened: 20261007-175000
-	- Opened by: Code review 20261007 item 17
-	- Problem description: `Format 4` in the info block loads Clean, and `Format 2` with `x: "a\tb"` loads Clean and reads `a\tb`. To notice, a program calls `read_file` and `format_version` itself, since `load_file` never hands it the text. spec.md says the load ignores the line.
-	- Requirements:
-		- A hint on load when the stamp names a newer major than the library's.
-		- Maybe one for an older major too, pointing at `upgrade`.
-	- Reason: a 3.x program that reads a 4.x file today gets whatever the 3.x rules make of it, silently. The stamp exists for exactly this.
-	- Origin: Confirmed. A change of a documented rule, so it needs JC's OK.
-	- Progress log:
-		- 20261009: built with 2026100912352401 in all four and the C++ interface. `H006` for a newer major, `H007` for an older one, on the stamp's line. The load reads the line through the same call as `read_format_version`, so the two can't disagree. A hint changes no load outcome, Strict included. A line whose number does not read gets no hint.
-		- 20261009, my call: `H007` says `shcl upgrade --from-2x`, since `upgrade` leaves a clean file with an older stamp alone without it (2026100313461649's call). A file it has nothing to change in keeps the old line and the hint, so `explain H007` also names `migrate FILE --write`, which stamps it. The hint and explain wording are for signoff.
-		- 20261009: rework queued for the restamp. Today `upgrade --from-2x` says "nothing to upgrade" on a Format 2 file that reads the same under 3, so H007's advice does nothing and the hint shows on every load. `explain H007`'s pointer at `migrate FILE --write` can go once it works.
-		- 20261009: corpus 204 and 205 moved the fuzz seeds. The migrate fixpoint property took an input's own older Format line for migrate's stamp. With a raw block left open migrate adds none, and the CLI refuses that output at 7, so the property now holds only output naming this format. Test-only. A second find is filed as 2026100914525821.
-	- Decisions:
-		- 20261008: 2 hints, one for a newer major and one for an older major pointing at `upgrade` (JC).
-		- 20261009: `upgrade --write --from-2x` restamps a file whose only change would be its Format line. It takes the backup like any upgrade and writes `Format 3` in place of the old line. Without `--from-2x` nothing changes. This reverses part of 2026100313461649's call (JC).
-	- Swept: every load in each binding goes through its one parser function, so `parse`, `parse_with`, `parse_limited`, the keep-lines loads, the file loads and the one-shot all hint. `migrate`, `upgrade`, `format_version` and the hint read one function per binding: `format_line_read` in Rust and C, `formatLineRead` in Go, `_format_line_read` in Python. spec.md, design.md, the changelog, the corpus README and all four `explain` tables say so.
-	- Verified: hint emission taken out of each binding fails corpus 204 and 205 there, and the stamp test in Rust, Go and C. Also: the four conformance suites (C also built by mingw and run under wine), veneer_smoke and check-veneer, cli-regress (513 rows, 2763 checks, all four), crosscheck over the corpus (18030 comparisons), check-docs (only the known `EpHGoa0` red), check-abnf, check-readme, test-ids check, shell-regress, shellcheck, markdownlint, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy with the typing probe, cppcheck at the normal level, check-c-compilers (5 compilers, every `-O` level) and sanitize-c. The 200,000 release fuzz passes all 26. The 2,000,000 one passes all but `Eqk24nZ`, which fails on dev's code too once 204 and 205 move the seeds (2026100914525821). With the two cases moved out it passes all 26.
-	- Branch: `fmtstamp`
-	- Commit: `be88796f`
-	- Test case: corpus `204-format-newer-hint` (`EsEtTdT`) and `205-format-older-hint` (`EsEtTdU`) in all four runners, the hint rows of `stamp_reads_say_why` (Rust `EsEtTdP`, Go `EsEtTdQ`, Python `EsEtTdR`, C `EsEtTdS`), cli-regress `EsEtTdV` to `EsEtTda`, and veneer_smoke `EjtkR0S`.
 
 - `line`, `lines`, `authored_name`, `comments`, `exists`, `remove` and `clear_comments` can't report a path that doesn't parse
 	- ID: 2026100912271700
@@ -254,20 +282,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `msgval`
 	- Commit: `81943546`
 	- Test case: cli-regress `EsEhCcw` to `EsEhCcz` and `EsEix5w`, and the changed rows `EqGaO1w` to `EqGaO23`, `EonKleq` and `Er1zoZI`.
-
-- `migrate --write` leaves the old Format line beside the new one
-	- ID: 2026100916475300
-	- Type: Bug
-	- Status: Queued
-	- Severity: Low
-	- Opened: 20261009-164753
-	- Opened by: JC, from talk on 2026100717500017
-	- Related IDs: 2026100717500017
-	- Version and build: dev at `e72c0d6b`
-	- Steps to reproduce: `printf 'port: 80\n##    Format   2\n' > f.shcl && shcl migrate f.shcl --write`
-	- Incorrect behavior: the file ends with `##    Format   2` and then `##    Format   3`. It loads clean with no hint, but reads as 2 formats.
-	- Expected behavior: `migrate` writes `Format 3` in place of the old Format line. A file with none still gets one added.
-	- Reproduced: 20261009, all four CLIs.
 
 - Library gaps a generic tool has to work around
 	- ID: 2026100717500020

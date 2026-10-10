@@ -9,7 +9,7 @@
 mod common;
 
 use common::test_id;
-use shcl::{GEN_BANNER, UpgradeError, backup_file_name, upgrade, upgrade_file};
+use shcl::{GEN_BANNER, UpgradeError, backup_file_name, migrate, upgrade, upgrade_file};
 
 const CLOCK: &str = "2026-10-04 00:15:00 -420 PDT";
 
@@ -62,6 +62,36 @@ fn upgrade_from_v2_rewrites_a_clean_file_that_reads_differently() {
 	let same = "a: 1\nb: x\n";
 	let up = upgrade(same, true);
 	assert!(up.current && up.text == same);
+}
+
+#[test]
+fn an_older_format_line_becomes_this_one_in_place() {
+	let _id = test_id("EsFrOVO");
+	pin_clock();
+	// Nothing else changes, so only the stamp does, and only with from_v2
+	// (2026100717500017).
+	let old = "port: 80\n##    Format   2\n";
+	let up = upgrade(old, true);
+	assert!(!up.current && up.format == 2 && up.lost == 0);
+	assert_eq!(up.text, "port: 80\n##    Format   3\n");
+	assert!(up.diagnostics.iter().any(|d| d.code == "H007"));
+	assert!(upgrade(&up.text, true).current);
+	let up = upgrade(old, false);
+	assert!(up.current && up.text == old);
+	// Indent, trailing blanks, line end and BOM stay as they were.
+	let up = upgrade("\u{feff}p: 1\r\n\t##    Format   1  \r\nq: 2", true);
+	assert_eq!(up.text, "\u{feff}p: 1\r\n\t##    Format   3  \r\nq: 2");
+	// migrate writes its stamp there too, and adds one only to a file with
+	// none (2026100916475300).
+	assert_eq!(migrate(old, false).text, "port: 80\n##    Format   3\n");
+	assert_eq!(
+		migrate("x: a,b\n##    Format   2\ny: 1\n", false).text,
+		"x: [a, b]\n##    Format   3\ny: 1\n##    Migrated from SHCL 2.x.\n"
+	);
+	assert_eq!(
+		migrate("port: 80\n", false).text,
+		"port: 80\n##    Format   3\n"
+	);
 }
 
 #[test]

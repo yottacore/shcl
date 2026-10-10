@@ -114,7 +114,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `read_format_version()` and `read_schema_ref()` in every binding (Go `ReadFormatVersion`, C `shcl_read_format_version`) give the plain call's answer with a status, so a file with no Format line and one whose line names no number read apart: `NotFound`, `Empty` for the line with nothing after it, `BadType` for `##    Format   3x`. A Schema line naming nothing is `Empty`.
 
-- `upgrade_file()` in every binding, for a program to call on start: a config file it cannot load clean is kept under a timestamped backup name and written fresh, with whatever settings carry over and the info block. A file that loads clean is left alone, unless the caller says it is 2.x and it reads differently now. `upgrade()` is the text half, and `backup_file_name()` and `write_backup()` the backup half. `shcl upgrade FILE` does the same, printing or with `--write`.
+- `upgrade_file()` in every binding, for a program to call on start: a config file it cannot load clean is kept under a timestamped backup name and written fresh, with whatever settings carry over and the info block. A file that loads clean is left alone, unless the caller says it is 2.x and it reads differently now. When the only change would be an older Format line, that line alone is rewritten to name this format, after the backup. `upgrade()` is the text half, and `backup_file_name()` and `write_backup()` the backup half. `shcl upgrade FILE` does the same, printing or with `--write`.
 
 - `set_banner()` in every binding, and the `banner` op, put the info block at the end of a file and take an old one off first. The file's own comments next to the old one stay.
 
@@ -329,6 +329,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `migrate` refuses while a line sits at an indent no level matches, since 2.x read some of them.
 
 - `migrate` refuses a file whose raw block never closes, since its Format line would have nowhere to go. Close the block and run it again.
+
+- `migrate` writes its Format line over an older one, where it added a second line under it. A file with none still gets one at the end.
 
 - `get`, `count`, `instances`, `fmt` and `set` print the load's diagnostics to stderr, once, before any edit runs.
 
