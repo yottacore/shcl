@@ -698,6 +698,19 @@ int main() {
 		CHECK(std::string(shcl::to_string(shcl::SchemaStatus::TooLarge)) == "TooLarge");
 	}
 #endif
+	// kind() and read_kind() pass the core's answer and status through.
+	{
+		using K = shcl::ValueKind;
+		auto kd = shcl::Document::parse("name: demo\ntags: [a]\nnotes: ~~~\n\tx\n\t~~~\nsrv:\n\thost: h\nsite: a\nsite: b\n");
+		CHECK(kd.kind("name") == K::Scalar && kd.kind("tags") == K::Array && kd.kind("notes") == K::Raw && kd.kind("srv") == K::Empty);
+		auto kr = kd.read_kind("tags");
+		CHECK(kr.value == K::Array && kr.status == shcl::Status::Good);
+		CHECK(kd.read_kind("srv").value == K::Empty && kd.read_kind("srv").status == shcl::Status::Good);
+		CHECK(kd.read_kind("site").value == K::Empty && kd.read_kind("site").status == shcl::Status::Multiple);
+		CHECK(kd.read_kind("nope").status == shcl::Status::NotFound && kd.read_kind("site..port").status == shcl::Status::BadPath);
+		CHECK(kd.kind("nope") == K::Empty);
+		CHECK(std::string(shcl::to_string(K::Empty)) == "Empty" && std::string(shcl::to_string(K::Raw)) == "Raw");
+	}
 
 	if (fails) { std::fprintf(stderr, "veneer: %d failure(s)\n", fails); return test_id_end(fails); }
 	std::printf("veneer: ok\n");

@@ -174,6 +174,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The installers take `--version`.
 
+- `kind()` and `read_kind()` in every binding (Go `Kind` and `ReadKind`, C `shcl_kind` and `shcl_read_kind`) say whether the value at a path is a scalar, an array, a raw block or empty, so a tool no longer has to try each read to find out. `read_kind()` says `NotFound`, `Multiple` or `BadPath` for a miss.
+
 ### Parsing
 
 - A line indented under a skipped line is skipped with it (`E018`) instead of moving up a level. That now holds under `E006`, `E012`, `E013` and a dropped `- ` item as well.
