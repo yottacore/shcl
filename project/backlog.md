@@ -384,6 +384,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Verified (schema resolve): each new runner test fails with its binding's fix broken and passes with it, and cli-regress's FIFO-swap row fails for Go without the library's open that does not wait. The Rust, Go and C tests and the C++ smoke pass their Windows branches under wine. Also cargo test, clippy for linux and windows, rustfmt, the four conformance suites, `go test -count=1` per module, gofmt, vet and staticcheck for linux and windows, ruff, mypy, cppcheck at the normal level, the C runner under ASan and UBSan and at all five `-O` levels, gcc-15, clang, mingw, cli-regress (541 rows, 4 bindings), crosscheck, check-veneer, check-abnf, test-ids, markdownlint, and check-docs with only the known `EpHGoa0` red.
 	- Test case (schema resolve): `read_named_schema_follows_check_rules` in all four runners (Rust `EsJZ105`, Go `EsJZ106`, Python `EsJZ107`, C `EsJZ108`) and the C++ smoke `EjtkR0S`. The CLI side is cli-regress's schema-line rows, `Er2thhx` to `ErfuRh7`, and `Erlf8t9`.
 	- Branch (schema resolve): `schemares`
+	- Commit (schema resolve): `f7f81be1`
 
 **Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
 
