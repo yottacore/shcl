@@ -1,5 +1,6 @@
 <!-- markdownlint-disable MD007 -- Unordered list indentation -->
 <!-- markdownlint-disable MD010 -- No hard tabs -->
+<!-- markdownlint-disable MD033 -- No inline html -->
 <!-- markdownlint-disable MD038 -- Spaces inside code span elements -->
 <!-- markdownlint-disable MD055 -- Table pipe style [Expected: leading_and_trailing; Actual: leading_only; Missing trailing pipe] -->
 <!-- markdownlint-disable MD041 -- First line in a file should be a top-level heading -->
@@ -42,6 +43,7 @@ Scope: escapes, quoting, bare values and field names, arrays, list items and sel
 - [Research findings](#research-findings)
 - [Roadmap](#roadmap)
 - [Related backlog issues](#related-backlog-issues)
+- [Copyright and license](#copyright-and-license)
 
 <!-- /TOC -->
 
@@ -783,3 +785,8 @@ What the build has today, and what replaces it.
 | 2026100610073400 | Selectors use `()`, and `[]` is for arrays only                                               | Done in Rust and the docs. The ports remain
 | 2026100609552447 | Don't allow the `[#N]` index selector                                                         | Moot, folded into 2026100610073400
 | 2026100719122101 | `fmt` leaves a value bare that a reader could misread                                         | The writer's quoting, under Canonical output
+
+## Copyright and license
+
+> Copyright © 2026 Jim Collier [ID: 2უNაɘ«҂թȹɤξπ๙¿ձϖ]<br />
+> Licensed under Creative Commons Attribution 4.0 International (CC BY 4.0) <https://creativecommons.org/licenses/by/4.0/>.
