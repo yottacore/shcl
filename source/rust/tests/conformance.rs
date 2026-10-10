@@ -4310,3 +4310,82 @@ fn migrate_leaves_what_reads_clean_now() {
 	);
 	assert!(migrate(text, true).text.contains("ESCAPE_CHAR"));
 }
+
+// kind() and read_kind(): what the value at a path is, from the stored form,
+// with the status read_line() gives. Same fixture in every runner.
+#[test]
+fn kind_reads_say_what_is_there() {
+	let _id = test_id("EsJYNe1");
+	use shcl::Status::{BadPath, Good, Multiple, NotFound};
+	use shcl::ValueKind::{Array, Empty, Raw, Scalar};
+	let text = "name: demo\nquoted: \"\"\ntags: [a, b]\none: [80]\nnone: []\nlist:\n\t- x\n\t- y\nnotes:\n\t~~~sql\n\tselect 1\n\t~~~\nblank:\nsite: a\n\tport: 1\nsite: b\nsrv:\n\thost: h\nlog: [x] y\n\tlevel: 1\n";
+	let mut doc = Document::parse(text);
+	let k = doc.read_kind("name");
+	assert_eq!((k.value, k.status, k.line), (Scalar, Good, 1));
+	// `[80]` and `[]` are arrays though a scalar read takes them, and a
+	// section header or a line kept for its value is empty.
+	for (p, want) in [
+		("quoted", Scalar),
+		("tags", Array),
+		("one", Array),
+		("none", Array),
+		("list", Array),
+		("notes", Raw),
+		("blank", Empty),
+		("srv", Empty),
+		("srv.host", Scalar),
+		("site(0)", Scalar),
+		("site(0).port", Scalar),
+		("log", Empty),
+		("log.level", Scalar),
+	] {
+		let k = doc.read_kind(p);
+		assert_eq!((k.value, k.status), (want, Good), "{p:?}");
+		assert_eq!(doc.kind(p), want, "{p:?}");
+	}
+	let k = doc.read_kind("notes");
+	assert_eq!(k.line, 9);
+	for (p, want) in [
+		("site", Multiple),
+		("site(*)", Multiple),
+		("site(*).port", Multiple),
+		("*", Multiple),
+		("nope", NotFound),
+		("site(1).port", NotFound),
+		("site(2)", NotFound),
+		("site[0].port", BadPath),
+		("site(.port", BadPath),
+		("site..port", BadPath),
+		("", BadPath),
+		("user name", BadPath),
+		("site.port: 1", BadPath),
+		("h:p", BadPath),
+	] {
+		let k = doc.read_kind(p);
+		assert_eq!((k.value, k.status, k.line), (Empty, want, 0), "{p:?}");
+		assert_eq!(doc.kind(p), Empty, "{p:?}");
+	}
+	let names: Vec<String> = [Empty, Scalar, Array, Raw]
+		.iter()
+		.map(|k| k.to_string())
+		.collect();
+	assert_eq!(names, ["Empty", "Scalar", "Array", "Raw"]);
+	assert_eq!(doc.to_canonical(), Document::parse(text).to_canonical());
+	// A node a setter built has the kind its setter wrote, and no line.
+	assert_eq!(doc.set_int("built", 1), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_int_array("arr", &[1]), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_raw("body", "x", ""), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_comment("note", "# c"), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_int("blank", 2), shcl::SetStatus::Ok);
+	for (p, want) in [
+		("built", Scalar),
+		("arr", Array),
+		("body", Raw),
+		("note", Empty),
+		("blank", Scalar),
+	] {
+		let k = doc.read_kind(p);
+		assert_eq!((k.value, k.status), (want, Good), "{p:?}");
+	}
+	assert_eq!(doc.read_kind("built").line, 0);
+}

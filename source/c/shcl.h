@@ -165,6 +165,12 @@ typedef struct { size_t *values; size_t n; shcl_status status; } shcl_read_usize
 // setter built).
 typedef struct { shcl_str path; shcl_str name; shcl_str value; size_t line; } shcl_field;
 typedef struct { shcl_field *values; size_t n; shcl_status status; } shcl_read_field_list;
+// What the value at a path is, as shcl_kind and shcl_read_kind give it.
+// SHCL_KIND_EMPTY is a field with nothing after the colon, a section's header
+// included; `x: []` is SHCL_KIND_ARRAY with no elements. The order is every
+// binding's.
+typedef enum { SHCL_KIND_EMPTY, SHCL_KIND_SCALAR, SHCL_KIND_ARRAY, SHCL_KIND_RAW } shcl_value_kind;
+typedef struct { shcl_value_kind value; shcl_status status; } shcl_read_value_kind;
 
 // Maximum nesting depth (levels below the document root), enforced at load and
 // by the Writer. Deeper lines are skipped with an E016 error. The cap is what
@@ -457,6 +463,19 @@ shcl_str shcl_authored_name(shcl_doc *d, const char *path, size_t plen);
 // SHCL_MULTIPLE for a repeated field, SHCL_NOT_FOUND or SHCL_BAD_PATH otherwise.
 // value is borrowed the same way.
 shcl_read_str shcl_read_authored_name(shcl_doc *d, const char *path, size_t plen);
+// What the value at a path is: scalar, array, raw block or empty, so a generic
+// tool can pick its read without trying each. It answers from the stored form,
+// so `x: [80]` is an array though a scalar read takes it. SHCL_KIND_EMPTY when
+// the path does not resolve to exactly one node, as shcl_line gives 0;
+// shcl_read_kind says which miss it was.
+shcl_value_kind shcl_kind(shcl_doc *d, const char *path, size_t plen);
+// shcl_kind with a status, the way shcl_read_line has them: SHCL_GOOD,
+// SHCL_NOT_FOUND, SHCL_MULTIPLE for a repeated field, or SHCL_BAD_PATH. An
+// empty value is SHCL_GOOD with SHCL_KIND_EMPTY, so a written `x:` and a
+// missing field read apart.
+shcl_read_value_kind shcl_read_kind(shcl_doc *d, const char *path, size_t plen);
+// The kind's name as the other bindings print it, "Empty" to "Raw".
+const char *shcl_value_kind_name(shcl_value_kind k);
 // The plural shcl_line: 1-based source lines at a path, in file order, so a
 // repeated field - the case that most wants a citable line - yields every
 // binding's. Wildcard slots that did not resolve stay in the list as 0, and a
@@ -6780,6 +6799,23 @@ shcl_read_str shcl_read_authored_name(shcl_doc *d, const char *path, size_t plen
 	return R;
 }
 
+shcl_value_kind shcl_kind(shcl_doc *d, const char *path, size_t plen) {
+	return shcl_read_kind(d, path, plen).value;
+}
+shcl_read_value_kind shcl_read_kind(shcl_doc *d, const char *path, size_t plen) {
+	shcl_read_value_kind R; R.value = SHCL_KIND_EMPTY;
+	ShclStr p; p.p = path; p.n = plen; size_t n = 0;
+	R.status = node_at(d, p, &n);
+	if (R.status != SHCL_GOOD) return R;
+	switch (NODE(d, n).value.kind) {
+	case V_EMPTY: R.value = SHCL_KIND_EMPTY; break;
+	case V_CELL: R.value = SHCL_KIND_SCALAR; break;
+	case V_ARRAY: R.value = SHCL_KIND_ARRAY; break;
+	case V_RAW: R.value = SHCL_KIND_RAW; break;
+	}
+	return R;
+}
+
 size_t shcl_lines(shcl_doc *d, const char *path, size_t plen, size_t **out) {
 	shcl_read_usize_list r = shcl_read_lines(d, path, plen);
 	*out = r.values; return r.n;
@@ -10544,6 +10580,10 @@ const char *shcl_status_name(shcl_status s) {
 	return "Good";
 }
 int shcl_status_ok(shcl_status s) { return s == SHCL_GOOD || s == SHCL_EMPTY; }
+const char *shcl_value_kind_name(shcl_value_kind k) {
+	switch (k) { case SHCL_KIND_EMPTY: return "Empty"; case SHCL_KIND_SCALAR: return "Scalar"; case SHCL_KIND_ARRAY: return "Array"; case SHCL_KIND_RAW: return "Raw"; }
+	return "Unknown";
+}
 const char *shcl_set_status_name(shcl_set_status s) {
 	switch (s) {
 	case SHCL_SET_OK: return "Ok";

@@ -97,6 +97,28 @@ impl std::fmt::Display for Status {
 	}
 }
 
+/// What the value at a path is, as kind() and read_kind() give it. `Empty`
+/// is a field with nothing after the colon, a section's header included;
+/// `x: []` is an `Array` with no elements. The order is every binding's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ValueKind {
+	Empty,
+	Scalar,
+	Array,
+	Raw,
+}
+
+impl std::fmt::Display for ValueKind {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.write_str(match self {
+			ValueKind::Empty => "Empty",
+			ValueKind::Scalar => "Scalar",
+			ValueKind::Array => "Array",
+			ValueKind::Raw => "Raw",
+		})
+	}
+}
+
 /// What load_file found: the four cases a consumer's own load path otherwise
 /// confuses. Clean and HadErrors both have a usable document; NotFound and
 /// Unreadable come back with an empty one.
@@ -9970,6 +9992,34 @@ impl Document {
 			Ok(n) => Read::new(self.arena[n].authored().to_string(), Status::Good, None)
 				.at(self.arena[n].line, None),
 			Err(st) => Read::new(String::new(), st, None),
+		}
+	}
+
+	/// What the value at a path is: scalar, array, raw block or empty, so a
+	/// generic tool can pick its read without trying each. It answers from
+	/// the stored form, so `x: [80]` is an array though a scalar read takes
+	/// it. `Empty` when the path does not resolve to exactly one node, as
+	/// line() gives 0; read_kind() says which miss it was.
+	pub fn kind(&self, path: &str) -> ValueKind {
+		self.read_kind(path).value
+	}
+
+	/// kind() with a status, the way read_line() has them: `Good`,
+	/// `NotFound`, `Multiple` for a repeated field, or `BadPath`. An empty
+	/// value is `Good` with `ValueKind::Empty`, so a written `x:` and a
+	/// missing field read apart. `line` is set too.
+	pub fn read_kind(&self, path: &str) -> Read<ValueKind> {
+		match self.node_at(path) {
+			Ok(n) => {
+				let kind = match &self.arena[n].value {
+					Value::Empty => ValueKind::Empty,
+					Value::Cell(_) => ValueKind::Scalar,
+					Value::Array(_) => ValueKind::Array,
+					Value::Raw(_) => ValueKind::Raw,
+				};
+				Read::new(kind, Status::Good, None).at(self.arena[n].line, None)
+			}
+			Err(st) => Read::new(ValueKind::Empty, st, None),
 		}
 	}
 

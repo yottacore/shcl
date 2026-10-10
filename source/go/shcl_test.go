@@ -5420,3 +5420,106 @@ func TestInitRefusesAChildOfAnArrayParent(t *testing.T) {
 		t.Fatalf("a child of an array parent generated: %q %v", text, faults)
 	}
 }
+
+// What the value at a path is, through Kind and ReadKind, from the stored
+// form, with the status ReadLine gives. Same fixture in every runner.
+func TestKindReadsSayWhatIsThere(t *testing.T) {
+	defer testID(t, "EsJYNe2")
+	text := "name: demo\nquoted: \"\"\ntags: [a, b]\none: [80]\nnone: []\nlist:\n\t- x\n\t- y\nnotes:\n\t~~~sql\n\tselect 1\n\t~~~\nblank:\nsite: a\n\tport: 1\nsite: b\nsrv:\n\thost: h\nlog: [x] y\n\tlevel: 1\n"
+	doc := Parse(text)
+	if k := doc.ReadKind("name"); k.Value != KindScalar || k.Status != Good || k.Line != 1 {
+		t.Errorf("ReadKind(name) = %v %v %d", k.Value, k.Status, k.Line)
+	}
+	// `[80]` and `[]` are arrays though a scalar read takes them, and a
+	// section header or a line kept for its value is empty.
+	for _, c := range []struct {
+		path string
+		want ValueKind
+	}{
+		{"quoted", KindScalar},
+		{"tags", KindArray},
+		{"one", KindArray},
+		{"none", KindArray},
+		{"list", KindArray},
+		{"notes", KindRaw},
+		{"blank", KindEmpty},
+		{"srv", KindEmpty},
+		{"srv.host", KindScalar},
+		{"site(0)", KindScalar},
+		{"site(0).port", KindScalar},
+		{"log", KindEmpty},
+		{"log.level", KindScalar},
+	} {
+		if k := doc.ReadKind(c.path); k.Value != c.want || k.Status != Good {
+			t.Errorf("ReadKind(%q) = %v %v", c.path, k.Value, k.Status)
+		}
+		if k := doc.Kind(c.path); k != c.want {
+			t.Errorf("Kind(%q) = %v", c.path, k)
+		}
+	}
+	if k := doc.ReadKind("notes"); k.Line != 9 {
+		t.Errorf("ReadKind(notes) line %d", k.Line)
+	}
+	for _, c := range []struct {
+		path string
+		want Status
+	}{
+		{"site", Multiple},
+		{"site(*)", Multiple},
+		{"site(*).port", Multiple},
+		{"*", Multiple},
+		{"nope", NotFound},
+		{"site(1).port", NotFound},
+		{"site(2)", NotFound},
+		{"site[0].port", BadPath},
+		{"site(.port", BadPath},
+		{"site..port", BadPath},
+		{"", BadPath},
+		{"user name", BadPath},
+		{"site.port: 1", BadPath},
+		{"h:p", BadPath},
+	} {
+		if k := doc.ReadKind(c.path); k.Value != KindEmpty || k.Status != c.want || k.Line != 0 {
+			t.Errorf("ReadKind(%q) = %v %v %d", c.path, k.Value, k.Status, k.Line)
+		}
+		if k := doc.Kind(c.path); k != KindEmpty {
+			t.Errorf("Kind(%q) = %v", c.path, k)
+		}
+	}
+	names := []string{KindEmpty.String(), KindScalar.String(), KindArray.String(), KindRaw.String()}
+	if !reflect.DeepEqual(names, []string{"Empty", "Scalar", "Array", "Raw"}) {
+		t.Errorf("names %q", names)
+	}
+	if doc.ToCanonical() != Parse(text).ToCanonical() {
+		t.Errorf("a kind read changed the document")
+	}
+	// A node a setter built has the kind its setter wrote, and no line.
+	for _, st := range []SetStatus{
+		doc.SetInt("built", 1),
+		doc.SetIntArray("arr", []int64{1}),
+		doc.SetRaw("body", "x", ""),
+		doc.SetComment("note", "# c"),
+		doc.SetInt("blank", 2),
+	} {
+		if st != SetOk {
+			t.Fatalf("setter: %v", st)
+		}
+	}
+	for _, c := range []struct {
+		path string
+		want ValueKind
+	}{
+		{"built", KindScalar},
+		{"arr", KindArray},
+		{"body", KindRaw},
+		{"note", KindEmpty},
+		{"blank", KindScalar},
+	} {
+		if k := doc.ReadKind(c.path); k.Value != c.want || k.Status != Good {
+			t.Errorf("ReadKind(%q) after setters = %v %v", c.path, k.Value, k.Status)
+		}
+	}
+	if k := doc.ReadKind("built"); k.Line != 0 {
+		t.Errorf("ReadKind(built) line %d", k.Line)
+	}
+}

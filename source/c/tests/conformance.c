@@ -5251,6 +5251,70 @@ int main(int argc, char **argv) {
 	}
 #endif
 
+	test_id("EsJYNe4", "kind_reads_say_what_is_there");
+	// shcl_kind and shcl_read_kind: what the value at a path is, from the
+	// stored form, with the status shcl_read_line gives. Same fixture in every
+	// runner.
+	{
+		const char *kt = "name: demo\nquoted: \"\"\ntags: [a, b]\none: [80]\nnone: []\nlist:\n\t- x\n\t- y\nnotes:\n\t~~~sql\n\tselect 1\n\t~~~\nblank:\nsite: a\n\tport: 1\nsite: b\nsrv:\n\thost: h\nlog: [x] y\n\tlevel: 1\n";
+		shcl_doc *kd = shcl_parse(kt, strlen(kt));
+		shcl_read_value_kind kr = shcl_read_kind(kd, "name", 4);
+		if (kr.value != SHCL_KIND_SCALAR || kr.status != SHCL_GOOD) fail("kind_reads", "read_kind(name)");
+		// `[80]` and `[]` are arrays though a scalar read takes them, and a
+		// section header or a line kept for its value is empty.
+		static const struct { const char *path; shcl_value_kind want; } kgood[] = {
+			{"quoted", SHCL_KIND_SCALAR}, {"tags", SHCL_KIND_ARRAY}, {"one", SHCL_KIND_ARRAY},
+			{"none", SHCL_KIND_ARRAY}, {"list", SHCL_KIND_ARRAY}, {"notes", SHCL_KIND_RAW},
+			{"blank", SHCL_KIND_EMPTY}, {"srv", SHCL_KIND_EMPTY}, {"srv.host", SHCL_KIND_SCALAR},
+			{"site(0)", SHCL_KIND_SCALAR}, {"site(0).port", SHCL_KIND_SCALAR}, {"log", SHCL_KIND_EMPTY},
+			{"log.level", SHCL_KIND_SCALAR},
+		};
+		for (size_t i = 0; i < sizeof kgood / sizeof kgood[0]; i++) {
+			const char *p = kgood[i].path; size_t n = strlen(p);
+			kr = shcl_read_kind(kd, p, n);
+			if (kr.value != kgood[i].want || kr.status != SHCL_GOOD) fail("kind_reads", p);
+			if (shcl_kind(kd, p, n) != kgood[i].want) fail("kind_reads", p);
+		}
+		static const struct { const char *path; shcl_status want; } kmiss[] = {
+			{"site", SHCL_MULTIPLE}, {"site(*)", SHCL_MULTIPLE}, {"site(*).port", SHCL_MULTIPLE},
+			{"*", SHCL_MULTIPLE}, {"nope", SHCL_NOT_FOUND}, {"site(1).port", SHCL_NOT_FOUND},
+			{"site(2)", SHCL_NOT_FOUND}, {"site[0].port", SHCL_BAD_PATH}, {"site(.port", SHCL_BAD_PATH},
+			{"site..port", SHCL_BAD_PATH}, {"", SHCL_BAD_PATH}, {"user name", SHCL_BAD_PATH},
+			{"site.port: 1", SHCL_BAD_PATH}, {"h:p", SHCL_BAD_PATH},
+		};
+		for (size_t i = 0; i < sizeof kmiss / sizeof kmiss[0]; i++) {
+			const char *p = kmiss[i].path; size_t n = strlen(p);
+			kr = shcl_read_kind(kd, p, n);
+			if (kr.value != SHCL_KIND_EMPTY || kr.status != kmiss[i].want) fail("kind_reads", p);
+			if (shcl_kind(kd, p, n) != SHCL_KIND_EMPTY) fail("kind_reads", p);
+		}
+		if (strcmp(shcl_value_kind_name(SHCL_KIND_EMPTY), "Empty") || strcmp(shcl_value_kind_name(SHCL_KIND_SCALAR), "Scalar")
+			|| strcmp(shcl_value_kind_name(SHCL_KIND_ARRAY), "Array") || strcmp(shcl_value_kind_name(SHCL_KIND_RAW), "Raw"))
+			fail("kind_reads", "shcl_value_kind_name");
+		if (SHCL_KIND_EMPTY != 0 || SHCL_KIND_SCALAR != 1 || SHCL_KIND_ARRAY != 2 || SHCL_KIND_RAW != 3) fail("kind_reads", "order");
+		shcl_doc *kfresh = shcl_parse(kt, strlen(kt));
+		shcl_str kc1 = shcl_to_canonical(kd), kc2 = shcl_to_canonical(kfresh);
+		if (kc1.n != kc2.n || memcmp(kc1.p, kc2.p, kc1.n)) fail("kind_reads", "a kind read changed the document");
+		shcl_free(kfresh);
+		// A node a setter built has the kind its setter wrote, and no line.
+		const int64_t kone[] = {1};
+		if (shcl_set_int(kd, "built", 5, 1) != SHCL_SET_OK) fail("kind_reads", "set built");
+		if (shcl_set_int_array(kd, "arr", 3, kone, 1) != SHCL_SET_OK) fail("kind_reads", "set arr");
+		if (shcl_set_raw(kd, "body", 4, "x", 1, "", 0) != SHCL_SET_OK) fail("kind_reads", "set body");
+		if (shcl_set_comment(kd, "note", 4, "# c", 3) != SHCL_SET_OK) fail("kind_reads", "set note");
+		if (shcl_set_int(kd, "blank", 5, 2) != SHCL_SET_OK) fail("kind_reads", "set blank");
+		static const struct { const char *path; shcl_value_kind want; } kset[] = {
+			{"built", SHCL_KIND_SCALAR}, {"arr", SHCL_KIND_ARRAY}, {"body", SHCL_KIND_RAW},
+			{"note", SHCL_KIND_EMPTY}, {"blank", SHCL_KIND_SCALAR},
+		};
+		for (size_t i = 0; i < sizeof kset / sizeof kset[0]; i++) {
+			const char *p = kset[i].path;
+			kr = shcl_read_kind(kd, p, strlen(p));
+			if (kr.value != kset[i].want || kr.status != SHCL_GOOD) fail("kind_reads", p);
+		}
+		if (shcl_read_line(kd, "built", 5).value != 0) fail("kind_reads", "line(built)");
+		shcl_free(kd);
+	}
 	test_id_end();
 	if (nfail) { fprintf(stderr, "conformance: %d failure(s)\n", nfail); return 1; }
 	printf("conformance: %zu case(s) pass\n", nn);

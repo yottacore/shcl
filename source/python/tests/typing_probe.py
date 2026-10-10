@@ -29,6 +29,8 @@ if TYPE_CHECKING:
 		assert_type(d.read_children("a").value, list[str])
 		assert_type(d.read_line("a").value, int)
 		assert_type(d.read_authored_name("a").value, str)
+		assert_type(d.read_kind("a").value, shcl.ValueKind)
+		assert_type(d.kind("a"), shcl.ValueKind)
 		assert_type(d.read_lines("a").value, list[int])
 		assert_type(d.read_comments("a").value, list[str])
 		assert_type(d.read_exists("a").value, bool)

@@ -81,6 +81,7 @@ __all__ = [
 	"UpgradeError",
 	"UpgradeFailed",
 	"UpgradeNotFound",
+	"ValueKind",
 	"WriteError",
 	"WriteStatus",
 	"backup_file_name",
@@ -178,6 +179,19 @@ class SetStatus(Enum):
 
 	def __bool__(self) -> bool:
 		return self is SetStatus.Ok
+
+
+class ValueKind(Enum):
+	"""What the value at a path is, as kind() and read_kind() give it. Empty
+	is a field with nothing after the colon, a section's header included;
+	`x: []` is an Array with no elements. The order is every binding's."""
+	Empty = 0
+	Scalar = 1
+	Array = 2
+	Raw = 3
+
+
+_VALUE_KINDS = {"empty": ValueKind.Empty, "cell": ValueKind.Scalar, "array": ValueKind.Array, "raw": ValueKind.Raw}
 
 
 class Diagnostic:
@@ -6634,6 +6648,24 @@ class Document:
 		if tag == "err":
 			return Read("", n, None)
 		return Read(self.arena[n].name_src, Status.Good, None)._at(self.arena[n].line, None)
+
+	def kind(self, path: str) -> ValueKind:
+		"""What the value at a path is: scalar, array, raw block or empty, so a
+		generic tool can pick its read without trying each. It answers from
+		the stored form, so `x: [80]` is an array though a scalar read takes
+		it. Empty when the path does not resolve to exactly one node, as
+		line() gives 0; read_kind() says which miss it was."""
+		return self.read_kind(path).value
+
+	def read_kind(self, path: str) -> Read[ValueKind]:
+		"""kind() with a status, the way read_line() has them: Good,
+		NotFound, Multiple for a repeated field, or BadPath. An empty value is
+		Good with ValueKind.Empty, so a written `x:` and a missing field read
+		apart. .line is set too."""
+		tag, n = self._node_at(path)
+		if tag == "err":
+			return Read(ValueKind.Empty, n, None)
+		return Read(_VALUE_KINDS[self.arena[n].value.kind], Status.Good, None)._at(self.arena[n].line, None)
 
 	def lines(self, path: str) -> list[int]:
 		"""The plural line(): 1-based source lines at a path, in file order, so

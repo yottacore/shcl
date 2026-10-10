@@ -51,6 +51,10 @@ enum class SetStatus {
 	Ok, BadPath, ValueInPath, Wildcard, NoSuchIndex, TooDeep, Multiple, UnderArray,
 	HasChildren, NotFinite, BadDateTime, BadRawInfo, BadRawBody, BadComment, NotOneValue, NotUtf8, OutOfRange, NoReadBack
 };
+// What the value at a path is, as kind() and read_kind() give it. Empty is a
+// field with nothing after the colon, a section's header included; `x: []` is
+// an Array with no elements.
+enum class ValueKind { Empty, Scalar, Array, Raw };
 // The unit a duration or size read gives a bare number, when the field name
 // gives none. Kilo to Tera are powers of 1024 unless the read asks for
 // decimal; Kibi to Tebi always are.
@@ -149,6 +153,8 @@ inline bool operator!=(const DateTime &a, const DateTime &b) { return !(a == b);
 const char *to_string(Status s);
 // A setter's status as text, "Ok" to "NoReadBack". Static storage.
 const char *to_string(SetStatus s);
+// A value kind as text, "Empty" to "Raw". Static storage.
+const char *to_string(ValueKind k);
 // The CLI exit code a read with this status ends on.
 int status_code(Status s);
 // The CLI's strictness spellings, loose|standard|strict or 1|2|3, in any case.
@@ -503,6 +509,14 @@ public:
 	// does not resolve to exactly one node.
 	std::string authored_name(std::string_view path) const;
 	Read<std::string> read_authored_name(std::string_view path) const;
+	// What the value at a path is: scalar, array, raw block or empty, from
+	// the stored form, so `x: [80]` is an Array. Empty when the path does not
+	// resolve to exactly one node.
+	ValueKind kind(std::string_view path) const;
+	// kind() with a status, the way read_line() has them. An empty value is
+	// Good with ValueKind::Empty, so a written `x:` and a missing field read
+	// apart.
+	Read<ValueKind> read_kind(std::string_view path) const;
 	// Whether a setter could write at a path, and why not. Probes only; never
 	// creates. Gives only the path reasons, BadPath to UnderArray.
 	SetStatus check_set_path(std::string_view path) const;
@@ -676,6 +690,8 @@ static_assert(static_cast<int>(SetStatus::Ok) == SHCL_SET_OK && static_cast<int>
 	&& static_cast<int>(SetStatus::NotOneValue) == SHCL_SET_NOT_ONE_VALUE && static_cast<int>(SetStatus::NotUtf8) == SHCL_SET_NOT_UTF8
 	&& static_cast<int>(SetStatus::OutOfRange) == SHCL_SET_OUT_OF_RANGE && static_cast<int>(SetStatus::NoReadBack) == SHCL_SET_NO_READ_BACK,
 	"SetStatus drifted from shcl_set_status");
+static_assert(static_cast<int>(ValueKind::Empty) == SHCL_KIND_EMPTY && static_cast<int>(ValueKind::Scalar) == SHCL_KIND_SCALAR
+	&& static_cast<int>(ValueKind::Array) == SHCL_KIND_ARRAY && static_cast<int>(ValueKind::Raw) == SHCL_KIND_RAW, "ValueKind drifted from shcl_value_kind");
 static_assert(static_cast<int>(Quote::None) == SHCL_QUOTE_NONE && static_cast<int>(Quote::Single) == SHCL_QUOTE_SINGLE
 	&& static_cast<int>(Quote::Double) == SHCL_QUOTE_DOUBLE && static_cast<int>(Quote::Backtick) == SHCL_QUOTE_BACKTICK
 	&& static_cast<int>(Quote::Open) == SHCL_QUOTE_OPEN, "Quote drifted from shcl_quote");
@@ -892,6 +908,7 @@ std::string DateTime::str() const { return detail::dt_str(detail::to_c(*this)); 
 
 const char *to_string(Status s) { return shcl_status_name(static_cast<shcl_status>(s)); }
 const char *to_string(SetStatus s) { return shcl_set_status_name(static_cast<shcl_set_status>(s)); }
+const char *to_string(ValueKind k) { return shcl_value_kind_name(static_cast<shcl_value_kind>(k)); }
 int status_code(Status s) { return shcl_status_code(static_cast<shcl_status>(s)); }
 
 std::optional<Strictness> strictness_from_arg(std::string_view s) {
@@ -1138,6 +1155,8 @@ bool Document::exists(std::string_view path) const { return shcl_exists(detail::
 Read<bool> Document::read_exists(std::string_view path) const { auto r = shcl_read_exists(detail::held(*this), path.data(), path.size()); return {r.value != 0, detail::st(r.status)}; }
 std::string Document::authored_name(std::string_view path) const { return detail::str(shcl_authored_name(detail::held(*this), path.data(), path.size())); }
 Read<std::string> Document::read_authored_name(std::string_view path) const { auto r = shcl_read_authored_name(detail::held(*this), path.data(), path.size()); return {detail::str(r.value), detail::st(r.status)}; }
+ValueKind Document::kind(std::string_view path) const { return static_cast<ValueKind>(shcl_kind(detail::held(*this), path.data(), path.size())); }
+Read<ValueKind> Document::read_kind(std::string_view path) const { auto r = shcl_read_kind(detail::held(*this), path.data(), path.size()); return {static_cast<ValueKind>(r.value), detail::st(r.status)}; }
 SetStatus Document::check_set_path(std::string_view path) const { return static_cast<SetStatus>(shcl_check_set_path(detail::held(*this), path.data(), path.size())); }
 
 SetStatus Document::set_int(std::string_view path, std::int64_t v) { return static_cast<SetStatus>(shcl_set_int(detail::doc(*this), path.data(), path.size(), v)); }

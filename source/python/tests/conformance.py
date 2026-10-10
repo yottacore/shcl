@@ -4457,6 +4457,84 @@ def main():
 	else:
 		os.environ["SHCL_TEST_CLOCK"] = held_clock
 
+	test_id("EsJYNe3", "kind_reads_say_what_is_there")
+	# kind() and read_kind(): what the value at a path is, from the stored
+	# form, with the status read_line() gives. Same fixture in every runner.
+	ktext = "name: demo\nquoted: \"\"\ntags: [a, b]\none: [80]\nnone: []\nlist:\n\t- x\n\t- y\nnotes:\n\t~~~sql\n\tselect 1\n\t~~~\nblank:\nsite: a\n\tport: 1\nsite: b\nsrv:\n\thost: h\nlog: [x] y\n\tlevel: 1\n"
+	kdoc = shcl.Document.parse(ktext)
+	kgood = shcl.Status.Good
+	kempty, kscalar, karray, kraw = shcl.ValueKind.Empty, shcl.ValueKind.Scalar, shcl.ValueKind.Array, shcl.ValueKind.Raw
+	kr = kdoc.read_kind("name")
+	if (kr.value, kr.status, kr.line) != (kscalar, kgood, 1):
+		raise SystemExit(f"read_kind(name) {kr!r}")
+	# `[80]` and `[]` are arrays though a scalar read takes them, and a
+	# section header or a line kept for its value is empty.
+	for kpath, kwant in (
+		("quoted", kscalar),
+		("tags", karray),
+		("one", karray),
+		("none", karray),
+		("list", karray),
+		("notes", kraw),
+		("blank", kempty),
+		("srv", kempty),
+		("srv.host", kscalar),
+		("site(0)", kscalar),
+		("site(0).port", kscalar),
+		("log", kempty),
+		("log.level", kscalar),
+	):
+		kr = kdoc.read_kind(kpath)
+		if (kr.value, kr.status) != (kwant, kgood):
+			raise SystemExit(f"read_kind({kpath!r}) {kr!r}")
+		if kdoc.kind(kpath) is not kwant:
+			raise SystemExit(f"kind({kpath!r}) {kdoc.kind(kpath)!r}")
+	if kdoc.read_kind("notes").line != 9:
+		raise SystemExit(f"read_kind(notes) {kdoc.read_kind('notes')!r}")
+	for kpath, kst in (
+		("site", shcl.Status.Multiple),
+		("site(*)", shcl.Status.Multiple),
+		("site(*).port", shcl.Status.Multiple),
+		("*", shcl.Status.Multiple),
+		("nope", shcl.Status.NotFound),
+		("site(1).port", shcl.Status.NotFound),
+		("site(2)", shcl.Status.NotFound),
+		("site[0].port", shcl.Status.BadPath),
+		("site(.port", shcl.Status.BadPath),
+		("site..port", shcl.Status.BadPath),
+		("", shcl.Status.BadPath),
+		("user name", shcl.Status.BadPath),
+		("site.port: 1", shcl.Status.BadPath),
+		("h:p", shcl.Status.BadPath),
+	):
+		kr = kdoc.read_kind(kpath)
+		if (kr.value, kr.status, kr.line) != (kempty, kst, 0):
+			raise SystemExit(f"read_kind({kpath!r}) {kr!r}")
+		if kdoc.kind(kpath) is not kempty:
+			raise SystemExit(f"kind({kpath!r}) {kdoc.kind(kpath)!r}")
+	if [k.name for k in shcl.ValueKind] != ["Empty", "Scalar", "Array", "Raw"]:
+		raise SystemExit(f"ValueKind names {list(shcl.ValueKind)!r}")
+	if [k.value for k in shcl.ValueKind] != [0, 1, 2, 3]:
+		raise SystemExit(f"ValueKind values {list(shcl.ValueKind)!r}")
+	if kdoc.to_canonical() != shcl.Document.parse(ktext).to_canonical():
+		raise SystemExit("a kind read changed the document")
+	# A node a setter built has the kind its setter wrote, and no line.
+	for kst2 in (
+		kdoc.set_int("built", 1),
+		kdoc.set_int_array("arr", [1]),
+		kdoc.set_raw("body", "x", ""),
+		kdoc.set_comment("note", "# c"),
+		kdoc.set_int("blank", 2),
+	):
+		if kst2 is not shcl.SetStatus.Ok:
+			raise SystemExit(f"setter {kst2!r}")
+	for kpath, kwant in (("built", kscalar), ("arr", karray), ("body", kraw), ("note", kempty), ("blank", kscalar)):
+		kr = kdoc.read_kind(kpath)
+		if (kr.value, kr.status) != (kwant, kgood):
+			raise SystemExit(f"read_kind({kpath!r}) after setters {kr!r}")
+	if kdoc.read_kind("built").line != 0:
+		raise SystemExit(f"read_kind(built) {kdoc.read_kind('built')!r}")
+
 	test_id_end()
 	print(f"conformance: {len(cases)} case(s) pass")
 	return 0

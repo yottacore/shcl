@@ -146,6 +146,34 @@ func (s Status) String() string {
 	return "Good"
 }
 
+// ValueKind is what the value at a path is, as Kind and ReadKind give it.
+// KindEmpty is a field with nothing after the colon, a section's header
+// included; `x: []` is a KindArray with no elements. Every value has the Kind
+// prefix, since Empty is a read status. The order is every binding's.
+type ValueKind int
+
+const (
+	KindEmpty ValueKind = iota
+	KindScalar
+	KindArray
+	KindRaw
+)
+
+// String names the kind the way the other bindings do, without the prefix.
+func (k ValueKind) String() string {
+	switch k {
+	case KindEmpty:
+		return "Empty"
+	case KindScalar:
+		return "Scalar"
+	case KindArray:
+		return "Array"
+	case KindRaw:
+		return "Raw"
+	}
+	return "ValueKind(" + strconv.Itoa(int(k)) + ")"
+}
+
 // SetStatus is what a setter did: SetOk when the write applied, or why it
 // wrote nothing. CheckSetPath gives the path's half of it, the reasons up to
 // SetUnderArray, without writing. The rest are about the value, so only a
@@ -9435,6 +9463,36 @@ func (d *Document) ReadAuthoredName(path string) Read[string] {
 		return Read[string]{Status: st}
 	}
 	return Read[string]{Value: d.arena[n].authored(), Status: Good}.at(d.arena[n].line, nil)
+}
+
+// Kind is what the value at a path is: scalar, array, raw block or empty, so
+// a generic tool can pick its read without trying each. It answers from the
+// stored form, so `x: [80]` is an array though a scalar read takes it.
+// KindEmpty when the path does not resolve to exactly one node, as Line gives
+// 0; ReadKind says which miss it was.
+func (d *Document) Kind(path string) ValueKind {
+	return d.ReadKind(path).Value
+}
+
+// ReadKind is Kind with a status, the way ReadLine has them: Good, NotFound,
+// Multiple for a repeated field, or BadPath. An empty value is Good with
+// KindEmpty, so a written `x:` and a missing field read apart. Line is set
+// too.
+func (d *Document) ReadKind(path string) Read[ValueKind] {
+	n, st := d.nodeAt(path)
+	if st != Good {
+		return Read[ValueKind]{Value: KindEmpty, Status: st}
+	}
+	kind := KindEmpty
+	switch d.arena[n].value.kind {
+	case vCell:
+		kind = KindScalar
+	case vArray:
+		kind = KindArray
+	case vRaw:
+		kind = KindRaw
+	}
+	return Read[ValueKind]{Value: kind, Status: Good}.at(d.arena[n].line, nil)
 }
 
 // Lines is the plural Line(): 1-based source lines at a path, in file order,

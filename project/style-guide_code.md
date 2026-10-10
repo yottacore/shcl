@@ -56,6 +56,7 @@ New bindings (Tier 3) follow the same recipe: port the reference function-for-fu
 	- C writes `read_bool` as `shcl_read_bool_`. C gives a function and a typedef one namespace, and the result type already holds the plain name. Renaming either side would break callers for no gain in behavior.
 	- Go writes the `SetStatus` values with a `Set` prefix, `SetOk` to `SetNoReadBack`, where the others have `Ok` to `NoReadBack`. Every Go enum value lives in the package's one namespace, where `BadPath` and `Multiple` are already read statuses, and a bare `Ok` would sit beside `Read.Ok()`. `String()` gives the names without the prefix, as the others print them. C's are `SHCL_SET_OK` to `SHCL_SET_NO_READ_BACK`, of type `shcl_set_status`, and `shcl_set_status_name` gives the names, as `shcl_status_name` does for a read.
 	- `WriteStatus` goes the same way: Go's `WriteOk` to `WriteOther`, since `NotFound` is a read status, and C's `SHCL_WRITE_OK` to `SHCL_WRITE_OTHER`, of type `shcl_write_status`, with `shcl_write_status_name`.
+	- `ValueKind` too: Go's `KindEmpty` to `KindRaw`, since `Empty` is a read status, and C's `SHCL_KIND_EMPTY` to `SHCL_KIND_RAW`, of type `shcl_value_kind`, with `shcl_value_kind_name`. C's read result is `shcl_read_value_kind`, named for the type it holds the way `shcl_read_i64` is. The reason is because `shcl_read_kind` is the call.
 
 - Single file per binding, zero dependencies. That is the product ("copy this file into your tree"), so no module splits, no helper crates/packages, and no dependency however good.
 
@@ -95,7 +96,7 @@ New bindings (Tier 3) follow the same recipe: port the reference function-for-fu
 
 - Deliberate deviation: the datetime type is `DateTime`, not `ShclDateTime`; the package name already has the prefix. The reference and Python export `DateTime` as an alias so the two spellings meet.
 
-- Enum values share the package's one namespace, so a name two enums would both use gets a prefix on one side: `FileNotFound` beside the read status `NotFound`, and every `SetStatus` value, `SetOk` to `SetNoReadBack`, since `BadPath` and `Multiple` are read statuses, and every `WriteStatus` value, `WriteOk` to `WriteOther`, since `NotFound` is one too. Each prints the reference's name.
+- Enum values share the package's one namespace, so a name two enums would both use gets a prefix on one side: `FileNotFound` beside the read status `NotFound`, and every `SetStatus` value, `SetOk` to `SetNoReadBack`, since `BadPath` and `Multiple` are read statuses, and every `WriteStatus` value, `WriteOk` to `WriteOther`, since `NotFound` is one too. `ValueKind`'s have `Kind`, `KindEmpty` to `KindRaw`, since `Empty` is a read status. Each prints the reference's name.
 
 - The tokenizer's absent offsets (`Sep`, `Comment`, `Fault`) are `-1` where the reference has `None`; the spans themselves are the same byte offsets in every binding.
 
