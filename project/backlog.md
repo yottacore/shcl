@@ -48,8 +48,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Possible cause [Bug]: the counter is global to the process. `element_cap_bounds_the_parse` builds its 600 KB text before it takes the lock, and that build holds 2 copies at once, about 1.2 MB. The count was 1200026 bytes over this box's figure. On 10-10 the 2 tests ran the other way around, and the job was green.
 	- Note: Avg, since a rerun passes. A red macos job on a main push still needs one.
 
-**Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
-
 - Build and test in a pinned container.
 	- ID: 2026101303344553
 	- Type: Enhancement
