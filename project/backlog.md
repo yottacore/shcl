@@ -51,7 +51,9 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - Loose doesn't read a quoted thousands number, such as `"1,200"` or `"$1,200"`, as a number
 	- ID: 2026101309122757
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting on signoff
+	- Needs local test suite run?: the full `--ci` with the next main push, for cppcheck exhaustive over the C change.
+	- Needs external testing: a hosted run with the next main push.
 	- Priority: Avg
 	- Opened: 20261013-091227
 	- Opened by: JC, from talk after 2026101010054746
@@ -67,11 +69,26 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- A value a setter wrote counts as quoted when the saved text would quote it (spec.md).
 		- A typed read gives the same answer before and after `fmt` and a save. The fuzz property `EsZikJr` covers it.
 	- Reason: Loose is for values people type by hand, and `"$1,200"` is how they write money. The quotes say it is one value, not a list.
+	- Progress log:
+		- 20261013: Built in all four. At Loose an int or float read of a quoted thousands number gives the number, and the writer and the setters keep a bare one bare. A whole one goes into an int read exact, so `"9,007,199,254,740,993"` keeps its last digit.
+		- 20261013: a merge writes every list in brackets, and a stacked `- 1,200` item then comes out `"1,200"`, which Loose reads as a number. So an item that goes into brackets counts as quoted from then on, the way a setter's value does.
+		- Calls made here, for signoff (me):
+			- A `%` goes with it, so Loose reads `"1,200%"` as 12, as it reads `1200%`.
+			- No blank anywhere in it, so `"$ 1,200"` stays text while `"$ 1200"` reads as 1200. That keeps the writer's exception to text that is safe bare.
+			- A `.` needs a digit after it, so `"1,200."` is text.
+			- The merge rule covers every item going into brackets, so the `quoted` flag on a merged `- rw,noatime` is true before the save, as after it.
+			- A setter's `1,000` is written bare and reads as text, like a hand-typed one. Through an array setter it is quoted and reads as 1000.
+		- The old tests that pinned the 10-10 rule are commented out with the reason: `a_thousands_comma_reads_the_same_after_a_save` in all four (`EsZikJi` to `EsZikJl`) and cli-regress `EsZikJq`.
 	- Decisions:
 		- 20261013: Loose only. Standard and Strict still refuse commas, currency and `%` (JC).
 		- 20261013: quoted only, bare `1,200` stays text, and `"1, 200"` is not a number (JC).
 		- 20261013: `fmt` keeps a bare thousands-shaped value bare, so the read can't change across a save. That was the 10-10 bug (me, agreed by JC).
 	- Note: this setting has changed 3 times. 20261006 made quoted thousands read as numbers, 20261010 dropped them, and this brings them back at Loose only with the `fmt` exception.
+	- Swept: in all four, every place a value or `- ` item is written (canonical emit, `emit_value_text` for the line-keeping save and the default note, `keep_mark`), every value a setter or selector builds (`cell_of`, the selector's instance value), `unstack`, and the int and float reads. Array elements, the `H001` hint and `migrate`'s respelling stay on the array rule, since a comma splits there. The C++ veneer has no public change (check-veneer). spec.md, value-syntax.md, the README's Loose line, the corpus notes and the changelog say so.
+	- Verified: each new runner test fails on dev's library and passes on the fix, in all four. Corpus 206 and the changed 100 and 202 rows fail on dev's Go, Python and C. 4 of the 7 new cli-regress rows fail on dev's CLIs. The other 3 pin what dev already does, and fail with the fix's quote check or level check taken out. `EsZikJr` fails with the writer's exception taken out and with the merge rule taken out. Also cargo test, the 2,000,000 release fuzz (all 28), the 200,000 debug fuzz, the four conformance suites, the C suite under ASan and UBSan, `go test -count=1` per module, cli-regress (556 rows, 4 bindings), crosscheck (49494 comparisons), check-docs with `SHCL_GATE_REF=main`, check-abnf, check-doc-examples, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck for linux and windows, ruff, mypy, cppcheck at the normal level, check-veneer, shellcheck and markdownlint.
+	- Test case: `loose_reads_a_quoted_thousands_number`, Rust `EsbaIWJ`, Go `EsbaIYt`, Python `EsbaIba`, C `EsbaIe1`; corpus `206-loose-thousands` (`EsbaIuk`) with reads at all 3 levels, `fmt`, write ops and a merge, plus new rows in `100` and `202`; cli-regress `EsbaIgH`, `EsbaIia`, `EsbaIkt`, `EsbaInW`, `EsbaIq7`, `EsbaIsU`, `EsbaIx6`; fuzz `EsZikJr` (`typed_reads_survive_a_save`), which now also makes thousands values bare and quoted, stacked and in brackets, merges them, and compares int and float array reads.
+	- Branch: `loosethou`
+	- Commit: `4527cc4e`, `bae0d847`, `10deaa99`
 
 - Build and test in a pinned container.
 	- ID: 2026101303344553
