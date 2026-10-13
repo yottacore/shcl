@@ -15,7 +15,8 @@
 ##		TOOL_PINS checks, so ci.yml has to name the wheel token and, on a line
 ##		naming cppcheck, the binary version that wheel bundles - bump both.
 ##		Also fails when the jobs that run cicd.bash --ci between them leave a
-##		stage out.
+##		stage out, when a cicd/container recipe installs a pinned tool at
+##		another version, and when one fetches something it doesn't hash.
 ##	Syntax:
 ##		check-pins.bash
 ##	Exit: 0 = every pin matches, 1 = a mismatch (named), 2 = cannot read inputs.
@@ -193,10 +194,83 @@ for f in "${!flagUsed[@]}"; do
 	[[ -n "${flagMissingSomewhere[${f}]:-}" ]] || { echo "check-pins: every hosted job runs the gate with ${f}, so that stage runs nowhere" >&2; nBad=$((nBad + 1)); }
 done
 
+## The --container images are the other copy. The main one installs every
+## pinned tool, so one of its files has to name each at its pin: the joiners
+## above, a package.json `"name": "X"`, or `ARG NAME_VER=X`, with NAME upper
+## case and - as _. Any recipe's ARG for a pinned tool has to match it too, so
+## an extra image can't drift on its own.
+fTest Esbpsph container-pins-match
+ctrDir="${cicdDir}/container"
+mainFiles=("${ctrDir}/Dockerfile" "${ctrDir}/requirements.txt" "${ctrDir}/package.json")
+recipes=()
+for f in "${ctrDir}"/Dockerfile "${ctrDir}"/*.Dockerfile; do
+	if [[ -f "${f}" ]]; then recipes+=("${f}"); fi
+done
+if [[ ! -f "${mainFiles[0]}" ]]; then
+	echo "check-pins: no main container recipe at cicd/container/Dockerfile" >&2; nBad=$((nBad + 1))
+else
+	for pin in "${TOOL_PINS[@]}"; do
+		name="${pin%%|*}"; rest="${pin#*|}"; ver="${rest%%|*}"
+		argName="$(tr 'a-z-' 'A-Z_' <<<"${name}")_VER"
+		if [[ "${name}" == cppcheck ]]; then
+			grep -qE -- "^cppcheck==${CPPCHECK_WHEEL//./\\.}([^0-9]|$)" "${ctrDir}/requirements.txt" \
+				&& grep -iE -- 'cppcheck' "${ctrDir}/requirements.txt" | grep -qE -- "(^|[^0-9.])${ver//./\\.}([^0-9]|$)" && continue
+			echo "check-pins: the container's requirements.txt has to install cppcheck==${CPPCHECK_WHEEL} and name the ${ver} binary it bundles" >&2
+			nBad=$((nBad + 1)); continue
+		fi
+		if grep -qE -- "(^|[^A-Za-z0-9_-])${name}(==|@|\": \"| -RequiredVersion )v?${ver//./\\.}([^0-9]|$)" "${mainFiles[@]}" 2>/dev/null \
+			|| grep -qE -- "^ARG ${argName}=v?${ver//./\\.}([^0-9]|$)" "${mainFiles[0]}"; then
+			continue
+		fi
+		echo "check-pins: ${name} is pinned at ${ver} in config.bash, and the main container recipe doesn't install that version" >&2
+		nBad=$((nBad + 1))
+	done
+	for f in "${recipes[@]}"; do
+		while IFS='=' read -r argName argVer; do
+			argName="${argName#ARG }"; argName="${argName%_VER}"
+			for pin in "${TOOL_PINS[@]}"; do
+				name="${pin%%|*}"; rest="${pin#*|}"; ver="${rest%%|*}"
+				[[ "$(tr 'a-z-' 'A-Z_' <<<"${name}")" == "${argName}" ]] || continue
+				if [[ ! "${argVer}" =~ ^v?${ver//./\\.}([^0-9]|$) ]]; then
+					echo "check-pins: ${f#"${cicdDir}/"} pins ${name} at ${argVer}, and config.bash at ${ver}" >&2; nBad=$((nBad + 1))
+				fi
+			done
+		done < <(grep -oE -- '^ARG [A-Z0-9_]+_VER=[^[:space:]]+' "${f}" || true)
+	done
+fi
+
+## Each recipe fetches in the one spelling this can follow, `curl -fsSLo FILE`,
+## checked by `echo "${X_SHA256}  FILE" | sha256sum -c -` with X_SHA256 a
+## sha256. A fetch is curl or wget with an option, since the package lists name
+## both bare. pip installs only by hash, and npm only from the lock file.
+fTest Esbpt85 container-downloads-are-hashed
+for f in "${recipes[@]}"; do
+	rel="${f#"${cicdDir}/"}"
+	while IFS= read -r fetchLine; do
+		if [[ ! "${fetchLine}" =~ curl[[:space:]]+-fsSLo[[:space:]]+([^[:space:]]+)[[:space:]] ]]; then
+			echo "check-pins: ${rel} fetches in a form this check cannot follow to its sha256 (use curl -fsSLo FILE): ${fetchLine#"${fetchLine%%[![:space:]]*}"}" >&2
+			nBad=$((nBad + 1)); continue
+		fi
+		target="${BASH_REMATCH[1]}"
+		shaArg="$(grep -oE -- "echo \"\\\$\\{[A-Z0-9_]+\\}  ${target//./\\.}\" \\| sha256sum -c" "${f}" | sed -E 's/^echo "\$\{([A-Z0-9_]+)\}.*/\1/' | head -n 1 || true)"
+		if [[ -z "${shaArg}" ]]; then
+			echo "check-pins: ${rel} downloads ${target} and never checks it" >&2; nBad=$((nBad + 1))
+		elif ! grep -qE -- "^ARG ${shaArg}=[0-9a-f]{64}$" "${f}"; then
+			echo "check-pins: ${rel} checks ${target} against ${shaArg}, which is not a sha256" >&2; nBad=$((nBad + 1))
+		fi
+	done < <(grep -E -- '(^|[^A-Za-z0-9_-])(curl|wget)[[:space:]]+-|^ADD ' "${f}" | grep -vE -- '^[[:space:]]*#' || true)
+	while IFS= read -r pipLine; do
+		[[ "${pipLine}" == *--require-hashes* ]] || { echo "check-pins: ${rel} installs with pip without --require-hashes" >&2; nBad=$((nBad + 1)); }
+	done < <(grep -E -- 'pip install' "${f}" || true)
+	if grep -qE -- 'npm (install|i) ' "${f}"; then
+		echo "check-pins: ${rel} runs npm install; the lock file's hashes hold only under npm ci" >&2; nBad=$((nBad + 1))
+	fi
+done
+
 fTestEnd
 rc=0
 if [[ "${nBad}" != 0 ]]; then rc=1; fi
-((rc)) || echo "check-pins: OK: every TOOL_PINS entry the hosted gate installs matches ci.yml, every tool ci.yml pins has an entry, every download it fetches is hashed, and its jobs run every stage of the gate"
+((rc)) || echo "check-pins: OK: every TOOL_PINS entry the hosted gate installs matches ci.yml, every tool ci.yml pins has an entry, every download it fetches is hashed, its jobs run every stage of the gate, and the container recipes agree with the pins and hash what they fetch"
 exit "${rc}"
 
 
@@ -210,3 +284,4 @@ exit "${rc}"
 ##		- 2026-09-19 JC: The reverse check reads each install family on its own,
 ##		  and a family whose line reads no name fails.
 ##		- 2026-10-13 JC: The jobs that run cicd.bash have to cover every stage between them.
+##		- 2026-10-13 JC: The container recipes are held to the pins, and their downloads to a sha256.

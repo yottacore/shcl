@@ -473,6 +473,46 @@ GIF_OUT="assets/demo.gif"
 ## private/ is a sibling symlink, so rotated gifs never touch the tracked tree.
 GIF_ROTATE_DIR="../private/demo/gif"
 
+## --container. Stages 1-6 in an image with every tool pinned, so this box's
+## toolchains, and other projects' pins, stay out of the result. The recipes are
+## in CTR_DIR: Dockerfile is the main image, and NAME.Dockerfile an extra one,
+## run as --container=NAME. CTR_CONTEXT_EXTRA joins the build context, so the
+## image's Rust is the one rust-toolchain.toml names.
+CTR_DIR="cicd/container"
+CTR_IMAGE="${APP_NAME}-cicd"
+CTR_CONTEXT_EXTRA=(rust-toolchain.toml)
+## Cargo, Go, pip and the advisory db, one dir per image. Under ~/.cache here,
+## which is ZFS, rather than in a docker volume on the root disk.
+CTR_CACHE="${SHCL_CTR_CACHE:-${XDG_CACHE_HOME:-${HOME}/.cache}/${APP_NAME}-cicd}"
+## A gate worktree's target dir is a link into the main checkout, which the
+## container has to see too.
+CTR_LINKS=(source/rust/target)
+## Extra images build Rust into their own copy of this.
+CTR_PRIVATE=(source/rust/target)
+## The --ci profiler check builds offline from the cache, and a new cache dir is
+## empty. Fetched before the gate, the way a full run here fetches them.
+CTR_PREP='cargo fetch --offline --manifest-path "${MANIFEST}" >/dev/null 2>&1 || cargo fetch --manifest-path "${MANIFEST}"'
+## What each extra image runs, on top of the flags passed to cicd.bash. They
+## never record the tree, since none is a full gate.
+##   ubuntu: the hosted runner's OS and gcc 13. Format check, build, tests and
+##           the cross checks, strict as hosted. Lint is left to the main image,
+##           whose linters are pinned to the same versions.
+##   alpine: musl. Build and tests, minus the gates that test this box's tools
+##           or glibc rather than the code (TEST_EXTRA below). No release builds.
+CTR_ARGS_ubuntu=(--ci --no-lint)
+CTR_ARGS_alpine=(--no-fmt --no-lint --no-cross --no-profile --no-release --no-largedoc)
+if [[ "${SHCL_CTR_IMAGE:-}" == alpine ]]; then
+	## No second gcc, no localedef and no sanitizers on musl, and the installer,
+	## hook, migration and C compiler sweeps test nothing the libc changes.
+	ctrSkip='check-c-compilers|check-locale|sanitize-c|shell-regress|check-migrate|check-install-dev|check-push-gate'
+	ctrKeep=()
+	for x in "${TEST_EXTRA[@]}"; do
+		if [[ ! "${x}" =~ ${ctrSkip} ]]; then ctrKeep+=("${x}"); fi
+	done
+	TEST_EXTRA=("${ctrKeep[@]}")
+	unset ctrSkip ctrKeep x
+fi
+
 ## Full-run output is tee'd here (gitignored) and gfs-rotated; lint-report.bash
 ## reports warnings from the newest log at session start.
 LINT_LOG_DIR="cicd/artifacts/lint"
@@ -508,3 +548,4 @@ PUBLISH_AUTO_MESSAGE=""
 ##		- 2026-09-22 JC: PROFILE_CHECK, the sampler's attribution against two loops of known cost.
 ##		- 2026-09-26 JC: PROFILE_CHECK_*: --ci runs the calibration on a build without LTO.
 ##		- 2026-10-08 JC: The shell wrappers are retired: out of the lint lists and the dogfood stage.
+##		- 2026-10-13 JC: CTR_* for --container: the recipe dir, the cache dir, and what each extra image runs.

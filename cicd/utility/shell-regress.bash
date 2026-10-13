@@ -1306,6 +1306,7 @@ mkdir -p "${tmpDir}/pins/cicd/utility/include" "${tmpDir}/pins/.github/workflows
 cp "${repoDir}/cicd/utility/check-pins.bash" "${tmpDir}/pins/cicd/utility/"
 cp "${repoDir}/cicd/utility/include/test-id.bash" "${tmpDir}/pins/cicd/utility/include/"
 cp "${repoDir}/cicd/config.bash" "${tmpDir}/pins/cicd/"
+cp -r "${repoDir}/cicd/container" "${tmpDir}/pins/cicd/"
 pinsYml="${tmpDir}/pins/.github/workflows/ci.yml"
 fPinsRun(){   ## fPinsRun SED-EXPR: run check-pins on ci.yml edited by SED-EXPR; 0 if it passed
 	sed -E "$1" "${repoDir}/.github/workflows/ci.yml" > "${pinsYml}"
@@ -1351,6 +1352,25 @@ fPinsRun 's/args: --ci --no-tests$/args: --ci --no-lint/' && fBad "check-pins.ba
 fPinsRun 's/args: --ci --no-lint --no-cross$/args: --ci --no-largedoc/' && fBad "check-pins.bash passed a hosted job run with --no-largedoc"
 fPinsRun 's/args: --ci --no-tests$/args: --no-tests/' && fBad "check-pins.bash passed a hosted job run without --ci"
 fPinsRun 's#cicd/cicd\.bash#cicd/other.bash#' && fBad "check-pins.bash passed a workflow with no job running cicd.bash"
+fTest Esbq6Ie 2026101303344553-check-pins-container-recipes
+##	2026101303344553: the --container recipes are a third copy of the pins, and
+##	fetch toolchains of their own. Each case edits one recipe file and has to
+##	fail; the unchanged copy passed above.
+fCtrPinsRun(){   ## fCtrPinsRun FILE SED-EXPR: check-pins with cicd/container/FILE edited; 0 if it passed
+	sed -E "${2}" "${repoDir}/cicd/container/${1}" > "${tmpDir}/pins/cicd/container/${1}"
+	fPinsRun 's/^//'; local rc=$?
+	cp "${repoDir}/cicd/container/${1}" "${tmpDir}/pins/cicd/container/${1}"
+	return "${rc}"
+}
+fCtrPinsRun requirements.txt 's/^ruff==[0-9.]+/ruff==0.0.1/' && fBad "check-pins.bash passed the main image installing ruff off its pin"
+fCtrPinsRun package.json 's/"markdownlint-cli2": "[^"]*"/"markdownlint-cli2": "0.0.1"/' && fBad "check-pins.bash passed the main image installing markdownlint-cli2 off its pin"
+fCtrPinsRun Dockerfile 's/^ARG ZIG_VER=.*/ARG ZIG_VER=0.15.2/' && fBad "check-pins.bash passed the main image fetching zig off its pin"
+fCtrPinsRun ubuntu.Dockerfile 's/^ARG GO_VER=.*/ARG GO_VER=1.25.9/' && fBad "check-pins.bash passed an extra image pinning go on its own"
+fCtrPinsRun Dockerfile '/ZIG_SHA256\}  zig\.txz/d' && fBad "check-pins.bash passed a download the recipe never checks"
+fCtrPinsRun Dockerfile 's/^ARG ZIG_SHA256=.*/ARG ZIG_SHA256=fill-me-in/' && fBad "check-pins.bash passed a check against something other than a sha256"
+fCtrPinsRun alpine.Dockerfile 's#curl -fsSLo go\.tgz#curl -fsSL -o go.tgz#' && fBad "check-pins.bash passed a fetch it cannot follow"
+fCtrPinsRun Dockerfile 's/ --require-hashes//' && fBad "check-pins.bash passed pip without --require-hashes"
+fCtrPinsRun Dockerfile 's/npm ci /npm install /' && fBad "check-pins.bash passed npm install in place of npm ci"
 fTest Epu2f56 20260909-24-flame-report-marker
 ##	20260909 item 24: rotation retagged a graph and left its sidecar under the
 ##	old role, so the caveat vanished. And --check --file wrote the named graph's
@@ -3492,3 +3512,4 @@ echo "shell-regress: OK: installers, one-liner scope, packaging, comparison work
 ##		2026-09-20  The PowerShell and Python lint lists get the same comparison.
 ##		2026-10-08  The shell wrappers are retired, and their rows with them. An
 ##		            install update over an older one drops its scripts/.
+##		2026-10-13  check-pins over the cicd/container recipes.
