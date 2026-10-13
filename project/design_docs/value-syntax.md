@@ -99,6 +99,7 @@ The rules in short. The reasons are under [Design](#design).
 - A comma in a bare field value or `- ` item must have a character other than whitespace right after it. `rw,noatime,nodev` is one string.
 	- A comma followed by whitespace, or one at the end, is `E026`. `ports: 80, 443` and `x: a,` are errors.
 	- Inside `[]` a comma always separates elements, with or without a space after it, so `[a,b]` is 2 elements. A comma inside an element needs quotes: `["rw,noatime"]`.
+	- A thousands number is no different: bare `1,200` is one string at every level. Only Loose reads one as a number, and only in quotes (`spec.md`, Strictness levels).
 
 - A bare selector body is stricter than a value: whitespace, a colon, a comma, a quote, a bracket or a paren in it is `E025`. Quote it.
 
@@ -210,6 +211,8 @@ Two older codes change scope:
 | `title: My App`               | `My App`                         | Spaces are fine bare
 | `title: "My App"`             | `My App`                         | Quoted
 | `opts: rw,noatime`            | `rw,noatime`                     | A comma with no space after it
+| `qty: 1,200`                  | `1,200`                          | Text, even at Loose
+| `qty: "1,200"`                | `1,200`                          | 1200 as a number at Loose only
 | `display: :0`                 | `:0`                             | A colon with a character after it
 | `host: a.com port: 80`        | `E025`                           | A colon then a space
 | `x: a,`                       | `E026`                           | A comma at the end
@@ -508,6 +511,9 @@ What the writer and `fmt` produce. The line-keeping save still writes unchanged 
 	- Why: `fmt` is how a file gets made canonical, and canonical text shouldn't leave a person working out whether `a,b` is one value or two, or whether a colon starts another field. The reader's leeway is for hand-typed lines.
 	- The writer quotes any value with a space the same way. A tab inside quotes is written `◉TAB◉`.
 	- Typed reads don't care about the quotes, so a datetime a setter writes comes out quoted, `"2026-07-12T14:30"`.
+	- The one exception is a bare thousands number, such as `80,443`, `1,200.50` or `$1,200`: the form Loose reads as a number in quotes, with no blank in it. A value or `- ` item like that stays bare, and so does a setter's (answered 2026-10-13, item 2026101309122757).
+		- Why: Loose reads `"1,200"` as 1200, so a writer that quoted a bare `1,200` would turn text into a number on a save. That was the 2026-10-10 bug.
+		- Inside `[]` it is quoted, since the comma would split it there. An item a merge moves into brackets counts as quoted from then on, so a read of it is the same before the save and after.
 
 - The author's quote kind is kept: single, double or backtick. `fmt` keeps it too, not only a setter's overwrite, so `'abc'` stays single quoted.
 	- Quotes are never dropped. Quoting used to be pure spelling, normalized away, which silently took the quotes off values a downstream language treats as special, such as `"@null"` or a quoted function name. The `quoted` read flag exists for that case.
@@ -786,6 +792,7 @@ What the build has today, and what replaces it.
 | 2026100610073400 | Selectors use `()`, and `[]` is for arrays only                                               | Done in Rust and the docs. The ports remain
 | 2026100609552447 | Don't allow the `[#N]` index selector                                                         | Moot, folded into 2026100610073400
 | 2026100719122101 | `fmt` leaves a value bare that a reader could misread                                         | The writer's quoting, under Canonical output
+| 2026101309122757 | Loose doesn't read a quoted thousands number as a number                                      | The bare thousands exception, under Canonical output
 
 ## Copyright and license
 
