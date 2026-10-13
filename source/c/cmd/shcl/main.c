@@ -115,7 +115,7 @@ static const char *HELP =
 	"first '=' outside quotes and parens, so a selector may hold one. Ops:\n"
 	"  int|float|bool|string|datetime<TAB>PATH<TAB>VALUE       set a scalar\n"
 	"  <type>-array<TAB>PATH<TAB>V1<TAB>V2...                  set an inline array\n"
-	"  <type>[-array]-default<TAB>...                          set only if absent\n"
+	"  <type>[-array]-default<TAB>...                          set if not that type\n"
 	"  literal[-default]<TAB>PATH<TAB>TEXT                     set from value syntax\n"
 	"  raw[-default]<TAB>PATH<TAB>INFO<TAB>CONTENT             set a raw block\n"
 	"  empty<TAB>PATH   comment<TAB>PATH<TAB>TEXT   remove<TAB>PATH\n"
@@ -209,9 +209,10 @@ static const char *HELP =
 	"                                         'color=`#FF8800`' a backtick value. A\n"
 	"                                         # outside quotes ends the value; text\n"
 	"                                         spanning lines is rejected\n"
-	"  --set-default=PATH=VALUE               (same) as --set, but only when nothing\n"
-	"  --set-literal-default=PATH=TEXT        is at the path yet - the write-out-\n"
-	"                                         defaults half of the writer\n"
+	"  --set-default=PATH=VALUE               (same) as --set, but only where the\n"
+	"  --set-literal-default=PATH=TEXT        path is missing or has an empty\n"
+	"                                         value - the write-out-defaults half\n"
+	"                                         of the writer\n"
 	"  --remove=PATH                          (same) delete what is at the path,\n"
 	"                                         with its subtree. Removing nothing is\n"
 	"                                         not an error, but a PATH that cannot\n"
@@ -752,6 +753,7 @@ static const char *refusal(shcl_set_status st, const char *path, size_t plen) {
 	case SHCL_SET_NOT_UTF8: return "the text is not valid UTF-8";
 	case SHCL_SET_OUT_OF_RANGE: return "the int is outside the 64-bit range";
 	case SHCL_SET_NO_READ_BACK: return "the value has no spelling that reads back";
+	case SHCL_SET_RAW_BLOCK: return "a raw block is there, and a default of another type would lose its body";
 	}
 	return "the value has no spelling that reads back";
 }
@@ -1731,7 +1733,7 @@ static int op_field(size_t lineno, const char *path, size_t plen, const char *in
 	return 0;
 }
 
-// Apply one write-ops line. A "-default" suffix means "only if absent": values
+// Apply one write-ops line. A "-default" suffix means the default form: values
 // are gated FIRST (a malformed value fails even when the path already exists,
 // matching the reference's argument-evaluation order), then the op runs as the
 // base setter or, with the suffix, as its default form. Returns 0 or 1 (error).

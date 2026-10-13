@@ -49,7 +49,8 @@ enum class Status { Good, Empty, NotFound, BadType, Multiple, BadPath };
 // the other value reasons. The order is every binding's.
 enum class SetStatus {
 	Ok, BadPath, ValueInPath, Wildcard, NoSuchIndex, TooDeep, Multiple, UnderArray,
-	HasChildren, NotFinite, BadDateTime, BadRawInfo, BadRawBody, BadComment, NotOneValue, NotUtf8, OutOfRange, NoReadBack
+	HasChildren, NotFinite, BadDateTime, BadRawInfo, BadRawBody, BadComment, NotOneValue, NotUtf8, OutOfRange, NoReadBack,
+	RawBlock
 };
 // What the value at a path is, as kind() and read_kind() give it. Empty is a
 // field with nothing after the colon, a section's header included; `x: []` is
@@ -151,7 +152,7 @@ inline bool operator!=(const DateTime &a, const DateTime &b) { return !(a == b);
 
 // Status as text, for a log line or a message. Static storage.
 const char *to_string(Status s);
-// A setter's status as text, "Ok" to "NoReadBack". Static storage.
+// A setter's status as text, "Ok" to "RawBlock". Static storage.
 const char *to_string(SetStatus s);
 // A value kind as text, "Empty" to "Raw". Static storage.
 const char *to_string(ValueKind k);
@@ -580,9 +581,12 @@ public:
 	// ends the value as it would in a file.
 	[[nodiscard]] SetStatus set_literal(std::string_view path, std::string_view text);
 
-	// Only-if-absent forms of the setters above. Each writes only where nothing
-	// is yet. Where something is, it writes nothing and gives what the plain
-	// setter would.
+	// Default forms of the setters above. Each writes unless the field already
+	// reads as its type: missing, empty or not that type, it gets the default,
+	// and an old value stays above it as a comment with a note. A raw block
+	// there stays and gives RawBlock. The string and literal forms count any
+	// value. On a field that reads, nothing is written, and the status is what
+	// the plain setter would give.
 	[[nodiscard]] SetStatus set_int_default(std::string_view path, std::int64_t v);
 	[[nodiscard]] SetStatus set_float_default(std::string_view path, double v);
 	[[nodiscard]] SetStatus set_bool_default(std::string_view path, bool v);
@@ -713,7 +717,8 @@ static_assert(static_cast<int>(SetStatus::Ok) == SHCL_SET_OK && static_cast<int>
 	&& static_cast<int>(SetStatus::BadDateTime) == SHCL_SET_BAD_DATETIME && static_cast<int>(SetStatus::BadRawInfo) == SHCL_SET_BAD_RAW_INFO
 	&& static_cast<int>(SetStatus::BadRawBody) == SHCL_SET_BAD_RAW_BODY && static_cast<int>(SetStatus::BadComment) == SHCL_SET_BAD_COMMENT
 	&& static_cast<int>(SetStatus::NotOneValue) == SHCL_SET_NOT_ONE_VALUE && static_cast<int>(SetStatus::NotUtf8) == SHCL_SET_NOT_UTF8
-	&& static_cast<int>(SetStatus::OutOfRange) == SHCL_SET_OUT_OF_RANGE && static_cast<int>(SetStatus::NoReadBack) == SHCL_SET_NO_READ_BACK,
+	&& static_cast<int>(SetStatus::OutOfRange) == SHCL_SET_OUT_OF_RANGE && static_cast<int>(SetStatus::NoReadBack) == SHCL_SET_NO_READ_BACK
+	&& static_cast<int>(SetStatus::RawBlock) == SHCL_SET_RAW_BLOCK,
 	"SetStatus drifted from shcl_set_status");
 static_assert(static_cast<int>(ValueKind::Empty) == SHCL_KIND_EMPTY && static_cast<int>(ValueKind::Scalar) == SHCL_KIND_SCALAR
 	&& static_cast<int>(ValueKind::Array) == SHCL_KIND_ARRAY && static_cast<int>(ValueKind::Raw) == SHCL_KIND_RAW, "ValueKind drifted from shcl_value_kind");

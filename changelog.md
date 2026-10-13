@@ -492,6 +492,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - C builds a schema in linear time.
 
+- The default setters make sure a field has a usable value of their type. They write where the field is missing, empty, or holds a value that does not read as that type, and keep a replaced value above the field as a comment saying so. A raw block stays, and a default of another type on it gives the new `SetStatus` value `RawBlock` (Go `SetRawBlock`, C `SHCL_SET_RAW_BLOCK`). `--set-default` and `--set-literal-default` fill a missing or empty field.
+
 - `read_named_schema()` in every binding (Go `ReadNamedSchema`, C `shcl_read_named_schema`) reads the schema a config's Schema line names by `check`'s rules, and gives back its text or a `SchemaStatus` saying why not. `check` in all four CLIs goes through it.
 
 ## v2.0.0 - 2026-08-26

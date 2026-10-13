@@ -286,6 +286,9 @@ pub enum SetStatus {
 	OutOfRange,
 	/// Any other value that would not read back as itself. None is known.
 	NoReadBack,
+	/// A default of another type at a field holding a raw block. Replacing
+	/// it would throw the body away, since a body has no one-line comment.
+	RawBlock,
 }
 
 /// Full-tier read result: value plus status plus the original raw text (when the
@@ -11439,25 +11442,30 @@ impl Document {
 		};
 		match self.place(path, false) {
 			Ok(node) => {
-				// The node's own blank moves above its first comment; otherwise
-				// the blank would separate the comment from what it annotates.
-				// Above the first one already there, when there is one.
-				let nd = &mut self.arena[node];
-				let mut lead = Lead::plain(c);
-				if nd.blank_before {
-					nd.blank_before = false;
-					match nd.triv_mut().leading.first_mut() {
-						Some(first) => first.blank_before = true,
-						None => lead.blank_before = true,
-					}
-				}
-				nd.triv_mut().leading.push(lead);
-				settle_first_blank(&mut self.arena, &mut self.orphans);
-				self.resettle_kept();
+				self.push_comment(node, c);
 				SetStatus::Ok
 			}
 			Err(why) => why,
 		}
+	}
+
+	/// A comment line right above a node, after any already there.
+	fn push_comment(&mut self, node: usize, text: String) {
+		// The node's own blank moves above its first comment; otherwise
+		// the blank would separate the comment from what it annotates.
+		// Above the first one already there, when there is one.
+		let nd = &mut self.arena[node];
+		let mut lead = Lead::plain(text);
+		if nd.blank_before {
+			nd.blank_before = false;
+			match nd.triv_mut().leading.first_mut() {
+				Some(first) => first.blank_before = true,
+				None => lead.blank_before = true,
+			}
+		}
+		nd.triv_mut().leading.push(lead);
+		settle_first_blank(&mut self.arena, &mut self.orphans);
+		self.resettle_kept();
 	}
 
 	/// The comment lines above the node(s) at a path, the ones clear_comments
@@ -11709,14 +11717,20 @@ impl Document {
 		self.set_value(path, array_cell(v.iter().map(|x| x.to_string()).collect()))
 	}
 
-	// Default (only-if-absent) forms - the "emit defaults" half of the Writer.
-	// A path that already resolves writes nothing and reports what a write
-	// there would: the path's verdict, so a wildcard is refused whether or not
-	// its slots happen to resolve, and the value's, which the same setter gives
-	// on the probe document.
+	// Default forms - the "emit defaults" half of the Writer. Each one makes
+	// sure the field has a usable value of its type: it writes where the path
+	// is missing, where the field is empty, and where its value does not read
+	// as that type by the typed read at the document's strictness. A value it
+	// replaces stays above the field as a comment with a note (design.md,
+	// Default forms). Where the value reads, nothing is written, and the call
+	// still reports what a write there would: the path's verdict, so a
+	// wildcard is refused whether or not its slots happen to resolve, and the
+	// value's, which the same setter gives on the probe document.
 	fn set_default(
 		&mut self,
 		path: &str,
+		what: &str,
+		reads: impl Fn(&Document, &str) -> Status,
 		set: impl Fn(&mut Document, &str) -> SetStatus,
 	) -> SetStatus {
 		if !self.exists(path) {
@@ -11732,23 +11746,100 @@ impl Document {
 				..Document::new()
 			})
 		});
-		set(probe, "v")
+		let judged = set(probe, "v");
+		if judged != SetStatus::Ok {
+			return judged;
+		}
+		match reads(self, path) {
+			Status::Good => SetStatus::Ok,
+			Status::BadType => self.replace_default(path, what, set),
+			_ => set(self, path),
+		}
 	}
-	/// `set_int` only when the path has no node yet.
+
+	/// A default written over a value that does not read as its type. The
+	/// old line goes above the field as a comment, so nothing typed by hand
+	/// is lost. A raw block stays, since its body has no one-line comment.
+	fn replace_default(
+		&mut self,
+		path: &str,
+		what: &str,
+		set: impl Fn(&mut Document, &str) -> SetStatus,
+	) -> SetStatus {
+		let Some(node) = self.write_target(path) else {
+			return set(self, path);
+		};
+		let nd = &self.arena[node];
+		if matches!(nd.value, Value::Raw(_)) {
+			return SetStatus::RawBlock;
+		}
+		// Written the way the canonical text writes the line, so the note is
+		// the same on a document and on a reload of its text.
+		let value = emit_value_text(&nd.value).unwrap_or_default();
+		let was = format!(
+			"# {}: {value}  ## replaced by shcl when setting a default for {}, {}: not {what}",
+			emit_name(&nd.name),
+			note_text(path),
+			note_stamp()
+		);
+		let (parent, name) = (nd.parent, nd.name.clone());
+		let st = set(self, path);
+		if st != SetStatus::Ok {
+			return st;
+		}
+		// A value equal to another instance's folds the two, and the earlier
+		// one stays.
+		let at = if self.arena[parent].children.contains(&node) {
+			node
+		} else {
+			let v = &self.arena[node].value;
+			self.children_named(parent, &name)
+				.into_iter()
+				.find(|&c| merge_eq(&self.arena[c].name, &self.arena[c].value, &name, v))
+				.unwrap_or(node)
+		};
+		self.push_comment(at, was);
+		SetStatus::Ok
+	}
+	/// `set_int` unless the field already reads as one. Missing, empty or
+	/// not an int, it gets `v`, and an old value stays above it as a comment.
+	/// A raw block there stays and gives `RawBlock`. The other default forms
+	/// work the same way with their own type.
 	pub fn set_int_default(&mut self, path: &str, v: i64) -> SetStatus {
-		self.set_default(path, |d, p| d.set_int(p, v))
+		self.set_default(
+			path,
+			"an int",
+			|d, p| d.read_int(p).status,
+			|d, p| d.set_int(p, v),
+		)
 	}
-	/// `set_float` only when the path has no node yet.
+	/// `set_float` unless the field already reads as that type.
 	pub fn set_float_default(&mut self, path: &str, v: f64) -> SetStatus {
-		self.set_default(path, |d, p| d.set_float(p, v))
+		self.set_default(
+			path,
+			"a float",
+			|d, p| d.read_float(p).status,
+			|d, p| d.set_float(p, v),
+		)
 	}
-	/// `set_bool` only when the path has no node yet.
+	/// `set_bool` unless the field already reads as that type.
 	pub fn set_bool_default(&mut self, path: &str, v: bool) -> SetStatus {
-		self.set_default(path, |d, p| d.set_bool(p, v))
+		self.set_default(
+			path,
+			"a bool",
+			|d, p| d.read_bool(p).status,
+			|d, p| d.set_bool(p, v),
+		)
 	}
-	/// `set_string` only when the path has no node yet.
+	/// `set_string` unless the field already has a value, since any value
+	/// reads as a string.
 	pub fn set_string_default(&mut self, path: &str, v: &str) -> SetStatus {
-		self.set_default(path, |d, p| d.set_string(p, v))
+		self.set_default(
+			path,
+			"a string",
+			|d, p| d.read_string(p).status,
+			|d, p| d.set_string(p, v),
+		)
 	}
 	/// Write TEXT as value syntax rather than as data: `[80, 443]` becomes a
 	/// two-element array where `set_string` would store one string that has to
@@ -11768,37 +11859,78 @@ impl Document {
 			None => self.refuse(path, SetStatus::NotOneValue),
 		}
 	}
-	/// `set_literal` only when the path has no node yet.
+	/// `set_literal` unless the field already has a value. Literal text
+	/// names no type, so any value counts.
 	pub fn set_literal_default(&mut self, path: &str, text: &str) -> SetStatus {
-		self.set_default(path, |d, p| d.set_literal(p, text))
+		self.set_default(
+			path,
+			"a string",
+			|d, p| d.read_string(p).status,
+			|d, p| d.set_literal(p, text),
+		)
 	}
-	/// `set_datetime` only when the path has no node yet.
+	/// `set_datetime` unless the field already reads as that type.
 	pub fn set_datetime_default(&mut self, path: &str, v: &ShclDateTime) -> SetStatus {
-		self.set_default(path, |d, p| d.set_datetime(p, v))
+		self.set_default(
+			path,
+			"a datetime",
+			|d, p| d.read_datetime(p).status,
+			|d, p| d.set_datetime(p, v),
+		)
 	}
-	/// `set_raw` only when the path has no node yet.
+	/// `set_raw` unless the field already reads as that type.
 	pub fn set_raw_default(&mut self, path: &str, content: &str, info: &str) -> SetStatus {
-		self.set_default(path, |d, p| d.set_raw(p, content, info))
+		self.set_default(
+			path,
+			"a raw block",
+			|d, p| d.read_raw(p).status,
+			|d, p| d.set_raw(p, content, info),
+		)
 	}
-	/// `set_int_array` only when the path has no node yet.
+	/// `set_int_array` unless the field already reads as that type.
 	pub fn set_int_array_default(&mut self, path: &str, v: &[i64]) -> SetStatus {
-		self.set_default(path, |d, p| d.set_int_array(p, v))
+		self.set_default(
+			path,
+			"an int array",
+			|d, p| d.read_int_array(p).status,
+			|d, p| d.set_int_array(p, v),
+		)
 	}
-	/// `set_float_array` only when the path has no node yet.
+	/// `set_float_array` unless the field already reads as that type.
 	pub fn set_float_array_default(&mut self, path: &str, v: &[f64]) -> SetStatus {
-		self.set_default(path, |d, p| d.set_float_array(p, v))
+		self.set_default(
+			path,
+			"a float array",
+			|d, p| d.read_float_array(p).status,
+			|d, p| d.set_float_array(p, v),
+		)
 	}
-	/// `set_bool_array` only when the path has no node yet.
+	/// `set_bool_array` unless the field already reads as that type.
 	pub fn set_bool_array_default(&mut self, path: &str, v: &[bool]) -> SetStatus {
-		self.set_default(path, |d, p| d.set_bool_array(p, v))
+		self.set_default(
+			path,
+			"a bool array",
+			|d, p| d.read_bool_array(p).status,
+			|d, p| d.set_bool_array(p, v),
+		)
 	}
-	/// `set_string_array` only when the path has no node yet.
+	/// `set_string_array` unless the field already reads as that type.
 	pub fn set_string_array_default(&mut self, path: &str, v: &[&str]) -> SetStatus {
-		self.set_default(path, |d, p| d.set_string_array(p, v))
+		self.set_default(
+			path,
+			"a string array",
+			|d, p| d.read_string_array(p).status,
+			|d, p| d.set_string_array(p, v),
+		)
 	}
-	/// `set_datetime_array` only when the path has no node yet.
+	/// `set_datetime_array` unless the field already reads as that type.
 	pub fn set_datetime_array_default(&mut self, path: &str, v: &[ShclDateTime]) -> SetStatus {
-		self.set_default(path, |d, p| d.set_datetime_array(p, v))
+		self.set_default(
+			path,
+			"a datetime array",
+			|d, p| d.read_datetime_array(p).status,
+			|d, p| d.set_datetime_array(p, v),
+		)
 	}
 }
 

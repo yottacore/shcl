@@ -129,7 +129,7 @@ refused at exit 7, printed or written (--lossy overrides). PATH ends at the
 first '=' outside quotes and parens, so a selector may hold one. Ops:
   int|float|bool|string|datetime<TAB>PATH<TAB>VALUE       set a scalar
   <type>-array<TAB>PATH<TAB>V1<TAB>V2...                  set an inline array
-  <type>[-array]-default<TAB>...                          set only if absent
+  <type>[-array]-default<TAB>...                          set if not that type
   literal[-default]<TAB>PATH<TAB>TEXT                     set from value syntax
   raw[-default]<TAB>PATH<TAB>INFO<TAB>CONTENT             set a raw block
   empty<TAB>PATH   comment<TAB>PATH<TAB>TEXT   remove<TAB>PATH
@@ -223,9 +223,10 @@ Options (the subcommands each belongs to are in parentheses):
                                          'color=`#FF8800`' a backtick value. A
                                          # outside quotes ends the value; text
                                          spanning lines is rejected
-  --set-default=PATH=VALUE               (same) as --set, but only when nothing
-  --set-literal-default=PATH=TEXT        is at the path yet - the write-out-
-                                         defaults half of the writer
+  --set-default=PATH=VALUE               (same) as --set, but only where the
+  --set-literal-default=PATH=TEXT        path is missing or has an empty
+                                         value - the write-out-defaults half
+                                         of the writer
   --remove=PATH                          (same) delete what is at the path,
                                          with its subtree. Removing nothing is
                                          not an error, but a PATH that cannot
@@ -1359,6 +1360,7 @@ def refusal(st, path):
 		S.NotUtf8: "the text is not valid UTF-8",
 		S.OutOfRange: "the int is outside the 64-bit range",
 		S.NoReadBack: "the value has no spelling that reads back",
+		S.RawBlock: "a raw block is there, and a default of another type would lose its body",
 	}[st]
 
 

@@ -2074,7 +2074,10 @@ fn missing_kept(text: &str, want: &[String]) -> Vec<String> {
 fn unstamped(text: &str) -> String {
 	let mut out = String::with_capacity(text.len());
 	for line in text.split_inclusive('\n') {
-		let Some(k) = line.find("  ## commented out by shcl when setting ") else {
+		let Some(k) = line
+			.find("  ## commented out by shcl when setting ")
+			.or_else(|| line.find("  ## replaced by shcl when setting a default for "))
+		else {
 			out.push_str(line);
 			continue;
 		};
@@ -3894,4 +3897,135 @@ fn generated_starters_load_and_validate_clean() {
 	// array and has a child, which has no selector spelling once a bare
 	// selector body cannot hold a space.
 	assert_eq!(generated, 1029, "grid schemas that generate");
+}
+
+/// A default form leaves a field that reads as its type, at the document's
+/// strictness: missing, empty and a value that does not read all get the
+/// default, and a raw block of another type is the one refusal past the
+/// path and the value. A refusal writes nothing, the result is a formatter
+/// fixpoint, and a second call writes nothing.
+#[test]
+fn a_default_leaves_a_value_of_its_type() {
+	let _id = test_id("EsJZkoB");
+	let iters = iter_count(1);
+	let seeds = seed_texts();
+	let mut rng = Rng(0x5EED_D0FA_0017_0020);
+	let (mut noted, mut filled, mut raw) = (0, 0, 0);
+	for i in 0..iters {
+		let text = if rng.below(3) == 0 {
+			let seed = rng.below(seeds.len());
+			mutate(&mut rng, &seeds[seed])
+		} else {
+			structural(&mut rng)
+		};
+		let level = [Strictness::Loose, Strictness::Standard, Strictness::Strict][rng.below(3)];
+		let Ok(mut doc) = Document::parse_with(&text, level) else {
+			continue;
+		};
+		let paths = doc.paths();
+		let path = if paths.is_empty() || rng.below(4) == 0 {
+			format!("new{}.k", rng.below(3))
+		} else {
+			paths[rng.below(paths.len())].clone()
+		};
+		// A value selector names the instance by the value a write replaces.
+		if path.ends_with(')') {
+			continue;
+		}
+		let before = doc.to_canonical();
+		let was = doc.read_string(&path).status;
+		let op = rng.below(8);
+		let (got, reads) = match op {
+			0 => (doc.set_int_default(&path, 7), doc.read_int(&path).status),
+			1 => (
+				doc.set_float_default(&path, 1.5),
+				doc.read_float(&path).status,
+			),
+			2 => (
+				doc.set_bool_default(&path, true),
+				doc.read_bool(&path).status,
+			),
+			3 => {
+				let dt = shcl::parse_datetime("2026-01-02").unwrap();
+				(
+					doc.set_datetime_default(&path, &dt),
+					doc.read_datetime(&path).status,
+				)
+			}
+			4 => (
+				doc.set_int_array_default(&path, &[1, 2]),
+				doc.read_int_array(&path).status,
+			),
+			5 => (
+				doc.set_raw_default(&path, "body", "sh"),
+				doc.read_raw(&path).status,
+			),
+			6 => (
+				doc.set_string_default(&path, "v"),
+				doc.read_string(&path).status,
+			),
+			_ => (
+				doc.set_literal_default(&path, "[1, 2]"),
+				doc.read_string(&path).status,
+			),
+		};
+		let after = doc.to_canonical();
+		if got != shcl::SetStatus::Ok {
+			assert_eq!(
+				after, before,
+				"iteration {i}: op {op} at {path:?} gave {got:?} and wrote:\n{text}"
+			);
+			if got == shcl::SetStatus::RawBlock {
+				raw += 1;
+			}
+			continue;
+		}
+		assert_eq!(
+			reads,
+			shcl::Status::Good,
+			"iteration {i}: op {op} at {path:?} ({level:?}):\n{text}\n->\n{after}"
+		);
+		assert_eq!(
+			Document::parse_with(&after, level)
+				.map(|d| d.to_canonical())
+				.ok()
+				.as_deref(),
+			Some(after.as_str()),
+			"iteration {i}: op {op} at {path:?} is not a fixpoint:\n{text}"
+		);
+		if after.contains("  ## replaced by shcl when setting a default for ")
+			&& !before.contains("  ## replaced by shcl")
+		{
+			noted += 1;
+		}
+		if was == shcl::Status::Empty {
+			filled += 1;
+		}
+		let again = match op {
+			0 => doc.set_int_default(&path, 7),
+			1 => doc.set_float_default(&path, 1.5),
+			2 => doc.set_bool_default(&path, true),
+			4 => doc.set_int_array_default(&path, &[1, 2]),
+			5 => doc.set_raw_default(&path, "body", "sh"),
+			6 => doc.set_string_default(&path, "v"),
+			_ => shcl::SetStatus::Ok,
+		};
+		assert_eq!(
+			again,
+			shcl::SetStatus::Ok,
+			"iteration {i}: op {op} at {path:?}"
+		);
+		assert_eq!(
+			doc.to_canonical(),
+			after,
+			"iteration {i}: op {op} at {path:?}: a second call wrote"
+		);
+	}
+	// Guard: the soup still reaches a replace, an empty field and a raw block.
+	if iters >= 300 {
+		assert!(
+			noted > 0 && filled > 0 && raw > 0,
+			"noted {noted}, filled {filled}, raw {raw}"
+		);
+	}
 }

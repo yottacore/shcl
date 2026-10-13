@@ -1503,6 +1503,7 @@ func TestSetterStatusValuesInOrder(t *testing.T) {
 		SetNotUtf8,
 		SetOutOfRange,
 		SetNoReadBack,
+		SetRawBlock,
 	}
 	names := []string{
 		"Ok",
@@ -1523,6 +1524,7 @@ func TestSetterStatusValuesInOrder(t *testing.T) {
 		"NotUtf8",
 		"OutOfRange",
 		"NoReadBack",
+		"RawBlock",
 	}
 	if len(all) != len(names) {
 		t.Fatalf("%d values, %d names", len(all), len(names))
@@ -5498,6 +5500,139 @@ func TestInitRefusesAChildOfAnArrayParent(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("a child of an array parent generated: %q %v", text, faults)
+	}
+}
+
+const defaultText = "port: abc  # the port\nempty:\ngood: 8080\nlist: [80, 443]\nflag: maybe\nports: 80\nwords: a\nscript:\n\t```sh\n\techo hi\n\t```\nsrv:\n\tk: 1\nn: $5\n"
+
+// A default form writes where the field is missing, empty or does not read
+// as its type, and keeps a value it replaces above the field as a comment
+// with a note. A raw block stays (RawBlock), an array on a field with lines
+// under it is refused as from the plain setter, and the value is judged
+// first. The typed read decides, at the document's strictness, so `$5` is an
+// int only when loose. A second call writes nothing, and the canonical text
+// is a fixpoint. Same table in every runner.
+func TestDefaultFillsWhatDoesNotRead(t *testing.T) {
+	defer testID(t, "EsJZko4")
+	t.Setenv("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT")
+	note := func(line, path, what string) string {
+		return "# " + line + "  ## replaced by shcl when setting a default for " + path + ", 2026-10-04 00:15:00 PDT: not " + what
+	}
+	rows := []struct {
+		op, want, note string
+		writes         bool
+	}{
+		{"int-default\tport\t9", "Ok", note("port: abc", "port", "an int"), true},
+		{"int-default\tempty\t3", "Ok", "", true},
+		{"int-default\tgood\t1", "Ok", "", false},
+		{"int-default\tlist\t1", "Ok", note("list: [80, 443]", "list", "an int"), true},
+		{"float-default\tlist\t1.5", "Ok", note("list: [80, 443]", "list", "a float"), true},
+		{"bool-default\tflag\ttrue", "Ok", note("flag: maybe", "flag", "a bool"), true},
+		{"datetime-default\tport\t2026-01-02", "Ok", note("port: abc", "port", "a datetime"), true},
+		{"int-array-default\tports\t1", "Ok", "", false},
+		{"int-array-default\twords\t1\t2", "Ok", note("words: a", "words", "an int array"), true},
+		{"raw-default\tport\tsh\techo", "Ok", note("port: abc", "port", "a raw block"), true},
+		{"int-default\tscript\t1", "RawBlock", "", false},
+		{"int-array-default\tscript\t1", "RawBlock", "", false},
+		{"string-default\tscript\tx", "Ok", "", false},
+		{"string-default\tempty\tx", "Ok", "", true},
+		{"literal-default\tport\t[1, 2]", "Ok", "", false},
+		{"int-default\tsrv\t5", "Ok", "", true},
+		{"int-array-default\tsrv\t1", "HasChildren", "", false},
+		{"int-default\tn\t1", "Ok", note("n: $5", "n", "an int"), true},
+	}
+	for _, r := range rows {
+		doc := Parse(defaultText)
+		before := doc.ToCanonical()
+		path := strings.Split(r.op, "\t")[1]
+		had := len(doc.Comments(path))
+		got := "Ok"
+		if err := tryApplyOpTest(doc, r.op); err != nil {
+			got = err.Error()[strings.LastIndex(err.Error(), ": ")+2:]
+		}
+		if got != r.want {
+			t.Fatalf("%q: got %s, want %s", r.op, got, r.want)
+		}
+		after := doc.ToCanonical()
+		if (after != before) != r.writes {
+			t.Fatalf("%q: wrote %v:\n%s", r.op, after != before, after)
+		}
+		notes := doc.Comments(path)
+		if r.note == "" {
+			if len(notes) != had {
+				t.Fatalf("%q: comments %q", r.op, notes)
+			}
+		} else {
+			if len(notes) != had+1 || notes[had] != r.note || !strings.Contains(after, notes[had]+"\n") {
+				t.Fatalf("%q: comments %q, want %q:\n%s", r.op, notes, r.note, after)
+			}
+		}
+		if back := Parse(after).ToCanonical(); back != after {
+			t.Fatalf("%q: not a fixpoint:\n%s", r.op, back)
+		}
+		again := Parse(after)
+		_ = tryApplyOpTest(doc, r.op)
+		_ = tryApplyOpTest(again, r.op)
+		if doc.ToCanonical() != after || again.ToCanonical() != after {
+			t.Fatalf("%q: a second call wrote", r.op)
+		}
+	}
+	nan := Parse(defaultText)
+	if st := nan.SetFloatDefault("port", math.NaN()); st != SetNotFinite || nan.ToCanonical() != Parse(defaultText).ToCanonical() {
+		t.Fatalf("NaN over a bad value: %v", st)
+	}
+	loose, err := ParseWith(defaultText, Loose)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := loose.ToCanonical()
+	if st := loose.SetIntDefault("n", 1); st != SetOk || loose.ToCanonical() != before || loose.ReadInt("n").Status != Good {
+		t.Fatalf("loose $5: %v\n%s", st, loose.ToCanonical())
+	}
+}
+
+// A replaced line kept as a comment goes through the save that keeps lines,
+// `fmt` and a reload unchanged, and a run of the same defaults on the saved
+// text writes nothing. Same fixture in every runner.
+func TestDefaultReplaceRoundTrips(t *testing.T) {
+	defer testID(t, "EsJZko8")
+	t.Setenv("SHCL_TEST_CLOCK", "2026-10-04 00:15:00 -420 PDT")
+	text := "srv:\n    Port:   abc     # keep\n    other: 1\nlist:\n  - 80\n  - x  # ex\nn: 5\n"
+	ops := []string{"int-default\tsrv.port\t9", "int-array-default\tlist\t1\t2", "int-default\tn\t7"}
+	want := "srv:\n    # port: abc  ## replaced by shcl when setting a default for srv.port, 2026-10-04 00:15:00 PDT: not an int\n    Port:   9     # keep\n    other: 1\n# ex\n# list: [80, x]  ## replaced by shcl when setting a default for list, 2026-10-04 00:15:00 PDT: not an int array\nlist:\n    - 1\n    - 2\nn: 5\n"
+	doc, err := ParseKeepLines(text, Standard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, op := range ops {
+		applyOpTest(t, doc, op, op)
+	}
+	saved, kept := doc.ToTextKeepLines()
+	if !kept || saved != want {
+		t.Fatalf("kept %v:\n%s", kept, saved)
+	}
+	canon := doc.ToCanonical()
+	if Parse(saved).ToCanonical() != canon || Parse(canon).ToCanonical() != canon {
+		t.Fatalf("reload or fmt changed it:\n%s", canon)
+	}
+	back, err := ParseKeepLines(saved, Standard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, op := range ops {
+		applyOpTest(t, back, op, op)
+	}
+	if again, kept := back.ToTextKeepLines(); again != saved || !kept {
+		t.Fatalf("a second run wrote:\n%s", again)
+	}
+	if notes := back.Comments("srv.port"); len(notes) != 1 || !strings.Contains(saved, notes[0]) {
+		t.Fatalf("comments %q", notes)
+	}
+	if v, st := back.GetInt("srv.port"); st != Good || v != 9 {
+		t.Fatalf("srv.port %d %v", v, st)
+	}
+	if v, st := back.GetIntArray("list"); st != Good || len(v) != 2 || v[0] != 1 || v[1] != 2 {
+		t.Fatalf("list %v %v", v, st)
 	}
 }
 

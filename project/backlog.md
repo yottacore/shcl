@@ -141,12 +141,14 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - Library gaps a generic tool has to work around
 	- ID: 2026100717500020
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting for testing
 	- Needs local test suite run?:
 		- (schema resolve) Y, the full `--ci` for exhaustive cppcheck over the C change, and the hosted windows job for Python's Windows branch, which nothing here runs.
 		- (kind) the full `--ci`, for exhaustive cppcheck, check-c-compilers and sanitize-c over the C change.
+		- (default) the full `--ci`, for exhaustive cppcheck, check-c-compilers and sanitize-c over the C change.
 	- Needs external testing:
 		- (kind) the hosted run, whose windows job runs the new test in all four runners.
+		- (default) the hosted run, all jobs.
 	- Priority: Low
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 20
@@ -160,7 +162,10 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261010 (schema resolve): `read_named_schema(text, file)` in all four (Go `ReadNamedSchema`, C `shcl_read_named_schema` and `shcl_named_schema_free`) and C++ `read_named_schema`. It reads the Schema line, resolves it from the config's directory, and gives back the schema's text or a `SchemaStatus`: `NotFound`, `Empty`, `Url`, `NetworkPath`, `FileNotFound`, `IsDirectory`, `NotRegular`, `TooLarge` or `Unreadable`, with the path, the line and a message naming the path.
 		- 20261010 (schema resolve): `check` in all four CLIs goes through it, and their own copies of the rules are gone. Python's `check` now refuses a windows device name on the Schema line, as the other three did.
 		- 20261010 (schema resolve, kind): both merged to dev (`b1642d1b`, `115326a4`, seams `c5734e0e`) and covered by the full `--ci` here, judged as main, and the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `EsEvmLE` and `EsJLUK1`, which belong to 2026100814455655 and 2026100719122102. The new runner tests pass on windows.
+		- 20261010 (default): the third requirement is built on `defaultfix`, in Rust, Go, Python, C and the C++ interface. A default form writes where the path is missing, where the field is empty, and where its value does not read as the type by the typed read at the document's strictness. A replaced value stays above the field as `# port: abc  ## replaced by shcl when setting a default for port, STAMP: not an int`. A raw block is refused for a default of another type, with the new last `SetStatus` value `RawBlock` (Go `SetRawBlock`, C `SHCL_SET_RAW_BLOCK`). design.md has a Default forms table as the rule.
+		- 20261010 (default): on this branch the fuzz property `Eqk24nZ` fails at 20,000 iterations and up. A bare `80,443` reads as text, `fmt` quotes it, and the quoted one reads as the int 80443, so a default acts differently on a document and on its reload. Filed as 2026101010054746. With the quoted thousands reading switched off, the 2,000,000 release fuzz passes all 27, so that is the only failure. Merging this branch before 2026101010054746 is settled turns the `--quick` and `--ci` fuzz red.
 		- 20261010 (default): built on `defaultfix` and not merged. It waits on 2026101010054746, whose fix changes which values the default forms replace, and on the `--set-default` question above.
+		- 20261013 (default): dev merged into `defaultfix`, over 2026101010054746's fix. The branch already did what both recorded decisions say, in all four CLIs, so the CLI is unchanged. A cli-regress row now pins `--set-literal-default` as well. Not merged to dev yet.
 	- Decisions:
 		- 20261008: before the cut, not after (JC).
 		- 20261009: all three get a fix, not docs (JC).
@@ -172,6 +177,13 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261010 (kind): an empty value is `Good` with `Empty` as the answer, the way `read_children` gives a node with no children `Good` and an empty list. A plain `kind` on a miss gives `Empty`, as `line` gives 0 (me).
 		- 20261010 (kind): the answer is the stored form. `x:` is `Empty`, `x: []` and `x: [80]` are `Array`, `x: ""` is `Scalar`, and a section header is `Empty` (me).
 		- 20261010 (default): `--set-default` and `--set-literal-default` stay string defaults that fill only a missing or empty field; the typed ops do the replacing (JC). The merge of `defaultfix` waits on 2026101010054746.
+		- 20261010 (default): a raw block at the path is refused for a default of another type (`RawBlock`), since its body has no one-line comment (me).
+		- 20261010 (default): an inline array or a stacked list that does not read is replaced. Its value goes in the comment as one bracket array, so nothing typed is lost (me).
+		- 20261010 (default): an empty value, and a field with lines under it and no value, read `Empty`, so they are filled with no note. An array default on such a field is `HasChildren`, as from the plain setter (me).
+		- 20261010 (default): `set_string_default` and `set_literal_default` count any value, since any value reads as a string and literal text names no type. So `--set-default` and `--set-literal-default` fill only a missing or empty field, and the typed ops do the replacing (me).
+		- 20261010 (default): the note has the form of the 20261004 setter note, `# LINE  ## ...`, with the stamp `SHCL_TEST_CLOCK` pins. The old line is spelled the way the canonical text spells it, folded name included, so a document and its reload write the same note (me).
+		- 20261010 (default): a path is judged first, then the value against the probe document, then what is there, so a NaN over a bad value is `NotFinite` (me).
+		- Question (default), answered by the JC decision above: should `--set-default`'s value take its type from its text, the way `--set` stores `8` as an int, so `--set-default=port=8080` replaces `port: abc`? As built it fills only a missing or empty field.
 		- 20261010 (kind): library only. Neither the item nor the design docs ask for a CLI word (me).
 	- Requirements:
 		- A library call reads a config's `Schema` line and resolves it by the CLI's rules. The CLI uses the same call, so the two can't drift.
@@ -188,6 +200,13 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch (kind): `nodekind`
 	- Commit (kind): `2c2937f1`
 	- Test case (kind): `kind_reads_say_what_is_there` in all four runners (Rust `EsJYNe1`, Go `EsJYNe2`, Python `EsJYNe3`, C `EsJYNe4`), and the kind checks in the C++ `veneer_smoke` (`EjtkR0S`).
+	- Swept (default): every default form in Rust, Go, Python, C and `shcl.hpp`, and `SetComment`, whose placement code became one helper the replace shares. The four CLIs' `refusal()` and help text (the ops table line and `--set-default`); their ops decoders already call the library forms. The status order tests in the four runners and veneer_smoke, and C's setter soup bound. spec.md, design.md (the status table, the note under Kept lines under edits, a new Default forms section), the man page, README, the corpus README, the code style guide, a perf-gate comment and the changelog. Corpus cases 014, 015, 063, 065, 092 and 121 use default ops and pass unchanged. The comparison tool and the dogfood runners call no default form.
+		- 20261013: the four CLIs' `--set-default`, `--set-literal-default` and typed default ops against the 20261009 and 20261010 decisions, with their help text, the man page, README, spec.md and design.md's Default forms table. All match.
+	- Verified (default): each new test fails with the old behavior put back, in all four, and the Rust table fails with the raw block replaced or the note left off. cargo test, rustfmt, clippy for the host and windows, `go test -count=1` for both modules, gofmt, go vet, staticcheck, the Python runner, ruff, mypy, the C runner, oom_hook, oom_recover, mem_bounds, veneer_smoke, check-veneer, check-c-compilers (5 compilers), sanitize-c, cppcheck at the normal level, the mingw CLI build, cli-regress (545 rows, 3203 checks, all four), crosscheck over the corpus and a 2,000-iteration fuzz dump (48930 comparisons), perf-gate in all four, check-docs (only the known `EpHGoa0` red), check-abnf, test-ids check, shell-regress, shellcheck and markdownlint. A one-off run of 8 typed default ops over the corpus inputs and 150 fuzz inputs through the four CLIs gave the same bytes and exit codes in 1137 runs, 369 of them replacing. The 200,000 release fuzz passes all but `Eqk24nZ` (2026101010054746).
+		- 20261013, with dev merged in: the 2,000,000 release fuzz passes all 28 properties, `Eqk24nZ` and `EsZikJr` included. The four CLIs give the same bytes for `--set-default` and `--set-literal-default` over a bad value, an empty field, a missing one and a section header, and for the typed default ops. `EsaLLI5` fails with Python's `--set-literal-default` writing as `--set-literal`, and passes with it fixed. Also cargo test, the four conformance suites, `go test -count=1` per module, the C++ smoke (also built for windows and run under wine), check-veneer, cli-regress (550 rows, 3223 checks, all four), crosscheck (48990 comparisons), check-docs judged as main, check-abnf, check-doc-examples, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet and staticcheck for linux and windows, ruff, mypy, cppcheck at the normal level, shellcheck and markdownlint.
+	- Test case (default): `default_fills_what_does_not_read` (Rust `EsJZko3`, Go `EsJZko4`, Python `EsJZko5`, C `EsJZko6`), `default_replace_round_trips` (Rust `EsJZko7`, Go `EsJZko8`, Python `EsJZko9`, C `EsJZkoA`), fuzz `a_default_leaves_a_value_of_its_type` (`EsJZkoB`), cli-regress `EsJZkoC`, `EsJZkoD`, `EsJZkoE`, `EsJZkoF` and `EsaLLI5`, and `RawBlock` added to the status order tests (`EsDRhHg`, `EsDeJ9a`, `EsDeik0`, `EsDjstE`) and veneer_smoke (`EjtkR0S`).
+	- Branch (default): `defaultfix`
+	- Commit (default): `5bb89ac4`, then `c0329cc9` with dev merged in
 
 - Run on the last Core 2 Duo, and AMD CPUs from that era.
 	- ID: 2026101301161858

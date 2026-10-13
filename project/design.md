@@ -29,6 +29,7 @@ Design, requirements, and direction. The task list is in `backlog.md`. The full 
 	- [Lexical edges](#lexical-edges)
 	- [Write outcomes](#write-outcomes)
 	- [Kept lines under edits](#kept-lines-under-edits)
+	- [Default forms](#default-forms)
 	- [Generation outcomes](#generation-outcomes)
 	- [Testing](#testing)
 	- [Format comparison](#format-comparison)
@@ -665,6 +666,7 @@ The mirror of the load outcomes, on the write side. A setter builds its line tex
 | `NotUtf8`     | value | Text that is not valid UTF-8. Go, Python and C; a Rust string always is.
 | `OutOfRange`  | value | An int past the 64-bit range. Python only.
 | `NoReadBack`  | value | Any other value that does not read back. None is known; it keeps the rule above true for a value nobody has thought of.
+| `RawBlock`    | value | A default form of another type on a field holding a raw block (Default forms).
 
 - `NotUtf8` comes before the other value reasons, so that way text that is not UTF-8 gives it even with a line break or a `#` in it as well. A path's reason still wins over all of them, and a path that is not UTF-8 is `BadPath`.
 
@@ -701,7 +703,7 @@ Where a kept line sits is read from canonical output before the edit. Under the 
 
 - A line the load dropped right after the kept line a new field goes under is not placed by the save that keeps lines, since the lines before it are all new. That save falls back to canonical and refuses, as for any dropped line, and `--lossy` writes it.
 
-- The note on each comment says why and when: `# a: O'Brien  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E025 a quote in a bare value`. It names the path the setter was given, the local time with the zone's short name, and the code and reason the load gave, without the advice after the reason. A zone with no short name, such as one named `+03`, is written as its offset, `UTC+03:00`. Windows names a zone only in full, so there it is always the offset. The line is a plain comment from then on, as a reload reads it. It is no longer owed to the save gate, and `ClearComments` and a remove of the field take it like any comment on the field. The default forms write nothing on a path that exists, so they never get here.
+- The note on each comment says why and when: `# a: O'Brien  ## commented out by shcl when setting a, 2026-10-04 00:15:00 PDT: E025 a quote in a bare value`. It names the path the setter was given, the local time with the zone's short name, and the code and reason the load gave, without the advice after the reason. A zone with no short name, such as one named `+03`, is written as its offset, `UTC+03:00`. Windows names a zone only in full, so there it is always the offset. The line is a plain comment from then on, as a reload reads it. It is no longer owed to the save gate, and `ClearComments` and a remove of the field take it like any comment on the field. A default form that writes gets here like any setter.
 
 - `SHCL_TEST_CLOCK`, in the form `YYYY-mm-DD HH:MM:SS OFFSET_MINUTES [NAME]`, stands in for the clock and zone in that note, so tests can pin it. `cli-regress.bash` and `crosscheck.bash` set it.
 
@@ -714,6 +716,34 @@ Where a kept line sits is read from canonical output before the edit. Under the 
 - The save gate counts kept lines. The load records how many it kept, and each edit takes off only what this table lets it. A document holding fewer than that counts the rest as lost, so `LostCount` includes them, the save refuses, and the save that keeps lines falls back and refuses with it. `--lossy` writes anyway, as for a dropped line. Among checking each edit site and checking the count at the save, the count was chosen, since the sites were the problem.
 
 - A fuzz property holds all four bindings to it: after any edits, every kept line no edit's target took is still in the saved text, or the save refuses, and a remove adds no line. The other three are held through the cross-binding check, which replays its inputs and edits through each CLI's `set --write`.
+
+### Default forms
+
+A default form makes sure a field has a usable value of its type, in one call. It writes where the path is missing, where the field is empty, and where its value does not read as that type. The typed read decides, at the document's strictness, so `$5` is an int to a loose document and not to a standard one. A form with no type of its own counts any value: `SetStringDefault`, since any value reads as a string, and `SetLiteralDefault`, since literal text names no type. The CLI's `--set-default` and `--set-literal-default` are those two, so they fill only a missing or empty field. The typed ops (`int-default` and the rest) do the replacing. The table is the rule.
+
+| At the path                                  | Scalar default (int, float, bool, datetime)  | Array default                                | Raw default                                  | String or literal default
+| :---                                         | :---                                         | :---                                         | :---                                         | :---
+| Nothing                                      | written                                      | written                                      | written                                      | written
+| An empty value                               | written in place                             | written in place                             | written in place                             | written in place
+| `[]`                                         | written in place, since it reads `Empty`     | stays, since it reads as an empty array      | replaced                                     | stays
+| A value that reads as the type               | stays                                        | stays                                        | stays                                        | stays
+| A value that does not read as the type       | replaced                                     | replaced                                     | replaced                                     | never happens
+| A raw block                                  | refused, `RawBlock`                          | refused, `RawBlock`                          | stays                                        | stays
+| A field with lines under it and no value     | value written, the lines stay                | refused, `HasChildren`                       | written, the lines stay                      | value written, the lines stay
+
+- A replaced value stays above the field as a comment with a note: `# port: abc  ## replaced by shcl when setting a default for port, 2026-10-04 00:15:00 PDT: not an int`. The old line is written the way the canonical text writes it, so the note is the same on a document and on a reload of its saved text. The time is the one `SHCL_TEST_CLOCK` stands in for, as in the note under Kept lines under edits.
+
+- A stacked list that does not read is replaced too. Its whole value is one bracket array in the comment, so nothing typed by hand is lost. The comments on its items go above the field first, as for any setter that replaces a list.
+
+- A raw block is refused because its body has no one-line comment. Commenting every body line out would keep the text but not the block. Refusing loses nothing.
+
+- An empty value is filled with no note, since nothing is lost. A field with lines under it and no value reads `Empty`, so a scalar default gives it a value and the lines stay under it. An array default there is refused like any array on such a field.
+
+- A path is judged first, then the value against the probe document, then what is there. So a wildcard or a NaN is refused whether or not the field reads, and a NaN over a value that does not read is `NotFinite`, not a replace.
+
+- The note is a plain comment from then on. `ClearComments` takes it, and a second call with the same default writes nothing, since the field now reads.
+
+- Among changing the default forms, adding a separate `ensure` call beside them, and leaving it to docs, it was decided that the default forms change, and that a replaced line stays as a comment with a note (2026-10-09). The raw block refusal and the CLI options filling only a missing or empty field were decided 2026-10-10.
 
 ### Generation outcomes
 
