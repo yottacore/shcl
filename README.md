@@ -242,7 +242,7 @@ Beyond the list at the top:
 
 - Raw fenced blocks embed anything verbatim: SQL, code, templates, Markdown-style.
 
-- Three strictness levels, from most forgiving to fail-on-anything. At Loose, `"$1,200"` reads as 1200 and `15%` as 0.15. Standard and Strict refuse both.
+- Three strictness levels, from most forgiving to fail-on-anything. At Loose, `$1200` reads as 1200 and `15%` as 0.15. Standard and Strict refuse both.
 
 - Every diagnostic has a stable code (`E014`, `V001`), so tooling can match on the code while the prose stays free to improve.
 

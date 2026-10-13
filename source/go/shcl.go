@@ -9143,9 +9143,8 @@ func backtickHolds(t string) bool {
 }
 
 // newElement builds an element no source wrote. It counts as quoted when
-// canonical output will quote it, so a read gives the same answer before a
-// save as after one. A thousands comma reads only in quotes, and `1,000` from
-// a setter gets them.
+// canonical output will quote it, so the read's Quoted flag gives the same
+// answer before a save as after one.
 func newElement(text string) element {
 	m := markBare
 	switch {
@@ -11838,9 +11837,8 @@ var currencyRunes = []rune{
 }
 
 // stripCurrency is the remainder after a leading currency symbol, with the
-// space a person writes after one taken off - `$ 1200` reached the int path's
-// thousands branch, which trims, and the float path's shape test, which does
-// not.
+// space a person writes after one taken off, so `$ 1200` reads the same as
+// `$1200` in both the int path and the float path's shape test.
 func stripCurrency(t string) string {
 	r, size := utf8.DecodeRuneInString(t)
 	for _, c := range currencyRunes {
@@ -11892,24 +11890,6 @@ func parseIntText(e *element, level Strictness) (int64, bool) {
 			return int64(m), true
 		}
 		return 0, false
-	}
-	// Thousands separators, only inside quotes (bare commas are reserved).
-	if e.quoted() && strings.Contains(t, ",") {
-		signBody := stripSign(t)
-		groups := strings.Split(signBody, ",")
-		wellFormed := len(groups) > 1 && groups[0] != "" && len(groups[0]) <= 3 && allDigits(groups[0])
-		if wellFormed {
-			for _, g := range groups[1:] {
-				if len(g) != 3 || !allDigits(g) {
-					wellFormed = false
-					break
-				}
-			}
-		}
-		if wellFormed {
-			v, err := strconv.ParseInt(strings.ReplaceAll(t, ",", ""), 10, 64)
-			return v, err == nil
-		}
 	}
 	// Loose: a float (including %) rounds, half away from zero.
 	if level == Loose {
@@ -11972,7 +11952,7 @@ func parseFloatText(e *element, level Strictness) (float64, bool) {
 		}
 		v = f
 	} else {
-		// An integer is a valid float on read (incl. hex, octal, binary and quoted thousands).
+		// An integer is a valid float on read (incl. hex, octal and binary).
 		el := element{text: t, mark: e.mark}
 		if n, ok := parseIntTextNoLoose(&el); ok {
 			v = float64(n)
@@ -12022,10 +12002,10 @@ func radixBody(t string) (int, string, bool) {
 }
 
 // parseIntTextWide reads the integer spellings the plain float parse does not -
-// hex, octal, binary and quoted thousands - past the int64 range, as a double:
-// a float read is bounded by the double, not by the integer type. A prefixed
-// number goes in digit by digit in the double, so every binding rounds the
-// same way; the spellings mirror parseIntText.
+// hex, octal and binary - past the int64 range, as a double: a float read is
+// bounded by the double, not by the integer type. The number goes in digit by
+// digit in the double, so every binding rounds the same way; the spellings
+// mirror parseIntText.
 func parseIntTextWide(e *element) (float64, bool) {
 	t := strings.TrimSpace(e.text)
 	neg := false
@@ -12036,32 +12016,13 @@ func parseIntTextWide(e *element) (float64, bool) {
 	} else if strings.HasPrefix(t, "+") {
 		body = t[1:]
 	}
-	var v float64
-	if radix, digits, ok := radixBody(body); ok {
-		for i := 0; i < len(digits); i++ {
-			v = v*float64(radix) + float64(hexDigit(digits[i]))
-		}
-	} else if e.quoted() && strings.Contains(body, ",") {
-		groups := strings.Split(body, ",")
-		wellFormed := len(groups) > 1 && groups[0] != "" && len(groups[0]) <= 3 && allDigits(groups[0])
-		if wellFormed {
-			for _, g := range groups[1:] {
-				if len(g) != 3 || !allDigits(g) {
-					wellFormed = false
-					break
-				}
-			}
-		}
-		if !wellFormed {
-			return 0, false
-		}
-		f, err := strconv.ParseFloat(strings.ReplaceAll(body, ",", ""), 64)
-		if err != nil {
-			return 0, false
-		}
-		v = f
-	} else {
+	radix, digits, ok := radixBody(body)
+	if !ok {
 		return 0, false
+	}
+	var v float64
+	for i := 0; i < len(digits); i++ {
+		v = v*float64(radix) + float64(hexDigit(digits[i]))
 	}
 	if math.IsInf(v, 0) || math.IsNaN(v) {
 		return 0, false

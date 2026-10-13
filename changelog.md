@@ -46,6 +46,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `fmt` and every canonical save quote a value, list item or array element holding any whitespace, `:`, `,`, `(`, `)`, `[` or `]`, so `display: :0` comes out `display: ":0"` and `opts: rw,noatime` as `opts: "rw,noatime"`. Both still read bare.
 
+- A thousands comma makes a value text, quoted or bare. `"1,000"` read as 1000 and is now `BadType` as an int or a float, so a value reads the same before and after `fmt` quotes a bare `ports: 80,443`.
+
 - `shcl migrate FILE --from-2x` rewrites a 2.x file for these rules and leaves comments and layout alone. It writes comma lists in brackets, `*` items as `- ` and selectors in parens, quotes what would now read differently, and leaves a backslash as written. With `--write` the original is kept beside it, as `config_backup_20261007-091500_format-v2.shcl` for `config.shcl`, in local time.
 
 - A file a pre-release build of 3.0 stamped `Format 3` is read as current, and `migrate` and `upgrade` leave it alone. Nothing tells it apart from a file this release wrote. A line the current rules refuse says so when it loads.

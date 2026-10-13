@@ -4411,7 +4411,9 @@ int main(int argc, char **argv) {
 		shcl_doc *td = shcl_parse("n: \"1,000\"\n", 11);
 		shcl_str tc = shcl_to_canonical(td);
 		if (tc.n != 11 || memcmp(tc.p, "n: \"1,000\"\n", 11) != 0) fail("writer_comma", "a quoted thousands comma lost its quotes");
-		if (shcl_get_int_or(td, "n", 1, 0) != 1000) fail("writer_comma", "n");
+		/* 2026101010054746: a quoted thousands number is text, like a bare one.
+		if (shcl_get_int_or(td, "n", 1, 0) != 1000) fail("writer_comma", "n"); */
+		if (shcl_read_int(td, "n", 1).status != SHCL_BAD_TYPE) fail("writer_comma", "n");
 		shcl_free(td);
 		const char *vin = "ver: \"8\"\nok: 'true'\nat: 2:30PM\nhost: localhost:8080\n";
 		const char *vout = "ver: \"8\"\nok: 'true'\nat: \"2:30PM\"\nhost: \"localhost:8080\"\n";
@@ -4427,6 +4429,42 @@ int main(int argc, char **argv) {
 		shcl_str hm = shcl_diag_count(hd) ? shcl_diag_message(hd, 0) : shcl_to_canonical(hd);
 		if (shcl_diag_count(hd) == 0 || strcmp(shcl_diag_code(hd, 0), "H001") != 0 || !contains(hm.p, hm.n, "t: [\"a,b\", c]")) fail("writer_comma", "the H001 hint");
 		shcl_free(hd);
+	}
+	test_id("EsZikJl", "a_thousands_comma_reads_the_same_after_a_save");
+	/* A thousands comma is text quoted or bare, so a typed read gives the same
+	   answer before and after the writer quotes it (2026101010054746). */
+	{
+		const char *tsrc = "p: 80,443\nq: \"1,000\"\nr: '-1,234,567'\n";
+		const char *thead = "p: \"80,443\"\nq: \"1,000\"\nr: '-1,234,567'\n";
+		const char *ttail = "s: \"1,000\"\n";
+		shcl_doc *td = shcl_parse(tsrc, strlen(tsrc));
+		if (shcl_set_string(td, "s", 1, "1,000", 5) != SHCL_SET_OK) fail("thousands", "set s");
+		shcl_str tout = shcl_to_canonical(td);
+		if (tout.n < strlen(thead) + strlen(ttail) || memcmp(tout.p, thead, strlen(thead)) != 0 || memcmp(tout.p + tout.n - strlen(ttail), ttail, strlen(ttail)) != 0) fail("thousands", "the canonical text");
+		shcl_doc *tb = shcl_parse(tout.p, tout.n);
+		const char *tpaths[] = { "p", "q", "r", "s" };
+		const char *ttexts[] = { "80,443", "1,000", "-1,234,567", "1,000" };
+		shcl_doc *tdocs[] = { td, tb };
+		for (size_t i = 0; i < 4; i++) {
+			for (size_t k = 0; k < 2; k++) {
+				if (shcl_read_int(tdocs[k], tpaths[i], 1).status != SHCL_BAD_TYPE) fail("thousands", tpaths[i]);
+				if (shcl_read_float(tdocs[k], tpaths[i], 1).status != SHCL_BAD_TYPE) fail("thousands", tpaths[i]);
+				shcl_read_str ts = shcl_read_string(tdocs[k], tpaths[i], 1);
+				if (ts.status != SHCL_GOOD || ts.value.n != strlen(ttexts[i]) || memcmp(ts.value.p, ttexts[i], ts.value.n) != 0) fail("thousands", tpaths[i]);
+			}
+		}
+		/* The setter's value counts as quoted, as its saved form is. */
+		if (!shcl_quoted(td, "s", 1) || !shcl_quoted(tb, "s", 1)) fail("thousands", "s not quoted");
+		shcl_free(tb);
+		shcl_free(td);
+		const char *lsrc = "q: \"1,000\"\nc: \"$1,200\"\n";
+		shcl_doc *tl = shcl_parse_with(lsrc, strlen(lsrc), SHCL_LOOSE);
+		if (!tl) fail("thousands", "loose load");
+		else {
+			if (shcl_read_int(tl, "q", 1).status != SHCL_BAD_TYPE) fail("thousands", "loose q");
+			if (shcl_read_int(tl, "c", 1).status != SHCL_BAD_TYPE) fail("thousands", "loose c");
+			shcl_free(tl);
+		}
 	}
 	test_id("Es1gWRs", "a_list_no_text_loads_back_refuses_to_save");
 	/* A list with a field under it (E001) after an empty binding of its name

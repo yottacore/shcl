@@ -224,7 +224,7 @@ Case `098` pins a comment added to a node that already has one, with a blank lin
 
 Case `099` pins `literal` on text that only looks like syntax: a fence opener is stored as a quoted string, while a bare string with a colon then a space (`E025`), an unclosed quote in the first or a later piece and a leading `[` are refused.
 
-Case `100` pins integers past the i64 range: hex, decimal and quoted-thousands spellings read as floats and are `BadType` as ints.
+Case `100` pins integers past the i64 range: hex and decimal spellings read as floats and are `BadType` as ints. A quoted thousands spelling is text, `BadType` as either.
 
 Case `101` pins an empty name: two `""` leaves are a repeated leaf (`H001`), and a schema declaring `repeat: 1, 5` on the field drops the hint. It has the `H001` half of the strict `load ok` pair described under case `035`.
 
@@ -428,7 +428,7 @@ Case `200` pins that a selector matches one plain value, quoted or not: `srv(a)`
 
 Case `201` pins a list with a field under it that a merge adds after an empty binding of its name in a lower layer, with a comment and a kept line between the two. A reload of the merged text joins the list to the binding and puts the two lines above it, so the merge does the same.
 
-Case `202` pins spaces, colons and commas in bare text. A bare value or stacked item keeps its spaces as typed, and canonical output quotes it. A colon or comma with something other than a blank after it is text, so `rw,noatime`, `:0`, a URL and `80,443` stay bare, and the last is a string that a typed int read refuses. A colon then a space or the end is `E025` in a value and `E027` in an item, and a comma then a space or the end is `E026`. A tab or a bracket in a bare value and a space in an array element are `E025`. Inside brackets every comma splits. The writer quotes any value, item or element with a space, colon or comma, so canonical output puts all of these in quotes.
+Case `202` pins spaces, colons and commas in bare text. A bare value or stacked item keeps its spaces as typed, and canonical output quotes it. A colon or comma with something other than a blank after it is text, so `rw,noatime`, `:0`, a URL and `80,443` stay bare, and the last is a string that a typed int read refuses. A quoted `"1,000"` is text too, at every level, so it reads the same once the writer has quoted `80,443`. A colon then a space or the end is `E025` in a value and `E027` in an item, and a comma then a space or the end is `E026`. A tab or a bracket in a bare value and a space in an array element are `E025`. Inside brackets every comma splits. The writer quotes any value, item or element with a space, colon or comma, so canonical output puts all of these in quotes.
 
 Case `203` pins a selector in brackets, the old spelling, as `E029`: the line is kept as written and binds nothing. When it selects by value, the lines under it load under that instance, so `srv[web]:` with `host: h` under it adds `host` to `srv: web`. An index in brackets opens nothing, so the line under `item[0]:` is dropped (`E018`), as under a refused `item(0):`. A lookup in brackets reads `BadPath`, and so does one whose body starts with `#`. The status twins of `count`, `instances` and `children` give `BadPath` for it too, and `NotFound` for `srv(db)`, which matches nothing. A field with no lines under it has no children and reads `Good`. A `(` in a bare body is `E025`. A nested pair, `pick(a(b))`, ends the body at the first `)`, so the line is `E014`.
 

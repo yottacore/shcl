@@ -4014,7 +4014,6 @@ static void sb_put_u64(ShclArena *a, ShclSB *s, uint64_t v) {
 	// cppcheck-suppress uninitvar  ## j >= 1 always (v==0 writes '0'), so o[0..j-1] is filled
 	sb_put(a, s, o, (size_t)j);
 }
-static int s_contains_char(ShclStr s, char c) { for (size_t i = 0; i < s.n; i++) if (s.p[i] == c) return 1; return 0; }
 
 typedef struct { ShclStr indent; size_t node; } ShclStackEnt;
 DEFINE_VEC(ShclVecStack, ShclStackEnt)
@@ -4028,8 +4027,8 @@ static const uint32_t SHCL_CURRENCY[] = {
 	0x20AE, 0x20B1, 0x20B2, 0x20B4, 0x20B9, 0x20BA, 0x20BC, 0x20BD, 0x20BE, 0x20BF,
 };
 /* The remainder after a leading currency symbol, with the space a person writes
-   after one taken off - `$ 1200` reached the int path's thousands branch, which
-   trims, and the float path's shape test, which does not. */
+   after one taken off, so `$ 1200` reads the same as `$1200` in both the int
+   path and the float path's shape test. */
 static ShclStr strip_currency(ShclStr t) {
 	if (t.n == 0) return t;
 	uint32_t c; size_t l = utf8_decode(t.p, t.n, 0, &c);
@@ -4098,7 +4097,7 @@ static void split_byte(ShclArena *a, ShclStr s, char sep, ShclVecS *out) {
 
 static int parse_int_text(ShclArena *a, const ShclElement *e, shcl_strictness level, int64_t *out);
 static int parse_float_text(ShclArena *a, const ShclElement *e, shcl_strictness level, double *out);
-static int parse_int_text_wide(ShclArena *a, const ShclElement *e, double *out);
+static int parse_int_text_wide(const ShclElement *e, double *out);
 
 static int float_shape_ok(ShclStr t) {
 	ShclStr body = t;
@@ -4149,35 +4148,25 @@ static int parse_float_text(ShclArena *a, const ShclElement *e, shcl_strictness 
 		ShclElement el; el.text = t; el.mark = e->mark;
 		int64_t iv;
 		if (parse_int_text(a, &el, SHCL_STANDARD, &iv)) v = (double)iv;
-		else if (!parse_int_text_wide(a, &el, &v)) return 0;
+		else if (!parse_int_text_wide(&el, &v)) return 0;
 	}
 	*out = percent ? v / 100.0 : v; return 1;
 }
-/* The integer spellings the plain float parse does not read - hex, octal,
-   binary and quoted thousands - past the i64 range, as a double: a float read
-   is bounded by the double, not by the integer type. A prefixed number goes in
-   digit by digit in the double, so every binding rounds the same way; the
-   spellings mirror parse_int_text. */
-static int parse_int_text_wide(ShclArena *a, const ShclElement *e, double *out) {
+/* The integer spellings the plain float parse does not read - hex, octal and
+   binary - past the i64 range, as a double: a float read is bounded by the
+   double, not by the integer type. The number goes in digit by digit in the
+   double, so every binding rounds the same way; the spellings mirror
+   parse_int_text. */
+static int parse_int_text_wide(const ShclElement *e, double *out) {
 	ShclStr t = s_trim(e->text);
 	int neg = 0; ShclStr body = t;
 	if (t.n > 0 && t.p[0] == '-') { neg = 1; body = s_slice(t, 1, t.n); }
 	else if (t.n > 0 && t.p[0] == '+') body = s_slice(t, 1, t.n);
-	double v = 0.0;
 	unsigned radix; ShclStr digits;
-	if (radix_body(body, &radix, &digits)) {
-		for (size_t i = 0; i < digits.n; i++)
-			v = v * (double)radix + (double)radix_digit((unsigned char)digits.p[i]);
-	} else if (el_quoted(e) && s_contains_char(body, ',')) {
-		ShclVecS groups = {0}; split_byte(a, body, ',', &groups);
-		int wf = groups.len > 1 && groups.data[0].n > 0 && groups.data[0].n <= 3 && all_adigit0(groups.data[0]);
-		if (wf) for (size_t k = 1; k < groups.len; k++)
-			if (groups.data[k].n != 3 || !all_adigit0(groups.data[k])) { wf = 0; break; }
-		if (!wf) return 0;
-		ShclSB b = {0};
-		for (size_t i = 0; i < body.n; i++) if (body.p[i] != ',') sb_putc(a, &b, body.p[i]);
-		if (!strtod_full(a, sb_S(&b), &v)) return 0;
-	} else return 0;
+	if (!radix_body(body, &radix, &digits)) return 0;
+	double v = 0.0;
+	for (size_t i = 0; i < digits.n; i++)
+		v = v * (double)radix + (double)radix_digit((unsigned char)digits.p[i]);
 	if (!isfinite(v)) return 0;
 	*out = neg ? -v : v; return 1;
 }
@@ -4203,19 +4192,6 @@ static int parse_int_text(ShclArena *a, const ShclElement *e, shcl_strictness le
 			else return 0;
 		}
 		return 1;
-	}
-	/* Thousands separators, only inside quotes: bare, `80,443` is text. */
-	if (el_quoted(e) && s_contains_char(t, ',')) {
-		ShclStr sign_body = t;
-		if (sign_body.n > 0 && (sign_body.p[0] == '+' || sign_body.p[0] == '-')) sign_body = s_slice(sign_body, 1, sign_body.n);
-		ShclVecS groups = {0}; split_byte(a, sign_body, ',', &groups);
-		int wf = groups.len > 1 && groups.data[0].n > 0 && groups.data[0].n <= 3 && all_adigit0(groups.data[0]);
-		if (wf) for (size_t k = 1; k < groups.len; k++)
-			if (groups.data[k].n != 3 || !all_adigit0(groups.data[k])) { wf = 0; break; }
-		if (wf) {
-			ShclSB b = {0}; for (size_t i = 0; i < t.n; i++) if (t.p[i] != ',') sb_putc(a, &b, t.p[i]);
-			return parse_i64_s(sb_S(&b), out);
-		}
 	}
 	if (level == SHCL_LOOSE) {
 		double f;
@@ -8663,8 +8639,7 @@ static ShclStr emit_element(ShclArena *a, const ShclElement *e) {
 }
 
 // An element no source wrote. It counts as quoted when canonical output will
-// quote it, so a read gives the same answer before a save as after one. A
-// thousands comma reads only in quotes, and `1,000` from a setter gets them.
+// quote it, so shcl_quoted gives the same answer before a save as after one.
 static ShclElement new_element(ShclStr text) {
 	ShclElement e; e.text = text;
 	e.mark = !needs_quotes(text) ? MARK_BARE : picks_single(text) ? MARK_SINGLE : MARK_DOUBLE;

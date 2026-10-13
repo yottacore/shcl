@@ -9766,8 +9766,8 @@ fn backtick_holds(t: &str) -> bool {
 }
 
 /// An element no source wrote. It counts as quoted when canonical output will
-/// quote it, so a read gives the same answer before a save as after one. A
-/// thousands comma reads only in quotes, and `1,000` from a setter gets them.
+/// quote it, so the read's `quoted` flag gives the same answer before a save
+/// as after one.
 fn new_element(text: String) -> Element {
 	let mark = if !needs_quotes(&text) {
 		Mark::Bare
@@ -12186,8 +12186,8 @@ const CURRENCY: &[char] = &[
 ];
 
 /// The remainder after a leading currency symbol, with the space a person
-/// writes after one taken off - `$ 1200` reached the int path's thousands
-/// branch, which trims, and the float path's shape test, which does not.
+/// writes after one taken off, so `$ 1200` reads the same as `$1200` in both
+/// the int path and the float path's shape test.
 fn strip_currency(t: &str) -> &str {
 	let mut it = t.chars();
 	match it.next() {
@@ -12229,21 +12229,6 @@ fn parse_int_text(e: &Element, level: Strictness) -> Option<i64> {
 		} else {
 			None
 		};
-	}
-	// Thousands separators, only inside quotes: bare, `80,443` is text.
-	if e.quoted() && t.contains(',') {
-		let sign_body = t.strip_prefix(['+', '-']).unwrap_or(t);
-		let groups: Vec<&str> = sign_body.split(',').collect();
-		let well_formed = groups.len() > 1
-			&& !groups[0].is_empty()
-			&& groups[0].len() <= 3
-			&& groups[0].bytes().all(|b| b.is_ascii_digit())
-			&& groups[1..]
-				.iter()
-				.all(|g| g.len() == 3 && g.bytes().all(|b| b.is_ascii_digit()));
-		if well_formed {
-			return t.replace(',', "").parse::<i64>().ok();
-		}
 	}
 	// Loose: a float (including %) rounds, half away from zero.
 	if level == Strictness::Loose
@@ -12323,7 +12308,7 @@ fn parse_float_text(e: &Element, level: Strictness) -> Option<f64> {
 		// that is not a number at all.
 		t.parse::<f64>().ok().filter(|v| v.is_finite())?
 	} else {
-		// An integer is a valid float on read (incl. hex, octal, binary and quoted thousands).
+		// An integer is a valid float on read (incl. hex, octal and binary).
 		let el = Element {
 			text: t.to_string(),
 			mark: e.mark,
@@ -12342,37 +12327,21 @@ fn parse_int_text_no_loose(e: &Element) -> Option<i64> {
 	parse_int_text(e, Strictness::Standard)
 }
 
-/// The integer spellings the plain float parse does not read - hex, octal,
-/// binary and quoted thousands - past the i64 range, as a double: a float read
-/// is bounded by the double, not by the integer type. A prefixed number goes
-/// in digit by digit in the double, so every binding rounds the same way; the
-/// spellings mirror parse_int_text.
+/// The integer spellings the plain float parse does not read - hex, octal and
+/// binary - past the i64 range, as a double: a float read is bounded by the
+/// double, not by the integer type. The number goes in digit by digit in the
+/// double, so every binding rounds the same way; the spellings mirror
+/// parse_int_text.
 fn parse_int_text_wide(e: &Element) -> Option<f64> {
 	let t = e.text.trim();
 	let (neg, body) = match t.strip_prefix('-') {
 		Some(r) => (true, r),
 		None => (false, t.strip_prefix('+').unwrap_or(t)),
 	};
-	let v = if let Some((radix, digits)) = radix_body(body) {
-		digits.bytes().fold(0.0f64, |v, b| {
-			v * f64::from(radix) + f64::from(char::from(b).to_digit(radix).unwrap_or(0))
-		})
-	} else if e.quoted() && body.contains(',') {
-		let groups: Vec<&str> = body.split(',').collect();
-		let well_formed = groups.len() > 1
-			&& !groups[0].is_empty()
-			&& groups[0].len() <= 3
-			&& groups[0].bytes().all(|b| b.is_ascii_digit())
-			&& groups[1..]
-				.iter()
-				.all(|g| g.len() == 3 && g.bytes().all(|b| b.is_ascii_digit()));
-		if !well_formed {
-			return None;
-		}
-		body.replace(',', "").parse::<f64>().ok()?
-	} else {
-		return None;
-	};
+	let (radix, digits) = radix_body(body)?;
+	let v = digits.bytes().fold(0.0f64, |v, b| {
+		v * f64::from(radix) + f64::from(char::from(b).to_digit(radix).unwrap_or(0))
+	});
 	if !v.is_finite() {
 		return None;
 	}

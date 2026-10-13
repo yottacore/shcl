@@ -9899,8 +9899,8 @@ def _backtick_holds(t):
 
 def _new_element(text):
 	"""An element no source wrote. It counts as quoted when canonical output will
-	quote it, so a read gives the same answer before a save as after one. A
-	thousands comma reads only in quotes, and `1,000` from a setter gets them."""
+	quote it, so the read's quoted flag gives the same answer before a save as
+	after one."""
 	if not _needs_quotes(text):
 		return _Element(text, _Mark.BARE)
 	return _Element(text, _Mark.SINGLE if _picks_single(text) else _Mark.DOUBLE)
@@ -10104,8 +10104,8 @@ _I64_MAX = 2 ** 63 - 1
 
 def _strip_currency(t):
 	# The remainder after a leading currency symbol, with the space a person
-	# writes after one taken off - `$ 1200` reached the int path's thousands
-	# branch, which trims, and the float path's shape test, which does not.
+	# writes after one taken off, so `$ 1200` reads the same as `$1200` in both
+	# the int path and the float path's shape test.
 	if t and t[0] in _CURRENCY:
 		return t[1:].lstrip(_WS)
 	return t
@@ -10161,19 +10161,6 @@ def _parse_int_text(e, level):
 		if mag > (_I64_MAX + 1 if neg else _I64_MAX):
 			return None
 		return -mag if neg else mag
-	# Thousands separators, only inside quotes: bare, `80,443` is text.
-	if e.quoted and "," in t:
-		sign_body = t[1:] if t[:1] in ("+", "-") else t
-		groups = sign_body.split(",")
-		well_formed = (
-			len(groups) > 1
-			and groups[0] != ""
-			and len(groups[0]) <= 3
-			and _all_ascii_digits(groups[0])
-			and all(len(g) == 3 and _all_ascii_digits(g) for g in groups[1:])
-		)
-		if well_formed:
-			return _parse_i64(t.replace(",", ""))
 	# Loose: a float (including %) rounds, half away from zero.
 	if level == Strictness.Loose:
 		f = _parse_float_text(e, level)
@@ -10236,7 +10223,7 @@ def _parse_float_text(e, level):
 		if not math.isfinite(v):
 			return None
 	else:
-		# An integer is a valid float on read (incl. hex, octal, binary and quoted thousands).
+		# An integer is a valid float on read (incl. hex, octal and binary).
 		iv = _parse_int_text_no_loose(_Element(t, e.mark))
 		if iv is not None:
 			v = float(iv)
@@ -10266,37 +10253,21 @@ def _radix_body(t):
 
 
 def _parse_int_text_wide(e):
-	# The integer spellings the plain float parse does not read - hex, octal,
-	# binary and quoted thousands - past the i64 range, as a double: a float
-	# read is bounded by the double, not by the integer type. A prefixed number
-	# goes in digit by digit in the double, so every binding rounds the same
-	# way; the spellings mirror _parse_int_text.
+	# The integer spellings the plain float parse does not read - hex, octal
+	# and binary - past the i64 range, as a double: a float read is bounded by
+	# the double, not by the integer type. The number goes in digit by digit in
+	# the double, so every binding rounds the same way; the spellings mirror
+	# _parse_int_text.
 	t = _trim(e.text)
 	neg = t.startswith("-")
 	body = t[1:] if t[:1] in ("-", "+") else t
 	rb = _radix_body(body)
-	if rb is not None:
-		radix, digits = rb
-		v = 0.0
-		for c in digits:
-			v = v * float(radix) + float(int(c, 16))
-	elif e.quoted and "," in body:
-		groups = body.split(",")
-		well_formed = (
-			len(groups) > 1
-			and groups[0] != ""
-			and len(groups[0]) <= 3
-			and _all_ascii_digits(groups[0])
-			and all(len(g) == 3 and _all_ascii_digits(g) for g in groups[1:])
-		)
-		if not well_formed:
-			return None
-		try:
-			v = float(body.replace(",", ""))
-		except ValueError:
-			return None
-	else:
+	if rb is None:
 		return None
+	radix, digits = rb
+	v = 0.0
+	for c in digits:
+		v = v * float(radix) + float(int(c, 16))
 	if not math.isfinite(v):
 		return None
 	return -v if neg else v

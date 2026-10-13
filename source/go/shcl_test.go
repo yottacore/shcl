@@ -4861,7 +4861,11 @@ func TestTheWriterQuotesAColonOrComma(t *testing.T) {
 	if got := doc.ToCanonical(); got != "n: \"1,000\"\n" {
 		t.Fatalf("wrote %q", got)
 	}
-	if v, st := doc.GetInt("n"); st != Good || v != 1000 {
+	// 2026101010054746: a quoted thousands number is text, like a bare one.
+	// if v, st := doc.GetInt("n"); st != Good || v != 1000 {
+	// 	t.Fatalf("n: %d %v", v, st)
+	// }
+	if v, st := doc.GetInt("n"); st != BadType {
 		t.Fatalf("n: %d %v", v, st)
 	}
 	doc = Parse("ver: \"8\"\nok: 'true'\nat: 2:30PM\nhost: localhost:8080\n")
@@ -4877,6 +4881,53 @@ func TestTheWriterQuotesAColonOrComma(t *testing.T) {
 	hint := Parse("t: a,b\nt: c\n").Diagnostics()[0]
 	if hint.Code != "H001" || !strings.Contains(hint.Message, "t: [\"a,b\", c]") {
 		t.Fatalf("hint %v", hint)
+	}
+}
+
+// A thousands comma is text quoted or bare, so a typed read gives the same
+// answer before and after the writer quotes it (2026101010054746).
+func TestAThousandsCommaReadsTheSameAfterASave(t *testing.T) {
+	defer testID(t, "EsZikJj")
+	doc := Parse("p: 80,443\nq: \"1,000\"\nr: '-1,234,567'\n")
+	if st := doc.SetString("s", "1,000"); st != SetOk {
+		t.Fatalf("set: %v", st)
+	}
+	out := doc.ToCanonical()
+	if !strings.HasPrefix(out, "p: \"80,443\"\nq: \"1,000\"\nr: '-1,234,567'\n") || !strings.HasSuffix(out, "s: \"1,000\"\n") {
+		t.Fatalf("wrote %q", out)
+	}
+	back := Parse(out)
+	for _, c := range []struct{ path, text string }{
+		{"p", "80,443"},
+		{"q", "1,000"},
+		{"r", "-1,234,567"},
+		{"s", "1,000"},
+	} {
+		for _, d := range []*Document{doc, back} {
+			if r := d.ReadInt(c.path); r.Status != BadType {
+				t.Fatalf("%s int: %v", c.path, r.Status)
+			}
+			if r := d.ReadFloat(c.path); r.Status != BadType {
+				t.Fatalf("%s float: %v", c.path, r.Status)
+			}
+			if v, st := d.GetString(c.path); st != Good || v != c.text {
+				t.Fatalf("%s: %q %v", c.path, v, st)
+			}
+		}
+	}
+	// The setter's value counts as quoted, as its saved form is.
+	if !doc.ReadString("s").Quoted || !back.ReadString("s").Quoted {
+		t.Fatal("s not quoted")
+	}
+	loose, err := ParseWith("q: \"1,000\"\nc: \"$1,200\"\n", Loose)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := loose.ReadInt("q"); r.Status != BadType {
+		t.Fatalf("loose q: %v", r.Status)
+	}
+	if r := loose.ReadInt("c"); r.Status != BadType {
+		t.Fatalf("loose c: %v", r.Status)
 	}
 }
 
