@@ -1118,6 +1118,13 @@ fn stacks(nd: &NodeData) -> bool {
 /// above it, in order, where a reload files what sits there.
 fn unstack(nd: &mut NodeData) {
 	nd.star_list = false;
+	// An item the brackets will quote counts as quoted now, as a setter's
+	// does, so a read gives the same answer before the save as after it.
+	if let Value::Array(els) = &mut nd.value {
+		for el in els.iter_mut().filter(|el| !el.quoted()) {
+			el.mark = writer_mark(&el.text);
+		}
+	}
 	if let Some(t) = nd.trivia.as_deref_mut() {
 		let mut notes = t.notes.drain(..).peekable();
 		for (at, l) in t.among.drain(..) {
@@ -4960,7 +4967,7 @@ impl<'a> Parser<'a> {
 					cur = match found {
 						Some(c) => c,
 						None => {
-							let disc = Value::Cell(new_element(text));
+							let disc = Value::Cell(new_scalar(text));
 							self.select_or_create(
 								cur,
 								seg.name.clone(),
@@ -5085,7 +5092,7 @@ impl<'a> Parser<'a> {
 				// scalar child with this text is exactly the one-element value
 				// the merge map is keyed on, so ask that map: a scan of every
 				// sibling was the same answer, quadratic on the create path.
-				let disc = Value::Cell(new_element(want.to_string()));
+				let disc = Value::Cell(new_scalar(want.to_string()));
 				self.child_map[cur]
 					.as_deref()
 					.and_then(|m| m.get(&merge_hash(name, &disc)))
@@ -6577,7 +6584,7 @@ impl Document {
 					let column = "\t".repeat(depth + 1);
 					e.out.push_str(&column);
 					e.out.push_str("- ");
-					e.out.push_str(&emit_element(el));
+					e.out.push_str(&emit_scalar(el));
 					for (_, n) in node.notes().iter().filter(|n| n.0 == i) {
 						push_trailing(&mut e.out, n);
 					}
@@ -6596,7 +6603,7 @@ impl Document {
 			Value::Cell(el) => {
 				let at = e.out.len();
 				e.out.push(' ');
-				e.out.push_str(&emit_element(el));
+				e.out.push_str(&emit_scalar(el));
 				e.span(at);
 				push_trailing(&mut e.out, node.trailing());
 				e.out.push('\n');
@@ -9760,6 +9767,16 @@ fn emit_element(e: &Element) -> std::borrow::Cow<'_, str> {
 	})
 }
 
+/// A value or `- ` item as written. The same as an array element, but a
+/// bare thousands number stays bare: there is no bracket for its comma to
+/// split, and in quotes Loose would read it as a number (spec.md).
+fn emit_scalar(e: &Element) -> std::borrow::Cow<'_, str> {
+	if !e.quoted() && thousands_number(&e.text).is_some() {
+		return std::borrow::Cow::Borrowed(&e.text);
+	}
+	emit_element(e)
+}
+
 /// Whether text can be a backtick value: no backtick, which would end it,
 /// and nothing the writer would have to escape, since a backtick value has
 /// no escapes.
@@ -9772,14 +9789,33 @@ fn backtick_holds(t: &str) -> bool {
 /// quote it, so the read's `quoted` flag gives the same answer before a save
 /// as after one.
 fn new_element(text: String) -> Element {
-	let mark = if !needs_quotes(&text) {
+	Element {
+		mark: writer_mark(&text),
+		text,
+	}
+}
+
+/// How the writer marks text it quotes itself: bare when it can be, else in
+/// the quotes it picks.
+fn writer_mark(t: &str) -> Mark {
+	if !needs_quotes(t) {
 		Mark::Bare
-	} else if picks_single(&text) {
+	} else if picks_single(t) {
 		Mark::Single
 	} else {
 		Mark::Double
-	};
-	Element { text, mark }
+	}
+}
+
+/// A value no source wrote, quoted the way emit_scalar writes it.
+fn new_scalar(text: String) -> Element {
+	if thousands_number(&text).is_some() {
+		return Element {
+			text,
+			mark: Mark::Bare,
+		};
+	}
+	new_element(text)
 }
 
 /// The quotes the writer picks: double, or single when the text has a `"`
@@ -9854,7 +9890,7 @@ fn emit_array_into(out: &mut String, els: &[Element]) {
 /// for a value with no one-line form.
 fn emit_value_text(v: &Value) -> Option<String> {
 	match v {
-		Value::Cell(e) => Some(emit_element(e).into_owned()),
+		Value::Cell(e) => Some(emit_scalar(e).into_owned()),
 		Value::Array(els) => Some(emit_array(els)),
 		Value::Empty | Value::Raw(_) => None,
 	}
@@ -10540,7 +10576,7 @@ fn keep_mark(old: &Value, new: &mut Value) {
 	let (Value::Cell(was), Value::Cell(now)) = (old, &mut *new) else {
 		return;
 	};
-	let written = match emit_element(was).as_bytes().first() {
+	let written = match emit_scalar(was).as_bytes().first() {
 		Some(b'\'') => Mark::Single,
 		Some(b'"') => Mark::Double,
 		Some(b'`') if was.mark == Mark::Backtick => Mark::Backtick,
@@ -10564,7 +10600,7 @@ fn keep_mark(old: &Value, new: &mut Value) {
 }
 
 fn cell_of(text: String) -> Value {
-	Value::Cell(new_element(text))
+	Value::Cell(new_scalar(text))
 }
 
 /// Pick a backtick fence long enough that no content line closes it early.
@@ -12328,9 +12364,54 @@ fn strip_currency(t: &str) -> &str {
 	}
 }
 
+/// A thousands number the way Loose reads one in quotes (spec.md): a
+/// currency sign, a sign, 1 to 3 digits then groups of exactly 3 behind
+/// commas, a `.` and digits, and a `%`, all optional but the digits and one
+/// comma. No blanks anywhere, so the writer can keep a bare one bare. Gives
+/// the number with the commas, the currency and the `%` off, and whether
+/// the `%` was there.
+fn thousands_number(t: &str) -> Option<(String, bool)> {
+	if !t.contains(',') {
+		return None;
+	}
+	let mut it = t.chars();
+	let t = match it.next() {
+		Some(c) if CURRENCY.contains(&c) => it.as_str(),
+		_ => t,
+	};
+	let (t, percent) = match t.strip_suffix('%') {
+		Some(r) => (r, true),
+		None => (t, false),
+	};
+	let body = t.strip_prefix(['+', '-']).unwrap_or(t);
+	let (whole, frac) = match body.split_once('.') {
+		Some((w, f)) => (w, Some(f)),
+		None => (body, None),
+	};
+	let digits = |g: &str| !g.is_empty() && g.bytes().all(|b| b.is_ascii_digit());
+	let mut groups = whole.split(',');
+	let head = groups.next().unwrap_or_default();
+	let mut tail = 0;
+	let grouped = head.len() <= 3
+		&& digits(head)
+		&& groups.all(|g| {
+			tail += 1;
+			g.len() == 3 && digits(g)
+		});
+	(grouped && tail > 0 && frac.is_none_or(digits)).then(|| (t.replace(',', ""), percent))
+}
+
 fn parse_int_text(e: &Element, level: Strictness) -> Option<i64> {
 	let mut t = e.text.trim();
 	if level == Strictness::Loose {
+		// A whole thousands number goes in exact. One with a decimal part or
+		// a `%` takes the float path below and rounds.
+		if e.quoted()
+			&& let Some((plain, false)) = thousands_number(t)
+			&& !plain.contains('.')
+		{
+			return plain.parse::<i64>().ok();
+		}
 		t = strip_currency(t);
 	}
 	// Plain decimal.
@@ -12427,11 +12508,20 @@ fn float_shape_ok(t: &str) -> bool {
 fn parse_float_text(e: &Element, level: Strictness) -> Option<f64> {
 	let mut t = e.text.trim();
 	let mut percent = false;
+	let plain: String;
 	if level == Strictness::Loose {
-		t = strip_currency(t);
-		if let Some(inner) = t.strip_suffix('%') {
-			t = inner.trim_end();
-			percent = true;
+		if e.quoted()
+			&& let Some((p, pct)) = thousands_number(t)
+		{
+			plain = p;
+			t = &plain;
+			percent = pct;
+		} else {
+			t = strip_currency(t);
+			if let Some(inner) = t.strip_suffix('%') {
+				t = inner.trim_end();
+				percent = true;
+			}
 		}
 	}
 	let v = if float_shape_ok(t) {

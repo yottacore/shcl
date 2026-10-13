@@ -4434,41 +4434,117 @@ int main(int argc, char **argv) {
 		if (shcl_diag_count(hd) == 0 || strcmp(shcl_diag_code(hd, 0), "H001") != 0 || !contains(hm.p, hm.n, "t: [\"a,b\", c]")) fail("writer_comma", "the H001 hint");
 		shcl_free(hd);
 	}
-	test_id("EsZikJl", "a_thousands_comma_reads_the_same_after_a_save");
-	/* A thousands comma is text quoted or bare, so a typed read gives the same
-	   answer before and after the writer quotes it (2026101010054746). */
+	/* 2026101309122757: Loose reads a quoted thousands number again, and the
+	   writer keeps a bare one bare, so this pins what no longer holds. */
+	// test_id("EsZikJl", "a_thousands_comma_reads_the_same_after_a_save");
+	// /* A thousands comma is text quoted or bare, so a typed read gives the same
+	//    answer before and after the writer quotes it (2026101010054746). */
+	// {
+	// 	const char *tsrc = "p: 80,443\nq: \"1,000\"\nr: '-1,234,567'\n";
+	// 	const char *thead = "p: \"80,443\"\nq: \"1,000\"\nr: '-1,234,567'\n";
+	// 	const char *ttail = "s: \"1,000\"\n";
+	// 	shcl_doc *td = shcl_parse(tsrc, strlen(tsrc));
+	// 	if (shcl_set_string(td, "s", 1, "1,000", 5) != SHCL_SET_OK) fail("thousands", "set s");
+	// 	shcl_str tout = shcl_to_canonical(td);
+	// 	if (tout.n < strlen(thead) + strlen(ttail) || memcmp(tout.p, thead, strlen(thead)) != 0 || memcmp(tout.p + tout.n - strlen(ttail), ttail, strlen(ttail)) != 0) fail("thousands", "the canonical text");
+	// 	shcl_doc *tb = shcl_parse(tout.p, tout.n);
+	// 	const char *tpaths[] = { "p", "q", "r", "s" };
+	// 	const char *ttexts[] = { "80,443", "1,000", "-1,234,567", "1,000" };
+	// 	shcl_doc *tdocs[] = { td, tb };
+	// 	for (size_t i = 0; i < 4; i++) {
+	// 		for (size_t k = 0; k < 2; k++) {
+	// 			if (shcl_read_int(tdocs[k], tpaths[i], 1).status != SHCL_BAD_TYPE) fail("thousands", tpaths[i]);
+	// 			if (shcl_read_float(tdocs[k], tpaths[i], 1).status != SHCL_BAD_TYPE) fail("thousands", tpaths[i]);
+	// 			shcl_read_str ts = shcl_read_string(tdocs[k], tpaths[i], 1);
+	// 			if (ts.status != SHCL_GOOD || ts.value.n != strlen(ttexts[i]) || memcmp(ts.value.p, ttexts[i], ts.value.n) != 0) fail("thousands", tpaths[i]);
+	// 		}
+	// 	}
+	// 	/* The setter's value counts as quoted, as its saved form is. */
+	// 	if (!shcl_quoted(td, "s", 1) || !shcl_quoted(tb, "s", 1)) fail("thousands", "s not quoted");
+	// 	shcl_free(tb);
+	// 	shcl_free(td);
+	// 	const char *lsrc = "q: \"1,000\"\nc: \"$1,200\"\n";
+	// 	shcl_doc *tl = shcl_parse_with(lsrc, strlen(lsrc), SHCL_LOOSE);
+	// 	if (!tl) fail("thousands", "loose load");
+	// 	else {
+	// 		if (shcl_read_int(tl, "q", 1).status != SHCL_BAD_TYPE) fail("thousands", "loose q");
+	// 		if (shcl_read_int(tl, "c", 1).status != SHCL_BAD_TYPE) fail("thousands", "loose c");
+	// 		shcl_free(tl);
+	// 	}
+	// }
+	test_id("EsbaIe1", "loose_reads_a_quoted_thousands_number");
+	/* Loose reads a quoted thousands number, exact grouping only. Bare stays
+	   text at every level, Standard and Strict refuse it, and the writer keeps
+	   a bare one bare, so a typed read is the same after a save
+	   (2026101309122757). */
 	{
-		const char *tsrc = "p: 80,443\nq: \"1,000\"\nr: '-1,234,567'\n";
-		const char *thead = "p: \"80,443\"\nq: \"1,000\"\nr: '-1,234,567'\n";
-		const char *ttail = "s: \"1,000\"\n";
-		shcl_doc *td = shcl_parse(tsrc, strlen(tsrc));
-		if (shcl_set_string(td, "s", 1, "1,000", 5) != SHCL_SET_OK) fail("thousands", "set s");
-		shcl_str tout = shcl_to_canonical(td);
-		if (tout.n < strlen(thead) + strlen(ttail) || memcmp(tout.p, thead, strlen(thead)) != 0 || memcmp(tout.p + tout.n - strlen(ttail), ttail, strlen(ttail)) != 0) fail("thousands", "the canonical text");
-		shcl_doc *tb = shcl_parse(tout.p, tout.n);
-		const char *tpaths[] = { "p", "q", "r", "s" };
-		const char *ttexts[] = { "80,443", "1,000", "-1,234,567", "1,000" };
-		shcl_doc *tdocs[] = { td, tb };
-		for (size_t i = 0; i < 4; i++) {
-			for (size_t k = 0; k < 2; k++) {
-				if (shcl_read_int(tdocs[k], tpaths[i], 1).status != SHCL_BAD_TYPE) fail("thousands", tpaths[i]);
-				if (shcl_read_float(tdocs[k], tpaths[i], 1).status != SHCL_BAD_TYPE) fail("thousands", tpaths[i]);
-				shcl_read_str ts = shcl_read_string(tdocs[k], tpaths[i], 1);
-				if (ts.status != SHCL_GOOD || ts.value.n != strlen(ttexts[i]) || memcmp(ts.value.p, ttexts[i], ts.value.n) != 0) fail("thousands", tpaths[i]);
+		const char *ltext = "a: \"1,200\"\nb: \"$1,200\"\nc: \"1,200.50\"\nd: 1,200\ne: \"1, 200\"\nf: \"1,2,3\"\ng: '-12,345,678'\nh: \"9,007,199,254,740,993\"\nl:\n\t- 80,443\n";
+		shcl_doc *ll = shcl_parse_with(ltext, strlen(ltext), SHCL_LOOSE);
+		const char *ipaths[] = { "a", "b", "c", "d", "e", "f", "g", "h", "l" };
+		const int igood[] = { 1, 1, 1, 0, 0, 0, 1, 1, 0 };
+		const int64_t iwant[] = { 1200, 1200, 1201, 0, 0, 0, -12345678, 9007199254740993LL, 0 };
+		for (size_t i = 0; i < 9; i++) {
+			shcl_read_i64 r = shcl_read_int(ll, ipaths[i], 1);
+			if (igood[i] && (r.status != SHCL_GOOD || r.value != iwant[i])) fail("loose_thousands", ipaths[i]);
+			if (!igood[i] && r.status != SHCL_BAD_TYPE) fail("loose_thousands", ipaths[i]);
+		}
+		if (shcl_read_float(ll, "c", 1).value != 1200.5 || shcl_read_float(ll, "b", 1).value != 1200.0) fail("loose_thousands", "float");
+		if (shcl_read_float(ll, "d", 1).status != SHCL_BAD_TYPE) fail("loose_thousands", "d float");
+		shcl_read_str lb = shcl_read_string(ll, "b", 1);
+		if (lb.value.n != 6 || memcmp(lb.value.p, "$1,200", 6) != 0) fail("loose_thousands", "b string");
+		shcl_strictness levels[] = { SHCL_STANDARD, SHCL_STRICT };
+		for (size_t k = 0; k < 2; k++) {
+			shcl_doc *ld = shcl_parse_with(ltext, strlen(ltext), levels[k]);
+			const char *spaths[] = { "a", "b", "c", "d", "g", "h" };
+			for (size_t i = 0; i < 6; i++) {
+				if (shcl_read_int(ld, spaths[i], 1).status != SHCL_BAD_TYPE) fail("loose_thousands", spaths[i]);
+				if (shcl_read_float(ld, spaths[i], 1).status != SHCL_BAD_TYPE) fail("loose_thousands", spaths[i]);
 			}
+			shcl_read_str lc = shcl_read_string(ld, "c", 1);
+			if (lc.value.n != 8 || memcmp(lc.value.p, "1,200.50", 8) != 0) fail("loose_thousands", "c string");
+			shcl_free(ld);
 		}
-		/* The setter's value counts as quoted, as its saved form is. */
-		if (!shcl_quoted(td, "s", 1) || !shcl_quoted(tb, "s", 1)) fail("thousands", "s not quoted");
-		shcl_free(tb);
-		shcl_free(td);
-		const char *lsrc = "q: \"1,000\"\nc: \"$1,200\"\n";
-		shcl_doc *tl = shcl_parse_with(lsrc, strlen(lsrc), SHCL_LOOSE);
-		if (!tl) fail("thousands", "loose load");
-		else {
-			if (shcl_read_int(tl, "q", 1).status != SHCL_BAD_TYPE) fail("thousands", "loose q");
-			if (shcl_read_int(tl, "c", 1).status != SHCL_BAD_TYPE) fail("thousands", "loose c");
-			shcl_free(tl);
+		/* The bare ones stay bare, so they read as text after a save too. */
+		shcl_str lout = shcl_to_canonical(ll);
+		if (!contains(lout.p, lout.n, "\nd: 1,200\n") || !contains(lout.p, lout.n, "\n\t- 80,443\n") || lout.n < 11 || memcmp(lout.p, "a: \"1,200\"\n", 11) != 0) fail("loose_thousands", "the canonical text");
+		/* A setter's value is written bare, and reads as text before the save. */
+		shcl_doc *ls = shcl_parse_with("", 0, SHCL_LOOSE);
+		const char *tv[] = { "$1,000" };
+		const size_t tl[] = { 6 };
+		if (shcl_set_string(ls, "s", 1, "1,000", 5) != SHCL_SET_OK || shcl_set_string_array(ls, "t", 1, tv, tl, 1) != SHCL_SET_OK) fail("loose_thousands", "set");
+		shcl_str sout = shcl_to_canonical(ls);
+		if (sout.n < 9 || memcmp(sout.p, "s: 1,000\n", 9) != 0 || !contains(sout.p, sout.n, "t: [\"$1,000\"]\n")) fail("loose_thousands", "the setter's text");
+		if (shcl_quoted(ls, "s", 1) || shcl_read_int(ls, "s", 1).status != SHCL_BAD_TYPE) fail("loose_thousands", "s reads as quoted");
+		shcl_read_i64_arr ta = shcl_read_int_array(ls, "t", 1);
+		if (ta.n != 1 || ta.values[0] != 1000) fail("loose_thousands", "t");
+		/* A merge puts a stacked list in brackets, which quote its items. */
+		const char *msrc = "l:\n\t- 1,200\n";
+		shcl_doc *lm = shcl_parse_with(msrc, strlen(msrc), SHCL_LOOSE);
+		if (shcl_read_int_array(lm, "l", 1).status != SHCL_BAD_TYPE) fail("loose_thousands", "l before");
+		shcl_doc *lz = shcl_parse("z: 1\n", 5);
+		shcl_merge(lm, lz);
+		shcl_free(lz);
+		shcl_str mout = shcl_to_canonical(lm);
+		if (mout.n < 13 || memcmp(mout.p, "l: [\"1,200\"]\n", 13) != 0) fail("loose_thousands", "the merged text");
+		shcl_read_i64_arr la = shcl_read_int_array(lm, "l", 1);
+		if (la.n != 1 || la.values[0] != 1200) fail("loose_thousands", "l merged");
+		shcl_doc *ldocs[] = { ll, ls, lm };
+		const char *cpaths[] = { "a", "b", "c", "d", "e", "g", "h", "l", "s", "t" };
+		for (size_t k = 0; k < 3; k++) {
+			shcl_str out = shcl_to_canonical(ldocs[k]);
+			shcl_doc *back = shcl_parse_with(out.p, out.n, SHCL_LOOSE);
+			for (size_t i = 0; i < 10; i++) {
+				shcl_read_i64 x = shcl_read_int(ldocs[k], cpaths[i], 1), y = shcl_read_int(back, cpaths[i], 1);
+				if (x.status != y.status || x.value != y.value) fail("loose_thousands", cpaths[i]);
+				shcl_read_i64_arr xa = shcl_read_int_array(ldocs[k], cpaths[i], 1), ya = shcl_read_int_array(back, cpaths[i], 1);
+				if (xa.status != ya.status || xa.n != ya.n || (xa.n && memcmp(xa.values, ya.values, xa.n * sizeof(int64_t)) != 0)) fail("loose_thousands", cpaths[i]);
+				if (shcl_quoted(ldocs[k], cpaths[i], 1) != shcl_quoted(back, cpaths[i], 1)) fail("loose_thousands", cpaths[i]);
+			}
+			shcl_free(back);
 		}
+		shcl_free(lm);
+		shcl_free(ls);
+		shcl_free(ll);
 	}
 	test_id("Es1gWRs", "a_list_no_text_loads_back_refuses_to_save");
 	/* A list with a field under it (E001) after an empty binding of its name

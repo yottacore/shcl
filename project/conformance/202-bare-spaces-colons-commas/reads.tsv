@@ -12,7 +12,8 @@ ports	int	-	BadType
 ports	int[]	-	BadType
 qty	int	-	BadType
 qty	float	-	BadType
-qty	int	-	BadType	loose
+qty	int	1000	Good	loose
+ports	int	-	BadType	loose
 qty	string	1,000	Good
 host	string	-	Empty
 host.under	int	1	Good

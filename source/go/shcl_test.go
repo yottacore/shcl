@@ -4915,50 +4915,170 @@ func TestTheWriterQuotesAColonOrComma(t *testing.T) {
 	}
 }
 
-// A thousands comma is text quoted or bare, so a typed read gives the same
-// answer before and after the writer quotes it (2026101010054746).
-func TestAThousandsCommaReadsTheSameAfterASave(t *testing.T) {
-	defer testID(t, "EsZikJj")
-	doc := Parse("p: 80,443\nq: \"1,000\"\nr: '-1,234,567'\n")
-	if st := doc.SetString("s", "1,000"); st != SetOk {
-		t.Fatalf("set: %v", st)
-	}
-	out := doc.ToCanonical()
-	if !strings.HasPrefix(out, "p: \"80,443\"\nq: \"1,000\"\nr: '-1,234,567'\n") || !strings.HasSuffix(out, "s: \"1,000\"\n") {
-		t.Fatalf("wrote %q", out)
-	}
-	back := Parse(out)
-	for _, c := range []struct{ path, text string }{
-		{"p", "80,443"},
-		{"q", "1,000"},
-		{"r", "-1,234,567"},
-		{"s", "1,000"},
-	} {
-		for _, d := range []*Document{doc, back} {
-			if r := d.ReadInt(c.path); r.Status != BadType {
-				t.Fatalf("%s int: %v", c.path, r.Status)
-			}
-			if r := d.ReadFloat(c.path); r.Status != BadType {
-				t.Fatalf("%s float: %v", c.path, r.Status)
-			}
-			if v, st := d.GetString(c.path); st != Good || v != c.text {
-				t.Fatalf("%s: %q %v", c.path, v, st)
-			}
-		}
-	}
-	// The setter's value counts as quoted, as its saved form is.
-	if !doc.ReadString("s").Quoted || !back.ReadString("s").Quoted {
-		t.Fatal("s not quoted")
-	}
-	loose, err := ParseWith("q: \"1,000\"\nc: \"$1,200\"\n", Loose)
+// 2026101309122757: Loose reads a quoted thousands number again, and the
+// writer keeps a bare one bare, so this pins what no longer holds.
+// // A thousands comma is text quoted or bare, so a typed read gives the same
+// // answer before and after the writer quotes it (2026101010054746).
+// func TestAThousandsCommaReadsTheSameAfterASave(t *testing.T) {
+// 	defer testID(t, "EsZikJj")
+// 	doc := Parse("p: 80,443\nq: \"1,000\"\nr: '-1,234,567'\n")
+// 	if st := doc.SetString("s", "1,000"); st != SetOk {
+// 		t.Fatalf("set: %v", st)
+// 	}
+// 	out := doc.ToCanonical()
+// 	if !strings.HasPrefix(out, "p: \"80,443\"\nq: \"1,000\"\nr: '-1,234,567'\n") || !strings.HasSuffix(out, "s: \"1,000\"\n") {
+// 		t.Fatalf("wrote %q", out)
+// 	}
+// 	back := Parse(out)
+// 	for _, c := range []struct{ path, text string }{
+// 		{"p", "80,443"},
+// 		{"q", "1,000"},
+// 		{"r", "-1,234,567"},
+// 		{"s", "1,000"},
+// 	} {
+// 		for _, d := range []*Document{doc, back} {
+// 			if r := d.ReadInt(c.path); r.Status != BadType {
+// 				t.Fatalf("%s int: %v", c.path, r.Status)
+// 			}
+// 			if r := d.ReadFloat(c.path); r.Status != BadType {
+// 				t.Fatalf("%s float: %v", c.path, r.Status)
+// 			}
+// 			if v, st := d.GetString(c.path); st != Good || v != c.text {
+// 				t.Fatalf("%s: %q %v", c.path, v, st)
+// 			}
+// 		}
+// 	}
+// 	// The setter's value counts as quoted, as its saved form is.
+// 	if !doc.ReadString("s").Quoted || !back.ReadString("s").Quoted {
+// 		t.Fatal("s not quoted")
+// 	}
+// 	loose, err := ParseWith("q: \"1,000\"\nc: \"$1,200\"\n", Loose)
+// 	if err != nil {
+// 		t.Fatal(err)
+// 	}
+// 	if r := loose.ReadInt("q"); r.Status != BadType {
+// 		t.Fatalf("loose q: %v", r.Status)
+// 	}
+// 	if r := loose.ReadInt("c"); r.Status != BadType {
+// 		t.Fatalf("loose c: %v", r.Status)
+// 	}
+// }
+
+// Loose reads a quoted thousands number, exact grouping only. Bare stays text
+// at every level, Standard and Strict refuse it, and the writer keeps a bare
+// one bare, so a typed read is the same after a save (2026101309122757).
+func TestLooseReadsAQuotedThousandsNumber(t *testing.T) {
+	defer testID(t, "EsbaIYt")
+	text := "a: \"1,200\"\nb: \"$1,200\"\nc: \"1,200.50\"\nd: 1,200\ne: \"1, 200\"\nf: \"1,2,3\"\ng: '-12,345,678'\nh: \"9,007,199,254,740,993\"\nl:\n\t- 80,443\n"
+	loose, err := ParseWith(text, Loose)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r := loose.ReadInt("q"); r.Status != BadType {
-		t.Fatalf("loose q: %v", r.Status)
+	for _, c := range []struct {
+		path string
+		want int64
+		good bool
+	}{
+		{"a", 1200, true},
+		{"b", 1200, true},
+		{"c", 1201, true},
+		{"d", 0, false},
+		{"e", 0, false},
+		{"f", 0, false},
+		{"g", -12345678, true},
+		{"h", 9007199254740993, true},
+		{"l", 0, false},
+	} {
+		r := loose.ReadInt(c.path)
+		if c.good && (r.Status != Good || r.Value != c.want) {
+			t.Fatalf("%s int: %v %d", c.path, r.Status, r.Value)
+		}
+		if !c.good && r.Status != BadType {
+			t.Fatalf("%s int: %v", c.path, r.Status)
+		}
 	}
-	if r := loose.ReadInt("c"); r.Status != BadType {
-		t.Fatalf("loose c: %v", r.Status)
+	if r := loose.ReadFloat("c"); r.Value != 1200.5 {
+		t.Fatalf("c float: %v", r.Value)
+	}
+	if r := loose.ReadFloat("b"); r.Value != 1200 {
+		t.Fatalf("b float: %v", r.Value)
+	}
+	if r := loose.ReadFloat("d"); r.Status != BadType {
+		t.Fatalf("d float: %v", r.Status)
+	}
+	if v, st := loose.GetString("b"); st != Good || v != "$1,200" {
+		t.Fatalf("b: %q %v", v, st)
+	}
+	for _, level := range []Strictness{Standard, Strict} {
+		doc, err := ParseWith(text, level)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, path := range []string{"a", "b", "c", "d", "g", "h"} {
+			if r := doc.ReadInt(path); r.Status != BadType {
+				t.Fatalf("%s int %v: %v", path, level, r.Status)
+			}
+			if r := doc.ReadFloat(path); r.Status != BadType {
+				t.Fatalf("%s float %v: %v", path, level, r.Status)
+			}
+		}
+		if v, _ := doc.GetString("c"); v != "1,200.50" {
+			t.Fatalf("c: %q", v)
+		}
+	}
+	// The bare ones stay bare, so they read as text after a save too.
+	out := loose.ToCanonical()
+	if !strings.Contains(out, "\nd: 1,200\n") || !strings.Contains(out, "\n\t- 80,443\n") || !strings.HasPrefix(out, "a: \"1,200\"\n") {
+		t.Fatalf("wrote %q", out)
+	}
+	// A setter's value is written bare, and reads as text before the save.
+	set, _ := ParseWith("", Loose)
+	if st := set.SetString("s", "1,000"); st != SetOk {
+		t.Fatalf("set: %v", st)
+	}
+	if st := set.SetStringArray("t", []string{"$1,000"}); st != SetOk {
+		t.Fatalf("set array: %v", st)
+	}
+	out = set.ToCanonical()
+	if !strings.HasPrefix(out, "s: 1,000\n") || !strings.HasSuffix(out, "t: [\"$1,000\"]\n") {
+		t.Fatalf("wrote %q", out)
+	}
+	if set.ReadString("s").Quoted || set.ReadInt("s").Status != BadType {
+		t.Fatal("s reads as quoted")
+	}
+	if r := set.ReadIntArray("t"); len(r.Value) != 1 || r.Value[0] != 1000 {
+		t.Fatalf("t: %v %v", r.Status, r.Value)
+	}
+	// A merge puts a stacked list in brackets, which quote its items.
+	merged, _ := ParseWith("l:\n\t- 1,200\n", Loose)
+	if r := merged.ReadIntArray("l"); r.Status != BadType {
+		t.Fatalf("l before: %v", r.Status)
+	}
+	merged.Merge(Parse("z: 1\n"))
+	if out := merged.ToCanonical(); !strings.HasPrefix(out, "l: [\"1,200\"]\n") {
+		t.Fatalf("merged %q", out)
+	}
+	if r := merged.ReadIntArray("l"); len(r.Value) != 1 || r.Value[0] != 1200 {
+		t.Fatalf("l merged: %v %v", r.Status, r.Value)
+	}
+	for _, doc := range []*Document{loose, set, merged} {
+		back, err := ParseWith(doc.ToCanonical(), Loose)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, path := range []string{"a", "b", "c", "d", "e", "g", "h", "l", "s", "t"} {
+			x, y := doc.ReadInt(path), back.ReadInt(path)
+			if x.Status != y.Status || x.Value != y.Value {
+				t.Fatalf("%s int: %v %d vs %v %d", path, x.Status, x.Value, y.Status, y.Value)
+			}
+			xa, ya := doc.ReadIntArray(path), back.ReadIntArray(path)
+			if xa.Status != ya.Status || fmt.Sprint(xa.Value) != fmt.Sprint(ya.Value) {
+				t.Fatalf("%s int[]: %v %v vs %v %v", path, xa.Status, xa.Value, ya.Status, ya.Value)
+			}
+			if doc.ReadString(path).Quoted != back.ReadString(path).Quoted {
+				t.Fatalf("%s quoted", path)
+			}
+		}
 	}
 }
 

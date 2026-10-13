@@ -4118,35 +4118,121 @@ fn the_writer_quotes_a_colon_or_comma() {
 	assert!(hint.message.contains("t: [\"a,b\", c]"), "{}", hint.message);
 }
 
-// A thousands comma is text quoted or bare, so a typed read gives the same
-// answer before and after the writer quotes it (2026101010054746).
+// 2026101309122757: Loose reads a quoted thousands number again, and the
+// writer keeps a bare one bare, so this pins what no longer holds.
+// // A thousands comma is text quoted or bare, so a typed read gives the same
+// // answer before and after the writer quotes it (2026101010054746).
+// #[test]
+// fn a_thousands_comma_reads_the_same_after_a_save() {
+// 	let _id = test_id("EsZikJi");
+// 	let mut doc = Document::parse("p: 80,443\nq: \"1,000\"\nr: '-1,234,567'\n");
+// 	assert_eq!(doc.set_string("s", "1,000"), shcl::SetStatus::Ok);
+// 	let out = doc.to_canonical();
+// 	assert!(out.starts_with("p: \"80,443\"\nq: \"1,000\"\nr: '-1,234,567'\n"));
+// 	assert!(out.ends_with("s: \"1,000\"\n"));
+// 	let back = Document::parse(&out);
+// 	for (path, text) in [
+// 		("p", "80,443"),
+// 		("q", "1,000"),
+// 		("r", "-1,234,567"),
+// 		("s", "1,000"),
+// 	] {
+// 		for d in [&doc, &back] {
+// 			assert_eq!(d.read_int(path).status, Status::BadType, "{path} int");
+// 			assert_eq!(d.read_float(path).status, Status::BadType, "{path} float");
+// 			assert_eq!(d.get_string(path).as_deref(), Ok(text), "{path}");
+// 		}
+// 	}
+// 	// The setter's value counts as quoted, as its saved form is.
+// 	assert!(doc.read_string("s").quoted);
+// 	assert!(back.read_string("s").quoted);
+// 	let loose = Document::parse_with("q: \"1,000\"\nc: \"$1,200\"\n", Strictness::Loose).unwrap();
+// 	assert_eq!(loose.read_int("q").status, Status::BadType);
+// 	assert_eq!(loose.read_int("c").status, Status::BadType);
+// }
+
+// Loose reads a quoted thousands number, exact grouping only. Bare stays text
+// at every level, Standard and Strict refuse it, and the writer keeps a bare
+// one bare, so a typed read is the same after a save (2026101309122757).
 #[test]
-fn a_thousands_comma_reads_the_same_after_a_save() {
-	let _id = test_id("EsZikJi");
-	let mut doc = Document::parse("p: 80,443\nq: \"1,000\"\nr: '-1,234,567'\n");
-	assert_eq!(doc.set_string("s", "1,000"), shcl::SetStatus::Ok);
-	let out = doc.to_canonical();
-	assert!(out.starts_with("p: \"80,443\"\nq: \"1,000\"\nr: '-1,234,567'\n"));
-	assert!(out.ends_with("s: \"1,000\"\n"));
-	let back = Document::parse(&out);
-	for (path, text) in [
-		("p", "80,443"),
-		("q", "1,000"),
-		("r", "-1,234,567"),
-		("s", "1,000"),
+fn loose_reads_a_quoted_thousands_number() {
+	let _id = test_id("EsbaIWJ");
+	let text = "a: \"1,200\"\nb: \"$1,200\"\nc: \"1,200.50\"\nd: 1,200\ne: \"1, 200\"\nf: \"1,2,3\"\ng: '-12,345,678'\nh: \"9,007,199,254,740,993\"\nl:\n\t- 80,443\n";
+	let loose = Document::parse_with(text, Strictness::Loose).unwrap();
+	for (path, want) in [
+		("a", Some(1200)),
+		("b", Some(1200)),
+		("c", Some(1201)),
+		("d", None),
+		("e", None),
+		("f", None),
+		("g", Some(-12_345_678)),
+		("h", Some(9_007_199_254_740_993)),
+		("l", None),
 	] {
-		for d in [&doc, &back] {
-			assert_eq!(d.read_int(path).status, Status::BadType, "{path} int");
-			assert_eq!(d.read_float(path).status, Status::BadType, "{path} float");
-			assert_eq!(d.get_string(path).as_deref(), Ok(text), "{path}");
+		let r = loose.read_int(path);
+		match want {
+			Some(v) => assert_eq!((r.status, r.value), (Status::Good, v), "{path} int"),
+			None => assert_eq!(r.status, Status::BadType, "{path} int"),
 		}
 	}
-	// The setter's value counts as quoted, as its saved form is.
-	assert!(doc.read_string("s").quoted);
-	assert!(back.read_string("s").quoted);
-	let loose = Document::parse_with("q: \"1,000\"\nc: \"$1,200\"\n", Strictness::Loose).unwrap();
-	assert_eq!(loose.read_int("q").status, Status::BadType);
-	assert_eq!(loose.read_int("c").status, Status::BadType);
+	assert_eq!(loose.read_float("c").value, 1200.5);
+	assert_eq!(loose.read_float("b").value, 1200.0);
+	assert_eq!(loose.read_float("d").status, Status::BadType);
+	assert_eq!(loose.get_string("b").as_deref(), Ok("$1,200"));
+	for level in [Strictness::Standard, Strictness::Strict] {
+		let doc = Document::parse_with(text, level).unwrap();
+		for path in ["a", "b", "c", "d", "g", "h"] {
+			assert_eq!(
+				doc.read_int(path).status,
+				Status::BadType,
+				"{path} int {level:?}"
+			);
+			assert_eq!(
+				doc.read_float(path).status,
+				Status::BadType,
+				"{path} float {level:?}"
+			);
+		}
+		assert_eq!(doc.get_string("c").as_deref(), Ok("1,200.50"));
+	}
+	// The bare ones stay bare, so they read as text after a save too.
+	let out = loose.to_canonical();
+	assert!(out.contains("\nd: 1,200\n"), "{out}");
+	assert!(out.contains("\n\t- 80,443\n"), "{out}");
+	assert!(out.starts_with("a: \"1,200\"\n"), "{out}");
+	// A setter's value is written bare, and reads as text before the save.
+	let mut set = Document::parse_with("", Strictness::Loose).unwrap();
+	assert_eq!(set.set_string("s", "1,000"), shcl::SetStatus::Ok);
+	assert_eq!(set.set_string_array("t", &["$1,000"]), shcl::SetStatus::Ok);
+	let out = set.to_canonical();
+	assert!(
+		out.starts_with("s: 1,000\n") && out.ends_with("t: [\"$1,000\"]\n"),
+		"{out}"
+	);
+	assert!(!set.read_string("s").quoted);
+	assert_eq!(set.read_int("s").status, Status::BadType);
+	assert_eq!(set.read_int_array("t").value, vec![1000]);
+	// A merge puts a stacked list in brackets, which quote its items.
+	let mut merged = Document::parse_with("l:\n\t- 1,200\n", Strictness::Loose).unwrap();
+	assert_eq!(merged.read_int_array("l").status, Status::BadType);
+	merged.merge(&Document::parse("z: 1\n"));
+	assert!(merged.to_canonical().starts_with("l: [\"1,200\"]\n"));
+	assert_eq!(merged.read_int_array("l").value, vec![1200]);
+	for doc in [&loose, &set, &merged] {
+		let back = Document::parse_with(&doc.to_canonical(), Strictness::Loose).unwrap();
+		for path in ["a", "b", "c", "d", "e", "g", "h", "l", "s", "t"] {
+			let (x, y) = (doc.read_int(path), back.read_int(path));
+			assert_eq!((x.status, x.value), (y.status, y.value), "{path} int");
+			let (x, y) = (doc.read_int_array(path), back.read_int_array(path));
+			assert_eq!((x.status, x.value), (y.status, y.value), "{path} int[]");
+			assert_eq!(
+				doc.read_string(path).quoted,
+				back.read_string(path).quoted,
+				"{path}"
+			);
+		}
+	}
 }
 
 // migrate writes a 2.x comma list in brackets, with or without a blank

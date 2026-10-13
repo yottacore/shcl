@@ -3928,30 +3928,91 @@ def main():
 	if qchint.code != "H001" or 't: ["a,b", c]' not in qchint.message:
 		raise SystemExit(f"hint {qchint!r}")
 
-	test_id("EsZikJk", "a_thousands_comma_reads_the_same_after_a_save")
-	# A thousands comma is text quoted or bare, so a typed read gives the same
-	# answer before and after the writer quotes it (2026101010054746).
-	tcdoc = shcl.Document.parse("p: 80,443\nq: \"1,000\"\nr: '-1,234,567'\n")
-	if not tcdoc.set_string("s", "1,000"):
-		raise SystemExit("set s")
-	tcout = tcdoc.to_canonical()
-	if not tcout.startswith("p: \"80,443\"\nq: \"1,000\"\nr: '-1,234,567'\n") or not tcout.endswith('s: "1,000"\n'):
-		raise SystemExit(f"wrote {tcout!r}")
-	tcback = shcl.Document.parse(tcout)
-	for tcpath, tctext in (("p", "80,443"), ("q", "1,000"), ("r", "-1,234,567"), ("s", "1,000")):
-		for tcd in (tcdoc, tcback):
-			if tcd.read_int(tcpath).status != shcl.Status.BadType:
-				raise SystemExit(f"{tcpath} int: {tcd.read_int(tcpath)!r}")
-			if tcd.read_float(tcpath).status != shcl.Status.BadType:
-				raise SystemExit(f"{tcpath} float: {tcd.read_float(tcpath)!r}")
-			if tcd.get_string(tcpath, None) != tctext:
-				raise SystemExit(f"{tcpath}: {tcd.read_string(tcpath)!r}")
-	# The setter's value counts as quoted, as its saved form is.
-	if not tcdoc.read_string("s").quoted or not tcback.read_string("s").quoted:
-		raise SystemExit("s not quoted")
-	tcloose = shcl.Document.parse_with("q: \"1,000\"\nc: \"$1,200\"\n", shcl.Strictness.Loose)
-	if tcloose.read_int("q").status != shcl.Status.BadType or tcloose.read_int("c").status != shcl.Status.BadType:
-		raise SystemExit(f"loose: {tcloose.read_int('q')!r} {tcloose.read_int('c')!r}")
+	# 2026101309122757: Loose reads a quoted thousands number again, and the
+	# writer keeps a bare one bare, so this pins what no longer holds.
+	# test_id("EsZikJk", "a_thousands_comma_reads_the_same_after_a_save")
+	# # A thousands comma is text quoted or bare, so a typed read gives the same
+	# # answer before and after the writer quotes it (2026101010054746).
+	# tcdoc = shcl.Document.parse("p: 80,443\nq: \"1,000\"\nr: '-1,234,567'\n")
+	# if not tcdoc.set_string("s", "1,000"):
+	# 	raise SystemExit("set s")
+	# tcout = tcdoc.to_canonical()
+	# if not tcout.startswith("p: \"80,443\"\nq: \"1,000\"\nr: '-1,234,567'\n") or not tcout.endswith('s: "1,000"\n'):
+	# 	raise SystemExit(f"wrote {tcout!r}")
+	# tcback = shcl.Document.parse(tcout)
+	# for tcpath, tctext in (("p", "80,443"), ("q", "1,000"), ("r", "-1,234,567"), ("s", "1,000")):
+	# 	for tcd in (tcdoc, tcback):
+	# 		if tcd.read_int(tcpath).status != shcl.Status.BadType:
+	# 			raise SystemExit(f"{tcpath} int: {tcd.read_int(tcpath)!r}")
+	# 		if tcd.read_float(tcpath).status != shcl.Status.BadType:
+	# 			raise SystemExit(f"{tcpath} float: {tcd.read_float(tcpath)!r}")
+	# 		if tcd.get_string(tcpath, None) != tctext:
+	# 			raise SystemExit(f"{tcpath}: {tcd.read_string(tcpath)!r}")
+	# # The setter's value counts as quoted, as its saved form is.
+	# if not tcdoc.read_string("s").quoted or not tcback.read_string("s").quoted:
+	# 	raise SystemExit("s not quoted")
+	# tcloose = shcl.Document.parse_with("q: \"1,000\"\nc: \"$1,200\"\n", shcl.Strictness.Loose)
+	# if tcloose.read_int("q").status != shcl.Status.BadType or tcloose.read_int("c").status != shcl.Status.BadType:
+	# 	raise SystemExit(f"loose: {tcloose.read_int('q')!r} {tcloose.read_int('c')!r}")
+
+	test_id("EsbaIba", "loose_reads_a_quoted_thousands_number")
+	# Loose reads a quoted thousands number, exact grouping only. Bare stays
+	# text at every level, Standard and Strict refuse it, and the writer keeps
+	# a bare one bare, so a typed read is the same after a save
+	# (2026101309122757).
+	lt_text = "a: \"1,200\"\nb: \"$1,200\"\nc: \"1,200.50\"\nd: 1,200\ne: \"1, 200\"\nf: \"1,2,3\"\ng: '-12,345,678'\nh: \"9,007,199,254,740,993\"\nl:\n\t- 80,443\n"
+	lt_loose = shcl.Document.parse_with(lt_text, shcl.Strictness.Loose)
+	for lt_path, lt_want in (("a", 1200), ("b", 1200), ("c", 1201), ("d", None), ("e", None), ("f", None),
+			("g", -12345678), ("h", 9007199254740993), ("l", None)):
+		lt_r = lt_loose.read_int(lt_path)
+		if lt_want is None and lt_r.status != shcl.Status.BadType:
+			raise SystemExit(f"{lt_path} int: {lt_r!r}")
+		if lt_want is not None and (lt_r.status != shcl.Status.Good or lt_r.value != lt_want):
+			raise SystemExit(f"{lt_path} int: {lt_r!r}")
+	if lt_loose.read_float("c").value != 1200.5 or lt_loose.read_float("b").value != 1200.0:
+		raise SystemExit(f"float: {lt_loose.read_float('c')!r} {lt_loose.read_float('b')!r}")
+	if lt_loose.read_float("d").status != shcl.Status.BadType or lt_loose.get_string("b", None) != "$1,200":
+		raise SystemExit(f"d: {lt_loose.read_float('d')!r}")
+	for lt_level in (shcl.Strictness.Standard, shcl.Strictness.Strict):
+		lt_doc = shcl.Document.parse_with(lt_text, lt_level)
+		for lt_path in ("a", "b", "c", "d", "g", "h"):
+			if lt_doc.read_int(lt_path).status != shcl.Status.BadType or lt_doc.read_float(lt_path).status != shcl.Status.BadType:
+				raise SystemExit(f"{lt_path} at {lt_level}: {lt_doc.read_int(lt_path)!r}")
+		if lt_doc.get_string("c", None) != "1,200.50":
+			raise SystemExit(f"c: {lt_doc.read_string('c')!r}")
+	# The bare ones stay bare, so they read as text after a save too.
+	lt_out = lt_loose.to_canonical()
+	if "\nd: 1,200\n" not in lt_out or "\n\t- 80,443\n" not in lt_out or not lt_out.startswith('a: "1,200"\n'):
+		raise SystemExit(f"wrote {lt_out!r}")
+	# A setter's value is written bare, and reads as text before the save.
+	lt_set = shcl.Document.parse_with("", shcl.Strictness.Loose)
+	if not lt_set.set_string("s", "1,000") or not lt_set.set_string_array("t", ["$1,000"]):
+		raise SystemExit("set")
+	lt_out = lt_set.to_canonical()
+	if not lt_out.startswith("s: 1,000\n") or not lt_out.endswith('t: ["$1,000"]\n'):
+		raise SystemExit(f"wrote {lt_out!r}")
+	if lt_set.read_string("s").quoted or lt_set.read_int("s").status != shcl.Status.BadType:
+		raise SystemExit("s reads as quoted")
+	if lt_set.read_int_array("t").value != [1000]:
+		raise SystemExit(f"t: {lt_set.read_int_array('t')!r}")
+	# A merge puts a stacked list in brackets, which quote its items.
+	lt_merged = shcl.Document.parse_with("l:\n\t- 1,200\n", shcl.Strictness.Loose)
+	if lt_merged.read_int_array("l").status != shcl.Status.BadType:
+		raise SystemExit(f"l before: {lt_merged.read_int_array('l')!r}")
+	lt_merged.merge(shcl.Document.parse("z: 1\n"))
+	if not lt_merged.to_canonical().startswith('l: ["1,200"]\n') or lt_merged.read_int_array("l").value != [1200]:
+		raise SystemExit(f"merged {lt_merged.to_canonical()!r} {lt_merged.read_int_array('l')!r}")
+	for lt_doc in (lt_loose, lt_set, lt_merged):
+		lt_back = shcl.Document.parse_with(lt_doc.to_canonical(), shcl.Strictness.Loose)
+		for lt_path in ("a", "b", "c", "d", "e", "g", "h", "l", "s", "t"):
+			lt_x, lt_y = lt_doc.read_int(lt_path), lt_back.read_int(lt_path)
+			if (lt_x.status, lt_x.value) != (lt_y.status, lt_y.value):
+				raise SystemExit(f"{lt_path} int: {lt_x!r} vs {lt_y!r}")
+			lt_xa, lt_ya = lt_doc.read_int_array(lt_path), lt_back.read_int_array(lt_path)
+			if (lt_xa.status, lt_xa.value) != (lt_ya.status, lt_ya.value):
+				raise SystemExit(f"{lt_path} int[]: {lt_xa!r} vs {lt_ya!r}")
+			if lt_doc.read_string(lt_path).quoted != lt_back.read_string(lt_path).quoted:
+				raise SystemExit(f"{lt_path} quoted")
 
 	test_id("ErylLpa", "a_list_no_text_loads_back_refuses_to_save")
 	# A list with a field under it (E001) after an empty binding of its name

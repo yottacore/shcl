@@ -1,0 +1,19 @@
+# Loose reads a quoted thousands number. Bare is text, and so is a
+# comma that breaks the grouping.
+a: "1,200"
+b: "$1,200"
+c: "1,200.50"
+d: 3,400
+e: "1, 200"
+f: "1,2,3"
+g: '-12,345,678'
+h: "1,200%"
+i: $1,200.50
+items:
+	- 80,443
+	- "2,500"
+arr: ["1,000", "€3,000.25"]
+
+s: 1,000
+
+t: ["$1,000", "2,500"]
