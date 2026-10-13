@@ -672,7 +672,7 @@ def _keep_mark(old, new):
 	if old.kind != "cell" or new.kind != "cell":
 		return
 	was, now = old.els[0], new.els[0]
-	first = _emit_element(was)[:1]
+	first = _emit_scalar(was)[:1]
 	if first == "'":
 		written = _Mark.SINGLE
 		fits = "'" not in now.text
@@ -700,7 +700,7 @@ def _fits_i64(v):
 
 
 def _cell_of(text):
-	return _cell([_new_element(text)])
+	return _cell([_new_scalar(text)])
 
 
 def _want(setter, v, kind):
@@ -1032,6 +1032,12 @@ def _unstack(nd):
 	and the lines among its elements and the comments on them go above it, in
 	order, where a reload files what sits there."""
 	nd.star_list = False
+	# An item the brackets will quote counts as quoted now, as a setter's
+	# does, so a read gives the same answer before the save as after it.
+	if nd.value.kind == "array":
+		for el in nd.value.els:
+			if not el.quoted:
+				el.mark = _writer_mark(el.text)
 	t = nd.trivia
 	if t is None:
 		return
@@ -4097,7 +4103,7 @@ class _Parser:
 				if found is not None:
 					cur = found
 				else:
-					disc = _cell([_new_element(sel[1])])
+					disc = _cell([_new_scalar(sel[1])])
 					cur = self._select_or_create(cur, seg.name, seg.name_src, disc, line)
 				if is_last and not value.is_empty():
 					# `a.b(X): v` - the discriminator is the value; a second
@@ -4168,7 +4174,7 @@ class _Parser:
 			# answer, quadratic on the create path.
 			cmap = self.child_map[cur]
 			if cmap is not None:
-				return cmap.get(_merge_key(name, _cell([_new_element(want)])))
+				return cmap.get(_merge_key(name, _cell([_new_scalar(want)])))
 		return found
 
 	def _consume_raw(self, lines, i, open_line, open_indent, fence):
@@ -6368,7 +6374,7 @@ class Document:
 					nxt += 1
 				out.append(column)
 				out.append("- ")
-				out.append(_emit_element(el))
+				out.append(_emit_scalar(el))
 				for at, note in notes:
 					if at == i:
 						out.append("  ")
@@ -6381,7 +6387,7 @@ class Document:
 		elif v.kind == "cell":
 			at = len(out)
 			out.append(" ")
-			out.append(_emit_element(v.els[0]))
+			out.append(_emit_scalar(v.els[0]))
 			e.span(at)
 			if trailing:
 				out.append("  ")
@@ -9941,6 +9947,15 @@ def _emit_element(e):
 	return _quote_text(t)
 
 
+def _emit_scalar(e):
+	"""A value or `- ` item as written. The same as an array element, but a
+	bare thousands number stays bare: there is no bracket for its comma to
+	split, and in quotes Loose would read it as a number (spec.md)."""
+	if not e.quoted and _thousands_number(e.text) is not None:
+		return e.text
+	return _emit_element(e)
+
+
 def _backtick_holds(t):
 	"""Whether text can be a backtick value: no backtick, which would end it,
 	and nothing the writer would have to escape, since a backtick value has no
@@ -9952,9 +9967,22 @@ def _new_element(text):
 	"""An element no source wrote. It counts as quoted when canonical output will
 	quote it, so the read's quoted flag gives the same answer before a save as
 	after one."""
-	if not _needs_quotes(text):
+	return _Element(text, _writer_mark(text))
+
+
+def _writer_mark(t):
+	"""How the writer marks text it quotes itself: bare when it can be, else in
+	the quotes it picks."""
+	if not _needs_quotes(t):
+		return _Mark.BARE
+	return _Mark.SINGLE if _picks_single(t) else _Mark.DOUBLE
+
+
+def _new_scalar(text):
+	"""A value no source wrote, quoted the way _emit_scalar writes it."""
+	if _thousands_number(text) is not None:
 		return _Element(text, _Mark.BARE)
-	return _Element(text, _Mark.SINGLE if _picks_single(text) else _Mark.DOUBLE)
+	return _new_element(text)
 
 
 def _picks_single(t):
@@ -10033,7 +10061,7 @@ def _emit_value_text(v):
 	"""The value half of a binding line, the way _emit_line writes it, or None
 	for a value with no one-line form."""
 	if v.kind == "cell":
-		return _emit_element(v.els[0])
+		return _emit_scalar(v.els[0])
 	if v.kind == "array":
 		return _emit_array(v.els)
 	return None
@@ -10189,9 +10217,40 @@ def _rust_round(f):
 	return fl + 1 if f > 0 else fl
 
 
+def _thousands_number(t):
+	"""A thousands number the way Loose reads one in quotes (spec.md): a
+	currency sign, a sign, 1 to 3 digits then groups of exactly 3 behind
+	commas, a `.` and digits, and a `%`, all optional but the digits and one
+	comma. No blanks anywhere, so the writer can keep a bare one bare. Gives
+	the number with the commas, the currency and the `%` off, and whether the
+	`%` was there, or None."""
+	if "," not in t:
+		return None
+	if t[:1] in _CURRENCY:
+		t = t[1:]
+	percent = t.endswith("%")
+	if percent:
+		t = t[:-1]
+	body = t[1:] if t[:1] in ("+", "-") else t
+	whole, dot, frac = body.partition(".")
+	groups = whole.split(",")
+	head = groups[0]
+	if (len(groups) < 2 or not head or len(head) > 3 or not _all_ascii_digits(head)
+			or not all(len(g) == 3 and _all_ascii_digits(g) for g in groups[1:])
+			or (dot and (not frac or not _all_ascii_digits(frac)))):
+		return None
+	return t.replace(",", ""), percent
+
+
 def _parse_int_text(e, level):
 	t = _trim(e.text)
 	if level == Strictness.Loose:
+		# A whole thousands number goes in exact. One with a decimal part or
+		# a `%` takes the float path below and rounds.
+		if e.quoted:
+			tn = _thousands_number(t)
+			if tn is not None and not tn[1] and "." not in tn[0]:
+				return _parse_i64(tn[0])
 		t = _strip_currency(t)
 	# Plain decimal.
 	body = t[1:] if t[:1] in ("+", "-") else t
@@ -10259,10 +10318,14 @@ def _parse_float_text(e, level):
 	t = _trim(e.text)
 	percent = False
 	if level == Strictness.Loose:
-		t = _strip_currency(t)
-		if t.endswith("%"):
-			t = _trim_end(t[:-1])
-			percent = True
+		tn = _thousands_number(t) if e.quoted else None
+		if tn is not None:
+			t, percent = tn
+		else:
+			t = _strip_currency(t)
+			if t.endswith("%"):
+				t = _trim_end(t[:-1])
+				percent = True
 	if _float_shape_ok(t):
 		try:
 			v = float(t)

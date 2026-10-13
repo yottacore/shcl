@@ -1,0 +1,32 @@
+query	type	expected	status	level
+-	load	ok	-
+-	load	ok	-	strict
+-	lost	0	-
+a	int	1200	Good	loose
+a	float	1200	Good	loose
+a	int	-	BadType
+a	float	-	BadType
+a	int	-	BadType	strict
+a	string	1,200	Good
+a	string	1,200	Good	loose
+b	int	1200	Good	loose
+b	int	-	BadType
+b	string	$1,200	Good	loose
+c	float	1200.5	Good	loose
+c	int	1201	Good	loose
+c	float	-	BadType
+d	int	-	BadType	loose
+d	float	-	BadType	loose
+d	string	1,200	Good	loose
+e	int	-	BadType	loose
+f	int	-	BadType	loose
+g	int	-12345678	Good	loose
+g	int	-	BadType	strict
+h	float	12	Good	loose
+h	float	-	BadType
+i	float	-	BadType	loose
+i	string	$1,200.50	Good	loose
+items	int[]	-	BadType	loose	BadType|Good
+items	string[]	80,443|2,500	Good	loose
+arr	float[]	1000|3000.25	Good	loose
+arr	int[]	-	BadType

@@ -1232,6 +1232,15 @@ func stacks(nd *nodeData) bool {
 // them go above it, in order, where a reload files what sits there.
 func unstack(nd *nodeData) {
 	nd.starList = false
+	// An item the brackets will quote counts as quoted now, as a setter's
+	// does, so a read gives the same answer before the save as after it.
+	if nd.value.kind == vArray {
+		for i := range nd.value.els {
+			if el := &nd.value.els[i]; !el.quoted() {
+				el.mark = writerMark(el.text)
+			}
+		}
+	}
 	t := nd.trivia
 	if t == nil {
 		return
@@ -5152,7 +5161,7 @@ func (p *parser) attachPath(parent int, segs []segment, v value, line int, inden
 			if found, ok := p.findByValue(cur, seg.name, seg.sel.value); ok {
 				cur = found
 			} else {
-				disc := value{kind: vCell, els: []element{newElement(seg.sel.value)}}
+				disc := value{kind: vCell, els: []element{newScalar(seg.sel.value)}}
 				cur = p.selectOrCreate(cur, seg.name, seg.nameSrc, disc, line)
 			}
 			if isLast && !v.isEmpty() {
@@ -5240,7 +5249,7 @@ func (p *parser) findByValue(cur int, name, text string) (int, bool) {
 		// with this text is exactly the one-element value the merge map is
 		// keyed on, so ask that map: a scan of every sibling was the same
 		// answer, quadratic on the create path.
-		disc := value{kind: vCell, els: []element{newElement(want)}}
+		disc := value{kind: vCell, els: []element{newScalar(want)}}
 		found, ok = slotFirstMatch(p.childMap[cur], mergeHash(name, &disc), func(c int) bool {
 			return mergeEq(p.arena[c].name, &p.arena[c].value, name, &disc)
 		})
@@ -7917,7 +7926,7 @@ func (d *Document) emitLine(idx, pos, depth int, wouldMerge bool, e *emit) {
 			column := pad + "\t"
 			out.WriteString(column)
 			out.WriteString("- ")
-			out.WriteString(emitElement(&node.value.els[i]))
+			out.WriteString(emitScalar(&node.value.els[i]))
 			for _, n := range node.notes() {
 				if n.at == i {
 					writeTrailing(out, n.text)
@@ -7932,7 +7941,7 @@ func (d *Document) emitLine(idx, pos, depth int, wouldMerge bool, e *emit) {
 	case node.value.kind == vCell:
 		at := out.Len()
 		out.WriteByte(' ')
-		out.WriteString(emitElement(&node.value.els[0]))
+		out.WriteString(emitScalar(&node.value.els[0]))
 		e.span(at)
 		writeTrailing(out, node.trailing())
 		out.WriteByte('\n')
@@ -9147,6 +9156,19 @@ func emitElement(e *element) string {
 	return quoteText(t)
 }
 
+// emitScalar is a value or `- ` item as written. The same as an array
+// element, but a bare thousands number stays bare: there is no bracket for
+// its comma to split, and in quotes Loose would read it as a number
+// (spec.md).
+func emitScalar(e *element) string {
+	if !e.quoted() {
+		if _, _, ok := thousandsNumber(e.text); ok {
+			return e.text
+		}
+	}
+	return emitElement(e)
+}
+
 // backtickHolds reports text that can be a backtick value: no backtick, which
 // would end it, and nothing the writer would have to escape, since a backtick
 // value has no escapes.
@@ -9166,15 +9188,28 @@ func backtickHolds(t string) bool {
 // canonical output will quote it, so the read's Quoted flag gives the same
 // answer before a save as after one.
 func newElement(text string) element {
-	m := markBare
+	return element{text: text, mark: writerMark(text)}
+}
+
+// writerMark is how the writer marks text it quotes itself: bare when it can
+// be, else in the quotes it picks.
+func writerMark(t string) mark {
 	switch {
-	case !needsQuotes(text):
-	case picksSingle(text):
-		m = markSingle
-	default:
-		m = markDouble
+	case !needsQuotes(t):
+		return markBare
+	case picksSingle(t):
+		return markSingle
 	}
-	return element{text: text, mark: m}
+	return markDouble
+}
+
+// newScalar builds a value no source wrote, quoted the way emitScalar writes
+// it.
+func newScalar(text string) element {
+	if _, _, ok := thousandsNumber(text); ok {
+		return element{text: text, mark: markBare}
+	}
+	return newElement(text)
 }
 
 // picksSingle is the quotes the writer picks: double, or single when the
@@ -9267,7 +9302,7 @@ func emitArrayInto(out *strings.Builder, els []element) {
 func emitValueText(v *value) (string, bool) {
 	switch v.kind {
 	case vCell:
-		return emitElement(&v.els[0]), true
+		return emitScalar(&v.els[0]), true
 	case vArray:
 		return emitArray(v.els), true
 	}
@@ -10089,7 +10124,7 @@ func keepMark(old, now *value) {
 	}
 	was, el := &old.els[0], &now.els[0]
 	written := markBare
-	if t := emitElement(was); t != "" {
+	if t := emitScalar(was); t != "" {
 		switch {
 		case t[0] == '\'':
 			written = markSingle
@@ -10120,7 +10155,7 @@ func keepMark(old, now *value) {
 }
 
 func cellOf(text string) value {
-	return value{kind: vCell, els: []element{newElement(text)}}
+	return value{kind: vCell, els: []element{newScalar(text)}}
 }
 
 // chooseFence picks a backtick fence long enough that no content line closes it.
@@ -11937,9 +11972,53 @@ func stripCurrency(t string) string {
 	return t
 }
 
+// thousandsNumber is a thousands number the way Loose reads one in quotes
+// (spec.md): a currency sign, a sign, 1 to 3 digits then groups of exactly 3
+// behind commas, a `.` and digits, and a `%`, all optional but the digits and
+// one comma. No blanks anywhere, so the writer can keep a bare one bare.
+// Gives the number with the commas, the currency and the `%` off, and
+// whether the `%` was there.
+func thousandsNumber(t string) (string, bool, bool) {
+	if !strings.Contains(t, ",") {
+		return "", false, false
+	}
+	r, size := utf8.DecodeRuneInString(t)
+	for _, c := range currencyRunes {
+		if r == c {
+			t = t[size:]
+			break
+		}
+	}
+	t, percent := strings.CutSuffix(t, "%")
+	body := stripSign(t)
+	whole, frac, hasFrac := strings.Cut(body, ".")
+	digits := func(g string) bool { return g != "" && allDigits(g) }
+	groups := strings.Split(whole, ",")
+	if len(groups) < 2 || len(groups[0]) > 3 || !digits(groups[0]) {
+		return "", false, false
+	}
+	for _, g := range groups[1:] {
+		if len(g) != 3 || !digits(g) {
+			return "", false, false
+		}
+	}
+	if hasFrac && !digits(frac) {
+		return "", false, false
+	}
+	return strings.ReplaceAll(t, ",", ""), percent, true
+}
+
 func parseIntText(e *element, level Strictness) (int64, bool) {
 	t := strings.TrimSpace(e.text)
 	if level == Loose {
+		// A whole thousands number goes in exact. One with a decimal part or
+		// a `%` takes the float path below and rounds.
+		if e.quoted() {
+			if plain, pct, ok := thousandsNumber(t); ok && !pct && !strings.Contains(plain, ".") {
+				v, err := strconv.ParseInt(plain, 10, 64)
+				return v, err == nil
+			}
+		}
 		t = stripCurrency(t)
 	}
 	// Plain decimal.
@@ -12020,10 +12099,19 @@ func parseFloatText(e *element, level Strictness) (float64, bool) {
 	t := strings.TrimSpace(e.text)
 	percent := false
 	if level == Loose {
-		t = stripCurrency(t)
-		if inner, ok := strings.CutSuffix(t, "%"); ok {
-			t = trimEndWS(inner)
-			percent = true
+		plain, pct, ok := "", false, false
+		if e.quoted() {
+			plain, pct, ok = thousandsNumber(t)
+		}
+		if ok {
+			t = plain
+			percent = pct
+		} else {
+			t = stripCurrency(t)
+			if inner, ok := strings.CutSuffix(t, "%"); ok {
+				t = trimEndWS(inner)
+				percent = true
+			}
 		}
 	}
 	var v float64

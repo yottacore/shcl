@@ -3029,6 +3029,9 @@ static ShclStr quote_text(ShclArena *a, ShclStr t);
 static int needs_quotes(ShclStr t);
 static ShclStr emit_element(ShclArena *a, const ShclElement *e);
 static ShclElement new_element(ShclStr text);
+static ShclElMark writer_mark(ShclStr t);
+static ShclStr emit_scalar(ShclArena *a, const ShclElement *e);
+static ShclElement new_scalar(ShclStr text);
 static ShclStr escape_name(ShclArena *a, ShclStr name);
 static ShclStr diag_name(ShclArena *a, ShclStr name);
 static ShclStr diag_value(ShclArena *a, const ShclValue *v);
@@ -4043,6 +4046,47 @@ static ShclStr strip_currency(ShclStr t) {
 	return t;
 }
 
+/* A thousands number the way Loose reads one in quotes (spec.md): a currency
+   sign, a sign, 1 to 3 digits then groups of exactly 3 behind commas, a `.`
+   and digits, and a `%`, all optional but the digits and one comma. No blanks
+   anywhere, so the writer can keep a bare one bare. With plain set, gives the
+   number with the commas, the currency and the `%` off, in a, and whether
+   the `%` was there. */
+static int thousands_number(ShclArena *a, ShclStr t, ShclStr *plain, int *percent) {
+	if (t.n == 0 || !memchr(t.p, ',', t.n)) return 0;
+	uint32_t c; size_t l = utf8_decode(t.p, t.n, 0, &c);
+	for (size_t i = 0; i < sizeof(SHCL_CURRENCY) / sizeof(SHCL_CURRENCY[0]); i++)
+		if (c == SHCL_CURRENCY[i]) { t = s_slice(t, l, t.n); break; }
+	int pct = t.n > 0 && t.p[t.n - 1] == '%';
+	if (pct) t = s_slice(t, 0, t.n - 1);
+	ShclStr body = t;
+	if (body.n > 0 && (body.p[0] == '+' || body.p[0] == '-')) body = s_slice(body, 1, body.n);
+	size_t i = 0, groups = 0;
+	while (i < body.n && is_adigit((unsigned char)body.p[i])) i++;
+	if (i == 0 || i > 3) return 0;
+	while (i < body.n && body.p[i] == ',') {
+		size_t j = i + 1;
+		while (j < body.n && is_adigit((unsigned char)body.p[j])) j++;
+		if (j - i - 1 != 3) return 0;
+		groups++;
+		i = j;
+	}
+	if (!groups) return 0;
+	if (i < body.n) {
+		if (body.p[i] != '.') return 0;
+		size_t j = i + 1;
+		while (j < body.n && is_adigit((unsigned char)body.p[j])) j++;
+		if (j == i + 1 || j != body.n) return 0;
+	}
+	if (plain) {
+		ShclSB o = {0, 0, 0}; sb_reserve(a, &o, t.n);
+		for (size_t k = 0; k < t.n; k++) if (t.p[k] != ',') sb_putc(a, &o, t.p[k]);
+		*plain = sb_S(&o);
+		*percent = pct;
+	}
+	return 1;
+}
+
 // [+/-]digits, fully consumed, no overflow.
 static int parse_i64_s(ShclStr t, int64_t *out) {
 	size_t i = 0; int neg = 0;
@@ -4144,8 +4188,12 @@ static int strtod_full(ShclArena *a, ShclStr t, double *out) {
 static int parse_float_text(ShclArena *a, const ShclElement *e, shcl_strictness level, double *out) {
 	ShclStr t = s_trim(e->text); int percent = 0;
 	if (level == SHCL_LOOSE) {
-		t = strip_currency(t);
-		if (t.n > 0 && t.p[t.n - 1] == '%') { t = trim_end(s_slice(t, 0, t.n - 1)); percent = 1; }
+		ShclStr plain; int pct;
+		if (el_quoted(e) && thousands_number(a, t, &plain, &pct)) { t = plain; percent = pct; }
+		else {
+			t = strip_currency(t);
+			if (t.n > 0 && t.p[t.n - 1] == '%') { t = trim_end(s_slice(t, 0, t.n - 1)); percent = 1; }
+		}
 	}
 	double v;
 	if (float_shape_ok(t)) {
@@ -4178,7 +4226,14 @@ static int parse_int_text_wide(const ShclElement *e, double *out) {
 }
 static int parse_int_text(ShclArena *a, const ShclElement *e, shcl_strictness level, int64_t *out) {
 	ShclStr t = s_trim(e->text);
-	if (level == SHCL_LOOSE) t = strip_currency(t);
+	if (level == SHCL_LOOSE) {
+		/* A whole thousands number goes in exact. One with a decimal part or
+		   a `%` takes the float path below and rounds. */
+		ShclStr plain; int pct;
+		if (el_quoted(e) && thousands_number(a, t, &plain, &pct) && !pct && !memchr(plain.p, '.', plain.n))
+			return parse_i64_s(plain, out);
+		t = strip_currency(t);
+	}
 	ShclStr body = t;
 	if (body.n > 0 && (body.p[0] == '+' || body.p[0] == '-')) body = s_slice(body, 1, body.n);
 	if (body.n > 0 && all_adigit0(body)) return parse_i64_s(t, out);
@@ -4688,6 +4743,11 @@ static int stacks(const ShclNode *nd) {
    above it, in order, where a reload files what sits there. */
 static void unstack(shcl_doc *d, ShclNode *nd) {
 	nd->star_list = 0;
+	/* An item the brackets will quote counts as quoted now, as a setter's
+	   does, so a read gives the same answer before the save as after it. */
+	if (nd->value.kind == V_ARRAY)
+		for (size_t i = 0; i < nd->value.nels; i++)
+			if (!el_quoted(&nd->value.els[i])) nd->value.els[i].mark = writer_mark(nd->value.els[i].text);
 	ShclTrivia *t = nd->trivia;
 	if (!t) return;
 	ShclArena *a = &d->arena;
@@ -5381,7 +5441,7 @@ static int attach_path(ShclParser *P, size_t parent, ShclSegment *segs, size_t n
 			} else {
 				ShclValue disc; memset(&disc, 0, sizeof disc); disc.kind = V_CELL;
 				ShclElement *e = (ShclElement *)arena_alloc(a, sizeof(ShclElement));
-				*e = new_element(s_keep(a, P->src, seg->sel.value));
+				*e = new_scalar(s_keep(a, P->src, seg->sel.value));
 				disc.els = e; disc.nels = 1;
 				cur = select_or_create(P, cur, seg->name, seg->name_src, disc, line);
 			}
@@ -5471,7 +5531,7 @@ static size_t find_by_value(ShclParser *P, size_t cur, ShclStr name, ShclStr tex
 	   same answer, quadratic on the create path. Nothing here is kept, so
 	   the probe value lives on the stack. */
 	if (found == (size_t)-1) {
-		ShclElement el = new_element(want);
+		ShclElement el = new_scalar(want);
 		ShclValue disc; memset(&disc, 0, sizeof disc);
 		disc.kind = V_CELL; disc.els = &el; disc.nels = 1;
 		uint64_t h = merge_hash(name, &disc);
@@ -6972,7 +7032,7 @@ static void w_choose_fence(ShclStr content, unsigned char *fc, size_t *fl) {
 static int backtick_holds(ShclStr t);
 static ShclValue w_cell1(ShclArena *a, ShclStr text) {
 	ShclValue v; memset(&v, 0, sizeof v); v.kind = V_CELL;
-	ShclElement *e = (ShclElement *)arena_alloc(a, sizeof(ShclElement)); *e = new_element(text);
+	ShclElement *e = (ShclElement *)arena_alloc(a, sizeof(ShclElement)); *e = new_scalar(text);
 	v.els = e; v.nels = 1; return v;
 }
 // An array setter's value: written in brackets whatever its length, so one
@@ -7277,7 +7337,7 @@ static void keep_mark(ShclArena *a, const ShclValue *old, ShclValue *now) {
 	if (old->kind != V_CELL || now->kind != V_CELL) return;
 	const ShclElement *was = &old->els[0];
 	ShclElement *el = &now->els[0];
-	ShclStr written = emit_element(a, was);
+	ShclStr written = emit_scalar(a, was);
 	ShclElMark mark; int fits;
 	if (written.n && written.p[0] == '\'') { mark = MARK_SINGLE; fits = !memchr(el->text.p, '\'', el->text.n); }
 	else if (written.n && written.p[0] == '"') { mark = MARK_DOUBLE; fits = !memchr(el->text.p, '"', el->text.n); }
@@ -8752,11 +8812,32 @@ static ShclStr emit_element(ShclArena *a, const ShclElement *e) {
 	return quote_text(a, t);
 }
 
+/* A value or `- ` item as written. The same as an array element, but a bare
+   thousands number stays bare: there is no bracket for its comma to split,
+   and in quotes Loose would read it as a number (spec.md). */
+static ShclStr emit_scalar(ShclArena *a, const ShclElement *e) {
+	if (!el_quoted(e) && thousands_number(a, e->text, NULL, NULL)) return e->text;
+	return emit_element(a, e);
+}
+
 // An element no source wrote. It counts as quoted when canonical output will
 // quote it, so shcl_quoted gives the same answer before a save as after one.
 static ShclElement new_element(ShclStr text) {
 	ShclElement e; e.text = text;
-	e.mark = !needs_quotes(text) ? MARK_BARE : picks_single(text) ? MARK_SINGLE : MARK_DOUBLE;
+	e.mark = writer_mark(text);
+	return e;
+}
+
+/* How the writer marks text it quotes itself: bare when it can be, else in
+   the quotes it picks. */
+static ShclElMark writer_mark(ShclStr t) {
+	return !needs_quotes(t) ? MARK_BARE : picks_single(t) ? MARK_SINGLE : MARK_DOUBLE;
+}
+
+/* A value no source wrote, quoted the way emit_scalar writes it. */
+static ShclElement new_scalar(ShclStr text) {
+	if (!thousands_number(NULL, text, NULL, NULL)) return new_element(text);
+	ShclElement e; e.text = text; e.mark = MARK_BARE;
 	return e;
 }
 
@@ -8833,7 +8914,7 @@ static ShclStr emit_array(ShclArena *a, const ShclElement *els, size_t n) {
 /* The value half of a binding line, the way emit_line writes it, or empty
    with 0 for a value with no one-line form. */
 static int emit_value_text(ShclArena *a, const ShclValue *v, ShclStr *out) {
-	if (v->kind == V_CELL) { *out = emit_element(a, &v->els[0]); return 1; }
+	if (v->kind == V_CELL) { *out = emit_scalar(a, &v->els[0]); return 1; }
 	if (v->kind == V_ARRAY) { *out = emit_array(a, v->els, v->nels); return 1; }
 	*out = s_empty(); return 0;
 }
@@ -9589,7 +9670,7 @@ static void emit_line(shcl_doc *d, size_t idx, size_t pos, size_t depth, int wou
 			ShclStr column = emit_tabs(e, depth + 1);
 			sb_putS(a, out, column);
 			sb_puts(a, out, "- ");
-			sb_putS(a, out, emit_element(a, &v->els[i]));
+			sb_putS(a, out, emit_scalar(a, &v->els[i]));
 			ShclVecNote notes = triv_notes(node);
 			for (size_t k = 0; k < notes.len; k++)
 				if (notes.data[k].at == i) emit_trailing(a, out, notes.data[k].text);

@@ -1332,6 +1332,62 @@ fn numeric_soup(rng: &mut Rng) -> String {
 		.collect()
 }
 
+/// A value near a thousands number: a currency sign, a sign, groups that are
+/// mostly 3 digits, a decimal part and a `%`, each now and then, and now and
+/// then a blank where a person would not put one.
+fn thousands_soup(rng: &mut Rng) -> String {
+	fn digits(rng: &mut Rng, n: usize, s: &mut String) {
+		for _ in 0..n {
+			s.push(char::from(b'0' + rng.below(10) as u8));
+		}
+	}
+	let mut s = String::new();
+	if rng.below(4) == 0 {
+		s.push(['$', '\u{20ac}', '\u{a3}'][rng.below(3)]);
+		if rng.below(4) == 0 {
+			s.push(' ');
+		}
+	}
+	if rng.below(4) == 0 {
+		s.push(['-', '+'][rng.below(2)]);
+	}
+	let n = 1 + rng.below(4);
+	digits(rng, n, &mut s);
+	for _ in 0..rng.below(4) {
+		s.push(if rng.below(10) == 0 { ' ' } else { ',' });
+		let n = if rng.below(6) == 0 {
+			2 + rng.below(3)
+		} else {
+			3
+		};
+		digits(rng, n, &mut s);
+	}
+	if rng.below(3) == 0 {
+		s.push('.');
+		let n = rng.below(3);
+		digits(rng, n, &mut s);
+	}
+	if rng.below(5) == 0 {
+		s.push('%');
+	}
+	s
+}
+
+/// A document of thousands values as a value, stacked items and an array,
+/// each bare or in either quote.
+fn thousands_doc(rng: &mut Rng) -> String {
+	fn v(rng: &mut Rng) -> String {
+		let t = thousands_soup(rng);
+		match rng.below(3) {
+			0 => t,
+			1 => format!("\"{t}\""),
+			_ => format!("'{t}'"),
+		}
+	}
+	let (k, l1, l2, m1, m2) = (v(rng), v(rng), v(rng), v(rng), v(rng));
+	format!("k: {k}\nl:\n\t- {l1}\n\t- {l2}\nm: [{m1}, {m2}]\n")
+}
+
 /// Where a typed read of one path differs between two documents, if it does.
 fn read_drift(a: &Document, b: &Document, p: &str) -> Option<String> {
 	let (x, y) = (a.read_int(p), b.read_int(p));
@@ -1345,6 +1401,21 @@ fn read_drift(a: &Document, b: &Document, p: &str) -> Option<String> {
 	if (x.status, x.value.to_bits()) != (y.status, y.value.to_bits()) {
 		return Some(format!(
 			"float {:?} {} vs {:?} {}",
+			x.status, x.value, y.status, y.value
+		));
+	}
+	let (x, y) = (a.read_int_array(p), b.read_int_array(p));
+	if (x.status, &x.value) != (y.status, &y.value) {
+		return Some(format!(
+			"int[] {:?} {:?} vs {:?} {:?}",
+			x.status, x.value, y.status, y.value
+		));
+	}
+	let (x, y) = (a.read_float_array(p), b.read_float_array(p));
+	let bits = |v: &[f64]| v.iter().map(|f| f.to_bits()).collect::<Vec<_>>();
+	if (x.status, bits(&x.value)) != (y.status, bits(&y.value)) {
+		return Some(format!(
+			"float[] {:?} {:?} vs {:?} {:?}",
 			x.status, x.value, y.status, y.value
 		));
 	}
@@ -1372,7 +1443,9 @@ fn read_drift(a: &Document, b: &Document, p: &str) -> Option<String> {
 /// A typed read gives the same answer before a save and after it, at every
 /// level, for a loaded value and a setter's alike. The writer quotes a bare
 /// `80,443`, and a quoted thousands number once read as a number, so `fmt`
-/// changed the answer at exit 0 (2026101010054746).
+/// changed the answer at exit 0 (2026101010054746). Loose reads one again,
+/// so a bare one stays bare, and a merge that puts stacked items in brackets
+/// counts the ones it quotes as quoted (2026101309122757).
 #[test]
 fn typed_reads_survive_a_save() {
 	let _id = test_id("EsZikJr");
@@ -1381,20 +1454,32 @@ fn typed_reads_survive_a_save() {
 	let mut rng = Rng(0x5EED_1010_1005_4746);
 	let mut compared = 0usize;
 	for i in 0..iters {
-		let soup = numeric_soup(&mut rng);
-		let text = match i % 3 {
+		let soup = if i % 4 == 3 {
+			thousands_soup(&mut rng)
+		} else {
+			numeric_soup(&mut rng)
+		};
+		let text = match i % 4 {
 			0 => {
 				let base = &seeds[rng.below(seeds.len())];
 				mutate(&mut rng, base)
 			}
 			1 => structural(&mut rng),
-			_ => format!("k: {soup}\n"),
+			2 => format!("k: {soup}\n"),
+			_ => thousands_doc(&mut rng),
 		};
 		// One level per iteration, turn about, keeps the cost near the others'.
-		let level = [Strictness::Loose, Strictness::Standard, Strictness::Strict][(i / 3) % 3];
+		let level = [Strictness::Loose, Strictness::Standard, Strictness::Strict][(i / 4) % 3];
 		let mut docs = Vec::new();
 		if let Ok(doc) = Document::parse_with(&text, level) {
 			docs.push(doc);
+		}
+		// A merge writes every list in brackets.
+		if i % 4 == 3
+			&& let Ok(mut merged) = Document::parse_with(&text, level)
+		{
+			merged.merge(&Document::parse("z: 1\n"));
+			docs.push(merged);
 		}
 		if let Ok(mut set) = Document::parse_with("", level)
 			&& set.set_string("k", &soup) == shcl::SetStatus::Ok
