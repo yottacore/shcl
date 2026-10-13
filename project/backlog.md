@@ -87,7 +87,9 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - The hosted ubuntu job no longer fits its 60-minute limit
 	- ID: 2026101011200000
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting for testing
+	- Needs local test suite run?: N. The engine side is pinned by check-push-gate's stubbed engine.
+	- Needs external testing: a hosted run on the branch (`gh workflow run ci --ref cisplit`). Watch the times of the two ubuntu jobs, `ci (lint)` and `ci (tests)`. Each should end well inside 60 minutes: lint about 30 with a cold cppcheck and under 10 with a warm one, tests about 30. Also that both are green with no strict skip, that the tests job prints the profiler calibration line `EqeDCi1`, and that the lint job's last step saves a `cppcheck-` cache.
 	- Severity: High
 	- Opened: 20261010-111707
 	- Opened by: me, from the hosted run after the 2026100717500020 merges
@@ -99,6 +101,20 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: 20261010, once. The windows job took 15 minutes and macos 3.
 	- Possible cause: the tests stage has grown (check-doc-examples, the new runner tests, check-migrate at 3 minutes, check-c-compilers at 5, sanitize-c at 10 or more), and cppcheck exhaustive runs on 2 threads over a cache that misses every changed C file.
 	- Decided against: raising `timeout-minutes` alone. The job has to fit a push with headroom (me).
+	- Actual cause:
+		- Measured from the step logs of run 38070871137 and 5 green runs from 2026-10-05 to 10-07, which took 31 to 50 minutes. Setup and tool installs take 2 minutes, format and build under 1, lint without cppcheck 3, cppcheck exhaustive 16 to 26 after a C change and seconds without one, the tests stage 14 to 20, crosscheck and the large document 5 to 8, and the profiler calibration under 1. In the tests stage, check-c-compilers takes 4 to 5 minutes, check-migrate 2 to 6, cli-regress 1 to 2 and sanitize-c 1.4 to 2.2.
+		- Run 38070871137 passed sanitize-c (2.2 minutes) and crosscheck, and was cut 40 seconds into the large document. It needed about 2 more minutes.
+		- cppcheck took 26 of lint's 29 minutes. The cache it restored was the newest that run could see, from the 10-07 dev run. It missed because both files cppcheck checks include `shcl.h`, which had changed, so every C round starts cold. Branch runs can't see dev's caches at all, and the plain cache action saves nothing from a red or cancelled run.
+		- More threads would not help cppcheck. It splits work by file, and with 2 files `-j 2` is already all it can use.
+		- Run here cold, one thread each and side by side, `main.c` took 19 minutes and `conformance.c` 28. The longer file sets the lint job's floor.
+	- Actual fix:
+		- The ubuntu job is 2 parallel jobs from one matrix: `cicd.bash --ci --no-tests` (lint and the cross checks) and `cicd.bash --ci --no-lint --no-cross` (tests, crosscheck, large document, calibration). Both install every tool. Worst case from the numbers above is about 33 minutes each, against 60.
+		- `cicd.bash --no-tests` is new. It skips the tests stage and the `--ci` calibration, and keeps a run from recording its tree, like `--no-lint`.
+		- The cppcheck cache is restored and saved as 2 steps, and the save runs even when the job fails or times out.
+		- check-pins fails when the jobs running `cicd.bash` stop covering every stage between them. It allows only `--ci` plus the 4 flags that each drop one stage, so `--no-largedoc` or `--quick` can't drop the large document unseen.
+	- Verified: the new check fails on 6 broken copies of ci.yml (both jobs `--no-lint`, a `--no-largedoc` job, a job without `--ci`, no matrix value, one literal `--no-tests` run, no `cicd.bash` at all) and passes on the real one and on dev's single job. check-push-gate's new row fails when `--no-tests` doesn't hold back the record, and when it skips nothing. shell-regress `EsZzNEZ` fails 4 ways against dev's check-pins and passes with the fix. Also actionlint (which catches a wrong matrix or step name in a control copy), shellcheck over every gate target, check-pins, check-push-gate, shell-regress, check-docs judged as main, test-ids check, markdownlint.
+	- Test case: check-pins `EsZzNCY`, shell-regress `EsZzNEZ`, and the `--no-tests` row in check-push-gate `EqGl8mf`. No test bounds the hosted time itself; the hosted run is the check.
+	- Branch: `cisplit`
 
 - A `--json` mode for the list commands
 	- ID: 2026100814455655

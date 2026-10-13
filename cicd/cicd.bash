@@ -41,6 +41,8 @@
 ##	   --no-sync           skip the remote sync stage
 ##	   --no-fmt            skip the formatter stage
 ##	   --no-lint           skip the lint stage
+##	   --no-tests          skip the tests stage (crosscheck and large document
+##	                       included) and, under --ci, the profiler calibration
 ##	   --no-cross          skip the cross-compile targets and the cross checks
 ##	                       (native release still builds)
 ##	   --no-package        skip building installer packages (.deb/.rpm/NSIS setup)
@@ -55,7 +57,8 @@
 ##	- A run that passes the tests and the cross checks records the tree it
 ##	  tested (utility/green-tree.bash), and the pre-push hook lets a commit with
 ##	  that tree through without running the gate again. --quick, --no-fmt,
-##	  --no-lint, --no-cross and a skipped tool each keep a run from recording.
+##	  --no-lint, --no-tests, --no-cross and a skipped tool each keep a run from
+##	  recording.
 ##	- Reuse: copy the cicd/ directory into another project and edit config.bash.
 
 ##	History: At bottom of script.
@@ -118,6 +121,7 @@ while (($#)); do case "$1" in
 	--no-sync)                sync_enable=0; shift ;;
 	--no-fmt)                 FMT_CMD=(); FMT_CHECK_CMD=(); FMT_EXTRA=(); FMT_CHECK_EXTRA=(); gate_partial=1; shift ;;
 	--no-lint)                LINT_CMD=(); SHELLCHECK_TARGETS=(); LINT_EXTRA=(); gate_partial=1; shift ;;
+	--no-tests)               TEST_CMD=(); TEST_QUICK_CMD=(); TEST_EXTRA=(); BINDING_CLIS=(); LARGEDOC_MIB=0; PROFILE_CHECK=""; gate_partial=1; shift ;;
 	--no-cross)               CROSS_TARGETS=(); CROSS_CHECKS=(); gate_partial=1; shift ;;
 	--no-package)             PACKAGE_ENABLE=0; shift ;;
 	--no-largedoc)            LARGEDOC_MIB=0; shift ;;
@@ -721,3 +725,4 @@ fEcho_Clean
 ##		- 2026-09-23 JC: The record waits for the cross checks, and --no-cross holds it back.
 ##		- 2026-09-26 JC: --ci runs the profiler's attribution check alone, on the config's cheaper build.
 ##		- 2026-10-08 JC: The shell wrappers are retired: out of the drop-ins tarball and the dogfood stage.
+##		- 2026-10-13 JC: --no-tests, so the hosted gate can run lint and tests as parallel jobs.

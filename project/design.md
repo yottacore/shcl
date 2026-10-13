@@ -820,8 +820,9 @@ The responsibility is split rather than duplicate the pipeline:
 
 - The GitHub workflow (`.github/workflows/ci.yml`) is a correctness gate only - format check, build, lint, tests on pushes to `main`, on pull requests, and by hand. Minimal permissions, cancels superseded runs, times out.
 	- The cross checks run there too. They build nothing anyone downloads - the C library and CLI for windows through mingw, the C library with file I/O compiled out, and the Go library for windows - so they belong with the other checks rather than with the release artifacts. Inside the release branch, `--ci` never reached them. `--no-cross` turns them off with the cross targets.
+	- On Linux the gate runs as 2 parallel jobs, `--ci --no-tests` and `--ci --no-lint --no-cross`. As one job it outgrew the 60-minute limit, since cppcheck's exhaustive pass alone takes 16 to 26 minutes there after a change to the C header. `check-pins.bash` fails when the jobs stop covering every stage between them, and both install every tool.
 
-- `dev` is not gated, by the hook or by the hosted workflow. The pre-push hook runs `cicd.bash --ci --no-largedoc` on a commit bound for `main`, and skips one whose tree a run already passed. Each run that gets through the tests and the cross checks records the tree it tested, unless it ran `--quick`, `--no-fmt`, `--no-lint` or `--no-cross`, or skipped a missing tool. Before this, one change to `dev` went through a full local run, then the same gate again in the hook, then about half an hour of hosted CI.
+- `dev` is not gated, by the hook or by the hosted workflow. The pre-push hook runs `cicd.bash --ci --no-largedoc` on a commit bound for `main`, and skips one whose tree a run already passed. Each run that gets through the tests and the cross checks records the tree it tested, unless it ran `--quick`, `--no-fmt`, `--no-lint`, `--no-tests` or `--no-cross`, or skipped a missing tool. Before this, one change to `dev` went through a full local run, then the same gate again in the hook, then about half an hour of hosted CI.
 	- A tree hash, not a commit hash. The publish stage commits after the tests run, and a `--no-ff` merge makes a new commit holding the same files.
 	- Gating `dev` was dropped. Work merges there several times a day, and a ten-minute wait on each merge only re-ran what the branch had already passed. Building and testing before the merge is the check that counts there. `main` still gates every commit.
 	- Making the hook opt-in was rejected, since nothing would then gate a commit that never went through a run. So was keeping hosted runs on `dev` behind a `[skip ci]` marker, which would have to be typed on nearly every push.
@@ -829,7 +830,7 @@ The responsibility is split rather than duplicate the pipeline:
 
 - Everything else (cross-compile, packaging, publish) stays in the local pipeline, `cicd/cicd.bash`, config-driven via `cicd/config.bash`.
 
-- Both share one definition of "passing": the workflow runs `cicd.bash --ci` on Linux, plus a Windows job for the binding runners. Per-language toolchain setup lives in the workflow YAML; what passing means lives in the engine, so the two cannot drift.
+- Both share one definition of "passing": the workflow runs `cicd.bash --ci` on Linux, split by stage flags, plus a Windows job for the binding runners. Per-language toolchain setup lives in the workflow YAML; what passing means lives in the engine, so the two cannot drift.
 
 - The formatter rewrites in place locally but is check-only (fail on diff) in CI.
 

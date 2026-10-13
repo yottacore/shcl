@@ -1343,6 +1343,14 @@ fPinsRun 's#pip install ruff==.*$#pip install -r requirements.txt#' || true
 pinsOut="$(bash "${tmpDir}/pins/cicd/utility/check-pins.bash" 2>&1 || true)"
 [[ "${pinsOut}" == *"has a pip install line and no pinned name was read"* ]] \
 	|| fBad "check-pins.bash read no pip pins from a pip line and said nothing: $(tail -n 3 <<<"${pinsOut}")"
+fTest EsZzNEZ 2026101011200000-hosted-jobs-cover-the-gate
+##	2026101011200000: the ubuntu gate split into parallel jobs, each leaving a
+##	stage out. A job list that drops a stage everywhere, or a flag that drops
+##	more than one, must fail the check, or a stage stops running hosted.
+fPinsRun 's/args: --ci --no-tests$/args: --ci --no-lint/' && fBad "check-pins.bash passed hosted jobs that all leave lint out"
+fPinsRun 's/args: --ci --no-lint --no-cross$/args: --ci --no-largedoc/' && fBad "check-pins.bash passed a hosted job run with --no-largedoc"
+fPinsRun 's/args: --ci --no-tests$/args: --no-tests/' && fBad "check-pins.bash passed a hosted job run without --ci"
+fPinsRun 's#cicd/cicd\.bash#cicd/other.bash#' && fBad "check-pins.bash passed a workflow with no job running cicd.bash"
 fTest Epu2f56 20260909-24-flame-report-marker
 ##	20260909 item 24: rotation retagged a graph and left its sidecar under the
 ##	old role, so the caveat vanished. And --check --file wrote the named graph's
