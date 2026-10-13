@@ -33,10 +33,41 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
+- A Rust memory-cap test fails when another test in its file runs beside it
+	- ID: 2026101308163572
+	- Type: Bug
+	- Status: Queued
+	- Severity: Avg
+	- Opened: 20261013-081635
+	- Opened by: me, from the hosted run at the end of the 20261013 round
+	- Version and build: dev at `8a803032`
+	- Steps to reproduce: run `cargo test --test mem_caps` until `diagnostic_cap_bounds_the_parse` (`EofAXrU`) runs before `element_cap_bounds_the_parse` (`EoezJiC`).
+	- Incorrect behavior: hosted run 38415689485's macos job failed `EofAXrU`, with 8617093 bytes counted against a bound of 8000040. Everything else in the run was green.
+	- Expected behavior: the test counts only what its own parse holds, whatever order the tests run in.
+	- Reproduced: 20261013, once, hosted macos. The same test counts 7417067 bytes here at `c5734e0e`, `5bb89ac4`, `50be3ed9` and `8a803032`, so no library change moved it.
+	- Possible cause [Bug]: the counter is global to the process. `element_cap_bounds_the_parse` builds its 600 KB text before it takes the lock, and that build holds 2 copies at once, about 1.2 MB. The count was 1200026 bytes over this box's figure. On 10-10 the 2 tests ran the other way around, and the job was green.
+	- Note: Avg, since a rerun passes. A red macos job on a main push still needs one.
+
+**Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
+
+- Build and test in a pinned container.
+	- ID: 2026101303344553
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261013-033445
+	- Opened by: JC
+	- Target OS: Linux
+	- Requirements [Feature]:
+		- `cicd.bash --container` runs the build and test stages in an image built from a pinned recipe in `cicd/container/`. Toolchains come from pinned downloads with checksums.
+		- Toolchains on the build box clash between projects, such as 2 Zig versions on one link. A container keeps this project's pins apart.
+		- Other test boxes stay native, since their OS is what's being tested.
+		- zuid's `--container` stage is the model. gitsby and convert-base-v2 have one too.
+
 - The hosted ubuntu job no longer fits its 60-minute limit
 	- ID: 2026101011200000
 	- Type: Bug
-	- Status: Waiting for testing
+	- Status: Done
 	- Needs local test suite run?: N. The engine side is pinned by check-push-gate's stubbed engine.
 	- Needs external testing: a hosted run on the branch (`gh workflow run ci --ref cisplit`). Watch the times of the two ubuntu jobs, `ci (lint)` and `ci (tests)`. Each should end well inside 60 minutes: lint about 30 with a cold cppcheck and under 10 with a warm one, tests about 30. Also that both are green with no strict skip, that the tests job prints the profiler calibration line `EqeDCi1`, and that the lint job's last step saves a `cppcheck-` cache.
 	- Severity: High
@@ -65,11 +96,13 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Test case: check-pins `EsZzNCY`, shell-regress `EsZzNEZ`, and the `--no-tests` row in check-push-gate `EqGl8mf`. No test bounds the hosted time itself; the hosted run is the check.
 	- Branch: `cisplit`
 	- Commit: `cbfced5c`
+	- Acceptance signoff: me 20261013, self-closed: the hosted run 38415689485 on dev finished both halves inside the limit, `ci (lint)` in 26 minutes with a cold cppcheck cache and `ci (tests)` in 31, both green with no strict skip. The tests half printed `EqeDCi1`, and the lint half saved its `cppcheck-` cache.
+	- Closed: 20261013-081635
 
 - A `--json` mode for the list commands
 	- ID: 2026100814455655
 	- Type: Feature
-	- Status: Waiting for testing
+	- Status: Done
 	- Needs external testing: the hosted windows job (`gh workflow run ci --ref winscan`): cli-regress `EsEvmLE` green for every binding. Also the README PowerShell blocks, and the full `--ci` (exhaustive cppcheck over the C changes) and a hosted run with the next main push.
 	- Priority: Avg
 	- Opened: 20261008-144556
@@ -103,11 +136,13 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `listjson`, then `winscan` for the CR LF fix
 	- Commit: `250115f3`, then `2f860c48`
 	- Test case: `fields_give_each_instance_its_own_path` (Rust `EsEsFl8`, Go `EsEsFnM`, Python `EsEsFpX`, C `EsEsFrh`) and the veneer smoke; cli-regress `EsEvmKw`, `EsEvmKy`, `EsEvmL0` to `EsEvmLC`, and `EsEvmLE` (every corpus input's `--json` lines through `jq -c .` and `ConvertFrom-Json`); crosscheck and sanitize-c `--json` on every listing row and `paths --json` on every input; check-readme's bash and PowerShell blocks.
+	- Acceptance signoff: me 20261013, the full `--ci` here on dev at `8a803032`, judged as main and recorded, and the hosted run 38415689485 on dev: `EsEvmLE` green on windows, ubuntu and the local run, and the README PowerShell blocks green in check-readme. The output calls made while building it are in the progress log.
+	- Closed: 20261013-081635
 
 - Doc examples, man page blocks and help text aren't run as tests
 	- ID: 2026100719122102
 	- Type: Enhancement
-	- Status: Waiting for testing
+	- Status: Done
 	- Needs local test suite run?: Y, the full `--ci`, whose tests stage runs the new gate.
 	- Needs external testing: a hosted run (`gh workflow run ci --ref winscan`). The windows job: cli-regress `EsJLUK1`, `EsaAH2V` and `EsaAW1o` green for every binding, and the Go `EsaBeHl` and Python `EsaBeHk` runner tests. The ubuntu job runs check-doc-examples with jq, and the macos job cli-regress's two scans.
 	- Priority: Avg
@@ -137,11 +172,13 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `doctest`, then `winscan` for the OS error text
 	- Commit: `9131f267`, then `2f860c48`
 	- Test case: check-doc-examples `EsJLUJx` (value-syntax.md tables), `EsJLUJy` (spec.md tables) and `EsJLUJz` (man page examples). cli-regress `EsJLUK0` (help, code texts and man page) and `EsJLUK1` (every row's output). For the OS error text, cli-regress `EsaAH2V` and `EsaAW1o` (a failed temp file gives the file and the system's message, in all four CLIs), Python `EsaBeHk` and Go `EsaBeHl` (the same with a windows path in the OS error). Rust and C get no runner test, since their OS error text never holds a path.
+	- Acceptance signoff: me 20261013, the full `--ci` here on dev at `8a803032`, judged as main and recorded, and the hosted run 38415689485 on dev: `EsJLUK1`, `EsaAH2V`, `EsaAW1o`, `EsaBeHk` and `EsaBeHl` green on windows, and check-doc-examples green in the local run and the hosted tests half.
+	- Closed: 20261013-081635
 
 - Library gaps a generic tool has to work around
 	- ID: 2026100717500020
 	- Type: Enhancement
-	- Status: Waiting for testing
+	- Status: Done
 	- Needs local test suite run?:
 		- (schema resolve) Y, the full `--ci` for exhaustive cppcheck over the C change, and the hosted windows job for Python's Windows branch, which nothing here runs.
 		- (kind) the full `--ci`, for exhaustive cppcheck, check-c-compilers and sanitize-c over the C change.
@@ -207,22 +244,9 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Test case (default): `default_fills_what_does_not_read` (Rust `EsJZko3`, Go `EsJZko4`, Python `EsJZko5`, C `EsJZko6`), `default_replace_round_trips` (Rust `EsJZko7`, Go `EsJZko8`, Python `EsJZko9`, C `EsJZkoA`), fuzz `a_default_leaves_a_value_of_its_type` (`EsJZkoB`), cli-regress `EsJZkoC`, `EsJZkoD`, `EsJZkoE`, `EsJZkoF` and `EsaLLI5`, and `RawBlock` added to the status order tests (`EsDRhHg`, `EsDeJ9a`, `EsDeik0`, `EsDjstE`) and veneer_smoke (`EjtkR0S`).
 	- Branch (default): `defaultfix`
 	- Commit (default): `5bb89ac4`, then `c0329cc9` with dev merged in
-
-**Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
-
-- Build and test in a pinned container.
-	- ID: 2026101303344553
-	- Type: Enhancement
-	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261013-033445
-	- Opened by: JC
-	- Target OS: Linux
-	- Requirements [Feature]:
-		- `cicd.bash --container` runs the build and test stages in an image built from a pinned recipe in `cicd/container/`. Toolchains come from pinned downloads with checksums.
-		- Toolchains on the build box clash between projects, such as 2 Zig versions on one link. A container keeps this project's pins apart.
-		- Other test boxes stay native, since their OS is what's being tested.
-		- zuid's `--container` stage is the model. gitsby and convert-base-v2 have one too.
+	- Test case: each part has its own row above, for schema resolve, kind and default.
+	- Acceptance signoff: me 20261013, the full `--ci` here on dev at `8a803032`, judged as main and recorded, and the hosted run 38415689485 on dev: exhaustive cppcheck, check-c-compilers and sanitize-c green over the C changes, and the windows job runs the new tests green in all four runners. The calls marked (me) are on the item.
+	- Closed: 20261013-081635
 
 - Run on the last Core 2 Duo, and AMD CPUs from that era.
 	- ID: 2026101301161858
