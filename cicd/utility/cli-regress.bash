@@ -679,7 +679,16 @@ rows=(
 	'EsZikJp|selector-thousands-text|get --int %SQ% srv|-|4|0\n|not a valid int'
 	## The bare form, as fmt writes it: quoted, and still not a number.
 	'EsZikJm|quoted-thousands-int|get --int - p|p: "80,443"\n|4|0\n|not a valid int'
-	"EsZikJq|quoted-thousands-float|get --float --strictness=loose - p|p: '1,000'\n|4|0\n|not a valid float"
+	## 2026101309122757: Loose reads a quoted thousands number again.
+	# "EsZikJq|quoted-thousands-float|get --float --strictness=loose - p|p: '1,000'\n|4|0\n|not a valid float"
+	"EsbaIgH|loose-quoted-thousands-float|get --float --strictness=loose - p|p: '1,000'\n|0|1000\n|-"
+	"EsbaIia|loose-quoted-money-int|get --int --strictness=loose - p|p: \"\$1,200.50\"\n|0|1201\n|-"
+	'EsbaIkt|loose-bare-thousands-text|get --int --strictness=loose - p|p: 1,200\n|4|0\n|not a valid int'
+	'EsbaInW|strict-quoted-thousands-text|get --int --strictness=strict - p|p: "1,200"\n|4|0\n|not a valid int'
+	## A bare one stays bare through fmt and a setter, so it reads as text after a save too.
+	"EsbaIq7|fmt-keeps-bare-thousands|fmt -|p: 80,443\nq: \$1,200.50\n|0|p: 80,443\nq: \$1,200.50\n|-"
+	'EsbaIsU|set-keeps-bare-thousands|set --set=p=1,200 -|a: 1\n|0|a: 1\n\np: 1,200\n|-'
+	'EsbaIx6|loose-set-thousands-text|get --int --strictness=loose --set=a=1,000 %F% a|-|4|0\n|not a valid int'
 	## 3.0: bracket text after the colon is one outcome, kept verbatim. The
 	## 2.x selector sugar is that shape now too, and migrate is what brings
 	## a file written with it across.
