@@ -33,30 +33,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
-- A Rust memory-cap test fails when another test in its file runs beside it
-	- ID: 2026101308163572
-	- Type: Bug
-	- Status: Done
-	- Severity: Avg
-	- Opened: 20261013-081635
-	- Opened by: me, from the hosted run at the end of the 20261013 round
-	- Version and build: dev at `8a803032`
-	- Steps to reproduce: run `cargo test --test mem_caps` until `diagnostic_cap_bounds_the_parse` (`EofAXrU`) runs before `element_cap_bounds_the_parse` (`EoezJiC`).
-	- Incorrect behavior: hosted run 38415689485's macos job failed `EofAXrU`, with 8617093 bytes counted against a bound of 8000040. Everything else in the run was green.
-	- Expected behavior: the test counts only what its own parse holds, whatever order the tests run in.
-	- Reproduced: 20261013, once, hosted macos. The same test counts 7417067 bytes here at `c5734e0e`, `5bb89ac4`, `50be3ed9` and `8a803032`, so no library change moved it.
-	- Possible cause [Bug]: the counter is global to the process. `element_cap_bounds_the_parse` builds its 600 KB text before it takes the lock, and that build holds 2 copies at once, about 1.2 MB. The count was 1200026 bytes over this box's figure. On 10-10 the 2 tests ran the other way around, and the job was green.
-	- Actual cause [Bug]: confirmed. Each test in `mem_caps.rs` took the lock only around its measurement, so it built its input beside whatever measurement was running. `EoezJiC`'s text build counted 1209773 bytes into `EofAXrU`, for 8626840 against 8000040. `a_plain_name_costs_the_scan_nothing` built its 2 documents the same way, only smaller.
-	- Note: Avg, since a rerun passes. A red macos job on a main push still needs one.
-	- Actual fix [Bug]: every test in the file takes the lock first and holds it to the end, input build included. Both measuring helpers need the held lock passed in, so a new test can't measure without taking it. A failed test no longer poisons the lock for the others.
-	- Verified: 20261013. With `EofAXrU`'s measurement held open until `EoezJiC` had built its text, the old order failed 3 runs of 3 at 8626840 bytes. With the fix, the same timing counted 7417067 in 3 runs of 3, the figure the test has alone. Also `cargo fmt`, `cargo clippy --test mem_caps -- -D warnings`, `cargo test --test mem_caps` 6 times plus once on 1 thread, and `test-ids.py check`.
-	- Swept: `mem_caps.rs` is the only test file with a counting allocator, and all 3 of its tests now take the lock first. Go's memory tests run one at a time, with no `t.Parallel` in the package. The C and Python memory checks run on 1 thread, and Python starts tracemalloc after its text is built.
-	- Test case: `EofAXrU` and `EoezJiC`, run in either order. The timing that forced the overlap isn't in the tree, since it waits on a clock.
-	- Branch: `memcap`
-	- Commit: `974de060`
-	- Acceptance signoff: Self-closed: reproduced, the forced overlap failed before the fix and passes after, and the sweep found no other file with the pattern.
-	- Closed: 20261013-105855
-
 - Loose doesn't read a quoted thousands number, such as `"1,200"` or `"$1,200"`, as a number
 	- ID: 2026101309122757
 	- Type: Enhancement
@@ -117,6 +93,30 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Ubuntu 24.04, to match the hosted runner and its gcc 13, so a hosted-only red can be reproduced here.
 		- Alpine, for musl.
 		- The other test boxes stay native.
+
+- A Rust memory-cap test fails when another test in its file runs beside it
+	- ID: 2026101308163572
+	- Type: Bug
+	- Status: Done
+	- Severity: Avg
+	- Opened: 20261013-081635
+	- Opened by: me, from the hosted run at the end of the 20261013 round
+	- Version and build: dev at `8a803032`
+	- Steps to reproduce: run `cargo test --test mem_caps` until `diagnostic_cap_bounds_the_parse` (`EofAXrU`) runs before `element_cap_bounds_the_parse` (`EoezJiC`).
+	- Incorrect behavior: hosted run 38415689485's macos job failed `EofAXrU`, with 8617093 bytes counted against a bound of 8000040. Everything else in the run was green.
+	- Expected behavior: the test counts only what its own parse holds, whatever order the tests run in.
+	- Reproduced: 20261013, once, hosted macos. The same test counts 7417067 bytes here at `c5734e0e`, `5bb89ac4`, `50be3ed9` and `8a803032`, so no library change moved it.
+	- Possible cause [Bug]: the counter is global to the process. `element_cap_bounds_the_parse` builds its 600 KB text before it takes the lock, and that build holds 2 copies at once, about 1.2 MB. The count was 1200026 bytes over this box's figure. On 10-10 the 2 tests ran the other way around, and the job was green.
+	- Actual cause [Bug]: confirmed. Each test in `mem_caps.rs` took the lock only around its measurement, so it built its input beside whatever measurement was running. `EoezJiC`'s text build counted 1209773 bytes into `EofAXrU`, for 8626840 against 8000040. `a_plain_name_costs_the_scan_nothing` built its 2 documents the same way, only smaller.
+	- Note: Avg, since a rerun passes. A red macos job on a main push still needs one.
+	- Actual fix [Bug]: every test in the file takes the lock first and holds it to the end, input build included. Both measuring helpers need the held lock passed in, so a new test can't measure without taking it. A failed test no longer poisons the lock for the others.
+	- Verified: 20261013. With `EofAXrU`'s measurement held open until `EoezJiC` had built its text, the old order failed 3 runs of 3 at 8626840 bytes. With the fix, the same timing counted 7417067 in 3 runs of 3, the figure the test has alone. Also `cargo fmt`, `cargo clippy --test mem_caps -- -D warnings`, `cargo test --test mem_caps` 6 times plus once on 1 thread, and `test-ids.py check`.
+	- Swept: `mem_caps.rs` is the only test file with a counting allocator, and all 3 of its tests now take the lock first. Go's memory tests run one at a time, with no `t.Parallel` in the package. The C and Python memory checks run on 1 thread, and Python starts tracemalloc after its text is built.
+	- Test case: `EofAXrU` and `EoezJiC`, run in either order. The timing that forced the overlap isn't in the tree, since it waits on a clock.
+	- Branch: `memcap`
+	- Commit: `974de060`
+	- Acceptance signoff: Self-closed: reproduced, the forced overlap failed before the fix and passes after, and the sweep found no other file with the pattern.
+	- Closed: 20261013-105855
 
 - The hosted ubuntu job no longer fits its 60-minute limit
 	- ID: 2026101011200000
