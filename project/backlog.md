@@ -33,61 +33,12 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
-- Library gaps a generic tool has to work around
-	- ID: 2026100717500020
-	- Type: Enhancement
-	- Status: Queued
-	- Needs local test suite run?:
-		- (schema resolve) Y, the full `--ci` for exhaustive cppcheck over the C change, and the hosted windows job for Python's Windows branch, which nothing here runs.
-		- (kind) the full `--ci`, for exhaustive cppcheck, check-c-compilers and sanitize-c over the C change.
-	- Needs external testing:
-		- (kind) the hosted run, whose windows job runs the new test in all four runners.
-	- Priority: Low
-	- Opened: 20261007-175000
-	- Opened by: Code review 20261007 item 20
-	- Related IDs: 2026100907362300, which goes first
-	- Problem description:
-		- No library call resolves a file's `Schema` line by the CLI's rules: relative to the config's directory, and refusing devices, FIFOs, UNC paths and files over 16 MiB. Each program writes its own.
-		- No way to ask a node's kind (scalar, array, raw block, empty) but trial reads.
-		- `set_*_default` returns true when something is already there, even `bad: abc` or a bare `empty:`, so "make sure this has a usable value" can't be said in one call.
-	- Progress log:
-		- 20261010 (kind): `kind` and `read_kind` in all four and the C++ interface (Go `Kind` and `ReadKind`, C `shcl_kind` and `shcl_read_kind`). They give `Empty`, `Scalar`, `Array` or `Raw` from the stored form, with `Good`, `NotFound`, `Multiple` or `BadPath`.
-		- 20261010 (schema resolve): `read_named_schema(text, file)` in all four (Go `ReadNamedSchema`, C `shcl_read_named_schema` and `shcl_named_schema_free`) and C++ `read_named_schema`. It reads the Schema line, resolves it from the config's directory, and gives back the schema's text or a `SchemaStatus`: `NotFound`, `Empty`, `Url`, `NetworkPath`, `FileNotFound`, `IsDirectory`, `NotRegular`, `TooLarge` or `Unreadable`, with the path, the line and a message naming the path.
-		- 20261010 (schema resolve): `check` in all four CLIs goes through it, and their own copies of the rules are gone. Python's `check` now refuses a windows device name on the Schema line, as the other three did.
-		- 20261010 (schema resolve, kind): both merged to dev (`b1642d1b`, `115326a4`, seams `c5734e0e`) and covered by the full `--ci` here, judged as main, and the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `EsEvmLE` and `EsJLUK1`, which belong to 2026100814455655 and 2026100719122102. The new runner tests pass on windows.
-		- 20261010 (default): built on `defaultfix` and not merged. It waits on 2026101010054746, whose fix changes which values the default forms replace, and on the `--set-default` question above.
-	- Decisions:
-		- 20261008: before the cut, not after (JC).
-		- 20261009: all three get a fix, not docs (JC).
-		- 20261009: the third is `set_*_default` itself. It writes the default when the field is missing, empty or doesn't read as that type, and keeps a replaced line as a `##` comment with a note (JC).
-		- 20261010 (schema resolve): one call that returns a status, named after `read_schema_ref`, with no plain twin. Status names follow `FileStatus` and `WriteStatus` where they mean the same thing (me).
-		- 20261010 (schema resolve): a URL comes back as a status with the URL in `path`, so a program that fetches can do it itself. `check`'s note about `--schema` stays in the CLI (me).
-		- 20261010 (kind): the type is `ValueKind` in every binding, with `Empty`, `Scalar`, `Array` and `Raw` in that order, so its zero value is `Empty`. Go's values have a `Kind` prefix, since `Empty` is a read status. C's are `SHCL_KIND_EMPTY` to `SHCL_KIND_RAW`, and its result is a new `shcl_read_value_kind`, since no existing read struct holds the enum and `shcl_read_kind` is the call's name (me).
-		- 20261010 (kind): `read_kind` uses the typed reads' lookup, as `read_line` does, so a repeated field or a wildcard says `Multiple` (me).
-		- 20261010 (kind): an empty value is `Good` with `Empty` as the answer, the way `read_children` gives a node with no children `Good` and an empty list. A plain `kind` on a miss gives `Empty`, as `line` gives 0 (me).
-		- 20261010 (kind): the answer is the stored form. `x:` is `Empty`, `x: []` and `x: [80]` are `Array`, `x: ""` is `Scalar`, and a section header is `Empty` (me).
-		- 20261010 (default): `--set-default` and `--set-literal-default` stay string defaults that fill only a missing or empty field; the typed ops do the replacing (JC). The merge of `defaultfix` waits on 2026101010054746.
-		- 20261010 (kind): library only. Neither the item nor the design docs ask for a CLI word (me).
-	- Requirements:
-		- A library call reads a config's `Schema` line and resolves it by the CLI's rules. The CLI uses the same call, so the two can't drift.
-		- A `kind(path)` read gives scalar, array, raw block or empty, with a status for a missing or bad path.
-		- One call makes sure a field has a usable value of a type.
-	- Origin: Confirmed by reading and probes.
-	- Swept (schema resolve): every `schema_ref` and `read_schema_ref` caller. Only `check` resolved the line, in each CLI. Each CLI's resolve and read helpers (the name split, the open that does not wait on a FIFO, the 16 MiB cap) moved into the library, and Go's `main_unix.go`, which held only that open, is gone. spec.md, README, the style guide's naming list and the changelog say so.
-	- Verified (schema resolve): each new runner test fails with its binding's fix broken and passes with it, and cli-regress's FIFO-swap row fails for Go without the library's open that does not wait. The Rust, Go and C tests and the C++ smoke pass their Windows branches under wine. Also cargo test, clippy for linux and windows, rustfmt, the four conformance suites, `go test -count=1` per module, gofmt, vet and staticcheck for linux and windows, ruff, mypy, cppcheck at the normal level, the C runner under ASan and UBSan and at all five `-O` levels, gcc-15, clang, mingw, cli-regress (541 rows, 4 bindings), crosscheck, check-veneer, check-abnf, test-ids, markdownlint, and check-docs with only the known `EpHGoa0` red.
-	- Test case (schema resolve): `read_named_schema_follows_check_rules` in all four runners (Rust `EsJZ105`, Go `EsJZ106`, Python `EsJZ107`, C `EsJZ108`) and the C++ smoke `EjtkR0S`. The CLI side is cli-regress's schema-line rows, `Er2thhx` to `ErfuRh7`, and `Erlf8t9`.
-	- Branch (schema resolve): `schemares`
-	- Commit (schema resolve): `f7f81be1`
-	- Swept (kind): `kind` and `read_kind` in Rust, Go, Python, C and `shcl.hpp`, with C's `shcl_value_kind_name` behind C++ `to_string(ValueKind)`. spec.md (Status sentinels and the path calls), the style guide's naming exceptions, the changelog and the Python typing probe name them. No CLI, corpus or migration change.
-	- Verified (kind): the new test fails in all four, and veneer_smoke too, with arrays mapped to `Scalar`, and passes after. Also: `cargo test`, the four conformance suites, `go test` (both modules), veneer_smoke, check-veneer, cli-regress (541 rows, 3187 checks, all four), crosscheck over the corpus (21339 comparisons), check-docs (only the known `EpHGoa0` installer red), check-abnf, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy with the typing probe, cppcheck at the normal level, markdownlint.
-	- Branch (kind): `nodekind`
-	- Commit (kind): `2c2937f1`
-	- Test case (kind): `kind_reads_say_what_is_there` in all four runners (Rust `EsJYNe1`, Go `EsJYNe2`, Python `EsJYNe3`, C `EsJYNe4`), and the kind checks in the C++ `veneer_smoke` (`EjtkR0S`).
-
 - The hosted ubuntu job no longer fits its 60-minute limit
 	- ID: 2026101011200000
 	- Type: Bug
-	- Status: Queued
+	- Status: Waiting for testing
+	- Needs local test suite run?: N. The engine side is pinned by check-push-gate's stubbed engine.
+	- Needs external testing: a hosted run on the branch (`gh workflow run ci --ref cisplit`). Watch the times of the two ubuntu jobs, `ci (lint)` and `ci (tests)`. Each should end well inside 60 minutes: lint about 30 with a cold cppcheck and under 10 with a warm one, tests about 30. Also that both are green with no strict skip, that the tests job prints the profiler calibration line `EqeDCi1`, and that the lint job's last step saves a `cppcheck-` cache.
 	- Severity: High
 	- Opened: 20261010-111707
 	- Opened by: me, from the hosted run after the 2026100717500020 merges
@@ -99,6 +50,21 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Reproduced: 20261010, once. The windows job took 15 minutes and macos 3.
 	- Possible cause: the tests stage has grown (check-doc-examples, the new runner tests, check-migrate at 3 minutes, check-c-compilers at 5, sanitize-c at 10 or more), and cppcheck exhaustive runs on 2 threads over a cache that misses every changed C file.
 	- Decided against: raising `timeout-minutes` alone. The job has to fit a push with headroom (me).
+	- Actual cause:
+		- Measured from the step logs of run 38070871137 and 5 green runs from 2026-10-05 to 10-07, which took 31 to 50 minutes. Setup and tool installs take 2 minutes, format and build under 1, lint without cppcheck 3, cppcheck exhaustive 16 to 26 after a C change and seconds without one, the tests stage 14 to 20, crosscheck and the large document 5 to 8, and the profiler calibration under 1. In the tests stage, check-c-compilers takes 4 to 5 minutes, check-migrate 2 to 6, cli-regress 1 to 2 and sanitize-c 1.4 to 2.2.
+		- Run 38070871137 passed sanitize-c (2.2 minutes) and crosscheck, and was cut 40 seconds into the large document. It needed about 2 more minutes.
+		- cppcheck took 26 of lint's 29 minutes. The cache it restored was the newest that run could see, from the 10-07 dev run. It missed because both files cppcheck checks include `shcl.h`, which had changed, so every C round starts cold. Branch runs can't see dev's caches at all, and the plain cache action saves nothing from a red or cancelled run.
+		- More threads would not help cppcheck. It splits work by file, and with 2 files `-j 2` is already all it can use.
+		- Run here cold, one thread each and side by side, `main.c` took 19 minutes and `conformance.c` 28. The longer file sets the lint job's floor.
+	- Actual fix:
+		- The ubuntu job is 2 parallel jobs from one matrix: `cicd.bash --ci --no-tests` (lint and the cross checks) and `cicd.bash --ci --no-lint --no-cross` (tests, crosscheck, large document, calibration). Both install every tool. Worst case from the numbers above is about 33 minutes each, against 60.
+		- `cicd.bash --no-tests` is new. It skips the tests stage and the `--ci` calibration, and keeps a run from recording its tree, like `--no-lint`.
+		- The cppcheck cache is restored and saved as 2 steps, and the save runs even when the job fails or times out.
+		- check-pins fails when the jobs running `cicd.bash` stop covering every stage between them. It allows only `--ci` plus the 4 flags that each drop one stage, so `--no-largedoc` or `--quick` can't drop the large document unseen.
+	- Verified: the new check fails on 6 broken copies of ci.yml (both jobs `--no-lint`, a `--no-largedoc` job, a job without `--ci`, no matrix value, one literal `--no-tests` run, no `cicd.bash` at all) and passes on the real one and on dev's single job. check-push-gate's new row fails when `--no-tests` doesn't hold back the record, and when it skips nothing. shell-regress `EsZzNEZ` fails 4 ways against dev's check-pins and passes with the fix. Also actionlint (which catches a wrong matrix or step name in a control copy), shellcheck over every gate target, check-pins, check-push-gate, shell-regress, check-docs judged as main, test-ids check, markdownlint.
+	- Test case: check-pins `EsZzNCY`, shell-regress `EsZzNEZ`, and the `--no-tests` row in check-push-gate `EqGl8mf`. No test bounds the hosted time itself; the hosted run is the check.
+	- Branch: `cisplit`
+	- Commit: `cbfced5c`
 
 - A `--json` mode for the list commands
 	- ID: 2026100814455655
@@ -166,6 +132,57 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `doctest`
 	- Commit: `9131f267`
 	- Test case: check-doc-examples `EsJLUJx` (value-syntax.md tables), `EsJLUJy` (spec.md tables) and `EsJLUJz` (man page examples). cli-regress `EsJLUK0` (help, code texts and man page) and `EsJLUK1` (every row's output).
+
+- Library gaps a generic tool has to work around
+	- ID: 2026100717500020
+	- Type: Enhancement
+	- Status: Queued
+	- Needs local test suite run?:
+		- (schema resolve) Y, the full `--ci` for exhaustive cppcheck over the C change, and the hosted windows job for Python's Windows branch, which nothing here runs.
+		- (kind) the full `--ci`, for exhaustive cppcheck, check-c-compilers and sanitize-c over the C change.
+	- Needs external testing:
+		- (kind) the hosted run, whose windows job runs the new test in all four runners.
+	- Priority: Low
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 20
+	- Related IDs: 2026100907362300, which goes first
+	- Problem description:
+		- No library call resolves a file's `Schema` line by the CLI's rules: relative to the config's directory, and refusing devices, FIFOs, UNC paths and files over 16 MiB. Each program writes its own.
+		- No way to ask a node's kind (scalar, array, raw block, empty) but trial reads.
+		- `set_*_default` returns true when something is already there, even `bad: abc` or a bare `empty:`, so "make sure this has a usable value" can't be said in one call.
+	- Progress log:
+		- 20261010 (kind): `kind` and `read_kind` in all four and the C++ interface (Go `Kind` and `ReadKind`, C `shcl_kind` and `shcl_read_kind`). They give `Empty`, `Scalar`, `Array` or `Raw` from the stored form, with `Good`, `NotFound`, `Multiple` or `BadPath`.
+		- 20261010 (schema resolve): `read_named_schema(text, file)` in all four (Go `ReadNamedSchema`, C `shcl_read_named_schema` and `shcl_named_schema_free`) and C++ `read_named_schema`. It reads the Schema line, resolves it from the config's directory, and gives back the schema's text or a `SchemaStatus`: `NotFound`, `Empty`, `Url`, `NetworkPath`, `FileNotFound`, `IsDirectory`, `NotRegular`, `TooLarge` or `Unreadable`, with the path, the line and a message naming the path.
+		- 20261010 (schema resolve): `check` in all four CLIs goes through it, and their own copies of the rules are gone. Python's `check` now refuses a windows device name on the Schema line, as the other three did.
+		- 20261010 (schema resolve, kind): both merged to dev (`b1642d1b`, `115326a4`, seams `c5734e0e`) and covered by the full `--ci` here, judged as main, and the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `EsEvmLE` and `EsJLUK1`, which belong to 2026100814455655 and 2026100719122102. The new runner tests pass on windows.
+		- 20261010 (default): built on `defaultfix` and not merged. It waits on 2026101010054746, whose fix changes which values the default forms replace, and on the `--set-default` question above.
+	- Decisions:
+		- 20261008: before the cut, not after (JC).
+		- 20261009: all three get a fix, not docs (JC).
+		- 20261009: the third is `set_*_default` itself. It writes the default when the field is missing, empty or doesn't read as that type, and keeps a replaced line as a `##` comment with a note (JC).
+		- 20261010 (schema resolve): one call that returns a status, named after `read_schema_ref`, with no plain twin. Status names follow `FileStatus` and `WriteStatus` where they mean the same thing (me).
+		- 20261010 (schema resolve): a URL comes back as a status with the URL in `path`, so a program that fetches can do it itself. `check`'s note about `--schema` stays in the CLI (me).
+		- 20261010 (kind): the type is `ValueKind` in every binding, with `Empty`, `Scalar`, `Array` and `Raw` in that order, so its zero value is `Empty`. Go's values have a `Kind` prefix, since `Empty` is a read status. C's are `SHCL_KIND_EMPTY` to `SHCL_KIND_RAW`, and its result is a new `shcl_read_value_kind`, since no existing read struct holds the enum and `shcl_read_kind` is the call's name (me).
+		- 20261010 (kind): `read_kind` uses the typed reads' lookup, as `read_line` does, so a repeated field or a wildcard says `Multiple` (me).
+		- 20261010 (kind): an empty value is `Good` with `Empty` as the answer, the way `read_children` gives a node with no children `Good` and an empty list. A plain `kind` on a miss gives `Empty`, as `line` gives 0 (me).
+		- 20261010 (kind): the answer is the stored form. `x:` is `Empty`, `x: []` and `x: [80]` are `Array`, `x: ""` is `Scalar`, and a section header is `Empty` (me).
+		- 20261010 (default): `--set-default` and `--set-literal-default` stay string defaults that fill only a missing or empty field; the typed ops do the replacing (JC). The merge of `defaultfix` waits on 2026101010054746.
+		- 20261010 (kind): library only. Neither the item nor the design docs ask for a CLI word (me).
+	- Requirements:
+		- A library call reads a config's `Schema` line and resolves it by the CLI's rules. The CLI uses the same call, so the two can't drift.
+		- A `kind(path)` read gives scalar, array, raw block or empty, with a status for a missing or bad path.
+		- One call makes sure a field has a usable value of a type.
+	- Origin: Confirmed by reading and probes.
+	- Swept (schema resolve): every `schema_ref` and `read_schema_ref` caller. Only `check` resolved the line, in each CLI. Each CLI's resolve and read helpers (the name split, the open that does not wait on a FIFO, the 16 MiB cap) moved into the library, and Go's `main_unix.go`, which held only that open, is gone. spec.md, README, the style guide's naming list and the changelog say so.
+	- Verified (schema resolve): each new runner test fails with its binding's fix broken and passes with it, and cli-regress's FIFO-swap row fails for Go without the library's open that does not wait. The Rust, Go and C tests and the C++ smoke pass their Windows branches under wine. Also cargo test, clippy for linux and windows, rustfmt, the four conformance suites, `go test -count=1` per module, gofmt, vet and staticcheck for linux and windows, ruff, mypy, cppcheck at the normal level, the C runner under ASan and UBSan and at all five `-O` levels, gcc-15, clang, mingw, cli-regress (541 rows, 4 bindings), crosscheck, check-veneer, check-abnf, test-ids, markdownlint, and check-docs with only the known `EpHGoa0` red.
+	- Test case (schema resolve): `read_named_schema_follows_check_rules` in all four runners (Rust `EsJZ105`, Go `EsJZ106`, Python `EsJZ107`, C `EsJZ108`) and the C++ smoke `EjtkR0S`. The CLI side is cli-regress's schema-line rows, `Er2thhx` to `ErfuRh7`, and `Erlf8t9`.
+	- Branch (schema resolve): `schemares`
+	- Commit (schema resolve): `f7f81be1`
+	- Swept (kind): `kind` and `read_kind` in Rust, Go, Python, C and `shcl.hpp`, with C's `shcl_value_kind_name` behind C++ `to_string(ValueKind)`. spec.md (Status sentinels and the path calls), the style guide's naming exceptions, the changelog and the Python typing probe name them. No CLI, corpus or migration change.
+	- Verified (kind): the new test fails in all four, and veneer_smoke too, with arrays mapped to `Scalar`, and passes after. Also: `cargo test`, the four conformance suites, `go test` (both modules), veneer_smoke, check-veneer, cli-regress (541 rows, 3187 checks, all four), crosscheck over the corpus (21339 comparisons), check-docs (only the known `EpHGoa0` installer red), check-abnf, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy with the typing probe, cppcheck at the normal level, markdownlint.
+	- Branch (kind): `nodekind`
+	- Commit (kind): `2c2937f1`
+	- Test case (kind): `kind_reads_say_what_is_there` in all four runners (Rust `EsJYNe1`, Go `EsJYNe2`, Python `EsJYNe3`, C `EsJYNe4`), and the kind checks in the C++ `veneer_smoke` (`EjtkR0S`).
 
 - Run on the last Core 2 Duo, and AMD CPUs from that era.
 	- ID: 2026101301161858

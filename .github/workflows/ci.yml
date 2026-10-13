@@ -22,12 +22,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  ## Two parallel halves of the one gate. As one job it ran 31 to 50 minutes
+  ## and then over the 60-minute limit: lint was 3 minutes plus cppcheck's
+  ## exhaustive pass, 16 to 26 more whenever shcl.h changed, and the tests
+  ## stage with crosscheck and the large document was 20 to 29. Each half runs
+  ## the engine with stage flags, so what passing means stays in cicd.bash,
+  ## and check-pins.bash fails when the halves stop covering everything --ci
+  ## runs. Both install every tool, so a strict skip can't
+  ## come from a tool one half forgot.
   ci:
+    name: ci (${{ matrix.part }})
     runs-on: ubuntu-latest
-    ## 25 was enough until the large-document gate; that adds several minutes of
-    ## single-threaded parsing per binding, and a hosted runner is slower again.
-    ## A normal run is about 38 minutes, and a slow tool install once pushed one past 45.
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          ## The cross checks take half a minute. Lint is the shorter half
+          ## unless the C header changed.
+          - part: lint
+            args: --ci --no-tests
+          - part: tests
+            args: --ci --no-lint --no-cross
     steps:
       ## Actions by commit SHA (tag in the comment), so a moved tag cannot
       ## silently change what runs.
@@ -122,23 +138,36 @@ jobs:
           echo "f1f8eedc2a3ac297c540873f93785d4104b102c0079506b2a6b3221b7ec956af  /tmp/cargo-deny.tar.gz" | sha256sum -c -
           tar -xzf /tmp/cargo-deny.tar.gz -C /tmp
           sudo install -m 0755 /tmp/cargo-deny-0.19.9-x86_64-unknown-linux-musl/cargo-deny /usr/local/bin/cargo-deny
+      ## One per half, since each builds different targets. A first run of a
+      ## half starts from whatever Linux target dir there is.
       - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: |
             ~/.cargo/registry
             source/rust/target
-          key: ci-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'source/rust/Cargo.lock') }}
+          key: ci-${{ runner.os }}-${{ matrix.part }}-${{ hashFiles('rust-toolchain.toml', 'source/rust/Cargo.lock') }}
+          restore-keys: ci-${{ runner.os }}-
       ## cppcheck's result cache, which the lint line keeps in the git dir. A run
       ## with no C change restores an exact match, and any other starts from the
       ## last one; cppcheck checks each file's own key before it uses an entry.
-      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+      ## Saved even when the job fails or times out, since the plain cache action
+      ## saves only on success, and a red run used to throw away the 20-odd
+      ## minutes cppcheck had just spent.
+      - if: matrix.part == 'lint'
+        id: cppcache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: .git/cppcheck-build
           key: cppcheck-${{ hashFiles('source/c/**', 'cicd/config.bash') }}
           restore-keys: cppcheck-
       ## The runner runs nothing else, so the gate gets every core rather than
       ## the half it leaves free on a workstation.
-      - run: CPU_CAP="$(nproc)" cicd/cicd.bash --ci
+      - run: CPU_CAP="$(nproc)" cicd/cicd.bash ${{ matrix.args }}
+      - if: always() && matrix.part == 'lint' && steps.cppcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: .git/cppcheck-build
+          key: cppcheck-${{ hashFiles('source/c/**', 'cicd/config.bash') }}
 
   ## The go.mod directive promises consumers the library builds on that release,
   ## and the job above runs a current one, whose vet says nothing about a call

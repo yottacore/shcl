@@ -449,6 +449,11 @@ fEngine -- --ci --no-lint
 ((engRc == 0 && engRecorded == 0)) || fail "a run with lint left out: exit ${engRc}, recorded ${engRecorded}"
 fEngine -- --ci --no-fmt
 ((engRc == 0 && engRecorded == 0)) || fail "a run with the format check left out: exit ${engRc}, recorded ${engRecorded}"
+## The hosted lint half. Its tests run in the other job, never here.
+rm -f "${work}/eng.notests"
+fEngine STUB_GITDIR="${work}/eng.notests" -- --ci --no-tests
+((engRc == 0 && engRecorded == 0)) || fail "a run with the tests left out: exit ${engRc}, recorded ${engRecorded}"
+[[ ! -e "${work}/eng.notests" ]] || fail "a --no-tests run still ran the tests stage"
 fEngine STUB_SKIP=1 -- --ci
 ((engRecorded == 0)) || fail "a run whose gate noted a skip recorded its tree"
 fTest EqjfWm8 a run failing or leaving out the cross checks records nothing
