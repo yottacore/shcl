@@ -20,6 +20,7 @@ import tracemalloc
 import types
 from pathlib import Path
 from typing import Any, Optional
+from unittest import mock
 
 _HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(_HERE))            # source/python (the lib)
@@ -3254,6 +3255,36 @@ def main():
 		except shcl.WriteError as wfail:
 			if not str(wfail).startswith(wmissing + ": ") or wfail.status is not shcl.WriteStatus.NotFound:
 				raise SystemExit(f"a write into a missing folder: {wfail!r} {wfail.status}") from None
+		test_id("EsaBeHk", "write_failure_names_no_temp_file")
+		# FILE: and the system's own message, as the other three say it. The OS
+		# error's own text names the temp file as a repr, which doubled a
+		# windows path's backslashes (2026100719122102), so the errors here
+		# carry one on every platform.
+		wtarget = os.path.join(wdir, "reason.shcl")
+		wdenied = os.strerror(errno.EACCES)
+		wtmp = "C:\\Users\\x\\.reason.shcl.tmp1.0"
+
+		def deny_open(*_a: Any, **_k: Any) -> int:
+			raise PermissionError(errno.EACCES, wdenied, wtmp)
+
+		def deny_replace(*_a: Any, **_k: Any) -> None:
+			raise PermissionError(errno.EACCES, wdenied, wtmp, "C:\\Users\\x\\reason.shcl")
+
+		wcalls: list[tuple[str, Any, str]] = [("temp file", deny_open, f"{wtarget}: cannot create temporary file: {wdenied}")]
+		# A replace on windows is ReplaceFile first, so only POSIX gets here.
+		if os.name != "nt":
+			wcalls.append(("publish", deny_replace, f"{wtarget}: {wdenied}"))
+		for wwhat, wfake, wwant in wcalls:
+			if wwhat == "publish":
+				shcl.write_file_atomic(wtarget, "a: 1\n")
+			wgot = ""
+			with mock.patch.object(os, "open" if wwhat == "temp file" else "replace", wfake):
+				try:
+					shcl.write_file_atomic(wtarget, "a: 2\n")
+				except shcl.WriteError as wfail:
+					wgot = str(wfail)
+			if wgot != wwant:
+				raise SystemExit(f"a failed {wwhat} says {wgot!r}, want {wwant!r}")
 		test_id("EsEhCG4", "write_status_names_each_failure")
 		# A failed write says why as a value, beside the message it always
 		# had: from write_file_atomic, a save, write_backup and upgrade_file. A

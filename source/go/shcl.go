@@ -356,6 +356,20 @@ func writeFailed(err error, format string, args ...any) *WriteError {
 	return &WriteError{Status: writeStatusOf(err), Err: fmt.Errorf(format, args...)}
 }
 
+// osReason is the system's own message out of a path or link error. Those name
+// the call and the temp file again, in a message that already names the file,
+// and the other three print neither. Only the outer error is opened, so a
+// message built around one keeps what it adds.
+func osReason(err error) error {
+	switch e := err.(type) {
+	case *os.PathError:
+		return e.Err
+	case *os.LinkError:
+		return e.Err
+	}
+	return err
+}
+
 // writeStatusOf is the OS error's reason. On windows the system's own code
 // goes first, from one table all four bindings share, since each language
 // files a held file or a missing network path somewhere different.
@@ -8458,7 +8472,7 @@ func WriteFileAtomic(file, data string) error {
 		last = oerr
 	}
 	if f == nil {
-		return writeFailed(last, "%s: cannot create temporary file: %w", file, last)
+		return writeFailed(last, "%s: cannot create temporary file: %w", file, osReason(last))
 	}
 	var err error
 	if _, werr := f.WriteString(data); werr != nil {
@@ -8490,7 +8504,7 @@ func WriteFileAtomic(file, data string) error {
 	}
 	if err != nil {
 		_ = os.Remove(tmp) // the write error is the one to report
-		return writeFailed(err, "%s: %w", file, err)
+		return writeFailed(err, "%s: %w", file, osReason(err))
 	}
 	if readOnly {
 		setReadOnly(target, false)
@@ -8513,7 +8527,7 @@ func WriteFileAtomic(file, data string) error {
 		if existErr != nil {
 			_ = os.Remove(tmp) // the publish error is the one to report
 		}
-		return writeFailed(rerr, "%s: %w", file, rerr)
+		return writeFailed(rerr, "%s: %w", file, osReason(rerr))
 	}
 	syncDir(dir)
 	return nil

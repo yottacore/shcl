@@ -8943,8 +8943,11 @@ def _write_status_of(e: BaseException) -> WriteStatus:
 	return WriteStatus.Other
 
 
+# FILE: and the system's own message, as the other three say it. str() of an
+# OSError adds [Errno N] and the file names as reprs, which doubles every
+# backslash in a windows path.
 def _failed(file, e: BaseException) -> WriteError:
-	return WriteError(f"{file}: {e}", _write_status_of(e))
+	return WriteError(f"{file}: {getattr(e, 'strerror', None) or e}", _write_status_of(e))
 
 
 def _save_text(path, text):
@@ -9132,8 +9135,8 @@ def _windows_publish_file(tmp, target):
 		_remove_quietly(tmp)
 		raise err
 	if moved_away:
-		raise OSError(f"{err}; the old file is left at {backup} and the new text at {tmp}") from err
-	raise OSError(f"{err}; the new text is left at {tmp}") from err
+		raise OSError(f"{err.strerror or err}; the old file is left at {backup} and the new text at {tmp}") from err
+	raise OSError(f"{err.strerror or err}; the new text is left at {tmp}") from err
 
 
 def _moved_back(backup, target):
@@ -9506,7 +9509,7 @@ def write_file_atomic(file: str | os.PathLike[str], data: str) -> None:
 		except (OSError, ValueError) as e:
 			last = e
 	if f is None:
-		raise WriteError(f"{file}: cannot create temporary file: {last if last is not None else ''}",
+		raise WriteError(f"{file}: cannot create temporary file: {(getattr(last, 'strerror', None) or last) if last is not None else ''}",
 			_write_status_of(last) if last is not None else WriteStatus.Other)
 	try:
 		try:
