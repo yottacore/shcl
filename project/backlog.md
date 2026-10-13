@@ -188,8 +188,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Commit: `9131f267`
 	- Test case: check-doc-examples `EsJLUJx` (value-syntax.md tables), `EsJLUJy` (spec.md tables) and `EsJLUJz` (man page examples). cli-regress `EsJLUK0` (help, code texts and man page) and `EsJLUK1` (every row's output).
 
-**Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
-
 - Run on the last Core 2 Duo, and AMD CPUs from that era.
 	- ID: 2026101301161858
 	- Type: Enhancement
@@ -208,6 +206,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Progress log:
 		- 20261013: Go builds for plain x86-64 by default (`GOAMD64=v1`), and nothing here sets it, so this may already hold. Pin `GOAMD64=v1` in the release build so a stray environment can't raise it. The standard library already picks faster code at run time.
 			- The C and Rust bindings build with the user's own compiler. Make sure their build files add no `-march` or `target-cpu`.
+
+**Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
 
 - check-migrate fails on 2 fuzz documents
 	- ID: 2026100919123100
