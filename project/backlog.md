@@ -208,6 +208,22 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch (default): `defaultfix`
 	- Commit (default): `5bb89ac4`, then `c0329cc9` with dev merged in
 
+**Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
+
+- Build and test in a pinned container.
+	- ID: 2026101303344553
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261013-033445
+	- Opened by: JC
+	- Target OS: Linux
+	- Requirements [Feature]:
+		- `cicd.bash --container` runs the build and test stages in an image built from a pinned recipe in `cicd/container/`. Toolchains come from pinned downloads with checksums.
+		- Toolchains on the build box clash between projects, such as 2 Zig versions on one link. A container keeps this project's pins apart.
+		- Other test boxes stay native, since their OS is what's being tested.
+		- zuid's `--container` stage is the model. gitsby and convert-base-v2 have one too.
+
 - Run on the last Core 2 Duo, and AMD CPUs from that era.
 	- ID: 2026101301161858
 	- Type: Enhancement
@@ -240,22 +256,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Commit: `b2c6f659`
 	- Acceptance signoff: Self-closed: the floor holds on every x86_64 release build, and the check was seen to fail on builds past it.
 	- Closed: 20261013-065126
-
-**Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
-
-- Build and test in a pinned container.
-	- ID: 2026101303344553
-	- Type: Enhancement
-	- Status: Queued
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261013-033445
-	- Opened by: JC
-	- Target OS: Linux
-	- Requirements [Feature]:
-		- `cicd.bash --container` runs the build and test stages in an image built from a pinned recipe in `cicd/container/`. Toolchains come from pinned downloads with checksums.
-		- Toolchains on the build box clash between projects, such as 2 Zig versions on one link. A container keeps this project's pins apart.
-		- Other test boxes stay native, since their OS is what's being tested.
-		- zuid's `--container` stage is the model. gitsby and convert-base-v2 have one too.
 
 - `fmt` turns a bare `80,443` into a number
 	- ID: 2026101010054746
