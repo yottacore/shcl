@@ -4098,7 +4098,9 @@ fn the_writer_quotes_a_colon_or_comma() {
 	);
 	let doc = Document::parse("n: \"1,000\"\n");
 	assert_eq!(doc.to_canonical(), "n: \"1,000\"\n");
-	assert_eq!(doc.get_int("n"), Ok(1000));
+	// 2026101010054746: a quoted thousands number is text, like a bare one.
+	// assert_eq!(doc.get_int("n"), Ok(1000));
+	assert!(doc.get_int("n").is_err());
 	let text = "ver: \"8\"\nok: 'true'\nat: 2:30PM\nhost: localhost:8080\n";
 	let mut doc = Document::parse(text);
 	assert_eq!(
@@ -4112,6 +4114,37 @@ fn the_writer_quotes_a_colon_or_comma() {
 	let hint = &doc.diagnostics()[0];
 	assert_eq!(hint.code, "H001");
 	assert!(hint.message.contains("t: [\"a,b\", c]"), "{}", hint.message);
+}
+
+// A thousands comma is text quoted or bare, so a typed read gives the same
+// answer before and after the writer quotes it (2026101010054746).
+#[test]
+fn a_thousands_comma_reads_the_same_after_a_save() {
+	let _id = test_id("EsZikJi");
+	let mut doc = Document::parse("p: 80,443\nq: \"1,000\"\nr: '-1,234,567'\n");
+	assert_eq!(doc.set_string("s", "1,000"), shcl::SetStatus::Ok);
+	let out = doc.to_canonical();
+	assert!(out.starts_with("p: \"80,443\"\nq: \"1,000\"\nr: '-1,234,567'\n"));
+	assert!(out.ends_with("s: \"1,000\"\n"));
+	let back = Document::parse(&out);
+	for (path, text) in [
+		("p", "80,443"),
+		("q", "1,000"),
+		("r", "-1,234,567"),
+		("s", "1,000"),
+	] {
+		for d in [&doc, &back] {
+			assert_eq!(d.read_int(path).status, Status::BadType, "{path} int");
+			assert_eq!(d.read_float(path).status, Status::BadType, "{path} float");
+			assert_eq!(d.get_string(path).as_deref(), Ok(text), "{path}");
+		}
+	}
+	// The setter's value counts as quoted, as its saved form is.
+	assert!(doc.read_string("s").quoted);
+	assert!(back.read_string("s").quoted);
+	let loose = Document::parse_with("q: \"1,000\"\nc: \"$1,200\"\n", Strictness::Loose).unwrap();
+	assert_eq!(loose.read_int("q").status, Status::BadType);
+	assert_eq!(loose.read_int("c").status, Status::BadType);
 }
 
 // migrate writes a 2.x comma list in brackets, with or without a blank

@@ -3881,7 +3881,10 @@ def main():
 	qcdoc = shcl.Document.parse('n: "1,000"\n')
 	if qcdoc.to_canonical() != 'n: "1,000"\n':
 		raise SystemExit(f"wrote {qcdoc.to_canonical()!r}")
-	if qcdoc.get_int("n", None) != 1000:
+	# 2026101010054746: a quoted thousands number is text, like a bare one.
+	# if qcdoc.get_int("n", None) != 1000:
+	# 	raise SystemExit(f"n: {qcdoc.read_int('n')!r}")
+	if qcdoc.read_int("n").status != shcl.Status.BadType:
 		raise SystemExit(f"n: {qcdoc.read_int('n')!r}")
 	qcdoc = shcl.Document.parse("ver: \"8\"\nok: 'true'\nat: 2:30PM\nhost: localhost:8080\n")
 	if qcdoc.to_canonical() != "ver: \"8\"\nok: 'true'\nat: \"2:30PM\"\nhost: \"localhost:8080\"\n":
@@ -3893,6 +3896,31 @@ def main():
 	qchint = shcl.Document.parse("t: a,b\nt: c\n").diagnostics()[0]
 	if qchint.code != "H001" or 't: ["a,b", c]' not in qchint.message:
 		raise SystemExit(f"hint {qchint!r}")
+
+	test_id("EsZikJk", "a_thousands_comma_reads_the_same_after_a_save")
+	# A thousands comma is text quoted or bare, so a typed read gives the same
+	# answer before and after the writer quotes it (2026101010054746).
+	tcdoc = shcl.Document.parse("p: 80,443\nq: \"1,000\"\nr: '-1,234,567'\n")
+	if not tcdoc.set_string("s", "1,000"):
+		raise SystemExit("set s")
+	tcout = tcdoc.to_canonical()
+	if not tcout.startswith("p: \"80,443\"\nq: \"1,000\"\nr: '-1,234,567'\n") or not tcout.endswith('s: "1,000"\n'):
+		raise SystemExit(f"wrote {tcout!r}")
+	tcback = shcl.Document.parse(tcout)
+	for tcpath, tctext in (("p", "80,443"), ("q", "1,000"), ("r", "-1,234,567"), ("s", "1,000")):
+		for tcd in (tcdoc, tcback):
+			if tcd.read_int(tcpath).status != shcl.Status.BadType:
+				raise SystemExit(f"{tcpath} int: {tcd.read_int(tcpath)!r}")
+			if tcd.read_float(tcpath).status != shcl.Status.BadType:
+				raise SystemExit(f"{tcpath} float: {tcd.read_float(tcpath)!r}")
+			if tcd.get_string(tcpath, None) != tctext:
+				raise SystemExit(f"{tcpath}: {tcd.read_string(tcpath)!r}")
+	# The setter's value counts as quoted, as its saved form is.
+	if not tcdoc.read_string("s").quoted or not tcback.read_string("s").quoted:
+		raise SystemExit("s not quoted")
+	tcloose = shcl.Document.parse_with("q: \"1,000\"\nc: \"$1,200\"\n", shcl.Strictness.Loose)
+	if tcloose.read_int("q").status != shcl.Status.BadType or tcloose.read_int("c").status != shcl.Status.BadType:
+		raise SystemExit(f"loose: {tcloose.read_int('q')!r} {tcloose.read_int('c')!r}")
 
 	test_id("ErylLpa", "a_list_no_text_loads_back_refuses_to_save")
 	# A list with a field under it (E001) after an empty binding of its name

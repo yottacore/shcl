@@ -669,9 +669,17 @@ rows=(
 	"Ep3OILN|set-open-quote-refused|set --set=a(\"open=1 %X%|-|1|-|bad --set value"
 	## 20260909 item 13: a value built by a setter or a selector read as
 	## unquoted, so quoted thousands were BadType until a save and reload.
-	'EpykNRw|set-quoted-thousands|get --int --set=a=1,000 %F% a|-|0|1000\n|-'
-	"EpykNRx|set-selector-thousands|get --int --set=x(\"1,000\").y=1 %F% x|-|0|1000\n|-"
-	'EpykNRy|selector-thousands|get --int %SQ% srv|-|0|1000\n|-'
+	## 2026101010054746: a quoted thousands number is text now, so these read
+	## BadType before a save and after one, like the bare form.
+	# 'EpykNRw|set-quoted-thousands|get --int --set=a=1,000 %F% a|-|0|1000\n|-'
+	# "EpykNRx|set-selector-thousands|get --int --set=x(\"1,000\").y=1 %F% x|-|0|1000\n|-"
+	# 'EpykNRy|selector-thousands|get --int %SQ% srv|-|0|1000\n|-'
+	'EsZikJn|set-quoted-thousands-text|get --int --set=a=1,000 %F% a|-|4|0\n|not a valid int'
+	"EsZikJo|set-selector-thousands-text|get --int --set=x(\"1,000\").y=1 %F% x|-|4|0\n|not a valid int"
+	'EsZikJp|selector-thousands-text|get --int %SQ% srv|-|4|0\n|not a valid int'
+	## The bare form, as fmt writes it: quoted, and still not a number.
+	'EsZikJm|quoted-thousands-int|get --int - p|p: "80,443"\n|4|0\n|not a valid int'
+	"EsZikJq|quoted-thousands-float|get --float --strictness=loose - p|p: '1,000'\n|4|0\n|not a valid float"
 	## 3.0: bracket text after the colon is one outcome, kept verbatim. The
 	## 2.x selector sugar is that shape now too, and migrate is what brings
 	## a file written with it across.

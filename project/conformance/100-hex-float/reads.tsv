@@ -2,7 +2,9 @@ query	type	expected	status
 -	load	ok	-
 a	float	9223372036854776000	Good
 b	float	18446744073709552000	Good
-c	float	18446744073709552000	Good
+c	float	-	BadType
+c	int	-	BadType
+c	string	18,446,744,073,709,551,615	Good
 d	float	-18446744073709552000	Good
 e	float	18446744073709552000	Good
 f	float	9223372036854776000	Good
