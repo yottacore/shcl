@@ -101,7 +101,7 @@ CPPCHECK_WHEEL="1.5.1"
 ## strict-warning compile is its quality gate, same spirit as clippy.
 BUILD_CMD=(cargo build -j "${CPU_CAP}" --manifest-path "${MANIFEST}")
 BUILD_EXTRA=(
-	'GOMAXPROCS="${CPU_CAP}" go -C source/go/cmd build -o ../shcl ./shcl'
+	'GOAMD64=v1 GOMAXPROCS="${CPU_CAP}" go -C source/go/cmd build -o ../shcl ./shcl'
 	'python3 -m py_compile source/python/shcl.py source/python/cmd/shcl/main.py source/python/tests/conformance.py'
 	'cc -std=c11 -O2 -Wall -Wextra -Wshadow -Wvla -Wconversion -Wsign-conversion -Werror -Isource/c source/c/cmd/shcl/main.c -o source/c/shcl -lm -s'
 )
@@ -173,6 +173,7 @@ SHELLCHECK_TARGETS=(
 	cicd/config.bash
 	cicd/utility/check-banner-tag.bash
 	cicd/utility/check-c-compilers.bash
+	cicd/utility/check-cpu-floor.bash
 	cicd/utility/check-completions.bash
 	cicd/utility/check-doc-examples.bash
 	cicd/utility/check-docs.bash
@@ -410,6 +411,17 @@ CROSS_CHECKS=(
 	## stage's vet and staticcheck - which only ever see the host's GOOS - walk
 	## straight past it. These are the only thing that compiles it at all.
 	"Go library for Windows (build + vet + staticcheck)|( cd source/go && export GOMAXPROCS=\${CPU_CAP}; GOOS=windows go build ./... && GOOS=windows go vet ./... && GOOS=windows staticcheck ./... )"
+)
+
+## Checks over the release binaries, run once they are all built. Same
+## "label|command" shape as CROSS_CHECKS; built_arts ("os-arch|path") is in
+## scope. Every x86_64 build has to run on plain x86-64 (v1), the floor the
+## last Core 2 Duo and the Phenom II share; the Linux one is also booted on
+## both, emulated. About 2 minutes.
+# shellcheck disable=SC2154  ## built_arts is the engine's, set in stage 6
+fX86Arts(){ local a; for a in "${built_arts[@]}"; do if [[ "${a%%|*}" == *-x86_64 ]]; then printf '%s\n' "${a#*|}"; fi; done; }
+RELEASE_CHECKS=(
+	"x86_64 builds run on x86-64-v1, Penryn and Phenom|mapfile -t x86Arts < <(fX86Arts); cicd/utility/check-cpu-floor.bash --run \"\${RELEASE_NATIVE_BIN}\" \"\${x86Arts[@]}\""
 )
 
 RELEASE_ARTIFACT_DIR="cicd/artifacts/release"   ## relative to repo root; gitignored

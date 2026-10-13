@@ -859,6 +859,7 @@ The responsibility is split rather than duplicate the pipeline:
 	- The cost: a failure only the runner shows, such as a tool its image lacks or a Windows-only defect, now waits for the next push to `main`. `gh workflow run ci --ref dev` gets a hosted run sooner.
 
 - Everything else (cross-compile, packaging, publish) stays in the local pipeline, `cicd/cicd.bash`, config-driven via `cicd/config.bash`.
+	- The x86_64 release builds run on plain x86-64 (v1), the floor the last Core 2 Duo and the Phenom II share. Stage 6 checks it with `check-cpu-floor.bash` before the artifacts are collected. It disassembles each x86_64 build and fails on any instruction past v1, then boots the Linux build under QEMU as a Penryn and as a Phenom and runs the CLI over the corpus. QEMU's software CPU traps on most extensions a model lacks, but runs `lzcnt` and `tzcnt` as `bsr` and `bsf`, so only the scan catches those. Rust's Windows targets also assume SSE3, CMPXCHG16B and LAHF/SAHF, which both chips have. Hosted CI builds no release binaries, so this runs only in a local run.
 
 - Both share one definition of "passing": the workflow runs `cicd.bash --ci` on Linux, split by stage flags, plus a Windows job for the binding runners. Per-language toolchain setup lives in the workflow YAML; what passing means lives in the engine, so the two cannot drift.
 
