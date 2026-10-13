@@ -190,6 +190,25 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 **Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
 
+- Run on the last Core 2 Duo, and AMD CPUs from that era.
+	- ID: 2026101301161858
+	- Type: Enhancement
+	- Status: Queued
+	- Needs external testing: Yes, on an old CPU or an emulated one.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261013-011618
+	- Opened by: JC
+	- Target OS: Linux, Windows and FreeBSD on x86_64, where this project builds them. Macs that old can't run a current macOS anyway.
+	- Requirements [Feature]:
+		- Release builds run on the last Core 2 Duo (Penryn, 2008), and on AMD Phenom II and Athlon II, if that's reasonably doable.
+			- Penryn has SSSE3 and SSE4.1 but no POPCNT. The AMD ones have POPCNT but no SSSE3. So the shared floor is plain x86-64, also called x86-64-v1.
+		- If that isn't doable, the floor is the first Core i3/i5/i7 (Nehalem, 2008), which is x86-64-v2. AMD's first chip at that level is Bulldozer, 2011.
+		- Faster code for newer CPUs is still fine, but it's picked at run time by a CPU feature test, never by the build target.
+		- Tests run the release build on an emulated Penryn and Phenom II, through Intel SDE or QEMU's `-cpu Penryn` and `-cpu phenom`.
+	- Progress log:
+		- 20261013: Go builds for plain x86-64 by default (`GOAMD64=v1`), and nothing here sets it, so this may already hold. Pin `GOAMD64=v1` in the release build so a stray environment can't raise it. The standard library already picks faster code at run time.
+			- The C and Rust bindings build with the user's own compiler. Make sure their build files add no `-march` or `target-cpu`.
+
 - check-migrate fails on 2 fuzz documents
 	- ID: 2026100919123100
 	- Type: Bug
