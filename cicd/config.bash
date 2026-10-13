@@ -500,7 +500,7 @@ CTR_PREP='cargo fetch --offline --manifest-path "${MANIFEST}" >/dev/null 2>&1 ||
 ##   alpine: musl. Build and tests, minus the gates below that need what musl
 ##           lacks or test nothing the libc changes. Not strict, so a row that
 ##           wants a tool the image doesn't have, such as pwsh, skips out loud.
-##           No release builds, since none ships for musl.
+##           No release builds, since no musl build is released.
 CTR_ARGS_ubuntu=(--ci --no-lint)
 CTR_ARGS_alpine=(--no-fmt --no-lint --no-cross --no-profile --no-release)
 if [[ "${SHCL_CTR_IMAGE:-}" == alpine ]]; then

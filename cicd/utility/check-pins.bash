@@ -263,7 +263,7 @@ for f in "${recipes[@]}"; do
 		[[ "${pipLine}" == *--require-hashes* ]] || { echo "check-pins: ${rel} installs with pip without --require-hashes" >&2; nBad=$((nBad + 1)); }
 	done < <(grep -E -- 'pip install' "${f}" || true)
 	if grep -qE -- 'npm (install|i) ' "${f}"; then
-		echo "check-pins: ${rel} runs npm install; the lock file's hashes hold only under npm ci" >&2; nBad=$((nBad + 1))
+		echo "check-pins: ${rel} runs npm install; only npm ci keeps to the lock file's hashes" >&2; nBad=$((nBad + 1))
 	fi
 done
 
