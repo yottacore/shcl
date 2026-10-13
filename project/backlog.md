@@ -86,6 +86,28 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Toolchains on the build box clash between projects, such as 2 Zig versions on one link. A container keeps this project's pins apart.
 		- Other test boxes stay native, since their OS is what's being tested.
 		- zuid's `--container` stage is the model. gitsby and convert-base-v2 have one too.
+	- Notes:
+		- Base is `debian:trixie-slim` pinned by digest, like zuid. NixOS was ruled out, since its toolchains link against store paths and a release built there won't run on a plain distro (me).
+		- The tool list is much longer than zuid's: Rust, Go and its floor version, Python with mypy and ruff, gcc, cppcheck, zig, mingw plus wine, qemu-system for the CPU floor, pwsh with the analyzer, shellcheck, markdownlint. Expect a big image.
+		- The cargo, go and cppcheck caches go on volumes on ZFS, or every run starts cold.
+		- The repo is mounted so the green-tree record, the pre-push gate and a gate worktree's `target-gate` link still work.
+		- Dogfood deploys, backup and publish, git push and the gif stage stay on the host.
+		- Question: should hosted CI pull the same image instead of installing tools each run? It would save time against the 60-minute limit, but hosted would stop testing Ubuntu.
+
+- Extra Linux test images
+	- ID: 2026101309250977
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261013-092509
+	- Opened by: me, agreed by JC
+	- Related IDs: 2026101303344553
+	- Target OS: Linux
+	- Requirements [Enhancement]:
+		- A couple of extra images on the build box, run now and then rather than every time.
+		- Ubuntu 24.04, to match the hosted runner and its gcc 13, so a hosted-only red can be reproduced here.
+		- Alpine, for musl.
+		- The other test boxes stay native.
 
 - The hosted ubuntu job no longer fits its 60-minute limit
 	- ID: 2026101011200000
