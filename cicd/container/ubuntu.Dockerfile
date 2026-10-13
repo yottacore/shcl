@@ -9,20 +9,15 @@
 
 FROM ubuntu:24.04@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55
 
-# The snapshot archive is https only, so the trust roots come first, from the
-# live archive. Everything after reads the snapshot.
-ARG APT_SNAP=20261012T000000Z
-RUN apt-get update \
-	&& apt-get install -y --no-install-recommends ca-certificates \
-	&& rm -rf /var/lib/apt/lists/* \
-	&& echo "APT::Snapshot \"${APT_SNAP}\";" > /etc/apt/apt.conf.d/50snapshot
-
+# Apt reads the live archive, not a snapshot, since the runner's image takes
+# Ubuntu's updates as they come and this is here to match it.
+#
 # gcc 13 is the default here, as on the runner; 12, 14 and clang are for
 # check-c-compilers, which the runner has too. The rest are rows in the test
 # stage that fail a skip under --ci. libicu and libgssapi are for pwsh.
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends \
-		bash curl wget openssl git xz-utils unzip file jq \
+		bash ca-certificates curl wget openssl git xz-utils unzip file jq \
 		gcc g++ gcc-12 gcc-14 clang libc6-dev binutils \
 		gcc-mingw-w64-x86-64 nsis rpm \
 		zsh bash-completion strace locales man-db \

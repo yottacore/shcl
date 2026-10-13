@@ -48,17 +48,13 @@
 ##	   --no-package        skip building installer packages (.deb/.rpm/NSIS setup)
 ##	   --no-largedoc       skip the large-document gate in the tests stage
 ##	   --no-profile        skip the profiler stage
-##	   --no-release        skip the release builds and what uses them (packages,
-##	                       dogfood, demo gif); the cross checks still run
+##	   --no-release        skip the release builds, and the packages, dogfood and
+##	                       demo gif made from them; cross checks still run
 ##	   --no-dogfood        skip installing the release builds locally
 ##	   --no-gif            skip the demo gif refresh
 ##	   --no-publish        skip the git backup + publish stage
-##	   --container         run stages 1-6 in the pinned image built from
-##	                       cicd/container/Dockerfile; sync, dogfood, demo gif
-##	                       and publish stay on this box. See below
-##	   --container=NAME    run in an extra image instead, cicd/container/NAME.Dockerfile,
-##	                       with the stages config.bash's CTR_ARGS_NAME picks.
-##	                       Nothing runs on this box after it
+##	   --container[=NAME]  run stages 1-6 in the pinned image from cicd/container/,
+##	                       or NAME.Dockerfile there for an extra one. See below
 ##	   -h, --help          show this help
 ##	- If neither -q/-y nor -m is given, the run prompts once for a commit message
 ##	  (blank = git editor; Ctrl+C aborts the whole run), then finishes unattended.
@@ -67,12 +63,10 @@
 ##	  that tree through without running the gate again. --quick, --no-fmt,
 ##	  --no-lint, --no-tests, --no-cross and a skipped tool each keep a run from
 ##	  recording.
-##	- --container needs docker, or SHCL_DOCKER naming a program that takes its
-##	  arguments, on x86_64. The image is built the first time it's needed, from
-##	  cicd/container/ plus rust-toolchain.toml, and tagged by their hash. The
-##	  repo is mounted at its own path, with its git dir, so the run records its
-##	  tree like any other. Caches go in CTR_CACHE (config.bash), and /tmp in a
-##	  new dir under TMPDIR for each run.
+##	- --container needs docker (or SHCL_DOCKER) on x86_64. Sync, dogfood, gif and
+##	  publish stay on this box. An extra image runs what CTR_ARGS_NAME in
+##	  config.bash picks, and nothing runs here after it. The repo is mounted at
+##	  its own path, so a run records its tree like any other.
 ##	- Reuse: copy the cicd/ directory into another project and edit config.bash.
 
 ##	History: At bottom of script.
@@ -122,6 +116,11 @@ fRunExtras(){ local c; for c in "$@"; do fEcho_Clean "extra: ${c}"; eval "${c}";
 
 ## shellcheck source=config.bash
 source "${here}/config.bash"
+## Set by --container for the run it starts, and for that run only: a gate that
+## runs this engine on a stub repo must not take itself for it.
+in_container=0
+if [[ -n "${SHCL_IN_CONTAINER:-}" ]]; then in_container=1; fi
+unset SHCL_IN_CONTAINER SHCL_CTR_IMAGE
 source "${here}/utility/include/gfs-rotate.bash"   ## gfs_rotate() for log/artifact pruning
 cd "${root}"
 stamp="$(date +%Y%m%d-%H%M%S)"
@@ -282,7 +281,7 @@ fInstallAtomic(){
 ## worktree's .git file still mean something.
 fRunContainer(){
 	local engine="${SHCL_DOCKER:-docker}" ctx="" tag="" old="" link="" real=""
-	local -a mounts=() env=() inner=() ctxFiles=()
+	local -a mounts=() groups=() env=() inner=() ctxFiles=()
 	fSection "Container: ${ctr_image}"
 	command -v "${engine}" >/dev/null 2>&1 || fDie "no ${engine} to run --container with (SHCL_DOCKER names another)"
 	[[ "$(uname -m)" == x86_64 ]] || fDie "--container is x86_64 only"
@@ -301,8 +300,10 @@ fRunContainer(){
 	if "${engine}" image inspect "${tag}" >/dev/null 2>&1; then
 		fEcho_Clean "image ${tag}"
 	else
-		fEcho_Clean "building ${tag}"
-		"${engine}" build -t "${tag}" "${ctx}" || fDie "could not build ${tag}"
+		## Quiet, since a first build is minutes of download lines. A failure
+		## still prints the step that failed.
+		fEcho_Clean "building ${tag}, which takes several minutes the first time"
+		"${engine}" build -q -t "${tag}" "${ctx}" >/dev/null || fDie "could not build ${tag}"
 		## What it replaces is a few GB nobody runs again.
 		while IFS= read -r old; do
 			if [[ -z "${old}" || "${old}" == "${tag}" ]]; then continue; fi
@@ -312,8 +313,8 @@ fRunContainer(){
 
 	local cache="${CTR_CACHE:-${HOME}/.cache/${APP_NAME}-cicd}/${ctr_image}"
 	mkdir -p "${cache}" || fDie "could not make the cache dir ${cache}"
-	## /tmp too, so big scratch lands where TMPDIR says rather than in the
-	## image's layer.
+	## /tmp too, so big scratch goes where TMPDIR says rather than into the
+	## container's layer on the root disk.
 	local scratch; scratch="$(mktemp -d)"; ctr_tmps+=("${scratch}")
 	mounts=(-v "${root}:${root}" -v "${cache}:/cache" -v "${scratch}:/tmp")
 	local gitCommon; gitCommon="$(git -C "${root}" rev-parse --path-format=absolute --git-common-dir)"
@@ -333,6 +334,24 @@ fRunContainer(){
 		done
 	fi
 
+	## The caller's uid and groups have no names in the image, and some rows
+	## need the second group a runner's user has. So the image's passwd and
+	## group files plus the caller's entries, and the caller's groups.
+	local etc gid gname; etc="$(mktemp -d)"; ctr_tmps+=("${etc}")
+	"${engine}" run --rm "${tag}" cat /etc/passwd > "${etc}/passwd" || fDie "could not read the image's /etc/passwd"
+	"${engine}" run --rm "${tag}" cat /etc/group > "${etc}/group" || fDie "could not read the image's /etc/group"
+	printf '%s:x:%s:%s::/cache/home:/bin/bash\n' "${USER:-builder}" "$(id -u)" "$(id -g)" >> "${etc}/passwd"
+	for gid in $(id -G); do
+		if grep -q "^[^:]*:[^:]*:${gid}:" "${etc}/group"; then continue; fi
+		gname="$(getent group "${gid}" | cut -d: -f1 || true)"
+		if [[ -z "${gname}" ]] || grep -q "^${gname}:" "${etc}/group"; then gname="g${gid}"; fi
+		printf '%s:x:%s:\n' "${gname}" "${gid}" >> "${etc}/group"
+	done
+	mounts+=(-v "${etc}/passwd:/etc/passwd:ro" -v "${etc}/group:/etc/group:ro")
+	for gid in $(id -G); do
+		if [[ "${gid}" != "$(id -g)" ]]; then groups+=(--group-add "${gid}"); fi
+	done
+
 	env=(-e SHCL_IN_CONTAINER=1 -e "SHCL_CTR_IMAGE=${ctr_image}" -e "USER=${USER:-builder}" -e "CPU_CAP=${CPU_CAP}")
 	if [[ -n "${SHCL_GATE_REF:-}" ]]; then env+=(-e "SHCL_GATE_REF=${SHCL_GATE_REF}"); fi
 	inner=("$( ((quiet)) && echo -q || echo -y )" --no-sync --no-dogfood --no-gif --no-publish "${ctr_pass[@]}")
@@ -342,7 +361,7 @@ fRunContainer(){
 		inner+=("${ctrArgs_k3v[@]}")
 	fi
 	fEcho_Clean "runs cicd.bash ${inner[*]}"
-	"${engine}" run --rm --init --user "$(id -u):$(id -g)" "${mounts[@]}" "${env[@]}" -w "${root}" \
+	"${engine}" run --rm --init --user "$(id -u):$(id -g)" "${groups[@]}" "${mounts[@]}" "${env[@]}" -w "${root}" \
 		"${tag}" bash "${root}/cicd/cicd.bash" "${inner[@]}" \
 		|| fDie "the run in the ${ctr_image} image failed; its output is above"
 	fEcho "OK: stages 1-6 in the ${ctr_image} image"
@@ -352,7 +371,7 @@ fRunContainer(){
 ## box should install or publish, so nothing runs here after it.
 ctr_recipe=""
 if [[ -n "${ctr_image}" ]]; then
-	[[ -z "${SHCL_IN_CONTAINER:-}" ]] || fDie "already in the container; --container would start another"
+	((! in_container)) || fDie "already in the container; --container would start another"
 	[[ "${ctr_image}" =~ ^[a-z0-9]+$ ]] || fDie "--container=${ctr_image}: an image name is lower-case letters and digits"
 	ctr_recipe="${CTR_DIR:-cicd/container}/${ctr_image}.Dockerfile"
 	[[ "${ctr_image}" == main ]] && ctr_recipe="${CTR_DIR:-cicd/container}/Dockerfile"
@@ -400,15 +419,16 @@ fi
 ## Tee the whole run to a rotated log so warnings can be reviewed later
 ## (lint-report.bash reads the newest one). Skipped under --ci (read-only gate),
 ## and in the container, where the run outside already logs all of it.
-if ((! ci_mode)) && [[ -z "${SHCL_IN_CONTAINER:-}" ]] && [[ -n "${LINT_LOG_DIR:-}" ]] && mkdir -p "${root}/${LINT_LOG_DIR}" 2>/dev/null; then
+if ((! ci_mode)) && ((! in_container)) && [[ -n "${LINT_LOG_DIR:-}" ]] && mkdir -p "${root}/${LINT_LOG_DIR}" 2>/dev/null; then
 	gfs_rotate "${root}/${LINT_LOG_DIR}" run log >/dev/null 2>&1 || true
 	exec > >(tee "${root}/${LINT_LOG_DIR}/run_${stamp}.log") 2>&1
 fi
 
 ## Warn (non-gating) when a pinned helper tool has drifted from TOOL_PINS, so a
 ## box update can't silently change results. Format: "name|version|command...".
-## The container run checks its own.
-if [[ -z "${ctr_image}" ]] && declare -p TOOL_PINS &>/dev/null; then
+## Under --container this box's tools don't run, and the run inside checks its own.
+if [[ -n "${ctr_image}" ]]; then TOOL_PINS=(); fi
+if declare -p TOOL_PINS &>/dev/null; then
 	for pin in "${TOOL_PINS[@]}"; do
 		pin_name="${pin%%|*}"; rest="${pin#*|}"; pin_ver="${rest%%|*}"; pin_cmd="${rest#*|}"
 		## Scan the first few lines, not just one: some tools (shellcheck) lead
@@ -482,7 +502,7 @@ if [[ -n "${ctr_image}" ]]; then
 else
 	## Whatever the container needs before a run, such as crates the --ci
 	## profiler check reads offline.
-	if [[ -n "${SHCL_IN_CONTAINER:-}" && -n "${CTR_PREP:-}" ]]; then eval "${CTR_PREP}"; fi
+	if ((in_container)) && [[ -n "${CTR_PREP:-}" ]]; then eval "${CTR_PREP}"; fi
 
 	## Stage 1: format. In place locally; check-only (fail on diff) under --ci.
 	fSection "1/9  Format"

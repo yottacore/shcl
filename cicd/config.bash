@@ -484,14 +484,14 @@ CTR_CONTEXT_EXTRA=(rust-toolchain.toml)
 ## Cargo, Go, pip and the advisory db, one dir per image. Under ~/.cache here,
 ## which is ZFS, rather than in a docker volume on the root disk.
 CTR_CACHE="${SHCL_CTR_CACHE:-${XDG_CACHE_HOME:-${HOME}/.cache}/${APP_NAME}-cicd}"
-## A gate worktree's target dir is a link into the main checkout, which the
+## A gate worktree's target dir is a link into the main checkout, which the the
 ## container has to see too.
 CTR_LINKS=(source/rust/target)
 ## Extra images build Rust into their own copy of this.
 CTR_PRIVATE=(source/rust/target)
 ## The --ci profiler check builds offline from the cache, and a new cache dir is
 ## empty. Fetched before the gate, the way a full run here fetches them.
-CTR_PREP='cargo fetch --offline --manifest-path "${MANIFEST}" >/dev/null 2>&1 || cargo fetch --manifest-path "${MANIFEST}"'
+CTR_PREP='cargo fetch --offline --manifest-path "${MANIFEST}" >/dev/null 2>&1 || cargo fetch --quiet --manifest-path "${MANIFEST}"'
 ## What each extra image runs, on top of the flags passed to cicd.bash. They
 ## never record the tree, since none is a full gate.
 ##   ubuntu: the hosted runner's OS and gcc 13. Format check, build, tests and
