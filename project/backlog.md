@@ -141,13 +141,14 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - Library gaps a generic tool has to work around
 	- ID: 2026100717500020
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting for testing
 	- Needs local test suite run?:
 		- (schema resolve) Y, the full `--ci` for exhaustive cppcheck over the C change, and the hosted windows job for Python's Windows branch, which nothing here runs.
 		- (kind) the full `--ci`, for exhaustive cppcheck, check-c-compilers and sanitize-c over the C change.
-		- (default) the full `--ci`, exhaustive cppcheck included, and the 2,000,000 release fuzz once 2026101010054746 is settled. The hosted run, and the C++ interface's windows build under wine.
+		- (default) the full `--ci`, for exhaustive cppcheck, check-c-compilers and sanitize-c over the C change.
 	- Needs external testing:
 		- (kind) the hosted run, whose windows job runs the new test in all four runners.
+		- (default) the hosted run, all jobs.
 	- Priority: Low
 	- Opened: 20261007-175000
 	- Opened by: Code review 20261007 item 20
@@ -164,6 +165,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261010 (default): the third requirement is built on `defaultfix`, in Rust, Go, Python, C and the C++ interface. A default form writes where the path is missing, where the field is empty, and where its value does not read as the type by the typed read at the document's strictness. A replaced value stays above the field as `# port: abc  ## replaced by shcl when setting a default for port, STAMP: not an int`. A raw block is refused for a default of another type, with the new last `SetStatus` value `RawBlock` (Go `SetRawBlock`, C `SHCL_SET_RAW_BLOCK`). design.md has a Default forms table as the rule.
 		- 20261010 (default): on this branch the fuzz property `Eqk24nZ` fails at 20,000 iterations and up. A bare `80,443` reads as text, `fmt` quotes it, and the quoted one reads as the int 80443, so a default acts differently on a document and on its reload. Filed as 2026101010054746. With the quoted thousands reading switched off, the 2,000,000 release fuzz passes all 27, so that is the only failure. Merging this branch before 2026101010054746 is settled turns the `--quick` and `--ci` fuzz red.
 		- 20261010 (default): built on `defaultfix` and not merged. It waits on 2026101010054746, whose fix changes which values the default forms replace, and on the `--set-default` question above.
+		- 20261013 (default): dev merged into `defaultfix`, over 2026101010054746's fix. The branch already did what both recorded decisions say, in all four CLIs, so the CLI is unchanged. A cli-regress row now pins `--set-literal-default` as well. Not merged to dev yet.
 	- Decisions:
 		- 20261008: before the cut, not after (JC).
 		- 20261009: all three get a fix, not docs (JC).
@@ -199,10 +201,12 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Commit (kind): `2c2937f1`
 	- Test case (kind): `kind_reads_say_what_is_there` in all four runners (Rust `EsJYNe1`, Go `EsJYNe2`, Python `EsJYNe3`, C `EsJYNe4`), and the kind checks in the C++ `veneer_smoke` (`EjtkR0S`).
 	- Swept (default): every default form in Rust, Go, Python, C and `shcl.hpp`, and `SetComment`, whose placement code became one helper the replace shares. The four CLIs' `refusal()` and help text (the ops table line and `--set-default`); their ops decoders already call the library forms. The status order tests in the four runners and veneer_smoke, and C's setter soup bound. spec.md, design.md (the status table, the note under Kept lines under edits, a new Default forms section), the man page, README, the corpus README, the code style guide, a perf-gate comment and the changelog. Corpus cases 014, 015, 063, 065, 092 and 121 use default ops and pass unchanged. The comparison tool and the dogfood runners call no default form.
+		- 20261013: the four CLIs' `--set-default`, `--set-literal-default` and typed default ops against the 20261009 and 20261010 decisions, with their help text, the man page, README, spec.md and design.md's Default forms table. All match.
 	- Verified (default): each new test fails with the old behavior put back, in all four, and the Rust table fails with the raw block replaced or the note left off. cargo test, rustfmt, clippy for the host and windows, `go test -count=1` for both modules, gofmt, go vet, staticcheck, the Python runner, ruff, mypy, the C runner, oom_hook, oom_recover, mem_bounds, veneer_smoke, check-veneer, check-c-compilers (5 compilers), sanitize-c, cppcheck at the normal level, the mingw CLI build, cli-regress (545 rows, 3203 checks, all four), crosscheck over the corpus and a 2,000-iteration fuzz dump (48930 comparisons), perf-gate in all four, check-docs (only the known `EpHGoa0` red), check-abnf, test-ids check, shell-regress, shellcheck and markdownlint. A one-off run of 8 typed default ops over the corpus inputs and 150 fuzz inputs through the four CLIs gave the same bytes and exit codes in 1137 runs, 369 of them replacing. The 200,000 release fuzz passes all but `Eqk24nZ` (2026101010054746).
-	- Test case (default): `default_fills_what_does_not_read` (Rust `EsJZko3`, Go `EsJZko4`, Python `EsJZko5`, C `EsJZko6`), `default_replace_round_trips` (Rust `EsJZko7`, Go `EsJZko8`, Python `EsJZko9`, C `EsJZkoA`), fuzz `a_default_leaves_a_value_of_its_type` (`EsJZkoB`), cli-regress `EsJZkoC`, `EsJZkoD`, `EsJZkoE` and `EsJZkoF`, and `RawBlock` added to the status order tests (`EsDRhHg`, `EsDeJ9a`, `EsDeik0`, `EsDjstE`) and veneer_smoke (`EjtkR0S`).
+		- 20261013, with dev merged in: the 2,000,000 release fuzz passes all 28 properties, `Eqk24nZ` and `EsZikJr` included. The four CLIs give the same bytes for `--set-default` and `--set-literal-default` over a bad value, an empty field, a missing one and a section header, and for the typed default ops. `EsaLLI5` fails with Python's `--set-literal-default` writing as `--set-literal`, and passes with it fixed. Also cargo test, the four conformance suites, `go test -count=1` per module, the C++ smoke (also built for windows and run under wine), check-veneer, cli-regress (550 rows, 3223 checks, all four), crosscheck (48990 comparisons), check-docs judged as main, check-abnf, check-doc-examples, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet and staticcheck for linux and windows, ruff, mypy, cppcheck at the normal level, shellcheck and markdownlint.
+	- Test case (default): `default_fills_what_does_not_read` (Rust `EsJZko3`, Go `EsJZko4`, Python `EsJZko5`, C `EsJZko6`), `default_replace_round_trips` (Rust `EsJZko7`, Go `EsJZko8`, Python `EsJZko9`, C `EsJZkoA`), fuzz `a_default_leaves_a_value_of_its_type` (`EsJZkoB`), cli-regress `EsJZkoC`, `EsJZkoD`, `EsJZkoE`, `EsJZkoF` and `EsaLLI5`, and `RawBlock` added to the status order tests (`EsDRhHg`, `EsDeJ9a`, `EsDeik0`, `EsDjstE`) and veneer_smoke (`EjtkR0S`).
 	- Branch (default): `defaultfix`
-	- Commit (default): `5bb89ac4`
+	- Commit (default): `5bb89ac4`, then `c0329cc9` with dev merged in
 
 - Run on the last Core 2 Duo, and AMD CPUs from that era.
 	- ID: 2026101301161858

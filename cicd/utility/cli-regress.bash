@@ -1509,6 +1509,7 @@ rows=(
 	'EsJZkoD|default-op-raw-block|set -|raw\tscript\tsh\techo hi\nint-default\tscript\t1\n|1||^op line 2: cannot write script: a raw block is there, and a default of another type would lose its body$'
 	'EsJZkoE|set-default-fills-empty|set --set-default=e=3 -|e:\n|0|e: 3\n|-'
 	'EsJZkoF|set-default-keeps-any-value|set --set-default=p=9 -|p: abc\n|0|p: abc\n|-'
+	'EsaLLI5|set-literal-default-keeps-any-value|set --set-literal-default=p=9 -|p: abc\n|0|p: abc\n|-'
 )
 
 declare -i nRun=0 nBad=0 n2x=0
