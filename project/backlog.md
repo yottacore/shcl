@@ -209,6 +209,20 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 **Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
 
+- Build and test in a pinned container.
+	- ID: 2026101303344553
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261013-033445
+	- Opened by: JC
+	- Target OS: Linux
+	- Requirements [Feature]:
+		- `cicd.bash --container` runs the build and test stages in an image built from a pinned recipe in `cicd/container/`. Toolchains come from pinned downloads with checksums.
+		- Toolchains on the build box clash between projects, such as 2 Zig versions on one link. A container keeps this project's pins apart.
+		- Other test boxes stay native, since their OS is what's being tested.
+		- zuid's `--container` stage is the model. gitsby and convert-base-v2 have one too.
+
 - check-migrate fails on 2 fuzz documents
 	- ID: 2026100919123100
 	- Type: Bug
