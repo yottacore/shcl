@@ -33,39 +33,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
-- `fmt` turns a bare `80,443` into a number
-	- ID: 2026101010054746
-	- Type: Bug
-	- Status: Done
-	- Severity: High
-	- Opened: 20261010-100547
-	- Opened by: found while working 2026100717500020
-	- Related IDs: 2026100717500020, 2026100719122101
-	- Version and build: dev at `ba94dd62`
-	- Steps to reproduce: a file holding `p: 80,443`. `shcl get --int FILE p` exits 4, not a valid int. `shcl fmt --write FILE` writes `p: "80,443"`, and the same `get` now prints 80443.
-	- Incorrect behavior: a typed read changes across a `fmt`, at exit 0. Thousands separators read only in quotes (spec.md), and since 2026100719122101 the writer quotes any value with a comma.
-	- Expected behavior: a value reads the same before and after `fmt` and a save.
-	- Reproduced: 20261010, dev's Rust build, and all four CLIs on `defaultfix`. 2026100717500020's default forms act on that read, so on `defaultfix` the fuzz property `Eqk24nZ` fails at iteration 12093: a default replaces the bare value on the document and leaves the quoted one on its reload.
-	- Possible cause [Bug]: two recorded rules meet. A quoted `1,000` reads as 1000 (spec.md, 20261006), and the writer quotes a value holding `,` (2026100719122101). Item 13 of an earlier review fixed the same class for a value a setter wrote, which counts as quoted when the canonical text quotes it.
-	- Decisions:
-		- 20261010: a quoted thousands number stops reading as a number, so `"1,000"` is text like `1,000`. `fmt` keeps quoting a value with a comma, and a typed read gives the same answer before and after a save (JC).
-	- Question: which way? Options, the first chosen:
-		- The writer keeps a bare value bare when quoting it would change how it reads, here one shaped like a thousands number. Canonical text then holds a bare comma in that one case.
-		- A quoted thousands number stops reading as a number, so `"1,000"` is text the same as `1,000`. Simplest, and it drops a feature.
-		- A bare thousands number reads as one too. This reverses spec.md's `ports: 80,443` example.
-	- Actual cause [Bug]: the int read took a well-formed thousands spelling when the element was quoted, and the float read took it past the i64 range too (Code review 20260904 item 20). A bare `80,443` was text, its quoted form a number.
-	- Actual fix [Bug]: the thousands branch is gone from the int read and the wide float read in all four, so `"1,000"` is text at every level, `BadType` as an int or a float. The `quoted` flag and the setter's quoting stay, since the writer and the public flag read them. spec.md, the README's Loose example, the corpus notes and the changelog say so.
-	- Against: spec.md's quoted-thousands rule (20261006) and the float path from Code review 20260904 item 20, both reversed by the decision above.
-	- Swept: every thousands parse, `grep -rn thousand` and a `[0-9],[0-9]{3}` grep over the four bindings, the C++ interface, the tests, cli-regress, the corpus and the docs. The int read and the wide float read were the only sites, in each binding. shcl.hpp, value-syntax.md and grammar.abnf have none. Corpus `100` and `202` and the 3 cli-regress rows of 20260909 item 13 expected 1000.
-	- Note: the 3 cli-regress rows `EpykNRw`, `EpykNRx` and `EpykNRy` expected 1000 from a setter's and a selector's `1,000`. They are commented out with the reason, and new rows expect exit 4.
-	- Verified: each new runner test and the new cli-regress rows fail on dev's library and pass on the fix, and so does the fuzz property, which fails at iteration 1470 on dev's library. Also: cargo test, clippy for linux and windows, rustfmt, the four conformance suites, `go test -count=1` per module, gofmt, vet and staticcheck for linux and windows, ruff, mypy, cppcheck, the C++ smoke, check-veneer, cli-regress (543 rows, 4 bindings), crosscheck (48990 comparisons), shell-regress, check-docs with `SHCL_GATE_REF=main`, check-abnf, check-doc-examples, test-ids, markdownlint, shellcheck, and the 2,000,000 release fuzz, all 27 properties.
-	- Verified: 20261013, with this fix merged over `defaultfix`, the 2,000,000 release fuzz passes all 28 properties, `Eqk24nZ` included. Plain `defaultfix` still fails `Eqk24nZ` at iteration 12093.
-	- Test case: `a_thousands_comma_reads_the_same_after_a_save`, Rust `EsZikJi`, Go `EsZikJj`, Python `EsZikJk`, C `EsZikJl`; fuzz `EsZikJr` (`typed_reads_survive_a_save`), typed reads before and after a save over loaded and set values at each level; cli-regress `EsZikJm` to `EsZikJq`; corpus `100` and `202` reads.
-	- Branch: `thousands`
-	- Commit: `50be3ed9`
-	- Acceptance signoff: Self-closed: does what the recorded decision asked, and each new test fails before the fix and passes after.
-	- Closed: 20261013-041158
-
 - Library gaps a generic tool has to work around
 	- ID: 2026100717500020
 	- Type: Enhancement
@@ -234,6 +201,39 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Toolchains on the build box clash between projects, such as 2 Zig versions on one link. A container keeps this project's pins apart.
 		- Other test boxes stay native, since their OS is what's being tested.
 		- zuid's `--container` stage is the model. gitsby and convert-base-v2 have one too.
+
+- `fmt` turns a bare `80,443` into a number
+	- ID: 2026101010054746
+	- Type: Bug
+	- Status: Done
+	- Severity: High
+	- Opened: 20261010-100547
+	- Opened by: found while working 2026100717500020
+	- Related IDs: 2026100717500020, 2026100719122101
+	- Version and build: dev at `ba94dd62`
+	- Steps to reproduce: a file holding `p: 80,443`. `shcl get --int FILE p` exits 4, not a valid int. `shcl fmt --write FILE` writes `p: "80,443"`, and the same `get` now prints 80443.
+	- Incorrect behavior: a typed read changes across a `fmt`, at exit 0. Thousands separators read only in quotes (spec.md), and since 2026100719122101 the writer quotes any value with a comma.
+	- Expected behavior: a value reads the same before and after `fmt` and a save.
+	- Reproduced: 20261010, dev's Rust build, and all four CLIs on `defaultfix`. 2026100717500020's default forms act on that read, so on `defaultfix` the fuzz property `Eqk24nZ` fails at iteration 12093: a default replaces the bare value on the document and leaves the quoted one on its reload.
+	- Possible cause [Bug]: two recorded rules meet. A quoted `1,000` reads as 1000 (spec.md, 20261006), and the writer quotes a value holding `,` (2026100719122101). Item 13 of an earlier review fixed the same class for a value a setter wrote, which counts as quoted when the canonical text quotes it.
+	- Decisions:
+		- 20261010: a quoted thousands number stops reading as a number, so `"1,000"` is text like `1,000`. `fmt` keeps quoting a value with a comma, and a typed read gives the same answer before and after a save (JC).
+	- Question: which way? Options, the first chosen:
+		- The writer keeps a bare value bare when quoting it would change how it reads, here one shaped like a thousands number. Canonical text then holds a bare comma in that one case.
+		- A quoted thousands number stops reading as a number, so `"1,000"` is text the same as `1,000`. Simplest, and it drops a feature.
+		- A bare thousands number reads as one too. This reverses spec.md's `ports: 80,443` example.
+	- Actual cause [Bug]: the int read took a well-formed thousands spelling when the element was quoted, and the float read took it past the i64 range too (Code review 20260904 item 20). A bare `80,443` was text, its quoted form a number.
+	- Actual fix [Bug]: the thousands branch is gone from the int read and the wide float read in all four, so `"1,000"` is text at every level, `BadType` as an int or a float. The `quoted` flag and the setter's quoting stay, since the writer and the public flag read them. spec.md, the README's Loose example, the corpus notes and the changelog say so.
+	- Against: spec.md's quoted-thousands rule (20261006) and the float path from Code review 20260904 item 20, both reversed by the decision above.
+	- Swept: every thousands parse, `grep -rn thousand` and a `[0-9],[0-9]{3}` grep over the four bindings, the C++ interface, the tests, cli-regress, the corpus and the docs. The int read and the wide float read were the only sites, in each binding. shcl.hpp, value-syntax.md and grammar.abnf have none. Corpus `100` and `202` and the 3 cli-regress rows of 20260909 item 13 expected 1000.
+	- Note: the 3 cli-regress rows `EpykNRw`, `EpykNRx` and `EpykNRy` expected 1000 from a setter's and a selector's `1,000`. They are commented out with the reason, and new rows expect exit 4.
+	- Verified: each new runner test and the new cli-regress rows fail on dev's library and pass on the fix, and so does the fuzz property, which fails at iteration 1470 on dev's library. Also: cargo test, clippy for linux and windows, rustfmt, the four conformance suites, `go test -count=1` per module, gofmt, vet and staticcheck for linux and windows, ruff, mypy, cppcheck, the C++ smoke, check-veneer, cli-regress (543 rows, 4 bindings), crosscheck (48990 comparisons), shell-regress, check-docs with `SHCL_GATE_REF=main`, check-abnf, check-doc-examples, test-ids, markdownlint, shellcheck, and the 2,000,000 release fuzz, all 27 properties.
+	- Verified: 20261013, with this fix merged over `defaultfix`, the 2,000,000 release fuzz passes all 28 properties, `Eqk24nZ` included. Plain `defaultfix` still fails `Eqk24nZ` at iteration 12093.
+	- Test case: `a_thousands_comma_reads_the_same_after_a_save`, Rust `EsZikJi`, Go `EsZikJj`, Python `EsZikJk`, C `EsZikJl`; fuzz `EsZikJr` (`typed_reads_survive_a_save`), typed reads before and after a save over loaded and set values at each level; cli-regress `EsZikJm` to `EsZikJq`; corpus `100` and `202` reads.
+	- Branch: `thousands`
+	- Commit: `50be3ed9`
+	- Acceptance signoff: Self-closed: does what the recorded decision asked, and each new test fails before the fix and passes after.
+	- Closed: 20261013-041158
 
 - check-migrate fails on 2 fuzz documents
 	- ID: 2026100919123100
