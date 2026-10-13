@@ -2326,6 +2326,35 @@ func TestWriteStatusOf(t *testing.T) {
 	}
 }
 
+// FILE: and the system's own message, as the other three say it. The path
+// and link errors named the call and the temp file again (2026100719122102),
+// so the errors here carry a windows path on every platform.
+func TestWriteFailureNamesNoTempFile(t *testing.T) {
+	defer testID(t, "EsaBeHl")
+	target := filepath.Join(t.TempDir(), "reason.shcl")
+	tmp := `C:\Users\x\.reason.shcl.tmp1.0`
+	oldCreate, oldPublish := createTemp, publishFile
+	defer func() { createTemp, publishFile = oldCreate, oldPublish }()
+	createTemp = func(_, _ string, _ os.FileMode) (*os.File, error) {
+		return nil, &fs.PathError{Op: "open", Path: tmp, Err: fs.ErrPermission}
+	}
+	err := WriteFileAtomic(target, "a: 1\n")
+	if want := target + ": cannot create temporary file: " + fs.ErrPermission.Error(); err == nil || err.Error() != want || !errors.Is(err, fs.ErrPermission) {
+		t.Errorf("a failed temp file says %v, want %q", err, want)
+	}
+	createTemp = oldCreate
+	if err := WriteFileAtomic(target, "a: 1\n"); err != nil {
+		t.Fatal(err)
+	}
+	publishFile = func(string, string) error {
+		return &os.LinkError{Op: "rename", Old: tmp, New: `C:\Users\x\reason.shcl`, Err: fs.ErrPermission}
+	}
+	err = WriteFileAtomic(target, "a: 2\n")
+	if want := target + ": " + fs.ErrPermission.Error(); err == nil || err.Error() != want || !errors.Is(err, fs.ErrPermission) {
+		t.Errorf("a failed publish says %v, want %q", err, want)
+	}
+}
+
 func TestReadFileAtTheLargestCap(t *testing.T) {
 	defer testID(t, "EoLznCy")
 	// A cap given as the type maximum used to overflow the over-cap probe and

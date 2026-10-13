@@ -424,6 +424,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The Python CLI writes UTF-8 and handles closed streams. `save_file` no longer leaks a temp file, a deep document no longer exhausts the stack, and `read_file(0)` no longer reads stdin.
 
+- A failed save in Go and Python gives the file and the system's own message, as Rust and C do. Both named the temp file as well, and Python wrote it with every backslash doubled on Windows.
+
 ### Windows
 
 - A save keeps the hidden and system attributes, and can no longer leave nothing at the path. A publish blocked for a moment is retried. Its temp file takes the file's ACL.

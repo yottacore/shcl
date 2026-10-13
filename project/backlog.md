@@ -69,8 +69,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 - A `--json` mode for the list commands
 	- ID: 2026100814455655
 	- Type: Feature
-	- Status: Queued
-	- Needs external testing: Windows PowerShell 5.1 reading the lines with `ConvertFrom-Json` (only pwsh 7.6 ran here); the hosted windows job's cli-regress `EsEvmLE` and README PowerShell blocks; the full `--ci` (exhaustive cppcheck over the C changes) and a hosted run with the next main push.
+	- Status: Waiting for testing
+	- Needs external testing: the hosted windows job (`gh workflow run ci --ref winscan`): cli-regress `EsEvmLE` green for every binding. Also the README PowerShell blocks, and the full `--ci` (exhaustive cppcheck over the C changes) and a hosted run with the next main push.
 	- Priority: Avg
 	- Opened: 20261008-144556
 	- Opened by: JC, from talk on 2026100717500016
@@ -96,18 +96,20 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- PowerShell 7 turns a value that looks like a date into a `DateTime`, unless 7.5 or later is given `-DateKind String`. README and the man page say so. Windows PowerShell 5.1 should not do this, but was not run.
 		- 20261010: hosted windows job: `EsEvmLE` red for every binding. `jq -c .` wrote every line back "differently" with the same text, which points at line endings: jq on windows ends its lines with CR LF and the scan compares bytes. Back to Queued; the scan should strip the CR before comparing. Ubuntu and macos passed it.
 		- 20261010: the Windows PowerShell 5.1 half ran on vm925w (5.1.26100): the README block as written gives both sites with their paths and lines, `line` is a number, a value shaped like a date stays a string, a non-ASCII value reads right after `[Console]::OutputEncoding` is set, `get`, `children` and `paths --json` read back, and a missing field exits 3. Done, so no further box visit is needed.
+		- 20261013: `EsEvmLE` takes the CRs off jq's output before comparing, in both of its jq calls. jq escapes a CR inside a string, so a bare one is a line end. The CLI's own lines keep theirs, so a CLI that writes CR LF still fails. This works whatever jq's build or version, where `--binary` would depend on both.
 	- Swept: the four CLIs' option tables, help and dispatch, both completion files, check-completions and shell-regress's anchors on the old shared option row, the crosscheck and sanitize-c row arms, README, the man page, spec.md and the changelog.
 	- Verified: the four conformance suites and the veneer smoke, cli-regress over all four CLIs (strict, pwsh 7.6 and jq 1.8.1), crosscheck over the corpus and a 500-input fuzz dump (48747 comparisons, 0 divergences), sanitize-c, check-readme, check-docs (only the known `installers-match-main` red), check-abnf, check-completions, check-veneer, shell-regress, test-ids check, markdownlint, shellcheck, clippy for both targets, go vet and staticcheck, ruff and mypy, cppcheck at the normal level, gcc 15, clang and mingw builds of the C CLI. `EsEvmL4` and `EsEvmLE` failed with Go's DEL escape removed, and the library tests failed with a slot miss dropped.
-	- Branch: `listjson`
-	- Commit: `250115f3`
+		- 20261013: with a jq that writes CR LF first on PATH, `EsEvmLE` failed for all four bindings with "jq -c . writes a line back differently", as on the hosted windows job. With the fix it passes there and with the plain jq. It still fails for a CLI whose output ends its lines with CR LF. cli-regress (545 rows, four bindings), crosscheck, check-doc-examples, check-docs judged as main, shell-regress, shellcheck over the lint list, test-ids check and markdownlint pass.
+	- Branch: `listjson`, then `winscan` for the CR LF fix
+	- Commit: `250115f3`, then `2f860c48`
 	- Test case: `fields_give_each_instance_its_own_path` (Rust `EsEsFl8`, Go `EsEsFnM`, Python `EsEsFpX`, C `EsEsFrh`) and the veneer smoke; cli-regress `EsEvmKw`, `EsEvmKy`, `EsEvmL0` to `EsEvmLC`, and `EsEvmLE` (every corpus input's `--json` lines through `jq -c .` and `ConvertFrom-Json`); crosscheck and sanitize-c `--json` on every listing row and `paths --json` on every input; check-readme's bash and PowerShell blocks.
 
 - Doc examples, man page blocks and help text aren't run as tests
 	- ID: 2026100719122102
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Waiting for testing
 	- Needs local test suite run?: Y, the full `--ci`, whose tests stage runs the new gate.
-	- Needs external testing: a hosted run. The ubuntu job runs the new gate with jq, and the macos and windows jobs run cli-regress's two new scans.
+	- Needs external testing: a hosted run (`gh workflow run ci --ref winscan`). The windows job: cli-regress `EsJLUK1`, `EsaAH2V` and `EsaAW1o` green for every binding, and the Go `EsaBeHl` and Python `EsaBeHk` runner tests. The ubuntu job runs check-doc-examples with jq, and the macos job cli-regress's two scans.
 	- Priority: Avg
 	- Opened: 20261007-191221
 	- Opened by: JC
@@ -121,6 +123,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261010: `check-doc-examples.bash` runs the tables in value-syntax.md and spec.md through all four CLIs with `doc-tables.py`, and the man page's EXAMPLES blocks on each binding. Every binding has to print the same bytes, and the result has to be what the row says. 58 rows of value-syntax.md and 33 of spec.md are checked, and the rest are prose and counted. Every row holds on all four bindings, so no doc or binding defect turned up.
 		- 20261010: cli-regress fails on a 2.x escape form in the help, each `help CMD`, each `explain` code with the retired ones, `--about`, `--donate`, the rendered man page, and the stdout and stderr of every row on every binding.
 		- 20261010: hosted windows job: `EsJLUK1` red. The scan read the Python CLI's OS error on the `write-names-the-phase` row (`Eon514S`) as a 2.x escape: Python quotes the temp path in the message as `'C:\\Users\\...'`, with doubled backslashes. A Windows path in an OS message is not a value escape. Back to Queued; either the scan skips the OS text after the colon or the Python CLI prints the OS error without the path repr, as the other three do. Ubuntu and macos passed it.
+		- 20261013: the cause is in the Python library, so the scan stays as it is. A failed save gave `str()` of the OS error, which adds `[Errno N]` and the temp file's name as a repr. Rust and C give `FILE: ` and the system's own message, as the UI guide says, and Go named the call and the temp file. Python and Go now give the file and the system's message for the temp file create, a failed write, sync, close or publish, and the windows note on where the files were left.
 	- Decisions:
 		- 20261010: a table is known by its header. Each known kind has a reader, a header with none fails the gate, and a table with no examples is listed by header with its reason (me).
 		- 20261010: in a code table, a quoted whole line is an example of the row's code. That is an item, or a name then a colon and a value. A retired code's line gives the code its row names instead. `- value`, `route: [GET, POST]` and `p: a,b` are not examples and are listed by content (me).
@@ -128,10 +131,12 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- 20261010: the man page names server.shcl and a schema without showing them, so the README's are used (me).
 		- 20261010: the 2.x rule is a backslash then `n` or `t` with no letter or digit after it, or two backslashes, so `C:\temp\new` passes. JSON lines pass, and so does migrate's output of a kept 2.x pair, listed by content (me).
 	- Swept: the 2.x scan reads everything the CLIs print in cli-regress's 541 rows, ops scripts and diagnostics included, plus every help and code text. The README and man page shell blocks run under check-readme and this gate. README prose is not CLI output and is not scanned.
+		- 20261013, the OS error text: in Python, every place an `OSError` goes into a message. The save's temp create, `_failed` (write, sync, close, publish) and the windows publish note are fixed. The backup's create and write, `read_input`, the schema read and the stdout write already used `strerror`. In Go, the same three save sites and the windows publish note; `WriteBackup` and the read already unwrapped the path error. Rust's `io::Error` and C's `strerror` carry no path.
 	- Verified: each new test was seen to fail. `EsJLUJx` and `EsJLUJy` on doc copies with a changed value, code, element count, alias, character, migrate result, typed read, strictness pair, boolean token and `◉U+` prefix, on a reads-as wording with no rule, on a renamed table header, and on a floor above the row count. A binding that differs from the rest in one read, or in an exit code, fails them too. `EsJLUJz` on `site[*]` in a block, a roff escape in a block, a `.nf` block under another section, and only 4 blocks. `EsJLUK0` and `EsJLUK1` on a binding that writes `\n` in place of `◉NEWLINE◉` and in its help. `EsJLUK1` with an allowed migrate line taken off the list and with no rows scanned, `EsJLUK0` with a `\en` added to the man page. On the branch, check-doc-examples and cli-regress (541 rows, 3187 checks, four bindings), check-readme, check-docs (only the known `EpHGoa0` red), shell-regress, check-pins, test-ids check, shellcheck over the lint list, ruff and markdownlint pass.
-	- Branch: `doctest`
-	- Commit: `9131f267`
-	- Test case: check-doc-examples `EsJLUJx` (value-syntax.md tables), `EsJLUJy` (spec.md tables) and `EsJLUJz` (man page examples). cli-regress `EsJLUK0` (help, code texts and man page) and `EsJLUK1` (every row's output).
+		- 20261013: with the temp folder under a name holding a backslash, `EsJLUK1` flagged dev's Python CLI on `Eon514S` and nothing else, the same failure as hosted, and passed with the fixed one. cli-regress `EsaAH2V` and `EsaAW1o` failed on dev's Python and Go CLIs and pass on all four. Python `EsaBeHk` failed on dev's library at the temp create, and at the publish with only the temp create fixed. Go `EsaBeHl` failed on dev's library at both. cli-regress (545 rows, four bindings), the Python and Go suites, crosscheck, check-doc-examples, check-docs judged as main, shell-regress, shellcheck over the lint list, ruff and mypy, go vet and staticcheck for linux and windows, test-ids check and markdownlint pass.
+	- Branch: `doctest`, then `winscan` for the OS error text
+	- Commit: `9131f267`, then `2f860c48`
+	- Test case: check-doc-examples `EsJLUJx` (value-syntax.md tables), `EsJLUJy` (spec.md tables) and `EsJLUJz` (man page examples). cli-regress `EsJLUK0` (help, code texts and man page) and `EsJLUK1` (every row's output). For the OS error text, cli-regress `EsaAH2V` and `EsaAW1o` (a failed temp file gives the file and the system's message, in all four CLIs), Python `EsaBeHk` and Go `EsaBeHl` (the same with a windows path in the OS error). Rust and C get no runner test, since their OS error text never holds a path.
 
 - Library gaps a generic tool has to work around
 	- ID: 2026100717500020

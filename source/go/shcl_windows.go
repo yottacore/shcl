@@ -255,9 +255,9 @@ func windowsPublishFile(tmp, target string) error {
 		return err
 	}
 	if movedAway {
-		return fmt.Errorf("%w; the old file is left at %s and the new text at %s", err, backup, tmp)
+		return fmt.Errorf("%w; the old file is left at %s and the new text at %s", osReason(err), backup, tmp)
 	}
-	return fmt.Errorf("%w; the new text is left at %s", err, tmp)
+	return fmt.Errorf("%w; the new text is left at %s", osReason(err), tmp)
 }
 
 func isThere(path string) bool {
