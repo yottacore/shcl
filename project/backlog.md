@@ -115,6 +115,7 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Verified: the new check fails on 6 broken copies of ci.yml (both jobs `--no-lint`, a `--no-largedoc` job, a job without `--ci`, no matrix value, one literal `--no-tests` run, no `cicd.bash` at all) and passes on the real one and on dev's single job. check-push-gate's new row fails when `--no-tests` doesn't hold back the record, and when it skips nothing. shell-regress `EsZzNEZ` fails 4 ways against dev's check-pins and passes with the fix. Also actionlint (which catches a wrong matrix or step name in a control copy), shellcheck over every gate target, check-pins, check-push-gate, shell-regress, check-docs judged as main, test-ids check, markdownlint.
 	- Test case: check-pins `EsZzNCY`, shell-regress `EsZzNEZ`, and the `--no-tests` row in check-push-gate `EqGl8mf`. No test bounds the hosted time itself; the hosted run is the check.
 	- Branch: `cisplit`
+	- Commit: `cbfced5c`
 
 - A `--json` mode for the list commands
 	- ID: 2026100814455655
