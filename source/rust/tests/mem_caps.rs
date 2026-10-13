@@ -10,6 +10,7 @@ mod common;
 use common::test_id;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, MutexGuard};
 
 struct Counting;
 static IN_USE: AtomicUsize = AtomicUsize::new(0);
@@ -45,14 +46,26 @@ static GLOBAL: Counting = Counting;
 
 static ALLOCS: AtomicUsize = AtomicUsize::new(0);
 
+// One test at a time, and one lock for all of them: the harness runs the tests
+// in this file on threads, and the counters are global. A test takes its turn
+// before it builds its input, or the build counts into whichever measurement
+// is running beside it (2026101308163572).
+static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+type Turn = MutexGuard<'static, ()>;
+
+fn my_turn() -> Turn {
+	// A failed test poisons the lock. The rest still measure fine.
+	ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// Allocation calls made while f runs. The path scan used to build and free two
 /// strings per segment per line, which no timing threshold could catch: it is a
 /// few percent of a parse and inside the noise of any machine.
-/// The counter is global and the other tests in this file run beside this one,
-/// so a single reading can only come out too high. The same call repeated is
-/// deterministic, so the lowest of several is the real figure.
-fn allocs_during(mut f: impl FnMut()) -> usize {
-	let _turn = ONE_AT_A_TIME.lock().unwrap();
+/// The harness's own threads still allocate now and then, so a single reading
+/// can only come out too high. The same call repeated is deterministic, so the
+/// lowest of several is the real figure.
+fn allocs_during(_turn: &Turn, mut f: impl FnMut()) -> usize {
 	let mut best = usize::MAX;
 	for _ in 0..5 {
 		let start = ALLOCS.load(Ordering::Relaxed);
@@ -65,6 +78,7 @@ fn allocs_during(mut f: impl FnMut()) -> usize {
 #[test]
 fn a_plain_name_costs_the_scan_nothing() {
 	let _id = test_id("EoneEzg");
+	let turn = my_turn();
 	use shcl::{Document, Strictness};
 	// Same document twice over, once with one segment a line and once with
 	// four. The extra segments add no extra text, so anything the count
@@ -72,10 +86,10 @@ fn a_plain_name_costs_the_scan_nothing() {
 	let lines = 2_000;
 	let flat: String = (0..lines).map(|i| format!("k{}: v\n", i)).collect();
 	let deep: String = (0..lines).map(|i| format!("a.b.c.k{}: v\n", i)).collect();
-	let one = allocs_during(|| {
+	let one = allocs_during(&turn, || {
 		Document::parse_with(&flat, Strictness::Standard).unwrap();
 	});
-	let four = allocs_during(|| {
+	let four = allocs_during(&turn, || {
 		Document::parse_with(&deep, Strictness::Standard).unwrap();
 	});
 	// Three more segments a line. What is left is the segment vector growing to
@@ -91,15 +105,9 @@ fn a_plain_name_costs_the_scan_nothing() {
 	);
 }
 
-// One measurement at a time, and one lock for all of them: the harness runs
-// the tests in this file on threads, and a second measurement running beside
-// the first counts into it.
-static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 /// Peak bytes held above the starting point while f runs: what the call
 /// needed at its worst, not what it touched in total.
-fn peak_during(f: impl FnOnce()) -> usize {
-	let _turn = ONE_AT_A_TIME.lock().unwrap();
+fn peak_during(_turn: &Turn, f: impl FnOnce()) -> usize {
 	let start = IN_USE.load(Ordering::Relaxed);
 	PEAK.store(start, Ordering::Relaxed);
 	f();
@@ -109,9 +117,10 @@ fn peak_during(f: impl FnOnce()) -> usize {
 #[test]
 fn element_cap_bounds_the_parse() {
 	let _id = test_id("EoezJiC");
+	let turn = my_turn();
 	use shcl::{Document, Strictness};
 	let text = format!("arr: [{}1]\nok: 5\n", "1, ".repeat(200_000));
-	let capped = peak_during(|| {
+	let capped = peak_during(&turn, || {
 		let doc = Document::parse_limited(&text, Strictness::Standard, 0, 8, 0).unwrap();
 		assert_eq!(doc.lost_count(), 1);
 		assert_eq!(doc.get_int("ok"), Ok(5));
@@ -128,13 +137,14 @@ fn element_cap_bounds_the_parse() {
 #[test]
 fn diagnostic_cap_bounds_the_parse() {
 	let _id = test_id("EofAXrU");
+	let turn = my_turn();
 	use shcl::{Document, Strictness};
 	// The stacked spelling refuses each element line past the cap on its own,
 	// and every refusal is a diagnostic: with the element cap alone, 200k
 	// refused lines cost more than the elements they refused. The diagnostic
 	// cap is what bounds that.
 	let text = format!("arr:\n{}", "\t- 1\n".repeat(200_000));
-	let capped = peak_during(|| {
+	let capped = peak_during(&turn, || {
 		let doc = Document::parse_limited(&text, Strictness::Standard, 0, 8, 100).unwrap();
 		assert_eq!(doc.diagnostics().len(), 101);
 		assert_eq!(doc.lost_count(), 200_000 - 8);
