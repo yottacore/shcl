@@ -172,6 +172,14 @@ A full (non-`--quick`) pipeline run also wants the cross and packaging tools:
 
 None of this is needed for `--ci`, which is the gate that matters for a pull request.
 
+If you'd rather not install any of it, `cicd/cicd.bash --container` runs stages 1 to 6 in a Debian image with every tool at its pinned version. It needs docker, and builds the image from `cicd/container/` the first time. The sync, dogfood, demo gif and publish stages still run on your box. The stage flags pass through, so `cicd/cicd.bash --ci --container` is the gate in the image. Caches go in `~/.cache/shcl-cicd`, or wherever `SHCL_CTR_CACHE` points.
+
+Two more images are there for now and then:
+
+- `--container=ubuntu` is Ubuntu 24.04 and its gcc 13, like the hosted runner, for a red that only shows up there. It runs the format check, build, tests and cross checks, strict like `--ci`.
+
+- `--container=alpine` builds on musl and runs the binding suites and the CLI checks.
+
 ### Build and test
 
 - Fast loop: `cargo test --manifest-path source/rust/Cargo.toml` - runs the conformance corpus plus the fuzz smoke against the reference.

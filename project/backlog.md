@@ -75,10 +75,40 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `loosethou`
 	- Commit: `4527cc4e`, `bae0d847`, `10deaa99`
 
+- On musl, the C binding's schema-line check fails on `/proc/self/pagemap` with the wrong error
+	- ID: 2026101316013508
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261013-160135
+	- Opened by: me, from the Alpine image run in 2026101309250977
+	- Related IDs: 2026101309250977
+	- Target OS: Linux with musl
+	- Steps to reproduce: `cicd/cicd.bash --container=alpine`, then read cli-regress row `ErTZaL2` (`schema-line-pagemap`).
+	- Incorrect behavior: the C CLI exits 8 with `/proc/self/pagemap: Invalid argument`.
+	- Expected behavior: the same as on glibc and the other 3 bindings, exit 8 with "too large for a schema".
+	- Reproduced: 20261013, in the Alpine image. Why musl differs is not checked yet.
+	- Note: no musl build is released, so this only reaches someone who builds the C library on musl.
+
+- On musl, the C binding's `reads` workload is about 4 times slower than on glibc
+	- ID: 2026101316013509
+	- Type: Bug
+	- Status: Queued
+	- Severity: Low
+	- Opened: 20261013-160135
+	- Opened by: me, from the Alpine image run in 2026101309250977
+	- Related IDs: 2026101309250977
+	- Target OS: Linux with musl
+	- Steps to reproduce: `cicd/cicd.bash --container=alpine`, then read perf-gate's `reads` row for C.
+	- Incorrect behavior: about 370 ms against a 300 ms budget. glibc takes about 90 ms.
+	- Expected behavior: close to glibc, like every other C workload in that run.
+	- Reproduced: 20261013, in the Alpine image. Not profiled yet. musl's allocator is the first thing to rule out.
+	- Note: no musl build is released, so this only reaches someone who builds the C library on musl.
+
 - Build and test in a pinned container.
 	- ID: 2026101303344553
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority [Feature|Enhancement] | Severity [Bug]: Low
 	- Opened: 20261013-033445
 	- Opened by: JC
@@ -94,12 +124,26 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- The cargo, go and cppcheck caches go on volumes on ZFS, or every run starts cold.
 		- The repo is mounted so the green-tree record, the pre-push gate and a gate worktree's `target-gate` link still work.
 		- Dogfood deploys, backup and publish, git push and the gif stage stay on the host.
-		- Question: should hosted CI pull the same image instead of installing tools each run? It would save time against the 60-minute limit, but hosted would stop testing Ubuntu.
+	- Progress log:
+		- 20261013: `cicd.bash --container` builds the image from `cicd/container/` and `rust-toolchain.toml` the first time it's needed, tagged by a hash of those files, and runs stages 1 to 6 in it. Sync runs on the host before it, and dogfood, the gif and publish after it, from what it built.
+		- 20261013: It runs as the caller's uid, with the caller's groups, since 2 cli-regress rows need a second group. The repo, its git dir and a gate worktree's `target-gate` are mounted at their own paths. `/tmp` is a new dir under `TMPDIR` for each run.
+	- Decisions:
+		- 20261013: Hosted CI doesn't pull the image. It stays on native Ubuntu and installs its tools each run, so the hosted gate still tests Ubuntu. The container is local only (me).
+		- 20261013: Stage 6 runs in the container too, release builds and the CPU floor check included, since only dogfood, the gif and publish need the host (me).
+		- 20261013: The caches are a dir per image under `~/.cache/shcl-cicd`, which is ZFS here, mounted in. A docker volume would sit on the root disk (me).
+		- 20261013: Apt reads the Debian snapshot the base image names. pip installs by hash and npm from a lock file, and check-pins fails when a recipe and TOOL_PINS disagree. No wine and no Go floor version, since no stage runs either (me).
+		- 20261013: `--no-release` skips the release builds and the packages, dogfood and gif made from them. The Alpine image runs with it (me).
+	- Verified: 20261013. `SHCL_GATE_REF=main cicd/cicd.bash --ci --container` passed in the image in about 33 minutes, with no FAIL and only the windows-only skips, and recorded its tree for the pre-push hook. A full `cicd/cicd.bash -y --container`, less sync, dogfood, gif and publish, passed stages 1 to 6 there too: the profiler, the native and 5 cross release builds, the CPU floor check booting both emulated CPUs, and the .deb, .rpm and setup packages. Also shellcheck over the gate's list, check-pins, check-docs with `SHCL_GATE_REF=main`, shell-regress and markdownlint.
+	- Test case: check-pins `Esbpsph` (the recipes install the TOOL_PINS versions) and `Esbpt85` (every download in them is hashed), pinned by shell-regress `Esbq6Ie`, whose 9 cases all fail with the 2 checks taken out. The container itself has no test of its own; a `--container` run is the gate.
+	- Branch: `ctrbuild`
+	- Commit: `a1afc401`, `bb96e452`, `07914455`
+	- Acceptance signoff: Self-closed: the item's requirements and notes were the spec, the gate passed in the image and recorded its tree, and the new checks were seen to fail.
+	- Closed: 20261013-155744
 
 - Extra Linux test images
 	- ID: 2026101309250977
 	- Type: Enhancement
-	- Status: Queued
+	- Status: Done
 	- Priority [Feature|Enhancement] | Severity [Bug]: Low
 	- Opened: 20261013-092509
 	- Opened by: me, agreed by JC
@@ -110,6 +154,20 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Ubuntu 24.04, to match the hosted runner and its gcc 13, so a hosted-only red can be reproduced here.
 		- Alpine, for musl.
 		- The other test boxes stay native.
+	- Progress log:
+		- 20261013: `--container=ubuntu` and `--container=alpine` build `cicd/container/ubuntu.Dockerfile` and `alpine.Dockerfile` the first time they're needed. `CTR_ARGS_ubuntu` and `CTR_ARGS_alpine` in config.bash name what each runs. Neither records the tree, and nothing runs on the host after either.
+		- 20261013: The Ubuntu image found that Ubuntu's own mawk reads `#{2,5}` wrong, so check-docs' contents-block check fails under it. The hosted lint job passes that check, so the runner's awk reads it right; the image has gawk now.
+		- 20261013: The Alpine run is red on 2 musl differences in the C binding. cli-regress `ErTZaL2` gets `/proc/self/pagemap: Invalid argument` where glibc gets to "too large for a schema". Why is not checked yet. perf-gate's `reads` workload takes about 370 ms in C against a 300 ms budget, where glibc takes about 90, while every other C workload is close to glibc's time. Both need items of their own.
+	- Decisions:
+		- 20261013: Ubuntu 24.04 runs the format check, build, tests and cross checks, strict like `--ci`. That's the hosted tests job plus the cross checks, which build with Ubuntu's mingw. Lint stays in the main image, since its linters are the same pinned versions on any OS. No profiler, release builds or packages, which hosted doesn't run either (me).
+		- 20261013: Ubuntu's apt reads the live archive, as the runner's image does, and its Python is 3.13, as the runner's setup-python gives it. The snapshot archive was also too slow to use (me).
+		- 20261013: Alpine runs the build and the tests stage, large document included, less 7 gates. check-c-compilers, check-locale and sanitize-c need a second gcc, localedef or the sanitizers, which musl doesn't have. shell-regress, check-migrate, check-install-dev and check-push-gate test the installers, hooks and 2.x conversion, nothing the libc changes. No format check or lint, which are the main image's job, no cross checks, which don't build for the host's libc, and no profiler or release builds, since no musl build is released. It isn't strict, so a row that wants a tool the image lacks skips out loud (me).
+	- Verified: 20261013. `cicd/cicd.bash --container=ubuntu` passed with no FAIL, check-c-compilers on gcc 12, 13, 14 and clang, and the 3 cross checks. `cicd/cicd.bash --container=alpine` passed everything but the 2 rows above, which were each taken out for a run to reach the rest. Each took 25 to 30 minutes.
+	- Test case: none of its own. The images run the existing gates, and check-pins `Esbpsph` fails when a version pinned in their recipes isn't the TOOL_PINS one.
+	- Branch: `ctrbuild`
+	- Commit: `a1afc401`, `bb96e452`, `07914455`
+	- Acceptance signoff: Self-closed: both images build and run the stages the item named, and the gates each one skips are listed with the reason.
+	- Closed: 20261013-155744
 
 - A Rust memory-cap test fails when another test in its file runs beside it
 	- ID: 2026101308163572

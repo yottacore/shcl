@@ -48,9 +48,13 @@
 ##	   --no-package        skip building installer packages (.deb/.rpm/NSIS setup)
 ##	   --no-largedoc       skip the large-document gate in the tests stage
 ##	   --no-profile        skip the profiler stage
+##	   --no-release        skip the release builds, and the packages, dogfood and
+##	                       demo gif made from them; cross checks still run
 ##	   --no-dogfood        skip installing the release builds locally
 ##	   --no-gif            skip the demo gif refresh
 ##	   --no-publish        skip the git backup + publish stage
+##	   --container[=NAME]  run stages 1-6 in the pinned image from cicd/container/,
+##	                       or NAME.Dockerfile there for an extra one. See below
 ##	   -h, --help          show this help
 ##	- If neither -q/-y nor -m is given, the run prompts once for a commit message
 ##	  (blank = git editor; Ctrl+C aborts the whole run), then finishes unattended.
@@ -59,6 +63,10 @@
 ##	  that tree through without running the gate again. --quick, --no-fmt,
 ##	  --no-lint, --no-tests, --no-cross and a skipped tool each keep a run from
 ##	  recording.
+##	- --container needs docker (or SHCL_DOCKER) on x86_64. Sync, dogfood, gif and
+##	  publish stay on this box. An extra image runs what CTR_ARGS_NAME in
+##	  config.bash picks, and nothing runs here after it. The repo is mounted at
+##	  its own path, so a run records its tree like any other.
 ##	- Reuse: copy the cicd/ directory into another project and edit config.bash.
 
 ##	History: At bottom of script.
@@ -108,28 +116,39 @@ fRunExtras(){ local c; for c in "$@"; do fEcho_Clean "extra: ${c}"; eval "${c}";
 
 ## shellcheck source=config.bash
 source "${here}/config.bash"
+## Set by --container for the run it starts, and for that run only: a gate that
+## runs this engine on a stub repo must not take itself for it.
+in_container=0
+if [[ -n "${SHCL_IN_CONTAINER:-}" ]]; then in_container=1; fi
+unset SHCL_IN_CONTAINER SHCL_CTR_IMAGE
 source "${here}/utility/include/gfs-rotate.bash"   ## gfs_rotate() for log/artifact pruning
 cd "${root}"
 stamp="$(date +%Y%m%d-%H%M%S)"
 
 ## Parse options.
 assume_yes=0; quiet=0; ci_mode=0; quick=0; cli_message=""; sync_enable=1; gate_partial=0
+## --container: which image, and the options the run inside it takes over.
+ctr_image=""; ctr_pass=()
 while (($#)); do case "$1" in
-	--ci)                     ci_mode=1; assume_yes=1; shift ;;
-	--quick)                  quick=1; shift ;;
+	--ci)                     ci_mode=1; assume_yes=1; ctr_pass+=("$1"); shift ;;
+	--quick)                  quick=1; ctr_pass+=("$1"); shift ;;
 	-q|--quiet)               quiet=1; assume_yes=1; QUIET_FLAG="-q"; export CARGO_TERM_QUIET=true; shift ;;
 	-y|--yes)                 assume_yes=1; shift ;;
 	--no-sync)                sync_enable=0; shift ;;
-	--no-fmt)                 FMT_CMD=(); FMT_CHECK_CMD=(); FMT_EXTRA=(); FMT_CHECK_EXTRA=(); gate_partial=1; shift ;;
-	--no-lint)                LINT_CMD=(); SHELLCHECK_TARGETS=(); LINT_EXTRA=(); gate_partial=1; shift ;;
-	--no-tests)               TEST_CMD=(); TEST_QUICK_CMD=(); TEST_EXTRA=(); BINDING_CLIS=(); LARGEDOC_MIB=0; PROFILE_CHECK=""; gate_partial=1; shift ;;
-	--no-cross)               CROSS_TARGETS=(); CROSS_CHECKS=(); gate_partial=1; shift ;;
-	--no-package)             PACKAGE_ENABLE=0; shift ;;
-	--no-largedoc)            LARGEDOC_MIB=0; shift ;;
-	--no-profile)             PROFILE_ENABLE=0; shift ;;
+	--no-fmt)                 FMT_CMD=(); FMT_CHECK_CMD=(); FMT_EXTRA=(); FMT_CHECK_EXTRA=(); gate_partial=1; ctr_pass+=("$1"); shift ;;
+	--no-lint)                LINT_CMD=(); SHELLCHECK_TARGETS=(); LINT_EXTRA=(); gate_partial=1; ctr_pass+=("$1"); shift ;;
+	--no-tests)               TEST_CMD=(); TEST_QUICK_CMD=(); TEST_EXTRA=(); BINDING_CLIS=(); LARGEDOC_MIB=0; PROFILE_CHECK=""; gate_partial=1; ctr_pass+=("$1"); shift ;;
+	--no-cross)               CROSS_TARGETS=(); CROSS_CHECKS=(); gate_partial=1; ctr_pass+=("$1"); shift ;;
+	--no-package)             PACKAGE_ENABLE=0; ctr_pass+=("$1"); shift ;;
+	--no-largedoc)            LARGEDOC_MIB=0; ctr_pass+=("$1"); shift ;;
+	--no-profile)             PROFILE_ENABLE=0; ctr_pass+=("$1"); shift ;;
+	## Dogfood and the gif take the release binary, so a stale one would go out.
+	--no-release)             RELEASE_NATIVE_CMD=(); PACKAGE_ENABLE=0; DOGFOOD_FIXED_DESTS=(); GIF_ENABLE=0; ctr_pass+=("$1"); shift ;;
 	--no-dogfood)             DOGFOOD_FIXED_DESTS=(); shift ;;
 	--no-gif)                 GIF_ENABLE=0; shift ;;
 	--no-publish)             GIT_PUBLISH=(); shift ;;
+	--container)              ctr_image=main; shift ;;
+	--container=*)            ctr_image="${1#*=}"; shift ;;
 	--message=*|--msg=*|-m=*) cli_message="${1#*=}"; shift ;;
 	-m|--message|--msg)       cli_message="${2-}"; shift; (($#)) && shift ;;
 	-h|--help)                sed -n '/^##	- Purpose:/,/^##	History:/p' "${BASH_SOURCE[0]}" | sed '$d; s/^##	\{0,1\}//'; exit 0 ;;
@@ -172,7 +191,9 @@ fi
 record_green=1
 if ((quick || gate_partial)); then record_green=0; fi
 export SHCL_GATE_SKIPS="$(mktemp)"
-trap 'rm -f "${SHCL_GATE_SKIPS}"' EXIT
+## Dirs fRunContainer made with mktemp -d, and only those.
+ctr_tmps=()
+trap 'rm -f "${SHCL_GATE_SKIPS}"; for d in "${ctr_tmps[@]}"; do rm -rf "${d}"; done' EXIT
 
 ## Publish commit message: -m wins, then config, then a default when unattended.
 publish_msg=""
@@ -255,6 +276,109 @@ fInstallAtomic(){
 	fi
 }
 
+## Stages 1-6 in the --container image, built first if it's not here. The repo
+## and its git dir are mounted at their own paths, so the tree it records and a
+## worktree's .git file still mean something.
+fRunContainer(){
+	local engine="${SHCL_DOCKER:-docker}" ctx="" tag="" old="" link="" real=""
+	local -a mounts=() groups=() env=() inner=() ctxFiles=()
+	fSection "Container: ${ctr_image}"
+	command -v "${engine}" >/dev/null 2>&1 || fDie "no ${engine} to run --container with (SHCL_DOCKER names another)"
+	[[ "$(uname -m)" == x86_64 ]] || fDie "--container is x86_64 only"
+
+	## The image is built from a copy of its recipe dir plus the files the
+	## config adds, and tagged by their hash, so an edit can't run on an old one.
+	## The other recipes stay out of the hash.
+	ctx="$(mktemp -d)"; ctr_tmps+=("${ctx}")
+	cp -p "${root}/${ctr_recipe}" "${ctx}/Dockerfile"
+	while IFS= read -r -d '' f; do
+		if [[ "${f}" != *Dockerfile ]]; then cp -p "${f}" "${ctx}/"; fi
+	done < <(find "${root}/${CTR_DIR:-cicd/container}" -maxdepth 1 -type f -print0)
+	for f in "${CTR_CONTEXT_EXTRA[@]}"; do cp -p "${root}/${f}" "${ctx}/"; done
+	mapfile -t ctxFiles < <(cd "${ctx}" && find . -type f | LC_ALL=C sort)
+	tag="${CTR_IMAGE:-${APP_NAME}-cicd}$([[ "${ctr_image}" == main ]] || echo "-${ctr_image}"):$( cd "${ctx}" && for f in "${ctxFiles[@]}"; do echo "${f}"; cat "${f}"; done | git hash-object --stdin | cut -c1-12 )"
+	if "${engine}" image inspect "${tag}" >/dev/null 2>&1; then
+		fEcho_Clean "image ${tag}"
+	else
+		## Quiet, since a first build is minutes of download lines. A failure
+		## still prints the step that failed.
+		fEcho_Clean "building ${tag}, which takes several minutes the first time"
+		"${engine}" build -q -t "${tag}" "${ctx}" >/dev/null || fDie "could not build ${tag}"
+		## What it replaces is a few GB nobody runs again.
+		while IFS= read -r old; do
+			if [[ -z "${old}" || "${old}" == "${tag}" ]]; then continue; fi
+			if "${engine}" rmi "${old}" >/dev/null 2>&1; then fEcho_Clean "removed ${old}"; else fEcho_Clean "kept ${old} (in use)"; fi
+		done < <("${engine}" image ls "${tag%%:*}" --format '{{.Repository}}:{{.Tag}}' 2>/dev/null || true)
+	fi
+
+	local cache="${CTR_CACHE:-${HOME}/.cache/${APP_NAME}-cicd}/${ctr_image}"
+	mkdir -p "${cache}" || fDie "could not make the cache dir ${cache}"
+	## /tmp too, so big scratch goes where TMPDIR says rather than into the
+	## container's layer on the root disk.
+	local scratch; scratch="$(mktemp -d)"; ctr_tmps+=("${scratch}")
+	mounts=(-v "${root}:${root}" -v "${cache}:/cache" -v "${scratch}:/tmp")
+	local gitCommon; gitCommon="$(git -C "${root}" rev-parse --path-format=absolute --git-common-dir)"
+	if [[ "${gitCommon}" != "${root}/"* ]]; then mounts+=(-v "${gitCommon}:${gitCommon}"); fi
+	for link in "${CTR_LINKS[@]}"; do
+		if [[ -L "${root}/${link}" ]]; then
+			real="$(readlink -f -- "${root}/${link}")"
+			if [[ "${real}" != "${root}/"* ]]; then mkdir -p "${real}"; mounts+=(-v "${real}:${real}"); fi
+		fi
+	done
+	## An extra image builds into its own copy of these, so it doesn't churn
+	## or replace this box's builds.
+	if [[ "${ctr_image}" != main ]]; then
+		for link in "${CTR_PRIVATE[@]}"; do
+			mkdir -p "${cache}/private/${link}"
+			mounts+=(-v "${cache}/private/${link}:${root}/${link}")
+		done
+	fi
+
+	## The caller's uid and groups have no names in the image, and some rows
+	## need the second group a runner's user has. So the image's passwd and
+	## group files plus the caller's entries, and the caller's groups.
+	local etc gid gname; etc="$(mktemp -d)"; ctr_tmps+=("${etc}")
+	"${engine}" run --rm "${tag}" cat /etc/passwd > "${etc}/passwd" || fDie "could not read the image's /etc/passwd"
+	"${engine}" run --rm "${tag}" cat /etc/group > "${etc}/group" || fDie "could not read the image's /etc/group"
+	printf '%s:x:%s:%s::/cache/home:/bin/bash\n' "${USER:-builder}" "$(id -u)" "$(id -g)" >> "${etc}/passwd"
+	for gid in $(id -G); do
+		if grep -q "^[^:]*:[^:]*:${gid}:" "${etc}/group"; then continue; fi
+		gname="$(getent group "${gid}" | cut -d: -f1 || true)"
+		if [[ -z "${gname}" ]] || grep -q "^${gname}:" "${etc}/group"; then gname="g${gid}"; fi
+		printf '%s:x:%s:\n' "${gname}" "${gid}" >> "${etc}/group"
+	done
+	mounts+=(-v "${etc}/passwd:/etc/passwd:ro" -v "${etc}/group:/etc/group:ro")
+	for gid in $(id -G); do
+		if [[ "${gid}" != "$(id -g)" ]]; then groups+=(--group-add "${gid}"); fi
+	done
+
+	env=(-e SHCL_IN_CONTAINER=1 -e "SHCL_CTR_IMAGE=${ctr_image}" -e "USER=${USER:-builder}" -e "CPU_CAP=${CPU_CAP}")
+	if [[ -n "${SHCL_GATE_REF:-}" ]]; then env+=(-e "SHCL_GATE_REF=${SHCL_GATE_REF}"); fi
+	inner=("$( ((quiet)) && echo -q || echo -y )" --no-sync --no-dogfood --no-gif --no-publish "${ctr_pass[@]}")
+	if [[ "${ctr_image}" != main ]]; then
+		declare -p "CTR_ARGS_${ctr_image}" &>/dev/null || fDie "config.bash has no CTR_ARGS_${ctr_image}, the stages that image runs"
+		local -n ctrArgs_k3v="CTR_ARGS_${ctr_image}"
+		inner+=("${ctrArgs_k3v[@]}")
+	fi
+	fEcho_Clean "runs cicd.bash ${inner[*]}"
+	"${engine}" run --rm --init --user "$(id -u):$(id -g)" "${groups[@]}" "${mounts[@]}" "${env[@]}" -w "${root}" \
+		"${tag}" bash "${root}/cicd/cicd.bash" "${inner[@]}" \
+		|| fDie "the run in the ${ctr_image} image failed; its output is above"
+	fEcho "OK: stages 1-6 in the ${ctr_image} image"
+}
+
+## --container: stages 1-6 go to the image. An extra image builds nothing this
+## box should install or publish, so nothing runs here after it.
+ctr_recipe=""
+if [[ -n "${ctr_image}" ]]; then
+	((! in_container)) || fDie "already in the container; --container would start another"
+	[[ "${ctr_image}" =~ ^[a-z0-9]+$ ]] || fDie "--container=${ctr_image}: an image name is lower-case letters and digits"
+	ctr_recipe="${CTR_DIR:-cicd/container}/${ctr_image}.Dockerfile"
+	[[ "${ctr_image}" == main ]] && ctr_recipe="${CTR_DIR:-cicd/container}/Dockerfile"
+	[[ -f "${root}/${ctr_recipe}" ]] || fDie "--container=${ctr_image}: no recipe at ${ctr_recipe}"
+	if [[ "${ctr_image}" != main ]]; then DOGFOOD_FIXED_DESTS=(); GIF_ENABLE=0; GIT_PUBLISH=(); fi
+fi
+
 ## Preflight: show the plan, then capture the commit message so the rest runs unattended.
 if ((! quiet)); then
 	fEcho_Clean
@@ -262,18 +386,23 @@ if ((! quiet)); then
 	fEcho_Clean
 	fEcho_Clean "Repo root ......: ${root}"
 	fEcho_Clean "Remote sync ....: $( ((sync_enable)) && echo 'fast-forward when behind; abort when diverged' || echo '(skipped)')"
-	fEcho_Clean "Format .........: $( ((ci_mode)) && echo "${FMT_CHECK_CMD[*]:-(none configured)}" || echo "${FMT_CMD[*]:-(skipped)}")$( ((${#FMT_EXTRA[@]} + ${#FMT_CHECK_EXTRA[@]})) && echo "  (+ extras)" )"
-	fEcho_Clean "Build (debug) ..: ${BUILD_CMD[*]:-(none configured)}$( ((${#BUILD_EXTRA[@]})) && echo "  (+ ${#BUILD_EXTRA[@]} extra)" )"
-	fEcho_Clean "Lint ...........: ${LINT_CMD[*]:-(none configured)}$( ((${#LINT_EXTRA[@]})) && echo "  (+ ${#LINT_EXTRA[@]} extra)" )  + shellcheck: ${#SHELLCHECK_TARGETS[@]} file(s)"
-	fEcho_Clean "Tests ..........: ${TEST_CMD[*]:-(none configured)}$( ((${#TEST_EXTRA[@]})) && echo "  (+ ${#TEST_EXTRA[@]} extra)" )  + crosscheck: ${#BINDING_CLIS[@]} binding(s)$( ((LARGEDOC_MIB)) && echo "  + large doc: ${LARGEDOC_MIB} MiB" )"
-	fEcho_Clean "Profiler .......: $( ((PROFILE_ENABLE)) && echo "${PROFILE_SECS}s run -> flamegraph SVG -> ${PROFILE_OUT_DIR}/" || echo '(skipped)')"
-	if ((${#RELEASE_NATIVE_CMD[@]})); then
-		fEcho_Clean "Release ........: native + ${#CROSS_TARGETS[@]} cross target(s) -> ${RELEASE_ARTIFACT_DIR}/$( ((${#RELEASE_CHECKS[@]})) && echo "  + ${#RELEASE_CHECKS[@]} check(s)" )"
+	## Under --container the run inside prints its own plan for stages 1-6.
+	if [[ -n "${ctr_image}" ]]; then
+		fEcho_Clean "Container ......: stages 1-6 in the ${ctr_image} image, from ${ctr_recipe}"
 	else
-		fEcho_Clean "Release ........: (skipped)"
+		fEcho_Clean "Format .........: $( ((ci_mode)) && echo "${FMT_CHECK_CMD[*]:-(none configured)}" || echo "${FMT_CMD[*]:-(skipped)}")$( ((${#FMT_EXTRA[@]} + ${#FMT_CHECK_EXTRA[@]})) && echo "  (+ extras)" )"
+		fEcho_Clean "Build (debug) ..: ${BUILD_CMD[*]:-(none configured)}$( ((${#BUILD_EXTRA[@]})) && echo "  (+ ${#BUILD_EXTRA[@]} extra)" )"
+		fEcho_Clean "Lint ...........: ${LINT_CMD[*]:-(none configured)}$( ((${#LINT_EXTRA[@]})) && echo "  (+ ${#LINT_EXTRA[@]} extra)" )  + shellcheck: ${#SHELLCHECK_TARGETS[@]} file(s)"
+		fEcho_Clean "Tests ..........: ${TEST_CMD[*]:-(none configured)}$( ((${#TEST_EXTRA[@]})) && echo "  (+ ${#TEST_EXTRA[@]} extra)" )  + crosscheck: ${#BINDING_CLIS[@]} binding(s)$( ((LARGEDOC_MIB)) && echo "  + large doc: ${LARGEDOC_MIB} MiB" )"
+		fEcho_Clean "Profiler .......: $( ((PROFILE_ENABLE)) && echo "${PROFILE_SECS}s run -> flamegraph SVG -> ${PROFILE_OUT_DIR}/" || echo '(skipped)')"
+		if ((${#RELEASE_NATIVE_CMD[@]})); then
+			fEcho_Clean "Release ........: native + ${#CROSS_TARGETS[@]} cross target(s) -> ${RELEASE_ARTIFACT_DIR}/$( ((${#RELEASE_CHECKS[@]})) && echo "  + ${#RELEASE_CHECKS[@]} check(s)" )"
+		else
+			fEcho_Clean "Release ........: (skipped)"
+		fi
+		fEcho_Clean "Cross checks ...: $( ((${#CROSS_CHECKS[@]})) && echo "${#CROSS_CHECKS[@]} (no artifact; run whether or not a release is built)" || echo '(skipped)')"
+		fEcho_Clean "Packages .......: $( ((PACKAGE_ENABLE)) && echo '.deb/.rpm + NSIS setup (per built binary)' || echo '(skipped)')"
 	fi
-	fEcho_Clean "Cross checks ...: $( ((${#CROSS_CHECKS[@]})) && echo "${#CROSS_CHECKS[@]} (no artifact; run whether or not a release is built)" || echo '(skipped)')"
-	fEcho_Clean "Packages .......: $( ((PACKAGE_ENABLE)) && echo '.deb/.rpm + NSIS setup (per built binary)' || echo '(skipped)')"
 	fEcho_Clean "Dogfood ........: $( if ((${#DOGFOOD_FIXED_DESTS[@]})); then _dfd="$(fFirstWritableDir "${DOGFOOD_FIXED_DESTS[@]}")"; [[ -n "$_dfd" ]] && echo "${_dfd}/${EXE_NAME}" || echo '(no writable dest; will skip)'; else echo '(skipped)'; fi )"
 	fEcho_Clean "Demo gif .......: $( ((GIF_ENABLE)) && echo "${GIF_OUT}" || echo '(skipped)')"
 	if ((${#GIT_PUBLISH[@]})); then
@@ -292,14 +421,17 @@ if ((! assume_yes)) && ((${#GIT_PUBLISH[@]})) && [[ -z "$publish_msg" ]]; then
 fi
 
 ## Tee the whole run to a rotated log so warnings can be reviewed later
-## (lint-report.bash reads the newest one). Skipped under --ci (read-only gate).
-if ((! ci_mode)) && [[ -n "${LINT_LOG_DIR:-}" ]] && mkdir -p "${root}/${LINT_LOG_DIR}" 2>/dev/null; then
+## (lint-report.bash reads the newest one). Skipped under --ci (read-only gate),
+## and in the container, where the run outside already logs all of it.
+if ((! ci_mode)) && ((! in_container)) && [[ -n "${LINT_LOG_DIR:-}" ]] && mkdir -p "${root}/${LINT_LOG_DIR}" 2>/dev/null; then
 	gfs_rotate "${root}/${LINT_LOG_DIR}" run log >/dev/null 2>&1 || true
 	exec > >(tee "${root}/${LINT_LOG_DIR}/run_${stamp}.log") 2>&1
 fi
 
 ## Warn (non-gating) when a pinned helper tool has drifted from TOOL_PINS, so a
 ## box update can't silently change results. Format: "name|version|command...".
+## Under --container this box's tools don't run, and the run inside checks its own.
+if [[ -n "${ctr_image}" ]]; then TOOL_PINS=(); fi
 if declare -p TOOL_PINS &>/dev/null; then
 	for pin in "${TOOL_PINS[@]}"; do
 		pin_name="${pin%%|*}"; rest="${pin#*|}"; pin_ver="${rest%%|*}"; pin_cmd="${rest#*|}"
@@ -359,251 +491,269 @@ if ((sync_enable)); then
 	fi
 fi
 
-## Stage 1: format. In place locally; check-only (fail on diff) under --ci.
-fSection "1/9  Format"
-if ((ci_mode)); then
-	if ((${#FMT_CHECK_CMD[@]})); then
-		"${FMT_CHECK_CMD[@]}"
-		fRunExtras "${FMT_CHECK_EXTRA[@]}"
-		fEcho "OK: format clean"
-	else fEcho_Clean "no format check configured"; fi
-elif ((${#FMT_CMD[@]})); then
-	"${FMT_CMD[@]}"
-	fRunExtras "${FMT_EXTRA[@]}"
-	fEcho "OK: formatted"
-else
-	fEcho_Clean "format skipped"
-fi
-## Taken after the formatter, since locally it rewrites what gets tested.
-green_tree=""
-if ((record_green)); then green_tree="$("${here}/utility/green-tree.bash" tree "${root}" || true)"; fi
-
-## Stage 2: debug build (fast compile sanity; the tests run against this).
-fSection "2/9  Build (debug)"
-if ((${#BUILD_CMD[@]})); then
-	"${BUILD_CMD[@]}"
-	fRunExtras "${BUILD_EXTRA[@]}"
-	fEcho "OK: build"
-else
-	fEcho_Clean "nothing to build yet"
-fi
-
-## Stage 3: lint. Project lint first, then shellcheck over the cicd scripts (and
-## any other bash config lists), so the pipeline can't rot silently. shellcheck
-## is optional locally (warn if missing) but present on GitHub runners.
-fSection "3/9  Lint"
-if ((${#LINT_CMD[@]})); then
-	"${LINT_CMD[@]}"
-	fRunExtras "${LINT_EXTRA[@]}"
-	fEcho "OK: lint clean"
-else
-	fEcho_Clean "no project lint configured yet"
-fi
-if ((${#SHELLCHECK_TARGETS[@]})); then
-	if command -v shellcheck >/dev/null 2>&1; then
-		shellcheck "${SHELLCHECK_TARGETS[@]}"
-		fEcho "OK: shellcheck clean (${#SHELLCHECK_TARGETS[@]} file(s))"
-	elif ((ci_mode)); then
-		fDie "shellcheck required under --ci but not found"
-	else
-		fEcho "WARNING: shellcheck not installed; skipped"
-		echo shellcheck >> "${SHCL_GATE_SKIPS}"
-	fi
-fi
-
-## Stage 4: tests (conformance corpus + fuzz smoke + anything else config wires in),
-## then the cross-binding differential check: every binding CLI must agree with
-## every other, byte for byte, on the corpus AND on a freshly fuzz-dumped input set.
-## With one binding it is a no-op note; it gets teeth the day a second binding arrives.
-## Last comes the large-document gate - the same agreement plus time and memory
-## ceilings, at a size no corpus case can reach.
-fSection "4/9  Tests"
-if ((${#TEST_CMD[@]})); then
-	"${TEST_CMD[@]}"
-	fRunExtras "${TEST_EXTRA[@]}"
-	fEcho "OK: tests passed"
-else
-	fEcho_Clean "no tests configured yet"
-fi
-if ((${#BINDING_CLIS[@]})); then
-	xcheck_extra=()
-	if ((${#BINDING_CLIS[@]} >= 2)) && [[ -n "${XCHECK_GEN:-}" ]]; then
-		export XCHECK_DUMP_DIR="${root}/cicd/artifacts/crosscheck"
-		rm -rf "${XCHECK_DUMP_DIR}"; mkdir -p "${XCHECK_DUMP_DIR}"
-		eval "${XCHECK_GEN}"
-		xcheck_extra=(--extra "${XCHECK_DUMP_DIR}")
-	fi
-	"${here}/utility/crosscheck.bash" --corpus "${root}/project/conformance" "${xcheck_extra[@]}" "${BINDING_CLIS[@]}"
-	if ((LARGEDOC_MIB)); then
-		"${here}/utility/largedoc.bash" --mib "${LARGEDOC_MIB}" "${BINDING_CLIS[@]}"
-	fi
-fi
-## Stage 5: profiler. Non-gating artifact, not a pass/fail test: an optimized
-## build with symbols runs a heavy workload under an in-process sampler (kernel
-## perf is locked down on this box) and writes a flamegraph SVG, gfs-rotated like
-## the run logs; flame-report.py prints the hot spots into the log. Environmental
-## problems skip with a warning; a build or run failure is the app's fault -> die.
-fSection "5/9  Profiler"
-if ((PROFILE_ENABLE)); then
-	fEcho_Clean "building: ${PROFILE_BUILD_CMD[*]}"
-	"${PROFILE_BUILD_CMD[@]}" || fDie "profiler build failed (app problem)"
-	[[ -f "${PROFILE_BIN}" ]] || fDie "profiler binary missing: ${PROFILE_BIN}"
-	## The sampler's attribution against a workload of known shape (config
-	## PROFILE_CHECK), before any graph is drawn: a graph that names the wrong
-	## code is worse than none.
-	if [[ -n "${PROFILE_CHECK:-}" ]]; then
-		eval "${PROFILE_CHECK}" || fDie "profiler attribution check failed; its graph would name the wrong code"
-	fi
-	profile_dir="${root}/${PROFILE_OUT_DIR}"
-	mkdir -p "${profile_dir}"
-	export PROFILE_WORKLOAD="${profile_dir}/workload.shcl"
-	eval "${PROFILE_WORKLOAD_GEN}"
-	[[ -s "${PROFILE_WORKLOAD}" ]] || fDie "profiler workload came out empty: ${PROFILE_WORKLOAD}"
-	## Born canonical (role "frequent"); the rotation retags the newest as "latest".
-	export PROFILE_OUT="${profile_dir}/flame_${stamp}_frequent.svg"
-	fEcho_Clean "sampling ${PROFILE_SECS}s: ${PROFILE_RUN}"
-	eval "${PROFILE_RUN}" || fDie "profiler run failed (non-zero exit - app problem)"
-	[[ -s "${PROFILE_OUT}" ]] || fDie "profiler produced no SVG (app problem): ${PROFILE_OUT}"
-	gfs_rotate "${profile_dir}" flame svg
-	latest="${profile_dir}/flame_${stamp}_latest.svg"
-	[[ -e "$latest" ]] || latest="${PROFILE_OUT}"
-	fEcho "OK: flamegraph: ${latest}"
-	## Wall-clock per surface (config PROFILE_TIMED): one line each into the log.
-	if declare -p PROFILE_TIMED &>/dev/null; then
-		for wl in "${PROFILE_TIMED[@]}"; do
-			wl_name="${wl%%|*}"; wl_cmd="${wl#*|}"
-			t0="$(date +%s.%N)"
-			if eval "${wl_cmd}"; then
-				t1="$(date +%s.%N)"
-				fEcho_Clean "profile timing: ${wl_name} $(awk -v a="$t0" -v b="$t1" 'BEGIN{printf "%.2fs", b - a}')"
-			else
-				fEcho_Clean "profile timing: ${wl_name} FAILED"
-			fi
+## Stages 1-6 run here, or in the container, which hands back its release
+## builds for dogfood and the gif.
+if [[ -n "${ctr_image}" ]]; then
+	fRunContainer
+	built_arts=()
+	if ((${#RELEASE_NATIVE_CMD[@]})) && [[ -f "${RELEASE_NATIVE_BIN}" ]]; then
+		built_arts=("${RELEASE_NATIVE_OSARCH:-native}|${RELEASE_NATIVE_BIN}")
+		for t in "${CROSS_TARGETS[@]}"; do
+			rest="${t#*|}"; t_osarch="${rest%%|*}"; rest="${rest#*|}"; t_art="${rest%%|*}"
+			if [[ -f "${t_art}" ]]; then built_arts+=("${t_osarch}|${t_art}"); fi
 		done
 	fi
-	fEcho_Clean "open: ${latest}  (in a browser)"
-	## Hot-spot summary into the log (non-fatal, no marker - the marker belongs to
-	## the per-session --check gate, not the pipeline).
-	if command -v python3 >/dev/null 2>&1; then
-		fEcho_Clean ""
-		## stderr kept: the report's only diagnostics go there, and discarding
-		## them left the log saying "unavailable" with no cause - a missing
-		## directory, no flamegraphs and an unparseable file all read alike.
-		## The exit code is already non-fatal, so keeping it costs nothing.
-		python3 "${here}/utility/flame-report.py" --dir "${profile_dir}" || fEcho_Clean "hot spots: (report unavailable - see the reason above)"
-	else
-		fEcho "WARNING: python3 not found; hot-spot report skipped"
-	fi
 else
-	fEcho_Clean "profiler skipped"
-	## The calibration alone, on the config's cheaper build, since the graph's
-	## attribution is otherwise unchecked under --ci. It runs offline, and a
-	## cache without the sampler's crates is a noted skip rather than a fetch.
-	if ((ci_mode)) && [[ -n "${PROFILE_CHECK:-}" ]] && declare -p PROFILE_CHECK_BUILD_CMD &>/dev/null && ((${#PROFILE_CHECK_BUILD_CMD[@]})); then
-		if "${PROFILE_CHECK_PROBE_CMD[@]}" >/dev/null 2>&1; then
-			fEcho_Clean "building: ${PROFILE_CHECK_BUILD_CMD[*]}"
-			"${PROFILE_CHECK_BUILD_CMD[@]}" || fDie "profiler check build failed (app problem)"
-			( PROFILE_BIN="${PROFILE_CHECK_BIN}"; eval "${PROFILE_CHECK}" ) \
-				|| fDie "profiler attribution check failed; its graph would name the wrong code"
+	## Whatever the container needs before a run, such as crates the --ci
+	## profiler check reads offline.
+	if ((in_container)) && [[ -n "${CTR_PREP:-}" ]]; then eval "${CTR_PREP}"; fi
+
+	## Stage 1: format. In place locally; check-only (fail on diff) under --ci.
+	fSection "1/9  Format"
+	if ((ci_mode)); then
+		if ((${#FMT_CHECK_CMD[@]})); then
+			"${FMT_CHECK_CMD[@]}"
+			fRunExtras "${FMT_CHECK_EXTRA[@]}"
+			fEcho "OK: format clean"
+		else fEcho_Clean "no format check configured"; fi
+	elif ((${#FMT_CMD[@]})); then
+		"${FMT_CMD[@]}"
+		fRunExtras "${FMT_EXTRA[@]}"
+		fEcho "OK: formatted"
+	else
+		fEcho_Clean "format skipped"
+	fi
+	## Taken after the formatter, since locally it rewrites what gets tested.
+	green_tree=""
+	if ((record_green)); then green_tree="$("${here}/utility/green-tree.bash" tree "${root}" || true)"; fi
+
+	## Stage 2: debug build (fast compile sanity; the tests run against this).
+	fSection "2/9  Build (debug)"
+	if ((${#BUILD_CMD[@]})); then
+		"${BUILD_CMD[@]}"
+		fRunExtras "${BUILD_EXTRA[@]}"
+		fEcho "OK: build"
+	else
+		fEcho_Clean "nothing to build yet"
+	fi
+
+	## Stage 3: lint. Project lint first, then shellcheck over the cicd scripts (and
+	## any other bash config lists), so the pipeline can't rot silently. shellcheck
+	## is optional locally (warn if missing) but present on GitHub runners.
+	fSection "3/9  Lint"
+	if ((${#LINT_CMD[@]})); then
+		"${LINT_CMD[@]}"
+		fRunExtras "${LINT_EXTRA[@]}"
+		fEcho "OK: lint clean"
+	else
+		fEcho_Clean "no project lint configured yet"
+	fi
+	if ((${#SHELLCHECK_TARGETS[@]})); then
+		if command -v shellcheck >/dev/null 2>&1; then
+			shellcheck "${SHELLCHECK_TARGETS[@]}"
+			fEcho "OK: shellcheck clean (${#SHELLCHECK_TARGETS[@]} file(s))"
+		elif ((ci_mode)); then
+			fDie "shellcheck required under --ci but not found"
 		else
-			fEcho_Clean "profiler attribution check skipped: the sampler's crates are not in the local cache"
-			echo profiler-check >> "${SHCL_GATE_SKIPS}"
+			fEcho "WARNING: shellcheck not installed; skipped"
+			echo shellcheck >> "${SHCL_GATE_SKIPS}"
 		fi
 	fi
-fi
 
-## Stage 6: native release + cross targets, collected under versioned names plus
-## a sha256 checksums file, ready to attach to a release as plain uploads.
-## Naming (stable; download links depend on it): <exe>-<version>-<os-arch>[.exe]
-fSection "6/9  Release builds"
-built_arts=()   ## <os-arch>|<path> per built binary; stage 7 dogfoods off it too
-## Cross-compile checks that produce no artifact: the other bindings' own
-## platform branches. Without these the C header's Windows path is never
-## compiled here at all, which is exactly how a build-breaking regression in it
-## reached dev unnoticed. They are checks, not builds, so they run whenever
-## correctness is gated - they sat inside the release branch below for a month,
-## which meant --ci, the one run that decides whether a commit reaches main,
-## compiled none of them.
-for c in "${CROSS_CHECKS[@]}"; do
-	c_label="${c%%|*}"; c_cmd="${c#*|}"
-	fEcho "cross check: ${c_label}"
-	eval "${c_cmd}" || fDie "cross check failed: ${c_label}"
-	fEcho "OK: ${c_label}"
-done
-## The record waits for the cross checks, the last gate a --ci run has. It sat at
-## the end of stage 4 once they moved under --ci, so a run that then failed one
-## had already let its tree through the hook.
-if [[ -n "${green_tree}" ]]; then
-	if [[ -s "${SHCL_GATE_SKIPS}" ]]; then
-		fEcho_Clean "tree not recorded for the pre-push hook, since this run skipped: $(sort -u "${SHCL_GATE_SKIPS}" | paste -sd ' ')"
-	elif "${here}/utility/green-tree.bash" record "${root}" "${green_tree}"; then
-		fEcho "OK: tree ${green_tree:0:12} recorded; a push of it skips the pre-push gate"
+	## Stage 4: tests (conformance corpus + fuzz smoke + anything else config wires in),
+	## then the cross-binding differential check: every binding CLI must agree with
+	## every other, byte for byte, on the corpus AND on a freshly fuzz-dumped input set.
+	## With one binding it is a no-op note; it gets teeth the day a second binding arrives.
+	## Last comes the large-document gate - the same agreement plus time and memory
+	## ceilings, at a size no corpus case can reach.
+	fSection "4/9  Tests"
+	if ((${#TEST_CMD[@]})); then
+		"${TEST_CMD[@]}"
+		fRunExtras "${TEST_EXTRA[@]}"
+		fEcho "OK: tests passed"
+	else
+		fEcho_Clean "no tests configured yet"
 	fi
-fi
-if ((${#RELEASE_NATIVE_CMD[@]})); then
-	## Stamped from the commit, not the clock, so a rebuild of one commit gives
-	## the same bytes. Only these builds have it: the gate's own builds stay
-	## unstamped, the same as the other three CLIs they are compared against.
-	SHCL_BUILD="$(fBuildNumber "$(git -C "${root}" log -1 --format=%ct)")" || fDie "no build number from the commit time"
-	export SHCL_BUILD
-	fEcho "build ${SHCL_BUILD}"
-	"${RELEASE_NATIVE_CMD[@]}"
-	[[ -f "${RELEASE_NATIVE_BIN}" ]] || fDie "native release binary missing: ${RELEASE_NATIVE_BIN}"
-	fEcho "OK: native release: ${RELEASE_NATIVE_BIN} ($(du -h "${RELEASE_NATIVE_BIN}" | cut -f1))"
-	built_arts=("${RELEASE_NATIVE_OSARCH:-native}|${RELEASE_NATIVE_BIN}")
-	for t in "${CROSS_TARGETS[@]}"; do
-		t_label="${t%%|*}"; rest="${t#*|}"; t_osarch="${rest%%|*}"; rest="${rest#*|}"; t_art="${rest%%|*}"; t_cmd="${rest#*|}"
-		fEcho "cross: ${t_label}"
-		eval "${t_cmd}"
-		[[ -f "${t_art}" ]] || fDie "missing artifact for ${t_label}: ${t_art}"
-		fEcho "OK: ${t_label}: ${t_art} ($(du -h "${t_art}" | cut -f1))"
-		built_arts+=("${t_osarch}|${t_art}")
-	done
-	unset SHCL_BUILD
-	## Before anything is collected, so a build that fails one never reaches
-	## the artifact dir. built_arts is in scope for the commands.
-	for c in "${RELEASE_CHECKS[@]}"; do
+	if ((${#BINDING_CLIS[@]})); then
+		xcheck_extra=()
+		if ((${#BINDING_CLIS[@]} >= 2)) && [[ -n "${XCHECK_GEN:-}" ]]; then
+			export XCHECK_DUMP_DIR="${root}/cicd/artifacts/crosscheck"
+			rm -rf "${XCHECK_DUMP_DIR}"; mkdir -p "${XCHECK_DUMP_DIR}"
+			eval "${XCHECK_GEN}"
+			xcheck_extra=(--extra "${XCHECK_DUMP_DIR}")
+		fi
+		"${here}/utility/crosscheck.bash" --corpus "${root}/project/conformance" "${xcheck_extra[@]}" "${BINDING_CLIS[@]}"
+		if ((LARGEDOC_MIB)); then
+			"${here}/utility/largedoc.bash" --mib "${LARGEDOC_MIB}" "${BINDING_CLIS[@]}"
+		fi
+	fi
+	## Stage 5: profiler. Non-gating artifact, not a pass/fail test: an optimized
+	## build with symbols runs a heavy workload under an in-process sampler (kernel
+	## perf is locked down on this box) and writes a flamegraph SVG, gfs-rotated like
+	## the run logs; flame-report.py prints the hot spots into the log. Environmental
+	## problems skip with a warning; a build or run failure is the app's fault -> die.
+	fSection "5/9  Profiler"
+	if ((PROFILE_ENABLE)); then
+		fEcho_Clean "building: ${PROFILE_BUILD_CMD[*]}"
+		"${PROFILE_BUILD_CMD[@]}" || fDie "profiler build failed (app problem)"
+		[[ -f "${PROFILE_BIN}" ]] || fDie "profiler binary missing: ${PROFILE_BIN}"
+		## The sampler's attribution against a workload of known shape (config
+		## PROFILE_CHECK), before any graph is drawn: a graph that names the wrong
+		## code is worse than none.
+		if [[ -n "${PROFILE_CHECK:-}" ]]; then
+			eval "${PROFILE_CHECK}" || fDie "profiler attribution check failed; its graph would name the wrong code"
+		fi
+		profile_dir="${root}/${PROFILE_OUT_DIR}"
+		mkdir -p "${profile_dir}"
+		export PROFILE_WORKLOAD="${profile_dir}/workload.shcl"
+		eval "${PROFILE_WORKLOAD_GEN}"
+		[[ -s "${PROFILE_WORKLOAD}" ]] || fDie "profiler workload came out empty: ${PROFILE_WORKLOAD}"
+		## Born canonical (role "frequent"); the rotation retags the newest as "latest".
+		export PROFILE_OUT="${profile_dir}/flame_${stamp}_frequent.svg"
+		fEcho_Clean "sampling ${PROFILE_SECS}s: ${PROFILE_RUN}"
+		eval "${PROFILE_RUN}" || fDie "profiler run failed (non-zero exit - app problem)"
+		[[ -s "${PROFILE_OUT}" ]] || fDie "profiler produced no SVG (app problem): ${PROFILE_OUT}"
+		gfs_rotate "${profile_dir}" flame svg
+		latest="${profile_dir}/flame_${stamp}_latest.svg"
+		[[ -e "$latest" ]] || latest="${PROFILE_OUT}"
+		fEcho "OK: flamegraph: ${latest}"
+		## Wall-clock per surface (config PROFILE_TIMED): one line each into the log.
+		if declare -p PROFILE_TIMED &>/dev/null; then
+			for wl in "${PROFILE_TIMED[@]}"; do
+				wl_name="${wl%%|*}"; wl_cmd="${wl#*|}"
+				t0="$(date +%s.%N)"
+				if eval "${wl_cmd}"; then
+					t1="$(date +%s.%N)"
+					fEcho_Clean "profile timing: ${wl_name} $(awk -v a="$t0" -v b="$t1" 'BEGIN{printf "%.2fs", b - a}')"
+				else
+					fEcho_Clean "profile timing: ${wl_name} FAILED"
+				fi
+			done
+		fi
+		fEcho_Clean "open: ${latest}  (in a browser)"
+		## Hot-spot summary into the log (non-fatal, no marker - the marker belongs to
+		## the per-session --check gate, not the pipeline).
+		if command -v python3 >/dev/null 2>&1; then
+			fEcho_Clean ""
+			## stderr kept: the report's only diagnostics go there, and discarding
+			## them left the log saying "unavailable" with no cause - a missing
+			## directory, no flamegraphs and an unparseable file all read alike.
+			## The exit code is already non-fatal, so keeping it costs nothing.
+			python3 "${here}/utility/flame-report.py" --dir "${profile_dir}" || fEcho_Clean "hot spots: (report unavailable - see the reason above)"
+		else
+			fEcho "WARNING: python3 not found; hot-spot report skipped"
+		fi
+	else
+		fEcho_Clean "profiler skipped"
+		## The calibration alone, on the config's cheaper build, since the graph's
+		## attribution is otherwise unchecked under --ci. It runs offline, and a
+		## cache without the sampler's crates is a noted skip rather than a fetch.
+		if ((ci_mode)) && [[ -n "${PROFILE_CHECK:-}" ]] && declare -p PROFILE_CHECK_BUILD_CMD &>/dev/null && ((${#PROFILE_CHECK_BUILD_CMD[@]})); then
+			if "${PROFILE_CHECK_PROBE_CMD[@]}" >/dev/null 2>&1; then
+				fEcho_Clean "building: ${PROFILE_CHECK_BUILD_CMD[*]}"
+				"${PROFILE_CHECK_BUILD_CMD[@]}" || fDie "profiler check build failed (app problem)"
+				( PROFILE_BIN="${PROFILE_CHECK_BIN}"; eval "${PROFILE_CHECK}" ) \
+					|| fDie "profiler attribution check failed; its graph would name the wrong code"
+			else
+				fEcho_Clean "profiler attribution check skipped: the sampler's crates are not in the local cache"
+				echo profiler-check >> "${SHCL_GATE_SKIPS}"
+			fi
+		fi
+	fi
+
+	## Stage 6: native release + cross targets, collected under versioned names plus
+	## a sha256 checksums file, ready to attach to a release as plain uploads.
+	## Naming (stable; download links depend on it): <exe>-<version>-<os-arch>[.exe]
+	fSection "6/9  Release builds"
+	built_arts=()   ## <os-arch>|<path> per built binary; stage 7 dogfoods off it too
+	## Cross-compile checks that produce no artifact: the other bindings' own
+	## platform branches. Without these the C header's Windows path is never
+	## compiled here at all, which is exactly how a build-breaking regression in it
+	## reached dev unnoticed. They are checks, not builds, so they run whenever
+	## correctness is gated - they sat inside the release branch below for a month,
+	## which meant --ci, the one run that decides whether a commit reaches main,
+	## compiled none of them.
+	for c in "${CROSS_CHECKS[@]}"; do
 		c_label="${c%%|*}"; c_cmd="${c#*|}"
-		fEcho "release check: ${c_label}"
-		eval "${c_cmd}" || fDie "release check failed: ${c_label}"
+		fEcho "cross check: ${c_label}"
+		eval "${c_cmd}" || fDie "cross check failed: ${c_label}"
 		fEcho "OK: ${c_label}"
 	done
-	if [[ -n "${RELEASE_ARTIFACT_DIR:-}" ]]; then
-		ver="$(fVersion)"
-		[[ -n "$ver" ]] || fDie "no version found in ${VERSION_MANIFEST}"
-		art_dir="${root}/${RELEASE_ARTIFACT_DIR}"
-		rm -rf "${art_dir}"; mkdir -p "${art_dir}"
-		sums="${EXE_NAME}-${ver}-sha256sums.txt"
-		for pair in "${built_arts[@]}"; do
-			p_osarch="${pair%%|*}"; p_src="${pair#*|}"
-			p_ext=""; [[ "$p_src" == *.exe ]] && p_ext=".exe"
-			cp -f "${p_src}" "${art_dir}/${EXE_NAME}-${ver}-${p_osarch}${p_ext}"
-		done
-		## Packages and the tarball below record mtimes, uid/gid and build dates;
-		## pinning those to the commit's time is what lets two builds of one
-		## commit, on any box, give the same bytes (the sums file signs them).
-		export SOURCE_DATE_EPOCH="$(git -C "${root}" log -1 --format=%ct)"
-		## Installer packages (.deb/.rpm via nfpm, NSIS setup per Windows exe) join
-		## the artifact family before the sums are written, so they ship verified too.
-		((PACKAGE_ENABLE)) && "${here}/utility/package.bash" "${root}" "${art_dir}" "${ver}"
-		## The drop-in sources, man page and completions the installer
-		## lays down, as one asset in the same family - so they are covered by the
-		## signed sums like everything else. The installer used to take them from
-		## GitHub's generated source tarball, which has no signature and no
-		## checksum. The modes are set outright: a checkout under umask 077 has no
-		## group or other bits, and only the execute bit comes from git.
-		( cd "${root}" && tar --sort=name --owner=0 --group=0 --numeric-owner --mode=u=rwX,go=rX \
-			--mtime="@${SOURCE_DATE_EPOCH}" -cf - \
-			source/rust/src/lib.rs source/go/shcl.go source/python/shcl.py \
-			source/c/shcl.h source/c/shcl.hpp \
-			source/man/shcl.1 source/completions/shcl.bash source/completions/_shcl \
-			| gzip -n -9 > "${art_dir}/${EXE_NAME}-${ver}-dropins.tar.gz" )
-		fWriteSums
-		fEcho "OK: ${#built_arts[@]} release artifact(s) + ${sums} -> ${RELEASE_ARTIFACT_DIR}/"
-		((${#CROSS_TARGETS[@]})) || fEcho_Clean "note: cross targets skipped - artifact set is partial (native only)"
+	## The record waits for the cross checks, the last gate a --ci run has. It sat at
+	## the end of stage 4 once they moved under --ci, so a run that then failed one
+	## had already let its tree through the hook.
+	if [[ -n "${green_tree}" ]]; then
+		if [[ -s "${SHCL_GATE_SKIPS}" ]]; then
+			fEcho_Clean "tree not recorded for the pre-push hook, since this run skipped: $(sort -u "${SHCL_GATE_SKIPS}" | paste -sd ' ')"
+		elif "${here}/utility/green-tree.bash" record "${root}" "${green_tree}"; then
+			fEcho "OK: tree ${green_tree:0:12} recorded; a push of it skips the pre-push gate"
+		fi
 	fi
-else
-	fEcho_Clean "release builds skipped"
+	if ((${#RELEASE_NATIVE_CMD[@]})); then
+		## Stamped from the commit, not the clock, so a rebuild of one commit gives
+		## the same bytes. Only these builds have it: the gate's own builds stay
+		## unstamped, the same as the other three CLIs they are compared against.
+		SHCL_BUILD="$(fBuildNumber "$(git -C "${root}" log -1 --format=%ct)")" || fDie "no build number from the commit time"
+		export SHCL_BUILD
+		fEcho "build ${SHCL_BUILD}"
+		"${RELEASE_NATIVE_CMD[@]}"
+		[[ -f "${RELEASE_NATIVE_BIN}" ]] || fDie "native release binary missing: ${RELEASE_NATIVE_BIN}"
+		fEcho "OK: native release: ${RELEASE_NATIVE_BIN} ($(du -h "${RELEASE_NATIVE_BIN}" | cut -f1))"
+		built_arts=("${RELEASE_NATIVE_OSARCH:-native}|${RELEASE_NATIVE_BIN}")
+		for t in "${CROSS_TARGETS[@]}"; do
+			t_label="${t%%|*}"; rest="${t#*|}"; t_osarch="${rest%%|*}"; rest="${rest#*|}"; t_art="${rest%%|*}"; t_cmd="${rest#*|}"
+			fEcho "cross: ${t_label}"
+			eval "${t_cmd}"
+			[[ -f "${t_art}" ]] || fDie "missing artifact for ${t_label}: ${t_art}"
+			fEcho "OK: ${t_label}: ${t_art} ($(du -h "${t_art}" | cut -f1))"
+			built_arts+=("${t_osarch}|${t_art}")
+		done
+		unset SHCL_BUILD
+		## Before anything is collected, so a build that fails one never reaches
+		## the artifact dir. built_arts is in scope for the commands.
+		for c in "${RELEASE_CHECKS[@]}"; do
+			c_label="${c%%|*}"; c_cmd="${c#*|}"
+			fEcho "release check: ${c_label}"
+			eval "${c_cmd}" || fDie "release check failed: ${c_label}"
+			fEcho "OK: ${c_label}"
+		done
+		if [[ -n "${RELEASE_ARTIFACT_DIR:-}" ]]; then
+			ver="$(fVersion)"
+			[[ -n "$ver" ]] || fDie "no version found in ${VERSION_MANIFEST}"
+			art_dir="${root}/${RELEASE_ARTIFACT_DIR}"
+			rm -rf "${art_dir}"; mkdir -p "${art_dir}"
+			sums="${EXE_NAME}-${ver}-sha256sums.txt"
+			for pair in "${built_arts[@]}"; do
+				p_osarch="${pair%%|*}"; p_src="${pair#*|}"
+				p_ext=""; [[ "$p_src" == *.exe ]] && p_ext=".exe"
+				cp -f "${p_src}" "${art_dir}/${EXE_NAME}-${ver}-${p_osarch}${p_ext}"
+			done
+			## Packages and the tarball below record mtimes, uid/gid and build dates;
+			## pinning those to the commit's time is what lets two builds of one
+			## commit, on any box, give the same bytes (the sums file signs them).
+			export SOURCE_DATE_EPOCH="$(git -C "${root}" log -1 --format=%ct)"
+			## Installer packages (.deb/.rpm via nfpm, NSIS setup per Windows exe) join
+			## the artifact family before the sums are written, so they ship verified too.
+			((PACKAGE_ENABLE)) && "${here}/utility/package.bash" "${root}" "${art_dir}" "${ver}"
+			## The drop-in sources, man page and completions the installer
+			## lays down, as one asset in the same family - so they are covered by the
+			## signed sums like everything else. The installer used to take them from
+			## GitHub's generated source tarball, which has no signature and no
+			## checksum. The modes are set outright: a checkout under umask 077 has no
+			## group or other bits, and only the execute bit comes from git.
+			( cd "${root}" && tar --sort=name --owner=0 --group=0 --numeric-owner --mode=u=rwX,go=rX \
+				--mtime="@${SOURCE_DATE_EPOCH}" -cf - \
+				source/rust/src/lib.rs source/go/shcl.go source/python/shcl.py \
+				source/c/shcl.h source/c/shcl.hpp \
+				source/man/shcl.1 source/completions/shcl.bash source/completions/_shcl \
+				| gzip -n -9 > "${art_dir}/${EXE_NAME}-${ver}-dropins.tar.gz" )
+			fWriteSums
+			fEcho "OK: ${#built_arts[@]} release artifact(s) + ${sums} -> ${RELEASE_ARTIFACT_DIR}/"
+			((${#CROSS_TARGETS[@]})) || fEcho_Clean "note: cross targets skipped - artifact set is partial (native only)"
+		fi
+	else
+		fEcho_Clean "release builds skipped"
+	fi
 fi
 
 ## Stage 7: dogfood - drop the freshly built optimized native binary into the first
@@ -735,3 +885,4 @@ fEcho_Clean
 ##		- 2026-09-26 JC: --ci runs the profiler's attribution check alone, on the config's cheaper build.
 ##		- 2026-10-08 JC: The shell wrappers are retired: out of the drop-ins tarball and the dogfood stage.
 ##		- 2026-10-13 JC: --no-tests, so the hosted gate can run lint and tests as parallel jobs.
+##		- 2026-10-13 JC: --container runs stages 1-6 in a pinned image, and --container=NAME in an extra one. --no-release.
