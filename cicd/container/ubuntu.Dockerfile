@@ -14,15 +14,19 @@ FROM ubuntu:24.04@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884
 #
 # gcc 13 is the default here, as on the runner; 12, 14 and clang are for
 # check-c-compilers, which the runner has too. The rest are rows in the test
-# stage that fail a skip under --ci. libicu and libgssapi are for pwsh.
+# stage that fail a skip under --ci, and tzdata is for rows that pin a zone.
+# libicu and libgssapi are for pwsh. The image's man is a stub that says it was
+# minimized, so the real one is put back, as the runner has it. Ubuntu's mawk
+# reads #{2,5} wrong, and the runner's awk is gawk.
 RUN apt-get update \
-	&& apt-get install -y --no-install-recommends \
-		bash ca-certificates curl wget openssl git xz-utils unzip file jq \
+	&& DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+		bash ca-certificates curl wget openssl git xz-utils unzip file jq tzdata gawk \
 		gcc g++ gcc-12 gcc-14 clang libc6-dev binutils \
 		gcc-mingw-w64-x86-64 nsis rpm \
 		zsh bash-completion strace locales man-db \
 		libicu74 libgssapi-krb5-2 \
-	&& rm -rf /var/lib/apt/lists/*
+	&& rm -rf /var/lib/apt/lists/* \
+	&& rm /usr/bin/man && dpkg-divert --quiet --remove --rename /usr/bin/man
 
 ARG RUSTUP_VER=1.29.1
 ARG RUSTUP_SHA256=dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71

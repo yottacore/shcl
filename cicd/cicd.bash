@@ -143,7 +143,7 @@ while (($#)); do case "$1" in
 	--no-largedoc)            LARGEDOC_MIB=0; ctr_pass+=("$1"); shift ;;
 	--no-profile)             PROFILE_ENABLE=0; ctr_pass+=("$1"); shift ;;
 	## Dogfood and the gif take the release binary, so a stale one would go out.
-	--no-release)             RELEASE_NATIVE_CMD=(); DOGFOOD_FIXED_DESTS=(); GIF_ENABLE=0; ctr_pass+=("$1"); shift ;;
+	--no-release)             RELEASE_NATIVE_CMD=(); PACKAGE_ENABLE=0; DOGFOOD_FIXED_DESTS=(); GIF_ENABLE=0; ctr_pass+=("$1"); shift ;;
 	--no-dogfood)             DOGFOOD_FIXED_DESTS=(); shift ;;
 	--no-gif)                 GIF_ENABLE=0; shift ;;
 	--no-publish)             GIT_PUBLISH=(); shift ;;
@@ -386,19 +386,23 @@ if ((! quiet)); then
 	fEcho_Clean
 	fEcho_Clean "Repo root ......: ${root}"
 	fEcho_Clean "Remote sync ....: $( ((sync_enable)) && echo 'fast-forward when behind; abort when diverged' || echo '(skipped)')"
-	if [[ -n "${ctr_image}" ]]; then fEcho_Clean "Container ......: stages 1-6 in the ${ctr_image} image, from ${ctr_recipe}; its own plan prints when it starts"; fi
-	fEcho_Clean "Format .........: $( ((ci_mode)) && echo "${FMT_CHECK_CMD[*]:-(none configured)}" || echo "${FMT_CMD[*]:-(skipped)}")$( ((${#FMT_EXTRA[@]} + ${#FMT_CHECK_EXTRA[@]})) && echo "  (+ extras)" )"
-	fEcho_Clean "Build (debug) ..: ${BUILD_CMD[*]:-(none configured)}$( ((${#BUILD_EXTRA[@]})) && echo "  (+ ${#BUILD_EXTRA[@]} extra)" )"
-	fEcho_Clean "Lint ...........: ${LINT_CMD[*]:-(none configured)}$( ((${#LINT_EXTRA[@]})) && echo "  (+ ${#LINT_EXTRA[@]} extra)" )  + shellcheck: ${#SHELLCHECK_TARGETS[@]} file(s)"
-	fEcho_Clean "Tests ..........: ${TEST_CMD[*]:-(none configured)}$( ((${#TEST_EXTRA[@]})) && echo "  (+ ${#TEST_EXTRA[@]} extra)" )  + crosscheck: ${#BINDING_CLIS[@]} binding(s)$( ((LARGEDOC_MIB)) && echo "  + large doc: ${LARGEDOC_MIB} MiB" )"
-	fEcho_Clean "Profiler .......: $( ((PROFILE_ENABLE)) && echo "${PROFILE_SECS}s run -> flamegraph SVG -> ${PROFILE_OUT_DIR}/" || echo '(skipped)')"
-	if ((${#RELEASE_NATIVE_CMD[@]})); then
-		fEcho_Clean "Release ........: native + ${#CROSS_TARGETS[@]} cross target(s) -> ${RELEASE_ARTIFACT_DIR}/$( ((${#RELEASE_CHECKS[@]})) && echo "  + ${#RELEASE_CHECKS[@]} check(s)" )"
+	## Under --container the run inside prints its own plan for stages 1-6.
+	if [[ -n "${ctr_image}" ]]; then
+		fEcho_Clean "Container ......: stages 1-6 in the ${ctr_image} image, from ${ctr_recipe}"
 	else
-		fEcho_Clean "Release ........: (skipped)"
+		fEcho_Clean "Format .........: $( ((ci_mode)) && echo "${FMT_CHECK_CMD[*]:-(none configured)}" || echo "${FMT_CMD[*]:-(skipped)}")$( ((${#FMT_EXTRA[@]} + ${#FMT_CHECK_EXTRA[@]})) && echo "  (+ extras)" )"
+		fEcho_Clean "Build (debug) ..: ${BUILD_CMD[*]:-(none configured)}$( ((${#BUILD_EXTRA[@]})) && echo "  (+ ${#BUILD_EXTRA[@]} extra)" )"
+		fEcho_Clean "Lint ...........: ${LINT_CMD[*]:-(none configured)}$( ((${#LINT_EXTRA[@]})) && echo "  (+ ${#LINT_EXTRA[@]} extra)" )  + shellcheck: ${#SHELLCHECK_TARGETS[@]} file(s)"
+		fEcho_Clean "Tests ..........: ${TEST_CMD[*]:-(none configured)}$( ((${#TEST_EXTRA[@]})) && echo "  (+ ${#TEST_EXTRA[@]} extra)" )  + crosscheck: ${#BINDING_CLIS[@]} binding(s)$( ((LARGEDOC_MIB)) && echo "  + large doc: ${LARGEDOC_MIB} MiB" )"
+		fEcho_Clean "Profiler .......: $( ((PROFILE_ENABLE)) && echo "${PROFILE_SECS}s run -> flamegraph SVG -> ${PROFILE_OUT_DIR}/" || echo '(skipped)')"
+		if ((${#RELEASE_NATIVE_CMD[@]})); then
+			fEcho_Clean "Release ........: native + ${#CROSS_TARGETS[@]} cross target(s) -> ${RELEASE_ARTIFACT_DIR}/$( ((${#RELEASE_CHECKS[@]})) && echo "  + ${#RELEASE_CHECKS[@]} check(s)" )"
+		else
+			fEcho_Clean "Release ........: (skipped)"
+		fi
+		fEcho_Clean "Cross checks ...: $( ((${#CROSS_CHECKS[@]})) && echo "${#CROSS_CHECKS[@]} (no artifact; run whether or not a release is built)" || echo '(skipped)')"
+		fEcho_Clean "Packages .......: $( ((PACKAGE_ENABLE)) && echo '.deb/.rpm + NSIS setup (per built binary)' || echo '(skipped)')"
 	fi
-	fEcho_Clean "Cross checks ...: $( ((${#CROSS_CHECKS[@]})) && echo "${#CROSS_CHECKS[@]} (no artifact; run whether or not a release is built)" || echo '(skipped)')"
-	fEcho_Clean "Packages .......: $( ((PACKAGE_ENABLE)) && echo '.deb/.rpm + NSIS setup (per built binary)' || echo '(skipped)')"
 	fEcho_Clean "Dogfood ........: $( if ((${#DOGFOOD_FIXED_DESTS[@]})); then _dfd="$(fFirstWritableDir "${DOGFOOD_FIXED_DESTS[@]}")"; [[ -n "$_dfd" ]] && echo "${_dfd}/${EXE_NAME}" || echo '(no writable dest; will skip)'; else echo '(skipped)'; fi )"
 	fEcho_Clean "Demo gif .......: $( ((GIF_ENABLE)) && echo "${GIF_OUT}" || echo '(skipped)')"
 	if ((${#GIT_PUBLISH[@]})); then

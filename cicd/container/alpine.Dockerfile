@@ -12,12 +12,13 @@
 FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
 
 # GNU coreutils, findutils and grep, since the gate scripts use stat -c, find
-# -printf and the like. strace and mandoc are for cli-regress and perf-gate rows.
+# -printf and the like. strace, mandoc and tzdata are for cli-regress and
+# perf-gate rows.
 RUN apk add --no-cache \
 		bash coreutils findutils grep sed gawk diffutils util-linux procps \
 		ca-certificates curl wget openssl git xz tar file jq \
 		gcc g++ musl-dev linux-headers \
-		python3 strace mandoc
+		python3 strace mandoc tzdata
 
 ARG RUSTUP_VER=1.29.1
 ARG RUSTUP_SHA256=331228566cc931f32cd684f9bebc5956a5e5d7394c8d5de595f196a658ab98e6

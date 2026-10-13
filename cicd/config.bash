@@ -497,13 +497,15 @@ CTR_PREP='cargo fetch --offline --manifest-path "${MANIFEST}" >/dev/null 2>&1 ||
 ##   ubuntu: the hosted runner's OS and gcc 13. Format check, build, tests and
 ##           the cross checks, strict as hosted. Lint is left to the main image,
 ##           whose linters are pinned to the same versions.
-##   alpine: musl. Build and tests, minus the gates that test this box's tools
-##           or glibc rather than the code (TEST_EXTRA below). No release builds.
+##   alpine: musl. Build and tests, minus the gates below that need what musl
+##           lacks or test nothing the libc changes. Not strict, so a row that
+##           wants a tool the image doesn't have, such as pwsh, skips out loud.
+##           No release builds, since none ships for musl.
 CTR_ARGS_ubuntu=(--ci --no-lint)
-CTR_ARGS_alpine=(--no-fmt --no-lint --no-cross --no-profile --no-release --no-largedoc)
+CTR_ARGS_alpine=(--no-fmt --no-lint --no-cross --no-profile --no-release)
 if [[ "${SHCL_CTR_IMAGE:-}" == alpine ]]; then
-	## No second gcc, no localedef and no sanitizers on musl, and the installer,
-	## hook, migration and C compiler sweeps test nothing the libc changes.
+	## One gcc, no localedef and no sanitizers on Alpine, and the installer,
+	## hook and 2.x migration gates test nothing the libc changes.
 	ctrSkip='check-c-compilers|check-locale|sanitize-c|shell-regress|check-migrate|check-install-dev|check-push-gate'
 	ctrKeep=()
 	for x in "${TEST_EXTRA[@]}"; do
