@@ -208,25 +208,6 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch (default): `defaultfix`
 	- Commit (default): `5bb89ac4`, then `c0329cc9` with dev merged in
 
-- Run on the last Core 2 Duo, and AMD CPUs from that era.
-	- ID: 2026101301161858
-	- Type: Enhancement
-	- Status: Queued
-	- Needs external testing: Yes, on an old CPU or an emulated one.
-	- Priority [Feature|Enhancement] | Severity [Bug]: Low
-	- Opened: 20261013-011618
-	- Opened by: JC
-	- Target OS: Linux, Windows and FreeBSD on x86_64, where this project builds them. Macs that old can't run a current macOS anyway.
-	- Requirements [Feature]:
-		- Release builds run on the last Core 2 Duo (Penryn, 2008), and on AMD Phenom II and Athlon II, if that's reasonably doable.
-			- Penryn has SSSE3 and SSE4.1 but no POPCNT. The AMD ones have POPCNT but no SSSE3. So the shared floor is plain x86-64, also called x86-64-v1.
-		- If that isn't doable, the floor is the first Core i3/i5/i7 (Nehalem, 2008), which is x86-64-v2. AMD's first chip at that level is Bulldozer, 2011.
-		- Faster code for newer CPUs is still fine, but it's picked at run time by a CPU feature test, never by the build target.
-		- Tests run the release build on an emulated Penryn and Phenom II, through Intel SDE or QEMU's `-cpu Penryn` and `-cpu phenom`.
-	- Progress log:
-		- 20261013: Go builds for plain x86-64 by default (`GOAMD64=v1`), and nothing here sets it, so this may already hold. Pin `GOAMD64=v1` in the release build so a stray environment can't raise it. The standard library already picks faster code at run time.
-			- The C and Rust bindings build with the user's own compiler. Make sure their build files add no `-march` or `target-cpu`.
-
 **Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
 
 - Build and test in a pinned container.
@@ -242,6 +223,39 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 		- Toolchains on the build box clash between projects, such as 2 Zig versions on one link. A container keeps this project's pins apart.
 		- Other test boxes stay native, since their OS is what's being tested.
 		- zuid's `--container` stage is the model. gitsby and convert-base-v2 have one too.
+
+- Run on the last Core 2 Duo, and AMD CPUs from that era.
+	- ID: 2026101301161858
+	- Type: Enhancement
+	- Status: Done
+	- Needs external testing: Yes, on an old CPU or an emulated one.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261013-011618
+	- Opened by: JC
+	- Target OS: Linux, Windows and FreeBSD on x86_64, where this project builds them. Macs that old can't run a current macOS anyway.
+	- Requirements [Feature]:
+		- Release builds run on the last Core 2 Duo (Penryn, 2008), and on AMD Phenom II and Athlon II, if that's reasonably doable.
+			- Penryn has SSSE3 and SSE4.1 but no POPCNT. The AMD ones have POPCNT but no SSSE3. So the shared floor is plain x86-64, also called x86-64-v1.
+		- If that isn't doable, the floor is the first Core i3/i5/i7 (Nehalem, 2008), which is x86-64-v2. AMD's first chip at that level is Bulldozer, 2011.
+		- Faster code for newer CPUs is still fine, but it's picked at run time by a CPU feature test, never by the build target.
+		- Tests run the release build on an emulated Penryn and Phenom II, through Intel SDE or QEMU's `-cpu Penryn` and `-cpu phenom`.
+	- Progress log:
+		- 20261013: Go builds for plain x86-64 by default (`GOAMD64=v1`), and nothing here sets it, so this may already hold. Pin `GOAMD64=v1` in the release build so a stray environment can't raise it. The standard library already picks faster code at run time.
+			- The C and Rust bindings build with the user's own compiler. Make sure their build files add no `-march` or `target-cpu`.
+		- 20261013: The release builds already met the floor. Nothing here sets a target CPU: no `target-cpu`, `-march` or `GOAMD64` in `.cargo/config.toml`, `build.rs`, `config.bash`, `ci.yml` or the C build lines, and the zig cross targets build for the baseline CPU. Rust's x86_64 Linux and FreeBSD targets default to v1 (me).
+			- Rust's Windows x86_64 target also turns on SSE3, CMPXCHG16B and LAHF/SAHF, and the Windows release has 1 SSE3 instruction. Penryn and Phenom have all 3, and 64-bit Windows 8.1 and later need the last 2.
+			- Go has no release build here. The Go CLI build in `config.bash` is the one place this project builds a Go binary, and it now pins `GOAMD64=v1`.
+			- New release check `check-cpu-floor.bash`, run in stage 6 once the builds are done and before the artifacts are collected. It disassembles every x86_64 release build and fails on any instruction past v1. Then it boots the Linux build in QEMU as a Penryn and as a Phenom and runs the CLI over the corpus, 4259 runs, which have to match the same binary's output on the host. A probe first checks that each emulated CPU traps on the extensions the real chip lacks.
+			- QEMU's software CPU traps by model on POPCNT, SSSE3, SSE4.1, SSE4.2, AVX, BMI1 and MOVBE. It runs `lzcnt` and `tzcnt` as `bsr` and `bsf` on both models, Phenom included, so only the scan sees those. Intel SDE wasn't needed.
+			- Hosted CI builds no release binaries, so the check runs only in a local stage 6 run, about 2 minutes. It needs qemu-system-x86_64, busybox and a readable kernel in `/boot`, and skips with a note without them.
+	- Decisions:
+		- 20261013: the Windows build's floor is v1 plus SSE3, CMPXCHG16B and LAHF/SAHF, which Rust's Windows target assumes and both CPUs have (me).
+	- Verified: 20261013. The stage 6 release builds for Linux, Windows and FreeBSD x86_64 pass the scan, and the Linux one gives the same bytes and exit codes as on the host on the emulated Penryn and Phenom. Seen to fail: an x86-64-v3 build fails the scan and every CLI run dies of SIGILL on both CPUs; an SSSE3 build fails the scan and dies on Phenom only, as on the real chips; an x86-64-v2 build fails the scan and dies on Phenom; a v3 Windows build fails the scan; a doctored host result fails both compares; a stage 6 run with `RUSTFLAGS=-Ctarget-cpu=x86-64-v3` stops at the check and collects no artifacts. The Go CLI built with `GOAMD64=v1` and the C CLI from the plain `cc` line also match the host on both emulated CPUs. Also shellcheck, check-docs judged as main, shell-regress, check-push-gate, check-pins, test-ids check and markdownlint.
+	- Test case: `check-cpu-floor.bash` `EsaOGRX` (the scan), `EsaOGRY` and `EsaOGRa` (each emulated CPU traps on what it lacks), `EsaOGRZ` and `EsaOGRb` (the CLI over the corpus on Penryn and Phenom). A stage 6 release check, not part of `--ci`.
+	- Branch: `oldcpu`
+	- Commit: `b2c6f659`
+	- Acceptance signoff: Self-closed: the floor holds on every x86_64 release build, and the check was seen to fail on builds past it.
+	- Closed: 20261013-065126
 
 - `fmt` turns a bare `80,443` into a number
 	- ID: 2026101010054746

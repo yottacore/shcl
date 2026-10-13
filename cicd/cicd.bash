@@ -17,8 +17,8 @@
 ##	   3. lint (project lint + shellcheck of the cicd scripts themselves)
 ##	   4. tests (conformance corpus + fuzz smoke + cross-binding differential check)
 ##	   5. profiler (flamegraph SVG + hot-spot report; non-gating artifact, local only)
-##	   6. release + cross-compile + versioned artifacts + packages (.deb/.rpm/
-##	      NSIS setup) + sha256sums (local only)
+##	   6. release + cross-compile + checks over the release binaries + versioned
+##	      artifacts + packages (.deb/.rpm/NSIS setup) + sha256sums (local only)
 ##	   7. dogfood (install the release builds to fixed local dirs; local only)
 ##	   8. demo gif for the README (local only; non-gating)
 ##	   9. backup + publish to git (local only)
@@ -99,6 +99,7 @@ export CPU_CAP
 ## second binding (Go, C, ...) adds its fmt/build/lint/test commands in config
 ## without touching engine code. All default empty.
 FMT_EXTRA=(); FMT_CHECK_EXTRA=(); BUILD_EXTRA=(); LINT_EXTRA=(); TEST_EXTRA=(); TEST_QUICK_CMD=()
+RELEASE_CHECKS=()   ## "label|command" over the release binaries, once built
 PACKAGE_ENABLE=0   ## config opts in; installer packages built off the release artifacts
 ## -q: "-q" for the eval'd config strings to pass to tools that take one (ruff);
 ## cargo reads CARGO_TERM_QUIET from the environment instead. Empty otherwise.
@@ -267,7 +268,7 @@ if ((! quiet)); then
 	fEcho_Clean "Tests ..........: ${TEST_CMD[*]:-(none configured)}$( ((${#TEST_EXTRA[@]})) && echo "  (+ ${#TEST_EXTRA[@]} extra)" )  + crosscheck: ${#BINDING_CLIS[@]} binding(s)$( ((LARGEDOC_MIB)) && echo "  + large doc: ${LARGEDOC_MIB} MiB" )"
 	fEcho_Clean "Profiler .......: $( ((PROFILE_ENABLE)) && echo "${PROFILE_SECS}s run -> flamegraph SVG -> ${PROFILE_OUT_DIR}/" || echo '(skipped)')"
 	if ((${#RELEASE_NATIVE_CMD[@]})); then
-		fEcho_Clean "Release ........: native + ${#CROSS_TARGETS[@]} cross target(s) -> ${RELEASE_ARTIFACT_DIR}/"
+		fEcho_Clean "Release ........: native + ${#CROSS_TARGETS[@]} cross target(s) -> ${RELEASE_ARTIFACT_DIR}/$( ((${#RELEASE_CHECKS[@]})) && echo "  + ${#RELEASE_CHECKS[@]} check(s)" )"
 	else
 		fEcho_Clean "Release ........: (skipped)"
 	fi
@@ -559,6 +560,14 @@ if ((${#RELEASE_NATIVE_CMD[@]})); then
 		built_arts+=("${t_osarch}|${t_art}")
 	done
 	unset SHCL_BUILD
+	## Before anything is collected, so a build that fails one never reaches
+	## the artifact dir. built_arts is in scope for the commands.
+	for c in "${RELEASE_CHECKS[@]}"; do
+		c_label="${c%%|*}"; c_cmd="${c#*|}"
+		fEcho "release check: ${c_label}"
+		eval "${c_cmd}" || fDie "release check failed: ${c_label}"
+		fEcho "OK: ${c_label}"
+	done
 	if [[ -n "${RELEASE_ARTIFACT_DIR:-}" ]]; then
 		ver="$(fVersion)"
 		[[ -n "$ver" ]] || fDie "no version found in ${VERSION_MANIFEST}"
