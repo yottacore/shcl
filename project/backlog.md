@@ -48,7 +48,30 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Possible cause [Bug]: the counter is global to the process. `element_cap_bounds_the_parse` builds its 600 KB text before it takes the lock, and that build holds 2 copies at once, about 1.2 MB. The count was 1200026 bytes over this box's figure. On 10-10 the 2 tests ran the other way around, and the job was green.
 	- Note: Avg, since a rerun passes. A red macos job on a main push still needs one.
 
-**Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
+- Loose doesn't read a quoted thousands number, such as `"1,200"` or `"$1,200"`, as a number
+	- ID: 2026101309122757
+	- Type: Enhancement
+	- Status: Queued
+	- Priority: Avg
+	- Opened: 20261013-091227
+	- Opened by: JC, from talk after 2026101010054746
+	- Related IDs: 2026101010054746, 2026100719122101, 2026101309122877
+	- Problem description: since 2026101010054746, no strictness reads a comma number as a number. At Loose, `$1200` reads as 1200 and `75%` as 0.75, but `"$1,200"` and `"1,200"` are refused on an int or float read.
+	- Requirements:
+		- At Loose, an int or float read of a quoted thousands number gives the number. `"1,200"` is 1200, `"$1,200"` is 1200, and `"1,200.50"` is 1200.5.
+		- Grouping must be exact: 1 to 3 digits, then groups of exactly 3, with an optional `.` decimal part. `"1, 200"` and `"1,2,3"` stay text.
+		- Bare `1,200` stays text at every level, since it could be a list.
+		- Standard and Strict refuse commas, currency and `%`, quoted or not.
+		- A string read gives the text as written at every level.
+		- `fmt` and the writer leave a bare thousands-shaped value bare, at every strictness, so a save can't turn bare `80,443` into a quoted `"80,443"` that reads as 80443. This is the one exception to quoting a value with a comma.
+		- A value a setter wrote counts as quoted when the saved text would quote it (spec.md).
+		- A typed read gives the same answer before and after `fmt` and a save. The fuzz property `EsZikJr` covers it.
+	- Reason: Loose is for values people type by hand, and `"$1,200"` is how they write money. The quotes say it is one value, not a list.
+	- Decisions:
+		- 20261013: Loose only. Standard and Strict still refuse commas, currency and `%` (JC).
+		- 20261013: quoted only, bare `1,200` stays text, and `"1, 200"` is not a number (JC).
+		- 20261013: `fmt` keeps a bare thousands-shaped value bare, so the read can't change across a save. That was the 10-10 bug (me, agreed by JC).
+	- Note: this setting has changed 3 times. 20261006 made quoted thousands read as numbers, 20261010 dropped them, and this brings them back at Loose only with the `fmt` exception.
 
 - Build and test in a pinned container.
 	- ID: 2026101303344553
@@ -5080,6 +5103,17 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Note: the 2,000,000-iteration fuzz now fails `merge_never_panics_and_stays_fixpoint`. Case 185 moves the seed set onto a shared merge defect: a layer and its canonical form merge one blank line apart, above a comment. dev's code fails the same way with the case added and passes without it. Filed as 2026092918110222.
 	- Acceptance signoff: Self-closed: the sort by line asked for, and its tests fail on dev.
 	- Closed: 20260930-073042
+
+- Decide how to handle `,` as a decimal point
+	- ID: 2026101309122877
+	- Type: Feature
+	- Status: Deferred
+	- Priority: Low
+	- Opened: 20261013-091227
+	- Opened by: JC
+	- Related IDs: 2026101309122757
+	- Problem description: much of the world writes `1.200,50` for what SHCL reads as `1,200.50`. Today `1,5` is text at every level, and at Loose `"1,200"` will read as 1200, which a reader using a decimal comma would mean as 1.2.
+	- Note: after the next cut (JC).
 
 - The Python binding parses about 25% slower than on 2026-09-19
 	- ID: 2026100221215300
