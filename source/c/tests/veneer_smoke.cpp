@@ -674,6 +674,45 @@ int main() {
 		CHECK(held_bytes <= 2 * big.size());
 	}
 
+#ifndef SHCL_NO_FILE_IO
+	// read_named_schema hands the core's answer over whole: status, text,
+	// the resolved path, the line and the message. The rules themselves are
+	// the C runner's to pin.
+	{
+		const char *tmp = std::getenv("TMPDIR");
+		if (!tmp || !*tmp) tmp = std::getenv("TEMP");
+		if (!tmp || !*tmp) tmp = std::getenv("TMP");
+		if (!tmp || !*tmp) tmp = "/tmp";
+		const std::string sp = std::string(tmp) + "/shcl-veneer-named-" + std::to_string(static_cast<long>(getpid())) + ".shcl";
+		if (std::FILE *sf = std::fopen(sp.c_str(), "wb")) {
+			std::fputs("field: port\n", sf);
+			std::fclose(sf);
+		}
+		auto ns = shcl::read_named_schema("a: 1\n##    Schema   " + sp + "\n", "cfg.shcl");
+		CHECK(ns.status == shcl::SchemaStatus::Good && ns.text == "field: port\n" && ns.path == sp && ns.line == 2 && ns.message.empty());
+		std::remove(sp.c_str());
+		ns = shcl::read_named_schema("a: 1\n##    Schema   gone.shcl\n", "-");
+		CHECK(ns.status == shcl::SchemaStatus::FileNotFound && ns.path == "./gone.shcl" && ns.message.rfind("./gone.shcl: ", 0) == 0);
+		CHECK(shcl::read_named_schema("a: 1\n", "cfg.shcl").status == shcl::SchemaStatus::NotFound);
+		CHECK(shcl::read_named_schema("##    Schema\n", "cfg.shcl").line == 1);
+		CHECK(shcl::read_named_schema("##    Schema   https://x/s\n", "").status == shcl::SchemaStatus::Url);
+		CHECK(std::string(shcl::to_string(shcl::SchemaStatus::TooLarge)) == "TooLarge");
+	}
+#endif
+	// kind() and read_kind() pass the core's answer and status through.
+	{
+		using K = shcl::ValueKind;
+		auto kd = shcl::Document::parse("name: demo\ntags: [a]\nnotes: ~~~\n\tx\n\t~~~\nsrv:\n\thost: h\nsite: a\nsite: b\n");
+		CHECK(kd.kind("name") == K::Scalar && kd.kind("tags") == K::Array && kd.kind("notes") == K::Raw && kd.kind("srv") == K::Empty);
+		auto kr = kd.read_kind("tags");
+		CHECK(kr.value == K::Array && kr.status == shcl::Status::Good);
+		CHECK(kd.read_kind("srv").value == K::Empty && kd.read_kind("srv").status == shcl::Status::Good);
+		CHECK(kd.read_kind("site").value == K::Empty && kd.read_kind("site").status == shcl::Status::Multiple);
+		CHECK(kd.read_kind("nope").status == shcl::Status::NotFound && kd.read_kind("site..port").status == shcl::Status::BadPath);
+		CHECK(kd.kind("nope") == K::Empty);
+		CHECK(std::string(shcl::to_string(K::Empty)) == "Empty" && std::string(shcl::to_string(K::Raw)) == "Raw");
+	}
+
 	if (fails) { std::fprintf(stderr, "veneer: %d failure(s)\n", fails); return test_id_end(fails); }
 	std::printf("veneer: ok\n");
 	return test_id_end(fails);

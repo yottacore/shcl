@@ -669,9 +669,17 @@ rows=(
 	"Ep3OILN|set-open-quote-refused|set --set=a(\"open=1 %X%|-|1|-|bad --set value"
 	## 20260909 item 13: a value built by a setter or a selector read as
 	## unquoted, so quoted thousands were BadType until a save and reload.
-	'EpykNRw|set-quoted-thousands|get --int --set=a=1,000 %F% a|-|0|1000\n|-'
-	"EpykNRx|set-selector-thousands|get --int --set=x(\"1,000\").y=1 %F% x|-|0|1000\n|-"
-	'EpykNRy|selector-thousands|get --int %SQ% srv|-|0|1000\n|-'
+	## 2026101010054746: a quoted thousands number is text now, so these read
+	## BadType before a save and after one, like the bare form.
+	# 'EpykNRw|set-quoted-thousands|get --int --set=a=1,000 %F% a|-|0|1000\n|-'
+	# "EpykNRx|set-selector-thousands|get --int --set=x(\"1,000\").y=1 %F% x|-|0|1000\n|-"
+	# 'EpykNRy|selector-thousands|get --int %SQ% srv|-|0|1000\n|-'
+	'EsZikJn|set-quoted-thousands-text|get --int --set=a=1,000 %F% a|-|4|0\n|not a valid int'
+	"EsZikJo|set-selector-thousands-text|get --int --set=x(\"1,000\").y=1 %F% x|-|4|0\n|not a valid int"
+	'EsZikJp|selector-thousands-text|get --int %SQ% srv|-|4|0\n|not a valid int'
+	## The bare form, as fmt writes it: quoted, and still not a number.
+	'EsZikJm|quoted-thousands-int|get --int - p|p: "80,443"\n|4|0\n|not a valid int'
+	"EsZikJq|quoted-thousands-float|get --float --strictness=loose - p|p: '1,000'\n|4|0\n|not a valid float"
 	## 3.0: bracket text after the colon is one outcome, kept verbatim. The
 	## 2.x selector sugar is that shape now too, and migrate is what brings
 	## a file written with it across.
@@ -1284,6 +1292,11 @@ rows=(
 	'Erlc00p|layer-strict-then-missing-set|set --set=q=1 --strictness=strict --layer=%B% --layer=%M% %F%|-|8|-|not-there\.shcl'
 	## 20260902 item 44: the failing phase is named, not guessed.
 	'Eon514S|write-names-the-phase|set --write --set=a=2 %N%|-|8|-|cannot create temporary file'
+	## FILE: and the system's own message, without the temp file's name. Python
+	## printed that name as a repr, which doubles every backslash on windows,
+	## and Go named the call and the name again (2026100719122102).
+	'EsaAH2V|write-temp-reason-only|set --write --set=a=2 %N%|-|8|-|^[^ ]*nowrite.f\.shcl: cannot create temporary file: [^/\\]+$'
+	'EsaAW1o|write-temp-reason-no-dir|set --write --set=a=2 %D%/gone/f.shcl|-|8|-|^[^ ]*gone.f\.shcl: cannot create temporary file: [^/\\]+$'
 	## 20260902 item 41: the schema's own diagnostics were never printed, so the
 	## hint that explains a schema fault could not be seen.
 	'EomzUym|schema-own-hints|check --schema=%S7% %F%|-|6|-|schema line 4: Hint: H001'
@@ -2573,16 +2586,20 @@ PSEOF
 		if ((nLines < 500)); then
 			echo "cli-regress: json-reads-back [${name}]: only ${nLines} line(s) of --json output" >&2; nBad+=1; continue
 		fi
-		if ! jq -c . < "${tmpDir}/json.lines" > "${tmpDir}/json.back" 2>"${tmpDir}/json.err"; then
+		## jq on windows ends its lines with CR LF. It escapes a CR inside a
+		## string, so a bare one can only be a line end, and the CLI's side
+		## keeps its own so a CR from the CLI still fails.
+		if ! jq -c . < "${tmpDir}/json.lines" > "${tmpDir}/json.crlf" 2>"${tmpDir}/json.err"; then
 			echo "cli-regress: json-reads-back [${name}]: jq refused a line: $(head -c 300 "${tmpDir}/json.err")" >&2; nBad+=1; continue
 		fi
+		tr -d '\r' < "${tmpDir}/json.crlf" > "${tmpDir}/json.back"
 		if ! cmp -s "${tmpDir}/json.lines" "${tmpDir}/json.back"; then
 			echo "cli-regress: json-reads-back [${name}]: jq -c . writes a line back differently:" >&2
 			diff "${tmpDir}/json.lines" "${tmpDir}/json.back" | head -n 4 >&2 || true
 			nBad+=1; continue
 		fi
 		if ((havePwsh)); then
-			jq -r '"\(.path | @base64) \(.value | @base64) \(.line)"' < "${tmpDir}/json.lines" > "${tmpDir}/json.jq"
+			jq -r '"\(.path | @base64) \(.value | @base64) \(.line)"' < "${tmpDir}/json.lines" | tr -d '\r' > "${tmpDir}/json.jq"
 			if ! env -u DISPLAY pwsh -NoProfile -NonInteractive -File "${tmpDir}/json-back.ps1" "${tmpDir}/json.lines" > "${tmpDir}/json.ps" 2>"${tmpDir}/json.err" </dev/null; then
 				echo "cli-regress: json-reads-back [${name}]: ConvertFrom-Json refused a line: $(head -c 300 "${tmpDir}/json.err")" >&2; nBad+=1; continue
 			fi

@@ -2328,6 +2328,35 @@ func TestWriteStatusOf(t *testing.T) {
 	}
 }
 
+// FILE: and the system's own message, as the other three say it. The path
+// and link errors named the call and the temp file again (2026100719122102),
+// so the errors here carry a windows path on every platform.
+func TestWriteFailureNamesNoTempFile(t *testing.T) {
+	defer testID(t, "EsaBeHl")
+	target := filepath.Join(t.TempDir(), "reason.shcl")
+	tmp := `C:\Users\x\.reason.shcl.tmp1.0`
+	oldCreate, oldPublish := createTemp, publishFile
+	defer func() { createTemp, publishFile = oldCreate, oldPublish }()
+	createTemp = func(_, _ string, _ os.FileMode) (*os.File, error) {
+		return nil, &fs.PathError{Op: "open", Path: tmp, Err: fs.ErrPermission}
+	}
+	err := WriteFileAtomic(target, "a: 1\n")
+	if want := target + ": cannot create temporary file: " + fs.ErrPermission.Error(); err == nil || err.Error() != want || !errors.Is(err, fs.ErrPermission) {
+		t.Errorf("a failed temp file says %v, want %q", err, want)
+	}
+	createTemp = oldCreate
+	if err := WriteFileAtomic(target, "a: 1\n"); err != nil {
+		t.Fatal(err)
+	}
+	publishFile = func(string, string) error {
+		return &os.LinkError{Op: "rename", Old: tmp, New: `C:\Users\x\reason.shcl`, Err: fs.ErrPermission}
+	}
+	err = WriteFileAtomic(target, "a: 2\n")
+	if want := target + ": " + fs.ErrPermission.Error(); err == nil || err.Error() != want || !errors.Is(err, fs.ErrPermission) {
+		t.Errorf("a failed publish says %v, want %q", err, want)
+	}
+}
+
 func TestReadFileAtTheLargestCap(t *testing.T) {
 	defer testID(t, "EoLznCy")
 	// A cap given as the type maximum used to overflow the over-cap probe and
@@ -4863,7 +4892,11 @@ func TestTheWriterQuotesAColonOrComma(t *testing.T) {
 	if got := doc.ToCanonical(); got != "n: \"1,000\"\n" {
 		t.Fatalf("wrote %q", got)
 	}
-	if v, st := doc.GetInt("n"); st != Good || v != 1000 {
+	// 2026101010054746: a quoted thousands number is text, like a bare one.
+	// if v, st := doc.GetInt("n"); st != Good || v != 1000 {
+	// 	t.Fatalf("n: %d %v", v, st)
+	// }
+	if v, st := doc.GetInt("n"); st != BadType {
 		t.Fatalf("n: %d %v", v, st)
 	}
 	doc = Parse("ver: \"8\"\nok: 'true'\nat: 2:30PM\nhost: localhost:8080\n")
@@ -4879,6 +4912,53 @@ func TestTheWriterQuotesAColonOrComma(t *testing.T) {
 	hint := Parse("t: a,b\nt: c\n").Diagnostics()[0]
 	if hint.Code != "H001" || !strings.Contains(hint.Message, "t: [\"a,b\", c]") {
 		t.Fatalf("hint %v", hint)
+	}
+}
+
+// A thousands comma is text quoted or bare, so a typed read gives the same
+// answer before and after the writer quotes it (2026101010054746).
+func TestAThousandsCommaReadsTheSameAfterASave(t *testing.T) {
+	defer testID(t, "EsZikJj")
+	doc := Parse("p: 80,443\nq: \"1,000\"\nr: '-1,234,567'\n")
+	if st := doc.SetString("s", "1,000"); st != SetOk {
+		t.Fatalf("set: %v", st)
+	}
+	out := doc.ToCanonical()
+	if !strings.HasPrefix(out, "p: \"80,443\"\nq: \"1,000\"\nr: '-1,234,567'\n") || !strings.HasSuffix(out, "s: \"1,000\"\n") {
+		t.Fatalf("wrote %q", out)
+	}
+	back := Parse(out)
+	for _, c := range []struct{ path, text string }{
+		{"p", "80,443"},
+		{"q", "1,000"},
+		{"r", "-1,234,567"},
+		{"s", "1,000"},
+	} {
+		for _, d := range []*Document{doc, back} {
+			if r := d.ReadInt(c.path); r.Status != BadType {
+				t.Fatalf("%s int: %v", c.path, r.Status)
+			}
+			if r := d.ReadFloat(c.path); r.Status != BadType {
+				t.Fatalf("%s float: %v", c.path, r.Status)
+			}
+			if v, st := d.GetString(c.path); st != Good || v != c.text {
+				t.Fatalf("%s: %q %v", c.path, v, st)
+			}
+		}
+	}
+	// The setter's value counts as quoted, as its saved form is.
+	if !doc.ReadString("s").Quoted || !back.ReadString("s").Quoted {
+		t.Fatal("s not quoted")
+	}
+	loose, err := ParseWith("q: \"1,000\"\nc: \"$1,200\"\n", Loose)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := loose.ReadInt("q"); r.Status != BadType {
+		t.Fatalf("loose q: %v", r.Status)
+	}
+	if r := loose.ReadInt("c"); r.Status != BadType {
+		t.Fatalf("loose c: %v", r.Status)
 	}
 }
 
@@ -5553,5 +5633,200 @@ func TestDefaultReplaceRoundTrips(t *testing.T) {
 	}
 	if v, st := back.GetIntArray("list"); st != Good || len(v) != 2 || v[0] != 1 || v[1] != 2 {
 		t.Fatalf("list %v %v", v, st)
+	}
+}
+
+// A Schema line reads by check's rules through ReadNamedSchema: from the
+// config's directory, or the working directory when the path has none; a URL
+// is never fetched; only a regular file is read, and none over 16 MiB. The
+// CLI's check is this call, so its rows in cli-regress pin the same rules.
+// Same fixture in every runner.
+func TestReadNamedSchemaFollowsCheckRules(t *testing.T) {
+	defer testID(t, "EsJZ106")
+	d := t.TempDir()
+	cfg := d + "/cfg.shcl"
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(os.Mkdir(d+"/sub", 0o755))
+	must(os.WriteFile(d+"/s.shcl", []byte("field: port\n"), 0o644))
+	must(os.WriteFile(d+"/bad.shcl", []byte("a: \xff\n"), 0o644))
+	must(os.WriteFile(d+"/big.shcl", []byte(strings.Repeat("a", 16<<20+1)), 0o644))
+	line := func(r string) string { return "a: 1\n##    Schema   " + r + "\n" }
+
+	r := ReadNamedSchema(line("s.shcl"), cfg)
+	if r.Status != SchemaGood || r.Text != "field: port\n" || r.Path != d+"/s.shcl" || r.Line != 2 || r.Message != "" {
+		t.Fatalf("good: %+v", r)
+	}
+	abs := d + "/s.shcl"
+	if r := ReadNamedSchema(line(abs), "cfg.shcl"); r.Path != abs || r.Status != SchemaGood {
+		t.Fatalf("absolute: %+v", r)
+	}
+
+	if r := ReadNamedSchema("a: 1\n", cfg); r.Status != SchemaNotFound || r.Path != "" || r.Line != 0 {
+		t.Fatalf("no line: %+v", r)
+	}
+	if r := ReadNamedSchema("##    Schema\na: 1\n", cfg); r.Status != SchemaEmpty || r.Path != "" || r.Line != 1 {
+		t.Fatalf("empty: %+v", r)
+	}
+
+	r = ReadNamedSchema(line("https://example.com/s.shcl"), cfg)
+	if r.Status != SchemaURL || r.Path != "https://example.com/s.shcl" || r.Text != "" || r.Message == "" {
+		t.Fatalf("url: %+v", r)
+	}
+
+	for _, file := range []string{"cfg.shcl", "-", ""} {
+		if r := ReadNamedSchema(line("gone.shcl"), file); r.Status != SchemaFileNotFound || r.Path != "./gone.shcl" {
+			t.Fatalf("%q: %+v", file, r)
+		}
+	}
+	r = ReadNamedSchema(line("gone.shcl"), cfg)
+	if r.Status != SchemaFileNotFound || !strings.HasPrefix(r.Message, d+"/gone.shcl: ") {
+		t.Fatalf("gone: %+v", r)
+	}
+
+	named := func(r string) SchemaStatus { return ReadNamedSchema(line(r), cfg).Status }
+	for _, c := range []struct {
+		r    string
+		want SchemaStatus
+	}{
+		{"sub", SchemaIsDirectory},
+		{"big.shcl", SchemaTooLarge},
+		{"bad.shcl", SchemaUnreadable},
+		{"s.shcl\x00x", SchemaUnreadable},
+	} {
+		if got := named(c.r); got != c.want {
+			t.Errorf("%q: %v, want %v", c.r, got, c.want)
+		}
+	}
+	if runtime.GOOS == "windows" {
+		if got := named("NUL"); got != SchemaNotRegular {
+			t.Errorf("NUL: %v", got)
+		}
+		for _, n := range []string{`//host/share/s.shcl`, `\\host\share\s.shcl`, `\??\C:\s.shcl`} {
+			if r := ReadNamedSchema(line(n), cfg); r.Status != SchemaNetworkPath || r.Path != n {
+				t.Errorf("%q: %+v", n, r)
+			}
+		}
+	} else {
+		if got := named("/dev/null"); got != SchemaNotRegular {
+			t.Errorf("/dev/null: %v", got)
+		}
+		must(exec.Command("mkfifo", d+"/fifo").Run())
+		if got := named("fifo"); got != SchemaNotRegular {
+			t.Errorf("fifo: %v", got)
+		}
+		if got := named("//host/share/s.shcl"); got != SchemaFileNotFound {
+			t.Errorf("share path on POSIX: %v", got)
+		}
+	}
+	if SchemaFileNotFound.String() != "FileNotFound" || SchemaURL.String() != "Url" {
+		t.Error("names")
+	}
+}
+
+// What the value at a path is, through Kind and ReadKind, from the stored
+// form, with the status ReadLine gives. Same fixture in every runner.
+func TestKindReadsSayWhatIsThere(t *testing.T) {
+	defer testID(t, "EsJYNe2")
+	text := "name: demo\nquoted: \"\"\ntags: [a, b]\none: [80]\nnone: []\nlist:\n\t- x\n\t- y\nnotes:\n\t~~~sql\n\tselect 1\n\t~~~\nblank:\nsite: a\n\tport: 1\nsite: b\nsrv:\n\thost: h\nlog: [x] y\n\tlevel: 1\n"
+	doc := Parse(text)
+	if k := doc.ReadKind("name"); k.Value != KindScalar || k.Status != Good || k.Line != 1 {
+		t.Errorf("ReadKind(name) = %v %v %d", k.Value, k.Status, k.Line)
+	}
+	// `[80]` and `[]` are arrays though a scalar read takes them, and a
+	// section header or a line kept for its value is empty.
+	for _, c := range []struct {
+		path string
+		want ValueKind
+	}{
+		{"quoted", KindScalar},
+		{"tags", KindArray},
+		{"one", KindArray},
+		{"none", KindArray},
+		{"list", KindArray},
+		{"notes", KindRaw},
+		{"blank", KindEmpty},
+		{"srv", KindEmpty},
+		{"srv.host", KindScalar},
+		{"site(0)", KindScalar},
+		{"site(0).port", KindScalar},
+		{"log", KindEmpty},
+		{"log.level", KindScalar},
+	} {
+		if k := doc.ReadKind(c.path); k.Value != c.want || k.Status != Good {
+			t.Errorf("ReadKind(%q) = %v %v", c.path, k.Value, k.Status)
+		}
+		if k := doc.Kind(c.path); k != c.want {
+			t.Errorf("Kind(%q) = %v", c.path, k)
+		}
+	}
+	if k := doc.ReadKind("notes"); k.Line != 9 {
+		t.Errorf("ReadKind(notes) line %d", k.Line)
+	}
+	for _, c := range []struct {
+		path string
+		want Status
+	}{
+		{"site", Multiple},
+		{"site(*)", Multiple},
+		{"site(*).port", Multiple},
+		{"*", Multiple},
+		{"nope", NotFound},
+		{"site(1).port", NotFound},
+		{"site(2)", NotFound},
+		{"site[0].port", BadPath},
+		{"site(.port", BadPath},
+		{"site..port", BadPath},
+		{"", BadPath},
+		{"user name", BadPath},
+		{"site.port: 1", BadPath},
+		{"h:p", BadPath},
+	} {
+		if k := doc.ReadKind(c.path); k.Value != KindEmpty || k.Status != c.want || k.Line != 0 {
+			t.Errorf("ReadKind(%q) = %v %v %d", c.path, k.Value, k.Status, k.Line)
+		}
+		if k := doc.Kind(c.path); k != KindEmpty {
+			t.Errorf("Kind(%q) = %v", c.path, k)
+		}
+	}
+	names := []string{KindEmpty.String(), KindScalar.String(), KindArray.String(), KindRaw.String()}
+	if !reflect.DeepEqual(names, []string{"Empty", "Scalar", "Array", "Raw"}) {
+		t.Errorf("names %q", names)
+	}
+	if doc.ToCanonical() != Parse(text).ToCanonical() {
+		t.Errorf("a kind read changed the document")
+	}
+	// A node a setter built has the kind its setter wrote, and no line.
+	for _, st := range []SetStatus{
+		doc.SetInt("built", 1),
+		doc.SetIntArray("arr", []int64{1}),
+		doc.SetRaw("body", "x", ""),
+		doc.SetComment("note", "# c"),
+		doc.SetInt("blank", 2),
+	} {
+		if st != SetOk {
+			t.Fatalf("setter: %v", st)
+		}
+	}
+	for _, c := range []struct {
+		path string
+		want ValueKind
+	}{
+		{"built", KindScalar},
+		{"arr", KindArray},
+		{"body", KindRaw},
+		{"note", KindEmpty},
+		{"blank", KindScalar},
+	} {
+		if k := doc.ReadKind(c.path); k.Value != c.want || k.Status != Good {
+			t.Errorf("ReadKind(%q) after setters = %v %v", c.path, k.Value, k.Status)
+		}
+	}
+	if k := doc.ReadKind("built"); k.Line != 0 {
+		t.Errorf("ReadKind(built) line %d", k.Line)
 	}
 }

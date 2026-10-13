@@ -97,6 +97,28 @@ impl std::fmt::Display for Status {
 	}
 }
 
+/// What the value at a path is, as kind() and read_kind() give it. `Empty`
+/// is a field with nothing after the colon, a section's header included;
+/// `x: []` is an `Array` with no elements. The order is every binding's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ValueKind {
+	Empty,
+	Scalar,
+	Array,
+	Raw,
+}
+
+impl std::fmt::Display for ValueKind {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.write_str(match self {
+			ValueKind::Empty => "Empty",
+			ValueKind::Scalar => "Scalar",
+			ValueKind::Array => "Array",
+			ValueKind::Raw => "Raw",
+		})
+	}
+}
+
 /// What load_file found: the four cases a consumer's own load path otherwise
 /// confuses. Clean and HadErrors both have a usable document; NotFound and
 /// Unreadable come back with an empty one.
@@ -8210,6 +8232,238 @@ pub fn read_file(path: &str, max_bytes: usize) -> Result<String, FileStatus> {
 	String::from_utf8(bytes).map_err(|_| FileStatus::Unreadable)
 }
 
+/// What read_named_schema() found. `NotFound` and `Empty` are
+/// read_schema_ref()'s answers; the rest say why a named schema was not read.
+/// New values go on the end; the other bindings number them in this order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SchemaStatus {
+	/// The schema's text was read.
+	Good,
+	/// No line names a schema.
+	NotFound,
+	/// A Schema line with nothing after the word.
+	Empty,
+	/// The line names a URL, which is not fetched.
+	Url,
+	/// On windows, a path starting with two slashes or backslashes, or with
+	/// `\??\`, which names a network share or a device.
+	NetworkPath,
+	/// Nothing at the path.
+	FileNotFound,
+	/// The path names a directory.
+	IsDirectory,
+	/// Something at the path that is not a regular file, such as a FIFO or a
+	/// device.
+	NotRegular,
+	/// A file over 16 MiB.
+	TooLarge,
+	/// The file could not be read: no permission, text that is not UTF-8, or
+	/// another read error.
+	Unreadable,
+}
+
+impl std::fmt::Display for SchemaStatus {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.write_str(match self {
+			SchemaStatus::Good => "Good",
+			SchemaStatus::NotFound => "NotFound",
+			SchemaStatus::Empty => "Empty",
+			SchemaStatus::Url => "Url",
+			SchemaStatus::NetworkPath => "NetworkPath",
+			SchemaStatus::FileNotFound => "FileNotFound",
+			SchemaStatus::IsDirectory => "IsDirectory",
+			SchemaStatus::NotRegular => "NotRegular",
+			SchemaStatus::TooLarge => "TooLarge",
+			SchemaStatus::Unreadable => "Unreadable",
+		})
+	}
+}
+
+/// What read_named_schema() gives back. `text` is the schema's text when
+/// `status` is `Good`, else empty. `path` is where the line points: the path
+/// resolved from the config file's directory, or the URL or network path as
+/// written; empty when no line names one. `line` is the Schema line's
+/// number, 0 with none. `message` says why nothing was read, naming the
+/// path, and is empty for `Good`, `NotFound` and `Empty`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NamedSchema {
+	pub status: SchemaStatus,
+	pub text: String,
+	pub path: String,
+	pub line: usize,
+	pub message: String,
+}
+
+/// The most a Schema line's file may hold. A regular file can still read
+/// without end: the kernel's page map has size 0 and reads as hundreds of GiB.
+const SCHEMA_LINE_MAX: usize = 16 << 20;
+
+/// The schema a config file names on its Schema line, read the way `check`
+/// reads it. `text` is the config's text and `file` its path, which only
+/// says where a relative path starts: the config file's directory, or the
+/// working directory when `file` has none, such as `-` for stdin. A URL is
+/// not fetched, and on windows neither is a network share or a device path.
+/// Only a regular file is read, and none over 16 MiB, so a line in a file
+/// someone else wrote cannot make a program wait on a FIFO or read a device
+/// until memory runs out.
+#[must_use]
+pub fn read_named_schema(text: &str, file: &str) -> NamedSchema {
+	let r = read_schema_ref(text);
+	let mut out = NamedSchema {
+		status: SchemaStatus::NotFound,
+		text: String::new(),
+		path: String::new(),
+		line: r.line,
+		message: String::new(),
+	};
+	match r.status {
+		Status::Good => {}
+		Status::Empty => {
+			out.status = SchemaStatus::Empty;
+			return out;
+		}
+		_ => return out,
+	}
+	let named = r.value;
+	if named.contains("://") {
+		out.status = SchemaStatus::Url;
+		out.message = format!("{}: a schema named by URL is not fetched", named);
+		out.path = named;
+		return out;
+	}
+	let b = named.as_bytes();
+	// Two separators, or the NT prefix, name a share or a device on windows,
+	// and a line in a file someone else wrote must not reach another host.
+	let sep = |c: u8| c == b'/' || c == b'\\';
+	if cfg!(windows) && b.len() >= 2 && ((sep(b[0]) && sep(b[1])) || named.starts_with("\\??\\")) {
+		out.status = SchemaStatus::NetworkPath;
+		out.message = format!(
+			"{}: a Schema line cannot name a network or device path",
+			named
+		);
+		out.path = named;
+		return out;
+	}
+	let absolute = b[0] == b'/'
+		|| (cfg!(windows)
+			&& (b[0] == b'\\' || (b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':')));
+	out.path = if absolute {
+		named
+	} else {
+		match file_name_start(file) {
+			0 => format!("./{}", named),
+			start => format!("{}{}", &file[..start], named),
+		}
+	};
+	match read_schema_file(&out.path) {
+		Ok(t) => {
+			out.status = SchemaStatus::Good;
+			out.text = t;
+		}
+		Err((status, message)) => {
+			out.status = status;
+			out.message = message;
+		}
+	}
+	out
+}
+
+/// The path can turn into a FIFO between the stat and the open, and opening a
+/// FIFO waits for a writer. So on POSIX the open does not wait, and the flag
+/// comes straight back off: only the open waits, and the caller's fstat
+/// refuses a FIFO before any read.
+#[cfg(unix)]
+fn open_no_wait(path: &str) -> std::io::Result<std::fs::File> {
+	use std::os::fd::AsRawFd;
+	use std::os::unix::fs::OpenOptionsExt;
+	const F_GETFL: i32 = 3;
+	const F_SETFL: i32 = 4;
+	// Linux on mips and sparc has its own values; no release builds for either.
+	#[cfg(any(target_os = "linux", target_os = "android"))]
+	const O_NONBLOCK: i32 = 0o4000;
+	#[cfg(not(any(target_os = "linux", target_os = "android")))]
+	const O_NONBLOCK: i32 = 0x4;
+	unsafe extern "C" {
+		fn fcntl(fd: i32, cmd: i32, ...) -> i32;
+	}
+	let f = std::fs::OpenOptions::new()
+		.read(true)
+		.custom_flags(O_NONBLOCK)
+		.open(path)?;
+	let fd = f.as_raw_fd();
+	let flags = unsafe { fcntl(fd, F_GETFL) };
+	if flags == -1 || unsafe { fcntl(fd, F_SETFL, flags & !O_NONBLOCK) } == -1 {
+		return Err(std::io::Error::last_os_error());
+	}
+	Ok(f)
+}
+#[cfg(not(unix))]
+fn open_no_wait(path: &str) -> std::io::Result<std::fs::File> {
+	std::fs::File::open(path)
+}
+
+/// read_named_schema()'s read: only a regular file, and no more of it than
+/// SCHEMA_LINE_MAX.
+fn read_schema_file(path: &str) -> Result<String, (SchemaStatus, String)> {
+	use std::io::Read;
+	#[cfg(windows)]
+	if not_a_disk_file(std::path::Path::new(path)) {
+		return Err((
+			SchemaStatus::NotRegular,
+			format!("{}: not a regular file", path),
+		));
+	}
+	let failed = |e: std::io::Error| {
+		let status = if e.kind() == std::io::ErrorKind::NotFound {
+			SchemaStatus::FileNotFound
+		} else {
+			SchemaStatus::Unreadable
+		};
+		(status, format!("{}: {}", path, e))
+	};
+	let regular = |m: std::io::Result<std::fs::Metadata>| match m {
+		Ok(m) if m.is_dir() => Err((
+			SchemaStatus::IsDirectory,
+			format!("{}: Is a directory", path),
+		)),
+		Ok(m) if !m.is_file() => Err((
+			SchemaStatus::NotRegular,
+			format!("{}: not a regular file", path),
+		)),
+		Ok(_) => Ok(()),
+		Err(e) => Err(failed(e)),
+	};
+	// Asked before the open too, since opening a FIFO waits for a writer.
+	regular(std::fs::metadata(path))?;
+	let mut f = open_no_wait(path).map_err(failed)?;
+	regular(f.metadata())?;
+	// Fixed reads, since the page map refuses one that is not a multiple of 8.
+	// One read past the cap is what tells a file at it from one over it.
+	let mut bytes = Vec::new();
+	let mut chunk = vec![0u8; 1 << 16];
+	loop {
+		let n = match f.read(&mut chunk) {
+			Ok(0) => break,
+			Ok(n) => n,
+			Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+			Err(e) => return Err(failed(e)),
+		};
+		bytes.extend_from_slice(&chunk[..n]);
+		if bytes.len() > SCHEMA_LINE_MAX {
+			return Err((
+				SchemaStatus::TooLarge,
+				format!("{}: too large for a schema (over 16 MiB)", path),
+			));
+		}
+	}
+	String::from_utf8(bytes).map_err(|_| {
+		(
+			SchemaStatus::Unreadable,
+			format!("{}: stream did not contain valid UTF-8", path),
+		)
+	})
+}
+
 /// The file tier's write mechanism (also what the CLI's `--write` uses): a
 /// temp file in the same dir, then a rename over the target,
 /// so an interrupted write can never truncate the config it rewrites. The data
@@ -9515,8 +9769,8 @@ fn backtick_holds(t: &str) -> bool {
 }
 
 /// An element no source wrote. It counts as quoted when canonical output will
-/// quote it, so a read gives the same answer before a save as after one. A
-/// thousands comma reads only in quotes, and `1,000` from a setter gets them.
+/// quote it, so the read's `quoted` flag gives the same answer before a save
+/// as after one.
 fn new_element(text: String) -> Element {
 	let mark = if !needs_quotes(&text) {
 		Mark::Bare
@@ -9973,6 +10227,34 @@ impl Document {
 			Ok(n) => Read::new(self.arena[n].authored().to_string(), Status::Good, None)
 				.at(self.arena[n].line, None),
 			Err(st) => Read::new(String::new(), st, None),
+		}
+	}
+
+	/// What the value at a path is: scalar, array, raw block or empty, so a
+	/// generic tool can pick its read without trying each. It answers from
+	/// the stored form, so `x: [80]` is an array though a scalar read takes
+	/// it. `Empty` when the path does not resolve to exactly one node, as
+	/// line() gives 0; read_kind() says which miss it was.
+	pub fn kind(&self, path: &str) -> ValueKind {
+		self.read_kind(path).value
+	}
+
+	/// kind() with a status, the way read_line() has them: `Good`,
+	/// `NotFound`, `Multiple` for a repeated field, or `BadPath`. An empty
+	/// value is `Good` with `ValueKind::Empty`, so a written `x:` and a
+	/// missing field read apart. `line` is set too.
+	pub fn read_kind(&self, path: &str) -> Read<ValueKind> {
+		match self.node_at(path) {
+			Ok(n) => {
+				let kind = match &self.arena[n].value {
+					Value::Empty => ValueKind::Empty,
+					Value::Cell(_) => ValueKind::Scalar,
+					Value::Array(_) => ValueKind::Array,
+					Value::Raw(_) => ValueKind::Raw,
+				};
+				Read::new(kind, Status::Good, None).at(self.arena[n].line, None)
+			}
+			Err(st) => Read::new(ValueKind::Empty, st, None),
 		}
 	}
 
@@ -12036,8 +12318,8 @@ const CURRENCY: &[char] = &[
 ];
 
 /// The remainder after a leading currency symbol, with the space a person
-/// writes after one taken off - `$ 1200` reached the int path's thousands
-/// branch, which trims, and the float path's shape test, which does not.
+/// writes after one taken off, so `$ 1200` reads the same as `$1200` in both
+/// the int path and the float path's shape test.
 fn strip_currency(t: &str) -> &str {
 	let mut it = t.chars();
 	match it.next() {
@@ -12079,21 +12361,6 @@ fn parse_int_text(e: &Element, level: Strictness) -> Option<i64> {
 		} else {
 			None
 		};
-	}
-	// Thousands separators, only inside quotes: bare, `80,443` is text.
-	if e.quoted() && t.contains(',') {
-		let sign_body = t.strip_prefix(['+', '-']).unwrap_or(t);
-		let groups: Vec<&str> = sign_body.split(',').collect();
-		let well_formed = groups.len() > 1
-			&& !groups[0].is_empty()
-			&& groups[0].len() <= 3
-			&& groups[0].bytes().all(|b| b.is_ascii_digit())
-			&& groups[1..]
-				.iter()
-				.all(|g| g.len() == 3 && g.bytes().all(|b| b.is_ascii_digit()));
-		if well_formed {
-			return t.replace(',', "").parse::<i64>().ok();
-		}
 	}
 	// Loose: a float (including %) rounds, half away from zero.
 	if level == Strictness::Loose
@@ -12173,7 +12440,7 @@ fn parse_float_text(e: &Element, level: Strictness) -> Option<f64> {
 		// that is not a number at all.
 		t.parse::<f64>().ok().filter(|v| v.is_finite())?
 	} else {
-		// An integer is a valid float on read (incl. hex, octal, binary and quoted thousands).
+		// An integer is a valid float on read (incl. hex, octal and binary).
 		let el = Element {
 			text: t.to_string(),
 			mark: e.mark,
@@ -12192,37 +12459,21 @@ fn parse_int_text_no_loose(e: &Element) -> Option<i64> {
 	parse_int_text(e, Strictness::Standard)
 }
 
-/// The integer spellings the plain float parse does not read - hex, octal,
-/// binary and quoted thousands - past the i64 range, as a double: a float read
-/// is bounded by the double, not by the integer type. A prefixed number goes
-/// in digit by digit in the double, so every binding rounds the same way; the
-/// spellings mirror parse_int_text.
+/// The integer spellings the plain float parse does not read - hex, octal and
+/// binary - past the i64 range, as a double: a float read is bounded by the
+/// double, not by the integer type. The number goes in digit by digit in the
+/// double, so every binding rounds the same way; the spellings mirror
+/// parse_int_text.
 fn parse_int_text_wide(e: &Element) -> Option<f64> {
 	let t = e.text.trim();
 	let (neg, body) = match t.strip_prefix('-') {
 		Some(r) => (true, r),
 		None => (false, t.strip_prefix('+').unwrap_or(t)),
 	};
-	let v = if let Some((radix, digits)) = radix_body(body) {
-		digits.bytes().fold(0.0f64, |v, b| {
-			v * f64::from(radix) + f64::from(char::from(b).to_digit(radix).unwrap_or(0))
-		})
-	} else if e.quoted() && body.contains(',') {
-		let groups: Vec<&str> = body.split(',').collect();
-		let well_formed = groups.len() > 1
-			&& !groups[0].is_empty()
-			&& groups[0].len() <= 3
-			&& groups[0].bytes().all(|b| b.is_ascii_digit())
-			&& groups[1..]
-				.iter()
-				.all(|g| g.len() == 3 && g.bytes().all(|b| b.is_ascii_digit()));
-		if !well_formed {
-			return None;
-		}
-		body.replace(',', "").parse::<f64>().ok()?
-	} else {
-		return None;
-	};
+	let (radix, digits) = radix_body(body)?;
+	let v = digits.bytes().fold(0.0f64, |v, b| {
+		v * f64::from(radix) + f64::from(char::from(b).to_digit(radix).unwrap_or(0))
+	});
 	if !v.is_finite() {
 		return None;
 	}

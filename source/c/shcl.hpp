@@ -52,6 +52,10 @@ enum class SetStatus {
 	HasChildren, NotFinite, BadDateTime, BadRawInfo, BadRawBody, BadComment, NotOneValue, NotUtf8, OutOfRange, NoReadBack,
 	RawBlock
 };
+// What the value at a path is, as kind() and read_kind() give it. Empty is a
+// field with nothing after the colon, a section's header included; `x: []` is
+// an Array with no elements.
+enum class ValueKind { Empty, Scalar, Array, Raw };
 // The unit a duration or size read gives a bare number, when the field name
 // gives none. Kilo to Tera are powers of 1024 unless the read asks for
 // decimal; Kibi to Tebi always are.
@@ -150,6 +154,8 @@ inline bool operator!=(const DateTime &a, const DateTime &b) { return !(a == b);
 const char *to_string(Status s);
 // A setter's status as text, "Ok" to "RawBlock". Static storage.
 const char *to_string(SetStatus s);
+// A value kind as text, "Empty" to "Raw". Static storage.
+const char *to_string(ValueKind k);
 // The CLI exit code a read with this status ends on.
 int status_code(Status s);
 // The CLI's strictness spellings, loose|standard|strict or 1|2|3, in any case.
@@ -308,6 +314,31 @@ std::pair<std::string, FileStatus> read_file(const std::string &path, std::size_
 // The temp-file-and-rename write the saves go through, for bytes that are not
 // a document. Ok, or why it failed.
 WriteStatus write_file_atomic(const std::string &path, std::string_view data);
+// What read_named_schema() found. NotFound and Empty are read_schema_ref()'s
+// answers; the rest say why a named schema was not read. NetworkPath is on
+// windows only: a path starting with two slashes or backslashes, or with
+// `\??\`. TooLarge is a file over 16 MiB. The order is every binding's.
+enum class SchemaStatus { Good, NotFound, Empty, Url, NetworkPath, FileNotFound, IsDirectory, NotRegular, TooLarge, Unreadable };
+const char *to_string(SchemaStatus s);
+// What read_named_schema() gives back. text is the schema's text when Good.
+// path is where the line points: the path resolved from the config file's
+// directory, or the URL or network path as written; empty when no line names
+// one. line is the Schema line's number, 0 with none. message says why
+// nothing was read, naming the path, and is empty for Good, NotFound and
+// Empty.
+struct NamedSchema {
+	SchemaStatus status{};
+	std::string text{};
+	std::string path{};
+	std::size_t line{};
+	std::string message{};
+};
+// The schema a config file names on its Schema line, read the way `check`
+// reads it. file is the config's path, which only says where a relative path
+// starts: its directory, or the working directory when it has none, such as
+// "-" for stdin. A URL is not fetched, and on windows neither is a network
+// share or a device path. Only a regular file is read, and none over 16 MiB.
+NamedSchema read_named_schema(std::string_view text, const std::string &file);
 // Why upgrade_file or write_backup wrote nothing, or not all of it. message
 // is worded as the other bindings word the error; count is
 // Upgrade::ambiguous, for Ambiguous; status says why, for Io.
@@ -504,6 +535,14 @@ public:
 	// does not resolve to exactly one node.
 	std::string authored_name(std::string_view path) const;
 	Read<std::string> read_authored_name(std::string_view path) const;
+	// What the value at a path is: scalar, array, raw block or empty, from
+	// the stored form, so `x: [80]` is an Array. Empty when the path does not
+	// resolve to exactly one node.
+	ValueKind kind(std::string_view path) const;
+	// kind() with a status, the way read_line() has them. An empty value is
+	// Good with ValueKind::Empty, so a written `x:` and a missing field read
+	// apart.
+	Read<ValueKind> read_kind(std::string_view path) const;
 	// Whether a setter could write at a path, and why not. Probes only; never
 	// creates. Gives only the path reasons, BadPath to UnderArray.
 	SetStatus check_set_path(std::string_view path) const;
@@ -681,6 +720,8 @@ static_assert(static_cast<int>(SetStatus::Ok) == SHCL_SET_OK && static_cast<int>
 	&& static_cast<int>(SetStatus::OutOfRange) == SHCL_SET_OUT_OF_RANGE && static_cast<int>(SetStatus::NoReadBack) == SHCL_SET_NO_READ_BACK
 	&& static_cast<int>(SetStatus::RawBlock) == SHCL_SET_RAW_BLOCK,
 	"SetStatus drifted from shcl_set_status");
+static_assert(static_cast<int>(ValueKind::Empty) == SHCL_KIND_EMPTY && static_cast<int>(ValueKind::Scalar) == SHCL_KIND_SCALAR
+	&& static_cast<int>(ValueKind::Array) == SHCL_KIND_ARRAY && static_cast<int>(ValueKind::Raw) == SHCL_KIND_RAW, "ValueKind drifted from shcl_value_kind");
 static_assert(static_cast<int>(Quote::None) == SHCL_QUOTE_NONE && static_cast<int>(Quote::Single) == SHCL_QUOTE_SINGLE
 	&& static_cast<int>(Quote::Double) == SHCL_QUOTE_DOUBLE && static_cast<int>(Quote::Backtick) == SHCL_QUOTE_BACKTICK
 	&& static_cast<int>(Quote::Open) == SHCL_QUOTE_OPEN, "Quote drifted from shcl_quote");
@@ -699,6 +740,12 @@ static_assert(static_cast<int>(WriteStatus::Ok) == SHCL_WRITE_OK && static_cast<
 	&& static_cast<int>(WriteStatus::DiskFull) == SHCL_WRITE_DISK_FULL && static_cast<int>(WriteStatus::ReadOnly) == SHCL_WRITE_READ_ONLY
 	&& static_cast<int>(WriteStatus::IsDirectory) == SHCL_WRITE_IS_DIRECTORY && static_cast<int>(WriteStatus::NotRegular) == SHCL_WRITE_NOT_REGULAR
 	&& static_cast<int>(WriteStatus::Other) == SHCL_WRITE_OTHER, "WriteStatus drifted from shcl_write_status");
+static_assert(static_cast<int>(SchemaStatus::Good) == SHCL_SCHEMA_GOOD && static_cast<int>(SchemaStatus::NotFound) == SHCL_SCHEMA_NOT_FOUND
+	&& static_cast<int>(SchemaStatus::Empty) == SHCL_SCHEMA_EMPTY && static_cast<int>(SchemaStatus::Url) == SHCL_SCHEMA_URL
+	&& static_cast<int>(SchemaStatus::NetworkPath) == SHCL_SCHEMA_NETWORK_PATH && static_cast<int>(SchemaStatus::FileNotFound) == SHCL_SCHEMA_FILE_NOT_FOUND
+	&& static_cast<int>(SchemaStatus::IsDirectory) == SHCL_SCHEMA_IS_DIRECTORY && static_cast<int>(SchemaStatus::NotRegular) == SHCL_SCHEMA_NOT_REGULAR
+	&& static_cast<int>(SchemaStatus::TooLarge) == SHCL_SCHEMA_TOO_LARGE && static_cast<int>(SchemaStatus::Unreadable) == SHCL_SCHEMA_UNREADABLE,
+	"SchemaStatus drifted from shcl_schema_status");
 // The C enum puts OK first, so each kind sits one past its C value.
 static_assert(static_cast<int>(UpgradeErrorKind::NotFound) + 1 == SHCL_UPGRADE_NOT_FOUND && static_cast<int>(UpgradeErrorKind::Ambiguous) + 1 == SHCL_UPGRADE_AMBIGUOUS
 	&& static_cast<int>(UpgradeErrorKind::BackupTaken) + 1 == SHCL_UPGRADE_BACKUP_TAKEN && static_cast<int>(UpgradeErrorKind::Io) + 1 == SHCL_UPGRADE_IO, "UpgradeErrorKind drifted from shcl_upgrade_error");
@@ -897,6 +944,7 @@ std::string DateTime::str() const { return detail::dt_str(detail::to_c(*this)); 
 
 const char *to_string(Status s) { return shcl_status_name(static_cast<shcl_status>(s)); }
 const char *to_string(SetStatus s) { return shcl_set_status_name(static_cast<shcl_set_status>(s)); }
+const char *to_string(ValueKind k) { return shcl_value_kind_name(static_cast<shcl_value_kind>(k)); }
 int status_code(Status s) { return shcl_status_code(static_cast<shcl_status>(s)); }
 
 std::optional<Strictness> strictness_from_arg(std::string_view s) {
@@ -1005,6 +1053,16 @@ WriteStatus write_file_atomic(const std::string &path, std::string_view data) {
 	shcl_write_status st = SHCL_WRITE_OTHER;
 	shcl_write_file_atomic(path.c_str(), data.data(), data.size(), &st);
 	return static_cast<WriteStatus>(st);
+}
+
+const char *to_string(SchemaStatus s) { return shcl_schema_status_name(static_cast<shcl_schema_status>(s)); }
+
+NamedSchema read_named_schema(std::string_view text, const std::string &file) {
+	shcl_named_schema c = shcl_read_named_schema(text.data(), text.size(), file.c_str());
+	NamedSchema out{static_cast<SchemaStatus>(c.status), std::string(c.text, c.len), std::string(c.path, c.path_len), c.line,
+		std::string(c.message, c.message_len)};
+	shcl_named_schema_free(&c);
+	return out;
 }
 
 std::pair<std::string, std::optional<UpgradeError>> write_backup(const std::string &file, std::string_view text, std::uint32_t format) {
@@ -1143,6 +1201,8 @@ bool Document::exists(std::string_view path) const { return shcl_exists(detail::
 Read<bool> Document::read_exists(std::string_view path) const { auto r = shcl_read_exists(detail::held(*this), path.data(), path.size()); return {r.value != 0, detail::st(r.status)}; }
 std::string Document::authored_name(std::string_view path) const { return detail::str(shcl_authored_name(detail::held(*this), path.data(), path.size())); }
 Read<std::string> Document::read_authored_name(std::string_view path) const { auto r = shcl_read_authored_name(detail::held(*this), path.data(), path.size()); return {detail::str(r.value), detail::st(r.status)}; }
+ValueKind Document::kind(std::string_view path) const { return static_cast<ValueKind>(shcl_kind(detail::held(*this), path.data(), path.size())); }
+Read<ValueKind> Document::read_kind(std::string_view path) const { auto r = shcl_read_kind(detail::held(*this), path.data(), path.size()); return {static_cast<ValueKind>(r.value), detail::st(r.status)}; }
 SetStatus Document::check_set_path(std::string_view path) const { return static_cast<SetStatus>(shcl_check_set_path(detail::held(*this), path.data(), path.size())); }
 
 SetStatus Document::set_int(std::string_view path, std::int64_t v) { return static_cast<SetStatus>(shcl_set_int(detail::doc(*this), path.data(), path.size(), v)); }

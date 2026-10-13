@@ -46,6 +46,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `fmt` and every canonical save quote a value, list item or array element holding any whitespace, `:`, `,`, `(`, `)`, `[` or `]`, so `display: :0` comes out `display: ":0"` and `opts: rw,noatime` as `opts: "rw,noatime"`. Both still read bare.
 
+- A thousands comma makes a value text, quoted or bare. `"1,000"` read as 1000 and is now `BadType` as an int or a float, so a value reads the same before and after `fmt` quotes a bare `ports: 80,443`.
+
 - `shcl migrate FILE --from-2x` rewrites a 2.x file for these rules and leaves comments and layout alone. It writes comma lists in brackets, `*` items as `- ` and selectors in parens, quotes what would now read differently, and leaves a backslash as written. With `--write` the original is kept beside it, as `config_backup_20261007-091500_format-v2.shcl` for `config.shcl`, in local time.
 
 - A file a pre-release build of 3.0 stamped `Format 3` is read as current, and `migrate` and `upgrade` leave it alone. Nothing tells it apart from a file this release wrote. A line the current rules refuse says so when it loads.
@@ -173,6 +175,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - C++ can write. It has the setters, `remove`, the tokenizer and the rest of the API, plus the format constants and `MAX_DEPTH`.
 
 - The installers take `--version`.
+
+- `kind()` and `read_kind()` in every binding (Go `Kind` and `ReadKind`, C `shcl_kind` and `shcl_read_kind`) say whether the value at a path is a scalar, an array, a raw block or empty, so a tool no longer has to try each read to find out. `read_kind()` says `NotFound`, `Multiple` or `BadPath` for a miss.
 
 ### Parsing
 
@@ -420,6 +424,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The Python CLI writes UTF-8 and handles closed streams. `save_file` no longer leaks a temp file, a deep document no longer exhausts the stack, and `read_file(0)` no longer reads stdin.
 
+- A failed save in Go and Python gives the file and the system's own message, as Rust and C do. Both named the temp file as well, and Python wrote it with every backslash doubled on Windows.
+
 ### Windows
 
 - A save keeps the hidden and system attributes, and can no longer leave nothing at the path. A publish blocked for a moment is retried. Its temp file takes the file's ACL.
@@ -487,6 +493,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - C builds a schema in linear time.
 
 - The default setters make sure a field has a usable value of their type. They write where the field is missing, empty, or holds a value that does not read as that type, and keep a replaced value above the field as a comment saying so. A raw block stays, and a default of another type on it gives the new `SetStatus` value `RawBlock` (Go `SetRawBlock`, C `SHCL_SET_RAW_BLOCK`). `--set-default` and `--set-literal-default` fill a missing or empty field.
+
+- `read_named_schema()` in every binding (Go `ReadNamedSchema`, C `shcl_read_named_schema`) reads the schema a config's Schema line names by `check`'s rules, and gives back its text or a `SchemaStatus` saying why not. `check` in all four CLIs goes through it.
 
 ## v2.0.0 - 2026-08-26
 

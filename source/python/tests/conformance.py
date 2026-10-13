@@ -20,6 +20,7 @@ import tracemalloc
 import types
 from pathlib import Path
 from typing import Any, Optional
+from unittest import mock
 
 _HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(_HERE))            # source/python (the lib)
@@ -3254,6 +3255,36 @@ def main():
 		except shcl.WriteError as wfail:
 			if not str(wfail).startswith(wmissing + ": ") or wfail.status is not shcl.WriteStatus.NotFound:
 				raise SystemExit(f"a write into a missing folder: {wfail!r} {wfail.status}") from None
+		test_id("EsaBeHk", "write_failure_names_no_temp_file")
+		# FILE: and the system's own message, as the other three say it. The OS
+		# error's own text names the temp file as a repr, which doubled a
+		# windows path's backslashes (2026100719122102), so the errors here
+		# carry one on every platform.
+		wtarget = os.path.join(wdir, "reason.shcl")
+		wdenied = os.strerror(errno.EACCES)
+		wtmp = "C:\\Users\\x\\.reason.shcl.tmp1.0"
+
+		def deny_open(*_a: Any, **_k: Any) -> int:
+			raise PermissionError(errno.EACCES, wdenied, wtmp)
+
+		def deny_replace(*_a: Any, **_k: Any) -> None:
+			raise PermissionError(errno.EACCES, wdenied, wtmp, "C:\\Users\\x\\reason.shcl")
+
+		wcalls: list[tuple[str, Any, str]] = [("temp file", deny_open, f"{wtarget}: cannot create temporary file: {wdenied}")]
+		# A replace on windows is ReplaceFile first, so only POSIX gets here.
+		if os.name != "nt":
+			wcalls.append(("publish", deny_replace, f"{wtarget}: {wdenied}"))
+		for wwhat, wfake, wwant in wcalls:
+			if wwhat == "publish":
+				shcl.write_file_atomic(wtarget, "a: 1\n")
+			wgot = ""
+			with mock.patch.object(os, "open" if wwhat == "temp file" else "replace", wfake):
+				try:
+					shcl.write_file_atomic(wtarget, "a: 2\n")
+				except shcl.WriteError as wfail:
+					wgot = str(wfail)
+			if wgot != wwant:
+				raise SystemExit(f"a failed {wwhat} says {wgot!r}, want {wwant!r}")
 		test_id("EsEhCG4", "write_status_names_each_failure")
 		# A failed write says why as a value, beside the message it always
 		# had: from write_file_atomic, a save, write_backup and upgrade_file. A
@@ -3881,7 +3912,10 @@ def main():
 	qcdoc = shcl.Document.parse('n: "1,000"\n')
 	if qcdoc.to_canonical() != 'n: "1,000"\n':
 		raise SystemExit(f"wrote {qcdoc.to_canonical()!r}")
-	if qcdoc.get_int("n", None) != 1000:
+	# 2026101010054746: a quoted thousands number is text, like a bare one.
+	# if qcdoc.get_int("n", None) != 1000:
+	# 	raise SystemExit(f"n: {qcdoc.read_int('n')!r}")
+	if qcdoc.read_int("n").status != shcl.Status.BadType:
 		raise SystemExit(f"n: {qcdoc.read_int('n')!r}")
 	qcdoc = shcl.Document.parse("ver: \"8\"\nok: 'true'\nat: 2:30PM\nhost: localhost:8080\n")
 	if qcdoc.to_canonical() != "ver: \"8\"\nok: 'true'\nat: \"2:30PM\"\nhost: \"localhost:8080\"\n":
@@ -3893,6 +3927,31 @@ def main():
 	qchint = shcl.Document.parse("t: a,b\nt: c\n").diagnostics()[0]
 	if qchint.code != "H001" or 't: ["a,b", c]' not in qchint.message:
 		raise SystemExit(f"hint {qchint!r}")
+
+	test_id("EsZikJk", "a_thousands_comma_reads_the_same_after_a_save")
+	# A thousands comma is text quoted or bare, so a typed read gives the same
+	# answer before and after the writer quotes it (2026101010054746).
+	tcdoc = shcl.Document.parse("p: 80,443\nq: \"1,000\"\nr: '-1,234,567'\n")
+	if not tcdoc.set_string("s", "1,000"):
+		raise SystemExit("set s")
+	tcout = tcdoc.to_canonical()
+	if not tcout.startswith("p: \"80,443\"\nq: \"1,000\"\nr: '-1,234,567'\n") or not tcout.endswith('s: "1,000"\n'):
+		raise SystemExit(f"wrote {tcout!r}")
+	tcback = shcl.Document.parse(tcout)
+	for tcpath, tctext in (("p", "80,443"), ("q", "1,000"), ("r", "-1,234,567"), ("s", "1,000")):
+		for tcd in (tcdoc, tcback):
+			if tcd.read_int(tcpath).status != shcl.Status.BadType:
+				raise SystemExit(f"{tcpath} int: {tcd.read_int(tcpath)!r}")
+			if tcd.read_float(tcpath).status != shcl.Status.BadType:
+				raise SystemExit(f"{tcpath} float: {tcd.read_float(tcpath)!r}")
+			if tcd.get_string(tcpath, None) != tctext:
+				raise SystemExit(f"{tcpath}: {tcd.read_string(tcpath)!r}")
+	# The setter's value counts as quoted, as its saved form is.
+	if not tcdoc.read_string("s").quoted or not tcback.read_string("s").quoted:
+		raise SystemExit("s not quoted")
+	tcloose = shcl.Document.parse_with("q: \"1,000\"\nc: \"$1,200\"\n", shcl.Strictness.Loose)
+	if tcloose.read_int("q").status != shcl.Status.BadType or tcloose.read_int("c").status != shcl.Status.BadType:
+		raise SystemExit(f"loose: {tcloose.read_int('q')!r} {tcloose.read_int('c')!r}")
 
 	test_id("ErylLpa", "a_list_no_text_loads_back_refuses_to_save")
 	# A list with a field under it (E001) after an empty binding of its name
@@ -4554,6 +4613,146 @@ def main():
 		del os.environ["SHCL_TEST_CLOCK"]
 	else:
 		os.environ["SHCL_TEST_CLOCK"] = held_clock
+
+	# read_named_schema reads a Schema line by check's rules: from the
+	# config's directory, or the working directory when the path has none; a
+	# URL is never fetched; only a regular file is read, and none over 16 MiB.
+	# The CLI's check is this call, so its rows in cli-regress pin the same
+	# rules. Same fixture in every runner.
+	test_id("EsJZ107", "read_named_schema_follows_check_rules")
+	SS = shcl.SchemaStatus
+	with tempfile.TemporaryDirectory() as nd:
+		ns_cfg = nd + "/cfg.shcl"
+		os.mkdir(nd + "/sub")
+		with open(nd + "/s.shcl", "wb") as nf:
+			nf.write(b"field: port\n")
+		with open(nd + "/bad.shcl", "wb") as nf:
+			nf.write(b"a: \xff\n")
+		with open(nd + "/big.shcl", "wb") as nf:
+			nf.write(b"a" * ((16 << 20) + 1))
+
+		def ns_line(r: str) -> str:
+			return "a: 1\n##    Schema   " + r + "\n"
+
+		nr = shcl.read_named_schema(ns_line("s.shcl"), ns_cfg)
+		if (nr.status, nr.text, nr.path, nr.line, nr.message) != (SS.Good, "field: port\n", nd + "/s.shcl", 2, ""):
+			raise SystemExit(f"named good: {nr.status} {nr.path!r} {nr.line} {nr.message!r}")
+		ns_abs = nd + "/s.shcl"
+		nr = shcl.read_named_schema(ns_line(ns_abs), "cfg.shcl")
+		if nr.path != ns_abs or nr.status is not SS.Good or not nr.status:
+			raise SystemExit(f"named absolute: {nr.status} {nr.path!r}")
+		nr = shcl.read_named_schema("a: 1\n", ns_cfg)
+		if (nr.status, nr.path, nr.line) != (SS.NotFound, "", 0) or nr.status:
+			raise SystemExit(f"named no line: {nr.status}")
+		nr = shcl.read_named_schema("##    Schema\na: 1\n", ns_cfg)
+		if (nr.status, nr.path, nr.line) != (SS.Empty, "", 1):
+			raise SystemExit(f"named empty: {nr.status}")
+		nr = shcl.read_named_schema(ns_line("https://example.com/s.shcl"), ns_cfg)
+		if (nr.status, nr.path, nr.text) != (SS.Url, "https://example.com/s.shcl", "") or not nr.message:
+			raise SystemExit(f"named url: {nr.status} {nr.path!r}")
+		for ns_file in ("cfg.shcl", "-", ""):
+			nr = shcl.read_named_schema(ns_line("gone.shcl"), ns_file)
+			if (nr.status, nr.path) != (SS.FileNotFound, "./gone.shcl"):
+				raise SystemExit(f"named {ns_file!r}: {nr.status} {nr.path!r}")
+		nr = shcl.read_named_schema(ns_line("gone.shcl"), ns_cfg)
+		if nr.status is not SS.FileNotFound or not nr.message.startswith(nd + "/gone.shcl: "):
+			raise SystemExit(f"named gone: {nr.status} {nr.message!r}")
+
+		def ns_named(r: str) -> shcl.SchemaStatus:
+			return shcl.read_named_schema(ns_line(r), ns_cfg).status
+
+		ns_cases = [("sub", SS.IsDirectory), ("big.shcl", SS.TooLarge), ("bad.shcl", SS.Unreadable), ("s.shcl\0x", SS.Unreadable)]
+		if os.name == "nt":
+			ns_cases.append(("NUL", SS.NotRegular))
+			for ns_n in ("//host/share/s.shcl", "\\\\host\\share\\s.shcl", "\\??\\C:\\s.shcl"):
+				nr = shcl.read_named_schema(ns_line(ns_n), ns_cfg)
+				if (nr.status, nr.path) != (SS.NetworkPath, ns_n):
+					raise SystemExit(f"named {ns_n!r}: {nr.status} {nr.path!r}")
+		else:
+			os.mkfifo(nd + "/fifo")
+			ns_cases += [("/dev/null", SS.NotRegular), ("fifo", SS.NotRegular), ("//host/share/s.shcl", SS.FileNotFound)]
+		for ns_r, ns_want in ns_cases:
+			if ns_named(ns_r) is not ns_want:
+				raise SystemExit(f"named {ns_r!r}: {ns_named(ns_r)}, want {ns_want}")
+		if SS.FileNotFound.name != "FileNotFound" or SS.FileNotFound.value != 5:
+			raise SystemExit("named: names")
+	test_id("EsJYNe3", "kind_reads_say_what_is_there")
+	# kind() and read_kind(): what the value at a path is, from the stored
+	# form, with the status read_line() gives. Same fixture in every runner.
+	ktext = "name: demo\nquoted: \"\"\ntags: [a, b]\none: [80]\nnone: []\nlist:\n\t- x\n\t- y\nnotes:\n\t~~~sql\n\tselect 1\n\t~~~\nblank:\nsite: a\n\tport: 1\nsite: b\nsrv:\n\thost: h\nlog: [x] y\n\tlevel: 1\n"
+	kdoc = shcl.Document.parse(ktext)
+	kgood = shcl.Status.Good
+	kempty, kscalar, karray, kraw = shcl.ValueKind.Empty, shcl.ValueKind.Scalar, shcl.ValueKind.Array, shcl.ValueKind.Raw
+	kr = kdoc.read_kind("name")
+	if (kr.value, kr.status, kr.line) != (kscalar, kgood, 1):
+		raise SystemExit(f"read_kind(name) {kr!r}")
+	# `[80]` and `[]` are arrays though a scalar read takes them, and a
+	# section header or a line kept for its value is empty.
+	for kpath, kwant in (
+		("quoted", kscalar),
+		("tags", karray),
+		("one", karray),
+		("none", karray),
+		("list", karray),
+		("notes", kraw),
+		("blank", kempty),
+		("srv", kempty),
+		("srv.host", kscalar),
+		("site(0)", kscalar),
+		("site(0).port", kscalar),
+		("log", kempty),
+		("log.level", kscalar),
+	):
+		kr = kdoc.read_kind(kpath)
+		if (kr.value, kr.status) != (kwant, kgood):
+			raise SystemExit(f"read_kind({kpath!r}) {kr!r}")
+		if kdoc.kind(kpath) is not kwant:
+			raise SystemExit(f"kind({kpath!r}) {kdoc.kind(kpath)!r}")
+	if kdoc.read_kind("notes").line != 9:
+		raise SystemExit(f"read_kind(notes) {kdoc.read_kind('notes')!r}")
+	for kpath, kst in (
+		("site", shcl.Status.Multiple),
+		("site(*)", shcl.Status.Multiple),
+		("site(*).port", shcl.Status.Multiple),
+		("*", shcl.Status.Multiple),
+		("nope", shcl.Status.NotFound),
+		("site(1).port", shcl.Status.NotFound),
+		("site(2)", shcl.Status.NotFound),
+		("site[0].port", shcl.Status.BadPath),
+		("site(.port", shcl.Status.BadPath),
+		("site..port", shcl.Status.BadPath),
+		("", shcl.Status.BadPath),
+		("user name", shcl.Status.BadPath),
+		("site.port: 1", shcl.Status.BadPath),
+		("h:p", shcl.Status.BadPath),
+	):
+		kr = kdoc.read_kind(kpath)
+		if (kr.value, kr.status, kr.line) != (kempty, kst, 0):
+			raise SystemExit(f"read_kind({kpath!r}) {kr!r}")
+		if kdoc.kind(kpath) is not kempty:
+			raise SystemExit(f"kind({kpath!r}) {kdoc.kind(kpath)!r}")
+	if [k.name for k in shcl.ValueKind] != ["Empty", "Scalar", "Array", "Raw"]:
+		raise SystemExit(f"ValueKind names {list(shcl.ValueKind)!r}")
+	if [k.value for k in shcl.ValueKind] != [0, 1, 2, 3]:
+		raise SystemExit(f"ValueKind values {list(shcl.ValueKind)!r}")
+	if kdoc.to_canonical() != shcl.Document.parse(ktext).to_canonical():
+		raise SystemExit("a kind read changed the document")
+	# A node a setter built has the kind its setter wrote, and no line.
+	for kst2 in (
+		kdoc.set_int("built", 1),
+		kdoc.set_int_array("arr", [1]),
+		kdoc.set_raw("body", "x", ""),
+		kdoc.set_comment("note", "# c"),
+		kdoc.set_int("blank", 2),
+	):
+		if kst2 is not shcl.SetStatus.Ok:
+			raise SystemExit(f"setter {kst2!r}")
+	for kpath, kwant in (("built", kscalar), ("arr", karray), ("body", kraw), ("note", kempty), ("blank", kscalar)):
+		kr = kdoc.read_kind(kpath)
+		if (kr.value, kr.status) != (kwant, kgood):
+			raise SystemExit(f"read_kind({kpath!r}) after setters {kr!r}")
+	if kdoc.read_kind("built").line != 0:
+		raise SystemExit(f"read_kind(built) {kdoc.read_kind('built')!r}")
 
 	test_id_end()
 	print(f"conformance: {len(cases)} case(s) pass")

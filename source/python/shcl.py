@@ -56,6 +56,7 @@ __all__ = [
 	"MAX_DEPTH",
 	"MIGRATED_LINE",
 	"Migration",
+	"NamedSchema",
 	"Piece",
 	"Quote",
 	"RULES_CURRENT",
@@ -66,6 +67,7 @@ __all__ = [
 	"SaveError",
 	"SaveFailed",
 	"SaveRefused",
+	"SchemaStatus",
 	"SegTok",
 	"SetStatus",
 	"Severity",
@@ -81,6 +83,7 @@ __all__ = [
 	"UpgradeError",
 	"UpgradeFailed",
 	"UpgradeNotFound",
+	"ValueKind",
 	"WriteError",
 	"WriteStatus",
 	"backup_file_name",
@@ -93,6 +96,7 @@ __all__ = [
 	"quote_segment",
 	"read_file",
 	"read_format_version",
+	"read_named_schema",
 	"read_schema_ref",
 	"schema_ref",
 	"suppress_declared_reopens",
@@ -179,6 +183,19 @@ class SetStatus(Enum):
 
 	def __bool__(self) -> bool:
 		return self is SetStatus.Ok
+
+
+class ValueKind(Enum):
+	"""What the value at a path is, as kind() and read_kind() give it. Empty
+	is a field with nothing after the colon, a section's header included;
+	`x: []` is an Array with no elements. The order is every binding's."""
+	Empty = 0
+	Scalar = 1
+	Array = 2
+	Raw = 3
+
+
+_VALUE_KINDS = {"empty": ValueKind.Empty, "cell": ValueKind.Scalar, "array": ValueKind.Array, "raw": ValueKind.Raw}
 
 
 class Diagnostic:
@@ -6636,6 +6653,24 @@ class Document:
 			return Read("", n, None)
 		return Read(self.arena[n].name_src, Status.Good, None)._at(self.arena[n].line, None)
 
+	def kind(self, path: str) -> ValueKind:
+		"""What the value at a path is: scalar, array, raw block or empty, so a
+		generic tool can pick its read without trying each. It answers from
+		the stored form, so `x: [80]` is an array though a scalar read takes
+		it. Empty when the path does not resolve to exactly one node, as
+		line() gives 0; read_kind() says which miss it was."""
+		return self.read_kind(path).value
+
+	def read_kind(self, path: str) -> Read[ValueKind]:
+		"""kind() with a status, the way read_line() has them: Good,
+		NotFound, Multiple for a repeated field, or BadPath. An empty value is
+		Good with ValueKind.Empty, so a written `x:` and a missing field read
+		apart. .line is set too."""
+		tag, n = self._node_at(path)
+		if tag == "err":
+			return Read(ValueKind.Empty, n, None)
+		return Read(_VALUE_KINDS[self.arena[n].value.kind], Status.Good, None)._at(self.arena[n].line, None)
+
 	def lines(self, path: str) -> list[int]:
 		"""The plural line(): 1-based source lines at a path, in file order, so
 		a repeated field - the case that most wants a citable line - yields
@@ -8956,8 +8991,11 @@ def _write_status_of(e: BaseException) -> WriteStatus:
 	return WriteStatus.Other
 
 
+# FILE: and the system's own message, as the other three say it. str() of an
+# OSError adds [Errno N] and the file names as reprs, which doubles every
+# backslash in a windows path.
 def _failed(file, e: BaseException) -> WriteError:
-	return WriteError(f"{file}: {e}", _write_status_of(e))
+	return WriteError(f"{file}: {getattr(e, 'strerror', None) or e}", _write_status_of(e))
 
 
 def _save_text(path, text):
@@ -9145,8 +9183,8 @@ def _windows_publish_file(tmp, target):
 		_remove_quietly(tmp)
 		raise err
 	if moved_away:
-		raise OSError(f"{err}; the old file is left at {backup} and the new text at {tmp}") from err
-	raise OSError(f"{err}; the new text is left at {tmp}") from err
+		raise OSError(f"{err.strerror or err}; the old file is left at {backup} and the new text at {tmp}") from err
+	raise OSError(f"{err.strerror or err}; the new text is left at {tmp}") from err
 
 
 def _moved_back(backup, target):
@@ -9259,6 +9297,139 @@ def read_file(path: str | os.PathLike[str], max_bytes: int = 0) -> tuple[str | N
 		return data.decode("utf-8"), FileStatus.Clean
 	except UnicodeDecodeError:
 		return None, FileStatus.Unreadable
+
+
+class SchemaStatus(Enum):
+	"""What read_named_schema() found. NotFound and Empty are
+	read_schema_ref()'s answers; the rest say why a named schema was not
+	read. New values go on the end; every binding numbers them in this order.
+
+	Only Good is true, as with WriteStatus."""
+	Good = 0           # the schema's text was read
+	NotFound = 1       # no line names a schema
+	Empty = 2          # a Schema line with nothing after the word
+	Url = 3            # the line names a URL, which is not fetched
+	NetworkPath = 4    # on windows, a path starting with two slashes or backslashes, or with \??\, which names a network share or a device
+	FileNotFound = 5   # nothing at the path
+	IsDirectory = 6    # the path names a directory
+	NotRegular = 7     # something at the path that is not a regular file, such as a FIFO or a device
+	TooLarge = 8       # a file over 16 MiB
+	Unreadable = 9     # no permission, text that is not UTF-8, or another read error
+
+	def __bool__(self) -> bool:
+		return self is SchemaStatus.Good
+
+
+class NamedSchema:
+	"""What read_named_schema() gives back. text is the schema's text when
+	status is Good, else empty. path is where the line points: the path
+	resolved from the config file's directory, or the URL or network path as
+	written; empty when no line names one. line is the Schema line's number,
+	0 with none. message says why nothing was read, naming the path, and is
+	empty for Good, NotFound and Empty."""
+
+	__slots__ = ("status", "text", "path", "line", "message")
+
+	def __init__(self, status: SchemaStatus, text: str = "", path: str = "", line: int = 0, message: str = "") -> None:
+		self.status = status
+		self.text = text
+		self.path = path
+		self.line = line
+		self.message = message
+
+
+# The most a Schema line's file may hold. A regular file can still read
+# without end: the kernel's page map has size 0 and reads as hundreds of GiB.
+_SCHEMA_LINE_MAX = 16 << 20
+
+
+def read_named_schema(text: str, file: str) -> NamedSchema:
+	"""The schema a config file names on its Schema line, read the way
+	`check` reads it. text is the config's text and file its path, which only
+	says where a relative path starts: the config file's directory, or the
+	working directory when file has none, such as "-" for stdin. A URL is not
+	fetched, and on windows neither is a network share or a device path. Only
+	a regular file is read, and none over 16 MiB, so a line in a file someone
+	else wrote cannot make a program wait on a FIFO or read a device until
+	memory runs out."""
+	r = read_schema_ref(text)
+	out = NamedSchema(SchemaStatus.NotFound, line=r.line)
+	if r.status is Status.Empty:
+		out.status = SchemaStatus.Empty
+		return out
+	if r.status is not Status.Good:
+		return out
+	named = r.value
+	if "://" in named:
+		out.status = SchemaStatus.Url
+		out.message = f"{named}: a schema named by URL is not fetched"
+		out.path = named
+		return out
+	# Two separators, or the NT prefix, name a share or a device on windows,
+	# and a line in a file someone else wrote must not reach another host.
+	if os.name == "nt" and len(named) >= 2 and ((named[0] in "/\\" and named[1] in "/\\") or named.startswith("\\??\\")):
+		out.status = SchemaStatus.NetworkPath
+		out.message = f"{named}: a Schema line cannot name a network or device path"
+		out.path = named
+		return out
+	c = named[0]
+	if c == "/" or (os.name == "nt" and (c == "\\" or (len(named) >= 2 and named[1] == ":" and c.isascii() and c.isalpha()))):
+		out.path = named
+	else:
+		start = _file_name_start(file)
+		out.path = file[:start] + named if start else "./" + named
+	out.status, out.text, out.message = _read_schema_file(out.path)
+	return out
+
+
+def _read_schema_file(path: str) -> tuple[SchemaStatus, str, str]:
+	"""read_named_schema()'s read: only a regular file, and no more of it than
+	_SCHEMA_LINE_MAX. The status, the text, and why there is none."""
+	if _not_a_disk_file(path):
+		return SchemaStatus.NotRegular, "", f"{path}: not a regular file"
+
+	def regular(st: os.stat_result) -> tuple[SchemaStatus, str, str] | None:
+		if stat.S_ISDIR(st.st_mode):
+			return SchemaStatus.IsDirectory, "", f"{path}: Is a directory"
+		if not stat.S_ISREG(st.st_mode):
+			return SchemaStatus.NotRegular, "", f"{path}: not a regular file"
+		return None
+
+	try:
+		# Asked before the open too, since opening a FIFO waits for a writer.
+		bad = regular(os.stat(path))
+		if bad:
+			return bad
+		# The path can turn into a FIFO between the stat and the open, so on
+		# POSIX the open does not wait, and the flag comes straight back off:
+		# only the open waits, and the fstat refuses a FIFO before any read.
+		no_wait = getattr(os, "O_NONBLOCK", 0)
+		fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0) | no_wait)
+		# Unbuffered fixed reads, since the page map refuses one that is not a
+		# multiple of 8. One read past the cap is what tells a file at it from
+		# one over it.
+		with open(fd, "rb", buffering=0) as f:
+			if no_wait:
+				os.set_blocking(fd, True)
+			bad = regular(os.fstat(f.fileno()))
+			if bad:
+				return bad
+			data = bytearray()
+			while chunk := f.read(1 << 16):
+				data += chunk
+				if len(data) > _SCHEMA_LINE_MAX:
+					return SchemaStatus.TooLarge, "", f"{path}: too large for a schema (over 16 MiB)"
+	except FileNotFoundError as e:
+		return SchemaStatus.FileNotFound, "", f"{path}: {e.strerror or e}"
+	except ValueError as e:
+		# A NUL in the path raises this rather than an OSError.
+		return SchemaStatus.Unreadable, "", f"{path}: {e}"
+	except OSError as e:
+		return SchemaStatus.Unreadable, "", f"{path}: {e.strerror or e}"
+	try:
+		return SchemaStatus.Good, data.decode("utf-8"), ""
+	except UnicodeDecodeError:
+		return SchemaStatus.Unreadable, "", f"{path}: stream did not contain valid UTF-8"
 
 
 def _not_a_disk_file(path):
@@ -9386,7 +9557,7 @@ def write_file_atomic(file: str | os.PathLike[str], data: str) -> None:
 		except (OSError, ValueError) as e:
 			last = e
 	if f is None:
-		raise WriteError(f"{file}: cannot create temporary file: {last if last is not None else ''}",
+		raise WriteError(f"{file}: cannot create temporary file: {(getattr(last, 'strerror', None) or last) if last is not None else ''}",
 			_write_status_of(last) if last is not None else WriteStatus.Other)
 	try:
 		try:
@@ -9779,8 +9950,8 @@ def _backtick_holds(t):
 
 def _new_element(text):
 	"""An element no source wrote. It counts as quoted when canonical output will
-	quote it, so a read gives the same answer before a save as after one. A
-	thousands comma reads only in quotes, and `1,000` from a setter gets them."""
+	quote it, so the read's quoted flag gives the same answer before a save as
+	after one."""
 	if not _needs_quotes(text):
 		return _Element(text, _Mark.BARE)
 	return _Element(text, _Mark.SINGLE if _picks_single(text) else _Mark.DOUBLE)
@@ -9984,8 +10155,8 @@ _I64_MAX = 2 ** 63 - 1
 
 def _strip_currency(t):
 	# The remainder after a leading currency symbol, with the space a person
-	# writes after one taken off - `$ 1200` reached the int path's thousands
-	# branch, which trims, and the float path's shape test, which does not.
+	# writes after one taken off, so `$ 1200` reads the same as `$1200` in both
+	# the int path and the float path's shape test.
 	if t and t[0] in _CURRENCY:
 		return t[1:].lstrip(_WS)
 	return t
@@ -10041,19 +10212,6 @@ def _parse_int_text(e, level):
 		if mag > (_I64_MAX + 1 if neg else _I64_MAX):
 			return None
 		return -mag if neg else mag
-	# Thousands separators, only inside quotes: bare, `80,443` is text.
-	if e.quoted and "," in t:
-		sign_body = t[1:] if t[:1] in ("+", "-") else t
-		groups = sign_body.split(",")
-		well_formed = (
-			len(groups) > 1
-			and groups[0] != ""
-			and len(groups[0]) <= 3
-			and _all_ascii_digits(groups[0])
-			and all(len(g) == 3 and _all_ascii_digits(g) for g in groups[1:])
-		)
-		if well_formed:
-			return _parse_i64(t.replace(",", ""))
 	# Loose: a float (including %) rounds, half away from zero.
 	if level == Strictness.Loose:
 		f = _parse_float_text(e, level)
@@ -10116,7 +10274,7 @@ def _parse_float_text(e, level):
 		if not math.isfinite(v):
 			return None
 	else:
-		# An integer is a valid float on read (incl. hex, octal, binary and quoted thousands).
+		# An integer is a valid float on read (incl. hex, octal and binary).
 		iv = _parse_int_text_no_loose(_Element(t, e.mark))
 		if iv is not None:
 			v = float(iv)
@@ -10146,37 +10304,21 @@ def _radix_body(t):
 
 
 def _parse_int_text_wide(e):
-	# The integer spellings the plain float parse does not read - hex, octal,
-	# binary and quoted thousands - past the i64 range, as a double: a float
-	# read is bounded by the double, not by the integer type. A prefixed number
-	# goes in digit by digit in the double, so every binding rounds the same
-	# way; the spellings mirror _parse_int_text.
+	# The integer spellings the plain float parse does not read - hex, octal
+	# and binary - past the i64 range, as a double: a float read is bounded by
+	# the double, not by the integer type. The number goes in digit by digit in
+	# the double, so every binding rounds the same way; the spellings mirror
+	# _parse_int_text.
 	t = _trim(e.text)
 	neg = t.startswith("-")
 	body = t[1:] if t[:1] in ("-", "+") else t
 	rb = _radix_body(body)
-	if rb is not None:
-		radix, digits = rb
-		v = 0.0
-		for c in digits:
-			v = v * float(radix) + float(int(c, 16))
-	elif e.quoted and "," in body:
-		groups = body.split(",")
-		well_formed = (
-			len(groups) > 1
-			and groups[0] != ""
-			and len(groups[0]) <= 3
-			and _all_ascii_digits(groups[0])
-			and all(len(g) == 3 and _all_ascii_digits(g) for g in groups[1:])
-		)
-		if not well_formed:
-			return None
-		try:
-			v = float(body.replace(",", ""))
-		except ValueError:
-			return None
-	else:
+	if rb is None:
 		return None
+	radix, digits = rb
+	v = 0.0
+	for c in digits:
+		v = v * float(radix) + float(int(c, 16))
 	if not math.isfinite(v):
 		return None
 	return -v if neg else v

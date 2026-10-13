@@ -10,7 +10,10 @@ url	string	https://example.com:8080/a?b=c,d	Good
 ports	string	80,443	Good
 ports	int	-	BadType
 ports	int[]	-	BadType
-qty	int	1000	Good
+qty	int	-	BadType
+qty	float	-	BadType
+qty	int	-	BadType	loose
+qty	string	1,000	Good
 host	string	-	Empty
 host.under	int	1	Good
 x	string	-	NotFound

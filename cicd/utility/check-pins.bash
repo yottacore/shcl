@@ -14,6 +14,8 @@
 ##		its PyPI wheel, whose version (CPPCHECK_WHEEL) is not the binary version
 ##		TOOL_PINS checks, so ci.yml has to name the wheel token and, on a line
 ##		naming cppcheck, the binary version that wheel bundles - bump both.
+##		Also fails when the jobs that run cicd.bash --ci between them leave a
+##		stage out.
 ##	Syntax:
 ##		check-pins.bash
 ##	Exit: 0 = every pin matches, 1 = a mismatch (named), 2 = cannot read inputs.
@@ -145,10 +147,56 @@ while IFS= read -r named; do
 	((found)) || { echo "check-pins: ci.yml installs ${named} at a pinned version and config.bash has no TOOL_PINS entry for it" >&2; nBad=$((nBad + 1)); }
 done < <(printf '%s\n%s\n%s\n%s\n' "${pipNames}" "${npmNames}" "${goNames}" "${psNames}" | sed '/^$/d' | sort -u)
 
+## The hosted gate is split into parallel jobs, each running cicd.bash --ci
+## with a flag that leaves one stage out. Between them they have to run every
+## stage. Only flags that each drop a stage no other flag touches are allowed,
+## so "some job runs without each flag" is the whole test. --no-largedoc and
+## --quick overlap --no-tests, and would let the large document fall through.
+fTest EsZzNCY hosted-jobs-cover-the-gate
+stageFlags=(--no-fmt --no-lint --no-tests --no-cross)
+gateRuns=()
+matrixRe='\$\{\{ *matrix\.([A-Za-z0-9_-]+) *\}\}'
+while IFS= read -r runLine; do
+	[[ -n "${runLine}" ]] || continue
+	runArgs="${runLine#*cicd/cicd.bash}"
+	if [[ "${runArgs}" =~ ${matrixRe} ]]; then
+		matrixKey="${BASH_REMATCH[1]}"
+		matrixVals="$(sed -nE "s/^[[:space:]]*(-[[:space:]]+)?${matrixKey}:[[:space:]]*//p" <<<"${liveLines}" || true)"
+		[[ -n "${matrixVals}" ]] || { echo "check-pins: ci.yml runs cicd.bash with matrix.${matrixKey} and no value for it was read" >&2; nBad=$((nBad + 1)); }
+		while IFS= read -r matrixVal; do
+			[[ -n "${matrixVal}" ]] && gateRuns+=("${runArgs/"${BASH_REMATCH[0]}"/${matrixVal}}")
+		done <<<"${matrixVals}"
+	else
+		gateRuns+=("${runArgs}")
+	fi
+done < <(grep -E -- 'cicd/cicd\.bash' <<<"${liveLines}" || true)
+((${#gateRuns[@]})) || { echo "check-pins: no job in ci.yml runs cicd/cicd.bash" >&2; nBad=$((nBad + 1)); }
+declare -A flagMissingSomewhere=() flagUsed=()
+for runArgs in "${gateRuns[@]}"; do
+	read -r -a runWords <<<"${runArgs}"
+	hasCi=0
+	for w in "${runWords[@]}"; do
+		if [[ "${w}" == --ci ]]; then hasCi=1; continue; fi
+		known=0
+		for f in "${stageFlags[@]}"; do
+			if [[ "${w}" == "${f}" ]]; then known=1; fi
+		done
+		if ((known)); then flagUsed["${w}"]=1
+		else echo "check-pins: ci.yml runs the gate with ${w}, which may leave out more than one stage:${runArgs}" >&2; nBad=$((nBad + 1)); fi
+	done
+	((hasCi)) || { echo "check-pins: ci.yml runs cicd.bash without --ci:${runArgs}" >&2; nBad=$((nBad + 1)); }
+	for f in "${stageFlags[@]}"; do
+		if [[ " ${runArgs} " != *" ${f} "* ]]; then flagMissingSomewhere["${f}"]=1; fi
+	done
+done
+for f in "${!flagUsed[@]}"; do
+	[[ -n "${flagMissingSomewhere[${f}]:-}" ]] || { echo "check-pins: every hosted job runs the gate with ${f}, so that stage runs nowhere" >&2; nBad=$((nBad + 1)); }
+done
+
 fTestEnd
 rc=0
 if [[ "${nBad}" != 0 ]]; then rc=1; fi
-((rc)) || echo "check-pins: OK: every TOOL_PINS entry the hosted gate installs matches ci.yml, every tool ci.yml pins has an entry, and every download it fetches is hashed"
+((rc)) || echo "check-pins: OK: every TOOL_PINS entry the hosted gate installs matches ci.yml, every tool ci.yml pins has an entry, every download it fetches is hashed, and its jobs run every stage of the gate"
 exit "${rc}"
 
 
@@ -161,3 +209,4 @@ exit "${rc}"
 ##		  check does not count.
 ##		- 2026-09-19 JC: The reverse check reads each install family on its own,
 ##		  and a family whose line reads no name fails.
+##		- 2026-10-13 JC: The jobs that run cicd.bash have to cover every stage between them.

@@ -4100,7 +4100,9 @@ fn the_writer_quotes_a_colon_or_comma() {
 	);
 	let doc = Document::parse("n: \"1,000\"\n");
 	assert_eq!(doc.to_canonical(), "n: \"1,000\"\n");
-	assert_eq!(doc.get_int("n"), Ok(1000));
+	// 2026101010054746: a quoted thousands number is text, like a bare one.
+	// assert_eq!(doc.get_int("n"), Ok(1000));
+	assert!(doc.get_int("n").is_err());
 	let text = "ver: \"8\"\nok: 'true'\nat: 2:30PM\nhost: localhost:8080\n";
 	let mut doc = Document::parse(text);
 	assert_eq!(
@@ -4114,6 +4116,37 @@ fn the_writer_quotes_a_colon_or_comma() {
 	let hint = &doc.diagnostics()[0];
 	assert_eq!(hint.code, "H001");
 	assert!(hint.message.contains("t: [\"a,b\", c]"), "{}", hint.message);
+}
+
+// A thousands comma is text quoted or bare, so a typed read gives the same
+// answer before and after the writer quotes it (2026101010054746).
+#[test]
+fn a_thousands_comma_reads_the_same_after_a_save() {
+	let _id = test_id("EsZikJi");
+	let mut doc = Document::parse("p: 80,443\nq: \"1,000\"\nr: '-1,234,567'\n");
+	assert_eq!(doc.set_string("s", "1,000"), shcl::SetStatus::Ok);
+	let out = doc.to_canonical();
+	assert!(out.starts_with("p: \"80,443\"\nq: \"1,000\"\nr: '-1,234,567'\n"));
+	assert!(out.ends_with("s: \"1,000\"\n"));
+	let back = Document::parse(&out);
+	for (path, text) in [
+		("p", "80,443"),
+		("q", "1,000"),
+		("r", "-1,234,567"),
+		("s", "1,000"),
+	] {
+		for d in [&doc, &back] {
+			assert_eq!(d.read_int(path).status, Status::BadType, "{path} int");
+			assert_eq!(d.read_float(path).status, Status::BadType, "{path} float");
+			assert_eq!(d.get_string(path).as_deref(), Ok(text), "{path}");
+		}
+	}
+	// The setter's value counts as quoted, as its saved form is.
+	assert!(doc.read_string("s").quoted);
+	assert!(back.read_string("s").quoted);
+	let loose = Document::parse_with("q: \"1,000\"\nc: \"$1,200\"\n", Strictness::Loose).unwrap();
+	assert_eq!(loose.read_int("q").status, Status::BadType);
+	assert_eq!(loose.read_int("c").status, Status::BadType);
 }
 
 // migrate writes a 2.x comma list in brackets, with or without a blank
@@ -4511,4 +4544,185 @@ fn default_replace_round_trips() {
 	assert!(saved.contains(&notes[0]));
 	assert_eq!(back.get_int("srv.port"), Ok(9));
 	assert_eq!(back.get_int_array("list"), Ok(vec![1, 2]));
+}
+
+// read_named_schema reads a Schema line by check's rules: from the config's
+// directory, or the working directory when the path has none; a URL is never
+// fetched; only a regular file is read, and none over 16 MiB. The CLI's check
+// is this call, so its rows in cli-regress pin the same rules. Same fixture
+// in every runner.
+#[test]
+fn read_named_schema_follows_check_rules() {
+	let _id = test_id("EsJZ105");
+	use shcl::{SchemaStatus as S, read_named_schema};
+	let dir = std::env::temp_dir().join(format!("shcl-namedschema-{}", std::process::id()));
+	let _ = std::fs::remove_dir_all(&dir);
+	std::fs::create_dir_all(dir.join("sub")).unwrap();
+	let d = dir.to_str().unwrap();
+	let cfg = format!("{}/cfg.shcl", d);
+	std::fs::write(dir.join("s.shcl"), "field: port\n").unwrap();
+	std::fs::write(dir.join("bad.shcl"), b"a: \xff\n").unwrap();
+	std::fs::write(dir.join("big.shcl"), vec![b'a'; (16 << 20) + 1]).unwrap();
+	let line = |r: &str| format!("a: 1\n##    Schema   {}\n", r);
+
+	let r = read_named_schema(&line("s.shcl"), &cfg);
+	assert_eq!(
+		(
+			r.status,
+			r.text.as_str(),
+			r.path.clone(),
+			r.line,
+			r.message.as_str()
+		),
+		(S::Good, "field: port\n", format!("{}/s.shcl", d), 2, "")
+	);
+	let abs = format!("{}/s.shcl", d);
+	assert_eq!(read_named_schema(&line(&abs), "cfg.shcl").path, abs);
+	assert_eq!(read_named_schema(&line(&abs), "cfg.shcl").status, S::Good);
+
+	let r = read_named_schema("a: 1\n", &cfg);
+	assert_eq!((r.status, r.path.as_str(), r.line), (S::NotFound, "", 0));
+	let r = read_named_schema("##    Schema\na: 1\n", &cfg);
+	assert_eq!((r.status, r.path.as_str(), r.line), (S::Empty, "", 1));
+
+	let r = read_named_schema(&line("https://example.com/s.shcl"), &cfg);
+	assert_eq!(
+		(r.status, r.path.as_str(), r.text.as_str()),
+		(S::Url, "https://example.com/s.shcl", "")
+	);
+	assert!(!r.message.is_empty());
+
+	for (file, want) in [
+		("cfg.shcl", "./gone.shcl"),
+		("-", "./gone.shcl"),
+		("", "./gone.shcl"),
+	] {
+		let r = read_named_schema(&line("gone.shcl"), file);
+		assert_eq!(
+			(r.status, r.path.as_str()),
+			(S::FileNotFound, want),
+			"{:?}",
+			file
+		);
+	}
+	let r = read_named_schema(&line("gone.shcl"), &cfg);
+	assert_eq!(r.status, S::FileNotFound);
+	assert!(
+		r.message.starts_with(&format!("{}/gone.shcl: ", d)),
+		"{}",
+		r.message
+	);
+
+	let named = |r: &str| read_named_schema(&line(r), &cfg).status;
+	assert_eq!(named("sub"), S::IsDirectory);
+	assert_eq!(named("big.shcl"), S::TooLarge);
+	assert_eq!(named("bad.shcl"), S::Unreadable);
+	assert_eq!(named("s.shcl\0x"), S::Unreadable);
+	#[cfg(unix)]
+	{
+		assert_eq!(named("/dev/null"), S::NotRegular);
+		let fifo = dir.join("fifo");
+		assert!(
+			std::process::Command::new("mkfifo")
+				.arg(&fifo)
+				.status()
+				.unwrap()
+				.success()
+		);
+		assert_eq!(named("fifo"), S::NotRegular);
+		assert_eq!(named("//host/share/s.shcl"), S::FileNotFound);
+	}
+	#[cfg(windows)]
+	{
+		assert_eq!(named("NUL"), S::NotRegular);
+		for r in [
+			"//host/share/s.shcl",
+			"\\\\host\\share\\s.shcl",
+			"\\??\\C:\\s.shcl",
+		] {
+			let got = read_named_schema(&line(r), &cfg);
+			assert_eq!((got.status, got.path.as_str()), (S::NetworkPath, r));
+		}
+	}
+	assert_eq!(S::FileNotFound.to_string(), "FileNotFound");
+	let _ = std::fs::remove_dir_all(&dir);
+}
+
+// kind() and read_kind(): what the value at a path is, from the stored form,
+// with the status read_line() gives. Same fixture in every runner.
+#[test]
+fn kind_reads_say_what_is_there() {
+	let _id = test_id("EsJYNe1");
+	use shcl::Status::{BadPath, Good, Multiple, NotFound};
+	use shcl::ValueKind::{Array, Empty, Raw, Scalar};
+	let text = "name: demo\nquoted: \"\"\ntags: [a, b]\none: [80]\nnone: []\nlist:\n\t- x\n\t- y\nnotes:\n\t~~~sql\n\tselect 1\n\t~~~\nblank:\nsite: a\n\tport: 1\nsite: b\nsrv:\n\thost: h\nlog: [x] y\n\tlevel: 1\n";
+	let mut doc = Document::parse(text);
+	let k = doc.read_kind("name");
+	assert_eq!((k.value, k.status, k.line), (Scalar, Good, 1));
+	// `[80]` and `[]` are arrays though a scalar read takes them, and a
+	// section header or a line kept for its value is empty.
+	for (p, want) in [
+		("quoted", Scalar),
+		("tags", Array),
+		("one", Array),
+		("none", Array),
+		("list", Array),
+		("notes", Raw),
+		("blank", Empty),
+		("srv", Empty),
+		("srv.host", Scalar),
+		("site(0)", Scalar),
+		("site(0).port", Scalar),
+		("log", Empty),
+		("log.level", Scalar),
+	] {
+		let k = doc.read_kind(p);
+		assert_eq!((k.value, k.status), (want, Good), "{p:?}");
+		assert_eq!(doc.kind(p), want, "{p:?}");
+	}
+	let k = doc.read_kind("notes");
+	assert_eq!(k.line, 9);
+	for (p, want) in [
+		("site", Multiple),
+		("site(*)", Multiple),
+		("site(*).port", Multiple),
+		("*", Multiple),
+		("nope", NotFound),
+		("site(1).port", NotFound),
+		("site(2)", NotFound),
+		("site[0].port", BadPath),
+		("site(.port", BadPath),
+		("site..port", BadPath),
+		("", BadPath),
+		("user name", BadPath),
+		("site.port: 1", BadPath),
+		("h:p", BadPath),
+	] {
+		let k = doc.read_kind(p);
+		assert_eq!((k.value, k.status, k.line), (Empty, want, 0), "{p:?}");
+		assert_eq!(doc.kind(p), Empty, "{p:?}");
+	}
+	let names: Vec<String> = [Empty, Scalar, Array, Raw]
+		.iter()
+		.map(|k| k.to_string())
+		.collect();
+	assert_eq!(names, ["Empty", "Scalar", "Array", "Raw"]);
+	assert_eq!(doc.to_canonical(), Document::parse(text).to_canonical());
+	// A node a setter built has the kind its setter wrote, and no line.
+	assert_eq!(doc.set_int("built", 1), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_int_array("arr", &[1]), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_raw("body", "x", ""), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_comment("note", "# c"), shcl::SetStatus::Ok);
+	assert_eq!(doc.set_int("blank", 2), shcl::SetStatus::Ok);
+	for (p, want) in [
+		("built", Scalar),
+		("arr", Array),
+		("body", Raw),
+		("note", Empty),
+		("blank", Scalar),
+	] {
+		let k = doc.read_kind(p);
+		assert_eq!((k.value, k.status), (want, Good), "{p:?}");
+	}
+	assert_eq!(doc.read_kind("built").line, 0);
 }

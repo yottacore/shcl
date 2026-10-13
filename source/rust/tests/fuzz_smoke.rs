@@ -1319,6 +1319,118 @@ fn writer_roundtrips_and_stays_fixpoint() {
 	}
 }
 
+/// Text that sits near the number readers: digits, signs, radix letters,
+/// commas, a point, currency, a percent and a space.
+const NUMERIC: &[char] = &[
+	'0', '1', '9', ',', ',', '.', '-', '+', 'e', 'x', 'b', 'o', '$', '\u{20ac}', '%', ' ', '_',
+];
+
+fn numeric_soup(rng: &mut Rng) -> String {
+	let len = 1 + rng.below(10);
+	(0..len)
+		.map(|_| NUMERIC[rng.below(NUMERIC.len())])
+		.collect()
+}
+
+/// Where a typed read of one path differs between two documents, if it does.
+fn read_drift(a: &Document, b: &Document, p: &str) -> Option<String> {
+	let (x, y) = (a.read_int(p), b.read_int(p));
+	if (x.status, x.value) != (y.status, y.value) {
+		return Some(format!(
+			"int {:?} {} vs {:?} {}",
+			x.status, x.value, y.status, y.value
+		));
+	}
+	let (x, y) = (a.read_float(p), b.read_float(p));
+	if (x.status, x.value.to_bits()) != (y.status, y.value.to_bits()) {
+		return Some(format!(
+			"float {:?} {} vs {:?} {}",
+			x.status, x.value, y.status, y.value
+		));
+	}
+	let (x, y) = (a.read_bool(p), b.read_bool(p));
+	if (x.status, x.value) != (y.status, y.value) {
+		return Some(format!(
+			"bool {:?} {} vs {:?} {}",
+			x.status, x.value, y.status, y.value
+		));
+	}
+	let (x, y) = (a.read_datetime(p), b.read_datetime(p));
+	if x.status != y.status || x.value != y.value {
+		return Some(format!("datetime {:?} vs {:?}", x.status, y.status));
+	}
+	let (x, y) = (a.read_string(p), b.read_string(p));
+	if (x.status, &x.value) != (y.status, &y.value) {
+		return Some(format!(
+			"string {:?} {:?} vs {:?} {:?}",
+			x.status, x.value, y.status, y.value
+		));
+	}
+	None
+}
+
+/// A typed read gives the same answer before a save and after it, at every
+/// level, for a loaded value and a setter's alike. The writer quotes a bare
+/// `80,443`, and a quoted thousands number once read as a number, so `fmt`
+/// changed the answer at exit 0 (2026101010054746).
+#[test]
+fn typed_reads_survive_a_save() {
+	let _id = test_id("EsZikJr");
+	let iters = iter_count(1);
+	let seeds = seed_texts();
+	let mut rng = Rng(0x5EED_1010_1005_4746);
+	let mut compared = 0usize;
+	for i in 0..iters {
+		let soup = numeric_soup(&mut rng);
+		let text = match i % 3 {
+			0 => {
+				let base = &seeds[rng.below(seeds.len())];
+				mutate(&mut rng, base)
+			}
+			1 => structural(&mut rng),
+			_ => format!("k: {soup}\n"),
+		};
+		// One level per iteration, turn about, keeps the cost near the others'.
+		let level = [Strictness::Loose, Strictness::Standard, Strictness::Strict][(i / 3) % 3];
+		let mut docs = Vec::new();
+		if let Ok(doc) = Document::parse_with(&text, level) {
+			docs.push(doc);
+		}
+		if let Ok(mut set) = Document::parse_with("", level)
+			&& set.set_string("k", &soup) == shcl::SetStatus::Ok
+		{
+			docs.push(set);
+		}
+		for doc in &docs {
+			if list_after_empty(doc) {
+				continue;
+			}
+			let once = doc.to_canonical();
+			let Ok(back) = Document::parse_with(&once, level) else {
+				continue;
+			};
+			let paths = doc.instance_paths();
+			// A save that moves a node is the other properties' business.
+			if back.instance_paths() != paths {
+				continue;
+			}
+			for p in &paths {
+				compared += 1;
+				if let Some(why) = read_drift(doc, &back, p) {
+					panic!(
+						"{p:?} reads differently after a save at {level:?}, iteration {i}: {why}\ninput:\n{text}\nsoup: {soup:?}\nsaved:\n{once}"
+					);
+				}
+			}
+		}
+	}
+	// The generator must keep reaching documents that save and reload whole.
+	assert!(
+		compared >= iters,
+		"only {compared} reads compared over {iters} iterations"
+	);
+}
+
 /// A merge or an edit leaves the document its own saved text reloads as,
 /// comments included, so the next step comes out the same whether or not the file
 /// was saved in between. Comments were filed one way by a load and another by

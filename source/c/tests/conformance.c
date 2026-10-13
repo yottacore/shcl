@@ -4415,7 +4415,9 @@ int main(int argc, char **argv) {
 		shcl_doc *td = shcl_parse("n: \"1,000\"\n", 11);
 		shcl_str tc = shcl_to_canonical(td);
 		if (tc.n != 11 || memcmp(tc.p, "n: \"1,000\"\n", 11) != 0) fail("writer_comma", "a quoted thousands comma lost its quotes");
-		if (shcl_get_int_or(td, "n", 1, 0) != 1000) fail("writer_comma", "n");
+		/* 2026101010054746: a quoted thousands number is text, like a bare one.
+		if (shcl_get_int_or(td, "n", 1, 0) != 1000) fail("writer_comma", "n"); */
+		if (shcl_read_int(td, "n", 1).status != SHCL_BAD_TYPE) fail("writer_comma", "n");
 		shcl_free(td);
 		const char *vin = "ver: \"8\"\nok: 'true'\nat: 2:30PM\nhost: localhost:8080\n";
 		const char *vout = "ver: \"8\"\nok: 'true'\nat: \"2:30PM\"\nhost: \"localhost:8080\"\n";
@@ -4431,6 +4433,42 @@ int main(int argc, char **argv) {
 		shcl_str hm = shcl_diag_count(hd) ? shcl_diag_message(hd, 0) : shcl_to_canonical(hd);
 		if (shcl_diag_count(hd) == 0 || strcmp(shcl_diag_code(hd, 0), "H001") != 0 || !contains(hm.p, hm.n, "t: [\"a,b\", c]")) fail("writer_comma", "the H001 hint");
 		shcl_free(hd);
+	}
+	test_id("EsZikJl", "a_thousands_comma_reads_the_same_after_a_save");
+	/* A thousands comma is text quoted or bare, so a typed read gives the same
+	   answer before and after the writer quotes it (2026101010054746). */
+	{
+		const char *tsrc = "p: 80,443\nq: \"1,000\"\nr: '-1,234,567'\n";
+		const char *thead = "p: \"80,443\"\nq: \"1,000\"\nr: '-1,234,567'\n";
+		const char *ttail = "s: \"1,000\"\n";
+		shcl_doc *td = shcl_parse(tsrc, strlen(tsrc));
+		if (shcl_set_string(td, "s", 1, "1,000", 5) != SHCL_SET_OK) fail("thousands", "set s");
+		shcl_str tout = shcl_to_canonical(td);
+		if (tout.n < strlen(thead) + strlen(ttail) || memcmp(tout.p, thead, strlen(thead)) != 0 || memcmp(tout.p + tout.n - strlen(ttail), ttail, strlen(ttail)) != 0) fail("thousands", "the canonical text");
+		shcl_doc *tb = shcl_parse(tout.p, tout.n);
+		const char *tpaths[] = { "p", "q", "r", "s" };
+		const char *ttexts[] = { "80,443", "1,000", "-1,234,567", "1,000" };
+		shcl_doc *tdocs[] = { td, tb };
+		for (size_t i = 0; i < 4; i++) {
+			for (size_t k = 0; k < 2; k++) {
+				if (shcl_read_int(tdocs[k], tpaths[i], 1).status != SHCL_BAD_TYPE) fail("thousands", tpaths[i]);
+				if (shcl_read_float(tdocs[k], tpaths[i], 1).status != SHCL_BAD_TYPE) fail("thousands", tpaths[i]);
+				shcl_read_str ts = shcl_read_string(tdocs[k], tpaths[i], 1);
+				if (ts.status != SHCL_GOOD || ts.value.n != strlen(ttexts[i]) || memcmp(ts.value.p, ttexts[i], ts.value.n) != 0) fail("thousands", tpaths[i]);
+			}
+		}
+		/* The setter's value counts as quoted, as its saved form is. */
+		if (!shcl_quoted(td, "s", 1) || !shcl_quoted(tb, "s", 1)) fail("thousands", "s not quoted");
+		shcl_free(tb);
+		shcl_free(td);
+		const char *lsrc = "q: \"1,000\"\nc: \"$1,200\"\n";
+		shcl_doc *tl = shcl_parse_with(lsrc, strlen(lsrc), SHCL_LOOSE);
+		if (!tl) fail("thousands", "loose load");
+		else {
+			if (shcl_read_int(tl, "q", 1).status != SHCL_BAD_TYPE) fail("thousands", "loose q");
+			if (shcl_read_int(tl, "c", 1).status != SHCL_BAD_TYPE) fail("thousands", "loose c");
+			shcl_free(tl);
+		}
 	}
 	test_id("Es1gWRs", "a_list_no_text_loads_back_refuses_to_save");
 	/* A list with a field under it (E001) after an empty binding of its name
@@ -5366,6 +5404,175 @@ int main(int argc, char **argv) {
 #endif
 	}
 
+	/* shcl_read_named_schema reads a Schema line by check's rules: from the
+	   config's directory, or the working directory when the path has none; a
+	   URL is never fetched; only a regular file is read, and none over 16 MiB.
+	   The CLI's check is this call, so its rows in cli-regress pin the same
+	   rules. Same fixture in every runner. */
+	test_id("EsJZ108", "read_named_schema_follows_check_rules");
+	{
+		char nd[256], ncfg[300], np[400], nline[600];
+		snprintf(nd, sizeof nd, "%s/shcl-namedschema-%ld", tmp_root(), (long)getpid());
+		snprintf(ncfg, sizeof ncfg, "%s/cfg.shcl", nd);
+#ifdef _WIN32
+		if (_mkdir(nd) != 0) fail("named_schema", "mkdir failed");
+		snprintf(np, sizeof np, "%s/sub", nd);
+		if (_mkdir(np) != 0) fail("named_schema", "mkdir failed");
+#else
+		if (mkdir(nd, 0700) != 0) fail("named_schema", "mkdir failed");
+		snprintf(np, sizeof np, "%s/sub", nd);
+		if (mkdir(np, 0700) != 0) fail("named_schema", "mkdir failed");
+#endif
+		snprintf(np, sizeof np, "%s/s.shcl", nd); put_file(np, "field: port\n");
+		snprintf(np, sizeof np, "%s/bad.shcl", nd); put_file(np, "a: \xff\n");
+		snprintf(np, sizeof np, "%s/big.shcl", nd);
+		{
+			size_t bn = ((size_t)16 << 20) + 1;
+			char *big = (char *)malloc(bn);
+			FILE *bf = fopen(np, "wb");
+			if (big && bf) { memset(big, 'a', bn); fwrite(big, 1, bn, bf); }
+			else fail("named_schema", "big file");
+			if (bf) fclose(bf);
+			free(big);
+		}
+#define NAMED(ref, file) (snprintf(nline, sizeof nline, "a: 1\n##    Schema   %s\n", (ref)), shcl_read_named_schema(nline, strlen(nline), (file)))
+		shcl_named_schema nr = NAMED("s.shcl", ncfg);
+		snprintf(np, sizeof np, "%s/s.shcl", nd);
+		if (nr.status != SHCL_SCHEMA_GOOD || strcmp(nr.text, "field: port\n") != 0 || nr.len != 12 || strcmp(nr.path, np) != 0
+		    || nr.path_len != strlen(np) || nr.line != 2 || nr.message_len != 0 || nr.message[0])
+			fail("named_schema", "good");
+		shcl_named_schema_free(&nr);
+		shcl_named_schema_free(&nr);
+		nr = NAMED(np, "cfg.shcl");
+		if (nr.status != SHCL_SCHEMA_GOOD || strcmp(nr.path, np) != 0) fail("named_schema", "absolute");
+		shcl_named_schema_free(&nr);
+
+		nr = shcl_read_named_schema("a: 1\n", 5, ncfg);
+		if (nr.status != SHCL_SCHEMA_NOT_FOUND || nr.path_len != 0 || nr.line != 0 || !nr.text || !nr.message) fail("named_schema", "no line");
+		shcl_named_schema_free(&nr);
+		nr = shcl_read_named_schema("##    Schema\na: 1\n", 18, ncfg);
+		if (nr.status != SHCL_SCHEMA_EMPTY || nr.path_len != 0 || nr.line != 1) fail("named_schema", "empty");
+		shcl_named_schema_free(&nr);
+
+		nr = NAMED("https://example.com/s.shcl", ncfg);
+		if (nr.status != SHCL_SCHEMA_URL || strcmp(nr.path, "https://example.com/s.shcl") != 0 || nr.len != 0 || !nr.message_len)
+			fail("named_schema", "url");
+		shcl_named_schema_free(&nr);
+
+		const char *nfiles[] = {"cfg.shcl", "-", "", NULL};
+		for (size_t i = 0; i < 4; i++) {
+			nr = NAMED("gone.shcl", nfiles[i]);
+			if (nr.status != SHCL_SCHEMA_FILE_NOT_FOUND || strcmp(nr.path, "./gone.shcl") != 0) fail("named_schema", "relative to the working directory");
+			shcl_named_schema_free(&nr);
+		}
+		nr = NAMED("gone.shcl", ncfg);
+		snprintf(np, sizeof np, "%s/gone.shcl: ", nd);
+		if (nr.status != SHCL_SCHEMA_FILE_NOT_FOUND || strncmp(nr.message, np, strlen(np)) != 0) fail("named_schema", "gone");
+		shcl_named_schema_free(&nr);
+
+		struct { const char *ref; shcl_schema_status want; } ncases[] = {
+			{"sub", SHCL_SCHEMA_IS_DIRECTORY}, {"big.shcl", SHCL_SCHEMA_TOO_LARGE}, {"bad.shcl", SHCL_SCHEMA_UNREADABLE},
+#ifdef _WIN32
+			{"NUL", SHCL_SCHEMA_NOT_REGULAR},
+			{"//host/share/s.shcl", SHCL_SCHEMA_NETWORK_PATH}, {"\\\\host\\share\\s.shcl", SHCL_SCHEMA_NETWORK_PATH},
+			{"\\??\\C:\\s.shcl", SHCL_SCHEMA_NETWORK_PATH},
+#else
+			{"/dev/null", SHCL_SCHEMA_NOT_REGULAR}, {"fifo", SHCL_SCHEMA_NOT_REGULAR}, {"//host/share/s.shcl", SHCL_SCHEMA_FILE_NOT_FOUND},
+#endif
+		};
+#ifndef _WIN32
+		snprintf(np, sizeof np, "%s/fifo", nd);
+		if (mkfifo(np, 0600) != 0) fail("named_schema", "mkfifo failed");
+#endif
+		for (size_t i = 0; i < sizeof ncases / sizeof *ncases; i++) {
+			nr = NAMED(ncases[i].ref, ncfg);
+			if (nr.status != ncases[i].want) { fail("named_schema", ncases[i].ref); fprintf(stderr, "  got %s\n", shcl_schema_status_name(nr.status)); }
+#ifdef _WIN32
+			if (ncases[i].want == SHCL_SCHEMA_NETWORK_PATH && strcmp(nr.path, ncases[i].ref) != 0) fail("named_schema", "network path as written");
+#endif
+			shcl_named_schema_free(&nr);
+		}
+		/* A path that comes off of a file can hold a NUL, which no open can take. */
+		static const char nul_line[] = "##    Schema   s.shcl\0x\n";
+		nr = shcl_read_named_schema(nul_line, sizeof nul_line - 1, ncfg);
+		if (nr.status != SHCL_SCHEMA_UNREADABLE || nr.path_len != strlen(nd) + 9 || nr.message_len <= nr.path_len) fail("named_schema", "nul");
+		shcl_named_schema_free(&nr);
+#undef NAMED
+		if (strcmp(shcl_schema_status_name(SHCL_SCHEMA_FILE_NOT_FOUND), "FileNotFound") != 0) fail("named_schema", "names");
+		const char *nnames[] = {"s.shcl", "bad.shcl", "big.shcl", "fifo"};
+		for (size_t i = 0; i < 4; i++) { snprintf(np, sizeof np, "%s/%s", nd, nnames[i]); remove(np); }
+		snprintf(np, sizeof np, "%s/sub", nd);
+#ifdef _WIN32
+		_rmdir(np); _rmdir(nd);
+#else
+		rmdir(np); rmdir(nd);
+#endif
+	}
+
+	test_id("EsJYNe4", "kind_reads_say_what_is_there");
+	// shcl_kind and shcl_read_kind: what the value at a path is, from the
+	// stored form, with the status shcl_read_line gives. Same fixture in every
+	// runner.
+	{
+		const char *kt = "name: demo\nquoted: \"\"\ntags: [a, b]\none: [80]\nnone: []\nlist:\n\t- x\n\t- y\nnotes:\n\t~~~sql\n\tselect 1\n\t~~~\nblank:\nsite: a\n\tport: 1\nsite: b\nsrv:\n\thost: h\nlog: [x] y\n\tlevel: 1\n";
+		shcl_doc *kd = shcl_parse(kt, strlen(kt));
+		shcl_read_value_kind kr = shcl_read_kind(kd, "name", 4);
+		if (kr.value != SHCL_KIND_SCALAR || kr.status != SHCL_GOOD) fail("kind_reads", "read_kind(name)");
+		// `[80]` and `[]` are arrays though a scalar read takes them, and a
+		// section header or a line kept for its value is empty.
+		static const struct { const char *path; shcl_value_kind want; } kgood[] = {
+			{"quoted", SHCL_KIND_SCALAR}, {"tags", SHCL_KIND_ARRAY}, {"one", SHCL_KIND_ARRAY},
+			{"none", SHCL_KIND_ARRAY}, {"list", SHCL_KIND_ARRAY}, {"notes", SHCL_KIND_RAW},
+			{"blank", SHCL_KIND_EMPTY}, {"srv", SHCL_KIND_EMPTY}, {"srv.host", SHCL_KIND_SCALAR},
+			{"site(0)", SHCL_KIND_SCALAR}, {"site(0).port", SHCL_KIND_SCALAR}, {"log", SHCL_KIND_EMPTY},
+			{"log.level", SHCL_KIND_SCALAR},
+		};
+		for (size_t i = 0; i < sizeof kgood / sizeof kgood[0]; i++) {
+			const char *p = kgood[i].path; size_t n = strlen(p);
+			kr = shcl_read_kind(kd, p, n);
+			if (kr.value != kgood[i].want || kr.status != SHCL_GOOD) fail("kind_reads", p);
+			if (shcl_kind(kd, p, n) != kgood[i].want) fail("kind_reads", p);
+		}
+		static const struct { const char *path; shcl_status want; } kmiss[] = {
+			{"site", SHCL_MULTIPLE}, {"site(*)", SHCL_MULTIPLE}, {"site(*).port", SHCL_MULTIPLE},
+			{"*", SHCL_MULTIPLE}, {"nope", SHCL_NOT_FOUND}, {"site(1).port", SHCL_NOT_FOUND},
+			{"site(2)", SHCL_NOT_FOUND}, {"site[0].port", SHCL_BAD_PATH}, {"site(.port", SHCL_BAD_PATH},
+			{"site..port", SHCL_BAD_PATH}, {"", SHCL_BAD_PATH}, {"user name", SHCL_BAD_PATH},
+			{"site.port: 1", SHCL_BAD_PATH}, {"h:p", SHCL_BAD_PATH},
+		};
+		for (size_t i = 0; i < sizeof kmiss / sizeof kmiss[0]; i++) {
+			const char *p = kmiss[i].path; size_t n = strlen(p);
+			kr = shcl_read_kind(kd, p, n);
+			if (kr.value != SHCL_KIND_EMPTY || kr.status != kmiss[i].want) fail("kind_reads", p);
+			if (shcl_kind(kd, p, n) != SHCL_KIND_EMPTY) fail("kind_reads", p);
+		}
+		if (strcmp(shcl_value_kind_name(SHCL_KIND_EMPTY), "Empty") || strcmp(shcl_value_kind_name(SHCL_KIND_SCALAR), "Scalar")
+			|| strcmp(shcl_value_kind_name(SHCL_KIND_ARRAY), "Array") || strcmp(shcl_value_kind_name(SHCL_KIND_RAW), "Raw"))
+			fail("kind_reads", "shcl_value_kind_name");
+		if (SHCL_KIND_EMPTY != 0 || SHCL_KIND_SCALAR != 1 || SHCL_KIND_ARRAY != 2 || SHCL_KIND_RAW != 3) fail("kind_reads", "order");
+		shcl_doc *kfresh = shcl_parse(kt, strlen(kt));
+		shcl_str kc1 = shcl_to_canonical(kd), kc2 = shcl_to_canonical(kfresh);
+		if (kc1.n != kc2.n || memcmp(kc1.p, kc2.p, kc1.n)) fail("kind_reads", "a kind read changed the document");
+		shcl_free(kfresh);
+		// A node a setter built has the kind its setter wrote, and no line.
+		const int64_t kone[] = {1};
+		if (shcl_set_int(kd, "built", 5, 1) != SHCL_SET_OK) fail("kind_reads", "set built");
+		if (shcl_set_int_array(kd, "arr", 3, kone, 1) != SHCL_SET_OK) fail("kind_reads", "set arr");
+		if (shcl_set_raw(kd, "body", 4, "x", 1, "", 0) != SHCL_SET_OK) fail("kind_reads", "set body");
+		if (shcl_set_comment(kd, "note", 4, "# c", 3) != SHCL_SET_OK) fail("kind_reads", "set note");
+		if (shcl_set_int(kd, "blank", 5, 2) != SHCL_SET_OK) fail("kind_reads", "set blank");
+		static const struct { const char *path; shcl_value_kind want; } kset[] = {
+			{"built", SHCL_KIND_SCALAR}, {"arr", SHCL_KIND_ARRAY}, {"body", SHCL_KIND_RAW},
+			{"note", SHCL_KIND_EMPTY}, {"blank", SHCL_KIND_SCALAR},
+		};
+		for (size_t i = 0; i < sizeof kset / sizeof kset[0]; i++) {
+			const char *p = kset[i].path;
+			kr = shcl_read_kind(kd, p, strlen(p));
+			if (kr.value != kset[i].want || kr.status != SHCL_GOOD) fail("kind_reads", p);
+		}
+		if (shcl_read_line(kd, "built", 5).value != 0) fail("kind_reads", "line(built)");
+		shcl_free(kd);
+	}
 	test_id_end();
 	if (nfail) { fprintf(stderr, "conformance: %d failure(s)\n", nfail); return 1; }
 	printf("conformance: %zu case(s) pass\n", nn);

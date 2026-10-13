@@ -33,10 +33,216 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 
 ## Issues
 
+- The hosted ubuntu job no longer fits its 60-minute limit
+	- ID: 2026101011200000
+	- Type: Bug
+	- Status: Waiting for testing
+	- Needs local test suite run?: N. The engine side is pinned by check-push-gate's stubbed engine.
+	- Needs external testing: a hosted run on the branch (`gh workflow run ci --ref cisplit`). Watch the times of the two ubuntu jobs, `ci (lint)` and `ci (tests)`. Each should end well inside 60 minutes: lint about 30 with a cold cppcheck and under 10 with a warm one, tests about 30. Also that both are green with no strict skip, that the tests job prints the profiler calibration line `EqeDCi1`, and that the lint job's last step saves a `cppcheck-` cache.
+	- Severity: High
+	- Opened: 20261010-111707
+	- Opened by: me, from the hosted run after the 2026100717500020 merges
+	- Related IDs: 2026100719122102, 2026100912271700
+	- Version and build: dev at `c5734e0e`
+	- Steps to reproduce: `gh workflow run ci --ref dev`, then watch the `ci` job.
+	- Incorrect behavior: run 38070871137's ubuntu job was cancelled at 60 minutes, 10 minutes into sanitize-c, with every gate before it green. Lint took 29 minutes (17:16 to 17:45, cppcheck exhaustive with a cache restored from an older key), and the tests stage 28 minutes before the cut. The 2026-10-07 dev run took 33 minutes end to end, and the `upgbak` run that day 52.
+	- Expected behavior: the job finishes with margin, so a main push's CI can go green.
+	- Reproduced: 20261010, once. The windows job took 15 minutes and macos 3.
+	- Possible cause: the tests stage has grown (check-doc-examples, the new runner tests, check-migrate at 3 minutes, check-c-compilers at 5, sanitize-c at 10 or more), and cppcheck exhaustive runs on 2 threads over a cache that misses every changed C file.
+	- Decided against: raising `timeout-minutes` alone. The job has to fit a push with headroom (me).
+	- Actual cause:
+		- Measured from the step logs of run 38070871137 and 5 green runs from 2026-10-05 to 10-07, which took 31 to 50 minutes. Setup and tool installs take 2 minutes, format and build under 1, lint without cppcheck 3, cppcheck exhaustive 16 to 26 after a C change and seconds without one, the tests stage 14 to 20, crosscheck and the large document 5 to 8, and the profiler calibration under 1. In the tests stage, check-c-compilers takes 4 to 5 minutes, check-migrate 2 to 6, cli-regress 1 to 2 and sanitize-c 1.4 to 2.2.
+		- Run 38070871137 passed sanitize-c (2.2 minutes) and crosscheck, and was cut 40 seconds into the large document. It needed about 2 more minutes.
+		- cppcheck took 26 of lint's 29 minutes. The cache it restored was the newest that run could see, from the 10-07 dev run. It missed because both files cppcheck checks include `shcl.h`, which had changed, so every C round starts cold. Branch runs can't see dev's caches at all, and the plain cache action saves nothing from a red or cancelled run.
+		- More threads would not help cppcheck. It splits work by file, and with 2 files `-j 2` is already all it can use.
+		- Run here cold, one thread each and side by side, `main.c` took 19 minutes and `conformance.c` 28. The longer file sets the lint job's floor.
+	- Actual fix:
+		- The ubuntu job is 2 parallel jobs from one matrix: `cicd.bash --ci --no-tests` (lint and the cross checks) and `cicd.bash --ci --no-lint --no-cross` (tests, crosscheck, large document, calibration). Both install every tool. Worst case from the numbers above is about 33 minutes each, against 60.
+		- `cicd.bash --no-tests` is new. It skips the tests stage and the `--ci` calibration, and keeps a run from recording its tree, like `--no-lint`.
+		- The cppcheck cache is restored and saved as 2 steps, and the save runs even when the job fails or times out.
+		- check-pins fails when the jobs running `cicd.bash` stop covering every stage between them. It allows only `--ci` plus the 4 flags that each drop one stage, so `--no-largedoc` or `--quick` can't drop the large document unseen.
+	- Verified: the new check fails on 6 broken copies of ci.yml (both jobs `--no-lint`, a `--no-largedoc` job, a job without `--ci`, no matrix value, one literal `--no-tests` run, no `cicd.bash` at all) and passes on the real one and on dev's single job. check-push-gate's new row fails when `--no-tests` doesn't hold back the record, and when it skips nothing. shell-regress `EsZzNEZ` fails 4 ways against dev's check-pins and passes with the fix. Also actionlint (which catches a wrong matrix or step name in a control copy), shellcheck over every gate target, check-pins, check-push-gate, shell-regress, check-docs judged as main, test-ids check, markdownlint.
+	- Test case: check-pins `EsZzNCY`, shell-regress `EsZzNEZ`, and the `--no-tests` row in check-push-gate `EqGl8mf`. No test bounds the hosted time itself; the hosted run is the check.
+	- Branch: `cisplit`
+	- Commit: `cbfced5c`
+
+- A `--json` mode for the list commands
+	- ID: 2026100814455655
+	- Type: Feature
+	- Status: Waiting for testing
+	- Needs external testing: the hosted windows job (`gh workflow run ci --ref winscan`): cli-regress `EsEvmLE` green for every binding. Also the README PowerShell blocks, and the full `--ci` (exhaustive cppcheck over the C changes) and a hosted run with the next main push.
+	- Priority: Avg
+	- Opened: 20261008-144556
+	- Opened by: JC, from talk on 2026100717500016
+	- Related IDs: 2026100717500016, 2026100717500006
+	- Problem description: the list commands print one bare value per line. A value with a space or a line break, or 2 instances with one value, can't be told apart in a shell loop, and the line a value came from isn't shown.
+	- Requirements:
+		- `--json` on `paths`, `children`, `instances` and `get --array`.
+		- One JSON object per line, such as `{"path":"shard(0)","value":"1","line":1}`. The path is the index form, the same as `instances --paths`.
+		- Byte-identical output in all four CLIs, each with its own small JSON string writer. No new dependency.
+		- Works from bash with `jq` and from PowerShell with `ConvertFrom-Json`.
+		- Help, man page, README and spec say so.
+	- Reason: scripts get the path, value and line together without parsing plain text. NUL-separated output was weighed and dropped, since PowerShell can't split it easily and one record can't hold all 3 fields.
+	- Progress log:
+		- 20261009: built in all four CLIs, with each its own JSON string writer. Calls made while building it:
+			- Every object has `path`, `value` and `line`, keys always in that order. `children` adds `name`, the name with no quotes, since names are what it lists. `get --slots` adds `status`.
+			- `value` is always a string. An array comes in brackets as `fmt` writes it, a raw block as its content, and a field with no value as `""`. On `get` it is the value read, or the `--default` in its place.
+			- `path` is the `instance_paths()` form. It is `""`, with line 0, for a wildcard slot or a `get` that reached no field. Every element of one array has the field's path and line.
+			- `paths --json` lists every field, repeats included, where plain `paths` lists each path once.
+			- `--json` works on a plain `get` too, one object, though the item names `get --array`. Refusing it would have needed a rule of its own.
+			- `--paths` with `--json` is a usage error, like `--check` with `--write`, since both say what a line holds.
+			- Only what JSON requires is escaped, the way `jq -c` writes it, so `jq -c .` gives each line back byte for byte.
+			- New library calls in all four and the C++ interface: `fields()`, `read_fields()` and `read_child_fields()` (Go `Fields`, C `shcl_fields`). Built from the old calls, `--json` looked up each path again, and a lookup scans every sibling, so a wide file went quadratic. One walk keeps it linear: 20,000 instances list in about 0.1 to 0.3 s in Rust, Go and C.
+		- PowerShell 7 turns a value that looks like a date into a `DateTime`, unless 7.5 or later is given `-DateKind String`. README and the man page say so. Windows PowerShell 5.1 should not do this, but was not run.
+		- 20261010: hosted windows job: `EsEvmLE` red for every binding. `jq -c .` wrote every line back "differently" with the same text, which points at line endings: jq on windows ends its lines with CR LF and the scan compares bytes. Back to Queued; the scan should strip the CR before comparing. Ubuntu and macos passed it.
+		- 20261010: the Windows PowerShell 5.1 half ran on vm925w (5.1.26100): the README block as written gives both sites with their paths and lines, `line` is a number, a value shaped like a date stays a string, a non-ASCII value reads right after `[Console]::OutputEncoding` is set, `get`, `children` and `paths --json` read back, and a missing field exits 3. Done, so no further box visit is needed.
+		- 20261013: `EsEvmLE` takes the CRs off jq's output before comparing, in both of its jq calls. jq escapes a CR inside a string, so a bare one is a line end. The CLI's own lines keep theirs, so a CLI that writes CR LF still fails. This works whatever jq's build or version, where `--binary` would depend on both.
+	- Swept: the four CLIs' option tables, help and dispatch, both completion files, check-completions and shell-regress's anchors on the old shared option row, the crosscheck and sanitize-c row arms, README, the man page, spec.md and the changelog.
+	- Verified: the four conformance suites and the veneer smoke, cli-regress over all four CLIs (strict, pwsh 7.6 and jq 1.8.1), crosscheck over the corpus and a 500-input fuzz dump (48747 comparisons, 0 divergences), sanitize-c, check-readme, check-docs (only the known `installers-match-main` red), check-abnf, check-completions, check-veneer, shell-regress, test-ids check, markdownlint, shellcheck, clippy for both targets, go vet and staticcheck, ruff and mypy, cppcheck at the normal level, gcc 15, clang and mingw builds of the C CLI. `EsEvmL4` and `EsEvmLE` failed with Go's DEL escape removed, and the library tests failed with a slot miss dropped.
+		- 20261013: with a jq that writes CR LF first on PATH, `EsEvmLE` failed for all four bindings with "jq -c . writes a line back differently", as on the hosted windows job. With the fix it passes there and with the plain jq. It still fails for a CLI whose output ends its lines with CR LF. cli-regress (545 rows, four bindings), crosscheck, check-doc-examples, check-docs judged as main, shell-regress, shellcheck over the lint list, test-ids check and markdownlint pass.
+	- Branch: `listjson`, then `winscan` for the CR LF fix
+	- Commit: `250115f3`, then `2f860c48`
+	- Test case: `fields_give_each_instance_its_own_path` (Rust `EsEsFl8`, Go `EsEsFnM`, Python `EsEsFpX`, C `EsEsFrh`) and the veneer smoke; cli-regress `EsEvmKw`, `EsEvmKy`, `EsEvmL0` to `EsEvmLC`, and `EsEvmLE` (every corpus input's `--json` lines through `jq -c .` and `ConvertFrom-Json`); crosscheck and sanitize-c `--json` on every listing row and `paths --json` on every input; check-readme's bash and PowerShell blocks.
+
+- Doc examples, man page blocks and help text aren't run as tests
+	- ID: 2026100719122102
+	- Type: Enhancement
+	- Status: Waiting for testing
+	- Needs local test suite run?: Y, the full `--ci`, whose tests stage runs the new gate.
+	- Needs external testing: a hosted run (`gh workflow run ci --ref winscan`). The windows job: cli-regress `EsJLUK1`, `EsaAH2V` and `EsaAW1o` green for every binding, and the Go `EsaBeHl` and Python `EsaBeHk` runner tests. The ubuntu job runs check-doc-examples with jq, and the macos job cli-regress's two scans.
+	- Priority: Avg
+	- Opened: 20261007-191221
+	- Opened by: JC
+	- Problem description: several of code review 20261007's findings sat where no gate looks: README shell blocks, the ops script, CLI output text, README prose. A corpus case's expected output is written by hand, so it catches a defect all four bindings share. What has no case is unchecked.
+	- Requirements:
+		- Run every example in value-syntax.md's and spec.md's tables through all four bindings, against the result the doc states.
+		- Run the man page's shell blocks, as 2026100717500005 does for README's.
+		- Fail on a 2.x escape form (`\n`, `\t`, `\\`) in help text or CLI output.
+	- Reason: the doc tables are the cheapest source of hand-written expected results.
+	- Progress log:
+		- 20261010: `check-doc-examples.bash` runs the tables in value-syntax.md and spec.md through all four CLIs with `doc-tables.py`, and the man page's EXAMPLES blocks on each binding. Every binding has to print the same bytes, and the result has to be what the row says. 58 rows of value-syntax.md and 33 of spec.md are checked, and the rest are prose and counted. Every row holds on all four bindings, so no doc or binding defect turned up.
+		- 20261010: cli-regress fails on a 2.x escape form in the help, each `help CMD`, each `explain` code with the retired ones, `--about`, `--donate`, the rendered man page, and the stdout and stderr of every row on every binding.
+		- 20261010: hosted windows job: `EsJLUK1` red. The scan read the Python CLI's OS error on the `write-names-the-phase` row (`Eon514S`) as a 2.x escape: Python quotes the temp path in the message as `'C:\\Users\\...'`, with doubled backslashes. A Windows path in an OS message is not a value escape. Back to Queued; either the scan skips the OS text after the colon or the Python CLI prints the OS error without the path repr, as the other three do. Ubuntu and macos passed it.
+		- 20261013: the cause is in the Python library, so the scan stays as it is. A failed save gave `str()` of the OS error, which adds `[Errno N]` and the temp file's name as a repr. Rust and C give `FILE: ` and the system's own message, as the UI guide says, and Go named the call and the temp file. Python and Go now give the file and the system's message for the temp file create, a failed write, sync, close or publish, and the windows note on where the files were left.
+	- Decisions:
+		- 20261010: a table is known by its header. Each known kind has a reader, a header with none fails the gate, and a table with no examples is listed by header with its reason (me).
+		- 20261010: in a code table, a quoted whole line is an example of the row's code. That is an item, or a name then a colon and a value. A retired code's line gives the code its row names instead. `- value`, `route: [GET, POST]` and `p: a,b` are not examples and are listed by content (me).
+		- 20261010: a migration row's fragment goes where it means what the row says: an item under a field, a selector at the head of a path, anything else as a value (me).
+		- 20261010: the man page names server.shcl and a schema without showing them, so the README's are used (me).
+		- 20261010: the 2.x rule is a backslash then `n` or `t` with no letter or digit after it, or two backslashes, so `C:\temp\new` passes. JSON lines pass, and so does migrate's output of a kept 2.x pair, listed by content (me).
+	- Swept: the 2.x scan reads everything the CLIs print in cli-regress's 541 rows, ops scripts and diagnostics included, plus every help and code text. The README and man page shell blocks run under check-readme and this gate. README prose is not CLI output and is not scanned.
+		- 20261013, the OS error text: in Python, every place an `OSError` goes into a message. The save's temp create, `_failed` (write, sync, close, publish) and the windows publish note are fixed. The backup's create and write, `read_input`, the schema read and the stdout write already used `strerror`. In Go, the same three save sites and the windows publish note; `WriteBackup` and the read already unwrapped the path error. Rust's `io::Error` and C's `strerror` carry no path.
+	- Verified: each new test was seen to fail. `EsJLUJx` and `EsJLUJy` on doc copies with a changed value, code, element count, alias, character, migrate result, typed read, strictness pair, boolean token and `◉U+` prefix, on a reads-as wording with no rule, on a renamed table header, and on a floor above the row count. A binding that differs from the rest in one read, or in an exit code, fails them too. `EsJLUJz` on `site[*]` in a block, a roff escape in a block, a `.nf` block under another section, and only 4 blocks. `EsJLUK0` and `EsJLUK1` on a binding that writes `\n` in place of `◉NEWLINE◉` and in its help. `EsJLUK1` with an allowed migrate line taken off the list and with no rows scanned, `EsJLUK0` with a `\en` added to the man page. On the branch, check-doc-examples and cli-regress (541 rows, 3187 checks, four bindings), check-readme, check-docs (only the known `EpHGoa0` red), shell-regress, check-pins, test-ids check, shellcheck over the lint list, ruff and markdownlint pass.
+		- 20261013: with the temp folder under a name holding a backslash, `EsJLUK1` flagged dev's Python CLI on `Eon514S` and nothing else, the same failure as hosted, and passed with the fixed one. cli-regress `EsaAH2V` and `EsaAW1o` failed on dev's Python and Go CLIs and pass on all four. Python `EsaBeHk` failed on dev's library at the temp create, and at the publish with only the temp create fixed. Go `EsaBeHl` failed on dev's library at both. cli-regress (545 rows, four bindings), the Python and Go suites, crosscheck, check-doc-examples, check-docs judged as main, shell-regress, shellcheck over the lint list, ruff and mypy, go vet and staticcheck for linux and windows, test-ids check and markdownlint pass.
+	- Branch: `doctest`, then `winscan` for the OS error text
+	- Commit: `9131f267`, then `2f860c48`
+	- Test case: check-doc-examples `EsJLUJx` (value-syntax.md tables), `EsJLUJy` (spec.md tables) and `EsJLUJz` (man page examples). cli-regress `EsJLUK0` (help, code texts and man page) and `EsJLUK1` (every row's output). For the OS error text, cli-regress `EsaAH2V` and `EsaAW1o` (a failed temp file gives the file and the system's message, in all four CLIs), Python `EsaBeHk` and Go `EsaBeHl` (the same with a windows path in the OS error). Rust and C get no runner test, since their OS error text never holds a path.
+
+- Library gaps a generic tool has to work around
+	- ID: 2026100717500020
+	- Type: Enhancement
+	- Status: Queued
+	- Needs local test suite run?:
+		- (schema resolve) Y, the full `--ci` for exhaustive cppcheck over the C change, and the hosted windows job for Python's Windows branch, which nothing here runs.
+		- (kind) the full `--ci`, for exhaustive cppcheck, check-c-compilers and sanitize-c over the C change.
+		- (default) the full `--ci`, exhaustive cppcheck included, and the 2,000,000 release fuzz once 2026101010054746 is settled. The hosted run, and the C++ interface's windows build under wine.
+	- Needs external testing:
+		- (kind) the hosted run, whose windows job runs the new test in all four runners.
+	- Priority: Low
+	- Opened: 20261007-175000
+	- Opened by: Code review 20261007 item 20
+	- Related IDs: 2026100907362300, which goes first
+	- Problem description:
+		- No library call resolves a file's `Schema` line by the CLI's rules: relative to the config's directory, and refusing devices, FIFOs, UNC paths and files over 16 MiB. Each program writes its own.
+		- No way to ask a node's kind (scalar, array, raw block, empty) but trial reads.
+		- `set_*_default` returns true when something is already there, even `bad: abc` or a bare `empty:`, so "make sure this has a usable value" can't be said in one call.
+	- Progress log:
+		- 20261010 (kind): `kind` and `read_kind` in all four and the C++ interface (Go `Kind` and `ReadKind`, C `shcl_kind` and `shcl_read_kind`). They give `Empty`, `Scalar`, `Array` or `Raw` from the stored form, with `Good`, `NotFound`, `Multiple` or `BadPath`.
+		- 20261010 (schema resolve): `read_named_schema(text, file)` in all four (Go `ReadNamedSchema`, C `shcl_read_named_schema` and `shcl_named_schema_free`) and C++ `read_named_schema`. It reads the Schema line, resolves it from the config's directory, and gives back the schema's text or a `SchemaStatus`: `NotFound`, `Empty`, `Url`, `NetworkPath`, `FileNotFound`, `IsDirectory`, `NotRegular`, `TooLarge` or `Unreadable`, with the path, the line and a message naming the path.
+		- 20261010 (schema resolve): `check` in all four CLIs goes through it, and their own copies of the rules are gone. Python's `check` now refuses a windows device name on the Schema line, as the other three did.
+		- 20261010 (schema resolve, kind): both merged to dev (`b1642d1b`, `115326a4`, seams `c5734e0e`) and covered by the full `--ci` here, judged as main, and the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `EsEvmLE` and `EsJLUK1`, which belong to 2026100814455655 and 2026100719122102. The new runner tests pass on windows.
+		- 20261010 (default): the third requirement is built on `defaultfix`, in Rust, Go, Python, C and the C++ interface. A default form writes where the path is missing, where the field is empty, and where its value does not read as the type by the typed read at the document's strictness. A replaced value stays above the field as `# port: abc  ## replaced by shcl when setting a default for port, STAMP: not an int`. A raw block is refused for a default of another type, with the new last `SetStatus` value `RawBlock` (Go `SetRawBlock`, C `SHCL_SET_RAW_BLOCK`). design.md has a Default forms table as the rule.
+		- 20261010 (default): on this branch the fuzz property `Eqk24nZ` fails at 20,000 iterations and up. A bare `80,443` reads as text, `fmt` quotes it, and the quoted one reads as the int 80443, so a default acts differently on a document and on its reload. Filed as 2026101010054746. With the quoted thousands reading switched off, the 2,000,000 release fuzz passes all 27, so that is the only failure. Merging this branch before 2026101010054746 is settled turns the `--quick` and `--ci` fuzz red.
+		- 20261010 (default): built on `defaultfix` and not merged. It waits on 2026101010054746, whose fix changes which values the default forms replace, and on the `--set-default` question above.
+	- Decisions:
+		- 20261008: before the cut, not after (JC).
+		- 20261009: all three get a fix, not docs (JC).
+		- 20261009: the third is `set_*_default` itself. It writes the default when the field is missing, empty or doesn't read as that type, and keeps a replaced line as a `##` comment with a note (JC).
+		- 20261010 (schema resolve): one call that returns a status, named after `read_schema_ref`, with no plain twin. Status names follow `FileStatus` and `WriteStatus` where they mean the same thing (me).
+		- 20261010 (schema resolve): a URL comes back as a status with the URL in `path`, so a program that fetches can do it itself. `check`'s note about `--schema` stays in the CLI (me).
+		- 20261010 (kind): the type is `ValueKind` in every binding, with `Empty`, `Scalar`, `Array` and `Raw` in that order, so its zero value is `Empty`. Go's values have a `Kind` prefix, since `Empty` is a read status. C's are `SHCL_KIND_EMPTY` to `SHCL_KIND_RAW`, and its result is a new `shcl_read_value_kind`, since no existing read struct holds the enum and `shcl_read_kind` is the call's name (me).
+		- 20261010 (kind): `read_kind` uses the typed reads' lookup, as `read_line` does, so a repeated field or a wildcard says `Multiple` (me).
+		- 20261010 (kind): an empty value is `Good` with `Empty` as the answer, the way `read_children` gives a node with no children `Good` and an empty list. A plain `kind` on a miss gives `Empty`, as `line` gives 0 (me).
+		- 20261010 (kind): the answer is the stored form. `x:` is `Empty`, `x: []` and `x: [80]` are `Array`, `x: ""` is `Scalar`, and a section header is `Empty` (me).
+		- 20261010 (default): `--set-default` and `--set-literal-default` stay string defaults that fill only a missing or empty field; the typed ops do the replacing (JC). The merge of `defaultfix` waits on 2026101010054746.
+		- 20261010 (default): a raw block at the path is refused for a default of another type (`RawBlock`), since its body has no one-line comment (me).
+		- 20261010 (default): an inline array or a stacked list that does not read is replaced. Its value goes in the comment as one bracket array, so nothing typed is lost (me).
+		- 20261010 (default): an empty value, and a field with lines under it and no value, read `Empty`, so they are filled with no note. An array default on such a field is `HasChildren`, as from the plain setter (me).
+		- 20261010 (default): `set_string_default` and `set_literal_default` count any value, since any value reads as a string and literal text names no type. So `--set-default` and `--set-literal-default` fill only a missing or empty field, and the typed ops do the replacing (me).
+		- 20261010 (default): the note has the form of the 20261004 setter note, `# LINE  ## ...`, with the stamp `SHCL_TEST_CLOCK` pins. The old line is spelled the way the canonical text spells it, folded name included, so a document and its reload write the same note (me).
+		- 20261010 (default): a path is judged first, then the value against the probe document, then what is there, so a NaN over a bad value is `NotFinite` (me).
+		- Question (default), answered by the JC decision above: should `--set-default`'s value take its type from its text, the way `--set` stores `8` as an int, so `--set-default=port=8080` replaces `port: abc`? As built it fills only a missing or empty field.
+		- 20261010 (kind): library only. Neither the item nor the design docs ask for a CLI word (me).
+	- Requirements:
+		- A library call reads a config's `Schema` line and resolves it by the CLI's rules. The CLI uses the same call, so the two can't drift.
+		- A `kind(path)` read gives scalar, array, raw block or empty, with a status for a missing or bad path.
+		- One call makes sure a field has a usable value of a type.
+	- Origin: Confirmed by reading and probes.
+	- Swept (schema resolve): every `schema_ref` and `read_schema_ref` caller. Only `check` resolved the line, in each CLI. Each CLI's resolve and read helpers (the name split, the open that does not wait on a FIFO, the 16 MiB cap) moved into the library, and Go's `main_unix.go`, which held only that open, is gone. spec.md, README, the style guide's naming list and the changelog say so.
+	- Verified (schema resolve): each new runner test fails with its binding's fix broken and passes with it, and cli-regress's FIFO-swap row fails for Go without the library's open that does not wait. The Rust, Go and C tests and the C++ smoke pass their Windows branches under wine. Also cargo test, clippy for linux and windows, rustfmt, the four conformance suites, `go test -count=1` per module, gofmt, vet and staticcheck for linux and windows, ruff, mypy, cppcheck at the normal level, the C runner under ASan and UBSan and at all five `-O` levels, gcc-15, clang, mingw, cli-regress (541 rows, 4 bindings), crosscheck, check-veneer, check-abnf, test-ids, markdownlint, and check-docs with only the known `EpHGoa0` red.
+	- Test case (schema resolve): `read_named_schema_follows_check_rules` in all four runners (Rust `EsJZ105`, Go `EsJZ106`, Python `EsJZ107`, C `EsJZ108`) and the C++ smoke `EjtkR0S`. The CLI side is cli-regress's schema-line rows, `Er2thhx` to `ErfuRh7`, and `Erlf8t9`.
+	- Branch (schema resolve): `schemares`
+	- Commit (schema resolve): `f7f81be1`
+	- Swept (kind): `kind` and `read_kind` in Rust, Go, Python, C and `shcl.hpp`, with C's `shcl_value_kind_name` behind C++ `to_string(ValueKind)`. spec.md (Status sentinels and the path calls), the style guide's naming exceptions, the changelog and the Python typing probe name them. No CLI, corpus or migration change.
+	- Verified (kind): the new test fails in all four, and veneer_smoke too, with arrays mapped to `Scalar`, and passes after. Also: `cargo test`, the four conformance suites, `go test` (both modules), veneer_smoke, check-veneer, cli-regress (541 rows, 3187 checks, all four), crosscheck over the corpus (21339 comparisons), check-docs (only the known `EpHGoa0` installer red), check-abnf, test-ids check, rustfmt, clippy for the host and windows, gofmt, go vet, staticcheck, ruff, mypy with the typing probe, cppcheck at the normal level, markdownlint.
+	- Branch (kind): `nodekind`
+	- Commit (kind): `2c2937f1`
+	- Test case (kind): `kind_reads_say_what_is_there` in all four runners (Rust `EsJYNe1`, Go `EsJYNe2`, Python `EsJYNe3`, C `EsJYNe4`), and the kind checks in the C++ `veneer_smoke` (`EjtkR0S`).
+	- Swept (default): every default form in Rust, Go, Python, C and `shcl.hpp`, and `SetComment`, whose placement code became one helper the replace shares. The four CLIs' `refusal()` and help text (the ops table line and `--set-default`); their ops decoders already call the library forms. The status order tests in the four runners and veneer_smoke, and C's setter soup bound. spec.md, design.md (the status table, the note under Kept lines under edits, a new Default forms section), the man page, README, the corpus README, the code style guide, a perf-gate comment and the changelog. Corpus cases 014, 015, 063, 065, 092 and 121 use default ops and pass unchanged. The comparison tool and the dogfood runners call no default form.
+	- Verified (default): each new test fails with the old behavior put back, in all four, and the Rust table fails with the raw block replaced or the note left off. cargo test, rustfmt, clippy for the host and windows, `go test -count=1` for both modules, gofmt, go vet, staticcheck, the Python runner, ruff, mypy, the C runner, oom_hook, oom_recover, mem_bounds, veneer_smoke, check-veneer, check-c-compilers (5 compilers), sanitize-c, cppcheck at the normal level, the mingw CLI build, cli-regress (545 rows, 3203 checks, all four), crosscheck over the corpus and a 2,000-iteration fuzz dump (48930 comparisons), perf-gate in all four, check-docs (only the known `EpHGoa0` red), check-abnf, test-ids check, shell-regress, shellcheck and markdownlint. A one-off run of 8 typed default ops over the corpus inputs and 150 fuzz inputs through the four CLIs gave the same bytes and exit codes in 1137 runs, 369 of them replacing. The 200,000 release fuzz passes all but `Eqk24nZ` (2026101010054746).
+	- Test case (default): `default_fills_what_does_not_read` (Rust `EsJZko3`, Go `EsJZko4`, Python `EsJZko5`, C `EsJZko6`), `default_replace_round_trips` (Rust `EsJZko7`, Go `EsJZko8`, Python `EsJZko9`, C `EsJZkoA`), fuzz `a_default_leaves_a_value_of_its_type` (`EsJZkoB`), cli-regress `EsJZkoC`, `EsJZkoD`, `EsJZkoE` and `EsJZkoF`, and `RawBlock` added to the status order tests (`EsDRhHg`, `EsDeJ9a`, `EsDeik0`, `EsDjstE`) and veneer_smoke (`EjtkR0S`).
+	- Branch (default): `defaultfix`
+	- Commit (default): `5bb89ac4`
+
+- Run on the last Core 2 Duo, and AMD CPUs from that era.
+	- ID: 2026101301161858
+	- Type: Enhancement
+	- Status: Queued
+	- Needs external testing: Yes, on an old CPU or an emulated one.
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261013-011618
+	- Opened by: JC
+	- Target OS: Linux, Windows and FreeBSD on x86_64, where this project builds them. Macs that old can't run a current macOS anyway.
+	- Requirements [Feature]:
+		- Release builds run on the last Core 2 Duo (Penryn, 2008), and on AMD Phenom II and Athlon II, if that's reasonably doable.
+			- Penryn has SSSE3 and SSE4.1 but no POPCNT. The AMD ones have POPCNT but no SSSE3. So the shared floor is plain x86-64, also called x86-64-v1.
+		- If that isn't doable, the floor is the first Core i3/i5/i7 (Nehalem, 2008), which is x86-64-v2. AMD's first chip at that level is Bulldozer, 2011.
+		- Faster code for newer CPUs is still fine, but it's picked at run time by a CPU feature test, never by the build target.
+		- Tests run the release build on an emulated Penryn and Phenom II, through Intel SDE or QEMU's `-cpu Penryn` and `-cpu phenom`.
+	- Progress log:
+		- 20261013: Go builds for plain x86-64 by default (`GOAMD64=v1`), and nothing here sets it, so this may already hold. Pin `GOAMD64=v1` in the release build so a stray environment can't raise it. The standard library already picks faster code at run time.
+			- The C and Rust bindings build with the user's own compiler. Make sure their build files add no `-march` or `target-cpu`.
+
+**Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
+
+- Build and test in a pinned container.
+	- ID: 2026101303344553
+	- Type: Enhancement
+	- Status: Queued
+	- Priority [Feature|Enhancement] | Severity [Bug]: Low
+	- Opened: 20261013-033445
+	- Opened by: JC
+	- Target OS: Linux
+	- Requirements [Feature]:
+		- `cicd.bash --container` runs the build and test stages in an image built from a pinned recipe in `cicd/container/`. Toolchains come from pinned downloads with checksums.
+		- Toolchains on the build box clash between projects, such as 2 Zig versions on one link. A container keeps this project's pins apart.
+		- Other test boxes stay native, since their OS is what's being tested.
+		- zuid's `--container` stage is the model. gitsby and convert-base-v2 have one too.
+
 - `fmt` turns a bare `80,443` into a number
 	- ID: 2026101010054746
 	- Type: Bug
-	- Status: Waiting for answers
+	- Status: Done
 	- Severity: High
 	- Opened: 20261010-100547
 	- Opened by: found while working 2026100717500020
@@ -47,15 +253,29 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Expected behavior: a value reads the same before and after `fmt` and a save.
 	- Reproduced: 20261010, dev's Rust build, and all four CLIs on `defaultfix`. 2026100717500020's default forms act on that read, so on `defaultfix` the fuzz property `Eqk24nZ` fails at iteration 12093: a default replaces the bare value on the document and leaves the quoted one on its reload.
 	- Possible cause [Bug]: two recorded rules meet. A quoted `1,000` reads as 1000 (spec.md, 20261006), and the writer quotes a value holding `,` (2026100719122101). Item 13 of an earlier review fixed the same class for a value a setter wrote, which counts as quoted when the canonical text quotes it.
-	- Question: which way? Options:
+	- Decisions:
+		- 20261010: a quoted thousands number stops reading as a number, so `"1,000"` is text like `1,000`. `fmt` keeps quoting a value with a comma, and a typed read gives the same answer before and after a save (JC).
+	- Question: which way? Options, the first chosen:
 		- The writer keeps a bare value bare when quoting it would change how it reads, here one shaped like a thousands number. Canonical text then holds a bare comma in that one case.
 		- A quoted thousands number stops reading as a number, so `"1,000"` is text the same as `1,000`. Simplest, and it drops a feature.
 		- A bare thousands number reads as one too. This reverses spec.md's `ports: 80,443` example.
+	- Actual cause [Bug]: the int read took a well-formed thousands spelling when the element was quoted, and the float read took it past the i64 range too (Code review 20260904 item 20). A bare `80,443` was text, its quoted form a number.
+	- Actual fix [Bug]: the thousands branch is gone from the int read and the wide float read in all four, so `"1,000"` is text at every level, `BadType` as an int or a float. The `quoted` flag and the setter's quoting stay, since the writer and the public flag read them. spec.md, the README's Loose example, the corpus notes and the changelog say so.
+	- Against: spec.md's quoted-thousands rule (20261006) and the float path from Code review 20260904 item 20, both reversed by the decision above.
+	- Swept: every thousands parse, `grep -rn thousand` and a `[0-9],[0-9]{3}` grep over the four bindings, the C++ interface, the tests, cli-regress, the corpus and the docs. The int read and the wide float read were the only sites, in each binding. shcl.hpp, value-syntax.md and grammar.abnf have none. Corpus `100` and `202` and the 3 cli-regress rows of 20260909 item 13 expected 1000.
+	- Note: the 3 cli-regress rows `EpykNRw`, `EpykNRx` and `EpykNRy` expected 1000 from a setter's and a selector's `1,000`. They are commented out with the reason, and new rows expect exit 4.
+	- Verified: each new runner test and the new cli-regress rows fail on dev's library and pass on the fix, and so does the fuzz property, which fails at iteration 1470 on dev's library. Also: cargo test, clippy for linux and windows, rustfmt, the four conformance suites, `go test -count=1` per module, gofmt, vet and staticcheck for linux and windows, ruff, mypy, cppcheck, the C++ smoke, check-veneer, cli-regress (543 rows, 4 bindings), crosscheck (48990 comparisons), shell-regress, check-docs with `SHCL_GATE_REF=main`, check-abnf, check-doc-examples, test-ids, markdownlint, shellcheck, and the 2,000,000 release fuzz, all 27 properties.
+	- Verified: 20261013, with this fix merged over `defaultfix`, the 2,000,000 release fuzz passes all 28 properties, `Eqk24nZ` included. Plain `defaultfix` still fails `Eqk24nZ` at iteration 12093.
+	- Test case: `a_thousands_comma_reads_the_same_after_a_save`, Rust `EsZikJi`, Go `EsZikJj`, Python `EsZikJk`, C `EsZikJl`; fuzz `EsZikJr` (`typed_reads_survive_a_save`), typed reads before and after a save over loaded and set values at each level; cli-regress `EsZikJm` to `EsZikJq`; corpus `100` and `202` reads.
+	- Branch: `thousands`
+	- Commit: `50be3ed9`
+	- Acceptance signoff: Self-closed: does what the recorded decision asked, and each new test fails before the fix and passes after.
+	- Closed: 20261013-041158
 
 - check-migrate fails on 2 fuzz documents
 	- ID: 2026100919123100
 	- Type: Bug
-	- Status: Waiting for testing
+	- Status: Done
 	- Severity: High
 	- Opened: 20261009-191231
 	- Opened by: found while working 2026100717500017
@@ -83,45 +303,13 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Needs local test suite run?: Y, the full `--ci`, which runs check-migrate in the pre-push gate and exhaustive cppcheck over the C change.
 	- Needs external testing: a hosted run with the next main push.
 	- Note: High, since check-migrate is in the pre-push gate, so the next main push fails until this is fixed.
-
-- A `--json` mode for the list commands
-	- ID: 2026100814455655
-	- Type: Feature
-	- Status: Waiting for testing
-	- Needs external testing: Windows PowerShell 5.1 reading the lines with `ConvertFrom-Json` (only pwsh 7.6 ran here); the hosted windows job's cli-regress `EsEvmLE` and README PowerShell blocks; the full `--ci` (exhaustive cppcheck over the C changes) and a hosted run with the next main push.
-	- Priority: Avg
-	- Opened: 20261008-144556
-	- Opened by: JC, from talk on 2026100717500016
-	- Related IDs: 2026100717500016, 2026100717500006
-	- Problem description: the list commands print one bare value per line. A value with a space or a line break, or 2 instances with one value, can't be told apart in a shell loop, and the line a value came from isn't shown.
-	- Requirements:
-		- `--json` on `paths`, `children`, `instances` and `get --array`.
-		- One JSON object per line, such as `{"path":"shard(0)","value":"1","line":1}`. The path is the index form, the same as `instances --paths`.
-		- Byte-identical output in all four CLIs, each with its own small JSON string writer. No new dependency.
-		- Works from bash with `jq` and from PowerShell with `ConvertFrom-Json`.
-		- Help, man page, README and spec say so.
-	- Reason: scripts get the path, value and line together without parsing plain text. NUL-separated output was weighed and dropped, since PowerShell can't split it easily and one record can't hold all 3 fields.
-	- Progress log:
-		- 20261009: built in all four CLIs, with each its own JSON string writer. Calls made while building it:
-			- Every object has `path`, `value` and `line`, keys always in that order. `children` adds `name`, the name with no quotes, since names are what it lists. `get --slots` adds `status`.
-			- `value` is always a string. An array comes in brackets as `fmt` writes it, a raw block as its content, and a field with no value as `""`. On `get` it is the value read, or the `--default` in its place.
-			- `path` is the `instance_paths()` form. It is `""`, with line 0, for a wildcard slot or a `get` that reached no field. Every element of one array has the field's path and line.
-			- `paths --json` lists every field, repeats included, where plain `paths` lists each path once.
-			- `--json` works on a plain `get` too, one object, though the item names `get --array`. Refusing it would have needed a rule of its own.
-			- `--paths` with `--json` is a usage error, like `--check` with `--write`, since both say what a line holds.
-			- Only what JSON requires is escaped, the way `jq -c` writes it, so `jq -c .` gives each line back byte for byte.
-			- New library calls in all four and the C++ interface: `fields()`, `read_fields()` and `read_child_fields()` (Go `Fields`, C `shcl_fields`). Built from the old calls, `--json` looked up each path again, and a lookup scans every sibling, so a wide file went quadratic. One walk keeps it linear: 20,000 instances list in about 0.1 to 0.3 s in Rust, Go and C.
-		- PowerShell 7 turns a value that looks like a date into a `DateTime`, unless 7.5 or later is given `-DateKind String`. README and the man page say so. Windows PowerShell 5.1 should not do this, but was not run.
-	- Swept: the four CLIs' option tables, help and dispatch, both completion files, check-completions and shell-regress's anchors on the old shared option row, the crosscheck and sanitize-c row arms, README, the man page, spec.md and the changelog.
-	- Verified: the four conformance suites and the veneer smoke, cli-regress over all four CLIs (strict, pwsh 7.6 and jq 1.8.1), crosscheck over the corpus and a 500-input fuzz dump (48747 comparisons, 0 divergences), sanitize-c, check-readme, check-docs (only the known `installers-match-main` red), check-abnf, check-completions, check-veneer, shell-regress, test-ids check, markdownlint, shellcheck, clippy for both targets, go vet and staticcheck, ruff and mypy, cppcheck at the normal level, gcc 15, clang and mingw builds of the C CLI. `EsEvmL4` and `EsEvmLE` failed with Go's DEL escape removed, and the library tests failed with a slot miss dropped.
-	- Branch: `listjson`
-	- Commit: `250115f3`
-	- Test case: `fields_give_each_instance_its_own_path` (Rust `EsEsFl8`, Go `EsEsFnM`, Python `EsEsFpX`, C `EsEsFrh`) and the veneer smoke; cli-regress `EsEvmKw`, `EsEvmKy`, `EsEvmL0` to `EsEvmLC`, and `EsEvmLE` (every corpus input's `--json` lines through `jq -c .` and `ConvertFrom-Json`); crosscheck and sanitize-c `--json` on every listing row and `paths --json` on every input; check-readme's bash and PowerShell blocks.
+	- Acceptance signoff: me 20261010, check-migrate `Eq5YPgP` green in the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, and in the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `EsEvmLE` and `EsJLUK1`, which belong to 2026100814455655 and 2026100719122102.
+	- Closed: 20261010-111707
 
 - A file stamped with a newer Format major should load clean
 	- ID: 2026100717500017
 	- Type: Enhancement
-	- Status: Waiting for testing
+	- Status: Done
 	- Needs local test suite run?: Y, the full `--ci`, for exhaustive cppcheck over the C change.
 	- Needs external testing: a hosted run.
 	- Priority: Avg
@@ -151,11 +339,13 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `fmtstamp`, `restamp`
 	- Commit: `be88796f`, `b79f2183`
 	- Test case: corpus `204-format-newer-hint` (`EsEtTdT`) and `205-format-older-hint` (`EsEtTdU`) in all four runners, the hint rows of `stamp_reads_say_why` (Rust `EsEtTdP`, Go `EsEtTdQ`, Python `EsEtTdR`, C `EsEtTdS`), cli-regress `EsEtTdV` to `EsEtTda`, and veneer_smoke `EjtkR0S`. The restamp: `an_older_format_line_becomes_this_one_in_place` (Rust `EsFrOVO`, Go `EsFrOVP`, Python `EsFrOVQ`, C `EsFrOVR`), cli-regress `EsFrOVT`, `EsFrOVU` and save case `EsFrOVV`, and the changed row `EsEtTda`.
+	- Acceptance signoff: me 20261010, the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, exhaustive cppcheck included, and the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `EsEvmLE` and `EsJLUK1`, which belong to 2026100814455655 and 2026100719122102.
+	- Closed: 20261010-111707
 
 - `line`, `lines`, `authored_name`, `comments`, `exists`, `remove` and `clear_comments` can't report a path that doesn't parse
 	- ID: 2026100912271700
 	- Type: Enhancement
-	- Status: Waiting for testing
+	- Status: Done
 	- Needs local test suite run?: the full `--ci`, for exhaustive cppcheck, check-c-compilers and sanitize-c over the C change.
 	- Needs external testing: the hosted run, whose windows job runs the new test in all four runners.
 	- Priority: Avg
@@ -187,41 +377,13 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `pathstat`
 	- Commit: `4c6e3380`
 	- Test case: `path_twins_say_bad_path` in all four runners (Rust `EsJ3y7I`, Go `EsJ3y9X`, Python `EsJ3yBo`, C `EsJ3yE5`), the twin checks in the C++ `veneer_smoke` (`EjtkR0S`), and the `comments` rows in case `162`, which now pin `read_comments`.
-
-- Doc examples, man page blocks and help text aren't run as tests
-	- ID: 2026100719122102
-	- Type: Enhancement
-	- Status: Waiting for testing
-	- Needs local test suite run?: Y, the full `--ci`, whose tests stage runs the new gate.
-	- Needs external testing: a hosted run. The ubuntu job runs the new gate with jq, and the macos and windows jobs run cli-regress's two new scans.
-	- Priority: Avg
-	- Opened: 20261007-191221
-	- Opened by: JC
-	- Problem description: several of code review 20261007's findings sat where no gate looks: README shell blocks, the ops script, CLI output text, README prose. A corpus case's expected output is written by hand, so it catches a defect all four bindings share. What has no case is unchecked.
-	- Requirements:
-		- Run every example in value-syntax.md's and spec.md's tables through all four bindings, against the result the doc states.
-		- Run the man page's shell blocks, as 2026100717500005 does for README's.
-		- Fail on a 2.x escape form (`\n`, `\t`, `\\`) in help text or CLI output.
-	- Reason: the doc tables are the cheapest source of hand-written expected results.
-	- Progress log:
-		- 20261010: `check-doc-examples.bash` runs the tables in value-syntax.md and spec.md through all four CLIs with `doc-tables.py`, and the man page's EXAMPLES blocks on each binding. Every binding has to print the same bytes, and the result has to be what the row says. 58 rows of value-syntax.md and 33 of spec.md are checked, and the rest are prose and counted. Every row holds on all four bindings, so no doc or binding defect turned up.
-		- 20261010: cli-regress fails on a 2.x escape form in the help, each `help CMD`, each `explain` code with the retired ones, `--about`, `--donate`, the rendered man page, and the stdout and stderr of every row on every binding.
-	- Decisions:
-		- 20261010: a table is known by its header. Each known kind has a reader, a header with none fails the gate, and a table with no examples is listed by header with its reason (me).
-		- 20261010: in a code table, a quoted whole line is an example of the row's code. That is an item, or a name then a colon and a value. A retired code's line gives the code its row names instead. `- value`, `route: [GET, POST]` and `p: a,b` are not examples and are listed by content (me).
-		- 20261010: a migration row's fragment goes where it means what the row says: an item under a field, a selector at the head of a path, anything else as a value (me).
-		- 20261010: the man page names server.shcl and a schema without showing them, so the README's are used (me).
-		- 20261010: the 2.x rule is a backslash then `n` or `t` with no letter or digit after it, or two backslashes, so `C:\temp\new` passes. JSON lines pass, and so does migrate's output of a kept 2.x pair, listed by content (me).
-	- Swept: the 2.x scan reads everything the CLIs print in cli-regress's 541 rows, ops scripts and diagnostics included, plus every help and code text. The README and man page shell blocks run under check-readme and this gate. README prose is not CLI output and is not scanned.
-	- Verified: each new test was seen to fail. `EsJLUJx` and `EsJLUJy` on doc copies with a changed value, code, element count, alias, character, migrate result, typed read, strictness pair, boolean token and `◉U+` prefix, on a reads-as wording with no rule, on a renamed table header, and on a floor above the row count. A binding that differs from the rest in one read, or in an exit code, fails them too. `EsJLUJz` on `site[*]` in a block, a roff escape in a block, a `.nf` block under another section, and only 4 blocks. `EsJLUK0` and `EsJLUK1` on a binding that writes `\n` in place of `◉NEWLINE◉` and in its help. `EsJLUK1` with an allowed migrate line taken off the list and with no rows scanned, `EsJLUK0` with a `\en` added to the man page. On the branch, check-doc-examples and cli-regress (541 rows, 3187 checks, four bindings), check-readme, check-docs (only the known `EpHGoa0` red), shell-regress, check-pins, test-ids check, shellcheck over the lint list, ruff and markdownlint pass.
-	- Branch: `doctest`
-	- Commit: `9131f267`
-	- Test case: check-doc-examples `EsJLUJx` (value-syntax.md tables), `EsJLUJy` (spec.md tables) and `EsJLUJz` (man page examples). cli-regress `EsJLUK0` (help, code texts and man page) and `EsJLUK1` (every row's output).
+	- Acceptance signoff: me 20261010, the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, with check-c-compilers and sanitize-c, and the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `EsEvmLE` and `EsJLUK1`, which belong to 2026100814455655 and 2026100719122102, with `EsJ3y7I`, `EsJ3y9X`, `EsJ3yBo` and `EsJ3yE5` ok on windows.
+	- Closed: 20261010-111707
 
 - Long values make messages huge
 	- ID: 2026100818251400
 	- Type: Bug
-	- Status: Waiting for testing
+	- Status: Done
 	- Needs local test suite run?: the full `--ci`, for exhaustive cppcheck over the C change.
 	- Needs external testing: the hosted run, for cli-regress on windows and macos.
 	- Severity: Low
@@ -246,11 +408,13 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `msgval`
 	- Commit: `81943546`
 	- Test case: cli-regress `EsEhCd0` to `EsEhCd5`, with 2 and 4 byte characters and the 200 and 201 character edges.
+	- Acceptance signoff: me 20261010, the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, and the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `EsEvmLE` and `EsJLUK1`, which belong to 2026100814455655 and 2026100719122102, with `EsEhCd0` to `EsEhCd5` ok on windows and macos.
+	- Closed: 20261010-111707
 
 - `migrate --write` leaves the old Format line beside the new one
 	- ID: 2026100916475300
 	- Type: Bug
-	- Status: Waiting for testing
+	- Status: Done
 	- Needs local test suite run?: Y, the full `--ci`, for exhaustive cppcheck over the C change.
 	- Needs external testing: a hosted run.
 	- Severity: Low
@@ -269,11 +433,13 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `restamp`
 	- Commit: `b79f2183`
 	- Test case: cli-regress `EsFrOVS`, `EsFrOVX` and save case `EsFrOVW`, the migrate half of `an_older_format_line_becomes_this_one_in_place` (`EsFrOVO` to `EsFrOVR`), and the corpus stamp check in the four runners.
+	- Acceptance signoff: me 20261010, the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, and the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `EsEvmLE` and `EsJLUK1`, which belong to 2026100814455655 and 2026100719122102.
+	- Closed: 20261010-111707
 
 - Messages on stderr show value text with 2.x backslash escapes
 	- ID: 2026100812323841
 	- Type: Bug
-	- Status: Waiting for testing
+	- Status: Done
 	- Needs local test suite run?: the full `--ci`, for exhaustive cppcheck over the C change.
 	- Needs external testing: the hosted run, for cli-regress on windows and macos. The windows job runs the row whose argument holds a line break.
 	- Severity: Low
@@ -312,11 +478,13 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `msgval`, `msgfmt`
 	- Commit: `81943546`, `1d5f3f2b`
 	- Test case: cli-regress `EsEhCcw` to `EsEhCcz` and `EsEix5w`, and the changed rows `EqGaO1w` to `EqGaO23`, `EonKleq` and `Er1zoZI`. The rework adds `EsJDGCI` to `EsJDGCL`: a BEL, a C1 control, a zero-width space and a direction override in a `get` type error, in an `E023` escape name and in a schema path, and `◉NUL◉`, `◉ESC◉`, `◉DEL◉` and `◉CRLF◉` in a `get` type error.
+	- Acceptance signoff: me 20261010, the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, and the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `EsEvmLE` and `EsJLUK1`, which belong to 2026100814455655 and 2026100719122102, with `EsEhCcw`, `EsEhCcz`, `EsEix5w`, `EsJDGCI` and `EsJDGCL` ok on windows and macos.
+	- Closed: 20261010-111707
 
 - A failed write says why only in text
 	- ID: 2026100912352400
 	- Type: Enhancement
-	- Status: Waiting for testing
+	- Status: Done
 	- Priority: Low
 	- Opened: 20261009-123524
 	- Opened by: JC, from 2026100912271700
@@ -344,11 +512,13 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Verified: each binding's tests fail with `NotADirectory` or `ENOTDIR` taken out of the table, and with `Unreadable` given as `Other`. C's fail with the FIFO flag dropped, and C++'s with a save's status not passed back.
 	- Branch: `wrstat`
 	- Commit: `6e0210c2`
+	- Acceptance signoff: me 20261010, the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, exhaustive cppcheck included, and the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `EsEvmLE` and `EsJLUK1`, which belong to 2026100814455655 and 2026100719122102, with the OS error table tests `EsEhCFz`, `EsEhCG2`, `EsEhCG5` and `EsEhCGB` ok on windows.
+	- Closed: 20261010-111707
 
 - `format_version` gives the same answer for a garbled Format line and for none
 	- ID: 2026100912352401
 	- Type: Enhancement
-	- Status: Waiting for testing
+	- Status: Done
 	- Needs local test suite run?: Y, the full `--ci`, for exhaustive cppcheck over the C change.
 	- Needs external testing: a hosted run.
 	- Priority: Low
@@ -370,48 +540,8 @@ The product backlog: bugs, features, enhancements, and code-review findings. Out
 	- Branch: `fmtstamp`
 	- Commit: `be88796f`
 	- Test case: `stamp_reads_say_why` in all four runners (Rust `EsEtTdP`, Go `EsEtTdQ`, Python `EsEtTdR`, C `EsEtTdS`), and the status checks in veneer_smoke (`EjtkR0S`).
-
-- Library gaps a generic tool has to work around
-	- ID: 2026100717500020
-	- Type: Enhancement
-	- Status: Queued
-	- Priority: Low
-	- Opened: 20261007-175000
-	- Opened by: Code review 20261007 item 20
-	- Related IDs: 2026100907362300, which goes first
-	- Problem description:
-		- No library call resolves a file's `Schema` line by the CLI's rules: relative to the config's directory, and refusing devices, FIFOs, UNC paths and files over 16 MiB. Each program writes its own.
-		- No way to ask a node's kind (scalar, array, raw block, empty) but trial reads.
-		- `set_*_default` returns true when something is already there, even `bad: abc` or a bare `empty:`, so "make sure this has a usable value" can't be said in one call.
-	- Decisions:
-		- 20261008: before the cut, not after (JC).
-		- 20261009: all three get a fix, not docs (JC).
-		- 20261009: the third is `set_*_default` itself. It writes the default when the field is missing, empty or doesn't read as that type, and keeps a replaced line as a `##` comment with a note (JC).
-	- Requirements:
-		- A library call reads a config's `Schema` line and resolves it by the CLI's rules. The CLI uses the same call, so the two can't drift.
-		- A `kind(path)` read gives scalar, array, raw block or empty, with a status for a missing or bad path.
-		- One call makes sure a field has a usable value of a type.
-	- Origin: Confirmed by reading and probes.
-	- Progress log:
-		- (default) 20261010: the third requirement is built on `defaultfix`, in Rust, Go, Python, C and the C++ interface. A default form writes where the path is missing, where the field is empty, and where its value does not read as the type by the typed read at the document's strictness. A replaced value stays above the field as `# port: abc  ## replaced by shcl when setting a default for port, STAMP: not an int`. A raw block is refused for a default of another type, with the new last `SetStatus` value `RawBlock` (Go `SetRawBlock`, C `SHCL_SET_RAW_BLOCK`). design.md has a Default forms table as the rule.
-		- (default) 20261010: on this branch the fuzz property `Eqk24nZ` fails at 20,000 iterations and up. A bare `80,443` reads as text, `fmt` quotes it, and the quoted one reads as the int 80443, so a default acts differently on a document and on its reload. Filed as 2026101010054746. With the quoted thousands reading switched off, the 2,000,000 release fuzz passes all 27, so that is the only failure. Merging this branch before 2026101010054746 is settled turns the `--quick` and `--ci` fuzz red.
-	- Decisions:
-		- (default) 20261010: a raw block at the path is refused for a default of another type (`RawBlock`), since its body has no one-line comment (me).
-		- (default) 20261010: an inline array or a stacked list that does not read is replaced. Its value goes in the comment as one bracket array, so nothing typed is lost (me).
-		- (default) 20261010: an empty value, and a field with lines under it and no value, read `Empty`, so they are filled with no note. An array default on such a field is `HasChildren`, as from the plain setter (me).
-		- (default) 20261010: `set_string_default` and `set_literal_default` count any value, since any value reads as a string and literal text names no type. So `--set-default` and `--set-literal-default` fill only a missing or empty field, and the typed ops do the replacing (me).
-		- (default) 20261010: the note has the form of the 20261004 setter note, `# LINE  ## ...`, with the stamp `SHCL_TEST_CLOCK` pins. The old line is spelled the way the canonical text spells it, folded name included, so a document and its reload write the same note (me).
-		- (default) 20261010: a path is judged first, then the value against the probe document, then what is there, so a NaN over a bad value is `NotFinite` (me).
-		- Question: (default) should `--set-default`'s value take its type from its text, the way `--set` stores `8` as an int, so `--set-default=port=8080` replaces `port: abc`? As built it fills only a missing or empty field.
-	- Swept: (default) every default form in Rust, Go, Python, C and `shcl.hpp`, and `SetComment`, whose placement code became one helper the replace shares. The four CLIs' `refusal()` and help text (the ops table line and `--set-default`); their ops decoders already call the library forms. The status order tests in the four runners and veneer_smoke, and C's setter soup bound. spec.md, design.md (the status table, the note under Kept lines under edits, a new Default forms section), the man page, README, the corpus README, the code style guide, a perf-gate comment and the changelog. Corpus cases 014, 015, 063, 065, 092 and 121 use default ops and pass unchanged. The comparison tool and the dogfood runners call no default form.
-	- Verified: (default) each new test fails with the old behavior put back, in all four, and the Rust table fails with the raw block replaced or the note left off. cargo test, rustfmt, clippy for the host and windows, `go test -count=1` for both modules, gofmt, go vet, staticcheck, the Python runner, ruff, mypy, the C runner, oom_hook, oom_recover, mem_bounds, veneer_smoke, check-veneer, check-c-compilers (5 compilers), sanitize-c, cppcheck at the normal level, the mingw CLI build, cli-regress (545 rows, 3203 checks, all four), crosscheck over the corpus and a 2,000-iteration fuzz dump (48930 comparisons), perf-gate in all four, check-docs (only the known `EpHGoa0` red), check-abnf, test-ids check, shell-regress, shellcheck and markdownlint. A one-off run of 8 typed default ops over the corpus inputs and 150 fuzz inputs through the four CLIs gave the same bytes and exit codes in 1137 runs, 369 of them replacing. The 200,000 release fuzz passes all but `Eqk24nZ` (2026101010054746).
-	- Needs local test suite run?:
-		- (default) the full `--ci`, exhaustive cppcheck included, and the 2,000,000 release fuzz once 2026101010054746 is settled. The hosted run, and the C++ interface's windows build under wine.
-	- Test case: (default) `default_fills_what_does_not_read` (Rust `EsJZko3`, Go `EsJZko4`, Python `EsJZko5`, C `EsJZko6`), `default_replace_round_trips` (Rust `EsJZko7`, Go `EsJZko8`, Python `EsJZko9`, C `EsJZkoA`), fuzz `a_default_leaves_a_value_of_its_type` (`EsJZkoB`), cli-regress `EsJZkoC`, `EsJZkoD`, `EsJZkoE` and `EsJZkoF`, and `RawBlock` added to the status order tests (`EsDRhHg`, `EsDeJ9a`, `EsDeik0`, `EsDjstE`) and veneer_smoke (`EjtkR0S`).
-	- Branch: (default) `defaultfix`
-	- Commit: (default) `5bb89ac4`
-
-**Stop here for a release cut**. beta1 waits on every open item above, then the review rounds.
+	- Acceptance signoff: me 20261010, the full `--ci` here on dev at `c5734e0e`, judged as main and recorded, and the hosted run 38070871137 on dev: macos and go-floor green, the ubuntu job green through check-locale and cancelled in sanitize-c at the 60-minute job limit (2026101011200000), and the windows job red only on `EsEvmLE` and `EsJLUK1`, which belong to 2026100814455655 and 2026100719122102.
+	- Closed: 20261010-111707
 
 - The 2M release fuzz fails `edits_and_merges_match_a_reload` once corpus 204 and 205 move the seeds
 	- ID: 2026100914525821
